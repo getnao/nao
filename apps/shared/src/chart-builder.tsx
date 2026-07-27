@@ -36,6 +36,7 @@ const DATA_LABEL_PROPS = {
 	fontFamily: 'system-ui, sans-serif',
 };
 const DATA_LABEL_MARGIN_TOP = 24;
+const DATA_LABEL_MARGIN_BOTTOM = 24;
 const DATA_LABEL_HEADROOM_RATIO = 0.9;
 
 const DATA_LABEL_FONT_SIZE = 11;
@@ -406,10 +407,15 @@ type ResolvedProps = BuildChartProps &
 function buildChartMargin(props: BuildChartProps, showTitle: boolean) {
 	const titleTop = showTitle ? 30 : 0;
 	const labelsTop = shouldReserveDataLabelHeadroom(props) ? DATA_LABEL_MARGIN_TOP : 0;
-	if (titleTop === 0 && labelsTop === 0) {
+	const labelsBottom = shouldReserveStackTotalFootroom(props) ? DATA_LABEL_MARGIN_BOTTOM : 0;
+	if (titleTop === 0 && labelsTop === 0 && labelsBottom === 0) {
 		return props.margin;
 	}
-	return { ...props.margin, top: (props.margin?.top ?? 0) + titleTop + labelsTop };
+	return {
+		...props.margin,
+		top: (props.margin?.top ?? 0) + titleTop + labelsTop,
+		bottom: (props.margin?.bottom ?? 0) + labelsBottom,
+	};
 }
 
 export function shouldReserveDataLabelHeadroom(props: BuildChartProps): boolean {
@@ -418,7 +424,7 @@ export function shouldReserveDataLabelHeadroom(props: BuildChartProps): boolean 
 	}
 	// Stacked charts label the running total at the very top of the stack, which can sit flush against
 	// the axis top, so always keep room for that label rather than relying on the axis-headroom ratio.
-	if (props.chartType === 'stacked_bar' || props.chartType === 'stacked_area') {
+	if (displayChart.isStackedChartType(props.chartType)) {
 		return true;
 	}
 	const maxValue = getMaxPlottedValue(props);
@@ -428,19 +434,31 @@ export function shouldReserveDataLabelHeadroom(props: BuildChartProps): boolean 
 	return maxValue >= niceAxisMax(maxValue) * DATA_LABEL_HEADROOM_RATIO;
 }
 
+function shouldReserveStackTotalFootroom(props: BuildChartProps): boolean {
+	if (props.showDataLabels !== true || !displayChart.isStackedChartType(props.chartType)) {
+		return false;
+	}
+	if (displayChart.isPercentStackedChartType(props.chartType)) {
+		return false;
+	}
+	return props.data.some((row) => {
+		const total = sumStackValue(row, props.series);
+		return total != null && total < 0;
+	});
+}
+
 function isCartesianLabelChart(chartType: displayChart.ChartType): boolean {
 	return (
 		chartType === 'bar' ||
-		chartType === 'stacked_bar' ||
 		chartType === 'line' ||
 		chartType === 'area' ||
-		chartType === 'stacked_area' ||
+		displayChart.isStackedChartType(chartType) ||
 		chartType === 'mixed'
 	);
 }
 
 function getMaxPlottedValue(props: BuildChartProps): number | null {
-	const isStacked = props.chartType === 'stacked_bar' || props.chartType === 'stacked_area';
+	const isStacked = displayChart.isStackedChartType(props.chartType);
 	return isStacked ? getMaxStackTotal(props.data, props.series) : getMaxSeriesValue(props.data, props.series);
 }
 
@@ -1105,33 +1123,16 @@ function buildPieChart(props: ResolvedProps) {
 				dataKey={dataKey}
 				nameKey={xAxisKey}
 				innerRadius={chartType === 'donut' ? DONUT_INNER_RADIUS : 0}
-				label={showDataLabels ? renderPieDataLabel : false}
+				label={false}
 				labelLine={false}
 				stroke={backgroundColor}
 				strokeWidth={1}
 				isAnimationActive={Boolean(props.animate)}
 				animationDuration={CHART_ANIMATION_DURATION_MS}
 			/>
+			{showDataLabels && <Customized component={PieDataLabelsLayer} />}
 			{children}
 		</PieChart>
-	);
-}
-
-function renderPieDataLabel(props: {
-	x?: number;
-	y?: number;
-	textAnchor?: 'start' | 'middle' | 'end';
-	value?: unknown;
-}) {
-	const { x, y, textAnchor, value } = props;
-	const label = formatDataLabel(value);
-	if (x == null || y == null || !label) {
-		return null;
-	}
-	return (
-		<text x={x} y={y} textAnchor={textAnchor} dominantBaseline='central' {...DATA_LABEL_PROPS}>
-			{label}
-		</text>
 	);
 }
 
@@ -1235,14 +1236,28 @@ interface GraphicalPoint {
 	value?: unknown;
 }
 
+interface PieSector {
+	cx?: number;
+	cy?: number;
+	innerRadius?: number;
+	outerRadius?: number;
+	midAngle?: number;
+	startAngle?: number;
+	endAngle?: number;
+	percent?: number;
+	value?: unknown;
+}
+
 interface GraphicalItem {
 	item?: { type?: { displayName?: string } };
-	props?: { points?: GraphicalPoint[]; data?: GraphicalPoint[] };
+	props?: { points?: GraphicalPoint[]; data?: GraphicalPoint[]; sectors?: PieSector[] };
 }
 
 interface DataLabelsLayerProps {
 	formattedGraphicalItems?: GraphicalItem[];
 	offset?: PlotRect;
+	width?: number;
+	height?: number;
 }
 
 interface LabelCandidate {
@@ -1261,6 +1276,11 @@ interface LabelBox {
 	bottom: number;
 }
 
+interface PieLabelCandidate extends LabelCandidate {
+	sliceIndex: number;
+	sliceSize: number;
+}
+
 /**
  * Single label layer for cartesian charts. Recharts renders each series' labels in isolation, so
  * labels from different series (or a line crossing a bar) collide with no way to coordinate. Rendered
@@ -1277,32 +1297,38 @@ function DataLabelsLayer({ formattedGraphicalItems, offset }: DataLabelsLayerPro
 }
 
 /**
- * Labels a stacked chart's running totals (one per x, at the top of the stack) through the same
- * declutter pipeline as everything else — otherwise they render as a raw `LabelList` and pile up. The
- * total per point comes from the source rows, positioned on the topmost band's computed geometry.
+ * Labels a stacked chart's running totals through the same declutter pipeline as everything else.
+ * Each total is anchored to the visible stack extreme matching its sign instead of assuming the final
+ * series is on that side of zero.
  */
 function renderStackTotalLabelsLayer(data: Record<string, unknown>[], series: displayChart.SeriesConfig[]) {
 	return function StackTotalLabelsLayer({ formattedGraphicalItems, offset }: DataLabelsLayerProps) {
 		const items = (formattedGraphicalItems ?? []).filter(isLabelledItem);
-		const top = items[items.length - 1];
-		const kind = top?.item?.type?.displayName;
-		const points = kind === 'Bar' ? top?.props?.data : top?.props?.points;
-		if (!top || !points || points.length === 0) {
+		const kind = items[0]?.item?.type?.displayName;
+		if (!kind || items.length === 0) {
 			return null;
 		}
-		const totals = points.map((_, index) => sumStackValue(data[index], series));
-		return renderDataLabels(seriesCandidates(points, totals, kind === 'Bar', 0, offset ?? {}));
+		return renderDataLabels(stackTotalCandidates(items, data, series, kind === 'Bar', offset ?? {}));
 	};
 }
 
+function PieDataLabelsLayer({ formattedGraphicalItems, width, height }: DataLabelsLayerProps) {
+	const pie = (formattedGraphicalItems ?? []).find((entry) => entry.item?.type?.displayName === 'Pie');
+	const candidates = collectPieLabelCandidates(pie?.props?.sectors ?? [], width, height);
+	return renderResolvedDataLabels(resolvePieOverlaps(candidates));
+}
+
 function renderDataLabels(candidates: LabelCandidate[]) {
-	if (candidates.length === 0) {
+	return renderResolvedDataLabels(resolveOverlaps(candidates));
+}
+
+function renderResolvedDataLabels(labels: LabelCandidate[]) {
+	if (labels.length === 0) {
 		return null;
 	}
-	const placed = resolveOverlaps(candidates);
 	return (
 		<g className='recharts-data-labels'>
-			{placed.map((label, index) => (
+			{labels.map((label, index) => (
 				<text
 					key={index}
 					x={label.cx}
@@ -1316,6 +1342,140 @@ function renderDataLabels(candidates: LabelCandidate[]) {
 			))}
 		</g>
 	);
+}
+
+function stackTotalCandidates(
+	items: GraphicalItem[],
+	data: Record<string, unknown>[],
+	series: displayChart.SeriesConfig[],
+	isBar: boolean,
+	plot: PlotRect,
+): LabelCandidate[] {
+	const renderedSeries = series.filter((item) => !item.is_total);
+	const totals = data.map((row) => sumStackValue(row, series));
+
+	return totals.flatMap((total, dataIndex) => {
+		if (total == null || total === 0) {
+			return [];
+		}
+		const isPositive = total > 0;
+		const anchors = items.flatMap((item, seriesIndex) => {
+			const seriesConfig = renderedSeries[seriesIndex];
+			const seriesValue = seriesConfig ? toFiniteNumber(data[dataIndex]?.[seriesConfig.data_key]) : null;
+			if (seriesValue == null || (isPositive ? seriesValue <= 0 : seriesValue >= 0)) {
+				return [];
+			}
+			const kind = item.item?.type?.displayName;
+			const point = (kind === 'Bar' ? item.props?.data : item.props?.points)?.[dataIndex];
+			const anchor = point ? stackPointAnchor(point, isBar, isPositive) : null;
+			return anchor ? [anchor] : [];
+		});
+		const anchor = stackExtremeAnchor(anchors, isPositive);
+		if (!anchor) {
+			return [];
+		}
+		const baselineY = isPositive
+			? anchor.anchorY - DATA_LABEL_ANCHOR_GAP
+			: anchor.anchorY + DATA_LABEL_ANCHOR_GAP + DATA_LABEL_FONT_SIZE;
+		const candidate = buildLabelCandidate(
+			anchor.cx,
+			baselineY,
+			formatDataLabel(total),
+			0,
+			isLocalExtremum(totals, dataIndex),
+			plot,
+			isPositive ? 0 : DATA_LABEL_MARGIN_BOTTOM,
+		);
+		return candidate ? [candidate] : [];
+	});
+}
+
+function stackPointAnchor(
+	point: GraphicalPoint,
+	isBar: boolean,
+	isPositive: boolean,
+): { cx: number; anchorY: number } | null {
+	const x = toFiniteNumber(point.x);
+	const y = toFiniteNumber(point.y);
+	if (x == null || y == null) {
+		return null;
+	}
+	if (!isBar) {
+		return { cx: x, anchorY: y };
+	}
+	const width = toFiniteNumber(point.width) ?? 0;
+	const height = toFiniteNumber(point.height) ?? 0;
+	const otherY = y + height;
+	return {
+		cx: x + width / 2,
+		anchorY: isPositive ? Math.min(y, otherY) : Math.max(y, otherY),
+	};
+}
+
+function stackExtremeAnchor(
+	anchors: { cx: number; anchorY: number }[],
+	isPositive: boolean,
+): { cx: number; anchorY: number } | null {
+	if (anchors.length === 0) {
+		return null;
+	}
+	return anchors.reduce((extreme, anchor) => {
+		if (isPositive ? anchor.anchorY < extreme.anchorY : anchor.anchorY > extreme.anchorY) {
+			return anchor;
+		}
+		return extreme;
+	});
+}
+
+function collectPieLabelCandidates(
+	sectors: PieSector[],
+	width: number | undefined,
+	height: number | undefined,
+): PieLabelCandidate[] {
+	if (width == null || height == null) {
+		return [];
+	}
+	return sectors.flatMap((sector, sliceIndex) => {
+		const cx = toFiniteNumber(sector.cx);
+		const cy = toFiniteNumber(sector.cy);
+		const innerRadius = toFiniteNumber(sector.innerRadius);
+		const outerRadius = toFiniteNumber(sector.outerRadius);
+		const midAngle = toFiniteNumber(sector.midAngle);
+		const text = formatDataLabel(sector.value);
+		if (cx == null || cy == null || innerRadius == null || outerRadius == null || midAngle == null || !text) {
+			return [];
+		}
+		const radius = innerRadius + (outerRadius - innerRadius) * 0.65;
+		const angle = (-midAngle * Math.PI) / 180;
+		const labelX = cx + radius * Math.cos(angle);
+		const baselineY = cy + radius * Math.sin(angle) + DATA_LABEL_FONT_SIZE / 2;
+		const halfWidth = (text.length * DATA_LABEL_FONT_SIZE * DATA_LABEL_CHAR_WIDTH_RATIO) / 2;
+		const box = labelBox(labelX, baselineY, halfWidth);
+		if (!boxFitsBounds(box, width, height)) {
+			return [];
+		}
+		return [
+			{
+				cx: labelX,
+				baselineY,
+				box,
+				text,
+				seriesIndex: 0,
+				isExtremum: false,
+				sliceIndex,
+				sliceSize: Math.abs((sector.endAngle ?? 0) - (sector.startAngle ?? 0)),
+			},
+		];
+	});
+}
+
+function resolvePieOverlaps(candidates: PieLabelCandidate[]): PieLabelCandidate[] {
+	const ordered = [...candidates].sort((a, b) => b.sliceSize - a.sliceSize || a.sliceIndex - b.sliceIndex);
+	return keepNonOverlapping(ordered).sort((a, b) => a.sliceIndex - b.sliceIndex);
+}
+
+function boxFitsBounds(box: LabelBox, width: number, height: number): boolean {
+	return box.left >= 0 && box.right <= width && box.top >= 0 && box.bottom <= height;
 }
 
 function isLabelledItem(entry: GraphicalItem): boolean {
@@ -1357,23 +1517,36 @@ function seriesCandidates(
 		if (anchor == null) {
 			return [];
 		}
-		const halfWidth = (text.length * DATA_LABEL_FONT_SIZE * DATA_LABEL_CHAR_WIDTH_RATIO) / 2;
-		const box = labelBox(anchor.cx, anchor.baselineY, halfWidth);
-		// A label clipped by the chart edge at its natural position is unreadable, so drop it outright.
-		if (!fitsHorizontally(anchor.cx, halfWidth, plot) || !fitsVertically(box, plot)) {
-			return [];
-		}
-		return [
-			{
-				cx: anchor.cx,
-				baselineY: anchor.baselineY,
-				box,
-				text,
-				seriesIndex,
-				isExtremum: isLocalExtremum(values, index),
-			},
-		];
+		const candidate = buildLabelCandidate(
+			anchor.cx,
+			anchor.baselineY,
+			text,
+			seriesIndex,
+			isLocalExtremum(values, index),
+			plot,
+		);
+		return candidate ? [candidate] : [];
 	});
+}
+
+function buildLabelCandidate(
+	cx: number,
+	baselineY: number,
+	text: string,
+	seriesIndex: number,
+	isExtremum: boolean,
+	plot: PlotRect,
+	bottomAllowance = 0,
+): LabelCandidate | null {
+	if (!text) {
+		return null;
+	}
+	const halfWidth = (text.length * DATA_LABEL_FONT_SIZE * DATA_LABEL_CHAR_WIDTH_RATIO) / 2;
+	const box = labelBox(cx, baselineY, halfWidth);
+	if (!fitsHorizontally(cx, halfWidth, plot) || !fitsVertically(box, plot, bottomAllowance)) {
+		return null;
+	}
+	return { cx, baselineY, box, text, seriesIndex, isExtremum };
 }
 
 /** Area/line points carry `value` as a `[baseLine, value]` range; bars carry a scalar. Unwrap both. */
@@ -1409,7 +1582,11 @@ function resolveOverlaps(candidates: LabelCandidate[]): LabelCandidate[] {
 		return candidates;
 	}
 	const ordered = [...candidates].sort(byLabelPriority);
-	const kept: LabelCandidate[] = [];
+	return keepNonOverlapping(ordered);
+}
+
+function keepNonOverlapping<T extends { box: LabelBox }>(ordered: T[]): T[] {
+	const kept: T[] = [];
 	for (const candidate of ordered) {
 		if (!kept.some((other) => boxesOverlap(other.box, candidate.box))) {
 			kept.push(candidate);
@@ -1447,11 +1624,11 @@ function fitsHorizontally(cx: number, halfWidth: number, plot: PlotRect): boolea
 	return box.left >= minLeft && box.right <= maxRight;
 }
 
-function fitsVertically(box: LabelBox, plot: PlotRect): boolean {
-	// Labels for the tallest bars/peaks live in the top headroom reserved above the plot; allow that
-	// band (never past the SVG top), but keep labels out of the x-axis area below the plot.
+function fitsVertically(box: LabelBox, plot: PlotRect, bottomAllowance = 0): boolean {
+	// Labels may use only the headroom/footroom explicitly reserved outside the plot.
 	const minTop = plot.top != null ? Math.max(0, plot.top - DATA_LABEL_MARGIN_TOP) : Number.NEGATIVE_INFINITY;
-	const maxBottom = plot.top != null && plot.height != null ? plot.top + plot.height : Number.POSITIVE_INFINITY;
+	const maxBottom =
+		plot.top != null && plot.height != null ? plot.top + plot.height + bottomAllowance : Number.POSITIVE_INFINITY;
 	return box.top >= minTop && box.bottom <= maxBottom;
 }
 

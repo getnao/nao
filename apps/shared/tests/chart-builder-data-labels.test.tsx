@@ -8,6 +8,10 @@ function renderChart(element: React.ReactElement) {
 	return renderToString(React.cloneElement(element, { width: 600, height: 400 }));
 }
 
+function renderChartAtSize(element: React.ReactElement, width: number, height: number) {
+	return renderToString(React.cloneElement(element, { width, height }));
+}
+
 interface RenderedLabel {
 	x: number;
 	y: number;
@@ -60,6 +64,15 @@ function parsePlotRect(html: string): { left: number; top: number; right: number
 	return { left: x, top: y, right: x + width, bottom: y + height };
 }
 
+function expectLabelsInsideSvg(labels: RenderedLabel[], width: number, height: number) {
+	for (const label of labels) {
+		expect(label.left).toBeGreaterThanOrEqual(0);
+		expect(label.right).toBeLessThanOrEqual(width);
+		expect(label.top).toBeGreaterThanOrEqual(0);
+		expect(label.bottom).toBeLessThanOrEqual(height);
+	}
+}
+
 describe('buildChart data labels', () => {
 	it('rounds axis max using nice tick steps', () => {
 		expect(niceAxisMax(622)).toBe(800);
@@ -101,6 +114,23 @@ describe('buildChart data labels', () => {
 			}),
 		).toBe(false);
 	});
+
+	it.each(['stacked_bar_100', 'stacked_area_100'] as const)(
+		'reserves headroom and renders totals for %s',
+		(chartType) => {
+			const props = {
+				data: [{ month: 'Jan', direct: 40, partner: 60 }],
+				chartType,
+				xAxisKey: 'month',
+				xAxisType: 'category' as const,
+				series: [{ data_key: 'direct' }, { data_key: 'partner' }],
+				showDataLabels: true,
+			};
+
+			expect(shouldReserveDataLabelHeadroom(props)).toBe(true);
+			expect(parseDataLabels(renderChart(buildChart(props))).some((label) => label.text === '100')).toBe(true);
+		},
+	);
 
 	it('renders x and y axes for cartesian charts', () => {
 		const html = renderChart(
@@ -240,6 +270,32 @@ describe('buildChart data labels', () => {
 		expect(html).not.toContain('>200</text>');
 	});
 
+	it.each(['pie', 'donut'] as const)('declutters dense %s labels within the SVG bounds', (chartType) => {
+		const width = 240;
+		const height = 180;
+		const data = [
+			{ category: 'Large', value: 6000 },
+			...Array.from({ length: 9 }, (_, index) => ({ category: `Small ${index + 1}`, value: 500 })),
+		];
+		const html = renderChartAtSize(
+			buildChart({
+				data,
+				chartType,
+				xAxisKey: 'category',
+				series: [{ data_key: 'value' }],
+				showDataLabels: true,
+			}),
+			width,
+			height,
+		);
+		const labels = parseDataLabels(html);
+
+		expect(labels.some((label) => label.text === '6,000')).toBe(true);
+		expect(labels.length).toBeLessThan(data.length);
+		expect(hasOverlap(labels)).toBe(false);
+		expectLabelsInsideSvg(labels, width, height);
+	});
+
 	it('keeps non-extremum labels when their natural positions do not overlap', () => {
 		const values = Array.from({ length: 36 }, () => 1);
 		values[4] = 3;
@@ -362,6 +418,36 @@ describe('buildChart data labels', () => {
 		expect(labels.length).toBeLessThan(data.length);
 		expect(hasOverlap(labels)).toBe(false);
 	});
+
+	it.each(['stacked_bar', 'stacked_area'] as const)(
+		'anchors mixed-sign %s totals to the matching stack extreme',
+		(chartType) => {
+			const html = renderChart(
+				buildChart({
+					data: [
+						{ category: 'Start', first: 10, last: 0 },
+						{ category: 'Positive', first: 100, last: -30 },
+						{ category: 'Negative', first: -100, last: 30 },
+						{ category: 'End', first: 10, last: 0 },
+					],
+					chartType,
+					xAxisKey: 'category',
+					xAxisType: 'category',
+					series: [{ data_key: 'first' }, { data_key: 'last' }],
+					showDataLabels: true,
+				}),
+			);
+			const plot = parsePlotRect(html);
+			const labels = parseDataLabels(html);
+			const positive = labels.find((label) => label.text === '70');
+			const negative = labels.find((label) => label.text === '-70');
+
+			expect(positive).toBeDefined();
+			expect(negative).toBeDefined();
+			expect(positive!.y).toBeLessThan(plot.top);
+			expect(negative!.y).toBeGreaterThan(plot.bottom);
+		},
+	);
 
 	it('places line labels clear of the line, never straddling the data point', () => {
 		const html = renderChart(
