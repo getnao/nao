@@ -202,6 +202,7 @@ Options:
 
 - `--model` / `-m`: Models to test against (default: `openai:gpt-4.1`). Can be specified multiple times.
 - `--threads` / `-t`: Number of parallel threads (default: `1`)
+- `--format` / `-f`: Result report format. `json` (default) writes the existing `results_<ts>.json` report. `junit` writes a `results_<ts>.xml` JUnit report for CI pipelines that consume JUnit XML natively (GitHub Actions, GitLab CI, Jenkins, Buildkite).
 
 Examples:
 
@@ -209,6 +210,19 @@ Examples:
 nao test -m openai:gpt-4.1
 nao test -m openai:gpt-4.1 -m anthropic:claude-sonnet-4-20250514
 nao test --threads 4
+nao test --format junit
+```
+
+GitHub Actions snippet using [`dorny/test-reporter`](https://github.com/dorny/test-reporter):
+
+```yaml
+- run: nao test --format junit
+- if: always()
+  uses: dorny/test-reporter@v1
+  with:
+    name: nao-test
+    path: tests/outputs/results_*.xml
+    reporter: java-junit
 ```
 
 ### Explore test results
