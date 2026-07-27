@@ -3,7 +3,7 @@ import { EditorContent } from '@tiptap/react';
 import { GripVertical } from 'lucide-react';
 import { memo } from 'react';
 import { useStoryEditor } from './hooks/use-story-editor';
-import { BlockSelectionContext } from './story-block-selection-context';
+import { BlockSelectionContext, SelectedBlockPositionsContext } from './story-block-selection-context';
 import { GridDragContext, StoryBlockDragContext } from './story-editor-drag-context';
 import type { Editor } from '@tiptap/react';
 import { cn } from '@/lib/utils';
@@ -23,6 +23,7 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 		gridDragSourceRef,
 		storyBlockDragContext,
 		selectedGridColumns,
+		selectedBlocks,
 		handleDragHandleNodeChange,
 		handleNodeType,
 		storyEditorRef,
@@ -37,7 +38,13 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 	return (
 		<GridDragContext.Provider value={gridDragSourceRef}>
 			<StoryBlockDragContext.Provider value={storyBlockDragContext}>
-				<div ref={storyEditorRef} className='story-editor relative'>
+				<div
+					ref={storyEditorRef}
+					className={cn(
+						'story-editor relative',
+						storyBlockDragContext.activeDropZone && 'drop-indicator-active',
+					)}
+				>
 					{editor && (
 						<DragHandle
 							editor={editor}
@@ -52,7 +59,9 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 						</DragHandle>
 					)}
 					<BlockSelectionContext.Provider value={selectedGridColumns}>
-						<EditorContent editor={editor} />
+						<SelectedBlockPositionsContext.Provider value={selectedBlocks}>
+							<EditorContent editor={editor} />
+						</SelectedBlockPositionsContext.Provider>
 					</BlockSelectionContext.Provider>
 				</div>
 			</StoryBlockDragContext.Provider>

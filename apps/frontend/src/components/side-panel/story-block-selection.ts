@@ -172,6 +172,14 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 									}
 									return false;
 								}
+								const alreadySelected = current.gridColumns.some(
+									(selected) => selected.gridPos === gridPos && selected.index === index,
+								);
+								if (alreadySelected) {
+									// Already selected (alone or within a multi-selection): let the native
+									// drag start so the column can be dragged directly from its body.
+									return false;
+								}
 								event.preventDefault();
 								const next = selectColumnFromHandle(view.state, gridPos, index);
 								if (next) {
@@ -229,11 +237,14 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 							clickedBlockPos != null &&
 							(clickedNode.type.name === 'chartBlock' || clickedNode.type.name === 'tableBlock')
 						) {
-							event.preventDefault();
 							const next = selectBlockFromHandle(view.state, clickedBlockPos);
-							if (next) {
-								view.dispatch(view.state.tr.setMeta(blockSelectionPluginKey, next));
+							if (!next) {
+								// Already selected: allow the native drag to start so the block can
+								// be dragged directly from its body.
+								return false;
 							}
+							event.preventDefault();
+							view.dispatch(view.state.tr.setMeta(blockSelectionPluginKey, next));
 							return true;
 						}
 						if (clickedNode != null && clickedNode.type.name === 'gridBlock') {

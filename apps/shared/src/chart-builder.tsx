@@ -500,7 +500,7 @@ function buildKpiCard(props: ResolvedProps, leadingSlot?: React.ReactNode) {
 }
 
 function KpiCardContainer({ children }: { children: React.ReactNode }) {
-	return <div className='flex flex-wrap gap-4 w-full justify-start'>{children}</div>;
+	return <div className='flex w-full select-none flex-wrap justify-start gap-4'>{children}</div>;
 }
 
 function KpiCard({

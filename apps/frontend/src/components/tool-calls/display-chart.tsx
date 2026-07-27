@@ -443,6 +443,7 @@ export interface ChartDisplayProps {
 	normalSize?: boolean;
 	hideTotal?: boolean;
 	kpiLeadingSlot?: React.ReactNode;
+	disableTooltip?: boolean;
 }
 
 export const ChartDisplay = memo(function ChartDisplay({
@@ -473,6 +474,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 	normalSize = false,
 	hideTotal,
 	kpiLeadingSlot,
+	disableTooltip = false,
 }: ChartDisplayProps) {
 	const dateFormat = useDateFormat();
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -637,6 +639,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 				children: [
 					<ChartTooltip
 						key='tooltip'
+						active={disableTooltip ? false : undefined}
 						animationDuration={150}
 						animationEasing='linear'
 						allowEscapeViewBox={{ y: true, x: false }}
@@ -706,6 +709,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			isPercentStacked,
 			showLegend,
 			useInlineHeader,
+			disableTooltip,
 		],
 	);
 

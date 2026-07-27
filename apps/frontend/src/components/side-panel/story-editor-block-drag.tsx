@@ -1,6 +1,6 @@
 import { groupBlocksIntoGrid } from '@nao/shared/story-segments';
 import { GripVertical } from 'lucide-react';
-import { useCallback, useContext, useEffect, useState } from 'react';
+import { useCallback, useContext } from 'react';
 import {
 	blockSelectionPluginKey,
 	emptySelection,
@@ -13,11 +13,11 @@ import type { ReactNodeViewProps } from '@tiptap/react';
 import type { DragEvent as ReactDragEvent } from 'react';
 import type { StoryBlockDropSide } from './story-editor-drag-context';
 
-export function StoryBlockDragGrip({ node, editor, getPos }: Pick<ReactNodeViewProps, 'node' | 'editor' | 'getPos'>) {
+export function useStoryBlockDrag({ node, editor, getPos }: Pick<ReactNodeViewProps, 'node' | 'editor' | 'getPos'>) {
 	const dragContext = useContext(StoryBlockDragContext);
 
 	const handleDragStart = useCallback(
-		(event: ReactDragEvent<HTMLButtonElement>) => {
+		(event: ReactDragEvent<HTMLElement>) => {
 			event.stopPropagation();
 			const pos = getPos();
 			if (typeof pos !== 'number' || !dragContext) {
@@ -46,7 +46,7 @@ export function StoryBlockDragGrip({ node, editor, getPos }: Pick<ReactNodeViewP
 	);
 
 	const handleDragEnd = useCallback(
-		(event: ReactDragEvent<HTMLButtonElement>) => {
+		(event: ReactDragEvent<HTMLElement>) => {
 			event.stopPropagation();
 			if (dragContext) {
 				dragContext.setDragging(false);
@@ -56,6 +56,12 @@ export function StoryBlockDragGrip({ node, editor, getPos }: Pick<ReactNodeViewP
 		},
 		[dragContext],
 	);
+
+	return { handleDragStart, handleDragEnd };
+}
+
+export function StoryBlockDragGrip({ node, editor, getPos }: Pick<ReactNodeViewProps, 'node' | 'editor' | 'getPos'>) {
+	const { handleDragStart, handleDragEnd } = useStoryBlockDrag({ node, editor, getPos });
 
 	return (
 		<button
@@ -94,7 +100,6 @@ export function StoryBlockDragGrip({ node, editor, getPos }: Pick<ReactNodeViewP
 export function StoryBlockDropZones({ node, editor, getPos }: Pick<ReactNodeViewProps, 'node' | 'editor' | 'getPos'>) {
 	const dragContext = useContext(StoryBlockDragContext);
 	const gridDragSourceRef = useContext(GridDragContext);
-	const [hoverSide, setHoverSide] = useState<StoryBlockDropSide | null>(null);
 	const currentPos = getPos();
 	const sourceOrigin = dragContext?.sourceRef.current?.origin;
 	const isDropTarget =
@@ -103,14 +108,7 @@ export function StoryBlockDropZones({ node, editor, getPos }: Pick<ReactNodeView
 		dragContext.sourceRef.current !== null &&
 		!(sourceOrigin?.kind === 'block' && sourceOrigin.pos === currentPos);
 
-	useEffect(() => {
-		if (!dragContext?.isDragging) {
-			setHoverSide(null);
-		}
-	}, [dragContext?.isDragging]);
-
 	const resetDrag = useCallback(() => {
-		setHoverSide(null);
 		if (dragContext) {
 			dragContext.setDragging(false);
 			dragContext.sourceRef.current = null;
@@ -121,9 +119,9 @@ export function StoryBlockDropZones({ node, editor, getPos }: Pick<ReactNodeView
 	}, [dragContext, gridDragSourceRef]);
 
 	const handleDrop = useCallback(
-		(side: StoryBlockDropSide, event: ReactDragEvent<HTMLDivElement>) => {
-			event.preventDefault();
-			event.stopPropagation();
+		(side: StoryBlockDropSide, event?: ReactDragEvent<HTMLDivElement>) => {
+			event?.preventDefault();
+			event?.stopPropagation();
 			const source = dragContext?.sourceRef.current;
 			const targetPos = getPos();
 			if (
@@ -156,32 +154,35 @@ export function StoryBlockDropZones({ node, editor, getPos }: Pick<ReactNodeView
 
 	return (
 		isDropTarget &&
-		(['left', 'right'] as const).map((side) => (
-			<div
-				key={side}
-				contentEditable={false}
-				className={`absolute inset-y-0 z-30 w-1/2 ${side === 'left' ? 'left-0' : 'right-0'}`}
-				onDragOver={(event) => {
-					event.preventDefault();
-					event.stopPropagation();
-					event.dataTransfer.dropEffect = 'move';
-					setHoverSide(side);
-				}}
-				onDragLeave={() => {
-					setHoverSide(null);
-				}}
-				onDrop={(event) => {
-					handleDrop(side, event);
-				}}
-			>
-				{hoverSide === side && (
-					<div
-						className={`pointer-events-none absolute inset-y-0 w-0.5 rounded-full bg-primary-muted ${
-							side === 'left' ? 'left-0' : 'right-0'
-						}`}
-					/>
-				)}
-			</div>
-		))
+		(['left', 'right'] as const).map((side) => {
+			const zoneId = `block:${currentPos}:${side}`;
+			return (
+				<div
+					key={side}
+					contentEditable={false}
+					className={`absolute inset-y-0 z-30 w-1/2 ${side === 'left' ? 'left-0' : 'right-0'}`}
+					onDragOver={(event) => {
+						event.preventDefault();
+						event.stopPropagation();
+						event.dataTransfer.dropEffect = 'move';
+						dragContext?.setActiveDropZone((current) => (current === zoneId ? current : zoneId));
+						if (dragContext) {
+							dragContext.pendingDropRef.current = () => handleDrop(side);
+						}
+					}}
+					onDrop={(event) => {
+						handleDrop(side, event);
+					}}
+				>
+					{dragContext?.activeDropZone === zoneId && (
+						<div
+							className={`pointer-events-none absolute inset-y-0 w-0.5 rounded-full bg-primary-muted ${
+								side === 'left' ? 'left-0' : 'right-0'
+							}`}
+						/>
+					)}
+				</div>
+			);
+		})
 	);
 }

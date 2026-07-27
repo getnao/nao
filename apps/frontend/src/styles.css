@@ -531,6 +531,10 @@ code.dollar:before {
 	transition: opacity 0.1s ease;
 }
 
+.story-editor.drop-indicator-active .drop-cursor {
+	display: none;
+}
+
 .nao-input .prompt-input {
 	max-height: 200px;
 	overflow-y: auto;

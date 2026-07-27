@@ -1,5 +1,6 @@
 import { Code, Pencil } from 'lucide-react';
-import { memo, useMemo, useState } from 'react';
+import { memo, useContext, useMemo, useState } from 'react';
+import { StoryBlockDragContext } from './story-editor-drag-context';
 import { StoryEmbedFallback } from './story-embed-fallback';
 import type { ParsedChartBlock } from '@nao/shared/story-segments';
 import type { displayChart } from '@nao/shared/tools';
@@ -24,13 +25,16 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 	chart,
 	dragHandle,
 	dragHandlePlacement = 'trailing',
+	isSelected,
 }: {
 	chart: ChartBlock;
 	dragHandle?: React.ReactNode;
 	dragHandlePlacement?: 'leading' | 'trailing';
+	isSelected?: boolean;
 }) {
 	const agent = useOptionalAgentContext();
 	const embedData = useStoryEmbedData();
+	const storyBlockDrag = useContext(StoryBlockDragContext);
 
 	const sourceData = useMemo(() => {
 		const fromEmbedData = embedData?.[chart.queryId];
@@ -91,6 +95,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 				normalSize
 				hideTotal={chart.hideTotal}
 				kpiLeadingSlot={kpiLeadingHandle}
+				disableTooltip={isSelected || storyBlockDrag?.isDragging === true}
 			/>
 		</StoryChartEmbedShell>
 	);

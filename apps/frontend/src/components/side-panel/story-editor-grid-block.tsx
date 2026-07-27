@@ -8,6 +8,7 @@ import { StoryChartEmbed } from './story-chart-embed';
 import { StoryTableEmbed } from './story-table-embed';
 import { blockSelectionPluginKey, selectColumnFromHandle } from './story-block-selection';
 import { BlockSelectionContext } from './story-block-selection-context';
+import { StoryBlockDragContext } from './story-editor-drag-context';
 import { decodeFromAttr } from './story-editor-utils';
 import { useStoryEditorGridBlock } from './hooks/use-story-editor-grid-block';
 import type { Segment } from '@nao/shared/story-segments';
@@ -30,6 +31,7 @@ function renderColumnContent(
 	dragHandle: ReactNode,
 	onReplaceTag: (rawTag: string, nextTag: string) => void,
 	dragHandlePlacement: 'leading' | 'trailing' = 'trailing',
+	isSelected: boolean = false,
 ): ReactNode {
 	switch (segment.type) {
 		case 'markdown':
@@ -45,6 +47,7 @@ function renderColumnContent(
 						chart={segment.chart}
 						dragHandle={dragHandle}
 						dragHandlePlacement={dragHandlePlacement}
+						isSelected={isSelected}
 					/>
 				</EditorStoryChartEditProvider>
 			);
@@ -61,7 +64,7 @@ function renderColumnContent(
 				<div className='flex flex-col gap-4'>
 					{segment.children.map((child, index) => (
 						<div key={index} className='min-w-0'>
-							{renderColumnContent(child, null, onReplaceTag)}
+							{renderColumnContent(child, null, onReplaceTag, 'trailing', false)}
 						</div>
 					))}
 				</div>
@@ -71,6 +74,7 @@ function renderColumnContent(
 
 function GridBlockView(props: ReactNodeViewProps) {
 	const selectedGridColumns = useContext(BlockSelectionContext);
+	const storyBlockDrag = useContext(StoryBlockDragContext);
 	const {
 		gridRef,
 		segments,
@@ -159,6 +163,10 @@ function GridBlockView(props: ReactNodeViewProps) {
 								</button>
 							) : null;
 						const isLeftmostColumn = i === 0;
+						const canDragColumn = columnGrip !== null;
+						const isColumnSelected =
+							gridPos !== null &&
+							selectedGridColumns.some((column) => column.gridPos === gridPos && column.index === i);
 
 						return (
 							<div
@@ -171,6 +179,16 @@ function GridBlockView(props: ReactNodeViewProps) {
 										) &&
 										'nao-block-selected',
 								)}
+								draggable={canDragColumn || undefined}
+								onDragStart={canDragColumn ? (event) => handleColumnDragStart(i, event) : undefined}
+								onDragEnd={
+									canDragColumn
+										? (event) => {
+												event.stopPropagation();
+												clearDrag();
+											}
+										: undefined
+								}
 								{...(gridPos === null
 									? {}
 									: {
@@ -190,6 +208,7 @@ function GridBlockView(props: ReactNodeViewProps) {
 									isLeftmostColumn ? null : columnGrip,
 									handleReplaceTag,
 									'leading',
+									isColumnSelected,
 								)}
 							</div>
 						);
@@ -205,6 +224,15 @@ function GridBlockView(props: ReactNodeViewProps) {
 								event.stopPropagation();
 								event.dataTransfer.dropEffect = 'move';
 								setBlockDropIndex(0);
+								if (gridPos !== null) {
+									storyBlockDrag?.setActiveDropZone((current) => {
+										const id = `grid:${gridPos}`;
+										return current === id ? current : id;
+									});
+								}
+								if (storyBlockDrag) {
+									storyBlockDrag.pendingDropRef.current = () => handleGridDrop();
+								}
 							}}
 							onDrop={(event) => {
 								event.preventDefault();
@@ -220,6 +248,15 @@ function GridBlockView(props: ReactNodeViewProps) {
 								event.stopPropagation();
 								event.dataTransfer.dropEffect = 'move';
 								setBlockDropIndex(segments.length);
+								if (gridPos !== null) {
+									storyBlockDrag?.setActiveDropZone((current) => {
+										const id = `grid:${gridPos}`;
+										return current === id ? current : id;
+									});
+								}
+								if (storyBlockDrag) {
+									storyBlockDrag.pendingDropRef.current = () => handleGridDrop();
+								}
 							}}
 							onDrop={(event) => {
 								event.preventDefault();
@@ -229,13 +266,15 @@ function GridBlockView(props: ReactNodeViewProps) {
 						/>
 					</>
 				)}
-				{dropIndicatorLeft !== null && (
-					<div
-						contentEditable={false}
-						className='pointer-events-none absolute inset-y-0 z-20 w-0.5 -translate-x-1/2 rounded-full bg-primary-muted'
-						style={{ left: dropIndicatorLeft }}
-					/>
-				)}
+				{dropIndicatorLeft !== null &&
+					gridPos !== null &&
+					storyBlockDrag?.activeDropZone === `grid:${gridPos}` && (
+						<div
+							contentEditable={false}
+							className='pointer-events-none absolute inset-y-0 z-20 w-0.5 -translate-x-1/2 rounded-full bg-primary-muted'
+							style={{ left: dropIndicatorLeft }}
+						/>
+					)}
 				{resizeHandlePositions.map(({ index, left }) => (
 					<button
 						key={index}
