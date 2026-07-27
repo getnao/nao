@@ -11,7 +11,8 @@ interface ProviderCardProps {
 	baseUrl?: string | null;
 	envBaseUrl?: string;
 	enabledModels?: string[] | null;
-	isEnvProvider: boolean;
+	/** Where this provider comes from, e.g. `ENV` or `nao_config.yaml`. */
+	badges?: string[];
 	isAdmin: boolean;
 	isFormActive: boolean;
 	onEdit: () => void;
@@ -27,7 +28,7 @@ export function ProviderCard({
 	baseUrl,
 	envBaseUrl,
 	enabledModels,
-	isEnvProvider,
+	badges = [],
 	isAdmin,
 	isFormActive,
 	onEdit,
@@ -42,11 +43,14 @@ export function ProviderCard({
 					<div className='flex items-center gap-2'>
 						<LlmProviderIcon provider={provider} className='size-3.5' />
 						<span className='text-sm font-medium text-foreground capitalize'>{provider}</span>
-						{isEnvProvider && (
-							<span className='px-1.5 py-0.5 text-[10px] font-medium rounded bg-muted text-muted-foreground'>
-								ENV
+						{badges.map((badge) => (
+							<span
+								key={badge}
+								className='px-1.5 py-0.5 text-[10px] font-medium rounded bg-muted text-muted-foreground'
+							>
+								{badge}
 							</span>
-						)}
+						))}
 					</div>
 					{apiKeyPreview || credentialPreviews ? (
 						<div className='flex items-center gap-2 text-xs text-muted-foreground flex-wrap'>

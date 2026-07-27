@@ -6,7 +6,7 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from nao_core.config.llm import LLMConfig, LLMProvider
+from nao_core.config.llm import LLMConfig, LLMProvider, ProviderConfig
 
 # Path to the default templates shipped with nao
 DEFAULT_TEMPLATES_DIR = Path(__file__).parent / "defaults"
@@ -27,18 +27,25 @@ class TemplateEngine:
         override it by creating `<project_root>/templates/databases/preview.md.j2`.
     """
 
-    def __init__(self, project_path: Path | None = None, llm_config: LLMConfig | None = None):
+    def __init__(
+        self,
+        project_path: Path | None = None,
+        llm_config: LLMConfig | ProviderConfig | None = None,
+        annotation_model: str | None = None,
+    ):
         """Initialize the template engine.
 
         Args:
             project_path: Path to the nao project root. If provided,
                           templates in `<project_path>/templates/` will
                           take precedence over defaults.
-            llm_config: Optional LLM settings used by the prompt(...) template helper.
+            llm_config: Optional LLM settings used by the prompt(...) template helper. A full
+                        `LLMConfig` is narrowed down to the provider owning the annotation model.
+            annotation_model: Model used by prompt(...), when `llm_config` is a single provider.
         """
         self.project_path = project_path
         self.user_templates_dir = project_path / "templates" if project_path else None
-        self.llm_config = llm_config
+        self.llm_config, self.annotation_model = _resolve_annotation(llm_config, annotation_model)
 
         # Build list of template directories (user templates first for override)
         loader_paths: list[Path] = []
@@ -102,17 +109,17 @@ class TemplateEngine:
         if not self.llm_config:
             raise RuntimeError(
                 "ai_summary generation requires an `llm` config in nao_config.yaml. "
-                "Configure `llm.provider`, `llm.api_key` (when required by provider), and optionally "
+                "Configure `llm.providers` with an `api_key` (when required by provider), and optionally "
                 "`llm.annotation_model`, or disable the `ai_summary` accessor."
             )
 
         if self.llm_config.requires_api_key and not self.llm_config.api_key:
             raise RuntimeError(
                 f"ai_summary generation requires an API key for provider '{self.llm_config.provider.value}'. "
-                "Set `llm.api_key` in nao_config.yaml or disable `ai_summary`."
+                "Set `api_key` on that provider in nao_config.yaml or disable `ai_summary`."
             )
 
-        model = self.llm_config.annotation_model
+        model = self.annotation_model
         if not model:
             raise RuntimeError("No annotation model configured. Set `llm.annotation_model` in nao_config.yaml.")
 
@@ -286,7 +293,8 @@ class TemplateEngine:
 
         if bool(self.llm_config.access_key) != bool(self.llm_config.secret_key):
             raise RuntimeError(
-                "Bedrock configuration is incomplete: set both `llm.access_key` and `llm.secret_key`, or neither."
+                "Bedrock configuration is incomplete: set both `access_key` and `secret_key` on the provider, "
+                "or neither."
             )
 
         import boto3
@@ -322,7 +330,7 @@ class TemplateEngine:
 
         if not project:
             raise RuntimeError(
-                "Missing GCP project for Vertex. Set `llm.gcp_project` in nao_config.yaml "
+                "Missing GCP project for Vertex. Set `gcp_project` on the vertex provider in nao_config.yaml "
                 "or the GOOGLE_VERTEX_PROJECT env var."
             )
 
@@ -395,7 +403,7 @@ class TemplateEngine:
             try:
                 info = json_lib.loads(json_str)
             except json_lib.JSONDecodeError as e:
-                raise RuntimeError(f"Invalid `llm.service_account_json`: {e}") from e
+                raise RuntimeError(f"Invalid `service_account_json`: {e}") from e
             return service_account.Credentials.from_service_account_info(info, scopes=scopes)
 
         return service_account.Credentials.from_service_account_file(key_file, scopes=scopes)
@@ -470,31 +478,50 @@ _engine: TemplateEngine | None = None
 _engine_signature: tuple[str | None, ...] | None = None
 
 
-def _llm_signature(llm_config: LLMConfig | None) -> tuple[str | None, ...]:
+def _resolve_annotation(
+    llm_config: LLMConfig | ProviderConfig | None,
+    annotation_model: str | None,
+) -> tuple[ProviderConfig | None, str | None]:
+    """Narrow an LLM config down to the provider and model used by the prompt(...) helper."""
+    if isinstance(llm_config, LLMConfig):
+        target = llm_config.annotation_target()
+        return target if target else (None, None)
+    return llm_config, annotation_model
+
+
+def _llm_signature(
+    llm_config: LLMConfig | ProviderConfig | None, annotation_model: str | None
+) -> tuple[str | None, ...]:
     """Return a tuple of LLM config values used as a cache key for the template engine."""
-    if not llm_config:
+    provider_config, model = _resolve_annotation(llm_config, annotation_model)
+    if not provider_config:
         return (None,) * 11
     return (
-        llm_config.provider.value,
-        llm_config.annotation_model,
-        llm_config.base_url,
-        llm_config.api_key,
-        llm_config.access_key,
-        llm_config.secret_key,
-        llm_config.aws_region,
-        llm_config.gcp_project,
-        llm_config.gcp_location,
-        llm_config.service_account_json,
-        llm_config.key_file,
+        provider_config.provider.value,
+        model,
+        provider_config.base_url,
+        provider_config.api_key,
+        provider_config.access_key,
+        provider_config.secret_key,
+        provider_config.aws_region,
+        provider_config.gcp_project,
+        provider_config.gcp_location,
+        provider_config.service_account_json,
+        provider_config.key_file,
     )
 
 
-def get_template_engine(project_path: Path | None = None, llm_config: LLMConfig | None = None) -> TemplateEngine:
+def get_template_engine(
+    project_path: Path | None = None,
+    llm_config: LLMConfig | ProviderConfig | None = None,
+    annotation_model: str | None = None,
+) -> TemplateEngine:
     """Get or create the template engine.
 
     Args:
         project_path: Path to the nao project root.
         llm_config: Optional LLM settings used by prompt(...) helper.
+        annotation_model: Model used by prompt(...), when `llm_config` is a single provider.
 
     Returns:
         The template engine instance
@@ -502,9 +529,13 @@ def get_template_engine(project_path: Path | None = None, llm_config: LLMConfig 
     global _engine, _engine_signature
     signature = (
         str(project_path) if project_path else None,
-        *_llm_signature(llm_config),
+        *_llm_signature(llm_config, annotation_model),
     )
     if _engine is None or _engine_signature != signature:
-        _engine = TemplateEngine(project_path=project_path, llm_config=llm_config)
+        _engine = TemplateEngine(
+            project_path=project_path,
+            llm_config=llm_config,
+            annotation_model=annotation_model,
+        )
         _engine_signature = signature
     return _engine

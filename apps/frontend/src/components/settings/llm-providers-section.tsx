@@ -1,5 +1,6 @@
 import { ProviderCard } from './llm-provider-card';
 import { LlmProviderForm } from './llm-provider-form';
+import type { LlmProvider } from '@nao/shared/types';
 import { useLlmProviders } from '@/hooks/use-llm-providers';
 
 interface LlmProvidersSectionProps {
@@ -9,10 +10,12 @@ interface LlmProvidersSectionProps {
 export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 	const {
 		projectConfigs,
+		configProviders,
 		envProviders,
 		envBaseUrls,
 		availableProvidersToAdd,
 		unconfiguredEnvProviders,
+		unconfiguredConfigProviders,
 		currentModels,
 		editingState,
 		upsertPending,
@@ -21,11 +24,23 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 		handleSubmit,
 		handleCancel,
 		handleEditConfig,
+		handleOverrideConfigProvider,
 		handleDeleteConfig,
 		handleSelectProvider,
 		handleConfigureEnvProvider,
 		getModelDisplayName,
 	} = useLlmProviders();
+
+	const providerBadges = (provider: LlmProvider) => {
+		const badges: string[] = [];
+		if (envProviders.includes(provider)) {
+			badges.push('ENV');
+		}
+		if (configProviders.some((c) => c.provider === provider)) {
+			badges.push('nao_config.yaml');
+		}
+		return badges;
+	};
 
 	return (
 		<div className='grid gap-4'>
@@ -37,7 +52,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 							key={`env-${provider}`}
 							provider={provider}
 							isEditing={true}
-							usesEnvKey={true}
+							inheritedKeySource='env'
 							currentModels={currentModels}
 							onSubmit={handleSubmit}
 							onCancel={handleCancel}
@@ -51,11 +66,47 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 					<ProviderCard
 						key={`env-${provider}`}
 						provider={provider}
-						isEnvProvider
+						badges={['ENV']}
 						envBaseUrl={envBaseUrls[provider]}
 						isAdmin={isAdmin}
 						isFormActive={!!editingState}
 						onEdit={() => handleConfigureEnvProvider(provider)}
+						getModelDisplayName={getModelDisplayName}
+					/>
+				);
+			})}
+
+			{/* Providers declared in nao_config.yaml */}
+			{unconfiguredConfigProviders.map((configProvider) => {
+				if (editingState?.isEditing && editingState.provider === configProvider.provider) {
+					return (
+						<LlmProviderForm
+							key={`config-${configProvider.provider}`}
+							provider={configProvider.provider}
+							isEditing={true}
+							inheritedKeySource='config'
+							initialValues={editingState.initialValues}
+							currentModels={currentModels}
+							onSubmit={handleSubmit}
+							onCancel={handleCancel}
+							isPending={upsertPending}
+							error={upsertError}
+							title={`Override ${configProvider.provider}`}
+						/>
+					);
+				}
+				return (
+					<ProviderCard
+						key={`config-${configProvider.provider}`}
+						provider={configProvider.provider}
+						apiKeyPreview={configProvider.apiKeyPreview}
+						credentialPreviews={configProvider.credentialPreviews}
+						baseUrl={configProvider.baseUrl}
+						enabledModels={configProvider.enabledModels}
+						badges={providerBadges(configProvider.provider)}
+						isAdmin={isAdmin}
+						isFormActive={!!editingState}
+						onEdit={() => handleOverrideConfigProvider(configProvider)}
 						getModelDisplayName={getModelDisplayName}
 					/>
 				);
@@ -69,7 +120,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 							key={config.id}
 							provider={config.provider}
 							isEditing={true}
-							usesEnvKey={envProviders.includes(config.provider)}
+							inheritedKeySource={editingState.inheritedKeySource}
 							initialValues={editingState.initialValues}
 							currentModels={currentModels}
 							onSubmit={handleSubmit}
@@ -89,7 +140,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 						baseUrl={config.baseUrl}
 						envBaseUrl={envBaseUrls[config.provider]}
 						enabledModels={config.enabledModels}
-						isEnvProvider={envProviders.includes(config.provider)}
+						badges={providerBadges(config.provider)}
 						isAdmin={isAdmin}
 						isFormActive={!!editingState}
 						onEdit={() => handleEditConfig(config)}
@@ -125,7 +176,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 						<LlmProviderForm
 							provider={editingState.provider}
 							isEditing={false}
-							usesEnvKey={editingState.usesEnvKey}
+							inheritedKeySource={editingState.inheritedKeySource}
 							currentModels={currentModels}
 							onSubmit={handleSubmit}
 							onCancel={handleCancel}
@@ -141,6 +192,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 
 			{projectConfigs.length === 0 &&
 				unconfiguredEnvProviders.length === 0 &&
+				unconfiguredConfigProviders.length === 0 &&
 				availableProvidersToAdd.length === 0 && (
 					<p className='text-sm text-muted-foreground'>
 						{isAdmin

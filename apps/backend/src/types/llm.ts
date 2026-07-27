@@ -167,6 +167,17 @@ export const llmConfigSchema = z.object({
 	updatedAt: z.date(),
 });
 
+/** A provider declared in nao_config.yaml rather than saved from the settings UI. */
+export const configLlmProviderSchema = z.object({
+	provider: llmProviderSchema,
+	apiKeyPreview: z.string().nullable(),
+	credentialPreviews: z.record(z.string(), z.string()).nullable(),
+	enabledModels: z.array(z.string()),
+	customModels: z.array(customModelMetadataSchema),
+	modelSettings: modelSettingsMapSchema,
+	baseUrl: z.string().nullable(),
+});
+
 /** Flatten an interface into a plain type so it gains an implicit index signature. */
 type Flatten<T> = { [K in keyof T]: T[K] };
 

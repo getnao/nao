@@ -32,7 +32,6 @@ import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
 import * as imageQueries from '../queries/image.queries';
 import * as projectQueries from '../queries/project.queries';
-import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as storyQueries from '../queries/story.queries';
 import { AgentSettings } from '../types/agent-settings';
 import {
@@ -58,8 +57,8 @@ import {
 import { assertBudgetNotExceeded } from '../utils/budget';
 import { HandlerError } from '../utils/error';
 import {
-	getDefaultModelId,
-	getEnvModelSelections,
+	getProjectAvailableModels,
+	getProjectDeclaredModels,
 	resolveAnnotationModelId,
 	resolveProviderModel,
 	resolveProviderSettings,
@@ -289,20 +288,11 @@ export class AgentService {
 			return modelSelection;
 		}
 
-		// Get the first available provider config
-		const configs = await llmConfigQueries.getProjectLlmConfigs(projectId);
-		const config = configs.at(0);
-		if (config) {
-			return {
-				provider: config.provider,
-				modelId: getDefaultModelId(config.provider),
-			};
-		}
-
-		// Fallback to env-based provider
-		const envSelection = getEnvModelSelections().at(0);
-		if (envSelection) {
-			return envSelection;
+		// Same order the model picker offers, across the database, nao_config.yaml and the environment.
+		const available = await getProjectAvailableModels(projectId);
+		const first = available.at(0);
+		if (first) {
+			return { provider: first.provider, modelId: first.modelId };
 		}
 
 		throw new HandlerError('BAD_REQUEST', 'No model config found');
@@ -810,9 +800,11 @@ class AgentManager {
 			const durationMs = Math.round(performance.now() - startTime);
 
 			const usage = convertToTokenUsage(result.totalUsage);
-			const customModels = await llmConfigQueries
-				.getProjectLlmConfigByProvider(this.chat.projectId, this._modelSelection.provider)
-				.then((c) => c?.customModels ?? [])
+			const customModels = await getProjectDeclaredModels(this.chat.projectId)
+				.then(
+					(sources) =>
+						sources.find((source) => source.provider === this._modelSelection.provider)?.models ?? [],
+				)
 				.catch(() => []);
 			const cost = convertToCost(
 				usage,

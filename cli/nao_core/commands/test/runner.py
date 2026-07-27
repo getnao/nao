@@ -12,15 +12,13 @@ import pandas as pd
 from cyclopts import Parameter
 
 from nao_core.config import NaoConfig, resolve_project_path
-from nao_core.config.llm import ModelCosts
+from nao_core.config.llm import ModelCosts, parse_provider
+from nao_core.config.test import ComparisonConfig, TestConfig
 from nao_core.ui import UI
 
 from .case import TESTS_FOLDER, TestCase, discover_tests
 from .client import AgentClientError, VerificationResult, get_client
 from .compare import normalize_dataframe_numbers
-
-# Default models to test
-DEFAULT_MODELS = ["openai:gpt-4.1"]
 
 
 @dataclass
@@ -71,7 +69,7 @@ class TestRunResult:
 
 
 def check_dataframe(
-    verification: VerificationResult, rtol: float = 1e-5, atol: float = 1e-8
+    verification: VerificationResult, rtol: float = 1e-5, atol: float = 1e-8, decimals: int = 2
 ) -> tuple[bool, str, str | None]:
     """Check if actual data matches expected. Returns (passed, message, comparison).
 
@@ -79,6 +77,7 @@ def check_dataframe(
         verification: The verification result containing actual and expected data.
         rtol: Relative tolerance for float comparison.
         atol: Absolute tolerance for float comparison.
+        decimals: Decimals kept when rounding float values before comparing.
     """
     actual = pd.DataFrame(verification.data)
     expected = pd.DataFrame(verification.expectedData)
@@ -105,7 +104,7 @@ def check_dataframe(
     actual = normalize_dataframe_numbers(actual)
     expected = normalize_dataframe_numbers(expected)
 
-    def round_numeric(df: pd.DataFrame, decimals: int = 2) -> pd.DataFrame:
+    def round_numeric(df: pd.DataFrame, decimals: int) -> pd.DataFrame:
         """Round float-like columns to the given number of decimals for stable comparisons."""
         for col in df.columns:
             series = df[col]
@@ -124,9 +123,9 @@ def check_dataframe(
     actual = cast(pd.DataFrame, actual[sorted_cols])
     expected = cast(pd.DataFrame, expected[sorted_cols])
 
-    # Round float-like values to 2 decimals to avoid noisy diffs
-    actual = round_numeric(actual, decimals=2)
-    expected = round_numeric(expected, decimals=2)
+    # Round float-like values to avoid noisy diffs
+    actual = round_numeric(actual, decimals=decimals)
+    expected = round_numeric(expected, decimals=decimals)
 
     # Sort rows by all columns (in alphabetic order) to ignore row order
     actual = actual.sort_values(by=sorted_cols).reset_index(drop=True)
@@ -185,6 +184,7 @@ def run_test(
     email: str | None = None,
     password: str | None = None,
     costs: ModelCosts | None = None,
+    comparison: ComparisonConfig | None = None,
 ) -> TestRunResult:
     """Run a single test case with a specific model. Returns TestRunResult."""
     UI.print(f"[bold]Running:[/bold] {test_case.name} [dim]({model})[/dim]")
@@ -208,7 +208,13 @@ def run_test(
         UI.print(f"[dim]  Time: {result.duration_ms}ms[/dim]")
 
         if result.verification:
-            passed, msg, comparison = check_dataframe(result.verification)
+            tolerances = comparison or ComparisonConfig()
+            passed, msg, diff = check_dataframe(
+                result.verification,
+                rtol=tolerances.rtol,
+                atol=tolerances.atol,
+                decimals=tolerances.decimals,
+            )
             status = "[green]✓[/green]" if passed else "[red]✗[/red]"
             UI.print(f"  {status} {msg}")
             return TestRunResult(
@@ -224,7 +230,7 @@ def run_test(
                     response_text=result.text,
                     actual_data=result.verification.data,
                     expected_data=result.verification.expectedData,
-                    comparison=comparison,
+                    comparison=diff,
                     tool_calls=result.tool_calls,
                     reference_sql=test_case.sql,
                 ),
@@ -257,6 +263,17 @@ def run_test(
             error=str(e),
             details=TestRunDetails(reference_sql=test_case.sql),
         )
+
+
+def resolve_model_costs(config: NaoConfig, model: ModelConfig) -> ModelCosts | None:
+    """Look up the configured price of the model under test."""
+    if not config.llm:
+        return None
+
+    provider = parse_provider(model.provider)
+    if not provider:
+        return config.llm.meta.costs if config.llm.meta else None
+    return config.llm.costs(provider, model.model_id)
 
 
 def save_results(results: list[TestRunResult], output_dir: Path) -> Path:
@@ -342,16 +359,16 @@ def test(
         list[str] | None,
         Parameter(
             name=["-m", "--model"],
-            help="Models to test (format: provider:model_id). Can be specified multiple times.",
+            help="Models to test (format: provider:model_id). Can be specified multiple times. Overrides test.models.",
         ),
     ] = None,
     threads: Annotated[
-        int,
+        int | None,
         Parameter(
             name=["-t", "--threads"],
-            help="Number of parallel threads for running tests.",
+            help="Number of parallel threads for running tests. Overrides test.threads.",
         ),
-    ] = 1,
+    ] = None,
     select: Annotated[
         str | None,
         Parameter(
@@ -376,6 +393,8 @@ def test(
 ):
     """Run tests from the tests/ folder.
 
+    Defaults come from the `test` block of nao_config.yaml, and every flag below overrides them.
+
     Examples:
         nao test
         nao test -m openai:gpt-4.1
@@ -393,16 +412,16 @@ def test(
     config = NaoConfig.try_load(resolve_project_path(), exit_on_error=True)
     assert config is not None
 
-    # Parse models
-    model_strs = models if models else DEFAULT_MODELS
+    test_config = config.test or TestConfig()
+    thread_count = threads if threads is not None else test_config.threads
+
     try:
-        model_configs = [ModelConfig.parse(m) for m in model_strs]
+        model_configs = [ModelConfig.parse(m) for m in models or test_config.models]
     except ValueError as e:
         UI.error(str(e))
         return
 
     project_path = Path.cwd()
-    model_costs = config.llm.meta.costs if config.llm and config.llm.meta else None
     tests_dir = project_path / TESTS_FOLDER
     UI.print(f"[dim]Project: {config.project_name}[/dim]")
     UI.print(f"[dim]Tests folder: {tests_dir}[/dim]")
@@ -422,23 +441,38 @@ def test(
 
     total_runs = len(test_cases) * len(model_configs)
     UI.print(f"[bold]Found {len(test_cases)} test(s) × {len(model_configs)} model(s) = {total_runs} run(s)[/bold]")
-    if threads > 1:
-        UI.print(f"[dim]Running with {threads} threads (output may be interleaved)[/dim]")
+    if thread_count > 1:
+        UI.print(f"[dim]Running with {thread_count} threads (output may be interleaved)[/dim]")
     UI.print("")
 
     # Build list of (test_case, model) pairs
     test_runs = [(test_case, model) for model in model_configs for test_case in test_cases]
 
     results: list[TestRunResult] = []
-    if threads == 1:
+    if thread_count == 1:
         for test_case, model in test_runs:
-            result = run_test(test_case, model, email=email, password=pwd, costs=model_costs)
+            result = run_test(
+                test_case,
+                model,
+                email=email,
+                password=pwd,
+                costs=resolve_model_costs(config, model),
+                comparison=test_config.comparison,
+            )
             results.append(result)
             UI.print("")
     else:
-        with ThreadPoolExecutor(max_workers=threads) as executor:
+        with ThreadPoolExecutor(max_workers=thread_count) as executor:
             futures = {
-                executor.submit(run_test, tc, m, email=email, password=pwd, costs=model_costs): (tc, m)
+                executor.submit(
+                    run_test,
+                    tc,
+                    m,
+                    email=email,
+                    password=pwd,
+                    costs=resolve_model_costs(config, m),
+                    comparison=test_config.comparison,
+                ): (tc, m)
                 for tc, m in test_runs
             }
             for future in as_completed(futures):

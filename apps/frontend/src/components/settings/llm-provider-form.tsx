@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useForm } from '@tanstack/react-form';
-import { Check, ChevronDown, MoreHorizontal, Plus, X } from 'lucide-react';
+import { Check, ChevronDown, MoreHorizontal, Plus, TriangleAlert, X } from 'lucide-react';
 import { getDefaultModelId, getModelParameterSpec, getProviderAuth } from '@nao/backend/provider-meta';
 import { CustomModelDialog } from './custom-model-dialog';
 import { ModelParametersDialog } from './model-parameters-dialog';
@@ -12,10 +12,18 @@ import { Input } from '@/components/ui/input';
 import { capitalize } from '@/lib/utils';
 import { PasswordField, TextField, TextareaField, FormError } from '@/components/ui/form-fields';
 
+/** Where credentials already come from when the UI is only layering settings on top. */
+export type InheritedKeySource = 'env' | 'config';
+
+const INHERITED_KEY_LABELS: Record<InheritedKeySource, string> = {
+	env: 'env',
+	config: 'nao_config.yaml',
+};
+
 export interface LlmProviderFormProps {
 	provider: LlmProvider;
 	isEditing: boolean;
-	usesEnvKey: boolean;
+	inheritedKeySource: InheritedKeySource | null;
 	initialValues?: {
 		enabledModels: string[];
 		customModels: CustomModelMetadata[];
@@ -42,7 +50,7 @@ export interface LlmProviderFormProps {
 export function LlmProviderForm({
 	provider,
 	isEditing,
-	usesEnvKey,
+	inheritedKeySource,
 	initialValues,
 	currentModels,
 	onSubmit,
@@ -63,6 +71,7 @@ export function LlmProviderForm({
 	const extraFields = providerAuth.extraFields ?? [];
 
 	const defaultCredentials = Object.fromEntries(extraFields.map((f) => [f.name, '']));
+	const inheritedKeyLabel = inheritedKeySource ? INHERITED_KEY_LABELS[inheritedKeySource] : null;
 
 	const form = useForm({
 		defaultValues: {
@@ -91,8 +100,8 @@ export function LlmProviderForm({
 		if (providerAuth.apiKey === 'optional') {
 			return providerAuth.hint ? `(${providerAuth.hint})` : '(optional)';
 		}
-		if (usesEnvKey) {
-			return '(optional - leave empty to use env)';
+		if (inheritedKeyLabel) {
+			return `(optional - leave empty to use ${inheritedKeyLabel})`;
 		}
 		if (isEditing) {
 			return '(leave empty to keep current)';
@@ -104,8 +113,8 @@ export function LlmProviderForm({
 		if (providerAuth.apiKey === 'optional') {
 			return 'Enter bearer token or leave empty for env credentials';
 		}
-		if (usesEnvKey) {
-			return 'Enter API key to override env variable';
+		if (inheritedKeyLabel) {
+			return `Enter API key to override ${inheritedKeyLabel}`;
 		}
 		if (isEditing) {
 			return 'Enter new API key to update';
@@ -127,12 +136,28 @@ export function LlmProviderForm({
 			<div className='flex items-center justify-between'>
 				<span className='text-sm font-medium text-foreground capitalize'>
 					{title}
-					{usesEnvKey && <span className='text-muted-foreground font-normal ml-1'>(using env API key)</span>}
+					{inheritedKeyLabel && (
+						<span className='text-muted-foreground font-normal ml-1'>
+							(using {inheritedKeyLabel} API key)
+						</span>
+					)}
 				</span>
 				<Button variant='ghost' size='icon-sm' onClick={onCancel} type='button'>
 					<X className='size-4' />
 				</Button>
 			</div>
+
+			{inheritedKeySource === 'config' && (
+				<div className='flex items-start gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20'>
+					<TriangleAlert className='size-4 shrink-0 mt-0.5 text-amber-500' />
+					<p className='text-xs text-amber-700 dark:text-amber-400'>
+						This provider is defined in <span className='font-mono'>nao_config.yaml</span>. Settings saved
+						here are stored in the project and take precedence over the file, so later edits to{' '}
+						<span className='font-mono'>nao_config.yaml</span> are ignored until you delete this provider
+						here.
+					</p>
+				</div>
+			)}
 
 			{showApiKey && (
 				<PasswordField
@@ -141,7 +166,7 @@ export function LlmProviderForm({
 					label='API Key'
 					hint={getApiKeyHint()}
 					placeholder={getApiKeyPlaceholder()}
-					required={providerAuth.apiKey === 'required' && !isEditing && !usesEnvKey}
+					required={providerAuth.apiKey === 'required' && !isEditing && !inheritedKeySource}
 				/>
 			)}
 

@@ -16,7 +16,12 @@ from nao_core.commands.test.client import (
     TestResult as AgentTestResult,
 )
 from nao_core.commands.test.runner import ModelConfig, check_dataframe, filter_test_cases, run_test
+from nao_core.commands.test.runner import (
+    TestRunResult as NaoTestRunResult,
+)
+from nao_core.config.base import NaoConfig
 from nao_core.config.llm import ModelCosts
+from nao_core.config.test import ComparisonConfig, TestConfig
 
 test_runner_module = importlib.import_module("nao_core.commands.test.runner")
 
@@ -261,3 +266,55 @@ def test_filter_test_cases_by_name_without_tests_dir_unchanged():
 
     assert len(filtered) == 1
     assert filtered[0].name == "users"
+
+
+def run_test_command(monkeypatch, tmp_path, config, **flags) -> list[dict]:
+    """Run the `nao test` command against stubbed collaborators and report what it ran."""
+    cases = [
+        NaoTestCase(name="orders", prompt="p1", file_path=tmp_path / "orders.yml", sql="select 1"),
+        NaoTestCase(name="users", prompt="p2", file_path=tmp_path / "users.yml", sql="select 1"),
+    ]
+    runs: list[dict] = []
+
+    def run(test_case, model, **kwargs):
+        runs.append({"case": test_case, "model": model, **kwargs})
+        return NaoTestRunResult(name=test_case.name, model=str(model), passed=True, message="match")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(test_runner_module, "NaoConfig", Mock(try_load=Mock(return_value=config)))
+    monkeypatch.setattr(test_runner_module, "discover_tests", lambda project_path: cases)
+    monkeypatch.setattr(test_runner_module, "run_test", run)
+    monkeypatch.setattr(test_runner_module, "save_results", lambda results, output_dir: output_dir / "results.json")
+    monkeypatch.setattr(test_runner_module.UI, "table", lambda *args, **kwargs: None)
+
+    test_runner_module.test(**flags)
+
+    return runs
+
+
+def test_run_uses_the_test_block_defaults(tmp_path, monkeypatch):
+    config = NaoConfig(
+        project_name="test-project",
+        test=TestConfig(models=["anthropic:claude-sonnet-4-5"], comparison=ComparisonConfig(decimals=4)),
+    )
+
+    runs = run_test_command(monkeypatch, tmp_path, config)
+
+    assert [str(run["model"]) for run in runs] == ["anthropic:claude-sonnet-4-5"] * 2
+    assert runs[0]["comparison"].decimals == 4
+
+
+def test_run_falls_back_to_defaults_without_a_test_block(tmp_path, monkeypatch):
+    runs = run_test_command(monkeypatch, tmp_path, NaoConfig(project_name="test-project"))
+
+    assert [str(run["model"]) for run in runs] == ["openai:gpt-4.1"] * 2
+    assert runs[0]["comparison"].decimals == 2
+
+
+def test_model_flag_overrides_the_test_block(tmp_path, monkeypatch):
+    config = NaoConfig(project_name="test-project", test=TestConfig(models=["anthropic:claude-sonnet-4-5"]))
+
+    runs = run_test_command(monkeypatch, tmp_path, config, models=["openai:gpt-4.1"], select="users")
+
+    assert [run["case"].name for run in runs] == ["users"]
+    assert [str(run["model"]) for run in runs] == ["openai:gpt-4.1"]

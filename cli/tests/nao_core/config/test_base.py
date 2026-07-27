@@ -5,10 +5,10 @@ from unittest.mock import patch
 import pytest
 from pydantic import ValidationError
 
-from nao_core.config.base import NaoConfig, annotate_optional_templates
+from nao_core.config.base import LLM_OVERRIDE_NOTICE, NaoConfig, annotate_llm_override, annotate_optional_templates
 from nao_core.config.databases.base import DatabaseTemplate, ProfilingRefreshPolicy
 from nao_core.config.databases.duckdb import DuckDBConfig
-from nao_core.config.llm import LLMConfig, LLMProvider
+from nao_core.config.llm import LLMConfig, LLMProvider, ProviderConfig
 from nao_core.config.secrets import process_secrets
 
 
@@ -77,7 +77,7 @@ def test_threads_must_be_positive():
 @patch("nao_core.config.base.ask_confirm")
 @patch("nao_core.config.llm.LLMConfig.promptConfig")
 def test_prompt_llm_skips_annotation_model_prompt(mock_prompt_config, mock_confirm):
-    mock_llm = LLMConfig(provider=LLMProvider.OPENAI, api_key="sk-test")
+    mock_llm = LLMConfig(providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")])
     mock_prompt_config.return_value = mock_llm
     mock_confirm.return_value = True
 
@@ -108,7 +108,7 @@ def test_apply_default_templates_without_llm():
 
 def test_apply_default_templates_with_llm():
     db = DuckDBConfig(name="test-db", path=":memory:")
-    llm = LLMConfig(provider=LLMProvider.OPENAI, api_key="sk-test")
+    llm = LLMConfig(providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")])
 
     NaoConfig._apply_default_templates([db], llm=llm)
 
@@ -121,7 +121,7 @@ def test_apply_default_templates_with_llm():
 
 def test_fresh_prompt_flow_only_collects_database_llm_and_repos():
     db = DuckDBConfig(name="test-db", path=":memory:")
-    llm = LLMConfig(provider=LLMProvider.OPENAI, api_key="sk-test")
+    llm = LLMConfig(providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")])
     prompt_order = []
 
     with (
@@ -215,6 +215,32 @@ def test_annotate_optional_templates_is_noop_without_templates_block(tmp_path):
     config_path.write_text(original)
 
     annotate_optional_templates(config_path)
+
+    assert config_path.read_text() == original
+
+
+def test_annotate_llm_override_comments_above_the_llm_block(tmp_path):
+    config_path = tmp_path / "nao_config.yaml"
+    config_path.write_text("project_name: test-project\nllm:\n  providers:\n  - provider: openai\n")
+
+    annotate_llm_override(config_path)
+
+    assert config_path.read_text() == (
+        "project_name: test-project\n"
+        f"{LLM_OVERRIDE_NOTICE[0]}\n"
+        f"{LLM_OVERRIDE_NOTICE[1]}\n"
+        "llm:\n"
+        "  providers:\n"
+        "  - provider: openai\n"
+    )
+
+
+def test_annotate_llm_override_is_noop_without_llm_block(tmp_path):
+    config_path = tmp_path / "nao_config.yaml"
+    original = "project_name: test-project\ndatabases: []\n"
+    config_path.write_text(original)
+
+    annotate_llm_override(config_path)
 
     assert config_path.read_text() == original
 
