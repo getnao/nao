@@ -337,6 +337,8 @@ function extractSegmentText(segment: SummarySegment): string {
 			return segment.title;
 		case 'table':
 			return segment.title;
+		case 'map':
+			return segment.title;
 		case 'grid':
 			return segment.children.map(extractSegmentText).join(' ');
 	}
