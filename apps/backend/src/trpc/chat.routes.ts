@@ -98,24 +98,11 @@ export const chatRoutes = {
 				await Promise.race([agent.waitUntilFinished(), delay(10_000)]);
 			}
 
-			const turn = await chatQueries.getLastTurn(input.chatId);
-			if (!turn) {
+			if (input.hadContent) {
 				return { outcome: 'kept', chatDeleted: false };
 			}
 
-			if (input.hadContent || turn.versionGroupSize > 1) {
-				return { outcome: 'kept', chatDeleted: false };
-			}
-
-			const idsToDelete = [turn.userMessageId, ...(turn.assistantMessage ? [turn.assistantMessage.id] : [])];
-			await chatQueries.deleteMessagesByIds(input.chatId, idsToDelete);
-
-			const remaining = await chatQueries.countActiveMessages(input.chatId);
-			if (remaining === 0) {
-				await chatQueries.deleteChat(input.chatId);
-				return { outcome: 'deleted', chatDeleted: true };
-			}
-			return { outcome: 'deleted', chatDeleted: false };
+			return chatQueries.deleteLastEmptyTurn(input.chatId);
 		},
 	),
 
