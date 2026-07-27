@@ -5,6 +5,7 @@ import type { displayChart } from '@nao/shared/tools';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
 import { StoryChartEmbedShell } from '@/components/side-panel/story-chart-embed';
+import { StoryMapEmbedShell } from '@/components/side-panel/story-map-embed';
 import { StoryTableEditControls } from '@/components/side-panel/story-table-embed';
 import { StoryMapRender } from '@/components/story-map-embed';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
@@ -136,12 +137,14 @@ export const StoryMapEmbed = memo(function StoryMapEmbed({
 	liveQuery,
 	hasActiveFilters = false,
 	isRefreshing = false,
+	allowExpand,
 }: {
 	map: ParsedMapBlock;
 	queryData?: QueryDataMap | null;
 	liveQuery?: LiveQueryConfig;
 	hasActiveFilters?: boolean;
 	isRefreshing?: boolean;
+	allowExpand?: boolean;
 }) {
 	const noCacheFetch = useLiveQueryData(map.queryId, liveQuery);
 
@@ -168,12 +171,11 @@ export const StoryMapEmbed = memo(function StoryMapEmbed({
 	}
 
 	return (
-		<div className='my-2 flex flex-col gap-2'>
-			{map.title && <span className='text-sm font-medium text-foreground truncate'>{map.title}</span>}
+		<StoryMapEmbedShell map={map} allowExpand={allowExpand}>
 			<EmbedRefreshing isRefreshing={showRefreshing}>
 				<StoryMapRender map={map} data={displayData} />
 			</EmbedRefreshing>
-		</div>
+		</StoryMapEmbedShell>
 	);
 });
 

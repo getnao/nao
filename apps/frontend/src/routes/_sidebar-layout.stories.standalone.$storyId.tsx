@@ -328,7 +328,13 @@ function StandaloneStoryContent({
 				isRefreshing,
 			}: { queryData: QueryDataMap | null; hasActiveFilters: boolean; isRefreshing: boolean },
 		) => (
-			<StoryMapEmbed map={map} queryData={data} hasActiveFilters={hasActiveFilters} isRefreshing={isRefreshing} />
+			<StoryMapEmbed
+				map={map}
+				queryData={data}
+				hasActiveFilters={hasActiveFilters}
+				isRefreshing={isRefreshing}
+				allowExpand
+			/>
 		),
 		[],
 	);

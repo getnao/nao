@@ -317,6 +317,7 @@ function PreviewContent({
 				liveQuery={isNoCacheMode && !hasActiveFilters ? noCacheQuery : undefined}
 				hasActiveFilters={hasActiveFilters}
 				isRefreshing={isRefreshing}
+				allowExpand
 			/>
 		),
 		[isNoCacheMode, noCacheQuery],

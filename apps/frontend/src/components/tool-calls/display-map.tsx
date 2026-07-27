@@ -1,6 +1,15 @@
 import { lazy, Suspense, useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Code, Download, FilePlus, Map as MapIcon, Pencil, Table as TableIcon } from 'lucide-react';
+import {
+	Code,
+	Download,
+	FilePlus,
+	FoldHorizontal,
+	Map as MapIcon,
+	Pencil,
+	Table as TableIcon,
+	UnfoldHorizontal,
+} from 'lucide-react';
 import { buildMapPoints, buildStoryMapBlock, MAX_MAP_POINTS, resolveMapConfig } from '@nao/shared';
 import { appendBlockToStoryCode } from '@nao/shared/story-tabs';
 import { Skeleton } from '../ui/skeleton';
@@ -19,6 +28,7 @@ import type { MapPoint } from '@nao/shared';
 import type { MapViewHandle } from './display-map-view';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
+import { useBreakoutStyle } from '@/hooks/use-breakout-width';
 import { findStoryIds } from '@/lib/story.utils';
 import { useChatId } from '@/hooks/use-chat-id';
 import { useSourceQuery } from '@/hooks/use-source-query';
@@ -44,6 +54,9 @@ export const DisplayMapToolCall = ({
 	const { sourceQuery, sourceData } = useSourceQuery(config?.query_id);
 	const [viewMode, setViewMode] = useState<MapViewMode>('map');
 	const [isEditOpen, setIsEditOpen] = useState(false);
+	const [isExpanded, setIsExpanded] = useState(false);
+	const slotRef = useRef<HTMLDivElement>(null);
+	const breakoutStyle = useBreakoutStyle(slotRef, isExpanded && viewMode === 'map');
 	const mapViewRef = useRef<MapViewHandle>(null);
 	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning);
 	const storyIds = useMemo(() => findStoryIds(messages), [messages]);
@@ -201,105 +214,132 @@ export const DisplayMapToolCall = ({
 	}
 
 	return (
-		<div className='group -mx-3 my-4 flex flex-col gap-2'>
+		<div ref={slotRef} className='-mx-3 my-4'>
 			<div
-				className={cn(
-					'overflow-hidden rounded-lg border transition-colors',
-					viewMode === 'map' ? 'border-transparent group-hover:border-border' : 'border-border',
-				)}
+				className='group flex flex-col gap-2 transition-[margin,width] duration-200 ease-out'
+				style={breakoutStyle}
 			>
-				<div className='flex items-center justify-between gap-2 px-3 pt-2 pb-1'>
-					<span className='text-sm font-medium text-foreground flex-1 truncate'>{config.title}</span>
-					<div className='flex items-center gap-1'>
-						<ViewToggleButton
-							icon={<MapIcon className='size-3 text-muted-foreground/70' strokeWidth={2.25} />}
-							title='View map'
-							isActive={viewMode === 'map'}
-							onClick={() => setViewMode('map')}
-						/>
-						<ViewToggleButton
-							icon={<TableIcon className='size-3 text-muted-foreground/70' strokeWidth={2.25} />}
-							title='View data table'
-							isActive={viewMode === 'table'}
-							onClick={() => setViewMode('table')}
-						/>
-						{sourceQuery?.input && (
+				<div
+					className={cn(
+						'overflow-hidden rounded-lg border transition-colors',
+						viewMode === 'map' ? 'border-transparent group-hover:border-border' : 'border-border',
+					)}
+				>
+					<div className='flex items-center justify-between gap-2 px-3 pt-2 pb-1'>
+						<span className='text-sm font-medium text-foreground flex-1 truncate'>{config.title}</span>
+						<div className='flex items-center gap-1'>
 							<ViewToggleButton
-								icon={<Code className='size-3 text-muted-foreground/70' strokeWidth={2.25} />}
-								title='View SQL query'
-								isActive={viewMode === 'query'}
-								onClick={() => setViewMode('query')}
+								icon={<MapIcon className='size-3 text-muted-foreground/70' strokeWidth={2.25} />}
+								title='View map'
+								isActive={viewMode === 'map'}
+								onClick={() => setViewMode('map')}
 							/>
-						)}
-						{storyIds.length > 0 && (
 							<ViewToggleButton
-								icon={<FilePlus className='size-3 text-muted-foreground/70' strokeWidth={2.25} />}
-								title='Add to story'
-								isActive={false}
-								onClick={handleAddToStory}
+								icon={<TableIcon className='size-3 text-muted-foreground/70' strokeWidth={2.25} />}
+								title='View data table'
+								isActive={viewMode === 'table'}
+								onClick={() => setViewMode('table')}
 							/>
-						)}
-						{viewMode === 'map' && (
-							<ViewToggleButton
-								icon={<Download className='size-3 text-muted-foreground/70' strokeWidth={2.25} />}
-								title='Download as PNG'
-								isActive={false}
-								onClick={handleDownloadPng}
-							/>
-						)}
-						{isEditable && (
-							<ViewToggleButton
-								icon={<Pencil className='size-3 text-muted-foreground/70' strokeWidth={2.25} />}
-								title='Edit map'
-								isActive={false}
-								onClick={() => setIsEditOpen(true)}
-							/>
-						)}
+							{sourceQuery?.input && (
+								<ViewToggleButton
+									icon={<Code className='size-3 text-muted-foreground/70' strokeWidth={2.25} />}
+									title='View SQL query'
+									isActive={viewMode === 'query'}
+									onClick={() => setViewMode('query')}
+								/>
+							)}
+							{storyIds.length > 0 && (
+								<ViewToggleButton
+									icon={<FilePlus className='size-3 text-muted-foreground/70' strokeWidth={2.25} />}
+									title='Add to story'
+									isActive={false}
+									onClick={handleAddToStory}
+								/>
+							)}
+							{viewMode === 'map' && (
+								<>
+									<ViewToggleButton
+										icon={
+											isExpanded ? (
+												<FoldHorizontal
+													className='size-3 text-muted-foreground/70'
+													strokeWidth={2.25}
+												/>
+											) : (
+												<UnfoldHorizontal
+													className='size-3 text-muted-foreground/70'
+													strokeWidth={2.25}
+												/>
+											)
+										}
+										title={isExpanded ? 'Collapse width' : 'Expand width'}
+										isActive={isExpanded}
+										onClick={() => setIsExpanded((value) => !value)}
+									/>
+									<ViewToggleButton
+										icon={
+											<Download className='size-3 text-muted-foreground/70' strokeWidth={2.25} />
+										}
+										title='Download as PNG'
+										isActive={false}
+										onClick={handleDownloadPng}
+									/>
+								</>
+							)}
+							{isEditable && (
+								<ViewToggleButton
+									icon={<Pencil className='size-3 text-muted-foreground/70' strokeWidth={2.25} />}
+									title='Edit map'
+									isActive={false}
+									onClick={() => setIsEditOpen(true)}
+								/>
+							)}
+						</div>
 					</div>
+
+					{isEditable && (
+						<MapConfigEditDialog
+							open={isEditOpen}
+							onOpenChange={setIsEditOpen}
+							config={config}
+							isSaving={updateMapMutation.isPending}
+							onSave={handleSaveConfig}
+							description='Tweak the map parameters. Changes are saved to the chat.'
+						/>
+					)}
+
+					{viewMode === 'map' && (
+						<div className='px-3 pb-3'>
+							<Suspense fallback={<Skeleton className='w-full aspect-3/2 rounded-lg' />}>
+								<MapView ref={mapViewRef} points={visiblePoints} config={mapConfig} />
+							</Suspense>
+						</div>
+					)}
+
+					{viewMode === 'table' && (
+						<TableDisplay
+							data={sourceData.data as Record<string, unknown>[]}
+							columns={sourceData.columns}
+							tableContainerClassName='max-h-[28rem]'
+							maxRowsBeforePagination={10}
+							compactFooter
+							humanizeColumnLabels
+						/>
+					)}
+
+					{viewMode === 'query' && sourceQuery?.input && (
+						<div className='border-t'>
+							<SqlQueryDisplay query={sourceQuery.input.sql_query} />
+						</div>
+					)}
 				</div>
 
-				{isEditable && (
-					<MapConfigEditDialog
-						open={isEditOpen}
-						onOpenChange={setIsEditOpen}
-						config={config}
-						isSaving={updateMapMutation.isPending}
-						onSave={handleSaveConfig}
-						description='Tweak the map parameters. Changes are saved to the chat.'
-					/>
-				)}
-
-				{viewMode === 'map' && (
-					<div className='px-3 pb-3'>
-						<Suspense fallback={<Skeleton className='w-full aspect-3/2 rounded-lg' />}>
-							<MapView ref={mapViewRef} points={visiblePoints} config={mapConfig} />
-						</Suspense>
-					</div>
-				)}
-
-				{viewMode === 'table' && (
-					<TableDisplay
-						data={sourceData.data as Record<string, unknown>[]}
-						columns={sourceData.columns}
-						tableContainerClassName='max-h-[28rem]'
-						maxRowsBeforePagination={10}
-						compactFooter
-						humanizeColumnLabels
-					/>
-				)}
-
-				{viewMode === 'query' && sourceQuery?.input && (
-					<div className='border-t'>
-						<SqlQueryDisplay query={sourceQuery.input.sql_query} />
-					</div>
+				{viewMode === 'map' && points.length > MAX_MAP_POINTS && (
+					<span className='px-3 text-xs text-foreground/50'>
+						Showing the first {MAX_MAP_POINTS.toLocaleString()} of {points.length.toLocaleString()} points.
+					</span>
 				)}
 			</div>
-
-			{viewMode === 'map' && points.length > MAX_MAP_POINTS && (
-				<span className='px-3 text-xs text-foreground/50'>
-					Showing the first {MAX_MAP_POINTS.toLocaleString()} of {points.length.toLocaleString()} points.
-				</span>
-			)}
 		</div>
 	);
 };
