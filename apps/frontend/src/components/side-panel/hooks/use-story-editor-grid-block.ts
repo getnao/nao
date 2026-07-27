@@ -186,7 +186,6 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 				const indices = selectedColumns.map((column) => column.index).sort((first, second) => first - second);
 				storyBlockDrag.beginMultiColumnDrag(gridPos, indices, event.nativeEvent);
 				storyBlockDrag.setDragging(true);
-				setDragColumnIndex(columnIndex);
 				setDropColumnIndex(null);
 				setBlockDropIndex(null);
 				return;

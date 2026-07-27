@@ -13,6 +13,7 @@ import {
 	Table as TableIcon,
 } from 'lucide-react';
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Customized } from 'recharts';
 
 import { useOptionalAgentContext } from '../../contexts/agent.provider';
 import GraphLoaderAnimated from '../icons/graph-loader-animated';
@@ -479,10 +480,14 @@ export const ChartDisplay = memo(function ChartDisplay({
 	const dateFormat = useDateFormat();
 	const containerRef = useRef<HTMLDivElement>(null);
 	const [width, setWidth] = useState(0);
+	const [plotWidth, setPlotWidth] = useState(0);
 	useResizeObserver(containerRef, (element) => {
 		setWidth(element.getBoundingClientRect().width);
 	});
 	const gradientIdPrefix = `${useId().replace(/[^a-zA-Z0-9]/g, '')}-`;
+	const handlePlotWidthChange = useCallback((nextPlotWidth: number) => {
+		setPlotWidth((currentPlotWidth) => (currentPlotWidth === nextPlotWidth ? currentPlotWidth : nextPlotWidth));
+	}, []);
 
 	const xAxisKey = useMemo(() => resolveDataKey(data, xAxisKeyProp), [data, xAxisKeyProp]);
 	const series = useMemo(
@@ -566,12 +571,13 @@ export const ChartDisplay = memo(function ChartDisplay({
 		() => xAxisLabelFormatter ?? ((value: string) => labelize(value, dateFormat)),
 		[xAxisLabelFormatter, dateFormat],
 	);
-	const perCategoryPx = width > 0 ? width / Math.max(data.length, 1) : 0;
+	const xAxisWidth = plotWidth > 0 ? plotWidth : width;
+	const perCategoryPx = xAxisWidth > 0 ? xAxisWidth / Math.max(data.length, 1) : 0;
 	const longestLabelLen = Math.max(1, ...data.map((row) => labelFormatter(String(row[xAxisKey])).length));
 	// Keep labels horizontal while they fit side by side (label width plus a small gap);
 	// only once they would actually collide do we shrink + rotate, and then discard.
 	const horizontalLabelPx = longestLabelLen * MAX_TICK_FONT * CHAR_WIDTH_RATIO + HORIZONTAL_LABEL_GAP;
-	const compactXAxis = !isPie && width > 0 && perCategoryPx < horizontalLabelPx;
+	const compactXAxis = !isPie && xAxisType === 'category' && xAxisWidth > 0 && perCategoryPx < horizontalLabelPx;
 
 	let xAxisTickFontSize: number | undefined;
 	let xAxisMaxLabelChars: number | undefined;
@@ -593,7 +599,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 		if (perCategoryPx < labelSlotPx) {
 			// N labels need only N-1 gaps between them, so credit one gap back before dividing;
 			// otherwise a label is discarded a full slot early, before the labels actually touch.
-			const maxVisible = Math.max(1, Math.floor((width + DIAGONAL_LABEL_GAP) / labelSlotPx));
+			const maxVisible = Math.max(1, Math.floor((xAxisWidth + DIAGONAL_LABEL_GAP) / labelSlotPx));
 			compactXAxisInterval = Math.max(0, Math.ceil(data.length / maxVisible) - 1);
 		}
 	}
@@ -653,6 +659,12 @@ export const ChartDisplay = memo(function ChartDisplay({
 							/>
 						}
 					/>,
+					chartType !== 'kpi_card' && (
+						<Customized
+							key='plot-width-observer'
+							component={<ChartPlotWidthObserver onWidthChange={handlePlotWidthChange} />}
+						/>
+					),
 					showLegend && chartType !== 'kpi_card' && !useInlineHeader && (
 						<ChartLegend
 							key='legend'
@@ -703,6 +715,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			gradientIdPrefix,
 			kpiLeadingSlot,
 			hideTotal,
+			handlePlotWidthChange,
 			legendPayload,
 			handleToggleSeriesVisibility,
 			title,
@@ -784,6 +797,23 @@ export const ChartDisplay = memo(function ChartDisplay({
 		</div>
 	);
 });
+
+interface ChartPlotWidthObserverProps {
+	offset?: { width?: number };
+	onWidthChange: (width: number) => void;
+}
+
+function ChartPlotWidthObserver({ offset, onWidthChange }: ChartPlotWidthObserverProps) {
+	const offsetWidth = offset?.width;
+
+	useEffect(() => {
+		if (typeof offsetWidth === 'number' && Number.isFinite(offsetWidth) && offsetWidth > 0) {
+			onWidthChange(offsetWidth);
+		}
+	}, [offsetWidth, onWidthChange]);
+
+	return null;
+}
 
 const useHorizontalScrollControls = () => {
 	const scrollRef = useRef<HTMLDivElement>(null);

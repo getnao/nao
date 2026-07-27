@@ -102,9 +102,10 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 					.filter((position) => valid.has(position));
 				const mappedAnchor = value.anchor == null ? null : tr.mapping.map(value.anchor, -1);
 				const anchor = mappedAnchor != null && valid.has(mappedAnchor) ? mappedAnchor : null;
+				const changedGridPositions = getChangedGridPositions(tr, value);
 				const gridColumns = value.gridColumns
 					.map(({ gridPos, index }) => ({ gridPos: tr.mapping.map(gridPos, -1), index }))
-					.filter((column) => isValidGridColumn(tr.doc, column));
+					.filter((column) => !changedGridPositions.has(column.gridPos) && isValidGridColumn(tr.doc, column));
 				const mappedColumnAnchor =
 					value.columnAnchor == null
 						? null
@@ -113,7 +114,9 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 								index: value.columnAnchor.index,
 							};
 				const columnAnchor =
-					mappedColumnAnchor != null && isValidGridColumn(tr.doc, mappedColumnAnchor)
+					mappedColumnAnchor != null &&
+					!changedGridPositions.has(mappedColumnAnchor.gridPos) &&
+					isValidGridColumn(tr.doc, mappedColumnAnchor)
 						? mappedColumnAnchor
 						: null;
 				return { blocks, gridColumns, anchor, columnAnchor };
@@ -430,6 +433,30 @@ export function rangeBetween(doc: PMNode, first: number, second: number): number
 	const start = Math.min(first, second);
 	const end = Math.max(first, second);
 	return topLevelBlockPositions(doc).filter((position) => position >= start && position <= end);
+}
+
+function getChangedGridPositions(tr: Transaction, selection: BlockSelectionState): Set<number> {
+	const originalPositions = new Set(selection.gridColumns.map((column) => column.gridPos));
+	if (selection.columnAnchor) {
+		originalPositions.add(selection.columnAnchor.gridPos);
+	}
+
+	const changedPositions = new Set<number>();
+	for (const position of originalPositions) {
+		const mappedPosition = tr.mapping.map(position, -1);
+		if (!hasUnchangedGridContent(tr.before.nodeAt(position), tr.doc.nodeAt(mappedPosition))) {
+			changedPositions.add(mappedPosition);
+		}
+	}
+	return changedPositions;
+}
+
+function hasUnchangedGridContent(before: PMNode | null, after: PMNode | null): boolean {
+	return (
+		before?.type.name === 'gridBlock' &&
+		after?.type.name === 'gridBlock' &&
+		before.attrs.rawContent === after.attrs.rawContent
+	);
 }
 
 function isValidGridColumn(doc: PMNode, column: GridColumnRef): boolean {

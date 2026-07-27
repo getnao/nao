@@ -55,14 +55,18 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 
 	if (!sourceData?.data || sourceData.data.length === 0) {
 		return (
-			<StoryEmbedFallback dragHandle={dragHandle}>
+			<StoryEmbedFallback dragHandle={dragHandle} dragHandlePlacement={dragHandlePlacement}>
 				Chart data unavailable (query: {chart.queryId})
 			</StoryEmbedFallback>
 		);
 	}
 
 	if (chart.series.length === 0) {
-		return <StoryEmbedFallback dragHandle={dragHandle}>No series configured for chart</StoryEmbedFallback>;
+		return (
+			<StoryEmbedFallback dragHandle={dragHandle} dragHandlePlacement={dragHandlePlacement}>
+				No series configured for chart
+			</StoryEmbedFallback>
+		);
 	}
 
 	const xAxisType = chart.xAxisType === 'number' ? 'number' : ('category' as const);
@@ -96,6 +100,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 				hideTotal={chart.hideTotal}
 				kpiLeadingSlot={kpiLeadingHandle}
 				disableTooltip={isSelected || storyBlockDrag?.isDragging === true}
+				className={cn(isKpi && storyBlockDrag != null && 'select-none')}
 			/>
 		</StoryChartEmbedShell>
 	);

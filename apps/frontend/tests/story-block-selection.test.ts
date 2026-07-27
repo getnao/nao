@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { Editor } from '@tiptap/core';
+import { Editor, Node } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -23,6 +23,41 @@ function createEditor(): Editor {
 	return new Editor({
 		extensions: [StarterKit, BlockSelection],
 		content: '<p>AA</p><p>BB</p><p>CC</p>',
+	});
+}
+
+const TestGridBlock = Node.create({
+	name: 'gridBlock',
+	group: 'block',
+	atom: true,
+
+	addAttributes() {
+		return {
+			rawContent: { default: '' },
+		};
+	},
+
+	renderHTML({ HTMLAttributes }) {
+		return ['grid-embed', HTMLAttributes];
+	},
+});
+
+const FIRST_GRID = '<grid><chart query_id="q1" chart_type="line" x_axis_key="month" /></grid>';
+const FIRST_GRID_REORDERED = '<grid><chart query_id="q1" chart_type="bar" x_axis_key="month" /></grid>';
+const SECOND_GRID = '<grid><chart query_id="q2" chart_type="bar" x_axis_key="month" /></grid>';
+
+function createGridEditor(): Editor {
+	return new Editor({
+		extensions: [StarterKit, TestGridBlock, BlockSelection],
+		content: {
+			type: 'doc',
+			content: [
+				{ type: 'paragraph', content: [{ type: 'text', text: 'Before' }] },
+				{ type: 'gridBlock', attrs: { rawContent: FIRST_GRID } },
+				{ type: 'gridBlock', attrs: { rawContent: SECOND_GRID } },
+				{ type: 'paragraph', content: [{ type: 'text', text: 'After' }] },
+			],
+		},
 	});
 }
 
@@ -286,6 +321,68 @@ describe('story block selection', () => {
 		selectBlocks(editor, [second, third], second);
 		editor.view.dispatch(editor.state.tr.delete(third, editor.state.doc.content.size));
 		expect(getSelectedBlockPositions(editor.state)).toEqual([second]);
+	});
+
+	describe('grid column selection mapping', () => {
+		let gridEditor: Editor;
+
+		beforeEach(() => {
+			gridEditor = createGridEditor();
+		});
+
+		afterEach(() => {
+			gridEditor.destroy();
+		});
+
+		it('keeps selection when an unrelated edit maps the grid position', () => {
+			const [, gridPos] = topLevelBlockPositions(gridEditor.state.doc);
+			const selection = selectColumnFromHandle(gridEditor.state, gridPos, 0);
+			expect(selection).not.toBeNull();
+			if (selection) {
+				gridEditor.view.dispatch(gridEditor.state.tr.setMeta(blockSelectionPluginKey, selection));
+			}
+
+			gridEditor.view.dispatch(gridEditor.state.tr.insertText('!', 2));
+
+			expect(getSelectedGridColumns(gridEditor.state)).toEqual([{ gridPos: gridPos + 1, index: 0 }]);
+			expect(blockSelectionPluginKey.getState(gridEditor.state)?.columnAnchor).toEqual({
+				gridPos: gridPos + 1,
+				index: 0,
+			});
+		});
+
+		it('clears selection when the selected grid content changes', () => {
+			const [, gridPos] = topLevelBlockPositions(gridEditor.state.doc);
+			const selection = selectColumnFromHandle(gridEditor.state, gridPos, 0);
+			expect(selection).not.toBeNull();
+			if (selection) {
+				gridEditor.view.dispatch(gridEditor.state.tr.setMeta(blockSelectionPluginKey, selection));
+			}
+
+			gridEditor.view.dispatch(gridEditor.state.tr.setNodeAttribute(gridPos, 'rawContent', FIRST_GRID_REORDERED));
+
+			expect(getSelectedGridColumns(gridEditor.state)).toEqual([]);
+			expect(blockSelectionPluginKey.getState(gridEditor.state)?.columnAnchor).toBeNull();
+		});
+
+		it('keeps selection in an unchanged grid when another grid changes', () => {
+			const [, firstGridPos, secondGridPos] = topLevelBlockPositions(gridEditor.state.doc);
+			const selection = selectColumnFromHandle(gridEditor.state, secondGridPos, 0);
+			expect(selection).not.toBeNull();
+			if (selection) {
+				gridEditor.view.dispatch(gridEditor.state.tr.setMeta(blockSelectionPluginKey, selection));
+			}
+
+			gridEditor.view.dispatch(
+				gridEditor.state.tr.setNodeAttribute(firstGridPos, 'rawContent', FIRST_GRID_REORDERED),
+			);
+
+			expect(getSelectedGridColumns(gridEditor.state)).toEqual([{ gridPos: secondGridPos, index: 0 }]);
+			expect(blockSelectionPluginKey.getState(gridEditor.state)?.columnAnchor).toEqual({
+				gridPos: secondGridPos,
+				index: 0,
+			});
+		});
 	});
 
 	describe('isDropInsideSelection', () => {

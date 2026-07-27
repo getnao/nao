@@ -35,7 +35,7 @@ export const StoryTableEmbed = memo(function StoryTableEmbed({
 
 	if (!sourceData?.data || !Array.isArray(sourceData.data)) {
 		return (
-			<StoryEmbedFallback dragHandle={dragHandle}>
+			<StoryEmbedFallback dragHandle={dragHandle} dragHandlePlacement={dragHandlePlacement}>
 				Table data unavailable (query: {table.queryId})
 			</StoryEmbedFallback>
 		);
