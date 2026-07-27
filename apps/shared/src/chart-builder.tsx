@@ -1243,8 +1243,6 @@ interface PieSector {
 	innerRadius?: number;
 	outerRadius?: number;
 	midAngle?: number;
-	startAngle?: number;
-	endAngle?: number;
 	percent?: number;
 	value?: unknown;
 }
@@ -1266,8 +1264,7 @@ interface LabelCandidate {
 	baselineY: number;
 	box: LabelBox;
 	text: string;
-	seriesIndex: number;
-	isExtremum: boolean;
+	rank: number[];
 }
 
 interface LabelBox {
@@ -1277,53 +1274,33 @@ interface LabelBox {
 	bottom: number;
 }
 
-interface PieLabelCandidate extends LabelCandidate {
-	sliceIndex: number;
-	sliceSize: number;
-}
-
-/**
- * Single label layer for cartesian charts. Recharts renders each series' labels in isolation, so
- * labels from different series (or a line crossing a bar) collide with no way to coordinate. Rendered
- * through `<Customized>`, this layer sees every series' computed pixel geometry at once.
- *
- * Philosophy: less is more, and every label is fully predictable. Each label is drawn at its natural
- * position (centred, one gap above its point/bar; below for negative bars) or not at all — never
- * nudged sideways or vertically, which is what made earlier attempts hard to read. When two labels'
- * boxes overlap, one is dropped by a deterministic priority: a local extremum (peak/trough) beats a
- * non-extremum; otherwise the earlier series wins; ties break left-to-right.
- */
+/** Coordinates cartesian labels across series so conflicts can be dropped without moving labels. */
 function DataLabelsLayer({ formattedGraphicalItems, offset }: DataLabelsLayerProps) {
-	return renderDataLabels(collectLabelCandidates(formattedGraphicalItems ?? [], offset ?? {}));
+	const candidates = collectLabelCandidates(formattedGraphicalItems ?? [], offset ?? {});
+	return renderLabels(resolveLabelOverlaps(candidates));
 }
 
-/**
- * Labels a stacked chart's running totals through the same declutter pipeline as everything else.
- * Each total is anchored to the visible stack extreme matching its sign instead of assuming the final
- * series is on that side of zero.
- */
 function renderStackTotalLabelsLayer(data: Record<string, unknown>[], series: displayChart.SeriesConfig[]) {
 	return function StackTotalLabelsLayer({ formattedGraphicalItems, offset }: DataLabelsLayerProps) {
-		const items = (formattedGraphicalItems ?? []).filter(isLabelledItem);
+		const items = (formattedGraphicalItems ?? []).filter((entry) =>
+			LABELLED_SERIES_KINDS.has(entry.item?.type?.displayName ?? ''),
+		);
 		const kind = items[0]?.item?.type?.displayName;
 		if (!kind || items.length === 0) {
 			return null;
 		}
-		return renderDataLabels(stackTotalCandidates(items, data, series, kind === 'Bar', offset ?? {}));
+		const candidates = stackTotalCandidates(items, data, series, kind === 'Bar', offset ?? {});
+		return renderLabels(resolveLabelOverlaps(candidates));
 	};
 }
 
 function PieDataLabelsLayer({ formattedGraphicalItems, width, height }: DataLabelsLayerProps) {
 	const pie = (formattedGraphicalItems ?? []).find((entry) => entry.item?.type?.displayName === 'Pie');
 	const candidates = collectPieLabelCandidates(pie?.props?.sectors ?? [], width, height);
-	return renderResolvedDataLabels(resolvePieOverlaps(candidates));
+	return renderLabels(resolveLabelOverlaps(candidates));
 }
 
-function renderDataLabels(candidates: LabelCandidate[]) {
-	return renderResolvedDataLabels(resolveOverlaps(candidates));
-}
-
-function renderResolvedDataLabels(labels: LabelCandidate[]) {
+function renderLabels(labels: LabelCandidate[]) {
 	if (labels.length === 0) {
 		return null;
 	}
@@ -1352,7 +1329,6 @@ function stackTotalCandidates(
 	isBar: boolean,
 	plot: PlotRect,
 ): LabelCandidate[] {
-	const renderedSeries = series.filter((item) => !item.is_total);
 	const totals = data.map((row) => sumStackValue(row, series));
 
 	return totals.flatMap((total, dataIndex) => {
@@ -1360,18 +1336,7 @@ function stackTotalCandidates(
 			return [];
 		}
 		const isPositive = total > 0;
-		const anchors = items.flatMap((item, seriesIndex) => {
-			const seriesConfig = renderedSeries[seriesIndex];
-			const seriesValue = seriesConfig ? toFiniteNumber(data[dataIndex]?.[seriesConfig.data_key]) : null;
-			if (seriesValue == null || (isPositive ? seriesValue <= 0 : seriesValue >= 0)) {
-				return [];
-			}
-			const kind = item.item?.type?.displayName;
-			const point = (kind === 'Bar' ? item.props?.data : item.props?.points)?.[dataIndex];
-			const anchor = point ? stackPointAnchor(point, isBar, isPositive) : null;
-			return anchor ? [anchor] : [];
-		});
-		const anchor = stackExtremeAnchor(anchors, isPositive);
+		const anchor = stackTotalAnchor(items, dataIndex, isBar, isPositive);
 		if (!anchor) {
 			return [];
 		}
@@ -1382,8 +1347,7 @@ function stackTotalCandidates(
 			anchor.cx,
 			baselineY,
 			formatDataLabel(total),
-			0,
-			isLocalExtremum(totals, dataIndex),
+			cartesianLabelRank(isLocalExtremum(totals, dataIndex), 0, anchor.cx),
 			plot,
 			isPositive ? 0 : DATA_LABEL_X_AXIS_FOOTROOM,
 		);
@@ -1391,48 +1355,52 @@ function stackTotalCandidates(
 	});
 }
 
-function stackPointAnchor(
-	point: GraphicalPoint,
+function stackTotalAnchor(
+	items: GraphicalItem[],
+	dataIndex: number,
 	isBar: boolean,
 	isPositive: boolean,
 ): { cx: number; anchorY: number } | null {
-	const x = toFiniteNumber(point.x);
-	const y = toFiniteNumber(point.y);
-	if (x == null || y == null) {
-		return null;
-	}
-	if (!isBar) {
-		return { cx: x, anchorY: y };
-	}
-	const width = toFiniteNumber(point.width) ?? 0;
-	const height = toFiniteNumber(point.height) ?? 0;
-	const otherY = y + height;
-	return {
-		cx: x + width / 2,
-		anchorY: isPositive ? Math.min(y, otherY) : Math.max(y, otherY),
-	};
+	let extreme: { cx: number; anchorY: number } | null = null;
+	items.forEach((item) => {
+		const points = isBar ? item.props?.data : item.props?.points;
+		const point = points?.[dataIndex];
+		const value = pointStackValue(point);
+		if (value == null || (isPositive ? value <= 0 : value >= 0)) {
+			return;
+		}
+		const x = toFiniteNumber(point?.x);
+		const y = toFiniteNumber(point?.y);
+		if (point == null || x == null || y == null) {
+			return;
+		}
+		const width = isBar ? (toFiniteNumber(point.width) ?? 0) : 0;
+		const otherY = y + (isBar ? (toFiniteNumber(point.height) ?? 0) : 0);
+		const anchor = {
+			cx: x + width / 2,
+			anchorY: isPositive ? Math.min(y, otherY) : Math.max(y, otherY),
+		};
+		if (extreme == null || (isPositive ? anchor.anchorY < extreme.anchorY : anchor.anchorY > extreme.anchorY)) {
+			extreme = anchor;
+		}
+	});
+	return extreme;
 }
 
-function stackExtremeAnchor(
-	anchors: { cx: number; anchorY: number }[],
-	isPositive: boolean,
-): { cx: number; anchorY: number } | null {
-	if (anchors.length === 0) {
-		return null;
+function pointStackValue(point: GraphicalPoint | undefined): number | null {
+	if (!Array.isArray(point?.value) || point.value.length < 2) {
+		return toFiniteNumber(point?.value);
 	}
-	return anchors.reduce((extreme, anchor) => {
-		if (isPositive ? anchor.anchorY < extreme.anchorY : anchor.anchorY > extreme.anchorY) {
-			return anchor;
-		}
-		return extreme;
-	});
+	const start = toFiniteNumber(point.value[0]);
+	const end = toFiniteNumber(point.value[point.value.length - 1]);
+	return start == null || end == null ? null : end - start;
 }
 
 function collectPieLabelCandidates(
 	sectors: PieSector[],
 	width: number | undefined,
 	height: number | undefined,
-): PieLabelCandidate[] {
+): LabelCandidate[] {
 	if (width == null || height == null) {
 		return [];
 	}
@@ -1452,7 +1420,7 @@ function collectPieLabelCandidates(
 		const baselineY = cy + radius * Math.sin(angle) + DATA_LABEL_FONT_SIZE / 2;
 		const halfWidth = (text.length * DATA_LABEL_FONT_SIZE * DATA_LABEL_CHAR_WIDTH_RATIO) / 2;
 		const box = labelBox(labelX, baselineY, halfWidth);
-		if (!boxFitsBounds(box, width, height)) {
+		if (box.left < 0 || box.right > width || box.top < 0 || box.bottom > height) {
 			return [];
 		}
 		return [
@@ -1461,27 +1429,10 @@ function collectPieLabelCandidates(
 				baselineY,
 				box,
 				text,
-				seriesIndex: 0,
-				isExtremum: false,
-				sliceIndex,
-				sliceSize: Math.abs((sector.endAngle ?? 0) - (sector.startAngle ?? 0)),
+				rank: [sector.percent ?? 0, -sliceIndex],
 			},
 		];
 	});
-}
-
-function resolvePieOverlaps(candidates: PieLabelCandidate[]): PieLabelCandidate[] {
-	const ordered = [...candidates].sort((a, b) => b.sliceSize - a.sliceSize || a.sliceIndex - b.sliceIndex);
-	return keepNonOverlapping(ordered).sort((a, b) => a.sliceIndex - b.sliceIndex);
-}
-
-function boxFitsBounds(box: LabelBox, width: number, height: number): boolean {
-	return box.left >= 0 && box.right <= width && box.top >= 0 && box.bottom <= height;
-}
-
-function isLabelledItem(entry: GraphicalItem): boolean {
-	const kind = entry.item?.type?.displayName;
-	return kind != null && LABELLED_SERIES_KINDS.has(kind);
 }
 
 function collectLabelCandidates(items: GraphicalItem[], plot: PlotRect): LabelCandidate[] {
@@ -1522,8 +1473,7 @@ function seriesCandidates(
 			anchor.cx,
 			anchor.baselineY,
 			text,
-			seriesIndex,
-			isLocalExtremum(values, index),
+			cartesianLabelRank(isLocalExtremum(values, index), seriesIndex, anchor.cx),
 			plot,
 		);
 		return candidate ? [candidate] : [];
@@ -1534,20 +1484,16 @@ function buildLabelCandidate(
 	cx: number,
 	baselineY: number,
 	text: string,
-	seriesIndex: number,
-	isExtremum: boolean,
+	rank: number[],
 	plot: PlotRect,
 	bottomAllowance = 0,
 ): LabelCandidate | null {
-	if (!text) {
-		return null;
-	}
 	const halfWidth = (text.length * DATA_LABEL_FONT_SIZE * DATA_LABEL_CHAR_WIDTH_RATIO) / 2;
 	const box = labelBox(cx, baselineY, halfWidth);
-	if (!fitsHorizontally(cx, halfWidth, plot) || !fitsVertically(box, plot, bottomAllowance)) {
+	if (!boxFitsPlot(box, plot, bottomAllowance)) {
 		return null;
 	}
-	return { cx, baselineY, box, text, seriesIndex, isExtremum };
+	return { cx, baselineY, box, text, rank };
 }
 
 /** Area/line points carry `value` as a `[baseLine, value]` range; bars carry a scalar. Unwrap both. */
@@ -1578,16 +1524,14 @@ function labelAnchor(point: GraphicalPoint, value: number, isBar: boolean): { cx
  * renders as-is. Otherwise a greedy pass in priority order keeps the winner of each collision and
  * drops the rest — no nudging, so placement stays predictable.
  */
-function resolveOverlaps(candidates: LabelCandidate[]): LabelCandidate[] {
-	if (!hasAnyOverlap(candidates)) {
-		return candidates;
-	}
-	const ordered = [...candidates].sort(byLabelPriority);
-	return keepNonOverlapping(ordered);
+function resolveLabelOverlaps(candidates: LabelCandidate[]): LabelCandidate[] {
+	const ordered = [...candidates].sort(byLabelRank);
+	const kept = keepNonOverlapping(ordered);
+	return kept.length === candidates.length ? candidates : kept;
 }
 
-function keepNonOverlapping<T extends { box: LabelBox }>(ordered: T[]): T[] {
-	const kept: T[] = [];
+function keepNonOverlapping(ordered: LabelCandidate[]): LabelCandidate[] {
+	const kept: LabelCandidate[] = [];
 	for (const candidate of ordered) {
 		if (!kept.some((other) => boxesOverlap(other.box, candidate.box))) {
 			kept.push(candidate);
@@ -1596,41 +1540,27 @@ function keepNonOverlapping<T extends { box: LabelBox }>(ordered: T[]): T[] {
 	return kept;
 }
 
-function hasAnyOverlap(candidates: LabelCandidate[]): boolean {
-	for (let i = 0; i < candidates.length; i += 1) {
-		for (let j = i + 1; j < candidates.length; j += 1) {
-			if (boxesOverlap(candidates[i].box, candidates[j].box)) {
-				return true;
-			}
+function byLabelRank(a: LabelCandidate, b: LabelCandidate): number {
+	for (let index = 0; index < Math.max(a.rank.length, b.rank.length); index += 1) {
+		const difference = (b.rank[index] ?? 0) - (a.rank[index] ?? 0);
+		if (difference !== 0) {
+			return difference;
 		}
 	}
-	return false;
+	return 0;
 }
 
-/** Extremum beats non-extremum; then earlier series wins; then left-to-right for a stable tiebreak. */
-function byLabelPriority(a: LabelCandidate, b: LabelCandidate): number {
-	if (a.isExtremum !== b.isExtremum) {
-		return a.isExtremum ? -1 : 1;
-	}
-	if (a.seriesIndex !== b.seriesIndex) {
-		return a.seriesIndex - b.seriesIndex;
-	}
-	return a.cx - b.cx;
+function cartesianLabelRank(isExtremum: boolean, seriesIndex: number, x: number): number[] {
+	return [isExtremum ? 1 : 0, -seriesIndex, -x];
 }
 
-function fitsHorizontally(cx: number, halfWidth: number, plot: PlotRect): boolean {
-	const box = labelBox(cx, 0, halfWidth);
+function boxFitsPlot(box: LabelBox, plot: PlotRect, bottomAllowance = 0): boolean {
 	const minLeft = plot.left ?? Number.NEGATIVE_INFINITY;
 	const maxRight = plot.left != null && plot.width != null ? plot.left + plot.width : Number.POSITIVE_INFINITY;
-	return box.left >= minLeft && box.right <= maxRight;
-}
-
-function fitsVertically(box: LabelBox, plot: PlotRect, bottomAllowance = 0): boolean {
-	// Labels may use only the headroom/footroom explicitly reserved outside the plot.
 	const minTop = plot.top != null ? Math.max(0, plot.top - DATA_LABEL_MARGIN_TOP) : Number.NEGATIVE_INFINITY;
 	const maxBottom =
 		plot.top != null && plot.height != null ? plot.top + plot.height + bottomAllowance : Number.POSITIVE_INFINITY;
-	return box.top >= minTop && box.bottom <= maxBottom;
+	return box.left >= minLeft && box.right <= maxRight && box.top >= minTop && box.bottom <= maxBottom;
 }
 
 function labelBox(cx: number, baselineY: number, halfWidth: number): LabelBox {
