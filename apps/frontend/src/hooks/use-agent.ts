@@ -47,7 +47,6 @@ export interface AgentHelpers {
 	status: UseChatHelpers<UIMessage>['status'];
 	isRunning: boolean;
 	isLoadingMessages: boolean;
-	stopAgent: () => Promise<void>;
 	cancelAgent: () => Promise<void>;
 	error: Error | undefined;
 	clearError: UseChatHelpers<UIMessage>['clearError'];
@@ -287,7 +286,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 		setAdminMode(conversationIsAdmin);
 	}, [chatId, chat.isLoading, messages, setAdminMode]);
 
-	const stopAgent = useCallback(async () => {
+	const stopCurrentGeneration = useCallback(async () => {
 		if (!chatId) {
 			return;
 		}
@@ -385,14 +384,14 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 	const submitQueuedMessageNow = useCallback(
 		async (messageId: string) => {
 			messageQueueStore.promoteToFront(chatIdRef.current, messageId);
-			await stopAgent();
+			await stopCurrentGeneration();
 			const next = messageQueueStore.dequeue(chatIdRef.current ?? NEW_CHAT_ID);
 			if (next) {
 				mentionsRef.current = next.mentions;
 				await handleSendMessage({ text: next.text });
 			}
 		},
-		[stopAgent, handleSendMessage],
+		[stopCurrentGeneration, handleSendMessage],
 	);
 
 	const editMessage = useCallback(
@@ -462,7 +461,6 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 		status,
 		isRunning,
 		isLoadingMessages: chat.isLoading,
-		stopAgent,
 		cancelAgent,
 		error,
 		clearError,

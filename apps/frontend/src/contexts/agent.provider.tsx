@@ -57,7 +57,6 @@ export const ReadonlyAgentMessagesProvider = ({
 			status: 'ready',
 			isRunning: false,
 			isLoadingMessages: false,
-			stopAgent: noopPromise,
 			cancelAgent: noopPromise,
 			error: undefined,
 			clearError: noop,
