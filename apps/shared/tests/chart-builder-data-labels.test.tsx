@@ -8,6 +8,58 @@ function renderChart(element: React.ReactElement) {
 	return renderToString(React.cloneElement(element, { width: 600, height: 400 }));
 }
 
+interface RenderedLabel {
+	x: number;
+	y: number;
+	text: string;
+	left: number;
+	right: number;
+	top: number;
+	bottom: number;
+}
+
+/** Parses the labels drawn by the shared data-label layer, mirroring its collision-box geometry. */
+function parseDataLabels(html: string): RenderedLabel[] {
+	const group = html.match(/<g class="recharts-data-labels">(.*?)<\/g>/s)?.[1] ?? '';
+	const labels: RenderedLabel[] = [];
+	const regex = /<text[^>]*\bx="([\d.]+)"[^>]*\by="([\d.]+)"[^>]*>([^<]*)<\/text>/g;
+	for (let match = regex.exec(group); match !== null; match = regex.exec(group)) {
+		const x = Number(match[1]);
+		const y = Number(match[2]);
+		const text = match[3];
+		const halfWidth = (text.length * 11 * 0.6) / 2;
+		labels.push({
+			x,
+			y,
+			text,
+			left: x - halfWidth - 2,
+			right: x + halfWidth + 2,
+			top: y - 11 - 2,
+			bottom: y + 2,
+		});
+	}
+	return labels;
+}
+
+function hasOverlap(labels: RenderedLabel[]): boolean {
+	for (let i = 0; i < labels.length; i += 1) {
+		for (let j = i + 1; j < labels.length; j += 1) {
+			const a = labels[i];
+			const b = labels[j];
+			if (a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+function parsePlotRect(html: string): { left: number; top: number; right: number; bottom: number } {
+	const rect = html.match(/<clipPath[^>]*>\s*<rect x="([\d.]+)" y="([\d.]+)" height="([\d.]+)" width="([\d.]+)"/);
+	const [, x, y, height, width] = (rect ?? ['0', '0', '0', '0', '0']).map(Number) as unknown as number[];
+	return { left: x, top: y, right: x + width, bottom: y + height };
+}
+
 describe('buildChart data labels', () => {
 	it('rounds axis max using nice tick steps', () => {
 		expect(niceAxisMax(622)).toBe(800);
@@ -130,7 +182,7 @@ describe('buildChart data labels', () => {
 		expect(html).not.toContain('fill="#333333"');
 	});
 
-	it('thins dense line chart labels while keeping the max value', () => {
+	it('drops only overlapping labels from dense line charts while keeping the max value', () => {
 		const data = Array.from({ length: 40 }, (_, index) => ({
 			day: `Day ${index + 1}`,
 			value: index === 37 ? 999 : index + 1,
@@ -145,10 +197,11 @@ describe('buildChart data labels', () => {
 				showDataLabels: true,
 			}),
 		);
-		const labelCount = html.match(/fill="var\(--foreground, #111827\)"/g)?.length ?? 0;
+		const labels = parseDataLabels(html);
 
-		expect(labelCount).toBeGreaterThan(0);
-		expect(labelCount).toBeLessThan(data.length);
+		expect(labels.length).toBeGreaterThan(0);
+		expect(labels.length).toBeLessThan(data.length);
+		expect(hasOverlap(labels)).toBe(false);
 		expect(html).toContain('>999</text>');
 	});
 
@@ -187,7 +240,7 @@ describe('buildChart data labels', () => {
 		expect(html).not.toContain('>200</text>');
 	});
 
-	it('labels peaks instead of baseline points for dense spiky line charts', () => {
+	it('keeps non-extremum labels when their natural positions do not overlap', () => {
 		const values = Array.from({ length: 36 }, () => 1);
 		values[4] = 3;
 		values[11] = 9;
@@ -204,14 +257,130 @@ describe('buildChart data labels', () => {
 				showDataLabels: true,
 			}),
 		);
-		const labelCount = html.match(/fill="var\(--foreground, #111827\)"/g)?.length ?? 0;
-		const baselineLabelCount =
-			html.match(/<text[^>]*fill="var\(--foreground, #111827\)"[^>]*>1<\/text>/g)?.length ?? 0;
+		const labels = parseDataLabels(html);
+		const baselineLabelCount = labels.filter((label) => label.text === '1').length;
 
 		expect(html).toContain('>9</text>');
-		expect(labelCount).toBeGreaterThan(0);
-		expect(labelCount).toBeLessThan(data.length);
-		expect(labelCount).toBeLessThanOrEqual(12);
-		expect(baselineLabelCount).toBe(0);
+		expect(labels.length).toBeGreaterThan(12);
+		expect(baselineLabelCount).toBeGreaterThan(0);
+		expect(hasOverlap(labels)).toBe(false);
+	});
+
+	it('never overlaps labels across multiple bar series', () => {
+		const html = renderChart(
+			buildChart({
+				data: [
+					{ month: 'Jan', revenue: 120, cost: 118 },
+					{ month: 'Feb', revenue: 90, cost: 92 },
+					{ month: 'Mar', revenue: 140, cost: 138 },
+				],
+				chartType: 'bar',
+				xAxisKey: 'month',
+				xAxisType: 'category',
+				series: [{ data_key: 'revenue' }, { data_key: 'cost' }],
+				showDataLabels: true,
+			}),
+		);
+
+		const labels = parseDataLabels(html);
+		expect(labels.length).toBeGreaterThan(0);
+		expect(hasOverlap(labels)).toBe(false);
+		expect(labels.some((label) => label.text === '140')).toBe(true);
+	});
+
+	it('separates colliding bar and line labels in combo charts', () => {
+		const html = renderChart(
+			buildChart({
+				data: [
+					{ year: '2019', revenue: 50, target: 52 },
+					{ year: '2020', revenue: 70, target: 68 },
+					{ year: '2021', revenue: 110, target: 64 },
+				],
+				chartType: 'mixed',
+				xAxisKey: 'year',
+				xAxisType: 'category',
+				series: [
+					{ data_key: 'revenue', series_type: 'bar' },
+					{ data_key: 'target', series_type: 'line' },
+				],
+				showDataLabels: true,
+			}),
+		);
+
+		const labels = parseDataLabels(html);
+		expect(labels.length).toBeGreaterThan(0);
+		expect(hasOverlap(labels)).toBe(false);
+		expect(labels.some((label) => label.text === '110')).toBe(true);
+	});
+
+	it('keeps every data label inside the chart bounds (no clipping)', () => {
+		const html = renderChart(
+			buildChart({
+				data: [
+					{ month: 'Jan', sales: 800 },
+					{ month: 'Feb', sales: 300 },
+				],
+				chartType: 'bar',
+				xAxisKey: 'month',
+				xAxisType: 'category',
+				series: [{ data_key: 'sales' }],
+				showDataLabels: true,
+			}),
+		);
+
+		const plot = parsePlotRect(html);
+		const labels = parseDataLabels(html);
+		expect(labels.length).toBeGreaterThan(0);
+		for (const label of labels) {
+			// Horizontal placement never leaves the plot; vertical may use the reserved top headroom.
+			expect(label.left).toBeGreaterThanOrEqual(plot.left - 0.5);
+			expect(label.right).toBeLessThanOrEqual(plot.right + 0.5);
+			expect(label.top).toBeGreaterThanOrEqual(-0.5);
+			expect(label.bottom).toBeLessThanOrEqual(400.5);
+		}
+	});
+
+	it('declutters stacked-area total labels instead of piling them up', () => {
+		const data = Array.from({ length: 30 }, (_, index) => ({
+			month: `M${index + 1}`,
+			credit: 1500 + Math.round(Math.sin(index / 2) * 500),
+			transfer: 1200 + Math.round(Math.cos(index / 2) * 400),
+		}));
+		const html = renderChart(
+			buildChart({
+				data,
+				chartType: 'stacked_area',
+				xAxisKey: 'month',
+				xAxisType: 'category',
+				series: [{ data_key: 'credit' }, { data_key: 'transfer' }],
+				showDataLabels: true,
+			}),
+		);
+
+		const labels = parseDataLabels(html);
+		expect(labels.length).toBeGreaterThan(0);
+		expect(labels.length).toBeLessThan(data.length);
+		expect(hasOverlap(labels)).toBe(false);
+	});
+
+	it('places line labels clear of the line, never straddling the data point', () => {
+		const html = renderChart(
+			buildChart({
+				data: [
+					{ month: 'Jan', a: 100, b: 30 },
+					{ month: 'Feb', a: 60, b: 90 },
+					{ month: 'Mar', a: 120, b: 40 },
+				],
+				chartType: 'line',
+				xAxisKey: 'month',
+				xAxisType: 'category',
+				series: [{ data_key: 'a' }, { data_key: 'b' }],
+				showDataLabels: true,
+			}),
+		);
+
+		const labels = parseDataLabels(html);
+		expect(labels.length).toBeGreaterThan(0);
+		expect(hasOverlap(labels)).toBe(false);
 	});
 });

@@ -7,7 +7,6 @@ import {
 	CartesianGrid,
 	ComposedChart,
 	Customized,
-	LabelList,
 	Line,
 	Pie,
 	PieChart,
@@ -38,7 +37,16 @@ const DATA_LABEL_PROPS = {
 };
 const DATA_LABEL_MARGIN_TOP = 24;
 const DATA_LABEL_HEADROOM_RATIO = 0.9;
-const MAX_LINE_AREA_DATA_LABELS = 12;
+
+const DATA_LABEL_FONT_SIZE = 11;
+/** Approximate glyph width as a fraction of the font size; used to size collision boxes without a DOM. */
+const DATA_LABEL_CHAR_WIDTH_RATIO = 0.6;
+/** Vertical clearance between the anchor point/line (or bar edge) and the nearest edge of a label. */
+const DATA_LABEL_ANCHOR_GAP = 8;
+/** Padding added around each label's collision box so neighbours keep a little breathing room. */
+const DATA_LABEL_BOX_PADDING = 2;
+/** Series kinds whose points we place labels for; stacked/pie use their own paths. */
+const LABELLED_SERIES_KINDS = new Set(['Bar', 'Line', 'Area']);
 
 /** Theme-aware background used to draw the thin gaps between pie/donut slices. */
 const DEFAULT_BACKGROUND = 'var(--background, #ffffff)';
@@ -408,6 +416,11 @@ export function shouldReserveDataLabelHeadroom(props: BuildChartProps): boolean 
 	if (props.showDataLabels !== true || !isCartesianLabelChart(props.chartType)) {
 		return false;
 	}
+	// Stacked charts label the running total at the very top of the stack, which can sit flush against
+	// the axis top, so always keep room for that label rather than relying on the axis-headroom ratio.
+	if (props.chartType === 'stacked_bar' || props.chartType === 'stacked_area') {
+		return true;
+	}
 	const maxValue = getMaxPlottedValue(props);
 	if (maxValue == null || maxValue <= 0) {
 		return false;
@@ -643,7 +656,7 @@ function buildBarChart(props: ResolvedProps) {
 	const isPercent = displayChart.isPercentStackedChartType(chartType);
 	const dataKeys = series.map((s) => s.data_key);
 	const axisValues = isStacked ? collectStackedAxisValues(data, dataKeys) : collectAxisValues(data, dataKeys);
-	const { renderedSeries, stackTotalLabel, stackTotalLabelIndex } = getDataLabelSetup(props, isStacked);
+	const { renderedSeries, stackTotalLayer } = getDataLabelSetup(props, isStacked);
 	const seriesKeys = renderedSeries.map((s) => s.data_key);
 	const separatorColor = props.backgroundColor ?? DEFAULT_BACKGROUND_COLOR;
 
@@ -683,13 +696,10 @@ function buildBarChart(props: ResolvedProps) {
 					shape={isStacked ? renderStackedBarShape(seriesKeys, s.data_key, separatorColor) : undefined}
 					isAnimationActive={Boolean(props.animate)}
 					animationDuration={CHART_ANIMATION_DURATION_MS}
-				>
-					{showDataLabels && !isStacked && (
-						<LabelList position='top' formatter={formatDataLabel} {...DATA_LABEL_PROPS} />
-					)}
-					{stackTotalLabel && i === stackTotalLabelIndex && <LabelList content={stackTotalLabel} />}
-				</Bar>
+				/>
 			))}
+			{stackTotalLayer && <Customized component={stackTotalLayer} />}
+			{showDataLabels && !isStacked && <Customized component={DataLabelsLayer} />}
 		</BarChart>
 	);
 }
@@ -761,8 +771,7 @@ function buildAreaChart(props: ResolvedProps) {
 	const zeroBaseline = chartType !== 'line';
 	const dataKeys = series.map((s) => s.data_key);
 	const axisValues = isStacked ? collectStackedAxisValues(data, dataKeys) : collectAxisValues(data, dataKeys);
-	const { renderedSeries, stackTotalLabel, stackTotalLabelIndex } = getDataLabelSetup(props, isStacked);
-	const pointLabelContent = showDataLabels && !isStacked ? buildPointLabelContentBySeries(data, series) : new Map();
+	const { renderedSeries, stackTotalLayer } = getDataLabelSetup(props, isStacked);
 
 	return (
 		<AreaChart data={data} accessibilityLayer margin={margin} stackOffset={isPercent ? 'expand' : undefined}>
@@ -812,11 +821,10 @@ function buildAreaChart(props: ResolvedProps) {
 					stackId={isStacked ? 'stack' : undefined}
 					isAnimationActive={Boolean(props.animate)}
 					animationDuration={CHART_ANIMATION_DURATION_MS}
-				>
-					{showDataLabels && !isStacked && <LabelList content={pointLabelContent.get(s.data_key)} />}
-					{stackTotalLabel && i === stackTotalLabelIndex && <LabelList content={stackTotalLabel} />}
-				</Area>
+				/>
 			))}
+			{stackTotalLayer && <Customized component={stackTotalLayer} />}
+			{showDataLabels && !isStacked && <Customized component={DataLabelsLayer} />}
 		</AreaChart>
 	);
 }
@@ -860,7 +868,6 @@ function buildComboChart(props: ResolvedProps) {
 	const leftDomain = resolveComboAxisDomain(data, leftSeries, yAxisMin, yAxisMax);
 	const rightDomain = resolveComboAxisDomain(data, rightSeries, yAxisRightMin, yAxisRightMax);
 	const areaSeries = series.filter((s) => comboSeriesType(s, chartType) === 'area');
-	const pointLabelContent = showDataLabels ? buildPointLabelContentBySeries(data, series) : new Map();
 
 	return (
 		<ComposedChart data={data} accessibilityLayer margin={margin}>
@@ -918,17 +925,8 @@ function buildComboChart(props: ResolvedProps) {
 				labelFormatter,
 			})}
 			{children}
-			{series.map((s, i) =>
-				renderComboSeries(
-					s,
-					i,
-					chartType,
-					colorFor,
-					showDataLabels,
-					idPrefix,
-					pointLabelContent.get(s.data_key),
-				),
-			)}
+			{series.map((s, i) => renderComboSeries(s, i, chartType, colorFor, idPrefix))}
+			{showDataLabels && <Customized component={DataLabelsLayer} />}
 		</ComposedChart>
 	);
 }
@@ -951,9 +949,7 @@ function renderComboSeries(
 	index: number,
 	baseType: displayChart.ChartType,
 	colorFor: (key: string, index: number) => string,
-	showDataLabels: boolean | undefined,
 	idPrefix: string,
-	pointLabelContent: ReturnType<typeof renderPointLabel> | undefined,
 ) {
 	const color = colorFor(series.data_key, index);
 	const yAxisId = comboAxisSide(series);
@@ -970,9 +966,7 @@ function renderComboSeries(
 				strokeWidth={2}
 				dot={false}
 				isAnimationActive={false}
-			>
-				{showDataLabels && <LabelList content={pointLabelContent} />}
-			</Line>
+			/>
 		);
 	}
 	if (type === 'area') {
@@ -985,9 +979,7 @@ function renderComboSeries(
 				stroke={color}
 				fill={`url(#${idPrefix}grad-combo-${index})`}
 				isAnimationActive={false}
-			>
-				{showDataLabels && <LabelList content={pointLabelContent} />}
-			</Area>
+			/>
 		);
 	}
 	return (
@@ -998,9 +990,7 @@ function renderComboSeries(
 			fill={color}
 			radius={[4, 4, 4, 4]}
 			isAnimationActive={false}
-		>
-			{showDataLabels && <LabelList position='top' formatter={formatDataLabel} {...DATA_LABEL_PROPS} />}
-		</Bar>
+		/>
 	);
 }
 
@@ -1205,83 +1195,6 @@ function renderChartTitle(title: string) {
 	);
 }
 
-type LabelCoordinate = number | string | undefined;
-
-interface StackTotalLabelProps {
-	x?: LabelCoordinate;
-	y?: LabelCoordinate;
-	width?: LabelCoordinate;
-	index?: number;
-}
-
-interface PointLabelProps {
-	x?: LabelCoordinate;
-	y?: LabelCoordinate;
-	value?: unknown;
-	index?: number;
-}
-
-function buildPointLabelContentBySeries(data: Record<string, unknown>[], series: displayChart.SeriesConfig[]) {
-	return new Map(series.map((item) => [item.data_key, renderPointLabel(getLabeledIndices(data, item.data_key))]));
-}
-
-function DataLabelText({ x, y, children }: { x: number; y: number; children: React.ReactNode }) {
-	return (
-		<text x={x} y={y - 6} textAnchor='middle' dominantBaseline='alphabetic' {...DATA_LABEL_PROPS}>
-			{children}
-		</text>
-	);
-}
-
-function renderPointLabel(labeledIndices: Set<number>) {
-	return ({ x, y, value, index }: PointLabelProps) => {
-		const labelX = toFiniteNumber(x);
-		const labelY = toFiniteNumber(y);
-		if (labelX == null || labelY == null || index == null || !labeledIndices.has(index)) {
-			return null;
-		}
-
-		const label = formatDataLabel(value);
-		if (!label) {
-			return null;
-		}
-
-		return (
-			<DataLabelText x={labelX} y={labelY}>
-				{label}
-			</DataLabelText>
-		);
-	};
-}
-
-function getLabeledIndices(
-	data: Record<string, unknown>[],
-	dataKey: string,
-	maxLabels = MAX_LINE_AREA_DATA_LABELS,
-): Set<number> {
-	if (data.length <= maxLabels) {
-		return new Set(data.map((_, index) => index));
-	}
-
-	const values = data.map((row) => toFiniteNumber(row[dataKey]));
-	const peaks = values
-		.map((value, index) => ({ value, index }))
-		.filter(
-			(point): point is { value: number; index: number } =>
-				point.value != null && isLocalMaximum(values, point.index),
-		)
-		.sort((a, b) => b.value - a.value || a.index - b.index)
-		.slice(0, maxLabels)
-		.map((point) => point.index);
-
-	const maxIndex = getMaxValueIndex(data, dataKey);
-	if (maxIndex != null) {
-		peaks.push(maxIndex);
-	}
-
-	return new Set(peaks);
-}
-
 function isLocalMaximum(values: (number | null)[], index: number): boolean {
 	const value = values[index];
 	if (value == null) {
@@ -1292,46 +1205,276 @@ function isLocalMaximum(values: (number | null)[], index: number): boolean {
 	return (left == null || value > left) && (right == null || value > right);
 }
 
-function getMaxValueIndex(data: Record<string, unknown>[], dataKey: string): number | null {
+function isLocalMinimum(values: (number | null)[], index: number): boolean {
+	const value = values[index];
+	if (value == null) {
+		return false;
+	}
+	const left = values[index - 1] ?? null;
+	const right = values[index + 1] ?? null;
+	return (left == null || value < left) && (right == null || value < right);
+}
+
+/** A point is a local extremum when its value turns direction — a peak or a trough versus neighbours. */
+function isLocalExtremum(values: (number | null)[], index: number): boolean {
+	return isLocalMaximum(values, index) || isLocalMinimum(values, index);
+}
+
+interface PlotRect {
+	top?: number;
+	left?: number;
+	width?: number;
+	height?: number;
+}
+
+interface GraphicalPoint {
+	x?: number;
+	y?: number;
+	width?: number;
+	height?: number;
+	value?: unknown;
+}
+
+interface GraphicalItem {
+	item?: { type?: { displayName?: string } };
+	props?: { points?: GraphicalPoint[]; data?: GraphicalPoint[] };
+}
+
+interface DataLabelsLayerProps {
+	formattedGraphicalItems?: GraphicalItem[];
+	offset?: PlotRect;
+}
+
+interface LabelCandidate {
+	cx: number;
+	baselineY: number;
+	box: LabelBox;
+	text: string;
+	seriesIndex: number;
+	isExtremum: boolean;
+}
+
+interface LabelBox {
+	left: number;
+	right: number;
+	top: number;
+	bottom: number;
+}
+
+/**
+ * Single label layer for cartesian charts. Recharts renders each series' labels in isolation, so
+ * labels from different series (or a line crossing a bar) collide with no way to coordinate. Rendered
+ * through `<Customized>`, this layer sees every series' computed pixel geometry at once.
+ *
+ * Philosophy: less is more, and every label is fully predictable. Each label is drawn at its natural
+ * position (centred, one gap above its point/bar; below for negative bars) or not at all — never
+ * nudged sideways or vertically, which is what made earlier attempts hard to read. When two labels'
+ * boxes overlap, one is dropped by a deterministic priority: a local extremum (peak/trough) beats a
+ * non-extremum; otherwise the earlier series wins; ties break left-to-right.
+ */
+function DataLabelsLayer({ formattedGraphicalItems, offset }: DataLabelsLayerProps) {
+	return renderDataLabels(collectLabelCandidates(formattedGraphicalItems ?? [], offset ?? {}));
+}
+
+/**
+ * Labels a stacked chart's running totals (one per x, at the top of the stack) through the same
+ * declutter pipeline as everything else — otherwise they render as a raw `LabelList` and pile up. The
+ * total per point comes from the source rows, positioned on the topmost band's computed geometry.
+ */
+function renderStackTotalLabelsLayer(data: Record<string, unknown>[], series: displayChart.SeriesConfig[]) {
+	return function StackTotalLabelsLayer({ formattedGraphicalItems, offset }: DataLabelsLayerProps) {
+		const items = (formattedGraphicalItems ?? []).filter(isLabelledItem);
+		const top = items[items.length - 1];
+		const kind = top?.item?.type?.displayName;
+		const points = kind === 'Bar' ? top?.props?.data : top?.props?.points;
+		if (!top || !points || points.length === 0) {
+			return null;
+		}
+		const totals = points.map((_, index) => sumStackValue(data[index], series));
+		return renderDataLabels(seriesCandidates(points, totals, kind === 'Bar', 0, offset ?? {}));
+	};
+}
+
+function renderDataLabels(candidates: LabelCandidate[]) {
+	if (candidates.length === 0) {
+		return null;
+	}
+	const placed = resolveOverlaps(candidates);
 	return (
-		data.reduce<{ value: number; index: number } | null>((max, row, index) => {
-			const value = toFiniteNumber(row[dataKey]);
-			if (value == null || (max != null && value <= max.value)) {
-				return max;
-			}
-			return { value, index };
-		}, null)?.index ?? null
+		<g className='recharts-data-labels'>
+			{placed.map((label, index) => (
+				<text
+					key={index}
+					x={label.cx}
+					y={label.baselineY}
+					textAnchor='middle'
+					dominantBaseline='alphabetic'
+					{...DATA_LABEL_PROPS}
+				>
+					{label.text}
+				</text>
+			))}
+		</g>
 	);
 }
 
-function renderStackTotalLabel(data: Record<string, unknown>[], series: displayChart.SeriesConfig[]) {
-	return ({ x, y, width, index }: StackTotalLabelProps) => {
-		const labelX = getCenteredLabelX(x, width);
-		const labelY = toFiniteNumber(y);
-		if (labelX == null || labelY == null || index == null) {
-			return null;
-		}
+function isLabelledItem(entry: GraphicalItem): boolean {
+	const kind = entry.item?.type?.displayName;
+	return kind != null && LABELLED_SERIES_KINDS.has(kind);
+}
 
-		const total = sumStackValue(data[index], series);
-		if (total == null) {
-			return null;
+function collectLabelCandidates(items: GraphicalItem[], plot: PlotRect): LabelCandidate[] {
+	return items.flatMap((entry, seriesIndex) => {
+		const kind = entry.item?.type?.displayName;
+		if (!kind || !LABELLED_SERIES_KINDS.has(kind)) {
+			return [];
 		}
+		const points = kind === 'Bar' ? entry.props?.data : entry.props?.points;
+		if (!points || points.length === 0) {
+			return [];
+		}
+		return seriesCandidates(points, points.map(pointNumericValue), kind === 'Bar', seriesIndex, plot);
+	});
+}
 
-		return (
-			<DataLabelText x={labelX} y={labelY}>
-				{formatCompactNumber(total)}
-			</DataLabelText>
-		);
+function seriesCandidates(
+	points: GraphicalPoint[],
+	values: (number | null)[],
+	isBar: boolean,
+	seriesIndex: number,
+	plot: PlotRect,
+): LabelCandidate[] {
+	return points.flatMap((point, index) => {
+		const value = values[index];
+		if (value == null) {
+			return [];
+		}
+		const text = formatDataLabel(value);
+		if (!text) {
+			return [];
+		}
+		const anchor = labelAnchor(point, value, isBar);
+		if (anchor == null) {
+			return [];
+		}
+		const halfWidth = (text.length * DATA_LABEL_FONT_SIZE * DATA_LABEL_CHAR_WIDTH_RATIO) / 2;
+		const box = labelBox(anchor.cx, anchor.baselineY, halfWidth);
+		// A label clipped by the chart edge at its natural position is unreadable, so drop it outright.
+		if (!fitsHorizontally(anchor.cx, halfWidth, plot) || !fitsVertically(box, plot)) {
+			return [];
+		}
+		return [
+			{
+				cx: anchor.cx,
+				baselineY: anchor.baselineY,
+				box,
+				text,
+				seriesIndex,
+				isExtremum: isLocalExtremum(values, index),
+			},
+		];
+	});
+}
+
+/** Area/line points carry `value` as a `[baseLine, value]` range; bars carry a scalar. Unwrap both. */
+function pointNumericValue(point: GraphicalPoint): number | null {
+	const raw = Array.isArray(point.value) ? point.value[point.value.length - 1] : point.value;
+	return toFiniteNumber(raw);
+}
+
+/** Natural label position: one gap above the point/bar-top (below the bar for negative bars). */
+function labelAnchor(point: GraphicalPoint, value: number, isBar: boolean): { cx: number; baselineY: number } | null {
+	const x = toFiniteNumber(point.x);
+	const y = toFiniteNumber(point.y);
+	if (x == null || y == null) {
+		return null;
+	}
+	if (!isBar) {
+		return { cx: x, baselineY: y - DATA_LABEL_ANCHOR_GAP };
+	}
+	const width = toFiniteNumber(point.width) ?? 0;
+	const height = toFiniteNumber(point.height) ?? 0;
+	return value >= 0
+		? { cx: x + width / 2, baselineY: y - DATA_LABEL_ANCHOR_GAP }
+		: { cx: x + width / 2, baselineY: y + height + DATA_LABEL_ANCHOR_GAP + DATA_LABEL_FONT_SIZE };
+}
+
+/**
+ * Keeps labels at their natural position and drops conflicts. If no two boxes intersect, every label
+ * renders as-is. Otherwise a greedy pass in priority order keeps the winner of each collision and
+ * drops the rest — no nudging, so placement stays predictable.
+ */
+function resolveOverlaps(candidates: LabelCandidate[]): LabelCandidate[] {
+	if (!hasAnyOverlap(candidates)) {
+		return candidates;
+	}
+	const ordered = [...candidates].sort(byLabelPriority);
+	const kept: LabelCandidate[] = [];
+	for (const candidate of ordered) {
+		if (!kept.some((other) => boxesOverlap(other.box, candidate.box))) {
+			kept.push(candidate);
+		}
+	}
+	return kept;
+}
+
+function hasAnyOverlap(candidates: LabelCandidate[]): boolean {
+	for (let i = 0; i < candidates.length; i += 1) {
+		for (let j = i + 1; j < candidates.length; j += 1) {
+			if (boxesOverlap(candidates[i].box, candidates[j].box)) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+/** Extremum beats non-extremum; then earlier series wins; then left-to-right for a stable tiebreak. */
+function byLabelPriority(a: LabelCandidate, b: LabelCandidate): number {
+	if (a.isExtremum !== b.isExtremum) {
+		return a.isExtremum ? -1 : 1;
+	}
+	if (a.seriesIndex !== b.seriesIndex) {
+		return a.seriesIndex - b.seriesIndex;
+	}
+	return a.cx - b.cx;
+}
+
+function fitsHorizontally(cx: number, halfWidth: number, plot: PlotRect): boolean {
+	const box = labelBox(cx, 0, halfWidth);
+	const minLeft = plot.left ?? Number.NEGATIVE_INFINITY;
+	const maxRight = plot.left != null && plot.width != null ? plot.left + plot.width : Number.POSITIVE_INFINITY;
+	return box.left >= minLeft && box.right <= maxRight;
+}
+
+function fitsVertically(box: LabelBox, plot: PlotRect): boolean {
+	// Labels for the tallest bars/peaks live in the top headroom reserved above the plot; allow that
+	// band (never past the SVG top), but keep labels out of the x-axis area below the plot.
+	const minTop = plot.top != null ? Math.max(0, plot.top - DATA_LABEL_MARGIN_TOP) : Number.NEGATIVE_INFINITY;
+	const maxBottom = plot.top != null && plot.height != null ? plot.top + plot.height : Number.POSITIVE_INFINITY;
+	return box.top >= minTop && box.bottom <= maxBottom;
+}
+
+function labelBox(cx: number, baselineY: number, halfWidth: number): LabelBox {
+	return {
+		left: cx - halfWidth - DATA_LABEL_BOX_PADDING,
+		right: cx + halfWidth + DATA_LABEL_BOX_PADDING,
+		top: baselineY - DATA_LABEL_FONT_SIZE - DATA_LABEL_BOX_PADDING,
+		bottom: baselineY + DATA_LABEL_BOX_PADDING,
 	};
+}
+
+function boxesOverlap(a: LabelBox, b: LabelBox): boolean {
+	return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 }
 
 function getDataLabelSetup(props: ResolvedProps, isStacked: boolean) {
 	const renderedSeries = getRenderedSeries(isStacked, props.series);
-	const stackTotalLabel =
+	const stackTotalLayer =
 		props.showDataLabels && isStacked && renderedSeries.length > 0
-			? renderStackTotalLabel(props.data, props.series)
+			? renderStackTotalLabelsLayer(props.data, props.series)
 			: undefined;
-	return { renderedSeries, stackTotalLabel, stackTotalLabelIndex: renderedSeries.length - 1 };
+	return { renderedSeries, stackTotalLayer };
 }
 
 function getRenderedSeries(isStacked: boolean, series: displayChart.SeriesConfig[]): displayChart.SeriesConfig[] {
@@ -1346,16 +1489,6 @@ function sumStackValue(row: Record<string, unknown> | undefined, series: display
 	const values = series.filter((s) => !s.is_total).map((s) => toFiniteNumber(row[s.data_key]));
 	const numericValues = values.filter((value): value is number => value != null);
 	return numericValues.length > 0 ? numericValues.reduce((sum, value) => sum + value, 0) : null;
-}
-
-function getCenteredLabelX(x: LabelCoordinate, width: LabelCoordinate): number | null {
-	const labelX = toFiniteNumber(x);
-	if (labelX == null) {
-		return null;
-	}
-
-	const labelWidth = toFiniteNumber(width);
-	return labelWidth == null ? labelX : labelX + labelWidth / 2;
 }
 
 function toFiniteNumber(value: unknown): number | null {
