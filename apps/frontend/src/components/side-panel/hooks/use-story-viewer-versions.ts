@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { trpc } from '@/main';
 
@@ -7,6 +7,12 @@ interface UseStoryViewerVersionsParams {
 	storySlug: string;
 	isAgentRunning: boolean;
 	isReadonlyMode?: boolean;
+}
+
+interface HistoricalVersionSelection {
+	chatId: string;
+	storySlug: string;
+	index: number;
 }
 
 export const useStoryViewerVersions = ({
@@ -24,7 +30,9 @@ export const useStoryViewerVersions = ({
 	const storyId = data?.id ?? null;
 	const storyTitle = data?.title;
 	const archivedAt = data?.archivedAt;
-	const [selectedVersionIndex, setSelectedVersionIndex] = useState(-1);
+	const [historicalVersionSelection, setHistoricalVersionSelection] = useState<HistoricalVersionSelection | null>(
+		null,
+	);
 	const previousRunningRef = useRef(isAgentRunning);
 
 	useEffect(() => {
@@ -39,25 +47,50 @@ export const useStoryViewerVersions = ({
 		previousRunningRef.current = isAgentRunning;
 	}, [isAgentRunning, queryClient, refetch, chatId, storySlug]);
 
-	useLayoutEffect(() => {
-		setSelectedVersionIndex(versions.length - 1);
-	}, [versions.length]);
+	useEffect(() => {
+		setHistoricalVersionSelection((selection) => {
+			if (resolveHistoricalVersionIndex(selection, chatId, storySlug, versions.length) !== null) {
+				return selection;
+			}
 
-	const currentVersion = useMemo(
-		() => versions[selectedVersionIndex] ?? versions.at(-1),
-		[versions, selectedVersionIndex],
+			return null;
+		});
+	}, [chatId, storySlug, versions.length]);
+
+	const selectedVersionIndex = resolveHistoricalVersionIndex(
+		historicalVersionSelection,
+		chatId,
+		storySlug,
+		versions.length,
 	);
 
-	const currentVersionNumber = selectedVersionIndex >= 0 ? selectedVersionIndex + 1 : versions.length;
-	const isViewingLatest = selectedVersionIndex === versions.length - 1;
+	const currentVersionIndex = selectedVersionIndex ?? versions.length - 1;
+	const currentVersion = versions[currentVersionIndex];
+	const currentVersionNumber = currentVersionIndex + 1;
+	const isViewingLatest = selectedVersionIndex === null;
 
 	const goToPreviousVersion = useCallback(() => {
-		setSelectedVersionIndex((index) => Math.max(0, index - 1));
-	}, []);
+		if (currentVersionIndex <= 0) {
+			return;
+		}
+
+		setHistoricalVersionSelection({
+			chatId,
+			storySlug,
+			index: currentVersionIndex - 1,
+		});
+	}, [chatId, currentVersionIndex, storySlug]);
 
 	const goToNextVersion = useCallback(() => {
-		setSelectedVersionIndex((index) => Math.min(versions.length - 1, index + 1));
-	}, [versions.length]);
+		if (selectedVersionIndex === null) {
+			return;
+		}
+
+		const nextVersionIndex = selectedVersionIndex + 1;
+		setHistoricalVersionSelection(
+			nextVersionIndex >= versions.length - 1 ? null : { chatId, storySlug, index: nextVersionIndex },
+		);
+	}, [chatId, selectedVersionIndex, storySlug, versions.length]);
 
 	return {
 		versions,
@@ -71,3 +104,21 @@ export const useStoryViewerVersions = ({
 		goToNextVersion,
 	};
 };
+
+function resolveHistoricalVersionIndex(
+	selection: HistoricalVersionSelection | null,
+	chatId: string,
+	storySlug: string,
+	versionCount: number,
+) {
+	if (
+		selection?.chatId !== chatId ||
+		selection.storySlug !== storySlug ||
+		selection.index < 0 ||
+		selection.index >= versionCount - 1
+	) {
+		return null;
+	}
+
+	return selection.index;
+}
