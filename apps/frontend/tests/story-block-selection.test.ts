@@ -46,7 +46,7 @@ const FIRST_GRID = '<grid><chart query_id="q1" chart_type="line" x_axis_key="mon
 const FIRST_GRID_REORDERED = '<grid><chart query_id="q1" chart_type="bar" x_axis_key="month" /></grid>';
 const SECOND_GRID = '<grid><chart query_id="q2" chart_type="bar" x_axis_key="month" /></grid>';
 
-function createGridEditor(): Editor {
+function createGridEditor(secondGridContent = SECOND_GRID): Editor {
 	return new Editor({
 		extensions: [StarterKit, TestGridBlock, BlockSelection],
 		content: {
@@ -54,7 +54,7 @@ function createGridEditor(): Editor {
 			content: [
 				{ type: 'paragraph', content: [{ type: 'text', text: 'Before' }] },
 				{ type: 'gridBlock', attrs: { rawContent: FIRST_GRID } },
-				{ type: 'gridBlock', attrs: { rawContent: SECOND_GRID } },
+				{ type: 'gridBlock', attrs: { rawContent: secondGridContent } },
 				{ type: 'paragraph', content: [{ type: 'text', text: 'After' }] },
 			],
 		},
@@ -363,6 +363,30 @@ describe('story block selection', () => {
 
 			expect(getSelectedGridColumns(gridEditor.state)).toEqual([]);
 			expect(blockSelectionPluginKey.getState(gridEditor.state)?.columnAnchor).toBeNull();
+		});
+
+		it('clears selection when the selected grid is deleted before an identical grid', () => {
+			const identicalGridEditor = createGridEditor(FIRST_GRID);
+			const [, firstGridPos] = topLevelBlockPositions(identicalGridEditor.state.doc);
+			const selection = selectColumnFromHandle(identicalGridEditor.state, firstGridPos, 0);
+			expect(selection).not.toBeNull();
+			if (selection) {
+				identicalGridEditor.view.dispatch(
+					identicalGridEditor.state.tr.setMeta(blockSelectionPluginKey, selection),
+				);
+			}
+
+			const firstGrid = identicalGridEditor.state.doc.nodeAt(firstGridPos);
+			expect(firstGrid).not.toBeNull();
+			if (firstGrid) {
+				identicalGridEditor.view.dispatch(
+					identicalGridEditor.state.tr.delete(firstGridPos, firstGridPos + firstGrid.nodeSize),
+				);
+			}
+
+			expect(getSelectedGridColumns(identicalGridEditor.state)).toEqual([]);
+			expect(blockSelectionPluginKey.getState(identicalGridEditor.state)?.columnAnchor).toBeNull();
+			identicalGridEditor.destroy();
 		});
 
 		it('keeps selection in an unchanged grid when another grid changes', () => {

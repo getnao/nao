@@ -452,11 +452,7 @@ function getChangedGridPositions(tr: Transaction, selection: BlockSelectionState
 }
 
 function hasUnchangedGridContent(before: PMNode | null, after: PMNode | null): boolean {
-	return (
-		before?.type.name === 'gridBlock' &&
-		after?.type.name === 'gridBlock' &&
-		before.attrs.rawContent === after.attrs.rawContent
-	);
+	return before?.type.name === 'gridBlock' && before === after;
 }
 
 function isValidGridColumn(doc: PMNode, column: GridColumnRef): boolean {
