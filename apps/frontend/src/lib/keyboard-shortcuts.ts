@@ -51,7 +51,7 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
 	},
 	{
 		id: 'stop-generation',
-		label: 'Cancel prompt',
+		label: 'Cancel messages',
 		group: 'Chat',
 		shortcut: { ctrl: true, key: 'c' },
 	},
