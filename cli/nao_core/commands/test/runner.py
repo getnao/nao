@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, cast
+from typing import Annotated, Literal, cast
 
 import numpy as np
 import pandas as pd
@@ -18,9 +18,11 @@ from nao_core.ui import UI
 from .case import TESTS_FOLDER, TestCase, discover_tests
 from .client import AgentClientError, VerificationResult, get_client
 from .compare import normalize_dataframe_numbers
+from .junit import save_results_junit
 
 # Default models to test
 DEFAULT_MODELS = ["openai:gpt-4.1"]
+ResultFormat = Literal["json", "junit"]
 
 
 @dataclass
@@ -53,6 +55,8 @@ class TestRunDetails:
     tool_calls: list[dict] | None = None
     reference_sql: str | None = None
 
+    __test__ = False  # not a pytest test class
+
 
 @dataclass
 class TestRunResult:
@@ -68,6 +72,8 @@ class TestRunResult:
     tool_call_count: int | None = None
     error: str | None = None
     details: TestRunDetails | None = None
+
+    __test__ = False  # not a pytest test class
 
 
 def check_dataframe(
@@ -259,8 +265,19 @@ def run_test(
         )
 
 
-def save_results(results: list[TestRunResult], output_dir: Path) -> Path:
-    """Save test results to JSON file."""
+def save_results(results: list[TestRunResult], output_dir: Path, fmt: ResultFormat = "json") -> Path:
+    """Save test results to disk in the requested format.
+
+    Supported formats:
+
+    - ``"json"`` (default): the existing ``results_<timestamp>.json`` report.
+    - ``"junit"``: a JUnit XML report at ``results_<timestamp>.xml`` for CI
+      pipelines that consume the JUnit format natively (GitHub Actions,
+      GitLab CI, Jenkins, Buildkite, etc.).
+    """
+    if fmt == "junit":
+        return save_results_junit(results, output_dir)
+
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_file = output_dir / f"results_{timestamp}.json"
@@ -373,6 +390,17 @@ def test(
             help="Password for authentication. Falls back to NAO_PASSWORD env var.",
         ),
     ] = None,
+    format: Annotated[
+        ResultFormat,
+        Parameter(
+            name=["--format", "-f"],
+            help=(
+                "Result report format. 'json' (default) writes the existing "
+                "results_<ts>.json report. 'junit' writes a results_<ts>.xml "
+                "report for CI pipelines that consume JUnit XML natively."
+            ),
+        ),
+    ] = "json",
 ):
     """Run tests from the tests/ folder.
 
@@ -384,6 +412,7 @@ def test(
         nao test -s test_name
         nao test -s 12,13,14
         nao test -u user@example.com --password secret
+        nao test --format junit
     """
     email = username or os.environ.get("NAO_USERNAME")
     pwd = password or os.environ.get("NAO_PASSWORD")
@@ -446,8 +475,8 @@ def test(
                 results.append(result)
                 UI.print("")
 
-    # Save results to JSON
-    output_file = save_results(results, project_path / TESTS_FOLDER / "outputs")
+    # Save results in the requested format
+    output_file = save_results(results, project_path / TESTS_FOLDER / "outputs", fmt=format)
     UI.print(f"[dim]Results saved to: {output_file}[/dim]\n")
 
     # Print summary table
