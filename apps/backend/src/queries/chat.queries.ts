@@ -5,7 +5,7 @@ import type {
 	GroupedChatListResponse,
 	LlmProvider,
 } from '@nao/shared/types';
-import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, like, ne, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, like, ne, notInArray, or, sql } from 'drizzle-orm';
 
 import s, {
 	DBChat,
@@ -317,6 +317,23 @@ export const deleteLastEmptyTurn = async (
 			latestMessage.role === 'user' ? latestMessage : activeMessages.find((message) => message.role === 'user');
 		if (!userMessage) {
 			return { outcome: 'kept', chatDeleted: false };
+		}
+
+		if (latestMessage.role === 'assistant') {
+			const [semanticContentPart] = await t
+				.select({ id: s.messagePart.id })
+				.from(s.messagePart)
+				.where(
+					and(
+						eq(s.messagePart.messageId, latestMessage.id),
+						notInArray(s.messagePart.type, ['step-start', 'reasoning', 'tool-suggest_follow_ups']),
+					),
+				)
+				.limit(1)
+				.execute();
+			if (semanticContentPart) {
+				return { outcome: 'kept', chatDeleted: false };
+			}
 		}
 
 		if (userMessage.versionGroupId) {

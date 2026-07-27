@@ -80,7 +80,7 @@ export const chatRoutes = {
 		posthog.capture(ctx.user.id, PostHogEvent.AgentStopped, { project_id: projectId, chat_id: input.chatId });
 	}),
 
-	cancel: chatOwnerProcedure.input(z.object({ chatId: z.string(), hadContent: z.boolean() })).mutation(
+	cancel: chatOwnerProcedure.input(z.object({ chatId: z.string() })).mutation(
 		async ({
 			input,
 			ctx,
@@ -96,10 +96,6 @@ export const chatRoutes = {
 					chat_id: input.chatId,
 				});
 				await Promise.race([agent.waitUntilFinished(), delay(10_000)]);
-			}
-
-			if (input.hadContent) {
-				return { outcome: 'kept', chatDeleted: false };
 			}
 
 			return chatQueries.deleteLastEmptyTurn(input.chatId);

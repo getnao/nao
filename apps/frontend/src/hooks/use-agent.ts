@@ -15,7 +15,6 @@ import type { MentionOption } from 'prompt-mentions';
 
 import { getActiveProjectId } from '@/lib/active-project';
 import {
-	checkAssistantMessageHasContent,
 	checkIsAgentRunning,
 	extractImagesFromMessage,
 	getLastUserMessageIdx,
@@ -304,7 +303,6 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 		const lastUserMessage = lastUserMessageIndex !== undefined ? messages[lastUserMessageIndex] : undefined;
 		const lastMessage = messages.at(-1);
 		const lastAssistantMessage = lastMessage?.role === 'assistant' ? lastMessage : undefined;
-		const hadContent = lastAssistantMessage ? checkAssistantMessageHasContent(lastAssistantMessage) : false;
 
 		if (lastAssistantMessage) {
 			cancellingMessageIdStore.setCancelling(lastAssistantMessage.id);
@@ -312,7 +310,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 		agentInstance.stop();
 
 		try {
-			const result = await cancelAgentMutation.mutateAsync({ chatId, hadContent });
+			const result = await cancelAgentMutation.mutateAsync({ chatId });
 
 			if (result.outcome === 'kept') {
 				if (lastUserMessage) {
