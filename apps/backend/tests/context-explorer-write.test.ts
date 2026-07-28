@@ -22,6 +22,11 @@ describe('context explorer file writes', () => {
 		projectFolder = mkdtempSync(join(tmpdir(), 'nao-context-explorer-write-'));
 		execFileSync('git', ['init', '--quiet'], { cwd: projectFolder, stdio: 'pipe' });
 		writeFileSync(join(projectFolder, 'context.md'), 'original content\n');
+		commitFiles(projectFolder);
+		execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/nao/context.git'], {
+			cwd: projectFolder,
+			stdio: 'pipe',
+		});
 	});
 
 	afterEach(() => {
@@ -58,7 +63,7 @@ describe('context explorer file writes', () => {
 				writeFileContent('/context.md', 'updated content\n', original.hash, nonRepositoryFolder),
 			).rejects.toMatchObject({
 				code: 'FORBIDDEN',
-				message: 'Editing requires the project folder to be a git repository.',
+				message: 'This project is read-only because no GitHub or GitLab origin is connected.',
 			});
 			expect(readFileSync(filePath, 'utf-8')).toBe('original content\n');
 		} finally {
@@ -71,7 +76,10 @@ describe('context explorer file writes', () => {
 
 		await expect(
 			writeFileContent('/missing.md', 'new content\n', original.hash, projectFolder),
-		).rejects.toMatchObject({ code: 'NOT_FOUND' });
+		).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+			message: expect.stringContaining('not committed'),
+		});
 	});
 
 	it('rejects path traversal', async () => {
@@ -141,6 +149,7 @@ describe('context explorer file writes', () => {
 		writeFileSync(join(projectFolder, '.gitignore'), 'ignored.txt\n');
 		writeFileSync(join(projectFolder, '.gitkeep'), 'keep\n');
 		writeFileSync(join(projectFolder, '.gitattributes'), '* text=auto\n');
+		commitFiles(projectFolder);
 
 		const tree = await getFileTree(projectFolder);
 		const names = tree.map((entry) => entry.name);
@@ -218,6 +227,7 @@ describe('context explorer file writes', () => {
 			writeFileSync(join(projectFolder, fileName), 'original\n');
 			writeFileSync(join(projectFolder, 'nested', fileName), 'nested original\n');
 		}
+		commitFiles(projectFolder);
 
 		const tree = await getFileTree(projectFolder);
 		const nested = tree.find((entry) => entry.name === 'nested');
@@ -298,3 +308,12 @@ describe('context explorer file writes', () => {
 		).rejects.toMatchObject({ code: 'FORBIDDEN' });
 	});
 });
+
+function commitFiles(projectFolder: string): void {
+	execFileSync('git', ['add', '-A'], { cwd: projectFolder, stdio: 'pipe' });
+	execFileSync(
+		'git',
+		['-c', 'user.name=Test User', '-c', 'user.email=test@example.com', 'commit', '--quiet', '-m', 'fixture'],
+		{ cwd: projectFolder, stdio: 'pipe' },
+	);
+}

@@ -6,6 +6,7 @@ import type {
 	FileContentResponse,
 	FileContentSearchResponse,
 	FileContentSearchResult,
+	FileEditabilityReason,
 	FileTreeEntry,
 	FileWriteResponse,
 } from '@nao/shared/types';
@@ -13,7 +14,14 @@ import { TRPCError } from '@trpc/server';
 import { spawn } from 'child_process';
 import fs from 'fs/promises';
 
-import { isGitRepository } from '../utils/git-repo';
+import {
+	ContextRepo,
+	ContextRepoState,
+	getCommittedProjectPaths,
+	normalizeProjectPath,
+	resolveContextRepo,
+	toContextRepoState,
+} from '../utils/context-repo';
 import { getRipgrepPath } from '../utils/ripgrep';
 import { assertNoSymlinkInWritePath, canonicalizeWriteRoot, writeFileAtomically } from '../utils/safe-file-write';
 import {
@@ -28,6 +36,18 @@ const SEARCH_TIMEOUT_MS = 5_000;
 const MAX_SEARCH_FILES = 200;
 export const MAX_CONTEXT_FILE_SIZE = 1024 * 1024;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
+const FRONTMATTER_READ_SIZE = 8 * 1024;
+
+export interface FileEditability {
+	isEditable: boolean;
+	reason: FileEditabilityReason | null;
+}
+
+export interface FileTreeResponse {
+	entries: FileTreeEntry[];
+	repo: ContextRepoState | null;
+	isEditable: boolean;
+}
 
 type RipgrepMatchEntry = {
 	type: 'match';
@@ -40,15 +60,30 @@ type RipgrepMatchEntry = {
 };
 
 export async function getFileTree(projectFolder: string): Promise<FileTreeEntry[]> {
-	return readDirectoryRecursive(projectFolder, projectFolder);
+	const repo = resolveContextRepo(projectFolder);
+	const trackedPaths = repo ? getCommittedProjectPaths(repo) : new Set<string>();
+	return readDirectoryRecursive(projectFolder, projectFolder, trackedPaths);
+}
+
+export async function getFileTreeResponse(projectFolder: string): Promise<FileTreeResponse> {
+	const repo = resolveContextRepo(projectFolder);
+	const trackedPaths = repo ? getCommittedProjectPaths(repo) : new Set<string>();
+	return {
+		entries: await readDirectoryRecursive(projectFolder, projectFolder, trackedPaths),
+		repo: toContextRepoState(repo),
+		isEditable: repo !== null,
+	};
 }
 
 export async function readFileContent(filePath: string, projectFolder: string): Promise<FileContentResponse> {
 	const { realPath } = resolveAndValidatePath(filePath, projectFolder);
 	const contentBuffer = await readValidatedFile(realPath, filePath);
+	const editability = getFileEditability(filePath, realPath, projectFolder);
 	return {
 		content: decodeTextContent(contentBuffer),
 		hash: hashContent(contentBuffer),
+		isEditable: editability.isEditable,
+		editabilityReason: editability.reason,
 	};
 }
 
@@ -58,17 +93,12 @@ export async function writeFileContent(
 	expectedHash: string,
 	projectFolder: string,
 ): Promise<FileWriteResponse> {
-	if (!isGitRepository(projectFolder)) {
-		throw new TRPCError({
-			code: 'FORBIDDEN',
-			message: 'Editing requires the project folder to be a git repository.',
-		});
-	}
 	validateExpectedHash(expectedHash);
 	const contentBuffer = Buffer.from(content, 'utf-8');
 	validateContentBuffer(contentBuffer);
 
 	const { realPath, root } = resolveAndValidatePath(filePath, projectFolder);
+	assertFileEditable(filePath, realPath, projectFolder);
 	const currentContent = await readValidatedFile(realPath, filePath);
 	assertExpectedHash(currentContent, expectedHash);
 
@@ -88,6 +118,47 @@ export async function writeFileContent(
 	}
 
 	return { hash: hashContent(contentBuffer) };
+}
+
+export function getFileEditability(
+	filePath: string,
+	realPath: string,
+	projectFolder: string,
+	repo = resolveContextRepo(projectFolder),
+	trackedPaths = repo ? getCommittedProjectPaths(repo) : new Set<string>(),
+): FileEditability {
+	if (!repo) {
+		return { isEditable: false, reason: 'no-repo' };
+	}
+
+	const projectPath = normalizeProjectPath(filePath);
+	if (!trackedPaths.has(projectPath)) {
+		return { isEditable: false, reason: 'not-tracked' };
+	}
+	if (hasGeneratedFrontmatter(realPath)) {
+		return { isEditable: false, reason: 'generated' };
+	}
+	if (fsSync.existsSync(`${realPath}.j2`)) {
+		return { isEditable: false, reason: 'rendered-template' };
+	}
+	return { isEditable: true, reason: null };
+}
+
+export function assertFileEditable(
+	filePath: string,
+	realPath: string,
+	projectFolder: string,
+	repo?: ContextRepo | null,
+	trackedPaths?: Set<string>,
+): void {
+	const editability = getFileEditability(filePath, realPath, projectFolder, repo, trackedPaths);
+	if (editability.isEditable) {
+		return;
+	}
+	throw new TRPCError({
+		code: 'FORBIDDEN',
+		message: editabilityMessage(editability.reason),
+	});
 }
 
 export async function searchFileContents(query: string, projectFolder: string): Promise<FileContentSearchResponse> {
@@ -236,7 +307,11 @@ function runContentSearch(
 	});
 }
 
-async function readDirectoryRecursive(dirPath: string, projectFolder: string): Promise<FileTreeEntry[]> {
+async function readDirectoryRecursive(
+	dirPath: string,
+	projectFolder: string,
+	trackedPaths: Set<string>,
+): Promise<FileTreeEntry[]> {
 	const dirEntries = await fs.readdir(dirPath, { withFileTypes: true });
 
 	const parentRelativePath = path.relative(projectFolder, dirPath);
@@ -249,7 +324,7 @@ async function readDirectoryRecursive(dirPath: string, projectFolder: string): P
 		const virtualPath = '/' + path.relative(projectFolder, fullPath);
 
 		if (entry.isDirectory()) {
-			const children = await readDirectoryRecursive(fullPath, projectFolder);
+			const children = await readDirectoryRecursive(fullPath, projectFolder, trackedPaths);
 			entries.push({
 				name: entry.name,
 				path: virtualPath,
@@ -257,10 +332,12 @@ async function readDirectoryRecursive(dirPath: string, projectFolder: string): P
 				children,
 			});
 		} else if (entry.isFile()) {
+			const projectPath = path.relative(projectFolder, fullPath).split(path.sep).join('/');
 			entries.push({
 				name: entry.name,
 				path: virtualPath,
 				type: 'file',
+				isTracked: trackedPaths.has(projectPath),
 			});
 		}
 	}
@@ -275,7 +352,7 @@ async function readDirectoryRecursive(dirPath: string, projectFolder: string): P
 	return entries;
 }
 
-function resolveAndValidatePath(virtualPath: string, projectFolder: string): { realPath: string; root: string } {
+export function resolveAndValidatePath(virtualPath: string, projectFolder: string): { realPath: string; root: string } {
 	try {
 		const root = canonicalizeWriteRoot(projectFolder);
 		const realPath = toRealPath(virtualPath, root);
@@ -322,7 +399,7 @@ function readValidatedFileSync(filePath: string, displayPath: string): Buffer {
 	}
 }
 
-function validateContentBuffer(content: Buffer): void {
+export function validateContentBuffer(content: Buffer): void {
 	assertFileSize(content.byteLength);
 	if (content.includes(0)) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Binary files cannot be opened in the file explorer.' });
@@ -330,7 +407,7 @@ function validateContentBuffer(content: Buffer): void {
 	decodeTextContent(content);
 }
 
-function decodeTextContent(content: Buffer): string {
+export function decodeTextContent(content: Buffer): string {
 	try {
 		return new TextDecoder('utf-8', { fatal: true }).decode(content);
 	} catch {
@@ -368,8 +445,44 @@ function assertExpectedHash(content: Buffer, expectedHash: string): void {
 	}
 }
 
-function hashContent(content: Buffer): string {
+export function hashContent(content: Buffer): string {
 	return createHash('sha256').update(content).digest('hex');
+}
+
+function hasGeneratedFrontmatter(filePath: string): boolean {
+	let fileDescriptor: number | null = null;
+	try {
+		fileDescriptor = fsSync.openSync(filePath, fsSync.constants.O_RDONLY | fsSync.constants.O_NOFOLLOW);
+		const buffer = Buffer.alloc(FRONTMATTER_READ_SIZE);
+		const bytesRead = fsSync.readSync(fileDescriptor, buffer, 0, buffer.byteLength, 0);
+		const prefix = buffer.subarray(0, bytesRead).toString('utf-8');
+		if (!prefix.startsWith('---\n') && !prefix.startsWith('---\r\n')) {
+			return false;
+		}
+		const frontmatter = prefix.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1];
+		return frontmatter?.split(/\r?\n/).some((line) => /^type:\s*generated\s*$/.test(line.trim())) ?? false;
+	} catch {
+		return false;
+	} finally {
+		if (fileDescriptor !== null) {
+			fsSync.closeSync(fileDescriptor);
+		}
+	}
+}
+
+function editabilityMessage(reason: FileEditabilityReason | null): string {
+	switch (reason) {
+		case 'no-repo':
+			return 'This project is read-only because no GitHub or GitLab origin is connected.';
+		case 'not-tracked':
+			return 'This file is read-only because it is not committed to the context repository.';
+		case 'generated':
+			return 'This file is read-only because it is generated by nao.';
+		case 'rendered-template':
+			return 'This file is read-only because it is rendered from a Jinja template. Edit the .j2 template instead.';
+		default:
+			return 'This file is read-only.';
+	}
 }
 
 function toFileError(error: unknown, filePath: string): TRPCError {

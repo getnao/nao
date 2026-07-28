@@ -21,13 +21,13 @@ import * as github from './github';
 import * as gitlab from './gitlab';
 
 /** Git commit author/co-author identity. Defined here since it's a provider-agnostic concept, not owned by either. */
-interface GitIdentity {
+export interface GitIdentity {
 	name: string;
 	email: string;
 }
 
 /** Provider-specific glue for `createReviewRequest` — everything else about opening a PR/MR is identical. */
-interface ReviewRequestProvider {
+export interface ReviewRequestProvider {
 	getToken: (userId: string) => Promise<string | null>;
 	notConnectedMessage: string;
 	cloneRepo: (token: string, repoFullName: string, dir: string) => void;
@@ -50,7 +50,7 @@ interface ReviewRequestProvider {
 	) => Promise<{ url: string }>;
 }
 
-const REVIEW_REQUEST_PROVIDERS: Record<RepoProvider, ReviewRequestProvider> = {
+export const REVIEW_REQUEST_PROVIDERS: Record<RepoProvider, ReviewRequestProvider> = {
 	github: {
 		getToken: userQueries.getGithubToken,
 		notConnectedMessage: 'GitHub is not connected. Connect your GitHub account first.',
@@ -87,6 +87,11 @@ const REVIEW_REQUEST_PROVIDERS: Record<RepoProvider, ReviewRequestProvider> = {
 export interface CreatePullRequestResult {
 	url: string;
 	branch: string;
+}
+
+export interface ReviewRequestEdit {
+	path: string;
+	newContent: string;
 }
 
 export interface RecommendationRepo {
@@ -234,8 +239,10 @@ export async function createRecommendationPullRequest(
 			workdir,
 			branch,
 			configuredBase: repo.branch,
-			rec,
-			edits,
+			edits: toReviewRequestEdits(edits),
+			title: prTitle(rec),
+			commitMessage: commitMessage(rec),
+			body: prBody(rec, edits),
 		});
 
 		const prCreatedAt = new Date();
@@ -255,17 +262,19 @@ export async function createRecommendationPullRequest(
  * review request. Identical across providers except for the token lookup and how the review
  * request itself is created — both captured by `provider`.
  */
-async function createReviewRequest(args: {
+export async function createReviewRequest(args: {
 	provider: ReviewRequestProvider;
 	userId: string;
 	repoFullName: string;
 	workdir: string;
 	branch: string;
 	configuredBase: string | null;
-	rec: DBContextRecommendation;
-	edits: ProposedEdit[];
+	edits: ReviewRequestEdit[];
+	title: string;
+	commitMessage: string;
+	body: string;
 }): Promise<{ url: string }> {
-	const { provider, userId, repoFullName, workdir, branch, configuredBase, rec, edits } = args;
+	const { provider, userId, repoFullName, workdir, branch, configuredBase, edits, title, commitMessage, body } = args;
 
 	const token = await provider.getToken(userId);
 	if (!token) {
@@ -283,16 +292,16 @@ async function createReviewRequest(args: {
 		repoFullName,
 		dir: workdir,
 		branch,
-		message: commitMessage(rec),
+		message: commitMessage,
 		author,
 		coAuthors: [provider.coAuthor],
 	});
 
 	return provider.openReviewRequest(token, repoFullName, {
-		title: prTitle(rec),
+		title,
 		head: branch,
 		base,
-		body: prBody(rec, edits),
+		body,
 	});
 }
 
@@ -343,15 +352,22 @@ function filterPullRequestEdits(edits: ProposedEdit[]): ProposedEdit[] {
 	});
 }
 
-function applyEdits(dir: string, edits: ProposedEdit[]): void {
+function applyEdits(dir: string, edits: ReviewRequestEdit[]): void {
 	const root = canonicalizeWriteRoot(dir);
 	for (const edit of edits) {
-		const editPath = edit.targetRepo?.path ?? edit.path;
+		const editPath = edit.path;
 		const target = resolveWritePath(root, editPath);
 		assertNoSymlinkInWritePath(root, target, editPath);
 		fs.mkdirSync(path.dirname(target), { recursive: true });
 		writeFileAtomically({ content: edit.newContent, displayPath: editPath, root, target });
 	}
+}
+
+function toReviewRequestEdits(edits: ProposedEdit[]): ReviewRequestEdit[] {
+	return edits.map((edit) => ({
+		path: edit.targetRepo?.path ?? edit.path,
+		newContent: edit.newContent,
+	}));
 }
 
 function prTitle(rec: DBContextRecommendation): string {

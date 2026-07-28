@@ -2,13 +2,18 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import {
-	getFileTree,
+	getFileTreeResponse,
 	MAX_CONTEXT_FILE_SIZE,
 	readFileContent,
 	searchFileContents,
 	writeFileContent,
 } from '../services/context-explorer.service';
-import { isGitRepository } from '../utils/git-repo';
+import {
+	discardContextFileChange,
+	getChangedContextFiles,
+	getContextFileDiff,
+} from '../services/context-explorer-git.service';
+import { createContextExplorerPullRequest } from '../services/context-explorer-pr.service';
 import { adminProtectedProcedure } from './trpc';
 
 function requireProjectPath(path: string | null): string {
@@ -21,10 +26,7 @@ function requireProjectPath(path: string | null): string {
 export const contextExplorerRoutes = {
 	getFileTree: adminProtectedProcedure.query(async ({ ctx }) => {
 		const projectPath = requireProjectPath(ctx.project.path);
-		return {
-			entries: await getFileTree(projectPath),
-			isEditable: isGitRepository(projectPath),
-		};
+		return getFileTreeResponse(projectPath);
 	}),
 
 	readFile: adminProtectedProcedure.input(z.object({ path: z.string() })).query(async ({ ctx, input }) => {
@@ -51,4 +53,26 @@ export const contextExplorerRoutes = {
 			const projectPath = requireProjectPath(ctx.project.path);
 			return searchFileContents(input.query, projectPath);
 		}),
+
+	getChangedFiles: adminProtectedProcedure.query(({ ctx }) => {
+		const projectPath = requireProjectPath(ctx.project.path);
+		return getChangedContextFiles(projectPath);
+	}),
+
+	getFileDiff: adminProtectedProcedure.input(z.object({ path: z.string() })).query(async ({ ctx, input }) => {
+		const projectPath = requireProjectPath(ctx.project.path);
+		return getContextFileDiff(input.path, projectPath);
+	}),
+
+	createPullRequest: adminProtectedProcedure
+		.input(z.object({ paths: z.array(z.string()).min(1).max(100) }))
+		.mutation(async ({ ctx, input }) => {
+			const projectPath = requireProjectPath(ctx.project.path);
+			return createContextExplorerPullRequest(projectPath, ctx.user.id, input.paths);
+		}),
+
+	discardLocalChange: adminProtectedProcedure.input(z.object({ path: z.string() })).mutation(({ ctx, input }) => {
+		const projectPath = requireProjectPath(ctx.project.path);
+		return discardContextFileChange(input.path, projectPath);
+	}),
 };

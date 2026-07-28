@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from '@tanstack/react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Code, File, Loader2, Save } from 'lucide-react';
 import { useDefaultLayout } from 'react-resizable-panels';
 import { Streamdown } from 'streamdown';
+import type { FileEditabilityReason } from '@nao/shared/types';
 import { FileSourceEditor } from '@/components/settings/file-source-editor';
 import {
 	AlertDialog,
@@ -39,6 +41,7 @@ interface FileViewerProps {
 	isLoading: boolean;
 	isError: boolean;
 	isEditable: boolean;
+	editabilityReason: FileEditabilityReason | null;
 	searchQuery: string;
 	onDirtyChange: (isDirty: boolean) => void;
 	onReload: () => Promise<FileContents | undefined>;
@@ -58,6 +61,7 @@ export function FileViewer({
 	isLoading,
 	isError,
 	isEditable,
+	editabilityReason,
 	searchQuery,
 	onDirtyChange,
 	onReload,
@@ -94,6 +98,7 @@ export function FileViewer({
 			content={content}
 			hash={hash}
 			isEditable={isEditable}
+			editabilityReason={editabilityReason}
 			searchQuery={searchQuery}
 			onDirtyChange={onDirtyChange}
 			onReload={onReload}
@@ -106,12 +111,13 @@ function EditableFileViewer({
 	content,
 	hash,
 	isEditable,
+	editabilityReason,
 	searchQuery,
 	onDirtyChange,
 	onReload,
 }: Pick<
 	FileViewerProps,
-	'filePath' | 'content' | 'hash' | 'isEditable' | 'searchQuery' | 'onDirtyChange' | 'onReload'
+	'filePath' | 'content' | 'hash' | 'isEditable' | 'editabilityReason' | 'searchQuery' | 'onDirtyChange' | 'onReload'
 > & {
 	filePath: string;
 	content: string;
@@ -182,13 +188,17 @@ function EditableFileViewer({
 					saveInProgressRef.current = false;
 					queryClient.setQueryData(
 						trpc.contextExplorer.readFile.queryOptions({ path: pathToSave }).queryKey,
-						{ content: contentToSave, hash: result.hash },
+						(previous) =>
+							previous ? { ...previous, content: contentToSave, hash: result.hash } : previous,
 					);
 					if (activePathRef.current === pathToSave) {
 						setSavedContent(contentToSave);
 						setExpectedHash(result.hash);
 						setSaveError(null);
 					}
+					void queryClient.invalidateQueries({
+						queryKey: trpc.contextExplorer.getChangedFiles.queryKey(),
+					});
 				},
 				onError: (error) => {
 					saveInProgressRef.current = false;
@@ -239,9 +249,6 @@ function EditableFileViewer({
 				<File className='size-3.5' />
 				<span className='font-mono truncate'>{fileName}</span>
 				<span className='text-xs opacity-60 ml-auto truncate'>{filePath}</span>
-				{!isEditable && (
-					<span className='shrink-0 text-xs opacity-70'>Read-only — editing requires a git repository.</span>
-				)}
 				{isEditable && isDirty && (
 					<span className='flex shrink-0 items-center gap-1 text-xs text-amber-600 dark:text-amber-400'>
 						<span className='size-1.5 rounded-full bg-current' />
@@ -268,6 +275,7 @@ function EditableFileViewer({
 					</Button>
 				)}
 			</div>
+			{!isEditable && editabilityReason && <ReadOnlyNote reason={editabilityReason} />}
 			{isEditable && saveError && (
 				<div className='flex shrink-0 items-center gap-2 border-b px-3 py-2'>
 					<div className='min-w-0 flex-1'>
@@ -349,6 +357,28 @@ function EditableFileViewer({
 			</AlertDialog>
 		</div>
 	);
+}
+
+function ReadOnlyNote({ reason }: { reason: FileEditabilityReason }) {
+	if (reason === 'no-repo') {
+		return (
+			<div className='shrink-0 border-b px-4 py-2 text-xs text-muted-foreground'>
+				<Link to='/settings/organization' className='text-primary hover:underline'>
+					Connect a repository
+				</Link>{' '}
+				to edit context files.
+			</div>
+		);
+	}
+
+	const message =
+		reason === 'not-tracked'
+			? "This file isn't stored in the connected repository, so changes can't be proposed for review."
+			: reason === 'generated'
+				? 'This file is created by nao sync and would be replaced the next time it runs.'
+				: 'This file comes from a template. Edit the template file instead.';
+
+	return <div className='shrink-0 border-b px-4 py-2 text-xs text-muted-foreground'>{message}</div>;
 }
 
 function MarkdownPreview({

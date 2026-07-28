@@ -80,12 +80,17 @@ export type FileTreeEntry = {
 	name: string;
 	path: string;
 	type: 'file' | 'directory';
+	isTracked?: boolean;
 	children?: FileTreeEntry[];
 };
+
+export type FileEditabilityReason = 'no-repo' | 'not-tracked' | 'generated' | 'rendered-template';
 
 export type FileContentResponse = {
 	content: string;
 	hash: string;
+	isEditable: boolean;
+	editabilityReason: FileEditabilityReason | null;
 };
 
 export type FileWriteResponse = {
@@ -102,6 +107,23 @@ export type FileContentSearchResult = {
 export type FileContentSearchResponse = {
 	results: FileContentSearchResult[];
 	truncated: boolean;
+};
+
+export type ContextChangedFile = {
+	path: string;
+	kind: 'modified' | 'untracked' | 'deleted';
+};
+
+export type ContextFileDiff = ContextChangedFile & {
+	oldContent: string;
+	newContent: string;
+};
+
+export type ProposedEdit = {
+	path: string;
+	kind: 'edit' | 'create';
+	oldContent: string;
+	newContent: string;
 };
 
 export const ALLOWED_IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const;

@@ -1,4 +1,4 @@
-import { execFileSync, execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
 import { env } from '../env';
 
@@ -220,12 +220,11 @@ export function getGitInfo(projectDir: string): GitInfo {
 	try {
 		const opts = { cwd: projectDir, stdio: 'pipe' as const, timeout: 5_000 };
 
-		const remoteUrl = execSync('git remote get-url origin', opts).toString().trim();
+		const remoteUrl = execFileSync('git', ['remote', 'get-url', 'origin'], opts).toString().trim();
 		const githubMatch = remoteUrl.match(/github\.com[/:]([^/]+\/[^/.]+)/);
-
-		const branch = execSync('git rev-parse --abbrev-ref HEAD', opts).toString().trim();
-		const lastCommitMessage = execSync('git log -1 --format=%s', opts).toString().trim();
-		const lastCommitDate = execSync('git log -1 --format=%cI', opts).toString().trim();
+		const branch = readCurrentBranch(projectDir);
+		const lastCommitMessage = readOptionalGitValue(projectDir, ['log', '-1', '--format=%s']);
+		const lastCommitDate = readOptionalGitValue(projectDir, ['log', '-1', '--format=%cI']);
 
 		return {
 			isGitRepo: true,
@@ -237,6 +236,25 @@ export function getGitInfo(projectDir: string): GitInfo {
 		};
 	} catch {
 		return empty;
+	}
+}
+
+function readCurrentBranch(projectDir: string): string | null {
+	const branch = readOptionalGitValue(projectDir, ['rev-parse', '--abbrev-ref', 'HEAD']);
+	return branch && branch !== 'HEAD' ? branch : null;
+}
+
+function readOptionalGitValue(projectDir: string, args: string[]): string | null {
+	try {
+		return execFileSync('git', args, {
+			cwd: projectDir,
+			stdio: 'pipe',
+			timeout: 5_000,
+		})
+			.toString()
+			.trim();
+	} catch {
+		return null;
 	}
 }
 
