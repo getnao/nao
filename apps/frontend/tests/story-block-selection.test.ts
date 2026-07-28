@@ -268,6 +268,46 @@ describe('story block selection', () => {
 			expect(getSelectedBlockPositions(editor.state)).toEqual([]);
 		});
 
+		it('ignores modifier-clicks on grid padding', () => {
+			const gridEditor = createGridEditor();
+			const [, gridPos] = topLevelBlockPositions(gridEditor.state.doc);
+
+			dispatchEditorMouseDownAtPosition(gridEditor, gridEditor.view.dom, gridPos, { metaKey: true });
+
+			expect(getSelectedBlockPositions(gridEditor.state)).toEqual([]);
+			expect(getSelectedGridColumns(gridEditor.state)).toEqual([]);
+			gridEditor.destroy();
+		});
+
+		it('ignores shift-clicks on grid padding', () => {
+			const gridEditor = createGridEditor();
+			const [, gridPos] = topLevelBlockPositions(gridEditor.state.doc);
+
+			dispatchEditorMouseDownAtPosition(gridEditor, gridEditor.view.dom, gridPos, { shiftKey: true });
+
+			expect(getSelectedBlockPositions(gridEditor.state)).toEqual([]);
+			expect(getSelectedGridColumns(gridEditor.state)).toEqual([]);
+			gridEditor.destroy();
+		});
+
+		it('keeps mixed selection when modifier-clicking grid padding', () => {
+			const gridEditor = createGridEditor();
+			const [paragraphPos, gridPos] = topLevelBlockPositions(gridEditor.state.doc);
+			selectMixed(gridEditor, [paragraphPos], [{ gridPos, index: 0 }]);
+
+			dispatchEditorMouseDownAtPosition(gridEditor, gridEditor.view.dom, gridPos, { metaKey: true });
+
+			expect(getSelectedBlockPositions(gridEditor.state)).toEqual([paragraphPos]);
+			expect(getSelectedGridColumns(gridEditor.state)).toEqual([{ gridPos, index: 0 }]);
+			expect(blockSelectionPluginKey.getState(gridEditor.state)).toEqual({
+				blocks: [paragraphPos],
+				gridColumns: [{ gridPos, index: 0 }],
+				anchor: paragraphPos,
+				columnAnchor: { gridPos, index: 0 },
+			});
+			gridEditor.destroy();
+		});
+
 		it('toggles grid columns with the modifier key', () => {
 			const column = createColumnElement(4, 1, 'chart');
 			editor.view.dom.appendChild(column);

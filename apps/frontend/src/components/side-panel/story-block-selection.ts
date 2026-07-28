@@ -311,6 +311,9 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 					if (blockPosition == null) {
 						return false;
 					}
+					if (view.state.doc.nodeAt(blockPosition)?.type.name === 'gridBlock') {
+						return false;
+					}
 
 					event.preventDefault();
 
