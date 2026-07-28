@@ -1,14 +1,19 @@
+import { useQuery } from '@tanstack/react-query';
+import { ArrowUpRight, Clock } from 'lucide-react';
 import { useEffect, useRef } from 'react';
-import { ArrowUpRight } from 'lucide-react';
-import { TextShimmer } from '../ui/text-shimmer';
-import { Skeleton } from '../ui/skeleton';
-import { Button } from '../ui/button';
-import { StoryThumbnail } from '../story-thumbnail';
+
 import { extractStorySummary } from '../../../../backend/src/utils/story-summary';
+import { StoryThumbnail } from '../story-thumbnail';
+import { Skeleton } from '../ui/skeleton';
+import { TextShimmer } from '../ui/text-shimmer';
+import { Button } from '../ui/button';
 import type { ToolCallComponentProps } from '.';
+import { trpc } from '@/main';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useChatId } from '@/hooks/use-chat-id';
+import { useTimeAgo } from '@/hooks/use-time-ago';
 
 export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => {
 	const { open: openSidePanel, isVisible, currentStorySlug, chatId: sidePanelChatId } = useSidePanel();
@@ -25,6 +30,14 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 	const isCreateAction = input?.action === 'create';
 
 	const isInInteractiveContext = Boolean(contextOrUrlChatId);
+
+	const { data: latestStory } = useQuery({
+		...trpc.story.getLatest.queryOptions({
+			chatId: chatId ?? '',
+			storySlug: finalStorySlug ?? '',
+		}),
+		enabled: !isStreaming && canOpen,
+	});
 
 	useEffect(() => {
 		if (hasAutoOpenedRef.current || !isCreateAction || !isStreaming || !canOpen || !chatId || !finalStorySlug) {
@@ -117,7 +130,12 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 
 			<div className='flex flex-col gap-1 min-w-0 flex-1 pl-5 py-3'>
 				<span className='text-sm font-medium truncate'>{title}</span>
-				<span className='text-xs text-muted-foreground'>{statusLabel}</span>
+				<div className='flex items-center gap-2'>
+					<span className='text-xs text-muted-foreground'>{statusLabel}</span>
+					{latestStory?.isLive && latestStory?.cachedAt && (
+						<LiveStoryTimestamp cachedAt={latestStory.cachedAt} />
+					)}
+				</div>
 			</div>
 
 			{canOpen && (
@@ -130,3 +148,20 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 		</button>
 	);
 };
+
+function LiveStoryTimestamp({ cachedAt }: { cachedAt: string | Date }) {
+	const timestampMs = new Date(cachedAt).getTime();
+	const timeAgo = useTimeAgo(timestampMs);
+
+	return (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<div className='flex items-center gap-1 rounded-full bg-secondary/50 px-1.5 py-0.5 text-[10px] text-muted-foreground'>
+					<Clock className='size-3' />
+					<span>Updated {timeAgo.humanReadable.toLowerCase()}</span>
+				</div>
+			</TooltipTrigger>
+			<TooltipContent>Updated {new Date(cachedAt).toLocaleString()}</TooltipContent>
+		</Tooltip>
+	);
+}

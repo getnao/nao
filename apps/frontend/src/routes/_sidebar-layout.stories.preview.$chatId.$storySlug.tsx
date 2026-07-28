@@ -99,6 +99,7 @@ function StoryPreviewPage() {
 				onOpenChat={handleOpenChat}
 				live={{
 					isLive,
+					cachedAt: story.cachedAt,
 					isRefreshing,
 					onRefresh: () => handleRefreshData(),
 					onOpenSettings: () => setIsLiveSettingsOpen(true),

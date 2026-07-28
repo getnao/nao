@@ -132,7 +132,7 @@ export const storyRoutes = {
 			? await backfillMissingQueryData(story.code, cache?.queryData ?? null, { chatId: story.chatId })
 			: (cache?.queryData ?? null);
 
-		return { ...story, queryData };
+		return { ...story, queryData, cachedAt: cache?.cachedAt ?? null };
 	}),
 
 	getLatest: chatOwnerProcedure
