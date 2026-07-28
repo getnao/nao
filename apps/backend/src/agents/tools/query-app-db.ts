@@ -26,7 +26,7 @@ export async function queryAppDb(projectId: string, sql: string): Promise<QueryA
 		const { columns, rows } = await runScopedAppDbQuery(projectId, sql);
 		return { _version: '1', columns, rows, rowCount: rows.length };
 	} catch (error) {
-		throw new Error(explainAppDbError(error));
+		throw new Error(explainAppDbError(error), { cause: error });
 	}
 }
 
