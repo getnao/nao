@@ -48,6 +48,9 @@ const DATA_LABEL_ANCHOR_GAP = 8;
 const DATA_LABEL_BOX_PADDING = 2;
 /** Series kinds whose points we place labels for; stacked/pie use their own paths. */
 const LABELLED_SERIES_KINDS = new Set(['Bar', 'Line', 'Area']);
+const MAX_SERIES_DATA_LABELS = 12;
+const PIE_LABELLED_OUTER_RADIUS = '65%';
+const PIE_DATA_LABEL_GAP = 10;
 
 /** Theme-aware background used to draw the thin gaps between pie/donut slices. */
 const DEFAULT_BACKGROUND = 'var(--background, #ffffff)';
@@ -1124,6 +1127,7 @@ function buildPieChart(props: ResolvedProps) {
 				dataKey={dataKey}
 				nameKey={xAxisKey}
 				innerRadius={chartType === 'donut' ? DONUT_INNER_RADIUS : 0}
+				outerRadius={showDataLabels ? PIE_LABELLED_OUTER_RADIUS : undefined}
 				label={false}
 				labelLine={false}
 				stroke={backgroundColor}
@@ -1265,6 +1269,13 @@ interface LabelCandidate {
 	box: LabelBox;
 	text: string;
 	rank: number[];
+	textAnchor: 'start' | 'middle' | 'end';
+}
+
+interface IndexedLabelCandidate {
+	candidate: LabelCandidate;
+	index: number;
+	value: number;
 }
 
 interface LabelBox {
@@ -1311,7 +1322,7 @@ function renderLabels(labels: LabelCandidate[]) {
 					key={index}
 					x={label.cx}
 					y={label.baselineY}
-					textAnchor='middle'
+					textAnchor={label.textAnchor}
 					dominantBaseline='alphabetic'
 					{...DATA_LABEL_PROPS}
 				>
@@ -1407,19 +1418,19 @@ function collectPieLabelCandidates(
 	return sectors.flatMap((sector, sliceIndex) => {
 		const cx = toFiniteNumber(sector.cx);
 		const cy = toFiniteNumber(sector.cy);
-		const innerRadius = toFiniteNumber(sector.innerRadius);
 		const outerRadius = toFiniteNumber(sector.outerRadius);
 		const midAngle = toFiniteNumber(sector.midAngle);
 		const text = formatDataLabel(sector.value);
-		if (cx == null || cy == null || innerRadius == null || outerRadius == null || midAngle == null || !text) {
+		if (cx == null || cy == null || outerRadius == null || midAngle == null || !text) {
 			return [];
 		}
-		const radius = innerRadius + (outerRadius - innerRadius) * 0.65;
+		const radius = outerRadius + PIE_DATA_LABEL_GAP;
 		const angle = (-midAngle * Math.PI) / 180;
 		const labelX = cx + radius * Math.cos(angle);
-		const baselineY = cy + radius * Math.sin(angle) + DATA_LABEL_FONT_SIZE / 2;
+		const baselineY = cy + radius * Math.sin(angle);
+		const textAnchor = labelX >= cx ? 'start' : 'end';
 		const halfWidth = (text.length * DATA_LABEL_FONT_SIZE * DATA_LABEL_CHAR_WIDTH_RATIO) / 2;
-		const box = labelBox(labelX, baselineY, halfWidth);
+		const box = labelBox(labelX, baselineY, halfWidth, textAnchor);
 		if (box.left < 0 || box.right > width || box.top < 0 || box.bottom > height) {
 			return [];
 		}
@@ -1430,6 +1441,7 @@ function collectPieLabelCandidates(
 				box,
 				text,
 				rank: [sector.percent ?? 0, -sliceIndex],
+				textAnchor,
 			},
 		];
 	});
@@ -1456,7 +1468,7 @@ function seriesCandidates(
 	seriesIndex: number,
 	plot: PlotRect,
 ): LabelCandidate[] {
-	return points.flatMap((point, index) => {
+	const candidates = points.flatMap((point, index): IndexedLabelCandidate[] => {
 		const value = values[index];
 		if (value == null) {
 			return [];
@@ -1476,8 +1488,67 @@ function seriesCandidates(
 			cartesianLabelRank(isLocalExtremum(values, index), seriesIndex, anchor.cx),
 			plot,
 		);
-		return candidate ? [candidate] : [];
+		return candidate ? [{ candidate, index, value }] : [];
 	});
+	if (isBar || candidates.length <= MAX_SERIES_DATA_LABELS) {
+		return candidates.map((entry) => entry.candidate);
+	}
+	return selectSeriesLabelCandidates(candidates, values).map((entry) => entry.candidate);
+}
+
+function selectSeriesLabelCandidates(
+	candidates: IndexedLabelCandidate[],
+	values: (number | null)[],
+): IndexedLabelCandidate[] {
+	const selectedIndices = new Set<number>();
+	const minimum = candidates.reduce((best, current) => (current.value < best.value ? current : best));
+	const maximum = candidates.reduce((best, current) => (current.value > best.value ? current : best));
+	selectedIndices.add(minimum.index);
+	selectedIndices.add(maximum.index);
+
+	const remainingSlots = () => MAX_SERIES_DATA_LABELS - selectedIndices.size;
+	const extrema = candidates.filter(
+		(entry) => !selectedIndices.has(entry.index) && isLocalExtremum(values, entry.index),
+	);
+	const selectedExtrema =
+		extrema.length <= remainingSlots() ? extrema : sampleLabelCandidatesEvenly(extrema, remainingSlots());
+	selectedExtrema.forEach((entry) => selectedIndices.add(entry.index));
+
+	const remaining = candidates.filter((entry) => !selectedIndices.has(entry.index));
+	sampleLabelCandidatesEvenly(remaining, remainingSlots()).forEach((entry) => selectedIndices.add(entry.index));
+	return candidates.filter((entry) => selectedIndices.has(entry.index));
+}
+
+function sampleLabelCandidatesEvenly(candidates: IndexedLabelCandidate[], count: number): IndexedLabelCandidate[] {
+	if (count <= 0) {
+		return [];
+	}
+	if (candidates.length <= count) {
+		return candidates;
+	}
+
+	const ordered = [...candidates].sort((a, b) => a.candidate.cx - b.candidate.cx || a.index - b.index);
+	const firstX = ordered[0].candidate.cx;
+	const lastX = ordered[ordered.length - 1].candidate.cx;
+	const selected = new Set<number>();
+
+	for (let position = 0; position < count; position += 1) {
+		const fraction = count === 1 ? 0.5 : position / (count - 1);
+		const targetX = firstX + (lastX - firstX) * fraction;
+		const closest = ordered
+			.filter((entry) => !selected.has(entry.index))
+			.reduce((best, current) => {
+				const currentDistance = Math.abs(current.candidate.cx - targetX);
+				const bestDistance = Math.abs(best.candidate.cx - targetX);
+				return currentDistance < bestDistance ||
+					(currentDistance === bestDistance && current.index < best.index)
+					? current
+					: best;
+			});
+		selected.add(closest.index);
+	}
+
+	return ordered.filter((entry) => selected.has(entry.index));
 }
 
 function buildLabelCandidate(
@@ -1493,7 +1564,7 @@ function buildLabelCandidate(
 	if (!boxFitsPlot(box, plot, bottomAllowance)) {
 		return null;
 	}
-	return { cx, baselineY, box, text, rank };
+	return { cx, baselineY, box, text, rank, textAnchor: 'middle' };
 }
 
 /** Area/line points carry `value` as a `[baseLine, value]` range; bars carry a scalar. Unwrap both. */
@@ -1563,10 +1634,17 @@ function boxFitsPlot(box: LabelBox, plot: PlotRect, bottomAllowance = 0): boolea
 	return box.left >= minLeft && box.right <= maxRight && box.top >= minTop && box.bottom <= maxBottom;
 }
 
-function labelBox(cx: number, baselineY: number, halfWidth: number): LabelBox {
+function labelBox(
+	cx: number,
+	baselineY: number,
+	halfWidth: number,
+	textAnchor: LabelCandidate['textAnchor'] = 'middle',
+): LabelBox {
+	const left = textAnchor === 'start' ? cx : textAnchor === 'end' ? cx - halfWidth * 2 : cx - halfWidth;
+	const right = textAnchor === 'start' ? cx + halfWidth * 2 : textAnchor === 'end' ? cx : cx + halfWidth;
 	return {
-		left: cx - halfWidth - DATA_LABEL_BOX_PADDING,
-		right: cx + halfWidth + DATA_LABEL_BOX_PADDING,
+		left: left - DATA_LABEL_BOX_PADDING,
+		right: right + DATA_LABEL_BOX_PADDING,
 		top: baselineY - DATA_LABEL_FONT_SIZE - DATA_LABEL_BOX_PADDING,
 		bottom: baselineY + DATA_LABEL_BOX_PADDING,
 	};

@@ -16,33 +16,67 @@ interface RenderedLabel {
 	x: number;
 	y: number;
 	text: string;
+	textAnchor: 'start' | 'middle' | 'end';
 	left: number;
 	right: number;
 	top: number;
 	bottom: number;
 }
 
-/** Parses the labels drawn by the shared data-label layer, mirroring its collision-box geometry. */
 function parseDataLabels(html: string): RenderedLabel[] {
 	const group = html.match(/<g class="recharts-data-labels">(.*?)<\/g>/s)?.[1] ?? '';
 	const labels: RenderedLabel[] = [];
-	const regex = /<text[^>]*\bx="([\d.]+)"[^>]*\by="([\d.]+)"[^>]*>([^<]*)<\/text>/g;
+	const regex = /<text([^>]*)>([^<]*)<\/text>/g;
 	for (let match = regex.exec(group); match !== null; match = regex.exec(group)) {
-		const x = Number(match[1]);
-		const y = Number(match[2]);
-		const text = match[3];
+		const attributes = match[1];
+		const x = Number(readAttribute(attributes, 'x'));
+		const y = Number(readAttribute(attributes, 'y'));
+		const text = match[2];
+		const textAnchor = (readAttribute(attributes, 'text-anchor') ?? 'middle') as RenderedLabel['textAnchor'];
 		const halfWidth = (text.length * 11 * 0.6) / 2;
+		const left = textAnchor === 'start' ? x : textAnchor === 'end' ? x - halfWidth * 2 : x - halfWidth;
+		const right = textAnchor === 'start' ? x + halfWidth * 2 : textAnchor === 'end' ? x : x + halfWidth;
 		labels.push({
 			x,
 			y,
 			text,
-			left: x - halfWidth - 2,
-			right: x + halfWidth + 2,
+			textAnchor,
+			left: left - 2,
+			right: right + 2,
 			top: y - 11 - 2,
 			bottom: y + 2,
 		});
 	}
 	return labels;
+}
+
+interface RenderedPieSector {
+	cx: number;
+	cy: number;
+	outerRadius: number;
+	text: string;
+}
+
+function parsePieSectors(html: string, texts: string[]): RenderedPieSector[] {
+	const sectors: RenderedPieSector[] = [];
+	const regex = /<path([^>]*\bclass="recharts-sector"[^>]*)>/g;
+	for (let match = regex.exec(html); match !== null; match = regex.exec(html)) {
+		const attributes = match[1];
+		const path = readAttribute(attributes, 'd') ?? '';
+		const center = path.match(/L\s*([-\d.]+),([-\d.]+)\s*Z/);
+		const arc = path.match(/A\s*([-\d.]+),([-\d.]+)/);
+		sectors.push({
+			cx: Number(readAttribute(attributes, 'cx') ?? center?.[1]),
+			cy: Number(readAttribute(attributes, 'cy') ?? center?.[2]),
+			outerRadius: Number(arc?.[1]),
+			text: texts[sectors.length],
+		});
+	}
+	return sectors;
+}
+
+function readAttribute(attributes: string, name: string): string | undefined {
+	return attributes.match(new RegExp(`\\b${name}="([^"]+)"`))?.[1];
 }
 
 function hasOverlap(labels: RenderedLabel[]): boolean {
@@ -242,14 +276,14 @@ describe('buildChart data labels', () => {
 		expect(html).toContain('>999</text>');
 	});
 
-	it('renders on-slice value labels for pie charts when enabled', () => {
+	it.each(['pie', 'donut'] as const)('renders value labels outside %s slices when enabled', (chartType) => {
 		const html = renderChart(
 			buildChart({
 				data: [
 					{ browser: 'Chrome', total: 275 },
 					{ browser: 'Safari', total: 200 },
 				],
-				chartType: 'pie',
+				chartType,
 				xAxisKey: 'browser',
 				series: [{ data_key: 'total' }],
 				showDataLabels: true,
@@ -282,7 +316,7 @@ describe('buildChart data labels', () => {
 		const height = 180;
 		const data = [
 			{ category: 'Large', value: 6000 },
-			...Array.from({ length: 9 }, (_, index) => ({ category: `Small ${index + 1}`, value: 500 })),
+			...Array.from({ length: 9 }, (_, index) => ({ category: `Small ${index + 1}`, value: 500 - index })),
 		];
 		const html = renderChartAtSize(
 			buildChart({
@@ -296,36 +330,110 @@ describe('buildChart data labels', () => {
 			height,
 		);
 		const labels = parseDataLabels(html);
+		const sectors = parsePieSectors(
+			html,
+			data.map((entry) => entry.value.toLocaleString()),
+		);
 
 		expect(labels.some((label) => label.text === '6,000')).toBe(true);
 		expect(labels.length).toBeLessThan(data.length);
 		expect(hasOverlap(labels)).toBe(false);
 		expectLabelsInsideSvg(labels, width, height);
+		for (const label of labels) {
+			const sector = sectors.find((entry) => entry.text === label.text);
+			expect(sector).toBeDefined();
+			const anchorRadius = Math.hypot(label.x - sector!.cx, label.y - sector!.cy);
+			expect(anchorRadius).toBeGreaterThan(sector!.outerRadius);
+			expect(label.textAnchor).toBe(label.x >= sector!.cx ? 'start' : 'end');
+		}
 	});
 
-	it('keeps non-extremum labels when their natural positions do not overlap', () => {
-		const values = Array.from({ length: 36 }, () => 1);
-		values[4] = 3;
-		values[11] = 9;
-		values[19] = 4;
-		values[28] = 3;
-		const data = values.map((value, index) => ({ day: `Day ${index + 1}`, value }));
-		const html = renderChart(
+	it.each(['line', 'area'] as const)(
+		'limits dense %s labels while preserving extrema and full-domain coverage',
+		(chartType) => {
+			const data = [
+				{ day: 'Padding start', value: null },
+				...Array.from({ length: 30 }, (_, index) => ({ day: `Day ${index + 1}`, value: index + 1 })),
+				{ day: 'Padding end', value: null },
+			];
+			const html = renderChartAtSize(
+				buildChart({
+					data,
+					chartType,
+					xAxisKey: 'day',
+					xAxisType: 'category',
+					series: [{ data_key: 'value' }],
+					showDataLabels: true,
+				}),
+				1200,
+				400,
+			);
+			const labels = parseDataLabels(html);
+			const values = labels.map((label) => Number(label.text));
+
+			expect(labels).toHaveLength(12);
+			expect(values).toContain(1);
+			expect(values).toContain(30);
+			expect(values.some((value) => value >= 12 && value <= 19)).toBe(true);
+			expect(values.filter((value) => value >= 20).length).toBeLessThanOrEqual(5);
+			expect(hasOverlap(labels)).toBe(false);
+		},
+	);
+
+	it.each(['line', 'area'] as const)('keeps every sparse %s candidate before collision resolution', (chartType) => {
+		const values = [10, 40, 20, 50, 30];
+		const data = [
+			{ day: 'Padding start', value: null },
+			...values.map((value, index) => ({ day: `Day ${index + 1}`, value })),
+			{ day: 'Padding end', value: null },
+		];
+		const html = renderChartAtSize(
 			buildChart({
 				data,
-				chartType: 'line',
+				chartType,
 				xAxisKey: 'day',
 				xAxisType: 'category',
 				series: [{ data_key: 'value' }],
 				showDataLabels: true,
+				yAxisMax: 60,
 			}),
+			900,
+			400,
 		);
 		const labels = parseDataLabels(html);
-		const baselineLabelCount = labels.filter((label) => label.text === '1').length;
 
-		expect(html).toContain('>9</text>');
-		expect(labels.length).toBeGreaterThan(12);
-		expect(baselineLabelCount).toBeGreaterThan(0);
+		expect(labels.map((label) => Number(label.text)).sort((a, b) => a - b)).toEqual(
+			[...values].sort((a, b) => a - b),
+		);
+		expect(hasOverlap(labels)).toBe(false);
+	});
+
+	it.each(['line', 'area'] as const)('resolves dense multi-series %s labels globally', (chartType) => {
+		const data = [
+			{ day: 'Padding start', first: null, second: null },
+			...Array.from({ length: 30 }, (_, index) => ({
+				day: `Day ${index + 1}`,
+				first: 100 + index * 5,
+				second: 400 - index * 7,
+			})),
+			{ day: 'Padding end', first: null, second: null },
+		];
+		const html = renderChartAtSize(
+			buildChart({
+				data,
+				chartType,
+				xAxisKey: 'day',
+				xAxisType: 'category',
+				series: [{ data_key: 'first' }, { data_key: 'second' }],
+				showDataLabels: true,
+			}),
+			1200,
+			500,
+		);
+		const labels = parseDataLabels(html);
+
+		expect(labels.length).toBeGreaterThan(0);
+		expect(labels.length).toBeLessThanOrEqual(24);
 		expect(hasOverlap(labels)).toBe(false);
 	});
 
