@@ -24,7 +24,7 @@ export const createTool = <TInput, TOutput>(
 /**
  * Directory names that should be excluded from tool operations (list, search, read).
  */
-export const EXCLUDED_DIRS = ['.meta'];
+export const EXCLUDED_DIRS = ['.meta', '.git'];
 
 type NaoignoreCacheEntry = {
 	/** `mtimeMs:size` of the .naoignore file, or `null` if the file does not exist */
@@ -156,14 +156,18 @@ export const isIgnoredPath = (realPath: string, projectFolder: string): boolean 
  */
 export const isInExcludedDir = (filePath: string): boolean => {
 	const parts = filePath.split(path.sep);
-	return parts.some((part) => EXCLUDED_DIRS.includes(part));
+	return parts.some((part) => EXCLUDED_DIRS.includes(part) || isEnvironmentFileName(part));
 };
 
 /**
  * Checks if an entry name is an excluded directory.
  */
 export const isExcludedEntry = (name: string): boolean => {
-	return EXCLUDED_DIRS.includes(name);
+	return EXCLUDED_DIRS.includes(name) || isEnvironmentFileName(name);
+};
+
+const isEnvironmentFileName = (name: string): boolean => {
+	return name === '.env' || name.startsWith('.env.');
 };
 
 /**
@@ -225,6 +229,14 @@ export const toRealPath = (virtualPath: string, projectFolder: string): string =
 	const withinFolder = resolvedPath === normalizedFolder || resolvedPath.startsWith(normalizedFolder + path.sep);
 	if (!withinFolder) {
 		throw new Error(`Access denied: path '${virtualPath}' is outside the project folder`);
+	}
+
+	if (resolvedPath.split(path.sep).includes('.git')) {
+		throw new Error(`Access denied: path '${virtualPath}' targets protected .git metadata`);
+	}
+
+	if (resolvedPath.split(path.sep).some(isEnvironmentFileName)) {
+		throw new Error(`Access denied: path '${virtualPath}' targets a protected environment file`);
 	}
 
 	// Check if path is in an excluded directory

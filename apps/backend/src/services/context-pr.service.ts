@@ -11,6 +11,12 @@ import * as userQueries from '../queries/user.queries';
 import { ProposedEdit, ProposedEditTargetRepo } from '../types/context-recommendation';
 import { logger } from '../utils/logger';
 import { isHumanWritableContextPath } from '../utils/nao-context-paths';
+import {
+	assertNoSymlinkInWritePath,
+	canonicalizeWriteRoot,
+	resolveWritePath,
+	writeFileAtomically,
+} from '../utils/safe-file-write';
 import * as github from './github';
 import * as gitlab from './gitlab';
 
@@ -338,61 +344,13 @@ function filterPullRequestEdits(edits: ProposedEdit[]): ProposedEdit[] {
 }
 
 function applyEdits(dir: string, edits: ProposedEdit[]): void {
-	const root = fs.realpathSync(dir);
+	const root = canonicalizeWriteRoot(dir);
 	for (const edit of edits) {
 		const editPath = edit.targetRepo?.path ?? edit.path;
-		const target = path.resolve(root, editPath);
-		assertInsideRepository(root, target, editPath);
-		assertNoSymlinkInPath(root, target, editPath);
+		const target = resolveWritePath(root, editPath);
+		assertNoSymlinkInWritePath(root, target, editPath);
 		fs.mkdirSync(path.dirname(target), { recursive: true });
-		writeFileNoFollow(target, edit.newContent);
-	}
-}
-
-function assertInsideRepository(root: string, target: string, editPath: string): void {
-	const relative = path.relative(root, target);
-	if (relative.startsWith('..') || path.isAbsolute(relative)) {
-		throw new Error(`Refusing to write outside the repository: ${editPath}`);
-	}
-}
-
-function assertNoSymlinkInPath(root: string, target: string, editPath: string): void {
-	const relative = path.relative(root, target);
-	if (relative === '') {
-		return;
-	}
-
-	let current = root;
-	for (const part of relative.split(path.sep)) {
-		current = path.join(current, part);
-		const stat = lstatIfExists(current);
-		if (!stat) {
-			return;
-		}
-		if (stat.isSymbolicLink()) {
-			throw new Error(`Refusing to write through a symlink in the repository: ${editPath}`);
-		}
-	}
-}
-
-function lstatIfExists(filePath: string): fs.Stats | null {
-	try {
-		return fs.lstatSync(filePath);
-	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-			return null;
-		}
-		throw err;
-	}
-}
-
-function writeFileNoFollow(filePath: string, content: string): void {
-	const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_NOFOLLOW;
-	const fd = fs.openSync(filePath, flags, 0o666);
-	try {
-		fs.writeFileSync(fd, content, 'utf-8');
-	} finally {
-		fs.closeSync(fd);
+		writeFileAtomically({ content: edit.newContent, displayPath: editPath, root, target });
 	}
 }
 

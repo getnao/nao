@@ -83,6 +83,27 @@ export type FileTreeEntry = {
 	children?: FileTreeEntry[];
 };
 
+export type FileContentResponse = {
+	content: string;
+	hash: string;
+};
+
+export type FileWriteResponse = {
+	hash: string;
+};
+
+export type FileContentSearchResult = {
+	path: string;
+	count: number;
+	line: number;
+	text: string;
+};
+
+export type FileContentSearchResponse = {
+	results: FileContentSearchResult[];
+	truncated: boolean;
+};
+
 export const ALLOWED_IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const;
 export type ImageMediaType = (typeof ALLOWED_IMAGE_MEDIA_TYPES)[number];
 
