@@ -12,6 +12,9 @@ import {
 	writeFileContent,
 } from '../src/services/context-explorer.service';
 
+const EXCLUDED_ENVIRONMENT_FILES = ['.env', '.env.local', '.env.production', '.env.example'];
+const INCLUDED_ENVIRONMENT_FILES = ['.envrc', 'environment.md', 'env.example'];
+
 describe('context explorer file writes', () => {
 	let projectFolder: string;
 
@@ -152,6 +155,87 @@ describe('context explorer file writes', () => {
 
 		await writeFileContent('/.gitignore', 'updated-ignore.txt\n', gitignore.hash, projectFolder);
 		expect((await readFileContent('/.gitignore', projectFolder)).content).toBe('updated-ignore.txt\n');
+	});
+
+	it('excludes environment files from the file tree at any depth', async () => {
+		mkdirSync(join(projectFolder, 'nested'));
+		for (const fileName of EXCLUDED_ENVIRONMENT_FILES) {
+			writeFileSync(join(projectFolder, fileName), 'secret\n');
+			writeFileSync(join(projectFolder, 'nested', fileName), 'nested secret\n');
+		}
+
+		const tree = await getFileTree(projectFolder);
+		const nested = tree.find((entry) => entry.name === 'nested');
+		const topLevelNames = tree.map((entry) => entry.name);
+		const nestedNames = nested?.children?.map((entry) => entry.name);
+
+		expect(nested?.type).toBe('directory');
+		for (const fileName of EXCLUDED_ENVIRONMENT_FILES) {
+			expect(topLevelNames).not.toContain(fileName);
+			expect(nestedNames).not.toContain(fileName);
+		}
+	});
+
+	it('rejects reads of environment files at any depth', async () => {
+		mkdirSync(join(projectFolder, 'nested'));
+		for (const fileName of EXCLUDED_ENVIRONMENT_FILES) {
+			writeFileSync(join(projectFolder, fileName), 'secret\n');
+			writeFileSync(join(projectFolder, 'nested', fileName), 'nested secret\n');
+
+			for (const filePath of [`/${fileName}`, `/nested/${fileName}`]) {
+				await expect(readFileContent(filePath, projectFolder)).rejects.toMatchObject({
+					code: 'FORBIDDEN',
+					message: expect.stringContaining('protected environment file'),
+				});
+			}
+		}
+	});
+
+	it('rejects writes to environment files at any depth without changing them', async () => {
+		mkdirSync(join(projectFolder, 'nested'));
+		const original = await readFileContent('/context.md', projectFolder);
+
+		for (const fileName of EXCLUDED_ENVIRONMENT_FILES) {
+			const filePaths = [`/${fileName}`, `/nested/${fileName}`];
+			for (const filePath of filePaths) {
+				const realPath = join(projectFolder, ...filePath.split('/').filter(Boolean));
+				writeFileSync(realPath, 'secret\n');
+
+				await expect(
+					writeFileContent(filePath, 'changed\n', original.hash, projectFolder),
+				).rejects.toMatchObject({
+					code: 'FORBIDDEN',
+					message: expect.stringContaining('protected environment file'),
+				});
+				expect(readFileSync(realPath, 'utf-8')).toBe('secret\n');
+			}
+		}
+	});
+
+	it('keeps similar environment file names visible, readable, and writable', async () => {
+		mkdirSync(join(projectFolder, 'nested'));
+		for (const fileName of INCLUDED_ENVIRONMENT_FILES) {
+			writeFileSync(join(projectFolder, fileName), 'original\n');
+			writeFileSync(join(projectFolder, 'nested', fileName), 'nested original\n');
+		}
+
+		const tree = await getFileTree(projectFolder);
+		const nested = tree.find((entry) => entry.name === 'nested');
+		const topLevelNames = tree.map((entry) => entry.name);
+		const nestedNames = nested?.children?.map((entry) => entry.name);
+
+		expect(topLevelNames).toEqual(expect.arrayContaining(INCLUDED_ENVIRONMENT_FILES));
+		expect(nestedNames).toEqual(expect.arrayContaining(INCLUDED_ENVIRONMENT_FILES));
+
+		for (const fileName of INCLUDED_ENVIRONMENT_FILES) {
+			for (const filePath of [`/${fileName}`, `/nested/${fileName}`]) {
+				const original = await readFileContent(filePath, projectFolder);
+				expect(original.content).toContain('original\n');
+
+				await writeFileContent(filePath, 'updated\n', original.hash, projectFolder);
+				expect((await readFileContent(filePath, projectFolder)).content).toBe('updated\n');
+			}
+		}
 	});
 
 	it('rejects symlinks outside the project without changing their target', async () => {
