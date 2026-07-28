@@ -4,7 +4,7 @@ import { useCallback, useContext } from 'react';
 import {
 	blockSelectionPluginKey,
 	emptySelection,
-	resolveDragBlocks,
+	resolveDragSelection,
 	selectBlockFromHandle,
 } from './story-block-selection';
 import { createBlockNode, removeCardFromOrigin } from './story-editor-utils';
@@ -24,9 +24,9 @@ export function useStoryBlockDrag({ node, editor, getPos }: Pick<ReactNodeViewPr
 				return;
 			}
 			event.dataTransfer.setData(STORY_BLOCK_DRAG_TYPE, '1');
-			const { positions, isMulti } = resolveDragBlocks(editor.state, pos);
-			if (isMulti) {
-				dragContext.beginMultiBlockDrag(positions, event.nativeEvent);
+			const units = resolveDragSelection(editor.state, { kind: 'block', pos });
+			if (units) {
+				dragContext.beginMultiSelectionDrag(units, event.nativeEvent);
 				return;
 			}
 
@@ -51,7 +51,7 @@ export function useStoryBlockDrag({ node, editor, getPos }: Pick<ReactNodeViewPr
 			if (dragContext) {
 				dragContext.setDragging(false);
 				dragContext.sourceRef.current = null;
-				dragContext.endMultiBlockDrag();
+				dragContext.endMultiSelectionDrag();
 			}
 		},
 		[dragContext],

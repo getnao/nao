@@ -1,5 +1,6 @@
 import { createContext } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
+import type { DragUnit } from './story-block-selection';
 
 export const STORY_BLOCK_DRAG_TYPE = 'application/x-nao-story-block';
 export const GRID_COLUMN_DRAG_TYPE = 'application/x-nao-grid-column';
@@ -25,9 +26,8 @@ export const StoryBlockDragContext = createContext<{
 	activeDropZone: string | null;
 	setActiveDropZone: Dispatch<SetStateAction<string | null>>;
 	pendingDropRef: MutableRefObject<(() => void) | null>;
-	beginMultiBlockDrag: (positions: number[], event: DragEvent) => void;
-	beginMultiColumnDrag: (gridPos: number, indices: number[], event: DragEvent) => void;
-	endMultiBlockDrag: () => void;
+	beginMultiSelectionDrag: (units: DragUnit[], event: DragEvent) => void;
+	endMultiSelectionDrag: () => void;
 } | null>(null);
 
 export const GridDragContext = createContext<MutableRefObject<GridDragSource | null> | null>(null);

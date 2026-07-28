@@ -17,7 +17,7 @@ import {
 	STORY_BLOCK_DRAG_TYPE,
 	StoryBlockDragContext,
 } from '../story-editor-drag-context';
-import { getSelectedGridColumns } from '../story-block-selection';
+import { resolveDragSelection } from '../story-block-selection';
 import type { Segment } from '@nao/shared/story-segments';
 import type { ReactNodeViewProps } from '@tiptap/react';
 import type {
@@ -174,17 +174,14 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 	const handleColumnDragStart = useCallback(
 		(columnIndex: number, event: ReactDragEvent<HTMLElement>) => {
 			const gridPos = getPos();
-			const selectedColumns = getSelectedGridColumns(editor.state);
-			const isMultiColumnDrag =
-				typeof gridPos === 'number' &&
-				selectedColumns.length > 1 &&
-				selectedColumns.every((column) => column.gridPos === gridPos) &&
-				selectedColumns.some((column) => column.index === columnIndex);
-			if (isMultiColumnDrag && storyBlockDrag) {
+			const units =
+				typeof gridPos === 'number'
+					? resolveDragSelection(editor.state, { kind: 'gridColumn', gridPos, index: columnIndex })
+					: null;
+			if (units && storyBlockDrag) {
 				event.stopPropagation();
 				event.dataTransfer.setData(STORY_BLOCK_DRAG_TYPE, '1');
-				const indices = selectedColumns.map((column) => column.index).sort((first, second) => first - second);
-				storyBlockDrag.beginMultiColumnDrag(gridPos, indices, event.nativeEvent);
+				storyBlockDrag.beginMultiSelectionDrag(units, event.nativeEvent);
 				storyBlockDrag.setDragging(true);
 				setDropColumnIndex(null);
 				setBlockDropIndex(null);

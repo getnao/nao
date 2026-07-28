@@ -3,17 +3,19 @@
 import { Editor, Node } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { splitGridColumnsRaw } from '@nao/shared/story-segments';
 
 import {
 	BlockSelection,
 	blockSelectionPluginKey,
 	buildBlockMoveTransaction,
+	buildSelectionMoveTransaction,
 	emptySelection,
 	getSelectedBlockPositions,
 	getSelectedGridColumns,
 	isDropInsideSelection,
 	rangeBetween,
-	resolveDragBlocks,
+	resolveDragSelection,
 	selectBlockFromHandle,
 	selectColumnFromHandle,
 	topLevelBlockPositions,
@@ -42,21 +44,67 @@ const TestGridBlock = Node.create({
 	},
 });
 
+const TestChartBlock = Node.create({
+	name: 'chartBlock',
+	group: 'block',
+	atom: true,
+
+	addAttributes() {
+		return {
+			rawTag: { default: '' },
+		};
+	},
+
+	renderHTML({ HTMLAttributes }) {
+		return ['chart-embed', HTMLAttributes];
+	},
+});
+
+const TestTableBlock = Node.create({
+	name: 'tableBlock',
+	group: 'block',
+	atom: true,
+
+	addAttributes() {
+		return {
+			rawTag: { default: '' },
+		};
+	},
+
+	renderHTML({ HTMLAttributes }) {
+		return ['table-embed', HTMLAttributes];
+	},
+});
+
 const FIRST_GRID = '<grid><chart query_id="q1" chart_type="line" x_axis_key="month" /></grid>';
 const FIRST_GRID_REORDERED = '<grid><chart query_id="q1" chart_type="bar" x_axis_key="month" /></grid>';
 const SECOND_GRID = '<grid><chart query_id="q2" chart_type="bar" x_axis_key="month" /></grid>';
+const FIRST_THREE_COLUMN_GRID = `<grid widths="1,1,1">
+<chart query_id="q1" chart_type="line" x_axis_key="month" />
+<chart query_id="q2" chart_type="bar" x_axis_key="month" />
+<chart query_id="q3" chart_type="area" x_axis_key="month" />
+</grid>`;
+const SECOND_THREE_COLUMN_GRID = `<grid widths="1,1,1">
+<table query_id="q4" />
+<chart query_id="q5" chart_type="bar" x_axis_key="month" />
+<chart query_id="q6" chart_type="line" x_axis_key="month" />
+</grid>`;
 
 function createGridEditor(secondGridContent = SECOND_GRID): Editor {
+	return createDocumentEditor([
+		{ type: 'paragraph', content: [{ type: 'text', text: 'Before' }] },
+		{ type: 'gridBlock', attrs: { rawContent: FIRST_GRID } },
+		{ type: 'gridBlock', attrs: { rawContent: secondGridContent } },
+		{ type: 'paragraph', content: [{ type: 'text', text: 'After' }] },
+	]);
+}
+
+function createDocumentEditor(content: Record<string, unknown>[]): Editor {
 	return new Editor({
-		extensions: [StarterKit, TestGridBlock, BlockSelection],
+		extensions: [StarterKit, TestGridBlock, TestChartBlock, TestTableBlock, BlockSelection],
 		content: {
 			type: 'doc',
-			content: [
-				{ type: 'paragraph', content: [{ type: 'text', text: 'Before' }] },
-				{ type: 'gridBlock', attrs: { rawContent: FIRST_GRID } },
-				{ type: 'gridBlock', attrs: { rawContent: secondGridContent } },
-				{ type: 'paragraph', content: [{ type: 'text', text: 'After' }] },
-			],
+			content,
 		},
 	});
 }
@@ -67,6 +115,17 @@ function selectBlocks(editor: Editor, blocks: number[], anchor: number | null): 
 			...emptySelection(),
 			blocks,
 			anchor,
+		}),
+	);
+}
+
+function selectMixed(editor: Editor, blocks: number[], gridColumns: { gridPos: number; index: number }[]): void {
+	editor.view.dispatch(
+		editor.state.tr.setMeta(blockSelectionPluginKey, {
+			blocks,
+			gridColumns,
+			anchor: blocks[0] ?? null,
+			columnAnchor: gridColumns[0] ?? null,
 		}),
 	);
 }
@@ -85,6 +144,34 @@ function dispatchEditorMouseDown(target: Element, init?: MouseEventInit): void {
 			value: elementFromPoint,
 		});
 	}
+}
+
+function dispatchEditorMouseDownAtPosition(
+	editor: Editor,
+	target: Element,
+	position: number,
+	init?: MouseEventInit,
+): void {
+	const posAtCoords = editor.view.posAtCoords;
+	editor.view.posAtCoords = () => ({ pos: position, inside: position });
+	try {
+		dispatchEditorMouseDown(target, init);
+	} finally {
+		editor.view.posAtCoords = posAtCoords;
+	}
+}
+
+function createColumnElement(
+	gridPos: number,
+	index: number,
+	type: 'chart' | 'table' | 'markdown' | 'grid',
+): HTMLDivElement {
+	const column = document.createElement('div');
+	column.setAttribute('data-grid-column', '');
+	column.setAttribute('data-grid-pos', String(gridPos));
+	column.setAttribute('data-col-index', String(index));
+	column.setAttribute('data-col-type', type);
+	return column;
 }
 
 describe('story block selection', () => {
@@ -182,10 +269,7 @@ describe('story block selection', () => {
 		});
 
 		it('toggles grid columns with the modifier key', () => {
-			const column = document.createElement('div');
-			column.setAttribute('data-grid-column', '');
-			column.setAttribute('data-grid-pos', '4');
-			column.setAttribute('data-col-index', '1');
+			const column = createColumnElement(4, 1, 'chart');
 			editor.view.dom.appendChild(column);
 
 			dispatchEditorMouseDown(column, { ctrlKey: true });
@@ -196,14 +280,8 @@ describe('story block selection', () => {
 		});
 
 		it('selects a grid-column range from the column anchor', () => {
-			const first = document.createElement('div');
-			first.setAttribute('data-grid-column', '');
-			first.setAttribute('data-grid-pos', '4');
-			first.setAttribute('data-col-index', '0');
-			const third = document.createElement('div');
-			third.setAttribute('data-grid-column', '');
-			third.setAttribute('data-grid-pos', '4');
-			third.setAttribute('data-col-index', '2');
+			const first = createColumnElement(4, 0, 'chart');
+			const third = createColumnElement(4, 2, 'chart');
 			editor.view.dom.append(first, third);
 
 			dispatchEditorMouseDown(first, { ctrlKey: true });
@@ -215,42 +293,81 @@ describe('story block selection', () => {
 				{ gridPos: 4, index: 2 },
 			]);
 		});
+
+		it('keeps blocks and grid columns selected across modifier-clicks', () => {
+			const gridEditor = createGridEditor();
+			const [paragraphPos, gridPos] = topLevelBlockPositions(gridEditor.state.doc);
+			const column = createColumnElement(gridPos, 0, 'chart');
+			gridEditor.view.dom.appendChild(column);
+			selectMixed(gridEditor, [], [{ gridPos, index: 0 }]);
+
+			const paragraph = gridEditor.view.dom.firstElementChild;
+			expect(paragraph).not.toBeNull();
+			if (paragraph) {
+				dispatchEditorMouseDownAtPosition(gridEditor, paragraph, paragraphPos + 1, { ctrlKey: true });
+			}
+
+			expect(getSelectedBlockPositions(gridEditor.state)).toEqual([paragraphPos]);
+			expect(getSelectedGridColumns(gridEditor.state)).toEqual([{ gridPos, index: 0 }]);
+
+			selectMixed(gridEditor, [paragraphPos], []);
+			dispatchEditorMouseDown(column, { ctrlKey: true });
+
+			expect(getSelectedBlockPositions(gridEditor.state)).toEqual([paragraphPos]);
+			expect(getSelectedGridColumns(gridEditor.state)).toEqual([{ gridPos, index: 0 }]);
+			gridEditor.destroy();
+		});
+
+		it('ignores modifier-clicks on markdown grid columns', () => {
+			const [first] = topLevelBlockPositions(editor.state.doc);
+			selectMixed(editor, [first], [{ gridPos: 4, index: 0 }]);
+			const markdown = createColumnElement(4, 1, 'markdown');
+			editor.view.dom.appendChild(markdown);
+
+			dispatchEditorMouseDown(markdown, { ctrlKey: true });
+
+			expect(blockSelectionPluginKey.getState(editor.state)).toEqual({
+				blocks: [first],
+				gridColumns: [{ gridPos: 4, index: 0 }],
+				anchor: first,
+				columnAnchor: { gridPos: 4, index: 0 },
+			});
+		});
 	});
 
-	describe('resolveDragBlocks', () => {
-		it('resolves an unselected block as a single drag', () => {
+	describe('resolveDragSelection', () => {
+		it('returns null for an unselected block', () => {
 			const [first] = topLevelBlockPositions(editor.state.doc);
-			expect(resolveDragBlocks(editor.state, first)).toEqual({
-				positions: [first],
-				isMulti: false,
-			});
+			expect(resolveDragSelection(editor.state, { kind: 'block', pos: first })).toBeNull();
 		});
 
-		it('resolves a single selected block as a single drag', () => {
+		it('returns null for a lone selected block', () => {
 			const [first] = topLevelBlockPositions(editor.state.doc);
 			selectBlocks(editor, [first], first);
-			expect(resolveDragBlocks(editor.state, first)).toEqual({
-				positions: [first],
-				isMulti: false,
-			});
+			expect(resolveDragSelection(editor.state, { kind: 'block', pos: first })).toBeNull();
 		});
 
-		it('resolves and sorts a multi-selection containing the dragged block', () => {
-			const [first, second, third] = topLevelBlockPositions(editor.state.doc);
-			selectBlocks(editor, [third, first, second], third);
-			expect(resolveDragBlocks(editor.state, second)).toEqual({
-				positions: [first, second, third],
-				isMulti: true,
-			});
+		it('returns null for a lone selected grid column', () => {
+			selectMixed(editor, [], [{ gridPos: 4, index: 1 }]);
+			expect(resolveDragSelection(editor.state, { kind: 'gridColumn', gridPos: 4, index: 1 })).toBeNull();
 		});
 
-		it('resolves a block outside a multi-selection as a single drag', () => {
+		it('groups columns and sorts mixed units in document order', () => {
 			const [first, second, third] = topLevelBlockPositions(editor.state.doc);
-			selectBlocks(editor, [first, third], first);
-			expect(resolveDragBlocks(editor.state, second)).toEqual({
-				positions: [second],
-				isMulti: false,
-			});
+			selectMixed(
+				editor,
+				[third, first],
+				[
+					{ gridPos: second, index: 2 },
+					{ gridPos: second, index: 0 },
+				],
+			);
+
+			expect(resolveDragSelection(editor.state, { kind: 'block', pos: third })).toEqual([
+				{ kind: 'block', pos: first },
+				{ kind: 'gridColumns', gridPos: second, indices: [0, 2] },
+				{ kind: 'block', pos: third },
+			]);
 		});
 	});
 
@@ -305,6 +422,20 @@ describe('story block selection', () => {
 			if (selection) {
 				editor.view.dispatch(editor.state.tr.setMeta(blockSelectionPluginKey, selection));
 			}
+			expect(selectColumnFromHandle(editor.state, 4, 1)).toBeNull();
+		});
+
+		it('no-ops when the requested column is part of a larger selection', () => {
+			const [first] = topLevelBlockPositions(editor.state.doc);
+			selectMixed(
+				editor,
+				[first],
+				[
+					{ gridPos: 4, index: 0 },
+					{ gridPos: 4, index: 1 },
+				],
+			);
+
 			expect(selectColumnFromHandle(editor.state, 4, 1)).toBeNull();
 		});
 	});
@@ -456,6 +587,114 @@ describe('story block selection', () => {
 		it('returns null when dropping between two adjacent selected blocks', () => {
 			const [a, b] = topLevelBlockPositions(editor.state.doc);
 			expect(buildBlockMoveTransaction(editor.state, [a, b], b)).toBeNull();
+		});
+	});
+
+	describe('buildSelectionMoveTransaction', () => {
+		it('moves a heading with two grid columns and collapses the remainder', () => {
+			const moveEditor = createDocumentEditor([
+				{ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Heading' }] },
+				{ type: 'gridBlock', attrs: { rawContent: FIRST_THREE_COLUMN_GRID } },
+				{ type: 'paragraph', content: [{ type: 'text', text: 'Target' }] },
+			]);
+			const [headingPos, gridPos] = topLevelBlockPositions(moveEditor.state.doc);
+			const move = buildSelectionMoveTransaction(
+				moveEditor.state,
+				[
+					{ kind: 'block', pos: headingPos },
+					{ kind: 'gridColumns', gridPos, indices: [0, 1] },
+				],
+				moveEditor.state.doc.content.size,
+			);
+
+			expect(move).not.toBeNull();
+			if (move) {
+				moveEditor.view.dispatch(move.transaction);
+			}
+			expect(moveEditor.state.doc.childCount).toBe(5);
+			expect(moveEditor.state.doc.child(0).type.name).toBe('chartBlock');
+			expect(moveEditor.state.doc.child(0).attrs.rawTag).toContain('query_id="q3"');
+			expect(moveEditor.state.doc.child(2).type.name).toBe('heading');
+			expect(moveEditor.state.doc.child(3).type.name).toBe('gridBlock');
+			expect(splitGridColumnsRaw(moveEditor.state.doc.child(3).attrs.rawContent as string).columns).toHaveLength(
+				2,
+			);
+			moveEditor.destroy();
+		});
+
+		it('moves selected column groups from two grids in document order', () => {
+			const moveEditor = createDocumentEditor([
+				{ type: 'gridBlock', attrs: { rawContent: FIRST_THREE_COLUMN_GRID } },
+				{ type: 'gridBlock', attrs: { rawContent: SECOND_THREE_COLUMN_GRID } },
+				{ type: 'paragraph', content: [{ type: 'text', text: 'Target' }] },
+			]);
+			const [firstGridPos, secondGridPos] = topLevelBlockPositions(moveEditor.state.doc);
+			const move = buildSelectionMoveTransaction(
+				moveEditor.state,
+				[
+					{ kind: 'gridColumns', gridPos: firstGridPos, indices: [0, 1] },
+					{ kind: 'gridColumns', gridPos: secondGridPos, indices: [0, 1] },
+				],
+				moveEditor.state.doc.content.size,
+			);
+
+			expect(move).not.toBeNull();
+			if (move) {
+				moveEditor.view.dispatch(move.transaction);
+			}
+			expect(moveEditor.state.doc.childCount).toBe(6);
+			expect(moveEditor.state.doc.child(3).type.name).toBe('gridBlock');
+			expect(moveEditor.state.doc.child(4).type.name).toBe('gridBlock');
+			const firstMovedColumns = splitGridColumnsRaw(
+				moveEditor.state.doc.child(3).attrs.rawContent as string,
+			).columns;
+			const secondMovedColumns = splitGridColumnsRaw(
+				moveEditor.state.doc.child(4).attrs.rawContent as string,
+			).columns;
+			expect(firstMovedColumns).toHaveLength(2);
+			expect(firstMovedColumns[0]).toContain('query_id="q1"');
+			expect(secondMovedColumns).toHaveLength(2);
+			expect(secondMovedColumns[0]).toContain('query_id="q4"');
+			moveEditor.destroy();
+		});
+
+		it('moves a fully selected grid and deletes its source', () => {
+			const moveEditor = createDocumentEditor([
+				{ type: 'gridBlock', attrs: { rawContent: FIRST_THREE_COLUMN_GRID } },
+				{ type: 'paragraph', content: [{ type: 'text', text: 'Target' }] },
+			]);
+			const [gridPos] = topLevelBlockPositions(moveEditor.state.doc);
+			const move = buildSelectionMoveTransaction(
+				moveEditor.state,
+				[{ kind: 'gridColumns', gridPos, indices: [0, 1, 2] }],
+				moveEditor.state.doc.content.size,
+			);
+
+			expect(move).not.toBeNull();
+			if (move) {
+				moveEditor.view.dispatch(move.transaction);
+			}
+			expect(moveEditor.state.doc.childCount).toBe(3);
+			expect(moveEditor.state.doc.child(0).type.name).toBe('paragraph');
+			expect(moveEditor.state.doc.child(1).type.name).toBe('gridBlock');
+			expect(splitGridColumnsRaw(moveEditor.state.doc.child(1).attrs.rawContent as string).columns).toHaveLength(
+				3,
+			);
+			moveEditor.destroy();
+		});
+
+		it('returns null when dropping between adjacent selected units', () => {
+			const [first, second] = topLevelBlockPositions(editor.state.doc);
+			expect(
+				buildSelectionMoveTransaction(
+					editor.state,
+					[
+						{ kind: 'block', pos: first },
+						{ kind: 'block', pos: second },
+					],
+					second,
+				),
+			).toBeNull();
 		});
 	});
 

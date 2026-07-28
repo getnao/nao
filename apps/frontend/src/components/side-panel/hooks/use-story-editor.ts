@@ -1,4 +1,4 @@
-import { popGridColumn, popGridColumns, splitGridColumnsRaw } from '@nao/shared/story-segments';
+import { popGridColumn } from '@nao/shared/story-segments';
 import { Extension } from '@tiptap/core';
 import { Fragment, Slice } from '@tiptap/pm/model';
 import { dropPoint } from '@tiptap/pm/transform';
@@ -6,11 +6,12 @@ import { useEditor } from '@tiptap/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
 	blockSelectionPluginKey,
-	buildBlockMoveTransaction,
+	buildDragUnitNodes,
+	buildSelectionMoveTransaction,
 	emptySelection,
 	getSelectedBlockPositions,
 	getSelectedGridColumns,
-	resolveDragBlocks,
+	resolveDragSelection,
 	selectBlockFromHandle,
 } from '../story-block-selection';
 import { EDITOR_EXTENSIONS } from '../story-editor-extensions';
@@ -23,7 +24,7 @@ import {
 	removeCardFromOrigin,
 } from '../story-editor-utils';
 import type { GridDragSource, StoryBlockDragSource } from '../story-editor-drag-context';
-import type { GridColumnRef } from '../story-block-selection';
+import type { DragUnit, GridColumnRef } from '../story-block-selection';
 import type { Node as PMNode } from '@tiptap/pm/model';
 import type { EditorState } from '@tiptap/pm/state';
 import type { Editor } from '@tiptap/react';
@@ -45,10 +46,9 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 	const onSaveRef = useRef(onSave);
 	const gridDragSourceRef = useRef<GridDragSource | null>(null);
 	const storyBlockSourceRef = useRef<StoryBlockDragSource | null>(null);
-	const multiBlockDragRef = useRef<number[] | null>(null);
-	const multiColumnDragRef = useRef<{ gridPos: number; indices: number[] } | null>(null);
+	const multiSelectionDragRef = useRef<DragUnit[] | null>(null);
 	const handleNodePosRef = useRef<number | null>(null);
-	const dragPreviewPositionsRef = useRef<number[] | null>(null);
+	const dragPreviewElementsRef = useRef<HTMLElement[] | null>(null);
 	const pendingDropRef = useRef<(() => void) | null>(null);
 	const storyEditorRef = useRef<HTMLDivElement>(null);
 	const [isBlockDragging, setIsBlockDragging] = useState(false);
@@ -59,34 +59,17 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 	const resetDragContexts = useCallback(() => {
 		gridDragSourceRef.current = null;
 		storyBlockSourceRef.current = null;
-		multiBlockDragRef.current = null;
-		multiColumnDragRef.current = null;
-		dragPreviewPositionsRef.current = null;
+		multiSelectionDragRef.current = null;
+		dragPreviewElementsRef.current = null;
 		pendingDropRef.current = null;
 		setIsBlockDragging(false);
 		setActiveDropZone((current) => (current === null ? current : null));
 	}, []);
 	const buildStoryDragSlice = useCallback((state: EditorState): Slice | null => {
-		const multiColumn = multiColumnDragRef.current;
-		if (multiColumn) {
-			const gridNode = state.doc.nodeAt(multiColumn.gridPos);
-			if (gridNode?.type.name === 'gridBlock') {
-				const columns = splitGridColumnsRaw(gridNode.attrs.rawContent as string).columns;
-				const nodes = multiColumn.indices
-					.map((index) => createBlockNode(state.schema, columns[index] ?? ''))
-					.filter((node): node is PMNode => node != null);
-				if (nodes.length > 0) {
-					return new Slice(Fragment.fromArray(nodes), 0, 0);
-				}
-			}
-		}
-
-		const multiBlock = multiBlockDragRef.current;
-		if (multiBlock && multiBlock.length > 0) {
-			const nodes = multiBlock
-				.map((position) => state.doc.nodeAt(position))
-				.filter((node): node is PMNode => node != null);
-			if (nodes.length > 0) {
+		const units = multiSelectionDragRef.current;
+		if (units) {
+			const nodes = buildDragUnitNodes(state, units);
+			if (nodes?.length) {
 				return new Slice(Fragment.fromArray(nodes), 0, 0);
 			}
 		}
@@ -151,75 +134,17 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 			},
 			handleDrop(view, event) {
 				const dataTransfer = event.dataTransfer;
-				if (multiColumnDragRef.current) {
+				if (multiSelectionDragRef.current) {
 					try {
-						const { gridPos, indices } = multiColumnDragRef.current;
-						const { state } = view;
-						const gridNode = state.doc.nodeAt(gridPos);
-						if (!gridNode || gridNode.type.name !== 'gridBlock') {
-							return true;
-						}
-						const result = popGridColumns(gridNode.attrs.rawContent as string, indices);
-						if (!result) {
-							return true;
-						}
-						const droppedNode = createBlockNode(state.schema, result.popped);
-						if (!droppedNode) {
-							return true;
-						}
 						const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
 						if (!coords) {
 							return true;
 						}
-						const gridFrom = gridPos;
-						const gridTo = gridPos + gridNode.nodeSize;
-						const slice = new Slice(Fragment.from(droppedNode), 0, 0);
-						const dropTarget = dropPoint(state.doc, coords.pos, slice);
-						if (dropTarget === null) {
-							return true;
-						}
-						let insertPos = dropTarget;
-						if (insertPos > gridFrom && insertPos < gridTo) {
-							insertPos = gridTo;
-						}
-						const transaction = state.tr;
-						if (result.remaining === null) {
-							transaction.delete(gridFrom, gridTo);
-						} else {
-							const remainingNode = createBlockNode(state.schema, result.remaining);
-							if (!remainingNode) {
-								return true;
-							}
-							transaction.replaceWith(gridFrom, gridTo, remainingNode);
-						}
-						const insertAssoc = insertPos >= gridTo ? 1 : -1;
-						transaction.insert(transaction.mapping.map(insertPos, insertAssoc), droppedNode);
-						transaction.setMeta(blockSelectionPluginKey, emptySelection());
-						view.dispatch(transaction);
-						event.preventDefault();
-						return true;
-					} finally {
-						resetDragContexts();
-					}
-				}
-
-				if (multiBlockDragRef.current && multiBlockDragRef.current.length > 1) {
-					try {
-						const positions = multiBlockDragRef.current;
-						const { state } = view;
-						const nodes = positions
-							.map((position) => state.doc.nodeAt(position))
-							.filter((node): node is PMNode => node != null);
-						if (nodes.length === 0) {
-							return true;
-						}
-						const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
-						if (!coords) {
-							return true;
-						}
-						const slice = new Slice(Fragment.fromArray(nodes), 0, 0);
-						const insertPos = dropPoint(state.doc, coords.pos, slice) ?? coords.pos;
-						const move = buildBlockMoveTransaction(state, positions, insertPos);
+						const move = buildSelectionMoveTransaction(
+							view.state,
+							multiSelectionDragRef.current,
+							coords.pos,
+						);
 						if (!move) {
 							return true;
 						}
@@ -380,11 +305,11 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 		};
 
 		const onDragStart = (event: DragEvent) => {
-			const positions = dragPreviewPositionsRef.current;
-			if (!positions || positions.length === 0) {
+			const elements = dragPreviewElementsRef.current;
+			if (!elements || elements.length === 0) {
 				return;
 			}
-			setDragPreviewImage(editor, positions, event);
+			setDragPreviewImage(elements, event);
 		};
 
 		const onDragOver = () => {
@@ -392,7 +317,7 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 		};
 
 		const clearDropCursor = () => {
-			dragPreviewPositionsRef.current = null;
+			dragPreviewElementsRef.current = null;
 			editor.view.dom.dispatchEvent(new DragEvent('dragleave'));
 		};
 
@@ -401,9 +326,8 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 			setActiveDropZone((current) => (current === null ? current : null));
 			pendingDropRef.current = null;
 			storyBlockSourceRef.current = null;
-			multiBlockDragRef.current = null;
-			multiColumnDragRef.current = null;
-			dragPreviewPositionsRef.current = null;
+			multiSelectionDragRef.current = null;
+			dragPreviewElementsRef.current = null;
 			editor.view.dragging = null;
 		};
 
@@ -412,7 +336,7 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 		};
 
 		const onDocumentDrop = (event: DragEvent) => {
-			if (multiColumnDragRef.current || multiBlockDragRef.current) {
+			if (multiSelectionDragRef.current) {
 				return;
 			}
 			const action = pendingDropRef.current;
@@ -502,16 +426,22 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 				return;
 			}
 			const selection = blockSelectionPluginKey.getState(editor.state);
-			const dragBlocks = hoveredPosition == null ? null : resolveDragBlocks(editor.state, hoveredPosition);
-			if (dragBlocks?.isMulti) {
-				multiBlockDragRef.current = dragBlocks.positions;
-				dragPreviewPositionsRef.current = dragBlocks.positions;
+			const units =
+				hoveredPosition == null
+					? null
+					: resolveDragSelection(editor.state, { kind: 'block', pos: hoveredPosition });
+			if (units) {
+				multiSelectionDragRef.current = units;
+				dragPreviewElementsRef.current = resolveDragPreviewElements(editor, units);
 				if (event.dataTransfer) {
 					event.dataTransfer.effectAllowed = 'move';
 				}
 			} else {
-				multiBlockDragRef.current = null;
-				dragPreviewPositionsRef.current = dragBlocks?.positions ?? null;
+				multiSelectionDragRef.current = null;
+				dragPreviewElementsRef.current =
+					hoveredPosition == null
+						? null
+						: resolveDragPreviewElements(editor, [{ kind: 'block', pos: hoveredPosition }]);
 				if (selection?.blocks.length || selection?.gridColumns.length) {
 					editor.view.dispatch(editor.state.tr.setMeta(blockSelectionPluginKey, emptySelection()));
 				}
@@ -519,29 +449,22 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 		},
 		[editor],
 	);
-	const endMultiBlockDrag = useCallback(() => {
-		multiBlockDragRef.current = null;
-		dragPreviewPositionsRef.current = null;
+	const endMultiSelectionDrag = useCallback(() => {
+		multiSelectionDragRef.current = null;
+		dragPreviewElementsRef.current = null;
 	}, []);
-	const beginMultiBlockDrag = useCallback(
-		(positions: number[], event: DragEvent) => {
-			multiBlockDragRef.current = positions;
-			dragPreviewPositionsRef.current = positions;
+	const beginMultiSelectionDrag = useCallback(
+		(units: DragUnit[], event: DragEvent) => {
+			multiSelectionDragRef.current = units;
+			dragPreviewElementsRef.current = editor ? resolveDragPreviewElements(editor, units) : null;
 			if (!editor || !event.dataTransfer) {
 				return;
 			}
 			event.dataTransfer.effectAllowed = 'move';
-			setDragPreviewImage(editor, positions, event);
+			setDragPreviewImage(dragPreviewElementsRef.current ?? [], event);
 		},
 		[editor],
 	);
-	const beginMultiColumnDrag = useCallback((gridPos: number, indices: number[], event: DragEvent) => {
-		multiColumnDragRef.current = { gridPos, indices };
-		if (event.dataTransfer) {
-			event.dataTransfer.effectAllowed = 'move';
-			event.dataTransfer.setData(STORY_BLOCK_DRAG_TYPE, '1');
-		}
-	}, []);
 	const storyBlockDragContext = useMemo(
 		() => ({
 			sourceRef: storyBlockSourceRef,
@@ -550,13 +473,12 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 			activeDropZone,
 			setActiveDropZone,
 			pendingDropRef,
-			beginMultiBlockDrag,
-			beginMultiColumnDrag,
-			endMultiBlockDrag,
+			beginMultiSelectionDrag,
+			endMultiSelectionDrag,
 		}),
-		[activeDropZone, beginMultiBlockDrag, beginMultiColumnDrag, endMultiBlockDrag, isBlockDragging],
+		[activeDropZone, beginMultiSelectionDrag, endMultiSelectionDrag, isBlockDragging],
 	);
-	const onElementDragEnd = endMultiBlockDrag;
+	const onElementDragEnd = endMultiSelectionDrag;
 	const onDragHandleClick = useCallback(() => {
 		if (!editor) {
 			return;
@@ -601,15 +523,34 @@ function sameGridColumns(first: GridColumnRef[], second: GridColumnRef[]): boole
 	);
 }
 
-function setDragPreviewImage(editor: Editor, positions: number[], event: DragEvent): void {
+function resolveDragPreviewElements(editor: Editor, units: DragUnit[]): HTMLElement[] {
+	const elements: HTMLElement[] = [];
+	for (const unit of units) {
+		if (unit.kind === 'block') {
+			const element = editor.view.nodeDOM(unit.pos);
+			if (element instanceof HTMLElement) {
+				elements.push(element);
+			}
+			continue;
+		}
+		for (const index of unit.indices) {
+			const element = editor.view.dom.querySelector<HTMLElement>(
+				`[data-grid-pos="${unit.gridPos}"][data-col-index="${index}"]`,
+			);
+			if (element) {
+				elements.push(element);
+			}
+		}
+	}
+	return elements;
+}
+
+function setDragPreviewImage(elements: HTMLElement[], event: DragEvent): void {
 	if (!event.dataTransfer) {
 		return;
 	}
 
-	const nodes = positions
-		.map((position) => editor.view.nodeDOM(position))
-		.filter((dom): dom is HTMLElement => dom instanceof HTMLElement);
-	if (nodes.length === 0) {
+	if (elements.length === 0) {
 		return;
 	}
 
@@ -618,8 +559,8 @@ function setDragPreviewImage(editor: Editor, positions: number[], event: DragEve
 	preview.style.top = '-10000px';
 	preview.style.left = '-10000px';
 
-	for (const dom of nodes) {
-		preview.appendChild(cloneElementWithStyles(dom));
+	for (const element of elements) {
+		preview.appendChild(cloneElementWithStyles(element));
 	}
 
 	document.body.appendChild(preview);
