@@ -3,6 +3,7 @@ import dbConfig, { Dialect } from '../../db/dbConfig';
 import { Block, Bold, Br, Code, List, ListItem, renderToMarkdown, Span, Title } from '../../lib/markdown';
 import { ALLOWED_APP_DB_VIEWS } from '../../utils/app-db-allowlist';
 import { formatCurrentDate } from '../../utils/date';
+import { AppDbTimestamps } from './app-db-timestamps';
 
 export function renderAdminSystemPrompt(options?: { timezone?: string; dialect?: Dialect }): string {
 	return renderToMarkdown(
@@ -12,7 +13,7 @@ export function renderAdminSystemPrompt(options?: { timezone?: string; dialect?:
 
 const VIEW_DESCRIPTIONS: Record<string, string> = {
 	v_messages:
-		'The full message history, one row per message part. Holds user prompts, assistant answers, tool calls (tool_name, tool_state, tool_input, tool_output, tool_error_text), feedback (vote, explanation), errors, the model used, and where the message came from (source). This is the richest view for adoption, tool errors, downvotes and regenerations.',
+		'The full message history, one row per message part. Holds user prompts, assistant answers, tool calls (tool_name, tool_state, tool_input, tool_output, tool_error_text), feedback (vote, explanation), errors and the model used. Three columns describe each row differently: role is who authored the part (user, assistant or system); message_source is the channel that specific message came in through (e.g. slack, teams, web, mcp) and is only set on user messages, so it is null on assistant answers and tool calls; chat_source is the channel of the whole conversation, derived from its first user message, so it is the same on every row of a chat and is the column to use when grouping or filtering a conversation by where it originated. This is the richest view for tool errors, votes and regenerations.',
 	v_memories: 'The memories the agent has stored per user.',
 	v_llm_inference: 'One row per LLM inference call, with its type and token usage.',
 	v_mcp_call_log: 'One row per MCP tool call, with its duration and whether it succeeded.',
@@ -73,7 +74,7 @@ function AdminSystemPrompt({ timezone, dialect }: { timezone?: string; dialect: 
 						</List>
 					</Span>
 				))}
-				<Span>Dates are most of the time stored as Unix timestamps in seconds.</Span>
+				<AppDbTimestamps dialect={dialect} />
 			</Block>
 
 			<Title level={2}>SQL rules</Title>
@@ -86,11 +87,7 @@ function AdminSystemPrompt({ timezone, dialect }: { timezone?: string; dialect: 
 				</ListItem>
 				<ListItem>
 					The connected database is <Bold>{dialectName}</Bold>. Write SQL for {dialectName} and use its
-					dialect-specific functions where helpful (e.g.{' '}
-					{dialect === Dialect.Postgres
-						? 'to_timestamp() / date_trunc() for Unix-timestamp handling'
-						: "datetime(col, 'unixepoch') / strftime() for Unix-timestamp handling"}
-					).
+					dialect-specific functions where helpful.
 				</ListItem>
 				<ListItem>
 					A LIMIT clause caps how many rows are returned, not how many exist. To count rows, run a separate

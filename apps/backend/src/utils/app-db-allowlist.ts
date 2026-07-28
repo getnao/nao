@@ -1,5 +1,6 @@
 import { Parser } from 'node-sql-parser';
 
+import dbConfig, { Dialect } from '../db/dbConfig';
 import { isReadOnlySqlQuery } from './sql-filter';
 
 export const ALLOWED_APP_DB_VIEWS = [
@@ -16,17 +17,24 @@ export interface SqlValidationResult {
 	reason?: string;
 }
 
-export async function validateAppDbQuery(sql: string): Promise<SqlValidationResult> {
+export async function validateAppDbQuery(
+	sql: string,
+	dialect: Dialect = dbConfig.dialect,
+): Promise<SqlValidationResult> {
 	if (!(await isReadOnlySqlQuery(sql))) {
 		return { ok: false, reason: 'Only read-only SELECT/WITH queries are allowed.' };
 	}
 
 	let referenced: string[];
 	try {
-		referenced = referencedBaseTables(sql);
+		referenced = referencedBaseTables(sql, dialect);
 	} catch (error) {
 		const detail = error instanceof Error ? error.message : String(error);
-		return { ok: false, reason: `Could not parse the query; rejected for safety. ${detail}` };
+		const dialectName = dialect === Dialect.Postgres ? 'PostgreSQL' : 'SQLite';
+		return {
+			ok: false,
+			reason: `Could not parse the query as ${dialectName}; rejected for safety. Rewrite it in ${dialectName} syntax. ${detail}`,
+		};
 	}
 
 	const allowed = new Set<string>(ALLOWED_APP_DB_VIEWS);
@@ -41,10 +49,9 @@ export async function validateAppDbQuery(sql: string): Promise<SqlValidationResu
 	return { ok: true };
 }
 
-/** Real tables referenced by the query, excluding CTE names. Throws on parse failure. */
-function referencedBaseTables(sql: string): string[] {
+function referencedBaseTables(sql: string, dialect: Dialect): string[] {
 	const parser = new Parser();
-	const opt = { database: 'sqlite' as const };
+	const opt = { database: dialect === Dialect.Postgres ? ('postgresql' as const) : ('sqlite' as const) };
 	// tableList entries look like "select::null::v_chat".
 	const tables = parser.tableList(sql, opt).map((entry) => entry.split('::').pop() as string);
 	const cteNames = collectCteNames(parser.astify(sql, opt));
