@@ -70,13 +70,17 @@ def migrate_llm_block(content: str) -> str | None:
         return None
 
     start, end = block
-    groups = _group_by_key(lines[start + 1 : end])
+    block_lines = lines[start + 1 : end]
+    indent = _property_indent(block_lines)
+    if indent is None:
+        return None
+
+    groups = _group_by_key(block_lines, indent)
     provider_groups = [group for group in groups if group[0] in ProviderConfig.model_fields]
     if not any(key == "provider" for key, _ in provider_groups):
         return None
 
     other_groups = [group for group in groups if group[0] not in ProviderConfig.model_fields]
-    indent = _indent_width(lines[start + 1])
 
     migrated = [
         *lines[: start + 1],
@@ -92,7 +96,7 @@ def migrate_llm_block(content: str) -> str | None:
 
 def _find_block(lines: list[str], key: str) -> tuple[int, int] | None:
     """Return the start and end line indices of a top-level mapping key's block."""
-    start = next((i for i, line in enumerate(lines) if line.rstrip() == f"{key}:"), None)
+    start = next((i for i, line in enumerate(lines) if _is_top_level_key(line, key)), None)
     if start is None:
         return None
 
@@ -107,9 +111,17 @@ def _find_block(lines: list[str], key: str) -> tuple[int, int] | None:
     return (start, end) if end > start + 1 else None
 
 
-def _group_by_key(block: list[str]) -> list[tuple[str, list[str]]]:
+def _is_top_level_key(line: str, key: str) -> bool:
+    prefix = f"{key}:"
+    if not line.startswith(prefix):
+        return False
+
+    suffix = line[len(prefix) :]
+    return not suffix.strip() or (suffix[0].isspace() and suffix.lstrip().startswith("#"))
+
+
+def _group_by_key(block: list[str], indent: int) -> list[tuple[str, list[str]]]:
     """Split a mapping block into one group per key, keeping nested lines and comments attached."""
-    indent = _indent_width(block[0])
     groups: list[tuple[str, list[str]]] = []
     pending: list[str] = []
 
@@ -128,6 +140,14 @@ def _group_by_key(block: list[str]) -> list[tuple[str, list[str]]]:
     if pending and groups:
         groups[-1][1].extend(pending)
     return groups
+
+
+def _property_indent(block: list[str]) -> int | None:
+    property_line = next(
+        (line for line in block if line.strip() and not line.lstrip().startswith("#")),
+        None,
+    )
+    return _indent_width(property_line) if property_line is not None else None
 
 
 def _render_provider(groups: list[tuple[str, list[str]]], indent: int) -> list[str]:

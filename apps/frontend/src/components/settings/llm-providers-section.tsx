@@ -1,6 +1,5 @@
 import { ProviderCard } from './llm-provider-card';
 import { LlmProviderForm } from './llm-provider-form';
-import type { LlmProvider } from '@nao/shared/types';
 import { useLlmProviders } from '@/hooks/use-llm-providers';
 
 interface LlmProvidersSectionProps {
@@ -31,13 +30,14 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 		getModelDisplayName,
 	} = useLlmProviders();
 
-	const providerBadges = (provider: LlmProvider) => {
+	const projectConfigBadges = (config: (typeof projectConfigs)[number]) => {
 		const badges: string[] = [];
-		if (envProviders.includes(provider)) {
-			badges.push('ENV');
+		const hasOwnCredentials = !!(config.apiKeyPreview || config.credentialPreviews);
+		if (envProviders.includes(config.provider)) {
+			badges.push(hasOwnCredentials ? 'ENV (overridden)' : 'ENV');
 		}
-		if (configProviders.some((c) => c.provider === provider)) {
-			badges.push('nao_config.yaml');
+		if (configProviders.some((c) => c.provider === config.provider)) {
+			badges.push('nao_config.yaml (overridden)');
 		}
 		return badges;
 	};
@@ -103,7 +103,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 						credentialPreviews={configProvider.credentialPreviews}
 						baseUrl={configProvider.baseUrl}
 						enabledModels={configProvider.enabledModels}
-						badges={providerBadges(configProvider.provider)}
+						badges={['nao_config.yaml']}
 						isAdmin={isAdmin}
 						isFormActive={!!editingState}
 						onEdit={() => handleOverrideConfigProvider(configProvider)}
@@ -140,7 +140,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 						baseUrl={config.baseUrl}
 						envBaseUrl={envBaseUrls[config.provider]}
 						enabledModels={config.enabledModels}
-						badges={providerBadges(config.provider)}
+						badges={projectConfigBadges(config)}
 						isAdmin={isAdmin}
 						isFormActive={!!editingState}
 						onEdit={() => handleEditConfig(config)}

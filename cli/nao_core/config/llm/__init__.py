@@ -182,8 +182,9 @@ class ProviderConfig(BaseModel):
         return self
 
     @classmethod
-    def promptConfig(cls) -> "ProviderConfig":
+    def promptConfig(cls, *, excluded_providers: set[LLMProvider] | None = None) -> "ProviderConfig":
         """Interactively prompt the user for a single provider's credentials."""
+        excluded_providers = excluded_providers or set()
         provider_choices = [
             questionary.Choice("OpenAI (GPT-4, GPT-3.5)", value="openai"),
             questionary.Choice("Anthropic (Claude)", value="anthropic"),
@@ -193,6 +194,9 @@ class ProviderConfig(BaseModel):
             questionary.Choice("Ollama", value="ollama"),
             questionary.Choice("AWS Bedrock (Claude, Nova, etc)", value="bedrock"),
             questionary.Choice("Google Vertex AI (Claude, Gemini)", value="vertex"),
+        ]
+        provider_choices = [
+            choice for choice in provider_choices if LLMProvider(choice.value) not in excluded_providers
         ]
 
         llm_provider = ask_select("Select LLM provider:", choices=provider_choices)
@@ -343,8 +347,9 @@ class LLMConfig(BaseModel):
     def promptConfig(cls, *, prompt_annotation_model: bool = True) -> "LLMConfig":
         """Interactively prompt the user for LLM configuration."""
         providers = [ProviderConfig.promptConfig()]
-        while ask_confirm("Add another LLM provider?", default=False):
-            providers.append(ProviderConfig.promptConfig())
+        while len(providers) < len(LLMProvider) and ask_confirm("Add another LLM provider?", default=False):
+            configured_providers = {provider.provider for provider in providers}
+            providers.append(ProviderConfig.promptConfig(excluded_providers=configured_providers))
 
         annotation_model: str | None = None
         if prompt_annotation_model:

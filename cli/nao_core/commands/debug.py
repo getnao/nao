@@ -54,7 +54,7 @@ def _is_model_available(configured_id: str, available: set[str]) -> bool:
 
 
 def _missing_configured_models(llm_config: ProviderConfig, available: set[str]) -> list[str]:
-    if not llm_config.models or not available:
+    if not llm_config.models:
         return []
     return [model.id for model in llm_config.models if not _is_model_available(model.id, available)]
 

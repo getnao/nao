@@ -38,6 +38,25 @@ llm:
     )
 
 
+def test_finds_llm_block_with_inline_comment():
+    content = """\
+llm: # shared provider
+  provider: anthropic
+  api_key: sk-test
+"""
+
+    migrated = migrate_llm_block(content)
+
+    assert migrated is not None
+    assert migrated.startswith(
+        """\
+llm: # shared provider
+  providers:
+  - provider: anthropic
+"""
+    )
+
+
 def test_keeps_llm_level_keys_in_place():
     content = """\
 llm:
@@ -83,6 +102,28 @@ llm:
   providers:
     # our shared gateway
   - provider: openai
+"""
+    )
+
+
+def test_uses_first_property_indentation_after_blank_line():
+    content = """\
+llm:
+
+  provider: anthropic
+  api_key: sk-test
+"""
+
+    migrated = migrate_llm_block(content)
+
+    assert migrated is not None
+    assert migrated.startswith(
+        """\
+llm:
+  providers:
+
+  - provider: anthropic
+    api_key: sk-test
 """
     )
 

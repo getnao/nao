@@ -248,3 +248,7 @@ def test_prompt_config_collects_several_providers(mock_select, mock_text, _mock_
     config = LLMConfig.promptConfig(prompt_annotation_model=False)
 
     assert [p.provider for p in config.providers] == [LLMProvider.OPENAI, LLMProvider.ANTHROPIC]
+    second_provider_choices = mock_select.call_args_list[1].kwargs["choices"]
+    assert {choice.value for choice in second_provider_choices} == {
+        provider.value for provider in LLMProvider if provider != LLMProvider.OPENAI
+    }

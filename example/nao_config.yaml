@@ -16,5 +16,13 @@ repos:
   url: https://github.com/dbt-labs/jaffle_shop_duckdb.git
   branch: null
 notion: null
-llm: null
+llm:
+  providers:
+  - provider: openai
+    api_key: sk-test
+    models:
+    - name: gpt-4.1
+      id: gpt-4.1
+    - name: gpt-4.1-turbo-mini-2026-07-19
+      id: gpt-4.1-turbo-mini-2026-07-19
 slack: null

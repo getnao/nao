@@ -40,6 +40,7 @@ import {
 	getProjectConfigLlm,
 } from '../utils/llm';
 import { extractRequiredEnvVars } from '../utils/nao-config';
+import { findConfigLlmProvider } from '../utils/nao-config-llm';
 import { buildCredentialPreviews, previewApiKey } from '../utils/utils';
 import {
 	adminProtectedProcedure,
@@ -177,19 +178,29 @@ export const projectRoutes = {
 		.output(llmConfigSchema.omit({ createdAt: true, updatedAt: true }))
 		.mutation(async ({ ctx, input }) => {
 			const existingConfig = await llmConfigQueries.getProjectLlmConfigByProvider(ctx.project.id, input.provider);
+			const inheritedConfig = existingConfig
+				? null
+				: findConfigLlmProvider(await getProjectConfigLlm(ctx.project.id), input.provider);
 			const envApiKey = getEnvApiKey(input.provider);
 
-			const hasNewCredentials =
-				input.credentials && Object.keys(input.credentials).some((k) => input.credentials![k]);
+			const hasNewCredentials = Object.values(input.credentials ?? {}).some(Boolean);
+			const credentials = hasNewCredentials
+				? {
+						...(existingConfig?.credentials ?? inheritedConfig?.credentials),
+						...input.credentials,
+					}
+				: (inheritedConfig?.credentials ?? undefined);
 
 			let apiKey: string | null;
 
 			if (input.apiKey) {
 				apiKey = input.apiKey;
-			} else if (hasNewCredentials && !input.apiKey) {
+			} else if (hasNewCredentials) {
 				apiKey = '';
 			} else if (existingConfig) {
 				apiKey = null;
+			} else if (inheritedConfig?.apiKey) {
+				apiKey = inheritedConfig.apiKey;
 			} else if (envApiKey) {
 				apiKey = envApiKey;
 			} else if (getProviderAuth(input.provider).apiKey !== 'required') {
@@ -212,7 +223,7 @@ export const projectRoutes = {
 				projectId: ctx.project.id,
 				provider: input.provider,
 				apiKey,
-				credentials: hasNewCredentials ? input.credentials! : undefined,
+				credentials,
 				enabledModels,
 				customModels,
 				modelSettings,

@@ -97,11 +97,11 @@ export function LlmProviderForm({
 	});
 
 	const getApiKeyHint = () => {
-		if (providerAuth.apiKey === 'optional') {
-			return providerAuth.hint ? `(${providerAuth.hint})` : '(optional)';
-		}
 		if (inheritedKeyLabel) {
 			return `(optional - leave empty to use ${inheritedKeyLabel})`;
+		}
+		if (providerAuth.apiKey === 'optional') {
+			return providerAuth.hint ? `(${providerAuth.hint})` : '(optional)';
 		}
 		if (isEditing) {
 			return '(leave empty to keep current)';
@@ -110,11 +110,12 @@ export function LlmProviderForm({
 	};
 
 	const getApiKeyPlaceholder = () => {
+		if (inheritedKeyLabel) {
+			const credentialLabel = providerAuth.apiKey === 'optional' ? 'bearer token' : 'API key';
+			return `Enter ${credentialLabel} to override ${inheritedKeyLabel}`;
+		}
 		if (providerAuth.apiKey === 'optional') {
 			return 'Enter bearer token or leave empty for env credentials';
-		}
-		if (inheritedKeyLabel) {
-			return `Enter API key to override ${inheritedKeyLabel}`;
 		}
 		if (isEditing) {
 			return 'Enter new API key to update';
