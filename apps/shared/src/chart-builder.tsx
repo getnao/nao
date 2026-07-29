@@ -32,6 +32,7 @@ export const DEFAULT_COLORS = ['#104e64', '#f54900', '#009689', '#ffb900', '#fe9
 
 const AXIS_TICK = { fontSize: 12 };
 const CATEGORY_XAXIS_HEIGHT = 56;
+const X_AXIS_LABEL_HEIGHT = 22;
 const DATA_LABEL_PROPS = {
 	fill: 'var(--foreground, #111827)',
 	fontSize: 11,
@@ -666,7 +667,7 @@ function renderCategoryXAxis({
 			minTickGap={12}
 			interval={compact ? 0 : xAxisInterval}
 			tickFormatter={tickFormatter}
-			height={CATEGORY_XAXIS_HEIGHT}
+			height={CATEGORY_XAXIS_HEIGHT + (xAxisLabel ? X_AXIS_LABEL_HEIGHT : 0)}
 			label={xAxisLabelProps(xAxisLabel)}
 			{...(compact ? { angle: -35, textAnchor: 'end' as const } : {})}
 		/>
@@ -1148,7 +1149,7 @@ function buildScatterChart(props: ResolvedProps) {
 				tickLine={false}
 				axisLine={false}
 				minTickGap={12}
-				height={CATEGORY_XAXIS_HEIGHT}
+				height={CATEGORY_XAXIS_HEIGHT + (xAxisLabel ? X_AXIS_LABEL_HEIGHT : 0)}
 				label={xAxisLabelProps(xAxisLabel)}
 			/>
 			<YAxis
