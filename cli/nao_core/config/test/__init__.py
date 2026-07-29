@@ -23,6 +23,10 @@ class TestConfig(BaseModel):
         description="The models to run the tests against, in the format 'provider:model_id'",
     )
     threads: int = Field(default=1, ge=1, description="Number of test runs to execute in parallel")
+    fail_fast: bool = Field(
+        default=False,
+        description="Stop the run on the first failing (test, model) run instead of completing every run",
+    )
     comparison: ComparisonConfig = Field(
         default_factory=ComparisonConfig, description="Tolerances used when comparing results to the expected data"
     )

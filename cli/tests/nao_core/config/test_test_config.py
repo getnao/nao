@@ -41,9 +41,26 @@ def test_defaults():
 
     assert test_config.models == ["openai:gpt-4.1"]
     assert test_config.threads == 1
+    assert test_config.fail_fast is False
     assert test_config.comparison.rtol == 1e-5
     assert test_config.comparison.atol == 1e-8
     assert test_config.comparison.decimals == 2
+
+
+def test_fail_fast_can_be_enabled():
+    test_config = TestConfig(fail_fast=True)
+
+    assert test_config.fail_fast is True
+
+
+def test_test_block_loads_fail_fast_from_yaml(tmp_path):
+    config_file = tmp_path / "nao_config.yaml"
+    config_file.write_text("project_name: test-project\ntest:\n  fail_fast: true\n")
+
+    config = NaoConfig.load(tmp_path)
+
+    assert config.test is not None
+    assert config.test.fail_fast is True
 
 
 @pytest.mark.parametrize("model", ["gpt-4.1", "openai:", ":gpt-4.1"])

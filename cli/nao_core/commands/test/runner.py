@@ -390,6 +390,13 @@ def test(
             help="Password for authentication. Falls back to NAO_PASSWORD env var.",
         ),
     ] = None,
+    fail_fast: Annotated[
+        bool | None,
+        Parameter(
+            name=["-x", "--fail-fast"],
+            help="Stop on the first failing (test, model) run. Overrides test.fail_fast.",
+        ),
+    ] = None,
 ):
     """Run tests from the tests/ folder.
 
@@ -403,6 +410,8 @@ def test(
         nao test -s test_name
         nao test -s 12,13,14
         nao test -u user@example.com --password secret
+        nao test -x
+        nao test --fail-fast
     """
     email = username or os.environ.get("NAO_USERNAME")
     pwd = password or os.environ.get("NAO_PASSWORD")
@@ -414,6 +423,7 @@ def test(
 
     test_config = config.test or TestConfig()
     thread_count = threads if threads is not None else test_config.threads
+    fail_fast_enabled = fail_fast if fail_fast is not None else test_config.fail_fast
 
     try:
         model_configs = [ModelConfig.parse(m) for m in models or test_config.models]
@@ -461,8 +471,11 @@ def test(
             )
             results.append(result)
             UI.print("")
+            if fail_fast_enabled and not result.passed:
+                break
     else:
-        with ThreadPoolExecutor(max_workers=thread_count) as executor:
+        executor = ThreadPoolExecutor(max_workers=thread_count)
+        try:
             futures = {
                 executor.submit(
                     run_test,
@@ -479,6 +492,11 @@ def test(
                 result = future.result()
                 results.append(result)
                 UI.print("")
+                if fail_fast_enabled and not result.passed:
+                    break
+        finally:
+            if fail_fast_enabled:
+                executor.shutdown(wait=False, cancel_futures=True)
 
     # Save results to JSON
     output_file = save_results(results, project_path / TESTS_FOLDER / "outputs")
@@ -513,4 +531,6 @@ def test(
         UI.success(f"All {total} test(s) passed")
     else:
         UI.print(f"[green]{passed} passed[/green], [red]{failed} failed[/red], {total} total")
+        if fail_fast_enabled and len(results) < total_runs:
+            UI.print(f"[yellow]Stopped early after first failure ({total} of {total_runs} run(s) executed).[/yellow]")
         sys.exit(1)
