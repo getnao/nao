@@ -1,14 +1,34 @@
 import {
+	BUBBLE_MAX_RADIUS,
+	bubbleLegendValues,
 	bucketPieData,
+	buildChoroplethEntries,
 	buildMapPoints,
+	CHOROPLETH_MAX_OPACITY,
+	CHOROPLETH_MIN_OPACITY,
+	choroplethOpacity,
+	choroplethTooltipKeys,
+	choroplethValueDomain,
 	computeKpiComparison,
+	type CustomBoundarySet,
 	DEFAULT_COLORS,
+	DEFAULT_MARKER_COLOR,
+	DEFAULT_MARKER_RADIUS,
 	defaultColorFor,
 	formatChartValue,
 	labelize,
+	MAP_BOUNDARY_URLS,
+	type MapGeometry,
 	type MapPoint,
 	MAX_MAP_POINTS,
+	type NumericDomain,
+	numericDomain,
+	parseNumericValue,
+	pointTooltipKeys,
+	resolveBoundary,
 	resolveMapConfig,
+	scaleBubbleRadius,
+	withOpacity,
 } from '@nao/shared';
 import {
 	type DateFormatSettings,
@@ -17,7 +37,7 @@ import {
 	resolveDateFormatPattern,
 } from '@nao/shared/date';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
-import { splitCodeIntoSegments } from '@nao/shared/story-segments';
+import { mapBlockToInput, splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { formatCellValue, isNumericColumn } from '@nao/shared/story-table-utils';
 import { flattenStoryTabs } from '@nao/shared/story-tabs';
 import type { displayChart, displayMap } from '@nao/shared/tools';
@@ -26,6 +46,8 @@ import React, { createContext, useContext } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import { renderChartToSvg } from '../components/generate-chart';
+import { getCachedBoundary, setCachedBoundary } from './map-boundary-cache';
+import { parseAndValidateGeoJson, safeFetch } from './safe-fetch';
 import type { QueryDataMap, StoryInput } from './story-download';
 
 const MAX_TABLE_ROWS = 10;
@@ -40,28 +62,33 @@ const MAPLIBRE_JS_URL = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/
 const MAPLIBRE_CSS_URL = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.css`;
 const MAP_STYLE_URL = process.env.NAO_STORY_MAP_STYLE_URL || 'https://tiles.openfreemap.org/styles/positron';
 const MAP_HEIGHT = 360;
-const DEFAULT_MAP_MARKER_COLOR = '#522bff';
-const DEFAULT_MAP_MARKER_RADIUS = 5;
+
+type InlinedBoundaries = Map<string, { geojson: unknown; joinProps: string[] | null }>;
 
 const DateFormatContext = createContext<DateFormatSettings>({ ...DEFAULT_DATE_FORMAT_SETTINGS });
+const InlinedBoundariesContext = createContext<InlinedBoundaries>(new Map());
 
-export function generateStoryHtml(
+export async function generateStoryHtml(
 	story: StoryInput,
 	queryData: QueryDataMap | null,
 	dateFormat?: DateFormatSettings | null,
-): string {
+	customBoundaries?: CustomBoundarySet[],
+): Promise<string> {
 	const resolvedDateFormat = dateFormat ?? { ...DEFAULT_DATE_FORMAT_SETTINGS };
 	const flattened = flattenStoryTabs(story.code);
 	const segments = splitCodeIntoSegments(flattened);
 	const hasMap = segmentsIncludeMap(segments);
+	const inlinedBoundaries = await prefetchCustomBoundaries(segments, customBoundaries ?? []);
 	const markup = renderToStaticMarkup(
 		<DateFormatContext.Provider value={resolvedDateFormat}>
-			<StoryDocument title={story.title} hasMap={hasMap}>
-				{segments.map((seg, i) => (
-					<StorySegment key={i} segment={seg} queryData={queryData} />
-				))}
-				<StoryFooter />
-			</StoryDocument>
+			<InlinedBoundariesContext.Provider value={inlinedBoundaries}>
+				<StoryDocument title={story.title} hasMap={hasMap}>
+					{segments.map((seg, i) => (
+						<StorySegment key={i} segment={seg} queryData={queryData} />
+					))}
+					<StoryFooter />
+				</StoryDocument>
+			</InlinedBoundariesContext.Provider>
 		</DateFormatContext.Provider>,
 	);
 	return `<!DOCTYPE html>\n${markup}`;
@@ -69,6 +96,71 @@ export function generateStoryHtml(
 
 function segmentsIncludeMap(segments: Segment[]): boolean {
 	return segments.some((seg) => seg.type === 'map' || (seg.type === 'grid' && segmentsIncludeMap(seg.children)));
+}
+
+async function prefetchCustomBoundaries(
+	segments: Segment[],
+	customBoundaries: CustomBoundarySet[],
+): Promise<InlinedBoundaries> {
+	const result: InlinedBoundaries = new Map();
+
+	const customKeysNeeded = new Set<string>();
+	const boundaryUrlsNeeded = new Set<string>();
+
+	const collect = (segs: Segment[]) => {
+		for (const seg of segs) {
+			if (seg.type === 'map') {
+				if (seg.map.regionBoundaries && customBoundaries.length > 0) {
+					customKeysNeeded.add(seg.map.regionBoundaries);
+				}
+				if (seg.map.boundariesUrl) {
+					boundaryUrlsNeeded.add(seg.map.boundariesUrl);
+				}
+			} else if (seg.type === 'grid') {
+				collect(seg.children);
+			}
+		}
+	};
+	collect(segments);
+
+	await Promise.all([
+		...[...customKeysNeeded].map(async (key) => {
+			const resolved = resolveBoundary(key, customBoundaries);
+			if (!resolved) {
+				return;
+			}
+			const cached = getCachedBoundary(resolved.url);
+			if (cached) {
+				result.set(key, { geojson: cached, joinProps: resolved.joinProps });
+				return;
+			}
+			try {
+				const text = await safeFetch(resolved.url);
+				const { geojson } = parseAndValidateGeoJson(text);
+				setCachedBoundary(resolved.url, geojson);
+				result.set(key, { geojson, joinProps: resolved.joinProps });
+			} catch {
+				// silently skip — the map will render without region fills
+			}
+		}),
+		...[...boundaryUrlsNeeded].map(async (url) => {
+			const cached = getCachedBoundary(url);
+			if (cached) {
+				result.set(url, { geojson: cached, joinProps: null });
+				return;
+			}
+			try {
+				const text = await safeFetch(url);
+				const { geojson } = parseAndValidateGeoJson(text);
+				setCachedBoundary(url, geojson);
+				result.set(url, { geojson, joinProps: null });
+			} catch {
+				// silently skip — the map will render without region fills
+			}
+		}),
+	]);
+
+	return result;
 }
 
 function StoryDocument({ title, hasMap, children }: { title: string; hasMap: boolean; children: React.ReactNode }) {
@@ -412,6 +504,23 @@ function MapBlock({ map, queryData }: { map: ParsedMapBlock; queryData: QueryDat
 	}
 
 	const config = resolveMapConfig(rows, mapBlockToInput(map));
+	if (config.map_type === 'choropleth') {
+		return <ChoroplethMapBlock map={map} config={config} rows={rows} dateFormat={dateFormat} />;
+	}
+	return <PointMapBlock map={map} config={config} rows={rows} dateFormat={dateFormat} />;
+}
+
+function PointMapBlock({
+	map,
+	config,
+	rows,
+	dateFormat,
+}: {
+	map: ParsedMapBlock;
+	config: displayMap.Input;
+	rows: Record<string, unknown>[];
+	dateFormat: DateFormatSettings;
+}) {
 	if (config.latitude_key === config.longitude_key) {
 		return <Placeholder label={map.title || 'Map'} message='Could not render map' />;
 	}
@@ -421,52 +530,116 @@ function MapBlock({ map, queryData }: { map: ParsedMapBlock; queryData: QueryDat
 		return <Placeholder label={map.title || 'Map'} message='No valid coordinates' />;
 	}
 
-	const payload = buildMapPayload(points, config, dateFormat);
+	const payload = buildPointPayload(points, config, dateFormat);
+	const legend =
+		config.map_type === 'scatter_bubble' && payload.sizeDomain ? (
+			<BubbleLegendOverlay
+				color={payload.color}
+				domain={payload.sizeDomain}
+				maxRadius={config.radius ?? BUBBLE_MAX_RADIUS}
+			/>
+		) : null;
+	return <MapShell title={map.title} payload={payload} legend={legend} />;
+}
+
+function ChoroplethMapBlock({
+	map,
+	config,
+	rows,
+	dateFormat,
+}: {
+	map: ParsedMapBlock;
+	config: displayMap.Input;
+	rows: Record<string, unknown>[];
+	dateFormat: DateFormatSettings;
+}) {
+	const hasBoundary =
+		!!config.geometry_key ||
+		(!!config.boundaries_url && !!config.region_key) ||
+		(!!config.region_boundaries && !!config.region_key);
+	if (!config.value_key || !hasBoundary) {
+		return <Placeholder label={map.title || 'Map'} message='Could not render map' />;
+	}
+
+	const inlinedBoundaries = useContext(InlinedBoundariesContext);
+	const payload = buildChoroplethPayload(config, rows, dateFormat, inlinedBoundaries);
+	if (payload.regions.length === 0) {
+		return <Placeholder label={map.title || 'Map'} message='No regions to shade' />;
+	}
+	const legend = payload.domain ? <ChoroplethLegendOverlay color={payload.color} domain={payload.domain} /> : null;
+	return <MapShell title={map.title} payload={payload} legend={legend} />;
+}
+
+function MapShell({
+	title,
+	payload,
+	legend,
+}: {
+	title?: string;
+	payload: PointPayload | ChoroplethPayload;
+	legend: React.ReactNode;
+}) {
 	return (
 		<div style={{ margin: '16px 0' }}>
-			{map.title && <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>{map.title}</div>}
-			<div
-				className='nao-map'
-				data-map={JSON.stringify(payload)}
-				style={{
-					width: '100%',
-					height: MAP_HEIGHT,
-					borderRadius: 8,
-					overflow: 'hidden',
-					border: '1px solid #e5e7eb',
-					background: '#eef1f5',
-				}}
-			/>
+			{title && <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>{title}</div>}
+			<div style={{ position: 'relative', width: '100%', height: MAP_HEIGHT }}>
+				<div
+					className='nao-map'
+					data-map={JSON.stringify(payload)}
+					style={{
+						width: '100%',
+						height: '100%',
+						borderRadius: 8,
+						overflow: 'hidden',
+						border: '1px solid #e5e7eb',
+						background: '#eef1f5',
+					}}
+				/>
+				{legend}
+			</div>
 		</div>
 	);
 }
 
-function mapBlockToInput(map: ParsedMapBlock): displayMap.Input {
-	return {
-		query_id: map.queryId,
-		map_type: (map.mapType || 'points') as displayMap.Input['map_type'],
-		latitude_key: map.latitudeKey,
-		longitude_key: map.longitudeKey,
-		label_key: map.labelKey,
-		tooltip_keys: map.tooltipKeys,
-		marker_color: map.markerColor,
-		marker_radius: map.markerRadius,
-		title: map.title,
-	};
+interface PointPayload {
+	type: displayMap.MapType;
+	color: string;
+	radius: number;
+	sizeDomain: NumericDomain | null;
+	points: { lng: number; lat: number; radius?: number; label?: string; rows?: [string, string][] }[];
 }
 
-interface MapPayload {
-	markerColor: string;
-	markerRadius: number;
-	points: { lng: number; lat: number; label?: string; rows?: [string, string][] }[];
+interface ChoroplethPayload {
+	type: 'choropleth';
+	color: string;
+	domain: NumericDomain | null;
+	boundaryUrl: string | null;
+	joinProps: string[] | null;
+	inlineGeoJson?: unknown;
+	regions: {
+		value: number;
+		region?: string;
+		geometry?: MapGeometry;
+		label?: string;
+		rows?: [string, string][];
+		dot?: string;
+	}[];
 }
 
-function buildMapPayload(points: MapPoint[], config: displayMap.Input, dateFormat: DateFormatSettings): MapPayload {
+function buildPointPayload(points: MapPoint[], config: displayMap.Input, dateFormat: DateFormatSettings): PointPayload {
 	const labelKey = config.label_key;
-	const tooltipKeys = (config.tooltip_keys ?? []).filter((key) => key && key !== labelKey);
+	const isBubble = config.map_type === 'scatter_bubble';
+	const tooltipKeys = pointTooltipKeys(config);
+	const sizeDomain =
+		isBubble && config.size_key
+			? numericDomain(points.map((point) => parseNumericValue(point.row[config.size_key ?? ''])))
+			: null;
+	const maxRadius = config.radius ?? BUBBLE_MAX_RADIUS;
 	return {
-		markerColor: config.marker_color?.trim() || DEFAULT_MAP_MARKER_COLOR,
-		markerRadius: config.marker_radius ?? DEFAULT_MAP_MARKER_RADIUS,
+		type: config.map_type,
+		color: config.color?.trim() || DEFAULT_MARKER_COLOR,
+		radius: config.radius ?? DEFAULT_MARKER_RADIUS,
+		sizeDomain,
 		points: points.map((point) => {
 			const label =
 				labelKey && point.row[labelKey] != null ? formatCellValue(point.row[labelKey], dateFormat) : undefined;
@@ -476,10 +649,163 @@ function buildMapPayload(points: MapPoint[], config: displayMap.Input, dateForma
 					labelize(key, dateFormat),
 					formatCellValue(point.row[key], dateFormat),
 				]);
-			return { lng: point.longitude, lat: point.latitude, label, rows: rows.length ? rows : undefined };
+			const radius = isBubble
+				? scaleBubbleRadius(parseNumericValue(point.row[config.size_key ?? '']), sizeDomain, maxRadius)
+				: undefined;
+			return { lng: point.longitude, lat: point.latitude, radius, label, rows: rows.length ? rows : undefined };
 		}),
 	};
 }
+
+function buildChoroplethPayload(
+	config: displayMap.Input,
+	rows: Record<string, unknown>[],
+	dateFormat: DateFormatSettings,
+	inlinedBoundaries?: InlinedBoundaries,
+): ChoroplethPayload {
+	const entries = buildChoroplethEntries(rows, config);
+	const labelKey = config.label_key;
+	const tooltipKeys = choroplethTooltipKeys(config);
+	const regions: ChoroplethPayload['regions'] = [];
+	for (const entry of entries) {
+		if (entry.value === null || (entry.geometry === null && entry.region === null)) {
+			continue;
+		}
+		const label =
+			labelKey && entry.row[labelKey] != null
+				? formatCellValue(entry.row[labelKey], dateFormat)
+				: (entry.region ?? undefined);
+		const tipRows = tooltipKeys
+			.filter((key) => entry.row[key] != null)
+			.map((key): [string, string] => [labelize(key, dateFormat), formatCellValue(entry.row[key], dateFormat)]);
+		regions.push({
+			value: entry.value,
+			...(entry.geometry && { geometry: entry.geometry }),
+			...(entry.region && { region: entry.region }),
+			...(label != null && { label: String(label) }),
+			...(tipRows.length && { rows: tipRows }),
+		});
+	}
+	const color = config.color?.trim() || DEFAULT_MARKER_COLOR;
+	const domain = choroplethValueDomain(entries);
+	for (const region of regions) {
+		region.dot = withOpacity(color, choroplethOpacity(region.value, domain));
+	}
+	const regionBoundaries = config.region_boundaries;
+	const inlinedByKey = regionBoundaries ? inlinedBoundaries?.get(regionBoundaries) : undefined;
+	const inlinedByUrl = config.boundaries_url ? inlinedBoundaries?.get(config.boundaries_url) : undefined;
+
+	let boundaryUrl: string | null = null;
+	let joinProps: string[] | null = null;
+	let inlineGeoJson: unknown = undefined;
+
+	if (config.geometry_key) {
+		// geometry comes from query rows — no boundary URL needed
+	} else if (config.boundaries_url) {
+		if (inlinedByUrl) {
+			inlineGeoJson = inlinedByUrl.geojson;
+			joinProps = inlinedByUrl.joinProps;
+		} else {
+			boundaryUrl = config.boundaries_url;
+			joinProps = config.boundaries_join_property ? [config.boundaries_join_property] : null;
+		}
+	} else if (regionBoundaries) {
+		if (inlinedByKey) {
+			inlineGeoJson = inlinedByKey.geojson;
+			joinProps = inlinedByKey.joinProps;
+		} else {
+			boundaryUrl = builtinBoundaryUrl(regionBoundaries);
+			joinProps = resolveBoundary(regionBoundaries)?.joinProps ?? null;
+		}
+	}
+
+	return {
+		type: 'choropleth',
+		color,
+		domain,
+		boundaryUrl,
+		joinProps,
+		...(inlineGeoJson !== undefined && { inlineGeoJson }),
+		regions,
+	};
+}
+
+function builtinBoundaryUrl(set: string): string {
+	if (set === 'world_countries') {
+		return process.env.NAO_STORY_MAP_BOUNDARIES_WORLD_URL || MAP_BOUNDARY_URLS.world_countries;
+	}
+	if (set === 'france_regions') {
+		return process.env.NAO_STORY_MAP_BOUNDARIES_FRANCE_URL || MAP_BOUNDARY_URLS.france_regions;
+	}
+	return '';
+}
+
+function ChoroplethLegendOverlay({ color, domain }: { color: string; domain: NumericDomain }) {
+	return (
+		<div style={LEGEND_BOX_STYLE}>
+			<div
+				style={{
+					height: 8,
+					width: 96,
+					borderRadius: 999,
+					background: `linear-gradient(to right, ${withOpacity(color, CHOROPLETH_MIN_OPACITY)}, ${color})`,
+				}}
+			/>
+			<div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, color: '#6b7280' }}>
+				<span>{formatCompactNumber(domain.min)}</span>
+				<span>{formatCompactNumber(domain.max)}</span>
+			</div>
+		</div>
+	);
+}
+
+function BubbleLegendOverlay({
+	color,
+	domain,
+	maxRadius,
+}: {
+	color: string;
+	domain: NumericDomain;
+	maxRadius: number;
+}) {
+	const size = maxRadius * 2;
+	const values = bubbleLegendValues(domain);
+	return (
+		<div style={{ ...LEGEND_BOX_STYLE, display: 'flex', alignItems: 'flex-end', gap: 8 }}>
+			{values.map((value, index) => {
+				const radius = scaleBubbleRadius(value, domain, maxRadius);
+				return (
+					<div key={index} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+						<div style={{ height: size, display: 'flex', alignItems: 'flex-end' }}>
+							<span
+								style={{
+									width: radius * 2,
+									height: radius * 2,
+									borderRadius: 999,
+									background: withOpacity(color, 0.9),
+								}}
+							/>
+						</div>
+						<span style={{ color: '#6b7280' }}>{formatCompactNumber(value)}</span>
+					</div>
+				);
+			})}
+		</div>
+	);
+}
+
+const LEGEND_BOX_STYLE: React.CSSProperties = {
+	position: 'absolute',
+	bottom: 8,
+	left: 8,
+	background: 'rgba(255,255,255,0.9)',
+	border: '1px solid rgba(0,0,0,0.08)',
+	borderRadius: 6,
+	padding: '6px 8px',
+	fontSize: 10,
+	fontFamily: 'ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace',
+	fontVariantNumeric: 'tabular-nums',
+};
 
 function CellValue({ value }: { value: unknown }) {
 	const dateFormat = useContext(DateFormatContext);
@@ -551,9 +877,9 @@ img{max-width:100%;height:auto;border-radius:4px;margin:8px 0}
 .nao-map-pop{display:grid;align-items:start;gap:6px;min-width:128px;background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.15);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
 .nao-map-pop-title{display:flex;align-items:center;gap:8px;font-weight:500;color:#111827}
 .nao-map-pop-dot{width:10px;height:10px;border-radius:2px;flex-shrink:0}
-.nao-map-pop-row{display:flex;align-items:center;justify-content:space-between;gap:16px;line-height:1}
+.nao-map-pop-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;line-height:1.25}
 .nao-map-pop-name{color:rgba(0,0,0,0.5)}
-.nao-map-pop-val{color:#111827;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-weight:500;font-variant-numeric:tabular-nums}
+.nao-map-pop-val{color:#111827;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-weight:500;font-variant-numeric:tabular-nums;text-align:right}
 .nao-tooltip{position:absolute;pointer-events:none;background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:10;opacity:0;transition:opacity .15s;min-width:128px;display:grid;gap:6px}
 .nao-tooltip.visible{opacity:1}
 .nao-tooltip-label{font-weight:500;color:#111827;text-align:left}
@@ -806,52 +1132,109 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 const MAP_INIT_SCRIPT_TEMPLATE = `
 (function(){
 	var STYLE_URL=__MAP_STYLE_URL__;
+	var MIN_OPACITY=${CHOROPLETH_MIN_OPACITY};
+	var MAX_OPACITY=${CHOROPLETH_MAX_OPACITY};
+	function fillOpacity(domain){
+		if(!domain||domain.min===domain.max)return (MIN_OPACITY+MAX_OPACITY)/2;
+		return ['interpolate',['linear'],['coalesce',['get','value'],domain.min],domain.min,MIN_OPACITY,domain.max,MAX_OPACITY];
+	}
 	var containers=document.querySelectorAll('.nao-map');
 	if(!containers.length||typeof maplibregl==='undefined'){window.__naoMapsReady=true;return;}
 	var pending=containers.length;
 	function done(){pending--;if(pending<=0){window.__naoMapsReady=true;}}
 	function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-	function buildPopup(point,color){
+	function norm(v){return v==null?null:String(v).trim().toLowerCase()||null;}
+	function buildPopup(entry,color){
 		var parts=[];
-		if(point.label!=null&&point.label!==''){
-			parts.push('<div class="nao-map-pop-title"><span class="nao-map-pop-dot" style="background:'+esc(color)+'"></span>'+esc(point.label)+'</div>');
+		if(entry.label!=null&&entry.label!==''){
+			parts.push('<div class="nao-map-pop-title"><span class="nao-map-pop-dot" style="background:'+esc(color)+'"></span>'+esc(entry.label)+'</div>');
 		}
-		(point.rows||[]).forEach(function(row){
+		(entry.rows||[]).forEach(function(row){
 			parts.push('<div class="nao-map-pop-row"><span class="nao-map-pop-name">'+esc(row[0])+'</span><span class="nao-map-pop-val">'+esc(row[1])+'</span></div>');
 		});
 		return parts.length?'<div class="nao-map-pop">'+parts.join('')+'</div>':'';
+	}
+	function extendBounds(bounds,coords){
+		if(!Array.isArray(coords))return;
+		if(typeof coords[0]==='number'&&typeof coords[1]==='number'){bounds.extend([coords[0],coords[1]]);return;}
+		coords.forEach(function(c){extendBounds(bounds,c);});
+	}
+	function newMap(container){
+		return new maplibregl.Map({container:container,style:STYLE_URL,attributionControl:{compact:true},canvasContextAttributes:{preserveDrawingBuffer:true}});
+	}
+	function clampMinZoom(map,container){var w=container.clientWidth;if(w)map.setMinZoom(Math.max(0,Math.log2(w/512)+0.02));}
+	function renderPoints(map,cfg){
+		var isBubble=cfg.type==='scatter_bubble';
+		var features=cfg.points.map(function(point,i){
+			return {type:'Feature',geometry:{type:'Point',coordinates:[point.lng,point.lat]},properties:{index:i,radius:point.radius||cfg.radius}};
+		});
+		map.addSource('query-points',{type:'geojson',data:{type:'FeatureCollection',features:features}});
+		map.addLayer({id:'query-points-circles',type:'circle',source:'query-points',paint:{'circle-radius':isBubble?['get','radius']:cfg.radius,'circle-color':cfg.color,'circle-opacity':0.9,'circle-stroke-width':1,'circle-stroke-color':'#ffffff'}});
+		var bounds=new maplibregl.LngLatBounds();
+		cfg.points.forEach(function(point){bounds.extend([point.lng,point.lat]);});
+		try{map.fitBounds(bounds,{padding:40,maxZoom:14,duration:0});}catch(e){}
+		var popup=new maplibregl.Popup({closeButton:false,closeOnClick:false,className:'map-tooltip',offset:12,maxWidth:'280px'});
+		map.on('mousemove','query-points-circles',function(e){
+			var feature=e.features&&e.features[0];if(!feature)return;
+			var point=cfg.points[feature.properties.index];if(!point)return;
+			var html=buildPopup(point,cfg.color);
+			if(!html){popup.remove();return;}
+			map.getCanvas().style.cursor='pointer';
+			popup.setLngLat([point.lng,point.lat]).setHTML(html).addTo(map);
+		});
+		map.on('mouseleave','query-points-circles',function(){map.getCanvas().style.cursor='';popup.remove();});
+	}
+	function renderChoropleth(map,cfg,boundaries){
+		var index=null;
+		if(boundaries&&boundaries.features){
+			index={};
+			boundaries.features.forEach(function(f){
+				var props=f.properties||{};
+				var keys=cfg.joinProps||Object.keys(props);
+				keys.forEach(function(p){var k=norm(props[p]);if(k&&!index[k])index[k]=f.geometry;});
+			});
+		}
+		var features=[];
+		cfg.regions.forEach(function(region){
+			var geometry=region.geometry||(index&&region.region?index[norm(region.region)]:null);
+			if(!geometry)return;
+			features.push({type:'Feature',geometry:geometry,properties:{value:region.value,tip:JSON.stringify({label:region.label,rows:region.rows,dot:region.dot})}});
+		});
+		map.addSource('query-regions',{type:'geojson',data:{type:'FeatureCollection',features:features}});
+		map.addLayer({id:'query-regions-fill',type:'fill',source:'query-regions',paint:{'fill-color':cfg.color,'fill-opacity':fillOpacity(cfg.domain)}});
+		map.addLayer({id:'query-regions-line',type:'line',source:'query-regions',paint:{'line-color':'#ffffff','line-width':0.75,'line-opacity':0.6}});
+		var bounds=new maplibregl.LngLatBounds();
+		features.forEach(function(f){extendBounds(bounds,f.geometry.coordinates);});
+		try{if(!bounds.isEmpty())map.fitBounds(bounds,{padding:24,maxZoom:12,duration:0});}catch(e){}
+		var popup=new maplibregl.Popup({closeButton:false,closeOnClick:false,className:'map-tooltip',offset:12,maxWidth:'280px'});
+		map.on('mousemove','query-regions-fill',function(e){
+			var feature=e.features&&e.features[0];if(!feature)return;
+			var tip;try{tip=JSON.parse(feature.properties.tip);}catch(err){return;}
+			var html=buildPopup(tip,tip.dot||cfg.color);
+			if(!html){popup.remove();return;}
+			map.getCanvas().style.cursor='pointer';
+			popup.setLngLat(e.lngLat).setHTML(html).addTo(map);
+		});
+		map.on('mouseleave','query-regions-fill',function(){map.getCanvas().style.cursor='';popup.remove();});
 	}
 	containers.forEach(function(container){
 		var raw=container.getAttribute('data-map');
 		var cfg;try{cfg=JSON.parse(raw);}catch(e){done();return;}
 		var map;
-		try{
-			map=new maplibregl.Map({container:container,style:STYLE_URL,attributionControl:{compact:true},canvasContextAttributes:{preserveDrawingBuffer:true}});
-		}catch(e){done();return;}
+		try{map=newMap(container);}catch(e){done();return;}
 		map.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');
-		map.once('idle',done);
 		map.on('error',function(){done();});
 		map.on('load',function(){
-			var features=cfg.points.map(function(point,i){
-				return {type:'Feature',geometry:{type:'Point',coordinates:[point.lng,point.lat]},properties:{i:i}};
-			});
-			map.addSource('nao-points',{type:'geojson',data:{type:'FeatureCollection',features:features}});
-			map.addLayer({id:'nao-points-layer',type:'circle',source:'nao-points',paint:{'circle-radius':cfg.markerRadius,'circle-color':cfg.markerColor,'circle-opacity':0.9,'circle-stroke-width':2,'circle-stroke-color':'#ffffff'}});
-			var bounds=new maplibregl.LngLatBounds();
-			cfg.points.forEach(function(point){bounds.extend([point.lng,point.lat]);});
-			try{map.fitBounds(bounds,{padding:40,maxZoom:14,duration:0});}catch(e){}
-			var popup=new maplibregl.Popup({closeButton:false,closeOnClick:false,className:'map-tooltip',offset:12,maxWidth:'280px'});
-			map.on('mousemove','nao-points-layer',function(e){
-				var feature=e.features&&e.features[0];if(!feature)return;
-				var point=cfg.points[feature.properties.i];if(!point)return;
-				var html=buildPopup(point,cfg.markerColor);
-				if(!html){popup.remove();return;}
-				map.getCanvas().style.cursor='pointer';
-				popup.setLngLat([point.lng,point.lat]).setHTML(html).addTo(map);
-			});
-			map.on('mouseleave','nao-points-layer',function(){map.getCanvas().style.cursor='';popup.remove();});
+			clampMinZoom(map,container);
+		if(cfg.type==='choropleth'){
+			var ready=cfg.inlineGeoJson?Promise.resolve(cfg.inlineGeoJson):cfg.boundaryUrl?fetch(cfg.boundaryUrl).then(function(r){return r.ok?r.json():null;}).catch(function(){return null;}):Promise.resolve(null);
+				ready.then(function(boundaries){renderChoropleth(map,cfg,boundaries);map.once('idle',done);});
+			}else{
+				renderPoints(map,cfg);
+				map.once('idle',done);
+			}
 		});
 	});
-	setTimeout(function(){window.__naoMapsReady=true;},8000);
+	setTimeout(function(){window.__naoMapsReady=true;},12000);
 })();
 `;

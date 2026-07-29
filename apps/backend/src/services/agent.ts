@@ -1,3 +1,4 @@
+import type { CustomBoundarySet } from '@nao/shared';
 import { markSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
 import { story } from '@nao/shared/tools';
 import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
@@ -106,20 +107,22 @@ export interface AgentToolsContext {
 	toolContext: ToolContext;
 	/** Web-search tools resolved from project settings, or null when web search is disabled. */
 	webTools: Record<string, unknown> | null;
+	/** Custom GeoJSON boundary sets defined by the project admin. */
+	customBoundaries: CustomBoundarySet[];
 }
 
 /** Builds the tool set a run should expose. Callers pass one to `create` to customise tools. */
 export type AgentToolsResolver = (context: AgentToolsContext) => AgentTools | Promise<AgentTools>;
 
 /** Default tool set for interactive runs: all built-ins, MCP tools and web search. */
-export const defaultAgentTools: AgentToolsResolver = ({ chat, agentSettings, webTools }) =>
-	getTools(agentSettings, webTools ?? {}, { testMode: chat.testMode });
+export const defaultAgentTools: AgentToolsResolver = ({ chat, agentSettings, webTools, customBoundaries }) =>
+	getTools(agentSettings, webTools ?? {}, { testMode: chat.testMode, customBoundaries });
 
 /** Default tool set minus the given built-ins — for runs whose surface cannot render them. */
 export const defaultAgentToolsExcluding =
 	(excludeBuiltinTools: string[]): AgentToolsResolver =>
-	({ chat, agentSettings, webTools }) =>
-		getTools(agentSettings, webTools ?? {}, { testMode: chat.testMode, excludeBuiltinTools });
+	({ chat, agentSettings, webTools, customBoundaries }) =>
+		getTools(agentSettings, webTools ?? {}, { testMode: chat.testMode, excludeBuiltinTools, customBoundaries });
 
 /**
  * Admin-mode tool set: the same `execute_sql` tool the chat already uses (it
@@ -249,7 +252,10 @@ export class AgentService {
 		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
 		await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider);
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel);
-		const agentSettings = await projectQueries.getAgentSettings(chat.projectId);
+		const [agentSettings, customBoundaries] = await Promise.all([
+			projectQueries.getAgentSettings(chat.projectId),
+			projectQueries.getCustomBoundaries(chat.projectId),
+		]);
 		const toolContext = await this._getToolContext(
 			chat.projectId,
 			chat.id,
@@ -260,7 +266,7 @@ export class AgentService {
 		);
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
 		const resolveTools = options.tools ?? defaultAgentTools;
-		const agentTools = await resolveTools({ chat, agentSettings, toolContext, webTools });
+		const agentTools = await resolveTools({ chat, agentSettings, toolContext, webTools, customBoundaries });
 		const stopWhen: StopCondition<AgentTools>[] = options.excludeFollowUps
 			? [stepCountIs(options.maxSteps ?? 20)]
 			: chat.testMode

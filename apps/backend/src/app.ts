@@ -36,6 +36,7 @@ import { embedStoryDownloadRoutes } from './routes/embed-story-download';
 import { githubRoutes } from './routes/github';
 import { gitlabRoutes } from './routes/gitlab';
 import { imageRoutes } from './routes/image';
+import { mapBoundariesRoutes } from './routes/map-boundaries';
 import { mcpOAuthRoutes } from './routes/mcp-oauth';
 import { slackRoutes } from './routes/slack';
 import { teamsRoutes } from './routes/teams';
@@ -165,6 +166,10 @@ app.register(testRoutes, {
 
 app.register(chartRoutes, {
 	prefix: '/c',
+});
+
+app.register(mapBoundariesRoutes, {
+	prefix: '/api/map-boundaries',
 });
 
 app.register(imageRoutes, {

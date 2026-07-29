@@ -259,12 +259,8 @@ function ChatPage() {
 								<ChatMessages />
 							</>
 						)}
-
-						<div
-							ref={inputAreaRef}
-							className='pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-background to-transparent'
-						>
-							<div className='pointer-events-auto'>
+						<div ref={inputAreaRef} className='pointer-events-none absolute inset-x-0 bottom-0 z-10 pt-8'>
+							<div className='pointer-events-auto bg-gradient-to-t from-background via-background to-transparent'>
 								<ChatInput />
 							</div>
 						</div>

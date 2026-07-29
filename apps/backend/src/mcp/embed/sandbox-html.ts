@@ -35,7 +35,7 @@ export async function buildStorySandboxHtml(params: {
 		userId: params.userId,
 	});
 	const inner = wrapStoryBodyForMcpHeightMeasure(
-		generateStoryHtml({ title: params.title, code: params.code }, (queryData as QueryDataMap | null) ?? null),
+		await generateStoryHtml({ title: params.title, code: params.code }, (queryData as QueryDataMap | null) ?? null),
 	);
 	const withEmbedStyle = injectMcpEmbedRootStyles(inner);
 
@@ -51,19 +51,19 @@ export async function buildStorySandboxHtml(params: {
 	return finalizeSandboxHtml(withEmbedStyle, footerScript);
 }
 
-export function buildChartSandboxHtml(params: {
+export async function buildChartSandboxHtml(params: {
 	title: string;
 	chartBlock: string;
 	queryId: string;
 	columns: string[];
 	data: Record<string, unknown>[];
 	naoChatUrl: string | null;
-}): string | null {
+}): Promise<string | null> {
 	const code = `# ${params.title}\n\n${params.chartBlock}`;
 	const queryData: QueryDataMap = {
 		[params.queryId]: { columns: params.columns, data: params.data },
 	};
-	const inner = wrapStoryBodyForMcpHeightMeasure(generateStoryHtml({ title: params.title, code }, queryData));
+	const inner = wrapStoryBodyForMcpHeightMeasure(await generateStoryHtml({ title: params.title, code }, queryData));
 	const withEmbedStyle = injectMcpEmbedRootStyles(inner);
 
 	const footerScript = buildSandboxEmbedFooterScript({

@@ -214,7 +214,7 @@ export async function buildChartEmbedFromArtifact(
 	const naoChatUrl = effectiveChatId ? chatUrl(effectiveChatId) : null;
 	let sandboxChartHtml: string | null = null;
 	try {
-		sandboxChartHtml = buildChartSandboxHtml({
+		sandboxChartHtml = await buildChartSandboxHtml({
 			title,
 			chartBlock: block,
 			queryId: query_id,

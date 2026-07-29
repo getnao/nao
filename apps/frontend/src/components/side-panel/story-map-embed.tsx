@@ -1,14 +1,15 @@
 import { FoldHorizontal, Pencil, UnfoldHorizontal } from 'lucide-react';
 import { memo, useMemo, useRef, useState } from 'react';
+import { mapBlockToInput } from '@nao/shared/story-segments';
 import { StoryEmbedFallback } from './story-embed-fallback';
 import type { ParsedMapBlock } from '@nao/shared/story-segments';
-import type { displayMap } from '@nao/shared/tools';
 
 import { StoryMapRender } from '@/components/story-map-embed';
 import { MapConfigEditDialog } from '@/components/tool-calls/display-map-edit-dialog';
 import { Button } from '@/components/ui/button';
 import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useStoryEmbedData } from '@/contexts/story-embed-data';
+import { useIsInStoryGrid } from '@/contexts/story-grid';
 import { useStoryMapEdit } from '@/contexts/story-map-edit';
 import { useBreakoutStyle } from '@/hooks/use-breakout-width';
 import { findLatestExecuteSqlInMessages } from '@/lib/execute-sql-messages';
@@ -55,13 +56,15 @@ interface StoryMapEmbedShellProps {
 
 export function StoryMapEmbedShell({ map, dragHandle, allowExpand = false, children }: StoryMapEmbedShellProps) {
 	const edit = useStoryMapEdit();
+	const isInGrid = useIsInStoryGrid();
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const [isExpanded, setIsExpanded] = useState(false);
 	const slotRef = useRef<HTMLDivElement>(null);
-	const breakoutStyle = useBreakoutStyle(slotRef, allowExpand && isExpanded);
-	const config = useMemo(() => mapBlockToConfig(map), [map]);
+	const canExpand = allowExpand && !isInGrid;
+	const breakoutStyle = useBreakoutStyle(slotRef, canExpand && isExpanded);
+	const config = useMemo(() => mapBlockToInput(map), [map]);
 	const canEdit = Boolean(edit && map.rawTag);
-	const showHeader = Boolean(map.title || dragHandle || canEdit || allowExpand);
+	const showHeader = Boolean(map.title || dragHandle || canEdit || canExpand);
 
 	return (
 		<div ref={slotRef} className='my-2'>
@@ -77,7 +80,7 @@ export function StoryMapEmbedShell({ map, dragHandle, allowExpand = false, child
 						)}
 						<div className='flex shrink-0 items-center gap-1'>
 							{dragHandle}
-							{allowExpand && (
+							{canExpand && (
 								<Button
 									variant='ghost-muted'
 									size='icon-xs'
@@ -123,18 +126,4 @@ export function StoryMapEmbedShell({ map, dragHandle, allowExpand = false, child
 			</div>
 		</div>
 	);
-}
-
-function mapBlockToConfig(map: ParsedMapBlock): displayMap.Input {
-	return {
-		query_id: map.queryId,
-		map_type: (map.mapType || 'points') as displayMap.Input['map_type'],
-		latitude_key: map.latitudeKey,
-		longitude_key: map.longitudeKey,
-		label_key: map.labelKey,
-		tooltip_keys: map.tooltipKeys,
-		marker_color: map.markerColor,
-		marker_radius: map.markerRadius,
-		title: map.title,
-	};
 }

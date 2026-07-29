@@ -6,7 +6,9 @@ import {
 	getStoryFiltersFromCode,
 	groupBlocksIntoGrid,
 	insertGridColumn,
+	mapBlockToInput,
 	parseChartBlock,
+	parseMapBlock,
 	popGridColumn,
 	popGridColumns,
 	previewGridColumns,
@@ -716,5 +718,36 @@ describe('story filter tags', () => {
 				rawTag: expect.any(String),
 			},
 		]);
+	});
+});
+
+describe('mapBlockToInput', () => {
+	it('maps a choropleth block with region_boundaries', () => {
+		const map = parseMapBlock(
+			'query_id="q1" map_type="choropleth" value_key="sales" region_key="country" region_boundaries="world_countries" title="Sales"',
+		);
+		expect(mapBlockToInput(map!)).toMatchObject({
+			query_id: 'q1',
+			map_type: 'choropleth',
+			value_key: 'sales',
+			region_key: 'country',
+			region_boundaries: 'world_countries',
+		});
+	});
+
+	it('maps a choropleth block with boundaries_url and boundaries_join_property', () => {
+		const map = parseMapBlock(
+			'query_id="q1" map_type="choropleth" value_key="sales" region_key="state" boundaries_url="https://example.com/states.geojson" boundaries_join_property="name" title="Sales"',
+		);
+		expect(mapBlockToInput(map!)).toMatchObject({
+			boundaries_url: 'https://example.com/states.geojson',
+			boundaries_join_property: 'name',
+			region_key: 'state',
+		});
+	});
+
+	it('defaults the map type to points', () => {
+		const map = parseMapBlock('query_id="q1" latitude_key="lat" longitude_key="lng" title="Points"');
+		expect(mapBlockToInput(map!).map_type).toBe('points');
 	});
 });

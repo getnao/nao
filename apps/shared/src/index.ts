@@ -7,7 +7,7 @@ export * from './chart-values';
 export * from './citation';
 export * from './date';
 export * from './execute-sql-parts';
-export * from './map-points';
+export * from './map';
 export * from './mcp';
 export * from './mcp-embed';
 export * from './mentions';

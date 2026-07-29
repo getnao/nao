@@ -2,6 +2,9 @@ import { buildStoryTableBlock } from './chart-block';
 import { type ColumnConditionalFormats, sanitizeConditionalFormats } from './conditional-formatting';
 import { STORY_FILTER_ID_REGEX, STORY_FILTER_TYPES, type StoryFilterType } from './sql-template';
 import type { SeriesConfig } from './tools/display-chart';
+import type * as displayMap from './tools/display-map';
+import type { MapType, RegionBoundaries } from './tools/display-map';
+import { MapTypeEnum } from './tools/display-map';
 
 export type ParsedChartSeries = SeriesConfig;
 
@@ -39,13 +42,20 @@ export interface ParsedTableBlock {
 
 export interface ParsedMapBlock {
 	queryId: string;
-	mapType: string;
-	latitudeKey: string;
-	longitudeKey: string;
+	mapType: MapType;
+	latitudeKey?: string;
+	longitudeKey?: string;
 	labelKey?: string;
 	tooltipKeys?: string[];
-	markerColor?: string;
-	markerRadius?: number;
+	color?: string;
+	radius?: number;
+	sizeKey?: string;
+	valueKey?: string;
+	regionKey?: string;
+	regionBoundaries?: RegionBoundaries;
+	boundariesUrl?: string;
+	boundariesJoinProperty?: string;
+	geometryKey?: string;
 	title: string;
 	/** The original `<map ... />` tag this block was parsed from, when available. */
 	rawTag?: string;
@@ -169,20 +179,53 @@ export function parseTableBlock(attrString: string): ParsedTableBlock | null {
 
 export function parseMapBlock(attrString: string): ParsedMapBlock | null {
 	const attrs = parseChartAttributes(attrString);
-	if (!attrs.query_id || !attrs.latitude_key || !attrs.longitude_key) {
+	if (!attrs.query_id) {
+		return null;
+	}
+	const mapType = MapTypeEnum.catch('points').parse(attrs.map_type);
+	if (mapType !== 'choropleth' && (!attrs.latitude_key || !attrs.longitude_key)) {
 		return null;
 	}
 
 	return {
 		queryId: attrs.query_id,
-		mapType: attrs.map_type || 'points',
-		latitudeKey: attrs.latitude_key,
-		longitudeKey: attrs.longitude_key,
+		mapType,
+		latitudeKey: attrs.latitude_key || undefined,
+		longitudeKey: attrs.longitude_key || undefined,
 		labelKey: attrs.label_key || undefined,
 		tooltipKeys: parseStringArrayAttribute(attrs.tooltip_keys),
-		markerColor: attrs.marker_color || undefined,
-		markerRadius: parseOptionalNumberAttr(attrs.marker_radius),
+		color: attrs.color || undefined,
+		radius: parseOptionalNumberAttr(attrs.radius),
+		sizeKey: attrs.size_key || undefined,
+		valueKey: attrs.value_key || undefined,
+		regionKey: attrs.region_key || undefined,
+		regionBoundaries: attrs.region_boundaries || undefined,
+		boundariesUrl: attrs.boundaries_url || undefined,
+		boundariesJoinProperty: attrs.boundaries_join_property || undefined,
+		geometryKey: attrs.geometry_key || undefined,
 		title: attrs.title || '',
+	};
+}
+
+/** Maps a parsed story `<map>` block to the `displayMap` tool input consumed by the live and static renderers. */
+export function mapBlockToInput(map: ParsedMapBlock): displayMap.Input {
+	return {
+		query_id: map.queryId,
+		map_type: (map.mapType || 'points') as displayMap.Input['map_type'],
+		latitude_key: map.latitudeKey,
+		longitude_key: map.longitudeKey,
+		label_key: map.labelKey,
+		tooltip_keys: map.tooltipKeys,
+		color: map.color,
+		radius: map.radius,
+		size_key: map.sizeKey,
+		value_key: map.valueKey,
+		region_key: map.regionKey,
+		region_boundaries: map.regionBoundaries,
+		boundaries_url: map.boundariesUrl,
+		boundaries_join_property: map.boundariesJoinProperty,
+		geometry_key: map.geometryKey,
+		title: map.title,
 	};
 }
 

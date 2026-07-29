@@ -78,24 +78,42 @@ export type StoryMapBlockInput = Pick<
 	| 'longitude_key'
 	| 'label_key'
 	| 'tooltip_keys'
-	| 'marker_color'
-	| 'marker_radius'
+	| 'color'
+	| 'radius'
+	| 'size_key'
+	| 'value_key'
+	| 'region_key'
+	| 'region_boundaries'
+	| 'geometry_key'
 	| 'title'
 >;
 
 export function buildStoryMapBlock(input: StoryMapBlockInput): string {
-	const labelAttr = input.label_key ? ` label_key="${escapeDoubleQuotedStoryAttr(input.label_key)}"` : '';
+	const stringAttr = (name: string, value: string | undefined) =>
+		value ? ` ${name}="${escapeDoubleQuotedStoryAttr(value)}"` : '';
 	const tooltipAttr =
 		input.tooltip_keys && input.tooltip_keys.length > 0
 			? ` tooltip_keys='${escapeSingleQuotedStoryAttr(JSON.stringify(input.tooltip_keys))}'`
 			: '';
-	const markerColorAttr = input.marker_color
-		? ` marker_color="${escapeDoubleQuotedStoryAttr(input.marker_color)}"`
-		: '';
-	const markerRadiusAttr = input.marker_radius !== undefined ? ` marker_radius="${input.marker_radius}"` : '';
+	const radiusAttr = input.radius !== undefined ? ` radius="${input.radius}"` : '';
 	const titleAttr =
 		input.title != null && input.title !== '' ? ` title="${escapeDoubleQuotedStoryAttr(input.title)}"` : '';
-	return `<map query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" map_type="${escapeDoubleQuotedStoryAttr(input.map_type)}" latitude_key="${escapeDoubleQuotedStoryAttr(input.latitude_key)}" longitude_key="${escapeDoubleQuotedStoryAttr(input.longitude_key)}"${labelAttr}${tooltipAttr}${markerColorAttr}${markerRadiusAttr}${titleAttr} />`;
+	return (
+		`<map query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" map_type="${escapeDoubleQuotedStoryAttr(input.map_type)}"` +
+		stringAttr('latitude_key', input.latitude_key) +
+		stringAttr('longitude_key', input.longitude_key) +
+		stringAttr('label_key', input.label_key) +
+		tooltipAttr +
+		stringAttr('color', input.color) +
+		radiusAttr +
+		stringAttr('size_key', input.size_key) +
+		stringAttr('value_key', input.value_key) +
+		stringAttr('region_key', input.region_key) +
+		stringAttr('region_boundaries', input.region_boundaries) +
+		stringAttr('geometry_key', input.geometry_key) +
+		titleAttr +
+		' />'
+	);
 }
 
 export interface StoryFilterBlockInput {

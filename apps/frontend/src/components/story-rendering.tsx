@@ -4,6 +4,7 @@ import { Streamdown } from 'streamdown';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
 
 import { MarkdownTable } from '@/components/chat-messages/markdown-table';
+import { StoryGridProvider } from '@/contexts/story-grid';
 import { markdownPlugins } from '@/lib/markdown';
 
 const markdownComponents = {
@@ -95,28 +96,30 @@ const StoryGrid = memo(function StoryGrid({
 					: {})}
 			>
 				{children.map((segment, i) => (
-					<div key={i} className='min-w-0'>
-						{segment.type === 'markdown' ? (
-							<Streamdown mode='static' plugins={markdownPlugins} components={markdownComponents}>
-								{segment.content}
-							</Streamdown>
-						) : segment.type === 'chart' ? (
-							renderChart(segment.chart, i)
-						) : segment.type === 'table' ? (
-							renderTable(segment.table, i)
-						) : segment.type === 'map' ? (
-							renderMap(segment.map, i)
-						) : segment.type === 'grid' ? (
-							<StoryGrid
-								cols={segment.cols}
-								widths={segment.widths}
-								children={segment.children}
-								renderChart={renderChart}
-								renderTable={renderTable}
-								renderMap={renderMap}
-							/>
-						) : null}
-					</div>
+					<StoryGridProvider key={i}>
+						<div className='min-w-0'>
+							{segment.type === 'markdown' ? (
+								<Streamdown mode='static' plugins={markdownPlugins} components={markdownComponents}>
+									{segment.content}
+								</Streamdown>
+							) : segment.type === 'chart' ? (
+								renderChart(segment.chart, i)
+							) : segment.type === 'table' ? (
+								renderTable(segment.table, i)
+							) : segment.type === 'map' ? (
+								renderMap(segment.map, i)
+							) : segment.type === 'grid' ? (
+								<StoryGrid
+									cols={segment.cols}
+									widths={segment.widths}
+									children={segment.children}
+									renderChart={renderChart}
+									renderTable={renderTable}
+									renderMap={renderMap}
+								/>
+							) : null}
+						</div>
+					</StoryGridProvider>
 				))}
 			</div>
 		</div>

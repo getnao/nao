@@ -41,6 +41,7 @@ import {
 } from '../utils/llm';
 import { extractRequiredEnvVars } from '../utils/nao-config';
 import { findConfigLlmProvider } from '../utils/nao-config-llm';
+import { parseAndValidateGeoJson, safeFetch } from '../utils/safe-fetch';
 import { buildCredentialPreviews, previewApiKey } from '../utils/utils';
 import {
 	adminProtectedProcedure,
@@ -784,9 +785,9 @@ export const projectRoutes = {
 					.object({
 						pythonSandboxing: z.boolean().optional(),
 						sandboxes: z.boolean().optional(),
-						displayMap: z.boolean().optional(),
 					})
 					.optional(),
+				mapEnabled: z.boolean().optional(),
 				transcribe: z
 					.object({
 						enabled: z.boolean().optional(),
@@ -818,6 +819,7 @@ export const projectRoutes = {
 			const existing = (await projectQueries.getAgentSettings(ctx.project.id)) ?? {};
 			const merged: AgentSettings = {
 				memoryEnabled: input.memoryEnabled ?? existing.memoryEnabled,
+				mapEnabled: input.mapEnabled ?? existing.mapEnabled,
 				experimental: { ...existing.experimental, ...input.experimental },
 				transcribe: { ...existing.transcribe, ...input.transcribe },
 				sql: { ...existing.sql, ...input.sql },
@@ -832,7 +834,7 @@ export const projectRoutes = {
 				sql_dangerously_write_perm_enabled: merged.sql?.dangerouslyWritePermEnabled,
 				python_execution_max_duration_secs: merged.pythonExecution?.maxDurationSecs,
 				python_sandboxing_enabled: merged.experimental?.pythonSandboxing,
-				display_map_enabled: merged.experimental?.displayMap,
+				map_enabled: merged.mapEnabled,
 				memory_enabled: merged.memoryEnabled,
 				web_search_enabled: merged.webSearch?.enabled,
 				web_search_mode: merged.webSearch?.mode,
@@ -937,5 +939,67 @@ export const projectRoutes = {
 		.input(z.object({ envVars: z.record(z.string(), z.string()) }))
 		.mutation(async ({ ctx, input }) => {
 			await projectQueries.updateEnvVars(ctx.project.id, input.envVars);
+		}),
+
+	getMapBoundaries: projectProtectedProcedure.query(async ({ ctx }) => {
+		return projectQueries.getCustomBoundaries(ctx.project.id);
+	}),
+
+	validateMapBoundaryUrl: adminProtectedProcedure
+		.input(z.object({ url: z.url() }))
+		.mutation(async ({ ctx: _ctx, input }) => {
+			const text = await safeFetch(input.url);
+			const { geojson, propertyKeys, featureCount } = parseAndValidateGeoJson(text);
+			return { propertyKeys, featureCount, geojson };
+		}),
+
+	addMapBoundary: adminProtectedProcedure
+		.input(
+			z.object({
+				key: z
+					.string()
+					.trim()
+					.min(1)
+					.max(64)
+					.regex(/^[a-z0-9_]+$/, 'Key must be lowercase letters, digits, or underscores only.'),
+				label: z.string().trim().min(1).max(255),
+				url: z.url(),
+				joinProperty: z.string().trim().min(1).max(255),
+				regionKeyHint: z.string().trim().min(1).max(500),
+				featureCount: z.number().int().nonnegative().optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			return projectQueries.addCustomBoundary(ctx.project.id, input);
+		}),
+
+	updateMapBoundary: adminProtectedProcedure
+		.input(
+			z.object({
+				key: z.string().trim().min(1),
+				newKey: z
+					.string()
+					.trim()
+					.min(1)
+					.max(100)
+					.regex(/^[a-z0-9_]+$/)
+					.optional(),
+				label: z.string().trim().min(1).max(255).optional(),
+				url: z.url().optional(),
+				joinProperty: z.string().trim().min(1).max(255).optional(),
+				regionKeyHint: z.string().trim().min(1).max(500).optional(),
+				featureCount: z.number().int().nonnegative().optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			const { key, newKey, ...rest } = input;
+			const patch = newKey ? { ...rest, key: newKey } : rest;
+			return projectQueries.updateCustomBoundary(ctx.project.id, key, patch);
+		}),
+
+	deleteMapBoundary: adminProtectedProcedure
+		.input(z.object({ key: z.string().trim().min(1) }))
+		.mutation(async ({ ctx, input }) => {
+			return projectQueries.deleteCustomBoundary(ctx.project.id, input.key);
 		}),
 };

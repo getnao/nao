@@ -1,4 +1,4 @@
-import type { McpChartEmbedStoredConfig } from '@nao/shared';
+import type { MapSettings, McpChartEmbedStoredConfig } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
 import type {
 	AnalyticsEventMetadata,
@@ -201,6 +201,7 @@ export const project = pgTable(
 		whatsappSettings: jsonb('whatsapp_settings').$type<WhatsappSettings>(),
 		mcpEndpointSettings: jsonb('mcp_endpoint_settings').$type<McpEndpointSettings>(),
 		displaySettings: jsonb('display_settings').$type<DisplaySettings>(),
+		mapSettings: jsonb('map_settings').$type<MapSettings>(),
 
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')

@@ -4,10 +4,23 @@ vi.mock('../src/db/db', () => ({ db: {} }));
 vi.mock('../src/queries/chat.queries', () => ({
 	getQueryResultByQueryId: vi.fn(async () => null),
 }));
+vi.mock('../src/utils/map-boundary-cache', () => ({
+	getCachedBoundary: vi.fn(() => null),
+	setCachedBoundary: vi.fn(),
+}));
+vi.mock('../src/utils/safe-fetch', () => ({
+	safeFetch: vi.fn(async () => {
+		throw new Error('not mocked');
+	}),
+	parseAndValidateGeoJson: vi.fn(),
+}));
 
-import displayMapTool from '../src/agents/tools/display-map';
+import { createDisplayMapTool } from '../src/agents/tools/display-map';
 import * as chatQueries from '../src/queries/chat.queries';
 import type { QueryResult, ToolContext } from '../src/types/tools';
+import * as safeFetchModule from '../src/utils/safe-fetch';
+
+const displayMapTool = createDisplayMapTool();
 
 const input = {
 	query_id: 'q1',
@@ -119,5 +132,118 @@ describe('display_map execute', () => {
 		const queryResults = new Map([['q1', { columns: ['lat', 'lng'], data: [] }]]);
 		const output = await execute({}, queryResults);
 		expect(output).toMatchObject({ success: false });
+	});
+});
+
+describe('display_map execute — choropleth with boundaries_url', () => {
+	const geometry = {
+		type: 'Polygon',
+		coordinates: [
+			[
+				[0, 0],
+				[1, 0],
+				[1, 1],
+				[0, 0],
+			],
+		],
+	};
+	const geojson = {
+		type: 'FeatureCollection',
+		features: [
+			{ type: 'Feature', geometry, properties: { iso: 'FR' } },
+			{ type: 'Feature', geometry, properties: { iso: 'DE' } },
+		],
+	};
+
+	const choroplethInput = {
+		query_id: 'q1',
+		map_type: 'choropleth' as const,
+		title: 'Test choropleth',
+		value_key: 'value',
+		region_key: 'country',
+		boundaries_url: 'https://example.com/regions.geojson',
+	};
+
+	function executeChoropleth(overrides = {}, queryResults = new Map<string, QueryResult>()) {
+		const context = { queryResults, chatId: 'chat1' } as unknown as ToolContext;
+		const tool = createDisplayMapTool();
+		return tool.execute!({ ...choroplethInput, ...overrides }, {
+			experimental_context: context,
+		} as Parameters<NonNullable<typeof tool.execute>>[1]);
+	}
+
+	it('returns region_count and dropped_row_count when all rows match', async () => {
+		vi.mocked(safeFetchModule.safeFetch).mockResolvedValueOnce('');
+		vi.mocked(safeFetchModule.parseAndValidateGeoJson).mockReturnValueOnce({
+			geojson,
+			propertyKeys: ['iso'],
+			featureCount: 2,
+		});
+		const queryResults = new Map([
+			[
+				'q1',
+				{
+					columns: ['country', 'value'],
+					data: [
+						{ country: 'FR', value: 10 },
+						{ country: 'DE', value: 20 },
+					],
+				},
+			],
+		]);
+		const output = await executeChoropleth({}, queryResults);
+		expect(output).toMatchObject({ success: true, region_count: 2, dropped_row_count: 0 });
+	});
+
+	it('reports dropped rows when region_key does not match any feature', async () => {
+		vi.mocked(safeFetchModule.safeFetch).mockResolvedValueOnce('');
+		vi.mocked(safeFetchModule.parseAndValidateGeoJson).mockReturnValueOnce({
+			geojson,
+			propertyKeys: ['iso'],
+			featureCount: 2,
+		});
+		const queryResults = new Map([
+			[
+				'q1',
+				{
+					columns: ['country', 'value'],
+					data: [
+						{ country: 'FR', value: 10 },
+						{ country: 'XX', value: 5 },
+					],
+				},
+			],
+		]);
+		const output = await executeChoropleth({}, queryResults);
+		expect(output).toMatchObject({ success: true, region_count: 1, dropped_row_count: 1 });
+		expect((output as { warning?: string }).warning).toContain('1 row');
+	});
+
+	it('fails when no rows match any feature', async () => {
+		vi.mocked(safeFetchModule.safeFetch).mockResolvedValueOnce('');
+		vi.mocked(safeFetchModule.parseAndValidateGeoJson).mockReturnValueOnce({
+			geojson,
+			propertyKeys: ['iso'],
+			featureCount: 2,
+		});
+		const queryResults = new Map([['q1', { columns: ['country', 'value'], data: [{ country: 'XX', value: 5 }] }]]);
+		const output = await executeChoropleth({}, queryResults);
+		expect(output).toMatchObject({ success: false });
+		expect((output as { error?: string }).error).toContain('No rows matched');
+	});
+
+	it('fails when safeFetch throws', async () => {
+		vi.mocked(safeFetchModule.safeFetch).mockRejectedValueOnce(new Error('Only HTTPS URLs are allowed.'));
+		const queryResults = new Map([['q1', { columns: ['country', 'value'], data: [{ country: 'FR', value: 10 }] }]]);
+		const output = await executeChoropleth({}, queryResults);
+		expect(output).toMatchObject({ success: false });
+		expect((output as { error?: string }).error).toContain('Only HTTPS');
+	});
+
+	it('fails when region_key is missing from query columns', async () => {
+		const queryResults = new Map([['q1', { columns: ['country', 'value'], data: [] }]]);
+		const output = await executeChoropleth({ region_key: 'missing_key' }, queryResults);
+		expect(output).toMatchObject({ success: false });
+		expect((output as { error?: string }).error).toContain('missing_key');
 	});
 });

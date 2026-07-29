@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { generateStoryHtml } from '../src/utils/story-html';
 
 describe('generateStoryHtml tabs', () => {
-	it('renders each tab as a titled section with its content', () => {
-		const html = generateStoryHtml(
+	it('renders each tab as a titled section with its content', async () => {
+		const html = await generateStoryHtml(
 			{
 				title: 'Tabbed story',
 				code: `<tab title="Overview">

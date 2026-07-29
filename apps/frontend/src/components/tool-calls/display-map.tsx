@@ -1,20 +1,34 @@
 import { lazy, Suspense, useMemo, useRef, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
 	Code,
 	Download,
 	FilePlus,
 	FoldHorizontal,
 	Map as MapIcon,
+	Palette,
 	Pencil,
 	Table as TableIcon,
 	UnfoldHorizontal,
 } from 'lucide-react';
-import { buildMapPoints, buildStoryMapBlock, MAX_MAP_POINTS, resolveMapConfig } from '@nao/shared';
+import {
+	buildMapPoints,
+	buildStoryMapBlock,
+	describeBoundarySource,
+	MAX_MAP_POINTS,
+	resolveMapConfig,
+} from '@nao/shared';
 import { appendBlockToStoryCode } from '@nao/shared/story-tabs';
 import { Skeleton } from '../ui/skeleton';
 import { TextShimmer } from '../ui/text-shimmer';
 import { Button } from '../ui/button';
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
+	DropdownMenuTrigger,
+} from '../ui/dropdown-menu';
 import GraphLoaderAnimated from '../icons/graph-loader-animated';
 import { TableDisplay } from './display-table';
 import { MapConfigEditDialog } from './display-map-edit-dialog';
@@ -26,11 +40,15 @@ import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 import type { displayMap } from '@nao/shared/tools';
 import type { MapPoint } from '@nao/shared';
 import type { MapViewHandle } from './display-map-view';
+import type { DataExportFormat } from '@/components/export-data-menu';
+import type { MapStyleId } from '@/hooks/use-map-style';
+import { ExportDataMenu } from '@/components/export-data-menu';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 import { useBreakoutStyle } from '@/hooks/use-breakout-width';
 import { findStoryIds } from '@/lib/story.utils';
 import { useChatId } from '@/hooks/use-chat-id';
+import { MAP_STYLE_OPTIONS, useMapStyle } from '@/hooks/use-map-style';
 import { useSourceQuery } from '@/hooks/use-source-query';
 import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/contexts/side-panel';
@@ -61,6 +79,7 @@ export const DisplayMapToolCall = ({
 	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning);
 	const storyIds = useMemo(() => findStoryIds(messages), [messages]);
 	const logDownload = useMutation(trpc.analyticsEvent.logChatDownload.mutationOptions());
+	const { data: customBoundaries = [] } = useQuery(trpc.project.getMapBoundaries.queryOptions());
 
 	const addToStoryMutation = useMutation(
 		trpc.story.createVersion.mutationOptions({
@@ -135,7 +154,7 @@ export const DisplayMapToolCall = ({
 	};
 
 	const handleDownloadPng = async () => {
-		const dataUrl = mapViewRef.current?.captureImage('image/png');
+		const dataUrl = await mapViewRef.current?.captureImage('image/png');
 		if (!dataUrl) {
 			return;
 		}
@@ -146,6 +165,12 @@ export const DisplayMapToolCall = ({
 		link.click();
 		if (chatId) {
 			logDownload.mutate({ chatId, format: 'png', queryId: config?.query_id, title: config?.title });
+		}
+	};
+
+	const handleExportData = (format: DataExportFormat) => {
+		if (chatId) {
+			logDownload.mutate({ chatId, format, queryId: config?.query_id, title: config?.title });
 		}
 	};
 
@@ -196,8 +221,10 @@ export const DisplayMapToolCall = ({
 	}
 
 	const mapConfig = resolvedConfig ?? config;
+	const isChoropleth = mapConfig.map_type === 'choropleth';
+	const boundarySource = describeBoundarySource(mapConfig, customBoundaries);
 
-	if (mapConfig.latitude_key === mapConfig.longitude_key) {
+	if (!isChoropleth && mapConfig.latitude_key === mapConfig.longitude_key) {
 		return (
 			<div className='my-2 text-foreground/50 text-sm'>
 				Could not display the map because the latitude and longitude keys resolve to the same column.
@@ -205,7 +232,7 @@ export const DisplayMapToolCall = ({
 		);
 	}
 
-	if (points.length === 0) {
+	if (!isChoropleth && points.length === 0) {
 		return (
 			<div className='my-2 text-foreground/50 text-sm'>
 				Could not display the map because no rows contain valid coordinates.
@@ -228,6 +255,29 @@ export const DisplayMapToolCall = ({
 					<div className='flex items-center justify-between gap-2 px-3 pt-2 pb-1'>
 						<span className='text-sm font-medium text-foreground flex-1 truncate'>{config.title}</span>
 						<div className='flex items-center gap-1'>
+							{viewMode === 'map' && (
+								<>
+									<ViewToggleButton
+										icon={
+											isExpanded ? (
+												<FoldHorizontal
+													className='size-3 text-muted-foreground/70'
+													strokeWidth={2.25}
+												/>
+											) : (
+												<UnfoldHorizontal
+													className='size-3 text-muted-foreground/70'
+													strokeWidth={2.25}
+												/>
+											)
+										}
+										title={isExpanded ? 'Collapse width' : 'Expand width'}
+										isActive={isExpanded}
+										onClick={() => setIsExpanded((value) => !value)}
+									/>
+									<MapStyleSelect />
+								</>
+							)}
 							<ViewToggleButton
 								icon={<MapIcon className='size-3 text-muted-foreground/70' strokeWidth={2.25} />}
 								title='View map'
@@ -256,35 +306,29 @@ export const DisplayMapToolCall = ({
 									onClick={handleAddToStory}
 								/>
 							)}
-							{viewMode === 'map' && (
-								<>
-									<ViewToggleButton
-										icon={
-											isExpanded ? (
-												<FoldHorizontal
-													className='size-3 text-muted-foreground/70'
-													strokeWidth={2.25}
-												/>
-											) : (
-												<UnfoldHorizontal
-													className='size-3 text-muted-foreground/70'
-													strokeWidth={2.25}
-												/>
-											)
-										}
-										title={isExpanded ? 'Collapse width' : 'Expand width'}
-										isActive={isExpanded}
-										onClick={() => setIsExpanded((value) => !value)}
-									/>
-									<ViewToggleButton
-										icon={
-											<Download className='size-3 text-muted-foreground/70' strokeWidth={2.25} />
-										}
-										title='Download as PNG'
-										isActive={false}
-										onClick={handleDownloadPng}
-									/>
-								</>
+							{viewMode === 'map' ? (
+								<ViewToggleButton
+									icon={<Download className='size-3 text-muted-foreground/70' strokeWidth={2.25} />}
+									title='Download as PNG'
+									isActive={false}
+									onClick={handleDownloadPng}
+								/>
+							) : (
+								<ExportDataMenu
+									columns={sourceData.columns}
+									data={sourceData.data as Record<string, unknown>[]}
+									filename={config.title || 'map'}
+									onExport={handleExportData}
+								>
+									<Button
+										variant='ghost-muted'
+										size='icon-xs'
+										className='hover:rounded-full hover:bg-accent/70'
+										title='Export data'
+									>
+										<Download className='size-3 text-muted-foreground/70' strokeWidth={2.25} />
+									</Button>
+								</ExportDataMenu>
 							)}
 							{isEditable && (
 								<ViewToggleButton
@@ -305,13 +349,19 @@ export const DisplayMapToolCall = ({
 							isSaving={updateMapMutation.isPending}
 							onSave={handleSaveConfig}
 							description='Tweak the map parameters. Changes are saved to the chat.'
+							boundarySource={boundarySource}
 						/>
 					)}
 
 					{viewMode === 'map' && (
 						<div className='px-3 pb-3'>
 							<Suspense fallback={<Skeleton className='w-full aspect-3/2 rounded-lg' />}>
-								<MapView ref={mapViewRef} points={visiblePoints} config={mapConfig} />
+								<MapView
+									ref={mapViewRef}
+									points={visiblePoints}
+									rows={sourceData.data as Record<string, unknown>[]}
+									config={mapConfig}
+								/>
 							</Suspense>
 						</div>
 					)}
@@ -334,7 +384,7 @@ export const DisplayMapToolCall = ({
 					)}
 				</div>
 
-				{viewMode === 'map' && points.length > MAX_MAP_POINTS && (
+				{viewMode === 'map' && !isChoropleth && points.length > MAX_MAP_POINTS && (
 					<span className='px-3 text-xs text-foreground/50'>
 						Showing the first {MAX_MAP_POINTS.toLocaleString()} of {points.length.toLocaleString()} points.
 					</span>
@@ -360,6 +410,33 @@ function applyMapConfigToMessages(messages: UIMessage[], toolCallId: string, con
 		});
 		return changed ? { ...message, parts } : message;
 	});
+}
+
+function MapStyleSelect() {
+	const [styleId, setStyleId] = useMapStyle();
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<Button
+					variant='ghost-muted'
+					size='icon-xs'
+					className='hover:rounded-full hover:bg-accent/70'
+					title='Map style'
+				>
+					<Palette className='size-3 text-muted-foreground/70' strokeWidth={2.25} />
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align='start' className='w-36'>
+				<DropdownMenuRadioGroup value={styleId} onValueChange={(value) => setStyleId(value as MapStyleId)}>
+					{MAP_STYLE_OPTIONS.map((option) => (
+						<DropdownMenuRadioItem key={option.id} value={option.id}>
+							{option.label}
+						</DropdownMenuRadioItem>
+					))}
+				</DropdownMenuRadioGroup>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
 }
 
 interface ViewToggleButtonProps {

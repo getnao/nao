@@ -26,7 +26,7 @@ export async function generateStoryPdf(
 	queryData: QueryDataMap | null,
 	dateFormat?: DateFormatSettings | null,
 ): Promise<Buffer> {
-	const html = generateStoryHtml(story, queryData, dateFormat);
+	const html = await generateStoryHtml(story, queryData, dateFormat);
 	const hasMaps = html.includes('class="nao-map"');
 	const browser = await getBrowser();
 	const page = await browser.newPage();

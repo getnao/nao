@@ -1,4 +1,4 @@
-import type { McpChartEmbedStoredConfig } from '@nao/shared';
+import type { MapSettings, McpChartEmbedStoredConfig } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
 import type {
 	AnalyticsEventMetadata,
@@ -216,6 +216,7 @@ export const project = sqliteTable(
 		whatsappSettings: text('whatsapp_settings', { mode: 'json' }).$type<WhatsappSettings>(),
 		mcpEndpointSettings: text('mcp_endpoint_settings', { mode: 'json' }).$type<McpEndpointSettings>(),
 		displaySettings: text('display_settings', { mode: 'json' }).$type<DisplaySettings>(),
+		mapSettings: text('map_settings', { mode: 'json' }).$type<MapSettings>(),
 
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)

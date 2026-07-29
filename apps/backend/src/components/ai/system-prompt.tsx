@@ -103,15 +103,8 @@ export function SystemPrompt({
 					...dialectToolCallRules,
 				]}
 			</List>
-			<Title level={2}>Chart Rules</Title>
+			<Title level={2}>Chart{hasTool('display_map') ? ' & Map' : ''} Rules</Title>
 			<List>
-				{hasTool('display_map') && (
-					<ListItem>
-						Use display_map instead of display_chart for spatial point data: query results with latitude and
-						longitude columns (store locations, delivery points, events). Coordinates must be in decimal
-						degrees — select or convert them in SQL if needed.
-					</ListItem>
-				)}
 				<ListItem>
 					For display_chart x_axis_type: use "date" only when x-axis values are parseable by JavaScript Date
 					(e.g. YYYY-MM-DD). Use "category" for quarter labels (quarter_ending), fiscal periods (FY25-Q1), or
@@ -158,6 +151,21 @@ export function SystemPrompt({
 					<Bold>Never fake it with emoji (🟥🟨🟩) or by adding an extra status/label column to the data</Bold>
 					.
 				</ListItem>
+				{hasTool('display_map') && (
+					<ListItem>
+						For spatial data, use <Bold>display_map</Bold> instead of display_chart:
+						"points"/"scatter_bubble" for individual locations (optionally sized by a magnitude),
+						"choropleth" to shade regions by a numeric value. For choropleth boundary geometry, follow this
+						priority: (1) use <Bold>region_boundaries</Bold> for built-in or custom sets when the region is
+						covered; (2) use <Bold>boundaries_url</Bold> with a public HTTPS GeoJSON URL for any other
+						regions (countries, US states, departments, etc.) — this avoids pulling large geometry through
+						SQL; (3) if the geometry lives in the warehouse and no public URL exists, consider whether it
+						can be served at an internal HTTPS URL first; (4) only use <Bold>geometry_key</Bold> as a last
+						resort when geometry genuinely lives in the warehouse with no URL alternative. Never SELECT
+						large geometry columns just to render a map when a public GeoJSON URL is available, and never
+						fabricate boundary shapes.
+					</ListItem>
+				)}
 			</List>
 			<Title level={2}>SQL Query Rules</Title>
 			<List>
