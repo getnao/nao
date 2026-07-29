@@ -167,7 +167,6 @@ class TemplateEngine:
         client = OpenAI(**kwargs)
         response = client.chat.completions.create(
             model=model,
-            temperature=0,
             messages=[{"role": "user", "content": prompt_text}],
         )
         content = response.choices[0].message.content if response.choices else None

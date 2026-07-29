@@ -414,7 +414,7 @@ class AgentManager {
 			onCompactionStarted: () => {
 				this._streamWriter?.write({
 					type: 'data-compactionSummaryStarted',
-					data: undefined,
+					data: null,
 				});
 			},
 			onCompactionFinished: (result) => {
