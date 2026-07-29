@@ -3,6 +3,8 @@ import { createFileRoute, useBlocker } from '@tanstack/react-router';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDefaultLayout } from 'react-resizable-panels';
 
+import type { FileSelectionOptions } from '@/components/settings/file-tree';
+
 import { ContextFileDiff } from '@/components/settings/context-file-diff';
 import { ContextGitPanel } from '@/components/settings/context-git-panel';
 import { FileTree } from '@/components/settings/file-tree';
@@ -23,15 +25,16 @@ import { Spinner } from '@/components/ui/spinner';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { createLocalStorage } from '@/lib/local-storage';
-import { requireAdmin } from '@/lib/require-admin';
+import { requireContextAdminOrAdmin } from '@/lib/require-admin';
 import { trpc } from '@/main';
 
 const contentSearchStorage = createLocalStorage<boolean>('nao-file-explorer-content-search', true);
 
-type ViewerTarget = { type: 'file' | 'diff'; path: string };
+type ViewerTarget = { type: 'file'; path: string; openSource: boolean } | { type: 'diff'; path: string };
+type SourceAutoOpenRequest = { path: string; id: number };
 
 export const Route = createFileRoute('/_sidebar-layout/settings/context-explorer')({
-	beforeLoad: requireAdmin,
+	beforeLoad: requireContextAdminOrAdmin,
 	component: ContextExplorerPage,
 });
 
@@ -40,6 +43,7 @@ function ContextExplorerPage() {
 	const [selectedPath, setSelectedPath] = useState<string | null>(null);
 	const [selectedDiffPath, setSelectedDiffPath] = useState<string | null>(null);
 	const [pendingViewerTarget, setPendingViewerTarget] = useState<ViewerTarget | null>(null);
+	const [sourceAutoOpenRequest, setSourceAutoOpenRequest] = useState<SourceAutoOpenRequest | null>(null);
 	const [viewerRevision, setViewerRevision] = useState(0);
 	const [isViewerDirty, setIsViewerDirty] = useState(false);
 	const [search, setSearch] = useState('');
@@ -85,10 +89,19 @@ function ContextExplorerPage() {
 		);
 	}, [contentSearch.data?.results, isLiveContentSearchEligible, shouldSearchContent]);
 
+	const requestSourceAutoOpen = (path: string) => {
+		setSourceAutoOpenRequest((current) => ({ path, id: (current?.id ?? 0) + 1 }));
+	};
+
 	const applyViewerTarget = (target: ViewerTarget) => {
 		if (target.type === 'file') {
 			setSelectedPath(target.path);
 			setSelectedDiffPath(null);
+			if (target.openSource) {
+				requestSourceAutoOpen(target.path);
+			} else {
+				setSourceAutoOpenRequest(null);
+			}
 			return;
 		}
 		setSelectedDiffPath(target.path);
@@ -102,11 +115,14 @@ function ContextExplorerPage() {
 		applyViewerTarget(target);
 	};
 
-	const handleSelectFile = (path: string) => {
+	const handleSelectFile = (path: string, options: FileSelectionOptions) => {
 		if (path === selectedPath && selectedDiffPath === null) {
+			if (options.isContentMatch) {
+				requestSourceAutoOpen(path);
+			}
 			return;
 		}
-		requestViewerTarget({ type: 'file', path });
+		requestViewerTarget({ type: 'file', path, openSource: options.isContentMatch });
 	};
 
 	const handleViewDiff = (path: string) => {
@@ -219,6 +235,9 @@ function ContextExplorerPage() {
 								isEditable={fileContent.data?.isEditable === true}
 								editabilityReason={fileContent.data?.editabilityReason ?? null}
 								searchQuery={shouldSearchContent ? debouncedSearch : ''}
+								sourceAutoOpenRequestId={
+									sourceAutoOpenRequest?.path === selectedPath ? sourceAutoOpenRequest.id : null
+								}
 								onDirtyChange={setIsViewerDirty}
 								onReload={async () => {
 									const result = await fileContent.refetch();

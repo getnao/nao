@@ -135,8 +135,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		page: '/settings/project',
 		pageLabel: 'Project',
 		title: 'Repository',
-		description: 'View linked GitHub repository and pull latest changes.',
-		keywords: ['github', 'git', 'pull', 'sync', 'repository', 'refresh'],
+		description: 'Connect a GitHub or GitLab repository and view its branch.',
+		keywords: ['github', 'gitlab', 'git', 'connect', 'repository', 'branch'],
 		adminOnly: true,
 	},
 	{
@@ -639,6 +639,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'File Explorer',
 		description: 'Browse and inspect the files and context available to the agent.',
 		keywords: ['files', 'context', 'documents', 'knowledge base'],
-		adminOnly: true,
+		adminOrContextAdmin: true,
 	},
 ];

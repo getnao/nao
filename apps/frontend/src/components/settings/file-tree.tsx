@@ -23,10 +23,14 @@ type ContentMatch = {
 	text: string;
 };
 
+export interface FileSelectionOptions {
+	isContentMatch: boolean;
+}
+
 interface FileTreeProps {
 	entries: FileTreeEntry[];
 	selectedPath: string | null;
-	onSelectFile: (path: string) => void;
+	onSelectFile: (path: string, options: FileSelectionOptions) => void;
 	search: string;
 	onSearchChange: (value: string) => void;
 	isContentSearchEnabled: boolean;
@@ -157,7 +161,7 @@ interface FileTreeNodeProps {
 	entry: FileTreeEntry;
 	depth: number;
 	selectedPath: string | null;
-	onSelectFile: (path: string) => void;
+	onSelectFile: (path: string, options: FileSelectionOptions) => void;
 	isSearching: boolean;
 	contentMatches: Map<string, ContentMatch>;
 }
@@ -176,7 +180,7 @@ function FileTreeNode({ entry, depth, selectedPath, onSelectFile, isSearching, c
 		if (isDirectory) {
 			setIsExpanded((prev) => !prev);
 		} else {
-			onSelectFile(entry.path);
+			onSelectFile(entry.path, { isContentMatch: contentMatch !== undefined });
 		}
 	};
 

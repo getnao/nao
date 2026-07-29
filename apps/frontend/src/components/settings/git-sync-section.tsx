@@ -1,8 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Github, GitBranch, Loader2, RefreshCw } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { GitBranch, Github } from 'lucide-react';
+import { useState } from 'react';
 
+import type { RepositoryConnectionResult } from '@/components/settings/context-repo-connect-dialog';
+import GitlabIcon from '@/components/icons/gitlab-icon.svg';
+import { ContextRepoConnectDialog } from '@/components/settings/context-repo-connect-dialog';
 import { Button } from '@/components/ui/button';
-import { ErrorMessage } from '@/components/ui/error-message';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { trpc } from '@/main';
@@ -31,81 +34,105 @@ function formatRelativeDate(isoDate: string): string {
 }
 
 export function GitSyncSection() {
-	const queryClient = useQueryClient();
+	const [connectDialogOpen, setConnectDialogOpen] = useState(false);
+	const [connectionResult, setConnectionResult] = useState<RepositoryConnectionResult | null>(null);
 
-	const gitInfo = useQuery({
-		...trpc.github.getProjectGitInfo.queryOptions(),
+	const repositoryStatus = useQuery({
+		...trpc.contextExplorer.getRepositoryStatus.queryOptions(),
 		staleTime: 30_000,
 	});
 
-	const pullMutation = useMutation({
-		...trpc.github.pullProject.mutationOptions(),
-		onSuccess: () => {
-			queryClient.invalidateQueries({ queryKey: trpc.github.getProjectGitInfo.queryKey() });
-		},
-	});
-
-	if (gitInfo.isLoading) {
+	if (repositoryStatus.isLoading) {
 		return (
-			<SettingsCard title='Repository' icon={<Github className='size-4' />}>
-				<Skeleton className='h-4 w-48' />
-			</SettingsCard>
+			<div id='repository'>
+				<SettingsCard title='Repository' icon={<Github className='size-4' />}>
+					<Skeleton className='h-4 w-48' />
+				</SettingsCard>
+			</div>
 		);
 	}
 
-	if (!gitInfo.data?.isGithub) {
-		return null;
+	const status = repositoryStatus.data;
+	if (!status?.repo) {
+		const message = status?.managedByContextSource
+			? 'This project repository is managed by NAO_CONTEXT_SOURCE=git. Update that deployment setting to change it.'
+			: status?.isGitRepository
+				? 'This project already has Git metadata but no supported GitHub or GitLab origin. Its existing Git metadata will not be changed.'
+				: 'Connect a GitHub or GitLab repository to edit context files and propose changes.';
+
+		return (
+			<div id='repository'>
+				<SettingsCard
+					title='Repository'
+					icon={<GitBranch className='size-4' />}
+					action={
+						!status?.managedByContextSource &&
+						!status?.isGitRepository && (
+							<Button size='sm' onClick={() => setConnectDialogOpen(true)}>
+								Connect repository
+							</Button>
+						)
+					}
+				>
+					<p className='text-sm text-muted-foreground'>{message}</p>
+					{!status?.managedByContextSource && !status?.isGitRepository && (
+						<p className='text-xs text-muted-foreground'>
+							Connecting a repository will not overwrite or replace any files in this project.
+						</p>
+					)}
+				</SettingsCard>
+				<ContextRepoConnectDialog
+					open={connectDialogOpen}
+					onOpenChange={setConnectDialogOpen}
+					onConnected={setConnectionResult}
+				/>
+			</div>
+		);
 	}
 
-	const { repoFullName, branch, lastCommitMessage, lastCommitDate } = gitInfo.data;
+	const { repoFullName, branch, provider } = status.repo;
+	const repositoryUrl = status.repositoryUrl?.replace(/\.git$/, '');
+	const ProviderIcon = provider === 'github' ? Github : GitlabIcon;
 
 	return (
-		<SettingsCard
-			title='Repository'
-			icon={<Github className='size-4' />}
-			action={
-				<Button
-					variant='secondary'
-					size='sm'
-					onClick={() => pullMutation.mutate()}
-					disabled={pullMutation.isPending}
-				>
-					{pullMutation.isPending ? (
-						<Loader2 className='size-3.5 animate-spin' />
-					) : (
-						<RefreshCw className='size-3.5' />
+		<div id='repository'>
+			<SettingsCard title='Repository' icon={<ProviderIcon className='size-4' />}>
+				<div className='flex flex-col gap-2'>
+					<div className='flex items-center gap-2 text-sm'>
+						<a
+							href={repositoryUrl}
+							target='_blank'
+							rel='noopener noreferrer'
+							className='font-mono text-foreground hover:underline'
+						>
+							{repoFullName}
+						</a>
+						{branch && (
+							<span className='flex items-center gap-1 text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded'>
+								<GitBranch className='size-3' />
+								{branch}
+							</span>
+						)}
+					</div>
+					{status.lastCommitMessage && (
+						<p className='text-xs text-muted-foreground truncate'>
+							{status.lastCommitMessage}
+							{status.lastCommitDate && (
+								<span className='ml-1.5 opacity-70'>
+									&middot; {formatRelativeDate(status.lastCommitDate)}
+								</span>
+							)}
+						</p>
 					)}
-					Pull latest
-				</Button>
-			}
-		>
-			<div className='flex flex-col gap-2'>
-				<div className='flex items-center gap-2 text-sm'>
-					<a
-						href={`https://github.com/${repoFullName}`}
-						target='_blank'
-						rel='noopener noreferrer'
-						className='font-mono text-foreground hover:underline'
-					>
-						{repoFullName}
-					</a>
-					{branch && (
-						<span className='flex items-center gap-1 text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded'>
-							<GitBranch className='size-3' />
-							{branch}
-						</span>
+					{connectionResult && (
+						<p className='text-xs text-muted-foreground'>
+							{connectionResult.connectionType === 'published-initial-commit'
+								? 'Connected and published the current project files as the first commit.'
+								: 'Connected without changing any project files.'}
+						</p>
 					)}
 				</div>
-				{lastCommitMessage && (
-					<p className='text-xs text-muted-foreground truncate'>
-						{lastCommitMessage}
-						{lastCommitDate && (
-							<span className='ml-1.5 opacity-70'>&middot; {formatRelativeDate(lastCommitDate)}</span>
-						)}
-					</p>
-				)}
-			</div>
-			{pullMutation.error && <ErrorMessage message={pullMutation.error.message} />}
-		</SettingsCard>
+			</SettingsCard>
+		</div>
 	);
 }

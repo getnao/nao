@@ -24,7 +24,11 @@ export const createTool = <TInput, TOutput>(
 /**
  * Directory names that should be excluded from tool operations (list, search, read).
  */
-export const EXCLUDED_DIRS = ['.meta', '.git'];
+const EXCLUDED_DIRECTORY_NAMES = ['.meta', '.git'];
+const ENVIRONMENT_FILE_PATTERNS = ['.env', '.env.*'];
+export const BUILT_IN_EXCLUSION_GLOBS = [...EXCLUDED_DIRECTORY_NAMES, ...ENVIRONMENT_FILE_PATTERNS].flatMap(
+	(pattern) => [`!${pattern}`, `!${pattern}/**`, `!**/${pattern}`, `!**/${pattern}/**`],
+);
 
 type NaoignoreCacheEntry = {
 	/** `mtimeMs:size` of the .naoignore file, or `null` if the file does not exist */
@@ -156,18 +160,22 @@ export const isIgnoredPath = (realPath: string, projectFolder: string): boolean 
  */
 export const isInExcludedDir = (filePath: string): boolean => {
 	const parts = filePath.split(path.sep);
-	return parts.some((part) => EXCLUDED_DIRS.includes(part) || isEnvironmentFileName(part));
+	return parts.some((part) => isExcludedDirectoryName(part) || isEnvironmentFileName(part));
 };
 
 /**
  * Checks if an entry name is an excluded directory.
  */
 export const isExcludedEntry = (name: string): boolean => {
-	return EXCLUDED_DIRS.includes(name) || isEnvironmentFileName(name);
+	return isExcludedDirectoryName(name) || isEnvironmentFileName(name);
+};
+
+const isExcludedDirectoryName = (name: string): boolean => {
+	return EXCLUDED_DIRECTORY_NAMES.includes(name);
 };
 
 const isEnvironmentFileName = (name: string): boolean => {
-	return name === '.env' || name.startsWith('.env.');
+	return ENVIRONMENT_FILE_PATTERNS.some((pattern) => minimatch(name, pattern, { dot: true }));
 };
 
 /**

@@ -25,6 +25,7 @@ import {
 import { getRipgrepPath } from '../utils/ripgrep';
 import { assertNoSymlinkInWritePath, canonicalizeWriteRoot, writeFileAtomically } from '../utils/safe-file-write';
 import {
+	BUILT_IN_EXCLUSION_GLOBS,
 	isWithinProjectFolder,
 	loadNaoignorePatterns,
 	shouldExcludeEntry,
@@ -46,7 +47,6 @@ export interface FileEditability {
 export interface FileTreeResponse {
 	entries: FileTreeEntry[];
 	repo: ContextRepoState | null;
-	isEditable: boolean;
 }
 
 type RipgrepMatchEntry = {
@@ -71,7 +71,6 @@ export async function getFileTreeResponse(projectFolder: string): Promise<FileTr
 	return {
 		entries: await readDirectoryRecursive(projectFolder, projectFolder, trackedPaths),
 		repo: toContextRepoState(repo),
-		isEditable: repo !== null,
 	};
 }
 
@@ -182,6 +181,10 @@ function buildSearchArguments(query: string, projectFolder: string): string[] {
 		'500',
 		'--max-columns-preview',
 	];
+
+	for (const exclusionGlob of BUILT_IN_EXCLUSION_GLOBS) {
+		args.push('--glob', exclusionGlob);
+	}
 
 	for (const ignorePattern of loadNaoignorePatterns(projectFolder)) {
 		const cleanPattern = ignorePattern.endsWith('/') ? ignorePattern.slice(0, -1) : ignorePattern;

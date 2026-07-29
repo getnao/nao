@@ -97,7 +97,7 @@ const settingsNavItems: NavItem[] = [
 	{
 		label: 'File Explorer',
 		to: '/settings/context-explorer',
-		visible: ({ isAdmin }) => isAdmin,
+		visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
 	},
 	{
 		label: 'Memory',

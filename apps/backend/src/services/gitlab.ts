@@ -65,13 +65,13 @@ function callbackUrl(): string | undefined {
 	return undefined;
 }
 
-function authenticatedRepoUrl(token: string, repoFullName: string): string {
+export function authenticatedRepoUrl(token: string, repoFullName: string): string {
 	const base = gitlabBaseUrl();
 	const withoutScheme = base.replace(/^https?:\/\//, '');
 	return `https://oauth2:${token}@${withoutScheme}/${repoFullName}.git`;
 }
 
-function publicRepoUrl(repoFullName: string): string {
+export function publicRepoUrl(repoFullName: string): string {
 	return `${gitlabBaseUrl()}/${repoFullName}.git`;
 }
 

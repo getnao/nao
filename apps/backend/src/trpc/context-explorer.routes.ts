@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import * as userQueries from '../queries/user.queries';
 import {
 	getFileTreeResponse,
 	MAX_CONTEXT_FILE_SIZE,
@@ -9,12 +10,14 @@ import {
 	writeFileContent,
 } from '../services/context-explorer.service';
 import {
+	connectContextRepository,
 	discardContextFileChange,
 	getChangedContextFiles,
 	getContextFileDiff,
+	getContextRepositoryStatus,
 } from '../services/context-explorer-git.service';
 import { createContextExplorerPullRequest } from '../services/context-explorer-pr.service';
-import { adminProtectedProcedure } from './trpc';
+import { contextAdminProtectedProcedure } from './trpc';
 
 function requireProjectPath(path: string | null): string {
 	if (!path) {
@@ -24,17 +27,59 @@ function requireProjectPath(path: string | null): string {
 }
 
 export const contextExplorerRoutes = {
-	getFileTree: adminProtectedProcedure.query(async ({ ctx }) => {
+	getRepositoryStatus: contextAdminProtectedProcedure.query(({ ctx }) => {
+		const projectPath = requireProjectPath(ctx.project.path);
+		return getContextRepositoryStatus(projectPath);
+	}),
+
+	connectRepository: contextAdminProtectedProcedure
+		.input(
+			z.object({
+				provider: z.enum(['github', 'gitlab']),
+				repoFullName: z
+					.string()
+					.trim()
+					.regex(/^[\w./-]+\/[\w.-]+$/, 'Expected a repository in "owner/name" format'),
+				branch: z.string().trim().min(1).optional().default('main'),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			const projectPath = requireProjectPath(ctx.project.path);
+			const token =
+				input.provider === 'github'
+					? await userQueries.getGithubToken(ctx.user.id)
+					: await userQueries.getGitlabToken(ctx.user.id);
+			if (!token) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message:
+						input.provider === 'github'
+							? 'GitHub is not connected. Connect your GitHub account first.'
+							: 'GitLab is not connected. Connect your GitLab account first.',
+				});
+			}
+
+			try {
+				return await connectContextRepository({ projectFolder: projectPath, token, ...input });
+			} catch (error) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: error instanceof Error ? error.message : 'Failed to connect repository.',
+				});
+			}
+		}),
+
+	getFileTree: contextAdminProtectedProcedure.query(async ({ ctx }) => {
 		const projectPath = requireProjectPath(ctx.project.path);
 		return getFileTreeResponse(projectPath);
 	}),
 
-	readFile: adminProtectedProcedure.input(z.object({ path: z.string() })).query(async ({ ctx, input }) => {
+	readFile: contextAdminProtectedProcedure.input(z.object({ path: z.string() })).query(async ({ ctx, input }) => {
 		const projectPath = requireProjectPath(ctx.project.path);
 		return readFileContent(input.path, projectPath);
 	}),
 
-	writeFile: adminProtectedProcedure
+	writeFile: contextAdminProtectedProcedure
 		.input(
 			z.object({
 				path: z.string(),
@@ -47,32 +92,34 @@ export const contextExplorerRoutes = {
 			return writeFileContent(input.path, input.content, input.expectedHash, projectPath);
 		}),
 
-	searchContent: adminProtectedProcedure
+	searchContent: contextAdminProtectedProcedure
 		.input(z.object({ query: z.string().min(2).max(200) }))
 		.query(async ({ ctx, input }) => {
 			const projectPath = requireProjectPath(ctx.project.path);
 			return searchFileContents(input.query, projectPath);
 		}),
 
-	getChangedFiles: adminProtectedProcedure.query(({ ctx }) => {
+	getChangedFiles: contextAdminProtectedProcedure.query(({ ctx }) => {
 		const projectPath = requireProjectPath(ctx.project.path);
 		return getChangedContextFiles(projectPath);
 	}),
 
-	getFileDiff: adminProtectedProcedure.input(z.object({ path: z.string() })).query(async ({ ctx, input }) => {
+	getFileDiff: contextAdminProtectedProcedure.input(z.object({ path: z.string() })).query(async ({ ctx, input }) => {
 		const projectPath = requireProjectPath(ctx.project.path);
 		return getContextFileDiff(input.path, projectPath);
 	}),
 
-	createPullRequest: adminProtectedProcedure
+	createPullRequest: contextAdminProtectedProcedure
 		.input(z.object({ paths: z.array(z.string()).min(1).max(100) }))
 		.mutation(async ({ ctx, input }) => {
 			const projectPath = requireProjectPath(ctx.project.path);
 			return createContextExplorerPullRequest(projectPath, ctx.user.id, input.paths);
 		}),
 
-	discardLocalChange: adminProtectedProcedure.input(z.object({ path: z.string() })).mutation(({ ctx, input }) => {
-		const projectPath = requireProjectPath(ctx.project.path);
-		return discardContextFileChange(input.path, projectPath);
-	}),
+	discardLocalChange: contextAdminProtectedProcedure
+		.input(z.object({ path: z.string() }))
+		.mutation(({ ctx, input }) => {
+			const projectPath = requireProjectPath(ctx.project.path);
+			return discardContextFileChange(input.path, projectPath);
+		}),
 };

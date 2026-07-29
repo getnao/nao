@@ -176,11 +176,11 @@ async function searchRepos(
 	};
 }
 
-function authenticatedRepoUrl(token: string, repoFullName: string): string {
+export function authenticatedRepoUrl(token: string, repoFullName: string): string {
 	return `https://x-access-token:${token}@github.com/${repoFullName}.git`;
 }
 
-function publicRepoUrl(repoFullName: string): string {
+export function publicRepoUrl(repoFullName: string): string {
 	return `https://github.com/${repoFullName}.git`;
 }
 
@@ -264,23 +264,6 @@ export function removeOriginRemote(projectDir: string): void {
 		stdio: 'pipe',
 		timeout: 5_000,
 	});
-}
-
-export function pullRepo(token: string, repoFullName: string, projectDir: string): string {
-	const opts = { cwd: projectDir, stdio: 'pipe' as const, timeout: 120_000 };
-
-	execFileSync('git', ['remote', 'set-url', 'origin', authenticatedRepoUrl(token, repoFullName)], opts);
-
-	try {
-		execFileSync('git', ['fetch', '--depth', '1', 'origin'], opts);
-		const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], opts).toString().trim();
-		const output = execFileSync('git', ['reset', '--hard', `origin/${branch}`], opts)
-			.toString()
-			.trim();
-		return output;
-	} finally {
-		execFileSync('git', ['remote', 'set-url', 'origin', publicRepoUrl(repoFullName)], { ...opts, timeout: 5_000 });
-	}
 }
 
 export interface GitIdentity {

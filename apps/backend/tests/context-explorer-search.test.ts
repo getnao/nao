@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -16,9 +16,17 @@ describe('context explorer content search', () => {
 		writeFileSync(join(projectFolder, 'regex-only.txt'), 'abc\n');
 		writeFileSync(join(projectFolder, 'ignored.txt'), 'excluded content\n');
 		writeFileSync(join(projectFolder, '.naoignore'), 'ignored.txt\n');
+		mkdirSync(join(projectFolder, '.git'));
+		writeFileSync(join(projectFolder, '.git', 'config'), 'protected content\n');
+		writeFileSync(join(projectFolder, '.env'), 'protected content\n');
+		writeFileSync(join(projectFolder, '.env.local'), 'protected content\n');
+		chmodSync(join(projectFolder, '.git'), 0o000);
+		chmodSync(join(projectFolder, '.env'), 0o000);
+		chmodSync(join(projectFolder, '.env.local'), 0o000);
 	});
 
 	afterAll(() => {
+		chmodSync(join(projectFolder, '.git'), 0o700);
 		rmSync(projectFolder, { recursive: true, force: true });
 	});
 
@@ -50,6 +58,12 @@ describe('context explorer content search', () => {
 
 	it('excludes files matched by .naoignore', async () => {
 		const response = await searchFileContents('excluded content', projectFolder);
+
+		expect(response.results).toEqual([]);
+	});
+
+	it('excludes protected Git metadata and environment files', async () => {
+		const response = await searchFileContents('protected content', projectFolder);
 
 		expect(response.results).toEqual([]);
 	});

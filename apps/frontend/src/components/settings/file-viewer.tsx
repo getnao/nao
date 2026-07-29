@@ -43,6 +43,7 @@ interface FileViewerProps {
 	isEditable: boolean;
 	editabilityReason: FileEditabilityReason | null;
 	searchQuery: string;
+	sourceAutoOpenRequestId: number | null;
 	onDirtyChange: (isDirty: boolean) => void;
 	onReload: () => Promise<FileContents | undefined>;
 }
@@ -63,6 +64,7 @@ export function FileViewer({
 	isEditable,
 	editabilityReason,
 	searchQuery,
+	sourceAutoOpenRequestId,
 	onDirtyChange,
 	onReload,
 }: FileViewerProps) {
@@ -100,6 +102,7 @@ export function FileViewer({
 			isEditable={isEditable}
 			editabilityReason={editabilityReason}
 			searchQuery={searchQuery}
+			sourceAutoOpenRequestId={sourceAutoOpenRequestId}
 			onDirtyChange={onDirtyChange}
 			onReload={onReload}
 		/>
@@ -113,11 +116,20 @@ function EditableFileViewer({
 	isEditable,
 	editabilityReason,
 	searchQuery,
+	sourceAutoOpenRequestId,
 	onDirtyChange,
 	onReload,
 }: Pick<
 	FileViewerProps,
-	'filePath' | 'content' | 'hash' | 'isEditable' | 'editabilityReason' | 'searchQuery' | 'onDirtyChange' | 'onReload'
+	| 'filePath'
+	| 'content'
+	| 'hash'
+	| 'isEditable'
+	| 'editabilityReason'
+	| 'searchQuery'
+	| 'sourceAutoOpenRequestId'
+	| 'onDirtyChange'
+	| 'onReload'
 > & {
 	filePath: string;
 	content: string;
@@ -125,7 +137,7 @@ function EditableFileViewer({
 }) {
 	const queryClient = useQueryClient();
 	const [isSourceOpenPreference, setIsSourceOpenPreference] = useLocalStorage(markdownSourceStorage);
-	const [isSourceAutoOpened, setIsSourceAutoOpened] = useState(searchQuery.length >= 2);
+	const [isSourceAutoOpened, setIsSourceAutoOpened] = useState(sourceAutoOpenRequestId !== null);
 	const [draft, setDraft] = useState(content);
 	const [savedContent, setSavedContent] = useState(content);
 	const [expectedHash, setExpectedHash] = useState(hash);
@@ -156,6 +168,12 @@ function EditableFileViewer({
 		setExpectedHash(hash);
 		setSaveError(null);
 	}, [content, hash, isDirty]);
+
+	useEffect(() => {
+		if (sourceAutoOpenRequestId !== null) {
+			setIsSourceAutoOpened(true);
+		}
+	}, [sourceAutoOpenRequestId]);
 
 	useEffect(() => {
 		if (searchQuery.length < 2) {
@@ -363,7 +381,7 @@ function ReadOnlyNote({ reason }: { reason: FileEditabilityReason }) {
 	if (reason === 'no-repo') {
 		return (
 			<div className='shrink-0 border-b px-4 py-2 text-xs text-muted-foreground'>
-				<Link to='/settings/organization' className='text-primary hover:underline'>
+				<Link to='/settings/project' hash='repository' className='text-primary hover:underline'>
 					Connect a repository
 				</Link>{' '}
 				to edit context files.
