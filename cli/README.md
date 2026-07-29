@@ -203,6 +203,7 @@ Options:
 - `--model` / `-m`: Models to test against (default: `openai:gpt-4.1`). Can be specified multiple times.
 - `--threads` / `-t`: Number of parallel threads (default: `1`)
 - `--select` / `-s`: Run only selected tests by name, yaml stem, or subfolder. Comma-separated.
+- `--fail-fast` / `-x`: Stop on the first failing (test, model) run.
 - `--username` / `-u`, `--password`: Credentials for the nao backend. Fall back to `NAO_USERNAME` / `NAO_PASSWORD`.
 
 Examples:
@@ -211,6 +212,7 @@ Examples:
 nao test -m openai:gpt-4.1
 nao test -m openai:gpt-4.1 -m anthropic:claude-sonnet-4-20250514
 nao test --threads 4
+nao test -x  # stop on first failure
 ```
 
 Defaults for every run live in the `test` block of `nao_config.yaml`, and the `--model` / `--threads` flags override them:
