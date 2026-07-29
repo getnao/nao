@@ -16,6 +16,7 @@ import {
 	DEFAULT_MARKER_RADIUS,
 	defaultColorFor,
 	formatChartValue,
+	formatCompactNumber,
 	labelize,
 	MAP_BOUNDARY_URLS,
 	type MapGeometry,

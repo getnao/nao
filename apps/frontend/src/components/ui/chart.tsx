@@ -121,7 +121,6 @@ function ChartTooltipContent({
 	nameKey,
 	labelKey,
 	percent = false,
-	valueFormatter = formatCompactNumber,
 	isDualAxis = false,
 	hideTotal = false,
 }: React.ComponentProps<typeof RechartsPrimitive.Tooltip> &
@@ -183,7 +182,6 @@ function ChartTooltipContent({
 	);
 	// In 100% stacked mode every category totals 100%, so ignore already-aggregated total series.
 	const showTotal = !isDualAxis && numericValues.length > 1 && (percent || (!hasTotalSeries && !hideTotal));
-	const formatValue = (value: number) => (percent ? formatPercentShare(value, shareBase) : valueFormatter(value));
 	const firstItem = visiblePayload[0];
 	const firstItemKey = `${nameKey || firstItem?.name || firstItem?.dataKey || 'value'}`;
 	const firstItemFormat = getPayloadConfigFromPayload(config, firstItem, firstItemKey)?.valueFormat;
