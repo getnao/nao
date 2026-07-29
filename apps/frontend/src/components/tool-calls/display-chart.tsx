@@ -399,6 +399,7 @@ export const DisplayChartToolCall = ({
 					xAxisKey={chartConfig.x_axis_key ?? ''}
 					series={chartConfig.series}
 					xAxisType={chartConfig.x_axis_type === 'number' ? 'number' : 'category'}
+					xAxisLabel={chartConfig.x_axis_label}
 					title={chartConfig.title}
 					yAxisMin={chartConfig.y_axis_min}
 					yAxisMax={chartConfig.y_axis_max}
@@ -420,6 +421,7 @@ export interface ChartDisplayProps {
 	chartType: displayChart.ChartType;
 	xAxisKey: string;
 	xAxisType: 'number' | 'category';
+	xAxisLabel?: string;
 	xAxisLabelFormatter?: (value: string) => string;
 	valueFormatter?: (value: number) => string;
 	series: displayChart.SeriesConfig[];
@@ -449,6 +451,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 	chartType,
 	xAxisKey: xAxisKeyProp,
 	xAxisType,
+	xAxisLabel,
 	xAxisLabelFormatter,
 	valueFormatter,
 	series: seriesProp,
@@ -601,6 +604,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 				chartType,
 				xAxisKey,
 				xAxisType,
+				xAxisLabel,
 				series: visibleSeries,
 				colorFor,
 				labelFormatter,
@@ -668,6 +672,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			xAxisKey,
 			pieValueKey,
 			xAxisType,
+			xAxisLabel,
 			visibleSeries,
 			colorFor,
 			labelFormatter,

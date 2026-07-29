@@ -13,6 +13,7 @@ export interface ParsedChartBlock {
 	chartType: string;
 	xAxisKey: string;
 	xAxisType: string | null;
+	xAxisLabel?: string;
 	series: ParsedChartSeries[];
 	yAxisMin?: number;
 	yAxisMax?: number;
@@ -119,6 +120,7 @@ export function parseChartBlock(attrString: string): ParsedChartBlock | null {
 		chartType: attrs.chart_type,
 		xAxisKey: attrs.x_axis_key ?? '',
 		xAxisType: attrs.x_axis_type || null,
+		xAxisLabel: attrs.x_axis_label || undefined,
 		series,
 		yAxisMin,
 		yAxisMax,

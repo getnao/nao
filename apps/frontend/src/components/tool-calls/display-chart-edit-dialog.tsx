@@ -123,6 +123,7 @@ export function ChartConfigEditDialog({
 	// the same swatch the chart draws for it. Refreshed on open for the theme.
 	const [paletteHexes, setPaletteHexes] = useState<string[]>(DEFAULT_COLORS);
 	const supportsYAxisRange = !Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES.has(draft.chart_type);
+	const supportsAxisLabels = displayChart.chartTypeSupportsAxisLabels(draft.chart_type);
 	const unsupportedNumberFormat = useMemo(
 		() =>
 			draft.series
@@ -300,62 +301,34 @@ export function ChartConfigEditDialog({
 						/>
 					</div>
 
-					<div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
-						<div className='grid gap-2'>
-							<span className='text-sm font-semibold text-foreground'>Chart type</span>
-							<Select
-								value={baseChartType(draft.chart_type)}
-								onValueChange={(value) =>
-									setDraft((prev) => {
-										const nextBase = value as displayChart.ChartType;
-										const keepPercent =
-											displayChart.isPercentStackedChartType(prev.chart_type) &&
-											displayChart.isStackedChartType(nextBase);
-										return {
-											...prev,
-											chart_type: keepPercent ? percentChartType(nextBase) : nextBase,
-										};
-									})
-								}
-							>
-								<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent className='border-none bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-									{CHART_TYPE_OPTIONS.map((option) => (
-										<SelectItem key={option.value} value={option.value}>
-											{option.label}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</div>
-
-						{draft.chart_type !== 'kpi_card' && (
-							<div className='grid gap-2'>
-								<span className='text-sm font-semibold text-foreground'>X-axis type</span>
-								<Select
-									value={draft.x_axis_type ?? 'auto'}
-									onValueChange={(value) =>
-										setDraft((prev) => ({
-											...prev,
-											x_axis_type: value === 'auto' ? null : (value as displayChart.XAxisType),
-										}))
-									}
-								>
-									<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent className='border-none bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-										{X_AXIS_TYPE_OPTIONS.map((option) => (
-											<SelectItem key={option.value} value={option.value}>
-												{option.label}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-							</div>
-						)}
+					<div className='grid gap-2'>
+						<span className='text-sm font-semibold text-foreground'>Chart type</span>
+						<Select
+							value={baseChartType(draft.chart_type)}
+							onValueChange={(value) =>
+								setDraft((prev) => {
+									const nextBase = value as displayChart.ChartType;
+									const keepPercent =
+										displayChart.isPercentStackedChartType(prev.chart_type) &&
+										displayChart.isStackedChartType(nextBase);
+									return {
+										...prev,
+										chart_type: keepPercent ? percentChartType(nextBase) : nextBase,
+									};
+								})
+							}
+						>
+							<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent className='border-none bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+								{CHART_TYPE_OPTIONS.map((option) => (
+									<SelectItem key={option.value} value={option.value}>
+										{option.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
 					</div>
 
 					{displayChart.isStackedChartType(draft.chart_type) && (
@@ -384,13 +357,60 @@ export function ChartConfigEditDialog({
 					)}
 
 					{draft.chart_type !== 'kpi_card' && (
-						<div className='grid gap-2'>
-							<span className='text-sm font-semibold text-foreground'>X-axis column</span>
-							<ColumnSelect
-								value={draft.x_axis_key ?? ''}
-								columns={xAxisOptions}
-								onChange={(value) => setDraft((prev) => ({ ...prev, x_axis_key: value }))}
-							/>
+						<div className='grid gap-3 py-2'>
+							<span className='text-sm font-semibold text-foreground'>X-axis</span>
+							<div
+								className={`grid gap-3 items-end ${supportsAxisLabels ? 'grid-cols-[1fr_1fr_1fr]' : 'grid-cols-[1fr_1fr]'}`}
+							>
+								<div className='grid gap-1'>
+									<span className='text-xs text-muted-foreground'>Column</span>
+									<ColumnSelect
+										value={draft.x_axis_key ?? ''}
+										columns={xAxisOptions}
+										onChange={(value) => setDraft((prev) => ({ ...prev, x_axis_key: value }))}
+									/>
+								</div>
+								{supportsAxisLabels && (
+									<div className='grid gap-1'>
+										<span className='text-xs text-muted-foreground'>Label</span>
+										<Input
+											className='h-8 bg-panel'
+											placeholder='Label (optional)'
+											value={draft.x_axis_label ?? ''}
+											onChange={(e) =>
+												setDraft((prev) => ({
+													...prev,
+													x_axis_label: e.target.value || undefined,
+												}))
+											}
+										/>
+									</div>
+								)}
+								<div className='grid gap-1'>
+									<span className='text-xs text-muted-foreground'>Type</span>
+									<Select
+										value={draft.x_axis_type ?? 'auto'}
+										onValueChange={(value) =>
+											setDraft((prev) => ({
+												...prev,
+												x_axis_type:
+													value === 'auto' ? null : (value as displayChart.XAxisType),
+											}))
+										}
+									>
+										<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent className='border-none bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+											{X_AXIS_TYPE_OPTIONS.map((option) => (
+												<SelectItem key={option.value} value={option.value}>
+													{option.label}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								</div>
+							</div>
 						</div>
 					)}
 
@@ -529,7 +549,7 @@ export function ChartConfigEditDialog({
 									<span className='text-sm font-semibold text-foreground'>Y-axis range</span>
 									{hasLeftAxis && (
 										<AxisFields
-											name='Left'
+											name='Left label'
 											showRange={supportsYAxisRange}
 											labelPlaceholder='Label (optional)'
 											labelValue={draft.y_axis_label ?? ''}
@@ -546,7 +566,7 @@ export function ChartConfigEditDialog({
 									)}
 									{hasRightAxis && (
 										<AxisFields
-											name='Right'
+											name='Right label'
 											showRange={supportsYAxisRange}
 											labelPlaceholder='Label (optional)'
 											labelValue={draft.y_axis_right_label ?? ''}
@@ -566,11 +586,18 @@ export function ChartConfigEditDialog({
 									)}
 								</div>
 							)
-						: supportsYAxisRange && (
-								<div className='grid gap-2 py-2'>
-									<span className='text-sm font-semibold text-foreground'>Y-axis range</span>
-									<div className='grid grid-cols-[1fr_1fr] gap-3 items-end'>
-										<MinMaxFields
+						: (supportsAxisLabels || supportsYAxisRange) && (
+								<div className='grid gap-3 py-2'>
+									<span className='text-sm font-semibold text-foreground'>Y-axis</span>
+									{supportsAxisLabels ? (
+										<AxisFields
+											name='Label'
+											showRange={supportsYAxisRange}
+											labelPlaceholder='Label (optional)'
+											labelValue={draft.y_axis_label ?? ''}
+											onLabelChange={(value) =>
+												setDraft((prev) => ({ ...prev, y_axis_label: value || undefined }))
+											}
 											minId='chart-y-axis-min'
 											maxId='chart-y-axis-max'
 											minValue={yAxisMinText}
@@ -578,7 +605,18 @@ export function ChartConfigEditDialog({
 											onMinChange={updateYAxisMin}
 											onMaxChange={updateYAxisMax}
 										/>
-									</div>
+									) : (
+										<div className='grid grid-cols-[1fr_1fr] gap-3 items-end'>
+											<MinMaxFields
+												minId='chart-y-axis-min'
+												maxId='chart-y-axis-max'
+												minValue={yAxisMinText}
+												maxValue={yAxisMaxText}
+												onMinChange={updateYAxisMin}
+												onMaxChange={updateYAxisMax}
+											/>
+										</div>
+									)}
 								</div>
 							)}
 
@@ -793,7 +831,7 @@ function AxisFields({
 	return (
 		<div className={`grid gap-3 items-end ${showRange ? 'grid-cols-[2fr_1fr_1fr]' : 'grid-cols-1'}`}>
 			<div className='grid gap-1'>
-				<span className='text-xs text-muted-foreground'>{name} axis</span>
+				<span className='text-xs text-muted-foreground'>{name}</span>
 				<Input
 					className='h-8 bg-panel'
 					placeholder={labelPlaceholder}

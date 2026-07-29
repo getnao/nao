@@ -758,6 +758,7 @@ function ChartSlide({ chart }: { chart: AutomationFeedChart }) {
 				chartType={chart.config.chart_type}
 				xAxisKey={chart.config.x_axis_key}
 				xAxisType={xAxisType}
+				xAxisLabel={chart.config.x_axis_label}
 				series={chart.config.series}
 				title={chart.config.title}
 				yAxisMin={chart.config.y_axis_min}

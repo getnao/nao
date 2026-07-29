@@ -73,6 +73,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 				chartType={chart.chartType as displayChart.ChartType}
 				xAxisKey={chart.xAxisKey}
 				xAxisType={xAxisType}
+				xAxisLabel={chart.xAxisLabel}
 				series={chart.series}
 				title={chart.title}
 				yAxisMin={chart.yAxisMin}
@@ -122,6 +123,7 @@ export function StoryChartEmbedShell({
 			chart_type: chart.chartType as displayChart.ChartType,
 			x_axis_key: chart.xAxisKey,
 			x_axis_type: (chart.xAxisType || null) as displayChart.XAxisType | null,
+			x_axis_label: chart.xAxisLabel,
 			series: chart.series.map((s) => ({
 				data_key: s.data_key,
 				color: s.color || undefined,

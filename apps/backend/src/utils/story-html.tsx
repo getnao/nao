@@ -414,6 +414,7 @@ function toChartConfig(chart: ParsedChartBlock) {
 		chart_type: chart.chartType as displayChart.ChartType,
 		x_axis_key: chart.xAxisKey,
 		x_axis_type: chart.xAxisType as displayChart.XAxisType | null,
+		x_axis_label: chart.xAxisLabel,
 		series: chart.series,
 		y_axis_min: chart.yAxisMin,
 		y_axis_max: chart.yAxisMax,
