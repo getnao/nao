@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+from cyclopts import Parameter
 
 from nao_core.commands.test.case import TestCase as NaoTestCase
 from nao_core.commands.test.client import (
@@ -268,8 +269,12 @@ def test_filter_test_cases_by_name_without_tests_dir_unchanged():
     assert filtered[0].name == "users"
 
 
-def run_test_command(monkeypatch, tmp_path, config, **flags) -> list[dict]:
-    """Run the `nao test` command against stubbed collaborators and report what it ran."""
+def run_test_command(monkeypatch, tmp_path, config, *, outcomes=None, threads=None, **flags) -> list[dict]:
+    """Run the `nao test` command against stubbed collaborators and report what it ran.
+
+    ``outcomes`` is an optional dict mapping ``(case_name, model_str) -> bool`` controlling
+    the pass/fail result for that run; anything not in the map defaults to passed.
+    """
     cases = [
         NaoTestCase(name="orders", prompt="p1", file_path=tmp_path / "orders.yml", sql="select 1"),
         NaoTestCase(name="users", prompt="p2", file_path=tmp_path / "users.yml", sql="select 1"),
@@ -278,14 +283,22 @@ def run_test_command(monkeypatch, tmp_path, config, **flags) -> list[dict]:
 
     def run(test_case, model, **kwargs):
         runs.append({"case": test_case, "model": model, **kwargs})
-        return NaoTestRunResult(name=test_case.name, model=str(model), passed=True, message="match")
+        passed = True
+        if outcomes is not None:
+            passed = outcomes.get((test_case.name, str(model)), True)
+        return NaoTestRunResult(
+            name=test_case.name, model=str(model), passed=passed, message="match" if passed else "values differ"
+        )
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(test_runner_module, "NaoConfig", Mock(try_load=Mock(return_value=config)))
     monkeypatch.setattr(test_runner_module, "discover_tests", lambda project_path: cases)
     monkeypatch.setattr(test_runner_module, "run_test", run)
     monkeypatch.setattr(test_runner_module, "save_results", lambda results, output_dir: output_dir / "results.json")
+    monkeypatch.setattr(test_runner_module, "sys", Mock(exit=Mock()))
     monkeypatch.setattr(test_runner_module.UI, "table", lambda *args, **kwargs: None)
+    if threads is not None:
+        flags["threads"] = threads
 
     test_runner_module.test(**flags)
 
@@ -318,3 +331,73 @@ def test_model_flag_overrides_the_test_block(tmp_path, monkeypatch):
 
     assert [run["case"].name for run in runs] == ["users"]
     assert [str(run["model"]) for run in runs] == ["openai:gpt-4.1"]
+
+
+def test_fail_fast_stops_after_first_failure_in_serial_mode(tmp_path, monkeypatch):
+    config = NaoConfig(project_name="test-project", test=TestConfig(models=["openai:gpt-4.1"]))
+    outcomes = {("orders", "openai:gpt-4.1"): False}
+
+    runs = run_test_command(
+        monkeypatch,
+        tmp_path,
+        config,
+        outcomes=outcomes,
+        fail_fast=True,
+    )
+
+    assert [run["case"].name for run in runs] == ["orders"]
+
+
+def test_fail_fast_runs_everything_when_all_pass(tmp_path, monkeypatch):
+    config = NaoConfig(project_name="test-project", test=TestConfig(models=["openai:gpt-4.1"]))
+
+    runs = run_test_command(monkeypatch, tmp_path, config, fail_fast=True)
+
+    assert [run["case"].name for run in runs] == ["orders", "users"]
+
+
+def test_fail_fast_alias_x_is_declared():
+    """The --fail-fast flag should also be reachable as the short alias -x (pytest convention)."""
+    import typing
+
+    from nao_core.commands.test.runner import test as test_command
+
+    hint = typing.get_type_hints(test_command, include_extras=True)["fail_fast"]
+    parameter = next(meta for meta in hint.__metadata__ if isinstance(meta, Parameter))
+    assert "-x" in parameter.name
+    assert "--fail-fast" in parameter.name
+
+
+def test_no_fail_fast_runs_everything_even_after_a_failure(tmp_path, monkeypatch):
+    config = NaoConfig(project_name="test-project", test=TestConfig(models=["openai:gpt-4.1"]))
+    outcomes = {("orders", "openai:gpt-4.1"): False}
+
+    runs = run_test_command(
+        monkeypatch,
+        tmp_path,
+        config,
+        outcomes=outcomes,
+    )
+
+    assert [run["case"].name for run in runs] == ["orders", "users"]
+
+
+def test_fail_fast_from_test_block_default(tmp_path, monkeypatch):
+    config = NaoConfig(project_name="test-project", test=TestConfig(models=["openai:gpt-4.1"], fail_fast=True))
+    outcomes = {("orders", "openai:gpt-4.1"): False}
+
+    runs = run_test_command(monkeypatch, tmp_path, config, outcomes=outcomes)
+
+    assert [run["case"].name for run in runs] == ["orders"]
+
+
+def test_fail_fast_flag_overrides_test_block_default(tmp_path, monkeypatch):
+    config = NaoConfig(
+        project_name="test-project",
+        test=TestConfig(models=["openai:gpt-4.1"], fail_fast=True),
+    )
+    outcomes = {("orders", "openai:gpt-4.1"): False}
+
+    runs = run_test_command(monkeypatch, tmp_path, config, outcomes=outcomes, fail_fast=False)
+
+    assert [run["case"].name for run in runs] == ["orders", "users"]
