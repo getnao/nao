@@ -18,7 +18,7 @@ export interface ContextPushResult {
 export async function pushContextExplorerBranch(context: ContextExplorerGitContext): Promise<ContextPushResult> {
 	const { repo, context: availableContext } = await requireContextExplorerGit(context);
 	const provider = availableContext.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
-	const branches = getContextBranches(repo);
+	const branches = await getContextBranches(repo, context);
 	const currentBranch = branches.currentBranch;
 	if (!currentBranch || currentBranch === branches.defaultBranch) {
 		throw nothingToPushError();

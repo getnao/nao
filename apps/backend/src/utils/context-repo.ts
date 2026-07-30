@@ -47,17 +47,19 @@ const prefixCache = new Map<string, { commit: string; prefix: string }>();
 export async function resolveContextRepo(
 	projectId: string,
 	projectFolder: string,
+	userId: string,
 	configOverride?: ContextRepoConfig | null,
 ): Promise<UnresolvedContextRepo | null> {
 	const connection = await resolveContextRepository(projectId, projectFolder, configOverride);
 	if (!connection) {
 		return null;
 	}
+	const worktreeRoot = getContextWorktreePath(projectId, projectFolder, userId);
 	return {
 		provider: connection.provider,
 		repoFullName: connection.repoFullName,
-		branch: readCurrentBranch(getContextWorktreePath(projectId, projectFolder)),
-		worktreeRoot: getContextWorktreePath(projectId, projectFolder),
+		branch: readCurrentBranch(worktreeRoot),
+		worktreeRoot,
 		projectPrefix: null,
 	};
 }
@@ -120,11 +122,17 @@ export function invalidateContextProjectPrefix(worktreeRoot: string): void {
 	prefixCache.delete(worktreeRoot);
 }
 
-export function getContextWorktreePath(projectId: string, projectFolder: string): string {
+export function getContextWorktreePath(projectId: string, projectFolder: string, userId: string): string {
 	if (!/^[A-Za-z0-9_-]+$/.test(projectId) || projectId === '.' || projectId === '..') {
 		throw new Error('Invalid project id for context worktree path.');
 	}
-	return path.join(path.dirname(path.resolve(projectFolder)), '.nao', 'worktrees', projectId);
+	return path.join(
+		path.dirname(path.resolve(projectFolder)),
+		'.nao',
+		'worktrees',
+		projectId,
+		sanitizeWorktreeUserId(userId),
+	);
 }
 
 export function toContextRepoState(repo: ContextRepo | null): ContextRepoState | null {
@@ -247,6 +255,19 @@ function toRepositoryConnection(
 function readCurrentBranch(worktreeRoot: string): string | null {
 	const branch = tryRunGit(worktreeRoot, ['rev-parse', '--abbrev-ref', 'HEAD'])?.toString().trim();
 	return branch && branch !== 'HEAD' ? branch : null;
+}
+
+function sanitizeWorktreeUserId(userId: string): string {
+	const value = userId.trim();
+	if (!value) {
+		throw new Error('Invalid user id for context worktree path.');
+	}
+	return Buffer.from(value).reduce<string>((result, byte) => {
+		const character = String.fromCharCode(byte);
+		return /[A-Za-z0-9_-]/.test(character)
+			? `${result}${character}`
+			: `${result}%${byte.toString(16).toUpperCase().padStart(2, '0')}`;
+	}, '');
 }
 
 function parseNullDelimited(output: Buffer): string[] {

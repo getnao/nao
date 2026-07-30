@@ -135,11 +135,6 @@ export type ContextChangedFile = {
 	kind: 'modified' | 'untracked' | 'deleted';
 	additions: number | null;
 	deletions: number | null;
-	lastEditor?: {
-		id: string;
-		name: string;
-	};
-	lastEditedAt?: number;
 };
 
 export type ContextBranchInfo = {

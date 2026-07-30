@@ -50,9 +50,7 @@ export interface FileTreeResponse {
 }
 
 export interface ContextExplorerFileAccess {
-	projectId: string;
 	projectFolder: string;
-	userId?: string;
 	git: ContextExplorerGitResolution;
 }
 
@@ -153,10 +151,6 @@ export async function writeFileContent(
 		throw toFileError(error, filePath);
 	}
 
-	if (access.userId) {
-		const { recordContextFileEdit } = await import('./context-file-edit.service');
-		await recordContextFileEdit(access.projectId, filePath, access.userId);
-	}
 	return { hash: hashContent(contentBuffer) };
 }
 

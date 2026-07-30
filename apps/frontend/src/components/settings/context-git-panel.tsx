@@ -22,7 +22,6 @@ import { Expandable } from '@/components/ui/expandable';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { useSidebarSectionOpen } from '@/hooks/use-sidebar-section-open';
-import { useSession } from '@/lib/auth-client';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -47,7 +46,6 @@ export function ContextGitPanel({
 }: ContextGitPanelProps) {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
-	const { data: session, isPending: isSessionPending } = useSession();
 	const { isOpen, setIsOpen } = useSidebarSectionOpen('context-explorer-git');
 	const [selectedPaths, setSelectedPaths] = useState<Set<string>>(() => new Set());
 	const [discardFile, setDiscardFile] = useState<ContextChangedFile | null>(null);
@@ -266,12 +264,9 @@ export function ContextGitPanel({
 	const isReviewBranch = currentBranch !== null && defaultBranch !== null && currentBranch !== defaultBranch;
 	const canPush = isReviewBranch && (unpushedCommitCount > 0 || (aheadCommitCount > 0 && openReviewRequest === null));
 	const reviewRequestUrl = openReviewRequest?.url ?? pushedReviewRequestUrl;
-	const otherEditors = getOtherEditorNames(changedFileList, session?.user?.id);
 	const discardDisabledReason = hasUnsavedFileChanges
 		? 'Save or discard the open file before discarding saved changes.'
-		: isSessionPending
-			? 'Waiting for your account details before discarding shared changes.'
-			: null;
+		: null;
 
 	return (
 		<div className='max-h-[65%] shrink-0 overflow-auto border-t'>
@@ -457,7 +452,7 @@ export function ContextGitPanel({
 			<ConfirmationDialog
 				open={discardFile !== null}
 				title={getSingleDiscardTitle(discardFile)}
-				description={getSingleDiscardDescription(discardFile, session?.user?.id)}
+				description='Are you sure you want to discard the uncommitted changes to this file?'
 				confirmLabel='Discard'
 				isPending={discardChange.isPending}
 				error={discardChange.error?.message}
@@ -476,7 +471,7 @@ export function ContextGitPanel({
 			<ConfirmationDialog
 				open={isDiscardAllOpen}
 				title='Discard all changes?'
-				description={getDiscardAllDescription(changedFileList.length, otherEditors)}
+				description={getDiscardAllDescription(changedFileList.length)}
 				confirmLabel='Discard all'
 				isPending={discardAllChanges.isPending}
 				error={discardAllChanges.error?.message}
@@ -848,50 +843,9 @@ function getSingleDiscardTitle(file: ContextChangedFile | null): string {
 	return `Discard ${fileName}?`;
 }
 
-function getSingleDiscardDescription(file: ContextChangedFile | null, currentUserId: string | undefined): string {
-	if (!file) {
-		return '';
-	}
-	const base = 'Are you sure you want to discard the uncommitted changes to this file?';
-	const editor = file.lastEditor;
-	if (editor && currentUserId && editor.id !== currentUserId) {
-		return `${base} They were last edited by ${editor.name}, not you.`;
-	}
-	return base;
-}
-
-function getDiscardAllDescription(changeCount: number, otherEditors: string[]): string {
+function getDiscardAllDescription(changeCount: number): string {
 	const fileCount = `${changeCount} ${changeCount === 1 ? 'file' : 'files'}`;
-	const base = `Are you sure you want to discard the uncommitted changes across ${fileCount}?`;
-	if (otherEditors.length === 0) {
-		return base;
-	}
-	return `${base} Some were last edited by ${formatNames(otherEditors)}, not you.`;
-}
-
-function getOtherEditorNames(files: ContextChangedFile[], currentUserId: string | undefined): string[] {
-	if (!currentUserId) {
-		return [];
-	}
-	return [
-		...new Set(
-			files
-				.map((file) => file.lastEditor)
-				.filter((editor) => editor && editor.id !== currentUserId)
-				.map((editor) => editor?.name)
-				.filter((name): name is string => name !== undefined),
-		),
-	];
-}
-
-function formatNames(names: string[]): string {
-	if (names.length === 1) {
-		return names[0];
-	}
-	if (names.length === 2) {
-		return `${names[0]} and ${names[1]}`;
-	}
-	return `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}`;
+	return `Are you sure you want to discard the uncommitted changes across ${fileCount}?`;
 }
 
 function getChangeDisplay(kind: ContextChangedFile['kind']) {

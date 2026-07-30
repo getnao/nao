@@ -387,6 +387,16 @@ export const listOrgProjectsWithAccess = async (orgId: string, userId: string): 
 	return rows;
 };
 
+export const listOrgProjectsForContextCleanup = async (
+	orgId: string,
+): Promise<Array<{ id: string; path: string | null }>> => {
+	return db
+		.select({ id: s.project.id, path: s.project.path })
+		.from(s.project)
+		.where(eq(s.project.orgId, orgId))
+		.execute();
+};
+
 export const updateOrgMemberRole = async (orgId: string, userId: string, role: OrgRole): Promise<void> => {
 	await db
 		.update(s.orgMember)

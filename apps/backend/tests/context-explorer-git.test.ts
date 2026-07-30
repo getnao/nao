@@ -11,14 +11,38 @@ vi.hoisted(() => {
 	process.env.NAO_DEFAULT_PROJECT_PATH = '';
 });
 
-const contextFileEditMocks = vi.hoisted(() => ({
-	addContextFileEditors: vi.fn(async (_projectId: string, files: unknown[]) => files),
-	clearAllContextFileEdits: vi.fn(),
-	clearContextFileEdits: vi.fn(),
-	recordContextFileEdit: vi.fn(),
-}));
+const branchOwnershipMocks = vi.hoisted(() => {
+	const owners = new Map<string, string>();
+	return {
+		owners,
+		claimContextBranch: vi.fn(async (projectId: string, branch: string, userId: string) => {
+			const key = `${projectId}:${branch}`;
+			if (owners.has(key)) {
+				return false;
+			}
+			owners.set(key, userId);
+			return true;
+		}),
+		releaseContextBranch: vi.fn(async (projectId: string, branch: string, userId: string) => {
+			const key = `${projectId}:${branch}`;
+			if (owners.get(key) === userId) {
+				owners.delete(key);
+			}
+		}),
+		getOwnedContextBranches: vi.fn(async (projectId: string, userId: string) => {
+			return new Set(
+				[...owners]
+					.filter(([key, owner]) => key.startsWith(`${projectId}:`) && owner === userId)
+					.map(([key]) => key.slice(projectId.length + 1)),
+			);
+		}),
+		isContextBranchOwnedByUser: vi.fn(async (projectId: string, branch: string, userId: string) => {
+			return owners.get(`${projectId}:${branch}`) === userId;
+		}),
+	};
+});
 
-vi.mock('../src/services/context-file-edit.service', () => contextFileEditMocks);
+vi.mock('../src/queries/context-branch-ownership.queries', () => branchOwnershipMocks);
 
 import { getFileTreeResponse, readFileContent, writeFileContent } from '../src/services/context-explorer.service';
 import type {
@@ -28,6 +52,7 @@ import type {
 import {
 	assertSafeDestructiveWorktreeCommand,
 	assertSafeDestructiveWorktreeTarget,
+	cleanupContextWorktree,
 	commitContextChanges,
 	createContextBranch,
 	createContextBranchAndCommit,
@@ -48,6 +73,7 @@ describe('context explorer worktrees', () => {
 		for (const root of temporaryRoots.splice(0)) {
 			fs.rmSync(root, { recursive: true, force: true });
 		}
+		branchOwnershipMocks.owners.clear();
 		vi.clearAllMocks();
 	});
 
@@ -60,10 +86,20 @@ describe('context explorer worktrees', () => {
 		const file = await readFileContent('/context.md', access);
 		await writeFileContent('/context.md', 'worktree edit\n', file.hash, access);
 
-		expect(repo.worktreeRoot).toBe(path.join(fixture.root, '.nao', 'worktrees', 'project-id'));
+		expect(repo.worktreeRoot).toBe(path.join(fixture.root, '.nao', 'worktrees', 'project-id', 'user-1'));
 		expect(file.content).toBe('repository content\n');
 		expect(fs.readFileSync(path.join(repo.worktreeRoot, 'context.md'), 'utf8')).toBe('worktree edit\n');
 		expectLiveUnchanged(fixture.live, before);
+	});
+
+	it('encodes unsafe user ids without escaping the project worktree directory', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const repo = await ensureContextWorktree({ ...fixture.context, userId: '../other/user' });
+		const projectWorktrees = path.join(fixture.root, '.nao', 'worktrees', 'project-id');
+
+		expect(path.dirname(repo.worktreeRoot)).toBe(projectWorktrees);
+		expect(path.basename(repo.worktreeRoot)).toBe('%2E%2E%2Fother%2Fuser');
+		expect(() => assertSafeDestructiveWorktreeTarget(repo.worktreeRoot, fixture.live)).not.toThrow();
 	});
 
 	it('uses git worktree add when the live folder is inside the connected clone', async () => {
@@ -77,6 +113,25 @@ describe('context explorer worktrees', () => {
 			'repository content\n',
 		);
 		expectLiveUnchanged(fixture.live, before);
+	});
+
+	it('isolates users in detached worktrees from the same local clone', async () => {
+		const fixture = createLocalCloneFixture(temporaryRoots);
+		const secondContext = { ...fixture.context, userId: 'user-2' };
+
+		const firstRepo = await ensureContextWorktree(fixture.context);
+		const secondRepo = await ensureContextWorktree(secondContext);
+		const firstAccess = await fileAccess(fixture.context);
+		const secondAccess = await fileAccess(secondContext);
+		const firstFile = await readFileContent('/context.md', firstAccess);
+		await writeFileContent('/context.md', 'first user edit\n', firstFile.hash, firstAccess);
+
+		expect(firstRepo.worktreeRoot).not.toBe(secondRepo.worktreeRoot);
+		expect(runGit(firstRepo.worktreeRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).toString().trim()).toBe('HEAD');
+		expect(runGit(secondRepo.worktreeRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).toString().trim()).toBe('HEAD');
+		expect((await getContextRepositoryStatus(fixture.context)).branches?.currentBranch).toBe('main');
+		expect((await getContextRepositoryStatus(secondContext)).branches?.currentBranch).toBe('main');
+		expect((await readFileContent('/context.md', secondAccess)).content).toBe('repository content\n');
 	});
 
 	it('uses the project Git remote when no repository setting exists', async () => {
@@ -124,6 +179,17 @@ describe('context explorer worktrees', () => {
 		);
 	});
 
+	it('removes a user worktree and prunes its Git registration', async () => {
+		const fixture = createLocalCloneFixture(temporaryRoots);
+		const repo = await ensureContextWorktree(fixture.context);
+		const repositoryRoot = runGit(fixture.live, ['rev-parse', '--show-toplevel']).toString().trim();
+
+		await cleanupContextWorktree(fixture.context.projectId, fixture.context.projectFolder, fixture.context.userId);
+
+		expect(fs.existsSync(repo.worktreeRoot)).toBe(false);
+		expect(runGit(repositoryRoot, ['worktree', 'list', '--porcelain']).toString()).not.toContain(repo.worktreeRoot);
+	});
+
 	it('creates a branch and commits selected dirty files while leaving others uncommitted', async () => {
 		const fixture = createFixture(temporaryRoots, {
 			'nao_config.yaml': 'name: test\n',
@@ -146,9 +212,13 @@ describe('context explorer worktrees', () => {
 		expect(result.branch).toMatch(/^nao\/context-edits-[a-z0-9]+$/);
 		expect(result.baseUsed).toBe('origin/main');
 		expect(result.usedFallbackBase).toBe(false);
+		expect(branchOwnershipMocks.claimContextBranch).toHaveBeenCalledWith('project-id', result.branch, 'user-1');
 		expect(changed).toEqual([{ path: '/other.md', kind: 'modified', additions: 1, deletions: 1 }]);
 		expect(
-			runGit(path.join(fixture.root, '.nao', 'worktrees', 'project-id'), ['show', 'HEAD:context.md']).toString(),
+			runGit(path.join(fixture.root, '.nao', 'worktrees', 'project-id', 'user-1'), [
+				'show',
+				'HEAD:context.md',
+			]).toString(),
 		).toBe('selected\n');
 		expectLiveUnchanged(fixture.live, before);
 	});
@@ -204,16 +274,30 @@ describe('context explorer worktrees', () => {
 		expectLiveUnchanged(fixture.live, before);
 	});
 
-	it('omits the symbolic remote HEAD from branch names', async () => {
+	it('shows only the default branch and branches owned by the current user', async () => {
 		const fixture = createFixture(temporaryRoots);
 		const repo = await ensureContextWorktree(fixture.context);
-		runGit(repo.worktreeRoot, ['update-ref', 'refs/remotes/origin/review', 'HEAD']);
+		runGit(repo.worktreeRoot, ['update-ref', 'refs/remotes/origin/owned', 'HEAD']);
+		runGit(repo.worktreeRoot, ['update-ref', 'refs/remotes/origin/colleague', 'HEAD']);
 		runGit(repo.worktreeRoot, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
+		branchOwnershipMocks.owners.set('project-id:owned', 'user-1');
+		branchOwnershipMocks.owners.set('project-id:colleague', 'user-2');
 
 		const status = await getContextRepositoryStatus(fixture.context);
 
-		expect(status.branches?.branches).toEqual(['main', 'review']);
+		expect(status.branches?.branches).toEqual(['main', 'owned']);
 		expect(status.branches?.branches).not.toContain('origin');
+	});
+
+	it('rejects switching to a branch owned by another user', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const repo = await ensureContextWorktree(fixture.context);
+		runGit(repo.worktreeRoot, ['branch', 'colleague']);
+		branchOwnershipMocks.owners.set('project-id:colleague', 'user-2');
+
+		await expect(switchContextBranch(fixture.context, 'colleague')).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
 	});
 
 	it('returns an unavailable status when git is unavailable or no repository is connected', async () => {
@@ -312,6 +396,7 @@ describe('context explorer worktrees', () => {
 		const before = snapshot(fixture.live);
 		const repo = await ensureContextWorktree(fixture.context);
 		runGit(repo.worktreeRoot, ['branch', 'review']);
+		branchOwnershipMocks.owners.set('project-id:review', 'user-1');
 		await switchContextBranch(fixture.context, 'review');
 		const access = await fileAccess(fixture.context);
 		const first = await readFileContent('/context.md', access);
@@ -431,28 +516,6 @@ describe('context explorer worktrees', () => {
 		expectLiveUnchanged(fixture.live, before);
 	});
 
-	it('records editors and clears attribution after commits and discards', async () => {
-		const fixture = createFixture(temporaryRoots);
-		fixture.context.includeEditorMetadata = true;
-		const access = { ...(await fileAccess(fixture.context)), userId: 'user-1' };
-		const original = await readFileContent('/context.md', access);
-		await writeFileContent('/context.md', 'commit edit\n', original.hash, access);
-
-		expect(contextFileEditMocks.recordContextFileEdit).toHaveBeenCalledWith('project-id', '/context.md', 'user-1');
-		await commitContextChanges(fixture.context, { paths: ['/context.md'], message: 'Commit edit' });
-		expect(contextFileEditMocks.clearContextFileEdits).toHaveBeenCalledWith('project-id', ['/context.md']);
-
-		const committed = await readFileContent('/context.md', access);
-		await writeFileContent('/context.md', 'discard edit\n', committed.hash, access);
-		await discardContextFileChange(fixture.context, '/context.md');
-		expect(contextFileEditMocks.clearContextFileEdits).toHaveBeenLastCalledWith('project-id', ['/context.md']);
-
-		const restored = await readFileContent('/context.md', access);
-		await writeFileContent('/context.md', 'discard all edit\n', restored.hash, access);
-		await discardAllContextChanges(fixture.context);
-		expect(contextFileEditMocks.clearAllContextFileEdits).toHaveBeenCalledWith('project-id');
-	});
-
 	it('degrades missing and ambiguous projects to read-only live browsing', async () => {
 		for (const files of [
 			{ 'context.md': 'repository\n' },
@@ -500,15 +563,16 @@ describe('context explorer worktrees', () => {
 		);
 		expect(() => assertSafeDestructiveWorktreeTarget(live, live)).toThrow();
 		expect(() => assertSafeDestructiveWorktreeTarget(path.join(root, '.nao', 'worktrees'), live)).toThrow();
+		expect(() => assertSafeDestructiveWorktreeTarget(path.join(root, '.nao', 'worktrees', 'safe'), live)).toThrow();
 		expect(() =>
-			assertSafeDestructiveWorktreeTarget(path.join(root, '.nao', 'worktrees', 'safe'), live),
+			assertSafeDestructiveWorktreeTarget(path.join(root, '.nao', 'worktrees', 'safe', 'user'), live),
 		).not.toThrow();
 	});
 
 	it('allows only worktree management commands outside the asserted worktree', () => {
 		const root = temporaryRoot(temporaryRoots);
 		const live = path.join(root, 'live');
-		const worktree = path.join(root, '.nao', 'worktrees', 'safe');
+		const worktree = path.join(root, '.nao', 'worktrees', 'safe', 'user');
 
 		expect(() => assertSafeDestructiveWorktreeCommand(worktree, root, ['restore', '--worktree', '.'])).toThrow(
 			'outside the context worktree',
@@ -545,6 +609,7 @@ describe('context explorer worktrees', () => {
 		for (const operation of operations) {
 			await expect(operation()).rejects.toThrow('Invalid project id');
 		}
+		await expect(ensureContextWorktree({ ...baseContext(live), userId: '' })).rejects.toThrow('Invalid user id');
 		expect(snapshot(repository)).toEqual(before);
 	});
 
@@ -640,7 +705,6 @@ function createLocalCloneFixture(temporaryRoots: string[]): Fixture {
 
 async function fileAccess(context: ContextExplorerGitContext) {
 	return {
-		projectId: context.projectId,
 		projectFolder: context.projectFolder,
 		git: await resolveContextExplorerGit(context),
 	};
@@ -656,10 +720,10 @@ function baseContext(
 	return {
 		projectId: 'project-id',
 		projectFolder,
+		userId: 'user-1',
 		token: 'test-token',
 		configOverride,
 		integrationAvailableOverride: true,
-		includeEditorMetadata: false,
 	};
 }
 

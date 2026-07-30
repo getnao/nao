@@ -73,14 +73,13 @@ describe('context explorer worktree writes', () => {
 		const context: ContextExplorerGitContext = {
 			projectId: 'project-id',
 			projectFolder: live,
+			userId: 'user-1',
 			token: 'token',
 			configOverride: { provider: 'github', repoFullName: 'nao/context' },
 			integrationAvailableOverride: true,
 			providerOverride: provider(bare),
-			includeEditorMetadata: false,
 		};
 		access = {
-			projectId: context.projectId,
 			projectFolder: live,
 			git: await resolveContextExplorerGit(context),
 		};

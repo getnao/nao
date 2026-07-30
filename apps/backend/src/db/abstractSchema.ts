@@ -99,8 +99,8 @@ export type NewContextRecommendationRun = typeof sqliteSchema.contextRecommendat
 export type DBContextRecommendationConfig = typeof sqliteSchema.contextRecommendationConfig.$inferSelect;
 export type NewContextRecommendationConfig = typeof sqliteSchema.contextRecommendationConfig.$inferInsert;
 
-export type DBContextFileEdit = typeof sqliteSchema.contextFileEdit.$inferSelect;
-export type NewContextFileEdit = typeof sqliteSchema.contextFileEdit.$inferInsert;
+export type DBContextBranchOwnership = typeof sqliteSchema.contextBranchOwnership.$inferSelect;
+export type NewContextBranchOwnership = typeof sqliteSchema.contextBranchOwnership.$inferInsert;
 
 export type DBContextRecommendation = typeof sqliteSchema.contextRecommendation.$inferSelect;
 export type NewContextRecommendation = typeof sqliteSchema.contextRecommendation.$inferInsert;

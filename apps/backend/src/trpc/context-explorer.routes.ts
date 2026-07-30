@@ -56,6 +56,7 @@ export const contextExplorerRoutes = {
 			const context: ContextExplorerGitContext = {
 				projectId: ctx.project.id,
 				projectFolder,
+				userId: ctx.user.id,
 				token: await userQueries.getGithubToken(ctx.user.id),
 			};
 			if (!context.token) {
@@ -167,9 +168,7 @@ async function createFileAccess(
 ): Promise<ContextExplorerFileAccess> {
 	const context = await createGitContext(projectId, projectPath, userId);
 	return {
-		projectId,
 		projectFolder: context.projectFolder,
-		userId,
 		git: await resolveContextExplorerGit(context),
 	};
 }
@@ -184,6 +183,7 @@ async function createGitContext(
 	return {
 		projectId,
 		projectFolder,
+		userId,
 		token:
 			repository?.provider === 'gitlab'
 				? await userQueries.getGitlabToken(userId)
