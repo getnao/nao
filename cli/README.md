@@ -240,6 +240,31 @@ Options:
 - `--port` / `-p`: Port to run the server on (default: `8765`)
 - `--no-open`: Don't automatically open the browser
 
+### Diff two result files
+
+```bash
+nao test diff tests/outputs/results_before.json tests/outputs/results_after.json
+```
+
+Compares two `tests/outputs/results_*.json` files and prints a table of every `(test, model)` pair with its before/after status, plus a one-line summary (`X regressions, Y fixes, Z unchanged, ...`). Pairs only in the first file are reported as `removed`; only in the second as `added`. The command exits `1` if any pair is a regression, so it doubles as a CI guard.
+
+Options:
+
+- `--model <provider:model>`: only show rows for one model
+- `--test <name>`: only show rows for one test name
+- `--quiet` / `-q`: only print the summary line
+- `--no-fail`: print the report but always exit `0` (useful in scripts that just want the report)
+
+Examples:
+
+```bash
+nao test diff results_before.json results_after.json
+nao test diff a.json b.json --model openai:gpt-4.1
+nao test diff a.json b.json --test orders_count
+nao test diff a.json b.json --quiet
+nao test diff a.json b.json --no-fail
+```
+
 ### BigQuery service account permissions
 
 When you connect BigQuery during `nao init`, the service account used by `credentials_path`/ADC must be able to list datasets and run read-only queries to generate docs. Grant the account:
