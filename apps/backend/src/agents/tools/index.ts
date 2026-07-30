@@ -14,6 +14,7 @@ import executeSql from './execute-sql';
 import grep from './grep';
 import list from './list';
 import { createMcpCallTool } from './mcp-call';
+import { createMcpConnectTool } from './mcp-connect';
 import read from './read';
 import readQueryResult from './read-query-result';
 import search from './search';
@@ -73,7 +74,10 @@ export const getTools = (
 			? configuredServers.size > 0
 			: options.mcpServers.some((server) => configuredServers.has(server)));
 	const mcpTools: Record<string, Tool> = includeMcp
-		? { mcp_call: createMcpCallTool(options.mcpServers ?? null) }
+		? {
+				mcp_call: createMcpCallTool(options.mcpServers ?? null),
+				mcp_connect: createMcpConnectTool(options.mcpServers ?? null),
+			}
 		: {};
 
 	const {
