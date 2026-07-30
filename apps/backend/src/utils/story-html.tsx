@@ -151,7 +151,7 @@ async function prefetchCustomBoundaries(
 	const result: InlinedBoundaries = new Map();
 
 	const customKeysNeeded = new Set<string>();
-	const boundaryUrlsNeeded = new Set<string>();
+	const boundaryUrlsNeeded = new Map<string, string[] | null>();
 
 	const collect = (segs: Segment[]) => {
 		for (const seg of segs) {
@@ -162,7 +162,10 @@ async function prefetchCustomBoundaries(
 					customKeysNeeded.add(seg.map.regionBoundaries);
 				}
 				if (seg.map.boundariesUrl) {
-					boundaryUrlsNeeded.add(seg.map.boundariesUrl);
+					boundaryUrlsNeeded.set(
+						seg.map.boundariesUrl,
+						seg.map.boundariesJoinProperty ? [seg.map.boundariesJoinProperty] : null,
+					);
 				}
 				const isPointMap = seg.map.mapType === 'points' || seg.map.mapType === 'scatter_bubble';
 				if (staticMaps && isPointMap) {
@@ -181,31 +184,33 @@ async function prefetchCustomBoundaries(
 			if (!resolved) {
 				return;
 			}
-			const cached = getCachedBoundary(resolved.url);
-			if (cached) {
-				result.set(key, { geojson: cached, joinProps: resolved.joinProps });
-				return;
-			}
-			try {
-				const text = await safeFetch(resolved.url);
-				const { geojson } = parseAndValidateGeoJson(text);
-				setCachedBoundary(resolved.url, geojson);
-				result.set(key, { geojson, joinProps: resolved.joinProps });
-			} catch {
-				// silently skip — the map will render without region fills
-			}
-		}),
-		...[...boundaryUrlsNeeded].map(async (url) => {
+			const isCustom = customBoundaries.some((set) => set.key === key);
+			const url = isCustom ? resolved.url : builtinBoundaryUrl(key) || resolved.url;
 			const cached = getCachedBoundary(url);
 			if (cached) {
-				result.set(url, { geojson: cached, joinProps: null });
+				result.set(key, { geojson: cached, joinProps: resolved.joinProps });
 				return;
 			}
 			try {
 				const text = await safeFetch(url);
 				const { geojson } = parseAndValidateGeoJson(text);
 				setCachedBoundary(url, geojson);
-				result.set(url, { geojson, joinProps: null });
+				result.set(key, { geojson, joinProps: resolved.joinProps });
+			} catch {
+				// silently skip — the map will render without region fills
+			}
+		}),
+		...[...boundaryUrlsNeeded].map(async ([url, joinProps]) => {
+			const cached = getCachedBoundary(url);
+			if (cached) {
+				result.set(url, { geojson: cached, joinProps });
+				return;
+			}
+			try {
+				const text = await safeFetch(url);
+				const { geojson } = parseAndValidateGeoJson(text);
+				setCachedBoundary(url, geojson);
+				result.set(url, { geojson, joinProps });
 			} catch {
 				// silently skip — the map will render without region fills
 			}

@@ -1,4 +1,4 @@
-import { type MapGeometry, MERCATOR_MAX_LATITUDE } from '@nao/shared';
+import { computeMapBounds, type MapGeometry, MERCATOR_MAX_LATITUDE } from '@nao/shared';
 
 export const VIEW_WIDTH = 852;
 export const VIEW_HEIGHT = 360;
@@ -64,16 +64,26 @@ export function buildPointsSvg(args: {
 	points: { lng: number; lat: number; radius: number; tip?: MapTip }[];
 	backdrop?: MapGeometry[];
 }): StaticPointsSvg | null {
-	const focus = args.points.map((point) => project(point.lng, point.lat));
-	if (focus.length === 0) {
+	if (args.points.length === 0) {
 		return null;
 	}
+	const unwrapLng = longitudeUnwrapper(args.points.map((point) => point.lng));
+	const focus = args.points.map((point) => project(unwrapLng(point.lng), point.lat));
 	const fit = computeFit(focus);
 	const circles = args.points.map((point) => {
-		const [cx, cy] = toSvg(project(point.lng, point.lat), fit);
+		const [cx, cy] = toSvg(project(unwrapLng(point.lng), point.lat), fit);
 		return { cx: round(cx), cy: round(cy), r: round(Math.max(1, point.radius)), tip: point.tip };
 	});
 	return { viewBox: viewBox(), backdrop: backdropPaths(args.backdrop, fit), circles };
+}
+
+function longitudeUnwrapper(longitudes: number[]): (lng: number) => number {
+	const bounds = computeMapBounds(longitudes.map((longitude) => ({ latitude: 0, longitude, row: {} })));
+	if (!bounds || bounds.east <= 180) {
+		return (lng) => lng;
+	}
+	const { west } = bounds;
+	return (lng) => (lng < west ? lng + 360 : lng);
 }
 
 export interface Fit {
@@ -135,6 +145,9 @@ function ringsOf(geometry: MapGeometry): Point[][] {
 	}
 	if (geometry.type === 'MultiPolygon') {
 		return (geometry.coordinates as Point[][][]).flat();
+	}
+	if (geometry.type === 'GeometryCollection') {
+		return geometry.geometries.flatMap((nested) => ringsOf(nested));
 	}
 	return [];
 }

@@ -25,7 +25,8 @@ export const MAP_STYLE_OPTIONS: MapStyleOption[] = [
 	{ id: 'dark', label: 'Dark', url: `${OPENFREEMAP_STYLES}/dark`, dark: true },
 ];
 
-const storage = createLocalStorage<MapStyleId>('nao:map-style', 'auto');
+const MAP_STYLE_STORAGE_KEY = 'nao:map-style';
+const storage = createLocalStorage<MapStyleId>(MAP_STYLE_STORAGE_KEY, 'auto');
 const listeners = new Set<() => void>();
 let current = normalize(storage.get());
 
@@ -38,6 +39,22 @@ function subscribe(listener: () => void) {
 	return () => {
 		listeners.delete(listener);
 	};
+}
+
+if (typeof window !== 'undefined') {
+	window.addEventListener('storage', (event) => {
+		if (event.key !== null && event.key !== MAP_STYLE_STORAGE_KEY) {
+			return;
+		}
+		const next = normalize(storage.get());
+		if (next === current) {
+			return;
+		}
+		current = next;
+		for (const listener of listeners) {
+			listener();
+		}
+	});
 }
 
 export function getMapStyle(): MapStyleId {

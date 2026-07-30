@@ -1,3 +1,4 @@
+import type { CustomBoundarySet } from '@nao/shared';
 import { DATE_FORMAT_PRESETS } from '@nao/shared/date';
 import {
 	type LlmProvider,
@@ -54,6 +55,18 @@ import {
 const isoDateString = z.string().refine(isValidIsoDateString, {
 	message: 'Must be a valid YYYY-MM-DD date',
 });
+
+async function validateBoundarySource(url: string): Promise<number> {
+	try {
+		const text = await safeFetch(url);
+		return parseAndValidateGeoJson(text).featureCount;
+	} catch (error) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: `Could not load boundaries from URL: ${error instanceof Error ? error.message : String(error)}`,
+		});
+	}
+}
 
 export const projectRoutes = {
 	listForCurrentUser: protectedProcedure.query(async ({ ctx }) => {
@@ -970,7 +983,15 @@ export const projectRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			return projectQueries.addCustomBoundary(ctx.project.id, input);
+			const featureCount = await validateBoundarySource(input.url);
+			return projectQueries.addCustomBoundary(ctx.project.id, {
+				key: input.key,
+				label: input.label,
+				url: input.url,
+				joinProperty: input.joinProperty,
+				regionKeyHint: input.regionKeyHint,
+				featureCount,
+			});
 		}),
 
 	updateMapBoundary: adminProtectedProcedure
@@ -981,7 +1002,7 @@ export const projectRoutes = {
 					.string()
 					.trim()
 					.min(1)
-					.max(100)
+					.max(64)
 					.regex(/^[a-z0-9_]+$/)
 					.optional(),
 				label: z.string().trim().min(1).max(255).optional(),
@@ -992,9 +1013,24 @@ export const projectRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			const { key, newKey, ...rest } = input;
-			const patch = newKey ? { ...rest, key: newKey } : rest;
-			return projectQueries.updateCustomBoundary(ctx.project.id, key, patch);
+			const patch: Partial<CustomBoundarySet> = {};
+			if (input.newKey) {
+				patch.key = input.newKey;
+			}
+			if (input.label !== undefined) {
+				patch.label = input.label;
+			}
+			if (input.joinProperty !== undefined) {
+				patch.joinProperty = input.joinProperty;
+			}
+			if (input.regionKeyHint !== undefined) {
+				patch.regionKeyHint = input.regionKeyHint;
+			}
+			if (input.url !== undefined) {
+				patch.url = input.url;
+				patch.featureCount = await validateBoundarySource(input.url);
+			}
+			return projectQueries.updateCustomBoundary(ctx.project.id, input.key, patch);
 		}),
 
 	deleteMapBoundary: adminProtectedProcedure

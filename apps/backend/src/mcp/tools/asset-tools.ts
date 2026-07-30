@@ -243,6 +243,7 @@ function registerDisplayMap(server: McpServer, ctx: McpContext, customBoundaries
 			const result = await buildMapEmbedFromArtifact(mapInput as displayMap.Input, ctx, {
 				chatId: validatedChatId ?? null,
 				callLogId,
+				customBoundaries,
 			});
 
 			if (!result) {

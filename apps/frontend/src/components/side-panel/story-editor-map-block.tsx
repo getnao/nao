@@ -72,7 +72,8 @@ export const MapBlock = Node.create({
 						return false;
 					}
 					const encoded = element.getAttribute('data-raw') || '';
-					return { rawTag: decodeFromAttr(encoded) };
+					const rawTag = encoded ? decodeFromAttr(encoded) : element.getAttribute('rawTag') || '';
+					return { rawTag };
 				},
 			},
 		];

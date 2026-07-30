@@ -1,3 +1,5 @@
+import type { CustomBoundarySet } from '@nao/shared';
+
 import type { QueryDataMap } from '../../utils/story-download';
 import { generateStoryHtml } from '../../utils/story-html';
 import { backfillMissingQueryDataForSandbox } from '../../utils/story-query-data';
@@ -90,13 +92,16 @@ export async function buildMapSandboxHtml(params: {
 	columns: string[];
 	data: Record<string, unknown>[];
 	naoChatUrl: string | null;
+	customBoundaries?: CustomBoundarySet[];
 }): Promise<string | null> {
 	const code = `# ${params.title}\n\n${params.mapBlock}`;
 	const queryData: QueryDataMap = {
 		[params.queryId]: { columns: params.columns, data: params.data },
 	};
 	const inner = wrapStoryBodyForMcpHeightMeasure(
-		await generateStoryHtml({ title: params.title, code }, queryData, null, undefined, { staticMaps: true }),
+		await generateStoryHtml({ title: params.title, code }, queryData, null, params.customBoundaries, {
+			staticMaps: true,
+		}),
 	);
 	const withEmbedStyle = injectMcpEmbedRootStyles(inner);
 

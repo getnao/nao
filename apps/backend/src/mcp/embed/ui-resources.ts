@@ -285,7 +285,7 @@ body.is-loading{min-height:160px}
 		try {
 			u = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
 		} catch (err) {
-			setStatus('Chart preview could not be loaded.', true);
+			setStatus('Preview could not be loaded.', true);
 			return;
 		}
 		setSrc(u);
@@ -591,7 +591,7 @@ body.is-loading{min-height:160px}
 		if (typeof globalThis.App === 'function' && typeof globalThis.PostMessageTransport === 'function') {
 			mcpApp = new globalThis.App(
 				{ name: 'nao-mcp-app', version: '0.1.0' },
-				{ availableDisplayModes: ['inline'] },
+				{ availableDisplayModes: ['inline'], autoResize: false },
 			);
 			mcpApp.addEventListener('toolresult', handleHostToolResult);
 			mcpApp.ontoolcancelled = function () {

@@ -79,11 +79,18 @@ export function registerAgentToolAsMcp<TAgentInput, TOutput, TMcpInput = TAgentI
 }
 
 function validateAgentToolInput(schema: unknown, input: unknown): string | null {
-	const result = (schema as ZodTypeAny).safeParse(input);
+	if (!isZodSchema(schema)) {
+		return null;
+	}
+	const result = schema.safeParse(input);
 	if (result.success) {
 		return null;
 	}
 	return result.error.issues[0]?.message ?? 'Invalid tool input.';
+}
+
+function isZodSchema(schema: unknown): schema is ZodTypeAny {
+	return typeof schema === 'object' && schema !== null && typeof (schema as ZodTypeAny).safeParse === 'function';
 }
 
 function buildMcpHandler(

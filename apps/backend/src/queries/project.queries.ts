@@ -327,16 +327,27 @@ export const deleteCustomBoundary = (projectId: string, key: string): Promise<Cu
 const mutateCustomBoundaries = async (
 	projectId: string,
 	transform: (current: CustomBoundarySet[]) => CustomBoundarySet[],
-): Promise<CustomBoundarySet[]> => {
-	const current = await getCustomBoundaries(projectId);
-	const next = transform(current);
-	await db
-		.update(s.project)
-		.set({ mapSettings: { customBoundaries: next } })
-		.where(eq(s.project.id, projectId))
-		.execute();
-	return next;
-};
+): Promise<CustomBoundarySet[]> =>
+	db.transaction(async (tx) => {
+		const base = tx
+			.select({ mapSettings: s.project.mapSettings })
+			.from(s.project)
+			.where(eq(s.project.id, projectId));
+		const [row] = await lockForUpdate(base).execute();
+		const settings = row?.mapSettings ?? {};
+		const next = transform(settings.customBoundaries ?? []);
+		await tx
+			.update(s.project)
+			.set({ mapSettings: { ...settings, customBoundaries: next } })
+			.where(eq(s.project.id, projectId))
+			.execute();
+		return next;
+	});
+
+const lockForUpdate = <Query extends { execute(): unknown }>(query: Query): Query =>
+	dbConfig.dialect === Dialect.Postgres ? (query as Query & Lockable<Query>).for('update') : query;
+
+type Lockable<Query> = { for(strength: 'update'): Query };
 
 export const getEnvVars = async (projectId: string): Promise<Record<string, string>> => {
 	const project = await getProjectById(projectId);

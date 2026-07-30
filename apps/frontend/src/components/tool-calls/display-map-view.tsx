@@ -27,6 +27,7 @@ import {
 } from '@nao/shared';
 import type {
 	ChoroplethEntry,
+	CustomBoundarySet,
 	MapFeatureCollection as FeatureCollection,
 	MapGeometry,
 	MapPoint,
@@ -58,9 +59,19 @@ interface MapViewProps {
 	rows: Record<string, unknown>[];
 	config: displayMap.Input;
 	ref?: Ref<MapViewHandle>;
+	/** Boundary sets injected by unauthenticated hosts (e.g. public embeds) instead of the protected project query. */
+	customBoundaries?: CustomBoundarySet[];
+	boundaryProjectId?: string | null;
 }
 
-export default function MapView({ points, config, rows, ref }: MapViewProps) {
+export default function MapView({
+	points,
+	config,
+	rows,
+	ref,
+	customBoundaries: injectedBoundaries,
+	boundaryProjectId,
+}: MapViewProps) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const mapRef = useRef<maplibregl.Map | null>(null);
 	const configRef = useRef(config);
@@ -77,7 +88,11 @@ export default function MapView({ points, config, rows, ref }: MapViewProps) {
 	const isChoropleth = config.map_type === 'choropleth';
 	const isBubble = config.map_type === 'scatter_bubble';
 
-	const { data: customBoundaries = [] } = useQuery(trpc.project.getMapBoundaries.queryOptions());
+	const { data: fetchedBoundaries = [] } = useQuery({
+		...trpc.project.getMapBoundaries.queryOptions(),
+		enabled: injectedBoundaries === undefined,
+	});
+	const customBoundaries = injectedBoundaries ?? fetchedBoundaries;
 	const resolvedBoundary = useMemo(() => {
 		if (!isChoropleth) {
 			return null;
@@ -93,7 +108,7 @@ export default function MapView({ points, config, rows, ref }: MapViewProps) {
 		const key = config.region_boundaries;
 		const custom = customBoundaries.find((s) => s.key === key);
 		if (custom) {
-			const projectId = getActiveProjectId();
+			const projectId = boundaryProjectId ?? getActiveProjectId();
 			const url = projectId ? `/api/map-boundaries/${projectId}/${key}` : custom.url;
 			return { url, joinProps: [custom.joinProperty] };
 		}
@@ -112,6 +127,7 @@ export default function MapView({ points, config, rows, ref }: MapViewProps) {
 		config.boundaries_join_property,
 		config.region_boundaries,
 		customBoundaries,
+		boundaryProjectId,
 	]);
 	const boundaries = useBoundaries(resolvedBoundary?.url);
 	const choroplethEntries = useMemo(

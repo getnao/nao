@@ -1,9 +1,9 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
-import { getMcpChartEmbedById } from '../queries/mcp-chart-embed.queries';
-import { getMcpMapEmbedById } from '../queries/mcp-map-embed.queries';
+import { getMcpChartEmbedById, getMcpMapEmbedById } from '../queries/mcp-embed.queries';
 import { getMcpQueryData } from '../queries/mcp-query-data.queries';
+import { getCustomBoundaries } from '../queries/project.queries';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { embedStoryOpenPath, loadEmbedStoryContent } from '../utils/embed-story';
 import { assertProjectMcpEnabled, verifyEmbedToken } from '../utils/embed-token';
@@ -111,11 +111,19 @@ export const embedRoutes = router({
 			typeof embed.sourceChatId === 'string' && embed.sourceChatId.trim() ? embed.sourceChatId.trim() : null;
 		const sourceChatId = dbChat ?? rowChat;
 
+		const regionKey = embed.mapConfig.region_boundaries;
+		const customBoundaries =
+			embed.mapConfig.map_type === 'choropleth' && regionKey
+				? (await getCustomBoundaries(embed.projectId)).filter((set) => set.key === regionKey)
+				: [];
+
 		return {
 			data: queryData.data,
 			columns: queryData.columns,
 			sourceChatId,
+			projectId: embed.projectId,
 			mapConfig: embed.mapConfig,
+			customBoundaries,
 		};
 	}),
 

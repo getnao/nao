@@ -121,6 +121,7 @@ function ChartTooltipContent({
 	nameKey,
 	labelKey,
 	percent = false,
+	valueFormatter,
 	isDualAxis = false,
 	hideTotal = false,
 }: React.ComponentProps<typeof RechartsPrimitive.Tooltip> &
@@ -253,9 +254,11 @@ function ChartTooltipContent({
 												{typeof item.value === 'number'
 													? percent
 														? formatPercentShare(item.value, shareBase)
-														: formatChartValue(item.value, itemConfig?.valueFormat, {
-																compact: true,
-															})
+														: valueFormatter
+															? valueFormatter(item.value)
+															: formatChartValue(item.value, itemConfig?.valueFormat, {
+																	compact: true,
+																})
 													: item.value.toLocaleString(CHART_NUMBER_LOCALE)}
 											</span>
 										)}
@@ -270,7 +273,11 @@ function ChartTooltipContent({
 						<div className='flex flex-1 justify-between leading-none gap-2 items-center'>
 							<span className='text-muted-foreground font-medium'>Total</span>
 							<span className='text-foreground font-mono font-medium tabular-nums'>
-								{percent ? '100%' : formatChartValue(seriesTotal, firstItemFormat, { compact: true })}
+								{percent
+									? '100%'
+									: valueFormatter
+										? valueFormatter(seriesTotal)
+										: formatChartValue(seriesTotal, firstItemFormat, { compact: true })}
 							</span>
 						</div>
 					</div>

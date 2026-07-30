@@ -60,7 +60,16 @@ function MapEmbedPage() {
 			typeof map.sourceChatId === 'string' && map.sourceChatId.trim()
 				? `${window.location.origin}/${map.sourceChatId.trim()}`
 				: undefined;
-		inner = <MapAppView config={map.mapConfig} data={map.data} columns={map.columns} naoUrl={naoUrl} />;
+		inner = (
+			<MapAppView
+				config={map.mapConfig}
+				data={map.data}
+				columns={map.columns}
+				naoUrl={naoUrl}
+				projectId={map.projectId}
+				customBoundaries={map.customBoundaries}
+			/>
+		);
 	}
 
 	return (

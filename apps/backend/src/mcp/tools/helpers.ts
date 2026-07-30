@@ -1,11 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
-import { buildStoryChartBlock, buildStoryMapBlock } from '@nao/shared';
+import { buildStoryChartBlock, buildStoryMapBlock, type CustomBoundarySet } from '@nao/shared';
 import type { displayChart, displayMap } from '@nao/shared/tools';
 
 import * as chatQueries from '../../queries/chat.queries';
-import { insertMcpChartEmbed } from '../../queries/mcp-chart-embed.queries';
-import { insertMcpMapEmbed } from '../../queries/mcp-map-embed.queries';
+import { insertMcpChartEmbed, insertMcpMapEmbed } from '../../queries/mcp-embed.queries';
 import { getMcpQueryData, upsertMcpQueryData } from '../../queries/mcp-query-data.queries';
 import type { UserStoryRow } from '../../queries/story.queries';
 import * as storyQueries from '../../queries/story.queries';
@@ -249,7 +248,7 @@ type MapKeyError = { invalidKeys: string[]; availableColumns: string[] };
 export async function buildMapEmbedFromArtifact(
 	input: displayMap.Input,
 	ctx: McpContext,
-	opts: { chatId: string | null; callLogId: string },
+	opts: { chatId: string | null; callLogId: string; customBoundaries?: CustomBoundarySet[] },
 ): Promise<
 	| { payload: MapToolPayload; sandboxMapHtml: string | null }
 	| { keyError: MapKeyError }
@@ -311,6 +310,7 @@ export async function buildMapEmbedFromArtifact(
 			columns: queryData.columns,
 			data: queryData.data,
 			naoChatUrl,
+			customBoundaries: opts.customBoundaries,
 		});
 	} catch (sandboxErr) {
 		logger.warn(`MCP map sandbox HTML failed: ${String(sandboxErr)}`, { source: 'tool' });
