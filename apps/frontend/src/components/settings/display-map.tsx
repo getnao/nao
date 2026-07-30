@@ -182,6 +182,19 @@ function BoundarySetItem({
 	onDelete: () => void;
 	onSaved: () => void;
 }) {
+	if (!isAdmin) {
+		return (
+			<div className='flex items-center gap-3 min-w-0 px-1 py-1.5'>
+				<span className='min-w-0'>
+					<span className='block text-sm font-medium truncate'>{set.label}</span>
+					{set.featureCount != null && (
+						<span className='block text-xs text-muted-foreground'>{set.featureCount} features</span>
+					)}
+				</span>
+			</div>
+		);
+	}
+
 	return (
 		<div className='rounded-md'>
 			<div className='flex items-center justify-between gap-2 pr-1'>
@@ -200,16 +213,14 @@ function BoundarySetItem({
 						)}
 					</span>
 				</button>
-				{isAdmin && (
-					<Button
-						variant='ghost'
-						size='icon'
-						className='size-7 shrink-0 text-destructive hover:text-destructive'
-						onClick={onDelete}
-					>
-						<Trash2 className='size-3.5' />
-					</Button>
-				)}
+				<Button
+					variant='ghost'
+					size='icon'
+					className='size-7 shrink-0 text-destructive hover:text-destructive'
+					onClick={onDelete}
+				>
+					<Trash2 className='size-3.5' />
+				</Button>
 			</div>
 			{isExpanded && <BoundaryEditPanel editTarget={set} onClose={onToggle} onSaved={onSaved} />}
 		</div>
