@@ -151,7 +151,7 @@ async function prefetchCustomBoundaries(
 	const result: InlinedBoundaries = new Map();
 
 	const customKeysNeeded = new Set<string>();
-	const boundaryUrlsNeeded = new Map<string, string[] | null>();
+	const boundaryUrlsNeeded = new Set<string>();
 
 	const collect = (segs: Segment[]) => {
 		for (const seg of segs) {
@@ -162,10 +162,7 @@ async function prefetchCustomBoundaries(
 					customKeysNeeded.add(seg.map.regionBoundaries);
 				}
 				if (seg.map.boundariesUrl) {
-					boundaryUrlsNeeded.set(
-						seg.map.boundariesUrl,
-						seg.map.boundariesJoinProperty ? [seg.map.boundariesJoinProperty] : null,
-					);
+					boundaryUrlsNeeded.add(seg.map.boundariesUrl);
 				}
 				const isPointMap = seg.map.mapType === 'points' || seg.map.mapType === 'scatter_bubble';
 				if (staticMaps && isPointMap) {
@@ -200,17 +197,19 @@ async function prefetchCustomBoundaries(
 				// silently skip — the map will render without region fills
 			}
 		}),
-		...[...boundaryUrlsNeeded].map(async ([url, joinProps]) => {
+		// Boundary GeoJSON depends only on the URL, so it is shared across maps. The join property is
+		// map-specific, so it is resolved per map from its own config — never cached against the URL.
+		...[...boundaryUrlsNeeded].map(async (url) => {
 			const cached = getCachedBoundary(url);
 			if (cached) {
-				result.set(url, { geojson: cached, joinProps });
+				result.set(url, { geojson: cached, joinProps: null });
 				return;
 			}
 			try {
 				const text = await safeFetch(url);
 				const { geojson } = parseAndValidateGeoJson(text);
 				setCachedBoundary(url, geojson);
-				result.set(url, { geojson, joinProps });
+				result.set(url, { geojson, joinProps: null });
 			} catch {
 				// silently skip — the map will render without region fills
 			}
@@ -1088,12 +1087,11 @@ function buildChoroplethPayload(
 	if (config.geometry_key) {
 		// geometry comes from query rows — no boundary URL needed
 	} else if (config.boundaries_url) {
+		joinProps = config.boundaries_join_property ? [config.boundaries_join_property] : null;
 		if (inlinedByUrl) {
 			inlineGeoJson = inlinedByUrl.geojson;
-			joinProps = inlinedByUrl.joinProps;
 		} else {
 			boundaryUrl = config.boundaries_url;
-			joinProps = config.boundaries_join_property ? [config.boundaries_join_property] : null;
 		}
 	} else if (regionBoundaries) {
 		if (inlinedByKey) {
