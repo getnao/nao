@@ -12,6 +12,7 @@ import { createOpenRouter, LanguageModelV3 } from '@openrouter/ai-sdk-provider';
 import { createOllama } from 'ai-sdk-ollama';
 
 import type {
+	ActiveEffort,
 	LlmProvidersType,
 	ModelCapabilities,
 	ModelInferenceSettings,
@@ -20,7 +21,6 @@ import type {
 	ReasoningEffort,
 } from '../types/llm';
 import {
-	type ActiveEffort,
 	DEFAULT_TEMPERATURE_MAX,
 	EFFORT_OPTIONS,
 	EFFORT_TO_ANTHROPIC,
@@ -358,7 +358,9 @@ function resolveThinking(
 	switch (provider) {
 		case 'openai':
 		case 'azure':
-			return resolveEffortThinking(effort, (e) => ({ reasoningEffort: EFFORT_TO_OPENAI[e] }));
+			return resolveEffortThinking(effort, (e) => ({
+				reasoningEffort: (capabilities?.effortMap ?? EFFORT_TO_OPENAI)[e],
+			}));
 		case 'openrouter':
 			return resolveEffortThinking(effort, (e) => ({
 				reasoning: { enabled: true, effort: EFFORT_TO_OPENAI[e] },

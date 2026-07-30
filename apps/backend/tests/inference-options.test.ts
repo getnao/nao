@@ -113,6 +113,16 @@ describe('Anthropic (live-validated Claude rules)', () => {
 		expect(options).toHaveProperty('contextManagement');
 	});
 
+	it('applies the adaptive Claude rules to Opus 5 and reports its 1M window', () => {
+		const { model, providerOptions, contextWindow } = createProviderModel('anthropic', SETTINGS, 'claude-opus-5', {
+			reasoningEffort: 'max',
+		});
+
+		expect(model.modelId).toBe('claude-opus-5');
+		expect(contextWindow).toBe(1_000_000);
+		expect(providerOptions.anthropic).toMatchObject({ thinking: { type: 'adaptive' }, effort: 'max' });
+	});
+
 	it('clamps a stale minimal effort to low (not in the Claude vocabulary)', () => {
 		const { options } = resolve('anthropic', 'claude-sonnet-4-6', { reasoningEffort: 'minimal' });
 
@@ -138,6 +148,20 @@ describe('OpenAI / Azure', () => {
 		const { options } = resolve('openai', 'gpt-6-codex-max', { reasoningEffort: 'max' });
 
 		expect(options.reasoningEffort).toBe('xhigh');
+	});
+
+	it('sends max as its own level on GPT-5.6, which ranks it above xhigh', () => {
+		const sol = resolve('openai', 'gpt-5.6-sol', { reasoningEffort: 'max' });
+		const luna = resolve('openai', 'gpt-5.6-luna', { reasoningEffort: 'high' });
+
+		expect(sol.options.reasoningEffort).toBe('max');
+		expect(luna.options.reasoningEffort).toBe('high');
+	});
+
+	it('snaps a stale minimal effort to low on GPT-5.6, which dropped minimal', () => {
+		const { options } = resolve('openai', 'gpt-5.6-terra', { reasoningEffort: 'minimal' });
+
+		expect(options.reasoningEffort).toBe('low');
 	});
 
 	it('skips sampling params when the model does not support sampling', () => {

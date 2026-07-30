@@ -39,6 +39,9 @@ export type CustomModelMetadata = z.infer<typeof customModelMetadataSchema>;
 export const reasoningEffortSchema = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'max']);
 export type ReasoningEffort = z.infer<typeof reasoningEffortSchema>;
 
+/** Every effort level that is actually sent to a provider (`off` means "leave it to the model"). */
+export type ActiveEffort = Exclude<ReasoningEffort, 'off'>;
+
 export const serviceTierSchema = z.enum(['auto', 'default', 'standard', 'flex', 'priority', 'reserved']);
 export type ServiceTier = z.infer<typeof serviceTierSchema>;
 
@@ -127,6 +130,8 @@ export type ModelCapabilities = {
 	topK: boolean;
 	maxOutputTokens: boolean;
 	effortOptions?: ReasoningEffort[];
+	/** Effort vocabulary of this model, when it differs from its provider's default translation. */
+	effortMap?: Record<ActiveEffort, string>;
 	temperatureMax?: number;
 	extraParams?: ExtraParamKey[];
 	serviceTierOptions?: ServiceTier[];

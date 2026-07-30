@@ -195,6 +195,14 @@ describe('getModelParameterSpec', () => {
 		});
 	});
 
+	it('offers the wider GPT-5.6 effort scale, without minimal', () => {
+		const controls = getModelParameterSpec('openai', 'gpt-5.6-sol');
+
+		expect(controlByKey(controls, 'reasoningEffort')).toMatchObject({
+			options: ['off', 'low', 'medium', 'high', 'max'],
+		});
+	});
+
 	it('exposes the full effort surface for custom OpenAI models', () => {
 		const controls = getModelParameterSpec('openai', 'gpt-6-codex-max');
 

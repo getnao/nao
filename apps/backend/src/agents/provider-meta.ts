@@ -1,6 +1,7 @@
 import type { LlmProvider } from '@nao/shared/types';
 
 import {
+	type ActiveEffort,
 	type ExtraParamKey,
 	mediaResolutionSchema,
 	type ModelCapabilities,
@@ -22,8 +23,8 @@ const GEMINI_PRO_EFFORTS: ReasoningEffort[] = ['off', 'low', 'medium', 'high'];
 const GEMINI_FLASH_EFFORTS: ReasoningEffort[] = ['off', 'minimal', 'low', 'medium', 'high'];
 /** Custom/unlisted Gemini models: only low/high are accepted by every thinking-level model. */
 const GEMINI_CUSTOM_EFFORTS: ReasoningEffort[] = ['off', 'low', 'high'];
-
-export type ActiveEffort = Exclude<ReasoningEffort, 'off'>;
+/** GPT-5.6 dropped `minimal` and split the top of the scale, so `max` is a level above `xhigh`. */
+const OPENAI_5_6_EFFORTS: ReasoningEffort[] = ['off', 'low', 'medium', 'high', 'max'];
 
 export const EFFORT_TO_OPENAI: Record<ActiveEffort, string> = {
 	minimal: 'minimal',
@@ -32,6 +33,8 @@ export const EFFORT_TO_OPENAI: Record<ActiveEffort, string> = {
 	high: 'high',
 	max: 'xhigh',
 };
+
+export const EFFORT_TO_OPENAI_5_6: Record<ActiveEffort, string> = { ...EFFORT_TO_OPENAI, minimal: 'low', max: 'max' };
 
 export const EFFORT_TO_ANTHROPIC: Record<ActiveEffort, string> = {
 	minimal: 'low',
@@ -124,6 +127,12 @@ const OPENAI_REASONING: ModelCapabilities = {
 const OPENAI_REASONING_CUSTOM: ModelCapabilities = {
 	...OPENAI_REASONING,
 	effortOptions: undefined,
+};
+/** GPT-5.6 (Sol/Terra/Luna): same surface as GPT-5.x, on the wider none…max effort scale. */
+const OPENAI_5_6_REASONING: ModelCapabilities = {
+	...OPENAI_REASONING,
+	effortOptions: OPENAI_5_6_EFFORTS,
+	effortMap: EFFORT_TO_OPENAI_5_6,
 };
 /**
  * Custom Azure deployments: user-named, so nothing reveals whether they host a reasoning or a
@@ -255,6 +264,13 @@ export const PROVIDER_META: ProviderMetaMap = {
 				capabilities: ANTHROPIC_ADAPTIVE,
 			},
 			{
+				id: 'claude-opus-5',
+				name: 'Claude Opus 5',
+				contextWindow: 1_000_000,
+				costPerM: { inputNoCache: 5, inputCacheRead: 0.5, inputCacheWrite: 6.25, output: 25 },
+				capabilities: ANTHROPIC_ADAPTIVE,
+			},
+			{
 				id: 'claude-opus-4-8',
 				name: 'Claude Opus 4.8',
 				contextWindow: 200_000,
@@ -313,6 +329,28 @@ export const PROVIDER_META: ProviderMetaMap = {
 		extractorModelId: 'gpt-4.1-mini',
 		summaryModelId: 'gpt-4.1-mini',
 		models: [
+			{
+				id: 'gpt-5.6-sol',
+				name: 'GPT 5.6 Sol',
+				contextWindow: 1_050_000,
+				// GPT-5.6 is the first family to bill cache writes, at 1.25x the uncached input rate.
+				costPerM: { inputNoCache: 5, inputCacheRead: 0.5, inputCacheWrite: 6.25, output: 30 },
+				capabilities: OPENAI_5_6_REASONING,
+			},
+			{
+				id: 'gpt-5.6-terra',
+				name: 'GPT 5.6 Terra',
+				contextWindow: 1_050_000,
+				costPerM: { inputNoCache: 2.5, inputCacheRead: 0.25, inputCacheWrite: 3.125, output: 15 },
+				capabilities: OPENAI_5_6_REASONING,
+			},
+			{
+				id: 'gpt-5.6-luna',
+				name: 'GPT 5.6 Luna',
+				contextWindow: 1_050_000,
+				costPerM: { inputNoCache: 1, inputCacheRead: 0.1, inputCacheWrite: 1.25, output: 6 },
+				capabilities: OPENAI_5_6_REASONING,
+			},
 			{
 				id: 'gpt-5.5',
 				name: 'GPT 5.5',
