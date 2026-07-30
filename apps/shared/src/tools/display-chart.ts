@@ -142,7 +142,7 @@ export const ColumnConditionalFormatsSchema = z
 	.record(z.string(), ConditionalFormatRuleSchema)
 	.describe('Map of column name to the conditional-formatting rule applied to that column.');
 
-const ChartInputObjectSchema = z.object({
+export const ChartInputObjectSchema = z.object({
 	query_id: z.string().describe("The id of a previous `execute_sql` tool call's output to get data from."),
 	chart_type: ChartTypeSchema.describe('Built-in chart type or an available project custom chart type.'),
 	x_axis_key: z.string().describe('Column name for X-axis/category labels.'),

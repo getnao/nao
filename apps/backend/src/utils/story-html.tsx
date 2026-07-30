@@ -17,11 +17,14 @@ import {
 	defaultColorFor,
 	formatChartValue,
 	formatCompactNumber,
+	indexBoundaries,
 	labelize,
 	MAP_BOUNDARY_URLS,
+	type MapFeatureCollection,
 	type MapGeometry,
 	type MapPoint,
 	MAX_MAP_POINTS,
+	normalizeRegionId,
 	type NumericDomain,
 	numericDomain,
 	parseNumericValue,
@@ -49,7 +52,20 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { renderChartToSvg } from '../components/generate-chart';
 import { getCachedBoundary, setCachedBoundary } from './map-boundary-cache';
 import { parseAndValidateGeoJson, safeFetch } from './safe-fetch';
+import { type Basemap, basemapByteBudgetForCount, buildBasemapTiles } from './static-map-basemap';
+import {
+	buildChoroplethSvg,
+	buildPointsSvg,
+	collectPoints,
+	computeFit,
+	type Fit,
+	type MapTip,
+	project,
+	simplifyGeometry,
+} from './static-map-svg';
 import type { QueryDataMap, StoryInput } from './story-download';
+
+const WORLD_BACKDROP_KEY = 'world_countries';
 
 const MAX_TABLE_ROWS = 10;
 
@@ -64,32 +80,60 @@ const MAPLIBRE_CSS_URL = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist
 const MAP_STYLE_URL = process.env.NAO_STORY_MAP_STYLE_URL || 'https://tiles.openfreemap.org/styles/positron';
 const MAP_HEIGHT = 360;
 
+// Static (sandbox) maps enhance the inline SVG with Leaflet — a DOM/raster tile map that needs no
+// WebGL or web-workers, so it renders where MapLibre is blocked. Raster tiles (OpenFreeMap is vector-only).
+const LEAFLET_VERSION = '1.9.4';
+const LEAFLET_JS_URL = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leaflet.js`;
+const LEAFLET_CSS_URL = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leaflet.css`;
+const RASTER_TILE_URL =
+	process.env.NAO_STORY_MAP_RASTER_URL || 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+const RASTER_TILE_ATTRIBUTION = process.env.NAO_STORY_MAP_RASTER_ATTRIBUTION || '&copy; OpenStreetMap &copy; CARTO';
+const RASTER_TILE_SUBDOMAINS = process.env.NAO_STORY_MAP_RASTER_SUBDOMAINS || 'abcd';
+
 type InlinedBoundaries = Map<string, { geojson: unknown; joinProps: string[] | null }>;
+type Basemaps = Map<string, Basemap>;
 
 const DateFormatContext = createContext<DateFormatSettings>({ ...DEFAULT_DATE_FORMAT_SETTINGS });
 const InlinedBoundariesContext = createContext<InlinedBoundaries>(new Map());
+const BasemapContext = createContext<Basemaps>(new Map());
+
+/** When true, maps render as inline SVG server-side instead of client-side MapLibre — required for sandboxed embeds that block WebGL/web-workers. */
+const StaticMapsContext = createContext<boolean>(false);
 
 export async function generateStoryHtml(
 	story: StoryInput,
 	queryData: QueryDataMap | null,
 	dateFormat?: DateFormatSettings | null,
 	customBoundaries?: CustomBoundarySet[],
+	options?: { staticMaps?: boolean },
 ): Promise<string> {
 	const resolvedDateFormat = dateFormat ?? { ...DEFAULT_DATE_FORMAT_SETTINGS };
+	const staticMaps = options?.staticMaps ?? false;
 	const flattened = flattenStoryTabs(story.code);
 	const segments = splitCodeIntoSegments(flattened);
 	const hasMap = segmentsIncludeMap(segments);
-	const inlinedBoundaries = await prefetchCustomBoundaries(segments, customBoundaries ?? []);
+	const inlinedBoundaries = await prefetchCustomBoundaries(segments, customBoundaries ?? [], staticMaps);
+	const basemaps = staticMaps
+		? await prefetchBasemaps(segments, queryData, inlinedBoundaries)
+		: new Map<string, Basemap>();
 	const markup = renderToStaticMarkup(
 		<DateFormatContext.Provider value={resolvedDateFormat}>
-			<InlinedBoundariesContext.Provider value={inlinedBoundaries}>
-				<StoryDocument title={story.title} hasMap={hasMap}>
-					{segments.map((seg, i) => (
-						<StorySegment key={i} segment={seg} queryData={queryData} />
-					))}
-					<StoryFooter />
-				</StoryDocument>
-			</InlinedBoundariesContext.Provider>
+			<StaticMapsContext.Provider value={staticMaps}>
+				<InlinedBoundariesContext.Provider value={inlinedBoundaries}>
+					<BasemapContext.Provider value={basemaps}>
+						<StoryDocument
+							title={story.title}
+							loadMapLibre={hasMap && !staticMaps}
+							loadLeaflet={hasMap && staticMaps}
+						>
+							{segments.map((seg, i) => (
+								<StorySegment key={i} segment={seg} queryData={queryData} />
+							))}
+							<StoryFooter />
+						</StoryDocument>
+					</BasemapContext.Provider>
+				</InlinedBoundariesContext.Provider>
+			</StaticMapsContext.Provider>
 		</DateFormatContext.Provider>,
 	);
 	return `<!DOCTYPE html>\n${markup}`;
@@ -102,6 +146,7 @@ function segmentsIncludeMap(segments: Segment[]): boolean {
 async function prefetchCustomBoundaries(
 	segments: Segment[],
 	customBoundaries: CustomBoundarySet[],
+	staticMaps: boolean,
 ): Promise<InlinedBoundaries> {
 	const result: InlinedBoundaries = new Map();
 
@@ -111,11 +156,17 @@ async function prefetchCustomBoundaries(
 	const collect = (segs: Segment[]) => {
 		for (const seg of segs) {
 			if (seg.type === 'map') {
-				if (seg.map.regionBoundaries && customBoundaries.length > 0) {
+				// Static rendering resolves region geometry server-side, so it needs the built-in
+				// boundary sets inlined too — not just custom ones.
+				if (seg.map.regionBoundaries && (staticMaps || customBoundaries.length > 0)) {
 					customKeysNeeded.add(seg.map.regionBoundaries);
 				}
 				if (seg.map.boundariesUrl) {
 					boundaryUrlsNeeded.add(seg.map.boundariesUrl);
+				}
+				const isPointMap = seg.map.mapType === 'points' || seg.map.mapType === 'scatter_bubble';
+				if (staticMaps && isPointMap) {
+					customKeysNeeded.add(WORLD_BACKDROP_KEY);
 				}
 			} else if (seg.type === 'grid') {
 				collect(seg.children);
@@ -164,7 +215,84 @@ async function prefetchCustomBoundaries(
 	return result;
 }
 
-function StoryDocument({ title, hasMap, children }: { title: string; hasMap: boolean; children: React.ReactNode }) {
+async function prefetchBasemaps(
+	segments: Segment[],
+	queryData: QueryDataMap | null,
+	inlinedBoundaries: InlinedBoundaries,
+): Promise<Basemaps> {
+	const result: Basemaps = new Map();
+	const maps: ParsedMapBlock[] = [];
+	const collect = (segs: Segment[]) => {
+		for (const seg of segs) {
+			if (seg.type === 'map') {
+				maps.push(seg.map);
+			} else if (seg.type === 'grid') {
+				collect(seg.children);
+			}
+		}
+	};
+	collect(segments);
+
+	const byteBudget = basemapByteBudgetForCount(new Set(maps.map(mapBasemapKey)).size);
+	await Promise.all(
+		maps.map(async (map) => {
+			const key = mapBasemapKey(map);
+			if (result.has(key)) {
+				return;
+			}
+			const rows = queryData?.[map.queryId]?.data as Record<string, unknown>[] | undefined;
+			if (!rows?.length) {
+				return;
+			}
+			const fit = computeMapFit(map, rows, inlinedBoundaries);
+			if (!fit) {
+				return;
+			}
+			const basemap = await buildBasemapTiles(fit, byteBudget);
+			if (basemap) {
+				result.set(key, basemap);
+			}
+		}),
+	);
+	return result;
+}
+
+function mapBasemapKey(map: ParsedMapBlock): string {
+	return JSON.stringify(mapBlockToInput(map));
+}
+
+function computeMapFit(
+	map: ParsedMapBlock,
+	rows: Record<string, unknown>[],
+	inlinedBoundaries: InlinedBoundaries,
+): Fit | null {
+	const config = resolveMapConfig(rows, mapBlockToInput(map));
+	if (config.map_type === 'choropleth') {
+		const payload = buildChoroplethPayload(config, rows, { ...DEFAULT_DATE_FORMAT_SETTINGS }, inlinedBoundaries);
+		const geometries = resolveChoroplethGeometries(payload).map((region) => region.geometry);
+		if (geometries.length === 0) {
+			return null;
+		}
+		return computeFit(collectPoints(geometries));
+	}
+	const points = buildMapPoints(rows, config).slice(0, MAX_MAP_POINTS);
+	if (points.length === 0) {
+		return null;
+	}
+	return computeFit(points.map((point) => project(point.longitude, point.latitude)));
+}
+
+function StoryDocument({
+	title,
+	loadMapLibre,
+	loadLeaflet,
+	children,
+}: {
+	title: string;
+	loadMapLibre: boolean;
+	loadLeaflet: boolean;
+	children: React.ReactNode;
+}) {
 	const dateFormat = useContext(DateFormatContext);
 	const pattern = resolveDateFormatPattern(dateFormat);
 	const tooltipScript = renderTooltipScript(pattern);
@@ -174,14 +302,18 @@ function StoryDocument({ title, hasMap, children }: { title: string; hasMap: boo
 				<meta charSet='utf-8' />
 				<meta name='viewport' content='width=device-width,initial-scale=1' />
 				<title>{title}</title>
-				{hasMap && <link rel='stylesheet' href={MAPLIBRE_CSS_URL} />}
+				{loadMapLibre && <link rel='stylesheet' href={MAPLIBRE_CSS_URL} />}
+				{loadLeaflet && <link rel='stylesheet' href={LEAFLET_CSS_URL} />}
 				<style dangerouslySetInnerHTML={{ __html: DOCUMENT_STYLES }} />
 			</head>
 			<body>
 				{children}
 				<script dangerouslySetInnerHTML={{ __html: tooltipScript }} />
-				{hasMap && <script src={MAPLIBRE_JS_URL} />}
-				{hasMap && <script dangerouslySetInnerHTML={{ __html: renderMapScript() }} />}
+				{loadMapLibre && <script src={MAPLIBRE_JS_URL} />}
+				{loadMapLibre && <script dangerouslySetInnerHTML={{ __html: renderMapScript() }} />}
+				{loadLeaflet && <script dangerouslySetInnerHTML={{ __html: STATIC_SVG_SCRIPT_TEMPLATE }} />}
+				{loadLeaflet && <script src={LEAFLET_JS_URL} />}
+				{loadLeaflet && <script dangerouslySetInnerHTML={{ __html: renderStaticMapScript() }} />}
 			</body>
 		</html>
 	);
@@ -526,6 +658,8 @@ function PointMapBlock({
 		return <Placeholder label={map.title || 'Map'} message='Could not render map' />;
 	}
 
+	const inlinedBoundaries = useContext(InlinedBoundariesContext);
+	const staticMaps = useContext(StaticMapsContext);
 	const points = buildMapPoints(rows, config).slice(0, MAX_MAP_POINTS);
 	if (points.length === 0) {
 		return <Placeholder label={map.title || 'Map'} message='No valid coordinates' />;
@@ -540,7 +674,195 @@ function PointMapBlock({
 				maxRadius={config.radius ?? BUBBLE_MAX_RADIUS}
 			/>
 		) : null;
+	if (staticMaps) {
+		return <StaticPointMap map={map} payload={payload} inlinedBoundaries={inlinedBoundaries} legend={legend} />;
+	}
 	return <MapShell title={map.title} payload={payload} legend={legend} />;
+}
+
+function StaticPointMap({
+	map,
+	payload,
+	inlinedBoundaries,
+	legend,
+}: {
+	map: ParsedMapBlock;
+	payload: PointPayload;
+	inlinedBoundaries: InlinedBoundaries;
+	legend: React.ReactNode;
+}) {
+	const basemap = useContext(BasemapContext).get(mapBasemapKey(map));
+	const world = basemap
+		? undefined
+		: (inlinedBoundaries.get(WORLD_BACKDROP_KEY)?.geojson as MapFeatureCollection | undefined);
+	const backdrop = world?.features.map((feature) => feature.geometry);
+	const svg = buildPointsSvg({
+		points: payload.points.map((point) => ({
+			lng: point.lng,
+			lat: point.lat,
+			radius: point.radius ?? payload.radius,
+			tip: toMapTip(point.label, point.rows),
+		})),
+		backdrop,
+	});
+	if (!svg) {
+		return <Placeholder label={map.title || 'Map'} message='Could not render map' />;
+	}
+	const leafletPayload: LeafletPayload = {
+		type: 'points',
+		color: payload.color,
+		points: payload.points.map((point) => ({
+			lng: point.lng,
+			lat: point.lat,
+			radius: point.radius ?? payload.radius,
+			label: point.label,
+			rows: point.rows,
+		})),
+	};
+	return (
+		<StaticMapShell
+			title={map.title}
+			viewBox={svg.viewBox}
+			backdrop={svg.backdrop}
+			basemap={basemap}
+			legend={legend}
+			leafletPayload={leafletPayload}
+		>
+			{svg.circles.map((circle, index) => (
+				<circle
+					key={index}
+					cx={circle.cx}
+					cy={circle.cy}
+					r={circle.r}
+					fill={payload.color}
+					fillOpacity={0.9}
+					stroke='#ffffff'
+					strokeWidth={0.75}
+					data-tip={circle.tip ? JSON.stringify(circle.tip) : undefined}
+				/>
+			))}
+		</StaticMapShell>
+	);
+}
+
+interface LeafletChoroplethRegion {
+	geometry: MapGeometry;
+	fill: string;
+	label?: string;
+	rows?: [string, string][];
+}
+
+interface LeafletPoint {
+	lng: number;
+	lat: number;
+	radius: number;
+	label?: string;
+	rows?: [string, string][];
+}
+
+interface LeafletPayload {
+	type: displayMap.MapType;
+	color: string;
+	regions?: LeafletChoroplethRegion[];
+	points?: LeafletPoint[];
+}
+
+function toMapTip(label?: string, rows?: [string, string][]): MapTip | undefined {
+	if ((label == null || label === '') && (!rows || rows.length === 0)) {
+		return undefined;
+	}
+	return { ...(label != null && label !== '' && { label }), ...(rows && rows.length > 0 && { rows }) };
+}
+
+interface ResolvedChoroplethRegion {
+	geometry: MapGeometry;
+	source: ChoroplethPayload['regions'][number];
+}
+
+function resolveChoroplethGeometries(payload: ChoroplethPayload): ResolvedChoroplethRegion[] {
+	const geojson = payload.inlineGeoJson as MapFeatureCollection | undefined;
+	const index = geojson ? indexBoundaries(geojson, payload.joinProps ?? undefined) : null;
+	const resolved: ResolvedChoroplethRegion[] = [];
+	for (const region of payload.regions) {
+		const geometry =
+			region.geometry ?? (index && region.region ? index.get(normalizeRegionId(region.region) ?? '') : undefined);
+		if (!geometry) {
+			continue;
+		}
+		resolved.push({ geometry, source: region });
+	}
+	return resolved;
+}
+
+function StaticMapShell({
+	title,
+	viewBox,
+	backdrop,
+	basemap,
+	legend,
+	leafletPayload,
+	children,
+}: {
+	title?: string;
+	viewBox: string;
+	backdrop: string[];
+	basemap?: Basemap;
+	legend: React.ReactNode;
+	leafletPayload: LeafletPayload;
+	children: React.ReactNode;
+}) {
+	return (
+		<div style={{ margin: '16px 0' }}>
+			{title && <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>{title}</div>}
+			<div
+				className='nao-map'
+				data-leaflet={JSON.stringify(leafletPayload)}
+				style={{
+					position: 'relative',
+					width: '100%',
+					height: MAP_HEIGHT,
+					borderRadius: 8,
+					overflow: 'hidden',
+					border: '1px solid #e5e7eb',
+				}}
+			>
+				<div className='nao-map-fallback' style={{ width: '100%', height: '100%' }}>
+					<svg
+						viewBox={viewBox}
+						width='100%'
+						height='100%'
+						preserveAspectRatio='xMidYMid meet'
+						style={{ display: 'block', background: '#eef1f5' }}
+					>
+						{basemap?.tiles.map((tile, index) => (
+							<image
+								key={`tile-${index}`}
+								href={tile.href}
+								x={tile.x}
+								y={tile.y}
+								width={tile.size}
+								height={tile.size}
+								preserveAspectRatio='none'
+							/>
+						))}
+						{backdrop.map((path, index) => (
+							<path
+								key={index}
+								d={path}
+								fill='#d8dee8'
+								stroke='#eef1f5'
+								strokeWidth={0.5}
+								fillRule='evenodd'
+							/>
+						))}
+						{children}
+					</svg>
+					{basemap && <div className='nao-map-attribution'>{basemap.attribution}</div>}
+				</div>
+				{legend}
+			</div>
+		</div>
+	);
 }
 
 function ChoroplethMapBlock({
@@ -563,12 +885,70 @@ function ChoroplethMapBlock({
 	}
 
 	const inlinedBoundaries = useContext(InlinedBoundariesContext);
+	const staticMaps = useContext(StaticMapsContext);
 	const payload = buildChoroplethPayload(config, rows, dateFormat, inlinedBoundaries);
 	if (payload.regions.length === 0) {
 		return <Placeholder label={map.title || 'Map'} message='No regions to shade' />;
 	}
 	const legend = payload.domain ? <ChoroplethLegendOverlay color={payload.color} domain={payload.domain} /> : null;
+	if (staticMaps) {
+		return <StaticChoroplethMap map={map} payload={payload} legend={legend} />;
+	}
 	return <MapShell title={map.title} payload={payload} legend={legend} />;
+}
+
+function StaticChoroplethMap({
+	map,
+	payload,
+	legend,
+}: {
+	map: ParsedMapBlock;
+	payload: ChoroplethPayload;
+	legend: React.ReactNode;
+}) {
+	const basemap = useContext(BasemapContext).get(mapBasemapKey(map));
+	const resolved = resolveChoroplethGeometries(payload);
+	const regions = resolved.map(({ geometry, source }) => ({
+		geometry,
+		fill: source.dot ?? payload.color,
+		tip: toMapTip(source.label, source.rows),
+	}));
+	const leafletRegions: LeafletChoroplethRegion[] = resolved.map(({ geometry, source }) => ({
+		geometry: simplifyGeometry(geometry),
+		fill: source.dot ?? payload.color,
+		label: source.label,
+		rows: source.rows,
+	}));
+	const geojson = payload.inlineGeoJson as MapFeatureCollection | undefined;
+	const backdrop = basemap ? undefined : geojson?.features.map((feature) => feature.geometry);
+	const svg = buildChoroplethSvg({ regions, backdrop });
+	if (!svg) {
+		return <Placeholder label={map.title || 'Map'} message='Could not render map' />;
+	}
+	const leafletPayload: LeafletPayload = { type: 'choropleth', color: payload.color, regions: leafletRegions };
+	return (
+		<StaticMapShell
+			title={map.title}
+			viewBox={svg.viewBox}
+			backdrop={svg.backdrop}
+			basemap={basemap}
+			legend={legend}
+			leafletPayload={leafletPayload}
+		>
+			{svg.regions.map((region, index) => (
+				<path
+					key={index}
+					d={region.d}
+					fill={region.fill}
+					stroke='#ffffff'
+					strokeWidth={0.4}
+					strokeOpacity={0.6}
+					fillRule='evenodd'
+					data-tip={region.tip ? JSON.stringify(region.tip) : undefined}
+				/>
+			))}
+		</StaticMapShell>
+	);
 }
 
 function MapShell({
@@ -799,6 +1179,7 @@ const LEGEND_BOX_STYLE: React.CSSProperties = {
 	position: 'absolute',
 	bottom: 8,
 	left: 8,
+	zIndex: 1000,
 	background: 'rgba(255,255,255,0.9)',
 	border: '1px solid rgba(0,0,0,0.08)',
 	borderRadius: 6,
@@ -872,6 +1253,20 @@ blockquote{border-left:3px solid #d1d5db;padding-left:16px;margin:12px 0;color:#
 svg{max-width:100%;height:auto}
 img{max-width:100%;height:auto;border-radius:4px;margin:8px 0}
 .nao-map{position:relative}
+.nao-map-canvas{position:absolute;inset:0;z-index:0}
+.nao-map-fallback{position:absolute;inset:0}
+.nao-map-fallback svg{cursor:grab}
+.nao-map-fallback svg:active{cursor:grabbing}
+.nao-map-fallback [data-tip]{cursor:pointer}
+.nao-map-attribution{position:absolute;bottom:0;right:0;z-index:1000;background:rgba(255,255,255,0.7);color:#3a4756;font-size:9px;line-height:1.4;padding:1px 5px;border-top-left-radius:4px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+.nao-map-zoom{position:absolute;top:8px;right:8px;z-index:1100;display:flex;flex-direction:column;border-radius:6px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.2);background:#fff}
+.nao-map-zoom button{width:28px;height:28px;border:none;background:#fff;color:#333;font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+.nao-map-zoom button:hover{background:#f3f4f6}
+.nao-map-zoom button+button{border-top:1px solid #e5e7eb}
+.nao-map-svg-tip{position:absolute;top:0;left:0;pointer-events:none;z-index:1200;opacity:0;transition:opacity .12s}
+.nao-map-svg-tip.visible{opacity:1}
+.leaflet-tooltip.nao-map-ltip{background:transparent;border:none;box-shadow:none;padding:0;white-space:normal}
+.leaflet-tooltip.nao-map-ltip:before{display:none}
 .maplibregl-popup.map-tooltip{pointer-events:none}
 .maplibregl-popup.map-tooltip .maplibregl-popup-content{padding:0;background:transparent;box-shadow:none;border-radius:0}
 .maplibregl-popup.map-tooltip .maplibregl-popup-tip{display:none}
@@ -912,6 +1307,143 @@ function renderTooltipScript(datePattern: string): string {
 function renderMapScript(): string {
 	return MAP_INIT_SCRIPT_TEMPLATE.replace('__MAP_STYLE_URL__', JSON.stringify(MAP_STYLE_URL));
 }
+
+function renderStaticMapScript(): string {
+	return LEAFLET_MAP_SCRIPT_TEMPLATE.replace('__TILE_URL__', JSON.stringify(RASTER_TILE_URL))
+		.replace('__TILE_ATTRIBUTION__', JSON.stringify(RASTER_TILE_ATTRIBUTION))
+		.replace('__TILE_SUBDOMAINS__', JSON.stringify(RASTER_TILE_SUBDOMAINS));
+}
+
+/**
+ * Adds zoom (+/- buttons, drag-to-pan via the SVG viewBox) and hover tooltips to the inline SVG map.
+ * Pure inline DOM/JS with no external dependencies, so it works even in sandboxes that block network
+ * resources — this is the guaranteed-interactive layer that sits under the optional Leaflet upgrade.
+ */
+const STATIC_SVG_SCRIPT_TEMPLATE = `
+(function(){
+	function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+	function tipHtml(tip){
+		if(!tip)return '';
+		var parts=[];
+		if(tip.label!=null&&tip.label!=='')parts.push('<div class="nao-map-pop-title">'+esc(tip.label)+'</div>');
+		(tip.rows||[]).forEach(function(row){parts.push('<div class="nao-map-pop-row"><span class="nao-map-pop-name">'+esc(row[0])+'</span><span class="nao-map-pop-val">'+esc(row[1])+'</span></div>');});
+		return parts.length?'<div class="nao-map-pop">'+parts.join('')+'</div>':'';
+	}
+	document.querySelectorAll('.nao-map-fallback').forEach(function(fallback){
+		var svg=fallback.querySelector('svg');
+		if(!svg)return;
+		var container=fallback.closest('.nao-map')||fallback;
+		var tip=document.createElement('div');
+		tip.className='nao-map-svg-tip';
+		container.appendChild(tip);
+		function moveTip(e){
+			var cr=container.getBoundingClientRect();
+			var x=e.clientX-cr.left+14,y=e.clientY-cr.top+14;
+			if(x+tip.offsetWidth>cr.width)x=e.clientX-cr.left-tip.offsetWidth-14;
+			if(y+tip.offsetHeight>cr.height)y=e.clientY-cr.top-tip.offsetHeight-14;
+			tip.style.left=Math.max(0,x)+'px';tip.style.top=Math.max(0,y)+'px';
+		}
+		function hideTip(){tip.classList.remove('visible');}
+		svg.querySelectorAll('[data-tip]').forEach(function(el){
+			var data;try{data=JSON.parse(el.getAttribute('data-tip'));}catch(err){return;}
+			var html=tipHtml(data);
+			if(!html)return;
+			el.addEventListener('mouseenter',function(e){tip.innerHTML=html;tip.classList.add('visible');moveTip(e);});
+			el.addEventListener('mousemove',moveTip);
+			el.addEventListener('mouseleave',hideTip);
+		});
+		var base=(svg.getAttribute('viewBox')||'0 0 852 360').split(/\\s+/).map(Number);
+		var baseX=base[0],baseY=base[1],baseW=base[2],baseH=base[3];
+		var view={x:baseX,y:baseY,w:baseW,h:baseH};
+		function apply(){svg.setAttribute('viewBox',view.x+' '+view.y+' '+view.w+' '+view.h);}
+		function clamp(){
+			if(view.w>baseW)view.w=baseW;
+			if(view.h>baseH)view.h=baseH;
+			if(view.x<baseX)view.x=baseX;
+			if(view.y<baseY)view.y=baseY;
+			if(view.x+view.w>baseX+baseW)view.x=baseX+baseW-view.w;
+			if(view.y+view.h>baseY+baseH)view.y=baseY+baseH-view.h;
+		}
+		function zoom(factor){
+			var cx=view.x+view.w/2,cy=view.y+view.h/2;
+			var minW=baseW/32;
+			var nw=Math.max(minW,Math.min(baseW,view.w/factor));
+			var nh=nw*(baseH/baseW);
+			view.w=nw;view.h=nh;view.x=cx-nw/2;view.y=cy-nh/2;clamp();apply();
+		}
+		var ctrl=document.createElement('div');
+		ctrl.className='nao-map-zoom';
+		var plus=document.createElement('button');plus.type='button';plus.textContent='+';plus.setAttribute('aria-label','Zoom in');
+		var minus=document.createElement('button');minus.type='button';minus.textContent='\\u2212';minus.setAttribute('aria-label','Zoom out');
+		ctrl.appendChild(plus);ctrl.appendChild(minus);fallback.appendChild(ctrl);
+		plus.addEventListener('click',function(e){e.preventDefault();zoom(1.6);});
+		minus.addEventListener('click',function(e){e.preventDefault();zoom(1/1.6);});
+		var dragging=false,sx=0,sy=0,ox=0,oy=0;
+		svg.addEventListener('mousedown',function(e){dragging=true;sx=e.clientX;sy=e.clientY;ox=view.x;oy=view.y;hideTip();});
+		window.addEventListener('mousemove',function(e){
+			if(!dragging)return;
+			var rect=svg.getBoundingClientRect();
+			if(!rect.width||!rect.height)return;
+			view.x=ox-(e.clientX-sx)/rect.width*view.w;
+			view.y=oy-(e.clientY-sy)/rect.height*view.h;
+			clamp();apply();
+		});
+		window.addEventListener('mouseup',function(){dragging=false;});
+	});
+})();
+`;
+
+const LEAFLET_MAP_SCRIPT_TEMPLATE = `
+(function(){
+	if(typeof L==='undefined')return;
+	var TILE_URL=__TILE_URL__,TILE_ATTRIBUTION=__TILE_ATTRIBUTION__,TILE_SUBDOMAINS=__TILE_SUBDOMAINS__;
+	function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+	function tooltipHtml(label,rows){
+		var parts=[];
+		if(label!=null&&label!=='')parts.push('<div class="nao-map-pop-title">'+esc(label)+'</div>');
+		(rows||[]).forEach(function(row){
+			parts.push('<div class="nao-map-pop-row"><span class="nao-map-pop-name">'+esc(row[0])+'</span><span class="nao-map-pop-val">'+esc(row[1])+'</span></div>');
+		});
+		return parts.length?'<div class="nao-map-pop">'+parts.join('')+'</div>':'';
+	}
+	function bindTip(layer,label,rows){
+		var html=tooltipHtml(label,rows);
+		if(html)layer.bindTooltip(html,{sticky:true,direction:'top',className:'nao-map-ltip',opacity:1});
+	}
+	document.querySelectorAll('.nao-map[data-leaflet]').forEach(function(container){
+		var cfg;try{cfg=JSON.parse(container.getAttribute('data-leaflet'));}catch(e){return;}
+		var canvas=document.createElement('div');
+		canvas.className='nao-map-canvas';
+		container.insertBefore(canvas,container.firstChild);
+		var map;
+		try{map=L.map(canvas,{attributionControl:true,scrollWheelZoom:false,zoomControl:true});}catch(e){canvas.remove();return;}
+		L.tileLayer(TILE_URL,{subdomains:TILE_SUBDOMAINS,attribution:TILE_ATTRIBUTION,maxZoom:19}).addTo(map);
+		var layers=[];
+		if(cfg.type==='choropleth'){
+			(cfg.regions||[]).forEach(function(region){
+				if(!region.geometry)return;
+				var layer=L.geoJSON(region.geometry,{style:{color:'#ffffff',weight:0.8,opacity:0.7,fillColor:region.fill,fillOpacity:1}});
+				bindTip(layer,region.label,region.rows);
+				layer.addTo(map);layers.push(layer);
+			});
+		}else{
+			(cfg.points||[]).forEach(function(point){
+				var marker=L.circleMarker([point.lat,point.lng],{radius:point.radius||6,color:'#ffffff',weight:1,fillColor:cfg.color,fillOpacity:0.9});
+				bindTip(marker,point.label,point.rows);
+				marker.addTo(map);layers.push(marker);
+			});
+		}
+		try{
+			var bounds=L.featureGroup(layers).getBounds();
+			if(bounds.isValid())map.fitBounds(bounds,{padding:[24,24],maxZoom:12});
+			else map.setView([20,0],1);
+		}catch(e){map.setView([20,0],1);}
+		var fallback=container.querySelector('.nao-map-fallback');
+		if(fallback)fallback.style.display='none';
+		setTimeout(function(){try{map.invalidateSize();}catch(e){}},60);
+	});
+})();
+`;
 
 const TOOLTIP_SCRIPT_TEMPLATE = `
 (function(){

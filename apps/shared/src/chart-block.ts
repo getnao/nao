@@ -2,7 +2,7 @@ import type { StoryFilterType } from './sql-template';
 import type * as displayChart from './tools/display-chart';
 import type * as displayMap from './tools/display-map';
 
-export type { McpChartEmbedStoredConfig } from './mcp-embed';
+export type { McpChartEmbedStoredConfig, McpMapEmbedStoredConfig } from './mcp-embed';
 
 export function escapeDoubleQuotedStoryAttr(value: string): string {
 	return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
@@ -84,6 +84,8 @@ export type StoryMapBlockInput = Pick<
 	| 'value_key'
 	| 'region_key'
 	| 'region_boundaries'
+	| 'boundaries_url'
+	| 'boundaries_join_property'
 	| 'geometry_key'
 	| 'title'
 >;
@@ -110,6 +112,8 @@ export function buildStoryMapBlock(input: StoryMapBlockInput): string {
 		stringAttr('value_key', input.value_key) +
 		stringAttr('region_key', input.region_key) +
 		stringAttr('region_boundaries', input.region_boundaries) +
+		stringAttr('boundaries_url', input.boundaries_url) +
+		stringAttr('boundaries_join_property', input.boundaries_join_property) +
 		stringAttr('geometry_key', input.geometry_key) +
 		titleAttr +
 		' />'

@@ -405,7 +405,7 @@
       "idx": 57,
       "version": "6",
       "when": 1785228835820,
-      "tag": "0057_map_settings",
+      "tag": "0057_map_settings_and_map_embed",
       "breakpoints": true
     }
   ]

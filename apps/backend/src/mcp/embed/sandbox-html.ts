@@ -2,7 +2,7 @@ import type { QueryDataMap } from '../../utils/story-download';
 import { generateStoryHtml } from '../../utils/story-html';
 import { backfillMissingQueryDataForSandbox } from '../../utils/story-query-data';
 import { storyEmbedUrls } from '../urls';
-import { MAX_SANDBOX_HTML_CHARS } from './embed-payload';
+import { MAX_SANDBOX_HTML_CHARS, MAX_SANDBOX_MCP_BYTES } from './embed-payload';
 import { SANDBOX_EMBED_ROOT_STYLES, SANDBOX_ICON_DOWNLOAD, SANDBOX_ICON_EXTERNAL_LINK } from './header';
 
 type StorySandboxHeaderConfig = {
@@ -35,7 +35,15 @@ export async function buildStorySandboxHtml(params: {
 		userId: params.userId,
 	});
 	const inner = wrapStoryBodyForMcpHeightMeasure(
-		await generateStoryHtml({ title: params.title, code: params.code }, (queryData as QueryDataMap | null) ?? null),
+		await generateStoryHtml(
+			{ title: params.title, code: params.code },
+			(queryData as QueryDataMap | null) ?? null,
+			null,
+			undefined,
+			{
+				staticMaps: true,
+			},
+		),
 	);
 	const withEmbedStyle = injectMcpEmbedRootStyles(inner);
 
@@ -64,6 +72,32 @@ export async function buildChartSandboxHtml(params: {
 		[params.queryId]: { columns: params.columns, data: params.data },
 	};
 	const inner = wrapStoryBodyForMcpHeightMeasure(await generateStoryHtml({ title: params.title, code }, queryData));
+	const withEmbedStyle = injectMcpEmbedRootStyles(inner);
+
+	const footerScript = buildSandboxEmbedFooterScript({
+		kind: 'chart',
+		title: params.title,
+		naoChatUrl: params.naoChatUrl,
+	});
+
+	return finalizeSandboxHtml(withEmbedStyle, footerScript);
+}
+
+export async function buildMapSandboxHtml(params: {
+	title: string;
+	mapBlock: string;
+	queryId: string;
+	columns: string[];
+	data: Record<string, unknown>[];
+	naoChatUrl: string | null;
+}): Promise<string | null> {
+	const code = `# ${params.title}\n\n${params.mapBlock}`;
+	const queryData: QueryDataMap = {
+		[params.queryId]: { columns: params.columns, data: params.data },
+	};
+	const inner = wrapStoryBodyForMcpHeightMeasure(
+		await generateStoryHtml({ title: params.title, code }, queryData, null, undefined, { staticMaps: true }),
+	);
 	const withEmbedStyle = injectMcpEmbedRootStyles(inner);
 
 	const footerScript = buildSandboxEmbedFooterScript({
@@ -253,10 +287,10 @@ function buildChartHeaderActionsJs(config: ChartSandboxHeaderConfig): string {
 
 function finalizeSandboxHtml(html: string, footerScript: string): string | null {
 	const doc = html.replace(/<\/body>\s*<\/html>\s*$/i, `${footerScript}</body></html>`);
-	if (doc.length > MAX_SANDBOX_HTML_CHARS) {
-		return null;
+	if (doc.length <= MAX_SANDBOX_HTML_CHARS && Buffer.byteLength(doc, 'utf8') <= MAX_SANDBOX_MCP_BYTES) {
+		return doc;
 	}
-	return doc;
+	return null;
 }
 
 function injectMcpEmbedRootStyles(html: string): string {

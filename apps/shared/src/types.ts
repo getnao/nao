@@ -264,13 +264,14 @@ export interface GroupedChatListResponse {
 	groups: ChatGroup[];
 }
 
-export const MCP_EMBED_KINDS = ['story', 'chart'] as const satisfies readonly string[];
+export const MCP_EMBED_KINDS = ['story', 'chart', 'map'] as const satisfies readonly string[];
 
 export type McpEmbedKind = (typeof MCP_EMBED_KINDS)[number];
 
 export const MCP_EMBED_SANDBOX_HTML_FIELD = {
 	story: 'sandboxStoryHtml',
 	chart: 'sandboxChartHtml',
+	map: 'sandboxMapHtml',
 } as const satisfies Record<McpEmbedKind, string>;
 
 export type EmbedTokenPayload = {

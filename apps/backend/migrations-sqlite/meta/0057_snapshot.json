@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "0e5ce996-52e8-4856-a5da-3714c0ad3bd6",
+  "id": "70531585-9c32-4d57-9066-2220506ae4ac",
   "prevId": "0a579216-7320-416d-b330-2a4857de72e6",
   "tables": {
     "account": {
@@ -2647,6 +2647,74 @@
         "mcp_chart_embed_query_id_mcp_query_data_query_id_fk": {
           "name": "mcp_chart_embed_query_id_mcp_query_data_query_id_fk",
           "tableFrom": "mcp_chart_embed",
+          "tableTo": "mcp_query_data",
+          "columnsFrom": [
+            "query_id"
+          ],
+          "columnsTo": [
+            "query_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "mcp_map_embed": {
+      "name": "mcp_map_embed",
+      "columns": {
+        "map_embed_id": {
+          "name": "map_embed_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "query_id": {
+          "name": "query_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "map_config": {
+          "name": "map_config",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_chat_id": {
+          "name": "source_chat_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        }
+      },
+      "indexes": {
+        "mcp_map_embed_query_id_idx": {
+          "name": "mcp_map_embed_query_id_idx",
+          "columns": [
+            "query_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "mcp_map_embed_query_id_mcp_query_data_query_id_fk": {
+          "name": "mcp_map_embed_query_id_mcp_query_data_query_id_fk",
+          "tableFrom": "mcp_map_embed",
           "tableTo": "mcp_query_data",
           "columnsFrom": [
             "query_id"

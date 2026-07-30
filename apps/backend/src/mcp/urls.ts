@@ -54,6 +54,11 @@ export function chartEmbedUrl(chartEmbedId: string, projectId: string): string {
 	return appUrl(`/embed/chart/${chartEmbedId}?token=${encodeURIComponent(token)}`);
 }
 
+export function mapEmbedUrl(mapEmbedId: string, projectId: string): string {
+	const token = generateEmbedToken('map', mapEmbedId, projectId);
+	return appUrl(`/embed/map/${mapEmbedId}?token=${encodeURIComponent(token)}`);
+}
+
 function appUrl(path: string): string {
 	const base = env.BETTER_AUTH_URL.replace(/\/+$/, '');
 	const suffix = path.startsWith('/') ? path : `/${path}`;

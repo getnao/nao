@@ -109,6 +109,12 @@ html.nao-embed #app {
 	background-color: var(--panel);
 }
 
+html.nao-embed-app,
+html.nao-embed-app body,
+html.nao-embed-app #app {
+	background-color: var(--background);
+}
+
 * {
 	scrollbar-width: thin;
 	scrollbar-color: var(--border) transparent;

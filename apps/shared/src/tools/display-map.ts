@@ -6,8 +6,8 @@ export const MapTypeEnum = z.enum(['points', 'scatter_bubble', 'choropleth']);
 
 export const RegionBoundariesEnum = z.enum(['world_countries', 'france_regions']);
 
-/** Flat schema shared by every map type — all type-specific columns are optional here and made required per map_type in {@link buildInputSchema}. */
-function buildBaseObjectSchema(customSets?: CustomBoundarySet[]) {
+/** Flat schema shared by every map type — all type-specific columns are optional here and made required per map_type in {@link buildInputSchema}. Exported as a plain `ZodObject` so MCP clients get a serializable input schema (a `ZodEffects`/`ZodIntersection` would advertise zero parameters). */
+export function buildInputObjectSchema(customSets?: CustomBoundarySet[]) {
 	const builtinKeys = RegionBoundariesEnum.options;
 	const customKeys = customSets?.map((s) => s.key) ?? [];
 	const allKeys = [...builtinKeys, ...customKeys] as [string, ...string[]];
@@ -111,7 +111,7 @@ const choroplethHasBoundary = (
 	(!!input.region_boundaries && !!input.region_key);
 
 export function buildInputSchema(customSets?: CustomBoundarySet[]) {
-	const base = buildBaseObjectSchema(customSets);
+	const base = buildInputObjectSchema(customSets);
 	const pointsSchema = base.required({ latitude_key: true, longitude_key: true });
 	const scatterBubbleSchema = base.required({ latitude_key: true, longitude_key: true, size_key: true });
 	const choroplethSchema = base
@@ -149,6 +149,6 @@ export const OutputSchema = z.object({
 
 export type MapType = z.infer<typeof MapTypeEnum>;
 export type RegionBoundaries = string;
-type BaseInput = z.infer<ReturnType<typeof buildBaseObjectSchema>>;
+type BaseInput = z.infer<ReturnType<typeof buildInputObjectSchema>>;
 export type Input = Omit<BaseInput, 'region_boundaries'> & { region_boundaries?: string };
 export type Output = z.infer<typeof OutputSchema>;

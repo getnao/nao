@@ -114,6 +114,9 @@ export type NewMcpQueryData = typeof sqliteSchema.mcpQueryData.$inferInsert;
 export type DBMcpChartEmbed = typeof sqliteSchema.mcpChartEmbed.$inferSelect;
 export type NewMcpChartEmbed = typeof sqliteSchema.mcpChartEmbed.$inferInsert;
 
+export type DBMcpMapEmbed = typeof sqliteSchema.mcpMapEmbed.$inferSelect;
+export type NewMcpMapEmbed = typeof sqliteSchema.mcpMapEmbed.$inferInsert;
+
 export type DBMessageImage = typeof sqliteSchema.messageImage.$inferSelect;
 export type NewMessageImage = typeof sqliteSchema.messageImage.$inferInsert;
 

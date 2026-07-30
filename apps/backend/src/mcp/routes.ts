@@ -61,7 +61,7 @@ async function handleMcpRequest(request: FastifyRequest, reply: FastifyReply): P
 		return;
 	}
 
-	const server = createMcpServer(request.mcpUserId, request.mcpProjectId, settings);
+	const server = await createMcpServer(request.mcpUserId, request.mcpProjectId, settings);
 	const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 
 	reply.raw.on('close', () => {

@@ -1,1 +1,0 @@
-ALTER TABLE `project` ADD `map_settings` text;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildStoryChartBlock, buildStoryFilterBlock } from '../src/chart-block';
+import { buildStoryChartBlock, buildStoryFilterBlock, buildStoryMapBlock } from '../src/chart-block';
 import {
 	getGridTemplateColumns,
 	getStoryFiltersFromCode,
@@ -718,6 +718,53 @@ describe('story filter tags', () => {
 				rawTag: expect.any(String),
 			},
 		]);
+	});
+});
+
+describe('buildStoryMapBlock', () => {
+	it('emits a basic points block', () => {
+		const tag = buildStoryMapBlock({
+			query_id: 'q1',
+			map_type: 'points',
+			latitude_key: 'lat',
+			longitude_key: 'lng',
+			title: 'City Points',
+		});
+		expect(tag).toContain('query_id="q1"');
+		expect(tag).toContain('map_type="points"');
+		expect(tag).toContain('latitude_key="lat"');
+		expect(tag).toContain('longitude_key="lng"');
+		expect(tag).toContain('title="City Points"');
+	});
+
+	it('emits boundaries_url and boundaries_join_property for choropleth with URL', () => {
+		const tag = buildStoryMapBlock({
+			query_id: 'q2',
+			map_type: 'choropleth',
+			value_key: 'sales',
+			region_key: 'state',
+			boundaries_url: 'https://example.com/states.geojson',
+			boundaries_join_property: 'name',
+			title: 'Sales by State',
+		});
+		expect(tag).toContain('boundaries_url="https://example.com/states.geojson"');
+		expect(tag).toContain('boundaries_join_property="name"');
+		expect(tag).not.toContain('latitude_key');
+	});
+
+	it('round-trips through parseMapBlock with boundaries_url', () => {
+		const tag = buildStoryMapBlock({
+			query_id: 'q3',
+			map_type: 'choropleth',
+			value_key: 'pop',
+			region_key: 'iso',
+			boundaries_url: 'https://cdn.example.com/world.geojson',
+			boundaries_join_property: 'ISO_A3',
+			title: 'World Map',
+		});
+		const parsed = parseMapBlock(tag.slice('<map '.length, -3));
+		expect(parsed?.boundariesUrl).toBe('https://cdn.example.com/world.geojson');
+		expect(parsed?.boundariesJoinProperty).toBe('ISO_A3');
 	});
 });
 

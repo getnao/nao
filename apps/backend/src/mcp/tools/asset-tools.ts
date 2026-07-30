@@ -1,16 +1,23 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { displayChart } from '@nao/shared/tools';
+import type { CustomBoundarySet } from '@nao/shared';
+import { displayChart, displayMap } from '@nao/shared/tools';
 import { z } from 'zod';
 import zodV3 from 'zod/v3';
 
 import displayChartTool from '../../agents/tools/display-chart';
 import * as storyQueries from '../../queries/story.queries';
-import { buildChartToolResult, STORY_OUTPUT_SCHEMA, type StoryMcpToolPayload } from '../embed/embed-tool-result';
-import { CHART_APP_URI, STORY_APP_URI, uiToolMeta } from '../embed/ui-resources';
+import {
+	buildChartToolResult,
+	buildMapToolResult,
+	STORY_OUTPUT_SCHEMA,
+	type StoryMcpToolPayload,
+} from '../embed/embed-tool-result';
+import { CHART_APP_URI, MAP_APP_URI, STORY_APP_URI, uiToolMeta } from '../embed/ui-resources';
 import type { McpContext, ToolResult } from '../logging';
 import { storyChatUrl, storyEmbedUrl, storyUrl } from '../urls';
 import {
 	buildChartEmbedFromArtifact,
+	buildMapEmbedFromArtifact,
 	buildStoryMcpResultWithSandbox,
 	fetchLatestStoryVersion,
 	resolveChartChatId,
@@ -56,8 +63,17 @@ const STORY_ID_INPUT = z
 
 type DisplayChartMcpInput = displayChart.ChartInput & { chat_id?: string };
 
-export function registerAssetTools(server: McpServer, ctx: McpContext): void {
+const DISPLAY_MAP_DESCRIPTION =
+	'Render an interactive map embed from a previously executed query.\n\n' +
+	'USE WHEN: you have a `query_id` from `execute_sql` and want a shareable map embed URL or a ' +
+	'`<map>` block to drop into a story. Supports point maps, scatter/bubble maps, and choropleth maps.\n' +
+	"SKIP WHEN: you don't have data yet → run `execute_sql` first to get geographic data. " +
+	'Also skip when you just called `create_story` or `update_story` — the story embed already ' +
+	'renders all its `<map>` blocks; calling `display_map` again would duplicate them.';
+
+export function registerAssetTools(server: McpServer, ctx: McpContext, customBoundaries?: CustomBoundarySet[]): void {
 	registerDisplayChart(server, ctx);
+	registerDisplayMap(server, ctx, customBoundaries ?? []);
 	registerStoryManagementTools(server, ctx);
 }
 
@@ -67,18 +83,16 @@ function registerDisplayChart(server: McpServer, ctx: McpContext): void {
 		agentTool: displayChartTool,
 		title: 'Display Chart',
 		description: DISPLAY_CHART_DESCRIPTION,
-		inputSchema: displayChart.ChartInputSchema.and(
-			zodV3.object({
-				chat_id: zodV3
-					.string()
-					.optional()
-					.describe(
-						'Optional chat UUID (e.g. `chatId` from `ask_nao`) to anchor the embed to a chat. ' +
-							"Used for the embed's `Open in nao` link and to track the source chat; " +
-							'nao resolves the rows automatically across the project even without it.',
-					),
-			}),
-		),
+		inputSchema: displayChart.ChartInputObjectSchema.extend({
+			chat_id: zodV3
+				.string()
+				.optional()
+				.describe(
+					'Optional chat UUID (e.g. `chatId` from `ask_nao`) to anchor the embed to a chat. ' +
+						"Used for the embed's `Open in nao` link and to track the source chat; " +
+						'nao resolves the rows automatically across the project even without it.',
+				),
+		}),
 		outputSchema: {
 			queryId: z
 				.string()
@@ -183,6 +197,84 @@ function buildInvalidKeysResult(error: { invalidKeys: string[]; availableColumns
 	const invalid = error.invalidKeys.map((k) => `\`${k}\``).join(', ');
 	const available = error.availableColumns.map((k) => `\`${k}\``).join(', ');
 	const text = `display_chart rejected: key(s) ${invalid} not found in query result. Available columns: ${available}. Retry with one of those.`;
+	return {
+		content: [{ type: 'text' as const, text }],
+		isError: true,
+	};
+}
+
+function registerDisplayMap(server: McpServer, ctx: McpContext, customBoundaries: CustomBoundarySet[]): void {
+	registerMcpTool(server, ctx, {
+		name: 'display_map',
+		title: 'Display Map',
+		description: DISPLAY_MAP_DESCRIPTION,
+		inputSchema: displayMap.buildInputObjectSchema(customBoundaries).extend({
+			chat_id: zodV3
+				.string()
+				.optional()
+				.describe(
+					'Optional chat UUID (e.g. `chatId` from `ask_nao`) to anchor the embed to a chat. ' +
+						"Used for the embed's `Open in nao` link and to track the source chat; " +
+						'nao resolves the rows automatically across the project even without it.',
+				),
+		}),
+		outputSchema: {
+			queryId: z.string().describe('`query_id` the map was built from. Reuse for further `display_map` calls.'),
+			title: z.string().describe('Map title.'),
+			block: z
+				.string()
+				.describe('`<map query_id="..." />` markdown block — drop into a story `content` for embedding.'),
+			embedUrl: z
+				.url()
+				.nullable()
+				.describe('Sandboxed embed URL for the map, or null if the map could not be persisted.'),
+			mapEmbedId: z.string().nullable().describe('UUID of the persisted map embed (null if persistence failed).'),
+			chatId: z.string().nullable().describe('Source chat UUID this map is anchored to, if any.'),
+			sandboxMapHtml: z
+				.string()
+				.optional()
+				.describe('Self-contained HTML for inline rendering when small enough; omitted for large maps.'),
+		},
+		_meta: uiToolMeta(MAP_APP_URI),
+		handler: async (rawInput, _extra, callLogId) => {
+			const { chat_id, ...mapInput } = rawInput as displayMap.Input & { chat_id?: string };
+			const validatedChatId = await resolveChartChatId(chat_id, ctx);
+
+			const result = await buildMapEmbedFromArtifact(mapInput as displayMap.Input, ctx, {
+				chatId: validatedChatId ?? null,
+				callLogId,
+			});
+
+			if (!result) {
+				return buildMissingQueryDataResult({
+					queryId: (rawInput as { query_id: string }).query_id,
+					chatIdInput: chat_id,
+					validatedChatId,
+				});
+			}
+
+			if ('keyError' in result) {
+				return buildMapInvalidKeysResult(result.keyError);
+			}
+
+			if ('validationError' in result) {
+				return {
+					content: [{ type: 'text' as const, text: `display_map rejected: ${result.validationError}` }],
+					isError: true,
+				};
+			}
+
+			return buildMapToolResult(result.payload, { sandboxMapHtml: result.sandboxMapHtml });
+		},
+	});
+}
+
+function buildMapInvalidKeysResult(error: { invalidKeys: string[]; availableColumns: string[] }): ToolResult {
+	const available = error.availableColumns.map((k) => `\`${k}\``).join(', ');
+	const text =
+		error.invalidKeys.length > 0
+			? `display_map rejected: key(s) ${error.invalidKeys.map((k) => `\`${k}\``).join(', ')} not found in query result. Available columns: ${available}. Retry with one of those.`
+			: `display_map rejected: column not found in query result. Available columns: ${available}.`;
 	return {
 		content: [{ type: 'text' as const, text }],
 		isError: true,
