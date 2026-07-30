@@ -17,15 +17,11 @@ COPY apps/frontend/package.json ./apps/frontend/
 COPY apps/backend/package.json ./apps/backend/
 COPY apps/shared/package.json ./apps/shared/
 
-# Single install for all workspaces. --ignore-scripts skips prepare (husky);
-# @vscode/ripgrep needs its postinstall to download the platform binary.
-# GITHUB_TOKEN is injected via BuildKit secret to avoid baking it into layers.
+# Single install for all workspaces. --ignore-scripts skips prepare (husky).
+# @vscode/ripgrep >=1.18 ships its rg binary via platform optionalDependencies,
+# so no postinstall download (and no GITHUB_TOKEN) is needed.
 RUN --mount=type=cache,target=/root/.bun/install/cache \
-    --mount=type=secret,id=GITHUB_TOKEN \
-    GITHUB_TOKEN="$(cat /run/secrets/GITHUB_TOKEN 2>/dev/null || true)" \
-    bun install --ignore-scripts \
-    && GITHUB_TOKEN="$(cat /run/secrets/GITHUB_TOKEN 2>/dev/null || true)" \
-    cd node_modules/@vscode/ripgrep && npm run postinstall
+    bun install --ignore-scripts
 
 # =============================================================================
 # STAGE 3: Frontend builder
