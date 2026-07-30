@@ -24,6 +24,8 @@ import {
 	toContextRepoState,
 	toRepoPath,
 } from '../utils/context-repo';
+import type { GitIdentity } from '../utils/git-identity';
+import { withCoAuthors } from '../utils/git-identity';
 import { runGit, toGitError, tryRunGit } from '../utils/git-repo';
 import { toRealPath } from '../utils/tools';
 import {
@@ -32,22 +34,13 @@ import {
 	MAX_CONTEXT_FILE_SIZE,
 	validateContentBuffer,
 } from './context-explorer.service';
-import * as github from './github';
+import type { ReviewRequestProvider } from './review-request-provider';
+import { REVIEW_REQUEST_PROVIDERS } from './review-request-provider';
 
 const REPO_FULL_NAME_PATTERN = /^[\w./-]+\/[\w.-]+$/;
 const GIT_OPERATION_TIMEOUT_MS = 120_000;
 
-interface GitIdentity {
-	name: string;
-	email: string;
-}
-
-export interface ContextRepositoryProvider {
-	authenticatedRepoUrl: (token: string, repoFullName: string) => string;
-	publicRepoUrl: (repoFullName: string) => string;
-	getUserGitIdentity: (token: string) => Promise<GitIdentity>;
-	coAuthor: GitIdentity;
-}
+export type ContextRepositoryProvider = ReviewRequestProvider;
 
 export interface ContextExplorerGitContext {
 	projectId: string;
@@ -97,25 +90,19 @@ export interface CreateBranchAndCommitResult {
 	usedFallbackBase: boolean;
 }
 
-const GITHUB_PROVIDER: ContextRepositoryProvider = {
-	authenticatedRepoUrl: github.authenticatedRepoUrl,
-	publicRepoUrl: github.publicRepoUrl,
-	getUserGitIdentity: github.getUserGitIdentity,
-	coAuthor: github.NAO_CO_AUTHOR,
-};
-
 export async function resolveContextExplorerGit(
 	context: ContextExplorerGitContext,
 ): Promise<ContextExplorerGitResolution> {
 	const configuredRepo = await resolveContextRepo(context.projectId, context.projectFolder, context.configOverride);
-	if ((context.integrationAvailableOverride ?? github.isGithubIntegrationAvailable()) === false) {
-		return unavailable('github-unavailable', configuredRepo);
-	}
 	if (!configuredRepo) {
 		return unavailable('no-repo', null);
 	}
-	if (configuredRepo.provider !== 'github') {
+	const provider = context.providerOverride ?? REVIEW_REQUEST_PROVIDERS[configuredRepo.provider];
+	if (!provider) {
 		return unavailable('unsupported-provider', configuredRepo);
+	}
+	if ((context.integrationAvailableOverride ?? provider.isIntegrationAvailable()) === false) {
+		return unavailable('github-unavailable', configuredRepo);
 	}
 	if (!context.token) {
 		return unavailable('no-token', configuredRepo);
@@ -150,17 +137,19 @@ export async function connectContextRepository(
 	input: ContextExplorerGitContext & { token: string; provider: RepoProvider; repoFullName: string },
 	dependencies: {
 		provider?: ContextRepositoryProvider;
-		updateConfig?: (projectId: string, patch: { repoFullName: string; repoProvider: 'github' }) => Promise<unknown>;
+		updateConfig?: (
+			projectId: string,
+			patch: { repoFullName: string; repoProvider: RepoProvider },
+		) => Promise<unknown>;
 	} = {},
 ): Promise<{
-	provider: 'github';
+	provider: RepoProvider;
 	repoFullName: string;
 	defaultBranch: string;
 	branch: string;
 	connectionType: 'linked-existing-commit';
 }> {
 	validateRepoFullName(input.repoFullName);
-	assertGitHubProvider(input.provider);
 	if (isGitContextSource()) {
 		throw new TRPCError({
 			code: 'FORBIDDEN',
@@ -168,22 +157,22 @@ export async function connectContextRepository(
 				'This project is managed by NAO_CONTEXT_SOURCE=git. Change that deployment setting instead of connecting a repository here.',
 		});
 	}
-	const config = { provider: 'github' as const, repoFullName: input.repoFullName };
+	const config = { provider: input.provider, repoFullName: input.repoFullName };
 	const context = {
 		...input,
 		configOverride: config,
-		providerOverride: dependencies.provider ?? input.providerOverride,
+		providerOverride: dependencies.provider ?? input.providerOverride ?? REVIEW_REQUEST_PROVIDERS[input.provider],
 	};
 	const repo = await ensureContextWorktree(context);
 	const updateConfig =
 		dependencies.updateConfig ?? (await import('../queries/context-recommendation.queries')).updateConfig;
 	await updateConfig(input.projectId, {
 		repoFullName: input.repoFullName,
-		repoProvider: 'github',
+		repoProvider: input.provider,
 	});
 	const defaultBranch = readDefaultBranch(repo);
 	return {
-		provider: 'github',
+		provider: input.provider,
 		repoFullName: input.repoFullName,
 		defaultBranch,
 		branch: defaultBranch,
@@ -200,9 +189,11 @@ export async function ensureContextWorktree(
 	if (!unresolved) {
 		throw new TRPCError({ code: 'FORBIDDEN', message: unavailableMessage('no-repo') });
 	}
-	assertGitHubProvider(unresolved.provider);
-	const provider = context.providerOverride ?? GITHUB_PROVIDER;
-	const matchingClone = findMatchingLocalClone(context.projectFolder, unresolved.repoFullName);
+	const provider = context.providerOverride ?? REVIEW_REQUEST_PROVIDERS[unresolved.provider];
+	if (!provider) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: unavailableMessage('unsupported-provider') });
+	}
+	const matchingClone = findMatchingLocalClone(context.projectFolder, unresolved.repoFullName, provider);
 	if (!isHealthyWorktree(unresolved, provider)) {
 		removeBrokenWorktree(unresolved, context.projectFolder, matchingClone);
 		fs.mkdirSync(path.dirname(unresolved.worktreeRoot), { recursive: true });
@@ -224,9 +215,10 @@ export async function ensureContextWorktree(
 export async function getContextRepositoryStatus(context: ContextExplorerGitContext): Promise<ContextRepositoryStatus> {
 	const resolution = await resolveContextExplorerGit(context);
 	if (resolution.status === 'unavailable') {
+		const provider = resolution.repo ? REVIEW_REQUEST_PROVIDERS[resolution.repo.provider] : null;
 		return {
 			repo: resolution.repo,
-			repositoryUrl: resolution.repo ? github.publicRepoUrl(resolution.repo.repoFullName) : null,
+			repositoryUrl: resolution.repo && provider ? provider.publicRepoUrl(resolution.repo.repoFullName) : null,
 			managedByContextSource: isGitContextSource(),
 			gitUnavailableReason: resolution.reason,
 			gitUnavailableMessage: resolution.message,
@@ -237,7 +229,7 @@ export async function getContextRepositoryStatus(context: ContextExplorerGitCont
 		};
 	}
 	const { repo } = resolution;
-	const provider = resolution.context.providerOverride ?? GITHUB_PROVIDER;
+	const provider = resolution.context.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
 	fetchContextRepository(repo, resolution.context.projectFolder, provider, resolution.context.token);
 	return {
 		repo: toContextRepoState(repo),
@@ -269,7 +261,8 @@ export async function switchContextBranch(
 	branch: string,
 ): Promise<ContextBranchInfo> {
 	validateBranch(branch);
-	const { repo } = await requireContextExplorerGit(context);
+	const { repo, context: availableContext } = await requireContextExplorerGit(context);
+	const provider = availableContext.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
 	assertCleanWorktree(repo);
 	const localRef = `refs/heads/${branch}`;
 	const remoteRef = `refs/remotes/origin/${branch}`;
@@ -287,7 +280,7 @@ export async function switchContextBranch(
 		throw new TRPCError({ code: 'NOT_FOUND', message: `Branch not found: ${branch}` });
 	}
 	invalidateContextProjectPrefix(repo.worktreeRoot);
-	return getContextBranches(resolveAfterBranchChange(repo, context.projectFolder));
+	return getContextBranches(resolveAfterBranchChange(repo, context.projectFolder, provider));
 }
 
 export async function createContextBranch(
@@ -296,7 +289,7 @@ export async function createContextBranch(
 ): Promise<ContextBranchInfo> {
 	validateBranch(branch);
 	const { repo, context: availableContext } = await requireContextExplorerGit(context);
-	const provider = availableContext.providerOverride ?? GITHUB_PROVIDER;
+	const provider = availableContext.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
 	fetchContextRepository(repo, context.projectFolder, provider, availableContext.token);
 	assertBranchAvailable(repo, branch);
 	runDestructiveWorktreeGit(repo.worktreeRoot, context.projectFolder, repo.worktreeRoot, [
@@ -306,7 +299,7 @@ export async function createContextBranch(
 		`origin/${readDefaultBranch(repo)}`,
 	]);
 	invalidateContextProjectPrefix(repo.worktreeRoot);
-	return getContextBranches(resolveAfterBranchChange(repo, context.projectFolder));
+	return getContextBranches(resolveAfterBranchChange(repo, context.projectFolder, provider));
 }
 
 export async function createContextBranchAndCommit(
@@ -314,7 +307,7 @@ export async function createContextBranchAndCommit(
 	input: CreateBranchAndCommitInput,
 ): Promise<CreateBranchAndCommitResult> {
 	const { repo, context: availableContext } = await requireContextExplorerGit(context);
-	const provider = availableContext.providerOverride ?? GITHUB_PROVIDER;
+	const provider = availableContext.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
 	fetchContextRepository(repo, context.projectFolder, provider, availableContext.token);
 	const branch = input.branch ?? generateContextBranchName(repo);
 	validateBranch(branch);
@@ -344,7 +337,7 @@ export async function createContextBranchAndCommit(
 		]);
 	}
 	invalidateContextProjectPrefix(repo.worktreeRoot);
-	const resolvedRepo = resolveAfterBranchChange(repo, context.projectFolder);
+	const resolvedRepo = resolveAfterBranchChange(repo, context.projectFolder, provider);
 	const commit = await commitSelectedChanges(resolvedRepo, context.projectFolder, availableContext, input);
 	if (context.includeEditorMetadata !== false) {
 		await clearRecordedContextFileEdits(context.projectId, input.paths);
@@ -428,21 +421,13 @@ export function pushContextBranch(
 	if (!branch || branch === defaultBranch) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Open pull requests from a non-default branch.' });
 	}
-	const authenticatedUrl = provider.authenticatedRepoUrl(token, repo.repoFullName);
+	assertSafeDestructiveWorktreeTarget(repo.worktreeRoot, projectFolder);
 	try {
-		runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
-			'push',
-			authenticatedUrl,
-			`HEAD:refs/heads/${branch}`,
-		]);
+		provider.pushBranch({ token, repoFullName: repo.repoFullName, dir: repo.worktreeRoot, branch });
 	} catch (error) {
 		throw sanitizeGitError(error, token);
 	}
 	return { branch, defaultBranch };
-}
-
-export function getGithubContextRepositoryProvider(): ContextRepositoryProvider {
-	return GITHUB_PROVIDER;
 }
 
 export function generateContextBranchName(repo: ResolvedContextRepo, timestamp = Date.now()): string {
@@ -454,6 +439,11 @@ export function generateContextBranchName(repo: ResolvedContextRepo, timestamp =
 		candidate = `${base}-${suffix++}`;
 	}
 	return candidate;
+}
+
+export async function suggestContextBranchName(context: ContextExplorerGitContext): Promise<string> {
+	const { repo } = await requireContextExplorerGit(context);
+	return generateContextBranchName(repo);
 }
 
 export function assertSafeDestructiveWorktreeTarget(worktreeRoot: string, projectFolder: string): void {
@@ -473,6 +463,23 @@ export function assertSafeDestructiveWorktreeTarget(worktreeRoot: string, projec
 	}
 }
 
+export function assertSafeDestructiveWorktreeCommand(worktreeRoot: string, cwd: string, args: string[]): void {
+	const relativeCwd = path.relative(path.resolve(worktreeRoot), path.resolve(cwd));
+	if (relativeCwd === '' || (!relativeCwd.startsWith('..') && !path.isAbsolute(relativeCwd))) {
+		return;
+	}
+	const [command, subcommand] = args;
+	const targetsWorktree = args.some((argument) => path.resolve(argument) === path.resolve(worktreeRoot));
+	const allowed =
+		command === 'worktree' &&
+		((subcommand === 'add' && targetsWorktree) ||
+			(subcommand === 'remove' && targetsWorktree) ||
+			(subcommand === 'prune' && args.length === 2));
+	if (!allowed) {
+		throw new Error('Refusing destructive Git operation from outside the context worktree.');
+	}
+}
+
 function runDestructiveWorktreeGit(
 	worktreeRoot: string,
 	projectFolder: string,
@@ -481,6 +488,7 @@ function runDestructiveWorktreeGit(
 	identity?: GitIdentity,
 ): Buffer {
 	assertSafeDestructiveWorktreeTarget(worktreeRoot, projectFolder);
+	assertSafeDestructiveWorktreeCommand(worktreeRoot, cwd, args);
 	if (identity) {
 		try {
 			return execFileSync('git', args, {
@@ -521,7 +529,7 @@ async function commitSelectedChanges(
 		validateWorktreePath(repo, filePath);
 		return toRepoPath(repo, filePath);
 	});
-	const provider = context.providerOverride ?? GITHUB_PROVIDER;
+	const provider = context.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
 	const author = await provider.getUserGitIdentity(context.token);
 	runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, ['add', '--', ...repoPaths]);
 	if (tryRunGit(repo.worktreeRoot, ['diff', '--cached', '--quiet'])) {
@@ -530,7 +538,7 @@ async function commitSelectedChanges(
 	runGitWithIdentity(
 		repo,
 		projectFolder,
-		['commit', '--quiet', '-m', withCoAuthor(input.message, provider.coAuthor)],
+		['commit', '--quiet', '-m', withCoAuthors(input.message, [provider.coAuthor])],
 		author,
 	);
 	return runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();
@@ -583,11 +591,12 @@ function provisionByClone(
 	provider: ContextRepositoryProvider,
 	token: string,
 ): void {
-	runWorktreeGitMutation(repo.worktreeRoot, projectFolder, path.dirname(repo.worktreeRoot), [
-		'clone',
-		provider.authenticatedRepoUrl(token, repo.repoFullName),
-		repo.worktreeRoot,
-	]);
+	assertSafeDestructiveWorktreeTarget(repo.worktreeRoot, projectFolder);
+	runGit(
+		path.dirname(repo.worktreeRoot),
+		['clone', provider.authenticatedRepoUrl(token, repo.repoFullName), repo.worktreeRoot],
+		GIT_OPERATION_TIMEOUT_MS,
+	);
 	runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
 		'remote',
 		'set-url',
@@ -626,10 +635,15 @@ function readDefaultBranchFromRefs(cwd: string): string | null {
 	return symbolic?.replace(/^origin\//, '') || null;
 }
 
-function findMatchingLocalClone(projectFolder: string, repoFullName: string): string | null {
+function findMatchingLocalClone(
+	projectFolder: string,
+	repoFullName: string,
+	provider: ContextRepositoryProvider,
+): string | null {
 	try {
 		const root = fs.realpathSync(runGit(projectFolder, ['rev-parse', '--show-toplevel']).toString().trim());
-		return github.getGitInfo(root).repoFullName?.toLowerCase() === repoFullName.toLowerCase() ? root : null;
+		const origin = runGit(root, ['remote', 'get-url', 'origin']).toString().trim();
+		return normalizeRemote(origin) === normalizeRemote(provider.publicRepoUrl(repoFullName)) ? root : null;
 	} catch {
 		return null;
 	}
@@ -775,8 +789,12 @@ function readCurrentBranch(repo: ResolvedContextRepo): string | null {
 	return readCurrentBranchFromPath(repo.worktreeRoot);
 }
 
-function resolveAfterBranchChange(repo: ResolvedContextRepo, projectFolder: string): ResolvedContextRepo {
-	const matchingClone = findMatchingLocalClone(projectFolder, repo.repoFullName);
+function resolveAfterBranchChange(
+	repo: ResolvedContextRepo,
+	projectFolder: string,
+	provider: ContextRepositoryProvider,
+): ResolvedContextRepo {
+	const matchingClone = findMatchingLocalClone(projectFolder, repo.repoFullName, provider);
 	return resolveContextProject({ ...repo, projectPrefix: null }, projectFolder, matchingClone);
 }
 
@@ -817,12 +835,6 @@ function unavailableMessage(reason: ContextGitUnavailableReason): string {
 	}[reason];
 }
 
-function assertGitHubProvider(provider: RepoProvider): asserts provider is 'github' {
-	if (provider !== 'github') {
-		throw new TRPCError({ code: 'FORBIDDEN', message: unavailableMessage('unsupported-provider') });
-	}
-}
-
 function validateRepoFullName(repoFullName: string): void {
 	if (!REPO_FULL_NAME_PATTERN.test(repoFullName)) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Expected a repository in "owner/name" format.' });
@@ -858,10 +870,6 @@ function sameRealPath(left: string, right: string): boolean {
 	} catch {
 		return path.resolve(left) === path.resolve(right);
 	}
-}
-
-function withCoAuthor(message: string, coAuthor: GitIdentity): string {
-	return `${message.trim()}\n\nCo-authored-by: ${coAuthor.name} <${coAuthor.email}>`;
 }
 
 function isGitContextSource(): boolean {

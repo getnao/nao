@@ -6,9 +6,8 @@ import type { RepoProvider } from '@nao/shared/types';
 
 import type { DBContextRecommendation } from '../db/abstractSchema';
 import * as crQueries from '../queries/context-recommendation.queries';
-import * as projectQueries from '../queries/project.queries';
-import * as userQueries from '../queries/user.queries';
 import { ProposedEdit, ProposedEditTargetRepo } from '../types/context-recommendation';
+import { resolveContextRepository } from '../utils/context-repo';
 import { logger } from '../utils/logger';
 import { isHumanWritableContextPath } from '../utils/nao-context-paths';
 import {
@@ -17,72 +16,12 @@ import {
 	resolveWritePath,
 	writeFileAtomically,
 } from '../utils/safe-file-write';
-import * as github from './github';
 import * as gitlab from './gitlab';
+import type { ReviewRequestProvider } from './review-request-provider';
+import { REVIEW_REQUEST_PROVIDERS } from './review-request-provider';
 
-/** Git commit author/co-author identity. Defined here since it's a provider-agnostic concept, not owned by either. */
-export interface GitIdentity {
-	name: string;
-	email: string;
-}
-
-/** Provider-specific glue for `createReviewRequest` — everything else about opening a PR/MR is identical. */
-export interface ReviewRequestProvider {
-	getToken: (userId: string) => Promise<string | null>;
-	notConnectedMessage: string;
-	cloneRepo: (token: string, repoFullName: string, dir: string) => void;
-	getGitInfo: (dir: string) => { branch: string | null };
-	getUserGitIdentity: (token: string) => Promise<GitIdentity>;
-	coAuthor: GitIdentity;
-	commitAllAndPushBranch: (args: {
-		token: string;
-		repoFullName: string;
-		dir: string;
-		branch: string;
-		message: string;
-		author: GitIdentity;
-		coAuthors?: GitIdentity[];
-	}) => void;
-	openReviewRequest: (
-		token: string,
-		repoFullName: string,
-		args: { title: string; head: string; base: string; body: string },
-	) => Promise<{ url: string }>;
-}
-
-export const REVIEW_REQUEST_PROVIDERS: Record<RepoProvider, ReviewRequestProvider> = {
-	github: {
-		getToken: userQueries.getGithubToken,
-		notConnectedMessage: 'GitHub is not connected. Connect your GitHub account first.',
-		cloneRepo: github.cloneRepo,
-		getGitInfo: github.getGitInfo,
-		getUserGitIdentity: github.getUserGitIdentity,
-		coAuthor: github.NAO_CO_AUTHOR,
-		commitAllAndPushBranch: github.commitAllAndPushBranch,
-		openReviewRequest: async (token, repoFullName, { title, head, base, body }) => {
-			const pr = await github.createPullRequest(token, repoFullName, { title, head, base, body });
-			return { url: pr.html_url };
-		},
-	},
-	gitlab: {
-		getToken: userQueries.getGitlabToken,
-		notConnectedMessage: 'GitLab is not connected. Connect your GitLab account first.',
-		cloneRepo: gitlab.cloneRepo,
-		getGitInfo: gitlab.getGitInfo,
-		getUserGitIdentity: gitlab.getUserGitIdentity,
-		coAuthor: gitlab.NAO_CO_AUTHOR,
-		commitAllAndPushBranch: gitlab.commitAllAndPushBranch,
-		openReviewRequest: async (token, repoFullName, { title, head, base, body }) => {
-			const mr = await gitlab.createMergeRequest(token, repoFullName, {
-				title,
-				source_branch: head,
-				target_branch: base,
-				description: body,
-			});
-			return { url: mr.web_url };
-		},
-	},
-};
+export { REVIEW_REQUEST_PROVIDERS };
+export type { ReviewRequestProvider };
 
 export interface CreatePullRequestResult {
 	url: string;
@@ -102,55 +41,8 @@ export interface RecommendationRepo {
 	webUrl: string;
 }
 
-function buildRepoWebUrl(provider: RepoProvider, repoFullName: string): string {
-	const base = provider === 'gitlab' ? gitlab.gitlabBaseUrl() : 'https://github.com';
-	return `${base}/${repoFullName}`;
-}
-
-/**
- * Resolves the Git repository (GitHub or GitLab) used for context pull/merge requests.
- * The project's own git remote wins when it points at GitHub or GitLab; otherwise we fall
- * back to the repository configured on the recommendations settings page.
- */
 export async function resolveRecommendationRepo(projectId: string): Promise<RecommendationRepo | null> {
-	const project = await projectQueries.getProjectById(projectId);
-	if (project?.path) {
-		const githubInfo = github.getGitInfo(project.path);
-		if (githubInfo.isGithub && githubInfo.repoFullName) {
-			return {
-				repoFullName: githubInfo.repoFullName,
-				branch: githubInfo.branch,
-				source: 'project',
-				provider: 'github',
-				webUrl: buildRepoWebUrl('github', githubInfo.repoFullName),
-			};
-		}
-
-		const gitlabInfo = gitlab.getGitInfo(project.path);
-		if (gitlabInfo.isGitlab && gitlabInfo.repoFullName) {
-			return {
-				repoFullName: gitlabInfo.repoFullName,
-				branch: gitlabInfo.branch,
-				source: 'project',
-				provider: 'gitlab',
-				webUrl: buildRepoWebUrl('gitlab', gitlabInfo.repoFullName),
-			};
-		}
-	}
-
-	const config = await crQueries.getConfig(projectId);
-	const configured = config?.repoFullName;
-	if (configured) {
-		const provider = config.repoProvider ?? 'github';
-		return {
-			repoFullName: configured,
-			branch: null,
-			source: 'settings',
-			provider,
-			webUrl: buildRepoWebUrl(provider, configured),
-		};
-	}
-	return null;
+	return resolveContextRepository(projectId);
 }
 
 /**
@@ -339,7 +231,7 @@ function resolvePullRequestRepo(projectId: string, edits: ProposedEdit[]): Promi
 		branch: target.branch,
 		source: 'linked',
 		provider: target.provider,
-		webUrl: buildRepoWebUrl(target.provider, target.repoFullName),
+		webUrl: `${target.provider === 'gitlab' ? gitlab.gitlabBaseUrl() : 'https://github.com'}/${target.repoFullName}`,
 	});
 }
 

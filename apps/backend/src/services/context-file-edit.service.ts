@@ -35,10 +35,10 @@ export async function addContextFileEditors(
 		return {
 			...file,
 			lastEditor: {
-				userId: edit.userId,
-				displayName,
-				editedAt: edit.updatedAt.getTime(),
+				id: edit.userId,
+				name: displayName,
 			},
+			lastEditedAt: edit.updatedAt.getTime(),
 		};
 	});
 }

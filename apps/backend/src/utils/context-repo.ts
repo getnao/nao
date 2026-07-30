@@ -3,11 +3,19 @@ import path from 'node:path';
 
 import type { ContextGitUnavailableReason, RepoProvider } from '@nao/shared/types';
 
+import * as github from '../services/github';
+import * as gitlab from '../services/gitlab';
 import { runGit, tryRunGit } from './git-repo';
 
 export interface ContextRepoConfig {
 	repoFullName: string;
 	provider: RepoProvider;
+}
+
+export interface ContextRepositoryConnection extends ContextRepoConfig {
+	branch: string | null;
+	source: 'project' | 'settings';
+	webUrl: string;
 }
 
 export interface UnresolvedContextRepo {
@@ -41,17 +49,53 @@ export async function resolveContextRepo(
 	projectFolder: string,
 	configOverride?: ContextRepoConfig | null,
 ): Promise<UnresolvedContextRepo | null> {
-	const config = configOverride === undefined ? await readContextRepoConfig(projectId) : configOverride;
-	if (!config) {
+	const connection = await resolveContextRepository(projectId, projectFolder, configOverride);
+	if (!connection) {
 		return null;
 	}
 	return {
-		provider: config.provider,
-		repoFullName: config.repoFullName,
+		provider: connection.provider,
+		repoFullName: connection.repoFullName,
 		branch: readCurrentBranch(getContextWorktreePath(projectId, projectFolder)),
 		worktreeRoot: getContextWorktreePath(projectId, projectFolder),
 		projectPrefix: null,
 	};
+}
+
+export async function resolveContextRepository(
+	projectId: string,
+	projectFolder?: string | null,
+	configOverride?: ContextRepoConfig | null,
+): Promise<ContextRepositoryConnection | null> {
+	if (configOverride !== undefined) {
+		return configOverride ? toRepositoryConnection(configOverride, null, 'settings') : null;
+	}
+
+	const folder =
+		projectFolder === undefined
+			? (await (await import('../queries/project.queries')).getProjectById(projectId))?.path
+			: projectFolder;
+	if (folder) {
+		const githubInfo = github.getGitInfo(folder);
+		if (githubInfo.isGithub && githubInfo.repoFullName) {
+			return toRepositoryConnection(
+				{ provider: 'github', repoFullName: githubInfo.repoFullName },
+				githubInfo.branch,
+				'project',
+			);
+		}
+		const gitlabInfo = gitlab.getGitInfo(folder);
+		if (gitlabInfo.isGitlab && gitlabInfo.repoFullName) {
+			return toRepositoryConnection(
+				{ provider: 'gitlab', repoFullName: gitlabInfo.repoFullName },
+				gitlabInfo.branch,
+				'project',
+			);
+		}
+	}
+
+	const config = await readContextRepoConfig(projectId);
+	return config ? toRepositoryConnection(config, null, 'settings') : null;
 }
 
 export function resolveContextProject(
@@ -183,6 +227,20 @@ async function readContextRepoConfig(projectId: string): Promise<ContextRepoConf
 	return {
 		repoFullName: config.repoFullName,
 		provider: config.repoProvider ?? 'github',
+	};
+}
+
+function toRepositoryConnection(
+	config: ContextRepoConfig,
+	branch: string | null,
+	source: ContextRepositoryConnection['source'],
+): ContextRepositoryConnection {
+	const baseUrl = config.provider === 'gitlab' ? gitlab.gitlabBaseUrl() : 'https://github.com';
+	return {
+		...config,
+		branch,
+		source,
+		webUrl: `${baseUrl}/${config.repoFullName}`,
 	};
 }
 

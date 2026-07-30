@@ -79,10 +79,10 @@ describe('context file edit attribution', () => {
 				path: '/known.md',
 				kind: 'modified',
 				lastEditor: {
-					userId: 'user-1',
-					displayName: 'Ada',
-					editedAt: updatedAt.getTime(),
+					id: 'user-1',
+					name: 'Ada',
 				},
+				lastEditedAt: updatedAt.getTime(),
 			},
 			{ path: '/unknown.md', kind: 'modified' },
 		]);

@@ -52,6 +52,11 @@ const settingsNavItems: NavItem[] = [
 		visible: ({ isViewer, isInMultipleProjects }) => !isViewer || isInMultipleProjects,
 	},
 	{
+		label: 'Git',
+		to: '/settings/git',
+		visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
+	},
+	{
 		label: 'MCP Endpoint',
 		to: '/settings/mcp-endpoint',
 		visible: ({ isViewer }) => !isViewer,

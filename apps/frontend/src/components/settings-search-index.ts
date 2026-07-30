@@ -57,13 +57,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/account',
 		pageLabel: 'Account',
-		title: 'GitHub',
-		description: 'Connect your GitHub account for automations.',
-		keywords: ['github', 'automations', 'automation', 'issue', 'pull request'],
-	},
-	{
-		page: '/settings/account',
-		pageLabel: 'Account',
 		title: 'GitLab',
 		description: 'Connect your GitLab account for automations.',
 		keywords: ['gitlab', 'automations', 'automation', 'merge request'],
@@ -129,14 +122,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Project Information',
 		description: 'View your project name and path.',
 		keywords: ['project name', 'project path'],
-		adminOnly: true,
-	},
-	{
-		page: '/settings/project',
-		pageLabel: 'Project',
-		title: 'Repository',
-		description: 'Connect a GitHub or GitLab repository and view its branch.',
-		keywords: ['github', 'gitlab', 'git', 'connect', 'repository', 'branch'],
 		adminOnly: true,
 	},
 	{
@@ -296,6 +281,35 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'Configure MCP servers in agent/mcps/mcp.json. nao discovers their tools into OpenAPI specs the agent explores on demand.',
 		keywords: ['model context protocol', 'tool', 'integration', 'extension', 'discover', 'openapi', 'spec'],
 		adminOnly: true,
+	},
+
+	// ── Git ──────────────────────────────────────────────────
+	{
+		page: '/settings/git',
+		pageLabel: 'Git',
+		section: '1. Shared server setup',
+		title: 'GitHub server keys',
+		description: 'Add the GitHub OAuth server keys once for everyone.',
+		keywords: ['github', 'git', 'oauth', 'client id', 'client secret', 'redeploy', 'restart'],
+		adminOrContextAdmin: true,
+	},
+	{
+		page: '/settings/git',
+		pageLabel: 'Git',
+		section: '2. Shared repository setup',
+		title: 'Connect your context files repository',
+		description: 'Connect a GitHub account with access, then choose the shared context files repository.',
+		keywords: ['github', 'git', 'repository', 'repo', 'connect', 'disconnect', 'context files', 'oauth'],
+		adminOrContextAdmin: true,
+	},
+	{
+		page: '/settings/git',
+		pageLabel: 'Git',
+		section: '3. Personal setup',
+		title: 'Connect your personal GitHub account',
+		description: 'Connect your own GitHub account so pull requests are opened as you.',
+		keywords: ['github', 'account', 'connect', 'disconnect', 'pull request', 'oauth'],
+		adminOrContextAdmin: true,
 	},
 
 	// ── MCP Endpoint ────────────────────────────────────────

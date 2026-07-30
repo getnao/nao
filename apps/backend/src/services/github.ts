@@ -1,6 +1,9 @@
 import { execFileSync } from 'node:child_process';
 
 import { env } from '../env';
+import { GitIdentity, NAO_CO_AUTHOR, withCoAuthors } from '../utils/git-identity';
+
+export { NAO_CO_AUTHOR };
 
 const GITHUB_API = 'https://api.github.com';
 const GITHUB_OAUTH_URL = 'https://github.com/login/oauth';
@@ -266,17 +269,6 @@ export function removeOriginRemote(projectDir: string): void {
 	});
 }
 
-export interface GitIdentity {
-	name: string;
-	email: string;
-}
-
-/** nao's identity, added as a commit co-author so the contribution is credited to nao. */
-export const NAO_CO_AUTHOR: GitIdentity = {
-	name: 'nao',
-	email: 'naoagent@getnao.io',
-};
-
 export async function getUserGitIdentity(token: string): Promise<GitIdentity> {
 	const user = await getUser(token);
 	return {
@@ -311,15 +303,19 @@ export function commitAllAndPushBranch(args: {
 		env: { ...process.env, ...identity },
 	});
 
-	execFileSync('git', ['push', authenticatedRepoUrl(token, repoFullName), `HEAD:refs/heads/${branch}`], opts);
+	pushBranch({ token, repoFullName, dir, branch });
 }
 
-function withCoAuthors(message: string, coAuthors: GitIdentity[]): string {
-	if (coAuthors.length === 0) {
-		return message;
-	}
-	const trailers = coAuthors.map((c) => `Co-authored-by: ${c.name} <${c.email}>`).join('\n');
-	return `${message.trimEnd()}\n\n${trailers}`;
+export function pushBranch(args: { token: string; repoFullName: string; dir: string; branch: string }): void {
+	execFileSync(
+		'git',
+		['push', authenticatedRepoUrl(args.token, args.repoFullName), `HEAD:refs/heads/${args.branch}`],
+		{
+			cwd: args.dir,
+			stdio: 'pipe',
+			timeout: 120_000,
+		},
+	);
 }
 
 const GITHUB_API_TIMEOUT_MS = 20_000;

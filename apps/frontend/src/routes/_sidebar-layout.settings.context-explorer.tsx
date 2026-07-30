@@ -155,6 +155,25 @@ function ContextExplorerPage() {
 		setViewerRevision((current) => current + 1);
 	};
 
+	const handleAllLocalChangesDiscarded = async () => {
+		setSelectedDiffPath(null);
+		setIsViewerDirty(false);
+		if (selectedPath) {
+			await queryClient.invalidateQueries({
+				queryKey: trpc.contextExplorer.readFile.queryKey({ path: selectedPath }),
+			});
+			setViewerRevision((current) => current + 1);
+		}
+	};
+
+	const handleRepositoryChanged = () => {
+		setSelectedPath(null);
+		setSelectedDiffPath(null);
+		setSourceAutoOpenRequest(null);
+		setIsViewerDirty(false);
+		setViewerRevision((current) => current + 1);
+	};
+
 	const handleDiscardAndNavigate = () => {
 		if (navigationBlocker.status !== 'blocked') {
 			return;
@@ -208,10 +227,12 @@ function ContextExplorerPage() {
 									/>
 								</div>
 								<ContextGitPanel
-									repo={fileTree.data?.repo ?? null}
 									selectedDiffPath={selectedDiffPath}
+									hasUnsavedFileChanges={isViewerDirty}
 									onViewDiff={handleViewDiff}
 									onDiscarded={handleLocalChangeDiscarded}
+									onDiscardAll={handleAllLocalChangesDiscarded}
+									onRepositoryChanged={handleRepositoryChanged}
 								/>
 							</>
 						)}
@@ -233,12 +254,15 @@ function ContextExplorerPage() {
 								isLoading={fileContent.isLoading && fileContent.fetchStatus !== 'idle'}
 								isError={fileContent.isError && !fileContent.data}
 								isEditable={fileContent.data?.isEditable === true}
-								editabilityReason={fileContent.data?.editabilityReason ?? null}
+								editabilityGuidance={fileContent.data?.guidance ?? null}
 								searchQuery={shouldSearchContent ? debouncedSearch : ''}
 								sourceAutoOpenRequestId={
 									sourceAutoOpenRequest?.path === selectedPath ? sourceAutoOpenRequest.id : null
 								}
 								onDirtyChange={setIsViewerDirty}
+								onOpenGuidancePath={(path) => {
+									requestViewerTarget({ type: 'file', path, openSource: false });
+								}}
 								onReload={async () => {
 									const result = await fileContent.refetch();
 									if (result.error) {

@@ -109,8 +109,8 @@ export type FileContentResponse = {
 	content: string;
 	hash: string;
 	isEditable: boolean;
-	editabilityReason: FileEditabilityReason | null;
-	editabilityGuidance: FileEditabilityGuidance | null;
+	reason: FileEditabilityReason | null;
+	guidance?: FileEditabilityGuidance;
 };
 
 export type FileWriteResponse = {
@@ -133,10 +133,10 @@ export type ContextChangedFile = {
 	path: string;
 	kind: 'modified' | 'untracked' | 'deleted';
 	lastEditor?: {
-		userId: string;
-		displayName: string;
-		editedAt: number;
+		id: string;
+		name: string;
 	};
+	lastEditedAt?: number;
 };
 
 export type ContextBranchInfo = {

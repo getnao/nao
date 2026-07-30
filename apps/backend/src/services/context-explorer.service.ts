@@ -92,8 +92,8 @@ export async function readFileContent(
 			content: decodeTextContent(contentBuffer),
 			hash: hashContent(contentBuffer),
 			isEditable: false,
-			editabilityReason: 'no-repo',
-			editabilityGuidance: guidanceForReason('no-repo'),
+			reason: 'no-repo',
+			guidance: guidanceForReason('no-repo'),
 		};
 	}
 	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
@@ -109,8 +109,8 @@ export async function readFileContent(
 		content: decodeTextContent(contentBuffer),
 		hash: hashContent(contentBuffer),
 		isEditable: editability.isEditable,
-		editabilityReason: editability.reason,
-		editabilityGuidance: editability.guidance,
+		reason: editability.reason,
+		guidance: editability.guidance ?? undefined,
 	};
 }
 

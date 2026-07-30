@@ -3,7 +3,22 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+vi.hoisted(() => {
+	process.env.MODE = 'test';
+	process.env.NAO_MODE = 'self-hosted';
+	process.env.NAO_DEFAULT_PROJECT_PATH = '';
+});
+
+const contextFileEditMocks = vi.hoisted(() => ({
+	addContextFileEditors: vi.fn(async (_projectId: string, files: unknown[]) => files),
+	clearAllContextFileEdits: vi.fn(),
+	clearContextFileEdits: vi.fn(),
+	recordContextFileEdit: vi.fn(),
+}));
+
+vi.mock('../src/services/context-file-edit.service', () => contextFileEditMocks);
 
 import { getFileTreeResponse, readFileContent, writeFileContent } from '../src/services/context-explorer.service';
 import type {
@@ -11,6 +26,7 @@ import type {
 	ContextRepositoryProvider,
 } from '../src/services/context-explorer-git.service';
 import {
+	assertSafeDestructiveWorktreeCommand,
 	assertSafeDestructiveWorktreeTarget,
 	commitContextChanges,
 	createContextBranch,
@@ -31,6 +47,7 @@ describe('context explorer worktrees', () => {
 		for (const root of temporaryRoots.splice(0)) {
 			fs.rmSync(root, { recursive: true, force: true });
 		}
+		vi.clearAllMocks();
 	});
 
 	it('clones into the derived worktree and never changes the live folder', async () => {
@@ -61,6 +78,29 @@ describe('context explorer worktrees', () => {
 		expectLiveUnchanged(fixture.live, before);
 	});
 
+	it('uses the project Git remote when no repository setting exists', async () => {
+		const fixture = createLocalCloneFixture(temporaryRoots);
+		fixture.context.configOverride = undefined;
+
+		const repo = await ensureContextWorktree(fixture.context);
+
+		expect(repo.repoFullName).toBe('nao/context');
+		expect(repo.projectPrefix).toBe('project');
+	});
+
+	it('supports GitLab repositories below the setup boundary', async () => {
+		const fixture = createFixture(temporaryRoots);
+		fixture.context.configOverride = { provider: 'gitlab', repoFullName: 'nao/context' };
+		fixture.context.providerOverride = localProvider(fixture.bare, 'https://gitlab.com/nao/context.git');
+
+		const resolution = await resolveContextExplorerGit(fixture.context);
+
+		expect(resolution).toMatchObject({
+			status: 'available',
+			repo: { provider: 'gitlab', repoFullName: 'nao/context' },
+		});
+	});
+
 	it('self-heals a missing worktree', async () => {
 		const fixture = createFixture(temporaryRoots);
 		const first = await ensureContextWorktree(fixture.context);
@@ -69,6 +109,18 @@ describe('context explorer worktrees', () => {
 		const second = await ensureContextWorktree(fixture.context);
 
 		expect(fs.readFileSync(path.join(second.worktreeRoot, 'context.md'), 'utf8')).toBe('repository content\n');
+	});
+
+	it('repairs a missing linked worktree through the allowed management flow', async () => {
+		const fixture = createLocalCloneFixture(temporaryRoots);
+		const first = await ensureContextWorktree(fixture.context);
+		fs.rmSync(first.worktreeRoot, { recursive: true, force: true });
+
+		const second = await ensureContextWorktree(fixture.context);
+
+		expect(fs.readFileSync(path.join(second.worktreeRoot, 'project', 'context.md'), 'utf8')).toBe(
+			'repository content\n',
+		);
 	});
 
 	it('creates a branch and commits selected dirty files while leaving others uncommitted', async () => {
@@ -119,6 +171,29 @@ describe('context explorer worktrees', () => {
 		expect(runGit(repo.worktreeRoot, ['show', 'HEAD:context.md']).toString()).toBe('local edit\n');
 	});
 
+	it('commits selected files, creates a branch when needed, pushes, and opens a pull request', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const access = await fileAccess(fixture.context);
+		const file = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'pull request edit\n', file.hash, access);
+
+		const result = await createContextExplorerPullRequest(fixture.context, {
+			paths: ['/context.md'],
+			message: 'Update shared context',
+			title: 'Update context',
+			body: 'Review this context update.',
+		});
+
+		expect(result).toEqual({
+			url: 'https://github.com/nao/context/pull/1',
+			branch: expect.stringMatching(/^nao\/context-edits-/),
+			usedFallbackBase: false,
+		});
+		expect(
+			runGit(fixture.root, ['--git-dir', fixture.bare, 'show', `${result.branch}:context.md`]).toString(),
+		).toBe('pull request edit\n');
+	});
+
 	it('switches clean existing branches and discards one or all changed paths', async () => {
 		const fixture = createFixture(temporaryRoots, {
 			'nao_config.yaml': 'name: test\n',
@@ -160,6 +235,52 @@ describe('context explorer worktrees', () => {
 		);
 	});
 
+	it('opens a pull request for files committed through the separate commit flow', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const access = await fileAccess(fixture.context);
+		const file = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'separately committed\n', file.hash, access);
+		const committed = await createContextBranchAndCommit(fixture.context, {
+			paths: ['/context.md'],
+			message: 'Separate commit',
+		});
+
+		const result = await createContextExplorerPullRequest(fixture.context, {
+			paths: ['/context.md'],
+			message: 'Separate commit',
+			title: 'Open committed context',
+		});
+
+		expect(result.branch).toBe(committed.branch);
+		expect(
+			runGit(path.join(fixture.root, '.nao', 'worktrees', 'project-id'), ['rev-parse', 'HEAD'])
+				.toString()
+				.trim(),
+		).toBe(committed.commit);
+	});
+
+	it('records editors and clears attribution after commits and discards', async () => {
+		const fixture = createFixture(temporaryRoots);
+		fixture.context.includeEditorMetadata = true;
+		const access = { ...(await fileAccess(fixture.context)), userId: 'user-1' };
+		const original = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'commit edit\n', original.hash, access);
+
+		expect(contextFileEditMocks.recordContextFileEdit).toHaveBeenCalledWith('project-id', '/context.md', 'user-1');
+		await commitContextChanges(fixture.context, { paths: ['/context.md'], message: 'Commit edit' });
+		expect(contextFileEditMocks.clearContextFileEdits).toHaveBeenCalledWith('project-id', ['/context.md']);
+
+		const committed = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'discard edit\n', committed.hash, access);
+		await discardContextFileChange(fixture.context, '/context.md');
+		expect(contextFileEditMocks.clearContextFileEdits).toHaveBeenLastCalledWith('project-id', ['/context.md']);
+
+		const restored = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'discard all edit\n', restored.hash, access);
+		await discardAllContextChanges(fixture.context);
+		expect(contextFileEditMocks.clearAllContextFileEdits).toHaveBeenCalledWith('project-id');
+	});
+
 	it('degrades missing and ambiguous projects to read-only live browsing', async () => {
 		for (const files of [
 			{ 'context.md': 'repository\n' },
@@ -178,16 +299,12 @@ describe('context explorer worktrees', () => {
 		}
 	});
 
-	it('keeps browsing available for no repo, no token, and GitLab while refusing mutation', async () => {
+	it('keeps browsing available with no repo or token while refusing mutation', async () => {
 		const root = temporaryRoot(temporaryRoots);
 		const live = path.join(root, 'live');
 		fs.mkdirSync(live);
 		fs.writeFileSync(path.join(live, 'context.md'), 'live\n');
-		const contexts: ContextExplorerGitContext[] = [
-			baseContext(live, null),
-			{ ...baseContext(live), token: null },
-			{ ...baseContext(live), configOverride: { provider: 'gitlab', repoFullName: 'nao/context' } },
-		];
+		const contexts: ContextExplorerGitContext[] = [baseContext(live, null), { ...baseContext(live), token: null }];
 
 		for (const context of contexts) {
 			const access = await fileAccess(context);
@@ -216,6 +333,24 @@ describe('context explorer worktrees', () => {
 		).not.toThrow();
 	});
 
+	it('allows only worktree management commands outside the asserted worktree', () => {
+		const root = temporaryRoot(temporaryRoots);
+		const live = path.join(root, 'live');
+		const worktree = path.join(root, '.nao', 'worktrees', 'safe');
+
+		expect(() => assertSafeDestructiveWorktreeCommand(worktree, root, ['restore', '--worktree', '.'])).toThrow(
+			'outside the context worktree',
+		);
+		expect(() =>
+			assertSafeDestructiveWorktreeCommand(worktree, root, ['worktree', 'add', '--detach', worktree, 'main']),
+		).not.toThrow();
+		expect(() =>
+			assertSafeDestructiveWorktreeCommand(worktree, root, ['worktree', 'remove', '--force', worktree]),
+		).not.toThrow();
+		expect(() => assertSafeDestructiveWorktreeCommand(worktree, root, ['worktree', 'prune'])).not.toThrow();
+		expect(fs.existsSync(live)).toBe(false);
+	});
+
 	it('refuses every destructive operation before touching a repository containing the live folder', async () => {
 		const root = temporaryRoot(temporaryRoots);
 		const repository = path.join(root, 'repository');
@@ -232,7 +367,12 @@ describe('context explorer worktrees', () => {
 			() => commitContextChanges(unsafe, { paths: ['/context.md'], message: 'test' }),
 			() => discardContextFileChange(unsafe, '/context.md'),
 			() => discardAllContextChanges(unsafe),
-			() => createContextExplorerPullRequest(unsafe, { title: 'test' }),
+			() =>
+				createContextExplorerPullRequest(unsafe, {
+					paths: ['/context.md'],
+					message: 'test',
+					title: 'test',
+				}),
 		];
 
 		for (const operation of operations) {
@@ -244,7 +384,6 @@ describe('context explorer worktrees', () => {
 	it.each([
 		['no-repo', null, 'token'],
 		['no-token', { provider: 'github' as const, repoFullName: 'nao/context' }, null],
-		['unsupported-provider', { provider: 'gitlab' as const, repoFullName: 'nao/context' }, 'token'],
 	])('returns %s while preserving live browsing', async (reason, configOverride, token) => {
 		const root = temporaryRoot(temporaryRoots);
 		const live = path.join(root, 'live');
@@ -357,12 +496,22 @@ function baseContext(
 	};
 }
 
-function localProvider(bare: string): ContextRepositoryProvider {
+function localProvider(bare: string, publicUrl = 'https://github.com/nao/context.git'): ContextRepositoryProvider {
 	return {
+		getToken: async () => 'test-token',
+		notConnectedMessage: 'Not connected.',
+		isIntegrationAvailable: () => true,
 		authenticatedRepoUrl: () => bare,
-		publicRepoUrl: () => 'https://github.com/nao/context.git',
+		publicRepoUrl: () => publicUrl,
+		cloneRepo: () => undefined,
+		getGitInfo: () => ({ branch: 'main' }),
 		getUserGitIdentity: async () => ({ name: 'Test User', email: 'test@example.com' }),
 		coAuthor: { name: 'nao', email: 'naoagent@getnao.io' },
+		commitAllAndPushBranch: () => undefined,
+		pushBranch: ({ dir, branch }) => {
+			runGit(dir, ['push', bare, `HEAD:refs/heads/${branch}`]);
+		},
+		openReviewRequest: async () => ({ url: 'https://github.com/nao/context/pull/1' }),
 	};
 }
 

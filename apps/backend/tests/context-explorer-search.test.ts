@@ -1,7 +1,13 @@
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+vi.hoisted(() => {
+	process.env.MODE = 'test';
+	process.env.NAO_MODE = 'self-hosted';
+	process.env.NAO_DEFAULT_PROJECT_PATH = '';
+});
 
 import { searchFileContents } from '../src/services/context-explorer.service';
 

@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from '@tanstack/react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Code, File, Loader2, Save } from 'lucide-react';
 import { useDefaultLayout } from 'react-resizable-panels';
 import { Streamdown } from 'streamdown';
-import type { FileEditabilityReason } from '@nao/shared/types';
+import type { FileEditabilityGuidance } from '@nao/shared/types';
 import { FileSourceEditor } from '@/components/settings/file-source-editor';
 import {
 	AlertDialog,
@@ -41,10 +40,11 @@ interface FileViewerProps {
 	isLoading: boolean;
 	isError: boolean;
 	isEditable: boolean;
-	editabilityReason: FileEditabilityReason | null;
+	editabilityGuidance: FileEditabilityGuidance | null;
 	searchQuery: string;
 	sourceAutoOpenRequestId: number | null;
 	onDirtyChange: (isDirty: boolean) => void;
+	onOpenGuidancePath: (path: string) => void;
 	onReload: () => Promise<FileContents | undefined>;
 }
 
@@ -62,10 +62,11 @@ export function FileViewer({
 	isLoading,
 	isError,
 	isEditable,
-	editabilityReason,
+	editabilityGuidance,
 	searchQuery,
 	sourceAutoOpenRequestId,
 	onDirtyChange,
+	onOpenGuidancePath,
 	onReload,
 }: FileViewerProps) {
 	if (!filePath) {
@@ -100,10 +101,11 @@ export function FileViewer({
 			content={content}
 			hash={hash}
 			isEditable={isEditable}
-			editabilityReason={editabilityReason}
+			editabilityGuidance={editabilityGuidance}
 			searchQuery={searchQuery}
 			sourceAutoOpenRequestId={sourceAutoOpenRequestId}
 			onDirtyChange={onDirtyChange}
+			onOpenGuidancePath={onOpenGuidancePath}
 			onReload={onReload}
 		/>
 	);
@@ -114,10 +116,11 @@ function EditableFileViewer({
 	content,
 	hash,
 	isEditable,
-	editabilityReason,
+	editabilityGuidance,
 	searchQuery,
 	sourceAutoOpenRequestId,
 	onDirtyChange,
+	onOpenGuidancePath,
 	onReload,
 }: Pick<
 	FileViewerProps,
@@ -125,10 +128,11 @@ function EditableFileViewer({
 	| 'content'
 	| 'hash'
 	| 'isEditable'
-	| 'editabilityReason'
+	| 'editabilityGuidance'
 	| 'searchQuery'
 	| 'sourceAutoOpenRequestId'
 	| 'onDirtyChange'
+	| 'onOpenGuidancePath'
 	| 'onReload'
 > & {
 	filePath: string;
@@ -293,7 +297,9 @@ function EditableFileViewer({
 					</Button>
 				)}
 			</div>
-			{!isEditable && editabilityReason && <ReadOnlyNote reason={editabilityReason} />}
+			{!isEditable && editabilityGuidance && (
+				<ReadOnlyNote guidance={editabilityGuidance} onOpenPath={onOpenGuidancePath} />
+			)}
 			{isEditable && saveError && (
 				<div className='flex shrink-0 items-center gap-2 border-b px-3 py-2'>
 					<div className='min-w-0 flex-1'>
@@ -377,26 +383,34 @@ function EditableFileViewer({
 	);
 }
 
-function ReadOnlyNote({ reason }: { reason: FileEditabilityReason }) {
-	if (reason === 'no-repo') {
-		return (
-			<div className='shrink-0 border-b px-4 py-2 text-xs text-muted-foreground'>
-				<Link to='/settings/project' hash='repository' className='text-primary hover:underline'>
-					Connect a repository
-				</Link>{' '}
-				to edit context files.
-			</div>
-		);
-	}
+function ReadOnlyNote({
+	guidance,
+	onOpenPath,
+}: {
+	guidance: FileEditabilityGuidance;
+	onOpenPath: (path: string) => void;
+}) {
+	const handleOpenPath = () => {
+		if (guidance.actionPath) {
+			onOpenPath(guidance.actionPath);
+		}
+	};
 
-	const message =
-		reason === 'not-tracked'
-			? "This file isn't stored in the connected repository, so changes can't be proposed for review."
-			: reason === 'generated'
-				? 'This file is created by nao sync and would be replaced the next time it runs.'
-				: 'This file comes from a template. Edit the template file instead.';
-
-	return <div className='shrink-0 border-b px-4 py-2 text-xs text-muted-foreground'>{message}</div>;
+	return (
+		<div className='shrink-0 border-b bg-muted/20 px-4 py-2 text-xs text-muted-foreground'>
+			<span>{guidance.message}</span>
+			{guidance.actionPath && (
+				<button
+					type='button'
+					role='link'
+					className='ml-1 text-primary underline-offset-4 hover:underline'
+					onClick={handleOpenPath}
+				>
+					{guidance.actionLabel ?? 'Open file'}
+				</button>
+			)}
+		</div>
+	);
 }
 
 function MarkdownPreview({

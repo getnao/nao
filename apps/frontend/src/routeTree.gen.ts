@@ -33,6 +33,7 @@ import { Route as SidebarLayoutSettingsOrganizationRouteImport } from './routes/
 import { Route as SidebarLayoutSettingsMemoryRouteImport } from './routes/_sidebar-layout.settings.memory'
 import { Route as SidebarLayoutSettingsMcpEndpointRouteImport } from './routes/_sidebar-layout.settings.mcp-endpoint'
 import { Route as SidebarLayoutSettingsLogsRouteImport } from './routes/_sidebar-layout.settings.logs'
+import { Route as SidebarLayoutSettingsGitRouteImport } from './routes/_sidebar-layout.settings.git'
 import { Route as SidebarLayoutSettingsEnterpriseRouteImport } from './routes/_sidebar-layout.settings.enterprise'
 import { Route as SidebarLayoutSettingsContextExplorerRouteImport } from './routes/_sidebar-layout.settings.context-explorer'
 import { Route as SidebarLayoutSettingsAccountRouteImport } from './routes/_sidebar-layout.settings.account'
@@ -184,6 +185,12 @@ const SidebarLayoutSettingsLogsRoute =
     path: '/logs',
     getParentRoute: () => SidebarLayoutSettingsRoute,
   } as any)
+const SidebarLayoutSettingsGitRoute =
+  SidebarLayoutSettingsGitRouteImport.update({
+    id: '/git',
+    path: '/git',
+    getParentRoute: () => SidebarLayoutSettingsRoute,
+  } as any)
 const SidebarLayoutSettingsEnterpriseRoute =
   SidebarLayoutSettingsEnterpriseRouteImport.update({
     id: '/enterprise',
@@ -319,6 +326,7 @@ export interface FileRoutesByFullPath {
   '/settings/account': typeof SidebarLayoutSettingsAccountRoute
   '/settings/context-explorer': typeof SidebarLayoutSettingsContextExplorerRoute
   '/settings/enterprise': typeof SidebarLayoutSettingsEnterpriseRoute
+  '/settings/git': typeof SidebarLayoutSettingsGitRoute
   '/settings/logs': typeof SidebarLayoutSettingsLogsRoute
   '/settings/mcp-endpoint': typeof SidebarLayoutSettingsMcpEndpointRoute
   '/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
@@ -362,6 +370,7 @@ export interface FileRoutesByTo {
   '/settings/account': typeof SidebarLayoutSettingsAccountRoute
   '/settings/context-explorer': typeof SidebarLayoutSettingsContextExplorerRoute
   '/settings/enterprise': typeof SidebarLayoutSettingsEnterpriseRoute
+  '/settings/git': typeof SidebarLayoutSettingsGitRoute
   '/settings/logs': typeof SidebarLayoutSettingsLogsRoute
   '/settings/mcp-endpoint': typeof SidebarLayoutSettingsMcpEndpointRoute
   '/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
@@ -407,6 +416,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/account': typeof SidebarLayoutSettingsAccountRoute
   '/_sidebar-layout/settings/context-explorer': typeof SidebarLayoutSettingsContextExplorerRoute
   '/_sidebar-layout/settings/enterprise': typeof SidebarLayoutSettingsEnterpriseRoute
+  '/_sidebar-layout/settings/git': typeof SidebarLayoutSettingsGitRoute
   '/_sidebar-layout/settings/logs': typeof SidebarLayoutSettingsLogsRoute
   '/_sidebar-layout/settings/mcp-endpoint': typeof SidebarLayoutSettingsMcpEndpointRoute
   '/_sidebar-layout/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
@@ -454,6 +464,7 @@ export interface FileRouteTypes {
     | '/settings/account'
     | '/settings/context-explorer'
     | '/settings/enterprise'
+    | '/settings/git'
     | '/settings/logs'
     | '/settings/mcp-endpoint'
     | '/settings/memory'
@@ -497,6 +508,7 @@ export interface FileRouteTypes {
     | '/settings/account'
     | '/settings/context-explorer'
     | '/settings/enterprise'
+    | '/settings/git'
     | '/settings/logs'
     | '/settings/mcp-endpoint'
     | '/settings/memory'
@@ -541,6 +553,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/account'
     | '/_sidebar-layout/settings/context-explorer'
     | '/_sidebar-layout/settings/enterprise'
+    | '/_sidebar-layout/settings/git'
     | '/_sidebar-layout/settings/logs'
     | '/_sidebar-layout/settings/mcp-endpoint'
     | '/_sidebar-layout/settings/memory'
@@ -751,6 +764,13 @@ declare module '@tanstack/react-router' {
       path: '/logs'
       fullPath: '/settings/logs'
       preLoaderRoute: typeof SidebarLayoutSettingsLogsRouteImport
+      parentRoute: typeof SidebarLayoutSettingsRoute
+    }
+    '/_sidebar-layout/settings/git': {
+      id: '/_sidebar-layout/settings/git'
+      path: '/git'
+      fullPath: '/settings/git'
+      preLoaderRoute: typeof SidebarLayoutSettingsGitRouteImport
       parentRoute: typeof SidebarLayoutSettingsRoute
     }
     '/_sidebar-layout/settings/enterprise': {
@@ -976,6 +996,7 @@ interface SidebarLayoutSettingsRouteChildren {
   SidebarLayoutSettingsAccountRoute: typeof SidebarLayoutSettingsAccountRoute
   SidebarLayoutSettingsContextExplorerRoute: typeof SidebarLayoutSettingsContextExplorerRoute
   SidebarLayoutSettingsEnterpriseRoute: typeof SidebarLayoutSettingsEnterpriseRoute
+  SidebarLayoutSettingsGitRoute: typeof SidebarLayoutSettingsGitRoute
   SidebarLayoutSettingsLogsRoute: typeof SidebarLayoutSettingsLogsRoute
   SidebarLayoutSettingsMcpEndpointRoute: typeof SidebarLayoutSettingsMcpEndpointRoute
   SidebarLayoutSettingsMemoryRoute: typeof SidebarLayoutSettingsMemoryRoute
@@ -992,6 +1013,7 @@ const SidebarLayoutSettingsRouteChildren: SidebarLayoutSettingsRouteChildren = {
   SidebarLayoutSettingsContextExplorerRoute:
     SidebarLayoutSettingsContextExplorerRoute,
   SidebarLayoutSettingsEnterpriseRoute: SidebarLayoutSettingsEnterpriseRoute,
+  SidebarLayoutSettingsGitRoute: SidebarLayoutSettingsGitRoute,
   SidebarLayoutSettingsLogsRoute: SidebarLayoutSettingsLogsRoute,
   SidebarLayoutSettingsMcpEndpointRoute: SidebarLayoutSettingsMcpEndpointRoute,
   SidebarLayoutSettingsMemoryRoute: SidebarLayoutSettingsMemoryRoute,

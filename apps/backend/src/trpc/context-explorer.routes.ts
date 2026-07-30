@@ -23,9 +23,11 @@ import {
 	getContextFileDiff,
 	getContextRepositoryStatus,
 	resolveContextExplorerGit,
+	suggestContextBranchName,
 	switchContextBranch,
 } from '../services/context-explorer-git.service';
 import { createContextExplorerPullRequest } from '../services/context-explorer-pr.service';
+import { resolveContextRepository } from '../utils/context-repo';
 import { contextAdminProtectedProcedure } from './trpc';
 
 const branchSchema = z.string().trim().min(1).max(200);
@@ -44,11 +46,18 @@ export const contextExplorerRoutes = {
 					.string()
 					.trim()
 					.regex(/^[\w./-]+\/[\w.-]+$/, 'Expected a repository in "owner/name" format'),
-				branch: branchSchema.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			const context = await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id);
+			if (input.provider !== 'github') {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'GitLab is not supported yet.' });
+			}
+			const projectFolder = requireProjectPath(ctx.project.path);
+			const context: ContextExplorerGitContext = {
+				projectId: ctx.project.id,
+				projectFolder,
+				token: await userQueries.getGithubToken(ctx.user.id),
+			};
 			if (!context.token) {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'Connect your GitHub account first.' });
 			}
@@ -108,6 +117,10 @@ export const contextExplorerRoutes = {
 			);
 		}),
 
+	suggestBranchName: contextAdminProtectedProcedure.query(async ({ ctx }) => {
+		return suggestContextBranchName(await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id));
+	}),
+
 	createBranchAndCommit: contextAdminProtectedProcedure
 		.input(
 			z.object({
@@ -146,14 +159,15 @@ export const contextExplorerRoutes = {
 		.input(
 			z.object({
 				paths: pathsSchema,
-				title: z.string().trim().min(1).max(200).optional(),
+				message: z.string().trim().min(1).max(500),
+				title: z.string().trim().min(1).max(200),
 				body: z.string().max(10_000).optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
 			return createContextExplorerPullRequest(
 				await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id),
-				{ title: input.title ?? 'Update nao context', body: input.body },
+				input,
 			);
 		}),
 };
@@ -177,10 +191,15 @@ async function createGitContext(
 	projectPath: string | null,
 	userId: string,
 ): Promise<ContextExplorerGitContext> {
+	const projectFolder = requireProjectPath(projectPath);
+	const repository = await resolveContextRepository(projectId, projectFolder);
 	return {
 		projectId,
-		projectFolder: requireProjectPath(projectPath),
-		token: await userQueries.getGithubToken(userId),
+		projectFolder,
+		token:
+			repository?.provider === 'gitlab'
+				? await userQueries.getGitlabToken(userId)
+				: await userQueries.getGithubToken(userId),
 	};
 }
 

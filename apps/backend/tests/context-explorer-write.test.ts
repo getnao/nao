@@ -3,7 +3,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.hoisted(() => {
+	process.env.MODE = 'test';
+	process.env.NAO_MODE = 'self-hosted';
+	process.env.NAO_DEFAULT_PROJECT_PATH = '';
+});
 
 import type { ContextExplorerFileAccess } from '../src/services/context-explorer.service';
 import {
@@ -106,21 +112,21 @@ describe('context explorer worktree writes', () => {
 		const untracked = await readFileContent('/untracked.md', access);
 
 		expect(generated).toMatchObject({
-			editabilityReason: 'generated',
-			editabilityGuidance: { actionPath: '/annotations.md' },
+			reason: 'generated',
+			guidance: { actionPath: '/annotations.md' },
 		});
 		expect(rendered).toMatchObject({
-			editabilityReason: 'rendered-template',
-			editabilityGuidance: { actionPath: '/rendered.md.j2' },
+			reason: 'rendered-template',
+			guidance: { actionPath: '/rendered.md.j2' },
 		});
 		expect(repoSource).toMatchObject({
-			editabilityReason: 'synced-source',
-			editabilityGuidance: { actionPath: '/nao_config.yaml' },
+			reason: 'synced-source',
+			guidance: { actionPath: '/nao_config.yaml' },
 		});
-		expect(notion.editabilityReason).toBe('synced-source');
+		expect(notion.reason).toBe('synced-source');
 		expect(untracked).toMatchObject({
-			editabilityReason: 'not-tracked',
-			editabilityGuidance: { message: expect.stringContaining('Add it') },
+			reason: 'not-tracked',
+			guidance: { message: expect.stringContaining('Add it') },
 		});
 		expectLiveUnchanged();
 	});
@@ -192,8 +198,8 @@ describe('context explorer worktree writes', () => {
 		['/untracked.md', 'not-tracked', null],
 	])('reports guidance for %s', async (filePath, reason, actionPath) => {
 		const file = await readFileContent(filePath, access);
-		expect(file.editabilityReason).toBe(reason);
-		expect(file.editabilityGuidance?.actionPath).toBe(actionPath);
+		expect(file.reason).toBe(reason);
+		expect(file.guidance?.actionPath).toBe(actionPath);
 	});
 
 	it.each(['/nested/repository/.git/config', '/.env', '/nested/.env.local'])(
@@ -231,10 +237,18 @@ describe('context explorer worktree writes', () => {
 
 function provider(bare: string): ContextRepositoryProvider {
 	return {
+		getToken: async () => 'token',
+		notConnectedMessage: 'Not connected.',
+		isIntegrationAvailable: () => true,
 		authenticatedRepoUrl: () => bare,
 		publicRepoUrl: () => 'https://github.com/nao/context.git',
+		cloneRepo: () => undefined,
+		getGitInfo: () => ({ branch: 'main' }),
 		getUserGitIdentity: async () => ({ name: 'Test', email: 'test@example.com' }),
 		coAuthor: { name: 'nao', email: 'naoagent@getnao.io' },
+		commitAllAndPushBranch: () => undefined,
+		pushBranch: () => undefined,
+		openReviewRequest: async () => ({ url: 'https://github.com/nao/context/pull/1' }),
 	};
 }
 

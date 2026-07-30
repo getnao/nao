@@ -1,6 +1,9 @@
 import { execFileSync } from 'node:child_process';
 
 import { env } from '../env';
+import { GitIdentity, NAO_CO_AUTHOR, withCoAuthors } from '../utils/git-identity';
+
+export { NAO_CO_AUTHOR };
 
 export interface GitLabProject {
 	id: number;
@@ -39,16 +42,6 @@ export interface GitInfo {
 	lastCommitMessage: string | null;
 	lastCommitDate: string | null;
 }
-
-export interface GitIdentity {
-	name: string;
-	email: string;
-}
-
-export const NAO_CO_AUTHOR: GitIdentity = {
-	name: 'nao',
-	email: 'naoagent@getnao.io',
-};
 
 export function gitlabBaseUrl(): string {
 	return env.GITLAB_BASE_URL?.replace(/\/$/, '') || 'https://gitlab.com';
@@ -289,15 +282,19 @@ export function commitAllAndPushBranch(args: {
 		env: { ...process.env, ...identity },
 	});
 
-	execFileSync('git', ['push', authenticatedRepoUrl(token, repoFullName), `HEAD:refs/heads/${branch}`], opts);
+	pushBranch({ token, repoFullName, dir, branch });
 }
 
-function withCoAuthors(message: string, coAuthors: GitIdentity[]): string {
-	if (coAuthors.length === 0) {
-		return message;
-	}
-	const trailers = coAuthors.map((c) => `Co-authored-by: ${c.name} <${c.email}>`).join('\n');
-	return `${message.trimEnd()}\n\n${trailers}`;
+export function pushBranch(args: { token: string; repoFullName: string; dir: string; branch: string }): void {
+	execFileSync(
+		'git',
+		['push', authenticatedRepoUrl(args.token, args.repoFullName), `HEAD:refs/heads/${args.branch}`],
+		{
+			cwd: args.dir,
+			stdio: 'pipe',
+			timeout: 120_000,
+		},
+	);
 }
 
 export interface CreateMergeRequestInput {
