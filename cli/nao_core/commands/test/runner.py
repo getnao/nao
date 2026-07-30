@@ -19,6 +19,7 @@ from nao_core.ui import UI
 from .case import TESTS_FOLDER, TestCase, discover_tests
 from .client import AgentClientError, VerificationResult, get_client
 from .compare import normalize_dataframe_numbers
+from .summary import ModelSummary, summarize, summarize_by_model
 
 
 @dataclass
@@ -289,28 +290,89 @@ def save_results(results: list[TestRunResult], output_dir: Path) -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_file = output_dir / f"results_{timestamp}.json"
 
-    total_duration_ms = sum(r.duration_ms or 0 for r in results)
-    total_tool_calls = sum(r.tool_call_count or 0 for r in results)
-
+    runs = [asdict(r) for r in results]
     data = {
         "timestamp": datetime.now().isoformat(),
-        "results": [asdict(r) for r in results],
-        "summary": {
-            "total": len(results),
-            "passed": sum(1 for r in results if r.passed),
-            "failed": sum(1 for r in results if not r.passed),
-            "total_tokens": sum(r.tokens or 0 for r in results),
-            "total_cost": sum(r.cost or 0 for r in results),
-            "total_duration_ms": total_duration_ms,
-            "total_duration_s": round(total_duration_ms / 1000, 2),
-            "total_tool_calls": total_tool_calls,
-            "avg_duration_ms": round(total_duration_ms / len(results), 0) if results else 0,
-            "avg_tool_calls": round(total_tool_calls / len(results), 1) if results else 0,
-        },
+        "results": runs,
+        "summary": summarize(runs),
+        "by_model": [asdict(s) for s in summarize_by_model(runs)],
     }
 
     output_file.write_text(json.dumps(data, indent=2))
     return output_file
+
+
+def print_run_table(results: list[TestRunResult]) -> None:
+    """Print one row per run, i.e. per (test, model) pair."""
+    df = pd.DataFrame(
+        [
+            {
+                "Test": r.name,
+                "Model": r.model,
+                "Status": status_icon(r.passed),
+                "Message": r.message,
+                "Tokens": r.tokens or 0,
+                "Cost": r.cost or 0,
+                "Time (s)": round((r.duration_ms or 0) / 1000, 1),
+                "Tools": r.tool_call_count or 0,
+            }
+            for r in results
+        ]
+    )
+
+    UI.table(df, title="Test Results", sum_columns={"Tokens": "", "Cost": "$", "Time (s)": "", "Tools": ""})
+
+
+def print_model_table(summaries: list[ModelSummary]) -> None:
+    """Print one row per model, ranked from best to worst pass rate."""
+    df = pd.DataFrame(
+        [
+            {
+                "Model": column_label(s.model),
+                "Pass Rate": format_pass_rate(s.pass_rate),
+                "Passed": f"{s.passed}/{s.total}",
+                "Tokens": s.total_tokens,
+                "Cost": s.total_cost,
+                "Avg Time (s)": round(s.avg_duration_ms / 1000, 1),
+                "Avg Tools": s.avg_tool_calls,
+            }
+            for s in summaries
+        ]
+    )
+
+    UI.table(df, title="Performance by Model", sum_columns={"Tokens": "", "Cost": "$"}, fixed_columns={"Model"})
+
+
+def print_model_matrix(results: list[TestRunResult]) -> None:
+    """Print a test × model grid to show which model passes which test."""
+    models = list(dict.fromkeys(r.model for r in results))
+    statuses: dict[tuple[str, str], list[str]] = {}
+    for result in results:
+        statuses.setdefault((result.name, result.model), []).append(status_icon(result.passed))
+
+    rows = [
+        {"Test": name}
+        | {column_label(model): " ".join(statuses.get((name, model), ["[dim]-[/dim]"])) for model in models}
+        for name in dict.fromkeys(r.name for r in results)
+    ]
+
+    UI.table(pd.DataFrame(rows), title="Pass / Fail by Test and Model")
+
+
+def column_label(model: str) -> str:
+    """Stack the provider above the model id to keep matrix columns narrow."""
+    return model.replace(":", "\n")
+
+
+def status_icon(passed: bool) -> str:
+    """Render a pass/fail marker for terminal tables."""
+    return "[green]✓[/green]" if passed else "[red]✗[/red]"
+
+
+def format_pass_rate(pass_rate: float) -> str:
+    """Colour a pass rate from green (all passing) to red (mostly failing)."""
+    color = "green" if pass_rate == 100 else "red" if pass_rate < 50 else "yellow"
+    return f"[{color}]{pass_rate}%[/{color}]"
 
 
 def filter_test_cases(
@@ -469,6 +531,8 @@ def test(
             results.append(result)
             UI.print("")
     else:
+        # Results are collected by submission order so the summaries stay grouped by model.
+        completed: dict[int, TestRunResult] = {}
         with ThreadPoolExecutor(max_workers=thread_count) as executor:
             futures = {
                 executor.submit(
@@ -479,45 +543,33 @@ def test(
                     password=pwd,
                     costs=resolve_model_costs(config, m),
                     comparison=test_config.comparison,
-                ): (tc, m)
-                for tc, m in test_runs
+                ): index
+                for index, (tc, m) in enumerate(test_runs)
             }
             for future in as_completed(futures):
-                result = future.result()
-                results.append(result)
+                completed[futures[future]] = future.result()
                 UI.print("")
+        results = [completed[index] for index in sorted(completed)]
 
     # Save results to JSON
     output_file = save_results(results, project_path / TESTS_FOLDER / "outputs")
     UI.print(f"[dim]Results saved to: {output_file}[/dim]\n")
 
-    # Print summary table
-    df = pd.DataFrame(
-        [
-            {
-                "Test": r.name,
-                "Model": r.model,
-                "Status": "[green]✓[/green]" if r.passed else "[red]✗[/red]",
-                "Message": r.message,
-                "Tokens": r.tokens or 0,
-                "Cost": r.cost or 0,
-                "Time (s)": round((r.duration_ms or 0) / 1000, 1),
-                "Tools": r.tool_call_count or 0,
-            }
-            for r in results
-        ]
-    )
+    print_run_table(results)
 
-    UI.table(df, title="Test Results", sum_columns={"Tokens": "", "Cost": "$", "Time (s)": "", "Tools": ""})
+    model_summaries = summarize_by_model([asdict(r) for r in results])
+    if len(model_summaries) > 1:
+        print_model_table(model_summaries)
+        print_model_matrix(results)
 
-    # Print summary
     passed = sum(1 for r in results if r.passed)
     failed = sum(1 for r in results if not r.passed)
     total = len(results)
+    unit = "run" if len(model_summaries) > 1 else "test"
 
     UI.print("")
     if failed == 0:
-        UI.success(f"All {total} test(s) passed")
+        UI.success(f"All {total} {unit}(s) passed")
     else:
         UI.print(f"[green]{passed} passed[/green], [red]{failed} failed[/red], {total} total")
         sys.exit(1)
