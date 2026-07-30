@@ -69,6 +69,8 @@ export class McpService {
 	private _mcpJsonFilePath = '';
 	private _mcpServers: Record<string, McpServerConfig> = {};
 	private _runtime: Runtime | null = null;
+	/** In-flight createRuntime() shared by concurrent callers so they don't each build a runtime. */
+	private _runtimePromise: Promise<Runtime> | null = null;
 	private _registered = new Set<string>();
 	/** Full tool list per server from the last successful discovery this session. */
 	private _discovered: Record<string, McpToolDefinition[]> = {};
@@ -398,6 +400,7 @@ export class McpService {
 
 	private _resetRuntime(): void {
 		this._runtime = null;
+		this._runtimePromise = null;
 		this._registered = new Set();
 		this._oauth = {};
 		this._validators.clear();
@@ -657,7 +660,15 @@ export class McpService {
 
 	private async _ensureRegistered(name: string): Promise<void> {
 		if (!this._runtime) {
-			this._runtime = await createRuntime();
+			// Concurrent discoveries must share one runtime: a separate instance per caller
+			// overwrites _runtime and strands earlier registrations ("Unknown MCP server").
+			if (!this._runtimePromise) {
+				this._runtimePromise = createRuntime().catch((error) => {
+					this._runtimePromise = null;
+					throw error;
+				});
+			}
+			this._runtime = await this._runtimePromise;
 		}
 		if (this._registered.has(name)) {
 			return;
