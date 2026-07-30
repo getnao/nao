@@ -658,17 +658,26 @@ export class McpService {
 		return { servers: new Set(servers), tools: new Set(tools) };
 	}
 
+	/**
+	 * Concurrent discoveries share one memoized runtime creation; a reload can replace
+	 * it mid-flight, so callers only clear or publish a promise that is still current.
+	 */
 	private async _ensureRegistered(name: string): Promise<void> {
-		if (!this._runtime) {
-			// Concurrent discoveries must share one runtime: a separate instance per caller
-			// overwrites _runtime and strands earlier registrations ("Unknown MCP server").
+		while (!this._runtime) {
 			if (!this._runtimePromise) {
-				this._runtimePromise = createRuntime().catch((error) => {
-					this._runtimePromise = null;
+				const creation = createRuntime().catch((error) => {
+					if (this._runtimePromise === creation) {
+						this._runtimePromise = null;
+					}
 					throw error;
 				});
+				this._runtimePromise = creation;
 			}
-			this._runtime = await this._runtimePromise;
+			const pending = this._runtimePromise;
+			const runtime = await pending;
+			if (this._runtimePromise === pending) {
+				this._runtime = runtime;
+			}
 		}
 		if (this._registered.has(name)) {
 			return;
