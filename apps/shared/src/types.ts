@@ -84,13 +84,33 @@ export type FileTreeEntry = {
 	children?: FileTreeEntry[];
 };
 
-export type FileEditabilityReason = 'no-repo' | 'not-tracked' | 'generated' | 'rendered-template';
+export type ContextGitUnavailableReason =
+	| 'github-unavailable'
+	| 'no-token'
+	| 'no-repo'
+	| 'unsupported-provider'
+	| 'project-not-found'
+	| 'project-ambiguous';
+
+export type FileEditabilityReason =
+	| ContextGitUnavailableReason
+	| 'generated'
+	| 'rendered-template'
+	| 'synced-source'
+	| 'not-tracked';
+
+export type FileEditabilityGuidance = {
+	message: string;
+	actionPath: string | null;
+	actionLabel: string | null;
+};
 
 export type FileContentResponse = {
 	content: string;
 	hash: string;
 	isEditable: boolean;
 	editabilityReason: FileEditabilityReason | null;
+	editabilityGuidance: FileEditabilityGuidance | null;
 };
 
 export type FileWriteResponse = {
@@ -112,16 +132,21 @@ export type FileContentSearchResponse = {
 export type ContextChangedFile = {
 	path: string;
 	kind: 'modified' | 'untracked' | 'deleted';
+	lastEditor?: {
+		userId: string;
+		displayName: string;
+		editedAt: number;
+	};
+};
+
+export type ContextBranchInfo = {
+	currentBranch: string | null;
+	defaultBranch: string;
+	branches: string[];
+	suggestedBranch: string;
 };
 
 export type ContextFileDiff = ContextChangedFile & {
-	oldContent: string;
-	newContent: string;
-};
-
-export type ProposedEdit = {
-	path: string;
-	kind: 'edit' | 'create';
 	oldContent: string;
 	newContent: string;
 };

@@ -2,32 +2,40 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import type { ContextChangedFile, ContextFileDiff, RepoProvider } from '@nao/shared/types';
+import type {
+	ContextBranchInfo,
+	ContextChangedFile,
+	ContextFileDiff,
+	ContextGitUnavailableReason,
+	RepoProvider,
+} from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 
+import type { ContextRepoConfig, ResolvedContextRepo, UnresolvedContextRepo } from '../utils/context-repo';
 import {
-	ContextRepo,
+	ContextProjectResolutionError,
 	fromRepoPath,
-	getCommittedProjectPaths,
+	getWorktreeProjectRoot,
+	invalidateContextProjectPrefix,
 	normalizeProjectPath,
 	readCommittedFile,
+	resolveContextProject,
 	resolveContextRepo,
 	toContextRepoState,
+	toRepoPath,
 } from '../utils/context-repo';
 import { runGit, toGitError, tryRunGit } from '../utils/git-repo';
-import { writeFileAtomically } from '../utils/safe-file-write';
+import { toRealPath } from '../utils/tools';
 import {
 	decodeTextContent,
 	hashContent,
 	MAX_CONTEXT_FILE_SIZE,
-	resolveAndValidatePath,
 	validateContentBuffer,
 } from './context-explorer.service';
 import * as github from './github';
-import * as gitlab from './gitlab';
 
 const REPO_FULL_NAME_PATTERN = /^[\w./-]+\/[\w.-]+$/;
-const CONNECT_GIT_TIMEOUT_MS = 120_000;
+const GIT_OPERATION_TIMEOUT_MS = 120_000;
 
 interface GitIdentity {
 	name: string;
@@ -41,244 +49,783 @@ export interface ContextRepositoryProvider {
 	coAuthor: GitIdentity;
 }
 
-export interface ConnectContextRepositoryInput {
+export interface ContextExplorerGitContext {
+	projectId: string;
 	projectFolder: string;
-	provider: RepoProvider;
-	repoFullName: string;
-	branch: string;
-	token: string;
+	token: string | null;
+	configOverride?: ContextRepoConfig | null;
+	integrationAvailableOverride?: boolean;
+	providerOverride?: ContextRepositoryProvider;
+	includeEditorMetadata?: boolean;
 }
 
-export interface ConnectContextRepositoryResult {
-	provider: RepoProvider;
-	repoFullName: string;
-	branch: string;
-	connectionType: 'linked-existing-commit' | 'published-initial-commit';
+export type ContextExplorerGitResolution =
+	| {
+			status: 'available';
+			repo: ResolvedContextRepo;
+			context: ContextExplorerGitContext & { token: string };
+	  }
+	| {
+			status: 'unavailable';
+			reason: ContextGitUnavailableReason;
+			message: string;
+			repo: ReturnType<typeof toContextRepoState>;
+	  };
+
+export interface ContextRepositoryStatus {
+	repo: ReturnType<typeof toContextRepoState>;
+	repositoryUrl: string | null;
+	managedByContextSource: boolean;
+	gitUnavailableReason: ContextGitUnavailableReason | null;
+	gitUnavailableMessage: string | null;
+	lastCommitMessage: string | null;
+	lastCommitDate: string | null;
+	branches: ContextBranchInfo | null;
+	isGitRepository: boolean;
 }
 
-export const CONTEXT_REPOSITORY_PROVIDERS: Record<RepoProvider, ContextRepositoryProvider> = {
-	github: {
-		authenticatedRepoUrl: github.authenticatedRepoUrl,
-		publicRepoUrl: github.publicRepoUrl,
-		getUserGitIdentity: github.getUserGitIdentity,
-		coAuthor: github.NAO_CO_AUTHOR,
-	},
-	gitlab: {
-		authenticatedRepoUrl: gitlab.authenticatedRepoUrl,
-		publicRepoUrl: gitlab.publicRepoUrl,
-		getUserGitIdentity: gitlab.getUserGitIdentity,
-		coAuthor: gitlab.NAO_CO_AUTHOR,
-	},
+export interface CreateBranchAndCommitInput {
+	branch?: string;
+	paths: string[];
+	message: string;
+}
+
+export interface CreateBranchAndCommitResult {
+	branch: string;
+	commit: string;
+	baseUsed: string;
+	usedFallbackBase: boolean;
+}
+
+const GITHUB_PROVIDER: ContextRepositoryProvider = {
+	authenticatedRepoUrl: github.authenticatedRepoUrl,
+	publicRepoUrl: github.publicRepoUrl,
+	getUserGitIdentity: github.getUserGitIdentity,
+	coAuthor: github.NAO_CO_AUTHOR,
 };
 
-export async function connectContextRepository(
-	input: ConnectContextRepositoryInput,
-	providerService: ContextRepositoryProvider = CONTEXT_REPOSITORY_PROVIDERS[input.provider],
-): Promise<ConnectContextRepositoryResult> {
-	validateRepoFullName(input.repoFullName);
-	validateBranch(input.branch);
-	assertContextRepositoryCanBeConnected(input.projectFolder);
-
-	const gitDirectory = path.join(input.projectFolder, '.git');
+export async function resolveContextExplorerGit(
+	context: ContextExplorerGitContext,
+): Promise<ContextExplorerGitResolution> {
+	const configuredRepo = await resolveContextRepo(context.projectId, context.projectFolder, context.configOverride);
+	if ((context.integrationAvailableOverride ?? github.isGithubIntegrationAvailable()) === false) {
+		return unavailable('github-unavailable', configuredRepo);
+	}
+	if (!configuredRepo) {
+		return unavailable('no-repo', null);
+	}
+	if (configuredRepo.provider !== 'github') {
+		return unavailable('unsupported-provider', configuredRepo);
+	}
+	if (!context.token) {
+		return unavailable('no-token', configuredRepo);
+	}
 	try {
-		runGit(input.projectFolder, ['init', '--quiet', `--initial-branch=${input.branch}`]);
-		runGit(input.projectFolder, ['remote', 'add', 'origin', providerService.publicRepoUrl(input.repoFullName)]);
-
-		const authenticatedUrl = providerService.authenticatedRepoUrl(input.token, input.repoFullName);
-		if (fetchBranch(input.projectFolder, authenticatedUrl, input.branch)) {
-			runGit(input.projectFolder, ['reset', '--mixed', 'FETCH_HEAD'], CONNECT_GIT_TIMEOUT_MS);
-			return connectionResult(input, 'linked-existing-commit');
-		}
-
-		const author = await providerService.getUserGitIdentity(input.token);
-		publishInitialCommit(input.projectFolder, authenticatedUrl, input.branch, author, providerService.coAuthor);
-		return connectionResult(input, 'published-initial-commit');
+		const repo = await ensureContextWorktree({ ...context, token: context.token }, configuredRepo);
+		return { status: 'available', repo, context: { ...context, token: context.token } };
 	} catch (error) {
-		const connectionError = sanitizeConnectionError(error, input.token);
-		try {
-			fs.rmSync(gitDirectory, { recursive: true, force: true });
-		} catch (cleanupError) {
-			const cleanupMessage = cleanupError instanceof Error ? cleanupError.message : 'Unknown cleanup error';
-			throw new Error(`${connectionError.message} Rollback failed: ${cleanupMessage}`);
+		if (error instanceof ContextProjectResolutionError) {
+			return {
+				status: 'unavailable',
+				reason: error.reason,
+				message: error.message,
+				repo: toContextRepoState(configuredRepo),
+			};
 		}
-		throw connectionError;
+		throw error;
 	}
 }
 
-export function getContextRepositoryStatus(projectFolder: string) {
-	const repo = resolveContextRepo(projectFolder);
-	const isGitRepository =
-		fs.existsSync(path.join(projectFolder, '.git')) ||
-		tryRunGit(projectFolder, ['rev-parse', '--is-inside-work-tree']) !== null;
+export async function requireContextExplorerGit(
+	context: ContextExplorerGitContext,
+): Promise<{ repo: ResolvedContextRepo; context: ContextExplorerGitContext & { token: string } }> {
+	const resolution = await resolveContextExplorerGit(context);
+	if (resolution.status === 'unavailable') {
+		throw new TRPCError({ code: 'FORBIDDEN', message: resolution.message });
+	}
+	return resolution;
+}
 
+export async function connectContextRepository(
+	input: ContextExplorerGitContext & { token: string; provider: RepoProvider; repoFullName: string },
+	dependencies: {
+		provider?: ContextRepositoryProvider;
+		updateConfig?: (projectId: string, patch: { repoFullName: string; repoProvider: 'github' }) => Promise<unknown>;
+	} = {},
+): Promise<{
+	provider: 'github';
+	repoFullName: string;
+	defaultBranch: string;
+	branch: string;
+	connectionType: 'linked-existing-commit';
+}> {
+	validateRepoFullName(input.repoFullName);
+	assertGitHubProvider(input.provider);
+	if (isGitContextSource()) {
+		throw new TRPCError({
+			code: 'FORBIDDEN',
+			message:
+				'This project is managed by NAO_CONTEXT_SOURCE=git. Change that deployment setting instead of connecting a repository here.',
+		});
+	}
+	const config = { provider: 'github' as const, repoFullName: input.repoFullName };
+	const context = {
+		...input,
+		configOverride: config,
+		providerOverride: dependencies.provider ?? input.providerOverride,
+	};
+	const repo = await ensureContextWorktree(context);
+	const updateConfig =
+		dependencies.updateConfig ?? (await import('../queries/context-recommendation.queries')).updateConfig;
+	await updateConfig(input.projectId, {
+		repoFullName: input.repoFullName,
+		repoProvider: 'github',
+	});
+	const defaultBranch = readDefaultBranch(repo);
 	return {
-		repo: toContextRepoState(repo),
-		repositoryUrl: repo ? CONTEXT_REPOSITORY_PROVIDERS[repo.provider].publicRepoUrl(repo.repoFullName) : null,
-		isGitRepository,
-		managedByContextSource: isGitContextSource(),
-		lastCommitMessage: readOptionalGitValue(projectFolder, ['log', '-1', '--format=%s']),
-		lastCommitDate: readOptionalGitValue(projectFolder, ['log', '-1', '--format=%cI']),
+		provider: 'github',
+		repoFullName: input.repoFullName,
+		defaultBranch,
+		branch: defaultBranch,
+		connectionType: 'linked-existing-commit',
 	};
 }
 
-export function getChangedContextFiles(projectFolder: string): ContextChangedFile[] {
-	const repo = requireContextRepo(projectFolder);
-	getCommittedProjectPaths(repo);
-	const pathspec = repo.projectPrefix || '.';
-	const output = runGit(repo.worktreeRoot, [
+export async function ensureContextWorktree(
+	context: ContextExplorerGitContext & { token: string },
+	configuredRepo?: UnresolvedContextRepo,
+): Promise<ResolvedContextRepo> {
+	const unresolved =
+		configuredRepo ?? (await resolveContextRepo(context.projectId, context.projectFolder, context.configOverride));
+	if (!unresolved) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: unavailableMessage('no-repo') });
+	}
+	assertGitHubProvider(unresolved.provider);
+	const provider = context.providerOverride ?? GITHUB_PROVIDER;
+	const matchingClone = findMatchingLocalClone(context.projectFolder, unresolved.repoFullName);
+	if (!isHealthyWorktree(unresolved, provider)) {
+		removeBrokenWorktree(unresolved, context.projectFolder, matchingClone);
+		fs.mkdirSync(path.dirname(unresolved.worktreeRoot), { recursive: true });
+		try {
+			if (matchingClone) {
+				provisionFromLocalClone(unresolved, context.projectFolder, matchingClone);
+			} else {
+				provisionByClone(unresolved, context.projectFolder, provider, context.token);
+			}
+		} catch (error) {
+			removeWorktreeDirectory(unresolved.worktreeRoot, context.projectFolder);
+			throw sanitizeGitError(error, context.token);
+		}
+		invalidateContextProjectPrefix(unresolved.worktreeRoot);
+	}
+	return resolveContextProject(unresolved, context.projectFolder, matchingClone);
+}
+
+export async function getContextRepositoryStatus(context: ContextExplorerGitContext): Promise<ContextRepositoryStatus> {
+	const resolution = await resolveContextExplorerGit(context);
+	if (resolution.status === 'unavailable') {
+		return {
+			repo: resolution.repo,
+			repositoryUrl: resolution.repo ? github.publicRepoUrl(resolution.repo.repoFullName) : null,
+			managedByContextSource: isGitContextSource(),
+			gitUnavailableReason: resolution.reason,
+			gitUnavailableMessage: resolution.message,
+			lastCommitMessage: null,
+			lastCommitDate: null,
+			branches: null,
+			isGitRepository: false,
+		};
+	}
+	const { repo } = resolution;
+	const provider = resolution.context.providerOverride ?? GITHUB_PROVIDER;
+	fetchContextRepository(repo, resolution.context.projectFolder, provider, resolution.context.token);
+	return {
+		repo: toContextRepoState(repo),
+		repositoryUrl: provider.publicRepoUrl(repo.repoFullName),
+		managedByContextSource: isGitContextSource(),
+		gitUnavailableReason: null,
+		gitUnavailableMessage: null,
+		lastCommitMessage: readOptionalGitValue(repo.worktreeRoot, ['log', '-1', '--format=%s']),
+		lastCommitDate: readOptionalGitValue(repo.worktreeRoot, ['log', '-1', '--format=%cI']),
+		branches: getContextBranches(repo),
+		isGitRepository: true,
+	};
+}
+
+export function getContextBranches(repo: ResolvedContextRepo): ContextBranchInfo {
+	const defaultBranch = readDefaultBranch(repo);
+	const branches = readContextBranchNames(repo);
+	branches.add(defaultBranch);
+	return {
+		currentBranch: readCurrentBranch(repo),
+		defaultBranch,
+		branches: [...branches].sort(),
+		suggestedBranch: generateContextBranchName(repo),
+	};
+}
+
+export async function switchContextBranch(
+	context: ContextExplorerGitContext,
+	branch: string,
+): Promise<ContextBranchInfo> {
+	validateBranch(branch);
+	const { repo } = await requireContextExplorerGit(context);
+	assertCleanWorktree(repo);
+	const localRef = `refs/heads/${branch}`;
+	const remoteRef = `refs/remotes/origin/${branch}`;
+	if (hasRef(repo, localRef)) {
+		runDestructiveWorktreeGit(repo.worktreeRoot, context.projectFolder, repo.worktreeRoot, ['switch', branch]);
+	} else if (hasRef(repo, remoteRef)) {
+		runDestructiveWorktreeGit(repo.worktreeRoot, context.projectFolder, repo.worktreeRoot, [
+			'switch',
+			'--track',
+			'-c',
+			branch,
+			`origin/${branch}`,
+		]);
+	} else {
+		throw new TRPCError({ code: 'NOT_FOUND', message: `Branch not found: ${branch}` });
+	}
+	invalidateContextProjectPrefix(repo.worktreeRoot);
+	return getContextBranches(resolveAfterBranchChange(repo, context.projectFolder));
+}
+
+export async function createContextBranch(
+	context: ContextExplorerGitContext,
+	branch: string,
+): Promise<ContextBranchInfo> {
+	validateBranch(branch);
+	const { repo, context: availableContext } = await requireContextExplorerGit(context);
+	const provider = availableContext.providerOverride ?? GITHUB_PROVIDER;
+	fetchContextRepository(repo, context.projectFolder, provider, availableContext.token);
+	assertBranchAvailable(repo, branch);
+	runDestructiveWorktreeGit(repo.worktreeRoot, context.projectFolder, repo.worktreeRoot, [
+		'switch',
+		'-c',
+		branch,
+		`origin/${readDefaultBranch(repo)}`,
+	]);
+	invalidateContextProjectPrefix(repo.worktreeRoot);
+	return getContextBranches(resolveAfterBranchChange(repo, context.projectFolder));
+}
+
+export async function createContextBranchAndCommit(
+	context: ContextExplorerGitContext,
+	input: CreateBranchAndCommitInput,
+): Promise<CreateBranchAndCommitResult> {
+	const { repo, context: availableContext } = await requireContextExplorerGit(context);
+	const provider = availableContext.providerOverride ?? GITHUB_PROVIDER;
+	fetchContextRepository(repo, context.projectFolder, provider, availableContext.token);
+	const branch = input.branch ?? generateContextBranchName(repo);
+	validateBranch(branch);
+	assertBranchAvailable(repo, branch);
+	const defaultBranch = readDefaultBranch(repo);
+	const currentHead = runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();
+	let baseUsed = `origin/${defaultBranch}`;
+	let usedFallbackBase = false;
+	try {
+		runDestructiveWorktreeGit(repo.worktreeRoot, context.projectFolder, repo.worktreeRoot, [
+			'switch',
+			'-c',
+			branch,
+			baseUsed,
+		]);
+	} catch (error) {
+		if (hasRef(repo, `refs/heads/${branch}`) || !isDirtySwitchConflict(error)) {
+			throw error;
+		}
+		baseUsed = currentHead;
+		usedFallbackBase = true;
+		runDestructiveWorktreeGit(repo.worktreeRoot, context.projectFolder, repo.worktreeRoot, [
+			'switch',
+			'-c',
+			branch,
+			currentHead,
+		]);
+	}
+	invalidateContextProjectPrefix(repo.worktreeRoot);
+	const resolvedRepo = resolveAfterBranchChange(repo, context.projectFolder);
+	const commit = await commitSelectedChanges(resolvedRepo, context.projectFolder, availableContext, input);
+	if (context.includeEditorMetadata !== false) {
+		await clearRecordedContextFileEdits(context.projectId, input.paths);
+	}
+	return { branch, commit, baseUsed, usedFallbackBase };
+}
+
+export async function commitContextChanges(
+	context: ContextExplorerGitContext,
+	input: { paths: string[]; message: string },
+): Promise<{ commit: string }> {
+	const { repo, context: availableContext } = await requireContextExplorerGit(context);
+	const commit = await commitSelectedChanges(repo, context.projectFolder, availableContext, input);
+	if (context.includeEditorMetadata !== false) {
+		await clearRecordedContextFileEdits(context.projectId, input.paths);
+	}
+	return { commit };
+}
+
+export async function getChangedContextFiles(context: ContextExplorerGitContext): Promise<ContextChangedFile[]> {
+	const { repo } = await requireContextExplorerGit(context);
+	const files = parseChangedFiles(readStatus(repo), repo);
+	if (context.includeEditorMetadata === false) {
+		return files;
+	}
+	const { addContextFileEditors } = await import('./context-file-edit.service');
+	return addContextFileEditors(context.projectId, files);
+}
+
+export async function getContextFileDiff(
+	context: ContextExplorerGitContext,
+	filePath: string,
+): Promise<ContextFileDiff> {
+	const { repo } = await requireContextExplorerGit(context);
+	validateWorktreePath(repo, filePath);
+	const projectPath = normalizeProjectPath(filePath);
+	const changedFile = parseChangedFiles(readStatus(repo), repo).find((entry) => entry.path === `/${projectPath}`);
+	if (!changedFile) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'This file has no changes.' });
+	}
+	return {
+		...changedFile,
+		oldContent: changedFile.kind === 'untracked' ? '' : readCommittedText(repo, projectPath),
+		newContent: changedFile.kind === 'deleted' ? '' : readWorkingTreeText(repo, filePath),
+	};
+}
+
+export async function discardContextFileChange(
+	context: ContextExplorerGitContext,
+	filePath: string,
+): Promise<{ hash: string | null }> {
+	const { repo } = await requireContextExplorerGit(context);
+	await discardPath(repo, context.projectFolder, filePath);
+	if (context.includeEditorMetadata !== false) {
+		await clearRecordedContextFileEdits(context.projectId, [filePath]);
+	}
+	const target = toRealPath(filePath, getWorktreeProjectRoot(repo));
+	return { hash: fs.existsSync(target) ? hashContent(fs.readFileSync(target)) : null };
+}
+
+export async function discardAllContextChanges(context: ContextExplorerGitContext): Promise<void> {
+	const { repo } = await requireContextExplorerGit(context);
+	const changedFiles = parseChangedFiles(readStatus(repo), repo);
+	for (const file of changedFiles) {
+		await discardPath(repo, context.projectFolder, file.path);
+	}
+	if (context.includeEditorMetadata !== false) {
+		const { clearAllContextFileEdits } = await import('./context-file-edit.service');
+		await clearAllContextFileEdits(context.projectId);
+	}
+}
+
+export function pushContextBranch(
+	repo: ResolvedContextRepo,
+	projectFolder: string,
+	provider: ContextRepositoryProvider,
+	token: string,
+): { branch: string; defaultBranch: string } {
+	const branch = readCurrentBranch(repo);
+	const defaultBranch = readDefaultBranch(repo);
+	if (!branch || branch === defaultBranch) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Open pull requests from a non-default branch.' });
+	}
+	const authenticatedUrl = provider.authenticatedRepoUrl(token, repo.repoFullName);
+	try {
+		runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
+			'push',
+			authenticatedUrl,
+			`HEAD:refs/heads/${branch}`,
+		]);
+	} catch (error) {
+		throw sanitizeGitError(error, token);
+	}
+	return { branch, defaultBranch };
+}
+
+export function getGithubContextRepositoryProvider(): ContextRepositoryProvider {
+	return GITHUB_PROVIDER;
+}
+
+export function generateContextBranchName(repo: ResolvedContextRepo, timestamp = Date.now()): string {
+	const branches = readContextBranchNames(repo);
+	const base = `nao/context-edits-${timestamp.toString(36)}`;
+	let candidate = base;
+	let suffix = 2;
+	while (branches.has(candidate)) {
+		candidate = `${base}-${suffix++}`;
+	}
+	return candidate;
+}
+
+export function assertSafeDestructiveWorktreeTarget(worktreeRoot: string, projectFolder: string): void {
+	const worktree = path.resolve(worktreeRoot);
+	const live = path.resolve(projectFolder);
+	const segments = worktree.split(path.sep);
+	const naoIndex = segments.lastIndexOf('.nao');
+	if (naoIndex < 0 || segments[naoIndex + 1] !== 'worktrees' || !segments[naoIndex + 2]) {
+		throw new Error('Refusing destructive Git operation outside a .nao/worktrees directory.');
+	}
+	if (worktree === live) {
+		throw new Error('Refusing destructive Git operation against the live project folder.');
+	}
+	const liveRelative = path.relative(worktree, live);
+	if (liveRelative === '' || (!liveRelative.startsWith('..') && !path.isAbsolute(liveRelative))) {
+		throw new Error('Refusing destructive Git operation from an ancestor of the live project folder.');
+	}
+}
+
+function runDestructiveWorktreeGit(
+	worktreeRoot: string,
+	projectFolder: string,
+	cwd: string,
+	args: string[],
+	identity?: GitIdentity,
+): Buffer {
+	assertSafeDestructiveWorktreeTarget(worktreeRoot, projectFolder);
+	if (identity) {
+		try {
+			return execFileSync('git', args, {
+				cwd,
+				stdio: 'pipe',
+				timeout: GIT_OPERATION_TIMEOUT_MS,
+				env: {
+					...process.env,
+					GIT_AUTHOR_NAME: identity.name,
+					GIT_AUTHOR_EMAIL: identity.email,
+					GIT_COMMITTER_NAME: identity.name,
+					GIT_COMMITTER_EMAIL: identity.email,
+				},
+			});
+		} catch (error) {
+			throw toGitError(error);
+		}
+	}
+	return runGit(cwd, args, GIT_OPERATION_TIMEOUT_MS);
+}
+
+function runWorktreeGitMutation(worktreeRoot: string, projectFolder: string, cwd: string, args: string[]): Buffer {
+	return runDestructiveWorktreeGit(worktreeRoot, projectFolder, cwd, args);
+}
+
+async function commitSelectedChanges(
+	repo: ResolvedContextRepo,
+	projectFolder: string,
+	context: ContextExplorerGitContext & { token: string },
+	input: { paths: string[]; message: string },
+): Promise<string> {
+	const changedPaths = new Set(parseChangedFiles(readStatus(repo), repo).map((file) => file.path));
+	const paths = [...new Set(input.paths.map(normalizeVirtualPath))];
+	if (paths.length === 0 || paths.some((filePath) => !changedPaths.has(filePath))) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Select one or more changed context files to commit.' });
+	}
+	const repoPaths = paths.map((filePath) => {
+		validateWorktreePath(repo, filePath);
+		return toRepoPath(repo, filePath);
+	});
+	const provider = context.providerOverride ?? GITHUB_PROVIDER;
+	const author = await provider.getUserGitIdentity(context.token);
+	runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, ['add', '--', ...repoPaths]);
+	if (tryRunGit(repo.worktreeRoot, ['diff', '--cached', '--quiet'])) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'The selected files have no changes to commit.' });
+	}
+	runGitWithIdentity(
+		repo,
+		projectFolder,
+		['commit', '--quiet', '-m', withCoAuthor(input.message, provider.coAuthor)],
+		author,
+	);
+	return runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();
+}
+
+async function discardPath(repo: ResolvedContextRepo, projectFolder: string, filePath: string): Promise<void> {
+	validateWorktreePath(repo, filePath);
+	const repoPath = toRepoPath(repo, filePath);
+	if (tryRunGit(repo.worktreeRoot, ['ls-files', '--error-unmatch', '--', repoPath]) !== null) {
+		runDestructiveWorktreeGit(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
+			'restore',
+			'--source=HEAD',
+			'--staged',
+			'--worktree',
+			'--',
+			repoPath,
+		]);
+		return;
+	}
+	const target = toRealPath(filePath, getWorktreeProjectRoot(repo));
+	assertSafeDestructiveWorktreeTarget(repo.worktreeRoot, projectFolder);
+	const stat = fs.lstatSync(target);
+	if (!stat.isFile() && !stat.isSymbolicLink()) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Only individual files can be discarded.' });
+	}
+	fs.unlinkSync(target);
+}
+
+function provisionFromLocalClone(repo: UnresolvedContextRepo, projectFolder: string, sourceRoot: string): void {
+	const defaultBranch = readDefaultBranchFromRefs(sourceRoot) ?? readCurrentBranchFromPath(sourceRoot);
+	if (!defaultBranch) {
+		throw new Error('Unable to determine the repository default branch.');
+	}
+	const ref = hasRefAt(sourceRoot, `refs/remotes/origin/${defaultBranch}`)
+		? `origin/${defaultBranch}`
+		: defaultBranch;
+	runWorktreeGitMutation(repo.worktreeRoot, projectFolder, sourceRoot, [
+		'worktree',
+		'add',
+		'--force',
+		'--detach',
+		repo.worktreeRoot,
+		ref,
+	]);
+}
+
+function provisionByClone(
+	repo: UnresolvedContextRepo,
+	projectFolder: string,
+	provider: ContextRepositoryProvider,
+	token: string,
+): void {
+	runWorktreeGitMutation(repo.worktreeRoot, projectFolder, path.dirname(repo.worktreeRoot), [
+		'clone',
+		provider.authenticatedRepoUrl(token, repo.repoFullName),
+		repo.worktreeRoot,
+	]);
+	runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
+		'remote',
+		'set-url',
+		'origin',
+		provider.publicRepoUrl(repo.repoFullName),
+	]);
+}
+
+function fetchContextRepository(
+	repo: ResolvedContextRepo,
+	projectFolder: string,
+	provider: ContextRepositoryProvider,
+	token: string,
+): void {
+	try {
+		runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
+			'fetch',
+			provider.authenticatedRepoUrl(token, repo.repoFullName),
+			'+refs/heads/*:refs/remotes/origin/*',
+		]);
+	} catch (error) {
+		throw sanitizeGitError(error, token);
+	}
+}
+
+function readDefaultBranch(repo: ResolvedContextRepo): string {
+	const branch = readDefaultBranchFromRefs(repo.worktreeRoot);
+	if (!branch) {
+		throw new Error('Unable to determine the repository default branch.');
+	}
+	return branch;
+}
+
+function readDefaultBranchFromRefs(cwd: string): string | null {
+	const symbolic = tryRunGit(cwd, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'])?.toString().trim();
+	return symbolic?.replace(/^origin\//, '') || null;
+}
+
+function findMatchingLocalClone(projectFolder: string, repoFullName: string): string | null {
+	try {
+		const root = fs.realpathSync(runGit(projectFolder, ['rev-parse', '--show-toplevel']).toString().trim());
+		return github.getGitInfo(root).repoFullName?.toLowerCase() === repoFullName.toLowerCase() ? root : null;
+	} catch {
+		return null;
+	}
+}
+
+function isHealthyWorktree(repo: UnresolvedContextRepo, provider: ContextRepositoryProvider): boolean {
+	const topLevel = tryRunGit(repo.worktreeRoot, ['rev-parse', '--show-toplevel'])?.toString().trim();
+	const origin = tryRunGit(repo.worktreeRoot, ['remote', 'get-url', 'origin'])?.toString().trim();
+	return (
+		!!topLevel &&
+		sameRealPath(topLevel, repo.worktreeRoot) &&
+		normalizeRemote(origin) === normalizeRemote(provider.publicRepoUrl(repo.repoFullName))
+	);
+}
+
+function removeBrokenWorktree(repo: UnresolvedContextRepo, projectFolder: string, matchingClone: string | null): void {
+	if (matchingClone) {
+		try {
+			runDestructiveWorktreeGit(repo.worktreeRoot, projectFolder, matchingClone, [
+				'worktree',
+				'remove',
+				'--force',
+				repo.worktreeRoot,
+			]);
+		} catch {
+			runDestructiveWorktreeGit(repo.worktreeRoot, projectFolder, matchingClone, ['worktree', 'prune']);
+			removeWorktreeDirectory(repo.worktreeRoot, projectFolder);
+		}
+	}
+	removeWorktreeDirectory(repo.worktreeRoot, projectFolder);
+	invalidateContextProjectPrefix(repo.worktreeRoot);
+}
+
+function removeWorktreeDirectory(worktreeRoot: string, projectFolder: string): void {
+	assertSafeDestructiveWorktreeTarget(worktreeRoot, projectFolder);
+	fs.rmSync(worktreeRoot, { recursive: true, force: true });
+}
+
+function readStatus(repo: ResolvedContextRepo): Buffer {
+	return runGit(repo.worktreeRoot, [
 		'status',
 		'--porcelain=v1',
 		'-z',
 		'--untracked-files=all',
 		'--',
-		pathspec,
+		repo.projectPrefix || '.',
 	]);
-	return parseChangedFiles(output, repo, projectFolder);
 }
 
-export async function getContextFileDiff(filePath: string, projectFolder: string): Promise<ContextFileDiff> {
-	resolveAndValidatePath(filePath, projectFolder);
-	const projectPath = normalizeProjectPath(filePath);
-	const changedFile = getChangedContextFiles(projectFolder).find((entry) => entry.path === `/${projectPath}`);
-	if (!changedFile) {
-		throw new TRPCError({ code: 'BAD_REQUEST', message: 'This file has no local changes.' });
+function parseChangedFiles(output: Buffer, repo: ResolvedContextRepo): ContextChangedFile[] {
+	const records = output.toString().split('\0');
+	const files = new Map<string, ContextChangedFile>();
+	for (let index = 0; index < records.length; index++) {
+		const record = records[index];
+		if (!record || record.length < 4) {
+			continue;
+		}
+		const status = record.slice(0, 2);
+		const repoPath = record.slice(3);
+		if (status.includes('R') || status.includes('C')) {
+			const source = records[++index];
+			addChangedFile(files, repo, repoPath, 'untracked');
+			if (status.includes('R') && source) {
+				addChangedFile(files, repo, source, 'deleted');
+			}
+		} else {
+			addChangedFile(files, repo, repoPath, statusKind(status));
+		}
 	}
-
-	const repo = requireContextRepo(projectFolder);
-	const oldContent = changedFile.kind === 'untracked' ? '' : readCommittedText(repo, projectPath);
-	const newContent = changedFile.kind === 'deleted' ? '' : readWorkingTreeText(filePath, projectFolder);
-	return { ...changedFile, oldContent, newContent };
+	return [...files.values()].sort((left, right) => left.path.localeCompare(right.path));
 }
 
-export function discardContextFileChange(filePath: string, projectFolder: string): { hash: string } {
-	const { realPath, root } = resolveAndValidatePath(filePath, projectFolder);
-	const repo = requireContextRepo(projectFolder);
-	const projectPath = normalizeProjectPath(filePath);
-	const trackedPaths = getCommittedProjectPaths(repo);
-	if (!trackedPaths.has(projectPath)) {
-		throw new TRPCError({
-			code: 'BAD_REQUEST',
-			message: 'This file is not committed to the context repository, so there is nothing to restore.',
-		});
-	}
-
-	let committedContent: Buffer;
-	try {
-		committedContent = readCommittedFile(repo, projectPath, MAX_CONTEXT_FILE_SIZE);
-		validateContentBuffer(committedContent);
-	} catch (error) {
-		throw toDiffError(error);
-	}
-	const content = decodeTextContent(committedContent);
-	writeFileAtomically({
-		content,
-		displayPath: filePath,
-		root,
-		target: realPath,
-	});
-	return { hash: hashContent(committedContent) };
-}
-
-export function requireContextRepo(projectFolder: string): ContextRepo {
-	const repo = resolveContextRepo(projectFolder);
-	if (!repo) {
-		throw new TRPCError({
-			code: 'BAD_REQUEST',
-			message: 'No context repository is connected. Add a GitHub or GitLab origin to enable Git changes.',
-		});
-	}
-	return repo;
-}
-
-function assertContextRepositoryCanBeConnected(projectFolder: string): void {
-	if (isGitContextSource()) {
-		throw new Error(
-			'This project is managed by NAO_CONTEXT_SOURCE=git. Change that deployment setting instead of connecting a repository here.',
-		);
-	}
-	if (
-		fs.existsSync(path.join(projectFolder, '.git')) ||
-		tryRunGit(projectFolder, ['rev-parse', '--is-inside-work-tree']) !== null
-	) {
-		throw new Error('This project is already inside a Git repository. Its existing Git metadata was not changed.');
-	}
-}
-
-function fetchBranch(projectFolder: string, authenticatedUrl: string, branch: string): boolean {
-	let fetchError: unknown;
-	try {
-		runGit(projectFolder, ['fetch', '--depth', '1', authenticatedUrl, branch], CONNECT_GIT_TIMEOUT_MS);
-		return true;
-	} catch (error) {
-		fetchError = error;
-	}
-
-	let remoteRefs: Buffer;
-	try {
-		remoteRefs = runGit(projectFolder, ['ls-remote', authenticatedUrl], CONNECT_GIT_TIMEOUT_MS);
-	} catch {
-		throw fetchError;
-	}
-	if (remoteRefs.toString().trim()) {
-		throw fetchError;
-	}
-	return false;
-}
-
-function publishInitialCommit(
-	projectFolder: string,
-	authenticatedUrl: string,
-	branch: string,
-	author: GitIdentity,
-	coAuthor: GitIdentity,
+function addChangedFile(
+	files: Map<string, ContextChangedFile>,
+	repo: ResolvedContextRepo,
+	repoPath: string,
+	kind: ContextChangedFile['kind'],
 ): void {
-	runGit(projectFolder, ['add', '-A'], CONNECT_GIT_TIMEOUT_MS);
-	runGitWithIdentity(
-		projectFolder,
-		['commit', '--quiet', '--allow-empty', '-m', withCoAuthor('Initialize nao context', coAuthor)],
-		author,
-	);
-	runGit(projectFolder, ['push', authenticatedUrl, `HEAD:refs/heads/${branch}`], CONNECT_GIT_TIMEOUT_MS);
-}
-
-function runGitWithIdentity(projectFolder: string, args: string[], identity: GitIdentity): Buffer {
-	try {
-		return execFileSync('git', args, {
-			cwd: projectFolder,
-			stdio: 'pipe',
-			timeout: CONNECT_GIT_TIMEOUT_MS,
-			env: {
-				...process.env,
-				GIT_AUTHOR_NAME: identity.name,
-				GIT_AUTHOR_EMAIL: identity.email,
-				GIT_COMMITTER_NAME: identity.name,
-				GIT_COMMITTER_EMAIL: identity.email,
-			},
-		});
-	} catch (error) {
-		throw toGitError(error);
+	const projectPath = fromRepoPath(repo, repoPath);
+	if (projectPath) {
+		files.set(`/${projectPath}`, { path: `/${projectPath}`, kind });
 	}
 }
 
-function withCoAuthor(message: string, coAuthor: GitIdentity): string {
-	return `${message}\n\nCo-authored-by: ${coAuthor.name} <${coAuthor.email}>`;
+function statusKind(status: string): ContextChangedFile['kind'] {
+	return status === '??' || status.includes('A') ? 'untracked' : status.includes('D') ? 'deleted' : 'modified';
 }
 
-function connectionResult(
-	input: ConnectContextRepositoryInput,
-	connectionType: ConnectContextRepositoryResult['connectionType'],
-): ConnectContextRepositoryResult {
+function readCommittedText(repo: ResolvedContextRepo, projectPath: string): string {
+	const content = readCommittedFile(repo, projectPath, MAX_CONTEXT_FILE_SIZE);
+	validateContentBuffer(content);
+	return decodeTextContent(content);
+}
+
+function readWorkingTreeText(repo: ResolvedContextRepo, filePath: string): string {
+	const target = toRealPath(filePath, getWorktreeProjectRoot(repo));
+	const content = fs.readFileSync(target);
+	validateContentBuffer(content);
+	return decodeTextContent(content);
+}
+
+function validateWorktreePath(repo: ResolvedContextRepo, filePath: string): void {
+	toRealPath(filePath, getWorktreeProjectRoot(repo));
+}
+
+function readContextBranchNames(repo: ResolvedContextRepo): Set<string> {
+	const output = runGit(repo.worktreeRoot, [
+		'for-each-ref',
+		'--format=%(refname:short)',
+		'refs/heads',
+		'refs/remotes/origin',
+	]);
+	return new Set(
+		output
+			.toString()
+			.split('\n')
+			.map((ref) => ref.trim().replace(/^origin\//, ''))
+			.filter((ref) => ref && ref !== 'HEAD'),
+	);
+}
+
+function assertBranchAvailable(repo: ResolvedContextRepo, branch: string): void {
+	if (readContextBranchNames(repo).has(branch)) {
+		throw new TRPCError({ code: 'CONFLICT', message: `Branch already exists: ${branch}` });
+	}
+}
+
+function assertCleanWorktree(repo: ResolvedContextRepo): void {
+	if (readStatus(repo).length > 0) {
+		throw new TRPCError({ code: 'CONFLICT', message: 'Commit or discard changes before switching branches.' });
+	}
+}
+
+function hasRef(repo: ResolvedContextRepo, ref: string): boolean {
+	return hasRefAt(repo.worktreeRoot, ref);
+}
+
+function hasRefAt(cwd: string, ref: string): boolean {
+	return tryRunGit(cwd, ['show-ref', '--verify', '--quiet', ref]) !== null;
+}
+
+function readCurrentBranch(repo: ResolvedContextRepo): string | null {
+	return readCurrentBranchFromPath(repo.worktreeRoot);
+}
+
+function resolveAfterBranchChange(repo: ResolvedContextRepo, projectFolder: string): ResolvedContextRepo {
+	const matchingClone = findMatchingLocalClone(projectFolder, repo.repoFullName);
+	return resolveContextProject({ ...repo, projectPrefix: null }, projectFolder, matchingClone);
+}
+
+function readCurrentBranchFromPath(cwd: string): string | null {
+	const branch = tryRunGit(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])?.toString().trim();
+	return branch && branch !== 'HEAD' ? branch : null;
+}
+
+function runGitWithIdentity(
+	repo: ResolvedContextRepo,
+	projectFolder: string,
+	args: string[],
+	identity: GitIdentity,
+): Buffer {
+	return runDestructiveWorktreeGit(repo.worktreeRoot, projectFolder, repo.worktreeRoot, args, identity);
+}
+
+function unavailable(
+	reason: ContextGitUnavailableReason,
+	repo: UnresolvedContextRepo | null,
+): Extract<ContextExplorerGitResolution, { status: 'unavailable' }> {
+	return { status: 'unavailable', reason, message: unavailableMessage(reason), repo: toContextRepoState(repo) };
+}
+
+async function clearRecordedContextFileEdits(projectId: string, paths: string[]): Promise<void> {
+	const { clearContextFileEdits } = await import('./context-file-edit.service');
+	await clearContextFileEdits(projectId, paths);
+}
+
+function unavailableMessage(reason: ContextGitUnavailableReason): string {
 	return {
-		provider: input.provider,
-		repoFullName: input.repoFullName,
-		branch: input.branch,
-		connectionType,
-	};
+		'github-unavailable': 'GitHub is not configured for this instance. Add the GitHub client credentials first.',
+		'no-token': 'Connect your GitHub account before using Git actions in the context explorer.',
+		'no-repo': 'No context repository is connected. Open repository setup to connect one.',
+		'unsupported-provider': 'Context explorer Git operations support GitHub only. GitLab is not supported yet.',
+		'project-not-found': 'No tracked nao_config.yaml was found in the connected repository.',
+		'project-ambiguous': 'Multiple nao projects were found in the connected repository.',
+	}[reason];
+}
+
+function assertGitHubProvider(provider: RepoProvider): asserts provider is 'github' {
+	if (provider !== 'github') {
+		throw new TRPCError({ code: 'FORBIDDEN', message: unavailableMessage('unsupported-provider') });
+	}
 }
 
 function validateRepoFullName(repoFullName: string): void {
 	if (!REPO_FULL_NAME_PATTERN.test(repoFullName)) {
-		throw new Error('Expected a repository in "owner/name" format.');
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Expected a repository in "owner/name" format.' });
 	}
 }
 
@@ -290,120 +837,47 @@ function validateBranch(branch: string): void {
 		branch.endsWith('/') ||
 		branch.endsWith('.lock')
 	) {
-		throw new Error('Invalid repository branch.');
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid repository branch.' });
 	}
+}
+
+function normalizeVirtualPath(filePath: string): string {
+	return `/${normalizeProjectPath(filePath)}`;
+}
+
+function normalizeRemote(remote: string | undefined): string {
+	return (remote ?? '')
+		.replace(/\.git$/, '')
+		.replace(/\/$/, '')
+		.toLowerCase();
+}
+
+function sameRealPath(left: string, right: string): boolean {
+	try {
+		return fs.realpathSync(left) === fs.realpathSync(right);
+	} catch {
+		return path.resolve(left) === path.resolve(right);
+	}
+}
+
+function withCoAuthor(message: string, coAuthor: GitIdentity): string {
+	return `${message.trim()}\n\nCo-authored-by: ${coAuthor.name} <${coAuthor.email}>`;
 }
 
 function isGitContextSource(): boolean {
 	return process.env.NAO_CONTEXT_SOURCE === 'git';
 }
 
-function readOptionalGitValue(projectFolder: string, args: string[]): string | null {
-	return tryRunGit(projectFolder, args)?.toString().trim() || null;
+function readOptionalGitValue(cwd: string, args: string[]): string | null {
+	return tryRunGit(cwd, args)?.toString().trim() || null;
 }
 
-function sanitizeConnectionError(error: unknown, token: string): Error {
-	const message = error instanceof Error ? error.message : 'Failed to connect repository.';
-	return new Error(token ? message.replaceAll(token, '[redacted]') : message);
+function sanitizeGitError(error: unknown, token: string): Error {
+	const message = error instanceof Error ? error.message : 'Git operation failed.';
+	return new Error(message.replaceAll(token, '[redacted]'));
 }
 
-function parseChangedFiles(output: Buffer, repo: ContextRepo, projectFolder: string): ContextChangedFile[] {
-	const records = output.toString().split('\0');
-	const changedFiles = new Map<string, ContextChangedFile>();
-
-	for (let index = 0; index < records.length; index++) {
-		const record = records[index];
-		if (!record || record.length < 4) {
-			continue;
-		}
-		const status = record.slice(0, 2);
-		const repoPath = record.slice(3);
-		if (status.includes('R') || status.includes('C')) {
-			const sourceRepoPath = records[++index];
-			addChangedFile(changedFiles, repo, repoPath, 'untracked', projectFolder);
-			if (status.includes('R') && sourceRepoPath) {
-				addChangedFile(changedFiles, repo, sourceRepoPath, 'deleted', projectFolder);
-			}
-			continue;
-		}
-
-		addChangedFile(changedFiles, repo, repoPath, statusKind(status), projectFolder);
-	}
-
-	return [...changedFiles.values()].sort((left, right) => left.path.localeCompare(right.path));
-}
-
-function statusKind(status: string): ContextChangedFile['kind'] {
-	if (status === '??' || status.includes('A')) {
-		return 'untracked';
-	}
-	return status.includes('D') ? 'deleted' : 'modified';
-}
-
-function addChangedFile(
-	changedFiles: Map<string, ContextChangedFile>,
-	repo: ContextRepo,
-	repoPath: string,
-	kind: ContextChangedFile['kind'],
-	projectFolder: string,
-): void {
-	const projectPath = fromRepoPath(repo, repoPath);
-	if (!projectPath || !isExplorerPath(projectPath, projectFolder)) {
-		return;
-	}
-	const path = `/${projectPath}`;
-	changedFiles.set(path, { path, kind });
-}
-
-function isExplorerPath(projectPath: string, projectFolder: string): boolean {
-	try {
-		resolveAndValidatePath(`/${projectPath}`, projectFolder);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-function readCommittedText(repo: ContextRepo, projectPath: string): string {
-	try {
-		const content = readCommittedFile(repo, projectPath, MAX_CONTEXT_FILE_SIZE);
-		validateContentBuffer(content);
-		return decodeTextContent(content);
-	} catch (error) {
-		throw toDiffError(error);
-	}
-}
-
-function readWorkingTreeText(filePath: string, projectFolder: string): string {
-	const { realPath } = resolveAndValidatePath(filePath, projectFolder);
-	try {
-		const fileDescriptor = fs.openSync(realPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-		try {
-			const stat = fs.fstatSync(fileDescriptor);
-			if (!stat.isFile()) {
-				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Only regular files can be diffed.' });
-			}
-			if (stat.size > MAX_CONTEXT_FILE_SIZE) {
-				throw new TRPCError({ code: 'BAD_REQUEST', message: 'File is too large to diff (max 1 MB).' });
-			}
-			const content = fs.readFileSync(fileDescriptor);
-			validateContentBuffer(content);
-			return decodeTextContent(content);
-		} finally {
-			fs.closeSync(fileDescriptor);
-		}
-	} catch (error) {
-		throw toDiffError(error);
-	}
-}
-
-function toDiffError(error: unknown): TRPCError {
-	if (error instanceof TRPCError) {
-		return error;
-	}
-	const message = error instanceof Error ? error.message : 'Unable to read this file diff.';
-	if (message.includes('maxBuffer')) {
-		return new TRPCError({ code: 'BAD_REQUEST', message: 'File is too large to diff (max 1 MB).' });
-	}
-	return new TRPCError({ code: 'BAD_REQUEST', message });
+function isDirtySwitchConflict(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : '';
+	return message.includes('would be overwritten by checkout') || message.includes('would be overwritten by switch');
 }

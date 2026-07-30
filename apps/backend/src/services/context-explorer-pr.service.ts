@@ -1,14 +1,10 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-
-import type { ProposedEdit } from '@nao/shared/types';
-
-import { toRepoPath } from '../utils/context-repo';
-import { logger } from '../utils/logger';
-import { buildContextProposedEdits } from './context-explorer-edit.service';
-import { requireContextRepo } from './context-explorer-git.service';
-import { createReviewRequest, REVIEW_REQUEST_PROVIDERS, ReviewRequestProvider } from './context-pr.service';
+import {
+	ContextExplorerGitContext,
+	getGithubContextRepositoryProvider,
+	pushContextBranch,
+	requireContextExplorerGit,
+} from './context-explorer-git.service';
+import * as github from './github';
 
 export interface ContextPullRequestResult {
 	url: string;
@@ -16,50 +12,17 @@ export interface ContextPullRequestResult {
 }
 
 export async function createContextExplorerPullRequest(
-	projectFolder: string,
-	userId: string,
-	paths: string[],
-	providerOverride?: ReviewRequestProvider,
+	context: ContextExplorerGitContext,
+	input: { title: string; body?: string },
 ): Promise<ContextPullRequestResult> {
-	const repo = requireContextRepo(projectFolder);
-	const edits = await buildContextProposedEdits(projectFolder, paths);
-	const branch = `nao/context-edits-${Date.now().toString(36)}`;
-	const workdir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-context-pr-'));
-	const provider = providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
-	const title = contextPullRequestTitle(edits);
-
-	try {
-		const reviewEdits = edits.map((edit) => ({
-			path: toRepoPath(repo, edit.path),
-			newContent: edit.newContent,
-		}));
-		const { url } = await createReviewRequest({
-			provider,
-			userId,
-			repoFullName: repo.repoFullName,
-			workdir,
-			branch,
-			configuredBase: repo.branch,
-			edits: reviewEdits,
-			title,
-			commitMessage: title,
-			body: contextPullRequestBody(edits),
-		});
-		return { url, branch };
-	} finally {
-		try {
-			fs.rmSync(workdir, { recursive: true, force: true });
-		} catch (error) {
-			logger.error(`Failed to clean up PR workdir ${workdir}: ${String(error)}`, { source: 'agent' });
-		}
-	}
-}
-
-function contextPullRequestTitle(edits: ProposedEdit[]): string {
-	return edits.length === 1 ? `nao context: update ${edits[0].path}` : `nao context: update ${edits.length} files`;
-}
-
-function contextPullRequestBody(edits: ProposedEdit[]): string {
-	const files = edits.map((edit) => `- \`${edit.path}\``).join('\n');
-	return ['Context files edited in nao.', '', '**Files changed:**', files].join('\n');
+	const { repo, context: availableContext } = await requireContextExplorerGit(context);
+	const provider = availableContext.providerOverride ?? getGithubContextRepositoryProvider();
+	const { branch, defaultBranch } = pushContextBranch(repo, context.projectFolder, provider, availableContext.token);
+	const result = await github.createPullRequest(availableContext.token, repo.repoFullName, {
+		title: input.title,
+		body: input.body,
+		head: branch,
+		base: defaultBranch,
+	});
+	return { url: result.html_url, branch };
 }

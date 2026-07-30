@@ -1,64 +1,121 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import type { RepoProvider } from '@nao/shared/types';
+import type { ContextGitUnavailableReason, RepoProvider } from '@nao/shared/types';
 
-import * as github from '../services/github';
-import * as gitlab from '../services/gitlab';
-import { runGit } from './git-repo';
+import { runGit, tryRunGit } from './git-repo';
 
-export interface ContextRepo {
+export interface ContextRepoConfig {
+	repoFullName: string;
+	provider: RepoProvider;
+}
+
+export interface UnresolvedContextRepo {
 	provider: RepoProvider;
 	repoFullName: string;
 	branch: string | null;
 	worktreeRoot: string;
+	projectPrefix: null;
+}
+
+export interface ResolvedContextRepo extends Omit<UnresolvedContextRepo, 'projectPrefix'> {
 	projectPrefix: string;
 }
 
+export type ContextRepo = UnresolvedContextRepo | ResolvedContextRepo;
 export type ContextRepoState = Pick<ContextRepo, 'provider' | 'repoFullName' | 'branch'>;
 
-export function resolveContextRepo(projectFolder: string): ContextRepo | null {
-	const worktreeRoot = resolveWorktreeRoot(projectFolder);
-	if (!worktreeRoot) {
-		return null;
+export class ContextProjectResolutionError extends Error {
+	constructor(
+		public readonly reason: Extract<ContextGitUnavailableReason, 'project-not-found' | 'project-ambiguous'>,
+		message: string,
+	) {
+		super(message);
 	}
-
-	const githubInfo = github.getGitInfo(projectFolder);
-	if (githubInfo.isGithub && githubInfo.repoFullName) {
-		return buildContextRepo('github', githubInfo.repoFullName, githubInfo.branch, worktreeRoot, projectFolder);
-	}
-
-	const gitlabInfo = gitlab.getGitInfo(projectFolder);
-	if (gitlabInfo.isGitlab && gitlabInfo.repoFullName) {
-		return buildContextRepo('gitlab', gitlabInfo.repoFullName, gitlabInfo.branch, worktreeRoot, projectFolder);
-	}
-
-	return null;
 }
 
-export function toContextRepoState(repo: ContextRepo | null): ContextRepoState | null {
-	if (!repo) {
+const prefixCache = new Map<string, { commit: string; prefix: string }>();
+
+export async function resolveContextRepo(
+	projectId: string,
+	projectFolder: string,
+	configOverride?: ContextRepoConfig | null,
+): Promise<UnresolvedContextRepo | null> {
+	const config = configOverride === undefined ? await readContextRepoConfig(projectId) : configOverride;
+	if (!config) {
 		return null;
 	}
 	return {
-		provider: repo.provider,
-		repoFullName: repo.repoFullName,
-		branch: repo.branch,
+		provider: config.provider,
+		repoFullName: config.repoFullName,
+		branch: readCurrentBranch(getContextWorktreePath(projectId, projectFolder)),
+		worktreeRoot: getContextWorktreePath(projectId, projectFolder),
+		projectPrefix: null,
 	};
 }
 
-export function getCommittedProjectPaths(repo: ContextRepo): Set<string> {
-	const pathspec = repo.projectPrefix || '.';
-	const output = runGit(repo.worktreeRoot, ['ls-tree', '-r', '-z', '--name-only', 'HEAD', '--', pathspec]);
-	const paths = parseNullDelimited(output);
+export function resolveContextProject(
+	repo: UnresolvedContextRepo,
+	projectFolder: string,
+	matchingCloneRoot: string | null,
+): ResolvedContextRepo {
+	const commit = runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();
+	const cached = prefixCache.get(repo.worktreeRoot);
+	if (cached?.commit === commit) {
+		return { ...repo, branch: readCurrentBranch(repo.worktreeRoot), projectPrefix: cached.prefix };
+	}
+
+	const prefix = matchingCloneRoot
+		? resolvePrefixFromClone(matchingCloneRoot, projectFolder)
+		: resolvePrefixFromTrackedConfigs(repo.worktreeRoot);
+	prefixCache.set(repo.worktreeRoot, { commit, prefix });
+	return { ...repo, branch: readCurrentBranch(repo.worktreeRoot), projectPrefix: prefix };
+}
+
+export function invalidateContextProjectPrefix(worktreeRoot: string): void {
+	prefixCache.delete(worktreeRoot);
+}
+
+export function getContextWorktreePath(projectId: string, projectFolder: string): string {
+	if (!/^[A-Za-z0-9_-]+$/.test(projectId) || projectId === '.' || projectId === '..') {
+		throw new Error('Invalid project id for context worktree path.');
+	}
+	return path.join(path.dirname(path.resolve(projectFolder)), '.nao', 'worktrees', projectId);
+}
+
+export function toContextRepoState(repo: ContextRepo | null): ContextRepoState | null {
+	return repo
+		? {
+				provider: repo.provider,
+				repoFullName: repo.repoFullName,
+				branch: readCurrentBranch(repo.worktreeRoot),
+			}
+		: null;
+}
+
+export function getWorktreeProjectRoot(repo: ResolvedContextRepo): string {
+	return repo.projectPrefix ? path.join(repo.worktreeRoot, ...repo.projectPrefix.split('/')) : repo.worktreeRoot;
+}
+
+export function getCommittedProjectPaths(repo: ResolvedContextRepo): Set<string> {
+	const output = runGit(repo.worktreeRoot, [
+		'ls-tree',
+		'-r',
+		'-z',
+		'--name-only',
+		'HEAD',
+		'--',
+		repo.projectPrefix || '.',
+	]);
 	return new Set(
-		paths.map((repoPath) => fromRepoPath(repo, repoPath)).filter((entry): entry is string => entry !== null),
+		parseNullDelimited(output)
+			.map((repoPath) => fromRepoPath(repo, repoPath))
+			.filter((entry): entry is string => entry !== null),
 	);
 }
 
-export function readCommittedFile(repo: ContextRepo, projectPath: string, maxSize = 10 * 1024 * 1024): Buffer {
-	const repoPath = toRepoPath(repo, projectPath);
-	const object = `HEAD:${repoPath}`;
+export function readCommittedFile(repo: ResolvedContextRepo, projectPath: string, maxSize = 10 * 1024 * 1024): Buffer {
+	const object = `HEAD:${toRepoPath(repo, projectPath)}`;
 	const size = Number(runGit(repo.worktreeRoot, ['cat-file', '-s', object]).toString().trim());
 	if (!Number.isFinite(size)) {
 		throw new Error(`Unable to determine the committed size of ${projectPath}.`);
@@ -69,18 +126,15 @@ export function readCommittedFile(repo: ContextRepo, projectPath: string, maxSiz
 	return runGit(repo.worktreeRoot, ['show', object], 5_000, maxSize + 64 * 1024);
 }
 
-export function toRepoPath(repo: ContextRepo, projectPath: string): string {
+export function toRepoPath(repo: ResolvedContextRepo, projectPath: string): string {
 	const normalized = normalizeProjectPath(projectPath);
 	return repo.projectPrefix ? `${repo.projectPrefix}/${normalized}` : normalized;
 }
 
-export function fromRepoPath(repo: ContextRepo, repoPath: string): string | null {
+export function fromRepoPath(repo: ResolvedContextRepo, repoPath: string): string | null {
 	const normalized = repoPath.replaceAll('\\', '/');
 	if (!repo.projectPrefix) {
 		return normalized;
-	}
-	if (normalized === repo.projectPrefix) {
-		return '';
 	}
 	const prefix = `${repo.projectPrefix}/`;
 	return normalized.startsWith(prefix) ? normalized.slice(prefix.length) : null;
@@ -90,38 +144,51 @@ export function normalizeProjectPath(projectPath: string): string {
 	return projectPath.replaceAll('\\', '/').replace(/^\/+/, '');
 }
 
-function resolveWorktreeRoot(projectFolder: string): string | null {
-	try {
-		const output = runGit(projectFolder, ['rev-parse', '--show-toplevel']);
-		return fs.realpathSync(output.toString().trim());
-	} catch (error) {
-		if (error instanceof Error && error.message === 'The project folder is not inside a Git repository.') {
-			return null;
-		}
-		throw error;
+function resolvePrefixFromClone(cloneRoot: string, projectFolder: string): string {
+	const relative = path.relative(fs.realpathSync(cloneRoot), fs.realpathSync(projectFolder));
+	if (relative.startsWith('..') || path.isAbsolute(relative)) {
+		throw new ContextProjectResolutionError(
+			'project-not-found',
+			'The live project is outside the connected clone.',
+		);
 	}
+	return relative.split(path.sep).join('/');
 }
 
-function buildContextRepo(
-	provider: RepoProvider,
-	repoFullName: string,
-	branch: string | null,
-	worktreeRoot: string,
-	projectFolder: string,
-): ContextRepo {
-	const projectRoot = fs.realpathSync(projectFolder);
-	const relative = path.relative(worktreeRoot, projectRoot);
-	if (relative.startsWith('..') || path.isAbsolute(relative)) {
-		throw new Error('The project folder is outside its Git worktree.');
+function resolvePrefixFromTrackedConfigs(worktreeRoot: string): string {
+	const output = runGit(worktreeRoot, ['ls-files', '-z', '--', 'nao_config.yaml', ':(glob)**/nao_config.yaml']);
+	const candidates = parseNullDelimited(output);
+	if (candidates.length === 0) {
+		throw new ContextProjectResolutionError(
+			'project-not-found',
+			'No tracked nao_config.yaml was found in the connected repository.',
+		);
 	}
+	if (candidates.length > 1) {
+		throw new ContextProjectResolutionError(
+			'project-ambiguous',
+			`Multiple nao projects were found: ${candidates.join(', ')}.`,
+		);
+	}
+	const directory = path.posix.dirname(candidates[0]);
+	return directory === '.' ? '' : directory;
+}
 
+async function readContextRepoConfig(projectId: string): Promise<ContextRepoConfig | null> {
+	const contextRecommendationQueries = await import('../queries/context-recommendation.queries');
+	const config = await contextRecommendationQueries.getConfig(projectId);
+	if (!config?.repoFullName) {
+		return null;
+	}
 	return {
-		provider,
-		repoFullName,
-		branch,
-		worktreeRoot,
-		projectPrefix: relative.split(path.sep).join('/'),
+		repoFullName: config.repoFullName,
+		provider: config.repoProvider ?? 'github',
 	};
+}
+
+function readCurrentBranch(worktreeRoot: string): string | null {
+	const branch = tryRunGit(worktreeRoot, ['rev-parse', '--abbrev-ref', 'HEAD'])?.toString().trim();
+	return branch && branch !== 'HEAD' ? branch : null;
 }
 
 function parseNullDelimited(output: Buffer): string[] {
@@ -132,8 +199,5 @@ function parseNullDelimited(output: Buffer): string[] {
 }
 
 function formatFileSize(size: number): string {
-	if (size % (1024 * 1024) === 0) {
-		return `${size / (1024 * 1024)} MB`;
-	}
-	return `${size} bytes`;
+	return size % (1024 * 1024) === 0 ? `${size / (1024 * 1024)} MB` : `${size} bytes`;
 }

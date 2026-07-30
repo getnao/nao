@@ -1,7 +1,9 @@
+import { REPO_PROVIDERS } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import * as userQueries from '../queries/user.queries';
+import type { ContextExplorerFileAccess } from '../services/context-explorer.service';
 import {
 	getFileTreeResponse,
 	MAX_CONTEXT_FILE_SIZE,
@@ -9,74 +11,58 @@ import {
 	searchFileContents,
 	writeFileContent,
 } from '../services/context-explorer.service';
+import type { ContextExplorerGitContext } from '../services/context-explorer-git.service';
 import {
+	commitContextChanges,
 	connectContextRepository,
+	createContextBranch,
+	createContextBranchAndCommit,
+	discardAllContextChanges,
 	discardContextFileChange,
 	getChangedContextFiles,
 	getContextFileDiff,
 	getContextRepositoryStatus,
+	resolveContextExplorerGit,
+	switchContextBranch,
 } from '../services/context-explorer-git.service';
 import { createContextExplorerPullRequest } from '../services/context-explorer-pr.service';
 import { contextAdminProtectedProcedure } from './trpc';
 
-function requireProjectPath(path: string | null): string {
-	if (!path) {
-		throw new TRPCError({ code: 'BAD_REQUEST', message: 'No project path configured' });
-	}
-	return path;
-}
+const branchSchema = z.string().trim().min(1).max(200);
+const pathsSchema = z.array(z.string()).min(1).max(100);
 
 export const contextExplorerRoutes = {
-	getRepositoryStatus: contextAdminProtectedProcedure.query(({ ctx }) => {
-		const projectPath = requireProjectPath(ctx.project.path);
-		return getContextRepositoryStatus(projectPath);
+	getRepositoryStatus: contextAdminProtectedProcedure.query(async ({ ctx }) => {
+		return getContextRepositoryStatus(await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id));
 	}),
 
 	connectRepository: contextAdminProtectedProcedure
 		.input(
 			z.object({
-				provider: z.enum(['github', 'gitlab']),
+				provider: z.enum(REPO_PROVIDERS),
 				repoFullName: z
 					.string()
 					.trim()
 					.regex(/^[\w./-]+\/[\w.-]+$/, 'Expected a repository in "owner/name" format'),
-				branch: z.string().trim().min(1).optional().default('main'),
+				branch: branchSchema.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			const projectPath = requireProjectPath(ctx.project.path);
-			const token =
-				input.provider === 'github'
-					? await userQueries.getGithubToken(ctx.user.id)
-					: await userQueries.getGitlabToken(ctx.user.id);
-			if (!token) {
-				throw new TRPCError({
-					code: 'BAD_REQUEST',
-					message:
-						input.provider === 'github'
-							? 'GitHub is not connected. Connect your GitHub account first.'
-							: 'GitLab is not connected. Connect your GitLab account first.',
-				});
+			const context = await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id);
+			if (!context.token) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'Connect your GitHub account first.' });
 			}
-
-			try {
-				return await connectContextRepository({ projectFolder: projectPath, token, ...input });
-			} catch (error) {
-				throw new TRPCError({
-					code: 'BAD_REQUEST',
-					message: error instanceof Error ? error.message : 'Failed to connect repository.',
-				});
-			}
+			return connectContextRepository({ ...context, token: context.token, ...input });
 		}),
 
 	getFileTree: contextAdminProtectedProcedure.query(async ({ ctx }) => {
-		const projectPath = requireProjectPath(ctx.project.path);
-		return getFileTreeResponse(projectPath);
+		const access = await createFileAccess(ctx.project.id, ctx.project.path, ctx.user.id);
+		return getFileTreeResponse(access);
 	}),
 
 	readFile: contextAdminProtectedProcedure.input(z.object({ path: z.string() })).query(async ({ ctx, input }) => {
-		const projectPath = requireProjectPath(ctx.project.path);
-		return readFileContent(input.path, projectPath);
+		const access = await createFileAccess(ctx.project.id, ctx.project.path, ctx.user.id);
+		return readFileContent(input.path, access);
 	}),
 
 	writeFile: contextAdminProtectedProcedure
@@ -88,38 +74,119 @@ export const contextExplorerRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			const projectPath = requireProjectPath(ctx.project.path);
-			return writeFileContent(input.path, input.content, input.expectedHash, projectPath);
+			const access = await createFileAccess(ctx.project.id, ctx.project.path, ctx.user.id);
+			return writeFileContent(input.path, input.content, input.expectedHash, access);
 		}),
 
 	searchContent: contextAdminProtectedProcedure
 		.input(z.object({ query: z.string().min(2).max(200) }))
-		.query(async ({ ctx, input }) => {
-			const projectPath = requireProjectPath(ctx.project.path);
-			return searchFileContents(input.query, projectPath);
-		}),
+		.query(({ ctx, input }) => searchFileContents(input.query, requireProjectPath(ctx.project.path))),
 
-	getChangedFiles: contextAdminProtectedProcedure.query(({ ctx }) => {
-		const projectPath = requireProjectPath(ctx.project.path);
-		return getChangedContextFiles(projectPath);
+	getChangedFiles: contextAdminProtectedProcedure.query(async ({ ctx }) => {
+		return getChangedContextFiles(await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id));
 	}),
 
 	getFileDiff: contextAdminProtectedProcedure.input(z.object({ path: z.string() })).query(async ({ ctx, input }) => {
-		const projectPath = requireProjectPath(ctx.project.path);
-		return getContextFileDiff(input.path, projectPath);
+		return getContextFileDiff(await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id), input.path);
 	}),
 
-	createPullRequest: contextAdminProtectedProcedure
-		.input(z.object({ paths: z.array(z.string()).min(1).max(100) }))
+	switchBranch: contextAdminProtectedProcedure
+		.input(z.object({ branch: branchSchema }))
 		.mutation(async ({ ctx, input }) => {
-			const projectPath = requireProjectPath(ctx.project.path);
-			return createContextExplorerPullRequest(projectPath, ctx.user.id, input.paths);
+			return switchContextBranch(
+				await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id),
+				input.branch,
+			);
+		}),
+
+	createBranch: contextAdminProtectedProcedure
+		.input(z.object({ branch: branchSchema }))
+		.mutation(async ({ ctx, input }) => {
+			return createContextBranch(
+				await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id),
+				input.branch,
+			);
+		}),
+
+	createBranchAndCommit: contextAdminProtectedProcedure
+		.input(
+			z.object({
+				branch: branchSchema.optional(),
+				paths: pathsSchema,
+				message: z.string().trim().min(1).max(500),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			return createContextBranchAndCommit(
+				await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id),
+				input,
+			);
+		}),
+
+	commitChanges: contextAdminProtectedProcedure
+		.input(z.object({ paths: pathsSchema, message: z.string().trim().min(1).max(500) }))
+		.mutation(async ({ ctx, input }) => {
+			return commitContextChanges(await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id), input);
 		}),
 
 	discardLocalChange: contextAdminProtectedProcedure
 		.input(z.object({ path: z.string() }))
-		.mutation(({ ctx, input }) => {
-			const projectPath = requireProjectPath(ctx.project.path);
-			return discardContextFileChange(input.path, projectPath);
+		.mutation(async ({ ctx, input }) => {
+			return discardContextFileChange(
+				await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id),
+				input.path,
+			);
+		}),
+
+	discardAllChanges: contextAdminProtectedProcedure.mutation(async ({ ctx }) => {
+		return discardAllContextChanges(await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id));
+	}),
+
+	createPullRequest: contextAdminProtectedProcedure
+		.input(
+			z.object({
+				paths: pathsSchema,
+				title: z.string().trim().min(1).max(200).optional(),
+				body: z.string().max(10_000).optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			return createContextExplorerPullRequest(
+				await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id),
+				{ title: input.title ?? 'Update nao context', body: input.body },
+			);
 		}),
 };
+
+async function createFileAccess(
+	projectId: string,
+	projectPath: string | null,
+	userId: string,
+): Promise<ContextExplorerFileAccess> {
+	const context = await createGitContext(projectId, projectPath, userId);
+	return {
+		projectId,
+		projectFolder: context.projectFolder,
+		userId,
+		git: await resolveContextExplorerGit(context),
+	};
+}
+
+async function createGitContext(
+	projectId: string,
+	projectPath: string | null,
+	userId: string,
+): Promise<ContextExplorerGitContext> {
+	return {
+		projectId,
+		projectFolder: requireProjectPath(projectPath),
+		token: await userQueries.getGithubToken(userId),
+	};
+}
+
+function requireProjectPath(projectPath: string | null): string {
+	if (!projectPath) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'No project path configured.' });
+	}
+	return projectPath;
+}

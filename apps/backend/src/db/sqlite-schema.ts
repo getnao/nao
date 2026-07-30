@@ -711,6 +711,31 @@ export const contextRecommendationConfig = sqliteTable('context_recommendation_c
 		.notNull(),
 });
 
+export const contextFileEdit = sqliteTable(
+	'context_file_edit',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		path: text('path').notNull(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		unique('context_file_edit_project_path_unique').on(t.projectId, t.path),
+		index('context_file_edit_projectId_idx').on(t.projectId),
+		index('context_file_edit_userId_idx').on(t.userId),
+	],
+);
+
 export const contextRecommendation = sqliteTable(
 	'context_recommendation',
 	{

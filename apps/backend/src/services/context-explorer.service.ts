@@ -3,9 +3,11 @@ import fsSync from 'node:fs';
 import path from 'node:path';
 
 import type {
+	ContextGitUnavailableReason,
 	FileContentResponse,
 	FileContentSearchResponse,
 	FileContentSearchResult,
+	FileEditabilityGuidance,
 	FileEditabilityReason,
 	FileTreeEntry,
 	FileWriteResponse,
@@ -14,14 +16,8 @@ import { TRPCError } from '@trpc/server';
 import { spawn } from 'child_process';
 import fs from 'fs/promises';
 
-import {
-	ContextRepo,
-	ContextRepoState,
-	getCommittedProjectPaths,
-	normalizeProjectPath,
-	resolveContextRepo,
-	toContextRepoState,
-} from '../utils/context-repo';
+import type { ContextRepoState, ResolvedContextRepo } from '../utils/context-repo';
+import { getCommittedProjectPaths, getWorktreeProjectRoot, normalizeProjectPath } from '../utils/context-repo';
 import { getRipgrepPath } from '../utils/ripgrep';
 import { assertNoSymlinkInWritePath, canonicalizeWriteRoot, writeFileAtomically } from '../utils/safe-file-write';
 import {
@@ -32,6 +28,7 @@ import {
 	toRealPath,
 	toVirtualPath,
 } from '../utils/tools';
+import type { ContextExplorerGitResolution } from './context-explorer-git.service';
 
 const SEARCH_TIMEOUT_MS = 5_000;
 const MAX_SEARCH_FILES = 200;
@@ -42,11 +39,21 @@ const FRONTMATTER_READ_SIZE = 8 * 1024;
 export interface FileEditability {
 	isEditable: boolean;
 	reason: FileEditabilityReason | null;
+	guidance: FileEditabilityGuidance | null;
 }
 
 export interface FileTreeResponse {
 	entries: FileTreeEntry[];
 	repo: ContextRepoState | null;
+	gitUnavailableReason: FileEditabilityReason | null;
+	gitUnavailableMessage: string | null;
+}
+
+export interface ContextExplorerFileAccess {
+	projectId: string;
+	projectFolder: string;
+	userId?: string;
+	git: ContextExplorerGitResolution;
 }
 
 type RipgrepMatchEntry = {
@@ -60,29 +67,50 @@ type RipgrepMatchEntry = {
 };
 
 export async function getFileTree(projectFolder: string): Promise<FileTreeEntry[]> {
-	const repo = resolveContextRepo(projectFolder);
-	const trackedPaths = repo ? getCommittedProjectPaths(repo) : new Set<string>();
-	return readDirectoryRecursive(projectFolder, projectFolder, trackedPaths);
+	return readDirectoryRecursive(projectFolder, projectFolder, new Set<string>());
 }
 
-export async function getFileTreeResponse(projectFolder: string): Promise<FileTreeResponse> {
-	const repo = resolveContextRepo(projectFolder);
+export async function getFileTreeResponse(access: ContextExplorerFileAccess): Promise<FileTreeResponse> {
+	const repo = availableRepo(access.git);
 	const trackedPaths = repo ? getCommittedProjectPaths(repo) : new Set<string>();
 	return {
-		entries: await readDirectoryRecursive(projectFolder, projectFolder, trackedPaths),
-		repo: toContextRepoState(repo),
+		entries: await readDirectoryRecursive(access.projectFolder, access.projectFolder, trackedPaths),
+		repo: access.git.repo,
+		gitUnavailableReason: access.git.status === 'unavailable' ? access.git.reason : null,
+		gitUnavailableMessage: access.git.status === 'unavailable' ? access.git.message : null,
 	};
 }
 
-export async function readFileContent(filePath: string, projectFolder: string): Promise<FileContentResponse> {
-	const { realPath } = resolveAndValidatePath(filePath, projectFolder);
-	const contentBuffer = await readValidatedFile(realPath, filePath);
-	const editability = getFileEditability(filePath, realPath, projectFolder);
+export async function readFileContent(
+	filePath: string,
+	access: ContextExplorerFileAccess | string,
+): Promise<FileContentResponse> {
+	if (typeof access === 'string') {
+		const { realPath } = resolveAndValidatePath(filePath, access);
+		const contentBuffer = await readValidatedFile(realPath, filePath);
+		return {
+			content: decodeTextContent(contentBuffer),
+			hash: hashContent(contentBuffer),
+			isEditable: false,
+			editabilityReason: 'no-repo',
+			editabilityGuidance: guidanceForReason('no-repo'),
+		};
+	}
+	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
+	const repo = availableRepo(access.git);
+	const trackedPaths = repo ? getCommittedProjectPaths(repo) : new Set<string>();
+	const editability = getFileEditability(filePath, livePath, access, repo, trackedPaths);
+	const readPath =
+		repo && trackedPaths.has(normalizeProjectPath(filePath))
+			? resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo)).realPath
+			: livePath;
+	const contentBuffer = await readValidatedFile(readPath, filePath);
 	return {
 		content: decodeTextContent(contentBuffer),
 		hash: hashContent(contentBuffer),
 		isEditable: editability.isEditable,
 		editabilityReason: editability.reason,
+		editabilityGuidance: editability.guidance,
 	};
 }
 
@@ -90,14 +118,23 @@ export async function writeFileContent(
 	filePath: string,
 	content: string,
 	expectedHash: string,
-	projectFolder: string,
+	access: ContextExplorerFileAccess | string,
 ): Promise<FileWriteResponse> {
+	if (typeof access === 'string') {
+		throw new TRPCError({ code: 'FORBIDDEN', message: guidanceForReason('no-repo').message });
+	}
 	validateExpectedHash(expectedHash);
 	const contentBuffer = Buffer.from(content, 'utf-8');
 	validateContentBuffer(contentBuffer);
 
-	const { realPath, root } = resolveAndValidatePath(filePath, projectFolder);
-	assertFileEditable(filePath, realPath, projectFolder);
+	if (access.git.status === 'unavailable') {
+		throw new TRPCError({ code: 'FORBIDDEN', message: access.git.message });
+	}
+	const repo = access.git.repo;
+	const livePath = resolveAndValidatePath(filePath, access.projectFolder).realPath;
+	const trackedPaths = getCommittedProjectPaths(repo);
+	assertFileEditable(filePath, livePath, access, repo, trackedPaths);
+	const { realPath, root } = resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo));
 	const currentContent = await readValidatedFile(realPath, filePath);
 	assertExpectedHash(currentContent, expectedHash);
 
@@ -116,47 +153,69 @@ export async function writeFileContent(
 		throw toFileError(error, filePath);
 	}
 
+	if (access.userId) {
+		const { recordContextFileEdit } = await import('./context-file-edit.service');
+		await recordContextFileEdit(access.projectId, filePath, access.userId);
+	}
 	return { hash: hashContent(contentBuffer) };
 }
 
 export function getFileEditability(
 	filePath: string,
 	realPath: string,
-	projectFolder: string,
-	repo = resolveContextRepo(projectFolder),
-	trackedPaths = repo ? getCommittedProjectPaths(repo) : new Set<string>(),
+	access: ContextExplorerFileAccess,
+	repo: ResolvedContextRepo | null,
+	trackedPaths: Set<string>,
 ): FileEditability {
-	if (!repo) {
-		return { isEditable: false, reason: 'no-repo' };
+	if (access.git.status === 'unavailable') {
+		return unavailableGitEditability(access.git.reason, access.git.message);
 	}
 
 	const projectPath = normalizeProjectPath(filePath);
-	if (!trackedPaths.has(projectPath)) {
-		return { isEditable: false, reason: 'not-tracked' };
-	}
 	if (hasGeneratedFrontmatter(realPath)) {
-		return { isEditable: false, reason: 'generated' };
+		const annotationsPath = siblingPathIfExists(filePath, realPath, 'annotations.md');
+		return readOnly('generated', {
+			message: annotationsPath
+				? 'This file is generated by nao sync. Add human notes in annotations.md.'
+				: 'This file is generated by nao sync. Change its source instead.',
+			actionPath: annotationsPath,
+			actionLabel: annotationsPath ? 'Open annotations.md' : null,
+		});
 	}
 	if (fsSync.existsSync(`${realPath}.j2`)) {
-		return { isEditable: false, reason: 'rendered-template' };
+		return readOnly('rendered-template', {
+			message: 'This file is rendered from a Jinja template. Edit the template instead.',
+			actionPath: `${normalizeVirtualPath(filePath)}.j2`,
+			actionLabel: 'Open template',
+		});
 	}
-	return { isEditable: true, reason: null };
+	if (projectPath.startsWith('repos/') || projectPath.startsWith('docs/notion/')) {
+		return readOnly('synced-source', {
+			message: 'This path is replaced by nao sync. Change its source in nao_config.yaml.',
+			actionPath: '/nao_config.yaml',
+			actionLabel: 'Open nao_config.yaml',
+		});
+	}
+	if (!repo || !trackedPaths.has(projectPath)) {
+		return readOnly('not-tracked', guidanceForReason('not-tracked'));
+	}
+	return { isEditable: true, reason: null, guidance: null };
 }
 
 export function assertFileEditable(
 	filePath: string,
 	realPath: string,
-	projectFolder: string,
-	repo?: ContextRepo | null,
-	trackedPaths?: Set<string>,
+	access: ContextExplorerFileAccess,
+	repo: ResolvedContextRepo | null,
+	trackedPaths: Set<string>,
 ): void {
-	const editability = getFileEditability(filePath, realPath, projectFolder, repo, trackedPaths);
+	const editability = getFileEditability(filePath, realPath, access, repo, trackedPaths);
 	if (editability.isEditable) {
 		return;
 	}
 	throw new TRPCError({
 		code: 'FORBIDDEN',
-		message: editabilityMessage(editability.reason),
+		message: editability.guidance?.message ?? 'This file is read-only.',
 	});
 }
 
@@ -473,19 +532,85 @@ function hasGeneratedFrontmatter(filePath: string): boolean {
 	}
 }
 
-function editabilityMessage(reason: FileEditabilityReason | null): string {
-	switch (reason) {
-		case 'no-repo':
-			return 'This project is read-only because no GitHub or GitLab origin is connected.';
-		case 'not-tracked':
-			return 'This file is read-only because it is not committed to the context repository.';
-		case 'generated':
-			return 'This file is read-only because it is generated by nao.';
-		case 'rendered-template':
-			return 'This file is read-only because it is rendered from a Jinja template. Edit the .j2 template instead.';
-		default:
-			return 'This file is read-only.';
+function availableRepo(resolution: ContextExplorerGitResolution): ResolvedContextRepo | null {
+	return resolution.status === 'available' ? resolution.repo : null;
+}
+
+function unavailableGitEditability(reason: ContextGitUnavailableReason, message: string): FileEditability {
+	return readOnly(reason, { ...guidanceForReason(reason), message });
+}
+
+function readOnly(reason: FileEditabilityReason, guidance: FileEditabilityGuidance): FileEditability {
+	return { isEditable: false, reason, guidance };
+}
+
+function guidanceForReason(reason: FileEditabilityReason): FileEditabilityGuidance {
+	const guidance: Record<FileEditabilityReason, FileEditabilityGuidance> = {
+		'github-unavailable': {
+			message: 'GitHub is not configured for this instance.',
+			actionPath: '/settings/integrations',
+			actionLabel: 'Open integrations',
+		},
+		'no-token': {
+			message: 'Connect your GitHub account to edit context files.',
+			actionPath: '/settings/account',
+			actionLabel: 'Connect GitHub',
+		},
+		'no-repo': {
+			message: 'Connect a context repository in setup to edit files.',
+			actionPath: '/settings/context-explorer',
+			actionLabel: 'Open repository setup',
+		},
+		'unsupported-provider': {
+			message: 'GitLab is not supported in the context explorer yet.',
+			actionPath: '/settings/context-explorer',
+			actionLabel: 'Connect GitHub',
+		},
+		'project-not-found': {
+			message: 'No tracked nao_config.yaml was found in the connected repository.',
+			actionPath: null,
+			actionLabel: null,
+		},
+		'project-ambiguous': {
+			message: 'Multiple nao projects were found in the connected repository.',
+			actionPath: null,
+			actionLabel: null,
+		},
+		generated: {
+			message: 'This file is generated by nao sync.',
+			actionPath: null,
+			actionLabel: null,
+		},
+		'rendered-template': {
+			message: 'This file is rendered from a Jinja template.',
+			actionPath: null,
+			actionLabel: null,
+		},
+		'synced-source': {
+			message: 'This path is replaced by nao sync. Change its source in nao_config.yaml.',
+			actionPath: '/nao_config.yaml',
+			actionLabel: 'Open nao_config.yaml',
+		},
+		'not-tracked': {
+			message: 'This live-only file is read-only. Add it to the connected repository to edit it here.',
+			actionPath: null,
+			actionLabel: null,
+		},
+	};
+	return guidance[reason];
+}
+
+function siblingPathIfExists(filePath: string, realPath: string, siblingName: string): string | null {
+	const sibling = path.join(path.dirname(realPath), siblingName);
+	if (!fsSync.existsSync(sibling)) {
+		return null;
 	}
+	const virtualDirectory = path.posix.dirname(normalizeVirtualPath(filePath));
+	return path.posix.join(virtualDirectory, siblingName);
+}
+
+function normalizeVirtualPath(filePath: string): string {
+	return `/${normalizeProjectPath(filePath)}`;
 }
 
 function toFileError(error: unknown, filePath: string): TRPCError {

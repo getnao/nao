@@ -664,6 +664,31 @@ export const contextRecommendationConfig = pgTable('context_recommendation_confi
 		.notNull(),
 });
 
+export const contextFileEdit = pgTable(
+	'context_file_edit',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		path: text('path').notNull(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		unique('context_file_edit_project_path_unique').on(t.projectId, t.path),
+		index('context_file_edit_projectId_idx').on(t.projectId),
+		index('context_file_edit_userId_idx').on(t.userId),
+	],
+);
+
 export const contextRecommendation = pgTable(
 	'context_recommendation',
 	{
