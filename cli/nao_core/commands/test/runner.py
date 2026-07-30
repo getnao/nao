@@ -50,6 +50,7 @@ class TestRunDetails:
     comparison: str | None = None
     tool_calls: list[dict] | None = None
     reference_sql: str | None = None
+    verification_sql: str | None = None
 
 
 @dataclass
@@ -79,6 +80,9 @@ def check_dataframe(
         atol: Absolute tolerance for float comparison.
         decimals: Decimals kept when rounding float values before comparing.
     """
+    if verification.data is None:
+        return False, verification.error or "no data returned", None
+
     actual = pd.DataFrame(verification.data)
     expected = pd.DataFrame(verification.expectedData)
     cols = verification.expectedColumns
@@ -209,6 +213,8 @@ def run_test(
 
         if result.verification:
             tolerances = comparison or ComparisonConfig()
+            if result.verification.sql:
+                UI.print(f"[dim]  Verification SQL: {result.verification.sql}[/dim]")
             passed, msg, diff = check_dataframe(
                 result.verification,
                 rtol=tolerances.rtol,
@@ -233,6 +239,7 @@ def run_test(
                     comparison=diff,
                     tool_calls=result.tool_calls,
                     reference_sql=test_case.sql,
+                    verification_sql=result.verification.sql,
                 ),
             )
 

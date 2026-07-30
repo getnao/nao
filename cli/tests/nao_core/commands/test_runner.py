@@ -67,6 +67,21 @@ def test_check_dataframe_rounds_to_two_decimals():
     assert comparison is None
 
 
+def test_check_dataframe_reports_the_verification_error_when_no_data_was_produced():
+    verification = VerificationResult(
+        data=None,
+        expectedData=[{"total": 1}],
+        expectedColumns=["total"],
+        error="Binder Error: column total does not exist",
+    )
+
+    passed, msg, comparison = check_dataframe(verification)
+
+    assert passed is False
+    assert msg == "Binder Error: column total does not exist"
+    assert comparison is None
+
+
 def test_filter_test_cases_by_name():
     test_cases = [
         NaoTestCase(name="orders", prompt="p1", file_path=Path("tests/orders.yml"), sql="select 1"),
@@ -188,6 +203,7 @@ def test_run_test_records_reference_sql_with_verification(monkeypatch):
             data=[{"total": 1}],
             expectedData=[{"total": 1}],
             expectedColumns=["total"],
+            sql="SELECT total FROM query_abc",
         ),
     )
     monkeypatch.setattr(test_runner_module, "get_client", lambda **_: client)
@@ -197,6 +213,7 @@ def test_run_test_records_reference_sql_with_verification(monkeypatch):
     assert result.passed is True
     assert result.details is not None
     assert result.details.reference_sql == "select 1"
+    assert result.details.verification_sql == "SELECT total FROM query_abc"
 
 
 def test_run_test_records_reference_sql_without_verification(monkeypatch):

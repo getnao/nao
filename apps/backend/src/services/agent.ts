@@ -46,7 +46,7 @@ import {
 } from '../types/chat';
 import type { ModelCosts } from '../types/llm';
 import { Provider } from '../types/messaging-provider';
-import { McpToolContext, ToolContext } from '../types/tools';
+import { McpToolContext, QueryResult, ToolContext } from '../types/tools';
 import {
 	convertToCost,
 	convertToTokenUsage,
@@ -91,6 +91,8 @@ export interface AgentRunResult {
 	}>;
 	/** All message parts (step-starts, tool calls, text) for persisting to the DB */
 	responseParts: UIMessagePart[];
+	/** Rows returned by every `execute_sql` call of the run, keyed by query id */
+	queryResults: Map<string, QueryResult>;
 }
 
 export type AgentChat = Pick<DBChat, 'id' | 'projectId' | 'userId'> & {
@@ -829,6 +831,7 @@ class AgentManager {
 				responseMessages: result.response.messages,
 				steps: result.steps as AgentRunResult['steps'],
 				responseParts: [],
+				queryResults: this._toolContext.queryResults,
 			};
 		} finally {
 			this._finish();
