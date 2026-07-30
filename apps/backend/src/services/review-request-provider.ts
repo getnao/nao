@@ -24,6 +24,7 @@ export interface ReviewRequestProvider {
 		coAuthors?: GitIdentity[];
 	}) => void;
 	pushBranch: (args: { token: string; repoFullName: string; dir: string; branch: string }) => void;
+	findOpenReviewRequest: (token: string, repoFullName: string, branch: string) => Promise<{ url: string } | null>;
 	openReviewRequest: (
 		token: string,
 		repoFullName: string,
@@ -44,6 +45,7 @@ export const REVIEW_REQUEST_PROVIDERS: Record<RepoProvider, ReviewRequestProvide
 		coAuthor: github.NAO_CO_AUTHOR,
 		commitAllAndPushBranch: github.commitAllAndPushBranch,
 		pushBranch: (args) => github.pushBranch(args),
+		findOpenReviewRequest: (token, repoFullName, branch) => github.findOpenPullRequest(token, repoFullName, branch),
 		openReviewRequest: async (token, repoFullName, { title, head, base, body }) => {
 			const pullRequest = await github.createPullRequest(token, repoFullName, { title, head, base, body });
 			return { url: pullRequest.html_url };
@@ -61,6 +63,8 @@ export const REVIEW_REQUEST_PROVIDERS: Record<RepoProvider, ReviewRequestProvide
 		coAuthor: gitlab.NAO_CO_AUTHOR,
 		commitAllAndPushBranch: gitlab.commitAllAndPushBranch,
 		pushBranch: (args) => gitlab.pushBranch(args),
+		findOpenReviewRequest: (token, repoFullName, branch) =>
+			gitlab.findOpenMergeRequest(token, repoFullName, branch),
 		openReviewRequest: async (token, repoFullName, { title, head, base, body }) => {
 			const mergeRequest = await gitlab.createMergeRequest(token, repoFullName, {
 				title,

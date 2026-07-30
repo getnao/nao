@@ -267,34 +267,44 @@ function EditableFileViewer({
 
 	return (
 		<div className='flex flex-col h-full'>
-			<div className='flex items-center gap-2 px-4 py-2 border-b border-border bg-muted/30 text-sm text-muted-foreground shrink-0'>
-				<File className='size-3.5' />
-				<span className='font-mono truncate'>{fileName}</span>
-				<span className='text-xs opacity-60 ml-auto truncate'>{filePath}</span>
-				{isEditable && isDirty && (
-					<span className='flex shrink-0 items-center gap-1 text-xs text-amber-600 dark:text-amber-400'>
-						<span className='size-1.5 rounded-full bg-current' />
-						Unsaved
-					</span>
-				)}
-				<TokenEstimate count={estimatedTokenCount} />
-				{isMarkdown && <SourceToggle isOpen={isSourceOpen} onChange={handleSourceToggle} />}
-				{isEditable && (
-					<Button
-						type='button'
-						size='sm'
-						className='h-7 gap-1.5'
-						onClick={handleSave}
-						disabled={!isDirty || saveMutation.isPending}
-					>
-						{saveMutation.isPending ? (
-							<Loader2 className='size-3.5 animate-spin' />
-						) : (
-							<Save className='size-3.5' />
+			<div className='flex shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-4 py-1 text-sm text-muted-foreground'>
+				<div className='flex min-w-0 flex-1 items-start gap-2 overflow-hidden'>
+					<File className='mt-px size-3.5 shrink-0' />
+					<div className='min-w-0 flex-1'>
+						<div className='flex min-w-0 items-center gap-2'>
+							<span className='min-w-0 truncate font-mono leading-4'>{fileName}</span>
+							<TokenEstimate count={estimatedTokenCount} />
+						</div>
+						<span className='block truncate text-xs leading-4 opacity-60'>{filePath}</span>
+					</div>
+				</div>
+				{(isEditable || isMarkdown) && (
+					<div className='flex shrink-0 items-center gap-2'>
+						{isEditable && isDirty && (
+							<span className='flex shrink-0 items-center gap-1 text-xs text-amber-600 dark:text-amber-400'>
+								<span className='size-1.5 rounded-full bg-current' />
+								Unsaved
+							</span>
 						)}
-						Save
-						<kbd className='font-sans text-[10px] opacity-60'>{isMac ? '⌘S' : 'Ctrl+S'}</kbd>
-					</Button>
+						{isMarkdown && <SourceToggle isOpen={isSourceOpen} onChange={handleSourceToggle} />}
+						{isEditable && (
+							<Button
+								type='button'
+								size='sm'
+								className='h-7 gap-1.5'
+								onClick={handleSave}
+								disabled={!isDirty || saveMutation.isPending}
+							>
+								{saveMutation.isPending ? (
+									<Loader2 className='size-3.5 animate-spin' />
+								) : (
+									<Save className='size-3.5' />
+								)}
+								Save
+								<kbd className='font-sans text-[10px] opacity-60'>{isMac ? '⌘S' : 'Ctrl+S'}</kbd>
+							</Button>
+						)}
+					</div>
 				)}
 			</div>
 			{!isEditable && editabilityGuidance && (
@@ -457,9 +467,9 @@ function SourceToggle({ isOpen, onChange }: { isOpen: boolean; onChange: () => v
 
 function TokenEstimate({ count }: { count: number }) {
 	return (
-		<SimpleTooltip content='Rough estimate, based on about 4 characters per token.'>
-			<span className='shrink-0 whitespace-nowrap rounded-full bg-muted/60 px-2 py-0.5 text-xs text-muted-foreground tabular-nums'>
-				~{formatTokenCount(count)} tokens
+		<SimpleTooltip content="Estimated tokens this file uses in the agent's context. It is approximated from the character count, not counted exactly.">
+			<span className='shrink-0 whitespace-nowrap text-xs text-muted-foreground tabular-nums'>
+				{formatTokenCount(count)} tokens
 			</span>
 		</SimpleTooltip>
 	);

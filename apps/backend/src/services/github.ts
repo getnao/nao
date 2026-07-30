@@ -610,6 +610,21 @@ export async function createPullRequest(
 	return { number: data.number, html_url: data.html_url };
 }
 
+export async function findOpenPullRequest(
+	token: string,
+	repo: string,
+	branch: string,
+): Promise<{ url: string } | null> {
+	const owner = repo.split('/')[0];
+	const params = new URLSearchParams({
+		state: 'open',
+		head: `${owner}:${branch}`,
+		per_page: '1',
+	});
+	const pullRequests = await githubFetchJson<RawPullRequest[]>(token, `/repos/${repo}/pulls?${params}`);
+	return pullRequests[0] ? { url: pullRequests[0].html_url } : null;
+}
+
 export async function createIssueOrPullRequestComment(
 	token: string,
 	repo: string,

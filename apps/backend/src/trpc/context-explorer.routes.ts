@@ -26,7 +26,7 @@ import {
 	suggestContextBranchName,
 	switchContextBranch,
 } from '../services/context-explorer-git.service';
-import { createContextExplorerPullRequest } from '../services/context-explorer-pr.service';
+import { pushContextExplorerBranch } from '../services/context-explorer-pr.service';
 import { resolveContextRepository } from '../utils/context-repo';
 import { contextAdminProtectedProcedure } from './trpc';
 
@@ -155,21 +155,9 @@ export const contextExplorerRoutes = {
 		return discardAllContextChanges(await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id));
 	}),
 
-	createPullRequest: contextAdminProtectedProcedure
-		.input(
-			z.object({
-				paths: pathsSchema,
-				message: z.string().trim().min(1).max(500),
-				title: z.string().trim().min(1).max(200),
-				body: z.string().max(10_000).optional(),
-			}),
-		)
-		.mutation(async ({ ctx, input }) => {
-			return createContextExplorerPullRequest(
-				await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id),
-				input,
-			);
-		}),
+	pushBranch: contextAdminProtectedProcedure.mutation(async ({ ctx }) => {
+		return pushContextExplorerBranch(await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id));
+	}),
 };
 
 async function createFileAccess(

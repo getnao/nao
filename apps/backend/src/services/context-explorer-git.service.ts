@@ -74,6 +74,7 @@ export interface ContextRepositoryStatus {
 	lastCommitMessage: string | null;
 	lastCommitDate: string | null;
 	branches: ContextBranchInfo | null;
+	openReviewRequest: { url: string } | null;
 	isGitRepository: boolean;
 }
 
@@ -89,6 +90,9 @@ export interface CreateBranchAndCommitResult {
 	baseUsed: string;
 	usedFallbackBase: boolean;
 }
+
+type ParsedContextChangedFile = Pick<ContextChangedFile, 'path' | 'kind'>;
+type ContextLineCounts = Pick<ContextChangedFile, 'additions' | 'deletions'>;
 
 export async function resolveContextExplorerGit(
 	context: ContextExplorerGitContext,
@@ -213,44 +217,71 @@ export async function ensureContextWorktree(
 }
 
 export async function getContextRepositoryStatus(context: ContextExplorerGitContext): Promise<ContextRepositoryStatus> {
-	const resolution = await resolveContextExplorerGit(context);
-	if (resolution.status === 'unavailable') {
-		const provider = resolution.repo ? REVIEW_REQUEST_PROVIDERS[resolution.repo.provider] : null;
+	try {
+		const resolution = await resolveContextExplorerGit(context);
+		if (resolution.status === 'unavailable') {
+			const provider = resolution.repo ? REVIEW_REQUEST_PROVIDERS[resolution.repo.provider] : null;
+			return {
+				repo: resolution.repo,
+				repositoryUrl:
+					resolution.repo && provider ? provider.publicRepoUrl(resolution.repo.repoFullName) : null,
+				managedByContextSource: isGitContextSource(),
+				gitUnavailableReason: resolution.reason,
+				gitUnavailableMessage: resolution.message,
+				lastCommitMessage: null,
+				lastCommitDate: null,
+				branches: null,
+				openReviewRequest: null,
+				isGitRepository: false,
+			};
+		}
+		const { repo } = resolution;
+		const provider = resolution.context.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
+		const branches = getContextBranches(repo);
 		return {
-			repo: resolution.repo,
-			repositoryUrl: resolution.repo && provider ? provider.publicRepoUrl(resolution.repo.repoFullName) : null,
+			repo: toContextRepoState(repo),
+			repositoryUrl: provider.publicRepoUrl(repo.repoFullName),
 			managedByContextSource: isGitContextSource(),
-			gitUnavailableReason: resolution.reason,
-			gitUnavailableMessage: resolution.message,
+			gitUnavailableReason: null,
+			gitUnavailableMessage: null,
+			lastCommitMessage: readOptionalGitValue(repo.worktreeRoot, ['log', '-1', '--format=%s']),
+			lastCommitDate: readOptionalGitValue(repo.worktreeRoot, ['log', '-1', '--format=%cI']),
+			branches,
+			openReviewRequest: await findOpenContextReviewRequest(
+				provider,
+				resolution.context.token,
+				repo.repoFullName,
+				branches.currentBranch,
+				branches.defaultBranch,
+			),
+			isGitRepository: true,
+		};
+	} catch {
+		return {
+			repo: null,
+			repositoryUrl: null,
+			managedByContextSource: isGitContextSource(),
+			gitUnavailableReason: 'git-unavailable',
+			gitUnavailableMessage: unavailableMessage('git-unavailable'),
 			lastCommitMessage: null,
 			lastCommitDate: null,
 			branches: null,
+			openReviewRequest: null,
 			isGitRepository: false,
 		};
 	}
-	const { repo } = resolution;
-	const provider = resolution.context.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
-	fetchContextRepository(repo, resolution.context.projectFolder, provider, resolution.context.token);
-	return {
-		repo: toContextRepoState(repo),
-		repositoryUrl: provider.publicRepoUrl(repo.repoFullName),
-		managedByContextSource: isGitContextSource(),
-		gitUnavailableReason: null,
-		gitUnavailableMessage: null,
-		lastCommitMessage: readOptionalGitValue(repo.worktreeRoot, ['log', '-1', '--format=%s']),
-		lastCommitDate: readOptionalGitValue(repo.worktreeRoot, ['log', '-1', '--format=%cI']),
-		branches: getContextBranches(repo),
-		isGitRepository: true,
-	};
 }
 
 export function getContextBranches(repo: ResolvedContextRepo): ContextBranchInfo {
 	const defaultBranch = readDefaultBranch(repo);
+	const currentBranch = readCurrentBranch(repo);
 	const branches = readContextBranchNames(repo);
 	branches.add(defaultBranch);
 	return {
-		currentBranch: readCurrentBranch(repo),
+		currentBranch,
 		defaultBranch,
+		aheadCommitCount: readAheadCommitCount(repo, currentBranch, defaultBranch),
+		unpushedCommitCount: readUnpushedCommitCount(repo, currentBranch, defaultBranch),
 		branches: [...branches].sort(),
 		suggestedBranch: generateContextBranchName(repo),
 	};
@@ -358,13 +389,20 @@ export async function commitContextChanges(
 }
 
 export async function getChangedContextFiles(context: ContextExplorerGitContext): Promise<ContextChangedFile[]> {
-	const { repo } = await requireContextExplorerGit(context);
-	const files = parseChangedFiles(readStatus(repo), repo);
-	if (context.includeEditorMetadata === false) {
-		return files;
+	try {
+		const resolution = await resolveContextExplorerGit(context);
+		if (resolution.status === 'unavailable') {
+			return [];
+		}
+		const files = readChangedFiles(resolution.repo);
+		if (context.includeEditorMetadata === false) {
+			return files;
+		}
+		const { addContextFileEditors } = await import('./context-file-edit.service');
+		return await addContextFileEditors(context.projectId, files);
+	} catch {
+		return [];
 	}
-	const { addContextFileEditors } = await import('./context-file-edit.service');
-	return addContextFileEditors(context.projectId, files);
 }
 
 export async function getContextFileDiff(
@@ -374,7 +412,7 @@ export async function getContextFileDiff(
 	const { repo } = await requireContextExplorerGit(context);
 	validateWorktreePath(repo, filePath);
 	const projectPath = normalizeProjectPath(filePath);
-	const changedFile = parseChangedFiles(readStatus(repo), repo).find((entry) => entry.path === `/${projectPath}`);
+	const changedFile = readChangedFiles(repo).find((entry) => entry.path === `/${projectPath}`);
 	if (!changedFile) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'This file has no changes.' });
 	}
@@ -424,10 +462,32 @@ export function pushContextBranch(
 	assertSafeDestructiveWorktreeTarget(repo.worktreeRoot, projectFolder);
 	try {
 		provider.pushBranch({ token, repoFullName: repo.repoFullName, dir: repo.worktreeRoot, branch });
+		runDestructiveWorktreeGit(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
+			'update-ref',
+			`refs/remotes/origin/${branch}`,
+			'HEAD',
+		]);
 	} catch (error) {
 		throw sanitizeGitError(error, token);
 	}
 	return { branch, defaultBranch };
+}
+
+export function getContextBranchCommitMessages(repo: ResolvedContextRepo): string[] {
+	const currentBranch = readCurrentBranch(repo);
+	const defaultBranch = readDefaultBranch(repo);
+	if (!currentBranch || currentBranch === defaultBranch) {
+		return [];
+	}
+	const base = readDefaultBranchRef(repo, defaultBranch);
+	if (!base) {
+		return [];
+	}
+	return runGit(repo.worktreeRoot, ['log', '--reverse', '--format=%s', `${base}..HEAD`])
+		.toString()
+		.split('\n')
+		.map((message) => message.trim())
+		.filter(Boolean);
 }
 
 export function generateContextBranchName(repo: ResolvedContextRepo, timestamp = Date.now()): string {
@@ -693,9 +753,94 @@ function readStatus(repo: ResolvedContextRepo): Buffer {
 	]);
 }
 
-function parseChangedFiles(output: Buffer, repo: ResolvedContextRepo): ContextChangedFile[] {
+function readChangedFiles(repo: ResolvedContextRepo): ContextChangedFile[] {
+	const files = parseChangedFiles(readStatus(repo), repo);
+	const lineCounts = readChangedLineCounts(repo, files);
+	return files.map((file) => ({
+		...file,
+		...(lineCounts.get(file.path) ?? { additions: null, deletions: null }),
+	}));
+}
+
+function readChangedLineCounts(
+	repo: ResolvedContextRepo,
+	files: ParsedContextChangedFile[],
+): Map<string, ContextLineCounts> {
+	const lineCounts = new Map<string, ContextLineCounts>();
+	const output = tryRunGit(repo.worktreeRoot, [
+		'diff',
+		'--numstat',
+		'-z',
+		'--no-renames',
+		'HEAD',
+		'--',
+		repo.projectPrefix || '.',
+	]);
+	if (output) {
+		addTrackedLineCounts(lineCounts, output, repo);
+	}
+	for (const file of files) {
+		if (file.kind === 'untracked' && !lineCounts.has(file.path)) {
+			lineCounts.set(file.path, readUntrackedLineCounts(repo, file.path));
+		}
+	}
+	return lineCounts;
+}
+
+function addTrackedLineCounts(
+	lineCounts: Map<string, ContextLineCounts>,
+	output: Buffer,
+	repo: ResolvedContextRepo,
+): void {
+	for (const record of output.toString().split('\0')) {
+		const firstTab = record.indexOf('\t');
+		const secondTab = record.indexOf('\t', firstTab + 1);
+		if (firstTab < 0 || secondTab < 0) {
+			continue;
+		}
+		const projectPath = fromRepoPath(repo, record.slice(secondTab + 1));
+		if (!projectPath) {
+			continue;
+		}
+		lineCounts.set(`/${projectPath}`, {
+			additions: parseLineCount(record.slice(0, firstTab)),
+			deletions: parseLineCount(record.slice(firstTab + 1, secondTab)),
+		});
+	}
+}
+
+function readUntrackedLineCounts(repo: ResolvedContextRepo, filePath: string): ContextLineCounts {
+	try {
+		const content = fs.readFileSync(toRealPath(filePath, getWorktreeProjectRoot(repo)));
+		if (content.includes(0)) {
+			return { additions: null, deletions: null };
+		}
+		let additions = 0;
+		for (const byte of content) {
+			if (byte === 10) {
+				additions++;
+			}
+		}
+		if (content.length > 0 && content.at(-1) !== 10) {
+			additions++;
+		}
+		return { additions, deletions: 0 };
+	} catch {
+		return { additions: null, deletions: null };
+	}
+}
+
+function parseLineCount(value: string): number | null {
+	if (!/^\d+$/.test(value)) {
+		return null;
+	}
+	const count = Number(value);
+	return Number.isSafeInteger(count) ? count : null;
+}
+
+function parseChangedFiles(output: Buffer, repo: ResolvedContextRepo): ParsedContextChangedFile[] {
 	const records = output.toString().split('\0');
-	const files = new Map<string, ContextChangedFile>();
+	const files = new Map<string, ParsedContextChangedFile>();
 	for (let index = 0; index < records.length; index++) {
 		const record = records[index];
 		if (!record || record.length < 4) {
@@ -717,7 +862,7 @@ function parseChangedFiles(output: Buffer, repo: ResolvedContextRepo): ContextCh
 }
 
 function addChangedFile(
-	files: Map<string, ContextChangedFile>,
+	files: Map<string, ParsedContextChangedFile>,
 	repo: ResolvedContextRepo,
 	repoPath: string,
 	kind: ContextChangedFile['kind'],
@@ -752,6 +897,7 @@ function validateWorktreePath(repo: ResolvedContextRepo, filePath: string): void
 function readContextBranchNames(repo: ResolvedContextRepo): Set<string> {
 	const output = runGit(repo.worktreeRoot, [
 		'for-each-ref',
+		'--exclude=refs/remotes/origin/HEAD',
 		'--format=%(refname:short)',
 		'refs/heads',
 		'refs/remotes/origin',
@@ -787,6 +933,62 @@ function hasRefAt(cwd: string, ref: string): boolean {
 
 function readCurrentBranch(repo: ResolvedContextRepo): string | null {
 	return readCurrentBranchFromPath(repo.worktreeRoot);
+}
+
+function readAheadCommitCount(repo: ResolvedContextRepo, currentBranch: string | null, defaultBranch: string): number {
+	if (!currentBranch || currentBranch === defaultBranch) {
+		return 0;
+	}
+	const base = readDefaultBranchRef(repo, defaultBranch);
+	if (!base) {
+		return 0;
+	}
+	return readCommitCount(repo, `${base}..HEAD`);
+}
+
+function readUnpushedCommitCount(
+	repo: ResolvedContextRepo,
+	currentBranch: string | null,
+	defaultBranch: string,
+): number {
+	if (!currentBranch || currentBranch === defaultBranch) {
+		return 0;
+	}
+	const remoteBranchRef = `refs/remotes/origin/${currentBranch}`;
+	const base = hasRef(repo, remoteBranchRef) ? `origin/${currentBranch}` : readDefaultBranchRef(repo, defaultBranch);
+	return base ? readCommitCount(repo, `${base}..HEAD`) : 0;
+}
+
+function readDefaultBranchRef(repo: ResolvedContextRepo, defaultBranch: string): string | null {
+	const remoteDefaultRef = `refs/remotes/origin/${defaultBranch}`;
+	const localDefaultRef = `refs/heads/${defaultBranch}`;
+	return hasRef(repo, remoteDefaultRef)
+		? `origin/${defaultBranch}`
+		: hasRef(repo, localDefaultRef)
+			? defaultBranch
+			: null;
+}
+
+function readCommitCount(repo: ResolvedContextRepo, range: string): number {
+	const count = Number(readOptionalGitValue(repo.worktreeRoot, ['rev-list', '--count', range]));
+	return Number.isSafeInteger(count) && count >= 0 ? count : 0;
+}
+
+async function findOpenContextReviewRequest(
+	provider: ContextRepositoryProvider,
+	token: string,
+	repoFullName: string,
+	currentBranch: string | null,
+	defaultBranch: string,
+): Promise<{ url: string } | null> {
+	if (!currentBranch || currentBranch === defaultBranch) {
+		return null;
+	}
+	try {
+		return await provider.findOpenReviewRequest(token, repoFullName, currentBranch);
+	} catch {
+		return null;
+	}
 }
 
 function resolveAfterBranchChange(
@@ -827,6 +1029,7 @@ async function clearRecordedContextFileEdits(projectId: string, paths: string[])
 function unavailableMessage(reason: ContextGitUnavailableReason): string {
 	return {
 		'github-unavailable': 'GitHub is not configured for this instance. Add the GitHub client credentials first.',
+		'git-unavailable': 'Repository status is temporarily unavailable.',
 		'no-token': 'Connect your GitHub account before using Git actions in the context explorer.',
 		'no-repo': 'No context repository is connected. Open repository setup to connect one.',
 		'unsupported-provider': 'Context explorer Git operations support GitHub only. GitLab is not supported yet.',

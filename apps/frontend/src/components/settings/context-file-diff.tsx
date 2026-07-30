@@ -23,6 +23,14 @@ export function ContextFileDiff({ path }: { path: string }) {
 		);
 	}
 
+	if (fileDiff.isError && fileDiff.error.data?.code === 'BAD_REQUEST') {
+		return (
+			<div className='flex h-full items-center justify-center text-sm text-muted-foreground'>
+				<p>This file no longer has changes.</p>
+			</div>
+		);
+	}
+
 	if (fileDiff.isError || !fileDiff.data || !diff) {
 		return (
 			<div className='flex h-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground'>

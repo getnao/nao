@@ -132,6 +132,17 @@ function ContextExplorerPage() {
 		requestViewerTarget({ type: 'diff', path });
 	};
 
+	const handleChangesCommitted = async (paths: string[]) => {
+		if (!selectedDiffPath || !paths.includes(selectedDiffPath)) {
+			return;
+		}
+		const committedDiffPath = selectedDiffPath;
+		setSelectedDiffPath(null);
+		await queryClient.cancelQueries({
+			queryKey: trpc.contextExplorer.getFileDiff.queryKey({ path: committedDiffPath }),
+		});
+	};
+
 	const handleDiscardAndChangeView = () => {
 		if (!pendingViewerTarget) {
 			return;
@@ -208,7 +219,7 @@ function ContextExplorerPage() {
 								<div className='min-h-40 flex-1 overflow-hidden'>
 									<FileTree
 										entries={fileTree.data?.entries ?? []}
-										selectedPath={selectedPath}
+										selectedPath={selectedDiffPath ?? selectedPath}
 										onSelectFile={handleSelectFile}
 										search={search}
 										onSearchChange={setSearch}
@@ -230,6 +241,7 @@ function ContextExplorerPage() {
 									selectedDiffPath={selectedDiffPath}
 									hasUnsavedFileChanges={isViewerDirty}
 									onViewDiff={handleViewDiff}
+									onCommitted={handleChangesCommitted}
 									onDiscarded={handleLocalChangeDiscarded}
 									onDiscardAll={handleAllLocalChangesDiscarded}
 									onRepositoryChanged={handleRepositoryChanged}

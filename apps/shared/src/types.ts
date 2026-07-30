@@ -86,6 +86,7 @@ export type FileTreeEntry = {
 
 export type ContextGitUnavailableReason =
 	| 'github-unavailable'
+	| 'git-unavailable'
 	| 'no-token'
 	| 'no-repo'
 	| 'unsupported-provider'
@@ -132,6 +133,8 @@ export type FileContentSearchResponse = {
 export type ContextChangedFile = {
 	path: string;
 	kind: 'modified' | 'untracked' | 'deleted';
+	additions: number | null;
+	deletions: number | null;
 	lastEditor?: {
 		id: string;
 		name: string;
@@ -142,6 +145,8 @@ export type ContextChangedFile = {
 export type ContextBranchInfo = {
 	currentBranch: string | null;
 	defaultBranch: string;
+	aheadCommitCount: number;
+	unpushedCommitCount: number;
 	branches: string[];
 	suggestedBranch: string;
 };

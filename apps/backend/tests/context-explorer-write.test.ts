@@ -248,6 +248,7 @@ function provider(bare: string): ContextRepositoryProvider {
 		coAuthor: { name: 'nao', email: 'naoagent@getnao.io' },
 		commitAllAndPushBranch: () => undefined,
 		pushBranch: () => undefined,
+		findOpenReviewRequest: async () => null,
 		openReviewRequest: async () => ({ url: 'https://github.com/nao/context/pull/1' }),
 	};
 }

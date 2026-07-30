@@ -70,21 +70,23 @@ describe('context file edit attribution', () => {
 		vi.mocked(userQueries.getUserNames).mockResolvedValue(new Map([['user-1', 'Ada']]));
 
 		const result = await addContextFileEditors('project-1', [
-			{ path: '/known.md', kind: 'modified' },
-			{ path: '/unknown.md', kind: 'modified' },
+			{ path: '/known.md', kind: 'modified', additions: 2, deletions: 1 },
+			{ path: '/unknown.md', kind: 'modified', additions: 1, deletions: 0 },
 		]);
 
 		expect(result).toEqual([
 			{
 				path: '/known.md',
 				kind: 'modified',
+				additions: 2,
+				deletions: 1,
 				lastEditor: {
 					id: 'user-1',
 					name: 'Ada',
 				},
 				lastEditedAt: updatedAt.getTime(),
 			},
-			{ path: '/unknown.md', kind: 'modified' },
+			{ path: '/unknown.md', kind: 'modified', additions: 1, deletions: 0 },
 		]);
 		expect(userQueries.getUserNames).toHaveBeenCalledTimes(1);
 		expect(userQueries.getUserNames).toHaveBeenCalledWith(['user-1']);

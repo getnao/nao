@@ -551,6 +551,11 @@ function guidanceForReason(reason: FileEditabilityReason): FileEditabilityGuidan
 			actionPath: '/settings/integrations',
 			actionLabel: 'Open integrations',
 		},
+		'git-unavailable': {
+			message: 'Git is temporarily unavailable.',
+			actionPath: null,
+			actionLabel: null,
+		},
 		'no-token': {
 			message: 'Connect your GitHub account to edit context files.',
 			actionPath: '/settings/account',

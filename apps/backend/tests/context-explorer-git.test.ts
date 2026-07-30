@@ -35,10 +35,11 @@ import {
 	discardContextFileChange,
 	ensureContextWorktree,
 	getChangedContextFiles,
+	getContextRepositoryStatus,
 	resolveContextExplorerGit,
 	switchContextBranch,
 } from '../src/services/context-explorer-git.service';
-import { createContextExplorerPullRequest } from '../src/services/context-explorer-pr.service';
+import { pushContextExplorerBranch } from '../src/services/context-explorer-pr.service';
 
 describe('context explorer worktrees', () => {
 	const temporaryRoots: string[] = [];
@@ -145,10 +146,119 @@ describe('context explorer worktrees', () => {
 		expect(result.branch).toMatch(/^nao\/context-edits-[a-z0-9]+$/);
 		expect(result.baseUsed).toBe('origin/main');
 		expect(result.usedFallbackBase).toBe(false);
-		expect(changed).toEqual([{ path: '/other.md', kind: 'modified' }]);
+		expect(changed).toEqual([{ path: '/other.md', kind: 'modified', additions: 1, deletions: 1 }]);
 		expect(
 			runGit(path.join(fixture.root, '.nao', 'worktrees', 'project-id'), ['show', 'HEAD:context.md']).toString(),
 		).toBe('selected\n');
+		expectLiveUnchanged(fixture.live, before);
+	});
+
+	it('reports commits that have not been pushed to the current branch', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const before = snapshot(fixture.live);
+
+		const defaultStatus = await getContextRepositoryStatus(fixture.context);
+		expect(defaultStatus.branches).toMatchObject({
+			aheadCommitCount: 0,
+			unpushedCommitCount: 0,
+		});
+
+		await createContextBranch(fixture.context, 'nao/empty');
+		const emptyBranchStatus = await getContextRepositoryStatus(fixture.context);
+		expect(emptyBranchStatus.branches).toMatchObject({
+			currentBranch: 'nao/empty',
+			defaultBranch: 'main',
+			aheadCommitCount: 0,
+			unpushedCommitCount: 0,
+		});
+
+		const access = await fileAccess(fixture.context);
+		const file = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'committed branch edit\n', file.hash, access);
+		await commitContextChanges(fixture.context, {
+			paths: ['/context.md'],
+			message: 'Commit branch edit',
+		});
+
+		const committedBranchStatus = await getContextRepositoryStatus(fixture.context);
+		expect(committedBranchStatus.branches).toMatchObject({
+			aheadCommitCount: 1,
+			unpushedCommitCount: 1,
+		});
+
+		await pushContextExplorerBranch(fixture.context);
+		const pushedBranchStatus = await getContextRepositoryStatus(fixture.context);
+		expect(pushedBranchStatus.branches).toMatchObject({
+			aheadCommitCount: 1,
+			unpushedCommitCount: 0,
+		});
+
+		const pushedFile = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'another branch edit\n', pushedFile.hash, access);
+		await commitContextChanges(fixture.context, {
+			paths: ['/context.md'],
+			message: 'Commit another edit',
+		});
+		const newCommitStatus = await getContextRepositoryStatus(fixture.context);
+		expect(newCommitStatus.branches?.unpushedCommitCount).toBe(1);
+		expectLiveUnchanged(fixture.live, before);
+	});
+
+	it('omits the symbolic remote HEAD from branch names', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const repo = await ensureContextWorktree(fixture.context);
+		runGit(repo.worktreeRoot, ['update-ref', 'refs/remotes/origin/review', 'HEAD']);
+		runGit(repo.worktreeRoot, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
+
+		const status = await getContextRepositoryStatus(fixture.context);
+
+		expect(status.branches?.branches).toEqual(['main', 'review']);
+		expect(status.branches?.branches).not.toContain('origin');
+	});
+
+	it('returns an unavailable status when git is unavailable or no repository is connected', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const before = snapshot(fixture.live);
+		await ensureContextWorktree(fixture.context);
+		const originalPath = process.env.PATH;
+
+		try {
+			process.env.PATH = '';
+			await expect(getContextRepositoryStatus(fixture.context)).resolves.toMatchObject({
+				gitUnavailableReason: 'git-unavailable',
+				branches: null,
+			});
+			await expect(getChangedContextFiles(fixture.context)).resolves.toEqual([]);
+		} finally {
+			process.env.PATH = originalPath;
+		}
+
+		const disconnectedContext = { ...fixture.context, configOverride: null };
+		await expect(getContextRepositoryStatus(disconnectedContext)).resolves.toMatchObject({
+			gitUnavailableReason: 'no-repo',
+			branches: null,
+		});
+		await expect(getChangedContextFiles(disconnectedContext)).resolves.toEqual([]);
+		expectLiveUnchanged(fixture.live, before);
+	});
+
+	it('reports line changes for tracked, untracked, and binary files without changing the live folder', async () => {
+		const fixture = createFixture(temporaryRoots, {
+			'nao_config.yaml': 'name: test\n',
+			'context.md': 'repository content\n',
+			'binary.dat': 'plain text\n',
+		});
+		const before = snapshot(fixture.live);
+		const repo = await ensureContextWorktree(fixture.context);
+		fs.writeFileSync(path.join(repo.worktreeRoot, 'context.md'), 'replacement\nextra\n');
+		fs.writeFileSync(path.join(repo.worktreeRoot, 'new.md'), 'first\nsecond\n');
+		fs.writeFileSync(path.join(repo.worktreeRoot, 'binary.dat'), Buffer.from([0, 1, 2, 3]));
+
+		await expect(getChangedContextFiles(fixture.context)).resolves.toEqual([
+			{ path: '/binary.dat', kind: 'modified', additions: null, deletions: null },
+			{ path: '/context.md', kind: 'modified', additions: 2, deletions: 1 },
+			{ path: '/new.md', kind: 'untracked', additions: 2, deletions: 0 },
+		]);
 		expectLiveUnchanged(fixture.live, before);
 	});
 
@@ -171,23 +281,22 @@ describe('context explorer worktrees', () => {
 		expect(runGit(repo.worktreeRoot, ['show', 'HEAD:context.md']).toString()).toBe('local edit\n');
 	});
 
-	it('commits selected files, creates a branch when needed, pushes, and opens a pull request', async () => {
+	it('commits selected files, then pushes and opens a pull request', async () => {
 		const fixture = createFixture(temporaryRoots);
 		const access = await fileAccess(fixture.context);
 		const file = await readFileContent('/context.md', access);
 		await writeFileContent('/context.md', 'pull request edit\n', file.hash, access);
 
-		const result = await createContextExplorerPullRequest(fixture.context, {
+		const commit = await createContextBranchAndCommit(fixture.context, {
 			paths: ['/context.md'],
 			message: 'Update shared context',
-			title: 'Update context',
-			body: 'Review this context update.',
 		});
+		const result = await pushContextExplorerBranch(fixture.context);
 
 		expect(result).toEqual({
 			url: 'https://github.com/nao/context/pull/1',
-			branch: expect.stringMatching(/^nao\/context-edits-/),
-			usedFallbackBase: false,
+			branch: commit.branch,
+			reviewRequest: 'opened',
 		});
 		expect(
 			runGit(fixture.root, ['--git-dir', fixture.bare, 'show', `${result.branch}:context.md`]).toString(),
@@ -211,7 +320,9 @@ describe('context explorer worktrees', () => {
 		await writeFileContent('/other.md', 'second edit\n', second.hash, access);
 
 		await discardContextFileChange(fixture.context, '/context.md');
-		expect(await getChangedContextFiles(fixture.context)).toEqual([{ path: '/other.md', kind: 'modified' }]);
+		expect(await getChangedContextFiles(fixture.context)).toEqual([
+			{ path: '/other.md', kind: 'modified', additions: 1, deletions: 1 },
+		]);
 		await discardAllContextChanges(fixture.context);
 		expect(await getChangedContextFiles(fixture.context)).toEqual([]);
 		expectLiveUnchanged(fixture.live, before);
@@ -235,28 +346,89 @@ describe('context explorer worktrees', () => {
 		);
 	});
 
-	it('opens a pull request for files committed through the separate commit flow', async () => {
+	it('opens a pull request from branch commit messages in oldest-first order', async () => {
 		const fixture = createFixture(temporaryRoots);
+		const before = snapshot(fixture.live);
+		const provider = fixture.context.providerOverride;
+		if (!provider) {
+			throw new Error('Expected a local provider.');
+		}
+		const openReviewRequest = vi.spyOn(provider, 'openReviewRequest');
 		const access = await fileAccess(fixture.context);
 		const file = await readFileContent('/context.md', access);
 		await writeFileContent('/context.md', 'separately committed\n', file.hash, access);
 		const committed = await createContextBranchAndCommit(fixture.context, {
 			paths: ['/context.md'],
-			message: 'Separate commit',
+			message: 'Update shared context',
+		});
+		const committedFile = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'second committed edit\n', committedFile.hash, access);
+		await commitContextChanges(fixture.context, {
+			paths: ['/context.md'],
+			message: 'Clarify context details',
 		});
 
-		const result = await createContextExplorerPullRequest(fixture.context, {
-			paths: ['/context.md'],
-			message: 'Separate commit',
-			title: 'Open committed context',
-		});
+		const result = await pushContextExplorerBranch(fixture.context);
 
 		expect(result.branch).toBe(committed.branch);
+		expect(openReviewRequest).toHaveBeenCalledWith('test-token', 'nao/context', {
+			title: 'Update shared context',
+			body: '- Update shared context\n- Clarify context details',
+			head: committed.branch,
+			base: 'main',
+		});
 		expect(
-			runGit(path.join(fixture.root, '.nao', 'worktrees', 'project-id'), ['rev-parse', 'HEAD'])
-				.toString()
-				.trim(),
-		).toBe(committed.commit);
+			runGit(fixture.root, ['--git-dir', fixture.bare, 'show', `${committed.branch}:context.md`]).toString(),
+		).toBe('second committed edit\n');
+		expectLiveUnchanged(fixture.live, before);
+	});
+
+	it('pushes commits to an existing pull request without opening another', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const before = snapshot(fixture.live);
+		const provider = fixture.context.providerOverride;
+		if (!provider) {
+			throw new Error('Expected a local provider.');
+		}
+		const existingPullRequest = { url: 'https://github.com/nao/context/pull/7' };
+		vi.spyOn(provider, 'findOpenReviewRequest').mockResolvedValue(existingPullRequest);
+		const openReviewRequest = vi.spyOn(provider, 'openReviewRequest');
+		const access = await fileAccess(fixture.context);
+		const file = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'existing pull request edit\n', file.hash, access);
+		const committed = await createContextBranchAndCommit(fixture.context, {
+			paths: ['/context.md'],
+			message: 'Update existing proposal',
+		});
+
+		const result = await pushContextExplorerBranch(fixture.context);
+
+		expect(result).toEqual({
+			url: existingPullRequest.url,
+			branch: committed.branch,
+			reviewRequest: 'updated',
+		});
+		expect(openReviewRequest).not.toHaveBeenCalled();
+		expect(
+			runGit(fixture.root, ['--git-dir', fixture.bare, 'show', `${committed.branch}:context.md`]).toString(),
+		).toBe('existing pull request edit\n');
+		expectLiveUnchanged(fixture.live, before);
+	});
+
+	it('reports an empty branch as having nothing to push without throwing', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const before = snapshot(fixture.live);
+		await createContextBranch(fixture.context, 'nao/empty-proposal');
+
+		await expect(getContextRepositoryStatus(fixture.context)).resolves.toMatchObject({
+			branches: {
+				currentBranch: 'nao/empty-proposal',
+				aheadCommitCount: 0,
+				unpushedCommitCount: 0,
+			},
+			openReviewRequest: null,
+		});
+		expectLiveUnchanged(fixture.live, before);
 	});
 
 	it('records editors and clears attribution after commits and discards', async () => {
@@ -367,12 +539,7 @@ describe('context explorer worktrees', () => {
 			() => commitContextChanges(unsafe, { paths: ['/context.md'], message: 'test' }),
 			() => discardContextFileChange(unsafe, '/context.md'),
 			() => discardAllContextChanges(unsafe),
-			() =>
-				createContextExplorerPullRequest(unsafe, {
-					paths: ['/context.md'],
-					message: 'test',
-					title: 'test',
-				}),
+			() => pushContextExplorerBranch(unsafe),
 		];
 
 		for (const operation of operations) {
@@ -497,6 +664,7 @@ function baseContext(
 }
 
 function localProvider(bare: string, publicUrl = 'https://github.com/nao/context.git'): ContextRepositoryProvider {
+	let openReviewRequest: { url: string } | null = null;
 	return {
 		getToken: async () => 'test-token',
 		notConnectedMessage: 'Not connected.',
@@ -511,7 +679,11 @@ function localProvider(bare: string, publicUrl = 'https://github.com/nao/context
 		pushBranch: ({ dir, branch }) => {
 			runGit(dir, ['push', bare, `HEAD:refs/heads/${branch}`]);
 		},
-		openReviewRequest: async () => ({ url: 'https://github.com/nao/context/pull/1' }),
+		findOpenReviewRequest: async () => openReviewRequest,
+		openReviewRequest: async () => {
+			openReviewRequest = { url: 'https://github.com/nao/context/pull/1' };
+			return openReviewRequest;
+		},
 	};
 }
 

@@ -1,51 +1,55 @@
+import { TRPCError } from '@trpc/server';
+
 import {
-	commitContextChanges,
 	ContextExplorerGitContext,
-	createContextBranchAndCommit,
-	getChangedContextFiles,
+	getContextBranchCommitMessages,
 	getContextBranches,
 	pushContextBranch,
 	requireContextExplorerGit,
 } from './context-explorer-git.service';
 import { REVIEW_REQUEST_PROVIDERS } from './review-request-provider';
 
-export interface ContextPullRequestResult {
+export interface ContextPushResult {
 	url: string;
 	branch: string;
-	usedFallbackBase: boolean;
+	reviewRequest: 'opened' | 'updated';
 }
 
-export async function createContextExplorerPullRequest(
-	context: ContextExplorerGitContext,
-	input: { paths: string[]; message: string; title: string; body?: string },
-): Promise<ContextPullRequestResult> {
-	const initial = await requireContextExplorerGit(context);
-	const branches = getContextBranches(initial.repo);
-	const changedPaths = new Set((await getChangedContextFiles(context)).map((file) => file.path));
-	const selectedPathsAreCommitted = input.paths.every((filePath) => !changedPaths.has(normalizePath(filePath)));
-	let usedFallbackBase = false;
-	if (!branches.currentBranch || branches.currentBranch === branches.defaultBranch) {
-		const commit = await createContextBranchAndCommit(context, {
-			paths: input.paths,
-			message: input.message,
-		});
-		usedFallbackBase = commit.usedFallbackBase;
-	} else if (!selectedPathsAreCommitted) {
-		await commitContextChanges(context, { paths: input.paths, message: input.message });
-	}
-
+export async function pushContextExplorerBranch(context: ContextExplorerGitContext): Promise<ContextPushResult> {
 	const { repo, context: availableContext } = await requireContextExplorerGit(context);
 	const provider = availableContext.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
+	const branches = getContextBranches(repo);
+	const currentBranch = branches.currentBranch;
+	if (!currentBranch || currentBranch === branches.defaultBranch) {
+		throw nothingToPushError();
+	}
+	if (branches.aheadCommitCount === 0 && branches.unpushedCommitCount === 0) {
+		throw nothingToPushError();
+	}
+	const existingReviewRequest = await provider.findOpenReviewRequest(
+		availableContext.token,
+		repo.repoFullName,
+		currentBranch,
+	);
+	if (branches.unpushedCommitCount === 0) {
+		if (existingReviewRequest) {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: 'Everything on this branch is already pushed.' });
+		}
+	}
+	const commitMessages = getContextBranchCommitMessages(repo);
 	const { branch, defaultBranch } = pushContextBranch(repo, context.projectFolder, provider, availableContext.token);
+	if (existingReviewRequest) {
+		return { url: existingReviewRequest.url, branch, reviewRequest: 'updated' };
+	}
 	const result = await provider.openReviewRequest(availableContext.token, repo.repoFullName, {
-		title: input.title,
-		body: input.body ?? '',
+		title: commitMessages[0] ?? 'Context updates',
+		body: commitMessages.map((message) => `- ${message}`).join('\n'),
 		head: branch,
 		base: defaultBranch,
 	});
-	return { url: result.url, branch, usedFallbackBase };
+	return { url: result.url, branch, reviewRequest: 'opened' };
 }
 
-function normalizePath(filePath: string): string {
-	return `/${filePath.replaceAll('\\', '/').replace(/^\/+/, '')}`;
+function nothingToPushError(): TRPCError {
+	return new TRPCError({ code: 'BAD_REQUEST', message: 'This branch has nothing to push yet.' });
 }

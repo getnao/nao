@@ -326,6 +326,29 @@ export async function createMergeRequest(
 	return { iid: data.iid, web_url: data.web_url };
 }
 
+export async function findOpenMergeRequest(
+	token: string,
+	repoFullName: string,
+	branch: string,
+): Promise<{ url: string } | null> {
+	const encodedPath = encodeURIComponent(repoFullName);
+	const params = new URLSearchParams({
+		state: 'opened',
+		source_branch: branch,
+		scope: 'all',
+		per_page: '1',
+	});
+	const res = await fetch(`${gitlabApiUrl()}/projects/${encodedPath}/merge_requests?${params}`, {
+		headers: { Authorization: `Bearer ${token}` },
+	});
+	if (!res.ok) {
+		const body = await res.text();
+		throw new Error(`GitLab API error ${res.status}: ${body}`);
+	}
+	const mergeRequests = (await res.json()) as Array<{ web_url: string }>;
+	return mergeRequests[0] ? { url: mergeRequests[0].web_url } : null;
+}
+
 export interface GitLabMergeRequest {
 	iid: number;
 	state: 'opened' | 'closed' | 'merged' | 'locked';

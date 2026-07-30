@@ -1,57 +1,36 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { Check, ExternalLink, FilePen, FilePlus, FileX, GitBranch, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, ExternalLink, FilePen, FilePlus, FileX, GitBranch, Plus, X } from 'lucide-react';
 import type { QueryClient } from '@tanstack/react-query';
 import type { ContextChangedFile } from '@nao/shared/types';
 
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from '@/components/ui/dialog';
+	DropdownMenu,
+	DropdownMenuCheckboxItem,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { ErrorMessage } from '@/components/ui/error-message';
 import { Expandable } from '@/components/ui/expandable';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
-import { Textarea } from '@/components/ui/textarea';
 import { useSidebarSectionOpen } from '@/hooks/use-sidebar-section-open';
 import { useSession } from '@/lib/auth-client';
-import { getTimeAgo } from '@/lib/time-ago';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
-
-type ContextRepo = {
-	provider: 'github' | 'gitlab';
-	repoFullName: string;
-	branch: string | null;
-};
-
-type OpenPullRequest = {
-	url: string;
-	branch: string;
-	openedAt: number;
-};
 
 interface ContextGitPanelProps {
 	selectedDiffPath: string | null;
 	hasUnsavedFileChanges: boolean;
 	onViewDiff: (path: string) => void;
+	onCommitted: (paths: string[]) => Promise<void>;
 	onDiscarded: (path: string) => Promise<void>;
 	onDiscardAll: () => Promise<void>;
 	onRepositoryChanged: () => void;
@@ -61,6 +40,7 @@ export function ContextGitPanel({
 	selectedDiffPath,
 	hasUnsavedFileChanges,
 	onViewDiff,
+	onCommitted,
 	onDiscarded,
 	onDiscardAll,
 	onRepositoryChanged,
@@ -77,11 +57,8 @@ export function ContextGitPanel({
 	const [commitMessage, setCommitMessage] = useState('');
 	const [commitBranchName, setCommitBranchName] = useState('');
 	const [isCommitBranchTouched, setIsCommitBranchTouched] = useState(false);
-	const [pullRequestTitle, setPullRequestTitle] = useState('');
-	const [pullRequestBody, setPullRequestBody] = useState('');
-	const [commitConfirmation, setCommitConfirmation] = useState<string | null>(null);
 	const [fallbackBaseNotice, setFallbackBaseNotice] = useState(false);
-	const [pullRequest, setPullRequest] = useState<OpenPullRequest | null>(null);
+	const [pushedReviewRequestUrl, setPushedReviewRequestUrl] = useState<string | null>(null);
 	const knownChangedPathsRef = useRef<Set<string>>(new Set());
 
 	const repositoryStatus = useQuery({
@@ -132,11 +109,8 @@ export function ContextGitPanel({
 
 	useEffect(() => {
 		setIsCommitBranchTouched(false);
+		setPushedReviewRequestUrl(null);
 	}, [currentBranch]);
-
-	useEffect(() => {
-		setPullRequest(readBrowserPullRequest(repo, currentBranch));
-	}, [currentBranch, repo]);
 
 	const refreshExplorer = async (resetViewer: boolean) => {
 		await invalidateExplorerQueries(queryClient);
@@ -165,8 +139,8 @@ export function ContextGitPanel({
 
 	const commitChanges = useMutation(
 		trpc.contextExplorer.commitChanges.mutationOptions({
-			onSuccess: async (result, variables) => {
-				handleCommitSuccess(variables.paths, currentBranch, result.commit, false);
+			onSuccess: async (_result, variables) => {
+				await handleCommitSuccess(variables.paths, currentBranch, false);
 				await refreshExplorer(false);
 			},
 		}),
@@ -175,21 +149,16 @@ export function ContextGitPanel({
 	const createBranchAndCommit = useMutation(
 		trpc.contextExplorer.createBranchAndCommit.mutationOptions({
 			onSuccess: async (result, variables) => {
-				handleCommitSuccess(variables.paths, result.branch, result.commit, result.usedFallbackBase);
+				await handleCommitSuccess(variables.paths, result.branch, result.usedFallbackBase);
 				await refreshExplorer(false);
 			},
 		}),
 	);
 
-	const createPullRequest = useMutation(
-		trpc.contextExplorer.createPullRequest.mutationOptions({
+	const pushBranch = useMutation(
+		trpc.contextExplorer.pushBranch.mutationOptions({
 			onSuccess: async (result) => {
-				const openedPullRequest = { url: result.url, branch: result.branch, openedAt: Date.now() };
-				setPullRequest(openedPullRequest);
-				writeBrowserPullRequest(repo, result.branch, openedPullRequest);
-				setCommitMessage('');
-				setSelectedPaths(new Set());
-				setFallbackBaseNotice(result.usedFallbackBase);
+				setPushedReviewRequestUrl(result.url);
 				await refreshExplorer(false);
 			},
 		}),
@@ -213,17 +182,14 @@ export function ContextGitPanel({
 		}),
 	);
 
-	const handleCommitSuccess = (paths: string[], branch: string | null, commit: string, usedFallbackBase: boolean) => {
+	const handleCommitSuccess = async (paths: string[], branch: string | null, usedFallbackBase: boolean) => {
+		await onCommitted(paths);
 		if (!branch) {
 			return;
 		}
 		setCommitMessage('');
 		setSelectedPaths(new Set());
-		setCommitConfirmation(
-			`Committed ${paths.length} ${paths.length === 1 ? 'file' : 'files'} (${commit.slice(0, 7)}).`,
-		);
 		setFallbackBaseNotice(usedFallbackBase);
-		setPullRequestTitle(commitMessage.trim());
 	};
 
 	const handleCommit = () => {
@@ -232,7 +198,6 @@ export function ContextGitPanel({
 		if (!message || paths.length === 0 || !currentBranch || !defaultBranch) {
 			return;
 		}
-		setCommitConfirmation(null);
 		setFallbackBaseNotice(false);
 		commitChanges.reset();
 		createBranchAndCommit.reset();
@@ -247,18 +212,10 @@ export function ContextGitPanel({
 		commitChanges.mutate({ paths, message });
 	};
 
-	const handlePropose = () => {
-		const title = pullRequestTitle.trim();
-		const message = commitMessage.trim();
-		if (!title || !message || selectedChangedPaths.length === 0) {
-			return;
-		}
-		createPullRequest.mutate({
-			paths: selectedChangedPaths,
-			message,
-			title,
-			body: pullRequestBody.trim() || undefined,
-		});
+	const handlePush = () => {
+		setPushedReviewRequestUrl(null);
+		pushBranch.reset();
+		pushBranch.mutate();
 	};
 
 	const openGitSettings = () => navigate({ to: '/settings/git' });
@@ -303,20 +260,12 @@ export function ContextGitPanel({
 		currentBranch !== null &&
 		defaultBranch !== null &&
 		(currentBranch !== defaultBranch || commitBranchName.trim().length > 0);
-	const canPropose =
-		selectedChangedPaths.length > 0 &&
-		commitMessage.trim().length > 0 &&
-		pullRequestTitle.trim().length > 0 &&
-		currentBranch !== null &&
-		defaultBranch !== null;
-	const proposeDisabledReason =
-		selectedChangedPaths.length === 0
-			? 'Select at least one changed file.'
-			: commitMessage.trim().length === 0
-				? 'Add a commit message above.'
-				: pullRequestTitle.trim().length === 0
-					? 'Add a pull request title.'
-					: null;
+	const openReviewRequest = status?.openReviewRequest ?? null;
+	const aheadCommitCount = branches?.aheadCommitCount ?? 0;
+	const unpushedCommitCount = branches?.unpushedCommitCount ?? 0;
+	const isReviewBranch = currentBranch !== null && defaultBranch !== null && currentBranch !== defaultBranch;
+	const canPush = isReviewBranch && (unpushedCommitCount > 0 || (aheadCommitCount > 0 && openReviewRequest === null));
+	const reviewRequestUrl = openReviewRequest?.url ?? pushedReviewRequestUrl;
 	const otherEditors = getOtherEditorNames(changedFileList, session?.user?.id);
 	const discardDisabledReason = hasUnsavedFileChanges
 		? 'Save or discard the open file before discarding saved changes.'
@@ -325,7 +274,7 @@ export function ContextGitPanel({
 			: null;
 
 	return (
-		<div className='max-h-[65%] shrink-0 overflow-auto border-t bg-card p-2'>
+		<div className='max-h-[65%] shrink-0 overflow-auto border-t'>
 			<Expandable
 				title={
 					<span className='flex items-center gap-2'>
@@ -333,47 +282,15 @@ export function ContextGitPanel({
 						Git
 					</span>
 				}
-				badge={changedFileList.length}
-				expanded={isOpen}
-				onExpandedChange={setIsOpen}
-				variant='bordered'
-				isLoading={repositoryStatus.isLoading || changedFiles.isLoading}
-			>
-				<div className='flex max-h-[min(38rem,65vh)] min-h-0 flex-col gap-3 overflow-y-auto p-2'>
-					<p className='text-xs text-muted-foreground'>
-						Changes are not live for other users or the agent until the pull request is merged and deployed.
-					</p>
-					<p className='text-xs text-muted-foreground'>
-						This review workspace is shared with other context admins.
-					</p>
-
-					{repositoryStatus.isLoading ? (
-						<div className='flex items-center justify-center py-6'>
-							<Spinner />
-						</div>
-					) : repositoryStatus.isError ? (
-						<div className='flex flex-col gap-2'>
-							<ErrorMessage
-								message={repositoryStatus.error.message || 'Failed to load repository status'}
-							/>
-							<Button variant='outline' size='sm' onClick={() => repositoryStatus.refetch()}>
-								Retry
-							</Button>
-						</div>
-					) : !isGitAvailable ? (
-						<UnavailableGit
-							message={status?.gitUnavailableMessage ?? 'Git actions are unavailable for this project.'}
-							onSetup={openGitSettings}
-						/>
-					) : (
-						<>
-							<BranchSelector
+				trailingContent={
+					<div className='flex min-w-0 max-w-[80%] shrink-0 items-center gap-2'>
+						{isGitAvailable && branches && (
+							<BranchMenu
 								branches={branches.branches}
 								currentBranch={currentBranch}
 								defaultBranch={branches.defaultBranch}
 								disabled={branchChangeDisabled}
 								reason={branchChangeReason}
-								error={switchBranch.error?.message}
 								onSwitch={(branch) => {
 									if (branch !== currentBranch) {
 										switchBranch.mutate({ branch });
@@ -383,9 +300,46 @@ export function ContextGitPanel({
 									createBranch.reset();
 									setIsCreateBranchOpen(true);
 								}}
+							/>
+						)}
+						<ChangedFilesSummary files={changedFileList} />
+					</div>
+				}
+				expanded={isOpen}
+				onExpandedChange={setIsOpen}
+				variant='plain'
+				isLoading={repositoryStatus.isLoading || changedFiles.isLoading}
+			>
+				<div className='flex max-h-[min(38rem,65vh)] min-h-0 flex-col gap-3 overflow-y-auto py-2'>
+					{switchBranch.error && (
+						<div className='px-2'>
+							<ErrorMessage message={switchBranch.error.message} />
+						</div>
+					)}
+					{repositoryStatus.isLoading ? (
+						<div className='flex items-center justify-center px-2 py-6'>
+							<Spinner />
+						</div>
+					) : repositoryStatus.isError ? (
+						<div className='flex flex-col gap-2 px-2'>
+							<ErrorMessage
+								message={repositoryStatus.error.message || 'Failed to load repository status'}
+							/>
+							<Button variant='outline' size='sm' onClick={() => repositoryStatus.refetch()}>
+								Retry
+							</Button>
+						</div>
+					) : !isGitAvailable ? (
+						<div className='px-2'>
+							<UnavailableGit
+								message={
+									status?.gitUnavailableMessage ?? 'Git actions are unavailable for this project.'
+								}
 								onSetup={openGitSettings}
 							/>
-
+						</div>
+					) : (
+						<>
 							<ChangedFiles
 								files={changedFileList}
 								selectedPaths={selectedPaths}
@@ -406,36 +360,86 @@ export function ContextGitPanel({
 								}}
 							/>
 
-							<CommitForm
-								isDefaultBranch={currentBranch === defaultBranch}
-								branchName={commitBranchName}
-								message={commitMessage}
-								selectedCount={selectedChangedPaths.length}
-								isPending={commitPending}
-								canCommit={canCommit}
-								error={commitError}
-								confirmation={commitConfirmation}
-								fallbackBaseNotice={fallbackBaseNotice}
-								onBranchNameChange={(value) => {
-									setIsCommitBranchTouched(true);
-									setCommitBranchName(value);
-								}}
-								onMessageChange={setCommitMessage}
-								onCommit={handleCommit}
-							/>
-
-							<ProposeForm
-								title={pullRequestTitle}
-								body={pullRequestBody}
-								pullRequest={pullRequest}
-								isPending={createPullRequest.isPending}
-								canPropose={canPropose}
-								disabledReason={proposeDisabledReason}
-								error={createPullRequest.error?.message}
-								onTitleChange={setPullRequestTitle}
-								onBodyChange={setPullRequestBody}
-								onPropose={handlePropose}
-							/>
+							{(hasUncommittedChanges ||
+								canPush ||
+								reviewRequestUrl ||
+								fallbackBaseNotice ||
+								pushBranch.error) && (
+								<div className='space-y-2 px-2'>
+									{hasUncommittedChanges && (
+										<>
+											{currentBranch === defaultBranch && (
+												<label className='grid gap-1 text-xs font-medium'>
+													New branch
+													<Input
+														value={commitBranchName}
+														onChange={(event) => {
+															setIsCommitBranchTouched(true);
+															setCommitBranchName(event.target.value);
+														}}
+														placeholder='nao/context-edits-…'
+														disabled={commitPending}
+														className='h-7 text-sm font-normal'
+													/>
+												</label>
+											)}
+											<div className='flex min-w-0 items-center gap-2'>
+												<Input
+													value={commitMessage}
+													onChange={(event) => setCommitMessage(event.target.value)}
+													placeholder='Describe the context change'
+													aria-label='Commit message'
+													disabled={commitPending}
+													className='h-7 min-w-0 flex-1 text-sm'
+												/>
+												<Button
+													size='sm'
+													disabled={!canCommit || commitPending}
+													isLoading={commitPending}
+													onClick={handleCommit}
+												>
+													Commit
+												</Button>
+											</div>
+										</>
+									)}
+									{(canPush || reviewRequestUrl) && (
+										<div className='flex min-w-0 items-center justify-between gap-2'>
+											<span className='min-w-0 flex-1 truncate text-xs text-muted-foreground'>
+												{canPush ? 'Send committed changes' : 'Review committed changes'}
+											</span>
+											<div className='flex shrink-0 items-center gap-1'>
+												{reviewRequestUrl && (
+													<Button asChild variant='ghost' size='sm' className='px-2'>
+														<a href={reviewRequestUrl} target='_blank' rel='noreferrer'>
+															<ExternalLink className='size-3.5' />
+															View PR
+														</a>
+													</Button>
+												)}
+												{canPush && (
+													<Button
+														size='sm'
+														disabled={commitPending || pushBranch.isPending}
+														isLoading={pushBranch.isPending}
+														onClick={handlePush}
+													>
+														Push
+													</Button>
+												)}
+											</div>
+										</div>
+									)}
+									{commitError && <ErrorMessage message={commitError} />}
+									{fallbackBaseNotice && (
+										<p className='text-xs text-amber-700 dark:text-amber-400'>
+											This branch started from the current version and may need updating before
+											review.
+										</p>
+									)}
+									{pushBranch.error && <ErrorMessage message={pushBranch.error.message} />}
+								</div>
+							)}
 						</>
 					)}
 				</div>
@@ -450,13 +454,14 @@ export function ContextGitPanel({
 				onOpenChange={setIsCreateBranchOpen}
 				onCreate={() => createBranch.mutate({ branch: newBranchName.trim() })}
 			/>
-			<DiscardDialog
+			<ConfirmationDialog
 				open={discardFile !== null}
-				title='Discard changes to this file?'
+				title={getSingleDiscardTitle(discardFile)}
 				description={getSingleDiscardDescription(discardFile, session?.user?.id)}
-				confirmLabel='Discard changes'
+				confirmLabel='Discard'
 				isPending={discardChange.isPending}
 				error={discardChange.error?.message}
+				preventCloseWhilePending
 				onOpenChange={(open) => {
 					if (!open && !discardChange.isPending) {
 						setDiscardFile(null);
@@ -468,13 +473,14 @@ export function ContextGitPanel({
 					}
 				}}
 			/>
-			<DiscardDialog
+			<ConfirmationDialog
 				open={isDiscardAllOpen}
 				title='Discard all changes?'
 				description={getDiscardAllDescription(changedFileList.length, otherEditors)}
-				confirmLabel='Discard all changes'
+				confirmLabel='Discard all'
 				isPending={discardAllChanges.isPending}
 				error={discardAllChanges.error?.message}
+				preventCloseWhilePending
 				onOpenChange={(open) => {
 					if (!open && !discardAllChanges.isPending) {
 						setIsDiscardAllOpen(false);
@@ -486,54 +492,133 @@ export function ContextGitPanel({
 	);
 }
 
-function BranchSelector({
+function ChangedFilesSummary({ files }: { files: ContextChangedFile[] }) {
+	if (files.length === 0) {
+		return null;
+	}
+	let additions = 0;
+	let deletions = 0;
+	let hasKnownCounts = false;
+	let hasUnknownCounts = false;
+	for (const file of files) {
+		if (file.additions === null || file.deletions === null) {
+			hasUnknownCounts = true;
+			continue;
+		}
+		additions += file.additions;
+		deletions += file.deletions;
+		hasKnownCounts = true;
+	}
+	return (
+		<LineChangeSummary
+			additions={hasKnownCounts ? additions : null}
+			deletions={hasKnownCounts ? deletions : null}
+			hasUnknownCounts={hasUnknownCounts}
+		/>
+	);
+}
+
+function LineChangeSummary({
+	additions,
+	deletions,
+	hasUnknownCounts = additions === null || deletions === null,
+}: {
+	additions: number | null;
+	deletions: number | null;
+	hasUnknownCounts?: boolean;
+}) {
+	const hasKnownCounts = additions !== null && deletions !== null;
+	const label = hasKnownCounts
+		? `${additions} additions, ${deletions} deletions${hasUnknownCounts ? ', some line counts unavailable' : ''}`
+		: 'Line counts unavailable';
+	return (
+		<span
+			className='flex shrink-0 items-center gap-1.5 font-mono text-xs'
+			aria-label={label}
+			title={hasUnknownCounts ? 'Some line counts are unavailable.' : undefined}
+		>
+			{hasKnownCounts ? (
+				<>
+					<span className='text-emerald-600 dark:text-emerald-400' aria-hidden='true'>
+						+{additions}
+					</span>
+					<span className='text-red-600 dark:text-red-400' aria-hidden='true'>
+						−{deletions}
+					</span>
+					{hasUnknownCounts && (
+						<span className='text-muted-foreground' aria-hidden='true'>
+							?
+						</span>
+					)}
+				</>
+			) : (
+				<span className='text-muted-foreground' aria-hidden='true'>
+					±?
+				</span>
+			)}
+		</span>
+	);
+}
+
+function BranchMenu({
 	branches,
 	currentBranch,
 	defaultBranch,
 	disabled,
 	reason,
-	error,
 	onSwitch,
 	onCreate,
-	onSetup,
 }: {
 	branches: string[];
 	currentBranch: string | null;
 	defaultBranch: string;
 	disabled: boolean;
 	reason: string | null;
-	error: string | undefined;
 	onSwitch: (branch: string) => void;
 	onCreate: () => void;
-	onSetup: () => void;
 }) {
 	return (
-		<section className='rounded-md border p-2'>
-			<div className='flex items-center gap-2'>
-				<Select value={currentBranch ?? undefined} onValueChange={onSwitch} disabled={disabled}>
-					<SelectTrigger size='sm' className='min-w-0 flex-1' aria-label='Current repository branch'>
-						<SelectValue placeholder='Choose branch' />
-					</SelectTrigger>
-					<SelectContent>
-						{branches.map((branch) => (
-							<SelectItem key={branch} value={branch}>
-								{branch}
-								{branch === defaultBranch ? ' (default)' : ''}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
-				<Button variant='outline' size='sm' disabled={disabled} onClick={onCreate}>
-					<Plus className='size-3.5' />
-					New
-				</Button>
-				<Button variant='ghost' size='sm' onClick={onSetup}>
-					Setup
-				</Button>
-			</div>
-			{reason && <p className='mt-1.5 text-xs text-muted-foreground'>{reason}</p>}
-			{error && <ErrorMessage message={error} />}
-		</section>
+		<div
+			className='min-w-0 max-w-48 flex-[0_1_auto]'
+			onClick={(event) => {
+				event.stopPropagation();
+			}}
+		>
+			<DropdownMenu>
+				<DropdownMenuTrigger asChild>
+					<Button
+						variant='ghost'
+						size='sm'
+						className='min-w-0 max-w-full justify-start gap-1 px-2 text-xs font-normal'
+						aria-label='Current repository branch'
+					>
+						<span className='truncate'>{currentBranch ?? 'Choose branch'}</span>
+						<ChevronDown className='ml-auto size-3.5 shrink-0 text-muted-foreground' />
+					</Button>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent align='end' sideOffset={0} className='w-64 max-w-[calc(100vw-2rem)]'>
+					{branches.map((branch) => (
+						<DropdownMenuCheckboxItem
+							key={branch}
+							checked={branch === currentBranch}
+							disabled={disabled}
+							onSelect={() => onSwitch(branch)}
+						>
+							<span className='min-w-0 truncate'>{branch}</span>
+							{branch === defaultBranch && (
+								<span className='ml-auto shrink-0 text-muted-foreground'>(default)</span>
+							)}
+						</DropdownMenuCheckboxItem>
+					))}
+					{reason && <div className='px-2 py-1.5 text-xs text-muted-foreground'>{reason}</div>}
+					<DropdownMenuSeparator />
+					<DropdownMenuItem disabled={disabled} onSelect={onCreate}>
+						<Plus className='size-3.5' />
+						New branch…
+					</DropdownMenuItem>
+				</DropdownMenuContent>
+			</DropdownMenu>
+		</div>
 	);
 }
 
@@ -563,37 +648,35 @@ function ChangedFiles({
 	onDiscardAll: () => void;
 }) {
 	return (
-		<section className='rounded-md border'>
-			<div className='flex items-center justify-between border-b px-2 py-1.5'>
-				<span className='text-xs font-medium'>Changed files</span>
+		<section className='space-y-2'>
+			<div className='flex items-center justify-between gap-2 px-2'>
+				<h3 className='text-sm font-medium'>Changed files</h3>
 				<Button
-					variant='destructive'
+					variant='ghost'
 					size='sm'
+					className='focus-visible:ring-ring/50 focus-visible:ring-[3px]'
 					disabled={files.length === 0 || actionsDisabledReason !== null}
 					onClick={onDiscardAll}
 				>
-					<Trash2 className='size-3.5' />
 					Discard all
 				</Button>
 			</div>
-			{actionsDisabledReason && (
-				<p className='border-b px-2 py-1.5 text-xs text-muted-foreground'>{actionsDisabledReason}</p>
-			)}
+			{actionsDisabledReason && <p className='px-2 text-xs text-muted-foreground'>{actionsDisabledReason}</p>}
 			{isLoading ? (
-				<div className='flex items-center justify-center py-5'>
+				<div className='flex items-center justify-center px-2 py-5'>
 					<Spinner />
 				</div>
 			) : error ? (
-				<div className='flex flex-col gap-2 p-2'>
+				<div className='flex flex-col gap-2 px-2'>
 					<ErrorMessage message={error} />
 					<Button variant='outline' size='sm' onClick={onRetry}>
 						Retry
 					</Button>
 				</div>
 			) : files.length === 0 ? (
-				<p className='p-2 text-xs text-muted-foreground'>No uncommitted changes.</p>
+				<p className='px-2 py-1 text-xs text-muted-foreground'>No uncommitted changes.</p>
 			) : (
-				<div className='max-h-44 overflow-y-auto p-1'>
+				<div className='max-h-48 overflow-y-auto divide-y divide-border/70'>
 					{files.map((file) => (
 						<ChangedFileRow
 							key={file.path}
@@ -630,202 +713,52 @@ function ChangedFileRow({
 	onDiscard: () => void;
 }) {
 	const fileName = file.path.split('/').pop() ?? file.path;
-	const folder = file.path.slice(0, file.path.lastIndexOf('/')) || 'Project root';
 	const change = getChangeDisplay(file.kind);
 	const ChangeIcon = change.icon;
-	const editorMetadata = getEditorMetadata(file);
 
 	return (
-		<div className={cn('flex items-center rounded-md', isViewing && 'bg-muted')}>
-			<button
-				type='button'
-				onClick={onToggle}
-				aria-pressed={isSelected}
+		<div
+			className={cn(
+				'flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 transition-colors hover:bg-muted/60',
+				isViewing && 'bg-muted',
+			)}
+		>
+			<Checkbox
+				checked={isSelected}
+				onCheckedChange={onToggle}
 				aria-label={`${isSelected ? 'Exclude' : 'Include'} ${fileName} in commit`}
-				className={cn(
-					'ml-1 flex size-5 shrink-0 items-center justify-center rounded border',
-					isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/30',
-				)}
-			>
-				{isSelected && <Check className='size-3' />}
-			</button>
+			/>
 			<button
 				type='button'
 				onClick={onView}
-				className='flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left hover:bg-muted/60'
+				aria-label={`View changes to ${fileName}`}
+				title={file.path}
+				className='flex min-w-0 flex-1 items-center gap-2 rounded-sm py-1 text-left outline-none focus-visible:ring-ring/50 focus-visible:ring-[3px]'
 			>
 				<ChangeIcon className={cn('size-3.5 shrink-0', change.color)} />
-				<span className='min-w-0 flex-1'>
-					<span className='block truncate text-xs font-medium'>{fileName}</span>
-					<span className='block truncate text-[10px] text-muted-foreground'>{folder}</span>
-					{editorMetadata && (
-						<span className='block truncate text-[10px] text-muted-foreground'>{editorMetadata}</span>
-					)}
-				</span>
-				<span className='shrink-0 text-[10px] text-muted-foreground'>{change.label}</span>
+				<span className='min-w-0 flex-1 truncate text-sm font-medium'>{fileName}</span>
+				<LineChangeSummary additions={file.additions} deletions={file.deletions} />
+				<span className='sr-only'>{change.label}</span>
 			</button>
 			<Button
-				variant='destructive'
-				size='sm'
-				className='mr-1 px-2'
+				variant='ghost'
+				size='icon-sm'
+				className='enabled:hover:[&_svg]:text-destructive focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:[&_svg]:text-destructive'
 				aria-label={`Discard changes to ${fileName}`}
 				disabled={discardDisabled}
 				onClick={onDiscard}
 			>
-				Discard
+				<X className='text-muted-foreground transition-colors' />
 			</Button>
 		</div>
 	);
 }
 
-function CommitForm({
-	isDefaultBranch,
-	branchName,
-	message,
-	selectedCount,
-	isPending,
-	canCommit,
-	error,
-	confirmation,
-	fallbackBaseNotice,
-	onBranchNameChange,
-	onMessageChange,
-	onCommit,
-}: {
-	isDefaultBranch: boolean;
-	branchName: string;
-	message: string;
-	selectedCount: number;
-	isPending: boolean;
-	canCommit: boolean;
-	error: string | undefined;
-	confirmation: string | null;
-	fallbackBaseNotice: boolean;
-	onBranchNameChange: (value: string) => void;
-	onMessageChange: (value: string) => void;
-	onCommit: () => void;
-}) {
-	return (
-		<section className='flex flex-col gap-2 rounded-md border p-2'>
-			<div>
-				<p className='text-xs font-medium'>Commit</p>
-				<p className='text-[11px] text-muted-foreground'>Save the selected files to the current branch.</p>
-			</div>
-			{isDefaultBranch && (
-				<label className='flex flex-col gap-1 text-xs'>
-					New branch
-					<Input
-						value={branchName}
-						onChange={(event) => onBranchNameChange(event.target.value)}
-						placeholder='nao/context-edits-…'
-						disabled={isPending}
-						className='h-8 text-xs'
-					/>
-				</label>
-			)}
-			<label className='flex flex-col gap-1 text-xs'>
-				Commit message
-				<Input
-					value={message}
-					onChange={(event) => onMessageChange(event.target.value)}
-					placeholder='Describe the context change'
-					disabled={isPending}
-					className='h-8 text-xs'
-				/>
-			</label>
-			{error && <ErrorMessage message={error} />}
-			{confirmation && <p className='text-xs text-emerald-600 dark:text-emerald-400'>{confirmation}</p>}
-			{fallbackBaseNotice && (
-				<p className='text-xs text-amber-700 dark:text-amber-400'>
-					This branch started from the current version and may need updating before review.
-				</p>
-			)}
-			<Button size='sm' disabled={!canCommit || isPending} isLoading={isPending} onClick={onCommit}>
-				Commit {selectedCount > 0 ? `${selectedCount} ${selectedCount === 1 ? 'file' : 'files'}` : 'files'}
-			</Button>
-		</section>
-	);
-}
-
-function ProposeForm({
-	title,
-	body,
-	pullRequest,
-	isPending,
-	canPropose,
-	disabledReason,
-	error,
-	onTitleChange,
-	onBodyChange,
-	onPropose,
-}: {
-	title: string;
-	body: string;
-	pullRequest: OpenPullRequest | null;
-	isPending: boolean;
-	canPropose: boolean;
-	disabledReason: string | null;
-	error: string | undefined;
-	onTitleChange: (value: string) => void;
-	onBodyChange: (value: string) => void;
-	onPropose: () => void;
-}) {
-	return (
-		<section className='flex flex-col gap-2 rounded-md border p-2'>
-			<div>
-				<p className='text-xs font-medium'>Propose changes</p>
-				<p className='text-[11px] text-muted-foreground'>Open a pull request for review.</p>
-			</div>
-			{pullRequest && (
-				<div className='rounded-md bg-primary/5 p-2'>
-					<a
-						href={pullRequest.url}
-						target='_blank'
-						rel='noreferrer'
-						className='flex items-center gap-1 text-sm font-medium text-primary hover:underline'
-					>
-						Open pull request
-						<ExternalLink className='size-3.5' />
-					</a>
-					<p className='mt-1 text-[10px] text-muted-foreground'>
-						This is the last pull request opened from this browser and may not reflect its current status.
-					</p>
-				</div>
-			)}
-			<label className='flex flex-col gap-1 text-xs'>
-				Title
-				<Input
-					value={title}
-					onChange={(event) => onTitleChange(event.target.value)}
-					placeholder='Describe the proposed change'
-					disabled={isPending}
-					className='h-8 text-xs'
-				/>
-			</label>
-			<label className='flex flex-col gap-1 text-xs'>
-				Description <span className='text-muted-foreground'>(optional)</span>
-				<Textarea
-					value={body}
-					onChange={(event) => onBodyChange(event.target.value)}
-					placeholder='Add context for reviewers'
-					disabled={isPending}
-					className='min-h-16 text-xs'
-				/>
-			</label>
-			{disabledReason && <p className='text-xs text-muted-foreground'>{disabledReason}</p>}
-			{error && <ErrorMessage message={error} />}
-			<Button size='sm' disabled={!canPropose || isPending} isLoading={isPending} onClick={onPropose}>
-				Propose changes
-			</Button>
-		</section>
-	);
-}
-
 function UnavailableGit({ message, onSetup }: { message: string; onSetup: () => void }) {
 	return (
-		<div className='flex flex-col gap-2 rounded-md border p-3'>
+		<div className='flex flex-col gap-3'>
 			<p className='text-xs text-muted-foreground'>{message}</p>
-			<Button size='sm' className='w-fit' onClick={onSetup}>
+			<Button variant='secondary' size='sm' className='w-fit' onClick={onSetup}>
 				Set up git
 			</Button>
 		</div>
@@ -856,93 +789,84 @@ function CreateBranchDialog({
 					<DialogTitle>Create a branch</DialogTitle>
 					<DialogDescription>The new branch starts from the repository's default branch.</DialogDescription>
 				</DialogHeader>
-				<label className='flex flex-col gap-1 text-sm'>
-					Branch name
-					<Input
-						value={branchName}
-						onChange={(event) => onBranchNameChange(event.target.value)}
-						placeholder='nao/context-edits'
-						autoFocus
-					/>
-				</label>
-				{error && <ErrorMessage message={error} />}
-				<DialogFooter>
-					<Button variant='outline' disabled={isPending} onClick={() => onOpenChange(false)}>
-						Cancel
-					</Button>
-					<Button disabled={!branchName.trim() || isPending} isLoading={isPending} onClick={onCreate}>
-						Create branch
-					</Button>
-				</DialogFooter>
+				<form
+					className='flex flex-col gap-4'
+					onSubmit={(event) => {
+						event.preventDefault();
+						event.stopPropagation();
+						if (!branchName.trim() || isPending) {
+							return;
+						}
+						onCreate();
+					}}
+				>
+					<div className='flex flex-col gap-2'>
+						<label htmlFor='branch-name' className='text-sm font-medium'>
+							Branch name
+						</label>
+						<Input
+							id='branch-name'
+							type='text'
+							value={branchName}
+							onChange={(event) => onBranchNameChange(event.target.value)}
+							placeholder='nao/context-edits'
+							autoFocus
+						/>
+					</div>
+					{error && <p className='text-red-500 text-center text-sm'>{error}</p>}
+					<div className='flex justify-end gap-2'>
+						<Button
+							type='button'
+							variant='outline'
+							className='rounded-full border'
+							disabled={isPending}
+							onClick={() => onOpenChange(false)}
+						>
+							Cancel
+						</Button>
+						<Button
+							type='submit'
+							variant='primary-gradient'
+							className='rounded-full'
+							disabled={!branchName.trim() || isPending}
+							isLoading={isPending}
+						>
+							Create branch
+						</Button>
+					</div>
+				</form>
 			</DialogContent>
 		</Dialog>
 	);
 }
 
-function DiscardDialog({
-	open,
-	title,
-	description,
-	confirmLabel,
-	isPending,
-	error,
-	onOpenChange,
-	onConfirm,
-}: {
-	open: boolean;
-	title: string;
-	description: string;
-	confirmLabel: string;
-	isPending: boolean;
-	error: string | undefined;
-	onOpenChange: (open: boolean) => void;
-	onConfirm: () => void;
-}) {
-	return (
-		<AlertDialog open={open} onOpenChange={onOpenChange}>
-			<AlertDialogContent>
-				<AlertDialogHeader>
-					<AlertDialogTitle>{title}</AlertDialogTitle>
-					<AlertDialogDescription>{description}</AlertDialogDescription>
-				</AlertDialogHeader>
-				{error && <ErrorMessage message={error} />}
-				<AlertDialogFooter>
-					<AlertDialogCancel disabled={isPending}>Keep changes</AlertDialogCancel>
-					<AlertDialogAction
-						variant='destructive'
-						isLoading={isPending}
-						disabled={isPending}
-						onClick={(event) => {
-							event.preventDefault();
-							onConfirm();
-						}}
-					>
-						{confirmLabel}
-					</AlertDialogAction>
-				</AlertDialogFooter>
-			</AlertDialogContent>
-		</AlertDialog>
-	);
+function getSingleDiscardTitle(file: ContextChangedFile | null): string {
+	if (!file) {
+		return 'Discard changes?';
+	}
+	const fileName = file.path.split('/').pop() ?? file.path;
+	return `Discard ${fileName}?`;
 }
 
 function getSingleDiscardDescription(file: ContextChangedFile | null, currentUserId: string | undefined): string {
 	if (!file) {
 		return '';
 	}
-	const fileName = file.path.split('/').pop() ?? file.path;
+	const base = 'Are you sure you want to discard the uncommitted changes to this file?';
 	const editor = file.lastEditor;
 	if (editor && currentUserId && editor.id !== currentUserId) {
-		return `This permanently discards changes to ${fileName}. These changes were last edited by ${editor.name}, not you. This cannot be undone.`;
+		return `${base} They were last edited by ${editor.name}, not you.`;
 	}
-	return `This permanently discards all uncommitted changes to ${fileName}. This cannot be undone.`;
+	return base;
 }
 
 function getDiscardAllDescription(changeCount: number, otherEditors: string[]): string {
-	const base = `This permanently discards all uncommitted changes to ${changeCount} ${changeCount === 1 ? 'file' : 'files'} in the shared workspace.`;
+	const fileCount = `${changeCount} ${changeCount === 1 ? 'file' : 'files'}`;
+	const base = `Are you sure you want to discard the uncommitted changes across ${fileCount}?`;
 	if (otherEditors.length === 0) {
-		return `${base} This cannot be undone.`;
+		return base;
 	}
-	return `${base} This includes changes last edited by ${formatNames(otherEditors)}, not you. This cannot be undone.`;
+	return `${base} Some were last edited by ${formatNames(otherEditors)}, not you.`;
 }
 
 function getOtherEditorNames(files: ContextChangedFile[], currentUserId: string | undefined): string[] {
@@ -978,52 +902,6 @@ function getChangeDisplay(kind: ContextChangedFile['kind']) {
 		return { icon: FileX, label: 'Removed', color: 'text-red-500' };
 	}
 	return { icon: FilePen, label: 'Edited', color: 'text-amber-500' };
-}
-
-function getEditorMetadata(file: ContextChangedFile): string | null {
-	const editorName = file.lastEditor?.name;
-	const editedAt = file.lastEditedAt ? getTimeAgo(file.lastEditedAt).humanReadable : null;
-	if (editorName && editedAt) {
-		return `Last edited by ${editorName} · ${editedAt}`;
-	}
-	if (editorName) {
-		return `Last edited by ${editorName}`;
-	}
-	if (editedAt) {
-		return `Last edited ${editedAt}`;
-	}
-	return null;
-}
-
-function readBrowserPullRequest(repo: ContextRepo | null, branch: string | null): OpenPullRequest | null {
-	const key = getBrowserBranchStorageKey(repo, branch);
-	if (!key) {
-		return null;
-	}
-	try {
-		const value = window.localStorage.getItem(key);
-		if (!value) {
-			return null;
-		}
-		const parsed = JSON.parse(value) as { pullRequest?: OpenPullRequest | null };
-		return parsed.pullRequest ?? null;
-	} catch {
-		return null;
-	}
-}
-
-function writeBrowserPullRequest(repo: ContextRepo | null, branch: string | null, pullRequest: OpenPullRequest): void {
-	const key = getBrowserBranchStorageKey(repo, branch);
-	if (key) {
-		window.localStorage.setItem(key, JSON.stringify({ pullRequest }));
-	}
-}
-
-function getBrowserBranchStorageKey(repo: ContextRepo | null, branch: string | null): string | null {
-	if (!repo || !branch) {
-		return null;
-	}
-	return `nao-context-explorer:${repo.provider}:${repo.repoFullName}:${branch}`;
 }
 
 async function invalidateExplorerQueries(queryClient: QueryClient): Promise<void> {
