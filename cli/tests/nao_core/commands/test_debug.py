@@ -26,7 +26,7 @@ class TestLLMConnection:
             assert success is True
             assert "Connected successfully" in message
             assert "3 models available" in message
-            mock_openai_class.assert_called_once_with(api_key="sk-test-api-key")
+            mock_openai_class.assert_called_once_with(api_key="sk-test-api-key", base_url=None)
 
     def test_openai_warns_when_configured_models_missing(self):
         config = ProviderConfig(
@@ -293,6 +293,86 @@ class TestLLMConnection:
 
             assert success is False
             assert "Invalid API key" in message
+
+    def test_moonshot_connection_uses_the_default_endpoint(self):
+        config = ProviderConfig(provider=LLMProvider.MOONSHOT, api_key="sk-test-api-key")
+        with patch("openai.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_client.models.list.return_value = [SimpleNamespace(id="kimi-k3")]
+            mock_openai_class.return_value = mock_client
+
+            success, message = check_llm_connection(config)
+
+            assert success is True
+            assert "1 models available" in message
+            mock_openai_class.assert_called_once_with(api_key="sk-test-api-key", base_url="https://api.moonshot.ai/v1")
+
+    def test_qwen_connection_uses_the_default_endpoint(self):
+        config = ProviderConfig(provider=LLMProvider.QWEN, api_key="sk-test-api-key")
+        with patch("openai.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_client.models.list.return_value = [SimpleNamespace(id="qwen3.7-plus")]
+            mock_openai_class.return_value = mock_client
+
+            success, _ = check_llm_connection(config)
+
+            assert success is True
+            mock_openai_class.assert_called_once_with(
+                api_key="sk-test-api-key",
+                base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+            )
+
+    def test_minimax_falls_back_to_a_probe_completion_without_a_model_list(self):
+        """MiniMax answers GET /v1/models with a 404, so credentials are checked with a completion."""
+        config = ProviderConfig(
+            provider=LLMProvider.MINIMAX,
+            api_key="sk-test-api-key",
+            models=[ModelConfig(id="MiniMax-M3")],
+        )
+        with patch("openai.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_client.models.list.side_effect = Exception("404 page not found")
+            mock_openai_class.return_value = mock_client
+
+            success, message = check_llm_connection(config)
+
+            assert success is True
+            assert "verified 'MiniMax-M3' with a test completion" in message
+            mock_client.chat.completions.create.assert_called_once_with(
+                model="MiniMax-M3",
+                messages=[{"role": "user", "content": "ping"}],
+                max_tokens=1,
+            )
+
+    def test_minimax_without_models_reports_that_one_is_needed(self):
+        config = ProviderConfig(provider=LLMProvider.MINIMAX, api_key="sk-test-api-key")
+        with patch("openai.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_client.models.list.side_effect = Exception("404 page not found")
+            mock_openai_class.return_value = mock_client
+
+            success, message = check_llm_connection(config)
+
+            assert success is False
+            assert "declare a model" in message
+            mock_client.chat.completions.create.assert_not_called()
+
+    def test_qwen_auth_failure_is_not_retried_as_a_completion(self):
+        config = ProviderConfig(
+            provider=LLMProvider.QWEN,
+            api_key="invalid",
+            models=[ModelConfig(id="qwen3.7-plus")],
+        )
+        with patch("openai.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_client.models.list.side_effect = Exception("Unauthorized")
+            mock_openai_class.return_value = mock_client
+
+            success, message = check_llm_connection(config)
+
+            assert success is False
+            assert "Authentication failed" in message
+            mock_client.chat.completions.create.assert_not_called()
 
     def test_ollama_connection_success(self):
         config = ProviderConfig(provider=LLMProvider.OLLAMA)

@@ -341,6 +341,57 @@ describe('Mistral and Ollama', () => {
 	});
 });
 
+describe('Qwen, MiniMax and Moonshot (OpenAI-compatible endpoints)', () => {
+	it('sends the effort Kimi understands, snapping the levels it rejects', () => {
+		const max = resolve('moonshot', 'kimi-k3', { reasoningEffort: 'max' });
+		const medium = resolve('moonshot', 'kimi-k3', { reasoningEffort: 'medium' });
+
+		expect(max.options.reasoningEffort).toBe('max');
+		expect(medium.options.reasoningEffort).toBe('low');
+	});
+
+	it('skips reasoning on Kimi K2 models, which switch thinking per model', () => {
+		const { options, callSettings } = resolve('moonshot', 'kimi-k2.6', {
+			reasoningEffort: 'high',
+			temperature: 0.4,
+		});
+
+		expect(options).not.toHaveProperty('reasoningEffort');
+		expect(callSettings).toEqual({ temperature: 0.4 });
+	});
+
+	it('sends the Qwen thinking budget under the field names the API expects', () => {
+		const { options } = resolve('qwen', 'qwen3.7-plus', { thinkingBudgetTokens: 8192 });
+
+		expect(options.enable_thinking).toBe(true);
+		expect(options.thinking_budget).toBe(8192);
+	});
+
+	it('leaves Qwen thinking to the model default when no budget is stored', () => {
+		const { options, callSettings } = resolve('qwen', 'qwen3.7-plus', { temperature: 0.6, topK: 40 });
+
+		expect(options).not.toHaveProperty('enable_thinking');
+		expect(callSettings).toEqual({ temperature: 0.6 });
+	});
+
+	it('renames the MiniMax service tier to the field the API expects', () => {
+		const { options } = resolve('minimax', 'MiniMax-M3', { serviceTier: 'priority' });
+
+		expect(options.service_tier).toBe('priority');
+		expect(options).not.toHaveProperty('serviceTier');
+	});
+
+	it('ignores reasoning settings for MiniMax, which decides thinking itself', () => {
+		const { options, callSettings } = resolve('minimax', 'MiniMax-M3', {
+			reasoningEffort: 'high',
+			maxOutputTokens: 4096,
+		});
+
+		expect(options).not.toHaveProperty('reasoningEffort');
+		expect(callSettings).toEqual({ maxOutputTokens: 4096 });
+	});
+});
+
 describe('sampling bound clamps (stored values must never fail a request)', () => {
 	it('clamps a stored temperature above 1 to 1 for Claude', () => {
 		const { callSettings } = resolve('anthropic', 'claude-sonnet-4-6', { temperature: 1.5 });
@@ -352,6 +403,14 @@ describe('sampling bound clamps (stored values must never fail a request)', () =
 		const { callSettings } = resolve('mistral', 'mistral-medium-latest', { temperature: 1.8 });
 
 		expect(callSettings).toEqual({ temperature: 1.5 });
+	});
+
+	it('clamps temperature to 1 for Moonshot and leaves MiniMax on the 0-2 range', () => {
+		const moonshot = resolve('moonshot', 'kimi-k3', { temperature: 1.8 });
+		const minimax = resolve('minimax', 'MiniMax-M3', { temperature: 1.8 });
+
+		expect(moonshot.callSettings).toEqual({ temperature: 1 });
+		expect(minimax.callSettings).toEqual({ temperature: 1.8 });
 	});
 
 	it('passes a high temperature through for models with the default 0-2 range', () => {

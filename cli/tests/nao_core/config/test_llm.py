@@ -6,6 +6,7 @@ import pytest
 
 from nao_core.config.llm import (
     DEFAULT_ANNOTATION_MODELS,
+    PROVIDER_AUTH,
     LLMConfig,
     LLMProvider,
     ModelConfig,
@@ -31,6 +32,19 @@ def test_non_ollama_requires_api_key():
     """providers other than ollama should require API key."""
     with pytest.raises(ValueError, match="api_key is required"):
         ProviderConfig(provider=LLMProvider.ANTHROPIC, api_key=None)
+
+
+@pytest.mark.parametrize("provider", [LLMProvider.QWEN, LLMProvider.MINIMAX, LLMProvider.MOONSHOT])
+def test_openai_compatible_providers_are_fully_declared(provider: LLMProvider):
+    """Every provider needs auth, a default endpoint and an annotation model to be usable."""
+    auth = PROVIDER_AUTH[provider]
+
+    assert auth.api_key == "required"
+    assert auth.default_base_url
+    assert DEFAULT_ANNOTATION_MODELS[provider]
+
+    with pytest.raises(ValueError, match="api_key is required"):
+        ProviderConfig(provider=provider, api_key=None)
 
 
 def test_requires_at_least_one_provider():

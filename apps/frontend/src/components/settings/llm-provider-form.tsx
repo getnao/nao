@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useForm } from '@tanstack/react-form';
 import { Check, ChevronDown, MoreHorizontal, Plus, TriangleAlert, X } from 'lucide-react';
-import { getDefaultModelId, getModelParameterSpec, getProviderAuth } from '@nao/backend/provider-meta';
+import { getDefaultModelId, getModelParameterSpec, getProviderAuth, PROVIDER_META } from '@nao/backend/provider-meta';
 import { CustomModelDialog } from './custom-model-dialog';
 import { ModelParametersDialog } from './model-parameters-dialog';
 import { applySavedModelSettings } from './model-settings-overrides';
@@ -364,7 +364,7 @@ export function LlmProviderForm({
 								value={field.state.value}
 								onChange={(e) => field.handleChange(e.target.value)}
 								onBlur={field.handleBlur}
-								placeholder='e.g., https://your-proxy.com/v1'
+								placeholder={`e.g., ${PROVIDER_META[provider].defaultBaseUrl ?? 'https://your-proxy.com/v1'}`}
 							/>
 							<p className='text-xs text-muted-foreground'>
 								Use a custom endpoint instead of the default provider URL.

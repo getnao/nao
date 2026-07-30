@@ -94,6 +94,12 @@ describe('getModelCapabilities', () => {
 		});
 	});
 
+	it('falls back per provider for the OpenAI-compatible endpoints', () => {
+		expect(getModelCapabilities('qwen', 'qwen-custom')).toMatchObject({ thinking: 'budget', topK: false });
+		expect(getModelCapabilities('minimax', 'MiniMax-Custom')).toMatchObject({ thinking: 'none', sampling: true });
+		expect(getModelCapabilities('moonshot', 'kimi-custom')).toMatchObject({ thinking: 'adaptive', sampling: true });
+	});
+
 	it('falls back per model family for custom Bedrock models', () => {
 		expect(getModelCapabilities('bedrock', 'anthropic.claude-3-7-sonnet')).toMatchObject({
 			thinking: 'budget',
@@ -329,6 +335,18 @@ describe('getModelParameterSpec', () => {
 		expect(controlByKey(controls, 'parallelToolCalls')).toMatchObject({ kind: 'boolean' });
 		expect(controlByKey(controls, 'documentImageLimit')).toMatchObject({ kind: 'number', min: 1 });
 		expect(controlByKey(controls, 'documentPageLimit')).toMatchObject({ kind: 'number', min: 1 });
+	});
+
+	it('derives the control set of the OpenAI-compatible providers, which never expose topK', () => {
+		const qwen = getModelParameterSpec('qwen', 'qwen3.7-plus');
+		const minimax = getModelParameterSpec('minimax', 'MiniMax-M3');
+		const moonshot = getModelParameterSpec('moonshot', 'kimi-k3');
+
+		expect(qwen.map((c) => c.key)).toEqual(['thinkingBudgetTokens', 'temperature', 'topP', 'maxOutputTokens']);
+		expect(minimax.map((c) => c.key)).toEqual(['temperature', 'topP', 'maxOutputTokens', 'serviceTier']);
+		expect(moonshot.map((c) => c.key)).toEqual(['reasoningEffort', 'temperature', 'topP', 'maxOutputTokens']);
+		expect(controlByKey(minimax, 'serviceTier')).toMatchObject({ options: ['standard', 'priority'] });
+		expect(controlByKey(moonshot, 'reasoningEffort')).toMatchObject({ options: ['off', 'low', 'high', 'max'] });
 	});
 
 	it('derives the temperature bound from each model capability', () => {

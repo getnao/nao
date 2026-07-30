@@ -6,6 +6,7 @@ import { createVertex } from '@ai-sdk/google-vertex';
 import { createVertexAnthropic } from '@ai-sdk/google-vertex/anthropic';
 import { createMistral } from '@ai-sdk/mistral';
 import { createOpenAI } from '@ai-sdk/openai';
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
 import type { LlmProvider } from '@nao/shared/types';
 import { createOpenRouter, LanguageModelV3 } from '@openrouter/ai-sdk-provider';
@@ -16,6 +17,7 @@ import type {
 	LlmProvidersType,
 	ModelCapabilities,
 	ModelInferenceSettings,
+	OpenAICompatibleProvider,
 	ProviderConfigMap,
 	ProviderSettings,
 	ReasoningEffort,
@@ -29,6 +31,7 @@ import {
 	EFFORT_TO_OPENAI,
 	getModelCapabilities,
 	isAnthropicApiModel,
+	OPENAI_COMPATIBLE_BASE_URLS,
 	PROVIDER_META,
 } from './provider-meta';
 
@@ -166,7 +169,37 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 		},
 		defaultOptions: { store: false, reasoningSummary: 'auto' },
 	},
+	qwen: {
+		...PROVIDER_META.qwen,
+		create: (settings, modelId) => createCompatibleModel('qwen', settings, modelId),
+	},
+	minimax: {
+		...PROVIDER_META.minimax,
+		create: (settings, modelId) => createCompatibleModel('minimax', settings, modelId),
+	},
+	moonshot: {
+		...PROVIDER_META.moonshot,
+		create: (settings, modelId) => createCompatibleModel('moonshot', settings, modelId),
+	},
 };
+
+/**
+ * Build a model for a provider that only exposes an OpenAI-compatible chat endpoint. Options keyed
+ * under the provider name are forwarded as request body fields, which is how the vendor-specific
+ * thinking switches reach the API.
+ */
+function createCompatibleModel(
+	provider: OpenAICompatibleProvider,
+	settings: ProviderSettings,
+	modelId: string,
+): LanguageModelV3 {
+	return createOpenAICompatible({
+		name: provider,
+		baseURL: settings.baseURL || OPENAI_COMPATIBLE_BASE_URLS[provider],
+		apiKey: settings.apiKey,
+		includeUsage: true,
+	}).chatModel(modelId);
+}
 
 export type ModelCallSettings = {
 	temperature?: number;
@@ -376,9 +409,28 @@ function resolveThinking(
 		case 'google':
 		case 'vertex':
 			return resolveGeminiThinking(capabilities, effort, settings);
+		case 'moonshot':
+			// Kimi's own effort vocabulary, so the clamped value goes out as-is.
+			return resolveEffortThinking(effort, (e) => ({ reasoningEffort: e }));
+		case 'qwen':
+			return resolveQwenThinking(capabilities, settings);
 		default:
 			return THINKING_INACTIVE;
 	}
+}
+
+/** Qwen sizes thinking with a token budget, behind its own on/off switch. */
+function resolveQwenThinking(
+	capabilities: ModelCapabilities | undefined,
+	settings: ModelInferenceSettings,
+): ThinkingResult {
+	if (capabilities?.thinking !== 'budget' || settings.thinkingBudgetTokens === undefined) {
+		return THINKING_INACTIVE;
+	}
+	return {
+		providerOverrides: { enable_thinking: true, thinking_budget: settings.thinkingBudgetTokens },
+		thinkingActive: true,
+	};
 }
 
 function resolveClaudeThinking(
@@ -454,6 +506,9 @@ function resolveExtraOptions(
 		}
 		if (key === 'parallelToolCalls' && isAnthropicApiModel(provider, modelId)) {
 			overrides.disableParallelToolUse = !value;
+		} else if (key === 'serviceTier' && provider === 'minimax') {
+			// MiniMax options are forwarded verbatim, so the body field has to be named as the API expects.
+			overrides.service_tier = value;
 		} else if (key === 'includeThoughts') {
 			overrides.thinkingConfig = { includeThoughts: value };
 		} else if (key === 'safetyThreshold') {

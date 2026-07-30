@@ -45,6 +45,9 @@ export const LLM_PROVIDERS = [
 	'bedrock',
 	'vertex',
 	'azure',
+	'qwen',
+	'minimax',
+	'moonshot',
 ] as const;
 
 export const providerLabels: Record<LlmProvider, string> = {
@@ -57,6 +60,9 @@ export const providerLabels: Record<LlmProvider, string> = {
 	bedrock: 'Amazon Bedrock',
 	vertex: 'Vertex AI',
 	azure: 'Azure Foundry',
+	qwen: 'Qwen',
+	minimax: 'MiniMax',
+	moonshot: 'Moonshot',
 };
 
 export type LlmProvider = (typeof LLM_PROVIDERS)[number];

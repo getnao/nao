@@ -4,8 +4,10 @@ import type { OpenAIResponsesProviderOptions as AzureOpenAIResponsesProviderOpti
 import type { GoogleGenerativeAIProviderOptions } from '@ai-sdk/google';
 import type { MistralLanguageModelOptions } from '@ai-sdk/mistral';
 import type { OpenAIResponsesProviderOptions } from '@ai-sdk/openai';
+import type { OpenAICompatibleProviderOptions } from '@ai-sdk/openai-compatible';
 import { LLM_PROVIDERS, type LlmProvider } from '@nao/shared/types';
 import type { LanguageModelV3, OpenRouterProviderOptions } from '@openrouter/ai-sdk-provider';
+import type { JSONValue } from 'ai';
 import type { OllamaChatProviderOptions } from 'ai-sdk-ollama';
 import { z } from 'zod/v4';
 
@@ -186,6 +188,16 @@ export const configLlmProviderSchema = z.object({
 /** Flatten an interface into a plain type so it gains an implicit index signature. */
 type Flatten<T> = { [K in keyof T]: T[K] };
 
+/**
+ * Options for providers served through the OpenAI-compatible chat API. Known keys are translated
+ * by the SDK; everything else is forwarded verbatim as a request body field, which is how the
+ * vendor-specific extensions (`enable_thinking`, `service_tier`, …) are passed.
+ */
+export type OpenAICompatibleOptions = OpenAICompatibleProviderOptions & Record<string, JSONValue>;
+
+/** Providers served through a plain OpenAI-compatible chat endpoint rather than a dedicated SDK. */
+export type OpenAICompatibleProvider = 'qwen' | 'minimax' | 'moonshot';
+
 /** Map each provider to its specific config type */
 export type ProviderConfigMap = {
 	google: GoogleGenerativeAIProviderOptions;
@@ -197,6 +209,9 @@ export type ProviderConfigMap = {
 	bedrock: AmazonBedrockLanguageModelOptions;
 	vertex: GoogleGenerativeAIProviderOptions;
 	azure: AzureOpenAIResponsesProviderOptions;
+	qwen: OpenAICompatibleOptions;
+	minimax: OpenAICompatibleOptions;
+	moonshot: OpenAICompatibleOptions;
 };
 
 /** Model definition with provider-specific config type */
@@ -242,6 +257,8 @@ export type ProviderMeta<P extends LlmProvider> = {
 	auth: ProviderAuth;
 	envVar: string;
 	baseUrlEnvVar?: string;
+	/** Endpoint used when neither the config nor the environment sets a base URL. */
+	defaultBaseUrl?: string;
 	models: readonly ProviderModel<P>[];
 	extractorModelId: string;
 	summaryModelId: string;

@@ -19,6 +19,9 @@ class LLMProvider(str, Enum):
     OLLAMA = "ollama"
     BEDROCK = "bedrock"
     VERTEX = "vertex"
+    QWEN = "qwen"
+    MINIMAX = "minimax"
+    MOONSHOT = "moonshot"
 
 
 @dataclass(frozen=True)
@@ -28,6 +31,7 @@ class ProviderAuthConfig:
     base_url_env_var: str | None = None
     alternative_env_vars: tuple[str, ...] = field(default_factory=tuple)
     hint: str | None = None
+    default_base_url: str | None = None
 
 
 PROVIDER_AUTH: dict[LLMProvider, ProviderAuthConfig] = {
@@ -44,7 +48,10 @@ PROVIDER_AUTH: dict[LLMProvider, ProviderAuthConfig] = {
         env_var="GEMINI_API_KEY", api_key="required", base_url_env_var="GEMINI_BASE_URL"
     ),
     LLMProvider.OPENROUTER: ProviderAuthConfig(
-        env_var="OPENROUTER_API_KEY", api_key="required", base_url_env_var="OPENROUTER_BASE_URL"
+        env_var="OPENROUTER_API_KEY",
+        api_key="required",
+        base_url_env_var="OPENROUTER_BASE_URL",
+        default_base_url="https://openrouter.ai/api/v1",
     ),
     LLMProvider.OLLAMA: ProviderAuthConfig(
         env_var="OLLAMA_API_KEY", api_key="none", base_url_env_var="OLLAMA_BASE_URL"
@@ -64,7 +71,37 @@ PROVIDER_AUTH: dict[LLMProvider, ProviderAuthConfig] = {
             "VERTEX_GOOGLE_APPLICATION_CREDENTIALS",
         ),
     ),
+    LLMProvider.QWEN: ProviderAuthConfig(
+        env_var="DASHSCOPE_API_KEY",
+        api_key="required",
+        base_url_env_var="DASHSCOPE_BASE_URL",
+        default_base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+        hint="Model Studio keys are regional — set base_url to reach an endpoint other than Singapore",
+    ),
+    LLMProvider.MINIMAX: ProviderAuthConfig(
+        env_var="MINIMAX_API_KEY",
+        api_key="required",
+        base_url_env_var="MINIMAX_BASE_URL",
+        default_base_url="https://api.minimax.io/v1",
+    ),
+    LLMProvider.MOONSHOT: ProviderAuthConfig(
+        env_var="MOONSHOT_API_KEY",
+        api_key="required",
+        base_url_env_var="MOONSHOT_BASE_URL",
+        default_base_url="https://api.moonshot.ai/v1",
+    ),
 }
+
+"""Providers exposed through a plain OpenAI-compatible chat API rather than their own SDK."""
+OPENAI_COMPATIBLE_PROVIDERS: frozenset[LLMProvider] = frozenset(
+    {
+        LLMProvider.OPENAI,
+        LLMProvider.OPENROUTER,
+        LLMProvider.QWEN,
+        LLMProvider.MINIMAX,
+        LLMProvider.MOONSHOT,
+    }
+)
 
 
 DEFAULT_ANNOTATION_MODELS: dict[LLMProvider, str] = {
@@ -76,6 +113,9 @@ DEFAULT_ANNOTATION_MODELS: dict[LLMProvider, str] = {
     LLMProvider.OLLAMA: "llama3.2",
     LLMProvider.BEDROCK: "anthropic.claude-3-5-sonnet-20241022-v2:0",
     LLMProvider.VERTEX: "gemini-2.5-flash",
+    LLMProvider.QWEN: "qwen3.7-flash",
+    LLMProvider.MINIMAX: "MiniMax-M2.7",
+    LLMProvider.MOONSHOT: "kimi-k2.5",
 }
 
 """The chat backend spells the Gemini provider `google`; both spellings are accepted in config."""
@@ -139,7 +179,7 @@ class ProviderConfig(BaseModel):
 
     @property
     def requires_api_key(self) -> bool:
-        return self.provider not in (LLMProvider.OLLAMA, LLMProvider.BEDROCK, LLMProvider.VERTEX)
+        return PROVIDER_AUTH[self.provider].api_key == "required"
 
     @property
     def default_model(self) -> ModelConfig | None:
@@ -194,6 +234,9 @@ class ProviderConfig(BaseModel):
             questionary.Choice("Ollama", value="ollama"),
             questionary.Choice("AWS Bedrock (Claude, Nova, etc)", value="bedrock"),
             questionary.Choice("Google Vertex AI (Claude, Gemini)", value="vertex"),
+            questionary.Choice("Qwen (Alibaba Cloud Model Studio)", value="qwen"),
+            questionary.Choice("MiniMax", value="minimax"),
+            questionary.Choice("Moonshot (Kimi)", value="moonshot"),
         ]
         provider_choices = [
             choice for choice in provider_choices if LLMProvider(choice.value) not in excluded_providers

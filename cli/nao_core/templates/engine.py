@@ -6,7 +6,13 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from nao_core.config.llm import LLMConfig, LLMProvider, ProviderConfig
+from nao_core.config.llm import (
+    OPENAI_COMPATIBLE_PROVIDERS,
+    PROVIDER_AUTH,
+    LLMConfig,
+    LLMProvider,
+    ProviderConfig,
+)
 
 # Path to the default templates shipped with nao
 DEFAULT_TEMPLATES_DIR = Path(__file__).parent / "defaults"
@@ -124,7 +130,7 @@ class TemplateEngine:
             raise RuntimeError("No annotation model configured. Set `llm.annotation_model` in nao_config.yaml.")
 
         try:
-            if self.llm_config.provider in {LLMProvider.OPENAI, LLMProvider.OPENROUTER}:
+            if self.llm_config.provider in OPENAI_COMPATIBLE_PROVIDERS:
                 return self._generate_openai_compatible(model, prompt_text)
             if self.llm_config.provider == LLMProvider.ANTHROPIC:
                 return self._generate_anthropic(model, prompt_text)
@@ -153,16 +159,16 @@ class TemplateEngine:
         """Generate text via OpenAI-compatible chat completion APIs."""
         from nao_core.deps import require_dependency
 
-        require_dependency("openai", "openai", "for OpenAI/OpenRouter LLM provider")
+        require_dependency("openai", "openai", "for OpenAI-compatible LLM providers")
         from openai import OpenAI
 
         kwargs: dict[str, Any] = {}
         if self.llm_config and self.llm_config.api_key:
             kwargs["api_key"] = self.llm_config.api_key
-        if self.llm_config and self.llm_config.base_url:
-            kwargs["base_url"] = self.llm_config.base_url
-        elif self.llm_config and self.llm_config.provider == LLMProvider.OPENROUTER:
-            kwargs["base_url"] = "https://openrouter.ai/api/v1"
+        if self.llm_config:
+            base_url = self.llm_config.base_url or PROVIDER_AUTH[self.llm_config.provider].default_base_url
+            if base_url:
+                kwargs["base_url"] = base_url
 
         client = OpenAI(**kwargs)
         response = client.chat.completions.create(

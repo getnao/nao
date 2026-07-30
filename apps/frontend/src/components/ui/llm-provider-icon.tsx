@@ -7,6 +7,9 @@ import OpenRouterIcon from '@/components/icons/openrouter.svg';
 import OllamaIcon from '@/components/icons/ollama.svg';
 import BedrockIcon from '@/components/icons/bedrock.svg';
 import GoogleVertexIcon from '@/components/icons/google-vertex.svg';
+import QwenIcon from '@/components/icons/qwen.svg';
+import MinimaxIcon from '@/components/icons/minimax.svg';
+import MoonshotIcon from '@/components/icons/moonshot.svg';
 
 import { cn } from '@/lib/utils';
 
@@ -31,6 +34,12 @@ export function LlmProviderIcon({ provider, className: customClassName }: { prov
 			return <GoogleVertexIcon className={className} />;
 		case 'azure':
 			return <AzureIcon className={className} />;
+		case 'qwen':
+			return <QwenIcon className={className} />;
+		case 'minimax':
+			return <MinimaxIcon className={className} />;
+		case 'moonshot':
+			return <MoonshotIcon className={className} />;
 		default:
 			return null;
 	}

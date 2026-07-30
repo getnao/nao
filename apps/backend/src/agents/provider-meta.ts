@@ -5,6 +5,7 @@ import {
 	type ExtraParamKey,
 	mediaResolutionSchema,
 	type ModelCapabilities,
+	type OpenAICompatibleProvider,
 	type ParamControl,
 	type ProviderAuth,
 	type ProviderMetaMap,
@@ -12,6 +13,13 @@ import {
 	safetyThresholdSchema,
 	type ServiceTier,
 } from '../types/llm';
+
+/** Endpoints of the providers reached through a plain OpenAI-compatible chat API. */
+export const OPENAI_COMPATIBLE_BASE_URLS: Record<OpenAICompatibleProvider, string> = {
+	qwen: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+	minimax: 'https://api.minimax.io/v1',
+	moonshot: 'https://api.moonshot.ai/v1',
+};
 
 /** Claude effort vocabulary: no `minimal` (Anthropic's effort enum is low/medium/high/max). */
 const CLAUDE_EFFORTS: ReasoningEffort[] = ['off', 'low', 'medium', 'high', 'max'];
@@ -25,6 +33,10 @@ const GEMINI_FLASH_EFFORTS: ReasoningEffort[] = ['off', 'minimal', 'low', 'mediu
 const GEMINI_CUSTOM_EFFORTS: ReasoningEffort[] = ['off', 'low', 'high'];
 /** GPT-5.6 dropped `minimal` and split the top of the scale, so `max` is a level above `xhigh`. */
 const OPENAI_5_6_EFFORTS: ReasoningEffort[] = ['off', 'low', 'medium', 'high', 'max'];
+/** Kimi K3 reasoning levels: the API accepts low/high/max only. */
+const MOONSHOT_EFFORTS: ReasoningEffort[] = ['off', 'low', 'high', 'max'];
+
+export type ActiveEffort = Exclude<ReasoningEffort, 'off'>;
 
 export const EFFORT_TO_OPENAI: Record<ActiveEffort, string> = {
 	minimal: 'minimal',
@@ -65,6 +77,7 @@ export const EFFORT_OPTIONS: ReasoningEffort[] = ['off', 'minimal', 'low', 'medi
 const OPENAI_TIERS: ServiceTier[] = ['auto', 'default', 'flex', 'priority'];
 const GOOGLE_TIERS: ServiceTier[] = ['standard', 'flex', 'priority'];
 const BEDROCK_TIERS: ServiceTier[] = ['default', 'reserved', 'priority', 'flex'];
+const MINIMAX_TIERS: ServiceTier[] = ['standard', 'priority'];
 
 const ANTHROPIC_EXTRAS: ExtraParamKey[] = ['parallelToolCalls', 'sendReasoning', 'speed', 'inferenceGeo'];
 /**
@@ -246,6 +259,47 @@ const BEDROCK_SAMPLING: ModelCapabilities = {
 
 /** Ollama local models: sampling + max output tokens (thinking is a model-creation setting, deferred). */
 const OLLAMA_SAMPLING: ModelCapabilities = { thinking: 'none', sampling: true, topK: true, maxOutputTokens: true };
+
+/**
+ * Qwen hybrid-thinking models: thinking is sized by an explicit token budget. The OpenAI-compatible
+ * chat endpoint drops topK for every provider it serves, so none of them expose it.
+ */
+const QWEN_BUDGET: ModelCapabilities = {
+	thinking: 'budget',
+	sampling: true,
+	topK: false,
+	maxOutputTokens: true,
+};
+
+/** MiniMax models: thinking is decided by the model itself, so only sampling and the tier are tunable. */
+const MINIMAX_SAMPLING: ModelCapabilities = {
+	thinking: 'none',
+	sampling: true,
+	topK: false,
+	maxOutputTokens: true,
+	extraParams: ['serviceTier'],
+	serviceTierOptions: MINIMAX_TIERS,
+};
+
+/** Kimi K3: always reasons, with the intensity driven by effort. */
+const MOONSHOT_ADAPTIVE: ModelCapabilities = {
+	thinking: 'adaptive',
+	sampling: true,
+	topK: false,
+	maxOutputTokens: true,
+	effortOptions: MOONSHOT_EFFORTS,
+	// Moonshot's chat completions API rejects temperatures above 1.
+	temperatureMax: 1,
+};
+
+/** Kimi K2.x: thinking is a per-model switch rather than an effort, so only sampling is tunable. */
+const MOONSHOT_SAMPLING: ModelCapabilities = {
+	thinking: 'none',
+	sampling: true,
+	topK: false,
+	maxOutputTokens: true,
+	temperatureMax: 1,
+};
 
 /** Provider metadata: models, auth config, env vars. No SDK imports — safe for frontend. */
 export const PROVIDER_META: ProviderMetaMap = {
@@ -642,6 +696,112 @@ export const PROVIDER_META: ProviderMetaMap = {
 		summaryModelId: '',
 		models: [],
 	},
+	qwen: {
+		auth: {
+			apiKey: 'required',
+			hint: 'Model Studio keys are regional — set a base URL to reach an endpoint other than Singapore',
+		},
+		envVar: 'DASHSCOPE_API_KEY',
+		baseUrlEnvVar: 'DASHSCOPE_BASE_URL',
+		defaultBaseUrl: OPENAI_COMPATIBLE_BASE_URLS.qwen,
+		extractorModelId: 'qwen3.7-flash',
+		summaryModelId: 'qwen3.7-flash',
+		models: [
+			{
+				id: 'qwen3.7-plus',
+				name: 'Qwen3.7 Plus',
+				default: true,
+				contextWindow: 1_000_000,
+				costPerM: { inputNoCache: 0.4, inputCacheRead: 0.4, inputCacheWrite: 0, output: 1.6 },
+				capabilities: QWEN_BUDGET,
+			},
+			{
+				id: 'qwen3.7-max',
+				name: 'Qwen3.7 Max',
+				contextWindow: 1_000_000,
+				costPerM: { inputNoCache: 2.5, inputCacheRead: 2.5, inputCacheWrite: 0, output: 7.5 },
+				capabilities: QWEN_BUDGET,
+			},
+			{
+				id: 'qwen3.7-flash',
+				name: 'Qwen3.7 Flash',
+				contextWindow: 1_000_000,
+				costPerM: { inputNoCache: 0.225, inputCacheRead: 0.225, inputCacheWrite: 0, output: 0.974 },
+				capabilities: QWEN_BUDGET,
+			},
+		],
+	},
+	minimax: {
+		auth: { apiKey: 'required' },
+		envVar: 'MINIMAX_API_KEY',
+		baseUrlEnvVar: 'MINIMAX_BASE_URL',
+		defaultBaseUrl: OPENAI_COMPATIBLE_BASE_URLS.minimax,
+		extractorModelId: 'MiniMax-M2.7',
+		summaryModelId: 'MiniMax-M2.7',
+		models: [
+			{
+				id: 'MiniMax-M3',
+				name: 'MiniMax M3',
+				default: true,
+				contextWindow: 1_000_000,
+				costPerM: { inputNoCache: 0.3, inputCacheRead: 0.06, inputCacheWrite: 0, output: 1.2 },
+				capabilities: MINIMAX_SAMPLING,
+			},
+			{
+				id: 'MiniMax-M2.7',
+				name: 'MiniMax M2.7',
+				contextWindow: 204_800,
+				costPerM: { inputNoCache: 0.3, inputCacheRead: 0.06, inputCacheWrite: 0.375, output: 1.2 },
+				capabilities: MINIMAX_SAMPLING,
+			},
+			{
+				id: 'MiniMax-M2.7-highspeed',
+				name: 'MiniMax M2.7 Highspeed',
+				contextWindow: 204_800,
+				costPerM: { inputNoCache: 0.6, inputCacheRead: 0.06, inputCacheWrite: 0.375, output: 2.4 },
+				capabilities: MINIMAX_SAMPLING,
+			},
+		],
+	},
+	moonshot: {
+		auth: { apiKey: 'required' },
+		envVar: 'MOONSHOT_API_KEY',
+		baseUrlEnvVar: 'MOONSHOT_BASE_URL',
+		defaultBaseUrl: OPENAI_COMPATIBLE_BASE_URLS.moonshot,
+		extractorModelId: 'kimi-k2.5',
+		summaryModelId: 'kimi-k2.5',
+		models: [
+			{
+				id: 'kimi-k3',
+				name: 'Kimi K3',
+				default: true,
+				contextWindow: 1_048_576,
+				costPerM: { inputNoCache: 3, inputCacheRead: 0.3, inputCacheWrite: 0, output: 15 },
+				capabilities: MOONSHOT_ADAPTIVE,
+			},
+			{
+				id: 'kimi-k2.7-code',
+				name: 'Kimi K2.7 Code',
+				contextWindow: 262_144,
+				costPerM: { inputNoCache: 0.95, inputCacheRead: 0.19, inputCacheWrite: 0, output: 4 },
+				capabilities: MOONSHOT_SAMPLING,
+			},
+			{
+				id: 'kimi-k2.6',
+				name: 'Kimi K2.6',
+				contextWindow: 262_144,
+				costPerM: { inputNoCache: 0.95, inputCacheRead: 0.16, inputCacheWrite: 0, output: 4 },
+				capabilities: MOONSHOT_SAMPLING,
+			},
+			{
+				id: 'kimi-k2.5',
+				name: 'Kimi K2.5',
+				contextWindow: 262_144,
+				costPerM: { inputNoCache: 0.6, inputCacheRead: 0.1, inputCacheWrite: 0, output: 3 },
+				capabilities: MOONSHOT_SAMPLING,
+			},
+		],
+	},
 };
 
 export function getDefaultModelId(provider: LlmProvider): string {
@@ -710,6 +870,12 @@ export function getModelCapabilities(provider: LlmProvider, modelId: string): Mo
 			// Custom Claude ids default to budget-based thinking (supported across all Claude
 			// versions); adaptive+effort only exists on 4.6+, so it stays opt-in via known models.
 			return modelId.includes('claude') ? BEDROCK_BUDGET : BEDROCK_SAMPLING;
+		case 'qwen':
+			return QWEN_BUDGET;
+		case 'minimax':
+			return MINIMAX_SAMPLING;
+		case 'moonshot':
+			return MOONSHOT_ADAPTIVE;
 		default:
 			return undefined;
 	}
