@@ -1,4 +1,6 @@
 import importlib
+import json
+import time
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -285,8 +287,11 @@ def test_filter_test_cases_by_name_without_tests_dir_unchanged():
     assert filtered[0].name == "users"
 
 
-def run_test_command(monkeypatch, tmp_path, config, **flags) -> list[dict]:
-    """Run the `nao test` command against stubbed collaborators and report what it ran."""
+def run_test_command(monkeypatch, tmp_path, config, tables: list | None = None, **flags) -> list[dict]:
+    """Run the `nao test` command against stubbed collaborators and report what it ran.
+
+    Pass ``tables`` to also collect the (title, dataframe) pairs printed as summaries.
+    """
     cases = [
         NaoTestCase(name="orders", prompt="p1", file_path=tmp_path / "orders.yml", sql="select 1"),
         NaoTestCase(name="users", prompt="p2", file_path=tmp_path / "users.yml", sql="select 1"),
@@ -297,12 +302,16 @@ def run_test_command(monkeypatch, tmp_path, config, **flags) -> list[dict]:
         runs.append({"case": test_case, "model": model, **kwargs})
         return NaoTestRunResult(name=test_case.name, model=str(model), passed=True, message="match")
 
+    def table(df, title=None, **kwargs):
+        if tables is not None:
+            tables.append((title, df))
+
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(test_runner_module, "NaoConfig", Mock(try_load=Mock(return_value=config)))
     monkeypatch.setattr(test_runner_module, "discover_tests", lambda project_path: cases)
     monkeypatch.setattr(test_runner_module, "run_test", run)
     monkeypatch.setattr(test_runner_module, "save_results", lambda results, output_dir: output_dir / "results.json")
-    monkeypatch.setattr(test_runner_module.UI, "table", lambda *args, **kwargs: None)
+    monkeypatch.setattr(test_runner_module.UI, "table", table)
 
     test_runner_module.test(**flags)
 
@@ -335,3 +344,98 @@ def test_model_flag_overrides_the_test_block(tmp_path, monkeypatch):
 
     assert [run["case"].name for run in runs] == ["users"]
     assert [str(run["model"]) for run in runs] == ["openai:gpt-4.1"]
+
+
+def test_single_model_runs_only_print_the_run_table(tmp_path, monkeypatch):
+    tables: list = []
+
+    run_test_command(monkeypatch, tmp_path, NaoConfig(project_name="test-project"), tables=tables)
+
+    assert [title for title, _ in tables] == ["Test Results"]
+
+
+def test_multi_model_runs_print_per_model_summaries(tmp_path, monkeypatch):
+    config = NaoConfig(project_name="test-project", test=TestConfig(models=["openai:gpt-4.1", "anthropic:claude-4-5"]))
+    tables: list = []
+
+    run_test_command(monkeypatch, tmp_path, config, tables=tables)
+
+    titles = [title for title, _ in tables]
+    assert titles == ["Test Results", "Performance by Model", "Pass / Fail by Test and Model"]
+
+    matrix = dict(tables)["Pass / Fail by Test and Model"]
+    assert list(matrix.columns) == ["Test", "openai\ngpt-4.1", "anthropic\nclaude-4-5"]
+    assert matrix["Test"].tolist() == ["orders", "users"]
+
+
+def test_threaded_runs_are_reported_grouped_by_model(tmp_path, monkeypatch):
+    config = NaoConfig(project_name="test-project", test=TestConfig(models=["openai:gpt-4.1", "anthropic:claude-4-5"]))
+    cases = [
+        NaoTestCase(name="orders", prompt="p1", file_path=tmp_path / "orders.yml", sql="select 1"),
+        NaoTestCase(name="users", prompt="p2", file_path=tmp_path / "users.yml", sql="select 1"),
+    ]
+    # Slowest run is submitted first so completions finish in reverse of submission order.
+    delays = {
+        ("openai:gpt-4.1", "orders"): 0.04,
+        ("openai:gpt-4.1", "users"): 0.03,
+        ("anthropic:claude-4-5", "orders"): 0.02,
+        ("anthropic:claude-4-5", "users"): 0.01,
+    }
+    saved: list[NaoTestRunResult] = []
+
+    def run(test_case, model, **kwargs):
+        time.sleep(delays[(str(model), test_case.name)])
+        return NaoTestRunResult(name=test_case.name, model=str(model), passed=True, message="match")
+
+    def save_results(results, output_dir):
+        saved.extend(results)
+        return output_dir / "results.json"
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(test_runner_module, "NaoConfig", Mock(try_load=Mock(return_value=config)))
+    monkeypatch.setattr(test_runner_module, "discover_tests", lambda project_path: cases)
+    monkeypatch.setattr(test_runner_module, "run_test", run)
+    monkeypatch.setattr(test_runner_module, "save_results", save_results)
+    monkeypatch.setattr(test_runner_module.UI, "table", lambda *args, **kwargs: None)
+
+    test_runner_module.test(threads=4)
+
+    assert [(r.model, r.name) for r in saved] == [
+        ("openai:gpt-4.1", "orders"),
+        ("openai:gpt-4.1", "users"),
+        ("anthropic:claude-4-5", "orders"),
+        ("anthropic:claude-4-5", "users"),
+    ]
+
+
+def test_save_results_records_per_model_summaries(tmp_path):
+    results = [
+        NaoTestRunResult(
+            name="orders",
+            model="openai:gpt-4.1",
+            passed=True,
+            message="match",
+            tokens=100,
+            cost=0.2,
+            duration_ms=1000,
+            tool_call_count=2,
+        ),
+        NaoTestRunResult(
+            name="orders",
+            model="anthropic:claude-4-5",
+            passed=False,
+            message="values differ",
+            tokens=200,
+            cost=0.1,
+            duration_ms=3000,
+            tool_call_count=4,
+        ),
+    ]
+
+    output_file = test_runner_module.save_results(results, tmp_path / "outputs")
+    data = json.loads(output_file.read_text())
+
+    assert data["summary"]["total"] == 2
+    assert [model["model"] for model in data["by_model"]] == ["openai:gpt-4.1", "anthropic:claude-4-5"]
+    assert data["by_model"][0]["pass_rate"] == 100.0
+    assert data["by_model"][1]["avg_duration_ms"] == 3000
