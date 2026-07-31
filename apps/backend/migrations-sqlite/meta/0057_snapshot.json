@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "8b752641-3290-4184-8e1f-b95a23d0ea1b",
+  "id": "7dd1add6-6b92-4d39-b1a4-0f1344c94a03",
   "prevId": "0a579216-7320-416d-b330-2a4857de72e6",
   "tables": {
     "account": {
@@ -1457,8 +1457,8 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "context_file_edit": {
-      "name": "context_file_edit",
+    "context_branch_ownership": {
+      "name": "context_branch_ownership",
       "columns": {
         "id": {
           "name": "id",
@@ -1474,8 +1474,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "path": {
-          "name": "path",
+        "branch": {
+          "name": "branch",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -1488,8 +1488,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "updated_at": {
-          "name": "updated_at",
+        "created_at": {
+          "name": "created_at",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -1498,33 +1498,33 @@
         }
       },
       "indexes": {
-        "context_file_edit_projectId_idx": {
-          "name": "context_file_edit_projectId_idx",
+        "context_branch_ownership_projectId_idx": {
+          "name": "context_branch_ownership_projectId_idx",
           "columns": [
             "project_id"
           ],
           "isUnique": false
         },
-        "context_file_edit_userId_idx": {
-          "name": "context_file_edit_userId_idx",
+        "context_branch_ownership_userId_idx": {
+          "name": "context_branch_ownership_userId_idx",
           "columns": [
             "user_id"
           ],
           "isUnique": false
         },
-        "context_file_edit_project_path_unique": {
-          "name": "context_file_edit_project_path_unique",
+        "context_branch_ownership_project_branch_unique": {
+          "name": "context_branch_ownership_project_branch_unique",
           "columns": [
             "project_id",
-            "path"
+            "branch"
           ],
           "isUnique": true
         }
       },
       "foreignKeys": {
-        "context_file_edit_project_id_project_id_fk": {
-          "name": "context_file_edit_project_id_project_id_fk",
-          "tableFrom": "context_file_edit",
+        "context_branch_ownership_project_id_project_id_fk": {
+          "name": "context_branch_ownership_project_id_project_id_fk",
+          "tableFrom": "context_branch_ownership",
           "tableTo": "project",
           "columnsFrom": [
             "project_id"
@@ -1535,9 +1535,9 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "context_file_edit_user_id_user_id_fk": {
-          "name": "context_file_edit_user_id_user_id_fk",
-          "tableFrom": "context_file_edit",
+        "context_branch_ownership_user_id_user_id_fk": {
+          "name": "context_branch_ownership_user_id_user_id_fk",
+          "tableFrom": "context_branch_ownership",
           "tableTo": "user",
           "columnsFrom": [
             "user_id"

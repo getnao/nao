@@ -1,5 +1,5 @@
 {
-  "id": "92d4bef3-1394-4b16-be3f-5af25b8e4d79",
+  "id": "0767939d-18f5-4ebc-840e-7a37d00eb458",
   "prevId": "64a407ba-aaf5-4e72-a7e6-fc85afbe850e",
   "version": "7",
   "dialect": "postgresql",
@@ -1633,8 +1633,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.context_file_edit": {
-      "name": "context_file_edit",
+    "public.context_branch_ownership": {
+      "name": "context_branch_ownership",
       "schema": "",
       "columns": {
         "id": {
@@ -1649,8 +1649,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "path": {
-          "name": "path",
+        "branch": {
+          "name": "branch",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -1661,8 +1661,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "updated_at": {
-          "name": "updated_at",
+        "created_at": {
+          "name": "created_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
@@ -1670,8 +1670,8 @@
         }
       },
       "indexes": {
-        "context_file_edit_projectId_idx": {
-          "name": "context_file_edit_projectId_idx",
+        "context_branch_ownership_projectId_idx": {
+          "name": "context_branch_ownership_projectId_idx",
           "columns": [
             {
               "expression": "project_id",
@@ -1685,8 +1685,8 @@
           "method": "btree",
           "with": {}
         },
-        "context_file_edit_userId_idx": {
-          "name": "context_file_edit_userId_idx",
+        "context_branch_ownership_userId_idx": {
+          "name": "context_branch_ownership_userId_idx",
           "columns": [
             {
               "expression": "user_id",
@@ -1702,9 +1702,9 @@
         }
       },
       "foreignKeys": {
-        "context_file_edit_project_id_project_id_fk": {
-          "name": "context_file_edit_project_id_project_id_fk",
-          "tableFrom": "context_file_edit",
+        "context_branch_ownership_project_id_project_id_fk": {
+          "name": "context_branch_ownership_project_id_project_id_fk",
+          "tableFrom": "context_branch_ownership",
           "tableTo": "project",
           "columnsFrom": [
             "project_id"
@@ -1715,9 +1715,9 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "context_file_edit_user_id_user_id_fk": {
-          "name": "context_file_edit_user_id_user_id_fk",
-          "tableFrom": "context_file_edit",
+        "context_branch_ownership_user_id_user_id_fk": {
+          "name": "context_branch_ownership_user_id_user_id_fk",
+          "tableFrom": "context_branch_ownership",
           "tableTo": "user",
           "columnsFrom": [
             "user_id"
@@ -1731,12 +1731,12 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "context_file_edit_project_path_unique": {
-          "name": "context_file_edit_project_path_unique",
+        "context_branch_ownership_project_branch_unique": {
+          "name": "context_branch_ownership_project_branch_unique",
           "nullsNotDistinct": false,
           "columns": [
             "project_id",
-            "path"
+            "branch"
           ]
         }
       },

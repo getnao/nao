@@ -10,5 +10,4 @@ CREATE TABLE `context_branch_ownership` (
 --> statement-breakpoint
 CREATE INDEX `context_branch_ownership_projectId_idx` ON `context_branch_ownership` (`project_id`);--> statement-breakpoint
 CREATE INDEX `context_branch_ownership_userId_idx` ON `context_branch_ownership` (`user_id`);--> statement-breakpoint
-CREATE UNIQUE INDEX `context_branch_ownership_project_branch_unique` ON `context_branch_ownership` (`project_id`,`branch`);--> statement-breakpoint
-DROP TABLE `context_file_edit`;
+CREATE UNIQUE INDEX `context_branch_ownership_project_branch_unique` ON `context_branch_ownership` (`project_id`,`branch`);
