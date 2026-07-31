@@ -5,7 +5,6 @@ import { z } from 'zod/v4';
 import { env, isCloud } from '../env';
 import * as accountQueries from '../queries/account.queries';
 import * as orgQueries from '../queries/organization.queries';
-import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import { cleanupContextWorktree } from '../services/context-explorer-git.service';
 import { emailService } from '../services/email';
@@ -192,10 +191,9 @@ export const organizationRoutes = {
 };
 
 async function cleanupLostOrgContextAccess(orgId: string, userId: string): Promise<void> {
-	const projects = await orgQueries.listOrgProjectsForContextCleanup(orgId);
+	const projects = await orgQueries.listOrgProjectsForContextCleanup(orgId, userId);
 	for (const project of projects) {
-		const role = await projectQueries.getUserRoleInProject(project.id, userId);
-		if (project.path && role !== 'admin' && role !== 'context_admin') {
+		if (project.path && project.role !== 'admin' && project.role !== 'context_admin') {
 			await cleanupContextWorktree(project.id, project.path, userId);
 		}
 	}

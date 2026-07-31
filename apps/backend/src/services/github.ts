@@ -636,15 +636,9 @@ export async function findPullRequestByBranch(
 	closedAt: string | null;
 } | null> {
 	const owner = repo.split('/')[0];
-	const params = new URLSearchParams({
-		head: `${owner}:${branch}`,
-		state: 'all',
-		sort: 'updated',
-		direction: 'desc',
-		per_page: '1',
-	});
-	const pullRequests = await githubFetchJson<RawPullRequest[]>(token, `/repos/${repo}/pulls?${params}`);
-	const pullRequest = pullRequests[0];
+	const pullRequest =
+		(await findPullRequestForBranch(token, repo, `${owner}:${branch}`, 'open')) ??
+		(await findPullRequestForBranch(token, repo, `${owner}:${branch}`, 'closed'));
 	if (!pullRequest) {
 		return null;
 	}
@@ -654,6 +648,23 @@ export async function findPullRequestByBranch(
 		mergedAt: pullRequest.merged_at,
 		closedAt: pullRequest.closed_at,
 	};
+}
+
+async function findPullRequestForBranch(
+	token: string,
+	repo: string,
+	head: string,
+	state: 'open' | 'closed',
+): Promise<RawPullRequest | null> {
+	const params = new URLSearchParams({
+		head,
+		state,
+		sort: 'updated',
+		direction: 'desc',
+		per_page: '1',
+	});
+	const pullRequests = await githubFetchJson<RawPullRequest[]>(token, `/repos/${repo}/pulls?${params}`);
+	return pullRequests[0] ?? null;
 }
 
 export async function createIssueOrPullRequestComment(

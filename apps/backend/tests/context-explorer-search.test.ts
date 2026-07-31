@@ -21,6 +21,8 @@ describe('context explorer content search', () => {
 		writeFileSync(join(projectFolder, 'regex-literal.txt'), 'a.c\n');
 		writeFileSync(join(projectFolder, 'regex-only.txt'), 'abc\n');
 		writeFileSync(join(projectFolder, 'ignored.txt'), 'excluded content\n');
+		writeFileSync(join(projectFolder, 'git-ignored.txt'), 'git ignored content\n');
+		writeFileSync(join(projectFolder, '.gitignore'), 'git-ignored.txt\n');
 		writeFileSync(join(projectFolder, '.naoignore'), 'ignored.txt\n');
 		mkdirSync(join(projectFolder, '.git'));
 		writeFileSync(join(projectFolder, '.git', 'config'), 'protected content\n');
@@ -66,6 +68,12 @@ describe('context explorer content search', () => {
 		const response = await searchFileContents('excluded content', projectFolder);
 
 		expect(response.results).toEqual([]);
+	});
+
+	it('searches files matched by .gitignore', async () => {
+		const response = await searchFileContents('git ignored content', projectFolder);
+
+		expect(response.results.map((result) => result.path)).toEqual(['/git-ignored.txt']);
 	});
 
 	it('excludes protected Git metadata and environment files', async () => {

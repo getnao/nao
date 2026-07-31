@@ -1,5 +1,5 @@
 {
-  "id": "0767939d-18f5-4ebc-840e-7a37d00eb458",
+  "id": "450089d3-6ea7-49b4-87a8-66c3a063f257",
   "prevId": "64a407ba-aaf5-4e72-a7e6-fc85afbe850e",
   "version": "7",
   "dialect": "postgresql",
@@ -1670,21 +1670,6 @@
         }
       },
       "indexes": {
-        "context_branch_ownership_projectId_idx": {
-          "name": "context_branch_ownership_projectId_idx",
-          "columns": [
-            {
-              "expression": "project_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "context_branch_ownership_userId_idx": {
           "name": "context_branch_ownership_userId_idx",
           "columns": [

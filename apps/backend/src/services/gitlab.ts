@@ -21,6 +21,14 @@ export interface GitLabProject {
 	};
 }
 
+interface GitLabMergeRequestSummary {
+	web_url: string;
+	state: GitLabMergeRequest['state'];
+	merged_at: string | null;
+	closed_at: string | null;
+	source_project_id: number;
+}
+
 export interface GitLabUser {
 	id: number;
 	username: string;
@@ -331,22 +339,9 @@ export async function findOpenMergeRequest(
 	repoFullName: string,
 	branch: string,
 ): Promise<{ url: string } | null> {
-	const encodedPath = encodeURIComponent(repoFullName);
-	const params = new URLSearchParams({
-		state: 'opened',
-		source_branch: branch,
-		scope: 'all',
-		per_page: '1',
-	});
-	const res = await fetch(`${gitlabApiUrl()}/projects/${encodedPath}/merge_requests?${params}`, {
-		headers: { Authorization: `Bearer ${token}` },
-	});
-	if (!res.ok) {
-		const body = await res.text();
-		throw new Error(`GitLab API error ${res.status}: ${body}`);
-	}
-	const mergeRequests = (await res.json()) as Array<{ web_url: string }>;
-	return mergeRequests[0] ? { url: mergeRequests[0].web_url } : null;
+	const projectId = await getGitLabProjectId(token, repoFullName);
+	const mergeRequest = await findMergeRequestForBranch(token, repoFullName, branch, projectId, 'opened');
+	return mergeRequest ? { url: mergeRequest.web_url } : null;
 }
 
 export async function findMergeRequestByBranch(
@@ -359,27 +354,10 @@ export async function findMergeRequestByBranch(
 	mergedAt: string | null;
 	closedAt: string | null;
 } | null> {
-	const encodedPath = encodeURIComponent(repoFullName);
-	const params = new URLSearchParams({
-		source_branch: branch,
-		order_by: 'updated_at',
-		sort: 'desc',
-		per_page: '1',
-	});
-	const res = await fetch(`${gitlabApiUrl()}/projects/${encodedPath}/merge_requests?${params}`, {
-		headers: { Authorization: `Bearer ${token}` },
-	});
-	if (!res.ok) {
-		const body = await res.text();
-		throw new Error(`GitLab API error ${res.status}: ${body}`);
-	}
-	const mergeRequests = (await res.json()) as Array<{
-		web_url: string;
-		state: GitLabMergeRequest['state'];
-		merged_at: string | null;
-		closed_at: string | null;
-	}>;
-	const mergeRequest = mergeRequests[0];
+	const projectId = await getGitLabProjectId(token, repoFullName);
+	const openMergeRequest = await findMergeRequestForBranch(token, repoFullName, branch, projectId, 'opened');
+	const mergeRequest =
+		openMergeRequest ?? (await findMergeRequestForBranch(token, repoFullName, branch, projectId, 'all'));
 	if (!mergeRequest) {
 		return null;
 	}
@@ -389,6 +367,55 @@ export async function findMergeRequestByBranch(
 		mergedAt: mergeRequest.merged_at,
 		closedAt: mergeRequest.closed_at,
 	};
+}
+
+async function getGitLabProjectId(token: string, repoFullName: string): Promise<number> {
+	const encodedPath = encodeURIComponent(repoFullName);
+	const res = await fetch(`${gitlabApiUrl()}/projects/${encodedPath}`, {
+		headers: { Authorization: `Bearer ${token}` },
+	});
+	if (!res.ok) {
+		const body = await res.text();
+		throw new Error(`GitLab API error ${res.status}: ${body}`);
+	}
+	const project = (await res.json()) as Pick<GitLabProject, 'id'>;
+	return project.id;
+}
+
+async function findMergeRequestForBranch(
+	token: string,
+	repoFullName: string,
+	branch: string,
+	projectId: number,
+	state: 'opened' | 'all',
+): Promise<GitLabMergeRequestSummary | null> {
+	const encodedPath = encodeURIComponent(repoFullName);
+	let page = '1';
+	while (page) {
+		const params = new URLSearchParams({
+			state,
+			source_branch: branch,
+			scope: 'all',
+			order_by: 'updated_at',
+			sort: 'desc',
+			per_page: '100',
+			page,
+		});
+		const res = await fetch(`${gitlabApiUrl()}/projects/${encodedPath}/merge_requests?${params}`, {
+			headers: { Authorization: `Bearer ${token}` },
+		});
+		if (!res.ok) {
+			const body = await res.text();
+			throw new Error(`GitLab API error ${res.status}: ${body}`);
+		}
+		const mergeRequests = (await res.json()) as GitLabMergeRequestSummary[];
+		const match = mergeRequests.find((candidate) => candidate.source_project_id === projectId);
+		if (match) {
+			return match;
+		}
+		page = res.headers.get('x-next-page') ?? '';
+	}
+	return null;
 }
 
 export interface GitLabMergeRequest {

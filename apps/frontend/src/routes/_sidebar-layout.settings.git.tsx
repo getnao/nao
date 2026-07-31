@@ -58,8 +58,8 @@ function GitSettingsPage() {
 			},
 		}),
 	);
-	const unlinkRepository = useMutation(
-		trpc.github.unlinkProject.mutationOptions({
+	const disconnectRepository = useMutation(
+		trpc.contextExplorer.disconnectRepository.mutationOptions({
 			onSuccess: async () => {
 				await invalidateRepositoryQueries(queryClient);
 				setIsDisconnectingRepository(false);
@@ -169,7 +169,7 @@ function GitSettingsPage() {
 									repositoryName={status?.repo?.repoFullName}
 									disconnectBlockedReason={repositoryDisconnectBlockedReason}
 									onDisconnect={() => {
-										unlinkRepository.reset();
+										disconnectRepository.reset();
 										setIsDisconnectingRepository(true);
 									}}
 								/>
@@ -358,7 +358,7 @@ function GitSettingsPage() {
 			<AlertDialog
 				open={isDisconnectingRepository}
 				onOpenChange={(open) => {
-					if (!unlinkRepository.isPending) {
+					if (!disconnectRepository.isPending) {
 						setIsDisconnectingRepository(open);
 					}
 				}}
@@ -371,16 +371,16 @@ function GitSettingsPage() {
 							repository or its files.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
-					{unlinkRepository.error && <ErrorMessage message={unlinkRepository.error.message} />}
+					{disconnectRepository.error && <ErrorMessage message={disconnectRepository.error.message} />}
 					<AlertDialogFooter>
-						<AlertDialogCancel disabled={unlinkRepository.isPending}>Cancel</AlertDialogCancel>
+						<AlertDialogCancel disabled={disconnectRepository.isPending}>Cancel</AlertDialogCancel>
 						<AlertDialogAction
 							variant='destructive'
-							isLoading={unlinkRepository.isPending}
-							disabled={unlinkRepository.isPending}
+							isLoading={disconnectRepository.isPending}
+							disabled={disconnectRepository.isPending}
 							onClick={(event) => {
 								event.preventDefault();
-								unlinkRepository.mutate();
+								disconnectRepository.mutate();
 							}}
 						>
 							Disconnect repository

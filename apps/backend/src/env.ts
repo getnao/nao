@@ -104,7 +104,7 @@ const envSchema = z.object({
 	NAO_MODE: z.enum(['self-hosted', 'cloud']).default('self-hosted'),
 	NAO_PROJECTS_DIR: z.string().default('./projects'),
 	NAO_CORE_VERSION: z.string().optional(),
-	NAO_CONTEXT_SOURCE: z.string().optional(),
+	NAO_CONTEXT_SOURCE: z.enum(['local', 'git', 'api']).optional(),
 	NAO_CONTEXT_GIT_URL: z.string().optional(),
 	NAO_CONTEXT_GIT_BRANCH: z.string().optional(),
 	NAO_CONTEXT_GIT_SUBPATH: z.string().optional(),

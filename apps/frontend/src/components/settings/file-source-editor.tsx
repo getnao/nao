@@ -68,13 +68,17 @@ export function FileSourceEditor({ filePath, value, searchQuery, readOnly, onCha
 				});
 			}
 			editorInstance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK, () => {
-				window.dispatchEvent(
+				document.dispatchEvent(
 					new KeyboardEvent('keydown', {
 						key: 'k',
 						code: 'KeyK',
 						metaKey: isMac,
 						ctrlKey: !isMac,
+						shiftKey: false,
+						altKey: false,
+						repeat: false,
 						bubbles: true,
+						cancelable: true,
 					}),
 				);
 			});

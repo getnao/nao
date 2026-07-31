@@ -54,7 +54,7 @@ export function writeFileAtomically(options: AtomicWriteOptions): void {
 	let fileDescriptor: number | null = null;
 
 	try {
-		fileDescriptor = fs.openSync(temporaryPath, flags, 0o666);
+		fileDescriptor = fs.openSync(temporaryPath, flags, originalMode ?? 0o666);
 		fs.writeFileSync(fileDescriptor, content, 'utf-8');
 		if (originalMode !== null) {
 			fs.fchmodSync(fileDescriptor, originalMode);

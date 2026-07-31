@@ -226,6 +226,7 @@ function buildSearchArguments(query: string, projectFolder: string): string[] {
 		'--fixed-strings',
 		'--ignore-case',
 		'--hidden',
+		'--no-ignore',
 		'--max-count',
 		'10',
 		'--max-filesize',

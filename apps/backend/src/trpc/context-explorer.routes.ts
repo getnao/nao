@@ -11,14 +11,15 @@ import {
 	searchFileContents,
 	writeFileContent,
 } from '../services/context-explorer.service';
-import type { ContextExplorerGitContext } from '../services/context-explorer-git.service';
 import {
 	commitContextChanges,
 	connectContextRepository,
+	type ContextExplorerGitContext,
 	createContextBranch,
 	createContextBranchAndCommit,
 	discardAllContextChanges,
 	discardContextFileChange,
+	disconnectContextRepository,
 	getChangedContextFiles,
 	getContextFileDiff,
 	getContextRepositoryStatus,
@@ -64,6 +65,14 @@ export const contextExplorerRoutes = {
 			}
 			return connectContextRepository({ ...context, token: context.token, ...input });
 		}),
+
+	disconnectRepository: contextAdminProtectedProcedure.mutation(async ({ ctx }) => {
+		return disconnectContextRepository({
+			projectId: ctx.project.id,
+			projectFolder: requireProjectPath(ctx.project.path),
+			userId: ctx.user.id,
+		});
+	}),
 
 	getFileTree: contextAdminProtectedProcedure.query(async ({ ctx }) => {
 		const access = await createFileAccess(ctx.project.id, ctx.project.path, ctx.user.id);
@@ -184,6 +193,7 @@ async function createGitContext(
 		projectId,
 		projectFolder,
 		userId,
+		configOverride: repository ? { provider: repository.provider, repoFullName: repository.repoFullName } : null,
 		token:
 			repository?.provider === 'gitlab'
 				? await userQueries.getGitlabToken(userId)

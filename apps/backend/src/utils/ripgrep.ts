@@ -1,5 +1,6 @@
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
+import path from 'node:path';
 
 /**
  * Gets the path to the ripgrep binary.
@@ -18,9 +19,8 @@ export function getRipgrepPath(): string {
 
 	// Fall back to vscode-ripgrep package
 	try {
-		// Dynamic import to avoid bundling issues
-		// eslint-disable-next-line @typescript-eslint/no-require-imports
-		const { rgPath } = require('@vscode/ripgrep');
+		const requireFromHere = createRequire(import.meta.url);
+		const { rgPath } = requireFromHere('@vscode/ripgrep');
 		if (fs.existsSync(rgPath)) {
 			return rgPath;
 		}

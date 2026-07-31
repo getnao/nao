@@ -389,10 +389,17 @@ export const listOrgProjectsWithAccess = async (orgId: string, userId: string): 
 
 export const listOrgProjectsForContextCleanup = async (
 	orgId: string,
-): Promise<Array<{ id: string; path: string | null }>> => {
+	userId: string,
+): Promise<Array<{ id: string; path: string | null; role: UserRole | null }>> => {
 	return db
-		.select({ id: s.project.id, path: s.project.path })
+		.select({
+			id: s.project.id,
+			path: s.project.path,
+			role: sql<UserRole | null>`coalesce(${s.projectMember.role}, ${s.orgMember.role})`,
+		})
 		.from(s.project)
+		.leftJoin(s.projectMember, and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, userId)))
+		.leftJoin(s.orgMember, and(eq(s.orgMember.orgId, s.project.orgId), eq(s.orgMember.userId, userId)))
 		.where(eq(s.project.orgId, orgId))
 		.execute();
 };

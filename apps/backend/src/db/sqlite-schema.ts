@@ -730,7 +730,6 @@ export const contextBranchOwnership = sqliteTable(
 	},
 	(t) => [
 		unique('context_branch_ownership_project_branch_unique').on(t.projectId, t.branch),
-		index('context_branch_ownership_projectId_idx').on(t.projectId),
 		index('context_branch_ownership_userId_idx').on(t.userId),
 	],
 );

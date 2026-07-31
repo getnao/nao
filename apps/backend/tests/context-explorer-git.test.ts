@@ -52,23 +52,23 @@ vi.mock('../src/queries/context-branch-ownership.queries', () => branchOwnership
 
 import { __reloadEnvForTesting } from '../src/env';
 import { getFileTreeResponse, readFileContent, writeFileContent } from '../src/services/context-explorer.service';
-import type {
-	ContextExplorerGitContext,
-	ContextRepositoryProvider,
-} from '../src/services/context-explorer-git.service';
 import {
 	assertSafeDestructiveWorktreeCommand,
 	assertSafeDestructiveWorktreeTarget,
 	cleanupContextWorktree,
 	commitContextChanges,
+	type ContextExplorerGitContext,
+	type ContextRepositoryProvider,
 	createContextBranch,
 	createContextBranchAndCommit,
 	discardAllContextChanges,
 	discardContextFileChange,
+	disconnectContextRepository,
 	ensureContextWorktree,
 	getChangedContextFiles,
 	getContextRepositoryStatus,
 	getDeploymentContextSource,
+	normalizeRemote,
 	resolveContextExplorerGit,
 	sanitizeContextSourceRepositoryUrl,
 	switchContextBranch,
@@ -134,6 +134,37 @@ describe('deployment context source', () => {
 				authMethod: 'token',
 			},
 		});
+	});
+
+	it('refuses to disconnect a deployment-managed repository', async () => {
+		setContextSourceEnv({});
+		const updateConfig = vi.fn();
+
+		await expect(disconnectContextRepository(baseContext(process.cwd()), { updateConfig })).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		expect(updateConfig).not.toHaveBeenCalled();
+	});
+});
+
+describe('repository remote normalization', () => {
+	it.each([
+		['git@github.com:nao/context.git', 'https://github.com/nao/context'],
+		['ssh://git@github.com:2222/nao/context.git', 'https://github.com/nao/context'],
+	])('matches SSH remote %s to HTTPS', (sshRemote, httpsRemote) => {
+		expect(normalizeRemote(sshRemote)).toBe(normalizeRemote(httpsRemote));
+	});
+
+	it('keeps different repositories distinct', () => {
+		expect(normalizeRemote('git@github.com:nao/context.git')).not.toBe(
+			normalizeRemote('https://github.com/nao/other.git'),
+		);
+	});
+
+	it('ignores URL credentials and ports', () => {
+		expect(normalizeRemote('https://user:token@github.com:8443/nao/context.git/')).toBe(
+			normalizeRemote('https://github.com/nao/context'),
+		);
 	});
 });
 
@@ -261,6 +292,20 @@ describe('context explorer worktrees', () => {
 		expect(runGit(repositoryRoot, ['worktree', 'list', '--porcelain']).toString()).not.toContain(repo.worktreeRoot);
 	});
 
+	it('clears repository settings and removes the acting user worktree', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const repo = await ensureContextWorktree(fixture.context);
+		const updateConfig = vi.fn().mockResolvedValue(undefined);
+
+		await disconnectContextRepository(fixture.context, { updateConfig });
+
+		expect(updateConfig).toHaveBeenCalledWith('project-id', {
+			repoFullName: null,
+			repoProvider: null,
+		});
+		expect(fs.existsSync(repo.worktreeRoot)).toBe(false);
+	});
+
 	it('creates a branch and commits selected dirty files while leaving others uncommitted', async () => {
 		const fixture = createFixture(temporaryRoots, {
 			'nao_config.yaml': 'name: test\n',
@@ -292,6 +337,28 @@ describe('context explorer worktrees', () => {
 			]).toString(),
 		).toBe('selected\n');
 		expectLiveUnchanged(fixture.live, before);
+	});
+
+	it('rejects commits until an owned branch is checked out', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const access = await fileAccess(fixture.context);
+		const file = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'default branch edit\n', file.hash, access);
+		const repo = await ensureContextWorktree(fixture.context);
+		const head = runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();
+
+		await expect(
+			commitContextChanges(fixture.context, {
+				paths: ['/context.md'],
+				message: 'Unreachable commit',
+			}),
+		).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+			message: 'Create a branch before committing context changes.',
+		});
+
+		expect(runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(head);
+		expect(await getChangedContextFiles(fixture.context)).toHaveLength(1);
 	});
 
 	it('reports commits that have not been pushed to the current branch', async () => {

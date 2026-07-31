@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "7dd1add6-6b92-4d39-b1a4-0f1344c94a03",
+  "id": "b588e17d-75b2-4086-ab11-66b997893dbd",
   "prevId": "0a579216-7320-416d-b330-2a4857de72e6",
   "tables": {
     "account": {
@@ -1498,13 +1498,6 @@
         }
       },
       "indexes": {
-        "context_branch_ownership_projectId_idx": {
-          "name": "context_branch_ownership_projectId_idx",
-          "columns": [
-            "project_id"
-          ],
-          "isUnique": false
-        },
         "context_branch_ownership_userId_idx": {
           "name": "context_branch_ownership_userId_idx",
           "columns": [

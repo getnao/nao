@@ -4,6 +4,7 @@ import type { FileTreeEntry } from '@nao/shared/types';
 import { FileExplorerIcon } from '@/components/settings/file-explorer-icon';
 import { Spinner } from '@/components/ui/spinner';
 import { SimpleTooltip } from '@/components/ui/tooltip';
+import { matchesOrderedTerms } from '@/lib/path-search';
 import { cn } from '@/lib/utils';
 
 type ContentMatch = {
@@ -228,11 +229,6 @@ function FileTreeNode({ entry, depth, selectedPath, onSelectFile, isSearching, c
 	);
 }
 
-function matchesQuery(path: string, terms: string[]): boolean {
-	const lowercasedPath = path.toLowerCase();
-	return terms.every((term) => lowercasedPath.includes(term));
-}
-
 function filterTree(
 	entries: FileTreeEntry[],
 	terms: string[],
@@ -241,7 +237,7 @@ function filterTree(
 	const result: FileTreeEntry[] = [];
 
 	for (const entry of entries) {
-		const pathMatch = matchesQuery(entry.path, terms);
+		const pathMatch = matchesOrderedTerms(entry.path, terms);
 
 		if (entry.type === 'directory' && entry.children) {
 			if (pathMatch) {

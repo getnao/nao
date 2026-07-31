@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 interface ConfirmationDialogProps {
 	open: boolean;
@@ -37,7 +37,7 @@ export function ConfirmationDialog({
 				<DialogHeader>
 					<DialogTitle>{title}</DialogTitle>
 				</DialogHeader>
-				<p className='text-sm text-muted-foreground'>{description}</p>
+				<DialogDescription className='text-sm text-muted-foreground'>{description}</DialogDescription>
 				{error && <p className='text-red-500 text-center text-sm'>{error}</p>}
 				<div className='flex justify-end gap-2'>
 					<Button

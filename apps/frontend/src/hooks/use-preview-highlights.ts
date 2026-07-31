@@ -58,7 +58,9 @@ function scrollRangeIntoContainer(container: HTMLElement, range: Range): void {
 		return;
 	}
 	const containerRect = container.getBoundingClientRect();
-	const matchRect = matchElement.getBoundingClientRect();
+	const rangeRect = range.getBoundingClientRect();
+	const matchRect =
+		rangeRect.width === 0 && rangeRect.height === 0 ? matchElement.getBoundingClientRect() : rangeRect;
 	const centeredOffset = matchRect.top - containerRect.top - (container.clientHeight - matchRect.height) / 2;
 	container.scrollTop = Math.max(0, container.scrollTop + centeredOffset);
 }

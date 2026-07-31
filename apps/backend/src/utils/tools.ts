@@ -171,11 +171,11 @@ export const isExcludedEntry = (name: string): boolean => {
 };
 
 const isExcludedDirectoryName = (name: string): boolean => {
-	return EXCLUDED_DIRECTORY_NAMES.includes(name);
+	return EXCLUDED_DIRECTORY_NAMES.includes(name.toLowerCase());
 };
 
 const isEnvironmentFileName = (name: string): boolean => {
-	return ENVIRONMENT_FILE_PATTERNS.some((pattern) => minimatch(name, pattern, { dot: true }));
+	return ENVIRONMENT_FILE_PATTERNS.some((pattern) => minimatch(name, pattern, { dot: true, nocase: true }));
 };
 
 /**
@@ -239,7 +239,7 @@ export const toRealPath = (virtualPath: string, projectFolder: string): string =
 		throw new Error(`Access denied: path '${virtualPath}' is outside the project folder`);
 	}
 
-	if (resolvedPath.split(path.sep).includes('.git')) {
+	if (resolvedPath.split(path.sep).some((part) => part.toLowerCase() === '.git')) {
 		throw new Error(`Access denied: path '${virtualPath}' targets protected .git metadata`);
 	}
 

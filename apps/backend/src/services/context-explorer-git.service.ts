@@ -215,6 +215,31 @@ export async function connectContextRepository(
 	};
 }
 
+export async function disconnectContextRepository(
+	input: Pick<ContextExplorerGitContext, 'projectId' | 'projectFolder' | 'userId'>,
+	dependencies: {
+		updateConfig?: (
+			projectId: string,
+			patch: { repoFullName: string | null; repoProvider: RepoProvider | null },
+		) => Promise<unknown>;
+	} = {},
+): Promise<void> {
+	if (isGitContextSource()) {
+		throw new TRPCError({
+			code: 'FORBIDDEN',
+			message:
+				'This project is managed by NAO_CONTEXT_SOURCE=git. Change that deployment setting instead of disconnecting the repository here.',
+		});
+	}
+	const updateConfig =
+		dependencies.updateConfig ?? (await import('../queries/context-recommendation.queries')).updateConfig;
+	await updateConfig(input.projectId, {
+		repoFullName: null,
+		repoProvider: null,
+	});
+	await cleanupContextWorktree(input.projectId, input.projectFolder, input.userId);
+}
+
 export async function ensureContextWorktree(
 	context: ContextExplorerGitContext & { token: string },
 	configuredRepo?: UnresolvedContextRepo,
@@ -705,6 +730,7 @@ async function commitSelectedChanges(
 	context: ContextExplorerGitContext & { token: string },
 	input: { paths: string[]; message: string },
 ): Promise<string> {
+	await assertCommitBranch(repo, context);
 	const changedPaths = new Set(parseChangedFiles(readStatus(repo), repo).map((file) => file.path));
 	const paths = [...new Set(input.paths.map(normalizeVirtualPath))];
 	if (paths.length === 0 || paths.some((filePath) => !changedPaths.has(filePath))) {
@@ -727,6 +753,20 @@ async function commitSelectedChanges(
 		author,
 	);
 	return runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();
+}
+
+async function assertCommitBranch(
+	repo: ResolvedContextRepo,
+	context: Pick<ContextExplorerGitContext, 'projectId' | 'userId'>,
+): Promise<void> {
+	const branch = readCurrentBranch(repo);
+	const defaultBranch = readDefaultBranch(repo);
+	if (!branch || branch === defaultBranch || !(await isContextBranchOwnedByUser(context, branch))) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: 'Create a branch before committing context changes.',
+		});
+	}
 }
 
 async function discardPath(repo: ResolvedContextRepo, projectFolder: string, filePath: string): Promise<void> {
@@ -1280,11 +1320,34 @@ function normalizeVirtualPath(filePath: string): string {
 	return `/${normalizeProjectPath(filePath)}`;
 }
 
-function normalizeRemote(remote: string | undefined): string {
-	return (remote ?? '')
-		.replace(/\.git$/, '')
-		.replace(/\/$/, '')
-		.toLowerCase();
+export function normalizeRemote(remote: string | undefined): string {
+	const value = remote?.trim();
+	if (!value) {
+		return '';
+	}
+	if (!value.includes('://')) {
+		const shorthand = value.match(/^(?:[^@/]+@)?([^:/]+):(?:(?:\d+)\/)?(.+)$/);
+		if (shorthand) {
+			return normalizeRemoteParts(shorthand[1], shorthand[2]);
+		}
+	}
+	try {
+		const parsed = new URL(value);
+		return normalizeRemoteParts(parsed.hostname, parsed.pathname);
+	} catch {
+		return value
+			.replace(/\.git$/i, '')
+			.replace(/\/+$/, '')
+			.toLowerCase();
+	}
+}
+
+function normalizeRemoteParts(host: string, repositoryPath: string): string {
+	const normalizedPath = repositoryPath
+		.replace(/^\/+/, '')
+		.replace(/\/+$/, '')
+		.replace(/\.git$/i, '');
+	return `${host.toLowerCase()}/${normalizedPath.toLowerCase()}`;
 }
 
 function isSafeWorktreeSegment(segment: string | undefined): boolean {
