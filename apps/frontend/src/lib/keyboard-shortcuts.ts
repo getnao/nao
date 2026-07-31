@@ -7,7 +7,8 @@ export type ShortcutId =
 	| 'new-chat'
 	| 'go-to-stories'
 	| 'keyboard-help'
-	| 'stop-generation';
+	| 'stop-generation'
+	| 'cycle-model';
 export type ShortcutGroup = 'General' | 'Navigation' | 'Chat';
 
 export type ShortcutDefinition = {
@@ -54,6 +55,13 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
 		label: 'Cancel messages',
 		group: 'Chat',
 		shortcut: { ctrl: true, key: 'c' },
+	},
+	{
+		id: 'cycle-model',
+		label: 'Cycle model',
+		group: 'Chat',
+		shortcut: { shift: true, key: 'Tab' },
+		allowInInput: true,
 	},
 ];
 

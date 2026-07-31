@@ -357,6 +357,20 @@ class TestLLMConnection:
             assert "declare a model" in message
             mock_client.chat.completions.create.assert_not_called()
 
+    def test_openai_compatible_endpoint_is_reached_without_a_key(self):
+        """A self-hosted endpoint declares its own URL and often needs no authentication."""
+        config = ProviderConfig(provider=LLMProvider.OPENAI_COMPATIBLE, base_url="http://localhost:8000/v1")
+        with patch("openai.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_client.models.list.return_value = [SimpleNamespace(id="my-model")]
+            mock_openai_class.return_value = mock_client
+
+            success, message = check_llm_connection(config)
+
+            assert success is True
+            assert "1 models available" in message
+            mock_openai_class.assert_called_once_with(api_key="no-key", base_url="http://localhost:8000/v1")
+
     def test_qwen_auth_failure_is_not_retried_as_a_completion(self):
         config = ProviderConfig(
             provider=LLMProvider.QWEN,

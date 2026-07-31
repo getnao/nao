@@ -143,11 +143,36 @@ describe('readProjectConfigLlm', () => {
 		expect(findConfigLlmProvider(config, 'google')?.apiKey).toBe('gm-key');
 	});
 
+	it('reads several named endpoints of the same provider', () => {
+		const dir = writeConfig([
+			'llm:',
+			'  providers:',
+			'  - provider: openai-compatible/My vLLM',
+			'    base_url: http://vllm:8000/v1',
+			'    models:',
+			'    - id: llama-3.3-70b',
+			'  - provider: openaiCompatible/litellm',
+			'    api_key: sk-litellm',
+			'    base_url: http://litellm:4000/v1',
+		]);
+
+		const config = readProjectConfigLlm(dir);
+
+		expect(config?.providers.map((p) => p.provider)).toEqual([
+			'openaiCompatible/my-vllm',
+			'openaiCompatible/litellm',
+		]);
+		expect(findConfigLlmProvider(config, 'openaiCompatible/my-vllm')?.enabledModels).toEqual(['llama-3.3-70b']);
+		expect(findConfigLlmProvider(config, 'openaiCompatible/litellm')?.apiKey).toBe('sk-litellm');
+	});
+
 	it('skips unknown providers and unsupported model settings', () => {
 		const dir = writeConfig([
 			'llm:',
 			'  providers:',
 			'  - provider: not-a-provider',
+			'    api_key: nope',
+			'  - provider: openai/named',
 			'    api_key: nope',
 			'  - provider: openai',
 			'    api_key: sk-openai',

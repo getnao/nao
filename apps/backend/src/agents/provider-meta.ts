@@ -1,11 +1,10 @@
-import type { LlmProvider } from '@nao/shared/types';
+import { type LlmProvider, type LlmProviderKind, providerKind } from '@nao/shared/types';
 
 import {
 	type ActiveEffort,
 	type ExtraParamKey,
 	mediaResolutionSchema,
 	type ModelCapabilities,
-	type OpenAICompatibleProvider,
 	type ParamControl,
 	type ProviderAuth,
 	type ProviderMetaMap,
@@ -14,8 +13,11 @@ import {
 	type ServiceTier,
 } from '../types/llm';
 
-/** Endpoints of the providers reached through a plain OpenAI-compatible chat API. */
-export const OPENAI_COMPATIBLE_BASE_URLS: Record<OpenAICompatibleProvider, string> = {
+/**
+ * Endpoints of the providers reached through a plain OpenAI-compatible chat API. The generic
+ * provider is absent on purpose: it points at whatever endpoint the admin declares.
+ */
+export const OPENAI_COMPATIBLE_BASE_URLS: Partial<Record<LlmProviderKind, string>> = {
 	qwen: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
 	minimax: 'https://api.minimax.io/v1',
 	moonshot: 'https://api.moonshot.ai/v1',
@@ -299,6 +301,19 @@ const MOONSHOT_SAMPLING: ModelCapabilities = {
 	topK: false,
 	maxOutputTokens: true,
 	temperatureMax: 1,
+};
+
+/**
+ * Models behind a user-declared OpenAI-compatible endpoint. Nothing says whether they reason or
+ * only sample, so both surfaces are offered: every parameter is opt-in and only sent once the
+ * admin sets it, and the effort levels stay within the vocabulary of the OpenAI chat API.
+ */
+const OPENAI_COMPATIBLE_CUSTOM: ModelCapabilities = {
+	thinking: 'adaptive',
+	sampling: true,
+	topK: false,
+	maxOutputTokens: true,
+	effortOptions: OPENAI_LISTED_EFFORTS,
 };
 
 /** Provider metadata: models, auth config, env vars. No SDK imports — safe for frontend. */
@@ -802,25 +817,44 @@ export const PROVIDER_META: ProviderMetaMap = {
 			},
 		],
 	},
+	openaiCompatible: {
+		auth: {
+			apiKey: 'optional',
+			hint: 'Optional — leave empty for endpoints that need no authentication, such as a local server',
+			// The endpoint alone is enough to reach a server that needs no key.
+			alternativeEnvVars: [['OPENAI_COMPATIBLE_BASE_URL']],
+		},
+		envVar: 'OPENAI_COMPATIBLE_API_KEY',
+		baseUrlEnvVar: 'OPENAI_COMPATIBLE_BASE_URL',
+		requiresBaseUrl: true,
+		extractorModelId: '',
+		summaryModelId: '',
+		models: [],
+	},
 };
 
+/** The metadata of the integration behind a provider, shared by every instance of that kind. */
+export function getProviderMeta(provider: LlmProvider): ProviderMetaMap[LlmProviderKind] {
+	return PROVIDER_META[providerKind(provider)];
+}
+
 export function getDefaultModelId(provider: LlmProvider): string {
-	const models = PROVIDER_META[provider].models;
+	const models = getProviderMeta(provider).models;
 	const defaultModel = models.find((m) => m.default);
 	return defaultModel?.id ?? models[0]?.id ?? '';
 }
 
 export function getProviderAuth(provider: LlmProvider): ProviderAuth {
-	return PROVIDER_META[provider].auth;
+	return getProviderMeta(provider).auth;
 }
 
 export function getProviderApiKeyRequirement(provider: LlmProvider): boolean {
-	return PROVIDER_META[provider].auth.apiKey === 'required';
+	return getProviderAuth(provider).apiKey === 'required';
 }
 
 export const KNOWN_MODELS = Object.fromEntries(
 	Object.entries(PROVIDER_META).map(([provider, config]) => [provider, config.models]),
-) as { [K in LlmProvider]: (typeof PROVIDER_META)[K]['models'] };
+) as { [K in LlmProviderKind]: (typeof PROVIDER_META)[K]['models'] };
 
 /**
  * Whether a model is served through Anthropic's Messages API (directly, or Claude on Vertex/Bedrock).
@@ -828,16 +862,16 @@ export const KNOWN_MODELS = Object.fromEntries(
  * params are rejected while thinking is active.
  */
 export function isAnthropicApiModel(provider: LlmProvider, modelId: string): boolean {
-	if (provider === 'anthropic') {
-		return true;
+	switch (providerKind(provider)) {
+		case 'anthropic':
+			return true;
+		case 'vertex':
+			return modelId.startsWith('claude-');
+		case 'bedrock':
+			return modelId.includes('claude');
+		default:
+			return false;
 	}
-	if (provider === 'vertex') {
-		return modelId.startsWith('claude-');
-	}
-	if (provider === 'bedrock') {
-		return modelId.includes('claude');
-	}
-	return false;
 }
 
 /**
@@ -845,11 +879,11 @@ export function isAnthropicApiModel(provider: LlmProvider, modelId: string): boo
  * defaults for custom (unlisted) models so tuning still works for user-added model ids.
  */
 export function getModelCapabilities(provider: LlmProvider, modelId: string): ModelCapabilities | undefined {
-	const known = PROVIDER_META[provider].models.find((m) => m.id === modelId);
+	const known = getProviderMeta(provider).models.find((m) => m.id === modelId);
 	if (known?.capabilities) {
 		return known.capabilities;
 	}
-	switch (provider) {
+	switch (providerKind(provider)) {
 		case 'anthropic':
 			return ANTHROPIC_ADAPTIVE;
 		case 'openai':
@@ -876,6 +910,8 @@ export function getModelCapabilities(provider: LlmProvider, modelId: string): Mo
 			return MINIMAX_SAMPLING;
 		case 'moonshot':
 			return MOONSHOT_ADAPTIVE;
+		case 'openaiCompatible':
+			return OPENAI_COMPATIBLE_CUSTOM;
 		default:
 			return undefined;
 	}

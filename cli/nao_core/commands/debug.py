@@ -74,11 +74,12 @@ def _check_openai_compatible(llm_config: ProviderConfig) -> Tuple[bool, str]:
     """
     from nao_core.deps import require_dependency
 
-    require_dependency("openai", "openai", f"for {llm_config.provider.value} LLM provider")
+    require_dependency("openai", "openai", f"for {llm_config.id} LLM provider")
     from openai import OpenAI
 
     base_url = llm_config.base_url or PROVIDER_AUTH[llm_config.provider].default_base_url
-    client = OpenAI(api_key=llm_config.api_key, base_url=base_url)
+    # The client refuses to start without a key, which endpoints that need no auth simply ignore.
+    client = OpenAI(api_key=llm_config.api_key or "no-key", base_url=base_url)
 
     try:
         models = list(client.models.list())
@@ -280,7 +281,7 @@ def debug():
         model_warnings: list[str] = []
 
         for provider_config in config.llm.providers:
-            provider_name = provider_config.provider.value
+            provider_name = provider_config.id
             console.print(f"  Testing [cyan]{provider_name}[/cyan]...", end=" ")
             success, message = check_llm_connection(provider_config)
             models = ", ".join(model.id for model in provider_config.models) or "[dim]provider default[/dim]"

@@ -1,7 +1,7 @@
 import type { LlmProvider } from '@nao/shared/types';
 
 import { MemoryExtractorLLM } from '../agents/memory/memory-extractor-llm';
-import { LLM_PROVIDERS, type ProviderModelResult } from '../agents/providers';
+import { disableModelReasoning, getProviderMeta, type ProviderModelResult } from '../agents/providers';
 import { DBMemory, DBNewMemory } from '../db/abstractSchema';
 import * as llmInferenceQueries from '../queries/llm-inference';
 import * as memoryQueries from '../queries/memory';
@@ -61,7 +61,7 @@ class MemoryService {
 			return;
 		}
 
-		const modelId = await this._getExtractorModelId(opts.projectId, opts.provider);
+		const modelId = await this._getExtractorModelId(opts.projectId, opts.provider, opts.modelId);
 		const model = await this._resolveModel(opts.projectId, opts.provider, modelId);
 		if (!model) {
 			return;
@@ -101,11 +101,20 @@ class MemoryService {
 		provider: LlmProvider,
 		modelId: string,
 	): Promise<ProviderModelResult | null> {
-		return resolveProviderModel(projectId, provider, modelId, false);
+		const model = await resolveProviderModel(projectId, provider, modelId, false);
+		return model ? disableModelReasoning(provider, model) : null;
 	}
 
-	private async _getExtractorModelId(projectId: string, provider: LlmProvider): Promise<string> {
-		return resolveAnnotationModelId(projectId, provider, LLM_PROVIDERS[provider].extractorModelId);
+	private async _getExtractorModelId(
+		projectId: string,
+		provider: LlmProvider,
+		selectedModelId: string,
+	): Promise<string> {
+		return resolveAnnotationModelId(
+			projectId,
+			{ provider, modelId: selectedModelId },
+			getProviderMeta(provider).extractorModelId,
+		);
 	}
 
 	private async _persistExtractedMemories(opts: {

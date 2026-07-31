@@ -135,6 +135,7 @@ type AvailableModel = {
 	provider: LlmProvider;
 	modelId: string;
 	name: string;
+	baseUrl: string | null;
 };
 
 const defaultModelValue = 'default';
@@ -978,7 +979,13 @@ function AutomationModelSelect({
 			>
 				<SelectValue>
 					<div className='flex min-w-0 items-center gap-1.5'>
-						{provider && <LlmProviderIcon provider={provider} className='size-3.5' />}
+						{provider && (
+							<LlmProviderIcon
+								provider={provider}
+								baseUrl={availableModels?.find((m) => m.provider === provider)?.baseUrl}
+								className='size-3.5'
+							/>
+						)}
 						<span className='truncate'>{modelName ?? 'Default model'}</span>
 					</div>
 				</SelectValue>
@@ -987,7 +994,7 @@ function AutomationModelSelect({
 				<SelectItem value={defaultModelValue}>Default model</SelectItem>
 				{availableModels?.map((model) => (
 					<SelectItem key={`${model.provider}-${model.modelId}`} value={`${model.provider}:${model.modelId}`}>
-						<LlmProviderIcon provider={model.provider} className='size-4' />
+						<LlmProviderIcon provider={model.provider} baseUrl={model.baseUrl} className='size-4' />
 						{model.name}
 					</SelectItem>
 				))}

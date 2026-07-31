@@ -246,7 +246,11 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 									<SelectValue>
 										{selectedModel && (
 											<div className='flex items-center gap-2'>
-												<LlmProviderIcon provider={selectedModel.provider} className='size-4' />
+												<LlmProviderIcon
+													provider={selectedModel.provider}
+													baseUrl={selectedModel.baseUrl}
+													className='size-4'
+												/>
 												{selectedModel.name}
 											</div>
 										)}
@@ -258,7 +262,11 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 											key={`${model.provider}-${model.modelId}`}
 											value={`${model.provider}:${model.modelId}`}
 										>
-											<LlmProviderIcon provider={model.provider} className='size-4' />
+											<LlmProviderIcon
+												provider={model.provider}
+												baseUrl={model.baseUrl}
+												className='size-4'
+											/>
 											{model.name}
 										</SelectItem>
 									))}
@@ -267,7 +275,11 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 						) : (
 							selectedModel && (
 								<div className='flex items-center gap-2 text-sm text-muted-foreground'>
-									<LlmProviderIcon provider={selectedModel.provider} className='size-4' />
+									<LlmProviderIcon
+										provider={selectedModel.provider}
+										baseUrl={selectedModel.baseUrl}
+										className='size-4'
+									/>
 									<span>{selectedModel.name}</span>
 								</div>
 							)

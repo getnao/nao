@@ -165,6 +165,9 @@ class TemplateEngine:
         kwargs: dict[str, Any] = {}
         if self.llm_config and self.llm_config.api_key:
             kwargs["api_key"] = self.llm_config.api_key
+        elif self.llm_config and not self.llm_config.requires_api_key:
+            # The client refuses to start without a key, which endpoints that need no auth ignore.
+            kwargs["api_key"] = "no-key"
         if self.llm_config:
             base_url = self.llm_config.base_url or PROVIDER_AUTH[self.llm_config.provider].default_base_url
             if base_url:

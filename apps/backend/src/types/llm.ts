@@ -5,7 +5,7 @@ import type { GoogleGenerativeAIProviderOptions } from '@ai-sdk/google';
 import type { MistralLanguageModelOptions } from '@ai-sdk/mistral';
 import type { OpenAIResponsesProviderOptions } from '@ai-sdk/openai';
 import type { OpenAICompatibleProviderOptions } from '@ai-sdk/openai-compatible';
-import { LLM_PROVIDERS, type LlmProvider } from '@nao/shared/types';
+import { isLlmProvider, type LlmProvider, type LlmProviderKind } from '@nao/shared/types';
 import type { LanguageModelV3, OpenRouterProviderOptions } from '@openrouter/ai-sdk-provider';
 import type { JSONValue } from 'ai';
 import type { OllamaChatProviderOptions } from 'ai-sdk-ollama';
@@ -13,7 +13,9 @@ import { z } from 'zod/v4';
 
 import { TokenCost } from './chat';
 
-export const llmProviderSchema = z.enum(LLM_PROVIDERS);
+export const llmProviderSchema = z.custom<LlmProvider>((value) => typeof value === 'string' && isLlmProvider(value), {
+	message: 'Unknown LLM provider',
+});
 
 export const llmSelectedModelSchema = z.object({
 	provider: llmProviderSchema,
@@ -196,9 +198,9 @@ type Flatten<T> = { [K in keyof T]: T[K] };
 export type OpenAICompatibleOptions = OpenAICompatibleProviderOptions & Record<string, JSONValue>;
 
 /** Providers served through a plain OpenAI-compatible chat endpoint rather than a dedicated SDK. */
-export type OpenAICompatibleProvider = 'qwen' | 'minimax' | 'moonshot';
+export type OpenAICompatibleProvider = 'qwen' | 'minimax' | 'moonshot' | 'openaiCompatible';
 
-/** Map each provider to its specific config type */
+/** Map each provider kind to its specific config type */
 export type ProviderConfigMap = {
 	google: GoogleGenerativeAIProviderOptions;
 	openai: OpenAIResponsesProviderOptions;
@@ -212,10 +214,11 @@ export type ProviderConfigMap = {
 	qwen: OpenAICompatibleOptions;
 	minimax: OpenAICompatibleOptions;
 	moonshot: OpenAICompatibleOptions;
+	openaiCompatible: OpenAICompatibleOptions;
 };
 
 /** Model definition with provider-specific config type */
-type ProviderModel<P extends LlmProvider> = {
+type ProviderModel<P extends LlmProviderKind> = {
 	id: string;
 	name: string;
 	default?: boolean;
@@ -253,30 +256,32 @@ export type ProviderAuth = {
 };
 
 /** Data-only provider config (no SDK imports, safe for frontend) */
-export type ProviderMeta<P extends LlmProvider> = {
+export type ProviderMeta<P extends LlmProviderKind> = {
 	auth: ProviderAuth;
 	envVar: string;
 	baseUrlEnvVar?: string;
 	/** Endpoint used when neither the config nor the environment sets a base URL. */
 	defaultBaseUrl?: string;
+	/** Set when the provider has no vendor endpoint to fall back on, so a base URL must be supplied. */
+	requiresBaseUrl?: boolean;
 	models: readonly ProviderModel<P>[];
 	extractorModelId: string;
 	summaryModelId: string;
 };
 
 export type ProviderMetaMap = {
-	[P in LlmProvider]: ProviderMeta<P>;
+	[P in LlmProviderKind]: ProviderMeta<P>;
 };
 
 /** Full provider configuration with SDK create function (backend-only) */
-type ProviderConfig<P extends LlmProvider> = ProviderMeta<P> & {
+type ProviderConfig<P extends LlmProviderKind> = ProviderMeta<P> & {
 	create: (settings: ProviderSettings, modelId: string) => LanguageModelV3;
 	defaultOptions?: ProviderConfigMap[P];
 };
 
-/** Full providers type - each key gets its own config type */
+/** Full providers type - each kind gets its own config type */
 export type LlmProvidersType = {
-	[P in LlmProvider]: ProviderConfig<P>;
+	[P in LlmProviderKind]: ProviderConfig<P>;
 };
 
 export const LLM_INFERENCE_TYPES = ['memory_extraction', 'compaction', 'title_generation'] as const;

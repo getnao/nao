@@ -98,6 +98,11 @@ describe('getModelCapabilities', () => {
 		expect(getModelCapabilities('qwen', 'qwen-custom')).toMatchObject({ thinking: 'budget', topK: false });
 		expect(getModelCapabilities('minimax', 'MiniMax-Custom')).toMatchObject({ thinking: 'none', sampling: true });
 		expect(getModelCapabilities('moonshot', 'kimi-custom')).toMatchObject({ thinking: 'adaptive', sampling: true });
+		expect(getModelCapabilities('openaiCompatible', 'my-model')).toMatchObject({
+			thinking: 'adaptive',
+			sampling: true,
+			topK: false,
+		});
 	});
 
 	it('falls back per model family for custom Bedrock models', () => {
@@ -347,6 +352,15 @@ describe('getModelParameterSpec', () => {
 		expect(moonshot.map((c) => c.key)).toEqual(['reasoningEffort', 'temperature', 'topP', 'maxOutputTokens']);
 		expect(controlByKey(minimax, 'serviceTier')).toMatchObject({ options: ['standard', 'priority'] });
 		expect(controlByKey(moonshot, 'reasoningEffort')).toMatchObject({ options: ['off', 'low', 'high', 'max'] });
+	});
+
+	it('offers both reasoning and sampling on a user-declared OpenAI-compatible endpoint', () => {
+		const controls = getModelParameterSpec('openaiCompatible', 'my-model');
+
+		expect(controls.map((c) => c.key)).toEqual(['reasoningEffort', 'temperature', 'topP', 'maxOutputTokens']);
+		expect(controlByKey(controls, 'reasoningEffort')).toMatchObject({
+			options: ['off', 'minimal', 'low', 'medium', 'high'],
+		});
 	});
 
 	it('derives the temperature bound from each model capability', () => {

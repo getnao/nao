@@ -1,3 +1,4 @@
+import { providerLabel, providerLabels } from '@nao/shared/types';
 import { ProviderCard } from './llm-provider-card';
 import { LlmProviderForm } from './llm-provider-form';
 import { useLlmProviders } from '@/hooks/use-llm-providers';
@@ -53,12 +54,13 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 							provider={provider}
 							isEditing={true}
 							inheritedKeySource='env'
+							initialValues={editingState.initialValues}
 							currentModels={currentModels}
 							onSubmit={handleSubmit}
 							onCancel={handleCancel}
 							isPending={upsertPending}
 							error={upsertError}
-							title={`Configure ${provider}`}
+							title={`Configure ${providerLabel(provider)}`}
 						/>
 					);
 				}
@@ -91,7 +93,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 							onCancel={handleCancel}
 							isPending={upsertPending}
 							error={upsertError}
-							title={`Override ${configProvider.provider}`}
+							title={`Override ${providerLabel(configProvider.provider)}`}
 						/>
 					);
 				}
@@ -127,7 +129,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 							onCancel={handleCancel}
 							isPending={upsertPending}
 							error={upsertError}
-							title={`Edit ${config.provider}`}
+							title={`Edit ${providerLabel(config.provider)}`}
 						/>
 					);
 				}
@@ -163,9 +165,9 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 										key={provider}
 										type='button'
 										onClick={() => handleSelectProvider(provider)}
-										className='px-4 py-2 rounded-md text-sm font-medium transition-all capitalize cursor-pointer bg-secondary text-muted-foreground hover:text-foreground'
+										className='px-4 py-2 rounded-md text-sm font-medium transition-all cursor-pointer bg-secondary text-muted-foreground hover:text-foreground'
 									>
-										{provider}
+										{providerLabels[provider]}
 									</button>
 								))}
 							</div>
@@ -182,7 +184,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 							onCancel={handleCancel}
 							isPending={upsertPending}
 							error={upsertError}
-							title={`Add ${editingState.provider}`}
+							title={`Add ${providerLabel(editingState.provider)}`}
 							showPlusIcon
 							noWrapper
 						/>

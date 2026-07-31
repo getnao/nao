@@ -47,6 +47,61 @@ def test_openai_compatible_providers_are_fully_declared(provider: LLMProvider):
         ProviderConfig(provider=provider, api_key=None)
 
 
+def test_openai_compatible_needs_an_endpoint_but_no_key():
+    """The generic provider has no vendor endpoint to fall back on, and may need no authentication."""
+    with pytest.raises(ValueError, match="base_url is required"):
+        ProviderConfig(provider=LLMProvider.OPENAI_COMPATIBLE, api_key="sk-test")
+
+    provider = ProviderConfig(provider=LLMProvider.OPENAI_COMPATIBLE, base_url="http://localhost:8000/v1")
+    assert provider.requires_api_key is False
+
+
+@pytest.mark.parametrize("spelling", ["openaiCompatible", "openai-compatible", "openai_compatible"])
+def test_openai_compatible_accepts_every_spelling(spelling: str):
+    assert parse_provider(spelling) == LLMProvider.OPENAI_COMPATIBLE
+
+    provider = ProviderConfig.model_validate({"provider": spelling, "base_url": "http://localhost:8000/v1"})
+    assert provider.provider == LLMProvider.OPENAI_COMPATIBLE
+
+
+def test_named_endpoint_keeps_its_name_in_the_provider_field():
+    """A project addresses several endpoints of the same kind through `openaiCompatible/<name>`."""
+    provider = ProviderConfig.model_validate(
+        {"provider": "openai-compatible/My vLLM", "base_url": "http://localhost:8000/v1"}
+    )
+
+    assert provider.provider == LLMProvider.OPENAI_COMPATIBLE
+    assert provider.name == "my-vllm"
+    assert provider.model_dump(mode="json")["provider"] == "openaiCompatible/my-vllm"
+
+
+def test_rejects_a_name_the_app_cannot_address():
+    with pytest.raises(ValueError, match="is not a valid provider name"):
+        ProviderConfig.model_validate({"provider": "openaiCompatible/...", "base_url": "http://localhost:8000/v1"})
+
+    with pytest.raises(ValueError, match="can be named"):
+        ProviderConfig.model_validate({"provider": "openai/mine", "api_key": "sk-test"})
+
+
+def test_accepts_several_named_endpoints_of_the_same_kind():
+    config = LLMConfig(
+        providers=[
+            ProviderConfig(provider=LLMProvider.OPENAI_COMPATIBLE, name="prod", base_url="http://prod:8000/v1"),
+            ProviderConfig(provider=LLMProvider.OPENAI_COMPATIBLE, name="staging", base_url="http://stg:8000/v1"),
+        ]
+    )
+
+    assert [provider.id for provider in config.providers] == ["openaiCompatible/prod", "openaiCompatible/staging"]
+
+    with pytest.raises(ValueError, match="configured more than once"):
+        LLMConfig(
+            providers=[
+                ProviderConfig(provider=LLMProvider.OPENAI_COMPATIBLE, name="prod", base_url="http://a:8000/v1"),
+                ProviderConfig(provider=LLMProvider.OPENAI_COMPATIBLE, name="prod", base_url="http://b:8000/v1"),
+            ]
+        )
+
+
 def test_requires_at_least_one_provider():
     with pytest.raises(ValueError, match="at least one entry under `providers`"):
         LLMConfig(providers=[])

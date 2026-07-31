@@ -53,6 +53,7 @@ _PROVIDER_ALIASES: dict[str, str] = {
     "qwen": "openai",
     "minimax": "openai",
     "moonshot": "openai",
+    "openaiCompatible": "openai",
 }
 
 

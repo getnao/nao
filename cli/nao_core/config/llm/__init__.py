@@ -1,9 +1,10 @@
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Literal
 
 import questionary
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_serializer, model_validator
 
 from nao_core.ui import ask_confirm, ask_select, ask_text
 
@@ -22,6 +23,7 @@ class LLMProvider(str, Enum):
     QWEN = "qwen"
     MINIMAX = "minimax"
     MOONSHOT = "moonshot"
+    OPENAI_COMPATIBLE = "openaiCompatible"
 
 
 @dataclass(frozen=True)
@@ -32,6 +34,7 @@ class ProviderAuthConfig:
     alternative_env_vars: tuple[str, ...] = field(default_factory=tuple)
     hint: str | None = None
     default_base_url: str | None = None
+    requires_base_url: bool = False
 
 
 PROVIDER_AUTH: dict[LLMProvider, ProviderAuthConfig] = {
@@ -90,6 +93,13 @@ PROVIDER_AUTH: dict[LLMProvider, ProviderAuthConfig] = {
         base_url_env_var="MOONSHOT_BASE_URL",
         default_base_url="https://api.moonshot.ai/v1",
     ),
+    LLMProvider.OPENAI_COMPATIBLE: ProviderAuthConfig(
+        env_var="OPENAI_COMPATIBLE_API_KEY",
+        api_key="optional",
+        base_url_env_var="OPENAI_COMPATIBLE_BASE_URL",
+        hint="Optional — only endpoints that ask for authentication need a key",
+        requires_base_url=True,
+    ),
 }
 
 """Providers exposed through a plain OpenAI-compatible chat API rather than their own SDK."""
@@ -100,6 +110,7 @@ OPENAI_COMPATIBLE_PROVIDERS: frozenset[LLMProvider] = frozenset(
         LLMProvider.QWEN,
         LLMProvider.MINIMAX,
         LLMProvider.MOONSHOT,
+        LLMProvider.OPENAI_COMPATIBLE,
     }
 )
 
@@ -118,8 +129,18 @@ DEFAULT_ANNOTATION_MODELS: dict[LLMProvider, str] = {
     LLMProvider.MOONSHOT: "kimi-k2.5",
 }
 
-"""The chat backend spells the Gemini provider `google`; both spellings are accepted in config."""
-PROVIDER_ALIASES: dict[str, LLMProvider] = {"google": LLMProvider.GEMINI}
+"""Spellings accepted in config on top of the provider names nao uses internally."""
+PROVIDER_ALIASES: dict[str, LLMProvider] = {
+    "google": LLMProvider.GEMINI,
+    "openai-compatible": LLMProvider.OPENAI_COMPATIBLE,
+    "openai_compatible": LLMProvider.OPENAI_COMPATIBLE,
+    "openaicompatible": LLMProvider.OPENAI_COMPATIBLE,
+}
+
+
+"""The only provider a project can declare several times, each instance under a name of its own."""
+NAMED_PROVIDER = LLMProvider.OPENAI_COMPATIBLE
+PROVIDER_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
 def parse_provider(name: str) -> LLMProvider | None:
@@ -130,6 +151,12 @@ def parse_provider(name: str) -> LLMProvider | None:
         return LLMProvider(name)
     except ValueError:
         return None
+
+
+def normalize_provider_name(value: str) -> str | None:
+    """Turn what a user typed into a provider name, or None when nothing usable is left of it."""
+    name = re.sub(r"^-+|-+$", "", re.sub(r"[^a-z0-9]+", "-", value.strip().lower()))
+    return name if PROVIDER_NAME_PATTERN.match(name) else None
 
 
 class ModelCosts(BaseModel):
@@ -161,6 +188,11 @@ class ProviderConfig(BaseModel):
     """Credentials and models for a single LLM provider."""
 
     provider: LLMProvider = Field(description="The LLM provider to use")
+    name: str | None = Field(
+        default=None,
+        exclude=True,
+        description="Name of this endpoint, written as `openaiCompatible/<name>` in the provider field",
+    )
     api_key: str | None = Field(default=None, description="The API key to use")
     base_url: str | None = Field(default=None, description="Optional custom base URL for the provider API")
     access_key: str | None = Field(default=None, description="AWS access key (only for Bedrock)")
@@ -176,6 +208,11 @@ class ProviderConfig(BaseModel):
     models: list[ModelConfig] = Field(
         default_factory=list, description="The models to expose for this provider, in display order"
     )
+
+    @property
+    def id(self) -> str:
+        """How the provider is addressed everywhere, e.g. `openaiCompatible/my-vllm`."""
+        return f"{self.provider.value}/{self.name}" if self.name else self.provider.value
 
     @property
     def requires_api_key(self) -> bool:
@@ -195,30 +232,50 @@ class ProviderConfig(BaseModel):
                 return model
         return None
 
+    @field_serializer("provider")
+    def serialize_provider(self, provider: LLMProvider) -> str:
+        return self.id
+
     @model_validator(mode="before")
     @classmethod
     def normalize_provider_alias(cls, data: Any) -> Any:
-        if isinstance(data, dict) and data.get("provider") in PROVIDER_ALIASES:
-            return {**data, "provider": PROVIDER_ALIASES[data["provider"]]}
-        return data
+        """Accept `openai-compatible/my-vllm`, splitting the name off the provider it instantiates."""
+        if not isinstance(data, dict):
+            return data
+
+        provider = data.get("provider")
+        name = data.get("name")
+        if isinstance(provider, str):
+            kind, _, instance = provider.partition("/")
+            provider = PROVIDER_ALIASES.get(kind, kind)
+            name = instance or name
+
+        normalized = {"provider": provider} if provider else {}
+        if name:
+            normalized["name"] = normalize_provider_name(name) or name
+        return {**data, **normalized}
 
     @model_validator(mode="after")
     def validate_provider(self) -> "ProviderConfig":
         auth = PROVIDER_AUTH[self.provider]
         if auth.api_key == "required" and not self.api_key:
-            raise ValueError(f"api_key is required for provider {self.provider.value}")
+            raise ValueError(f"api_key is required for provider {self.id}")
+        if auth.requires_base_url and not self.base_url:
+            raise ValueError(f"base_url is required for provider {self.id}")
+        if self.name and self.provider is not NAMED_PROVIDER:
+            raise ValueError(f"only {NAMED_PROVIDER.value} providers can be named, got {self.id}")
+        if self.name and not PROVIDER_NAME_PATTERN.match(self.name):
+            raise ValueError(f"'{self.name}' is not a valid provider name: use lowercase letters, digits and dashes")
 
         seen: set[str] = set()
         for model in self.models:
             if model.id in seen:
-                raise ValueError(f"duplicate model '{model.id}' for provider {self.provider.value}")
+                raise ValueError(f"duplicate model '{model.id}' for provider {self.id}")
             seen.add(model.id)
 
         defaults = [model.id for model in self.models if model.default]
         if len(defaults) > 1:
-            raise ValueError(
-                f"only one model can be the default for provider {self.provider.value}, got {', '.join(defaults)}"
-            )
+            raise ValueError(f"only one model can be the default for provider {self.id}, got {', '.join(defaults)}")
         return self
 
     @classmethod
@@ -237,6 +294,7 @@ class ProviderConfig(BaseModel):
             questionary.Choice("Qwen (Alibaba Cloud Model Studio)", value="qwen"),
             questionary.Choice("MiniMax", value="minimax"),
             questionary.Choice("Moonshot (Kimi)", value="moonshot"),
+            questionary.Choice("Other OpenAI-compatible endpoint (vLLM, LiteLLM, ...)", value="openaiCompatible"),
         ]
         provider_choices = [
             choice for choice in provider_choices if LLMProvider(choice.value) not in excluded_providers
@@ -244,6 +302,8 @@ class ProviderConfig(BaseModel):
 
         llm_provider = ask_select("Select LLM provider:", choices=provider_choices)
         auth = PROVIDER_AUTH[LLMProvider(llm_provider)]
+        name = None
+        base_url = None
         api_key = None
         access_key = None
         secret_key = None
@@ -255,7 +315,16 @@ class ProviderConfig(BaseModel):
 
         aws_profile = None
 
-        if auth.api_key == "required":
+        if LLMProvider(llm_provider) is NAMED_PROVIDER:
+            name = normalize_provider_name(ask_text("Name this endpoint (e.g. my-vllm):", required_field=True) or "")
+            base_url = ask_text(
+                "Enter the base URL of the endpoint (e.g. http://localhost:8000/v1):", required_field=True
+            )
+            api_key = ask_text("Enter its API key (leave blank if it needs none):", password=True)
+        elif auth.requires_base_url:
+            base_url = ask_text("Enter the base URL of the endpoint:", required_field=True)
+            api_key = ask_text("Enter its API key (leave blank if it needs none):", password=True)
+        elif auth.api_key == "required":
             api_key = ask_text(f"Enter your {llm_provider.upper()} API key:", password=True, required_field=True)
         elif llm_provider == "bedrock":
             bedrock_auth_mode = ask_select(
@@ -296,7 +365,9 @@ class ProviderConfig(BaseModel):
 
         return cls(
             provider=LLMProvider(llm_provider),
-            api_key=api_key,
+            name=name,
+            api_key=api_key or None,
+            base_url=base_url or None,
             access_key=access_key,
             secret_key=secret_key,
             aws_region=aws_region or None,
@@ -374,11 +445,11 @@ class LLMConfig(BaseModel):
         if not self.providers:
             raise ValueError("llm requires at least one entry under `providers`")
 
-        seen: set[LLMProvider] = set()
+        seen: set[str] = set()
         for provider_config in self.providers:
-            if provider_config.provider in seen:
-                raise ValueError(f"provider {provider_config.provider.value} is configured more than once")
-            seen.add(provider_config.provider)
+            if provider_config.id in seen:
+                raise ValueError(f"provider {provider_config.id} is configured more than once")
+            seen.add(provider_config.id)
 
         if not self.annotation_model:
             primary = self.primary
@@ -390,15 +461,16 @@ class LLMConfig(BaseModel):
     def promptConfig(cls, *, prompt_annotation_model: bool = True) -> "LLMConfig":
         """Interactively prompt the user for LLM configuration."""
         providers = [ProviderConfig.promptConfig()]
-        while len(providers) < len(LLMProvider) and ask_confirm("Add another LLM provider?", default=False):
-            configured_providers = {provider.provider for provider in providers}
+        while ask_confirm("Add another LLM provider?", default=False):
+            # The named provider stays on offer: each endpoint is added under a name of its own.
+            configured_providers = {p.provider for p in providers if p.provider is not NAMED_PROVIDER}
             providers.append(ProviderConfig.promptConfig(excluded_providers=configured_providers))
 
         annotation_model: str | None = None
         if prompt_annotation_model:
             annotation_model = ask_text(
                 "Model to use for ai_summary generation (prompt helper):",
-                default=DEFAULT_ANNOTATION_MODELS[providers[0].provider],
+                default=DEFAULT_ANNOTATION_MODELS.get(providers[0].provider, ""),
             )
 
         config = LLMConfig(providers=providers, annotation_model=annotation_model)

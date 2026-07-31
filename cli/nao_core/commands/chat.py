@@ -130,6 +130,10 @@ def build_llm_env(llm: LLMConfig) -> dict[str, str]:
     env: dict[str, str] = {}
 
     for provider_config in llm.providers:
+        # Named endpoints share the env vars of their kind, so the app reads them from the config file only.
+        if provider_config.name:
+            continue
+
         auth = PROVIDER_AUTH[provider_config.provider]
         if provider_config.api_key is not None and auth.api_key != "none":
             env[auth.env_var] = provider_config.api_key

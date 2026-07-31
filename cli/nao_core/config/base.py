@@ -90,7 +90,7 @@ class NaoConfig(BaseModel):
         if repos:
             UI.print(f"  Repos: {', '.join(r.name for r in repos)}")
         if llm:
-            UI.print(f"  LLM: {', '.join(p.provider.value for p in llm.providers)}")
+            UI.print(f"  LLM: {', '.join(p.id for p in llm.providers)}")
         if existing.slack:
             UI.print("  Slack: configured")
         if existing.notion:

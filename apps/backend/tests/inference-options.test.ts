@@ -1,4 +1,4 @@
-import type { LlmProvider } from '@nao/shared/types';
+import { type LlmProvider, providerKind } from '@nao/shared/types';
 import { describe, expect, it } from 'vitest';
 
 import { createProviderModel, fitThinkingBudget } from '../src/agents/providers';
@@ -9,9 +9,17 @@ const VERTEX_SETTINGS: ProviderSettings = {
 	apiKey: '',
 	credentials: { project: 'test-project', location: 'us-east5' },
 };
+const COMPATIBLE_SETTINGS: ProviderSettings = { apiKey: 'test-key', baseURL: 'http://localhost:8000/v1' };
+
+function settingsFor(provider: LlmProvider): ProviderSettings {
+	if (provider === 'vertex') {
+		return VERTEX_SETTINGS;
+	}
+	return providerKind(provider) === 'openaiCompatible' ? COMPATIBLE_SETTINGS : SETTINGS;
+}
 
 function resolve(provider: LlmProvider, modelId: string, inference?: ModelInferenceSettings) {
-	const settings = provider === 'vertex' ? VERTEX_SETTINGS : SETTINGS;
+	const settings = settingsFor(provider);
 	const result = createProviderModel(provider, settings, modelId, inference);
 	const optionKey = provider === 'vertex' && modelId.startsWith('claude-') ? 'anthropic' : provider;
 	const options = (result.providerOptions[optionKey] ?? {}) as Record<string, unknown>;
@@ -389,6 +397,50 @@ describe('Qwen, MiniMax and Moonshot (OpenAI-compatible endpoints)', () => {
 
 		expect(options).not.toHaveProperty('reasoningEffort');
 		expect(callSettings).toEqual({ maxOutputTokens: 4096 });
+	});
+});
+
+describe('generic OpenAI-compatible endpoints', () => {
+	it('sends the effort under the key the SDK turns into reasoning_effort', () => {
+		const { options } = resolve('openaiCompatible', 'my-model', { reasoningEffort: 'high' });
+
+		expect(options.reasoningEffort).toBe('high');
+	});
+
+	it('snaps an effort the OpenAI vocabulary does not have', () => {
+		const { options } = resolve('openaiCompatible', 'my-model', { reasoningEffort: 'max' });
+
+		expect(options.reasoningEffort).toBe('high');
+	});
+
+	it('sends nothing beyond sampling until an effort is stored', () => {
+		const { options, callSettings } = resolve('openaiCompatible', 'my-model', {
+			temperature: 0.4,
+			topK: 40,
+			maxOutputTokens: 2048,
+		});
+
+		expect(options).toEqual({});
+		expect(callSettings).toEqual({ temperature: 0.4, maxOutputTokens: 2048 });
+	});
+
+	it('refuses to build a model without an endpoint to call', () => {
+		expect(() => createProviderModel('openaiCompatible', { apiKey: 'test-key' }, 'my-model')).toThrow(/base URL/i);
+	});
+
+	it('keys the options of a named endpoint under the name it was given', () => {
+		const { providerOptions, options } = resolve('openaiCompatible/my-vllm', 'my-model', {
+			reasoningEffort: 'low',
+		});
+
+		expect(Object.keys(providerOptions)).toEqual(['openaiCompatible/my-vllm']);
+		expect(options.reasoningEffort).toBe('low');
+	});
+
+	it('names the endpoint in the error raised when it has no base URL', () => {
+		expect(() => createProviderModel('openaiCompatible/my-vllm', { apiKey: '' }, 'my-model')).toThrow(
+			/my-vllm needs a base URL/i,
+		);
 	});
 });
 

@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { llmProviderSchema } from '@nao/backend/llm';
+import { PROVIDER_META } from '@nao/backend/provider-meta';
+import { LLM_PROVIDERS, NAMED_PROVIDER_KIND, providerKind, toNamedProvider, toProviderName } from '@nao/shared/types';
 import type { CustomModelMetadata, ModelSettingsMap } from '@nao/backend/llm';
-import type { LlmProvider } from '@nao/shared/types';
+import type { LlmProvider, LlmProviderKind } from '@nao/shared/types';
 import type { InheritedKeySource } from '@/components/settings/llm-provider-form';
 import { trpc } from '@/main';
 
@@ -39,18 +40,21 @@ export function useLlmProviders() {
 	const envBaseUrls = llmConfigs.data?.envBaseUrls ?? {};
 	const projectConfiguredProviders = projectConfigs.map((c) => c.provider);
 
-	const availableProvidersToAdd: LlmProvider[] = llmProviderSchema.options.filter(
+	// Kinds that accept several instances stay on offer: each new one is added under its own name.
+	const availableProvidersToAdd: LlmProviderKind[] = LLM_PROVIDERS.filter(
 		(p) =>
-			!projectConfiguredProviders.includes(p) &&
-			!envProviders.includes(p) &&
-			!configProviders.some((c) => c.provider === p),
+			p === NAMED_PROVIDER_KIND ||
+			(!projectConfiguredProviders.includes(p) &&
+				!envProviders.includes(p) &&
+				!configProviders.some((c) => c.provider === p)),
 	);
 
 	const unconfiguredEnvProviders = envProviders.filter((p) => !projectConfiguredProviders.includes(p));
 
 	const unconfiguredConfigProviders = configProviders.filter((c) => !projectConfiguredProviders.includes(c.provider));
 
-	const currentModels = editingState?.provider && knownModels.data ? knownModels.data[editingState.provider] : [];
+	const currentModels =
+		editingState?.provider && knownModels.data ? knownModels.data[providerKind(editingState.provider)] : [];
 
 	const resolveInheritedKeySource = (provider: LlmProvider): InheritedKeySource | null => {
 		if (configProviders.some((c) => c.provider === provider)) {
@@ -76,6 +80,7 @@ export function useLlmProviders() {
 	const handleSubmit = async (values: {
 		apiKey?: string;
 		credentials?: Record<string, string>;
+		name?: string;
 		enabledModels: string[];
 		customModels: CustomModelMetadata[];
 		modelSettings: ModelSettingsMap;
@@ -86,7 +91,7 @@ export function useLlmProviders() {
 		}
 
 		await upsertLlmConfig.mutateAsync({
-			provider: editingState.provider,
+			provider: resolveSubmittedProvider(editingState.provider, values.name),
 			apiKey: values.apiKey,
 			credentials: values.credentials,
 			enabledModels: values.enabledModels,
@@ -139,23 +144,28 @@ export function useLlmProviders() {
 	};
 
 	const handleSelectProvider = (provider: LlmProvider) => {
+		// Adding a provider of the named kind creates an endpoint of its own, with credentials of its own.
+		const inheritsCredentials = providerKind(provider) !== NAMED_PROVIDER_KIND;
 		setEditingState({
 			provider,
 			isEditing: false,
-			inheritedKeySource: resolveInheritedKeySource(provider),
+			inheritedKeySource: inheritsCredentials ? resolveInheritedKeySource(provider) : null,
 		});
 	};
 
 	const handleConfigureEnvProvider = (provider: LlmProvider) => {
+		// Endpoints nao cannot guess start from the environment value rather than an empty field.
+		const baseUrl = PROVIDER_META[providerKind(provider)].requiresBaseUrl ? (envBaseUrls[provider] ?? '') : '';
 		setEditingState({
 			provider,
 			isEditing: true,
 			inheritedKeySource: 'env',
+			initialValues: { enabledModels: [], customModels: [], modelSettings: {}, baseUrl },
 		});
 	};
 
 	const getModelDisplayName = (provider: LlmProvider, modelId: string) => {
-		const models = knownModels.data?.[provider] ?? [];
+		const models = knownModels.data?.[providerKind(provider)] ?? [];
 		const knownName = models.find((m) => m.id === modelId)?.name;
 		if (knownName) {
 			return knownName;
@@ -203,4 +213,10 @@ export function useLlmProviders() {
 		handleConfigureEnvProvider,
 		getModelDisplayName,
 	};
+}
+
+/** A provider the admin named is saved under that name, so the project can hold several of its kind. */
+function resolveSubmittedProvider(provider: LlmProvider, name?: string): LlmProvider {
+	const instanceName = name ? toProviderName(name) : null;
+	return instanceName ? toNamedProvider(instanceName) : provider;
 }

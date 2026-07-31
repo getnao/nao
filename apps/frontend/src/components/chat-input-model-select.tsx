@@ -1,16 +1,16 @@
 import { useCallback, useEffect } from 'react';
 import { Link } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
-import { TriangleAlert } from 'lucide-react';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Settings, TriangleAlert } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
-import { useAgentContext } from '@/contexts/agent.provider';
-import { trpc } from '@/main';
+import { SimpleTooltip } from '@/components/ui/tooltip';
+import { usePermissions } from '@/hooks/use-permissions';
+import { isSameModel, useModelSelection } from '@/hooks/use-model-selection';
+import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
 
 export function ChatInputModelSelect() {
-	const { selectedModel, setSelectedModel } = useAgentContext();
-	const { data: availableModels, isPending } = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
-	const hasMultipleModels = Boolean(availableModels && availableModels.length > 1);
+	const { isAdmin } = usePermissions();
+	const { availableModels, selectedModel, setSelectedModel, isPending, canCycleModels } = useModelSelection();
 
 	// Set default model when available models load, or reset if current selection is no longer available
 	useEffect(() => {
@@ -18,11 +18,7 @@ export function ChatInputModelSelect() {
 			return;
 		}
 
-		const isCurrentSelectionValid =
-			selectedModel &&
-			availableModels.some((m) => m.provider === selectedModel.provider && m.modelId === selectedModel.modelId);
-
-		if (!isCurrentSelectionValid) {
+		if (!availableModels.some((model) => isSameModel(model, selectedModel))) {
 			setSelectedModel(availableModels[0]);
 		}
 	}, [availableModels, selectedModel, setSelectedModel]);
@@ -38,8 +34,7 @@ export function ChatInputModelSelect() {
 	);
 
 	const selectedModelName = selectedModel
-		? (availableModels?.find((m) => m.provider === selectedModel.provider && m.modelId === selectedModel.modelId)
-				?.name ?? selectedModel.modelId)
+		? (availableModels?.find((model) => isSameModel(model, selectedModel))?.name ?? selectedModel.modelId)
 		: 'Select model';
 
 	if (isPending) {
@@ -58,12 +53,27 @@ export function ChatInputModelSelect() {
 		);
 	}
 
-	if (!hasMultipleModels) {
-		return (
-			<div className='flex items-center gap-2 text-sm font-normal text-muted-foreground'>
+	if (!canCycleModels) {
+		const singleModel = (
+			<>
 				{selectedModel && <LlmProviderIcon provider={selectedModel.provider} className='size-4' />}
 				<span>{selectedModelName}</span>
-			</div>
+			</>
+		);
+
+		if (!isAdmin) {
+			return (
+				<div className='flex items-center gap-2 text-sm font-normal text-muted-foreground'>{singleModel}</div>
+			);
+		}
+
+		return (
+			<Link
+				to='/settings/project/models'
+				className='flex items-center gap-2 text-sm font-normal text-muted-foreground hover:text-foreground transition-colors'
+			>
+				{singleModel}
+			</Link>
 		);
 	}
 
@@ -72,14 +82,16 @@ export function ChatInputModelSelect() {
 			value={selectedModel ? `${selectedModel.provider}:${selectedModel.modelId}` : undefined}
 			onValueChange={handleModelValueChange}
 		>
-			<SelectTrigger variant='ghost' className='p-0 gap-1 text-sm' size='sm'>
-				<SelectValue>
-					<div className='flex items-center gap-2'>
-						{selectedModel && <LlmProviderIcon provider={selectedModel.provider} className='size-4' />}
-						<span className='leading-none'>{selectedModelName}</span>
-					</div>
-				</SelectValue>
-			</SelectTrigger>
+			<SimpleTooltip side='top' content={`Cycle models with ${getShortcutLabel('cycle-model')}`}>
+				<SelectTrigger variant='ghost' className='p-0 gap-1 text-sm' size='sm'>
+					<SelectValue>
+						<div className='flex items-center gap-2'>
+							{selectedModel && <LlmProviderIcon provider={selectedModel.provider} className='size-4' />}
+							<span className='leading-none'>{selectedModelName}</span>
+						</div>
+					</SelectValue>
+				</SelectTrigger>
+			</SimpleTooltip>
 
 			<SelectContent align='center' position='popper' side='top' collisionPadding={12}>
 				{availableModels.map((model) => (
@@ -88,6 +100,19 @@ export function ChatInputModelSelect() {
 						{model.name}
 					</SelectItem>
 				))}
+
+				{isAdmin && (
+					<>
+						<SelectSeparator />
+						<Link
+							to='/settings/project/models'
+							className='flex w-full items-center gap-2 rounded-sm py-1 pr-8 pl-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+						>
+							<Settings className='size-4' />
+							Manage models
+						</Link>
+					</>
+				)}
 			</SelectContent>
 		</Select>
 	);
