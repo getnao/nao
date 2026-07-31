@@ -6,18 +6,20 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, cast
+from urllib.parse import urlparse
 
 import numpy as np
 import pandas as pd
 from cyclopts import Parameter
 
+from nao_core import native
 from nao_core.config import NaoConfig, resolve_project_path
 from nao_core.config.llm import ModelCosts
 from nao_core.config.test import ComparisonConfig, TestConfig
 from nao_core.ui import UI
 
 from .case import TESTS_FOLDER, TestCase, discover_tests
-from .client import AgentClientError, VerificationResult, get_client
+from .client import BACKEND_URL, AgentClientError, VerificationResult, get_client
 from .compare import normalize_dataframe_numbers
 from .summary import ModelSummary, summarize, summarize_by_model
 
@@ -420,6 +422,21 @@ def filter_test_cases(
     return selected
 
 
+def ensure_verification_engine(test_cases: list[TestCase]) -> None:
+    """Fetch the DuckDB engine the backend verifies answers with, if it needs it.
+
+    Only tests that declare reference SQL are verified, and a remote backend brings
+    its own engine, so neither case is worth a download.
+    """
+    if not any(test_case.sql for test_case in test_cases):
+        return
+
+    if urlparse(BACKEND_URL).hostname not in ("localhost", "127.0.0.1"):
+        return
+
+    native.ensure_group(native.server_bin_dir(), "duckdb")
+
+
 def test(
     models: Annotated[
         list[str] | None,
@@ -504,6 +521,8 @@ def test(
     except ValueError as e:
         UI.error(str(e))
         return
+
+    ensure_verification_engine(test_cases)
 
     total_runs = len(test_cases) * len(model_configs)
     UI.print(f"[bold]Found {len(test_cases)} test(s) × {len(model_configs)} model(s) = {total_runs} run(s)[/bold]")

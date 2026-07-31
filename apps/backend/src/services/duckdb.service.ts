@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { DuckDBConnection, DuckDBInstance } from '@duckdb/node-api';
+import type { DuckDBConnection } from '@duckdb/node-api';
 
 import type { QueryResult } from '../types/tools';
 import { validateReadOnlyAllowlistedSql } from '../utils/sql-allowlist';
@@ -21,6 +21,7 @@ export async function runSqlOverQueryResults(
 ): Promise<QueryResult> {
 	await assertSafeQueryResultsSql(sql, [...queryResults.keys()]);
 
+	const { DuckDBInstance } = await loadDuckDB();
 	const workspace = await mkdtemp(join(tmpdir(), 'nao-query-results-'));
 	const instance = await DuckDBInstance.create(':memory:');
 	const connection = await instance.connect();
@@ -38,6 +39,21 @@ export async function runSqlOverQueryResults(
 		connection.closeSync();
 		instance.closeSync();
 		await rm(workspace, { recursive: true, force: true });
+	}
+}
+
+/**
+ * The DuckDB engine is too large to ship inside the nao package, so the CLI
+ * downloads it on first use and exposes it through NODE_PATH. Loading it on
+ * demand keeps a missing engine from preventing the server from starting.
+ */
+async function loadDuckDB(): Promise<typeof import('@duckdb/node-api')> {
+	try {
+		return await import('@duckdb/node-api');
+	} catch (error) {
+		throw new Error('The DuckDB engine is not installed — run `nao test` again with network access', {
+			cause: error,
+		});
 	}
 }
 

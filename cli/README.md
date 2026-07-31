@@ -147,6 +147,11 @@ nao chat
 
 This will start the nao chat UI. It will open the chat interface in your browser at `http://localhost:5005`.
 
+To let the agent run code in a micro-VM, download the sandbox runtime once with `nao chat --sandbox`, then enable
+Sandboxes in Settings → Experimental. The runtime and the DuckDB engine used by `nao test` are ~100 MB each, so they
+are not shipped in the package: nao fetches them on first use and caches them in `~/.nao/native`. Set
+`NAO_NATIVE_REGISTRY` to download them from an npm mirror instead of `registry.npmjs.org`.
+
 ### Test connectivity
 
 ```bash

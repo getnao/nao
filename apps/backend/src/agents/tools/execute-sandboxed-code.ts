@@ -13,7 +13,7 @@ let boxliteModule: typeof import('@boxlite-ai/boxlite') | null = null;
 try {
 	boxliteModule = await import('@boxlite-ai/boxlite');
 } catch {
-	console.warn('⚠ @boxlite-ai/boxlite native binding not available — execute_sandboxed_code tool disabled');
+	console.warn('⚠ sandbox runtime not installed — execute_sandboxed_code tool disabled (run `nao chat --sandbox`)');
 }
 
 const WORKING_DIR = '/root';
