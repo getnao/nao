@@ -280,15 +280,16 @@ def get_native_platform_suffix() -> str | None:
 
 
 def downloadable_native_packages(suffix: str) -> list[tuple[str, str, str]]:
-    """(group, label, package) for the engines fetched on first use, not bundled."""
-    packages: list[tuple[str, str, str]] = []
+    """(group, label, package) for the engines fetched on first use, not bundled.
+
+    Whether an engine exists for the platform is left to bun.lock, which only holds
+    the packages npm actually publishes.
+    """
+    packages: list[tuple[str, str, str]] = [("sandbox", "sandbox runtime", f"@boxlite-ai/boxlite-{suffix}")]
 
     duckdb_suffix = DUCKDB_PLATFORM_SUFFIXES.get(suffix)
     if duckdb_suffix:
-        packages.append(("duckdb", "DuckDB engine", f"@duckdb/node-bindings-{duckdb_suffix}"))
-
-    if sys.platform != "win32":
-        packages.append(("sandbox", "sandbox runtime", f"@boxlite-ai/boxlite-{suffix}"))
+        packages.insert(0, ("duckdb", "DuckDB engine", f"@duckdb/node-bindings-{duckdb_suffix}"))
 
     return packages
 
@@ -301,7 +302,12 @@ def write_native_manifest(project_root: Path, output_dir: Path) -> None:
 
     entries = []
     for group, label, name in downloadable_native_packages(suffix):
-        version, integrity = read_locked_package(project_root, name)
+        locked = read_locked_package(project_root, name)
+        if locked is None:
+            print(f"   Skipping {label} (no {name} published for this platform)")
+            continue
+
+        version, integrity = locked
         entries.append({"group": group, "label": label, "name": name, "version": version, "integrity": integrity})
         print(f"   {name}@{version} (downloaded on first use)")
 
@@ -309,11 +315,13 @@ def write_native_manifest(project_root: Path, output_dir: Path) -> None:
     manifest.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
 
 
-def read_locked_package(project_root: Path, name: str) -> tuple[str, str]:
+def read_locked_package(project_root: Path, name: str) -> tuple[str, str] | None:
     """Return the version and integrity hash bun.lock pins for a package.
 
     The lockfile is the only place that has the hash of the exact artifact we build
-    against, and the CLI checks it before unpacking the download.
+    against, and the CLI checks it before unpacking the download. A package missing
+    from it is one npm does not publish for this platform, such as the sandbox
+    runtime outside macOS arm64 and Linux x64.
     """
     lockfile = project_root / "bun.lock"
     entry = re.compile(rf'"{re.escape(name)}": \["{re.escape(name)}@([^"]+)".*"(sha\d+-[^"]+)"\]')
@@ -323,8 +331,7 @@ def read_locked_package(project_root: Path, name: str) -> tuple[str, str]:
         if match:
             return match.group(1), match.group(2)
 
-    print(f"❌ {name} is not in bun.lock, cannot record how to download it")
-    sys.exit(1)
+    return None
 
 
 def bundle_native_packages(project_root: Path, output_dir: Path) -> None:
