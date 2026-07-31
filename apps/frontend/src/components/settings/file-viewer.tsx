@@ -1,7 +1,10 @@
+import { useEffect, useState } from 'react';
 import { Editor } from '@monaco-editor/react';
-import { File } from 'lucide-react';
+import { File, Loader2 } from 'lucide-react';
 import type { Monaco } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
+import { Button } from '@/components/ui/button';
+import { ErrorMessage } from '@/components/ui/error-message';
 import { Spinner } from '@/components/ui/spinner';
 import { useEditorTheme } from '@/hooks/use-editor-theme';
 import { isMac } from '@/lib/platform';
@@ -11,6 +14,9 @@ interface FileViewerProps {
 	content: string | undefined;
 	isLoading: boolean;
 	isError: boolean;
+	isSaving: boolean;
+	saveError?: string;
+	onSave: (content: string) => Promise<void>;
 }
 
 const EXTENSION_LANGUAGE_MAP: Record<string, string> = {
@@ -70,12 +76,29 @@ function defineCustomThemes(monaco: Monaco) {
 	});
 }
 
-export function FileViewer({ filePath, content, isLoading, isError }: FileViewerProps) {
+export function FileViewer({ filePath, content, isLoading, isError, isSaving, saveError, onSave }: FileViewerProps) {
 	const editorTheme = useEditorTheme();
 	const themeName = editorTheme === 'vs-dark' ? 'nao-dark' : 'nao-light';
+	const [isEditing, setIsEditing] = useState(false);
+	const [draftContent, setDraftContent] = useState(content ?? '');
+
+	useEffect(() => {
+		setIsEditing(false);
+		setDraftContent(content ?? '');
+	}, [content, filePath]);
 
 	const handleBeforeMount = (monaco: Monaco) => {
 		defineCustomThemes(monaco);
+	};
+
+	const handleSave = async () => {
+		await onSave(draftContent);
+		setIsEditing(false);
+	};
+
+	const handleCancel = () => {
+		setDraftContent(content ?? '');
+		setIsEditing(false);
 	};
 
 	const handleMount = (editorInstance: editor.IStandaloneCodeEditor, monaco: Monaco) => {
@@ -129,16 +152,37 @@ export function FileViewer({ filePath, content, isLoading, isError }: FileViewer
 				<File className='size-3.5' />
 				<span className='font-mono truncate'>{fileName}</span>
 				<span className='text-xs opacity-60 ml-auto truncate'>{filePath}</span>
+				{isEditing ? (
+					<div className='flex items-center gap-2 ml-2'>
+						<Button variant='ghost' size='sm' onClick={handleCancel} disabled={isSaving}>
+							Cancel
+						</Button>
+						<Button size='sm' onClick={handleSave} disabled={isSaving}>
+							{isSaving && <Loader2 className='size-3.5 animate-spin' />}
+							Save
+						</Button>
+					</div>
+				) : (
+					<Button variant='secondary' size='sm' className='ml-2' onClick={() => setIsEditing(true)}>
+						Edit
+					</Button>
+				)}
 			</div>
+			{saveError && (
+				<div className='mx-4 mt-2 shrink-0'>
+					<ErrorMessage message={saveError} />
+				</div>
+			)}
 			<div className='flex-1 min-h-0'>
 				<Editor
-					value={content ?? ''}
+					value={isEditing ? draftContent : (content ?? '')}
 					language={language}
 					theme={themeName}
 					beforeMount={handleBeforeMount}
 					onMount={handleMount}
+					onChange={(value) => setDraftContent(value ?? '')}
 					options={{
-						readOnly: true,
+						readOnly: !isEditing,
 						minimap: { enabled: false },
 						scrollBeyondLastLine: false,
 						fontSize: 13,
@@ -146,7 +190,7 @@ export function FileViewer({ filePath, content, isLoading, isError }: FileViewer
 						renderLineHighlight: 'line',
 						padding: { top: 8, bottom: 8 },
 						wordWrap: 'on',
-						domReadOnly: true,
+						domReadOnly: !isEditing,
 					}}
 				/>
 			</div>

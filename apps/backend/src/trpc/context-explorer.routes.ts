@@ -1,7 +1,7 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
-import { getFileTree, readFileContent } from '../services/context-explorer.service';
+import { getFileTree, readFileContent, writeFileContent } from '../services/context-explorer.service';
 import { adminProtectedProcedure } from './trpc';
 
 function requireProjectPath(path: string | null): string {
@@ -22,4 +22,12 @@ export const contextExplorerRoutes = {
 		const content = await readFileContent(input.path, projectPath);
 		return { content };
 	}),
+
+	writeFile: adminProtectedProcedure
+		.input(z.object({ path: z.string(), content: z.string() }))
+		.mutation(async ({ ctx, input }) => {
+			const projectPath = requireProjectPath(ctx.project.path);
+			await writeFileContent(input.path, projectPath, input.content);
+			return { success: true };
+		}),
 };

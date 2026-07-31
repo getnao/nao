@@ -8,16 +8,36 @@ export async function getFileTree(projectFolder: string): Promise<FileTreeEntry[
 	return readDirectoryRecursive(projectFolder, projectFolder);
 }
 
+const MAX_FILE_SIZE = 1024 * 1024; // 1 MB
+
 export async function readFileContent(filePath: string, projectFolder: string): Promise<string> {
 	const realPath = resolveAndValidatePath(filePath, projectFolder);
 	const stat = await fs.stat(realPath);
 
-	const MAX_FILE_SIZE = 1024 * 1024; // 1 MB
+	if (!stat.isFile()) {
+		throw new Error('Path is not a file');
+	}
+
 	if (stat.size > MAX_FILE_SIZE) {
 		throw new Error('File is too large to display (max 1 MB)');
 	}
 
 	return fs.readFile(realPath, 'utf-8');
+}
+
+export async function writeFileContent(filePath: string, projectFolder: string, content: string): Promise<void> {
+	const realPath = resolveAndValidatePath(filePath, projectFolder);
+	const stat = await fs.stat(realPath);
+
+	if (!stat.isFile()) {
+		throw new Error('Path is not a file');
+	}
+
+	if (Buffer.byteLength(content, 'utf-8') > MAX_FILE_SIZE) {
+		throw new Error('File is too large to save (max 1 MB)');
+	}
+
+	await fs.writeFile(realPath, content, 'utf-8');
 }
 
 async function readDirectoryRecursive(dirPath: string, projectFolder: string): Promise<FileTreeEntry[]> {
@@ -61,9 +81,11 @@ async function readDirectoryRecursive(dirPath: string, projectFolder: string): P
 
 function resolveAndValidatePath(virtualPath: string, projectFolder: string): string {
 	const relativePath = virtualPath.startsWith('/') ? virtualPath.slice(1) : virtualPath;
-	const resolvedPath = path.resolve(projectFolder, relativePath);
+	const resolvedProjectFolder = path.resolve(projectFolder);
+	const resolvedPath = path.resolve(resolvedProjectFolder, relativePath);
 
-	const withinFolder = resolvedPath === projectFolder || resolvedPath.startsWith(projectFolder + path.sep);
+	const withinFolder =
+		resolvedPath === resolvedProjectFolder || resolvedPath.startsWith(resolvedProjectFolder + path.sep);
 	if (!withinFolder) {
 		throw new Error(`Access denied: path is outside the project folder`);
 	}

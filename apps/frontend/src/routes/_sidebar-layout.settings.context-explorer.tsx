@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 
 import { FileTree } from '@/components/settings/file-tree';
 import { FileViewer } from '@/components/settings/file-viewer';
@@ -22,6 +22,12 @@ function ContextExplorerPage() {
 	const fileContent = useQuery({
 		...trpc.contextExplorer.readFile.queryOptions({ path: selectedPath! }),
 		enabled: !!selectedPath,
+	});
+	const writeFile = useMutation({
+		...trpc.contextExplorer.writeFile.mutationOptions(),
+		onSuccess: () => {
+			void fileContent.refetch();
+		},
 	});
 
 	return (
@@ -48,7 +54,10 @@ function ContextExplorerPage() {
 							<FileTree
 								entries={fileTree.data ?? []}
 								selectedPath={selectedPath}
-								onSelectFile={setSelectedPath}
+								onSelectFile={(path) => {
+									writeFile.reset();
+									setSelectedPath(path);
+								}}
 							/>
 						)}
 					</div>
@@ -63,6 +72,14 @@ function ContextExplorerPage() {
 							content={fileContent.data?.content}
 							isLoading={fileContent.isLoading && fileContent.fetchStatus !== 'idle'}
 							isError={fileContent.isError}
+							isSaving={writeFile.isPending}
+							saveError={writeFile.error?.message}
+							onSave={(content) => {
+								if (!selectedPath) {
+									return Promise.resolve();
+								}
+								return writeFile.mutateAsync({ path: selectedPath, content }).then(() => undefined);
+							}}
 						/>
 					</div>
 				</ResizablePanel>
