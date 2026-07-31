@@ -283,7 +283,8 @@ export function McpSettings({ isAdmin }: Props) {
 						{servers.map((server) => {
 							const isExpanded = expandedServers.includes(server.name);
 							const connection = connectionLabel(server);
-							const canDiscover = isAdmin || server.toolCount === 0;
+							const canDiscover =
+								isAdmin || (server.toolCount === 0 && (!server.oauth || server.oauthConnected));
 
 							return (
 								<>

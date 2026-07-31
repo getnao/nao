@@ -104,6 +104,9 @@ export class McpService {
 			this._fileWatcher.close();
 			this._fileWatcher = null;
 		}
+		if (this._projectId !== projectId) {
+			this._resetDiscovery();
+		}
 
 		this._projectId = projectId;
 		this._initPromise = this._initialize(projectId).catch((err) => {
@@ -247,13 +250,13 @@ export class McpService {
 		userId: string,
 		server: string,
 		config: McpServerConfig,
-	): Promise<string> {
+	): Promise<string | undefined> {
 		const token = await getValidAccessToken({ userId, projectId, server, serverUrl: config.url!.toString() });
 		if (!token) {
 			throw new McpAuthRequiredError(server);
 		}
-		await claimMcpDiscoveryUser(projectId, server, userId);
-		return userId;
+		const claimed = await claimMcpDiscoveryUser(projectId, server, userId);
+		return claimed ? userId : undefined;
 	}
 
 	public async callTool(opts: {
@@ -465,6 +468,11 @@ export class McpService {
 		this._registered = new Set();
 		this._oauth = {};
 		this._validators.clear();
+	}
+
+	private _resetDiscovery(): void {
+		this._discovered = {};
+		this._failedConnections = {};
 	}
 
 	private async _loadConfig(): Promise<void> {

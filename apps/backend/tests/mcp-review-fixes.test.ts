@@ -7,8 +7,10 @@ vi.mock('../src/db/db', () => ({ db: {} }));
 import { getTools } from '../src/agents/tools';
 import { authRequiredOutput, createMcpCallTool } from '../src/agents/tools/mcp-call';
 import { createMcpConnectTool } from '../src/agents/tools/mcp-connect';
+import * as mcpOAuthQueries from '../src/queries/mcp-oauth.queries';
 import { normalizeReturnTo, resultPage } from '../src/routes/mcp-oauth';
 import { McpArgsValidationError, McpService, mcpService } from '../src/services/mcp';
+import * as mcpOAuthService from '../src/services/mcp-oauth';
 import { extractToolsFromOpenApi } from '../src/services/mcp-openapi';
 
 afterEach(() => {
@@ -107,6 +109,45 @@ describe('MCP first discovery', () => {
 
 		expect(await service.hasDiscoveredTools('project', 'unconnected')).toBe(false);
 		expect(await service.hasDiscoveredTools('project', 'connected')).toBe(true);
+	});
+
+	it('does not inherit the tools discovered for another project', async () => {
+		const service = new McpService() as unknown as {
+			_projectId: string;
+			_projectPath: string;
+			_initPromise: Promise<void> | null;
+			_discovered: Record<string, unknown[]>;
+			_initialize: (projectId: string) => Promise<void>;
+			hasDiscoveredTools: (projectId: string, server: string) => Promise<boolean>;
+		};
+		service._projectId = 'previous-project';
+		service._projectPath = resolve('/tmp/nao-missing-project');
+		service._initPromise = Promise.resolve();
+		service._discovered = { shared: [{ name: 'search' }] };
+		vi.spyOn(service, '_initialize').mockResolvedValue();
+
+		expect(await service.hasDiscoveredTools('current-project', 'shared')).toBe(false);
+	});
+});
+
+describe('MCP discovery ownership', () => {
+	it('uses the stored discovery owner when another user already owns the server', async () => {
+		vi.spyOn(mcpOAuthService, 'getValidAccessToken').mockResolvedValue('user-token');
+		vi.spyOn(mcpOAuthQueries, 'claimMcpDiscoveryUser').mockResolvedValue(false);
+		const service = new McpService() as unknown as {
+			_claimDiscoveryForUser: (
+				projectId: string,
+				userId: string,
+				server: string,
+				config: { url: URL },
+			) => Promise<string | undefined>;
+		};
+
+		const discoveryUserId = await service._claimDiscoveryForUser('project', 'regular-user', 'server', {
+			url: new URL('https://mcp.example.com'),
+		});
+
+		expect(discoveryUserId).toBeUndefined();
 	});
 });
 
