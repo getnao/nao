@@ -4,6 +4,13 @@ import type { GitIdentity } from '../utils/git-identity';
 import * as github from './github';
 import * as gitlab from './gitlab';
 
+export interface ReviewRequest {
+	url: string;
+	state: 'open' | 'closed' | 'merged';
+	mergedAt: string | null;
+	closedAt: string | null;
+}
+
 export interface ReviewRequestProvider {
 	getToken: (userId: string) => Promise<string | null>;
 	notConnectedMessage: string;
@@ -25,6 +32,7 @@ export interface ReviewRequestProvider {
 	}) => void;
 	pushBranch: (args: { token: string; repoFullName: string; dir: string; branch: string }) => void;
 	findOpenReviewRequest: (token: string, repoFullName: string, branch: string) => Promise<{ url: string } | null>;
+	findReviewRequestByBranch: (token: string, repoFullName: string, branch: string) => Promise<ReviewRequest | null>;
 	openReviewRequest: (
 		token: string,
 		repoFullName: string,
@@ -46,6 +54,8 @@ export const REVIEW_REQUEST_PROVIDERS: Record<RepoProvider, ReviewRequestProvide
 		commitAllAndPushBranch: github.commitAllAndPushBranch,
 		pushBranch: (args) => github.pushBranch(args),
 		findOpenReviewRequest: (token, repoFullName, branch) => github.findOpenPullRequest(token, repoFullName, branch),
+		findReviewRequestByBranch: (token, repoFullName, branch) =>
+			github.findPullRequestByBranch(token, repoFullName, branch),
 		openReviewRequest: async (token, repoFullName, { title, head, base, body }) => {
 			const pullRequest = await github.createPullRequest(token, repoFullName, { title, head, base, body });
 			return { url: pullRequest.html_url };
@@ -65,6 +75,8 @@ export const REVIEW_REQUEST_PROVIDERS: Record<RepoProvider, ReviewRequestProvide
 		pushBranch: (args) => gitlab.pushBranch(args),
 		findOpenReviewRequest: (token, repoFullName, branch) =>
 			gitlab.findOpenMergeRequest(token, repoFullName, branch),
+		findReviewRequestByBranch: (token, repoFullName, branch) =>
+			gitlab.findMergeRequestByBranch(token, repoFullName, branch),
 		openReviewRequest: async (token, repoFullName, { title, head, base, body }) => {
 			const mergeRequest = await gitlab.createMergeRequest(token, repoFullName, {
 				title,

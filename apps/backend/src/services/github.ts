@@ -625,6 +625,37 @@ export async function findOpenPullRequest(
 	return pullRequests[0] ? { url: pullRequests[0].html_url } : null;
 }
 
+export async function findPullRequestByBranch(
+	token: string,
+	repo: string,
+	branch: string,
+): Promise<{
+	url: string;
+	state: 'open' | 'closed' | 'merged';
+	mergedAt: string | null;
+	closedAt: string | null;
+} | null> {
+	const owner = repo.split('/')[0];
+	const params = new URLSearchParams({
+		head: `${owner}:${branch}`,
+		state: 'all',
+		sort: 'updated',
+		direction: 'desc',
+		per_page: '1',
+	});
+	const pullRequests = await githubFetchJson<RawPullRequest[]>(token, `/repos/${repo}/pulls?${params}`);
+	const pullRequest = pullRequests[0];
+	if (!pullRequest) {
+		return null;
+	}
+	return {
+		url: pullRequest.html_url,
+		state: pullRequest.merged_at ? 'merged' : pullRequest.state,
+		mergedAt: pullRequest.merged_at,
+		closedAt: pullRequest.closed_at,
+	};
+}
+
 export async function createIssueOrPullRequestComment(
 	token: string,
 	repo: string,
@@ -694,6 +725,7 @@ interface RawIssue {
 interface RawPullRequest extends RawIssue {
 	draft: boolean;
 	merged_at: string | null;
+	closed_at: string | null;
 	additions?: number;
 	deletions?: number;
 	changed_files?: number;

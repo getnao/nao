@@ -777,6 +777,7 @@ function localProvider(bare: string, publicUrl = 'https://github.com/nao/context
 			runGit(dir, ['push', bare, `HEAD:refs/heads/${branch}`]);
 		},
 		findOpenReviewRequest: async () => openReviewRequest,
+		findReviewRequestByBranch: async () => null,
 		openReviewRequest: async () => {
 			openReviewRequest = { url: 'https://github.com/nao/context/pull/1' };
 			return openReviewRequest;

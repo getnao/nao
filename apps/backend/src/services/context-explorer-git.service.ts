@@ -93,6 +93,21 @@ export interface CreateBranchAndCommitResult {
 	usedFallbackBase: boolean;
 }
 
+export interface OwnedContextBranchDeletionInput {
+	projectId: string;
+	projectFolder: string;
+	userId: string;
+	branch: string;
+	token: string;
+}
+
+export type OwnedContextBranchDeletionResult =
+	| { status: 'deleted'; reason: 'branch-deleted' | 'branch-missing' | 'worktree-missing' }
+	| {
+			status: 'skipped';
+			reason: 'dirty-worktree' | 'unpublished-commits' | 'default-ref-unavailable' | 'commit-check-failed';
+	  };
+
 type ParsedContextChangedFile = Pick<ContextChangedFile, 'path' | 'kind'>;
 type ContextLineCounts = Pick<ContextChangedFile, 'additions' | 'deletions'>;
 
@@ -517,6 +532,59 @@ export function assertSafeDestructiveWorktreeTarget(worktreeRoot: string, projec
 	}
 }
 
+export function deleteOwnedContextBranch(input: OwnedContextBranchDeletionInput): OwnedContextBranchDeletionResult {
+	const worktreeRoot = getContextWorktreePath(input.projectId, input.projectFolder, input.userId);
+	if (!fs.existsSync(worktreeRoot)) {
+		return { status: 'deleted', reason: 'worktree-missing' };
+	}
+	const repo = { worktreeRoot, projectPrefix: '' };
+	try {
+		if (!isCleanWorktree(repo)) {
+			return { status: 'skipped', reason: 'dirty-worktree' };
+		}
+		if (!hasRef(repo, `refs/heads/${input.branch}`)) {
+			return { status: 'deleted', reason: 'branch-missing' };
+		}
+		const defaultBranch = readDefaultBranchFromRefs(worktreeRoot);
+		const remoteBranchRef = `refs/remotes/origin/${input.branch}`;
+		const comparisonRef = hasRef(repo, remoteBranchRef)
+			? `origin/${input.branch}`
+			: defaultBranch
+				? readDefaultBranchRef(repo, defaultBranch)
+				: null;
+		if (!comparisonRef) {
+			return { status: 'skipped', reason: 'default-ref-unavailable' };
+		}
+		const unpublishedCommitCount = readVerifiedCommitCount(repo, `${comparisonRef}..${input.branch}`);
+		if (unpublishedCommitCount === null) {
+			return { status: 'skipped', reason: 'commit-check-failed' };
+		}
+		if (unpublishedCommitCount > 0) {
+			return { status: 'skipped', reason: 'unpublished-commits' };
+		}
+		if (readCurrentBranch(repo) === input.branch) {
+			const defaultRef = defaultBranch ? readDefaultBranchRef(repo, defaultBranch) : null;
+			if (!defaultRef) {
+				return { status: 'skipped', reason: 'default-ref-unavailable' };
+			}
+			runDestructiveWorktreeGit(worktreeRoot, input.projectFolder, worktreeRoot, [
+				'switch',
+				'--detach',
+				defaultRef,
+			]);
+		}
+		runDestructiveWorktreeGit(worktreeRoot, input.projectFolder, worktreeRoot, [
+			'branch',
+			'-D',
+			'--',
+			input.branch,
+		]);
+		return { status: 'deleted', reason: 'branch-deleted' };
+	} catch (error) {
+		throw sanitizeGitError(error, input.token);
+	}
+}
+
 export async function cleanupContextWorktree(projectId: string, projectFolder: string, userId: string): Promise<void> {
 	let worktreeRoot: string;
 	try {
@@ -778,7 +846,7 @@ function removeWorktreeDirectory(worktreeRoot: string, projectFolder: string): v
 	fs.rmSync(worktreeRoot, { recursive: true, force: true });
 }
 
-function readStatus(repo: ResolvedContextRepo): Buffer {
+function readStatus(repo: Pick<ResolvedContextRepo, 'worktreeRoot' | 'projectPrefix'>): Buffer {
 	return runGit(repo.worktreeRoot, [
 		'status',
 		'--porcelain=v1',
@@ -954,12 +1022,16 @@ function assertBranchAvailable(repo: ResolvedContextRepo, branch: string): void 
 }
 
 function assertCleanWorktree(repo: ResolvedContextRepo): void {
-	if (readStatus(repo).length > 0) {
+	if (!isCleanWorktree(repo)) {
 		throw new TRPCError({ code: 'CONFLICT', message: 'Commit or discard changes before switching branches.' });
 	}
 }
 
-function hasRef(repo: ResolvedContextRepo, ref: string): boolean {
+function isCleanWorktree(repo: Pick<ResolvedContextRepo, 'worktreeRoot' | 'projectPrefix'>): boolean {
+	return readStatus(repo).length === 0;
+}
+
+function hasRef(repo: Pick<ResolvedContextRepo, 'worktreeRoot'>, ref: string): boolean {
 	return hasRefAt(repo.worktreeRoot, ref);
 }
 
@@ -967,7 +1039,7 @@ function hasRefAt(cwd: string, ref: string): boolean {
 	return tryRunGit(cwd, ['show-ref', '--verify', '--quiet', ref]) !== null;
 }
 
-function readCurrentBranch(repo: ResolvedContextRepo): string | null {
+function readCurrentBranch(repo: Pick<ResolvedContextRepo, 'worktreeRoot'>): string | null {
 	return readCurrentBranchFromPath(repo.worktreeRoot);
 }
 
@@ -1006,7 +1078,7 @@ function readUnpushedCommitCount(
 	return base ? readCommitCount(repo, `${base}..HEAD`) : 0;
 }
 
-function readDefaultBranchRef(repo: ResolvedContextRepo, defaultBranch: string): string | null {
+function readDefaultBranchRef(repo: Pick<ResolvedContextRepo, 'worktreeRoot'>, defaultBranch: string): string | null {
 	const remoteDefaultRef = `refs/remotes/origin/${defaultBranch}`;
 	const localDefaultRef = `refs/heads/${defaultBranch}`;
 	return hasRef(repo, remoteDefaultRef)
@@ -1019,6 +1091,15 @@ function readDefaultBranchRef(repo: ResolvedContextRepo, defaultBranch: string):
 function readCommitCount(repo: ResolvedContextRepo, range: string): number {
 	const count = Number(readOptionalGitValue(repo.worktreeRoot, ['rev-list', '--count', range]));
 	return Number.isSafeInteger(count) && count >= 0 ? count : 0;
+}
+
+function readVerifiedCommitCount(repo: Pick<ResolvedContextRepo, 'worktreeRoot'>, range: string): number | null {
+	const value = readOptionalGitValue(repo.worktreeRoot, ['rev-list', '--count', range]);
+	if (!value || !/^\d+$/.test(value)) {
+		return null;
+	}
+	const count = Number(value);
+	return Number.isSafeInteger(count) ? count : null;
 }
 
 async function findOpenContextReviewRequest(
@@ -1198,7 +1279,7 @@ function readOptionalGitValue(cwd: string, args: string[]): string | null {
 
 function sanitizeGitError(error: unknown, token: string): Error {
 	const message = error instanceof Error ? error.message : 'Git operation failed.';
-	return new Error(message.replaceAll(token, '[redacted]'));
+	return new Error(token ? message.replaceAll(token, '[redacted]') : message);
 }
 
 function isDirtySwitchConflict(error: unknown): boolean {

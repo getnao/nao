@@ -349,11 +349,54 @@ export async function findOpenMergeRequest(
 	return mergeRequests[0] ? { url: mergeRequests[0].web_url } : null;
 }
 
+export async function findMergeRequestByBranch(
+	token: string,
+	repoFullName: string,
+	branch: string,
+): Promise<{
+	url: string;
+	state: 'open' | 'closed' | 'merged';
+	mergedAt: string | null;
+	closedAt: string | null;
+} | null> {
+	const encodedPath = encodeURIComponent(repoFullName);
+	const params = new URLSearchParams({
+		source_branch: branch,
+		order_by: 'updated_at',
+		sort: 'desc',
+		per_page: '1',
+	});
+	const res = await fetch(`${gitlabApiUrl()}/projects/${encodedPath}/merge_requests?${params}`, {
+		headers: { Authorization: `Bearer ${token}` },
+	});
+	if (!res.ok) {
+		const body = await res.text();
+		throw new Error(`GitLab API error ${res.status}: ${body}`);
+	}
+	const mergeRequests = (await res.json()) as Array<{
+		web_url: string;
+		state: GitLabMergeRequest['state'];
+		merged_at: string | null;
+		closed_at: string | null;
+	}>;
+	const mergeRequest = mergeRequests[0];
+	if (!mergeRequest) {
+		return null;
+	}
+	return {
+		url: mergeRequest.web_url,
+		state: mergeRequest.state === 'opened' ? 'open' : mergeRequest.state === 'merged' ? 'merged' : 'closed',
+		mergedAt: mergeRequest.merged_at,
+		closedAt: mergeRequest.closed_at,
+	};
+}
+
 export interface GitLabMergeRequest {
 	iid: number;
 	state: 'opened' | 'closed' | 'merged' | 'locked';
 	web_url: string;
 	merged_at: string | null;
+	closed_at: string | null;
 }
 
 export async function getMergeRequest(token: string, repoFullName: string, iid: number): Promise<GitLabMergeRequest> {

@@ -14,6 +14,10 @@ import { fileURLToPath } from 'url';
 import { env, isCloud } from './env';
 import { AUTOMATION_JOB_NAME, automationHandler } from './handlers/automation.handler';
 import {
+	CONTEXT_BRANCH_CLEANUP_JOB_NAME,
+	contextBranchCleanupHandler,
+} from './handlers/context-branch-cleanup.handler';
+import {
 	CONTEXT_RECOMMENDATIONS_JOB_NAME,
 	contextRecommendationsHandler,
 	ensureContextRecommendationsSchedules,
@@ -351,6 +355,13 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		name: MCP_QUERY_DATA_CLEANUP_JOB_NAME,
 		cron: '0 4 * * *',
 		uniqueKey: MCP_QUERY_DATA_CLEANUP_JOB_NAME,
+	});
+
+	registerJob(CONTEXT_BRANCH_CLEANUP_JOB_NAME, contextBranchCleanupHandler);
+	await ensureRecurring({
+		name: CONTEXT_BRANCH_CLEANUP_JOB_NAME,
+		cron: '0 5 * * *',
+		uniqueKey: CONTEXT_BRANCH_CLEANUP_JOB_NAME,
 	});
 
 	if (env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED) {

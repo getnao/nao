@@ -248,6 +248,7 @@ function provider(bare: string): ContextRepositoryProvider {
 		commitAllAndPushBranch: () => undefined,
 		pushBranch: () => undefined,
 		findOpenReviewRequest: async () => null,
+		findReviewRequestByBranch: async () => null,
 		openReviewRequest: async () => ({ url: 'https://github.com/nao/context/pull/1' }),
 	};
 }

@@ -3,6 +3,20 @@ import { and, eq } from 'drizzle-orm';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 
+export async function listContextBranchOwnerships(): Promise<
+	Array<{ id: string; projectId: string; branch: string; userId: string }>
+> {
+	return db
+		.select({
+			id: s.contextBranchOwnership.id,
+			projectId: s.contextBranchOwnership.projectId,
+			branch: s.contextBranchOwnership.branch,
+			userId: s.contextBranchOwnership.userId,
+		})
+		.from(s.contextBranchOwnership)
+		.execute();
+}
+
 export async function claimContextBranch(projectId: string, branch: string, userId: string): Promise<boolean> {
 	const claimed = await db
 		.insert(s.contextBranchOwnership)
