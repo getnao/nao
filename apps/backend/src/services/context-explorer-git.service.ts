@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import type {
+	ContextBranchCreationResult,
 	ContextBranchInfo,
 	ContextChangedFile,
 	ContextFileDiff,
@@ -309,30 +310,37 @@ export async function switchContextBranch(
 	const provider = availableContext.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
 	assertCleanWorktree(repo);
 	const defaultBranch = readDefaultBranch(repo);
-	if (branch === defaultBranch) {
-		const defaultRef = readDefaultBranchRef(repo, defaultBranch);
-		if (!defaultRef) {
+	try {
+		if (branch === defaultBranch) {
+			const defaultRef = readDefaultBranchRef(repo, defaultBranch);
+			if (!defaultRef) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: `Branch not found: ${branch}` });
+			}
+			runDestructiveWorktreeGit(repo.worktreeRoot, context.projectFolder, repo.worktreeRoot, [
+				'switch',
+				'--detach',
+				defaultRef,
+			]);
+		} else if (!(await isContextBranchOwnedByUser(context, branch))) {
+			throw new TRPCError({ code: 'FORBIDDEN', message: 'This branch belongs to another user.' });
+		} else if (hasRef(repo, `refs/heads/${branch}`)) {
+			runDestructiveWorktreeGit(repo.worktreeRoot, context.projectFolder, repo.worktreeRoot, ['switch', branch]);
+		} else if (hasRef(repo, `refs/remotes/origin/${branch}`)) {
+			runDestructiveWorktreeGit(repo.worktreeRoot, context.projectFolder, repo.worktreeRoot, [
+				'switch',
+				'--track',
+				'-c',
+				branch,
+				`origin/${branch}`,
+			]);
+		} else {
 			throw new TRPCError({ code: 'NOT_FOUND', message: `Branch not found: ${branch}` });
 		}
-		runDestructiveWorktreeGit(repo.worktreeRoot, context.projectFolder, repo.worktreeRoot, [
-			'switch',
-			'--detach',
-			defaultRef,
-		]);
-	} else if (!(await isContextBranchOwnedByUser(context, branch))) {
-		throw new TRPCError({ code: 'FORBIDDEN', message: 'This branch belongs to another user.' });
-	} else if (hasRef(repo, `refs/heads/${branch}`)) {
-		runDestructiveWorktreeGit(repo.worktreeRoot, context.projectFolder, repo.worktreeRoot, ['switch', branch]);
-	} else if (hasRef(repo, `refs/remotes/origin/${branch}`)) {
-		runDestructiveWorktreeGit(repo.worktreeRoot, context.projectFolder, repo.worktreeRoot, [
-			'switch',
-			'--track',
-			'-c',
-			branch,
-			`origin/${branch}`,
-		]);
-	} else {
-		throw new TRPCError({ code: 'NOT_FOUND', message: `Branch not found: ${branch}` });
+	} catch (error) {
+		if (isDirtySwitchConflict(error)) {
+			throw new TRPCError({ code: 'CONFLICT', message: 'Commit or discard changes before switching branches.' });
+		}
+		throw error;
 	}
 	invalidateContextProjectPrefix(repo.worktreeRoot);
 	return getContextBranches(resolveAfterBranchChange(repo, context.projectFolder, provider), context);
@@ -341,27 +349,16 @@ export async function switchContextBranch(
 export async function createContextBranch(
 	context: ContextExplorerGitContext,
 	branch: string,
-): Promise<ContextBranchInfo> {
+): Promise<ContextBranchCreationResult> {
 	validateBranch(branch);
 	const { repo, context: availableContext } = await requireContextExplorerGit(context);
 	const provider = availableContext.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
 	fetchContextRepository(repo, context.projectFolder, provider, availableContext.token);
 	assertBranchAvailable(repo, branch);
-	await claimBranchOwnership(context, branch);
-	try {
-		runDestructiveWorktreeGit(repo.worktreeRoot, context.projectFolder, repo.worktreeRoot, [
-			'switch',
-			'-c',
-			branch,
-			`origin/${readDefaultBranch(repo)}`,
-		]);
-	} catch (error) {
-		const branchOwnershipQueries = await getBranchOwnershipQueries();
-		await branchOwnershipQueries.releaseContextBranch(context.projectId, branch, context.userId);
-		throw error;
-	}
+	const { usedFallbackBase } = await createOwnedContextBranch(context, repo, branch);
 	invalidateContextProjectPrefix(repo.worktreeRoot);
-	return getContextBranches(resolveAfterBranchChange(repo, context.projectFolder, provider), context);
+	const branches = await getContextBranches(resolveAfterBranchChange(repo, context.projectFolder, provider), context);
+	return { ...branches, usedFallbackBase };
 }
 
 export async function createContextBranchAndCommit(
@@ -374,37 +371,7 @@ export async function createContextBranchAndCommit(
 	const branch = input.branch ?? generateContextBranchName(repo);
 	validateBranch(branch);
 	assertBranchAvailable(repo, branch);
-	await claimBranchOwnership(context, branch);
-	const defaultBranch = readDefaultBranch(repo);
-	const currentHead = runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();
-	let baseUsed = `origin/${defaultBranch}`;
-	let usedFallbackBase = false;
-	try {
-		try {
-			runDestructiveWorktreeGit(repo.worktreeRoot, context.projectFolder, repo.worktreeRoot, [
-				'switch',
-				'-c',
-				branch,
-				baseUsed,
-			]);
-		} catch (error) {
-			if (hasRef(repo, `refs/heads/${branch}`) || !isDirtySwitchConflict(error)) {
-				throw error;
-			}
-			baseUsed = currentHead;
-			usedFallbackBase = true;
-			runDestructiveWorktreeGit(repo.worktreeRoot, context.projectFolder, repo.worktreeRoot, [
-				'switch',
-				'-c',
-				branch,
-				currentHead,
-			]);
-		}
-	} catch (error) {
-		const branchOwnershipQueries = await getBranchOwnershipQueries();
-		await branchOwnershipQueries.releaseContextBranch(context.projectId, branch, context.userId);
-		throw error;
-	}
+	const { baseUsed, usedFallbackBase } = await createOwnedContextBranch(context, repo, branch);
 	invalidateContextProjectPrefix(repo.worktreeRoot);
 	const resolvedRepo = resolveAfterBranchChange(repo, context.projectFolder, provider);
 	const commit = await commitSelectedChanges(resolvedRepo, context.projectFolder, availableContext, input);
@@ -1099,6 +1066,50 @@ function unavailable(
 	repo: UnresolvedContextRepo | null,
 ): Extract<ContextExplorerGitResolution, { status: 'unavailable' }> {
 	return { status: 'unavailable', reason, message: unavailableMessage(reason), repo: toContextRepoState(repo) };
+}
+
+async function createOwnedContextBranch(
+	context: ContextExplorerGitContext,
+	repo: ResolvedContextRepo,
+	branch: string,
+): Promise<{ baseUsed: string; usedFallbackBase: boolean }> {
+	await claimBranchOwnership(context, branch);
+	try {
+		const currentHead = runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();
+		let baseUsed = `origin/${readDefaultBranch(repo)}`;
+		let usedFallbackBase = false;
+		try {
+			runDestructiveWorktreeGit(repo.worktreeRoot, context.projectFolder, repo.worktreeRoot, [
+				'switch',
+				'-c',
+				branch,
+				baseUsed,
+			]);
+		} catch (error) {
+			if (hasRef(repo, `refs/heads/${branch}`) || !isDirtySwitchConflict(error)) {
+				throw error;
+			}
+			baseUsed = currentHead;
+			usedFallbackBase = true;
+			runDestructiveWorktreeGit(repo.worktreeRoot, context.projectFolder, repo.worktreeRoot, [
+				'switch',
+				'-c',
+				branch,
+				currentHead,
+			]);
+		}
+		return { baseUsed, usedFallbackBase };
+	} catch (error) {
+		const branchOwnershipQueries = await getBranchOwnershipQueries();
+		await branchOwnershipQueries.releaseContextBranch(context.projectId, branch, context.userId);
+		if (isDirtySwitchConflict(error)) {
+			throw new TRPCError({
+				code: 'CONFLICT',
+				message: 'This branch cannot be created without overwriting your uncommitted changes.',
+			});
+		}
+		throw error;
+	}
 }
 
 async function claimBranchOwnership(

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { ChevronDown, ExternalLink, FilePen, FilePlus, FileX, GitBranch, Plus, X } from 'lucide-react';
+import { ChevronDown, ExternalLink, FilePen, FilePlus, FileX, GitBranch, Pencil, Plus, X } from 'lucide-react';
 import type { QueryClient } from '@tanstack/react-query';
 import type { ContextChangedFile } from '@nao/shared/types';
 
@@ -53,8 +53,6 @@ export function ContextGitPanel({
 	const [isCreateBranchOpen, setIsCreateBranchOpen] = useState(false);
 	const [newBranchName, setNewBranchName] = useState('');
 	const [commitMessage, setCommitMessage] = useState('');
-	const [commitBranchName, setCommitBranchName] = useState('');
-	const [isCommitBranchTouched, setIsCommitBranchTouched] = useState(false);
 	const [fallbackBaseNotice, setFallbackBaseNotice] = useState(false);
 	const [pushedReviewRequestUrl, setPushedReviewRequestUrl] = useState<string | null>(null);
 	const knownChangedPathsRef = useRef<Set<string>>(new Set());
@@ -80,6 +78,7 @@ export function ContextGitPanel({
 	});
 	const changedFileList = changedFiles.data ?? [];
 	const hasUncommittedChanges = changedFileList.length > 0;
+	const commitBranchName = suggestedBranchName.data?.trim() || branches?.suggestedBranch.trim() || null;
 
 	useEffect(() => {
 		if (!changedFiles.data) {
@@ -99,14 +98,6 @@ export function ContextGitPanel({
 	}, [changedFiles.data]);
 
 	useEffect(() => {
-		if (!branches || currentBranch !== defaultBranch || isCommitBranchTouched) {
-			return;
-		}
-		setCommitBranchName(suggestedBranchName.data ?? branches.suggestedBranch);
-	}, [branches, currentBranch, defaultBranch, isCommitBranchTouched, suggestedBranchName.data]);
-
-	useEffect(() => {
-		setIsCommitBranchTouched(false);
 		setPushedReviewRequestUrl(null);
 	}, [currentBranch]);
 
@@ -127,9 +118,10 @@ export function ContextGitPanel({
 
 	const createBranch = useMutation(
 		trpc.contextExplorer.createBranch.mutationOptions({
-			onSuccess: async () => {
+			onSuccess: async (result) => {
 				setIsCreateBranchOpen(false);
 				setNewBranchName('');
+				setFallbackBaseNotice(result.usedFallbackBase);
 				await refreshExplorer(true);
 			},
 		}),
@@ -201,7 +193,7 @@ export function ContextGitPanel({
 		createBranchAndCommit.reset();
 		if (currentBranch === defaultBranch) {
 			createBranchAndCommit.mutate({
-				branch: commitBranchName.trim() || undefined,
+				branch: commitBranchName || undefined,
 				paths,
 				message,
 			});
@@ -227,6 +219,14 @@ export function ContextGitPanel({
 				next.add(path);
 			}
 			return next;
+		});
+	};
+
+	const toggleAllPaths = () => {
+		const changedPaths = changedFileList.map((file) => file.path);
+		setSelectedPaths((current) => {
+			const allSelected = changedPaths.length > 0 && changedPaths.every((path) => current.has(path));
+			return allSelected ? new Set() : new Set(changedPaths);
 		});
 	};
 
@@ -256,8 +256,7 @@ export function ContextGitPanel({
 		selectedChangedPaths.length > 0 &&
 		commitMessage.trim().length > 0 &&
 		currentBranch !== null &&
-		defaultBranch !== null &&
-		(currentBranch !== defaultBranch || commitBranchName.trim().length > 0);
+		defaultBranch !== null;
 	const openReviewRequest = status?.openReviewRequest ?? null;
 	const aheadCommitCount = branches?.aheadCommitCount ?? 0;
 	const unpushedCommitCount = branches?.unpushedCommitCount ?? 0;
@@ -305,7 +304,7 @@ export function ContextGitPanel({
 				variant='plain'
 				isLoading={repositoryStatus.isLoading || changedFiles.isLoading}
 			>
-				<div className='flex max-h-[min(38rem,65vh)] min-h-0 flex-col gap-3 overflow-y-auto py-2'>
+				<div className='flex max-h-[min(38rem,65vh)] min-h-0 flex-col gap-3 overflow-y-auto px-2 py-2'>
 					{switchBranch.error && (
 						<div className='px-2'>
 							<ErrorMessage message={switchBranch.error.message} />
@@ -345,6 +344,7 @@ export function ContextGitPanel({
 								onRetry={() => changedFiles.refetch()}
 								onViewDiff={onViewDiff}
 								onToggle={togglePath}
+								onToggleAll={toggleAllPaths}
 								onDiscard={(file) => {
 									discardChange.reset();
 									setDiscardFile(file);
@@ -355,76 +355,53 @@ export function ContextGitPanel({
 								}}
 							/>
 
-							{(hasUncommittedChanges ||
-								canPush ||
-								reviewRequestUrl ||
-								fallbackBaseNotice ||
-								pushBranch.error) && (
-								<div className='space-y-2 px-2'>
-									{hasUncommittedChanges && (
-										<>
-											{currentBranch === defaultBranch && (
-												<label className='grid gap-1 text-xs font-medium'>
-													New branch
-													<Input
-														value={commitBranchName}
-														onChange={(event) => {
-															setIsCommitBranchTouched(true);
-															setCommitBranchName(event.target.value);
-														}}
-														placeholder='nao/context-edits-…'
-														disabled={commitPending}
-														className='h-7 text-sm font-normal'
-													/>
-												</label>
-											)}
-											<div className='flex min-w-0 items-center gap-2'>
-												<Input
-													value={commitMessage}
-													onChange={(event) => setCommitMessage(event.target.value)}
-													placeholder='Describe the context change'
-													aria-label='Commit message'
-													disabled={commitPending}
-													className='h-7 min-w-0 flex-1 text-sm'
-												/>
-												<Button
-													size='sm'
-													disabled={!canCommit || commitPending}
-													isLoading={commitPending}
-													onClick={handleCommit}
+							{hasUncommittedChanges && (
+								<div className='-mx-2 space-y-3 border-t px-4 pt-3'>
+									<div className='space-y-1.5'>
+										<div className='flex min-w-0 items-center gap-2'>
+											<Input
+												value={commitMessage}
+												onChange={(event) => setCommitMessage(event.target.value)}
+												placeholder='Describe the context change'
+												aria-label='Commit message'
+												disabled={commitPending}
+												className='h-7 min-w-0 flex-1 text-sm'
+											/>
+											<Button
+												size='sm'
+												className='px-2 text-xs'
+												disabled={!canCommit || commitPending}
+												isLoading={commitPending}
+												onClick={handleCommit}
+											>
+												Commit
+											</Button>
+										</div>
+										{currentBranch === defaultBranch && commitBranchName && (
+											<div className='flex min-w-0 items-center gap-1'>
+												<p
+													className='min-w-0 flex-1 truncate text-xs text-muted-foreground'
+													title={commitBranchName}
 												>
-													Commit
+													Creates branch <span className='font-mono'>{commitBranchName}</span>
+												</p>
+												<Button
+													variant='ghost-muted'
+													size='icon-sm'
+													className='shrink-0'
+													aria-label='Edit branch name'
+													disabled={createBranch.isPending || commitPending}
+													onClick={() => {
+														createBranch.reset();
+														setNewBranchName(commitBranchName);
+														setIsCreateBranchOpen(true);
+													}}
+												>
+													<Pencil className='size-3.5' />
 												</Button>
 											</div>
-										</>
-									)}
-									{(canPush || reviewRequestUrl) && (
-										<div className='flex min-w-0 items-center justify-between gap-2'>
-											<span className='min-w-0 flex-1 truncate text-xs text-muted-foreground'>
-												{canPush ? 'Send committed changes' : 'Review committed changes'}
-											</span>
-											<div className='flex shrink-0 items-center gap-1'>
-												{reviewRequestUrl && (
-													<Button asChild variant='ghost' size='sm' className='px-2'>
-														<a href={reviewRequestUrl} target='_blank' rel='noreferrer'>
-															<ExternalLink className='size-3.5' />
-															View PR
-														</a>
-													</Button>
-												)}
-												{canPush && (
-													<Button
-														size='sm'
-														disabled={commitPending || pushBranch.isPending}
-														isLoading={pushBranch.isPending}
-														onClick={handlePush}
-													>
-														Push
-													</Button>
-												)}
-											</div>
-										</div>
-									)}
+										)}
+									</div>
 									{commitError && <ErrorMessage message={commitError} />}
 									{fallbackBaseNotice && (
 										<p className='text-xs text-amber-700 dark:text-amber-400'>
@@ -432,9 +409,46 @@ export function ContextGitPanel({
 											review.
 										</p>
 									)}
-									{pushBranch.error && <ErrorMessage message={pushBranch.error.message} />}
 								</div>
 							)}
+							<div className='-mx-2 space-y-3 border-t px-4 pt-3'>
+								<div className='flex min-w-0 items-center justify-between gap-2'>
+									<span className='min-w-0 flex-1 truncate text-xs text-muted-foreground'>
+										{canPush
+											? 'Send committed changes'
+											: reviewRequestUrl
+												? 'Everything is pushed'
+												: 'Nothing to push'}
+									</span>
+									<div className='flex shrink-0 items-center gap-1'>
+										{reviewRequestUrl && (
+											<Button asChild variant='ghost-muted' size='sm' className='px-2 text-xs'>
+												<a href={reviewRequestUrl} target='_blank' rel='noreferrer'>
+													<ExternalLink className='size-3.5' />
+													View PR
+												</a>
+											</Button>
+										)}
+										<Button
+											variant='secondary'
+											size='sm'
+											className='px-2 text-xs'
+											disabled={!canPush || commitPending || pushBranch.isPending}
+											isLoading={pushBranch.isPending}
+											onClick={handlePush}
+										>
+											Push
+										</Button>
+									</div>
+								</div>
+								{!hasUncommittedChanges && fallbackBaseNotice && (
+									<p className='text-xs text-amber-700 dark:text-amber-400'>
+										This branch started from the current version and may need updating before
+										review.
+									</p>
+								)}
+								{pushBranch.error && <ErrorMessage message={pushBranch.error.message} />}
+							</div>
 						</>
 					)}
 				</div>
@@ -582,7 +596,7 @@ function BranchMenu({
 			<DropdownMenu>
 				<DropdownMenuTrigger asChild>
 					<Button
-						variant='ghost'
+						variant='ghost-muted'
 						size='sm'
 						className='min-w-0 max-w-full justify-start gap-1 px-2 text-xs font-normal'
 						aria-label='Current repository branch'
@@ -627,6 +641,7 @@ function ChangedFiles({
 	onRetry,
 	onViewDiff,
 	onToggle,
+	onToggleAll,
 	onDiscard,
 	onDiscardAll,
 }: {
@@ -639,24 +654,38 @@ function ChangedFiles({
 	onRetry: () => void;
 	onViewDiff: (path: string) => void;
 	onToggle: (path: string) => void;
+	onToggleAll: () => void;
 	onDiscard: (file: ContextChangedFile) => void;
 	onDiscardAll: () => void;
 }) {
+	const allSelected = files.length > 0 && files.every((file) => selectedPaths.has(file.path));
+
 	return (
-		<section className='space-y-2'>
-			<div className='flex items-center justify-between gap-2 px-2'>
-				<h3 className='text-sm font-medium'>Changed files</h3>
-				<Button
-					variant='ghost'
-					size='sm'
-					className='focus-visible:ring-ring/50 focus-visible:ring-[3px]'
-					disabled={files.length === 0 || actionsDisabledReason !== null}
-					onClick={onDiscardAll}
-				>
-					Discard all
-				</Button>
-			</div>
-			{actionsDisabledReason && <p className='px-2 text-xs text-muted-foreground'>{actionsDisabledReason}</p>}
+		<section aria-label='Changed files' className='space-y-1'>
+			{files.length > 0 && (
+				<div className='flex min-w-0 items-center justify-between gap-1 px-2'>
+					<Button
+						variant='ghost-muted'
+						size='sm'
+						className='-ml-2 min-w-0 shrink px-2 text-xs font-normal focus-visible:ring-ring/50 focus-visible:ring-[3px]'
+						onClick={onToggleAll}
+					>
+						<span className='truncate'>{allSelected ? 'Select None' : 'Select All'}</span>
+					</Button>
+					<Button
+						variant='ghost-muted'
+						size='sm'
+						className='px-2 text-xs font-normal enabled:hover:text-destructive focus-visible:text-destructive focus-visible:ring-ring/50 focus-visible:ring-[3px]'
+						disabled={actionsDisabledReason !== null}
+						onClick={onDiscardAll}
+					>
+						Discard all
+					</Button>
+				</div>
+			)}
+			{files.length > 0 && actionsDisabledReason && (
+				<p className='px-2 text-xs text-muted-foreground'>{actionsDisabledReason}</p>
+			)}
 			{isLoading ? (
 				<div className='flex items-center justify-center px-2 py-5'>
 					<Spinner />
@@ -669,9 +698,9 @@ function ChangedFiles({
 					</Button>
 				</div>
 			) : files.length === 0 ? (
-				<p className='px-2 py-1 text-xs text-muted-foreground'>No uncommitted changes.</p>
+				<p className='px-2 py-1 text-xs text-muted-foreground'>Nothing to commit</p>
 			) : (
-				<div className='max-h-48 overflow-y-auto divide-y divide-border/70'>
+				<div className='max-h-48 overflow-y-auto'>
 					{files.map((file) => (
 						<ChangedFileRow
 							key={file.path}
@@ -714,8 +743,8 @@ function ChangedFileRow({
 	return (
 		<div
 			className={cn(
-				'flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 transition-colors hover:bg-muted/60',
-				isViewing && 'bg-muted',
+				'flex min-w-0 items-center gap-1.5 rounded-md px-2 py-0.5 transition-colors hover:bg-muted/40',
+				isViewing && 'bg-muted/50',
 			)}
 		>
 			<Checkbox
@@ -730,13 +759,13 @@ function ChangedFileRow({
 				title={file.path}
 				className='flex min-w-0 flex-1 items-center gap-2 rounded-sm py-1 text-left outline-none focus-visible:ring-ring/50 focus-visible:ring-[3px]'
 			>
-				<ChangeIcon className={cn('size-3.5 shrink-0', change.color)} />
-				<span className='min-w-0 flex-1 truncate text-sm font-medium'>{fileName}</span>
+				<ChangeIcon className={cn('size-3 shrink-0', change.color)} />
+				<span className='min-w-0 flex-1 truncate text-xs'>{fileName}</span>
 				<LineChangeSummary additions={file.additions} deletions={file.deletions} />
 				<span className='sr-only'>{change.label}</span>
 			</button>
 			<Button
-				variant='ghost'
+				variant='ghost-no-hover'
 				size='icon-sm'
 				className='enabled:hover:[&_svg]:text-destructive focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:[&_svg]:text-destructive'
 				aria-label={`Discard changes to ${fileName}`}

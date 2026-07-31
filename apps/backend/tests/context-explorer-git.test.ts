@@ -365,6 +365,39 @@ describe('context explorer worktrees', () => {
 		expect(runGit(repo.worktreeRoot, ['show', 'HEAD:context.md']).toString()).toBe('local edit\n');
 	});
 
+	it('creates a branch from the current HEAD when the fetched default cannot accept dirty edits', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const access = await fileAccess(fixture.context);
+		const file = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'local edit\n', file.hash, access);
+		const repo = await ensureContextWorktree(fixture.context);
+		writeRemoteChange(fixture, 'context.md', 'remote edit\n');
+
+		const result = await createContextBranch(fixture.context, 'nao/fallback-without-commit');
+
+		expect(result.usedFallbackBase).toBe(true);
+		expect(result.currentBranch).toBe('nao/fallback-without-commit');
+		expect(fs.readFileSync(path.join(repo.worktreeRoot, 'context.md'), 'utf8')).toBe('local edit\n');
+		expect(await getChangedContextFiles(fixture.context)).toEqual([
+			{ path: '/context.md', kind: 'modified', additions: 1, deletions: 1 },
+		]);
+	});
+
+	it('releases branch ownership when branch creation fails', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const repo = await ensureContextWorktree(fixture.context);
+		const indexLockPath = path.resolve(
+			repo.worktreeRoot,
+			runGit(repo.worktreeRoot, ['rev-parse', '--git-path', 'index.lock']).toString().trim(),
+		);
+		fs.writeFileSync(indexLockPath, 'locked');
+
+		await expect(createContextBranch(fixture.context, 'nao/failed')).rejects.toThrow();
+
+		expect(branchOwnershipMocks.releaseContextBranch).toHaveBeenCalledWith('project-id', 'nao/failed', 'user-1');
+		expect(branchOwnershipMocks.owners.has('project-id:nao/failed')).toBe(false);
+	});
+
 	it('commits selected files, then pushes and opens a pull request', async () => {
 		const fixture = createFixture(temporaryRoots);
 		const access = await fileAccess(fixture.context);

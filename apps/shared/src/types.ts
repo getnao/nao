@@ -146,6 +146,10 @@ export type ContextBranchInfo = {
 	suggestedBranch: string;
 };
 
+export type ContextBranchCreationResult = ContextBranchInfo & {
+	usedFallbackBase: boolean;
+};
+
 export type ContextFileDiff = ContextChangedFile & {
 	oldContent: string;
 	newContent: string;
