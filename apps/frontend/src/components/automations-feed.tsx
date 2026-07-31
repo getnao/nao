@@ -80,6 +80,11 @@ type ActivityBaseFields = {
 	errorMessage?: string | null;
 };
 
+export type StoryOpenLink =
+	| { to: '/stories/preview/$chatId/$storySlug'; params: { chatId: string; storySlug: string } }
+	| { to: '/stories/shared/$shareId'; params: { shareId: string } }
+	| { to: '/stories/standalone/$storyId'; params: { storyId: string } };
+
 export type ActivityFeedStoryRefreshItem = {
 	kind: 'activity';
 	id: string;
@@ -96,6 +101,7 @@ export type ActivityFeedStoryRefreshItem = {
 		cacheSchedule: string | null;
 		cacheScheduleDescription: string | null;
 	};
+	link: StoryOpenLink | null;
 };
 
 export type ActivityFeedStorySharedItem = {
@@ -110,6 +116,7 @@ export type ActivityFeedStorySharedItem = {
 		chatId: string | null;
 	};
 	share: { id: string; visibility: ShareVisibility };
+	link: StoryOpenLink | null;
 	actorName: string | null;
 };
 
@@ -308,7 +315,7 @@ function AutomationRunCard({
 }
 
 function StoryRefreshCard({ item, isNew = false }: { item: ActivityFeedStoryRefreshItem; isNew?: boolean }) {
-	const { activity, story } = item;
+	const { activity, story, link } = item;
 	const startedAt = new Date(activity.startedAt);
 	const timeAgo = useTimeAgo(startedAt.getTime());
 	const isRunning = activity.status === 'running';
@@ -330,12 +337,8 @@ function StoryRefreshCard({ item, isNew = false }: { item: ActivityFeedStoryRefr
 						className={cn('size-3.5 shrink-0 text-muted-foreground', isRunning && 'animate-spin')}
 						aria-hidden
 					/>
-					{story.chatId ? (
-						<Link
-							to='/stories/preview/$chatId/$storySlug'
-							params={{ chatId: story.chatId, storySlug: story.slug }}
-							className='truncate text-sm font-semibold hover:underline'
-						>
+					{link ? (
+						<Link {...link} className='truncate text-sm font-semibold hover:underline'>
 							{story.title}
 						</Link>
 					) : (
@@ -365,13 +368,9 @@ function StoryRefreshCard({ item, isNew = false }: { item: ActivityFeedStoryRefr
 
 			<footer className='flex items-center justify-between gap-2 border-t px-4 py-2.5'>
 				<span className='text-xs text-muted-foreground'>Live story</span>
-				{story.chatId && (
+				{link && (
 					<Button variant='ghost' size='sm' asChild>
-						<Link
-							to='/stories/preview/$chatId/$storySlug'
-							params={{ chatId: story.chatId, storySlug: story.slug }}
-							className='gap-1.5'
-						>
+						<Link {...link} className='gap-1.5'>
 							<ExternalLink className='size-3.5' />
 							<span className='text-xs'>Open story</span>
 						</Link>
@@ -445,9 +444,10 @@ function StoryRefreshBody({
 }
 
 function StorySharedCard({ item, isNew = false }: { item: ActivityFeedStorySharedItem; isNew?: boolean }) {
-	const { activity, story, share, actorName } = item;
+	const { activity, story, share, actorName, link } = item;
 	const startedAt = new Date(activity.startedAt);
 	const timeAgo = useTimeAgo(startedAt.getTime());
+	const openLink = link ?? { to: '/stories/shared/$shareId', params: { shareId: share.id } };
 
 	return (
 		<article
@@ -460,17 +460,9 @@ function StorySharedCard({ item, isNew = false }: { item: ActivityFeedStoryShare
 			<header className='flex items-center justify-between gap-3 px-4 pt-4'>
 				<div className='flex min-w-0 items-center gap-2'>
 					<Share2 className='size-3.5 shrink-0 text-muted-foreground' aria-hidden />
-					{story.chatId ? (
-						<Link
-							to='/stories/preview/$chatId/$storySlug'
-							params={{ chatId: story.chatId, storySlug: story.slug }}
-							className='truncate text-sm font-semibold hover:underline'
-						>
-							{story.title}
-						</Link>
-					) : (
-						<span className='truncate text-sm font-semibold'>{story.title}</span>
-					)}
+					<Link {...openLink} className='truncate text-sm font-semibold hover:underline'>
+						{story.title}
+					</Link>
 					<span className='text-muted-foreground/60 text-xs' title={startedAt.toLocaleString()}>
 						· {timeAgo.humanReadable}
 					</span>
@@ -484,18 +476,12 @@ function StorySharedCard({ item, isNew = false }: { item: ActivityFeedStoryShare
 
 			<footer className='flex items-center justify-between gap-2 border-t px-4 py-2.5'>
 				<span className='text-xs text-muted-foreground'>Shared story</span>
-				{story.chatId && (
-					<Button variant='ghost' size='sm' asChild>
-						<Link
-							to='/stories/preview/$chatId/$storySlug'
-							params={{ chatId: story.chatId, storySlug: story.slug }}
-							className='gap-1.5'
-						>
-							<ExternalLink className='size-3.5' />
-							<span className='text-xs'>Open story</span>
-						</Link>
-					</Button>
-				)}
+				<Button variant='ghost' size='sm' asChild>
+					<Link {...openLink} className='gap-1.5'>
+						<ExternalLink className='size-3.5' />
+						<span className='text-xs'>Open story</span>
+					</Link>
+				</Button>
 			</footer>
 		</article>
 	);
@@ -772,6 +758,7 @@ function ChartSlide({ chart }: { chart: AutomationFeedChart }) {
 				chartType={chart.config.chart_type}
 				xAxisKey={chart.config.x_axis_key}
 				xAxisType={xAxisType}
+				xAxisLabel={chart.config.x_axis_label}
 				series={chart.config.series}
 				title={chart.config.title}
 				yAxisMin={chart.config.y_axis_min}

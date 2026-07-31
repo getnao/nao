@@ -11,6 +11,7 @@ import { TextShimmer } from '@/components/ui/text-shimmer';
 import { AssistantMessageActions } from '@/components/chat-messages/assistant-message-actions';
 import { cn, isLast } from '@/lib/utils';
 import { useChatId } from '@/hooks/use-chat-id';
+import { useIsCancellingMessage } from '@/hooks/use-is-cancelling-message-store';
 import { useToolCallDensity } from '@/hooks/use-tool-call-density';
 import { AssistantMessageProvider, useAssistantMessage } from '@/contexts/assistant-message';
 
@@ -37,11 +38,16 @@ export const AssistantMessage = memo(
 			[message.parts, toolCallDensity],
 		);
 		const hasContent = useMemo(() => checkAssistantMessageHasContent(message), [message]);
+		const isCancelling = useIsCancellingMessage(message.id);
 		const isCompacting = message.parts.at(-1)?.type === 'data-compactionSummaryStarted';
 		const showActions = message.id !== storyIntroMessageId;
 		const hasFeedback = message.feedback != null;
 
 		if (!message.parts.length && isSettled) {
+			return null;
+		}
+
+		if (isCancelling && isSettled && !hasContent) {
 			return null;
 		}
 

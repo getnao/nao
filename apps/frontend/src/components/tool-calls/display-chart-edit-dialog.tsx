@@ -1,7 +1,7 @@
 import { computeKpiComparison, DEFAULT_COLORS } from '@nao/shared';
 import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChartArea, ChartBar, ChartColumn, ChartColumnIncreasing, ChartLine, Plus, Trash2 } from 'lucide-react';
+import { ChartArea, ChartBar, ChartColumn, ChartColumnIncreasing, ChartLine, Plus, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../ui/button';
@@ -14,6 +14,7 @@ import type { LucideIcon } from 'lucide-react';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 import { trpc } from '@/main';
 import { useAgentContext } from '@/contexts/agent.provider';
+import { cn } from '@/lib/utils';
 
 const CHART_TYPE_OPTIONS: { value: displayChart.ChartType; label: string }[] = [
 	{ value: 'bar', label: 'Bar' },
@@ -51,6 +52,8 @@ const SERIES_TYPE_OPTIONS: { value: displayChart.SeriesType; label: string; icon
 
 const Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES = new Set<displayChart.ChartType>(['pie', 'kpi_card', 'radar']);
 
+type UnitPlacement = 'prefix' | 'suffix';
+
 type EditableChartInput = Omit<displayChart.KpiCardInput, 'chart_type'> & { chart_type: displayChart.ChartType };
 
 /** Maps a 100% stacked type back to its absolute-stacked counterpart, so the type dropdown stays clean. */
@@ -73,6 +76,18 @@ function percentChartType(type: displayChart.ChartType): displayChart.ChartType 
 		return 'stacked_area_100';
 	}
 	return type;
+}
+
+/** Shifts open Format-panel indexes to stay aligned after the series at `removedIndex` is removed. */
+function remapOpenIndexesAfterRemoval(openIndexes: Set<number>, removedIndex: number): Set<number> {
+	const next = new Set<number>();
+	for (const openIndex of openIndexes) {
+		if (openIndex === removedIndex) {
+			continue;
+		}
+		next.add(openIndex > removedIndex ? openIndex - 1 : openIndex);
+	}
+	return next;
 }
 
 interface ChartConfigEditDialogProps {
@@ -103,10 +118,19 @@ export function ChartConfigEditDialog({
 	const [yAxisRightMinText, setYAxisRightMinText] = useState(toRangeString(config.y_axis_right_min));
 	const [yAxisRightMaxText, setYAxisRightMaxText] = useState(toRangeString(config.y_axis_right_max));
 	const [error, setError] = useState<string | null>(null);
+	const [openValueFormatIndexes, setOpenValueFormatIndexes] = useState<Set<number>>(new Set());
 	// Chart palette resolved to hex so a series without an explicit color shows
 	// the same swatch the chart draws for it. Refreshed on open for the theme.
 	const [paletteHexes, setPaletteHexes] = useState<string[]>(DEFAULT_COLORS);
 	const supportsYAxisRange = !Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES.has(draft.chart_type);
+	const supportsAxisLabels = displayChart.chartTypeSupportsAxisLabels(draft.chart_type);
+	const unsupportedNumberFormat = useMemo(
+		() =>
+			draft.series
+				.map((series) => series.value_format?.d3_format)
+				.find((format) => Boolean(format) && !isExportSafeNumberFormat(format as string)),
+		[draft.series],
+	);
 	const canShowComparisonPill = useMemo(
 		() => draft.chart_type === 'kpi_card' && hasRenderableKpiComparison(data, draft.x_axis_key, draft.series),
 		[draft.chart_type, draft.x_axis_key, draft.series, data],
@@ -124,6 +148,7 @@ export function ChartConfigEditDialog({
 			setYAxisRightMaxText(toRangeString(config.y_axis_right_max));
 			setPaletteHexes(resolveChartPaletteHexes());
 			setError(null);
+			setOpenValueFormatIndexes(new Set());
 		}
 	}, [open, config]);
 
@@ -136,6 +161,11 @@ export function ChartConfigEditDialog({
 
 	const handleSubmit = async (event: React.FormEvent) => {
 		event.preventDefault();
+		if (unsupportedNumberFormat) {
+			setError(UNSUPPORTED_NUMBER_FORMAT_MESSAGE);
+			return;
+		}
+
 		const normalized: EditableChartInput =
 			draft.chart_type === 'kpi_card'
 				? { ...draft, x_axis_key: draft.x_axis_key || '', x_axis_type: draft.x_axis_type ?? null }
@@ -169,11 +199,42 @@ export function ChartConfigEditDialog({
 		}));
 	};
 
+	const updateSeriesValueFormatAt = (index: number, field: 'd3_format' | 'prefix' | 'suffix', value: string) => {
+		const series = draft.series[index];
+		const nextValueFormat = { ...series.value_format, [field]: value || undefined };
+		updateSeriesAt(index, { value_format: cleanValueFormat(nextValueFormat) });
+	};
+
+	const setSeriesUnit = (index: number, { unit, placement }: { unit: string; placement: UnitPlacement }) => {
+		const series = draft.series[index];
+		const nextValueFormat = {
+			...series.value_format,
+			prefix: placement === 'prefix' ? unit || undefined : undefined,
+			suffix: placement === 'suffix' ? unit || undefined : undefined,
+		};
+		updateSeriesAt(index, { value_format: cleanValueFormat(nextValueFormat) });
+	};
+
+	const toggleValueFormat = (index: number) => {
+		setOpenValueFormatIndexes((previous) => {
+			const next = new Set(previous);
+			if (next.has(index)) {
+				next.delete(index);
+			} else {
+				next.add(index);
+			}
+			return next;
+		});
+	};
+
 	const removeSeriesAt = (index: number) => {
-		setDraft((prev) => ({
-			...prev,
-			series: prev.series.length <= 1 ? prev.series : prev.series.filter((_, i) => i !== index),
-		}));
+		setDraft((prev) => {
+			if (prev.series.length <= 1) {
+				return prev;
+			}
+			return { ...prev, series: prev.series.filter((_, i) => i !== index) };
+		});
+		setOpenValueFormatIndexes((previous) => remapOpenIndexesAfterRemoval(previous, index));
 	};
 
 	const addSeries = () => {
@@ -240,62 +301,34 @@ export function ChartConfigEditDialog({
 						/>
 					</div>
 
-					<div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
-						<div className='grid gap-2'>
-							<span className='text-sm font-semibold text-foreground'>Chart type</span>
-							<Select
-								value={baseChartType(draft.chart_type)}
-								onValueChange={(value) =>
-									setDraft((prev) => {
-										const nextBase = value as displayChart.ChartType;
-										const keepPercent =
-											displayChart.isPercentStackedChartType(prev.chart_type) &&
-											displayChart.isStackedChartType(nextBase);
-										return {
-											...prev,
-											chart_type: keepPercent ? percentChartType(nextBase) : nextBase,
-										};
-									})
-								}
-							>
-								<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent className='border-none bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-									{CHART_TYPE_OPTIONS.map((option) => (
-										<SelectItem key={option.value} value={option.value}>
-											{option.label}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</div>
-
-						{draft.chart_type !== 'kpi_card' && (
-							<div className='grid gap-2'>
-								<span className='text-sm font-semibold text-foreground'>X-axis type</span>
-								<Select
-									value={draft.x_axis_type ?? 'auto'}
-									onValueChange={(value) =>
-										setDraft((prev) => ({
-											...prev,
-											x_axis_type: value === 'auto' ? null : (value as displayChart.XAxisType),
-										}))
-									}
-								>
-									<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent className='border-none bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-										{X_AXIS_TYPE_OPTIONS.map((option) => (
-											<SelectItem key={option.value} value={option.value}>
-												{option.label}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-							</div>
-						)}
+					<div className='grid gap-2'>
+						<span className='text-sm font-semibold text-foreground'>Chart type</span>
+						<Select
+							value={baseChartType(draft.chart_type)}
+							onValueChange={(value) =>
+								setDraft((prev) => {
+									const nextBase = value as displayChart.ChartType;
+									const keepPercent =
+										displayChart.isPercentStackedChartType(prev.chart_type) &&
+										displayChart.isStackedChartType(nextBase);
+									return {
+										...prev,
+										chart_type: keepPercent ? percentChartType(nextBase) : nextBase,
+									};
+								})
+							}
+						>
+							<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent className='border-none bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+								{CHART_TYPE_OPTIONS.map((option) => (
+									<SelectItem key={option.value} value={option.value}>
+										{option.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
 					</div>
 
 					{displayChart.isStackedChartType(draft.chart_type) && (
@@ -324,13 +357,60 @@ export function ChartConfigEditDialog({
 					)}
 
 					{draft.chart_type !== 'kpi_card' && (
-						<div className='grid gap-2'>
-							<span className='text-sm font-semibold text-foreground'>X-axis column</span>
-							<ColumnSelect
-								value={draft.x_axis_key ?? ''}
-								columns={xAxisOptions}
-								onChange={(value) => setDraft((prev) => ({ ...prev, x_axis_key: value }))}
-							/>
+						<div className='grid gap-3 py-2'>
+							<span className='text-sm font-semibold text-foreground'>X-axis</span>
+							<div
+								className={`grid gap-3 items-end ${supportsAxisLabels ? 'grid-cols-[1fr_1fr_1fr]' : 'grid-cols-[1fr_1fr]'}`}
+							>
+								<div className='grid gap-1'>
+									<span className='text-xs text-muted-foreground'>Column</span>
+									<ColumnSelect
+										value={draft.x_axis_key ?? ''}
+										columns={xAxisOptions}
+										onChange={(value) => setDraft((prev) => ({ ...prev, x_axis_key: value }))}
+									/>
+								</div>
+								{supportsAxisLabels && (
+									<div className='grid gap-1'>
+										<span className='text-xs text-muted-foreground'>Label</span>
+										<Input
+											className='h-8 bg-panel'
+											placeholder='Label (optional)'
+											value={draft.x_axis_label ?? ''}
+											onChange={(e) =>
+												setDraft((prev) => ({
+													...prev,
+													x_axis_label: e.target.value || undefined,
+												}))
+											}
+										/>
+									</div>
+								)}
+								<div className='grid gap-1'>
+									<span className='text-xs text-muted-foreground'>Type</span>
+									<Select
+										value={draft.x_axis_type ?? 'auto'}
+										onValueChange={(value) =>
+											setDraft((prev) => ({
+												...prev,
+												x_axis_type:
+													value === 'auto' ? null : (value as displayChart.XAxisType),
+											}))
+										}
+									>
+										<SelectTrigger className='w-full bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent className='border-none bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
+											{X_AXIS_TYPE_OPTIONS.map((option) => (
+												<SelectItem key={option.value} value={option.value}>
+													{option.label}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								</div>
+							</div>
 						</div>
 					)}
 
@@ -349,9 +429,15 @@ export function ChartConfigEditDialog({
 						</div>
 						<div className='flex flex-col gap-3'>
 							{draft.series.map((series, index) => {
+								const placement: UnitPlacement = series.value_format?.prefix ? 'prefix' : 'suffix';
+								const unit =
+									placement === 'prefix'
+										? (series.value_format?.prefix ?? '')
+										: (series.value_format?.suffix ?? '');
+								const isOpen = openValueFormatIndexes.has(index);
 								const row = (
 									<div
-										className={`grid ${isCombo ? 'grid-cols-[1fr_1fr_auto_auto_auto]' : 'grid-cols-[1fr_1fr_auto_auto]'} gap-2 items-center`}
+										className={`grid ${isCombo ? 'grid-cols-[1fr_1fr_auto_auto_auto_auto]' : 'grid-cols-[1fr_1fr_auto_auto_auto]'} gap-2 items-center`}
 									>
 										<ColumnSelect
 											value={series.data_key}
@@ -372,6 +458,11 @@ export function ChartConfigEditDialog({
 												onChange={(value) => updateSeriesAt(index, { y_axis: value })}
 											/>
 										)}
+										<ValueFormatToggle
+											unit={unit}
+											open={isOpen}
+											onClick={() => toggleValueFormat(index)}
+										/>
 										<input
 											type='color'
 											aria-label='Series color'
@@ -400,6 +491,22 @@ export function ChartConfigEditDialog({
 									return (
 										<div key={index} className='flex flex-col gap-2 rounded-md'>
 											{row}
+											{isOpen && (
+												<SeriesValueFormatFields
+													d3Format={series.value_format?.d3_format ?? ''}
+													unit={unit}
+													placement={placement}
+													onD3FormatChange={(value) =>
+														updateSeriesValueFormatAt(index, 'd3_format', value)
+													}
+													onUnitChange={(nextUnit, nextPlacement) =>
+														setSeriesUnit(index, {
+															unit: nextUnit,
+															placement: nextPlacement,
+														})
+													}
+												/>
+											)}
 										</div>
 									);
 								}
@@ -414,6 +521,22 @@ export function ChartConfigEditDialog({
 											onChange={(value) => updateSeriesAt(index, { series_type: value })}
 										/>
 										{row}
+										{isOpen && (
+											<SeriesValueFormatFields
+												d3Format={series.value_format?.d3_format ?? ''}
+												unit={unit}
+												placement={placement}
+												onD3FormatChange={(value) =>
+													updateSeriesValueFormatAt(index, 'd3_format', value)
+												}
+												onUnitChange={(nextUnit, nextPlacement) =>
+													setSeriesUnit(index, {
+														unit: nextUnit,
+														placement: nextPlacement,
+													})
+												}
+											/>
+										)}
 									</div>
 								);
 							})}
@@ -426,7 +549,7 @@ export function ChartConfigEditDialog({
 									<span className='text-sm font-semibold text-foreground'>Y-axis range</span>
 									{hasLeftAxis && (
 										<AxisFields
-											name='Left'
+											name='Left label'
 											showRange={supportsYAxisRange}
 											labelPlaceholder='Label (optional)'
 											labelValue={draft.y_axis_label ?? ''}
@@ -443,7 +566,7 @@ export function ChartConfigEditDialog({
 									)}
 									{hasRightAxis && (
 										<AxisFields
-											name='Right'
+											name='Right label'
 											showRange={supportsYAxisRange}
 											labelPlaceholder='Label (optional)'
 											labelValue={draft.y_axis_right_label ?? ''}
@@ -463,11 +586,18 @@ export function ChartConfigEditDialog({
 									)}
 								</div>
 							)
-						: supportsYAxisRange && (
-								<div className='grid gap-2 py-2'>
-									<span className='text-sm font-semibold text-foreground'>Y-axis range</span>
-									<div className='grid grid-cols-[1fr_1fr] gap-3 items-end'>
-										<MinMaxFields
+						: (supportsAxisLabels || supportsYAxisRange) && (
+								<div className='grid gap-3 py-2'>
+									<span className='text-sm font-semibold text-foreground'>Y-axis</span>
+									{supportsAxisLabels ? (
+										<AxisFields
+											name='Label'
+											showRange={supportsYAxisRange}
+											labelPlaceholder='Label (optional)'
+											labelValue={draft.y_axis_label ?? ''}
+											onLabelChange={(value) =>
+												setDraft((prev) => ({ ...prev, y_axis_label: value || undefined }))
+											}
 											minId='chart-y-axis-min'
 											maxId='chart-y-axis-max'
 											minValue={yAxisMinText}
@@ -475,7 +605,18 @@ export function ChartConfigEditDialog({
 											onMinChange={updateYAxisMin}
 											onMaxChange={updateYAxisMax}
 										/>
-									</div>
+									) : (
+										<div className='grid grid-cols-[1fr_1fr] gap-3 items-end'>
+											<MinMaxFields
+												minId='chart-y-axis-min'
+												maxId='chart-y-axis-max'
+												minValue={yAxisMinText}
+												maxValue={yAxisMaxText}
+												onMinChange={updateYAxisMin}
+												onMaxChange={updateYAxisMax}
+											/>
+										</div>
+									)}
 								</div>
 							)}
 
@@ -518,7 +659,9 @@ export function ChartConfigEditDialog({
 						</div>
 					</div>
 
-					{error && <p className='text-xs text-destructive'>{error}</p>}
+					{(error || unsupportedNumberFormat) && (
+						<p className='text-xs text-destructive'>{error ?? UNSUPPORTED_NUMBER_FORMAT_MESSAGE}</p>
+					)}
 
 					<DialogFooter>
 						<Button
@@ -534,7 +677,7 @@ export function ChartConfigEditDialog({
 							type='submit'
 							className='rounded-full'
 							isLoading={isSaving}
-							disabled={isSaving}
+							disabled={isSaving || Boolean(unsupportedNumberFormat)}
 						>
 							Save
 						</Button>
@@ -624,6 +767,39 @@ function ColumnSelect({ value, columns, onChange }: ColumnSelectProps) {
 	);
 }
 
+interface ClearableInputProps {
+	value: string;
+	onChange: (value: string) => void;
+	onClear: () => void;
+	placeholder: string;
+	ariaLabel: string;
+	className?: string;
+}
+
+function ClearableInput({ value, onChange, onClear, placeholder, ariaLabel, className }: ClearableInputProps) {
+	return (
+		<div className='relative'>
+			<Input
+				value={value}
+				onChange={(event) => onChange(event.target.value)}
+				placeholder={placeholder}
+				aria-label={ariaLabel}
+				className={cn(className, 'pr-7')}
+			/>
+			{value && (
+				<button
+					type='button'
+					aria-label={`Clear ${ariaLabel}`}
+					onClick={onClear}
+					className='absolute inset-y-0 right-1.5 flex items-center text-muted-foreground hover:text-foreground'
+				>
+					<X className='size-3.5' />
+				</button>
+			)}
+		</div>
+	);
+}
+
 interface AxisFieldsProps {
 	name: string;
 	showRange: boolean;
@@ -655,7 +831,7 @@ function AxisFields({
 	return (
 		<div className={`grid gap-3 items-end ${showRange ? 'grid-cols-[2fr_1fr_1fr]' : 'grid-cols-1'}`}>
 			<div className='grid gap-1'>
-				<span className='text-xs text-muted-foreground'>{name} axis</span>
+				<span className='text-xs text-muted-foreground'>{name}</span>
 				<Input
 					className='h-8 bg-panel'
 					placeholder={labelPlaceholder}
@@ -744,6 +920,105 @@ function SeriesTypeSelect({ value, onChange }: SeriesTypeSelectProps) {
 	);
 }
 
+interface SeriesValueFormatFieldsProps {
+	d3Format: string;
+	unit: string;
+	placement: UnitPlacement;
+	onD3FormatChange: (value: string) => void;
+	onUnitChange: (unit: string, placement: UnitPlacement) => void;
+}
+
+function SeriesValueFormatFields({
+	d3Format,
+	unit,
+	placement,
+	onD3FormatChange,
+	onUnitChange,
+}: SeriesValueFormatFieldsProps) {
+	return (
+		<div className='grid grid-cols-[1fr_1fr_8rem] gap-2'>
+			<div className='grid gap-1'>
+				<div className='flex items-center gap-2'>
+					<span className='text-xs text-muted-foreground'>Number format</span>
+					<a
+						href='https://docs.getnao.io/nao-agent/chat/capabilities/visualizations#d3-format-number-cheat-sheet'
+						target='_blank'
+						rel='noreferrer'
+						className='text-xs text-blue-500 hover:text-blue-400 hover:underline'
+					>
+						How to format
+					</a>
+				</div>
+				<ClearableInput
+					value={d3Format}
+					onChange={onD3FormatChange}
+					onClear={() => onD3FormatChange('')}
+					placeholder='e.g. ,.2f'
+					ariaLabel='d3-format specifier'
+					className='h-8 rounded-lg text-sm bg-panel'
+				/>
+			</div>
+			<div className='grid gap-1'>
+				<span className='text-xs text-muted-foreground'>Unit</span>
+				<ClearableInput
+					value={unit}
+					onChange={(value) => onUnitChange(value, placement)}
+					onClear={() => onUnitChange('', placement)}
+					placeholder='$ or %'
+					ariaLabel='Value unit'
+					className='h-8 rounded-lg text-sm bg-panel'
+				/>
+			</div>
+			<div className='grid gap-1'>
+				<span className='text-xs text-muted-foreground'>Placement</span>
+				<Select
+					value={placement}
+					disabled={!unit}
+					onValueChange={(value) => onUnitChange(unit, value as UnitPlacement)}
+				>
+					<SelectTrigger
+						aria-label='Unit placement'
+						className='h-8 w-full bg-panel text-sm disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:text-foreground! [&_svg]:opacity-100!'
+					>
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent className='bg-panel'>
+						<SelectItem value='prefix'>Prefix</SelectItem>
+						<SelectItem value='suffix'>Suffix</SelectItem>
+					</SelectContent>
+				</Select>
+			</div>
+		</div>
+	);
+}
+
+interface ValueFormatToggleProps {
+	unit: string;
+	open: boolean;
+	onClick: () => void;
+}
+
+function ValueFormatToggle({ unit, open, onClick }: ValueFormatToggleProps) {
+	return (
+		<Button
+			type='button'
+			variant='outline'
+			size='icon-sm'
+			className='size-8 overflow-hidden bg-panel'
+			aria-label='Value formatting'
+			aria-expanded={open}
+			title={unit || 'Value formatting'}
+			onClick={onClick}
+		>
+			{unit ? (
+				<span className='max-w-full truncate px-0.5 text-xs font-semibold'>{unit}</span>
+			) : (
+				<span className='max-w-full truncate px-0.5 text-xs font-semibold text-muted-foreground'>$</span>
+			)}
+		</Button>
+	);
+}
+
 interface YAxisSideToggleProps {
 	value: displayChart.YAxisSide;
 	onChange: (value: displayChart.YAxisSide) => void;
@@ -805,6 +1080,25 @@ function parseRangeInput(value: string): number | undefined {
 	}
 	const n = Number(value);
 	return Number.isFinite(n) ? n : undefined;
+}
+
+function cleanValueFormat(
+	valueFormat: NonNullable<displayChart.SeriesConfig['value_format']>,
+): displayChart.SeriesConfig['value_format'] {
+	return valueFormat.d3_format || valueFormat.prefix || valueFormat.suffix ? valueFormat : undefined;
+}
+
+const UNSUPPORTED_NUMBER_FORMAT_MESSAGE =
+	'This number format renders differently in story exports. Use formats like ,.2f, .2f, , or .2s.';
+
+/**
+ * Number formats that render identically in the interactive chart (d3-format) and in the
+ * static story export formatter. Exposing only these in the editor keeps both paths consistent.
+ */
+const EXPORT_SAFE_NUMBER_FORMATS = [/^(,)?(?:\.\d+)?f$/, /^,$/, /^(?:\.\d+)?~?s$/];
+
+function isExportSafeNumberFormat(format: string): boolean {
+	return format === '' || EXPORT_SAFE_NUMBER_FORMATS.some((pattern) => pattern.test(format));
 }
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;

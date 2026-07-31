@@ -14,6 +14,7 @@ import { ShareStoryDialog } from '@/components/share-dialog.story';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { StoryPageBody } from '@/components/story-page-body';
 import { StoryPageHeader } from '@/components/story-page-header';
+import { StoryRouteError } from '@/components/story-access-error';
 import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { StoryTabbedContent } from '@/components/story-tabbed-content';
 import { Spinner } from '@/components/ui/spinner';
@@ -27,6 +28,7 @@ import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/stories/shared/$shareId')({
 	component: SharedStoryPage,
+	errorComponent: StoryRouteError,
 });
 
 function SharedStoryPage() {

@@ -174,7 +174,7 @@ Optional `ai_summary` generation:
 - Add `ai_summary` to a database connection `templates` list to render `ai_summary.md`.
 - AI summaries use profiling statistics for data-quality and distribution observations. The row preview is a tiny, non-representative shape sample.
 - Use `prompt("...")` inside Jinja templates to generate `ai_summary` content.
-- `prompt(...)` requires `llm.provider`, `llm.annotation_model`, and `llm.api_key` (except for ollama).
+- `prompt(...)` requires an `llm.providers` entry with an `api_key` (except for ollama), plus `llm.annotation_model`.
 - Configure `profiling` and `ai_summary` refreshes independently with `refresh_policy: always`, `once`, or `interval`. Interval policies also accept `interval_days` (default: `7`):
 
 ```yaml
@@ -202,6 +202,8 @@ Options:
 
 - `--model` / `-m`: Models to test against (default: `openai:gpt-4.1`). Can be specified multiple times.
 - `--threads` / `-t`: Number of parallel threads (default: `1`)
+- `--select` / `-s`: Run only selected tests by name, yaml stem, or subfolder. Comma-separated.
+- `--username` / `-u`, `--password`: Credentials for the nao backend. Fall back to `NAO_USERNAME` / `NAO_PASSWORD`.
 
 Examples:
 
@@ -209,6 +211,20 @@ Examples:
 nao test -m openai:gpt-4.1
 nao test -m openai:gpt-4.1 -m anthropic:claude-sonnet-4-20250514
 nao test --threads 4
+```
+
+Defaults for every run live in the `test` block of `nao_config.yaml`, and the `--model` / `--threads` flags override them:
+
+```yaml
+test:
+  models:
+    - openai:gpt-4.1
+    - anthropic:claude-sonnet-4-5
+  threads: 4
+  comparison:
+    rtol: 0.00001
+    atol: 0.00000001
+    decimals: 2
 ```
 
 ### Explore test results

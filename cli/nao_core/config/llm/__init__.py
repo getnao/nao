@@ -1,11 +1,11 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
 import questionary
 from pydantic import BaseModel, Field, model_validator
 
-from nao_core.ui import ask_select, ask_text
+from nao_core.ui import ask_confirm, ask_select, ask_text
 
 
 class LLMProvider(str, Enum):
@@ -78,20 +78,47 @@ DEFAULT_ANNOTATION_MODELS: dict[LLMProvider, str] = {
     LLMProvider.VERTEX: "gemini-2.5-flash",
 }
 
+"""The chat backend spells the Gemini provider `google`; both spellings are accepted in config."""
+PROVIDER_ALIASES: dict[str, LLMProvider] = {"google": LLMProvider.GEMINI}
+
+
+def parse_provider(name: str) -> LLMProvider | None:
+    """Resolve a provider name, accepting the aliases used by the chat backend."""
+    if name in PROVIDER_ALIASES:
+        return PROVIDER_ALIASES[name]
+    try:
+        return LLMProvider(name)
+    except ValueError:
+        return None
+
 
 class ModelCosts(BaseModel):
-    input_no_cache: float = Field(ge=0)
-    input_cache_read: float = Field(ge=0)
-    input_cache_write: float = Field(ge=0)
-    output: float = Field(ge=0)
+    """Model price in US dollars per million tokens."""
+
+    input_no_cache: float | None = Field(default=None, ge=0, description="Price of an uncached input token")
+    input_cache_read: float | None = Field(default=None, ge=0, description="Price of an input token read from cache")
+    input_cache_write: float | None = Field(default=None, ge=0, description="Price of an input token written to cache")
+    output: float | None = Field(default=None, ge=0, description="Price of an output token")
 
 
 class LLMConfigMeta(BaseModel):
     costs: ModelCosts
 
 
-class LLMConfig(BaseModel):
-    """LLM configuration."""
+class ModelConfig(BaseModel):
+    """A model exposed to the agent by its provider."""
+
+    id: str = Field(min_length=1, description="The model identifier used by the provider")
+    name: str | None = Field(default=None, description="Display name shown in the model picker")
+    default: bool = Field(default=False, description="Preselect this model for new chats")
+    costs: ModelCosts | None = Field(default=None, description="Price in US dollars per million tokens")
+    settings: dict[str, Any] | None = Field(
+        default=None, description="Inference parameters for this model, e.g. temperature or reasoning_effort"
+    )
+
+
+class ProviderConfig(BaseModel):
+    """Credentials and models for a single LLM provider."""
 
     provider: LLMProvider = Field(description="The LLM provider to use")
     api_key: str | None = Field(default=None, description="The API key to use")
@@ -106,39 +133,58 @@ class LLMConfig(BaseModel):
     gcp_location: str | None = Field(default=None, description="GCP location (only for Vertex)")
     service_account_json: str | None = Field(default=None, description="Service account JSON (only for Vertex)")
     key_file: str | None = Field(default=None, description="Path to service account key file (only for Vertex)")
-    annotation_model: str | None = Field(
-        default=None,
-        description="Model to use for ai_summary generation via prompt(...) in Jinja templates",
+    models: list[ModelConfig] = Field(
+        default_factory=list, description="The models to expose for this provider, in display order"
     )
-    meta: LLMConfigMeta | None = Field(default=None, description="Metadata for the LLM")
 
     @property
     def requires_api_key(self) -> bool:
         return self.provider not in (LLMProvider.OLLAMA, LLMProvider.BEDROCK, LLMProvider.VERTEX)
 
-    def get_effective_api_key_for_env(self) -> str | None:
-        """Return the API key value to export via environment variables."""
-        if self.api_key:
-            return self.api_key
-        if self.requires_api_key:
-            return None
-        return f"{self.provider.value}_api_key"
+    @property
+    def default_model(self) -> ModelConfig | None:
+        """The model to preselect for new chats."""
+        for model in self.models:
+            if model.default:
+                return model
+        return self.models[0] if self.models else None
+
+    def model(self, model_id: str) -> ModelConfig | None:
+        for model in self.models:
+            if model.id == model_id:
+                return model
+        return None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_provider_alias(cls, data: Any) -> Any:
+        if isinstance(data, dict) and data.get("provider") in PROVIDER_ALIASES:
+            return {**data, "provider": PROVIDER_ALIASES[data["provider"]]}
+        return data
 
     @model_validator(mode="after")
-    def validate_api_key(self) -> "LLMConfig":
+    def validate_provider(self) -> "ProviderConfig":
         auth = PROVIDER_AUTH[self.provider]
         if auth.api_key == "required" and not self.api_key:
             raise ValueError(f"api_key is required for provider {self.provider.value}")
 
-        if not self.annotation_model:
-            default_annotation_model = DEFAULT_ANNOTATION_MODELS.get(self.provider)
-            if default_annotation_model:
-                self.annotation_model = default_annotation_model
+        seen: set[str] = set()
+        for model in self.models:
+            if model.id in seen:
+                raise ValueError(f"duplicate model '{model.id}' for provider {self.provider.value}")
+            seen.add(model.id)
+
+        defaults = [model.id for model in self.models if model.default]
+        if len(defaults) > 1:
+            raise ValueError(
+                f"only one model can be the default for provider {self.provider.value}, got {', '.join(defaults)}"
+            )
         return self
 
     @classmethod
-    def promptConfig(cls, *, prompt_annotation_model: bool = True) -> "LLMConfig":
-        """Interactively prompt the user for LLM configuration."""
+    def promptConfig(cls, *, excluded_providers: set[LLMProvider] | None = None) -> "ProviderConfig":
+        """Interactively prompt the user for a single provider's credentials."""
+        excluded_providers = excluded_providers or set()
         provider_choices = [
             questionary.Choice("OpenAI (GPT-4, GPT-3.5)", value="openai"),
             questionary.Choice("Anthropic (Claude)", value="anthropic"),
@@ -148,6 +194,9 @@ class LLMConfig(BaseModel):
             questionary.Choice("Ollama", value="ollama"),
             questionary.Choice("AWS Bedrock (Claude, Nova, etc)", value="bedrock"),
             questionary.Choice("Google Vertex AI (Claude, Gemini)", value="vertex"),
+        ]
+        provider_choices = [
+            choice for choice in provider_choices if LLMProvider(choice.value) not in excluded_providers
         ]
 
         llm_provider = ask_select("Select LLM provider:", choices=provider_choices)
@@ -202,16 +251,8 @@ class LLMConfig(BaseModel):
             elif vertex_auth_mode == "file":
                 key_file = ask_text("Enter path to service account key file:", password=False, required_field=True)
 
-        provider = LLMProvider(llm_provider)
-        annotation_model: str | None = None
-        if prompt_annotation_model:
-            annotation_model = ask_text(
-                "Model to use for ai_summary generation (prompt helper):",
-                default=DEFAULT_ANNOTATION_MODELS[provider],
-            )
-
-        config = LLMConfig(
-            provider=provider,
+        return cls(
+            provider=LLMProvider(llm_provider),
             api_key=api_key,
             access_key=access_key,
             secret_key=secret_key,
@@ -221,8 +262,103 @@ class LLMConfig(BaseModel):
             gcp_location=gcp_location or None,
             service_account_json=service_account_json or None,
             key_file=key_file or None,
-            annotation_model=annotation_model,
         )
+
+
+class LLMConfig(BaseModel):
+    """LLM configuration: one or more providers, each exposing one or more models."""
+
+    providers: list[ProviderConfig] = Field(default_factory=list, description="The LLM providers to use")
+    annotation_model: str | None = Field(
+        default=None,
+        description="Model to use for ai_summary generation via prompt(...) in Jinja templates",
+    )
+    meta: LLMConfigMeta | None = Field(
+        default=None, description="Deprecated: declare costs on the matching model instead"
+    )
+
+    @property
+    def primary(self) -> ProviderConfig | None:
+        """The provider backing single-provider behaviours such as annotation."""
+        return self.providers[0] if self.providers else None
+
+    def provider_config(self, provider: LLMProvider) -> ProviderConfig | None:
+        for candidate in self.providers:
+            if candidate.provider == provider:
+                return candidate
+        return None
+
+    def costs(self, provider: LLMProvider, model_id: str) -> ModelCosts | None:
+        """Resolve the price of a model, falling back to the deprecated top-level meta.costs."""
+        provider_config = self.provider_config(provider)
+        model = provider_config.model(model_id) if provider_config else None
+        if model and model.costs:
+            return model.costs
+        return self.meta.costs if self.meta else None
+
+    def annotation_target(self) -> tuple[ProviderConfig, str] | None:
+        """Resolve the provider and model used by the prompt(...) template helper."""
+        model_id = self.annotation_model
+        if model_id:
+            owner = next((p for p in self.providers if p.model(model_id)), None)
+            if owner:
+                return owner, model_id
+
+        primary = self.primary
+        if not primary:
+            return None
+        return primary, model_id or DEFAULT_ANNOTATION_MODELS.get(primary.provider, "")
+
+    @staticmethod
+    def uses_legacy_shape(data: Any) -> bool:
+        """Whether an `llm` block still declares a single inline provider."""
+        return isinstance(data, dict) and "provider" in data and "providers" not in data
+
+    @model_validator(mode="before")
+    @classmethod
+    def upgrade_legacy_shape(cls, data: Any) -> Any:
+        """Accept the pre-multi-provider shape by nesting it into a single provider entry."""
+        if not cls.uses_legacy_shape(data):
+            return data
+
+        provider_keys = set(ProviderConfig.model_fields) - {"models"}
+        provider = {key: value for key, value in data.items() if key in provider_keys}
+        rest = {key: value for key, value in data.items() if key not in provider_keys}
+        return {**rest, "providers": [provider]}
+
+    @model_validator(mode="after")
+    def validate_providers(self) -> "LLMConfig":
+        if not self.providers:
+            raise ValueError("llm requires at least one entry under `providers`")
+
+        seen: set[LLMProvider] = set()
+        for provider_config in self.providers:
+            if provider_config.provider in seen:
+                raise ValueError(f"provider {provider_config.provider.value} is configured more than once")
+            seen.add(provider_config.provider)
+
+        if not self.annotation_model:
+            primary = self.primary
+            assert primary is not None
+            self.annotation_model = DEFAULT_ANNOTATION_MODELS.get(primary.provider)
+        return self
+
+    @classmethod
+    def promptConfig(cls, *, prompt_annotation_model: bool = True) -> "LLMConfig":
+        """Interactively prompt the user for LLM configuration."""
+        providers = [ProviderConfig.promptConfig()]
+        while len(providers) < len(LLMProvider) and ask_confirm("Add another LLM provider?", default=False):
+            configured_providers = {provider.provider for provider in providers}
+            providers.append(ProviderConfig.promptConfig(excluded_providers=configured_providers))
+
+        annotation_model: str | None = None
+        if prompt_annotation_model:
+            annotation_model = ask_text(
+                "Model to use for ai_summary generation (prompt helper):",
+                default=DEFAULT_ANNOTATION_MODELS[providers[0].provider],
+            )
+
+        config = LLMConfig(providers=providers, annotation_model=annotation_model)
 
         # Keep annotation model out of config unless ai_summary is enabled.
         # The default is still applied when needed during runtime/validation.

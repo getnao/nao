@@ -3,6 +3,7 @@ import type { UIMessage } from '@nao/backend/chat';
 
 import type { AgentHelpers } from '@/hooks/use-agent';
 import { useAgent, useSyncMessages } from '@/hooks/use-agent';
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { useStreamEndSound } from '@/hooks/use-stream-end-sound';
 
 export const AgentContext = createContext<AgentHelpers | null>(null);
@@ -25,6 +26,9 @@ export interface Props {
 export const AgentProvider = ({ children, disableNavigation }: Props) => {
 	const agent = useAgent({ disableNavigation });
 
+	useKeyboardShortcuts({
+		'stop-generation': agent.isRunning ? agent.cancelAgent : undefined,
+	});
 	useSyncMessages({ agent });
 	useStreamEndSound(agent.isRunning);
 
@@ -53,7 +57,7 @@ export const ReadonlyAgentMessagesProvider = ({
 			status: 'ready',
 			isRunning: false,
 			isLoadingMessages: false,
-			stopAgent: noopPromise,
+			cancelAgent: noopPromise,
 			error: undefined,
 			clearError: noop,
 			selectedModel: null,

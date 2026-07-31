@@ -24,6 +24,7 @@ from .repos import RepoConfig
 from .secrets import process_secrets
 from .skills import SkillsConfig
 from .slack import SlackConfig
+from .test import TestConfig
 
 
 class NaoConfigError(Exception):
@@ -44,6 +45,7 @@ class NaoConfig(BaseModel):
     slack: SlackConfig | None = Field(default=None, description="The Slack configuration")
     mcp: McpConfig | None = Field(default=None, description="The MCP configuration")
     skills: SkillsConfig | None = Field(default=None, description="The Skills configuration")
+    test: TestConfig | None = Field(default=None, description="The defaults used by `nao test`")
 
     _missing_secrets: dict[str, None] = {}
 
@@ -88,7 +90,7 @@ class NaoConfig(BaseModel):
         if repos:
             UI.print(f"  Repos: {', '.join(r.name for r in repos)}")
         if llm:
-            UI.print(f"  LLM: {llm.provider}")
+            UI.print(f"  LLM: {', '.join(p.provider.value for p in llm.providers)}")
         if existing.slack:
             UI.print("  Slack: configured")
         if existing.notion:
@@ -97,6 +99,8 @@ class NaoConfig(BaseModel):
             UI.print("  MCP: configured")
         if existing.skills:
             UI.print("  Skills: configured")
+        if existing.test:
+            UI.print("  Test: configured")
         UI.print()
 
         new_databases = cls._prompt_databases(has_existing=bool(existing.databases))
@@ -188,7 +192,20 @@ class NaoConfig(BaseModel):
         processed_content, missing = process_secrets(content, extra_env=extra_env)
         cls._missing_secrets = {k: None for k, v in missing.items() if v is None}
         data = yaml.safe_load(processed_content)
+        cls._warn_on_legacy_llm(data)
         return cls.model_validate(data)
+
+    @staticmethod
+    def _warn_on_legacy_llm(data: Any) -> None:
+        """Warn when the `llm` block still declares a single inline provider."""
+        if not isinstance(data, dict) or not LLMConfig.uses_legacy_shape(data.get("llm")):
+            return
+
+        UI.warn(
+            "nao_config.yaml declares a single inline `llm` provider, which is deprecated. Move it "
+            "under `llm.providers` to configure several providers, the models each one exposes and "
+            "their costs. Run `nao migrate` to rewrite it automatically."
+        )
 
     def get_connection(self, name: str) -> BaseBackend:
         """Get an Ibis connection by database name."""
@@ -263,6 +280,25 @@ class NaoConfig(BaseModel):
     def json_schema(cls) -> dict:
         """Generate JSON schema for the configuration."""
         return cls.model_json_schema()
+
+
+LLM_OVERRIDE_NOTICE = (
+    "# An LLM provider edited in the app (Settings > Project > Models) is stored in the app",
+    "# database and takes precedence over this block until it is deleted there.",
+)
+
+
+def annotate_llm_override(config_path: Path) -> None:
+    """Note, above the saved `llm` block, that editing a provider in the app overrides it."""
+    content = config_path.read_text()
+    lines = content.splitlines()
+    index = next((i for i, line in enumerate(lines) if line.rstrip() == "llm:"), None)
+    if index is None:
+        return
+
+    lines[index:index] = LLM_OVERRIDE_NOTICE
+    trailing_newline = "\n" if content.endswith("\n") else ""
+    config_path.write_text("\n".join(lines) + trailing_newline)
 
 
 def annotate_optional_templates(config_path: Path) -> None:

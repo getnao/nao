@@ -3,12 +3,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { llmProviderSchema } from '@nao/backend/llm';
 import type { CustomModelMetadata, ModelSettingsMap } from '@nao/backend/llm';
 import type { LlmProvider } from '@nao/shared/types';
+import type { InheritedKeySource } from '@/components/settings/llm-provider-form';
 import { trpc } from '@/main';
 
 export interface EditingState {
 	provider: LlmProvider;
 	isEditing: boolean;
-	usesEnvKey: boolean;
+	inheritedKeySource: InheritedKeySource | null;
 	initialValues?: {
 		enabledModels: string[];
 		customModels: CustomModelMetadata[];
@@ -33,17 +34,33 @@ export function useLlmProviders() {
 
 	// Derived data
 	const projectConfigs = llmConfigs.data?.projectConfigs ?? [];
+	const configProviders = llmConfigs.data?.configProviders ?? [];
 	const envProviders = llmConfigs.data?.envProviders ?? [];
 	const envBaseUrls = llmConfigs.data?.envBaseUrls ?? {};
 	const projectConfiguredProviders = projectConfigs.map((c) => c.provider);
 
 	const availableProvidersToAdd: LlmProvider[] = llmProviderSchema.options.filter(
-		(p) => !projectConfiguredProviders.includes(p) && !envProviders.includes(p),
+		(p) =>
+			!projectConfiguredProviders.includes(p) &&
+			!envProviders.includes(p) &&
+			!configProviders.some((c) => c.provider === p),
 	);
 
 	const unconfiguredEnvProviders = envProviders.filter((p) => !projectConfiguredProviders.includes(p));
 
+	const unconfiguredConfigProviders = configProviders.filter((c) => !projectConfiguredProviders.includes(c.provider));
+
 	const currentModels = editingState?.provider && knownModels.data ? knownModels.data[editingState.provider] : [];
+
+	const resolveInheritedKeySource = (provider: LlmProvider): InheritedKeySource | null => {
+		if (configProviders.some((c) => c.provider === provider)) {
+			return 'config';
+		}
+		if (envProviders.includes(provider)) {
+			return 'env';
+		}
+		return null;
+	};
 
 	// Handlers
 	const invalidateQueries = async () => {
@@ -91,12 +108,27 @@ export function useLlmProviders() {
 		setEditingState({
 			provider: config.provider,
 			isEditing: true,
-			usesEnvKey: envProviders.includes(config.provider),
+			inheritedKeySource: resolveInheritedKeySource(config.provider),
 			initialValues: {
 				enabledModels: config.enabledModels ?? [],
 				customModels: config.customModels ?? [],
 				modelSettings: config.modelSettings ?? {},
 				baseUrl: config.baseUrl ?? '',
+			},
+		});
+	};
+
+	/** Seed the form with the nao_config.yaml values so saving creates an override of them. */
+	const handleOverrideConfigProvider = (configProvider: (typeof configProviders)[0]) => {
+		setEditingState({
+			provider: configProvider.provider,
+			isEditing: true,
+			inheritedKeySource: 'config',
+			initialValues: {
+				enabledModels: configProvider.enabledModels,
+				customModels: configProvider.customModels,
+				modelSettings: configProvider.modelSettings,
+				baseUrl: configProvider.baseUrl ?? '',
 			},
 		});
 	};
@@ -110,7 +142,7 @@ export function useLlmProviders() {
 		setEditingState({
 			provider,
 			isEditing: false,
-			usesEnvKey: envProviders.includes(provider),
+			inheritedKeySource: resolveInheritedKeySource(provider),
 		});
 	};
 
@@ -118,7 +150,7 @@ export function useLlmProviders() {
 		setEditingState({
 			provider,
 			isEditing: true,
-			usesEnvKey: true,
+			inheritedKeySource: 'env',
 		});
 	};
 
@@ -128,19 +160,29 @@ export function useLlmProviders() {
 		if (knownName) {
 			return knownName;
 		}
-		const customModel = projectConfigs
+		const customModel = findCustomModel(provider, modelId);
+		return customModel?.displayName?.trim() || modelId;
+	};
+
+	const findCustomModel = (provider: LlmProvider, modelId: string) => {
+		const fromProjectConfig = projectConfigs
 			.find((c) => c.provider === provider)
 			?.customModels?.find((m) => m.id === modelId);
-		return customModel?.displayName?.trim() || modelId;
+		if (fromProjectConfig) {
+			return fromProjectConfig;
+		}
+		return configProviders.find((c) => c.provider === provider)?.customModels.find((m) => m.id === modelId);
 	};
 
 	return {
 		// Data
 		projectConfigs,
+		configProviders,
 		envProviders,
 		envBaseUrls,
 		availableProvidersToAdd,
 		unconfiguredEnvProviders,
+		unconfiguredConfigProviders,
 		currentModels,
 
 		// State
@@ -155,6 +197,7 @@ export function useLlmProviders() {
 		handleSubmit,
 		handleCancel,
 		handleEditConfig,
+		handleOverrideConfigProvider,
 		handleDeleteConfig,
 		handleSelectProvider,
 		handleConfigureEnvProvider,

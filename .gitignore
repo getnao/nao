@@ -22,3 +22,5 @@ apps/backend/projects/
 *.code-workspace
 
 .cursor/
+
+example/tests/outputs/

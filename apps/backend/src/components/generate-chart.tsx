@@ -18,6 +18,7 @@ export interface RenderChartInput {
 		| 'chart_type'
 		| 'x_axis_key'
 		| 'x_axis_type'
+		| 'x_axis_label'
 		| 'series'
 		| 'y_axis_min'
 		| 'y_axis_max'
@@ -86,6 +87,7 @@ export function renderChartToSvg(input: RenderChartInput): string {
 		chartType,
 		xAxisKey,
 		xAxisType: config.x_axis_type === 'number' ? 'number' : 'category',
+		xAxisLabel: config.x_axis_label,
 		series: config.series,
 		colorFor,
 		labelFormatter,

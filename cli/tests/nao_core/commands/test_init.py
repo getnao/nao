@@ -376,16 +376,16 @@ class TestNaoConfigPromptLLM:
     @patch("nao_core.config.llm.LLMConfig.promptConfig")
     def test_creates_llm_config(self, mock_prompt_config, mock_confirm):
         """Creates LLM config when configured."""
-        from nao_core.config import LLMConfig, LLMProvider, NaoConfig
+        from nao_core.config import LLMConfig, LLMProvider, NaoConfig, ProviderConfig
 
-        mock_llm = LLMConfig(provider=LLMProvider.OPENAI, api_key="sk-test-key")
+        mock_llm = LLMConfig(providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test-key")])
         mock_prompt_config.return_value = mock_llm
         mock_confirm.return_value = True
 
         result_llm = NaoConfig._prompt_llm()
 
         assert result_llm is not None
-        assert result_llm.api_key == "sk-test-key"
+        assert result_llm.providers[0].api_key == "sk-test-key"
         mock_prompt_config.assert_called_once_with(prompt_annotation_model=False)
 
     @patch("nao_core.config.llm.ask_text")
@@ -572,7 +572,7 @@ class TestInitCommand:
     ):
         """Init command runs debug when config has LLM."""
         from nao_core.commands.init import init
-        from nao_core.config import LLMConfig, LLMProvider, NaoConfig
+        from nao_core.config import LLMConfig, LLMProvider, NaoConfig, ProviderConfig
 
         project_path = tmp_path / "test-project"
         project_path.mkdir()
@@ -582,7 +582,7 @@ class TestInitCommand:
             project_name="test-project",
             databases=[],
             repos=[],
-            llm=LLMConfig(provider=LLMProvider.OPENAI, api_key="sk-test"),
+            llm=LLMConfig(providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")]),
             slack=None,
         )
 

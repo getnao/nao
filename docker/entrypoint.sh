@@ -74,6 +74,10 @@ EOF
             ;;
     esac
     
+    # Git runs as root here while the repo is owned by `nao` (see the chown below),
+    # which git rejects as "dubious ownership" on subsequent starts.
+    git config --global --replace-all safe.directory "$NAO_DEFAULT_PROJECT_PATH"
+
     # Clone or pull
     if [ -d "$NAO_DEFAULT_PROJECT_PATH/.git" ]; then
         echo "Repository exists, pulling latest..."
@@ -105,6 +109,10 @@ EOF
         fi
         echo "✓ Context cloned"
     fi
+    
+    # The clone runs as root but the services run as `nao`, which writes into the
+    # context (discovered MCP specs, query results, refreshed metadata).
+    chown -R nao:nao "$NAO_DEFAULT_PROJECT_PATH"
     
     # Resolve project path (subpath if set, else repo root)
     if [ -n "$NAO_CONTEXT_GIT_SUBPATH" ]; then
@@ -151,6 +159,14 @@ else
     echo "ERROR: Unknown NAO_CONTEXT_SOURCE: $NAO_CONTEXT_SOURCE"
     echo "Must be 'local', 'git', or 'api'"
     exit 1
+fi
+
+# The agent writes into the context (discovered MCP specs, query results), so the
+# `nao` user needs write access. A root-owned bind mount is the usual culprit.
+if [ -n "$NAO_DEFAULT_PROJECT_PATH" ] && ! su nao -s /bin/sh -c "test -w '$NAO_DEFAULT_PROJECT_PATH'"; then
+    echo "⚠ $NAO_DEFAULT_PROJECT_PATH is not writable by the nao user (uid $(id -u nao))."
+    echo "  MCP tool discovery and other context writes will fail."
+    echo "  Fix the ownership on the host: chown -R $(id -u nao):$(id -g nao) <context-folder>"
 fi
 
 echo ""

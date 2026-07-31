@@ -14,8 +14,17 @@ from .databases import (
     TrinoConfig,
 )
 from .exceptions import InitError
-from .llm import PROVIDER_AUTH, LLMConfig, LLMProvider, ProviderAuthConfig
+from .llm import (
+    PROVIDER_AUTH,
+    LLMConfig,
+    LLMProvider,
+    ModelConfig,
+    ModelCosts,
+    ProviderAuthConfig,
+    ProviderConfig,
+)
 from .slack import SlackConfig
+from .test import ComparisonConfig, TestConfig
 
 __all__ = [
     "NaoConfig",
@@ -34,9 +43,14 @@ __all__ = [
     "DatabaseType",
     "LLMConfig",
     "LLMProvider",
+    "ModelConfig",
+    "ModelCosts",
     "PROVIDER_AUTH",
     "ProviderAuthConfig",
+    "ProviderConfig",
     "SlackConfig",
+    "ComparisonConfig",
+    "TestConfig",
     "InitError",
     "resolve_project_path",
 ]

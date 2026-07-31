@@ -38,6 +38,13 @@ services:
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
 
             # =================================================================
+            # Langfuse LLM tracing (optional)
+            # =================================================================
+            LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+            LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+            LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-}
+
+            # =================================================================
             # Database for nao chat history
             # =================================================================
             DB_URI: postgres://${POSTGRES_USER:-nao}:${POSTGRES_PASSWORD:-nao}@postgres:5432/${POSTGRES_DB:-nao}

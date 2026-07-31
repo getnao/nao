@@ -30,6 +30,7 @@ import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { getTextOffset } from '@/lib/selection-dom.utils';
+import { isForbiddenError } from '@/lib/trpc-error';
 
 export const Route = createFileRoute('/_sidebar-layout/_chat-layout/$chatId')({
 	component: RouteComponent,
@@ -320,14 +321,6 @@ function resolveStoryCitationMeta(
 	}
 
 	return { storySlug: currentStorySlug, start, end };
-}
-
-function isForbiddenError(error: unknown): boolean {
-	if (typeof error !== 'object' || error === null || !('data' in error)) {
-		return false;
-	}
-	const { data } = error as { data?: { code?: string } | null };
-	return data?.code === 'FORBIDDEN';
 }
 
 function buildHeaderCitation(meta: ForkMetadata | undefined): { citation: string; text: string } | null {

@@ -110,10 +110,11 @@ def get_required_extras(config: NaoConfig) -> list[str]:
             seen.add(extra)
 
     if config.llm:
-        extra = _resolve_extra(config.llm.provider.value)
-        if extra and extra not in seen:
-            extras.append(extra)
-            seen.add(extra)
+        for provider_config in config.llm.providers:
+            extra = _resolve_extra(provider_config.provider.value)
+            if extra and extra not in seen:
+                extras.append(extra)
+                seen.add(extra)
 
     if config.notion and "notion" not in seen:
         extras.append("notion")

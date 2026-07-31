@@ -39,6 +39,9 @@ export type CustomModelMetadata = z.infer<typeof customModelMetadataSchema>;
 export const reasoningEffortSchema = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'max']);
 export type ReasoningEffort = z.infer<typeof reasoningEffortSchema>;
 
+/** Every effort level that is actually sent to a provider (`off` means "leave it to the model"). */
+export type ActiveEffort = Exclude<ReasoningEffort, 'off'>;
+
 export const serviceTierSchema = z.enum(['auto', 'default', 'standard', 'flex', 'priority', 'reserved']);
 export type ServiceTier = z.infer<typeof serviceTierSchema>;
 
@@ -127,6 +130,8 @@ export type ModelCapabilities = {
 	topK: boolean;
 	maxOutputTokens: boolean;
 	effortOptions?: ReasoningEffort[];
+	/** Effort vocabulary of this model, when it differs from its provider's default translation. */
+	effortMap?: Record<ActiveEffort, string>;
 	temperatureMax?: number;
 	extraParams?: ExtraParamKey[];
 	serviceTierOptions?: ServiceTier[];
@@ -165,6 +170,17 @@ export const llmConfigSchema = z.object({
 	baseUrl: z.string().url().nullable(),
 	createdAt: z.date(),
 	updatedAt: z.date(),
+});
+
+/** A provider declared in nao_config.yaml rather than saved from the settings UI. */
+export const configLlmProviderSchema = z.object({
+	provider: llmProviderSchema,
+	apiKeyPreview: z.string().nullable(),
+	credentialPreviews: z.record(z.string(), z.string()).nullable(),
+	enabledModels: z.array(z.string()),
+	customModels: z.array(customModelMetadataSchema),
+	modelSettings: modelSettingsMapSchema,
+	baseUrl: z.string().nullable(),
 });
 
 /** Flatten an interface into a plain type so it gains an implicit index signature. */

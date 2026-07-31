@@ -7,12 +7,33 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from nao_core.config.llm import LLMConfig, LLMProvider
+from nao_core.config.llm import LLMConfig, LLMProvider, ProviderConfig
 from nao_core.templates.engine import (
     DEFAULT_TEMPLATES_DIR,
     TemplateEngine,
     get_template_engine,
 )
+
+
+def _openai_llm(*, api_key: str, annotation_model: str) -> LLMConfig:
+    return LLMConfig(
+        providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key=api_key)],
+        annotation_model=annotation_model,
+    )
+
+
+def _bedrock_llm(*, aws_region: str) -> LLMConfig:
+    return LLMConfig(
+        providers=[
+            ProviderConfig(
+                provider=LLMProvider.BEDROCK,
+                access_key="AKIA_TEST",
+                secret_key="SECRET_TEST",
+                aws_region=aws_region,
+            )
+        ],
+        annotation_model="anthropic.claude-3-5-sonnet-20241022-v2:0",
+    )
 
 
 class TestTemplateEngine:
@@ -132,8 +153,7 @@ class TestTemplateEngine:
 
     def test_ai_summary_uses_profiling_and_non_representative_preview(self):
         llm_config = LLMConfig(
-            provider=LLMProvider.OPENAI,
-            api_key="sk-test",
+            providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")],
             annotation_model="gpt-4.1-mini",
         )
         engine = TemplateEngine(llm_config=llm_config)
@@ -168,8 +188,7 @@ class TestTemplateEngine:
 
     def test_ai_summary_skips_quality_claims_without_profiling(self):
         llm_config = LLMConfig(
-            provider=LLMProvider.OPENAI,
-            api_key="sk-test",
+            providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")],
             annotation_model="gpt-4.1-mini",
         )
         engine = TemplateEngine(llm_config=llm_config)
@@ -195,8 +214,7 @@ class TestTemplateEngine:
 
     def test_ai_summary_skips_quality_claims_with_empty_profiling_columns(self):
         llm_config = LLMConfig(
-            provider=LLMProvider.OPENAI,
-            api_key="sk-test",
+            providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")],
             annotation_model="gpt-4.1-mini",
         )
         engine = TemplateEngine(llm_config=llm_config)
@@ -279,8 +297,7 @@ class TestTemplateEngine:
         (templates_dir / "test.j2").write_text("{{ prompt('hello world') }}")
 
         llm_config = LLMConfig(
-            provider=LLMProvider.OPENAI,
-            api_key="sk-test",
+            providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")],
             annotation_model="gpt-4.1-mini",
         )
         engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
@@ -298,11 +315,15 @@ class TestTemplateEngine:
         (templates_dir / "test.j2").write_text("{{ prompt('summarize this') }}")
 
         llm_config = LLMConfig(
-            provider=LLMProvider.BEDROCK,
-            api_key=None,
-            access_key="AKIA_TEST",
-            secret_key="SECRET_TEST",
-            aws_region="us-east-1",
+            providers=[
+                ProviderConfig(
+                    provider=LLMProvider.BEDROCK,
+                    api_key=None,
+                    access_key="AKIA_TEST",
+                    secret_key="SECRET_TEST",
+                    aws_region="us-east-1",
+                )
+            ],
             annotation_model="anthropic.claude-3-5-sonnet-20241022-v2:0",
         )
         engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
@@ -316,11 +337,15 @@ class TestTemplateEngine:
     def test_generate_bedrock_uses_explicit_aws_credentials(self, tmp_path: Path, monkeypatch):
         """Bedrock client should use configured credentials and region when provided."""
         llm_config = LLMConfig(
-            provider=LLMProvider.BEDROCK,
-            api_key=None,
-            access_key="AKIA_TEST",
-            secret_key="SECRET_TEST",
-            aws_region="us-west-2",
+            providers=[
+                ProviderConfig(
+                    provider=LLMProvider.BEDROCK,
+                    api_key=None,
+                    access_key="AKIA_TEST",
+                    secret_key="SECRET_TEST",
+                    aws_region="us-west-2",
+                )
+            ],
             annotation_model="anthropic.claude-3-5-sonnet-20241022-v2:0",
         )
         engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
@@ -349,10 +374,14 @@ class TestTemplateEngine:
     def test_generate_bedrock_rejects_partial_static_credentials(self, tmp_path: Path):
         """Providing only one of access_key/secret_key should fail with a clear error."""
         llm_config = LLMConfig(
-            provider=LLMProvider.BEDROCK,
-            api_key=None,
-            access_key="AKIA_TEST",
-            secret_key=None,
+            providers=[
+                ProviderConfig(
+                    provider=LLMProvider.BEDROCK,
+                    api_key=None,
+                    access_key="AKIA_TEST",
+                    secret_key=None,
+                )
+            ],
             annotation_model="anthropic.claude-3-5-sonnet-20241022-v2:0",
         )
         engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
@@ -363,9 +392,13 @@ class TestTemplateEngine:
     def test_generate_anthropic_forwards_base_url(self, tmp_path: Path, monkeypatch):
         """Anthropic client should receive base_url when configured."""
         llm_config = LLMConfig(
-            provider=LLMProvider.ANTHROPIC,
-            api_key="sk-ant-test",
-            base_url="https://custom-endpoint.example.com/anthropic/v1",
+            providers=[
+                ProviderConfig(
+                    provider=LLMProvider.ANTHROPIC,
+                    api_key="sk-ant-test",
+                    base_url="https://custom-endpoint.example.com/anthropic/v1",
+                )
+            ],
             annotation_model="claude-3-5-sonnet-latest",
         )
         engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
@@ -389,8 +422,7 @@ class TestTemplateEngine:
     def test_generate_anthropic_no_base_url(self, tmp_path: Path, monkeypatch):
         """Anthropic client should use default base_url when not configured."""
         llm_config = LLMConfig(
-            provider=LLMProvider.ANTHROPIC,
-            api_key="sk-ant-test",
+            providers=[ProviderConfig(provider=LLMProvider.ANTHROPIC, api_key="sk-ant-test")],
             annotation_model="claude-3-5-sonnet-latest",
         )
         engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
@@ -417,9 +449,13 @@ class TestTemplateEngine:
         (templates_dir / "test.j2").write_text("{{ prompt('hello world') }}")
 
         llm_config = LLMConfig(
-            provider=LLMProvider.ANTHROPIC,
-            api_key="sk-ant-test",
-            base_url="https://custom-endpoint.example.com/v1",
+            providers=[
+                ProviderConfig(
+                    provider=LLMProvider.ANTHROPIC,
+                    api_key="sk-ant-test",
+                    base_url="https://custom-endpoint.example.com/v1",
+                )
+            ],
             annotation_model="claude-3-5-sonnet-latest",
         )
         engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
@@ -594,8 +630,8 @@ class TestGetTemplateEngine:
         engine_module._engine = None
         engine_module._engine_signature = None
 
-        llm1 = LLMConfig(provider=LLMProvider.OPENAI, api_key="k1", annotation_model="gpt-4.1-mini")
-        llm2 = LLMConfig(provider=LLMProvider.OPENAI, api_key="k1", annotation_model="gpt-4.1")
+        llm1 = _openai_llm(api_key="k1", annotation_model="gpt-4.1-mini")
+        llm2 = _openai_llm(api_key="k1", annotation_model="gpt-4.1")
 
         engine1 = get_template_engine(llm_config=llm1)
         engine2 = get_template_engine(llm_config=llm2)
@@ -609,8 +645,8 @@ class TestGetTemplateEngine:
         engine_module._engine = None
         engine_module._engine_signature = None
 
-        llm1 = LLMConfig(provider=LLMProvider.OPENAI, api_key="k1", annotation_model="gpt-4.1-mini")
-        llm2 = LLMConfig(provider=LLMProvider.OPENAI, api_key="k2", annotation_model="gpt-4.1-mini")
+        llm1 = _openai_llm(api_key="k1", annotation_model="gpt-4.1-mini")
+        llm2 = _openai_llm(api_key="k2", annotation_model="gpt-4.1-mini")
 
         engine1 = get_template_engine(llm_config=llm1)
         engine2 = get_template_engine(llm_config=llm2)
@@ -624,8 +660,8 @@ class TestGetTemplateEngine:
         engine_module._engine = None
         engine_module._engine_signature = None
 
-        llm1 = LLMConfig(provider=LLMProvider.OPENAI, api_key="k1", annotation_model="gpt-4.1-mini")
-        llm2 = LLMConfig(provider=LLMProvider.OPENAI, api_key="k1", annotation_model="gpt-4.1-mini")
+        llm1 = _openai_llm(api_key="k1", annotation_model="gpt-4.1-mini")
+        llm2 = _openai_llm(api_key="k1", annotation_model="gpt-4.1-mini")
 
         engine1 = get_template_engine(llm_config=llm1)
         engine2 = get_template_engine(llm_config=llm2)
@@ -639,20 +675,8 @@ class TestGetTemplateEngine:
         engine_module._engine = None
         engine_module._engine_signature = None
 
-        llm1 = LLMConfig(
-            provider=LLMProvider.BEDROCK,
-            annotation_model="anthropic.claude-3-5-sonnet-20241022-v2:0",
-            access_key="AKIA_TEST",
-            secret_key="SECRET_TEST",
-            aws_region="us-east-1",
-        )
-        llm2 = LLMConfig(
-            provider=LLMProvider.BEDROCK,
-            annotation_model="anthropic.claude-3-5-sonnet-20241022-v2:0",
-            access_key="AKIA_TEST",
-            secret_key="SECRET_TEST",
-            aws_region="eu-west-1",
-        )
+        llm1 = _bedrock_llm(aws_region="us-east-1")
+        llm2 = _bedrock_llm(aws_region="eu-west-1")
 
         engine1 = get_template_engine(llm_config=llm1)
         engine2 = get_template_engine(llm_config=llm2)

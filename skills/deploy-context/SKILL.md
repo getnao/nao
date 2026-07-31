@@ -156,7 +156,7 @@ If the run fails, jump to the troubleshooting matrix below before changing anyth
 
 ## Guardrails
 
-- **Never commit secrets.** Every credential in `nao_config.yaml` must be `{{ env('VAR_NAME') }}` (warehouse, Notion, etc.) or `${VAR_NAME}` (LLM keys). Audit before first push.
+- **Never commit secrets.** Every credential in `nao_config.yaml`, including LLM keys, must use `${{ env('VAR_NAME') }}`. Audit before first push.
 - **Never paste the API key into chat.** Direct the user to copy it once from the UI and add it straight to GitHub Secrets.
 - **One API key per repo / per environment.** Revocations stay surgical.
 - **Use GitHub Environments for prod.** Approval gates + scoped secrets. Plain repo secrets are fine for a single staging deploy, not for production.

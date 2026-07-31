@@ -24,11 +24,24 @@ import { posthog, PostHogEvent } from '../services/posthog';
 import { slackService } from '../services/slack';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { AgentSettings } from '../types/agent-settings';
-import { customModelMetadataSchema, llmConfigSchema, llmProviderSchema, modelSettingsMapSchema } from '../types/llm';
+import {
+	configLlmProviderSchema,
+	customModelMetadataSchema,
+	llmConfigSchema,
+	llmProviderSchema,
+	modelSettingsMapSchema,
+} from '../types/llm';
 import { isValidIsoDateString } from '../utils/date';
-import { getEnvApiKey, getEnvBaseUrls, getEnvProviders, getProjectAvailableModels } from '../utils/llm';
+import {
+	getEnvApiKey,
+	getEnvBaseUrls,
+	getEnvProviders,
+	getProjectAvailableModels,
+	getProjectConfigLlm,
+} from '../utils/llm';
 import { extractRequiredEnvVars } from '../utils/nao-config';
-import { buildCredentialPreviews } from '../utils/utils';
+import { findConfigLlmProvider } from '../utils/nao-config-llm';
+import { buildCredentialPreviews, previewApiKey } from '../utils/utils';
 import {
 	adminProtectedProcedure,
 	contextAdminProtectedProcedure,
@@ -88,13 +101,14 @@ export const projectRoutes = {
 		.output(
 			z.object({
 				projectConfigs: z.array(llmConfigSchema),
+				configProviders: z.array(configLlmProviderSchema),
 				envProviders: z.array(llmProviderSchema),
 				envBaseUrls: z.record(z.string(), z.string()),
 			}),
 		)
 		.query(async ({ ctx }) => {
 			if (!ctx.project) {
-				return { projectConfigs: [], envProviders: [], envBaseUrls: {} };
+				return { projectConfigs: [], configProviders: [], envProviders: [], envBaseUrls: {} };
 			}
 
 			const configs = await llmConfigQueries.getProjectLlmConfigs(ctx.project.id);
@@ -102,7 +116,7 @@ export const projectRoutes = {
 			const projectConfigs = configs.map((c) => ({
 				id: c.id,
 				provider: c.provider as LlmProvider,
-				apiKeyPreview: c.apiKey ? c.apiKey.slice(0, 8) + '...' + c.apiKey.slice(-4) : null,
+				apiKeyPreview: previewApiKey(c.apiKey),
 				credentialPreviews: buildCredentialPreviews(c.credentials),
 				enabledModels: c.enabledModels ?? [],
 				customModels: c.customModels ?? [],
@@ -112,10 +126,23 @@ export const projectRoutes = {
 				updatedAt: c.updatedAt,
 			}));
 
-			const envProviders = getEnvProviders();
-			const envBaseUrls = getEnvBaseUrls();
+			const configLlm = await getProjectConfigLlm(ctx.project.id);
+			const configProviders = (configLlm?.providers ?? []).map((p) => ({
+				provider: p.provider,
+				apiKeyPreview: previewApiKey(p.apiKey),
+				credentialPreviews: buildCredentialPreviews(p.credentials),
+				enabledModels: p.enabledModels,
+				customModels: p.customModels,
+				modelSettings: p.modelSettings,
+				baseUrl: p.baseUrl,
+			}));
 
-			return { projectConfigs, envProviders, envBaseUrls };
+			// nao chat also exports config credentials to the environment; show each provider once.
+			const envProviders = getEnvProviders().filter(
+				(provider) => !configProviders.some((p) => p.provider === provider),
+			);
+
+			return { projectConfigs, configProviders, envProviders, envBaseUrls: getEnvBaseUrls() };
 		}),
 
 	/** Get all available models for the current project (for user model selection) */
@@ -151,19 +178,29 @@ export const projectRoutes = {
 		.output(llmConfigSchema.omit({ createdAt: true, updatedAt: true }))
 		.mutation(async ({ ctx, input }) => {
 			const existingConfig = await llmConfigQueries.getProjectLlmConfigByProvider(ctx.project.id, input.provider);
+			const inheritedConfig = existingConfig
+				? null
+				: findConfigLlmProvider(await getProjectConfigLlm(ctx.project.id), input.provider);
 			const envApiKey = getEnvApiKey(input.provider);
 
-			const hasNewCredentials =
-				input.credentials && Object.keys(input.credentials).some((k) => input.credentials![k]);
+			const hasNewCredentials = Object.values(input.credentials ?? {}).some(Boolean);
+			const credentials = hasNewCredentials
+				? {
+						...(existingConfig?.credentials ?? inheritedConfig?.credentials),
+						...input.credentials,
+					}
+				: (inheritedConfig?.credentials ?? undefined);
 
 			let apiKey: string | null;
 
 			if (input.apiKey) {
 				apiKey = input.apiKey;
-			} else if (hasNewCredentials && !input.apiKey) {
+			} else if (hasNewCredentials) {
 				apiKey = '';
 			} else if (existingConfig) {
 				apiKey = null;
+			} else if (inheritedConfig?.apiKey) {
+				apiKey = inheritedConfig.apiKey;
 			} else if (envApiKey) {
 				apiKey = envApiKey;
 			} else if (getProviderAuth(input.provider).apiKey !== 'required') {
@@ -186,7 +223,7 @@ export const projectRoutes = {
 				projectId: ctx.project.id,
 				provider: input.provider,
 				apiKey,
-				credentials: hasNewCredentials ? input.credentials! : undefined,
+				credentials,
 				enabledModels,
 				customModels,
 				modelSettings,
@@ -196,7 +233,7 @@ export const projectRoutes = {
 			return {
 				id: config.id,
 				provider: config.provider as LlmProvider,
-				apiKeyPreview: config.apiKey ? config.apiKey.slice(0, 8) + '...' + config.apiKey.slice(-4) : null,
+				apiKeyPreview: previewApiKey(config.apiKey),
 				credentialPreviews: buildCredentialPreviews(config.credentials),
 				enabledModels: config.enabledModels ?? [],
 				customModels: config.customModels ?? [],

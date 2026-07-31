@@ -11,6 +11,9 @@ export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 nvm use
 
+# Use the npm version pinned in package.json ("packageManager")
+./scripts/use-pinned-npm.sh
+
 # Install all dependencies (root + all workspaces)
 echo "Installing dependencies..."
 npm install

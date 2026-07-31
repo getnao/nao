@@ -5,7 +5,7 @@ import type {
 	GroupedChatListResponse,
 	LlmProvider,
 } from '@nao/shared/types';
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, like, ne, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, like, ne, notInArray, or, sql } from 'drizzle-orm';
 
 import s, {
 	DBChat,
@@ -293,6 +293,81 @@ export const getChatMessages = async (chatId: string): Promise<UIMessage[]> => {
 		.execute();
 
 	return aggregateChatMessagParts(result);
+};
+
+export const deleteLastEmptyTurn = async (
+	chatId: string,
+): Promise<{ outcome: 'deleted' | 'kept'; chatDeleted: boolean }> => {
+	return db.transaction(async (t) => {
+		const activeMessages = await t
+			.select({
+				id: s.chatMessage.id,
+				role: s.chatMessage.role,
+				versionGroupId: s.chatMessage.versionGroupId,
+			})
+			.from(s.chatMessage)
+			.where(and(eq(s.chatMessage.chatId, chatId), isNull(s.chatMessage.supersededAt)))
+			.orderBy(desc(s.chatMessage.createdAt))
+			.execute();
+		const latestMessage = activeMessages.at(0);
+		if (!latestMessage || latestMessage.role === 'system') {
+			return { outcome: 'kept', chatDeleted: false };
+		}
+
+		const userMessage =
+			latestMessage.role === 'user' ? latestMessage : activeMessages.find((message) => message.role === 'user');
+		if (!userMessage) {
+			return { outcome: 'kept', chatDeleted: false };
+		}
+
+		if (latestMessage.role === 'assistant') {
+			const [semanticContentPart] = await t
+				.select({ id: s.messagePart.id })
+				.from(s.messagePart)
+				.where(
+					and(
+						eq(s.messagePart.messageId, latestMessage.id),
+						notInArray(s.messagePart.type, ['step-start', 'reasoning', 'tool-suggest_follow_ups']),
+					),
+				)
+				.limit(1)
+				.execute();
+			if (semanticContentPart) {
+				return { outcome: 'kept', chatDeleted: false };
+			}
+		}
+
+		if (userMessage.versionGroupId) {
+			const [versionGroup] = await t
+				.select({ value: count() })
+				.from(s.chatMessage)
+				.where(
+					and(eq(s.chatMessage.chatId, chatId), eq(s.chatMessage.versionGroupId, userMessage.versionGroupId)),
+				)
+				.execute();
+			if ((versionGroup?.value ?? 0) > 1) {
+				return { outcome: 'kept', chatDeleted: false };
+			}
+		}
+
+		const messageIds = [userMessage.id, ...(latestMessage.role === 'assistant' ? [latestMessage.id] : [])];
+		await t
+			.delete(s.chatMessage)
+			.where(and(eq(s.chatMessage.chatId, chatId), inArray(s.chatMessage.id, messageIds)))
+			.execute();
+
+		const [remaining] = await t
+			.select({ value: count() })
+			.from(s.chatMessage)
+			.where(and(eq(s.chatMessage.chatId, chatId), isNull(s.chatMessage.supersededAt)))
+			.execute();
+		if ((remaining?.value ?? 0) > 0) {
+			return { outcome: 'deleted', chatDeleted: false };
+		}
+
+		await t.delete(s.chat).where(eq(s.chat.id, chatId)).execute();
+		return { outcome: 'deleted', chatDeleted: true };
+	});
 };
 
 export const getChatOwnerId = async (chatId: string): Promise<string | undefined> => {

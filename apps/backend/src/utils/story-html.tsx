@@ -3,7 +3,7 @@ import {
 	computeKpiComparison,
 	DEFAULT_COLORS,
 	defaultColorFor,
-	formatCompactNumber,
+	formatChartValue,
 	labelize,
 } from '@nao/shared';
 import {
@@ -236,7 +236,7 @@ function KpiCards({ chart, rows }: { chart: ParsedChartBlock; rows: Record<strin
 		>
 			{chart.series.map((s) => {
 				const raw = lastRow[s.data_key];
-				const value = typeof raw === 'number' ? formatCompactNumber(raw) : String(raw ?? '');
+				const value = typeof raw === 'number' ? formatChartValue(raw, s.value_format) : String(raw ?? '');
 				const label = s.label ?? s.data_key;
 				const comparison = computeKpiComparison(sortedRows, chart.xAxisKey, s.data_key, chart.comparisonMode);
 				return (
@@ -414,6 +414,7 @@ function toChartConfig(chart: ParsedChartBlock) {
 		chart_type: chart.chartType as displayChart.ChartType,
 		x_axis_key: chart.xAxisKey,
 		x_axis_type: chart.xAxisType as displayChart.XAxisType | null,
+		x_axis_label: chart.xAxisLabel,
 		series: chart.series,
 		y_axis_min: chart.yAxisMin,
 		y_axis_max: chart.yAxisMax,
@@ -508,7 +509,64 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 		return escHtml(str.replace(/_/g,' ').replace(/\\b\\w/g,function(c){return c.toUpperCase()}))
 	}
 	function formatCompact(v){var a=Math.abs(v);if(a>=1e9)return (v/1e9).toFixed(1).replace(/[.]0$/,'')+'B';if(a>=1e6)return (v/1e6).toFixed(1).replace(/[.]0$/,'')+'M';if(a>=1e4)return (v/1e3).toFixed(1).replace(/[.]0$/,'')+'K';return v.toLocaleString()}
-	function formatVal(v){return escHtml(typeof v==='number'?formatCompact(v):String(v!=null?v:''))}
+	// Faithful port of d3-format's SI-prefix formatting so exported values match the chart.
+	var SI_PREFIXES=['y','z','a','f','p','n','µ','m','','k','M','G','T','P','E','Z','Y'];
+	var siPrefixExponent=0;
+	function formatDecimalParts(x,p){
+		var e=p?x.toExponential(p-1):x.toExponential();
+		var i=e.indexOf('e');
+		if(i<0)return null;
+		var coefficient=e.slice(0,i);
+		return [coefficient.length>1?coefficient[0]+coefficient.slice(2):coefficient,+e.slice(i+1)];
+	}
+	function formatPrefixAuto(x,p){
+		var d=formatDecimalParts(x,p);
+		if(!d)return x+'';
+		var coefficient=d[0],exponent=d[1];
+		siPrefixExponent=Math.max(-8,Math.min(8,Math.floor(exponent/3)))*3;
+		var i=exponent-siPrefixExponent+1,n=coefficient.length;
+		return i===n?coefficient:i>n?coefficient+new Array(i-n+1).join('0'):i>0?coefficient.slice(0,i)+'.'+coefficient.slice(i):'0.'+new Array(1-i).join('0')+formatDecimalParts(x,Math.max(0,p+i-1))[0];
+	}
+	function formatTrim(s){
+		out:for(var n=s.length,i=1,i0=-1,i1;i<n;++i){
+			switch(s[i]){
+				case '.':i0=i1=i;break;
+				case '0':if(i0===0)i0=i;i1=i;break;
+				default:if(!+s[i])break out;if(i0>0)i0=0;break;
+			}
+		}
+		return i0>0?s.slice(0,i0)+s.slice(i1+1):s;
+	}
+	function formatSi(v,precision,trim,compact){
+		var p=precision===undefined?6:precision;
+		p=Math.max(1,Math.min(21,p));
+		var negative=v<0;
+		var value=formatPrefixAuto(Math.abs(v),p);
+		if(trim)value=formatTrim(value);
+		var unit=SI_PREFIXES[8+siPrefixExponent/3];
+		if(compact!=='si'){if(unit==='k')unit='K';if(unit==='G')unit='B'}
+		return (negative?'-':'')+value+unit;
+	}
+	function formatD3Common(v,spec,compact){
+		var fixed=/^(,)?(?:\\.([0-9]+))?f$/.exec(spec);
+		if(fixed){
+			var decimals=fixed[2]===undefined?6:Number(fixed[2]);
+			return fixed[1]?v.toLocaleString(undefined,{minimumFractionDigits:decimals,maximumFractionDigits:decimals}):v.toFixed(decimals);
+		}
+		if(spec===',')return v.toLocaleString();
+		var si=/^\\.?([0-9]+)?(~)?s$/.exec(spec);
+		if(si)return formatSi(v,si[1]===undefined?undefined:Number(si[1]),si[2]==='~',compact);
+		return formatCompact(v);
+	}
+	function formatSeriesVal(v,fmt){
+		if(typeof v!=='number')return String(v!=null?v:'');
+		var number=fmt&&fmt.d3_format?formatD3Common(v,fmt.d3_format,fmt.compact):formatCompact(v);
+		var prefix=fmt&&fmt.prefix?String(fmt.prefix):'';
+		var suffix=fmt&&fmt.suffix?String(fmt.suffix):'';
+		if(prefix&&number.charAt(0)==='-')number='-'+prefix+number.slice(1);
+		else number=prefix+number;
+		return number+suffix;
+	}
 
 	document.querySelectorAll('.nao-chart').forEach(function(container){
 		var raw=container.getAttribute('data-chart');
@@ -583,6 +641,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 			function pctShare(v){if(typeof v!=='number'||!seriesTotal)return '0%';var sh=Math.round(v/seriesTotal*1000)/10;return (sh%1===0?sh:sh.toFixed(1))+'%';}
 			var numericValues=[];
 			var hasTotalSeries=false;
+			var firstNonTotalSeries=cfg.series.find(function(s){return !s.is_total})||cfg.series[0];
 			cfg.series.forEach(function(s, si){
 				// A total series is dropped from 100% stacked rendering, so hide its tooltip row too.
 				if(isPercent&&s.is_total)return;
@@ -601,14 +660,14 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 				html+='<div class="nao-tooltip-row">'
 					+'<span class="nao-tooltip-swatch" style="background:'+escHtml(color)+'"></span>'
 					+'<span class="nao-tooltip-name">'+rowName+'</span>'
-					+'<span class="nao-tooltip-value">'+(isPercent?pctShare(val):formatVal(val))+'</span>'
+					+'<span class="nao-tooltip-value">'+escHtml(isPercent?pctShare(val):formatSeriesVal(val,s.value_format))+'</span>'
 					+'</div>';
 			});
 			if(numericValues.length>1 && !isDualAxis && (isPercent || (!hasTotalSeries && !cfg.hideTotal))){
 				var total=numericValues.reduce(function(a,b){return a+b},0);
 				html+='<div class="nao-tooltip-total">'
 					+'<span class="nao-tooltip-name">Total</span>'
-					+'<span class="nao-tooltip-value">'+(isPercent?'100%':escHtml(formatCompact(total)))+'</span>'
+					+'<span class="nao-tooltip-value">'+escHtml(isPercent?'100%':formatSeriesVal(total,firstNonTotalSeries&&firstNonTotalSeries.value_format))+'</span>'
 					+'</div>';
 			}
 			html+='</div>';

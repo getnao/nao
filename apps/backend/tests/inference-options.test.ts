@@ -113,6 +113,16 @@ describe('Anthropic (live-validated Claude rules)', () => {
 		expect(options).toHaveProperty('contextManagement');
 	});
 
+	it('applies the adaptive Claude rules to Opus 5 and reports its 1M window', () => {
+		const { model, providerOptions, contextWindow } = createProviderModel('anthropic', SETTINGS, 'claude-opus-5', {
+			reasoningEffort: 'max',
+		});
+
+		expect(model.modelId).toBe('claude-opus-5');
+		expect(contextWindow).toBe(1_000_000);
+		expect(providerOptions.anthropic).toMatchObject({ thinking: { type: 'adaptive' }, effort: 'max' });
+	});
+
 	it('clamps a stale minimal effort to low (not in the Claude vocabulary)', () => {
 		const { options } = resolve('anthropic', 'claude-sonnet-4-6', { reasoningEffort: 'minimal' });
 
@@ -140,6 +150,20 @@ describe('OpenAI / Azure', () => {
 		expect(options.reasoningEffort).toBe('xhigh');
 	});
 
+	it('sends max as its own level on GPT-5.6, which ranks it above xhigh', () => {
+		const sol = resolve('openai', 'gpt-5.6-sol', { reasoningEffort: 'max' });
+		const luna = resolve('openai', 'gpt-5.6-luna', { reasoningEffort: 'high' });
+
+		expect(sol.options.reasoningEffort).toBe('max');
+		expect(luna.options.reasoningEffort).toBe('high');
+	});
+
+	it('snaps a stale minimal effort to low on GPT-5.6, which dropped minimal', () => {
+		const { options } = resolve('openai', 'gpt-5.6-terra', { reasoningEffort: 'minimal' });
+
+		expect(options.reasoningEffort).toBe('low');
+	});
+
 	it('skips sampling params when the model does not support sampling', () => {
 		const { callSettings } = resolve('openai', 'gpt-5.5', {
 			reasoningEffort: 'high',
@@ -160,6 +184,19 @@ describe('OpenAI / Azure', () => {
 
 		expect(options).not.toHaveProperty('reasoningEffort');
 		expect(callSettings).toEqual({ temperature: 1.5, topP: 0.8 });
+	});
+
+	it('keeps the reasoningSummary default for reasoning models', () => {
+		const { options } = resolve('openai', 'gpt-5.5');
+
+		expect(options.reasoningSummary).toBe('auto');
+	});
+
+	it('drops the reasoningSummary default for non-reasoning models', () => {
+		const { options } = resolve('openai', 'gpt-4.1');
+
+		expect(options).not.toHaveProperty('reasoningSummary');
+		expect(options.store).toBe(false);
 	});
 
 	it('offers both effort and sampling for custom Azure deployments', () => {

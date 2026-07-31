@@ -28,6 +28,33 @@ const ChartTypeSchema = z.union([ChartTypeEnum, CustomChartTypeSchema]);
 
 export const XAxisTypeEnum = z.enum(['date', 'number', 'category']);
 
+export const ValueFormatSchema = z.object({
+	d3_format: z
+		.string()
+		.describe(
+			'd3-format specifier applied to the number as-is, such as ",.2f", ".1f", ",.0f", or ".2s". Do not use d3\'s "%" type: for a percentage already stored as 42.5, use { d3_format: ".1f", suffix: "%" } so the value is not multiplied by 100.',
+		)
+		.optional(),
+	compact: z
+		.enum(['financial', 'si'])
+		.describe(
+			'How d3 SI-prefix "s" output is displayed. Defaults to "financial", which maps k to K and G to B while leaving M and T unchanged. Use "si" for scientific units such as bytes so d3 letters remain unchanged.',
+		)
+		.optional(),
+	prefix: z
+		.string()
+		.describe(
+			'Free text placed before the number. Use for any currency symbol, such as "$", "€", "¥", or "£". Example USD money: { d3_format: ",.2f", prefix: "$", compact: "financial" }.',
+		)
+		.optional(),
+	suffix: z
+		.string()
+		.describe(
+			'Free text placed after the number. Use for percentages and any unit. Examples: { d3_format: ".1f", suffix: "%" } for 42.5 as 42.5%; { d3_format: ",.0f", suffix: " V" } for volts; { d3_format: ".2s", suffix: "B", compact: "si" } for bytes.',
+		)
+		.optional(),
+});
+
 export const ComparisonModeEnum = z.enum(['percentage', 'variation', 'absolute', 'none']);
 export type ComparisonMode = z.infer<typeof ComparisonModeEnum>;
 
@@ -41,6 +68,9 @@ export const SeriesConfigSchema = z.object({
 	data_key: z.string().describe('Column name from SQL result to plot.'),
 	color: z.string().describe('CSS color (defaults to theme colors).').optional(),
 	label: z.string().describe('Label to display in the legend.').optional(),
+	value_format: ValueFormatSchema.describe(
+		'Controls how this series\' numeric values render on the axis, tooltip, data labels, and KPI card. The number is formatted as-is: use prefix for any currency symbol and suffix for percentages or units; never use d3\'s "%" type because it multiplies by 100. Examples: USD { d3_format: ",.2f", prefix: "$", compact: "financial" }; percentage stored as 42.5 { d3_format: ".1f", suffix: "%" }; volts { d3_format: ",.0f", suffix: " V" }; bytes { d3_format: ".2s", suffix: "B", compact: "si" }.',
+	).optional(),
 	is_total: z
 		.boolean()
 		.describe(
@@ -119,6 +149,10 @@ const ChartInputObjectSchema = z.object({
 	x_axis_type: XAxisTypeEnum.nullable().describe(
 		'Use "date" only when x-axis values parse as JS Date (YYYY-MM-DD). Use "category" for quarter_ending, fiscal periods, or labels. Use "number" for numeric x-axis.',
 	),
+	x_axis_label: z
+		.string()
+		.describe('Title displayed alongside the X-axis. Leave unset to show no axis title.')
+		.optional(),
 	series: z
 		.array(SeriesConfigSchema)
 		.min(1)
@@ -132,7 +166,7 @@ const ChartInputObjectSchema = z.object({
 	y_axis_max: z.number().describe('Fixes the left Y-axis upper bound. Leave unset to auto-scale.').optional(),
 	y_axis_label: z
 		.string()
-		.describe('Label displayed alongside the left Y-axis. Only used when chart_type is "mixed".')
+		.describe('Title displayed alongside the left Y-axis. Leave unset to show no axis title.')
 		.optional(),
 	y_axis_right_min: z
 		.number()
@@ -221,6 +255,7 @@ const BaseInputSchema = z.object({
 			'Required for charts. Use "date" only when x-axis values parse as JS Date (YYYY-MM-DD). Use "category" for quarter_ending, fiscal periods, or labels. Use "number" for numeric x-axis.',
 		)
 		.optional(),
+	x_axis_label: ChartInputObjectSchema.shape.x_axis_label,
 	series: z
 		.array(SeriesConfigSchema)
 		.min(1)
@@ -269,6 +304,7 @@ export const OutputSchema = z.object({
 
 export type ChartType = z.infer<typeof ChartTypeEnum>;
 export type XAxisType = z.infer<typeof XAxisTypeEnum>;
+export type ValueFormat = z.infer<typeof ValueFormatSchema>;
 export type SeriesType = z.infer<typeof SeriesTypeEnum>;
 export type YAxisSide = z.infer<typeof YAxisSideEnum>;
 export type SeriesConfig = z.infer<typeof SeriesConfigSchema>;
@@ -322,6 +358,12 @@ export function chartTypeRequiresXAxisKey(type: string): boolean {
 
 export function isPieChart(chartType: string): boolean {
 	return chartType === 'pie' || chartType === 'donut';
+}
+
+const AXIS_LABEL_UNSUPPORTED_CHART_TYPES = new Set<ChartType>(['pie', 'donut', 'kpi_card', 'radar']);
+
+export function chartTypeSupportsAxisLabels(type: string): boolean {
+	return isBuiltinChartType(type) && !AXIS_LABEL_UNSUPPORTED_CHART_TYPES.has(type);
 }
 
 export function chartTypeSupportsComboSeries(type: ChartType): boolean {

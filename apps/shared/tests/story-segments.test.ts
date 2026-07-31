@@ -494,6 +494,30 @@ describe('splitCodeIntoSegments chart series', () => {
 
 		expect(seriesOf(code)).toEqual([{ data_key: 'rev', color: 'var(--chart-1)', label: 'a "quoted" label' }]);
 	});
+
+	it('round-trips a series value format', () => {
+		const code = buildStoryChartBlock({
+			query_id: 'q1',
+			chart_type: 'bar',
+			x_axis_key: 'month',
+			series: [
+				{
+					data_key: 'rev',
+					color: 'var(--chart-1)',
+					value_format: { d3_format: ',.2f', compact: 'financial', prefix: '$', suffix: ' USD' },
+				},
+			],
+			title: 'Revenue',
+		});
+
+		expect(seriesOf(code)).toEqual([
+			{
+				data_key: 'rev',
+				color: 'var(--chart-1)',
+				value_format: { d3_format: ',.2f', compact: 'financial', prefix: '$', suffix: ' USD' },
+			},
+		]);
+	});
 });
 
 describe('parseChartBlock x-axis requirements', () => {

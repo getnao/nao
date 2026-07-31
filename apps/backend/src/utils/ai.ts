@@ -29,10 +29,11 @@ export const convertToCost = (
 	customModels: CustomModelMetadata[] = [],
 	costs?: ModelCosts,
 ): TokenCost => {
-	const costPerM =
-		LLM_PROVIDERS[provider].models.find((model) => model.id === modelId)?.costPerM ??
-		customModels.find((m) => m.id === modelId)?.costPerM ??
-		costs;
+	const builtInCosts = LLM_PROVIDERS[provider].models.find((model) => model.id === modelId)?.costPerM;
+	const declaredCosts = customModels.find((m) => m.id === modelId)?.costPerM;
+
+	// Prices declared for a model win over nao's built-in table, token type by token type.
+	const costPerM = builtInCosts || declaredCosts ? { ...builtInCosts, ...declaredCosts } : costs;
 
 	if (!costPerM) {
 		return {
@@ -96,6 +97,16 @@ export const getLastUserMessageText = (messages: UIMessage[]): string => {
 export const createChatTitle = ({ text }: { text: string }) => {
 	return text.slice(0, 64);
 };
+
+export const checkAssistantMessageHasContent = (message: UIMessage): boolean =>
+	message.parts.some(
+		(part) =>
+			part.type !== 'step-start' &&
+			part.type !== 'tool-suggest_follow_ups' &&
+			part.type !== 'reasoning' &&
+			part.type !== 'data-newChat' &&
+			part.type !== 'data-newUserMessage',
+	);
 
 export const joinAllTextParts = (message: UIMessage, separator: string = '\n'): string => {
 	return message.parts

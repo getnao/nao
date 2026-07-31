@@ -50,6 +50,7 @@ export const dynamicToolComponents = {
 	query_app_db: QueryAppDbToolCall,
 	record_recommendation: RecordRecommendationToolCall,
 	mcp_call: McpToolCall,
+	mcp_connect: McpToolCall,
 } satisfies Record<string, React.ComponentType<ToolCallComponentProps>>;
 
 export type DynamicToolName = keyof typeof dynamicToolComponents;

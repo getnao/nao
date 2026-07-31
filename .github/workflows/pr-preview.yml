@@ -133,8 +133,6 @@ jobs:
                   build-args: |
                       APP_VERSION=pr-${{ github.event.pull_request.number }}
                       APP_COMMIT=${{ steps.sha.outputs.short_sha }}
-                  secrets: |
-                      GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
 
             - name: Deploy to preview server
               uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5

@@ -400,6 +400,7 @@ export const DisplayChartToolCall = ({
 					xAxisKey={chartConfig.x_axis_key ?? ''}
 					series={chartConfig.series}
 					xAxisType={chartConfig.x_axis_type === 'number' ? 'number' : 'category'}
+					xAxisLabel={chartConfig.x_axis_label}
 					title={chartConfig.title}
 					yAxisMin={chartConfig.y_axis_min}
 					yAxisMax={chartConfig.y_axis_max}
@@ -421,6 +422,7 @@ export interface ChartDisplayProps {
 	chartType: displayChart.ChartType;
 	xAxisKey: string;
 	xAxisType: 'number' | 'category';
+	xAxisLabel?: string;
 	xAxisLabelFormatter?: (value: string) => string;
 	valueFormatter?: (value: number) => string;
 	series: displayChart.SeriesConfig[];
@@ -452,6 +454,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 	chartType,
 	xAxisKey: xAxisKeyProp,
 	xAxisType,
+	xAxisLabel,
 	xAxisLabelFormatter,
 	valueFormatter,
 	series: seriesProp,
@@ -525,6 +528,9 @@ export const ChartDisplay = memo(function ChartDisplay({
 					[xAxisKey]: {
 						label: labelize(xAxisKey, dateFormat),
 					},
+					[pieValueKey]: {
+						valueFormat: series[0]?.value_format,
+					},
 				},
 			);
 		}
@@ -534,10 +540,11 @@ export const ChartDisplay = memo(function ChartDisplay({
 				label: s.label || labelize(s.data_key, dateFormat),
 				color: s.color || Colors[idx % Colors.length],
 				isTotal: s.is_total,
+				valueFormat: s.value_format,
 			};
 			return acc;
 		}, {} as ChartConfig);
-	}, [series, xAxisKey, pieData, isPie, dateFormat]);
+	}, [series, xAxisKey, pieValueKey, pieData, isPie, dateFormat]);
 
 	const colorFor = useMemo(
 		() =>
@@ -621,6 +628,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 				chartType,
 				xAxisKey,
 				xAxisType,
+				xAxisLabel,
 				series: visibleSeries,
 				colorFor,
 				labelFormatter,
@@ -655,6 +663,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 								isDualAxis={isDualAxis}
 								hideTotal={hideTotal}
 								labelFormatter={tooltipLabelFormatter}
+								nameKey={isPie ? pieValueKey : undefined}
 								valueFormatter={valueFormatter}
 							/>
 						}
@@ -695,7 +704,9 @@ export const ChartDisplay = memo(function ChartDisplay({
 			xAxisTickFontSize,
 			xAxisMaxLabelChars,
 			xAxisKey,
+			pieValueKey,
 			xAxisType,
+			xAxisLabel,
 			visibleSeries,
 			colorFor,
 			labelFormatter,

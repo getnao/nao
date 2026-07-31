@@ -9,7 +9,7 @@ from cyclopts import Parameter
 from nao_core import __version__
 from nao_core.branding import should_show_banner
 from nao_core.config import NaoConfig, NaoConfigError
-from nao_core.config.base import annotate_optional_templates
+from nao_core.config.base import annotate_llm_override, annotate_optional_templates
 from nao_core.config.exceptions import InitError
 from nao_core.tracking import track_command
 from nao_core.ui import UI, ask_confirm, ask_text
@@ -299,6 +299,7 @@ def init(
 
         config.save(project_path)
         annotate_optional_templates(project_path / "nao_config.yaml")
+        annotate_llm_override(project_path / "nao_config.yaml")
 
         created_folders, created_files = create_empty_structure(project_path)
 

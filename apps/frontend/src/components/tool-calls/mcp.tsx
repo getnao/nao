@@ -73,6 +73,7 @@ const McpChartOutput = ({ chartBlock }: { chartBlock: string }) => {
 					chartType={chart.chartType as displayChart.ChartType}
 					xAxisKey={chart.xAxisKey}
 					xAxisType={chart.xAxisType === 'number' ? 'number' : 'category'}
+					xAxisLabel={chart.xAxisLabel}
 					series={chart.series}
 					title={chart.title}
 					yAxisMin={chart.yAxisMin}
@@ -160,14 +161,22 @@ const McpOutputContent = ({ text }: { text: string }) => {
 
 const getMcpTitle = (toolPart: UIToolPart, fallback: string): ReactNode | string => {
 	const input = (toolPart as { input?: { server?: string; tool?: string } }).input;
-	if (input?.server && input?.tool) {
-		return (
-			<McpTitle server={input.server}>
-				Using <em>{input.tool}</em> from {input.server}
-			</McpTitle>
-		);
+	if (!input?.server) {
+		return fallback;
 	}
-	return fallback;
+	if (!input.tool) {
+		return <McpTitle server={input.server}>Connecting to {input.server}</McpTitle>;
+	}
+	return (
+		<McpTitle server={input.server}>
+			Using <em>{input.tool}</em> from {input.server}
+		</McpTitle>
+	);
+};
+
+const getConnectedTools = (output: unknown): string[] | null => {
+	const tools = isPlainObject(output) ? output.tools : null;
+	return Array.isArray(tools) ? tools.map(String) : null;
 };
 
 const getAuthRequiredServer = (output: unknown): string | null => {
@@ -189,6 +198,19 @@ export const McpToolCall = ({ toolPart }: ToolCallComponentProps) => {
 				<ToolCallWrapper title={title}>
 					<div className='px-3 py-2 text-sm text-muted-foreground'>
 						Waiting for you to connect to <span className='font-medium text-foreground'>{authServer}</span>.
+					</div>
+				</ToolCallWrapper>
+			);
+		}
+
+		const connectedTools = getConnectedTools(toolPart.output);
+		if (connectedTools) {
+			return (
+				<ToolCallWrapper title={title}>
+					<div className='px-3 py-2 text-sm text-muted-foreground'>
+						{connectedTools.length > 0
+							? `${connectedTools.length} tools available: ${connectedTools.join(', ')}`
+							: 'No tool available on this server.'}
 					</div>
 				</ToolCallWrapper>
 			);
