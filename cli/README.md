@@ -240,6 +240,28 @@ Options:
 - `--port` / `-p`: Port to run the server on (default: `8765`)
 - `--no-open`: Don't automatically open the browser
 
+### List discovered test cases
+
+```bash
+nao test list
+```
+
+Walks the `tests/` folder, loads each YAML, and prints a table of test name, file path, and a one-line prompt preview. Makes no model calls and opens no network connection. Use this to confirm a new test YAML is being picked up, or to dry-run a `--select` filter before paying the LLM cost of a real run.
+
+Options:
+
+- `--select` / `-s`: same filter semantics as `nao test run` (name, yaml stem, or subfolder, comma-separated)
+- `--prompt-length <N>`: maximum prompt characters per row (default `80`, pass `0` to hide the prompt column)
+
+Examples:
+
+```bash
+nao test list
+nao test list -s contracts
+nao test list -s orders_count,users_count
+nao test list --prompt-length 0
+```
+
 ### BigQuery service account permissions
 
 When you connect BigQuery during `nao init`, the service account used by `credentials_path`/ADC must be able to list datasets and run read-only queries to generate docs. Grant the account:
