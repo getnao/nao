@@ -63,4 +63,45 @@ describe('runSqlOverQueryResults', () => {
 			runSqlOverQueryResults(new Map([['query_orders', orders]]), 'SELECT missing FROM query_orders'),
 		).rejects.toThrow(/missing/);
 	});
+
+	it('still exposes tables when the query id contains path separators', async () => {
+		const queryId = 'query_../../escape';
+		const result = await runSqlOverQueryResults(
+			new Map([[queryId, orders]]),
+			`SELECT COUNT(*) AS rows_count FROM "${queryId}"`,
+		);
+
+		expect(result.data).toEqual([{ rows_count: '3' }]);
+	});
+
+	it('rejects write statements before execution', async () => {
+		await expect(
+			runSqlOverQueryResults(new Map([['query_orders', orders]]), 'DELETE FROM query_orders'),
+		).rejects.toThrow(/read-only/i);
+	});
+
+	it('rejects references to tables outside the allowlist', async () => {
+		await expect(
+			runSqlOverQueryResults(new Map([['query_orders', orders]]), 'SELECT * FROM query_customers'),
+		).rejects.toThrow(/allowlist/i);
+	});
+
+	it('allows CTEs that only read allowlisted tables', async () => {
+		const result = await runSqlOverQueryResults(
+			new Map([['query_orders', orders]]),
+			`WITH totals AS (SELECT customer_id, SUM(total_amount) AS revenue FROM query_orders GROUP BY 1)
+			 SELECT * FROM totals ORDER BY revenue DESC`,
+		);
+
+		expect(result.data).toEqual([
+			{ customer_id: '51', revenue: 100 },
+			{ customer_id: '3', revenue: 65 },
+		]);
+	});
+
+	it('blocks reading local files after tables are loaded', async () => {
+		await expect(
+			runSqlOverQueryResults(new Map([['query_orders', orders]]), `SELECT * FROM read_json_auto('/etc/hosts')`),
+		).rejects.toThrow();
+	});
 });
