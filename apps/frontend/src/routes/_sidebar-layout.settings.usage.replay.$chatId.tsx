@@ -21,6 +21,8 @@ function ChatReplayRoute() {
 	return (
 		<ChatsReplayPanel
 			chatId={chatId}
+			highlightOnLoad={usageSearch.highlight}
+			targetId={usageSearch.targetId}
 			metadataAction={
 				<button
 					type='button'

@@ -35,8 +35,11 @@ import { AgentSettings } from '../types/agent-settings';
 import { AUTOMATION_RUN_STATUSES, AutomationIntegrationConfig, AutomationIntegrationResult } from '../types/automation';
 import { ForkMetadata, MESSAGE_SOURCES, StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import {
+	CONTEXT_RECOMMENDATION_CATEGORIES,
 	CONTEXT_RECOMMENDATION_FIX_KINDS,
+	CONTEXT_RECOMMENDATION_FIX_TARGETS,
 	CONTEXT_RECOMMENDATION_FREQUENCIES,
+	CONTEXT_RECOMMENDATION_ROOT_CAUSE_KINDS,
 	CONTEXT_RECOMMENDATION_RUN_STATUSES,
 	CONTEXT_RECOMMENDATION_RUN_TRIGGERS,
 	CONTEXT_RECOMMENDATION_SEVERITIES,
@@ -735,6 +738,10 @@ export const contextRecommendation = sqliteTable(
 		summary: text('summary').notNull(),
 		suggestedAction: text('suggested_action').notNull(),
 		fixKind: text('fix_kind', { enum: CONTEXT_RECOMMENDATION_FIX_KINDS }),
+		fixTarget: text('fix_target', { enum: CONTEXT_RECOMMENDATION_FIX_TARGETS }),
+		category: text('category', { enum: CONTEXT_RECOMMENDATION_CATEGORIES }),
+		rootCause: text('root_cause'),
+		rootCauseKind: text('root_cause_kind', { enum: CONTEXT_RECOMMENDATION_ROOT_CAUSE_KINDS }),
 		proposedEdits: text('proposed_edits', { mode: 'json' }).$type<ProposedEdit[]>(),
 		fixGuidance: text('fix_guidance'),
 		fixPrompt: text('fix_prompt'),

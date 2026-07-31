@@ -6,6 +6,8 @@ import { getActiveProjectId } from '@/lib/active-project';
 
 export type TokenChartDisplayMode = 'tokens' | 'dollars';
 
+export type ReplayHighlight = 'tool-error' | 'feedback';
+
 export type UsageRouteSearch = {
 	provider: LlmProvider | 'all';
 	granularity: Granularity;
@@ -14,6 +16,8 @@ export type UsageRouteSearch = {
 	tools: ChatReplayToolState[] | undefined;
 	sources: UsageSource[] | undefined;
 	tokenView: TokenChartDisplayMode;
+	highlight: ReplayHighlight | undefined;
+	targetId: string | undefined;
 };
 
 export const DEFAULT_USAGE_SEARCH: UsageRouteSearch = {
@@ -24,6 +28,8 @@ export const DEFAULT_USAGE_SEARCH: UsageRouteSearch = {
 	tools: undefined,
 	sources: undefined,
 	tokenView: 'tokens',
+	highlight: undefined,
+	targetId: undefined,
 };
 
 const granularities = ['hour', 'day', 'month'] as const satisfies readonly Granularity[];
@@ -52,6 +58,8 @@ export function saveUsageFilters(search: UsageRouteSearch): void {
 	}
 }
 
+const replayHighlights = ['tool-error', 'feedback'] as const satisfies readonly ReplayHighlight[];
+
 export function validateUsageSearch(search: Record<string, unknown>): UsageRouteSearch {
 	return {
 		provider: parseProvider(search.provider),
@@ -61,6 +69,8 @@ export function validateUsageSearch(search: Record<string, unknown>): UsageRoute
 		tools: parseArrayOf(search.tools, CHAT_REPLAY_TOOL_STATES),
 		sources: parseArrayOf(search.sources, USAGE_SOURCES),
 		tokenView: parseOneOf(search.tokenView, tokenViews) ?? 'tokens',
+		highlight: parseOneOf(search.highlight, replayHighlights),
+		targetId: typeof search.targetId === 'string' && search.targetId.length > 0 ? search.targetId : undefined,
 	};
 }
 

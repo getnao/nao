@@ -24,6 +24,7 @@ import { autoCreateRecommendationPullRequests, resolveRecommendationRepo } from 
 import {
 	ExistingRecommendation,
 	fingerprintFor,
+	ProposedFinding,
 	reconcile,
 	ReconcileAction,
 } from './context-recommendations.reconcile';
@@ -180,18 +181,14 @@ async function resolvePeriodStart(projectId: string, end: Date): Promise<Date> {
 	return new Date(end.getTime() - DEFAULT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
 }
 
-/** Pulls the agent-proposed fix for a finding, if any, into a persistable patch. */
+/** Resolves the fix persisted with a proposed finding. */
 function resolveFix(
 	collector: ContextFixCollector | null,
-	suggestedFile: string,
-	subjectKey: string,
+	finding: ProposedFinding,
 ): Partial<NewContextRecommendation> {
-	if (!collector) {
-		return {};
-	}
-	const fix = collector.getFix(fingerprintFor(suggestedFile, subjectKey));
+	const fix = collector?.getFix(fingerprintFor(finding.suggestedFile, finding.subjectKey));
 	if (!fix) {
-		return {};
+		return manualFixFallback(finding);
 	}
 	return {
 		fixKind: fix.fixKind,
@@ -199,6 +196,21 @@ function resolveFix(
 		fixGuidance: fix.fixGuidance,
 		fixPrompt: fix.fixPrompt,
 	};
+}
+
+/** Turns a finding's diagnosis into a ready-to-apply manual fix when the agent left no concrete one. */
+function manualFixFallback(finding: ProposedFinding): Partial<NewContextRecommendation> {
+	const guidance = finding.rootCause
+		? `${finding.suggestedAction}\n\nWhy: ${finding.rootCause}`
+		: finding.suggestedAction;
+	const prompt = [
+		`Update the nao project context file \`${finding.suggestedFile}\` to fix the following issue.`,
+		'',
+		`Problem: ${finding.rootCause || finding.summary}`,
+		'',
+		`Required change: ${finding.suggestedAction}`,
+	].join('\n');
+	return { fixKind: 'manual', proposedEdits: null, fixGuidance: guidance, fixPrompt: prompt };
 }
 
 function toExistingRec(r: DBContextRecommendation): ExistingRecommendation {
@@ -263,13 +275,17 @@ function upsertFields(
 	return {
 		runId: args.runId,
 		severity: action.finding.severity,
+		category: action.finding.category,
+		rootCause: action.finding.rootCause,
+		rootCauseKind: action.finding.rootCauseKind ?? null,
+		fixTarget: action.finding.fixTarget ?? null,
 		impactScore: action.impactScore,
 		impact: action.impact,
 		insights: action.finding.insights,
 		title: action.finding.title,
 		summary: action.finding.summary,
 		suggestedAction: action.finding.suggestedAction,
-		...resolveFix(args.fixCollector, action.finding.suggestedFile, action.finding.subjectKey),
+		...resolveFix(args.fixCollector, action.finding),
 		llmProvider: args.model.provider,
 		llmModelId: args.model.modelId,
 	};

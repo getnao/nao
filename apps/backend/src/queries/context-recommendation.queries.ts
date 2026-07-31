@@ -337,6 +337,31 @@ export async function getFirstProjectAdminUserId(projectId: string): Promise<str
 	return admin.userId;
 }
 
+/** Returns title and owner name for a list of chat IDs, scoped to the project. */
+export async function getRecommendationChatMetadata(
+	projectId: string,
+	chatIds: string[],
+): Promise<{ chatId: string; title: string; userName: string }[]> {
+	if (chatIds.length === 0) {
+		return [];
+	}
+	const rows = await db
+		.select({
+			chatId: s.chat.id,
+			title: s.chat.title,
+			userName: s.user.name,
+		})
+		.from(s.chat)
+		.leftJoin(s.user, eq(s.user.id, s.chat.userId))
+		.where(and(eq(s.chat.projectId, projectId), inArray(s.chat.id, chatIds)))
+		.execute();
+	return rows.map((row) => ({
+		chatId: row.chatId,
+		title: row.title,
+		userName: row.userName ?? '',
+	}));
+}
+
 /** Sum of token usage across every message of a run's chat. */
 export async function getChatTokenTotals(
 	chatId: string,

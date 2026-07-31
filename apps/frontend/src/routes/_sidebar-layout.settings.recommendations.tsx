@@ -3,6 +3,8 @@ import { createFileRoute } from '@tanstack/react-router';
 import { ArrowDown, ArrowUp, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { CONTEXT_RECOMMENDATION_CATEGORIES } from '@nao/backend/context-recommendation';
+import type { ContextRecommendationCategory } from '@nao/backend/context-recommendation';
 import type { LlmProvider } from '@nao/shared/types';
 
 import { RecommendationCard } from '@/components/recommendation-card';
@@ -44,6 +46,34 @@ type SortOrder = 'newest' | 'oldest';
 const MAX_AUTO_PR_OPTIONS = [1, 2, 3, 5, 10] as const;
 const DEFAULT_MAX_AUTO_PRS = 3;
 const MAX_CUSTOM_SYSTEM_PROMPT_INSTRUCTIONS_LENGTH = 4000;
+
+const CATEGORY_LABEL: Record<ContextRecommendationCategory, string> = {
+	tool_error: 'Tool errors',
+	hallucination: 'Hallucinations',
+	semantic_missing: 'Semantic missing',
+	other: 'Other',
+};
+
+type CategoryKey = ContextRecommendationCategory;
+
+function groupByCategory<T extends { category: string | null }>(
+	items: T[],
+): { key: CategoryKey; label: string; items: T[] }[] {
+	const map = new Map<CategoryKey, T[]>();
+	for (const key of CONTEXT_RECOMMENDATION_CATEGORIES) {
+		map.set(key, []);
+	}
+	for (const item of items) {
+		const key = (item.category as CategoryKey | null | undefined) ?? 'other';
+		const bucket = CONTEXT_RECOMMENDATION_CATEGORIES.includes(key) ? key : 'other';
+		map.get(bucket)!.push(item);
+	}
+	return CONTEXT_RECOMMENDATION_CATEGORIES.filter((key) => map.get(key)!.length > 0).map((key) => ({
+		key,
+		label: CATEGORY_LABEL[key] ?? key,
+		items: map.get(key)!,
+	}));
+}
 
 /** The job runs at 03:00 UTC; render that moment in the viewer's local timezone (display only). */
 function localRunTime(): string {
@@ -149,6 +179,8 @@ function RecommendationsPage() {
 		() => sortByCreatedAt(activeRecommendations, sortOrder),
 		[activeRecommendations, sortOrder],
 	);
+
+	const categoryBuckets = useMemo(() => groupByCategory(sortedActiveRecommendations), [sortedActiveRecommendations]);
 	const savedCustomSystemPromptInstructions = config.data?.customSystemPromptInstructions ?? '';
 	const hasCustomSystemPromptInstructionsChanges =
 		customSystemPromptInstructions.trim() !== savedCustomSystemPromptInstructions.trim();
@@ -471,18 +503,27 @@ function RecommendationsPage() {
 						) : !recommendations.data || recommendations.data.length === 0 ? (
 							<Empty>No recommendations yet. They appear after the next analysis run.</Empty>
 						) : (
-							<div className='flex flex-col gap-3'>
-								{sortedActiveRecommendations.length > 0 ? (
-									sortedActiveRecommendations.map((rec) => (
-										<RecommendationCard
-											key={rec.id}
-											recommendation={rec}
-											onChangeStatus={changeStatus}
-											isPending={setStatus.isPending}
-										/>
-									))
-								) : (
+							<div className='flex flex-col gap-5'>
+								{categoryBuckets.length === 0 ? (
 									<Empty>No open recommendations.</Empty>
+								) : (
+									categoryBuckets.map((bucket) => (
+										<div key={bucket.key} className='flex flex-col gap-3'>
+											<div className='flex items-center gap-3 text-xs font-medium text-muted-foreground'>
+												{bucket.label}
+												<span className='h-px flex-1 bg-border' />
+												<span>{bucket.items.length}</span>
+											</div>
+											{bucket.items.map((rec) => (
+												<RecommendationCard
+													key={rec.id}
+													recommendation={rec}
+													onChangeStatus={changeStatus}
+													isPending={setStatus.isPending}
+												/>
+											))}
+										</div>
+									))
 								)}
 							</div>
 						)}

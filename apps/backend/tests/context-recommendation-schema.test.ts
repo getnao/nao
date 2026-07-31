@@ -47,7 +47,7 @@ describe('context recommendation schema', () => {
 				title: 'events_v1 has no column descriptions',
 				summary: 'Tool errors reference undocumented columns.',
 				suggestedAction: 'Add descriptions for event_name, event_ts.',
-				insights: [{ signalType: 'tool_error', metric: 'errors', count: 12, exampleChatIds: ['c1'] }],
+				insights: [{ signalType: 'tool_error', metric: 'errors', count: 12, triggerRefs: [{ chatId: 'c1' }] }],
 				impact: { affectedChats: 8, failureShare: 0.4 },
 				impactScore: 80,
 			})

@@ -207,4 +207,8 @@ export const contextRecommendationRoutes = {
 			});
 		}
 	}),
+
+	listRecoTriggerChatMetadata: recommendationsProcedure
+		.input(z.object({ chatIds: z.array(z.string()).max(100) }))
+		.query(async ({ ctx, input }) => crQueries.getRecommendationChatMetadata(ctx.project.id, input.chatIds)),
 };

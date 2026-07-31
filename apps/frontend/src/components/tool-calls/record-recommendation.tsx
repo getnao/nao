@@ -10,7 +10,7 @@ interface RecommendationInsight {
 	signalType: string;
 	metric: string;
 	count: number;
-	exampleChatIds?: string[];
+	triggerRefs?: { chatId: string; targetId?: string }[];
 	snippet?: string;
 }
 

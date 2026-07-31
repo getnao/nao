@@ -631,11 +631,25 @@ code.dollar:before {
 
 .replay-nav-highlight:not([data-replay-bordered='true']) {
 	@apply rounded-xl ring-2 ring-inset ring-primary p-[2px];
+	animation: replay-highlight-pulse 2s ease-out forwards;
 }
 
 [data-replay-bordered='true'].replay-nav-highlight {
-	@apply rounded-xl ring-2 ring-primary ring-offset-2 -mx-3;
+	@apply rounded-xl ring-2 ring-primary ring-offset-2;
 	--tw-ring-offset-color: var(--background);
+	animation: replay-highlight-pulse 2s ease-out forwards;
+}
+
+@keyframes replay-highlight-pulse {
+	0% {
+		opacity: 1;
+	}
+	70% {
+		opacity: 1;
+	}
+	100% {
+		opacity: 0;
+	}
 }
 
 .chats-replay-datepicker.react-datepicker,

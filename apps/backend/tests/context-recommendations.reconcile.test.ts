@@ -12,7 +12,14 @@ function finding(overrides: Partial<Parameters<typeof reconcile>[0]['recorded'][
 		title: 't',
 		summary: 's',
 		suggestedAction: 'a',
-		insights: [{ signalType: 'tool_error' as const, metric: 'errors', count: 50, exampleChatIds: ['c1', 'c2'] }],
+		insights: [
+			{
+				signalType: 'tool_error' as const,
+				metric: 'errors',
+				count: 50,
+				triggerRefs: [{ chatId: 'c1' }, { chatId: 'c2' }],
+			},
+		],
 		...overrides,
 	};
 }
@@ -27,7 +34,14 @@ describe('fingerprintFor', () => {
 describe('computeImpact', () => {
 	it('counts distinct chats and computes failure share', () => {
 		const { impact, impactScore } = computeImpact(
-			[{ signalType: 'tool_error', metric: 'errors', count: 30, exampleChatIds: ['c1', 'c2'] }],
+			[
+				{
+					signalType: 'tool_error',
+					metric: 'errors',
+					count: 30,
+					triggerRefs: [{ chatId: 'c1' }, { chatId: 'c2' }],
+				},
+			],
 			TOTALS,
 		);
 		expect(impact.affectedChats).toBe(2);
@@ -65,7 +79,7 @@ describe('reconcile', () => {
 
 	it('suppresses a new finding below the floor', () => {
 		const tiny = finding({
-			insights: [{ signalType: 'tool_error', metric: 'errors', count: 1, exampleChatIds: ['c1'] }],
+			insights: [{ signalType: 'tool_error', metric: 'errors', count: 1, triggerRefs: [{ chatId: 'c1' }] }],
 		});
 		const actions = reconcile({
 			...base,

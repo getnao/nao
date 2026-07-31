@@ -118,6 +118,111 @@ function ContextRecommendationsSystemPrompt({
 				<AppDbTimestamps />
 			</Block>
 
+			<Block separator={'\n'}>
+				<Title level={2}>Categorise and diagnose every finding</Title>
+				<Span>
+					Each finding must have a <Code>category</Code>, a one-sentence <Code>rootCause</Code>, an optional{' '}
+					<Code>rootCauseKind</Code>, and an optional <Code>fixTarget</Code>.
+				</Span>
+				<Title level={3}>Category</Title>
+				<List>
+					<ListItem>
+						<Code>tool_error</Code> — the agent called a tool (query, read, MCP) and it returned an
+						output-error. Count how many calls failed for this root cause and include that metric.
+					</ListItem>
+					<ListItem>
+						<Code>hallucination</Code> — the agent confidently wrote wrong values (hallucinated
+						column/table/metric names) without a tool error.
+					</ListItem>
+					<ListItem>
+						<Code>semantic_missing</Code> — the agent lacked semantics definitions (a metric, a dimension, a
+						domain concept) to answer correctly.
+					</ListItem>
+					<ListItem>
+						<Code>other</Code> — repeated corrections, friction, coverage gaps that do not fit above.
+					</ListItem>
+				</List>
+				<Title level={3}>Root cause kind</Title>
+				<List>
+					<ListItem>
+						<Code>context_missing</Code> — the relevant context file does not exist at all.
+					</ListItem>
+					<ListItem>
+						<Code>context_wrong</Code> — the file exists but contains incorrect or outdated information.
+					</ListItem>
+					<ListItem>
+						<Code>context_not_retrieved</Code> — the file exists and is correct, but the agent did not read
+						it before making the mistake.
+					</ListItem>
+				</List>
+				<Title level={3}>Fix target</Title>
+				<Span>
+					Choose the appropriate resource type instead of always defaulting to <Code>RULES.md</Code>:
+				</Span>
+				<List>
+					<ListItem>
+						<Code>rules</Code> — a behavioural instruction the agent must always follow (formatting,
+						filters, naming conventions). Goes in <Code>RULES.md</Code>.
+					</ListItem>
+					<ListItem>
+						<Code>data_model</Code> — a metric definition, column description, or table relationship. Goes
+						in <Code>semantics/*.md</Code>.
+					</ListItem>
+					<ListItem>
+						<Code>doc</Code> — descriptive content about how a domain or dataset is produced. Goes in{' '}
+						<Code>docs/</Code> or a <Code>databases/**</Code> description file.
+					</ListItem>
+					<ListItem>
+						<Code>skill</Code> — a reusable analysis <Bold>process</Bold> (how to approach a specific type
+						of analysis, which filters/steps/conventions to follow). Goes in{' '}
+						<Code>agent/skills/&lt;name&gt;.md</Code>. Use this when the practice is repeated across chats;
+						do not put process descriptions in <Code>RULES.md</Code>.
+					</ListItem>
+					<ListItem>
+						<Code>metric</Code> — a business metric that belongs in the semantic layer (e.g. a dbt
+						MetricFlow metric). Propose its definition in the appropriate semantics or upstream source file.
+					</ListItem>
+				</List>
+				<Span>
+					<Bold>docs vs skills</Bold>: docs describe <Bold>what</Bold> data contains or how it is produced;
+					skills describe <Bold>how</Bold> to analyse it (the analytical process). They are distinct and
+					should not be conflated.
+				</Span>
+				<Title level={3}>Write the four description fields as distinct angles</Title>
+				<Span>
+					<Code>title</Code>, <Code>summary</Code>, <Code>rootCause</Code>, and <Code>suggestedAction</Code>{' '}
+					must each answer a <Bold>different</Bold> question in <Bold>one sentence</Bold>, stating each fact
+					(the symptom, the tool/column/value, the cause, the fix) in exactly <Bold>one</Bold> field. One hard
+					rule:
+				</Span>
+				<List>
+					<ListItem>
+						<Bold>No chat IDs in prose</Bold>: never write a chat/message ID or paste the downvote text into
+						any field — that evidence lives in <Code>triggerRefs</Code> and the counts. Describe the
+						pattern, not the individual chat.
+					</ListItem>
+				</List>
+				<List>
+					<ListItem>
+						<Code>title</Code> — <Bold>WHAT</Bold>: a short label naming the gap (max ~8 words).
+					</ListItem>
+					<ListItem>
+						<Code>summary</Code> — <Bold>IMPACT</Bold>: one sentence on the observable symptom and how
+						often; <Bold>no</Bold> cause, <Bold>no</Bold> fix.
+					</ListItem>
+					<ListItem>
+						<Code>rootCause</Code> — <Bold>WHY</Bold>: one sentence naming the exact sequence (what was or
+						was not read, what mistake followed); do not restate the symptom. Example: &quot;The agent did
+						not read <Code>databases/orders/columns.md</Code>, then wrote a query with a hallucinated column
+						`order_reference`.&quot;
+					</ListItem>
+					<ListItem>
+						<Code>suggestedAction</Code> — <Bold>HOW</Bold>: one imperative sentence naming the file and the
+						change; do not re-explain the problem.
+					</ListItem>
+				</List>
+			</Block>
+
 			<Title level={2}>Persona</Title>
 			<List>
 				<ListItem>

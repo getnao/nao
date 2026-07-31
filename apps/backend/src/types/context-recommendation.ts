@@ -1,5 +1,8 @@
 import type { RepoProvider } from '@nao/shared/types';
 
+export const CONTEXT_RECOMMENDATION_CATEGORIES = ['tool_error', 'hallucination', 'semantic_missing', 'other'] as const;
+export type ContextRecommendationCategory = (typeof CONTEXT_RECOMMENDATION_CATEGORIES)[number];
+
 export const CONTEXT_RECOMMENDATION_RUN_STATUSES = ['running', 'completed', 'failed', 'cancelled'] as const;
 export type ContextRecommendationRunStatus = (typeof CONTEXT_RECOMMENDATION_RUN_STATUSES)[number];
 
@@ -41,11 +44,16 @@ export const CONTEXT_RECOMMENDATION_SIGNAL_TYPES = [
 ] as const;
 export type ContextRecommendationSignalType = (typeof CONTEXT_RECOMMENDATION_SIGNAL_TYPES)[number];
 
+export interface TriggerRef {
+	chatId: string;
+	targetId?: string;
+}
+
 export interface RecommendationInsight {
 	signalType: ContextRecommendationSignalType;
 	metric: string;
 	count: number;
-	exampleChatIds?: string[];
+	triggerRefs?: TriggerRef[];
 	snippet?: string;
 }
 
@@ -53,6 +61,16 @@ export interface RecommendationImpact {
 	affectedChats: number;
 	failureShare: number;
 }
+
+export const CONTEXT_RECOMMENDATION_ROOT_CAUSE_KINDS = [
+	'context_missing',
+	'context_wrong',
+	'context_not_retrieved',
+] as const;
+export type ContextRecommendationRootCauseKind = (typeof CONTEXT_RECOMMENDATION_ROOT_CAUSE_KINDS)[number];
+
+export const CONTEXT_RECOMMENDATION_FIX_TARGETS = ['rules', 'data_model', 'doc', 'skill', 'metric'] as const;
+export type ContextRecommendationFixTarget = (typeof CONTEXT_RECOMMENDATION_FIX_TARGETS)[number];
 
 export const CONTEXT_RECOMMENDATION_FIX_KINDS = ['patch', 'manual'] as const;
 export type ContextRecommendationFixKind = (typeof CONTEXT_RECOMMENDATION_FIX_KINDS)[number];

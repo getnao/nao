@@ -8,6 +8,7 @@
 		"./llm": "./src/types/llm.ts",
 		"./memory": "./src/types/memory.ts",
 		"./saved-prompts": "./src/types/saved-prompt.ts",
+		"./context-recommendation": "./src/types/context-recommendation.ts",
 		"./tools": "./src/agents/tools/index.ts",
 		"./providers": "./src/agents/providers.ts",
 		"./log": "./src/types/log.ts",

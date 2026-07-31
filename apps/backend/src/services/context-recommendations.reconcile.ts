@@ -1,6 +1,9 @@
 import { createHash } from 'crypto';
 
 import {
+	ContextRecommendationCategory,
+	ContextRecommendationFixTarget,
+	ContextRecommendationRootCauseKind,
 	ContextRecommendationSeverity,
 	ContextRecommendationStatus,
 	RecommendationImpact,
@@ -12,6 +15,10 @@ export interface ProposedFinding {
 	suggestedFile: string;
 	subjectKey: string;
 	severity: ContextRecommendationSeverity;
+	category: ContextRecommendationCategory;
+	rootCause: string;
+	rootCauseKind?: ContextRecommendationRootCauseKind;
+	fixTarget?: ContextRecommendationFixTarget;
 	title: string;
 	summary: string;
 	suggestedAction: string;
@@ -58,7 +65,7 @@ export function computeImpact(
 	insights: RecommendationInsight[],
 	totals: WindowTotals,
 ): { impact: RecommendationImpact; impactScore: number } {
-	const affectedChats = new Set(insights.flatMap((insight) => insight.exampleChatIds ?? [])).size;
+	const affectedChats = new Set(insights.flatMap((insight) => insight.triggerRefs?.map((r) => r.chatId) ?? [])).size;
 	const findingCount = insights.reduce((sum, insight) => sum + insight.count, 0);
 	const totalFriction = totals.errors + totals.downvotes + totals.regenerations;
 	const failureShare = totalFriction === 0 ? 0 : Math.min(1, findingCount / totalFriction);

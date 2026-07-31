@@ -8,6 +8,7 @@ import {
 	GitPullRequest,
 	GitPullRequestClosed,
 	Loader2,
+	MessageSquare,
 	MoreHorizontal,
 	ScrollText,
 	Wand2,
@@ -16,7 +17,9 @@ import { useMemo, useState } from 'react';
 import { pluralize } from '@nao/shared';
 import type { inferRouterOutputs } from '@trpc/server';
 
+import type { ContextRecommendationSignalType } from '@nao/backend/context-recommendation';
 import type { TrpcRouter } from '@nao/backend/trpc';
+import type { ReplayHighlight } from '@/components/settings/usage-route-search';
 import { RecommendationDiffPanel } from '@/components/side-panel/recommendation-diff-panel';
 import { RecommendationManualFixPanel } from '@/components/side-panel/recommendation-manual-fix-panel';
 import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
@@ -51,14 +54,58 @@ const STATUS_LABEL = {
 	dismissed: 'Dismissed',
 } as const;
 
-function exampleChatIds(insights: { exampleChatIds?: string[] }[] | null): string[] {
-	const ids = new Set<string>();
+interface ChatLink {
+	chatId: string;
+	targetId?: string;
+	highlight?: ReplayHighlight;
+}
+
+function replayHighlightFor(
+	signalType: ContextRecommendationSignalType | null | undefined,
+): ReplayHighlight | undefined {
+	if (signalType === 'tool_error') {
+		return 'tool-error';
+	}
+	if (
+		signalType === 'downvote_theme' ||
+		signalType === 'repeated_correction' ||
+		signalType === 'friction' ||
+		signalType === 'coverage_gap'
+	) {
+		return 'feedback';
+	}
+	return undefined;
+}
+
+type InsightLike = {
+	signalType: ContextRecommendationSignalType;
+	triggerRefs?: { chatId: string; targetId?: string }[];
+};
+
+function chatLinks(insights: InsightLike[] | null): ChatLink[] {
+	const seen = new Set<string>();
+	const links: ChatLink[] = [];
 	for (const insight of insights ?? []) {
-		for (const id of insight.exampleChatIds ?? []) {
-			ids.add(id);
+		const highlight = replayHighlightFor(insight.signalType);
+		for (const ref of insight.triggerRefs ?? []) {
+			if (!seen.has(ref.chatId)) {
+				seen.add(ref.chatId);
+				links.push({ chatId: ref.chatId, targetId: ref.targetId, highlight });
+			}
 		}
 	}
-	return [...ids];
+	return links;
+}
+
+function initials(name: string): string {
+	const parts = name.trim().split(/\s+/).filter(Boolean);
+	if (parts.length === 0) {
+		return '?';
+	}
+	if (parts.length === 1) {
+		return parts[0].slice(0, 1).toUpperCase();
+	}
+	return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
 interface RecommendationCardProps {
@@ -74,12 +121,23 @@ export function RecommendationCard({
 	isPending,
 	defaultCollapsed = false,
 }: RecommendationCardProps) {
-	const chatIds = exampleChatIds(rec.insights);
+	const allLinks = useMemo(() => chatLinks(rec.insights), [rec.insights]);
+	const links = useMemo(() => allLinks.slice(0, 5), [allLinks]);
+	const hiddenLinkCount = allLinks.length - links.length;
+	const chatIds = useMemo(() => links.map((l) => l.chatId), [links]);
 	const queryClient = useQueryClient();
 	const sidePanel = useSidePanel();
 	const [collapsed, setCollapsed] = useRecommendationCollapsed(rec.id, defaultCollapsed);
 	const [expanded, setExpanded] = useState(false);
 	const createdAgo = useTimeAgo(new Date(rec.createdAt).getTime());
+
+	const chatMetadata = useQuery({
+		...trpc.contextRecommendation.listRecoTriggerChatMetadata.queryOptions({
+			chatIds: chatIds.slice(0, 5),
+		}),
+		enabled: chatIds.length > 0 && !collapsed,
+		staleTime: 60_000,
+	});
 
 	const createPr = useMutation(
 		trpc.contextRecommendation.createPullRequest.mutationOptions({
@@ -195,9 +253,9 @@ export function RecommendationCard({
 				<div className='overflow-hidden'>
 					<CardContent className='flex flex-col gap-2 pt-2 text-sm'>
 						<p className={cn('text-muted-foreground', !expanded && 'line-clamp-2')}>{rec.summary}</p>
-						{expanded && (
+						{expanded && rec.rootCause && (
 							<p>
-								<span className='font-medium'>Fix:</span> {rec.suggestedAction}
+								<span className='font-medium'>Root cause:</span> {rec.rootCause}
 							</p>
 						)}
 						<button
@@ -218,26 +276,50 @@ export function RecommendationCard({
 							</TooltipProvider>
 							{rec.llmModelId && <span aria-hidden>•</span>}
 							{rec.llmModelId && <span>Proposed by {rec.llmModelId}</span>}
-							{chatIds.length > 0 && <span aria-hidden>•</span>}
-							{chatIds.length > 0 && (
-								<span className='flex flex-wrap items-center gap-2 text-xs'>
-									<span className='text-muted-foreground'>
-										Found in {chatIds.length} {pluralize('chat', chatIds.length)}:
-									</span>
-									{chatIds.slice(0, 5).map((chatId) => (
-										<Link
-											key={chatId}
-											to='/settings/usage/replay/$chatId'
-											params={{ chatId }}
-											search={DEFAULT_USAGE_SEARCH}
-											className='text-primary underline-offset-4 hover:underline'
-										>
-											{chatId.slice(0, 8)}
-										</Link>
-									))}
-								</span>
-							)}
 						</div>
+						{links.length > 0 && (
+							<div className='overflow-hidden rounded-lg border bg-muted/20'>
+								<div className='flex items-center gap-1.5 border-b bg-muted/40 px-2.5 py-1.5 text-xs font-medium text-muted-foreground'>
+									<MessageSquare className='size-3.5 shrink-0' />
+									Triggered by {allLinks.length} {pluralize('chat', allLinks.length)}
+								</div>
+								<div className='divide-y divide-border/60'>
+									{links.map((link) => {
+										const meta = chatMetadata.data?.find((m) => m.chatId === link.chatId);
+										const userName = meta?.userName ?? 'Unknown user';
+										return (
+											<Link
+												key={link.chatId}
+												to='/settings/usage/replay/$chatId'
+												params={{ chatId: link.chatId }}
+												search={{
+													...DEFAULT_USAGE_SEARCH,
+													highlight: link.highlight,
+													targetId: link.targetId,
+												}}
+												className='group flex items-center gap-2.5 px-2.5 py-1.5 text-xs transition-colors hover:bg-muted/60'
+											>
+												<span className='flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-medium text-primary'>
+													{meta?.userName ? initials(meta.userName) : '?'}
+												</span>
+												<span className='w-24 shrink-0 truncate text-muted-foreground'>
+													{userName}
+												</span>
+												<span className='flex-1 truncate font-medium text-foreground group-hover:text-primary'>
+													{meta?.title || link.chatId.slice(0, 8)}
+												</span>
+												<ExternalLink className='size-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100' />
+											</Link>
+										);
+									})}
+									{hiddenLinkCount > 0 && (
+										<div className='px-2.5 py-1.5 text-xs text-muted-foreground'>
+											+{hiddenLinkCount} more {pluralize('chat', hiddenLinkCount)}
+										</div>
+									)}
+								</div>
+							</div>
+						)}
 						{(hasPatch || hasManualFix) && (
 							<div className='flex flex-wrap items-center gap-2 rounded-md border border-dashed bg-muted/30 p-2'>
 								{hasPatch && (
@@ -286,7 +368,7 @@ export function RecommendationCard({
 								{hasManualFix && (
 									<>
 										<span className='text-xs font-medium text-muted-foreground'>
-											Needs a manual fix (auto-generated file)
+											Apply this fix manually
 										</span>
 										<Button
 											size='sm'

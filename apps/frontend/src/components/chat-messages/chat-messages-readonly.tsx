@@ -2,6 +2,7 @@ import { memo, useMemo } from 'react';
 import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import { filterSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
 import { UserMessageBubble } from './user-message';
+import type { StickToBottomContext } from 'use-stick-to-bottom';
 import type { ForkMetadata, UIMessage } from '@nao/backend/chat';
 import { SelectionCitationExcerpt } from '@/components/selection-citation-excerpt';
 import { checkAssistantMessageHasContent, groupMessages, groupToolCalls } from '@/lib/ai';
@@ -21,10 +22,12 @@ export function ChatMessagesReadonly({
 	messages,
 	className,
 	forkMetadata,
+	conversationContextRef,
 }: {
 	messages: UIMessage[];
 	className?: string;
 	forkMetadata?: ForkMetadata;
+	conversationContextRef?: React.Ref<StickToBottomContext>;
 }) {
 	const messageGroups = useMemo(() => groupMessages(filterSupersededExecuteSqlParts(messages)), [messages]);
 
@@ -44,7 +47,7 @@ export function ChatMessagesReadonly({
 
 	return (
 		<div className={cn('h-full min-h-0 flex', className)}>
-			<Conversation>
+			<Conversation contextRef={conversationContextRef}>
 				<ConversationContent className='max-w-3xl mx-auto gap-0' data-selection-container>
 					{messageGroups.length === 0 ? (
 						<ConversationEmptyState title='No messages' description='' />
@@ -105,7 +108,7 @@ const MessageBlockReadonly = ({
 
 const UserMessageReadonly = memo(({ message }: { message: UIMessage }) => {
 	return (
-		<div className='flex flex-col gap-2 items-end w-full p-2'>
+		<div className='flex flex-col gap-2 items-end w-full p-2' data-replay-target-id={message.id}>
 			<UserMessageBubble message={message} />
 		</div>
 	);
@@ -126,7 +129,7 @@ const AssistantMessageReadonly = memo(({ message }: { message: UIMessage }) => {
 
 	return (
 		<AssistantMessageProvider isSettled={true}>
-			<div className={cn('group px-3 flex flex-col gap-2 bg-transparent')}>
+			<div className={cn('group px-3 flex flex-col gap-2 bg-transparent')} data-replay-target-id={message.id}>
 				<MessageParts parts={messageParts} />
 
 				{message.feedback && (
