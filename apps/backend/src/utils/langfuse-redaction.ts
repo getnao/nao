@@ -1,142 +1,43 @@
 import type { Attributes, Context } from '@opentelemetry/api';
 import type { ReadableSpan, Span, SpanProcessor } from '@opentelemetry/sdk-trace-node';
 
-export const REDACTED_DATA_TOOL_NAMES: ReadonlySet<string> = new Set(['execute_sql', 'read_query_result']);
+const REDACTED_DATA_TOOL_NAMES = new Set(['execute_sql', 'read_query_result']);
+const JSON_ATTRIBUTE_NAMES = ['ai.prompt', 'ai.prompt.messages', 'ai.response.toolCalls'];
+const TOOL_PAYLOAD_KEYS = ['input', 'args', 'output', 'result'];
+const TOOL_SPAN_PAYLOAD_KEYS = ['ai.toolCall.args', 'ai.toolCall.result'];
+const EXCEPTION_DETAIL_KEYS = ['exception.message', 'exception.stacktrace'];
 export const LANGFUSE_REDACTION_PLACEHOLDER = '[redacted]';
 
 type JsonObject = Record<string, unknown>;
-type JsonRedactor = (value: unknown) => boolean;
 
 export function redactDataToolAttributes(attributes: Attributes): void {
-	redactToolSpanAttributes(attributes);
-	redactJsonAttribute(attributes, 'ai.prompt.messages', redactMessages);
-	redactJsonAttribute(attributes, 'ai.prompt', redactPrompt);
-	redactJsonAttribute(attributes, 'ai.response.toolCalls', redactResponseToolCalls);
+	if (REDACTED_DATA_TOOL_NAMES.has(attributes['ai.toolCall.name'] as string)) {
+		redactKeys(attributes, TOOL_SPAN_PAYLOAD_KEYS);
+	}
+	for (const attributeName of JSON_ATTRIBUTE_NAMES) {
+		redactJsonAttribute(attributes, attributeName);
+	}
 }
 
 export class DataToolRedactingSpanProcessor implements SpanProcessor {
 	constructor(private readonly delegate: SpanProcessor) {}
-
 	onStart(span: Span, parentContext: Context): void {
 		this.delegate.onStart(span, parentContext);
 	}
-
 	onEnd(span: ReadableSpan): void {
 		redactDataToolAttributes(span.attributes);
 		redactToolSpanExceptions(span);
 		this.delegate.onEnd(span);
 	}
-
 	forceFlush(): Promise<void> {
 		return this.delegate.forceFlush();
 	}
-
 	shutdown(): Promise<void> {
 		return this.delegate.shutdown();
 	}
 }
 
-function redactToolSpanAttributes(attributes: Attributes): void {
-	if (!isRedactedToolName(attributes['ai.toolCall.name'])) {
-		return;
-	}
-
-	redactAttributeIfPresent(attributes, 'ai.toolCall.args');
-	redactAttributeIfPresent(attributes, 'ai.toolCall.result');
-}
-
-function redactPrompt(value: unknown): boolean {
-	if (!isJsonObject(value)) {
-		return false;
-	}
-
-	return redactMessages(value.messages);
-}
-
-function redactMessages(value: unknown): boolean {
-	if (!Array.isArray(value)) {
-		return false;
-	}
-
-	let wasRedacted = false;
-	for (const message of value) {
-		if (!isJsonObject(message) || !Array.isArray(message.content)) {
-			continue;
-		}
-
-		for (const part of message.content) {
-			wasRedacted = redactMessagePart(part) || wasRedacted;
-		}
-	}
-
-	return wasRedacted;
-}
-
-function redactMessagePart(value: unknown): boolean {
-	if (!isJsonObject(value) || !isRedactedToolName(value.toolName)) {
-		return false;
-	}
-
-	if (value.type === 'tool-call') {
-		return redactToolInput(value);
-	}
-
-	if (value.type === 'tool-result') {
-		return redactToolOutput(value);
-	}
-
-	return false;
-}
-
-function redactResponseToolCalls(value: unknown): boolean {
-	if (!Array.isArray(value)) {
-		return false;
-	}
-
-	let wasRedacted = false;
-	for (const toolCall of value) {
-		if (isJsonObject(toolCall) && isRedactedToolName(toolCall.toolName)) {
-			wasRedacted = redactToolInput(toolCall) || wasRedacted;
-		}
-	}
-
-	return wasRedacted;
-}
-
-function redactToolInput(toolCall: JsonObject): boolean {
-	let wasRedacted = false;
-
-	if (hasOwn(toolCall, 'input')) {
-		toolCall.input = LANGFUSE_REDACTION_PLACEHOLDER;
-		wasRedacted = true;
-	}
-	if (hasOwn(toolCall, 'args')) {
-		toolCall.args = LANGFUSE_REDACTION_PLACEHOLDER;
-		wasRedacted = true;
-	}
-
-	return wasRedacted;
-}
-
-function redactToolOutput(toolResult: JsonObject): boolean {
-	let wasRedacted = false;
-
-	if (hasOwn(toolResult, 'output')) {
-		toolResult.output = {
-			type: 'text',
-			value: LANGFUSE_REDACTION_PLACEHOLDER,
-		};
-		wasRedacted = true;
-	}
-	if (hasOwn(toolResult, 'result')) {
-		toolResult.result = LANGFUSE_REDACTION_PLACEHOLDER;
-		wasRedacted = true;
-	}
-
-	return wasRedacted;
-}
-
-function redactJsonAttribute(attributes: Attributes, attributeName: string, redact: JsonRedactor): void {
+function redactJsonAttribute(attributes: Attributes, attributeName: string): void {
 	const rawValue = attributes[attributeName];
 	if (typeof rawValue !== 'string') {
 		return;
@@ -144,55 +45,51 @@ function redactJsonAttribute(attributes: Attributes, attributeName: string, reda
 
 	try {
 		const value = JSON.parse(rawValue) as unknown;
-		if (redact(value)) {
+		if (redactJsonValue(value)) {
 			attributes[attributeName] = JSON.stringify(value);
 		}
 	} catch {
-		if (containsRedactedToolName(rawValue)) {
+		if ([...REDACTED_DATA_TOOL_NAMES].some((toolName) => rawValue.includes(toolName))) {
 			attributes[attributeName] = LANGFUSE_REDACTION_PLACEHOLDER;
 		}
 	}
 }
 
+function redactJsonValue(value: unknown): boolean {
+	if (typeof value !== 'object' || value === null) {
+		return false;
+	}
+
+	const object = value as JsonObject;
+	let wasRedacted =
+		!Array.isArray(value) &&
+		REDACTED_DATA_TOOL_NAMES.has(object.toolName as string) &&
+		redactKeys(object, TOOL_PAYLOAD_KEYS);
+	for (const nestedValue of Array.isArray(value) ? value : Object.values(object)) {
+		wasRedacted = redactJsonValue(nestedValue) || wasRedacted;
+	}
+	return wasRedacted;
+}
+
 function redactToolSpanExceptions(span: ReadableSpan): void {
-	if (!isRedactedToolName(span.attributes['ai.toolCall.name'])) {
+	if (!REDACTED_DATA_TOOL_NAMES.has(span.attributes['ai.toolCall.name'] as string)) {
 		return;
 	}
 
 	for (const event of span.events) {
-		if (!event.attributes) {
-			continue;
-		}
-
-		redactAttributeIfPresent(event.attributes, 'exception.message');
-		redactAttributeIfPresent(event.attributes, 'exception.stacktrace');
-	}
-}
-
-function redactAttributeIfPresent(attributes: Attributes, attributeName: string): void {
-	if (hasOwn(attributes, attributeName)) {
-		attributes[attributeName] = LANGFUSE_REDACTION_PLACEHOLDER;
-	}
-}
-
-function containsRedactedToolName(value: string): boolean {
-	for (const toolName of REDACTED_DATA_TOOL_NAMES) {
-		if (value.includes(toolName)) {
-			return true;
+		if (event.attributes) {
+			redactKeys(event.attributes, EXCEPTION_DETAIL_KEYS);
 		}
 	}
-
-	return false;
 }
 
-function isRedactedToolName(value: unknown): value is string {
-	return typeof value === 'string' && REDACTED_DATA_TOOL_NAMES.has(value);
-}
-
-function isJsonObject(value: unknown): value is JsonObject {
-	return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function hasOwn(value: object, key: string): boolean {
-	return Object.prototype.hasOwnProperty.call(value, key);
+function redactKeys(value: JsonObject, keys: string[]): boolean {
+	let wasRedacted = false;
+	for (const key of keys) {
+		if (Object.hasOwn(value, key)) {
+			value[key] = LANGFUSE_REDACTION_PLACEHOLDER;
+			wasRedacted = true;
+		}
+	}
+	return wasRedacted;
 }

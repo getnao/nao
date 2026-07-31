@@ -121,10 +121,7 @@ describe('redactDataToolAttributes', () => {
 		expect(sanitizedMessages[0]).toEqual(messages[0]);
 		expect(assistantContent?.[0]?.input).toBe(LANGFUSE_REDACTION_PLACEHOLDER);
 		expect(assistantContent?.[1]).toEqual(messages[1]?.content[1]);
-		expect(toolContent?.[0]?.output).toEqual({
-			type: 'text',
-			value: LANGFUSE_REDACTION_PLACEHOLDER,
-		});
+		expect(toolContent?.[0]?.output).toBe(LANGFUSE_REDACTION_PLACEHOLDER);
 
 		const sanitizedResponseToolCalls = JSON.parse(
 			attributes['ai.response.toolCalls'] as string,
