@@ -1,7 +1,14 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PROVIDER_META } from '@nao/backend/provider-meta';
-import { LLM_PROVIDERS, NAMED_PROVIDER_KIND, providerKind, toNamedProvider, toProviderName } from '@nao/shared/types';
+import {
+	LLM_PROVIDERS,
+	NAMED_PROVIDER_KIND,
+	providerKind,
+	providerName,
+	toNamedProvider,
+	toProviderName,
+} from '@nao/shared/types';
 import type { CustomModelMetadata, ModelSettingsMap } from '@nao/backend/llm';
 import type { LlmProvider, LlmProviderKind } from '@nao/shared/types';
 import type { InheritedKeySource } from '@/components/settings/llm-provider-form';
@@ -49,6 +56,11 @@ export function useLlmProviders() {
 				!configProviders.some((c) => c.provider === p)),
 	);
 
+	// Names already in use, so that adding an endpoint cannot silently overwrite one of them.
+	const takenProviderNames = [...projectConfiguredProviders, ...configProviders.map((c) => c.provider)]
+		.map(providerName)
+		.filter((name): name is string => name !== null);
+
 	const unconfiguredEnvProviders = envProviders.filter((p) => !projectConfiguredProviders.includes(p));
 
 	const unconfiguredConfigProviders = configProviders.filter((c) => !projectConfiguredProviders.includes(c.provider));
@@ -90,8 +102,14 @@ export function useLlmProviders() {
 			return;
 		}
 
+		const provider = resolveSubmittedProvider(editingState.provider, values.name);
+		const name = providerName(provider);
+		if (!editingState.isEditing && name && takenProviderNames.includes(name)) {
+			throw new Error(`An endpoint named '${name}' already exists`);
+		}
+
 		await upsertLlmConfig.mutateAsync({
-			provider: resolveSubmittedProvider(editingState.provider, values.name),
+			provider,
 			apiKey: values.apiKey,
 			credentials: values.credentials,
 			enabledModels: values.enabledModels,
@@ -191,6 +209,7 @@ export function useLlmProviders() {
 		envProviders,
 		envBaseUrls,
 		availableProvidersToAdd,
+		takenProviderNames,
 		unconfiguredEnvProviders,
 		unconfiguredConfigProviders,
 		currentModels,

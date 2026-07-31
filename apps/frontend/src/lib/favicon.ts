@@ -81,11 +81,17 @@ function getServiceKey(url?: string | null): string | null {
 	}
 }
 
-/** API hosts such as `api.acme.com` rarely serve an icon, while the domain they belong to does. */
+/**
+ * API hosts such as `api.acme.com` rarely serve an icon, while the domain they belong to does. Only
+ * these subdomains are climbed: dropping any label would reach an unrelated site on the domains that
+ * host a tenant per subdomain, such as `tenant.github.io`.
+ */
+const API_SUBDOMAINS = new Set(['api', 'mcp', 'llm', 'inference', 'gateway']);
+
 function getParentDomainOrigin(protocol: string, hostname: string): string | null {
-	const labels = hostname.split('.');
-	if (labels.length < 3) {
+	const [subdomain, ...parentLabels] = hostname.split('.');
+	if (parentLabels.length < 2 || !API_SUBDOMAINS.has(subdomain)) {
 		return null;
 	}
-	return `${protocol}//${labels.slice(1).join('.')}`;
+	return `${protocol}//${parentLabels.join('.')}`;
 }

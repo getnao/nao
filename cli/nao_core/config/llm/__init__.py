@@ -6,7 +6,7 @@ from typing import Any, Literal
 import questionary
 from pydantic import BaseModel, Field, field_serializer, model_validator
 
-from nao_core.ui import ask_confirm, ask_select, ask_text
+from nao_core.ui import UI, ask_confirm, ask_select, ask_text
 
 
 class LLMProvider(str, Enum):
@@ -114,6 +114,9 @@ OPENAI_COMPATIBLE_PROVIDERS: frozenset[LLMProvider] = frozenset(
     }
 )
 
+"""OpenAI-compatible providers that answer `GET /v1/models` with a 404 instead of a model list."""
+PROVIDERS_WITHOUT_MODEL_LIST: frozenset[LLMProvider] = frozenset({LLMProvider.QWEN, LLMProvider.MINIMAX})
+
 
 DEFAULT_ANNOTATION_MODELS: dict[LLMProvider, str] = {
     LLMProvider.OPENAI: "gpt-4.1-mini",
@@ -153,10 +156,29 @@ def parse_provider(name: str) -> LLMProvider | None:
         return None
 
 
+def parse_provider_id(provider_id: str) -> tuple[LLMProvider, str | None] | None:
+    """Split how a provider is addressed, e.g. `openaiCompatible/my-vllm`, into its kind and name."""
+    kind, _, name = provider_id.partition("/")
+    provider = parse_provider(kind)
+    if provider is None:
+        return None
+    return provider, name or None
+
+
 def normalize_provider_name(value: str) -> str | None:
     """Turn what a user typed into a provider name, or None when nothing usable is left of it."""
     name = re.sub(r"^-+|-+$", "", re.sub(r"[^a-z0-9]+", "-", value.strip().lower()))
     return name if PROVIDER_NAME_PATTERN.match(name) else None
+
+
+def ask_provider_name() -> str:
+    """Ask for an endpoint name until one survives normalization, rather than dropping the answer."""
+    while True:
+        answer = ask_text("Name this endpoint (e.g. my-vllm):", required_field=True) or ""
+        name = normalize_provider_name(answer)
+        if name:
+            return name
+        UI.error(f"'{answer}' leaves no usable name: use lowercase letters, digits and dashes")
 
 
 class ModelCosts(BaseModel):
@@ -316,7 +338,7 @@ class ProviderConfig(BaseModel):
         aws_profile = None
 
         if LLMProvider(llm_provider) is NAMED_PROVIDER:
-            name = normalize_provider_name(ask_text("Name this endpoint (e.g. my-vllm):", required_field=True) or "")
+            name = ask_provider_name()
             base_url = ask_text(
                 "Enter the base URL of the endpoint (e.g. http://localhost:8000/v1):", required_field=True
             )
@@ -396,13 +418,18 @@ class LLMConfig(BaseModel):
         """The provider backing single-provider behaviours such as annotation."""
         return self.providers[0] if self.providers else None
 
-    def provider_config(self, provider: LLMProvider) -> ProviderConfig | None:
+    def provider_config(self, provider: LLMProvider | str) -> ProviderConfig | None:
+        """Find a provider by how it is addressed, e.g. `anthropic` or `openaiCompatible/my-vllm`."""
+        parsed = parse_provider_id(provider.value if isinstance(provider, LLMProvider) else provider)
+        if parsed is None:
+            return None
+        kind, name = parsed
         for candidate in self.providers:
-            if candidate.provider == provider:
+            if candidate.provider == kind and candidate.name == name:
                 return candidate
         return None
 
-    def costs(self, provider: LLMProvider, model_id: str) -> ModelCosts | None:
+    def costs(self, provider: LLMProvider | str, model_id: str) -> ModelCosts | None:
         """Resolve the price of a model, falling back to the deprecated top-level meta.costs."""
         provider_config = self.provider_config(provider)
         model = provider_config.model(model_id) if provider_config else None
@@ -412,16 +439,25 @@ class LLMConfig(BaseModel):
 
     def annotation_target(self) -> tuple[ProviderConfig, str] | None:
         """Resolve the provider and model used by the prompt(...) template helper."""
-        model_id = self.annotation_model
-        if model_id:
-            owner = next((p for p in self.providers if p.model(model_id)), None)
+        target = self.annotation_model
+        if target:
+            owner, model_id = self._annotation_owner(target)
+            owner = owner or next((p for p in self.providers if p.model(model_id)), None)
             if owner:
                 return owner, model_id
 
         primary = self.primary
         if not primary:
             return None
-        return primary, model_id or DEFAULT_ANNOTATION_MODELS.get(primary.provider, "")
+        return primary, target or DEFAULT_ANNOTATION_MODELS.get(primary.provider, "")
+
+    def _annotation_owner(self, target: str) -> tuple[ProviderConfig | None, str]:
+        """Read `openaiCompatible/my-vllm:llama-3`, which tells apart endpoints sharing a model id."""
+        provider_id, separator, model_id = target.partition(":")
+        if not separator:
+            return None, target
+        owner = self.provider_config(provider_id)
+        return (owner, model_id) if owner else (None, target)
 
     @staticmethod
     def uses_legacy_shape(data: Any) -> bool:

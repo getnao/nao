@@ -56,12 +56,12 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
 		group: 'Chat',
 		shortcut: { ctrl: true, key: 'c' },
 	},
+	// Handled by the chat input alone, so that Shift+Tab keeps moving focus everywhere else.
 	{
 		id: 'cycle-model',
 		label: 'Cycle model',
 		group: 'Chat',
 		shortcut: { shift: true, key: 'Tab' },
-		allowInInput: true,
 	},
 ];
 

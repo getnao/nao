@@ -5,7 +5,12 @@ from rich.console import Console
 from rich.table import Table
 
 from nao_core.config import NaoConfig, resolve_project_path
-from nao_core.config.llm import OPENAI_COMPATIBLE_PROVIDERS, PROVIDER_AUTH, ProviderConfig
+from nao_core.config.llm import (
+    OPENAI_COMPATIBLE_PROVIDERS,
+    PROVIDER_AUTH,
+    PROVIDERS_WITHOUT_MODEL_LIST,
+    ProviderConfig,
+)
 from nao_core.tracking import track_command
 
 console = Console()
@@ -69,8 +74,9 @@ def _connection_message(model_count: int, missing: list[str]) -> str:
 def _check_openai_compatible(llm_config: ProviderConfig) -> Tuple[bool, str]:
     """Test a provider that speaks the OpenAI API, falling back to a probe call.
 
-    Some of them (Qwen, MiniMax) do not implement `GET /v1/models`, so a 404 is answered with a
-    one-token completion against the configured model instead.
+    Qwen and MiniMax do not implement `GET /v1/models`, so for them alone a 404 is answered with a
+    one-token completion against the configured model. Every other provider reports the error as-is,
+    so that a wrong endpoint stays visible.
     """
     from nao_core.deps import require_dependency
 
@@ -84,7 +90,7 @@ def _check_openai_compatible(llm_config: ProviderConfig) -> Tuple[bool, str]:
     try:
         models = list(client.models.list())
     except Exception as error:
-        if not _is_not_found(error):
+        if llm_config.provider not in PROVIDERS_WITHOUT_MODEL_LIST or not _is_not_found(error):
             raise
         return _probe_completion(client, llm_config)
 

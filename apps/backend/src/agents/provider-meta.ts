@@ -38,8 +38,6 @@ const OPENAI_5_6_EFFORTS: ReasoningEffort[] = ['off', 'low', 'medium', 'high', '
 /** Kimi K3 reasoning levels: the API accepts low/high/max only. */
 const MOONSHOT_EFFORTS: ReasoningEffort[] = ['off', 'low', 'high', 'max'];
 
-export type ActiveEffort = Exclude<ReasoningEffort, 'off'>;
-
 export const EFFORT_TO_OPENAI: Record<ActiveEffort, string> = {
 	minimal: 'minimal',
 	low: 'low',

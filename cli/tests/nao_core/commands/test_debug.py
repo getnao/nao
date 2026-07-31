@@ -357,6 +357,25 @@ class TestLLMConnection:
             assert "declare a model" in message
             mock_client.chat.completions.create.assert_not_called()
 
+    def test_openai_not_found_is_not_retried_as_a_completion(self):
+        """Only the providers with no model list fall back to a probe, so a wrong endpoint stays visible."""
+        config = ProviderConfig(
+            provider=LLMProvider.OPENAI,
+            api_key="sk-test-api-key",
+            base_url="https://proxy.internal/wrong",
+            models=[ModelConfig(id="gpt-4.1")],
+        )
+        with patch("openai.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_client.models.list.side_effect = Exception("404 page not found")
+            mock_openai_class.return_value = mock_client
+
+            success, message = check_llm_connection(config)
+
+            assert success is False
+            assert "404 page not found" in message
+            mock_client.chat.completions.create.assert_not_called()
+
     def test_openai_compatible_endpoint_is_reached_without_a_key(self):
         """A self-hosted endpoint declares its own URL and often needs no authentication."""
         config = ProviderConfig(provider=LLMProvider.OPENAI_COMPATIBLE, base_url="http://localhost:8000/v1")

@@ -35,6 +35,14 @@ describe('getFaviconCandidates', () => {
 		]);
 	});
 
+	it('keeps a tenant of a hosting domain to its own origin', () => {
+		expect(getFaviconCandidates('https://tenant.github.io/mcp')).toEqual([
+			'https://tenant.github.io/favicon.ico',
+			'https://tenant.github.io/favicon.png',
+			'https://tenant.github.io/apple-touch-icon.png',
+		]);
+	});
+
 	it('preserves the server origin and never calls a third-party favicon API', () => {
 		const candidates = getFaviconCandidates('https://tenant.localhost:3000/path');
 

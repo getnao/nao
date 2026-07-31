@@ -31,6 +31,7 @@ export interface LlmProviderFormProps {
 		baseUrl: string;
 	};
 	currentModels: readonly { id: string; name: string; default?: boolean }[];
+	takenNames?: readonly string[];
 	onSubmit: (values: {
 		apiKey?: string;
 		credentials?: Record<string, string>;
@@ -54,6 +55,7 @@ export function LlmProviderForm({
 	inheritedKeySource,
 	initialValues,
 	currentModels,
+	takenNames = [],
 	onSubmit,
 	onCancel,
 	isPending,
@@ -146,17 +148,22 @@ export function LlmProviderForm({
 		setCustomModelInput('');
 	};
 
+	const nameError = (value: string): string | undefined => {
+		const normalized = toProviderName(value);
+		if (!value) {
+			return undefined;
+		}
+		if (!normalized) {
+			return 'Name this endpoint with letters, digits and dashes.';
+		}
+		return takenNames.includes(normalized) ? `An endpoint named ${normalized} already exists.` : undefined;
+	};
+
 	const nameField = (
-		<form.Field
-			name='name'
-			validators={{
-				onChange: ({ value }: { value: string }) =>
-					value && !toProviderName(value) ? 'Use letters, digits and dashes' : undefined,
-			}}
-		>
+		<form.Field name='name' validators={{ onChange: ({ value }: { value: string }) => nameError(value) }}>
 			{(field) => {
 				const normalized = toProviderName(field.state.value);
-				const invalid = field.state.value !== '' && !normalized;
+				const invalid = nameError(field.state.value);
 				return (
 					<div className='grid gap-2'>
 						<label htmlFor='provider-name' className='text-sm font-medium text-foreground'>
@@ -172,11 +179,10 @@ export function LlmProviderForm({
 							placeholder='e.g., my-vllm'
 						/>
 						<p className={`text-xs ${invalid ? 'text-destructive' : 'text-muted-foreground'}`}>
-							{invalid
-								? 'Name this endpoint with letters, digits and dashes.'
-								: normalized
+							{invalid ??
+								(normalized
 									? `Models of this endpoint are listed under ${normalized}.`
-									: 'How this endpoint is named across the app, so you can add several of them.'}
+									: 'How this endpoint is named across the app, so you can add several of them.')}
 						</p>
 					</div>
 				);

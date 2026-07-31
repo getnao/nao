@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from 'react';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { Settings, TriangleAlert } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
@@ -8,7 +8,11 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { isSameModel, useModelSelection } from '@/hooks/use-model-selection';
 import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
 
+/** Listed as an option rather than a link, so that the keyboard reaches it like any other. */
+const MANAGE_MODELS_VALUE = 'manage-models';
+
 export function ChatInputModelSelect() {
+	const navigate = useNavigate();
 	const { isAdmin } = usePermissions();
 	const { availableModels, selectedModel, setSelectedModel, isPending, canCycleModels } = useModelSelection();
 
@@ -25,12 +29,16 @@ export function ChatInputModelSelect() {
 
 	const handleModelValueChange = useCallback(
 		(value: string) => {
+			if (value === MANAGE_MODELS_VALUE) {
+				navigate({ to: '/settings/project/models' });
+				return;
+			}
 			const model = availableModels?.find((m) => `${m.provider}:${m.modelId}` === value);
 			if (model) {
 				setSelectedModel(model);
 			}
 		},
-		[availableModels, setSelectedModel],
+		[availableModels, navigate, setSelectedModel],
 	);
 
 	const selectedModelName = selectedModel
@@ -104,13 +112,10 @@ export function ChatInputModelSelect() {
 				{isAdmin && (
 					<>
 						<SelectSeparator />
-						<Link
-							to='/settings/project/models'
-							className='flex w-full items-center gap-2 rounded-sm py-1 pr-8 pl-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-						>
+						<SelectItem value={MANAGE_MODELS_VALUE} className='text-muted-foreground'>
 							<Settings className='size-4' />
 							Manage models
-						</Link>
+						</SelectItem>
 					</>
 				)}
 			</SelectContent>

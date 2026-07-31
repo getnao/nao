@@ -5,6 +5,7 @@ import { CronExpressionParser } from 'cron-parser';
 import { disableModelReasoning, getProviderMeta, type ProviderModelResult } from '../agents/providers';
 import { llmTelemetry } from '../agents/telemetry';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
+import { sanitizeCron } from '../utils/cron';
 import { resolveProviderModel } from '../utils/llm';
 
 /** Reasoning models spend most of the budget thinking before writing the expression. */
@@ -36,10 +37,7 @@ export async function naturalLanguageToCron(projectId: string, text: string): Pr
 			experimental_telemetry: llmTelemetry('nao-cron-nlp', { projectId }),
 		});
 
-		const cron = answer
-			.trim()
-			.replace(/^`+|`+$/g, '')
-			.trim();
+		const cron = sanitizeCron(answer);
 		if (!cron) {
 			return null;
 		}

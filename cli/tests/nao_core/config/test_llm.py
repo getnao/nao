@@ -177,6 +177,31 @@ def test_costs_are_resolved_per_model():
     assert config.costs(LLMProvider.ANTHROPIC, "gpt-4.1") is None
 
 
+def test_costs_are_resolved_for_a_named_endpoint():
+    """A test run priced against `openaiCompatible/prod` must find the prices declared under it."""
+    config = LLMConfig(
+        providers=[
+            ProviderConfig(
+                provider=LLMProvider.OPENAI_COMPATIBLE,
+                name="prod",
+                base_url="http://prod:8000/v1",
+                models=[ModelConfig(id="llama-3", costs=ModelCosts(input_no_cache=1, output=3))],
+            ),
+            ProviderConfig(
+                provider=LLMProvider.OPENAI_COMPATIBLE,
+                name="staging",
+                base_url="http://stg:8000/v1",
+                models=[ModelConfig(id="llama-3", costs=ModelCosts(input_no_cache=5, output=9))],
+            ),
+        ]
+    )
+
+    priced = config.costs("openaiCompatible/prod", "llama-3")
+    assert priced is not None
+    assert priced.input_no_cache == 1
+    assert priced.output == 3
+
+
 def test_costs_fall_back_to_deprecated_meta():
     config = LLMConfig.model_validate(
         {
@@ -207,6 +232,50 @@ def test_annotation_target_prefers_the_provider_owning_the_model():
     provider_config, model_id = target
     assert provider_config.provider == LLMProvider.ANTHROPIC
     assert model_id == "claude-haiku-4-5"
+
+
+def test_annotation_target_can_name_the_endpoint_a_model_comes_from():
+    """Endpoints sharing a model id are told apart by `<provider id>:<model id>`."""
+    config = LLMConfig(
+        providers=[
+            ProviderConfig(
+                provider=LLMProvider.OPENAI_COMPATIBLE,
+                name="prod",
+                base_url="http://prod:8000/v1",
+                models=[ModelConfig(id="llama-3")],
+            ),
+            ProviderConfig(
+                provider=LLMProvider.OPENAI_COMPATIBLE,
+                name="staging",
+                base_url="http://stg:8000/v1",
+                models=[ModelConfig(id="llama-3")],
+            ),
+        ],
+        annotation_model="openaiCompatible/staging:llama-3",
+    )
+
+    target = config.annotation_target()
+    assert target is not None
+    provider_config, model_id = target
+    assert provider_config.name == "staging"
+    assert model_id == "llama-3"
+
+
+def test_annotation_target_keeps_a_model_id_holding_a_colon():
+    config = LLMConfig(
+        providers=[
+            ProviderConfig(
+                provider=LLMProvider.OLLAMA,
+                models=[ModelConfig(id="llama3.2:latest")],
+            )
+        ],
+        annotation_model="llama3.2:latest",
+    )
+
+    target = config.annotation_target()
+    assert target is not None
+    _, model_id = target
+    assert model_id == "llama3.2:latest"
 
 
 def test_annotation_target_falls_back_to_the_primary_provider():

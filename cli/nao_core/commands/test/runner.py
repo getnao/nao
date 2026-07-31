@@ -12,7 +12,7 @@ import pandas as pd
 from cyclopts import Parameter
 
 from nao_core.config import NaoConfig, resolve_project_path
-from nao_core.config.llm import ModelCosts, parse_provider
+from nao_core.config.llm import ModelCosts
 from nao_core.config.test import ComparisonConfig, TestConfig
 from nao_core.ui import UI
 
@@ -278,10 +278,7 @@ def resolve_model_costs(config: NaoConfig, model: ModelConfig) -> ModelCosts | N
     if not config.llm:
         return None
 
-    provider = parse_provider(model.provider)
-    if not provider:
-        return config.llm.meta.costs if config.llm.meta else None
-    return config.llm.costs(provider, model.model_id)
+    return config.llm.costs(model.provider, model.model_id)
 
 
 def save_results(results: list[TestRunResult], output_dir: Path) -> Path:

@@ -14,6 +14,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 		envProviders,
 		envBaseUrls,
 		availableProvidersToAdd,
+		takenProviderNames,
 		unconfiguredEnvProviders,
 		unconfiguredConfigProviders,
 		currentModels,
@@ -180,6 +181,7 @@ export function LlmProvidersSection({ isAdmin }: LlmProvidersSectionProps) {
 							isEditing={false}
 							inheritedKeySource={editingState.inheritedKeySource}
 							currentModels={currentModels}
+							takenNames={takenProviderNames}
 							onSubmit={handleSubmit}
 							onCancel={handleCancel}
 							isPending={upsertPending}
