@@ -24,6 +24,9 @@ const GITIGNORE_CONTENT = '# nao: discovered MCP tool specs (generated at runtim
 
 type DisabledSets = { servers: Set<string>; tools: Set<string> };
 
+/** A runtime paired with the servers registered on it, so the two can never describe different instances. */
+type RuntimeSession = { runtime: Runtime; registered: Set<string> };
+
 /** Thrown when `mcp_call` arguments do not match the target tool's discovered input schema. */
 export class McpArgsValidationError extends Error {
 	constructor(
@@ -68,10 +71,8 @@ export class McpService {
 	private _projectPath = '';
 	private _mcpJsonFilePath = '';
 	private _mcpServers: Record<string, McpServerConfig> = {};
-	private _runtime: Runtime | null = null;
-	/** In-flight createRuntime() shared by concurrent callers so they don't each build a runtime. */
-	private _runtimePromise: Promise<Runtime> | null = null;
-	private _registered = new Set<string>();
+	/** In-flight session shared by concurrent callers so they don't each build a runtime. */
+	private _runtimePromise: Promise<RuntimeSession> | null = null;
 	/** Full tool list per server from the last successful discovery this session. */
 	private _discovered: Record<string, McpToolDefinition[]> = {};
 	/** Cached per-server flag for whether the server is OAuth-protected. */
@@ -242,11 +243,8 @@ export class McpService {
 	}
 
 	private async _callToolMcporter(server: string, tool: string, args: Record<string, unknown>): Promise<unknown> {
-		await this._ensureRegistered(server);
-		if (!this._runtime) {
-			throw new Error('MCP runtime not initialized');
-		}
-		return this._runtime.callTool(server, tool, { args });
+		const runtime = await this._ensureRegistered(server);
+		return runtime.callTool(server, tool, { args });
 	}
 
 	private async _callToolOAuth(opts: {
@@ -399,9 +397,7 @@ export class McpService {
 	}
 
 	private _resetRuntime(): void {
-		this._runtime = null;
 		this._runtimePromise = null;
-		this._registered = new Set();
 		this._oauth = {};
 		this._validators.clear();
 	}
@@ -507,11 +503,8 @@ export class McpService {
 			});
 		}
 
-		await this._ensureRegistered(name);
-		if (!this._runtime) {
-			throw new Error('MCP runtime not initialized');
-		}
-		const tools = await this._runtime.listTools(name, { includeSchema: true });
+		const runtime = await this._ensureRegistered(name);
+		const tools = await runtime.listTools(name, { includeSchema: true });
 		return tools.map((tool) => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema }));
 	}
 
@@ -659,35 +652,36 @@ export class McpService {
 	}
 
 	/**
-	 * Concurrent discoveries share one memoized runtime creation; a reload can replace
-	 * it mid-flight, so callers only clear or publish a promise that is still current.
+	 * Registers a server on the current session and hands back the runtime it was registered on,
+	 * so callers act on that exact instance instead of re-reading a field a reload may have swapped.
 	 */
-	private async _ensureRegistered(name: string): Promise<void> {
-		while (!this._runtime) {
-			if (!this._runtimePromise) {
-				const creation = createRuntime().catch((error) => {
+	private async _ensureRegistered(name: string): Promise<Runtime> {
+		const config = this._mcpServers[name];
+		if (!config) {
+			throw new Error(`MCP server "${name}" is not configured.`);
+		}
+		const session = await this._session();
+		if (!session.registered.has(name)) {
+			session.runtime.registerDefinition(this._toServerDefinition(name, config), { overwrite: true });
+			session.registered.add(name);
+		}
+		return session.runtime;
+	}
+
+	/** Memoizes the in-flight session so concurrent callers share one runtime instead of each building their own. */
+	private _session(): Promise<RuntimeSession> {
+		if (!this._runtimePromise) {
+			const creation = createRuntime()
+				.then((runtime) => ({ runtime, registered: new Set<string>() }))
+				.catch((error) => {
 					if (this._runtimePromise === creation) {
 						this._runtimePromise = null;
 					}
 					throw error;
 				});
-				this._runtimePromise = creation;
-			}
-			const pending = this._runtimePromise;
-			const runtime = await pending;
-			if (this._runtimePromise === pending) {
-				this._runtime = runtime;
-			}
+			this._runtimePromise = creation;
 		}
-		if (this._registered.has(name)) {
-			return;
-		}
-		const config = this._mcpServers[name];
-		if (!config) {
-			throw new Error(`MCP server "${name}" is not configured.`);
-		}
-		this._runtime.registerDefinition(this._toServerDefinition(name, config), { overwrite: true });
-		this._registered.add(name);
+		return this._runtimePromise;
 	}
 
 	private _toServerDefinition(name: string, config: McpServerConfig): ServerDefinition {
