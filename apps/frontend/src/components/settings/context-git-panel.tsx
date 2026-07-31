@@ -723,7 +723,7 @@ function ChangedFiles({
 					</Button>
 				</div>
 			) : files.length === 0 ? (
-				<p className='px-2 py-1 text-xs text-muted-foreground'>Nothing to commit</p>
+				<p className='py-1 pr-2 pl-[13px] text-[11px] text-muted-foreground'>Nothing to commit</p>
 			) : (
 				<div className='max-h-48 overflow-y-auto'>
 					{files.map((file) => (
