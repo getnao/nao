@@ -40,6 +40,19 @@ export const setMcpDiscoveryUser = async (
 		.execute();
 };
 
+export const claimMcpDiscoveryUser = async (
+	projectId: string,
+	serverName: string,
+	userId: string,
+): Promise<boolean> => {
+	const client = await getMcpOAuthClient(projectId, serverName);
+	if (!client || client.discoveryUserId) {
+		return false;
+	}
+	await setMcpDiscoveryUser(projectId, serverName, userId);
+	return true;
+};
+
 export const getMcpUserToken = async (
 	userId: string,
 	projectId: string,

@@ -189,7 +189,7 @@ export function createProviderModel(
 	inferenceSettings?: ModelInferenceSettings,
 ): ProviderModelResult {
 	const providerConfig = LLM_PROVIDERS[provider];
-	const defaultOptions = providerConfig.defaultOptions ?? {};
+	const defaultOptions = resolveDefaultOptions(provider, modelId, providerConfig.defaultOptions ?? {});
 	const modelConfig = getProviderModelConfig(provider, modelId);
 	const contextWindow = providerConfig.models.find((m) => m.id === modelId)?.contextWindow ?? 200_000;
 
@@ -206,6 +206,14 @@ export function createProviderModel(
 		contextWindow,
 		callSettings,
 	};
+}
+
+function resolveDefaultOptions(provider: LlmProvider, modelId: string, defaultOptions: object): object {
+	if (getModelCapabilities(provider, modelId)?.thinking !== 'none') {
+		return defaultOptions;
+	}
+	const { reasoningSummary: _reasoningSummary, ...sampling } = defaultOptions as { reasoningSummary?: unknown };
+	return sampling;
 }
 
 function resolveInferenceOptions(

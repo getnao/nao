@@ -1,8 +1,10 @@
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
+import { claimMcpDiscoveryUser } from '../queries/mcp-oauth.queries';
 import { setMcpServerEnabled, setMcpToolEnabled, setMcpToolsEnabled } from '../queries/project.queries';
 import { mcpService } from '../services/mcp';
-import { adminProtectedProcedure, projectProtectedProcedure, router } from './trpc';
+import { adminProtectedProcedure, canSendProcedure, projectProtectedProcedure, router } from './trpc';
 
 export const mcpRoutes = router({
 	getServers: projectProtectedProcedure.query(({ ctx }) => mcpService.getServersStatus(ctx.project.id, ctx.user.id)),
@@ -14,12 +16,13 @@ export const mcpRoutes = router({
 		return mcpService.getServersStatus(ctx.project.id, ctx.user.id);
 	}),
 
-	discoverServer: adminProtectedProcedure
-		.input(z.object({ serverName: z.string() }))
-		.mutation(async ({ ctx, input }) => {
-			await mcpService.discoverServer(ctx.project.id, input.serverName);
-			return mcpService.getServersStatus(ctx.project.id, ctx.user.id);
-		}),
+	discoverServer: canSendProcedure.input(z.object({ serverName: z.string() })).mutation(async ({ ctx, input }) => {
+		if (ctx.userRole !== 'admin') {
+			await claimFirstDiscovery(ctx.project.id, input.serverName, ctx.user.id);
+		}
+		await mcpService.discoverServer(ctx.project.id, input.serverName);
+		return mcpService.getServersStatus(ctx.project.id, ctx.user.id);
+	}),
 
 	setServerEnabled: adminProtectedProcedure
 		.input(z.object({ serverName: z.string(), enabled: z.boolean() }))
@@ -46,3 +49,10 @@ export const mcpRoutes = router({
 			return mcpService.getServersStatus(ctx.project.id, ctx.user.id);
 		}),
 });
+
+async function claimFirstDiscovery(projectId: string, serverName: string, userId: string): Promise<void> {
+	if (await mcpService.hasDiscoveredTools(projectId, serverName)) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins can rediscover this server.' });
+	}
+	await claimMcpDiscoveryUser(projectId, serverName, userId);
+}

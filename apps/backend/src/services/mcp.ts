@@ -11,7 +11,12 @@ import { mkdir, readdir, readFile, unlink, writeFile } from 'fs/promises';
 import { createRuntime, type Runtime, ServerDefinition } from 'mcporter';
 import { isAbsolute, join, relative, resolve, sep } from 'path';
 
-import { deleteMcpUserToken, getMcpOAuthClient, hasMcpUserToken } from '../queries/mcp-oauth.queries';
+import {
+	claimMcpDiscoveryUser,
+	deleteMcpUserToken,
+	getMcpOAuthClient,
+	hasMcpUserToken,
+} from '../queries/mcp-oauth.queries';
 import { getDisabledMcpServers, getDisabledMcpTools, retrieveProjectById } from '../queries/project.queries';
 import { logger } from '../utils/logger';
 import { replaceEnvVars } from '../utils/utils';
@@ -99,6 +104,9 @@ export class McpService {
 			this._fileWatcher.close();
 			this._fileWatcher = null;
 		}
+		if (this._projectId !== projectId) {
+			this._resetDiscovery();
+		}
 
 		this._projectId = projectId;
 		this._initPromise = this._initialize(projectId).catch((err) => {
@@ -163,6 +171,17 @@ export class McpService {
 		);
 	}
 
+	/** Whether the server exposes at least one known tool, from this session or an on-disk spec. */
+	public async hasDiscoveredTools(projectId: string, server: string): Promise<boolean> {
+		await this.initializeMcpState(projectId);
+		const discovered = this._discovered[server];
+		if (discovered) {
+			return discovered.length > 0;
+		}
+		const fromDisk = await this._readSpecTools(server);
+		return !!fromDisk?.length;
+	}
+
 	/** (Re)connects every configured server and rewrites the enabled per-tool specs. */
 	public async discover(projectId?: string): Promise<void> {
 		if (projectId) {
@@ -190,6 +209,54 @@ export class McpService {
 				await this._writeEnabledSpecs(name, disabled);
 			}
 		}
+	}
+
+	/**
+	 * Makes a server usable by the calling user and returns the tools they may call. When nobody has
+	 * connected the server yet the user's own OAuth token is used for discovery, so a project where
+	 * no admin ever connected still works. Throws `McpAuthRequiredError` when the user must connect.
+	 */
+	public async connectForUser(opts: { projectId: string; userId: string; server: string }): Promise<string[]> {
+		const { projectId, userId, server } = opts;
+		await this.initializeMcpState(projectId);
+
+		const config = this._mcpServers[server];
+		if (!config) {
+			const configured = this.getConfiguredServerNames().join(', ') || '(none)';
+			throw new Error(`MCP server "${server}" is not configured. Configured servers: ${configured}.`);
+		}
+		const disabled = await this._loadDisabled();
+		if (disabled.servers.has(server)) {
+			throw new Error(`MCP server "${server}" is disabled by the project admin.`);
+		}
+
+		const discoveryUserId = (await this._ensureOAuthFlag(server, config))
+			? await this._claimDiscoveryForUser(projectId, userId, server, config)
+			: undefined;
+		await this._discoverServer(server, disabled, discoveryUserId);
+
+		const error = this._failedConnections[server];
+		if (error) {
+			throw new Error(error);
+		}
+		return (this._discovered[server] ?? [])
+			.filter((tool) => !disabled.tools.has(this._toolKey(server, tool.name)))
+			.map((tool) => tool.name);
+	}
+
+	/** Checks the user can authenticate against an OAuth server and hands them discovery if it is unowned. */
+	private async _claimDiscoveryForUser(
+		projectId: string,
+		userId: string,
+		server: string,
+		config: McpServerConfig,
+	): Promise<string | undefined> {
+		const token = await getValidAccessToken({ userId, projectId, server, serverUrl: config.url!.toString() });
+		if (!token) {
+			throw new McpAuthRequiredError(server);
+		}
+		const claimed = await claimMcpDiscoveryUser(projectId, server, userId);
+		return claimed ? userId : undefined;
 	}
 
 	public async callTool(opts: {
@@ -403,6 +470,11 @@ export class McpService {
 		this._validators.clear();
 	}
 
+	private _resetDiscovery(): void {
+		this._discovered = {};
+		this._failedConnections = {};
+	}
+
 	private async _loadConfig(): Promise<void> {
 		if (!this._mcpJsonFilePath || !existsSync(this._mcpJsonFilePath)) {
 			this._mcpServers = {};
@@ -455,7 +527,7 @@ export class McpService {
 		await Promise.all(Object.keys(this._mcpServers).map((name) => this._discoverServer(name, disabled)));
 	}
 
-	private async _discoverServer(name: string, disabled: DisabledSets): Promise<void> {
+	private async _discoverServer(name: string, disabled: DisabledSets, discoveryUserId?: string): Promise<void> {
 		const config = this._mcpServers[name];
 		if (!config) {
 			return;
@@ -464,11 +536,12 @@ export class McpService {
 		this._clearValidators(name);
 
 		try {
-			this._discovered[name] = await this._listTools(name, config);
+			this._discovered[name] = await this._listTools(name, config, discoveryUserId);
 			delete this._failedConnections[name];
 		} catch (error) {
 			if (error instanceof McpAuthRequiredError) {
-				this._failedConnections[name] = 'OAuth connection required — an admin must connect this server.';
+				this._failedConnections[name] =
+					'OAuth connection required — connect this server to discover its tools.';
 			} else {
 				if (isUnauthorizedError(error) && !this._hasStaticAuth(config)) {
 					this._oauth[name] = true;
@@ -486,11 +559,15 @@ export class McpService {
 		await this._writeEnabledSpecs(name, disabled);
 	}
 
-	/** Lists the tools of a server, using the admin's OAuth token for OAuth-protected servers. */
-	private async _listTools(name: string, config: McpServerConfig): Promise<McpToolDefinition[]> {
+	/** Lists the tools of a server, using the discovery user's OAuth token for OAuth-protected servers. */
+	private async _listTools(
+		name: string,
+		config: McpServerConfig,
+		discoveryUserId?: string,
+	): Promise<McpToolDefinition[]> {
 		if (await this._ensureOAuthFlag(name, config)) {
 			const url = config.url!.toString();
-			const token = await this._discoveryToken(name, url);
+			const token = await this._discoveryToken(name, url, discoveryUserId);
 			if (!token) {
 				throw new McpAuthRequiredError(name);
 			}
@@ -512,20 +589,15 @@ export class McpService {
 		return tools.map((tool) => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema }));
 	}
 
-	private async _discoveryToken(server: string, serverUrl: string): Promise<string | null> {
+	private async _discoveryToken(server: string, serverUrl: string, preferredUserId?: string): Promise<string | null> {
 		if (!this._projectId) {
 			return null;
 		}
-		const client = await getMcpOAuthClient(this._projectId, server);
-		if (!client?.discoveryUserId) {
+		const userId = preferredUserId ?? (await getMcpOAuthClient(this._projectId, server))?.discoveryUserId;
+		if (!userId) {
 			return null;
 		}
-		return getValidAccessToken({
-			userId: client.discoveryUserId,
-			projectId: this._projectId,
-			server,
-			serverUrl,
-		});
+		return getValidAccessToken({ userId, projectId: this._projectId, server, serverUrl });
 	}
 
 	/**
@@ -576,13 +648,30 @@ export class McpService {
 		return { ...(config.headers ?? {}), Authorization: `Bearer ${token}` };
 	}
 
-	/** Writes one OpenAPI spec file per enabled tool, removing any stale spec files. */
+	/**
+	 * Writes one OpenAPI spec file per enabled tool, removing any stale spec files.
+	 * A read-only project folder degrades the server to unusable rather than failing the caller.
+	 */
 	private async _writeEnabledSpecs(name: string, disabled: DisabledSets): Promise<void> {
 		const config = this._mcpServers[name];
 		if (!config) {
 			return;
 		}
 
+		try {
+			await this._writeSpecFiles(name, config, disabled);
+		} catch (error) {
+			const message = (error as Error).message;
+			this._failedConnections[name] = `Cannot write tool specs to ${this._virtualServerDir(name)}: ${message}`;
+			logger.error(`MCP spec write failed: ${name}`, {
+				source: 'tool',
+				projectId: this._projectId ?? undefined,
+				context: { server: name, error: message },
+			});
+		}
+	}
+
+	private async _writeSpecFiles(name: string, config: McpServerConfig, disabled: DisabledSets): Promise<void> {
 		const dir = this._serverDir(name);
 		await mkdir(dir, { recursive: true });
 		await this._clearSpecFiles(dir);

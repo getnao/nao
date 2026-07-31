@@ -162,6 +162,19 @@ describe('OpenAI / Azure', () => {
 		expect(callSettings).toEqual({ temperature: 1.5, topP: 0.8 });
 	});
 
+	it('keeps the reasoningSummary default for reasoning models', () => {
+		const { options } = resolve('openai', 'gpt-5.5');
+
+		expect(options.reasoningSummary).toBe('auto');
+	});
+
+	it('drops the reasoningSummary default for non-reasoning models', () => {
+		const { options } = resolve('openai', 'gpt-4.1');
+
+		expect(options).not.toHaveProperty('reasoningSummary');
+		expect(options.store).toBe(false);
+	});
+
 	it('offers both effort and sampling for custom Azure deployments', () => {
 		const { options, callSettings } = resolve('azure', 'my-gpt-deployment', {
 			reasoningEffort: 'low',

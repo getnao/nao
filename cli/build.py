@@ -425,8 +425,17 @@ def build_server(project_root: Path, output_dir: Path) -> None:
     # Step 9: Copy ripgrep binary
     print("\n📦 Bundling ripgrep binary...")
     rg_binary_name = "rg.exe" if sys.platform == "win32" else "rg"
-    # Look in both monorepo root and backend node_modules
+    # @vscode/ripgrep >=1.18 ships the binary in a platform-specific package
+    # (e.g. @vscode/ripgrep-darwin-arm64); older versions downloaded it into
+    # @vscode/ripgrep/bin via postinstall. Check both layouts, in both the
+    # monorepo root and backend node_modules.
+    arch = {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64"}.get(
+        platform.machine().lower(), platform.machine().lower()
+    )
+    rg_platform_pkg = f"ripgrep-{sys.platform}-{arch}"
     rg_src_paths = [
+        project_root / "node_modules" / "@vscode" / rg_platform_pkg / "bin" / rg_binary_name,
+        backend_dir / "node_modules" / "@vscode" / rg_platform_pkg / "bin" / rg_binary_name,
         project_root / "node_modules" / "@vscode" / "ripgrep" / "bin" / rg_binary_name,
         backend_dir / "node_modules" / "@vscode" / "ripgrep" / "bin" / rg_binary_name,
     ]

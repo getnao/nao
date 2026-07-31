@@ -8,7 +8,7 @@ import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 import { useAgentContext } from '@/contexts/agent.provider';
 import { useChatId } from '@/hooks/use-chat-id';
 import { useInactivityTrigger } from '@/hooks/use-inactivity-trigger';
-import { checkAssistantMessageHasContent, getToolName, NEW_CHAT_ID } from '@/lib/ai';
+import { checkAssistantMessageHasContent, NEW_CHAT_ID } from '@/lib/ai';
 import { countDisplayCharts } from '@/lib/charts.utils';
 import { createLocalStorage } from '@/lib/local-storage';
 import { lastUserMessagePayload } from '@/lib/mcp-auth-retry';
@@ -250,7 +250,7 @@ function useMcpAuthSuggestion(): McpAuthSuggestion {
 	return { isVisible: !!pendingServer && !isRunning, server: pendingServer, connecting, connect, dismiss };
 }
 
-/** Returns the server from the most recent `mcp_call` that reported it needs the user to connect. */
+/** Returns the server from the most recent MCP tool call that reported it needs the user to connect. */
 function findPendingAuthServer(messages: UIMessage[]): string | null {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const message = messages[i];
@@ -261,9 +261,6 @@ function findPendingAuthServer(messages: UIMessage[]): string | null {
 			const part = message.parts[j];
 			const type = (part as { type: string }).type;
 			if (type !== 'dynamic-tool' && !type.startsWith('tool-')) {
-				continue;
-			}
-			if (getToolName(part as UIToolPart) !== 'mcp_call') {
 				continue;
 			}
 			const output = (part as UIToolPart).output as { mcpAuthRequired?: boolean; server?: string } | undefined;
