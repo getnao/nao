@@ -2,7 +2,6 @@ import {
 	Activity,
 	ChevronLeft,
 	ChevronRight,
-	Clock,
 	Code,
 	Ellipsis,
 	Eye,
@@ -317,8 +316,6 @@ function LiveStoryControls({ live }: { live: LiveControls }) {
 		}
 		return (
 			<>
-				{onRefresh && <RefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
-				{cachedAt && <LiveStoryTimestamp cachedAt={cachedAt} />}
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<div className='flex items-center gap-2 border rounded-full px-2 py-0.75'>
@@ -329,14 +326,14 @@ function LiveStoryControls({ live }: { live: LiveControls }) {
 					</TooltipTrigger>
 					<TooltipContent>Live story</TooltipContent>
 				</Tooltip>
+				{cachedAt && <LiveStoryTimestamp cachedAt={cachedAt} />}
+				{onRefresh && <RefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
 			</>
 		);
 	}
 
 	return (
 		<>
-			{isLive && onRefresh && <RefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
-			{isLive && cachedAt && <LiveStoryTimestamp cachedAt={cachedAt} />}
 			<Tooltip>
 				<TooltipTrigger asChild>
 					<button
@@ -351,6 +348,8 @@ function LiveStoryControls({ live }: { live: LiveControls }) {
 				</TooltipTrigger>
 				<TooltipContent>{isLive ? 'Live story settings' : 'Enable live mode'}</TooltipContent>
 			</Tooltip>
+			{isLive && cachedAt && <LiveStoryTimestamp cachedAt={cachedAt} />}
+			{isLive && onRefresh && <RefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
 		</>
 	);
 }
@@ -413,9 +412,8 @@ export function LiveStoryTimestamp({ cachedAt }: { cachedAt: string | Date }) {
 	return (
 		<Tooltip>
 			<TooltipTrigger asChild>
-				<div className='flex items-center gap-1 rounded-full bg-secondary/50 px-2 py-0.75 text-xs text-muted-foreground mr-1'>
-					<Clock className='size-3.5' />
-					<span>Updated {timeAgo.humanReadable.toLowerCase()}</span>
+				<div className='flex items-center rounded-full py-0.75 text-xs text-muted-foreground -mr-1'>
+					<span>{timeAgo.humanReadable.toLowerCase()}</span>
 				</div>
 			</TooltipTrigger>
 			<TooltipContent>Updated {new Date(cachedAt).toLocaleString()}</TooltipContent>
