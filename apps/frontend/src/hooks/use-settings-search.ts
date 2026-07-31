@@ -52,11 +52,9 @@ export function useSettingsSuggestions(): SettingsSearchEntry[] {
 function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const license = useQuery(trpc.license.getStatus.queryOptions());
-	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
 	const { isAdmin, isContextAdmin, isViewer } = usePermissions();
 	const isCloud = config.data?.naoMode === 'cloud';
 	const hasLicense = license.data?.tokenProvided === true;
-	const isInMultipleProjects = (projects.data?.length ?? 0) > 1;
 
 	return useMemo(
 		() =>
@@ -69,13 +67,9 @@ function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 						(!entry.cloudOnly || isCloud) &&
 						(!entry.licenseRequired || hasLicense),
 				)
-				.filter((entry) => !isViewer || isPageVisibleToViewer(entry.page, isInMultipleProjects)),
-		[hasLicense, isAdmin, isCloud, isContextAdmin, isInMultipleProjects, isViewer],
+				.filter((entry) => !isViewer || viewerVisiblePages.includes(entry.page)),
+		[hasLicense, isAdmin, isCloud, isContextAdmin, isViewer],
 	);
-}
-
-function isPageVisibleToViewer(page: string, isInMultipleProjects: boolean): boolean {
-	return viewerVisiblePages.includes(page) || (isInMultipleProjects && viewerMultiProjectPages.includes(page));
 }
 
 function dedupeByPage(entries: SettingsSearchEntry[]): SettingsSearchEntry[] {
@@ -100,4 +94,3 @@ const settingsSuggestionPages = [
 ];
 
 const viewerVisiblePages = ['/settings/account'];
-const viewerMultiProjectPages = ['/settings/project'];
