@@ -591,7 +591,8 @@ function guidanceForReason(reason: FileEditabilityReason): FileEditabilityGuidan
 			actionLabel: 'Open nao_config.yaml',
 		},
 		'not-tracked': {
-			message: 'This live-only file is read-only. Add it to the connected repository to edit it here.',
+			message:
+				"This file can't be edited because it isn't in the connected repository. Add it there to make it editable.",
 			actionPath: null,
 			actionLabel: null,
 		},

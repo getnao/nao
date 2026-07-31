@@ -6,6 +6,7 @@ import { useState } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 
+import { DeploymentManagedGitSettings } from '@/components/settings/deployment-managed-git-settings';
 import { GithubRepoList } from '@/components/settings/github-repo-list';
 import { ConnectedProviderAccount, ProviderConnectionCard } from '@/components/settings/provider-connection-card';
 import {
@@ -97,7 +98,11 @@ function GitSettingsPage() {
 			<SettingsCard
 				title='Git'
 				titleSize='lg'
-				description='Set up GitHub so context admins can edit context files and propose changes for review.'
+				description={
+					status?.managedByContextSource
+						? 'View the repository your deployment uses for context files.'
+						: 'Set up GitHub so context admins can edit context files and propose changes for review.'
+				}
 				unstyled
 				className='gap-10 px-4'
 			>
@@ -122,6 +127,8 @@ function GitSettingsPage() {
 							Retry
 						</Button>
 					</div>
+				) : status?.managedByContextSource ? (
+					<DeploymentManagedGitSettings contextSource={status.contextSource} />
 				) : (
 					<>
 						<NumberedSetupSection

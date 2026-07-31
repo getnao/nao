@@ -12,6 +12,7 @@ import type {
 } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 
+import { env } from '../env';
 import type { ContextRepoConfig, ResolvedContextRepo, UnresolvedContextRepo } from '../utils/context-repo';
 import {
 	ContextProjectResolutionError,
@@ -71,6 +72,7 @@ export interface ContextRepositoryStatus {
 	repo: ReturnType<typeof toContextRepoState>;
 	repositoryUrl: string | null;
 	managedByContextSource: boolean;
+	contextSource: DeploymentContextSource | null;
 	gitUnavailableReason: ContextGitUnavailableReason | null;
 	gitUnavailableMessage: string | null;
 	lastCommitMessage: string | null;
@@ -78,6 +80,13 @@ export interface ContextRepositoryStatus {
 	branches: ContextBranchInfo | null;
 	openReviewRequest: { url: string } | null;
 	isGitRepository: boolean;
+}
+
+export interface DeploymentContextSource {
+	repositoryUrl: string | null;
+	branch: string | null;
+	subpath: string | null;
+	authMethod: 'token' | 'ssh-key' | 'public';
 }
 
 export interface CreateBranchAndCommitInput {
@@ -240,6 +249,11 @@ export async function ensureContextWorktree(
 }
 
 export async function getContextRepositoryStatus(context: ContextExplorerGitContext): Promise<ContextRepositoryStatus> {
+	const contextSource = getDeploymentContextSource();
+	const contextSourceStatus = {
+		managedByContextSource: contextSource !== null,
+		contextSource,
+	};
 	try {
 		const resolution = await resolveContextExplorerGit(context);
 		if (resolution.status === 'unavailable') {
@@ -248,7 +262,7 @@ export async function getContextRepositoryStatus(context: ContextExplorerGitCont
 				repo: resolution.repo,
 				repositoryUrl:
 					resolution.repo && provider ? provider.publicRepoUrl(resolution.repo.repoFullName) : null,
-				managedByContextSource: isGitContextSource(),
+				...contextSourceStatus,
 				gitUnavailableReason: resolution.reason,
 				gitUnavailableMessage: resolution.message,
 				lastCommitMessage: null,
@@ -265,7 +279,7 @@ export async function getContextRepositoryStatus(context: ContextExplorerGitCont
 		return {
 			repo: repoState ? { ...repoState, branch: branches.currentBranch } : null,
 			repositoryUrl: provider.publicRepoUrl(repo.repoFullName),
-			managedByContextSource: isGitContextSource(),
+			...contextSourceStatus,
 			gitUnavailableReason: null,
 			gitUnavailableMessage: null,
 			lastCommitMessage: readOptionalGitValue(repo.worktreeRoot, ['log', '-1', '--format=%s']),
@@ -284,7 +298,7 @@ export async function getContextRepositoryStatus(context: ContextExplorerGitCont
 		return {
 			repo: null,
 			repositoryUrl: null,
-			managedByContextSource: isGitContextSource(),
+			...contextSourceStatus,
 			gitUnavailableReason: 'git-unavailable',
 			gitUnavailableMessage: unavailableMessage('git-unavailable'),
 			lastCommitMessage: null,
@@ -294,6 +308,22 @@ export async function getContextRepositoryStatus(context: ContextExplorerGitCont
 			isGitRepository: false,
 		};
 	}
+}
+
+export function getDeploymentContextSource(): DeploymentContextSource | null {
+	if (!isGitContextSource()) {
+		return null;
+	}
+	return {
+		repositoryUrl: env.NAO_CONTEXT_GIT_URL ? sanitizeContextSourceRepositoryUrl(env.NAO_CONTEXT_GIT_URL) : null,
+		branch: env.NAO_CONTEXT_GIT_BRANCH || null,
+		subpath: env.NAO_CONTEXT_GIT_SUBPATH || null,
+		authMethod: resolveContextSourceAuthMethod(),
+	};
+}
+
+export function sanitizeContextSourceRepositoryUrl(repositoryUrl: string): string {
+	return repositoryUrl.replace(/^(https?:\/\/)[^/]*@/i, '$1');
 }
 
 export async function getContextBranches(
@@ -1270,7 +1300,17 @@ function sameRealPath(left: string, right: string): boolean {
 }
 
 function isGitContextSource(): boolean {
-	return process.env.NAO_CONTEXT_SOURCE === 'git';
+	return env.NAO_CONTEXT_SOURCE === 'git';
+}
+
+function resolveContextSourceAuthMethod(): DeploymentContextSource['authMethod'] {
+	if (env.NAO_CONTEXT_GIT_SSH_KEY) {
+		return 'ssh-key';
+	}
+	if (env.NAO_CONTEXT_GIT_TOKEN) {
+		return 'token';
+	}
+	return 'public';
 }
 
 function readOptionalGitValue(cwd: string, args: string[]): string | null {

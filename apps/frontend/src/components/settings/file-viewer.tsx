@@ -25,8 +25,9 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { usePreviewHighlights } from '@/hooks/use-preview-highlights';
 import { createLocalStorage } from '@/lib/local-storage';
-import { markdownPlugins } from '@/lib/markdown';
+import { joinMarkdownFrontmatter, markdownPlugins, parseMarkdownFrontmatter } from '@/lib/markdown';
 import { isMac } from '@/lib/platform';
+import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 interface FileContents {
@@ -158,6 +159,7 @@ function EditableFileViewer({
 	const isSourceOpen = isSourceOpenPreference || isSourceAutoOpened;
 	const isDirty = isEditable && draft !== savedContent;
 	const debouncedPreview = useDebouncedValue(draft, 250);
+	const parsedMarkdownDraft = useMemo(() => parseMarkdownFrontmatter(draft), [draft]);
 	const estimatedTokenCount = useMemo(() => Math.ceil(draft.length / 4), [draft]);
 	const { defaultLayout, onLayoutChanged } = useDefaultLayout({
 		id: 'context-explorer-source',
@@ -264,6 +266,13 @@ function EditableFileViewer({
 		setIsSourceAutoOpened(false);
 	};
 
+	const handleMarkdownChange = useCallback(
+		(nextBody: string) => {
+			setDraft(joinMarkdownFrontmatter(parsedMarkdownDraft.frontmatter, nextBody));
+		},
+		[parsedMarkdownDraft.frontmatter],
+	);
+
 	const fileName = getFileName(filePath);
 
 	return (
@@ -286,6 +295,9 @@ function EditableFileViewer({
 								<span className='size-1.5 rounded-full bg-current' />
 								Unsaved
 							</span>
+						)}
+						{isMarkdown && parsedMarkdownDraft.label !== null && (
+							<span className='shrink-0 text-xs text-muted-foreground'>{parsedMarkdownDraft.label}</span>
 						)}
 						{isMarkdown && <SourceToggle isOpen={isSourceOpen} onChange={handleSourceToggle} />}
 						{isEditable && (
@@ -343,10 +355,10 @@ function EditableFileViewer({
 								<FileSourceEditor
 									key={isEditable ? 'editable' : 'read-only'}
 									filePath={filePath}
-									value={draft}
+									value={parsedMarkdownDraft.body}
 									searchQuery={searchQuery}
 									readOnly={!isEditable}
-									onChange={setDraft}
+									onChange={handleMarkdownChange}
 									onSave={isEditable ? handleSave : undefined}
 								/>
 							</ResizablePanel>
@@ -434,13 +446,14 @@ function MarkdownPreview({
 	searchQuery: string;
 }) {
 	const containerRef = useRef<HTMLDivElement>(null);
-	usePreviewHighlights({ containerRef, content, filePath, searchQuery });
+	const parsedMarkdown = useMemo(() => parseMarkdownFrontmatter(content), [content]);
+	usePreviewHighlights({ containerRef, content: parsedMarkdown.body, filePath, searchQuery });
 
 	return (
 		<div ref={containerRef} className='h-full overflow-auto'>
 			<div className='max-w-3xl mx-auto px-8 py-6'>
 				<Streamdown mode='static' controls={false} plugins={markdownPlugins}>
-					{content}
+					{parsedMarkdown.body}
 				</Streamdown>
 			</div>
 		</div>
@@ -452,9 +465,9 @@ function SourceToggle({ isOpen, onChange }: { isOpen: boolean; onChange: () => v
 		<SimpleTooltip content={isOpen ? 'Hide markdown source' : 'Show markdown source'}>
 			<Button
 				type='button'
-				variant={isOpen ? 'secondary' : 'outline'}
+				variant='outline'
 				size='sm'
-				className='h-7 gap-1.5'
+				className={cn('h-7 gap-1.5', isOpen && 'bg-accent text-accent-foreground dark:bg-accent/50')}
 				onClick={onChange}
 				aria-pressed={isOpen}
 				aria-label={isOpen ? 'Hide markdown source' : 'Show markdown source'}

@@ -773,6 +773,7 @@ function ChangedFileRow({
 			)}
 		>
 			<Checkbox
+				className='cursor-pointer'
 				checked={isSelected}
 				onCheckedChange={onToggle}
 				aria-label={`${isSelected ? 'Exclude' : 'Include'} ${fileName} in commit`}
@@ -782,7 +783,7 @@ function ChangedFileRow({
 				onClick={onView}
 				aria-label={`View changes to ${fileName}`}
 				title={file.path}
-				className='flex min-w-0 flex-1 items-center gap-2 rounded-sm py-1 text-left outline-none focus-visible:ring-ring/50 focus-visible:ring-[3px]'
+				className='flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-sm py-1 text-left outline-none focus-visible:ring-ring/50 focus-visible:ring-[3px]'
 			>
 				<ChangeIcon className={cn('size-3 shrink-0', change.color)} />
 				<span className='min-w-0 flex-1 truncate text-xs'>{fileName}</span>

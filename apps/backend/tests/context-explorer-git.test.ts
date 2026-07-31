@@ -3,12 +3,18 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.hoisted(() => {
 	process.env.MODE = 'test';
 	process.env.NAO_MODE = 'self-hosted';
 	process.env.NAO_DEFAULT_PROJECT_PATH = '';
+	delete process.env.NAO_CONTEXT_SOURCE;
+	delete process.env.NAO_CONTEXT_GIT_URL;
+	delete process.env.NAO_CONTEXT_GIT_BRANCH;
+	delete process.env.NAO_CONTEXT_GIT_SUBPATH;
+	delete process.env.NAO_CONTEXT_GIT_TOKEN;
+	delete process.env.NAO_CONTEXT_GIT_SSH_KEY;
 });
 
 const branchOwnershipMocks = vi.hoisted(() => {
@@ -44,6 +50,7 @@ const branchOwnershipMocks = vi.hoisted(() => {
 
 vi.mock('../src/queries/context-branch-ownership.queries', () => branchOwnershipMocks);
 
+import { __reloadEnvForTesting } from '../src/env';
 import { getFileTreeResponse, readFileContent, writeFileContent } from '../src/services/context-explorer.service';
 import type {
 	ContextExplorerGitContext,
@@ -61,10 +68,74 @@ import {
 	ensureContextWorktree,
 	getChangedContextFiles,
 	getContextRepositoryStatus,
+	getDeploymentContextSource,
 	resolveContextExplorerGit,
+	sanitizeContextSourceRepositoryUrl,
 	switchContextBranch,
 } from '../src/services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../src/services/context-explorer-pr.service';
+
+describe('deployment context source', () => {
+	let originalEnv: typeof process.env;
+
+	beforeEach(() => {
+		originalEnv = { ...process.env };
+	});
+
+	afterEach(() => {
+		process.env = originalEnv;
+		__reloadEnvForTesting();
+	});
+
+	it.each([
+		['https://user:token@host/org/repo.git', 'https://host/org/repo.git'],
+		['https://host/org/repo.git', 'https://host/org/repo.git'],
+		['git@host:org/repo.git', 'git@host:org/repo.git'],
+	])('sanitizes repository URL %s', (repositoryUrl, expected) => {
+		expect(sanitizeContextSourceRepositoryUrl(repositoryUrl)).toBe(expected);
+	});
+
+	it.each([
+		['ssh-key', { token: 'secret-token', sshKey: 'private-key' }],
+		['token', { token: 'secret-token' }],
+		['public', {}],
+	] as const)('resolves %s authentication', (authMethod, credentials) => {
+		setContextSourceEnv(credentials);
+
+		expect(getDeploymentContextSource()?.authMethod).toBe(authMethod);
+	});
+
+	it('returns no context source when deployment Git mode is unset', () => {
+		setContextSourceEnv({ source: null });
+
+		expect(getDeploymentContextSource()).toBeNull();
+	});
+
+	it('includes sanitized context source details when repository status is unavailable', async () => {
+		setContextSourceEnv({
+			url: 'https://user:secret@github.com/nao/context.git',
+			branch: 'production',
+			subpath: 'projects/analytics',
+			token: 'secret',
+		});
+
+		const status = await getContextRepositoryStatus({
+			...baseContext(process.cwd()),
+			integrationAvailableOverride: false,
+		});
+
+		expect(status).toMatchObject({
+			managedByContextSource: true,
+			gitUnavailableReason: 'github-unavailable',
+			contextSource: {
+				repositoryUrl: 'https://github.com/nao/context.git',
+				branch: 'production',
+				subpath: 'projects/analytics',
+				authMethod: 'token',
+			},
+		});
+	});
+});
 
 describe('context explorer worktrees', () => {
 	const temporaryRoots: string[] = [];
@@ -758,6 +829,48 @@ function baseContext(
 		configOverride,
 		integrationAvailableOverride: true,
 	};
+}
+
+function setContextSourceEnv({
+	source = 'git',
+	url = 'https://github.com/nao/context.git',
+	branch,
+	subpath,
+	token,
+	sshKey,
+}: {
+	source?: string | null;
+	url?: string;
+	branch?: string;
+	subpath?: string;
+	token?: string;
+	sshKey?: string;
+}): void {
+	delete process.env.NAO_CONTEXT_SOURCE;
+	delete process.env.NAO_CONTEXT_GIT_URL;
+	delete process.env.NAO_CONTEXT_GIT_BRANCH;
+	delete process.env.NAO_CONTEXT_GIT_SUBPATH;
+	delete process.env.NAO_CONTEXT_GIT_TOKEN;
+	delete process.env.NAO_CONTEXT_GIT_SSH_KEY;
+	if (source) {
+		process.env.NAO_CONTEXT_SOURCE = source;
+	}
+	if (url !== undefined) {
+		process.env.NAO_CONTEXT_GIT_URL = url;
+	}
+	if (branch !== undefined) {
+		process.env.NAO_CONTEXT_GIT_BRANCH = branch;
+	}
+	if (subpath !== undefined) {
+		process.env.NAO_CONTEXT_GIT_SUBPATH = subpath;
+	}
+	if (token !== undefined) {
+		process.env.NAO_CONTEXT_GIT_TOKEN = token;
+	}
+	if (sshKey !== undefined) {
+		process.env.NAO_CONTEXT_GIT_SSH_KEY = sshKey;
+	}
+	__reloadEnvForTesting();
 }
 
 function localProvider(bare: string, publicUrl = 'https://github.com/nao/context.git'): ContextRepositoryProvider {
