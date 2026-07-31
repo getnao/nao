@@ -19,6 +19,8 @@ import { trpc } from '@/main';
 
 /** Milliseconds of inactivity before we ask the user how the conversation went. */
 const FEEDBACK_INACTIVITY_MS = 10_000;
+/** Longer delay used once the user typed instead of answering, so the prompt comes back less eagerly. */
+const FEEDBACK_IGNORED_INACTIVITY_MS = 20_000;
 /** How many charts must exist in a chat before we offer to turn them into a story. */
 const STORY_CHART_THRESHOLD = 2;
 /** Message sent on behalf of the user when they accept the story suggestion. */
@@ -31,17 +33,17 @@ const storyProposalDisabledStorage = createLocalStorage<boolean>('nao-story-prop
  * contextual prompt. Only one suggestion is shown at a time — the story
  * suggestion takes priority over the conversation feedback prompt.
  *
- * When `isHidden` is set (e.g. the user starts typing) the panel smoothly
- * collapses and fades out instead of abruptly unmounting.
+ * While `isUserTyping` is set the panel smoothly collapses and fades out
+ * instead of abruptly unmounting.
  */
-export function ChatInputSuggestions({ isHidden = false }: { isHidden?: boolean }) {
+export function ChatInputSuggestions({ isUserTyping = false }: { isUserTyping?: boolean }) {
 	const { isReadonly } = useAgentContext();
 	const mcpAuth = useMcpAuthSuggestion();
 	const story = useStorySuggestion();
-	const feedback = useConversationFeedback();
+	const feedback = useConversationFeedback(isUserTyping);
 
 	const content = renderSuggestion({ isReadonly, mcpAuth, story, feedback });
-	const isCollapsed = isHidden || !content;
+	const isCollapsed = isUserTyping || !content;
 	const { ref, height } = useMeasuredHeight();
 
 	return (
@@ -328,13 +330,19 @@ interface ConversationFeedback {
 	setFeedbackDialogOpen: (open: boolean) => void;
 }
 
-function useConversationFeedback(): ConversationFeedback {
+/**
+ * Asks for a thumbs up/down once the chat has been idle for a while. Typing counts as activity: the
+ * prompt hides and only comes back after a fresh — and longer — idle period, so clearing the input
+ * does not make it pop straight back.
+ */
+function useConversationFeedback(isUserTyping: boolean): ConversationFeedback {
 	const { messages, isRunning } = useAgentContext();
 	const chatId = useChatId();
 
 	const [dismissedChats, setDismissedChats] = useState<ReadonlySet<string>>(() => new Set());
 	const [thanksForChat, setThanksForChat] = useState<string | null>(null);
 	const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
+	const [wasIgnored, setWasIgnored] = useState(false);
 
 	const submitFeedback = useMutation(
 		trpc.feedback.submit.mutationOptions({
@@ -360,10 +368,16 @@ function useConversationFeedback(): ConversationFeedback {
 	const hasFeedback = !!lastAssistantMessage?.feedback;
 	const isEligible = isPersistedChat && !isRunning && !!lastAssistantMessage && !hasFeedback && !isDismissed;
 
+	useEffect(() => {
+		setWasIgnored(false);
+	}, [chatId]);
+
 	const isTriggered = useInactivityTrigger({
 		enabled: isEligible,
-		delayMs: FEEDBACK_INACTIVITY_MS,
+		isPaused: isUserTyping,
+		delayMs: wasIgnored ? FEEDBACK_IGNORED_INACTIVITY_MS : FEEDBACK_INACTIVITY_MS,
 		resetKey: `${chatId}:${messages.length}`,
+		onIgnored: () => setWasIgnored(true),
 	});
 
 	const showThanks = !!chatId && thanksForChat === chatId;
