@@ -4,6 +4,7 @@ import { Code, File, Loader2, Save } from 'lucide-react';
 import { useDefaultLayout } from 'react-resizable-panels';
 import { Streamdown } from 'streamdown';
 import type { FileEditabilityGuidance } from '@nao/shared/types';
+import { FileExplorerIcon } from '@/components/settings/file-explorer-icon';
 import { FileSourceEditor } from '@/components/settings/file-source-editor';
 import {
 	AlertDialog,
@@ -269,7 +270,7 @@ function EditableFileViewer({
 		<div className='flex flex-col h-full'>
 			<div className='flex shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-4 py-1 text-sm text-muted-foreground'>
 				<div className='flex min-w-0 flex-1 items-start gap-2 overflow-hidden'>
-					<File className='mt-px size-3.5 shrink-0' />
+					<FileExplorerIcon name={fileName} type='file' className='mt-px' />
 					<div className='min-w-0 flex-1'>
 						<div className='flex min-w-0 items-center gap-2'>
 							<span className='min-w-0 truncate font-mono leading-4'>{fileName}</span>

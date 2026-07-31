@@ -1,7 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { ChevronDown, ExternalLink, FilePen, FilePlus, FileX, GitBranch, Pencil, Plus, X } from 'lucide-react';
+import {
+	ArrowUp,
+	ChevronDown,
+	FilePen,
+	FilePlus,
+	FileX,
+	GitBranch,
+	GitPullRequest,
+	Pencil,
+	Plus,
+	X,
+} from 'lucide-react';
 import type { QueryClient } from '@tanstack/react-query';
 import type { ContextChangedFile } from '@nao/shared/types';
 
@@ -263,6 +274,7 @@ export function ContextGitPanel({
 	const isReviewBranch = currentBranch !== null && defaultBranch !== null && currentBranch !== defaultBranch;
 	const canPush = isReviewBranch && (unpushedCommitCount > 0 || (aheadCommitCount > 0 && openReviewRequest === null));
 	const reviewRequestUrl = openReviewRequest?.url ?? pushedReviewRequestUrl;
+	const reviewRequestNumber = reviewRequestUrl ? getReviewRequestNumber(reviewRequestUrl) : null;
 	const discardDisabledReason = hasUnsavedFileChanges
 		? 'Save or discard the open file before discarding saved changes.'
 		: null;
@@ -356,7 +368,7 @@ export function ContextGitPanel({
 							/>
 
 							{hasUncommittedChanges && (
-								<div className='-mx-2 space-y-3 border-t px-4 pt-3'>
+								<div className='-mx-2 space-y-3 border-t px-2 pt-3'>
 									<div className='space-y-1.5'>
 										<div className='flex min-w-0 items-center gap-2'>
 											<Input
@@ -365,11 +377,11 @@ export function ContextGitPanel({
 												placeholder='Describe the context change'
 												aria-label='Commit message'
 												disabled={commitPending}
-												className='h-7 min-w-0 flex-1 text-sm'
+												className='h-7 min-w-0 flex-1 text-[11px] md:text-[11px]'
 											/>
 											<Button
 												size='sm'
-												className='px-2 text-xs'
+												className='h-7 px-2 text-[11px]'
 												disabled={!canCommit || commitPending}
 												isLoading={commitPending}
 												onClick={handleCommit}
@@ -378,9 +390,9 @@ export function ContextGitPanel({
 											</Button>
 										</div>
 										{currentBranch === defaultBranch && commitBranchName && (
-											<div className='flex min-w-0 items-center gap-1'>
+											<div className='flex min-w-0 items-center gap-1 pl-[13px]'>
 												<p
-													className='min-w-0 flex-1 truncate text-xs text-muted-foreground'
+													className='min-w-0 truncate text-[11px] text-muted-foreground'
 													title={commitBranchName}
 												>
 													Creates branch <span className='font-mono'>{commitBranchName}</span>
@@ -411,9 +423,9 @@ export function ContextGitPanel({
 									)}
 								</div>
 							)}
-							<div className='-mx-2 space-y-3 border-t px-4 pt-3'>
+							<div className='-mx-2 space-y-2 border-t px-2 pt-2'>
 								<div className='flex min-w-0 items-center justify-between gap-2'>
-									<span className='min-w-0 flex-1 truncate text-xs text-muted-foreground'>
+									<span className='min-w-0 flex-1 truncate pl-[13px] text-[11px] text-muted-foreground'>
 										{canPush
 											? 'Send committed changes'
 											: reviewRequestUrl
@@ -422,22 +434,35 @@ export function ContextGitPanel({
 									</span>
 									<div className='flex shrink-0 items-center gap-1'>
 										{reviewRequestUrl && (
-											<Button asChild variant='ghost-muted' size='sm' className='px-2 text-xs'>
-												<a href={reviewRequestUrl} target='_blank' rel='noreferrer'>
-													<ExternalLink className='size-3.5' />
-													View PR
+											<Button
+												asChild
+												variant='ghost-muted'
+												size='sm'
+												className='h-6 gap-1 px-1.5 text-[11px]'
+											>
+												<a
+													href={reviewRequestUrl}
+													target='_blank'
+													rel='noreferrer'
+													aria-label={`View pull request${reviewRequestNumber ? ` #${reviewRequestNumber}` : ''}`}
+													title={`View pull request${reviewRequestNumber ? ` #${reviewRequestNumber}` : ''}`}
+												>
+													<GitPullRequest className='size-3' />
+													{reviewRequestNumber ? `#${reviewRequestNumber}` : 'PR'}
 												</a>
 											</Button>
 										)}
 										<Button
 											variant='secondary'
 											size='sm'
-											className='px-2 text-xs'
+											className='h-6 gap-1 px-1.5 text-[11px]'
+											aria-label='Push commits'
 											disabled={!canPush || commitPending || pushBranch.isPending}
 											isLoading={pushBranch.isPending}
 											onClick={handlePush}
 										>
-											Push
+											<ArrowUp className='size-3' />
+											push
 										</Button>
 									</div>
 								</div>
@@ -675,7 +700,7 @@ function ChangedFiles({
 					<Button
 						variant='ghost-muted'
 						size='sm'
-						className='px-2 text-xs font-normal enabled:hover:text-destructive focus-visible:text-destructive focus-visible:ring-ring/50 focus-visible:ring-[3px]'
+						className='-mr-2 px-2 text-xs font-normal enabled:hover:text-destructive focus-visible:text-destructive focus-visible:ring-ring/50 focus-visible:ring-[3px]'
 						disabled={actionsDisabledReason !== null}
 						onClick={onDiscardAll}
 					>
@@ -875,6 +900,10 @@ function getSingleDiscardTitle(file: ContextChangedFile | null): string {
 function getDiscardAllDescription(changeCount: number): string {
 	const fileCount = `${changeCount} ${changeCount === 1 ? 'file' : 'files'}`;
 	return `Are you sure you want to discard the uncommitted changes across ${fileCount}?`;
+}
+
+function getReviewRequestNumber(url: string): string | null {
+	return url.match(/\/(?:pull|merge_requests)\/(\d+)\/?(?:[?#].*)?$/)?.[1] ?? null;
 }
 
 function getChangeDisplay(kind: ContextChangedFile['kind']) {

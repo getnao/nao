@@ -1,18 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import {
-	ChevronRight,
-	File,
-	FileCode,
-	FileJson,
-	FileSpreadsheet,
-	FileText,
-	FileType,
-	Folder,
-	FolderOpen,
-	Search,
-	TextSearch,
-} from 'lucide-react';
+import { ChevronRight, Search, TextSearch } from 'lucide-react';
 import type { FileTreeEntry } from '@nao/shared/types';
+import { FileExplorerIcon } from '@/components/settings/file-explorer-icon';
 import { Spinner } from '@/components/ui/spinner';
 import { SimpleTooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -204,16 +193,12 @@ function FileTreeNode({ entry, depth, selectedPath, onSelectFile, isSearching, c
 								isExpanded && 'rotate-90',
 							)}
 						/>
-						{isExpanded ? (
-							<FolderOpen className='size-4 shrink-0 text-amber-500' />
-						) : (
-							<Folder className='size-4 shrink-0 text-amber-500' />
-						)}
+						<FileExplorerIcon name={entry.name} type='directory' />
 					</>
 				) : (
 					<>
 						<span className='size-3.5 shrink-0' />
-						<FileIcon fileName={entry.name} />
+						<FileExplorerIcon name={entry.name} type='file' />
 					</>
 				)}
 				<span className='truncate'>{entry.name}</span>
@@ -241,39 +226,6 @@ function FileTreeNode({ entry, depth, selectedPath, onSelectFile, isSearching, c
 			)}
 		</div>
 	);
-}
-
-const ICON_MAP: Record<string, { icon: typeof File; color: string }> = {
-	'.ts': { icon: FileCode, color: 'text-blue-500' },
-	'.tsx': { icon: FileCode, color: 'text-blue-500' },
-	'.js': { icon: FileCode, color: 'text-yellow-500' },
-	'.jsx': { icon: FileCode, color: 'text-yellow-500' },
-	'.py': { icon: FileCode, color: 'text-green-500' },
-	'.sql': { icon: FileCode, color: 'text-orange-500' },
-	'.sh': { icon: FileCode, color: 'text-green-600' },
-	'.bash': { icon: FileCode, color: 'text-green-600' },
-	'.json': { icon: FileJson, color: 'text-yellow-600' },
-	'.yaml': { icon: FileCode, color: 'text-red-400' },
-	'.yml': { icon: FileCode, color: 'text-red-400' },
-	'.toml': { icon: FileCode, color: 'text-gray-500' },
-	'.ini': { icon: FileCode, color: 'text-gray-500' },
-	'.env': { icon: FileCode, color: 'text-yellow-700' },
-	'.md': { icon: FileText, color: 'text-blue-400' },
-	'.txt': { icon: FileText, color: 'text-muted-foreground' },
-	'.csv': { icon: FileSpreadsheet, color: 'text-green-600' },
-	'.html': { icon: FileCode, color: 'text-orange-500' },
-	'.css': { icon: FileCode, color: 'text-purple-500' },
-	'.xml': { icon: FileCode, color: 'text-orange-400' },
-	'.svg': { icon: FileType, color: 'text-orange-400' },
-};
-
-function FileIcon({ fileName }: { fileName: string }) {
-	const dotIndex = fileName.lastIndexOf('.');
-	const ext = dotIndex !== -1 ? fileName.slice(dotIndex).toLowerCase() : '';
-	const mapping = ICON_MAP[ext];
-	const Icon = mapping?.icon ?? File;
-	const color = mapping?.color ?? 'text-muted-foreground';
-	return <Icon className={cn('size-4 shrink-0', color)} />;
 }
 
 function matchesQuery(path: string, terms: string[]): boolean {
