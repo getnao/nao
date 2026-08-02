@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 
@@ -21,6 +22,15 @@ from nao_core.commands.test.diff import (
     compute_diff,
     diff,
 )
+
+# `nao_core.commands.test` is shadowed by the cyclopts App at the package
+# level, so dotted imports of the submodule fail. Load the file directly
+# to reach the `_resolve_last_two` helper.
+_DIFF_FILE = Path(__file__).resolve().parents[3] / "nao_core" / "commands" / "test" / "diff.py"
+_diff_spec = importlib.util.spec_from_file_location("nao_core.commands.test.diff", _DIFF_FILE)
+assert _diff_spec is not None and _diff_spec.loader is not None
+diff_module = importlib.util.module_from_spec(_diff_spec)
+_diff_spec.loader.exec_module(diff_module)
 
 
 def _row(name: str, model: str, passed: bool) -> dict:
@@ -459,3 +469,121 @@ def test_diff_function_warns_when_filter_excludes_everything(tmp_path: Path, mon
     diff(a, b, model="anthropic:claude-sonnet-4-5")
 
     assert any("No matching rows" in line for line in captured)
+
+
+# ---------------------------------------------------------------------------
+# --last flag: file resolution
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_last_two_returns_none_when_outputs_dir_missing(tmp_path: Path):
+    assert diff_module._resolve_last_two(tmp_path) is None
+
+
+def test_resolve_last_two_returns_none_with_fewer_than_two_files(tmp_path: Path):
+    (tmp_path / "tests" / "outputs").mkdir(parents=True)
+    assert diff_module._resolve_last_two(tmp_path) is None
+    _write_results(tmp_path / "tests" / "outputs" / "results_20260801_000000.json", [_row("x", "openai:gpt-4.1", True)])
+    assert diff_module._resolve_last_two(tmp_path) is None
+
+
+def test_resolve_last_two_picks_two_most_recent(tmp_path: Path):
+    outputs = tmp_path / "tests" / "outputs"
+    outputs.mkdir(parents=True)
+    _write_results(outputs / "results_20260101_000000.json", [_row("a", "openai:gpt-4.1", True)])
+    _write_results(outputs / "results_20260615_120000.json", [_row("b", "openai:gpt-4.1", True)])
+    _write_results(outputs / "results_20260301_000000.json", [_row("c", "openai:gpt-4.1", True)])
+
+    resolved = diff_module._resolve_last_two(tmp_path)
+
+    assert resolved is not None
+    assert [p.name for p in resolved] == ["results_20260301_000000.json", "results_20260615_120000.json"]
+
+
+def test_diff_last_picks_two_most_recent(tmp_path: Path, monkeypatch):
+    outputs = tmp_path / "tests" / "outputs"
+    outputs.mkdir(parents=True)
+    _write_results(
+        outputs / "results_20260601_000000.json",
+        [_row("orders", "openai:gpt-4.1", True)],
+    )
+    _write_results(
+        outputs / "results_20260615_120000.json",
+        [_row("orders", "openai:gpt-4.1", False)],
+    )
+    monkeypatch.chdir(tmp_path)
+    captured = _patch_ui(monkeypatch)
+
+    diff(last=True, no_fail=True)
+
+    assert any("1 regression" in line for line in captured)
+
+
+def test_diff_last_errors_when_outputs_dir_missing(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    captured = _patch_ui(monkeypatch)
+    monkeypatch.setattr("sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
+
+    with pytest.raises(SystemExit) as excinfo:
+        diff(last=True)
+
+    assert excinfo.value.code == 1
+    assert any("at least two results" in line for line in captured)
+
+
+def test_diff_last_errors_when_only_one_file_exists(tmp_path: Path, monkeypatch):
+    outputs = tmp_path / "tests" / "outputs"
+    outputs.mkdir(parents=True)
+    _write_results(
+        outputs / "results_20260615_120000.json",
+        [_row("orders", "openai:gpt-4.1", True)],
+    )
+    monkeypatch.chdir(tmp_path)
+    captured = _patch_ui(monkeypatch)
+    monkeypatch.setattr("sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
+
+    with pytest.raises(SystemExit) as excinfo:
+        diff(last=True)
+
+    assert excinfo.value.code == 1
+    assert any("at least two results" in line for line in captured)
+
+
+def test_diff_last_rejects_explicit_file_args(tmp_path: Path, monkeypatch):
+    a = tmp_path / "a.json"
+    b = tmp_path / "b.json"
+    _write_results(a, [_row("x", "openai:gpt-4.1", True)])
+    _write_results(b, [_row("x", "openai:gpt-4.1", True)])
+    captured = _patch_ui(monkeypatch)
+    monkeypatch.setattr("sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
+
+    with pytest.raises(SystemExit) as excinfo:
+        diff(file1=a, file2=b, last=True)
+
+    assert excinfo.value.code == 1
+    assert any("mutually exclusive" in line for line in captured)
+
+
+def test_diff_with_no_args_errors(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    captured = _patch_ui(monkeypatch)
+    monkeypatch.setattr("sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
+
+    with pytest.raises(SystemExit) as excinfo:
+        diff()
+
+    assert excinfo.value.code == 1
+    assert any("two file paths" in line for line in captured)
+
+
+def test_diff_with_only_one_file_errors(tmp_path: Path, monkeypatch):
+    a = tmp_path / "a.json"
+    _write_results(a, [_row("x", "openai:gpt-4.1", True)])
+    captured = _patch_ui(monkeypatch)
+    monkeypatch.setattr("sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
+
+    with pytest.raises(SystemExit) as excinfo:
+        diff(file1=a)
+
+    assert excinfo.value.code == 1
+    assert any("two file paths" in line for line in captured)
