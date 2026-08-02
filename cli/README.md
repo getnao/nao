@@ -240,6 +240,29 @@ Options:
 - `--port` / `-p`: Port to run the server on (default: `8765`)
 - `--no-open`: Don't automatically open the browser
 
+### Show a single test's prompt and SQL
+
+```bash
+nao test show orders_count
+```
+
+Prints the full prompt and SQL of one or more test cases, looked up by name, yaml stem, or subfolder. Comma-separated selectors are accepted and each match is printed in order. No model calls, no network.
+
+Options:
+
+- `--sql-only`: print only the SQL field, no prompt or file path
+- `--prompt-only`: print only the prompt, no SQL or file path
+
+Examples:
+
+```bash
+nao test show orders_count
+nao test show orders_count,users_count
+nao test show contracts
+nao test show orders_count --sql-only
+nao test show orders_count --prompt-only
+```
+
 ### BigQuery service account permissions
 
 When you connect BigQuery during `nao init`, the service account used by `credentials_path`/ADC must be able to list datasets and run read-only queries to generate docs. Grant the account:
