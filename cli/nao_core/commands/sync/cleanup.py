@@ -5,11 +5,28 @@ import shutil
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Set
 
 from rich.console import Console
 
 console = Console()
+
+
+# All template output filenames that the database sync has ever produced.
+# Used to identify files that are safe to delete when their template is no
+# longer configured. User-authored files (annotations.md, anything not in this
+# set) are never touched.
+TEMPLATE_OUTPUT_FILES: Set[str] = {
+    # Current templates (cli/nao_core/templates/defaults/databases/)
+    "columns.md",
+    "query_history.md",
+    "preview.md",
+    "profiling.md",
+    "ai_summary.md",
+    # Legacy names from earlier versions
+    "how_to_use.md",  # renamed to query_history.md in #1043
+    "description.md",  # removed in #1043
+}
 
 
 @dataclass
@@ -183,3 +200,68 @@ def cleanup_stale_repos(config_repos: list, base_path: Path, verbose: bool = Fal
             shutil.rmtree(repo_dir)
             if verbose:
                 console.print(f"\n[yellow] Removed unused repo:[/yellow] {repo_dir.name}")
+
+
+def cleanup_stale_table_files(
+    state: DatabaseSyncState,
+    expected_filenames: Set[str],
+    verbose: bool = False,
+) -> int:
+    """Remove template-managed files that are no longer configured.
+
+    Walks every synced table directory under ``state.db_path`` and removes
+    files that are in the legacy-or-current known template set (see
+    :data:`TEMPLATE_OUTPUT_FILES`) but NOT in ``expected_filenames``.
+    User-authored files (anything not in the known set, including
+    ``annotations.md``) are never deleted.
+
+    This generalises the per-file cleanup that already exists for the
+    Notion provider (``cleanup_stale_pages``) to database table folders,
+    so a user who removes a template from ``nao_config.yaml`` (or picks
+    up the ``#1043`` rename from ``how_to_use.md`` to
+    ``query_history.md``) no longer accumulates orphan files on every
+    subsequent sync.
+
+    Args:
+        state: The sync state tracking which tables were synced.
+        expected_filenames: Set of template filenames that the current
+            config expects (e.g. ``{"preview.md", "columns.md"}``). Files
+            in :data:`TEMPLATE_OUTPUT_FILES` that are NOT in this set
+            are removed. Templates that are configured but skipped this
+            run (e.g. ``profiling.md`` under a ``once``/``interval``
+            refresh policy) should still appear in this set so the
+            existing file is preserved.
+        verbose: Whether to print cleanup messages.
+
+    Returns:
+        Number of stale files removed.
+    """
+    if not state.db_path.exists():
+        return 0
+
+    stale_set = TEMPLATE_OUTPUT_FILES - expected_filenames
+    if not stale_set:
+        return 0
+
+    removed_count = 0
+    for schema_name in state.synced_schemas:
+        schema_path = state.db_path / f"schema={schema_name}"
+        if not schema_path.exists():
+            continue
+        for table_name in state.synced_tables.get(schema_name, set()):
+            table_path = schema_path / f"table={table_name}"
+            if not table_path.exists():
+                continue
+            for file_path in table_path.iterdir():
+                if not file_path.is_file():
+                    continue
+                if file_path.name in stale_set:
+                    file_path.unlink()
+                    removed_count += 1
+                    if verbose:
+                        console.print(
+                            f"  [dim red]removing stale template file:[/dim red] "
+                            f"{schema_name}.{table_name}/{file_path.name}"
+                        )
+
+    return removed_count
