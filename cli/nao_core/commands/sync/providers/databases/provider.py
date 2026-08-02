@@ -26,6 +26,7 @@ from nao_core.commands.sync.cleanup import (
     DatabaseSyncState,
     cleanup_stale_databases,
     cleanup_stale_paths,
+    cleanup_stale_table_files,
     get_database_folder_names,
 )
 from nao_core.commands.sync.markers import ensure_annotations_file, with_generated_marker
@@ -454,7 +455,10 @@ class DatabaseSyncProvider(SyncProvider):
         total_datasets = 0
         total_tables = 0
         total_removed = 0
-        sync_states: list[DatabaseSyncState] = []
+        # ``sync_states`` holds (state, expected_filenames) pairs so the
+        # post-sync cleanup can ask each state which template output files
+        # it should expect on disk.
+        sync_states: list[tuple[DatabaseSyncState, set[str]]] = []
 
         nao_ctx = create_nao_context(self._nao_config, project_path=project_path) if self._nao_config else None
         llm_config = self._nao_config.llm if self._nao_config else None
@@ -484,6 +488,9 @@ class DatabaseSyncProvider(SyncProvider):
             transient=False,
         ) as progress:
             db_folders = get_database_folder_names(items)
+            # ``sync_results`` holds (state, expected_filenames) pairs so the
+            # post-sync cleanup can ask each state which template output files
+            # it should expect on disk.
             if threads <= 1 or len(items) == 1:
                 for db, db_folder in zip(items, db_folders, strict=False):
                     try:
@@ -497,7 +504,8 @@ class DatabaseSyncProvider(SyncProvider):
                             nao_ctx=nao_ctx,
                             select=select,
                         )
-                        sync_states.append(state)
+                        expected = {Path(t).stem + ".md" for t in (t.value for t in db.templates)}
+                        sync_states.append((state, expected))
                         total_datasets += state.schemas_synced
                         total_tables += state.tables_synced
                     except Exception as e:
@@ -522,16 +530,19 @@ class DatabaseSyncProvider(SyncProvider):
                         db = futures[future]
                         try:
                             state = future.result()
-                            sync_states.append(state)
+                            expected = {Path(t).stem + ".md" for t in (t.value for t in db.templates)}
+                            sync_states.append((state, expected))
                             total_datasets += state.schemas_synced
                             total_tables += state.tables_synced
                         except Exception as e:
                             console.print(f"[bold red]✗[/bold red] Failed to sync {db.name}: {_fmt_error(e)}")
 
         if not select:
-            for state in sync_states:
+            for state, expected_filenames in sync_states:
                 removed = cleanup_stale_paths(state, verbose=True)
                 total_removed += removed
+                removed_files = cleanup_stale_table_files(state, expected_filenames, verbose=True)
+                total_removed += removed_files
 
         total_dur = _fmt_duration(time.monotonic() - sync_start)
         summary = f"{total_tables} tables across {total_datasets} datasets in {total_dur}"
