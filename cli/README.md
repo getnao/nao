@@ -240,6 +240,28 @@ Options:
 - `--port` / `-p`: Port to run the server on (default: `8765`)
 - `--no-open`: Don't automatically open the browser
 
+### Show summary of a result file
+
+```bash
+nao test summary
+nao test summary tests/outputs/results_20260715_120000.json
+```
+
+Prints the one-line overall summary (pass/fail/total, total cost, total duration, total tool calls) and a per-model breakdown of the saved result file. With no argument, picks the most recent `results_*.json` in `tests/outputs/`. Reuses the same helpers that the `server` subcommand and `save_results` use, so output is identical to what the browser UI shows for the same file. No model calls, no HTTP.
+
+Options:
+
+- `--file` / `-f <path>`: explicit path to a results JSON file (default: most recent in `tests/outputs/`)
+- `--json`: print the summary as JSON instead of a human-readable table
+
+Examples:
+
+```bash
+nao test summary
+nao test summary tests/outputs/results_20260715_120000.json
+nao test summary --json
+```
+
 ### BigQuery service account permissions
 
 When you connect BigQuery during `nao init`, the service account used by `credentials_path`/ADC must be able to list datasets and run read-only queries to generate docs. Grant the account:
