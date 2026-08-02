@@ -2,6 +2,7 @@ from cyclopts import App
 
 from .runner import test as run_tests
 from .server import server
+from .summary_cmd import summary
 
 # Create a test app with subcommands
 test = App(name="test", help="Run and explore nao tests.")
@@ -11,6 +12,9 @@ test.command(name="run")(run_tests)
 
 # Register the server command
 test.command(name="server")(server)
+
+# Register the summary command
+test.command(name="summary")(summary)
 
 # Make `nao test` (without subcommand) run tests by default
 test.default(run_tests)
