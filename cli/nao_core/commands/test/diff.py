@@ -13,6 +13,8 @@ from cyclopts import Parameter
 
 from nao_core.ui import UI
 
+from .case import TESTS_FOLDER
+
 # Change labels for the (test, model) pair between two result files.
 UNCHANGED = "unchanged"
 REGRESSION = "regression"
@@ -137,15 +139,34 @@ def _render_summary(counts: dict[str, int]) -> str:
     return ", ".join(parts)
 
 
+def _resolve_last_two(project_path: Path) -> list[Path] | None:
+    """Return the two most recent `results_*.json` files, or None if there are fewer than two.
+
+    Names sort chronologically because `save_results` uses a `%Y%m%d_%H%M%S` prefix.
+    """
+    outputs_dir = project_path / TESTS_FOLDER / "outputs"
+    if not outputs_dir.exists():
+        return None
+    files = sorted(outputs_dir.glob("results_*.json"))
+    return files[-2:] if len(files) >= 2 else None
+
+
 def diff(
     file1: Annotated[
-        Path,
-        Parameter(help="Path to the first results JSON file (before)."),
-    ],
+        Path | None,
+        Parameter(help="Path to the first results JSON file (before). Mutually exclusive with --last."),
+    ] = None,
     file2: Annotated[
-        Path,
-        Parameter(help="Path to the second results JSON file (after)."),
-    ],
+        Path | None,
+        Parameter(help="Path to the second results JSON file (after). Mutually exclusive with --last."),
+    ] = None,
+    last: Annotated[
+        bool,
+        Parameter(
+            name=["--last"],
+            help="Use the two most recent results_*.json files in tests/outputs/ instead of explicit paths.",
+        ),
+    ] = False,
     model: Annotated[
         str | None,
         Parameter(
@@ -180,7 +201,8 @@ def diff(
     Pairs are matched on (test name, model). Use this to track what changed
     between two runs of `nao test` -- a passing→failing pair is a regression,
     a failing→passing pair is a fix, and a pair only in one file is added or
-    removed.
+    removed. Pass two file paths, or pass `--last` to use the two most recent
+    results_*.json files in tests/outputs/.
 
     Examples:
         nao test diff tests/outputs/results_before.json tests/outputs/results_after.json
@@ -188,7 +210,23 @@ def diff(
         nao test diff a.json b.json --test orders_count
         nao test diff a.json b.json --quiet
         nao test diff a.json b.json --no-fail
+        nao test diff --last
+        nao test diff --last --quiet
     """
+    if last and (file1 or file2):
+        UI.error("--last is mutually exclusive with the two file path arguments")
+        sys.exit(1)
+    if not last and not (file1 and file2):
+        UI.error("Provide two file paths, or pass --last to use the two most recent results files")
+        sys.exit(1)
+    if last:
+        resolved = _resolve_last_two(Path.cwd())
+        if resolved is None:
+            UI.error("Need at least two results_*.json files in tests/outputs/ for --last")
+            sys.exit(1)
+        file1, file2 = resolved
+
+    assert file1 is not None and file2 is not None
     left = _load_results(file1)
     right = _load_results(file2)
 
