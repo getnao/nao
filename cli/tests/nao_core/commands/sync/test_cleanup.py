@@ -5,10 +5,12 @@ from pathlib import Path
 from typing import List
 
 from nao_core.commands.sync.cleanup import (
+    TEMPLATE_OUTPUT_FILES,
     DatabaseSyncState,
     cleanup_stale_databases,
     cleanup_stale_paths,
     cleanup_stale_repos,
+    cleanup_stale_table_files,
     get_database_folder_names,
 )
 from nao_core.config.repos import RepoConfig
@@ -339,3 +341,173 @@ def create_repo_dir(base: Path, name: str) -> Path:
     repo.mkdir(parents=True)
     (repo / "README.md").write_text("dummy")
     return repo
+
+
+class TestCleanupStaleTableFiles:
+    """Tests for cleanup_stale_table_files (per-file cleanup for database table folders)."""
+
+    def test_template_output_files_constant_includes_current_and_legacy(self):
+        """TEMPLATE_OUTPUT_FILES covers every current and legacy template name."""
+        assert "columns.md" in TEMPLATE_OUTPUT_FILES
+        assert "preview.md" in TEMPLATE_OUTPUT_FILES
+        assert "query_history.md" in TEMPLATE_OUTPUT_FILES
+        assert "profiling.md" in TEMPLATE_OUTPUT_FILES
+        assert "ai_summary.md" in TEMPLATE_OUTPUT_FILES
+        # Legacy names from earlier versions
+        assert "how_to_use.md" in TEMPLATE_OUTPUT_FILES
+        assert "description.md" in TEMPLATE_OUTPUT_FILES
+        # annotations.md is user-authored and must NOT be in the set
+        assert "annotations.md" not in TEMPLATE_OUTPUT_FILES
+
+    def test_no_cleanup_when_db_path_does_not_exist(self, tmp_path: Path):
+        state = DatabaseSyncState(db_path=tmp_path / "nonexistent")
+        state.add_table("public", "users")
+
+        removed = cleanup_stale_table_files(state, expected_filenames={"preview.md"})
+
+        assert removed == 0
+
+    def test_no_cleanup_when_expected_covers_all_templates(self, tmp_path: Path):
+        db_path = tmp_path / "type=duckdb" / "database=test"
+        table_path = db_path / "schema=public" / "table=users"
+        table_path.mkdir(parents=True)
+        for name in TEMPLATE_OUTPUT_FILES:
+            (table_path / name).write_text("content")
+        state = DatabaseSyncState(db_path=db_path)
+        state.add_table("public", "users")
+
+        removed = cleanup_stale_table_files(state, expected_filenames=set(TEMPLATE_OUTPUT_FILES))
+
+        assert removed == 0
+        for name in TEMPLATE_OUTPUT_FILES:
+            assert (table_path / name).exists()
+
+    def test_removes_template_files_not_in_expected(self, tmp_path: Path):
+        db_path = tmp_path / "type=duckdb" / "database=test"
+        table_path = db_path / "schema=public" / "table=users"
+        table_path.mkdir(parents=True)
+        (table_path / "preview.md").write_text("preview content")
+        (table_path / "columns.md").write_text("columns content")
+        (table_path / "annotations.md").write_text("user notes")
+        state = DatabaseSyncState(db_path=db_path)
+        state.add_table("public", "users")
+
+        # Config now only wants columns.md
+        removed = cleanup_stale_table_files(state, expected_filenames={"columns.md"})
+
+        assert removed == 1
+        assert not (table_path / "preview.md").exists()
+        assert (table_path / "columns.md").exists()
+        # User-authored annotations.md must never be touched
+        assert (table_path / "annotations.md").exists()
+
+    def test_removes_legacy_files_from_old_template_names(self, tmp_path: Path):
+        """#1043 renamed how_to_use.md -> query_history.md and removed description.md.
+
+        After the rename, the next sync should clean up the legacy files.
+        """
+        db_path = tmp_path / "type=duckdb" / "database=test"
+        table_path = db_path / "schema=public" / "table=users"
+        table_path.mkdir(parents=True)
+        (table_path / "query_history.md").write_text("new")
+        (table_path / "how_to_use.md").write_text("legacy")
+        (table_path / "description.md").write_text("legacy")
+        state = DatabaseSyncState(db_path=db_path)
+        state.add_table("public", "users")
+
+        removed = cleanup_stale_table_files(state, expected_filenames={"query_history.md"})
+
+        assert removed == 2
+        assert (table_path / "query_history.md").exists()
+        assert not (table_path / "how_to_use.md").exists()
+        assert not (table_path / "description.md").exists()
+
+    def test_preserves_files_for_templates_configured_but_skipped(self, tmp_path: Path):
+        """profiling.md and ai_summary.md can be skipped under a once/interval refresh policy.
+
+        They should still be in `expected_filenames` so the existing file is kept.
+        """
+        db_path = tmp_path / "type=duckdb" / "database=test"
+        table_path = db_path / "schema=public" / "table=users"
+        table_path.mkdir(parents=True)
+        (table_path / "preview.md").write_text("preview")
+        (table_path / "profiling.md").write_text("profile")
+        (table_path / "ai_summary.md").write_text("summary")
+        state = DatabaseSyncState(db_path=db_path)
+        state.add_table("public", "users")
+
+        removed = cleanup_stale_table_files(
+            state,
+            expected_filenames={"preview.md", "profiling.md", "ai_summary.md"},
+        )
+
+        assert removed == 0
+        assert (table_path / "profiling.md").exists()
+        assert (table_path / "ai_summary.md").exists()
+        assert (table_path / "preview.md").exists()
+
+    def test_cleans_every_table_under_every_schema(self, tmp_path: Path):
+        db_path = tmp_path / "type=duckdb" / "database=test"
+        for schema, table in [("public", "users"), ("public", "orders"), ("analytics", "events")]:
+            table_path = db_path / f"schema={schema}" / f"table={table}"
+            table_path.mkdir(parents=True)
+            (table_path / "preview.md").write_text("p")
+        state = DatabaseSyncState(db_path=db_path)
+        for schema, table in [("public", "users"), ("public", "orders"), ("analytics", "events")]:
+            state.add_table(schema, table)
+
+        removed = cleanup_stale_table_files(state, expected_filenames={"columns.md"})
+
+        assert removed == 3
+        for schema, table in [("public", "users"), ("public", "orders"), ("analytics", "events")]:
+            assert not (db_path / f"schema={schema}" / f"table={table}" / "preview.md").exists()
+
+    def test_never_deletes_user_authored_files(self, tmp_path: Path):
+        db_path = tmp_path / "type=duckdb" / "database=test"
+        table_path = db_path / "schema=public" / "table=users"
+        table_path.mkdir(parents=True)
+        # Files that are not in TEMPLATE_OUTPUT_FILES
+        (table_path / "annotations.md").write_text("notes")
+        (table_path / "custom_report.md").write_text("custom")
+        (table_path / "README.md").write_text("readme")
+        (table_path / "schema.png").write_bytes(b"binary")
+        (table_path / "data.csv").write_text("a,b,c")
+        state = DatabaseSyncState(db_path=db_path)
+        state.add_table("public", "users")
+
+        removed = cleanup_stale_table_files(state, expected_filenames=set())
+
+        assert removed == 0
+        for name in ["annotations.md", "custom_report.md", "README.md", "schema.png", "data.csv"]:
+            assert (table_path / name).exists(), f"{name} was unexpectedly deleted"
+
+    def test_handles_table_directory_missing_on_disk(self, tmp_path: Path):
+        """The state records a table that doesn't exist on disk (e.g. partial sync).
+
+        The cleanup should skip it, not crash.
+        """
+        db_path = tmp_path / "type=duckdb" / "database=test"
+        state = DatabaseSyncState(db_path=db_path)
+        state.add_table("public", "ghost_table")
+
+        removed = cleanup_stale_table_files(state, expected_filenames=set())
+
+        assert removed == 0
+
+    def test_only_iterates_files_at_top_level(self, tmp_path: Path):
+        """Subdirectories of the table folder are not touched (they belong to the table itself)."""
+        db_path = tmp_path / "type=duckdb" / "database=test"
+        table_path = db_path / "schema=public" / "table=users"
+        table_path.mkdir(parents=True)
+        (table_path / "preview.md").write_text("p")
+        sub = table_path / "samples"
+        sub.mkdir()
+        (sub / "preview.md").write_text("nested")
+        state = DatabaseSyncState(db_path=db_path)
+        state.add_table("public", "users")
+
+        removed = cleanup_stale_table_files(state, expected_filenames=set())
+
+        assert removed == 1  # only the top-level preview.md
+        assert not (table_path / "preview.md").exists()
+        assert (sub / "preview.md").exists()  # nested preview.md preserved
