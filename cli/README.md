@@ -254,6 +254,7 @@ Options:
 - `--test <name>`: only show rows for one test name
 - `--quiet` / `-q`: only print the summary line
 - `--no-fail`: print the report but always exit `0` (useful in scripts that just want the report)
+- `--last`: use the two most recent `results_*.json` files in `tests/outputs/` instead of explicit paths
 
 Examples:
 
@@ -263,6 +264,8 @@ nao test diff a.json b.json --model openai:gpt-4.1
 nao test diff a.json b.json --test orders_count
 nao test diff a.json b.json --quiet
 nao test diff a.json b.json --no-fail
+nao test diff --last
+nao test diff --last --quiet
 ```
 
 ### BigQuery service account permissions
