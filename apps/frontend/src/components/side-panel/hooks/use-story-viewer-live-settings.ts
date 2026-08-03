@@ -18,11 +18,11 @@ export const useStoryViewerLiveSettings = ({ chatId, storySlug, shareId }: UseSt
 	const cacheSchedule = data?.cacheSchedule ?? null;
 	const cacheScheduleDescription = data?.cacheScheduleDescription ?? null;
 
-	const invalidateSharedStory = () => {
+	const invalidateSharedStory = async () => {
 		if (!shareId) {
 			return;
 		}
-		void queryClient.invalidateQueries({
+		await queryClient.invalidateQueries({
 			queryKey: trpc.storyShare.get.queryKey({ shareId }),
 		});
 	};
@@ -43,17 +43,27 @@ export const useStoryViewerLiveSettings = ({ chatId, storySlug, shareId }: UseSt
 
 	const refreshDataMutation = useMutation(
 		trpc.story.refreshData.mutationOptions({
-			onSuccess: () => {
-				void queryClient.invalidateQueries({
-					queryKey: trpc.story.listVersions.queryKey({ chatId, storySlug }),
-				});
-				void queryClient.invalidateQueries({
-					queryKey: trpc.story.getLatest.queryKey({ chatId, storySlug }),
-				});
-				void queryClient.invalidateQueries({
-					queryKey: trpc.automation.feed.queryKey(),
-				});
-				invalidateSharedStory();
+			onSettled: async () => {
+				const invalidations = [
+					queryClient.invalidateQueries({
+						queryKey: trpc.story.listVersions.queryKey({ chatId, storySlug }),
+					}),
+					queryClient.invalidateQueries({
+						queryKey: trpc.story.getLatest.queryKey({ chatId, storySlug }),
+					}),
+					queryClient.invalidateQueries({
+						queryKey: trpc.automation.feed.queryKey(),
+					}),
+					invalidateSharedStory(),
+				];
+				if (storyId) {
+					invalidations.push(
+						queryClient.invalidateQueries({
+							queryKey: trpc.story.getStandalone.queryKey({ storyId }),
+						}),
+					);
+				}
+				await Promise.all(invalidations);
 			},
 		}),
 	);

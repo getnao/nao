@@ -58,23 +58,16 @@ export const deleteProjectLlmConfig = async (projectId: string, provider: LlmPro
 		.execute();
 };
 
-/** Get the provider for a project (for display purposes) */
-export const getProjectModelProvider = async (projectId: string): Promise<LlmProvider | undefined> => {
+/** Get the default provider for a project */
+export const getProjectDefaultModelProvider = async (projectId: string): Promise<LlmProvider | undefined> => {
 	const configs = await getProjectLlmConfigs(projectId);
 
-	// Return first configured provider, preferring anthropic
-	const anthropicConfig = configs.find((c) => c.provider === 'anthropic');
-	if (anthropicConfig) {
-		return 'anthropic';
-	}
-
-	const openaiConfig = configs.find((c) => c.provider === 'openai');
-	if (openaiConfig) {
-		return 'openai';
-	}
-
-	// Fall back to env providers
-	return getDefaultEnvProvider();
+	return (
+		configs.find((config) => config.provider === 'anthropic')?.provider ??
+		configs.find((config) => config.provider === 'openai')?.provider ??
+		configs[0]?.provider ??
+		getDefaultEnvProvider()
+	);
 };
 
 /** Get the config to use for a specific model selection */

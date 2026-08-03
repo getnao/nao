@@ -87,6 +87,32 @@ export const failActivity = async (activityId: string, errorMessage: string): Pr
 		.execute();
 };
 
+export const getLatestStoryRefreshFailure = async (
+	storyId: string,
+): Promise<{ errorMessage: string; failedAt: Date } | null> => {
+	const [latestRefresh] = await db
+		.select({
+			status: s.activity.status,
+			errorMessage: s.activity.errorMessage,
+			startedAt: s.activity.startedAt,
+			completedAt: s.activity.completedAt,
+		})
+		.from(s.activity)
+		.where(and(eq(s.activity.storyId, storyId), eq(s.activity.type, 'story.refreshed')))
+		.orderBy(desc(s.activity.startedAt))
+		.limit(1)
+		.execute();
+
+	if (!latestRefresh || latestRefresh.status !== 'failed') {
+		return null;
+	}
+
+	return {
+		errorMessage: latestRefresh.errorMessage ?? 'Story refresh failed.',
+		failedAt: latestRefresh.completedAt ?? latestRefresh.startedAt,
+	};
+};
+
 export const failStaleActivities = async (): Promise<number> => {
 	const cutoff = new Date(Date.now() - ACTIVITY_RUN_STALE_MS);
 	const rows = await db

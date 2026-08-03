@@ -140,6 +140,7 @@ export const sharedStoryRoutes = {
 			isLive,
 			cacheSchedule,
 		);
+		const lastRefreshFailure = await activityQueries.getLatestStoryRefreshFailure(shared.storyId);
 
 		if (ctx.user.id !== shared.userId) {
 			logAnalyticsEvent({
@@ -162,6 +163,7 @@ export const sharedStoryRoutes = {
 			cacheSchedule,
 			cacheScheduleDescription,
 			cachedAt,
+			lastRefreshFailure,
 			userRole: ctx.userRole,
 		};
 	}),

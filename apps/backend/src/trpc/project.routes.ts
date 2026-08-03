@@ -794,6 +794,13 @@ export const projectRoutes = {
 						modelId: z.string().optional(),
 					})
 					.optional(),
+				liveStoryRefresh: z
+					.object({
+						provider: llmProviderSchema,
+						modelId: z.string().min(1),
+					})
+					.nullable()
+					.optional(),
 				sql: z.object({ dangerouslyWritePermEnabled: z.boolean().optional() }).optional(),
 				pythonExecution: z
 					.object({
@@ -820,6 +827,8 @@ export const projectRoutes = {
 				memoryEnabled: input.memoryEnabled ?? existing.memoryEnabled,
 				experimental: { ...existing.experimental, ...input.experimental },
 				transcribe: { ...existing.transcribe, ...input.transcribe },
+				liveStoryRefresh:
+					input.liveStoryRefresh === undefined ? existing.liveStoryRefresh : input.liveStoryRefresh,
 				sql: { ...existing.sql, ...input.sql },
 				pythonExecution: { ...existing.pythonExecution, ...input.pythonExecution },
 				webSearch: { ...existing.webSearch, ...input.webSearch },
@@ -829,6 +838,8 @@ export const projectRoutes = {
 				transcribe_enabled: merged.transcribe?.enabled,
 				transcribe_provider: merged.transcribe?.provider,
 				transcribe_model_id: merged.transcribe?.modelId,
+				live_story_refresh_provider: merged.liveStoryRefresh?.provider,
+				live_story_refresh_model_id: merged.liveStoryRefresh?.modelId,
 				sql_dangerously_write_perm_enabled: merged.sql?.dangerouslyWritePermEnabled,
 				python_execution_max_duration_secs: merged.pythonExecution?.maxDurationSecs,
 				python_sandboxing_enabled: merged.experimental?.pythonSandboxing,

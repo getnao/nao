@@ -1,3 +1,5 @@
+import type { LlmProvider } from '@nao/shared/types';
+
 export type WebSearchMode = 'provider';
 
 export interface AgentSettings {
@@ -12,6 +14,10 @@ export interface AgentSettings {
 		provider?: string;
 		modelId?: string;
 	};
+	liveStoryRefresh?: {
+		provider: LlmProvider;
+		modelId: string;
+	} | null;
 	sql?: {
 		dangerouslyWritePermEnabled?: boolean;
 	};

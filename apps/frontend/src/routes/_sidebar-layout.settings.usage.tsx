@@ -38,10 +38,10 @@ const tokenSeries = [
 ];
 
 const costSeries = [
-	{ data_key: 'inputNoCacheCost', color: 'var(--chart-1)', label: 'Input' },
-	{ data_key: 'inputCacheReadCost', color: 'var(--chart-2)', label: 'Cache read' },
-	{ data_key: 'inputCacheWriteCost', color: 'var(--chart-3)', label: 'Cache write' },
-	{ data_key: 'outputCost', color: 'var(--chart-4)', label: 'Output' },
+	{ data_key: 'inputNoCacheCost', color: 'var(--chart-1)', label: 'Input', value_format: USD_VALUE_FORMAT },
+	{ data_key: 'inputCacheReadCost', color: 'var(--chart-2)', label: 'Cache read', value_format: USD_VALUE_FORMAT },
+	{ data_key: 'inputCacheWriteCost', color: 'var(--chart-3)', label: 'Cache write', value_format: USD_VALUE_FORMAT },
+	{ data_key: 'outputCost', color: 'var(--chart-4)', label: 'Output', value_format: USD_VALUE_FORMAT },
 ];
 
 const messageSeries = [
@@ -219,32 +219,7 @@ function UsageOverview({
 								chartType='stacked_bar'
 								xAxisLabelFormatter={(value) => format(new Date(value), dateFormats[granularity])}
 								valueFormatter={showCost ? formatUsd : undefined}
-								series={[
-									{
-										data_key: 'inputNoCacheCost',
-										color: 'var(--chart-1)',
-										label: 'Input',
-										value_format: USD_VALUE_FORMAT,
-									},
-									{
-										data_key: 'inputCacheReadCost',
-										color: 'var(--chart-2)',
-										label: 'Input (cache read)',
-										value_format: USD_VALUE_FORMAT,
-									},
-									{
-										data_key: 'inputCacheWriteCost',
-										color: 'var(--chart-3)',
-										label: 'Input (cache write)',
-										value_format: USD_VALUE_FORMAT,
-									},
-									{
-										data_key: 'outputCost',
-										color: 'var(--chart-4)',
-										label: 'Output',
-										value_format: USD_VALUE_FORMAT,
-									},
-								]}
+								series={showCost ? costSeries : tokenSeries}
 								titleAccessory={
 									<Select
 										value={tokenView}

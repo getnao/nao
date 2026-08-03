@@ -223,6 +223,13 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/models',
 		pageLabel: 'Models',
+		title: 'Live story refresh',
+		description: 'Choose the model used to regenerate dynamic text when live stories refresh.',
+		keywords: ['live story', 'story refresh', 'dynamic text', 'refresh model'],
+	},
+	{
+		page: '/settings/project/models',
+		pageLabel: 'Models',
 		title: 'Transcription',
 		description: 'Configure speech-to-text transcription provider and model.',
 		keywords: ['voice', 'speech', 'microphone', 'whisper', 'stt'],

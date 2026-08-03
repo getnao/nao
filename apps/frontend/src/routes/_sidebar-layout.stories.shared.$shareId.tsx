@@ -4,7 +4,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
 import type { QueryDataMap } from '@/components/story-embeds';
-import type { StoryPageHeaderProps } from '@/components/story-page-header';
+import type { StoryPageHeaderProps, StoryRefreshFailure } from '@/components/story-page-header';
 import { ForkBubble } from '@/components/highlight-bubble';
 import { SelectionChatPanel } from '@/components/selection-chat-panel';
 import { SidePanel } from '@/components/side-panel/side-panel';
@@ -47,7 +47,7 @@ function SharedStoryPage() {
 
 	const refreshMutation = useMutation(
 		trpc.storyShare.refreshData.mutationOptions({
-			onSuccess: () => {
+			onSettled: () => {
 				queryClient.invalidateQueries({ queryKey: trpc.storyShare.get.queryKey({ shareId }) });
 			},
 		}),
@@ -100,6 +100,7 @@ function SharedStoryPage() {
 				storySlug={story.slug}
 				shareId={shareId}
 				cachedAt={story.cachedAt}
+				lastRefreshFailure={story.lastRefreshFailure}
 				onOpenChat={() =>
 					navigate({
 						to: '/$chatId',
@@ -136,6 +137,7 @@ function SharedStoryPage() {
 						? {
 								isLive: true,
 								cachedAt: story.cachedAt,
+								lastRefreshFailure: story.lastRefreshFailure,
 								isRefreshing: refreshMutation.isPending,
 								onRefresh: () => refreshMutation.mutate({ shareId }),
 							}
@@ -211,6 +213,7 @@ interface SharedStoryOwnerHeaderProps {
 	storySlug: string;
 	shareId: string;
 	cachedAt?: string | Date | null;
+	lastRefreshFailure?: StoryRefreshFailure | null;
 	onOpenChat: () => void;
 	viewModeControls: StoryPageHeaderProps['viewModeControls'];
 	versionControls: StoryPageHeaderProps['versionControls'];
@@ -224,6 +227,7 @@ function SharedStoryOwnerHeader({
 	storySlug,
 	shareId,
 	cachedAt,
+	lastRefreshFailure,
 	onOpenChat,
 	viewModeControls,
 	versionControls,
@@ -252,6 +256,7 @@ function SharedStoryOwnerHeader({
 				live={{
 					isLive,
 					cachedAt,
+					lastRefreshFailure,
 					isRefreshing,
 					onRefresh: () => handleRefreshData(),
 					onOpenSettings: () => setIsLiveSettingsOpen(true),

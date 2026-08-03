@@ -115,7 +115,10 @@ export const storyRoutes = {
 		if (!story) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 		}
-		const cache = await storyQueries.getStoryDataCacheByStoryId(input.storyId);
+		const [cache, lastRefreshFailure] = await Promise.all([
+			storyQueries.getStoryDataCacheByStoryId(input.storyId),
+			activityQueries.getLatestStoryRefreshFailure(input.storyId),
+		]);
 
 		if (story.projectId) {
 			logAnalyticsEvent({
@@ -132,7 +135,7 @@ export const storyRoutes = {
 			? await backfillMissingQueryData(story.code, cache?.queryData ?? null, { chatId: story.chatId })
 			: (cache?.queryData ?? null);
 
-		return { ...story, queryData, cachedAt: cache?.cachedAt ?? null };
+		return { ...story, queryData, cachedAt: cache?.cachedAt ?? null, lastRefreshFailure };
 	}),
 
 	getLatest: chatOwnerProcedure
@@ -149,6 +152,7 @@ export const storyRoutes = {
 				version.isLive,
 				version.cacheSchedule,
 			);
+			const lastRefreshFailure = await activityQueries.getLatestStoryRefreshFailure(version.storyId);
 
 			const projectId = await chatQueries.getChatProjectId(input.chatId);
 			if (projectId) {
@@ -163,7 +167,7 @@ export const storyRoutes = {
 				});
 			}
 
-			return { ...version, queryData, cachedAt };
+			return { ...version, queryData, cachedAt, lastRefreshFailure };
 		}),
 
 	listVersions: chatOwnerProcedure

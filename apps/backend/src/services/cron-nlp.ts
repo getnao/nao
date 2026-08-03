@@ -52,7 +52,7 @@ export async function naturalLanguageToCron(projectId: string, text: string): Pr
 async function resolveModelForProject(
 	projectId: string,
 ): Promise<{ provider: LlmProvider; model: ProviderModelResult } | null> {
-	const provider = await llmConfigQueries.getProjectModelProvider(projectId);
+	const provider = await llmConfigQueries.getProjectDefaultModelProvider(projectId);
 	if (!provider) {
 		return null;
 	}

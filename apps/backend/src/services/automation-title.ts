@@ -43,7 +43,7 @@ async function resolveModelForProject(
 	projectId: string,
 	modelSelection?: LlmSelectedModel,
 ): Promise<{ provider: LlmProvider; model: ProviderModelResult } | null> {
-	const provider = modelSelection?.provider ?? (await llmConfigQueries.getProjectModelProvider(projectId));
+	const provider = modelSelection?.provider ?? (await llmConfigQueries.getProjectDefaultModelProvider(projectId));
 	if (!provider) {
 		return null;
 	}

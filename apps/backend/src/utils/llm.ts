@@ -55,15 +55,14 @@ export function getEnvBaseUrls(): Record<string, string> {
 	);
 }
 
-/** Get the first available provider from env (preferring anthropic) */
+/** Get the first available provider from env, preferring Anthropic then OpenAI */
 export function getDefaultEnvProvider(): LlmProvider | undefined {
-	if (hasEnvApiKey('anthropic')) {
-		return 'anthropic';
-	}
-	if (hasEnvApiKey('openai')) {
-		return 'openai';
-	}
-	return undefined;
+	const providers = getEnvProviders();
+	return (
+		providers.find((provider) => provider === 'anthropic') ??
+		providers.find((provider) => provider === 'openai') ??
+		providers[0]
+	);
 }
 
 /** Check if a model ID is known for a provider */

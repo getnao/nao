@@ -5,6 +5,7 @@ import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segme
 
 import type { SelectionData } from '@/components/highlight-bubble';
 import type { QueryDataMap } from '@/components/story-embeds';
+import type { StoryRefreshFailure } from '@/components/story-page-header';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { HighlightBubble } from '@/components/highlight-bubble';
 import { StoryAccessError } from '@/components/story-access-error';
@@ -91,6 +92,7 @@ function StandaloneStoryPage() {
 				storySlug={story.slug}
 				queryData={story.queryData as QueryDataMap | null}
 				cachedAt={story.cachedAt}
+				lastRefreshFailure={story.lastRefreshFailure}
 				onOpenChat={handleOpenChat}
 				isOpeningChat={openStandaloneMutation.isPending}
 			/>
@@ -105,7 +107,15 @@ function StandaloneStoryPage() {
 				isOpeningChat={openStandaloneMutation.isPending}
 				download={{ storyId, isOwner: true }}
 				storyId={storyId}
-				live={story.isLive ? { isLive: true, cachedAt: story.cachedAt } : undefined}
+				live={
+					story.isLive
+						? {
+								isLive: true,
+								cachedAt: story.cachedAt,
+								lastRefreshFailure: story.lastRefreshFailure,
+							}
+						: undefined
+				}
 				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
 			/>
 			<SelectionProvider key={storyId}>
@@ -136,6 +146,7 @@ interface StandaloneEditableStoryProps {
 	storySlug: string;
 	queryData: QueryDataMap | null;
 	cachedAt?: string | Date | null;
+	lastRefreshFailure?: StoryRefreshFailure | null;
 	onOpenChat: () => void;
 	isOpeningChat: boolean;
 }
@@ -148,6 +159,7 @@ function StandaloneEditableStory({
 	storySlug,
 	queryData,
 	cachedAt,
+	lastRefreshFailure,
 	onOpenChat,
 	isOpeningChat,
 }: StandaloneEditableStoryProps) {
@@ -189,6 +201,7 @@ function StandaloneEditableStory({
 				live={{
 					isLive,
 					cachedAt,
+					lastRefreshFailure,
 					isRefreshing,
 					onRefresh: () => handleRefreshData(),
 					onOpenSettings: () => setIsLiveSettingsOpen(true),

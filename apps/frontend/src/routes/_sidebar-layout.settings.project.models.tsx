@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { LlmProvidersSection } from '@/components/settings/llm-providers-section';
+import { SettingsLiveStoryRefresh } from '@/components/settings/settings-live-story-refresh';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { SettingsTranscribe } from '@/components/settings/settings-transcribe';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -19,6 +20,7 @@ function ProjectModelsTabPage() {
 			>
 				<LlmProvidersSection isAdmin={isAdmin} />
 			</SettingsCard>
+			<SettingsLiveStoryRefresh isAdmin={isAdmin} />
 			<SettingsTranscribe isAdmin={isAdmin} />
 		</>
 	);

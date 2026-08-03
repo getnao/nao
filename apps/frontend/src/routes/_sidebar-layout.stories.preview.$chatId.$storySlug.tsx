@@ -100,6 +100,7 @@ function StoryPreviewPage() {
 				live={{
 					isLive,
 					cachedAt: story.cachedAt,
+					lastRefreshFailure: story.lastRefreshFailure,
 					isRefreshing,
 					onRefresh: () => handleRefreshData(),
 					onOpenSettings: () => setIsLiveSettingsOpen(true),
