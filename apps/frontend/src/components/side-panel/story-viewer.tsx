@@ -242,6 +242,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 				onClose={closeSidePanel}
 				isCodeDirty={isCodeDirty}
 				isCodeValid={isCodeValid}
+				cachedAt={cachedAt}
 			/>
 
 			{Boolean(archivedAt) && <ArchivedBanner chatId={chatId} storySlug={resolvedStorySlug} />}

@@ -1,7 +1,8 @@
-import { formatCompactNumber, formatPercentShare, sumPercentStackBase } from '@nao/shared';
+import { formatChartValue, formatCompactNumber, formatPercentShare, sumPercentStackBase } from '@nao/shared';
 import * as React from 'react';
 import * as RechartsPrimitive from 'recharts';
 import type { Payload } from 'recharts/types/component/DefaultLegendContent';
+import type { displayChart } from '@nao/shared/tools';
 
 import { cn } from '@/lib/utils';
 
@@ -13,6 +14,7 @@ export type ChartConfig = {
 		label?: React.ReactNode;
 		icon?: React.ComponentType;
 		isTotal?: boolean;
+		valueFormat?: displayChart.ValueFormat;
 	} & ({ color?: string; theme?: never } | { color?: never; theme: Record<keyof typeof THEMES, string> });
 };
 
@@ -138,13 +140,14 @@ function ChartTooltipContent({
 		const [item] = payload;
 		const key = `${labelKey || item?.dataKey || item?.name || 'value'}`;
 		const itemConfig = getPayloadConfigFromPayload(config, item, key);
-		const value = !labelKey && typeof label === 'string' ? config[label]?.label || label : itemConfig?.label;
+		const isAxisValue = !labelKey && (typeof label === 'string' || typeof label === 'number');
+		const value = isAxisValue ? config[String(label)]?.label || label : itemConfig?.label;
 
 		if (labelFormatter) {
 			return <div className={cn('font-medium', labelClassName)}>{labelFormatter(value, payload)}</div>;
 		}
 
-		if (!value) {
+		if (value === undefined || value === null || value === '') {
 			return null;
 		}
 
@@ -175,6 +178,9 @@ function ChartTooltipContent({
 	// In 100% stacked mode every category totals 100%, so ignore already-aggregated total series.
 	const showTotal = !isDualAxis && numericValues.length > 1 && (percent || (!hasTotalSeries && !hideTotal));
 	const formatValue = (value: number) => (percent ? formatPercentShare(value, shareBase) : valueFormatter(value));
+	const firstItem = visiblePayload[0];
+	const firstItemKey = `${nameKey || firstItem?.name || firstItem?.dataKey || 'value'}`;
+	const firstItemFormat = getPayloadConfigFromPayload(config, firstItem, firstItemKey)?.valueFormat;
 
 	return (
 		<div
@@ -241,7 +247,11 @@ function ChartTooltipContent({
 										{item.value !== undefined && item.value !== null && (
 											<span className='text-foreground font-mono font-medium tabular-nums'>
 												{typeof item.value === 'number'
-													? formatValue(item.value)
+													? percent
+														? formatPercentShare(item.value, shareBase)
+														: formatChartValue(item.value, itemConfig?.valueFormat, {
+																compact: true,
+															})
 													: item.value.toLocaleString()}
 											</span>
 										)}
@@ -256,7 +266,7 @@ function ChartTooltipContent({
 						<div className='flex flex-1 justify-between leading-none gap-2 items-center'>
 							<span className='text-muted-foreground font-medium'>Total</span>
 							<span className='text-foreground font-mono font-medium tabular-nums'>
-								{percent ? '100%' : valueFormatter(seriesTotal)}
+								{percent ? '100%' : formatChartValue(seriesTotal, firstItemFormat, { compact: true })}
 							</span>
 						</div>
 					</div>
@@ -317,7 +327,7 @@ function ChartLegendContent({
 						<div
 							key={item.value}
 							className={cn(
-								'[&>svg]:text-muted-foreground flex items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3 text-muted-foreground select-none',
+								'[&>svg]:text-muted-foreground flex shrink-0 items-center gap-1.5 whitespace-nowrap [&>svg]:h-3 [&>svg]:w-3 text-muted-foreground select-none',
 								onItemClick && 'cursor-pointer hover:text-foreground',
 								item.isHidden && 'opacity-40',
 							)}

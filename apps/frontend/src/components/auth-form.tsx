@@ -191,7 +191,7 @@ function AuthSidePanel() {
 	return (
 		<div
 			className='flex flex-col items-center justify-center hidden overflow-hidden lg:flex lg:w-1/2 m-4 rounded-lg'
-			style={{ backgroundImage: "url('/fontNao.png')", backgroundSize: 'cover', backgroundPosition: 'center' }}
+			style={{ backgroundImage: "url('/fontNao.webp')", backgroundSize: 'cover', backgroundPosition: 'center' }}
 		>
 			<div className='relative w-full mx-auto max-w-md'>
 				<InputGroup

@@ -3,7 +3,7 @@ import { mergeAttributes, Node } from '@tiptap/core';
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
 import { useMemo } from 'react';
 import { StoryTableEmbed } from './story-table-embed';
-import { StoryBlockDragGrip, StoryBlockDropZones } from './story-editor-block-drag';
+import { StoryBlockDragGrip, StoryBlockDropZones, useStoryBlockDrag } from './story-editor-block-drag';
 import { decodeFromAttr } from './story-editor-utils';
 import type { ReactNodeViewProps } from '@tiptap/react';
 
@@ -18,6 +18,7 @@ function TableBlockView({ node, editor, getPos }: ReactNodeViewProps) {
 		const parsed = parseTableBlock(attrMatch[1]);
 		return parsed ? { ...parsed, rawTag } : null;
 	}, [rawTag]);
+	const { handleDragStart, handleDragEnd } = useStoryBlockDrag({ node, editor, getPos });
 
 	if (!table) {
 		return (
@@ -31,12 +32,12 @@ function TableBlockView({ node, editor, getPos }: ReactNodeViewProps) {
 
 	return (
 		<NodeViewWrapper draggable data-type='table-block'>
-			<div className='group relative my-2'>
+			<div className='group relative my-2' draggable onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
 				<StoryBlockDropZones node={node} editor={editor} getPos={getPos} />
-				<StoryTableEmbed
-					table={table}
-					dragHandle={<StoryBlockDragGrip node={node} editor={editor} getPos={getPos} />}
-				/>
+				<div contentEditable={false} className='absolute -left-10 top-2 z-20'>
+					<StoryBlockDragGrip node={node} editor={editor} getPos={getPos} />
+				</div>
+				<StoryTableEmbed table={table} />
 			</div>
 		</NodeViewWrapper>
 	);

@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { isMac } from '@/lib/platform';
 import { requireAutomationsEnabled } from '@/lib/require-admin';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
@@ -189,10 +190,7 @@ function AutomationDetailPage() {
 }
 
 function getSaveShortcutLabel() {
-	if (typeof navigator !== 'undefined' && navigator.platform.includes('Mac')) {
-		return '⌘S';
-	}
-	return 'Ctrl+S';
+	return isMac ? '⌘S' : 'Ctrl+S';
 }
 
 type AutomationRun = {

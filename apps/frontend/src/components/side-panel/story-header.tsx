@@ -35,6 +35,7 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { SwitchIndicator } from '@/components/ui/switch';
+import { LiveStoryTimestamp } from '@/components/story-page-header';
 import { cn } from '@/lib/utils';
 
 export interface StoryHeaderProps {
@@ -70,6 +71,7 @@ export interface StoryHeaderProps {
 	onClose: () => void;
 	isCodeDirty?: boolean;
 	isCodeValid?: boolean;
+	cachedAt?: string | Date | null;
 }
 
 export const StoryHeader = memo(function StoryHeader({
@@ -105,6 +107,7 @@ export const StoryHeader = memo(function StoryHeader({
 	onClose,
 	isCodeDirty = false,
 	isCodeValid = true,
+	cachedAt,
 }: StoryHeaderProps) {
 	const isMobile = useIsMobile();
 	const { toggle: toggleFavorite, isPending: isFavoritePending } = useToggleFavorite('story');
@@ -233,27 +236,6 @@ export const StoryHeader = memo(function StoryHeader({
 
 	const liveControls = !isReadonlyMode && (
 		<>
-			{isLive && (
-				<Tooltip>
-					<TooltipTrigger asChild>
-						<Button
-							variant='ghost'
-							size='icon-sm'
-							className='hover:rounded-full'
-							onClick={onRefreshData}
-							disabled={isRefreshing}
-							aria-label='Refresh data'
-						>
-							{isRefreshing ? (
-								<Loader2 className='size-3 animate-spin' strokeWidth={2.25} />
-							) : (
-								<RefreshCw className='size-3' strokeWidth={2.25} />
-							)}
-						</Button>
-					</TooltipTrigger>
-					<TooltipContent>Refresh data</TooltipContent>
-				</Tooltip>
-			)}
 			<Tooltip>
 				<TooltipTrigger asChild>
 					<button
@@ -269,6 +251,30 @@ export const StoryHeader = memo(function StoryHeader({
 				</TooltipTrigger>
 				<TooltipContent>{isLive ? 'Live story settings' : 'Enable live mode'}</TooltipContent>
 			</Tooltip>
+			{isLive && (
+				<>
+					{cachedAt && <LiveStoryTimestamp cachedAt={cachedAt} />}
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<Button
+								variant='ghost'
+								size='icon-sm'
+								className='hover:rounded-full'
+								onClick={onRefreshData}
+								disabled={isRefreshing}
+								aria-label='Refresh data'
+							>
+								{isRefreshing ? (
+									<Loader2 className='size-3 animate-spin' strokeWidth={2.25} />
+								) : (
+									<RefreshCw className='size-3' strokeWidth={2.25} />
+								)}
+							</Button>
+						</TooltipTrigger>
+						<TooltipContent>Refresh data</TooltipContent>
+					</Tooltip>
+				</>
+			)}
 		</>
 	);
 

@@ -4,7 +4,16 @@ import { Fragment, Slice } from '@tiptap/pm/model';
 import { dropPoint } from '@tiptap/pm/transform';
 import { useEditor } from '@tiptap/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { blockSelectionPluginKey, buildBlockMoveTransaction, resolveDragBlocks } from '../story-block-selection';
+import {
+	blockSelectionPluginKey,
+	buildDragUnitNodes,
+	buildSelectionMoveTransaction,
+	emptySelection,
+	getSelectedBlockPositions,
+	getSelectedGridColumns,
+	resolveDragSelection,
+	selectBlockFromHandle,
+} from '../story-block-selection';
 import { EDITOR_EXTENSIONS } from '../story-editor-extensions';
 import { GRID_COLUMN_DRAG_TYPE, STORY_BLOCK_DRAG_TYPE } from '../story-editor-drag-context';
 import {
@@ -15,7 +24,9 @@ import {
 	removeCardFromOrigin,
 } from '../story-editor-utils';
 import type { GridDragSource, StoryBlockDragSource } from '../story-editor-drag-context';
+import type { DragUnit, GridColumnRef } from '../story-block-selection';
 import type { Node as PMNode } from '@tiptap/pm/model';
+import type { EditorState } from '@tiptap/pm/state';
 import type { Editor } from '@tiptap/react';
 import type { MutableRefObject } from 'react';
 
@@ -35,18 +46,43 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 	const onSaveRef = useRef(onSave);
 	const gridDragSourceRef = useRef<GridDragSource | null>(null);
 	const storyBlockSourceRef = useRef<StoryBlockDragSource | null>(null);
-	const multiBlockDragRef = useRef<number[] | null>(null);
+	const multiSelectionDragRef = useRef<DragUnit[] | null>(null);
 	const handleNodePosRef = useRef<number | null>(null);
-	const dragPreviewPositionsRef = useRef<number[] | null>(null);
+	const dragPreviewElementsRef = useRef<HTMLElement[] | null>(null);
+	const pendingDropRef = useRef<(() => void) | null>(null);
 	const storyEditorRef = useRef<HTMLDivElement>(null);
 	const [isBlockDragging, setIsBlockDragging] = useState(false);
+	const [activeDropZone, setActiveDropZone] = useState<string | null>(null);
 	const [handleNodeType, setHandleNodeType] = useState<string | null>(null);
+	const [selectedGridColumns, setSelectedGridColumns] = useState<GridColumnRef[]>([]);
+	const [selectedBlocks, setSelectedBlocks] = useState<number[]>([]);
 	const resetDragContexts = useCallback(() => {
 		gridDragSourceRef.current = null;
 		storyBlockSourceRef.current = null;
-		multiBlockDragRef.current = null;
-		dragPreviewPositionsRef.current = null;
+		multiSelectionDragRef.current = null;
+		dragPreviewElementsRef.current = null;
+		pendingDropRef.current = null;
 		setIsBlockDragging(false);
+		setActiveDropZone((current) => (current === null ? current : null));
+	}, []);
+	const buildStoryDragSlice = useCallback((state: EditorState): Slice | null => {
+		const units = multiSelectionDragRef.current;
+		if (units) {
+			const nodes = buildDragUnitNodes(state, units);
+			if (nodes?.length) {
+				return new Slice(Fragment.fromArray(nodes), 0, 0);
+			}
+		}
+
+		const source = storyBlockSourceRef.current;
+		if (source) {
+			const node = createBlockNode(state.schema, source.markup);
+			if (node) {
+				return new Slice(Fragment.from(node), 0, 0);
+			}
+		}
+
+		return null;
 	}, []);
 	const handleDragHandleNodeChange = useCallback(({ node, pos }: { node: PMNode | null; pos: number }) => {
 		setHandleNodeType(node?.type.name ?? null);
@@ -78,35 +114,37 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 		contentType: 'markdown',
 		editorProps: {
 			handleDOMEvents: {
-				dragover(_view, event) {
+				dragover(view, event) {
 					if (
 						event.dataTransfer?.types.includes(GRID_COLUMN_DRAG_TYPE) ||
 						event.dataTransfer?.types.includes(STORY_BLOCK_DRAG_TYPE)
 					) {
 						event.preventDefault();
+						setActiveDropZone((current) => (current === null ? current : null));
+						pendingDropRef.current = null;
+						if (!view.dragging) {
+							const slice = buildStoryDragSlice(view.state);
+							if (slice) {
+								view.dragging = { slice, move: true };
+							}
+						}
 					}
 					return false;
 				},
 			},
 			handleDrop(view, event) {
 				const dataTransfer = event.dataTransfer;
-				if (multiBlockDragRef.current && multiBlockDragRef.current.length > 1) {
+				if (multiSelectionDragRef.current) {
 					try {
-						const positions = multiBlockDragRef.current;
-						const { state } = view;
-						const nodes = positions
-							.map((position) => state.doc.nodeAt(position))
-							.filter((node): node is PMNode => node != null);
-						if (nodes.length === 0) {
-							return true;
-						}
 						const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
 						if (!coords) {
 							return true;
 						}
-						const slice = new Slice(Fragment.fromArray(nodes), 0, 0);
-						const insertPos = dropPoint(state.doc, coords.pos, slice) ?? coords.pos;
-						const move = buildBlockMoveTransaction(state, positions, insertPos);
+						const move = buildSelectionMoveTransaction(
+							view.state,
+							multiSelectionDragRef.current,
+							coords.pos,
+						);
 						if (!move) {
 							return true;
 						}
@@ -225,26 +263,132 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 			return;
 		}
 
-		const onDragStart = (event: DragEvent) => {
-			const positions = dragPreviewPositionsRef.current;
-			if (!positions || positions.length === 0) {
+		const normalizeBlockDropCursor = () => {
+			const cursor = container.querySelector<HTMLElement>('.drop-cursor.prosemirror-dropcursor-block');
+			const offsetParent = cursor?.offsetParent;
+			if (!cursor || !(offsetParent instanceof HTMLElement)) {
 				return;
 			}
-			setDragPreviewImage(editor, positions, event);
+
+			const editorDom = editor.view.dom;
+			const editorRect = editorDom.getBoundingClientRect();
+			const editorStyle = getComputedStyle(editorDom);
+			const parentRect = offsetParent.getBoundingClientRect();
+			const parentScaleX = parentRect.width / offsetParent.offsetWidth || 1;
+			const parentScaleY = parentRect.height / offsetParent.offsetHeight || 1;
+			const parentLeft = parentRect.left - offsetParent.scrollLeft * parentScaleX;
+			const paddingLeft = Number.parseFloat(editorStyle.paddingLeft) || 0;
+			const paddingRight = Number.parseFloat(editorStyle.paddingRight) || 0;
+			const desiredLeft = editorRect.left + paddingLeft;
+			const desiredRight = editorRect.right - paddingRight;
+
+			cursor.style.setProperty('left', `${(desiredLeft - parentLeft) / parentScaleX}px`, 'important');
+			cursor.style.setProperty('right', 'auto', 'important');
+			cursor.style.setProperty(
+				'width',
+				`${Math.max(0, desiredRight - desiredLeft) / parentScaleX}px`,
+				'important',
+			);
+			cursor.style.setProperty('height', '2px', 'important');
+
+			const cursorRect = cursor.getBoundingClientRect();
+			const deviceScale = window.devicePixelRatio || 1;
+			const snappedTop = Math.round(cursorRect.top * deviceScale) / deviceScale;
+			const currentTop = Number.parseFloat(cursor.style.top);
+			if (Number.isFinite(currentTop)) {
+				cursor.style.setProperty(
+					'top',
+					`${currentTop + (snappedTop - cursorRect.top) / parentScaleY}px`,
+					'important',
+				);
+			}
+		};
+
+		const onDragStart = (event: DragEvent) => {
+			const elements = dragPreviewElementsRef.current;
+			if (!elements || elements.length === 0) {
+				return;
+			}
+			setDragPreviewImage(elements, event);
+		};
+
+		const onDragOver = () => {
+			normalizeBlockDropCursor();
 		};
 
 		const clearDropCursor = () => {
-			dragPreviewPositionsRef.current = null;
+			dragPreviewElementsRef.current = null;
 			editor.view.dom.dispatchEvent(new DragEvent('dragleave'));
 		};
 
+		const resetBlockDragState = () => {
+			setIsBlockDragging(false);
+			setActiveDropZone((current) => (current === null ? current : null));
+			pendingDropRef.current = null;
+			storyBlockSourceRef.current = null;
+			multiSelectionDragRef.current = null;
+			dragPreviewElementsRef.current = null;
+			editor.view.dragging = null;
+		};
+
+		const deferredResetBlockDragState = () => {
+			requestAnimationFrame(resetBlockDragState);
+		};
+
+		const onDocumentDrop = (event: DragEvent) => {
+			if (multiSelectionDragRef.current) {
+				return;
+			}
+			const action = pendingDropRef.current;
+			if (!action) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			action();
+			pendingDropRef.current = null;
+			setActiveDropZone(null);
+		};
+
 		container.addEventListener('dragstart', onDragStart);
+		editor.view.dom.addEventListener('dragover', onDragOver);
+		document.addEventListener('drop', onDocumentDrop, true);
 		document.addEventListener('dragend', clearDropCursor, true);
 		document.addEventListener('drop', clearDropCursor, true);
+		document.addEventListener('dragend', resetBlockDragState, true);
+		document.addEventListener('drop', deferredResetBlockDragState, true);
 		return () => {
 			container.removeEventListener('dragstart', onDragStart);
+			editor.view.dom.removeEventListener('dragover', onDragOver);
+			document.removeEventListener('drop', onDocumentDrop, true);
 			document.removeEventListener('dragend', clearDropCursor, true);
 			document.removeEventListener('drop', clearDropCursor, true);
+			document.removeEventListener('dragend', resetBlockDragState, true);
+			document.removeEventListener('drop', deferredResetBlockDragState, true);
+		};
+	}, [editor]);
+
+	useEffect(() => {
+		if (!editor) {
+			setSelectedGridColumns([]);
+			setSelectedBlocks([]);
+			return;
+		}
+
+		const syncGridColumns = () => {
+			const next = getSelectedGridColumns(editor.state);
+			setSelectedGridColumns((current) => (sameGridColumns(current, next) ? current : next));
+			const nextBlocks = getSelectedBlockPositions(editor.state);
+			setSelectedBlocks((current) =>
+				current.length === nextBlocks.length && current.every((value, index) => value === nextBlocks[index])
+					? current
+					: nextBlocks,
+			);
+		};
+		syncGridColumns();
+		editor.on('transaction', syncGridColumns);
+		return () => {
+			editor.off('transaction', syncGridColumns);
 		};
 	}, [editor]);
 
@@ -271,39 +415,53 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 				return;
 			}
 			const hoveredPosition = handleNodePosRef.current;
+			const hoveredNode = hoveredPosition == null ? null : editor.state.doc.nodeAt(hoveredPosition);
+			if (
+				hoveredNode != null &&
+				(hoveredNode.type.name === 'gridBlock' ||
+					hoveredNode.type.name === 'chartBlock' ||
+					hoveredNode.type.name === 'tableBlock')
+			) {
+				event.preventDefault();
+				return;
+			}
 			const selection = blockSelectionPluginKey.getState(editor.state);
-			const dragBlocks = hoveredPosition == null ? null : resolveDragBlocks(editor.state, hoveredPosition);
-			if (dragBlocks?.isMulti) {
-				multiBlockDragRef.current = dragBlocks.positions;
-				dragPreviewPositionsRef.current = dragBlocks.positions;
+			const units =
+				hoveredPosition == null
+					? null
+					: resolveDragSelection(editor.state, { kind: 'block', pos: hoveredPosition });
+			if (units) {
+				multiSelectionDragRef.current = units;
+				dragPreviewElementsRef.current = resolveDragPreviewElements(editor, units);
 				if (event.dataTransfer) {
 					event.dataTransfer.effectAllowed = 'move';
 				}
 			} else {
-				multiBlockDragRef.current = null;
-				dragPreviewPositionsRef.current = dragBlocks?.positions ?? null;
-				if (selection?.blocks.length) {
-					editor.view.dispatch(
-						editor.state.tr.setMeta(blockSelectionPluginKey, { blocks: [], anchor: null }),
-					);
+				multiSelectionDragRef.current = null;
+				dragPreviewElementsRef.current =
+					hoveredPosition == null
+						? null
+						: resolveDragPreviewElements(editor, [{ kind: 'block', pos: hoveredPosition }]);
+				if (selection?.blocks.length || selection?.gridColumns.length) {
+					editor.view.dispatch(editor.state.tr.setMeta(blockSelectionPluginKey, emptySelection()));
 				}
 			}
 		},
 		[editor],
 	);
-	const endMultiBlockDrag = useCallback(() => {
-		multiBlockDragRef.current = null;
-		dragPreviewPositionsRef.current = null;
+	const endMultiSelectionDrag = useCallback(() => {
+		multiSelectionDragRef.current = null;
+		dragPreviewElementsRef.current = null;
 	}, []);
-	const beginMultiBlockDrag = useCallback(
-		(positions: number[], event: DragEvent) => {
-			multiBlockDragRef.current = positions;
-			dragPreviewPositionsRef.current = positions;
+	const beginMultiSelectionDrag = useCallback(
+		(units: DragUnit[], event: DragEvent) => {
+			multiSelectionDragRef.current = units;
+			dragPreviewElementsRef.current = editor ? resolveDragPreviewElements(editor, units) : null;
 			if (!editor || !event.dataTransfer) {
 				return;
 			}
 			event.dataTransfer.effectAllowed = 'move';
-			setDragPreviewImage(editor, positions, event);
+			setDragPreviewImage(dragPreviewElementsRef.current ?? [], event);
 		},
 		[editor],
 	);
@@ -312,34 +470,87 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 			sourceRef: storyBlockSourceRef,
 			isDragging: isBlockDragging,
 			setDragging: setIsBlockDragging,
-			beginMultiBlockDrag,
-			endMultiBlockDrag,
+			activeDropZone,
+			setActiveDropZone,
+			pendingDropRef,
+			beginMultiSelectionDrag,
+			endMultiSelectionDrag,
 		}),
-		[beginMultiBlockDrag, endMultiBlockDrag, isBlockDragging],
+		[activeDropZone, beginMultiSelectionDrag, endMultiSelectionDrag, isBlockDragging],
 	);
-	const onElementDragEnd = endMultiBlockDrag;
+	const onElementDragEnd = endMultiSelectionDrag;
+	const onDragHandleClick = useCallback(() => {
+		if (!editor) {
+			return;
+		}
+		const pos = handleNodePosRef.current;
+		if (pos == null) {
+			return;
+		}
+		const node = editor.state.doc.nodeAt(pos);
+		if (
+			node != null &&
+			(node.type.name === 'gridBlock' || node.type.name === 'chartBlock' || node.type.name === 'tableBlock')
+		) {
+			return;
+		}
+		const next = selectBlockFromHandle(editor.state, pos);
+		if (!next) {
+			return;
+		}
+		editor.view.dispatch(editor.state.tr.setMeta(blockSelectionPluginKey, next));
+	}, [editor]);
 
 	return {
 		editor,
 		gridDragSourceRef,
 		storyBlockDragContext,
+		selectedGridColumns,
+		selectedBlocks,
 		handleDragHandleNodeChange,
 		handleNodeType,
 		storyEditorRef,
 		onElementDragStart,
 		onElementDragEnd,
+		onDragHandleClick,
 	};
 }
 
-function setDragPreviewImage(editor: Editor, positions: number[], event: DragEvent): void {
+function sameGridColumns(first: GridColumnRef[], second: GridColumnRef[]): boolean {
+	return (
+		first.length === second.length &&
+		first.every((column, index) => column.gridPos === second[index].gridPos && column.index === second[index].index)
+	);
+}
+
+function resolveDragPreviewElements(editor: Editor, units: DragUnit[]): HTMLElement[] {
+	const elements: HTMLElement[] = [];
+	for (const unit of units) {
+		if (unit.kind === 'block') {
+			const element = editor.view.nodeDOM(unit.pos);
+			if (element instanceof HTMLElement) {
+				elements.push(element);
+			}
+			continue;
+		}
+		for (const index of unit.indices) {
+			const element = editor.view.dom.querySelector<HTMLElement>(
+				`[data-grid-pos="${unit.gridPos}"][data-col-index="${index}"]`,
+			);
+			if (element) {
+				elements.push(element);
+			}
+		}
+	}
+	return elements;
+}
+
+function setDragPreviewImage(elements: HTMLElement[], event: DragEvent): void {
 	if (!event.dataTransfer) {
 		return;
 	}
 
-	const nodes = positions
-		.map((position) => editor.view.nodeDOM(position))
-		.filter((dom): dom is HTMLElement => dom instanceof HTMLElement);
-	if (nodes.length === 0) {
+	if (elements.length === 0) {
 		return;
 	}
 
@@ -348,8 +559,8 @@ function setDragPreviewImage(editor: Editor, positions: number[], event: DragEve
 	preview.style.top = '-10000px';
 	preview.style.left = '-10000px';
 
-	for (const dom of nodes) {
-		preview.appendChild(cloneElementWithStyles(dom));
+	for (const element of elements) {
+		preview.appendChild(cloneElementWithStyles(element));
 	}
 
 	document.body.appendChild(preview);

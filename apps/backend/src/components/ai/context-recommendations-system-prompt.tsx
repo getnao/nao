@@ -1,7 +1,9 @@
 import { APP_DB_VIEW_COLUMNS } from '../../db/app-db-views';
+import dbConfig, { Dialect } from '../../db/dbConfig';
 import { Block, Bold, Br, Code, CodeBlock, List, ListItem, renderToMarkdown, Span, Title } from '../../lib/markdown';
 import type { LinkedContextRepo } from '../../types/context-recommendation';
 import { ALLOWED_APP_DB_VIEWS } from '../../utils/app-db-allowlist';
+import { AppDbTimestamps } from './app-db-timestamps';
 import { NaoContextStructure } from './nao-context-structure';
 
 export function renderContextRecommendationsSystemPrompt(options?: {
@@ -109,6 +111,11 @@ function ContextRecommendationsSystemPrompt({
 						))}
 					</List>
 				</Span>
+				<Span>
+					The views run on <Bold>{dbConfig.dialect === Dialect.Postgres ? 'PostgreSQL' : 'SQLite'}</Bold>, so
+					write SQL for that dialect.
+				</Span>
+				<AppDbTimestamps />
 			</Block>
 
 			<Title level={2}>Persona</Title>

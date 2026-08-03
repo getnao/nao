@@ -1,5 +1,5 @@
 import { markSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
-import type { LlmProvider } from '@nao/shared/types';
+import { type LlmProvider, providerKind } from '@nao/shared/types';
 import { convertToModelMessages, type ModelMessage, type Tool } from 'ai';
 
 import { KNOWN_MODELS } from '../agents/providers';
@@ -48,7 +48,7 @@ export async function getChatAsModelMessages(opts: {
 }
 
 function getContextWindow({ provider, modelId }: { provider: LlmProvider; modelId: string }): number | null {
-	const models = KNOWN_MODELS[provider] ?? [];
+	const models = KNOWN_MODELS[providerKind(provider)] ?? [];
 	const contextWindow = models.find((m) => m.id === modelId)?.contextWindow;
 	return contextWindow ?? null;
 }

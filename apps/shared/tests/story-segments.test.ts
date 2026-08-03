@@ -8,6 +8,7 @@ import {
 	insertGridColumn,
 	parseChartBlock,
 	popGridColumn,
+	popGridColumns,
 	previewGridColumns,
 	reorderGridColumns,
 	resizeGridColumns,
@@ -318,6 +319,46 @@ describe('popGridColumn', () => {
 	});
 });
 
+describe('popGridColumns', () => {
+	it('removes one column and keeps the remaining columns in a grid', () => {
+		const grid = `<grid widths="1,1,2">\n${CHART_ONE}\n\n${CHART_TWO}\n\n${CHART_THREE}\n</grid>`;
+		const result = popGridColumns(grid, [2]);
+
+		expect(result?.popped).toBe(CHART_THREE);
+		expect(splitGridColumnsRaw(result?.remaining ?? '').columns).toEqual([CHART_ONE, CHART_TWO]);
+	});
+
+	it('removes multiple columns into a grid and leaves one column', () => {
+		const grid = `<grid widths="1,1,2">\n${CHART_ONE}\n\n${CHART_TWO}\n\n${CHART_THREE}\n</grid>`;
+		const result = popGridColumns(grid, [0, 2]);
+
+		expect(result?.remaining).toBe(CHART_TWO);
+		expect(splitGridColumnsRaw(result?.popped ?? '').columns).toEqual([CHART_ONE, CHART_THREE]);
+	});
+
+	it('removes all columns into a grid', () => {
+		const grid = `<grid widths="1,1,2">\n${CHART_ONE}\n\n${CHART_TWO}\n\n${CHART_THREE}\n</grid>`;
+		const result = popGridColumns(grid, [0, 1, 2]);
+
+		expect(result?.remaining).toBeNull();
+		expect(splitGridColumnsRaw(result?.popped ?? '').columns).toEqual([CHART_ONE, CHART_TWO, CHART_THREE]);
+	});
+
+	it('normalizes out-of-order and duplicate indices', () => {
+		const grid = `<grid widths="1,1,2">\n${CHART_ONE}\n\n${CHART_TWO}\n\n${CHART_THREE}\n</grid>`;
+
+		expect(popGridColumns(grid, [2, 0, 0])).toEqual(popGridColumns(grid, [0, 2]));
+	});
+
+	it('returns null for invalid input', () => {
+		const grid = `<grid widths="1,1,2">\n${CHART_ONE}\n\n${CHART_TWO}\n\n${CHART_THREE}\n</grid>`;
+
+		expect(popGridColumns(grid, [])).toBeNull();
+		expect(popGridColumns(grid, [3])).toBeNull();
+		expect(popGridColumns(CHART_ONE, [0])).toBeNull();
+	});
+});
+
 describe('splitCodeIntoSegments grid widths', () => {
 	it('converts legacy span divs into grid widths without empty columns', () => {
 		const segments = splitCodeIntoSegments(
@@ -452,6 +493,30 @@ describe('splitCodeIntoSegments chart series', () => {
 		});
 
 		expect(seriesOf(code)).toEqual([{ data_key: 'rev', color: 'var(--chart-1)', label: 'a "quoted" label' }]);
+	});
+
+	it('round-trips a series value format', () => {
+		const code = buildStoryChartBlock({
+			query_id: 'q1',
+			chart_type: 'bar',
+			x_axis_key: 'month',
+			series: [
+				{
+					data_key: 'rev',
+					color: 'var(--chart-1)',
+					value_format: { d3_format: ',.2f', compact: 'financial', prefix: '$', suffix: ' USD' },
+				},
+			],
+			title: 'Revenue',
+		});
+
+		expect(seriesOf(code)).toEqual([
+			{
+				data_key: 'rev',
+				color: 'var(--chart-1)',
+				value_format: { d3_format: ',.2f', compact: 'financial', prefix: '$', suffix: ' USD' },
+			},
+		]);
 	});
 });
 

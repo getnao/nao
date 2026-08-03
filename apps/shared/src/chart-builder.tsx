@@ -25,15 +25,22 @@ import {
 import {
 	DATA_LABEL_MARGIN_TOP,
 	DATA_LABEL_X_AXIS_FOOTROOM,
-	DataLabelsLayer,
 	getDataLabelSetup,
 	PIE_LABELLED_OUTER_RADIUS,
-	PieDataLabelsLayer,
+	renderDataLabelsLayer,
+	renderPieDataLabelsLayer,
 	shouldReserveDataLabelHeadroom,
 	shouldReserveStackTotalFootroom,
 } from './chart-data-labels';
 import { collectAxisValues, collectStackedAxisValues, resolveYAxisDomain } from './chart-domain';
-import { formatCompactNumber, toFiniteNumber } from './chart-values';
+import {
+	attachValueAffixes,
+	formatChartValue,
+	formatCompactNumber,
+	getChartLevelValueFormat,
+	niceAxisMax,
+	toFiniteNumber,
+} from './chart-values';
 import { type DateFormatSettings, formatDateValue, isIsoDateLike } from './date';
 import * as displayChart from './tools/display-chart';
 
@@ -41,6 +48,7 @@ export const DEFAULT_COLORS = ['#104e64', '#f54900', '#009689', '#ffb900', '#fe9
 
 const AXIS_TICK = { fontSize: 12 };
 const CATEGORY_XAXIS_HEIGHT = 56;
+const X_AXIS_LABEL_HEIGHT = 22;
 
 /** Beyond this many slices, pie/donut charts bucket the smallest into a single "Other" slice. */
 const MAX_PIE_SLICES = 10;
@@ -63,6 +71,10 @@ const DEFAULT_BACKGROUND = 'var(--background, #ffffff)';
  * title. Y values are abbreviated by `formatYAxisTick` (e.g. `1.2K`).
  */
 const Y_AXIS_WIDTH = 36;
+const VALUE_AXIS_DEFAULT_WIDTH = 40;
+const VALUE_AXIS_MAX_WIDTH = 120;
+const VALUE_AXIS_CHARACTER_WIDTH = 7;
+const VALUE_AXIS_PADDING = 12;
 
 export function labelize(key: unknown, dateFormat?: DateFormatSettings | null): string {
 	const str = String(key);
@@ -96,6 +108,31 @@ export function formatYAxisTick(value: number): string {
 		return String(value);
 	}
 	return String(Number(abs < 1 ? value.toPrecision(2) : value.toFixed(2)));
+}
+
+export function computeValueAxisWidth(axisValues: number[], valueFormat?: displayChart.ValueFormat): number {
+	if (axisValues.length === 0) {
+		return VALUE_AXIS_DEFAULT_WIDTH;
+	}
+
+	let minimumValue = axisValues[0];
+	let maximumValue = axisValues[0];
+	for (const value of axisValues) {
+		minimumValue = Math.min(minimumValue, value);
+		maximumValue = Math.max(maximumValue, value);
+	}
+
+	const candidates = [minimumValue, maximumValue, 0];
+	if (maximumValue > 0) {
+		candidates.push(niceAxisMax(maximumValue));
+	}
+	if (minimumValue < 0) {
+		candidates.push(-niceAxisMax(Math.abs(minimumValue)));
+	}
+
+	const maximumLabelLength = Math.max(...candidates.map((value) => formatValueYAxisTick(value, valueFormat).length));
+	const estimatedWidth = maximumLabelLength * VALUE_AXIS_CHARACTER_WIDTH + VALUE_AXIS_PADDING;
+	return Math.min(VALUE_AXIS_MAX_WIDTH, Math.max(Y_AXIS_WIDTH, estimatedWidth));
 }
 
 function abbreviate(abs: number, unit: number): string {
@@ -247,8 +284,10 @@ export interface BuildChartProps {
 	renderTitle?: boolean;
 	maxXAxisTicks?: number;
 	compactXAxis?: boolean;
+	compactXAxisInterval?: number;
 	xAxisTickFontSize?: number;
 	xAxisMaxLabelChars?: number;
+	xAxisLabel?: string;
 	yAxisMin?: number;
 	yAxisMax?: number;
 	yAxisLabel?: string;
@@ -264,6 +303,8 @@ export interface BuildChartProps {
 	animate?: boolean;
 	comparisonMode?: displayChart.ComparisonMode;
 	idPrefix?: string;
+	/** Optional node rendered inline to the left of the first KPI card's title (used for a per-column drag handle in the story editor). */
+	kpiLeadingSlot?: React.ReactNode;
 }
 
 const CHART_ANIMATION_DURATION_MS = 400;
@@ -278,7 +319,7 @@ export function buildChart(props: BuildChartProps) {
 	const resolved = buildResolved(props);
 
 	if (resolved.chartType === 'kpi_card') {
-		return buildKpiCard(resolved);
+		return buildKpiCard(resolved, props.kpiLeadingSlot);
 	}
 	if (displayChart.isPieChart(resolved.chartType)) {
 		return buildPieChart(resolved);
@@ -384,18 +425,19 @@ function buildChartMargin(props: BuildChartProps, showTitle: boolean) {
 	return { ...props.margin, top: (props.margin?.top ?? 0) + titleTop + labelsTop };
 }
 
-function buildKpiCard(props: ResolvedProps) {
-	const { data, series, valueFormatter } = props;
+function buildKpiCard(props: ResolvedProps, leadingSlot?: React.ReactNode) {
+	const { data, series } = props;
 
 	return (
 		<KpiCardContainer>
-			{series.map((s) => (
+			{series.map((s, index) => (
 				<KpiCard
 					key={s.data_key}
 					value={data[data.length - 1]?.[s.data_key]}
 					displayName={s.label ?? s.data_key}
 					comparison={computeKpiComparison(data, props.xAxisKey, s.data_key, props.comparisonMode)}
-					valueFormatter={valueFormatter}
+					valueFormat={s.value_format}
+					leadingSlot={index === 0 ? leadingSlot : undefined}
 				/>
 			))}
 		</KpiCardContainer>
@@ -403,24 +445,26 @@ function buildKpiCard(props: ResolvedProps) {
 }
 
 function KpiCardContainer({ children }: { children: React.ReactNode }) {
-	return <div className='flex flex-wrap gap-4 w-full justify-start'>{children}</div>;
+	return <div className='flex w-full flex-wrap justify-start gap-4'>{children}</div>;
 }
 
 function KpiCard({
 	value,
 	displayName,
 	comparison,
-	valueFormatter = formatCompactNumber,
+	valueFormat,
+	leadingSlot,
 }: {
 	value: unknown;
 	displayName: string;
 	comparison: KpiComparison | null;
-	valueFormatter?: (value: number) => string;
+	valueFormat?: displayChart.ValueFormat;
+	leadingSlot?: React.ReactNode;
 }) {
 	let formattedValue = '';
 
 	if (typeof value === 'number') {
-		formattedValue = valueFormatter(value);
+		formattedValue = formatChartValue(value, valueFormat);
 	} else if (typeof value === 'string') {
 		formattedValue = value;
 	}
@@ -434,7 +478,10 @@ function KpiCard({
 
 	return (
 		<div className='min-w-[160px]'>
-			<div className='text-lg tracking-wide'>{displayName}</div>
+			<div className='flex items-center gap-1'>
+				{leadingSlot}
+				<div className='text-lg tracking-wide'>{displayName}</div>
+			</div>
 			<div className='text-3xl font-medium tabular-nums'>{formattedValue}</div>
 			{comparison && (
 				<div className={`mt-1.5 flex items-center gap-1.5 whitespace-nowrap text-sm ${pillColorClass}`}>
@@ -465,7 +512,7 @@ function KpiTrendArrow({ direction }: { direction: KpiComparisonDirection }) {
 	);
 }
 
-function renderValueYAxis(isPercent = false, valueFormatter = formatYAxisTick) {
+function renderValueYAxis(isPercent = false, valueFormatter = formatYAxisTick, yAxisLabel?: string) {
 	return (
 		<YAxis
 			width={Y_AXIS_WIDTH}
@@ -475,8 +522,19 @@ function renderValueYAxis(isPercent = false, valueFormatter = formatYAxisTick) {
 			minTickGap={12}
 			domain={isPercent ? [0, 1] : undefined}
 			tickFormatter={isPercent ? formatPercentAxisTick : valueFormatter}
+			label={axisLabel(yAxisLabel, 'left')}
 		/>
 	);
+}
+
+function formatValueYAxisTick(value: number, valueFormat?: displayChart.ValueFormat): string {
+	if (!valueFormat) {
+		return formatYAxisTick(value);
+	}
+	if (valueFormat.d3_format) {
+		return formatChartValue(value, valueFormat, { compact: true });
+	}
+	return attachValueAffixes(formatYAxisTick(value), valueFormat);
 }
 
 function renderCategoryXAxis({
@@ -485,18 +543,22 @@ function renderCategoryXAxis({
 	xAxisInterval,
 	labelFormatter,
 	compact,
+	compactInterval,
 	tickFontSize,
 	maxLabelChars,
 	labelFootroom = 0,
+	xAxisLabel,
 }: {
 	xAxisKey: string;
 	xAxisType?: 'number' | 'category';
 	xAxisInterval?: number;
 	labelFormatter: (value: string) => string;
 	compact?: boolean;
+	compactInterval?: number;
 	tickFontSize?: number;
 	maxLabelChars?: number;
 	labelFootroom?: number;
+	xAxisLabel?: string;
 }) {
 	const tickFormatter = compact
 		? (value: string) => {
@@ -519,9 +581,10 @@ function renderCategoryXAxis({
 			tickMargin={10 + labelFootroom}
 			axisLine={false}
 			minTickGap={12}
-			interval={compact ? 0 : xAxisInterval}
+			interval={compact ? (compactInterval ?? 0) : xAxisInterval}
 			tickFormatter={tickFormatter}
-			height={CATEGORY_XAXIS_HEIGHT + labelFootroom}
+			height={CATEGORY_XAXIS_HEIGHT + labelFootroom + (xAxisLabel ? X_AXIS_LABEL_HEIGHT : 0)}
+			label={xAxisLabelProps(xAxisLabel)}
 			{...(compact ? { angle: -35, textAnchor: 'end' as const } : {})}
 		/>
 	);
@@ -540,13 +603,15 @@ function buildBarChart(props: ResolvedProps) {
 		margin,
 		xAxisInterval,
 		compactXAxis,
+		compactXAxisInterval,
 		xAxisTickFontSize,
 		xAxisMaxLabelChars,
 		series,
+		xAxisLabel,
 		yAxisMin,
 		yAxisMax,
+		yAxisLabel,
 		showDataLabels,
-		valueFormatter,
 	} = props;
 	const isStacked = displayChart.isStackedChartType(chartType);
 	const isPercent = displayChart.isPercentStackedChartType(chartType);
@@ -556,21 +621,26 @@ function buildBarChart(props: ResolvedProps) {
 	const seriesKeys = renderedSeries.map((s) => s.data_key);
 	const separatorColor = props.backgroundColor ?? DEFAULT_BACKGROUND;
 	const labelFootroom = shouldReserveStackTotalFootroom(props) ? DATA_LABEL_X_AXIS_FOOTROOM : 0;
+	const chartLevelFormat = getChartLevelValueFormat(series);
+	const valueAxisWidth = computeValueAxisWidth(axisValues, chartLevelFormat);
+	const dataLabelsLayer = showDataLabels && !isStacked ? renderDataLabelsLayer(series) : undefined;
 
 	return (
 		<BarChart data={data} accessibilityLayer margin={margin} stackOffset={isPercent ? 'expand' : undefined}>
 			{showGrid && <CartesianGrid horizontal vertical={false} strokeDasharray='3 3' />}
 			{isPercent ? (
-				renderValueYAxis(true)
+				renderValueYAxis(true, formatYAxisTick, yAxisLabel)
 			) : (
 				<YAxis
+					width={valueAxisWidth}
 					tick={AXIS_TICK}
 					tickLine={false}
 					axisLine={false}
 					minTickGap={12}
-					tickFormatter={valueFormatter ?? formatYAxisTick}
+					tickFormatter={(value: number) => formatValueYAxisTick(value, chartLevelFormat)}
 					domain={resolveYAxisDomain(yAxisMin, yAxisMax, axisValues, true)}
 					allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
+					label={axisLabel(yAxisLabel, 'left')}
 				/>
 			)}
 			{renderCategoryXAxis({
@@ -579,9 +649,11 @@ function buildBarChart(props: ResolvedProps) {
 				xAxisInterval,
 				labelFormatter,
 				compact: compactXAxis,
+				compactInterval: compactXAxisInterval,
 				tickFontSize: xAxisTickFontSize,
 				maxLabelChars: xAxisMaxLabelChars,
 				labelFootroom,
+				xAxisLabel,
 			})}
 			{children}
 			{renderedSeries.map((s, i) => (
@@ -597,7 +669,7 @@ function buildBarChart(props: ResolvedProps) {
 				/>
 			))}
 			{stackTotalLayer && <Customized component={stackTotalLayer} />}
-			{showDataLabels && !isStacked && <Customized component={DataLabelsLayer} />}
+			{dataLabelsLayer && <Customized component={dataLabelsLayer} />}
 		</BarChart>
 	);
 }
@@ -655,12 +727,14 @@ function buildAreaChart(props: ResolvedProps) {
 		margin,
 		xAxisInterval,
 		compactXAxis,
+		compactXAxisInterval,
 		xAxisTickFontSize,
 		xAxisMaxLabelChars,
+		xAxisLabel,
 		yAxisMin,
 		yAxisMax,
+		yAxisLabel,
 		showDataLabels,
-		valueFormatter,
 	} = props;
 	const gradientIdPrefix = props.gradientIdPrefix ?? '';
 	const gradientIdFor = (index: number) => `${gradientIdPrefix}grad-${index}`;
@@ -671,6 +745,9 @@ function buildAreaChart(props: ResolvedProps) {
 	const axisValues = isStacked ? collectStackedAxisValues(data, dataKeys) : collectAxisValues(data, dataKeys);
 	const { renderedSeries, stackTotalLayer } = getDataLabelSetup(props, isStacked);
 	const labelFootroom = shouldReserveStackTotalFootroom(props) ? DATA_LABEL_X_AXIS_FOOTROOM : 0;
+	const chartLevelFormat = getChartLevelValueFormat(series);
+	const valueAxisWidth = computeValueAxisWidth(axisValues, chartLevelFormat);
+	const dataLabelsLayer = showDataLabels && !isStacked ? renderDataLabelsLayer(series) : undefined;
 
 	return (
 		<AreaChart data={data} accessibilityLayer margin={margin} stackOffset={isPercent ? 'expand' : undefined}>
@@ -688,16 +765,18 @@ function buildAreaChart(props: ResolvedProps) {
 			</defs>
 			{showGrid && <CartesianGrid horizontal vertical={false} strokeDasharray='3 3' />}
 			{isPercent ? (
-				renderValueYAxis(true)
+				renderValueYAxis(true, formatYAxisTick, yAxisLabel)
 			) : (
 				<YAxis
+					width={valueAxisWidth}
 					tick={AXIS_TICK}
 					tickLine={false}
 					axisLine={false}
 					minTickGap={12}
-					tickFormatter={valueFormatter ?? formatYAxisTick}
+					tickFormatter={(value: number) => formatValueYAxisTick(value, chartLevelFormat)}
 					domain={resolveYAxisDomain(yAxisMin, yAxisMax, axisValues, zeroBaseline)}
 					allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
+					label={axisLabel(yAxisLabel, 'left')}
 				/>
 			)}
 			{renderCategoryXAxis({
@@ -706,9 +785,11 @@ function buildAreaChart(props: ResolvedProps) {
 				xAxisInterval,
 				labelFormatter,
 				compact: compactXAxis,
+				compactInterval: compactXAxisInterval,
 				tickFontSize: xAxisTickFontSize,
 				maxLabelChars: xAxisMaxLabelChars,
 				labelFootroom,
+				xAxisLabel,
 			})}
 			{children}
 			{renderedSeries.map((s, i) => (
@@ -724,7 +805,7 @@ function buildAreaChart(props: ResolvedProps) {
 				/>
 			))}
 			{stackTotalLayer && <Customized component={stackTotalLayer} />}
-			{showDataLabels && !isStacked && <Customized component={DataLabelsLayer} />}
+			{dataLabelsLayer && <Customized component={dataLabelsLayer} />}
 		</AreaChart>
 	);
 }
@@ -753,6 +834,10 @@ function buildComboChart(props: ResolvedProps) {
 		children,
 		margin,
 		xAxisInterval,
+		compactXAxis,
+		compactXAxisInterval,
+		xAxisTickFontSize,
+		xAxisMaxLabelChars,
 		yAxisMin,
 		yAxisMax,
 		yAxisLabel,
@@ -765,9 +850,14 @@ function buildComboChart(props: ResolvedProps) {
 
 	const leftSeries = series.filter((s) => comboAxisSide(s) === 'left');
 	const rightSeries = series.filter((s) => comboAxisSide(s) === 'right');
+	const leftFormat = getChartLevelValueFormat(leftSeries);
+	const rightFormat = getChartLevelValueFormat(rightSeries);
 	const leftDomain = resolveComboAxisDomain(data, leftSeries, yAxisMin, yAxisMax);
 	const rightDomain = resolveComboAxisDomain(data, rightSeries, yAxisRightMin, yAxisRightMax);
+	const leftAxisWidth = computeComboAxisWidth(data, leftSeries, leftFormat);
+	const rightAxisWidth = computeComboAxisWidth(data, rightSeries, rightFormat);
 	const areaSeries = series.filter((s) => comboSeriesType(s, chartType) === 'area');
+	const dataLabelsLayer = showDataLabels ? renderDataLabelsLayer(series) : undefined;
 
 	return (
 		<ComposedChart data={data} accessibilityLayer margin={margin}>
@@ -794,11 +884,12 @@ function buildComboChart(props: ResolvedProps) {
 			{leftSeries.length > 0 && (
 				<YAxis
 					yAxisId='left'
+					width={leftAxisWidth}
 					tick={AXIS_TICK}
 					tickLine={false}
 					axisLine={false}
 					minTickGap={12}
-					tickFormatter={formatYAxisTick}
+					tickFormatter={(value: number) => formatValueYAxisTick(value, leftFormat)}
 					domain={leftDomain}
 					allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
 					label={axisLabel(yAxisLabel, 'left')}
@@ -807,12 +898,13 @@ function buildComboChart(props: ResolvedProps) {
 			{rightSeries.length > 0 && (
 				<YAxis
 					yAxisId='right'
+					width={rightAxisWidth}
 					orientation='right'
 					tick={AXIS_TICK}
 					tickLine={false}
 					axisLine={false}
 					minTickGap={12}
-					tickFormatter={formatYAxisTick}
+					tickFormatter={(value: number) => formatValueYAxisTick(value, rightFormat)}
 					domain={rightDomain}
 					allowDataOverflow={yAxisRightMin !== undefined || yAxisRightMax !== undefined}
 					label={axisLabel(yAxisRightLabel, 'right')}
@@ -823,10 +915,14 @@ function buildComboChart(props: ResolvedProps) {
 				xAxisType: xAxisType ?? 'category',
 				xAxisInterval,
 				labelFormatter,
+				compact: compactXAxis,
+				compactInterval: compactXAxisInterval,
+				tickFontSize: xAxisTickFontSize,
+				maxLabelChars: xAxisMaxLabelChars,
 			})}
 			{children}
 			{series.map((s, i) => renderComboSeries(s, i, chartType, colorFor, idPrefix))}
-			{showDataLabels && <Customized component={DataLabelsLayer} />}
+			{dataLabelsLayer && <Customized component={dataLabelsLayer} />}
 		</ComposedChart>
 	);
 }
@@ -842,6 +938,18 @@ function resolveComboAxisDomain(
 		axisSeries.map((s) => s.data_key),
 	);
 	return resolveYAxisDomain(explicitMin, explicitMax, values, true);
+}
+
+function computeComboAxisWidth(
+	data: Record<string, unknown>[],
+	axisSeries: displayChart.SeriesConfig[],
+	valueFormat?: displayChart.ValueFormat,
+) {
+	const values = collectAxisValues(
+		data,
+		axisSeries.map((s) => s.data_key),
+	);
+	return computeValueAxisWidth(values, valueFormat);
 }
 
 function renderComboSeries(
@@ -894,6 +1002,8 @@ function renderComboSeries(
 	);
 }
 
+const AXIS_LABEL_STYLE = { textAnchor: 'middle' as const, fontSize: 12, fill: 'var(--muted-foreground, #6b7280)' };
+
 function axisLabel(label: string | undefined, side: displayChart.YAxisSide) {
 	if (!label) {
 		return undefined;
@@ -902,8 +1012,15 @@ function axisLabel(label: string | undefined, side: displayChart.YAxisSide) {
 		value: label,
 		angle: -90,
 		position: side === 'left' ? ('insideLeft' as const) : ('insideRight' as const),
-		style: { textAnchor: 'middle' as const, fontSize: 12, fill: 'var(--muted-foreground, #6b7280)' },
+		style: AXIS_LABEL_STYLE,
 	};
+}
+
+function xAxisLabelProps(label: string | undefined) {
+	if (!label) {
+		return undefined;
+	}
+	return { value: label, position: 'insideBottom' as const, offset: 0, style: AXIS_LABEL_STYLE };
 }
 
 function buildScatterChart(props: ResolvedProps) {
@@ -916,14 +1033,17 @@ function buildScatterChart(props: ResolvedProps) {
 		showGrid,
 		children,
 		margin,
+		xAxisLabel,
 		yAxisMin,
 		yAxisMax,
-		valueFormatter,
+		yAxisLabel,
 	} = props;
+	const chartLevelFormat = getChartLevelValueFormat(series);
 	const axisValues = collectAxisValues(
 		data,
 		series.map((s) => s.data_key),
 	);
+	const valueAxisWidth = computeValueAxisWidth(axisValues, chartLevelFormat);
 
 	return (
 		<ScatterChart data={data} accessibilityLayer margin={margin}>
@@ -935,16 +1055,19 @@ function buildScatterChart(props: ResolvedProps) {
 				tickLine={false}
 				axisLine={false}
 				minTickGap={12}
-				height={CATEGORY_XAXIS_HEIGHT}
+				height={CATEGORY_XAXIS_HEIGHT + (xAxisLabel ? X_AXIS_LABEL_HEIGHT : 0)}
+				label={xAxisLabelProps(xAxisLabel)}
 			/>
 			<YAxis
+				width={valueAxisWidth}
 				tick={AXIS_TICK}
 				tickLine={false}
 				axisLine={false}
 				minTickGap={12}
-				tickFormatter={valueFormatter ?? formatYAxisTick}
+				tickFormatter={(value: number) => formatValueYAxisTick(value, chartLevelFormat)}
 				domain={resolveYAxisDomain(yAxisMin, yAxisMax, axisValues, false)}
 				allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
+				label={axisLabel(yAxisLabel, 'left')}
 			/>
 			{children}
 			{series.map((s, i) => (
@@ -961,13 +1084,17 @@ function buildScatterChart(props: ResolvedProps) {
 }
 
 function buildRadarChart(props: ResolvedProps) {
-	const { data, xAxisKey, series, colorFor, children, margin, valueFormatter } = props;
+	const { data, xAxisKey, series, colorFor, children, margin } = props;
+	const chartLevelFormat = getChartLevelValueFormat(series);
 
 	return (
 		<RadarChart data={data} accessibilityLayer margin={margin}>
 			<PolarGrid />
 			<PolarAngleAxis dataKey={xAxisKey} tick={AXIS_TICK} />
-			<PolarRadiusAxis tick={AXIS_TICK} tickFormatter={valueFormatter ?? formatYAxisTick} />
+			<PolarRadiusAxis
+				tick={AXIS_TICK}
+				tickFormatter={(value: number) => formatValueYAxisTick(value, chartLevelFormat)}
+			/>
 			{children}
 			{series.map((s, i) => (
 				<Radar
@@ -987,6 +1114,7 @@ function buildRadarChart(props: ResolvedProps) {
 function buildPieChart(props: ResolvedProps) {
 	const { data, chartType, xAxisKey, series, colorFor, children, margin, backgroundColor, showDataLabels } = props;
 	const dataKey = series[0].data_key;
+	const dataLabelsLayer = showDataLabels ? renderPieDataLabelsLayer(series[0].value_format) : undefined;
 
 	// Callers are expected to bucket the data (see `bucketPieData`) so the legend
 	// and slices share one set; the builder does not re-bucket here.
@@ -1013,7 +1141,7 @@ function buildPieChart(props: ResolvedProps) {
 				isAnimationActive={Boolean(props.animate)}
 				animationDuration={CHART_ANIMATION_DURATION_MS}
 			/>
-			{showDataLabels && <Customized component={PieDataLabelsLayer} />}
+			{dataLabelsLayer && <Customized component={dataLabelsLayer} />}
 			{children}
 		</PieChart>
 	);

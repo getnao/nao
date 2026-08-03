@@ -13,6 +13,7 @@ import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { Button } from '@/components/ui/button';
 import { trpc } from '@/main';
 import { StoryContentLoading } from '@/components/side-panel/story-content-loading';
+import { StoryRouteError } from '@/components/story-access-error';
 import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-settings-dialog';
 import { useStoryViewerLiveSettings } from '@/components/side-panel/hooks/use-story-viewer-live-settings';
 import { ShareStoryDialog } from '@/components/share-dialog.story';
@@ -29,6 +30,7 @@ import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 export const Route = createFileRoute('/_sidebar-layout/stories/preview/$chatId/$storySlug')({
 	component: StoryPreviewPage,
 	pendingComponent: StoryContentLoading,
+	errorComponent: StoryRouteError,
 });
 
 function StoryPreviewPage() {
@@ -97,6 +99,7 @@ function StoryPreviewPage() {
 				onOpenChat={handleOpenChat}
 				live={{
 					isLive,
+					cachedAt: story.cachedAt,
 					isRefreshing,
 					onRefresh: () => handleRefreshData(),
 					onOpenSettings: () => setIsLiveSettingsOpen(true),

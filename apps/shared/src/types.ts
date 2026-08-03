@@ -45,9 +45,13 @@ export const LLM_PROVIDERS = [
 	'bedrock',
 	'vertex',
 	'azure',
+	'qwen',
+	'minimax',
+	'moonshot',
+	'openaiCompatible',
 ] as const;
 
-export const providerLabels: Record<LlmProvider, string> = {
+export const providerLabels: Record<LlmProviderKind, string> = {
 	openai: 'OpenAI',
 	anthropic: 'Anthropic',
 	google: 'Google',
@@ -57,9 +61,69 @@ export const providerLabels: Record<LlmProvider, string> = {
 	bedrock: 'Amazon Bedrock',
 	vertex: 'Vertex AI',
 	azure: 'Azure Foundry',
+	qwen: 'Qwen',
+	minimax: 'MiniMax',
+	moonshot: 'Moonshot',
+	openaiCompatible: 'OpenAI Compatible',
 };
 
-export type LlmProvider = (typeof LLM_PROVIDERS)[number];
+/** One of nao's built-in provider integrations. */
+export type LlmProviderKind = (typeof LLM_PROVIDERS)[number];
+
+/** The only kind a project can declare several times, each instance under a name of its own. */
+export const NAMED_PROVIDER_KIND = 'openaiCompatible';
+const NAMED_PROVIDER_SEPARATOR = '/';
+const PROVIDER_NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+
+/** An instance of the named kind, as an admin declared it, e.g. `openaiCompatible/my-vllm`. */
+export type NamedLlmProvider = `${typeof NAMED_PROVIDER_KIND}/${string}`;
+
+/**
+ * How a project addresses a provider, and how every model, message and budget refers to it: either
+ * a built-in kind, or a named instance of the kind that allows them.
+ */
+export type LlmProvider = LlmProviderKind | NamedLlmProvider;
+
+/** The built-in integration backing a provider, which is the provider itself unless it is named. */
+export function providerKind(provider: LlmProvider): LlmProviderKind {
+	return provider.split(NAMED_PROVIDER_SEPARATOR)[0] as LlmProviderKind;
+}
+
+/** The name given to a provider instance, or null when the provider is a built-in kind. */
+export function providerName(provider: LlmProvider): string | null {
+	const separator = provider.indexOf(NAMED_PROVIDER_SEPARATOR);
+	return separator === -1 ? null : provider.slice(separator + 1);
+}
+
+/** What to call a provider on screen: the name its admin gave it, or the name of its integration. */
+export function providerLabel(provider: LlmProvider): string {
+	return providerName(provider) ?? providerLabels[providerKind(provider)];
+}
+
+/** Turn what an admin typed into a provider name, or null when nothing usable is left of it. */
+export function toProviderName(input: string): string | null {
+	const name = input
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/^-+|-+$/g, '');
+	return PROVIDER_NAME_PATTERN.test(name) ? name : null;
+}
+
+export function toNamedProvider(name: string): LlmProvider {
+	return `${NAMED_PROVIDER_KIND}${NAMED_PROVIDER_SEPARATOR}${name}`;
+}
+
+export function isLlmProvider(value: string): value is LlmProvider {
+	const [kind, ...rest] = value.split(NAMED_PROVIDER_SEPARATOR);
+	if (!(LLM_PROVIDERS as readonly string[]).includes(kind)) {
+		return false;
+	}
+	if (rest.length === 0) {
+		return true;
+	}
+	return kind === NAMED_PROVIDER_KIND && rest.length === 1 && PROVIDER_NAME_PATTERN.test(rest[0]);
+}
 
 export type LlmSelectedModel = {
 	provider: LlmProvider;

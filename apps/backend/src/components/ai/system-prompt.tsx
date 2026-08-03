@@ -309,6 +309,10 @@ function McpServersBlock({ servers }: { servers: string[] }) {
 				Some servers require the user to connect their own account first. If a call returns an{' '}
 				<Bold>AUTH_REQUIRED</Bold> result, stop and ask the user to connect — a Connect button is shown to them
 				automatically. Do not retry until they have connected.
+				<Br />
+				An empty or missing server folder means its tools have not been discovered yet, not that the server has
+				none. Call <Bold>mcp_connect</Bold> with that server to discover them, then continue — never tell the
+				user the server exposes no tool without trying it.
 			</Span>
 			<List>
 				{servers.map((server) => (

@@ -1,4 +1,4 @@
-import { LLM_PROVIDERS, REPO_PROVIDERS } from '@nao/shared/types';
+import { REPO_PROVIDERS } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
@@ -17,6 +17,7 @@ import {
 	MAX_AUTO_PRS_PER_RUN,
 	MIN_AUTO_PRS_PER_RUN,
 } from '../types/context-recommendation';
+import { llmProviderSchema } from '../types/llm';
 import { getProjectAvailableModels } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { extractConfiguredRepos } from '../utils/nao-config';
@@ -77,7 +78,7 @@ export const contextRecommendationRoutes = {
 	setConfig: recommendationsProcedure
 		.input(
 			z.object({
-				modelProvider: z.enum(LLM_PROVIDERS).optional(),
+				modelProvider: llmProviderSchema.optional(),
 				modelId: z.string().optional(),
 				frequency: z.enum(CONTEXT_RECOMMENDATION_FREQUENCIES).optional(),
 				customSystemPromptInstructions: z.string().max(MAX_CUSTOM_SYSTEM_PROMPT_INSTRUCTIONS_LENGTH).optional(),

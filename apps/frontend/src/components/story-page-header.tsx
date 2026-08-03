@@ -19,6 +19,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 
 import type { StoryViewMode } from '@/components/side-panel/story-viewer.types';
+import { useTimeAgo } from '@/hooks/use-time-ago';
 import { StoryDownload } from '@/components/story-download';
 import { Button } from '@/components/ui/button';
 import {
@@ -35,6 +36,7 @@ import { trpc } from '@/main';
 
 interface LiveControls {
 	isLive: boolean;
+	cachedAt?: string | Date | null;
 	isRefreshing?: boolean;
 	onRefresh?: () => void;
 	/** When provided, the live state can be toggled (owner). Otherwise the badge is read-only. */
@@ -306,7 +308,7 @@ function StorySubHeader({
 }
 
 function LiveStoryControls({ live }: { live: LiveControls }) {
-	const { isLive, isRefreshing = false, onRefresh, onOpenSettings } = live;
+	const { isLive, cachedAt, isRefreshing = false, onRefresh, onOpenSettings } = live;
 
 	if (!onOpenSettings) {
 		if (!isLive) {
@@ -314,7 +316,6 @@ function LiveStoryControls({ live }: { live: LiveControls }) {
 		}
 		return (
 			<>
-				{onRefresh && <RefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<div className='flex items-center gap-2 border rounded-full px-2 py-0.75'>
@@ -325,13 +326,14 @@ function LiveStoryControls({ live }: { live: LiveControls }) {
 					</TooltipTrigger>
 					<TooltipContent>Live story</TooltipContent>
 				</Tooltip>
+				{cachedAt && <LiveStoryTimestamp cachedAt={cachedAt} />}
+				{onRefresh && <RefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
 			</>
 		);
 	}
 
 	return (
 		<>
-			{isLive && onRefresh && <RefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
 			<Tooltip>
 				<TooltipTrigger asChild>
 					<button
@@ -346,6 +348,8 @@ function LiveStoryControls({ live }: { live: LiveControls }) {
 				</TooltipTrigger>
 				<TooltipContent>{isLive ? 'Live story settings' : 'Enable live mode'}</TooltipContent>
 			</Tooltip>
+			{isLive && cachedAt && <LiveStoryTimestamp cachedAt={cachedAt} />}
+			{isLive && onRefresh && <RefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
 		</>
 	);
 }
@@ -397,6 +401,22 @@ function FavoriteButton({ storyId }: { storyId: string }) {
 				</Button>
 			</TooltipTrigger>
 			<TooltipContent>{isFavorited ? 'Remove from favorites' : 'Add to favorites'}</TooltipContent>
+		</Tooltip>
+	);
+}
+
+export function LiveStoryTimestamp({ cachedAt }: { cachedAt: string | Date }) {
+	const timestampMs = new Date(cachedAt).getTime();
+	const timeAgo = useTimeAgo(timestampMs);
+
+	return (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<div className='flex items-center rounded-full py-0.75 text-xs text-muted-foreground -mr-1'>
+					<span>{timeAgo.humanReadable.toLowerCase()}</span>
+				</div>
+			</TooltipTrigger>
+			<TooltipContent>Updated {new Date(cachedAt).toLocaleString()}</TooltipContent>
 		</Tooltip>
 	);
 }

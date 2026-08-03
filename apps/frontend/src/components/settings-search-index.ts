@@ -129,7 +129,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Project Information',
 		description: 'View your project name and path.',
 		keywords: ['project name', 'project path'],
-		adminOnly: true,
 	},
 	{
 		page: '/settings/project',
@@ -172,7 +171,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'custom',
 			'pattern',
 		],
-		adminOnly: true,
 	},
 
 	// ── Project > Models ─────────────────────────────────────
@@ -181,7 +179,25 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		pageLabel: 'Models',
 		title: 'LLM Configuration',
 		description: 'Configure the LLM providers for the agent in this project.',
-		keywords: ['openai', 'anthropic', 'google', 'llm', 'model', 'provider', 'api key'],
+		keywords: [
+			'openai',
+			'anthropic',
+			'google',
+			'qwen',
+			'minimax',
+			'moonshot',
+			'kimi',
+			'llm',
+			'model',
+			'provider',
+			'api key',
+			'openai compatible',
+			'base url',
+			'endpoint',
+			'vllm',
+			'litellm',
+			'self-hosted',
+		],
 		adminOnly: true,
 	},
 	{
@@ -203,7 +219,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'sampling',
 			'claude',
 		],
-		adminOnly: true,
 	},
 	{
 		page: '/settings/project/models',
@@ -211,7 +226,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Transcription',
 		description: 'Configure speech-to-text transcription provider and model.',
 		keywords: ['voice', 'speech', 'microphone', 'whisper', 'stt'],
-		adminOnly: true,
 	},
 
 	// ── Project > Agent ──────────────────────────────────────
@@ -222,7 +236,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Project Memory',
 		description: 'Memories enable nao to remember preferences and facts about team members.',
 		keywords: ['remember', 'learn', 'personalization'],
-		adminOnly: true,
 	},
 	{
 		page: '/settings/project/agent',
@@ -230,7 +243,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Web search',
 		description: 'Allow the agent to search the web for up-to-date information when answering questions.',
 		keywords: ['internet', 'browse', 'fetch', 'online'],
-		adminOnly: true,
 	},
 	{
 		page: '/settings/project/agent',
@@ -238,7 +250,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Saved Prompts',
 		description: 'Save repeatable, customizable prompts for the agent to follow.',
 		keywords: ['prompt template', 'instruction', 'preset'],
-		adminOnly: true,
 	},
 	{
 		page: '/settings/project/agent',
@@ -247,7 +258,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Python sandboxing',
 		description: 'Allow the agent to execute Python code in a secure sandboxed environment.',
 		keywords: ['code execution', 'sandbox', 'python'],
-		adminOnly: true,
 	},
 	{
 		page: '/settings/project/agent',
@@ -256,7 +266,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Python execution duration',
 		description: 'Configure how long Python code can run before it is stopped.',
 		keywords: ['code execution', 'timeout', 'duration', 'python', 'seconds'],
-		adminOnly: true,
 	},
 	{
 		page: '/settings/project/agent',
@@ -265,7 +274,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Sandboxes',
 		description: 'Allow the agent to use sandboxes to run code in a secure environment. Works with Boxlite.',
 		keywords: ['boxlite', 'code execution'],
-		adminOnly: true,
 	},
 	{
 		page: '/settings/project/agent',
@@ -275,7 +283,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		description:
 			'Allow the agent to render query results with latitude and longitude columns on an interactive map.',
 		keywords: ['map', 'geo', 'location', 'latitude', 'longitude', 'coordinates', 'spatial'],
-		adminOnly: true,
 	},
 	{
 		page: '/settings/project/agent',
@@ -284,7 +291,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Dangerous write permissions',
 		description: 'Allow the agent to execute INSERT, UPDATE, DELETE and DDL SQL queries.',
 		keywords: ['write', 'insert', 'update', 'delete', 'ddl', 'sql', 'permissions'],
-		adminOnly: true,
 	},
 
 	// ── Project > MCP Servers ────────────────────────────────
@@ -294,8 +300,17 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'MCP Servers',
 		description:
 			'Configure MCP servers in agent/mcps/mcp.json. nao discovers their tools into OpenAPI specs the agent explores on demand.',
-		keywords: ['model context protocol', 'tool', 'integration', 'extension', 'discover', 'openapi', 'spec'],
-		adminOnly: true,
+		keywords: [
+			'model context protocol',
+			'tool',
+			'integration',
+			'extension',
+			'discover',
+			'openapi',
+			'spec',
+			'connect',
+			'oauth',
+		],
 	},
 
 	// ── MCP Endpoint ────────────────────────────────────────
@@ -343,7 +358,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Slack Integration',
 		description: 'Configure Slack app credentials, webhook, and bot behavior.',
 		keywords: ['slack bot', 'slack app', 'slack webhook', 'messaging'],
-		adminOnly: true,
 	},
 	{
 		page: '/settings/project/slack',
@@ -360,7 +374,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		description:
 			'Control whether nao answers every message in active Slack threads or only messages that tag the bot.',
 		keywords: ['reply mode', 'mentions', 'tagged', 'thread replies', 'bot behavior'],
-		adminOnly: true,
 	},
 	{
 		page: '/settings/project/slack',
@@ -376,7 +389,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'app token',
 			'xapp',
 		],
-		adminOnly: true,
 	},
 
 	// ── Project > Microsoft Teams ────────────────────────────
@@ -386,7 +398,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Microsoft Teams Integration',
 		description: 'Configure Teams app credentials, messaging endpoint, and bot behavior.',
 		keywords: ['teams bot', 'azure bot', 'teams app', 'messaging'],
-		adminOnly: true,
 	},
 
 	// ── Project > Telegram ───────────────────────────────────
@@ -396,7 +407,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Telegram Integration',
 		description: 'Configure Telegram bot credentials, webhook, and bot behavior.',
 		keywords: ['telegram bot', 'telegram webhook', 'messaging'],
-		adminOnly: true,
 	},
 	{
 		page: '/settings/project/telegram',
@@ -413,7 +423,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'WhatsApp Integration',
 		description: 'Configure WhatsApp app credentials, webhook, and bot behavior.',
 		keywords: ['whatsapp bot', 'whatsapp webhook', 'messaging'],
-		adminOnly: true,
 	},
 	{
 		page: '/settings/project/whatsapp',
@@ -421,7 +430,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Linking Code',
 		description: 'Send /login <code> from the WhatsApp number you want to link.',
 		keywords: ['link', 'login', 'phone number'],
-		adminOnly: true,
 	},
 
 	// ── Project > Team ───────────────────────────────────────
@@ -431,7 +439,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Team Members',
 		description: 'Manage the members of your project.',
 		keywords: ['users', 'invite', 'add member', 'roles', 'project members'],
-		adminOnly: true,
 	},
 
 	// ── Usage & Costs ────────────────────────────────────────

@@ -4,6 +4,11 @@
 	"workspaces": [
 		"apps/*"
 	],
+	"packageManager": "npm@11.6.2",
+	"engines": {
+		"node": ">=22.14.0 <23",
+		"npm": "11.6.2"
+	},
 	"scripts": {
 		"dev": "npm-run-all -lp dev:backend dev:frontend dev:fastapi",
 		"dev:backend": "npm run dev -w @nao/backend",
@@ -21,6 +26,9 @@
 		"format:check": "prettier --check .",
 		"cli:fix": "cd cli && make lint-fix",
 		"cli:check": "cd cli && make lint",
+		"lock:normalize": "npm install --package-lock-only --ignore-scripts --no-audit --no-fund",
+		"lock:check": "./scripts/check-lockfile.sh",
+		"npm:pin": "./scripts/use-pinned-npm.sh",
 		"build:cli": "cd cli && python build.py -f",
 		"setup": "cd scripts && ./setup.sh",
 		"release": "./scripts/release.sh",

@@ -1,9 +1,10 @@
 import { parseChartBlock, TAG_ATTRS } from '@nao/shared/story-segments';
 import { mergeAttributes, Node } from '@tiptap/core';
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useContext, useMemo } from 'react';
 import { StoryChartEmbed } from './story-chart-embed';
-import { StoryBlockDragGrip, StoryBlockDropZones } from './story-editor-block-drag';
+import { StoryBlockDragGrip, StoryBlockDropZones, useStoryBlockDrag } from './story-editor-block-drag';
+import { SelectedBlockPositionsContext } from './story-block-selection-context';
 import { decodeFromAttr } from './story-editor-utils';
 import type { ReactNodeViewProps } from '@tiptap/react';
 import { EditorStoryChartEditProvider } from '@/contexts/story-chart-edit';
@@ -19,6 +20,10 @@ function ChartBlockView({ node, editor, getPos, updateAttributes }: ReactNodeVie
 		const parsed = parseChartBlock(attrMatch[1]);
 		return parsed ? { ...parsed, rawTag } : null;
 	}, [rawTag]);
+	const { handleDragStart, handleDragEnd } = useStoryBlockDrag({ node, editor, getPos });
+	const selectedBlocks = useContext(SelectedBlockPositionsContext);
+	const pos = getPos();
+	const isSelected = typeof pos === 'number' && selectedBlocks.includes(pos);
 
 	const handleReplaceTag = useCallback(
 		(_rawTag: string, nextTag: string) => updateAttributes({ rawTag: nextTag }),
@@ -37,13 +42,13 @@ function ChartBlockView({ node, editor, getPos, updateAttributes }: ReactNodeVie
 
 	return (
 		<NodeViewWrapper draggable data-type='chart-block'>
-			<div className='group relative my-2'>
+			<div className='group relative my-2' draggable onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
 				<StoryBlockDropZones node={node} editor={editor} getPos={getPos} />
+				<div contentEditable={false} className='absolute -left-10 top-2 z-20'>
+					<StoryBlockDragGrip node={node} editor={editor} getPos={getPos} />
+				</div>
 				<EditorStoryChartEditProvider onReplaceTag={handleReplaceTag}>
-					<StoryChartEmbed
-						chart={chart}
-						dragHandle={<StoryBlockDragGrip node={node} editor={editor} getPos={getPos} />}
-					/>
+					<StoryChartEmbed chart={chart} isSelected={isSelected} />
 				</EditorStoryChartEditProvider>
 			</div>
 		</NodeViewWrapper>

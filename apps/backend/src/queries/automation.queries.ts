@@ -15,7 +15,7 @@ import s, {
 } from '../db/abstractSchema';
 import { db } from '../db/db';
 import type { AutomationIntegrationResult } from '../types/automation';
-import { type ListActivityRow, listRecentActivities } from './activity.queries';
+import { type ListActivityRow, listRecentActivities, type StoryOpenLink } from './activity.queries';
 
 export const automationJobUniqueKey = (automationId: string): string => `automation:${automationId}`;
 const AUTOMATION_RUN_STALE_MS = 30 * 60 * 1_000;
@@ -375,6 +375,7 @@ export type ActivityFeedStoryRefreshItem = {
 		cacheSchedule: string | null;
 		cacheScheduleDescription: string | null;
 	};
+	link: StoryOpenLink | null;
 };
 
 export type ActivityFeedStorySharedItem = {
@@ -394,6 +395,7 @@ export type ActivityFeedStorySharedItem = {
 		id: string;
 		visibility: StoryVisibility;
 	};
+	link: StoryOpenLink | null;
 	actorName: string | null;
 };
 
@@ -497,6 +499,7 @@ function buildActivityFeedItem(row: ListActivityRow): ActivityFeedItem | null {
 				queriesRefreshed: readNumber(row.activity.payload, 'queriesRefreshed') ?? 0,
 			},
 			story: row.story,
+			link: row.storyLink,
 		};
 	}
 	if (row.activity.type === 'story.shared') {
@@ -515,6 +518,7 @@ function buildActivityFeedItem(row: ListActivityRow): ActivityFeedItem | null {
 				chatId: row.story.chatId,
 			},
 			share: row.storyShare,
+			link: row.storyLink,
 			actorName: row.actorName,
 		};
 	}

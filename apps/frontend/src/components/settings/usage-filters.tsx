@@ -1,5 +1,5 @@
 import { Radio, ThumbsUp, Users, Wrench } from 'lucide-react';
-import { CHAT_REPLAY_FEEDBACK_STATES, CHAT_REPLAY_TOOL_STATES, providerLabels } from '@nao/shared/types';
+import { CHAT_REPLAY_FEEDBACK_STATES, CHAT_REPLAY_TOOL_STATES, providerLabel } from '@nao/shared/types';
 import { USAGE_SOURCES } from '@nao/backend/usage';
 import type { Granularity, UsageSource } from '@nao/backend/usage';
 import type {
@@ -91,7 +91,7 @@ export function UsageFilters({
 							<SelectItem value='all'>All providers</SelectItem>
 							{availableProviders?.map((p) => (
 								<SelectItem key={p} value={p}>
-									{providerLabels[p]}
+									{providerLabel(p)}
 								</SelectItem>
 							))}
 						</SelectContent>

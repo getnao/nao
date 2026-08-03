@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { displayChart } from '@nao/shared/tools';
 import type { TotalUsageRecord, UsageRecord } from '@nao/backend/usage';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
 
@@ -9,7 +10,7 @@ export interface UsageChartCardProps {
 	isError: boolean;
 	data: UsageRecord[] | TotalUsageRecord[];
 	chartType: 'bar' | 'stacked_bar' | 'kpi_card';
-	series: { data_key: string; color: string; label: string }[];
+	series: displayChart.SeriesConfig[];
 	xAxisLabelFormatter?: (value: string) => string;
 	valueFormatter?: (value: number) => string;
 	titleAccessory?: ReactNode;

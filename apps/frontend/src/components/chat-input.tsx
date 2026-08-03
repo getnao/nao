@@ -31,12 +31,18 @@ import { useImageUpload } from '@/hooks/use-image-upload';
 import { parseBudgetError } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import { useChatId } from '@/hooks/use-chat-id';
+import { useModelSelection } from '@/hooks/use-model-selection';
 import { usePermissions } from '@/hooks/use-permissions';
+import { getShortcut } from '@/lib/keyboard-shortcuts';
+import { matchesShortcut } from '@/lib/platform';
 import { messageQueueStore } from '@/stores/chat-message-queue';
+import { chatInputRestoreStore, useChatInputRestore } from '@/stores/chat-input-restore';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { useChatPendingCitation } from '@/hooks/use-chat-pending-citation';
 import { SelectionCitationBanner } from '@/components/selection-citation-banner';
 import { ChatInputSuggestions } from '@/components/chat-input-suggestions';
+
+const cycleModelShortcut = getShortcut('cycle-model').shortcut;
 
 type ChatInputBaseProps = {
 	promptRef: React.RefObject<PromptHandle | null>;
@@ -96,7 +102,7 @@ function ChatInputBase({
 	const [inputText, setInputText] = useState('');
 	const {
 		isRunning,
-		stopAgent,
+		cancelAgent,
 		isLoadingMessages,
 		adminMode,
 		setAdminMode,
@@ -107,10 +113,10 @@ function ChatInputBase({
 		messages,
 	} = useAgentContext();
 	const navigate = useNavigate();
-	const { isAdmin } = usePermissions();
+	const { canChatWithNaoData } = usePermissions();
 	const chatId = useChatId();
 
-	const isAdminMode = isAdmin && adminMode;
+	const isAdminMode = canChatWithNaoData && adminMode;
 	const adminModeLocked = messages.some((message) => message.role === 'user');
 	const handleSelectAdminMode = useCallback(() => {
 		if (!adminModeLocked) {
@@ -122,7 +128,9 @@ function ChatInputBase({
 		}
 		navigate({ to: '/', search: { admin: true } });
 	}, [adminModeLocked, isAdminMode, setAdminMode, navigate]);
+	const { canCycleModels, cycleModel } = useModelSelection();
 	const imageUpload = useImageUpload();
+	const chatInputRestore = useChatInputRestore(!!allowQueueing);
 	const effectivePlaceholder = isRunning && allowQueueing ? 'Add a follow-up...' : placeholder;
 
 	const agentSettings = useQuery(trpc.project.getAgentSettings.queryOptions());
@@ -144,6 +152,33 @@ function ChatInputBase({
 	const [isDragging, setIsDragging] = useState(false);
 
 	useEffect(() => promptRef.current?.focus(), [chatId, promptRef]);
+
+	useEffect(() => {
+		if (!allowQueueing || !chatInputRestore) {
+			return;
+		}
+
+		chatInputRestoreStore.clear();
+		promptRef.current?.clear();
+		promptRef.current?.insertText(chatInputRestore.text);
+		setInputText(chatInputRestore.text);
+		imageUpload.clearImages();
+
+		if (chatInputRestore.citation && chatId) {
+			chatPendingCitationStore.set({ ...chatInputRestore.citation, chatId });
+		}
+
+		const restoreImages = async () => {
+			const files = await Promise.all(
+				chatInputRestore.images.map(({ url, mediaType }, index) =>
+					dataUrlToFile(url, mediaType, `image-${index + 1}`),
+				),
+			);
+			await imageUpload.addFiles(files);
+			requestAnimationFrame(() => promptRef.current?.focus());
+		};
+		restoreImages();
+	}, [allowQueueing, chatInputRestore]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	useEffect(() => {
 		const el = dropZoneRef.current;
@@ -316,6 +351,18 @@ function ChatInputBase({
 		promptRef.current?.insertText(DATABASE_MENTION_TRIGGER);
 	}, [promptRef]);
 
+	const handleKeyDown = useCallback(
+		(event: React.KeyboardEvent) => {
+			const isTypingInPrompt = event.target instanceof HTMLElement && event.target.isContentEditable;
+			if (!isTypingInPrompt || !canCycleModels || !matchesShortcut(event.nativeEvent, cycleModelShortcut)) {
+				return;
+			}
+			event.preventDefault();
+			cycleModel();
+		},
+		[canCycleModels, cycleModel],
+	);
+
 	return (
 		<div ref={dropZoneRef} className={cn('px-3 pb-3 pt-0 md:px-4 md:pb-4 max-w-3xl w-full mx-auto', className)}>
 			<ChatInputMessageQueue onEditMessage={handleEditQueuedMessage} onSubmitNow={submitQueuedMessageNow} />
@@ -324,7 +371,7 @@ function ChatInputBase({
 			{allowQueueing && !isAdminMode && <ChatInputSuggestions isHidden={inputText.trim().length > 0} />}
 			{isAdminMode && <ChatInputAdminBadge />}
 
-			<form onSubmit={handleSubmitMessage} className='mx-auto relative'>
+			<form onSubmit={handleSubmitMessage} onKeyDown={handleKeyDown} className='mx-auto relative'>
 				<InputGroup
 					htmlFor='chat-input'
 					className={cn(
@@ -360,7 +407,7 @@ function ChatInputBase({
 							<ChatInputPlusMenu
 								hasDatabases={hasDatabases}
 								hasSkills={hasSkills}
-								isAdmin={isAdmin}
+								canChatWithNaoData={canChatWithNaoData}
 								isAdminMode={isAdminMode}
 								adminModeLocked={adminModeLocked}
 								onSelectAdminMode={handleSelectAdminMode}
@@ -396,14 +443,14 @@ function ChatInputBase({
 								<ChatButton
 									showStop={isInputEmpty}
 									disabled={!isInputEmpty && isBudgetExceeded}
-									onClick={isInputEmpty ? stopAgent : handleSubmitMessage}
+									onClick={isInputEmpty ? cancelAgent : handleSubmitMessage}
 									type='button'
 								/>
 							) : (
 								<ChatButton
 									showStop={isRunning}
 									disabled={isLoadingMessages || isInputEmpty || (!isRunning && isBudgetExceeded)}
-									onClick={isRunning ? stopAgent : handleSubmitMessage}
+									onClick={isRunning ? cancelAgent : handleSubmitMessage}
 									type='button'
 								/>
 							)}
@@ -413,6 +460,12 @@ function ChatInputBase({
 			</form>
 		</div>
 	);
+}
+
+async function dataUrlToFile(url: string, mediaType: string, name: string): Promise<File> {
+	const response = await fetch(url);
+	const blob = await response.blob();
+	return new File([blob], name, { type: mediaType });
 }
 
 const CHAT_INPUT_BORDER_RADIUS = 18;
@@ -563,7 +616,7 @@ function BudgetBanner() {
 function ChatInputPlusMenu({
 	hasDatabases,
 	hasSkills,
-	isAdmin,
+	canChatWithNaoData,
 	isAdminMode,
 	adminModeLocked,
 	onSelectAdminMode,
@@ -575,7 +628,7 @@ function ChatInputPlusMenu({
 }: {
 	hasDatabases: boolean;
 	hasSkills: boolean;
-	isAdmin: boolean;
+	canChatWithNaoData: boolean;
 	isAdminMode: boolean;
 	adminModeLocked: boolean;
 	onSelectAdminMode: () => void;
@@ -626,7 +679,7 @@ function ChatInputPlusMenu({
 						<span>Skills</span>
 					</DropdownMenuItem>
 				)}
-				{isAdmin && (
+				{canChatWithNaoData && (
 					<>
 						<DropdownMenuSeparator />
 						<DropdownMenuItem

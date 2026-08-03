@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { formatCompactNumber, toFiniteNumber } from './chart-values';
+import { formatChartValue, getChartLevelValueFormat, niceAxisMax, toFiniteNumber } from './chart-values';
 import * as displayChart from './tools/display-chart';
 
 const DATA_LABEL_PROPS = {
@@ -58,8 +58,8 @@ interface PieSector {
 }
 
 interface GraphicalItem {
-	item?: { type?: { displayName?: string } };
-	props?: { points?: GraphicalPoint[]; data?: GraphicalPoint[]; sectors?: PieSector[] };
+	item?: { type?: { displayName?: string }; props?: { dataKey?: unknown } };
+	props?: { points?: GraphicalPoint[]; data?: GraphicalPoint[]; sectors?: PieSector[]; dataKey?: unknown };
 }
 
 interface DataLabelsLayerProps {
@@ -98,22 +98,9 @@ interface LabelCandidateOptions {
 
 type LabelsCollector = (props: DataLabelsLayerProps) => LabelCandidate[];
 
-export function formatDataLabel(value: unknown): string {
+export function formatDataLabel(value: unknown, valueFormat?: displayChart.ValueFormat): string {
 	const number = toFiniteNumber(value);
-	return number == null ? '' : formatCompactNumber(number);
-}
-
-export function niceAxisMax(dataMax: number, tickCount = 5): number {
-	if (dataMax <= 0) {
-		return 0;
-	}
-	const roughStep = dataMax / (tickCount - 1);
-	const magnitude = 10 ** Math.floor(Math.log10(roughStep));
-	const normalized = roughStep / magnitude;
-	const niceNormalized =
-		normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 2.5 ? 2.5 : normalized <= 5 ? 5 : 10;
-	const niceStep = niceNormalized * magnitude;
-	return niceStep * Math.ceil(dataMax / niceStep);
+	return number == null ? '' : formatChartValue(number, valueFormat, { compact: true });
 }
 
 export function shouldReserveDataLabelHeadroom<Props extends DataLabelChartProps>(props: Props): boolean {
@@ -146,27 +133,29 @@ export function shouldReserveStackTotalFootroom<Props extends DataLabelChartProp
 }
 
 /** Coordinates cartesian labels across series so conflicts can be dropped without moving labels. */
-export const DataLabelsLayer = createLabelsLayer('DataLabelsLayer', ({ formattedGraphicalItems, offset }) =>
-	collectLabelCandidates(formattedGraphicalItems ?? [], offset ?? {}),
-);
+export function renderDataLabelsLayer(series: displayChart.SeriesConfig[]) {
+	return createLabelsLayer('DataLabelsLayer', ({ formattedGraphicalItems, offset }) =>
+		collectLabelCandidates(formattedGraphicalItems ?? [], offset ?? {}, series),
+	);
+}
 
 export function renderStackTotalLabelsLayer(data: Record<string, unknown>[], series: displayChart.SeriesConfig[]) {
+	const valueFormat = getChartLevelValueFormat(series);
 	return createLabelsLayer('StackTotalLabelsLayer', ({ formattedGraphicalItems, offset }) => {
 		const items = (formattedGraphicalItems ?? []).filter((entry) =>
 			LABELLED_SERIES_KINDS.has(entry.item?.type?.displayName ?? ''),
 		);
 		const kind = items[0]?.item?.type?.displayName;
-		return kind ? stackTotalCandidates(items, data, series, kind === 'Bar', offset ?? {}) : [];
+		return kind ? stackTotalCandidates(items, data, series, kind === 'Bar', offset ?? {}, valueFormat) : [];
 	});
 }
 
-export const PieDataLabelsLayer = createLabelsLayer(
-	'PieDataLabelsLayer',
-	({ formattedGraphicalItems, width, height }) => {
+export function renderPieDataLabelsLayer(valueFormat?: displayChart.ValueFormat) {
+	return createLabelsLayer('PieDataLabelsLayer', ({ formattedGraphicalItems, width, height }) => {
 		const pie = (formattedGraphicalItems ?? []).find((entry) => entry.item?.type?.displayName === 'Pie');
-		return collectPieLabelCandidates(pie?.props?.sectors ?? [], width, height);
-	},
-);
+		return collectPieLabelCandidates(pie?.props?.sectors ?? [], width, height, valueFormat);
+	});
+}
 
 export function getDataLabelSetup<Props extends Pick<DataLabelChartProps, 'data' | 'series' | 'showDataLabels'>>(
 	props: Props,
@@ -270,6 +259,7 @@ function stackTotalCandidates(
 	series: displayChart.SeriesConfig[],
 	isBar: boolean,
 	plot: PlotRect,
+	valueFormat?: displayChart.ValueFormat,
 ): LabelCandidate[] {
 	const totals = data.map((row) => sumStackValue(row, series));
 
@@ -288,7 +278,7 @@ function stackTotalCandidates(
 		const candidate = buildLabelCandidate(
 			anchor.cx,
 			baselineY,
-			formatDataLabel(total),
+			formatDataLabel(total, valueFormat),
 			cartesianLabelRank(isLocalExtremum(totals, dataIndex), 0, anchor.cx),
 			{
 				bounds: cartesianLabelBounds(plot, isPositive ? 0 : DATA_LABEL_X_AXIS_FOOTROOM),
@@ -327,6 +317,7 @@ function collectPieLabelCandidates(
 	sectors: PieSector[],
 	width: number | undefined,
 	height: number | undefined,
+	valueFormat?: displayChart.ValueFormat,
 ): LabelCandidate[] {
 	if (width == null || height == null) {
 		return [];
@@ -336,7 +327,7 @@ function collectPieLabelCandidates(
 		const cy = toFiniteNumber(sector.cy);
 		const outerRadius = toFiniteNumber(sector.outerRadius);
 		const midAngle = toFiniteNumber(sector.midAngle);
-		const text = formatDataLabel(sector.value);
+		const text = formatDataLabel(sector.value, valueFormat);
 		if (cx == null || cy == null || outerRadius == null || midAngle == null || !text) {
 			return [];
 		}
@@ -352,22 +343,31 @@ function collectPieLabelCandidates(
 	});
 }
 
-function collectLabelCandidates(items: GraphicalItem[], plot: PlotRect): LabelCandidate[] {
-	return items.flatMap((entry, seriesIndex) => {
+function collectLabelCandidates(
+	items: GraphicalItem[],
+	plot: PlotRect,
+	series: displayChart.SeriesConfig[],
+): LabelCandidate[] {
+	const graphicalItems = items.filter((entry) => LABELLED_SERIES_KINDS.has(entry.item?.type?.displayName ?? ''));
+	return graphicalItems.flatMap((entry, seriesIndex) => {
 		const kind = entry.item?.type?.displayName;
-		if (!kind || !LABELLED_SERIES_KINDS.has(kind)) {
+		if (!kind) {
 			return [];
 		}
 		const points = kind === 'Bar' ? entry.props?.data : entry.props?.points;
 		if (!points || points.length === 0) {
 			return [];
 		}
+		const dataKey = entry.props?.dataKey ?? entry.item?.props?.dataKey;
+		const seriesConfig =
+			series.find((item) => dataKey != null && item.data_key === String(dataKey)) ?? series[seriesIndex];
 		return seriesCandidates(
 			points,
 			points.map((point) => pointValue(point, 'end')),
 			kind === 'Bar',
 			seriesIndex,
 			plot,
+			seriesConfig?.value_format,
 		);
 	});
 }
@@ -378,13 +378,14 @@ function seriesCandidates(
 	isBar: boolean,
 	seriesIndex: number,
 	plot: PlotRect,
+	valueFormat?: displayChart.ValueFormat,
 ): LabelCandidate[] {
 	const candidates = points.flatMap((point, index): IndexedLabelCandidate[] => {
 		const value = values[index];
 		if (value == null) {
 			return [];
 		}
-		const text = formatDataLabel(value);
+		const text = formatDataLabel(value, valueFormat);
 		if (!text) {
 			return [];
 		}

@@ -45,7 +45,7 @@ Send a single message asking for:
       • scope: include=["analytics.fct_*", "analytics.dim_*"], exclude=[]
       • templates: [columns, preview, description]
       • repos: company-dbt (git@github.com:org/company-dbt.git)
-      • llm: anthropic (key via ${ANTHROPIC_API_KEY})
+      • llm: anthropic (key via ${{ env('ANTHROPIC_API_KEY') }})
     ```
 
     The model is configured in the nao UI, not in `nao_config.yaml` — don't include a model ID in the summary or the yaml.
@@ -85,7 +85,7 @@ Hand off directly to `write-context-rules`. Don't ask.
 
 The key lives in `nao_config.yaml`. Two safe options:
 
-- **Preferred:** env-var ref. Write `api_key: ${ANTHROPIC_API_KEY}`; tell the user to export the key in their shell.
+- **Preferred:** env-var ref. Write `api_key: ${{ env('ANTHROPIC_API_KEY') }}` on the provider entry; tell the user to export the key in their shell.
 - **If they insist on a literal:** tell them to edit the yaml themselves and add it to `.gitignore`. **Never** ask them to paste a key into chat.
 
 Then `nao debug` to confirm.
@@ -136,8 +136,12 @@ databases:
       templates: [columns, preview, description]
 
 llm:
-    provider: anthropic # openai | bedrock | azure | gemini | mistral | ollama
-    api_key: ${ANTHROPIC_API_KEY}
+    providers:
+        - provider: anthropic # openai | bedrock | gemini | mistral | openrouter | ollama | vertex
+          api_key: ${{ env('ANTHROPIC_API_KEY') }}
+          models: # optional, defaults to the provider's built-in models
+              - id: claude-sonnet-4-5
+                default: true
 
 repos:
     - name: <repo-name>

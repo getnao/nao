@@ -224,6 +224,8 @@ code.dollar:before {
 	--chart-3: oklch(0.6 0.118 184.704);
 	--chart-4: oklch(0.828 0.189 84.429);
 	--chart-5: oklch(0.769 0.188 70.08);
+	--chart-6: oklch(0.704 0.191 22.216);
+	--chart-7: oklch(0.646 0.222 41.116);
 
 	--sidebar: oklch(0.99 0 0);
 	--sidebar-foreground: oklch(0.129 0.042 264.695);
@@ -270,6 +272,8 @@ code.dollar:before {
 	--chart-3: oklch(0.7 0.14 184.704);
 	--chart-4: oklch(0.88 0.18 84.429);
 	--chart-5: oklch(0.82 0.18 70.08);
+	--chart-6: oklch(0.76 0.19 22.216);
+	--chart-7: oklch(0.704 0.191 22.216);
 }
 
 @layer base {
@@ -487,11 +491,6 @@ code.dollar:before {
 	@apply my-3;
 }
 
-.story-editor .tiptap .ProseMirror-selectednode [data-type='chart-block'],
-.story-editor .tiptap .ProseMirror-selectednode [data-type='grid-block'] {
-	@apply outline-2 outline-primary/40 outline-offset-2 rounded-lg;
-}
-
 .story-editor .tiptap .nao-block-selected {
 	@apply bg-primary/10 rounded-md;
 }
@@ -531,9 +530,13 @@ code.dollar:before {
 }
 
 .story-editor .drop-cursor {
-	@apply bg-primary;
+	@apply bg-primary-muted;
 	border-radius: 9999px;
 	transition: opacity 0.1s ease;
+}
+
+.story-editor.drop-indicator-active .drop-cursor {
+	display: none;
 }
 
 .nao-input .prompt-input {

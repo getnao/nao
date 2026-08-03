@@ -1,7 +1,18 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { MessageSquareIcon, MessageSquarePlusIcon, MoonIcon, SunIcon, UserIcon } from 'lucide-react';
+import {
+	BookOpenIcon,
+	KeyboardIcon,
+	MessageSquareIcon,
+	MessageSquarePlusIcon,
+	MoonIcon,
+	SettingsIcon,
+	SunIcon,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+
+import type { SettingsSearchEntry } from '@/components/settings-search-index';
 
 import {
 	CommandDialog,
@@ -17,7 +28,10 @@ import { useRegisterCommandMenuCallback } from '@/contexts/command-menu-callback
 import { useSearchChatsQuery } from '@/queries/use-search-chats-query';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useSettingsSearch, useSettingsSuggestions } from '@/hooks/use-settings-search';
 import { TextShimmer } from '@/components/ui/text-shimmer';
+import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
+import { invalidateStoriesCaches } from '@/lib/stories-cache';
 
 type CommandConfig = {
 	id: string;
@@ -28,24 +42,32 @@ type CommandConfig = {
 	shortcut?: string;
 	group: string;
 	visible?: boolean;
+	keepOpen?: boolean;
 };
 
-export function CommandMenu() {
+export function CommandMenu({ onOpenKeyboardShortcuts }: { onOpenKeyboardShortcuts: () => void }) {
 	const [open, setOpen] = useState(false);
 	const [searchValue, setSearchValue] = useState('');
 	const debouncedSearch = useDebouncedValue(searchValue, 300);
 	const navigate = useNavigate();
+	const queryClient = useQueryClient();
 	const { theme, setTheme } = useTheme();
 	const { canStartNewChat } = usePermissions();
+	const isSettingsMode = searchValue.startsWith('/');
+	const settingsQuery = searchValue.slice(1);
+	const settingsResults = useSettingsSearch(isSettingsMode ? settingsQuery : '');
+	const settingsSuggestions = useSettingsSuggestions();
+	const showSettingsSuggestions = isSettingsMode && settingsQuery.length < 2;
+	const displayedSettingsEntries = showSettingsSuggestions ? settingsSuggestions : settingsResults;
 
 	const toggleOpen = useCallback(() => setOpen((prev) => !prev), []);
 	useRegisterCommandMenuCallback(toggleOpen, [toggleOpen]);
 
 	const { data: searchResults, isFetching: isSearching } = useSearchChatsQuery(debouncedSearch, {
-		enabled: open && debouncedSearch.length >= 2,
+		enabled: open && !isSettingsMode && !debouncedSearch.startsWith('/') && debouncedSearch.length >= 2,
 	});
 
-	const isSearchMode = searchValue.length >= 2;
+	const isSearchMode = !isSettingsMode && searchValue.length >= 2;
 	const hasSearchResults = isSearchMode && searchResults && searchResults.length > 0;
 	const isPendingSearch = isSearchMode && (searchValue !== debouncedSearch || isSearching);
 
@@ -57,16 +79,20 @@ export function CommandMenu() {
 				keywords: ['start chat', 'new conversation'],
 				icon: MessageSquarePlusIcon,
 				action: () => navigate({ to: '/' }),
-				shortcut: '⇧⌘O',
+				shortcut: getShortcutLabel('new-chat'),
 				group: 'Jump to',
 				visible: canStartNewChat,
 			},
 			{
-				id: 'open-settings',
-				label: 'Open Account Settings',
-				keywords: ['account', 'settings', 'preferences'],
-				icon: UserIcon,
-				action: () => navigate({ to: '/settings/account' }),
+				id: 'go-to-stories',
+				label: 'Go to Stories',
+				keywords: ['stories'],
+				icon: BookOpenIcon,
+				action: () => {
+					invalidateStoriesCaches(queryClient);
+					navigate({ to: '/stories', search: { folderId: null } });
+				},
+				shortcut: getShortcutLabel('go-to-stories'),
 				group: 'Jump to',
 			},
 			{
@@ -79,30 +105,41 @@ export function CommandMenu() {
 				},
 				group: 'Actions',
 			},
+			{
+				id: 'search-settings',
+				label: 'Search settings',
+				keywords: ['settings', 'preferences'],
+				icon: SettingsIcon,
+				action: () => setSearchValue('/'),
+				shortcut: '/',
+				group: 'Actions',
+				visible: searchValue.length === 0,
+				keepOpen: true,
+			},
+			{
+				id: 'keyboard-help',
+				label: 'Keyboard shortcuts',
+				keywords: ['hotkeys', 'key bindings'],
+				icon: KeyboardIcon,
+				action: onOpenKeyboardShortcuts,
+				shortcut: getShortcutLabel('keyboard-help'),
+				group: 'Actions',
+			},
 		],
-		[navigate, theme, setTheme, canStartNewChat],
+		[navigate, queryClient, theme, setTheme, canStartNewChat, onOpenKeyboardShortcuts, searchValue],
 	);
 
 	const visibleCommands = useMemo(() => commands.filter((cmd) => cmd.visible ?? true), [commands]);
-	const filteredCommands = useMemo(
-		() => visibleCommands.filter((cmd) => matchesCommand(cmd, searchValue)),
-		[visibleCommands, searchValue],
-	);
-	const displayedCommands = isSearchMode ? filteredCommands : visibleCommands;
+	const filteredCommands = useMemo(() => {
+		if (isSettingsMode) {
+			return [];
+		}
+
+		return visibleCommands.filter((cmd) => matchesCommand(cmd, searchValue));
+	}, [isSettingsMode, searchValue, visibleCommands]);
+	const displayedCommands = isSettingsMode ? [] : isSearchMode ? filteredCommands : visibleCommands;
 	const jumpToCommands = displayedCommands.filter((cmd) => cmd.group === 'Jump to');
 	const actionCommands = displayedCommands.filter((cmd) => cmd.group === 'Actions');
-
-	useEffect(() => {
-		const handleKeyDown = (e: KeyboardEvent) => {
-			if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
-				e.preventDefault();
-				setOpen((prev) => !prev);
-			}
-		};
-
-		document.addEventListener('keydown', handleKeyDown);
-		return () => document.removeEventListener('keydown', handleKeyDown);
-	}, []);
 
 	const handleOpenChange = useCallback((isOpen: boolean) => {
 		setOpen(isOpen);
@@ -130,18 +167,33 @@ export function CommandMenu() {
 		jumpToCommands.length === 0 &&
 		!isPendingSearch &&
 		isSearchMode;
+	const showNoSettingsResults = isSettingsMode && settingsQuery.length >= 2 && settingsResults.length === 0;
 
 	return (
 		<CommandDialog open={open} onOpenChange={handleOpenChange} shouldFilter={false} loop>
 			<CommandInput
-				placeholder='Type a command or search conversations...'
+				placeholder={isSettingsMode ? 'Search settings...' : 'Type a command or search conversations...'}
 				value={searchValue}
 				onValueChange={setSearchValue}
 			/>
 			<CommandList>
 				{showNoResults && <CommandEmpty>No results found.</CommandEmpty>}
+				{showNoSettingsResults && <CommandEmpty>No results found.</CommandEmpty>}
 
-				{jumpToCommands.length > 0 && (
+				{isSettingsMode && displayedSettingsEntries.length > 0 && (
+					<CommandGroup heading='Settings'>
+						{displayedSettingsEntries.map((entry) => (
+							<SettingsCommandItem
+								key={entry.page}
+								entry={entry}
+								isSuggestion={showSettingsSuggestions}
+								onSelect={() => runCommand(() => navigate({ to: entry.page }))}
+							/>
+						))}
+					</CommandGroup>
+				)}
+
+				{!isSettingsMode && jumpToCommands.length > 0 && (
 					<CommandGroup heading='Jump to'>
 						{jumpToCommands.map((command) => (
 							<CommandItem
@@ -188,13 +240,13 @@ export function CommandMenu() {
 					</div>
 				) : null}
 
-				{actionCommands.length > 0 && (
+				{!isSettingsMode && actionCommands.length > 0 && (
 					<CommandGroup heading='Actions'>
 						{actionCommands.map((command) => (
 							<CommandItem
 								key={command.id}
 								value={command.id}
-								onSelect={() => runCommand(command.action)}
+								onSelect={() => (command.keepOpen ? command.action() : runCommand(command.action))}
 							>
 								<command.icon />
 								<span>{command.label}</span>
@@ -205,6 +257,31 @@ export function CommandMenu() {
 				)}
 			</CommandList>
 		</CommandDialog>
+	);
+}
+
+function SettingsCommandItem({
+	entry,
+	isSuggestion,
+	onSelect,
+}: {
+	entry: SettingsSearchEntry;
+	isSuggestion: boolean;
+	onSelect: () => void;
+}) {
+	return (
+		<CommandItem value={`settings-${entry.page}`} onSelect={onSelect}>
+			<SettingsIcon />
+			<div className='flex flex-col gap-0.5 overflow-hidden'>
+				<span className='truncate'>{isSuggestion ? entry.pageLabel : entry.title}</span>
+				{!isSuggestion && (
+					<span className='text-muted-foreground truncate text-xs'>
+						{entry.pageLabel}
+						{entry.section ? ` · ${entry.section}` : ''}
+					</span>
+				)}
+			</div>
+		</CommandItem>
 	);
 }
 

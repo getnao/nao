@@ -1,5 +1,5 @@
 import { getNextPeriodStart } from '@nao/shared/date';
-import { type LlmProvider, providerLabels, WARNING_BUDGET_THRESHOLD } from '@nao/shared/types';
+import { type LlmProvider, providerLabel, WARNING_BUDGET_THRESHOLD } from '@nao/shared/types';
 
 import type { DBProjectProviderBudget } from '../db/abstractSchema';
 import * as budgetQueries from '../queries/budget.queries';
@@ -20,7 +20,7 @@ export async function checkBudgetStatus(projectId: string, provider: LlmProvider
 
 	return {
 		level: usage.ratio >= 1 ? 'exceeded' : 'warning',
-		message: buildBudgetMessage(usage.ratio, providerLabels[provider], usage.resetLabel),
+		message: buildBudgetMessage(usage.ratio, providerLabel(provider), usage.resetLabel),
 	};
 }
 
@@ -33,12 +33,12 @@ export async function assertBudgetNotExceeded(projectId: string, provider: LlmPr
 	await notifyAdminsOnBudgetLimitReached(projectId, usage.budget, usage.currentSpend, usage.resetLabel).catch(
 		() => {},
 	);
-	throw new BudgetExceededError(buildBudgetMessage(usage.ratio, providerLabels[provider], usage.resetLabel));
+	throw new BudgetExceededError(buildBudgetMessage(usage.ratio, providerLabel(provider), usage.resetLabel));
 }
 
-function buildBudgetMessage(ratio: number, providerLabel: string, resetLabel: string): string {
+function buildBudgetMessage(ratio: number, label: string, resetLabel: string): string {
 	const percent = Math.min(Math.round(ratio * 100), 100);
-	return `You've used ${percent}% of your ${providerLabel} budget. It will reset ${resetLabel}.`;
+	return `You've used ${percent}% of your ${label} budget. It will reset ${resetLabel}.`;
 }
 
 async function resolveBudgetUsage(projectId: string, provider: LlmProvider) {
@@ -82,7 +82,7 @@ async function notifyAdminsOnBudgetLimitReached(
 	}
 
 	const period = budget.period as BudgetPeriod;
-	const label = providerLabels[budget.provider as LlmProvider] ?? budget.provider;
+	const label = providerLabel(budget.provider as LlmProvider);
 
 	try {
 		await Promise.all(

@@ -1,3 +1,6 @@
+import { Sun } from 'lucide-react';
+import { providerKind } from '@nao/shared/types';
+import type { LlmProvider } from '@nao/shared/types';
 import AzureIcon from '@/components/icons/azure.svg';
 import ClaudeIcon from '@/components/icons/claude.svg';
 import GoogleIcon from '@/components/icons/google.svg';
@@ -7,12 +10,23 @@ import OpenRouterIcon from '@/components/icons/openrouter.svg';
 import OllamaIcon from '@/components/icons/ollama.svg';
 import BedrockIcon from '@/components/icons/bedrock.svg';
 import GoogleVertexIcon from '@/components/icons/google-vertex.svg';
+import QwenIcon from '@/components/icons/qwen.svg';
+import MinimaxIcon from '@/components/icons/minimax.svg';
+import MoonshotIcon from '@/components/icons/moonshot.svg';
 
+import { Favicon } from '@/components/ui/favicon';
 import { cn } from '@/lib/utils';
 
-export function LlmProviderIcon({ provider, className: customClassName }: { provider: string; className?: string }) {
+interface LlmProviderIconProps {
+	provider: string;
+	/** Endpoint of a custom provider, whose own icon stands in for the missing brand icon. */
+	baseUrl?: string | null;
+	className?: string;
+}
+
+export function LlmProviderIcon({ provider, baseUrl, className: customClassName }: LlmProviderIconProps) {
 	const className = cn('text-foreground opacity-50', customClassName);
-	switch (provider) {
+	switch (providerKind(provider as LlmProvider)) {
 		case 'anthropic':
 			return <ClaudeIcon className={className} />;
 		case 'openai':
@@ -31,6 +45,20 @@ export function LlmProviderIcon({ provider, className: customClassName }: { prov
 			return <GoogleVertexIcon className={className} />;
 		case 'azure':
 			return <AzureIcon className={className} />;
+		case 'qwen':
+			return <QwenIcon className={className} />;
+		case 'minimax':
+			return <MinimaxIcon className={className} />;
+		case 'moonshot':
+			return <MoonshotIcon className={className} />;
+		case 'openaiCompatible':
+			return (
+				<Favicon
+					url={baseUrl}
+					className={cn('shrink-0 rounded-[3px] grayscale', className)}
+					fallback={<Sun className={className} />}
+				/>
+			);
 		default:
 			return null;
 	}

@@ -1,5 +1,6 @@
 import { Code, Pencil } from 'lucide-react';
-import { memo, useMemo, useState } from 'react';
+import { memo, useContext, useMemo, useState } from 'react';
+import { StoryBlockDragContext } from './story-editor-drag-context';
 import { StoryEmbedFallback } from './story-embed-fallback';
 import type { ParsedChartBlock } from '@nao/shared/story-segments';
 import type { displayChart } from '@nao/shared/tools';
@@ -23,12 +24,17 @@ type ChartBlock = ParsedChartBlock;
 export const StoryChartEmbed = memo(function StoryChartEmbed({
 	chart,
 	dragHandle,
+	dragHandlePlacement = 'trailing',
+	isSelected,
 }: {
 	chart: ChartBlock;
 	dragHandle?: React.ReactNode;
+	dragHandlePlacement?: 'leading' | 'trailing';
+	isSelected?: boolean;
 }) {
 	const agent = useOptionalAgentContext();
 	const embedData = useStoryEmbedData();
+	const storyBlockDrag = useContext(StoryBlockDragContext);
 
 	const sourceData = useMemo(() => {
 		const fromEmbedData = embedData?.[chart.queryId];
@@ -49,30 +55,38 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 
 	if (!sourceData?.data || sourceData.data.length === 0) {
 		return (
-			<StoryEmbedFallback dragHandle={dragHandle}>
+			<StoryEmbedFallback dragHandle={dragHandle} dragHandlePlacement={dragHandlePlacement}>
 				Chart data unavailable (query: {chart.queryId})
 			</StoryEmbedFallback>
 		);
 	}
 
 	if (chart.series.length === 0) {
-		return <StoryEmbedFallback dragHandle={dragHandle}>No series configured for chart</StoryEmbedFallback>;
+		return (
+			<StoryEmbedFallback dragHandle={dragHandle} dragHandlePlacement={dragHandlePlacement}>
+				No series configured for chart
+			</StoryEmbedFallback>
+		);
 	}
 
 	const xAxisType = chart.xAxisType === 'number' ? 'number' : ('category' as const);
+	const isKpi = chart.chartType === 'kpi_card';
+	const kpiLeadingHandle = isKpi && dragHandlePlacement === 'leading' ? dragHandle : undefined;
 
 	return (
 		<StoryChartEmbedShell
 			chart={chart}
 			availableColumns={sourceData.columns ?? []}
 			data={sourceData.data ?? []}
-			dragHandle={dragHandle}
+			dragHandle={kpiLeadingHandle ? undefined : dragHandle}
+			dragHandlePlacement={dragHandlePlacement}
 		>
 			<ChartDisplay
 				data={data}
 				chartType={chart.chartType as displayChart.ChartType}
 				xAxisKey={chart.xAxisKey}
 				xAxisType={xAxisType}
+				xAxisLabel={chart.xAxisLabel}
 				series={chart.series}
 				title={chart.title}
 				yAxisMin={chart.yAxisMin}
@@ -85,6 +99,9 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 				comparisonMode={chart.comparisonMode}
 				normalSize
 				hideTotal={chart.hideTotal}
+				kpiLeadingSlot={kpiLeadingHandle}
+				disableTooltip={isSelected || storyBlockDrag?.isDragging === true}
+				className={cn(isKpi && storyBlockDrag != null && 'select-none')}
 			/>
 		</StoryChartEmbedShell>
 	);
@@ -95,6 +112,7 @@ interface StoryChartEmbedShellProps {
 	availableColumns: string[];
 	data?: Record<string, unknown>[];
 	dragHandle?: React.ReactNode;
+	dragHandlePlacement?: 'leading' | 'trailing';
 	children: React.ReactNode;
 }
 
@@ -107,6 +125,7 @@ export function StoryChartEmbedShell({
 	availableColumns,
 	data,
 	dragHandle,
+	dragHandlePlacement = 'trailing',
 	children,
 }: StoryChartEmbedShellProps) {
 	const edit = useStoryChartEdit();
@@ -122,11 +141,13 @@ export function StoryChartEmbedShell({
 			chart_type: chart.chartType as displayChart.ChartType,
 			x_axis_key: chart.xAxisKey,
 			x_axis_type: (chart.xAxisType || null) as displayChart.XAxisType | null,
+			x_axis_label: chart.xAxisLabel,
 			series: chart.series.map((s) => ({
 				data_key: s.data_key,
 				color: s.color || undefined,
 				label: s.label,
 				is_total: s.is_total,
+				value_format: s.value_format,
 				series_type: s.series_type,
 				y_axis: s.y_axis,
 			})),
@@ -172,15 +193,14 @@ export function StoryChartEmbedShell({
 		<div className='my-2 flex flex-col gap-4'>
 			{!isKpi && (canEdit || canViewQuery || dragHandle != null || chart.title) && (
 				<div className='flex w-full items-center justify-between gap-2'>
-					{chart.title ? (
-						<span className='text-sm font-medium text-foreground flex-1 min-w-0 truncate'>
-							{chart.title}
-						</span>
-					) : (
-						<div className='flex-1' />
-					)}
+					<div className='flex min-w-0 flex-1 items-center gap-1'>
+						{dragHandlePlacement === 'leading' ? dragHandle : null}
+						{chart.title ? (
+							<span className='text-sm font-medium text-foreground min-w-0 truncate'>{chart.title}</span>
+						) : null}
+					</div>
 					<div className='flex shrink-0 items-center gap-1'>
-						{dragHandle}
+						{dragHandlePlacement === 'leading' ? null : dragHandle}
 						{queryButton}
 						{editButton}
 					</div>
@@ -192,9 +212,9 @@ export function StoryChartEmbedShell({
 				) : (
 					children
 				)}
-				{isKpi && (dragHandle != null || canViewQuery || canEdit) && (
+				{isKpi && ((dragHandlePlacement !== 'leading' && dragHandle != null) || canViewQuery || canEdit) && (
 					<div className='absolute top-0 right-0 z-10 flex items-center gap-1'>
-						{dragHandle}
+						{dragHandlePlacement === 'leading' ? null : dragHandle}
 						{queryButton}
 						{editButton}
 					</div>

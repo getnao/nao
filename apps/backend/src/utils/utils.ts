@@ -160,6 +160,9 @@ export function groupBy<T, K extends string>(
 	);
 }
 
+export const previewApiKey = (apiKey: string | null | undefined): string | null =>
+	apiKey ? apiKey.slice(0, 8) + '...' + apiKey.slice(-4) : null;
+
 export const buildCredentialPreviews = (
 	credentials: Record<string, string> | null | undefined,
 ): Record<string, string> | null => {

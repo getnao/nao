@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from nao_core.commands.chat import (
+    build_llm_env,
     chat,
     ensure_auth_secret,
     get_fastapi_main_path,
@@ -13,6 +14,7 @@ from nao_core.commands.chat import (
     wait_for_server,
 )
 from nao_core.config.base import NaoConfig, NaoConfigError
+from nao_core.config.llm import LLMConfig, LLMProvider, ProviderConfig
 
 # Tests for try_load with exit_on_error=False (default, silent mode)
 
@@ -509,6 +511,51 @@ llm:
         chat_server_call = mock_popen.call_args_list[1]
         env = chat_server_call.kwargs.get("env", {})
         assert env.get("OPENAI_API_KEY") == "sk-test-key-12345"
+
+
+class TestBuildLlmEnv:
+    def test_exports_every_configured_provider(self):
+        llm = LLMConfig(
+            providers=[
+                ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-openai", base_url="http://localhost:4000"),
+                ProviderConfig(provider=LLMProvider.ANTHROPIC, api_key="sk-ant"),
+            ]
+        )
+
+        assert build_llm_env(llm) == {
+            "OPENAI_API_KEY": "sk-openai",
+            "OPENAI_BASE_URL": "http://localhost:4000",
+            "ANTHROPIC_API_KEY": "sk-ant",
+        }
+
+    def test_exports_bedrock_and_vertex_credentials(self):
+        llm = LLMConfig(
+            providers=[
+                ProviderConfig(
+                    provider=LLMProvider.BEDROCK,
+                    access_key="AKIA_TEST",
+                    secret_key="SECRET_TEST",
+                    aws_region="eu-west-1",
+                ),
+                ProviderConfig(provider=LLMProvider.VERTEX, gcp_project="my-project", gcp_location="us-east5"),
+            ]
+        )
+
+        assert build_llm_env(llm) == {
+            "AWS_ACCESS_KEY_ID": "AKIA_TEST",
+            "AWS_SECRET_ACCESS_KEY": "SECRET_TEST",
+            "AWS_REGION": "eu-west-1",
+            "GOOGLE_VERTEX_PROJECT": "my-project",
+            "GOOGLE_VERTEX_LOCATION": "us-east5",
+        }
+
+    def test_leaves_the_annotation_model_to_the_config_file(self):
+        llm = LLMConfig(
+            providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-openai")],
+            annotation_model="gpt-4.1-mini",
+        )
+
+        assert build_llm_env(llm) == {"OPENAI_API_KEY": "sk-openai"}
 
 
 class TestStartNgrokTunnel:

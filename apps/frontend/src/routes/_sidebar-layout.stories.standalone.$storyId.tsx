@@ -7,6 +7,7 @@ import type { SelectionData } from '@/components/highlight-bubble';
 import type { QueryDataMap } from '@/components/story-embeds';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { HighlightBubble } from '@/components/highlight-bubble';
+import { StoryAccessError } from '@/components/story-access-error';
 import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { StoryTabbedContent } from '@/components/story-tabbed-content';
 import { StoryPageHeader } from '@/components/story-page-header';
@@ -76,8 +77,8 @@ function StandaloneStoryPage() {
 		);
 	}
 
-	if (!story) {
-		return <div>Not Found</div>;
+	if (storyQuery.isError || !story) {
+		return <StoryAccessError error={storyQuery.error} onRetry={() => storyQuery.refetch()} />;
 	}
 
 	if (story.chatId) {
@@ -89,6 +90,7 @@ function StandaloneStoryPage() {
 				chatId={story.chatId}
 				storySlug={story.slug}
 				queryData={story.queryData as QueryDataMap | null}
+				cachedAt={story.cachedAt}
 				onOpenChat={handleOpenChat}
 				isOpeningChat={openStandaloneMutation.isPending}
 			/>
@@ -103,7 +105,7 @@ function StandaloneStoryPage() {
 				isOpeningChat={openStandaloneMutation.isPending}
 				download={{ storyId, isOwner: true }}
 				storyId={storyId}
-				live={story.isLive ? { isLive: true } : undefined}
+				live={story.isLive ? { isLive: true, cachedAt: story.cachedAt } : undefined}
 				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
 			/>
 			<SelectionProvider key={storyId}>
@@ -133,6 +135,7 @@ interface StandaloneEditableStoryProps {
 	chatId: string;
 	storySlug: string;
 	queryData: QueryDataMap | null;
+	cachedAt?: string | Date | null;
 	onOpenChat: () => void;
 	isOpeningChat: boolean;
 }
@@ -144,6 +147,7 @@ function StandaloneEditableStory({
 	chatId,
 	storySlug,
 	queryData,
+	cachedAt,
 	onOpenChat,
 	isOpeningChat,
 }: StandaloneEditableStoryProps) {
@@ -184,6 +188,7 @@ function StandaloneEditableStory({
 				isOpeningChat={isOpeningChat}
 				live={{
 					isLive,
+					cachedAt,
 					isRefreshing,
 					onRefresh: () => handleRefreshData(),
 					onOpenSettings: () => setIsLiveSettingsOpen(true),

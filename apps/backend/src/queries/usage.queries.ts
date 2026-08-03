@@ -5,9 +5,10 @@ import { LLM_PROVIDERS } from '../agents/providers';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
+import type { ModelCosts } from '../types/llm';
 import type { Granularity, TotalUsageRecord, UsageFilter, UsageRecord, UsageSource } from '../types/usage';
 import { fillMissingDates, getLookbackTimestamp } from '../utils/date';
-import * as projectLlmConfigQueries from './project-llm-config.queries';
+import { getProjectDeclaredModels } from '../utils/llm';
 
 const COST_COLS = [
 	'provider',
@@ -258,36 +259,32 @@ async function buildCostValuesTable(projectId: string): Promise<SQL> {
 }
 
 async function getCostLookupTuples(projectId: string): Promise<CostLookupTuple[]> {
-	const knownModelTuples = Object.entries(LLM_PROVIDERS).flatMap(([provider, config]) =>
-		config.models.map((model) => {
-			const cost = model.costPerM ?? {};
-			return [
-				provider,
-				model.id,
-				cost.inputNoCache ?? 0,
-				cost.inputCacheRead ?? 0,
-				cost.inputCacheWrite ?? 0,
-				cost.output ?? 0,
-			] satisfies CostLookupTuple;
-		}),
-	);
+	const costs = new Map<string, ModelCosts>();
 
-	const configs = await projectLlmConfigQueries.getProjectLlmConfigs(projectId);
-	const customModelTuples = configs.flatMap((config) =>
-		(config.customModels ?? []).map((model) => {
-			const cost = model.costPerM ?? {};
-			return [
-				config.provider,
-				model.id,
-				cost.inputNoCache ?? 0,
-				cost.inputCacheRead ?? 0,
-				cost.inputCacheWrite ?? 0,
-				cost.output ?? 0,
-			] satisfies CostLookupTuple;
-		}),
-	);
+	for (const [provider, config] of Object.entries(LLM_PROVIDERS)) {
+		for (const model of config.models) {
+			costs.set(`${provider}\u0000${model.id}`, { ...model.costPerM });
+		}
+	}
 
-	return [...knownModelTuples, ...customModelTuples];
+	for (const { provider, models } of await getProjectDeclaredModels(projectId)) {
+		for (const model of models) {
+			const key = `${provider}\u0000${model.id}`;
+			costs.set(key, { ...costs.get(key), ...model.costPerM });
+		}
+	}
+
+	return [...costs].map(([key, cost]) => {
+		const [provider, modelId] = key.split('\u0000');
+		return [
+			provider,
+			modelId,
+			cost.inputNoCache ?? 0,
+			cost.inputCacheRead ?? 0,
+			cost.inputCacheWrite ?? 0,
+			cost.output ?? 0,
+		] satisfies CostLookupTuple;
+	});
 }
 
 function tupleToValuesRow(tuple: CostLookupTuple): SQL {

@@ -3,7 +3,8 @@ import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import { buildChart } from '../src/chart-builder';
-import { niceAxisMax, shouldReserveDataLabelHeadroom } from '../src/chart-data-labels';
+import { shouldReserveDataLabelHeadroom } from '../src/chart-data-labels';
+import { niceAxisMax } from '../src/chart-values';
 
 function renderChart(element: React.ReactElement) {
 	return renderToString(React.cloneElement(element, { width: 600, height: 400 }));

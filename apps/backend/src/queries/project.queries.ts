@@ -398,7 +398,7 @@ export const listProjectChats = async (
 		where source_message.chat_id = ${s.chat.id}
 			and source_message.role = 'user'
 			and source_message.superseded_at is null
-		order by source_message.created_at desc
+		order by source_message.created_at asc
 		limit 1
 	)`;
 

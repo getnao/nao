@@ -109,8 +109,6 @@ jobs:
                       APP_COMMIT=${{ steps.sha.outputs.short_sha }}
                       APP_BUILD_DATE=${{ steps.build_date.outputs.value }}
                       NAO_CLI_VERSION=${{ steps.cli_version.outputs.version }}
-                  secrets: |
-                      GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
 
             - name: Export digest
               run: |
@@ -214,6 +212,9 @@ jobs:
                         -e GOOGLE_APPLICATION_CREDENTIALS_JSON='${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}' \
                         -e "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" \
                         -e "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" \
+                        -e "LANGFUSE_PUBLIC_KEY=${{ secrets.MOON_LANGFUSE_PUBLIC_KEY }}" \
+                        -e "LANGFUSE_SECRET_KEY=${{ secrets.MOON_LANGFUSE_SECRET_KEY }}" \
+                        -e "LANGFUSE_BASE_URL=${{ secrets.MOON_LANGFUSE_BASE_URL }}" \
                         -e "BETTER_AUTH_SECRET=${{ secrets.BETTER_AUTH_SECRET }}" \
                         -e "ENABLE_USER_SIGNUP=false" \
                         -e "BETA_AUTOMATIONS_ENABLED=true" \
@@ -259,6 +260,9 @@ jobs:
                           -e "NAO_MODE=cloud" \
                           -e "GITHUB_CLIENT_ID=${{ secrets.CLOUD_GITHUB_CLIENT_ID }}" \
                           -e "GITHUB_CLIENT_SECRET=${{ secrets.CLOUD_GITHUB_CLIENT_SECRET }}" \
+                          -e "LANGFUSE_PUBLIC_KEY=${{ secrets.CLOUD_LANGFUSE_PUBLIC_KEY }}" \
+                          -e "LANGFUSE_SECRET_KEY=${{ secrets.CLOUD_LANGFUSE_SECRET_KEY }}" \
+                          -e "LANGFUSE_BASE_URL=${{ secrets.CLOUD_LANGFUSE_BASE_URL }}" \
                           -e "GITHUB_SSO=true" \
                           -e "POSTHOG_DISABLED=true" \
                           -e "NAO_CONTEXT_SOURCE=api" \

@@ -42,9 +42,11 @@ class TokenCost:
 class VerificationResult:
     """Result from running a verification prompt."""
 
-    data: list[dict[str, Any]]
+    data: list[dict[str, Any]] | None
     expectedData: list[dict[str, Any]]
     expectedColumns: list[str]
+    sql: str | None = None
+    error: str | None = None
 
 
 @dataclass
@@ -170,13 +172,15 @@ def get_client(email: str | None = None, password: str | None = None) -> AgentCl
 
 
 def serialize_model_costs(costs: ModelCosts | None) -> dict[str, float] | None:
-    """Convert config costs to the backend API shape."""
+    """Convert config costs to the backend API shape, omitting the token types left unpriced."""
     if costs is None:
         return None
 
-    return {
+    priced = {
         "inputNoCache": costs.input_no_cache,
         "inputCacheRead": costs.input_cache_read,
         "inputCacheWrite": costs.input_cache_write,
         "output": costs.output,
     }
+    serialized = {key: value for key, value in priced.items() if value is not None}
+    return serialized or None

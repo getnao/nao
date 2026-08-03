@@ -4,6 +4,7 @@ import type { Monaco } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import { Spinner } from '@/components/ui/spinner';
 import { useEditorTheme } from '@/hooks/use-editor-theme';
+import { isMac } from '@/lib/platform';
 
 interface FileViewerProps {
 	filePath: string | null;
@@ -86,8 +87,8 @@ export function FileViewer({ filePath, content, isLoading, isError }: FileViewer
 				new KeyboardEvent('keydown', {
 					key: 'k',
 					code: 'KeyK',
-					metaKey: navigator.platform.includes('Mac'),
-					ctrlKey: !navigator.platform.includes('Mac'),
+					metaKey: isMac,
+					ctrlKey: !isMac,
 					bubbles: true,
 				}),
 			);

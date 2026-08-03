@@ -18,6 +18,7 @@ const DESCRIPTION = [
 	'',
 	'Some servers require the user to connect their account first. If a call returns an AUTH_REQUIRED',
 	'result, stop and ask the user to connect — a Connect button is shown to them automatically.',
+	'An empty server folder means its tools are not discovered yet: run `mcp_connect` on that server.',
 ].join('\n');
 
 type McpContentBlock = { type: string; text?: string };
@@ -38,13 +39,21 @@ export interface McpValidationErrorOutput {
 	issues: string[];
 }
 
-const authRequiredOutput = (server: string): McpAuthRequiredOutput => ({
+export const authRequiredOutput = (server: string): McpAuthRequiredOutput => ({
 	mcpAuthRequired: true,
 	server,
 	[MCP_AUTH_REQUIRED_MARKER]: true,
 });
 
-const isAuthRequired = (output: unknown): output is McpAuthRequiredOutput =>
+/** Text shown to the model when the user still has to connect their account to a server. */
+export const authRequiredText = (server: string): string =>
+	[
+		`AUTH_REQUIRED: The user has not connected their account to the MCP server "${server}".`,
+		'Stop and ask the user to connect using the Connect button shown below the conversation.',
+		'Do not retry this tool until they have connected.',
+	].join(' ');
+
+export const isAuthRequired = (output: unknown): output is McpAuthRequiredOutput =>
 	!!output &&
 	typeof output === 'object' &&
 	(output as Partial<McpAuthRequiredOutput>)[MCP_AUTH_REQUIRED_MARKER] === true;
@@ -54,11 +63,7 @@ const isValidationError = (output: unknown): output is McpValidationErrorOutput 
 
 const extractText = (output: unknown): string => {
 	if (isAuthRequired(output)) {
-		return [
-			`AUTH_REQUIRED: The user has not connected their account to the MCP server "${output.server}".`,
-			'Stop and ask the user to connect using the Connect button shown below the conversation.',
-			'Do not retry this tool until they have connected.',
-		].join(' ');
+		return authRequiredText(output.server);
 	}
 
 	if (isValidationError(output)) {

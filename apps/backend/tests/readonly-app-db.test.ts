@@ -17,6 +17,7 @@ const PROJECT_B = 'ro-test-project-b';
 const CHAT_IDS = ['ro-chat-a', 'ro-chat-b'];
 const MESSAGE_IDS = ['ro-msg-a', 'ro-msg-b'];
 const PART_IDS = ['ro-part-a', 'ro-part-b'];
+const PART_A_TIME = new Date('2024-06-23T08:15:00Z');
 
 async function cleanup() {
 	// Child -> parent so the cleanup works even without cascading FKs.
@@ -46,7 +47,7 @@ describe('runScopedAppDbQuery', () => {
 			{ id: 'ro-msg-b', chatId: 'ro-chat-b', role: 'user' },
 		]);
 		await db.insert(messagePart).values([
-			{ id: 'ro-part-a', messageId: 'ro-msg-a', order: 0, type: 'text', text: 'hello a' },
+			{ id: 'ro-part-a', messageId: 'ro-msg-a', order: 0, type: 'text', text: 'hello a', createdAt: PART_A_TIME },
 			{ id: 'ro-part-b', messageId: 'ro-msg-b', order: 0, type: 'text', text: 'hello b' },
 		]);
 	});
@@ -65,6 +66,14 @@ describe('runScopedAppDbQuery', () => {
 	it('does not leak another project', async () => {
 		const { rows } = await runScopedAppDbQuery(PROJECT_B, 'SELECT chat_id FROM v_messages');
 		expect(rows.map((r) => r.chat_id)).toEqual(['ro-chat-b']);
+	});
+
+	it('exposes timestamps as datetimes the date functions accept', async () => {
+		const { rows } = await runScopedAppDbQuery(
+			PROJECT_A,
+			"SELECT date(created_at) AS day FROM v_messages WHERE created_at >= datetime('2024-06-01')",
+		);
+		expect(rows).toEqual([{ day: '2024-06-23' }]);
 	});
 
 	it('does not expose PII columns (email is not on the view)', async () => {

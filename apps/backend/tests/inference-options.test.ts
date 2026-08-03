@@ -1,4 +1,4 @@
-import type { LlmProvider } from '@nao/shared/types';
+import { type LlmProvider, providerKind } from '@nao/shared/types';
 import { describe, expect, it } from 'vitest';
 
 import { createProviderModel, fitThinkingBudget } from '../src/agents/providers';
@@ -9,9 +9,17 @@ const VERTEX_SETTINGS: ProviderSettings = {
 	apiKey: '',
 	credentials: { project: 'test-project', location: 'us-east5' },
 };
+const COMPATIBLE_SETTINGS: ProviderSettings = { apiKey: 'test-key', baseURL: 'http://localhost:8000/v1' };
+
+function settingsFor(provider: LlmProvider): ProviderSettings {
+	if (provider === 'vertex') {
+		return VERTEX_SETTINGS;
+	}
+	return providerKind(provider) === 'openaiCompatible' ? COMPATIBLE_SETTINGS : SETTINGS;
+}
 
 function resolve(provider: LlmProvider, modelId: string, inference?: ModelInferenceSettings) {
-	const settings = provider === 'vertex' ? VERTEX_SETTINGS : SETTINGS;
+	const settings = settingsFor(provider);
 	const result = createProviderModel(provider, settings, modelId, inference);
 	const optionKey = provider === 'vertex' && modelId.startsWith('claude-') ? 'anthropic' : provider;
 	const options = (result.providerOptions[optionKey] ?? {}) as Record<string, unknown>;
@@ -113,6 +121,16 @@ describe('Anthropic (live-validated Claude rules)', () => {
 		expect(options).toHaveProperty('contextManagement');
 	});
 
+	it('applies the adaptive Claude rules to Opus 5 and reports its 1M window', () => {
+		const { model, providerOptions, contextWindow } = createProviderModel('anthropic', SETTINGS, 'claude-opus-5', {
+			reasoningEffort: 'max',
+		});
+
+		expect(model.modelId).toBe('claude-opus-5');
+		expect(contextWindow).toBe(1_000_000);
+		expect(providerOptions.anthropic).toMatchObject({ thinking: { type: 'adaptive' }, effort: 'max' });
+	});
+
 	it('clamps a stale minimal effort to low (not in the Claude vocabulary)', () => {
 		const { options } = resolve('anthropic', 'claude-sonnet-4-6', { reasoningEffort: 'minimal' });
 
@@ -140,6 +158,20 @@ describe('OpenAI / Azure', () => {
 		expect(options.reasoningEffort).toBe('xhigh');
 	});
 
+	it('sends max as its own level on GPT-5.6, which ranks it above xhigh', () => {
+		const sol = resolve('openai', 'gpt-5.6-sol', { reasoningEffort: 'max' });
+		const luna = resolve('openai', 'gpt-5.6-luna', { reasoningEffort: 'high' });
+
+		expect(sol.options.reasoningEffort).toBe('max');
+		expect(luna.options.reasoningEffort).toBe('high');
+	});
+
+	it('snaps a stale minimal effort to low on GPT-5.6, which dropped minimal', () => {
+		const { options } = resolve('openai', 'gpt-5.6-terra', { reasoningEffort: 'minimal' });
+
+		expect(options.reasoningEffort).toBe('low');
+	});
+
 	it('skips sampling params when the model does not support sampling', () => {
 		const { callSettings } = resolve('openai', 'gpt-5.5', {
 			reasoningEffort: 'high',
@@ -160,6 +192,19 @@ describe('OpenAI / Azure', () => {
 
 		expect(options).not.toHaveProperty('reasoningEffort');
 		expect(callSettings).toEqual({ temperature: 1.5, topP: 0.8 });
+	});
+
+	it('keeps the reasoningSummary default for reasoning models', () => {
+		const { options } = resolve('openai', 'gpt-5.5');
+
+		expect(options.reasoningSummary).toBe('auto');
+	});
+
+	it('drops the reasoningSummary default for non-reasoning models', () => {
+		const { options } = resolve('openai', 'gpt-4.1');
+
+		expect(options).not.toHaveProperty('reasoningSummary');
+		expect(options.store).toBe(false);
 	});
 
 	it('offers both effort and sampling for custom Azure deployments', () => {
@@ -304,6 +349,101 @@ describe('Mistral and Ollama', () => {
 	});
 });
 
+describe('Qwen, MiniMax and Moonshot (OpenAI-compatible endpoints)', () => {
+	it('sends the effort Kimi understands, snapping the levels it rejects', () => {
+		const max = resolve('moonshot', 'kimi-k3', { reasoningEffort: 'max' });
+		const medium = resolve('moonshot', 'kimi-k3', { reasoningEffort: 'medium' });
+
+		expect(max.options.reasoningEffort).toBe('max');
+		expect(medium.options.reasoningEffort).toBe('low');
+	});
+
+	it('skips reasoning on Kimi K2 models, which switch thinking per model', () => {
+		const { options, callSettings } = resolve('moonshot', 'kimi-k2.6', {
+			reasoningEffort: 'high',
+			temperature: 0.4,
+		});
+
+		expect(options).not.toHaveProperty('reasoningEffort');
+		expect(callSettings).toEqual({ temperature: 0.4 });
+	});
+
+	it('sends the Qwen thinking budget under the field names the API expects', () => {
+		const { options } = resolve('qwen', 'qwen3.7-plus', { thinkingBudgetTokens: 8192 });
+
+		expect(options.enable_thinking).toBe(true);
+		expect(options.thinking_budget).toBe(8192);
+	});
+
+	it('leaves Qwen thinking to the model default when no budget is stored', () => {
+		const { options, callSettings } = resolve('qwen', 'qwen3.7-plus', { temperature: 0.6, topK: 40 });
+
+		expect(options).not.toHaveProperty('enable_thinking');
+		expect(callSettings).toEqual({ temperature: 0.6 });
+	});
+
+	it('renames the MiniMax service tier to the field the API expects', () => {
+		const { options } = resolve('minimax', 'MiniMax-M3', { serviceTier: 'priority' });
+
+		expect(options.service_tier).toBe('priority');
+		expect(options).not.toHaveProperty('serviceTier');
+	});
+
+	it('ignores reasoning settings for MiniMax, which decides thinking itself', () => {
+		const { options, callSettings } = resolve('minimax', 'MiniMax-M3', {
+			reasoningEffort: 'high',
+			maxOutputTokens: 4096,
+		});
+
+		expect(options).not.toHaveProperty('reasoningEffort');
+		expect(callSettings).toEqual({ maxOutputTokens: 4096 });
+	});
+});
+
+describe('generic OpenAI-compatible endpoints', () => {
+	it('sends the effort under the key the SDK turns into reasoning_effort', () => {
+		const { options } = resolve('openaiCompatible', 'my-model', { reasoningEffort: 'high' });
+
+		expect(options.reasoningEffort).toBe('high');
+	});
+
+	it('snaps an effort the OpenAI vocabulary does not have', () => {
+		const { options } = resolve('openaiCompatible', 'my-model', { reasoningEffort: 'max' });
+
+		expect(options.reasoningEffort).toBe('high');
+	});
+
+	it('sends nothing beyond sampling until an effort is stored', () => {
+		const { options, callSettings } = resolve('openaiCompatible', 'my-model', {
+			temperature: 0.4,
+			topK: 40,
+			maxOutputTokens: 2048,
+		});
+
+		expect(options).toEqual({});
+		expect(callSettings).toEqual({ temperature: 0.4, maxOutputTokens: 2048 });
+	});
+
+	it('refuses to build a model without an endpoint to call', () => {
+		expect(() => createProviderModel('openaiCompatible', { apiKey: 'test-key' }, 'my-model')).toThrow(/base URL/i);
+	});
+
+	it('keys the options of a named endpoint under the name it was given', () => {
+		const { providerOptions, options } = resolve('openaiCompatible/my-vllm', 'my-model', {
+			reasoningEffort: 'low',
+		});
+
+		expect(Object.keys(providerOptions)).toEqual(['openaiCompatible/my-vllm']);
+		expect(options.reasoningEffort).toBe('low');
+	});
+
+	it('names the endpoint in the error raised when it has no base URL', () => {
+		expect(() => createProviderModel('openaiCompatible/my-vllm', { apiKey: '' }, 'my-model')).toThrow(
+			/my-vllm needs a base URL/i,
+		);
+	});
+});
+
 describe('sampling bound clamps (stored values must never fail a request)', () => {
 	it('clamps a stored temperature above 1 to 1 for Claude', () => {
 		const { callSettings } = resolve('anthropic', 'claude-sonnet-4-6', { temperature: 1.5 });
@@ -315,6 +455,14 @@ describe('sampling bound clamps (stored values must never fail a request)', () =
 		const { callSettings } = resolve('mistral', 'mistral-medium-latest', { temperature: 1.8 });
 
 		expect(callSettings).toEqual({ temperature: 1.5 });
+	});
+
+	it('clamps temperature to 1 for Moonshot and leaves MiniMax on the 0-2 range', () => {
+		const moonshot = resolve('moonshot', 'kimi-k3', { temperature: 1.8 });
+		const minimax = resolve('minimax', 'MiniMax-M3', { temperature: 1.8 });
+
+		expect(moonshot.callSettings).toEqual({ temperature: 1 });
+		expect(minimax.callSettings).toEqual({ temperature: 1.8 });
 	});
 
 	it('passes a high temperature through for models with the default 0-2 range', () => {

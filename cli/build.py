@@ -248,6 +248,16 @@ def update_version(cli_dir: Path, new_version: str) -> None:
     print(f"✓ Version bumped to {new_version}")
 
 
+#: DuckDB names its binding packages without the NAPI-RS ABI part of the suffix
+DUCKDB_PLATFORM_SUFFIXES = {
+    "darwin-arm64": "darwin-arm64",
+    "darwin-x64": "darwin-x64",
+    "linux-x64-gnu": "linux-x64",
+    "linux-arm64-gnu": "linux-arm64",
+    "win32-x64-msvc": "win32-x64",
+}
+
+
 def get_native_platform_suffix() -> str | None:
     """Return the NAPI-RS platform suffix for the current OS/arch, or None."""
     os_name = sys.platform
@@ -269,11 +279,68 @@ def get_native_platform_suffix() -> str | None:
     return None
 
 
-def bundle_native_packages(project_root: Path, output_dir: Path) -> None:
-    """Copy NAPI-RS native addons into node_modules/ next to the binary.
+def downloadable_native_packages(suffix: str) -> list[tuple[str, str, str]]:
+    """(group, label, package) for the engines fetched on first use, not bundled.
 
-    Both @boxlite-ai/boxlite and @pydantic/monty are externalized from the Bun
-    standalone build because they load platform-specific .node files at runtime.
+    Whether an engine exists for the platform is left to bun.lock, which only holds
+    the packages npm actually publishes.
+    """
+    packages: list[tuple[str, str, str]] = [("sandbox", "sandbox runtime", f"@boxlite-ai/boxlite-{suffix}")]
+
+    duckdb_suffix = DUCKDB_PLATFORM_SUFFIXES.get(suffix)
+    if duckdb_suffix:
+        packages.insert(0, ("duckdb", "DuckDB engine", f"@duckdb/node-bindings-{duckdb_suffix}"))
+
+    return packages
+
+
+def write_native_manifest(project_root: Path, output_dir: Path) -> None:
+    """Record how the CLI can download the engines that are too large to bundle."""
+    suffix = get_native_platform_suffix()
+    if suffix is None:
+        return
+
+    entries = []
+    for group, label, name in downloadable_native_packages(suffix):
+        locked = read_locked_package(project_root, name)
+        if locked is None:
+            print(f"   Skipping {label} (no {name} published for this platform)")
+            continue
+
+        version, integrity = locked
+        entries.append({"group": group, "label": label, "name": name, "version": version, "integrity": integrity})
+        print(f"   {name}@{version} (downloaded on first use)")
+
+    manifest = output_dir / "native-deps.json"
+    manifest.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+
+
+def read_locked_package(project_root: Path, name: str) -> tuple[str, str] | None:
+    """Return the version and integrity hash bun.lock pins for a package.
+
+    The lockfile is the only place that has the hash of the exact artifact we build
+    against, and the CLI checks it before unpacking the download. A package missing
+    from it is one npm does not publish for this platform, such as the sandbox
+    runtime outside macOS arm64 and Linux x64.
+    """
+    lockfile = project_root / "bun.lock"
+    entry = re.compile(rf'"{re.escape(name)}": \["{re.escape(name)}@([^"]+)".*"(sha\d+-[^"]+)"\]')
+
+    for line in lockfile.read_text(encoding="utf-8").splitlines():
+        match = entry.search(line)
+        if match:
+            return match.group(1), match.group(2)
+
+    return None
+
+
+def bundle_native_packages(project_root: Path, output_dir: Path) -> None:
+    """Copy native addons into node_modules/ next to the binary.
+
+    These packages are externalized from the Bun standalone build because they load
+    platform-specific native files at runtime. Only the small loaders are copied:
+    the DuckDB engine and the sandbox runtime are ~100 MB each and are downloaded
+    on first use instead (see write_native_manifest).
     """
     suffix = get_native_platform_suffix()
     if suffix is None:
@@ -284,15 +351,13 @@ def bundle_native_packages(project_root: Path, output_dir: Path) -> None:
     out_nm = output_dir / "node_modules"
 
     packages_to_copy: list[tuple[str, str]] = [
+        ("@duckdb/node-bindings", "@duckdb/node-bindings"),
         ("@pydantic/monty", "@pydantic/monty"),
     ]
 
     # boxlite has no native win32 binaries (works on Windows only through WSL)
     if sys.platform != "win32":
-        packages_to_copy = [
-            ("@boxlite-ai/boxlite", "@boxlite-ai/boxlite"),
-            (f"@boxlite-ai/boxlite-{suffix}", f"@boxlite-ai/boxlite-{suffix}"),
-        ] + packages_to_copy
+        packages_to_copy.insert(0, ("@boxlite-ai/boxlite", "@boxlite-ai/boxlite"))
     else:
         print("   Skipping @boxlite-ai/boxlite (no native win32 binaries — use WSL for sandbox support)")
 
@@ -425,8 +490,17 @@ def build_server(project_root: Path, output_dir: Path) -> None:
     # Step 9: Copy ripgrep binary
     print("\n📦 Bundling ripgrep binary...")
     rg_binary_name = "rg.exe" if sys.platform == "win32" else "rg"
-    # Look in both monorepo root and backend node_modules
+    # @vscode/ripgrep >=1.18 ships the binary in a platform-specific package
+    # (e.g. @vscode/ripgrep-darwin-arm64); older versions downloaded it into
+    # @vscode/ripgrep/bin via postinstall. Check both layouts, in both the
+    # monorepo root and backend node_modules.
+    arch = {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64"}.get(
+        platform.machine().lower(), platform.machine().lower()
+    )
+    rg_platform_pkg = f"ripgrep-{sys.platform}-{arch}"
     rg_src_paths = [
+        project_root / "node_modules" / "@vscode" / rg_platform_pkg / "bin" / rg_binary_name,
+        backend_dir / "node_modules" / "@vscode" / rg_platform_pkg / "bin" / rg_binary_name,
         project_root / "node_modules" / "@vscode" / "ripgrep" / "bin" / rg_binary_name,
         backend_dir / "node_modules" / "@vscode" / "ripgrep" / "bin" / rg_binary_name,
     ]
@@ -450,10 +524,14 @@ def build_server(project_root: Path, output_dir: Path) -> None:
     print("\n📦 Bundling native addons...")
     bundle_native_packages(project_root, output_dir)
 
+    # Step 11: Record the engines the CLI downloads instead of bundling
+    print("\n📦 Writing native download manifest...")
+    write_native_manifest(project_root, output_dir)
+
     # Cleanup temporary public folder in backend
     shutil.rmtree(backend_public)
 
-    # Step 11: Write git commit info
+    # Step 12: Write git commit info
     print("\n📦 Writing build info...")
     commit_hash = get_git_commit(project_root)
     commit_short = get_git_commit_short(project_root)

@@ -14,6 +14,7 @@ from nao_core.commands import (  # noqa: E402
     deploy,
     docs,
     init,
+    migrate,
     reset_password,
     skills,
     sync,
@@ -30,6 +31,7 @@ app.command(debug)
 app.command(deploy)
 app.command(docs)
 app.command(init)
+app.command(migrate)
 app.command(reset_password)
 app.command(skills)
 app.command(sync)

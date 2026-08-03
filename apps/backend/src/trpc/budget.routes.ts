@@ -1,4 +1,4 @@
-import { LlmProvider } from '@nao/shared/types';
+import { LlmProviderKind } from '@nao/shared/types';
 import { z } from 'zod/v4';
 
 import { PROVIDER_META } from '../agents/provider-meta';
@@ -15,7 +15,7 @@ export const budgetRoutes = {
 				provider,
 				meta.models.some((m) => m.costPerM !== undefined),
 			]),
-		) as Record<LlmProvider, boolean>;
+		) as Record<LlmProviderKind, boolean>;
 	}),
 
 	getBudgets: projectProtectedProcedure.query(async ({ ctx }) => {

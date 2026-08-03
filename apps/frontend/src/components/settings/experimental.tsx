@@ -158,7 +158,9 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 						>
 							Boxlite
 						</a>
-						.{!sandboxAvailable && ' Not available on this platform.'}
+						.
+						{!sandboxAvailable &&
+							' The runtime is not installed — on macOS or Linux, run `nao chat --sandbox` and restart nao.'}
 					</span>
 				}
 				control={
