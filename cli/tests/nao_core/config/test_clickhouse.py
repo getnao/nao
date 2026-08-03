@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+import logging
+from types import ModuleType
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from nao_core.config.databases.clickhouse import ClickHouseConfig
+from nao_core.config.databases.clickhouse import (
+    ClickHouseConfig,
+    _column_metadata,
+    _columns_from_describe,
+    _is_server_settings_probe,
+    _RestrictedDiscoveryBackend,
+    _server_settings_probe_optional,
+)
 
 
 def _base_config(**overrides: Any) -> ClickHouseConfig:
@@ -82,3 +91,237 @@ class TestConnectDispatch:
         assert kwargs["send_receive_timeout"] == 60
         assert kwargs["secure"] is True
         assert kwargs["verify"] is False
+
+
+# The query clickhouse-connect runs while constructing a client, unchanged from 0.14 to 1.6.
+SERVER_SETTINGS_PROBE = "SELECT name, value, readonly as readonly FROM system.settings LIMIT 10000"
+
+# Tinybird's response when a non-ADMIN token reads a Service Data Source.
+TINYBIRD_FORBIDDEN = (
+    "HTTP driver received HTTP status 403, server response: Services Data Sources like "
+    "'system.settings' can't be directly accessed without an ADMIN token."
+)
+
+
+class TestServerSettingsProbe:
+    """Servers that refuse system.settings (Tinybird) must still be connectable."""
+
+    def test_probe_is_recognised(self) -> None:
+        assert _is_server_settings_probe(SERVER_SETTINGS_PROBE)
+
+    def test_probe_is_recognised_with_literal_readonly_value(self) -> None:
+        """Pre-19.17 servers get the readonly value inlined instead of the column name."""
+        assert _is_server_settings_probe("SELECT name, value, 0 as readonly FROM system.settings LIMIT 10000")
+
+    def test_user_query_on_system_settings_is_not_the_probe(self) -> None:
+        """A user's own system.settings query must keep raising rather than come back empty."""
+        assert not _is_server_settings_probe("SELECT name, value FROM system.settings WHERE name = 'max_threads'")
+        assert not _is_server_settings_probe("SELECT * FROM system.settings")
+
+    def test_forbidden_probe_falls_back_to_no_settings(self) -> None:
+        client_cls = _fake_http_client_class(raise_on=SERVER_SETTINGS_PROBE)
+        with patch.dict("sys.modules", {"clickhouse_connect.driver.httpclient": _module(HttpClient=client_cls)}):
+            with _server_settings_probe_optional():
+                result = client_cls().query(SERVER_SETTINGS_PROBE)
+        assert list(result.named_results()) == []
+
+    def test_other_failures_still_raise(self) -> None:
+        client_cls = _fake_http_client_class(raise_on="SELECT 1")
+        with patch.dict("sys.modules", {"clickhouse_connect.driver.httpclient": _module(HttpClient=client_cls)}):
+            with _server_settings_probe_optional():
+                with pytest.raises(RuntimeError):
+                    client_cls().query("SELECT 1")
+
+    def test_original_query_method_is_restored(self) -> None:
+        client_cls = _fake_http_client_class(raise_on=SERVER_SETTINGS_PROBE)
+        original = client_cls.query
+        with patch.dict("sys.modules", {"clickhouse_connect.driver.httpclient": _module(HttpClient=client_cls)}):
+            with _server_settings_probe_optional():
+                assert client_cls.query is not original
+        assert client_cls.query is original
+
+    def test_probe_is_not_tolerated_by_default(self) -> None:
+        assert _base_config().tolerate_unreadable_system_tables is False
+
+    def test_error_message_names_the_option(self) -> None:
+        config = _base_config()
+        message = config._connection_error_message(RuntimeError(TINYBIRD_FORBIDDEN))
+        assert "tolerate_unreadable_system_tables" in message
+
+    def test_error_message_is_untouched_once_enabled(self) -> None:
+        config = _base_config(tolerate_unreadable_system_tables=True)
+        message = config._connection_error_message(RuntimeError(TINYBIRD_FORBIDDEN))
+        assert message == TINYBIRD_FORBIDDEN
+
+    def test_unrelated_error_is_untouched(self) -> None:
+        config = _base_config()
+        assert config._connection_error_message(RuntimeError("connection refused")) == "connection refused"
+
+
+class TestRestrictedDiscovery:
+    """When the system database is unreadable, discovery comes from `include`."""
+
+    def test_include_targets_group_tables_by_schema(self) -> None:
+        config = _base_config(include=["analytics.users", "analytics.orders", "telemetry.events"])
+        targets, unexpandable = config._include_targets()
+        assert targets == {"analytics": ["users", "orders"], "telemetry": ["events"]}
+        assert unexpandable == []
+
+    def test_wildcards_and_bare_schemas_are_reported_not_silently_dropped(self) -> None:
+        """A pattern cannot be expanded without the listing that is unavailable."""
+        config = _base_config(include=["analytics.*", "analytics", "analytics.users", "logs.evt_?"])
+        targets, unexpandable = config._include_targets()
+        assert targets == {"analytics": ["users"]}
+        assert unexpandable == ["analytics.*", "analytics", "logs.evt_?"]
+
+    def test_unexpandable_patterns_are_logged_once(self, caplog: pytest.LogCaptureFixture) -> None:
+        backend = MagicMock(name="backend")
+        backend.list_tables.side_effect = RuntimeError(TINYBIRD_FORBIDDEN)
+        wrapped = _RestrictedDiscoveryBackend(backend, {"analytics": ["users"]}, ["analytics.*"])
+        with caplog.at_level(logging.WARNING):
+            wrapped.list_tables(database="analytics")
+            wrapped.list_tables(database="analytics")
+        assert sum("analytics.*" in record.getMessage() for record in caplog.records) == 1
+
+    def test_listings_pass_through_when_the_server_allows_them(self) -> None:
+        backend = MagicMock(name="backend")
+        backend.list_databases.return_value = ["analytics"]
+        backend.list_tables.return_value = ["users", "orders", "audit"]
+        wrapped = _RestrictedDiscoveryBackend(backend, {"analytics": ["users"]})
+        assert wrapped.list_databases() == ["analytics"]
+        assert wrapped.list_tables(database="analytics") == ["users", "orders", "audit"]
+
+    def test_blocked_listings_fall_back_to_include(self) -> None:
+        backend = MagicMock(name="backend")
+        backend.list_databases.side_effect = RuntimeError(TINYBIRD_FORBIDDEN)
+        backend.list_tables.side_effect = RuntimeError(TINYBIRD_FORBIDDEN)
+        wrapped = _RestrictedDiscoveryBackend(backend, {"analytics": ["users", "orders"]})
+        assert wrapped.list_databases() == ["analytics"]
+        assert wrapped.list_tables(database="analytics") == ["users", "orders"]
+
+    def test_blocked_listing_for_unknown_schema_is_empty(self) -> None:
+        backend = MagicMock(name="backend")
+        backend.list_tables.side_effect = RuntimeError(TINYBIRD_FORBIDDEN)
+        wrapped = _RestrictedDiscoveryBackend(backend, {"analytics": ["users"]})
+        assert wrapped.list_tables(database="somewhere_else") == []
+
+    def test_everything_else_is_delegated(self) -> None:
+        backend = MagicMock(name="backend")
+        wrapped = _RestrictedDiscoveryBackend(backend, {})
+        wrapped.raw_sql("SELECT 1")
+        wrapped.disconnect()
+        backend.raw_sql.assert_called_once_with("SELECT 1")
+        backend.disconnect.assert_called_once()
+
+    def test_connection_is_not_wrapped_by_default(self) -> None:
+        config = _base_config()
+        mock_backend = MagicMock(name="ibis_backend")
+        with patch("nao_core.deps.require_database_backend"):
+            with patch.object(ClickHouseConfig, "_connect_http_client", return_value=mock_backend):
+                assert config.connect() is mock_backend
+
+    def test_connection_is_wrapped_when_enabled(self) -> None:
+        config = _base_config(tolerate_unreadable_system_tables=True, include=["analytics.users"])
+        mock_backend = MagicMock(name="ibis_backend")
+        stub = _module(HttpClient=_fake_http_client_class(raise_on=SERVER_SETTINGS_PROBE))
+        with patch.dict("sys.modules", {"clickhouse_connect.driver.httpclient": stub}):
+            with patch("nao_core.deps.require_database_backend"):
+                with patch.object(ClickHouseConfig, "_connect_http_client", return_value=mock_backend):
+                    conn = config.connect()
+        assert isinstance(conn, _RestrictedDiscoveryBackend)
+        assert conn.raw_sql is mock_backend.raw_sql
+
+
+class TestColumnMetadata:
+    """DESCRIBE TABLE covers the same fields as system.columns and needs no system access."""
+
+    def _conn(self, rows: list[dict[str, Any]] | Exception) -> MagicMock:
+        conn = MagicMock(name="conn")
+        cursor = MagicMock(name="cursor")
+        cursor.column_names = ["name", "type", "default_type", "default_expression", "comment"]
+        if isinstance(rows, Exception):
+            conn.raw_sql.side_effect = rows
+        else:
+            cursor.result_rows = [tuple(r[c] for c in cursor.column_names) for r in rows]
+            conn.raw_sql.return_value = cursor
+        return conn
+
+    def test_describe_rows_are_mapped_to_column_metadata(self) -> None:
+        conn = self._conn(
+            [
+                {
+                    "name": "id",
+                    "type": "String",
+                    "default_type": "",
+                    "default_expression": "",
+                    "comment": "primary id",
+                },
+                {
+                    "name": "score",
+                    "type": "Nullable(Float64)",
+                    "default_type": "DEFAULT",
+                    "default_expression": "0",
+                    "comment": "",
+                },
+            ]
+        )
+        columns = _columns_from_describe(conn, "analytics", "users")
+        assert columns == [
+            {
+                "name": "id",
+                "type": "String",
+                "nullable": False,
+                "description": "primary id",
+                "default_kind": None,
+                "default_expression": None,
+            },
+            {
+                "name": "score",
+                "type": "Nullable(Float64)",
+                "nullable": True,
+                "description": None,
+                "default_kind": "DEFAULT",
+                "default_expression": "0",
+            },
+        ]
+
+    def test_describe_failure_is_empty(self) -> None:
+        conn = self._conn(RuntimeError("nope"))
+        assert _columns_from_describe(conn, "analytics", "users") == []
+
+    def test_system_columns_win_when_available(self) -> None:
+        conn = MagicMock(name="conn")
+        system_columns = [{"name": "from_system", "type": "String"}]
+        with patch("nao_core.config.databases.clickhouse._columns_from_system", return_value=system_columns):
+            with patch("nao_core.config.databases.clickhouse._columns_from_describe") as mock_describe:
+                assert _column_metadata(conn, "analytics", "users") == system_columns
+        mock_describe.assert_not_called()
+
+    def test_describe_is_used_when_system_columns_is_empty(self) -> None:
+        conn = MagicMock(name="conn")
+        described = [{"name": "from_describe", "type": "String"}]
+        with patch("nao_core.config.databases.clickhouse._columns_from_system", return_value=[]):
+            with patch("nao_core.config.databases.clickhouse._columns_from_describe", return_value=described):
+                assert _column_metadata(conn, "analytics", "users") == described
+
+
+def _module(**attributes: Any) -> ModuleType:
+    module = ModuleType("stub")
+    for name, value in attributes.items():
+        setattr(module, name, value)
+    return module
+
+
+class _FakeHttpClient:
+    """Stands in for clickhouse-connect's HttpClient, failing on one nominated query."""
+
+    raise_on = ""
+
+    def query(self, sql: str | None = None, *args: Any, **kwargs: Any) -> Any:
+        if sql == self.raise_on:
+            raise RuntimeError(TINYBIRD_FORBIDDEN)
+        return MagicMock(name="query_result")
+
+
+def _fake_http_client_class(raise_on: str) -> type[_FakeHttpClient]:
+    return type("FakeHttpClient", (_FakeHttpClient,), {"raise_on": raise_on})
