@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatCompactNumber } from '../src/chart-builder';
+import { formatCompactNumber } from '../src/chart-values';
 
 describe('formatCompactNumber', () => {
 	describe('billions', () => {

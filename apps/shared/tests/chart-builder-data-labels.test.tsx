@@ -2,7 +2,8 @@ import React from 'react';
 import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { buildChart, niceAxisMax, shouldReserveDataLabelHeadroom } from '../src/chart-builder';
+import { buildChart } from '../src/chart-builder';
+import { niceAxisMax, shouldReserveDataLabelHeadroom } from '../src/chart-data-labels';
 
 function renderChart(element: React.ReactElement) {
 	return renderToString(React.cloneElement(element, { width: 600, height: 400 }));
