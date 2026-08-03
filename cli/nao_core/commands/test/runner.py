@@ -431,7 +431,7 @@ def ensure_verification_engine(test_cases: list[TestCase]) -> None:
     if not any(test_case.sql for test_case in test_cases):
         return
 
-    if urlparse(BACKEND_URL).hostname not in ("localhost", "127.0.0.1"):
+    if urlparse(BACKEND_URL).hostname not in ("localhost", "127.0.0.1", "::1"):
         return
 
     native.ensure_group(native.server_bin_dir(), "duckdb")
