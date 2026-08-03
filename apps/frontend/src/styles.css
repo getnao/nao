@@ -508,11 +508,6 @@ code.dollar:before {
 	@apply my-3;
 }
 
-.story-editor .tiptap .ProseMirror-selectednode [data-type='chart-block'],
-.story-editor .tiptap .ProseMirror-selectednode [data-type='grid-block'] {
-	@apply outline-2 outline-primary/40 outline-offset-2 rounded-lg;
-}
-
 .story-editor .tiptap .nao-block-selected {
 	@apply bg-primary/10 rounded-md;
 }
@@ -552,9 +547,13 @@ code.dollar:before {
 }
 
 .story-editor .drop-cursor {
-	@apply bg-primary;
+	@apply bg-primary-muted;
 	border-radius: 9999px;
 	transition: opacity 0.1s ease;
+}
+
+.story-editor.drop-indicator-active .drop-cursor {
+	display: none;
 }
 
 .nao-input .prompt-input {

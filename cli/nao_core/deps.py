@@ -50,6 +50,10 @@ _EXTRAS: dict[str, list[str]] = {
 _PROVIDER_ALIASES: dict[str, str] = {
     "openrouter": "openai",
     "vertex": "gemini",
+    "qwen": "openai",
+    "minimax": "openai",
+    "moonshot": "openai",
+    "openaiCompatible": "openai",
 }
 
 

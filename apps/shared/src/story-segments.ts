@@ -13,6 +13,7 @@ export interface ParsedChartBlock {
 	chartType: string;
 	xAxisKey: string;
 	xAxisType: string | null;
+	xAxisLabel?: string;
 	series: ParsedChartSeries[];
 	yAxisMin?: number;
 	yAxisMax?: number;
@@ -119,6 +120,7 @@ export function parseChartBlock(attrString: string): ParsedChartBlock | null {
 		chartType: attrs.chart_type,
 		xAxisKey: attrs.x_axis_key ?? '',
 		xAxisType: attrs.x_axis_type || null,
+		xAxisLabel: attrs.x_axis_label || undefined,
 		series,
 		yAxisMin,
 		yAxisMax,
@@ -449,6 +451,35 @@ export function popGridColumn(
 	const remaining =
 		remainingColumns.length >= 2 ? buildGridMarkup(remainingColumns, remainingWidths) : remainingColumns[0];
 
+	return { remaining, popped };
+}
+
+export function popGridColumns(
+	rawGridContent: string,
+	indices: number[],
+): { remaining: string | null; popped: string } | null {
+	const { columns, widths } = splitGridColumnsRaw(rawGridContent);
+	const sorted = Array.from(new Set(indices)).sort((first, second) => first - second);
+	if (columns.length === 0 || sorted.length === 0 || sorted.some((index) => index < 0 || index >= columns.length)) {
+		return null;
+	}
+	const poppedColumns = sorted.map((index) => columns[index]);
+	const poppedWidths = sorted.map((index) => widths[index]);
+	const keptColumns: string[] = [];
+	const keptWidths: number[] = [];
+	columns.forEach((column, index) => {
+		if (!sorted.includes(index)) {
+			keptColumns.push(column);
+			keptWidths.push(widths[index]);
+		}
+	});
+	const remaining =
+		keptColumns.length === 0
+			? null
+			: keptColumns.length === 1
+				? keptColumns[0]
+				: buildGridMarkup(keptColumns, keptWidths);
+	const popped = poppedColumns.length === 1 ? poppedColumns[0] : buildGridMarkup(poppedColumns, poppedWidths);
 	return { remaining, popped };
 }
 

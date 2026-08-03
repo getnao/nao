@@ -1,9 +1,11 @@
 import crypto from 'node:crypto';
 
+import type { UserRole } from '@nao/shared';
+
 import type { App } from '../app';
 import { getAuth } from '../auth';
 import { env } from '../env';
-import { setMcpDiscoveryUser } from '../queries/mcp-oauth.queries';
+import { claimMcpDiscoveryUser, setMcpDiscoveryUser } from '../queries/mcp-oauth.queries';
 import * as projectQueries from '../queries/project.queries';
 import { mcpService } from '../services/mcp';
 import { buildAuthorizationRedirect, completeAuthorization } from '../services/mcp-oauth';
@@ -73,6 +75,19 @@ export function resultPage(status: 'connected' | 'error', server: string, return
 	if (window.opener) { window.close(); } else { window.location.href = ${target}; }
 </script>
 </body></html>`;
+}
+
+/**
+ * Tool discovery runs with a single user's token. An admin always takes it over on connect;
+ * a regular user only claims it when no admin ever connected the server, so the agent still
+ * gets its tool specs instead of seeing an empty server.
+ */
+async function claimDiscovery(role: UserRole, projectId: string, server: string, userId: string): Promise<boolean> {
+	if (role === 'admin') {
+		await setMcpDiscoveryUser(projectId, server, userId);
+		return true;
+	}
+	return claimMcpDiscoveryUser(projectId, server, userId);
 }
 
 export const mcpOAuthRoutes = async (app: App) => {
@@ -168,8 +183,7 @@ export const mcpOAuthRoutes = async (app: App) => {
 				code,
 			});
 
-			if (role === 'admin') {
-				await setMcpDiscoveryUser(decoded.projectId, decoded.server, decoded.userId);
+			if (await claimDiscovery(role, decoded.projectId, decoded.server, decoded.userId)) {
 				await mcpService.discoverServer(decoded.projectId, decoded.server);
 			}
 

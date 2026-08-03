@@ -10,7 +10,6 @@ import {
 	InferUIMessageChunk,
 	isToolUIPart,
 	ModelMessage,
-	Output,
 	pruneMessages,
 	stepCountIs,
 	type StopCondition,
@@ -18,9 +17,8 @@ import {
 	ToolLoopAgent,
 	UIMessageStreamWriter,
 } from 'ai';
-import { z } from 'zod';
 
-import { fitThinkingBudget, LLM_PROVIDERS, ProviderModelResult } from '../agents/providers';
+import { disableModelReasoning, fitThinkingBudget, getProviderMeta, ProviderModelResult } from '../agents/providers';
 import { getSystemPromptOverride, hasNaoPromptPlaceholder, injectNaoPrompt } from '../agents/system-prompts';
 import { llmTelemetry } from '../agents/telemetry';
 import { getTools } from '../agents/tools';
@@ -46,7 +44,7 @@ import {
 } from '../types/chat';
 import type { ModelCosts } from '../types/llm';
 import { Provider } from '../types/messaging-provider';
-import { McpToolContext, ToolContext } from '../types/tools';
+import { McpToolContext, QueryResult, ToolContext } from '../types/tools';
 import {
 	convertToCost,
 	convertToTokenUsage,
@@ -65,6 +63,7 @@ import {
 } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { addPromptCache } from '../utils/prompt-cache';
+import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt } from '../utils/title';
 import { truncateMiddle } from '../utils/utils';
 import { listChartPlugins } from './chart-plugin';
 import { compactionService } from './compaction';
@@ -91,6 +90,8 @@ export interface AgentRunResult {
 	}>;
 	/** All message parts (step-starts, tool calls, text) for persisting to the DB */
 	responseParts: UIMessagePart[];
+	/** Rows returned by every `execute_sql` call of the run, keyed by query id */
+	queryResults: Map<string, QueryResult>;
 }
 
 export type AgentChat = Pick<DBChat, 'id' | 'projectId' | 'userId'> & {
@@ -407,6 +408,7 @@ class AgentManager {
 		await compactionService.compactConversationIfNeeded({
 			chat: this.chat,
 			provider: this._modelSelection.provider,
+			modelId: this._modelSelection.modelId,
 			messages,
 			tools: this._agentTools,
 			maxOutputTokens: this._maxOutputTokens,
@@ -414,7 +416,7 @@ class AgentManager {
 			onCompactionStarted: () => {
 				this._streamWriter?.write({
 					type: 'data-compactionSummaryStarted',
-					data: undefined,
+					data: null,
 				});
 			},
 			onCompactionFinished: (result) => {
@@ -703,6 +705,7 @@ class AgentManager {
 			chatId: this.chat.id,
 			messages: uiMessages,
 			provider: this._modelSelection.provider,
+			modelId: this._modelSelection.modelId,
 		});
 	}
 
@@ -720,29 +723,24 @@ class AgentManager {
 		const provider = this._modelSelection.provider;
 		const summaryModelId = await resolveAnnotationModelId(
 			this.chat.projectId,
-			provider,
-			LLM_PROVIDERS[provider].summaryModelId,
+			this._modelSelection,
+			getProviderMeta(provider).summaryModelId,
 		);
-		const modelResult = await resolveProviderModel(this.chat.projectId, provider, summaryModelId);
+		const modelResult = await resolveProviderModel(this.chat.projectId, provider, summaryModelId, false);
 		if (!modelResult) {
 			return;
 		}
 
-		const { output } = await generateText({
-			model: modelResult.model,
-			system: 'Generate a short, descriptive title (3-8 words) for this conversation based on the user message. Always generate a title, no matter the input. Only capitalize the first letter of the title and nouns.',
+		const { text } = await generateText({
+			...disableModelReasoning(provider, modelResult),
+			system: 'Generate a short, descriptive title (3-8 words) for this conversation based on the user message. Always generate a title, no matter the input. Only capitalize the first letter of the title and nouns. Answer with the title alone, without quotes or any other text.',
 			messages: [
 				{
 					role: 'user',
 					content: userMessageText,
 				},
 			],
-			output: Output.object({
-				schema: z.object({
-					title: z.string().describe('A short, descriptive conversation title (3-8 words)'),
-				}),
-			}),
-			maxOutputTokens: 60,
+			maxOutputTokens: TITLE_MAX_OUTPUT_TOKENS,
 			experimental_telemetry: llmTelemetry('nao-generate-title', {
 				sessionId: this.chat.id,
 				userId: this.chat.userId,
@@ -750,7 +748,7 @@ class AgentManager {
 			}),
 		});
 
-		const title = output?.title.trim();
+		const title = sanitizeTitle(text) || titleFromPrompt(userMessageText);
 		if (!title) {
 			return;
 		}
@@ -829,6 +827,7 @@ class AgentManager {
 				responseMessages: result.response.messages,
 				steps: result.steps as AgentRunResult['steps'],
 				responseParts: [],
+				queryResults: this._toolContext.queryResults,
 			};
 		} finally {
 			this._finish();

@@ -6,12 +6,22 @@ import { createVertex } from '@ai-sdk/google-vertex';
 import { createVertexAnthropic } from '@ai-sdk/google-vertex/anthropic';
 import { createMistral } from '@ai-sdk/mistral';
 import { createOpenAI } from '@ai-sdk/openai';
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
-import type { LlmProvider } from '@nao/shared/types';
+import {
+	type LlmProvider,
+	type LlmProviderKind,
+	NAMED_PROVIDER_KIND,
+	type NamedLlmProvider,
+	providerKind,
+	providerLabel,
+	providerName,
+} from '@nao/shared/types';
 import { createOpenRouter, LanguageModelV3 } from '@openrouter/ai-sdk-provider';
 import { createOllama } from 'ai-sdk-ollama';
 
 import type {
+	ActiveEffort,
 	LlmProvidersType,
 	ModelCapabilities,
 	ModelInferenceSettings,
@@ -20,7 +30,6 @@ import type {
 	ReasoningEffort,
 } from '../types/llm';
 import {
-	type ActiveEffort,
 	DEFAULT_TEMPERATURE_MAX,
 	EFFORT_OPTIONS,
 	EFFORT_TO_ANTHROPIC,
@@ -29,6 +38,7 @@ import {
 	EFFORT_TO_OPENAI,
 	getModelCapabilities,
 	isAnthropicApiModel,
+	OPENAI_COMPATIBLE_BASE_URLS,
 	PROVIDER_META,
 } from './provider-meta';
 
@@ -36,6 +46,7 @@ export {
 	getDefaultModelId,
 	getProviderApiKeyRequirement,
 	getProviderAuth,
+	getProviderMeta,
 	KNOWN_MODELS,
 	PROVIDER_META,
 } from './provider-meta';
@@ -166,7 +177,53 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 		},
 		defaultOptions: { store: false, reasoningSummary: 'auto' },
 	},
+	qwen: {
+		...PROVIDER_META.qwen,
+		create: (settings, modelId) => createCompatibleModel('qwen', settings, modelId),
+	},
+	minimax: {
+		...PROVIDER_META.minimax,
+		create: (settings, modelId) => createCompatibleModel('minimax', settings, modelId),
+	},
+	moonshot: {
+		...PROVIDER_META.moonshot,
+		create: (settings, modelId) => createCompatibleModel('moonshot', settings, modelId),
+	},
+	openaiCompatible: {
+		...PROVIDER_META.openaiCompatible,
+		create: (settings, modelId) => createCompatibleModel('openaiCompatible', settings, modelId),
+	},
 };
+
+/**
+ * Build a model for a provider that only exposes an OpenAI-compatible chat endpoint. Options keyed
+ * under the provider id are forwarded as request body fields, which is how the vendor-specific
+ * thinking switches reach the API.
+ *
+ * Without `supportsStructuredOutputs` the SDK drops the schema of a structured output call and asks
+ * for a bare `json_object`, which the OpenAI API rejects unless a message spells out "json".
+ */
+function createCompatibleModel(provider: LlmProvider, settings: ProviderSettings, modelId: string): LanguageModelV3 {
+	const baseURL = settings.baseURL || OPENAI_COMPATIBLE_BASE_URLS[providerKind(provider)];
+	if (!baseURL) {
+		throw new Error(`${providerLabel(provider)} needs a base URL: set one on the provider before using it`);
+	}
+
+	return createOpenAICompatible({
+		name: provider,
+		baseURL,
+		apiKey: settings.apiKey,
+		includeUsage: true,
+		supportsStructuredOutputs: true,
+	}).chatModel(modelId);
+}
+
+/** Named instances all speak the OpenAI-compatible API, so they skip their kind's own factory. */
+function createModel(provider: LlmProvider, settings: ProviderSettings, modelId: string): LanguageModelV3 {
+	return providerName(provider)
+		? createCompatibleModel(provider, settings, modelId)
+		: LLM_PROVIDERS[providerKind(provider)].create(settings, modelId);
+}
 
 export type ModelCallSettings = {
 	temperature?: number;
@@ -175,12 +232,54 @@ export type ModelCallSettings = {
 	maxOutputTokens?: number;
 };
 
+/** Options the SDK forwards to a provider, keyed by the id the model reads them under. */
+export type ProviderOptionsMap = Partial<{ [P in LlmProviderKind]: ProviderConfigMap[P] }> &
+	Record<NamedLlmProvider, ProviderConfigMap[typeof NAMED_PROVIDER_KIND]>;
+
 export type ProviderModelResult = {
 	model: LanguageModelV3;
-	providerOptions: Partial<{ [P in LlmProvider]: ProviderConfigMap[P] }>;
+	providerOptions: ProviderOptionsMap;
 	contextWindow: number;
 	callSettings?: ModelCallSettings;
 };
+
+export function disableModelReasoning(provider: LlmProvider, modelResult: ProviderModelResult): ProviderModelResult {
+	const optionKey =
+		providerKind(provider) === 'vertex' && modelResult.model.modelId.startsWith('claude-') ? 'anthropic' : provider;
+	const options = { ...(modelResult.providerOptions[optionKey] ?? {}) } as Record<string, unknown>;
+
+	delete options.thinking;
+	delete options.effort;
+	delete options.reasoningConfig;
+	delete options.thinkingConfig;
+	delete options.reasoning;
+	delete options.enable_thinking;
+	delete options.reasoningEffort;
+	delete options.reasoningSummary;
+	delete options.sendReasoning;
+
+	switch (providerKind(provider)) {
+		case 'openai':
+		case 'azure':
+		case 'openaiCompatible':
+			options.reasoningEffort = 'none';
+			break;
+		case 'openrouter':
+			options.reasoning = { enabled: false };
+			break;
+		case 'qwen':
+			options.enable_thinking = false;
+			break;
+	}
+
+	return {
+		...modelResult,
+		providerOptions: {
+			...modelResult.providerOptions,
+			[optionKey]: options,
+		} as ProviderOptionsMap,
+	};
+}
 
 export function createProviderModel(
 	provider: LlmProvider,
@@ -188,24 +287,33 @@ export function createProviderModel(
 	modelId: string,
 	inferenceSettings?: ModelInferenceSettings,
 ): ProviderModelResult {
-	const providerConfig = LLM_PROVIDERS[provider];
-	const defaultOptions = providerConfig.defaultOptions ?? {};
-	const modelConfig = getProviderModelConfig(provider, modelId);
+	const kind = providerKind(provider);
+	const providerConfig = LLM_PROVIDERS[kind];
+	const defaultOptions = resolveDefaultOptions(provider, modelId, providerConfig.defaultOptions ?? {});
+	const modelConfig = getProviderModelConfig(kind, modelId);
 	const contextWindow = providerConfig.models.find((m) => m.id === modelId)?.contextWindow ?? 200_000;
 
 	const { callSettings, providerOverrides } = resolveInferenceOptions(provider, modelId, inferenceSettings);
 
 	// Claude-on-Vertex keys provider options under `anthropic`, not `vertex`.
-	const optionKey: LlmProvider = provider === 'vertex' && modelId.startsWith('claude-') ? 'anthropic' : provider;
+	const optionKey: LlmProvider = kind === 'vertex' && modelId.startsWith('claude-') ? 'anthropic' : provider;
 
 	return {
-		model: providerConfig.create(settings, modelId),
+		model: createModel(provider, settings, modelId),
 		providerOptions: {
 			[optionKey]: { ...defaultOptions, ...modelConfig, ...providerOverrides },
-		},
+		} as ProviderOptionsMap,
 		contextWindow,
 		callSettings,
 	};
+}
+
+function resolveDefaultOptions(provider: LlmProvider, modelId: string, defaultOptions: object): object {
+	if (getModelCapabilities(provider, modelId)?.thinking !== 'none') {
+		return defaultOptions;
+	}
+	const { reasoningSummary: _reasoningSummary, ...sampling } = defaultOptions as { reasoningSummary?: unknown };
+	return sampling;
 }
 
 function resolveInferenceOptions(
@@ -337,8 +445,9 @@ function resolveThinking(
 	const stored = settings.reasoningEffort;
 	const effort = stored && stored !== 'off' ? clampEffort(stored, capabilities?.effortOptions) : undefined;
 
+	const kind = providerKind(provider);
 	if (isAnthropicApiModel(provider, modelId)) {
-		return provider === 'bedrock'
+		return kind === 'bedrock'
 			? resolveClaudeThinking(
 					capabilities,
 					effort,
@@ -355,10 +464,12 @@ function resolveThinking(
 				);
 	}
 
-	switch (provider) {
+	switch (kind) {
 		case 'openai':
 		case 'azure':
-			return resolveEffortThinking(effort, (e) => ({ reasoningEffort: EFFORT_TO_OPENAI[e] }));
+			return resolveEffortThinking(effort, (e) => ({
+				reasoningEffort: (capabilities?.effortMap ?? EFFORT_TO_OPENAI)[e],
+			}));
 		case 'openrouter':
 			return resolveEffortThinking(effort, (e) => ({
 				reasoning: { enabled: true, effort: EFFORT_TO_OPENAI[e] },
@@ -366,9 +477,31 @@ function resolveThinking(
 		case 'google':
 		case 'vertex':
 			return resolveGeminiThinking(capabilities, effort, settings);
+		case 'moonshot':
+			// Kimi's own effort vocabulary, so the clamped value goes out as-is.
+			return resolveEffortThinking(effort, (e) => ({ reasoningEffort: e }));
+		case 'qwen':
+			return resolveQwenThinking(capabilities, settings);
+		case 'openaiCompatible':
+			// The SDK turns this into the `reasoning_effort` field of the OpenAI chat API.
+			return resolveEffortThinking(effort, (e) => ({ reasoningEffort: EFFORT_TO_OPENAI[e] }));
 		default:
 			return THINKING_INACTIVE;
 	}
+}
+
+/** Qwen sizes thinking with a token budget, behind its own on/off switch. */
+function resolveQwenThinking(
+	capabilities: ModelCapabilities | undefined,
+	settings: ModelInferenceSettings,
+): ThinkingResult {
+	if (capabilities?.thinking !== 'budget' || settings.thinkingBudgetTokens === undefined) {
+		return THINKING_INACTIVE;
+	}
+	return {
+		providerOverrides: { enable_thinking: true, thinking_budget: settings.thinkingBudgetTokens },
+		thinkingActive: true,
+	};
 }
 
 function resolveClaudeThinking(
@@ -444,6 +577,9 @@ function resolveExtraOptions(
 		}
 		if (key === 'parallelToolCalls' && isAnthropicApiModel(provider, modelId)) {
 			overrides.disableParallelToolUse = !value;
+		} else if (key === 'serviceTier' && providerKind(provider) === 'minimax') {
+			// MiniMax options are forwarded verbatim, so the body field has to be named as the API expects.
+			overrides.service_tier = value;
 		} else if (key === 'includeThoughts') {
 			overrides.thinkingConfig = { includeThoughts: value };
 		} else if (key === 'safetyThreshold') {
@@ -471,7 +607,7 @@ function mergeProviderOverrides(
 	return merged;
 }
 
-function getProviderModelConfig<P extends LlmProvider>(provider: P, modelId: string): ProviderConfigMap[P] {
+function getProviderModelConfig<P extends LlmProviderKind>(provider: P, modelId: string): ProviderConfigMap[P] {
 	const model = LLM_PROVIDERS[provider].models.find((m) => m.id === modelId);
 	return (model?.config ?? {}) as ProviderConfigMap[P];
 }

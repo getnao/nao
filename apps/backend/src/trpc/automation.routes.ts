@@ -103,7 +103,12 @@ export const automationRoutes = {
 	create: automationProcedure.input(createAutomationSchema).mutation(async ({ ctx, input }) => {
 		assertTriggers(input.cron, input.webhookEnabled);
 		const { cron, enabled, title, ...promptInput } = input;
-		const resolvedTitle = title?.trim() || (await inferAutomationTitle(ctx.project.id, input.prompt));
+		const modelSelection =
+			input.modelProvider && input.modelId
+				? { provider: input.modelProvider, modelId: input.modelId }
+				: undefined;
+		const resolvedTitle =
+			title?.trim() || (await inferAutomationTitle(ctx.project.id, input.prompt, modelSelection));
 		const automation = await automationQueries.createAutomation({
 			...promptInput,
 			title: resolvedTitle,

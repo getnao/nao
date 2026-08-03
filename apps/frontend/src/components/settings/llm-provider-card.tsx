@@ -1,5 +1,6 @@
 import { Pencil, Trash2 } from 'lucide-react';
 import { getDefaultModelId, getProviderAuth } from '@nao/backend/provider-meta';
+import { providerKind, providerLabel, providerLabels, providerName } from '@nao/shared/types';
 import { LlmProviderIcon } from '../ui/llm-provider-icon';
 import type { LlmProvider } from '@nao/shared/types';
 import { Button } from '@/components/ui/button';
@@ -41,8 +42,13 @@ export function ProviderCard({
 			<div className='flex items-center gap-4'>
 				<div className='flex-1 grid gap-1'>
 					<div className='flex items-center gap-2'>
-						<LlmProviderIcon provider={provider} className='size-3.5' />
-						<span className='text-sm font-medium text-foreground capitalize'>{provider}</span>
+						<LlmProviderIcon provider={provider} baseUrl={baseUrl || envBaseUrl} className='size-3.5' />
+						<span className='text-sm font-medium text-foreground'>{providerLabel(provider)}</span>
+						{providerName(provider) && (
+							<span className='text-xs text-muted-foreground'>
+								{providerLabels[providerKind(provider)]}
+							</span>
+						)}
 						{badges.map((badge) => (
 							<span
 								key={badge}
@@ -120,8 +126,10 @@ export function ProviderCard({
 							))}
 						</div>
 					</>
-				) : (
+				) : getDefaultModelId(provider) ? (
 					<span className='text-xs text-muted-foreground'>Default model: {getDefaultModelId(provider)}</span>
+				) : (
+					<span className='text-xs text-muted-foreground'>No model yet — add one to use this provider</span>
 				)}
 			</div>
 		</div>

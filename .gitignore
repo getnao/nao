@@ -23,3 +23,5 @@ apps/backend/projects/
 
 .cursor/
 .nao/
+
+example/tests/outputs/

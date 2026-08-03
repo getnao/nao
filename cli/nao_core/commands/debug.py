@@ -5,7 +5,12 @@ from rich.console import Console
 from rich.table import Table
 
 from nao_core.config import NaoConfig, resolve_project_path
-from nao_core.config.llm import ProviderConfig
+from nao_core.config.llm import (
+    OPENAI_COMPATIBLE_PROVIDERS,
+    PROVIDER_AUTH,
+    PROVIDERS_WITHOUT_MODEL_LIST,
+    ProviderConfig,
+)
 from nao_core.tracking import track_command
 
 console = Console()
@@ -66,6 +71,52 @@ def _connection_message(model_count: int, missing: list[str]) -> str:
     return message
 
 
+def _check_openai_compatible(llm_config: ProviderConfig) -> Tuple[bool, str]:
+    """Test a provider that speaks the OpenAI API, falling back to a probe call.
+
+    Qwen and MiniMax do not implement `GET /v1/models`, so for them alone a 404 is answered with a
+    one-token completion against the configured model. Every other provider reports the error as-is,
+    so that a wrong endpoint stays visible.
+    """
+    from nao_core.deps import require_dependency
+
+    require_dependency("openai", "openai", f"for {llm_config.id} LLM provider")
+    from openai import OpenAI
+
+    base_url = llm_config.base_url or PROVIDER_AUTH[llm_config.provider].default_base_url
+    # The client refuses to start without a key, which endpoints that need no auth simply ignore.
+    client = OpenAI(api_key=llm_config.api_key or "no-key", base_url=base_url)
+
+    try:
+        models = list(client.models.list())
+    except Exception as error:
+        if llm_config.provider not in PROVIDERS_WITHOUT_MODEL_LIST or not _is_not_found(error):
+            raise
+        return _probe_completion(client, llm_config)
+
+    missing = _missing_configured_models(llm_config, _collect_model_ids(models))
+    return True, _connection_message(len(models), missing)
+
+
+def _is_not_found(error: Exception) -> bool:
+    message = str(error)
+    return "404" in message or "not found" in message.lower()
+
+
+def _probe_completion(client: Any, llm_config: ProviderConfig) -> Tuple[bool, str]:
+    """Verify credentials with the smallest possible completion, for providers with no model list."""
+    model = llm_config.default_model
+    if not model:
+        return False, "Provider exposes no model list, declare a model to test the connection"
+
+    client.chat.completions.create(
+        model=model.id,
+        messages=[{"role": "user", "content": "ping"}],
+        max_tokens=1,
+    )
+    return True, f"Connected successfully (no model list, verified '{model.id}' with a test completion)"
+
+
 def _check_available_models(llm_config: ProviderConfig) -> Tuple[bool, str]:
     from nao_core.deps import require_dependency
 
@@ -74,16 +125,10 @@ def _check_available_models(llm_config: ProviderConfig) -> Tuple[bool, str]:
 
     base_url = llm_config.base_url
 
-    if provider == "openai":
-        require_dependency("openai", "openai", "for OpenAI LLM provider")
-        from openai import OpenAI
+    if llm_config.provider in OPENAI_COMPATIBLE_PROVIDERS:
+        return _check_openai_compatible(llm_config)
 
-        kwargs: dict[str, Any] = {"api_key": api_key}
-        if base_url:
-            kwargs["base_url"] = base_url
-        client = OpenAI(**kwargs)
-        models = client.models.list()
-    elif provider == "anthropic":
+    if provider == "anthropic":
         require_dependency("anthropic", "anthropic", "for Anthropic LLM provider")
         from anthropic import Anthropic
 
@@ -103,12 +148,6 @@ def _check_available_models(llm_config: ProviderConfig) -> Tuple[bool, str]:
         from mistralai import Mistral
 
         client = Mistral(api_key=api_key)
-        models = client.models.list()
-    elif provider == "openrouter":
-        require_dependency("openai", "openai", "for OpenRouter LLM provider")
-        from openai import OpenAI
-
-        client = OpenAI(base_url=base_url or "https://openrouter.ai/api/v1", api_key=api_key)
         models = client.models.list()
     elif provider == "ollama":
         require_dependency("ollama", "ollama", "for Ollama LLM provider")
@@ -248,7 +287,7 @@ def debug():
         model_warnings: list[str] = []
 
         for provider_config in config.llm.providers:
-            provider_name = provider_config.provider.value
+            provider_name = provider_config.id
             console.print(f"  Testing [cyan]{provider_name}[/cyan]...", end=" ")
             success, message = check_llm_connection(provider_config)
             models = ", ".join(model.id for model in provider_config.models) or "[dim]provider default[/dim]"

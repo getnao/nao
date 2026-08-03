@@ -16,6 +16,7 @@ export type StoryChartBlockInput = Pick<
 	| 'query_id'
 	| 'chart_type'
 	| 'x_axis_type'
+	| 'x_axis_label'
 	| 'series'
 	| 'y_axis_min'
 	| 'y_axis_max'
@@ -35,6 +36,7 @@ export function buildStoryChartBlock(input: StoryChartBlockInput): string {
 	const xAxisKeyAttr = input.x_axis_key ? ` x_axis_key="${escapeDoubleQuotedStoryAttr(input.x_axis_key)}"` : '';
 	const xAxisTypeAttr =
 		input.x_axis_type != null ? ` x_axis_type="${escapeDoubleQuotedStoryAttr(input.x_axis_type)}"` : '';
+	const xLabelAttr = input.x_axis_label ? ` x_axis_label="${escapeDoubleQuotedStoryAttr(input.x_axis_label)}"` : '';
 	const yMinAttr = input.y_axis_min !== undefined ? ` y_axis_min="${input.y_axis_min}"` : '';
 	const yMaxAttr = input.y_axis_max !== undefined ? ` y_axis_max="${input.y_axis_max}"` : '';
 	const yLabelAttr = input.y_axis_label ? ` y_axis_label="${escapeDoubleQuotedStoryAttr(input.y_axis_label)}"` : '';
@@ -52,7 +54,7 @@ export function buildStoryChartBlock(input: StoryChartBlockInput): string {
 			? ` comparison_mode="${escapeDoubleQuotedStoryAttr(input.comparison_mode)}"`
 			: '';
 	const hideTotalAttr = input.hide_total ? ' hide_total="true"' : '';
-	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}"${xAxisKeyAttr}${xAxisTypeAttr}${yMinAttr}${yMaxAttr}${yLabelAttr}${yRightMinAttr}${yRightMaxAttr}${yRightLabelAttr} series='${seriesJson}'${titleAttr}${dataLabelsAttr}${comparisonModeAttr}${hideTotalAttr} />`;
+	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}"${xAxisKeyAttr}${xAxisTypeAttr}${xLabelAttr}${yMinAttr}${yMaxAttr}${yLabelAttr}${yRightMinAttr}${yRightMaxAttr}${yRightLabelAttr} series='${seriesJson}'${titleAttr}${dataLabelsAttr}${comparisonModeAttr}${hideTotalAttr} />`;
 }
 
 export type StoryTableBlockInput = Pick<displayChart.TableInput, 'query_id' | 'title' | 'conditional_formats'>;

@@ -1,7 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { LLM_PROVIDERS as LLM_PROVIDER_NAMES, type LlmProvider } from '@nao/shared/types';
+import {
+	LLM_PROVIDERS as LLM_PROVIDER_NAMES,
+	type LlmProvider,
+	type LlmProviderKind,
+	NAMED_PROVIDER_KIND,
+	providerKind,
+	toNamedProvider,
+	toProviderName,
+} from '@nao/shared/types';
 import yaml from 'js-yaml';
 import { z } from 'zod/v4';
 
@@ -29,11 +37,16 @@ export type ConfigLlm = {
 	annotationModel: string | null;
 };
 
-/** nao_config.yaml keeps the `gemini` spelling that the provider SDK calls `google`. */
-const PROVIDER_ALIASES: Record<string, LlmProvider> = { gemini: 'google' };
+/** Spellings accepted in nao_config.yaml on top of the provider names nao uses internally. */
+const PROVIDER_ALIASES: Record<string, LlmProviderKind> = {
+	gemini: 'google',
+	openaicompatible: 'openaiCompatible',
+	'openai-compatible': 'openaiCompatible',
+	openai_compatible: 'openaiCompatible',
+};
 
 /** Maps the credential keys of nao_config.yaml onto the `credentials` names each provider expects. */
-const CREDENTIAL_KEYS: Partial<Record<LlmProvider, Record<string, string>>> = {
+const CREDENTIAL_KEYS: Partial<Record<LlmProviderKind, Record<string, string>>> = {
 	bedrock: { aws_region: 'region', access_key: 'accessKeyId', secret_key: 'secretAccessKey' },
 	vertex: {
 		gcp_project: 'project',
@@ -177,7 +190,7 @@ function toCredentials(
 ): Record<string, string> | null {
 	const credentials: Record<string, string> = {};
 
-	for (const [configKey, credentialKey] of Object.entries(CREDENTIAL_KEYS[provider] ?? {})) {
+	for (const [configKey, credentialKey] of Object.entries(CREDENTIAL_KEYS[providerKind(provider)] ?? {})) {
 		const value = resolveSecrets(raw[configKey], extraEnv);
 		if (value) {
 			credentials[credentialKey] = value;
@@ -251,12 +264,29 @@ function resolveSecrets(value: unknown, extraEnv: Record<string, string>): strin
 	return resolvable && resolved.trim() ? resolved : null;
 }
 
+/**
+ * Read the `provider` field of an entry, which is either a kind or, for the kinds that allow
+ * several instances, a kind and the name given to that instance: `openai-compatible/my-vllm`.
+ */
 function resolveProviderName(name: string): LlmProvider | null {
-	const normalized = name?.trim().toLowerCase();
+	const [rawKind, ...rest] = (name ?? '').trim().split('/');
+	const kind = resolveProviderKind(rawKind);
+	if (!kind || rest.length === 0) {
+		return kind;
+	}
+	if (kind !== NAMED_PROVIDER_KIND || rest.length > 1) {
+		return null;
+	}
+	const instanceName = toProviderName(rest[0]);
+	return instanceName ? toNamedProvider(instanceName) : null;
+}
+
+function resolveProviderKind(name: string): LlmProviderKind | null {
+	const normalized = name.trim().toLowerCase();
 	if (PROVIDER_ALIASES[normalized]) {
 		return PROVIDER_ALIASES[normalized];
 	}
-	return (LLM_PROVIDER_NAMES as readonly string[]).includes(normalized) ? (normalized as LlmProvider) : null;
+	return (LLM_PROVIDER_NAMES as readonly string[]).includes(normalized) ? (normalized as LlmProviderKind) : null;
 }
 
 function camelCaseKeys(record: Record<string, unknown>): Record<string, unknown> {

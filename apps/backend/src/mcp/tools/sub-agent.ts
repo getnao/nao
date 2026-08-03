@@ -1,5 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { type InferUIMessageChunk, readUIMessageStream } from 'ai';
+import { getToolName, type InferUIMessageChunk, isToolUIPart, readUIMessageStream } from 'ai';
 import { z } from 'zod';
 
 import { WEB_CHAT_ONLY_TOOLS } from '../../agents/tools';
@@ -183,12 +183,15 @@ async function runAskNaoInBackground(
 	naoChatUrl: string,
 ): Promise<AskNaoResult> {
 	try {
-		const { text, clarification } = await drainStream(agent.stream(uiMessages));
+		let answer = await drainStream(agent.stream(uiMessages));
+		if (!answer.text && !answer.clarification) {
+			answer = await extractAnswerFromChat(chatId);
+		}
 		const result: AskNaoResult = {
 			chatId,
 			chatUrl: naoChatUrl,
-			text,
-			...(clarification ? { clarification } : {}),
+			text: answer.text,
+			...(answer.clarification ? { clarification: answer.clarification } : {}),
 			queries: agent.queryResultsSummary,
 			story_ids: await resolveStoryIds(agent.generatedArtifacts.stories, chatId),
 		};
@@ -239,17 +242,21 @@ async function resolveAnswerPayload(chatId: string): Promise<ToolResult> {
  * not reconstructed since it only lives on the in-memory run.
  */
 async function reconstructAnswerFromDb(chatId: string): Promise<ToolResult> {
-	const messages = await chatQueries.getChatMessages(chatId);
-	const lastAssistant = [...messages].reverse().find((message) => message.role === 'assistant') ?? null;
-	const clarification = extractClarification(lastAssistant);
+	const answer = await extractAnswerFromChat(chatId);
 	return answerCompletePayload({
 		chatId,
 		chatUrl: chatUrl(chatId),
-		text: extractFinalText(lastAssistant),
-		...(clarification ? { clarification } : {}),
+		text: answer.text,
+		...(answer.clarification ? { clarification: answer.clarification } : {}),
 		queries: [],
 		story_ids: [],
 	});
+}
+
+async function extractAnswerFromChat(chatId: string): Promise<AskNaoAnswer> {
+	const messages = await chatQueries.getChatMessages(chatId);
+	const lastAssistant = [...messages].reverse().find((message) => message.role === 'assistant') ?? null;
+	return extractAnswer(lastAssistant);
 }
 
 async function assertChatAccess(ctx: McpContext, chatId: string): Promise<void> {
@@ -403,27 +410,36 @@ async function buildChatContext(
 	};
 }
 
-async function drainStream(
-	stream: ReadableStream<InferUIMessageChunk<UIMessage>>,
-): Promise<{ text: string; clarification?: AskNaoClarification }> {
+type AskNaoAnswer = { text: string; clarification?: AskNaoClarification };
+
+async function drainStream(stream: ReadableStream<InferUIMessageChunk<UIMessage>>): Promise<AskNaoAnswer> {
 	let lastMessage: UIMessage | null = null;
 	for await (const message of readUIMessageStream<UIMessage>({ stream })) {
 		lastMessage = message;
 	}
-	const clarification = extractClarification(lastMessage);
+	return extractAnswer(lastMessage);
+}
+
+/** Splits an assistant message into its final text and any pending clarification question. */
+export function extractAnswer(message: UIMessage | null): AskNaoAnswer {
+	const clarification = extractClarification(message);
 	return {
-		text: extractFinalText(lastMessage),
+		text: extractFinalText(message),
 		...(clarification ? { clarification } : {}),
 	};
 }
 
-function extractClarification(message: UIMessage | null): AskNaoClarification | undefined {
+export function extractClarification(message: UIMessage | null): AskNaoClarification | undefined {
 	if (!message) {
 		return undefined;
 	}
-	const part = message.parts.find((part) => part.type === 'tool-clarification');
-	const input = part && 'input' in part ? part.input : undefined;
-	if (!isRecord(input) || typeof input.question !== 'string' || input.question.trim().length === 0) {
+	const part = message.parts.find((part) => isToolUIPart(part) && getToolName(part) === 'clarification');
+	if (!part) {
+		return undefined;
+	}
+	const toolPart = part as { input?: unknown; rawInput?: unknown };
+	const input = firstRecord(toolPart.input, toolPart.rawInput);
+	if (!input || typeof input.question !== 'string' || input.question.trim().length === 0) {
 		return undefined;
 	}
 
@@ -431,7 +447,7 @@ function extractClarification(message: UIMessage | null): AskNaoClarification | 
 	return options ? { question: input.question, options } : { question: input.question };
 }
 
-function extractFinalText(message: UIMessage | null): string {
+export function extractFinalText(message: UIMessage | null): string {
 	if (!message) {
 		return '';
 	}
@@ -454,4 +470,8 @@ function extractClarificationOptions(input: Record<string, unknown>): string[] |
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null;
+}
+
+function firstRecord(...values: unknown[]): Record<string, unknown> | undefined {
+	return values.find((value): value is Record<string, unknown> => isRecord(value));
 }

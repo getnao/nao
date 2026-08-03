@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useForm } from '@tanstack/react-form';
 import { Check, ChevronDown, MoreHorizontal, Plus, TriangleAlert, X } from 'lucide-react';
-import { getDefaultModelId, getModelParameterSpec, getProviderAuth } from '@nao/backend/provider-meta';
+import { getDefaultModelId, getModelParameterSpec, getProviderAuth, PROVIDER_META } from '@nao/backend/provider-meta';
+import { NAMED_PROVIDER_KIND, providerKind, providerLabels, toProviderName } from '@nao/shared/types';
 import { CustomModelDialog } from './custom-model-dialog';
 import { ModelParametersDialog } from './model-parameters-dialog';
 import { applySavedModelSettings } from './model-settings-overrides';
@@ -9,7 +10,6 @@ import type { CustomModelMetadata, ModelSettingsMap } from '@nao/backend/llm';
 import type { LlmProvider } from '@nao/shared/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { capitalize } from '@/lib/utils';
 import { PasswordField, TextField, TextareaField, FormError } from '@/components/ui/form-fields';
 
 /** Where credentials already come from when the UI is only layering settings on top. */
@@ -31,9 +31,11 @@ export interface LlmProviderFormProps {
 		baseUrl: string;
 	};
 	currentModels: readonly { id: string; name: string; default?: boolean }[];
+	takenNames?: readonly string[];
 	onSubmit: (values: {
 		apiKey?: string;
 		credentials?: Record<string, string>;
+		name?: string;
 		enabledModels: string[];
 		customModels: CustomModelMetadata[];
 		modelSettings: ModelSettingsMap;
@@ -53,6 +55,7 @@ export function LlmProviderForm({
 	inheritedKeySource,
 	initialValues,
 	currentModels,
+	takenNames = [],
 	onSubmit,
 	onCancel,
 	isPending,
@@ -69,6 +72,12 @@ export function LlmProviderForm({
 	const providerAuth = getProviderAuth(provider);
 	const showApiKey = providerAuth.apiKey !== 'none';
 	const extraFields = providerAuth.extraFields ?? [];
+	const kind = providerKind(provider);
+	const providerLabel = providerLabels[kind];
+	const providerMeta = PROVIDER_META[kind];
+	const defaultModelId = getDefaultModelId(provider);
+	// A project can hold several endpoints of this kind, told apart by the name given here.
+	const needsName = !isEditing && kind === NAMED_PROVIDER_KIND;
 
 	const defaultCredentials = Object.fromEntries(extraFields.map((f) => [f.name, '']));
 	const inheritedKeyLabel = inheritedKeySource ? INHERITED_KEY_LABELS[inheritedKeySource] : null;
@@ -77,6 +86,7 @@ export function LlmProviderForm({
 		defaultValues: {
 			apiKey: '',
 			credentials: defaultCredentials,
+			name: '',
 			enabledModels: initialValues?.enabledModels ?? [],
 			customModels: initialValues?.customModels ?? ([] as CustomModelMetadata[]),
 			modelSettings: initialValues?.modelSettings ?? ({} as ModelSettingsMap),
@@ -88,6 +98,7 @@ export function LlmProviderForm({
 			await onSubmit({
 				apiKey: value.apiKey || undefined,
 				credentials: Object.keys(filledCredentials).length > 0 ? filledCredentials : undefined,
+				name: needsName ? value.name : undefined,
 				enabledModels: value.enabledModels,
 				customModels: value.customModels,
 				modelSettings: value.modelSettings,
@@ -120,22 +131,108 @@ export function LlmProviderForm({
 		if (isEditing) {
 			return 'Enter new API key to update';
 		}
-		return `Enter your ${capitalize(provider)} API key`;
+		return `Enter your ${providerLabel} API key`;
 	};
 
 	const isCustomModel = (modelId: string) => !currentModels.some((m) => m.id === modelId);
+
+	const addCustomModel = () => {
+		const trimmed = customModelInput.trim();
+		if (!trimmed) {
+			return;
+		}
+		const enabledModels = form.getFieldValue('enabledModels');
+		if (!enabledModels.includes(trimmed)) {
+			form.setFieldValue('enabledModels', [...enabledModels, trimmed]);
+		}
+		setCustomModelInput('');
+	};
+
+	const nameError = (value: string): string | undefined => {
+		const normalized = toProviderName(value);
+		if (!value) {
+			return undefined;
+		}
+		if (!normalized) {
+			return 'Name this endpoint with letters, digits and dashes.';
+		}
+		return takenNames.includes(normalized) ? `An endpoint named ${normalized} already exists.` : undefined;
+	};
+
+	const nameField = (
+		<form.Field name='name' validators={{ onChange: ({ value }: { value: string }) => nameError(value) }}>
+			{(field) => {
+				const normalized = toProviderName(field.state.value);
+				const invalid = nameError(field.state.value);
+				return (
+					<div className='grid gap-2'>
+						<label htmlFor='provider-name' className='text-sm font-medium text-foreground'>
+							Name <span className='text-muted-foreground font-normal'>(required)</span>
+						</label>
+						<Input
+							id='provider-name'
+							type='text'
+							value={field.state.value}
+							onChange={(e) => field.handleChange(e.target.value)}
+							onBlur={field.handleBlur}
+							required
+							placeholder='e.g., my-vllm'
+						/>
+						<p className={`text-xs ${invalid ? 'text-destructive' : 'text-muted-foreground'}`}>
+							{invalid ??
+								(normalized
+									? `Models of this endpoint are listed under ${normalized}.`
+									: 'How this endpoint is named across the app, so you can add several of them.')}
+						</p>
+					</div>
+				);
+			}}
+		</form.Field>
+	);
+
+	const baseUrlField = (
+		<form.Field name='baseUrl'>
+			{(field) => (
+				<div
+					className={providerMeta.requiresBaseUrl ? 'grid gap-2' : 'grid gap-2 pl-4 border-l-2 border-border'}
+				>
+					<label htmlFor='base-url' className='text-sm font-medium text-foreground'>
+						Base URL{' '}
+						<span className='text-muted-foreground font-normal'>
+							{providerMeta.requiresBaseUrl ? '(required)' : '(optional)'}
+						</span>
+					</label>
+					<Input
+						id='base-url'
+						type='url'
+						value={field.state.value}
+						onChange={(e) => field.handleChange(e.target.value)}
+						onBlur={field.handleBlur}
+						required={providerMeta.requiresBaseUrl}
+						placeholder={`e.g., ${providerMeta.defaultBaseUrl ?? 'http://localhost:8000/v1'}`}
+					/>
+					<p className='text-xs text-muted-foreground'>
+						{providerMeta.requiresBaseUrl
+							? 'The OpenAI-compatible endpoint to call, up to and including its version segment.'
+							: 'Use a custom endpoint instead of the default provider URL.'}
+					</p>
+				</div>
+			)}
+		</form.Field>
+	);
 
 	const content = (
 		<form
 			onSubmit={(e) => {
 				e.preventDefault();
+				addCustomModel();
 				form.handleSubmit();
 			}}
 			className='flex flex-col gap-3'
 		>
 			{/* Header */}
 			<div className='flex items-center justify-between'>
-				<span className='text-sm font-medium text-foreground capitalize'>
+				<span className='text-sm font-medium text-foreground'>
 					{title}
 					{inheritedKeyLabel && (
 						<span className='text-muted-foreground font-normal ml-1'>
@@ -160,6 +257,8 @@ export function LlmProviderForm({
 				</div>
 			)}
 
+			{needsName && nameField}
+
 			{showApiKey && (
 				<PasswordField
 					form={form}
@@ -170,6 +269,8 @@ export function LlmProviderForm({
 					required={providerAuth.apiKey === 'required' && !isEditing && !inheritedKeySource}
 				/>
 			)}
+
+			{providerMeta.requiresBaseUrl && baseUrlField}
 
 			{extraFields.map((field) => {
 				const FieldComponent = field.multiline ? TextareaField : field.secret ? PasswordField : TextField;
@@ -209,21 +310,14 @@ export function LlmProviderForm({
 						field.handleChange([...enabledModels, modelId]);
 					};
 
-					const handleAddCustomModel = () => {
-						const trimmed = customModelInput.trim();
-						if (!trimmed || enabledModels.includes(trimmed)) {
-							return;
-						}
-						field.handleChange([...enabledModels, trimmed]);
-						setCustomModelInput('');
-					};
-
 					return (
 						<div className='grid gap-2'>
 							<label className='text-sm font-medium text-foreground'>
 								Enabled Models
 								<span className='text-muted-foreground font-normal ml-1'>
-									(leave empty for default {getDefaultModelId(provider)})
+									{defaultModelId
+										? `(leave empty for default ${defaultModelId})`
+										: '(add the model IDs your endpoint serves)'}
 								</span>
 							</label>
 							<div className='flex flex-wrap gap-2'>
@@ -319,7 +413,7 @@ export function LlmProviderForm({
 									onKeyDown={(e) => {
 										if (e.key === 'Enter') {
 											e.preventDefault();
-											handleAddCustomModel();
+											addCustomModel();
 										}
 									}}
 									placeholder='Add custom model ID...'
@@ -329,7 +423,7 @@ export function LlmProviderForm({
 									type='button'
 									variant='outline'
 									size='sm'
-									onClick={handleAddCustomModel}
+									onClick={addCustomModel}
 									disabled={!customModelInput.trim()}
 								>
 									<Plus className='size-4' />
@@ -341,37 +435,18 @@ export function LlmProviderForm({
 			</form.Field>
 
 			{/* Advanced settings toggle */}
-			<button
-				type='button'
-				onClick={() => setShowAdvanced(!showAdvanced)}
-				className='flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors'
-			>
-				<ChevronDown className={`size-3 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
-				Advanced settings
-			</button>
-
-			{/* Base URL (advanced) */}
-			{showAdvanced && (
-				<form.Field name='baseUrl'>
-					{(field) => (
-						<div className='grid gap-2 pl-4 border-l-2 border-border'>
-							<label htmlFor='base-url' className='text-sm font-medium text-foreground'>
-								Custom Base URL <span className='text-muted-foreground font-normal'>(optional)</span>
-							</label>
-							<Input
-								id='base-url'
-								type='url'
-								value={field.state.value}
-								onChange={(e) => field.handleChange(e.target.value)}
-								onBlur={field.handleBlur}
-								placeholder='e.g., https://your-proxy.com/v1'
-							/>
-							<p className='text-xs text-muted-foreground'>
-								Use a custom endpoint instead of the default provider URL.
-							</p>
-						</div>
-					)}
-				</form.Field>
+			{!providerMeta.requiresBaseUrl && (
+				<>
+					<button
+						type='button'
+						onClick={() => setShowAdvanced(!showAdvanced)}
+						className='flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors'
+					>
+						<ChevronDown className={`size-3 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
+						Advanced settings
+					</button>
+					{showAdvanced && baseUrlField}
+				</>
 			)}
 
 			{/* Error display */}

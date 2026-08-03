@@ -1,15 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import Fuse from 'fuse.js';
 import { Folder, Search, X } from 'lucide-react';
 
-import type { FuseResult } from 'fuse.js';
 import type { ProjectOption } from '@/components/project-selector';
-import type { SettingsSearchEntry } from '@/components/settings-search-index';
 
 import { ProjectSelector } from '@/components/project-selector';
-import { settingsSearchIndex } from '@/components/settings-search-index';
 import { Badge } from '@/components/ui/badge';
+import { useSettingsSearch } from '@/hooks/use-settings-search';
 import { cn, hideIf } from '@/lib/utils';
 
 interface NavContext {
@@ -138,17 +135,6 @@ interface SidebarSettingsNavProps {
 	onProjectChange: (projectId: string) => void;
 }
 
-function dedupeByPage(results: FuseResult<SettingsSearchEntry>[]) {
-	const seen = new Set<string>();
-	return results.filter((r) => {
-		if (seen.has(r.item.page)) {
-			return false;
-		}
-		seen.add(r.item.page);
-		return true;
-	});
-}
-
 export function SidebarSettingsNav({
 	isCollapsed,
 	isAdmin,
@@ -193,33 +179,7 @@ export function SidebarSettingsNav({
 		return () => document.removeEventListener('keydown', handleSlashKey);
 	}, [isCollapsed, isViewer]);
 
-	const fuse = useMemo(() => {
-		const entries = settingsSearchIndex.filter(
-			(e) =>
-				(!e.adminOnly || isAdmin) &&
-				(!e.adminOrContextAdmin || isAdmin || isContextAdmin) &&
-				(!e.cloudHidden || !isCloud) &&
-				(!e.cloudOnly || isCloud) &&
-				(!e.licenseRequired || hasLicense),
-		);
-		return new Fuse(entries, {
-			keys: [
-				{ name: 'title', weight: 0.4 },
-				{ name: 'pageLabel', weight: 0.25 },
-				{ name: 'description', weight: 0.2 },
-				{ name: 'keywords', weight: 0.15 },
-			],
-			threshold: 0.4,
-			includeScore: true,
-		});
-	}, [isAdmin, isContextAdmin, isCloud, hasLicense]);
-
-	const results = useMemo(() => {
-		if (query.length < 2) {
-			return [];
-		}
-		return dedupeByPage(fuse.search(query, { limit: 8 }));
-	}, [query, fuse]);
+	const results = useSettingsSearch(query);
 
 	const isSearching = query.length >= 2;
 
@@ -229,7 +189,7 @@ export function SidebarSettingsNav({
 			inputRef.current?.blur();
 		} else if (e.key === 'Enter' && results.length > 0) {
 			setQuery('');
-			navigate({ to: results[0].item.page });
+			navigate({ to: results[0].page });
 		}
 	};
 
@@ -279,18 +239,18 @@ export function SidebarSettingsNav({
 					) : (
 						results.map((result) => (
 							<Link
-								key={result.item.page + result.item.title}
-								to={result.item.page}
+								key={result.page + result.title}
+								to={result.page}
 								onClick={() => setQuery('')}
 								className={cn(
 									'flex flex-col gap-0.5 px-3 py-2 text-sm rounded-md transition-colors',
 									'hover:bg-sidebar-accent hover:text-foreground',
 								)}
 							>
-								<span className='font-medium truncate'>{result.item.title}</span>
+								<span className='font-medium truncate'>{result.title}</span>
 								<span className='text-xs text-muted-foreground truncate'>
-									{result.item.pageLabel}
-									{result.item.section ? ` · ${result.item.section}` : ''}
+									{result.pageLabel}
+									{result.section ? ` · ${result.section}` : ''}
 								</span>
 							</Link>
 						))

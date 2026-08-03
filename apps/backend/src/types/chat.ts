@@ -91,7 +91,7 @@ export type MessageCustomDataParts = {
 	/** Maps the client-generated user message ID to the server-generated one */
 	newUserMessage: { newId: string };
 	/** Sent when conversation compaction is triggered */
-	compactionSummaryStarted: undefined;
+	compactionSummaryStarted: null;
 	/** Sent when the conversation compaction summary is finished */
 	compaction: CompactionPart;
 };

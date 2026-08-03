@@ -21,6 +21,7 @@ interface DataTableCardProps {
 	maxRowsBeforePagination?: number;
 	chatId?: string;
 	conditionalFormats?: ColumnConditionalFormats;
+	leadingHeader?: ReactNode;
 	/** Extra toolbar controls rendered before the copy/download/fullscreen actions. */
 	headerActions?: ReactNode;
 }
@@ -34,6 +35,7 @@ export function DataTableCard({
 	maxRowsBeforePagination = 10,
 	chatId,
 	conditionalFormats,
+	leadingHeader,
 	headerActions,
 }: DataTableCardProps) {
 	const [isFullscreen, setIsFullscreen] = useState(false);
@@ -54,8 +56,18 @@ export function DataTableCard({
 
 	return (
 		<div className={cn('flex flex-col gap-2 border rounded-lg pt-2', className)}>
-			<div className={cn('flex items-center gap-1 px-3', title ? 'justify-between' : 'justify-end')}>
-				{title ? <span className='text-sm font-medium truncate'>{title}</span> : null}
+			<div
+				className={cn(
+					'flex items-center gap-1 px-3',
+					title || leadingHeader ? 'justify-between' : 'justify-end',
+				)}
+			>
+				{title || leadingHeader ? (
+					<div className='flex min-w-0 items-center gap-1'>
+						{leadingHeader}
+						{title ? <span className='text-sm font-medium truncate'>{title}</span> : null}
+					</div>
+				) : null}
 				<div className='flex items-center gap-1'>
 					{headerActions}
 					<Button

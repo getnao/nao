@@ -149,6 +149,10 @@ const ChartInputObjectSchema = z.object({
 	x_axis_type: XAxisTypeEnum.nullable().describe(
 		'Use "date" only when x-axis values parse as JS Date (YYYY-MM-DD). Use "category" for quarter_ending, fiscal periods, or labels. Use "number" for numeric x-axis.',
 	),
+	x_axis_label: z
+		.string()
+		.describe('Title displayed alongside the X-axis. Leave unset to show no axis title.')
+		.optional(),
 	series: z
 		.array(SeriesConfigSchema)
 		.min(1)
@@ -162,7 +166,7 @@ const ChartInputObjectSchema = z.object({
 	y_axis_max: z.number().describe('Fixes the left Y-axis upper bound. Leave unset to auto-scale.').optional(),
 	y_axis_label: z
 		.string()
-		.describe('Label displayed alongside the left Y-axis. Only used when chart_type is "mixed".')
+		.describe('Title displayed alongside the left Y-axis. Leave unset to show no axis title.')
 		.optional(),
 	y_axis_right_min: z
 		.number()
@@ -251,6 +255,7 @@ const BaseInputSchema = z.object({
 			'Required for charts. Use "date" only when x-axis values parse as JS Date (YYYY-MM-DD). Use "category" for quarter_ending, fiscal periods, or labels. Use "number" for numeric x-axis.',
 		)
 		.optional(),
+	x_axis_label: ChartInputObjectSchema.shape.x_axis_label,
 	series: z
 		.array(SeriesConfigSchema)
 		.min(1)
@@ -353,6 +358,12 @@ export function chartTypeRequiresXAxisKey(type: string): boolean {
 
 export function isPieChart(chartType: string): boolean {
 	return chartType === 'pie' || chartType === 'donut';
+}
+
+const AXIS_LABEL_UNSUPPORTED_CHART_TYPES = new Set<ChartType>(['pie', 'donut', 'kpi_card', 'radar']);
+
+export function chartTypeSupportsAxisLabels(type: string): boolean {
+	return isBuiltinChartType(type) && !AXIS_LABEL_UNSUPPORTED_CHART_TYPES.has(type);
 }
 
 export function chartTypeSupportsComboSeries(type: ChartType): boolean {

@@ -147,6 +147,11 @@ nao chat
 
 This will start the nao chat UI. It will open the chat interface in your browser at `http://localhost:5005`.
 
+To let the agent run code in a micro-VM, download the sandbox runtime once with `nao chat --sandbox`, then enable
+Sandboxes in Settings → Experimental. The runtime and the DuckDB engine used by `nao test` are ~100 MB each, so they
+are not shipped in the package: nao fetches them on first use and caches them in `~/.nao/native`. Set
+`NAO_NATIVE_REGISTRY` to download them from an npm mirror instead of `registry.npmjs.org`.
+
 ### Test connectivity
 
 ```bash
@@ -165,7 +170,7 @@ Syncs configured resources to local files:
 
 - **Databases** - generates markdown docs (`columns.md` with table schema, description, row count, and partition/clustering/index metadata, `query_history.md`, and `preview.md`) for each table into `databases/`
 - **Git repositories** — clones or pulls repos into `repos/`
-- **Notion pages** — exports pages as markdown into `docs/notion/`
+- **Notion pages** — exports pages as markdown into `docs/notion/`. Databases are exported as markdown tables, whether configured directly or embedded inline in a page. A database embedded in a page is exported through one of its views — Notion exposes no way to tell which view a page renders, so the first one listed is used — applying that view's filters, sorts and visible columns rather than dumping the whole data source. A database configured by URL exports every row and column, unless the URL carries `?v=<view_id>`, in which case that view applies. When a database cannot be exported, its page fails to sync and the previously synced markdown is left untouched, rather than being rewritten without its table.
 
 After syncing, any Jinja templates (`*.j2` files) in the project directory are rendered with the nao context.
 

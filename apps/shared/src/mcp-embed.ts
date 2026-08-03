@@ -9,6 +9,7 @@ export type McpChartEmbedStoredConfig = {
 	chartType: displayChart.ChartInput['chart_type'];
 	xAxisKey: displayChart.ChartInput['x_axis_key'];
 	xAxisType: displayChart.ChartInput['x_axis_type'];
+	xAxisLabel?: displayChart.ChartInput['x_axis_label'];
 	series: displayChart.ChartInput['series'];
 	yAxisMin?: displayChart.ChartInput['y_axis_min'];
 	yAxisMax?: displayChart.ChartInput['y_axis_max'];

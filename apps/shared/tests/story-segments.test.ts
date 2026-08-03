@@ -8,6 +8,7 @@ import {
 	insertGridColumn,
 	parseChartBlock,
 	popGridColumn,
+	popGridColumns,
 	previewGridColumns,
 	reorderGridColumns,
 	resizeGridColumns,
@@ -315,6 +316,46 @@ describe('popGridColumn', () => {
 		expect(popGridColumn(grid, -1)).toBeNull();
 		expect(popGridColumn(grid, 2)).toBeNull();
 		expect(popGridColumn(singleColumn, 0)).toBeNull();
+	});
+});
+
+describe('popGridColumns', () => {
+	it('removes one column and keeps the remaining columns in a grid', () => {
+		const grid = `<grid widths="1,1,2">\n${CHART_ONE}\n\n${CHART_TWO}\n\n${CHART_THREE}\n</grid>`;
+		const result = popGridColumns(grid, [2]);
+
+		expect(result?.popped).toBe(CHART_THREE);
+		expect(splitGridColumnsRaw(result?.remaining ?? '').columns).toEqual([CHART_ONE, CHART_TWO]);
+	});
+
+	it('removes multiple columns into a grid and leaves one column', () => {
+		const grid = `<grid widths="1,1,2">\n${CHART_ONE}\n\n${CHART_TWO}\n\n${CHART_THREE}\n</grid>`;
+		const result = popGridColumns(grid, [0, 2]);
+
+		expect(result?.remaining).toBe(CHART_TWO);
+		expect(splitGridColumnsRaw(result?.popped ?? '').columns).toEqual([CHART_ONE, CHART_THREE]);
+	});
+
+	it('removes all columns into a grid', () => {
+		const grid = `<grid widths="1,1,2">\n${CHART_ONE}\n\n${CHART_TWO}\n\n${CHART_THREE}\n</grid>`;
+		const result = popGridColumns(grid, [0, 1, 2]);
+
+		expect(result?.remaining).toBeNull();
+		expect(splitGridColumnsRaw(result?.popped ?? '').columns).toEqual([CHART_ONE, CHART_TWO, CHART_THREE]);
+	});
+
+	it('normalizes out-of-order and duplicate indices', () => {
+		const grid = `<grid widths="1,1,2">\n${CHART_ONE}\n\n${CHART_TWO}\n\n${CHART_THREE}\n</grid>`;
+
+		expect(popGridColumns(grid, [2, 0, 0])).toEqual(popGridColumns(grid, [0, 2]));
+	});
+
+	it('returns null for invalid input', () => {
+		const grid = `<grid widths="1,1,2">\n${CHART_ONE}\n\n${CHART_TWO}\n\n${CHART_THREE}\n</grid>`;
+
+		expect(popGridColumns(grid, [])).toBeNull();
+		expect(popGridColumns(grid, [3])).toBeNull();
+		expect(popGridColumns(CHART_ONE, [0])).toBeNull();
 	});
 });
 

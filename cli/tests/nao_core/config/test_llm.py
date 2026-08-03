@@ -6,6 +6,7 @@ import pytest
 
 from nao_core.config.llm import (
     DEFAULT_ANNOTATION_MODELS,
+    PROVIDER_AUTH,
     LLMConfig,
     LLMProvider,
     ModelConfig,
@@ -31,6 +32,74 @@ def test_non_ollama_requires_api_key():
     """providers other than ollama should require API key."""
     with pytest.raises(ValueError, match="api_key is required"):
         ProviderConfig(provider=LLMProvider.ANTHROPIC, api_key=None)
+
+
+@pytest.mark.parametrize("provider", [LLMProvider.QWEN, LLMProvider.MINIMAX, LLMProvider.MOONSHOT])
+def test_openai_compatible_providers_are_fully_declared(provider: LLMProvider):
+    """Every provider needs auth, a default endpoint and an annotation model to be usable."""
+    auth = PROVIDER_AUTH[provider]
+
+    assert auth.api_key == "required"
+    assert auth.default_base_url
+    assert DEFAULT_ANNOTATION_MODELS[provider]
+
+    with pytest.raises(ValueError, match="api_key is required"):
+        ProviderConfig(provider=provider, api_key=None)
+
+
+def test_openai_compatible_needs_an_endpoint_but_no_key():
+    """The generic provider has no vendor endpoint to fall back on, and may need no authentication."""
+    with pytest.raises(ValueError, match="base_url is required"):
+        ProviderConfig(provider=LLMProvider.OPENAI_COMPATIBLE, api_key="sk-test")
+
+    provider = ProviderConfig(provider=LLMProvider.OPENAI_COMPATIBLE, base_url="http://localhost:8000/v1")
+    assert provider.requires_api_key is False
+
+
+@pytest.mark.parametrize("spelling", ["openaiCompatible", "openai-compatible", "openai_compatible"])
+def test_openai_compatible_accepts_every_spelling(spelling: str):
+    assert parse_provider(spelling) == LLMProvider.OPENAI_COMPATIBLE
+
+    provider = ProviderConfig.model_validate({"provider": spelling, "base_url": "http://localhost:8000/v1"})
+    assert provider.provider == LLMProvider.OPENAI_COMPATIBLE
+
+
+def test_named_endpoint_keeps_its_name_in_the_provider_field():
+    """A project addresses several endpoints of the same kind through `openaiCompatible/<name>`."""
+    provider = ProviderConfig.model_validate(
+        {"provider": "openai-compatible/My vLLM", "base_url": "http://localhost:8000/v1"}
+    )
+
+    assert provider.provider == LLMProvider.OPENAI_COMPATIBLE
+    assert provider.name == "my-vllm"
+    assert provider.model_dump(mode="json")["provider"] == "openaiCompatible/my-vllm"
+
+
+def test_rejects_a_name_the_app_cannot_address():
+    with pytest.raises(ValueError, match="is not a valid provider name"):
+        ProviderConfig.model_validate({"provider": "openaiCompatible/...", "base_url": "http://localhost:8000/v1"})
+
+    with pytest.raises(ValueError, match="can be named"):
+        ProviderConfig.model_validate({"provider": "openai/mine", "api_key": "sk-test"})
+
+
+def test_accepts_several_named_endpoints_of_the_same_kind():
+    config = LLMConfig(
+        providers=[
+            ProviderConfig(provider=LLMProvider.OPENAI_COMPATIBLE, name="prod", base_url="http://prod:8000/v1"),
+            ProviderConfig(provider=LLMProvider.OPENAI_COMPATIBLE, name="staging", base_url="http://stg:8000/v1"),
+        ]
+    )
+
+    assert [provider.id for provider in config.providers] == ["openaiCompatible/prod", "openaiCompatible/staging"]
+
+    with pytest.raises(ValueError, match="configured more than once"):
+        LLMConfig(
+            providers=[
+                ProviderConfig(provider=LLMProvider.OPENAI_COMPATIBLE, name="prod", base_url="http://a:8000/v1"),
+                ProviderConfig(provider=LLMProvider.OPENAI_COMPATIBLE, name="prod", base_url="http://b:8000/v1"),
+            ]
+        )
 
 
 def test_requires_at_least_one_provider():
@@ -108,6 +177,31 @@ def test_costs_are_resolved_per_model():
     assert config.costs(LLMProvider.ANTHROPIC, "gpt-4.1") is None
 
 
+def test_costs_are_resolved_for_a_named_endpoint():
+    """A test run priced against `openaiCompatible/prod` must find the prices declared under it."""
+    config = LLMConfig(
+        providers=[
+            ProviderConfig(
+                provider=LLMProvider.OPENAI_COMPATIBLE,
+                name="prod",
+                base_url="http://prod:8000/v1",
+                models=[ModelConfig(id="llama-3", costs=ModelCosts(input_no_cache=1, output=3))],
+            ),
+            ProviderConfig(
+                provider=LLMProvider.OPENAI_COMPATIBLE,
+                name="staging",
+                base_url="http://stg:8000/v1",
+                models=[ModelConfig(id="llama-3", costs=ModelCosts(input_no_cache=5, output=9))],
+            ),
+        ]
+    )
+
+    priced = config.costs("openaiCompatible/prod", "llama-3")
+    assert priced is not None
+    assert priced.input_no_cache == 1
+    assert priced.output == 3
+
+
 def test_costs_fall_back_to_deprecated_meta():
     config = LLMConfig.model_validate(
         {
@@ -138,6 +232,50 @@ def test_annotation_target_prefers_the_provider_owning_the_model():
     provider_config, model_id = target
     assert provider_config.provider == LLMProvider.ANTHROPIC
     assert model_id == "claude-haiku-4-5"
+
+
+def test_annotation_target_can_name_the_endpoint_a_model_comes_from():
+    """Endpoints sharing a model id are told apart by `<provider id>:<model id>`."""
+    config = LLMConfig(
+        providers=[
+            ProviderConfig(
+                provider=LLMProvider.OPENAI_COMPATIBLE,
+                name="prod",
+                base_url="http://prod:8000/v1",
+                models=[ModelConfig(id="llama-3")],
+            ),
+            ProviderConfig(
+                provider=LLMProvider.OPENAI_COMPATIBLE,
+                name="staging",
+                base_url="http://stg:8000/v1",
+                models=[ModelConfig(id="llama-3")],
+            ),
+        ],
+        annotation_model="openaiCompatible/staging:llama-3",
+    )
+
+    target = config.annotation_target()
+    assert target is not None
+    provider_config, model_id = target
+    assert provider_config.name == "staging"
+    assert model_id == "llama-3"
+
+
+def test_annotation_target_keeps_a_model_id_holding_a_colon():
+    config = LLMConfig(
+        providers=[
+            ProviderConfig(
+                provider=LLMProvider.OLLAMA,
+                models=[ModelConfig(id="llama3.2:latest")],
+            )
+        ],
+        annotation_model="llama3.2:latest",
+    )
+
+    target = config.annotation_target()
+    assert target is not None
+    _, model_id = target
+    assert model_id == "llama3.2:latest"
 
 
 def test_annotation_target_falls_back_to_the_primary_provider():

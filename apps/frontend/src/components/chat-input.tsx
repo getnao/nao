@@ -31,13 +31,18 @@ import { useImageUpload } from '@/hooks/use-image-upload';
 import { parseBudgetError } from '@/lib/ai';
 import { cn } from '@/lib/utils';
 import { useChatId } from '@/hooks/use-chat-id';
+import { useModelSelection } from '@/hooks/use-model-selection';
 import { usePermissions } from '@/hooks/use-permissions';
+import { getShortcut } from '@/lib/keyboard-shortcuts';
+import { matchesShortcut } from '@/lib/platform';
 import { messageQueueStore } from '@/stores/chat-message-queue';
 import { chatInputRestoreStore, useChatInputRestore } from '@/stores/chat-input-restore';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { useChatPendingCitation } from '@/hooks/use-chat-pending-citation';
 import { SelectionCitationBanner } from '@/components/selection-citation-banner';
 import { ChatInputSuggestions } from '@/components/chat-input-suggestions';
+
+const cycleModelShortcut = getShortcut('cycle-model').shortcut;
 
 type ChatInputBaseProps = {
 	promptRef: React.RefObject<PromptHandle | null>;
@@ -123,6 +128,7 @@ function ChatInputBase({
 		}
 		navigate({ to: '/', search: { admin: true } });
 	}, [adminModeLocked, isAdminMode, setAdminMode, navigate]);
+	const { canCycleModels, cycleModel } = useModelSelection();
 	const imageUpload = useImageUpload();
 	const chatInputRestore = useChatInputRestore(!!allowQueueing);
 	const effectivePlaceholder = isRunning && allowQueueing ? 'Add a follow-up...' : placeholder;
@@ -345,6 +351,18 @@ function ChatInputBase({
 		promptRef.current?.insertText(DATABASE_MENTION_TRIGGER);
 	}, [promptRef]);
 
+	const handleKeyDown = useCallback(
+		(event: React.KeyboardEvent) => {
+			const isTypingInPrompt = event.target instanceof HTMLElement && event.target.isContentEditable;
+			if (!isTypingInPrompt || !canCycleModels || !matchesShortcut(event.nativeEvent, cycleModelShortcut)) {
+				return;
+			}
+			event.preventDefault();
+			cycleModel();
+		},
+		[canCycleModels, cycleModel],
+	);
+
 	return (
 		<div ref={dropZoneRef} className={cn('px-3 pb-3 pt-0 md:px-4 md:pb-4 max-w-3xl w-full mx-auto', className)}>
 			<ChatInputMessageQueue onEditMessage={handleEditQueuedMessage} onSubmitNow={submitQueuedMessageNow} />
@@ -353,7 +371,7 @@ function ChatInputBase({
 			{allowQueueing && !isAdminMode && <ChatInputSuggestions isHidden={inputText.trim().length > 0} />}
 			{isAdminMode && <ChatInputAdminBadge />}
 
-			<form onSubmit={handleSubmitMessage} className='mx-auto relative'>
+			<form onSubmit={handleSubmitMessage} onKeyDown={handleKeyDown} className='mx-auto relative'>
 				<InputGroup
 					htmlFor='chat-input'
 					className={cn(

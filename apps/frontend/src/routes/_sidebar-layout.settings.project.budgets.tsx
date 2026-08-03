@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronUp, TriangleAlert } from 'lucide-react';
 import { getNextPeriodStart } from '@nao/shared/date';
-import { BUDGET_PERIODS, MAX_BUDGET_LIMIT_USD } from '@nao/shared/types';
+import { BUDGET_PERIODS, MAX_BUDGET_LIMIT_USD, providerKind, providerLabel } from '@nao/shared/types';
 import type { BudgetPeriod } from '@nao/shared/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -111,7 +111,7 @@ function RouteComponent() {
 	async function handleSave() {
 		const entries = allConfiguredProviders
 			.filter((provider) => {
-				const hasCost = costSupport.data?.[provider] ?? false;
+				const hasCost = costSupport.data?.[providerKind(provider)] ?? false;
 				const budget = budgets[provider] ?? 0;
 				const period = periods[provider] ?? 'none';
 				return hasCost && budget > 0 && period !== 'none';
@@ -139,12 +139,12 @@ function RouteComponent() {
 				</TableHeader>
 				<TableBody>
 					{allConfiguredProviders.map((provider) => {
-						const hasCost = costSupport.data?.[provider] ?? false;
+						const hasCost = costSupport.data?.[providerKind(provider)] ?? false;
 
 						if (!hasCost) {
 							return (
 								<TableRow key={provider} className='h-12 opacity-50'>
-									<TableCell>{provider}</TableCell>
+									<TableCell>{providerLabel(provider)}</TableCell>
 									<TableCell colSpan={4}>
 										<span className='flex items-center gap-1.5 text-muted-foreground text-sm'>
 											<TriangleAlert className='size-4' />
@@ -160,7 +160,7 @@ function RouteComponent() {
 
 						return (
 							<TableRow key={provider}>
-								<TableCell>{provider}</TableCell>
+								<TableCell>{providerLabel(provider)}</TableCell>
 								<TableCell>
 									<div className='flex items-center gap-1'>
 										<span className='text-muted-foreground text-sm mr-1'>$</span>

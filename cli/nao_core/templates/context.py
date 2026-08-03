@@ -223,27 +223,9 @@ class NotionPage:
     def _load(self) -> dict[str, Any]:
         """Lazily load page data from Notion API."""
         if self._data is None:
-            from nao_core.deps import require_dependency
+            from nao_core.commands.sync.providers.notion.provider import fetch_as_markdown
 
-            require_dependency("notion_client", "notion", "for Notion integration")
-            require_dependency("notion2md", "notion", "for Notion integration")
-
-            from notion2md.exporter.block import StringExporter
-            from notion_client import Client
-
-            from nao_core.commands.sync.providers.notion.provider import (
-                extract_page_id,
-                get_page_title,
-                strip_images,
-            )
-
-            page_id = extract_page_id(self.page_url_or_id)
-            client = Client(auth=self.api_key)
-            title = get_page_title(client, page_id)
-
-            md_exporter = StringExporter(block_id=page_id, token=self.api_key)
-            markdown = md_exporter.export()
-            markdown = strip_images(markdown)
+            page_id, title, markdown = fetch_as_markdown(self.page_url_or_id, self.api_key)
 
             self._data = {
                 "id": page_id,
@@ -291,10 +273,10 @@ class NotionProvider:
         First checks if the page is in any configured Notion config's pages list,
         otherwise uses the first available API key.
         """
-        from nao_core.commands.sync.providers.notion.provider import extract_page_id
+        from nao_core.commands.sync.providers.notion.provider import extract_notion_id
 
         try:
-            page_id = extract_page_id(page_url_or_id)
+            page_id = extract_notion_id(page_url_or_id)
         except ValueError:
             page_id = page_url_or_id
 
@@ -304,7 +286,7 @@ class NotionProvider:
 
         for configured_page in self._config.notion.pages:
             try:
-                if extract_page_id(configured_page) == page_id:
+                if extract_notion_id(configured_page) == page_id:
                     return self._config.notion.api_key
             except ValueError:
                 continue

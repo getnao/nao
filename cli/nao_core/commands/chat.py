@@ -9,7 +9,7 @@ from typing import Annotated, Optional
 
 from cyclopts import Parameter
 
-from nao_core import __version__
+from nao_core import __version__, native
 from nao_core.branding import should_show_banner
 from nao_core.config import NaoConfig, resolve_project_path
 from nao_core.config.llm import PROVIDER_AUTH, LLMConfig, LLMProvider, ProviderConfig
@@ -130,6 +130,10 @@ def build_llm_env(llm: LLMConfig) -> dict[str, str]:
     env: dict[str, str] = {}
 
     for provider_config in llm.providers:
+        # Named endpoints share the env vars of their kind, so the app reads them from the config file only.
+        if provider_config.name:
+            continue
+
         auth = PROVIDER_AUTH[provider_config.provider]
         if provider_config.api_key is not None and auth.api_key != "none":
             env[auth.env_var] = provider_config.api_key
@@ -209,6 +213,7 @@ def chat(
     port: Annotated[Optional[int], Parameter(name=["-p", "--port"])] = None,
     *,
     ngrok: Annotated[bool, Parameter(name=["--ngrok"])] = False,
+    sandbox: Annotated[bool, Parameter(name=["--sandbox"])] = False,
 ):
     """Start the nao chat UI.
 
@@ -222,6 +227,9 @@ def chat(
     ngrok : bool
         Start an ngrok tunnel to expose the chat server publicly. Useful for
         Slack integration workflows. Requires an ngrok account and authtoken.
+    sandbox : bool
+        Download the sandbox runtime so code execution in a micro-VM can be enabled
+        in the settings. Only needed once; later runs reuse the cached download.
     """
     if should_show_banner():
         UI.banner(__version__)
@@ -279,6 +287,12 @@ def chat(
 
         env["MODE"] = MODE
         env["NAO_CORE_VERSION"] = __version__
+        native_path = native.node_path(bin_dir, env.get("NODE_PATH"))
+        if native_path:
+            env["NODE_PATH"] = native_path
+
+        if sandbox:
+            native.ensure_group(bin_dir, "sandbox")
 
         fastapi_path = get_fastapi_main_path()
         console.print(f"[dim]FastAPI server: {fastapi_path}[/dim]")

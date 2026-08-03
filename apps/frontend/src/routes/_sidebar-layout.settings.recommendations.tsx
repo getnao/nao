@@ -307,7 +307,11 @@ function RecommendationsPage() {
 													value={`${m.provider}:${m.modelId}`}
 												>
 													<div className='flex items-center gap-2'>
-														<LlmProviderIcon provider={m.provider} className='size-4' />
+														<LlmProviderIcon
+															provider={m.provider}
+															baseUrl={m.baseUrl}
+															className='size-4'
+														/>
 														{m.name}
 													</div>
 												</SelectItem>

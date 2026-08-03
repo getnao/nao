@@ -1,4 +1,5 @@
 import type { LlmSelectedModel } from '@nao/shared/types';
+import { NoObjectGeneratedError } from 'ai';
 import { z } from 'zod/v4';
 
 import { executeQuery } from '../agents/tools/execute-sql';
@@ -8,6 +9,21 @@ import { authMiddleware } from '../middleware/auth';
 import { retrieveProjectById } from '../queries/project.queries';
 import { TestAgentService, testAgentService } from '../services/test-agent.service';
 import { customModelCostSchema, llmSelectedModelSchema } from '../types/llm';
+import { truncateMiddle } from '../utils/utils';
+
+const describeRunError = (err: unknown): string => {
+	if (!NoObjectGeneratedError.isInstance(err)) {
+		return err instanceof Error ? err.message : 'Unknown error';
+	}
+
+	const details = [
+		`finishReason=${err.finishReason ?? 'unknown'}`,
+		`outputTokens=${err.usage?.outputTokens ?? 'unknown'}`,
+		`text=${JSON.stringify(truncateMiddle(err.text ?? '', 500))}`,
+	].join(', ');
+
+	return `${err.message} (${details})`;
+};
 
 export const testRoutes = async (app: App) => {
 	app.addHook('preHandler', authMiddleware);
@@ -65,13 +81,13 @@ export const testRoutes = async (app: App) => {
 							generatedArtifacts: { charts: [], stories: [] },
 						},
 					);
-					const { data } = await testAgentService.runVerification(
+					const verified = await testAgentService.runVerification(
 						projectId,
 						result,
 						expectedColumns,
 						modelSelection,
 					);
-					verification = { data, expectedData, expectedColumns };
+					verification = { ...verified, expectedData, expectedColumns };
 				}
 
 				return reply.send({
@@ -84,8 +100,7 @@ export const testRoutes = async (app: App) => {
 					verification,
 				});
 			} catch (err) {
-				const message = err instanceof Error ? err.message : 'Unknown error';
-				return reply.status(500).send({ error: message });
+				return reply.status(500).send({ error: describeRunError(err) });
 			}
 		},
 	);

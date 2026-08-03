@@ -109,8 +109,6 @@ jobs:
                       APP_COMMIT=${{ steps.sha.outputs.short_sha }}
                       APP_BUILD_DATE=${{ steps.build_date.outputs.value }}
                       NAO_CLI_VERSION=${{ steps.cli_version.outputs.version }}
-                  secrets: |
-                      GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
 
             - name: Export digest
               run: |

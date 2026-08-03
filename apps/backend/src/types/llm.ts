@@ -4,14 +4,18 @@ import type { OpenAIResponsesProviderOptions as AzureOpenAIResponsesProviderOpti
 import type { GoogleGenerativeAIProviderOptions } from '@ai-sdk/google';
 import type { MistralLanguageModelOptions } from '@ai-sdk/mistral';
 import type { OpenAIResponsesProviderOptions } from '@ai-sdk/openai';
-import { LLM_PROVIDERS, type LlmProvider } from '@nao/shared/types';
+import type { OpenAICompatibleProviderOptions } from '@ai-sdk/openai-compatible';
+import { isLlmProvider, type LlmProvider, type LlmProviderKind } from '@nao/shared/types';
 import type { LanguageModelV3, OpenRouterProviderOptions } from '@openrouter/ai-sdk-provider';
+import type { JSONValue } from 'ai';
 import type { OllamaChatProviderOptions } from 'ai-sdk-ollama';
 import { z } from 'zod/v4';
 
 import { TokenCost } from './chat';
 
-export const llmProviderSchema = z.enum(LLM_PROVIDERS);
+export const llmProviderSchema = z.custom<LlmProvider>((value) => typeof value === 'string' && isLlmProvider(value), {
+	message: 'Unknown LLM provider',
+});
 
 export const llmSelectedModelSchema = z.object({
 	provider: llmProviderSchema,
@@ -38,6 +42,9 @@ export type CustomModelMetadata = z.infer<typeof customModelMetadataSchema>;
 
 export const reasoningEffortSchema = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'max']);
 export type ReasoningEffort = z.infer<typeof reasoningEffortSchema>;
+
+/** Every effort level that is actually sent to a provider (`off` means "leave it to the model"). */
+export type ActiveEffort = Exclude<ReasoningEffort, 'off'>;
 
 export const serviceTierSchema = z.enum(['auto', 'default', 'standard', 'flex', 'priority', 'reserved']);
 export type ServiceTier = z.infer<typeof serviceTierSchema>;
@@ -127,6 +134,8 @@ export type ModelCapabilities = {
 	topK: boolean;
 	maxOutputTokens: boolean;
 	effortOptions?: ReasoningEffort[];
+	/** Effort vocabulary of this model, when it differs from its provider's default translation. */
+	effortMap?: Record<ActiveEffort, string>;
 	temperatureMax?: number;
 	extraParams?: ExtraParamKey[];
 	serviceTierOptions?: ServiceTier[];
@@ -181,7 +190,17 @@ export const configLlmProviderSchema = z.object({
 /** Flatten an interface into a plain type so it gains an implicit index signature. */
 type Flatten<T> = { [K in keyof T]: T[K] };
 
-/** Map each provider to its specific config type */
+/**
+ * Options for providers served through the OpenAI-compatible chat API. Known keys are translated
+ * by the SDK; everything else is forwarded verbatim as a request body field, which is how the
+ * vendor-specific extensions (`enable_thinking`, `service_tier`, …) are passed.
+ */
+export type OpenAICompatibleOptions = OpenAICompatibleProviderOptions & Record<string, JSONValue>;
+
+/** Providers served through a plain OpenAI-compatible chat endpoint rather than a dedicated SDK. */
+export type OpenAICompatibleProvider = 'qwen' | 'minimax' | 'moonshot' | 'openaiCompatible';
+
+/** Map each provider kind to its specific config type */
 export type ProviderConfigMap = {
 	google: GoogleGenerativeAIProviderOptions;
 	openai: OpenAIResponsesProviderOptions;
@@ -192,10 +211,14 @@ export type ProviderConfigMap = {
 	bedrock: AmazonBedrockLanguageModelOptions;
 	vertex: GoogleGenerativeAIProviderOptions;
 	azure: AzureOpenAIResponsesProviderOptions;
+	qwen: OpenAICompatibleOptions;
+	minimax: OpenAICompatibleOptions;
+	moonshot: OpenAICompatibleOptions;
+	openaiCompatible: OpenAICompatibleOptions;
 };
 
 /** Model definition with provider-specific config type */
-type ProviderModel<P extends LlmProvider> = {
+type ProviderModel<P extends LlmProviderKind> = {
 	id: string;
 	name: string;
 	default?: boolean;
@@ -233,28 +256,32 @@ export type ProviderAuth = {
 };
 
 /** Data-only provider config (no SDK imports, safe for frontend) */
-export type ProviderMeta<P extends LlmProvider> = {
+export type ProviderMeta<P extends LlmProviderKind> = {
 	auth: ProviderAuth;
 	envVar: string;
 	baseUrlEnvVar?: string;
+	/** Endpoint used when neither the config nor the environment sets a base URL. */
+	defaultBaseUrl?: string;
+	/** Set when the provider has no vendor endpoint to fall back on, so a base URL must be supplied. */
+	requiresBaseUrl?: boolean;
 	models: readonly ProviderModel<P>[];
 	extractorModelId: string;
 	summaryModelId: string;
 };
 
 export type ProviderMetaMap = {
-	[P in LlmProvider]: ProviderMeta<P>;
+	[P in LlmProviderKind]: ProviderMeta<P>;
 };
 
 /** Full provider configuration with SDK create function (backend-only) */
-type ProviderConfig<P extends LlmProvider> = ProviderMeta<P> & {
+type ProviderConfig<P extends LlmProviderKind> = ProviderMeta<P> & {
 	create: (settings: ProviderSettings, modelId: string) => LanguageModelV3;
 	defaultOptions?: ProviderConfigMap[P];
 };
 
-/** Full providers type - each key gets its own config type */
+/** Full providers type - each kind gets its own config type */
 export type LlmProvidersType = {
-	[P in LlmProvider]: ProviderConfig<P>;
+	[P in LlmProviderKind]: ProviderConfig<P>;
 };
 
 export const LLM_INFERENCE_TYPES = ['memory_extraction', 'compaction', 'title_generation'] as const;
