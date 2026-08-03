@@ -72,6 +72,18 @@ def test_load_manifest_survives_a_corrupted_file(tmp_path):
     assert native.load_manifest(tmp_path) == []
 
 
+def test_load_manifest_survives_invalid_structure(tmp_path):
+    (tmp_path / native.MANIFEST_NAME).write_text('{"group": "duckdb"}', encoding="utf-8")
+
+    assert native.load_manifest(tmp_path) == []
+
+
+def test_load_manifest_survives_incomplete_entries(tmp_path):
+    write_manifest(tmp_path, [{"group": "duckdb", "name": PACKAGE_NAME}])
+
+    assert native.load_manifest(tmp_path) == []
+
+
 def test_tarball_url_follows_the_npm_layout(cache_root):
     package = native.NativePackage(**duckdb_entry())
 
@@ -146,6 +158,29 @@ def test_ensure_group_skips_work_when_already_cached(tmp_path, cache_root):
         assert native.ensure_group(tmp_path, "duckdb") is True
 
     download.assert_not_called()
+
+
+def test_install_treats_concurrent_cache_hit_as_success(tmp_path, cache_root):
+    payload = make_tarball({"package/duckdb.node": b"native code"})
+    package = native.NativePackage(**duckdb_entry(integrity_of(payload)))
+    winner = cache_root / "duckdb-1.4.4-r.1" / PACKAGE_NAME
+    winner.mkdir(parents=True)
+    (winner / "duckdb.node").write_bytes(b"from winner")
+
+    original_rename = Path.rename
+
+    def rename_after_winner(self, target):
+        if self.name == "package":
+            raise OSError(66, "Directory not empty")
+        return original_rename(self, target)
+
+    with (
+        patch.object(native, "_download", side_effect=lambda _package, path: path.write_bytes(payload)),
+        patch.object(Path, "rename", rename_after_winner),
+    ):
+        native._install(package)
+
+    assert (winner / "duckdb.node").read_bytes() == b"from winner"
 
 
 def test_ensure_group_ignores_groups_that_are_bundled(tmp_path, cache_root):

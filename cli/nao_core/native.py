@@ -106,10 +106,11 @@ def load_manifest(bin_dir: Path) -> list[NativePackage]:
 
     try:
         entries = json.loads(manifest.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+        if not isinstance(entries, list):
+            return []
+        return [NativePackage(**entry) for entry in entries]
+    except (json.JSONDecodeError, OSError, TypeError, ValueError):
         return []
-
-    return [NativePackage(**entry) for entry in entries]
 
 
 def _group_packages(bin_dir: Path, group: str) -> list[NativePackage]:
@@ -126,11 +127,13 @@ def _install(package: NativePackage) -> None:
         _download(package, archive)
         _verify(archive, package.integrity)
         _extract(archive, staging)
-        # A concurrent nao may have installed the same version in the meantime;
-        # the directory is version-keyed, so whatever is there is already correct.
-        if not package.cache_dir.exists():
-            # npm tarballs wrap everything in a single "package" directory
+        # A concurrent nao may win the rename race; the cache is version-keyed, so
+        # an already-present destination is the same install and counts as success.
+        try:
             (staging / "package").rename(package.cache_dir)
+        except OSError:
+            if not package.cache_dir.exists():
+                raise
     finally:
         shutil.rmtree(staging, ignore_errors=True)
 
