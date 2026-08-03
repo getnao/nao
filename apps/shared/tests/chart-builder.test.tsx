@@ -55,6 +55,14 @@ describe('computeValueAxisWidth', () => {
 		expect(currencyWidth).toBe(82);
 		expect(computeValueAxisWidth([0, Number.MAX_SAFE_INTEGER], valueFormat)).toBe(120);
 	});
+
+	it('reserves extra width for a rotated axis title when hasLabel is set', () => {
+		const currencyFormat = { d3_format: ',.0f', prefix: '$' };
+		expect(computeValueAxisWidth([1, 10], undefined, true)).toBe(56);
+		expect(computeValueAxisWidth([], undefined, true)).toBe(60);
+		expect(computeValueAxisWidth([0, 980_000], currencyFormat, true)).toBe(102);
+		expect(computeValueAxisWidth([0, Number.MAX_SAFE_INTEGER], currencyFormat, true)).toBe(140);
+	});
 });
 
 describe('buildChart', () => {
