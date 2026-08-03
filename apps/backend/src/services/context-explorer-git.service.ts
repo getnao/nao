@@ -1291,7 +1291,7 @@ function unavailableMessage(reason: ContextGitUnavailableReason): string {
 		'github-unavailable': 'GitHub is not configured for this instance. Add the GitHub client credentials first.',
 		'git-unavailable': 'Repository status is temporarily unavailable.',
 		'no-token': 'Connect your GitHub account before using Git actions in the context explorer.',
-		'no-repo': 'No context repository is connected. Open repository setup to connect one.',
+		'no-repo': 'No context repository is connected. Connect one in Git settings to edit context files.',
 		'unsupported-provider': 'Context explorer Git operations support GitHub only. GitLab is not supported yet.',
 		'project-not-found': 'No tracked nao_config.yaml was found in the connected repository.',
 		'project-ambiguous': 'Multiple nao projects were found in the connected repository.',

@@ -188,7 +188,7 @@ async function createGitContext(
 	userId: string,
 ): Promise<ContextExplorerGitContext> {
 	const projectFolder = requireProjectPath(projectPath);
-	const repository = await resolveContextRepository(projectId, projectFolder);
+	const repository = await resolveContextRepository(projectId);
 	return {
 		projectId,
 		projectFolder,

@@ -505,6 +505,8 @@ async function invalidateRepositoryQueries(queryClient: QueryClient): Promise<vo
 		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getRepositoryStatus.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getFileTree.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getChangedFiles.queryKey() }),
+		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.readFile.queryKey() }),
+		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getFileDiff.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.contextRecommendation.getRepo.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.github.getProjectGitInfo.queryKey() }),
 	]);

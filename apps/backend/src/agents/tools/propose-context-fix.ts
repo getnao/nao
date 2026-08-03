@@ -94,7 +94,7 @@ export function createContextFixCollector(
 	const editTool = createTool<EditInput, Ack>({
 		description:
 			'Propose a concrete edit to a human-written context file (RULES.md, semantics/**, docs/**, queries/**, ' +
-			'nao_config.yaml, agent/**) or a linked GitHub repo file under repos/<name>/** to fix a recommendation ' +
+			'nao_config.yaml, agent/**) or a linked repository file under repos/<name>/** to fix a recommendation ' +
 			'you just recorded. Never target generated warehouse files (databases/**) or unlinked repos/** paths — use ' +
 			'propose_manual_fix for those. Call once per logical change; multiple edits to the same file are merged.',
 		inputSchema: EditSchema,
@@ -173,8 +173,8 @@ function resolveEditTarget(
 	if (isHumanWritableContextPath(filePath)) {
 		if (!allowContextEdits) {
 			throw new Error(
-				`"${filePath}" belongs to the context repository, but no GitHub repository is configured for context PRs. ` +
-					'Call propose_manual_fix unless this finding belongs in a linked GitHub repo under repos/<name>/**.',
+				`"${filePath}" belongs to the context repository, but no repository is connected for context pull requests. ` +
+					'Call propose_manual_fix unless this finding belongs in a linked repository under repos/<name>/**.',
 			);
 		}
 		return {};

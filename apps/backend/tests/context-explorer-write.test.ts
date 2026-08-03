@@ -103,6 +103,35 @@ describe('context explorer worktree writes', () => {
 		expectLiveUnchanged();
 	});
 
+	it('browses the live project read-only when no repository is connected', async () => {
+		const readOnlyAccess: ContextExplorerFileAccess = {
+			projectFolder: live,
+			git: await resolveContextExplorerGit({
+				projectId: 'project-id',
+				projectFolder: live,
+				userId: 'user-1',
+				token: 'token',
+				configOverride: null,
+				integrationAvailableOverride: true,
+				providerOverride: provider(bare),
+			}),
+		};
+		const tree = await getFileTreeResponse(readOnlyAccess);
+		const file = await readFileContent('/context.md', readOnlyAccess);
+
+		expect(tree).toMatchObject({ repo: null, gitUnavailableReason: 'no-repo' });
+		expect(tree.entries.map((entry) => entry.name)).toContain('context.md');
+		expect(file).toMatchObject({
+			content: 'live content\n',
+			isEditable: false,
+			reason: 'no-repo',
+		});
+		await expect(writeFileContent('/context.md', 'changed\n', file.hash, readOnlyAccess)).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		expectLiveUnchanged();
+	});
+
 	it('returns every editability reason with actionable guidance in precedence order', async () => {
 		const generated = await readFileContent('/generated.md', access);
 		const rendered = await readFileContent('/rendered.md', access);
@@ -112,15 +141,15 @@ describe('context explorer worktree writes', () => {
 
 		expect(generated).toMatchObject({
 			reason: 'generated',
-			guidance: { actionPath: '/annotations.md' },
+			guidance: { actionKind: 'file', actionPath: '/annotations.md' },
 		});
 		expect(rendered).toMatchObject({
 			reason: 'rendered-template',
-			guidance: { actionPath: '/rendered.md.j2' },
+			guidance: { actionKind: 'file', actionPath: '/rendered.md.j2' },
 		});
 		expect(repoSource).toMatchObject({
 			reason: 'synced-source',
-			guidance: { actionPath: '/nao_config.yaml' },
+			guidance: { actionKind: 'file', actionPath: '/nao_config.yaml' },
 		});
 		expect(notion.reason).toBe('synced-source');
 		expect(untracked).toMatchObject({
@@ -190,14 +219,15 @@ describe('context explorer worktree writes', () => {
 	});
 
 	it.each([
-		['/generated.md', 'generated', '/annotations.md'],
-		['/rendered.md', 'rendered-template', '/rendered.md.j2'],
-		['/repos/source.md', 'synced-source', '/nao_config.yaml'],
-		['/docs/notion/page.md', 'synced-source', '/nao_config.yaml'],
-		['/untracked.md', 'not-tracked', null],
-	])('reports guidance for %s', async (filePath, reason, actionPath) => {
+		['/generated.md', 'generated', 'file', '/annotations.md'],
+		['/rendered.md', 'rendered-template', 'file', '/rendered.md.j2'],
+		['/repos/source.md', 'synced-source', 'file', '/nao_config.yaml'],
+		['/docs/notion/page.md', 'synced-source', 'file', '/nao_config.yaml'],
+		['/untracked.md', 'not-tracked', null, null],
+	])('reports guidance for %s', async (filePath, reason, actionKind, actionPath) => {
 		const file = await readFileContent(filePath, access);
 		expect(file.reason).toBe(reason);
+		expect(file.guidance?.actionKind).toBe(actionKind);
 		expect(file.guidance?.actionPath).toBe(actionPath);
 	});
 

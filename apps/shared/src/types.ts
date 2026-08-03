@@ -100,11 +100,19 @@ export type FileEditabilityReason =
 	| 'synced-source'
 	| 'not-tracked';
 
-export type FileEditabilityGuidance = {
-	message: string;
-	actionPath: string | null;
-	actionLabel: string | null;
-};
+export type FileEditabilityGuidance =
+	| {
+			message: string;
+			actionKind: 'file' | 'route';
+			actionPath: string;
+			actionLabel: string;
+	  }
+	| {
+			message: string;
+			actionKind: null;
+			actionPath: null;
+			actionLabel: null;
+	  };
 
 export type FileContentResponse = {
 	content: string;

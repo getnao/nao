@@ -3,7 +3,6 @@ import path from 'node:path';
 
 import type { ContextGitUnavailableReason, RepoProvider } from '@nao/shared/types';
 
-import * as github from '../services/github';
 import * as gitlab from '../services/gitlab';
 import { runGit, tryRunGit } from './git-repo';
 
@@ -14,7 +13,7 @@ export interface ContextRepoConfig {
 
 export interface ContextRepositoryConnection extends ContextRepoConfig {
 	branch: string | null;
-	source: 'project' | 'settings';
+	source: 'settings';
 	webUrl: string;
 }
 
@@ -50,7 +49,7 @@ export async function resolveContextRepo(
 	userId: string,
 	configOverride?: ContextRepoConfig | null,
 ): Promise<UnresolvedContextRepo | null> {
-	const connection = await resolveContextRepository(projectId, projectFolder, configOverride);
+	const connection = await resolveContextRepository(projectId, configOverride);
 	if (!connection) {
 		return null;
 	}
@@ -66,34 +65,10 @@ export async function resolveContextRepo(
 
 export async function resolveContextRepository(
 	projectId: string,
-	projectFolder?: string | null,
 	configOverride?: ContextRepoConfig | null,
 ): Promise<ContextRepositoryConnection | null> {
 	if (configOverride !== undefined) {
 		return configOverride ? toRepositoryConnection(configOverride, null, 'settings') : null;
-	}
-
-	const folder =
-		projectFolder === undefined
-			? (await (await import('../queries/project.queries')).getProjectById(projectId))?.path
-			: projectFolder;
-	if (folder) {
-		const githubInfo = github.getGitInfo(folder);
-		if (githubInfo.isGithub && githubInfo.repoFullName) {
-			return toRepositoryConnection(
-				{ provider: 'github', repoFullName: githubInfo.repoFullName },
-				githubInfo.branch,
-				'project',
-			);
-		}
-		const gitlabInfo = gitlab.getGitInfo(folder);
-		if (gitlabInfo.isGitlab && gitlabInfo.repoFullName) {
-			return toRepositoryConnection(
-				{ provider: 'gitlab', repoFullName: gitlabInfo.repoFullName },
-				gitlabInfo.branch,
-				'project',
-			);
-		}
 	}
 
 	const config = await readContextRepoConfig(projectId);

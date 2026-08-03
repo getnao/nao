@@ -191,6 +191,20 @@ describe('context branch cleanup', () => {
 		expect(fs.existsSync(path.join(fixture.root, '.nao', 'worktrees', 'project-id', 'user-1'))).toBe(false);
 	});
 
+	it('skips cleanup when no context repository is connected', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const branch = 'nao/context-edits-disconnected';
+		configureProject(fixture, [ownership(branch)]);
+		repositoryMocks.resolveContextRepository.mockResolvedValue(null);
+
+		await runContextBranchCleanup();
+
+		expect(repositoryMocks.resolveContextRepository).toHaveBeenCalledWith('project-id');
+		expect(providerMocks.getToken).not.toHaveBeenCalled();
+		expect(providerMocks.findReviewRequestByBranch).not.toHaveBeenCalled();
+		expect(ownershipMocks.releaseContextBranch).not.toHaveBeenCalled();
+	});
+
 	it('switches off a checked-out branch before deleting it', async () => {
 		const fixture = createFixture(temporaryRoots);
 		const branch = 'nao/context-edits-checked-out';

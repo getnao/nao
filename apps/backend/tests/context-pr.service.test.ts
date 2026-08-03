@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createRecommendationPullRequest } from '../src/services/context-pr.service';
+import { createRecommendationPullRequest, resolveRecommendationRepo } from '../src/services/context-pr.service';
 import type { ProposedEdit } from '../src/types/context-recommendation';
 
 const mocks = vi.hoisted(() => ({
@@ -87,7 +87,24 @@ describe('createRecommendationPullRequest', () => {
 		});
 	});
 
-	it('opens linked repo edits against the upstream repository path', async () => {
+	it('does not resolve or open context pull requests from the project folder remote', async () => {
+		mocks.getConfig.mockResolvedValue(null);
+		mocks.getProjectById.mockResolvedValue({ path: '/project-clone' });
+		mocks.getRecommendationById.mockResolvedValue(recommendation());
+
+		await expect(resolveRecommendationRepo('project-1')).resolves.toBeNull();
+		await expect(createRecommendationPullRequest('project-1', 'rec-123456789', 'user-1')).rejects.toThrow(
+			'No context repository is connected. Connect one in Settings → Git.',
+		);
+
+		expect(mocks.getProjectById).not.toHaveBeenCalled();
+		expect(mocks.getGitInfo).not.toHaveBeenCalled();
+		expect(mocks.cloneRepo).not.toHaveBeenCalled();
+		expect(mocks.createPullRequest).not.toHaveBeenCalled();
+	});
+
+	it('opens linked repo edits without a connected context repository', async () => {
+		mocks.getConfig.mockResolvedValue(null);
 		mocks.getRecommendationById.mockResolvedValue(
 			recommendation([
 				edit({

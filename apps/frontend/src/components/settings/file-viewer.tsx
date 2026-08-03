@@ -27,6 +27,7 @@ import { usePreviewHighlights } from '@/hooks/use-preview-highlights';
 import { createLocalStorage } from '@/lib/local-storage';
 import { joinMarkdownFrontmatter, markdownPlugins, parseMarkdownFrontmatter } from '@/lib/markdown';
 import { isMac } from '@/lib/platform';
+import { isForbiddenError } from '@/lib/trpc-error';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -46,7 +47,7 @@ interface FileViewerProps {
 	searchQuery: string;
 	sourceAutoOpenRequestId: number | null;
 	onDirtyChange: (isDirty: boolean) => void;
-	onOpenGuidancePath: (path: string) => void;
+	onOpenGuidancePath: (path: string, kind: 'file' | 'route') => void;
 	onReload: () => Promise<FileContents | undefined>;
 }
 
@@ -227,6 +228,12 @@ function EditableFileViewer({
 				},
 				onError: (error) => {
 					saveInProgressRef.current = false;
+					if (isForbiddenError(error)) {
+						void queryClient.invalidateQueries({
+							queryKey: trpc.contextExplorer.readFile.queryOptions({ path: pathToSave }).queryKey,
+						});
+						return;
+					}
 					if (activePathRef.current === pathToSave) {
 						setSaveError({
 							message: getErrorMessage(error, 'Failed to save file'),
@@ -411,11 +418,11 @@ function ReadOnlyNote({
 	onOpenPath,
 }: {
 	guidance: FileEditabilityGuidance;
-	onOpenPath: (path: string) => void;
+	onOpenPath: (path: string, kind: 'file' | 'route') => void;
 }) {
 	const handleOpenPath = () => {
 		if (guidance.actionPath) {
-			onOpenPath(guidance.actionPath);
+			onOpenPath(guidance.actionPath, guidance.actionKind);
 		}
 	};
 

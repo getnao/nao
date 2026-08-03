@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { createFileRoute, useBlocker } from '@tanstack/react-router';
+import { createFileRoute, useBlocker, useNavigate } from '@tanstack/react-router';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDefaultLayout } from 'react-resizable-panels';
 
@@ -40,6 +40,7 @@ export const Route = createFileRoute('/_sidebar-layout/settings/context-explorer
 
 function ContextExplorerPage() {
 	const queryClient = useQueryClient();
+	const navigate = useNavigate();
 	const [selectedPath, setSelectedPath] = useState<string | null>(null);
 	const [selectedDiffPath, setSelectedDiffPath] = useState<string | null>(null);
 	const [pendingViewerTarget, setPendingViewerTarget] = useState<ViewerTarget | null>(null);
@@ -272,7 +273,11 @@ function ContextExplorerPage() {
 									sourceAutoOpenRequest?.path === selectedPath ? sourceAutoOpenRequest.id : null
 								}
 								onDirtyChange={setIsViewerDirty}
-								onOpenGuidancePath={(path) => {
+								onOpenGuidancePath={(path, kind) => {
+									if (kind === 'route') {
+										void navigate({ to: path });
+										return;
+									}
 									requestViewerTarget({ type: 'file', path, openSource: false });
 								}}
 								onReload={async () => {

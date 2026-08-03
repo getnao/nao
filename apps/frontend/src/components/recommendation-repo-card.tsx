@@ -41,18 +41,14 @@ export function RecommendationRepoCard() {
 		);
 	}
 
-	const { repoFullName, branch, source, provider, webUrl } = repo.data;
+	const { repoFullName, branch, provider, webUrl } = repo.data;
 	const ProviderIcon = provider === 'gitlab' ? GitlabIcon : Github;
 
 	return (
 		<SettingsCard
 			title='Repository'
 			icon={<ProviderIcon className='size-4' />}
-			description={
-				source === 'project'
-					? 'Connected. New high-impact recommendations include drafted changes you can open as a pull request.'
-					: 'Pull requests with drafted context changes are opened against this repository. Project files are not synced from it.'
-			}
+			description='Pull requests with drafted context changes are opened against this repository.'
 			action={<GitSettingsLink label='Manage in Git settings' />}
 		>
 			<div className='flex flex-wrap items-center gap-2 text-sm'>

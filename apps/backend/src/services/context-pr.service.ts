@@ -36,7 +36,7 @@ export interface ReviewRequestEdit {
 export interface RecommendationRepo {
 	repoFullName: string;
 	branch: string | null;
-	source: 'project' | 'settings' | 'linked';
+	source: 'settings' | 'linked';
 	provider: RepoProvider;
 	webUrl: string;
 }
@@ -109,9 +109,7 @@ export async function createRecommendationPullRequest(
 
 	const repo = await resolvePullRequestRepo(projectId, rec.proposedEdits);
 	if (!repo) {
-		throw new Error(
-			'No GitHub or GitLab repository is configured for this project. Select one in Settings → Recommendations.',
-		);
+		throw new Error('No context repository is connected. Connect one in Settings → Git.');
 	}
 
 	const edits = filterPullRequestEdits(rec.proposedEdits);

@@ -48,7 +48,13 @@ const branchOwnershipMocks = vi.hoisted(() => {
 	};
 });
 
+const contextConfigMocks = vi.hoisted(() => ({
+	getConfig: vi.fn(),
+	updateConfig: vi.fn(),
+}));
+
 vi.mock('../src/queries/context-branch-ownership.queries', () => branchOwnershipMocks);
+vi.mock('../src/queries/context-recommendation.queries', () => contextConfigMocks);
 
 import { __reloadEnvForTesting } from '../src/env';
 import { getFileTreeResponse, readFileContent, writeFileContent } from '../src/services/context-explorer.service';
@@ -57,6 +63,7 @@ import {
 	assertSafeDestructiveWorktreeTarget,
 	cleanupContextWorktree,
 	commitContextChanges,
+	connectContextRepository,
 	type ContextExplorerGitContext,
 	type ContextRepositoryProvider,
 	createContextBranch,
@@ -74,6 +81,7 @@ import {
 	switchContextBranch,
 } from '../src/services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../src/services/context-explorer-pr.service';
+import { getContextWorktreePath, resolveContextRepository } from '../src/utils/context-repo';
 
 describe('deployment context source', () => {
 	let originalEnv: typeof process.env;
@@ -111,7 +119,7 @@ describe('deployment context source', () => {
 		expect(getDeploymentContextSource()).toBeNull();
 	});
 
-	it('includes sanitized context source details when repository status is unavailable', async () => {
+	it('includes sanitized context source details while context editing is read-only', async () => {
 		setContextSourceEnv({
 			url: 'https://user:secret@github.com/nao/context.git',
 			branch: 'production',
@@ -120,13 +128,15 @@ describe('deployment context source', () => {
 		});
 
 		const status = await getContextRepositoryStatus({
-			...baseContext(process.cwd()),
+			...baseContext(process.cwd(), null),
 			integrationAvailableOverride: false,
 		});
 
 		expect(status).toMatchObject({
 			managedByContextSource: true,
-			gitUnavailableReason: 'github-unavailable',
+			gitUnavailableReason: 'no-repo',
+			gitUnavailableMessage:
+				'No context repository is connected. Connect one in Git settings to edit context files.',
 			contextSource: {
 				repositoryUrl: 'https://github.com/nao/context.git',
 				branch: 'production',
@@ -170,6 +180,11 @@ describe('repository remote normalization', () => {
 
 describe('context explorer worktrees', () => {
 	const temporaryRoots: string[] = [];
+
+	beforeEach(() => {
+		contextConfigMocks.getConfig.mockResolvedValue(null);
+		contextConfigMocks.updateConfig.mockResolvedValue(undefined);
+	});
 
 	afterEach(() => {
 		for (const root of temporaryRoots.splice(0)) {
@@ -236,14 +251,93 @@ describe('context explorer worktrees', () => {
 		expect((await readFileContent('/context.md', secondAccess)).content).toBe('repository content\n');
 	});
 
-	it('uses the project Git remote when no repository setting exists', async () => {
+	it('keeps a cloned project read-only when no repository setting exists', async () => {
 		const fixture = createLocalCloneFixture(temporaryRoots);
 		fixture.context.configOverride = undefined;
+		const worktree = getContextWorktreePath('project-id', fixture.live, 'user-1');
 
-		const repo = await ensureContextWorktree(fixture.context);
+		const access = await fileAccess(fixture.context);
+		const status = await getContextRepositoryStatus(fixture.context);
+		const tree = await getFileTreeResponse(access);
+		const file = await readFileContent('/context.md', access);
 
-		expect(repo.repoFullName).toBe('nao/context');
-		expect(repo.projectPrefix).toBe('project');
+		expect(access.git).toMatchObject({ status: 'unavailable', reason: 'no-repo', repo: null });
+		expect(status).toMatchObject({ repo: null, gitUnavailableReason: 'no-repo', isGitRepository: false });
+		expect(tree.entries.map((entry) => entry.name)).toContain('context.md');
+		expect(file).toMatchObject({
+			content: 'repository content\n',
+			isEditable: false,
+			reason: 'no-repo',
+			guidance: {
+				message: 'No context repository is connected. Connect one in Git settings to edit context files.',
+				actionKind: 'route',
+				actionPath: '/settings/git',
+			},
+		});
+		await expect(writeFileContent('/context.md', 'changed\n', file.hash, access)).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		expect(fs.existsSync(worktree)).toBe(false);
+	});
+
+	it('uses an explicit override before the saved repository setting', async () => {
+		contextConfigMocks.getConfig.mockResolvedValue({
+			repoFullName: 'nao/saved',
+			repoProvider: 'github',
+		});
+
+		await expect(
+			resolveContextRepository('project-id', { provider: 'gitlab', repoFullName: 'nao/override' }),
+		).resolves.toMatchObject({
+			provider: 'gitlab',
+			repoFullName: 'nao/override',
+			source: 'settings',
+		});
+		await expect(resolveContextRepository('project-id', null)).resolves.toBeNull();
+		expect(contextConfigMocks.getConfig).not.toHaveBeenCalled();
+	});
+
+	it('uses the saved repository setting when no override is provided', async () => {
+		contextConfigMocks.getConfig.mockResolvedValue({
+			repoFullName: 'nao/saved',
+			repoProvider: 'gitlab',
+		});
+
+		await expect(resolveContextRepository('project-id')).resolves.toMatchObject({
+			provider: 'gitlab',
+			repoFullName: 'nao/saved',
+			source: 'settings',
+			webUrl: 'https://gitlab.com/nao/saved',
+		});
+	});
+
+	it('connects the selected repository when the project clone points elsewhere', async () => {
+		const fixture = createLocalCloneFixture(temporaryRoots);
+		const selected = createFixture(temporaryRoots, {
+			'nao_config.yaml': 'name: selected\n',
+			'context.md': 'selected repository content\n',
+		});
+		const updateConfig = vi.fn().mockResolvedValue(undefined);
+
+		const result = await connectContextRepository(
+			{
+				...fixture.context,
+				provider: 'github',
+				repoFullName: 'nao/selected',
+			},
+			{
+				provider: localProvider(selected.bare, 'https://github.com/nao/selected.git'),
+				updateConfig,
+			},
+		);
+		const worktree = getContextWorktreePath('project-id', fixture.live, 'user-1');
+
+		expect(result).toMatchObject({ provider: 'github', repoFullName: 'nao/selected' });
+		expect(updateConfig).toHaveBeenCalledWith('project-id', {
+			repoFullName: 'nao/selected',
+			repoProvider: 'github',
+		});
+		expect(fs.readFileSync(path.join(worktree, 'context.md'), 'utf8')).toBe('selected repository content\n');
 	});
 
 	it('supports GitLab repositories below the setup boundary', async () => {
@@ -292,17 +386,29 @@ describe('context explorer worktrees', () => {
 		expect(runGit(repositoryRoot, ['worktree', 'list', '--porcelain']).toString()).not.toContain(repo.worktreeRoot);
 	});
 
-	it('clears repository settings and removes the acting user worktree', async () => {
-		const fixture = createFixture(temporaryRoots);
+	it('disconnects a cloned project without recreating its worktree', async () => {
+		const fixture = createLocalCloneFixture(temporaryRoots);
+		fixture.context.configOverride = undefined;
+		let connected = true;
+		contextConfigMocks.getConfig.mockImplementation(async () =>
+			connected ? { repoFullName: 'nao/context', repoProvider: 'github' } : null,
+		);
 		const repo = await ensureContextWorktree(fixture.context);
-		const updateConfig = vi.fn().mockResolvedValue(undefined);
+		const updateConfig = vi.fn().mockImplementation(async () => {
+			connected = false;
+		});
 
 		await disconnectContextRepository(fixture.context, { updateConfig });
+		const status = await getContextRepositoryStatus(fixture.context);
+		const access = await fileAccess(fixture.context);
 
 		expect(updateConfig).toHaveBeenCalledWith('project-id', {
 			repoFullName: null,
 			repoProvider: null,
 		});
+		expect(fs.existsSync(repo.worktreeRoot)).toBe(false);
+		expect(status).toMatchObject({ repo: null, gitUnavailableReason: 'no-repo', isGitRepository: false });
+		expect(access.git).toMatchObject({ status: 'unavailable', reason: 'no-repo' });
 		expect(fs.existsSync(repo.worktreeRoot)).toBe(false);
 	});
 

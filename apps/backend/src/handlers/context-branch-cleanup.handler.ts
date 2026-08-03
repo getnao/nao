@@ -108,7 +108,7 @@ async function resolveProjectCleanupContext(
 			logProjectSkip(ownerships, 'project path unavailable');
 			return null;
 		}
-		const repo = await resolveContextRepository(projectId, project.path);
+		const repo = await resolveContextRepository(projectId);
 		if (!repo) {
 			logProjectSkip(ownerships, 'context repository unavailable');
 			return null;
