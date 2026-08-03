@@ -2,18 +2,36 @@ import { format as d3Format, formatSpecifier } from 'd3-format';
 
 import type { ValueFormat } from './tools/display-chart';
 
+const COMPACT_UNITS = [
+	{ value: 1_000_000_000_000, suffix: 'T' },
+	{ value: 1_000_000_000, suffix: 'B' },
+	{ value: 1_000_000, suffix: 'M' },
+	{ value: 1_000, suffix: 'K' },
+] as const;
+
 export function formatCompactNumber(value: number): string {
 	const abs = Math.abs(value);
-	if (abs >= 1_000_000_000) {
-		return `${(value / 1_000_000_000).toFixed(1).replace(/\.0$/, '')}B`;
-	}
-	if (abs >= 1_000_000) {
-		return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
-	}
 	if (abs >= 10_000) {
-		return `${(value / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
+		return formatCompactUnit(value, 1);
 	}
 	return value.toLocaleString();
+}
+
+export function formatCompactUnit(value: number, fractionDigits: number): string {
+	const abs = Math.abs(value);
+	let unitIndex = COMPACT_UNITS.findIndex((unit) => abs >= unit.value);
+	if (unitIndex === -1) {
+		return String(Number(value.toFixed(fractionDigits)));
+	}
+
+	let unit = COMPACT_UNITS[unitIndex];
+	let scaledValue = Number((value / unit.value).toFixed(fractionDigits));
+	if (Math.abs(scaledValue) >= 1_000 && unitIndex > 0) {
+		unitIndex -= 1;
+		unit = COMPACT_UNITS[unitIndex];
+		scaledValue = Number((value / unit.value).toFixed(fractionDigits));
+	}
+	return `${scaledValue}${unit.suffix}`;
 }
 
 export function formatChartValue(value: number, valueFormat?: ValueFormat, opts?: { compact?: boolean }): string {
