@@ -1,0 +1,3 @@
+<timestamp>Tuesday, Aug 4, 2026, 12:29 PM (UTC+2)</timestamp>
+
+i dont like the changes applied to search, list i think it should be by nature scoped to the user permanent storage and seen directly as other files without requiring to do a storage:// which might be weird to understand (which is also a more global change this one)
