@@ -1,0 +1,3 @@
+<timestamp>Tuesday, Jul 21, 2026, 2:52 PM (UTC+2)</timestamp>
+
+i want a border for every chart @chat/apps/frontend/src/components/tool-calls/display-chart.tsx that looks like the @chat/apps/frontend/src/components/tool-calls/execute-sql.tsx but in this case the border of the chart should appear only on hover (with a transition), i also want the chart actions to looks like the execute sql ones
