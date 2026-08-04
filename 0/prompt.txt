@@ -1,0 +1,6 @@
+<timestamp>Friday, Jul 31, 2026, 5:58 PM (UTC+2)</timestamp>
+
+pypi build failed because of the newly added duckdb bindings in js
+https://github.com/getnao/nao/actions/runs/30643935798 
+
+Fix
