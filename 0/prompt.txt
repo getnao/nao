@@ -1,0 +1,3 @@
+<timestamp>Thursday, Jul 23, 2026, 12:24 PM (UTC+2)</timestamp>
+
+If finished, return your full list of issues now (or "No CLAUDE.md compliance issues found."). Do not do more work if already done.
