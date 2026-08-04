@@ -1,0 +1,15 @@
+<timestamp>Monday, Aug 3, 2026, 10:53 AM (UTC+2)</timestamp>
+
+has the Check if this issue is valid — if so, understand the root cause and fix it. At cli/nao_core/native.py, line 133:
+
+<comment>Concurrent `nao` invocations can intermittently fail native setup: both installers may pass the existence check, then the second `rename` raises `FileExistsError` after the first has installed the same package. Treat an already-existing destination as a successful concurrent install around this rename.</comment>
+
+<file context>
+@@ -0,0 +1,195 @@
++        # the directory is version-keyed, so whatever is there is already correct.
++        if not package.cache_dir.exists():
++            # npm tarballs wrap everything in a single "package" directory
++            (staging / "package").rename(package.cache_dir)
++    finally:
++        shutil.rmtree(staging, ignore_errors=True)
+</file context> been fixed?
