@@ -1,0 +1,79 @@
+<timestamp>Friday, Jul 31, 2026, 4:19 PM (UTC+2)</timestamp>
+
+nao slack integration is failing with
+
+[dev:backend ]     }
+[dev:backend ]     responseTime: 4.731999999959953
+[dev:backend ] [WARN]  web-api:WebClient:4 The top-level `text` argument is missing in the request payload for a chat.postMessage call - It's a best practice to always provide a `text` argument when posting a message. The `text` is used in places where the content cannot be rendered such as: system push notifications, assistive technology such as screen readers, etc.
+[dev:backend ] AI SDK Warning (openai.responses / gpt-4.1-mini): The feature "reasoningSummary" is not supported. reasoningSummary is not supported for non-reasoning models
+[dev:fastapi ] INFO:     127.0.0.1:52021 - "POST /execute_sql HTTP/1.1" 200 OK
+[dev:backend ] [ERROR]  web-api:WebClient:4 failed to match any allowed schemas [json-pointer:/blocks/3/rows/5/0]
+[dev:backend ] [ERROR]  web-api:WebClient:4 must be a valid enum value [json-pointer:/blocks/3/rows/5/0/type]
+[dev:backend ] [ERROR]  web-api:WebClient:4 must be more than 0 characters [json-pointer:/blocks/3/rows/5/0/text]
+[dev:backend ] [ERROR]  web-api:WebClient:4 missing required field: value [json-pointer:/blocks/3/rows/5/0]
+[dev:backend ] [ERROR]  web-api:WebClient:4 missing required field: elements [json-pointer:/blocks/3/rows/5/0]
+[dev:backend ] [ERROR]  web-api:WebClient:4 missing required field: element [json-pointer:/blocks/3/rows/5/0]
+[dev:backend ] [ERROR]  web-api:WebClient:4 failed to match any allowed schemas [json-pointer:/blocks/3/rows/5/1]
+[dev:backend ] [ERROR]  web-api:WebClient:4 must be a valid enum value [json-pointer:/blocks/3/rows/5/1/type]
+[dev:backend ] [ERROR]  web-api:WebClient:4 must be more than 0 characters [json-pointer:/blocks/3/rows/5/1/text]
+[dev:backend ] [ERROR]  web-api:WebClient:4 missing required field: value [json-pointer:/blocks/3/rows/5/1]
+[dev:backend ] [ERROR]  web-api:WebClient:4 missing required field: elements [json-pointer:/blocks/3/rows/5/1]
+[dev:backend ] [ERROR]  web-api:WebClient:4 missing required field: element [json-pointer:/blocks/3/rows/5/1]
+[dev:backend ] [ERROR]  web-api:WebClient:4 failed to match any allowed schemas [json-pointer:/blocks/3/rows/5/2]
+[dev:backend ] [ERROR]  web-api:WebClient:4 must be a valid enum value [json-pointer:/blocks/3/rows/5/2/type]
+[dev:backend ] [ERROR]  web-api:WebClient:4 must be more than 0 characters [json-pointer:/blocks/3/rows/5/2/text]
+[dev:backend ] [ERROR]  web-api:WebClient:4 missing required field: value [json-pointer:/blocks/3/rows/5/2]
+[dev:backend ] [ERROR]  web-api:WebClient:4 missing required field: elements [json-pointer:/blocks/3/rows/5/2]
+[dev:backend ] [ERROR]  web-api:WebClient:4 missing required field: element [json-pointer:/blocks/3/rows/5/2]
+[dev:backend ] [ERROR]  web-api:WebClient:4 failed to match any allowed schemas [json-pointer:/blocks/3/rows/5/3]
+[dev:backend ] [ERROR]  web-api:WebClient:4 must be a valid enum value [json-pointer:/blocks/3/rows/5/3/type]
+[dev:backend ] [ERROR]  web-api:WebClient:4 must be more than 0 characters [json-pointer:/blocks/3/rows/5/3/text]
+[dev:backend ] [ERROR]  web-api:WebClient:4 missing required field: value [json-pointer:/blocks/3/rows/5/3]
+[dev:backend ] [ERROR]  web-api:WebClient:4 missing required field: elements [json-pointer:/blocks/3/rows/5/3]
+[dev:backend ] [ERROR]  web-api:WebClient:4 missing required field: element [json-pointer:/blocks/3/rows/5/3]
+[dev:backend ] [ERROR]  web-api:WebClient:4 failed to match any allowed schemas [json-pointer:/blocks/3/rows/5/0]
+[dev:backend ] [ERROR]  web-api:WebClient:4 must be a valid enum value [json-pointer:/blocks/3/rows/5/0/type]
+[dev:backend ] [ERROR]  web-api:WebClient:4 must be more than 0 characters [json-pointer:/blocks/3/rows/5/0/text]
+[dev:backend ] [ERROR]  web-api:WebClient:4 missing required field: value [json-pointer:/blocks/3/rows/5/0]
+[dev:backend ] [ERROR]  web-api:WebClient:4 missing required field: elements [json-pointer:/blocks/3/rows/5/0]
+[dev:backend ] [ERROR]  web-api:WebClient:4 missing required field: element [json-pointer:/blocks/3/rows/5/0]
+[dev:backend ] [ERROR]  web-api:WebClient:4 failed to match any allowed schemas [json-pointer:/blocks/3/rows/5/1]
+[dev:backend ] [ERROR]  web-api:WebClient:4 must be a valid enum value [json-pointer:/blocks/3/rows/5/1/type]
+[dev:backend ] [ERROR]  web-api:WebClient:4 must be more than 0 characters [json-pointer:/blocks/3/rows/5/1/text]
+[dev:backend ] [ERROR]  web-api:WebClient:4 missing required field: value [json-pointer:/blocks/3/rows/5/1]
+[dev:backend ] [ERROR]  web-api:WebClient:4 missing required field: elements [json-pointer:/blocks/3/rows/5/1]
+[dev:backend ] [ERROR]  web-api:WebClient:4 missing required field: element [json-pointer:/blocks/3/rows/5/1]
+[dev:backend ] [ERROR]  web-api:WebClient:4 failed to match any allowed schemas [json-pointer:/blocks/3/rows/5/2]
+[dev:backend ] [ERROR]  web-api:WebClient:4 must be a valid enum value [json-pointer:/blocks/3/rows/5/2/type]
+[dev:backend ] [ERROR]  web-api:WebClient:4 must be more than 0 characters [json-pointer:/blocks/3/rows/5/2/text]
+[dev:backend ] [ERROR]  web-api:WebClient:4 missing required field: value [json-pointer:/blocks/3/rows/5/2]
+[dev:backend ] [ERROR]  web-api:WebClient:4 missing required field: elements [json-pointer:/blocks/3/rows/5/2]
+[dev:backend ] [ERROR]  web-api:WebClient:4 missing required field: element [json-pointer:/blocks/3/rows/5/2]
+[dev:backend ] [ERROR]  web-api:WebClient:4 failed to match any allowed schemas [json-pointer:/blocks/3/rows/5/3]
+[dev:backend ] [ERROR]  web-api:WebClient:4 must be a valid enum value [json-pointer:/blocks/3/rows/5/3/type]
+[dev:backend ] [ERROR]  web-api:WebClient:4 must be more than 0 characters [json-pointer:/blocks/3/rows/5/3/text]
+[dev:backend ] [ERROR]  web-api:WebClient:4 missing required field: value [json-pointer:/blocks/3/rows/5/3]
+[dev:backend ] [ERROR]  web-api:WebClient:4 missing required field: elements [json-pointer:/blocks/3/rows/5/3]
+[dev:backend ] [ERROR]  web-api:WebClient:4 missing required field: element [json-pointer:/blocks/3/rows/5/3]
+[dev:backend ] [chat-sdk] Message processing error {
+[dev:backend ]   error: 62 | /**
+[dev:backend ] 63 |  * A factory to create WebAPIPlatformError objects
+[dev:backend ] 64 |  * @param result - Web API call result
+[dev:backend ] 65 |  */
+[dev:backend ] 66 | function platformErrorFromResult(result) {
+[dev:backend ] 67 |     const error = errorWithCode(new Error(`An API error occurred: ${result.error}`), ErrorCode.PlatformError);
+[dev:backend ]                                          ^
+[dev:backend ] error: An API error occurred: invalid_blocks
+[dev:backend ]  data: [Object ...],
+[dev:backend ]  code: "slack_webapi_platform_error"
+[dev:backend ] 
+[dev:backend ]       at platformErrorFromResult (/Users/blef/Work/naolabs/chat/node_modules/@slack/web-api/dist/errors.js:67:37)
+[dev:backend ]       at apiCall (/Users/blef/Work/naolabs/chat/node_modules/@slack/web-api/dist/WebClient.js:232:32)
+[dev:backend ]       at async editMessage (/Users/blef/Work/naolabs/chat/node_modules/@chat-adapter/slack/dist/index.js:2546:48)
+[dev:backend ]       at async edit (/Users/blef/Work/naolabs/chat/node_modules/chat/dist/index.js:1669:23)
+[dev:backend ]       at async _handleWorkFlow (/Users/blef/Work/naolabs/chat/apps/backend/src/services/slack.ts:438:27)
+[dev:backend ] ,
+[dev:backend ]   threadId: "slack:C0A9AFFHR96:1785507451.533129",
+[dev:backend ] }
+
+this is the prompt who broke it "using markdown display the stg_payments data (dont put any limits just return everything to slack)"
