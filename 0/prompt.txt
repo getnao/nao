@@ -1,0 +1,22 @@
+<timestamp>Friday, Jul 31, 2026, 4:28 PM (UTC+2)</timestamp>
+
+ok now it crashes with "[dev:backend ] [chat-sdk] Message processing error {
+[dev:backend ]   error: 62 | /**
+[dev:backend ] 63 |  * A factory to create WebAPIPlatformError objects
+[dev:backend ] 64 |  * @param result - Web API call result
+[dev:backend ] 65 |  */
+[dev:backend ] 66 | function platformErrorFromResult(result) {
+[dev:backend ] 67 |     const error = errorWithCode(new Error(`An API error occurred: ${result.error}`), ErrorCode.PlatformError);
+[dev:backend ]                                          ^
+[dev:backend ] error: An API error occurred: msg_too_long
+[dev:backend ]  data: [Object ...],
+[dev:backend ]  code: "slack_webapi_platform_error"
+[dev:backend ] 
+[dev:backend ]       at platformErrorFromResult (/Users/blef/Work/naolabs/chat/node_modules/@slack/web-api/dist/errors.js:67:37)
+[dev:backend ]       at apiCall (/Users/blef/Work/naolabs/chat/node_modules/@slack/web-api/dist/WebClient.js:232:32)
+[dev:backend ]       at async editMessage (/Users/blef/Work/naolabs/chat/node_modules/@chat-adapter/slack/dist/index.js:2546:48)
+[dev:backend ]       at async edit (/Users/blef/Work/naolabs/chat/node_modules/chat/dist/index.js:1669:23)
+[dev:backend ]       at async _handleWorkFlow (/Users/blef/Work/naolabs/chat/apps/backend/src/services/slack.ts:439:27)
+[dev:backend ] ,
+[dev:backend ]   threadId: "slack:C0A9AFFHR96:1785508023.234109",
+[dev:backend ] }"
