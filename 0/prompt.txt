@@ -1,0 +1,3 @@
+<timestamp>Wednesday, Jul 22, 2026, 5:15 PM (UTC+2)</timestamp>
+
+the logs from gunicorn do not display the 500 exceptions
