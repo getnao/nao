@@ -1,0 +1,3 @@
+<timestamp>Tuesday, Jul 21, 2026, 5:26 PM (UTC+2)</timestamp>
+
+the footer of the chat replay table does not stick to bottom, i also want table to stick to the bottom and scroll within the table when there are more rows than visually possible
