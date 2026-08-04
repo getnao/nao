@@ -1,0 +1,3 @@
+<timestamp>Friday, Jul 24, 2026, 8:07 PM (UTC+2)</timestamp>
+
+add a toggle to include (or not) the SQL in the export, same for Python code
