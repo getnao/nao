@@ -1,0 +1,3 @@
+<timestamp>Tuesday, Jul 21, 2026, 6:51 PM (UTC+2)</timestamp>
+
+how does NAO_CONTEXT_SOURCE relates with NAO_MODE=cloud
