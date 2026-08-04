@@ -1,0 +1,5 @@
+<timestamp>Tuesday, Jul 7, 2026, 10:52 AM (UTC+2)</timestamp>
+
+a conversation fails with error loading dynamically imported module: http://localhost:3000/node_modules/.vite/deps/REDACTED.js?v=6fca1eba
+
+it's this id 85f80150-b741-4785-bbd5-a6f301c1ee87 if you want to look in the db
