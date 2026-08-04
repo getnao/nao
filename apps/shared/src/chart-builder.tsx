@@ -132,8 +132,12 @@ export function computeValueAxisWidth(
 	}
 
 	const maximumLabelLength = Math.max(...candidates.map((value) => formatValueYAxisTick(value, valueFormat).length));
-	const estimatedWidth = maximumLabelLength * VALUE_AXIS_CHARACTER_WIDTH + VALUE_AXIS_PADDING + labelAllowance + labelAllowance;
-	return Math.min(VALUE_AXIS_MAX_WIDTH + labelAllowance + labelAllowance, Math.max(Y_AXIS_WIDTH + labelAllowance + labelAllowance, estimatedWidth));
+	const estimatedWidth =
+		maximumLabelLength * VALUE_AXIS_CHARACTER_WIDTH + VALUE_AXIS_PADDING + labelAllowance + labelAllowance;
+	return Math.min(
+		VALUE_AXIS_MAX_WIDTH + labelAllowance + labelAllowance,
+		Math.max(Y_AXIS_WIDTH + labelAllowance + labelAllowance, estimatedWidth),
+	);
 }
 
 /** Formats a 0–1 stack ratio (from Recharts `stackOffset="expand"`) as a whole-number percentage. */
