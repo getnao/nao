@@ -1,0 +1,5 @@
+<timestamp>Thursday, Jul 30, 2026, 11:38 AM (UTC+2)</timestamp>
+
+yeah go for it
+
+'id say for the test fix maybe we should give the verification step an alternative when rows are too long to indeed use a queryId + a mapping to match columns from the verification query and if the answer does not lies in one query this method could not work
