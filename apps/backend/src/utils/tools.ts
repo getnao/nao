@@ -3,9 +3,20 @@ import fs from 'fs';
 import { minimatch } from 'minimatch';
 import path from 'path';
 
-import { ToolContext } from '../types/tools';
+import type { StorageScope } from '../services/storage';
+import { McpToolContext, ToolContext } from '../types/tools';
 
 const MCP_TOOL_SEPARATOR = '__';
+
+/**
+ * Top-level folder of the virtual tree holding the user's permanent storage.
+ * The name is reserved: a project folder called `home` is never exposed, so a
+ * path under it always means permanent storage.
+ */
+export const STORAGE_MOUNT = 'home';
+
+/** Shorthand the model is likely to reach for, accepted on input but never emitted. */
+const STORAGE_MOUNT_ALIAS = '~';
 
 /** Creates a tool with a typed execution `context` */
 export const createTool = <TInput, TOutput>(
@@ -19,6 +30,45 @@ export const createTool = <TInput, TOutput>(
 			return opts.execute(input, experimental_context as ToolContext);
 		},
 	} as Tool<TInput, TOutput>);
+};
+
+/** The permanent-storage space a run may reach: the current user, in the current project. */
+export const toStorageScope = (context: ToolContext | McpToolContext): StorageScope => {
+	return { projectId: context.projectId, userId: context.userId };
+};
+
+/** True when a virtual path addresses permanent storage: `/home`, `~` or anything below them. */
+export const isStoragePath = (virtualPath: string | undefined | null): boolean => {
+	return typeof virtualPath === 'string' && storageMountOf(virtualPath) !== null;
+};
+
+/**
+ * Converts a virtual path to the path inside the user's storage space.
+ * An empty result addresses the storage root itself.
+ */
+export const toStorageRelativePath = (virtualPath: string): string => {
+	const mount = storageMountOf(virtualPath);
+	return mount === null ? '' : trimSlashes(trimSlashes(virtualPath).slice(mount.length));
+};
+
+/** The spelling of the mount the path uses, or null when it is not a storage path. */
+const storageMountOf = (virtualPath: string): string | null => {
+	const trimmed = trimSlashes(virtualPath);
+
+	return (
+		[STORAGE_MOUNT, STORAGE_MOUNT_ALIAS].find((mount) => trimmed === mount || trimmed.startsWith(`${mount}/`)) ??
+		null
+	);
+};
+
+/** Virtual path of a file inside permanent storage. */
+export const toStorageVirtualPath = (relativePath: string): string => {
+	const trimmed = trimSlashes(relativePath);
+	return trimmed === '' ? `/${STORAGE_MOUNT}` : `/${STORAGE_MOUNT}/${trimmed}`;
+};
+
+const trimSlashes = (value: string): string => {
+	return value.trim().replace(/^\/+|\/+$/g, '');
 };
 
 /**
@@ -180,6 +230,11 @@ export const shouldExcludeEntry = (entryName: string, parentPath: string, projec
 		return true;
 	}
 
+	// The storage mount owns this name at the root of the tree
+	if (parentPath === '' && isStoragePath(entryName)) {
+		return true;
+	}
+
 	// Then check naoignore patterns
 	const relativePath = parentPath ? `${parentPath}/${entryName}` : entryName;
 	return isIgnoredByNaoignore(relativePath, projectFolder);
@@ -199,6 +254,9 @@ export const isWithinProjectFolder = (filePath: string, projectFolder: string): 
 	if (isInExcludedDir(resolved)) {
 		return false;
 	}
+	if (isStoragePath(path.relative(normalizedFolder, resolved).replaceAll(path.sep, '/'))) {
+		return false;
+	}
 	if (isIgnoredPath(resolved, normalizedFolder)) {
 		return false;
 	}
@@ -214,6 +272,10 @@ export const isWithinProjectFolder = (filePath: string, projectFolder: string): 
  */
 export const toRealPath = (virtualPath: string, projectFolder: string): string => {
 	const normalizedFolder = path.resolve(projectFolder);
+
+	if (isStoragePath(virtualPath)) {
+		throw new Error(`Path '${virtualPath}' is in permanent storage, not in the project folder`);
+	}
 
 	// Strip leading slash to make it relative to project folder
 	const relativePath = virtualPath.startsWith('/') ? virtualPath.slice(1) : virtualPath;

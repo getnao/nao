@@ -4,6 +4,7 @@ export { isSandboxAvailable } from './execute-sandboxed-code';
 import type { Tool } from 'ai';
 
 import { mcpService } from '../../services/mcp';
+import { isStorageEnabled } from '../../services/storage';
 import { AgentSettings } from '../../types/agent-settings';
 import clarification from './clarification';
 import displayChart from './display-chart';
@@ -20,6 +21,7 @@ import readQueryResult from './read-query-result';
 import search from './search';
 import story from './story';
 import suggestFollowUps from './suggest-follow-ups';
+import write from './write';
 
 /**
  * Tools whose output only the web chat can render — excluded from automations and the MCP sub-agent.
@@ -41,6 +43,7 @@ export const tools = {
 	list,
 	read,
 	search,
+	write,
 	suggest_follow_ups: suggestFollowUps,
 };
 
@@ -86,9 +89,14 @@ export const getTools = (
 		clarification: clarificationTool,
 		suggest_follow_ups,
 		display_map: displayMapTool,
+		write: writeTool,
 		...rest
 	} = tools;
-	const baseTools = options.excludeFollowUps ? rest : { ...rest, suggest_follow_ups };
+	const baseTools = {
+		...rest,
+		...(!options.excludeFollowUps && { suggest_follow_ups }),
+		...(isStorageEnabled() && { write: writeTool }),
+	};
 
 	const allTools = {
 		...baseTools,

@@ -12,6 +12,7 @@ export { ReadOutput } from './read';
 export { ReadQueryResultOutput } from './read-query-result';
 export { SearchOutput } from './search';
 export { StoryOutput } from './story';
+export { WriteOutput } from './write';
 
 /** Renders a tool output component to markdown for the model, falling back to JSON if the result is empty. */
 export function renderToModelOutput(node: ReactNode, fallback: unknown): ToolResultOutput {

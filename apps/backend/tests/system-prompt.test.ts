@@ -113,6 +113,24 @@ describe('SystemPrompt timezone rendering', () => {
 	});
 });
 
+describe('SystemPrompt saved files rules', () => {
+	it('tells the agent grep also searches inside saved files on a filesystem backend', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ options: { canGrepSavedFiles: true } }));
+		expect(markdown).toContain('**grep** also searches inside its files.');
+	});
+
+	it('tells the agent to search by name instead when grep cannot read saved files', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ options: { canGrepSavedFiles: false } }));
+		expect(markdown).toContain('**grep** cannot look inside **/home**');
+		expect(markdown).toContain('**search**');
+	});
+
+	it('omits the saved files section when the run has no write tool', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ toolNames: ['execute_sql'] }));
+		expect(markdown).not.toContain('Saved Files');
+	});
+});
+
 describe('SystemPrompt display_map rules', () => {
 	it('includes the display_map rule by default', () => {
 		expect(renderToMarkdown(SystemPrompt({}))).toContain('display_map');

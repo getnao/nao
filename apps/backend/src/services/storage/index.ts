@@ -3,15 +3,23 @@ import path from 'node:path';
 import { env } from '../../env';
 import { LocalStorageProvider } from './local.provider';
 import { S3StorageProvider } from './s3.provider';
-import type { StorageBackend, StorageHealth, StorageProvider } from './types';
+import type { StorageBackendSetting, StorageHealth, StorageProvider } from './types';
 
 export { relativePathFromKey, sanitizeRelativePath, scopedKey, scopeRoot } from './keys';
-export type { StorageBackend, StorageHealth, StorageObject, StorageProvider, StorageScope } from './types';
+export type {
+	StorageBackend,
+	StorageBackendSetting,
+	StorageHealth,
+	StorageObject,
+	StorageProvider,
+	StorageScope,
+} from './types';
 
 export type CredentialSource = 'explicit' | 'default-chain';
 
 export interface StorageConfigSummary {
-	backend: StorageBackend;
+	backend: StorageBackendSetting;
+	maxFileSizeMb: number;
 	local?: { path: string };
 	s3?: {
 		bucket: string;
@@ -24,22 +32,43 @@ export interface StorageConfigSummary {
 	};
 }
 
+export const STORAGE_DISABLED_MESSAGE =
+	'Permanent storage is disabled on this nao instance. Ask an admin to set NAO_STORAGE_BACKEND to `local` or `s3`.';
+
 let provider: StorageProvider | null = null;
 
+export const isStorageEnabled = (): boolean => {
+	return env.NAO_STORAGE_BACKEND !== 'none';
+};
+
+/** @throws Error when permanent storage is disabled. */
 export const getStorage = (): StorageProvider => {
+	if (!isStorageEnabled()) {
+		throw new Error(STORAGE_DISABLED_MESSAGE);
+	}
 	provider ??= createProvider();
 	return provider;
 };
 
-export const getStorageHealth = (): Promise<StorageHealth> => {
+export const getStorageHealth = async (): Promise<StorageHealth> => {
+	if (!isStorageEnabled()) {
+		return { ok: false, error: STORAGE_DISABLED_MESSAGE };
+	}
 	return getStorage().healthCheck();
 };
 
 /** Display-safe view of the configuration; secrets never leave this module. */
 export const getStorageConfig = (): StorageConfigSummary => {
+	const maxFileSizeMb = env.NAO_STORAGE_MAX_FILE_SIZE_MB;
+
+	if (env.NAO_STORAGE_BACKEND === 'none') {
+		return { backend: 'none', maxFileSizeMb };
+	}
+
 	if (env.NAO_STORAGE_BACKEND === 's3') {
 		return {
 			backend: 's3',
+			maxFileSizeMb,
 			s3: {
 				bucket: env.NAO_STORAGE_S3_BUCKET ?? '',
 				region: env.NAO_STORAGE_S3_REGION,
@@ -54,6 +83,7 @@ export const getStorageConfig = (): StorageConfigSummary => {
 
 	return {
 		backend: 'local',
+		maxFileSizeMb,
 		local: { path: path.resolve(env.NAO_STORAGE_LOCAL_PATH) },
 	};
 };

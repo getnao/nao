@@ -105,7 +105,7 @@ const envSchema = z.object({
 	NAO_PROJECTS_DIR: z.string().default('./projects'),
 	NAO_CORE_VERSION: z.string().optional(),
 
-	NAO_STORAGE_BACKEND: z.enum(['local', 's3']).default('local'),
+	NAO_STORAGE_BACKEND: z.enum(['none', 'local', 's3']).default('local'),
 	NAO_STORAGE_LOCAL_PATH: z.string().default('./storage'),
 	NAO_STORAGE_S3_BUCKET: z
 		.string()
@@ -137,6 +137,10 @@ const envSchema = z.object({
 		.optional()
 		.default('false')
 		.transform((val) => val === 'true'),
+	NAO_STORAGE_MAX_FILE_SIZE_MB: z.coerce
+		.number({ message: 'NAO_STORAGE_MAX_FILE_SIZE_MB must be a number of megabytes' })
+		.positive({ message: 'NAO_STORAGE_MAX_FILE_SIZE_MB must be greater than 0' })
+		.default(10),
 
 	NAO_LICENSE: z
 		.string()

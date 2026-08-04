@@ -72,6 +72,7 @@ import { mcpService } from './mcp';
 import { memoryService } from './memory';
 import { getAzureAccessTokenForUser } from './microsoft-auth.service';
 import { skillService } from './skill';
+import { canGrepUserFiles } from './storage/user-files';
 import { getStoryTemplateWarnings } from './story-template-validation';
 
 export interface AgentRunResult {
@@ -605,6 +606,7 @@ class AgentManager {
 				timezone,
 				testMode: this.chat.testMode,
 				toolNames: Object.keys(this._agentTools),
+				options: { canGrepSavedFiles: canGrepUserFiles() },
 			}),
 		);
 		const renderedPrompt = provider

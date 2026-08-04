@@ -274,6 +274,70 @@ describe('isWithinProjectFolder', () => {
 });
 
 // ---------------------------------------------------------------------------
+// storage mount
+// ---------------------------------------------------------------------------
+
+describe('storage mount', () => {
+	const PROJECT = '/srv/project';
+
+	it.each(['/home', 'home', '/home/', '/home/reports/q1.csv', 'home/reports/q1.csv', '~', '~/reports/q1.csv'])(
+		'recognises %j as permanent storage',
+		async (virtualPath) => {
+			const { isStoragePath } = await loadTools('posix');
+			expect(isStoragePath(virtualPath)).toBe(true);
+		},
+	);
+
+	it.each(['/', '/databases', '/homes', '/agent/home', 'my-home', '~notes.md', undefined])(
+		'does not recognise %j as permanent storage',
+		async (virtualPath) => {
+			const { isStoragePath } = await loadTools('posix');
+			expect(isStoragePath(virtualPath)).toBe(false);
+		},
+	);
+
+	it('maps a mount path to the path inside the user space', async () => {
+		const { toStorageRelativePath } = await loadTools('posix');
+		expect(toStorageRelativePath('/home/reports/q1.csv')).toBe('reports/q1.csv');
+		expect(toStorageRelativePath('/home')).toBe('');
+		expect(toStorageRelativePath('/home/')).toBe('');
+	});
+
+	it('accepts the ~ shorthand but never emits it', async () => {
+		const { toStorageRelativePath, toStorageVirtualPath } = await loadTools('posix');
+
+		expect(toStorageRelativePath('~/reports/q1.csv')).toBe('reports/q1.csv');
+		expect(toStorageRelativePath('~')).toBe('');
+		expect(toStorageVirtualPath('reports/q1.csv')).toBe('/home/reports/q1.csv');
+	});
+
+	it('maps a path inside the user space back to the tree', async () => {
+		const { toStorageVirtualPath } = await loadTools('posix');
+		expect(toStorageVirtualPath('reports/q1.csv')).toBe('/home/reports/q1.csv');
+		expect(toStorageVirtualPath('')).toBe('/home');
+	});
+
+	it('never resolves a mount path against the project folder', async () => {
+		const { toRealPath } = await loadTools('posix');
+		expect(() => toRealPath('/home/reports/q1.csv', PROJECT)).toThrow('in permanent storage');
+	});
+
+	it('hides a project folder that shadows the mount name', async () => {
+		const { isWithinProjectFolder, shouldExcludeEntry } = await loadTools('posix');
+
+		expect(isWithinProjectFolder(`${PROJECT}/home/notes.md`, PROJECT)).toBe(false);
+		expect(shouldExcludeEntry('home', '', PROJECT)).toBe(true);
+	});
+
+	it('keeps a nested folder called home reachable', async () => {
+		const { isWithinProjectFolder, shouldExcludeEntry } = await loadTools('posix');
+
+		expect(isWithinProjectFolder(`${PROJECT}/docs/home/notes.md`, PROJECT)).toBe(true);
+		expect(shouldExcludeEntry('home', 'docs', PROJECT)).toBe(false);
+	});
+});
+
+// ---------------------------------------------------------------------------
 // loadNaoignorePatterns cache invalidation
 // ---------------------------------------------------------------------------
 

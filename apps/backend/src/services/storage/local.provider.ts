@@ -106,10 +106,11 @@ export class LocalStorageProvider implements StorageProvider {
 	}
 
 	/**
-	 * Keys are already sanitised, so this re-check exists to guarantee that no
-	 * path can ever resolve outside the root even if a caller bypasses `keys.ts`.
+	 * Absolute path of a key. Keys are already sanitised, so the containment
+	 * re-check exists to guarantee that no path can ever resolve outside the
+	 * root even if a caller bypasses `keys.ts`.
 	 */
-	private toFilePath(key: string): string {
+	toFilePath(key: string): string {
 		const filePath = path.resolve(this.root, key);
 		const isInsideRoot = filePath === this.root || filePath.startsWith(this.root + path.sep);
 

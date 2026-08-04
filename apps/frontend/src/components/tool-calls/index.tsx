@@ -17,6 +17,7 @@ import { RecordRecommendationToolCall } from './record-recommendation';
 import { SearchToolCall } from './search';
 import { WebFetchToolCall } from './web-fetch';
 import { WebSearchToolCall } from './web-search';
+import { WriteToolCall } from './write';
 import type { StaticToolName, UIToolPart } from '@nao/backend/chat';
 import { getToolName, isToolSettled } from '@/lib/ai';
 import { ToolCallProvider } from '@/contexts/tool-call';
@@ -41,6 +42,7 @@ const toolComponents: Partial<{
 	read: ReadToolCall,
 	read_query_result: ReadQueryResultToolCall,
 	search: SearchToolCall,
+	write: WriteToolCall,
 };
 
 export const dynamicToolComponents = {

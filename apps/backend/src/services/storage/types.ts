@@ -1,5 +1,8 @@
 export type StorageBackend = 'local' | 's3';
 
+/** What the admin configured, including turning permanent storage off entirely. */
+export type StorageBackendSetting = StorageBackend | 'none';
+
 /**
  * Identifies the space a set of files belongs to. Every key is built from a
  * scope, so callers can never reach another user's or project's files.

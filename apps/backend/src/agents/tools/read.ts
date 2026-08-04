@@ -2,7 +2,8 @@ import { readFile } from '@nao/shared/tools';
 import fs from 'fs/promises';
 
 import { ReadOutput, renderToModelOutput } from '../../components/tool-outputs';
-import { toRealPath } from '../../utils/tools';
+import { readUserFile } from '../../services/storage/user-files';
+import { isStoragePath, toRealPath, toStorageRelativePath, toStorageScope } from '../../utils/tools';
 import { createTool } from '../../utils/tools';
 
 export default createTool<readFile.Input, readFile.Output>({
@@ -10,16 +11,14 @@ export default createTool<readFile.Input, readFile.Output>({
 	inputSchema: readFile.InputSchema,
 	outputSchema: readFile.OutputSchema,
 	execute: async ({ file_path }, context) => {
-		const projectFolder = context.projectFolder;
-		const realPath = toRealPath(file_path, projectFolder);
-
-		const content = await fs.readFile(realPath, 'utf-8');
-		const numberOfTotalLines = content.split('\n').length;
+		const content = isStoragePath(file_path)
+			? await readUserFile(toStorageScope(context), toStorageRelativePath(file_path))
+			: await fs.readFile(toRealPath(file_path, context.projectFolder), 'utf-8');
 
 		return {
 			_version: '1' as const,
 			content,
-			numberOfTotalLines,
+			numberOfTotalLines: content.split('\n').length,
 		};
 	},
 

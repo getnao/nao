@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { CheckCircle2, CircleX, Cloud, HardDrive, Info, Loader2, TriangleAlert } from 'lucide-react';
+import { Ban, CheckCircle2, CircleX, Cloud, HardDrive, Info, Loader2, TriangleAlert } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
@@ -12,9 +12,11 @@ export const Route = createFileRoute('/_sidebar-layout/settings/storage')({
 	component: StoragePage,
 });
 
+type StorageBackend = NonNullable<ReturnType<typeof useStorageConfig>['data']>['backend'];
+
 function StoragePage() {
 	const config = useStorageConfig();
-	const health = useStorageHealth();
+	const health = useStorageHealth({ enabled: config.data ? config.data.backend !== 'none' : false });
 
 	if (config.isLoading) {
 		return (
@@ -32,7 +34,7 @@ function StoragePage() {
 		);
 	}
 
-	const { backend, local, s3 } = config.data;
+	const { backend, local, s3, maxFileSizeMb } = config.data;
 
 	return (
 		<SettingsPageWrapper>
@@ -42,19 +44,24 @@ function StoragePage() {
 					<p className='text-sm text-muted-foreground'>
 						Permanent storage is where the agent keeps files that outlive a chat. It is configured once for
 						the whole nao instance through environment variables, and each user gets their own space within
-						every project they belong to.
+						every project they belong to — it appears to the agent as the <Mono>/home</Mono> folder,
+						alongside the project context.
 					</p>
 				</div>
 
-				<HealthCard isLoading={health.isLoading} ok={health.data?.ok} error={health.data?.error} />
+				{backend === 'none' ? (
+					<DisabledNotice />
+				) : (
+					<HealthCard isLoading={health.isLoading} ok={health.data?.ok} error={health.data?.error} />
+				)}
 
 				<SettingsCard title='Configuration' description='Read-only — set through environment variables.'>
 					<DetailRow
 						label='Backend'
 						value={
 							<div className='flex items-center gap-2'>
-								{backend === 's3' ? <Cloud className='size-3.5' /> : <HardDrive className='size-3.5' />}
-								<span>{backend === 's3' ? 'S3-compatible bucket' : 'Local directory'}</span>
+								<BackendIcon backend={backend} />
+								<span>{BACKEND_LABELS[backend]}</span>
 								<EnvBadge />
 							</div>
 						}
@@ -94,12 +101,58 @@ function StoragePage() {
 						</>
 					)}
 
-					<DetailRow label='File layout' value={<Mono>projects/&lt;project&gt;/users/&lt;user&gt;/…</Mono>} />
+					{backend !== 'none' && (
+						<>
+							<DetailRow
+								label='Max file size'
+								value={
+									<div className='flex items-center gap-2'>
+										<span>{maxFileSizeMb} MB</span>
+										<EnvBadge />
+									</div>
+								}
+							/>
+							<DetailRow
+								label='File layout'
+								value={<Mono>projects/&lt;project&gt;/users/&lt;user&gt;/…</Mono>}
+							/>
+						</>
+					)}
 				</SettingsCard>
 
 				{backend === 'local' && <SharedVolumeNotice />}
 			</div>
 		</SettingsPageWrapper>
+	);
+}
+
+const BACKEND_LABELS: Record<StorageBackend, string> = {
+	none: 'Disabled',
+	local: 'Local directory',
+	s3: 'S3-compatible bucket',
+};
+
+function BackendIcon({ backend }: { backend: StorageBackend }) {
+	if (backend === 'none') {
+		return <Ban className='size-3.5' />;
+	}
+	return backend === 's3' ? <Cloud className='size-3.5' /> : <HardDrive className='size-3.5' />;
+}
+
+function DisabledNotice() {
+	return (
+		<div className='flex items-start gap-3 p-4 rounded-xl border border-border bg-muted/30'>
+			<div className='shrink-0 rounded-full p-2 bg-muted text-muted-foreground'>
+				<Ban className='size-4' />
+			</div>
+			<div className='flex flex-col gap-1 min-w-0'>
+				<span className='font-semibold text-foreground'>Permanent storage is off</span>
+				<p className='text-sm text-muted-foreground'>
+					The agent cannot save files, and files saved earlier are not reachable. Set{' '}
+					<Mono>NAO_STORAGE_BACKEND</Mono> to <Mono>local</Mono> or <Mono>s3</Mono> to turn it on.
+				</p>
+			</div>
+		</div>
 	);
 }
 

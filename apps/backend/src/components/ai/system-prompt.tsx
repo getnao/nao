@@ -27,6 +27,13 @@ type SystemPromptProps = {
 	testMode?: boolean;
 	/** Names of the tools in the run's tool set — rules for surface-dependent tools (e.g. display_map) are only emitted when the tool is present. Omit to include every rule. */
 	toolNames?: string[];
+	options?: SystemPromptOptions;
+};
+
+/** What the instance the run executes on can do, when a rule depends on it. */
+type SystemPromptOptions = {
+	/** False when the storage backend has no real filesystem (`s3`), so grep cannot look inside saved files. */
+	canGrepSavedFiles?: boolean;
 };
 
 export const MEMORY_TOKEN_LIMIT = 1000;
@@ -41,7 +48,9 @@ export function SystemPrompt({
 	timezone,
 	testMode,
 	toolNames,
+	options = {},
 }: SystemPromptProps) {
+	const { canGrepSavedFiles = true } = options;
 	const hasTool = (name: string) => !toolNames || toolNames.includes(name);
 	const visibleMemories = getMemoriesInTokenRange(memories, MEMORY_TOKEN_LIMIT);
 	const dialectToolCallRules = getDialectToolCallRules(connections);
@@ -103,6 +112,7 @@ export function SystemPrompt({
 					...dialectToolCallRules,
 				]}
 			</List>
+			{hasTool('write') && <PermanentStorageBlock canGrepSavedFiles={canGrepSavedFiles} />}
 			<Title level={2}>Chart Rules</Title>
 			<List>
 				{hasTool('display_map') && (
@@ -251,6 +261,47 @@ export function SystemPrompt({
 
 				{visibleMemories.length > 0 && <MemoryBlock memories={visibleMemories} />}
 			</Block>
+		</Block>
+	);
+}
+
+function PermanentStorageBlock({ canGrepSavedFiles }: { canGrepSavedFiles: boolean }) {
+	return (
+		<Block>
+			<Title level={2}>Saved Files</Title>
+			<Span>
+				The <Bold>/home</Bold> folder is the user's own space for files that outlive the chat. It is part of the
+				same file tree as the project context, so <Bold>list</Bold>, <Bold>read</Bold> and <Bold>search</Bold>{' '}
+				work on it exactly like anywhere else. It is private to this user in this project.
+			</Span>
+			<List>
+				<ListItem>
+					{canGrepSavedFiles ? (
+						<>
+							<Bold>grep</Bold> also searches inside its files.
+						</>
+					) : (
+						<>
+							<Bold>grep</Bold> cannot look inside <Bold>/home</Bold> on this instance, because saved
+							files live in object storage instead of on a disk. Use <Bold>search</Bold> to find them by
+							name, then <Bold>read</Bold> them to inspect their content.
+						</>
+					)}
+				</ListItem>
+				<ListItem>
+					<Bold>/home</Bold> is the only writable place: use <Bold>write</Bold> when the user asks to keep,
+					export or update something, or when a result is clearly worth reusing later. Everything else in the
+					tree is read-only. Do not save intermediate work nobody asked for.
+				</ListItem>
+				<ListItem>
+					Look in <Bold>/home</Bold> before assuming a file does not exist, and update the existing file
+					instead of creating a near-duplicate.
+				</ListItem>
+				<ListItem>
+					Tell the user the full path of every file you save (e.g. <Bold>/home/exports/churn-2025.csv</Bold>)
+					so they can ask for it again later.
+				</ListItem>
+			</List>
 		</Block>
 	);
 }
