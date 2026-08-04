@@ -1,0 +1,3 @@
+<timestamp>Thursday, Jul 30, 2026, 6:09 PM (UTC+2)</timestamp>
+
+the nao_config parse in TS for the models config does not support env variables syntax supported in python, make it supported
