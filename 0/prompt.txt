@@ -1,0 +1,5 @@
+<timestamp>Thursday, Jul 23, 2026, 10:58 AM (UTC+2)</timestamp>
+
+i want some kind of validation that helps the agent understanding if the templated queries of a story are correctly templating ; for instance ive seen that sometimes the agent write "AND order_date BETWEEN {{ filters.date_range.start }} AND {{ filters.date_range.end }}" or {{ filters.date_range.value }}
+
+when it's not the right syntax, so i want some kind of self-healing for the story, maybe in the story output or elsewhere
