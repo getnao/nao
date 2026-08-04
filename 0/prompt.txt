@@ -1,0 +1,3 @@
+<timestamp>Wednesday, Jul 22, 2026, 4:02 PM (UTC+2)</timestamp>
+
+@chat/apps/frontend/src/components/side-panel/story-code-view.tsx when i double click on a query_id in the code i want the the convo to jump to the corresponding execute_sql (on the sql code)
