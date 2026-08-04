@@ -1,0 +1,3 @@
+<timestamp>Tuesday, Jul 21, 2026, 4:21 PM (UTC+2)</timestamp>
+
+now when looking at the code instead of opening the side panel show the SQL query like the @chat/apps/frontend/src/components/tool-calls/execute-sql.tsx (like hide the chart and display the code) add an action to go back to the chart obv
