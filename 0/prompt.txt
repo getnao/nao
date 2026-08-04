@@ -1,0 +1,734 @@
+<external_links>
+### Potentially Relevant Websearch Results
+
+You should respond as if these information are known to you. Refrain from saying "I am unable to browse the internet" or "I don't have access to the internet" or "I'm unable to provide real-time news updates". This is your internet search results. Please always cite any links you referenced from the above search results in your response in markdown format.
+
+-------
+Website URL: https://github.com/getnao/nao/pull/1054
+Website Title: [fix:deps] re-align dev & prod dependency installs by socallmebertille · Pull Request #1054 · getnao/nao · GitHub
+Website Content:
+Skip to content 
+
+## Navigation Menu
+
+Toggle navigation 
+
+ Sign in 
+
+Appearance settings 
+
+* Platform  
+   * AI CODE CREATION  
+         * GitHub CopilotWrite better code with AI  
+         * GitHub Copilot appDirect agents from issue to merge  
+         * MCP RegistryNewIntegrate external tools  
+   * DEVELOPER WORKFLOWS  
+         * ActionsAutomate any workflow  
+         * CodespacesInstant dev environments  
+         * IssuesPlan and track work  
+         * Code ReviewManage code changes  
+   * APPLICATION SECURITY  
+         * GitHub Advanced SecurityFind and fix vulnerabilities  
+         * Code securitySecure your code as you build  
+         * Secret protectionStop leaks before they start  
+   * EXPLORE  
+         * Why GitHub  
+         * Documentation  
+         * Blog  
+         * Changelog  
+         * Marketplace  
+View all features
+* Solutions  
+   * BY COMPANY SIZE  
+         * Enterprises  
+         * Small and medium teams  
+         * Startups  
+         * Nonprofits  
+   * BY USE CASE  
+         * App Modernization  
+         * DevSecOps  
+         * DevOps  
+         * CI/CD  
+         * View all use cases  
+   * BY INDUSTRY  
+         * Healthcare  
+         * Financial services  
+         * Manufacturing  
+         * Government  
+         * View all industries  
+View all solutions
+* Resources  
+   * EXPLORE BY TOPIC  
+         * AI  
+         * Software Development  
+         * DevOps  
+         * Security  
+         * View all topics  
+   * EXPLORE BY TYPE  
+         * Customer stories  
+         * Events & webinars  
+         * Ebooks & reports  
+         * Business insights  
+         * GitHub Skills  
+   * SUPPORT & SERVICES  
+         * Documentation  
+         * Customer support  
+         * Community forum  
+         * Trust center  
+         * Partners  
+View all resources
+* Open Source  
+   * COMMUNITY  
+         * GitHub SponsorsFund open source developers  
+   * PROGRAMS  
+         * Security Lab  
+         * Maintainer Community  
+         * Accelerator  
+         * GitHub Stars  
+         * Archive Program  
+   * REPOSITORIES  
+         * Topics  
+         * Trending  
+         * Collections
+* Enterprise  
+   * ENTERPRISE SOLUTIONS  
+         * Enterprise platformAI-powered developer platform  
+   * AVAILABLE ADD-ONS  
+         * GitHub Advanced SecurityEnterprise-grade security features  
+         * Copilot for BusinessEnterprise-grade AI features  
+         * Premium SupportEnterprise-grade 24/7 support
+* Pricing
+
+Search or jump to... 
+
+# Search code, repositories, users, issues, pull requests...
+
+ Search 
+
+Clear 
+
+Search syntax tips 
+
+#  Provide feedback
+
+We read every piece of feedback, and take your input very seriously.
+
+Include my email address so I can be contacted 
+
+ Cancel  Submit feedback 
+
+#  Saved searches
+
+## Use saved searches to filter your results more quickly
+
+Name 
+
+Query 
+
+ To see all available qualifiers, see our documentation.
+
+ Cancel  Create saved search 
+
+ Sign in 
+
+ Sign up 
+
+Appearance settings 
+
+Resetting focus 
+
+You signed in with another tab or window. Reload to refresh your session. You signed out in another tab or window. Reload to refresh your session. You switched accounts on another tab or window. Reload to refresh your session. Dismiss alert 
+
+{{ message }}
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+ getnao / **nao** Public 
+
+* Notifications You must be signed in to change notification settings
+* Fork199
+* Star 1.4k
+
+* Code
+* Issues 136
+* Pull requests 13
+* Discussions
+* Actions
+* Projects
+* Security and quality 0
+* Insights
+
+Additional navigation options 
+
+* Code
+* Issues
+* Pull requests
+* Discussions
+* Actions
+* Projects
+* Security and quality
+* Insights
+
+# \[fix:deps\] re-align dev & prod dependency installs#1054
+
+Merged
+
+Bl3f merged 3 commits into
+
+maingetnao/nao:mainfrom 
+
+fix/npm-ci-lockfile-zodgetnao/nao:fix/npm-ci-lockfile-zodCopy head branch name to clipboard
+
+Jul 6, 2026
+
+ConversationCommits3 (3)ChecksFiles changed
+
+Merged
+
+## 
+
+\[fix:deps\] re-align dev & prod dependency installs#1054
+
+Bl3f merged 3 commits into
+
+maingetnao/nao:mainfrom 
+
+fix/npm-ci-lockfile-zodgetnao/nao:fix/npm-ci-lockfile-zodCopy head branch name to clipboard
+
+## Conversation
+
+@socallmebertille 
+
+### 
+
+@socallmebertille **socallmebertille**  commentedJul 3, 2026 • 
+
+ edited 
+
+Loading 
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+ Copy link  Copy Markdown 
+
+Contributor 
+
+## Summary
+
+* production and local dev were installing dependencies in two different ways, which sometimes pulled slightly different package versions and caused bugs that only showed up in production (e.g. the recent input schema issue of zod/streamdown)
+* switched the Docker build from `bun` install back to `npm ci`, so everything installs from a single source of truth (= package-lock.json)
+* bumped Node to 24.18.0 in `.nvmrc` (matching the Docker prod image), which ships npm 11.16.0 natively — so dev, CI and prod now run the same Node and npm with no manual upgrade needed  
+restored the engines guardrail (node >=24.18.0, npm >=11.11.0), now that Node and npm versions are consistent everywhere
+* bumped `boxlite` (0.3.0 → 0.9.7) : the old version listed platform binaries that were never published, which broke npm ci — the new version fixes that and also adds Linux/ARM support
+
+Review in cubic
+
+ Sorry, something went wrong.
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+👀 1 cursor\[bot\] reacted with eyes emoji 
+
+All reactions 
+* 👀 1 reaction
+
+@socallmebertille 
+
+`deploy the correct versions to ensure consistency in both development… `  … 
+
+`19b3a79 ` 
+
+… and production environments
+
+@socallmebertille socallmebertille self-assigned thisJul 3, 2026 
+
+@github-actions 
+
+### 
+
+**github-actions Bot**  commentedJul 3, 2026 • 
+
+ edited 
+
+Loading 
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+ Copy link  Copy Markdown 
+
+Contributor 
+
+| 🧹 Preview Removed The preview deployment for this PR has been cleaned up. |
+| -------------------------------------------------------------------------- |
+
+All reactions 
+
+ Sorry, something went wrong.
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+cubic-dev-ai[bot] 
+
+**cubic-dev-ai Bot**  reviewed Jul 3, 2026 
+
+View reviewed changes 
+
+### 
+
+@cubic-dev-ai **cubic-dev-ai Bot**  left a comment • 
+
+ edited 
+
+Loading 
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+ Copy link  Copy Markdown 
+
+Contributor 
+
+There was a problem hiding this comment.
+
+### Choose a reason for hiding this comment
+
+ The reason will be displayed to describe this comment to others. Learn more.
+
+ Choose a reason Spam Abuse Off Topic Outdated Duplicate Resolved Low Quality Hide comment 
+
+**2 issues found** across 7 files
+
+**Tip**: cubic can generate docs of your entire codebase and keep them up to date. Try it here.  
+  
+Re-trigger cubic
+
+ Sorry, something went wrong.
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+All reactions 
+
+Comment thread Dockerfile  Outdated Show resolved Hide resolved 
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+Comment thread package.json  Outdated Show resolved Hide resolved 
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+cursor[bot] 
+
+**cursor Bot**  reviewed Jul 3, 2026 
+
+View reviewed changes 
+
+### 
+
+@cursor **cursor Bot**  left a comment • 
+
+ edited 
+
+Loading 
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+ Copy link  Copy Markdown 
+
+Contributor 
+
+There was a problem hiding this comment.
+
+### Choose a reason for hiding this comment
+
+ The reason will be displayed to describe this comment to others. Learn more.
+
+ Choose a reason Spam Abuse Off Topic Outdated Duplicate Resolved Low Quality Hide comment 
+
+Stale comment 
+
+> 
+
+ Sorry, something went wrong.
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+All reactions 
+
+Comment thread Dockerfile Show resolved Hide resolved 
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+@socallmebertille 
+
+`fix: align dev & prod dependencies by restoring npm ci and standardiz… `  … 
+
+`96d13ec ` 
+
+…ing Node/npm versions
+
+cubic-dev-ai[bot] 
+
+**cubic-dev-ai Bot**  reviewed Jul 3, 2026 
+
+View reviewed changes 
+
+### 
+
+@cubic-dev-ai **cubic-dev-ai Bot**  left a comment • 
+
+ edited 
+
+Loading 
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+ Copy link  Copy Markdown 
+
+Contributor 
+
+There was a problem hiding this comment.
+
+### Choose a reason for hiding this comment
+
+ The reason will be displayed to describe this comment to others. Learn more.
+
+ Choose a reason Spam Abuse Off Topic Outdated Duplicate Resolved Low Quality Hide comment 
+
+**1 issue found across 5 files (changes from recent commits).**
+
+Reply with feedback, questions, or to request a fix.  
+  
+Re-trigger cubic
+
+ Sorry, something went wrong.
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+All reactions 
+
+Comment thread Dockerfile  Outdated Show resolved Hide resolved 
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+@socallmebertille 
+
+`fix from cubic review ` 
+
+`57f7901 ` 
+
+Hide details View details @Bl3f Bl3f merged commit 7e67ef9 into main Jul 6, 2026 
+
+ 5 checks passed
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+@Bl3f Bl3f deleted the  fix/npm-ci-lockfile-zod  branchJuly 6, 2026 09:13 
+
+ This file contains hidden or bidirectional Unicode text that may be interpreted or compiled differently than what appears below. To review, open the file in an editor that reveals hidden Unicode characters.Learn more about bidirectional Unicode characters 
+
+ Show hidden characters 
+
+Sign up for free **to join this conversation on GitHub**. Already have an account?Sign in to comment 
+
+###  Reviewers
+
+@cubic-dev-ai cubic-dev-ai\[bot\] cubic-dev-ai\[bot\] left review comments 
+
+@cursor cursor\[bot\] cursor\[bot\] left review comments 
+
+###  Assignees
+
+@socallmebertille socallmebertille 
+
+###  Labels
+
+ None yet
+
+###  Projects
+
+ None yet 
+
+###  Milestone
+
+ No milestone
+
+###  Development
+
+Successfully merging this pull request may close these issues.
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+###  2 participants
+
+@socallmebertille @Bl3f 
+
+Add this suggestion to a batch that can be applied as a single commit.This suggestion is invalid because no changes were made to the code.Suggestions cannot be applied while the pull request is closed.Suggestions cannot be applied while viewing a subset of changes.Only one suggestion per line can be applied in a batch.Add this suggestion to a batch that can be applied as a single commit.Applying suggestions on deleted lines is not supported.You must change the existing code in this line in order to create a valid suggestion.Outdated suggestions cannot be applied.This suggestion has been applied or marked resolved.Suggestions cannot be applied from pending reviews.Suggestions cannot be applied on multi-line comments.Suggestions cannot be applied while the pull request is queued to merge.Suggestion cannot be applied right now. Please check back later.
+
+## Footer
+
+ © 2026 GitHub, Inc. 
+
+### Footer navigation
+
+* Terms
+* Privacy
+* Security
+* Status
+* Community
+* Docs
+* Contact
+* Manage cookies
+* Do not share my personal information
+
+ You can’t perform that action at this time.
+____
+
+Website URL: https://github.com/getnao/nao/actions/runs/28780890760/job/85335950127
+Website Title: [fix:deps] re-align dev & prod dependency installs (#1054) · getnao/nao@7e67ef9 · GitHub
+Website Content:
+Skip to content 
+
+## Navigation Menu
+
+Toggle navigation 
+
+ Sign in 
+
+Appearance settings 
+
+* Platform  
+   * AI CODE CREATION  
+         * GitHub CopilotWrite better code with AI  
+         * GitHub Copilot appDirect agents from issue to merge  
+         * MCP RegistryNewIntegrate external tools  
+   * DEVELOPER WORKFLOWS  
+         * ActionsAutomate any workflow  
+         * CodespacesInstant dev environments  
+         * IssuesPlan and track work  
+         * Code ReviewManage code changes  
+   * APPLICATION SECURITY  
+         * GitHub Advanced SecurityFind and fix vulnerabilities  
+         * Code securitySecure your code as you build  
+         * Secret protectionStop leaks before they start  
+   * EXPLORE  
+         * Why GitHub  
+         * Documentation  
+         * Blog  
+         * Changelog  
+         * Marketplace  
+View all features
+* Solutions  
+   * BY COMPANY SIZE  
+         * Enterprises  
+         * Small and medium teams  
+         * Startups  
+         * Nonprofits  
+   * BY USE CASE  
+         * App Modernization  
+         * DevSecOps  
+         * DevOps  
+         * CI/CD  
+         * View all use cases  
+   * BY INDUSTRY  
+         * Healthcare  
+         * Financial services  
+         * Manufacturing  
+         * Government  
+         * View all industries  
+View all solutions
+* Resources  
+   * EXPLORE BY TOPIC  
+         * AI  
+         * Software Development  
+         * DevOps  
+         * Security  
+         * View all topics  
+   * EXPLORE BY TYPE  
+         * Customer stories  
+         * Events & webinars  
+         * Ebooks & reports  
+         * Business insights  
+         * GitHub Skills  
+   * SUPPORT & SERVICES  
+         * Documentation  
+         * Customer support  
+         * Community forum  
+         * Trust center  
+         * Partners  
+View all resources
+* Open Source  
+   * COMMUNITY  
+         * GitHub SponsorsFund open source developers  
+   * PROGRAMS  
+         * Security Lab  
+         * Maintainer Community  
+         * Accelerator  
+         * GitHub Stars  
+         * Archive Program  
+   * REPOSITORIES  
+         * Topics  
+         * Trending  
+         * Collections
+* Enterprise  
+   * ENTERPRISE SOLUTIONS  
+         * Enterprise platformAI-powered developer platform  
+   * AVAILABLE ADD-ONS  
+         * GitHub Advanced SecurityEnterprise-grade security features  
+         * Copilot for BusinessEnterprise-grade AI features  
+         * Premium SupportEnterprise-grade 24/7 support
+* Pricing
+
+Search or jump to... 
+
+# Search code, repositories, users, issues, pull requests...
+
+ Search 
+
+Clear 
+
+Search syntax tips 
+
+#  Provide feedback
+
+We read every piece of feedback, and take your input very seriously.
+
+Include my email address so I can be contacted 
+
+ Cancel  Submit feedback 
+
+#  Saved searches
+
+## Use saved searches to filter your results more quickly
+
+Name 
+
+Query 
+
+ To see all available qualifiers, see our documentation.
+
+ Cancel  Create saved search 
+
+ Sign in 
+
+ Sign up 
+
+Appearance settings 
+
+Resetting focus 
+
+You signed in with another tab or window. Reload to refresh your session. You signed out in another tab or window. Reload to refresh your session. You switched accounts on another tab or window. Reload to refresh your session. Dismiss alert 
+
+{{ message }}
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+ getnao / **nao** Public 
+
+* Notifications You must be signed in to change notification settings
+* Fork199
+* Star 1.4k
+
+* Code
+* Issues 136
+* Pull requests 13
+* Discussions
+* Actions
+* Projects
+* Security and quality 0
+* Insights
+
+Additional navigation options 
+
+* Code
+* Issues
+* Pull requests
+* Discussions
+* Actions
+* Projects
+* Security and quality
+* Insights
+
+ Publish to PyPI 
+
+#  \[fix:deps\] re-align dev & prod dependency installs (#1054) #93 
+
+Sign in to view logs 
+
+* Sign in to view logs
+
+## 
+
+ build (macos-15-intel, darwin, x64, macosx\_15\_0\_x86\_64) 
+
+#  \[fix:deps\] re-align dev & prod dependency installs (#1054)
+
+## 
+
+ \[fix:deps\] re-align dev & prod dependency installs (#1054) #93 
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+## Annotations
+
+1 error and 1 warning
+
+| [ **Install npm dependencies** ](#annotation:10:15) Process completed with exit code 1. Show more Show less                                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [ **Complete job** ](#annotation:31:2) Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, actions/setup-python@v5, astral-sh/setup-uv@v5\. For more information see: <https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/> Show more Show less |
+
+####  build (macos-15-intel, darwin, x64, macosx\_15\_0\_x86\_64) 
+
+build (macos-15-intel, darwin, x64, macosx\_15\_0\_x86\_64) 
+
+ failedJul 6, 2026 in 23s 
+
+background wait wait-all cancel parallel 
+
+Loading 
+
+#### Re-running jobs...
+
+ You can’t perform that action at this time.
+____
+
+</external_links>
+<timestamp>Monday, Jul 6, 2026, 11:18 AM (UTC+2)</timestamp>
+
+i just merged https://github.com/getnao/nao/pull/1054 i think it breaks the ci cf. https://github.com/getnao/nao/actions/runs/28780890760/job/85335950127  for the @chat/.github/workflows/publish.yml
