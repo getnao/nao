@@ -1,0 +1,7 @@
+<timestamp>Tuesday, Aug 4, 2026, 2:53 PM (UTC+2)</timestamp>
+
+add the capabilities to upload other kind of file in a chat (pdf, csv, excel, etc.) that lands in the permanent-storage ; unify this with the already existing image workflow
+
+the issue is that image most of the time have to been interpreted by the llm whereas for other kind of files we don't do llm interpretation because it could explode the context window
+
+image might still be uploaded in the database?
