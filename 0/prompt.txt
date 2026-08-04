@@ -1,0 +1,15 @@
+<timestamp>Monday, Aug 3, 2026, 10:48 AM (UTC+2)</timestamp>
+
+@/Users/blef/Work/naolabs/chat-duckdb-fix/cli/nao_core/native.py Check if this issue is valid — if so, understand the root cause and fix it. At cli/nao_core/native.py, line 112:
+
+<comment>A structurally corrupted `native-deps.json` can now prevent `nao chat` from starting: `load_manifest()` catches malformed JSON but not invalid JSON structure or missing dataclass fields, and `native.node_path()` is called before the servers launch. Validating the decoded list/entries and treating schema errors as an unavailable manifest would preserve the intended fallback behavior.</comment>
+
+<file context>
+@@ -0,0 +1,195 @@
++    except (json.JSONDecodeError, OSError):
++        return []
++
++    return [NativePackage(**entry) for entry in entries]
++
++
+</file context>
