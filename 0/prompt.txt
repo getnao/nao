@@ -1,0 +1,5 @@
+<timestamp>Thursday, Jul 30, 2026, 2:37 PM (UTC+2)</timestamp>
+
+when doing nao test with multimodel it's hard to see the performance per model
+
+improve the output in the CLI and also what "nao server" serves so you can see the perf per model
