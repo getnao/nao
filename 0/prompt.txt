@@ -1,0 +1,15 @@
+<timestamp>Tuesday, Jul 28, 2026, 9:24 AM (UTC+2)</timestamp>
+
+@chat/cli/nao_core/commands/migrate.py Check if this issue is valid — if so, understand the root cause and fix it. At cli/nao_core/commands/migrate.py, line 112:
+
+<comment>A blank line immediately below `llm:` causes valid legacy configurations to be silently treated as already migrated. Deriving the property indentation from the first nonblank/noncomment line, and using that same indentation for `providers`, would handle this formatting.</comment>
+
+<file context>
+@@ -0,0 +1,156 @@
++
++def _group_by_key(block: list[str]) -> list[tuple[str, list[str]]]:
++    """Split a mapping block into one group per key, keeping nested lines and comments attached."""
++    indent = _indent_width(block[0])
++    groups: list[tuple[str, list[str]]] = []
++    pending: list[str] = []
+</file context>
