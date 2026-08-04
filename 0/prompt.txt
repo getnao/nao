@@ -1,0 +1,5 @@
+<timestamp>Tuesday, Jul 28, 2026, 10:27 AM (UTC+2)</timestamp>
+
+@chat/apps/backend/src/utils/sql-filter.ts find a vuln in this isReadOnlySqlQuery so i can write a query that would pass the filter but not being read only
+
+(im doing this to identify issues in my code)
