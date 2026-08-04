@@ -1,0 +1,54 @@
+<timestamp>Friday, Jul 17, 2026, 11:59 AM (UTC+2)</timestamp>
+
+dont know why i cant start my backend again
+
+> npm-run-all -lp dev:backend dev:frontend dev:fastapi
+
+[dev:backend ] 
+[dev:backend ] > dev:backend
+[dev:backend ] > npm run dev -w @nao/backend
+[dev:backend ] 
+[dev:fastapi ] 
+[dev:fastapi ] > dev:fastapi
+[dev:fastapi ] > npm run fastapi -w @nao/backend
+[dev:fastapi ] 
+[dev:frontend] 
+[dev:frontend] > dev:frontend
+[dev:frontend] > npm run dev -w @nao/frontend
+[dev:frontend] 
+[dev:frontend] 
+[dev:frontend] > dev
+[dev:frontend] > vite --port 3000
+[dev:frontend] 
+[dev:backend ] 
+[dev:backend ] > dev
+[dev:backend ] > bun --watch src/index.ts
+[dev:backend ] 
+[dev:fastapi ] 
+[dev:fastapi ] > fastapi
+[dev:fastapi ] > cd ../../cli && uv run ../apps/backend/fastapi/main.py
+[dev:fastapi ] 
+[dev:frontend] 
+[dev:frontend]   VITE v7.3.2  ready in 750 ms
+[dev:frontend] 
+[dev:frontend]   ➜  Local:   http://localhost:3000/
+[dev:frontend]   ➜  Network: use --host to expose
+[dev:frontend]   ➜  press h + enter to show help
+[dev:backend ] ◇ injected env (49) from ../../.env // tip: ◈ secrets for agents [www.dotenvx.com]
+[dev:backend ] Static root: /Users/blef/Work/naolabs/chat/apps/frontend/dist
+[dev:backend ] [license] NAO_LICENSE has expired.
+[dev:backend ] [WARN] [system] NAO_LICENSE for christophe-local (8df99d95-e89d-4a69-8a54-9c785a204139) expired on 2026-06-29; enterprise features are disabled
+[dev:backend ] [license] 8df99d95-e89d-4a69-8a54-9c785a204139 reported as inactive (revoked or expired)
+[dev:backend ] 
+[dev:backend ] ❌ Server failed to start:
+[dev:backend ] 
+[dev:backend ]    Failed to start server. Is port 5005 in use?
+[dev:backend ] 
+[dev:backend ] npm error Lifecycle script `dev` failed with error:
+[dev:backend ] npm error code 1
+[dev:backend ] npm error path /Users/blef/Work/naolabs/chat/apps/backend
+[dev:backend ] npm error workspace @nao/backend
+[dev:backend ] npm error location /Users/blef/Work/naolabs/chat/apps/backend
+[dev:backend ] npm error command failed
+[dev:backend ] npm error command sh -c bun --watch src/index.ts
+ERROR: "dev:backend" exited with 1.
