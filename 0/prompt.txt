@@ -1,0 +1,3 @@
+<timestamp>Tuesday, Jul 21, 2026, 10:36 PM (UTC+2)</timestamp>
+
+Briefly inform the user about the task result and perform any follow-up actions (if needed). If there's no follow-ups needed, don't explicitly say that.
