@@ -5,7 +5,6 @@ import {
 	CONTEXT_RECOMMENDATION_CATEGORIES,
 	CONTEXT_RECOMMENDATION_FIX_TARGETS,
 	CONTEXT_RECOMMENDATION_ROOT_CAUSE_KINDS,
-	CONTEXT_RECOMMENDATION_SEVERITIES,
 	CONTEXT_RECOMMENDATION_SIGNAL_TYPES,
 } from '../../types/context-recommendation';
 import { createTool } from '../../utils/tools';
@@ -33,9 +32,8 @@ const RecordSchema = z.object({
 	subjectKey: z
 		.string()
 		.describe(
-			'Stable identifier of the FIX to apply, not the symptom observed. Findings that share one root cause must share one subjectKey so they collapse into a single recommendation (e.g. "read-columns-before-query"). Use a table/column name only when that column itself is the thing being corrected (e.g. a data_model metadata fix), never to split one shared rule gap across the tables it affected — those go in insights.',
+			'Stable identifier of the concrete fix to apply — the edit a maintainer would make — not the observed symptom nor the diagnosed root cause. This is the grouping key: two findings share it only when a single edit would resolve both, and they then collapse into one recommendation with each occurrence recorded as an insight; findings that each need their own independent edit get their own key, even when they trace back to the same root cause. Prefer a normalized verb-plus-target slug naming the specific thing changed.',
 		),
-	severity: z.enum(CONTEXT_RECOMMENDATION_SEVERITIES),
 	category: z.enum(CONTEXT_RECOMMENDATION_CATEGORIES),
 	rootCause: z
 		.string()
@@ -54,7 +52,11 @@ const RecordSchema = z.object({
 		.describe(
 			'Which nao resource to change: rules (RULES.md guidance), data_model (table/column metadata), doc (prose docs), skill (a reusable agent skill), metric (a semantic-layer metric definition).',
 		),
-	title: z.string().describe('Short label naming the gap (max ~10 words). The WHAT — not the cause, impact, or fix.'),
+	title: z
+		.string()
+		.describe(
+			'Plain-language title a non-technical business user understands at a glance: name the PROBLEM as it is observed (what visibly goes wrong), not your conclusion about its cause (that belongs in rootCause) and not a technical fix statement. Synthesize it into one natural phrase and avoid technical identifiers. Hard rules: NO dashes, em-dashes, or "identifier:" prefixes appending detail; NO counts, metrics, time windows, file paths, or raw tool/table/column/argument names. Examples: write "Chart tool call with wrong arguments" instead of "display_chart: donut chart type missing x_axis_type — 1 failure this window"; write "Call of a table that doesn\'t exist returns an error" instead of "dim_countries: phantom table — 404 errors when agent tries lat/lon joins"; write "Audit queries fail on a column that does not exist" instead of "v_messages primary key is id, not message_id"; write "Previously diagnosed fixes are never applied" instead of "RULES.md too minimal".',
+		),
 	summary: z
 		.string()
 		.describe(
@@ -89,7 +91,7 @@ export function createRecommendationCollector(): RecommendationCollector {
 
 	const recordTool = createTool<RecordInput, Ack>({
 		description:
-			'Record one diagnostic recommendation per distinct fix (a file + the correction to make). Call once per root cause, not once per affected table/column — attach every symptom of that root cause as insights on the same recommendation.',
+			'Record one recommendation per concrete fix — the smallest edit that resolves the finding — grouping by that fix rather than by root cause. When one root cause decomposes into several independent edits, record several recommendations; when a single edit resolves a pattern seen across many chats, record one recommendation and attach each occurrence as an insight.',
 		inputSchema: RecordSchema,
 		execute: async (input) => {
 			recorded.push(input);

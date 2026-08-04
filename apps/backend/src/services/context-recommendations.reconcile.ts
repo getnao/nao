@@ -4,17 +4,16 @@ import {
 	ContextRecommendationCategory,
 	ContextRecommendationFixTarget,
 	ContextRecommendationRootCauseKind,
-	ContextRecommendationSeverity,
 	ContextRecommendationStatus,
 	RecommendationImpact,
 	RecommendationInsight,
+	TriggerRef,
 	WindowTotals,
 } from '../types/context-recommendation';
 
 export interface ProposedFinding {
 	suggestedFile: string;
 	subjectKey: string;
-	severity: ContextRecommendationSeverity;
 	category: ContextRecommendationCategory;
 	rootCause: string;
 	rootCauseKind?: ContextRecommendationRootCauseKind;
@@ -50,6 +49,80 @@ export type ReconcileAction =
 			reopen: boolean;
 	  }
 	| { kind: 'resolve'; id: string };
+
+/** Every unique trigger target id (message id or tool call id) referenced by the insights. */
+export function collectTriggerTargetIds(items: { insights: RecommendationInsight[] }[]): string[] {
+	const targetIds = new Set<string>();
+	for (const item of items) {
+		for (const insight of item.insights) {
+			for (const ref of insight.triggerRefs ?? []) {
+				if (ref.targetId) {
+					targetIds.add(ref.targetId);
+				}
+			}
+		}
+	}
+	return [...targetIds];
+}
+
+/** Every unique chatId referenced by the insights. */
+export function collectTriggerChatIds(items: { insights: RecommendationInsight[] }[]): string[] {
+	const chatIds = new Set<string>();
+	for (const item of items) {
+		for (const insight of item.insights) {
+			for (const ref of insight.triggerRefs ?? []) {
+				chatIds.add(ref.chatId);
+			}
+		}
+	}
+	return [...chatIds];
+}
+
+/**
+ * Repairs the trigger refs of recommendation insights against the database. The
+ * recording agent occasionally transcribes a chatId incorrectly, which breaks the chat
+ * replay link. When a ref carries a targetId that resolves to a real chat, that chat is
+ * authoritative; otherwise the recorded chatId is kept only when it exists in the
+ * project. Refs that resolve to nothing are dropped.
+ */
+export function repairTriggerRefs<T extends { insights: RecommendationInsight[] }>(
+	items: T[],
+	resolvedByTarget: Map<string, string>,
+	validChatIds: Set<string>,
+): T[] {
+	return items.map((item) => ({
+		...item,
+		insights: item.insights.map((insight) => ({
+			...insight,
+			triggerRefs: insight.triggerRefs
+				? repairRefs(insight.triggerRefs, resolvedByTarget, validChatIds)
+				: insight.triggerRefs,
+		})),
+	}));
+}
+
+function repairRefs(
+	refs: TriggerRef[],
+	resolvedByTarget: Map<string, string>,
+	validChatIds: Set<string>,
+): TriggerRef[] {
+	const repaired: TriggerRef[] = [];
+	const seen = new Set<string>();
+	for (const ref of refs) {
+		const resolvedChatId = ref.targetId ? resolvedByTarget.get(ref.targetId) : undefined;
+		const chatId = resolvedChatId ?? (validChatIds.has(ref.chatId) ? ref.chatId : undefined);
+		if (!chatId) {
+			continue;
+		}
+		const key = `${chatId}\u0000${ref.targetId ?? ''}`;
+		if (seen.has(key)) {
+			continue;
+		}
+		seen.add(key);
+		repaired.push({ chatId, targetId: ref.targetId });
+	}
+	return repaired;
+}
 
 export function fingerprintFor(suggestedFile: string, subjectKey: string): string {
 	return createHash('sha256').update(`${suggestedFile} ${subjectKey}`).digest('hex');

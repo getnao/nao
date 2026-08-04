@@ -1686,13 +1686,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "severity": {
-          "name": "severity",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'medium'"
-        },
         "impact_score": {
           "name": "impact_score",
           "type": "integer",

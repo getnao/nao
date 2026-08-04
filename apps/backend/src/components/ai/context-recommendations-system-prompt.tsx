@@ -124,6 +124,23 @@ function ContextRecommendationsSystemPrompt({
 					Each finding must have a <Code>category</Code>, a one-sentence <Code>rootCause</Code>, an optional{' '}
 					<Code>rootCauseKind</Code>, and an optional <Code>fixTarget</Code>.
 				</Span>
+				<Title level={3}>One recommendation per fix, not per root cause</Title>
+				<Span>
+					The unit of a recommendation is the <Bold>fix</Bold> — the single concrete change that resolves it —
+					never the root cause. Two rules follow: split a shared root cause into one recommendation per fix
+					whenever it decomposes into several independent edits that could each be authored by a different
+					owner; and collapse repeated symptoms into one recommendation whenever a single edit resolves every
+					occurrence, attaching each occurrence as an insight instead of recording it separately.
+				</Span>
+				<Span>
+					The destination file is not the unit: edits that would live in the same file — even one that does
+					not exist yet — are still distinct fixes when each can be written on its own. A missing semantics
+					layer is the trap: never record one finding that bundles several undefined metrics. Record{' '}
+					<Bold>one recommendation per undefined metric, dimension, or concept</Bold>, since each is defined
+					independently and often by a different owner. And never add an umbrella finding on top of the split
+					ones: a recommendation whose scope is just the union of others you already recorded is a duplicate —
+					the set of individual findings is the complete finding.
+				</Span>
 				<Title level={3}>Category</Title>
 				<List>
 					<ListItem>
@@ -204,7 +221,11 @@ function ContextRecommendationsSystemPrompt({
 				</List>
 				<List>
 					<ListItem>
-						<Code>title</Code> — <Bold>WHAT</Bold>: a short label naming the gap (max ~8 words).
+						<Code>title</Code> — <Bold>WHAT</Bold>: one plain-language phrase a non-technical user grasps at
+						a glance, naming the <Bold>problem as observed</Bold>, not its cause or fix. Rewrite technical
+						identifiers as everyday words; no backticks, no dashes or &quot;identifier:&quot; prefixes, no
+						counts, file paths, or raw tool/table/column names. (See the <Code>record_recommendation</Code>{' '}
+						schema for worked examples.)
 					</ListItem>
 					<ListItem>
 						<Code>summary</Code> — <Bold>IMPACT</Bold>: one sentence on the observable symptom and how
@@ -219,6 +240,40 @@ function ContextRecommendationsSystemPrompt({
 					<ListItem>
 						<Code>suggestedAction</Code> — <Bold>HOW</Bold>: one imperative sentence naming the file and the
 						change; do not re-explain the problem.
+					</ListItem>
+				</List>
+			</Block>
+
+			<Block separator={'\n'}>
+				<Title level={2}>Out of scope — do not record</Title>
+				<Span>
+					Only recommend improvements to the <Bold>project context</Bold> the user owns and can act on:{' '}
+					<Code>RULES.md</Code>, <Code>semantics/**</Code>, <Code>docs/**</Code>, <Code>databases/**</Code>,
+					skills under <Code>agent/skills/**</Code>, and upstream source in <Code>repos/&lt;name&gt;/**</Code>
+					. Never record a finding whose real cause is a <Bold>nao platform or runtime bug</Bold> — the
+					behaviour of nao&apos;s own tools, agent, chat UI, skill loader, or model — because no context edit
+					can fix it and it only creates noise.
+				</Span>
+				<List>
+					<ListItem>
+						Before recording, ask:{' '}
+						<Bold>would adding or correcting a context file actually prevent this?</Bold> If the failure
+						looks like a product malfunction (truncated or dropped output, a tool crashing regardless of how
+						it was called, a feature not doing what it promises), it is a nao bug — do not record it as a
+						context gap. A tool that errors because the agent called it wrong is not a nao bug but a{' '}
+						<Code>tool_error</Code> finding.
+					</ListItem>
+					<ListItem>
+						Do not assume a missing file is the cause just because a feature failed. Only record a
+						missing-skill or missing-doc finding when the evidence shows the agent genuinely lacked
+						guidance, not that an existing capability misbehaved at runtime.
+					</ListItem>
+					<ListItem>
+						<Bold>Never record your own audit tooling</Bold>: errors from the queries <Bold>you</Bold> run
+						during this audit — <Code>query_app_db</Code> against nao&apos;s internal views (
+						<Code>v_messages</Code>, <Code>v_memories</Code>, …) or your own <Code>read</Code>/
+						<Code>grep</Code> calls — are never findings. They mine the project context; they are not part
+						of it. If one of your queries fails, fix your query and continue.
 					</ListItem>
 				</List>
 			</Block>

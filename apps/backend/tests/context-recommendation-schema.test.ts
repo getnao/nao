@@ -55,7 +55,6 @@ describe('context recommendation schema', () => {
 
 		expect(rec.status).toBe('open');
 		expect(rec.occurrenceCount).toBe(1);
-		expect(rec.severity).toBe('medium');
 		expect(rec.insights).toHaveLength(1);
 		expect(rec.insights[0].signalType).toBe('tool_error');
 		expect(rec.impact?.affectedChats).toBe(8);

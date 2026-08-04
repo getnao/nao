@@ -16,17 +16,20 @@ import { db, type DBExecutor } from '../db/db';
 import * as chatQueries from '../queries/chat.queries';
 import * as crQueries from '../queries/context-recommendation.queries';
 import * as projectQueries from '../queries/project.queries';
-import { DEFAULT_MAX_AUTO_PRS_PER_RUN } from '../types/context-recommendation';
+import { DEFAULT_MAX_AUTO_PRS_PER_RUN, RecommendationInsight } from '../types/context-recommendation';
 import { logger } from '../utils/logger';
 import { extractConfiguredRepos } from '../utils/nao-config';
 import { agentService } from './agent';
 import { autoCreateRecommendationPullRequests, resolveRecommendationRepo } from './context-pr.service';
 import {
+	collectTriggerChatIds,
+	collectTriggerTargetIds,
 	ExistingRecommendation,
 	fingerprintFor,
 	ProposedFinding,
 	reconcile,
 	ReconcileAction,
+	repairTriggerRefs,
 } from './context-recommendations.reconcile';
 
 const DEFAULT_LOOKBACK_DAYS = 90;
@@ -120,9 +123,11 @@ export async function runContextRecommendations(
 			void message; // drain; the agent persists its own messages, tools mutate the collector by reference
 		}
 
+		const recorded = await repairRecommendationTriggerRefs(projectId, collector.recorded);
+
 		const actions = reconcile({
 			existing: existing.map(toExistingRec),
-			recorded: collector.recorded,
+			recorded,
 			resolvedFingerprints: collector.resolvedFingerprints,
 			dismissedFingerprints,
 			totals,
@@ -153,6 +158,22 @@ export async function runContextRecommendations(
 		await crQueries.failRun(run.id, message);
 		throw err;
 	}
+}
+
+export async function repairRecommendationTriggerRefs<T extends { insights: RecommendationInsight[] }>(
+	projectId: string,
+	items: T[],
+): Promise<T[]> {
+	const targetIds = collectTriggerTargetIds(items);
+	const chatIds = collectTriggerChatIds(items);
+	if (targetIds.length === 0 && chatIds.length === 0) {
+		return items;
+	}
+	const [resolvedByTarget, validChatIds] = await Promise.all([
+		crQueries.resolveTriggerTargetChatIds(projectId, targetIds),
+		crQueries.filterExistingProjectChatIds(projectId, chatIds),
+	]);
+	return repairTriggerRefs(items, resolvedByTarget, validChatIds);
 }
 
 function resolveConfiguredModel(config: DBContextRecommendationConfig | null): LlmSelectedModel | undefined {
@@ -274,7 +295,6 @@ function upsertFields(
 ) {
 	return {
 		runId: args.runId,
-		severity: action.finding.severity,
 		category: action.finding.category,
 		rootCause: action.finding.rootCause,
 		rootCauseKind: action.finding.rootCauseKind ?? null,

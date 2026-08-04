@@ -1,7 +1,7 @@
 import type { RepoProvider } from '@nao/shared/types';
 
-export const CONTEXT_RECOMMENDATION_CATEGORIES = ['tool_error', 'hallucination', 'semantic_missing', 'other'] as const;
-export type ContextRecommendationCategory = (typeof CONTEXT_RECOMMENDATION_CATEGORIES)[number];
+export type { ContextRecommendationCategory } from '@nao/shared/context-recommendation';
+export { CONTEXT_RECOMMENDATION_CATEGORIES } from '@nao/shared/context-recommendation';
 
 export const CONTEXT_RECOMMENDATION_RUN_STATUSES = ['running', 'completed', 'failed', 'cancelled'] as const;
 export type ContextRecommendationRunStatus = (typeof CONTEXT_RECOMMENDATION_RUN_STATUSES)[number];
@@ -31,9 +31,6 @@ export const CONTEXT_RECOMMENDATION_FREQUENCY_CRON: Record<ContextRecommendation
 	weekly: '0 3 * * 1',
 	monthly: '0 3 1 * *',
 };
-
-export const CONTEXT_RECOMMENDATION_SEVERITIES = ['high', 'medium', 'low'] as const;
-export type ContextRecommendationSeverity = (typeof CONTEXT_RECOMMENDATION_SEVERITIES)[number];
 
 export const CONTEXT_RECOMMENDATION_SIGNAL_TYPES = [
 	'tool_error',

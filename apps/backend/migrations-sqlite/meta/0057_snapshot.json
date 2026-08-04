@@ -1517,14 +1517,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "severity": {
-          "name": "severity",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'medium'"
-        },
         "impact_score": {
           "name": "impact_score",
           "type": "integer",

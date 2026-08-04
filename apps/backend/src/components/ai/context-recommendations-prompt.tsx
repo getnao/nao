@@ -55,6 +55,8 @@ function ContextRecommendationsPrompt({
 					<ListItem>Regeneration / friction: v_messages where superseded_at is not null.</ListItem>
 					<ListItem>
 						Coverage gaps: frequent first user prompts (v_messages text) with no matching semantics doc.
+						Treat each distinct metric or concept users asked for as its own gap and its own recommendation,
+						not a single lumped &quot;missing semantics&quot; finding.
 					</ListItem>
 				</List>
 			</Block>
@@ -68,10 +70,9 @@ function ContextRecommendationsPrompt({
 					the strongest signals first.
 				</Span>
 				<Span>
-					Group findings by <Bold>shared root cause</Bold>. If the same root cause (e.g. &quot;agent did not
-					read columns.md before writing a query&quot;) affects multiple tables, emit <Bold>one</Bold>{' '}
-					recommendation with multiple insights, not one per table. Never emit duplicate recommendations for
-					the same root cause.
+					Group findings by the <Bold>fix</Bold>, not the root cause, following the system prompt&apos;s
+					rules: one recommendation per undefined metric or concept, and no umbrella finding on top of the
+					split ones.
 				</Span>
 				<Span>
 					For each finding, set <Code>category</Code>, write a precise one-sentence <Code>rootCause</Code>{' '}
@@ -79,14 +80,13 @@ function ContextRecommendationsPrompt({
 					<Code>rootCauseKind</Code> and <Code>fixTarget</Code> according to the system prompt guidelines.
 				</Span>
 				<Span>
-					Call <Code>record_recommendation</Code> once per root cause — set <Code>subjectKey</Code> to the fix
-					you would apply (a normalized rule name), not the table or column where the symptom showed up, so
-					findings sharing a root cause collapse into one recommendation. Provide: suggestedFile, subjectKey,
-					category, rootCause, rootCauseKind, fixTarget, severity, title, summary, suggestedAction, and the
-					supporting insights (each: signalType, a metric label, a count, and triggerRefs). For each insight,
-					populate <Code>triggerRefs</Code> as an array of <Code>{'{ chatId, targetId }'}</Code> objects — at
-					most 5 per insight. <Code>targetId</Code> must point to the exact origin of the finding in the chat
-					so the replay can scroll to and highlight it; always set it:
+					Call <Code>record_recommendation</Code> once per distinct fix, with <Code>subjectKey</Code> set to a
+					normalized name for that fix. Provide: suggestedFile, subjectKey, category, rootCause,
+					rootCauseKind, fixTarget, title, summary, suggestedAction, and the supporting insights (each:
+					signalType, a metric label, a count, and triggerRefs). For each insight, populate{' '}
+					<Code>triggerRefs</Code> as an array of <Code>{'{ chatId, targetId }'}</Code> objects — at most 5
+					per insight. <Code>targetId</Code> must point to the exact origin of the finding in the chat so the
+					replay can scroll to and highlight it; always set it:
 					<List>
 						<ListItem>
 							For <Code>tool_error</Code> signals: use the <Code>tool_call_id</Code> of the failing tool

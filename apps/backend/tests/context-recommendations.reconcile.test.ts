@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { computeImpact, fingerprintFor, reconcile } from '../src/services/context-recommendations.reconcile';
+import {
+	collectTriggerChatIds,
+	collectTriggerTargetIds,
+	computeImpact,
+	fingerprintFor,
+	reconcile,
+	repairTriggerRefs,
+} from '../src/services/context-recommendations.reconcile';
 
 const TOTALS = { errors: 100, downvotes: 20, regenerations: 30 };
 
@@ -8,7 +15,8 @@ function finding(overrides: Partial<Parameters<typeof reconcile>[0]['recorded'][
 	return {
 		suggestedFile: 'databases/x/columns.md',
 		subjectKey: 'events_v1',
-		severity: 'medium' as const,
+		category: 'tool_error' as const,
+		rootCause: 'r',
 		title: 't',
 		summary: 's',
 		suggestedAction: 'a',
@@ -47,6 +55,44 @@ describe('computeImpact', () => {
 		expect(impact.affectedChats).toBe(2);
 		expect(impact.failureShare).toBeCloseTo(30 / 150, 5);
 		expect(impactScore).toBeGreaterThan(0);
+	});
+});
+
+describe('repairTriggerRefs', () => {
+	const item = (triggerRefs: { chatId: string; targetId?: string }[]) => ({
+		insights: [{ signalType: 'coverage_gap' as const, metric: 'm', count: 1, triggerRefs }],
+	});
+
+	it('rewrites a mis-transcribed chatId using the target that resolves to the real chat', () => {
+		const [repaired] = repairTriggerRefs(
+			[item([{ chatId: 'wrong-chat', targetId: 'msg-1' }])],
+			new Map([['msg-1', 'real-chat']]),
+			new Set(),
+		);
+		expect(repaired.insights[0].triggerRefs).toEqual([{ chatId: 'real-chat', targetId: 'msg-1' }]);
+	});
+
+	it('keeps a recorded chatId that exists even when the target does not resolve', () => {
+		const [repaired] = repairTriggerRefs(
+			[item([{ chatId: 'known-chat', targetId: 'stale-msg' }])],
+			new Map(),
+			new Set(['known-chat']),
+		);
+		expect(repaired.insights[0].triggerRefs).toEqual([{ chatId: 'known-chat', targetId: 'stale-msg' }]);
+	});
+
+	it('drops a ref that resolves to no real chat', () => {
+		const [repaired] = repairTriggerRefs([item([{ chatId: 'phantom' }])], new Map(), new Set());
+		expect(repaired.insights[0].triggerRefs).toEqual([]);
+	});
+
+	it('collects distinct target and chat ids', () => {
+		const items = [
+			item([{ chatId: 'c1', targetId: 't1' }, { chatId: 'c2' }]),
+			item([{ chatId: 'c1', targetId: 't1' }]),
+		];
+		expect(collectTriggerTargetIds(items)).toEqual(['t1']);
+		expect(collectTriggerChatIds(items)).toEqual(['c1', 'c2']);
 	});
 });
 

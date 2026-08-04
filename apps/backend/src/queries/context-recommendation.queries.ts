@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNotNull, lt, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, lt, lte, notInArray, sql } from 'drizzle-orm';
 
 import s, {
 	DBContextRecommendation,
@@ -272,6 +272,13 @@ export async function setRecommendationStatus(input: {
 
 /** Total friction signals (errors, downvotes, regenerations) for a project over a window. */
 export async function getWindowTotals(projectId: string, start: Date, end: Date): Promise<WindowTotals> {
+	const analysisChatIds = () =>
+		db
+			.select({ id: s.contextRecommendationRun.chatId })
+			.from(s.contextRecommendationRun)
+			.where(
+				and(eq(s.contextRecommendationRun.projectId, projectId), isNotNull(s.contextRecommendationRun.chatId)),
+			);
 	const [[errors], [downvotes], [regenerations]] = await Promise.all([
 		db
 			.select({ n: sql<number>`count(*)` })
@@ -281,6 +288,7 @@ export async function getWindowTotals(projectId: string, start: Date, end: Date)
 			.where(
 				and(
 					eq(s.chat.projectId, projectId),
+					notInArray(s.chat.id, analysisChatIds()),
 					eq(s.messagePart.toolState, 'output-error'),
 					gte(s.messagePart.createdAt, start),
 					lt(s.messagePart.createdAt, end),
@@ -295,6 +303,7 @@ export async function getWindowTotals(projectId: string, start: Date, end: Date)
 			.where(
 				and(
 					eq(s.chat.projectId, projectId),
+					notInArray(s.chat.id, analysisChatIds()),
 					eq(s.messageFeedback.vote, 'down'),
 					gte(s.messageFeedback.createdAt, start),
 					lt(s.messageFeedback.createdAt, end),
@@ -308,6 +317,7 @@ export async function getWindowTotals(projectId: string, start: Date, end: Date)
 			.where(
 				and(
 					eq(s.chat.projectId, projectId),
+					notInArray(s.chat.id, analysisChatIds()),
 					isNotNull(s.chatMessage.supersededAt),
 					gte(s.chatMessage.createdAt, start),
 					lt(s.chatMessage.createdAt, end),
@@ -337,11 +347,11 @@ export async function getFirstProjectAdminUserId(projectId: string): Promise<str
 	return admin.userId;
 }
 
-/** Returns title and owner name for a list of chat IDs, scoped to the project. */
+/** Returns title, owner id and owner name for a list of chat IDs, scoped to the project. */
 export async function getRecommendationChatMetadata(
 	projectId: string,
 	chatIds: string[],
-): Promise<{ chatId: string; title: string; userName: string }[]> {
+): Promise<{ chatId: string; title: string; userId: string; userName: string }[]> {
 	if (chatIds.length === 0) {
 		return [];
 	}
@@ -349,6 +359,7 @@ export async function getRecommendationChatMetadata(
 		.select({
 			chatId: s.chat.id,
 			title: s.chat.title,
+			userId: s.chat.userId,
 			userName: s.user.name,
 		})
 		.from(s.chat)
@@ -358,8 +369,62 @@ export async function getRecommendationChatMetadata(
 	return rows.map((row) => ({
 		chatId: row.chatId,
 		title: row.title,
+		userId: row.userId,
 		userName: row.userName ?? '',
 	}));
+}
+
+/**
+ * Resolves the canonical chatId for a set of trigger targets (message ids or tool
+ * call ids), scoped to the project. Recommendation runs record trigger refs from LLM
+ * output, which occasionally transcribes a chatId incorrectly; a targetId that maps to
+ * a real message is the reliable source of truth for which chat a finding belongs to.
+ */
+export async function resolveTriggerTargetChatIds(
+	projectId: string,
+	targetIds: string[],
+): Promise<Map<string, string>> {
+	if (targetIds.length === 0) {
+		return new Map();
+	}
+	const [byMessageId, byToolCallId] = await Promise.all([
+		db
+			.select({ targetId: s.chatMessage.id, chatId: s.chatMessage.chatId })
+			.from(s.chatMessage)
+			.innerJoin(s.chat, eq(s.chat.id, s.chatMessage.chatId))
+			.where(and(eq(s.chat.projectId, projectId), inArray(s.chatMessage.id, targetIds)))
+			.execute(),
+		db
+			.select({ targetId: s.messagePart.toolCallId, chatId: s.chatMessage.chatId })
+			.from(s.messagePart)
+			.innerJoin(s.chatMessage, eq(s.chatMessage.id, s.messagePart.messageId))
+			.innerJoin(s.chat, eq(s.chat.id, s.chatMessage.chatId))
+			.where(and(eq(s.chat.projectId, projectId), inArray(s.messagePart.toolCallId, targetIds)))
+			.execute(),
+	]);
+	const resolved = new Map<string, string>();
+	for (const row of byMessageId) {
+		resolved.set(row.targetId, row.chatId);
+	}
+	for (const row of byToolCallId) {
+		if (row.targetId) {
+			resolved.set(row.targetId, row.chatId);
+		}
+	}
+	return resolved;
+}
+
+/** Returns the subset of the given chatIds that exist in the project. */
+export async function filterExistingProjectChatIds(projectId: string, chatIds: string[]): Promise<Set<string>> {
+	if (chatIds.length === 0) {
+		return new Set();
+	}
+	const rows = await db
+		.select({ id: s.chat.id })
+		.from(s.chat)
+		.where(and(eq(s.chat.projectId, projectId), inArray(s.chat.id, chatIds)))
+		.execute();
+	return new Set(rows.map((row) => row.id));
 }
 
 /** Sum of token usage across every message of a run's chat. */

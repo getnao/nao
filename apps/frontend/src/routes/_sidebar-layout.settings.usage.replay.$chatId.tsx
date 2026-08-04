@@ -34,6 +34,14 @@ function ChatReplayRoute() {
 				</button>
 			}
 			onBack={() => {
+				if (usageSearch.origin === 'recommendations') {
+					navigate({
+						to: '/settings/recommendations',
+						search: { tab: usageSearch.recoTab, openChats: usageSearch.recoId },
+						replace: true,
+					});
+					return;
+				}
 				navigate({
 					to: '/settings/usage',
 					search: usageSearch,

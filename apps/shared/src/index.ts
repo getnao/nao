@@ -5,6 +5,7 @@ export * from './chart-domain';
 export * from './chart-plugin';
 export * from './chart-values';
 export * from './citation';
+export * from './context-recommendation';
 export * from './date';
 export * from './execute-sql-parts';
 export * from './map';
