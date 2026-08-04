@@ -1,0 +1,10 @@
+[Image]
+<image_files>
+The following images were provided by the user and saved to the workspace for future use:
+1. /Users/blef/.cursor/projects/Users-blef-Work-naolabs-chat/assets/Screenshot_2026-07-23_at_16.02.27-c19f3ece-06dd-4df0-a563-9437aff540f1.png
+
+These images can be copied for use in other locations.
+</image_files>
+<timestamp>Thursday, Jul 23, 2026, 4:02 PM (UTC+2)</timestamp>
+
+we just merged a lot of features on main, a merge fucked and charts do not display anymore in stories
