@@ -1,0 +1,5 @@
+<timestamp>Monday, Aug 3, 2026, 12:31 PM (UTC)</timestamp>
+
+i want to store the reason + error, im ok to story it in activity but im not sure all the refreshes (manual for instance go in activities) 
+
+and display a banner top of the story is some refresh has failed so people notice it and can eventually fix, also if smtp is setup the best is to send an email saying the refresh failed (for automatic refreshes) not the manual ones this time
