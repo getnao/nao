@@ -1,0 +1,12 @@
+<timestamp>Tuesday, Jul 21, 2026, 10:35 PM (UTC+2)</timestamp>
+
+my local story filters fails with "[dev:fastapi ] INFO:     127.0.0.1:53134 - "POST /filter_options HTTP/1.1" 404 Not Found
+[dev:fastapi ] INFO:     127.0.0.1:53136 - "POST /filter_options HTTP/1.1" 404 Not Found
+[dev:backend ] [ERROR] [http] tRPC error on story.getFilterOptions: Error loading filter options: "Not Found"
+[dev:fastapi ] INFO:     127.0.0.1:53138 - "POST /analyze_sql HTTP/1.1" 404 Not Found
+[dev:fastapi ] INFO:     127.0.0.1:53140 - "POST /analyze_sql HTTP/1.1" 404 Not Found
+[dev:fastapi ] INFO:     127.0.0.1:53142 - "POST /analyze_sql HTTP/1.1" 404 Not Found
+[dev:fastapi ] INFO:     127.0.0.1:53144 - "POST /analyze_sql HTTP/1.1" 404 Not Found
+[dev:fastapi ] INFO:     127.0.0.1:53146 - "POST /analyze_sql HTTP/1.1" 404 Not Found
+[dev:backend ] [ERROR] [http] tRPC error on story.getFilterOptions: Error loading filter options: "Not Found"
+[dev:backend ] [INFO] [http] GET /api/trpc/favorite.list,story.getFilterOptions,story.getFilterOptions,story.getFilterBindings?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%2C%22v%22%3A1%7D%7D%2C%221%22%3A%7B%22json%22%3A%7B%22chatId%22%3A%220a636eed-b4e5-4458-a02e-1916b5976154%22%2C%22table%22%3A%22jaffle_shop.main.orders%22%2C%22column%22%3A%22status%22%7D%7D%2C%222%22%3A%7B%22json%22%3A%7B%22chatId%22%3A%220a636eed-b4e5-4458-a02e-1916b5976154%22%2C%22table%22%3A%22jaffle_shop.main.stg_payments%22%2C%22column%22%3A%22payment_method%22%2C%22queryId%22%3A%22query_1ee3175b%22%7D%7D%2C%223%22%3A%7B%22json%22%3A%7B%22chatId%22%3A%220a636eed-b4e5-4458-a02e-1916b5976154%22%2C%22storySlug%22%3A%22jaffle-shop-overview%22%2C%22versionNumber%22%3A7%7D%7D%7D 207"
