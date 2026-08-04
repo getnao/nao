@@ -1,0 +1,3 @@
+<timestamp>Monday, Aug 3, 2026, 10:36 AM (UTC+2)</timestamp>
+
+how does it impact our current implementatio, is it directly supported by servers?
