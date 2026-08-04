@@ -1,0 +1,3 @@
+<timestamp>Wednesday, Jul 22, 2026, 6:58 PM (UTC+2)</timestamp>
+
+when the options values are loading display a loader
