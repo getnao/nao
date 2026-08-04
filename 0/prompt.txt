@@ -1,0 +1,9 @@
+<uploaded_documents>
+The following documents have been saved to your filesystem. You can read them using your file-reading tool or other tools:
+- /Users/blef/.cursor/projects/Users-blef-Work-naolabs-chat/uploads/1250-0.md
+</uploaded_documents>
+<timestamp>Thursday, Jul 23, 2026, 1:36 PM (UTC+2)</timestamp>
+
+review the comments here https://github.com/getnao/nao/pull/1250 
+
+and fixe only what really relevant
