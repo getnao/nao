@@ -1,0 +1,3 @@
+<timestamp>Friday, Jul 31, 2026, 8:00 PM (UTC+2)</timestamp>
+
+but why removing hard build of sandboxes + duckdb of it did not reduce significatlively more?
