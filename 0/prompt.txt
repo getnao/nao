@@ -1,0 +1,3 @@
+<timestamp>Friday, Jul 31, 2026, 1:48 PM (UTC+2)</timestamp>
+
+Can we get the favicon of the baseUrl and grey it as an icon?
