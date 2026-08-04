@@ -1,0 +1,17 @@
+<timestamp>Tuesday, Jul 28, 2026, 9:16 AM (UTC+2)</timestamp>
+
+is it really valid??
+
+Check if this issue is valid — if so, understand the root cause and fix it. At apps/backend/src/trpc/project.routes.ts, line 129:
+
+<comment>Overriding a provider declared only in `nao_config.yaml` can create an unusable project config: required-key providers throw when the YAML key is not also in the process environment, while optional-credential providers persist an empty DB credential set and lose the YAML credentials. The override path should resolve or preserve the inherited config credentials before writing the project override.</comment>
+
+<file context>
+@@ -112,10 +125,23 @@ export const projectRoutes = {
+-			const envProviders = getEnvProviders();
+-			const envBaseUrls = getEnvBaseUrls();
++			const configLlm = await getProjectConfigLlm(ctx.project.id);
++			const configProviders = (configLlm?.providers ?? []).map((p) => ({
++				provider: p.provider,
++				apiKeyPreview: previewApiKey(p.apiKey),
+</file context>
