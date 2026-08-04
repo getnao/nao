@@ -1,0 +1,5 @@
+<timestamp>Wednesday, Jul 22, 2026, 5:24 PM (UTC+2)</timestamp>
+
+1A 2B (select, multi_select, search, date_range)
+
+dont edit the existing SQL, prefer the fact that the agent rewrites the queries instead for the moment
