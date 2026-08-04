@@ -1,0 +1,3 @@
+<timestamp>Friday, Jul 17, 2026, 11:49 AM (UTC+2)</timestamp>
+
+is it possible to do a SELECT sleep(x seconds) in redshift
