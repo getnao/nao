@@ -1,0 +1,3 @@
+<timestamp>Tuesday, Jul 7, 2026, 10:56 AM (UTC+2)</timestamp>
+
+can we avoid a dynamic import of it and getting it in nao already?
