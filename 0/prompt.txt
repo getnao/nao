@@ -1,0 +1,3 @@
+<timestamp>Friday, Jul 31, 2026, 7:22 PM (UTC+2)</timestamp>
+
+ok now 0.3.2rc2 has been published on pypi, can you test if nao test works on example folder for instance
