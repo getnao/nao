@@ -1,0 +1,7 @@
+<timestamp>Friday, Jul 24, 2026, 6:08 PM (UTC+2)</timestamp>
+
+@chat/apps/frontend/src/lib/ai.ts:163-166 how can we make sure this getMessageText also include a serialised way of the tools in the parts, for the moment i want the execute_sql (with the SQL code, and eventually the error if any), i want the chart settings, i want execute python code and outputs if any
+
+not sure about the others tools if relevant
+
+i don't want to recreate a machinery should this be close to @chat/apps/backend/src/components/tool-outputs/execute-sql.tsx for instance? or in another close folder like tools-copy / tool-serialisation if possible to facto with something already existing go ahead
