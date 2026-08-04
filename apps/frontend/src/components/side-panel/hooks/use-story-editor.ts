@@ -149,6 +149,7 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 							return true;
 						}
 						dispatchDropWithScroll(view, move.transaction, move.insertPos);
+						view.focus();
 						event.preventDefault();
 						return true;
 					} finally {
@@ -204,6 +205,7 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 						const insertAssoc = insertPos >= gridTo ? 1 : -1;
 						transaction.insert(transaction.mapping.map(insertPos, insertAssoc), poppedNode);
 						view.dispatch(transaction);
+						view.focus();
 						event.preventDefault();
 						return true;
 					} finally {
@@ -245,6 +247,7 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 						transaction.insert(insertPos, node);
 						removeCardFromOrigin(transaction, view.state, source.origin);
 						view.dispatch(transaction);
+						view.focus();
 						event.preventDefault();
 						return true;
 					} finally {
@@ -256,6 +259,36 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 			},
 		},
 	});
+
+	useEffect(() => {
+		const container = storyEditorRef.current;
+		if (!container || !editor) {
+			return;
+		}
+
+		const onKeyDown = (event: KeyboardEvent) => {
+			const selection = blockSelectionPluginKey.getState(editor.state);
+			const targetInsideEditor = event.target instanceof Node && container.contains(event.target);
+			const hasBlockSelection = Boolean(selection?.blocks.length || selection?.gridColumns.length);
+			if (!targetInsideEditor && !editor.isFocused && !hasBlockSelection) {
+				return;
+			}
+			if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== 'z') {
+				return;
+			}
+
+			event.preventDefault();
+			event.stopPropagation();
+			if (event.shiftKey) {
+				editor.commands.redo();
+				return;
+			}
+			editor.commands.undo();
+		};
+
+		document.addEventListener('keydown', onKeyDown, true);
+		return () => document.removeEventListener('keydown', onKeyDown, true);
+	}, [editor]);
 
 	useEffect(() => {
 		const container = storyEditorRef.current;

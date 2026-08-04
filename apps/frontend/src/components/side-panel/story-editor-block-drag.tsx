@@ -147,6 +147,7 @@ export function StoryBlockDropZones({ node, editor, getPos }: Pick<ReactNodeView
 			transaction.replaceWith(targetPos, targetPos + node.nodeSize, gridNode);
 			removeCardFromOrigin(transaction, state, source.origin);
 			editor.view.dispatch(transaction);
+			editor.view.focus();
 			resetDrag();
 		},
 		[dragContext, editor, getPos, node, resetDrag],

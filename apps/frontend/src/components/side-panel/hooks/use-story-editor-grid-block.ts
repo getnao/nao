@@ -291,6 +291,7 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 			transaction.setNodeAttribute(gridPos, 'rawContent', newGrid);
 			removeCardFromOrigin(transaction, state, source.origin);
 			editor.view.dispatch(transaction);
+			editor.view.focus();
 			clearDrag();
 		},
 		[clearDrag, editor, getPos, rawContent, segments.length, storyBlockDrag],
@@ -309,6 +310,7 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 					const nextRawContent = reorderGridColumns(rawContent, dragColumnIndex, targetIndex);
 					if (nextRawContent !== rawContent) {
 						updateAttributes({ rawContent: nextRawContent });
+						editor.view.focus();
 					}
 				}
 
@@ -332,6 +334,7 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 			dragColumnIndex,
 			dropColumnIndex,
 			insertExternalStoryBlock,
+			editor,
 			rawContent,
 			segments.length,
 			storyBlockDrag,
