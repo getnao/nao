@@ -1,0 +1,3 @@
+<timestamp>Thursday, Jul 30, 2026, 4:24 PM (UTC+2)</timestamp>
+
+if the mcp has never ran the first discovery when a user use it it says it does not know any endpoint, the best is if the admin never ran the discovery that a user could do it
