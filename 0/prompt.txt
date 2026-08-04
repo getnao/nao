@@ -1,0 +1,7 @@
+<timestamp>Sunday, Jul 5, 2026, 9:09 PM (UTC+2)</timestamp>
+
+For the code present, we get this error:
+```
+Cannot find name 'mcpAuth'.
+```
+Fix it, verify, and then give a concise explanation. @chat/apps/frontend/src/components/chat-input-suggestions.tsx:94-97
