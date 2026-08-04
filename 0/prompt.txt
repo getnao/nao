@@ -1,0 +1,17 @@
+<timestamp>Thursday, Jul 23, 2026, 12:17 PM (UTC+2)</timestamp>
+
+All tools are functional — do not test tools. Only call tools required for this task.
+
+View/summarize PR #1250 "First version of filters" on branch feat/filters-docker against origin/main in repo /Users/blef/Work/naolabs/chat.
+
+PR description is mostly empty (auto-generated cubic badge only). Body intent from title: first version of story/SQL filters.
+
+Use: `gh pr view 1250`, `gh pr diff 1250` (or `git diff origin/main...HEAD`), and file list as needed.
+
+Return a clear summary of:
+1. What the feature does (user-facing)
+2. Main technical approach (key new modules, data flow)
+3. Areas of risk / complexity
+4. List of the most important files changed
+
+Do not review for bugs — summary only.
