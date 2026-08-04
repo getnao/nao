@@ -1,0 +1,3 @@
+<timestamp>Friday, Jul 24, 2026, 6:58 PM (UTC+2)</timestamp>
+
+at the top of the markdown export/copy add the title of the conv + some timestamp details
