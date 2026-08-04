@@ -1,0 +1,15 @@
+<timestamp>Tuesday, Jul 28, 2026, 9:25 AM (UTC+2)</timestamp>
+
+Check if this issue is valid — if so, understand the root cause and fix it. At cli/nao_core/commands/migrate.py, line 95:
+
+<comment>Valid configs such as `llm: # shared provider` are skipped, so `nao migrate` reports the legacy file as already current without rewriting it. Matching an optional inline YAML comment while retaining the top-level-key check would migrate these files.</comment>
+
+<file context>
+@@ -0,0 +1,156 @@
++
++def _find_block(lines: list[str], key: str) -> tuple[int, int] | None:
++    """Return the start and end line indices of a top-level mapping key's block."""
++    start = next((i for i, line in enumerate(lines) if line.rstrip() == f"{key}:"), None)
++    if start is None:
++        return None
+</file context>
