@@ -1,0 +1,3 @@
+<timestamp>Friday, Jul 31, 2026, 2:33 PM (UTC+2)</timestamp>
+
+why when using openaiCompatible it hides the token cost in @chat/apps/frontend/src/components/chat-input.tsx
