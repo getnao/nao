@@ -1,0 +1,5 @@
+<timestamp>Monday, Jul 27, 2026, 2:05 PM (UTC+2)</timestamp>
+
+with the new LLMConfig, when it's setup from the nao_config it displays in the UI, but if you change the UI it will override the setup from the nao_config
+
+i'd like to add a warning in the UI edition section if it comes from nao_config to say the ui overrides it, also add this in the nao_config.yaml as a comment to help users
