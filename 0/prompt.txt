@@ -1,0 +1,12 @@
+<timestamp>Tuesday, Aug 4, 2026, 10:54 AM (UTC+2)</timestamp>
+
+I want to implement a "permanent storage" option in nao ; the goal of the permenant storage is to be for the agent to save some files to a user (per project) space in this permanent storage. It opens also the door to support file upload and make it available to the agent
+
+The permanent storage can be "local" so on the disk, it's up to the admin if scale>1 to create some kind of distributed storage / volume for all pods to get access to it (but we have to explain it in the documenation)
+
+the second option of permanent storage can be "s3" like so a bucket and nao should have in this case function to retrieve files / ls / write etc.
+
+before we move on to all the function i want to implement the permanent storage (local and s3) solutions right ; it should be defined from env variables but being seen in the settings pages
+
+plan this first
+if subagent use: gpt-5.6 Sol
