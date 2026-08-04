@@ -1,0 +1,3 @@
+<timestamp>Wednesday, Jul 22, 2026, 5:14 PM (UTC+2)</timestamp>
+
+i have a 500 when trying to log on @licenses/Dockerfile how can i find the 500 logs
