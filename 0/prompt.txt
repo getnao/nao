@@ -1,0 +1,3 @@
+<timestamp>Thursday, Jul 23, 2026, 12:20 PM (UTC+2)</timestamp>
+
+If you have finished, return your summary now. If not finished, finish and return the summary.
