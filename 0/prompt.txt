@@ -1,0 +1,19 @@
+<timestamp>Wednesday, Jul 22, 2026, 5:19 PM (UTC+2)</timestamp>
+
+i want to be able to add filters in stories
+
+knowing the current situation and how stories are created with charts embed in the code of the story_version + story data cache
+
+i think the best simple situation to start with is to add filters as "template" in SQL directly so for instance the SQL might be
+
+SELECT SUM(revenue)
+FROM table
+WHERE 
+1 = 1
+{% filter %} AND country = {{ filters.country.values }} {% endfilter %}
+
+or a similar syntax that is compatible to our system
+
+then we can also add a <filter> tag in the story code like in @/Users/blef/.cursor/projects/Users-blef-Work-naolabs-chat/agent-transcripts/d4c11f70-81cf-478b-883d-d97000745f71/d4c11f70-81cf-478b-883d-d97000745f71.jsonl (has to be redone)
+
+the query should still work tho outside of the story tho (in the chat) maybe it should be possible to edit a SQL query of a tool instead of rewriting a new SQL query (up to you to decide if it should be done this way or not)
