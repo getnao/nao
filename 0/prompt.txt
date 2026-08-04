@@ -1,0 +1,3 @@
+<timestamp>Monday, Aug 3, 2026, 3:01 PM (UTC+2)</timestamp>
+
+ok now when looking at a story if the last activity refresh is an error i want to see it
