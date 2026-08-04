@@ -54,6 +54,11 @@ const settingsNavItems: NavItem[] = [
 		visible: ({ isViewer }) => !isViewer,
 	},
 	{
+		label: 'Storage',
+		to: '/settings/storage',
+		visible: ({ isAdmin, isCloud }) => isAdmin && !isCloud,
+	},
+	{
 		label: 'Observability',
 		type: 'divider',
 		visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,

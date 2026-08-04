@@ -351,6 +351,41 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		],
 	},
 
+	// ── Storage ─────────────────────────────────────────────
+	{
+		page: '/settings/storage',
+		pageLabel: 'Storage',
+		title: 'Permanent Storage',
+		description: 'Review the durable storage backend where the agent saves files, local disk or an S3 bucket.',
+		keywords: [
+			'storage',
+			'permanent',
+			'persistent',
+			'file',
+			'files',
+			'upload',
+			'attachment',
+			'bucket',
+			's3',
+			'minio',
+			'r2',
+			'volume',
+			'disk',
+			'local',
+		],
+		adminOnly: true,
+		cloudHidden: true,
+	},
+	{
+		page: '/settings/storage',
+		pageLabel: 'Storage',
+		title: 'Storage Health',
+		description: 'Check that nao can reach and write to the configured storage location.',
+		keywords: ['health', 'status', 'reachable', 'connection', 'credentials', 'bucket access', 'writable'],
+		adminOnly: true,
+		cloudHidden: true,
+	},
+
 	// ── Project > Slack ──────────────────────────────────────
 	{
 		page: '/settings/project/slack',
