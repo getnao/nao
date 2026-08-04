@@ -118,11 +118,14 @@ class _RestrictedDiscoveryBackend:
     def list_databases(self, *args: Any, **kwargs: Any) -> list[str]:
         list_databases = getattr(self._backend, "list_databases", None)
         if list_databases is None:
+            self._warn_unexpandable()
             return list(self._targets)
         try:
             return list_databases(*args, **kwargs)
         except Exception as e:
             logger.warning("Cannot list databases (%s); using the schemas named in include", _brief_reason(e))
+            logger.debug("Full error listing databases", exc_info=True)
+            self._warn_unexpandable()
             return list(self._targets)
 
     def list_tables(self, *args: Any, database: str | None = None, **kwargs: Any) -> list[str]:
@@ -133,14 +136,19 @@ class _RestrictedDiscoveryBackend:
                 "Cannot list tables in %s (%s); using the tables named in include", database, _brief_reason(e)
             )
             logger.debug("Full error listing tables in %s", database, exc_info=True)
-            if self._unexpandable:
-                logger.warning(
-                    "Ignoring include patterns that need a table listing to expand: %s. "
-                    "Name these tables individually to sync them.",
-                    ", ".join(self._unexpandable),
-                )
-                self._unexpandable = []
+            self._warn_unexpandable()
             return list(self._targets.get(database or "", []))
+
+    def _warn_unexpandable(self) -> None:
+        """Name the include patterns being dropped, so an all-wildcard include is not silent."""
+        if not self._unexpandable:
+            return
+        logger.warning(
+            "Ignoring include patterns that need a table listing to expand: %s. "
+            "Name these tables individually to sync them.",
+            ", ".join(self._unexpandable),
+        )
+        self._unexpandable = []
 
 
 # AggregateFunction(type_str) -> first argument is the function name (uniq, sum, etc.)
@@ -463,10 +471,17 @@ def _columns_from_system(conn: BaseBackend, database: str, table_name: str) -> l
         return []
 
 
+def _quote_identifier(name: str) -> str:
+    """Backtick-quote an identifier, doubling any backtick it contains."""
+    escaped = name.replace("`", "``")
+    return f"`{escaped}`"
+
+
 def _columns_from_describe(conn: BaseBackend, database: str, table_name: str) -> list[dict[str, Any]]:
     """Return column metadata from DESCRIBE TABLE, which needs no system database access."""
+    target = f"{_quote_identifier(database)}.{_quote_identifier(table_name)}"
     try:
-        cursor = conn.raw_sql(f"DESCRIBE TABLE `{database}`.`{table_name}`")  # type: ignore[union-attr]
+        cursor = conn.raw_sql(f"DESCRIBE TABLE {target}")  # type: ignore[union-attr]
         rows = _raw_sql_to_rows(cursor)
     except Exception:
         return []
@@ -485,9 +500,14 @@ def _columns_from_describe(conn: BaseBackend, database: str, table_name: str) ->
     ]
 
 
-def _column_metadata(conn: BaseBackend, database: str, table_name: str) -> list[dict[str, Any]]:
-    """Return column metadata, preferring system.columns and falling back to DESCRIBE TABLE."""
-    return _columns_from_system(conn, database, table_name) or _columns_from_describe(conn, database, table_name)
+def _column_metadata(
+    conn: BaseBackend, database: str, table_name: str, describe_fallback: bool = False
+) -> list[dict[str, Any]]:
+    """Return column metadata from system.columns, falling back to DESCRIBE only when allowed."""
+    columns = _columns_from_system(conn, database, table_name)
+    if columns or not describe_fallback:
+        return columns
+    return _columns_from_describe(conn, database, table_name)
 
 
 def _get_table_engine(conn: BaseBackend, database: str, table_name: str) -> str | None:
@@ -520,10 +540,14 @@ class ClickHouseDatabaseContext(DatabaseContext):
     use the no-SELECT path (SHOW CREATE TABLE + system.columns) for all later operations on that table.
     """
 
-    def __init__(self, conn: BaseBackend, schema: str, table_name: str):
+    def __init__(self, conn: BaseBackend, schema: str, table_name: str, describe_fallback: bool = False):
         super().__init__(conn, schema, table_name)
         self._direct_select_disallowed: bool = False
         self._is_dictionary_obj: bool | None = None
+        self._describe_fallback = describe_fallback
+
+    def _column_metadata(self) -> list[dict[str, Any]]:
+        return _column_metadata(self._conn, self._schema, self._table_name, self._describe_fallback)
 
     @staticmethod
     def _format_type(dtype: Any) -> str:
@@ -586,16 +610,16 @@ class ClickHouseDatabaseContext(DatabaseContext):
     def column_count(self) -> int:
         """Return column count; for stream-like engines use system.columns if table.schema() is disallowed."""
         if self._direct_select_disallowed:
-            return len(_column_metadata(self._conn, self._schema, self._table_name))
+            return len(self._column_metadata())
         try:
             return len(self.table.schema())
         except Exception:
-            return len(_column_metadata(self._conn, self._schema, self._table_name))
+            return len(self._column_metadata())
 
     def columns(self) -> list[dict[str, Any]]:
         """Return column metadata; for stream-like engines use system.columns (no SELECT from table)."""
         if self._direct_select_disallowed:
-            return self._filter_excluded_columns(_column_metadata(self._conn, self._schema, self._table_name))
+            return self._filter_excluded_columns(self._column_metadata())
         try:
             schema = self.table.schema()
             cols = [
@@ -607,7 +631,7 @@ class ClickHouseDatabaseContext(DatabaseContext):
                 }
                 for name, dtype in schema.items()
             ]
-            system_columns = _column_metadata(self._conn, self._schema, self._table_name)
+            system_columns = self._column_metadata()
             system_types = {
                 col["name"]: col["type"]
                 for col in system_columns
@@ -641,7 +665,7 @@ class ClickHouseDatabaseContext(DatabaseContext):
                     col["description"] = description
             return self._filter_excluded_columns(cols)
         except Exception:
-            return self._filter_excluded_columns(_column_metadata(self._conn, self._schema, self._table_name))
+            return self._filter_excluded_columns(self._column_metadata())
 
     def _fetchone(self, result) -> tuple | None:
         """Normalise clickhouse-connect QueryResult objects for profiling queries."""
@@ -850,9 +874,12 @@ class ClickHouseConfig(DatabaseConfig):
 
         require_database_backend("clickhouse")
 
-        if not self.tolerate_unreadable_system_tables:
-            return self._connect_http_client()
-        with _server_settings_probe_optional():
+        if self.tolerate_unreadable_system_tables:
+            with _server_settings_probe_optional():
+                return self._connect_http_client()
+        # Hold the same lock so a concurrent opt-in connection's process-wide patch cannot
+        # leak into a connection that did not ask for it.
+        with _SERVER_SETTINGS_PROBE_LOCK:
             return self._connect_http_client()
 
     def _connect_http_client(self) -> BaseBackend:
@@ -935,7 +962,9 @@ class ClickHouseConfig(DatabaseConfig):
 
     def create_context(self, conn: BaseBackend, schema: str, table_name: str) -> ClickHouseDatabaseContext:
         """Use ClickHouse-specific context for resilient preview."""
-        return ClickHouseDatabaseContext(conn, schema, table_name)
+        return ClickHouseDatabaseContext(
+            conn, schema, table_name, describe_fallback=self.tolerate_unreadable_system_tables
+        )
 
     def _connection_error_message(self, error: Exception) -> str:
         """Point at the escape hatch when the connection died on a system database read."""

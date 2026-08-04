@@ -183,6 +183,15 @@ class TestRestrictedDiscovery:
             wrapped.list_tables(database="analytics")
         assert sum("analytics.*" in record.getMessage() for record in caplog.records) == 1
 
+    def test_all_wildcard_include_is_reported_when_databases_are_denied(self, caplog: pytest.LogCaptureFixture) -> None:
+        """With no explicit targets, list_tables is never reached, so list_databases must warn."""
+        backend = MagicMock(name="backend")
+        backend.list_databases.side_effect = RuntimeError(TINYBIRD_FORBIDDEN)
+        wrapped = _RestrictedDiscoveryBackend(backend, {}, ["analytics.*"])
+        with caplog.at_level(logging.WARNING):
+            assert wrapped.list_databases() == []
+        assert any("analytics.*" in record.getMessage() for record in caplog.records)
+
     def test_listings_pass_through_when_the_server_allows_them(self) -> None:
         backend = MagicMock(name="backend")
         backend.list_databases.return_value = ["analytics"]
@@ -289,12 +298,18 @@ class TestColumnMetadata:
         conn = self._conn(RuntimeError("nope"))
         assert _columns_from_describe(conn, "analytics", "users") == []
 
+    def test_backticks_in_identifiers_are_escaped(self) -> None:
+        conn = MagicMock(name="conn")
+        conn.raw_sql.return_value = MagicMock(result_rows=[], column_names=["name"])
+        _columns_from_describe(conn, "we`ird", "ta`ble")
+        assert conn.raw_sql.call_args.args[0] == "DESCRIBE TABLE `we``ird`.`ta``ble`"
+
     def test_system_columns_win_when_available(self) -> None:
         conn = MagicMock(name="conn")
         system_columns = [{"name": "from_system", "type": "String"}]
         with patch("nao_core.config.databases.clickhouse._columns_from_system", return_value=system_columns):
             with patch("nao_core.config.databases.clickhouse._columns_from_describe") as mock_describe:
-                assert _column_metadata(conn, "analytics", "users") == system_columns
+                assert _column_metadata(conn, "analytics", "users", describe_fallback=True) == system_columns
         mock_describe.assert_not_called()
 
     def test_describe_is_used_when_system_columns_is_empty(self) -> None:
@@ -302,7 +317,21 @@ class TestColumnMetadata:
         described = [{"name": "from_describe", "type": "String"}]
         with patch("nao_core.config.databases.clickhouse._columns_from_system", return_value=[]):
             with patch("nao_core.config.databases.clickhouse._columns_from_describe", return_value=described):
-                assert _column_metadata(conn, "analytics", "users") == described
+                assert _column_metadata(conn, "analytics", "users", describe_fallback=True) == described
+
+    def test_describe_is_not_used_unless_opted_in(self) -> None:
+        """With the field off, an empty system.columns must stay empty, as it was before."""
+        conn = MagicMock(name="conn")
+        with patch("nao_core.config.databases.clickhouse._columns_from_system", return_value=[]):
+            with patch("nao_core.config.databases.clickhouse._columns_from_describe") as mock_describe:
+                assert _column_metadata(conn, "analytics", "users") == []
+        mock_describe.assert_not_called()
+
+    def test_context_inherits_the_opt_in_from_config(self) -> None:
+        conn = MagicMock(name="conn")
+        assert _base_config().create_context(conn, "analytics", "users")._describe_fallback is False
+        opted_in = _base_config(tolerate_unreadable_system_tables=True)
+        assert opted_in.create_context(conn, "analytics", "users")._describe_fallback is True
 
 
 def _module(**attributes: Any) -> ModuleType:
