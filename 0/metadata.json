@@ -1,0 +1,15 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "0ef5257c2cfd",
+  "session_id": "5cd96d51-2dc6-4ebd-8ee8-c8eb367e9530",
+  "strategy": "import",
+  "created_at": "2026-08-03T13:28:03.225586518Z",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "agent": "Cursor",
+  "model": "",
+  "checkpoint_transcript_start": 62,
+  "transcript_lines_at_start": 62,
+  "compact_transcript_start": 4,
+  "kind": "imported"
+}
