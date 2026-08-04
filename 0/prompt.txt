@@ -1,0 +1,7 @@
+<timestamp>Wednesday, Jul 22, 2026, 1:50 PM (UTC+2)</timestamp>
+
+add a new tag in @chat/apps/backend/src/agents/tools/story.ts <filter> that contain a filter that will be used to filter charts in the story ; (you can take inspiration in @/Users/blef/.cursor/projects/Users-blef-Work-naolabs-chat/agent-transcripts/70c42b3a-91fc-4f74-9082-4a1c89714837/70c42b3a-91fc-4f74-9082-4a1c89714837.jsonl ) i just want the frontend part for the moment where we have the story tag ; 
+
+a story tag in parametrized by mainly a column in a table that will be later on added on the underlying query of a chart in a story
+
+just do the frontend part for the moment
