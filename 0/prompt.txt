@@ -1,0 +1,474 @@
+<external_links>
+### Potentially Relevant Websearch Results
+
+You should respond as if these information are known to you. Refrain from saying "I am unable to browse the internet" or "I don't have access to the internet" or "I'm unable to provide real-time news updates". This is your internet search results. Please always cite any links you referenced from the above search results in your response in markdown format.
+
+-------
+Website URL: https://github.com/getnao/nao/pull/821/changes#top
+Website Title: feat: file storage abstraction layer with local and S3 backends by Bl3f · Pull Request #821 · getnao/nao · GitHub
+Website Content:
+Skip to content 
+
+## Navigation Menu
+
+Toggle navigation 
+
+ Sign in 
+
+Appearance settings 
+
+* Platform  
+   * AI CODE CREATION  
+         * GitHub CopilotWrite better code with AI  
+         * GitHub Copilot appDirect agents from issue to merge  
+         * MCP RegistryIntegrate external tools  
+   * DEVELOPER WORKFLOWS  
+         * ActionsAutomate any workflow  
+         * CodespacesInstant dev environments  
+         * IssuesPlan and track work  
+         * Code ReviewManage code changes  
+         * Code QualityEnforce quality at merge  
+   * APPLICATION SECURITY  
+         * GitHub Advanced SecurityFind and fix vulnerabilities  
+         * Code securitySecure your code as you build  
+         * Secret protectionStop leaks before they start  
+   * EXPLORE  
+         * Why GitHub  
+         * Documentation  
+         * Blog  
+         * Changelog  
+         * Marketplace  
+View all features
+* Solutions  
+   * BY COMPANY SIZE  
+         * Enterprises  
+         * Small and medium teams  
+         * Startups  
+         * Nonprofits  
+   * BY USE CASE  
+         * App Modernization  
+         * DevSecOps  
+         * DevOps  
+         * CI/CD  
+         * View all use cases  
+   * BY INDUSTRY  
+         * Healthcare  
+         * Financial services  
+         * Manufacturing  
+         * Government  
+         * View all industries  
+View all solutions
+* Resources  
+   * EXPLORE BY TOPIC  
+         * AI  
+         * Software Development  
+         * DevOps  
+         * Security  
+         * View all topics  
+   * EXPLORE BY TYPE  
+         * Customer stories  
+         * Events & webinars  
+         * Ebooks & reports  
+         * Business insights  
+         * GitHub Skills  
+   * SUPPORT & SERVICES  
+         * Documentation  
+         * Customer support  
+         * Community forum  
+         * Trust center  
+         * Partners  
+View all resources
+* Open Source  
+   * COMMUNITY  
+         * GitHub SponsorsFund open source developers  
+   * PROGRAMS  
+         * Security Lab  
+         * Maintainer Community  
+         * Accelerator  
+         * GitHub Stars  
+         * Archive Program  
+   * REPOSITORIES  
+         * Topics  
+         * Trending  
+         * Collections
+* Enterprise  
+   * ENTERPRISE SOLUTIONS  
+         * Enterprise platformAI-powered developer platform  
+   * AVAILABLE ADD-ONS  
+         * GitHub Advanced SecurityEnterprise-grade security features  
+         * Copilot for BusinessEnterprise-grade AI features  
+         * Premium SupportEnterprise-grade 24/7 support
+* Pricing
+
+Search or jump to... 
+
+# Search code, repositories, users, issues, pull requests...
+
+ Search 
+
+Clear 
+
+Search syntax tips 
+
+#  Provide feedback
+
+We read every piece of feedback, and take your input very seriously.
+
+Include my email address so I can be contacted 
+
+ Cancel  Submit feedback 
+
+#  Saved searches
+
+## Use saved searches to filter your results more quickly
+
+Name 
+
+Query 
+
+ To see all available qualifiers, see our documentation.
+
+ Cancel  Create saved search 
+
+ Sign in 
+
+ Sign up 
+
+Appearance settings 
+
+Resetting focus 
+
+You signed in with another tab or window. Reload to refresh your session. You signed out in another tab or window. Reload to refresh your session. You switched accounts on another tab or window. Reload to refresh your session. Dismiss alert 
+
+{{ message }}
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+ getnao / **nao** Public 
+
+* Notifications You must be signed in to change notification settings
+* Fork217
+* Star 1.5k
+
+* Code
+* Issues 176
+* Pull requests 29
+* Discussions
+* Actions
+* Projects
+* Security and quality 0
+* Insights
+
+Additional navigation options 
+
+* Code
+* Issues
+* Pull requests
+* Discussions
+* Actions
+* Projects
+* Security and quality
+* Insights
+
+# feat: file storage abstraction layer with local and S3 backends #821 
+
+ New issue 
+
+**Have a question about this project?** Sign up for a free GitHub account to open an issue and contact its maintainers and the community.
+
+ Sign up for GitHub 
+
+By clicking “Sign up for GitHub”, you agree to our terms of service andprivacy statement. We’ll occasionally send you account related emails.
+
+ Already on GitHub?Sign in to your account
+
+ Draft 
+
+Bl3f wants to merge3 commits intomain 
+
+_base:_ main 
+
+Choose a base branch 
+
+Branches Tags 
+
+Could not load branches
+
+Branch not found: **{{ refName }}** 
+
+Loading 
+
+{{ refName }} default 
+
+Could not load tags
+
+Nothing to show
+
+{{ refName }} default 
+
+Loading 
+
+### Are you sure you want to change the base?
+
+ Some commits from the old base branch may be removed from the timeline, and old review comments may become outdated.
+
+Loading Change base 
+
+fromcursor/file-storage-layer-e4e8 
+
+ +10,615  −354 
+
+ Conversation2  Commits3  Checks9  Files changed30 
+
+ Draft 
+
+#  feat: file storage abstraction layer with local and S3 backends #821 
+
+Show file tree 
+
+Hide file tree 
+
+ Changes from **all commits** 
+
+Commits 
+
+ Show all changes  3 commits 
+
+ Select commitHold shift + click to select a range 
+
+6383a89  feat: add file storage abstraction layer with local and S3 backends  cursoragent May 20, 2026 79e3b9c  chore: add uploads directory to .gitignore  cursoragent May 20, 2026 9da8a43  fix: file uploads now properly sent to LLM with smart content handling  cursoragent May 20, 2026 
+
+ **File filter** 
+
+### Filter by extension
+
+Filter by extension  .example  (1)  .json  (6)  .sql  (2)  .ts  (17)  .tsx  (3)  dotfile  (1)  All 6 file types selected 
+
+---
+
+ Only manifest files 
+
+---
+
+ Viewed files 
+
+Clear filters 
+
+**Conversations** 
+
+ Failed to load comments.  Retry 
+
+Loading 
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+**Jump to** 
+
+ Jump to file 
+
+ Failed to load files.  Retry 
+
+Loading 
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+#####  Diff view
+
+Unified Diff View 
+
+ Unified
+
+Split Diff View 
+
+ Split
+
+Hide whitespace 
+
+ Apply and reload 
+
+Show whitespace
+
+#####  Diff view
+
+Unified Diff View 
+
+ Unified
+
+Split Diff View 
+
+ Split
+
+Hide whitespace 
+
+ Apply and reload 
+
+* .env.example  .env.example
+* .gitignore  .gitignore
+* apps  
+   * backend  
+         * migrations-postgres  
+                  * apps/backend/migrations-postgres/0044\_file-storage.sql  0044\_file-storage.sql  
+                  * meta  
+                              * apps/backend/migrations-postgres/meta/0044\_snapshot.json  0044\_snapshot.json  
+                              * apps/backend/migrations-postgres/meta/\_journal.json  \_journal.json  
+         * migrations-sqlite  
+                  * apps/backend/migrations-sqlite/0044\_file-storage.sql  0044\_file-storage.sql  
+                  * meta  
+                              * apps/backend/migrations-sqlite/meta/0044\_snapshot.json  0044\_snapshot.json  
+                              * apps/backend/migrations-sqlite/meta/\_journal.json  \_journal.json  
+         * apps/backend/package.json  package.json  
+         * src  
+                  * db  
+                              * apps/backend/src/db/pg-schema.ts  pg-schema.ts  
+                              * apps/backend/src/db/sqlite-schema.ts  sqlite-schema.ts  
+                  * apps/backend/src/env.ts  env.ts  
+                  * handlers  
+                              * apps/backend/src/handlers/agent.ts  agent.ts  
+                  * queries  
+                              * apps/backend/src/queries/image.queries.ts  image.queries.ts  
+                  * routes  
+                              * apps/backend/src/routes/image.ts  image.ts  
+                  * services  
+                              * apps/backend/src/services/agent.ts  agent.ts  
+                  * storage  
+                              * apps/backend/src/storage/index.ts  index.ts  
+                              * apps/backend/src/storage/local.ts  local.ts  
+                              * apps/backend/src/storage/s3.ts  s3.ts  
+                              * apps/backend/src/storage/types.ts  types.ts  
+                  * types  
+                              * apps/backend/src/types/chat.ts  chat.ts  
+   * frontend/src  
+         * components  
+                  * apps/frontend/src/components/chat-input-file-preview.tsx  chat-input-file-preview.tsx  
+                  * apps/frontend/src/components/chat-input.tsx  chat-input.tsx  
+                  * chat-messages  
+                              * apps/frontend/src/components/chat-messages/user-message.tsx  user-message.tsx  
+         * hooks  
+                  * apps/frontend/src/hooks/use-agent.ts  use-agent.ts  
+                  * apps/frontend/src/hooks/use-file-upload.ts  use-file-upload.ts  
+         * lib  
+                  * apps/frontend/src/lib/ai.ts  ai.ts  
+         * types  
+                  * apps/frontend/src/types/chat-message-queue.ts  chat-message-queue.ts  
+   * shared/src  
+         * apps/shared/src/types.ts  types.ts
+* package-lock.json  package-lock.json
+
+##  There are no files selected for viewing
+
+ 14 changes: 14 additions & 0 deletions 14 .env.example 
+
+ Show comments  View file  Edit file  Delete file  Open in desktop 
+
+ This file contains hidden or bidirectional Unicode text that may be interpreted or compiled differently than what appears below. To review, open the file in an editor that reveals hidden Unicode characters.Learn more about bidirectional Unicode characters 
+
+ Show hidden characters 
+
+| Original file line number                                                                      | Diff line number                           | Diff line change |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------ | ---------------- |
+| [ ](#diff-a3046da0d15a27e89f2afe639b25748a7ad4d9290af3e7b1b6c1a5533c8f0a8c) Expand Up          | @@ -106,6 +106,20 @@ POSTHOG\_KEY=phc\_123 |                  |
+| POSTHOG\_HOST=https://eu.i.posthog.com                                                         |                                            |                  |
+| POSTHOG\_DISABLED=false # (used to opt-out of tracking)                                        |                                            |                  |
+|                                                                                                |                                            |                  |
+| \# File Storage                                                                                |                                            |                  |
+| \# Driver: 'local' (default) or 's3' (S3, S3-compatible like MinIO/R2, or GCS with S3 interop) |                                            |                  |
+| \# STORAGE\_DRIVER=local                                                                       |                                            |                  |
+| \# Local storage path (when using 'local' driver). Mount a Docker volume here for persistence. |                                            |                  |
+| \# STORAGE\_LOCAL\_PATH=./uploads                                                              |                                            |                  |
+| \# S3 storage settings (when using 's3' driver)                                                |                                            |                  |
+| \# STORAGE\_S3\_BUCKET=my-bucket                                                               |                                            |                  |
+| \# STORAGE\_S3\_REGION=us-east-1                                                               |                                            |                  |
+| \# STORAGE\_S3\_ENDPOINT=https://s3.amazonaws.com # For MinIO/R2/GCS use their endpoint        |                                            |                  |
+| \# STORAGE\_S3\_ACCESS\_KEY\_ID=                                                               |                                            |                  |
+| \# STORAGE\_S3\_SECRET\_ACCESS\_KEY=                                                           |                                            |                  |
+| \# STORAGE\_S3\_FORCE\_PATH\_STYLE=false # Set to 'true' for MinIO                             |                                            |                  |
+| \# STORAGE\_S3\_PREFIX= # Optional key prefix (e.g. 'nao/uploads')                             |                                            |                  |
+|                                                                                                |                                            |                  |
+| \# Beta feature flags                                                                          |                                            |                  |
+| \# Set to true to enable the Automations feature (recurring prompt automations).               |                                            |                  |
+| \# BETA\_AUTOMATIONS\_ENABLED=false                                                            |                                            |                  |
+
+ 1 change: 1 addition & 0 deletions 1 .gitignore 
+
+ Show comments  View file  Edit file  Delete file  Open in desktop 
+
+ This file contains hidden or bidirectional Unicode text that may be interpreted or compiled differently than what appears below. To review, open the file in an editor that reveals hidden Unicode characters.Learn more about bidirectional Unicode characters 
+
+ Show hidden characters 
+
+| Original file line number                                                             | Diff line number                  | Diff line change |
+| ------------------------------------------------------------------------------------- | --------------------------------- | ---------------- |
+| [ ](#diff-bc37d034bad564583790a46f19d807abfe519c5671395fd494d8cce506c42947) Expand Up | @@ -18,5 +18,6 @@ nao-chat-server |                  |
+|                                                                                       |                                   |                  |
+| rsa\_key.\*                                                                           |                                   |                  |
+| apps/backend/projects/                                                                |                                   |                  |
+| apps/backend/uploads/                                                                 |                                   |                  |
+|                                                                                       |                                   |                  |
+| \*.code-workspace                                                                     |                                   |                  |
+
+ 3 changes: 3 additions & 0 deletions 3 apps/backend/migrations-postgres/0044\_file-storage.sql 
+
+ Show comments  View file  Edit file  Delete file  Open in desktop 
+
+ This file contains hidden or bidirectional Unicode text that may be interpreted or compiled differently than what appears below. To review, open the file in an editor that reveals hidden Unicode characters.Learn more about bidirectional Unicode characters 
+
+ Show hidden characters 
+
+| Original file line number                                                               | Diff line number | Diff line change |
+| --------------------------------------------------------------------------------------- | ---------------- | ---------------- |
+| @@ -0,0 +1,3 @@                                                                         |                  |                  |
+| ALTER TABLE "message\_image" ALTER COLUMN "data" DROP NOT NULL;--> statement-breakpoint |                  |                  |
+| ALTER TABLE "message\_image" ADD COLUMN "filename" text;--> statement-breakpoint        |                  |                  |
+| ALTER TABLE "message\_image" ADD COLUMN "size" integer;                                 |                  |                  |
+
+Loading 
+
+ Oops, something went wrong. Retry 
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+Loading 
+
+ Oops, something went wrong. Retry 
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+Toggle all file notes Toggle all file annotations 
+
+Add this suggestion to a batch that can be applied as a single commit. This suggestion is invalid because no changes were made to the code. Suggestions cannot be applied while the pull request is closed. Suggestions cannot be applied while viewing a subset of changes. Only one suggestion per line can be applied in a batch. Add this suggestion to a batch that can be applied as a single commit. Applying suggestions on deleted lines is not supported. You must change the existing code in this line in order to create a valid suggestion. Outdated suggestions cannot be applied. This suggestion has been applied or marked resolved. Suggestions cannot be applied from pending reviews. Suggestions cannot be applied on multi-line comments. Suggestions cannot be applied while the pull request is queued to merge. Suggestion cannot be applied right now. Please check back later. 
+
+## Footer
+
+ © 2026 GitHub, Inc. 
+
+### Footer navigation
+
+* Terms
+* Privacy
+* Security
+* Status
+* Community
+* Docs
+* Contact
+* Manage cookies
+* Do not share my personal information
+
+ You can’t perform that action at this time.
+____
+
+</external_links>
+<timestamp>Monday, Aug 3, 2026, 5:01 PM (UTC+2)</timestamp>
+
+take the code from this PR https://github.com/getnao/nao/pull/821/changes#top 
+
+and adapt it to the current state of main (migration number should be increased etc.) and fix what feels weird
