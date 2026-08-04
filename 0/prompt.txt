@@ -1,0 +1,11 @@
+<timestamp>Monday, Jul 27, 2026, 12:07 PM (UTC+2)</timestamp>
+
+@chat/cli/nao_core/config/llm/__init__.py:93-114 i want to improve LLMConfig from NaoConfig @chat/cli/nao_core/config/base.py:35 
+
+currently you define a single message but i want users to be able to define multiple providers and then multiple models per providers and per model eventually define the costs of each
+
+it needs to support if possible the current version as people will not migrate from one to other directly (put a warning tho)
+
+also i think it's time that the config defined in nao_config is taken into account when doing nao chat but also on the project configuration in the ui
+
+like not inherited from env but from nao_config
