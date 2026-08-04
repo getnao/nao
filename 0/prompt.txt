@@ -1,0 +1,3 @@
+<timestamp>Thursday, Jul 30, 2026, 5:24 PM (UTC+2)</timestamp>
+
+does removing a user from @chat/apps/frontend/src/routes/_sidebar-layout.settings.organization.tsx remove it from db
