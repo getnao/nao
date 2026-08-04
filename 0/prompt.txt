@@ -1,0 +1,3 @@
+<timestamp>Friday, Jul 31, 2026, 12:10 PM (UTC)</timestamp>
+
+i dont want everytime the user load the @chat/apps/frontend/src/components/chat-input.tsx that a request is made to the baseurl
