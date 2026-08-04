@@ -1,0 +1,10 @@
+[Image]
+<image_files>
+The following images were provided by the user and saved to the workspace for future use:
+1. /Users/blef/.cursor/projects/Users-blef-Work-naolabs-chat/assets/Screenshot_2026-07-21_at_16.37.13-ddd38dfe-147b-4023-a3c1-a9f224effc55.png
+
+These images can be copied for use in other locations.
+</image_files>
+<timestamp>Tuesday, Jul 21, 2026, 4:37 PM (UTC+2)</timestamp>
+
+@chat/apps/frontend/src/components/tool-calls/sql-query-display.tsx:5-16 i dont know why the syntaxic coloring does not work for the sql
