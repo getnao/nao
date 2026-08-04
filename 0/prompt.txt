@@ -1,0 +1,25 @@
+<timestamp>Thursday, Jul 23, 2026, 12:20 PM (UTC+2)</timestamp>
+
+All tools are functional — do not test tools. Only call tools required for this task.
+
+You are reviewing PR #1250 "First version of filters" (branch feat/filters-docker vs origin/main) in /Users/blef/Work/naolabs/chat.
+
+PR intent: First version of interactive story filters (filter bar, SQL templating, filtered query re-execution), plus inline SQL editing. Gated by BETA_STORY_FILTERS_ENABLED.
+
+Relevant CLAUDE.md: /Users/blef/Work/naolabs/chat/CLAUDE.md only.
+When evaluating CLAUDE.md compliance for a file, only consider CLAUDE.md files that share a file path with the file or parents (here: root CLAUDE.md).
+
+CRITICAL: Only flag HIGH SIGNAL issues:
+- Clear, unambiguous CLAUDE.md violations where you can quote the exact rule being broken
+- Do NOT flag style/quality nits, subjective suggestions, or things you're not certain about
+
+Return a list of issues. Each issue must include:
+- file path and relevant lines if possible
+- description
+- reason flagged (e.g. "CLAUDE.md adherence")
+- exact CLAUDE.md rule quote
+
+If none, say "No CLAUDE.md compliance issues found."
+
+Get the diff via: git diff origin/main...HEAD
+Read CLAUDE.md and check changed files against its rules.
