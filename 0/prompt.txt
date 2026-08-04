@@ -1,0 +1,15 @@
+<timestamp>Friday, Jul 31, 2026, 11:12 AM (UTC+2)</timestamp>
+
+@chat/apps/backend/src/services/mcp.ts:174 Check if this issue is valid — if so, understand the root cause and fix it. At apps/backend/src/services/mcp.ts, line 174:
+
+<comment>First discovery can be incorrectly denied in multi-project use because this method can return tools cached from the previously initialized project. Clear project-scoped discovery state when changing projects or associate the cache with its project ID.</comment>
+
+<file context>
+@@ -163,6 +168,17 @@ export class McpService {
++	/** Whether the server exposes at least one known tool, from this session or an on-disk spec. */
++	public async hasDiscoveredTools(projectId: string, server: string): Promise<boolean> {
++		await this.initializeMcpState(projectId);
++		const discovered = this._discovered[server];
++		if (discovered) {
++			return discovered.length > 0;
+</file context>
