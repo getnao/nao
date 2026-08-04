@@ -1,0 +1,1379 @@
+<git_diff_from_branch_to_main>
+  Relevant Diff: The following is the git diff from the current branch to the main/default branch:
+
+diff --git a/.github/APPROVED_CONTRIBUTORS b/.github/APPROVED_CONTRIBUTORS
+index 79ea409a..f806a33b 100644
+--- a/.github/APPROVED_CONTRIBUTORS
++++ b/.github/APPROVED_CONTRIBUTORS
+@@ -61,3 +61,7 @@ dennisUhrskov pr
+ bcodp issue
+ 
+ LouisLecatCAB pr
++
++kabam-blambert issue
++
++Francois-lenne pr
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+index 4208d8a4..ca87dae7 100644
+--- a/CONTRIBUTING.md
++++ b/CONTRIBUTING.md
+@@ -120,4 +120,4 @@ PRs against EE-marked files just like the rest of the codebase.
+ 
+ ## Questions?
+ 
+-- Ask on [Slack](https://join.slack.com/t/naolabs/shared_invite/REDACTED)
++- Ask on [Slack](https://join.slack.com/t/naolabs/shared_invite/REDACTED)
+diff --git a/README-dockerhub.md b/README-dockerhub.md
+index 848cd69f..94331b7f 100644
+--- a/README-dockerhub.md
++++ b/README-dockerhub.md
+@@ -2,7 +2,7 @@
+ 
+ nao is a framework to build and deploy analytics agents. Create context for your analytics agent with the nao-core CLI, then deploy a chat UI for anyone to interact with your data.
+ 
+-🌐 [Website](https://getnao.io) · 📚 [Documentation](https://docs.getnao.io) · 💬 [Slack](https://join.slack.com/t/naolabs/shared_invite/REDACTED) · 🐙 [GitHub](https://github.com/getnao/nao)
++🌐 [Website](https://getnao.io) · 📚 [Documentation](https://docs.getnao.io) · 💬 [Slack](https://join.slack.com/t/naolabs/shared_invite/REDACTED) · 🐙 [GitHub](https://github.com/getnao/nao)
+ 
+ ## Docker
+ 
+diff --git a/README.md b/README.md
+index d019eb90..38673f13 100644
+--- a/README.md
++++ b/README.md
+@@ -14,7 +14,7 @@
+ </h3>
+ 
+ <p align="center">
+-  🌐 <a href="https://getnao.io">Website</a> · 📚 <a href="https://docs.getnao.io">Documentation</a> · 💬 <a href="https://join.slack.com/t/naolabs/shared_invite/REDACTED">Slack</a>
++  🌐 <a href="https://getnao.io">Website</a> · 📚 <a href="https://docs.getnao.io">Documentation</a> · 💬 <a href="https://join.slack.com/t/naolabs/shared_invite/REDACTED">Slack</a>
+ </p>
+ 
+ <br/>
+@@ -214,7 +214,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, commands, and guid
+ - Star the repo
+ - Subscribe to releases (Watch → Custom → Releases)
+ - Follow us on [LinkedIn](https://www.linkedin.com/company/getnao)
+-- Join our [Slack](https://join.slack.com/t/naolabs/shared_invite/REDACTED)
++- Join our [Slack](https://join.slack.com/t/naolabs/shared_invite/REDACTED)
+ - Contribute to the repo!
+ 
+ ## 🫰🏻 Partners
+diff --git a/apps/backend/fastapi/test_main.py b/apps/backend/fastapi/test_main.py
+index 90f66080..fe7d6860 100644
+--- a/apps/backend/fastapi/test_main.py
++++ b/apps/backend/fastapi/test_main.py
+@@ -4,7 +4,6 @@ from pathlib import Path
+ import pytest
+ import yaml
+ from fastapi.testclient import TestClient
+-
+ from main import app
+ 
+ 
+diff --git a/apps/backend/migrations-postgres/0053_new_mcp.sql b/apps/backend/migrations-postgres/0053_new_mcp.sql
+new file mode 100644
+index 00000000..337a71f4
+--- /dev/null
++++ b/apps/backend/migrations-postgres/0053_new_mcp.sql
+@@ -0,0 +1,33 @@
++CREATE TABLE "mcp_oauth_client" (
++	"project_id" text NOT NULL,
++	"server_name" text NOT NULL,
++	"client_id" text NOT NULL,
++	"client_secret" text,
++	"client_data" text,
++	"discovery_user_id" text,
++	"created_at" timestamp DEFAULT now() NOT NULL,
++	"updated_at" timestamp DEFAULT now() NOT NULL,
++	CONSTRAINT "mcp_oauth_client_project_id_server_name_pk" PRIMARY KEY("project_id","server_name")
++);
++--> statement-breakpoint
++CREATE TABLE "mcp_user_token" (
++	"user_id" text NOT NULL,
++	"project_id" text NOT NULL,
++	"server_name" text NOT NULL,
++	"access_token" text,
++	"refresh_token" text,
++	"expires_at" timestamp,
++	"scope" text,
++	"code_verifier" text,
++	"created_at" timestamp DEFAULT now() NOT NULL,
++	"updated_at" timestamp DEFAULT now() NOT NULL,
++	CONSTRAINT "mcp_user_token_user_id_project_id_server_name_pk" PRIMARY KEY("user_id","project_id","server_name")
++);
++--> statement-breakpoint
++ALTER TABLE "project" ADD COLUMN "disabled_mcp_servers" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
++ALTER TABLE "project" ADD COLUMN "disabled_mcp_tools" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
++ALTER TABLE "mcp_oauth_client" ADD CONSTRAINT "mcp_oauth_client_project_id_project_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."project"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
++ALTER TABLE "mcp_oauth_client" ADD CONSTRAINT "mcp_oauth_client_discovery_user_id_user_id_fk" FOREIGN KEY ("discovery_user_id") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
++ALTER TABLE "mcp_user_token" ADD CONSTRAINT "mcp_user_token_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
++ALTER TABLE "mcp_user_token" ADD CONSTRAINT "mcp_user_token_project_id_project_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."project"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
++CREATE INDEX "mcp_user_token_project_server_idx" ON "mcp_user_token" USING btree ("project_id","server_name");
+\ No newline at end of file
+diff --git a/apps/backend/migrations-postgres/meta/0053_snapshot.json b/apps/backend/migrations-postgres/meta/0053_snapshot.json
+new file mode 100644
+index 00000000..e1548d09
+--- /dev/null
++++ b/apps/backend/migrations-postgres/meta/0053_snapshot.json
+@@ -0,0 +1,6738 @@
++{
++  "id": "f17f73a3-f664-49b6-8c46-57fd38f3d7a3",
++  "prevId": "a16666c9-43a3-40d9-8e46-9e1bf8ad5ee7",
++  "version": "7",
++  "dialect": "postgresql",
++  "tables": {
++    "public.account": {
++      "name": "account",
++      "schema": "",
++      "columns": {
++        "id": {
++          "name": "id",
++          "type": "text",
++          "primaryKey": true,
++          "notNull": true
++        },
++        "account_id": {
++          "name": "account_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "provider_id": {
++          "name": "provider_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "user_id": {
++          "name": "user_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "access_token": {
++          "name": "access_token",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "refresh_token": {
++          "name": "refresh_token",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "id_token": {
++          "name": "id_token",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "access_token_expires_at": {
++          "name": "access_token_expires_at",
++          "type": "timestamp",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "refresh_token_expires_at": {
++          "name": "refresh_token_expires_at",
++          "type": "timestamp",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "scope": {
++          "name": "scope",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "password": {
++          "name": "password",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "created_at": {
++          "name": "created_at",
++          "type": "timestamp",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        },
++        "updated_at": {
++          "name": "updated_at",
++          "type": "timestamp",
++          "primaryKey": false,
++          "notNull": true
++        }
++      },
++      "indexes": {
++        "account_userId_idx": {
++          "name": "account_userId_idx",
++          "columns": [
++            {
++              "expression": "user_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        }
++      },
++      "foreignKeys": {
++        "account_user_id_user_id_fk": {
++          "name": "account_user_id_user_id_fk",
++          "tableFrom": "account",
++          "tableTo": "user",
++          "columnsFrom": [
++            "user_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "cascade",
++          "onUpdate": "no action"
++        }
++      },
++      "compositePrimaryKeys": {},
++      "uniqueConstraints": {},
++      "policies": {},
++      "checkConstraints": {},
++      "isRLSEnabled": false
++    },
++    "public.activity": {
++      "name": "activity",
++      "schema": "",
++      "columns": {
++        "id": {
++          "name": "id",
++          "type": "text",
++          "primaryKey": true,
++          "notNull": true
++        },
++        "project_id": {
++          "name": "project_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "user_id": {
++          "name": "user_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "type": {
++          "name": "type",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "status": {
++          "name": "status",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "'completed'"
++        },
++        "trigger": {
++          "name": "trigger",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "'system'"
++        },
++        "story_id": {
++          "name": "story_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "chat_id": {
++          "name": "chat_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "shared_story_id": {
++          "name": "shared_story_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "shared_chat_id": {
++          "name": "shared_chat_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "payload": {
++          "name": "payload",
++          "type": "jsonb",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "error_message": {
++          "name": "error_message",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "started_at": {
++          "name": "started_at",
++          "type": "timestamp",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        },
++        "completed_at": {
++          "name": "completed_at",
++          "type": "timestamp",
++          "primaryKey": false,
++          "notNull": false
++        }
++      },
++      "indexes": {
++        "activity_projectId_idx": {
++          "name": "activity_projectId_idx",
++          "columns": [
++            {
++              "expression": "project_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "activity_userId_idx": {
++          "name": "activity_userId_idx",
++          "columns": [
++            {
++              "expression": "user_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "activity_type_idx": {
++          "name": "activity_type_idx",
++          "columns": [
++            {
++              "expression": "type",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "activity_storyId_idx": {
++          "name": "activity_storyId_idx",
++          "columns": [
++            {
++              "expression": "story_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "activity_chatId_idx": {
++          "name": "activity_chatId_idx",
++          "columns": [
++            {
++              "expression": "chat_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "activity_sharedStoryId_idx": {
++          "name": "activity_sharedStoryId_idx",
++          "columns": [
++            {
++              "expression": "shared_story_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "activity_sharedChatId_idx": {
++          "name": "activity_sharedChatId_idx",
++          "columns": [
++            {
++              "expression": "shared_chat_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "activity_startedAt_idx": {
++          "name": "activity_startedAt_idx",
++          "columns": [
++            {
++              "expression": "started_at",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        }
++      },
++      "foreignKeys": {
++        "activity_project_id_project_id_fk": {
++          "name": "activity_project_id_project_id_fk",
++          "tableFrom": "activity",
++          "tableTo": "project",
++          "columnsFrom": [
++            "project_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "cascade",
++          "onUpdate": "no action"
++        },
++        "activity_user_id_user_id_fk": {
++          "name": "activity_user_id_user_id_fk",
++          "tableFrom": "activity",
++          "tableTo": "user",
++          "columnsFrom": [
++            "user_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "set null",
++          "onUpdate": "no action"
++        },
++        "activity_story_id_story_id_fk": {
++          "name": "activity_story_id_story_id_fk",
++          "tableFrom": "activity",
++          "tableTo": "story",
++          "columnsFrom": [
++            "story_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "set null",
++          "onUpdate": "no action"
++        },
++        "activity_chat_id_chat_id_fk": {
++          "name": "activity_chat_id_chat_id_fk",
++          "tableFrom": "activity",
++          "tableTo": "chat",
++          "columnsFrom": [
++            "chat_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "set null",
++          "onUpdate": "no action"
++        },
++        "activity_shared_story_id_shared_story_id_fk": {
++          "name": "activity_shared_story_id_shared_story_id_fk",
++          "tableFrom": "activity",
++          "tableTo": "shared_story",
++          "columnsFrom": [
++            "shared_story_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "set null",
++          "onUpdate": "no action"
++        },
++        "activity_shared_chat_id_shared_chat_id_fk": {
++          "name": "activity_shared_chat_id_shared_chat_id_fk",
++          "tableFrom": "activity",
++          "tableTo": "shared_chat",
++          "columnsFrom": [
++            "shared_chat_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "set null",
++          "onUpdate": "no action"
++        }
++      },
++      "compositePrimaryKeys": {},
++      "uniqueConstraints": {},
++      "policies": {},
++      "checkConstraints": {},
++      "isRLSEnabled": false
++    },
++    "public.analytics_event": {
++      "name": "analytics_event",
++      "schema": "",
++      "columns": {
++        "id": {
++          "name": "id",
++          "type": "text",
++          "primaryKey": true,
++          "notNull": true
++        },
++        "project_id": {
++          "name": "project_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "type": {
++          "name": "type",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "asset_type": {
++          "name": "asset_type",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "actor_user_id": {
++          "name": "actor_user_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "chat_id": {
++          "name": "chat_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "story_id": {
++          "name": "story_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "shared_chat_id": {
++          "name": "shared_chat_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "shared_story_id": {
++          "name": "shared_story_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "metadata": {
++          "name": "metadata",
++          "type": "jsonb",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "created_at": {
++          "name": "created_at",
++          "type": "timestamp",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        }
++      },
++      "indexes": {
++        "analytics_event_projectId_idx": {
++          "name": "analytics_event_projectId_idx",
++          "columns": [
++            {
++              "expression": "project_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "analytics_event_chatId_idx": {
++          "name": "analytics_event_chatId_idx",
++          "columns": [
++            {
++              "expression": "chat_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "analytics_event_storyId_idx": {
++          "name": "analytics_event_storyId_idx",
++          "columns": [
++            {
++              "expression": "story_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "analytics_event_sharedChatId_idx": {
++          "name": "analytics_event_sharedChatId_idx",
++          "columns": [
++            {
++              "expression": "shared_chat_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "analytics_event_sharedStoryId_idx": {
++          "name": "analytics_event_sharedStoryId_idx",
++          "columns": [
++            {
++              "expression": "shared_story_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "analytics_event_actorUserId_idx": {
++          "name": "analytics_event_actorUserId_idx",
++          "columns": [
++            {
++              "expression": "actor_user_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "analytics_event_type_createdAt_idx": {
++          "name": "analytics_event_type_createdAt_idx",
++          "columns": [
++            {
++              "expression": "type",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            },
++            {
++              "expression": "created_at",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        }
++      },
++      "foreignKeys": {
++        "analytics_event_project_id_project_id_fk": {
++          "name": "analytics_event_project_id_project_id_fk",
++          "tableFrom": "analytics_event",
++          "tableTo": "project",
++          "columnsFrom": [
++            "project_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "cascade",
++          "onUpdate": "no action"
++        },
++        "analytics_event_actor_user_id_user_id_fk": {
++          "name": "analytics_event_actor_user_id_user_id_fk",
++          "tableFrom": "analytics_event",
++          "tableTo": "user",
++          "columnsFrom": [
++            "actor_user_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "set null",
++          "onUpdate": "no action"
++        },
++        "analytics_event_chat_id_chat_id_fk": {
++          "name": "analytics_event_chat_id_chat_id_fk",
++          "tableFrom": "analytics_event",
++          "tableTo": "chat",
++          "columnsFrom": [
++            "chat_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "cascade",
++          "onUpdate": "no action"
++        },
++        "analytics_event_story_id_story_id_fk": {
++          "name": "analytics_event_story_id_story_id_fk",
++          "tableFrom": "analytics_event",
++          "tableTo": "story",
++          "columnsFrom": [
++            "story_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "cascade",
++          "onUpdate": "no action"
++        },
++        "analytics_event_shared_chat_id_shared_chat_id_fk": {
++          "name": "analytics_event_shared_chat_id_shared_chat_id_fk",
++          "tableFrom": "analytics_event",
++          "tableTo": "shared_chat",
++          "columnsFrom": [
++            "shared_chat_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "set null",
++          "onUpdate": "no action"
++        },
++        "analytics_event_shared_story_id_shared_story_id_fk": {
++          "name": "analytics_event_shared_story_id_shared_story_id_fk",
++          "tableFrom": "analytics_event",
++          "tableTo": "shared_story",
++          "columnsFrom": [
++            "shared_story_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "set null",
++          "onUpdate": "no action"
++        }
++      },
++      "compositePrimaryKeys": {},
++      "uniqueConstraints": {},
++      "policies": {},
++      "checkConstraints": {
++        "analytics_event_asset_id_required": {
++          "name": "analytics_event_asset_id_required",
++          "value": "CASE WHEN \"analytics_event\".\"asset_type\" = 'chat' THEN \"analytics_event\".\"chat_id\" IS NOT NULL WHEN \"analytics_event\".\"asset_type\" = 'story' THEN \"analytics_event\".\"story_id\" IS NOT NULL ELSE TRUE END"
++        }
++      },
++      "isRLSEnabled": false
++    },
++    "public.api_key": {
++      "name": "api_key",
++      "schema": "",
++      "columns": {
++        "id": {
++          "name": "id",
++          "type": "text",
++          "primaryKey": true,
++          "notNull": true
++        },
++        "org_id": {
++          "name": "org_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "name": {
++          "name": "name",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "key_hash": {
++          "name": "key_hash",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "key_prefix": {
++          "name": "key_prefix",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "created_by": {
++          "name": "created_by",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "last_used_at": {
++          "name": "last_used_at",
++          "type": "timestamp",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "created_at": {
++          "name": "created_at",
++          "type": "timestamp",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        }
++      },
++      "indexes": {
++        "api_key_orgId_idx": {
++          "name": "api_key_orgId_idx",
++          "columns": [
++            {
++              "expression": "org_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        }
++      },
++      "foreignKeys": {
++        "api_key_org_id_organization_id_fk": {
++          "name": "api_key_org_id_organization_id_fk",
++          "tableFrom": "api_key",
++          "tableTo": "organization",
++          "columnsFrom": [
++            "org_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "cascade",
++          "onUpdate": "no action"
++        },
++        "api_key_created_by_user_id_fk": {
++          "name": "api_key_created_by_user_id_fk",
++          "tableFrom": "api_key",
++          "tableTo": "user",
++          "columnsFrom": [
++            "created_by"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "cascade",
++          "onUpdate": "no action"
++        }
++      },
++      "compositePrimaryKeys": {},
++      "uniqueConstraints": {
++        "api_key_key_hash_unique": {
++          "name": "api_key_key_hash_unique",
++          "nullsNotDistinct": false,
++          "columns": [
++            "key_hash"
++          ]
++        }
++      },
++      "policies": {},
++      "checkConstraints": {},
++      "isRLSEnabled": false
++    },
++    "public.automation": {
++      "name": "automation",
++      "schema": "",
++      "columns": {
++        "id": {
++          "name": "id",
++          "type": "text",
++          "primaryKey": true,
++          "notNull": true
++        },
++        "project_id": {
++          "name": "project_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "user_id": {
++          "name": "user_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "scheduled_job_id": {
++          "name": "scheduled_job_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "title": {
++          "name": "title",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "prompt": {
++          "name": "prompt",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "schedule_description": {
++          "name": "schedule_description",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "timezone": {
++          "name": "timezone",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "model_provider": {
++          "name": "model_provider",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "model_id": {
++          "name": "model_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "mcp_enabled": {
++          "name": "mcp_enabled",
++          "type": "boolean",
++          "primaryKey": false,
++          "notNull": true,
++          "default": true
++        },
++        "mcp_servers": {
++          "name": "mcp_servers",
++          "type": "jsonb",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "integrations": {
++          "name": "integrations",
++          "type": "jsonb",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "'{}'::jsonb"
++        },
++        "created_at": {
++          "name": "created_at",
++          "type": "timestamp",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        },
++        "updated_at": {
++          "name": "updated_at",
++          "type": "timestamp",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        }
++      },
++      "indexes": {
++        "automation_projectId_idx": {
++          "name": "automation_projectId_idx",
++          "columns": [
++            {
++              "expression": "project_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "automation_userId_idx": {
++          "name": "automation_userId_idx",
++          "columns": [
++            {
++              "expression": "user_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "automation_scheduledJobId_idx": {
++          "name": "automation_scheduledJobId_idx",
++          "columns": [
++            {
++              "expression": "scheduled_job_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        }
++      },
++      "foreignKeys": {
++        "automation_project_id_project_id_fk": {
++          "name": "automation_project_id_project_id_fk",
++          "tableFrom": "automation",
++          "tableTo": "project",
++          "columnsFrom": [
++            "project_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "cascade",
++          "onUpdate": "no action"
++        },
++        "automation_user_id_user_id_fk": {
++          "name": "automation_user_id_user_id_fk",
++          "tableFrom": "automation",
++          "tableTo": "user",
++          "columnsFrom": [
++            "user_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "cascade",
++          "onUpdate": "no action"
++        },
++        "automation_scheduled_job_id_scheduled_job_id_fk": {
++          "name": "automation_scheduled_job_id_scheduled_job_id_fk",
++          "tableFrom": "automation",
++          "tableTo": "scheduled_job",
++          "columnsFrom": [
++            "scheduled_job_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "set null",
++          "onUpdate": "no action"
++        }
++      },
++      "compositePrimaryKeys": {},
++      "uniqueConstraints": {},
++      "policies": {},
++      "checkConstraints": {},
++      "isRLSEnabled": false
++    },
++    "public.automation_run": {
++      "name": "automation_run",
++      "schema": "",
++      "columns": {
++        "id": {
++          "name": "id",
++          "type": "text",
++          "primaryKey": true,
++          "notNull": true
++        },
++        "automation_id": {
++          "name": "automation_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "chat_id": {
++          "name": "chat_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "status": {
++          "name": "status",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "'running'"
++        },
++        "started_at": {
++          "name": "started_at",
++          "type": "timestamp",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        },
++        "completed_at": {
++          "name": "completed_at",
++          "type": "timestamp",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "error_message": {
++          "name": "error_message",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "integration_results": {
++          "name": "integration_results",
++          "type": "jsonb",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "'[]'::jsonb"
++        }
++      },
++      "indexes": {
++        "automation_run_automationId_idx": {
++          "name": "automation_run_automationId_idx",
++          "columns": [
++            {
++              "expression": "automation_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "automation_run_chatId_idx": {
++          "name": "automation_run_chatId_idx",
++          "columns": [
++            {
++              "expression": "chat_id",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        },
++        "automation_run_status_idx": {
++          "name": "automation_run_status_idx",
++          "columns": [
++            {
++              "expression": "status",
++              "isExpression": false,
++              "asc": true,
++              "nulls": "last"
++            }
++          ],
++          "isUnique": false,
++          "concurrently": false,
++          "method": "btree",
++          "with": {}
++        }
++      },
++      "foreignKeys": {
++        "automation_run_automation_id_automation_id_fk": {
++          "name": "automation_run_automation_id_automation_id_fk",
++          "tableFrom": "automation_run",
++          "tableTo": "automation",
++          "columnsFrom": [
++            "automation_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "cascade",
++          "onUpdate": "no action"
++        },
++        "automation_run_chat_id_chat_id_fk": {
++          "name": "automation_run_chat_id_chat_id_fk",
++          "tableFrom": "automation_run",
++          "tableTo": "chat",
++          "columnsFrom": [
++            "chat_id"
++          ],
++          "columnsTo": [
++            "id"
++          ],
++          "onDelete": "set null",
++          "onUpdate": "no action"
++        }
++      },
++      "compositePrimaryKeys": {},
++      "uniqueConstraints": {},
++      "policies": {},
++      "checkConstraints": {},
++      "isRLSEnabled": false
++    },
++    "public.branding_config": {
++      "name": "branding_config",
++      "schema": "",
++      "columns": {
++        "id": {
++          "name": "id",
++          "type": "text",
++          "primaryKey": true,
++          "notNull": true
++        },
++        "app_name": {
++          "name": "app_name",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "tab_title": {
++          "name": "tab_title",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "logo_data": {
++          "name": "logo_data",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "logo_media_type": {
++          "name": "logo_media_type",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "favicon_data": {
++          "name": "favicon_data",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "favicon_media_type": {
++          "name": "favicon_media_type",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "brand_color": {
++          "name": "brand_color",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": false
++        },
++        "updated_at": {
++          "name": "updated_at",
++          "type": "timestamp",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "now()"
++        }
++      },
++      "indexes": {},
++      "foreignKeys": {},
++      "compositePrimaryKeys": {},
++      "uniqueConstraints": {},
++      "policies": {},
++      "checkConstraints": {},
++      "isRLSEnabled": false
++    },
++    "public.chat": {
++      "name": "chat",
++      "schema": "",
++      "columns": {
++        "id": {
++          "name": "id",
++          "type": "text",
++          "primaryKey": true,
++          "notNull": true
++        },
++        "user_id": {
++          "name": "user_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "project_id": {
++          "name": "project_id",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true
++        },
++        "title": {
++          "name": "title",
++          "type": "text",
++          "primaryKey": false,
++          "notNull": true,
++          "default": "'New Conversation'"
++        },
++        "is_starred": {
++          "name": "is_starred",
++          "type": "boolean",
++          "primaryKey": false,
++          "notNull": true,
++          "default": false
++        },
++        "deleted_at": {
++          "name": "deleted_at",
++          "type": "timestamp",
++          "pri
+
+[diff truncated due to size; run `git diff` locally for the full output]
+  </git_diff_from_branch_to_main>
+<timestamp>Sunday, Jul 5, 2026, 9:09 PM (UTC+2)</timestamp>
+
+Resolve this merge conflict @Branch
