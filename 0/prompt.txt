@@ -1,0 +1,1059 @@
+<git_diff_from_branch_to_main>
+  Relevant Diff: The following is the git diff from the current branch to the main/default branch:
+
+diff --git a/apps/backend/src/agents/provider-meta.ts b/apps/backend/src/agents/provider-meta.ts
+index 83a85ef5..060aae7d 100644
+--- a/apps/backend/src/agents/provider-meta.ts
++++ b/apps/backend/src/agents/provider-meta.ts
+@@ -272,7 +272,7 @@ export const PROVIDER_META: ProviderMetaMap = {
+ 				id: 'claude-sonnet-4-6',
+ 				name: 'Claude Sonnet 4.6',
+ 				default: true,
+-				contextWindow: 200_000,
++				contextWindow: 20_000,
+ 				costPerM: { inputNoCache: 3, inputCacheRead: 0.3, inputCacheWrite: 3.75, output: 15 },
+ 				capabilities: ANTHROPIC_ADAPTIVE,
+ 			},
+diff --git a/apps/backend/src/components/ai/system-prompt.tsx b/apps/backend/src/components/ai/system-prompt.tsx
+index 83fbe24f..7e80ecbe 100644
+--- a/apps/backend/src/components/ai/system-prompt.tsx
++++ b/apps/backend/src/components/ai/system-prompt.tsx
+@@ -125,6 +125,10 @@ export function SystemPrompt({
+ 					take exactly one series, and slices beyond the top 10 are grouped into an "Other" slice
+ 					automatically.
+ 				</ListItem>
++				<ListItem>
++					For display_chart y_axis_min/y_axis_max: use them to fix the Y-axis scale when needed; by default,
++					line and scatter charts auto-scale to a readable range rather than always starting at zero.
++				</ListItem>
+ 				<ListItem>
+ 					Use the <Bold>display_chart</Bold> tool with <Bold>{'chart_type: "table"'}</Bold> to present a table
+ 					from a previous execute_sql result with <Bold>conditional formatting</Bold> on specific columns.
+diff --git a/apps/backend/src/components/generate-chart.tsx b/apps/backend/src/components/generate-chart.tsx
+index 7547365e..b58d47a6 100644
+--- a/apps/backend/src/components/generate-chart.tsx
++++ b/apps/backend/src/components/generate-chart.tsx
+@@ -15,7 +15,14 @@ import {
+ export interface RenderChartInput {
+ 	config: Pick<
+ 		displayChart.ChartInput,
+-		'chart_type' | 'x_axis_key' | 'x_axis_type' | 'series' | 'title' | 'show_data_labels'
++		| 'chart_type'
++		| 'x_axis_key'
++		| 'x_axis_type'
++		| 'series'
++		| 'y_axis_min'
++		| 'y_axis_max'
++		| 'title'
++		| 'show_data_labels'
+ 	>;
+ 	data: Record<string, unknown>[];
+ 	width?: number;
+@@ -78,6 +85,8 @@ export function renderChartToSvg(input: RenderChartInput): string {
+ 		title: config.title,
+ 		maxXAxisTicks: Math.floor(chartWidth / maxLabelWidth),
+ 		backgroundColor: '#ffffff',
++		yAxisMin: config.y_axis_min,
++		yAxisMax: config.y_axis_max,
+ 	});
+ 
+ 	const html = renderToString(React.cloneElement(chart, { width: chartWidth, height }));
+diff --git a/apps/backend/src/mcp/tools/asset-tools.ts b/apps/backend/src/mcp/tools/asset-tools.ts
+index 79219c21..ab4f141c 100644
+--- a/apps/backend/src/mcp/tools/asset-tools.ts
++++ b/apps/backend/src/mcp/tools/asset-tools.ts
+@@ -67,7 +67,8 @@ function registerDisplayChart(server: McpServer, ctx: McpContext): void {
+ 		agentTool: displayChartTool,
+ 		title: 'Display Chart',
+ 		description: DISPLAY_CHART_DESCRIPTION,
+-		inputSchema: displayChart.ChartInputSchema.extend({
++		inputSchema: displayChart.ChartInputSchema.and(
++			zodV3.object({
+ 				chat_id: zodV3
+ 					.string()
+ 					.optional()
+@@ -77,6 +78,7 @@ function registerDisplayChart(server: McpServer, ctx: McpContext): void {
+ 							'nao resolves the rows automatically across the project even without it.',
+ 					),
+ 			}),
++		),
+ 		outputSchema: {
+ 			queryId: z
+ 				.string()
+@@ -103,7 +105,8 @@ function registerDisplayChart(server: McpServer, ctx: McpContext): void {
+ 		mapInput: ({ chat_id: _chatId, ...input }) => input,
+ 		resolveChatId: (input) => input.chat_id ?? null,
+ 		formatResult: async ({ input, output, callLogId }) => {
+-			const { query_id, chart_type, x_axis_key, x_axis_type, series, title, chat_id } = input;
++			const { query_id, chart_type, x_axis_key, x_axis_type, series, y_axis_min, y_axis_max, title, chat_id } =
++				input;
+ 			if (!output.success) {
+ 				return {
+ 					content: [{ type: 'text' as const, text: output.error ?? 'Chart config is invalid.' }],
+@@ -113,7 +116,7 @@ function registerDisplayChart(server: McpServer, ctx: McpContext): void {
+ 
+ 			const validatedChatId = await resolveChartChatId(chat_id, ctx);
+ 			const result = await buildChartEmbedFromArtifact(
+-				{ query_id, chart_type, x_axis_key, x_axis_type, series, title },
++				{ query_id, chart_type, x_axis_key, x_axis_type, series, y_axis_min, y_axis_max, title },
+ 				ctx,
+ 				{ chatId: validatedChatId ?? null, callLogId },
+ 			);
+diff --git a/apps/backend/src/mcp/tools/helpers.ts b/apps/backend/src/mcp/tools/helpers.ts
+index e6bc1581..f2a62b38 100644
+--- a/apps/backend/src/mcp/tools/helpers.ts
++++ b/apps/backend/src/mcp/tools/helpers.ts
+@@ -129,8 +129,17 @@ export async function buildChartEmbedFromArtifact(
+ 	ctx: McpContext,
+ 	opts: { chatId: string | null; callLogId: string },
+ ): Promise<{ payload: ChartToolPayload; sandboxChartHtml: string | null } | { keyError: ChartKeyError } | null> {
+-	const { query_id, chart_type, x_axis_key, x_axis_type, series, title } = artifact;
+-	const block = buildStoryChartBlock({ query_id, chart_type, x_axis_key, x_axis_type, series, title });
++	const { query_id, chart_type, x_axis_key, x_axis_type, series, y_axis_min, y_axis_max, title } = artifact;
++	const block = buildStoryChartBlock({
++		query_id,
++		chart_type,
++		x_axis_key,
++		x_axis_type,
++		series,
++		y_axis_min,
++		y_axis_max,
++		title,
++	});
+ 
+ 	const queryData = await resolveChartQueryData({
+ 		queryId: query_id,
+@@ -159,7 +168,15 @@ export async function buildChartEmbedFromArtifact(
+ 			chartEmbedId: id,
+ 			queryId: query_id,
+ 			projectId: ctx.projectId,
+-			chartConfig: { chartType: chart_type, xAxisKey: x_axis_key, xAxisType: x_axis_type, series, title },
++			chartConfig: {
++				chartType: chart_type,
++				xAxisKey: x_axis_key,
++				xAxisType: x_axis_type,
++				series,
++				yAxisMin: y_axis_min,
++				yAxisMax: y_axis_max,
++				title,
++			},
+ 			sourceChatId: effectiveChatId,
+ 		});
+ 		if (inserted) {
+diff --git a/apps/backend/src/utils/story-html.tsx b/apps/backend/src/utils/story-html.tsx
+index b9219103..88799f68 100644
+--- a/apps/backend/src/utils/story-html.tsx
++++ b/apps/backend/src/utils/story-html.tsx
+@@ -161,6 +161,8 @@ function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData:
+ 			xAxisKey: chart.xAxisKey,
+ 			series: chart.series,
+ 			chartType: chart.chartType,
++			yAxisMin: chart.yAxisMin,
++			yAxisMax: chart.yAxisMax,
+ 		});
+ 		return (
+ 			<div style={{ margin: '16px 0' }}>
+@@ -335,6 +337,8 @@ function toChartConfig(chart: ParsedChartBlock) {
+ 		x_axis_key: chart.xAxisKey,
+ 		x_axis_type: chart.xAxisType as displayChart.XAxisType | null,
+ 		series: chart.series,
++		y_axis_min: chart.yAxisMin,
++		y_axis_max: chart.yAxisMax,
+ 		title: chart.title,
+ 		show_data_labels: chart.showDataLabels,
+ 	};
+diff --git a/apps/frontend/src/components/automations-feed.tsx b/apps/frontend/src/components/automations-feed.tsx
+index 8f4c35f5..910b93af 100644
+--- a/apps/frontend/src/components/automations-feed.tsx
++++ b/apps/frontend/src/components/automations-feed.tsx
+@@ -771,6 +771,8 @@ function ChartSlide({ chart }: { chart: AutomationFeedChart }) {
+ 				xAxisType={xAxisType}
+ 				series={chart.config.series}
+ 				title={chart.config.title}
++				yAxisMin={chart.config.y_axis_min}
++				yAxisMax={chart.config.y_axis_max}
+ 			/>
+ 		</div>
+ 	);
+diff --git a/apps/frontend/src/components/mcp-app/chart-app-view.tsx b/apps/frontend/src/components/mcp-app/chart-app-view.tsx
+index 064e4e09..2fcc222e 100644
+--- a/apps/frontend/src/components/mcp-app/chart-app-view.tsx
++++ b/apps/frontend/src/components/mcp-app/chart-app-view.tsx
+@@ -56,6 +56,8 @@ export const ChartAppView = memo(function ChartAppView({ config, data, naoUrl }:
+ 					xAxisType={xAxisType}
+ 					series={series}
+ 					title={config.title}
++					yAxisMin={config.yAxisMin}
++					yAxisMax={config.yAxisMax}
+ 				/>
+ 			</div>
+ 		);
+diff --git a/apps/frontend/src/components/side-panel/story-chart-embed.tsx b/apps/frontend/src/components/side-panel/story-chart-embed.tsx
+index b6791718..bcc17407 100644
+--- a/apps/frontend/src/components/side-panel/story-chart-embed.tsx
++++ b/apps/frontend/src/components/side-panel/story-chart-embed.tsx
+@@ -17,6 +17,8 @@ interface ChartBlock {
+ 	xAxisKey: string;
+ 	xAxisType: string | null;
+ 	series: Array<{ data_key: string; color: string; label?: string; is_total?: boolean }>;
++	yAxisMin?: number;
++	yAxisMax?: number;
+ 	title: string;
+ 	showDataLabels?: boolean;
+ 	rawTag?: string;
+@@ -81,6 +83,8 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({ chart }: { chart:
+ 				xAxisType={xAxisType}
+ 				series={chart.series}
+ 				title={chart.title}
++				yAxisMin={chart.yAxisMin}
++				yAxisMax={chart.yAxisMax}
+ 				showDataLabels={chart.showDataLabels}
+ 			/>
+ 		</StoryChartEmbedShell>
+@@ -114,6 +118,8 @@ export function StoryChartEmbedShell({ chart, availableColumns, children }: Stor
+ 				label: s.label,
+ 				is_total: s.is_total,
+ 			})),
++			y_axis_min: chart.yAxisMin,
++			y_axis_max: chart.yAxisMax,
+ 			title: chart.title,
+ 			show_data_labels: chart.showDataLabels,
+ 		}),
+@@ -121,19 +127,30 @@ export function StoryChartEmbedShell({ chart, availableColumns, children }: Stor
+ 	);
+ 
+ 	return (
+-		<div className={`my-2 relative ${chart.chartType != 'kpi_card' ? 'aspect-3/2' : ''}`}>
++		<div className='my-2 flex flex-col gap-4'>
++			{(canEdit || (chart.chartType != 'kpi_card' && chart.title)) && (
++				<div className='flex w-full items-center justify-between gap-2'>
++					{chart.chartType != 'kpi_card' && chart.title ? (
++						<span className='text-sm font-medium text-foreground flex-1 min-w-0 truncate'>
++							{chart.title}
++						</span>
++					) : (
++						<div className='flex-1' />
++					)}
+ 					{canEdit && (
+ 						<Button
+ 							variant='ghost-muted'
+ 							size='icon-xs'
+ 							onClick={() => setIsEditOpen(true)}
+ 							title='Edit chart'
+-					className='absolute top-1 right-1 z-10 bg-background/80 backdrop-blur hover:bg-accent hover:rounded-full'
++							className='shrink-0 hover:bg-accent hover:rounded-full'
+ 						>
+ 							<Pencil className='size-3.5' />
+ 						</Button>
+ 					)}
+-			{children}
++				</div>
++			)}
++			<div className={`relative ${chart.chartType != 'kpi_card' ? 'aspect-3/2' : ''}`}>{children}</div>
+ 			{canEdit && edit && chart.rawTag && (
+ 				<ChartConfigEditDialog
+ 					open={isEditOpen}
+diff --git a/apps/frontend/src/components/story-embeds.tsx b/apps/frontend/src/components/story-embeds.tsx
+index 2a51ee1a..50493824 100644
+--- a/apps/frontend/src/components/story-embeds.tsx
++++ b/apps/frontend/src/components/story-embeds.tsx
+@@ -83,6 +83,8 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
+ 				xAxisType={chart.xAxisType === 'number' ? 'number' : 'category'}
+ 				series={chart.series}
+ 				title={chart.title}
++				yAxisMin={chart.yAxisMin}
++				yAxisMax={chart.yAxisMax}
+ 				showDataLabels={chart.showDataLabels}
+ 			/>
+ 		</StoryChartEmbedShell>
+diff --git a/apps/frontend/src/components/tool-calls/display-chart-edit-dialog.tsx b/apps/frontend/src/components/tool-calls/display-chart-edit-dialog.tsx
+index 5d94380c..7de12cf5 100644
+--- a/apps/frontend/src/components/tool-calls/display-chart-edit-dialog.tsx
++++ b/apps/frontend/src/components/tool-calls/display-chart-edit-dialog.tsx
+@@ -32,6 +32,8 @@ const X_AXIS_TYPE_OPTIONS: { value: NonNullable<displayChart.XAxisType> | 'auto'
+ 	{ value: 'number', label: 'Number' },
+ ];
+ 
++const Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES = new Set<displayChart.ChartType>(['pie', 'kpi_card', 'radar']);
++
+ /** Maps a 100% stacked type back to its absolute-stacked counterpart, so the type dropdown stays clean. */
+ function baseChartType(type: displayChart.ChartType): displayChart.ChartType {
+ 	if (type === 'stacked_bar_100') {
+@@ -75,11 +77,16 @@ export function ChartConfigEditDialog({
+ 	description = 'Tweak the chart parameters.',
+ }: ChartConfigEditDialogProps) {
+ 	const [draft, setDraft] = useState<displayChart.ChartInput>(config);
++	const [yAxisMinText, setYAxisMinText] = useState(toRangeString(config.y_axis_min));
++	const [yAxisMaxText, setYAxisMaxText] = useState(toRangeString(config.y_axis_max));
+ 	const [error, setError] = useState<string | null>(null);
++	const supportsYAxisRange = !Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES.has(draft.chart_type);
+ 
+ 	useEffect(() => {
+ 		if (open) {
+ 			setDraft(config);
++			setYAxisMinText(toRangeString(config.y_axis_min));
++			setYAxisMaxText(toRangeString(config.y_axis_max));
+ 			setError(null);
+ 		}
+ 	}, [open, config]);
+@@ -137,6 +144,18 @@ export function ChartConfigEditDialog({
+ 		}));
+ 	};
+ 
++	const updateYAxisMin = (value: string) => {
++		setYAxisMinText(value);
++		const parsed = parseRangeInput(value);
++		setDraft((prev) => ({ ...prev, y_axis_min: parsed }));
++	};
++
++	const updateYAxisMax = (value: string) => {
++		setYAxisMaxText(value);
++		const parsed = parseRangeInput(value);
++		setDraft((prev) => ({ ...prev, y_axis_max: parsed }));
++	};
++
+ 	return (
+ 		<Dialog open={open} onOpenChange={onOpenChange}>
+ 			<DialogContent className='sm:max-w-xl max-h-[90vh] overflow-y-auto'>
+@@ -304,6 +323,41 @@ export function ChartConfigEditDialog({
+ 						</div>
+ 					</div>
+ 
++					{supportsYAxisRange && (
++						<div className='grid gap-2'>
++							<span className='text-sm font-semibold text-foreground'>Y-axis range</span>
++							<div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
++								<div className='grid gap-2'>
++									<label htmlFor='chart-y-axis-min' className='text-sm font-semibold text-foreground'>
++										Min
++									</label>
++									<Input
++										id='chart-y-axis-min'
++										className='h-8 bg-panel'
++										type='text'
++										inputMode='decimal'
++										placeholder='Auto'
++										value={yAxisMinText}
++										onChange={(e) => updateYAxisMin(e.target.value)}
++									/>
++								</div>
++								<div className='grid gap-2'>
++									<label htmlFor='chart-y-axis-max' className='text-sm font-semibold text-foreground'>
++										Max
++									</label>
++									<Input
++										id='chart-y-axis-max'
++										className='h-8 bg-panel'
++										type='text'
++										inputMode='decimal'
++										placeholder='Auto'
++										value={yAxisMaxText}
++										onChange={(e) => updateYAxisMax(e.target.value)}
++									/>
++								</div>
++							</div>
++						</div>
++					)}
+ 					<div className='grid gap-2'>
+ 						<span className='text-sm font-semibold text-foreground'>Options</span>
+ 						<div className='flex h-8 items-center justify-between'>
+@@ -425,6 +479,18 @@ function getSelectableColumns(columns: string[]): string[] {
+ 	return Array.from(new Set(columns.filter((column) => column.length > 0)));
+ }
+ 
++function toRangeString(n: number | undefined): string {
++	return n === undefined ? '' : String(n);
++}
++
++function parseRangeInput(value: string): number | undefined {
++	if (value.trim() === '') {
++		return undefined;
++	}
++	const n = Number(value);
++	return Number.isFinite(n) ? n : undefined;
++}
++
+ const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+ function normalizeHexColor(color?: string): string {
+ 	if (color && HEX_RE.test(color)) {
+diff --git a/apps/frontend/src/components/tool-calls/display-chart.tsx b/apps/frontend/src/components/tool-calls/display-chart.tsx
+index c8b61287..5b19721f 100644
+--- a/apps/frontend/src/components/tool-calls/display-chart.tsx
++++ b/apps/frontend/src/components/tool-calls/display-chart.tsx
+@@ -214,7 +214,7 @@ export const DisplayChartToolCall = ({
+ 
+ 	return (
+ 		<div
+-			className={`flex flex-col items-center my-4 gap-2 ${chartConfig.chart_type !== 'kpi_card' && !normalSize ? 'aspect-3/2' : ''}`}
++			className={`flex flex-col items-stretch w-full my-4 gap-4 ${chartConfig.chart_type !== 'kpi_card' && !normalSize ? 'aspect-3/2' : ''}`}
+ 		>
+ 			<div className='flex w-full items-center justify-between gap-2'>
+ 				{chartConfig.chart_type != 'kpi_card' ? (
+@@ -295,6 +295,8 @@ export const DisplayChartToolCall = ({
+ 				series={chartConfig.series}
+ 				xAxisType={chartConfig.x_axis_type === 'number' ? 'number' : 'category'}
+ 				title={chartConfig.title}
++				yAxisMin={chartConfig.y_axis_min}
++				yAxisMax={chartConfig.y_axis_max}
+ 				showDataLabels={chartConfig.show_data_labels}
+ 			/>
+ 		</div>
+@@ -310,6 +312,8 @@ export interface ChartDisplayProps {
+ 	series: displayChart.SeriesConfig[];
+ 	title?: string;
+ 	showGrid?: boolean;
++	yAxisMin?: number;
++	yAxisMax?: number;
+ 	showDataLabels?: boolean;
+ }
+ 
+@@ -322,6 +326,8 @@ export const ChartDisplay = memo(function ChartDisplay({
+ 	series: seriesProp,
+ 	title,
+ 	showGrid = true,
++	yAxisMin,
++	yAxisMax,
+ 	showDataLabels,
+ }: ChartDisplayProps) {
+ 	const dateFormat = useDateFormat();
+@@ -425,6 +431,8 @@ export const ChartDisplay = memo(function ChartDisplay({
+ 				showGrid,
+ 				showDataLabels,
+ 				margin: { top: 0, right: 0, bottom: 0, left: 0 },
++				yAxisMin,
++				yAxisMax,
+ 				children: [
+ 					<ChartTooltip
+ 						key='tooltip'
+@@ -452,6 +460,7 @@ export const ChartDisplay = memo(function ChartDisplay({
+ 					),
+ 				],
+ 				title,
++				renderTitle: false,
+ 			}),
+ 		[
+ 			pieData,
+@@ -464,6 +473,8 @@ export const ChartDisplay = memo(function ChartDisplay({
+ 			labelFormatter,
+ 			tooltipLabelFormatter,
+ 			showGrid,
++			yAxisMin,
++			yAxisMax,
+ 			showDataLabels,
+ 			legendPayload,
+ 			handleToggleSeriesVisibility,
+@@ -473,7 +484,7 @@ export const ChartDisplay = memo(function ChartDisplay({
+ 	);
+ 
+ 	return (
+-		<div className='flex flex-col items-center gap-2 w-full'>
++		<div className='flex flex-col items-stretch gap-2 w-full'>
+ 			{chartType === 'kpi_card' ? (
+ 				chartElement
+ 			) : (
+diff --git a/apps/frontend/src/components/tool-calls/mcp.tsx b/apps/frontend/src/components/tool-calls/mcp.tsx
+index 7ccd6775..8259623d 100644
+--- a/apps/frontend/src/components/tool-calls/mcp.tsx
++++ b/apps/frontend/src/components/tool-calls/mcp.tsx
+@@ -63,6 +63,22 @@ const McpChartOutput = ({ chartBlock }: { chartBlock: string }) => {
+ 	}
+ 
+ 	return (
++<<<<<<< HEAD
++		<div className='my-4 flex w-full flex-col gap-1.5'>
++			{chart.chartType !== 'kpi_card' && chart.title && (
++				<span className='text-sm font-medium text-foreground'>{chart.title}</span>
++			)}
++			<div className={`w-full ${chart.chartType !== 'kpi_card' ? 'aspect-3/2' : ''}`}>
++				<ChartDisplay
++					data={data}
++					chartType={chart.chartType as displayChart.ChartType}
++					xAxisKey={chart.xAxisKey}
++					xAxisType={chart.xAxisType === 'number' ? 'number' : 'category'}
++					series={chart.series}
++					title={chart.title}
++				/>
++			</div>
++=======
+ 		<div className={`my-4 w-full ${chart.chartType !== 'kpi_card' ? 'aspect-3/2' : ''}`}>
+ 			<ChartDisplay
+ 				data={data}
+@@ -71,7 +87,10 @@ const McpChartOutput = ({ chartBlock }: { chartBlock: string }) => {
+ 				xAxisType={chart.xAxisType === 'number' ? 'number' : 'category'}
+ 				series={chart.series}
+ 				title={chart.title}
++				yAxisMin={chart.yAxisMin}
++				yAxisMax={chart.yAxisMax}
+ 			/>
++>>>>>>> origin/main
+ 		</div>
+ 	);
+ };
+diff --git a/apps/shared/src/chart-block.ts b/apps/shared/src/chart-block.ts
+index 54a97886..b9638e46 100644
+--- a/apps/shared/src/chart-block.ts
++++ b/apps/shared/src/chart-block.ts
+@@ -12,7 +12,14 @@ export function escapeSingleQuotedStoryAttr(value: string): string {
+ 
+ export type StoryChartBlockInput = Pick<
+ 	displayChart.ChartInput,
+-	'query_id' | 'chart_type' | 'x_axis_key' | 'x_axis_type' | 'series' | 'show_data_labels'
++	| 'query_id'
++	| 'chart_type'
++	| 'x_axis_key'
++	| 'x_axis_type'
++	| 'series'
++	| 'y_axis_min'
++	| 'y_axis_max'
++	| 'show_data_labels'
+ > & {
+ 	title?: displayChart.ChartInput['title'];
+ };
+@@ -20,11 +27,13 @@ export type StoryChartBlockInput = Pick<
+ export function buildStoryChartBlock(input: StoryChartBlockInput): string {
+ 	const xAxisTypeAttr =
+ 		input.x_axis_type != null ? ` x_axis_type="${escapeDoubleQuotedStoryAttr(input.x_axis_type)}"` : '';
++	const yMinAttr = input.y_axis_min !== undefined ? ` y_axis_min="${input.y_axis_min}"` : '';
++	const yMaxAttr = input.y_axis_max !== undefined ? ` y_axis_max="${input.y_axis_max}"` : '';
+ 	const seriesJson = escapeSingleQuotedStoryAttr(JSON.stringify(input.series));
+ 	const titleAttr =
+ 		input.title != null && input.title !== '' ? ` title="${escapeDoubleQuotedStoryAttr(input.title)}"` : '';
+ 	const dataLabelsAttr = input.show_data_labels ? ' show_data_labels="true"' : '';
+-	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}" x_axis_key="${escapeDoubleQuotedStoryAttr(input.x_axis_key)}"${xAxisTypeAttr} series='${seriesJson}'${titleAttr}${dataLabelsAttr} />`;
++	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}" x_axis_key="${escapeDoubleQuotedStoryAttr(input.x_axis_key)}"${xAxisTypeAttr}${yMinAttr}${yMaxAttr} series='${seriesJson}'${titleAttr}${dataLabelsAttr} />`;
+ }
+ 
+ export type StoryTableBlockInput = Pick<displayChart.TableInput, 'query_id' | 'title' | 'conditional_formats'>;
+diff --git a/apps/shared/src/chart-builder.tsx b/apps/shared/src/chart-builder.tsx
+index 2555cbdd..b5d05201 100644
+--- a/apps/shared/src/chart-builder.tsx
++++ b/apps/shared/src/chart-builder.tsx
+@@ -21,6 +21,7 @@ import {
+ 	YAxis,
+ } from 'recharts';
+ 
++import { collectAxisValues, collectStackedAxisValues, resolveYAxisDomain } from './chart-domain';
+ import { type DateFormatSettings, formatDateValue, isIsoDateLike } from './date';
+ import * as displayChart from './tools/display-chart';
+ 
+@@ -54,6 +55,13 @@ const STACK_SEPARATOR_WIDTH = 1;
+  */
+ const DEFAULT_BACKGROUND_COLOR = 'var(--background, #ffffff)';
+ 
++/**
++ * Reserved width for the Y axis band. Smaller than the Recharts default (60)
++ * so the tick labels sit close to the chart's left edge, aligned under the
++ * title. Y values are abbreviated by `formatYAxisTick` (e.g. `1.2K`).
++ */
++const Y_AXIS_WIDTH = 36;
++
+ export function labelize(key: unknown, dateFormat?: DateFormatSettings | null): string {
+ 	const str = String(key);
+ 	if (isIsoDateLike(str)) {
+@@ -76,8 +84,34 @@ export function formatCompactNumber(value: number): string {
+ 	return value.toLocaleString();
+ }
+ 
++/**
++ * Formats a Y axis tick so it stays short enough for the narrow axis band
++ * ({@link Y_AXIS_WIDTH}px) without losing meaningful precision. Abbreviates by
++ * absolute value while preserving the sign (`1020` → `1.02K`, `-1_500_000` →
++ * `-1.5M`) with a 2-decimal mantissa so near-boundary ticks stay distinct.
++ * Sub-integer magnitudes keep two significant digits (`0.004` → `0.004`) rather
++ * than rounding to `0`.
++ */
+ export function formatYAxisTick(value: number): string {
+-	return formatCompactNumber(value);
++	const abs = Math.abs(value);
++	const sign = value < 0 ? '-' : '';
++	if (abs >= 1_000_000_000) {
++		return `${sign}${abbreviate(abs, 1_000_000_000)}B`;
++	}
++	if (abs >= 1_000_000) {
++		return `${sign}${abbreviate(abs, 1_000_000)}M`;
++	}
++	if (abs >= 1_000) {
++		return `${sign}${abbreviate(abs, 1_000)}K`;
++	}
++	if (Number.isInteger(value)) {
++		return String(value);
++	}
++	return String(Number(abs < 1 ? value.toPrecision(2) : value.toFixed(2)));
++}
++
++function abbreviate(abs: number, unit: number): string {
++	return String(Number((abs / unit).toFixed(2)));
+ }
+ 
+ /** Formats a 0–1 stack ratio (from Recharts `stackOffset="expand"`) as a whole-number percentage. */
+@@ -124,7 +158,10 @@ export interface BuildChartProps {
+ 	children?: React.ReactNode[];
+ 	margin?: { top?: number; right?: number; bottom?: number; left?: number };
+ 	title?: string;
++	renderTitle?: boolean;
+ 	maxXAxisTicks?: number;
++	yAxisMin?: number;
++	yAxisMax?: number;
+ 	/** Chart background color, used as the separator between stacked segments. Pass a concrete color on surfaces where CSS vars do not resolve (backend PNG/HTML export). */
+ 	backgroundColor?: string;
+ 	showDataLabels?: boolean;
+@@ -166,7 +203,9 @@ function buildResolved(props: BuildChartProps) {
+ 	const colorFor = props.colorFor ?? defaultColorFor;
+ 	const labelFormatter = props.labelFormatter ?? ((v: string) => labelize(v));
+ 
+-	const titleChild = props.title ? renderChartTitle(props.title) : null;
++	const title = props.renderTitle !== false ? props.title : undefined;
++	const titleChild = title ? renderChartTitle(title) : null;
++	const showTitle = titleChild != null;
+ 
+ 	const xAxisInterval =
+ 		props.maxXAxisTicks && props.data.length > props.maxXAxisTicks
+@@ -187,7 +226,7 @@ function buildResolved(props: BuildChartProps) {
+ 		labelFormatter,
+ 		backgroundColor: props.backgroundColor ?? DEFAULT_BACKGROUND,
+ 		xAxisInterval,
+-		margin: buildChartMargin(props),
++		margin: buildChartMargin(props, showTitle),
+ 		children: titleChild ? [titleChild, ...(props.children ?? [])] : props.children,
+ 	};
+ 	return resolved;
+@@ -230,8 +269,8 @@ export function clampNegativeSeriesValues(
+ type ResolvedProps = BuildChartProps &
+ 	Required<Pick<BuildChartProps, 'colorFor' | 'labelFormatter' | 'backgroundColor'>> & { xAxisInterval?: number };
+ 
+-function buildChartMargin(props: BuildChartProps) {
+-	const titleTop = props.title ? 30 : 0;
++function buildChartMargin(props: BuildChartProps, showTitle: boolean) {
++	const titleTop = showTitle ? 30 : 0;
+ 	const labelsTop = shouldReserveDataLabelHeadroom(props) ? DATA_LABEL_MARGIN_TOP : 0;
+ 	if (titleTop === 0 && labelsTop === 0) {
+ 		return props.margin;
+@@ -283,7 +322,9 @@ function getMaxStackTotal(data: Record<string, unknown>[], series: displayChart.
+ 	for (const row of data) {
+ 		let positive = 0;
+ 		for (const item of series) {
+-			if (item.is_total) continue;
++			if (item.is_total) {
++				continue;
++			}
+ 			const value = toFiniteNumber(row[item.data_key]);
+ 			if (value != null && value > 0) {
+ 				positive += value;
+@@ -345,6 +386,7 @@ function KpiCard({ value, displayName }: { value: unknown; displayName: string }
+ function renderValueYAxis(isPercent = false) {
+ 	return (
+ 		<YAxis
++			width={Y_AXIS_WIDTH}
+ 			tick={AXIS_TICK}
+ 			tickLine={false}
+ 			axisLine={false}
+@@ -394,10 +436,15 @@ function buildBarChart(props: ResolvedProps) {
+ 		children,
+ 		margin,
+ 		xAxisInterval,
++		series,
++		yAxisMin,
++		yAxisMax,
+ 		showDataLabels,
+ 	} = props;
+ 	const isStacked = displayChart.isStackedChartType(chartType);
+ 	const isPercent = displayChart.isPercentStackedChartType(chartType);
++	const dataKeys = series.map((s) => s.data_key);
++	const axisValues = isStacked ? collectStackedAxisValues(data, dataKeys) : collectAxisValues(data, dataKeys);
+ 	const { renderedSeries, stackTotalLabel, stackTotalLabelIndex } = getDataLabelSetup(props, isStacked);
+ 	const seriesKeys = renderedSeries.map((s) => s.data_key);
+ 	const separatorColor = props.backgroundColor ?? DEFAULT_BACKGROUND_COLOR;
+@@ -405,7 +452,19 @@ function buildBarChart(props: ResolvedProps) {
+ 	return (
+ 		<BarChart data={data} accessibilityLayer margin={margin} stackOffset={isPercent ? 'expand' : undefined}>
+ 			{showGrid && <CartesianGrid horizontal vertical={false} strokeDasharray='3 3' />}
+-			{renderValueYAxis(isPercent)}
++			{isPercent ? (
++				renderValueYAxis(true)
++			) : (
++				<YAxis
++					tick={AXIS_TICK}
++					tickLine={false}
++					axisLine={false}
++					minTickGap={12}
++					tickFormatter={formatYAxisTick}
++					domain={resolveYAxisDomain(yAxisMin, yAxisMax, axisValues, true)}
++					allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
++				/>
++			)}
+ 			{renderCategoryXAxis({ xAxisKey, xAxisType, xAxisInterval, labelFormatter })}
+ 			{children}
+ 			{renderedSeries.map((s, i) => (
+@@ -480,10 +539,15 @@ function buildAreaChart(props: ResolvedProps) {
+ 		children,
+ 		margin,
+ 		xAxisInterval,
++		yAxisMin,
++		yAxisMax,
+ 		showDataLabels,
+ 	} = props;
+ 	const isStacked = displayChart.isStackedChartType(chartType);
+ 	const isPercent = displayChart.isPercentStackedChartType(chartType);
++	const zeroBaseline = chartType !== 'line';
++	const dataKeys = series.map((s) => s.data_key);
++	const axisValues = isStacked ? collectStackedAxisValues(data, dataKeys) : collectAxisValues(data, dataKeys);
+ 	const { renderedSeries, stackTotalLabel, stackTotalLabelIndex } = getDataLabelSetup(props, isStacked);
+ 	const pointLabelContent = showDataLabels && !isStacked ? buildPointLabelContentBySeries(data, series) : new Map();
+ 
+@@ -502,7 +566,19 @@ function buildAreaChart(props: ResolvedProps) {
+ 				})}
+ 			</defs>
+ 			{showGrid && <CartesianGrid horizontal vertical={false} strokeDasharray='3 3' />}
+-			{renderValueYAxis(isPercent)}
++			{isPercent ? (
++				renderValueYAxis(true)
++			) : (
++				<YAxis
++					tick={AXIS_TICK}
++					tickLine={false}
++					axisLine={false}
++					minTickGap={12}
++					tickFormatter={formatYAxisTick}
++					domain={resolveYAxisDomain(yAxisMin, yAxisMax, axisValues, zeroBaseline)}
++					allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
++				/>
++			)}
+ 			{renderCategoryXAxis({ xAxisKey, xAxisType, xAxisInterval, labelFormatter })}
+ 			{children}
+ 			{renderedSeries.map((s, i) => (
+@@ -524,7 +600,11 @@ function buildAreaChart(props: ResolvedProps) {
+ }
+ 
+ function buildScatterChart(props: ResolvedProps) {
+-	const { data, xAxisKey, xAxisType, series, colorFor, showGrid, children, margin } = props;
++	const { data, xAxisKey, xAxisType, series, colorFor, showGrid, children, margin, yAxisMin, yAxisMax } = props;
++	const axisValues = collectAxisValues(
++		data,
++		series.map((s) => s.data_key),
++	);
+ 
+ 	return (
+ 		<ScatterChart data={data} accessibilityLayer margin={margin}>
+@@ -537,7 +617,15 @@ function buildScatterChart(props: ResolvedProps) {
+ 				axisLine={false}
+ 				minTickGap={12}
+ 			/>
+-			{renderValueYAxis()}
++			<YAxis
++				tick={AXIS_TICK}
++				tickLine={false}
++				axisLine={false}
++				minTickGap={12}
++				tickFormatter={formatYAxisTick}
++				domain={resolveYAxisDomain(yAxisMin, yAxisMax, axisValues, false)}
++				allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
++			/>
+ 			{children}
+ 			{series.map((s, i) => (
+ 				<Scatter
+diff --git a/apps/shared/src/chart-domain.ts b/apps/shared/src/chart-domain.ts
+new file mode 100644
+index 00000000..e23159d3
+--- /dev/null
++++ b/apps/shared/src/chart-domain.ts
+@@ -0,0 +1,148 @@
++export function niceNumber(range: number, round: boolean): number {
++	if (range <= 0 || !Number.isFinite(range)) {
++		return 1;
++	}
++
++	const exponent = Math.floor(Math.log10(range));
++	const fraction = range / 10 ** exponent;
++	const niceFraction = round ? niceRoundedFraction(fraction) : niceCeilingFraction(fraction);
++	return niceFraction * 10 ** exponent;
++}
++
++export function computeNiceDomain(dataMin: number, dataMax: number): [number, number] {
++	if (!Number.isFinite(dataMin) || !Number.isFinite(dataMax)) {
++		return [0, 1];
++	}
++
++	let min = dataMin;
++	let max = dataMax;
++	if (dataMin === dataMax) {
++		const pad = Math.abs(dataMin) === 0 ? 1 : Math.abs(dataMin) * 0.1;
++		min -= pad;
++		max += pad;
++	}
++
++	const range = niceNumber(max - min, false);
++	const tickSpacing = niceNumber(range / 4, true);
++	const niceMin = Math.floor(min / tickSpacing) * tickSpacing;
++	const niceMax = Math.ceil(max / tickSpacing) * tickSpacing;
++	return [niceMin, niceMax];
++}
++
++export function collectAxisValues(data: Record<string, unknown>[], dataKeys: string[]): number[] {
++	return data.flatMap((row) =>
++		dataKeys
++			.map((key) => row[key])
++			.map(toAxisNumber)
++			.filter((value) => value !== undefined),
++	);
++}
++
++export function collectStackedAxisValues(data: Record<string, unknown>[], dataKeys: string[]): number[] {
++	return data.flatMap((row) => {
++		const totals = dataKeys.reduce(
++			(currentTotals, key) => {
++				const value = toAxisNumber(row[key]);
++				if (value === undefined) {
++					return currentTotals;
++				}
++				if (value >= 0) {
++					return { ...currentTotals, positive: currentTotals.positive + value };
++				}
++				return { ...currentTotals, negative: currentTotals.negative + value };
++			},
++			{ negative: 0, positive: 0 },
++		);
++		return [totals.negative, totals.positive].filter((value) => value !== 0);
++	});
++}
++
++export function resolveYAxisDomain(
++	explicitMin: number | undefined,
++	explicitMax: number | undefined,
++	values: number[],
++	zeroBaseline: boolean,
++): [number | 'auto', number | 'auto'] | undefined {
++	const hasData = values.length > 0;
++	const auto = !zeroBaseline && hasData ? computeNiceDomainFromValues(values) : undefined;
++	if (explicitMin === undefined && explicitMax === undefined) {
++		return auto;
++	}
++
++	const dataLow = hasData ? minOf(values) : undefined;
++	const dataHigh = hasData ? maxOf(values) : undefined;
++
++	const lower = explicitMin ?? auto?.[0] ?? (zeroBaseline ? 0 : dataLow);
++	const upper = explicitMax ?? auto?.[1] ?? dataHigh;
++
++	const lowerValue: number | 'auto' = lower ?? 'auto';
++	const upperValue: number | 'auto' = upper ?? 'auto';
++
++	if (typeof lowerValue === 'number' && typeof upperValue === 'number' && lowerValue >= upperValue) {
++		return separateInvertedBounds(lowerValue, upperValue, explicitMin, explicitMax);
++	}
++
++	return [lowerValue, upperValue];
++}
++
++function computeNiceDomainFromValues(values: number[]): [number, number] {
++	return computeNiceDomain(minOf(values), maxOf(values));
++}
++
++function minOf(values: number[]): number {
++	return values.reduce((currentMin, value) => Math.min(currentMin, value), values[0] ?? 0);
++}
++
++function maxOf(values: number[]): number {
++	return values.reduce((currentMax, value) => Math.max(currentMax, value), values[0] ?? 0);
++}
++
++function toAxisNumber(value: unknown): number | undefined {
++	if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) {
++		return undefined;
++	}
++	const number = Number(value);
++	return Number.isFinite(number) ? number : undefined;
++}
++
++function separateInvertedBounds(
++	lower: number,
++	upper: number,
++	explicitMin: number | undefined,
++	explicitMax: number | undefined,
++): [number, number] {
++	const gap = Math.max(Math.abs(lower), Math.abs(upper), 1) * 0.1;
++	if (explicitMax === undefined) {
++		return [lower, lower + gap];
++	}
++	if (explicitMin === undefined) {
++		return [upper - gap, upper];
++	}
++	return [lower, lower + gap];
++}
++
++function niceRoundedFraction(fraction: number): number {
++	if (fraction < 1.5) {
++		return 1;
++	}
++	if (fraction < 3) {
++		return 2;
++	}
++	if (fraction < 7) {
++		return 5;
++	}
++	return 10;
++}
++
++function niceCeilingFraction(fraction: number): number {
++	if (fraction <= 1) {
++		return 1;
++	}
++	if (fraction <= 2) {
++		return 2;
++	}
++	if (fraction <= 5) {
++		return 5;
++	}
++	return 10;
++}
+diff --git a/apps/shared/src/index.ts b/apps/shared/src/index.ts
+index fbcce898..8760ed94 100644
+--- a/apps/shared/src/index.ts
++++ b/apps/shared/src/index.ts
+@@ -1,5 +1,6 @@
+ export * from './chart-block';
+ export * from './chart-builder';
++export * from './chart-domain';
+ export * from './citation';
+ export * from './date';
+ export * from './mcp';
+diff --git a/apps/shared/src/mcp-embed.ts b/apps/shared/src/mcp-embed.ts
+index 5819cad4..ba714cab 100644
+--- a/apps/shared/src/mcp-embed.ts
++++ b/apps/shared/src/mcp-embed.ts
+@@ -10,6 +10,8 @@ export type McpChartEmbedStoredConfig = {
+ 	xAxisKey: displayChart.ChartInput['x_axis_key'];
+ 	xAxisType: displayChart.ChartInput['x_axis_type'];
+ 	series: displayChart.ChartInput['series'];
++	yAxisMin?: displayChart.ChartInput['y_axis_min'];
++	yAxisMax?: displayChart.ChartInput['y_axis_max'];
+ 	title: string;
+ };
+ 
+diff --git a/apps/shared/src/story-segments.ts b/apps/shared/src/story-segments.ts
+index a85c9450..9bae4d94 100644
+--- a/apps/shared/src/story-segments.ts
++++ b/apps/shared/src/story-segments.ts
+@@ -15,6 +15,8 @@ export interface ParsedChartBlock {
+ 	xAxisKey: string;
+ 	xAxisType: string | null;
+ 	series: Array<{ data_key: string; color: string; label?: string; is_total?: boolean }>;
++	yAxisMin?: number;
++	yAxisMax?: number;
+ 	title: string;
+ 	showDataLabels?: boolean;
+ 	/** The original `<chart ... />` tag this block was parsed from, when available. */
+@@ -69,12 +71,17 @@ export function parseChartBlock(attrString: string): ParsedChartBlock | null {
+ 		});
+ 	}
+ 
++	const yAxisMin = parseOptionalNumberAttr(attrs.y_axis_min);
++	const yAxisMax = parseOptionalNumberAttr(attrs.y_axis_max);
++
+ 	return {
+ 		queryId: attrs.query_id,
+ 		chartType: attrs.chart_type,
+ 		xAxisKey: attrs.x_axis_key,
+ 		xAxisType: attrs.x_axis_type || null,
+ 		series,
++		yAxisMin,
++		yAxisMax,
+ 		title: attrs.title || '',
+ 		showDataLabels: attrs.show_data_labels === 'true',
+ 	};
+@@ -159,6 +166,10 @@ function tryParseSeriesJson(value: string): ParsedChartBlock['series'] | null {
+ 	}
+ }
+ 
++function parseOptionalNumberAttr(value: string | undefined): number | undefined {
++	return value !== undefined && value !== '' && Number.isFinite(Number(value)) ? Number(value) : undefined;
++}
++
+ function extractSeriesFromRawAttrs(attrString: string): ParsedChartBlock['series'] | null {
+ 	const seriesIdx = attrString.search(/\bseries\s*=/);
+ 	if (seriesIdx === -1) {
+diff --git a/apps/shared/src/tools/display-chart.ts b/apps/shared/src/tools/display-chart.ts
+index 30becaf1..ace26fec 100644
+--- a/apps/shared/src/tools/display-chart.ts
++++ b/apps/shared/src/tools/display-chart.ts
+@@ -86,7 +86,8 @@ export const ColumnConditionalFormatsSchema = z
+ 	.record(z.string(), ConditionalFormatRuleSchema)
+ 	.describe('Map of column name to the conditional-formatting rule applied to that column.');
+ 
+-export const ChartInputSchema = z.object({
++export const ChartInputSchema = z
++	.object({
+ 		query_id: z.string().describe("The id of a previous `execute_sql` tool call's output to get data from."),
+ 		chart_type: ChartTypeEnum.describe('Type of chart to display.'),
+ 		x_axis_key: z.string().describe('Column name for X-axis/category labels.'),
+@@ -97,18 +98,32 @@ export const ChartInputSchema = z.object({
+ 			.array(SeriesConfigSchema)
+ 			.min(1)
+ 			.describe('Columns to plot as data series (at least one series required).'),
+-	title: z
+-		.string()
++		y_axis_min: z
++			.number()
+ 			.describe(
+-			'A concise and descriptive title of what the chart shows. Do not include the type of chart in the title or other chart configurations.',
+-		),
++				'Fixes the Y-axis lower bound. Leave unset to auto-scale for readability (line and scatter charts do not force a zero baseline).',
++			)
++			.optional(),
++		y_axis_max: z.number().describe('Fixes the Y-axis upper bound. Leave unset to auto-scale.').optional(),
+ 		show_data_labels: z
+ 			.boolean()
+ 			.describe(
+ 				'Show the numeric value of each data point directly on the chart. Set to true when the user asks to display values/data labels on the chart.',
+ 			)
+ 			.optional(),
+-});
++		title: z
++			.string()
++			.describe(
++				'A concise and descriptive title of what the chart shows. Do not include the type of chart in the title or other chart configurations.',
++			),
++	})
++	.refine(
++		(input) =>
++			input.y_axis_min === undefined || input.y_axis_max === undefined || input.y_axis_min < input.y_axis_max,
++		{
++			message: 'The Y-axis minimum must be less than the maximum.',
++		},
++	);
+ 
+ export const TableInputSchema = z.object({
+ 	query_id: z.string().describe("The id of a previous `execute_sql` tool call's output to get data from."),
+diff --git a/apps/shared/tests/chart-block-y-axis.test.ts b/apps/shared/tests/chart-block-y-axis.test.ts
+new file mode 100644
+index 00000000..7d2784db
+--- /dev/null
++++ b/apps/shared/tests/chart-block-y-axis.test.ts
+@@ -0,0 +1,26 @@
++import { describe, expect, it } from 'vitest';
++
++import { buildStoryChartBlock } from '../src/chart-block';
++import { parseChartBlock } from '../src/story-segments';
++
++describe('chart block Y-axis range', () => {
++	it('round-trips manual Y-axis bounds', () => {
++		const block = buildStoryChartBlock({
++			query_id: 'q1',
++			chart_type: 'line',
++			x_axis_key: 'month',
++			x_axis_type: 'category',
++			series: [{ data_key: 'revenue' }],
++			y_axis_min: 1_000_000,
++			y_axis_max: 1_050_000,
++			title: 'Revenue',
++		});
++
++		const attrString = block.match(/^<chart\s+([\s\S]*?)\s*\/?>$/)?.[1];
++		expect(attrString).toBeDefined();
++
++		const parsed = parseChartBlock(attrString ?
+
+[diff truncated due to size; run `git diff` locally for the full output]
+  </git_diff_from_branch_to_main>
+<timestamp>Thursday, Jul 16, 2026, 10:08 PM (UTC+2)</timestamp>
+
+Resolve this merge conflict @Branch
