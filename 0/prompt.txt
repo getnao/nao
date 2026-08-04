@@ -1,0 +1,7 @@
+<timestamp>Thursday, Jul 23, 2026, 3:38 PM (UTC+2)</timestamp>
+
+For the code present, we get this error:
+```
+'className' is already declared in the upper scope on line 10 column 2.
+```
+Fix it, verify, and then give a concise explanation. @chat/apps/frontend/src/components/ui/calendar.tsx:100-103
