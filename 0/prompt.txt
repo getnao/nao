@@ -1,0 +1,3 @@
+<timestamp>Thursday, Jul 23, 2026, 11:05 AM (UTC+2)</timestamp>
+
+for the story edit panel when the sql query name is the same it does not change if i click edit on another sql query
