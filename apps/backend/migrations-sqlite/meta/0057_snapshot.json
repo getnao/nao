@@ -1510,13 +1510,6 @@
           "autoincrement": false,
           "default": "'open'"
         },
-        "snoozed_until": {
-          "name": "snoozed_until",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "impact_score": {
           "name": "impact_score",
           "type": "integer",
@@ -5030,6 +5023,73 @@
             "whatsapp_user_id"
           ],
           "name": "project_whatsapp_link_project_id_whatsapp_user_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "recommendation_feedback": {
+      "name": "recommendation_feedback",
+      "columns": {
+        "recommendation_id": {
+          "name": "recommendation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "recommendation_feedback_recommendation_id_context_recommendation_id_fk": {
+          "name": "recommendation_feedback_recommendation_id_context_recommendation_id_fk",
+          "tableFrom": "recommendation_feedback",
+          "tableTo": "context_recommendation",
+          "columnsFrom": [
+            "recommendation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "recommendation_feedback_message_id_chat_message_id_fk": {
+          "name": "recommendation_feedback_message_id_chat_message_id_fk",
+          "tableFrom": "recommendation_feedback",
+          "tableTo": "chat_message",
+          "columnsFrom": [
+            "message_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "recommendation_feedback_recommendation_id_message_id_pk": {
+          "columns": [
+            "recommendation_id",
+            "message_id"
+          ],
+          "name": "recommendation_feedback_recommendation_id_message_id_pk"
         }
       },
       "uniqueConstraints": {},

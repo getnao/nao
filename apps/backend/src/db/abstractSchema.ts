@@ -102,6 +102,9 @@ export type NewContextRecommendationConfig = typeof sqliteSchema.contextRecommen
 export type DBContextRecommendation = typeof sqliteSchema.contextRecommendation.$inferSelect;
 export type NewContextRecommendation = typeof sqliteSchema.contextRecommendation.$inferInsert;
 
+export type DBRecommendationFeedback = typeof sqliteSchema.recommendationFeedback.$inferSelect;
+export type NewRecommendationFeedback = typeof sqliteSchema.recommendationFeedback.$inferInsert;
+
 export type DBLog = typeof sqliteSchema.log.$inferSelect;
 export type NewLog = typeof sqliteSchema.log.$inferInsert;
 

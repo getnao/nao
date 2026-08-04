@@ -21,6 +21,7 @@ import { logger } from '../utils/logger';
 import { extractConfiguredRepos } from '../utils/nao-config';
 import { agentService } from './agent';
 import { autoCreateRecommendationPullRequests, resolveRecommendationRepo } from './context-pr.service';
+import { ensureFeedbackCoverage, normalizeFeedbackLinks } from './context-recommendations.feedback-coverage';
 import {
 	collectTriggerChatIds,
 	collectTriggerTargetIds,
@@ -132,13 +133,19 @@ export async function runContextRecommendations(
 			dismissedFingerprints,
 			totals,
 			impactFloor: IMPACT_FLOOR,
-			now,
 		});
 
 		const tokens = await crQueries.getChatTokenTotals(chat.id);
 		await db.transaction(async (tx) => {
 			await applyActions({ projectId, runId: run.id, model, actions, existing, fixCollector }, tx);
 		});
+
+		await ensureFeedbackCoverage(projectId, run.id, model, {
+			existing: existing.map(toExistingRec),
+			dismissedFingerprints,
+		});
+
+		await normalizeFeedbackLinks(projectId);
 
 		// YOLO mode: open PRs for the top recommendations before the run is marked
 		// completed, so the UI refresh at completion already shows them as applied.
@@ -239,7 +246,6 @@ function toExistingRec(r: DBContextRecommendation): ExistingRecommendation {
 		id: r.id,
 		fingerprint: r.fingerprint,
 		status: r.status,
-		snoozedUntil: r.snoozedUntil,
 		occurrenceCount: r.occurrenceCount,
 	};
 }
@@ -258,7 +264,7 @@ async function applyActions(
 	const byId = new Map(args.existing.map((r) => [r.id, r]));
 	for (const action of args.actions) {
 		if (action.kind === 'insert') {
-			await crQueries.insertRecommendation(
+			const rec = await crQueries.insertRecommendation(
 				{
 					projectId: args.projectId,
 					fingerprint: action.fingerprint,
@@ -268,6 +274,7 @@ async function applyActions(
 				},
 				executor,
 			);
+			await crQueries.linkFeedbackToRecommendation(rec.id, action.feedbackMessageIds, executor);
 		} else if (action.kind === 'update') {
 			const prev = byId.get(action.id);
 			const patch: Partial<NewContextRecommendation> = {
@@ -278,6 +285,7 @@ async function applyActions(
 				patch.status = 'open';
 			}
 			await crQueries.updateRecommendation(action.id, patch, executor);
+			await crQueries.linkFeedbackToRecommendation(action.id, action.feedbackMessageIds, executor);
 		} else if (action.kind === 'resolve') {
 			await crQueries.updateRecommendation(
 				action.id,

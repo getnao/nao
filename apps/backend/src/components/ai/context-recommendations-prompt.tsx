@@ -51,7 +51,11 @@ function ContextRecommendationsPrompt({
 						Repeated corrections: v_memories where category = &quot;global_rule&quot; — each is a rule users
 						had to teach; it likely belongs in RULES.md or semantics/*.md.
 					</ListItem>
-					<ListItem>Downvote themes: v_messages where vote = &quot;down&quot; (+ explanation).</ListItem>
+					<ListItem>
+						Downvote themes: v_messages where vote = &quot;down&quot; (+ explanation). Collect the
+						message_id values from those rows and pass them as feedbackMessageIds when you call{' '}
+						<Code>record_recommendation</Code> so each downvote is linked to the recommendation.
+					</ListItem>
 					<ListItem>Regeneration / friction: v_messages where superseded_at is not null.</ListItem>
 					<ListItem>
 						Coverage gaps: frequent first user prompts (v_messages text) with no matching semantics doc.
@@ -82,11 +86,12 @@ function ContextRecommendationsPrompt({
 				<Span>
 					Call <Code>record_recommendation</Code> once per distinct fix, with <Code>subjectKey</Code> set to a
 					normalized name for that fix. Provide: suggestedFile, subjectKey, category, rootCause,
-					rootCauseKind, fixTarget, title, summary, suggestedAction, and the supporting insights (each:
-					signalType, a metric label, a count, and triggerRefs). For each insight, populate{' '}
-					<Code>triggerRefs</Code> as an array of <Code>{'{ chatId, targetId }'}</Code> objects — at most 5
-					per insight. <Code>targetId</Code> must point to the exact origin of the finding in the chat so the
-					replay can scroll to and highlight it; always set it:
+					rootCauseKind, fixTarget, title, summary, suggestedAction, feedbackMessageIds (the message_id values
+					from v_messages rows where vote = &quot;down&quot; that this recommendation addresses), and the
+					supporting insights (each: signalType, a metric label, a count, and triggerRefs). For each insight,
+					populate <Code>triggerRefs</Code> as an array of <Code>{'{ chatId, targetId }'}</Code> objects — at
+					most 5 per insight. <Code>targetId</Code> must point to the exact origin of the finding in the chat
+					so the replay can scroll to and highlight it; always set it:
 					<List>
 						<ListItem>
 							For <Code>tool_error</Code> signals: use the <Code>tool_call_id</Code> of the failing tool

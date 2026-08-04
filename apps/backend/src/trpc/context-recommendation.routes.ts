@@ -41,7 +41,13 @@ export const contextRecommendationRoutes = {
 		.input(z.object({ status: z.enum(CONTEXT_RECOMMENDATION_STATUSES).optional() }).optional())
 		.query(async ({ ctx, input }) => {
 			const recommendations = await crQueries.listRecommendations(ctx.project.id, input?.status);
-			return repairRecommendationTriggerRefs(ctx.project.id, recommendations);
+			const repaired = await repairRecommendationTriggerRefs(ctx.project.id, recommendations);
+			const feedbackLinks = await crQueries.listFeedbacksForRecommendations(repaired.map((r) => r.id));
+			const feedbacksByRecId = feedbackLinks.reduce<Record<string, typeof feedbackLinks>>((acc, link) => {
+				(acc[link.recommendationId] ??= []).push(link);
+				return acc;
+			}, {});
+			return repaired.map((rec) => ({ ...rec, feedbacks: feedbacksByRecId[rec.id] ?? [] }));
 		}),
 
 	latestRun: recommendationsProcedure.query(async ({ ctx }) => crQueries.getLatestRun(ctx.project.id)),
@@ -142,7 +148,6 @@ export const contextRecommendationRoutes = {
 			z.object({
 				id: z.string(),
 				status: z.enum(CONTEXT_RECOMMENDATION_STATUSES),
-				snoozedUntil: z.number().optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -150,7 +155,6 @@ export const contextRecommendationRoutes = {
 				id: input.id,
 				projectId: ctx.project.id,
 				status: input.status,
-				snoozedUntil: input.snoozedUntil ? new Date(input.snoozedUntil) : null,
 				userId: ctx.user.id,
 			});
 		}),

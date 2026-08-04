@@ -278,6 +278,15 @@ function RecommendationsPage() {
 			.sort((a, b) => a.userName.localeCompare(b.userName));
 	}, [baseList, chatUserById]);
 
+	const categoryCounts = useMemo(() => {
+		const counts = new Map<string, number>();
+		for (const rec of baseList) {
+			const category = normalizeContextRecommendationCategory(rec.category);
+			counts.set(category, (counts.get(category) ?? 0) + 1);
+		}
+		return counts;
+	}, [baseList]);
+
 	const displayedRecommendations = useMemo(() => {
 		const filtered = baseList.filter((rec) => {
 			if (
@@ -405,6 +414,8 @@ function RecommendationsPage() {
 									<RecommendationsToolbar
 										categoryFilter={categoryFilter}
 										onCategoryFilterChange={setCategoryFilter}
+										categoryCounts={categoryCounts}
+										totalCount={baseList.length}
 										userFilter={userFilter}
 										onUserFilterChange={setUserFilter}
 										userOptions={userOptions}
@@ -601,6 +612,8 @@ function RecommendationList({
 interface RecommendationsToolbarProps {
 	categoryFilter: string;
 	onCategoryFilterChange: (value: string) => void;
+	categoryCounts: Map<string, number>;
+	totalCount: number;
 	userFilter: string;
 	onUserFilterChange: (value: string) => void;
 	userOptions: { userId: string; userName: string }[];
@@ -615,10 +628,12 @@ interface RecommendationsToolbarProps {
 function ToolbarOption({
 	selected,
 	onSelect,
+	count,
 	children,
 }: {
 	selected: boolean;
 	onSelect: () => void;
+	count?: number;
 	children: ReactNode;
 }) {
 	return (
@@ -629,8 +644,11 @@ function ToolbarOption({
 			}}
 			className='justify-between gap-4 pr-2'
 		>
-			<span>{children}</span>
-			{selected && <span className='size-1.5 shrink-0 rounded-full bg-primary' aria-hidden />}
+			<span>
+				{children}
+				{count !== undefined && <span className='ml-3 text-muted-foreground'>{count}</span>}
+			</span>
+			<span className={cn('size-1.5 shrink-0 rounded-full bg-primary', !selected && 'invisible')} aria-hidden />
 		</DropdownMenuItem>
 	);
 }
@@ -638,6 +656,8 @@ function ToolbarOption({
 function RecommendationsToolbar({
 	categoryFilter,
 	onCategoryFilterChange,
+	categoryCounts,
+	totalCount,
 	userFilter,
 	onUserFilterChange,
 	userOptions,
@@ -652,9 +672,13 @@ function RecommendationsToolbar({
 		<div className='flex items-center gap-1 pb-2 sm:ml-auto sm:pb-0'>
 			<DropdownMenu>
 				<DropdownMenuTrigger asChild>
-					<Button variant='ghost' className='h-8 gap-1.5 px-2 text-muted-foreground' aria-label='Filter'>
-						<ListFilter className='size-4' />
-						{hasActiveFilters && <span className='size-1.5 rounded-full bg-primary' />}
+					<Button variant='ghost' className='relative h-8 px-2 text-muted-foreground' aria-label='Filter'>
+						<span className='relative'>
+							<ListFilter className='size-4' />
+							{hasActiveFilters && (
+								<span className='absolute -right-0.5 top-0 size-1.5 rounded-full bg-primary' />
+							)}
+						</span>
 					</Button>
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align='end' className='w-56'>
@@ -662,6 +686,7 @@ function RecommendationsToolbar({
 					<ToolbarOption
 						selected={categoryFilter === ALL_FILTER}
 						onSelect={() => onCategoryFilterChange(ALL_FILTER)}
+						count={totalCount}
 					>
 						All categories
 					</ToolbarOption>
@@ -670,6 +695,7 @@ function RecommendationsToolbar({
 							key={category}
 							selected={categoryFilter === category}
 							onSelect={() => onCategoryFilterChange(category)}
+							count={categoryCounts.get(category) ?? 0}
 						>
 							{CONTEXT_RECOMMENDATION_CATEGORY_LABELS[category]}
 						</ToolbarOption>

@@ -97,7 +97,7 @@ describe('repairTriggerRefs', () => {
 });
 
 describe('reconcile', () => {
-	const base = { totals: TOTALS, impactFloor: 5, now: new Date('2026-06-02T00:00:00Z') };
+	const base = { totals: TOTALS, impactFloor: 5 };
 
 	it('inserts a new finding above the floor', () => {
 		const actions = reconcile({
@@ -152,9 +152,7 @@ describe('reconcile', () => {
 
 	it('updates an existing open rec (keeps state)', () => {
 		const fp = fingerprintFor('databases/x/columns.md', 'events_v1');
-		const existing = [
-			{ id: 'r1', fingerprint: fp, status: 'open' as const, snoozedUntil: null, occurrenceCount: 1 },
-		];
+		const existing = [{ id: 'r1', fingerprint: fp, status: 'open' as const, occurrenceCount: 1 }];
 		const actions = reconcile({
 			...base,
 			existing,
@@ -167,9 +165,7 @@ describe('reconcile', () => {
 
 	it('reopens an applied rec when the gap recurs', () => {
 		const fp = fingerprintFor('databases/x/columns.md', 'events_v1');
-		const existing = [
-			{ id: 'r1', fingerprint: fp, status: 'applied' as const, snoozedUntil: null, occurrenceCount: 3 },
-		];
+		const existing = [{ id: 'r1', fingerprint: fp, status: 'applied' as const, occurrenceCount: 3 }];
 		const actions = reconcile({
 			...base,
 			existing,
@@ -182,9 +178,7 @@ describe('reconcile', () => {
 
 	it('auto-clears an open rec the agent verified resolved', () => {
 		const fp = fingerprintFor('RULES.md', 'gone');
-		const existing = [
-			{ id: 'r2', fingerprint: fp, status: 'open' as const, snoozedUntil: null, occurrenceCount: 1 },
-		];
+		const existing = [{ id: 'r2', fingerprint: fp, status: 'open' as const, occurrenceCount: 1 }];
 		const actions = reconcile({
 			...base,
 			existing,
@@ -196,9 +190,7 @@ describe('reconcile', () => {
 	});
 
 	it('leaves an unmentioned open rec unchanged (no inferred auto-clear)', () => {
-		const existing = [
-			{ id: 'r3', fingerprint: 'other', status: 'open' as const, snoozedUntil: null, occurrenceCount: 1 },
-		];
+		const existing = [{ id: 'r3', fingerprint: 'other', status: 'open' as const, occurrenceCount: 1 }];
 		const actions = reconcile({
 			...base,
 			existing,

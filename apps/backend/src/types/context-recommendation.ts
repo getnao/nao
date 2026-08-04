@@ -9,7 +9,7 @@ export type ContextRecommendationRunStatus = (typeof CONTEXT_RECOMMENDATION_RUN_
 export const CONTEXT_RECOMMENDATION_RUN_TRIGGERS = ['schedule', 'manual'] as const;
 export type ContextRecommendationRunTrigger = (typeof CONTEXT_RECOMMENDATION_RUN_TRIGGERS)[number];
 
-export const CONTEXT_RECOMMENDATION_STATUSES = ['open', 'acknowledged', 'snoozed', 'applied', 'dismissed'] as const;
+export const CONTEXT_RECOMMENDATION_STATUSES = ['open', 'applied', 'dismissed'] as const;
 export type ContextRecommendationStatus = (typeof CONTEXT_RECOMMENDATION_STATUSES)[number];
 
 export const CONTEXT_RECOMMENDATION_FREQUENCIES = ['daily', 'weekly', 'monthly'] as const;

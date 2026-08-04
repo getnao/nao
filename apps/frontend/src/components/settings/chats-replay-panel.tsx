@@ -174,6 +174,7 @@ export function ChatsReplayPanel({ chatId, onBack, metadataAction, highlightOnLo
 												messages={chatReplayQuery.data.messages}
 												forkMetadata={chatReplayQuery.data.forkMetadata}
 												conversationContextRef={stickContextRef}
+												feedbackRecommendations={chatReplayQuery.data.feedbackRecommendations}
 											/>
 										</div>
 										{sidePanel.content && (

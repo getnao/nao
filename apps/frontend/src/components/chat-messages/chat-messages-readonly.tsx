@@ -1,4 +1,5 @@
 import { memo, useMemo } from 'react';
+import { Link } from '@tanstack/react-router';
 import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import { filterSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
 import { UserMessageBubble } from './user-message';
@@ -18,16 +19,30 @@ import { AssistantMessageProvider } from '@/contexts/assistant-message';
 import { MessageParts } from '@/components/chat-messages/assistant-message';
 import { useToolCallDensity } from '@/hooks/use-tool-call-density';
 
+export type FeedbackRecommendationMap = Record<string, { id: string; title: string; status: string }>;
+
+function recommendationTabForStatus(status: string): 'recommendations' | 'applied' | 'dismissed' {
+	if (status === 'applied') {
+		return 'applied';
+	}
+	if (status === 'dismissed') {
+		return 'dismissed';
+	}
+	return 'recommendations';
+}
+
 export function ChatMessagesReadonly({
 	messages,
 	className,
 	forkMetadata,
 	conversationContextRef,
+	feedbackRecommendations,
 }: {
 	messages: UIMessage[];
 	className?: string;
 	forkMetadata?: ForkMetadata;
 	conversationContextRef?: React.Ref<StickToBottomContext>;
+	feedbackRecommendations?: FeedbackRecommendationMap;
 }) {
 	const messageGroups = useMemo(() => groupMessages(filterSupersededExecuteSqlParts(messages)), [messages]);
 
@@ -58,6 +73,7 @@ export function ChatMessagesReadonly({
 								userMessage={group.userMessage}
 								assistantMessages={group.assistantMessages}
 								citation={citation}
+								feedbackRecommendations={feedbackRecommendations}
 							/>
 						))
 					)}
@@ -73,16 +89,23 @@ const MessageGroupReadonly = ({
 	userMessage,
 	assistantMessages,
 	citation,
+	feedbackRecommendations,
 }: {
 	userMessage: UIMessage | null;
 	assistantMessages: UIMessage[];
 	citation: { id: string; citation: string; text: string } | null;
+	feedbackRecommendations?: FeedbackRecommendationMap;
 }) => {
 	const messages = userMessage ? [userMessage, ...assistantMessages] : assistantMessages;
 	return (
 		<div className='flex flex-col gap-4 last:mb-4'>
 			{messages.map((message) => (
-				<MessageBlockReadonly key={message.id} message={message} citation={citation} />
+				<MessageBlockReadonly
+					key={message.id}
+					message={message}
+					citation={citation}
+					feedbackRecommendations={feedbackRecommendations}
+				/>
 			))}
 		</div>
 	);
@@ -91,9 +114,11 @@ const MessageGroupReadonly = ({
 const MessageBlockReadonly = ({
 	message,
 	citation,
+	feedbackRecommendations,
 }: {
 	message: UIMessage;
 	citation: { id: string; citation: string; text: string } | null;
+	feedbackRecommendations?: FeedbackRecommendationMap;
 }) => {
 	if (message.isForked && citation?.id === message.id) {
 		return <CitationBlockReadonly citation={citation} />;
@@ -103,7 +128,7 @@ const MessageBlockReadonly = ({
 		return <UserMessageReadonly message={message} />;
 	}
 
-	return <AssistantMessageReadonly message={message} />;
+	return <AssistantMessageReadonly message={message} linkedRecommendation={feedbackRecommendations?.[message.id]} />;
 };
 
 const UserMessageReadonly = memo(({ message }: { message: UIMessage }) => {
@@ -114,52 +139,72 @@ const UserMessageReadonly = memo(({ message }: { message: UIMessage }) => {
 	);
 });
 
-const AssistantMessageReadonly = memo(({ message }: { message: UIMessage }) => {
-	const [toolCallDensity] = useToolCallDensity();
-	const messageParts = useMemo(
-		() => groupToolCalls(message.parts, toolCallDensity),
-		[message.parts, toolCallDensity],
-	);
-	const hasContent = useMemo(() => checkAssistantMessageHasContent(message), [message]);
-	const isCompacting = message.parts.at(-1)?.type === 'data-compactionSummaryStarted';
+const AssistantMessageReadonly = memo(
+	({
+		message,
+		linkedRecommendation,
+	}: {
+		message: UIMessage;
+		linkedRecommendation?: { id: string; title: string; status: string };
+	}) => {
+		const [toolCallDensity] = useToolCallDensity();
+		const messageParts = useMemo(
+			() => groupToolCalls(message.parts, toolCallDensity),
+			[message.parts, toolCallDensity],
+		);
+		const hasContent = useMemo(() => checkAssistantMessageHasContent(message), [message]);
+		const isCompacting = message.parts.at(-1)?.type === 'data-compactionSummaryStarted';
 
-	if (!message.parts.length) {
-		return null;
-	}
+		if (!message.parts.length) {
+			return null;
+		}
 
-	return (
-		<AssistantMessageProvider isSettled={true}>
-			<div className={cn('group px-3 flex flex-col gap-2 bg-transparent')} data-replay-target-id={message.id}>
-				<MessageParts parts={messageParts} />
+		return (
+			<AssistantMessageProvider isSettled={true}>
+				<div className={cn('group px-3 flex flex-col gap-2 bg-transparent')} data-replay-target-id={message.id}>
+					<MessageParts parts={messageParts} />
 
-				{message.feedback && (
-					<div
-						data-replay-nav='feedback'
-						data-replay-bordered='true'
-						data-replay-nav-vote={message.feedback.vote}
-						className='flex items-center gap-1.5 text-xs text-muted-foreground mt-1 p-1'
-					>
-						{message.feedback.vote === 'up' ? (
-							<ThumbsUp className='size-3.5 text-green-600 dark:text-green-400' />
-						) : (
-							<ThumbsDown className='size-3.5 text-red-500 dark:text-red-400' />
-						)}
-						<span>Feedback</span>
-						{message.feedback.vote === 'down' &&
-							message.feedback.explanation != null &&
-							message.feedback.explanation.trim() !== '' && (
-								<span className='text-xs font-semibold'> : {message.feedback.explanation}</span>
+					{message.feedback && (
+						<div
+							data-replay-nav='feedback'
+							data-replay-bordered='true'
+							data-replay-nav-vote={message.feedback.vote}
+							className='flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground mt-1 p-1'
+						>
+							{message.feedback.vote === 'up' ? (
+								<ThumbsUp className='size-3.5 text-green-600 dark:text-green-400' />
+							) : (
+								<ThumbsDown className='size-3.5 text-red-500 dark:text-red-400' />
 							)}
-					</div>
-				)}
+							<span>Feedback</span>
+							{message.feedback.vote === 'down' &&
+								message.feedback.explanation != null &&
+								message.feedback.explanation.trim() !== '' && (
+									<span className='text-xs font-semibold'> : {message.feedback.explanation}</span>
+								)}
+							{message.feedback.vote === 'down' && linkedRecommendation && (
+								<Link
+									to='/settings/recommendations'
+									search={{
+										openChats: linkedRecommendation.id,
+										tab: recommendationTabForStatus(linkedRecommendation.status),
+									}}
+									className='ml-1 text-primary underline-offset-4 hover:underline'
+								>
+									View recommendation
+								</Link>
+							)}
+						</div>
+					)}
 
-				{!hasContent && <div className='text-muted-foreground italic text-sm'>No response</div>}
+					{!hasContent && <div className='text-muted-foreground italic text-sm'>No response</div>}
 
-				{isCompacting && <AssistantCompaction />}
-			</div>
-		</AssistantMessageProvider>
-	);
-});
+					{isCompacting && <AssistantCompaction />}
+				</div>
+			</AssistantMessageProvider>
+		);
+	},
+);
 
 const CitationBlockReadonly = ({ citation }: { citation: { id: string; citation: string; text: string } }) => {
 	return (

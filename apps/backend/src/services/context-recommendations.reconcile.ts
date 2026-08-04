@@ -22,13 +22,13 @@ export interface ProposedFinding {
 	summary: string;
 	suggestedAction: string;
 	insights: RecommendationInsight[];
+	feedbackMessageIds?: string[];
 }
 
 export interface ExistingRecommendation {
 	id: string;
 	fingerprint: string;
 	status: ContextRecommendationStatus;
-	snoozedUntil: Date | null;
 	occurrenceCount: number;
 }
 
@@ -39,6 +39,7 @@ export type ReconcileAction =
 			finding: ProposedFinding;
 			impact: RecommendationImpact;
 			impactScore: number;
+			feedbackMessageIds: string[];
 	  }
 	| {
 			kind: 'update';
@@ -47,6 +48,7 @@ export type ReconcileAction =
 			impact: RecommendationImpact;
 			impactScore: number;
 			reopen: boolean;
+			feedbackMessageIds: string[];
 	  }
 	| { kind: 'resolve'; id: string };
 
@@ -155,9 +157,8 @@ export function reconcile(input: {
 	dismissedFingerprints: string[];
 	totals: WindowTotals;
 	impactFloor: number;
-	now: Date;
 }): ReconcileAction[] {
-	const { existing, recorded, resolvedFingerprints, dismissedFingerprints, totals, impactFloor, now } = input;
+	const { existing, recorded, resolvedFingerprints, dismissedFingerprints, totals, impactFloor } = input;
 	const byFingerprint = new Map(existing.map((r) => [r.fingerprint, r]));
 	const dismissed = new Set(dismissedFingerprints);
 	const actions: ReconcileAction[] = [];
@@ -178,12 +179,12 @@ export function reconcile(input: {
 		const current = byFingerprint.get(fingerprint);
 		if (current) {
 			handled.add(fingerprint);
-			const snoozeExpired =
-				current.status === 'snoozed' && current.snoozedUntil !== null && current.snoozedUntil <= now;
-			const reopen = current.status === 'applied' || snoozeExpired;
-			actions.push({ kind: 'update', id: current.id, finding, impact, impactScore, reopen });
+			const reopen = current.status === 'applied';
+			const feedbackMessageIds = finding.feedbackMessageIds ?? [];
+			actions.push({ kind: 'update', id: current.id, finding, impact, impactScore, reopen, feedbackMessageIds });
 		} else if (impactScore >= impactFloor) {
-			actions.push({ kind: 'insert', fingerprint, finding, impact, impactScore });
+			const feedbackMessageIds = finding.feedbackMessageIds ?? [];
+			actions.push({ kind: 'insert', fingerprint, finding, impact, impactScore, feedbackMessageIds });
 		}
 	}
 
@@ -192,7 +193,7 @@ export function reconcile(input: {
 			continue;
 		}
 		const current = byFingerprint.get(fingerprint);
-		if (current && (current.status === 'open' || current.status === 'acknowledged')) {
+		if (current && current.status === 'open') {
 			actions.push({ kind: 'resolve', id: current.id });
 		}
 	}

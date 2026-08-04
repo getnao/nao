@@ -10,12 +10,12 @@ import {
 	Loader2,
 	MessageCircleX,
 	ScrollText,
+	ThumbsDown,
 	Users,
 	Wand2,
 	X,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { pluralize } from '@nao/shared';
 import {
 	CONTEXT_RECOMMENDATION_CATEGORY_LABELS,
 	normalizeContextRecommendationCategory,
@@ -95,6 +95,34 @@ function chatLinks(insights: InsightLike[] | null): ChatLink[] {
 	return links;
 }
 
+type FeedbackItem = Recommendation['feedbacks'][number];
+
+type CardRow =
+	| { kind: 'feedback'; key: string; chatId: string; messageId: string; userName: string; explanation: string | null }
+	| { kind: 'chat'; key: string; chatId: string; targetId?: string; highlight?: ReplayHighlight };
+
+function buildRows(links: ChatLink[], feedbacks: FeedbackItem[]): CardRow[] {
+	const feedbackRows: CardRow[] = feedbacks.map((f) => ({
+		kind: 'feedback',
+		key: `fb:${f.messageId}`,
+		chatId: f.chatId,
+		messageId: f.messageId,
+		userName: f.userName,
+		explanation: f.explanation,
+	}));
+	const covered = new Set(feedbacks.map((f) => f.chatId));
+	const chatRows: CardRow[] = links
+		.filter((link) => !covered.has(link.chatId))
+		.map((link) => ({
+			kind: 'chat',
+			key: `chat:${link.chatId}`,
+			chatId: link.chatId,
+			targetId: link.targetId,
+			highlight: link.highlight,
+		}));
+	return [...feedbackRows, ...chatRows];
+}
+
 function tabForStatus(status: Recommendation['status']): RecommendationTab {
 	if (status === 'applied') {
 		return 'applied';
@@ -134,9 +162,15 @@ export function RecommendationCard({
 	highlightOpen = false,
 }: RecommendationCardProps) {
 	const allLinks = useMemo(() => chatLinks(rec.insights), [rec.insights]);
-	const links = useMemo(() => allLinks.slice(0, 5), [allLinks]);
-	const hiddenLinkCount = allLinks.length - links.length;
-	const chatIds = useMemo(() => links.map((l) => l.chatId), [links]);
+	const feedbacks = useMemo(() => rec.feedbacks ?? [], [rec.feedbacks]);
+	const rows = useMemo(() => buildRows(allLinks, feedbacks), [allLinks, feedbacks]);
+	const visibleRows = useMemo(() => rows.slice(0, 5), [rows]);
+	const hiddenCount = rows.length - visibleRows.length;
+	const metaChatIds = useMemo(() => [...new Set(visibleRows.map((r) => r.chatId))], [visibleRows]);
+	const totalChatCount = useMemo(
+		() => new Set([...allLinks.map((l) => l.chatId), ...feedbacks.map((f) => f.chatId)]).size,
+		[allLinks, feedbacks],
+	);
 	const queryClient = useQueryClient();
 	const sidePanel = useSidePanel();
 	const [collapsed, setCollapsed] = useRecommendationCollapsed(rec.id, defaultCollapsed);
@@ -158,16 +192,26 @@ export function RecommendationCard({
 
 	const chatMetadata = useQuery({
 		...trpc.contextRecommendation.listRecoTriggerChatMetadata.queryOptions({
-			chatIds: chatIds.slice(0, 5),
+			chatIds: metaChatIds,
 		}),
-		enabled: chatIds.length > 0 && !collapsed,
+		enabled: metaChatIds.length > 0 && !collapsed,
 		staleTime: 60_000,
 	});
 
 	const distinctUserCount = useMemo(() => {
-		const names = new Set((chatMetadata.data ?? []).map((m) => m.userName).filter(Boolean));
+		const names = new Set<string>();
+		for (const meta of chatMetadata.data ?? []) {
+			if (meta.userName) {
+				names.add(meta.userName);
+			}
+		}
+		for (const feedback of feedbacks) {
+			if (feedback.userName) {
+				names.add(feedback.userName);
+			}
+		}
 		return names.size;
-	}, [chatMetadata.data]);
+	}, [chatMetadata.data, feedbacks]);
 
 	const createPr = useMutation(
 		trpc.contextRecommendation.createPullRequest.mutationOptions({
@@ -296,7 +340,7 @@ export function RecommendationCard({
 								)}
 							</p>
 						</div>
-						{links.length > 0 && (
+						{rows.length > 0 && (
 							<div className='overflow-hidden'>
 								<div className='flex items-center gap-1.5 py-1 text-sm text-muted-foreground'>
 									<button
@@ -304,12 +348,12 @@ export function RecommendationCard({
 										onClick={() => setChatsExpanded((value) => !value)}
 										aria-expanded={chatsExpanded}
 										className={cn(
-											'flex items-center px-2 py-1 gap-1 rounded-md cursor-pointer',
-											!chatsExpanded && 'border border-border',
+											'flex items-center px-2 py-1 gap-1 rounded-md cursor-pointer border border-transparent',
+											!chatsExpanded && 'border-border',
 										)}
 									>
 										<MessageCircleX className='size-3 shrink-0' />
-										{allLinks.length}
+										{totalChatCount}
 										<Users className='size-3 shrink-0' />
 										{distinctUserCount}
 									</button>
@@ -322,18 +366,21 @@ export function RecommendationCard({
 								>
 									<div className='overflow-hidden'>
 										<div className='divide-y divide-border/50 border-t'>
-											{links.map((link) => {
-												const meta = chatMetadata.data?.find((m) => m.chatId === link.chatId);
+											{visibleRows.map((row) => {
+												const meta = chatMetadata.data?.find((m) => m.chatId === row.chatId);
+												const title = meta?.title || row.chatId.slice(0, 8);
 												const userName = meta?.userName ?? 'Unknown user';
 												return (
 													<Link
-														key={link.chatId}
+														key={row.key}
 														to='/settings/usage/replay/$chatId'
-														params={{ chatId: link.chatId }}
+														params={{ chatId: row.chatId }}
 														search={{
 															...DEFAULT_USAGE_SEARCH,
-															highlight: link.highlight,
-															targetId: link.targetId,
+															highlight:
+																row.kind === 'feedback' ? 'feedback' : row.highlight,
+															targetId:
+																row.kind === 'feedback' ? row.messageId : row.targetId,
 															origin: 'recommendations',
 															recoId: rec.id,
 															recoTab: tabForStatus(rec.status),
@@ -347,15 +394,25 @@ export function RecommendationCard({
 															{userName}
 														</span>
 														<span className='flex-1 truncate text-foreground group-hover/link:text-primary'>
-															{meta?.title || link.chatId.slice(0, 8)}
+															{title}
 														</span>
+														{row.kind === 'feedback' && (
+															<>
+																<ThumbsDown className='size-3.5 shrink-0 text-red-500 dark:text-red-400' />
+																{row.explanation && (
+																	<span className='min-w-0 flex-1 truncate italic text-muted-foreground'>
+																		&ldquo;{row.explanation}&rdquo;
+																	</span>
+																)}
+															</>
+														)}
 														<ExternalLink className='size-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/link:opacity-100' />
 													</Link>
 												);
 											})}
-											{hiddenLinkCount > 0 && (
+											{hiddenCount > 0 && (
 												<div className='px-2 py-1 text-[11px] text-muted-foreground'>
-													+{hiddenLinkCount} more {pluralize('chat', hiddenLinkCount)}
+													+{hiddenCount} more
 												</div>
 											)}
 										</div>
@@ -372,6 +429,7 @@ export function RecommendationCard({
 						className={cn(
 							'flex text-[11px] text-muted-foreground',
 							sidePanel.isVisible ? 'flex-col items-start gap-y-0.5' : 'flex-wrap items-center gap-x-1.5',
+							!hasManualFix && !hasPatch && 'py-1.5',
 						)}
 					>
 						<TooltipProvider delayDuration={150}>

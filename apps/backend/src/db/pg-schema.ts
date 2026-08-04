@@ -681,7 +681,6 @@ export const contextRecommendation = pgTable(
 		suggestedFile: text('suggested_file').notNull(),
 		subjectKey: text('subject_key').notNull(),
 		status: text('status', { enum: CONTEXT_RECOMMENDATION_STATUSES }).notNull().default('open'),
-		snoozedUntil: timestamp('snoozed_until'),
 		impactScore: integer('impact_score').notNull().default(0),
 		impact: jsonb('impact').$type<RecommendationImpact>(),
 		insights: jsonb('insights').$type<RecommendationInsight[]>().notNull().default([]),
@@ -720,6 +719,20 @@ export const contextRecommendation = pgTable(
 			name: 'context_recommendation_run_fk',
 		}),
 	],
+);
+
+export const recommendationFeedback = pgTable(
+	'recommendation_feedback',
+	{
+		recommendationId: text('recommendation_id')
+			.notNull()
+			.references(() => contextRecommendation.id, { onDelete: 'cascade' }),
+		messageId: text('message_id')
+			.notNull()
+			.references(() => chatMessage.id, { onDelete: 'cascade' }),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.recommendationId, t.messageId] })],
 );
 
 export const STORY_ACTIONS = ['create', 'update', 'replace'] as const;

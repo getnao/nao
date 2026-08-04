@@ -151,7 +151,7 @@ function UsageOverview({
 	);
 
 	return (
-		<div className='flex flex-1 min-h-0 overflow-auto xl:overflow-hidden'>
+		<div className='flex flex-1 min-h-0 overflow-auto xl:overflow-hidden bg-background'>
 			<div className='flex min-h-0 w-full flex-col xl:h-full'>
 				<div className='flex flex-col w-full gap-2 px-4 md:p-8 xl:shrink-0'>
 					{filtersComponent}

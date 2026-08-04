@@ -728,7 +728,6 @@ export const contextRecommendation = sqliteTable(
 		suggestedFile: text('suggested_file').notNull(),
 		subjectKey: text('subject_key').notNull(),
 		status: text('status', { enum: CONTEXT_RECOMMENDATION_STATUSES }).notNull().default('open'),
-		snoozedUntil: integer('snoozed_until', { mode: 'timestamp_ms' }),
 		impactScore: integer('impact_score').notNull().default(0),
 		impact: text('impact', { mode: 'json' }).$type<RecommendationImpact>(),
 		insights: text('insights', { mode: 'json' }).$type<RecommendationInsight[]>().notNull().default([]),
@@ -773,6 +772,22 @@ export const contextRecommendation = sqliteTable(
 			name: 'context_recommendation_run_fk',
 		}),
 	],
+);
+
+export const recommendationFeedback = sqliteTable(
+	'recommendation_feedback',
+	{
+		recommendationId: text('recommendation_id')
+			.notNull()
+			.references(() => contextRecommendation.id, { onDelete: 'cascade' }),
+		messageId: text('message_id')
+			.notNull()
+			.references(() => chatMessage.id, { onDelete: 'cascade' }),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.recommendationId, t.messageId] })],
 );
 
 export const STORY_ACTIONS = ['create', 'update', 'replace'] as const;

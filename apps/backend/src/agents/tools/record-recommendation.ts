@@ -68,6 +68,12 @@ const RecordSchema = z.object({
 			'The concrete change to make, phrased as an imperative and referencing the target file. The HOW — do not restate the problem.',
 		),
 	insights: z.array(InsightSchema).min(1),
+	feedbackMessageIds: z
+		.array(z.string())
+		.optional()
+		.describe(
+			'IDs of downvoted messages (from v_messages where vote = "down") that this recommendation addresses.',
+		),
 });
 type RecordInput = z.infer<typeof RecordSchema>;
 
