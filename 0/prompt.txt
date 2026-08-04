@@ -1,0 +1,3 @@
+<timestamp>Tuesday, Jul 21, 2026, 4:09 PM (UTC+2)</timestamp>
+
+@chat/apps/frontend/src/components/tool-calls/display-chart.tsx:220 make this appear on hover with a transition
