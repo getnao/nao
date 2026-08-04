@@ -1,0 +1,3 @@
+<timestamp>Wednesday, Jul 22, 2026, 6:13 PM (UTC+2)</timestamp>
+
+add an option for the filters to have hardcoded options (instead of a column from a table)
