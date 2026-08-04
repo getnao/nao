@@ -1,0 +1,3 @@
+<timestamp>Tuesday, Aug 4, 2026, 2:33 PM (UTC+2)</timestamp>
+
+add a new env variable limiting the size of files written / uploaded to the storage system (default should be 10MB) @chat/apps/backend/src/env.ts @chat/apps/shared/src/tools/write.ts
