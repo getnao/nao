@@ -1,0 +1,3 @@
+<timestamp>Tuesday, Jul 21, 2026, 3:09 PM (UTC+2)</timestamp>
+
+I want the edit button to be always visible, so the user understand it can hover, also the "All data" filter float in middle, if it appears the best is to position it just after the title
