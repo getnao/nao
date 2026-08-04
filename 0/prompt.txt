@@ -1,0 +1,3 @@
+<timestamp>Thursday, Jul 16, 2026, 11:40 AM (UTC+2)</timestamp>
+
+how does the edit of conditional-formatting works? how is the data saved?
