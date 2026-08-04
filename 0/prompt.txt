@@ -1,0 +1,5 @@
+<timestamp>Monday, Jul 27, 2026, 5:32 PM (UTC+2)</timestamp>
+
+the sync fails with @chat/example/nao_config.yaml 
+✗ Failed to load nao_config.yaml:
+  • project_id: unknown field. Did you mean 'project_name'? (Field required)
