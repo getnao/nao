@@ -1,0 +1,3 @@
+<timestamp>Friday, Jul 31, 2026, 4:26 PM (UTC)</timestamp>
+
+keep the webp but cant we make it optional and load at bun start of the server? or something similar?
