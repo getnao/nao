@@ -1,0 +1,3 @@
+<timestamp>Wednesday, Jul 29, 2026, 4:11 PM (UTC)</timestamp>
+
+the issue with query_id is that it relies on the names of the columns in the query which might be different than the ones in expected, or even the data can come from multiples queries
