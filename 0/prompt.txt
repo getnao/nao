@@ -1,0 +1,3 @@
+<timestamp>Tuesday, Jul 21, 2026, 5:18 PM (UTC+2)</timestamp>
+
+in the Messages chart @chat/apps/frontend/src/routes/_sidebar-layout.settings.usage.tsx i want the legends to be hidden if there are no messages from Slack or other providers, so it does not take any vertical space
