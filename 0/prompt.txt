@@ -1,0 +1,18 @@
+<timestamp>Thursday, Jul 30, 2026, 11:57 AM (UTC+2)</timestamp>
+
+@chat/example/tests/outputs/results_20260730_115237.json:13 it fails because the test agent is unable to answer @chat/apps/backend/src/services/test-agent.service.ts:104 
+
+can we instead of asking the verification schema to return the data asking the verification to write a DuckDB sql query that will run on top of all the query_ids returned in the agentic loop
+
+for instance if the test conv did 2 query
+
+the verification could ask for 
+
+SELECT id as user_id, something else
+FROM query_id213124
+
+etc.
+
+this way it avoids asking the llm to produce costly token about the data and let us reuse the whole output of a query
+
+and then this duckdb executed query will be used for the final data diff
