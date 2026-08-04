@@ -1,0 +1,12 @@
+<timestamp>Thursday, Jul 23, 2026, 3:31 PM (UTC+2)</timestamp>
+
+[lint:frontend] src/components/story-filter-bar.tsx(7,32): error TS2307: Cannot find module 'react-day-picker' or its corresponding type declarations.
+[lint:frontend] src/components/story-filter-bar.tsx(259,17): error TS7006: Parameter 'range' implicitly has an 'any' type.
+[lint:frontend] src/components/ui/calendar.tsx(3,49): error TS2307: Cannot find module 'react-day-picker' or its corresponding type declarations.
+[lint:frontend] src/components/ui/calendar.tsx(4,32): error TS2307: Cannot find module 'react-day-picker' or its corresponding type declarations.
+[lint:frontend] src/components/ui/calendar.tsx(34,27): error TS7006: Parameter 'date' implicitly has an 'any' type.
+[lint:frontend] src/components/ui/calendar.tsx(101,14): error TS7031: Binding element 'className' implicitly has an 'any' type.
+[lint:frontend] src/components/ui/calendar.tsx(101,25): error TS7031: Binding element 'rootRef' implicitly has an 'any' type.
+[lint:frontend] src/components/ui/calendar.tsx(104,17): error TS7031: Binding element 'className' implicitly has an 'any' type.
+[lint:frontend] src/components/ui/calendar.tsx(104,28): error TS7031: Binding element 'orientation' implicitly has an 'any' type.
+[lint:frontend] src/components/ui/calendar.tsx(116,20): error TS7031: Binding element 'children' implicitly has an 'any' type.
