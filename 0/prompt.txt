@@ -1,0 +1,15 @@
+<timestamp>Friday, Jul 31, 2026, 3:51 PM (UTC+2)</timestamp>
+
+@chat/apps/backend/src/services/duckdb.service.ts not sure it's a big deal Check if this issue is valid — if so, understand the root cause and fix it. At apps/backend/src/services/test-agent.service.ts, line 105:
+
+<comment>Verification executes model-generated DuckDB SQL without a read/table boundary. A prompt-injected model can query local files or run side-effecting DuckDB statements instead of only the cached result tables; enforce an allowlisted read-only query/table policy and disable DuckDB external access before execution.</comment>
+
+<file context>
+@@ -45,33 +62,58 @@ export class TestAgentService extends AgentService {
++			}
++
++			try {
++				const { data } = await runSqlOverQueryResults(queryResults, sql);
++				return { data, sql, error: null };
++			} catch (err) {
+</file context>
