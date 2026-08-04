@@ -1,0 +1,3 @@
+<timestamp>Tuesday, Jul 21, 2026, 5:20 PM (UTC+2)</timestamp>
+
+around the charts add a light border so it's less a positionning mess
