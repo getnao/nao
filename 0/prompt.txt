@@ -1,0 +1,3 @@
+<timestamp>Tuesday, Jul 21, 2026, 6:01 PM (UTC+2)</timestamp>
+
+add a way to save the state of the filters so next time i arrive on the page the state is kept (local storage only)
