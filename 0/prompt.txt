@@ -1,0 +1,3 @@
+<timestamp>Thursday, Jul 23, 2026, 10:25 AM (UTC+2)</timestamp>
+
+when i click on the year or the month it does not open the dropdown
