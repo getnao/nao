@@ -1,0 +1,15 @@
+<timestamp>Friday, Jul 24, 2026, 7:42 PM (UTC+2)</timestamp>
+
+in @chat/apps/backend/src/db/app-db-views.ts using Postgres there are a lot of errors when querying the view
+
+here an error: Could not parse the query; rejected for safety. Expected "!=", "#", "#-", "#>", "#>>", "%", "&", "&&", "(", ")", "*", "+", ",", "-", "--", "->", "->>", ".", "/", "/*", "<", "<<", "<=", "<>", "<@", "=", "==", ">", ">=", ">>", "?", "?&", "?|", "@>", "AND", "BETWEEN", "COLLATE", "IN", "IS", "LIKE", "NOT", "OR", "REGEXP", "RLIKE", "^", "glob", "|", "||", or [ \t\n\r] but "F" found.
+
+with this query SELECT 
+  DATE(to_timestamp(created_at)) AS day,
+  chat_source,
+  COUNT(*) AS message_count
+FROM v_messages
+WHERE role = 'user'
+  AND created_at >= EXTRACT(EPOCH FROM NOW() - INTERVAL '15 days')
+GROUP BY 1, 2
+ORDER BY 1, 2
