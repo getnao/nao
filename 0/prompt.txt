@@ -1,0 +1,9 @@
+<timestamp>Thursday, Jul 30, 2026, 12:39 PM (UTC+2)</timestamp>
+
+why a user would say this
+
+Since we upgraded to 0.3.0, we can't get a single reply from the chat, every request immediately fails with a MCP error, even when the question has nothing to do with any MCP connector, just a DB query to run:
+Error: EACCES: permission denied, mkdir '/app/project/agent/mcps/airtable'
+    at async _writeEnabledSpecs (/app/apps/backend/src/services/mcp.ts:587:9)
+    at async _initialize (/app/apps/backend/src/services/mcp.ts:382:14)
+    at async <anonymous> (/app/apps/backend/src/handlers/agent.ts:62:19)
