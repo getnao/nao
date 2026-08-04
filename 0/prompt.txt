@@ -1,0 +1,19 @@
+<timestamp>Wednesday, Jul 29, 2026, 6:07 PM (UTC+2)</timestamp>
+
+there is this bug 
+
+Since our onsite, I’ve started running a larger set of NAO tests and I’m running into an issue with questions that return a lot of rows.
+
+The underlying SQL returns the complete result, which is available in the NAO UI, but nao test appears to evaluate only the model-facing output—which is truncated. The question is then marked incorrect against the full golden SQL result.
+Have you seen this before? Is there a recommended workaround, or a way for the test to compare the complete raw SQL result instead?2 replieschristophe  [6:11 PM]
+Hello @Myles Tyberg, Claire is off this week but I can answer about this. Actually it’s a small bug in the nao test works.
+
+In order not to explode the context window we just show to the LLM a limited number of rows (40) and if the model needs more rows it can use another tool to read it.
+
+In the case of the test there is a small gap where the LLM forget to read more rows before sending the answer to do the data diff.
+
+We will investigate this and fix it asap.
+
+i think we should fix it by either:
+- give the extracting part at the end of runTest the full output of execute sql
+- give the extraction part at the end of runtest the read_query results tool, but this extraction is not really agentic
