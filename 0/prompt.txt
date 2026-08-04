@@ -1,0 +1,15 @@
+<timestamp>Friday, Jul 31, 2026, 11:13 AM (UTC+2)</timestamp>
+
+@chat/apps/backend/src/services/mcp.ts:255 Check if this issue is valid — if so, understand the root cause and fix it. At apps/backend/src/services/mcp.ts, line 255:
+
+<comment>A regular user can take over the in-memory discovery of a server already owned by an admin because the claim result is ignored; this can replace the project-wide tool specs with that user’s tool set. Use the claim result to pass `userId` only when the claim succeeds, otherwise let discovery fall back to the stored owner.</comment>
+
+<file context>
+@@ -192,6 +208,54 @@ export class McpService {
++		if (!token) {
++			throw new McpAuthRequiredError(server);
++		}
++		await claimMcpDiscoveryUser(projectId, server, userId);
++		return userId;
++	}
+</file context>
