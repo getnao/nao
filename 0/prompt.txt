@@ -1,0 +1,9 @@
+<timestamp>Monday, Aug 3, 2026, 5:13 PM (UTC+2)</timestamp>
+
+the way i'd like to treat uploaded files is through some kind of hidden skills mechanism, for instance nao should have a "Handle PDF file" skill that explain how we could convert the PDF > text and eventually search in it or return Md to the main agentic loop,
+
+and we should do this for the common files types we might have pdf, excel types, csv, etc.
+
+maybe for this we should have a few serialization function reading function already available that we could call to get data into a specific in-memory DucKDB that we have so data can be then used in a SQL query to do whatever stuff
+
+think about this and come back
