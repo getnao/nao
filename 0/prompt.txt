@@ -1,0 +1,5 @@
+<timestamp>Tuesday, Jul 21, 2026, 5:40 PM (UTC+2)</timestamp>
+
+@licenses/licenses/ when in the admin (in production) i edit a license i get a 400
+
+also there are too much server validations in the list when looking for a specific license, can we limit to the 5 last
