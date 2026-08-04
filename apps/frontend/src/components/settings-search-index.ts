@@ -341,6 +341,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		],
 		adminOrContextAdmin: true,
 	},
+	{
+		page: '/settings/git',
+		pageLabel: 'Git',
+		title: 'Deployment repository',
+		description: 'View the repository currently loaded by the deployment and set up personal GitHub accounts.',
+		keywords: ['git', 'deployment', 'repository', 'access token', 'ssh key', 'pull request author'],
+		adminOrContextAdmin: true,
+	},
 
 	// ── MCP Endpoint ────────────────────────────────────────
 	{

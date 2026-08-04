@@ -39,6 +39,7 @@ function GitSettingsPage() {
 	const [selectedRepository, setSelectedRepository] = useState<string | null>(null);
 	const [isConfirmingRepository, setIsConfirmingRepository] = useState(false);
 	const [isDisconnectingRepository, setIsDisconnectingRepository] = useState(false);
+	const [showRecommendedSetup, setShowRecommendedSetup] = useState(false);
 
 	const repositoryStatus = useQuery(trpc.contextExplorer.getRepositoryStatus.queryOptions());
 	const githubAvailable = useQuery(trpc.github.isAvailable.queryOptions());
@@ -83,12 +84,9 @@ function GitSettingsPage() {
 	const connectedGithubUser = githubStatus.data?.connected ? githubStatus.data.user : null;
 	const accountReady = connectedGithubUser !== null;
 	const repositoryReady = status?.repo?.provider === 'github';
-	const canConnectRepository =
-		instanceReady && accountReady && !repositoryReady && status?.managedByContextSource !== true;
-	const repositoryDisconnectBlockedReason = getRepositoryDisconnectBlockedReason(
-		isAdmin,
-		status?.managedByContextSource,
-	);
+	const showDeploymentPanel = status?.managedByContextSource === true && !instanceReady;
+	const canConnectRepository = instanceReady && accountReady && !repositoryReady;
+	const repositoryDisconnectBlockedReason = getRepositoryDisconnectBlockedReason(isAdmin);
 	const isLoading =
 		repositoryStatus.isLoading || githubAvailable.isLoading || (instanceReady && githubStatus.isLoading);
 	const loadError = repositoryStatus.error ?? githubAvailable.error ?? githubStatus.error;
@@ -98,11 +96,7 @@ function GitSettingsPage() {
 			<SettingsCard
 				title='Git'
 				titleSize='lg'
-				description={
-					status?.managedByContextSource
-						? 'View the deployment-managed repository used to edit and propose context changes.'
-						: 'Set up GitHub so context admins can edit context files and propose changes for review.'
-				}
+				description='Manage the repository and accounts used to edit context files and open pull requests.'
 				unstyled
 				className='gap-10 px-4'
 			>
@@ -127,192 +121,205 @@ function GitSettingsPage() {
 							Retry
 						</Button>
 					</div>
-				) : status?.managedByContextSource ? (
-					<DeploymentManagedGitSettings contextSource={status.contextSource} />
 				) : (
 					<>
-						<NumberedSetupSection
-							number={1}
-							title='GitHub server keys'
-							ownership='Done by the admin who deploys nao, once for everyone.'
-							isDone={instanceReady}
-						>
-							{!instanceReady && (
-								<div className='space-y-2 text-sm text-muted-foreground'>
-									<p>
-										This needs{' '}
-										<code className='rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground'>
-											GITHUB_CLIENT_ID
-										</code>{' '}
-										and{' '}
-										<code className='rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground'>
-											GITHUB_CLIENT_SECRET
-										</code>{' '}
-										set on the server, from a GitHub OAuth App. If you run this instance, you can
-										set them now. Otherwise ask your admin.
-									</p>
-									<p>
-										After setting the server keys, redeploy or restart nao for them to take effect.
-									</p>
-									<p>Documentation link coming soon.</p>
-								</div>
-							)}
-						</NumberedSetupSection>
-
-						<NumberedSetupSection
-							number={2}
-							title='Connect your context files repository'
-							ownership='Done by any context admin, once for everyone.'
-							isDone={repositoryReady}
-							completedContent={
-								<ConnectedRepositorySummary
-									repositoryName={status?.repo?.repoFullName}
-									disconnectBlockedReason={repositoryDisconnectBlockedReason}
-									onDisconnect={() => {
-										disconnectRepository.reset();
-										setIsDisconnectingRepository(true);
-									}}
-								/>
-							}
-						>
-							<p className='text-sm text-muted-foreground'>
-								Connect the repository that stores context files for this project.
-							</p>
-
-							{!accountReady ? (
-								<div className='flex flex-col items-start gap-2'>
-									<p className='text-sm text-muted-foreground'>
-										Connect the GitHub account that has access to the context files repository. nao
-										uses this account to find and connect that repository.
-									</p>
-									{instanceReady ? (
-										<Button size='sm' variant='secondary' asChild>
-											<a href='/api/github/connect?returnTo=/settings/git'>
-												<Github className='size-3.5' />
-												Connect GitHub account
-											</a>
-										</Button>
-									) : (
-										<DisabledAction
-											label='Connect GitHub account'
-											reason='The nao admin must set the GitHub server keys and redeploy or restart nao first.'
-										/>
+						{showDeploymentPanel && (
+							<DeploymentManagedGitSettings
+								contextSource={status.contextSource}
+								recommendedSetupVisible={showRecommendedSetup}
+								onToggleRecommendedSetup={() => {
+									setShowRecommendedSetup((visible) => !visible);
+								}}
+							/>
+						)}
+						{(!showDeploymentPanel || showRecommendedSetup) && (
+							<div id='recommended-github-setup' className='contents'>
+								<NumberedSetupSection
+									number={1}
+									title='GitHub server keys'
+									ownership='Done by the admin who deploys nao, once for everyone.'
+									isDone={instanceReady}
+								>
+									{!instanceReady && (
+										<div className='space-y-2 text-sm text-muted-foreground'>
+											<p>
+												This needs{' '}
+												<code className='rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground'>
+													GITHUB_CLIENT_ID
+												</code>{' '}
+												and{' '}
+												<code className='rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground'>
+													GITHUB_CLIENT_SECRET
+												</code>{' '}
+												set on the server, from a GitHub OAuth App. If you run this instance,
+												you can set them now. Otherwise ask your admin.
+											</p>
+											<p>
+												After setting the server keys, redeploy or restart nao for them to take
+												effect.
+											</p>
+											<p>Documentation link coming soon.</p>
+										</div>
 									)}
-								</div>
-							) : (
-								<div className='flex min-w-0 flex-col gap-6'>
-									<div className='space-y-2'>
-										<ProviderConnectionCard
-											providerLabel='GitHub'
-											icon={Github}
-											connectHref='/api/github/connect?returnTo=/settings/git'
-											description='This account is used to find repositories.'
-											connected
-											username={connectedGithubUser.login}
-											avatarUrl={connectedGithubUser.avatarUrl}
-											onDisconnect={handleDisconnectGithub}
-											disconnectPending={disconnectGithub.isPending}
+								</NumberedSetupSection>
+
+								<NumberedSetupSection
+									number={2}
+									title='Connect your context files repository'
+									ownership='Done by any context admin, once for everyone.'
+									isDone={repositoryReady}
+									completedContent={
+										<ConnectedRepositorySummary
+											repositoryName={status?.repo?.repoFullName}
+											disconnectBlockedReason={repositoryDisconnectBlockedReason}
+											onDisconnect={() => {
+												disconnectRepository.reset();
+												setIsDisconnectingRepository(true);
+											}}
 										/>
-										{disconnectGithub.error && (
-											<ErrorMessage message={disconnectGithub.error.message} />
-										)}
-									</div>
-									{canConnectRepository ? (
-										<div className='flex min-w-0 flex-col gap-2'>
-											<GithubRepoList
-												selected={selectedRepository}
-												onSelect={(fullName) => {
-													setSelectedRepository(
-														fullName === selectedRepository ? null : fullName,
-													);
-												}}
-											/>
-											<Button
-												size='sm'
-												disabled={!selectedRepository}
-												onClick={() => {
-													connectRepository.reset();
-													setIsConfirmingRepository(true);
-												}}
-											>
-												Review connection
-											</Button>
-											{!selectedRepository && (
-												<p className='text-xs text-muted-foreground'>
-													Choose a repository to continue.
-												</p>
+									}
+								>
+									<p className='text-sm text-muted-foreground'>
+										Connect the repository that stores context files for this project.
+									</p>
+
+									{!accountReady ? (
+										<div className='flex flex-col items-start gap-2'>
+											<p className='text-sm text-muted-foreground'>
+												Connect the GitHub account that has access to the context files
+												repository. nao uses this account to find and connect that repository.
+											</p>
+											{instanceReady ? (
+												<Button size='sm' variant='secondary' asChild>
+													<a href='/api/github/connect?returnTo=/settings/git'>
+														<Github className='size-3.5' />
+														Connect GitHub account
+													</a>
+												</Button>
+											) : (
+												<DisabledAction
+													label='Connect GitHub account'
+													reason='The nao admin must set the GitHub server keys and redeploy or restart nao first.'
+												/>
 											)}
 										</div>
 									) : (
-										<DisabledAction
-											label='Connect repository'
-											reason={getRepositoryConnectBlockedReason(
-												instanceReady,
-												accountReady,
-												status?.managedByContextSource,
+										<div className='flex min-w-0 flex-col gap-6'>
+											<div className='space-y-2'>
+												<ProviderConnectionCard
+													providerLabel='GitHub'
+													icon={Github}
+													connectHref='/api/github/connect?returnTo=/settings/git'
+													description='This account is used to find repositories.'
+													connected
+													username={connectedGithubUser.login}
+													avatarUrl={connectedGithubUser.avatarUrl}
+													onDisconnect={handleDisconnectGithub}
+													disconnectPending={disconnectGithub.isPending}
+												/>
+												{disconnectGithub.error && (
+													<ErrorMessage message={disconnectGithub.error.message} />
+												)}
+											</div>
+											{canConnectRepository ? (
+												<div className='flex min-w-0 flex-col gap-2'>
+													<GithubRepoList
+														selected={selectedRepository}
+														onSelect={(fullName) => {
+															setSelectedRepository(
+																fullName === selectedRepository ? null : fullName,
+															);
+														}}
+													/>
+													<Button
+														size='sm'
+														disabled={!selectedRepository}
+														onClick={() => {
+															connectRepository.reset();
+															setIsConfirmingRepository(true);
+														}}
+													>
+														Review connection
+													</Button>
+													{!selectedRepository && (
+														<p className='text-xs text-muted-foreground'>
+															Choose a repository to continue.
+														</p>
+													)}
+												</div>
+											) : (
+												<DisabledAction
+													label='Connect repository'
+													reason={getRepositoryConnectBlockedReason(
+														instanceReady,
+														accountReady,
+													)}
+												/>
 											)}
-										/>
+										</div>
 									)}
-								</div>
-							)}
 
-							{status?.gitUnavailableMessage &&
-								status.gitUnavailableReason !== 'github-unavailable' &&
-								status.gitUnavailableReason !== 'no-token' &&
-								status.gitUnavailableReason !== 'no-repo' && (
-									<p className='text-xs text-muted-foreground'>{status.gitUnavailableMessage}</p>
-								)}
-						</NumberedSetupSection>
-
-						<NumberedSetupSection
-							number={3}
-							title='Connect your personal GitHub account'
-							ownership='Done by every context admin, for themselves.'
-							isDone={accountReady}
-							completedContent={
-								repositoryReady ? (
-									<div className='space-y-2'>
-										<ConnectedProviderAccount
-											username={connectedGithubUser?.login}
-											avatarUrl={connectedGithubUser?.avatarUrl}
-											onDisconnect={handleDisconnectGithub}
-											disconnectPending={disconnectGithub.isPending}
-										/>
-										{disconnectGithub.error && (
-											<ErrorMessage message={disconnectGithub.error.message} />
+									{status?.gitUnavailableMessage &&
+										status.gitUnavailableReason !== 'github-unavailable' &&
+										status.gitUnavailableReason !== 'no-token' &&
+										status.gitUnavailableReason !== 'no-repo' && (
+											<p className='text-xs text-muted-foreground'>
+												{status.gitUnavailableMessage}
+											</p>
 										)}
-									</div>
-								) : undefined
-							}
-						>
-							{repositoryReady ? (
-								<>
-									<p className='text-sm text-muted-foreground'>
-										Connect your own GitHub account because pull requests are opened as you. Your
-										connection does not connect anyone else.
-									</p>
-									<ProviderConnectionCard
-										providerLabel='GitHub'
-										icon={Github}
-										connectHref='/api/github/connect?returnTo=/settings/git'
-										description='This account is used to open pull requests as you.'
-										connected={false}
-										onDisconnect={handleDisconnectGithub}
-										disconnectPending={disconnectGithub.isPending}
-										connectDisabledReason={
-											instanceReady
-												? undefined
-												: 'The nao admin must set the GitHub server keys and redeploy or restart nao first.'
-										}
-									/>
-								</>
-							) : (
-								<DisabledAction
-									label='Connect GitHub account'
-									reason='Connect your context files repository in step 2 first.'
-								/>
-							)}
-						</NumberedSetupSection>
+								</NumberedSetupSection>
+
+								<NumberedSetupSection
+									number={3}
+									title='Connect your personal GitHub account'
+									ownership='Done by every context admin, for themselves.'
+									isDone={accountReady}
+									completedContent={
+										repositoryReady ? (
+											<div className='space-y-2'>
+												<ConnectedProviderAccount
+													username={connectedGithubUser?.login}
+													avatarUrl={connectedGithubUser?.avatarUrl}
+													onDisconnect={handleDisconnectGithub}
+													disconnectPending={disconnectGithub.isPending}
+												/>
+												{disconnectGithub.error && (
+													<ErrorMessage message={disconnectGithub.error.message} />
+												)}
+											</div>
+										) : undefined
+									}
+								>
+									{repositoryReady ? (
+										<>
+											<p className='text-sm text-muted-foreground'>
+												Connect your own GitHub account because pull requests are opened as you.
+												Your connection does not connect anyone else.
+											</p>
+											<ProviderConnectionCard
+												providerLabel='GitHub'
+												icon={Github}
+												connectHref='/api/github/connect?returnTo=/settings/git'
+												description='This account is used to open pull requests as you.'
+												connected={false}
+												onDisconnect={handleDisconnectGithub}
+												disconnectPending={disconnectGithub.isPending}
+												connectDisabledReason={
+													instanceReady
+														? undefined
+														: 'The nao admin must set the GitHub server keys and redeploy or restart nao first.'
+												}
+											/>
+										</>
+									) : (
+										<p className='text-sm text-muted-foreground'>
+											Connect the context files repository in step 2 before each person can
+											connect their own account.
+										</p>
+									)}
+								</NumberedSetupSection>
+							</div>
+						)}
 					</>
 				)}
 			</SettingsCard>
@@ -470,32 +477,19 @@ function DisabledAction({ label, reason }: { label: string; reason: string }) {
 	);
 }
 
-function getRepositoryConnectBlockedReason(
-	instanceReady: boolean,
-	accountReady: boolean,
-	managedByContextSource: boolean | undefined,
-): string {
+function getRepositoryConnectBlockedReason(instanceReady: boolean, accountReady: boolean): string {
 	if (!instanceReady) {
 		return 'Set the GitHub server keys and redeploy or restart nao first.';
 	}
 	if (!accountReady) {
 		return 'Connect the GitHub account that can access the repository first.';
 	}
-	if (managedByContextSource) {
-		return 'This project repository is managed by the server deployment setting.';
-	}
 	return 'Repository setup is unavailable.';
 }
 
-function getRepositoryDisconnectBlockedReason(
-	isAdmin: boolean,
-	managedByContextSource: boolean | undefined,
-): string | null {
+function getRepositoryDisconnectBlockedReason(isAdmin: boolean): string | null {
 	if (!isAdmin) {
 		return 'Only a project admin can disconnect the context repository.';
-	}
-	if (managedByContextSource) {
-		return 'This project repository is managed by the server deployment setting.';
 	}
 	return null;
 }

@@ -25,6 +25,7 @@ export interface UnresolvedContextRepo {
 	provider: InternalRepoProvider;
 	repoFullName: string;
 	branch: string | null;
+	source: ContextRepositoryConnection['source'];
 	worktreeRoot: string;
 	projectPrefix: null;
 }
@@ -34,7 +35,7 @@ export interface ResolvedContextRepo extends Omit<UnresolvedContextRepo, 'projec
 }
 
 export type ContextRepo = UnresolvedContextRepo | ResolvedContextRepo;
-export type ContextRepoState = Pick<ContextRepo, 'provider' | 'repoFullName' | 'branch'>;
+export type ContextRepoState = Pick<ContextRepo, 'provider' | 'repoFullName' | 'branch' | 'source'>;
 
 export class ContextProjectResolutionError extends Error {
 	constructor(
@@ -62,6 +63,7 @@ export async function resolveContextRepo(
 		provider: connection.provider,
 		repoFullName: connection.repoFullName,
 		branch: readCurrentBranch(worktreeRoot),
+		source: connection.source,
 		worktreeRoot,
 		projectPrefix: null,
 	};
@@ -71,21 +73,23 @@ export async function resolveContextRepository(
 	projectId: string,
 	configOverride?: ContextRepoConfig | null,
 ): Promise<ContextRepositoryConnection | null> {
-	if (env.NAO_CONTEXT_SOURCE === 'git' && env.NAO_CONTEXT_GIT_URL) {
-		return {
-			provider: 'generic',
-			repoFullName: env.NAO_CONTEXT_GIT_URL,
-			branch: env.NAO_CONTEXT_GIT_BRANCH || 'main',
-			source: 'deployment',
-			webUrl: sanitizeContextSourceRepositoryUrl(env.NAO_CONTEXT_GIT_URL),
-		};
-	}
 	if (configOverride !== undefined) {
 		return configOverride ? toRepositoryConnection(configOverride, null, 'settings') : null;
 	}
 
 	const config = await readContextRepoConfig(projectId);
-	return config ? toRepositoryConnection(config, null, 'settings') : null;
+	if (config) {
+		return toRepositoryConnection(config, null, 'settings');
+	}
+	return env.NAO_CONTEXT_SOURCE === 'git' && env.NAO_CONTEXT_GIT_URL
+		? {
+				provider: 'generic',
+				repoFullName: env.NAO_CONTEXT_GIT_URL,
+				branch: env.NAO_CONTEXT_GIT_BRANCH || 'main',
+				source: 'deployment',
+				webUrl: sanitizeContextSourceRepositoryUrl(env.NAO_CONTEXT_GIT_URL),
+			}
+		: null;
 }
 
 export function resolveContextProject(
@@ -135,6 +139,7 @@ export function toContextRepoState(repo: ContextRepo | null): ContextRepoState |
 						? sanitizeContextSourceRepositoryUrl(repo.repoFullName)
 						: repo.repoFullName,
 				branch: readCurrentBranch(repo.worktreeRoot),
+				source: repo.source,
 			}
 		: null;
 }

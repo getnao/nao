@@ -193,13 +193,6 @@ export async function connectContextRepository(
 	connectionType: 'linked-existing-commit';
 }> {
 	validateRepoFullName(input.repoFullName);
-	if (isGitContextSource()) {
-		throw new TRPCError({
-			code: 'FORBIDDEN',
-			message:
-				'This project is managed by NAO_CONTEXT_SOURCE=git. Change that deployment setting instead of connecting a repository here.',
-		});
-	}
 	const config = { provider: input.provider, repoFullName: input.repoFullName };
 	const context = {
 		...input,
@@ -232,13 +225,6 @@ export async function disconnectContextRepository(
 		) => Promise<unknown>;
 	} = {},
 ): Promise<void> {
-	if (isGitContextSource()) {
-		throw new TRPCError({
-			code: 'FORBIDDEN',
-			message:
-				'This project is managed by NAO_CONTEXT_SOURCE=git. Change that deployment setting instead of disconnecting the repository here.',
-		});
-	}
 	const updateConfig =
 		dependencies.updateConfig ?? (await import('../queries/context-recommendation.queries')).updateConfig;
 	await updateConfig(input.projectId, {
@@ -1424,7 +1410,30 @@ function readOptionalGitValue(cwd: string, args: string[]): string | null {
 
 function sanitizeGitError(error: unknown, token: string): Error {
 	const message = error instanceof Error ? error.message : 'Git operation failed.';
-	return new Error(token ? message.replaceAll(token, '[redacted]') : message);
+	const redactedMessage = token ? message.replaceAll(token, '[redacted]') : message;
+	return new Error(translateGitErrorMessage(redactedMessage) ?? redactedMessage);
+}
+
+function translateGitErrorMessage(message: string): string | null {
+	const branchCollision = message.match(
+		/cannot lock ref ['"]refs\/heads\/([^'"]+)['"]:[\s\S]*?['"]refs\/heads\/([^'"]+)['"] exists; cannot create/i,
+	);
+	if (branchCollision) {
+		return `The branch name "${branchCollision[1]}" can't be used because "${branchCollision[2]}" already exists; choose a different branch name.`;
+	}
+	if (/non-fast-forward|fetch first/i.test(message)) {
+		return 'The branch changed on the remote repository since nao last checked it, so refresh and try again.';
+	}
+	if (/protected branch|pre-receive hook declined/i.test(message)) {
+		return 'The remote repository refused this push because a branch protection rule blocks changes to this branch.';
+	}
+	if (/Authentication failed|could not read Username|(?:HTTP|returned error:)\s*403/i.test(message)) {
+		return 'The repository rejected the configured Git credential; check that the token or SSH key is valid and has access.';
+	}
+	if (/Repository not found|(?:HTTP|returned error:)\s*404/i.test(message)) {
+		return 'This repository does not exist or the configured Git credential cannot access it.';
+	}
+	return null;
 }
 
 function isDirtySwitchConflict(error: unknown): boolean {

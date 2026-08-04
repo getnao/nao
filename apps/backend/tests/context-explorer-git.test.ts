@@ -117,6 +117,7 @@ describe('deployment context source', () => {
 
 	beforeEach(() => {
 		originalEnv = { ...process.env };
+		contextConfigMocks.getConfig.mockResolvedValue(null);
 	});
 
 	afterEach(() => {
@@ -163,6 +164,26 @@ describe('deployment context source', () => {
 			source: 'deployment',
 		});
 		expect(parseGenericRepositoryUrl(url)).toMatchObject({ host, repositoryPath });
+	});
+
+	it('prefers a connected repository over deployment Git', async () => {
+		setContextSourceEnv({ token: 'secret' });
+		contextConfigMocks.getConfig.mockResolvedValue({
+			repoFullName: 'nao/connected-context',
+			repoProvider: 'github',
+		});
+
+		await expect(resolveContextRepository('project-id')).resolves.toMatchObject({
+			provider: 'github',
+			repoFullName: 'nao/connected-context',
+			source: 'settings',
+		});
+	});
+
+	it('keeps an explicit null repository override', async () => {
+		setContextSourceEnv({ token: 'secret' });
+
+		await expect(resolveContextRepository('project-id', null)).resolves.toBeNull();
 	});
 
 	it.each([
@@ -366,7 +387,8 @@ describe('deployment context source', () => {
 			subpath: 'projects/analytics',
 		});
 
-		const status = await getContextRepositoryStatus({ ...baseContext(process.cwd(), null), token: null });
+		const context = { ...baseContext(process.cwd()), configOverride: undefined, token: null };
+		const status = await getContextRepositoryStatus(context);
 
 		expect(status).toMatchObject({
 			managedByContextSource: true,
@@ -382,14 +404,17 @@ describe('deployment context source', () => {
 		});
 	});
 
-	it('refuses to disconnect a deployment-managed repository', async () => {
+	it('allows disconnecting a connected repository during deployment Git', async () => {
 		setContextSourceEnv({});
 		const updateConfig = vi.fn();
 
-		await expect(disconnectContextRepository(baseContext(process.cwd()), { updateConfig })).rejects.toMatchObject({
-			code: 'FORBIDDEN',
+		await expect(
+			disconnectContextRepository(baseContext(process.cwd()), { updateConfig }),
+		).resolves.toBeUndefined();
+		expect(updateConfig).toHaveBeenCalledWith('project-id', {
+			repoFullName: null,
+			repoProvider: null,
 		});
-		expect(updateConfig).not.toHaveBeenCalled();
 	});
 });
 
@@ -483,6 +508,7 @@ describe('context explorer worktrees', () => {
 			token: 'deployment-token',
 		});
 		fixture.context.token = 'deployment-token';
+		fixture.context.configOverride = undefined;
 
 		const repo = await ensureContextWorktree(fixture.context);
 		const gitDirectory = runGit(repo.worktreeRoot, ['rev-parse', '--absolute-git-dir']).toString().trim();
@@ -502,6 +528,7 @@ describe('context explorer worktrees', () => {
 		const fixture = createFixture(temporaryRoots);
 		setContextSourceEnv({ url: 'https://github.com/nao/context.git', ...credentials });
 		fixture.context.token = token;
+		fixture.context.configOverride = undefined;
 
 		await expect(resolveContextExplorerGit(fixture.context)).resolves.toMatchObject({
 			status: 'available',
@@ -595,6 +622,7 @@ describe('context explorer worktrees', () => {
 			'context.md': 'selected repository content\n',
 		});
 		const updateConfig = vi.fn().mockResolvedValue(undefined);
+		setContextSourceEnv({ token: 'deployment-token' });
 
 		const result = await connectContextRepository(
 			{
@@ -663,8 +691,9 @@ describe('context explorer worktrees', () => {
 		expect(runGit(repositoryRoot, ['worktree', 'list', '--porcelain']).toString()).not.toContain(repo.worktreeRoot);
 	});
 
-	it('disconnects a cloned project without recreating its worktree', async () => {
+	it('falls back to deployment Git after disconnecting a cloned project', async () => {
 		const fixture = createLocalCloneFixture(temporaryRoots);
+		setContextSourceEnv({ url: fixture.bare, sshKey: 'deployment-key' });
 		fixture.context.configOverride = undefined;
 		let connected = true;
 		contextConfigMocks.getConfig.mockImplementation(async () =>
@@ -676,6 +705,7 @@ describe('context explorer worktrees', () => {
 		});
 
 		await disconnectContextRepository(fixture.context, { updateConfig });
+		expect(fs.existsSync(repo.worktreeRoot)).toBe(false);
 		const status = await getContextRepositoryStatus(fixture.context);
 		const access = await fileAccess(fixture.context);
 
@@ -683,10 +713,12 @@ describe('context explorer worktrees', () => {
 			repoFullName: null,
 			repoProvider: null,
 		});
-		expect(fs.existsSync(repo.worktreeRoot)).toBe(false);
-		expect(status).toMatchObject({ repo: null, gitUnavailableReason: 'no-repo', isGitRepository: false });
-		expect(access.git).toMatchObject({ status: 'unavailable', reason: 'no-repo' });
-		expect(fs.existsSync(repo.worktreeRoot)).toBe(false);
+		expect(status).toMatchObject({
+			repo: { provider: 'generic', repoFullName: fixture.bare },
+			gitUnavailableReason: null,
+			isGitRepository: true,
+		});
+		expect(access.git).toMatchObject({ status: 'available', repo: { provider: 'generic' } });
 	});
 
 	it('creates a branch and commits selected dirty files while leaving others uncommitted', async () => {
@@ -956,6 +988,61 @@ describe('context explorer worktrees', () => {
 		expect(
 			runGit(fixture.root, ['--git-dir', fixture.bare, 'show', `${result.branch}:context.md`]).toString(),
 		).toBe('pull request edit\n');
+	});
+
+	it.each([
+		{
+			name: 'branch name collision',
+			error: "Command failed: git push https://x-access-token:test-token@github.com/ad4mou/context-files-tes.git HEAD:refs/heads/adam To https://github.com/ad4mou/context-files-tes.git ! [remote rejected] HEAD -> adam (cannot lock ref 'refs/heads/adam': 'refs/heads/adam/context' exists; cannot create 'refs/heads/adam') error: failed to push some refs to 'https://github.com/ad4mou/context-files-tes.git'",
+			expected:
+				'The branch name "adam" can\'t be used because "adam/context" already exists; choose a different branch name.',
+		},
+		{
+			name: 'remote branch changed',
+			error: 'error: failed to push some refs\nhint: Updates were rejected because the tip is non-fast-forward',
+			expected:
+				'The branch changed on the remote repository since nao last checked it, so refresh and try again.',
+		},
+		{
+			name: 'protected branch',
+			error: 'remote: error: GH006: Protected branch update failed\npre-receive hook declined',
+			expected:
+				'The remote repository refused this push because a branch protection rule blocks changes to this branch.',
+		},
+		{
+			name: 'credential rejected',
+			error: 'fatal: unable to access repository: The requested URL returned error: 403',
+			expected:
+				'The repository rejected the configured Git credential; check that the token or SSH key is valid and has access.',
+		},
+		{
+			name: 'repository not found',
+			error: 'remote: Repository not found.\nfatal: repository returned error: 404',
+			expected: 'This repository does not exist or the configured Git credential cannot access it.',
+		},
+		{
+			name: 'unrecognised failure',
+			error: 'Unexpected git failure for test-token',
+			expected: 'Unexpected git failure for [redacted]',
+		},
+	])('shows a safe message for $name', async ({ error, expected }) => {
+		const fixture = createFixture(temporaryRoots);
+		const provider = fixture.context.providerOverride;
+		if (!provider) {
+			throw new Error('Expected a local provider.');
+		}
+		const access = await fileAccess(fixture.context);
+		const file = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'failed push edit\n', file.hash, access);
+		await createContextBranchAndCommit(fixture.context, {
+			paths: ['/context.md'],
+			message: 'Prepare failed push',
+		});
+		vi.spyOn(provider, 'pushBranch').mockImplementation(() => {
+			throw new Error(error);
+		});
+
+		await expect(pushContextExplorerBranch(fixture.context)).rejects.toThrow(expected);
 	});
 
 	it('switches clean existing branches and discards one or all changed paths', async () => {

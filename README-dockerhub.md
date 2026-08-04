@@ -82,7 +82,7 @@ Then navigate to http://localhost:5005 to access the UI (or to any URL you confi
 
 ## Git-based context
 
-Instead of mounting a volume, you can have the container clone your nao project from a git repo on startup:
+Instead of mounting a volume, you can have the container clone your nao project from a git repo on startup. This is a fully supported setup. Because it uses one shared credential, pull requests are opened by the account that owns the deployment token; commits still show the person who made each edit. Connecting GitHub in **Settings → Git** is recommended when pull requests should be opened as each user.
 
 ```bash
 docker run -d \

@@ -1,3 +1,8 @@
+import { GitBranch } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+import { SettingsCard } from '@/components/ui/settings-card';
+
 interface DeploymentContextSource {
 	repositoryUrl: string | null;
 	branch: string | null;
@@ -7,6 +12,8 @@ interface DeploymentContextSource {
 
 interface DeploymentManagedGitSettingsProps {
 	contextSource: DeploymentContextSource | null;
+	recommendedSetupVisible: boolean;
+	onToggleRecommendedSetup: () => void;
 }
 
 const AUTH_METHOD_LABELS: Record<DeploymentContextSource['authMethod'], string> = {
@@ -15,68 +22,82 @@ const AUTH_METHOD_LABELS: Record<DeploymentContextSource['authMethod'], string> 
 	public: 'Public repository',
 };
 
-export function DeploymentManagedGitSettings({ contextSource }: DeploymentManagedGitSettingsProps) {
+export function DeploymentManagedGitSettings({
+	contextSource,
+	recommendedSetupVisible,
+	onToggleRecommendedSetup,
+}: DeploymentManagedGitSettingsProps) {
+	const repositoryUrl = contextSource?.repositoryUrl ?? null;
+	const secondaryFacts = contextSource ? getSecondaryFacts(contextSource) : [];
+
 	return (
-		<section className='space-y-6'>
-			<div className='space-y-1'>
-				<h2 className='text-base font-semibold'>Context files are managed by your deployment</h2>
-				<p className='text-sm text-muted-foreground'>
-					Your deployment loads context files from this repository and manages its connection.
-				</p>
+		<SettingsCard
+			title='Deployment repository'
+			icon={<GitBranch className='size-4' />}
+			description='Your deployment currently loads context files from this repository.'
+			action={
+				repositoryUrl && isHttpUrl(repositoryUrl) ? (
+					<Button size='sm' variant='secondary' asChild>
+						<a href={repositoryUrl} target='_blank' rel='noreferrer'>
+							Open repository
+						</a>
+					</Button>
+				) : undefined
+			}
+			className='gap-6 p-6'
+		>
+			<div className='min-w-0'>
+				<div className='truncate font-mono text-base font-medium text-foreground'>
+					{repositoryUrl ? getRepositoryName(repositoryUrl) : 'Repository unavailable'}
+				</div>
+				{secondaryFacts.length > 0 && (
+					<div className='mt-1 truncate text-sm text-muted-foreground'>{secondaryFacts.join(' · ')}</div>
+				)}
+				{contextSource?.authMethod === 'public' && (
+					<p className='mt-2 text-xs text-muted-foreground'>
+						Context files are read-only because no access token or SSH deploy key is configured.
+					</p>
+				)}
 			</div>
 
-			{contextSource && (
-				<dl className='grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-3 text-sm'>
-					{contextSource.repositoryUrl && (
-						<ContextSourceRow label='Repository'>
-							{isHttpUrl(contextSource.repositoryUrl) ? (
-								<a
-									href={contextSource.repositoryUrl}
-									target='_blank'
-									rel='noreferrer'
-									className='break-all font-mono text-foreground underline-offset-4 hover:underline'
-								>
-									{contextSource.repositoryUrl}
-								</a>
-							) : (
-								<span className='break-all font-mono text-foreground'>
-									{contextSource.repositoryUrl}
-								</span>
-							)}
-						</ContextSourceRow>
-					)}
-					{contextSource.branch && (
-						<ContextSourceRow label='Branch'>
-							<span className='font-mono text-foreground'>{contextSource.branch}</span>
-						</ContextSourceRow>
-					)}
-					{contextSource.subpath && (
-						<ContextSourceRow label='Subpath'>
-							<span className='break-all font-mono text-foreground'>{contextSource.subpath}</span>
-						</ContextSourceRow>
-					)}
-					<ContextSourceRow label='Authentication'>
-						<span className='text-foreground'>{AUTH_METHOD_LABELS[contextSource.authMethod]}</span>
-					</ContextSourceRow>
-				</dl>
-			)}
-
-			<p className='text-sm text-muted-foreground'>
-				{contextSource?.authMethod === 'public'
-					? 'Context files are read-only because no access token or SSH deploy key is configured.'
-					: 'Context admins can edit files in nao, commit them, and propose the changes for review.'}
-			</p>
-		</section>
+			<div className='flex flex-wrap items-center justify-between gap-3 border-t border-border pt-6'>
+				<p className='max-w-2xl text-sm text-muted-foreground'>
+					{contextSource?.authMethod === 'public'
+						? 'Set up GitHub OAuth to enable editing with personal accounts.'
+						: "Set up GitHub OAuth to open pull requests from each person's account instead of the deployment token owner's account."}
+				</p>
+				<Button
+					size='sm'
+					variant='secondary'
+					aria-expanded={recommendedSetupVisible}
+					aria-controls='recommended-github-setup'
+					onClick={onToggleRecommendedSetup}
+				>
+					{recommendedSetupVisible ? 'Hide GitHub setup' : 'Set up GitHub OAuth'}
+				</Button>
+			</div>
+		</SettingsCard>
 	);
 }
 
-function ContextSourceRow({ label, children }: { label: string; children: React.ReactNode }) {
-	return (
-		<>
-			<dt className='text-muted-foreground'>{label}</dt>
-			<dd className='min-w-0'>{children}</dd>
-		</>
-	);
+function getSecondaryFacts(contextSource: DeploymentContextSource): string[] {
+	return [
+		contextSource.branch ? `Branch ${contextSource.branch}` : null,
+		AUTH_METHOD_LABELS[contextSource.authMethod],
+		contextSource.subpath ? `Subpath ${contextSource.subpath}` : null,
+	].filter((fact): fact is string => fact !== null);
+}
+
+function getRepositoryName(repositoryUrl: string): string {
+	try {
+		const pathname = new URL(repositoryUrl).pathname.replace(/\/+$/, '').replace(/\.git$/i, '');
+		const segments = pathname.split('/').filter(Boolean);
+		return segments.length >= 2 ? segments.slice(-2).join('/') : segments[0] || repositoryUrl;
+	} catch {
+		const normalized = repositoryUrl.replace(/\/+$/, '').replace(/\.git$/i, '');
+		const match = normalized.match(/(?:[:/])([^/:]+\/[^/]+)$/);
+		return match?.[1] ?? repositoryUrl;
+	}
 }
 
 function isHttpUrl(value: string): boolean {
