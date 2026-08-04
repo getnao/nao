@@ -1,0 +1,3 @@
+<timestamp>Thursday, Jul 23, 2026, 12:27 PM (UTC+2)</timestamp>
+
+If finished, return your full list of issues now (or "No bugs found."). Do not do more work if already done.
