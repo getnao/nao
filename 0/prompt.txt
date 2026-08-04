@@ -1,0 +1,7 @@
+<timestamp>Tuesday, Aug 4, 2026, 11:06 AM (UTC+2)</timestamp>
+
+also, dont write any docs here, it's in the @/Users/blef/Work/naolabs/nao-docs folder instead
+
+in this case the permanent storage is setup to nao instance and not per project as the project id lands in the path
+
+explore quickly if we should mount s3 to local folder or just keep remote works well?
