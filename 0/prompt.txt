@@ -1,0 +1,3 @@
+<timestamp>Friday, Jul 17, 2026, 9:29 AM (UTC+2)</timestamp>
+
+how can i paralellize these ❯ rsync -avP F-and-K-* root@51.158.101.134:pics/
