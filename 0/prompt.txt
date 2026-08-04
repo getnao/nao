@@ -1,0 +1,15 @@
+<timestamp>Tuesday, Jul 28, 2026, 9:27 AM (UTC+2)</timestamp>
+
+@chat/apps/frontend/src/components/settings/llm-provider-form.tsx Check if this issue is valid — if so, understand the root cause and fix it. At apps/frontend/src/components/settings/llm-provider-form.tsx, line 103:
+
+<comment>Config-backed optional-auth providers still show the provider's environment-only hint and placeholder because the new inherited-source messaging is unreachable for `apiKey === 'optional'`. This conflicts with the header and config warning; the source-specific text should take precedence or be included in the optional-auth copy.</comment>
+
+<file context>
+@@ -91,8 +100,8 @@ export function LlmProviderForm({
+ 		}
+-		if (usesEnvKey) {
+-			return '(optional - leave empty to use env)';
++		if (inheritedKeyLabel) {
++			return `(optional - leave empty to use ${inheritedKeyLabel})`;
+ 		}
+</file context>
