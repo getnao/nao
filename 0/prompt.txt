@@ -1,0 +1,11 @@
+<timestamp>Friday, Jul 31, 2026, 3:30 PM (UTC+2)</timestamp>
+
+@chat/apps/frontend/src/lib/keyboard-shortcuts.ts:10-12 when there is a baseurl we most of the time do not know if the usual model we expect for memory extraction, compaction, or title generation exists
+
+cf. this error [dev:backend ] [ERROR] [agent] Memory extraction failed: AI_APICallError: litellm.BadRequestError: OpenAIException - 'messages' must contain the word 'json' in some form, to use 'response_format' of type 'json_object'.. Received Model Group=openai/gpt-5.5
+
+also the title generation fails with [dev:backend ] [ERROR] [agent] Title generation failed: AI_NoOutputGeneratedError: No output generated.
+
+in this case we should use the same model as used by the user
+
+(later we will give option to configure this but not today)
