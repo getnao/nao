@@ -1,0 +1,3 @@
+<timestamp>Thursday, Jul 23, 2026, 3:03 PM (UTC+2)</timestamp>
+
+can you vibecode pienaochart that instead of being a pie chart it's a halfpiechart using the nao logo (cf. getnao.io) and put this in the nao context cf. @chat/skills/build-custom-charts/SKILL.md
