@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { barYAxisDomainIsPadded, collectAxisValues, collectStackedAxisValues } from './chart-domain';
 import { formatChartValue, getChartLevelValueFormat, niceAxisMax, toFiniteNumber } from './chart-values';
 import * as displayChart from './tools/display-chart';
 
@@ -30,6 +31,8 @@ interface DataLabelChartProps {
 	series: displayChart.SeriesConfig[];
 	chartType: displayChart.ChartType;
 	showDataLabels?: boolean;
+	yAxisMin?: number;
+	yAxisMax?: number;
 }
 
 interface PlotRect {
@@ -107,8 +110,9 @@ export function shouldReserveDataLabelHeadroom<Props extends DataLabelChartProps
 	if (props.showDataLabels !== true || !isCartesianLabelChart(props.chartType)) {
 		return false;
 	}
-	// Stacked charts label the running total at the very top of the stack, which can sit flush against
-	// the axis top, so always keep room for that label rather than relying on the axis-headroom ratio.
+	if (barChartUsesPaddedDomain(props)) {
+		return false;
+	}
 	if (displayChart.isStackedChartType(props.chartType)) {
 		return true;
 	}
@@ -134,19 +138,21 @@ export function shouldReserveStackTotalFootroom<Props extends DataLabelChartProp
 
 /** Coordinates cartesian labels across series so conflicts can be dropped without moving labels. */
 export function renderDataLabelsLayer(series: displayChart.SeriesConfig[]) {
-	return createLabelsLayer('DataLabelsLayer', ({ formattedGraphicalItems, offset }) =>
-		collectLabelCandidates(formattedGraphicalItems ?? [], offset ?? {}, series),
+	return createLabelsLayer('DataLabelsLayer', ({ formattedGraphicalItems, offset, width, height }) =>
+		collectLabelCandidates(formattedGraphicalItems ?? [], offset ?? {}, width, height, series),
 	);
 }
 
 export function renderStackTotalLabelsLayer(data: Record<string, unknown>[], series: displayChart.SeriesConfig[]) {
 	const valueFormat = getChartLevelValueFormat(series);
-	return createLabelsLayer('StackTotalLabelsLayer', ({ formattedGraphicalItems, offset }) => {
+	return createLabelsLayer('StackTotalLabelsLayer', ({ formattedGraphicalItems, offset, width, height }) => {
 		const items = (formattedGraphicalItems ?? []).filter((entry) =>
 			LABELLED_SERIES_KINDS.has(entry.item?.type?.displayName ?? ''),
 		);
 		const kind = items[0]?.item?.type?.displayName;
-		return kind ? stackTotalCandidates(items, data, series, kind === 'Bar', offset ?? {}, valueFormat) : [];
+		return kind
+			? stackTotalCandidates(items, data, series, kind === 'Bar', offset ?? {}, width, height, valueFormat)
+			: [];
 	});
 }
 
@@ -209,6 +215,18 @@ function isCartesianLabelChart(chartType: displayChart.ChartType): boolean {
 	);
 }
 
+function barChartUsesPaddedDomain(props: DataLabelChartProps): boolean {
+	if (props.chartType !== 'bar' && props.chartType !== 'stacked_bar') {
+		return false;
+	}
+	const dataKeys = props.series.map((series) => series.data_key);
+	const axisValues =
+		props.chartType === 'stacked_bar'
+			? collectStackedAxisValues(props.data, dataKeys)
+			: collectAxisValues(props.data, dataKeys);
+	return barYAxisDomainIsPadded(props.yAxisMax, axisValues, props.showDataLabels === true);
+}
+
 function getMaxPlottedValue(props: DataLabelChartProps): number | null {
 	const isStacked = displayChart.isStackedChartType(props.chartType);
 	let max: number | null = null;
@@ -259,6 +277,8 @@ function stackTotalCandidates(
 	series: displayChart.SeriesConfig[],
 	isBar: boolean,
 	plot: PlotRect,
+	chartWidth: number | undefined,
+	chartHeight: number | undefined,
 	valueFormat?: displayChart.ValueFormat,
 ): LabelCandidate[] {
 	const totals = data.map((row) => sumStackValue(row, series));
@@ -281,7 +301,12 @@ function stackTotalCandidates(
 			formatDataLabel(total, valueFormat),
 			cartesianLabelRank(isLocalExtremum(totals, dataIndex), 0, anchor.cx),
 			{
-				bounds: cartesianLabelBounds(plot, isPositive ? 0 : DATA_LABEL_X_AXIS_FOOTROOM),
+				bounds: cartesianLabelBounds(
+					plot,
+					chartWidth,
+					chartHeight,
+					isPositive ? 0 : DATA_LABEL_X_AXIS_FOOTROOM,
+				),
 			},
 		);
 		return candidate ? [candidate] : [];
@@ -346,6 +371,8 @@ function collectPieLabelCandidates(
 function collectLabelCandidates(
 	items: GraphicalItem[],
 	plot: PlotRect,
+	chartWidth: number | undefined,
+	chartHeight: number | undefined,
 	series: displayChart.SeriesConfig[],
 ): LabelCandidate[] {
 	const graphicalItems = items.filter((entry) => LABELLED_SERIES_KINDS.has(entry.item?.type?.displayName ?? ''));
@@ -367,6 +394,8 @@ function collectLabelCandidates(
 			kind === 'Bar',
 			seriesIndex,
 			plot,
+			chartWidth,
+			chartHeight,
 			seriesConfig?.value_format,
 		);
 	});
@@ -378,6 +407,8 @@ function seriesCandidates(
 	isBar: boolean,
 	seriesIndex: number,
 	plot: PlotRect,
+	chartWidth: number | undefined,
+	chartHeight: number | undefined,
 	valueFormat?: displayChart.ValueFormat,
 ): LabelCandidate[] {
 	const candidates = points.flatMap((point, index): IndexedLabelCandidate[] => {
@@ -398,7 +429,7 @@ function seriesCandidates(
 			anchor.baselineY,
 			text,
 			cartesianLabelRank(isLocalExtremum(values, index), seriesIndex, anchor.cx),
-			{ bounds: cartesianLabelBounds(plot) },
+			{ bounds: cartesianLabelBounds(plot, chartWidth, chartHeight) },
 		);
 		return candidate ? [{ candidate, index, value }] : [];
 	});
@@ -470,8 +501,9 @@ function buildLabelCandidate(
 	rank: number[],
 	options: LabelCandidateOptions,
 ): LabelCandidate | null {
-	const textAnchor = options.textAnchor ?? 'middle';
 	const halfWidth = (text.length * DATA_LABEL_FONT_SIZE * DATA_LABEL_CHAR_WIDTH_RATIO) / 2;
+	const middleBox = labelBox(cx, baselineY, halfWidth);
+	const textAnchor = options.textAnchor ?? selectTextAnchor(middleBox, options.bounds);
 	const box = labelBox(cx, baselineY, halfWidth, textAnchor);
 	if (!boxFitsBounds(box, options.bounds)) {
 		return null;
@@ -558,15 +590,27 @@ function cartesianLabelRank(isExtremum: boolean, seriesIndex: number, x: number)
 	return [isExtremum ? 1 : 0, -seriesIndex, -x];
 }
 
-function cartesianLabelBounds(plot: PlotRect, bottomAllowance = 0): LabelBox {
+function selectTextAnchor(middleBox: LabelBox, bounds: LabelBox): LabelCandidate['textAnchor'] {
+	if (middleBox.right > bounds.right) {
+		return 'end';
+	}
+	if (middleBox.left < bounds.left) {
+		return 'start';
+	}
+	return 'middle';
+}
+
+function cartesianLabelBounds(
+	plot: PlotRect,
+	chartWidth: number | undefined,
+	chartHeight: number | undefined,
+	bottomAllowance = 0,
+): LabelBox {
 	return {
-		left: plot.left ?? Number.NEGATIVE_INFINITY,
-		right: plot.left != null && plot.width != null ? plot.left + plot.width : Number.POSITIVE_INFINITY,
-		top: plot.top != null ? Math.max(0, plot.top - DATA_LABEL_MARGIN_TOP) : Number.NEGATIVE_INFINITY,
-		bottom:
-			plot.top != null && plot.height != null
-				? plot.top + plot.height + bottomAllowance
-				: Number.POSITIVE_INFINITY,
+		left: plot.left ?? 0,
+		right: plot.left != null && plot.width != null ? plot.left + plot.width : (chartWidth ?? 0),
+		top: plot.top != null ? Math.max(0, plot.top - DATA_LABEL_MARGIN_TOP) : 0,
+		bottom: plot.top != null && plot.height != null ? plot.top + plot.height + bottomAllowance : (chartHeight ?? 0),
 	};
 }
 
@@ -583,8 +627,8 @@ function labelBox(
 	const left = textAnchor === 'start' ? cx : textAnchor === 'end' ? cx - halfWidth * 2 : cx - halfWidth;
 	const right = textAnchor === 'start' ? cx + halfWidth * 2 : textAnchor === 'end' ? cx : cx + halfWidth;
 	return {
-		left: left - DATA_LABEL_BOX_PADDING,
-		right: right + DATA_LABEL_BOX_PADDING,
+		left: left - (textAnchor === 'start' ? 0 : DATA_LABEL_BOX_PADDING),
+		right: right + (textAnchor === 'end' ? 0 : DATA_LABEL_BOX_PADDING),
 		top: baselineY - DATA_LABEL_FONT_SIZE - DATA_LABEL_BOX_PADDING,
 		bottom: baselineY + DATA_LABEL_BOX_PADDING,
 	};
