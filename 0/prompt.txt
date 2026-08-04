@@ -1,0 +1,3 @@
+<timestamp>Friday, Jul 24, 2026, 3:59 PM (UTC+2)</timestamp>
+
+make sure a "context admin" user with this role can see the "chat with nao data"
