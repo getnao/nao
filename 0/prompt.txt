@@ -1,0 +1,7 @@
+<mcp_server_catalog>
+These were the available MCP servers and tools when this conversation started. Tool availability may have changed since then, so use `GetMcpTools` to check current state before calling `CallMcpTool`.
+
+<mcp_meta_tool_servers>
+<mcp_meta_tool_server name="user-nao" />
+</mcp_meta_tool_servers>
+</mcp_server_catalog>
