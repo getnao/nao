@@ -1,0 +1,5 @@
+<timestamp>Thursday, Jul 23, 2026, 11:54 AM (UTC+2)</timestamp>
+
+can we put sql validation in the @chat/apps/frontend/src/components/side-panel/sql-editor.tsx ?
+
+also can we dynamically validate the @chat/apps/backend/src/components/tool-outputs/story.tsx instead of what's being saved in db
