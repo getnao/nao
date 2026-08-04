@@ -1,0 +1,5 @@
+<timestamp>Friday, Jul 31, 2026, 12:25 PM (UTC+2)</timestamp>
+
+in this PR we added qwen, minimax and kimi, also add a single OpenAI compatible provider now that we have the lib so users can add openaicompatible
+
+would it be possible to add multiple openaicompatible but user gives the name?
