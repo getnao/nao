@@ -1,0 +1,35 @@
+<timestamp>Thursday, Jul 23, 2026, 12:20 PM (UTC+2)</timestamp>
+
+All tools are functional — do not test tools. Only call tools required for this task.
+
+You are reviewing PR #1250 "First version of filters" (branch feat/filters-docker vs origin/main) in /Users/blef/Work/naolabs/chat.
+
+PR intent: First version of interactive story filters (filter bar, SQL templating with {% filter %} blocks, filtered query re-execution for owned+shared stories), plus inline SQL editing via query_id. Gated by BETA_STORY_FILTERS_ENABLED.
+
+YOUR JOB: Look for problems that exist in the INTRODUCED code. This could be security issues, incorrect logic, etc. Only look for issues that fall within the changed code.
+
+CRITICAL: We only want HIGH SIGNAL issues. Flag only where:
+- The code will fail to compile or parse
+- The code will definitely produce wrong results regardless of inputs (clear logic errors)
+- Clear security bugs in the changed code (e.g. definite SQL injection with no mitigation)
+
+Do NOT flag:
+- Code style or quality
+- Potential issues that depend on specific inputs or state
+- Subjective suggestions
+- Pre-existing issues
+- If uncertain, do not flag
+
+Return list of issues each with: file path, description, reason flagged (e.g. "bug", "security"). If none: "No bugs found."
+
+Focus especially on:
+- apps/shared/src/sql-template.ts (quoting/escaping, strip vs render)
+- apps/backend/src/services/story-filters.ts (option loading SQL, filter application)
+- apps/backend/src/utils/sql-identifiers.ts
+- apps/backend/src/trpc/shared-story.routes.ts and story.routes.ts (auth/guards)
+- apps/backend/src/services/update-sql.ts and sql.routes.ts
+- apps/frontend/src/hooks/use-story-filters.ts
+- filter value rendering into SQL
+
+Get diff: git diff origin/main...HEAD -- <relevant paths>
+You may read the full contents of newly introduced files to validate logic within those files.
