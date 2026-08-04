@@ -1,0 +1,11 @@
+<timestamp>Friday, Jul 24, 2026, 3:11 PM (UTC+2)</timestamp>
+
+why the sql parser rejected this query
+
+SELECT 
+    vote,
+    COUNT(*) as count
+FROM v_messages
+WHERE chat_id = 'a7f286c8-8c58-429d-821b-f5ee9bcbd4c7'
+    AND vote IS NOT NULL
+GROUP BY vote
