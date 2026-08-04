@@ -1,0 +1,3 @@
+<timestamp>Tuesday, Jul 28, 2026, 11:47 AM (UTC+2)</timestamp>
+
+show me both of the query generated correctly formatted
