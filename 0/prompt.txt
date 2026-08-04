@@ -1,0 +1,17 @@
+<timestamp>Tuesday, Jul 28, 2026, 9:23 AM (UTC+2)</timestamp>
+
+Check if this issue is valid — if so, understand the root cause and fix it. At apps/backend/src/utils/nao-config-llm.ts, line 47:
+
+<comment>Projects using the documented `api_key: ${ANTHROPIC_API_KEY}` form send the literal placeholder as the API key instead of resolving the environment variable. Supporting the documented `${NAME}` form, or rejecting it rather than treating it as a credential, would avoid silently breaking authentication.</comment>
+
+<file context>
+@@ -0,0 +1,277 @@
++	azure: { resource_name: 'resourceName', api_version: 'apiVersion' },
++};
++
++const SECRET_PATTERN = /\$?\{\{\s*(env|aws|k8s)\(['"]([^'"]+)['"]\)\s*\}\}/g;
++
++const costsSchema = z.object({
+</file context>
+
+where is this documented? it should not be supported, remove this from the skills
