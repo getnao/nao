@@ -1,0 +1,9 @@
+<timestamp>Tuesday, Jul 7, 2026, 9:22 AM (UTC+2)</timestamp>
+
+on the @chat/apps/frontend/src/routes/_sidebar-layout.settings.project.mcp-servers.tsx if the "Error" is connection required do not display error but a orange "Waiting for connection" 
+
+also add per line a button to rediscover/connec the specific server (like the test connection is doing but per line)
+
+rename "Test connection" by "Connect all MCP servers"
+
+if there is a JSON error when reading mcp.json it should be displayed in the page also
