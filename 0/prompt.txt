@@ -1,0 +1,7 @@
+<timestamp>Monday, Aug 3, 2026, 7:53 PM (UTC+2)</timestamp>
+
+what this in docker 
+
+wtmp begins Mon Jul 14 17:03:50 2025
+
+when doing last -ai
