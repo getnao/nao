@@ -63,17 +63,17 @@ export function DeploymentManagedGitSettings({
 			<div className='flex flex-wrap items-center justify-between gap-3 border-t border-border pt-6'>
 				<p className='max-w-2xl text-sm text-muted-foreground'>
 					{contextSource?.authMethod === 'public'
-						? 'Set up GitHub OAuth to enable editing with personal accounts.'
-						: "Set up GitHub OAuth to open pull requests from each person's account instead of the deployment token owner's account."}
+						? 'Set up Git OAuth to enable editing with personal accounts.'
+						: "Set up Git OAuth to open review requests from each person's account instead of the deployment token owner's account."}
 				</p>
 				<Button
 					size='sm'
 					variant='secondary'
 					aria-expanded={recommendedSetupVisible}
-					aria-controls='recommended-github-setup'
+					aria-controls='recommended-git-setup'
 					onClick={onToggleRecommendedSetup}
 				>
-					{recommendedSetupVisible ? 'Hide GitHub setup' : 'Set up GitHub OAuth'}
+					{recommendedSetupVisible ? 'Hide OAuth setup' : 'Set up Git OAuth'}
 				</Button>
 			</div>
 		</SettingsCard>

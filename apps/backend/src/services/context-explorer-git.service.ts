@@ -40,7 +40,7 @@ import {
 	validateContentBuffer,
 } from './context-explorer.service';
 import type { OpenReviewRequestResult, ReviewRequestProvider } from './review-request-provider';
-import { REVIEW_REQUEST_PROVIDERS } from './review-request-provider';
+import { getRepoProviderDisplayName, REVIEW_REQUEST_PROVIDERS } from './review-request-provider';
 
 const REPO_FULL_NAME_PATTERN = /^[\w./-]+\/[\w.-]+$/;
 const GIT_OPERATION_TIMEOUT_MS = 120_000;
@@ -246,7 +246,10 @@ export async function ensureContextWorktree(
 	}
 	const provider = context.providerOverride ?? REVIEW_REQUEST_PROVIDERS[unresolved.provider];
 	if (!provider) {
-		throw new TRPCError({ code: 'FORBIDDEN', message: unavailableMessage('unsupported-provider') });
+		throw new TRPCError({
+			code: 'FORBIDDEN',
+			message: unavailableMessage('unsupported-provider', unresolved.provider),
+		});
 	}
 	const matchingClone =
 		unresolved.provider === 'generic'
@@ -1239,7 +1242,12 @@ function unavailable(
 	reason: ContextGitUnavailableReason,
 	repo: UnresolvedContextRepo | null,
 ): Extract<ContextExplorerGitResolution, { status: 'unavailable' }> {
-	return { status: 'unavailable', reason, message: unavailableMessage(reason), repo: toContextRepoState(repo) };
+	return {
+		status: 'unavailable',
+		reason,
+		message: unavailableMessage(reason, repo?.provider),
+		repo: toContextRepoState(repo),
+	};
 }
 
 async function createOwnedContextBranch(
@@ -1309,15 +1317,16 @@ async function isContextBranchOwnedByUser(
 	return branchOwnershipQueries.isContextBranchOwnedByUser(context.projectId, branch, context.userId);
 }
 
-function unavailableMessage(reason: ContextGitUnavailableReason): string {
+function unavailableMessage(reason: ContextGitUnavailableReason, provider?: string): string {
+	const providerName = getRepoProviderDisplayName(provider);
 	return {
-		'github-unavailable': 'GitHub is not configured for this instance. Add the GitHub client credentials first.',
+		'github-unavailable': `${providerName} is not configured for this instance. Add the ${providerName} client credentials first.`,
 		'git-unavailable': 'Repository status is temporarily unavailable.',
 		'no-token': isGitContextSource()
 			? 'Add NAO_CONTEXT_GIT_TOKEN or NAO_CONTEXT_GIT_SSH_KEY to edit and propose context changes.'
-			: 'Connect your GitHub account before using Git actions in the context explorer.',
+			: `Connect your ${providerName} account before using Git actions in the context explorer.`,
 		'no-repo': 'No context repository is connected. Connect one in Git settings to edit context files.',
-		'unsupported-provider': 'Context explorer Git operations support GitHub only. GitLab is not supported yet.',
+		'unsupported-provider': 'The connected repository provider is not supported by the context explorer.',
 		'project-not-found': 'No tracked nao_config.yaml was found in the connected repository.',
 		'project-ambiguous': 'Multiple nao projects were found in the connected repository.',
 	}[reason];

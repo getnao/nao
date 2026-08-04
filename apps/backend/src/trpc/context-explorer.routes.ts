@@ -1,4 +1,4 @@
-import { REPO_PROVIDERS } from '@nao/shared/types';
+import { REPO_PROVIDERS, type RepoProvider } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
@@ -28,6 +28,7 @@ import {
 	switchContextBranch,
 } from '../services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../services/context-explorer-pr.service';
+import { getRepoProviderDisplayName } from '../services/review-request-provider';
 import { resolveContextRepository, resolveContextSourceGitToken } from '../utils/context-repo';
 import { contextAdminProtectedProcedure } from './trpc';
 
@@ -50,19 +51,19 @@ export const contextExplorerRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			if (input.provider !== 'github') {
-				throw new TRPCError({ code: 'BAD_REQUEST', message: 'GitLab is not supported yet.' });
-			}
 			const projectFolder = requireProjectPath(ctx.project.path);
 			const context: ContextExplorerGitContext = {
 				projectId: ctx.project.id,
 				projectFolder,
 				userId: ctx.user.id,
 				user: { name: ctx.user.name, email: ctx.user.email },
-				token: await userQueries.getGithubToken(ctx.user.id),
+				token: await getProviderToken(input.provider, ctx.user.id),
 			};
 			if (!context.token) {
-				throw new TRPCError({ code: 'FORBIDDEN', message: 'Connect your GitHub account first.' });
+				throw new TRPCError({
+					code: 'FORBIDDEN',
+					message: `Connect your ${getRepoProviderDisplayName(input.provider)} account first.`,
+				});
 			}
 			return connectContextRepository({ ...context, token: context.token, ...input });
 		}),
@@ -190,18 +191,20 @@ async function createGitContext(
 ): Promise<ContextExplorerGitContext> {
 	const projectFolder = requireProjectPath(projectPath);
 	const repository = await resolveContextRepository(projectId);
-	const generic = repository?.provider === 'generic';
 	return {
 		projectId,
 		projectFolder,
 		userId: user.id,
 		user: { name: user.name, email: user.email },
-		token: generic
-			? resolveContextSourceGitToken()
-			: repository?.provider === 'gitlab'
-				? await userQueries.getGitlabToken(user.id)
-				: await userQueries.getGithubToken(user.id),
+		token:
+			repository?.provider === 'generic'
+				? resolveContextSourceGitToken()
+				: await getProviderToken(repository?.provider ?? 'github', user.id),
 	};
+}
+
+function getProviderToken(provider: RepoProvider, userId: string): Promise<string | null> {
+	return provider === 'gitlab' ? userQueries.getGitlabToken(userId) : userQueries.getGithubToken(userId);
 }
 
 function requireProjectPath(projectPath: string | null): string {

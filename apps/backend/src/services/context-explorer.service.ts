@@ -29,6 +29,7 @@ import {
 	toVirtualPath,
 } from '../utils/tools';
 import type { ContextExplorerGitResolution } from './context-explorer-git.service';
+import { getRepoProviderDisplayName } from './review-request-provider';
 
 const SEARCH_TIMEOUT_MS = 5_000;
 const MAX_SEARCH_FILES = 200;
@@ -162,7 +163,7 @@ export function getFileEditability(
 	trackedPaths: Set<string>,
 ): FileEditability {
 	if (access.git.status === 'unavailable') {
-		return unavailableGitEditability(access.git.reason, access.git.message);
+		return unavailableGitEditability(access.git.reason, access.git.message, access.git.repo?.provider);
 	}
 
 	const projectPath = normalizeProjectPath(filePath);
@@ -540,18 +541,26 @@ function availableRepo(resolution: ContextExplorerGitResolution): ResolvedContex
 	return resolution.status === 'available' ? resolution.repo : null;
 }
 
-function unavailableGitEditability(reason: ContextGitUnavailableReason, message: string): FileEditability {
-	return readOnly(reason, { ...guidanceForReason(reason), message });
+function unavailableGitEditability(
+	reason: ContextGitUnavailableReason,
+	message: string,
+	provider?: ContextRepoState['provider'],
+): FileEditability {
+	return readOnly(reason, { ...guidanceForReason(reason, provider), message });
 }
 
 function readOnly(reason: FileEditabilityReason, guidance: FileEditabilityGuidance): FileEditability {
 	return { isEditable: false, reason, guidance };
 }
 
-function guidanceForReason(reason: FileEditabilityReason): FileEditabilityGuidance {
+function guidanceForReason(
+	reason: FileEditabilityReason,
+	provider?: ContextRepoState['provider'],
+): FileEditabilityGuidance {
+	const providerName = getRepoProviderDisplayName(provider);
 	const guidance: Record<FileEditabilityReason, FileEditabilityGuidance> = {
 		'github-unavailable': {
-			message: 'GitHub is not configured for this instance.',
+			message: `${providerName} is not configured for this instance.`,
 			actionKind: 'route',
 			actionPath: '/settings/git',
 			actionLabel: 'Open Git settings',
@@ -563,10 +572,10 @@ function guidanceForReason(reason: FileEditabilityReason): FileEditabilityGuidan
 			actionLabel: null,
 		},
 		'no-token': {
-			message: 'Connect your GitHub account to edit context files.',
+			message: `Connect your ${providerName} account to edit context files.`,
 			actionKind: 'route',
 			actionPath: '/settings/git',
-			actionLabel: 'Connect GitHub account',
+			actionLabel: `Connect ${providerName} account`,
 		},
 		'no-repo': {
 			message: 'No context repository is connected. Connect one in Git settings to edit context files.',
@@ -575,7 +584,7 @@ function guidanceForReason(reason: FileEditabilityReason): FileEditabilityGuidan
 			actionLabel: 'Open Git settings',
 		},
 		'unsupported-provider': {
-			message: 'GitLab is not supported in the context explorer yet.',
+			message: 'The connected repository provider is not supported by the context explorer.',
 			actionKind: 'route',
 			actionPath: '/settings/git',
 			actionLabel: 'Open Git settings',

@@ -111,6 +111,16 @@ export const REVIEW_REQUEST_PROVIDERS: Record<InternalRepoProvider, ReviewReques
 	generic: GENERIC_GIT_PROVIDER,
 };
 
+export function getRepoProviderDisplayName(provider: string | null | undefined): string {
+	if (provider === 'github') {
+		return 'GitHub';
+	}
+	if (provider === 'gitlab') {
+		return 'GitLab';
+	}
+	return provider === 'generic' ? 'Git' : 'Git provider';
+}
+
 function requireToken(token: string | null): string {
 	if (token === null) {
 		throw new Error('Git provider token is unavailable.');

@@ -658,6 +658,35 @@ describe('context explorer worktrees', () => {
 		});
 	});
 
+	it('names GitLab in no-token guidance', async () => {
+		const fixture = createFixture(temporaryRoots);
+		fixture.context.configOverride = { provider: 'gitlab', repoFullName: 'nao/context' };
+		fixture.context.token = null;
+		const access = await fileAccess(fixture.context);
+
+		await expect(readFileContent('/context.md', access)).resolves.toMatchObject({
+			reason: 'no-token',
+			guidance: {
+				message: 'Connect your GitLab account before using Git actions in the context explorer.',
+				actionLabel: 'Connect GitLab account',
+			},
+		});
+	});
+
+	it('names GitLab when its integration is unavailable', async () => {
+		const fixture = createFixture(temporaryRoots);
+		fixture.context.configOverride = { provider: 'gitlab', repoFullName: 'nao/context' };
+		fixture.context.integrationAvailableOverride = false;
+		const access = await fileAccess(fixture.context);
+
+		await expect(readFileContent('/context.md', access)).resolves.toMatchObject({
+			reason: 'github-unavailable',
+			guidance: {
+				message: 'GitLab is not configured for this instance. Add the GitLab client credentials first.',
+			},
+		});
+	});
+
 	it('self-heals a missing worktree', async () => {
 		const fixture = createFixture(temporaryRoots);
 		const first = await ensureContextWorktree(fixture.context);

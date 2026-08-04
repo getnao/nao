@@ -278,14 +278,20 @@ export function ContextGitPanel({
 	const reviewRequest = pushedReviewRequest ?? openReviewRequest;
 	const reviewRequestUrl = reviewRequest?.url ?? null;
 	const reviewRequestNumber = reviewRequestUrl ? getReviewRequestNumber(reviewRequestUrl) : null;
+	const reviewRequestAbbreviation = repo?.provider === 'gitlab' ? 'MR' : 'PR';
+	const reviewRequestName = repo?.provider === 'gitlab' ? 'merge request' : 'pull request';
 	const reviewRequestLabel =
-		reviewRequest?.kind === 'link' ? 'Open PR' : reviewRequestNumber ? `#${reviewRequestNumber}` : 'PR';
+		reviewRequest?.kind === 'link'
+			? `Open ${reviewRequestAbbreviation}`
+			: reviewRequestNumber
+				? `#${reviewRequestNumber}`
+				: reviewRequestAbbreviation;
 	const reviewRequestTitle =
 		reviewRequest?.kind === 'link'
 			? reviewRequest.apiRefused
-				? 'Open PR. The git token cannot open pull requests, so you can open it yourself.'
-				: 'Open PR'
-			: `View pull request${reviewRequestNumber ? ` #${reviewRequestNumber}` : ''}`;
+				? `Open ${reviewRequestAbbreviation}. The git token cannot open ${reviewRequestName}s, so you can open it yourself.`
+				: `Open ${reviewRequestAbbreviation}`
+			: `View ${reviewRequestName}${reviewRequestNumber ? ` #${reviewRequestNumber}` : ''}`;
 	const discardDisabledReason = hasUnsavedFileChanges
 		? 'Save or discard the open file before discarding saved changes.'
 		: null;
