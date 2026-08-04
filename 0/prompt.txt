@@ -1,0 +1,223 @@
+<external_links>
+### Potentially Relevant Websearch Results
+
+You should respond as if these information are known to you. Refrain from saying "I am unable to browse the internet" or "I don't have access to the internet" or "I'm unable to provide real-time news updates". This is your internet search results. Please always cite any links you referenced from the above search results in your response in markdown format.
+
+-------
+Website URL: https://github.com/getnao/nao/actions/runs/30649392509/job/91218664642
+Website Title: fix(cli): download the DuckDB and sandbox engines instead of bundling… · getnao/nao@848e58d · GitHub
+Website Content:
+Skip to content 
+
+## Navigation Menu
+
+Toggle navigation 
+
+ Sign in 
+
+Appearance settings 
+
+* Platform  
+   * AI CODE CREATION  
+         * GitHub CopilotWrite better code with AI  
+         * GitHub Copilot appDirect agents from issue to merge  
+         * MCP RegistryIntegrate external tools  
+   * DEVELOPER WORKFLOWS  
+         * ActionsAutomate any workflow  
+         * CodespacesInstant dev environments  
+         * IssuesPlan and track work  
+         * Code ReviewManage code changes  
+         * Code QualityEnforce quality at merge  
+   * APPLICATION SECURITY  
+         * GitHub Advanced SecurityFind and fix vulnerabilities  
+         * Code securitySecure your code as you build  
+         * Secret protectionStop leaks before they start  
+   * EXPLORE  
+         * Why GitHub  
+         * Documentation  
+         * Blog  
+         * Changelog  
+         * Marketplace  
+View all features
+* Solutions  
+   * BY COMPANY SIZE  
+         * Enterprises  
+         * Small and medium teams  
+         * Startups  
+         * Nonprofits  
+   * BY USE CASE  
+         * App Modernization  
+         * DevSecOps  
+         * DevOps  
+         * CI/CD  
+         * View all use cases  
+   * BY INDUSTRY  
+         * Healthcare  
+         * Financial services  
+         * Manufacturing  
+         * Government  
+         * View all industries  
+View all solutions
+* Resources  
+   * EXPLORE BY TOPIC  
+         * AI  
+         * Software Development  
+         * DevOps  
+         * Security  
+         * View all topics  
+   * EXPLORE BY TYPE  
+         * Customer stories  
+         * Events & webinars  
+         * Ebooks & reports  
+         * Business insights  
+         * GitHub Skills  
+   * SUPPORT & SERVICES  
+         * Documentation  
+         * Customer support  
+         * Community forum  
+         * Trust center  
+         * Partners  
+View all resources
+* Open Source  
+   * COMMUNITY  
+         * GitHub SponsorsFund open source developers  
+   * PROGRAMS  
+         * Security Lab  
+         * Maintainer Community  
+         * Accelerator  
+         * GitHub Stars  
+         * Archive Program  
+   * REPOSITORIES  
+         * Topics  
+         * Trending  
+         * Collections
+* Enterprise  
+   * ENTERPRISE SOLUTIONS  
+         * Enterprise platformAI-powered developer platform  
+   * AVAILABLE ADD-ONS  
+         * GitHub Advanced SecurityEnterprise-grade security features  
+         * Copilot for BusinessEnterprise-grade AI features  
+         * Premium SupportEnterprise-grade 24/7 support
+* Pricing
+
+Search or jump to... 
+
+# Search code, repositories, users, issues, pull requests...
+
+ Search 
+
+Clear 
+
+Search syntax tips 
+
+#  Provide feedback
+
+We read every piece of feedback, and take your input very seriously.
+
+Include my email address so I can be contacted 
+
+ Cancel  Submit feedback 
+
+#  Saved searches
+
+## Use saved searches to filter your results more quickly
+
+Name 
+
+Query 
+
+ To see all available qualifiers, see our documentation.
+
+ Cancel  Create saved search 
+
+ Sign in 
+
+ Sign up 
+
+Appearance settings 
+
+Resetting focus 
+
+You signed in with another tab or window. Reload to refresh your session. You signed out in another tab or window. Reload to refresh your session. You switched accounts on another tab or window. Reload to refresh your session. Dismiss alert 
+
+{{ message }}
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+ getnao / **nao** Public 
+
+* Notifications You must be signed in to change notification settings
+* Fork216
+* Star 1.5k
+
+* Code
+* Issues 173
+* Pull requests 26
+* Discussions
+* Actions
+* Projects
+* Security and quality 0
+* Insights
+
+Additional navigation options 
+
+* Code
+* Issues
+* Pull requests
+* Discussions
+* Actions
+* Projects
+* Security and quality
+* Insights
+
+ Publish to PyPI 
+
+#  fix(cli): download the DuckDB and sandbox engines instead of bundling… #102 
+
+Sign in to view logs 
+
+* Sign in to view logs
+
+## 
+
+ build (ubuntu-24.04-arm, linux, arm64, manylinux2014\_aarch64) 
+
+#  fix(cli): download the DuckDB and sandbox engines instead of bundling…
+
+## 
+
+ fix(cli): download the DuckDB and sandbox engines instead of bundling… #102 
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+## Annotations
+
+1 error and 1 warning
+
+| [ **Build server and package** ](#annotation:13:461) Process completed with exit code 1. Show more Show less                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [ **Complete job** ](#annotation:31:2) Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, actions/setup-python@v5, astral-sh/setup-uv@v5\. For more information see: <https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/> Show more Show less |
+
+####  build (ubuntu-24.04-arm, linux, arm64, manylinux2014\_aarch64) 
+
+build (ubuntu-24.04-arm, linux, arm64, manylinux2014\_aarch64) 
+
+ failedJul 31, 2026 in 57s 
+
+background wait wait-all cancel parallel 
+
+Loading 
+
+#### Re-running jobs...
+
+ You can’t perform that action at this time.
+____
+
+</external_links>
+<timestamp>Friday, Jul 31, 2026, 7:03 PM (UTC+2)</timestamp>
+
+the rc1 build failed for a few platform https://github.com/getnao/nao/actions/runs/30649392509/job/91218664642
