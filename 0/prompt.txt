@@ -1,0 +1,3 @@
+<timestamp>Thursday, Jul 23, 2026, 11:26 AM (UTC+2)</timestamp>
+
+when we have multiple queries of the same id in the context window how does it behave for the agent? is it repeated? shouldnt we hide the stales one
