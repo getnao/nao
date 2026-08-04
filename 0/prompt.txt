@@ -1,0 +1,15 @@
+<timestamp>Tuesday, Jul 28, 2026, 11:36 AM (UTC+2)</timestamp>
+
+@chat/apps/backend/src/db/app-db-views.ts Check if this issue is valid — if so, understand the root cause and fix it. At apps/backend/src/db/app-db-views.ts, line 191:
+
+<comment>Admin queries over large chats repeatedly rescan `chat_message` once per message part (twice when returning `chat_source`), rather than once per chat. Compute the first-user source in a derived relation/CTE and join it by `chat_id` so filtering and projection reuse one result.</comment>
+
+<file context>
+@@ -132,11 +178,19 @@ function buildScopedViews(schema: ViewSchema, scope: ScopeTable, qb: SqliteQuery
++				.where(
++					and(
++						inArray(chat.projectId, scopedProjectIds()),
++						sql`(${chatSource} is null or ${chatSource} <> 'admin')`,
++					),
++				)
+</file context>
