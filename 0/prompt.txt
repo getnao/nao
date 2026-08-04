@@ -1,0 +1,15 @@
+<timestamp>Friday, Jul 31, 2026, 3:50 PM (UTC+2)</timestamp>
+
+@chat/apps/backend/src/services/duckdb.service.ts Check if this issue is valid — if so, understand the root cause and fix it. At apps/backend/src/services/duckdb.service.ts, line 54:
+
+<comment>A query ID containing path separators can escape the temporary workspace and write a JSONL file elsewhere with backend permissions. Derive filenames from a safe generated value, or reject separators/traversal in `queryId` before `join`.</comment>
+
+<file context>
+@@ -0,0 +1,71 @@
++		return;
++	}
++
++	const rowsFile = join(workspace, `${queryId}.jsonl`);
++	await writeFile(rowsFile, queryResult.data.map((row) => JSON.stringify(row, replaceUnsupportedJson)).join('\n'));
++	await connection.run(
+</file context>
