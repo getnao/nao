@@ -1,0 +1,1013 @@
+<git_diff_from_branch_to_main>
+  Relevant Diff: The following is the git diff from the current branch to the main/default branch:
+
+diff --git a/.env.example b/.env.example
+index 28bb55f0..9e2e35d7 100644
+--- a/.env.example
++++ b/.env.example
+@@ -167,3 +167,5 @@ POSTHOG_DISABLED=false # (used to opt-out of tracking)
+ # BETA_AUTOMATIONS_ENABLED=false
+ # Set to true to enable the Context Recommendations feature.
+ # BETA_CONTEXT_RECOMMENDATIONS_ENABLED=false
++# Set to true to enable interactive story filters.
++# BETA_STORY_FILTERS_ENABLED=false
+diff --git a/.github/workflows/docker.yml b/.github/workflows/docker.yml
+index c92f2892..2db623ac 100644
+--- a/.github/workflows/docker.yml
++++ b/.github/workflows/docker.yml
+@@ -218,6 +218,7 @@ jobs:
+                         -e "ENABLE_USER_SIGNUP=false" \
+                         -e "BETA_AUTOMATIONS_ENABLED=true" \
+                         -e "BETA_CONTEXT_RECOMMENDATIONS_ENABLED=true" \
++                        -e "BETA_STORY_FILTERS_ENABLED=true" \
+                         -e "SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}" \
+                         -e "SMTP_HOST=${{ secrets.SMTP_HOST }}" \
+                         -e "SMTP_PORT=${{ secrets.SMTP_PORT }}" \
+@@ -271,6 +272,7 @@ jobs:
+                           -e "ENABLE_USER_SIGNUP=true" \
+                           -e "BETA_AUTOMATIONS_ENABLED=true" \
+                           -e "BETA_CONTEXT_RECOMMENDATIONS_ENABLED=true" \
++                          -e "BETA_STORY_FILTERS_ENABLED=true" \
+                           -e "GOOGLE_CLIENT_ID=${{ secrets.NAOCLOUD_GOOGLE_CLIENT_ID }}" \
+                           -e "GOOGLE_CLIENT_SECRET=${{ secrets.NAOCLOUD_GOOGLE_CLIENT_SECRET }}" \
+                           getnao/nao:${{ needs.merge.outputs.image-tag }}
+diff --git a/apps/backend/src/agents/tools/execute-sql.ts b/apps/backend/src/agents/tools/execute-sql.ts
+index 04c658d7..87b77472 100644
+--- a/apps/backend/src/agents/tools/execute-sql.ts
++++ b/apps/backend/src/agents/tools/execute-sql.ts
+@@ -1,19 +1,26 @@
++import { sqlIncludesFilterTemplate, stripSqlFilterBlocks, validateSqlFilterTemplate } from '@nao/shared/sql-template';
+ import type { executeSql } from '@nao/shared/tools';
+ import { executeSql as schemas } from '@nao/shared/tools';
+ 
+ import { ExecuteSqlOutput, renderToModelOutput } from '../../components/tool-outputs';
+ import { env } from '../../env';
++import { getExecuteSqlPartByQueryIdInChat, updateExecuteSqlPart } from '../../queries/execute-sql.queries';
+ import { ToolContext } from '../../types/tools';
+ import { detectQueryRowLimit, isReadOnlySqlQuery } from '../../utils/sql-filter';
+ import { createTool } from '../../utils/tools';
+ import { queryAppDb } from './query-app-db';
+ 
+ export async function executeQuery(
+-	{ sql_query, database_id }: executeSql.Input,
++	{ sql_query, database_id, query_id }: executeSql.Input,
+ 	context: ToolContext,
+ ): Promise<executeSql.Output> {
++	const templateWarnings = env.BETA_STORY_FILTERS_ENABLED ? validateSqlFilterTemplate(sql_query) : [];
++	const effectiveSql = stripSqlFilterBlocks(sql_query);
++	if (templateWarnings.length > 0 && sqlIncludesFilterTemplate(effectiveSql)) {
++		throw new Error(`Invalid story filter SQL template: ${templateWarnings.join(' ')}`);
++	}
+ 	const writePermEnabled = context.agentSettings?.sql?.dangerouslyWritePermEnabled ?? false;
+-	if (!writePermEnabled && !(await isReadOnlySqlQuery(sql_query))) {
++	if (!writePermEnabled && !(await isReadOnlySqlQuery(effectiveSql))) {
+ 		throw new Error(
+ 			'Write SQL operations are disabled. Only SELECT queries are allowed. ' +
+ 				'Enable "Dangerous write permissions" in the admin panel to allow INSERT, UPDATE, DELETE and DDL queries.',
+@@ -21,7 +28,7 @@ export async function executeQuery(
+ 	}
+ 
+ 	if (context.adminMode) {
+-		return executeAppDbQuery(sql_query, context);
++		return withTemplateWarnings(await executeAppDbQuery(effectiveSql, context, query_id), templateWarnings);
+ 	}
+ 
+ 	const naoProjectFolder = context.projectFolder;
+@@ -32,7 +39,7 @@ export async function executeQuery(
+ 			'Content-Type': 'application/json',
+ 		},
+ 		body: JSON.stringify({
+-			sql: sql_query,
++			sql: effectiveSql,
+ 			nao_project_folder: naoProjectFolder,
+ 			...(database_id && { database_id }),
+ 			...(Object.keys(envVars).length > 0 && { env_vars: envVars }),
+@@ -46,23 +53,30 @@ export async function executeQuery(
+ 	}
+ 
+ 	const data = await response.json();
+-	const id = `query_${crypto.randomUUID().slice(0, 8)}` as const;
++	const id = query_id ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
+ 
+ 	context.queryResults.set(id, { columns: data.columns, data: data.data });
+ 
+-	const appliedLimit = detectQueryRowLimit(sql_query);
++	const appliedLimit = detectQueryRowLimit(effectiveSql);
+ 
+-	return {
++	return withTemplateWarnings(
++		{
+ 			_version: '1',
+ 			...data,
+ 			id,
+ 			...(appliedLimit !== null && { applied_limit: appliedLimit }),
+-	};
++		},
++		templateWarnings,
++	);
+ }
+ 
+-async function executeAppDbQuery(sqlQuery: string, context: ToolContext): Promise<executeSql.Output> {
++async function executeAppDbQuery(
++	sqlQuery: string,
++	context: ToolContext,
++	queryId?: `query_${string}`,
++): Promise<executeSql.Output> {
+ 	const { columns, rows } = await queryAppDb(context.projectId, sqlQuery);
+-	const id = `query_${crypto.randomUUID().slice(0, 8)}` as const;
++	const id = queryId ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
+ 	context.queryResults.set(id, { columns, data: rows });
+ 	const appliedLimit = detectQueryRowLimit(sqlQuery);
+ 	return {
+@@ -75,11 +89,60 @@ async function executeAppDbQuery(sqlQuery: string, context: ToolContext): Promis
+ 	};
+ }
+ 
+-export default createTool<executeSql.Input, executeSql.Output>({
+-	description:
++function withTemplateWarnings(output: executeSql.Output, templateWarnings: string[]): executeSql.Output {
++	if (templateWarnings.length === 0) {
++		return output;
++	}
++	return { ...output, template_warnings: templateWarnings };
++}
++
++async function updateExistingQuery(
++	input: executeSql.Input & { query_id: `query_${string}` },
++	context: ToolContext,
++): Promise<executeSql.Output> {
++	const existing = await getExecuteSqlPartByQueryIdInChat(context.chatId, input.query_id);
++	if (!existing) {
++		throw new Error(
++			`Query ${input.query_id} not found in this chat. Use execute_sql without query_id to create a new query.`,
++		);
++	}
++
++	const nextInput: executeSql.Input = {
++		sql_query: input.sql_query,
++		database_id: input.database_id ?? existing.toolInput.database_id,
++		name: input.name ?? existing.toolInput.name,
++	};
++
++	const output = await executeQuery({ ...nextInput, query_id: input.query_id }, context);
++	await updateExecuteSqlPart(existing.toolCallId, nextInput, output);
++	return output;
++}
++
++function buildExecuteSqlToolDescription() {
++	return [
+ 		'Execute a SQL query against the connected database and return the results. If multiple databases are configured, specify the database_id.',
++		...(env.BETA_STORY_FILTERS_ENABLED
++			? [
++					'Story filters may be embedded as SQL template blocks that are stripped when this tool runs in chat.',
++					'Correct syntax: WHERE 1 = 1 {% filter country %} AND country IN ({{ filters.country.sql }}) {% endfilter %}.',
++					"For date_range filters, {{ filters.<id>.sql }} already expands to 'start' AND 'end', so write: {% filter period %} AND order_date BETWEEN {{ filters.period.sql }} {% endfilter %}.",
++					'Never use filters.<id>.start, .end, .value, or placeholders outside {% filter %} blocks — placeholders outside blocks are rejected; other invalid templates return template_warnings.',
++					'Prefer query_id when adding story filter templates so existing <chart>/<table> tags keep working.',
++				]
++			: []),
++		'To edit a previous query in-place (keep the same query_id for charts/stories), pass query_id from an earlier execute_sql result.',
++	].join(' ');
++}
++
++export default createTool<executeSql.Input, executeSql.Output>({
++	description: buildExecuteSqlToolDescription(),
+ 	inputSchema: schemas.InputSchema,
+ 	outputSchema: schemas.OutputSchema,
+-	execute: executeQuery,
++	execute: async (input, context) => {
++		if (input.query_id) {
++			return updateExistingQuery({ ...input, query_id: input.query_id }, context);
++		}
++		return executeQuery(input, context);
++	},
+ 	toModelOutput: ({ output }) => renderToModelOutput(ExecuteSqlOutput({ output }), output),
+ });
+diff --git a/apps/backend/src/agents/tools/story.ts b/apps/backend/src/agents/tools/story.ts
+index c9d2ce39..d971c506 100644
+--- a/apps/backend/src/agents/tools/story.ts
++++ b/apps/backend/src/agents/tools/story.ts
+@@ -3,19 +3,34 @@ import { story } from '@nao/shared/tools';
+ 
+ import { renderToModelOutput, StoryOutput } from '../../components/tool-outputs';
+ import { db } from '../../db/db';
++import { env } from '../../env';
+ import { getDisplayChartTableFormatsForChat } from '../../queries/chart-image';
+ import * as storyQueries from '../../queries/story.queries';
+ import * as storyFolderQueries from '../../queries/story-folder.queries';
++import { getStoryTemplateWarnings } from '../../services/story-template-validation';
+ import type { ToolContext } from '../../types/tools';
+ import { createTool } from '../../utils/tools';
+ 
+-export default createTool<story.Input, story.Output>({
+-	description: [
++const STORY_FILTER_DESCRIPTION = [
++	'Story-level filters are declared via <filter id="..." label="..." type="select|multi_select|search|date_range" ... />.',
++	'For select/multi_select, provide either table+column (options from SELECT DISTINCT) or options=\'["a","b"]\' (hardcoded values).',
++	'When using table+column and multiple databases are configured, set database_id on the filter so option loading targets the correct database.',
++	'Matching SQL must use template blocks that reference the same filter id, e.g. WHERE 1 = 1 {% filter country %} AND country IN ({{ filters.country.sql }}) {% endfilter %}.',
++	"For date_range, {{ filters.<id>.sql }} already expands to 'start' AND 'end' — write {% filter period %} AND order_date BETWEEN {{ filters.period.sql }} {% endfilter %}. Never use .start/.end/.value.",
++	'Chat and live refresh strip unset filter blocks so the query still runs; active story filter selections re-render and re-execute SQL.',
++	'Invalid filter templates are reported as template_warnings in the tool result — fix them before finishing.',
++	'When adding filters to existing charts, prefer execute_sql with query_id set to the existing query so chart/table tags keep the same query_id.',
++].join(' ');
++
++function buildStoryToolDescription() {
++	return [
+ 		'Create or modify a nao Story — an interactive document combining markdown text and chart visualizations.',
+ 		'Use "create" to initialize a new story, "update" to search-and-replace within it (producing a new version),',
+ 		'or "replace" to overwrite the entire content (producing a new version).',
+ 		'Charts are embedded via <chart query_id="..." chart_type="..." x_axis_key="..." series=\'[...]\' title="..." />.',
++		'For kpi_card charts you may add comparison_mode="percentage|variation|absolute" to show a period-over-period change pill; this requires the query to return at least two time-ordered rows (one per period) for the metric, and kpi_card does not need x_axis_key.',
+ 		'SQL result tables are embedded via <table query_id="..." title="..." />.',
++		...(env.BETA_STORY_FILTERS_ENABLED ? [STORY_FILTER_DESCRIPTION] : []),
+ 		'Use <grid>...</grid> to place 2–4 charts/tables side by side; its direct <chart>/<table> blocks are the columns.',
+ 		'For unequal columns add widths="w1,w2,..." to the <grid> — one positive integer per column giving its relative width (e.g. widths="2,1" makes the first column twice as wide as the second). The number of values must equal the number of columns; omit widths for equal columns. Choose widths that fit the content, e.g. a wide time-series next to a narrow KPI or pie.',
+ 		'Use consecutive <tab title="...">...</tab> blocks to organize a story into top-level tabs.',
+@@ -23,7 +38,11 @@ export default createTool<story.Input, story.Output>({
+ 		'A story can also be refered as a "canva", an "artifact" or a "report".',
+ 		'Users may edit stories directly; the tool result always reflects the latest version, including user edits.',
+ 		'Unless explicitly stated, dont use the stories to display a chart, but the display_chart tool.',
+-	].join(' '),
++	].join(' ');
++}
++
++export default createTool<story.Input, story.Output>({
++	description: buildStoryToolDescription(),
+ 	inputSchema: story.InputSchema,
+ 	outputSchema: story.OutputSchema,
+ 
+@@ -76,6 +95,7 @@ export default createTool<story.Input, story.Output>({
+ 				version: version.version,
+ 				code: version.code,
+ 				title: version.title,
++				...(await storyTemplateWarnings(chatId, version.code)),
+ 			};
+ 		}
+ 
+@@ -114,6 +134,7 @@ export default createTool<story.Input, story.Output>({
+ 				version: version.version,
+ 				code: version.code,
+ 				title: version.title,
++				...(await storyTemplateWarnings(chatId, version.code)),
+ 			};
+ 		}
+ 
+@@ -140,6 +161,7 @@ export default createTool<story.Input, story.Output>({
+ 			version: version.version,
+ 			code: version.code,
+ 			title: version.title,
++			...(await storyTemplateWarnings(chatId, version.code)),
+ 		};
+ 	},
+ 
+@@ -151,6 +173,17 @@ async function carryOverTableFormatting(code: string, chatId: string): Promise<s
+ 	return injectTableFormatting(code, formatsByQueryId);
+ }
+ 
++/** The story version is already committed at this point, so a warning failure must not fail the tool. */
++async function storyTemplateWarnings(chatId: string, code: string): Promise<{ template_warnings?: string[] }> {
++	try {
++		const warnings = await getStoryTemplateWarnings(chatId, code);
++		return warnings.length > 0 ? { template_warnings: warnings } : {};
++	} catch (error) {
++		console.error('Failed to compute story template warnings', error);
++		return {};
++	}
++}
++
+ function rememberStoryArtifact(context: ToolContext, id: string, title: string): void {
+ 	const existing = context.generatedArtifacts.stories.find((story) => story.id === id);
+ 	if (existing) {
+diff --git a/apps/backend/src/components/generate-chart.tsx b/apps/backend/src/components/generate-chart.tsx
+index 5155a3ea..fafb15d9 100644
+--- a/apps/backend/src/components/generate-chart.tsx
++++ b/apps/backend/src/components/generate-chart.tsx
+@@ -14,7 +14,7 @@ import {
+ 
+ export interface RenderChartInput {
+ 	config: Pick<
+-		displayChart.ChartInput,
++		displayChart.KpiCardInput,
+ 		| 'chart_type'
+ 		| 'x_axis_key'
+ 		| 'x_axis_type'
+@@ -27,6 +27,7 @@ export interface RenderChartInput {
+ 		| 'y_axis_right_label'
+ 		| 'title'
+ 		| 'show_data_labels'
++		| 'comparison_mode'
+ 	>;
+ 	data: Record<string, unknown>[];
+ 	width?: number;
+@@ -47,6 +48,7 @@ export function renderChartToSvg(input: RenderChartInput): string {
+ 	const height = input.height ?? 500;
+ 	const margin = input.margin ?? { top: 10, right: 20, bottom: 5, left: 0 };
+ 	const includeLegend = input.includeLegend !== false;
++	const xAxisKey = config.x_axis_key ?? '';
+ 
+ 	const colorFor = (key: string, index: number) => {
+ 		const series = config.series.find((s) => s.data_key === key);
+@@ -54,16 +56,16 @@ export function renderChartToSvg(input: RenderChartInput): string {
+ 	};
+ 
+ 	const labelFormatter = (value: string) => labelize(value, dateFormat);
+-	const maxLabelWidth = estimateMaxLabelWidth(data, config.x_axis_key, dateFormat);
++	const maxLabelWidth = estimateMaxLabelWidth(data, xAxisKey, dateFormat);
+ 
+ 	const isPie = config.chart_type === 'pie' || config.chart_type === 'donut';
+ 
+-	const chartData = isPie ? bucketPieData(data, config.x_axis_key, config.series[0]?.data_key ?? '') : data;
++	const chartData = isPie ? bucketPieData(data, xAxisKey, config.series[0]?.data_key ?? '') : data;
+ 
+ 	let legend: LegendEntry[] = [];
+ 	if (includeLegend) {
+ 		legend = isPie
+-			? buildPieLegendEntries(chartData, config.x_axis_key, dateFormat)
++			? buildPieLegendEntries(chartData, xAxisKey, dateFormat)
+ 			: config.series.map((s, i) => ({
+ 					label: s.label || labelize(s.data_key, dateFormat),
+ 					color: colorFor(s.data_key, i),
+@@ -78,7 +80,7 @@ export function renderChartToSvg(input: RenderChartInput): string {
+ 	const chart = buildChart({
+ 		data: chartData,
+ 		chartType: config.chart_type,
+-		xAxisKey: config.x_axis_key,
++		xAxisKey,
+ 		xAxisType: config.x_axis_type === 'number' ? 'number' : 'category',
+ 		series: config.series,
+ 		colorFor,
+@@ -91,6 +93,7 @@ export function renderChartToSvg(input: RenderChartInput): string {
+ 		backgroundColor: '#ffffff',
+ 		yAxisMin: config.y_axis_min,
+ 		yAxisMax: config.y_axis_max,
++		comparisonMode: config.comparison_mode,
+ 		yAxisLabel: config.y_axis_label,
+ 		yAxisRightMin: config.y_axis_right_min,
+ 		yAxisRightMax: config.y_axis_right_max,
+diff --git a/apps/backend/src/components/tool-outputs/execute-sql.tsx b/apps/backend/src/components/tool-outputs/execute-sql.tsx
+index fb8b9f62..7254a4c4 100644
+--- a/apps/backend/src/components/tool-outputs/execute-sql.tsx
++++ b/apps/backend/src/components/tool-outputs/execute-sql.tsx
+@@ -1,14 +1,35 @@
+ import { pluralize } from '@nao/shared';
+ import type { executeSql } from '@nao/shared/tools';
+ 
+-import { Block, ListItem, Span, Title, TitledList } from '../../lib/markdown';
++import { Block, List, ListItem, Span, Title, TitledList } from '../../lib/markdown';
+ import { QueryRows } from './query-rows';
+ 
+ const MAX_ROWS = 40;
+ 
+ export const ExecuteSqlOutput = ({ output, maxRows = MAX_ROWS }: { output: executeSql.Output; maxRows?: number }) => {
++	const templateWarnings = output.template_warnings ?? [];
++
++	if (output.superseded) {
++		return (
++			<Block>
++				Stale result: query {output.id} was re-run later in this conversation. Refer to the latest execute_sql
++				result with this query id (or call read_query_result) for the current SQL and rows.
++			</Block>
++		);
++	}
++
+ 	if (output.data.length === 0) {
+-		return <Block>The query was successfully executed and returned no rows.</Block>;
++		return (
++			<Block>
++				The query was successfully executed and returned no rows.
++				{templateWarnings.length > 0 && (
++					<>
++						<Span>Query ID: {output.id}</Span>
++						<TemplateWarnings warnings={templateWarnings} />
++					</>
++				)}
++			</Block>
++		);
+ 	}
+ 
+ 	const isTruncated = output.data.length > maxRows;
+@@ -23,8 +44,8 @@ export const ExecuteSqlOutput = ({ output, maxRows = MAX_ROWS }: { output: execu
+ 			<Span>Query ID: {output.id}</Span>
+ 
+ 			<TitledList title={`${pluralize('Column', output.columns.length)} (${output.columns.length})`}>
+-				{output.columns.map((column) => (
+-					<ListItem>{column}</ListItem>
++				{output.columns.map((column, index) => (
++					<ListItem key={`${column}-${index}`}>{column}</ListItem>
+ 				))}
+ 			</TitledList>
+ 
+@@ -41,6 +62,8 @@ export const ExecuteSqlOutput = ({ output, maxRows = MAX_ROWS }: { output: execu
+ 				</Span>
+ 			)}
+ 
++			{templateWarnings.length > 0 && <TemplateWarnings warnings={templateWarnings} />}
++
+ 			<QueryRows rows={visibleRows} />
+ 
+ 			{remainingRows > 0 && (
+@@ -52,3 +75,19 @@ export const ExecuteSqlOutput = ({ output, maxRows = MAX_ROWS }: { output: execu
+ 		</Block>
+ 	);
+ };
++
++function TemplateWarnings({ warnings }: { warnings: string[] }) {
++	return (
++		<Block>
++			<Span>
++				Story filter template warnings — the baseline query ran (filter blocks stripped), but story filters will
++				not apply correctly until you fix the SQL with execute_sql (prefer query_id):
++			</Span>
++			<List>
++				{warnings.map((warning) => (
++					<ListItem key={warning}>{warning}</ListItem>
++				))}
++			</List>
++		</Block>
++	);
++}
+diff --git a/apps/backend/src/components/tool-outputs/story.tsx b/apps/backend/src/components/tool-outputs/story.tsx
+index 7332da9f..81af2934 100644
+--- a/apps/backend/src/components/tool-outputs/story.tsx
++++ b/apps/backend/src/components/tool-outputs/story.tsx
+@@ -1,6 +1,6 @@
+ import type { story } from '@nao/shared/tools';
+ 
+-import { Block } from '../../lib/markdown';
++import { Block, List, ListItem, Span } from '../../lib/markdown';
+ 
+ export type StoryModelOutput = story.Output & {
+ 	_stale?: boolean;
+@@ -21,6 +21,8 @@ export function StoryOutput({ output }: { output: StoryModelOutput }) {
+ 		);
+ 	}
+ 
++	const templateWarnings = output.template_warnings ?? [];
++
+ 	return (
+ 		<Block>
+ 			Story "{output.title}" (v{output.version}) — {output.id}
+@@ -30,6 +32,19 @@ export function StoryOutput({ output }: { output: StoryModelOutput }) {
+ 					current version. Base any further changes on this content.
+ 				</Block>
+ 			)}
++			{templateWarnings.length > 0 && (
++				<Block>
++					<Span>
++						Story filter template warnings — fix the referenced SQL with execute_sql (prefer query_id)
++						and/or the story filter tags before considering this story complete:
++					</Span>
++					<List>
++						{templateWarnings.map((warning) => (
++							<ListItem key={warning}>{warning}</ListItem>
++						))}
++					</List>
++				</Block>
++			)}
+ 			<Block>{output.code}</Block>
+ 		</Block>
+ 	);
+diff --git a/apps/backend/src/env.ts b/apps/backend/src/env.ts
+index 0610f1ae..4b024c0b 100644
+--- a/apps/backend/src/env.ts
++++ b/apps/backend/src/env.ts
+@@ -132,6 +132,12 @@ const envSchema = z.object({
+ 		.optional()
+ 		.default('false')
+ 		.transform((val) => val === 'true'),
++
++	BETA_STORY_FILTERS_ENABLED: z
++		.enum(['true', 'false'])
++		.optional()
++		.default('false')
++		.transform((val) => val === 'true'),
+ });
+ 
+ const result = envSchema.safeParse(process.env);
+diff --git a/apps/backend/src/queries/chart-image.ts b/apps/backend/src/queries/chart-image.ts
+index 066bea5a..baf2d2dd 100644
+--- a/apps/backend/src/queries/chart-image.ts
++++ b/apps/backend/src/queries/chart-image.ts
+@@ -1,11 +1,12 @@
+ import { displayChart, executeSql } from '@nao/shared/tools';
+-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
++import { and, asc, eq, isNull } from 'drizzle-orm';
+ 
+ import s from '../db/abstractSchema';
+ import { db } from '../db/db';
+-import dbConfig, { Dialect } from '../db/dbConfig';
++import { HandlerError } from '../utils/error';
+ import { takeFirstOrThrow } from '../utils/queries';
+ import { selectLatestDisplayChartTableFormats } from './chart-image.utils';
++import { getLatestExecuteSqlByQueryId } from './execute-sql.queries';
+ 
+ const DISPLAY_CHART_TOOL_TYPE = 'tool-display_chart';
+ 
+@@ -34,22 +35,13 @@ export const getDisplayConfigByToolCallId = async (toolCallId: string): Promise<
+ export const getExecuteSqlPartByQueryId = async (
+ 	queryId: string,
+ ): Promise<{ toolInput: executeSql.Input; toolOutput: executeSql.Output }> => {
+-	const jsonIdFilter =
+-		dbConfig.dialect === Dialect.Postgres
+-			? sql`${s.messagePart.toolOutput}->>'id' = ${queryId}`
+-			: sql`json_extract(${s.messagePart.toolOutput}, '$.id') = ${queryId}`;
+-
+-	const result = await takeFirstOrThrow(
+-		db
+-			.select({ toolInput: s.messagePart.toolInput, toolOutput: s.messagePart.toolOutput })
+-			.from(s.messagePart)
+-			.where(jsonIdFilter)
+-			.execute(),
+-	);
+-
++	const result = await getLatestExecuteSqlByQueryId(queryId);
++	if (!result) {
++		throw new HandlerError('NOT_FOUND', `Query ${queryId} not found.`);
++	}
+ 	return {
+-		toolInput: executeSql.InputSchema.parse(result.toolInput),
+-		toolOutput: executeSql.OutputSchema.parse(result.toolOutput),
++		toolInput: result.toolInput,
++		toolOutput: result.toolOutput,
+ 	};
+ };
+ 
+diff --git a/apps/backend/src/queries/chat.queries.ts b/apps/backend/src/queries/chat.queries.ts
+index 7396b7e1..13ca7d2e 100644
+--- a/apps/backend/src/queries/chat.queries.ts
++++ b/apps/backend/src/queries/chat.queries.ts
+@@ -29,6 +29,7 @@ import {
+ import { applyChatFilters, buildChatGroups, type EnrichedChat, type SourcePlatform } from '../utils/chat-list';
+ import { convertDBPartToUIPart, mapUIPartsToDBParts } from '../utils/chat-message-part-mappings';
+ import { getErrorMessage } from '../utils/utils';
++import * as executeSqlQueries from './execute-sql.queries';
+ 
+ const chatCreatedAtMs =
+ 	dbConfig.dialect === Dialect.Postgres
+@@ -853,20 +854,8 @@ export const getChatProjectId = async (chatId: string): Promise<string | undefin
+ };
+ 
+ export const getProjectIdByQueryId = async (queryId: string): Promise<string | undefined> => {
+-	const jsonIdFilter =
+-		dbConfig.dialect === Dialect.Postgres
+-			? sql`${s.messagePart.toolOutput}->>'id' = ${queryId}`
+-			: sql`json_extract(${s.messagePart.toolOutput}, '$.id') = ${queryId}`;
+-
+-	const [result] = await db
+-		.select({ projectId: s.chat.projectId })
+-		.from(s.messagePart)
+-		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
+-		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
+-		.where(jsonIdFilter)
+-		.execute();
+-
+-	return result?.projectId;
++	const owner = await executeSqlQueries.getExecuteSqlOwnerByQueryId(queryId);
++	return owner?.projectId;
+ };
+ 
+ /**
+@@ -878,24 +867,8 @@ export const getQueryResultByQueryId = async (
+ 	chatId: string,
+ 	queryId: string,
+ ): Promise<{ columns: string[]; data: Record<string, unknown>[] } | null> => {
+-	const jsonIdFilter = buildQueryIdJsonFilter(queryId);
+-
+-	const [result] = await db
+-		.select({ toolOutput: s.messagePart.toolOutput })
+-		.from(s.messagePart)
+-		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
+-		.where(
+-			and(
+-				eq(s.chatMessage.chatId, chatId),
+-				isNull(s.chatMessage.supersededAt),
+-				eq(s.messagePart.toolName, 'execute_sql'),
+-				jsonIdFilter,
+-			),
+-		)
+-		.limit(1)
+-		.execute();
+-
+-	return extractQueryResultFromToolOutput(result?.toolOutput);
++	const part = await executeSqlQueries.getExecuteSqlPartByQueryIdInChat(chatId, queryId);
++	return part ? extractQueryResultFromToolOutput(part.toolOutput) : null;
+ };
+ 
+ export const getQueryResultByQueryIdInProject = async (
+@@ -903,8 +876,6 @@ export const getQueryResultByQueryIdInProject = async (
+ 	userId: string,
+ 	queryId: string,
+ ): Promise<{ columns: string[]; data: Record<string, unknown>[]; chatId: string } | null> => {
+-	const jsonIdFilter = buildQueryIdJsonFilter(queryId);
+-
+ 	const [result] = await db
+ 		.select({ toolOutput: s.messagePart.toolOutput, chatId: s.chat.id })
+ 		.from(s.messagePart)
+@@ -915,10 +886,11 @@ export const getQueryResultByQueryIdInProject = async (
+ 				eq(s.chat.projectId, projectId),
+ 				eq(s.chat.userId, userId),
+ 				isNull(s.chatMessage.supersededAt),
+-				eq(s.messagePart.toolName, 'execute_sql'),
+-				jsonIdFilter,
++				eq(s.messagePart.toolName, executeSqlQueries.EXECUTE_SQL_TOOL_NAME),
++				executeSqlQueries.messagePartToolOutputIdEquals(queryId),
+ 			),
+ 		)
++		.orderBy(desc(s.chatMessage.createdAt), desc(s.messagePart.order))
+ 		.limit(1)
+ 		.execute();
+ 
+@@ -929,12 +901,6 @@ export const getQueryResultByQueryIdInProject = async (
+ 	return { ...extracted, chatId: result.chatId };
+ };
+ 
+-function buildQueryIdJsonFilter(queryId: string) {
+-	return dbConfig.dialect === Dialect.Postgres
+-		? sql`${s.messagePart.toolOutput}->>'id' = ${queryId}`
+-		: sql`json_extract(${s.messagePart.toolOutput}, '$.id') = ${queryId}`;
+-}
+-
+ function extractQueryResultFromToolOutput(
+ 	toolOutput: unknown,
+ ): { columns: string[]; data: Record<string, unknown>[] } | null {
+diff --git a/apps/backend/src/queries/execute-sql.queries.ts b/apps/backend/src/queries/execute-sql.queries.ts
+new file mode 100644
+index 00000000..1b75614e
+--- /dev/null
++++ b/apps/backend/src/queries/execute-sql.queries.ts
+@@ -0,0 +1,209 @@
++import { executeSql } from '@nao/shared/tools';
++import { and, asc, desc, eq, isNull, or, sql } from 'drizzle-orm';
++
++import s from '../db/abstractSchema';
++import { db } from '../db/db';
++import dbConfig, { Dialect } from '../db/dbConfig';
++import { takeFirstOrThrow } from '../utils/queries';
++
++export const EXECUTE_SQL_TOOL_NAME = 'execute_sql';
++
++export function messagePartToolOutputIdEquals(queryId: string) {
++	return dbConfig.dialect === Dialect.Postgres
++		? sql`${s.messagePart.toolOutput}->>'id' = ${queryId}`
++		: sql`json_extract(${s.messagePart.toolOutput}, '$.id') = ${queryId}`;
++}
++
++function messagePartToolOutputIdIn(queryIds: Set<string>) {
++	return or(...[...queryIds].map(messagePartToolOutputIdEquals));
++}
++
++export type LatestExecuteSqlRow = {
++	projectId: string;
++	userId: string;
++	chatId: string;
++	toolCallId: string;
++	toolInput: executeSql.Input;
++	toolOutput: executeSql.Output;
++	adminMode: boolean;
++};
++
++/** Latest non-superseded execute_sql part for a query id (global). */
++export async function getLatestExecuteSqlByQueryId(queryId: string): Promise<LatestExecuteSqlRow | null> {
++	const [row] = await db
++		.select({
++			projectId: s.chat.projectId,
++			userId: s.chat.userId,
++			chatId: s.chat.id,
++			toolCallId: s.messagePart.toolCallId,
++			toolInput: s.messagePart.toolInput,
++			toolOutput: s.messagePart.toolOutput,
++			messageSource: s.chatMessage.source,
++		})
++		.from(s.messagePart)
++		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
++		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
++		.where(
++			and(
++				eq(s.messagePart.toolName, EXECUTE_SQL_TOOL_NAME),
++				isNull(s.chatMessage.supersededAt),
++				messagePartToolOutputIdEquals(queryId),
++			),
++		)
++		.orderBy(desc(s.chatMessage.createdAt), desc(s.messagePart.createdAt), desc(s.messagePart.order))
++		.limit(1)
++		.execute();
++
++	if (!row?.toolCallId || !row.toolInput || !row.toolOutput) {
++		return null;
++	}
++
++	return {
++		projectId: row.projectId,
++		userId: row.userId,
++		chatId: row.chatId,
++		toolCallId: row.toolCallId,
++		toolInput: executeSql.InputSchema.parse(row.toolInput),
++		toolOutput: executeSql.OutputSchema.parse(row.toolOutput),
++		adminMode: row.messageSource === 'admin',
++	};
++}
++
++export async function getExecuteSqlOwnerByQueryId(
++	queryId: string,
++): Promise<{ projectId: string; userId: string; chatId: string; toolCallId: string } | null> {
++	const row = await getLatestExecuteSqlByQueryId(queryId);
++	if (!row) {
++		return null;
++	}
++	return {
++		projectId: row.projectId,
++		userId: row.userId,
++		chatId: row.chatId,
++		toolCallId: row.toolCallId,
++	};
++}
++
++/** Latest non-superseded execute_sql part for a query id within a chat. */
++export async function getExecuteSqlPartByQueryIdInChat(
++	chatId: string,
++	queryId: string,
++): Promise<{ toolCallId: string; toolInput: executeSql.Input; toolOutput: executeSql.Output } | null> {
++	const [row] = await db
++		.select({
++			toolCallId: s.messagePart.toolCallId,
++			toolInput: s.messagePart.toolInput,
++			toolOutput: s.messagePart.toolOutput,
++		})
++		.from(s.messagePart)
++		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
++		.where(
++			and(
++				eq(s.chatMessage.chatId, chatId),
++				isNull(s.chatMessage.supersededAt),
++				eq(s.messagePart.toolName, EXECUTE_SQL_TOOL_NAME),
++				messagePartToolOutputIdEquals(queryId),
++			),
++		)
++		.orderBy(desc(s.chatMessage.createdAt), desc(s.messagePart.createdAt), desc(s.messagePart.order))
++		.limit(1)
++		.execute();
++
++	if (!row?.toolCallId || !row.toolInput || !row.toolOutput) {
++		return null;
++	}
++
++	return {
++		toolCallId: row.toolCallId,
++		toolInput: executeSql.InputSchema.parse(row.toolInput),
++		toolOutput: executeSql.OutputSchema.parse(row.toolOutput),
++	};
++}
++
++export async function updateExecuteSqlPart(
++	toolCallId: string,
++	toolInput: executeSql.Input,
++	toolOutput: executeSql.Output,
++): Promise<void> {
++	await takeFirstOrThrow(
++		db
++			.update(s.messagePart)
++			.set({ toolInput, toolOutput })
++			.where(and(eq(s.messagePart.toolCallId, toolCallId), eq(s.messagePart.toolName, EXECUTE_SQL_TOOL_NAME)))
++			.returning({ toolCallId: s.messagePart.toolCallId })
++			.execute(),
++	);
++}
++
++async function loadLatestExecuteSqlParts(chatId: string, queryIds: Set<string>) {
++	return db
++		.select({
++			toolInput: s.messagePart.toolInput,
++			toolOutput: s.messagePart.toolOutput,
++		})
++		.from(s.messagePart)
++		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
++		.where(
++			and(
++				eq(s.chatMessage.chatId, chatId),
++				isNull(s.chatMessage.supersededAt),
++				eq(s.messagePart.toolName, EXECUTE_SQL_TOOL_NAME),
++				messagePartToolOutputIdIn(queryIds),
++			),
++		)
++		.orderBy(asc(s.chatMessage.createdAt), asc(s.messagePart.createdAt), asc(s.messagePart.order))
++		.execute();
++}
++
++/**
++ * Load SQL templates for the given query ids from a chat.
++ * When duplicates exist, the latest non-superseded part wins.
++ */
++export async function getLatestSqlQueriesByIds(
++	chatId: string,
++	queryIds: Set<string>,
++): Promise<Record<string, { sqlQuery: string; databaseId?: string }>> {
++	if (queryIds.size === 0) {
++		return {};
++	}
++
++	const parts = await loadLatestExecuteSqlParts(chatId, queryIds);
++	const queries: Record<string, { sqlQuery: string; databaseId?: string }> = {};
++	for (const part of parts) {
++		const output = part.toolOutput as { id?: string } | null;
++		const input = part.toolInput as { sql_query?: string; database_id?: string } | null;
++		if (output?.id && queryIds.has(output.id) && input?.sql_query) {
++			queries[output.id] = {
++				sqlQuery: input.sql_query,
++				...(input.database_id && { databaseId: input.database_id }),
++			};
++		}
++	}
++	return queries;
++}
++
++/**
++ * Load cached query result rows for the given query ids from a chat.
++ * When duplicates exist, the latest non-superseded part wins.
++ */
++export async function getLatestSqlQueryDataByIds(
++	chatId: string,
++	queryIds: Set<string>,
++): Promise<Record<string, { data: unknown[]; columns: string[] }>> {
++	if (queryIds.size === 0) {
++		return {};
++	}
++
++	const parts = await loadLatestExecuteSqlParts(chatId, queryIds);
++	const data: Record<string, { data: unknown[]; columns: string[] }> = {};
++	for (const part of parts) {
++		const output = part.toolOutput as { id?: string; data?: unknown[]; columns?: string[] } | null;
++		if (output?.id && queryIds.has(output.id)) {
++			data[output.id] = {
++				data: output.data ?? [],
++				columns: output.columns ?? [],
++			};
++		}
++	}
++	return data;
++}
+diff --git a/apps/backend/src/queries/shared-story.queries.ts b/apps/backend/src/queries/shared-story.queries.ts
+index 390a97cd..e17bac2e 100644
+--- a/apps/backend/src/queries/shared-story.queries.ts
++++ b/apps/backend/src/queries/shared-story.queries.ts
+@@ -3,6 +3,7 @@ import { and, count, desc, eq, isNull, max, or, type SQL, sql } from 'drizzle-or
+ 
+ import s, { type DBSharedStory } from '../db/abstractSchema';
+ import { db } from '../db/db';
++import * as executeSqlQueries from './execute-sql.queries';
+ 
+ export type SharedStoryWithLatest = DBSharedStory & {
+ 	updatedAt: Date;
+@@ -136,24 +137,7 @@ export async function getQueryDataFromCode(
+ 		return null;
+ 	}
+ 
+-	const parts = await db
+-		.select({ toolOutput: s.messagePart.toolOutput })
+-		.from(s.messagePart)
+-		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
+-		.where(and(eq(s.chatMessage.chatId, chatId), eq(s.messagePart.toolName, 'execute_sql')))
+-		.execute();
+-
+-	const data: Record<string, { data: unknown[]; columns: string[] }> = {};
+-	for (const part of parts) {
+-		const output = part.toolOutput as { id?: string; data?: unknown[]; columns?: string[] } | null;
+-		if (output?.id && queryIds.has(output.id)) {
+-			data[output.id] = {
+-				data: output.data ?? [],
+-				columns: output.columns ?? [],
+-			};
+-		}
+-	}
+-
++	const data = await executeSqlQueries.getLatestSqlQueryDataByIds(chatId, queryIds);
+ 	return Object.keys(data).length > 0 ? data : null;
+ }
+ 
+diff --git a/apps/backend/src/queries/story.queries.ts b/apps/backend/src/queries/story.queries.ts
+index 0e7f597a..cbd029c5 100644
+--- a/apps/backend/src/queries/story.queries.ts
++++ b/apps/backend/src/queries/story.queries.ts
+@@ -4,6 +4,7 @@ import { and, asc, desc, eq, inArray, isNull, max, or, type SQL, sql } from 'dri
+ 
+ import s, { type DBStory, type DBStoryDataCache, type DBStoryVersion } from '../db/abstractSchema';
+ import { db, type DBExecutor } from '../db/db';
++import * as executeSqlQueries from './execute-sql.queries';
+ 
+ export type UserStoryRow = Pick<
+ 	DBStory,
+@@ -563,15 +564,21 @@ export async function getSqlQueriesFromCode(
+ 		return {};
+ 	}
+ 
+-	return getSqlQueriesByIds(chatId, queryIds);
++	return executeSqlQueries.getLatestSqlQueriesByIds(chatId, queryIds);
+ }
+ 
+ export async function getSqlQueryById(
+ 	chatId: string,
+ 	queryId: string,
+ ): Promise<{ sqlQuery: string; databaseId?: string } | null> {
+-	const result = await getSqlQueriesByIds(chatId, new Set([queryId]));
+-	return result[queryId] ?? null;
++	const part = await executeSqlQueries.getExecuteSqlPartByQueryIdInChat(chatId, queryId);
++	if (!part) {
++		return null;
++	}
++	return {
++		sqlQuery: part.toolInput.sql_query,
++		...(part.toolInput.database_id && { databaseId: part.toolInput.database_id }),
++	};
+ }
+ 
+ async function queryStoriesWithLatestVersion(
+@@ -660,32 +667,6 @@ async function getOrCreateStandaloneStory(data: {
+ 	return row;
+ }
+ 
+-async function getSqlQueriesByIds(
+-	chatId: string,
+-	queryIds: Set<string>,
+-): Promise<Record<string, { sqlQuery: string; databaseId?: string }>> {
+-	const parts = await db
+-		.select({ toolInput: s.messagePart.toolInput, toolOutput: s.messagePart.toolOutput })
+-		.from(s.messagePart)
+-		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
+-		.where(and(eq(s.chatMessage.chatId, chatId), eq(s.messagePart.toolName, 'execute_sql')))
+-		.execute();
+-
+-	const queries: Record<string, { sqlQuery: string; databaseId?: string }> = {};
+-	for (const part of parts) {
+-		const output = part.toolOutput as { id?: string } | null;
+-		const input = part.toolInput as { sql_query?: string; database_id?: string } | null;
+-		if (output?.id && queryIds.has(output.id) && input?.sql_query) {
+-			queries[output.id] = {
+-				sqlQuery: input.sql_query,
+-				...(input.database_id && { databaseId: input.database_id }),
+-			};
+-		}
+-	}
+-
+-	return queries;
+-}
+-
+ async function getStoryVersion(
+ 	whereCondition: SQL,
+ 	options?: { latest?: boolean },
+diff --git a/apps/backend/src/services/agent.ts b/apps/backend/src/services/agent.ts
+index 8532ad17..d84718e5 100644
+--- a/apps/backend/src/services/agent.ts
++++ b/apps/backend/src/services/agent.ts
+@@ -1,3 +1,4 @@
++import { markSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
+ import { story } from '@nao/shared/tools';
+ import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
+ import {
+@@ -72,6 +73,7 @@ import { mcpService } from './mcp';
+ import { memoryService } from './memory';
+ import { getAzureAccessTokenForUser } from './microsoft-auth.service';
+ import { skillService } from './skill';
++import { getStoryTemplateWarnings } from './story-template-validation';
+ 
+ export interface AgentRunResult {
+ 	text: string;
+@@ -511,6 +513,7 @@ class AgentManager {
+ 					await chatQueries.upsertMessage({
+ 						...settledMessage,
+ 						chatId: this.chat.id,
++						source: this._toolContext.adminMode ? 'admin' : settledMessage.source,
+ 						stopReason,
+ 						error,
+ 						tokenUsage,
+@@ -535,7 +538,8 @@ class AgentManager {
+ 		chatUrl?: string,
+ 	): Promise<ModelMessage[]> {
+ 		const settledUiMessages = settleInterruptedToolParts(uiMessages);
+-		const uiMessagesWithStories = await this._syncStoryToolOutputs(settledUiMessages);
++		const uiMessagesWithoutStaleQueries = markSupersededExecuteSqlParts(settledUiMessages);
++		const uiMessagesWithStories = await this._syncStoryToolOutputs(uiMessagesWithoutStaleQueries);
+ 		const uiMessagesWithStoryMode = this._addStoryMode(uiMessagesWithStories, mentions);
+ 		const uiMessagesWithSkills = this._addSkills(uiMessagesWithStoryMode, mentions);
+ 		const uiMessagesWithCitation = this._addCitationContext(uiMessagesWithSkills);
+@@ -621,16 +625,23 @@ class AgentManager {
+ 		}
+ 
+ 		try {
+-			const latestVersions = new Map<
++			const latestStories = new Map<
+ 				string,
+-				Awaited<ReturnType<typeof storyQueries.getLatestVersionByChatAndSlug>>
++				{
++					version: NonNullable<Awaited<ReturnType<typeof storyQueries.getLatestVersionByChatAndSlug>>>;
++					templateWarnings: string[];
++				}
+ 			>();
+ 			await Promise.all(
+ 				[...lastToolCallByStory.keys()].map(async (storyId) => {
+-					latestVer
+
+[diff truncated due to size; run `git diff` locally for the full output]
+  </git_diff_from_branch_to_main>
+<timestamp>Thursday, Jul 23, 2026, 3:35 PM (UTC+2)</timestamp>
+
+Resolve these 9 merge conflicts across 5 files @Branch
