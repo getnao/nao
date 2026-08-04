@@ -1,0 +1,3 @@
+<timestamp>Tuesday, Jul 21, 2026, 4:25 PM (UTC+2)</timestamp>
+
+when in the code or table mode, make the border visible (and not on hover)
