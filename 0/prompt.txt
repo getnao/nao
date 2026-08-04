@@ -1,0 +1,20 @@
+<timestamp>Wednesday, Jul 8, 2026, 10:04 AM (UTC+2)</timestamp>
+
+@chat/apps/backend/src/services/agent.ts:657-666 idk why with openrouter and kimi as main model the generation of title fails with 
+
+[dev:backend ] 4771 |   get experimental_output() {
+[dev:backend ] 4772 |     return this.output;
+[dev:backend ] 4773 |   }
+[dev:backend ] 4774 |   get output() {
+[dev:backend ] 4775 |     if (this._output == null) {
+[dev:backend ] 4776 |       throw new NoOutputGeneratedError();
+[dev:backend ]                    ^
+[dev:backend ] AI_NoOutputGeneratedError: No output generated.
+[dev:backend ]       cause: undefined,
+[dev:backend ]  vercel.ai.error: true,
+[dev:backend ]  vercel.ai.error.AI_NoOutputGeneratedError: true,
+[dev:backend ] 
+[dev:backend ]       at output (/Users/blef/Work/naolabs/chat/node_modules/ai/dist/index.mjs:4776:13)
+[dev:backend ]       at _generateTitle (/Users/blef/Work/naolabs/chat/apps/backend/src/services/agent.ts:680:28)
+[dev:backend ] 
+[dev:backend ] [ERROR] [agent] Title generation failed: AI_NoOutputGeneratedError: No output generated.
