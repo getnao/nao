@@ -1,0 +1,7 @@
+<timestamp>Tuesday, Aug 4, 2026, 11:45 AM (UTC+2)</timestamp>
+
+Add the capabilities for the agent to write files to the permanent storage (if activated ; make an option for the permanent storage to be "none" so it means it's deactivated) ;
+
+add to read/ls the permanent storage so the agent can also discover things there
+
+add to search the permenant storage (but it will work only if local and not bucket i think)
