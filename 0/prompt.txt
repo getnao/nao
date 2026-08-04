@@ -1,0 +1,112 @@
+<timestamp>Thursday, Jul 30, 2026, 5:24 PM (UTC+2)</timestamp>
+
+i cant build anymore locally 16.02 Saved lockfile
+16.02 
+16.02 + @eslint/js@9.39.2 (v10.0.1 available)
+16.02 + eslint@9.39.2 (v10.8.0 available)
+16.02 + eslint-plugin-simple-import-sort@12.1.1 (v14.0.0 available)
+16.02 + husky@9.1.7
+16.02 + npm-run-all@4.1.5
+16.02 + typescript-eslint@8.51.0 (v8.65.0 available)
+16.02 + @boxlite-ai/boxlite@0.3.0
+16.02 + @emnapi/core@1.10.0
+16.02 + @emnapi/runtime@1.10.0
+16.02 + @pydantic/monty@0.0.7 (v0.0.19 available)
+16.02 + @streamdown/code@1.1.1
+16.02 + depd@2.0.0
+16.02 
+16.02 1761 packages installed [15.90s]
+16.19 
+16.19 > @vscode/ripgrep@1.17.0 postinstall
+16.19 > node ./lib/postinstall.js
+16.19 
+16.21 Finding release for v15.0.0
+16.21 GET https://api.github.com/repos/microsoft/ripgrep-prebuilt/releases/tags/v15.0.0
+16.31 Deleting invalid download cache
+16.31 Error: Request failed: 403
+16.31     at ClientRequest.<anonymous> (/app/node_modules/@vscode/ripgrep/lib/download.js:110:24)
+16.31     at Object.onceWrapper (node:events:623:26)
+16.31     at ClientRequest.emit (node:events:508:28)
+16.31     at HTTPParser.parserOnIncomingClient (node:_http_client:780:27)
+16.31     at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+16.31     at TLSSocket.socketOnData (node:_http_client:615:22)
+16.31     at TLSSocket.emit (node:events:508:28)
+16.31     at addChunk (node:internal/streams/readable:563:12)
+16.31     at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+16.31     at Readable.push (node:internal/streams/readable:394:5)
+16.31 Download attempt 1 failed, retrying in 2 seconds...
+18.31 Finding release for v15.0.0
+18.31 GET https://api.github.com/repos/microsoft/ripgrep-prebuilt/releases/tags/v15.0.0
+18.35 Deleting invalid download cache
+18.36 Download attempt 2 failed, retrying in 4 seconds...
+18.36 Error: Request failed: 403
+18.36     at ClientRequest.<anonymous> (/app/node_modules/@vscode/ripgrep/lib/download.js:110:24)
+18.36     at Object.onceWrapper (node:events:623:26)
+18.36     at ClientRequest.emit (node:events:508:28)
+18.36     at HTTPParser.parserOnIncomingClient (node:_http_client:780:27)
+18.36     at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+18.36     at TLSSocket.socketOnData (node:_http_client:615:22)
+18.36     at TLSSocket.emit (node:events:508:28)
+18.36     at addChunk (node:internal/streams/readable:563:12)
+18.36     at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+18.36     at Readable.push (node:internal/streams/readable:394:5)
+22.36 Finding release for v15.0.0
+22.36 GET https://api.github.com/repos/microsoft/ripgrep-prebuilt/releases/tags/v15.0.0
+22.38 Deleting invalid download cache
+22.38 Download attempt 3 failed, retrying in 8 seconds...
+22.38 Error: Request failed: 403
+22.38     at ClientRequest.<anonymous> (/app/node_modules/@vscode/ripgrep/lib/download.js:110:24)
+22.38     at Object.onceWrapper (node:events:623:26)
+22.38     at ClientRequest.emit (node:events:508:28)
+22.38     at HTTPParser.parserOnIncomingClient (node:_http_client:780:27)
+22.38     at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+22.38     at TLSSocket.socketOnData (node:_http_client:615:22)
+22.38     at TLSSocket.emit (node:events:508:28)
+22.38     at addChunk (node:internal/streams/readable:563:12)
+22.38     at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+22.38     at Readable.push (node:internal/streams/readable:394:5)
+30.38 Finding release for v15.0.0
+30.38 GET https://api.github.com/repos/microsoft/ripgrep-prebuilt/releases/tags/v15.0.0
+30.46 Deleting invalid download cache
+30.46 Error: Request failed: 403
+30.46     at ClientRequest.<anonymous> (/app/node_modules/@vscode/ripgrep/lib/download.js:110:24)
+30.46     at Object.onceWrapper (node:events:623:26)
+30.46     at ClientRequest.emit (node:events:508:28)
+30.46     at HTTPParser.parserOnIncomingClient (node:_http_client:780:27)
+30.46     at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+30.46     at TLSSocket.socketOnData (node:_http_client:615:22)
+30.46     at TLSSocket.emit (node:events:508:28)
+30.46     at addChunk (node:internal/streams/readable:563:12)
+30.46     at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+30.46     at Readable.push (node:internal/streams/readable:394:5)
+30.46 Download attempt 4 failed, retrying in 16 seconds...
+46.47 Finding release for v15.0.0
+46.47 GET https://api.github.com/repos/microsoft/ripgrep-prebuilt/releases/tags/v15.0.0
+46.53 Deleting invalid download cache
+46.53 Downloading ripgrep failed after multiple retries: Error: Request failed: 403
+46.53     at ClientRequest.<anonymous> (/app/node_modules/@vscode/ripgrep/lib/download.js:110:24)
+46.53     at Object.onceWrapper (node:events:623:26)
+46.53     at ClientRequest.emit (node:events:508:28)
+46.53     at HTTPParser.parserOnIncomingClient (node:_http_client:780:27)
+46.53     at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+46.53     at TLSSocket.socketOnData (node:_http_client:615:22)
+46.53     at TLSSocket.emit (node:events:508:28)
+46.53     at addChunk (node:internal/streams/readable:563:12)
+46.53     at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+46.53     at Readable.push (node:internal/streams/readable:394:5)
+------
+
+ 1 warning found (use docker --debug to expand):
+ - SecretsUsedInArgOrEnv: Do not use ARG or ENV instructions for sensitive data (ENV "BETTER_AUTH_URL") (line 149)
+Dockerfile:23
+--------------------
+  22 |     # GITHUB_TOKEN is injected via BuildKit secret to avoid baking it into layers.
+  23 | >>> RUN --mount=type=cache,target=/root/.bun/install/cache \
+  24 | >>>     --mount=type=secret,id=GITHUB_TOKEN \
+  25 | >>>     GITHUB_TOKEN="$(cat /run/secrets/GITHUB_TOKEN 2>/dev/null || true)" \
+  26 | >>>     bun install --ignore-scripts \
+  27 | >>>     && GITHUB_TOKEN="$(cat /run/secrets/GITHUB_TOKEN 2>/dev/null || true)" \
+  28 | >>>     cd node_modules/@vscode/ripgrep && npm run postinstall
+  29 |     
+--------------------
+ERROR: failed to solve: process "/bin/sh -c GITHUB_TOKEN=\"$(cat /run/secrets/GITHUB_TOKEN 2>/dev/null || true)\"     bun install --ignore-scripts     && GITHUB_TOKEN=\"$(cat /run/secrets/GITHUB_TOKEN 2>/dev/null || true)\"     cd node_modules/@vscode/rip
