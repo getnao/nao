@@ -1,0 +1,3 @@
+<timestamp>Monday, Aug 3, 2026, 3:30 PM (UTC+2)</timestamp>
+
+@chat/apps/frontend/src/components/side-panel/story-header.tsx:259 this is not refreshed at the end of the refreshing
