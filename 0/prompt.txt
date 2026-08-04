@@ -1,0 +1,7 @@
+<timestamp>Thursday, Jul 16, 2026, 10:36 AM (UTC+2)</timestamp>
+
+This branch/PR adds the support for conditionnal formatting on table
+
+issue is that it adds it via a new tool display_table, can we merge this to the display_chart tool so we don't have multiple tool?
+
+also i don't think we should have specific routes to edit the setting of a conditionnally formatted table
