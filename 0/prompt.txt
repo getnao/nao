@@ -1,0 +1,3 @@
+<timestamp>Tuesday, Jul 21, 2026, 4:16 PM (UTC+2)</timestamp>
+
+make the actions buttons the same style as the @chat/apps/frontend/src/components/tool-calls/execute-sql.tsx ones, keep the edit always visible while other should display on hover with a nice transition like the borde
