@@ -1,0 +1,414 @@
+<external_links>
+### Potentially Relevant Websearch Results
+
+You should respond as if these information are known to you. Refrain from saying "I am unable to browse the internet" or "I don't have access to the internet" or "I'm unable to provide real-time news updates". This is your internet search results. Please always cite any links you referenced from the above search results in your response in markdown format.
+
+-------
+Website URL: https://github.com/getnao/nao/pull/1316
+Website Title: Fix MCP runtime creation race causing "Unknown MCP server" errors by beherap · Pull Request #1316 · getnao/nao · GitHub
+Website Content:
+Skip to content 
+
+## Navigation Menu
+
+Toggle navigation 
+
+ Sign in 
+
+Appearance settings 
+
+* Platform  
+   * AI CODE CREATION  
+         * GitHub CopilotWrite better code with AI  
+         * GitHub Copilot appDirect agents from issue to merge  
+         * MCP RegistryIntegrate external tools  
+   * DEVELOPER WORKFLOWS  
+         * ActionsAutomate any workflow  
+         * CodespacesInstant dev environments  
+         * IssuesPlan and track work  
+         * Code ReviewManage code changes  
+         * Code QualityEnforce quality at merge  
+   * APPLICATION SECURITY  
+         * GitHub Advanced SecurityFind and fix vulnerabilities  
+         * Code securitySecure your code as you build  
+         * Secret protectionStop leaks before they start  
+   * EXPLORE  
+         * Why GitHub  
+         * Documentation  
+         * Blog  
+         * Changelog  
+         * Marketplace  
+View all features
+* Solutions  
+   * BY COMPANY SIZE  
+         * Enterprises  
+         * Small and medium teams  
+         * Startups  
+         * Nonprofits  
+   * BY USE CASE  
+         * App Modernization  
+         * DevSecOps  
+         * DevOps  
+         * CI/CD  
+         * View all use cases  
+   * BY INDUSTRY  
+         * Healthcare  
+         * Financial services  
+         * Manufacturing  
+         * Government  
+         * View all industries  
+View all solutions
+* Resources  
+   * EXPLORE BY TOPIC  
+         * AI  
+         * Software Development  
+         * DevOps  
+         * Security  
+         * View all topics  
+   * EXPLORE BY TYPE  
+         * Customer stories  
+         * Events & webinars  
+         * Ebooks & reports  
+         * Business insights  
+         * GitHub Skills  
+   * SUPPORT & SERVICES  
+         * Documentation  
+         * Customer support  
+         * Community forum  
+         * Trust center  
+         * Partners  
+View all resources
+* Open Source  
+   * COMMUNITY  
+         * GitHub SponsorsFund open source developers  
+   * PROGRAMS  
+         * Security Lab  
+         * Maintainer Community  
+         * Accelerator  
+         * GitHub Stars  
+         * Archive Program  
+   * REPOSITORIES  
+         * Topics  
+         * Trending  
+         * Collections
+* Enterprise  
+   * ENTERPRISE SOLUTIONS  
+         * Enterprise platformAI-powered developer platform  
+   * AVAILABLE ADD-ONS  
+         * GitHub Advanced SecurityEnterprise-grade security features  
+         * Copilot for BusinessEnterprise-grade AI features  
+         * Premium SupportEnterprise-grade 24/7 support
+* Pricing
+
+Search or jump to... 
+
+# Search code, repositories, users, issues, pull requests...
+
+ Search 
+
+Clear 
+
+Search syntax tips 
+
+#  Provide feedback
+
+We read every piece of feedback, and take your input very seriously.
+
+Include my email address so I can be contacted 
+
+ Cancel  Submit feedback 
+
+#  Saved searches
+
+## Use saved searches to filter your results more quickly
+
+Name 
+
+Query 
+
+ To see all available qualifiers, see our documentation.
+
+ Cancel  Create saved search 
+
+ Sign in 
+
+ Sign up 
+
+Appearance settings 
+
+Resetting focus 
+
+You signed in with another tab or window. Reload to refresh your session. You signed out in another tab or window. Reload to refresh your session. You switched accounts on another tab or window. Reload to refresh your session. Dismiss alert 
+
+{{ message }}
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+ getnao / **nao** Public 
+
+* Notifications You must be signed in to change notification settings
+* Fork216
+* Star 1.5k
+
+* Code
+* Issues 173
+* Pull requests 23
+* Discussions
+* Actions
+* Projects
+* Security and quality 0
+* Insights
+
+Additional navigation options 
+
+* Code
+* Issues
+* Pull requests
+* Discussions
+* Actions
+* Projects
+* Security and quality
+* Insights
+
+# Fix MCP runtime creation race causing "Unknown MCP server" errors \- #1316
+
+#1316
+
+Open
+
+beherap wants to merge 2 commits into
+
+getnao:maingetnao/nao:mainfrom 
+
+beherap:fix/mcp-runtime-creation-racebeherap/nao:fix/mcp-runtime-creation-raceCopy head branch name to clipboard
+
+ConversationCommits2 (2)ChecksFiles changed
+
+Open
+
+## 
+
+Fix MCP runtime creation race causing "Unknown MCP server" errors#1316
+
+beherap wants to merge 2 commits into
+
+getnao:maingetnao/nao:mainfrom 
+
+beherap:fix/mcp-runtime-creation-racebeherap/nao:fix/mcp-runtime-creation-raceCopy head branch name to clipboard
+
+## Conversation
+
+@beherap 
+
+### 
+
+@beherap **beherap**  commentedJul 30, 2026 • 
+
+ edited 
+
+Loading 
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+ Copy link  Copy Markdown 
+
+Fixes #1292
+
+When several MCP servers are discovered in parallel (startup or config reload), every `_ensureRegistered` call saw `_runtime == null`, built its own runtime, and overwrote the previous one. Servers registered on an overwritten instance were lost, so refreshes and tool calls failed with `Unknown MCP server '<name>'`.
+
+This memoizes the in-flight `createRuntime()` promise so concurrent callers share a single runtime. The promise is cleared in `_resetRuntime()` and on creation failure. \~12 line diff, no behaviour change outside the race.
+
+Tested against our real deployment (3 stdio servers, one plain stdio + two via mcp-remote): before the fix a random subset of servers failed after every startup/reload; with this patch applied all servers register and tool calls succeed consistently.
+
+This PR was written using Claude Fable 5.
+
+Review in cubic
+
+ Sorry, something went wrong.
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+All reactions 
+
+@beherap 
+
+`Fix MCP runtime creation race causing "Unknown MCP server" errors `  … 
+
+`e3fb7b1 ` 
+
+Concurrent MCP discovery raced in _ensureRegistered: each caller built
+its own runtime and the last write won, stranding the other servers'
+registrations. Memoize the in-flight createRuntime() promise so callers
+share one runtime; clear it on reset and on creation failure.
+
+Fixes getnao#1292
+
+cubic-dev-ai[bot] 
+
+**cubic-dev-ai Bot**  reviewed Jul 30, 2026 
+
+View reviewed changes 
+
+### 
+
+@cubic-dev-ai **cubic-dev-ai Bot**  left a comment • 
+
+ edited 
+
+Loading 
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+ Copy link  Copy Markdown 
+
+Contributor 
+
+There was a problem hiding this comment.
+
+### Choose a reason for hiding this comment
+
+ The reason will be displayed to describe this comment to others. Learn more.
+
+ Choose a reason Spam Abuse Off Topic Outdated Duplicate Resolved Low Quality Hide comment 
+
+**All reported issues were addressed** across 1 file
+
+Reply with feedback, questions, or to request a fix.  
+  
+Re-trigger cubic
+
+ Sorry, something went wrong.
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+All reactions 
+
+Comment thread apps/backend/src/services/mcp.ts Show resolved Hide resolved 
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+@beherap 
+
+`Guard against stale runtime creations racing a reload ` 
+
+`65cbce8 ` 
+
+@Bl3f 
+
+### 
+
+**Bl3f**  commentedJul 31, 2026 
+
+ Copy link  Copy Markdown 
+
+Contributor 
+
+| Hey [@beherap](https://github.com/beherap) ty so much for your PR. Just to be sure on what nao version are you? |
+| --------------------------------------------------------------------------------------------------------------- |
+
+All reactions 
+
+ Sorry, something went wrong.
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+@beherap 
+
+### 
+
+**beherap**  commentedJul 31, 2026 
+
+ Copy link  Copy Markdown 
+
+Author 
+
+| Hey [@beherap](https://github.com/beherap) ty so much for your PR. Just to be sure on what nao version are you? Hi [@Bl3f](https://github.com/Bl3f), we are on v0.3.0 |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+
+All reactions 
+
+ Sorry, something went wrong.
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+ This file contains hidden or bidirectional Unicode text that may be interpreted or compiled differently than what appears below. To review, open the file in an editor that reveals hidden Unicode characters.Learn more about bidirectional Unicode characters 
+
+ Show hidden characters 
+
+Sign up for free **to join this conversation on GitHub**. Already have an account?Sign in to comment 
+
+###  Reviewers
+
+@cubic-dev-ai cubic-dev-ai\[bot\] cubic-dev-ai\[bot\] left review comments 
+
+###  Assignees
+
+ No one assigned 
+
+###  Labels
+
+ None yet
+
+###  Projects
+
+ None yet 
+
+###  Milestone
+
+ No milestone
+
+###  Development
+
+Successfully merging this pull request may close these issues.
+
+ MCP servers randomly fail with "Unknown MCP server" after startup or config reload 
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+###  2 participants
+
+@beherap @Bl3f 
+
+Add this suggestion to a batch that can be applied as a single commit.This suggestion is invalid because no changes were made to the code.Suggestions cannot be applied while the pull request is closed.Suggestions cannot be applied while viewing a subset of changes.Only one suggestion per line can be applied in a batch.Add this suggestion to a batch that can be applied as a single commit.Applying suggestions on deleted lines is not supported.You must change the existing code in this line in order to create a valid suggestion.Outdated suggestions cannot be applied.This suggestion has been applied or marked resolved.Suggestions cannot be applied from pending reviews.Suggestions cannot be applied on multi-line comments.Suggestions cannot be applied while the pull request is queued to merge.Suggestion cannot be applied right now. Please check back later.
+
+## Footer
+
+ © 2026 GitHub, Inc. 
+
+### Footer navigation
+
+* Terms
+* Privacy
+* Security
+* Status
+* Community
+* Docs
+* Contact
+* Manage cookies
+* Do not share my personal information
+
+ You can’t perform that action at this time.
+____
+
+</external_links>
+<timestamp>Friday, Jul 31, 2026, 5:13 PM (UTC+2)</timestamp>
+
+push this to beherap pr https://github.com/getnao/nao/pull/1316
