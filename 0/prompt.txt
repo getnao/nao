@@ -1,0 +1,3 @@
+<timestamp>Tuesday, Jul 21, 2026, 4:23 PM (UTC+2)</timestamp>
+
+now add an action to see the data behind the chart in a table like the @chat/apps/frontend/src/components/tool-calls/execute-sql.tsx , factorise what should be factorised with execute sql if possible
