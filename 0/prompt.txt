@@ -1,0 +1,7 @@
+<timestamp>Thursday, Jul 30, 2026, 3:53 PM (UTC+2)</timestamp>
+
+using the built docker image in combination with NAO_CONTEXT_SOURCE=git the MCP conflicts and can't mkdir a folder
+
+{"level":50,"time":1785415568154,"pid":25,"hostname":"7e2b39c04115","reqId":"req-u","req":{"method":"POST","url":"/api/agent","host":"localhost:5006","remoteAddress":"172.17.0.1","remotePort":64472},"res":{"statusCode":500},"err":{"type":"Error","message":"EACCES: permission denied, mkdir '/app/example/agent/mcps/linear'","stack":"Error: EACCES: permission denied, mkdir '/app/example/agent/mcps/linear'\n    at async _writeEnabledSpecs (/app/apps/backend/src/services/mcp.ts:587:9)\n    at async _discoverServer (/app/apps/backend/src/services/mcp.ts:486:14)\n    at async _ensureSpecs (/app/apps/backend/src/services/mcp.ts:448:17)\n    at async _initialize (/app/apps/backend/src/services/mcp.ts:382:14)\n    at async <anonymous> (/app/apps/backend/src/handlers/agent.ts:62:19)\n    at async <anonymous> (/app/apps/backend/src/routes/agent.ts:29:24)","code":"EACCES","path":"/app/example/agent/mcps/linear","syscall":"mkdir","errno":-13},"msg":"EACCES: permission denied, mkdir '/app/example/agent/mcps/linear'"}
+
+what should we do to fix
