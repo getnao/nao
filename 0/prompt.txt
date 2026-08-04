@@ -1,0 +1,10 @@
+[Image]
+<image_files>
+The following images were provided by the user and saved to the workspace for future use:
+1. /Users/blef/.cursor/projects/Users-blef-Work-naolabs-chat/assets/Screenshot_2026-07-22_at_18.46.56-8729406d-175b-4d28-82a9-c616176a50f4.png
+
+These images can be copied for use in other locations.
+</image_files>
+<timestamp>Wednesday, Jul 22, 2026, 6:47 PM (UTC+2)</timestamp>
+
+how does the filter options are retrieved when we use table + column looks like it does not work
