@@ -1,0 +1,3 @@
+<timestamp>Thursday, Jul 23, 2026, 10:43 AM (UTC+2)</timestamp>
+
+in a story i want to see whats the query behind a chart + what's the templated/executed query that was used to display this chart
