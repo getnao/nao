@@ -1,0 +1,3 @@
+<timestamp>Thursday, Jul 30, 2026, 11:01 AM (UTC+2)</timestamp>
+
+idk why the test fails with @chat/example/tests/outputs/results_20260730_105958.json
