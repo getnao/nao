@@ -1,0 +1,3 @@
+<timestamp>Thursday, Jul 30, 2026, 4:37 PM (UTC+2)</timestamp>
+
+instead of "Ask the user to connect it from Settings → Project → MCP Servers." do it inline from the chat no?
