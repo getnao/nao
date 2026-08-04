@@ -1,0 +1,13 @@
+<timestamp>Friday, Jul 24, 2026, 7:53 PM (UTC+2)</timestamp>
+
+then "function to_timestamp(timestamp without time zone) does not exist"
+
+for SELECT 
+  date_trunc('day', to_timestamp(created_at)) AS day,
+  chat_source,
+  COUNT(*) AS message_count
+FROM v_messages
+WHERE role = 'user'
+  AND created_at >= 1719100800
+GROUP BY 1, 2
+ORDER BY 1, 2
