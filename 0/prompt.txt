@@ -1,0 +1,5 @@
+<timestamp>Friday, Jul 24, 2026, 5:34 PM (UTC+2)</timestamp>
+
+@chat/apps/backend/src/db/app-db-views.ts:151 in this view it mixes chats with all sources, the issue is that we exclude source = admin but when role <> user it stills keeps the answers from source = admin
+
+i think we should evaluate for a chat (and not from a chatMessage) what the source of the first message (same as @chat/apps/backend/src/queries/project.queries.ts:395-403 ) if it's admin it should be excluded
