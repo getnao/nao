@@ -1,0 +1,3 @@
+<timestamp>Friday, Jul 24, 2026, 6:51 PM (UTC+2)</timestamp>
+
+add a ... (3 dots) close to the copy in which you might add a "Export chat to Markdown" "Copy chat to Markdown" and "Export chat to PDF" ; in the menu tooltip add a first toggle to include (or not) the errors, put this by default deactivated
