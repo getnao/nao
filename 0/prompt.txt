@@ -1,0 +1,3 @@
+<timestamp>Wednesday, Jul 22, 2026, 6:34 PM (UTC+2)</timestamp>
+
+for the UI edition add this in the side-panel that opens (add a "save and run" and a single run button to check if the query works well)
