@@ -1,0 +1,3 @@
+<timestamp>Tuesday, Jul 28, 2026, 11:56 AM (UTC+2)</timestamp>
+
+when xaxis is numerical (not date) the content of the tooltip display the name of the series instead of x
