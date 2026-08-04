@@ -1,0 +1,61 @@
+<timestamp>Wednesday, Jul 8, 2026, 8:59 AM (UTC+2)</timestamp>
+
+# Bug: `list`/`read` tool falsely reports "interrupted by the user" instead of the real error
+
+## Summary
+When a `list` (or `read`) tool call targets a non-existent path (e.g. `/agent/project`,
+which resolves to `.../example/agent/project` and does NOT exist), the tool SHOULD
+surface the real filesystem error:
+
+    ENOENT: no such file or directory, scandir '.../example/agent/project'
+
+But in some runs the tool result is instead persisted as:
+
+    "The tool call was interrupted by the user before it could complete."
+
+even though the user did NOT interrupt anything. Both cases involve the exact same
+missing path — so the difference is purely in how the tool result is captured, not in
+the underlying operation.
+
+## Observed behavior
+- Case A (correct): tool_state = "output-error", tool_error_text = the real ENOENT error.
+- Case B (wrong): tool_state = "output-error", tool_error_text = "The tool call was
+  interrupted by the user before it could complete."
+
+In Case B the assistant's own follow-up text already knows the truth ("...doesn't exist,
+got ENOENT..."), and a retry then succeeds. This strongly suggests the tool part was
+abandoned/torn down before its real result (the ENOENT rejection) was written back, and
+a generic "interrupted by the user" fallback string was stamped in its place.
+
+## Likely root cause (please verify)
+The "interrupted by the user" string is a FALLBACK written when a tool part is still
+pending at the moment the run/stream is torn down (e.g. the model issued another tool
+call, an abort signal fired, or the stream closed) — rather than an actual user cancel.
+So a rejected promise / thrown error from the fs call is being lost because:
+  1. the abort/cleanup path overwrites or short-circuits the tool's error result, OR
+  2. the tool error rejection isn't awaited before the part is finalized, OR
+  3. all aborts are mapped to the "interrupted by the user" message regardless of cause.
+
+## What I want you to do
+1. Find where the string "interrupted by the user" (or similar) is written for tool
+   results, and where tool errors (like ENOENT) are captured/persisted.
+2. Distinguish a genuine user-initiated abort from an internal teardown / lost-result
+   condition. Only show "interrupted by the user" when the abort was actually triggered
+   by an explicit user stop; otherwise surface the real error.
+3. Ensure that when a tool call throws/rejects (e.g. ENOENT), that real error is awaited
+   and written to tool_error_text BEFORE the tool part is finalized, so it can't be
+   clobbered by the teardown fallback.
+4. For not-found paths specifically, make the message clear and consistent, e.g.
+   "Path '/agent/project' does not exist (ENOENT)".
+
+## Repro
+- Call the `list` tool on a path that does not exist (e.g. `/agent/project`).
+- Expected: tool result = the real ENOENT error, every time.
+- Bug: intermittently returns "The tool call was interrupted by the user before it
+  could complete."
+
+## Acceptance criteria
+- Listing/reading a non-existent path ALWAYS returns the real ENOENT error.
+- The "interrupted by the user" message only appears on a genuine user-triggered abort.
+- Add a regression test: a tool call that rejects with ENOENT while an abort/teardown is
+  also in flight must persist the ENOENT error, not the interrupted fallback.
