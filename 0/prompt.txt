@@ -1,0 +1,5 @@
+<timestamp>Wednesday, Jul 22, 2026, 6:54 PM (UTC+2)</timestamp>
+
+should we add an option to add the database id then for the query to be aware about it
+
+also we should display the error in the story editor and add a "fix in chat" button so we let the agent know the error and fix itself (do this fix in chat button for the @chat/apps/frontend/src/components/side-panel/story-code-view.tsx as well for syntax errors)
