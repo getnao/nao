@@ -1,0 +1,315 @@
+<git_diff_from_branch_to_main>
+  Relevant Diff: The following is the git diff from the current branch to the main/default branch:
+
+diff --git a/apps/frontend/src/components/mcp-app/story-app-view.tsx b/apps/frontend/src/components/mcp-app/story-app-view.tsx
+index 7ed27d33..7dba8fd0 100644
+--- a/apps/frontend/src/components/mcp-app/story-app-view.tsx
++++ b/apps/frontend/src/components/mcp-app/story-app-view.tsx
+@@ -42,12 +42,10 @@ function StoryBody({ code, queryData }: { code: string; queryData: QueryDataMap
+ 			chart: ParsedChartBlock,
+ 			{
+ 				queryData: data,
+-				baselineQueryData,
+ 				hasActiveFilters,
+ 				isRefreshing,
+ 			}: {
+ 				queryData: QueryDataMap | null;
+-				baselineQueryData: QueryDataMap | null;
+ 				hasActiveFilters: boolean;
+ 				isRefreshing: boolean;
+ 			},
+@@ -55,7 +53,6 @@ function StoryBody({ code, queryData }: { code: string; queryData: QueryDataMap
+ 			<StoryChartEmbed
+ 				chart={chart}
+ 				queryData={data}
+-				baselineQueryData={baselineQueryData}
+ 				hasActiveFilters={hasActiveFilters}
+ 				isRefreshing={isRefreshing}
+ 			/>
+diff --git a/apps/frontend/src/components/side-panel/story-preview.tsx b/apps/frontend/src/components/side-panel/story-preview.tsx
+index bec8e706..a5213059 100644
+--- a/apps/frontend/src/components/side-panel/story-preview.tsx
++++ b/apps/frontend/src/components/side-panel/story-preview.tsx
+@@ -66,21 +66,13 @@ export const StoryPreview = memo(function StoryPreview({
+ 				<LiveChartEmbed
+ 					chart={chart}
+ 					queryData={useLiveUnfiltered ? undefined : effectiveQueryData}
+-					baselineQueryData={queryData}
+ 					liveQuery={useLiveUnfiltered ? noCacheQuery : undefined}
+ 					hasActiveFilters={storyFilters.hasActiveFilters}
+ 					isRefreshing={storyFilters.isFiltering}
+ 				/>
+ 			);
+ 		},
+-		[
+-			effectiveQueryData,
+-			useLiveUnfiltered,
+-			noCacheQuery,
+-			storyFilters.hasActiveFilters,
+-			storyFilters.isFiltering,
+-			queryData,
+-		],
++		[effectiveQueryData, useLiveUnfiltered, noCacheQuery, storyFilters.hasActiveFilters, storyFilters.isFiltering],
+ 	);
+ 
+ 	const renderTable = useCallback(
+diff --git a/apps/frontend/src/components/story-embeds.tsx b/apps/frontend/src/components/story-embeds.tsx
+index 77451b59..0f213c58 100644
+--- a/apps/frontend/src/components/story-embeds.tsx
++++ b/apps/frontend/src/components/story-embeds.tsx
+@@ -1,14 +1,13 @@
+ import { Loader2 } from 'lucide-react';
+-import { memo, useMemo } from 'react';
++import { memo } from 'react';
+ import { useQuery } from '@tanstack/react-query';
+-import { displayChart } from '@nao/shared/tools';
++import type { displayChart } from '@nao/shared/tools';
+ import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
+ 
+ import { StoryChartEmbedShell } from '@/components/side-panel/story-chart-embed';
+ import { StoryTableEditControls } from '@/components/side-panel/story-table-embed';
+ import { ChartDisplay } from '@/components/tool-calls/display-chart';
+ import { DataTableCard } from '@/components/data-table-card';
+-import { alignChartDataToBaselineX } from '@/lib/charts.utils';
+ import { cn } from '@/lib/utils';
+ 
+ export type QueryDataMap = Record<string, { data: Record<string, unknown>[]; columns: string[] }>;
+@@ -39,8 +38,8 @@ function EmbedLoading() {
+ 
+ function EmbedRefreshing({ children, isRefreshing }: { children: React.ReactNode; isRefreshing: boolean }) {
+ 	return (
+-		<div className='relative'>
+-			<div className={cn('transition-opacity duration-150', isRefreshing && 'opacity-50')}>{children}</div>
++		<div className='relative h-full'>
++			<div className={cn('h-full transition-opacity duration-150', isRefreshing && 'opacity-50')}>{children}</div>
+ 			{isRefreshing && (
+ 				<div className='pointer-events-none absolute inset-0 flex items-center justify-center'>
+ 					<Loader2 className='size-5 animate-spin text-muted-foreground' />
+@@ -63,14 +62,12 @@ function useLiveQueryData(queryId: string, liveQuery?: LiveQueryConfig) {
+ export const StoryChartEmbed = memo(function StoryChartEmbed({
+ 	chart,
+ 	queryData,
+-	baselineQueryData,
+ 	liveQuery,
+ 	hasActiveFilters = false,
+ 	isRefreshing = false,
+ }: {
+ 	chart: ParsedChartBlock;
+ 	queryData?: QueryDataMap | null;
+-	baselineQueryData?: QueryDataMap | null;
+ 	liveQuery?: LiveQueryConfig;
+ 	hasActiveFilters?: boolean;
+ 	isRefreshing?: boolean;
+@@ -80,33 +77,15 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
+ 	const resolved = liveQuery
+ 		? (noCacheFetch.data as { data: Record<string, unknown>[]; columns: string[] } | undefined)
+ 		: queryData?.[chart.queryId];
+-	const baseline = baselineQueryData?.[chart.queryId];
+-	const resolvedData = resolved?.data;
+-	const resolvedColumns = resolved?.columns ?? baseline?.columns ?? [];
+-	const keepsXDomain =
+-		hasActiveFilters &&
+-		Boolean(baseline?.data?.length) &&
+-		!displayChart.isPieChart(chart.chartType as displayChart.ChartType) &&
+-		chart.chartType !== 'kpi_card';
++	const displayData = resolved?.data ?? [];
++	const resolvedColumns = resolved?.columns ?? [];
+ 	const showRefreshing = isRefreshing || Boolean(liveQuery && noCacheFetch.isFetching);
+ 
+-	const displayData = useMemo(() => {
+-		if (!keepsXDomain || !baseline?.data) {
+-			return resolvedData ?? [];
+-		}
+-		return alignChartDataToBaselineX(
+-			baseline.data,
+-			resolvedData ?? [],
+-			chart.xAxisKey,
+-			chart.series.map((series) => series.data_key),
+-		);
+-	}, [keepsXDomain, baseline?.data, resolvedData, chart.xAxisKey, chart.series]);
+-
+ 	if (liveQuery && noCacheFetch.isLoading) {
+ 		return <EmbedLoading />;
+ 	}
+ 
+-	if (!resolved && !keepsXDomain) {
++	if (!resolved) {
+ 		return <EmbedPlaceholder>Chart data unavailable</EmbedPlaceholder>;
+ 	}
+ 
+diff --git a/apps/frontend/src/components/story-tabbed-content.tsx b/apps/frontend/src/components/story-tabbed-content.tsx
+index 2c424729..dfb5207a 100644
+--- a/apps/frontend/src/components/story-tabbed-content.tsx
++++ b/apps/frontend/src/components/story-tabbed-content.tsx
+@@ -13,7 +13,6 @@ import { useStoryFilters } from '@/hooks/use-story-filters';
+ 
+ export interface StoryEmbedRenderOptions {
+ 	queryData: QueryDataMap | null;
+-	baselineQueryData: QueryDataMap | null;
+ 	hasActiveFilters: boolean;
+ 	isRefreshing: boolean;
+ 	key: number;
+@@ -81,7 +80,6 @@ export function StoryTabbedContent({
+ 							renderChart={(chart, key) =>
+ 								renderChart(chart, {
+ 									queryData: storyFilters.queryData,
+-									baselineQueryData: baselineQueryData ?? null,
+ 									hasActiveFilters: storyFilters.hasActiveFilters,
+ 									isRefreshing: storyFilters.isFiltering,
+ 									key,
+@@ -90,7 +88,6 @@ export function StoryTabbedContent({
+ 							renderTable={(table, key) =>
+ 								renderTable(table, {
+ 									queryData: storyFilters.queryData,
+-									baselineQueryData: baselineQueryData ?? null,
+ 									hasActiveFilters: storyFilters.hasActiveFilters,
+ 									isRefreshing: storyFilters.isFiltering,
+ 									key,
+diff --git a/apps/frontend/src/lib/charts.utils.test.ts b/apps/frontend/src/lib/charts.utils.test.ts
+index 3158734d..975601ef 100644
+--- a/apps/frontend/src/lib/charts.utils.test.ts
++++ b/apps/frontend/src/lib/charts.utils.test.ts
+@@ -1,7 +1,7 @@
+ import { describe, expect, it } from 'vitest';
+ 
+-import { resolveDataKey } from '@nao/shared';
+-import { alignChartDataToBaselineX, resolvePieTooltipLabel } from './charts.utils';
++import { resolveDataKey } from '@nao/shared/';
++import { resolvePieTooltipLabel } from './charts.utils';
+ 
+ describe('resolveDataKey', () => {
+ 	it('returns an empty string when the key is undefined (kpi cards have no x-axis)', () => {
+@@ -31,20 +31,3 @@ describe('resolvePieTooltipLabel', () => {
+ 		expect(resolvePieTooltipLabel(undefined)).toBe('');
+ 	});
+ });
+-
+-describe('alignChartDataToBaselineX', () => {
+-	it('keeps baseline x categories and zero-fills missing filtered rows', () => {
+-		const baseline = [
+-			{ month: 'Jan', revenue: 10 },
+-			{ month: 'Feb', revenue: 20 },
+-			{ month: 'Mar', revenue: 30 },
+-		];
+-		const filtered = [{ month: 'Feb', revenue: 8 }];
+-
+-		expect(alignChartDataToBaselineX(baseline, filtered, 'month', ['revenue'])).toEqual([
+-			{ month: 'Jan', revenue: 0 },
+-			{ month: 'Feb', revenue: 8 },
+-			{ month: 'Mar', revenue: 0 },
+-		]);
+-	});
+-});
+diff --git a/apps/frontend/src/lib/charts.utils.ts b/apps/frontend/src/lib/charts.utils.ts
+index 18d70a64..0d9f093c 100644
+--- a/apps/frontend/src/lib/charts.utils.ts
++++ b/apps/frontend/src/lib/charts.utils.ts
+@@ -102,6 +102,7 @@ export function resolvePieTooltipLabel(payload?: readonly { name?: unknown }[]):
+ 	return name == null ? '' : String(name);
+ }
+ 
++<<<<<<< HEAD
+ /**
+  * Keeps the baseline x-axis categories when filtered SQL drops rows, zero-filling
+  * series values for missing categories so bars/lines animate in place instead of
+@@ -145,6 +146,20 @@ export function alignChartDataToBaselineX(
+ 		}
+ 		return next;
+ 	});
++=======
++/** Resolves a config key to the matching key in the data, ignoring case. Falls back to the original key. */
++export function resolveDataKey(data: Record<string, unknown>[], key: string | undefined): string {
++	if (key === undefined) {
++		return '';
++	}
++	const row = data[0];
++	if (!row || key in row) {
++		return key;
++	}
++	const lower = key.toLowerCase();
++	const match = Object.keys(row).find((dataKey) => dataKey.toLowerCase() === lower);
++	return match ?? key;
++>>>>>>> 528d476b (Fix blank charts + remove baseline from filters)
+ }
+ 
+ /** Counts the successfully rendered `display_chart` tool calls across a conversation. */
+diff --git a/apps/frontend/src/routes/_sidebar-layout.stories.preview.$chatId.$storySlug.tsx b/apps/frontend/src/routes/_sidebar-layout.stories.preview.$chatId.$storySlug.tsx
+index 2ac9a886..8ca9fdab 100644
+--- a/apps/frontend/src/routes/_sidebar-layout.stories.preview.$chatId.$storySlug.tsx
++++ b/apps/frontend/src/routes/_sidebar-layout.stories.preview.$chatId.$storySlug.tsx
+@@ -252,12 +252,10 @@ function PreviewContent({
+ 			chart: ParsedChartBlock,
+ 			{
+ 				queryData: data,
+-				baselineQueryData,
+ 				hasActiveFilters,
+ 				isRefreshing,
+ 			}: {
+ 				queryData: QueryDataMap | null;
+-				baselineQueryData: QueryDataMap | null;
+ 				hasActiveFilters: boolean;
+ 				isRefreshing: boolean;
+ 			},
+@@ -265,7 +263,6 @@ function PreviewContent({
+ 			<StoryChartEmbed
+ 				chart={chart}
+ 				queryData={isNoCacheMode && !hasActiveFilters ? undefined : data}
+-				baselineQueryData={baselineQueryData}
+ 				liveQuery={isNoCacheMode && !hasActiveFilters ? noCacheQuery : undefined}
+ 				hasActiveFilters={hasActiveFilters}
+ 				isRefreshing={isRefreshing}
+diff --git a/apps/frontend/src/routes/_sidebar-layout.stories.shared.$shareId.tsx b/apps/frontend/src/routes/_sidebar-layout.stories.shared.$shareId.tsx
+index 2e413d3a..16d4e384 100644
+--- a/apps/frontend/src/routes/_sidebar-layout.stories.shared.$shareId.tsx
++++ b/apps/frontend/src/routes/_sidebar-layout.stories.shared.$shareId.tsx
+@@ -315,12 +315,10 @@ function SharedStoryContent({
+ 			chart: ParsedChartBlock,
+ 			{
+ 				queryData: data,
+-				baselineQueryData,
+ 				hasActiveFilters,
+ 				isRefreshing,
+ 			}: {
+ 				queryData: QueryDataMap | null;
+-				baselineQueryData: QueryDataMap | null;
+ 				hasActiveFilters: boolean;
+ 				isRefreshing: boolean;
+ 			},
+@@ -328,7 +326,6 @@ function SharedStoryContent({
+ 			<StoryChartEmbed
+ 				chart={chart}
+ 				queryData={isNoCacheMode && !hasActiveFilters ? undefined : data}
+-				baselineQueryData={baselineQueryData}
+ 				liveQuery={isNoCacheMode && !hasActiveFilters ? noCacheQuery : undefined}
+ 				hasActiveFilters={hasActiveFilters}
+ 				isRefreshing={isRefreshing}
+diff --git a/apps/frontend/src/routes/_sidebar-layout.stories.standalone.$storyId.tsx b/apps/frontend/src/routes/_sidebar-layout.stories.standalone.$storyId.tsx
+index 1afa583d..f2fd8442 100644
+--- a/apps/frontend/src/routes/_sidebar-layout.stories.standalone.$storyId.tsx
++++ b/apps/frontend/src/routes/_sidebar-layout.stories.standalone.$storyId.tsx
+@@ -277,12 +277,10 @@ function StandaloneStoryContent({
+ 			chart: ParsedChartBlock,
+ 			{
+ 				queryData: data,
+-				baselineQueryData,
+ 				hasActiveFilters,
+ 				isRefreshing,
+ 			}: {
+ 				queryData: QueryDataMap | null;
+-				baselineQueryData: QueryDataMap | null;
+ 				hasActiveFilters: boolean;
+ 				isRefreshing: boolean;
+ 			},
+@@ -290,7 +288,6 @@ function StandaloneStoryContent({
+ 			<StoryChartEmbed
+ 				chart={chart}
+ 				queryData={data}
+-				baselineQueryData={baselineQueryData}
+ 				hasActiveFilters={hasActiveFilters}
+ 				isRefreshing={isRefreshing}
+ 			/>
+
+  </git_diff_from_branch_to_main>
+<timestamp>Thursday, Jul 23, 2026, 4:10 PM (UTC+2)</timestamp>
+
+Resolve this merge conflict @Branch
