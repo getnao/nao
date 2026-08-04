@@ -1,0 +1,3 @@
+<timestamp>Monday, Jul 6, 2026, 10:18 AM (UTC+2)</timestamp>
+
+@chat/cli/nao_core/config/databases/clickhouse.py:341 why dont we get the comment from the sql query exectued?
