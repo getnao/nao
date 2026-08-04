@@ -1,0 +1,15 @@
+<timestamp>Friday, Jul 24, 2026, 7:51 PM (UTC+2)</timestamp>
+
+there is this error as well
+
+Could not parse the query; rejected for safety. Expected "!=", "#", "#-", "#>", "#>>", "%", "&", "&&", "*", "+", ",", "-", "--", "->", "->>", "/", "/*", ";", "<", "<<", "<=", "<>", "<@", "=", "==", ">", ">=", ">>", "?", "?&", "?|", "@>", "AND", "COLLATE", "FOR", "GROUP", "HAVING", "LIMIT", "OR", "ORDER", "UNION", "^", "|", "||", [ \t\n\r], or end of input but ":" found.
+
+for SELECT 
+  date_trunc('day', to_timestamp(created_at)) AS day,
+  chat_source,
+  COUNT(*) AS message_count
+FROM v_messages
+WHERE role = 'user'
+  AND to_timestamp(created_at) >= NOW() - '15 days'::interval
+GROUP BY 1, 2
+ORDER BY 1, 2
