@@ -1,0 +1,3 @@
+<timestamp>Tuesday, Jul 21, 2026, 5:22 PM (UTC+2)</timestamp>
+
+but when i scroll in the table i want to scroll in overflow in the table not the page
