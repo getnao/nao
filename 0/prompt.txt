@@ -1,0 +1,8 @@
+<timestamp>Tuesday, Jul 28, 2026, 6:02 PM (UTC+2)</timestamp>
+
+have a look at the code and give me a report about this
+
+Hey @claire! Since our onsite, I’ve started running a larger set of NAO tests and I’m running into an issue with questions that return a lot of rows.
+
+The underlying SQL returns the complete result, which is available in the NAO UI, but nao test appears to evaluate only the model-facing output—which is truncated. The question is then marked incorrect against the full golden SQL result.
+Have you seen this before? Is there a recommended workaround, or a way for the test to compare the complete raw SQL result instead?
