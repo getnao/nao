@@ -1,0 +1,3 @@
+<timestamp>Thursday, Jul 23, 2026, 12:09 PM (UTC+2)</timestamp>
+
+how can i use the cursor cli to trigger a code revie
