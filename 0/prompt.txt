@@ -1,0 +1,3 @@
+<timestamp>Wednesday, Jul 22, 2026, 6:38 PM (UTC+2)</timestamp>
+
+when a chart is being refreshed (because the query runs in background i want to see it's being refreshed)
