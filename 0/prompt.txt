@@ -1,0 +1,3 @@
+<timestamp>Wednesday, Jul 8, 2026, 8:54 AM (UTC+2)</timestamp>
+
+remove the inline comments, it's too much, edit the CLAUDE.md with an instructions, i cant stand these comments anymory
