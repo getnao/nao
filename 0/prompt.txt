@@ -1,0 +1,3 @@
+<timestamp>Friday, Jul 24, 2026, 5:43 PM (UTC+2)</timestamp>
+
+can we add the chatSource in a column, also i want to explain in the descript / @chat/apps/backend/src/components/ai/admin-system-prompt.tsx the diff between role/source at message level/source at chat level (one might be renamed so it's clearer???)
