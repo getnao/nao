@@ -1,0 +1,3 @@
+<timestamp>Tuesday, Jul 28, 2026, 9:32 AM (UTC+2)</timestamp>
+
+@chat/apps/frontend/src/components/settings/llm-provider-form.tsx:20 when it's overriden, it should write so it in the pill, that initially was coming from env/nao_config but in the end it's overwritten
