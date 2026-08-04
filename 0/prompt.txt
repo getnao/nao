@@ -1,0 +1,3 @@
+<timestamp>Friday, Jul 24, 2026, 6:56 PM (UTC+2)</timestamp>
+
+when i say include errors is, if a SQL query failed i dont want to include the query that failed as well
