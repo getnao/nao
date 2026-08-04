@@ -1,0 +1,3 @@
+<timestamp>Friday, Jul 24, 2026, 8:03 PM (UTC+2)</timestamp>
+
+then "Could not parse the query; rejected for safety. Expected "!=", "#", "#-", "#>", "#>>", "%", "&", "&&", "*", "+", "-", "--", "->", "->>", "/", "/*", "<", "<<", "<=", "<>", "<@", "=", "==", ">", ">=", ">>", "?", "?&", "?|", "@>", "BETWEEN", "COLLATE", "DAY", "HOUR", "IN", "IS", "LIKE", "MINUTE", "MONTH", "NOT", "REGEXP", "RLIKE", "SECOND", "YEAR", "^", "glob", "|", "||", or [ \t\n\r] but "G" found."
