@@ -1,0 +1,5 @@
+<timestamp>Thursday, Jul 23, 2026, 4:05 PM (UTC+2)</timestamp>
+
+when i filter data in storues we added a feature to keep the xaxis, but the issue is that when we select date ranges it's weird to keep dates that are outside of the range
+
+the best is not to keep the xaxis min/max, but just use the thing from the filtered data
