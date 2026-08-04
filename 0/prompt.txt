@@ -1,0 +1,3 @@
+<timestamp>Wednesday, Jul 22, 2026, 7:06 PM (UTC+2)</timestamp>
+
+when you open the sql edit panel but the horizontal split between sql and results at a place where we can see the sql query at maximum, and if not possible put the results in a 240px height min
