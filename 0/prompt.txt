@@ -1,0 +1,17 @@
+<timestamp>Tuesday, Jul 28, 2026, 9:22 AM (UTC+2)</timestamp>
+
+@chat/cli/nao_core/config/llm/__init__.py we should not allow the duplicates
+
+Check if this issue is valid — if so, understand the root cause and fix it. At cli/nao_core/config/llm/__init__.py, line 347:
+
+<comment>Interactive configuration fails when a user chooses the same provider twice: this append allows the duplicate, and `LLMConfig.validate_providers()` rejects it only after all prompts finish. Provider selection could exclude already configured providers or reprompt on a duplicate so `nao init` remains recoverable.</comment>
+
+<file context>
+@@ -221,9 +258,103 @@ def promptConfig(cls, *, prompt_annotation_model: bool = True) -> "LLMConfig":
++        """Interactively prompt the user for LLM configuration."""
++        providers = [ProviderConfig.promptConfig()]
++        while ask_confirm("Add another LLM provider?", default=False):
++            providers.append(ProviderConfig.promptConfig())
++
++        annotation_model: str | None = None
+</file context>
