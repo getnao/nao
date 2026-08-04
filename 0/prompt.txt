@@ -1,0 +1,3 @@
+<timestamp>Tuesday, Aug 4, 2026, 2:34 PM (UTC+2)</timestamp>
+
+@chat/apps/backend/src/components/ai/system-prompt.tsx:265-266 grep cant work if it's type s3
