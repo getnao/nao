@@ -619,6 +619,7 @@ export async function findOpenPullRequest(
 	token: string,
 	repo: string,
 	branch: string,
+	apiBaseUrl = GITHUB_API,
 ): Promise<{ url: string } | null> {
 	const owner = repo.split('/')[0];
 	const params = new URLSearchParams({
@@ -626,7 +627,7 @@ export async function findOpenPullRequest(
 		head: `${owner}:${branch}`,
 		per_page: '1',
 	});
-	const pullRequests = await githubFetchJson<RawPullRequest[]>(token, `/repos/${repo}/pulls?${params}`);
+	const pullRequests = await githubFetchJson<RawPullRequest[]>(token, `${apiBaseUrl}/repos/${repo}/pulls?${params}`);
 	return pullRequests[0] ? { url: pullRequests[0].html_url } : null;
 }
 

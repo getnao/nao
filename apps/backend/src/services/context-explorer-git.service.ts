@@ -24,6 +24,7 @@ import {
 	readCommittedFile,
 	resolveContextProject,
 	resolveContextRepo,
+	resolveContextSourceGitToken,
 	sanitizeContextSourceRepositoryUrl,
 	toContextRepoState,
 	toRepoPath,
@@ -1409,6 +1410,9 @@ function resolveContextSourceAuthMethod(): DeploymentContextSource['authMethod']
 		return 'ssh-key';
 	}
 	if (env.NAO_CONTEXT_GIT_TOKEN) {
+		return 'token';
+	}
+	if (resolveContextSourceGitToken() !== null) {
 		return 'token';
 	}
 	return 'public';

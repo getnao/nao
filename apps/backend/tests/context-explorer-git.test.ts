@@ -16,7 +16,6 @@ vi.hoisted(() => {
 	delete process.env.NAO_CONTEXT_GIT_TOKEN;
 	delete process.env.NAO_CONTEXT_GIT_SSH_KEY;
 	delete process.env.NAO_CONTEXT_GIT_PLATFORM;
-	delete process.env.NAO_CONTEXT_GIT_USERNAME;
 });
 
 const branchOwnershipMocks = vi.hoisted(() => {
@@ -124,6 +123,7 @@ describe('deployment context source', () => {
 		process.env = originalEnv;
 		__reloadEnvForTesting();
 		vi.unstubAllGlobals();
+		branchOwnershipMocks.reviewRequests.clear();
 	});
 
 	it.each([
@@ -182,6 +182,127 @@ describe('deployment context source', () => {
 		await expect(GENERIC_GIT_PROVIDER.getToken('user-1')).resolves.toBeNull();
 	});
 
+	it('uses x-token-auth automatically for Bitbucket Git authentication', () => {
+		setContextSourceEnv({
+			url: 'https://bitbucket.org/nao/context.git',
+			token: 'repository-access-token',
+		});
+
+		expect(
+			GENERIC_GIT_PROVIDER.authenticatedRepoUrl(
+				'repository-access-token',
+				'https://bitbucket.org/nao/context.git',
+			),
+		).toBe('https://x-token-auth:repository-access-token@bitbucket.org/nao/context.git');
+	});
+
+	it('uses bearer authentication for the Bitbucket API', async () => {
+		setContextSourceEnv({
+			url: 'https://bitbucket.org/nao/context.git',
+			token: 'repository-access-token',
+		});
+		const fetchMock = vi.fn().mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					links: { html: { href: 'https://bitbucket.org/nao/context/pull-requests/1' } },
+				}),
+				{ status: 201 },
+			),
+		);
+		vi.stubGlobal('fetch', fetchMock);
+
+		await GENERIC_GIT_PROVIDER.openReviewRequest(
+			'repository-access-token',
+			'https://bitbucket.org/nao/context.git',
+			{
+				title: 'Update context',
+				head: 'nao/test',
+				base: 'main',
+				body: '- Update context',
+				requester: { name: 'Test User', email: 'test@example.com' },
+				pushOutput: '',
+			},
+		);
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			'https://api.bitbucket.org/2.0/repositories/nao/context/pullrequests',
+			expect.objectContaining({
+				headers: expect.objectContaining({ Authorization: 'Bearer repository-access-token' }),
+			}),
+		);
+	});
+
+	it('accepts credentials embedded in a Bitbucket repository URL without enabling API calls', async () => {
+		setContextSourceEnv({
+			url: 'https://user@example.com:api-token@bitbucket.org/nao/context.git',
+		});
+
+		expect(GENERIC_GIT_PROVIDER.isIntegrationAvailable()).toBe(true);
+		await expect(GENERIC_GIT_PROVIDER.getToken('user-1')).resolves.toBe('');
+		expect(getDeploymentContextSource()?.authMethod).toBe('token');
+	});
+
+	it('discovers and stores a Bitbucket pull request before using the saved creation link', async () => {
+		setContextSourceEnv({
+			url: 'https://bitbucket.org/nao/context.git',
+			token: 'repository-access-token',
+		});
+		const key = 'project-id:nao/test:user-1';
+		branchOwnershipMocks.reviewRequests.set(key, {
+			kind: 'link',
+			url: 'https://bitbucket.org/nao/context/pull-requests/new?source=nao/test',
+		});
+		const created = {
+			kind: 'created' as const,
+			url: 'https://bitbucket.org/nao/context/pull-requests/42',
+		};
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValue(
+				new Response(JSON.stringify({ values: [{ links: { html: { href: created.url } } }] }), { status: 200 }),
+			);
+		vi.stubGlobal('fetch', fetchMock);
+		const args = {
+			token: 'repository-access-token',
+			repoFullName: 'https://bitbucket.org/nao/context.git',
+			branch: 'nao/test',
+			projectId: 'project-id',
+			userId: 'user-1',
+		};
+
+		await expect(GENERIC_GIT_PROVIDER.findOpenReviewRequest(args)).resolves.toEqual(created);
+		await expect(GENERIC_GIT_PROVIDER.findOpenReviewRequest(args)).resolves.toEqual(created);
+
+		expect(fetchMock).toHaveBeenCalledOnce();
+		const lookupUrl = new URL(fetchMock.mock.calls[0][0] as string);
+		expect(lookupUrl.searchParams.get('q')).toBe('source.branch.name="nao/test"');
+		expect(lookupUrl.searchParams.get('state')).toBe('OPEN');
+		expect(branchOwnershipMocks.reviewRequests.get(key)).toEqual(created);
+	});
+
+	it('uses the saved review link when Bitbucket pull request lookup fails', async () => {
+		setContextSourceEnv({
+			url: 'https://bitbucket.org/nao/context.git',
+			token: 'repository-access-token',
+		});
+		const stored = {
+			kind: 'link' as const,
+			url: 'https://bitbucket.org/nao/context/pull-requests/new?source=nao/test',
+		};
+		branchOwnershipMocks.reviewRequests.set('project-id:nao/test:user-1', stored);
+		vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network unavailable')));
+
+		await expect(
+			GENERIC_GIT_PROVIDER.findOpenReviewRequest({
+				token: 'repository-access-token',
+				repoFullName: 'https://bitbucket.org/nao/context.git',
+				branch: 'nao/test',
+				projectId: 'project-id',
+				userId: 'user-1',
+			}),
+		).resolves.toEqual(stored);
+	});
+
 	it.each([
 		[
 			'github',
@@ -238,9 +359,9 @@ describe('deployment context source', () => {
 		);
 	});
 
-	it('includes sanitized context source details when no write credential is configured', async () => {
+	it('includes context source details when no write credential is configured', async () => {
 		setContextSourceEnv({
-			url: 'https://user:secret@github.com/nao/context.git',
+			url: 'https://github.com/nao/context.git',
 			branch: 'production',
 			subpath: 'projects/analytics',
 		});
@@ -1244,7 +1365,6 @@ function setContextSourceEnv({
 	delete process.env.NAO_CONTEXT_GIT_TOKEN;
 	delete process.env.NAO_CONTEXT_GIT_SSH_KEY;
 	delete process.env.NAO_CONTEXT_GIT_PLATFORM;
-	delete process.env.NAO_CONTEXT_GIT_USERNAME;
 	if (source) {
 		process.env.NAO_CONTEXT_SOURCE = source;
 	}

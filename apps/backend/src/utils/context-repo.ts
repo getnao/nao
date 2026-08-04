@@ -143,6 +143,25 @@ export function sanitizeContextSourceRepositoryUrl(repositoryUrl: string): strin
 	return repositoryUrl.replace(/^(https?:\/\/)[^/]*@/i, '$1');
 }
 
+export function resolveContextSourceGitToken(): string | null {
+	if (env.NAO_CONTEXT_GIT_TOKEN) {
+		return env.NAO_CONTEXT_GIT_TOKEN;
+	}
+	return env.NAO_CONTEXT_GIT_SSH_KEY || hasEmbeddedRepositoryCredentials(env.NAO_CONTEXT_GIT_URL) ? '' : null;
+}
+
+export function hasEmbeddedRepositoryCredentials(repositoryUrl: string | undefined): boolean {
+	if (!repositoryUrl || !/^https?:\/\//i.test(repositoryUrl)) {
+		return false;
+	}
+	try {
+		const parsed = new URL(repositoryUrl);
+		return !!(parsed.username || parsed.password);
+	} catch {
+		return false;
+	}
+}
+
 export function getWorktreeProjectRoot(repo: ResolvedContextRepo): string {
 	return repo.projectPrefix ? path.join(repo.worktreeRoot, ...repo.projectPrefix.split('/')) : repo.worktreeRoot;
 }

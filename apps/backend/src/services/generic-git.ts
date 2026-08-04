@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 
 import { env } from '../env';
-import { sanitizeContextSourceRepositoryUrl } from '../utils/context-repo';
+import { resolveContextSourceGitToken, sanitizeContextSourceRepositoryUrl } from '../utils/context-repo';
 import { GitIdentity, NAO_CO_AUTHOR, withCoAuthors } from '../utils/git-identity';
 import { toGitError } from '../utils/git-repo';
 import * as github from './github';
@@ -15,12 +15,10 @@ export interface ParsedGenericRepository {
 }
 
 export const GENERIC_GIT_PROVIDER: ReviewRequestProvider = {
-	getToken: async () => env.NAO_CONTEXT_GIT_TOKEN ?? (env.NAO_CONTEXT_GIT_SSH_KEY ? '' : null),
+	getToken: async () => resolveContextSourceGitToken(),
 	notConnectedMessage: 'Add an access token or SSH deploy key to edit context files.',
 	isIntegrationAvailable: () =>
-		env.NAO_CONTEXT_SOURCE === 'git' &&
-		!!env.NAO_CONTEXT_GIT_URL &&
-		!!(env.NAO_CONTEXT_GIT_TOKEN || env.NAO_CONTEXT_GIT_SSH_KEY),
+		env.NAO_CONTEXT_SOURCE === 'git' && !!env.NAO_CONTEXT_GIT_URL && resolveContextSourceGitToken() !== null,
 	authenticatedRepoUrl,
 	publicRepoUrl: sanitizeContextSourceRepositoryUrl,
 	cloneRepo,
@@ -29,10 +27,7 @@ export const GENERIC_GIT_PROVIDER: ReviewRequestProvider = {
 	coAuthor: NAO_CO_AUTHOR,
 	commitAllAndPushBranch,
 	pushBranch,
-	findOpenReviewRequest: async ({ projectId, branch, userId }) => {
-		const queries = await import('../queries/context-branch-ownership.queries');
-		return queries.getContextBranchReviewRequest(projectId, branch, userId);
-	},
+	findOpenReviewRequest,
 	findReviewRequestByBranch: async () => null,
 	openReviewRequest,
 };
@@ -71,8 +66,8 @@ function authenticatedRepoUrl(token: string, repositoryUrl: string): string {
 	if (parsed.username || parsed.password) {
 		return repositoryUrl;
 	}
-	if (env.NAO_CONTEXT_GIT_USERNAME) {
-		parsed.username = env.NAO_CONTEXT_GIT_USERNAME;
+	if (parsed.hostname.toLowerCase() === 'bitbucket.org') {
+		parsed.username = 'x-token-auth';
 		parsed.password = token;
 	} else {
 		parsed.username = token;
@@ -154,6 +149,44 @@ function pushBranch(args: { token: string; repoFullName: string; dir: string; br
 	return `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
 }
 
+async function findOpenReviewRequest(args: {
+	token: string;
+	repoFullName: string;
+	branch: string;
+	projectId: string;
+	userId: string;
+}): Promise<OpenReviewRequestResult | null> {
+	const queries = await import('../queries/context-branch-ownership.queries');
+	const stored = await queries.getContextBranchReviewRequest(args.projectId, args.branch, args.userId);
+	if (stored?.kind === 'created') {
+		return stored;
+	}
+
+	const repository = parseGenericRepositoryUrl(args.repoFullName);
+	const platform = env.NAO_CONTEXT_GIT_PLATFORM ?? detectPlatform(repository?.host);
+	if (!platform || !args.token || !repository) {
+		return stored;
+	}
+
+	let reviewRequest: { url: string } | null;
+	try {
+		reviewRequest = await findPlatformReviewRequest(platform, args.token, repository, args.branch);
+	} catch {
+		return stored;
+	}
+	if (!reviewRequest) {
+		return stored;
+	}
+
+	const result: OpenReviewRequestResult = { kind: 'created', url: reviewRequest.url };
+	try {
+		await queries.setContextBranchReviewRequest(args.projectId, args.branch, args.userId, result);
+	} catch {
+		return result;
+	}
+	return result;
+}
+
 async function openReviewRequest(
 	token: string,
 	repositoryUrl: string,
@@ -186,6 +219,22 @@ async function openReviewRequest(
 	}
 	const url = parseReviewRequestLink(args.pushOutput);
 	return url ? { kind: 'link', url } : null;
+}
+
+async function findPlatformReviewRequest(
+	platform: 'github' | 'gitlab' | 'bitbucket',
+	token: string,
+	repository: ParsedGenericRepository,
+	branch: string,
+): Promise<{ url: string } | null> {
+	if (platform === 'github') {
+		const apiBaseUrl = repository.host === 'github.com' ? 'https://api.github.com' : `${repository.origin}/api/v3`;
+		return github.findOpenPullRequest(token, repository.repositoryPath, branch, apiBaseUrl);
+	}
+	if (platform === 'gitlab') {
+		return gitlab.findOpenMergeRequest(token, repository.repositoryPath, branch, `${repository.origin}/api/v4`);
+	}
+	return findOpenBitbucketPullRequest(token, repository.repositoryPath, branch);
 }
 
 async function createReviewRequest(
@@ -253,10 +302,30 @@ async function createBitbucketPullRequest(
 	return { kind: 'created', url: result.links.html.href };
 }
 
+async function findOpenBitbucketPullRequest(
+	token: string,
+	repositoryPath: string,
+	branch: string,
+): Promise<{ url: string } | null> {
+	const params = new URLSearchParams({
+		q: `source.branch.name="${branch}"`,
+		state: 'OPEN',
+	});
+	const response = await fetch(
+		`https://api.bitbucket.org/2.0/repositories/${repositoryPath}/pullrequests?${params}`,
+		{ headers: { Authorization: bitbucketAuthorization(token) } },
+	);
+	if (!response.ok) {
+		const body = await response.text().catch(() => '');
+		throw new Error(`Bitbucket API ${response.status} ${response.statusText}: ${body.slice(0, 500)}`);
+	}
+	const result = (await response.json()) as { values?: Array<{ links?: { html?: { href?: string } } }> };
+	const url = result.values?.[0]?.links?.html?.href;
+	return url ? { url } : null;
+}
+
 function bitbucketAuthorization(token: string): string {
-	return env.NAO_CONTEXT_GIT_USERNAME
-		? `Basic ${Buffer.from(`${env.NAO_CONTEXT_GIT_USERNAME}:${token}`).toString('base64')}`
-		: `Bearer ${token}`;
+	return `Bearer ${token}`;
 }
 
 function detectPlatform(host: string | undefined): 'github' | 'gitlab' | 'bitbucket' | null {

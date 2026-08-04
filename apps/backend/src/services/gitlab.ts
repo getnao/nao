@@ -339,9 +339,10 @@ export async function findOpenMergeRequest(
 	token: string,
 	repoFullName: string,
 	branch: string,
+	apiBaseUrl = gitlabApiUrl(),
 ): Promise<{ url: string } | null> {
-	const projectId = await getGitLabProjectId(token, repoFullName);
-	const mergeRequest = await findMergeRequestForBranch(token, repoFullName, branch, projectId, 'opened');
+	const projectId = await getGitLabProjectId(token, repoFullName, apiBaseUrl);
+	const mergeRequest = await findMergeRequestForBranch(token, repoFullName, branch, projectId, 'opened', apiBaseUrl);
 	return mergeRequest ? { url: mergeRequest.web_url } : null;
 }
 
@@ -370,9 +371,9 @@ export async function findMergeRequestByBranch(
 	};
 }
 
-async function getGitLabProjectId(token: string, repoFullName: string): Promise<number> {
+async function getGitLabProjectId(token: string, repoFullName: string, apiBaseUrl = gitlabApiUrl()): Promise<number> {
 	const encodedPath = encodeURIComponent(repoFullName);
-	const res = await fetch(`${gitlabApiUrl()}/projects/${encodedPath}`, {
+	const res = await fetch(`${apiBaseUrl}/projects/${encodedPath}`, {
 		headers: { Authorization: `Bearer ${token}` },
 	});
 	if (!res.ok) {
@@ -389,6 +390,7 @@ async function findMergeRequestForBranch(
 	branch: string,
 	projectId: number,
 	state: 'opened' | 'all',
+	apiBaseUrl = gitlabApiUrl(),
 ): Promise<GitLabMergeRequestSummary | null> {
 	const encodedPath = encodeURIComponent(repoFullName);
 	let page = '1';
@@ -402,7 +404,7 @@ async function findMergeRequestForBranch(
 			per_page: '100',
 			page,
 		});
-		const res = await fetch(`${gitlabApiUrl()}/projects/${encodedPath}/merge_requests?${params}`, {
+		const res = await fetch(`${apiBaseUrl}/projects/${encodedPath}/merge_requests?${params}`, {
 			headers: { Authorization: `Bearer ${token}` },
 		});
 		if (!res.ok) {

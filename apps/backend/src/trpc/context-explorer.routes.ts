@@ -2,7 +2,6 @@ import { REPO_PROVIDERS } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
-import { env } from '../env';
 import * as userQueries from '../queries/user.queries';
 import type { ContextExplorerFileAccess } from '../services/context-explorer.service';
 import {
@@ -29,7 +28,7 @@ import {
 	switchContextBranch,
 } from '../services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../services/context-explorer-pr.service';
-import { resolveContextRepository } from '../utils/context-repo';
+import { resolveContextRepository, resolveContextSourceGitToken } from '../utils/context-repo';
 import { contextAdminProtectedProcedure } from './trpc';
 
 const branchSchema = z.string().trim().min(1).max(200);
@@ -198,7 +197,7 @@ async function createGitContext(
 		userId: user.id,
 		user: { name: user.name, email: user.email },
 		token: generic
-			? (env.NAO_CONTEXT_GIT_TOKEN ?? (env.NAO_CONTEXT_GIT_SSH_KEY ? '' : null))
+			? resolveContextSourceGitToken()
 			: repository?.provider === 'gitlab'
 				? await userQueries.getGitlabToken(user.id)
 				: await userQueries.getGithubToken(user.id),
