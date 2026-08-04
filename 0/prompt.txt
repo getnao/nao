@@ -1,0 +1,3 @@
+<timestamp>Monday, Jul 6, 2026, 10:54 AM (UTC+2)</timestamp>
+
+start clickhouse with @chat/docker-compose.test.yml , create a table with some comment and then edit @chat/example/nao_config.yaml , nao sync to see if the comments get through
