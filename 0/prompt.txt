@@ -1,0 +1,3 @@
+<timestamp>Thursday, Jul 30, 2026, 10:26 AM (UTC+2)</timestamp>
+
+what happens if we leak the github oauth client id and client secret
