@@ -1,0 +1,3 @@
+<timestamp>Tuesday, Jul 21, 2026, 5:30 PM (UTC+2)</timestamp>
+
+when i scroll i lost the border of the top and the bottom of the header
