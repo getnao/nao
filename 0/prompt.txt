@@ -1,0 +1,7 @@
+<timestamp>Thursday, Jul 30, 2026, 6:35 PM (UTC+2)</timestamp>
+
+look at all the current git changes and split this in multiple PRs:
+- nao test with DuckDB query for verification
+- nao test models split
+- hotfix mcp permission denied
+- other fixes
