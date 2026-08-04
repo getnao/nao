@@ -1,0 +1,332 @@
+<external_links>
+### Potentially Relevant Websearch Results
+
+You should respond as if these information are known to you. Refrain from saying "I am unable to browse the internet" or "I don't have access to the internet" or "I'm unable to provide real-time news updates". This is your internet search results. Please always cite any links you referenced from the above search results in your response in markdown format.
+
+-------
+Website URL: https://github.com/getnao/nao/issues/1292
+Website Title: MCP servers randomly fail with "Unknown MCP server" after startup or config reload · Issue #1292 · getnao/nao · GitHub
+Website Content:
+Skip to content 
+
+## Navigation Menu
+
+Toggle navigation 
+
+ Sign in 
+
+Appearance settings 
+
+* Platform  
+   * AI CODE CREATION  
+         * GitHub CopilotWrite better code with AI  
+         * GitHub Copilot appDirect agents from issue to merge  
+         * MCP RegistryIntegrate external tools  
+   * DEVELOPER WORKFLOWS  
+         * ActionsAutomate any workflow  
+         * CodespacesInstant dev environments  
+         * IssuesPlan and track work  
+         * Code ReviewManage code changes  
+         * Code QualityEnforce quality at merge  
+   * APPLICATION SECURITY  
+         * GitHub Advanced SecurityFind and fix vulnerabilities  
+         * Code securitySecure your code as you build  
+         * Secret protectionStop leaks before they start  
+   * EXPLORE  
+         * Why GitHub  
+         * Documentation  
+         * Blog  
+         * Changelog  
+         * Marketplace  
+View all features
+* Solutions  
+   * BY COMPANY SIZE  
+         * Enterprises  
+         * Small and medium teams  
+         * Startups  
+         * Nonprofits  
+   * BY USE CASE  
+         * App Modernization  
+         * DevSecOps  
+         * DevOps  
+         * CI/CD  
+         * View all use cases  
+   * BY INDUSTRY  
+         * Healthcare  
+         * Financial services  
+         * Manufacturing  
+         * Government  
+         * View all industries  
+View all solutions
+* Resources  
+   * EXPLORE BY TOPIC  
+         * AI  
+         * Software Development  
+         * DevOps  
+         * Security  
+         * View all topics  
+   * EXPLORE BY TYPE  
+         * Customer stories  
+         * Events & webinars  
+         * Ebooks & reports  
+         * Business insights  
+         * GitHub Skills  
+   * SUPPORT & SERVICES  
+         * Documentation  
+         * Customer support  
+         * Community forum  
+         * Trust center  
+         * Partners  
+View all resources
+* Open Source  
+   * COMMUNITY  
+         * GitHub SponsorsFund open source developers  
+   * PROGRAMS  
+         * Security Lab  
+         * Maintainer Community  
+         * Accelerator  
+         * GitHub Stars  
+         * Archive Program  
+   * REPOSITORIES  
+         * Topics  
+         * Trending  
+         * Collections
+* Enterprise  
+   * ENTERPRISE SOLUTIONS  
+         * Enterprise platformAI-powered developer platform  
+   * AVAILABLE ADD-ONS  
+         * GitHub Advanced SecurityEnterprise-grade security features  
+         * Copilot for BusinessEnterprise-grade AI features  
+         * Premium SupportEnterprise-grade 24/7 support
+* Pricing
+
+Search or jump to... 
+
+# Search code, repositories, users, issues, pull requests...
+
+ Search 
+
+Clear 
+
+Search syntax tips 
+
+#  Provide feedback
+
+We read every piece of feedback, and take your input very seriously.
+
+Include my email address so I can be contacted 
+
+ Cancel  Submit feedback 
+
+#  Saved searches
+
+## Use saved searches to filter your results more quickly
+
+Name 
+
+Query 
+
+ To see all available qualifiers, see our documentation.
+
+ Cancel  Create saved search 
+
+ Sign in 
+
+ Sign up 
+
+Appearance settings 
+
+Resetting focus 
+
+You signed in with another tab or window. Reload to refresh your session. You signed out in another tab or window. Reload to refresh your session. You switched accounts on another tab or window. Reload to refresh your session. Dismiss alert 
+
+{{ message }}
+
+###  Uh oh!
+
+There was an error while loading. Please reload this page.
+
+ getnao / **nao** Public 
+
+* Notifications You must be signed in to change notification settings
+* Fork216
+* Star 1.5k
+
+* Code
+* Issues 173
+* Pull requests 23
+* Discussions
+* Actions
+* Projects
+* Security and quality 0
+* Insights
+
+Additional navigation options 
+
+* Code
+* Issues
+* Pull requests
+* Discussions
+* Actions
+* Projects
+* Security and quality
+* Insights
+
+# MCP servers randomly fail with "Unknown MCP server" after startup or config reload #1292
+
+New issue
+
+Copy link
+
+New issue
+
+Copy link
+
+Open
+
+#1316
+
+Open
+
+MCP servers randomly fail with "Unknown MCP server" after startup or config reload#1292
+
+#1316
+
+Copy link
+
+## Description
+
+@beherap
+
+beherap
+
+opened on Jul 28, 2026
+
+Issue body actions
+
+Summary
+
+Concurrent MCP server discovery (startup or config reload) races on runtime creation: each server's \_ensureRegistered sees `this._runtime == null`, builds its own runtime, and overwrites the previous one. Servers registered on an overwritten instance are lost, and all later refreshes and tool calls for them fail instantly with `Unknown MCP server '<name>'`.
+
+Environment
+
+* getnao/nao:0.3.0 (Docker) — also reproduced after rebuild; the same code is in current main (apps/backend/src/services/mcp.ts)
+* 3 stdio servers in agent/mcps/mcp.json (affects any config with ≥2 non-OAuth servers; transport-independent — one of ours is a plain stdio server, two use mcp-remote)
+
+Reproduction
+
+1. Configure 2+ servers in agent/mcps/mcp.json.
+2. Start the container with no spec dirs under agent/mcps/ (forces parallel discovery), or touch mcp.json to trigger \_reloadAndDiscover.
+3. Click refresh on a server in the MCP settings panel, or let the agent call one of its tools.
+4. Some subset of servers fails with Unknown MCP server '' in \~30 ms. Which server fails varies per run (whoever's createRuntime() resolves last "wins").
+
+Log signature: `[ERROR] [tool] MCP discovery failed: <name> / MCP tool call failed: <name>/<tool> with the error Unknown MCP server '<name>'.`
+
+Root cause
+
+\_ensureRegistered has a check-then-act race:
+
+```
+private async _ensureRegistered(name: string): Promise<void> {
+    if (!this._runtime) {
+        this._runtime = await createRuntime();   // N concurrent callers → N runtimes, last write wins
+    }
+    if (this._registered.has(name)) {
+        return;                                  // sta a discarded runtime
+    }
+    ...
+}
+
+```
+
+All parallel discoveries pass the !this.\_runtime check before any assignment resolves. Each registers its server on whichever instance is current at its own resolution time; \_registered accumulates all names, so subsequent calls skip re-registration and hit the surviving runtime, which never saw the definition.
+
+Related: this code path replaced the per-call runtime from #202 (fixed in #1049) — same symptom, new mechanism.
+
+Suggested fix
+
+Memoize the in-flight createRuntime() so concurrent callers share one runtime
+
+```
+private _runtimePromise: Promise<Runtime> | null = null;
+
+private async _ensureRegistered(name: string): Promise<void> {
+    if (!this._runtime) {
+        if (!this._runtimePromise) {
+            this._runtimePromise = createRuntime().catc
+                this._runtimePromise = null;
+                throw error;
+            });
+        }
+        this._runtime = await this._runtimePromise;
+    }
+    ...
+}
+
+```
+
+Verified in our deployment: with this change, parallel rediscovery of all 3 servers completes cleanly and tool calls succeed; unpatched, at least one server fails every reload. Happy to send this as a PR.
+
+Reactions are currently unavailable
+
+## Metadata
+
+## Metadata
+
+### Assignees
+
+No one assigned
+
+### Labels
+
+No labels
+
+No labels
+
+### Type
+
+No type
+
+### Projects
+
+No projects
+
+### Milestone
+
+No milestone
+
+### Relationships
+
+None yet
+
+### Development
+
+No branches or pull requests
+
+## Issue actions
+
+* Open in GitHub Copilot app
+
+## Footer
+
+ © 2026 GitHub, Inc. 
+
+### Footer navigation
+
+* Terms
+* Privacy
+* Security
+* Status
+* Community
+* Docs
+* Contact
+* Manage cookies
+* Do not share my personal information
+
+ You can’t perform that action at this time.
+____
+
+</external_links>
+<timestamp>Friday, Jul 31, 2026, 4:59 PM (UTC+2)</timestamp>
+
+can you repro this error locally https://github.com/getnao/nao/issues/1292
