@@ -1,0 +1,5 @@
+<timestamp>Wednesday, Jul 29, 2026, 5:23 PM (UTC+2)</timestamp>
+
+@chat/apps/backend/src/agents/provider-meta.ts a user is using litellm as endpoint, we recommend him to use openai and anthropic provider with baseurl
+
+for qwen and minimax models what should he use
