@@ -110,6 +110,8 @@ const envSchema = z.object({
 	NAO_CONTEXT_GIT_SUBPATH: z.string().optional(),
 	NAO_CONTEXT_GIT_TOKEN: z.string().optional(),
 	NAO_CONTEXT_GIT_SSH_KEY: z.string().optional(),
+	NAO_CONTEXT_GIT_PLATFORM: z.enum(['github', 'gitlab', 'bitbucket']).optional(),
+	NAO_CONTEXT_GIT_USERNAME: z.string().optional(),
 
 	NAO_LICENSE: z
 		.string()

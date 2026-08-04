@@ -46,6 +46,8 @@ docker run -d \
 | `NAO_CONTEXT_GIT_URL`      | git only | HTTPS or SSH URL of the repo to clone                                         |
 | `NAO_CONTEXT_GIT_BRANCH`   | No       | Branch to clone (default: `main`)                                             |
 | `NAO_CONTEXT_GIT_TOKEN`    | No       | Personal access token for private HTTPS repos (injected into URL)             |
+| `NAO_CONTEXT_GIT_PLATFORM` | No       | Platform override for self-hosted GitHub, GitLab, or Bitbucket hosts          |
+| `NAO_CONTEXT_GIT_USERNAME` | No       | Username for Bitbucket app passwords or Atlassian API tokens                  |
 | `NAO_CONTEXT_GIT_SSH_KEY`  | No       | Raw SSH private key contents (deploy key) — for `git@…`/`ssh://…` URLs        |
 | `NAO_CONTEXT_GIT_SUBPATH`  | No       | Subfolder of the repo to use as the project (sparse checkout, e.g. monorepos) |
 
@@ -104,6 +106,8 @@ If your nao project lives inside a subfolder of a larger repo (e.g. a monorepo),
 
 The container then expects `nao_config.yaml` at `<NAO_DEFAULT_PROJECT_PATH>/<NAO_CONTEXT_GIT_SUBPATH>/nao_config.yaml`.
 
+When a token or SSH deploy key is configured, context admins can edit files and propose changes for review from the UI.
+
 ### SSH deploy key authentication
 
 For private repos, you can use a [GitHub deploy key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys) instead of a personal access token. Use the SSH URL (`git@github.com:org/repo.git`) and pass the private key contents via `NAO_CONTEXT_GIT_SSH_KEY`:
@@ -120,7 +124,7 @@ docker run -d \
   getnao/nao:latest
 ```
 
-GitHub's host keys are pre-pinned, so SSH host verification is strict (no MITM window on first connect).
+Enable **Allow write access** when creating a GitHub deploy key. It is off by default; without it, clones work but pushes fail. GitHub's host keys are pre-pinned, so SSH host verification is strict.
 
 ## Key Features
 

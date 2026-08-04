@@ -9,6 +9,7 @@ vi.hoisted(() => {
 	process.env.MODE = 'test';
 	process.env.NAO_MODE = 'self-hosted';
 	process.env.NAO_DEFAULT_PROJECT_PATH = '';
+	process.env.NAO_CONTEXT_SOURCE = 'local';
 });
 
 import type { ContextExplorerFileAccess } from '../src/services/context-explorer.service';
@@ -74,6 +75,7 @@ describe('context explorer worktree writes', () => {
 			projectId: 'project-id',
 			projectFolder: live,
 			userId: 'user-1',
+			user: { name: 'Test User', email: 'test@example.com' },
 			token: 'token',
 			configOverride: { provider: 'github', repoFullName: 'nao/context' },
 			integrationAvailableOverride: true,
@@ -110,6 +112,7 @@ describe('context explorer worktree writes', () => {
 				projectId: 'project-id',
 				projectFolder: live,
 				userId: 'user-1',
+				user: { name: 'Test User', email: 'test@example.com' },
 				token: 'token',
 				configOverride: null,
 				integrationAvailableOverride: true,

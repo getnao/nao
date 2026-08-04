@@ -24,6 +24,7 @@ import {
 	readCommittedFile,
 	resolveContextProject,
 	resolveContextRepo,
+	sanitizeContextSourceRepositoryUrl,
 	toContextRepoState,
 	toRepoPath,
 } from '../utils/context-repo';
@@ -37,11 +38,13 @@ import {
 	MAX_CONTEXT_FILE_SIZE,
 	validateContentBuffer,
 } from './context-explorer.service';
-import type { ReviewRequestProvider } from './review-request-provider';
+import type { OpenReviewRequestResult, ReviewRequestProvider } from './review-request-provider';
 import { REVIEW_REQUEST_PROVIDERS } from './review-request-provider';
 
 const REPO_FULL_NAME_PATTERN = /^[\w./-]+\/[\w.-]+$/;
 const GIT_OPERATION_TIMEOUT_MS = 120_000;
+
+export { sanitizeContextSourceRepositoryUrl };
 
 export type ContextRepositoryProvider = ReviewRequestProvider;
 
@@ -49,6 +52,7 @@ export interface ContextExplorerGitContext {
 	projectId: string;
 	projectFolder: string;
 	userId: string;
+	user: GitIdentity;
 	token: string | null;
 	configOverride?: ContextRepoConfig | null;
 	integrationAvailableOverride?: boolean;
@@ -78,7 +82,7 @@ export interface ContextRepositoryStatus {
 	lastCommitMessage: string | null;
 	lastCommitDate: string | null;
 	branches: ContextBranchInfo | null;
-	openReviewRequest: { url: string } | null;
+	openReviewRequest: OpenReviewRequestResult | null;
 	isGitRepository: boolean;
 }
 
@@ -136,10 +140,13 @@ export async function resolveContextExplorerGit(
 	if (!provider) {
 		return unavailable('unsupported-provider', configuredRepo);
 	}
-	if ((context.integrationAvailableOverride ?? provider.isIntegrationAvailable()) === false) {
+	if (
+		configuredRepo.provider !== 'generic' &&
+		(context.integrationAvailableOverride ?? provider.isIntegrationAvailable()) === false
+	) {
 		return unavailable('github-unavailable', configuredRepo);
 	}
-	if (!context.token) {
+	if (context.token === null) {
 		return unavailable('no-token', configuredRepo);
 	}
 	try {
@@ -254,7 +261,10 @@ export async function ensureContextWorktree(
 	if (!provider) {
 		throw new TRPCError({ code: 'FORBIDDEN', message: unavailableMessage('unsupported-provider') });
 	}
-	const matchingClone = findMatchingLocalClone(context.projectFolder, unresolved.repoFullName, provider);
+	const matchingClone =
+		unresolved.provider === 'generic'
+			? null
+			: findMatchingLocalClone(context.projectFolder, unresolved.repoFullName, provider);
 	if (!isHealthyWorktree(unresolved, provider)) {
 		removeBrokenWorktree(unresolved, context.projectFolder, matchingClone);
 		fs.mkdirSync(path.dirname(unresolved.worktreeRoot), { recursive: true });
@@ -316,6 +326,8 @@ export async function getContextRepositoryStatus(context: ContextExplorerGitCont
 				repo.repoFullName,
 				branches.currentBranch,
 				branches.defaultBranch,
+				context.projectId,
+				context.userId,
 			),
 			isGitRepository: true,
 		};
@@ -341,14 +353,10 @@ export function getDeploymentContextSource(): DeploymentContextSource | null {
 	}
 	return {
 		repositoryUrl: env.NAO_CONTEXT_GIT_URL ? sanitizeContextSourceRepositoryUrl(env.NAO_CONTEXT_GIT_URL) : null,
-		branch: env.NAO_CONTEXT_GIT_BRANCH || null,
+		branch: env.NAO_CONTEXT_GIT_BRANCH || 'main',
 		subpath: env.NAO_CONTEXT_GIT_SUBPATH || null,
 		authMethod: resolveContextSourceAuthMethod(),
 	};
-}
-
-export function sanitizeContextSourceRepositoryUrl(repositoryUrl: string): string {
-	return repositoryUrl.replace(/^(https?:\/\/)[^/]*@/i, '$1');
 }
 
 export async function getContextBranches(
@@ -510,7 +518,7 @@ export function pushContextBranch(
 	projectFolder: string,
 	provider: ContextRepositoryProvider,
 	token: string,
-): { branch: string; defaultBranch: string } {
+): { branch: string; defaultBranch: string; pushOutput: string } {
 	const branch = readCurrentBranch(repo);
 	const defaultBranch = readDefaultBranch(repo);
 	if (!branch || branch === defaultBranch) {
@@ -518,16 +526,21 @@ export function pushContextBranch(
 	}
 	assertSafeDestructiveWorktreeTarget(repo.worktreeRoot, projectFolder);
 	try {
-		provider.pushBranch({ token, repoFullName: repo.repoFullName, dir: repo.worktreeRoot, branch });
+		const pushOutput = provider.pushBranch({
+			token,
+			repoFullName: repo.repoFullName,
+			dir: repo.worktreeRoot,
+			branch,
+		});
 		runDestructiveWorktreeGit(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
 			'update-ref',
 			`refs/remotes/origin/${branch}`,
 			'HEAD',
 		]);
+		return { branch, defaultBranch, pushOutput };
 	} catch (error) {
 		throw sanitizeGitError(error, token);
 	}
-	return { branch, defaultBranch };
 }
 
 export function getContextBranchCommitMessages(repo: ResolvedContextRepo): string[] {
@@ -741,7 +754,7 @@ async function commitSelectedChanges(
 		return toRepoPath(repo, filePath);
 	});
 	const provider = context.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
-	const author = await provider.getUserGitIdentity(context.token);
+	const author = await provider.getUserGitIdentity({ token: context.token, user: context.user });
 	runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, ['add', '--', ...repoPaths]);
 	if (tryRunGit(repo.worktreeRoot, ['diff', '--cached', '--quiet'])) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'The selected files have no changes to commit.' });
@@ -828,10 +841,21 @@ function provisionByClone(
 		'origin',
 		provider.publicRepoUrl(repo.repoFullName),
 	]);
-	const defaultBranch = readDefaultBranchFromRefs(repo.worktreeRoot) ?? readCurrentBranchFromPath(repo.worktreeRoot);
+	const defaultBranch =
+		repo.provider === 'generic'
+			? env.NAO_CONTEXT_GIT_BRANCH || 'main'
+			: (readDefaultBranchFromRefs(repo.worktreeRoot) ?? readCurrentBranchFromPath(repo.worktreeRoot));
 	if (!defaultBranch) {
 		throw new Error('Unable to determine the repository default branch.');
 	}
+	if (!hasRefAt(repo.worktreeRoot, `refs/remotes/origin/${defaultBranch}`)) {
+		throw new Error(`Configured context branch not found: ${defaultBranch}`);
+	}
+	runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
+		'symbolic-ref',
+		'refs/remotes/origin/HEAD',
+		`refs/remotes/origin/${defaultBranch}`,
+	]);
 	runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
 		'switch',
 		'--detach',
@@ -857,6 +881,9 @@ function fetchContextRepository(
 }
 
 function readDefaultBranch(repo: ResolvedContextRepo): string {
+	if (repo.provider === 'generic') {
+		return env.NAO_CONTEXT_GIT_BRANCH || 'main';
+	}
 	const branch = readDefaultBranchFromRefs(repo.worktreeRoot);
 	if (!branch) {
 		throw new Error('Unable to determine the repository default branch.');
@@ -1178,12 +1205,20 @@ async function findOpenContextReviewRequest(
 	repoFullName: string,
 	currentBranch: string | null,
 	defaultBranch: string,
-): Promise<{ url: string } | null> {
+	projectId: string,
+	userId: string,
+): Promise<OpenReviewRequestResult | null> {
 	if (!currentBranch || currentBranch === defaultBranch) {
 		return null;
 	}
 	try {
-		return await provider.findOpenReviewRequest(token, repoFullName, currentBranch);
+		return await provider.findOpenReviewRequest({
+			token,
+			repoFullName,
+			branch: currentBranch,
+			projectId,
+			userId,
+		});
 	} catch {
 		return null;
 	}
@@ -1194,7 +1229,8 @@ function resolveAfterBranchChange(
 	projectFolder: string,
 	provider: ContextRepositoryProvider,
 ): ResolvedContextRepo {
-	const matchingClone = findMatchingLocalClone(projectFolder, repo.repoFullName, provider);
+	const matchingClone =
+		repo.provider === 'generic' ? null : findMatchingLocalClone(projectFolder, repo.repoFullName, provider);
 	return resolveContextProject({ ...repo, projectPrefix: null }, projectFolder, matchingClone);
 }
 
@@ -1290,7 +1326,9 @@ function unavailableMessage(reason: ContextGitUnavailableReason): string {
 	return {
 		'github-unavailable': 'GitHub is not configured for this instance. Add the GitHub client credentials first.',
 		'git-unavailable': 'Repository status is temporarily unavailable.',
-		'no-token': 'Connect your GitHub account before using Git actions in the context explorer.',
+		'no-token': isGitContextSource()
+			? 'Add NAO_CONTEXT_GIT_TOKEN or NAO_CONTEXT_GIT_SSH_KEY to edit and propose context changes.'
+			: 'Connect your GitHub account before using Git actions in the context explorer.',
 		'no-repo': 'No context repository is connected. Connect one in Git settings to edit context files.',
 		'unsupported-provider': 'Context explorer Git operations support GitHub only. GitLab is not supported yet.',
 		'project-not-found': 'No tracked nao_config.yaml was found in the connected repository.',

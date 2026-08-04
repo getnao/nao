@@ -2,6 +2,7 @@ import { REPO_PROVIDERS } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import { env } from '../env';
 import * as userQueries from '../queries/user.queries';
 import type { ContextExplorerFileAccess } from '../services/context-explorer.service';
 import {
@@ -36,7 +37,7 @@ const pathsSchema = z.array(z.string()).min(1).max(100);
 
 export const contextExplorerRoutes = {
 	getRepositoryStatus: contextAdminProtectedProcedure.query(async ({ ctx }) => {
-		return getContextRepositoryStatus(await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id));
+		return getContextRepositoryStatus(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
 	}),
 
 	connectRepository: contextAdminProtectedProcedure
@@ -58,6 +59,7 @@ export const contextExplorerRoutes = {
 				projectId: ctx.project.id,
 				projectFolder,
 				userId: ctx.user.id,
+				user: { name: ctx.user.name, email: ctx.user.email },
 				token: await userQueries.getGithubToken(ctx.user.id),
 			};
 			if (!context.token) {
@@ -75,12 +77,12 @@ export const contextExplorerRoutes = {
 	}),
 
 	getFileTree: contextAdminProtectedProcedure.query(async ({ ctx }) => {
-		const access = await createFileAccess(ctx.project.id, ctx.project.path, ctx.user.id);
+		const access = await createFileAccess(ctx.project.id, ctx.project.path, ctx.user);
 		return getFileTreeResponse(access);
 	}),
 
 	readFile: contextAdminProtectedProcedure.input(z.object({ path: z.string() })).query(async ({ ctx, input }) => {
-		const access = await createFileAccess(ctx.project.id, ctx.project.path, ctx.user.id);
+		const access = await createFileAccess(ctx.project.id, ctx.project.path, ctx.user);
 		return readFileContent(input.path, access);
 	}),
 
@@ -93,7 +95,7 @@ export const contextExplorerRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			const access = await createFileAccess(ctx.project.id, ctx.project.path, ctx.user.id);
+			const access = await createFileAccess(ctx.project.id, ctx.project.path, ctx.user);
 			return writeFileContent(input.path, input.content, input.expectedHash, access);
 		}),
 
@@ -102,18 +104,18 @@ export const contextExplorerRoutes = {
 		.query(({ ctx, input }) => searchFileContents(input.query, requireProjectPath(ctx.project.path))),
 
 	getChangedFiles: contextAdminProtectedProcedure.query(async ({ ctx }) => {
-		return getChangedContextFiles(await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id));
+		return getChangedContextFiles(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
 	}),
 
 	getFileDiff: contextAdminProtectedProcedure.input(z.object({ path: z.string() })).query(async ({ ctx, input }) => {
-		return getContextFileDiff(await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id), input.path);
+		return getContextFileDiff(await createGitContext(ctx.project.id, ctx.project.path, ctx.user), input.path);
 	}),
 
 	switchBranch: contextAdminProtectedProcedure
 		.input(z.object({ branch: branchSchema }))
 		.mutation(async ({ ctx, input }) => {
 			return switchContextBranch(
-				await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id),
+				await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
 				input.branch,
 			);
 		}),
@@ -122,13 +124,13 @@ export const contextExplorerRoutes = {
 		.input(z.object({ branch: branchSchema }))
 		.mutation(async ({ ctx, input }) => {
 			return createContextBranch(
-				await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id),
+				await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
 				input.branch,
 			);
 		}),
 
 	suggestBranchName: contextAdminProtectedProcedure.query(async ({ ctx }) => {
-		return suggestContextBranchName(await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id));
+		return suggestContextBranchName(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
 	}),
 
 	createBranchAndCommit: contextAdminProtectedProcedure
@@ -141,7 +143,7 @@ export const contextExplorerRoutes = {
 		)
 		.mutation(async ({ ctx, input }) => {
 			return createContextBranchAndCommit(
-				await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id),
+				await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
 				input,
 			);
 		}),
@@ -149,33 +151,33 @@ export const contextExplorerRoutes = {
 	commitChanges: contextAdminProtectedProcedure
 		.input(z.object({ paths: pathsSchema, message: z.string().trim().min(1).max(500) }))
 		.mutation(async ({ ctx, input }) => {
-			return commitContextChanges(await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id), input);
+			return commitContextChanges(await createGitContext(ctx.project.id, ctx.project.path, ctx.user), input);
 		}),
 
 	discardLocalChange: contextAdminProtectedProcedure
 		.input(z.object({ path: z.string() }))
 		.mutation(async ({ ctx, input }) => {
 			return discardContextFileChange(
-				await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id),
+				await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
 				input.path,
 			);
 		}),
 
 	discardAllChanges: contextAdminProtectedProcedure.mutation(async ({ ctx }) => {
-		return discardAllContextChanges(await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id));
+		return discardAllContextChanges(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
 	}),
 
 	pushBranch: contextAdminProtectedProcedure.mutation(async ({ ctx }) => {
-		return pushContextExplorerBranch(await createGitContext(ctx.project.id, ctx.project.path, ctx.user.id));
+		return pushContextExplorerBranch(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
 	}),
 };
 
 async function createFileAccess(
 	projectId: string,
 	projectPath: string | null,
-	userId: string,
+	user: { id: string; name: string; email: string },
 ): Promise<ContextExplorerFileAccess> {
-	const context = await createGitContext(projectId, projectPath, userId);
+	const context = await createGitContext(projectId, projectPath, user);
 	return {
 		projectFolder: context.projectFolder,
 		git: await resolveContextExplorerGit(context),
@@ -185,19 +187,21 @@ async function createFileAccess(
 async function createGitContext(
 	projectId: string,
 	projectPath: string | null,
-	userId: string,
+	user: { id: string; name: string; email: string },
 ): Promise<ContextExplorerGitContext> {
 	const projectFolder = requireProjectPath(projectPath);
 	const repository = await resolveContextRepository(projectId);
+	const generic = repository?.provider === 'generic';
 	return {
 		projectId,
 		projectFolder,
-		userId,
-		configOverride: repository ? { provider: repository.provider, repoFullName: repository.repoFullName } : null,
-		token:
-			repository?.provider === 'gitlab'
-				? await userQueries.getGitlabToken(userId)
-				: await userQueries.getGithubToken(userId),
+		userId: user.id,
+		user: { name: user.name, email: user.email },
+		token: generic
+			? (env.NAO_CONTEXT_GIT_TOKEN ?? (env.NAO_CONTEXT_GIT_SSH_KEY ? '' : null))
+			: repository?.provider === 'gitlab'
+				? await userQueries.getGitlabToken(user.id)
+				: await userQueries.getGithubToken(user.id),
 	};
 }
 

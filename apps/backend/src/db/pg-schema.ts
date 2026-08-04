@@ -681,6 +681,8 @@ export const contextBranchOwnership = pgTable(
 		userId: text('user_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
+		reviewRequestUrl: text('review_request_url'),
+		reviewRequestKind: text('review_request_kind', { enum: ['created', 'link'] }),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [

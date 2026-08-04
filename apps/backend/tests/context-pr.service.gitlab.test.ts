@@ -4,6 +4,11 @@ import path from 'node:path';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.hoisted(() => {
+	process.env.MODE = 'test';
+	process.env.NAO_CONTEXT_SOURCE = 'local';
+});
+
 import { createRecommendationPullRequest } from '../src/services/context-pr.service';
 import type { ProposedEdit } from '../src/types/context-recommendation';
 
@@ -18,6 +23,7 @@ const mocks = vi.hoisted(() => ({
 	getProjectById: vi.fn(),
 	getRecommendationById: vi.fn(),
 	getUserGitIdentity: vi.fn(),
+	getUser: vi.fn(),
 	setRecommendationPr: vi.fn(),
 }));
 
@@ -36,6 +42,7 @@ vi.mock('../src/queries/project.queries', () => ({
 vi.mock('../src/queries/user.queries', () => ({
 	getGithubToken: mocks.getGithubToken,
 	getGitlabToken: mocks.getGitlabToken,
+	getUser: mocks.getUser,
 }));
 
 vi.mock('../src/utils/logger', () => ({
@@ -71,6 +78,7 @@ describe('createRecommendationPullRequest (GitLab)', () => {
 		mocks.getProjectById.mockResolvedValue({ path: null });
 		mocks.getConfig.mockResolvedValue({ repoFullName: 'nao/context', repoProvider: 'gitlab' });
 		mocks.getGitlabToken.mockResolvedValue('gitlab-token');
+		mocks.getUser.mockResolvedValue({ id: 'user-1', name: 'User', email: 'user@example.com' });
 		mocks.getGitInfo.mockReturnValue({ branch: 'main', isGitlab: true, repoFullName: 'nao/context' });
 		mocks.getUserGitIdentity.mockResolvedValue({ email: 'user@example.com', name: 'User' });
 		mocks.createMergeRequest.mockResolvedValue({

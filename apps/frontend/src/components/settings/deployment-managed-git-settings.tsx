@@ -10,7 +10,7 @@ interface DeploymentManagedGitSettingsProps {
 }
 
 const AUTH_METHOD_LABELS: Record<DeploymentContextSource['authMethod'], string> = {
-	token: 'Deploy token',
+	token: 'Access token',
 	'ssh-key': 'SSH deploy key',
 	public: 'Public repository',
 };
@@ -21,7 +21,7 @@ export function DeploymentManagedGitSettings({ contextSource }: DeploymentManage
 			<div className='space-y-1'>
 				<h2 className='text-base font-semibold'>Context files are managed by your deployment</h2>
 				<p className='text-sm text-muted-foreground'>
-					Your deployment loads context files from a repository, so there is nothing to set up here.
+					Your deployment loads context files from this repository and manages its connection.
 				</p>
 			</div>
 
@@ -62,7 +62,9 @@ export function DeploymentManagedGitSettings({ contextSource }: DeploymentManage
 			)}
 
 			<p className='text-sm text-muted-foreground'>
-				Update context by pushing changes to this repository rather than editing it in nao.
+				{contextSource?.authMethod === 'public'
+					? 'Context files are read-only because no access token or SSH deploy key is configured.'
+					: 'Context admins can edit files in nao, commit them, and propose the changes for review.'}
 			</p>
 		</section>
 	);

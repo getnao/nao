@@ -272,7 +272,7 @@ export function commitAllAndPushBranch(args: {
 	message: string;
 	author: GitIdentity;
 	coAuthors?: GitIdentity[];
-}): void {
+}): string {
 	const { token, repoFullName, dir, branch, message, author, coAuthors = [] } = args;
 	const opts = { cwd: dir, stdio: 'pipe' as const, timeout: 120_000 };
 
@@ -290,11 +290,11 @@ export function commitAllAndPushBranch(args: {
 		env: { ...process.env, ...identity },
 	});
 
-	pushBranch({ token, repoFullName, dir, branch });
+	return pushBranch({ token, repoFullName, dir, branch });
 }
 
-export function pushBranch(args: { token: string; repoFullName: string; dir: string; branch: string }): void {
-	execFileSync(
+export function pushBranch(args: { token: string; repoFullName: string; dir: string; branch: string }): string {
+	return execFileSync(
 		'git',
 		['push', authenticatedRepoUrl(args.token, args.repoFullName), `HEAD:refs/heads/${args.branch}`],
 		{
@@ -302,7 +302,7 @@ export function pushBranch(args: { token: string; repoFullName: string; dir: str
 			stdio: 'pipe',
 			timeout: 120_000,
 		},
-	);
+	).toString();
 }
 
 export interface CreateMergeRequestInput {
@@ -316,9 +316,10 @@ export async function createMergeRequest(
 	token: string,
 	repoFullName: string,
 	input: CreateMergeRequestInput,
+	apiBaseUrl = gitlabApiUrl(),
 ): Promise<{ iid: number; web_url: string }> {
 	const encodedPath = encodeURIComponent(repoFullName);
-	const res = await fetch(`${gitlabApiUrl()}/projects/${encodedPath}/merge_requests`, {
+	const res = await fetch(`${apiBaseUrl}/projects/${encodedPath}/merge_requests`, {
 		method: 'POST',
 		headers: {
 			Authorization: `Bearer ${token}`,

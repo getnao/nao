@@ -15,12 +15,16 @@ vi.hoisted(() => {
 	delete process.env.NAO_CONTEXT_GIT_SUBPATH;
 	delete process.env.NAO_CONTEXT_GIT_TOKEN;
 	delete process.env.NAO_CONTEXT_GIT_SSH_KEY;
+	delete process.env.NAO_CONTEXT_GIT_PLATFORM;
+	delete process.env.NAO_CONTEXT_GIT_USERNAME;
 });
 
 const branchOwnershipMocks = vi.hoisted(() => {
 	const owners = new Map<string, string>();
+	const reviewRequests = new Map<string, { kind: 'created' | 'link'; url: string }>();
 	return {
 		owners,
+		reviewRequests,
 		claimContextBranch: vi.fn(async (projectId: string, branch: string, userId: string) => {
 			const key = `${projectId}:${branch}`;
 			if (owners.has(key)) {
@@ -45,6 +49,19 @@ const branchOwnershipMocks = vi.hoisted(() => {
 		isContextBranchOwnedByUser: vi.fn(async (projectId: string, branch: string, userId: string) => {
 			return owners.get(`${projectId}:${branch}`) === userId;
 		}),
+		getContextBranchReviewRequest: vi.fn(async (projectId: string, branch: string, userId: string) => {
+			return reviewRequests.get(`${projectId}:${branch}:${userId}`) ?? null;
+		}),
+		setContextBranchReviewRequest: vi.fn(
+			async (
+				projectId: string,
+				branch: string,
+				userId: string,
+				reviewRequest: { kind: 'created' | 'link'; url: string },
+			) => {
+				reviewRequests.set(`${projectId}:${branch}:${userId}`, reviewRequest);
+			},
+		),
 	};
 });
 
@@ -53,8 +70,20 @@ const contextConfigMocks = vi.hoisted(() => ({
 	updateConfig: vi.fn(),
 }));
 
+const loggerMocks = vi.hoisted(() => ({
+	warn: vi.fn(),
+}));
+
 vi.mock('../src/queries/context-branch-ownership.queries', () => branchOwnershipMocks);
 vi.mock('../src/queries/context-recommendation.queries', () => contextConfigMocks);
+vi.mock('../src/utils/logger', () => ({
+	logger: {
+		warn: loggerMocks.warn,
+	},
+	serializeError: (error: unknown) => ({
+		message: error instanceof Error ? error.message : String(error),
+	}),
+}));
 
 import { __reloadEnvForTesting } from '../src/env';
 import { getFileTreeResponse, readFileContent, writeFileContent } from '../src/services/context-explorer.service';
@@ -81,6 +110,7 @@ import {
 	switchContextBranch,
 } from '../src/services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../src/services/context-explorer-pr.service';
+import { GENERIC_GIT_PROVIDER, parseGenericRepositoryUrl, parseReviewRequestLink } from '../src/services/generic-git';
 import { getContextWorktreePath, resolveContextRepository } from '../src/utils/context-repo';
 
 describe('deployment context source', () => {
@@ -93,6 +123,7 @@ describe('deployment context source', () => {
 	afterEach(() => {
 		process.env = originalEnv;
 		__reloadEnvForTesting();
+		vi.unstubAllGlobals();
 	});
 
 	it.each([
@@ -119,29 +150,113 @@ describe('deployment context source', () => {
 		expect(getDeploymentContextSource()).toBeNull();
 	});
 
-	it('includes sanitized context source details while context editing is read-only', async () => {
+	it.each([
+		['https://github.com/nao/context.git', 'github.com', 'nao/context'],
+		['git@git.example.com:team/context.git', 'git.example.com', 'team/context'],
+	])('derives the generic repository from %s', async (url, host, repositoryPath) => {
+		setContextSourceEnv({ url, token: 'secret' });
+
+		await expect(resolveContextRepository('project-id')).resolves.toMatchObject({
+			provider: 'generic',
+			repoFullName: url,
+			branch: 'main',
+			source: 'deployment',
+		});
+		expect(parseGenericRepositoryUrl(url)).toMatchObject({ host, repositoryPath });
+	});
+
+	it.each([
+		[{ token: 'secret-token' }, 'secret-token'],
+		[{ sshKey: 'private-key' }, ''],
+	] as const)('enables generic Git with deployment credentials', async (credentials, expectedToken) => {
+		setContextSourceEnv(credentials);
+
+		expect(GENERIC_GIT_PROVIDER.isIntegrationAvailable()).toBe(true);
+		await expect(GENERIC_GIT_PROVIDER.getToken('user-1')).resolves.toBe(expectedToken);
+	});
+
+	it('keeps a public deployment repository read-only', async () => {
+		setContextSourceEnv({});
+
+		expect(GENERIC_GIT_PROVIDER.isIntegrationAvailable()).toBe(false);
+		await expect(GENERIC_GIT_PROVIDER.getToken('user-1')).resolves.toBeNull();
+	});
+
+	it.each([
+		[
+			'github',
+			'remote: Create a pull request for nao/test by visiting:\nremote:   https://github.com/nao/context/pull/new/nao/test',
+			'https://github.com/nao/context/pull/new/nao/test',
+		],
+		[
+			'gitlab',
+			'remote: View merge request for nao/test:\nremote:   https://gitlab.com/nao/context/-/merge_requests/new?merge_request[source_branch]=nao/test',
+			'https://gitlab.com/nao/context/-/merge_requests/new?merge_request[source_branch]=nao/test',
+		],
+		[
+			'bitbucket',
+			'remote: Create pull request for nao/test:\nremote:   https://bitbucket.org/nao/context/pull-requests/new?source=nao/test',
+			'https://bitbucket.org/nao/context/pull-requests/new?source=nao/test',
+		],
+		[
+			'self-hosted HTTP',
+			'remote: Create merge request:\nremote:   http://git.example.com/nao/context/merge_requests/new?source=nao/test',
+			'http://git.example.com/nao/context/merge_requests/new?source=nao/test',
+		],
+	])('parses the %s review link from push output', (_platform, output, expected) => {
+		expect(parseReviewRequestLink(output)).toBe(expected);
+	});
+
+	it('returns no review link when push output has none', () => {
+		expect(
+			parseReviewRequestLink('To github.com:nao/context.git\n * [new branch] nao/test -> nao/test'),
+		).toBeNull();
+	});
+
+	it('falls back to the pushed review link when the platform API fails', async () => {
+		setContextSourceEnv({ token: 'push-only-token' });
+		vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network unavailable')));
+		const link = 'https://github.com/nao/context/pull/new/nao/test';
+
+		await expect(
+			GENERIC_GIT_PROVIDER.openReviewRequest('push-only-token', 'https://github.com/nao/context.git', {
+				title: 'Update context',
+				head: 'nao/test',
+				base: 'main',
+				body: '- Update context',
+				requester: { name: 'Test User', email: 'test@example.com' },
+				pushOutput: `remote: Create a pull request by visiting:\nremote:   ${link}`,
+			}),
+		).resolves.toEqual({ kind: 'link', url: link, apiRefused: true });
+		expect(loggerMocks.warn).toHaveBeenCalledWith(
+			'Git platform API could not create a review request after the branch was pushed.',
+			expect.objectContaining({
+				context: expect.objectContaining({
+					error: { message: 'network unavailable' },
+				}),
+			}),
+		);
+	});
+
+	it('includes sanitized context source details when no write credential is configured', async () => {
 		setContextSourceEnv({
 			url: 'https://user:secret@github.com/nao/context.git',
 			branch: 'production',
 			subpath: 'projects/analytics',
-			token: 'secret',
 		});
 
-		const status = await getContextRepositoryStatus({
-			...baseContext(process.cwd(), null),
-			integrationAvailableOverride: false,
-		});
+		const status = await getContextRepositoryStatus({ ...baseContext(process.cwd(), null), token: null });
 
 		expect(status).toMatchObject({
 			managedByContextSource: true,
-			gitUnavailableReason: 'no-repo',
+			gitUnavailableReason: 'no-token',
 			gitUnavailableMessage:
-				'No context repository is connected. Connect one in Git settings to edit context files.',
+				'Add NAO_CONTEXT_GIT_TOKEN or NAO_CONTEXT_GIT_SSH_KEY to edit and propose context changes.',
 			contextSource: {
 				repositoryUrl: 'https://github.com/nao/context.git',
 				branch: 'production',
 				subpath: 'projects/analytics',
-				authMethod: 'token',
+				authMethod: 'public',
 			},
 		});
 	});
@@ -180,8 +295,11 @@ describe('repository remote normalization', () => {
 
 describe('context explorer worktrees', () => {
 	const temporaryRoots: string[] = [];
+	let originalEnv: typeof process.env;
 
 	beforeEach(() => {
+		originalEnv = { ...process.env };
+		setContextSourceEnv({ source: null });
 		contextConfigMocks.getConfig.mockResolvedValue(null);
 		contextConfigMocks.updateConfig.mockResolvedValue(undefined);
 	});
@@ -191,7 +309,10 @@ describe('context explorer worktrees', () => {
 			fs.rmSync(root, { recursive: true, force: true });
 		}
 		branchOwnershipMocks.owners.clear();
+		branchOwnershipMocks.reviewRequests.clear();
 		vi.clearAllMocks();
+		process.env = originalEnv;
+		__reloadEnvForTesting();
 	});
 
 	it('clones into the derived worktree and never changes the live folder', async () => {
@@ -230,6 +351,41 @@ describe('context explorer worktrees', () => {
 			'repository content\n',
 		);
 		expectLiveUnchanged(fixture.live, before);
+	});
+
+	it('uses a fresh full clone and configured subpath for deployment-managed Git', async () => {
+		const fixture = createLocalCloneFixture(temporaryRoots);
+		setContextSourceEnv({
+			url: 'https://github.com/nao/context.git',
+			branch: 'main',
+			subpath: 'project',
+			token: 'deployment-token',
+		});
+		fixture.context.token = 'deployment-token';
+
+		const repo = await ensureContextWorktree(fixture.context);
+		const gitDirectory = runGit(repo.worktreeRoot, ['rev-parse', '--absolute-git-dir']).toString().trim();
+
+		expect(repo.provider).toBe('generic');
+		expect(repo.projectPrefix).toBe('project');
+		expect(fs.realpathSync(gitDirectory)).toBe(fs.realpathSync(path.join(repo.worktreeRoot, '.git')));
+		expect(fs.readFileSync(path.join(repo.worktreeRoot, 'project', 'context.md'), 'utf8')).toBe(
+			'repository content\n',
+		);
+	});
+
+	it.each([
+		['token', { token: 'deployment-token' }, 'deployment-token'],
+		['SSH key', { sshKey: 'private-key' }, ''],
+	] as const)('makes deployment-managed Git available with a %s', async (_label, credentials, token) => {
+		const fixture = createFixture(temporaryRoots);
+		setContextSourceEnv({ url: 'https://github.com/nao/context.git', ...credentials });
+		fixture.context.token = token;
+
+		await expect(resolveContextExplorerGit(fixture.context)).resolves.toMatchObject({
+			status: 'available',
+			repo: { provider: 'generic', repoFullName: 'https://github.com/nao/context.git' },
+		});
 	});
 
 	it('isolates users in detached worktrees from the same local clone', async () => {
@@ -445,6 +601,24 @@ describe('context explorer worktrees', () => {
 		expectLiveUnchanged(fixture.live, before);
 	});
 
+	it('uses the logged-in nao user as the commit identity', async () => {
+		const fixture = createFixture(temporaryRoots);
+		fixture.context.user = { name: 'Nao Account', email: 'nao-account@example.com' };
+		const access = await fileAccess(fixture.context);
+		const file = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'identity edit\n', file.hash, access);
+
+		await createContextBranchAndCommit(fixture.context, {
+			paths: ['/context.md'],
+			message: 'Use account identity',
+		});
+		const repo = await ensureContextWorktree(fixture.context);
+
+		expect(runGit(repo.worktreeRoot, ['log', '-1', '--format=%an <%ae>|%cn <%ce>']).toString().trim()).toBe(
+			'Nao Account <nao-account@example.com>|Nao Account <nao-account@example.com>',
+		);
+	});
+
 	it('rejects commits until an owned branch is checked out', async () => {
 		const fixture = createFixture(temporaryRoots);
 		const access = await fileAccess(fixture.context);
@@ -655,9 +829,8 @@ describe('context explorer worktrees', () => {
 		const result = await pushContextExplorerBranch(fixture.context);
 
 		expect(result).toEqual({
-			url: 'https://github.com/nao/context/pull/1',
 			branch: commit.branch,
-			reviewRequest: 'opened',
+			reviewRequest: { kind: 'created', url: 'https://github.com/nao/context/pull/1' },
 		});
 		expect(
 			runGit(fixture.root, ['--git-dir', fixture.bare, 'show', `${result.branch}:context.md`]).toString(),
@@ -738,6 +911,8 @@ describe('context explorer worktrees', () => {
 			body: '- Update shared context\n- Clarify context details',
 			head: committed.branch,
 			base: 'main',
+			requester: { name: 'Test User', email: 'test@example.com' },
+			pushOutput: '',
 		});
 		expect(
 			runGit(fixture.root, ['--git-dir', fixture.bare, 'show', `${committed.branch}:context.md`]).toString(),
@@ -752,7 +927,7 @@ describe('context explorer worktrees', () => {
 		if (!provider) {
 			throw new Error('Expected a local provider.');
 		}
-		const existingPullRequest = { url: 'https://github.com/nao/context/pull/7' };
+		const existingPullRequest = { kind: 'created' as const, url: 'https://github.com/nao/context/pull/7' };
 		vi.spyOn(provider, 'findOpenReviewRequest').mockResolvedValue(existingPullRequest);
 		const openReviewRequest = vi.spyOn(provider, 'openReviewRequest');
 		const access = await fileAccess(fixture.context);
@@ -766,15 +941,57 @@ describe('context explorer worktrees', () => {
 		const result = await pushContextExplorerBranch(fixture.context);
 
 		expect(result).toEqual({
-			url: existingPullRequest.url,
 			branch: committed.branch,
-			reviewRequest: 'updated',
+			reviewRequest: { kind: 'created', url: existingPullRequest.url },
 		});
 		expect(openReviewRequest).not.toHaveBeenCalled();
 		expect(
 			runGit(fixture.root, ['--git-dir', fixture.bare, 'show', `${committed.branch}:context.md`]).toString(),
 		).toBe('existing pull request edit\n');
 		expectLiveUnchanged(fixture.live, before);
+	});
+
+	it('reuses the stored review link after later pushes stop printing it', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const provider = fixture.context.providerOverride;
+		if (!provider) {
+			throw new Error('Expected a local provider.');
+		}
+		const reviewLink = {
+			kind: 'link' as const,
+			url: 'https://git.example.com/nao/context/pullrequestcreate?source=nao/test',
+		};
+		vi.spyOn(provider, 'findOpenReviewRequest').mockImplementation(
+			async ({ projectId, branch, userId }) =>
+				branchOwnershipMocks.reviewRequests.get(`${projectId}:${branch}:${userId}`) ?? null,
+		);
+		const openReviewRequest = vi.spyOn(provider, 'openReviewRequest').mockResolvedValue(reviewLink);
+		const access = await fileAccess(fixture.context);
+		const file = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'first stored link edit\n', file.hash, access);
+		const committed = await createContextBranchAndCommit(fixture.context, {
+			paths: ['/context.md'],
+			message: 'First stored link edit',
+		});
+
+		const firstPush = await pushContextExplorerBranch(fixture.context);
+		const pushedFile = await readFileContent('/context.md', access);
+		await writeFileContent('/context.md', 'second stored link edit\n', pushedFile.hash, access);
+		await commitContextChanges(fixture.context, {
+			paths: ['/context.md'],
+			message: 'Second stored link edit',
+		});
+		const secondPush = await pushContextExplorerBranch(fixture.context);
+
+		expect(firstPush).toEqual({ branch: committed.branch, reviewRequest: reviewLink });
+		expect(secondPush).toEqual({ branch: committed.branch, reviewRequest: reviewLink });
+		expect(openReviewRequest).toHaveBeenCalledOnce();
+		expect(branchOwnershipMocks.setContextBranchReviewRequest).toHaveBeenCalledWith(
+			'project-id',
+			committed.branch,
+			'user-1',
+			reviewLink,
+		);
 	});
 
 	it('reports an empty branch as having nothing to push without throwing', async () => {
@@ -998,6 +1215,7 @@ function baseContext(
 		projectId: 'project-id',
 		projectFolder,
 		userId: 'user-1',
+		user: { name: 'Test User', email: 'test@example.com' },
 		token: 'test-token',
 		configOverride,
 		integrationAvailableOverride: true,
@@ -1025,6 +1243,8 @@ function setContextSourceEnv({
 	delete process.env.NAO_CONTEXT_GIT_SUBPATH;
 	delete process.env.NAO_CONTEXT_GIT_TOKEN;
 	delete process.env.NAO_CONTEXT_GIT_SSH_KEY;
+	delete process.env.NAO_CONTEXT_GIT_PLATFORM;
+	delete process.env.NAO_CONTEXT_GIT_USERNAME;
 	if (source) {
 		process.env.NAO_CONTEXT_SOURCE = source;
 	}
@@ -1047,7 +1267,7 @@ function setContextSourceEnv({
 }
 
 function localProvider(bare: string, publicUrl = 'https://github.com/nao/context.git'): ContextRepositoryProvider {
-	let openReviewRequest: { url: string } | null = null;
+	let openReviewRequest: { kind: 'created'; url: string } | null = null;
 	return {
 		getToken: async () => 'test-token',
 		notConnectedMessage: 'Not connected.',
@@ -1056,16 +1276,17 @@ function localProvider(bare: string, publicUrl = 'https://github.com/nao/context
 		publicRepoUrl: () => publicUrl,
 		cloneRepo: () => undefined,
 		getGitInfo: () => ({ branch: 'main' }),
-		getUserGitIdentity: async () => ({ name: 'Test User', email: 'test@example.com' }),
+		getUserGitIdentity: async ({ user }) => user,
 		coAuthor: { name: 'nao', email: 'naoagent@getnao.io' },
 		commitAllAndPushBranch: () => undefined,
 		pushBranch: ({ dir, branch }) => {
 			runGit(dir, ['push', bare, `HEAD:refs/heads/${branch}`]);
+			return '';
 		},
 		findOpenReviewRequest: async () => openReviewRequest,
 		findReviewRequestByBranch: async () => null,
 		openReviewRequest: async () => {
-			openReviewRequest = { url: 'https://github.com/nao/context/pull/1' };
+			openReviewRequest = { kind: 'created', url: 'https://github.com/nao/context/pull/1' };
 			return openReviewRequest;
 		},
 	};

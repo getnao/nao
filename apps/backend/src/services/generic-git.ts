@@ -1,0 +1,278 @@
+import { execFileSync, spawnSync } from 'node:child_process';
+
+import { env } from '../env';
+import { sanitizeContextSourceRepositoryUrl } from '../utils/context-repo';
+import { GitIdentity, NAO_CO_AUTHOR, withCoAuthors } from '../utils/git-identity';
+import { toGitError } from '../utils/git-repo';
+import * as github from './github';
+import * as gitlab from './gitlab';
+import type { OpenReviewRequestResult, ReviewRequestProvider } from './review-request-provider';
+
+export interface ParsedGenericRepository {
+	host: string;
+	origin: string;
+	repositoryPath: string;
+}
+
+export const GENERIC_GIT_PROVIDER: ReviewRequestProvider = {
+	getToken: async () => env.NAO_CONTEXT_GIT_TOKEN ?? (env.NAO_CONTEXT_GIT_SSH_KEY ? '' : null),
+	notConnectedMessage: 'Add an access token or SSH deploy key to edit context files.',
+	isIntegrationAvailable: () =>
+		env.NAO_CONTEXT_SOURCE === 'git' &&
+		!!env.NAO_CONTEXT_GIT_URL &&
+		!!(env.NAO_CONTEXT_GIT_TOKEN || env.NAO_CONTEXT_GIT_SSH_KEY),
+	authenticatedRepoUrl,
+	publicRepoUrl: sanitizeContextSourceRepositoryUrl,
+	cloneRepo,
+	getGitInfo,
+	getUserGitIdentity: async ({ user }) => user,
+	coAuthor: NAO_CO_AUTHOR,
+	commitAllAndPushBranch,
+	pushBranch,
+	findOpenReviewRequest: async ({ projectId, branch, userId }) => {
+		const queries = await import('../queries/context-branch-ownership.queries');
+		return queries.getContextBranchReviewRequest(projectId, branch, userId);
+	},
+	findReviewRequestByBranch: async () => null,
+	openReviewRequest,
+};
+
+export function parseGenericRepositoryUrl(repositoryUrl: string): ParsedGenericRepository | null {
+	const shorthand = repositoryUrl.match(/^(?:[^@/]+@)?([^:/]+):(.+)$/);
+	if (!repositoryUrl.includes('://') && shorthand) {
+		return toParsedRepository(shorthand[1], shorthand[2], `https://${shorthand[1]}`);
+	}
+	try {
+		const parsed = new URL(repositoryUrl);
+		return toParsedRepository(parsed.hostname, parsed.pathname, `${parsed.protocol}//${parsed.host}`);
+	} catch {
+		return null;
+	}
+}
+
+export function parseReviewRequestLink(pushOutput: string): string | null {
+	for (const line of pushOutput.split(/\r?\n/)) {
+		if (!/^\s*remote:\s*/i.test(line)) {
+			continue;
+		}
+		const url = line.match(/https?:\/\/[^\s<>()]+/)?.[0]?.replace(/[.,;:]$/, '');
+		if (url) {
+			return url;
+		}
+	}
+	return null;
+}
+
+function authenticatedRepoUrl(token: string, repositoryUrl: string): string {
+	if (!token || !/^https?:\/\//i.test(repositoryUrl)) {
+		return repositoryUrl;
+	}
+	const parsed = new URL(repositoryUrl);
+	if (parsed.username || parsed.password) {
+		return repositoryUrl;
+	}
+	if (env.NAO_CONTEXT_GIT_USERNAME) {
+		parsed.username = env.NAO_CONTEXT_GIT_USERNAME;
+		parsed.password = token;
+	} else {
+		parsed.username = token;
+	}
+	return parsed.toString();
+}
+
+function cloneRepo(token: string, repositoryUrl: string, targetDir: string): void {
+	execFileSync('git', ['clone', authenticatedRepoUrl(token, repositoryUrl), targetDir], {
+		timeout: 120_000,
+		stdio: 'pipe',
+	});
+	execFileSync('git', ['remote', 'set-url', 'origin', sanitizeContextSourceRepositoryUrl(repositoryUrl)], {
+		cwd: targetDir,
+		timeout: 5_000,
+		stdio: 'pipe',
+	});
+}
+
+function getGitInfo(dir: string): { branch: string | null } {
+	try {
+		const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+			cwd: dir,
+			timeout: 5_000,
+			stdio: 'pipe',
+		})
+			.toString()
+			.trim();
+		return { branch: branch && branch !== 'HEAD' ? branch : null };
+	} catch {
+		return { branch: null };
+	}
+}
+
+function commitAllAndPushBranch(args: {
+	token: string;
+	repoFullName: string;
+	dir: string;
+	branch: string;
+	message: string;
+	author: GitIdentity;
+	coAuthors?: GitIdentity[];
+}): string {
+	const options = { cwd: args.dir, stdio: 'pipe' as const, timeout: 120_000 };
+	const identity = {
+		GIT_AUTHOR_NAME: args.author.name,
+		GIT_AUTHOR_EMAIL: args.author.email,
+		GIT_COMMITTER_NAME: args.author.name,
+		GIT_COMMITTER_EMAIL: args.author.email,
+	};
+	execFileSync('git', ['checkout', '-b', args.branch], options);
+	execFileSync('git', ['add', '-A'], options);
+	execFileSync('git', ['commit', '-m', withCoAuthors(args.message, args.coAuthors ?? [])], {
+		...options,
+		env: { ...process.env, ...identity },
+	});
+	return pushBranch(args);
+}
+
+function pushBranch(args: { token: string; repoFullName: string; dir: string; branch: string }): string {
+	const result = spawnSync(
+		'git',
+		['push', authenticatedRepoUrl(args.token, args.repoFullName), `HEAD:refs/heads/${args.branch}`],
+		{
+			cwd: args.dir,
+			encoding: 'utf8',
+			timeout: 120_000,
+		},
+	);
+	if (result.error || result.status !== 0) {
+		const spawnError = result.error as NodeJS.ErrnoException | undefined;
+		throw toGitError({
+			message: spawnError?.message ?? 'Git push failed.',
+			code: spawnError?.code,
+			stderr: result.stderr,
+			killed: result.signal !== null,
+		});
+	}
+	return `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
+}
+
+async function openReviewRequest(
+	token: string,
+	repositoryUrl: string,
+	args: {
+		title: string;
+		head: string;
+		base: string;
+		body: string;
+		requester: GitIdentity;
+		pushOutput: string;
+	},
+): Promise<OpenReviewRequestResult | null> {
+	const parsed = parseGenericRepositoryUrl(repositoryUrl);
+	const platform = env.NAO_CONTEXT_GIT_PLATFORM ?? detectPlatform(parsed?.host);
+	if (platform && token && parsed) {
+		try {
+			return await createReviewRequest(platform, token, parsed, args);
+		} catch (error) {
+			const { logger, serializeError } = await import('../utils/logger');
+			logger.warn('Git platform API could not create a review request after the branch was pushed.', {
+				source: 'system',
+				context: {
+					error: serializeError(error),
+					repositoryUrl: sanitizeContextSourceRepositoryUrl(repositoryUrl),
+				},
+			});
+			const url = parseReviewRequestLink(args.pushOutput);
+			return url ? { kind: 'link', url, apiRefused: true } : null;
+		}
+	}
+	const url = parseReviewRequestLink(args.pushOutput);
+	return url ? { kind: 'link', url } : null;
+}
+
+async function createReviewRequest(
+	platform: 'github' | 'gitlab' | 'bitbucket',
+	token: string,
+	repository: ParsedGenericRepository,
+	args: { title: string; head: string; base: string; body: string; requester: GitIdentity },
+): Promise<OpenReviewRequestResult> {
+	const body = `${args.body}${args.body ? '\n\n' : ''}Requested by ${args.requester.name}`;
+	if (platform === 'github') {
+		const apiBaseUrl = repository.host === 'github.com' ? 'https://api.github.com' : `${repository.origin}/api/v3`;
+		const pullRequest = await github.createPullRequest(
+			token,
+			repository.repositoryPath,
+			{ title: args.title, head: args.head, base: args.base, body },
+			apiBaseUrl,
+		);
+		return { kind: 'created', url: pullRequest.html_url };
+	}
+	if (platform === 'gitlab') {
+		const mergeRequest = await gitlab.createMergeRequest(
+			token,
+			repository.repositoryPath,
+			{
+				title: args.title,
+				source_branch: args.head,
+				target_branch: args.base,
+				description: body,
+			},
+			`${repository.origin}/api/v4`,
+		);
+		return { kind: 'created', url: mergeRequest.web_url };
+	}
+	return createBitbucketPullRequest(token, repository.repositoryPath, {
+		title: args.title,
+		description: body,
+		head: args.head,
+		base: args.base,
+	});
+}
+
+async function createBitbucketPullRequest(
+	token: string,
+	repositoryPath: string,
+	args: { title: string; description: string; head: string; base: string },
+): Promise<OpenReviewRequestResult> {
+	const response = await fetch(`https://api.bitbucket.org/2.0/repositories/${repositoryPath}/pullrequests`, {
+		method: 'POST',
+		headers: {
+			Authorization: bitbucketAuthorization(token),
+			'Content-Type': 'application/json',
+		},
+		body: JSON.stringify({
+			title: args.title,
+			description: args.description,
+			source: { branch: { name: args.head } },
+			destination: { branch: { name: args.base } },
+		}),
+	});
+	if (!response.ok) {
+		const body = await response.text().catch(() => '');
+		throw new Error(`Bitbucket API ${response.status} ${response.statusText}: ${body.slice(0, 500)}`);
+	}
+	const result = (await response.json()) as { links: { html: { href: string } } };
+	return { kind: 'created', url: result.links.html.href };
+}
+
+function bitbucketAuthorization(token: string): string {
+	return env.NAO_CONTEXT_GIT_USERNAME
+		? `Basic ${Buffer.from(`${env.NAO_CONTEXT_GIT_USERNAME}:${token}`).toString('base64')}`
+		: `Bearer ${token}`;
+}
+
+function detectPlatform(host: string | undefined): 'github' | 'gitlab' | 'bitbucket' | null {
+	return host === 'github.com'
+		? 'github'
+		: host === 'gitlab.com'
+			? 'gitlab'
+			: host === 'bitbucket.org'
+				? 'bitbucket'
+				: null;
+}
+
+function toParsedRepository(host: string, repositoryPath: string, origin: string): ParsedGenericRepository | null {
+	const normalizedPath = repositoryPath
+		.replace(/^\/+/, '')
+		.replace(/\/+$/, '')
+		.replace(/\.git$/i, '');
+	return host && normalizedPath ? { host: host.toLowerCase(), origin, repositoryPath: normalizedPath } : null;
+}

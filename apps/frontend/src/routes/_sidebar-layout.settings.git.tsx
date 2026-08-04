@@ -100,7 +100,7 @@ function GitSettingsPage() {
 				titleSize='lg'
 				description={
 					status?.managedByContextSource
-						? 'View the repository your deployment uses for context files.'
+						? 'View the deployment-managed repository used to edit and propose context changes.'
 						: 'Set up GitHub so context admins can edit context files and propose changes for review.'
 				}
 				unstyled
