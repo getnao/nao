@@ -1,0 +1,5 @@
+<timestamp>Wednesday, Jul 22, 2026, 5:55 PM (UTC+2)</timestamp>
+
+when doing the animation between 2 changes it goes back to the default instead of moving from the previous state for instance
+
+i start from whole dataset, i filter out some rows animation works well, then i filter more rows here it glitches goes to the whole dataset and animate to the new filter instead of moving directly to the new state
