@@ -1,0 +1,3 @@
+<timestamp>Friday, Jul 24, 2026, 5:41 PM (UTC+2)</timestamp>
+
+when i run a query on the view it says "no such table: source_message"
