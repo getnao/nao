@@ -1,0 +1,3 @@
+<timestamp>Sunday, Jul 5, 2026, 7:49 PM (UTC+2)</timestamp>
+
+can i connect to Cursor API to get my team usage?
