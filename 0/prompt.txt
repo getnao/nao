@@ -1,0 +1,3 @@
+<timestamp>Tuesday, Jul 21, 2026, 10:06 PM (UTC+2)</timestamp>
+
+i've added a filter on "<filter id="payment_method" column="payment_method" label="Payment Method" type="multi_select" table="jaffle_shop.main.stg_payments" charts='["query_1ee3175b"]' />" but the query do not output the payment_method so the list of values of the filter is empty, maybe we should not correlate the list of value to the charts related but just with the table+column?
