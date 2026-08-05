@@ -1,0 +1,3 @@
+after having uploaded a xsls (but same for other kind of files) the agent ran a few sql queries did a few charts and the page is significatively lagging and slow, bugging on chart/sql code highlight when collasping or not the tools visually
+
+funny enough when i open the same url in another tab it does lag the same
