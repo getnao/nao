@@ -117,6 +117,7 @@ include = [
 exclude = ["**/example/**"]
 
 [tool.uv]
+required-version = ">=0.9.17"
 exclude-newer = "2 days"
 
 [tool.uv.pip]
