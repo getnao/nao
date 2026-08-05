@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "e09d1999-4cc0-47f5-ba37-12d9ab388b46",
-  "prevId": "851ce55f-bbb7-428f-a26c-d84d68b4effe",
+  "id": "df8de264-3385-44ce-85cc-0267d85291fa",
+  "prevId": "e09d1999-4cc0-47f5-ba37-12d9ab388b46",
   "tables": {
     "account": {
       "name": "account",
@@ -1561,6 +1561,34 @@
           "notNull": false,
           "autoincrement": false
         },
+        "fix_target": {
+          "name": "fix_target",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "root_cause": {
+          "name": "root_cause",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "root_cause_kind": {
+          "name": "root_cause_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "proposed_edits": {
           "name": "proposed_edits",
           "type": "text",
@@ -1662,34 +1690,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        },
-        "fix_target": {
-          "name": "fix_target",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "category": {
-          "name": "category",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "root_cause": {
-          "name": "root_cause",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "root_cause_kind": {
-          "name": "root_cause_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         }
       },
       "indexes": {
@@ -1864,6 +1864,81 @@
         }
       },
       "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "context_recommendation_linked_feedback": {
+      "name": "context_recommendation_linked_feedback",
+      "columns": {
+        "recommendation_id": {
+          "name": "recommendation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        }
+      },
+      "indexes": {
+        "context_recommendation_linked_feedback_message_id_idx": {
+          "name": "context_recommendation_linked_feedback_message_id_idx",
+          "columns": [
+            "message_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "context_recommendation_linked_feedback_recommendation_id_context_recommendation_id_fk": {
+          "name": "context_recommendation_linked_feedback_recommendation_id_context_recommendation_id_fk",
+          "tableFrom": "context_recommendation_linked_feedback",
+          "tableTo": "context_recommendation",
+          "columnsFrom": [
+            "recommendation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "context_recommendation_linked_feedback_message_id_chat_message_id_fk": {
+          "name": "context_recommendation_linked_feedback_message_id_chat_message_id_fk",
+          "tableFrom": "context_recommendation_linked_feedback",
+          "tableTo": "chat_message",
+          "columnsFrom": [
+            "message_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "context_recommendation_linked_feedback_recommendation_id_message_id_pk": {
+          "columns": [
+            "recommendation_id",
+            "message_id"
+          ],
+          "name": "context_recommendation_linked_feedback_recommendation_id_message_id_pk"
+        }
+      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -3432,6 +3507,20 @@
         },
         "image_id": {
           "name": "image_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "storage_path": {
+          "name": "storage_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "filename": {
+          "name": "filename",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -5051,81 +5140,6 @@
             "whatsapp_user_id"
           ],
           "name": "project_whatsapp_link_project_id_whatsapp_user_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "context_recommendation_linked_feedback": {
-      "name": "context_recommendation_linked_feedback",
-      "columns": {
-        "recommendation_id": {
-          "name": "recommendation_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "message_id": {
-          "name": "message_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        }
-      },
-      "indexes": {
-        "context_recommendation_linked_feedback_message_id_idx": {
-          "name": "context_recommendation_linked_feedback_message_id_idx",
-          "columns": [
-            "message_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "context_recommendation_linked_feedback_recommendation_id_context_recommendation_id_fk": {
-          "name": "context_recommendation_linked_feedback_recommendation_id_context_recommendation_id_fk",
-          "tableFrom": "context_recommendation_linked_feedback",
-          "tableTo": "context_recommendation",
-          "columnsFrom": [
-            "recommendation_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "context_recommendation_linked_feedback_message_id_chat_message_id_fk": {
-          "name": "context_recommendation_linked_feedback_message_id_chat_message_id_fk",
-          "tableFrom": "context_recommendation_linked_feedback",
-          "tableTo": "chat_message",
-          "columnsFrom": [
-            "message_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "context_recommendation_linked_feedback_recommendation_id_message_id_pk": {
-          "columns": [
-            "recommendation_id",
-            "message_id"
-          ],
-          "name": "context_recommendation_linked_feedback_recommendation_id_message_id_pk"
         }
       },
       "uniqueConstraints": {},
