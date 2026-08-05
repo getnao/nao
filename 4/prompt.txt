@@ -1,0 +1,17 @@
+what can we do to put a delay release age for everything we install in the project (python and ts) like mentionned here https://gist.github.com/mcollina/b294a6c39ee700d24073c0e5a4e93104
+
+---
+
+what can we do to put a delay release age for everything we install in the project (python and ts) like mentionned here https://gist.github.com/mcollina/b294a6c39ee700d24073c0e5a4e93104
+
+---
+
+add it wherever it makes sense but make it 2 days and create a PR with just this
+
+---
+
+check lock failed in the ci because you changed manually package-lock
+
+---
+
+it still fails in the ci
