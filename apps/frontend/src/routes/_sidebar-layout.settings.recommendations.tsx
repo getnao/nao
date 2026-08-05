@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import {
 	ArrowDown01,
@@ -100,6 +100,15 @@ function sortDirectionLabel(sortKey: SortKey, sortOrder: SortOrder): string {
 }
 
 const ALL_FILTER = 'all';
+
+type FeedbackFilter = 'with' | 'without';
+
+const FEEDBACK_FILTERS: readonly FeedbackFilter[] = ['with', 'without'];
+
+const FEEDBACK_FILTER_LABELS: Record<FeedbackFilter, string> = {
+	with: 'With feedback',
+	without: 'Without feedback',
+};
 
 const MAX_AUTO_PR_OPTIONS = [1, 2, 3, 5, 10] as const;
 const DEFAULT_MAX_AUTO_PRS = 3;
@@ -219,12 +228,14 @@ function RecommendationsPage() {
 		sortOrder: 'desc' as SortOrder,
 		categoryFilter: ALL_FILTER,
 		userFilter: ALL_FILTER,
+		feedbackFilter: ALL_FILTER,
 	});
-	const { sortKey, sortOrder, categoryFilter, userFilter } = view;
+	const { sortKey, sortOrder, categoryFilter, userFilter, feedbackFilter } = view;
 	const setSortKey = (value: SortKey) => setView({ sortKey: value });
 	const setSortOrder = (value: SortOrder) => setView({ sortOrder: value });
 	const setCategoryFilter = (value: string) => setView({ categoryFilter: value });
 	const setUserFilter = (value: string) => setView({ userFilter: value });
+	const setFeedbackFilter = (value: string) => setView({ feedbackFilter: value });
 
 	const previousTab = useRef(activeTab);
 	useEffect(() => {
@@ -232,36 +243,42 @@ function RecommendationsPage() {
 			return;
 		}
 		previousTab.current = activeTab;
-		setView({ categoryFilter: ALL_FILTER, userFilter: ALL_FILTER });
+		setView({ categoryFilter: ALL_FILTER, userFilter: ALL_FILTER, feedbackFilter: ALL_FILTER });
 	}, [activeTab, setView]);
 
-	const triggerChatIdsToResolve = useMemo(() => {
+	const triggerChatIdChunks = useMemo(() => {
 		const ids = new Set<string>();
 		for (const rec of baseList) {
 			for (const id of triggerChatIds(rec)) {
 				ids.add(id);
 			}
 		}
-		return [...ids].slice(0, MAX_TRIGGER_CHATS);
+		const allIds = [...ids];
+		const chunks: string[][] = [];
+		for (let i = 0; i < allIds.length; i += MAX_TRIGGER_CHATS) {
+			chunks.push(allIds.slice(i, i + MAX_TRIGGER_CHATS));
+		}
+		return chunks;
 	}, [baseList]);
 
-	const chatMetadata = useQuery({
-		...trpc.contextRecommendation.listRecoTriggerChatMetadata.queryOptions({
-			chatIds: triggerChatIdsToResolve,
-		}),
-		enabled: isEnabled && activeTab !== 'config' && triggerChatIdsToResolve.length > 0,
-		staleTime: 60_000,
+	const chatMetadata = useQueries({
+		queries: triggerChatIdChunks.map((chatIds) => ({
+			...trpc.contextRecommendation.listRecoTriggerChatMetadata.queryOptions({ chatIds }),
+			enabled: isEnabled && activeTab !== 'config' && chatIds.length > 0,
+			staleTime: 60_000,
+		})),
+		combine: (results) => results.flatMap((result) => result.data ?? []),
 	});
 
 	const chatUserById = useMemo(() => {
 		const map = new Map<string, { userId: string; userName: string }>();
-		for (const meta of chatMetadata.data ?? []) {
+		for (const meta of chatMetadata) {
 			if (meta.userId) {
 				map.set(meta.chatId, { userId: meta.userId, userName: meta.userName || 'Unknown user' });
 			}
 		}
 		return map;
-	}, [chatMetadata.data]);
+	}, [chatMetadata]);
 
 	const userOptions = useMemo(() => {
 		const byUser = new Map<string, string>();
@@ -287,6 +304,21 @@ function RecommendationsPage() {
 		return counts;
 	}, [baseList]);
 
+	const feedbackCounts = useMemo(() => {
+		const counts = new Map<FeedbackFilter, number>();
+		for (const rec of baseList) {
+			const hasFeedback = (rec.feedbacks ?? []).length > 0;
+			const key: FeedbackFilter = hasFeedback ? 'with' : 'without';
+			counts.set(key, (counts.get(key) ?? 0) + 1);
+		}
+		return counts;
+	}, [baseList]);
+
+	const feedbackOptions = useMemo(
+		() => FEEDBACK_FILTERS.filter((filter) => (feedbackCounts.get(filter) ?? 0) > 0),
+		[feedbackCounts],
+	);
+
 	const displayedRecommendations = useMemo(() => {
 		const filtered = baseList.filter((rec) => {
 			if (
@@ -300,6 +332,12 @@ function RecommendationsPage() {
 					(chatId) => chatUserById.get(chatId)?.userId === userFilter,
 				);
 				if (!triggeredByUser) {
+					return false;
+				}
+			}
+			if (feedbackFilter !== ALL_FILTER) {
+				const hasFeedback = (rec.feedbacks ?? []).length > 0;
+				if (feedbackFilter === 'with' ? !hasFeedback : hasFeedback) {
 					return false;
 				}
 			}
@@ -318,13 +356,15 @@ function RecommendationsPage() {
 			return sortOrder === 'desc' ? -cmp : cmp;
 		});
 		return sorted;
-	}, [baseList, categoryFilter, userFilter, sortKey, sortOrder, chatUserById]);
+	}, [baseList, categoryFilter, userFilter, feedbackFilter, sortKey, sortOrder, chatUserById]);
 
-	const hasActiveFilters = categoryFilter !== ALL_FILTER || userFilter !== ALL_FILTER;
+	const hasActiveFilters =
+		categoryFilter !== ALL_FILTER || userFilter !== ALL_FILTER || feedbackFilter !== ALL_FILTER;
 
 	const clearFilters = () => {
 		setCategoryFilter(ALL_FILTER);
 		setUserFilter(ALL_FILTER);
+		setFeedbackFilter(ALL_FILTER);
 	};
 
 	const changeStatus = async (id: string, status: 'applied' | 'dismissed') => {
@@ -415,10 +455,13 @@ function RecommendationsPage() {
 										categoryFilter={categoryFilter}
 										onCategoryFilterChange={setCategoryFilter}
 										categoryCounts={categoryCounts}
-										totalCount={baseList.length}
 										userFilter={userFilter}
 										onUserFilterChange={setUserFilter}
 										userOptions={userOptions}
+										feedbackFilter={feedbackFilter}
+										onFeedbackFilterChange={setFeedbackFilter}
+										feedbackOptions={feedbackOptions}
+										feedbackCounts={feedbackCounts}
 										sortKey={sortKey}
 										onSortKeyChange={setSortKey}
 										sortOrder={sortOrder}
@@ -430,7 +473,7 @@ function RecommendationsPage() {
 							</div>
 						</div>
 
-						{activeTab === 'config' && <ConfigTab />}
+						{activeTab === 'config' && <ConfigTab enabled={isEnabled} />}
 
 						{activeTab === 'recommendations' && (
 							<RecommendationsTab
@@ -447,6 +490,9 @@ function RecommendationsPage() {
 
 						{activeTab === 'applied' && (
 							<ArchiveTab
+								isLoading={recommendations.isLoading}
+								isError={recommendations.isError && !recommendations.data}
+								errorMessage={recommendations.error?.message}
 								recommendations={displayedRecommendations}
 								hasAny={baseList.length > 0}
 								onChangeStatus={changeStatus}
@@ -458,6 +504,9 @@ function RecommendationsPage() {
 
 						{activeTab === 'dismissed' && (
 							<ArchiveTab
+								isLoading={recommendations.isLoading}
+								isError={recommendations.isError && !recommendations.data}
+								errorMessage={recommendations.error?.message}
 								recommendations={displayedRecommendations}
 								hasAny={baseList.length > 0}
 								onChangeStatus={changeStatus}
@@ -537,6 +586,9 @@ function RecommendationsTab({
 }
 
 interface ArchiveTabProps {
+	isLoading: boolean;
+	isError: boolean;
+	errorMessage?: string;
 	recommendations: Recommendation[];
 	hasAny: boolean;
 	onChangeStatus: ChangeStatus;
@@ -546,6 +598,9 @@ interface ArchiveTabProps {
 }
 
 function ArchiveTab({
+	isLoading,
+	isError,
+	errorMessage,
 	recommendations,
 	hasAny,
 	onChangeStatus,
@@ -553,6 +608,16 @@ function ArchiveTab({
 	emptyLabel,
 	openChatsRecId,
 }: ArchiveTabProps) {
+	if (isLoading) {
+		return (
+			<div className='flex justify-center p-6'>
+				<Spinner />
+			</div>
+		);
+	}
+	if (isError) {
+		return <Empty>Failed to load recommendations: {errorMessage ?? 'unknown error'}</Empty>;
+	}
 	if (!hasAny) {
 		return <Empty>{emptyLabel}</Empty>;
 	}
@@ -613,10 +678,13 @@ interface RecommendationsToolbarProps {
 	categoryFilter: string;
 	onCategoryFilterChange: (value: string) => void;
 	categoryCounts: Map<string, number>;
-	totalCount: number;
 	userFilter: string;
 	onUserFilterChange: (value: string) => void;
 	userOptions: { userId: string; userName: string }[];
+	feedbackFilter: string;
+	onFeedbackFilterChange: (value: string) => void;
+	feedbackOptions: FeedbackFilter[];
+	feedbackCounts: Map<FeedbackFilter, number>;
 	sortKey: SortKey;
 	onSortKeyChange: (value: SortKey) => void;
 	sortOrder: SortOrder;
@@ -657,10 +725,13 @@ function RecommendationsToolbar({
 	categoryFilter,
 	onCategoryFilterChange,
 	categoryCounts,
-	totalCount,
 	userFilter,
 	onUserFilterChange,
 	userOptions,
+	feedbackFilter,
+	onFeedbackFilterChange,
+	feedbackOptions,
+	feedbackCounts,
 	sortKey,
 	onSortKeyChange,
 	sortOrder,
@@ -683,18 +754,11 @@ function RecommendationsToolbar({
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align='end' className='w-56'>
 					<DropdownMenuLabel>Category</DropdownMenuLabel>
-					<ToolbarOption
-						selected={categoryFilter === ALL_FILTER}
-						onSelect={() => onCategoryFilterChange(ALL_FILTER)}
-						count={totalCount}
-					>
-						All categories
-					</ToolbarOption>
 					{CONTEXT_RECOMMENDATION_CATEGORIES.map((category) => (
 						<ToolbarOption
 							key={category}
 							selected={categoryFilter === category}
-							onSelect={() => onCategoryFilterChange(category)}
+							onSelect={() => onCategoryFilterChange(categoryFilter === category ? ALL_FILTER : category)}
 							count={categoryCounts.get(category) ?? 0}
 						>
 							{CONTEXT_RECOMMENDATION_CATEGORY_LABELS[category]}
@@ -704,19 +768,29 @@ function RecommendationsToolbar({
 						<>
 							<DropdownMenuSeparator />
 							<DropdownMenuLabel>User</DropdownMenuLabel>
-							<ToolbarOption
-								selected={userFilter === ALL_FILTER}
-								onSelect={() => onUserFilterChange(ALL_FILTER)}
-							>
-								All users
-							</ToolbarOption>
 							{userOptions.map((user) => (
 								<ToolbarOption
 									key={user.userId}
 									selected={userFilter === user.userId}
-									onSelect={() => onUserFilterChange(user.userId)}
+									onSelect={() => onUserFilterChange(userFilter === user.userId ? ALL_FILTER : user.userId)}
 								>
 									{user.userName}
+								</ToolbarOption>
+							))}
+						</>
+					)}
+					{feedbackOptions.length > 0 && (
+						<>
+							<DropdownMenuSeparator />
+							<DropdownMenuLabel>Feedback</DropdownMenuLabel>
+							{feedbackOptions.map((filter) => (
+								<ToolbarOption
+									key={filter}
+									selected={feedbackFilter === filter}
+									onSelect={() => onFeedbackFilterChange(feedbackFilter === filter ? ALL_FILTER : filter)}
+									count={feedbackCounts.get(filter) ?? 0}
+								>
+									{FEEDBACK_FILTER_LABELS[filter]}
 								</ToolbarOption>
 							))}
 						</>
@@ -776,13 +850,13 @@ function RecommendationsToolbar({
 	);
 }
 
-function ConfigTab() {
+function ConfigTab({ enabled }: { enabled: boolean }) {
 	const queryClient = useQueryClient();
 	const [customSystemPromptInstructions, setCustomSystemPromptInstructions] = useState('');
 	const [customSystemPromptInstructionsEnabled, setCustomSystemPromptInstructionsEnabled] = useState(false);
 
-	const availableModels = useQuery(trpc.contextRecommendation.listAvailableModels.queryOptions());
-	const config = useQuery(trpc.contextRecommendation.getConfig.queryOptions());
+	const availableModels = useQuery({ ...trpc.contextRecommendation.listAvailableModels.queryOptions(), enabled });
+	const config = useQuery({ ...trpc.contextRecommendation.getConfig.queryOptions(), enabled });
 	const setConfig = useMutation(trpc.contextRecommendation.setConfig.mutationOptions());
 
 	const invalidateConfig = () => {

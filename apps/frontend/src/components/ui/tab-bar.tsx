@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { useRef } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 
 import { cn } from '@/lib/utils';
 
@@ -24,14 +25,34 @@ export function TabBar<Id extends string>({
 	className,
 	fitted = false,
 }: TabBarProps<Id>) {
+	const buttonsRef = useRef<(HTMLButtonElement | null)[]>([]);
+
+	const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+		if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') {
+			return;
+		}
+		event.preventDefault();
+		const currentIndex = tabs.findIndex((tab) => tab.id === activeTab);
+		const delta = event.key === 'ArrowRight' ? 1 : -1;
+		const nextIndex = (currentIndex + delta + tabs.length) % tabs.length;
+		onTabChange(tabs[nextIndex].id);
+		buttonsRef.current[nextIndex]?.focus();
+	};
+
 	return (
-		<div className={cn('flex', className)}>
-			{tabs.map((tab) => {
+		<div role='tablist' className={cn('flex', className)} onKeyDown={handleKeyDown}>
+			{tabs.map((tab, index) => {
 				const isActive = activeTab === tab.id;
 				return (
 					<button
 						key={tab.id}
+						ref={(el) => {
+							buttonsRef.current[index] = el;
+						}}
 						type='button'
+						role='tab'
+						aria-selected={isActive}
+						tabIndex={isActive ? 0 : -1}
 						onClick={() => onTabChange(tab.id)}
 						className={cn(
 							'-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm transition-colors',
@@ -44,7 +65,10 @@ export function TabBar<Id extends string>({
 						{tab.icon}
 						<span>{tab.label}</span>
 						{tab.count !== undefined && (
-							<span className={isActive ? 'text-muted-foreground' : 'text-muted-foreground/60'}>
+							<span
+								aria-label={`${tab.count} items`}
+								className={isActive ? 'text-muted-foreground' : 'text-muted-foreground/60'}
+							>
 								{tab.count}
 							</span>
 						)}

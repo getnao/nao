@@ -12,4 +12,6 @@ ALTER TABLE `context_recommendation` ADD `category` text;--> statement-breakpoin
 ALTER TABLE `context_recommendation` ADD `root_cause` text;--> statement-breakpoint
 ALTER TABLE `context_recommendation` ADD `root_cause_kind` text;--> statement-breakpoint
 ALTER TABLE `context_recommendation` DROP COLUMN `snoozed_until`;--> statement-breakpoint
-ALTER TABLE `context_recommendation` DROP COLUMN `severity`;
+ALTER TABLE `context_recommendation` DROP COLUMN `severity`;--> statement-breakpoint
+CREATE INDEX `recommendation_feedback_message_id_idx` ON `recommendation_feedback` (`message_id`);--> statement-breakpoint
+UPDATE `context_recommendation` SET `status` = 'dismissed' WHERE `status` IN ('acknowledged', 'snoozed');

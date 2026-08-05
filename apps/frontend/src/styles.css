@@ -630,25 +630,26 @@ code.dollar:before {
 }
 
 .replay-nav-highlight:not([data-replay-bordered='true']) {
-	@apply rounded-xl ring-2 ring-inset ring-primary p-[2px];
+	@apply rounded-xl;
+	outline: 2px solid var(--primary);
+	outline-offset: -2px;
 	animation: replay-highlight-pulse 2s ease-out forwards;
 }
 
 [data-replay-bordered='true'].replay-nav-highlight {
-	@apply rounded-xl ring-2 ring-primary ring-offset-2;
-	--tw-ring-offset-color: var(--background);
+	@apply rounded-xl;
+	outline: 2px solid var(--primary);
+	outline-offset: 2px;
 	animation: replay-highlight-pulse 2s ease-out forwards;
 }
 
 @keyframes replay-highlight-pulse {
-	0% {
-		opacity: 1;
-	}
+	0%,
 	70% {
-		opacity: 1;
+		outline-color: var(--primary);
 	}
 	100% {
-		opacity: 0;
+		outline-color: transparent;
 	}
 }
 

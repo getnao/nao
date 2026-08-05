@@ -936,10 +936,18 @@ export const projectRoutes = {
 			const downvotedMessageIds = (chat.messages ?? [])
 				.filter((m) => m.feedback?.vote === 'down')
 				.map((m) => m.id);
-			const recLinks = await crQueries.getRecommendationLinksForMessages(downvotedMessageIds);
-			const feedbackRecommendations = Object.fromEntries(
-				recLinks.map((l) => [l.messageId, { id: l.recommendationId, title: l.title, status: l.status }]),
-			);
+			const recLinks = await crQueries.getRecommendationLinksForMessages(ctx.project.id, downvotedMessageIds);
+			const feedbackRecommendations: Record<
+				string,
+				{ id: string; title: string; status: (typeof recLinks)[number]['status'] }
+			> = {};
+			for (const link of recLinks) {
+				feedbackRecommendations[link.messageId] ??= {
+					id: link.recommendationId,
+					title: link.title,
+					status: link.status,
+				};
+			}
 
 			return {
 				...chat,

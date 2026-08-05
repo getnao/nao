@@ -274,7 +274,7 @@ async function applyActions(
 				},
 				executor,
 			);
-			await crQueries.linkFeedbackToRecommendation(rec.id, action.feedbackMessageIds, executor);
+			await crQueries.linkFeedbackToRecommendation(args.projectId, rec.id, action.feedbackMessageIds, executor);
 		} else if (action.kind === 'update') {
 			const prev = byId.get(action.id);
 			const patch: Partial<NewContextRecommendation> = {
@@ -285,7 +285,12 @@ async function applyActions(
 				patch.status = 'open';
 			}
 			await crQueries.updateRecommendation(action.id, patch, executor);
-			await crQueries.linkFeedbackToRecommendation(action.id, action.feedbackMessageIds, executor);
+			await crQueries.linkFeedbackToRecommendation(
+				args.projectId,
+				action.id,
+				action.feedbackMessageIds,
+				executor,
+			);
 		} else if (action.kind === 'resolve') {
 			await crQueries.updateRecommendation(
 				action.id,

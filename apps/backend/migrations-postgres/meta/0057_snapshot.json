@@ -5383,7 +5383,23 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "recommendation_feedback_message_id_idx": {
+          "name": "recommendation_feedback_message_id_idx",
+          "columns": [
+            {
+              "expression": "message_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "recommendation_feedback_recommendation_id_context_recommendation_id_fk": {
           "name": "recommendation_feedback_recommendation_id_context_recommendation_id_fk",

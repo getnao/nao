@@ -787,7 +787,10 @@ export const recommendationFeedback = sqliteTable(
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
 	},
-	(t) => [primaryKey({ columns: [t.recommendationId, t.messageId] })],
+	(t) => [
+		primaryKey({ columns: [t.recommendationId, t.messageId] }),
+		index('recommendation_feedback_message_id_idx').on(t.messageId),
+	],
 );
 
 export const STORY_ACTIONS = ['create', 'update', 'replace'] as const;

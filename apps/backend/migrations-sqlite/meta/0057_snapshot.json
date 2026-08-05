@@ -5054,7 +5054,15 @@
           "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "recommendation_feedback_message_id_idx": {
+          "name": "recommendation_feedback_message_id_idx",
+          "columns": [
+            "message_id"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
         "recommendation_feedback_recommendation_id_context_recommendation_id_fk": {
           "name": "recommendation_feedback_recommendation_id_context_recommendation_id_fk",

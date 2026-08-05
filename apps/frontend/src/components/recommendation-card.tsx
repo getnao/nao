@@ -356,6 +356,12 @@ export function RecommendationCard({
 										{totalChatCount}
 										<Users className='size-3 shrink-0' />
 										{distinctUserCount}
+										{feedbacks.length > 0 && (
+											<>
+												<ThumbsDown className='size-3 shrink-0 text-red-500 dark:text-red-400' />
+												{feedbacks.length}
+											</>
+										)}
 									</button>
 								</div>
 								<div

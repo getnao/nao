@@ -38,6 +38,7 @@ const FeedbackClusterSchema = z.object({
 type FeedbackCluster = z.infer<typeof FeedbackClusterSchema>['clusters'][number];
 
 const FALLBACK_SUGGESTED_FILE = 'RULES.md';
+const FALLBACK_SUBJECT_KEY = 'unclustered_downvotes';
 
 export async function ensureFeedbackCoverage(
 	projectId: string,
@@ -133,7 +134,7 @@ async function attachFeedbackToExistingRecommendations(
 	for (const feedback of unlinked) {
 		const recId = resolveRecommendationForFeedback(feedback, recIdByTarget, recIdsByChat);
 		if (recId) {
-			await crQueries.linkFeedbackToRecommendation(recId, [feedback.messageId]);
+			await crQueries.linkFeedbackToRecommendation(projectId, recId, [feedback.messageId]);
 		} else {
 			remaining.push(feedback);
 		}
@@ -212,17 +213,23 @@ async function applyFeedbackClusters(
 ): Promise<void> {
 	const { dismissedSet, existingByFingerprint } = context;
 	const allLinked = clusters.flatMap((c) => c.memberMessageIds);
+	const dismissedMemberIds = new Set<string>();
 
 	for (const cluster of clusters) {
 		const fingerprint = fingerprintFor(cluster.suggestedFile, cluster.subjectKey);
 		if (dismissedSet.has(fingerprint)) {
+			for (const messageId of cluster.memberMessageIds) {
+				dismissedMemberIds.add(messageId);
+			}
 			continue;
 		}
 		const recId = await upsertBackfillRecommendation(projectId, runId, fingerprint, cluster, existingByFingerprint);
-		await crQueries.linkFeedbackToRecommendation(recId, cluster.memberMessageIds);
+		await crQueries.linkFeedbackToRecommendation(projectId, recId, cluster.memberMessageIds);
 	}
 
-	const unaccountedIds = await getStillUnlinked(projectId, allLinked);
+	const unaccountedIds = (await getStillUnlinked(projectId, allLinked)).filter(
+		(messageId) => !dismissedMemberIds.has(messageId),
+	);
 	if (unaccountedIds.length > 0) {
 		const unlinked = await crQueries.getUnlinkedNegativeFeedbacks(projectId);
 		const remaining = unlinked.filter((f) => unaccountedIds.includes(f.messageId));
@@ -236,29 +243,29 @@ async function applyFallbackRecos(
 	unlinked: crQueries.UnlinkedFeedback[],
 	context: { dismissedSet: Set<string>; existingByFingerprint: Map<string, ExistingRecommendation> },
 ): Promise<void> {
-	const { dismissedSet, existingByFingerprint } = context;
-
-	for (const feedback of unlinked) {
-		const subjectKey = `feedback:${feedback.messageId}`;
-		const fingerprint = fingerprintFor(FALLBACK_SUGGESTED_FILE, subjectKey);
-		if (dismissedSet.has(fingerprint)) {
-			continue;
-		}
-		const cluster: FeedbackCluster = {
-			title: feedback.explanation
-				? `User complaint: ${feedback.explanation.slice(0, 60)}`
-				: 'User downvoted this response',
-			summary:
-				feedback.explanation ??
-				'A user downvoted this response without leaving an explanation. Review the chat to understand what went wrong.',
-			suggestedAction: 'Review the linked chat and update RULES.md or the relevant semantics file accordingly.',
-			suggestedFile: FALLBACK_SUGGESTED_FILE,
-			subjectKey,
-			memberMessageIds: [feedback.messageId],
-		};
-		const recId = await upsertBackfillRecommendation(projectId, runId, fingerprint, cluster, existingByFingerprint);
-		await crQueries.linkFeedbackToRecommendation(recId, [feedback.messageId]);
+	if (unlinked.length === 0) {
+		return;
 	}
+	const { dismissedSet, existingByFingerprint } = context;
+	const fingerprint = fingerprintFor(FALLBACK_SUGGESTED_FILE, FALLBACK_SUBJECT_KEY);
+	if (dismissedSet.has(fingerprint)) {
+		return;
+	}
+
+	const memberMessageIds = unlinked.map((f) => f.messageId);
+	const cluster: FeedbackCluster = {
+		title: 'Downvoted responses awaiting review',
+		summary:
+			`${memberMessageIds.length} downvoted ${memberMessageIds.length === 1 ? 'response has' : 'responses have'} ` +
+			'no matching recommendation yet. Review the linked chats to find the shared gap in the context.',
+		suggestedAction:
+			'Open the linked chats and update RULES.md or the relevant semantics file to address the recurring complaints.',
+		suggestedFile: FALLBACK_SUGGESTED_FILE,
+		subjectKey: FALLBACK_SUBJECT_KEY,
+		memberMessageIds,
+	};
+	const recId = await upsertBackfillRecommendation(projectId, runId, fingerprint, cluster, existingByFingerprint);
+	await crQueries.linkFeedbackToRecommendation(projectId, recId, memberMessageIds);
 }
 
 async function upsertBackfillRecommendation(

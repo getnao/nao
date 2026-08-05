@@ -42,7 +42,10 @@ export const contextRecommendationRoutes = {
 		.query(async ({ ctx, input }) => {
 			const recommendations = await crQueries.listRecommendations(ctx.project.id, input?.status);
 			const repaired = await repairRecommendationTriggerRefs(ctx.project.id, recommendations);
-			const feedbackLinks = await crQueries.listFeedbacksForRecommendations(repaired.map((r) => r.id));
+			const feedbackLinks = await crQueries.listFeedbacksForRecommendations(
+				ctx.project.id,
+				repaired.map((r) => r.id),
+			);
 			const feedbacksByRecId = feedbackLinks.reduce<Record<string, typeof feedbackLinks>>((acc, link) => {
 				(acc[link.recommendationId] ??= []).push(link);
 				return acc;
