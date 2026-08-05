@@ -772,7 +772,9 @@ function RecommendationsToolbar({
 								<ToolbarOption
 									key={user.userId}
 									selected={userFilter === user.userId}
-									onSelect={() => onUserFilterChange(userFilter === user.userId ? ALL_FILTER : user.userId)}
+									onSelect={() =>
+										onUserFilterChange(userFilter === user.userId ? ALL_FILTER : user.userId)
+									}
 								>
 									{user.userName}
 								</ToolbarOption>
@@ -787,7 +789,9 @@ function RecommendationsToolbar({
 								<ToolbarOption
 									key={filter}
 									selected={feedbackFilter === filter}
-									onSelect={() => onFeedbackFilterChange(feedbackFilter === filter ? ALL_FILTER : filter)}
+									onSelect={() =>
+										onFeedbackFilterChange(feedbackFilter === filter ? ALL_FILTER : filter)
+									}
 									count={feedbackCounts.get(filter) ?? 0}
 								>
 									{FEEDBACK_FILTER_LABELS[filter]}

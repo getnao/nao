@@ -429,13 +429,7 @@ export async function resolveTriggerTargetChatIds(
 			.select({ targetId: s.chatMessage.id, chatId: s.chatMessage.chatId })
 			.from(s.chatMessage)
 			.innerJoin(s.chat, eq(s.chat.id, s.chatMessage.chatId))
-			.where(
-				and(
-					eq(s.chat.projectId, projectId),
-					isNull(s.chat.deletedAt),
-					inArray(s.chatMessage.id, targetIds),
-				),
-			)
+			.where(and(eq(s.chat.projectId, projectId), isNull(s.chat.deletedAt), inArray(s.chatMessage.id, targetIds)))
 			.execute(),
 		db
 			.select({ targetId: s.messagePart.toolCallId, chatId: s.chatMessage.chatId })
