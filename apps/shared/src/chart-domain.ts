@@ -102,7 +102,8 @@ export function resolveBarYAxisDomain(
 
 	const dataMax = maxOf(values);
 	const paddedTop = niceAxisMax(dataMax / (1 - DATA_LABEL_HEADROOM_FRACTION));
-	return [explicitMin ?? 0, paddedTop];
+	const lower = explicitMin ?? 0;
+	return paddedTop > lower ? [lower, paddedTop] : domain;
 }
 
 export function barYAxisDomainIsPadded(

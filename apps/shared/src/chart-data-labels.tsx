@@ -167,12 +167,16 @@ export function getDataLabelSetup<Props extends Pick<DataLabelChartProps, 'data'
 	props: Props,
 	isStacked: boolean,
 ) {
-	const renderedSeries = isStacked ? props.series.filter((item) => !item.is_total) : props.series;
+	const renderedSeries = getRenderedSeries(props.series, isStacked);
 	const stackTotalLayer =
 		props.showDataLabels && isStacked && renderedSeries.length > 0
 			? renderStackTotalLabelsLayer(props.data, props.series)
 			: undefined;
 	return { renderedSeries, stackTotalLayer };
+}
+
+export function getRenderedSeries(series: displayChart.SeriesConfig[], isStacked: boolean) {
+	return isStacked ? series.filter((item) => !item.is_total) : series;
 }
 
 function createLabelsLayer(displayName: string, collect: LabelsCollector) {
@@ -219,11 +223,11 @@ function barChartUsesPaddedDomain(props: DataLabelChartProps): boolean {
 	if (props.chartType !== 'bar' && props.chartType !== 'stacked_bar') {
 		return false;
 	}
-	const dataKeys = props.series.map((series) => series.data_key);
-	const axisValues =
-		props.chartType === 'stacked_bar'
-			? collectStackedAxisValues(props.data, dataKeys)
-			: collectAxisValues(props.data, dataKeys);
+	const isStacked = props.chartType === 'stacked_bar';
+	const dataKeys = getRenderedSeries(props.series, isStacked).map((series) => series.data_key);
+	const axisValues = isStacked
+		? collectStackedAxisValues(props.data, dataKeys)
+		: collectAxisValues(props.data, dataKeys);
 	return barYAxisDomainIsPadded(props.yAxisMax, axisValues, props.showDataLabels === true);
 }
 

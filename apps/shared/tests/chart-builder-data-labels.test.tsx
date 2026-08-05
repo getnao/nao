@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { buildChart } from '../src/chart-builder';
 import { shouldReserveDataLabelHeadroom } from '../src/chart-data-labels';
 import { resolveBarYAxisDomain } from '../src/chart-domain';
-import { niceAxisMax } from '../src/chart-values';
+import { CHART_NUMBER_LOCALE, niceAxisMax } from '../src/chart-values';
 
 function renderChart(element: React.ReactElement) {
 	return renderToString(React.cloneElement(element, { width: 600, height: 400 }));
@@ -13,6 +13,20 @@ function renderChart(element: React.ReactElement) {
 
 function renderChartAtSize(element: React.ReactElement, width: number, height: number) {
 	return renderToString(React.cloneElement(element, { width, height }));
+}
+
+function getYAxis(chart: React.ReactElement): React.ReactElement | undefined {
+	return flattenChildren(chart.props.children).find((child) => child.type.displayName === 'YAxis');
+}
+
+function flattenChildren(children: unknown): React.ReactElement[] {
+	if (Array.isArray(children)) {
+		return children.flatMap(flattenChildren);
+	}
+	if (React.isValidElement(children)) {
+		return [children];
+	}
+	return [];
 }
 
 interface RenderedLabel {
@@ -284,6 +298,61 @@ describe('buildChart data labels', () => {
 		expect(resolveBarYAxisDomain(undefined, 500, [250, 500], true)).toEqual([0, 500]);
 	});
 
+	it('does not let a total series inflate the stacked bar domain', () => {
+		const props = {
+			data: [{ month: 'Jan', direct: 100, partner: 200, total: 300 }],
+			chartType: 'stacked_bar' as const,
+			xAxisKey: 'month',
+			xAxisType: 'category' as const,
+			series: [{ data_key: 'direct' }, { data_key: 'partner' }],
+			showDataLabels: true,
+		};
+		const domainWithoutTotal = getYAxis(buildChart(props))?.props.domain;
+		const domainWithTotal = getYAxis(
+			buildChart({
+				...props,
+				series: [...props.series, { data_key: 'total', is_total: true }],
+			}),
+		)?.props.domain;
+
+		expect(domainWithoutTotal).toEqual([0, 400]);
+		expect(domainWithTotal?.[1]).toBe(domainWithoutTotal?.[1]);
+	});
+
+	it('ignores hidden total values when deciding stacked bar headroom', () => {
+		expect(
+			shouldReserveDataLabelHeadroom({
+				data: [{ month: 'Jan', direct: 100, partner: 200, total: -999 }],
+				chartType: 'stacked_bar',
+				xAxisKey: 'month',
+				series: [{ data_key: 'direct' }, { data_key: 'partner' }, { data_key: 'total', is_total: true }],
+				showDataLabels: true,
+			}),
+		).toBe(false);
+	});
+
+	it('does not let a total series inflate the stacked area domain', () => {
+		const props = {
+			data: [{ month: 'Jan', direct: 100, partner: 200, total: 300 }],
+			chartType: 'stacked_area' as const,
+			xAxisKey: 'month',
+			xAxisType: 'category' as const,
+			series: [{ data_key: 'direct' }, { data_key: 'partner' }],
+			yAxisMin: 0,
+			showDataLabels: true,
+		};
+		const domainWithoutTotal = getYAxis(buildChart(props))?.props.domain;
+		const domainWithTotal = getYAxis(
+			buildChart({
+				...props,
+				series: [...props.series, { data_key: 'total', is_total: true }],
+			}),
+		)?.props.domain;
+
+		expect(domainWithoutTotal).toEqual([0, 300]);
+		expect(domainWithTotal?.[1]).toBe(domainWithoutTotal?.[1]);
+	});
+
 	it('falls back to margin headroom when an explicit maximum disables padding', () => {
 		expect(
 			shouldReserveDataLabelHeadroom({
@@ -528,7 +597,7 @@ describe('buildChart data labels', () => {
 		const labels = parseDataLabels(html);
 		const sectors = parsePieSectors(
 			html,
-			data.map((entry) => entry.value.toLocaleString()),
+			data.map((entry) => entry.value.toLocaleString(CHART_NUMBER_LOCALE)),
 		);
 
 		expect(labels.some((label) => label.text === '6,000')).toBe(true);

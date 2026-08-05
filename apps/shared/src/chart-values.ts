@@ -2,6 +2,8 @@ import { format as d3Format, formatSpecifier } from 'd3-format';
 
 import type { ValueFormat } from './tools/display-chart';
 
+export const CHART_NUMBER_LOCALE = 'en-US';
+
 const COMPACT_UNITS = [
 	{ value: 1_000_000_000_000, suffix: 'T' },
 	{ value: 1_000_000_000, suffix: 'B' },
@@ -14,7 +16,7 @@ export function formatCompactNumber(value: number): string {
 	if (abs >= 10_000) {
 		return formatCompactUnit(value, 1);
 	}
-	return value.toLocaleString();
+	return value.toLocaleString(CHART_NUMBER_LOCALE);
 }
 
 export function formatCompactUnit(value: number, fractionDigits: number): string {
@@ -36,7 +38,7 @@ export function formatCompactUnit(value: number, fractionDigits: number): string
 
 export function formatChartValue(value: number, valueFormat?: ValueFormat, opts?: { compact?: boolean }): string {
 	const formatted = formatWithD3(value, valueFormat);
-	const body = formatted ?? (opts?.compact ? formatCompactNumber(value) : value.toLocaleString());
+	const body = formatted ?? (opts?.compact ? formatCompactNumber(value) : value.toLocaleString(CHART_NUMBER_LOCALE));
 	return attachValueAffixes(body, valueFormat);
 }
 

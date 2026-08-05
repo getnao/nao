@@ -5,7 +5,7 @@ import { buildChart, computeKpiComparison, computeValueAxisWidth, describePrevio
 import { formatChartValue } from '../src/chart-values';
 
 describe('formatChartValue', () => {
-	it('uses locale formatting by default', () => {
+	it('uses en-US formatting by default', () => {
 		expect(formatChartValue(1234)).toBe('1,234');
 	});
 

@@ -616,9 +616,9 @@ function buildBarChart(props: ResolvedProps) {
 	} = props;
 	const isStacked = displayChart.isStackedChartType(chartType);
 	const isPercent = displayChart.isPercentStackedChartType(chartType);
-	const dataKeys = series.map((s) => s.data_key);
-	const axisValues = isStacked ? collectStackedAxisValues(data, dataKeys) : collectAxisValues(data, dataKeys);
 	const { renderedSeries, stackTotalLayer } = getDataLabelSetup(props, isStacked);
+	const dataKeys = renderedSeries.map((s) => s.data_key);
+	const axisValues = isStacked ? collectStackedAxisValues(data, dataKeys) : collectAxisValues(data, dataKeys);
 	const seriesKeys = renderedSeries.map((s) => s.data_key);
 	const separatorColor = props.backgroundColor ?? DEFAULT_BACKGROUND;
 	const labelFootroom = shouldReserveStackTotalFootroom(props) ? DATA_LABEL_X_AXIS_FOOTROOM : 0;
@@ -746,9 +746,9 @@ function buildAreaChart(props: ResolvedProps) {
 	const isStacked = displayChart.isStackedChartType(chartType);
 	const isPercent = displayChart.isPercentStackedChartType(chartType);
 	const zeroBaseline = chartType !== 'line';
-	const dataKeys = series.map((s) => s.data_key);
-	const axisValues = isStacked ? collectStackedAxisValues(data, dataKeys) : collectAxisValues(data, dataKeys);
 	const { renderedSeries, stackTotalLayer } = getDataLabelSetup(props, isStacked);
+	const dataKeys = renderedSeries.map((s) => s.data_key);
+	const axisValues = isStacked ? collectStackedAxisValues(data, dataKeys) : collectAxisValues(data, dataKeys);
 	const labelFootroom = shouldReserveStackTotalFootroom(props) ? DATA_LABEL_X_AXIS_FOOTROOM : 0;
 	const chartLevelFormat = getChartLevelValueFormat(series);
 	const valueAxisWidth = computeValueAxisWidth(axisValues, chartLevelFormat, Boolean(yAxisLabel));

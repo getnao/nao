@@ -508,7 +508,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 		if(/^\\d{4}-\\d{2}-\\d{2}/.test(str)){var d=new Date(str);if(!isNaN(d.getTime()))return escHtml(formatDate(d))}
 		return escHtml(str.replace(/_/g,' ').replace(/\\b\\w/g,function(c){return c.toUpperCase()}))
 	}
-	function formatCompact(v){var a=Math.abs(v);if(a>=1e9)return (v/1e9).toFixed(1).replace(/[.]0$/,'')+'B';if(a>=1e6)return (v/1e6).toFixed(1).replace(/[.]0$/,'')+'M';if(a>=1e4)return (v/1e3).toFixed(1).replace(/[.]0$/,'')+'K';return v.toLocaleString()}
+	function formatCompact(v){var a=Math.abs(v);if(a>=1e9)return (v/1e9).toFixed(1).replace(/[.]0$/,'')+'B';if(a>=1e6)return (v/1e6).toFixed(1).replace(/[.]0$/,'')+'M';if(a>=1e4)return (v/1e3).toFixed(1).replace(/[.]0$/,'')+'K';return v.toLocaleString('en-US')}
 	// Faithful port of d3-format's SI-prefix formatting so exported values match the chart.
 	var SI_PREFIXES=['y','z','a','f','p','n','µ','m','','k','M','G','T','P','E','Z','Y'];
 	var siPrefixExponent=0;
@@ -551,9 +551,9 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 		var fixed=/^(,)?(?:\\.([0-9]+))?f$/.exec(spec);
 		if(fixed){
 			var decimals=fixed[2]===undefined?6:Number(fixed[2]);
-			return fixed[1]?v.toLocaleString(undefined,{minimumFractionDigits:decimals,maximumFractionDigits:decimals}):v.toFixed(decimals);
+			return fixed[1]?v.toLocaleString('en-US',{minimumFractionDigits:decimals,maximumFractionDigits:decimals}):v.toFixed(decimals);
 		}
-		if(spec===',')return v.toLocaleString();
+		if(spec===',')return v.toLocaleString('en-US');
 		var si=/^\\.?([0-9]+)?(~)?s$/.exec(spec);
 		if(si)return formatSi(v,si[1]===undefined?undefined:Number(si[1]),si[2]==='~',compact);
 		return formatCompact(v);
