@@ -774,8 +774,8 @@ export const contextRecommendation = sqliteTable(
 	],
 );
 
-export const recommendationFeedback = sqliteTable(
-	'recommendation_feedback',
+export const contextRecommendationLinkedFeedback = sqliteTable(
+	'context_recommendation_linked_feedback',
 	{
 		recommendationId: text('recommendation_id')
 			.notNull()
@@ -789,7 +789,7 @@ export const recommendationFeedback = sqliteTable(
 	},
 	(t) => [
 		primaryKey({ columns: [t.recommendationId, t.messageId] }),
-		index('recommendation_feedback_message_id_idx').on(t.messageId),
+		index('context_recommendation_linked_feedback_message_id_idx').on(t.messageId),
 	],
 );
 

@@ -1,4 +1,4 @@
-CREATE TABLE `recommendation_feedback` (
+CREATE TABLE `context_recommendation_linked_feedback` (
 	`recommendation_id` text NOT NULL,
 	`message_id` text NOT NULL,
 	`created_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
@@ -13,5 +13,5 @@ ALTER TABLE `context_recommendation` ADD `root_cause` text;--> statement-breakpo
 ALTER TABLE `context_recommendation` ADD `root_cause_kind` text;--> statement-breakpoint
 ALTER TABLE `context_recommendation` DROP COLUMN `snoozed_until`;--> statement-breakpoint
 ALTER TABLE `context_recommendation` DROP COLUMN `severity`;--> statement-breakpoint
-CREATE INDEX `recommendation_feedback_message_id_idx` ON `recommendation_feedback` (`message_id`);--> statement-breakpoint
+CREATE INDEX `context_recommendation_linked_feedback_message_id_idx` ON `context_recommendation_linked_feedback` (`message_id`);--> statement-breakpoint
 UPDATE `context_recommendation` SET `status` = 'dismissed' WHERE `status` IN ('acknowledged', 'snoozed');

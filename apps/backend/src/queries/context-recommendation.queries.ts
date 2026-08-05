@@ -500,8 +500,16 @@ export async function linkFeedbackToRecommendation(
 	if (scopedMessageIds.length === 0) {
 		return;
 	}
+	const [recommendation] = await executor
+		.select({ id: s.contextRecommendation.id })
+		.from(s.contextRecommendation)
+		.where(and(eq(s.contextRecommendation.id, recommendationId), eq(s.contextRecommendation.projectId, projectId)))
+		.execute();
+	if (!recommendation) {
+		return;
+	}
 	await executor
-		.insert(s.recommendationFeedback)
+		.insert(s.contextRecommendationLinkedFeedback)
 		.values(scopedMessageIds.map((messageId) => ({ recommendationId, messageId })))
 		.onConflictDoNothing()
 		.execute();
@@ -519,7 +527,7 @@ export async function filterProjectMessageIds(
 		.select({ id: s.chatMessage.id })
 		.from(s.chatMessage)
 		.innerJoin(s.chat, eq(s.chat.id, s.chatMessage.chatId))
-		.where(and(eq(s.chat.projectId, projectId), inArray(s.chatMessage.id, messageIds)))
+		.where(and(eq(s.chat.projectId, projectId), isNull(s.chat.deletedAt), inArray(s.chatMessage.id, messageIds)))
 		.execute();
 	return rows.map((row) => row.id);
 }
@@ -536,15 +544,18 @@ export interface FeedbackOwnershipRow {
 export async function listAllFeedbackLinks(projectId: string): Promise<FeedbackOwnershipRow[]> {
 	return db
 		.select({
-			messageId: s.recommendationFeedback.messageId,
-			recommendationId: s.recommendationFeedback.recommendationId,
+			messageId: s.contextRecommendationLinkedFeedback.messageId,
+			recommendationId: s.contextRecommendationLinkedFeedback.recommendationId,
 			status: s.contextRecommendation.status,
 			impactScore: s.contextRecommendation.impactScore,
 			createdAt: s.contextRecommendation.createdAt,
 			insights: s.contextRecommendation.insights,
 		})
-		.from(s.recommendationFeedback)
-		.innerJoin(s.contextRecommendation, eq(s.contextRecommendation.id, s.recommendationFeedback.recommendationId))
+		.from(s.contextRecommendationLinkedFeedback)
+		.innerJoin(
+			s.contextRecommendation,
+			eq(s.contextRecommendation.id, s.contextRecommendationLinkedFeedback.recommendationId),
+		)
 		.where(eq(s.contextRecommendation.projectId, projectId))
 		.execute();
 }
@@ -557,13 +568,13 @@ export async function deleteFeedbackLinks(
 		return;
 	}
 	await executor
-		.delete(s.recommendationFeedback)
+		.delete(s.contextRecommendationLinkedFeedback)
 		.where(
 			or(
 				...links.map((link) =>
 					and(
-						eq(s.recommendationFeedback.recommendationId, link.recommendationId),
-						eq(s.recommendationFeedback.messageId, link.messageId),
+						eq(s.contextRecommendationLinkedFeedback.recommendationId, link.recommendationId),
+						eq(s.contextRecommendationLinkedFeedback.messageId, link.messageId),
 					),
 				),
 			),
@@ -584,12 +595,15 @@ export async function getUnlinkedNegativeFeedbacks(projectId: string): Promise<U
 		.innerJoin(s.chatMessage, eq(s.chatMessage.id, s.messageFeedback.messageId))
 		.innerJoin(s.chat, eq(s.chat.id, s.chatMessage.chatId))
 		.innerJoin(s.user, eq(s.user.id, s.chat.userId))
-		.leftJoin(s.recommendationFeedback, eq(s.recommendationFeedback.messageId, s.messageFeedback.messageId))
+		.leftJoin(
+			s.contextRecommendationLinkedFeedback,
+			eq(s.contextRecommendationLinkedFeedback.messageId, s.messageFeedback.messageId),
+		)
 		.where(
 			and(
 				eq(s.chat.projectId, projectId),
 				eq(s.messageFeedback.vote, 'down'),
-				isNull(s.recommendationFeedback.messageId),
+				isNull(s.contextRecommendationLinkedFeedback.messageId),
 			),
 		)
 		.execute();
@@ -602,19 +616,24 @@ export async function listFeedbacksForRecommendations(projectId: string, recIds:
 	}
 	const rows = await db
 		.select({
-			recommendationId: s.recommendationFeedback.recommendationId,
-			messageId: s.recommendationFeedback.messageId,
+			recommendationId: s.contextRecommendationLinkedFeedback.recommendationId,
+			messageId: s.contextRecommendationLinkedFeedback.messageId,
 			chatId: s.chatMessage.chatId,
 			vote: s.messageFeedback.vote,
 			explanation: s.messageFeedback.explanation,
 			userName: s.user.name,
 		})
-		.from(s.recommendationFeedback)
-		.innerJoin(s.messageFeedback, eq(s.messageFeedback.messageId, s.recommendationFeedback.messageId))
-		.innerJoin(s.chatMessage, eq(s.chatMessage.id, s.recommendationFeedback.messageId))
+		.from(s.contextRecommendationLinkedFeedback)
+		.innerJoin(s.messageFeedback, eq(s.messageFeedback.messageId, s.contextRecommendationLinkedFeedback.messageId))
+		.innerJoin(s.chatMessage, eq(s.chatMessage.id, s.contextRecommendationLinkedFeedback.messageId))
 		.innerJoin(s.chat, eq(s.chat.id, s.chatMessage.chatId))
 		.innerJoin(s.user, eq(s.user.id, s.chat.userId))
-		.where(and(eq(s.chat.projectId, projectId), inArray(s.recommendationFeedback.recommendationId, recIds)))
+		.where(
+			and(
+				eq(s.chat.projectId, projectId),
+				inArray(s.contextRecommendationLinkedFeedback.recommendationId, recIds),
+			),
+		)
 		.execute();
 	return rows;
 }
@@ -628,17 +647,20 @@ export async function getRecommendationLinksForMessages(
 	}
 	const rows = await db
 		.select({
-			messageId: s.recommendationFeedback.messageId,
+			messageId: s.contextRecommendationLinkedFeedback.messageId,
 			recommendationId: s.contextRecommendation.id,
 			title: s.contextRecommendation.title,
 			status: s.contextRecommendation.status,
 		})
-		.from(s.recommendationFeedback)
-		.innerJoin(s.contextRecommendation, eq(s.contextRecommendation.id, s.recommendationFeedback.recommendationId))
+		.from(s.contextRecommendationLinkedFeedback)
+		.innerJoin(
+			s.contextRecommendation,
+			eq(s.contextRecommendation.id, s.contextRecommendationLinkedFeedback.recommendationId),
+		)
 		.where(
 			and(
 				eq(s.contextRecommendation.projectId, projectId),
-				inArray(s.recommendationFeedback.messageId, messageIds),
+				inArray(s.contextRecommendationLinkedFeedback.messageId, messageIds),
 			),
 		)
 		.orderBy(desc(s.contextRecommendation.createdAt), asc(s.contextRecommendation.id))

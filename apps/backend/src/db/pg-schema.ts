@@ -721,8 +721,8 @@ export const contextRecommendation = pgTable(
 	],
 );
 
-export const recommendationFeedback = pgTable(
-	'recommendation_feedback',
+export const contextRecommendationLinkedFeedback = pgTable(
+	'context_recommendation_linked_feedback',
 	{
 		recommendationId: text('recommendation_id')
 			.notNull()
@@ -734,7 +734,7 @@ export const recommendationFeedback = pgTable(
 	},
 	(t) => [
 		primaryKey({ columns: [t.recommendationId, t.messageId] }),
-		index('recommendation_feedback_message_id_idx').on(t.messageId),
+		index('context_recommendation_linked_feedback_message_id_idx').on(t.messageId),
 	],
 );
 

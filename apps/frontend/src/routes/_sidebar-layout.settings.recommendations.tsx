@@ -44,7 +44,7 @@ import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { Spinner } from '@/components/ui/spinner';
-import { TabBar } from '@/components/ui/tab-bar';
+import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { validateRecommendationsSearch } from '@/components/settings/recommendations-route-search';
@@ -116,6 +116,8 @@ const MAX_CUSTOM_SYSTEM_PROMPT_INSTRUCTIONS_LENGTH = 4000;
 
 type TopTab = 'config' | 'recommendations' | 'applied' | 'dismissed';
 
+const TOP_TABS_ID_BASE = 'recommendations-top';
+
 /** The job runs at 03:00 UTC; render that moment in the viewer's local timezone (display only). */
 function localRunTime(): string {
 	const at = new Date();
@@ -147,6 +149,11 @@ function RecommendationsPage() {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
 	const [activeTab, setActiveTab] = useState<TopTab>(search.tab ?? 'recommendations');
+	useEffect(() => {
+		if (search.tab) {
+			setActiveTab(search.tab);
+		}
+	}, [search.tab]);
 	const sidePanel = useSidePanel({
 		containerRef,
 		sidePanelRef,
@@ -449,7 +456,12 @@ function RecommendationsPage() {
 
 						<div className='sticky top-0 z-20 -mt-2 bg-background pt-2'>
 							<div className='flex flex-wrap items-center gap-x-4 gap-y-2 border-b'>
-								<TabBar tabs={topTabs} activeTab={activeTab} onTabChange={setActiveTab} />
+								<TabBar
+									tabs={topTabs}
+									activeTab={activeTab}
+									onTabChange={setActiveTab}
+									idBase={TOP_TABS_ID_BASE}
+								/>
 								{activeTab !== 'config' && (
 									<RecommendationsToolbar
 										categoryFilter={categoryFilter}
@@ -473,47 +485,57 @@ function RecommendationsPage() {
 							</div>
 						</div>
 
-						{activeTab === 'config' && <ConfigTab enabled={isEnabled} />}
+						{activeTab === 'config' && (
+							<TabPanel idBase={TOP_TABS_ID_BASE} tabId={activeTab}>
+								<ConfigTab enabled={isEnabled} />
+							</TabPanel>
+						)}
 
 						{activeTab === 'recommendations' && (
-							<RecommendationsTab
-								isLoading={recommendations.isLoading}
-								isError={recommendations.isError && !recommendations.data}
-								errorMessage={recommendations.error?.message}
-								hasAny={baseList.length > 0}
-								recommendations={displayedRecommendations}
-								onChangeStatus={changeStatus}
-								isPending={setStatus.isPending}
-								openChatsRecId={search.openChats}
-							/>
+							<TabPanel idBase={TOP_TABS_ID_BASE} tabId={activeTab}>
+								<RecommendationsTab
+									isLoading={recommendations.isLoading}
+									isError={recommendations.isError && !recommendations.data}
+									errorMessage={recommendations.error?.message}
+									hasAny={baseList.length > 0}
+									recommendations={displayedRecommendations}
+									onChangeStatus={changeStatus}
+									isPending={setStatus.isPending}
+									openChatsRecId={search.openChats}
+								/>
+							</TabPanel>
 						)}
 
 						{activeTab === 'applied' && (
-							<ArchiveTab
-								isLoading={recommendations.isLoading}
-								isError={recommendations.isError && !recommendations.data}
-								errorMessage={recommendations.error?.message}
-								recommendations={displayedRecommendations}
-								hasAny={baseList.length > 0}
-								onChangeStatus={changeStatus}
-								isPending={setStatus.isPending}
-								emptyLabel='Nothing applied yet. Recommendations you mark as applied land here.'
-								openChatsRecId={search.openChats}
-							/>
+							<TabPanel idBase={TOP_TABS_ID_BASE} tabId={activeTab}>
+								<ArchiveTab
+									isLoading={recommendations.isLoading}
+									isError={recommendations.isError && !recommendations.data}
+									errorMessage={recommendations.error?.message}
+									recommendations={displayedRecommendations}
+									hasAny={baseList.length > 0}
+									onChangeStatus={changeStatus}
+									isPending={setStatus.isPending}
+									emptyLabel='Nothing applied yet. Recommendations you mark as applied land here.'
+									openChatsRecId={search.openChats}
+								/>
+							</TabPanel>
 						)}
 
 						{activeTab === 'dismissed' && (
-							<ArchiveTab
-								isLoading={recommendations.isLoading}
-								isError={recommendations.isError && !recommendations.data}
-								errorMessage={recommendations.error?.message}
-								recommendations={displayedRecommendations}
-								hasAny={baseList.length > 0}
-								onChangeStatus={changeStatus}
-								isPending={setStatus.isPending}
-								emptyLabel='Nothing dismissed yet. Recommendations you dismiss land here.'
-								openChatsRecId={search.openChats}
-							/>
+							<TabPanel idBase={TOP_TABS_ID_BASE} tabId={activeTab}>
+								<ArchiveTab
+									isLoading={recommendations.isLoading}
+									isError={recommendations.isError && !recommendations.data}
+									errorMessage={recommendations.error?.message}
+									recommendations={displayedRecommendations}
+									hasAny={baseList.length > 0}
+									onChangeStatus={changeStatus}
+									isPending={setStatus.isPending}
+									emptyLabel='Nothing dismissed yet. Recommendations you dismiss land here.'
+									openChatsRecId={search.openChats}
+								/>
+							</TabPanel>
 						)}
 					</div>
 				</SettingsPageWrapper>

@@ -1,5 +1,6 @@
 import type { LlmSelectedModel } from '@nao/shared/types';
 import { generateText, Output } from 'ai';
+import { createHash } from 'crypto';
 import { z } from 'zod';
 
 import { llmTelemetry } from '../agents/telemetry';
@@ -247,12 +248,13 @@ async function applyFallbackRecos(
 		return;
 	}
 	const { dismissedSet, existingByFingerprint } = context;
-	const fingerprint = fingerprintFor(FALLBACK_SUGGESTED_FILE, FALLBACK_SUBJECT_KEY);
+	const memberMessageIds = unlinked.map((f) => f.messageId);
+	const subjectKey = fallbackSubjectKey(memberMessageIds);
+	const fingerprint = fingerprintFor(FALLBACK_SUGGESTED_FILE, subjectKey);
 	if (dismissedSet.has(fingerprint)) {
 		return;
 	}
 
-	const memberMessageIds = unlinked.map((f) => f.messageId);
 	const cluster: FeedbackCluster = {
 		title: 'Downvoted responses awaiting review',
 		summary:
@@ -261,11 +263,18 @@ async function applyFallbackRecos(
 		suggestedAction:
 			'Open the linked chats and update RULES.md or the relevant semantics file to address the recurring complaints.',
 		suggestedFile: FALLBACK_SUGGESTED_FILE,
-		subjectKey: FALLBACK_SUBJECT_KEY,
+		subjectKey,
 		memberMessageIds,
 	};
 	const recId = await upsertBackfillRecommendation(projectId, runId, fingerprint, cluster, existingByFingerprint);
 	await crQueries.linkFeedbackToRecommendation(projectId, recId, memberMessageIds);
+}
+
+function fallbackSubjectKey(messageIds: string[]): string {
+	const digest = createHash('sha256')
+		.update([...messageIds].sort().join(','))
+		.digest('hex');
+	return `${FALLBACK_SUBJECT_KEY}:${digest}`;
 }
 
 async function upsertBackfillRecommendation(

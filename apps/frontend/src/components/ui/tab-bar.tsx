@@ -14,14 +14,24 @@ interface TabBarProps<Id extends string> {
 	tabs: TabBarItem<Id>[];
 	activeTab: Id;
 	onTabChange: (id: Id) => void;
+	idBase: string;
 	className?: string;
 	fitted?: boolean;
+}
+
+export function tabTriggerId(idBase: string, tabId: string) {
+	return `${idBase}-tab-${tabId}`;
+}
+
+export function tabPanelId(idBase: string, tabId: string) {
+	return `${idBase}-panel-${tabId}`;
 }
 
 export function TabBar<Id extends string>({
 	tabs,
 	activeTab,
 	onTabChange,
+	idBase,
 	className,
 	fitted = false,
 }: TabBarProps<Id>) {
@@ -51,7 +61,9 @@ export function TabBar<Id extends string>({
 						}}
 						type='button'
 						role='tab'
+						id={tabTriggerId(idBase, tab.id)}
 						aria-selected={isActive}
+						aria-controls={tabPanelId(idBase, tab.id)}
 						tabIndex={isActive ? 0 : -1}
 						onClick={() => onTabChange(tab.id)}
 						className={cn(
@@ -75,6 +87,26 @@ export function TabBar<Id extends string>({
 					</button>
 				);
 			})}
+		</div>
+	);
+}
+
+interface TabPanelProps {
+	idBase: string;
+	tabId: string;
+	className?: string;
+	children: ReactNode;
+}
+
+export function TabPanel({ idBase, tabId, className, children }: TabPanelProps) {
+	return (
+		<div
+			role='tabpanel'
+			id={tabPanelId(idBase, tabId)}
+			aria-labelledby={tabTriggerId(idBase, tabId)}
+			className={className}
+		>
+			{children}
 		</div>
 	);
 }

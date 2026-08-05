@@ -5359,8 +5359,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.recommendation_feedback": {
-      "name": "recommendation_feedback",
+    "public.context_recommendation_linked_feedback": {
+      "name": "context_recommendation_linked_feedback",
       "schema": "",
       "columns": {
         "recommendation_id": {
@@ -5384,8 +5384,8 @@
         }
       },
       "indexes": {
-        "recommendation_feedback_message_id_idx": {
-          "name": "recommendation_feedback_message_id_idx",
+        "context_recommendation_linked_feedback_message_id_idx": {
+          "name": "context_recommendation_linked_feedback_message_id_idx",
           "columns": [
             {
               "expression": "message_id",
@@ -5401,9 +5401,9 @@
         }
       },
       "foreignKeys": {
-        "recommendation_feedback_recommendation_id_context_recommendation_id_fk": {
-          "name": "recommendation_feedback_recommendation_id_context_recommendation_id_fk",
-          "tableFrom": "recommendation_feedback",
+        "context_recommendation_linked_feedback_recommendation_id_context_recommendation_id_fk": {
+          "name": "context_recommendation_linked_feedback_recommendation_id_context_recommendation_id_fk",
+          "tableFrom": "context_recommendation_linked_feedback",
           "tableTo": "context_recommendation",
           "columnsFrom": [
             "recommendation_id"
@@ -5414,9 +5414,9 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "recommendation_feedback_message_id_chat_message_id_fk": {
-          "name": "recommendation_feedback_message_id_chat_message_id_fk",
-          "tableFrom": "recommendation_feedback",
+        "context_recommendation_linked_feedback_message_id_chat_message_id_fk": {
+          "name": "context_recommendation_linked_feedback_message_id_chat_message_id_fk",
+          "tableFrom": "context_recommendation_linked_feedback",
           "tableTo": "chat_message",
           "columnsFrom": [
             "message_id"
@@ -5429,8 +5429,8 @@
         }
       },
       "compositePrimaryKeys": {
-        "recommendation_feedback_recommendation_id_message_id_pk": {
-          "name": "recommendation_feedback_recommendation_id_message_id_pk",
+        "context_recommendation_linked_feedback_recommendation_id_message_id_pk": {
+          "name": "context_recommendation_linked_feedback_recommendation_id_message_id_pk",
           "columns": [
             "recommendation_id",
             "message_id"
