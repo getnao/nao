@@ -18,32 +18,36 @@ const proxyQuerySchema = z.object({
 });
 
 export const mapBoundariesRoutes = async (app: App) => {
-	app.get('/:projectId/:key', { schema: { params: paramsSchema } }, async (request, reply) => {
-		const { projectId, key } = request.params;
+	app.get(
+		'/:projectId/:key',
+		{ preHandler: authMiddleware, schema: { params: paramsSchema } },
+		async (request, reply) => {
+			const { projectId, key } = request.params;
 
-		const customSets = await projectQueries.getCustomBoundaries(projectId);
-		const resolved = resolveBoundary(key, customSets);
-		if (!resolved) {
-			throw new HandlerError('NOT_FOUND', `Boundary set "${key}" not found.`);
-		}
+			const customSets = await projectQueries.getCustomBoundaries(projectId);
+			const resolved = resolveBoundary(key, customSets);
+			if (!resolved) {
+				throw new HandlerError('NOT_FOUND', `Boundary set "${key}" not found.`);
+			}
 
-		const cached = getCachedBoundary(resolved.url);
-		if (cached) {
+			const cached = getCachedBoundary(resolved.url);
+			if (cached) {
+				return reply
+					.header('Content-Type', 'application/json')
+					.header('Cache-Control', 'public, max-age=600')
+					.send(JSON.stringify(cached));
+			}
+
+			const text = await safeFetch(resolved.url);
+			const { geojson } = parseAndValidateGeoJson(text);
+			setCachedBoundary(resolved.url, geojson);
+
 			return reply
 				.header('Content-Type', 'application/json')
 				.header('Cache-Control', 'public, max-age=600')
-				.send(JSON.stringify(cached));
-		}
-
-		const text = await safeFetch(resolved.url);
-		const { geojson } = parseAndValidateGeoJson(text);
-		setCachedBoundary(resolved.url, geojson);
-
-		return reply
-			.header('Content-Type', 'application/json')
-			.header('Cache-Control', 'public, max-age=600')
-			.send(JSON.stringify(geojson));
-	});
+				.send(JSON.stringify(geojson));
+		},
+	);
 
 	app.get<{ Querystring: { url: string } }>(
 		'/proxy',

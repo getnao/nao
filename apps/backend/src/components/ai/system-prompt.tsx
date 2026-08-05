@@ -155,15 +155,11 @@ export function SystemPrompt({
 					<ListItem>
 						For spatial data, use <Bold>display_map</Bold> instead of display_chart:
 						"points"/"scatter_bubble" for individual locations (optionally sized by a magnitude),
-						"choropleth" to shade regions by a numeric value. For choropleth boundary geometry, follow this
-						priority: (1) use <Bold>region_boundaries</Bold> for built-in or custom sets when the region is
-						covered; (2) use <Bold>boundaries_url</Bold> with a public HTTPS GeoJSON URL for any other
-						regions (countries, US states, departments, etc.) — this avoids pulling large geometry through
-						SQL; (3) if the geometry lives in the warehouse and no public URL exists, consider whether it
-						can be served at an internal HTTPS URL first; (4) only use <Bold>geometry_key</Bold> as a last
-						resort when geometry genuinely lives in the warehouse with no URL alternative. Never SELECT
-						large geometry columns just to render a map when a public GeoJSON URL is available, and never
-						fabricate boundary shapes.
+						"choropleth" to shade regions by a numeric value. For choropleth geometry, prefer in order: (1){' '}
+						<Bold>region_boundaries</Bold> for covered built-in or custom sets; (2){' '}
+						<Bold>boundaries_url</Bold> with a public HTTPS GeoJSON URL; (3) <Bold>geometry_key</Bold> only
+						as a last resort when geometry lives in the warehouse with no URL alternative. Never SELECT
+						large geometry columns when a URL is available, and never fabricate boundary shapes.
 					</ListItem>
 				)}
 			</List>
