@@ -3,7 +3,7 @@
   "checkpoint_id": "01KZ9B7V7G62N6XXS2XAKVAQEJ",
   "strategy": "manual-commit",
   "branch": "feat/storage",
-  "checkpoints_count": 22,
+  "checkpoints_count": 23,
   "files_touched": [
     "apps/backend/migrations-postgres/meta/0058_snapshot.json",
     "apps/backend/migrations-postgres/meta/_journal.json",
@@ -74,13 +74,20 @@
       "compact_transcript": "/8/transcript.jsonl",
       "content_hash": "/8/content_hash.txt",
       "prompt": "/8/prompt.txt"
+    },
+    {
+      "metadata": "/9/metadata.json",
+      "transcript": "/9/full.jsonl",
+      "compact_transcript": "/9/transcript.jsonl",
+      "content_hash": "/9/content_hash.txt",
+      "prompt": "/9/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 483222,
+    "input_tokens": 504499,
     "cache_creation_tokens": 1108419,
-    "cache_read_tokens": 62135580,
-    "output_tokens": 252608,
-    "api_call_count": 19
+    "cache_read_tokens": 62194460,
+    "output_tokens": 254495,
+    "api_call_count": 20
   }
 }
