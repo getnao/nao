@@ -26,6 +26,7 @@ import { mcpServerRoutes } from './mcp/routes';
 import { ensureOrganizationSetup } from './queries/organization.queries';
 import { agentRoutes } from './routes/agent';
 import { analyticsRoutes } from './routes/analytics';
+import { attachmentRoutes } from './routes/attachment';
 import { authRoutes } from './routes/auth';
 import { authErrorRedirectRoutes } from './routes/auth-error-redirect';
 import { automationWebhookRoutes } from './routes/automation-webhook';
@@ -153,6 +154,10 @@ app.register(fastifyTRPCPlugin, {
 
 app.register(agentRoutes, {
 	prefix: '/api/agent',
+});
+
+app.register(attachmentRoutes, {
+	prefix: '/api/attachments',
 });
 
 app.register(analyticsRoutes, {

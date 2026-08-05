@@ -1,10 +1,11 @@
 import { sqlIncludesFilterTemplate, stripSqlFilterBlocks, validateSqlFilterTemplate } from '@nao/shared/sql-template';
 import type { executeSql } from '@nao/shared/tools';
-import { executeSql as schemas } from '@nao/shared/tools';
+import { executeSql as schemas, LOCAL_DATABASE_ID } from '@nao/shared/tools';
 
 import { ExecuteSqlOutput, renderToModelOutput } from '../../components/tool-outputs';
 import { env } from '../../env';
 import { getExecuteSqlPartByQueryIdInChat, updateExecuteSqlPart } from '../../queries/execute-sql.queries';
+import { runQueryOnLocalFiles } from '../../services/local-query.service';
 import { ToolContext } from '../../types/tools';
 import { detectQueryRowLimit, isReadOnlySqlQuery } from '../../utils/sql-filter';
 import { createTool } from '../../utils/tools';
@@ -29,6 +30,10 @@ export async function executeQuery(
 
 	if (context.adminMode) {
 		return withTemplateWarnings(await executeAppDbQuery(effectiveSql, context, query_id), templateWarnings);
+	}
+
+	if (database_id === LOCAL_DATABASE_ID) {
+		return withTemplateWarnings(await executeLocalQuery(effectiveSql, context, query_id), templateWarnings);
 	}
 
 	const naoProjectFolder = context.projectFolder;
@@ -68,6 +73,28 @@ export async function executeQuery(
 		},
 		templateWarnings,
 	);
+}
+
+/** Files and earlier results, in nao's own DuckDB. No warehouse is involved. */
+async function executeLocalQuery(
+	sqlQuery: string,
+	context: ToolContext,
+	queryId?: `query_${string}`,
+): Promise<executeSql.Output> {
+	const { columns, data } = await runQueryOnLocalFiles(sqlQuery, context);
+	const id = queryId ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
+	context.queryResults.set(id, { columns, data });
+	const appliedLimit = detectQueryRowLimit(sqlQuery);
+
+	return {
+		_version: '1',
+		data,
+		row_count: data.length,
+		columns,
+		id,
+		dialect: 'duckdb',
+		...(appliedLimit !== null && { applied_limit: appliedLimit }),
+	};
 }
 
 async function executeAppDbQuery(

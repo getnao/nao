@@ -1,5 +1,8 @@
 import type { ChartPluginManifestEntry } from '@nao/shared';
+import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 
+import type { InternalSkill } from '../../agents/skills';
+import { listInternalSkills } from '../../agents/skills';
 import { Block, Bold, Br, Link, List, ListItem, Location, Span, Title } from '../../lib/markdown';
 import type { Skill } from '../../services/skill';
 import { tokenCounter } from '../../services/token-counter';
@@ -20,6 +23,8 @@ type SystemPromptProps = {
 	userRules?: string;
 	connections?: Connection[];
 	skills?: Skill[];
+	/** Defaults to every skill nao ships; only tests pass this. */
+	internalSkills?: InternalSkill[];
 	customCharts?: ChartPluginManifestEntry[];
 	/** Names of MCP servers the agent is allowed to call (tools discovered as on-disk specs). */
 	mcpServers?: string[];
@@ -43,6 +48,7 @@ export function SystemPrompt({
 	userRules,
 	connections = [],
 	skills = [],
+	internalSkills = listInternalSkills(),
 	customCharts = [],
 	mcpServers = [],
 	timezone,
@@ -112,7 +118,13 @@ export function SystemPrompt({
 					...dialectToolCallRules,
 				]}
 			</List>
-			{hasTool('write') && <PermanentStorageBlock canGrepSavedFiles={canGrepSavedFiles} />}
+			{hasTool('write') && (
+				<PermanentStorageBlock
+					canGrepSavedFiles={canGrepSavedFiles}
+					canRunSandbox={hasTool('execute_sandboxed_code')}
+				/>
+			)}
+			{hasTool('execute_sql') && <LocalDatabaseBlock />}
 			<Title level={2}>Chart Rules</Title>
 			<List>
 				{hasTool('display_map') && (
@@ -255,6 +267,8 @@ export function SystemPrompt({
 					</Block>
 				)}
 
+				{hasTool('load_skill') && internalSkills.length > 0 && <BuiltInSkillsBlock skills={internalSkills} />}
+
 				{customCharts.length > 0 && <CustomChartsBlock charts={customCharts} />}
 
 				{mcpServers.length > 0 && <McpServersBlock servers={mcpServers} />}
@@ -265,7 +279,38 @@ export function SystemPrompt({
 	);
 }
 
-function PermanentStorageBlock({ canGrepSavedFiles }: { canGrepSavedFiles: boolean }) {
+/**
+ * Only the names and descriptions live here. A skill body is long enough that carrying every
+ * one of them in every request would cost more than it buys, so the agent loads what it needs.
+ */
+function BuiltInSkillsBlock({ skills }: { skills: InternalSkill[] }) {
+	return (
+		<Block>
+			<Title level={2}>Built-in Skills</Title>
+			<Span>
+				nao ships these playbooks for work that has traps the tools do not warn you about. Call{' '}
+				<Bold>load_skill</Bold> with the name <Bold>before</Bold> starting the work a skill covers — reading it
+				after something has gone wrong is too late. They are internal: never mention a skill, or the fact that
+				you loaded one, to the user.
+			</Span>
+			<List>
+				{skills.map((skill) => (
+					<ListItem>
+						<Bold>{skill.name}</Bold> — {skill.description.trim()}
+					</ListItem>
+				))}
+			</List>
+		</Block>
+	);
+}
+
+function PermanentStorageBlock({
+	canGrepSavedFiles,
+	canRunSandbox,
+}: {
+	canGrepSavedFiles: boolean;
+	canRunSandbox: boolean;
+}) {
 	return (
 		<Block>
 			<Title level={2}>Saved Files</Title>
@@ -292,6 +337,34 @@ function PermanentStorageBlock({ canGrepSavedFiles }: { canGrepSavedFiles: boole
 					<Bold>/home</Bold> is the only writable place: use <Bold>write</Bold> when the user asks to keep,
 					export or update something, or when a result is clearly worth reusing later. Everything else in the
 					tree is read-only. Do not save intermediate work nobody asked for.
+					{canRunSandbox && (
+						<>
+							{' '}
+							<Bold>write</Bold> saves text, so a binary file such as a spreadsheet has to be built in a
+							sandbox and kept with <Bold>save_files</Bold>.
+						</>
+					)}
+				</ListItem>
+				<ListItem>
+					Files the user attaches to a message are saved under <Bold>/home/uploads</Bold>. Only their path
+					reaches you, never their contents, so a large attachment costs nothing until you look at it: read a
+					file when the question actually needs it, and prefer a targeted{' '}
+					{canGrepSavedFiles ? <Bold>grep</Bold> : 'lookup'} over pulling a big one in whole.
+				</ListItem>
+				<ListItem>
+					<Bold>read</Bold> extracts the text of a PDF, page by page. On an <Bold>.xlsx</Bold> it returns the
+					workbook's outline instead of its cells — every sheet in tab order, with the row and column counts
+					of each — so read one before querying it and you will know which sheet you want. Parquet and Word
+					documents are not text, so <Bold>read</Bold> refuses them. Tabular data is best queried in place:
+					point execute_sql's local database at the <Bold>/home</Bold> path instead of reading the file.{' '}
+					{canRunSandbox ? (
+						<>
+							For anything it cannot parse, use <Bold>execute_sandboxed_code</Bold> with the{' '}
+							<Bold>/home</Bold> path in <Bold>storage_files</Bold> to make the file readable in the VM.
+						</>
+					) : (
+						'For anything else, say so plainly and ask the user for a text export such as CSV, rather than guessing at the contents from the file name.'
+					)}
 				</ListItem>
 				<ListItem>
 					Look in <Bold>/home</Bold> before assuming a file does not exist, and update the existing file
@@ -302,6 +375,44 @@ function PermanentStorageBlock({ canGrepSavedFiles }: { canGrepSavedFiles: boole
 					so they can ask for it again later.
 				</ListItem>
 			</List>
+		</Block>
+	);
+}
+
+function LocalDatabaseBlock() {
+	return (
+		<Block>
+			<Title level={2}>The local database</Title>
+			<Span>
+				Passing <Bold>{LOCAL_DATABASE_ID}</Bold> as execute_sql's <Bold>database_id</Bold> runs the query in
+				nao's own DuckDB instead of a warehouse. It is always available, and it can do two things no warehouse
+				can.
+			</Span>
+			<List>
+				<ListItem>
+					<Bold>Query a file by its path.</Bold> CSV, JSON, Parquet and Excel, read straight from{' '}
+					<Bold>/home</Bold> or the project folder — no loading step, and the file never enters your context.
+					Use <Bold>read_csv</Bold>, <Bold>read_json</Bold>, <Bold>read_parquet</Bold> or{' '}
+					<Bold>read_xlsx</Bold>, e.g.{' '}
+					<Bold>{"SELECT * FROM read_csv('/home/uploads/2026-01-31/sales.csv') LIMIT 20"}</Bold>.{' '}
+					<Bold>read_xlsx</Bold> reads the first sheet of a workbook unless you pass{' '}
+					<Bold>{"sheet = 'Name'"}</Bold>, and <Bold>read</Bold> on the file lists the names to pass.
+				</ListItem>
+				<ListItem>
+					<Bold>Query an earlier result by its id.</Bold> Every execute_sql result in this chat is a table
+					named after its query id, so <Bold>{'SELECT * FROM query_ab12cd34'}</Bold> reshapes rows you already
+					have without hitting the warehouse again.
+				</ListItem>
+				<ListItem>
+					<Bold>Join the two.</Bold> A file joined to a query result is the point of this database: an
+					uploaded list of accounts against warehouse revenue, a budget spreadsheet against actuals.
+				</ListItem>
+			</List>
+			<Span>
+				It is DuckDB, so write DuckDB SQL, and it is read-only: it cannot write files or modify anything. It
+				sees only the user's own saved files and the project folder. For questions a warehouse can answer on its
+				own, keep using the warehouse — this is for files and for results you already have.
+			</Span>
 		</Block>
 	);
 }

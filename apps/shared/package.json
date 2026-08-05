@@ -4,6 +4,7 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
+		"./attachments": "./src/attachments.ts",
 		"./date": "./src/date.ts",
 		"./types": "./src/types.ts",
 		"./posthog": "./src/posthog.ts",

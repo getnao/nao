@@ -45,7 +45,13 @@ describe('runSqlOverQueryResults', () => {
 			'SELECT COUNT(*) AS rows_count, MAX(total_amount) AS biggest FROM query_orders',
 		);
 
-		expect(result.data).toEqual([{ rows_count: '3', biggest: 99.5 }]);
+		expect(result.data).toEqual([{ rows_count: 3, biggest: 99.5 }]);
+	});
+
+	it('leaves a number too large for JavaScript as text rather than rounding it', async () => {
+		const result = await runSqlOverQueryResults(new Map(), 'SELECT 9223372036854775807::BIGINT AS big');
+
+		expect(result.data).toEqual([{ big: '9223372036854775807' }]);
 	});
 
 	it('registers an empty result as an empty table', async () => {
@@ -71,7 +77,7 @@ describe('runSqlOverQueryResults', () => {
 			`SELECT COUNT(*) AS rows_count FROM "${queryId}"`,
 		);
 
-		expect(result.data).toEqual([{ rows_count: '3' }]);
+		expect(result.data).toEqual([{ rows_count: 3 }]);
 	});
 
 	it('rejects write statements before execution', async () => {
@@ -94,8 +100,8 @@ describe('runSqlOverQueryResults', () => {
 		);
 
 		expect(result.data).toEqual([
-			{ customer_id: '51', revenue: 100 },
-			{ customer_id: '3', revenue: 65 },
+			{ customer_id: 51, revenue: 100 },
+			{ customer_id: 3, revenue: 65 },
 		]);
 	});
 

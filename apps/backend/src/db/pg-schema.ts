@@ -345,9 +345,11 @@ export const messagePart = pgTable(
 		toolProviderMetadata: jsonb('tool_provider_metadata').$type<ProviderMetadata>(),
 		providerMetadata: jsonb('provider_metadata').$type<ProviderMetadata>(),
 
-		// file/image columns
+		// file columns: images live in message_image, other attachments in permanent storage
 		mediaType: text('media_type'),
 		imageId: text('image_id').references(() => messageImage.id, { onDelete: 'set null' }),
+		storagePath: text('storage_path'),
+		filename: text('filename'),
 	},
 	(t) => [
 		index('parts_message_id_idx').on(t.messageId),
@@ -366,7 +368,7 @@ export const messagePart = pgTable(
 		),
 		check(
 			'file_fields_required',
-			sql`CASE WHEN ${t.type} = 'file' THEN ${t.mediaType} IS NOT NULL AND ${t.imageId} IS NOT NULL ELSE TRUE END`,
+			sql`CASE WHEN ${t.type} = 'file' THEN ${t.mediaType} IS NOT NULL AND (${t.imageId} IS NOT NULL OR ${t.storagePath} IS NOT NULL) ELSE TRUE END`,
 		),
 	],
 );

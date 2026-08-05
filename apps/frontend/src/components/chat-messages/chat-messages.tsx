@@ -80,6 +80,7 @@ export const ChatMessagesContent = memo(() => {
 		[messages],
 	);
 	const messageGroups = useMemo(() => groupMessages(visibleMessages), [visibleMessages]);
+	const lastMessageId = visibleMessages.at(-1)?.id;
 
 	const forkMetadata = useQuery({
 		...trpc.chat.getForkMetadata.queryOptions({ chatId: chatId ?? '' }),
@@ -104,7 +105,7 @@ export const ChatMessagesContent = memo(() => {
 						userMessage={group.userMessage}
 						assistantMessages={group.assistantMessages}
 						showLoader={showThinkingLoader && isLast(group, messageGroups)}
-						isLastMessage={(messageId) => messageId === visibleMessages.at(-1)?.id}
+						lastMessageId={lastMessageId}
 						isRunning={effectiveIsRunning}
 						storyIntroMessageId={storyIntroMessageId}
 					/>
@@ -120,80 +121,84 @@ export const ChatMessagesContent = memo(() => {
 	);
 });
 
-const MessageGroup = ({
-	userMessage,
-	assistantMessages,
-	showLoader,
-	isLastMessage,
-	isRunning,
-	storyIntroMessageId,
-}: {
-	userMessage: UIMessage | null;
-	assistantMessages: UIMessage[];
-	showLoader: boolean;
-	isLastMessage: (messageId: string) => boolean;
-	isRunning: boolean;
-	storyIntroMessageId: string | undefined;
-}) => {
-	const messages = userMessage ? [userMessage, ...assistantMessages] : assistantMessages;
-	return (
-		<div className='flex flex-col gap-4 last:min-h-[calc(var(--container-height)-var(--extra-components-height)-calc(2*24px+16px))] group/message last:mb-4'>
-			{messages.map((message) => (
-				<MessageBlock
-					key={message.id}
-					message={message}
-					showLoader={showLoader}
-					isLastMessage={isLastMessage(message.id)}
-					isRunning={isRunning}
-					storyIntroMessageId={storyIntroMessageId}
-				/>
-			))}
-
-			{showLoader && !assistantMessages.length && <TextShimmer showLogo className='px-3' />}
-		</div>
-	);
-};
-
-const MessageBlock = ({
-	message,
-	showLoader,
-	isLastMessage,
-	isRunning,
-	storyIntroMessageId,
-}: {
-	message: UIMessage;
-	showLoader: boolean;
-	isLastMessage: boolean;
-	isRunning: boolean;
-	storyIntroMessageId: string | undefined;
-}) => {
-	const isUser = message.role === 'user';
-
-	if (DEBUG_MESSAGES) {
+const MessageGroup = memo(
+	({
+		userMessage,
+		assistantMessages,
+		showLoader,
+		lastMessageId,
+		isRunning,
+		storyIntroMessageId,
+	}: {
+		userMessage: UIMessage | null;
+		assistantMessages: UIMessage[];
+		showLoader: boolean;
+		lastMessageId: string | undefined;
+		isRunning: boolean;
+		storyIntroMessageId: string | undefined;
+	}) => {
+		const messages = userMessage ? [userMessage, ...assistantMessages] : assistantMessages;
 		return (
-			<div
-				className={cn(
-					'flex gap-3 text-xs',
-					isUser ? 'justify-end bg-primary text-primary-foreground w-min ml-auto' : 'justify-start',
-				)}
-			>
-				<pre>{JSON.stringify(message, null, 2)}</pre>
+			<div className='flex flex-col gap-4 last:min-h-[calc(var(--container-height)-var(--extra-components-height)-calc(2*24px+16px))] group/message last:mb-4'>
+				{messages.map((message) => (
+					<MessageBlock
+						key={message.id}
+						message={message}
+						showLoader={showLoader}
+						isLastMessage={message.id === lastMessageId}
+						isRunning={isRunning}
+						storyIntroMessageId={storyIntroMessageId}
+					/>
+				))}
+
+				{showLoader && !assistantMessages.length && <TextShimmer showLogo className='px-3' />}
 			</div>
 		);
-	}
+	},
+);
 
-	if (isUser) {
-		return <UserMessage message={message} />;
-	}
+const MessageBlock = memo(
+	({
+		message,
+		showLoader,
+		isLastMessage,
+		isRunning,
+		storyIntroMessageId,
+	}: {
+		message: UIMessage;
+		showLoader: boolean;
+		isLastMessage: boolean;
+		isRunning: boolean;
+		storyIntroMessageId: string | undefined;
+	}) => {
+		const isUser = message.role === 'user';
 
-	return (
-		<AssistantMessage
-			message={message}
-			showLoader={showLoader && isLastMessage}
-			isSettled={!isLastMessage || !isRunning}
-			isRunning={isRunning}
-			isLastMessage={isLastMessage}
-			storyIntroMessageId={storyIntroMessageId}
-		/>
-	);
-};
+		if (DEBUG_MESSAGES) {
+			return (
+				<div
+					className={cn(
+						'flex gap-3 text-xs',
+						isUser ? 'justify-end bg-primary text-primary-foreground w-min ml-auto' : 'justify-start',
+					)}
+				>
+					<pre>{JSON.stringify(message, null, 2)}</pre>
+				</div>
+			);
+		}
+
+		if (isUser) {
+			return <UserMessage message={message} />;
+		}
+
+		return (
+			<AssistantMessage
+				message={message}
+				showLoader={showLoader && isLastMessage}
+				isSettled={!isLastMessage || !isRunning}
+				isRunning={isRunning}
+				isLastMessage={isLastMessage}
+				storyIntroMessageId={storyIntroMessageId}
+			/>
+		);
+	},
+);

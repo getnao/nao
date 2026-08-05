@@ -10,10 +10,11 @@ import { useAgentContext } from '@/contexts/agent.provider';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useIsEditingMessage } from '@/hooks/use-is-editing-message-store';
 import { useClickOutside } from '@/hooks/use-click-outside';
+import { AttachmentFileIcon } from '@/components/attachment-file-icon';
 import { ChatInputInline } from '@/components/chat-input';
 import { ChatMessagesCitationChip } from '@/components/chat-messages/chat-messages-citation-chip';
 import { ImageLightbox } from '@/components/image-lightbox';
-import { getMessageText, getMessageImages } from '@/lib/ai';
+import { getMessageText, getMessageImages, getMessageDocuments } from '@/lib/ai';
 import { parseChatMessageCitation } from '@/lib/chat-messages-citation-parser';
 import { Button } from '@/components/ui/button';
 import { SimpleTooltip } from '@/components/ui/tooltip';
@@ -101,6 +102,7 @@ function useMentionConfigs(): MessageMentionConfig[] {
 export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
 	const rawText = useMemo(() => getMessageText(message), [message]);
 	const images = useMemo(() => getMessageImages(message), [message]);
+	const documents = useMemo(() => getMessageDocuments(message), [message]);
 	const mentionConfigs = useMentionConfigs();
 	const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
@@ -130,6 +132,18 @@ export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
 						>
 							<img src={img.url} alt='' className='max-w-48 max-h-48 rounded-lg object-cover' />
 						</button>
+					))}
+				</div>
+			)}
+			{documents.length > 0 && (
+				<div className='flex gap-1.5 flex-wrap mb-2 justify-end'>
+					{documents.map((document) => (
+						<SimpleTooltip key={document.path} content={document.path}>
+							<span className='flex max-w-56 items-center gap-1.5 rounded-lg border border-border bg-background px-2 py-1'>
+								<AttachmentFileIcon fileName={document.filename} className='size-3.5 shrink-0' />
+								<span className='truncate text-xs'>{document.filename}</span>
+							</span>
+						</SimpleTooltip>
 					))}
 				</div>
 			)}

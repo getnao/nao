@@ -45,7 +45,10 @@ export function TableDisplay({
 		() => (columns && columns.length > 0 ? columns : inferColumns(data)),
 		[columns, data],
 	);
-	const numericColumns = new Set(resolvedColumns.filter((column) => isNumericColumn(data, column)));
+	const numericColumns = useMemo(
+		() => new Set(resolvedColumns.filter((column) => isNumericColumn(data, column))),
+		[data, resolvedColumns],
+	);
 	const hasRows = data.length > 0;
 	const showPagination = hasRows && data.length > maxRowsBeforePagination;
 

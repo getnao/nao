@@ -9,9 +9,9 @@ const EMPTY_MESSAGES: UIMessage[] = [];
 export type SourceQuery = { input?: executeSql.Input; output: executeSql.Output };
 
 /**
- * Finds the `execute_sql` tool call a visualization references. The hit is cached in a ref —
- * tool outputs are immutable once emitted — so streaming re-renders skip the message scan
- * and keep a stable object identity.
+ * Finds the `execute_sql` tool call a visualization references. The previous hit is reused for as
+ * long as the part behind it is untouched, so streaming re-renders keep a stable object identity,
+ * while a query re-run in place under the same id still replaces it.
  */
 export function useSourceQuery(queryId: string | undefined): {
 	sourceQuery: SourceQuery | null;
@@ -19,28 +19,22 @@ export function useSourceQuery(queryId: string | undefined): {
 } {
 	const agent = useOptionalAgentContext();
 	const messages = agent?.messages ?? EMPTY_MESSAGES;
-	const foundRef = useRef<{ queryId: string; result: SourceQuery } | null>(null);
+	const foundRef = useRef<SourceQuery | null>(null);
 
 	const sourceQuery = useMemo<SourceQuery | null>(() => {
 		if (!queryId) {
 			return null;
 		}
-		if (foundRef.current?.queryId === queryId) {
-			return foundRef.current.result;
-		}
-		for (const message of messages) {
-			for (const part of message.parts) {
-				if (part.type === 'tool-execute_sql' && part.output && part.output.id === queryId) {
-					const result = { input: part.input, output: part.output };
-					foundRef.current = { queryId, result };
-					return result;
-				}
-			}
-		}
-		if (!queryId) {
+		const found = findLatestExecuteSqlInMessages(messages, queryId);
+		if (!found) {
 			return null;
 		}
-		return findLatestExecuteSqlInMessages(messages, queryId);
+		const cached = foundRef.current;
+		if (cached && cached.input === found.input && cached.output === found.output) {
+			return cached;
+		}
+		foundRef.current = found;
+		return found;
 	}, [messages, queryId]);
 
 	return { sourceQuery, sourceData: sourceQuery?.output ?? null };

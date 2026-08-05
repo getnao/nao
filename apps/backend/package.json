@@ -91,6 +91,7 @@
 		"fastify-plugin": "^5.1.0",
 		"fastify-raw-body": "^5.0.0",
 		"fastify-type-provider-zod": "^6.1.0",
+		"fflate": "^0.8.3",
 		"gray-matter": "^4.0.3",
 		"jose": "^6.2.2",
 		"js-yaml": "^4.1.1",
@@ -106,6 +107,7 @@
 		"react": "^19.2.4",
 		"react-dom": "^19.2.4",
 		"superjson": "^2.2.6",
+		"unpdf": "^1.8.0",
 		"zod": "^4.2.1"
 	},
 	"optionalDependencies": {

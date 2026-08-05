@@ -167,16 +167,33 @@ export const getMessageText = (message: UIMessage): string => {
 };
 
 export const getMessageImages = (message: UIMessage): { url: string; mediaType: string }[] => {
-	return message.parts
-		.filter((part): part is Extract<UIMessagePart, { type: 'file' }> => part.type === 'file')
+	return getFileParts(message)
 		.filter((part) => part.mediaType.startsWith('image/'))
 		.map((part) => ({ url: part.url, mediaType: part.mediaType }));
 };
 
+/** Attachments kept in permanent storage, whose URL is the path the agent reads them from. */
+export const getMessageDocuments = (message: UIMessage): { path: string; mediaType: string; filename: string }[] => {
+	return getFileParts(message)
+		.filter((part) => !part.mediaType.startsWith('image/'))
+		.map((part) => ({
+			path: part.url,
+			mediaType: part.mediaType,
+			filename: part.filename ?? (part.url.split('/').pop() as string),
+		}));
+};
+
+export const extractDocumentPathsFromMessage = (message: UIMessage): string[] => {
+	return getMessageDocuments(message).map((document) => document.path);
+};
+
+const getFileParts = (message: UIMessage): Extract<UIMessagePart, { type: 'file' }>[] => {
+	return message.parts.filter((part): part is Extract<UIMessagePart, { type: 'file' }> => part.type === 'file');
+};
+
 /** Extracts base64 image data from file parts in a message for the upload payload. */
 export const extractImagesFromMessage = (message: UIMessage): { mediaType: string; data: string }[] => {
-	return message.parts
-		.filter((part): part is Extract<UIMessagePart, { type: 'file' }> => part.type === 'file')
+	return getFileParts(message)
 		.filter((part) => part.mediaType.startsWith('image/') && part.url.startsWith('data:'))
 		.map((part) => {
 			const commaIdx = part.url.indexOf(',');

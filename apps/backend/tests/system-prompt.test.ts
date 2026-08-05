@@ -1,3 +1,4 @@
+import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SystemPrompt } from '../src/components/ai/system-prompt';
@@ -128,6 +129,101 @@ describe('SystemPrompt saved files rules', () => {
 	it('omits the saved files section when the run has no write tool', () => {
 		const markdown = renderToMarkdown(SystemPrompt({ toolNames: ['execute_sql'] }));
 		expect(markdown).not.toContain('Saved Files');
+	});
+
+	it('explains that an attachment arrives as a path, not as content', () => {
+		const markdown = renderToMarkdown(SystemPrompt({}));
+		expect(markdown).toContain('**/home/uploads**');
+		expect(markdown).toContain('Only their path reaches you, never their contents');
+	});
+
+	it('says a pdf comes back as text and a workbook as its sheet list', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ toolNames: ['write'] }));
+		expect(markdown).toContain('**read** extracts the text of a PDF');
+		expect(markdown).toContain("workbook's outline instead of its cells");
+		expect(markdown).toContain('ask the user for a text export such as CSV');
+	});
+
+	it('points at the sandbox for the formats read cannot handle, when there is one', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ toolNames: ['write', 'execute_sandboxed_code'] }));
+		expect(markdown).toContain('**storage_files**');
+		expect(markdown).not.toContain('ask the user for a text export such as CSV');
+	});
+
+	it('says how to keep a binary file only when a sandbox can produce one', () => {
+		expect(renderToMarkdown(SystemPrompt({ toolNames: ['write', 'execute_sandboxed_code'] }))).toContain(
+			'**save_files**',
+		);
+		expect(renderToMarkdown(SystemPrompt({ toolNames: ['write'] }))).not.toContain('**save_files**');
+	});
+});
+
+describe('SystemPrompt local database rules', () => {
+	it('names the reserved database id and what it is for', () => {
+		const markdown = renderToMarkdown(SystemPrompt({}));
+
+		expect(markdown).toContain('The local database');
+		expect(markdown).toContain(`**${LOCAL_DATABASE_ID}**`);
+		expect(markdown).toContain('read_xlsx');
+		expect(markdown).toContain('SELECT * FROM query_ab12cd34');
+	});
+
+	it('says a workbook needs its sheet named, and where to get the name', () => {
+		const markdown = renderToMarkdown(SystemPrompt({}));
+
+		expect(markdown).toContain("**sheet = 'Name'**");
+		expect(markdown).toContain('**read** on the file lists the names to pass');
+	});
+
+	it('omits it when the run cannot run SQL at all', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ toolNames: ['write'] }));
+
+		expect(markdown).not.toContain('The local database');
+	});
+});
+
+describe('SystemPrompt built-in skills', () => {
+	const internalSkills = [
+		{ name: 'pdf-handling', description: 'How to get data out of a PDF.', body: () => 'body' },
+		{ name: 'other-thing', description: 'Something else entirely.', body: () => 'body' },
+	];
+
+	it('lists each built-in skill by name and description', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ internalSkills }));
+
+		expect(markdown).toContain('Built-in Skills');
+		expect(markdown).toContain('**pdf-handling** — How to get data out of a PDF.');
+		expect(markdown).toContain('**other-thing** — Something else entirely.');
+	});
+
+	it('never carries a skill body, which is the point of loading them on demand', () => {
+		const body = 'the full text of the skill';
+		const markdown = renderToMarkdown(
+			SystemPrompt({ internalSkills: [{ name: 'a-skill', description: 'A skill.', body: () => body }] }),
+		);
+
+		expect(markdown).not.toContain(body);
+		expect(markdown).toContain('**load_skill**');
+	});
+
+	it('tells the agent to keep them to itself', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ internalSkills }));
+		expect(markdown).toContain('never mention a skill');
+	});
+
+	it('omits the section when the run has no load_skill tool', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ internalSkills, toolNames: ['read'] }));
+		expect(markdown).not.toContain('Built-in Skills');
+	});
+
+	it('omits the section when nao ships no built-in skills', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ internalSkills: [] }));
+		expect(markdown).not.toContain('Built-in Skills');
+	});
+
+	it('lists the real skills by default, so a new one needs no wiring', () => {
+		const markdown = renderToMarkdown(SystemPrompt({}));
+		expect(markdown).toContain('**pdf-handling**');
 	});
 });
 

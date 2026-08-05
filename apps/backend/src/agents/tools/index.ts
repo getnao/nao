@@ -14,6 +14,7 @@ import executeSandboxedCode from './execute-sandboxed-code';
 import executeSql from './execute-sql';
 import grep from './grep';
 import list from './list';
+import loadSkill from './load-skill';
 import { createMcpCallTool } from './mcp-call';
 import { createMcpConnectTool } from './mcp-connect';
 import read from './read';
@@ -41,6 +42,7 @@ export const tools = {
 	read_query_result: readQueryResult,
 	grep,
 	list,
+	load_skill: loadSkill,
 	read,
 	search,
 	write,

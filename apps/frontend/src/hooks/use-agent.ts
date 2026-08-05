@@ -9,13 +9,16 @@ import { usePrevRef } from './use-prev';
 import { useMemoObject } from './useMemoObject';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UIMessage } from '@nao/backend/chat';
-import type { CitationData, ImageUploadData, LlmSelectedModel } from '@nao/shared/types';
+import type { ImageUploadData } from '@nao/shared/attachments';
+import type { CitationData, LlmSelectedModel } from '@nao/shared/types';
+import type { DocumentAttachment } from '@/lib/attachments';
 import type { FileUIPart, InferUIMessageChunk } from 'ai';
 import type { MentionOption } from 'prompt-mentions';
 
 import { getActiveProjectId } from '@/lib/active-project';
 import {
 	checkIsAgentRunning,
+	extractDocumentPathsFromMessage,
 	extractImagesFromMessage,
 	getLastUserMessageIdx,
 	getMessageImages,
@@ -60,6 +63,8 @@ export interface AgentHelpers {
 export interface SendMessageArgs {
 	text: string;
 	images?: ImageUploadData[];
+	/** Files already uploaded to permanent storage, so the message only has to name them. */
+	documents?: DocumentAttachment[];
 	citation?: CitationData;
 }
 
@@ -176,6 +181,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 					activeMentionsRef.current = [];
 					const citation = agentCitationStore.get(newAgent);
 					const images = extractImagesFromMessage(messageToSend);
+					const documents = extractDocumentPathsFromMessage(messageToSend);
 					const adminModeAtSend = activeAdminModeRef.current;
 					agentAdminModeStore.set(newAgent, adminModeAtSend);
 					return {
@@ -186,6 +192,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 							message: {
 								text: getTextFromUserMessageOrThrow(messageToSend),
 								images: images.length > 0 ? images : undefined,
+								documents: documents.length > 0 ? documents : undefined,
 								citation,
 							},
 							model: activeSelectedModelRef.current ?? undefined,
@@ -202,7 +209,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 				const next = canSendNextMessage ? messageQueueStore.dequeue(agentId) : undefined;
 				if (next) {
 					mentionsRef.current = next.mentions;
-					const files = imagesToFileUIParts(next.images);
+					const files = attachmentsToFileUIParts(next);
 					newAgent.sendMessage({ text: next.text, files: files.length > 0 ? files : undefined });
 				} else {
 					chatActivityStore.setRunning(agentId, false);
@@ -353,27 +360,26 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 	);
 
 	const queueOrSendMessage = useCallback(
-		async ({ text, images, citation }: SendMessageArgs) => {
-			if (!text.trim() && !images?.length) {
+		async ({ text, images, documents, citation }: SendMessageArgs) => {
+			const prompt = text.trim() || defaultAttachmentPrompt({ images, documents });
+			if (!prompt) {
 				return;
 			}
 
 			if (!isRunning) {
 				agentCitationStore.set(agentInstance, citation);
-				const files = imagesToFileUIParts(images);
-				return handleSendMessage({
-					text: text || (images?.length ? 'Describe this image' : ''),
-					files: files.length > 0 ? files : undefined,
-				});
+				const files = attachmentsToFileUIParts({ images, documents });
+				return handleSendMessage({ text: prompt, files: files.length > 0 ? files : undefined });
 			}
 
 			const mentions = [...mentionsRef.current];
 			mentionsRef.current = [];
 
 			messageQueueStore.enqueue(chatIdRef.current, {
-				text,
+				text: prompt,
 				mentions,
 				images,
+				documents,
 			});
 		},
 		[isRunning, handleSendMessage, agentInstance],
@@ -386,7 +392,8 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 			const next = messageQueueStore.dequeue(chatIdRef.current ?? NEW_CHAT_ID);
 			if (next) {
 				mentionsRef.current = next.mentions;
-				await handleSendMessage({ text: next.text });
+				const files = attachmentsToFileUIParts(next);
+				await handleSendMessage({ text: next.text, files: files.length > 0 ? files : undefined });
 			}
 		},
 		[stopCurrentGeneration, handleSendMessage],
@@ -511,15 +518,33 @@ export const useSyncMessages = ({ agent }: { agent: AgentHelpers }) => {
 	}, [agent.isRunning, setChat, chatId]);
 };
 
-function imagesToFileUIParts(images?: ImageUploadData[]): FileUIPart[] {
-	if (!images?.length) {
-		return [];
+/** What to ask when someone attaches files without typing anything. */
+function defaultAttachmentPrompt({ images, documents }: Pick<SendMessageArgs, 'images' | 'documents'>): string {
+	if (documents?.length) {
+		return images?.length ? 'Have a look at these files' : 'Have a look at this data';
 	}
-	return images.map((img) => ({
-		type: 'file' as const,
-		mediaType: img.mediaType,
-		url: `data:${img.mediaType};base64,${img.data}`,
-	}));
+	return images?.length ? 'Describe this image' : '';
+}
+
+/**
+ * Both kinds of attachment ride along as file parts, so the optimistic message shows them
+ * straight away. An image carries its bytes as a data URL; a document is already in
+ * permanent storage and carries the path it was saved at.
+ */
+function attachmentsToFileUIParts({ images, documents }: Pick<SendMessageArgs, 'images' | 'documents'>): FileUIPart[] {
+	return [
+		...(images ?? []).map((image) => ({
+			type: 'file' as const,
+			mediaType: image.mediaType,
+			url: `data:${image.mediaType};base64,${image.data}`,
+		})),
+		...(documents ?? []).map((document) => ({
+			type: 'file' as const,
+			mediaType: document.mediaType,
+			filename: document.filename,
+			url: document.path,
+		})),
+	];
 }
 
 /** Dispose inactive agents to free up memory */

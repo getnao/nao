@@ -60,7 +60,9 @@ export type DynamicToolName = keyof typeof dynamicToolComponents;
 export const ToolCall = memo(({ toolPart }: { toolPart: UIToolPart }) => {
 	const { isSettled: isMessageSettled } = useAssistantMessage();
 
-	if (toolPart.type === 'tool-suggest_follow_ups') {
+	// Neither is the agent talking to the user: follow-ups render in their own strip, and a
+	// built-in skill is internal guidance nobody should have to see the agent consult.
+	if (toolPart.type === 'tool-suggest_follow_ups' || toolPart.type === 'tool-load_skill') {
 		return null;
 	}
 

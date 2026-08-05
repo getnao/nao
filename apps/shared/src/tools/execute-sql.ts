@@ -2,12 +2,21 @@ import z from 'zod/v3';
 
 import { QueryIdSchema } from './query-id';
 
+/**
+ * Addresses nao's own DuckDB engine rather than a configured warehouse. Always available, and
+ * the only way to query a file or join one against an earlier query result. The name is
+ * reserved: a warehouse configured under it would be unreachable.
+ */
+export const LOCAL_DATABASE_ID = 'duckdb_local';
+
 export const InputSchema = z.object({
 	sql_query: z.string().describe('The SQL query to execute'),
 	database_id: z
 		.string()
 		.optional()
-		.describe('The database name/id to use. Required if multiple databases are configured.'),
+		.describe(
+			`The database name/id to use. Required if multiple databases are configured. Pass "${LOCAL_DATABASE_ID}" to use nao's built-in DuckDB instead of a warehouse: it reads files (CSV, JSON, Parquet, Excel) by their path, exposes every earlier query result as a table named after its query id, and can join the two together.`,
+		),
 	name: z.string().optional().describe('A descriptive name for the query that will be used to show in the UI.'),
 	query_id: QueryIdSchema.optional().describe(
 		'When set, replace the SQL of this existing query in-place (same query_id) instead of creating a new one. Prefer this when adding story filter templates so chart/table tags keep working.',

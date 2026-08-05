@@ -11,8 +11,12 @@ import {
 	grepRootForUser,
 	listUserDirectory,
 	readUserFile,
+	saveUploadedFile,
+	statUserFile,
 	writeUserFile,
 } from '../src/services/storage/user-files';
+import { buildPdf } from './helpers/pdf-fixture';
+import { buildWorkbook } from './helpers/xlsx-fixture';
 
 const scope = { projectId: 'proj-1', userId: 'user-1' };
 const otherUser = { projectId: 'proj-1', userId: 'user-2' };
@@ -83,6 +87,114 @@ describe('readUserFile', () => {
 		await expect(readUserFile(scope, 'reports/missing.csv')).rejects.toThrow(
 			'No such file in permanent storage: reports/missing.csv',
 		);
+	});
+
+	it('refuses a file whose extension is never text', async () => {
+		await saveUploadedFile(scope, 'events.parquet', Buffer.from('PAR1 mostly ascii'));
+
+		await expect(readUserFile(scope, await onlyUploadPath())).rejects.toThrow(
+			'is not a text file (.parquet), so its contents cannot be read into the conversation',
+		);
+	});
+
+	it('refuses a text-looking file that turns out to hold binary', async () => {
+		await saveUploadedFile(scope, 'export.csv', Buffer.from([0x61, 0x00, 0x62]));
+
+		await expect(readUserFile(scope, await onlyUploadPath())).rejects.toThrow('is not a text file');
+	});
+
+	it('extracts the text of a pdf instead of refusing it', async () => {
+		await saveUploadedFile(scope, 'report.pdf', buildPdf(['Q3 revenue 1.2M']));
+
+		const content = await readUserFile(scope, await onlyUploadPath());
+
+		expect(content).toContain('PDF with 1 page.');
+		expect(content).toContain('Q3 revenue 1.2M');
+	});
+
+	it('reports a pdf it cannot parse rather than returning its bytes', async () => {
+		await saveUploadedFile(scope, 'report.pdf', Buffer.from('%PDF-1.7 truncated'));
+
+		await expect(readUserFile(scope, await onlyUploadPath())).rejects.toThrow(/corrupt or password-protected/);
+	});
+
+	it('outlines the sheets of a workbook instead of refusing it', async () => {
+		await saveUploadedFile(
+			scope,
+			'budget.xlsx',
+			buildWorkbook([
+				{ name: 'Cover', range: 'A1:B4' },
+				{ name: 'FY26', range: 'A1:N412' },
+			]),
+		);
+
+		const content = await readUserFile(scope, await onlyUploadPath());
+
+		expect(content).toContain('Excel workbook with 2 sheets');
+		expect(content).toContain("- 'FY26' — 412 rows × 14 columns (A1:N412)");
+	});
+
+	it('reports a workbook it cannot open rather than returning its bytes', async () => {
+		await saveUploadedFile(scope, 'book.xlsx', Buffer.from('PK\u0003\u0004 mostly ascii'));
+
+		await expect(readUserFile(scope, await onlyUploadPath())).rejects.toThrow(/corrupt or password-protected/);
+	});
+});
+
+describe('saveUploadedFile', () => {
+	it('files an upload under today in the uploads folder', async () => {
+		const object = await saveUploadedFile(scope, 'Q3 revenue.csv', Buffer.from('a,b\n'));
+		const today = new Date().toISOString().slice(0, 10);
+
+		expect(object.key).toBe(`projects/proj-1/users/user-1/uploads/${today}/Q3 revenue.csv`);
+		expect(object.contentType).toBe('text/csv');
+	});
+
+	it('keeps the bytes intact for a binary file', async () => {
+		const bytes = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0xff]);
+		const object = await saveUploadedFile(scope, 'book.xlsx', bytes);
+
+		expect(object.size).toBe(bytes.byteLength);
+		expect(await fs.readFile(path.join(root, object.key))).toEqual(bytes);
+	});
+
+	it('suffixes a name already taken instead of replacing the earlier upload', async () => {
+		const first = await saveUploadedFile(scope, 'sales.csv', Buffer.from('first'));
+		const second = await saveUploadedFile(scope, 'sales.csv', Buffer.from('second'));
+
+		expect(second.key).not.toBe(first.key);
+		expect(second.key.endsWith('/sales-2.csv')).toBe(true);
+		expect(await fs.readFile(path.join(root, first.key), 'utf-8')).toBe('first');
+	});
+
+	it('strips a directory out of the name a browser reported', async () => {
+		const object = await saveUploadedFile(scope, '../../../etc/passwd.csv', Buffer.from('x'));
+		expect(object.key).toContain('/passwd.csv');
+		expect(object.key.startsWith('projects/proj-1/users/user-1/uploads/')).toBe(true);
+	});
+
+	it('refuses a file type nao cannot do anything with', async () => {
+		await expect(saveUploadedFile(scope, 'malware.exe', Buffer.from('x'))).rejects.toThrow(
+			'Files of type .exe cannot be uploaded',
+		);
+		await expect(saveUploadedFile(scope, 'noextension', Buffer.from('x'))).rejects.toThrow(
+			'Files without an extension cannot be uploaded',
+		);
+	});
+
+	it('refuses a file above the size limit', async () => {
+		useSizeLimit(1);
+		await expect(saveUploadedFile(scope, 'big.csv', Buffer.alloc(1024 * 1024 + 1))).rejects.toThrow(
+			'File too large: big.csv',
+		);
+	});
+
+	it('lands somewhere statUserFile can find again', async () => {
+		const object = await saveUploadedFile(scope, 'sales.csv', Buffer.from('a,b\n'));
+		const relativePath = object.key.replace('projects/proj-1/users/user-1/', '');
+
+		expect(await statUserFile(scope, relativePath)).not.toBeNull();
+		expect(await statUserFile(otherUser, relativePath)).toBeNull();
 	});
 });
 
@@ -167,6 +279,12 @@ describe('grepRootForUser', () => {
 		expect(() => grepRootForUser(scope)).toThrow(STORAGE_DISABLED_MESSAGE);
 	});
 });
+
+/** The single file under uploads/, so a test does not have to spell out today's date. */
+async function onlyUploadPath(): Promise<string> {
+	const [object] = await findUserFiles(scope, (relativePath) => relativePath.startsWith('uploads/'));
+	return object.key.replace('projects/proj-1/users/user-1/', '');
+}
 
 function useSizeLimit(megabytes: number): void {
 	process.env.NAO_STORAGE_MAX_FILE_SIZE_MB = String(megabytes);

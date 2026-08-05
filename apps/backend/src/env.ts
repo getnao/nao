@@ -142,6 +142,15 @@ const envSchema = z.object({
 		.positive({ message: 'NAO_STORAGE_MAX_FILE_SIZE_MB must be greater than 0' })
 		.default(10),
 
+	/**
+	 * Where DuckDB extensions were pre-installed at image build time. Set so that spreadsheet
+	 * support works with no network at query time, since the query runs with external access off.
+	 */
+	DUCKDB_EXTENSION_DIR: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+
 	NAO_LICENSE: z
 		.string()
 		.optional()
