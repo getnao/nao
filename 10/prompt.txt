@@ -1,0 +1,9 @@
+look at this leak on npm and evaluate if we can be impacted 
+
+https://securitylabs.datadoghq.com/articles/npm-worm-compromises-popular-npm-packages/
+
+---
+
+look at this leak on npm and evaluate if we can be impacted 
+
+https://securitylabs.datadoghq.com/articles/npm-worm-compromises-popular-npm-packages/
