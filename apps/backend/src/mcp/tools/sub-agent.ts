@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { getToolName, type InferUIMessageChunk, isToolUIPart, readUIMessageStream } from 'ai';
 import { z } from 'zod';
 
-import { WEB_CHAT_ONLY_TOOLS } from '../../agents/tools';
+import { MCP_SUB_AGENT_EXCLUDED_TOOLS } from '../../agents/tools';
 import * as chatQueries from '../../queries/chat.queries';
 import * as storyQueries from '../../queries/story.queries';
 import { agentService, defaultAgentToolsExcluding } from '../../services/agent';
@@ -131,7 +131,7 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 			const naoChatUrl = chatUrl(chat.id);
 
 			const agent = await agentService.create(chat, undefined, {
-				tools: defaultAgentToolsExcluding(WEB_CHAT_ONLY_TOOLS),
+				tools: defaultAgentToolsExcluding(MCP_SUB_AGENT_EXCLUDED_TOOLS),
 			});
 			askNaoRuns.start(chat.id);
 			const runPromise = runAskNaoInBackground(agent, uiMessages, chat.id, naoChatUrl);

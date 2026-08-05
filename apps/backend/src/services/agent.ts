@@ -192,7 +192,7 @@ async function _buildContextBase(opts: {
 		envVars,
 		azureAccessToken,
 		queryResults: new Map(),
-		generatedArtifacts: { charts: [], stories: [] },
+		generatedArtifacts: { charts: [], maps: [], stories: [] },
 	};
 }
 

@@ -33,7 +33,11 @@ const input = {
 const rows = [{ lat: 48.85, lng: 2.35 }];
 
 function execute(overrides: Partial<typeof input>, queryResults = new Map<string, QueryResult>()) {
-	const context = { queryResults, chatId: 'chat1' } as unknown as ToolContext;
+	const context = {
+		queryResults,
+		chatId: 'chat1',
+		generatedArtifacts: { charts: [], maps: [], stories: [] },
+	} as unknown as ToolContext;
 	return displayMapTool.execute!({ ...input, ...overrides }, {
 		experimental_context: context,
 	} as Parameters<NonNullable<typeof displayMapTool.execute>>[1]);
@@ -165,7 +169,11 @@ describe('display_map execute — choropleth with boundaries_url', () => {
 	};
 
 	function executeChoropleth(overrides = {}, queryResults = new Map<string, QueryResult>()) {
-		const context = { queryResults, chatId: 'chat1' } as unknown as ToolContext;
+		const context = {
+			queryResults,
+			chatId: 'chat1',
+			generatedArtifacts: { charts: [], maps: [], stories: [] },
+		} as unknown as ToolContext;
 		const tool = createDisplayMapTool();
 		return tool.execute!({ ...choroplethInput, ...overrides }, {
 			experimental_context: context,

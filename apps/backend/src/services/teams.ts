@@ -10,6 +10,7 @@ import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Card, Chat, Message, SentMessage, Thread } from 'chat';
 
 import { generateChartImage } from '../components/generate-chart';
+import { generateMapImage } from '../components/generate-map';
 import * as chartImageQueries from '../queries/chart-image';
 import * as chatQueries from '../queries/chat.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
@@ -407,6 +408,57 @@ class TeamsService {
 			return;
 		}
 		state.renderedToolCallIds.add(part.toolCallId);
+		const png = await this._renderMapImage(part, state, ctx);
+		if (!png) {
+			await this._pushMapLinkCard(part, ctx);
+			return;
+		}
+		try {
+			const mapId = await chartImageQueries.saveChart(part.toolCallId, png.toString('base64'));
+			const imageUrl = new URL(`c/${ctx.chatId}/${mapId}.png`, this._redirectUrl).toString();
+			ctx.textBlockIndex = -1;
+			ctx.blocks.push(createImageBlock(imageUrl));
+			await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
+		} catch (error) {
+			logger.error(`Map image rendering failed: ${String(error)}`, {
+				source: 'system',
+				context: { chatId: ctx.chatId, toolCallId: part.toolCallId },
+			});
+			await this._pushMapLinkCard(part, ctx);
+		}
+	}
+
+	private async _renderMapImage(
+		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
+		state: StreamState,
+		ctx: ConversationContext,
+	): Promise<Buffer | null> {
+		if (part.state !== 'output-available') {
+			return null;
+		}
+		const sqlOutput = state.sqlOutputs.get(part.input.query_id);
+		if (!sqlOutput) {
+			return null;
+		}
+		try {
+			const customBoundaries = await projectQueries.getCustomBoundaries(this._projectId);
+			return await generateMapImage({ config: part.input, rows: sqlOutput.rows, customBoundaries });
+		} catch (error) {
+			logger.error(`Map image generation failed: ${String(error)}`, {
+				source: 'system',
+				context: { chatId: ctx.chatId, toolCallId: part.toolCallId },
+			});
+			return null;
+		}
+	}
+
+	private async _pushMapLinkCard(
+		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
+		ctx: ConversationContext,
+	): Promise<void> {
+		if (part.state !== 'output-available') {
+			return;
+		}
 		try {
 			const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
 			ctx.textBlockIndex = -1;

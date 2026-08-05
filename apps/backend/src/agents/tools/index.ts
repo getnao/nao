@@ -23,11 +23,11 @@ import story, { buildStoryToolDescription } from './story';
 import suggestFollowUps from './suggest-follow-ups';
 
 /**
- * Tools whose output only the web chat can render — excluded from automations and the MCP sub-agent.
- * Messaging providers keep them and degrade to an "open in nao" link (a card on Slack/Teams/Telegram,
- * a plain-text link on WhatsApp).
+ * Tools excluded from the MCP sub-agent (`ask_nao`): it returns a text summary to the calling client,
+ * so a map — which has no textual representation — cannot be surfaced. Every other surface renders it:
+ * the web chat interactively, and messaging/automations as a static PNG.
  */
-export const WEB_CHAT_ONLY_TOOLS = ['display_map'];
+export const MCP_SUB_AGENT_EXCLUDED_TOOLS = ['display_map'];
 
 export const tools = {
 	story,

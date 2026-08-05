@@ -8,6 +8,7 @@ import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Attachment, Chat, Message, Thread } from 'chat';
 
 import { generateChartImage } from '../components/generate-chart';
+import { generateMapImage } from '../components/generate-map';
 import { env } from '../env';
 import * as chartImageQueries from '../queries/chart-image';
 import * as chatQueries from '../queries/chat.queries';
@@ -507,9 +508,11 @@ class WhatsappService {
 					chartUrls.push(url);
 				}
 			} else if (part.type === 'tool-display_map') {
-				const link = this._handleMapPart(part, state, ctx);
-				if (link) {
-					mapLinks.push(link);
+				const result = await this._handleMapPart(part, state, ctx);
+				if (result?.imageUrl) {
+					chartUrls.push(result.imageUrl);
+				} else if (result?.link) {
+					mapLinks.push(result.link);
 				}
 			}
 		}
@@ -522,11 +525,11 @@ class WhatsappService {
 		return { finalText, chartUrls, mapLinks };
 	}
 
-	private _handleMapPart(
+	private async _handleMapPart(
 		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
 		state: StreamState,
 		ctx: ConversationContext,
-	): string | null {
+	): Promise<{ imageUrl?: string; link?: string } | null> {
 		if (
 			part.state !== 'output-available' ||
 			!part.output.success ||
@@ -535,8 +538,45 @@ class WhatsappService {
 			return null;
 		}
 		state.renderedToolCallIds.add(part.toolCallId);
+
+		const png = await this._renderMapImage(part, state);
+		if (png) {
+			try {
+				const mapId = await chartImageQueries.saveChart(part.toolCallId, png.toString('base64'));
+				return { imageUrl: new URL(`c/${ctx.chatId}/${mapId}.png`, this._redirectUrl).toString() };
+			} catch (error) {
+				logger.error(`Map image rendering failed: ${String(error)}`, {
+					source: 'system',
+					context: { chatId: ctx.chatId, toolCallId: part.toolCallId },
+				});
+			}
+		}
+
 		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
-		return createWhatsappMapLink(part.input.title, chatUrl);
+		return { link: createWhatsappMapLink(part.input.title, chatUrl) };
+	}
+
+	private async _renderMapImage(
+		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
+		state: StreamState,
+	): Promise<Buffer | null> {
+		if (part.state !== 'output-available') {
+			return null;
+		}
+		const sqlOutput = state.sqlOutputs.get(part.input.query_id);
+		if (!sqlOutput) {
+			return null;
+		}
+		try {
+			const customBoundaries = await projectQueries.getCustomBoundaries(this._projectId);
+			return await generateMapImage({ config: part.input, rows: sqlOutput.rows, customBoundaries });
+		} catch (error) {
+			logger.error(`Map image generation failed: ${String(error)}`, {
+				source: 'system',
+				context: { projectId: this._projectId, toolCallId: part.toolCallId },
+			});
+			return null;
+		}
 	}
 
 	private async _handleChartPart(

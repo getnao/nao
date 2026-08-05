@@ -7,6 +7,7 @@ import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Card, CardElement, Chat, Message, SentMessage, Thread } from 'chat';
 
 import { generateChartImage } from '../components/generate-chart';
+import { generateMapImage } from '../components/generate-map';
 import * as chatQueries from '../queries/chat.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
 import * as projectQueries from '../queries/project.queries';
@@ -420,8 +421,55 @@ class TelegramService {
 		) {
 			return;
 		}
+		state.renderedToolCallIds.add(part.toolCallId);
+		const png = await this._renderMapImage(part, state);
+		if (!png) {
+			await this._pushMapLinkCard(part, ctx);
+			return;
+		}
 		try {
-			state.renderedToolCallIds.add(part.toolCallId);
+			ctx.textBlockIndex = -1;
+			await ctx.thread.post({
+				markdown: '',
+				files: [{ data: png, filename: 'map.png' }],
+			});
+			if (ctx.convMessage) {
+				await this._safeEdit(ctx.convMessage, Card({ children: ctx.blocks }));
+			}
+		} catch (error) {
+			console.error('Error posting map image:', error);
+			await this._pushMapLinkCard(part, ctx);
+		}
+	}
+
+	private async _renderMapImage(
+		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
+		state: StreamState,
+	): Promise<Buffer | null> {
+		if (part.state !== 'output-available') {
+			return null;
+		}
+		const sqlOutput = state.sqlOutputs.get(part.input.query_id);
+		if (!sqlOutput) {
+			return null;
+		}
+		try {
+			const customBoundaries = await projectQueries.getCustomBoundaries(this._projectId);
+			return await generateMapImage({ config: part.input, rows: sqlOutput.rows, customBoundaries });
+		} catch (error) {
+			console.error('Error generating map image:', error);
+			return null;
+		}
+	}
+
+	private async _pushMapLinkCard(
+		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
+		ctx: ConversationContext,
+	): Promise<void> {
+		if (part.state !== 'output-available') {
+			return;
+		}
+		try {
 			const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
 			ctx.textBlockIndex = -1;
 			ctx.blocks.push(...createTelegramMapLinkCard(part.input.title, chatUrl));

@@ -22,7 +22,11 @@ export function createDisplayMapTool(customSets: CustomBoundarySet[] = []) {
 				};
 			}
 
-			return validateMapConfig(input, queryResult);
+			const result = await validateMapConfig(input, queryResult);
+			if (result.success) {
+				context.generatedArtifacts.maps.push(input);
+			}
+			return result;
 		},
 
 		toModelOutput: ({ output }) => renderToModelOutput(DisplayMapOutput({ output }), output),
