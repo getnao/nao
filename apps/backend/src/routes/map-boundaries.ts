@@ -24,6 +24,11 @@ export const mapBoundariesRoutes = async (app: App) => {
 		async (request, reply) => {
 			const { projectId, key } = request.params;
 
+			const userRole = await projectQueries.getUserRoleInProject(projectId, request.user.id);
+			if (!userRole) {
+				throw new HandlerError('FORBIDDEN', 'You do not have access to this project.');
+			}
+
 			const customSets = await projectQueries.getCustomBoundaries(projectId);
 			const resolved = resolveBoundary(key, customSets);
 			if (!resolved) {
@@ -34,7 +39,7 @@ export const mapBoundariesRoutes = async (app: App) => {
 			if (cached) {
 				return reply
 					.header('Content-Type', 'application/json')
-					.header('Cache-Control', 'public, max-age=600')
+					.header('Cache-Control', 'private, max-age=600')
 					.send(JSON.stringify(cached));
 			}
 
@@ -44,7 +49,7 @@ export const mapBoundariesRoutes = async (app: App) => {
 
 			return reply
 				.header('Content-Type', 'application/json')
-				.header('Cache-Control', 'public, max-age=600')
+				.header('Cache-Control', 'private, max-age=600')
 				.send(JSON.stringify(geojson));
 		},
 	);
@@ -59,7 +64,7 @@ export const mapBoundariesRoutes = async (app: App) => {
 			if (cached) {
 				return reply
 					.header('Content-Type', 'application/json')
-					.header('Cache-Control', 'public, max-age=86400')
+					.header('Cache-Control', 'private, max-age=86400')
 					.send(JSON.stringify(cached));
 			}
 
@@ -69,7 +74,7 @@ export const mapBoundariesRoutes = async (app: App) => {
 
 			return reply
 				.header('Content-Type', 'application/json')
-				.header('Cache-Control', 'public, max-age=86400')
+				.header('Cache-Control', 'private, max-age=86400')
 				.send(JSON.stringify(geojson));
 		},
 	);
