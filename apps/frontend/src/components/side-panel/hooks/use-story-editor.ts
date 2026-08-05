@@ -298,16 +298,14 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 		const onKeyDown = (event: KeyboardEvent) => {
 			const selection = blockSelectionPluginKey.getState(editor.state);
 			const targetInsideEditor = event.target instanceof Node && container.contains(event.target);
-			const targetOutsideEditorUndoContext =
+			const targetInExternalUndoContext =
 				!targetInsideEditor &&
 				event.target instanceof Element &&
-				Boolean(
-					event.target.closest(
-						'input, textarea, select, [contenteditable]:not([contenteditable="false"]), dialog, [role="dialog"]',
-					),
+				event.target.closest(
+					'input, textarea, select, [contenteditable]:not([contenteditable="false"]), dialog, [role="dialog"]',
 				);
 			const hasBlockSelection = Boolean(selection?.blocks.length || selection?.gridColumns.length);
-			if (targetOutsideEditorUndoContext || (!targetInsideEditor && !editor.isFocused && !hasBlockSelection)) {
+			if (targetInExternalUndoContext || (!targetInsideEditor && !editor.isFocused && !hasBlockSelection)) {
 				return;
 			}
 			if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== 'z') {
