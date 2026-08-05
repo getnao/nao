@@ -602,6 +602,7 @@ export async function getUnlinkedNegativeFeedbacks(projectId: string): Promise<U
 		.where(
 			and(
 				eq(s.chat.projectId, projectId),
+				isNull(s.chat.deletedAt),
 				eq(s.messageFeedback.vote, 'down'),
 				isNull(s.contextRecommendationLinkedFeedback.messageId),
 			),

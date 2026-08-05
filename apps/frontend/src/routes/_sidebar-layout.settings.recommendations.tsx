@@ -1,5 +1,5 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import {
 	ArrowDown01,
 	ArrowDownUp,
@@ -146,6 +146,7 @@ function prRank(rec: Recommendation): number {
 function RecommendationsPage() {
 	const queryClient = useQueryClient();
 	const search = Route.useSearch();
+	const navigate = useNavigate();
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
 	const [activeTab, setActiveTab] = useState<TopTab>(search.tab ?? 'recommendations');
@@ -154,6 +155,10 @@ function RecommendationsPage() {
 			setActiveTab(search.tab);
 		}
 	}, [search.tab]);
+	const handleTabChange = (tab: TopTab) => {
+		setActiveTab(tab);
+		navigate({ to: '/settings/recommendations', search: { ...search, tab }, replace: true });
+	};
 	const sidePanel = useSidePanel({
 		containerRef,
 		sidePanelRef,
@@ -459,7 +464,7 @@ function RecommendationsPage() {
 								<TabBar
 									tabs={topTabs}
 									activeTab={activeTab}
-									onTabChange={setActiveTab}
+									onTabChange={handleTabChange}
 									idBase={TOP_TABS_ID_BASE}
 								/>
 								{activeTab !== 'config' && (
