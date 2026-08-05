@@ -1,0 +1,195 @@
+i might have lost a lot of git uncommit changes, before my manipulation i had
+
+    new file:   .entire/settings.json
+	modified:   .vscode/settings.json
+	modified:   Dockerfile
+	new file:   apps/backend/migrations-postgres/0057_message_part_storage_attachments.sql
+	new file:   apps/backend/migrations-postgres/meta/0057_snapshot.json
+	modified:   apps/backend/migrations-postgres/meta/_journal.json
+	new file:   apps/backend/migrations-sqlite/0057_message_part_storage_attachments.sql
+	new file:   apps/backend/migrations-sqlite/meta/0057_snapshot.json
+	modified:   apps/backend/migrations-sqlite/meta/_journal.json
+	modified:   apps/backend/package.json
+	new file:   apps/backend/src/agents/skills/types.ts
+	modified:   apps/backend/src/agents/tools/index.ts
+	modified:   apps/backend/src/app.ts
+	modified:   apps/backend/src/env.ts
+	modified:   eslint.config.js
+	modified:   package-lock.json
+
+Changes not staged for commit:
+  (use "git add/rm <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   apps/backend/package.json
+	modified:   apps/backend/src/agents/skills/types.ts
+	modified:   apps/backend/src/agents/tools/execute-sandboxed-code.ts
+	modified:   apps/backend/src/agents/tools/execute-sql.ts
+	modified:   apps/backend/src/agents/tools/read.ts
+	modified:   apps/backend/src/components/ai/system-prompt.tsx
+	modified:   apps/backend/src/db/pg-schema.ts
+	modified:   apps/backend/src/db/sqlite-schema.ts
+	modified:   apps/backend/src/handlers/agent.ts
+	modified:   apps/backend/src/services/agent.ts
+	modified:   apps/backend/src/services/duckdb.service.ts
+	modified:   apps/backend/src/services/storage/user-files.ts
+	modified:   apps/backend/src/trpc/storage.routes.ts
+	modified:   apps/backend/src/types/chat.ts
+	modified:   apps/backend/src/utils/chat-message-part-mappings.ts
+	modified:   apps/backend/tests/duckdb-query-results.test.ts
+	modified:   apps/backend/tests/storage-user-files.test.ts
+	modified:   apps/backend/tests/system-prompt.test.ts
+	deleted:    apps/frontend/src/components/chat-input-image-preview.tsx
+	modified:   apps/frontend/src/components/chat-input.tsx
+	modified:   apps/frontend/src/components/chat-messages/chat-messages.tsx
+	modified:   apps/frontend/src/components/chat-messages/user-message.tsx
+	modified:   apps/frontend/src/components/tool-calls/display-table.tsx
+	modified:   apps/frontend/src/components/tool-calls/execute-sandboxed-code.tsx
+	modified:   apps/frontend/src/components/tool-calls/index.tsx
+	modified:   apps/frontend/src/hooks/use-agent.ts
+	deleted:    apps/frontend/src/hooks/use-image-upload.ts
+	modified:   apps/frontend/src/hooks/use-source-query.tsx
+	modified:   apps/frontend/src/lib/ai.ts
+	modified:   apps/frontend/src/lib/mcp-auth-retry.ts
+	modified:   apps/frontend/src/types/chat-message-queue.ts
+	modified:   apps/shared/package.json
+	modified:   apps/shared/src/index.ts
+	modified:   apps/shared/src/tools/execute-sandboxed-code.ts
+	modified:   apps/shared/src/tools/execute-sql.ts
+	modified:   apps/shared/src/tools/index.ts
+	modified:   apps/shared/src/types.ts
+	modified:   package-lock.json
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	.claude/settings.json
+	.entire/.gitignore
+	apps/backend/src/agents/skills/excel.skill.tsx
+	apps/backend/src/agents/skills/index.ts
+	apps/backend/src/agents/skills/pdf.skill.tsx
+	apps/backend/src/agents/tools/load-skill.ts
+	apps/backend/src/routes/attachment.ts
+	apps/backend/src/services/file-text.ts
+	apps/backend/src/services/local-query.service.ts
+	apps/backend/src/services/pdf.ts
+	apps/backend/src/services/sandbox-runtime.ts
+	apps/backend/src/services/storage/file-access.ts
+	apps/backend/src/services/workbook.ts
+	apps/backend/src/utils/sql-file-paths.ts
+	apps/backend/tests/chat-message-part-mappings.test.ts
+	apps/backend/tests/helpers/
+	apps/backend/tests/internal-skills.test.ts
+	apps/backend/tests/local-query.test.ts
+	apps/backend/tests/pdf.test.ts
+	apps/backend/tests/sql-file-paths.test.ts
+	apps/backend/tests/workbook.test.ts
+	apps/frontend/src/components/attachment-file-icon.tsx
+	apps/frontend/src/components/chat-input-attachment-preview.tsx
+	apps/frontend/src/hooks/use-attachment-upload.ts
+	apps/frontend/src/lib/attachments.ts
+	apps/shared/src/attachments.ts
+	apps/shared/src/tools/load-skill.ts
+	apps/shared/tests/attachments.test.ts
+	docker/install-duckdb-extensions.mjs
+
+but now i have less files (it was a git stash save include untracked) but i have wrongly unstashed on main instead of the right branch
+
+can you have a look if i lost something and if yes find it back from todays chats
+
+---
+
+i might have lost a lot of git uncommit changes, before my manipulation i had
+
+    new file:   .entire/settings.json
+	modified:   .vscode/settings.json
+	modified:   Dockerfile
+	new file:   apps/backend/migrations-postgres/0057_message_part_storage_attachments.sql
+	new file:   apps/backend/migrations-postgres/meta/0057_snapshot.json
+	modified:   apps/backend/migrations-postgres/meta/_journal.json
+	new file:   apps/backend/migrations-sqlite/0057_message_part_storage_attachments.sql
+	new file:   apps/backend/migrations-sqlite/meta/0057_snapshot.json
+	modified:   apps/backend/migrations-sqlite/meta/_journal.json
+	modified:   apps/backend/package.json
+	new file:   apps/backend/src/agents/skills/types.ts
+	modified:   apps/backend/src/agents/tools/index.ts
+	modified:   apps/backend/src/app.ts
+	modified:   apps/backend/src/env.ts
+	modified:   eslint.config.js
+	modified:   package-lock.json
+
+Changes not staged for commit:
+  (use "git add/rm <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   apps/backend/package.json
+	modified:   apps/backend/src/agents/skills/types.ts
+	modified:   apps/backend/src/agents/tools/execute-sandboxed-code.ts
+	modified:   apps/backend/src/agents/tools/execute-sql.ts
+	modified:   apps/backend/src/agents/tools/read.ts
+	modified:   apps/backend/src/components/ai/system-prompt.tsx
+	modified:   apps/backend/src/db/pg-schema.ts
+	modified:   apps/backend/src/db/sqlite-schema.ts
+	modified:   apps/backend/src/handlers/agent.ts
+	modified:   apps/backend/src/services/agent.ts
+	modified:   apps/backend/src/services/duckdb.service.ts
+	modified:   apps/backend/src/services/storage/user-files.ts
+	modified:   apps/backend/src/trpc/storage.routes.ts
+	modified:   apps/backend/src/types/chat.ts
+	modified:   apps/backend/src/utils/chat-message-part-mappings.ts
+	modified:   apps/backend/tests/duckdb-query-results.test.ts
+	modified:   apps/backend/tests/storage-user-files.test.ts
+	modified:   apps/backend/tests/system-prompt.test.ts
+	deleted:    apps/frontend/src/components/chat-input-image-preview.tsx
+	modified:   apps/frontend/src/components/chat-input.tsx
+	modified:   apps/frontend/src/components/chat-messages/chat-messages.tsx
+	modified:   apps/frontend/src/components/chat-messages/user-message.tsx
+	modified:   apps/frontend/src/components/tool-calls/display-table.tsx
+	modified:   apps/frontend/src/components/tool-calls/execute-sandboxed-code.tsx
+	modified:   apps/frontend/src/components/tool-calls/index.tsx
+	modified:   apps/frontend/src/hooks/use-agent.ts
+	deleted:    apps/frontend/src/hooks/use-image-upload.ts
+	modified:   apps/frontend/src/hooks/use-source-query.tsx
+	modified:   apps/frontend/src/lib/ai.ts
+	modified:   apps/frontend/src/lib/mcp-auth-retry.ts
+	modified:   apps/frontend/src/types/chat-message-queue.ts
+	modified:   apps/shared/package.json
+	modified:   apps/shared/src/index.ts
+	modified:   apps/shared/src/tools/execute-sandboxed-code.ts
+	modified:   apps/shared/src/tools/execute-sql.ts
+	modified:   apps/shared/src/tools/index.ts
+	modified:   apps/shared/src/types.ts
+	modified:   package-lock.json
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	.claude/settings.json
+	.entire/.gitignore
+	apps/backend/src/agents/skills/excel.skill.tsx
+	apps/backend/src/agents/skills/index.ts
+	apps/backend/src/agents/skills/pdf.skill.tsx
+	apps/backend/src/agents/tools/load-skill.ts
+	apps/backend/src/routes/attachment.ts
+	apps/backend/src/services/file-text.ts
+	apps/backend/src/services/local-query.service.ts
+	apps/backend/src/services/pdf.ts
+	apps/backend/src/services/sandbox-runtime.ts
+	apps/backend/src/services/storage/file-access.ts
+	apps/backend/src/services/workbook.ts
+	apps/backend/src/utils/sql-file-paths.ts
+	apps/backend/tests/chat-message-part-mappings.test.ts
+	apps/backend/tests/helpers/
+	apps/backend/tests/internal-skills.test.ts
+	apps/backend/tests/local-query.test.ts
+	apps/backend/tests/pdf.test.ts
+	apps/backend/tests/sql-file-paths.test.ts
+	apps/backend/tests/workbook.test.ts
+	apps/frontend/src/components/attachment-file-icon.tsx
+	apps/frontend/src/components/chat-input-attachment-preview.tsx
+	apps/frontend/src/hooks/use-attachment-upload.ts
+	apps/frontend/src/lib/attachments.ts
+	apps/shared/src/attachments.ts
+	apps/shared/src/tools/load-skill.ts
+	apps/shared/tests/attachments.test.ts
+	docker/install-duckdb-extensions.mjs
+
+but now i have less files (it was a git stash save include untracked) but i have wrongly unstashed on main instead of the right branch
+
+can you have a look if i lost something and if yes find it back from todays chats
