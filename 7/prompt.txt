@@ -1,0 +1,14 @@
+ok, now i want a "hidden skills" system where we can write some internal skills to explain the agentic loop how to treat some kind of files, let's try to do this for PDFs for instance
+
+---
+
+do a excel files skill
+
+---
+
+i dont think we need a new tool
+
+---
+
+instead of doing can we use SET allowed_directories = [...] / allowed_paths before disabling external access
+but on the fly per user because each have a specific /home path which might need to be translated from /home to the real path
