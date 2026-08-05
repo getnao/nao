@@ -1,0 +1,15 @@
+how can i read another sheet than the first one? or let the agent see all sheets name?
+
+---
+
+how can i read another sheet than the first one? or let the agent see all sheets name?
+
+---
+
+how can i read another sheet than the first one? or let the agent see all sheets name? https://duckdb.org/docs/lts/core_extensions/excel#reading-xlsx-files
+
+---
+
+I want 2 things:
+- a lot of users do not have sandboxes activated, so i want the skill to be loaded dynamically and hide what related to sandboxes to not lost the agent @chat/apps/backend/src/agents/skills/excel.skill.tsx / load skills should pass a configuration 
+- for excel would be great if the node backend read the excel file and returns as metadata to the agent the tabs and the shape of each tab so the agent knows all the tabs and works well in combination with duckdb
