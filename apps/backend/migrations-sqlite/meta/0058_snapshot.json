@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "851ce55f-bbb7-428f-a26c-d84d68b4effe",
-  "prevId": "0a579216-7320-416d-b330-2a4857de72e6",
+  "id": "e09d1999-4cc0-47f5-ba37-12d9ab388b46",
+  "prevId": "851ce55f-bbb7-428f-a26c-d84d68b4effe",
   "tables": {
     "account": {
       "name": "account",
@@ -1509,21 +1509,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'open'"
-        },
-        "snoozed_until": {
-          "name": "snoozed_until",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "severity": {
-          "name": "severity",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'medium'"
         },
         "impact_score": {
           "name": "impact_score",
@@ -5038,6 +5023,81 @@
             "whatsapp_user_id"
           ],
           "name": "project_whatsapp_link_project_id_whatsapp_user_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "context_recommendation_linked_feedback": {
+      "name": "context_recommendation_linked_feedback",
+      "columns": {
+        "recommendation_id": {
+          "name": "recommendation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
+        }
+      },
+      "indexes": {
+        "context_recommendation_linked_feedback_message_id_idx": {
+          "name": "context_recommendation_linked_feedback_message_id_idx",
+          "columns": [
+            "message_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "context_recommendation_linked_feedback_recommendation_id_context_recommendation_id_fk": {
+          "name": "context_recommendation_linked_feedback_recommendation_id_context_recommendation_id_fk",
+          "tableFrom": "context_recommendation_linked_feedback",
+          "tableTo": "context_recommendation",
+          "columnsFrom": [
+            "recommendation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "context_recommendation_linked_feedback_message_id_chat_message_id_fk": {
+          "name": "context_recommendation_linked_feedback_message_id_chat_message_id_fk",
+          "tableFrom": "context_recommendation_linked_feedback",
+          "tableTo": "chat_message",
+          "columnsFrom": [
+            "message_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "context_recommendation_linked_feedback_recommendation_id_message_id_pk": {
+          "columns": [
+            "recommendation_id",
+            "message_id"
+          ],
+          "name": "context_recommendation_linked_feedback_recommendation_id_message_id_pk"
         }
       },
       "uniqueConstraints": {},
