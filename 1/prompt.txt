@@ -1,0 +1,13 @@
+is there a way to see host env variables in duckdb
+
+---
+
+is there a way to see host env variables in duckdb
+
+---
+
+why it fails with Error executing SQL query: "Catalog Error: Scalar Function with name getenv does not exist!\nDid you mean \"get_current_time\"?\n\nLINE 1: SELECT getenv('HOME') AS home;\n               ^"
+
+---
+
+is there a safe mode possible when running the engine like we run it @chat/cli/nao_core/config/databases/duckdb.py
