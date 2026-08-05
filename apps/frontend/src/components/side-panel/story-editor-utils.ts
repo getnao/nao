@@ -103,12 +103,16 @@ export function cloneElementWithStyles(node: HTMLElement): HTMLElement {
 	return clone;
 }
 
-export function dispatchDropWithScroll(view: EditorView, transaction: Transaction, pos: number): void {
-	const target = Math.max(0, Math.min(pos, transaction.doc.content.size));
-	const $target = transaction.doc.resolve(target);
+export function setCollapsedTextSelection(transaction: Transaction, position: number): void {
+	const clampedPosition = Math.max(0, Math.min(position, transaction.doc.content.size));
+	const $position = transaction.doc.resolve(clampedPosition);
 	const nearbySelection =
-		Selection.findFrom($target, 1, true) ?? Selection.findFrom($target, -1, true) ?? Selection.near($target);
+		Selection.findFrom($position, 1, true) ?? Selection.findFrom($position, -1, true) ?? Selection.near($position);
 	transaction.setSelection(TextSelection.create(transaction.doc, nearbySelection.from));
+}
+
+export function dispatchDropWithScroll(view: EditorView, transaction: Transaction, pos: number): void {
+	setCollapsedTextSelection(transaction, pos);
 	view.dispatch(transaction);
 	requestAnimationFrame(() => {
 		const clamped = Math.max(0, Math.min(pos, view.state.doc.content.size));

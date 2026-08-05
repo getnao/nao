@@ -1,10 +1,10 @@
 import { popGridColumns, splitGridColumnsRaw } from '@nao/shared/story-segments';
 import { Extension } from '@tiptap/core';
 import { Fragment, Slice } from '@tiptap/pm/model';
-import { Plugin, PluginKey, Selection, TextSelection } from '@tiptap/pm/state';
+import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { dropPoint } from '@tiptap/pm/transform';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
-import { createBlockNode } from './story-editor-utils';
+import { createBlockNode, setCollapsedTextSelection } from './story-editor-utils';
 
 import type { Node as PMNode } from '@tiptap/pm/model';
 import type { EditorState, Transaction } from '@tiptap/pm/state';
@@ -571,14 +571,6 @@ export function buildBlockMoveTransaction(
 	transaction.setMeta(blockSelectionPluginKey, blockSelectionForInsertedNodes(mappedInsert, nodes));
 	setCollapsedTextSelection(transaction, mappedInsert);
 	return { transaction, insertPos: mappedInsert };
-}
-
-function setCollapsedTextSelection(transaction: Transaction, position: number): void {
-	const clampedPosition = Math.max(0, Math.min(position, transaction.doc.content.size));
-	const $position = transaction.doc.resolve(clampedPosition);
-	const nearbySelection =
-		Selection.findFrom($position, 1, true) ?? Selection.findFrom($position, -1, true) ?? Selection.near($position);
-	transaction.setSelection(TextSelection.create(transaction.doc, nearbySelection.from));
 }
 
 function buildDragUnitOperations(state: EditorState, units: DragUnit[]): DragUnitOperation[] | null {
