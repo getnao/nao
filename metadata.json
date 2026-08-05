@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "01KZ9B7V7G62N6XXS2XAKVAQEJ",
+  "strategy": "manual-commit",
+  "branch": "feat/storage",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "apps/backend/migrations-postgres/meta/0058_snapshot.json",
+    "apps/backend/migrations-postgres/meta/_journal.json",
+    "apps/backend/migrations-sqlite/meta/0058_snapshot.json",
+    "apps/backend/migrations-sqlite/meta/_journal.json",
+    "cli/uv.lock"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 54025,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 936320,
+    "output_tokens": 11864,
+    "api_call_count": 2
+  }
+}

@@ -1,0 +1,100 @@
+when i laucnh the 59 migration it fails because it was previously applied as 57 but moved after main merge
+
+8 |   }
+19 |   prepareQuery(query, fields, executeMethod, isResponseInArrayMode, customResultMapper) {
+20 |     const stmt = this.client.prepare(query.sql);
+                                  ^
+SQLiteError: duplicate column name: fix_target
+      errno: 1,
+ byteOffset: -1,
+
+      at prepare (bun:sqlite:331:37)
+      at prepareQuery (/Users/blef/Work/naolabs/chat/node_modules/drizzle-orm/bun-sqlite/session.js:20:30)
+      at run (/Users/blef/Work/naolabs/chat/node_modules/drizzle-orm/sqlite-core/session.js:154:19)
+      at migrate (/Users/blef/Work/naolabs/chat/node_modules/drizzle-orm/sqlite-core/dialect.js:662:21)
+      at migrate (/Users/blef/Work/naolabs/chat/node_modules/drizzle-orm/bun-sqlite/migrator.js:4:14)
+      at runSqliteMigrations (/Users/blef/Work/naolabs/chat/apps/backend/src/db/migrate.ts:39:3)
+      at runSqliteMigrations (/Users/blef/Work/naolabs/chat/apps/backend/src/db/migrate.ts:30:36)
+      at runMigrations (/Users/blef/Work/naolabs/chat/apps/backend/src/db/migrate.ts:26:9)
+      at runMigrations (/Users/blef/Work/naolabs/chat/apps/backend/src/db/migrate.ts:17:37)
+
+Bun v1.3.5 (macOS arm64)
+npm error Lifecycle script `db:migrate` failed with error:
+npm error code 1
+npm error path /Users/blef/Work/naolabs/chat/apps/backend
+npm error workspace @nao/backend
+npm error location /Users/blef/Work/naolabs/chat/apps/backend
+npm error command failed
+npm error command sh -c bun scripts/db.migrate.ts
+
+fix
+
+---
+
+when i laucnh the 59 migration it fails because it was previously applied as 57 but moved after main merge
+
+8 |   }
+19 |   prepareQuery(query, fields, executeMethod, isResponseInArrayMode, customResultMapper) {
+20 |     const stmt = this.client.prepare(query.sql);
+                                  ^
+SQLiteError: duplicate column name: fix_target
+      errno: 1,
+ byteOffset: -1,
+
+      at prepare (bun:sqlite:331:37)
+      at prepareQuery (/Users/blef/Work/naolabs/chat/node_modules/drizzle-orm/bun-sqlite/session.js:20:30)
+      at run (/Users/blef/Work/naolabs/chat/node_modules/drizzle-orm/sqlite-core/session.js:154:19)
+      at migrate (/Users/blef/Work/naolabs/chat/node_modules/drizzle-orm/sqlite-core/dialect.js:662:21)
+      at migrate (/Users/blef/Work/naolabs/chat/node_modules/drizzle-orm/bun-sqlite/migrator.js:4:14)
+      at runSqliteMigrations (/Users/blef/Work/naolabs/chat/apps/backend/src/db/migrate.ts:39:3)
+      at runSqliteMigrations (/Users/blef/Work/naolabs/chat/apps/backend/src/db/migrate.ts:30:36)
+      at runMigrations (/Users/blef/Work/naolabs/chat/apps/backend/src/db/migrate.ts:26:9)
+      at runMigrations (/Users/blef/Work/naolabs/chat/apps/backend/src/db/migrate.ts:17:37)
+
+Bun v1.3.5 (macOS arm64)
+npm error Lifecycle script `db:migrate` failed with error:
+npm error code 1
+npm error path /Users/blef/Work/naolabs/chat/apps/backend
+npm error workspace @nao/backend
+npm error location /Users/blef/Work/naolabs/chat/apps/backend
+npm error command failed
+npm error command sh -c bun scripts/db.migrate.ts
+
+fix
+
+---
+
+when i laucnh the 59 migration it fails because it was previously applied as 57 but moved after main merge
+
+8 |   }
+19 |   prepareQuery(query, fields, executeMethod, isResponseInArrayMode, customResultMapper) {
+20 |     const stmt = this.client.prepare(query.sql);
+                                  ^
+SQLiteError: duplicate column name: fix_target
+      errno: 1,
+ byteOffset: -1,
+
+      at prepare (bun:sqlite:331:37)
+      at prepareQuery (/Users/blef/Work/naolabs/chat/node_modules/drizzle-orm/bun-sqlite/session.js:20:30)
+      at run (/Users/blef/Work/naolabs/chat/node_modules/drizzle-orm/sqlite-core/session.js:154:19)
+      at migrate (/Users/blef/Work/naolabs/chat/node_modules/drizzle-orm/sqlite-core/dialect.js:662:21)
+      at migrate (/Users/blef/Work/naolabs/chat/node_modules/drizzle-orm/bun-sqlite/migrator.js:4:14)
+      at runSqliteMigrations (/Users/blef/Work/naolabs/chat/apps/backend/src/db/migrate.ts:39:3)
+      at runSqliteMigrations (/Users/blef/Work/naolabs/chat/apps/backend/src/db/migrate.ts:30:36)
+      at runMigrations (/Users/blef/Work/naolabs/chat/apps/backend/src/db/migrate.ts:26:9)
+      at runMigrations (/Users/blef/Work/naolabs/chat/apps/backend/src/db/migrate.ts:17:37)
+
+Bun v1.3.5 (macOS arm64)
+npm error Lifecycle script `db:migrate` failed with error:
+npm error code 1
+npm error path /Users/blef/Work/naolabs/chat/apps/backend
+npm error workspace @nao/backend
+npm error location /Users/blef/Work/naolabs/chat/apps/backend
+npm error command failed
+npm error command sh -c bun scripts/db.migrate.ts
+
+fix, without loosing data
+
+---
+
+redo the 0058 for postgres pls
