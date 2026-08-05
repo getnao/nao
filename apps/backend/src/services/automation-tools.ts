@@ -289,7 +289,7 @@ async function buildMapImageAttachments(
 		attachments.push({
 			kind: 'map',
 			title,
-			filename: sanitizeFilename(title, `map-${index + 1}`, 'png'),
+			filename: sanitizeFilename(`map-${index + 1}-${title}`, `map-${index + 1}`, 'png'),
 			content: png,
 			contentType: 'image/png',
 			cid: `automation-map-${index}-${crypto.randomUUID()}@nao`,

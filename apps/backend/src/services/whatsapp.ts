@@ -8,7 +8,6 @@ import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Attachment, Chat, Message, Thread } from 'chat';
 
 import { generateChartImage } from '../components/generate-chart';
-import { generateMapImage } from '../components/generate-map';
 import { env } from '../env';
 import * as chartImageQueries from '../queries/chart-image';
 import * as chatQueries from '../queries/chat.queries';
@@ -22,7 +21,12 @@ import { ConversationContext, StreamState, ToolCallEntry } from '../types/messag
 import { createChatTitle } from '../utils/ai';
 import { buildImageUrl } from '../utils/image';
 import { logger } from '../utils/logger';
-import { createWhatsappMapLink, EXCLUDED_TOOLS, formatMessagingError } from '../utils/messaging-provider';
+import {
+	createWhatsappMapLink,
+	EXCLUDED_TOOLS,
+	formatMessagingError,
+	renderMapImage,
+} from '../utils/messaging-provider';
 import { agentService } from './agent';
 import { posthog, PostHogEvent } from './posthog';
 import * as transcribeService from './transcribe.service';
@@ -539,7 +543,7 @@ class WhatsappService {
 		}
 		state.renderedToolCallIds.add(part.toolCallId);
 
-		const png = await this._renderMapImage(part, state);
+		const png = await renderMapImage(part, state, this._projectId, { toolCallId: part.toolCallId });
 		if (png) {
 			try {
 				const mapId = await chartImageQueries.saveChart(part.toolCallId, png.toString('base64'));
@@ -554,29 +558,6 @@ class WhatsappService {
 
 		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
 		return { link: createWhatsappMapLink(part.input.title, chatUrl) };
-	}
-
-	private async _renderMapImage(
-		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
-		state: StreamState,
-	): Promise<Buffer | null> {
-		if (part.state !== 'output-available') {
-			return null;
-		}
-		const sqlOutput = state.sqlOutputs.get(part.input.query_id);
-		if (!sqlOutput) {
-			return null;
-		}
-		try {
-			const customBoundaries = await projectQueries.getCustomBoundaries(this._projectId);
-			return await generateMapImage({ config: part.input, rows: sqlOutput.rows, customBoundaries });
-		} catch (error) {
-			logger.error(`Map image generation failed: ${String(error)}`, {
-				source: 'system',
-				context: { projectId: this._projectId, toolCallId: part.toolCallId },
-			});
-			return null;
-		}
 	}
 
 	private async _handleChartPart(

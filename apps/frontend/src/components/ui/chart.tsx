@@ -1,10 +1,4 @@
-import {
-	CHART_NUMBER_LOCALE,
-	formatChartValue,
-	formatCompactNumber,
-	formatPercentShare,
-	sumPercentStackBase,
-} from '@nao/shared';
+import { CHART_NUMBER_LOCALE, formatChartValue, formatPercentShare, sumPercentStackBase } from '@nao/shared';
 import * as React from 'react';
 import * as RechartsPrimitive from 'recharts';
 import type { Payload } from 'recharts/types/component/DefaultLegendContent';

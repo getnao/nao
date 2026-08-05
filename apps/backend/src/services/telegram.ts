@@ -7,7 +7,6 @@ import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Card, CardElement, Chat, Message, SentMessage, Thread } from 'chat';
 
 import { generateChartImage } from '../components/generate-chart';
-import { generateMapImage } from '../components/generate-map';
 import * as chatQueries from '../queries/chat.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
 import * as projectQueries from '../queries/project.queries';
@@ -25,6 +24,7 @@ import {
 	createTelegramStopButtonCard,
 	EXCLUDED_TOOLS,
 	formatMessagingError,
+	renderMapImage,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
 import { posthog, PostHogEvent } from './posthog';
@@ -422,7 +422,7 @@ class TelegramService {
 			return;
 		}
 		state.renderedToolCallIds.add(part.toolCallId);
-		const png = await this._renderMapImage(part, state);
+		const png = await renderMapImage(part, state, this._projectId, { toolCallId: part.toolCallId });
 		if (!png) {
 			await this._pushMapLinkCard(part, ctx);
 			return;
@@ -439,26 +439,6 @@ class TelegramService {
 		} catch (error) {
 			console.error('Error posting map image:', error);
 			await this._pushMapLinkCard(part, ctx);
-		}
-	}
-
-	private async _renderMapImage(
-		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
-		state: StreamState,
-	): Promise<Buffer | null> {
-		if (part.state !== 'output-available') {
-			return null;
-		}
-		const sqlOutput = state.sqlOutputs.get(part.input.query_id);
-		if (!sqlOutput) {
-			return null;
-		}
-		try {
-			const customBoundaries = await projectQueries.getCustomBoundaries(this._projectId);
-			return await generateMapImage({ config: part.input, rows: sqlOutput.rows, customBoundaries });
-		} catch (error) {
-			console.error('Error generating map image:', error);
-			return null;
 		}
 	}
 

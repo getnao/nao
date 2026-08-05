@@ -10,7 +10,6 @@ import { InferUIMessageChunk, readUIMessageStream } from 'ai';
 import { Card, Chat, deriveChannelId, Message, SentMessage, Thread, ThreadImpl } from 'chat';
 
 import { generateChartImage } from '../components/generate-chart';
-import { generateMapImage } from '../components/generate-map';
 import * as chartImageQueries from '../queries/chart-image';
 import * as chatQueries from '../queries/chat.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
@@ -41,6 +40,7 @@ import {
 	FEEDBACK_MODAL_CALLBACK_ID,
 	formatMessagingError,
 	formatSlackMessageText,
+	renderMapImage,
 } from '../utils/messaging-provider';
 import { shouldReplyToSlackThreadMessage } from '../utils/slack-reply-policy';
 import { isEmailDomainAllowed } from '../utils/utils';
@@ -785,7 +785,10 @@ class ProjectSlackBot {
 			return;
 		}
 		state.renderedToolCallIds.add(part.toolCallId);
-		const png = await this._renderMapImage(part, state, ctx);
+		const png = await renderMapImage(part, state, this.projectId, {
+			chatId: ctx.chatId,
+			toolCallId: part.toolCallId,
+		});
 		if (!png) {
 			await this._pushMapLinkCard(part, ctx);
 			return;
@@ -807,30 +810,6 @@ class ProjectSlackBot {
 				context: { chatId: ctx.chatId, toolCallId: part.toolCallId },
 			});
 			await this._pushMapLinkCard(part, ctx);
-		}
-	}
-
-	private async _renderMapImage(
-		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
-		state: StreamState,
-		ctx: ConversationContext,
-	): Promise<Buffer | null> {
-		if (part.state !== 'output-available') {
-			return null;
-		}
-		const sqlOutput = state.sqlOutputs.get(part.input.query_id);
-		if (!sqlOutput) {
-			return null;
-		}
-		try {
-			const customBoundaries = await projectQueries.getCustomBoundaries(this.projectId);
-			return await generateMapImage({ config: part.input, rows: sqlOutput.rows, customBoundaries });
-		} catch (error) {
-			logger.error(`Map image generation failed: ${String(error)}`, {
-				source: 'system',
-				context: { chatId: ctx.chatId, toolCallId: part.toolCallId },
-			});
-			return null;
 		}
 	}
 
