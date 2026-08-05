@@ -34,7 +34,7 @@ export function DeploymentManagedGitSettings({
 		<SettingsCard
 			title='Deployment repository'
 			icon={<GitBranch className='size-4' />}
-			description='Your deployment currently loads context files from this repository.'
+			description="File Explorer commits and review requests use this repository with the deployment's shared credential."
 			action={
 				repositoryUrl && isHttpUrl(repositoryUrl) ? (
 					<Button size='sm' variant='secondary' asChild>
@@ -62,15 +62,13 @@ export function DeploymentManagedGitSettings({
 
 			<div className='flex flex-wrap items-center justify-between gap-3 border-t border-border pt-6'>
 				<p className='max-w-2xl text-sm text-muted-foreground'>
-					{contextSource?.authMethod === 'public'
-						? 'Set up Git OAuth to enable editing with personal accounts.'
-						: "Set up Git OAuth to open review requests from each person's account instead of the deployment token owner's account."}
+					{getRecommendedSetupMessage(contextSource?.authMethod)}
 				</p>
 				<Button
 					size='sm'
 					variant='secondary'
 					aria-expanded={recommendedSetupVisible}
-					aria-controls='recommended-git-setup'
+					aria-controls={recommendedSetupVisible ? 'recommended-git-setup' : undefined}
 					onClick={onToggleRecommendedSetup}
 				>
 					{recommendedSetupVisible ? 'Hide OAuth setup' : 'Set up Git OAuth'}
@@ -78,6 +76,16 @@ export function DeploymentManagedGitSettings({
 			</div>
 		</SettingsCard>
 	);
+}
+
+function getRecommendedSetupMessage(authMethod: DeploymentContextSource['authMethod'] | undefined): string {
+	if (authMethod === 'public') {
+		return 'Set up Git OAuth to enable editing with personal accounts.';
+	}
+	if (authMethod === 'ssh-key') {
+		return "Review requests currently use the deployment's shared deploy key. Set up Git OAuth to use each person's own account.";
+	}
+	return "Review requests currently come from the deployment token owner's account. Set up Git OAuth to use each person's own account.";
 }
 
 function getSecondaryFacts(contextSource: DeploymentContextSource): string[] {
@@ -92,11 +100,12 @@ function getRepositoryName(repositoryUrl: string): string {
 	try {
 		const pathname = new URL(repositoryUrl).pathname.replace(/\/+$/, '').replace(/\.git$/i, '');
 		const segments = pathname.split('/').filter(Boolean);
-		return segments.length >= 2 ? segments.slice(-2).join('/') : segments[0] || repositoryUrl;
+		return segments.join('/') || repositoryUrl;
 	} catch {
 		const normalized = repositoryUrl.replace(/\/+$/, '').replace(/\.git$/i, '');
-		const match = normalized.match(/(?:[:/])([^/:]+\/[^/]+)$/);
-		return match?.[1] ?? repositoryUrl;
+		const repositoryPath = normalized.match(/^[^:]+:(.+)$/)?.[1];
+		const segments = repositoryPath?.split('/').filter(Boolean) ?? [];
+		return segments.join('/') || repositoryUrl;
 	}
 }
 

@@ -348,7 +348,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		page: '/settings/git',
 		pageLabel: 'Git',
 		title: 'Deployment repository',
-		description: 'View the repository currently loaded by the deployment and set up personal Git accounts.',
+		description: 'View the repository used for File Explorer commits and review requests.',
 		keywords: [
 			'git',
 			'github',

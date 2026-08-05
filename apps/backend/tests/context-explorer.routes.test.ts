@@ -70,6 +70,20 @@ describe('context explorer repository connection', () => {
 		});
 	});
 
+	it('connects a GitHub repository with the GitHub token', async () => {
+		await createCaller().connectRepository({ provider: 'github', repoFullName: 'nao/context' });
+
+		expect(mocks.getGithubToken).toHaveBeenCalledWith('user-id');
+		expect(mocks.getGitlabToken).not.toHaveBeenCalled();
+		expect(mocks.connectContextRepository).toHaveBeenCalledWith(
+			expect.objectContaining({
+				provider: 'github',
+				repoFullName: 'nao/context',
+				token: 'github-token',
+			}),
+		);
+	});
+
 	it('connects a GitLab repository with the GitLab token', async () => {
 		await expect(
 			createCaller().connectRepository({ provider: 'gitlab', repoFullName: 'nao/context' }),

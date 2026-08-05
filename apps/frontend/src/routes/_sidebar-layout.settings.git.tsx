@@ -195,8 +195,7 @@ function GitSettingsPage() {
 	const repositoryProvider = status?.repo?.provider;
 	const connectedRepositoryProvider = isGitProvider(repositoryProvider) ? repositoryProvider : null;
 	const repositoryReady = connectedRepositoryProvider !== null;
-	const anyProviderAvailable = githubAvailable.data === true || gitlabAvailable.data === true;
-	const showDeploymentPanel = status?.managedByContextSource === true && !anyProviderAvailable;
+	const showDeploymentPanel = status?.managedByContextSource === true && !repositoryReady;
 	const canConnectRepository = instanceReady && accountReady && !repositoryReady;
 	const repositoryDisconnectBlockedReason = getRepositoryDisconnectBlockedReason(isAdmin);
 	const selectedAccountStatus = selectedProvider === 'github' ? githubStatus : gitlabStatus;
@@ -235,7 +234,7 @@ function GitSettingsPage() {
 		setProviderSwitchRequest({
 			targetProvider: nextProvider,
 			sourceProvider: selectedProvider,
-			repositoryName: status?.repo?.repoFullName ?? null,
+			repositoryName: repositoryReady ? (status?.repo?.repoFullName ?? null) : null,
 			disconnectAccount: accountReady,
 			repositoryDisconnected: false,
 		});
