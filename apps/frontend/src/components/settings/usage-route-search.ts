@@ -2,9 +2,15 @@ import { CHAT_REPLAY_FEEDBACK_STATES, CHAT_REPLAY_TOOL_STATES, providerLabels } 
 import { USAGE_SOURCES } from '@nao/backend/usage';
 import type { Granularity, UsageSource } from '@nao/backend/usage';
 import type { ChatReplayFeedbackState, ChatReplayToolState, LlmProvider } from '@nao/shared/types';
+import type { RecommendationTab } from '@/components/settings/recommendations-route-search';
+import { RECOMMENDATION_TABS } from '@/components/settings/recommendations-route-search';
 import { getActiveProjectId } from '@/lib/active-project';
 
 export type TokenChartDisplayMode = 'tokens' | 'dollars';
+
+export type ReplayHighlight = 'tool-error' | 'feedback';
+
+export type ReplayOrigin = 'recommendations';
 
 export type UsageRouteSearch = {
 	provider: LlmProvider | 'all';
@@ -14,6 +20,11 @@ export type UsageRouteSearch = {
 	tools: ChatReplayToolState[] | undefined;
 	sources: UsageSource[] | undefined;
 	tokenView: TokenChartDisplayMode;
+	highlight: ReplayHighlight | undefined;
+	targetId: string | undefined;
+	origin: ReplayOrigin | undefined;
+	recoId: string | undefined;
+	recoTab: RecommendationTab | undefined;
 };
 
 export const DEFAULT_USAGE_SEARCH: UsageRouteSearch = {
@@ -24,6 +35,11 @@ export const DEFAULT_USAGE_SEARCH: UsageRouteSearch = {
 	tools: undefined,
 	sources: undefined,
 	tokenView: 'tokens',
+	highlight: undefined,
+	targetId: undefined,
+	origin: undefined,
+	recoId: undefined,
+	recoTab: undefined,
 };
 
 const granularities = ['hour', 'day', 'month'] as const satisfies readonly Granularity[];
@@ -52,6 +68,9 @@ export function saveUsageFilters(search: UsageRouteSearch): void {
 	}
 }
 
+const replayHighlights = ['tool-error', 'feedback'] as const satisfies readonly ReplayHighlight[];
+const replayOrigins = ['recommendations'] as const satisfies readonly ReplayOrigin[];
+
 export function validateUsageSearch(search: Record<string, unknown>): UsageRouteSearch {
 	return {
 		provider: parseProvider(search.provider),
@@ -61,6 +80,11 @@ export function validateUsageSearch(search: Record<string, unknown>): UsageRoute
 		tools: parseArrayOf(search.tools, CHAT_REPLAY_TOOL_STATES),
 		sources: parseArrayOf(search.sources, USAGE_SOURCES),
 		tokenView: parseOneOf(search.tokenView, tokenViews) ?? 'tokens',
+		highlight: parseOneOf(search.highlight, replayHighlights),
+		targetId: typeof search.targetId === 'string' && search.targetId.length > 0 ? search.targetId : undefined,
+		origin: parseOneOf(search.origin, replayOrigins),
+		recoId: typeof search.recoId === 'string' && search.recoId.length > 0 ? search.recoId : undefined,
+		recoTab: parseOneOf(search.recoTab, RECOMMENDATION_TABS),
 	};
 }
 

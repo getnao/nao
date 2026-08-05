@@ -116,6 +116,12 @@ include = [
 ]
 exclude = ["**/example/**"]
 
+[tool.uv]
+exclude-newer = "2 days"
+
+[tool.uv.pip]
+exclude-newer = "2 days"
+
 [tool.ruff]
 line-length = 120
 

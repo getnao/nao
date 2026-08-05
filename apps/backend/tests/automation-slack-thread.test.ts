@@ -48,7 +48,7 @@ function emptyContext(): ToolContext {
 		envVars: {},
 		azureAccessToken: null,
 		queryResults: new Map(),
-		generatedArtifacts: { charts: [], stories: [] },
+		generatedArtifacts: { charts: [], maps: [], stories: [] },
 	};
 }
 

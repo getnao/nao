@@ -1,8 +1,9 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
-import { getMcpChartEmbedById } from '../queries/mcp-chart-embed.queries';
+import { getMcpChartEmbedById, getMcpMapEmbedById } from '../queries/mcp-embed.queries';
 import { getMcpQueryData } from '../queries/mcp-query-data.queries';
+import { getCustomBoundaries } from '../queries/project.queries';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { embedStoryOpenPath, loadEmbedStoryContent } from '../utils/embed-story';
 import { assertProjectMcpEnabled, verifyEmbedToken } from '../utils/embed-token';
@@ -14,6 +15,14 @@ const tokenInput = z.object({ token: z.string() });
 function resolveChartToken(token: string, chartEmbedId: string) {
 	const payload = verifyEmbedToken(token);
 	if (!payload || payload.type !== 'chart' || payload.resourceId !== chartEmbedId) {
+		throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid or expired embed token.' });
+	}
+	return payload;
+}
+
+function resolveMapToken(token: string, mapEmbedId: string) {
+	const payload = verifyEmbedToken(token);
+	if (!payload || payload.type !== 'map' || payload.resourceId !== mapEmbedId) {
 		throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid or expired embed token.' });
 	}
 	return payload;
@@ -73,6 +82,48 @@ export const embedRoutes = router({
 			data: queryData.data,
 			sourceChatId,
 			chartConfig: embed.chartConfig,
+		};
+	}),
+
+	getMap: publicProcedure.input(tokenInput.extend({ mapEmbedId: z.string() })).query(async ({ input }) => {
+		const payload = resolveMapToken(input.token, input.mapEmbedId);
+
+		const embed = await getMcpMapEmbedById(input.mapEmbedId);
+		if (!embed) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'Map embed not found.' });
+		}
+		if (embed.projectId !== payload.projectId) {
+			throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Embed token does not match this map.' });
+		}
+
+		await assertProjectMcpEnabled(embed.projectId);
+
+		const queryData = await getMcpQueryData(embed.queryId, embed.projectId);
+		if (!queryData) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'Query data not found or expired.' });
+		}
+
+		const dbChat =
+			typeof queryData.sourceChatId === 'string' && queryData.sourceChatId.trim()
+				? queryData.sourceChatId.trim()
+				: null;
+		const rowChat =
+			typeof embed.sourceChatId === 'string' && embed.sourceChatId.trim() ? embed.sourceChatId.trim() : null;
+		const sourceChatId = dbChat ?? rowChat;
+
+		const regionKey = embed.mapConfig.region_boundaries;
+		const customBoundaries =
+			embed.mapConfig.map_type === 'choropleth' && regionKey
+				? (await getCustomBoundaries(embed.projectId)).filter((set) => set.key === regionKey)
+				: [];
+
+		return {
+			data: queryData.data,
+			columns: queryData.columns,
+			sourceChatId,
+			projectId: embed.projectId,
+			mapConfig: embed.mapConfig,
+			customBoundaries,
 		};
 	}),
 

@@ -8,8 +8,8 @@ const CHART_TWO =
 	'<chart query_id="q2" chart_type="bar" x_axis_key="month" series=\'[{"data_key":"orders"}]\' title="Orders" />';
 
 describe('generateStoryHtml grid flattening', () => {
-	it('flattens grids with widths', () => {
-		const html = generateStoryHtml(
+	it('flattens grids with widths', async () => {
+		const html = await generateStoryHtml(
 			{ title: 'Story', code: `<grid widths="3,1">${CHART_ONE}${CHART_TWO}</grid>` },
 			null,
 		);
@@ -19,8 +19,8 @@ describe('generateStoryHtml grid flattening', () => {
 		expect(html).toContain('Orders');
 	});
 
-	it('flattens grids without widths', () => {
-		const html = generateStoryHtml(
+	it('flattens grids without widths', async () => {
+		const html = await generateStoryHtml(
 			{ title: 'Story', code: `<grid cols="2">${CHART_ONE}${CHART_TWO}</grid>` },
 			null,
 		);

@@ -1,9 +1,10 @@
 import type { DateFormatSettings } from '@nao/shared/date';
 import { extractQueryIds } from '@nao/shared/story-segments';
-import type { displayChart } from '@nao/shared/tools';
+import type { displayChart, displayMap } from '@nao/shared/tools';
 import { z } from 'zod/v4';
 
 import { generateChartImage } from '../components/generate-chart';
+import { generateMapImage } from '../components/generate-map';
 import * as automationQueries from '../queries/automation.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
@@ -153,7 +154,7 @@ function createEmailTools(projectId: string, integrations: AutomationIntegration
 					throw new Error('SMTP email is not configured.');
 				}
 				const attachments = await buildGeneratedArtifactAttachments(projectId, context);
-				const content = appendInlineChartImages(html ?? `<pre>${escapeHtml(text ?? '')}</pre>`, attachments);
+				const content = appendInlineImages(html ?? `<pre>${escapeHtml(text ?? '')}</pre>`, attachments);
 				const emailAttachments = attachments.map(toEmailAttachment);
 				const resolvedSubject = config.subject ?? subject ?? 'nao automation report';
 				const resolvedRecipients = [...new Set([...recipients, ...config.recipients])];
@@ -217,7 +218,7 @@ function createSlackTools(
 }
 
 function getEmailToolDescription(): string {
-	return `Send an email to a list of recipients. Provide html (preferred) or text, and optionally a subject. If you generated charts with display_chart, they will be embedded as images. If you generated a story, it will be attached as a PDF.`;
+	return `Send an email to a list of recipients. Provide html (preferred) or text, and optionally a subject. If you generated charts with display_chart or maps with display_map, they will be embedded as images. If you generated a story, it will be attached as a PDF.`;
 }
 
 function getSlackToolDescription(channelId: string): string {
@@ -225,12 +226,12 @@ function getSlackToolDescription(channelId: string): string {
 		`Post a message in the Slack channel ${channelId}. Provide the markdown-friendly text to post. Use @slack-handle to mention a Slack user.`,
 		'To avoid cluttering the channel, post a single short headline message first (no thread_id), then reply with the full report inside its thread by passing the returned threadId as thread_id.',
 		'The call returns a threadId; reuse it as thread_id for every follow-up message so they stay in the same thread.',
-		'Generated charts and stories are uploaded to the thread automatically.',
+		'Generated charts, maps and stories are uploaded to the thread automatically.',
 	].join(' ');
 }
 
 type GeneratedArtifactAttachment = Omit<EmailAttachment, 'content'> & {
-	kind: 'chart' | 'story';
+	kind: 'chart' | 'map' | 'story';
 	content: Buffer;
 	title?: string;
 };
@@ -259,8 +260,43 @@ async function buildGeneratedArtifactAttachments(
 	const displaySettings = await projectQueries.getDisplaySettings(projectId);
 	const dateFormat = displaySettings.dateFormat ?? null;
 	const chartAttachments = await buildChartImageAttachments(context, dateFormat);
+	const mapAttachments = await buildMapImageAttachments(projectId, context);
 	const storyAttachments = await buildStoryPdfAttachments(context, dateFormat);
-	return [...chartAttachments, ...storyAttachments];
+	return [...chartAttachments, ...mapAttachments, ...storyAttachments];
+}
+
+async function buildMapImageAttachments(
+	projectId: string,
+	context: ToolContext,
+): Promise<GeneratedArtifactAttachment[]> {
+	const maps = uniqueMaps(context.generatedArtifacts.maps);
+	if (maps.length === 0) {
+		return [];
+	}
+	const customBoundaries = await projectQueries.getCustomBoundaries(projectId);
+	const attachments: GeneratedArtifactAttachment[] = [];
+
+	for (const [index, map] of maps.entries()) {
+		const queryResult = await getQueryResult(context, map.query_id);
+		if (!queryResult) {
+			continue;
+		}
+		const png = await generateMapImage({ config: map, rows: queryResult.data, customBoundaries });
+		if (!png) {
+			continue;
+		}
+		const title = map.title ?? `Map ${index + 1}`;
+		attachments.push({
+			kind: 'map',
+			title,
+			filename: sanitizeFilename(`map-${index + 1}-${title}`, `map-${index + 1}`, 'png'),
+			content: png,
+			contentType: 'image/png',
+			cid: `automation-map-${index}-${crypto.randomUUID()}@nao`,
+		});
+	}
+
+	return attachments;
 }
 
 async function buildChartImageAttachments(
@@ -333,29 +369,32 @@ async function getStoryQueryData(context: ToolContext, code: string): Promise<Qu
 	return Object.keys(queryData).length > 0 ? queryData : null;
 }
 
-function appendInlineChartImages(html: string, attachments: GeneratedArtifactAttachment[]): string {
-	const charts = attachments.filter((attachment) => attachment.kind === 'chart' && attachment.cid);
-	if (charts.length === 0) {
+function appendInlineImages(html: string, attachments: GeneratedArtifactAttachment[]): string {
+	const images = attachments.filter(
+		(attachment) => (attachment.kind === 'chart' || attachment.kind === 'map') && attachment.cid,
+	);
+	if (images.length === 0) {
 		return html;
 	}
 
-	const chartSection = [
+	const heading = images.some((image) => image.kind === 'map') ? 'Generated visuals' : 'Generated charts';
+	const section = [
 		'<hr style="border:0;border-top:1px solid #e5e7eb;margin:24px 0;" />',
-		'<h2 style="font-size:18px;line-height:24px;margin:0 0 16px;">Generated charts</h2>',
-		...charts.map(
-			(chart) =>
-				`<figure style="margin:0 0 24px;"><img src="cid:${chart.cid}" alt="${escapeHtml(
-					chart.title ?? 'Chart',
+		`<h2 style="font-size:18px;line-height:24px;margin:0 0 16px;">${heading}</h2>`,
+		...images.map(
+			(image) =>
+				`<figure style="margin:0 0 24px;"><img src="cid:${image.cid}" alt="${escapeHtml(
+					image.title ?? 'Visual',
 				)}" style="max-width:100%;height:auto;" /><figcaption style="color:#6b7280;font-size:12px;margin-top:8px;">${escapeHtml(
-					chart.title ?? 'Chart',
+					image.title ?? 'Visual',
 				)}</figcaption></figure>`,
 		),
 	].join('');
 
 	if (/<\/body>/i.test(html)) {
-		return html.replace(/<\/body>/i, `${chartSection}</body>`);
+		return html.replace(/<\/body>/i, `${section}</body>`);
 	}
-	return `${html}${chartSection}`;
+	return `${html}${section}`;
 }
 
 function uniqueCharts(
@@ -364,6 +403,18 @@ function uniqueCharts(
 	const seen = new Set<string>();
 	return charts.filter((chart) => {
 		const key = JSON.stringify(chart);
+		if (seen.has(key)) {
+			return false;
+		}
+		seen.add(key);
+		return true;
+	});
+}
+
+function uniqueMaps(maps: displayMap.Input[]): displayMap.Input[] {
+	const seen = new Set<string>();
+	return maps.filter((map) => {
+		const key = JSON.stringify(map);
 		if (seen.has(key)) {
 			return false;
 		}

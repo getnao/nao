@@ -10,7 +10,7 @@ import {
 } from 'ai';
 import z from 'zod/v4';
 
-import { getTools, tools } from '../agents/tools';
+import { getTools, uiToolset } from '../agents/tools';
 import { DBAutomationRun, MessageFeedback } from '../db/abstractSchema';
 import { llmSelectedModelSchema } from './llm';
 
@@ -81,7 +81,7 @@ export interface MessageVersionInfo {
 	versionIds: string[];
 }
 
-export type UITools = InferUITools<typeof tools>;
+export type UITools = InferUITools<typeof uiToolset>;
 
 /** Additional data parts that are not part of the ai sdk data parts */
 export type MessageCustomDataParts = {

@@ -5,6 +5,7 @@ import StarterKit from '@tiptap/starter-kit';
 import { BlockSelection } from './story-block-selection';
 import { ChartBlock } from './story-editor-chart-block';
 import { GridBlock } from './story-editor-grid-block';
+import { MapBlock } from './story-editor-map-block';
 import { TableBlock } from './story-editor-table-block';
 import type { Editor as CoreEditor } from '@tiptap/core';
 import type { Node as PMNode } from '@tiptap/pm/model';
@@ -88,6 +89,7 @@ export const EDITOR_EXTENSIONS = [
 	}),
 	ChartBlock,
 	TableBlock,
+	MapBlock,
 	GridBlock,
 	BlockSelection,
 ];

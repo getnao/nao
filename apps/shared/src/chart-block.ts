@@ -1,7 +1,8 @@
 import type { StoryFilterType } from './sql-template';
 import type * as displayChart from './tools/display-chart';
+import type * as displayMap from './tools/display-map';
 
-export type { McpChartEmbedStoredConfig } from './mcp-embed';
+export type { McpChartEmbedStoredConfig, McpMapEmbedStoredConfig } from './mcp-embed';
 
 export function escapeDoubleQuotedStoryAttr(value: string): string {
 	return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
@@ -67,6 +68,56 @@ export function buildStoryTableBlock(input: StoryTableBlockInput): string {
 			? ` formatting='${escapeSingleQuotedStoryAttr(JSON.stringify(input.conditional_formats))}'`
 			: '';
 	return `<table query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}"${titleAttr}${formattingAttr} />`;
+}
+
+export type StoryMapBlockInput = Pick<
+	displayMap.Input,
+	| 'query_id'
+	| 'map_type'
+	| 'latitude_key'
+	| 'longitude_key'
+	| 'label_key'
+	| 'tooltip_keys'
+	| 'color'
+	| 'radius'
+	| 'size_key'
+	| 'value_key'
+	| 'region_key'
+	| 'region_boundaries'
+	| 'boundaries_url'
+	| 'boundaries_join_property'
+	| 'geometry_key'
+	| 'title'
+>;
+
+export function buildStoryMapBlock(input: StoryMapBlockInput): string {
+	const stringAttr = (name: string, value: string | undefined) =>
+		value ? ` ${name}="${escapeDoubleQuotedStoryAttr(value)}"` : '';
+	const tooltipAttr =
+		input.tooltip_keys && input.tooltip_keys.length > 0
+			? ` tooltip_keys='${escapeSingleQuotedStoryAttr(JSON.stringify(input.tooltip_keys))}'`
+			: '';
+	const radiusAttr = input.radius !== undefined ? ` radius="${input.radius}"` : '';
+	const titleAttr =
+		input.title != null && input.title !== '' ? ` title="${escapeDoubleQuotedStoryAttr(input.title)}"` : '';
+	return (
+		`<map query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" map_type="${escapeDoubleQuotedStoryAttr(input.map_type)}"` +
+		stringAttr('latitude_key', input.latitude_key) +
+		stringAttr('longitude_key', input.longitude_key) +
+		stringAttr('label_key', input.label_key) +
+		tooltipAttr +
+		stringAttr('color', input.color) +
+		radiusAttr +
+		stringAttr('size_key', input.size_key) +
+		stringAttr('value_key', input.value_key) +
+		stringAttr('region_key', input.region_key) +
+		stringAttr('region_boundaries', input.region_boundaries) +
+		stringAttr('boundaries_url', input.boundaries_url) +
+		stringAttr('boundaries_join_property', input.boundaries_join_property) +
+		stringAttr('geometry_key', input.geometry_key) +
+		titleAttr +
+		' />'
+	);
 }
 
 export interface StoryFilterBlockInput {

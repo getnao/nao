@@ -19,6 +19,7 @@ import { githubRoutes } from './github.routes';
 import { gitlabRoutes } from './gitlab.routes';
 import { licenseRoutes } from './license.routes';
 import { logRoutes } from './log.routes';
+import { mapRoutes } from './map.routes';
 import { mcpRoutes } from './mcp.routes';
 import { mcpEndpointRoutes } from './mcp-endpoint.routes';
 import { memoryRoutes } from './memory.routes';
@@ -46,6 +47,7 @@ export const trpcRouter = router({
 	chart: chartRoutes,
 	chartPlugin: chartPluginRoutes,
 	chat: chatRoutes,
+	map: mapRoutes,
 	sql: sqlRoutes,
 	sharedChat: sharedChatRoutes,
 	automation: automationRoutes,

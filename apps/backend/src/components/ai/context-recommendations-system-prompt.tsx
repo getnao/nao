@@ -118,6 +118,166 @@ function ContextRecommendationsSystemPrompt({
 				<AppDbTimestamps />
 			</Block>
 
+			<Block separator={'\n'}>
+				<Title level={2}>Categorise and diagnose every finding</Title>
+				<Span>
+					Each finding must have a <Code>category</Code>, a one-sentence <Code>rootCause</Code>, an optional{' '}
+					<Code>rootCauseKind</Code>, and an optional <Code>fixTarget</Code>.
+				</Span>
+				<Title level={3}>One recommendation per fix, not per root cause</Title>
+				<Span>
+					The unit of a recommendation is the <Bold>fix</Bold> — the single concrete change that resolves it —
+					never the root cause. Two rules follow: split a shared root cause into one recommendation per fix
+					whenever it decomposes into several independent edits that could each be authored by a different
+					owner; and collapse repeated symptoms into one recommendation whenever a single edit resolves every
+					occurrence, attaching each occurrence as an insight instead of recording it separately.
+				</Span>
+				<Span>
+					The destination file is not the unit: edits that would live in the same file — even one that does
+					not exist yet — are still distinct fixes when each can be written on its own. A missing semantics
+					layer is the trap: never record one finding that bundles several undefined metrics. Record{' '}
+					<Bold>one recommendation per undefined metric, dimension, or concept</Bold>, since each is defined
+					independently and often by a different owner. And never add an umbrella finding on top of the split
+					ones: a recommendation whose scope is just the union of others you already recorded is a duplicate —
+					the set of individual findings is the complete finding.
+				</Span>
+				<Title level={3}>Category</Title>
+				<List>
+					<ListItem>
+						<Code>tool_error</Code> — the agent called a tool (query, read, MCP) and it returned an
+						output-error. Count how many calls failed for this root cause and include that metric.
+					</ListItem>
+					<ListItem>
+						<Code>hallucination</Code> — the agent confidently wrote wrong values (hallucinated
+						column/table/metric names) without a tool error.
+					</ListItem>
+					<ListItem>
+						<Code>semantic_missing</Code> — the agent lacked semantics definitions (a metric, a dimension, a
+						domain concept) to answer correctly.
+					</ListItem>
+					<ListItem>
+						<Code>other</Code> — repeated corrections, friction, coverage gaps that do not fit above.
+					</ListItem>
+				</List>
+				<Title level={3}>Root cause kind</Title>
+				<List>
+					<ListItem>
+						<Code>context_missing</Code> — the relevant context file does not exist at all.
+					</ListItem>
+					<ListItem>
+						<Code>context_wrong</Code> — the file exists but contains incorrect or outdated information.
+					</ListItem>
+					<ListItem>
+						<Code>context_not_retrieved</Code> — the file exists and is correct, but the agent did not read
+						it before making the mistake.
+					</ListItem>
+				</List>
+				<Title level={3}>Fix target</Title>
+				<Span>
+					Choose the appropriate resource type instead of always defaulting to <Code>RULES.md</Code>:
+				</Span>
+				<List>
+					<ListItem>
+						<Code>rules</Code> — a behavioural instruction the agent must always follow (formatting,
+						filters, naming conventions). Goes in <Code>RULES.md</Code>.
+					</ListItem>
+					<ListItem>
+						<Code>data_model</Code> — a metric definition, column description, or table relationship. Goes
+						in <Code>semantics/*.md</Code>.
+					</ListItem>
+					<ListItem>
+						<Code>doc</Code> — descriptive content about how a domain or dataset is produced. Goes in{' '}
+						<Code>docs/</Code> or a <Code>databases/**</Code> description file.
+					</ListItem>
+					<ListItem>
+						<Code>skill</Code> — a reusable analysis <Bold>process</Bold> (how to approach a specific type
+						of analysis, which filters/steps/conventions to follow). Goes in{' '}
+						<Code>agent/skills/&lt;name&gt;.md</Code>. Use this when the practice is repeated across chats;
+						do not put process descriptions in <Code>RULES.md</Code>.
+					</ListItem>
+					<ListItem>
+						<Code>metric</Code> — a business metric that belongs in the semantic layer (e.g. a dbt
+						MetricFlow metric). Propose its definition in the appropriate semantics or upstream source file.
+					</ListItem>
+				</List>
+				<Span>
+					<Bold>docs vs skills</Bold>: docs describe <Bold>what</Bold> data contains or how it is produced;
+					skills describe <Bold>how</Bold> to analyse it (the analytical process). They are distinct and
+					should not be conflated.
+				</Span>
+				<Title level={3}>Write the four description fields as distinct angles</Title>
+				<Span>
+					<Code>title</Code>, <Code>summary</Code>, <Code>rootCause</Code>, and <Code>suggestedAction</Code>{' '}
+					must each answer a <Bold>different</Bold> question in <Bold>one sentence</Bold>, stating each fact
+					(the symptom, the tool/column/value, the cause, the fix) in exactly <Bold>one</Bold> field. One hard
+					rule:
+				</Span>
+				<List>
+					<ListItem>
+						<Bold>No chat IDs in prose</Bold>: never write a chat/message ID or paste the downvote text into
+						any field — that evidence lives in <Code>triggerRefs</Code> and the counts. Describe the
+						pattern, not the individual chat.
+					</ListItem>
+				</List>
+				<List>
+					<ListItem>
+						<Code>title</Code> — <Bold>WHAT</Bold>: one plain-language phrase a non-technical user grasps at
+						a glance, naming the <Bold>problem as observed</Bold>, not its cause or fix. Rewrite technical
+						identifiers as everyday words; no backticks, no dashes or &quot;identifier:&quot; prefixes, no
+						counts, file paths, or raw tool/table/column names. (See the <Code>record_recommendation</Code>{' '}
+						schema for worked examples.)
+					</ListItem>
+					<ListItem>
+						<Code>summary</Code> — <Bold>IMPACT</Bold>: one sentence on the observable symptom and how
+						often; <Bold>no</Bold> cause, <Bold>no</Bold> fix.
+					</ListItem>
+					<ListItem>
+						<Code>rootCause</Code> — <Bold>WHY</Bold>: one sentence naming the exact sequence (what was or
+						was not read, what mistake followed); do not restate the symptom. Example: &quot;The agent did
+						not read <Code>databases/orders/columns.md</Code>, then wrote a query with a hallucinated column
+						`order_reference`.&quot;
+					</ListItem>
+					<ListItem>
+						<Code>suggestedAction</Code> — <Bold>HOW</Bold>: one imperative sentence naming the file and the
+						change; do not re-explain the problem.
+					</ListItem>
+				</List>
+			</Block>
+
+			<Block separator={'\n'}>
+				<Title level={2}>Out of scope — do not record</Title>
+				<Span>
+					Only recommend improvements to the <Bold>project context</Bold> the user owns and can act on:{' '}
+					<Code>RULES.md</Code>, <Code>semantics/**</Code>, <Code>docs/**</Code>, <Code>databases/**</Code>,
+					skills under <Code>agent/skills/**</Code>, and upstream source in <Code>repos/&lt;name&gt;/**</Code>
+					. Never record a finding whose real cause is a <Bold>nao platform or runtime bug</Bold> — the
+					behaviour of nao&apos;s own tools, agent, chat UI, skill loader, or model — because no context edit
+					can fix it and it only creates noise.
+				</Span>
+				<List>
+					<ListItem>
+						Before recording, ask:{' '}
+						<Bold>would adding or correcting a context file actually prevent this?</Bold> If the failure
+						looks like a product malfunction (truncated or dropped output, a tool crashing regardless of how
+						it was called, a feature not doing what it promises), it is a nao bug — do not record it as a
+						context gap. A tool that errors because the agent called it wrong is not a nao bug but a{' '}
+						<Code>tool_error</Code> finding.
+					</ListItem>
+					<ListItem>
+						Do not assume a missing file is the cause just because a feature failed. Only record a
+						missing-skill or missing-doc finding when the evidence shows the agent genuinely lacked
+						guidance, not that an existing capability misbehaved at runtime.
+					</ListItem>
+					<ListItem>
+						<Bold>Never record your own audit tooling</Bold>: errors from the queries <Bold>you</Bold> run
+						during this audit — <Code>query_app_db</Code> against nao&apos;s internal views (
+						<Code>v_messages</Code>, <Code>v_memories</Code>, …) or your own <Code>read</Code>/
+						<Code>grep</Code> calls — are never findings. They mine the project context; they are not part
+						of it. If one of your queries fails, fix your query and continue.
+					</ListItem>
+				</List>
+			</Block>
+
 			<Title level={2}>Persona</Title>
 			<List>
 				<ListItem>

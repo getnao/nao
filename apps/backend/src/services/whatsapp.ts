@@ -21,7 +21,12 @@ import { ConversationContext, StreamState, ToolCallEntry } from '../types/messag
 import { createChatTitle } from '../utils/ai';
 import { buildImageUrl } from '../utils/image';
 import { logger } from '../utils/logger';
-import { createWhatsappMapLink, EXCLUDED_TOOLS, formatMessagingError } from '../utils/messaging-provider';
+import {
+	createWhatsappMapLink,
+	EXCLUDED_TOOLS,
+	formatMessagingError,
+	renderMapImage,
+} from '../utils/messaging-provider';
 import { agentService } from './agent';
 import { posthog, PostHogEvent } from './posthog';
 import * as transcribeService from './transcribe.service';
@@ -507,9 +512,11 @@ class WhatsappService {
 					chartUrls.push(url);
 				}
 			} else if (part.type === 'tool-display_map') {
-				const link = this._handleMapPart(part, state, ctx);
-				if (link) {
-					mapLinks.push(link);
+				const result = await this._handleMapPart(part, state, ctx);
+				if (result?.imageUrl) {
+					chartUrls.push(result.imageUrl);
+				} else if (result?.link) {
+					mapLinks.push(result.link);
 				}
 			}
 		}
@@ -522,11 +529,11 @@ class WhatsappService {
 		return { finalText, chartUrls, mapLinks };
 	}
 
-	private _handleMapPart(
+	private async _handleMapPart(
 		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
 		state: StreamState,
 		ctx: ConversationContext,
-	): string | null {
+	): Promise<{ imageUrl?: string; link?: string } | null> {
 		if (
 			part.state !== 'output-available' ||
 			!part.output.success ||
@@ -535,8 +542,22 @@ class WhatsappService {
 			return null;
 		}
 		state.renderedToolCallIds.add(part.toolCallId);
+
+		const png = await renderMapImage(part, state, this._projectId, { toolCallId: part.toolCallId });
+		if (png) {
+			try {
+				const mapId = await chartImageQueries.saveChart(part.toolCallId, png.toString('base64'));
+				return { imageUrl: new URL(`c/${ctx.chatId}/${mapId}.png`, this._redirectUrl).toString() };
+			} catch (error) {
+				logger.error(`Map image rendering failed: ${String(error)}`, {
+					source: 'system',
+					context: { chatId: ctx.chatId, toolCallId: part.toolCallId },
+				});
+			}
+		}
+
 		const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
-		return createWhatsappMapLink(part.input.title, chatUrl);
+		return { link: createWhatsappMapLink(part.input.title, chatUrl) };
 	}
 
 	private async _handleChartPart(

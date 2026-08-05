@@ -1,4 +1,4 @@
-import { formatChartValue, formatCompactNumber, formatPercentShare, sumPercentStackBase } from '@nao/shared';
+import { CHART_NUMBER_LOCALE, formatChartValue, formatPercentShare, sumPercentStackBase } from '@nao/shared';
 import * as React from 'react';
 import * as RechartsPrimitive from 'recharts';
 import type { Payload } from 'recharts/types/component/DefaultLegendContent';
@@ -115,7 +115,7 @@ function ChartTooltipContent({
 	nameKey,
 	labelKey,
 	percent = false,
-	valueFormatter = formatCompactNumber,
+	valueFormatter,
 	isDualAxis = false,
 	hideTotal = false,
 }: React.ComponentProps<typeof RechartsPrimitive.Tooltip> &
@@ -177,7 +177,6 @@ function ChartTooltipContent({
 	);
 	// In 100% stacked mode every category totals 100%, so ignore already-aggregated total series.
 	const showTotal = !isDualAxis && numericValues.length > 1 && (percent || (!hasTotalSeries && !hideTotal));
-	const formatValue = (value: number) => (percent ? formatPercentShare(value, shareBase) : valueFormatter(value));
 	const firstItem = visiblePayload[0];
 	const firstItemKey = `${nameKey || firstItem?.name || firstItem?.dataKey || 'value'}`;
 	const firstItemFormat = getPayloadConfigFromPayload(config, firstItem, firstItemKey)?.valueFormat;
@@ -249,10 +248,12 @@ function ChartTooltipContent({
 												{typeof item.value === 'number'
 													? percent
 														? formatPercentShare(item.value, shareBase)
-														: formatChartValue(item.value, itemConfig?.valueFormat, {
-																compact: true,
-															})
-													: item.value.toLocaleString()}
+														: valueFormatter
+															? valueFormatter(item.value)
+															: formatChartValue(item.value, itemConfig?.valueFormat, {
+																	compact: true,
+																})
+													: item.value.toLocaleString(CHART_NUMBER_LOCALE)}
 											</span>
 										)}
 									</div>
@@ -266,7 +267,11 @@ function ChartTooltipContent({
 						<div className='flex flex-1 justify-between leading-none gap-2 items-center'>
 							<span className='text-muted-foreground font-medium'>Total</span>
 							<span className='text-foreground font-mono font-medium tabular-nums'>
-								{percent ? '100%' : formatChartValue(seriesTotal, firstItemFormat, { compact: true })}
+								{percent
+									? '100%'
+									: valueFormatter
+										? valueFormatter(seriesTotal)
+										: formatChartValue(seriesTotal, firstItemFormat, { compact: true })}
 							</span>
 						</div>
 					</div>

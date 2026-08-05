@@ -16,16 +16,21 @@ import { db, type DBExecutor } from '../db/db';
 import * as chatQueries from '../queries/chat.queries';
 import * as crQueries from '../queries/context-recommendation.queries';
 import * as projectQueries from '../queries/project.queries';
-import { DEFAULT_MAX_AUTO_PRS_PER_RUN } from '../types/context-recommendation';
+import { DEFAULT_MAX_AUTO_PRS_PER_RUN, RecommendationInsight } from '../types/context-recommendation';
 import { logger } from '../utils/logger';
 import { extractConfiguredRepos } from '../utils/nao-config';
 import { agentService } from './agent';
 import { autoCreateRecommendationPullRequests, resolveRecommendationRepo } from './context-pr.service';
+import { ensureFeedbackCoverage, normalizeFeedbackLinks } from './context-recommendations.feedback-coverage';
 import {
+	collectTriggerChatIds,
+	collectTriggerTargetIds,
 	ExistingRecommendation,
 	fingerprintFor,
+	ProposedFinding,
 	reconcile,
 	ReconcileAction,
+	repairTriggerRefs,
 } from './context-recommendations.reconcile';
 
 const DEFAULT_LOOKBACK_DAYS = 90;
@@ -119,20 +124,28 @@ export async function runContextRecommendations(
 			void message; // drain; the agent persists its own messages, tools mutate the collector by reference
 		}
 
+		const recorded = await repairRecommendationTriggerRefs(projectId, collector.recorded);
+
 		const actions = reconcile({
 			existing: existing.map(toExistingRec),
-			recorded: collector.recorded,
+			recorded,
 			resolvedFingerprints: collector.resolvedFingerprints,
 			dismissedFingerprints,
 			totals,
 			impactFloor: IMPACT_FLOOR,
-			now,
 		});
 
 		const tokens = await crQueries.getChatTokenTotals(chat.id);
 		await db.transaction(async (tx) => {
 			await applyActions({ projectId, runId: run.id, model, actions, existing, fixCollector }, tx);
 		});
+
+		await ensureFeedbackCoverage(projectId, run.id, model, {
+			existing: existing.map(toExistingRec),
+			dismissedFingerprints,
+		});
+
+		await normalizeFeedbackLinks(projectId);
 
 		// YOLO mode: open PRs for the top recommendations before the run is marked
 		// completed, so the UI refresh at completion already shows them as applied.
@@ -152,6 +165,22 @@ export async function runContextRecommendations(
 		await crQueries.failRun(run.id, message);
 		throw err;
 	}
+}
+
+export async function repairRecommendationTriggerRefs<T extends { insights: RecommendationInsight[] }>(
+	projectId: string,
+	items: T[],
+): Promise<T[]> {
+	const targetIds = collectTriggerTargetIds(items);
+	const chatIds = collectTriggerChatIds(items);
+	if (targetIds.length === 0 && chatIds.length === 0) {
+		return items;
+	}
+	const [resolvedByTarget, validChatIds] = await Promise.all([
+		crQueries.resolveTriggerTargetChatIds(projectId, targetIds),
+		crQueries.filterExistingProjectChatIds(projectId, chatIds),
+	]);
+	return repairTriggerRefs(items, resolvedByTarget, validChatIds);
 }
 
 function resolveConfiguredModel(config: DBContextRecommendationConfig | null): LlmSelectedModel | undefined {
@@ -180,18 +209,14 @@ async function resolvePeriodStart(projectId: string, end: Date): Promise<Date> {
 	return new Date(end.getTime() - DEFAULT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
 }
 
-/** Pulls the agent-proposed fix for a finding, if any, into a persistable patch. */
+/** Resolves the fix persisted with a proposed finding. */
 function resolveFix(
 	collector: ContextFixCollector | null,
-	suggestedFile: string,
-	subjectKey: string,
+	finding: ProposedFinding,
 ): Partial<NewContextRecommendation> {
-	if (!collector) {
-		return {};
-	}
-	const fix = collector.getFix(fingerprintFor(suggestedFile, subjectKey));
+	const fix = collector?.getFix(fingerprintFor(finding.suggestedFile, finding.subjectKey));
 	if (!fix) {
-		return {};
+		return manualFixFallback(finding);
 	}
 	return {
 		fixKind: fix.fixKind,
@@ -201,12 +226,26 @@ function resolveFix(
 	};
 }
 
+/** Turns a finding's diagnosis into a ready-to-apply manual fix when the agent left no concrete one. */
+function manualFixFallback(finding: ProposedFinding): Partial<NewContextRecommendation> {
+	const guidance = finding.rootCause
+		? `${finding.suggestedAction}\n\nWhy: ${finding.rootCause}`
+		: finding.suggestedAction;
+	const prompt = [
+		`Update the nao project context file \`${finding.suggestedFile}\` to fix the following issue.`,
+		'',
+		`Problem: ${finding.rootCause || finding.summary}`,
+		'',
+		`Required change: ${finding.suggestedAction}`,
+	].join('\n');
+	return { fixKind: 'manual', proposedEdits: null, fixGuidance: guidance, fixPrompt: prompt };
+}
+
 function toExistingRec(r: DBContextRecommendation): ExistingRecommendation {
 	return {
 		id: r.id,
 		fingerprint: r.fingerprint,
 		status: r.status,
-		snoozedUntil: r.snoozedUntil,
 		occurrenceCount: r.occurrenceCount,
 	};
 }
@@ -225,7 +264,7 @@ async function applyActions(
 	const byId = new Map(args.existing.map((r) => [r.id, r]));
 	for (const action of args.actions) {
 		if (action.kind === 'insert') {
-			await crQueries.insertRecommendation(
+			const rec = await crQueries.insertRecommendation(
 				{
 					projectId: args.projectId,
 					fingerprint: action.fingerprint,
@@ -235,6 +274,7 @@ async function applyActions(
 				},
 				executor,
 			);
+			await crQueries.linkFeedbackToRecommendation(args.projectId, rec.id, action.feedbackMessageIds, executor);
 		} else if (action.kind === 'update') {
 			const prev = byId.get(action.id);
 			const patch: Partial<NewContextRecommendation> = {
@@ -245,6 +285,12 @@ async function applyActions(
 				patch.status = 'open';
 			}
 			await crQueries.updateRecommendation(action.id, patch, executor);
+			await crQueries.linkFeedbackToRecommendation(
+				args.projectId,
+				action.id,
+				action.feedbackMessageIds,
+				executor,
+			);
 		} else if (action.kind === 'resolve') {
 			await crQueries.updateRecommendation(
 				action.id,
@@ -262,14 +308,17 @@ function upsertFields(
 ) {
 	return {
 		runId: args.runId,
-		severity: action.finding.severity,
+		category: action.finding.category,
+		rootCause: action.finding.rootCause,
+		rootCauseKind: action.finding.rootCauseKind ?? null,
+		fixTarget: action.finding.fixTarget ?? null,
 		impactScore: action.impactScore,
 		impact: action.impact,
 		insights: action.finding.insights,
 		title: action.finding.title,
 		summary: action.finding.summary,
 		suggestedAction: action.finding.suggestedAction,
-		...resolveFix(args.fixCollector, action.finding.suggestedFile, action.finding.subjectKey),
+		...resolveFix(args.fixCollector, action.finding),
 		llmProvider: args.model.provider,
 		llmModelId: args.model.modelId,
 	};

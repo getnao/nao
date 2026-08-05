@@ -1,3 +1,4 @@
+import type { CustomBoundarySet } from '@nao/shared';
 import { DATE_FORMAT_PRESETS } from '@nao/shared/date';
 import {
 	type LlmProvider,
@@ -11,6 +12,7 @@ import { getProviderAuth, KNOWN_MODELS } from '../agents/providers';
 import { getDatabaseObjects } from '../agents/user-rules';
 import { env } from '../env';
 import * as chatQueries from '../queries/chat.queries';
+import * as crQueries from '../queries/context-recommendation.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import * as savedPromptQueries from '../queries/project-saved-prompt.queries';
@@ -41,6 +43,7 @@ import {
 } from '../utils/llm';
 import { extractRequiredEnvVars } from '../utils/nao-config';
 import { findConfigLlmProvider } from '../utils/nao-config-llm';
+import { parseAndValidateGeoJson, safeFetch } from '../utils/safe-fetch';
 import { buildCredentialPreviews, previewApiKey } from '../utils/utils';
 import {
 	adminProtectedProcedure,
@@ -53,6 +56,18 @@ import {
 const isoDateString = z.string().refine(isValidIsoDateString, {
 	message: 'Must be a valid YYYY-MM-DD date',
 });
+
+async function validateBoundarySource(url: string): Promise<number> {
+	try {
+		const text = await safeFetch(url);
+		return parseAndValidateGeoJson(text).featureCount;
+	} catch (error) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: `Could not load boundaries from URL: ${error instanceof Error ? error.message : String(error)}`,
+		});
+	}
+}
 
 export const projectRoutes = {
 	listForCurrentUser: protectedProcedure.query(async ({ ctx }) => {
@@ -784,9 +799,9 @@ export const projectRoutes = {
 					.object({
 						pythonSandboxing: z.boolean().optional(),
 						sandboxes: z.boolean().optional(),
-						displayMap: z.boolean().optional(),
 					})
 					.optional(),
+				mapEnabled: z.boolean().optional(),
 				transcribe: z
 					.object({
 						enabled: z.boolean().optional(),
@@ -818,6 +833,7 @@ export const projectRoutes = {
 			const existing = (await projectQueries.getAgentSettings(ctx.project.id)) ?? {};
 			const merged: AgentSettings = {
 				memoryEnabled: input.memoryEnabled ?? existing.memoryEnabled,
+				mapEnabled: input.mapEnabled ?? existing.mapEnabled,
 				experimental: { ...existing.experimental, ...input.experimental },
 				transcribe: { ...existing.transcribe, ...input.transcribe },
 				sql: { ...existing.sql, ...input.sql },
@@ -832,7 +848,7 @@ export const projectRoutes = {
 				sql_dangerously_write_perm_enabled: merged.sql?.dangerouslyWritePermEnabled,
 				python_execution_max_duration_secs: merged.pythonExecution?.maxDurationSecs,
 				python_sandboxing_enabled: merged.experimental?.pythonSandboxing,
-				display_map_enabled: merged.experimental?.displayMap,
+				map_enabled: merged.mapEnabled,
 				memory_enabled: merged.memoryEnabled,
 				web_search_enabled: merged.webSearch?.enabled,
 				web_search_mode: merged.webSearch?.mode,
@@ -916,11 +932,29 @@ export const projectRoutes = {
 			}
 
 			const ownerName = ownerId ? await userQueries.getUserName(ownerId) : null;
+
+			const downvotedMessageIds = (chat.messages ?? [])
+				.filter((m) => m.feedback?.vote === 'down')
+				.map((m) => m.id);
+			const recLinks = await crQueries.getRecommendationLinksForMessages(ctx.project.id, downvotedMessageIds);
+			const feedbackRecommendations: Record<
+				string,
+				{ id: string; title: string; status: (typeof recLinks)[number]['status'] }
+			> = {};
+			for (const link of recLinks) {
+				feedbackRecommendations[link.messageId] ??= {
+					id: link.recommendationId,
+					title: link.title,
+					status: link.status,
+				};
+			}
+
 			return {
 				...chat,
 				ownerId: ownerId ?? null,
 				ownerName,
 				chatOwnerId: ownerId ?? null,
+				feedbackRecommendations,
 			};
 		}),
 
@@ -937,5 +971,90 @@ export const projectRoutes = {
 		.input(z.object({ envVars: z.record(z.string(), z.string()) }))
 		.mutation(async ({ ctx, input }) => {
 			await projectQueries.updateEnvVars(ctx.project.id, input.envVars);
+		}),
+
+	getMapBoundaries: projectProtectedProcedure.query(async ({ ctx }) => {
+		return projectQueries.getCustomBoundaries(ctx.project.id);
+	}),
+
+	validateMapBoundaryUrl: adminProtectedProcedure
+		.input(z.object({ url: z.url() }))
+		.mutation(async ({ ctx: _ctx, input }) => {
+			const text = await safeFetch(input.url);
+			const { geojson, propertyKeys, featureCount } = parseAndValidateGeoJson(text);
+			return { propertyKeys, featureCount, geojson };
+		}),
+
+	addMapBoundary: adminProtectedProcedure
+		.input(
+			z.object({
+				key: z
+					.string()
+					.trim()
+					.min(1)
+					.max(64)
+					.regex(/^[a-z0-9_]+$/, 'Key must be lowercase letters, digits, or underscores only.'),
+				label: z.string().trim().min(1).max(255),
+				url: z.url(),
+				joinProperty: z.string().trim().min(1).max(255),
+				regionKeyHint: z.string().trim().min(1).max(500),
+				featureCount: z.number().int().nonnegative().optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			const featureCount = await validateBoundarySource(input.url);
+			return projectQueries.addCustomBoundary(ctx.project.id, {
+				key: input.key,
+				label: input.label,
+				url: input.url,
+				joinProperty: input.joinProperty,
+				regionKeyHint: input.regionKeyHint,
+				featureCount,
+			});
+		}),
+
+	updateMapBoundary: adminProtectedProcedure
+		.input(
+			z.object({
+				key: z.string().trim().min(1),
+				newKey: z
+					.string()
+					.trim()
+					.min(1)
+					.max(64)
+					.regex(/^[a-z0-9_]+$/)
+					.optional(),
+				label: z.string().trim().min(1).max(255).optional(),
+				url: z.url().optional(),
+				joinProperty: z.string().trim().min(1).max(255).optional(),
+				regionKeyHint: z.string().trim().min(1).max(500).optional(),
+				featureCount: z.number().int().nonnegative().optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			const patch: Partial<CustomBoundarySet> = {};
+			if (input.newKey) {
+				patch.key = input.newKey;
+			}
+			if (input.label !== undefined) {
+				patch.label = input.label;
+			}
+			if (input.joinProperty !== undefined) {
+				patch.joinProperty = input.joinProperty;
+			}
+			if (input.regionKeyHint !== undefined) {
+				patch.regionKeyHint = input.regionKeyHint;
+			}
+			if (input.url !== undefined) {
+				patch.url = input.url;
+				patch.featureCount = await validateBoundarySource(input.url);
+			}
+			return projectQueries.updateCustomBoundary(ctx.project.id, input.key, patch);
+		}),
+
+	deleteMapBoundary: adminProtectedProcedure
+		.input(z.object({ key: z.string().trim().min(1) }))
+		.mutation(async ({ ctx, input }) => {
+			return projectQueries.deleteCustomBoundary(ctx.project.id, input.key);
 		}),
 };

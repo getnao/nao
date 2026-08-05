@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNotNull, lt, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, notInArray, or, sql } from 'drizzle-orm';
 
 import s, {
 	DBContextRecommendation,
@@ -8,7 +8,31 @@ import s, {
 	NewContextRecommendationConfig,
 } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
-import { WindowTotals } from '../types/context-recommendation';
+import { ContextRecommendationStatus, RecommendationInsight, WindowTotals } from '../types/context-recommendation';
+
+export interface FeedbackLink {
+	recommendationId: string;
+	messageId: string;
+	chatId: string;
+	vote: 'up' | 'down';
+	explanation: string | null;
+	userName: string;
+}
+
+export interface UnlinkedFeedback {
+	messageId: string;
+	chatId: string;
+	explanation: string | null;
+	createdAt: Date;
+	userName: string;
+}
+
+export interface MessageRecommendationLink {
+	messageId: string;
+	recommendationId: string;
+	title: string;
+	status: ContextRecommendationStatus;
+}
 
 const CONTEXT_RECOMMENDATION_RUN_STALE_MS = 10 * 60 * 1_000;
 const CONTEXT_RECOMMENDATION_RUN_STALE_MESSAGE = 'Context recommendations run did not finish before the timeout.';
@@ -19,7 +43,7 @@ const CONTEXT_RECOMMENDATION_RUN_CANCELLED_MESSAGE = 'Cancelled by user.';
  * separately as fingerprints). `applied` rows must be included so a re-recorded
  * fingerprint reopens the row instead of inserting a duplicate.
  */
-const RECONCILABLE_STATUSES = ['open', 'acknowledged', 'snoozed', 'applied'] as const;
+const RECONCILABLE_STATUSES = ['open', 'applied'] as const;
 
 type ContextRecommendationConfigPatch = Partial<
 	Omit<NewContextRecommendationConfig, 'projectId' | 'createdAt' | 'updatedAt'>
@@ -208,6 +232,21 @@ export async function listRecommendations(
 		.execute();
 }
 
+export async function getRecommendationByFingerprint(
+	projectId: string,
+	fingerprint: string,
+): Promise<DBContextRecommendation | null> {
+	const [rec] = await db
+		.select()
+		.from(s.contextRecommendation)
+		.where(
+			and(eq(s.contextRecommendation.projectId, projectId), eq(s.contextRecommendation.fingerprint, fingerprint)),
+		)
+		.limit(1)
+		.execute();
+	return rec ?? null;
+}
+
 export async function getRecommendationById(projectId: string, id: string): Promise<DBContextRecommendation | null> {
 	const [rec] = await db
 		.select()
@@ -255,14 +294,12 @@ export async function setRecommendationStatus(input: {
 	id: string;
 	projectId: string;
 	status: DBContextRecommendation['status'];
-	snoozedUntil?: Date | null;
 	userId: string;
 }): Promise<void> {
 	await db
 		.update(s.contextRecommendation)
 		.set({
 			status: input.status,
-			snoozedUntil: input.snoozedUntil ?? null,
 			statusChangedAt: new Date(),
 			statusChangedBy: input.userId,
 		})
@@ -272,6 +309,13 @@ export async function setRecommendationStatus(input: {
 
 /** Total friction signals (errors, downvotes, regenerations) for a project over a window. */
 export async function getWindowTotals(projectId: string, start: Date, end: Date): Promise<WindowTotals> {
+	const analysisChatIds = () =>
+		db
+			.select({ id: s.contextRecommendationRun.chatId })
+			.from(s.contextRecommendationRun)
+			.where(
+				and(eq(s.contextRecommendationRun.projectId, projectId), isNotNull(s.contextRecommendationRun.chatId)),
+			);
 	const [[errors], [downvotes], [regenerations]] = await Promise.all([
 		db
 			.select({ n: sql<number>`count(*)` })
@@ -281,6 +325,7 @@ export async function getWindowTotals(projectId: string, start: Date, end: Date)
 			.where(
 				and(
 					eq(s.chat.projectId, projectId),
+					notInArray(s.chat.id, analysisChatIds()),
 					eq(s.messagePart.toolState, 'output-error'),
 					gte(s.messagePart.createdAt, start),
 					lt(s.messagePart.createdAt, end),
@@ -295,6 +340,7 @@ export async function getWindowTotals(projectId: string, start: Date, end: Date)
 			.where(
 				and(
 					eq(s.chat.projectId, projectId),
+					notInArray(s.chat.id, analysisChatIds()),
 					eq(s.messageFeedback.vote, 'down'),
 					gte(s.messageFeedback.createdAt, start),
 					lt(s.messageFeedback.createdAt, end),
@@ -308,6 +354,7 @@ export async function getWindowTotals(projectId: string, start: Date, end: Date)
 			.where(
 				and(
 					eq(s.chat.projectId, projectId),
+					notInArray(s.chat.id, analysisChatIds()),
 					isNotNull(s.chatMessage.supersededAt),
 					gte(s.chatMessage.createdAt, start),
 					lt(s.chatMessage.createdAt, end),
@@ -337,6 +384,92 @@ export async function getFirstProjectAdminUserId(projectId: string): Promise<str
 	return admin.userId;
 }
 
+/** Returns title, owner id and owner name for a list of chat IDs, scoped to the project. */
+export async function getRecommendationChatMetadata(
+	projectId: string,
+	chatIds: string[],
+): Promise<{ chatId: string; title: string; userId: string; userName: string }[]> {
+	if (chatIds.length === 0) {
+		return [];
+	}
+	const rows = await db
+		.select({
+			chatId: s.chat.id,
+			title: s.chat.title,
+			userId: s.chat.userId,
+			userName: s.user.name,
+		})
+		.from(s.chat)
+		.leftJoin(s.user, eq(s.user.id, s.chat.userId))
+		.where(and(eq(s.chat.projectId, projectId), inArray(s.chat.id, chatIds)))
+		.execute();
+	return rows.map((row) => ({
+		chatId: row.chatId,
+		title: row.title,
+		userId: row.userId,
+		userName: row.userName ?? '',
+	}));
+}
+
+/**
+ * Resolves the canonical chatId for a set of trigger targets (message ids or tool
+ * call ids), scoped to the project. Recommendation runs record trigger refs from LLM
+ * output, which occasionally transcribes a chatId incorrectly; a targetId that maps to
+ * a real message is the reliable source of truth for which chat a finding belongs to.
+ */
+export async function resolveTriggerTargetChatIds(
+	projectId: string,
+	targetIds: string[],
+): Promise<Map<string, string>> {
+	if (targetIds.length === 0) {
+		return new Map();
+	}
+	const [byMessageId, byToolCallId] = await Promise.all([
+		db
+			.select({ targetId: s.chatMessage.id, chatId: s.chatMessage.chatId })
+			.from(s.chatMessage)
+			.innerJoin(s.chat, eq(s.chat.id, s.chatMessage.chatId))
+			.where(and(eq(s.chat.projectId, projectId), isNull(s.chat.deletedAt), inArray(s.chatMessage.id, targetIds)))
+			.execute(),
+		db
+			.select({ targetId: s.messagePart.toolCallId, chatId: s.chatMessage.chatId })
+			.from(s.messagePart)
+			.innerJoin(s.chatMessage, eq(s.chatMessage.id, s.messagePart.messageId))
+			.innerJoin(s.chat, eq(s.chat.id, s.chatMessage.chatId))
+			.where(
+				and(
+					eq(s.chat.projectId, projectId),
+					isNull(s.chat.deletedAt),
+					inArray(s.messagePart.toolCallId, targetIds),
+				),
+			)
+			.execute(),
+	]);
+	const resolved = new Map<string, string>();
+	for (const row of byMessageId) {
+		resolved.set(row.targetId, row.chatId);
+	}
+	for (const row of byToolCallId) {
+		if (row.targetId) {
+			resolved.set(row.targetId, row.chatId);
+		}
+	}
+	return resolved;
+}
+
+/** Returns the subset of the given chatIds that exist in the project. */
+export async function filterExistingProjectChatIds(projectId: string, chatIds: string[]): Promise<Set<string>> {
+	if (chatIds.length === 0) {
+		return new Set();
+	}
+	const rows = await db
+		.select({ id: s.chat.id })
+		.from(s.chat)
+		.where(and(eq(s.chat.projectId, projectId), isNull(s.chat.deletedAt), inArray(s.chat.id, chatIds)))
+		.execute();
+	return new Set(rows.map((row) => row.id));
+}
+
 /** Sum of token usage across every message of a run's chat. */
 export async function getChatTokenTotals(
 	chatId: string,
@@ -355,4 +488,183 @@ export async function getChatTokenTotals(
 		outputTotalTokens: Number(row?.outputTotalTokens ?? 0),
 		totalTokens: Number(row?.totalTokens ?? 0),
 	};
+}
+
+export async function linkFeedbackToRecommendation(
+	projectId: string,
+	recommendationId: string,
+	messageIds: string[],
+	executor: DBExecutor = db,
+): Promise<void> {
+	const scopedMessageIds = await filterProjectMessageIds(projectId, messageIds, executor);
+	if (scopedMessageIds.length === 0) {
+		return;
+	}
+	const [recommendation] = await executor
+		.select({ id: s.contextRecommendation.id })
+		.from(s.contextRecommendation)
+		.where(and(eq(s.contextRecommendation.id, recommendationId), eq(s.contextRecommendation.projectId, projectId)))
+		.execute();
+	if (!recommendation) {
+		return;
+	}
+	await executor
+		.insert(s.contextRecommendationLinkedFeedback)
+		.values(scopedMessageIds.map((messageId) => ({ recommendationId, messageId })))
+		.onConflictDoNothing()
+		.execute();
+}
+
+export async function filterProjectMessageIds(
+	projectId: string,
+	messageIds: string[],
+	executor: DBExecutor = db,
+): Promise<string[]> {
+	if (messageIds.length === 0) {
+		return [];
+	}
+	const rows = await executor
+		.select({ id: s.chatMessage.id })
+		.from(s.chatMessage)
+		.innerJoin(s.chat, eq(s.chat.id, s.chatMessage.chatId))
+		.where(and(eq(s.chat.projectId, projectId), isNull(s.chat.deletedAt), inArray(s.chatMessage.id, messageIds)))
+		.execute();
+	return rows.map((row) => row.id);
+}
+
+export interface FeedbackOwnershipRow {
+	messageId: string;
+	recommendationId: string;
+	status: ContextRecommendationStatus;
+	impactScore: number;
+	createdAt: Date;
+	insights: RecommendationInsight[];
+}
+
+export async function listAllFeedbackLinks(projectId: string): Promise<FeedbackOwnershipRow[]> {
+	return db
+		.select({
+			messageId: s.contextRecommendationLinkedFeedback.messageId,
+			recommendationId: s.contextRecommendationLinkedFeedback.recommendationId,
+			status: s.contextRecommendation.status,
+			impactScore: s.contextRecommendation.impactScore,
+			createdAt: s.contextRecommendation.createdAt,
+			insights: s.contextRecommendation.insights,
+		})
+		.from(s.contextRecommendationLinkedFeedback)
+		.innerJoin(
+			s.contextRecommendation,
+			eq(s.contextRecommendation.id, s.contextRecommendationLinkedFeedback.recommendationId),
+		)
+		.where(eq(s.contextRecommendation.projectId, projectId))
+		.execute();
+}
+
+export async function deleteFeedbackLinks(
+	links: { recommendationId: string; messageId: string }[],
+	executor: DBExecutor = db,
+): Promise<void> {
+	if (links.length === 0) {
+		return;
+	}
+	await executor
+		.delete(s.contextRecommendationLinkedFeedback)
+		.where(
+			or(
+				...links.map((link) =>
+					and(
+						eq(s.contextRecommendationLinkedFeedback.recommendationId, link.recommendationId),
+						eq(s.contextRecommendationLinkedFeedback.messageId, link.messageId),
+					),
+				),
+			),
+		)
+		.execute();
+}
+
+export async function getUnlinkedNegativeFeedbacks(projectId: string): Promise<UnlinkedFeedback[]> {
+	const rows = await db
+		.select({
+			messageId: s.messageFeedback.messageId,
+			chatId: s.chatMessage.chatId,
+			explanation: s.messageFeedback.explanation,
+			createdAt: s.messageFeedback.createdAt,
+			userName: s.user.name,
+		})
+		.from(s.messageFeedback)
+		.innerJoin(s.chatMessage, eq(s.chatMessage.id, s.messageFeedback.messageId))
+		.innerJoin(s.chat, eq(s.chat.id, s.chatMessage.chatId))
+		.innerJoin(s.user, eq(s.user.id, s.chat.userId))
+		.leftJoin(
+			s.contextRecommendationLinkedFeedback,
+			eq(s.contextRecommendationLinkedFeedback.messageId, s.messageFeedback.messageId),
+		)
+		.where(
+			and(
+				eq(s.chat.projectId, projectId),
+				isNull(s.chat.deletedAt),
+				eq(s.messageFeedback.vote, 'down'),
+				isNull(s.contextRecommendationLinkedFeedback.messageId),
+			),
+		)
+		.execute();
+	return rows;
+}
+
+export async function listFeedbacksForRecommendations(projectId: string, recIds: string[]): Promise<FeedbackLink[]> {
+	if (recIds.length === 0) {
+		return [];
+	}
+	const rows = await db
+		.select({
+			recommendationId: s.contextRecommendationLinkedFeedback.recommendationId,
+			messageId: s.contextRecommendationLinkedFeedback.messageId,
+			chatId: s.chatMessage.chatId,
+			vote: s.messageFeedback.vote,
+			explanation: s.messageFeedback.explanation,
+			userName: s.user.name,
+		})
+		.from(s.contextRecommendationLinkedFeedback)
+		.innerJoin(s.messageFeedback, eq(s.messageFeedback.messageId, s.contextRecommendationLinkedFeedback.messageId))
+		.innerJoin(s.chatMessage, eq(s.chatMessage.id, s.contextRecommendationLinkedFeedback.messageId))
+		.innerJoin(s.chat, eq(s.chat.id, s.chatMessage.chatId))
+		.innerJoin(s.user, eq(s.user.id, s.chat.userId))
+		.where(
+			and(
+				eq(s.chat.projectId, projectId),
+				inArray(s.contextRecommendationLinkedFeedback.recommendationId, recIds),
+			),
+		)
+		.execute();
+	return rows;
+}
+
+export async function getRecommendationLinksForMessages(
+	projectId: string,
+	messageIds: string[],
+): Promise<MessageRecommendationLink[]> {
+	if (messageIds.length === 0) {
+		return [];
+	}
+	const rows = await db
+		.select({
+			messageId: s.contextRecommendationLinkedFeedback.messageId,
+			recommendationId: s.contextRecommendation.id,
+			title: s.contextRecommendation.title,
+			status: s.contextRecommendation.status,
+		})
+		.from(s.contextRecommendationLinkedFeedback)
+		.innerJoin(
+			s.contextRecommendation,
+			eq(s.contextRecommendation.id, s.contextRecommendationLinkedFeedback.recommendationId),
+		)
+		.where(
+			and(
+				eq(s.contextRecommendation.projectId, projectId),
+				inArray(s.contextRecommendationLinkedFeedback.messageId, messageIds),
+			),
+		)
+		.orderBy(desc(s.contextRecommendation.createdAt), asc(s.contextRecommendation.id))
+		.execute();
+	return rows;
 }

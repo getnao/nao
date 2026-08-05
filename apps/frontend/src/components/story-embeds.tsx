@@ -2,10 +2,12 @@ import { Loader2 } from 'lucide-react';
 import { memo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { displayChart } from '@nao/shared/tools';
-import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
+import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
 import { StoryChartEmbedShell } from '@/components/side-panel/story-chart-embed';
+import { StoryMapEmbedShell } from '@/components/side-panel/story-map-embed';
 import { StoryTableEditControls } from '@/components/side-panel/story-table-embed';
+import { StoryMapRender } from '@/components/story-map-embed';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
 import { DataTableCard } from '@/components/data-table-card';
 import { cn } from '@/lib/utils';
@@ -126,6 +128,54 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 				/>
 			</EmbedRefreshing>
 		</StoryChartEmbedShell>
+	);
+});
+
+export const StoryMapEmbed = memo(function StoryMapEmbed({
+	map,
+	queryData,
+	liveQuery,
+	hasActiveFilters = false,
+	isRefreshing = false,
+	allowExpand,
+}: {
+	map: ParsedMapBlock;
+	queryData?: QueryDataMap | null;
+	liveQuery?: LiveQueryConfig;
+	hasActiveFilters?: boolean;
+	isRefreshing?: boolean;
+	allowExpand?: boolean;
+}) {
+	const noCacheFetch = useLiveQueryData(map.queryId, liveQuery);
+
+	const resolved = liveQuery
+		? (noCacheFetch.data as { data: Record<string, unknown>[]; columns: string[] } | undefined)
+		: queryData?.[map.queryId];
+	const displayData = resolved?.data ?? [];
+	const showRefreshing = isRefreshing || Boolean(liveQuery && noCacheFetch.isFetching);
+
+	if (liveQuery && noCacheFetch.isLoading) {
+		return <EmbedLoading />;
+	}
+
+	if (!resolved) {
+		return <EmbedPlaceholder>Map data unavailable</EmbedPlaceholder>;
+	}
+
+	if (displayData.length === 0) {
+		return (
+			<EmbedPlaceholder>
+				{hasActiveFilters ? 'No results match the selected filters' : 'No data to display'}
+			</EmbedPlaceholder>
+		);
+	}
+
+	return (
+		<StoryMapEmbedShell map={map} allowExpand={allowExpand}>
+			<EmbedRefreshing isRefreshing={showRefreshing}>
+				<StoryMapRender map={map} data={displayData} />
+			</EmbedRefreshing>
+		</StoryMapEmbedShell>
 	);
 });
 

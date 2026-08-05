@@ -1,3 +1,7 @@
+import { niceAxisMax } from './chart-values';
+
+export const DATA_LABEL_HEADROOM_FRACTION = 0.15;
+
 export function niceNumber(range: number, round: boolean): number {
 	if (range <= 0 || !Number.isFinite(range)) {
 		return 1;
@@ -83,6 +87,37 @@ export function resolveYAxisDomain(
 	}
 
 	return [lowerValue, upperValue];
+}
+
+export function resolveBarYAxisDomain(
+	explicitMin: number | undefined,
+	explicitMax: number | undefined,
+	values: number[],
+	showDataLabels: boolean,
+): [number | 'auto', number | 'auto'] | undefined {
+	const domain = resolveYAxisDomain(explicitMin, explicitMax, values, true);
+	if (!barYAxisDomainIsPadded(explicitMax, values, showDataLabels)) {
+		return domain;
+	}
+
+	const dataMax = maxOf(values);
+	const paddedTop = niceAxisMax(dataMax / (1 - DATA_LABEL_HEADROOM_FRACTION));
+	const lower = explicitMin ?? 0;
+	return paddedTop > lower ? [lower, paddedTop] : domain;
+}
+
+export function barYAxisDomainIsPadded(
+	explicitMax: number | undefined,
+	values: number[],
+	showDataLabels: boolean,
+): boolean {
+	return (
+		showDataLabels &&
+		explicitMax === undefined &&
+		values.length > 0 &&
+		values.every((value) => value >= 0) &&
+		maxOf(values) > 0
+	);
 }
 
 function computeNiceDomainFromValues(values: number[]): [number, number] {

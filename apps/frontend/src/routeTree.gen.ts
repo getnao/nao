@@ -23,6 +23,7 @@ import { Route as SidebarLayoutSettingsIndexRouteImport } from './routes/_sideba
 import { Route as SidebarLayoutFeedIndexRouteImport } from './routes/_sidebar-layout.feed.index'
 import { Route as SidebarLayoutChatLayoutIndexRouteImport } from './routes/_sidebar-layout._chat-layout.index'
 import { Route as EmbedStoryStoryIdRouteImport } from './routes/embed.story.$storyId'
+import { Route as EmbedMapMapEmbedIdRouteImport } from './routes/embed.map.$mapEmbedId'
 import { Route as EmbedChartChartEmbedIdRouteImport } from './routes/embed.chart.$chartEmbedId'
 import { Route as SidebarLayoutSharedChatShareIdRouteImport } from './routes/_sidebar-layout.shared-chat.$shareId'
 import { Route as SidebarLayoutSettingsWhiteLabelRouteImport } from './routes/_sidebar-layout.settings.white-label'
@@ -124,6 +125,11 @@ const SidebarLayoutChatLayoutIndexRoute =
 const EmbedStoryStoryIdRoute = EmbedStoryStoryIdRouteImport.update({
   id: '/story/$storyId',
   path: '/story/$storyId',
+  getParentRoute: () => EmbedRoute,
+} as any)
+const EmbedMapMapEmbedIdRoute = EmbedMapMapEmbedIdRouteImport.update({
+  id: '/map/$mapEmbedId',
+  path: '/map/$mapEmbedId',
   getParentRoute: () => EmbedRoute,
 } as any)
 const EmbedChartChartEmbedIdRoute = EmbedChartChartEmbedIdRouteImport.update({
@@ -337,6 +343,7 @@ export interface FileRoutesByFullPath {
   '/settings/white-label': typeof SidebarLayoutSettingsWhiteLabelRoute
   '/shared-chat/$shareId': typeof SidebarLayoutSharedChatShareIdRoute
   '/embed/chart/$chartEmbedId': typeof EmbedChartChartEmbedIdRoute
+  '/embed/map/$mapEmbedId': typeof EmbedMapMapEmbedIdRoute
   '/embed/story/$storyId': typeof EmbedStoryStoryIdRoute
   '/feed/': typeof SidebarLayoutFeedIndexRoute
   '/settings/': typeof SidebarLayoutSettingsIndexRoute
@@ -380,6 +387,7 @@ export interface FileRoutesByTo {
   '/settings/white-label': typeof SidebarLayoutSettingsWhiteLabelRoute
   '/shared-chat/$shareId': typeof SidebarLayoutSharedChatShareIdRoute
   '/embed/chart/$chartEmbedId': typeof EmbedChartChartEmbedIdRoute
+  '/embed/map/$mapEmbedId': typeof EmbedMapMapEmbedIdRoute
   '/embed/story/$storyId': typeof EmbedStoryStoryIdRoute
   '/feed': typeof SidebarLayoutFeedIndexRoute
   '/settings': typeof SidebarLayoutSettingsIndexRoute
@@ -427,6 +435,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/white-label': typeof SidebarLayoutSettingsWhiteLabelRoute
   '/_sidebar-layout/shared-chat/$shareId': typeof SidebarLayoutSharedChatShareIdRoute
   '/embed/chart/$chartEmbedId': typeof EmbedChartChartEmbedIdRoute
+  '/embed/map/$mapEmbedId': typeof EmbedMapMapEmbedIdRoute
   '/embed/story/$storyId': typeof EmbedStoryStoryIdRoute
   '/_sidebar-layout/_chat-layout/': typeof SidebarLayoutChatLayoutIndexRoute
   '/_sidebar-layout/feed/': typeof SidebarLayoutFeedIndexRoute
@@ -475,6 +484,7 @@ export interface FileRouteTypes {
     | '/settings/white-label'
     | '/shared-chat/$shareId'
     | '/embed/chart/$chartEmbedId'
+    | '/embed/map/$mapEmbedId'
     | '/embed/story/$storyId'
     | '/feed/'
     | '/settings/'
@@ -518,6 +528,7 @@ export interface FileRouteTypes {
     | '/settings/white-label'
     | '/shared-chat/$shareId'
     | '/embed/chart/$chartEmbedId'
+    | '/embed/map/$mapEmbedId'
     | '/embed/story/$storyId'
     | '/feed'
     | '/settings'
@@ -564,6 +575,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/white-label'
     | '/_sidebar-layout/shared-chat/$shareId'
     | '/embed/chart/$chartEmbedId'
+    | '/embed/map/$mapEmbedId'
     | '/embed/story/$storyId'
     | '/_sidebar-layout/_chat-layout/'
     | '/_sidebar-layout/feed/'
@@ -694,6 +706,13 @@ declare module '@tanstack/react-router' {
       path: '/story/$storyId'
       fullPath: '/embed/story/$storyId'
       preLoaderRoute: typeof EmbedStoryStoryIdRouteImport
+      parentRoute: typeof EmbedRoute
+    }
+    '/embed/map/$mapEmbedId': {
+      id: '/embed/map/$mapEmbedId'
+      path: '/map/$mapEmbedId'
+      fullPath: '/embed/map/$mapEmbedId'
+      preLoaderRoute: typeof EmbedMapMapEmbedIdRouteImport
       parentRoute: typeof EmbedRoute
     }
     '/embed/chart/$chartEmbedId': {
@@ -1067,11 +1086,13 @@ const SidebarLayoutRouteWithChildren = SidebarLayoutRoute._addFileChildren(
 
 interface EmbedRouteChildren {
   EmbedChartChartEmbedIdRoute: typeof EmbedChartChartEmbedIdRoute
+  EmbedMapMapEmbedIdRoute: typeof EmbedMapMapEmbedIdRoute
   EmbedStoryStoryIdRoute: typeof EmbedStoryStoryIdRoute
 }
 
 const EmbedRouteChildren: EmbedRouteChildren = {
   EmbedChartChartEmbedIdRoute: EmbedChartChartEmbedIdRoute,
+  EmbedMapMapEmbedIdRoute: EmbedMapMapEmbedIdRoute,
   EmbedStoryStoryIdRoute: EmbedStoryStoryIdRoute,
 }
 

@@ -1,9 +1,11 @@
-import { useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft } from 'lucide-react';
 import { formatDate } from 'date-fns';
 import type { ReactNode } from 'react';
+import type { StickToBottomContext } from 'use-stick-to-bottom';
 
+import type { ReplayHighlight } from '@/components/settings/usage-route-search';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { SidePanel } from '@/components/side-panel/side-panel';
 import { SettingsCard } from '@/components/ui/settings-card';
@@ -22,9 +24,11 @@ type ChatsReplayPanelProps = {
 	chatId: string;
 	onBack: () => void;
 	metadataAction?: ReactNode;
+	highlightOnLoad?: ReplayHighlight;
+	targetId?: string;
 };
 
-export function ChatsReplayPanel({ chatId, onBack, metadataAction }: ChatsReplayPanelProps) {
+export function ChatsReplayPanel({ chatId, onBack, metadataAction, highlightOnLoad, targetId }: ChatsReplayPanelProps) {
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const chatReplayQuery = useQuery(
 		trpc.project.getChatReplay.queryOptions(
@@ -36,7 +40,10 @@ export function ChatsReplayPanel({ chatId, onBack, metadataAction }: ChatsReplay
 	);
 
 	const contentReady = !!chatReplayQuery.data;
+	const stickContextRef = useRef<StickToBottomContext | null>(null);
+	const escapeStickLock = useCallback(() => stickContextRef.current?.stopScroll(), []);
 	const {
+		highlightTarget,
 		goToPrevFeedback,
 		goToNextFeedback,
 		goToPrevToolError,
@@ -46,7 +53,49 @@ export function ChatsReplayPanel({ chatId, onBack, metadataAction }: ChatsReplay
 		currentFeedbackVote,
 		toolErrorCurrent,
 		toolErrorTotal,
-	} = useReplayNav(scrollContainerRef, contentReady);
+	} = useReplayNav(scrollContainerRef, contentReady, escapeStickLock);
+
+	const didAutoHighlight = useRef(false);
+
+	useEffect(() => {
+		if (!contentReady || didAutoHighlight.current) {
+			return;
+		}
+		const container = scrollContainerRef.current;
+		if (!container) {
+			return;
+		}
+		if (targetId) {
+			const target = container.querySelector<HTMLElement>(`[data-replay-target-id="${targetId}"]`);
+			if (target) {
+				didAutoHighlight.current = true;
+				highlightTarget(target);
+				return;
+			}
+		}
+		if (!highlightOnLoad) {
+			return;
+		}
+		const targetTotal = highlightOnLoad === 'tool-error' ? toolErrorTotal : feedbackTotal;
+		if (targetTotal === 0) {
+			return;
+		}
+		didAutoHighlight.current = true;
+		if (highlightOnLoad === 'tool-error') {
+			goToNextToolError();
+		} else {
+			goToNextFeedback();
+		}
+	}, [
+		contentReady,
+		targetId,
+		highlightOnLoad,
+		toolErrorTotal,
+		feedbackTotal,
+		goToNextToolError,
+		goToNextFeedback,
+		highlightTarget,
+	]);
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
@@ -124,6 +173,8 @@ export function ChatsReplayPanel({ chatId, onBack, metadataAction }: ChatsReplay
 											<ChatMessagesReadonly
 												messages={chatReplayQuery.data.messages}
 												forkMetadata={chatReplayQuery.data.forkMetadata}
+												conversationContextRef={stickContextRef}
+												feedbackRecommendations={chatReplayQuery.data.feedbackRecommendations}
 											/>
 										</div>
 										{sidePanel.content && (

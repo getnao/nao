@@ -1,28 +1,34 @@
 import { createHash } from 'crypto';
 
 import {
-	ContextRecommendationSeverity,
+	ContextRecommendationCategory,
+	ContextRecommendationFixTarget,
+	ContextRecommendationRootCauseKind,
 	ContextRecommendationStatus,
 	RecommendationImpact,
 	RecommendationInsight,
+	TriggerRef,
 	WindowTotals,
 } from '../types/context-recommendation';
 
 export interface ProposedFinding {
 	suggestedFile: string;
 	subjectKey: string;
-	severity: ContextRecommendationSeverity;
+	category: ContextRecommendationCategory;
+	rootCause: string;
+	rootCauseKind?: ContextRecommendationRootCauseKind;
+	fixTarget?: ContextRecommendationFixTarget;
 	title: string;
 	summary: string;
 	suggestedAction: string;
 	insights: RecommendationInsight[];
+	feedbackMessageIds?: string[];
 }
 
 export interface ExistingRecommendation {
 	id: string;
 	fingerprint: string;
 	status: ContextRecommendationStatus;
-	snoozedUntil: Date | null;
 	occurrenceCount: number;
 }
 
@@ -33,6 +39,7 @@ export type ReconcileAction =
 			finding: ProposedFinding;
 			impact: RecommendationImpact;
 			impactScore: number;
+			feedbackMessageIds: string[];
 	  }
 	| {
 			kind: 'update';
@@ -41,8 +48,83 @@ export type ReconcileAction =
 			impact: RecommendationImpact;
 			impactScore: number;
 			reopen: boolean;
+			feedbackMessageIds: string[];
 	  }
 	| { kind: 'resolve'; id: string };
+
+/** Every unique trigger target id (message id or tool call id) referenced by the insights. */
+export function collectTriggerTargetIds(items: { insights: RecommendationInsight[] }[]): string[] {
+	const targetIds = new Set<string>();
+	for (const item of items) {
+		for (const insight of item.insights) {
+			for (const ref of insight.triggerRefs ?? []) {
+				if (ref.targetId) {
+					targetIds.add(ref.targetId);
+				}
+			}
+		}
+	}
+	return [...targetIds];
+}
+
+/** Every unique chatId referenced by the insights. */
+export function collectTriggerChatIds(items: { insights: RecommendationInsight[] }[]): string[] {
+	const chatIds = new Set<string>();
+	for (const item of items) {
+		for (const insight of item.insights) {
+			for (const ref of insight.triggerRefs ?? []) {
+				chatIds.add(ref.chatId);
+			}
+		}
+	}
+	return [...chatIds];
+}
+
+/**
+ * Repairs the trigger refs of recommendation insights against the database. The
+ * recording agent occasionally transcribes a chatId incorrectly, which breaks the chat
+ * replay link. When a ref carries a targetId that resolves to a real chat, that chat is
+ * authoritative; otherwise the recorded chatId is kept only when it exists in the
+ * project. Refs that resolve to nothing are dropped.
+ */
+export function repairTriggerRefs<T extends { insights: RecommendationInsight[] }>(
+	items: T[],
+	resolvedByTarget: Map<string, string>,
+	validChatIds: Set<string>,
+): T[] {
+	return items.map((item) => ({
+		...item,
+		insights: item.insights.map((insight) => ({
+			...insight,
+			triggerRefs: insight.triggerRefs
+				? repairRefs(insight.triggerRefs, resolvedByTarget, validChatIds)
+				: insight.triggerRefs,
+		})),
+	}));
+}
+
+function repairRefs(
+	refs: TriggerRef[],
+	resolvedByTarget: Map<string, string>,
+	validChatIds: Set<string>,
+): TriggerRef[] {
+	const repaired: TriggerRef[] = [];
+	const seen = new Set<string>();
+	for (const ref of refs) {
+		const resolvedChatId = ref.targetId ? resolvedByTarget.get(ref.targetId) : undefined;
+		const chatId = resolvedChatId ?? (validChatIds.has(ref.chatId) ? ref.chatId : undefined);
+		if (!chatId) {
+			continue;
+		}
+		const key = `${chatId}\u0000${ref.targetId ?? ''}`;
+		if (seen.has(key)) {
+			continue;
+		}
+		seen.add(key);
+		repaired.push({ chatId, targetId: ref.targetId });
+	}
+	return repaired;
+}
 
 export function fingerprintFor(suggestedFile: string, subjectKey: string): string {
 	return createHash('sha256').update(`${suggestedFile} ${subjectKey}`).digest('hex');
@@ -58,7 +140,7 @@ export function computeImpact(
 	insights: RecommendationInsight[],
 	totals: WindowTotals,
 ): { impact: RecommendationImpact; impactScore: number } {
-	const affectedChats = new Set(insights.flatMap((insight) => insight.exampleChatIds ?? [])).size;
+	const affectedChats = new Set(insights.flatMap((insight) => insight.triggerRefs?.map((r) => r.chatId) ?? [])).size;
 	const findingCount = insights.reduce((sum, insight) => sum + insight.count, 0);
 	const totalFriction = totals.errors + totals.downvotes + totals.regenerations;
 	const failureShare = totalFriction === 0 ? 0 : Math.min(1, findingCount / totalFriction);
@@ -75,9 +157,8 @@ export function reconcile(input: {
 	dismissedFingerprints: string[];
 	totals: WindowTotals;
 	impactFloor: number;
-	now: Date;
 }): ReconcileAction[] {
-	const { existing, recorded, resolvedFingerprints, dismissedFingerprints, totals, impactFloor, now } = input;
+	const { existing, recorded, resolvedFingerprints, dismissedFingerprints, totals, impactFloor } = input;
 	const byFingerprint = new Map(existing.map((r) => [r.fingerprint, r]));
 	const dismissed = new Set(dismissedFingerprints);
 	const actions: ReconcileAction[] = [];
@@ -98,12 +179,12 @@ export function reconcile(input: {
 		const current = byFingerprint.get(fingerprint);
 		if (current) {
 			handled.add(fingerprint);
-			const snoozeExpired =
-				current.status === 'snoozed' && current.snoozedUntil !== null && current.snoozedUntil <= now;
-			const reopen = current.status === 'applied' || snoozeExpired;
-			actions.push({ kind: 'update', id: current.id, finding, impact, impactScore, reopen });
+			const reopen = current.status === 'applied';
+			const feedbackMessageIds = finding.feedbackMessageIds ?? [];
+			actions.push({ kind: 'update', id: current.id, finding, impact, impactScore, reopen, feedbackMessageIds });
 		} else if (impactScore >= impactFloor) {
-			actions.push({ kind: 'insert', fingerprint, finding, impact, impactScore });
+			const feedbackMessageIds = finding.feedbackMessageIds ?? [];
+			actions.push({ kind: 'insert', fingerprint, finding, impact, impactScore, feedbackMessageIds });
 		}
 	}
 
@@ -112,7 +193,7 @@ export function reconcile(input: {
 			continue;
 		}
 		const current = byFingerprint.get(fingerprint);
-		if (current && (current.status === 'open' || current.status === 'acknowledged')) {
+		if (current && current.status === 'open') {
 			actions.push({ kind: 'resolve', id: current.id });
 		}
 	}
