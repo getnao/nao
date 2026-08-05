@@ -12,7 +12,7 @@ RUN npm install -g bun
 FROM base AS deps
 WORKDIR /app
 
-COPY package.json package-lock.json bun.lock ./
+COPY package.json package-lock.json bun.lock bunfig.toml ./
 COPY apps/frontend/package.json ./apps/frontend/
 COPY apps/backend/package.json ./apps/backend/
 COPY apps/shared/package.json ./apps/shared/

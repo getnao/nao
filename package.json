@@ -4,10 +4,10 @@
 	"workspaces": [
 		"apps/*"
 	],
-	"packageManager": "npm@11.6.2",
+	"packageManager": "npm@11.19.0",
 	"engines": {
 		"node": ">=22.14.0 <23",
-		"npm": "11.6.2"
+		"npm": "11.19.0"
 	},
 	"scripts": {
 		"dev": "npm-run-all -lp dev:backend dev:frontend dev:fastapi",
