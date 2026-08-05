@@ -66,12 +66,14 @@ export function matchesShortcut(event: KeyboardEvent, shortcut: Shortcut): boole
 	if (modPressed !== Boolean(shortcut.mod) || otherModPressed) {
 		return false;
 	}
-	if (event.shiftKey !== Boolean(shortcut.shift) || event.altKey !== Boolean(shortcut.alt)) {
+	if (event.altKey !== Boolean(shortcut.alt)) {
 		return false;
 	}
-
 	if (shortcut.key === '/') {
-		return event.code === 'Slash' || event.key === '/';
+		return event.key === '/' || event.key === ':';
+	}
+	if (event.shiftKey !== Boolean(shortcut.shift)) {
+		return false;
 	}
 
 	return event.key.toLowerCase() === shortcut.key.toLowerCase();
