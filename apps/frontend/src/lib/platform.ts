@@ -69,14 +69,17 @@ export function matchesShortcut(event: KeyboardEvent, shortcut: Shortcut): boole
 	if (event.altKey !== Boolean(shortcut.alt)) {
 		return false;
 	}
-	if (shortcut.key === '/') {
-		return event.key === '/' || event.key === ':';
+	if (event.key.toLowerCase() !== shortcut.key.toLowerCase()) {
+		return false;
 	}
-	if (event.shiftKey !== Boolean(shortcut.shift)) {
+	if (shortcut.shift) {
+		return event.shiftKey;
+	}
+	if (isLetterKey(shortcut.key) && event.shiftKey) {
 		return false;
 	}
 
-	return event.key.toLowerCase() === shortcut.key.toLowerCase();
+	return true;
 }
 
 function formatKey(key: string): string {
@@ -84,4 +87,8 @@ function formatKey(key: string): string {
 		return 'Esc';
 	}
 	return key.length === 1 ? key.toUpperCase() : key;
+}
+
+function isLetterKey(key: string): boolean {
+	return /^[a-z]$/i.test(key);
 }

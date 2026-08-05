@@ -37,9 +37,7 @@ export function KeyboardShortcutsDialog({ open, onOpenChange }: KeyboardShortcut
 													key={`${entry.id}-alternate-${index}`}
 													className='flex items-center gap-1.5'
 												>
-													<span className='text-muted-foreground' aria-hidden='true'>
-														·
-													</span>
+													<span className='text-muted-foreground'>·</span>
 													<Kbd shortcut={shortcut} />
 												</span>
 											))}
