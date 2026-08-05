@@ -1,0 +1,21 @@
+use the nao markdown syntax like in @chat/apps/backend/src/components/ai/system-prompt.tsx for @chat/apps/backend/src/agents/skills/pdf.skill.ts esp. for the body i think
+
+---
+
+use the nao markdown syntax like in @chat/apps/backend/src/components/ai/system-prompt.tsx for @chat/apps/backend/src/agents/skills/pdf.skill.ts esp. for the body i think
+
+---
+
+use the nao markdown syntax like in @chat/apps/backend/src/components/ai/system-prompt.tsx for @chat/apps/backend/src/agents/skills/pdf.skill.ts esp. for the body i think
+
+---
+
+use the nao markdown syntax like in @chat/apps/backend/src/components/ai/system-prompt.tsx for @chat/apps/backend/src/agents/skills/pdf.skill.ts esp. for the body i think
+
+---
+
+do a excel files skill
+
+---
+
+how can we make the grep tool works (when applicable) on a "parse" pdf
