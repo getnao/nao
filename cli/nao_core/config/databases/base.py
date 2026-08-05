@@ -24,6 +24,7 @@ class DatabaseType(str, Enum):
     DUCKDB = "duckdb"
     DATABRICKS = "databricks"
     FABRIC = "fabric"
+    MOTHERDUCK = "motherduck"
     SNOWFLAKE = "snowflake"
     MSSQL = "mssql"
     MYSQL = "mysql"

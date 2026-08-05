@@ -9,6 +9,7 @@ from .clickhouse import ClickHouseConfig
 from .databricks import DatabricksConfig
 from .duckdb import DuckDBConfig
 from .fabric import FabricConfig
+from .motherduck import MotherDuckConfig
 from .mssql import MssqlConfig
 from .mysql import MysqlConfig
 from .postgres import PostgresConfig
@@ -28,6 +29,7 @@ AnyDatabaseConfig = Annotated[
         Annotated[ClickHouseConfig, Tag("clickhouse")],
         Annotated[DatabricksConfig, Tag("databricks")],
         Annotated[FabricConfig, Tag("fabric")],
+        Annotated[MotherDuckConfig, Tag("motherduck")],
         Annotated[SnowflakeConfig, Tag("snowflake")],
         Annotated[DuckDBConfig, Tag("duckdb")],
         Annotated[MysqlConfig, Tag("mysql")],
@@ -49,6 +51,7 @@ DATABASE_CONFIG_CLASSES: Dict[DatabaseType, Type[object]] = {
     DatabaseType.DUCKDB: DuckDBConfig,
     DatabaseType.DATABRICKS: DatabricksConfig,
     DatabaseType.FABRIC: FabricConfig,
+    DatabaseType.MOTHERDUCK: MotherDuckConfig,
     DatabaseType.MSSQL: MssqlConfig,
     DatabaseType.MYSQL: MysqlConfig,
     DatabaseType.SNOWFLAKE: SnowflakeConfig,
@@ -86,6 +89,7 @@ __all__ = [
     "DuckDBConfig",
     "DatabricksConfig",
     "FabricConfig",
+    "MotherDuckConfig",
     "MssqlConfig",
     "MysqlConfig",
     "SnowflakeConfig",
