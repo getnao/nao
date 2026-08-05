@@ -1,5 +1,5 @@
 import { popGridColumn, TAG_ATTRS } from '@nao/shared/story-segments';
-import { Selection } from '@tiptap/pm/state';
+import { Selection, TextSelection } from '@tiptap/pm/state';
 import type { Node as PMNode, Schema } from '@tiptap/pm/model';
 import type { EditorState, Transaction } from '@tiptap/pm/state';
 import type { EditorView } from '@tiptap/pm/view';
@@ -105,7 +105,10 @@ export function cloneElementWithStyles(node: HTMLElement): HTMLElement {
 
 export function dispatchDropWithScroll(view: EditorView, transaction: Transaction, pos: number): void {
 	const target = Math.max(0, Math.min(pos, transaction.doc.content.size));
-	transaction.setSelection(Selection.near(transaction.doc.resolve(target)));
+	const $target = transaction.doc.resolve(target);
+	const nearbySelection =
+		Selection.findFrom($target, 1, true) ?? Selection.findFrom($target, -1, true) ?? Selection.near($target);
+	transaction.setSelection(TextSelection.create(transaction.doc, nearbySelection.from));
 	view.dispatch(transaction);
 	requestAnimationFrame(() => {
 		const clamped = Math.max(0, Math.min(pos, view.state.doc.content.size));

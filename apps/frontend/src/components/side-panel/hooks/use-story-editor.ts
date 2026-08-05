@@ -1,11 +1,16 @@
 import { popGridColumn } from '@nao/shared/story-segments';
 import { Extension } from '@tiptap/core';
+import { isHistoryTransaction } from '@tiptap/pm/history';
 import { Fragment, Slice } from '@tiptap/pm/model';
 import { dropPoint } from '@tiptap/pm/transform';
 import { useEditor } from '@tiptap/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+	applyBlockSelection,
 	blockSelectionPluginKey,
+	blockSelectionForInsertedNodes,
+	blockSelectionFromDragUnits,
+	blockSelectionFromOrigin,
 	buildDragUnitNodes,
 	buildSelectionMoveTransaction,
 	emptySelection,
@@ -24,9 +29,9 @@ import {
 	removeCardFromOrigin,
 } from '../story-editor-utils';
 import type { GridDragSource, StoryBlockDragSource } from '../story-editor-drag-context';
-import type { DragUnit, GridColumnRef } from '../story-block-selection';
+import type { BlockSelectionState, DragUnit, GridColumnRef } from '../story-block-selection';
 import type { Node as PMNode } from '@tiptap/pm/model';
-import type { EditorState } from '@tiptap/pm/state';
+import type { EditorState, Transaction } from '@tiptap/pm/state';
 import type { Editor } from '@tiptap/react';
 import type { MutableRefObject } from 'react';
 
@@ -47,6 +52,7 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 	const gridDragSourceRef = useRef<GridDragSource | null>(null);
 	const storyBlockSourceRef = useRef<StoryBlockDragSource | null>(null);
 	const multiSelectionDragRef = useRef<DragUnit[] | null>(null);
+	const dragUndoSelectionRef = useRef<BlockSelectionState | null>(null);
 	const handleNodePosRef = useRef<number | null>(null);
 	const dragPreviewElementsRef = useRef<HTMLElement[] | null>(null);
 	const pendingDropRef = useRef<(() => void) | null>(null);
@@ -56,6 +62,9 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 	const [handleNodeType, setHandleNodeType] = useState<string | null>(null);
 	const [selectedGridColumns, setSelectedGridColumns] = useState<GridColumnRef[]>([]);
 	const [selectedBlocks, setSelectedBlocks] = useState<number[]>([]);
+	const rememberDragUndoSelection = useCallback((selection: BlockSelectionState) => {
+		dragUndoSelectionRef.current = selection;
+	}, []);
 	const resetDragContexts = useCallback(() => {
 		gridDragSourceRef.current = null;
 		storyBlockSourceRef.current = null;
@@ -136,6 +145,7 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 				const dataTransfer = event.dataTransfer;
 				if (multiSelectionDragRef.current) {
 					try {
+						const undoSelection = blockSelectionFromDragUnits(multiSelectionDragRef.current);
 						const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
 						if (!coords) {
 							return true;
@@ -149,6 +159,7 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 							return true;
 						}
 						dispatchDropWithScroll(view, move.transaction, move.insertPos);
+						rememberDragUndoSelection(undoSelection);
 						view.focus();
 						event.preventDefault();
 						return true;
@@ -203,8 +214,20 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 						// Bias mapping to the right for drops at/after the grid so the popped
 						// column lands after the remaining grid, left otherwise.
 						const insertAssoc = insertPos >= gridTo ? 1 : -1;
-						transaction.insert(transaction.mapping.map(insertPos, insertAssoc), poppedNode);
-						view.dispatch(transaction);
+						const mappedInsert = transaction.mapping.map(insertPos, insertAssoc);
+						transaction.insert(mappedInsert, poppedNode);
+						transaction.setMeta(
+							blockSelectionPluginKey,
+							blockSelectionForInsertedNodes(mappedInsert, [poppedNode]),
+						);
+						dispatchDropWithScroll(view, transaction, mappedInsert);
+						rememberDragUndoSelection(
+							blockSelectionFromOrigin({
+								kind: 'gridColumn',
+								gridPos: source.gridPos,
+								columnIndex: source.columnIndex,
+							}),
+						);
 						view.focus();
 						event.preventDefault();
 						return true;
@@ -246,7 +269,13 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 						const transaction = view.state.tr;
 						transaction.insert(insertPos, node);
 						removeCardFromOrigin(transaction, view.state, source.origin);
-						view.dispatch(transaction);
+						const finalInsertPos = transaction.mapping.map(insertPos, -1);
+						transaction.setMeta(
+							blockSelectionPluginKey,
+							blockSelectionForInsertedNodes(finalInsertPos, [node]),
+						);
+						dispatchDropWithScroll(view, transaction, finalInsertPos);
+						rememberDragUndoSelection(blockSelectionFromOrigin(source.origin));
 						view.focus();
 						event.preventDefault();
 						return true;
@@ -280,10 +309,18 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 			event.preventDefault();
 			event.stopPropagation();
 			if (event.shiftKey) {
+				dragUndoSelectionRef.current = null;
 				editor.commands.redo();
 				return;
 			}
-			editor.commands.undo();
+			const selectionToRestore = dragUndoSelectionRef.current;
+			if (!editor.commands.undo()) {
+				return;
+			}
+			if (selectionToRestore) {
+				dragUndoSelectionRef.current = null;
+				applyBlockSelection(editor.view, selectionToRestore);
+			}
 		};
 
 		document.addEventListener('keydown', onKeyDown, true);
@@ -408,7 +445,14 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 			return;
 		}
 
-		const syncGridColumns = () => {
+		const syncGridColumns = ({ transaction }: { transaction?: Transaction } = {}) => {
+			if (
+				transaction?.docChanged &&
+				transaction.getMeta('addToHistory') !== false &&
+				!isHistoryTransaction(transaction)
+			) {
+				dragUndoSelectionRef.current = null;
+			}
 			const next = getSelectedGridColumns(editor.state);
 			setSelectedGridColumns((current) => (sameGridColumns(current, next) ? current : next));
 			const nextBlocks = getSelectedBlockPositions(editor.state);
@@ -470,7 +514,8 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 					event.dataTransfer.effectAllowed = 'move';
 				}
 			} else {
-				multiSelectionDragRef.current = null;
+				multiSelectionDragRef.current =
+					hoveredPosition == null ? null : [{ kind: 'block', pos: hoveredPosition }];
 				dragPreviewElementsRef.current =
 					hoveredPosition == null
 						? null
@@ -508,8 +553,9 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 			pendingDropRef,
 			beginMultiSelectionDrag,
 			endMultiSelectionDrag,
+			rememberDragUndoSelection,
 		}),
-		[activeDropZone, beginMultiSelectionDrag, endMultiSelectionDrag, isBlockDragging],
+		[activeDropZone, beginMultiSelectionDrag, endMultiSelectionDrag, isBlockDragging, rememberDragUndoSelection],
 	);
 	const onElementDragEnd = endMultiSelectionDrag;
 	const onDragHandleClick = useCallback(() => {

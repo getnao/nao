@@ -1,7 +1,7 @@
 import { popGridColumns, splitGridColumnsRaw } from '@nao/shared/story-segments';
 import { Extension } from '@tiptap/core';
 import { Fragment, Slice } from '@tiptap/pm/model';
-import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { Plugin, PluginKey, Selection, TextSelection } from '@tiptap/pm/state';
 import { dropPoint } from '@tiptap/pm/transform';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { createBlockNode } from './story-editor-utils';
@@ -9,6 +9,7 @@ import { createBlockNode } from './story-editor-utils';
 import type { Node as PMNode } from '@tiptap/pm/model';
 import type { EditorState, Transaction } from '@tiptap/pm/state';
 import type { EditorView } from '@tiptap/pm/view';
+import type { CardOrigin } from './story-editor-drag-context';
 
 export interface GridColumnRef {
 	gridPos: number;
@@ -44,6 +45,75 @@ export function getSelectedGridColumns(state: EditorState): GridColumnRef[] {
 
 export function emptySelection(): BlockSelectionState {
 	return { blocks: [], gridColumns: [], anchor: null, columnAnchor: null };
+}
+
+export function blockSelectionFromDragUnits(units: DragUnit[]): BlockSelectionState {
+	const blocks: number[] = [];
+	const gridColumns: GridColumnRef[] = [];
+	for (const unit of units) {
+		if (unit.kind === 'block') {
+			blocks.push(unit.pos);
+			continue;
+		}
+		for (const index of unit.indices) {
+			gridColumns.push({ gridPos: unit.gridPos, index });
+		}
+	}
+	blocks.sort((first, second) => first - second);
+	gridColumns.sort((first, second) => first.gridPos - second.gridPos || first.index - second.index);
+	return {
+		blocks,
+		gridColumns,
+		anchor: blocks[0] ?? null,
+		columnAnchor: gridColumns[0] ?? null,
+	};
+}
+
+export function blockSelectionFromOrigin(origin: CardOrigin): BlockSelectionState {
+	if (origin.kind === 'block') {
+		return {
+			blocks: [origin.pos],
+			gridColumns: [],
+			anchor: origin.pos,
+			columnAnchor: null,
+		};
+	}
+	const column = { gridPos: origin.gridPos, index: origin.columnIndex };
+	return {
+		blocks: [],
+		gridColumns: [column],
+		anchor: null,
+		columnAnchor: column,
+	};
+}
+
+export function blockSelectionForInsertedNodes(insertPos: number, nodes: PMNode[]): BlockSelectionState {
+	const blocks: number[] = [];
+	let position = insertPos;
+	for (const node of nodes) {
+		blocks.push(position);
+		position += node.nodeSize;
+	}
+	return {
+		blocks,
+		gridColumns: [],
+		anchor: blocks[0] ?? null,
+		columnAnchor: null,
+	};
+}
+
+export function applyBlockSelection(view: EditorView, selection: BlockSelectionState): void {
+	const transaction = view.state.tr;
+	const selectedPositions = [...selection.blocks, ...selection.gridColumns.map((column) => column.gridPos)].sort(
+		(first, second) => first - second,
+	);
+	const selectionPosition = selectedPositions[0];
+	if (selectionPosition !== undefined) {
+		setCollapsedTextSelection(transaction, selectionPosition);
+	}
+	transaction.setMeta(blockSelectionPluginKey, selection);
+	transaction.setMeta('addToHistory', false);
+	view.dispatch(transaction);
 }
 
 export function resolveDragSelection(
@@ -470,7 +540,8 @@ export function buildSelectionMoveTransaction(
 	}
 	const mappedInsert = transaction.mapping.map(insertPos);
 	transaction.insert(mappedInsert, Fragment.fromArray(nodes));
-	transaction.setMeta(blockSelectionPluginKey, emptySelection());
+	transaction.setMeta(blockSelectionPluginKey, blockSelectionForInsertedNodes(mappedInsert, nodes));
+	setCollapsedTextSelection(transaction, mappedInsert);
 	return { transaction, insertPos: mappedInsert };
 }
 
@@ -497,8 +568,17 @@ export function buildBlockMoveTransaction(
 
 	const mappedInsert = transaction.mapping.map(insertPos);
 	transaction.insert(mappedInsert, Fragment.fromArray(nodes));
-	transaction.setMeta(blockSelectionPluginKey, emptySelection());
+	transaction.setMeta(blockSelectionPluginKey, blockSelectionForInsertedNodes(mappedInsert, nodes));
+	setCollapsedTextSelection(transaction, mappedInsert);
 	return { transaction, insertPos: mappedInsert };
+}
+
+function setCollapsedTextSelection(transaction: Transaction, position: number): void {
+	const clampedPosition = Math.max(0, Math.min(position, transaction.doc.content.size));
+	const $position = transaction.doc.resolve(clampedPosition);
+	const nearbySelection =
+		Selection.findFrom($position, 1, true) ?? Selection.findFrom($position, -1, true) ?? Selection.near($position);
+	transaction.setSelection(TextSelection.create(transaction.doc, nearbySelection.from));
 }
 
 function buildDragUnitOperations(state: EditorState, units: DragUnit[]): DragUnitOperation[] | null {

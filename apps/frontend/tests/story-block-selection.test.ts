@@ -1,13 +1,19 @@
 // @vitest-environment jsdom
 
 import { Editor, Node } from '@tiptap/core';
+import { TextSelection } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { splitGridColumnsRaw } from '@nao/shared/story-segments';
+import type { Transaction } from '@tiptap/pm/state';
 
 import {
 	BlockSelection,
+	applyBlockSelection,
 	blockSelectionPluginKey,
+	blockSelectionForInsertedNodes,
+	blockSelectionFromDragUnits,
+	blockSelectionFromOrigin,
 	buildBlockMoveTransaction,
 	buildSelectionMoveTransaction,
 	emptySelection,
@@ -207,6 +213,76 @@ describe('story block selection', () => {
 
 		selectBlocks(editor, [], null);
 		expect(getSelectedBlockPositions(editor.state)).toEqual([]);
+	});
+
+	it('builds a block selection from mixed drag units', () => {
+		expect(
+			blockSelectionFromDragUnits([
+				{ kind: 'block', pos: 8 },
+				{ kind: 'gridColumns', gridPos: 3, indices: [2, 0] },
+				{ kind: 'block', pos: 1 },
+			]),
+		).toEqual({
+			blocks: [1, 8],
+			gridColumns: [
+				{ gridPos: 3, index: 0 },
+				{ gridPos: 3, index: 2 },
+			],
+			anchor: 1,
+			columnAnchor: { gridPos: 3, index: 0 },
+		});
+	});
+
+	it('builds a block selection from a card origin', () => {
+		expect(blockSelectionFromOrigin({ kind: 'block', pos: 8 })).toEqual({
+			blocks: [8],
+			gridColumns: [],
+			anchor: 8,
+			columnAnchor: null,
+		});
+		expect(blockSelectionFromOrigin({ kind: 'gridColumn', gridPos: 3, columnIndex: 2 })).toEqual({
+			blocks: [],
+			gridColumns: [{ gridPos: 3, index: 2 }],
+			anchor: null,
+			columnAnchor: { gridPos: 3, index: 2 },
+		});
+	});
+
+	it('builds a block selection for consecutive inserted nodes', () => {
+		const first = editor.state.doc.child(0);
+		const second = editor.state.doc.child(1);
+
+		expect(blockSelectionForInsertedNodes(10, [first, second])).toEqual({
+			blocks: [10, 10 + first.nodeSize],
+			gridColumns: [],
+			anchor: 10,
+			columnAnchor: null,
+		});
+	});
+
+	it('applies block chrome with a collapsed selection outside history', () => {
+		const [first, , third] = topLevelBlockPositions(editor.state.doc);
+		editor.view.dispatch(
+			editor.state.tr.setSelection(TextSelection.create(editor.state.doc, first + 1, third + 1)),
+		);
+		const transactions: Transaction[] = [];
+		const captureTransaction = ({ transaction }: { transaction: Transaction }) => {
+			transactions.push(transaction);
+		};
+		editor.on('transaction', captureTransaction);
+
+		applyBlockSelection(
+			editor.view,
+			blockSelectionFromDragUnits([
+				{ kind: 'block', pos: first },
+				{ kind: 'block', pos: third },
+			]),
+		);
+
+		expect(getSelectedBlockPositions(editor.state)).toEqual([first, third]);
+		expect(editor.state.selection.empty).toBe(true);
+		expect(transactions.at(-1)?.getMeta('addToHistory')).toBe(false);
+		editor.off('transaction', captureTransaction);
 	});
 
 	describe('mousedown handling', () => {
@@ -610,6 +686,8 @@ describe('story block selection', () => {
 			editor.view.dispatch(move.transaction);
 			expect(editor.state.doc.childCount).toBe(3);
 			expect(editor.state.doc.textContent).toBe('BBAACC');
+			expect(getSelectedBlockPositions(editor.state)).toEqual(topLevelBlockPositions(editor.state.doc).slice(1));
+			expect(editor.state.selection.empty).toBe(true);
 		});
 
 		it('moves a contiguous selection past a later block without dropping blocks', () => {
@@ -622,6 +700,9 @@ describe('story block selection', () => {
 			editor.view.dispatch(move.transaction);
 			expect(editor.state.doc.childCount).toBe(3);
 			expect(editor.state.doc.textContent).toBe('AABBCC');
+			expect(getSelectedBlockPositions(editor.state)).toEqual(
+				topLevelBlockPositions(editor.state.doc).slice(0, 2),
+			);
 		});
 
 		it('returns null when dropping between two adjacent selected blocks', () => {
@@ -659,6 +740,10 @@ describe('story block selection', () => {
 			expect(splitGridColumnsRaw(moveEditor.state.doc.child(3).attrs.rawContent as string).columns).toHaveLength(
 				2,
 			);
+			expect(getSelectedBlockPositions(moveEditor.state)).toEqual(
+				topLevelBlockPositions(moveEditor.state.doc).slice(2, 4),
+			);
+			expect(moveEditor.state.selection.empty).toBe(true);
 			moveEditor.destroy();
 		});
 
@@ -695,6 +780,9 @@ describe('story block selection', () => {
 			expect(firstMovedColumns[0]).toContain('query_id="q1"');
 			expect(secondMovedColumns).toHaveLength(2);
 			expect(secondMovedColumns[0]).toContain('query_id="q4"');
+			expect(getSelectedBlockPositions(moveEditor.state)).toEqual(
+				topLevelBlockPositions(moveEditor.state.doc).slice(3, 5),
+			);
 			moveEditor.destroy();
 		});
 
@@ -720,6 +808,9 @@ describe('story block selection', () => {
 			expect(splitGridColumnsRaw(moveEditor.state.doc.child(1).attrs.rawContent as string).columns).toHaveLength(
 				3,
 			);
+			expect(getSelectedBlockPositions(moveEditor.state)).toEqual([
+				topLevelBlockPositions(moveEditor.state.doc)[1],
+			]);
 			moveEditor.destroy();
 		});
 

@@ -10,14 +10,19 @@ import {
 	splitGridColumnsRaw,
 } from '@nao/shared/story-segments';
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { removeCardFromOrigin } from '../story-editor-utils';
+import { dispatchDropWithScroll, removeCardFromOrigin } from '../story-editor-utils';
 import {
 	GRID_COLUMN_DRAG_TYPE,
 	GridDragContext,
 	STORY_BLOCK_DRAG_TYPE,
 	StoryBlockDragContext,
 } from '../story-editor-drag-context';
-import { resolveDragSelection } from '../story-block-selection';
+import {
+	applyBlockSelection,
+	blockSelectionPluginKey,
+	blockSelectionFromOrigin,
+	resolveDragSelection,
+} from '../story-block-selection';
 import type { Segment } from '@nao/shared/story-segments';
 import type { ReactNodeViewProps } from '@tiptap/react';
 import type {
@@ -290,7 +295,17 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 			const transaction = state.tr;
 			transaction.setNodeAttribute(gridPos, 'rawContent', newGrid);
 			removeCardFromOrigin(transaction, state, source.origin);
-			editor.view.dispatch(transaction);
+			const finalGridPos = transaction.mapping.map(gridPos, -1);
+			transaction.setMeta(
+				blockSelectionPluginKey,
+				blockSelectionFromOrigin({
+					kind: 'gridColumn',
+					gridPos: finalGridPos,
+					columnIndex: clampedIndex,
+				}),
+			);
+			dispatchDropWithScroll(editor.view, transaction, finalGridPos);
+			storyBlockDrag.rememberDragUndoSelection(blockSelectionFromOrigin(source.origin));
 			editor.view.focus();
 			clearDrag();
 		},
@@ -309,7 +324,25 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 					const targetIndex = dropColumnIndex > dragColumnIndex ? dropColumnIndex - 1 : dropColumnIndex;
 					const nextRawContent = reorderGridColumns(rawContent, dragColumnIndex, targetIndex);
 					if (nextRawContent !== rawContent) {
+						const gridPos = getPos();
 						updateAttributes({ rawContent: nextRawContent });
+						if (typeof gridPos === 'number') {
+							storyBlockDrag?.rememberDragUndoSelection(
+								blockSelectionFromOrigin({
+									kind: 'gridColumn',
+									gridPos,
+									columnIndex: dragColumnIndex,
+								}),
+							);
+							applyBlockSelection(
+								editor.view,
+								blockSelectionFromOrigin({
+									kind: 'gridColumn',
+									gridPos,
+									columnIndex: targetIndex,
+								}),
+							);
+						}
 						editor.view.focus();
 					}
 				}
@@ -335,6 +368,7 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 			dropColumnIndex,
 			insertExternalStoryBlock,
 			editor,
+			getPos,
 			rawContent,
 			segments.length,
 			storyBlockDrag,
