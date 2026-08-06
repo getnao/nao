@@ -123,6 +123,7 @@ export function CommandMenu({ onOpenKeyboardShortcuts }: { onOpenKeyboardShortcu
 				action: () => {
 					setTheme(theme === 'light' ? 'dark' : 'light');
 				},
+				shortcut: getShortcutLabel('toggle-theme'),
 				group: 'Actions',
 			},
 		],
