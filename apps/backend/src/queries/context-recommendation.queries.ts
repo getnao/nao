@@ -420,6 +420,7 @@ export async function getContextFileReadCosts(
 			and(
 				eq(s.chat.projectId, projectId),
 				notInArray(s.chat.id, analysisChatIds()),
+				or(isNull(s.chatMessage.isForked), eq(s.chatMessage.isForked, false)),
 				eq(s.messagePart.toolName, 'read'),
 				eq(s.messagePart.toolState, 'output-available'),
 				gte(s.messagePart.createdAt, start),
