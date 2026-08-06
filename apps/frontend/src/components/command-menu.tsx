@@ -96,16 +96,6 @@ export function CommandMenu({ onOpenKeyboardShortcuts }: { onOpenKeyboardShortcu
 				group: 'Jump to',
 			},
 			{
-				id: 'switch-mode',
-				label: `Switch ${theme === 'light' ? 'Dark' : 'Light'} Mode`,
-				keywords: ['switch light mode', 'switch dark mode', 'light mode', 'dark mode', 'theme', 'appearance'],
-				icon: theme === 'light' ? MoonIcon : SunIcon,
-				action: () => {
-					setTheme(theme === 'light' ? 'dark' : 'light');
-				},
-				group: 'Actions',
-			},
-			{
 				id: 'search-settings',
 				label: 'Search settings',
 				keywords: ['settings', 'preferences'],
@@ -123,6 +113,16 @@ export function CommandMenu({ onOpenKeyboardShortcuts }: { onOpenKeyboardShortcu
 				icon: KeyboardIcon,
 				action: onOpenKeyboardShortcuts,
 				shortcut: getShortcutLabel('keyboard-help'),
+				group: 'Actions',
+			},
+			{
+				id: 'switch-mode',
+				label: `Switch ${theme === 'light' ? 'Dark' : 'Light'} Mode`,
+				keywords: ['switch light mode', 'switch dark mode', 'light mode', 'dark mode', 'theme', 'appearance'],
+				icon: theme === 'light' ? MoonIcon : SunIcon,
+				action: () => {
+					setTheme(theme === 'light' ? 'dark' : 'light');
+				},
 				group: 'Actions',
 			},
 		],
