@@ -1,0 +1,29 @@
+in the models page @chat/apps/frontend/src/routes/_sidebar-layout.settings.project.models.tsx i want admin to be able to decide what models should be used by default in place where the model is not explicitely defined like:
+
+- @chat/apps/backend/src/services/live-story.ts refreshes
+- title generation @chat/apps/backend/src/services/automation-title.ts 
+- compaction generation @chat/apps/backend/src/services/compaction.ts 
+- @chat/apps/shared/src/context-recommendation.ts (here you can already defined it there but both place is great)
+- others small usage (in this case @chat/apps/backend/src/services/cron-nlp.ts ) but in a "other" category
+
+i want the UI to have a single default to fix for everything, or a dropdown per category so i pick for each
+
+also when a model that have been picked has been disabled or not accessible anymore it should display a small warning in the ui but in the code pick another (random i guess) model available
+
+---
+
+in the models page @chat/apps/frontend/src/routes/_sidebar-layout.settings.project.models.tsx i want admin to be able to decide what models should be used by default in place where the model is not explicitely defined like:
+
+- @chat/apps/backend/src/services/live-story.ts refreshes
+- title generation @chat/apps/backend/src/services/automation-title.ts 
+- compaction generation @chat/apps/backend/src/services/compaction.ts 
+- @chat/apps/shared/src/context-recommendation.ts (here you can already defined it there but both place is great)
+- others small usage (in this case @chat/apps/backend/src/services/cron-nlp.ts ) but in a "other" category
+
+i want the UI to have a single default to fix for everything, or a dropdown per category so i pick for each
+
+also when a model that have been picked has been disabled or not accessible anymore it should display a small warning in the ui but in the code pick another (random i guess) model available
+
+---
+
+when the models list in the models page have changed it should refresh the default category so the newly added model appear, there is a react query invalidate to do somewhere

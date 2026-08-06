@@ -1,0 +1,48 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "01KZB8NN9CTQN55CVWZ9PRNSXY",
+  "strategy": "manual-commit",
+  "branch": "feat/default-models-and-fixes",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "apps/backend/migrations-postgres/0059_add_project_default_models.sql",
+    "apps/backend/migrations-postgres/meta/0059_snapshot.json",
+    "apps/backend/migrations-postgres/meta/_journal.json",
+    "apps/backend/migrations-sqlite/0059_add_project_default_models.sql",
+    "apps/backend/migrations-sqlite/meta/0059_snapshot.json",
+    "apps/backend/migrations-sqlite/meta/_journal.json",
+    "apps/backend/src/db/pg-schema.ts",
+    "apps/backend/src/db/sqlite-schema.ts",
+    "apps/backend/src/queries/project.queries.ts",
+    "apps/backend/src/services/automation-title.ts",
+    "apps/backend/src/services/compaction.ts",
+    "apps/backend/src/services/context-recommendations.service.ts",
+    "apps/backend/src/services/cron-nlp.ts",
+    "apps/backend/src/services/live-story.ts",
+    "apps/backend/src/services/memory.ts",
+    "apps/backend/src/trpc/project.routes.ts",
+    "apps/backend/src/utils/llm.ts",
+    "apps/frontend/src/components/settings-search-index.ts",
+    "apps/frontend/src/components/settings/default-models-section.tsx",
+    "apps/frontend/src/hooks/use-llm-providers.ts",
+    "apps/frontend/src/routes/_sidebar-layout.settings.project.models.tsx",
+    "apps/shared/src/background-models.ts",
+    "apps/shared/src/index.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 174,
+    "cache_creation_tokens": 375643,
+    "cache_read_tokens": 11926334,
+    "output_tokens": 53769,
+    "api_call_count": 2
+  }
+}
