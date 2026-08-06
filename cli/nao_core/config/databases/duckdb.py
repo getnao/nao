@@ -34,16 +34,19 @@ class DuckDBConfig(DatabaseConfig):
         return DuckDBConfig(name=name, path=path)
 
     def connect(self) -> BaseBackend:
-        """Create an Ibis DuckDB connection."""
+        """Create an Ibis DuckDB connection with external file/network access disabled."""
         from nao_core.deps import require_database_backend
 
         require_database_backend("duckdb")
         import ibis
 
-        return ibis.duckdb.connect(
+        conn = ibis.duckdb.connect(
             database=self.path,
             read_only=False if self.path == ":memory:" else True,
         )
+        conn.raw_sql("SET enable_external_access = false")
+        conn.raw_sql("SET lock_configuration = true")
+        return conn
 
     def get_database_name(self) -> str:
         """Get the database name for DuckDB."""
