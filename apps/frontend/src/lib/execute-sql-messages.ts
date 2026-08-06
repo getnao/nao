@@ -1,12 +1,12 @@
+import { areStructurallyEqual } from './ai';
 import type { executeSql } from '@nao/shared/tools';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 
+export type SourceQuery = { input?: executeSql.Input; output: executeSql.Output };
+
 /** Prefer the latest matching execute_sql in the chat (same rule as stories / SQL edit). */
-export function findLatestExecuteSqlInMessages(
-	messages: UIMessage[],
-	queryId: string,
-): { input?: executeSql.Input; output: executeSql.Output } | null {
-	let latest: { input?: executeSql.Input; output: executeSql.Output } | null = null;
+export function findLatestExecuteSqlInMessages(messages: UIMessage[], queryId: string): SourceQuery | null {
+	let latest: SourceQuery | null = null;
 	for (const message of messages) {
 		for (const part of message.parts) {
 			if (part.type !== 'tool-execute_sql' || part.output?.id !== queryId) {
@@ -20,6 +20,20 @@ export function findLatestExecuteSqlInMessages(
 		}
 	}
 	return latest;
+}
+
+export function areSourceQueriesEqual(left: SourceQuery | null, right: SourceQuery | null): boolean {
+	if (left === right) {
+		return true;
+	}
+	if (!left || !right) {
+		return false;
+	}
+	return (
+		left.output.id === right.output.id &&
+		left.output.revision === right.output.revision &&
+		areStructurallyEqual(left.input, right.input)
+	);
 }
 
 /** Update only the latest matching execute_sql part for a query id. */
@@ -59,7 +73,9 @@ export function applyExecuteSqlResultToMessages(
 			if (partIndex !== latestPartIndex) {
 				return part;
 			}
-			return { ...(part as UIToolPart<'execute_sql'>), input, output } as typeof part;
+			const toolPart = part as UIToolPart<'execute_sql'>;
+			const previousRevision = toolPart.output?.revision ?? 0;
+			return { ...toolPart, input, output: { ...output, revision: previousRevision + 1 } } as typeof part;
 		});
 		return { ...message, parts };
 	});

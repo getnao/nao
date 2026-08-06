@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { UIMessage } from '@nao/backend/chat';
-import { useOptionalAgentContext } from '@/contexts/agent.provider';
+import { useAgentMessages, useOptionalAgentContext } from '@/contexts/agent.provider';
 import { findStories, findStoryDraft } from '@/lib/story.utils';
 
 export const useStoryViewerAgentState = (
@@ -9,10 +9,11 @@ export const useStoryViewerAgentState = (
 	isChatAgentRunning = false,
 ) => {
 	const agent = useOptionalAgentContext();
+	const agentMessages = useAgentMessages();
 
 	const effectiveMessages = useMemo(
-		() => (messages !== undefined ? (messages ?? []) : (agent?.messages ?? [])),
-		[messages, agent?.messages],
+		() => (messages !== undefined ? (messages ?? []) : agentMessages),
+		[messages, agentMessages],
 	);
 
 	const allStories = useMemo(() => findStories(effectiveMessages), [effectiveMessages]);

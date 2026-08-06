@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/main';
 import { useChatId } from '@/hooks/use-chat-id';
-import { useAgentContext } from '@/contexts/agent.provider';
+import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 
 const RADIUS = 8;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
@@ -51,7 +51,8 @@ interface ContextWindowRingProps {
 
 export function ContextWindowRing({ className }: ContextWindowRingProps) {
 	const chatId = useChatId();
-	const { selectedModel, messages, isRunning } = useAgentContext();
+	const { selectedModel, isRunning } = useAgentContext();
+	const messages = useAgentMessages();
 	const hasAssistantMessage = messages.some((m) => m.role === 'assistant');
 
 	const contextUsage = useQuery(

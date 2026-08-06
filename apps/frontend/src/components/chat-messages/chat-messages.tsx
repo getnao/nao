@@ -22,7 +22,7 @@ import {
 	ConversationScrollButton,
 } from '@/components/ui/conversation';
 import { cn, isLast } from '@/lib/utils';
-import { useAgentContext } from '@/contexts/agent.provider';
+import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 import { useHeight } from '@/hooks/use-height';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { useScrollToBottomOnNewUserMessage } from '@/hooks/use-scroll-to-bottom-on-new-user-message';
@@ -61,9 +61,10 @@ export function ChatMessages() {
 	);
 }
 
-export const ChatMessagesContent = memo(() => {
+export const ChatMessagesContent = memo(function ChatMessagesContent() {
 	const chatId = useChatId();
-	const { messages, isRunning } = useAgentContext();
+	const { isRunning } = useAgentContext();
+	const messages = useAgentMessages();
 	const chat = useChatQuery({ chatId });
 	const isAutomationRunning = chat.data?.automationRun?.status === 'running';
 	const effectiveIsRunning = isRunning || isAutomationRunning;
