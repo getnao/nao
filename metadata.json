@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "01KZB2S32478X1YCYTA8X6Z806",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "apps/backend/migrations-postgres/meta/0058_snapshot.json",
+    "apps/backend/migrations-sqlite/meta/0058_snapshot.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 59908,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 221184,
+    "output_tokens": 2236,
+    "api_call_count": 1
+  }
+}
