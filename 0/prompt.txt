@@ -1,0 +1,16 @@
+@chat/apps/backend/src/db/sqlite-schema.ts:706-707 can we merge the context recommendation model setup with the one in the default selector, i don't think we should have 2 way to save it in database, it should be the same
+
+---
+
+make the 0059 and the 0060 only one migration
+
+---
+
+in the branch feat/story-refreshes i have done a few things:
+
+- when a live story refresh fails display it
+- save to llminference all the background call
+- fix a usage chart
+- add the llminference to usage chart
+
+cherry pick this from there and add it to the current branch

@@ -1,0 +1,58 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "01KZBE9CX5SVHRSZ2DHT0XXG53",
+  "strategy": "manual-commit",
+  "branch": "feat/default-models-and-fixes",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "apps/backend/migrations-postgres/0059_add_project_default_models.sql",
+    "apps/backend/migrations-postgres/0059_defauls_models.sql",
+    "apps/backend/migrations-postgres/meta/0059_snapshot.json",
+    "apps/backend/migrations-postgres/meta/_journal.json",
+    "apps/backend/migrations-sqlite/0059_add_project_default_models.sql",
+    "apps/backend/migrations-sqlite/0059_defauls_models.sql",
+    "apps/backend/migrations-sqlite/meta/0059_snapshot.json",
+    "apps/backend/migrations-sqlite/meta/_journal.json",
+    "apps/backend/src/db/pg-schema.ts",
+    "apps/backend/src/db/sqlite-schema.ts",
+    "apps/backend/src/queries/activity.queries.ts",
+    "apps/backend/src/queries/usage.queries.ts",
+    "apps/backend/src/services/agent.ts",
+    "apps/backend/src/services/context-recommendations.service.ts",
+    "apps/backend/src/services/live-story.ts",
+    "apps/backend/src/trpc/context-recommendation.routes.ts",
+    "apps/backend/src/trpc/shared-story.routes.ts",
+    "apps/backend/src/trpc/story.routes.ts",
+    "apps/backend/src/types/llm.ts",
+    "apps/backend/tests/compaction.test.ts",
+    "apps/backend/tests/usage-queries.test.ts",
+    "apps/frontend/src/components/side-panel/hooks/use-story-viewer-content.ts",
+    "apps/frontend/src/components/side-panel/hooks/use-story-viewer-live-settings.ts",
+    "apps/frontend/src/components/side-panel/story-header.tsx",
+    "apps/frontend/src/components/side-panel/story-viewer.tsx",
+    "apps/frontend/src/components/story-page-header.tsx",
+    "apps/frontend/src/hooks/use-time-ago.ts",
+    "apps/frontend/src/routes/_sidebar-layout.settings.recommendations.tsx",
+    "apps/frontend/src/routes/_sidebar-layout.settings.usage.tsx",
+    "apps/frontend/src/routes/_sidebar-layout.stories.preview.$chatId.$storySlug.tsx",
+    "apps/frontend/src/routes/_sidebar-layout.stories.shared.$shareId.tsx",
+    "apps/frontend/src/routes/_sidebar-layout.stories.standalone.$storyId.tsx",
+    "apps/shared/src/background-models.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 168,
+    "cache_creation_tokens": 379310,
+    "cache_read_tokens": 15958030,
+    "output_tokens": 51937,
+    "api_call_count": 2
+  }
+}
