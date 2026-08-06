@@ -47,6 +47,13 @@ const COST_EXPR = {
 	output: sql<number>`coalesce(${s.chatMessage.outputTotalTokens}, 0) * coalesce(cost_lookup.output, 0) / 1000000.0`,
 };
 
+const INFERENCE_COST_EXPR = {
+	inputNoCache: sql<number>`coalesce(${s.llmInference.inputNoCacheTokens}, 0) * coalesce(cost_lookup.input_no_cache, 0) / 1000000.0`,
+	inputCacheRead: sql<number>`coalesce(${s.llmInference.inputCacheReadTokens}, 0) * coalesce(cost_lookup.input_cache_read, 0) / 1000000.0`,
+	inputCacheWrite: sql<number>`coalesce(${s.llmInference.inputCacheWriteTokens}, 0) * coalesce(cost_lookup.input_cache_write, 0) / 1000000.0`,
+	output: sql<number>`coalesce(${s.llmInference.outputTotalTokens}, 0) * coalesce(cost_lookup.output, 0) / 1000000.0`,
+};
+
 export const TOTAL_COST_EXPR = sql<number>`${COST_EXPR.inputNoCache} + ${COST_EXPR.inputCacheRead} + ${COST_EXPR.inputCacheWrite} + ${COST_EXPR.output}`;
 
 export async function createCostLookup(projectId: string) {
@@ -90,82 +97,163 @@ const MESSAGE_USAGE_SOURCE_EXPR = sql<UsageSource | null>`case
 	else ${s.chatMessage.source}
 end`;
 
+const INFERENCE_USAGE_SOURCE_EXPR = sql<UsageSource | null>`(
+	select source_message.source
+	from chat_message as source_message
+	where source_message.chat_id = ${s.llmInference.chatId}
+		and source_message.role = 'user'
+		and source_message.created_at <= ${s.llmInference.createdAt}
+	order by source_message.created_at desc
+	limit 1
+)`;
+
 export const getMessagesUsage = async (projectId: string, filter: UsageFilter): Promise<UsageRecord[]> => {
 	const { granularity, provider } = filter;
-	const dateExpr = getDateExpr(s.chatMessage.createdAt, granularity);
+	const messageDateExpr = getDateExpr(s.chatMessage.createdAt, granularity);
+	const inferenceDateExpr = getDateExpr(s.llmInference.createdAt, granularity);
 	const lookbackTs = getLookbackTimestamp(granularity);
-	const lookbackFilter =
+	const messageLookbackFilter =
 		dbConfig.dialect === Dialect.Postgres
 			? sql`${s.chatMessage.createdAt} >= ${new Date(lookbackTs).toISOString()}`
 			: sql`${s.chatMessage.createdAt} >= ${lookbackTs}`;
+	const inferenceLookbackFilter =
+		dbConfig.dialect === Dialect.Postgres
+			? sql`${s.llmInference.createdAt} >= ${new Date(lookbackTs).toISOString()}`
+			: sql`${s.llmInference.createdAt} >= ${lookbackTs}`;
 
-	const whereConditions = [eq(s.chat.projectId, projectId), lookbackFilter];
+	const messageWhereConditions = [eq(s.chat.projectId, projectId), messageLookbackFilter];
+	const inferenceWhereConditions = [eq(s.llmInference.projectId, projectId), inferenceLookbackFilter];
 	if (provider) {
-		whereConditions.push(sql`${MESSAGE_USAGE_PROVIDER_EXPR} = ${provider}`);
+		messageWhereConditions.push(sql`${MESSAGE_USAGE_PROVIDER_EXPR} = ${provider}`);
+		inferenceWhereConditions.push(eq(s.llmInference.llmProvider, provider));
 	}
-	addUserNameFilter(whereConditions, filter.userNames);
-	addSourceFilter(whereConditions, filter.sources);
+	addUserNameFilter(messageWhereConditions, filter.userNames);
+	addUserNameFilter(inferenceWhereConditions, filter.userNames);
+	addSourceFilter(messageWhereConditions, filter.sources);
+	addInferenceSourceFilter(inferenceWhereConditions, filter.sources);
 
 	const costLookup = await createCostLookup(projectId);
-
-	const rows = await db
-		.select({
-			date: dateExpr,
-			messageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' then ${s.chatMessage.id} end)`,
-			webMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'web' then ${s.chatMessage.id} end)`,
-			slackMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'slack' then ${s.chatMessage.id} end)`,
-			teamsMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'teams' then ${s.chatMessage.id} end)`,
-			telegramMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'telegram' then ${s.chatMessage.id} end)`,
-			whatsappMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'whatsapp' then ${s.chatMessage.id} end)`,
-			adminMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'admin' then ${s.chatMessage.id} end)`,
-			mcpMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'mcp' then ${s.chatMessage.id} end)`,
-			contextRecommendationsMessageCount: sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'contextRecommendations' then ${s.chatMessage.id} end)`,
-			inputNoCacheTokens: sum(s.chatMessage.inputNoCacheTokens),
-			inputCacheReadTokens: sum(s.chatMessage.inputCacheReadTokens),
-			inputCacheWriteTokens: sum(s.chatMessage.inputCacheWriteTokens),
-			outputTotalTokens: sum(s.chatMessage.outputTotalTokens),
-			totalTokens: sum(s.chatMessage.totalTokens),
-			inputNoCacheCost: sql<number>`sum(${COST_EXPR.inputNoCache})`,
-			inputCacheReadCost: sql<number>`sum(${COST_EXPR.inputCacheRead})`,
-			inputCacheWriteCost: sql<number>`sum(${COST_EXPR.inputCacheWrite})`,
-			outputCost: sql<number>`sum(${COST_EXPR.output})`,
-		})
-		.from(s.chatMessage)
-		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
-		.innerJoin(s.user, eq(s.chat.userId, s.user.id))
-		.leftJoin(costLookup.table, costLookup.joinCondition)
-		.where(and(...whereConditions))
-		.groupBy(dateExpr);
-
-	return fillMissingDates(
-		rows.map((row) => ({
-			date: row.date,
-			messageCount: Number(row.messageCount ?? 0),
-			webMessageCount: Number(row.webMessageCount ?? 0),
-			slackMessageCount: Number(row.slackMessageCount ?? 0),
-			teamsMessageCount: Number(row.teamsMessageCount ?? 0),
-			telegramMessageCount: Number(row.telegramMessageCount ?? 0),
-			whatsappMessageCount: Number(row.whatsappMessageCount ?? 0),
-			adminMessageCount: Number(row.adminMessageCount ?? 0),
-			mcpMessageCount: Number(row.mcpMessageCount ?? 0),
-			contextRecommendationsMessageCount: Number(row.contextRecommendationsMessageCount ?? 0),
-			inputNoCacheTokens: Number(row.inputNoCacheTokens ?? 0),
-			inputCacheReadTokens: Number(row.inputCacheReadTokens ?? 0),
-			inputCacheWriteTokens: Number(row.inputCacheWriteTokens ?? 0),
-			outputTotalTokens: Number(row.outputTotalTokens ?? 0),
-			totalTokens: Number(row.totalTokens ?? 0),
-			inputNoCacheCost: Number(row.inputNoCacheCost ?? 0),
-			inputCacheReadCost: Number(row.inputCacheReadCost ?? 0),
-			inputCacheWriteCost: Number(row.inputCacheWriteCost ?? 0),
-			outputCost: Number(row.outputCost ?? 0),
-			totalCost:
-				Number(row.inputNoCacheCost ?? 0) +
-				Number(row.inputCacheReadCost ?? 0) +
-				Number(row.inputCacheWriteCost ?? 0) +
-				Number(row.outputCost ?? 0),
-		})),
-		granularity,
+	const messageUsage = db.$with('message_usage').as(
+		db
+			.select({
+				date: messageDateExpr.as('date'),
+				messageCount:
+					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' then ${s.chatMessage.id} end)`.as(
+						'message_count',
+					),
+				webMessageCount:
+					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'web' then ${s.chatMessage.id} end)`.as(
+						'web_message_count',
+					),
+				slackMessageCount:
+					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'slack' then ${s.chatMessage.id} end)`.as(
+						'slack_message_count',
+					),
+				teamsMessageCount:
+					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'teams' then ${s.chatMessage.id} end)`.as(
+						'teams_message_count',
+					),
+				telegramMessageCount:
+					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'telegram' then ${s.chatMessage.id} end)`.as(
+						'telegram_message_count',
+					),
+				whatsappMessageCount:
+					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'whatsapp' then ${s.chatMessage.id} end)`.as(
+						'whatsapp_message_count',
+					),
+				adminMessageCount:
+					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'admin' then ${s.chatMessage.id} end)`.as(
+						'admin_message_count',
+					),
+				mcpMessageCount:
+					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'mcp' then ${s.chatMessage.id} end)`.as(
+						'mcp_message_count',
+					),
+				contextRecommendationsMessageCount:
+					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'contextRecommendations' then ${s.chatMessage.id} end)`.as(
+						'context_recommendations_message_count',
+					),
+				inputNoCacheTokens: sum(s.chatMessage.inputNoCacheTokens).as('input_no_cache_tokens'),
+				inputCacheReadTokens: sum(s.chatMessage.inputCacheReadTokens).as('input_cache_read_tokens'),
+				inputCacheWriteTokens: sum(s.chatMessage.inputCacheWriteTokens).as('input_cache_write_tokens'),
+				outputTotalTokens: sum(s.chatMessage.outputTotalTokens).as('output_total_tokens'),
+				totalTokens: sum(s.chatMessage.totalTokens).as('total_tokens'),
+				inputNoCacheCost: sql<number>`sum(${COST_EXPR.inputNoCache})`.as('input_no_cache_cost'),
+				inputCacheReadCost: sql<number>`sum(${COST_EXPR.inputCacheRead})`.as('input_cache_read_cost'),
+				inputCacheWriteCost: sql<number>`sum(${COST_EXPR.inputCacheWrite})`.as('input_cache_write_cost'),
+				outputCost: sql<number>`sum(${COST_EXPR.output})`.as('output_cost'),
+			})
+			.from(s.chatMessage)
+			.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
+			.innerJoin(s.user, eq(s.chat.userId, s.user.id))
+			.leftJoin(costLookup.table, costLookup.joinCondition)
+			.where(and(...messageWhereConditions))
+			.groupBy(messageDateExpr),
 	);
+	const inferenceUsage = db.$with('inference_usage').as(
+		db
+			.select({
+				date: inferenceDateExpr.as('date'),
+				messageCount: sql<number>`0`.as('message_count'),
+				webMessageCount: sql<number>`0`.as('web_message_count'),
+				slackMessageCount: sql<number>`0`.as('slack_message_count'),
+				teamsMessageCount: sql<number>`0`.as('teams_message_count'),
+				telegramMessageCount: sql<number>`0`.as('telegram_message_count'),
+				whatsappMessageCount: sql<number>`0`.as('whatsapp_message_count'),
+				adminMessageCount: sql<number>`0`.as('admin_message_count'),
+				mcpMessageCount: sql<number>`0`.as('mcp_message_count'),
+				contextRecommendationsMessageCount: sql<number>`0`.as('context_recommendations_message_count'),
+				inputNoCacheTokens: sum(s.llmInference.inputNoCacheTokens).as('input_no_cache_tokens'),
+				inputCacheReadTokens: sum(s.llmInference.inputCacheReadTokens).as('input_cache_read_tokens'),
+				inputCacheWriteTokens: sum(s.llmInference.inputCacheWriteTokens).as('input_cache_write_tokens'),
+				outputTotalTokens: sum(s.llmInference.outputTotalTokens).as('output_total_tokens'),
+				totalTokens: sum(s.llmInference.totalTokens).as('total_tokens'),
+				inputNoCacheCost: sql<number>`sum(${INFERENCE_COST_EXPR.inputNoCache})`.as('input_no_cache_cost'),
+				inputCacheReadCost: sql<number>`sum(${INFERENCE_COST_EXPR.inputCacheRead})`.as('input_cache_read_cost'),
+				inputCacheWriteCost: sql<number>`sum(${INFERENCE_COST_EXPR.inputCacheWrite})`.as(
+					'input_cache_write_cost',
+				),
+				outputCost: sql<number>`sum(${INFERENCE_COST_EXPR.output})`.as('output_cost'),
+			})
+			.from(s.llmInference)
+			.innerJoin(s.user, eq(s.llmInference.userId, s.user.id))
+			.leftJoin(
+				costLookup.table,
+				sql`cost_lookup.provider = ${s.llmInference.llmProvider} AND cost_lookup.model_id = ${s.llmInference.llmModelId}`,
+			)
+			.where(and(...inferenceWhereConditions))
+			.groupBy(inferenceDateExpr),
+	);
+	const combinedUsage = db
+		.$with('combined_usage')
+		.as(db.select().from(messageUsage).unionAll(db.select().from(inferenceUsage)));
+	const rows = await db
+		.with(messageUsage, inferenceUsage, combinedUsage)
+		.select({
+			date: combinedUsage.date,
+			messageCount: sum(combinedUsage.messageCount),
+			webMessageCount: sum(combinedUsage.webMessageCount),
+			slackMessageCount: sum(combinedUsage.slackMessageCount),
+			teamsMessageCount: sum(combinedUsage.teamsMessageCount),
+			telegramMessageCount: sum(combinedUsage.telegramMessageCount),
+			whatsappMessageCount: sum(combinedUsage.whatsappMessageCount),
+			adminMessageCount: sum(combinedUsage.adminMessageCount),
+			mcpMessageCount: sum(combinedUsage.mcpMessageCount),
+			contextRecommendationsMessageCount: sum(combinedUsage.contextRecommendationsMessageCount),
+			inputNoCacheTokens: sum(combinedUsage.inputNoCacheTokens),
+			inputCacheReadTokens: sum(combinedUsage.inputCacheReadTokens),
+			inputCacheWriteTokens: sum(combinedUsage.inputCacheWriteTokens),
+			outputTotalTokens: sum(combinedUsage.outputTotalTokens),
+			totalTokens: sum(combinedUsage.totalTokens),
+			inputNoCacheCost: sum(combinedUsage.inputNoCacheCost),
+			inputCacheReadCost: sum(combinedUsage.inputCacheReadCost),
+			inputCacheWriteCost: sum(combinedUsage.inputCacheWriteCost),
+			outputCost: sum(combinedUsage.outputCost),
+		})
+		.from(combinedUsage)
+		.groupBy(({ date }) => date);
+
+	return fillMissingDates(rows.map(normalizeMessageUsageRow), granularity);
 };
 
 export const getTotalUsage = async (projectId: string, filter: UsageFilter): Promise<TotalUsageRecord> => {
@@ -200,15 +288,78 @@ export const getTotalUsage = async (projectId: string, filter: UsageFilter): Pro
 };
 
 export const getUsedProviders = async (projectId: string): Promise<LlmProvider[]> => {
-	const rows = await db
-		.selectDistinct({ provider: s.chatMessage.llmProvider })
-		.from(s.chatMessage)
-		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
-		.where(and(eq(s.chat.projectId, projectId), isNotNull(s.chatMessage.llmProvider)))
-		.execute();
+	const [messageRows, inferenceRows] = await Promise.all([
+		db
+			.selectDistinct({ provider: s.chatMessage.llmProvider })
+			.from(s.chatMessage)
+			.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
+			.where(and(eq(s.chat.projectId, projectId), isNotNull(s.chatMessage.llmProvider)))
+			.execute(),
+		db
+			.selectDistinct({ provider: s.llmInference.llmProvider })
+			.from(s.llmInference)
+			.where(eq(s.llmInference.projectId, projectId))
+			.execute(),
+	]);
 
-	return rows.map((row) => row.provider).filter((p): p is LlmProvider => p !== null);
+	return [
+		...new Set(
+			[...messageRows, ...inferenceRows]
+				.map((row) => row.provider)
+				.filter((provider): provider is LlmProvider => provider !== null),
+		),
+	];
 };
+
+function normalizeMessageUsageRow(row: {
+	date: string;
+	messageCount: unknown;
+	webMessageCount: unknown;
+	slackMessageCount: unknown;
+	teamsMessageCount: unknown;
+	telegramMessageCount: unknown;
+	whatsappMessageCount: unknown;
+	adminMessageCount: unknown;
+	mcpMessageCount: unknown;
+	contextRecommendationsMessageCount: unknown;
+	inputNoCacheTokens: unknown;
+	inputCacheReadTokens: unknown;
+	inputCacheWriteTokens: unknown;
+	outputTotalTokens: unknown;
+	totalTokens: unknown;
+	inputNoCacheCost: unknown;
+	inputCacheReadCost: unknown;
+	inputCacheWriteCost: unknown;
+	outputCost: unknown;
+}): UsageRecord {
+	const inputNoCacheCost = Number(row.inputNoCacheCost ?? 0);
+	const inputCacheReadCost = Number(row.inputCacheReadCost ?? 0);
+	const inputCacheWriteCost = Number(row.inputCacheWriteCost ?? 0);
+	const outputCost = Number(row.outputCost ?? 0);
+
+	return {
+		date: row.date,
+		messageCount: Number(row.messageCount ?? 0),
+		webMessageCount: Number(row.webMessageCount ?? 0),
+		slackMessageCount: Number(row.slackMessageCount ?? 0),
+		teamsMessageCount: Number(row.teamsMessageCount ?? 0),
+		telegramMessageCount: Number(row.telegramMessageCount ?? 0),
+		whatsappMessageCount: Number(row.whatsappMessageCount ?? 0),
+		adminMessageCount: Number(row.adminMessageCount ?? 0),
+		mcpMessageCount: Number(row.mcpMessageCount ?? 0),
+		contextRecommendationsMessageCount: Number(row.contextRecommendationsMessageCount ?? 0),
+		inputNoCacheTokens: Number(row.inputNoCacheTokens ?? 0),
+		inputCacheReadTokens: Number(row.inputCacheReadTokens ?? 0),
+		inputCacheWriteTokens: Number(row.inputCacheWriteTokens ?? 0),
+		outputTotalTokens: Number(row.outputTotalTokens ?? 0),
+		totalTokens: Number(row.totalTokens ?? 0),
+		inputNoCacheCost,
+		inputCacheReadCost,
+		inputCacheWriteCost,
+		outputCost,
+		totalCost: inputNoCacheCost + inputCacheReadCost + inputCacheWriteCost + outputCost,
+	};
+}
 
 function addUserNameFilter(whereConditions: SQL<unknown>[], userNames: string[] | undefined) {
 	const names = userNames?.filter(Boolean) ?? [];
@@ -228,6 +379,17 @@ function addSourceFilter(whereConditions: SQL<unknown>[], sources: UsageSource[]
 	}
 
 	const expr = or(...sources.map((source) => eq(MESSAGE_USAGE_SOURCE_EXPR, source)));
+	if (expr) {
+		whereConditions.push(expr);
+	}
+}
+
+function addInferenceSourceFilter(whereConditions: SQL<unknown>[], sources: UsageSource[] | undefined) {
+	if (!sources?.length) {
+		return;
+	}
+
+	const expr = or(...sources.map((source) => eq(INFERENCE_USAGE_SOURCE_EXPR, source)));
 	if (expr) {
 		whereConditions.push(expr);
 	}

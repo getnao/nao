@@ -12,6 +12,7 @@ import {
 	X,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { selectBackgroundModel } from '@nao/shared';
 import {
 	CONTEXT_RECOMMENDATION_CATEGORIES,
 	CONTEXT_RECOMMENDATION_CATEGORY_LABELS,
@@ -22,7 +23,6 @@ import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import type { TrpcRouter } from '@nao/backend/trpc';
-import type { LlmProvider } from '@nao/shared/types';
 import type { inferRouterOutputs } from '@trpc/server';
 
 import type { TabBarItem } from '@/components/ui/tab-bar';
@@ -888,20 +888,23 @@ function ConfigTab({ enabled }: { enabled: boolean }) {
 
 	const availableModels = useQuery({ ...trpc.contextRecommendation.listAvailableModels.queryOptions(), enabled });
 	const config = useQuery({ ...trpc.contextRecommendation.getConfig.queryOptions(), enabled });
+	const defaultModels = useQuery({ ...trpc.project.getDefaultModels.queryOptions(), enabled });
 	const setConfig = useMutation(trpc.contextRecommendation.setConfig.mutationOptions());
 
 	const invalidateConfig = () => {
 		queryClient.invalidateQueries({ queryKey: trpc.contextRecommendation.getConfig.queryKey() });
+		queryClient.invalidateQueries({ queryKey: trpc.project.getDefaultModels.queryOptions().queryKey });
 	};
 
-	const selectedModelValue =
-		config.data?.modelProvider && config.data?.modelId
-			? `${config.data.modelProvider}:${config.data.modelId}`
-			: undefined;
+	const selectedModel = selectBackgroundModel(defaultModels.data?.settings, 'context_recommendation');
+	const selectedModelValue = selectedModel ? `${selectedModel.provider}:${selectedModel.modelId}` : undefined;
 
 	const handleModelChange = async (value: string) => {
-		const [provider, ...rest] = value.split(':');
-		await setConfig.mutateAsync({ modelProvider: provider as LlmProvider, modelId: rest.join(':') });
+		const model = availableModels.data?.find((m) => `${m.provider}:${m.modelId}` === value);
+		if (!model) {
+			return;
+		}
+		await setConfig.mutateAsync({ modelProvider: model.provider, modelId: model.modelId });
 		invalidateConfig();
 	};
 

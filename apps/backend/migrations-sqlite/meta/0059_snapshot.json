@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "4ff17ae4-bda7-4d94-b7ca-8038e0d5b5a5",
+  "id": "6d7bee11-1d2e-4d91-bc5b-a9dd9343717c",
   "prevId": "e09d1999-4cc0-47f5-ba37-12d9ab388b46",
   "tables": {
     "account": {
@@ -1772,20 +1772,6 @@
           "type": "text",
           "primaryKey": true,
           "notNull": true,
-          "autoincrement": false
-        },
-        "model_provider": {
-          "name": "model_provider",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "model_id": {
-          "name": "model_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         },
         "frequency": {

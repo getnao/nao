@@ -1,11 +1,13 @@
+import { setBackgroundModelForCategory } from '@nao/shared';
 import { MAX_TRIGGER_CHATS } from '@nao/shared/context-recommendation';
-import { REPO_PROVIDERS } from '@nao/shared/types';
+import { type LlmSelectedModel, REPO_PROVIDERS } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { env } from '../env';
 import { ensureContextRecommendationsSchedule } from '../handlers/context-recommendations.handler';
 import * as crQueries from '../queries/context-recommendation.queries';
+import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import { agentService } from '../services/agent';
 import { createRecommendationPullRequest, resolveRecommendationRepo } from '../services/context-pr.service';
@@ -108,13 +110,17 @@ export const contextRecommendationRoutes = {
 					? input.customSystemPromptInstructions?.trim() || null
 					: undefined;
 			await crQueries.updateConfig(ctx.project.id, {
-				modelProvider: input.modelProvider,
-				modelId: input.modelId,
 				frequency: input.frequency,
 				customSystemPromptInstructions,
 				autoCreatePrs: input.autoCreatePrs,
 				maxAutoPrsPerRun: input.maxAutoPrsPerRun,
 			});
+			if (input.modelProvider && input.modelId) {
+				await setContextRecommendationModel(ctx.project.id, {
+					provider: input.modelProvider,
+					modelId: input.modelId,
+				});
+			}
 			if (input.frequency) {
 				await ensureContextRecommendationsSchedule(ctx.project.id, input.frequency, { reset: true });
 			}
@@ -226,3 +232,11 @@ export const contextRecommendationRoutes = {
 		.input(z.object({ chatIds: z.array(z.string()).max(MAX_TRIGGER_CHATS) }))
 		.query(async ({ ctx, input }) => crQueries.getRecommendationChatMetadata(ctx.project.id, input.chatIds)),
 };
+
+async function setContextRecommendationModel(projectId: string, selection: LlmSelectedModel): Promise<void> {
+	const settings = await projectQueries.getDefaultModelSettings(projectId);
+	await projectQueries.updateDefaultModelSettings(
+		projectId,
+		setBackgroundModelForCategory(settings, 'context_recommendation', selection),
+	);
+}

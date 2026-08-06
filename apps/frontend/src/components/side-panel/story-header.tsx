@@ -22,6 +22,7 @@ import { memo, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { StorySummary } from '@/lib/story.utils';
 import type { StoryViewMode } from './story-viewer.types';
+import type { StoryRefreshFailure } from '@/components/story-page-header';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
 import { StoryDownload } from '@/components/story-download';
@@ -35,7 +36,7 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { SwitchIndicator } from '@/components/ui/switch';
-import { LiveStoryTimestamp } from '@/components/story-page-header';
+import { LiveStoryTimestamp, StoryRefreshFailureBanner } from '@/components/story-page-header';
 import { cn } from '@/lib/utils';
 
 export interface StoryHeaderProps {
@@ -72,6 +73,7 @@ export interface StoryHeaderProps {
 	isCodeDirty?: boolean;
 	isCodeValid?: boolean;
 	cachedAt?: string | Date | null;
+	lastRefreshFailure?: StoryRefreshFailure | null;
 }
 
 export const StoryHeader = memo(function StoryHeader({
@@ -108,6 +110,7 @@ export const StoryHeader = memo(function StoryHeader({
 	isCodeDirty = false,
 	isCodeValid = true,
 	cachedAt,
+	lastRefreshFailure,
 }: StoryHeaderProps) {
 	const isMobile = useIsMobile();
 	const { toggle: toggleFavorite, isPending: isFavoritePending } = useToggleFavorite('story');
@@ -349,6 +352,7 @@ export const StoryHeader = memo(function StoryHeader({
 				</div>
 			)}
 
+			{lastRefreshFailure && <StoryRefreshFailureBanner failure={lastRefreshFailure} />}
 			{showSubHeader && (
 				<div className='flex items-center justify-between border-b bg-muted/40 px-4 py-2'>
 					{viewMode === 'edit' ? (

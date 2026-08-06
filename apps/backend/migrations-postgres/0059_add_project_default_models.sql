@@ -1,1 +1,0 @@
-ALTER TABLE "project" ADD COLUMN "default_models" jsonb;

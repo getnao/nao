@@ -1,5 +1,5 @@
 {
-  "id": "e8bf7982-e73c-46a5-abbb-d4fa376c0487",
+  "id": "4c7adea6-c77e-4441-8693-b92695adb595",
   "prevId": "f37fc117-dc8b-4b1c-a093-c54e6ce58222",
   "version": "7",
   "dialect": "postgresql",
@@ -1954,18 +1954,6 @@
           "type": "text",
           "primaryKey": true,
           "notNull": true
-        },
-        "model_provider": {
-          "name": "model_provider",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "model_id": {
-          "name": "model_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "frequency": {
           "name": "frequency",

@@ -100,6 +100,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		storyCode,
 		queryData,
 		cachedAt,
+		lastRefreshFailure,
 		isLoading: isContentLoading,
 	} = useStoryViewerContent({
 		storySlug,
@@ -244,6 +245,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 				isCodeDirty={isCodeDirty}
 				isCodeValid={isCodeValid}
 				cachedAt={cachedAt}
+				lastRefreshFailure={lastRefreshFailure}
 			/>
 
 			{Boolean(archivedAt) && <ArchivedBanner chatId={chatId} storySlug={resolvedStorySlug} />}

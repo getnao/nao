@@ -14,10 +14,18 @@ import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { getQueryDataFromCode } from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
+import { convertToTokenUsage } from '../utils/ai';
 import { getDefaultModelId, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
+import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { backfillMissingQueryData, findMissingQueryIds } from '../utils/story-query-data';
 import { MAX_OUTPUT_TOKENS } from './agent';
 const MAX_RENDERED_ROWS = 60;
+
+interface StoryRefreshTarget {
+	projectId: string;
+	userId: string;
+	chatId: string;
+}
 
 export async function executeLiveQuery(
 	chatId: string,
@@ -57,12 +65,12 @@ export async function refreshStoryData(chatId: string, slug: string): Promise<Re
 		return { queryData: {} };
 	}
 
-	const projectId = await chatQueries.getChatProjectId(chatId);
-	if (!projectId) {
+	const chat = await chatQueries.getChatInfo(chatId);
+	if (!chat) {
 		throw new Error('Chat project not found');
 	}
 
-	const project = await projectQueries.retrieveProjectById(projectId);
+	const project = await projectQueries.retrieveProjectById(chat.projectId);
 	if (!project.path) {
 		throw new Error('Project path not configured');
 	}
@@ -71,7 +79,7 @@ export async function refreshStoryData(chatId: string, slug: string): Promise<Re
 
 	await Promise.all(
 		Object.entries(sqlQueries).map(async ([queryId, { sqlQuery, databaseId }]) => {
-			const projectEnvVars = await projectQueries.getEnvVars(projectId);
+			const projectEnvVars = await projectQueries.getEnvVars(chat.projectId);
 			const result = await executeRawSql(
 				stripSqlFilterBlocks(sqlQuery),
 				project.path!,
@@ -83,7 +91,12 @@ export async function refreshStoryData(chatId: string, slug: string): Promise<Re
 	);
 
 	if (version.isLiveTextDynamic) {
-		const newCode = await generateDynamicStoryCode(projectId, version.title, version.code, queryData);
+		const newCode = await generateDynamicStoryCode(
+			{ projectId: chat.projectId, userId: chat.userId, chatId },
+			version.title,
+			version.code,
+			queryData,
+		);
 		if (newCode) {
 			await storyQueries.updateLatestVersionCode(chatId, slug, newCode);
 		}
@@ -178,11 +191,12 @@ function isCacheExpired(cachedAt: Date, cacheSchedule: string | null): boolean {
 }
 
 async function generateDynamicStoryCode(
-	projectId: string,
+	target: StoryRefreshTarget,
 	title: string,
 	originalCode: string,
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
 ): Promise<string | null> {
+	const { projectId } = target;
 	const pinned = await resolveDefaultModelSelection(projectId, 'live_story');
 	const provider = pinned?.provider ?? (await llmConfigQueries.getProjectModelProvider(projectId));
 	if (!provider) {
@@ -199,7 +213,7 @@ async function generateDynamicStoryCode(
 		const querySummaries = buildQueryDataSummary(queryData);
 		const systemPrompt = renderToMarkdown(LiveStoryRefreshPrompt({ title, originalCode, querySummaries }));
 
-		const { output } = await generateText({
+		const { output, usage } = await generateText({
 			...model,
 			system: systemPrompt,
 			messages: [{ role: 'user', content: 'Refresh the story narrative with the latest query results.' }],
@@ -212,14 +226,24 @@ async function generateDynamicStoryCode(
 			experimental_telemetry: llmTelemetry('nao-live-story', { projectId, tags: [provider] }),
 		});
 
+		scheduleSaveLlmInferenceRecord({
+			type: 'live_story_refresh',
+			projectId,
+			userId: target.userId,
+			chatId: target.chatId,
+			llmProvider: provider,
+			llmModelId: model.model.modelId,
+			...convertToTokenUsage(usage),
+		});
+
 		const candidate = stripCodeFence(output.code.trim());
 		if (!candidate || !preservesStoryStructure(originalCode, candidate)) {
 			return null;
 		}
 
 		return candidate;
-	} catch {
-		return null;
+	} catch (error) {
+		throw error instanceof Error ? error : new Error(String(error));
 	}
 }
 

@@ -64,6 +64,7 @@ import {
 } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { addPromptCache } from '../utils/prompt-cache';
+import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt } from '../utils/title';
 import { truncateMiddle } from '../utils/utils';
 import { listChartPlugins } from './chart-plugin';
@@ -737,7 +738,7 @@ class AgentManager {
 			return;
 		}
 
-		const { text } = await generateText({
+		const { text, usage } = await generateText({
 			...disableModelReasoning(provider, modelResult),
 			system: 'Generate a short, descriptive title (3-8 words) for this conversation based on the user message. Always generate a title, no matter the input. Only capitalize the first letter of the title and nouns. Answer with the title alone, without quotes or any other text.',
 			messages: [
@@ -754,6 +755,8 @@ class AgentManager {
 			}),
 		});
 
+		this._trackTitleGenerationInference(summaryModelId, convertToTokenUsage(usage));
+
 		const title = sanitizeTitle(text) || titleFromPrompt(userMessageText);
 		if (!title) {
 			return;
@@ -766,6 +769,18 @@ class AgentManager {
 		} catch {
 			// Stream may already be closed — the DB is updated regardless
 		}
+	}
+
+	private _trackTitleGenerationInference(modelId: string, usage: TokenUsage): void {
+		scheduleSaveLlmInferenceRecord({
+			type: 'title_generation',
+			projectId: this.chat.projectId,
+			userId: this.chat.userId,
+			chatId: this.chat.id,
+			llmProvider: this._modelSelection.provider,
+			llmModelId: modelId,
+			...usage,
+		});
 	}
 
 	private async _getTotalUsage(

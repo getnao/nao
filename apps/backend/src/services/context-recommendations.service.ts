@@ -7,11 +7,7 @@ import { ContextFixCollector, createContextFixCollector } from '../agents/tools/
 import { createQueryAppDbTool } from '../agents/tools/query-app-db';
 import { createRecommendationCollector } from '../agents/tools/record-recommendation';
 import { renderContextRecommendationsPrompt, renderContextRecommendationsSystemPrompt } from '../components/ai';
-import s, {
-	DBContextRecommendation,
-	DBContextRecommendationConfig,
-	NewContextRecommendation,
-} from '../db/abstractSchema';
+import s, { DBContextRecommendation, NewContextRecommendation } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
 import * as chatQueries from '../queries/chat.queries';
 import * as crQueries from '../queries/context-recommendation.queries';
@@ -48,8 +44,7 @@ export async function runContextRecommendations(
 	const periodStart = period?.start ?? (await resolvePeriodStart(projectId, periodEnd));
 
 	const config = await crQueries.getConfig(projectId);
-	const configuredModel =
-		resolveConfiguredModel(config) ?? (await resolveDefaultModelSelection(projectId, 'context_recommendation'));
+	const configuredModel = await resolveDefaultModelSelection(projectId, 'context_recommendation');
 	const model = await agentService.resolveModelSelection(projectId, configuredModel ?? undefined);
 
 	const run = await crQueries.createRun({
@@ -184,13 +179,6 @@ export async function repairRecommendationTriggerRefs<T extends { insights: Reco
 		crQueries.filterExistingProjectChatIds(projectId, chatIds),
 	]);
 	return repairTriggerRefs(items, resolvedByTarget, validChatIds);
-}
-
-function resolveConfiguredModel(config: DBContextRecommendationConfig | null): LlmSelectedModel | undefined {
-	if (config?.modelProvider && config?.modelId) {
-		return { provider: config.modelProvider, modelId: config.modelId };
-	}
-	return undefined; // agentService resolves the project default
 }
 
 async function resolvePeriodStart(projectId: string, end: Date): Promise<Date> {

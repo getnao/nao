@@ -703,8 +703,6 @@ export const contextRecommendationConfig = sqliteTable('context_recommendation_c
 	projectId: text('project_id')
 		.primaryKey()
 		.references(() => project.id, { onDelete: 'cascade' }),
-	modelProvider: text('model_provider').$type<LlmProvider>(),
-	modelId: text('model_id'),
 	frequency: text('frequency', { enum: CONTEXT_RECOMMENDATION_FREQUENCIES }),
 	customSystemPromptInstructions: text('custom_system_prompt_instructions'),
 	repoFullName: text('repo_full_name'),
