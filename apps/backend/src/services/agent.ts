@@ -902,16 +902,9 @@ class AgentManager {
 
 	private _expandSkillMention(text: string, mention: Mention, skill: string): string {
 		const tokens = [`${mention.trigger}[${mention.label}]`, `${mention.trigger}[${mention.id}]`];
-		let expanded = text;
-		let didExpand = false;
-		for (const token of tokens) {
-			if (expanded.includes(token)) {
-				expanded = expanded.replaceAll(token, () => skill);
-				didExpand = true;
-			}
-		}
-		if (didExpand) {
-			return expanded.trim();
+		const matchedToken = tokens.find((token) => text.includes(token));
+		if (matchedToken) {
+			return text.replaceAll(matchedToken, () => skill).trim();
 		}
 		const rest = text.trim();
 		return rest ? `${skill}\n\n${rest}` : skill;
