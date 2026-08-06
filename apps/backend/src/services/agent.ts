@@ -891,10 +891,23 @@ class AgentManager {
 		const skillContent = skillMention
 			? skillService.getSkillContent(this.chat.projectId, skillMention.id)
 			: undefined;
-		if (!skillContent) {
+		if (!skillMention || !skillContent) {
 			return messages;
 		}
-		return this._transformLastUserMessageText(messages, () => truncateMiddle(skillContent, 16_000));
+		const skill = truncateMiddle(skillContent, 16_000);
+		return this._transformLastUserMessageText(messages, (text) =>
+			this._expandSkillMention(text, skillMention, skill),
+		);
+	}
+
+	private _expandSkillMention(text: string, mention: Mention, skill: string): string {
+		for (const token of [`${mention.trigger}[${mention.label}]`, `${mention.trigger}[${mention.id}]`]) {
+			if (text.includes(token)) {
+				return text.replace(token, skill).trim();
+			}
+		}
+		const rest = text.trim();
+		return rest ? `${skill}\n\n${rest}` : skill;
 	}
 
 	private _addDatabaseContext(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
