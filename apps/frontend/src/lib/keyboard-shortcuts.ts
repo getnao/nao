@@ -16,6 +16,7 @@ export type ShortcutDefinition = {
 	label: string;
 	group: ShortcutGroup;
 	shortcut: Shortcut;
+	alternateShortcuts?: readonly Shortcut[];
 	allowInInput?: boolean;
 };
 
@@ -37,6 +38,7 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
 		label: 'Keyboard shortcuts',
 		group: 'General',
 		shortcut: { mod: true, key: '/' },
+		alternateShortcuts: [{ mod: true, key: ':' }],
 	},
 	{
 		id: 'new-chat',
@@ -78,7 +80,8 @@ export function getShortcutTokens(id: ShortcutId): string[] {
 }
 
 export function getShortcutLabel(id: ShortcutId): string {
-	return formatShortcutLabel(getShortcut(id).shortcut);
+	const { shortcut, alternateShortcuts = [] } = getShortcut(id);
+	return [shortcut, ...alternateShortcuts].map(formatShortcutLabel).join(' · ');
 }
 
 export function isTypingTarget(event: KeyboardEvent): boolean {

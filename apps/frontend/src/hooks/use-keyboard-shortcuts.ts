@@ -20,7 +20,8 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
 				if (isTypingTarget(event) && !isAllowedWhileTyping(entry)) {
 					continue;
 				}
-				if (matchesShortcut(event, entry.shortcut)) {
+				const shortcuts = [entry.shortcut, ...(entry.alternateShortcuts ?? [])];
+				if (shortcuts.some((shortcut) => matchesShortcut(event, shortcut))) {
 					event.preventDefault();
 					if (!event.repeat) {
 						handler();
