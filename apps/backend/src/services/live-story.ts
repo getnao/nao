@@ -14,7 +14,7 @@ import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { getQueryDataFromCode } from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
-import { getDefaultModelId, resolveProviderModel } from '../utils/llm';
+import { getDefaultModelId, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
 import { backfillMissingQueryData, findMissingQueryIds } from '../utils/story-query-data';
 import { MAX_OUTPUT_TOKENS } from './agent';
 const MAX_RENDERED_ROWS = 60;
@@ -183,12 +183,14 @@ async function generateDynamicStoryCode(
 	originalCode: string,
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
 ): Promise<string | null> {
-	const provider = await llmConfigQueries.getProjectModelProvider(projectId);
+	const pinned = await resolveDefaultModelSelection(projectId, 'live_story');
+	const provider = pinned?.provider ?? (await llmConfigQueries.getProjectModelProvider(projectId));
 	if (!provider) {
 		return null;
 	}
 
-	const model = await resolveProviderModel(projectId, provider, getDefaultModelId(provider));
+	const modelId = pinned?.modelId ?? getDefaultModelId(provider);
+	const model = await resolveProviderModel(projectId, provider, modelId);
 	if (!model) {
 		return null;
 	}

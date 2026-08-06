@@ -4,7 +4,7 @@ import { generateText } from 'ai';
 import { disableModelReasoning, getProviderMeta, type ProviderModelResult } from '../agents/providers';
 import { llmTelemetry } from '../agents/telemetry';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
-import { resolveAnnotationModelId, resolveProviderModel } from '../utils/llm';
+import { resolveAnnotationModelId, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
 import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt } from '../utils/title';
 
 const FALLBACK_TITLE = 'Untitled automation';
@@ -43,7 +43,9 @@ async function resolveModelForProject(
 	projectId: string,
 	modelSelection?: LlmSelectedModel,
 ): Promise<{ provider: LlmProvider; model: ProviderModelResult } | null> {
-	const provider = modelSelection?.provider ?? (await llmConfigQueries.getProjectModelProvider(projectId));
+	const pinned = modelSelection ? null : await resolveDefaultModelSelection(projectId, 'title');
+	const provider =
+		modelSelection?.provider ?? pinned?.provider ?? (await llmConfigQueries.getProjectModelProvider(projectId));
 	if (!provider) {
 		return null;
 	}
@@ -51,7 +53,7 @@ async function resolveModelForProject(
 	const defaultModelId = getProviderMeta(provider).summaryModelId;
 	const modelId = modelSelection
 		? await resolveAnnotationModelId(projectId, modelSelection, defaultModelId)
-		: defaultModelId;
+		: (pinned?.modelId ?? defaultModelId);
 	const model = await resolveProviderModel(projectId, provider, modelId, false);
 	return model ? { provider, model } : null;
 }

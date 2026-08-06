@@ -1,4 +1,4 @@
-import type { CustomBoundarySet, MapSettings } from '@nao/shared';
+import type { BackgroundModelSettings, CustomBoundarySet, MapSettings } from '@nao/shared';
 import { DEFAULT_DATE_FORMAT_SETTINGS, type DisplaySettings } from '@nao/shared/date';
 import type { UpdatedAtFilter, UserRole } from '@nao/shared/types';
 import { and, asc, desc, eq, gt, gte, isNotNull, lte, or, type SQL, sql } from 'drizzle-orm';
@@ -289,6 +289,19 @@ export const updateDisplaySettings = async (projectId: string, settings: Display
 	};
 	await db.update(s.project).set({ displaySettings: next }).where(eq(s.project.id, projectId)).execute();
 	return next;
+};
+
+export const getDefaultModelSettings = async (projectId: string): Promise<BackgroundModelSettings | null> => {
+	const project = await getProjectById(projectId);
+	return project?.defaultModels ?? null;
+};
+
+export const updateDefaultModelSettings = async (
+	projectId: string,
+	settings: BackgroundModelSettings,
+): Promise<BackgroundModelSettings> => {
+	await db.update(s.project).set({ defaultModels: settings }).where(eq(s.project.id, projectId)).execute();
+	return settings;
 };
 
 export const getMapSettings = async (projectId: string): Promise<MapSettings> => {

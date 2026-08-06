@@ -17,6 +17,7 @@ import * as chatQueries from '../queries/chat.queries';
 import * as crQueries from '../queries/context-recommendation.queries';
 import * as projectQueries from '../queries/project.queries';
 import { DEFAULT_MAX_AUTO_PRS_PER_RUN, RecommendationInsight } from '../types/context-recommendation';
+import { resolveDefaultModelSelection } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { extractConfiguredRepos } from '../utils/nao-config';
 import { agentService } from './agent';
@@ -47,7 +48,9 @@ export async function runContextRecommendations(
 	const periodStart = period?.start ?? (await resolvePeriodStart(projectId, periodEnd));
 
 	const config = await crQueries.getConfig(projectId);
-	const model = await agentService.resolveModelSelection(projectId, resolveConfiguredModel(config));
+	const configuredModel =
+		resolveConfiguredModel(config) ?? (await resolveDefaultModelSelection(projectId, 'context_recommendation'));
+	const model = await agentService.resolveModelSelection(projectId, configuredModel ?? undefined);
 
 	const run = await crQueries.createRun({
 		projectId,

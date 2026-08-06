@@ -1,4 +1,4 @@
-import type { CustomBoundarySet } from '@nao/shared';
+import { BACKGROUND_MODEL_CATEGORIES, type CustomBoundarySet } from '@nao/shared';
 import { DATE_FORMAT_PRESETS } from '@nao/shared/date';
 import {
 	type LlmProvider,
@@ -55,6 +55,23 @@ import {
 
 const isoDateString = z.string().refine(isValidIsoDateString, {
 	message: 'Must be a valid YYYY-MM-DD date',
+});
+
+const backgroundModelSelectionSchema = z.object({
+	provider: llmProviderSchema,
+	modelId: z.string().min(1),
+});
+
+const backgroundModelCategoriesSchema = z.object(
+	Object.fromEntries(
+		BACKGROUND_MODEL_CATEGORIES.map((category) => [category, backgroundModelSelectionSchema.optional()]),
+	) as Record<(typeof BACKGROUND_MODEL_CATEGORIES)[number], z.ZodOptional<typeof backgroundModelSelectionSchema>>,
+);
+
+const backgroundModelSettingsSchema = z.object({
+	mode: z.enum(['single', 'perCategory']),
+	single: backgroundModelSelectionSchema.optional(),
+	categories: backgroundModelCategoriesSchema.optional(),
 });
 
 async function validateBoundarySource(url: string): Promise<number> {
@@ -883,6 +900,21 @@ export const projectRoutes = {
 			});
 			return next;
 		}),
+
+	getDefaultModels: projectProtectedProcedure.query(async ({ ctx }) => {
+		if (!ctx.project) {
+			return { settings: null, availableModels: [] };
+		}
+		const [settings, availableModels] = await Promise.all([
+			projectQueries.getDefaultModelSettings(ctx.project.id),
+			getProjectAvailableModels(ctx.project.id),
+		]);
+		return { settings, availableModels };
+	}),
+
+	updateDefaultModels: adminProtectedProcedure
+		.input(backgroundModelSettingsSchema)
+		.mutation(({ ctx, input }) => projectQueries.updateDefaultModelSettings(ctx.project.id, input)),
 
 	getProjectChats: contextAdminProtectedProcedure
 		.input(
