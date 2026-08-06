@@ -1,3 +1,4 @@
+import { readFile } from '@nao/shared/tools';
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, notInArray, or, sql } from 'drizzle-orm';
 
 import s, {
@@ -8,7 +9,13 @@ import s, {
 	NewContextRecommendationConfig,
 } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
-import { ContextRecommendationStatus, RecommendationInsight, WindowTotals } from '../types/context-recommendation';
+import dbConfig, { Dialect } from '../db/dbConfig';
+import {
+	ContextFileReadCost,
+	ContextRecommendationStatus,
+	RecommendationInsight,
+	WindowTotals,
+} from '../types/context-recommendation';
 
 export interface FeedbackLink {
 	recommendationId: string;
@@ -367,6 +374,78 @@ export async function getWindowTotals(projectId: string, start: Date, end: Date)
 		downvotes: Number(downvotes?.n ?? 0),
 		regenerations: Number(regenerations?.n ?? 0),
 	};
+}
+
+const CONTEXT_FILE_READ_COST_LIMIT = 25;
+const CHARS_PER_TOKEN = 4;
+
+/** Aggregated read-token cost of a single context file over the analysis window. */
+export async function getContextFileReadCosts(
+	projectId: string,
+	start: Date,
+	end: Date,
+): Promise<ContextFileReadCost[]> {
+	const isPostgres = dbConfig.dialect === Dialect.Postgres;
+	const filePath = isPostgres
+		? sql<string>`${s.messagePart.toolInput}->>'file_path'`
+		: sql<string>`json_extract(${s.messagePart.toolInput}, '$.file_path')`;
+	const rawChars = isPostgres
+		? sql<number>`length(${s.messagePart.toolOutput}->>'content')`
+		: sql<number>`length(json_extract(${s.messagePart.toolOutput}, '$.content'))`;
+	const cappedChars = isPostgres
+		? sql<number>`least(${rawChars}, ${readFile.MODEL_OUTPUT_MAX_CHARS})`
+		: sql<number>`min(${rawChars}, ${readFile.MODEL_OUTPUT_MAX_CHARS})`;
+	const totalChars = sql<number>`coalesce(sum(${cappedChars}), 0)`;
+
+	const analysisChatIds = () =>
+		db
+			.select({ id: s.contextRecommendationRun.chatId })
+			.from(s.contextRecommendationRun)
+			.where(
+				and(eq(s.contextRecommendationRun.projectId, projectId), isNotNull(s.contextRecommendationRun.chatId)),
+			);
+
+	const rows = await db
+		.select({
+			filePath,
+			readCount: sql<number>`count(*)`,
+			totalChars,
+			maxChars: sql<number>`coalesce(max(${cappedChars}), 0)`,
+			maxRawChars: sql<number>`coalesce(max(${rawChars}), 0)`,
+		})
+		.from(s.messagePart)
+		.innerJoin(s.chatMessage, eq(s.chatMessage.id, s.messagePart.messageId))
+		.innerJoin(s.chat, eq(s.chat.id, s.chatMessage.chatId))
+		.where(
+			and(
+				eq(s.chat.projectId, projectId),
+				notInArray(s.chat.id, analysisChatIds()),
+				eq(s.messagePart.toolName, 'read'),
+				eq(s.messagePart.toolState, 'output-available'),
+				gte(s.messagePart.createdAt, start),
+				lt(s.messagePart.createdAt, end),
+			),
+		)
+		.groupBy(filePath)
+		.orderBy(desc(totalChars))
+		.limit(CONTEXT_FILE_READ_COST_LIMIT)
+		.execute();
+
+	return rows
+		.filter((row): row is typeof row & { filePath: string } => Boolean(row.filePath))
+		.map((row) => {
+			const readCount = Number(row.readCount ?? 0);
+			const totalTokens = Math.ceil(Number(row.totalChars ?? 0) / CHARS_PER_TOKEN);
+			const maxTokens = Math.ceil(Number(row.maxChars ?? 0) / CHARS_PER_TOKEN);
+			return {
+				filePath: row.filePath,
+				readCount,
+				totalTokens,
+				avgTokens: readCount > 0 ? Math.round(totalTokens / readCount) : 0,
+				maxTokens,
+				truncated: Number(row.maxRawChars ?? 0) > readFile.MODEL_OUTPUT_MAX_CHARS,
+			};
+		});
 }
 
 /** The earliest-created admin of a project, used to attribute scheduled runs. */

@@ -1,9 +1,9 @@
-import type { readFile } from '@nao/shared/tools';
+import { readFile } from '@nao/shared/tools';
 
 import { Block } from '../../lib/markdown';
 import { formatSize } from '../../utils/utils';
 
-const MAX_CHARS = 32_000;
+const MAX_CHARS = readFile.MODEL_OUTPUT_MAX_CHARS;
 
 export function ReadOutput({ output, maxChars = MAX_CHARS }: { output: readFile.Output; maxChars?: number }) {
 	if (output.numberOfTotalLines === 0 || output.content === '') {
