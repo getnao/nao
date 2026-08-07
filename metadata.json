@@ -3,7 +3,7 @@
   "checkpoint_id": "01KZECBABBA8GTYZHZ2KDNFPA1",
   "strategy": "manual-commit",
   "branch": "feat/storage",
-  "checkpoints_count": 16,
+  "checkpoints_count": 19,
   "files_touched": [
     "apps/backend/src/agents/tools/execute-sql.ts",
     "apps/backend/src/components/ai/system-prompt.tsx",
@@ -124,13 +124,20 @@
       "compact_transcript": "/8/transcript.jsonl",
       "content_hash": "/8/content_hash.txt",
       "prompt": "/8/prompt.txt"
+    },
+    {
+      "metadata": "/9/metadata.json",
+      "transcript": "/9/full.jsonl",
+      "compact_transcript": "/9/transcript.jsonl",
+      "content_hash": "/9/content_hash.txt",
+      "prompt": "/9/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 335137,
-    "cache_creation_tokens": 1303216,
-    "cache_read_tokens": 36326839,
-    "output_tokens": 217873,
-    "api_call_count": 14
+    "input_tokens": 359740,
+    "cache_creation_tokens": 1466223,
+    "cache_read_tokens": 47425529,
+    "output_tokens": 270087,
+    "api_call_count": 17
   }
 }

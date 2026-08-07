@@ -1,0 +1,13 @@
+is there a way to write the output of a duckdb_local query to a file in the storage?
+
+---
+
+is there a way to write the output of a duckdb_local query to a file in the storage?
+
+---
+
+what would it take to allow write from this duckdb_local to file in the user storage ; but only there for some intermediary results or stuff saved for later?
+
+---
+
+go for nao owning the write ; save to should take a format (csv or parquet) lets say
