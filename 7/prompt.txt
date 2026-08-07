@@ -1,0 +1,19 @@
+when i clcik on a csv/an excel/a pdf i want to open the side panel with a view of the file
+
+---
+
+when i clcik on a csv/an excel/a pdf i want to open the side panel with a view of the file
+
+---
+
+when i clcik on a csv/an excel/a pdf i want to open the side panel with a view of the file as attached to a message
+
+---
+
+if its a markdown display a preview of it
+
+---
+
+we now have the capabilities to upload files ; i think we should let the agent being able to "mention a file" that would be displayed differently in the outputed markdown (with a component) that would open the preview of the file and eventually letting the user download it
+
+for isntance a user want the agent to construct a csv and want to download it ; it's important to track the download in the activities i think for admin obvservability
