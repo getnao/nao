@@ -3,7 +3,7 @@
   "checkpoint_id": "01KZECBABBA8GTYZHZ2KDNFPA1",
   "strategy": "manual-commit",
   "branch": "feat/storage",
-  "checkpoints_count": 15,
+  "checkpoints_count": 16,
   "files_touched": [
     "apps/backend/src/agents/tools/execute-sql.ts",
     "apps/backend/src/components/ai/system-prompt.tsx",
@@ -37,6 +37,7 @@
     "apps/frontend/src/components/side-panel/side-panel-header.tsx",
     "apps/frontend/src/components/sidebar-settings-nav.tsx",
     "apps/frontend/src/components/text-file-preview.tsx",
+    "apps/frontend/src/components/ui/tab-bar.tsx",
     "apps/frontend/src/hooks/use-agent.ts",
     "apps/frontend/src/hooks/use-attachment-download.ts",
     "apps/frontend/src/hooks/use-storage.ts",
@@ -116,13 +117,20 @@
       "compact_transcript": "/7/transcript.jsonl",
       "content_hash": "/7/content_hash.txt",
       "prompt": "/7/prompt.txt"
+    },
+    {
+      "metadata": "/8/metadata.json",
+      "transcript": "/8/full.jsonl",
+      "compact_transcript": "/8/transcript.jsonl",
+      "content_hash": "/8/content_hash.txt",
+      "prompt": "/8/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 311673,
+    "input_tokens": 335137,
     "cache_creation_tokens": 1303216,
-    "cache_read_tokens": 36243319,
-    "output_tokens": 216342,
-    "api_call_count": 13
+    "cache_read_tokens": 36326839,
+    "output_tokens": 217873,
+    "api_call_count": 14
   }
 }

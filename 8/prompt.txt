@@ -1,0 +1,5 @@
+@chat/apps/frontend/src/components/side-panel/attachment-viewer.tsx:105-111 when not enough width make them scroll rather than take more height
+
+---
+
+@chat/apps/frontend/src/components/side-panel/attachment-viewer.tsx:105-111 when not enough width make them scroll rather than take more height
