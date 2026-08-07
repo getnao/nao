@@ -3,7 +3,7 @@
   "checkpoint_id": "01KZECBABBA8GTYZHZ2KDNFPA1",
   "strategy": "manual-commit",
   "branch": "feat/storage",
-  "checkpoints_count": 4,
+  "checkpoints_count": 6,
   "files_touched": [
     "apps/backend/src/agents/tools/execute-sql.ts",
     "apps/backend/src/components/ai/system-prompt.tsx",
@@ -15,6 +15,7 @@
     "apps/backend/src/services/storage/user-files.ts",
     "apps/backend/src/trpc/storage.routes.ts",
     "apps/backend/tests/local-query.test.ts",
+    "apps/backend/tests/storage-keys.test.ts",
     "apps/backend/tests/system-prompt.test.ts",
     "apps/frontend/package.json",
     "apps/frontend/src/components/chat-messages/user-message.tsx",
@@ -54,13 +55,20 @@
       "compact_transcript": "/2/transcript.jsonl",
       "content_hash": "/2/content_hash.txt",
       "prompt": "/2/prompt.txt"
+    },
+    {
+      "metadata": "/3/metadata.json",
+      "transcript": "/3/full.jsonl",
+      "compact_transcript": "/3/transcript.jsonl",
+      "content_hash": "/3/content_hash.txt",
+      "prompt": "/3/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 131301,
+    "input_tokens": 170081,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 1416320,
-    "output_tokens": 23415,
-    "api_call_count": 3
+    "cache_read_tokens": 1668608,
+    "output_tokens": 26954,
+    "api_call_count": 5
   }
 }

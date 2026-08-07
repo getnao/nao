@@ -1,0 +1,9 @@
+when i add a user to an organisation it does not have access to the projects in the org right?
+
+---
+
+when i add a user to an organisation it does not have access to the projects in the org right?
+
+---
+
+are you sure it works this way we google auth is setup
