@@ -750,7 +750,7 @@ function rawMarkupForBlock(node: PMNode): string | null {
 	if (node.type.name === 'chartBlock' || node.type.name === 'tableBlock') {
 		return node.attrs.rawTag as string;
 	}
-	return null;
+	return node.isTextblock ? `text:${node.type.name}:${node.textContent}` : null;
 }
 
 function rawMarkupsForNode(node: PMNode): string[] {

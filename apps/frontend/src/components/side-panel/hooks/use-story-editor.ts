@@ -438,6 +438,16 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 			) {
 				return;
 			}
+			const blockSelection = blockSelectionPluginKey.getState(editor.state);
+			const targetInsideEditor = target instanceof Node && storyEditorRef.current?.contains(target);
+			if (
+				!targetInsideEditor &&
+				!blockSelection?.blocks.length &&
+				!blockSelection?.gridColumns.length &&
+				blockSelection?.movedMarkups === undefined
+			) {
+				return;
+			}
 
 			event.preventDefault();
 			event.stopPropagation();

@@ -927,6 +927,19 @@ describe('story block selection', () => {
 			embedEditor.destroy();
 		});
 
+		it('reselects a moved paragraph on undo after selection was cleared', () => {
+			const [paragraphPos] = topLevelBlockPositions(editor.state.doc);
+			const move = buildBlockMoveTransaction(editor.state, [paragraphPos], editor.state.doc.content.size);
+			expect(move).not.toBeNull();
+			if (move) {
+				editor.view.dispatch(move.transaction);
+			}
+			selectBlocks(editor, [], null);
+
+			expect(editor.commands.undo()).toBe(true);
+			expect(getSelectedBlockPositions(editor.state)).toEqual([topLevelBlockPositions(editor.state.doc)[0]]);
+		});
+
 		it('moves a contiguous selection past a later block without dropping blocks', () => {
 			const [a, b, c] = topLevelBlockPositions(editor.state.doc);
 			const move = buildBlockMoveTransaction(editor.state, [a, b], c);

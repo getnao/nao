@@ -138,28 +138,35 @@ export function scrollPosIntoView(view: EditorView, pos: number, gridColumnIndex
 const SCROLL_VISIBILITY_MARGIN = 24;
 
 function isReasonablyVisible(element: HTMLElement): boolean {
-	const scrollContainer = findVerticalScrollContainer(element);
+	const scrollContainer = findScrollContainer(element);
 	if (!scrollContainer) {
 		return false;
 	}
 
 	const elementRect = element.getBoundingClientRect();
 	const scrollportRect = scrollContainer.getBoundingClientRect();
-	if (elementRect.bottom <= elementRect.top || scrollportRect.bottom <= scrollportRect.top) {
+	if (
+		elementRect.bottom <= elementRect.top ||
+		elementRect.right <= elementRect.left ||
+		scrollportRect.bottom <= scrollportRect.top ||
+		scrollportRect.right <= scrollportRect.left
+	) {
 		return false;
 	}
 
 	return (
 		elementRect.top >= scrollportRect.top - SCROLL_VISIBILITY_MARGIN &&
-		elementRect.bottom <= scrollportRect.bottom + SCROLL_VISIBILITY_MARGIN
+		elementRect.bottom <= scrollportRect.bottom + SCROLL_VISIBILITY_MARGIN &&
+		elementRect.left >= scrollportRect.left - SCROLL_VISIBILITY_MARGIN &&
+		elementRect.right <= scrollportRect.right + SCROLL_VISIBILITY_MARGIN
 	);
 }
 
-function findVerticalScrollContainer(element: HTMLElement): HTMLElement | null {
+function findScrollContainer(element: HTMLElement): HTMLElement | null {
 	let ancestor = element.parentElement;
 	while (ancestor) {
-		const overflowY = window.getComputedStyle(ancestor).overflowY;
-		if (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') {
+		const { overflowX, overflowY } = window.getComputedStyle(ancestor);
+		if ([overflowX, overflowY].some((overflow) => ['auto', 'scroll', 'overlay'].includes(overflow))) {
 			return ancestor;
 		}
 		ancestor = ancestor.parentElement;
