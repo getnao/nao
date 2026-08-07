@@ -1,0 +1,48 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "01KZEDPW7AS4ZEB0SRXQ7JHWWF",
+  "session_id": "0ae87d20-e40e-445a-8c95-34f6298499c1",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-07T15:33:17.115018Z",
+  "branch": "feat/storage",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "Dockerfile"
+  ],
+  "agent": "Cursor",
+  "model": "cursor-grok-4.5-high-fast",
+  "turn_id": "a1db1c6c7628",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 27286,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 155904,
+    "output_tokens": 2770,
+    "api_call_count": 1
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-07T15:33:17.10637Z",
+    "agent_lines": 3,
+    "agent_removed": 2,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 3,
+    "total_lines_changed": 5,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

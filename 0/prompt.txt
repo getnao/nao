@@ -1,0 +1,10 @@
+docker build fails with 
+
+--------------------
+ 120 |     # before the first query rather than fetched on demand.
+ 121 | >>> RUN --mount=type=bind,source=docker/install-duckdb-extensions.mjs,target=/tmp/install-duckdb-extensions.mjs \
+ 122 | >>>     DUCKDB_EXTENSION_DIR=/app/.duckdb-extensions node /tmp/install-duckdb-extensions.mjs \
+ 123 | >>>     && chown -R nao:nao /app/.duckdb-extensions
+ 124 |     
+--------------------
+ERROR: failed to solve: process "/bin/sh -c DUCKDB_EXTENSION_DIR=/app/.duckdb-extensions node /tmp/install-duckdb-extensions.mjs     && chown -R nao:nao /app/.duckdb-extensions" did not complete successfully: exit code: 1
