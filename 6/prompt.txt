@@ -1,0 +1,5 @@
+@chat/apps/frontend/src/routes/_sidebar-layout.settings.storage.tsx:359 look too much vibe coded, make it more in the style of the app
+
+---
+
+@chat/apps/frontend/src/routes/_sidebar-layout.settings.storage.tsx:359 look too much vibe coded, make it more in the style of the app
