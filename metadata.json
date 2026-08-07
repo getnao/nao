@@ -3,7 +3,7 @@
   "checkpoint_id": "01KZECBABBA8GTYZHZ2KDNFPA1",
   "strategy": "manual-commit",
   "branch": "feat/storage",
-  "checkpoints_count": 6,
+  "checkpoints_count": 8,
   "files_touched": [
     "apps/backend/src/agents/tools/execute-sql.ts",
     "apps/backend/src/components/ai/system-prompt.tsx",
@@ -23,10 +23,15 @@
     "apps/frontend/src/components/settings/file-viewer.tsx",
     "apps/frontend/src/components/side-panel/side-panel-header.tsx",
     "apps/frontend/src/components/sidebar-settings-nav.tsx",
+    "apps/frontend/src/components/text-file-preview.tsx",
     "apps/frontend/src/hooks/use-agent.ts",
     "apps/frontend/src/hooks/use-storage.ts",
     "apps/frontend/src/lib/ai.ts",
+    "apps/frontend/src/lib/attachment-preview.ts",
     "apps/frontend/src/lib/attachments.ts",
+    "apps/frontend/src/lib/delimited-text.test.ts",
+    "apps/frontend/src/lib/delimited-text.ts",
+    "apps/frontend/src/lib/download.ts",
     "apps/frontend/src/lib/require-admin.ts",
     "apps/frontend/src/lib/table-export.ts",
     "apps/frontend/src/routes/_sidebar-layout.settings.storage.tsx",
@@ -62,13 +67,20 @@
       "compact_transcript": "/3/transcript.jsonl",
       "content_hash": "/3/content_hash.txt",
       "prompt": "/3/prompt.txt"
+    },
+    {
+      "metadata": "/4/metadata.json",
+      "transcript": "/4/full.jsonl",
+      "compact_transcript": "/4/transcript.jsonl",
+      "content_hash": "/4/content_hash.txt",
+      "prompt": "/4/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 170081,
+    "input_tokens": 274607,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 1668608,
-    "output_tokens": 26954,
-    "api_call_count": 5
+    "cache_read_tokens": 3593280,
+    "output_tokens": 49114,
+    "api_call_count": 7
   }
 }

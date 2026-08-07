@@ -1,0 +1,9 @@
+when i open @chat/apps/frontend/src/components/tool-calls/execute-sql.tsx from the code and if the code is, lets say 1 row, it opens for a min height that is lets say 400px and then falls back to 1row in height, its a bit ugly
+
+---
+
+when i open @chat/apps/frontend/src/components/tool-calls/execute-sql.tsx from the code and if the code is, lets say 1 row, it opens for a min height that is lets say 400px and then falls back to 1row in height, its a bit ugly
+
+---
+
+it does not fix
