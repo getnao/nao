@@ -2,6 +2,7 @@ import { memo, useRef } from 'react';
 import { Streamdown } from 'streamdown';
 
 import type { IncrementalMarkdownBlockSplitter } from '@/lib/incremental-markdown-blocks';
+import type { Components } from 'streamdown';
 
 import {
 	createIncrementalMarkdownBlockSplitter,
@@ -10,11 +11,12 @@ import {
 import { markdownPlugins } from '@/lib/markdown';
 
 interface StreamingMarkdownProps {
+	components?: Components;
 	text: string;
 	transform?: (text: string) => string;
 }
 
-export const StreamingMarkdown = memo(({ text, transform }: StreamingMarkdownProps) => {
+export const StreamingMarkdown = memo(({ components, text, transform }: StreamingMarkdownProps) => {
 	const splitterRef = useRef<IncrementalMarkdownBlockSplitter | null>(null);
 	if (splitterRef.current === null) {
 		splitterRef.current = createIncrementalMarkdownBlockSplitter(transform);
@@ -26,10 +28,10 @@ export const StreamingMarkdown = memo(({ text, transform }: StreamingMarkdownPro
 	return (
 		<>
 			{sealedBlocks.map((block, index) => (
-				<StreamingMarkdownBlock key={index} text={block} />
+				<StreamingMarkdownBlock key={index} text={block} components={components} />
 			))}
 			{transformedTail.length > 0 && (
-				<Streamdown isAnimating mode='streaming' plugins={markdownPlugins}>
+				<Streamdown components={components} isAnimating mode='streaming' plugins={markdownPlugins}>
 					{transformedTail}
 				</Streamdown>
 			)}
@@ -37,9 +39,9 @@ export const StreamingMarkdown = memo(({ text, transform }: StreamingMarkdownPro
 	);
 });
 
-const StreamingMarkdownBlock = memo(({ text }: { text: string }) => {
+const StreamingMarkdownBlock = memo(({ components, text }: { components?: Components; text: string }) => {
 	return (
-		<Streamdown mode='static' plugins={markdownPlugins}>
+		<Streamdown components={components} mode='static' plugins={markdownPlugins}>
 			{text}
 		</Streamdown>
 	);

@@ -13,6 +13,9 @@ const SETTLED_COMPONENTS = {
 	table: MarkdownTableRenderer,
 	'citation-number': CitationNumberRenderer,
 };
+const STREAMING_COMPONENTS = {
+	table: MarkdownTableRenderer,
+};
 const ALLOWED_TAGS = {
 	'citation-number': ['id', 'column'],
 };
@@ -20,7 +23,7 @@ const LITERAL_TAG_CONTENT = ['citation-number'];
 
 export const AssistantTextWithCitation = memo(({ text, isStreaming }: { text: string; isStreaming: boolean }) => {
 	if (isStreaming) {
-		return <StreamingMarkdown text={text} transform={stripCitations} />;
+		return <StreamingMarkdown components={STREAMING_COMPONENTS} text={text} transform={stripCitations} />;
 	}
 
 	return (

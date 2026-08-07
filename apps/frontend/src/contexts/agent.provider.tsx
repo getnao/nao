@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useLayoutEffect, useMemo, useState } from 'react';
 import { useSyncExternalStoreWithSelector } from 'use-sync-external-store/shim/with-selector';
 import type { UIMessage } from '@nao/backend/chat';
 
@@ -43,9 +43,6 @@ export interface Props {
 export const AgentProvider = ({ children, disableNavigation }: Props) => {
 	const agent = useAgent({ disableNavigation });
 	const [messagesStore] = useState(() => createAgentMessagesStore(agent.messages));
-	if (messagesStore.getSnapshot() !== agent.messages) {
-		messagesStore.setMessages(agent.messages);
-	}
 	const value = useMemo<AgentHelpers>(
 		() => ({
 			chatId: agent.chatId,
@@ -89,7 +86,8 @@ export const AgentProvider = ({ children, disableNavigation }: Props) => {
 		],
 	);
 
-	useEffect(() => {
+	useLayoutEffect(() => {
+		messagesStore.setMessages(agent.messages);
 		messagesStore.notifySubscribers();
 	}, [messagesStore, agent.messages]);
 
@@ -120,9 +118,6 @@ export const ReadonlyAgentMessagesProvider = ({
 	children: React.ReactNode;
 }) => {
 	const [messagesStore] = useState(() => createAgentMessagesStore(messages));
-	if (messagesStore.getSnapshot() !== messages) {
-		messagesStore.setMessages(messages);
-	}
 	const value = useMemo<AgentHelpers>(
 		() => ({
 			chatId,
@@ -148,7 +143,8 @@ export const ReadonlyAgentMessagesProvider = ({
 		[chatId],
 	);
 
-	useEffect(() => {
+	useLayoutEffect(() => {
+		messagesStore.setMessages(messages);
 		messagesStore.notifySubscribers();
 	}, [messagesStore, messages]);
 
