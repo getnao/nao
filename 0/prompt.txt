@@ -1,0 +1,9 @@
+have a look through the history to find when we fixed and reactivated the compaction system (that was commented out)
+
+i need the tag we fixed this
+
+---
+
+have a look through the history to find when we fixed and reactivated the compaction system (that was commented out)
+
+i need the tag we fixed this

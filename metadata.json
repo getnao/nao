@@ -1,0 +1,51 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "01KZECBABBA8GTYZHZ2KDNFPA1",
+  "strategy": "manual-commit",
+  "branch": "feat/storage",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "apps/backend/src/agents/tools/execute-sql.ts",
+    "apps/backend/src/components/ai/system-prompt.tsx",
+    "apps/backend/src/components/tool-outputs/execute-sql.tsx",
+    "apps/backend/src/routes/attachment.ts",
+    "apps/backend/src/services/duckdb.service.ts",
+    "apps/backend/src/services/local-query.service.ts",
+    "apps/backend/src/services/storage/keys.ts",
+    "apps/backend/src/services/storage/user-files.ts",
+    "apps/backend/src/trpc/storage.routes.ts",
+    "apps/backend/tests/local-query.test.ts",
+    "apps/backend/tests/system-prompt.test.ts",
+    "apps/frontend/package.json",
+    "apps/frontend/src/components/chat-messages/user-message.tsx",
+    "apps/frontend/src/components/settings-search-index.ts",
+    "apps/frontend/src/components/settings/file-viewer.tsx",
+    "apps/frontend/src/components/side-panel/side-panel-header.tsx",
+    "apps/frontend/src/components/sidebar-settings-nav.tsx",
+    "apps/frontend/src/hooks/use-agent.ts",
+    "apps/frontend/src/hooks/use-storage.ts",
+    "apps/frontend/src/lib/ai.ts",
+    "apps/frontend/src/lib/attachments.ts",
+    "apps/frontend/src/lib/require-admin.ts",
+    "apps/frontend/src/lib/table-export.ts",
+    "apps/frontend/src/routes/_sidebar-layout.settings.storage.tsx",
+    "apps/shared/src/tools/execute-sql.ts",
+    "package-lock.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 22561,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 59776,
+    "output_tokens": 792,
+    "api_call_count": 1
+  }
+}
