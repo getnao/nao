@@ -1,0 +1,9 @@
+in a worktree
+
+in the @chat/cli/nao_core/config/databases/duckdb.py deactivate the file reading capabilities and all the external capabilities so nothing can leak / be read
+
+---
+
+in a worktree
+
+in the @chat/cli/nao_core/config/databases/duckdb.py deactivate the file reading capabilities and all the external capabilities so nothing can leak / be read
