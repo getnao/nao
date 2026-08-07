@@ -39,6 +39,9 @@ export const DOCUMENT_MEDIA_TYPES = {
 
 export type DocumentExtension = keyof typeof DOCUMENT_MEDIA_TYPES;
 
+/** Every accepted extension, for callers that need them as a closed list rather than a lookup. */
+export const DOCUMENT_EXTENSIONS = Object.keys(DOCUMENT_MEDIA_TYPES) as [DocumentExtension, ...DocumentExtension[]];
+
 /** Accepted documents whose bytes are not text, so their contents can never be read into a conversation. */
 export const BINARY_DOCUMENT_EXTENSIONS = [
 	'docx',
@@ -61,10 +64,16 @@ export const isImageMediaType = (mediaType: string): mediaType is ImageMediaType
 	return (ALLOWED_IMAGE_MEDIA_TYPES as readonly string[]).includes(mediaType);
 };
 
+/** The accepted extension of a file name, or undefined when nao does not handle that kind of file. */
+export const documentExtension = (fileName: string): DocumentExtension | undefined => {
+	const extension = fileExtension(fileName);
+	return extension in DOCUMENT_MEDIA_TYPES ? (extension as DocumentExtension) : undefined;
+};
+
 /** The media type to store a document under, or undefined when its extension is not accepted. */
 export const documentMediaType = (fileName: string): string | undefined => {
-	const extension = fileExtension(fileName);
-	return extension in DOCUMENT_MEDIA_TYPES ? DOCUMENT_MEDIA_TYPES[extension as DocumentExtension] : undefined;
+	const extension = documentExtension(fileName);
+	return extension && DOCUMENT_MEDIA_TYPES[extension];
 };
 
 export const isBinaryDocument = (fileName: string): boolean => {

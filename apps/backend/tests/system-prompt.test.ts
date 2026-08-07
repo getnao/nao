@@ -168,6 +168,19 @@ describe('SystemPrompt local database rules', () => {
 		expect(markdown).toContain('SELECT * FROM query_ab12cd34');
 	});
 
+	it('offers save_to only when there is somewhere to save to', () => {
+		const withStorage = renderToMarkdown(SystemPrompt({ toolNames: ['execute_sql', 'write'] }));
+		const withoutStorage = renderToMarkdown(SystemPrompt({ toolNames: ['execute_sql'] }));
+
+		expect(withStorage).toContain('**save_to**');
+		expect(withStorage).toContain('format: "parquet"');
+		expect(withoutStorage).not.toContain('**save_to**');
+	});
+
+	it('still tells the model the query itself cannot write a file', () => {
+		expect(renderToMarkdown(SystemPrompt({}))).toContain('**COPY … TO**');
+	});
+
 	it('says a workbook needs its sheet named, and where to get the name', () => {
 		const markdown = renderToMarkdown(SystemPrompt({}));
 

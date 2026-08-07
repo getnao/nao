@@ -10,9 +10,9 @@ import { useAgentContext } from '@/contexts/agent.provider';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useIsEditingMessage } from '@/hooks/use-is-editing-message-store';
 import { useClickOutside } from '@/hooks/use-click-outside';
-import { AttachmentFileIcon } from '@/components/attachment-file-icon';
 import { ChatInputInline } from '@/components/chat-input';
 import { ChatMessagesCitationChip } from '@/components/chat-messages/chat-messages-citation-chip';
+import { FileChip } from '@/components/file-chip';
 import { ImageLightbox } from '@/components/image-lightbox';
 import { getMessageText, getMessageImages, getMessageDocuments } from '@/lib/ai';
 import { parseChatMessageCitation } from '@/lib/chat-messages-citation-parser';
@@ -138,12 +138,7 @@ export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
 			{documents.length > 0 && (
 				<div className='flex gap-1.5 flex-wrap mb-2 justify-end'>
 					{documents.map((document) => (
-						<SimpleTooltip key={document.path} content={document.path}>
-							<span className='flex max-w-56 items-center gap-1.5 rounded-lg border border-border bg-background px-2 py-1'>
-								<AttachmentFileIcon fileName={document.filename} className='size-3.5 shrink-0' />
-								<span className='truncate text-xs'>{document.filename}</span>
-							</span>
-						</SimpleTooltip>
+						<FileChip key={document.path} path={document.path} label={document.filename} />
 					))}
 				</div>
 			)}
@@ -184,9 +179,9 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 					initialText={text}
 					className='p-0 **:data-[slot=input-group]:shadow-none!'
 					onCancel={() => editedMessageIdStore.setEditingId(undefined)}
-					onSubmitMessage={async ({ text: nextText }) => {
+					onSubmitMessage={async ({ text: nextText, images, documents }) => {
 						editedMessageIdStore.setEditingId(undefined);
-						await editMessage({ messageId: message.id, text: nextText });
+						await editMessage({ messageId: message.id, text: nextText, images, documents });
 					}}
 				/>
 			</div>

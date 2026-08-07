@@ -22,6 +22,22 @@ export const scopeRoot = (scope: StorageScope): string => {
 	return `projects/${safeIdentifier(scope.projectId, 'project id')}/users/${safeIdentifier(scope.userId, 'user id')}`;
 };
 
+/** The prefix holding every file of a project, whoever it belongs to. */
+export const projectRoot = (projectId: string): string => {
+	return `projects/${safeIdentifier(projectId, 'project id')}`;
+};
+
+/** The owner of a key, or null when the key sits outside a user space. */
+export const userIdFromKey = (key: string): string | null => {
+	const [projects, , users, userId, ...rest] = key.split('/');
+
+	if (projects !== 'projects' || users !== 'users' || !userId || rest.length === 0) {
+		return null;
+	}
+
+	return userId;
+};
+
 /** Converts a full storage key back to the path the caller passed in. */
 export const relativePathFromKey = (scope: StorageScope, key: string): string => {
 	const root = `${scopeRoot(scope)}/`;

@@ -12,7 +12,7 @@ import { createTool } from '../../utils/tools';
 import { queryAppDb } from './query-app-db';
 
 export async function executeQuery(
-	{ sql_query, database_id, query_id }: executeSql.Input,
+	{ sql_query, database_id, query_id, save_to }: executeSql.Input,
 	context: ToolContext,
 ): Promise<executeSql.Output> {
 	const templateWarnings = env.BETA_STORY_FILTERS_ENABLED ? validateSqlFilterTemplate(sql_query) : [];
@@ -28,12 +28,21 @@ export async function executeQuery(
 		);
 	}
 
+	if (save_to && database_id !== LOCAL_DATABASE_ID) {
+		throw new Error(
+			`save_to only works with the "${LOCAL_DATABASE_ID}" database. To keep a warehouse result, re-run it against ${LOCAL_DATABASE_ID} as "SELECT * FROM <query_id>".`,
+		);
+	}
+
 	if (context.adminMode) {
 		return withTemplateWarnings(await executeAppDbQuery(effectiveSql, context, query_id), templateWarnings);
 	}
 
 	if (database_id === LOCAL_DATABASE_ID) {
-		return withTemplateWarnings(await executeLocalQuery(effectiveSql, context, query_id), templateWarnings);
+		return withTemplateWarnings(
+			await executeLocalQuery(effectiveSql, context, query_id, save_to),
+			templateWarnings,
+		);
 	}
 
 	const naoProjectFolder = context.projectFolder;
@@ -80,8 +89,12 @@ async function executeLocalQuery(
 	sqlQuery: string,
 	context: ToolContext,
 	queryId?: `query_${string}`,
+	saveTo?: executeSql.SaveTo,
 ): Promise<executeSql.Output> {
-	const { columns, data } = await runQueryOnLocalFiles(sqlQuery, context);
+	const {
+		result: { columns, data },
+		savedFile,
+	} = await runQueryOnLocalFiles(sqlQuery, context, saveTo);
 	const id = queryId ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
 	context.queryResults.set(id, { columns, data });
 	const appliedLimit = detectQueryRowLimit(sqlQuery);
@@ -94,6 +107,7 @@ async function executeLocalQuery(
 		id,
 		dialect: 'duckdb',
 		...(appliedLimit !== null && { applied_limit: appliedLimit }),
+		...(savedFile && { saved_file: savedFile }),
 	};
 }
 
@@ -134,10 +148,12 @@ async function updateExistingQuery(
 		);
 	}
 
+	const saveTo = input.save_to ?? existing.toolInput.save_to;
 	const nextInput: executeSql.Input = {
 		sql_query: input.sql_query,
 		database_id: input.database_id ?? existing.toolInput.database_id,
 		name: input.name ?? existing.toolInput.name,
+		...(saveTo && { save_to: saveTo }),
 	};
 
 	const output = await executeQuery({ ...nextInput, query_id: input.query_id }, context);

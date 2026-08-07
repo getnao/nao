@@ -1,6 +1,7 @@
 import writeXlsxFile from 'write-excel-file/universal';
 import { formatCellValue } from '@nao/shared/story-table-utils';
 import type { Cell, Row } from 'write-excel-file/universal';
+import { triggerDownload } from '@/lib/download';
 
 type TableRow = Record<string, unknown>;
 
@@ -51,13 +52,4 @@ export function downloadCsv(filename: string, csv: string): void {
 
 export async function downloadXlsx(filename: string, columns: string[], rows: TableRow[]): Promise<void> {
 	triggerDownload(filename, await tableToXlsxBlob(columns, rows));
-}
-
-function triggerDownload(filename: string, blob: Blob): void {
-	const url = URL.createObjectURL(blob);
-	const link = document.createElement('a');
-	link.href = url;
-	link.download = filename;
-	link.click();
-	URL.revokeObjectURL(url);
 }

@@ -4,9 +4,11 @@ import {
 	getStaticToolName as getStaticToolNameAi,
 	getToolName as getToolNameAi,
 } from 'ai';
+import { isImageMediaType } from '@nao/shared/attachments';
 import type { ReasoningUIPart, ToolUIPart } from 'ai';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UITools, UIToolPart, UIMessage, UIMessagePart, StaticToolName } from '@nao/backend/chat';
+import type { ImageUploadData } from '@nao/shared/attachments';
 import type { ToolCallDensity } from '@nao/shared/types';
 import type { GroupablePart, ToolGroupPart, GroupedMessagePart, MessageGroup } from '@/types/ai';
 import type { DynamicToolName } from '@/components/tool-calls';
@@ -191,18 +193,75 @@ const getFileParts = (message: UIMessage): Extract<UIMessagePart, { type: 'file'
 	return message.parts.filter((part): part is Extract<UIMessagePart, { type: 'file' }> => part.type === 'file');
 };
 
-/** Extracts base64 image data from file parts in a message for the upload payload. */
-export const extractImagesFromMessage = (message: UIMessage): { mediaType: string; data: string }[] => {
+/** Extracts base64 image data from optimistic `data:` file parts for the upload payload. */
+export const extractImagesFromMessage = (message: UIMessage): ImageUploadData[] => {
 	return getFileParts(message)
 		.filter((part) => part.mediaType.startsWith('image/') && part.url.startsWith('data:'))
-		.map((part) => {
+		.flatMap((part) => {
+			if (!isImageMediaType(part.mediaType)) {
+				return [];
+			}
 			const commaIdx = part.url.indexOf(',');
-			return {
-				mediaType: part.mediaType,
-				data: commaIdx >= 0 ? part.url.slice(commaIdx + 1) : part.url,
-			};
+			return [
+				{
+					mediaType: part.mediaType,
+					data: commaIdx >= 0 ? part.url.slice(commaIdx + 1) : part.url,
+				},
+			];
 		});
 };
+
+/**
+ * Resolves image file parts into upload payloads. Handles optimistic `data:` URLs and
+ * persisted `/i/{id}` URLs (fetched and re-encoded so edit/resend can reuse them).
+ */
+export const resolveImagesFromMessage = async (message: UIMessage): Promise<ImageUploadData[]> => {
+	const imageParts = getFileParts(message).filter((part) => part.mediaType.startsWith('image/'));
+	const images = await Promise.all(imageParts.map(imageUploadDataFromFilePart));
+	return images.filter((image): image is ImageUploadData => image !== null);
+};
+
+async function imageUploadDataFromFilePart(
+	part: Extract<UIMessagePart, { type: 'file' }>,
+): Promise<ImageUploadData | null> {
+	if (part.url.startsWith('data:')) {
+		if (!isImageMediaType(part.mediaType)) {
+			return null;
+		}
+		const commaIdx = part.url.indexOf(',');
+		return {
+			mediaType: part.mediaType,
+			data: commaIdx >= 0 ? part.url.slice(commaIdx + 1) : part.url,
+		};
+	}
+
+	const response = await fetch(part.url);
+	if (!response.ok) {
+		throw new Error(`Failed to load attached image (${response.status})`);
+	}
+	const blob = await response.blob();
+	const mediaType = isImageMediaType(part.mediaType)
+		? part.mediaType
+		: isImageMediaType(blob.type)
+			? blob.type
+			: null;
+	if (!mediaType) {
+		return null;
+	}
+	return { mediaType, data: await blobToBase64(blob) };
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+	return new Promise((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onloadend = () => {
+			const dataUrl = reader.result as string;
+			resolve(dataUrl.split(',')[1] ?? '');
+		};
+		reader.onerror = reject;
+		reader.readAsDataURL(blob);
+	});
+}
 
 /** Group messages into user and response (assistant) messages. */
 export const groupMessages = (messages: UIMessage[]): MessageGroup[] => {

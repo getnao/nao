@@ -1,5 +1,5 @@
 import { cardToBlockKit } from '@chat-adapter/slack';
-import { CITATION_TAG_REGEX, pluralize, TOOL_LABELS } from '@nao/shared';
+import { pluralize, stripAssistantTags, TOOL_LABELS } from '@nao/shared';
 import type { CardChild, CardElement, ModalElement } from 'chat';
 import { Actions, Button, Card, CardText, Image, LinkButton, Table } from 'chat';
 
@@ -131,7 +131,7 @@ export const createTextBlocks = (text: string): CardChild[] => {
 };
 
 export function buildSlackTableBlocks(text: string): ReturnType<typeof cardToBlockKit> | null {
-	const sanitized = text.replace(CITATION_TAG_REGEX, '');
+	const sanitized = stripAssistantTags(text);
 	const children = createTextBlocks(sanitized);
 	if (!children.some((child) => child.type === 'table')) {
 		return null;
@@ -140,7 +140,7 @@ export function buildSlackTableBlocks(text: string): ReturnType<typeof cardToBlo
 }
 
 export function formatSlackMessageText(text: string): string {
-	const sanitized = text.replace(CITATION_TAG_REGEX, '');
+	const sanitized = stripAssistantTags(text);
 	return mdToMrkdwn(sanitized) || sanitized;
 }
 

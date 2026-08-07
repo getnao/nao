@@ -1,4 +1,5 @@
 import { documentMediaType, toSafeFileName } from '@nao/shared/attachments';
+import { z } from 'zod/v4';
 
 import type { App } from '../app';
 import { env, noProjectMessage } from '../env';
@@ -10,9 +11,14 @@ import {
 	STORAGE_DISABLED_MESSAGE,
 	type StorageScope,
 } from '../services/storage';
-import { saveUploadedFile } from '../services/storage/user-files';
+import { readUserFileBytes, saveUploadedFile, statUserFile } from '../services/storage/user-files';
 import { HandlerError } from '../utils/error';
-import { toStorageVirtualPath } from '../utils/tools';
+import { isStoragePath, toStorageRelativePath, toStorageVirtualPath } from '../utils/tools';
+
+const fileQuerySchema = z.object({
+	/** Virtual path of the attachment, e.g. `/home/uploads/2026-08-04/sales.csv`. */
+	path: z.string().min(1),
+});
 
 /**
  * Files a user attaches to a message are uploaded here first, so only their path travels
@@ -63,9 +69,51 @@ export const attachmentRoutes = async (app: App) => {
 
 		return reply.send({
 			path: toStorageVirtualPath(relativePath),
-			filename: relativePath.slice(relativePath.lastIndexOf('/') + 1),
+			filename: fileNameOf(relativePath),
 			mediaType: stored.contentType,
 			size: stored.size,
 		});
 	});
+
+	/**
+	 * The bytes behind an attachment, so the app can preview one it cannot parse from the message
+	 * alone. Only the sender's own space is reachable, which is also the only space a chat's
+	 * attachments live in.
+	 */
+	app.get('/file', { schema: { querystring: fileQuerySchema } }, async (request, reply) => {
+		if (!isStorageEnabled()) {
+			throw new HandlerError('BAD_REQUEST', STORAGE_DISABLED_MESSAGE);
+		}
+
+		const { user, project } = request;
+		if (!project) {
+			throw new HandlerError('BAD_REQUEST', noProjectMessage());
+		}
+
+		const { path } = request.query;
+		const relativePath = isStoragePath(path) ? toStorageRelativePath(path) : '';
+		if (!relativePath) {
+			throw new HandlerError('BAD_REQUEST', `${path} is not a path in permanent storage`);
+		}
+
+		const scope: StorageScope = { projectId: project.id, userId: user.id };
+		if (!(await statUserFile(scope, relativePath))) {
+			throw new HandlerError('NOT_FOUND', `No such file in permanent storage: ${path}`);
+		}
+
+		const fileName = fileNameOf(relativePath);
+		return (
+			reply
+				.header('Content-Type', documentMediaType(fileName) ?? 'application/octet-stream')
+				// Always a download: an uploaded .html rendered on nao's own origin would run as first-party script.
+				.header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`)
+				.header('X-Content-Type-Options', 'nosniff')
+				.header('Cache-Control', 'private, max-age=3600')
+				.send(await readUserFileBytes(scope, relativePath))
+		);
+	});
+};
+
+const fileNameOf = (relativePath: string): string => {
+	return relativePath.slice(relativePath.lastIndexOf('/') + 1);
 };

@@ -3,7 +3,7 @@ import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 
 import type { InternalSkill } from '../../agents/skills';
 import { listInternalSkills } from '../../agents/skills';
-import { Block, Bold, Br, Link, List, ListItem, Location, Span, Title } from '../../lib/markdown';
+import { Block, Bold, Br, CodeBlock, Link, List, ListItem, Location, Span, Title } from '../../lib/markdown';
 import type { Skill } from '../../services/skill';
 import { tokenCounter } from '../../services/token-counter';
 import type { UserMemory } from '../../types/memory';
@@ -124,7 +124,7 @@ export function SystemPrompt({
 					canRunSandbox={hasTool('execute_sandboxed_code')}
 				/>
 			)}
-			{hasTool('execute_sql') && <LocalDatabaseBlock />}
+			{hasTool('execute_sql') && <LocalDatabaseBlock canSaveResults={hasTool('write')} />}
 			<Title level={2}>Chart{hasTool('display_map') ? ' & Map' : ''} Rules</Title>
 			<List>
 				<ListItem>
@@ -340,7 +340,8 @@ function PermanentStorageBlock({
 				<ListItem>
 					<Bold>/home</Bold> is the only writable place: use <Bold>write</Bold> when the user asks to keep,
 					export or update something, or when a result is clearly worth reusing later. Everything else in the
-					tree is read-only. Do not save intermediate work nobody asked for.
+					tree is read-only. Do not save intermediate work nobody asked for. To keep query rows, pass{' '}
+					<Bold>save_to</Bold> to execute_sql rather than formatting them into a file yourself.
 					{canRunSandbox && (
 						<>
 							{' '}
@@ -375,15 +376,21 @@ function PermanentStorageBlock({
 					instead of creating a near-duplicate.
 				</ListItem>
 				<ListItem>
-					Tell the user the full path of every file you save (e.g. <Bold>/home/exports/churn-2025.csv</Bold>)
-					so they can ask for it again later.
+					Hand a file over with{' '}
+					{`<saved-file path="/home/exports/churn-2025.csv">churn-2025.csv</saved-file>`}, which renders as a
+					chip the user can click to preview the file and download it. Use it once per file, in the sentence
+					where you first mention it, on files under <Bold>/home</Bold> only — a bare path is not clickable.
+				</ListItem>
+				<ListItem>
+					Never give the full path in plain text, users might get confused about it as it's not clickable
+					directly in the chat.
 				</ListItem>
 			</List>
 		</Block>
 	);
 }
 
-function LocalDatabaseBlock() {
+function LocalDatabaseBlock({ canSaveResults }: { canSaveResults: boolean }) {
 	return (
 		<Block>
 			<Title level={2}>The local database</Title>
@@ -397,8 +404,8 @@ function LocalDatabaseBlock() {
 					<Bold>Query a file by its path.</Bold> CSV, JSON, Parquet and Excel, read straight from{' '}
 					<Bold>/home</Bold> or the project folder — no loading step, and the file never enters your context.
 					Use <Bold>read_csv</Bold>, <Bold>read_json</Bold>, <Bold>read_parquet</Bold> or{' '}
-					<Bold>read_xlsx</Bold>, e.g.{' '}
-					<Bold>{"SELECT * FROM read_csv('/home/uploads/2026-01-31/sales.csv') LIMIT 20"}</Bold>.{' '}
+					<Bold>read_xlsx</Bold> and lastly <Bold>read_text</Bold> for text files (but use it only if you have
+					to). <Bold>{"SELECT * FROM read_csv('/home/uploads/2026-01-31/sales.csv') LIMIT 20"}</Bold>.{' '}
 					<Bold>read_xlsx</Bold> reads the first sheet of a workbook unless you pass{' '}
 					<Bold>{"sheet = 'Name'"}</Bold>, and <Bold>read</Bold> on the file lists the names to pass.
 				</ListItem>
@@ -412,10 +419,30 @@ function LocalDatabaseBlock() {
 					uploaded list of accounts against warehouse revenue, a budget spreadsheet against actuals.
 				</ListItem>
 			</List>
+			{canSaveResults && (
+				<>
+					<Span>
+						<Bold>save_to</Bold> keeps the result as a file as well as returning it. Pass a{' '}
+						<Bold>/home</Bold> path and a format: <Bold>parquet</Bold> for a step you intend to query again,
+						because it keeps the column types, and <Bold>csv</Bold> for something the user will open. The
+						extension has to match the format.
+					</Span>
+					<CodeBlock>
+						{`save_to: { path: "/home/exports/revenue-by-region.parquet", format: "parquet" }`}
+					</CodeBlock>
+					<Span>
+						Use it for a long computation worth keeping — a heavy join later steps build on, or an export
+						the user asked for — and tell them the path. Do not save every query: an ordinary answer is the
+						rows, not a file.
+					</Span>
+				</>
+			)}
 			<Span>
-				It is DuckDB, so write DuckDB SQL, and it is read-only: it cannot write files or modify anything. It
-				sees only the user's own saved files and the project folder. For questions a warehouse can answer on its
-				own, keep using the warehouse — this is for files and for results you already have.
+				It is DuckDB, so write DuckDB SQL. The query itself only reads: writing a file is what{' '}
+				{canSaveResults ? <Bold>save_to</Bold> : 'the write tool'} is for, and a <Bold>COPY … TO</Bold> in the
+				SQL is rejected. It sees only the user's own saved files and the project folder. For questions a
+				warehouse can answer on its own, keep using the warehouse — this is for files and for results you
+				already have.
 			</Span>
 		</Block>
 	);

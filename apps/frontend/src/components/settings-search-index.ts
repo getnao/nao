@@ -409,6 +409,28 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		adminOnly: true,
 		cloudHidden: true,
 	},
+	{
+		page: '/settings/storage',
+		pageLabel: 'Storage',
+		title: 'Storage Usage',
+		description: 'See how many files are stored and how much space they take, for you or for every user.',
+		keywords: [
+			'usage',
+			'stats',
+			'statistics',
+			'space',
+			'size',
+			'occupied',
+			'files',
+			'file count',
+			'per user',
+			'quota',
+			'disk usage',
+			'consumption',
+			'my space',
+		],
+		cloudHidden: true,
+	},
 
 	// ── Project > Slack ──────────────────────────────────────
 	{

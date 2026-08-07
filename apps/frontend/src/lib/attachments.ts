@@ -1,4 +1,5 @@
 import { getActiveProjectId } from '@/lib/active-project';
+import { triggerDownload } from '@/lib/download';
 
 export interface DocumentAttachment {
 	/** Virtual path in the user's permanent storage, e.g. `/home/uploads/2026-08-04/sales.csv`. */
@@ -27,13 +28,36 @@ export async function uploadAttachment(file: File): Promise<UploadedAttachmentIn
 	});
 
 	if (!response.ok) {
-		throw new Error(await readErrorMessage(response, file.name));
+		throw new Error(await readErrorMessage(response, `Could not upload ${file.name}`));
 	}
 
 	return response.json();
 }
 
-async function readErrorMessage(response: Response, fileName: string): Promise<string> {
+/** The bytes of an attachment already in permanent storage, for previewing or saving it. */
+export async function fetchAttachment(path: string): Promise<Blob> {
+	const projectId = getActiveProjectId();
+	const response = await fetch(`/api/attachments/file?path=${encodeURIComponent(path)}`, {
+		headers: projectId ? { 'x-nao-project-id': projectId } : undefined,
+	});
+
+	if (!response.ok) {
+		throw new Error(await readErrorMessage(response, `Could not open ${fileNameOf(path)}`));
+	}
+
+	return response.blob();
+}
+
+export async function downloadAttachment(path: string): Promise<void> {
+	triggerDownload(fileNameOf(path), await fetchAttachment(path));
+}
+
+export const fileNameOf = (path: string): string => path.split('/').pop() ?? path;
+
+/** Permanent storage is mounted at `/home`; nao can open nothing outside it. */
+export const isStoredFilePath = (path: string): boolean => /^\/home\/[^/].*$/.test(path);
+
+async function readErrorMessage(response: Response, fallback: string): Promise<string> {
 	try {
 		const { error } = await response.json();
 		if (typeof error === 'string' && error) {
@@ -42,5 +66,5 @@ async function readErrorMessage(response: Response, fileName: string): Promise<s
 	} catch {
 		// Fall through to a generic message when the body is not the usual error envelope.
 	}
-	return `Could not upload ${fileName}`;
+	return fallback;
 }

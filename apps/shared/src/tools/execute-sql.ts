@@ -9,6 +9,21 @@ import { QueryIdSchema } from './query-id';
  */
 export const LOCAL_DATABASE_ID = 'duckdb_local';
 
+export const SAVE_FORMATS = ['csv', 'parquet'] as const;
+
+export const SaveToSchema = z.object({
+	path: z
+		.string()
+		.describe(
+			"Where to keep the file, under /home and ending in the format's extension, e.g. '/home/exports/revenue-by-region.parquet'.",
+		),
+	format: z
+		.enum(SAVE_FORMATS)
+		.describe(
+			'parquet keeps column types and is the better choice for a result you will query again; csv is for a file someone opens.',
+		),
+});
+
 export const InputSchema = z.object({
 	sql_query: z.string().describe('The SQL query to execute'),
 	database_id: z
@@ -20,6 +35,9 @@ export const InputSchema = z.object({
 	name: z.string().optional().describe('A descriptive name for the query that will be used to show in the UI.'),
 	query_id: QueryIdSchema.optional().describe(
 		'When set, replace the SQL of this existing query in-place (same query_id) instead of creating a new one. Prefer this when adding story filter templates so chart/table tags keep working.',
+	),
+	save_to: SaveToSchema.optional().describe(
+		`Only for "${LOCAL_DATABASE_ID}". Also writes the result to a file in permanent storage, for an intermediary result you want to query again later or an export the user can download. The rows still come back as usual.`,
 	),
 });
 
@@ -47,7 +65,16 @@ export const OutputSchema = z.object({
 	 * the same query id. The model then sees a short stub instead of repeated rows.
 	 */
 	superseded: z.boolean().optional(),
+	/** Where `save_to` put the result, once it is in permanent storage. */
+	saved_file: z
+		.object({
+			path: z.string(),
+			size: z.number(),
+		})
+		.optional(),
 });
 
 export type Input = z.infer<typeof InputSchema>;
 export type Output = z.infer<typeof OutputSchema>;
+export type SaveTo = z.infer<typeof SaveToSchema>;
+export type SaveFormat = (typeof SAVE_FORMATS)[number];

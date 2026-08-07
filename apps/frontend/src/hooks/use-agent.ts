@@ -21,11 +21,13 @@ import {
 	extractDocumentPathsFromMessage,
 	extractImagesFromMessage,
 	getLastUserMessageIdx,
+	getMessageDocuments,
 	getMessageImages,
 	getMessageText,
 	getTextFromUserMessageOrThrow,
 	NEW_CHAT_ID,
 	parseBudgetError,
+	resolveImagesFromMessage,
 } from '@/lib/ai';
 import { createLocalStorage } from '@/lib/local-storage';
 import { trpc } from '@/main';
@@ -42,7 +44,9 @@ export interface AgentHelpers {
 	messages: UIMessage[];
 	setMessages: UseChatHelpers<UIMessage>['setMessages'];
 	queueOrSendMessage: (args: SendMessageArgs) => Promise<void>;
-	editMessage: (args: { messageId: string; text: string }) => Promise<void | UIMessage>;
+	editMessage: (
+		args: { messageId: string; text: string } & Pick<SendMessageArgs, 'images' | 'documents'>,
+	) => Promise<void | UIMessage>;
 	resendMessage: (args: { messageId: string }) => Promise<void | UIMessage>;
 	switchMessageVersion: (args: { messageId: string }) => Promise<void>;
 	submitQueuedMessageNow: (messageId: string) => Promise<void>;
@@ -400,9 +404,13 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 	);
 
 	const editMessage = useCallback(
-		async ({ messageId, text }: { messageId: string; text: string }) => {
-			const trimmedText = text.trim();
-			if (!trimmedText || isRunning) {
+		async ({
+			messageId,
+			text,
+			images: newImages,
+			documents: newDocuments,
+		}: { messageId: string; text: string } & Pick<SendMessageArgs, 'images' | 'documents'>) => {
+			if (isRunning) {
 				return;
 			}
 
@@ -411,10 +419,24 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 				return;
 			}
 
+			const original = messages[messageIndex];
+			const originalImages = await resolveImagesFromMessage(original);
+			const images = [...originalImages, ...(newImages ?? [])];
+			const documents = [...getMessageDocuments(original), ...(newDocuments ?? [])];
+			const prompt = text.trim() || defaultAttachmentPrompt({ images, documents });
+			if (!prompt) {
+				return;
+			}
+
+			agentCitationStore.set(agentInstance, original.citation);
 			setMessages(messages.slice(0, messageIndex));
-			return handleSendMessage({ text: trimmedText }, { body: { messageToEditId: messageId } });
+			const files = attachmentsToFileUIParts({ images, documents });
+			return handleSendMessage(
+				{ text: prompt, files: files.length > 0 ? files : undefined },
+				{ body: { messageToEditId: messageId } },
+			);
 		},
-		[messages, setMessages, isRunning, handleSendMessage],
+		[messages, setMessages, isRunning, handleSendMessage, agentInstance],
 	);
 
 	const resendMessage = useCallback(
@@ -429,14 +451,20 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 			}
 
 			const original = messages[messageIndex];
-			const text = getMessageText(original).trim();
+			const images = await resolveImagesFromMessage(original);
+			const documents = getMessageDocuments(original);
+			const text = getMessageText(original).trim() || defaultAttachmentPrompt({ images, documents });
 			if (!text) {
 				return;
 			}
 
 			agentCitationStore.set(agentInstance, original.citation);
 			setMessages(messages.slice(0, messageIndex));
-			return handleSendMessage({ text }, { body: { messageToEditId: messageId } });
+			const files = attachmentsToFileUIParts({ images, documents });
+			return handleSendMessage(
+				{ text, files: files.length > 0 ? files : undefined },
+				{ body: { messageToEditId: messageId } },
+			);
 		},
 		[messages, setMessages, isRunning, handleSendMessage, agentInstance],
 	);
@@ -519,7 +547,13 @@ export const useSyncMessages = ({ agent }: { agent: AgentHelpers }) => {
 };
 
 /** What to ask when someone attaches files without typing anything. */
-function defaultAttachmentPrompt({ images, documents }: Pick<SendMessageArgs, 'images' | 'documents'>): string {
+function defaultAttachmentPrompt({
+	images,
+	documents,
+}: {
+	images?: { length: number };
+	documents?: { length: number };
+}): string {
 	if (documents?.length) {
 		return images?.length ? 'Have a look at these files' : 'Have a look at this data';
 	}

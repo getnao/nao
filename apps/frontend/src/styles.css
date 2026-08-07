@@ -143,6 +143,7 @@ code {
 	font-size: 0.75rem;
 	background-color: var(--color-muted);
 	border-radius: var(--radius-sm);
+	padding: 0.125rem 0.25rem;
 }
 
 code.dollar:before {

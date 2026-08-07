@@ -8,12 +8,21 @@ export async function requireAdmin() {
 	}
 }
 
-export async function requireAdminNonCloud() {
-	await requireAdmin();
+export async function requireNonCloud() {
 	const config = await queryClient.ensureQueryData(trpc.system.getPublicConfig.queryOptions());
 	if (config.naoMode === 'cloud') {
 		throw redirect({ to: '/settings/account' });
 	}
+}
+
+export async function requireAdminNonCloud() {
+	await requireAdmin();
+	await requireNonCloud();
+}
+
+export async function requireNonViewerNonCloud() {
+	await requireNonViewer();
+	await requireNonCloud();
 }
 
 export async function requireAdminNonCloudWithLicense() {

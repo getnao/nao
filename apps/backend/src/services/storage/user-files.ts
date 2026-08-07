@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+
 import { documentMediaType, fileExtension, isBinaryDocument, toSafeFileName } from '@nao/shared/attachments';
 
 import { env } from '../../env';
@@ -46,7 +48,7 @@ export const writeUserFile = async (
 ): Promise<StorageObject> => {
 	const key = scopedKey(scope, relativePath);
 	const data = Buffer.from(content, 'utf-8');
-	assertWithinSizeLimit(relativePath, data.byteLength);
+	assertWithinStorageSizeLimit(relativePath, data.byteLength);
 
 	return getStorage().write(key, data, { contentType: guessContentType(relativePath) });
 };
@@ -58,11 +60,20 @@ export const writeUserFileBytes = async (
 	data: Buffer,
 ): Promise<StorageObject> => {
 	const key = scopedKey(scope, relativePath);
-	assertWithinSizeLimit(relativePath, data.byteLength);
+	assertWithinStorageSizeLimit(relativePath, data.byteLength);
 
 	return getStorage().write(key, data, {
 		contentType: documentMediaType(relativePath) ?? 'application/octet-stream',
 	});
+};
+
+/** Stores a file another process left on disk, such as a result DuckDB wrote out. */
+export const writeUserFileFromDisk = async (
+	scope: StorageScope,
+	relativePath: string,
+	sourcePath: string,
+): Promise<StorageObject> => {
+	return writeUserFileBytes(scope, relativePath, await readFile(sourcePath));
 };
 
 export const statUserFile = async (scope: StorageScope, relativePath: string): Promise<StorageObject | null> => {
@@ -91,7 +102,7 @@ export const saveUploadedFile = async (scope: StorageScope, fileName: string, da
 		);
 	}
 
-	assertWithinSizeLimit(safeName, data.byteLength);
+	assertWithinStorageSizeLimit(safeName, data.byteLength);
 
 	const directory = `${UPLOADS_DIRECTORY}/${new Date().toISOString().slice(0, 10)}`;
 	const relativePath = await findUnusedPath(scope, directory, safeName);
@@ -199,8 +210,11 @@ const isMissing = (error: unknown): boolean => {
 	);
 };
 
-/** Every write goes through `writeUserFile`, so this covers the whole instance. */
-const assertWithinSizeLimit = (relativePath: string, size: number): void => {
+/**
+ * Every write goes through `writeUserFile`, so this covers the whole instance. It is exported for
+ * callers holding a file rather than its bytes, which can check the size without reading it in.
+ */
+export const assertWithinStorageSizeLimit = (relativePath: string, size: number): void => {
 	if (size <= env.NAO_STORAGE_MAX_FILE_SIZE_MB * 1024 * 1024) {
 		return;
 	}

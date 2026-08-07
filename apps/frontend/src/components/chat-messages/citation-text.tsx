@@ -1,10 +1,12 @@
 import { memo } from 'react';
 import { Streamdown } from 'streamdown';
 
-import { CITATION_TAG_REGEX } from '@nao/shared';
+import { stripAssistantTags } from '@nao/shared';
 
 import { CitationPopover } from '@/components/citation-popover';
 import { MarkdownTable } from '@/components/chat-messages/markdown-table';
+import { FileChip } from '@/components/file-chip';
+import { isStoredFilePath } from '@/lib/attachments';
 import { markdownPlugins } from '@/lib/markdown';
 
 const CLOBBER_PREFIX = 'user-content-';
@@ -15,7 +17,6 @@ function stripClobberPrefix(value: string): string {
 
 export const AssistantTextWithCitation = memo(({ text, isStreaming }: { text: string; isStreaming: boolean }) => {
 	if (isStreaming) {
-		const strippedText = text.replace(CITATION_TAG_REGEX, '');
 		return (
 			<Streamdown
 				isAnimating
@@ -25,7 +26,7 @@ export const AssistantTextWithCitation = memo(({ text, isStreaming }: { text: st
 					table: ({ node, className }: any) => <MarkdownTable node={node} className={className} />,
 				}}
 			>
-				{strippedText}
+				{stripAssistantTags(text)}
 			</Streamdown>
 		);
 	}
@@ -35,8 +36,9 @@ export const AssistantTextWithCitation = memo(({ text, isStreaming }: { text: st
 			plugins={markdownPlugins}
 			allowedTags={{
 				'citation-number': ['id', 'column'],
+				'saved-file': ['path'],
 			}}
-			literalTagContent={['citation-number']}
+			literalTagContent={['citation-number', 'saved-file']}
 			components={{
 				table: ({ node, className }: any) => <MarkdownTable node={node} className={className} />,
 				'citation-number': ({ id, column, children }: any) => {
@@ -50,9 +52,21 @@ export const AssistantTextWithCitation = memo(({ text, isStreaming }: { text: st
 						</span>
 					);
 				},
+				'saved-file': ({ path, children }: any) => <SavedFile path={asText(path)} label={asText(children)} />,
 			}}
 		>
 			{text}
 		</Streamdown>
 	);
 });
+
+/** A file the answer hands over. One nao cannot reach stays as the text the model wrote. */
+function SavedFile({ path, label }: { path: string; label: string }) {
+	if (!isStoredFilePath(path)) {
+		return <>{label || path}</>;
+	}
+
+	return <FileChip path={path} label={label || undefined} className='mx-0.5' />;
+}
+
+const asText = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');

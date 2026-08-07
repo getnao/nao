@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { DuckDBConnection, DuckDBResultReader } from '@duckdb/node-api';
+import type { executeSql } from '@nao/shared/tools';
 
 import { env } from '../env';
 import type { QueryResult } from '../types/tools';
@@ -11,6 +12,14 @@ import { isReadOnlySqlQuery } from '../utils/sql-filter';
 
 type DuckDBModule = typeof import('@duckdb/node-api');
 
+type SaveFormat = executeSql.SaveFormat;
+
+export interface LocalQueryOutput {
+	/** Where to write the result. Must sit inside one of the allowed directories. */
+	filePath: string;
+	format: SaveFormat;
+}
+
 export interface LocalQuery {
 	/** Already rewritten to real filesystem paths. */
 	sql: string;
@@ -18,6 +27,8 @@ export interface LocalQuery {
 	queryResults: Map<string, QueryResult>;
 	/** The only directories the query may open files from. */
 	allowedDirectories: string[];
+	/** When set, the result is also written out as a file. */
+	output?: LocalQueryOutput;
 }
 
 /**
@@ -29,8 +40,16 @@ export interface LocalQuery {
  * `allowedDirectories`, everything else external is switched off, and the configuration is locked
  * so the query cannot widen any of it back. The order matters — `allowed_directories` is only
  * settable while external access is still enabled.
+ *
+ * `output` writes the result to a file. The query itself stays read-only: the `COPY` is written
+ * here, against a path the caller resolved, so the untrusted SQL never names a write target.
  */
-export async function runLocalQuery({ sql, queryResults, allowedDirectories }: LocalQuery): Promise<QueryResult> {
+export async function runLocalQuery({
+	sql,
+	queryResults,
+	allowedDirectories,
+	output,
+}: LocalQuery): Promise<QueryResult> {
 	if (!(await isReadOnlySqlQuery(sql))) {
 		throw new Error(
 			'Only read-only queries can run against the local database. It reads files and earlier results; it cannot modify them.',
@@ -52,7 +71,9 @@ export async function runLocalQuery({ sql, queryResults, allowedDirectories }: L
 		await restrictToDirectories(connection, allowedDirectories);
 
 		try {
-			return toQueryResult(await connection.runAndReadAll(sql), duckdb);
+			return output
+				? await runAndWriteOut(connection, sql, output, duckdb)
+				: toQueryResult(await connection.runAndReadAll(sql), duckdb);
 		} catch (error) {
 			throw explainLocalQueryFailure(error, spreadsheetSupport);
 		}
@@ -61,6 +82,35 @@ export async function runLocalQuery({ sql, queryResults, allowedDirectories }: L
 		instance.closeSync();
 		await rm(workspace, { recursive: true, force: true });
 	}
+}
+
+/**
+ * Materialises the result once so it can be both written out and returned, rather than running
+ * the query a second time to read the rows back.
+ */
+async function runAndWriteOut(
+	connection: DuckDBConnection,
+	sql: string,
+	output: LocalQueryOutput,
+	duckdb: DuckDBModule,
+): Promise<QueryResult> {
+	const table = quoteIdentifier(SAVED_RESULT_TABLE);
+
+	await connection.run(`CREATE TEMP TABLE ${table} AS (${asSubquery(sql)})`);
+	await connection.run(`COPY ${table} TO ${quoteLiteral(output.filePath)} (${copyOptions(output.format)})`);
+
+	return toQueryResult(await connection.runAndReadAll(`SELECT * FROM ${table}`), duckdb);
+}
+
+const SAVED_RESULT_TABLE = 'nao_saved_result';
+
+function copyOptions(format: SaveFormat): string {
+	return format === 'csv' ? 'FORMAT csv, HEADER' : 'FORMAT parquet';
+}
+
+/** A trailing semicolon is harmless on its own but closes the statement this gets wrapped in. */
+function asSubquery(sql: string): string {
+	return sql.trim().replace(/;+\s*$/, '');
 }
 
 /**

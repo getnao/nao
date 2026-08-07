@@ -1,3 +1,5 @@
+import type { DocumentExtension } from './attachments';
+
 export type UserRole = 'admin' | 'user' | 'viewer' | 'context_admin';
 
 export const USER_ROLES = ['admin', 'user', 'viewer', 'context_admin'] as const satisfies readonly UserRole[];
@@ -204,7 +206,8 @@ export const DOWNLOAD_FORMATS = ['pdf', 'html'] as const satisfies readonly Down
 export type ChatDownloadFormat = 'png' | 'csv' | 'xlsx';
 export const CHAT_DOWNLOAD_FORMATS = ['png', 'csv', 'xlsx'] as const satisfies readonly ChatDownloadFormat[];
 
-export type AnalyticsDownloadFormat = DownloadFormat | ChatDownloadFormat;
+/** A file taken out of permanent storage is recorded under its own extension. */
+export type AnalyticsDownloadFormat = DownloadFormat | ChatDownloadFormat | DocumentExtension;
 
 export const ANALYTICS_EVENT_TYPES = ['page_view', 'download', 'fork', 'favorite', 'refresh', 'view_duration'] as const;
 export const ANALYTICS_ASSET_TYPES = ['chat', 'story'] as const;
