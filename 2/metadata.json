@@ -1,0 +1,51 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "01KZECBABBA8GTYZHZ2KDNFPA1",
+  "session_id": "40e62b64-6be2-4370-929c-c23fa9541aa0",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-07T15:09:30.224646Z",
+  "branch": "feat/storage",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "apps/frontend/src/components/chat-messages/user-message.tsx",
+    "apps/frontend/src/hooks/use-agent.ts",
+    "apps/frontend/src/lib/ai.ts",
+    "apps/frontend/src/styles.css"
+  ],
+  "agent": "Cursor",
+  "model": "cursor-grok-4.5-high-fast",
+  "turn_id": "2e93b761e20d",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 55288,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 717696,
+    "output_tokens": 14502,
+    "api_call_count": 1
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-07T15:09:30.197603Z",
+    "agent_lines": 111,
+    "agent_removed": 25,
+    "human_added": 1777,
+    "human_modified": 1,
+    "human_removed": 0,
+    "total_committed": 1889,
+    "total_lines_changed": 2149,
+    "agent_percentage": 6.3285248953001405,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

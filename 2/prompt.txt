@@ -1,0 +1,5 @@
+if i resend a user message that has image or file attached when resend (or edited) it's lost
+
+---
+
+if i resend a user message that has image or file attached when resend (or edited) it's lost
