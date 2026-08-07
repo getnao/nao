@@ -3,7 +3,7 @@
   "checkpoint_id": "01KZECBABBA8GTYZHZ2KDNFPA1",
   "strategy": "manual-commit",
   "branch": "feat/storage",
-  "checkpoints_count": 8,
+  "checkpoints_count": 10,
   "files_touched": [
     "apps/backend/src/agents/tools/execute-sql.ts",
     "apps/backend/src/components/ai/system-prompt.tsx",
@@ -12,10 +12,12 @@
     "apps/backend/src/services/duckdb.service.ts",
     "apps/backend/src/services/local-query.service.ts",
     "apps/backend/src/services/storage/keys.ts",
+    "apps/backend/src/services/storage/usage.ts",
     "apps/backend/src/services/storage/user-files.ts",
     "apps/backend/src/trpc/storage.routes.ts",
     "apps/backend/tests/local-query.test.ts",
     "apps/backend/tests/storage-keys.test.ts",
+    "apps/backend/tests/storage-usage.test.ts",
     "apps/backend/tests/system-prompt.test.ts",
     "apps/frontend/package.json",
     "apps/frontend/src/components/chat-messages/user-message.tsx",
@@ -74,13 +76,20 @@
       "compact_transcript": "/4/transcript.jsonl",
       "content_hash": "/4/content_hash.txt",
       "prompt": "/4/prompt.txt"
+    },
+    {
+      "metadata": "/5/metadata.json",
+      "transcript": "/5/full.jsonl",
+      "compact_transcript": "/5/transcript.jsonl",
+      "content_hash": "/5/content_hash.txt",
+      "prompt": "/5/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 274607,
-    "cache_creation_tokens": 0,
-    "cache_read_tokens": 3593280,
-    "output_tokens": 49114,
-    "api_call_count": 7
+    "input_tokens": 274699,
+    "cache_creation_tokens": 451319,
+    "cache_read_tokens": 9582610,
+    "output_tokens": 94551,
+    "api_call_count": 9
   }
 }

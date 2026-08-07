@@ -1,0 +1,11 @@
+i want in @chat/apps/frontend/src/routes/_sidebar-layout.settings.storage.tsx if iam an admin some stats about the storage usage like: how many files, what size does it represents, usage (so size occupied and number of file) per user
+
+if iam a user i want to see stats for my own space:
+number of files
+size occupied
+
+use the already existing charts (kpi card for number and bar chart for usage)
+
+---
+
+the bar chart can be 2 series instead
