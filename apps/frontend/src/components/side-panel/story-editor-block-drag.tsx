@@ -79,10 +79,10 @@ export function StoryBlockDragGrip({ node, editor, getPos }: Pick<ReactNodeViewP
 					return;
 				}
 				const next = selectBlockFromHandle(editor.state, pos);
-				if (!next) {
-					return;
+				if (next) {
+					editor.view.dispatch(editor.state.tr.setMeta(blockSelectionPluginKey, next));
 				}
-				editor.view.dispatch(editor.state.tr.setMeta(blockSelectionPluginKey, next));
+				editor.view.focus();
 			}}
 			onPointerDown={(event) => {
 				event.stopPropagation();
@@ -150,14 +150,16 @@ export function StoryBlockDropZones({ node, editor, getPos }: Pick<ReactNodeView
 			const finalGridPos = transaction.mapping.map(targetPos, -1);
 			transaction.setMeta(
 				blockSelectionPluginKey,
-				blockSelectionFromOrigin({
-					kind: 'gridColumn',
-					gridPos: finalGridPos,
-					columnIndex: side === 'left' ? 0 : 1,
-				}),
+				blockSelectionFromOrigin(
+					{
+						kind: 'gridColumn',
+						gridPos: finalGridPos,
+						columnIndex: side === 'left' ? 0 : 1,
+					},
+					[source.markup],
+				),
 			);
 			dispatchDropWithScroll(editor.view, transaction, finalGridPos);
-			dragContext.rememberDragUndoSelection(blockSelectionFromOrigin(source.origin));
 			editor.view.focus();
 			resetDrag();
 		},

@@ -4,7 +4,12 @@ import { Editor, Node } from '@tiptap/core';
 import { TextSelection } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { splitGridColumnsRaw } from '@nao/shared/story-segments';
+import {
+	groupBlocksIntoGrid,
+	popGridColumn,
+	reorderGridColumns,
+	splitGridColumnsRaw,
+} from '@nao/shared/story-segments';
 import type { Transaction } from '@tiptap/pm/state';
 
 import {
@@ -26,6 +31,7 @@ import {
 	selectColumnFromHandle,
 	topLevelBlockPositions,
 } from '@/components/side-panel/story-block-selection';
+import { createBlockNode, removeCardFromOrigin, scrollPosIntoView } from '@/components/side-panel/story-editor-utils';
 
 function createEditor(): Editor {
 	return new Editor({
@@ -85,6 +91,10 @@ const TestTableBlock = Node.create({
 const FIRST_GRID = '<grid><chart query_id="q1" chart_type="line" x_axis_key="month" /></grid>';
 const FIRST_GRID_REORDERED = '<grid><chart query_id="q1" chart_type="bar" x_axis_key="month" /></grid>';
 const SECOND_GRID = '<grid><chart query_id="q2" chart_type="bar" x_axis_key="month" /></grid>';
+const FIRST_TWO_COLUMN_GRID = `<grid widths="1,1">
+<chart query_id="q1" chart_type="line" x_axis_key="month" />
+<chart query_id="q2" chart_type="bar" x_axis_key="month" />
+</grid>`;
 const FIRST_THREE_COLUMN_GRID = `<grid widths="1,1,1">
 <chart query_id="q1" chart_type="line" x_axis_key="month" />
 <chart query_id="q2" chart_type="bar" x_axis_key="month" />
@@ -134,6 +144,63 @@ function selectMixed(editor: Editor, blocks: number[], gridColumns: { gridPos: n
 			columnAnchor: gridColumns[0] ?? null,
 		}),
 	);
+}
+
+function joinFirstChartIntoLast(editor: Editor): void {
+	const [sourcePos, , targetPos] = topLevelBlockPositions(editor.state.doc);
+	const sourceNode = editor.state.doc.nodeAt(sourcePos);
+	const targetNode = editor.state.doc.nodeAt(targetPos);
+	if (!sourceNode || !targetNode) {
+		throw new Error('Expected source and target chart blocks');
+	}
+	const gridNode = createBlockNode(
+		editor.state.schema,
+		groupBlocksIntoGrid(targetNode.attrs.rawTag as string, sourceNode.attrs.rawTag as string),
+	);
+	if (!gridNode) {
+		throw new Error('Expected grid block');
+	}
+
+	const transaction = editor.state.tr;
+	transaction.replaceWith(targetPos, targetPos + targetNode.nodeSize, gridNode);
+	removeCardFromOrigin(transaction, editor.state, { kind: 'block', pos: sourcePos });
+	const finalGridPos = transaction.mapping.map(targetPos, -1);
+	transaction.setMeta(
+		blockSelectionPluginKey,
+		blockSelectionFromOrigin({ kind: 'gridColumn', gridPos: finalGridPos, columnIndex: 1 }, [
+			sourceNode.attrs.rawTag as string,
+		]),
+	);
+	editor.view.dispatch(transaction);
+}
+
+function popFirstGridColumn(editor: Editor): void {
+	const [gridPos] = topLevelBlockPositions(editor.state.doc);
+	const gridNode = editor.state.doc.nodeAt(gridPos);
+	if (!gridNode || gridNode.type.name !== 'gridBlock') {
+		throw new Error('Expected grid block');
+	}
+	const result = popGridColumn(gridNode.attrs.rawContent as string, 0);
+	if (!result) {
+		throw new Error('Expected popped grid column');
+	}
+	const poppedNode = createBlockNode(editor.state.schema, result.popped);
+	const remainingNode = createBlockNode(editor.state.schema, result.remaining);
+	if (!poppedNode || !remainingNode) {
+		throw new Error('Expected grid column nodes');
+	}
+
+	const gridTo = gridPos + gridNode.nodeSize;
+	const insertPos = editor.state.doc.content.size;
+	const transaction = editor.state.tr;
+	transaction.replaceWith(gridPos, gridTo, remainingNode);
+	const mappedInsert = transaction.mapping.map(insertPos, insertPos >= gridTo ? 1 : -1);
+	transaction.insert(mappedInsert, poppedNode);
+	transaction.setMeta(
+		blockSelectionPluginKey,
+		blockSelectionForInsertedNodes(mappedInsert, [poppedNode], [result.popped]),
+	);
+	editor.view.dispatch(transaction);
 }
 
 function dispatchEditorMouseDown(target: Element, init?: MouseEventInit): void {
@@ -258,6 +325,57 @@ describe('story block selection', () => {
 			anchor: 10,
 			columnAnchor: null,
 		});
+	});
+
+	it('scrolls a selected grid column into view', () => {
+		const gridEditor = createGridEditor();
+		const [, gridPos] = topLevelBlockPositions(gridEditor.state.doc);
+		const column = createColumnElement(gridPos, 0, 'chart');
+		gridEditor.view.dom.appendChild(column);
+		const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+		let scrollOptions: boolean | ScrollIntoViewOptions | undefined;
+		column.scrollIntoView = (options) => {
+			scrollOptions = options;
+		};
+		globalThis.requestAnimationFrame = (callback) => {
+			callback(0);
+			return 1;
+		};
+
+		try {
+			scrollPosIntoView(gridEditor.view, gridPos, 0);
+			expect(scrollOptions).toEqual({ block: 'center', behavior: 'smooth' });
+		} finally {
+			globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+			gridEditor.destroy();
+		}
+	});
+
+	it('does not scroll a grid column that is already visible', () => {
+		const gridEditor = createGridEditor();
+		const [, gridPos] = topLevelBlockPositions(gridEditor.state.doc);
+		const column = createColumnElement(gridPos, 0, 'chart');
+		gridEditor.view.dom.appendChild(column);
+		gridEditor.view.dom.style.overflowY = 'auto';
+		gridEditor.view.dom.getBoundingClientRect = () => new DOMRect(0, 0, 600, 500);
+		column.getBoundingClientRect = () => new DOMRect(0, 100, 300, 200);
+		const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+		let didScroll = false;
+		column.scrollIntoView = () => {
+			didScroll = true;
+		};
+		globalThis.requestAnimationFrame = (callback) => {
+			callback(0);
+			return 1;
+		};
+
+		try {
+			scrollPosIntoView(gridEditor.view, gridPos, 0);
+			expect(didScroll).toBe(false);
+		} finally {
+			globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+			gridEditor.destroy();
+		}
 	});
 
 	it('applies block chrome with a collapsed selection outside history', () => {
@@ -654,6 +772,105 @@ describe('story block selection', () => {
 				index: 0,
 			});
 		});
+
+		it('restores a reordered column selection on undo', () => {
+			const reorderEditor = createDocumentEditor([
+				{ type: 'gridBlock', attrs: { rawContent: FIRST_THREE_COLUMN_GRID } },
+			]);
+			const [gridPos] = topLevelBlockPositions(reorderEditor.state.doc);
+			const transaction = reorderEditor.state.tr;
+			transaction.setNodeAttribute(gridPos, 'rawContent', reorderGridColumns(FIRST_THREE_COLUMN_GRID, 0, 2));
+			transaction.setMeta(
+				blockSelectionPluginKey,
+				blockSelectionFromOrigin({ kind: 'gridColumn', gridPos, columnIndex: 2 }, [
+					splitGridColumnsRaw(FIRST_THREE_COLUMN_GRID).columns[0],
+				]),
+			);
+			reorderEditor.view.dispatch(transaction);
+
+			expect(getSelectedGridColumns(reorderEditor.state)).toEqual([{ gridPos, index: 2 }]);
+			expect(reorderEditor.commands.undo()).toBe(true);
+			expect(getSelectedGridColumns(reorderEditor.state)).toEqual([{ gridPos, index: 0 }]);
+			reorderEditor.destroy();
+		});
+	});
+
+	describe('grid column pop history selection', () => {
+		function createPopEditor(): Editor {
+			return createDocumentEditor([
+				{ type: 'gridBlock', attrs: { rawContent: FIRST_TWO_COLUMN_GRID } },
+				{ type: 'paragraph', content: [{ type: 'text', text: 'Target' }] },
+			]);
+		}
+
+		it('restores only the popped column on undo after selection was cleared', () => {
+			const popEditor = createPopEditor();
+			popFirstGridColumn(popEditor);
+			popEditor.view.dispatch(popEditor.state.tr.setMeta(blockSelectionPluginKey, emptySelection()));
+
+			expect(popEditor.commands.undo()).toBe(true);
+
+			const [gridPos] = topLevelBlockPositions(popEditor.state.doc);
+			expect(getSelectedBlockPositions(popEditor.state)).toEqual([]);
+			expect(getSelectedGridColumns(popEditor.state)).toEqual([{ gridPos, index: 0 }]);
+
+			popEditor.view.dispatch(popEditor.state.tr.setMeta(blockSelectionPluginKey, emptySelection()));
+			expect(popEditor.commands.redo()).toBe(true);
+			const [selectedBlockPos] = getSelectedBlockPositions(popEditor.state);
+			expect(getSelectedBlockPositions(popEditor.state)).toHaveLength(1);
+			expect(popEditor.state.doc.nodeAt(selectedBlockPos)?.attrs.rawTag).toContain('query_id="q1"');
+			expect(getSelectedGridColumns(popEditor.state)).toEqual([]);
+			popEditor.destroy();
+		});
+
+		it('restores only the popped column on undo while selection is active', () => {
+			const popEditor = createPopEditor();
+			popFirstGridColumn(popEditor);
+
+			expect(popEditor.commands.undo()).toBe(true);
+
+			const [gridPos] = topLevelBlockPositions(popEditor.state.doc);
+			expect(getSelectedBlockPositions(popEditor.state)).toEqual([]);
+			expect(getSelectedGridColumns(popEditor.state)).toEqual([{ gridPos, index: 0 }]);
+			popEditor.destroy();
+		});
+	});
+
+	describe('join into grid history selection', () => {
+		function createJoinEditor(): Editor {
+			return createDocumentEditor([
+				{ type: 'chartBlock', attrs: { rawTag: '<chart query_id="moved" />' } },
+				{ type: 'paragraph', content: [{ type: 'text', text: 'Between' }] },
+				{ type: 'chartBlock', attrs: { rawTag: '<chart query_id="neighbor" />' } },
+			]);
+		}
+
+		it('selects only the restored moved chart on undo', () => {
+			const joinEditor = createJoinEditor();
+			joinFirstChartIntoLast(joinEditor);
+
+			expect(joinEditor.commands.undo()).toBe(true);
+
+			const [movedPos, , neighborPos] = topLevelBlockPositions(joinEditor.state.doc);
+			expect(getSelectedBlockPositions(joinEditor.state)).toEqual([movedPos]);
+			expect(getSelectedBlockPositions(joinEditor.state)).not.toContain(neighborPos);
+			expect(getSelectedGridColumns(joinEditor.state)).toEqual([]);
+			joinEditor.destroy();
+		});
+
+		it('selects only the restored moved chart on undo after selection was cleared', () => {
+			const joinEditor = createJoinEditor();
+			joinFirstChartIntoLast(joinEditor);
+			selectBlocks(joinEditor, [], null);
+
+			expect(joinEditor.commands.undo()).toBe(true);
+
+			const [movedPos, , neighborPos] = topLevelBlockPositions(joinEditor.state.doc);
+			expect(getSelectedBlockPositions(joinEditor.state)).toEqual([movedPos]);
+			expect(getSelectedBlockPositions(joinEditor.state)).not.toContain(neighborPos);
+			expect(getSelectedGridColumns(joinEditor.state)).toEqual([]);
+			joinEditor.destroy();
+		});
 	});
 
 	describe('isDropInsideSelection', () => {
@@ -688,6 +905,26 @@ describe('story block selection', () => {
 			expect(editor.state.doc.textContent).toBe('BBAACC');
 			expect(getSelectedBlockPositions(editor.state)).toEqual(topLevelBlockPositions(editor.state.doc).slice(1));
 			expect(editor.state.selection.empty).toBe(true);
+		});
+
+		it('reselects moved chart and table blocks after selection was cleared', () => {
+			const embedEditor = createDocumentEditor([
+				{ type: 'chartBlock', attrs: { rawTag: '<chart query_id="q1" />' } },
+				{ type: 'paragraph', content: [{ type: 'text', text: 'Target' }] },
+				{ type: 'tableBlock', attrs: { rawTag: '<table query_id="q2" />' } },
+			]);
+			const [chartPos, , tablePos] = topLevelBlockPositions(embedEditor.state.doc);
+			const move = buildBlockMoveTransaction(embedEditor.state, [chartPos, tablePos], tablePos);
+			expect(move).not.toBeNull();
+			if (move) {
+				embedEditor.view.dispatch(move.transaction);
+			}
+			selectBlocks(embedEditor, [], null);
+
+			expect(embedEditor.commands.undo()).toBe(true);
+			const [restoredChartPos, , restoredTablePos] = topLevelBlockPositions(embedEditor.state.doc);
+			expect(getSelectedBlockPositions(embedEditor.state)).toEqual([restoredChartPos, restoredTablePos]);
+			embedEditor.destroy();
 		});
 
 		it('moves a contiguous selection past a later block without dropping blocks', () => {
@@ -810,6 +1047,14 @@ describe('story block selection', () => {
 			);
 			expect(getSelectedBlockPositions(moveEditor.state)).toEqual([
 				topLevelBlockPositions(moveEditor.state.doc)[1],
+			]);
+			expect(moveEditor.commands.undo()).toBe(true);
+			const [restoredGridPos] = topLevelBlockPositions(moveEditor.state.doc);
+			expect(getSelectedBlockPositions(moveEditor.state)).toEqual([]);
+			expect(getSelectedGridColumns(moveEditor.state)).toEqual([
+				{ gridPos: restoredGridPos, index: 0 },
+				{ gridPos: restoredGridPos, index: 1 },
+				{ gridPos: restoredGridPos, index: 2 },
 			]);
 			moveEditor.destroy();
 		});

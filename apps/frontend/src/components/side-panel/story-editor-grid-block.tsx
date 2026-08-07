@@ -141,12 +141,12 @@ function GridBlockView(props: ReactNodeViewProps) {
 											return;
 										}
 										const next = selectColumnFromHandle(props.editor.state, gridPos, i);
-										if (!next) {
-											return;
+										if (next) {
+											props.editor.view.dispatch(
+												props.editor.state.tr.setMeta(blockSelectionPluginKey, next),
+											);
 										}
-										props.editor.view.dispatch(
-											props.editor.state.tr.setMeta(blockSelectionPluginKey, next),
-										);
+										props.editor.view.focus();
 									}}
 									onPointerDown={(event) => {
 										event.stopPropagation();

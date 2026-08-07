@@ -17,12 +17,7 @@ import {
 	STORY_BLOCK_DRAG_TYPE,
 	StoryBlockDragContext,
 } from '../story-editor-drag-context';
-import {
-	applyBlockSelection,
-	blockSelectionPluginKey,
-	blockSelectionFromOrigin,
-	resolveDragSelection,
-} from '../story-block-selection';
+import { blockSelectionPluginKey, blockSelectionFromOrigin, resolveDragSelection } from '../story-block-selection';
 import type { Segment } from '@nao/shared/story-segments';
 import type { ReactNodeViewProps } from '@tiptap/react';
 import type {
@@ -298,14 +293,16 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 			const finalGridPos = transaction.mapping.map(gridPos, -1);
 			transaction.setMeta(
 				blockSelectionPluginKey,
-				blockSelectionFromOrigin({
-					kind: 'gridColumn',
-					gridPos: finalGridPos,
-					columnIndex: clampedIndex,
-				}),
+				blockSelectionFromOrigin(
+					{
+						kind: 'gridColumn',
+						gridPos: finalGridPos,
+						columnIndex: clampedIndex,
+					},
+					[source.markup],
+				),
 			);
 			dispatchDropWithScroll(editor.view, transaction, finalGridPos);
-			storyBlockDrag.rememberDragUndoSelection(blockSelectionFromOrigin(source.origin));
 			editor.view.focus();
 			clearDrag();
 		},
@@ -324,24 +321,25 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 					const targetIndex = dropColumnIndex > dragColumnIndex ? dropColumnIndex - 1 : dropColumnIndex;
 					const nextRawContent = reorderGridColumns(rawContent, dragColumnIndex, targetIndex);
 					if (nextRawContent !== rawContent) {
+						const movedMarkup = splitGridColumnsRaw(rawContent).columns[dragColumnIndex];
 						const gridPos = getPos();
-						updateAttributes({ rawContent: nextRawContent });
 						if (typeof gridPos === 'number') {
-							storyBlockDrag?.rememberDragUndoSelection(
-								blockSelectionFromOrigin({
-									kind: 'gridColumn',
-									gridPos,
-									columnIndex: dragColumnIndex,
-								}),
+							const transaction = editor.state.tr;
+							transaction.setNodeAttribute(gridPos, 'rawContent', nextRawContent);
+							transaction.setMeta(
+								blockSelectionPluginKey,
+								blockSelectionFromOrigin(
+									{
+										kind: 'gridColumn',
+										gridPos,
+										columnIndex: targetIndex,
+									},
+									movedMarkup === undefined ? [] : [movedMarkup],
+								),
 							);
-							applyBlockSelection(
-								editor.view,
-								blockSelectionFromOrigin({
-									kind: 'gridColumn',
-									gridPos,
-									columnIndex: targetIndex,
-								}),
-							);
+							dispatchDropWithScroll(editor.view, transaction, gridPos);
+						} else {
+							updateAttributes({ rawContent: nextRawContent });
 						}
 						editor.view.focus();
 					}

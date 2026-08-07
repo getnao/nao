@@ -1,6 +1,6 @@
 import { createContext } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
-import type { BlockSelectionState, DragUnit } from './story-block-selection';
+import type { DragUnit } from './story-block-selection';
 
 export const STORY_BLOCK_DRAG_TYPE = 'application/x-nao-story-block';
 export const GRID_COLUMN_DRAG_TYPE = 'application/x-nao-grid-column';
@@ -28,7 +28,6 @@ export const StoryBlockDragContext = createContext<{
 	pendingDropRef: MutableRefObject<(() => void) | null>;
 	beginMultiSelectionDrag: (units: DragUnit[], event: DragEvent) => void;
 	endMultiSelectionDrag: () => void;
-	rememberDragUndoSelection: (selection: BlockSelectionState) => void;
 } | null>(null);
 
 export const GridDragContext = createContext<MutableRefObject<GridDragSource | null> | null>(null);
