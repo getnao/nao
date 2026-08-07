@@ -118,8 +118,9 @@ COPY --from=deps --chown=nao:nao /app/node_modules ./node_modules
 
 # Queries against the local DuckDB run with external access off, so extensions have to be on disk
 # before the first query rather than fetched on demand.
-RUN --mount=type=bind,source=docker/install-duckdb-extensions.mjs,target=/tmp/install-duckdb-extensions.mjs \
-    DUCKDB_EXTENSION_DIR=/app/.duckdb-extensions node /tmp/install-duckdb-extensions.mjs \
+# Mount under /app so Node's ESM resolver finds /app/node_modules (a /tmp mount would not).
+RUN --mount=type=bind,source=docker/install-duckdb-extensions.mjs,target=/app/install-duckdb-extensions.mjs \
+    DUCKDB_EXTENSION_DIR=/app/.duckdb-extensions node /app/install-duckdb-extensions.mjs \
     && chown -R nao:nao /app/.duckdb-extensions
 
 # Copy backend and shared source (no build needed — Bun runs TS directly)
