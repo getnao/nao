@@ -207,6 +207,7 @@ Options:
 
 - `--model` / `-m`: Models to test against (default: `openai:gpt-4.1`). Can be specified multiple times.
 - `--threads` / `-t`: Number of parallel threads (default: `1`)
+- `--k` / `-k`: Number of times to run each test case, used to compute pass@k and pass^k (default: `1`)
 - `--select` / `-s`: Run only selected tests by name, yaml stem, or subfolder. Comma-separated.
 - `--username` / `-u`, `--password`: Credentials for the nao backend. Fall back to `NAO_USERNAME` / `NAO_PASSWORD`.
 
@@ -216,9 +217,10 @@ Examples:
 nao test -m openai:gpt-4.1
 nao test -m openai:gpt-4.1 -m anthropic:claude-sonnet-4-20250514
 nao test --threads 4
+nao test --k 5
 ```
 
-Defaults for every run live in the `test` block of `nao_config.yaml`, and the `--model` / `--threads` flags override them:
+Defaults for every run live in the `test` block of `nao_config.yaml`, and the `--model` / `--threads` / `--k` flags override them:
 
 ```yaml
 test:
@@ -226,6 +228,7 @@ test:
     - openai:gpt-4.1
     - anthropic:claude-sonnet-4-5
   threads: 4
+  # k: 5  # run each case 5 times to compute pass@k / pass^k
   comparison:
     rtol: 0.00001
     atol: 0.00000001

@@ -21,7 +21,7 @@ from nao_core.ui import UI
 from .case import TESTS_FOLDER, TestCase, discover_tests
 from .client import BACKEND_URL, AgentClientError, VerificationResult, get_client
 from .compare import normalize_dataframe_numbers
-from .summary import ModelSummary, summarize, summarize_by_model
+from .summary import ModelSummary, summarize, summarize_by_model, summarize_pass_metrics
 
 
 @dataclass
@@ -70,6 +70,7 @@ class TestRunResult:
     tool_call_count: int | None = None
     error: str | None = None
     details: TestRunDetails | None = None
+    attempt: int | None = None
 
 
 def check_dataframe(
@@ -295,6 +296,7 @@ def save_results(results: list[TestRunResult], output_dir: Path) -> Path:
         "results": runs,
         "summary": summarize(runs),
         "by_model": [asdict(s) for s in summarize_by_model(runs)],
+        "pass_metrics": summarize_pass_metrics(runs),
     }
 
     output_file.write_text(json.dumps(data, indent=2))
@@ -302,7 +304,7 @@ def save_results(results: list[TestRunResult], output_dir: Path) -> Path:
 
 
 def print_run_table(results: list[TestRunResult]) -> None:
-    """Print one row per run, i.e. per (test, model) pair."""
+    """Print one row per run/attempt."""
     df = pd.DataFrame(
         [
             {
@@ -322,24 +324,51 @@ def print_run_table(results: list[TestRunResult]) -> None:
     UI.table(df, title="Test Results", sum_columns={"Tokens": "", "Cost": "$", "Time (s)": "", "Tools": ""})
 
 
-def print_model_table(summaries: list[ModelSummary]) -> None:
-    """Print one row per model, ranked from best to worst pass rate."""
-    df = pd.DataFrame(
-        [
-            {
-                "Model": column_label(s.model),
-                "Pass Rate": format_pass_rate(s.pass_rate),
-                "Passed": f"{s.passed}/{s.total}",
-                "Tokens": s.total_tokens,
-                "Cost": s.total_cost,
-                "Avg Time (s)": round(s.avg_duration_ms / 1000, 1),
-                "Avg Tools": s.avg_tool_calls,
-            }
-            for s in summaries
-        ]
-    )
+def print_pass_metrics_table(pass_metrics: dict, k_count: int) -> None:
+    """Print per-test-case pass@k metrics. Extra columns only when k > 1."""
+    rows = []
+    for item in pass_metrics.get("by_test", []):
+        row = {
+            "Test": item["name"],
+            "Model": item["model"],
+            "pass@1": format_pass_fraction(float(item["pass_at_1"])),
+        }
+        if k_count > 1:
+            row[f"pass@{k_count}"] = format_pass_fraction(float(item["pass_at_k"]))
+            row[f"pass^{k_count}"] = format_pass_fraction(float(item["pass_hat_k"]))
+        rows.append(row)
+    if rows:
+        UI.table(pd.DataFrame(rows), title="Pass Metrics by Test")
 
-    UI.table(df, title="Performance by Model", sum_columns={"Tokens": "", "Cost": "$"}, fixed_columns={"Model"})
+
+def print_model_table(summaries: list[ModelSummary], k_count: int = 1) -> None:
+    """Print one row per model, ranked from best to worst pass rate.
+
+    pass@k / pass^k columns are added only when k > 1 so default output stays lean.
+    """
+    rows = []
+    for s in summaries:
+        row: dict[str, object] = {
+            "Model": column_label(s.model),
+            "Pass Rate": format_pass_rate(s.pass_rate),
+            "Passed": f"{s.passed}/{s.total}",
+            "Tokens": s.total_tokens,
+            "Cost": s.total_cost,
+            "Avg Time (s)": round(s.avg_duration_ms / 1000, 1),
+            "Avg Tools": s.avg_tool_calls,
+        }
+        if k_count > 1:
+            row["pass@1"] = format_pass_fraction(s.pass_at_1)
+            row[f"pass@{k_count}"] = format_pass_fraction(s.pass_at_k)
+            row[f"pass^{k_count}"] = format_pass_fraction(s.pass_hat_k)
+        rows.append(row)
+
+    UI.table(
+        pd.DataFrame(rows),
+        title="Performance by Model",
+        sum_columns={"Tokens": "", "Cost": "$"},
+        fixed_columns={"Model"},
+    )
 
 
 def print_model_matrix(results: list[TestRunResult]) -> None:
@@ -369,9 +398,16 @@ def status_icon(passed: bool) -> str:
 
 
 def format_pass_rate(pass_rate: float) -> str:
-    """Colour a pass rate from green (all passing) to red (mostly failing)."""
+    """Colour a 0-100 pass rate from green (all passing) to red (mostly failing)."""
     color = "green" if pass_rate == 100 else "red" if pass_rate < 50 else "yellow"
     return f"[{color}]{pass_rate}%[/{color}]"
+
+
+def format_pass_fraction(rate: float) -> str:
+    """Colour a 0-1 pass metric (pass@k / pass^k) for terminal tables."""
+    pct = round(rate * 100, 1)
+    color = "green" if pct == 100 else "red" if pct < 50 else "yellow"
+    return f"[{color}]{pct}%[/{color}]"
 
 
 def filter_test_cases(
@@ -452,6 +488,13 @@ def test(
             help="Number of parallel threads for running tests. Overrides test.threads.",
         ),
     ] = None,
+    k: Annotated[
+        int | None,
+        Parameter(
+            name=["-k", "--k"],
+            help="Number of times to run each test case, used to compute pass@k and pass^k. Overrides test.k.",
+        ),
+    ] = None,
     select: Annotated[
         str | None,
         Parameter(
@@ -483,6 +526,7 @@ def test(
         nao test -m openai:gpt-4.1
         nao test -m openai:gpt-4.1 -m anthropic:claude-sonnet-4-20250514
         nao test --threads 4
+        nao test --k 5
         nao test -s test_name
         nao test -s 12,13,14
         nao test -u user@example.com --password secret
@@ -497,6 +541,11 @@ def test(
 
     test_config = config.test or TestConfig()
     thread_count = threads if threads is not None else test_config.threads
+    k_count = k if k is not None else test_config.k
+
+    if k_count < 1:
+        UI.error(f"k must be >= 1, got {k_count}")
+        return
 
     try:
         model_configs = [ModelConfig.parse(m) for m in models or test_config.models]
@@ -508,7 +557,10 @@ def test(
     tests_dir = project_path / TESTS_FOLDER
     UI.print(f"[dim]Project: {config.project_name}[/dim]")
     UI.print(f"[dim]Tests folder: {tests_dir}[/dim]")
-    UI.print(f"[dim]Models: {', '.join(str(m) for m in model_configs)}[/dim]\n")
+    UI.print(f"[dim]Models: {', '.join(str(m) for m in model_configs)}[/dim]")
+    if k_count > 1:
+        UI.print(f"[dim]k: {k_count}[/dim]")
+    UI.print("")
 
     test_cases = discover_tests(project_path)
 
@@ -524,18 +576,27 @@ def test(
 
     ensure_verification_engine(test_cases)
 
-    total_runs = len(test_cases) * len(model_configs)
-    UI.print(f"[bold]Found {len(test_cases)} test(s) × {len(model_configs)} model(s) = {total_runs} run(s)[/bold]")
+    total_runs = len(test_cases) * len(model_configs) * k_count
+    UI.print(
+        f"[bold]Found {len(test_cases)} test(s) × {len(model_configs)} model(s) × {k_count} attempt(s) = {total_runs} run(s)[/bold]"
+        if k_count > 1
+        else f"[bold]Found {len(test_cases)} test(s) × {len(model_configs)} model(s) = {total_runs} run(s)[/bold]"
+    )
     if thread_count > 1:
         UI.print(f"[dim]Running with {thread_count} threads (output may be interleaved)[/dim]")
     UI.print("")
 
-    # Build list of (test_case, model) pairs
-    test_runs = [(test_case, model) for model in model_configs for test_case in test_cases]
+    # Build list of (test_case, model, attempt) triples — attempt is 1-indexed
+    test_runs = [
+        (test_case, model, attempt)
+        for model in model_configs
+        for test_case in test_cases
+        for attempt in range(1, k_count + 1)
+    ]
 
     results: list[TestRunResult] = []
     if thread_count == 1:
-        for test_case, model in test_runs:
+        for test_case, model, attempt in test_runs:
             result = run_test(
                 test_case,
                 model,
@@ -544,6 +605,7 @@ def test(
                 costs=resolve_model_costs(config, model),
                 comparison=test_config.comparison,
             )
+            result.attempt = attempt
             results.append(result)
             UI.print("")
     else:
@@ -559,11 +621,14 @@ def test(
                     password=pwd,
                     costs=resolve_model_costs(config, m),
                     comparison=test_config.comparison,
-                ): index
-                for index, (tc, m) in enumerate(test_runs)
+                ): (index, attempt)
+                for index, (tc, m, attempt) in enumerate(test_runs)
             }
             for future in as_completed(futures):
-                completed[futures[future]] = future.result()
+                index, attempt = futures[future]
+                result = future.result()
+                result.attempt = attempt
+                completed[index] = result
                 UI.print("")
         results = [completed[index] for index in sorted(completed)]
 
@@ -573,17 +638,32 @@ def test(
 
     print_run_table(results)
 
-    model_summaries = summarize_by_model([asdict(r) for r in results])
+    run_dicts = [asdict(r) for r in results]
+    pass_metrics = summarize_pass_metrics(run_dicts)
+    model_summaries = summarize_by_model(run_dicts)
+
+    print_pass_metrics_table(pass_metrics, k_count)
+    if len(model_summaries) > 1 or k_count > 1:
+        print_model_table(model_summaries, k_count)
     if len(model_summaries) > 1:
-        print_model_table(model_summaries)
         print_model_matrix(results)
 
     passed = sum(1 for r in results if r.passed)
     failed = sum(1 for r in results if not r.passed)
     total = len(results)
-    unit = "run" if len(model_summaries) > 1 else "test"
+    unit = "run" if len(model_summaries) > 1 or k_count > 1 else "test"
+    aggregate = pass_metrics["aggregate"]
 
     UI.print("")
+    UI.print(
+        f"pass@1: {format_pass_fraction(float(aggregate['pass_at_1']))}"
+        + (
+            f"  pass@{k_count}: {format_pass_fraction(float(aggregate['pass_at_k']))}"
+            f"  pass^{k_count}: {format_pass_fraction(float(aggregate['pass_hat_k']))}"
+            if k_count > 1
+            else ""
+        )
+    )
     if failed == 0:
         UI.success(f"All {total} {unit}(s) passed")
     else:
