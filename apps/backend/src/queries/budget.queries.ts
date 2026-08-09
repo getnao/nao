@@ -199,6 +199,53 @@ export const getProviderPeriodCosts = async (
 	return result;
 };
 
+export const getProviderPeriodCostsByUser = async (
+	projectId: string,
+): Promise<Record<string, Record<string, number>>> => {
+	const costLookup = await createCostLookup(projectId);
+	const isPostgres = dbConfig.dialect === Dialect.Postgres;
+	const dayStart = getCurrentPeriodStart('day');
+	const weekStart = getCurrentPeriodStart('week');
+	const monthStart = getCurrentPeriodStart('month');
+
+	const toParam = (d: Date) => (isPostgres ? sql`${d.toISOString()}::timestamp` : sql`${d.getTime()}`);
+	const periodStartExpr = sql`CASE ${s.projectProviderBudget.period}
+		WHEN 'day' THEN ${toParam(dayStart)}
+		WHEN 'week' THEN ${toParam(weekStart)}
+		WHEN 'month' THEN ${toParam(monthStart)}
+	END`;
+
+	const rows = await db
+		.select({
+			provider: s.projectProviderBudget.provider,
+			userId: s.chat.userId,
+			totalCost: sql<number>`sum(${TOTAL_COST_EXPR})`,
+		})
+		.from(s.projectProviderBudget)
+		.innerJoin(s.chat, eq(s.chat.projectId, s.projectProviderBudget.projectId))
+		.innerJoin(s.chatMessage, eq(s.chatMessage.chatId, s.chat.id))
+		.leftJoin(costLookup.table, costLookup.joinCondition)
+		.where(
+			and(
+				eq(s.projectProviderBudget.projectId, projectId),
+				sql`${s.chatMessage.llmProvider} = ${s.projectProviderBudget.provider}`,
+				sql`${s.chatMessage.createdAt} >= ${periodStartExpr}`,
+				sql`${s.projectProviderBudget.perUserLimitUsd} > 0`,
+			),
+		)
+		.groupBy(s.projectProviderBudget.provider, s.chat.userId);
+
+	const result: Record<string, Record<string, number>> = {};
+	for (const row of rows) {
+		if (!row.userId) {
+			continue;
+		}
+		const providerCosts = (result[row.provider] ??= {});
+		providerCosts[row.userId] = Math.round(Number(row.totalCost ?? 0) * 100) / 100;
+	}
+	return result;
+};
+
 export const claimBudgetNotification = async (budget: DBProjectProviderBudget): Promise<boolean> => {
 	const notifiedCondition = budget.notifiedAt
 		? sql`${s.projectProviderBudget.notifiedAt} = ${budget.notifiedAt}`

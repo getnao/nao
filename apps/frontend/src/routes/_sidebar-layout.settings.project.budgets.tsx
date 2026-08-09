@@ -3,7 +3,13 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronUp, TriangleAlert } from 'lucide-react';
 import { getNextPeriodStart } from '@nao/shared/date';
-import { BUDGET_PERIODS, MAX_BUDGET_LIMIT_USD, providerKind, providerLabel } from '@nao/shared/types';
+import {
+	BUDGET_PERIODS,
+	MAX_BUDGET_LIMIT_USD,
+	providerKind,
+	providerLabel,
+	WARNING_BUDGET_THRESHOLD,
+} from '@nao/shared/types';
 import type { BudgetPeriod } from '@nao/shared/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,7 +19,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useLicenseFeatures } from '@/hooks/use-license';
 import { useLlmProviders } from '@/hooks/use-llm-providers';
 import { usePermissions } from '@/hooks/use-permissions';
-import { toLocalDateString } from '@/lib/utils';
+import { useSession } from '@/lib/auth-client';
+import { cn, toLocalDateString } from '@/lib/utils';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/budgets')({
@@ -84,6 +91,7 @@ function BudgetInput({
 
 function RouteComponent() {
 	const { isAdmin } = usePermissions();
+	const { data: session } = useSession();
 	const licenseFeatures = useLicenseFeatures();
 	const hasUserBudget = licenseFeatures.data?.['user-budget'] === true;
 
@@ -103,6 +111,23 @@ function RouteComponent() {
 	);
 
 	const providerCosts = useQuery(trpc.budget.getProviderCosts.queryOptions());
+
+	const showPerUserSpend = isAdmin && hasUserBudget;
+	const perUserProviders = useMemo(() => {
+		const configured = new Set(allConfiguredProviders);
+		return (savedBudgets.data ?? []).filter(
+			(row) => (row.perUserLimitUsd ?? 0) > 0 && configured.has(row.provider),
+		);
+	}, [savedBudgets.data, allConfiguredProviders]);
+	const perUserSpendEnabled = showPerUserSpend && perUserProviders.length > 0;
+	const perUserCosts = useQuery({
+		...trpc.budget.getPerUserProviderCosts.queryOptions(),
+		enabled: perUserSpendEnabled,
+	});
+	const projectMembers = useQuery({
+		...trpc.project.listAllUsersWithRoles.queryOptions(),
+		enabled: perUserSpendEnabled,
+	});
 
 	const [budgets, setBudgets] = useState<Record<string, number>>({});
 	const [perUserBudgets, setPerUserBudgets] = useState<Record<string, number>>({});
@@ -187,114 +212,174 @@ function RouteComponent() {
 	}
 
 	return (
-		<SettingsCard title='Budgets' description='Limit the budgets of your most expensive providers.'>
-			<Table>
-				<TableHeader>
-					<TableRow>
-						<TableHead>Provider</TableHead>
-						<TableHead className='text-center'>Project limit</TableHead>
-						{hasUserBudget && <TableHead className='text-center'>User limit</TableHead>}
-						<TableHead className='text-center'>Period</TableHead>
-						<TableHead className='text-center'>Cost</TableHead>
-						<TableHead className='text-center'>Reset on</TableHead>
-					</TableRow>
-				</TableHeader>
-				<TableBody>
-					{allConfiguredProviders.map((provider) => {
-						const hasCost = costSupport.data?.[providerKind(provider)] ?? false;
+		<>
+			<SettingsCard title='Budgets' description='Limit the budgets of your most expensive providers.'>
+				<Table>
+					<TableHeader>
+						<TableRow>
+							<TableHead>Provider</TableHead>
+							<TableHead className='text-center'>Project limit</TableHead>
+							{hasUserBudget && <TableHead className='text-center'>User limit</TableHead>}
+							<TableHead className='text-center'>Period</TableHead>
+							<TableHead className='text-center'>Cost</TableHead>
+							<TableHead className='text-center'>Reset on</TableHead>
+						</TableRow>
+					</TableHeader>
+					<TableBody>
+						{allConfiguredProviders.map((provider) => {
+							const hasCost = costSupport.data?.[providerKind(provider)] ?? false;
 
-						if (!hasCost) {
+							if (!hasCost) {
+								return (
+									<TableRow key={provider} className='h-12 opacity-50'>
+										<TableCell>{providerLabel(provider)}</TableCell>
+										<TableCell colSpan={hasUserBudget ? 5 : 4}>
+											<span className='flex items-center gap-1.5 text-muted-foreground text-sm'>
+												<TriangleAlert className='size-4' />
+												Cost data unavailable for this provider — budget tracking is not
+												supported.
+											</span>
+										</TableCell>
+									</TableRow>
+								);
+							}
+
+							const budget = budgets[provider] ?? 0;
+							const perUserBudget = perUserBudgets[provider] ?? 0;
+							const period = periods[provider] ?? 'none';
+							const hasAnyBudget = budget > 0 || perUserBudget > 0;
+
 							return (
-								<TableRow key={provider} className='h-12 opacity-50'>
+								<TableRow key={provider}>
 									<TableCell>{providerLabel(provider)}</TableCell>
-									<TableCell colSpan={hasUserBudget ? 5 : 4}>
-										<span className='flex items-center gap-1.5 text-muted-foreground text-sm'>
-											<TriangleAlert className='size-4' />
-											Cost data unavailable for this provider — budget tracking is not supported.
-										</span>
-									</TableCell>
-								</TableRow>
-							);
-						}
-
-						const budget = budgets[provider] ?? 0;
-						const perUserBudget = perUserBudgets[provider] ?? 0;
-						const period = periods[provider] ?? 'none';
-						const hasAnyBudget = budget > 0 || perUserBudget > 0;
-
-						return (
-							<TableRow key={provider}>
-								<TableCell>{providerLabel(provider)}</TableCell>
-								<TableCell>
-									<BudgetInput
-										value={budget}
-										disabled={!isAdmin}
-										onChange={(v) => updateBudget(provider, v)}
-									/>
-								</TableCell>
-								{hasUserBudget && (
 									<TableCell>
 										<BudgetInput
-											value={perUserBudget}
+											value={budget}
 											disabled={!isAdmin}
-											onChange={(v) => updatePerUserBudget(provider, v)}
+											onChange={(v) => updateBudget(provider, v)}
 										/>
 									</TableCell>
-								)}
-								<TableCell>
-									<Select
-										value={period}
-										onValueChange={(val) =>
-											setPeriods((prev) => ({ ...prev, [provider]: val as Period }))
-										}
-										disabled={!isAdmin || !hasAnyBudget}
-									>
-										<SelectTrigger size='sm' className='w-24'>
-											<SelectValue />
-										</SelectTrigger>
-										<SelectContent>
-											{PERIOD_OPTIONS.map((opt) => (
-												<SelectItem key={opt.value} value={opt.value}>
-													{opt.label}
-												</SelectItem>
-											))}
-										</SelectContent>
-									</Select>
-								</TableCell>
-								<TableCell>
-									{period === 'none' ? (
-										<span className='text-muted-foreground text-sm mr-1'>-</span>
-									) : (
-										<>
-											<span className='text-muted-foreground text-sm mr-1'>$</span>
-											<span className='text-sm mr-1'>
-												{(providerCosts.data?.[provider] ?? 0).toFixed(2)}
-											</span>
-										</>
+									{hasUserBudget && (
+										<TableCell>
+											<BudgetInput
+												value={perUserBudget}
+												disabled={!isAdmin}
+												onChange={(v) => updatePerUserBudget(provider, v)}
+											/>
+										</TableCell>
 									)}
-								</TableCell>
-								<TableCell>{period === 'none' ? '-' : resetLabels[period]}</TableCell>
-							</TableRow>
-						);
-					})}
-				</TableBody>
-			</Table>
+									<TableCell>
+										<Select
+											value={period}
+											onValueChange={(val) =>
+												setPeriods((prev) => ({ ...prev, [provider]: val as Period }))
+											}
+											disabled={!isAdmin || !hasAnyBudget}
+										>
+											<SelectTrigger size='sm' className='w-24'>
+												<SelectValue />
+											</SelectTrigger>
+											<SelectContent>
+												{PERIOD_OPTIONS.map((opt) => (
+													<SelectItem key={opt.value} value={opt.value}>
+														{opt.label}
+													</SelectItem>
+												))}
+											</SelectContent>
+										</Select>
+									</TableCell>
+									<TableCell>
+										{period === 'none' ? (
+											<span className='text-muted-foreground text-sm mr-1'>-</span>
+										) : (
+											<>
+												<span className='text-muted-foreground text-sm mr-1'>$</span>
+												<span className='text-sm mr-1'>
+													{(providerCosts.data?.[provider] ?? 0).toFixed(2)}
+												</span>
+											</>
+										)}
+									</TableCell>
+									<TableCell>{period === 'none' ? '-' : resetLabels[period]}</TableCell>
+								</TableRow>
+							);
+						})}
+					</TableBody>
+				</Table>
 
-			{isAdmin && (
-				<div className='flex justify-end gap-2 pt-2'>
-					<Button variant='ghost' size='sm' onClick={resetForm} disabled={!isDirty}>
-						Cancel
-					</Button>
-					<Button
-						size='sm'
-						variant='primary-gradient'
-						onClick={handleSave}
-						disabled={!isDirty || setBudgetsMutation.isPending}
-					>
-						{setBudgetsMutation.isPending ? 'Saving...' : 'Save Changes'}
-					</Button>
-				</div>
+				{isAdmin && (
+					<div className='flex justify-end gap-2 pt-2'>
+						<Button variant='ghost' size='sm' onClick={resetForm} disabled={!isDirty}>
+							Cancel
+						</Button>
+						<Button
+							size='sm'
+							variant='primary-gradient'
+							onClick={handleSave}
+							disabled={!isDirty || setBudgetsMutation.isPending}
+						>
+							{setBudgetsMutation.isPending ? 'Saving...' : 'Save Changes'}
+						</Button>
+					</div>
+				)}
+			</SettingsCard>
+
+			{showPerUserSpend && perUserProviders.length > 0 && (
+				<SettingsCard
+					title='Spend per user'
+					description='Current-period spend for each member, broken down by provider.'
+				>
+					<Table>
+						<TableHeader>
+							<TableRow>
+								<TableHead>Member</TableHead>
+								{perUserProviders.map((row) => (
+									<TableHead key={row.provider} className='text-center'>
+										{providerLabel(row.provider)}
+									</TableHead>
+								))}
+							</TableRow>
+						</TableHeader>
+						<TableBody>
+							{(projectMembers.data ?? []).map((member) => (
+								<TableRow key={member.id}>
+									<TableCell className='font-medium'>
+										{member.name}
+										{member.id === session?.user?.id && (
+											<span className='text-muted-foreground ml-1'>(you)</span>
+										)}
+									</TableCell>
+									{perUserProviders.map((row) => {
+										const spend = perUserCosts.data?.[row.provider]?.[member.id] ?? 0;
+										const limit = row.perUserLimitUsd ?? 0;
+										return (
+											<TableCell key={row.provider} className='text-center'>
+												<span className={cn('text-sm', spendClassName(spend, limit))}>
+													${spend.toFixed(2)}
+												</span>
+											</TableCell>
+										);
+									})}
+								</TableRow>
+							))}
+						</TableBody>
+					</Table>
+				</SettingsCard>
 			)}
-		</SettingsCard>
+		</>
 	);
+}
+
+function spendClassName(spend: number, limit: number): string {
+	if (limit <= 0) {
+		return '';
+	}
+	const ratio = spend / limit;
+	if (ratio >= 1) {
+		return 'text-destructive font-medium';
+	}
+	if (ratio >= WARNING_BUDGET_THRESHOLD) {
+		return 'text-amber-500 font-medium';
+	}
+	return '';
 }

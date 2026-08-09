@@ -27,6 +27,10 @@ export const budgetRoutes = {
 		return budgetQueries.getProviderPeriodCosts(ctx.project.id);
 	}),
 
+	getPerUserProviderCosts: adminProtectedProcedure.query(async ({ ctx }) => {
+		return budgetQueries.getProviderPeriodCostsByUser(ctx.project.id);
+	}),
+
 	checkBudgetStatus: projectProtectedProcedure
 		.input(z.object({ provider: llmProviderSchema }))
 		.query(async ({ ctx, input }) => {
