@@ -455,6 +455,7 @@ export const projectProviderBudget = pgTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		provider: text('provider').$type<LlmProvider>().notNull(),
 		limitUsd: integer('limit_usd').notNull(),
+		perUserLimitUsd: integer('per_user_limit_usd'),
 		period: text('period', { enum: BUDGET_PERIODS }).notNull(),
 		currentPeriodStart: timestamp('current_period_start').defaultNow().notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),

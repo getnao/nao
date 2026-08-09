@@ -25,6 +25,15 @@ export const getProviderCurrentSpend = async (projectId: string, provider: LlmPr
 	return costs[provider] ?? 0;
 };
 
+export const getUserProviderCurrentSpend = async (
+	projectId: string,
+	userId: string,
+	provider: LlmProvider,
+): Promise<number> => {
+	const costs = await getProviderPeriodCosts(projectId, provider, userId);
+	return costs[provider] ?? 0;
+};
+
 export const getProjectProviderBudgets = async (projectId: string): Promise<DBProjectProviderBudget[]> => {
 	return db.select().from(s.projectProviderBudget).where(eq(s.projectProviderBudget.projectId, projectId)).execute();
 };
@@ -35,7 +44,7 @@ export const advanceStaleBudgetPeriods = async (projectId: string, provider?: Ll
 		: await getProjectProviderBudgets(projectId);
 
 	for (const budget of budgets) {
-		if (budget.limitUsd <= 0) {
+		if (budget.limitUsd <= 0 && !budget.perUserLimitUsd) {
 			continue;
 		}
 		const expectedPeriodStart = getCurrentPeriodStart(budget.period as BudgetPeriod);
@@ -54,6 +63,7 @@ export const upsertProjectProviderBudget = async (
 	provider: LlmProvider,
 	limitUsd: number,
 	period: BudgetPeriod,
+	perUserLimitUsd?: number,
 ): Promise<DBProjectProviderBudget> => {
 	const existing = await db
 		.select()
@@ -68,6 +78,7 @@ export const upsertProjectProviderBudget = async (
 			.update(s.projectProviderBudget)
 			.set({
 				limitUsd,
+				perUserLimitUsd: perUserLimitUsd ?? null,
 				period,
 				...(periodChanged && { currentPeriodStart: new Date() }),
 			})
@@ -79,7 +90,7 @@ export const upsertProjectProviderBudget = async (
 
 	const [created] = await db
 		.insert(s.projectProviderBudget)
-		.values({ projectId, provider, limitUsd, period })
+		.values({ projectId, provider, limitUsd, perUserLimitUsd: perUserLimitUsd ?? null, period })
 		.returning()
 		.execute();
 	return created;
@@ -87,7 +98,7 @@ export const upsertProjectProviderBudget = async (
 
 export const setProjectProviderBudgets = async (
 	projectId: string,
-	budgets: Array<{ provider: LlmProvider; limitUsd: number; period: BudgetPeriod }>,
+	budgets: Array<{ provider: LlmProvider; limitUsd: number; period: BudgetPeriod; perUserLimitUsd?: number }>,
 ): Promise<DBProjectProviderBudget[]> => {
 	const activeProviders = budgets.map((b) => b.provider);
 
@@ -102,7 +113,7 @@ export const setProjectProviderBudgets = async (
 			.execute();
 
 		const results = await Promise.all(
-			budgets.map(async ({ provider, limitUsd, period }) => {
+			budgets.map(async ({ provider, limitUsd, period, perUserLimitUsd }) => {
 				const [existing] = await tx
 					.select()
 					.from(s.projectProviderBudget)
@@ -120,6 +131,7 @@ export const setProjectProviderBudgets = async (
 						.update(s.projectProviderBudget)
 						.set({
 							limitUsd,
+							perUserLimitUsd: perUserLimitUsd ?? null,
 							period,
 							...(periodChanged && { currentPeriodStart: new Date() }),
 						})
@@ -131,7 +143,7 @@ export const setProjectProviderBudgets = async (
 
 				const [created] = await tx
 					.insert(s.projectProviderBudget)
-					.values({ projectId, provider, limitUsd, period })
+					.values({ projectId, provider, limitUsd, perUserLimitUsd: perUserLimitUsd ?? null, period })
 					.returning()
 					.execute();
 				return created;
@@ -145,6 +157,7 @@ export const setProjectProviderBudgets = async (
 export const getProviderPeriodCosts = async (
 	projectId: string,
 	provider?: LlmProvider,
+	userId?: string,
 ): Promise<Record<string, number>> => {
 	const costLookup = await createCostLookup(projectId);
 	const isPostgres = dbConfig.dialect === Dialect.Postgres;
@@ -174,6 +187,7 @@ export const getProviderPeriodCosts = async (
 				sql`${s.chatMessage.llmProvider} = ${s.projectProviderBudget.provider}`,
 				sql`${s.chatMessage.createdAt} >= ${periodStartExpr}`,
 				provider ? eq(s.projectProviderBudget.provider, provider) : undefined,
+				userId ? eq(s.chat.userId, userId) : undefined,
 			),
 		)
 		.groupBy(s.projectProviderBudget.provider);

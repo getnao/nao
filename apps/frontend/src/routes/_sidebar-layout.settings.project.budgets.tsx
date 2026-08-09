@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useLicenseFeatures } from '@/hooks/use-license';
 import { useLlmProviders } from '@/hooks/use-llm-providers';
 import { usePermissions } from '@/hooks/use-permissions';
 import { toLocalDateString } from '@/lib/utils';
@@ -26,18 +27,65 @@ const PERIOD_OPTIONS: { value: Period; label: string }[] = [
 	...BUDGET_PERIODS.map((p) => ({ value: p, label: p.charAt(0).toUpperCase() + p.slice(1) })),
 ];
 
-function buildFormState(data: { provider: string; limitUsd: number; period: string }[]) {
+function buildFormState(
+	data: { provider: string; limitUsd: number; perUserLimitUsd: number | null; period: string }[],
+) {
 	const b: Record<string, number> = {};
+	const u: Record<string, number> = {};
 	const p: Record<string, Period> = {};
 	for (const row of data) {
 		b[row.provider] = row.limitUsd;
+		u[row.provider] = row.perUserLimitUsd ?? 0;
 		p[row.provider] = row.period as Period;
 	}
-	return { budgets: b, periods: p };
+	return { budgets: b, perUserBudgets: u, periods: p };
+}
+
+function BudgetInput({
+	value,
+	disabled,
+	onChange,
+}: {
+	value: number;
+	disabled: boolean;
+	onChange: (v: number) => void;
+}) {
+	return (
+		<div className='flex items-center gap-1'>
+			<span className='text-muted-foreground text-sm mr-1'>$</span>
+			<Input
+				type='number'
+				min={0}
+				max={MAX_BUDGET_LIMIT_USD}
+				disabled={disabled}
+				value={value}
+				onChange={(e) => onChange(Number(e.target.value))}
+				className='w-16 h-7 text-center px-1 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none'
+			/>
+			<div className='flex flex-col items-center'>
+				<button
+					disabled={disabled || value >= MAX_BUDGET_LIMIT_USD}
+					onClick={() => onChange(Math.min(MAX_BUDGET_LIMIT_USD, value + 1))}
+					className='text-muted-foreground hover:text-foreground hover:bg-accent transition-all duration-200 size-4 rounded-sm inline-flex items-center justify-center disabled:opacity-20 disabled:cursor-not-allowed'
+				>
+					<ChevronUp className='size-3' />
+				</button>
+				<button
+					disabled={disabled || value <= 0}
+					onClick={() => onChange(Math.max(0, value - 1))}
+					className='text-muted-foreground hover:text-foreground hover:bg-accent transition-all duration-200 size-4 rounded-sm inline-flex items-center justify-center disabled:opacity-20 disabled:cursor-not-allowed'
+				>
+					<ChevronDown className='size-3' />
+				</button>
+			</div>
+		</div>
+	);
 }
 
 function RouteComponent() {
 	const { isAdmin } = usePermissions();
+	const licenseFeatures = useLicenseFeatures();
+	const hasUserBudget = licenseFeatures.data?.['user-budget'] === true;
 
 	const { projectConfigs, envProviders } = useLlmProviders();
 	const allConfiguredProviders = useMemo(
@@ -57,6 +105,7 @@ function RouteComponent() {
 	const providerCosts = useQuery(trpc.budget.getProviderCosts.queryOptions());
 
 	const [budgets, setBudgets] = useState<Record<string, number>>({});
+	const [perUserBudgets, setPerUserBudgets] = useState<Record<string, number>>({});
 	const [periods, setPeriods] = useState<Record<string, Period>>({});
 
 	useEffect(() => {
@@ -65,6 +114,7 @@ function RouteComponent() {
 		}
 		const state = buildFormState(savedBudgets.data);
 		setBudgets(state.budgets);
+		setPerUserBudgets(state.perUserBudgets);
 		setPeriods(state.periods);
 	}, [savedBudgets.data]);
 
@@ -74,27 +124,36 @@ function RouteComponent() {
 		}
 		const saved = buildFormState(savedBudgets.data);
 		for (const provider of allConfiguredProviders) {
-			const savedBudget = saved.budgets[provider] ?? 0;
-			const savedPeriod = saved.periods[provider] ?? 'none';
-			const currentBudget = budgets[provider] ?? 0;
-			const currentPeriod = periods[provider] ?? 'none';
-			if (savedBudget !== currentBudget || savedPeriod !== currentPeriod) {
+			if (
+				(saved.budgets[provider] ?? 0) !== (budgets[provider] ?? 0) ||
+				(saved.perUserBudgets[provider] ?? 0) !== (perUserBudgets[provider] ?? 0) ||
+				(saved.periods[provider] ?? 'none') !== (periods[provider] ?? 'none')
+			) {
 				return true;
 			}
 		}
 		return false;
-	}, [savedBudgets.data, budgets, periods, allConfiguredProviders]);
+	}, [savedBudgets.data, budgets, perUserBudgets, periods, allConfiguredProviders]);
 
 	function resetForm() {
 		const state = buildFormState(savedBudgets.data ?? []);
 		setBudgets(state.budgets);
+		setPerUserBudgets(state.perUserBudgets);
 		setPeriods(state.periods);
 	}
 
 	function updateBudget(provider: string, budget: number) {
 		const clamped = Math.round(Math.min(MAX_BUDGET_LIMIT_USD, Math.max(0, budget)));
 		setBudgets((prev) => ({ ...prev, [provider]: clamped }));
-		if (clamped === 0) {
+		if (clamped === 0 && (perUserBudgets[provider] ?? 0) === 0) {
+			setPeriods((prev) => ({ ...prev, [provider]: 'none' }));
+		}
+	}
+
+	function updatePerUserBudget(provider: string, budget: number) {
+		const clamped = Math.round(Math.min(MAX_BUDGET_LIMIT_USD, Math.max(0, budget)));
+		setPerUserBudgets((prev) => ({ ...prev, [provider]: clamped }));
+		if (clamped === 0 && (budgets[provider] ?? 0) === 0) {
 			setPeriods((prev) => ({ ...prev, [provider]: 'none' }));
 		}
 	}
@@ -113,12 +172,14 @@ function RouteComponent() {
 			.filter((provider) => {
 				const hasCost = costSupport.data?.[providerKind(provider)] ?? false;
 				const budget = budgets[provider] ?? 0;
+				const perUserBudget = perUserBudgets[provider] ?? 0;
 				const period = periods[provider] ?? 'none';
-				return hasCost && budget > 0 && period !== 'none';
+				return hasCost && (budget > 0 || perUserBudget > 0) && period !== 'none';
 			})
 			.map((provider) => ({
 				provider,
 				limitUsd: budgets[provider] ?? 0,
+				perUserLimitUsd: perUserBudgets[provider] ?? 0,
 				period: periods[provider] as BudgetPeriod,
 			}));
 
@@ -131,10 +192,11 @@ function RouteComponent() {
 				<TableHeader>
 					<TableRow>
 						<TableHead>Provider</TableHead>
-						<TableHead>Budget limit</TableHead>
-						<TableHead>Period</TableHead>
-						<TableHead>Cost</TableHead>
-						<TableHead>Reset on</TableHead>
+						<TableHead className='text-center'>Project limit</TableHead>
+						{hasUserBudget && <TableHead className='text-center'>User limit</TableHead>}
+						<TableHead className='text-center'>Period</TableHead>
+						<TableHead className='text-center'>Cost</TableHead>
+						<TableHead className='text-center'>Reset on</TableHead>
 					</TableRow>
 				</TableHeader>
 				<TableBody>
@@ -145,7 +207,7 @@ function RouteComponent() {
 							return (
 								<TableRow key={provider} className='h-12 opacity-50'>
 									<TableCell>{providerLabel(provider)}</TableCell>
-									<TableCell colSpan={4}>
+									<TableCell colSpan={hasUserBudget ? 5 : 4}>
 										<span className='flex items-center gap-1.5 text-muted-foreground text-sm'>
 											<TriangleAlert className='size-4' />
 											Cost data unavailable for this provider — budget tracking is not supported.
@@ -156,48 +218,36 @@ function RouteComponent() {
 						}
 
 						const budget = budgets[provider] ?? 0;
+						const perUserBudget = perUserBudgets[provider] ?? 0;
 						const period = periods[provider] ?? 'none';
+						const hasAnyBudget = budget > 0 || perUserBudget > 0;
 
 						return (
 							<TableRow key={provider}>
 								<TableCell>{providerLabel(provider)}</TableCell>
 								<TableCell>
-									<div className='flex items-center gap-1'>
-										<span className='text-muted-foreground text-sm mr-1'>$</span>
-										<Input
-											type='number'
-											min={0}
-											max={MAX_BUDGET_LIMIT_USD}
-											disabled={!isAdmin}
-											value={budget}
-											onChange={(e) => updateBudget(provider, Number(e.target.value))}
-											className='w-16 h-7 text-center px-1 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none'
-										/>
-										<div className='flex flex-col items-center'>
-											<button
-												disabled={!isAdmin || budget >= MAX_BUDGET_LIMIT_USD}
-												onClick={() => updateBudget(provider, budget + 1)}
-												className='text-muted-foreground hover:text-foreground hover:bg-accent transition-all duration-200 size-4 rounded-sm inline-flex items-center justify-center disabled:opacity-20 disabled:cursor-not-allowed'
-											>
-												<ChevronUp className='size-3' />
-											</button>
-											<button
-												disabled={!isAdmin || budget <= 0}
-												onClick={() => updateBudget(provider, budget - 1)}
-												className='text-muted-foreground hover:text-foreground hover:bg-accent transition-all duration-200 size-4 rounded-sm inline-flex items-center justify-center disabled:opacity-20 disabled:cursor-not-allowed'
-											>
-												<ChevronDown className='size-3' />
-											</button>
-										</div>
-									</div>
+									<BudgetInput
+										value={budget}
+										disabled={!isAdmin}
+										onChange={(v) => updateBudget(provider, v)}
+									/>
 								</TableCell>
+								{hasUserBudget && (
+									<TableCell>
+										<BudgetInput
+											value={perUserBudget}
+											disabled={!isAdmin}
+											onChange={(v) => updatePerUserBudget(provider, v)}
+										/>
+									</TableCell>
+								)}
 								<TableCell>
 									<Select
 										value={period}
 										onValueChange={(val) =>
 											setPeriods((prev) => ({ ...prev, [provider]: val as Period }))
 										}
-										disabled={!isAdmin || budget <= 0}
+										disabled={!isAdmin || !hasAnyBudget}
 									>
 										<SelectTrigger size='sm' className='w-24'>
 											<SelectValue />

@@ -30,7 +30,7 @@ export const budgetRoutes = {
 	checkBudgetStatus: projectProtectedProcedure
 		.input(z.object({ provider: llmProviderSchema }))
 		.query(async ({ ctx, input }) => {
-			return checkBudgetStatus(ctx.project.id, input.provider);
+			return checkBudgetStatus(ctx.project.id, input.provider, ctx.user.id);
 		}),
 
 	setBudgets: adminProtectedProcedure.input(setBudgetsInputSchema).mutation(async ({ ctx, input }) => {
