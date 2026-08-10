@@ -27,6 +27,7 @@ import { posthog, PostHogEvent } from '../services/posthog';
 import { slackService } from '../services/slack';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
 import { AgentSettings } from '../types/agent-settings';
+import type { ContextUsage } from '../types/chat';
 import {
 	configLlmProviderSchema,
 	customModelMetadataSchema,
@@ -34,6 +35,7 @@ import {
 	llmProviderSchema,
 	modelSettingsMapSchema,
 } from '../types/llm';
+import { getChatContextUsage } from '../utils/chat-context-usage';
 import { isValidIsoDateString } from '../utils/date';
 import {
 	getEnvApiKey,
@@ -961,6 +963,29 @@ export const projectRoutes = {
 				chatOwnerId: ownerId ?? null,
 				feedbackRecommendations,
 			};
+		}),
+
+	getChatReplayContextUsage: contextAdminProtectedProcedure
+		.input(z.object({ chatId: z.string() }))
+		.query(async ({ ctx, input }): Promise<ContextUsage> => {
+			const projectId = await chatQueries.getChatProjectId(input.chatId);
+			if (!projectId || projectId !== ctx.project.id) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
+			}
+
+			const ownerId = await chatQueries.getChatOwnerId(input.chatId);
+			const model = await chatQueries.getLatestAssistantModel(input.chatId);
+			const usage = await getChatContextUsage({
+				chatId: input.chatId,
+				userId: ownerId ?? ctx.user.id,
+				model: model ?? undefined,
+			});
+
+			if (!usage) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
+			}
+
+			return usage;
 		}),
 
 	getEnvVars: adminProtectedProcedure.query(async ({ ctx }) => {
