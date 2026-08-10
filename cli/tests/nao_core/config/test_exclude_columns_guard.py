@@ -166,6 +166,31 @@ def test_matching_catalog_resolves_local_schema():
         enforce_exclude_columns("SELECT email FROM local.main.users", config)
 
 
+def test_multi_part_database_name_resolves_catalog_schema():
+    config = FakeDatabaseConfig(
+        ["*.email"],
+        schemas={"hive1.analytics": {"orders": ["id", "email"]}},
+        database_name="hive1.analytics",
+    )
+    safe_sql = "SELECT id FROM hive1.analytics.orders"
+
+    assert enforce_exclude_columns(safe_sql, config) == safe_sql
+
+    with pytest.raises(ExcludeColumnsGuardError, match=r"hive1\.analytics\.orders\.email"):
+        enforce_exclude_columns("SELECT email FROM hive1.analytics.orders", config)
+
+
+def test_multi_part_database_name_blocks_different_catalog():
+    config = FakeDatabaseConfig(
+        ["*.email"],
+        schemas={"hive1.analytics": {"orders": ["id", "email"]}},
+        database_name="hive1.analytics",
+    )
+
+    with pytest.raises(ExcludeColumnsGuardError, match="does not match the connected database"):
+        enforce_exclude_columns("SELECT id FROM other.analytics.orders", config)
+
+
 def test_unparseable_query_is_blocked():
     config = FakeDatabaseConfig(["*.email"])
 

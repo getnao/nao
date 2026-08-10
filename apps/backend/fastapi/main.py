@@ -293,6 +293,18 @@ async def execute_sql(request: ExecuteSQLRequest):
                     )
                 validated_sql = request.sql
                 if db_config.exclude_columns:
+                    if not getattr(db_config, "user", None) or not getattr(
+                        db_config, "password", None
+                    ):
+                        raise HTTPException(
+                            status_code=400,
+                            detail=(
+                                "exclude_columns validation requires sync user and password "
+                                "when auth_mode is 'azure_entra_id'. These credentials are used "
+                                "only to validate the query against the live schema; the query "
+                                "still executes with the end user's access token."
+                            ),
+                        )
                     validated_sql = enforce_exclude_columns(request.sql, db_config)
                 df = db_config.execute_sql_with_token(validated_sql, request.azure_access_token)
             elif db_config.exclude_columns:

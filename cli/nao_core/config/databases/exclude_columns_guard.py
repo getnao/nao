@@ -188,15 +188,25 @@ def _resolve_table(
     requested_catalog = table_expression.catalog
     if requested_catalog:
         database_name = db_config.get_database_name()
-        if _match_identifier(requested_catalog, [database_name]) is None:
+        if not _catalog_matches_database(requested_catalog, database_name):
             raise _blocked(f"catalog '{requested_catalog}' does not match the connected database '{database_name}'")
 
     requested_schema = table_expression.db
     if requested_schema:
-        schema = _match_identifier(requested_schema, schemas) or requested_schema
+        schema_candidates = [requested_schema]
+        if requested_catalog:
+            schema_candidates.insert(0, f"{requested_catalog}.{requested_schema}")
+        schema = next(
+            (
+                matched
+                for candidate in schema_candidates
+                if (matched := _match_identifier(candidate, schemas)) is not None
+            ),
+            schema_candidates[0],
+        )
         table = _find_table(conn, schema, requested_table, tables_by_schema)
         if table is None:
-            raise _blocked(f"table {requested_schema}.{requested_table} was not found in the live schema")
+            raise _blocked(f"table {schema}.{requested_table} was not found in the live schema")
         return schema, table
 
     matches: list[tuple[str, str]] = []
@@ -232,6 +242,12 @@ def _match_identifier(requested: str, available: list[str]) -> str | None:
         return requested
     matches = [value for value in available if value.casefold() == requested.casefold()]
     return matches[0] if len(matches) == 1 else None
+
+
+def _catalog_matches_database(requested_catalog: str, database_name: str) -> bool:
+    parts = database_name.split(".")
+    candidates = [".".join(parts[:index]) for index in range(1, len(parts) + 1)]
+    return _match_identifier(requested_catalog, candidates) is not None
 
 
 def _qualify_query(
