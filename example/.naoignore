@@ -1,0 +1,3 @@
+templates/
+*.j2
+tests/
