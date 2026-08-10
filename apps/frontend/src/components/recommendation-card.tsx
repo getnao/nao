@@ -189,6 +189,7 @@ export function RecommendationCard({
 	const [collapsed, setCollapsed] = useRecommendationCollapsed(rec.id, defaultCollapsed);
 	const [chatsExpanded, setChatsExpanded] = useState(false);
 	const [isFetchingPrompt, setIsFetchingPrompt] = useState(false);
+	const [promptError, setPromptError] = useState<string | null>(null);
 	const createdAgo = useTimeAgo(new Date(rec.createdAt).getTime());
 	const cardRef = useRef<HTMLDivElement>(null);
 	const { isCopied, copy } = useCopyToClipboard();
@@ -261,11 +262,14 @@ export function RecommendationCard({
 
 	const handleCopyPrompt = async () => {
 		setIsFetchingPrompt(true);
+		setPromptError(null);
 		try {
 			const prompt = await queryClient.fetchQuery(
 				trpc.contextRecommendation.getAgentPrompt.queryOptions({ ids: [rec.id] }),
 			);
 			await copy(prompt);
+		} catch (err) {
+			setPromptError(err instanceof Error ? err.message : 'Failed to copy prompt');
 		} finally {
 			setIsFetchingPrompt(false);
 		}
@@ -278,6 +282,9 @@ export function RecommendationCard({
 			return;
 		}
 		if ((event.target as HTMLElement).closest('button, a')) {
+			return;
+		}
+		if (window.getSelection()?.toString()) {
 			return;
 		}
 		onSelect(rec.id, !isSelected, event.shiftKey);
@@ -402,6 +409,7 @@ export function RecommendationCard({
 					)}
 				</div>
 			</div>
+			{promptError && <div className='px-3 pb-2 text-xs text-destructive'>{promptError}</div>}
 			<div
 				className={cn(
 					'grid transition-[grid-template-rows] duration-300 ease-in-out px-3',

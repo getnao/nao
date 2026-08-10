@@ -32,6 +32,71 @@ describe('context fix collector repository boundaries', () => {
 		expect(collector.getFix(fingerprintFor('RULES.md', 'context-rule'))).toBeNull();
 	});
 
+	it('lets an existing empty file receive its first content', async () => {
+		const projectFolder = createProjectFolder(temporaryRoots);
+		fs.mkdirSync(path.join(projectFolder, 'semantics'), { recursive: true });
+		fs.writeFileSync(path.join(projectFolder, 'semantics/orders.md'), '');
+		const collector = createContextFixCollector(projectFolder);
+
+		await runEdit(collector, {
+			suggestedFile: 'semantics/orders.md',
+			subjectKey: 'orders-doc',
+			path: 'semantics/orders.md',
+			new_string: '# Orders\n',
+		});
+
+		expect(collector.getFix(fingerprintFor('semantics/orders.md', 'orders-doc'))).toMatchObject({
+			fixKind: 'patch',
+			proposedEdits: [{ path: 'semantics/orders.md', kind: 'edit', oldContent: '', newContent: '# Orders\n' }],
+		});
+	});
+
+	it('merges a later edit into a file created earlier in the same recommendation', async () => {
+		const projectFolder = createProjectFolder(temporaryRoots);
+		const collector = createContextFixCollector(projectFolder);
+
+		await runEdit(collector, {
+			suggestedFile: 'semantics/new.md',
+			subjectKey: 'new-doc',
+			path: 'semantics/new.md',
+			new_string: 'line one\nline two\n',
+		});
+		await runEdit(collector, {
+			suggestedFile: 'semantics/new.md',
+			subjectKey: 'new-doc',
+			path: 'semantics/new.md',
+			old_string: 'line two',
+			new_string: 'line 2',
+		});
+
+		expect(collector.getFix(fingerprintFor('semantics/new.md', 'new-doc'))).toMatchObject({
+			fixKind: 'patch',
+			proposedEdits: [
+				{ path: 'semantics/new.md', kind: 'create', oldContent: '', newContent: 'line one\nline 2\n' },
+			],
+		});
+	});
+
+	it('rejects whole-file replacement of a file created earlier in the same recommendation', async () => {
+		const projectFolder = createProjectFolder(temporaryRoots);
+		const collector = createContextFixCollector(projectFolder);
+
+		await runEdit(collector, {
+			suggestedFile: 'semantics/new.md',
+			subjectKey: 'new-doc',
+			path: 'semantics/new.md',
+			new_string: 'first content\n',
+		});
+		await expect(
+			runEdit(collector, {
+				suggestedFile: 'semantics/new.md',
+				subjectKey: 'new-doc',
+				path: 'semantics/new.md',
+				new_string: 'clobbering content\n',
+			}),
+		).rejects.toThrow('already has content');
+	});
+
 	it('allows linked repository edits without a connected context repository', async () => {
 		const projectFolder = createProjectFolder(temporaryRoots);
 		const collector = createContextFixCollector(

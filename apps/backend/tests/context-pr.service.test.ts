@@ -65,16 +65,18 @@ vi.mock('../src/utils/logger', () => ({
 	}),
 }));
 
+vi.mock('../src/services/git-repo', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../src/services/git-repo')>()),
+	getRepoSubPath: mocks.getRepoSubPath,
+}));
+
 vi.mock('../src/services/github', () => ({
 	NAO_CO_AUTHOR: { email: 'bot@nao.dev', name: 'nao' },
-	checkoutNewBranch: mocks.checkoutNewBranch,
 	cloneRepo: mocks.cloneRepo,
-	commitAll: mocks.commitAll,
 	commitAllAndPushBranch: mocks.commitAllAndPushBranch,
 	createPullRequest: mocks.createPullRequest,
 	findContextConfigSubPath: mocks.findContextConfigSubPath,
 	getGitInfo: mocks.getGitInfo,
-	getRepoSubPath: mocks.getRepoSubPath,
 	getUserGitIdentity: mocks.getUserGitIdentity,
 	pushBranch: mocks.pushBranch,
 }));
@@ -163,7 +165,7 @@ describe('createRecommendationPullRequest', () => {
 			url: 'https://github.com/nao/context/pull/1',
 		});
 
-		expect(mocks.cloneRepo).toHaveBeenCalledWith('github-token', 'nao/dbt-models', expect.any(String));
+		expect(mocks.cloneRepo).toHaveBeenCalledWith('github-token', 'nao/dbt-models', expect.any(String), 'main');
 	});
 
 	it('rejects recommendations that mix context and linked repo edits', async () => {
@@ -261,6 +263,8 @@ describe('createRecommendationPullRequest', () => {
 		await expect(createRecommendationPullRequest('project-1', 'rec-123456789', 'user-1')).resolves.toMatchObject({
 			url: 'https://github.com/nao/context/pull/1',
 		});
+
+		expect(mocks.commitAllAndPushBranch).toHaveBeenCalledOnce();
 	});
 
 	it('prefers the sub-path from the project git checkout over clone-time detection', async () => {
@@ -281,6 +285,8 @@ describe('createRecommendationPullRequest', () => {
 		await expect(createRecommendationPullRequest('project-1', 'rec-123456789', 'user-1')).resolves.toMatchObject({
 			url: 'https://github.com/nao/context/pull/1',
 		});
+
+		expect(mocks.commitAllAndPushBranch).toHaveBeenCalledOnce();
 	});
 
 	it('writes at the repository root when nao_config.yaml sits at the root', async () => {
@@ -297,6 +303,8 @@ describe('createRecommendationPullRequest', () => {
 		await expect(createRecommendationPullRequest('project-1', 'rec-123456789', 'user-1')).resolves.toMatchObject({
 			url: 'https://github.com/nao/context/pull/1',
 		});
+
+		expect(mocks.commitAllAndPushBranch).toHaveBeenCalledOnce();
 	});
 });
 

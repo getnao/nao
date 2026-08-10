@@ -190,10 +190,10 @@ export function publicRepoUrl(repoFullName: string): string {
 	return `https://github.com/${repoFullName}.git`;
 }
 
-export function cloneRepo(token: string, fullName: string, targetDir: string): void {
+export function cloneRepo(token: string, fullName: string, targetDir: string, branch?: string): void {
 	const cloneUrl = authenticatedRepoUrl(token, fullName);
 	const cleanUrl = publicRepoUrl(fullName);
-	execFileSync('git', ['clone', '--depth', '1', cloneUrl, targetDir], {
+	execFileSync('git', ['clone', '--depth', '1', ...(branch ? ['--branch', branch] : []), cloneUrl, targetDir], {
 		timeout: 120_000,
 		stdio: 'pipe',
 	});
@@ -577,6 +577,9 @@ export async function findContextConfigSubPath(token: string, repo: string): Pro
 			token,
 			`/repos/${repo}/git/trees/${encodeURIComponent(default_branch)}?recursive=1`,
 		);
+		if (tree.truncated) {
+			return '';
+		}
 		const dirs = tree.tree
 			.filter((entry) => entry.type === 'blob' && isContextConfigFile(entry.path))
 			.map((entry) => configDir(entry.path));

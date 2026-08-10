@@ -251,6 +251,12 @@ export const contextRecommendationRoutes = {
 				input.ids.map((id) => crQueries.getRecommendationById(ctx.project.id, id)),
 			);
 			const recs = results.filter((r): r is NonNullable<typeof r> => r !== null);
+			if (recs.length < input.ids.length) {
+				throw new TRPCError({
+					code: 'NOT_FOUND',
+					message: `Only ${recs.length} of ${input.ids.length} selected recommendations could be found. Some may have been deleted or changed since you selected them; refresh and try again.`,
+				});
+			}
 			const repo = await resolveRecommendationRepo(ctx.project.id, ctx.user.id);
 			return buildAgentPrompt(recs, repo?.subPath ?? '');
 		}),

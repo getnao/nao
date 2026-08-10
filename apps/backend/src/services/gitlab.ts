@@ -182,10 +182,10 @@ export async function listProjects(
 	return { projects, hasMore };
 }
 
-export function cloneRepo(token: string, fullName: string, targetDir: string): void {
+export function cloneRepo(token: string, fullName: string, targetDir: string, branch?: string): void {
 	const cloneUrl = authenticatedRepoUrl(token, fullName);
 	const cleanUrl = publicRepoUrl(fullName);
-	execFileSync('git', ['clone', '--depth', '1', cloneUrl, targetDir], {
+	execFileSync('git', ['clone', '--depth', '1', ...(branch ? ['--branch', branch] : []), cloneUrl, targetDir], {
 		timeout: 120_000,
 		stdio: 'pipe',
 	});
@@ -443,7 +443,8 @@ export async function getMergeRequest(token: string, repoFullName: string, iid: 
 }
 
 const TREE_PAGE_SIZE = 100;
-const TREE_MAX_PAGES = 20;
+/** Safety ceiling to avoid an unbounded loop; large enough not to cap real repositories. */
+const TREE_MAX_PAGES = 10_000;
 
 export async function findContextConfigSubPath(token: string, repoFullName: string): Promise<string> {
 	try {
@@ -455,7 +456,7 @@ export async function findContextConfigSubPath(token: string, repoFullName: stri
 				{ headers: { Authorization: `Bearer ${token}` } },
 			);
 			if (!res.ok) {
-				break;
+				return '';
 			}
 			const entries = (await res.json()) as Array<{ type: string; path: string }>;
 			for (const entry of entries) {
@@ -467,11 +468,11 @@ export async function findContextConfigSubPath(token: string, repoFullName: stri
 					dirs.push(dir);
 				}
 			}
-			if (entries.length < TREE_PAGE_SIZE) {
-				break;
+			if (!res.headers.get('x-next-page')) {
+				return shallowestSubPath(dirs);
 			}
 		}
-		return shallowestSubPath(dirs);
+		return '';
 	} catch {
 		return '';
 	}

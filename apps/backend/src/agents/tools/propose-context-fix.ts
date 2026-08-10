@@ -114,12 +114,12 @@ export function createContextFixCollector(
 			const fix = getOrCreate(suggestedFile, subjectKey);
 			const pending = fix.edits.find((edit) => edit.path === filePath);
 			const original = pending ? pending.oldContent : readFileSafe(filePath, projectFolder);
-			const fileExists = pending ? pending.kind === 'edit' : original !== null;
+			const kind: ProposedEdit['kind'] = pending ? pending.kind : original !== null ? 'edit' : 'create';
 			const baseContent = pending ? pending.newContent : (original ?? '');
 
-			if (fileExists && (old_string === undefined || old_string === '')) {
+			if (baseContent !== '' && (old_string === undefined || old_string === '')) {
 				throw new Error(
-					`"${filePath}" already exists, so replace only the exact lines this recommendation changes: pass a ` +
+					`"${filePath}" already has content, so replace only the exact lines this recommendation changes: pass a ` +
 						'precise old_string/new_string instead of the whole file. Whole-file content is allowed only when ' +
 						'creating a new file, and each recommendation must contain only its own change.',
 				);
@@ -129,7 +129,7 @@ export function createContextFixCollector(
 
 			const proposed: ProposedEdit = {
 				path: filePath,
-				kind: fileExists ? 'edit' : 'create',
+				kind,
 				oldContent: original ?? '',
 				newContent: nextContent,
 				...target,

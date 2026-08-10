@@ -119,6 +119,8 @@ const FEEDBACK_FILTER_LABELS: Record<FeedbackFilter, string> = {
 
 const MAX_AUTO_PR_OPTIONS = [1, 2, 3, 5, 10] as const;
 const DEFAULT_MAX_AUTO_PRS = 3;
+
+const MAX_BATCH_SELECTION = 20;
 const MAX_CUSTOM_SYSTEM_PROMPT_INSTRUCTIONS_LENGTH = 4000;
 
 type TopTab = 'config' | 'recommendations' | 'applied' | 'dismissed';
@@ -274,13 +276,16 @@ function RecommendationsPage() {
 			} else {
 				next.delete(id);
 			}
-			return next;
+			if (next.size <= MAX_BATCH_SELECTION) {
+				return next;
+			}
+			return new Set([...next].slice(0, MAX_BATCH_SELECTION));
 		});
 		lastSelectedIdRef.current = id;
 	};
 
 	const selectAll = () => {
-		setSelectedIds(new Set(displayedRecommendations.map((rec) => rec.id)));
+		setSelectedIds(new Set(displayedRecommendations.slice(0, MAX_BATCH_SELECTION).map((rec) => rec.id)));
 		setSelectionMode(true);
 	};
 
@@ -843,7 +848,9 @@ function BatchActionBar({ selectedIds, recommendations, onSelectAll, onClear }: 
 		)
 		.map((rec) => rec.id);
 
-	const allSelected = recommendations.length > 0 && recommendations.every((rec) => selectedIds.has(rec.id));
+	const atSelectionLimit = selectedIds.size >= MAX_BATCH_SELECTION;
+	const allSelected =
+		atSelectionLimit || (recommendations.length > 0 && recommendations.every((rec) => selectedIds.has(rec.id)));
 
 	const createBatchPr = useMutation(
 		trpc.contextRecommendation.createBatchPullRequest.mutationOptions({
@@ -877,7 +884,7 @@ function BatchActionBar({ selectedIds, recommendations, onSelectAll, onClear }: 
 			)}
 		>
 			<span className='text-sm font-medium text-foreground tabular-nums'>
-				{selectedIds.size} commit{selectedIds.size === 1 ? '' : 's'}
+				{eligibleIds.length} commit{eligibleIds.length === 1 ? '' : 's'}
 			</span>
 			<div className='h-4 w-px bg-border' />
 			<Button
@@ -930,6 +937,11 @@ function BatchActionBar({ selectedIds, recommendations, onSelectAll, onClear }: 
 			>
 				<X className='size-3.5' />
 			</Button>
+			{atSelectionLimit && (
+				<span className='basis-full text-center text-xs text-muted-foreground'>
+					Up to {MAX_BATCH_SELECTION} can be actioned at once
+				</span>
+			)}
 			{createBatchPr.error && (
 				<span className='basis-full text-center text-xs text-destructive'>{createBatchPr.error.message}</span>
 			)}

@@ -166,7 +166,7 @@ describe('createRecommendationPullRequest (GitLab)', () => {
 			url: 'https://gitlab.com/nao/context/-/merge_requests/1',
 		});
 
-		expect(mocks.cloneRepo).toHaveBeenCalledWith('gitlab-token', 'nao/dbt-models', expect.any(String));
+		expect(mocks.cloneRepo).toHaveBeenCalledWith('gitlab-token', 'nao/dbt-models', expect.any(String), 'main');
 	});
 
 	it('rejects when GitLab token is not connected', async () => {

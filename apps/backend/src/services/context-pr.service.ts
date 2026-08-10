@@ -18,7 +18,7 @@ import {
 	resolveWritePath,
 	writeFileAtomically,
 } from '../utils/safe-file-write';
-import { shallowestSubPath } from './git-repo';
+import { checkoutNewBranch, commitAll, getRepoSubPath, shallowestSubPath } from './git-repo';
 import * as github from './github';
 import * as gitlab from './gitlab';
 import type { InternalRepoProvider, ReviewRequestProvider } from './review-request-provider';
@@ -52,18 +52,34 @@ function buildRepoWebUrl(provider: InternalRepoProvider, repoFullName: string): 
 }
 
 /**
- * Resolves the Git repository used for context pull/merge requests. The sub-path is only
- * detected when a user is provided, since it needs a token to inspect the repository tree.
+ * Resolves the Git repository used for context pull/merge requests. Only the repository
+ * configured on the recommendations settings page (or via deployment env) is used; the
+ * project's own folder remote is never treated as the context repository.
  */
 export async function resolveRecommendationRepo(projectId: string, userId?: string): Promise<RecommendationRepo | null> {
 	const connection = await resolveContextRepository(projectId);
 	if (!connection) {
 		return null;
 	}
-	const subPath = userId
-		? await detectConfiguredRepoSubPath(connection.provider, connection.repoFullName, userId)
-		: '';
+	const subPath = await resolveConfiguredRepoSubPath(projectId, connection.provider, connection.repoFullName, userId);
 	return { ...connection, subPath };
+}
+
+/** Prefers the sub-path from the local project checkout, then remote detection when a user is known. */
+async function resolveConfiguredRepoSubPath(
+	projectId: string,
+	provider: InternalRepoProvider,
+	repoFullName: string,
+	userId?: string,
+): Promise<string> {
+	const project = await projectQueries.getProjectById(projectId);
+	if (project?.path) {
+		return getRepoSubPath(project.path);
+	}
+	if (userId) {
+		return detectConfiguredRepoSubPath(provider, repoFullName, userId);
+	}
+	return '';
 }
 
 async function detectConfiguredRepoSubPath(
@@ -158,7 +174,6 @@ export async function createRecommendationPullRequest(
 	const repoFullName = repo.repoFullName;
 	const branch = `nao/context-${recommendationId.slice(0, 8)}-${Date.now().toString(36)}`;
 	const workdir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-context-pr-'));
-	const subPath = await resolveWriteSubPath(projectId, repo);
 
 	try {
 		const { url } = await createReviewRequest({
@@ -171,8 +186,8 @@ export async function createRecommendationPullRequest(
 			edits: toReviewRequestEdits(edits),
 			title: prTitle(rec),
 			commitMessage: commitMessage(rec),
-			body: prBody(rec, edits, subPath ?? ''),
-			subPath,
+			body: prBody(rec, edits, repo.subPath),
+			subPath: repo.subPath,
 		});
 
 		const prCreatedAt = new Date();
@@ -203,41 +218,38 @@ export async function createBatchRecommendationPullRequest(
 		throw new Error('No eligible recommendations to batch. Each must have drafted changes and no existing PR.');
 	}
 
-	const repoByName = new Map<string, RecommendationRepo>();
+	const repoByKey = new Map<string, RecommendationRepo>();
 	for (const rec of recs) {
 		const repo = await resolvePullRequestRepo(projectId, rec.proposedEdits!);
 		if (!repo) {
-			throw new Error(
-				'No GitHub or GitLab repository is configured for this project. Select one in Settings → Recommendations.',
-			);
+			throw new Error('No context repository is connected. Connect one in Settings → Git.');
 		}
-		repoByName.set(repo.repoFullName, repo);
+		repoByKey.set(`${repo.provider}:${repo.repoFullName}@${repo.branch ?? ''}`, repo);
 	}
 
-	if (repoByName.size > 1) {
-		throw new Error('All batched recommendations must target the same repository.');
+	if (repoByKey.size > 1) {
+		throw new Error('All batched recommendations must target the same repository and branch.');
 	}
 
-	const [repo] = repoByName.values();
+	const [repo] = repoByKey.values();
 	const branch = `nao/context-batch-${Date.now().toString(36)}`;
 	const workdir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-context-pr-'));
-	const subPath = await resolveWriteSubPath(projectId, repo);
 
 	try {
-		const { url } = await createBatchReviewRequest({
+		const { url, committedRecIds } = await createBatchReviewRequest({
 			provider: REVIEW_REQUEST_PROVIDERS[repo.provider],
 			userId,
 			repoFullName: repo.repoFullName,
 			workdir,
 			branch,
 			configuredBase: repo.branch,
-			subPath,
+			subPath: repo.subPath,
 			recs,
 		});
 
 		const prCreatedAt = new Date();
 		await Promise.all(
-			recs.map((rec) => crQueries.setRecommendationPr(rec.id, { prUrl: url, prBranch: branch, prCreatedAt })),
+			committedRecIds.map((id) => crQueries.setRecommendationPr(id, { prUrl: url, prBranch: branch, prCreatedAt })),
 		);
 		return { url, branch };
 	} finally {
@@ -277,7 +289,7 @@ export async function createReviewRequest(args: {
 		throw new Error('User not found.');
 	}
 
-	provider.cloneRepo(token, repoFullName, workdir);
+	provider.cloneRepo(token, repoFullName, workdir, configuredBase ?? undefined);
 	const base = configuredBase ?? provider.getGitInfo(workdir).branch ?? 'main';
 	const effectiveSubPath = resolveEffectiveSubPath(workdir, args.subPath);
 
@@ -311,7 +323,10 @@ export async function createReviewRequest(args: {
 	return { url: reviewRequest.url };
 }
 
-/** Same as `createReviewRequest`, but lands one commit per recommendation on a shared branch. */
+/**
+ * Clones the repo once, then creates one commit per recommendation, pushes a single branch,
+ * and opens one review request that covers all committed recommendations.
+ */
 async function createBatchReviewRequest(args: {
 	provider: ReviewRequestProvider;
 	userId: string;
@@ -319,10 +334,10 @@ async function createBatchReviewRequest(args: {
 	workdir: string;
 	branch: string;
 	configuredBase: string | null;
-	subPath?: string;
+	subPath: string;
 	recs: DBContextRecommendation[];
-}): Promise<{ url: string }> {
-	const { provider, userId, repoFullName, workdir, branch, configuredBase, recs } = args;
+}): Promise<{ url: string; committedRecIds: string[] }> {
+	const { provider, userId, repoFullName, workdir, branch, configuredBase, subPath, recs } = args;
 
 	const [token, user] = await Promise.all([provider.getToken(userId), userQueries.getUser({ id: userId })]);
 	if (token === null) {
@@ -332,41 +347,52 @@ async function createBatchReviewRequest(args: {
 		throw new Error('User not found.');
 	}
 
-	provider.cloneRepo(token, repoFullName, workdir);
+	provider.cloneRepo(token, repoFullName, workdir, configuredBase ?? undefined);
 	const base = configuredBase ?? provider.getGitInfo(workdir).branch ?? 'main';
-	const effectiveSubPath = resolveEffectiveSubPath(workdir, args.subPath);
 	const author = await provider.getUserGitIdentity({
 		token,
 		user: { name: user.name, email: user.email },
 	});
+	const effectiveSubPath = resolveEffectiveSubPath(workdir, subPath);
 
-	let pushOutput = '';
+	checkoutNewBranch(workdir, branch);
+
+	const committedRecIds: string[] = [];
 	for (const rec of recs) {
 		const edits = toReviewRequestEdits(filterPullRequestEdits(rec.proposedEdits ?? []));
+		if (edits.length === 0) {
+			continue;
+		}
 		applyEdits(workdir, edits, effectiveSubPath);
-		pushOutput = provider.commitAllAndPushBranch({
-			token,
-			repoFullName,
-			dir: workdir,
-			branch,
+		const committed = commitAll(workdir, {
 			message: commitMessage(rec),
 			author,
 			coAuthors: [provider.coAuthor],
 		});
+		if (committed) {
+			committedRecIds.push(rec.id);
+		}
 	}
 
+	if (committedRecIds.length === 0) {
+		throw new Error('No file changes remain after filtering. All proposed edits target auto-generated files.');
+	}
+
+	const pushOutput = provider.pushBranch({ token, repoFullName, dir: workdir, branch });
+
+	const committedRecs = recs.filter((rec) => committedRecIds.includes(rec.id));
 	const reviewRequest = await provider.openReviewRequest(token, repoFullName, {
-		title: batchPrTitle(recs),
+		title: batchPrTitle(committedRecs),
 		head: branch,
 		base,
-		body: batchPrBody(recs, effectiveSubPath),
+		body: batchPrBody(committedRecs, effectiveSubPath),
 		requester: { name: user.name, email: user.email },
 		pushOutput,
 	});
 	if (!reviewRequest) {
 		throw new Error(`Branch ${branch} was pushed successfully, but no pull request link was returned.`);
 	}
-	return { url: reviewRequest.url };
+	return { url: reviewRequest.url, committedRecIds };
 }
 
 /**
@@ -408,51 +434,6 @@ function resolvePullRequestRepo(projectId: string, edits: ProposedEdit[]): Promi
 	});
 }
 
-/**
- * Sub-path to write edits under. Linked repos use their own target paths as-is; context
- * repos prefer the project checkout's sub-path and otherwise fall back (`undefined`) to
- * detecting `nao_config.yaml` inside the fresh clone.
- */
-async function resolveWriteSubPath(projectId: string, repo: RecommendationRepo): Promise<string | undefined> {
-	if (repo.source === 'linked') {
-		return '';
-	}
-	const project = await projectQueries.getProjectById(projectId);
-	if (!project?.path) {
-		return undefined;
-	}
-	const checkoutSubPath =
-		repo.provider === 'gitlab' ? gitlab.getRepoSubPath(project.path) : github.getRepoSubPath(project.path);
-	return checkoutSubPath || undefined;
-}
-
-function resolveEffectiveSubPath(workdir: string, subPath: string | undefined): string {
-	if (subPath !== undefined) {
-		return subPath;
-	}
-	return shallowestSubPath(findContextConfigDirs(workdir, workdir));
-}
-
-function findContextConfigDirs(root: string, dir: string): string[] {
-	const results: string[] = [];
-	for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-		if (entry.isSymbolicLink()) {
-			continue;
-		}
-		const fullPath = path.join(dir, entry.name);
-		if (entry.isDirectory()) {
-			if (entry.name === '.git' || entry.name === 'node_modules') {
-				continue;
-			}
-			results.push(...findContextConfigDirs(root, fullPath));
-		} else if (entry.isFile() && entry.name === CONTEXT_CONFIG_FILENAME) {
-			const relative = path.relative(root, dir);
-			results.push(relative === '' ? '' : relative.split(path.sep).join('/'));
-		}
-	}
-	return results;
-}
-
 function filterPullRequestEdits(edits: ProposedEdit[]): ProposedEdit[] {
 	return edits.filter((edit) => {
 		if (edit.targetRepo) {
@@ -462,7 +443,15 @@ function filterPullRequestEdits(edits: ProposedEdit[]): ProposedEdit[] {
 	});
 }
 
+function toReviewRequestEdits(edits: ProposedEdit[]): ReviewRequestEdit[] {
+	return edits.map((edit) => ({
+		path: edit.targetRepo?.path ?? edit.path,
+		newContent: edit.newContent,
+	}));
+}
+
 function applyEdits(dir: string, edits: ReviewRequestEdit[], subPath: string): void {
+	assertValidSubPath(subPath);
 	const root = canonicalizeWriteRoot(dir);
 	for (const edit of edits) {
 		const editPath = subPath ? path.posix.join(subPath, edit.path) : edit.path;
@@ -473,11 +462,65 @@ function applyEdits(dir: string, edits: ReviewRequestEdit[], subPath: string): v
 	}
 }
 
-function toReviewRequestEdits(edits: ProposedEdit[]): ReviewRequestEdit[] {
-	return edits.map((edit) => ({
-		path: edit.targetRepo?.path ?? edit.path,
-		newContent: edit.newContent,
-	}));
+const SUBPATH_SCAN_IGNORED_DIRS = new Set(['.git', 'node_modules', '.venv', 'venv', '__pycache__', 'dist', 'build']);
+const SUBPATH_SCAN_MAX_DEPTH = 6;
+
+/** Uses the sub-path already known from the project's local git checkout when available. */
+function resolveEffectiveSubPath(repoDir: string, knownSubPath: string | undefined): string {
+	if (knownSubPath) {
+		return knownSubPath;
+	}
+	return detectContextSubPath(repoDir);
+}
+
+/** Returns the directory holding `nao_config.yaml` relative to the repo root ('' when at root). */
+function detectContextSubPath(repoDir: string): string {
+	const matches: string[] = [];
+
+	const walk = (dir: string, depth: number): void => {
+		if (depth > SUBPATH_SCAN_MAX_DEPTH) {
+			return;
+		}
+		let entries: fs.Dirent[];
+		try {
+			entries = fs.readdirSync(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const entry of entries) {
+			if (entry.isFile() && entry.name === CONTEXT_CONFIG_FILENAME) {
+				matches.push(path.relative(repoDir, dir).split(path.sep).join('/'));
+			}
+		}
+		for (const entry of entries) {
+			if (entry.isDirectory() && !entry.isSymbolicLink() && !SUBPATH_SCAN_IGNORED_DIRS.has(entry.name)) {
+				walk(path.join(dir, entry.name), depth + 1);
+			}
+		}
+	};
+
+	walk(repoDir, 0);
+
+	const shallowest = shallowestSubPath(matches);
+	if (matches.length > 1) {
+		logger.warn(
+			`Multiple ${CONTEXT_CONFIG_FILENAME} files found in context repository; using "${shallowest || '<root>'}".`,
+			{ source: 'agent' },
+		);
+	}
+	return shallowest;
+}
+
+function assertValidSubPath(subPath: string): void {
+	if (!subPath) {
+		return;
+	}
+	if (path.isAbsolute(subPath)) {
+		throw new Error('Invalid monorepo sub-path: absolute paths are not allowed.');
+	}
+	if (path.normalize(subPath).startsWith('..')) {
+		throw new Error('Invalid monorepo sub-path: path traversal is not allowed.');
+	}
 }
 
 function prTitle(rec: DBContextRecommendation): string {

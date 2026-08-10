@@ -24,7 +24,7 @@ export interface ReviewRequestProvider {
 	isIntegrationAvailable: () => boolean;
 	authenticatedRepoUrl: (token: string, repoFullName: string) => string;
 	publicRepoUrl: (repoFullName: string) => string;
-	cloneRepo: (token: string, repoFullName: string, dir: string) => void;
+	cloneRepo: (token: string, repoFullName: string, dir: string, branch?: string) => void;
 	getGitInfo: (dir: string) => { branch: string | null };
 	getUserGitIdentity: (args: { token: string | null; user: GitIdentity }) => Promise<GitIdentity>;
 	coAuthor: GitIdentity;
