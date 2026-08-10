@@ -60,6 +60,10 @@ export const contextRecommendationRoutes = {
 
 	latestRun: recommendationsProcedure.query(async ({ ctx }) => crQueries.getLatestRun(ctx.project.id)),
 
+	latestSuccessfulRun: recommendationsProcedure.query(async ({ ctx }) =>
+		crQueries.getLatestSuccessfulRun(ctx.project.id),
+	),
+
 	run: recommendationsProcedure.mutation(async ({ ctx }) => {
 		const latestRun = await crQueries.getLatestRun(ctx.project.id);
 		if (latestRun?.status === 'running') {

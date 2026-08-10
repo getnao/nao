@@ -287,6 +287,22 @@ export async function getLatestRun(projectId: string): Promise<DBContextRecommen
 	return run ?? null;
 }
 
+export async function getLatestSuccessfulRun(projectId: string): Promise<DBContextRecommendationRun | null> {
+	const [run] = await db
+		.select()
+		.from(s.contextRecommendationRun)
+		.where(
+			and(
+				eq(s.contextRecommendationRun.projectId, projectId),
+				eq(s.contextRecommendationRun.status, 'completed'),
+			),
+		)
+		.orderBy(desc(s.contextRecommendationRun.completedAt))
+		.limit(1)
+		.execute();
+	return run ?? null;
+}
+
 export async function getRunById(projectId: string, runId: string): Promise<DBContextRecommendationRun | null> {
 	const [run] = await db
 		.select()

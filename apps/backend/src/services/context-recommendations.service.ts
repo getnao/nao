@@ -125,7 +125,7 @@ export async function runContextRecommendations(
 		});
 
 		const stream = agent.stream(uiChat.messages ?? [], {});
-		for await (const message of readUIMessageStream<UIMessage>({ stream })) {
+		for await (const message of readUIMessageStream<UIMessage>({ stream, terminateOnError: true })) {
 			void message; // drain; the agent persists its own messages, tools mutate the collector by reference
 		}
 

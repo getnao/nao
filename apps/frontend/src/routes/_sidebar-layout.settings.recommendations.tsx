@@ -180,6 +180,10 @@ function RecommendationsPage() {
 		enabled: isEnabled,
 		refetchInterval: (query) => (query.state.data?.status === 'running' ? 3000 : false),
 	});
+	const latestSuccessfulRun = useQuery({
+		...trpc.contextRecommendation.latestSuccessfulRun.queryOptions(),
+		enabled: isEnabled,
+	});
 
 	const setStatus = useMutation(trpc.contextRecommendation.setStatus.mutationOptions());
 	const run = useMutation(trpc.contextRecommendation.run.mutationOptions());
@@ -218,6 +222,7 @@ function RecommendationsPage() {
 		const status = latestRun.data?.status;
 		if (previousRunStatus.current === 'running' && status && status !== 'running') {
 			queryClient.invalidateQueries({ queryKey: trpc.contextRecommendation.list.queryKey({}) });
+			queryClient.invalidateQueries({ queryKey: trpc.contextRecommendation.latestSuccessfulRun.queryKey() });
 		}
 		previousRunStatus.current = status;
 	}, [latestRun.data?.status, queryClient]);
@@ -510,12 +515,21 @@ function RecommendationsPage() {
 										{isRunning ? 'Running…' : 'Run now'}
 									</Button>
 								</div>
-								{latestRun.data ? (
+								{latestSuccessfulRun.data ? (
 									<span className='text-xs text-muted-foreground italic'>
-										Latest {new Date(latestRun.data.startedAt).toLocaleString()}
+										Latest{' '}
+										{new Date(
+											latestSuccessfulRun.data.completedAt ?? latestSuccessfulRun.data.startedAt,
+										).toLocaleString()}
 									</span>
 								) : (
 									<span className='text-xs text-muted-foreground italic'>Never run</span>
+								)}
+								{latestRun.data?.status === 'failed' && (
+									<span className='text-xs text-destructive italic'>
+										Last run failed
+										{latestRun.data.errorMessage ? `: ${latestRun.data.errorMessage}` : ''}
+									</span>
 								)}
 							</div>
 						</div>
