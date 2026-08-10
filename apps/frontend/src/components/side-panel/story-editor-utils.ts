@@ -138,7 +138,7 @@ export function scrollPosIntoView(view: EditorView, pos: number, gridColumnIndex
 const SCROLL_VISIBILITY_MARGIN = 24;
 
 function isReasonablyVisible(element: HTMLElement): boolean {
-	const scrollContainer = findScrollContainer(element);
+	const scrollContainer = findVerticalScrollContainer(element);
 	if (!scrollContainer) {
 		return false;
 	}
@@ -162,11 +162,11 @@ function isReasonablyVisible(element: HTMLElement): boolean {
 	);
 }
 
-function findScrollContainer(element: HTMLElement): HTMLElement | null {
+function findVerticalScrollContainer(element: HTMLElement): HTMLElement | null {
 	let ancestor = element.parentElement;
 	while (ancestor) {
-		const { overflowX, overflowY } = window.getComputedStyle(ancestor);
-		if ([overflowX, overflowY].some((overflow) => ['auto', 'scroll', 'overlay'].includes(overflow))) {
+		const { overflowY } = window.getComputedStyle(ancestor);
+		if (['auto', 'scroll', 'overlay'].includes(overflowY) && ancestor.scrollHeight - ancestor.clientHeight > 1) {
 			return ancestor;
 		}
 		ancestor = ancestor.parentElement;

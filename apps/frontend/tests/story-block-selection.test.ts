@@ -357,6 +357,10 @@ describe('story block selection', () => {
 		const column = createColumnElement(gridPos, 0, 'chart');
 		gridEditor.view.dom.appendChild(column);
 		gridEditor.view.dom.style.overflowY = 'auto';
+		Object.defineProperties(gridEditor.view.dom, {
+			scrollHeight: { configurable: true, value: 1000 },
+			clientHeight: { configurable: true, value: 500 },
+		});
 		gridEditor.view.dom.getBoundingClientRect = () => new DOMRect(0, 0, 600, 500);
 		column.getBoundingClientRect = () => new DOMRect(0, 100, 300, 200);
 		const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
@@ -372,6 +376,46 @@ describe('story block selection', () => {
 		try {
 			scrollPosIntoView(gridEditor.view, gridPos, 0);
 			expect(didScroll).toBe(false);
+		} finally {
+			globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+			gridEditor.destroy();
+		}
+	});
+
+	it('scrolls when a horizontal wrapper hides the vertical scroll container', () => {
+		const gridEditor = createGridEditor();
+		const [, gridPos] = topLevelBlockPositions(gridEditor.state.doc);
+		const column = createColumnElement(gridPos, 0, 'chart');
+		const horizontalWrapper = document.createElement('div');
+		horizontalWrapper.style.overflowX = 'auto';
+		horizontalWrapper.style.overflowY = 'auto';
+		horizontalWrapper.appendChild(column);
+		gridEditor.view.dom.appendChild(horizontalWrapper);
+		gridEditor.view.dom.style.overflowY = 'auto';
+		Object.defineProperties(horizontalWrapper, {
+			scrollHeight: { configurable: true, value: 1000 },
+			clientHeight: { configurable: true, value: 1000 },
+		});
+		Object.defineProperties(gridEditor.view.dom, {
+			scrollHeight: { configurable: true, value: 1000 },
+			clientHeight: { configurable: true, value: 300 },
+		});
+		horizontalWrapper.getBoundingClientRect = () => new DOMRect(0, 0, 600, 1000);
+		gridEditor.view.dom.getBoundingClientRect = () => new DOMRect(0, 0, 600, 300);
+		column.getBoundingClientRect = () => new DOMRect(0, 400, 300, 100);
+		const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+		let didScroll = false;
+		column.scrollIntoView = () => {
+			didScroll = true;
+		};
+		globalThis.requestAnimationFrame = (callback) => {
+			callback(0);
+			return 1;
+		};
+
+		try {
+			scrollPosIntoView(gridEditor.view, gridPos, 0);
+			expect(didScroll).toBe(true);
 		} finally {
 			globalThis.requestAnimationFrame = originalRequestAnimationFrame;
 			gridEditor.destroy();
