@@ -95,6 +95,26 @@ created_at: 2025-03-10T09:15:00Z
 		expect(result).toContain('Invalid filter template');
 	});
 
+	it('tells the model when excluded columns were removed', () => {
+		const result = renderToMarkdown(
+			<ExecuteSqlOutput
+				output={{
+					id: 'query_excluded_columns',
+					columns: ['id', 'name'],
+					row_count: 1,
+					data: [{ id: 1, name: 'Alice' }],
+					exclude_columns_warnings: [
+						'Excluded columns removed from SELECT * before execution: main.users.email.',
+					],
+				}}
+			/>,
+		);
+
+		expect(result).toContain('excluded columns were removed from star expansion before the query ran');
+		expect(result).toContain('main.users.email');
+		expect(result).toContain('Do not select these columns explicitly');
+	});
+
 	it('warns when the row count equals the applied LIMIT', () => {
 		const result = renderToMarkdown(
 			<ExecuteSqlOutput

@@ -1,6 +1,7 @@
 import tempfile
 from pathlib import Path
 
+import duckdb
 import pytest
 import yaml
 from fastapi.testclient import TestClient
@@ -37,6 +38,32 @@ def duckdb_project_folder():
         yield tmpdir
 
 
+@pytest.fixture
+def duckdb_project_with_excluded_columns():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        database_path = Path(tmpdir) / "test.duckdb"
+        conn = duckdb.connect(str(database_path))
+        conn.execute("CREATE TABLE users (id INTEGER, name VARCHAR, email VARCHAR)")
+        conn.execute("INSERT INTO users VALUES (1, 'Alice', 'alice@example.com')")
+        conn.close()
+
+        config = {
+            "project_name": "test-project",
+            "databases": [
+                {
+                    "name": "test-duckdb",
+                    "type": "duckdb",
+                    "path": str(database_path),
+                    "exclude_columns": ["*.email"],
+                }
+            ],
+        }
+        config_path = Path(tmpdir) / "nao_config.yaml"
+        with config_path.open("w") as f:
+            yaml.dump(config, f)
+        yield tmpdir
+
+
 def test_execute_sql_simple_duckdb(duckdb_project_folder):
     """Test execute_sql endpoint with a DuckDB in-memory database."""
     client = TestClient(app)
@@ -56,6 +83,50 @@ def test_execute_sql_simple_duckdb(duckdb_project_folder):
         columns=["id", "message"],
         expected_data=[{"id": 1, "message": "hello"}],
     )
+    assert "exclude_columns_warnings" not in response.json()
+
+
+def test_execute_sql_strips_excluded_columns_from_star(
+    duckdb_project_with_excluded_columns,
+):
+    client = TestClient(app)
+
+    response = client.post(
+        "/execute_sql",
+        json={
+            "sql": "SELECT * FROM users",
+            "nao_project_folder": duckdb_project_with_excluded_columns,
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert_sql_result(
+        data,
+        row_count=1,
+        columns=["id", "name"],
+        expected_data=[{"id": 1, "name": "Alice"}],
+    )
+    assert data["exclude_columns_warnings"] == [
+        "Excluded columns removed from SELECT * before execution: main.users.email."
+    ]
+
+
+def test_execute_sql_blocks_explicit_excluded_column(
+    duckdb_project_with_excluded_columns,
+):
+    client = TestClient(app)
+
+    response = client.post(
+        "/execute_sql",
+        json={
+            "sql": "SELECT email FROM users",
+            "nao_project_folder": duckdb_project_with_excluded_columns,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "main.users.email" in response.json()["detail"]
 
 
 def test_execute_sql_with_cte_duckdb(duckdb_project_folder):

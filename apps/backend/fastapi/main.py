@@ -20,6 +20,10 @@ cli_path = Path(__file__).resolve().parent.parent.parent.parent / "cli"
 sys.path.insert(0, str(cli_path))
 
 from nao_core.config import NaoConfig, NaoConfigError
+from nao_core.config.databases.exclude_columns_guard import (
+    ExcludeColumnsGuardError,
+    enforce_exclude_columns,
+)
 from nao_core.context import get_context_provider
 
 port = int(os.environ.get("PORT", 8005))
@@ -104,6 +108,7 @@ class ExecuteSQLResponse(BaseModel):
     row_count: int
     columns: list[str]
     dialect: str | None = None
+    exclude_columns_warnings: list[str] | None = None
 
 
 class RefreshResponse(BaseModel):
@@ -219,7 +224,11 @@ async def refresh_context():
         )
 
 
-@app.post("/execute_sql", response_model=ExecuteSQLResponse)
+@app.post(
+    "/execute_sql",
+    response_model=ExecuteSQLResponse,
+    response_model_exclude_none=True,
+)
 async def execute_sql(request: ExecuteSQLRequest):
     try:
         project_path = Path(request.nao_project_folder)
@@ -264,6 +273,11 @@ async def execute_sql(request: ExecuteSQLRequest):
 
         auth_mode_value = getattr(getattr(db_config, "auth_mode", None), "value", None)
 
+        try:
+            guard_result = enforce_exclude_columns(request.sql, db_config)
+        except ExcludeColumnsGuardError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
         if auth_mode_value == "azure_entra_id":
             if not request.azure_access_token:
                 raise HTTPException(
@@ -275,10 +289,10 @@ async def execute_sql(request: ExecuteSQLRequest):
                     ),
                 )
             df = db_config.execute_sql_with_token(
-                request.sql, request.azure_access_token
+                guard_result.sql, request.azure_access_token
             )
         else:
-            df = db_config.execute_sql(request.sql)
+            df = db_config.execute_sql(guard_result.sql)
 
         data = [
             {k: _convert_value(v) for k, v in row.items()}
@@ -290,6 +304,7 @@ async def execute_sql(request: ExecuteSQLRequest):
             row_count=len(data),
             columns=[str(c) for c in df.columns.tolist()],
             dialect=db_config.type,
+            exclude_columns_warnings=guard_result.warnings or None,
         )
     except HTTPException:
         raise
