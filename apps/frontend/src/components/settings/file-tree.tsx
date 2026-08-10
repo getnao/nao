@@ -68,7 +68,7 @@ export function FileTree({
 			const nextPaths = new Set(currentPaths);
 
 			if (currentPaths.has(entry.path)) {
-				nextPaths.delete(entry.path);
+				removeExpandedSubtree(nextPaths, entry.path);
 			} else {
 				for (const path of getAutoExpandPaths(entry)) {
 					nextPaths.add(path);
@@ -147,6 +147,16 @@ export function FileTree({
 			</div>
 		</div>
 	);
+}
+
+function removeExpandedSubtree(paths: Set<string>, rootPath: string): void {
+	const descendantPrefix = `${rootPath}/`;
+
+	for (const path of paths) {
+		if (path === rootPath || path.startsWith(descendantPrefix)) {
+			paths.delete(path);
+		}
+	}
 }
 
 function TreeEmptyState({
