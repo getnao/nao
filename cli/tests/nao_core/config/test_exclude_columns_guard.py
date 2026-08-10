@@ -91,13 +91,14 @@ def test_explicit_excluded_column_outside_select_is_blocked(sql: str):
         enforce_exclude_columns(sql, config)
 
 
-def test_select_star_strips_excluded_columns_and_warns():
+def test_select_star_with_excluded_column_is_blocked():
     config = FakeDatabaseConfig(["*.email"])
 
-    result = enforce_exclude_columns("SELECT * FROM users", config)
-
-    assert result.sql == "SELECT users.id AS id, users.name AS name, users.secret AS secret FROM main.users AS users"
-    assert result.warnings == ["Excluded columns removed from SELECT * before execution: main.users.email."]
+    with pytest.raises(
+        ExcludeColumnsGuardError,
+        match=r"SELECT \* would include excluded column\(s\): main\.users\.email",
+    ):
+        enforce_exclude_columns("SELECT * FROM users", config)
 
 
 def test_qualified_star_already_excluding_column_is_unchanged():
@@ -106,21 +107,20 @@ def test_qualified_star_already_excluding_column_is_unchanged():
 
     result = enforce_exclude_columns(sql, config)
 
-    assert result.sql == sql
-    assert result.warnings == []
+    assert result == sql
 
 
-def test_cte_star_strips_excluded_columns():
+def test_cte_star_with_excluded_column_is_blocked():
     config = FakeDatabaseConfig(["*.email"])
 
-    result = enforce_exclude_columns(
-        "WITH selected_users AS (SELECT * FROM users) SELECT * FROM selected_users",
-        config,
-    )
-
-    assert "users.email" not in result.sql
-    assert "users.name AS name" in result.sql
-    assert result.warnings
+    with pytest.raises(
+        ExcludeColumnsGuardError,
+        match=r"SELECT \* would include excluded column\(s\): main\.users\.email",
+    ):
+        enforce_exclude_columns(
+            "WITH selected_users AS (SELECT * FROM users) SELECT * FROM selected_users",
+            config,
+        )
 
 
 def test_explicit_excluded_column_from_cte_star_is_blocked():
@@ -139,8 +139,7 @@ def test_safe_query_is_allowed_unchanged():
 
     result = enforce_exclude_columns(sql, config)
 
-    assert result.sql == sql
-    assert result.warnings == []
+    assert result == sql
 
 
 def test_unparseable_query_is_blocked():
@@ -163,8 +162,7 @@ def test_empty_exclude_columns_is_noop_without_connecting():
 
     result = enforce_exclude_columns(sql, config)
 
-    assert result.sql == sql
-    assert result.warnings == []
+    assert result == sql
     assert config.connect_count == 0
 
 

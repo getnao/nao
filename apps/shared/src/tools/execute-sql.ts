@@ -34,10 +34,6 @@ export const OutputSchema = z.object({
 	 */
 	template_warnings: z.array(z.string()).optional(),
 	/**
-	 * Excluded database columns removed from star expansion before execution.
-	 */
-	exclude_columns_warnings: z.array(z.string()).optional(),
-	/**
 	 * Set in-memory (never persisted) when a later execute_sql part in the chat re-ran
 	 * the same query id. The model then sees a short stub instead of repeated rows.
 	 */

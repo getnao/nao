@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
 import sqlglot
@@ -41,12 +41,6 @@ _SQLGLOT_DIALECTS = {
 }
 
 
-@dataclass(frozen=True)
-class ExcludeColumnsGuardResult:
-    sql: str
-    warnings: list[str]
-
-
 class ExcludeColumnsGuardError(ValueError):
     pass
 
@@ -73,12 +67,11 @@ class _TableInfo:
 class _OutputColumn:
     name: str
     origins: frozenset[_ColumnOrigin]
-    source_alias: str | None = None
 
 
-def enforce_exclude_columns(sql: str, db_config: _DatabaseConfigLike) -> ExcludeColumnsGuardResult:
+def enforce_exclude_columns(sql: str, db_config: _DatabaseConfigLike) -> str:
     if not db_config.exclude_columns:
-        return ExcludeColumnsGuardResult(sql=sql, warnings=[])
+        return sql
 
     dialect = _SQLGLOT_DIALECTS.get(db_config.type)
     if dialect is None:
@@ -100,13 +93,14 @@ def enforce_exclude_columns(sql: str, db_config: _DatabaseConfigLike) -> Exclude
                 "Remove those column references and try again."
             )
 
-        stripped = analyzer.strip_excluded_stars()
-        if not stripped:
-            return ExcludeColumnsGuardResult(sql=sql, warnings=[])
-
-        names = ", ".join(sorted(origin.qualified_name for origin in stripped))
-        warning = f"Excluded columns removed from SELECT * before execution: {names}."
-        return ExcludeColumnsGuardResult(sql=qualified.sql(dialect=dialect), warnings=[warning])
+        excluded_star_references = analyzer.find_excluded_star_references()
+        if excluded_star_references:
+            names = ", ".join(sorted(origin.qualified_name for origin in excluded_star_references))
+            raise ExcludeColumnsGuardError(
+                f"Query blocked because SELECT * would include excluded column(s): {names}. "
+                "Select only allowed columns explicitly instead of using *."
+            )
+        return sql
     except ExcludeColumnsGuardError:
         raise
     except Exception as error:
@@ -317,8 +311,8 @@ class _ExcludeColumnsAnalyzer:
                 excluded.update(origin for origin in origins if self._is_excluded(origin))
         return excluded
 
-    def strip_excluded_stars(self) -> set[_ColumnOrigin]:
-        stripped: set[_ColumnOrigin] = set()
+    def find_excluded_star_references(self) -> set[_ColumnOrigin]:
+        excluded: set[_ColumnOrigin] = set()
         for scope in self.scopes:
             if not isinstance(scope.expression, exp.Select):
                 selects = getattr(scope.expression, "selects", [])
@@ -326,11 +320,8 @@ class _ExcludeColumnsAnalyzer:
                     raise _blocked("star expansion in this query shape cannot be resolved safely")
                 continue
 
-            expanded_selects: list[exp.Expr] = []
-            changed = False
             for select in scope.expression.selects:
                 if not select.is_star:
-                    expanded_selects.append(select)
                     continue
                 star = _star_expression(select)
                 if star.args.get("replace") or star.args.get("rename"):
@@ -342,19 +333,11 @@ class _ExcludeColumnsAnalyzer:
                     if output.name.casefold() in excluded_names:
                         continue
                     excluded_origins = {origin for origin in output.origins if self._is_excluded(origin)}
-                    if excluded_origins:
-                        stripped.update(excluded_origins)
-                        changed = True
-                        continue
-                    expanded_selects.append(self._qualified_output(output))
+                    excluded.update(excluded_origins)
+            if excluded:
+                return excluded
 
-            if changed:
-                if not expanded_selects:
-                    raise _blocked("star expansion would remove every selected column")
-                scope.expression.set("expressions", expanded_selects)
-                self._output_cache.clear()
-
-        return stripped
+        return excluded
 
     def _star_outputs(self, scope: Scope, select: exp.Expr) -> list[_OutputColumn]:
         if isinstance(select, exp.Column):
@@ -362,11 +345,11 @@ class _ExcludeColumnsAnalyzer:
             source = scope.sources.get(source_alias)
             if source is None:
                 raise _blocked(f"qualified star {source_alias}.* could not be resolved")
-            return [replace(output, source_alias=source_alias) for output in self._source_outputs(source)]
+            return self._source_outputs(source)
 
         outputs: list[_OutputColumn] = []
-        for source_alias, (_, source) in scope.selected_sources.items():
-            outputs.extend(replace(output, source_alias=source_alias) for output in self._source_outputs(source))
+        for _, source in scope.selected_sources.values():
+            outputs.extend(self._source_outputs(source))
         if not outputs:
             raise _blocked("SELECT * had no resolvable source columns")
         return outputs
@@ -470,17 +453,6 @@ class _ExcludeColumnsAnalyzer:
 
     def _is_excluded(self, origin: _ColumnOrigin) -> bool:
         return not self.db_config.column_matches_pattern(origin.schema, origin.table, origin.column)
-
-    def _qualified_output(self, output: _OutputColumn) -> exp.Expr:
-        source_alias = output.source_alias
-        if source_alias is None:
-            raise _blocked(f"star output '{output.name}' could not be tied to one source")
-
-        column = exp.Column(
-            this=exp.to_identifier(output.name),
-            table=exp.to_identifier(source_alias),
-        )
-        return exp.alias_(column, output.name, copy=False)
 
 
 def _table_key(table: exp.Table) -> tuple[str, str, str]:

@@ -83,10 +83,9 @@ def test_execute_sql_simple_duckdb(duckdb_project_folder):
         columns=["id", "message"],
         expected_data=[{"id": 1, "message": "hello"}],
     )
-    assert "exclude_columns_warnings" not in response.json()
 
 
-def test_execute_sql_strips_excluded_columns_from_star(
+def test_execute_sql_blocks_star_with_excluded_columns(
     duckdb_project_with_excluded_columns,
 ):
     client = TestClient(app)
@@ -99,17 +98,11 @@ def test_execute_sql_strips_excluded_columns_from_star(
         },
     )
 
-    assert response.status_code == 200
-    data = response.json()
-    assert_sql_result(
-        data,
-        row_count=1,
-        columns=["id", "name"],
-        expected_data=[{"id": 1, "name": "Alice"}],
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "Query blocked because SELECT * would include excluded column(s): main.users.email. "
+        "Select only allowed columns explicitly instead of using *."
     )
-    assert data["exclude_columns_warnings"] == [
-        "Excluded columns removed from SELECT * before execution: main.users.email."
-    ]
 
 
 def test_execute_sql_blocks_explicit_excluded_column(

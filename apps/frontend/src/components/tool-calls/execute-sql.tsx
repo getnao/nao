@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { AlertTriangle, Code, Copy, Download, Palette, Pencil, Table as TableIcon } from 'lucide-react';
+import { Code, Copy, Download, Palette, Pencil, Table as TableIcon } from 'lucide-react';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import { TableFormatEditDialog } from './display-table-edit-dialog';
 import { SqlQueryDisplay } from './sql-query-display';
@@ -120,16 +120,6 @@ export const ExecuteSqlToolCall = ({
 				<SqlQueryDisplay query={input.sql_query} />
 			) : output ? (
 				<>
-					{output.exclude_columns_warnings && output.exclude_columns_warnings.length > 0 && (
-						<div className='px-3 py-2 border-b border-amber-500/20 bg-amber-500/5 flex items-start gap-2'>
-							<AlertTriangle size={14} className='mt-0.5 text-amber-500 shrink-0' />
-							<div className='text-xs text-amber-600 dark:text-amber-400'>
-								{output.exclude_columns_warnings.map((warning) => (
-									<div key={warning}>{warning}</div>
-								))}
-							</div>
-						</div>
-					)}
 					<SqlResultDisplay output={output} conditionalFormats={conditionalFormats} />
 					<TableFormatEditDialog
 						open={isFormatOpen}

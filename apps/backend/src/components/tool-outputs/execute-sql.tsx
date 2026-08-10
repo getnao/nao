@@ -8,7 +8,6 @@ const MAX_ROWS = 40;
 
 export const ExecuteSqlOutput = ({ output, maxRows = MAX_ROWS }: { output: executeSql.Output; maxRows?: number }) => {
 	const templateWarnings = output.template_warnings ?? [];
-	const excludeColumnsWarnings = output.exclude_columns_warnings ?? [];
 
 	if (output.superseded) {
 		return (
@@ -23,13 +22,10 @@ export const ExecuteSqlOutput = ({ output, maxRows = MAX_ROWS }: { output: execu
 		return (
 			<Block>
 				The query was successfully executed and returned no rows.
-				{(templateWarnings.length > 0 || excludeColumnsWarnings.length > 0) && (
+				{templateWarnings.length > 0 && (
 					<>
 						<Span>Query ID: {output.id}</Span>
-						{excludeColumnsWarnings.length > 0 && (
-							<ExcludeColumnsWarnings warnings={excludeColumnsWarnings} />
-						)}
-						{templateWarnings.length > 0 && <TemplateWarnings warnings={templateWarnings} />}
+						<TemplateWarnings warnings={templateWarnings} />
 					</>
 				)}
 			</Block>
@@ -68,8 +64,6 @@ export const ExecuteSqlOutput = ({ output, maxRows = MAX_ROWS }: { output: execu
 
 			{templateWarnings.length > 0 && <TemplateWarnings warnings={templateWarnings} />}
 
-			{excludeColumnsWarnings.length > 0 && <ExcludeColumnsWarnings warnings={excludeColumnsWarnings} />}
-
 			<QueryRows rows={visibleRows} />
 
 			{remainingRows > 0 && (
@@ -81,22 +75,6 @@ export const ExecuteSqlOutput = ({ output, maxRows = MAX_ROWS }: { output: execu
 		</Block>
 	);
 };
-
-function ExcludeColumnsWarnings({ warnings }: { warnings: string[] }) {
-	return (
-		<Block>
-			<Span>
-				Warning: excluded columns were removed from star expansion before the query ran. Do not select these
-				columns explicitly:
-			</Span>
-			<List>
-				{warnings.map((warning) => (
-					<ListItem key={warning}>{warning}</ListItem>
-				))}
-			</List>
-		</Block>
-	);
-}
 
 function TemplateWarnings({ warnings }: { warnings: string[] }) {
 	return (

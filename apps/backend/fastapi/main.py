@@ -108,7 +108,6 @@ class ExecuteSQLResponse(BaseModel):
     row_count: int
     columns: list[str]
     dialect: str | None = None
-    exclude_columns_warnings: list[str] | None = None
 
 
 class RefreshResponse(BaseModel):
@@ -224,11 +223,7 @@ async def refresh_context():
         )
 
 
-@app.post(
-    "/execute_sql",
-    response_model=ExecuteSQLResponse,
-    response_model_exclude_none=True,
-)
+@app.post("/execute_sql", response_model=ExecuteSQLResponse)
 async def execute_sql(request: ExecuteSQLRequest):
     try:
         project_path = Path(request.nao_project_folder)
@@ -274,7 +269,7 @@ async def execute_sql(request: ExecuteSQLRequest):
         auth_mode_value = getattr(getattr(db_config, "auth_mode", None), "value", None)
 
         try:
-            guard_result = enforce_exclude_columns(request.sql, db_config)
+            validated_sql = enforce_exclude_columns(request.sql, db_config)
         except ExcludeColumnsGuardError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
@@ -289,10 +284,10 @@ async def execute_sql(request: ExecuteSQLRequest):
                     ),
                 )
             df = db_config.execute_sql_with_token(
-                guard_result.sql, request.azure_access_token
+                validated_sql, request.azure_access_token
             )
         else:
-            df = db_config.execute_sql(guard_result.sql)
+            df = db_config.execute_sql(validated_sql)
 
         data = [
             {k: _convert_value(v) for k, v in row.items()}
@@ -304,7 +299,6 @@ async def execute_sql(request: ExecuteSQLRequest):
             row_count=len(data),
             columns=[str(c) for c in df.columns.tolist()],
             dialect=db_config.type,
-            exclude_columns_warnings=guard_result.warnings or None,
         )
     except HTTPException:
         raise
