@@ -3,6 +3,7 @@ import { z } from 'zod/v4';
 
 import { PROVIDER_META } from '../agents/provider-meta';
 import * as budgetQueries from '../queries/budget.queries';
+import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { setBudgetsInputSchema } from '../types/budget';
 import { llmProviderSchema } from '../types/llm';
 import { checkBudgetStatus } from '../utils/budget';
@@ -28,6 +29,9 @@ export const budgetRoutes = {
 	}),
 
 	getPerUserProviderCosts: adminProtectedProcedure.query(async ({ ctx }) => {
+		if (!(await hasFeature(LICENSE_FEATURES.userBudget))) {
+			return {};
+		}
 		return budgetQueries.getProviderPeriodCostsByUser(ctx.project.id);
 	}),
 

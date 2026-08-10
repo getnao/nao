@@ -28,8 +28,7 @@ export async function checkBudgetStatus(
 		return { level: 'ok', message: null };
 	}
 
-	const exceeded = statuses.find((u) => u.ratio >= 1);
-	const worst = exceeded ?? statuses.find((u) => u.ratio >= WARNING_BUDGET_THRESHOLD) ?? statuses[0];
+	const worst = statuses.reduce((highest, usage) => (usage.ratio > highest.ratio ? usage : highest));
 	return {
 		level: worst.ratio >= 1 ? 'exceeded' : 'warning',
 		message: buildBudgetMessage(worst.ratio, providerLabel(provider), worst.resetLabel, worst.scope),

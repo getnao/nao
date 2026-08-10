@@ -58,44 +58,6 @@ export const advanceStaleBudgetPeriods = async (projectId: string, provider?: Ll
 	}
 };
 
-export const upsertProjectProviderBudget = async (
-	projectId: string,
-	provider: LlmProvider,
-	limitUsd: number,
-	period: BudgetPeriod,
-	perUserLimitUsd?: number,
-): Promise<DBProjectProviderBudget> => {
-	const existing = await db
-		.select()
-		.from(s.projectProviderBudget)
-		.where(and(eq(s.projectProviderBudget.projectId, projectId), eq(s.projectProviderBudget.provider, provider)))
-		.execute()
-		.then((rows) => rows[0] ?? null);
-
-	if (existing) {
-		const periodChanged = existing.period !== period;
-		const [updated] = await db
-			.update(s.projectProviderBudget)
-			.set({
-				limitUsd,
-				perUserLimitUsd: perUserLimitUsd ?? null,
-				period,
-				...(periodChanged && { currentPeriodStart: new Date() }),
-			})
-			.where(eq(s.projectProviderBudget.id, existing.id))
-			.returning()
-			.execute();
-		return updated;
-	}
-
-	const [created] = await db
-		.insert(s.projectProviderBudget)
-		.values({ projectId, provider, limitUsd, perUserLimitUsd: perUserLimitUsd ?? null, period })
-		.returning()
-		.execute();
-	return created;
-};
-
 export const setProjectProviderBudgets = async (
 	projectId: string,
 	budgets: Array<{ provider: LlmProvider; limitUsd: number; period: BudgetPeriod; perUserLimitUsd?: number }>,
@@ -154,11 +116,14 @@ export const setProjectProviderBudgets = async (
 	});
 };
 
-export const getProviderPeriodCosts = async (
+type ProviderPeriodCostRow = { provider: string; userId: string | null; totalCost: number };
+
+const roundCost = (value: number): number => Math.round(value * 100) / 100;
+
+const queryProviderPeriodCosts = async (
 	projectId: string,
-	provider?: LlmProvider,
-	userId?: string,
-): Promise<Record<string, number>> => {
+	options: { provider?: LlmProvider; userId?: string; requirePerUserLimit?: boolean } = {},
+): Promise<ProviderPeriodCostRow[]> => {
 	const costLookup = await createCostLookup(projectId);
 	const isPostgres = dbConfig.dialect === Dialect.Postgres;
 	const dayStart = getCurrentPeriodStart('day');
@@ -172,50 +137,7 @@ export const getProviderPeriodCosts = async (
 		WHEN 'month' THEN ${toParam(monthStart)}
 	END`;
 
-	const rows = await db
-		.select({
-			provider: s.projectProviderBudget.provider,
-			totalCost: sql<number>`sum(${TOTAL_COST_EXPR})`,
-		})
-		.from(s.projectProviderBudget)
-		.innerJoin(s.chat, eq(s.chat.projectId, s.projectProviderBudget.projectId))
-		.innerJoin(s.chatMessage, eq(s.chatMessage.chatId, s.chat.id))
-		.leftJoin(costLookup.table, costLookup.joinCondition)
-		.where(
-			and(
-				eq(s.projectProviderBudget.projectId, projectId),
-				sql`${s.chatMessage.llmProvider} = ${s.projectProviderBudget.provider}`,
-				sql`${s.chatMessage.createdAt} >= ${periodStartExpr}`,
-				provider ? eq(s.projectProviderBudget.provider, provider) : undefined,
-				userId ? eq(s.chat.userId, userId) : undefined,
-			),
-		)
-		.groupBy(s.projectProviderBudget.provider);
-
-	const result: Record<string, number> = {};
-	for (const row of rows) {
-		result[row.provider] = Math.round(Number(row.totalCost ?? 0) * 100) / 100;
-	}
-	return result;
-};
-
-export const getProviderPeriodCostsByUser = async (
-	projectId: string,
-): Promise<Record<string, Record<string, number>>> => {
-	const costLookup = await createCostLookup(projectId);
-	const isPostgres = dbConfig.dialect === Dialect.Postgres;
-	const dayStart = getCurrentPeriodStart('day');
-	const weekStart = getCurrentPeriodStart('week');
-	const monthStart = getCurrentPeriodStart('month');
-
-	const toParam = (d: Date) => (isPostgres ? sql`${d.toISOString()}::timestamp` : sql`${d.getTime()}`);
-	const periodStartExpr = sql`CASE ${s.projectProviderBudget.period}
-		WHEN 'day' THEN ${toParam(dayStart)}
-		WHEN 'week' THEN ${toParam(weekStart)}
-		WHEN 'month' THEN ${toParam(monthStart)}
-	END`;
-
-	const rows = await db
+	return db
 		.select({
 			provider: s.projectProviderBudget.provider,
 			userId: s.chat.userId,
@@ -230,10 +152,37 @@ export const getProviderPeriodCostsByUser = async (
 				eq(s.projectProviderBudget.projectId, projectId),
 				sql`${s.chatMessage.llmProvider} = ${s.projectProviderBudget.provider}`,
 				sql`${s.chatMessage.createdAt} >= ${periodStartExpr}`,
-				sql`${s.projectProviderBudget.perUserLimitUsd} > 0`,
+				options.provider ? eq(s.projectProviderBudget.provider, options.provider) : undefined,
+				options.userId ? eq(s.chat.userId, options.userId) : undefined,
+				options.requirePerUserLimit ? sql`${s.projectProviderBudget.perUserLimitUsd} > 0` : undefined,
 			),
 		)
 		.groupBy(s.projectProviderBudget.provider, s.chat.userId);
+};
+
+export const getProviderPeriodCosts = async (
+	projectId: string,
+	provider?: LlmProvider,
+	userId?: string,
+): Promise<Record<string, number>> => {
+	const rows = await queryProviderPeriodCosts(projectId, { provider, userId });
+
+	const totals: Record<string, number> = {};
+	for (const row of rows) {
+		totals[row.provider] = (totals[row.provider] ?? 0) + Number(row.totalCost ?? 0);
+	}
+
+	const result: Record<string, number> = {};
+	for (const [providerKey, total] of Object.entries(totals)) {
+		result[providerKey] = roundCost(total);
+	}
+	return result;
+};
+
+export const getProviderPeriodCostsByUser = async (
+	projectId: string,
+): Promise<Record<string, Record<string, number>>> => {
+	const rows = await queryProviderPeriodCosts(projectId, { requirePerUserLimit: true });
 
 	const result: Record<string, Record<string, number>> = {};
 	for (const row of rows) {
@@ -241,7 +190,7 @@ export const getProviderPeriodCostsByUser = async (
 			continue;
 		}
 		const providerCosts = (result[row.provider] ??= {});
-		providerCosts[row.userId] = Math.round(Number(row.totalCost ?? 0) * 100) / 100;
+		providerCosts[row.userId] = roundCost(Number(row.totalCost ?? 0));
 	}
 	return result;
 };
