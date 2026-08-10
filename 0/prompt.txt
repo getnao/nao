@@ -1,0 +1,5 @@
+it looks like an enterprise with a license which was generated with a end life at end of july and have been prolongated online to end of august can't connect anymore to the app i though the new values where retrieved
+
+---
+
+reapply the changes i fucked them with git
