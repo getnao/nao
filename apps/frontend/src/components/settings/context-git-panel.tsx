@@ -278,8 +278,8 @@ export function ContextGitPanel({
 	const reviewRequest = pushedReviewRequest ?? openReviewRequest;
 	const reviewRequestUrl = reviewRequest?.url ?? null;
 	const reviewRequestNumber = reviewRequestUrl ? getReviewRequestNumber(reviewRequestUrl) : null;
-	const reviewRequestAbbreviation = repo?.provider === 'gitlab' ? 'MR' : 'PR';
-	const reviewRequestName = repo?.provider === 'gitlab' ? 'merge request' : 'pull request';
+	const reviewRequestAbbreviation = repo?.platform === 'gitlab' ? 'MR' : 'PR';
+	const reviewRequestName = repo?.platform === 'gitlab' ? 'merge request' : 'pull request';
 	const reviewRequestLabel =
 		reviewRequest?.kind === 'link'
 			? `Open ${reviewRequestAbbreviation}`

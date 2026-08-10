@@ -35,7 +35,10 @@ export interface ResolvedContextRepo extends Omit<UnresolvedContextRepo, 'projec
 }
 
 export type ContextRepo = UnresolvedContextRepo | ResolvedContextRepo;
-export type ContextRepoState = Pick<ContextRepo, 'provider' | 'repoFullName' | 'branch' | 'source'>;
+export type GitPlatform = 'github' | 'gitlab' | 'bitbucket';
+export type ContextRepoState = Pick<ContextRepo, 'provider' | 'repoFullName' | 'branch' | 'source'> & {
+	platform: GitPlatform | null;
+};
 
 export class ContextProjectResolutionError extends Error {
 	constructor(
@@ -134,6 +137,7 @@ export function toContextRepoState(repo: ContextRepo | null): ContextRepoState |
 	return repo
 		? {
 				provider: repo.provider,
+				platform: resolveContextRepoPlatform(repo),
 				repoFullName:
 					repo.provider === 'generic'
 						? sanitizeContextSourceRepositoryUrl(repo.repoFullName)
@@ -146,6 +150,31 @@ export function toContextRepoState(repo: ContextRepo | null): ContextRepoState |
 
 export function sanitizeContextSourceRepositoryUrl(repositoryUrl: string): string {
 	return repositoryUrl.replace(/^(https?:\/\/)[^/]*@/i, '$1');
+}
+
+export function detectGitPlatform(repositoryUrl: string | undefined): GitPlatform | null {
+	if (!repositoryUrl) {
+		return null;
+	}
+	const shorthandHost = !repositoryUrl.includes('://')
+		? repositoryUrl.match(/^(?:[^@/]+@)?([^:/]+):(.+)$/)?.[1]
+		: undefined;
+	let host = shorthandHost;
+	if (!host) {
+		try {
+			host = new URL(repositoryUrl).hostname;
+		} catch {
+			return null;
+		}
+	}
+	const normalizedHost = host.toLowerCase();
+	return normalizedHost === 'github.com'
+		? 'github'
+		: normalizedHost === 'gitlab.com'
+			? 'gitlab'
+			: normalizedHost === 'bitbucket.org'
+				? 'bitbucket'
+				: null;
 }
 
 export function resolveContextSourceGitToken(): string | null {
@@ -227,6 +256,13 @@ function resolvePrefixFromClone(cloneRoot: string, projectFolder: string): strin
 		);
 	}
 	return relative.split(path.sep).join('/');
+}
+
+function resolveContextRepoPlatform(repo: ContextRepo): GitPlatform | null {
+	if (repo.provider === 'github' || repo.provider === 'gitlab') {
+		return repo.provider;
+	}
+	return env.NAO_CONTEXT_GIT_PLATFORM ?? detectGitPlatform(repo.repoFullName);
 }
 
 function resolvePrefixFromTrackedConfigs(worktreeRoot: string): string {

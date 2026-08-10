@@ -34,7 +34,7 @@ export function DeploymentManagedGitSettings({
 		<SettingsCard
 			title='Deployment repository'
 			icon={<GitBranch className='size-4' />}
-			description="File Explorer commits and review requests use this repository with the deployment's shared credential."
+			description={getDescription(contextSource?.authMethod)}
 			action={
 				repositoryUrl && isHttpUrl(repositoryUrl) ? (
 					<Button size='sm' variant='secondary' asChild>
@@ -88,6 +88,13 @@ function getRecommendedSetupMessage(authMethod: DeploymentContextSource['authMet
 	return "Review requests currently come from the deployment token owner's account. Set up Git OAuth to use each person's own account.";
 }
 
+function getDescription(authMethod: DeploymentContextSource['authMethod'] | undefined): string {
+	if (authMethod === 'public') {
+		return 'File Explorer reads context files from this public repository. Add Git OAuth to enable editing and review requests.';
+	}
+	return "File Explorer commits and review requests use this repository with the deployment's shared credential.";
+}
+
 function getSecondaryFacts(contextSource: DeploymentContextSource): string[] {
 	return [
 		contextSource.branch ? `Branch ${contextSource.branch}` : null,
@@ -97,15 +104,15 @@ function getSecondaryFacts(contextSource: DeploymentContextSource): string[] {
 }
 
 function getRepositoryName(repositoryUrl: string): string {
+	if (!isHttpUrl(repositoryUrl)) {
+		return repositoryUrl;
+	}
 	try {
 		const pathname = new URL(repositoryUrl).pathname.replace(/\/+$/, '').replace(/\.git$/i, '');
 		const segments = pathname.split('/').filter(Boolean);
 		return segments.join('/') || repositoryUrl;
 	} catch {
-		const normalized = repositoryUrl.replace(/\/+$/, '').replace(/\.git$/i, '');
-		const repositoryPath = normalized.match(/^[^:]+:(.+)$/)?.[1];
-		const segments = repositoryPath?.split('/').filter(Boolean) ?? [];
-		return segments.join('/') || repositoryUrl;
+		return repositoryUrl;
 	}
 }
 

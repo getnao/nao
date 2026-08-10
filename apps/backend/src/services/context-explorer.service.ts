@@ -17,7 +17,12 @@ import { spawn } from 'child_process';
 import fs from 'fs/promises';
 
 import type { ContextRepoState, ResolvedContextRepo } from '../utils/context-repo';
-import { getCommittedProjectPaths, getWorktreeProjectRoot, normalizeProjectPath } from '../utils/context-repo';
+import {
+	getCommittedProjectPaths,
+	getWorktreeProjectRoot,
+	normalizeProjectPath,
+	toContextRepoState,
+} from '../utils/context-repo';
 import { getRipgrepPath } from '../utils/ripgrep';
 import { assertNoSymlinkInWritePath, canonicalizeWriteRoot, writeFileAtomically } from '../utils/safe-file-write';
 import {
@@ -74,7 +79,7 @@ export async function getFileTreeResponse(access: ContextExplorerFileAccess): Pr
 	const trackedPaths = repo ? getCommittedProjectPaths(repo) : new Set<string>();
 	return {
 		entries: await readDirectoryRecursive(access.projectFolder, access.projectFolder, trackedPaths),
-		repo: access.git.repo,
+		repo: access.git.status === 'available' ? toContextRepoState(access.git.repo) : access.git.repo,
 		gitUnavailableReason: access.git.status === 'unavailable' ? access.git.reason : null,
 		gitUnavailableMessage: access.git.status === 'unavailable' ? access.git.message : null,
 	};

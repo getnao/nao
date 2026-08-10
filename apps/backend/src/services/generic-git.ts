@@ -1,7 +1,12 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 
 import { env } from '../env';
-import { resolveContextSourceGitToken, sanitizeContextSourceRepositoryUrl } from '../utils/context-repo';
+import {
+	detectGitPlatform,
+	type GitPlatform,
+	resolveContextSourceGitToken,
+	sanitizeContextSourceRepositoryUrl,
+} from '../utils/context-repo';
 import { GitIdentity, NAO_CO_AUTHOR, withCoAuthors } from '../utils/git-identity';
 import { toGitError } from '../utils/git-repo';
 import * as github from './github';
@@ -163,14 +168,20 @@ async function findOpenReviewRequest(args: {
 	}
 
 	const repository = parseGenericRepositoryUrl(args.repoFullName);
-	const platform = env.NAO_CONTEXT_GIT_PLATFORM ?? detectPlatform(repository?.host);
-	if (!platform || !args.token || !repository) {
+	const platform = env.NAO_CONTEXT_GIT_PLATFORM ?? detectGitPlatform(args.repoFullName);
+	if (!platform || !repository || !hasPlatformApiAuthentication(platform, args.token, args.repoFullName)) {
 		return stored;
 	}
 
 	let reviewRequest: { url: string } | null;
 	try {
-		reviewRequest = await findPlatformReviewRequest(platform, args.token, repository, args.branch);
+		reviewRequest = await findPlatformReviewRequest(
+			platform,
+			args.token,
+			args.repoFullName,
+			repository,
+			args.branch,
+		);
 	} catch {
 		return stored;
 	}
@@ -200,10 +211,10 @@ async function openReviewRequest(
 	},
 ): Promise<OpenReviewRequestResult | null> {
 	const parsed = parseGenericRepositoryUrl(repositoryUrl);
-	const platform = env.NAO_CONTEXT_GIT_PLATFORM ?? detectPlatform(parsed?.host);
-	if (platform && token && parsed) {
+	const platform = env.NAO_CONTEXT_GIT_PLATFORM ?? detectGitPlatform(repositoryUrl);
+	if (platform && parsed && hasPlatformApiAuthentication(platform, token, repositoryUrl)) {
 		try {
-			return await createReviewRequest(platform, token, parsed, args);
+			return await createReviewRequest(platform, token, repositoryUrl, parsed, args);
 		} catch (error) {
 			const { logger, serializeError } = await import('../utils/logger');
 			logger.warn('Git platform API could not create a review request after the branch was pushed.', {
@@ -222,8 +233,9 @@ async function openReviewRequest(
 }
 
 async function findPlatformReviewRequest(
-	platform: 'github' | 'gitlab' | 'bitbucket',
+	platform: GitPlatform,
 	token: string,
+	repositoryUrl: string,
 	repository: ParsedGenericRepository,
 	branch: string,
 ): Promise<{ url: string } | null> {
@@ -234,12 +246,14 @@ async function findPlatformReviewRequest(
 	if (platform === 'gitlab') {
 		return gitlab.findOpenMergeRequest(token, repository.repositoryPath, branch, `${repository.origin}/api/v4`);
 	}
-	return findOpenBitbucketPullRequest(token, repository.repositoryPath, branch);
+	const authorization = resolveBitbucketAuthorization(token, repositoryUrl);
+	return authorization ? findOpenBitbucketPullRequest(authorization, repository.repositoryPath, branch) : null;
 }
 
 async function createReviewRequest(
-	platform: 'github' | 'gitlab' | 'bitbucket',
+	platform: GitPlatform,
 	token: string,
+	repositoryUrl: string,
 	repository: ParsedGenericRepository,
 	args: { title: string; head: string; base: string; body: string; requester: GitIdentity },
 ): Promise<OpenReviewRequestResult> {
@@ -268,7 +282,11 @@ async function createReviewRequest(
 		);
 		return { kind: 'created', url: mergeRequest.web_url };
 	}
-	return createBitbucketPullRequest(token, repository.repositoryPath, {
+	const authorization = resolveBitbucketAuthorization(token, repositoryUrl);
+	if (!authorization) {
+		throw new Error('Bitbucket API authentication is unavailable.');
+	}
+	return createBitbucketPullRequest(authorization, repository.repositoryPath, {
 		title: args.title,
 		description: body,
 		head: args.head,
@@ -277,14 +295,14 @@ async function createReviewRequest(
 }
 
 async function createBitbucketPullRequest(
-	token: string,
+	authorization: string,
 	repositoryPath: string,
 	args: { title: string; description: string; head: string; base: string },
 ): Promise<OpenReviewRequestResult> {
 	const response = await fetch(`https://api.bitbucket.org/2.0/repositories/${repositoryPath}/pullrequests`, {
 		method: 'POST',
 		headers: {
-			Authorization: bitbucketAuthorization(token),
+			Authorization: authorization,
 			'Content-Type': 'application/json',
 		},
 		body: JSON.stringify({
@@ -303,7 +321,7 @@ async function createBitbucketPullRequest(
 }
 
 async function findOpenBitbucketPullRequest(
-	token: string,
+	authorization: string,
 	repositoryPath: string,
 	branch: string,
 ): Promise<{ url: string } | null> {
@@ -313,7 +331,7 @@ async function findOpenBitbucketPullRequest(
 	});
 	const response = await fetch(
 		`https://api.bitbucket.org/2.0/repositories/${repositoryPath}/pullrequests?${params}`,
-		{ headers: { Authorization: bitbucketAuthorization(token) } },
+		{ headers: { Authorization: authorization } },
 	);
 	if (!response.ok) {
 		const body = await response.text().catch(() => '');
@@ -324,18 +342,25 @@ async function findOpenBitbucketPullRequest(
 	return url ? { url } : null;
 }
 
-function bitbucketAuthorization(token: string): string {
-	return `Bearer ${token}`;
+function hasPlatformApiAuthentication(platform: GitPlatform, token: string, repositoryUrl: string): boolean {
+	return platform === 'bitbucket' ? resolveBitbucketAuthorization(token, repositoryUrl) !== null : !!token;
 }
 
-function detectPlatform(host: string | undefined): 'github' | 'gitlab' | 'bitbucket' | null {
-	return host === 'github.com'
-		? 'github'
-		: host === 'gitlab.com'
-			? 'gitlab'
-			: host === 'bitbucket.org'
-				? 'bitbucket'
-				: null;
+function resolveBitbucketAuthorization(token: string, repositoryUrl: string): string | null {
+	if (token) {
+		return `Bearer ${token}`;
+	}
+	try {
+		const parsed = new URL(repositoryUrl);
+		if (!parsed.username || !parsed.password) {
+			return null;
+		}
+		const username = decodeURIComponent(parsed.username);
+		const password = decodeURIComponent(parsed.password);
+		return `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+	} catch {
+		return null;
+	}
 }
 
 function toParsedRepository(host: string, repositoryPath: string, origin: string): ParsedGenericRepository | null {

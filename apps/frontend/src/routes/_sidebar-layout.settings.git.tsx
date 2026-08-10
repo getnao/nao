@@ -60,7 +60,7 @@ interface ProviderSwitchRequest {
 	sourceProvider: GitProvider;
 	repositoryName: string | null;
 	disconnectAccount: boolean;
-	repositoryDisconnected: boolean;
+	accountDisconnected: boolean;
 }
 
 const PROVIDER_CONFIGS: Record<GitProvider, ProviderConfig> = {
@@ -236,7 +236,7 @@ function GitSettingsPage() {
 			sourceProvider: selectedProvider,
 			repositoryName: repositoryReady ? (status?.repo?.repoFullName ?? null) : null,
 			disconnectAccount: accountReady,
-			repositoryDisconnected: false,
+			accountDisconnected: false,
 		});
 	};
 
@@ -246,16 +246,16 @@ function GitSettingsPage() {
 		}
 		setIsSwitchingProvider(true);
 		try {
-			if (providerSwitchRequest.repositoryName && !providerSwitchRequest.repositoryDisconnected) {
-				await disconnectRepository.mutateAsync();
-				setProviderSwitchRequest((request) => (request ? { ...request, repositoryDisconnected: true } : null));
-			}
-			if (providerSwitchRequest.disconnectAccount) {
+			if (providerSwitchRequest.disconnectAccount && !providerSwitchRequest.accountDisconnected) {
 				if (providerSwitchRequest.sourceProvider === 'github') {
 					await disconnectGithub.mutateAsync();
 				} else {
 					await disconnectGitlab.mutateAsync();
 				}
+				setProviderSwitchRequest((request) => (request ? { ...request, accountDisconnected: true } : null));
+			}
+			if (providerSwitchRequest.repositoryName) {
+				await disconnectRepository.mutateAsync();
 			}
 			selectProvider(providerSwitchRequest.targetProvider);
 			setProviderSwitchRequest(null);

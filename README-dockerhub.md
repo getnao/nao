@@ -111,7 +111,7 @@ When a token or SSH deploy key is configured, context admins can edit files and 
 
 Use a repository, workspace, or project access token. Give it **Repositories: Read and Write** and **Pull requests: Read and Write**, then set only `NAO_CONTEXT_GIT_TOKEN`.
 
-An Atlassian API token or legacy app password can instead be embedded in the URL: `https://<email>:<token>@bitbucket.org/<workspace>/<repo>.git`. Pushing works, but nao cannot call the API, so the button links to Bitbucket's pull-request creation page.
+An Atlassian API token or legacy app password can instead be embedded in the URL: `https://<email-or-username>:<token>@bitbucket.org/<workspace>/<repo>.git`. nao uses those credentials for both Git and pull-request API calls.
 
 ### SSH deploy key authentication
 

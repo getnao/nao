@@ -253,14 +253,61 @@ describe('deployment context source', () => {
 		);
 	});
 
-	it('accepts credentials embedded in a Bitbucket repository URL without enabling API calls', async () => {
+	it('uses embedded Bitbucket credentials for Git and API authentication', async () => {
+		const repositoryUrl = 'https://user%40example.com:api-token@bitbucket.org/nao/context.git';
 		setContextSourceEnv({
-			url: 'https://user@example.com:api-token@bitbucket.org/nao/context.git',
+			url: repositoryUrl,
 		});
+		const fetchMock = vi.fn().mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					links: { html: { href: 'https://bitbucket.org/nao/context/pull-requests/1' } },
+				}),
+				{ status: 201 },
+			),
+		);
+		vi.stubGlobal('fetch', fetchMock);
 
 		expect(GENERIC_GIT_PROVIDER.isIntegrationAvailable()).toBe(true);
 		await expect(GENERIC_GIT_PROVIDER.getToken('user-1')).resolves.toBe('');
 		expect(getDeploymentContextSource()?.authMethod).toBe('token');
+		expect(GENERIC_GIT_PROVIDER.authenticatedRepoUrl('', repositoryUrl)).toBe(repositoryUrl);
+
+		await GENERIC_GIT_PROVIDER.openReviewRequest('', repositoryUrl, {
+			title: 'Update context',
+			head: 'nao/test',
+			base: 'main',
+			body: '- Update context',
+			requester: { name: 'Test User', email: 'test@example.com' },
+			pushOutput: '',
+		});
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			'https://api.bitbucket.org/2.0/repositories/nao/context/pullrequests',
+			expect.objectContaining({
+				headers: expect.objectContaining({
+					Authorization: `Basic ${Buffer.from('user@example.com:api-token').toString('base64')}`,
+				}),
+			}),
+		);
+	});
+
+	it('skips the Bitbucket API when no API credential is available', async () => {
+		const reviewLink = 'https://bitbucket.org/nao/context/pull-requests/new?source=nao/test';
+		const fetchMock = vi.fn();
+		vi.stubGlobal('fetch', fetchMock);
+
+		await expect(
+			GENERIC_GIT_PROVIDER.openReviewRequest('', 'git@bitbucket.org:nao/context.git', {
+				title: 'Update context',
+				head: 'nao/test',
+				base: 'main',
+				body: '- Update context',
+				requester: { name: 'Test User', email: 'test@example.com' },
+				pushOutput: `remote: Create pull request:\nremote:   ${reviewLink}`,
+			}),
+		).resolves.toEqual({ kind: 'link', url: reviewLink });
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
 	it('discovers and stores a Bitbucket pull request before using the saved creation link', async () => {
@@ -722,7 +769,7 @@ describe('context explorer worktrees', () => {
 
 	it('falls back to deployment Git after disconnecting a cloned project', async () => {
 		const fixture = createLocalCloneFixture(temporaryRoots);
-		setContextSourceEnv({ url: fixture.bare, sshKey: 'deployment-key' });
+		setContextSourceEnv({ url: fixture.bare, sshKey: 'deployment-key', platform: 'gitlab' });
 		fixture.context.configOverride = undefined;
 		let connected = true;
 		contextConfigMocks.getConfig.mockImplementation(async () =>
@@ -743,7 +790,7 @@ describe('context explorer worktrees', () => {
 			repoProvider: null,
 		});
 		expect(status).toMatchObject({
-			repo: { provider: 'generic', repoFullName: fixture.bare },
+			repo: { provider: 'generic', platform: 'gitlab', repoFullName: fixture.bare },
 			gitUnavailableReason: null,
 			isGitRepository: true,
 		});
@@ -1466,6 +1513,7 @@ function setContextSourceEnv({
 	subpath,
 	token,
 	sshKey,
+	platform,
 }: {
 	source?: string | null;
 	url?: string;
@@ -1473,6 +1521,7 @@ function setContextSourceEnv({
 	subpath?: string;
 	token?: string;
 	sshKey?: string;
+	platform?: 'github' | 'gitlab' | 'bitbucket';
 }): void {
 	delete process.env.NAO_CONTEXT_SOURCE;
 	delete process.env.NAO_CONTEXT_GIT_URL;
@@ -1498,6 +1547,9 @@ function setContextSourceEnv({
 	}
 	if (sshKey !== undefined) {
 		process.env.NAO_CONTEXT_GIT_SSH_KEY = sshKey;
+	}
+	if (platform !== undefined) {
+		process.env.NAO_CONTEXT_GIT_PLATFORM = platform;
 	}
 	__reloadEnvForTesting();
 }
