@@ -8,7 +8,12 @@ import { ensureContextRecommendationsSchedule } from '../handlers/context-recomm
 import * as crQueries from '../queries/context-recommendation.queries';
 import * as userQueries from '../queries/user.queries';
 import { agentService } from '../services/agent';
-import { createRecommendationPullRequest, resolveRecommendationRepo } from '../services/context-pr.service';
+import {
+	createBatchRecommendationPullRequest,
+	createRecommendationPullRequest,
+	resolveRecommendationRepo,
+} from '../services/context-pr.service';
+import { buildAgentPrompt } from '../services/context-recommendation-prompt';
 import {
 	repairRecommendationTriggerRefs,
 	runContextRecommendations,
@@ -221,6 +226,30 @@ export const contextRecommendationRoutes = {
 			});
 		}
 	}),
+
+	createBatchPullRequest: recommendationsProcedure
+		.input(z.object({ ids: z.array(z.string()).min(1).max(20) }))
+		.mutation(async ({ ctx, input }) => {
+			try {
+				return await createBatchRecommendationPullRequest(ctx.project.id, input.ids, ctx.user.id);
+			} catch (err) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: err instanceof Error ? err.message : 'Failed to create pull request',
+				});
+			}
+		}),
+
+	getAgentPrompt: recommendationsProcedure
+		.input(z.object({ ids: z.array(z.string()).min(1).max(20) }))
+		.query(async ({ ctx, input }) => {
+			const results = await Promise.all(
+				input.ids.map((id) => crQueries.getRecommendationById(ctx.project.id, id)),
+			);
+			const recs = results.filter((r): r is NonNullable<typeof r> => r !== null);
+			const repo = await resolveRecommendationRepo(ctx.project.id, ctx.user.id);
+			return buildAgentPrompt(recs, repo?.subPath ?? '');
+		}),
 
 	listRecoTriggerChatMetadata: recommendationsProcedure
 		.input(z.object({ chatIds: z.array(z.string()).max(MAX_TRIGGER_CHATS) }))

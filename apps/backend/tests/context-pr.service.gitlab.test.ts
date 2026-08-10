@@ -13,7 +13,9 @@ import { createRecommendationPullRequest } from '../src/services/context-pr.serv
 import type { ProposedEdit } from '../src/types/context-recommendation';
 
 const mocks = vi.hoisted(() => ({
+	checkoutNewBranch: vi.fn(),
 	cloneRepo: vi.fn(),
+	commitAll: vi.fn().mockReturnValue(true),
 	commitAllAndPushBranch: vi.fn(),
 	createMergeRequest: vi.fn(),
 	getConfig: vi.fn(),
@@ -24,6 +26,7 @@ const mocks = vi.hoisted(() => ({
 	getRecommendationById: vi.fn(),
 	getUserGitIdentity: vi.fn(),
 	getUser: vi.fn(),
+	pushBranch: vi.fn(),
 	setRecommendationPr: vi.fn(),
 }));
 
@@ -55,21 +58,29 @@ vi.mock('../src/utils/logger', () => ({
 
 vi.mock('../src/services/github', () => ({
 	NAO_CO_AUTHOR: { email: 'bot@nao.dev', name: 'nao' },
+	checkoutNewBranch: vi.fn(),
 	cloneRepo: vi.fn(),
+	commitAll: vi.fn().mockReturnValue(true),
 	commitAllAndPushBranch: vi.fn(),
 	createPullRequest: vi.fn(),
 	getGitInfo: vi.fn().mockReturnValue({ branch: null, isGithub: false, repoFullName: null }),
+	getRepoSubPath: vi.fn().mockReturnValue(''),
 	getUserGitIdentity: vi.fn(),
+	pushBranch: vi.fn(),
 }));
 
 vi.mock('../src/services/gitlab', () => ({
 	NAO_CO_AUTHOR: { email: 'bot@nao.dev', name: 'nao' },
+	checkoutNewBranch: mocks.checkoutNewBranch,
 	cloneRepo: mocks.cloneRepo,
+	commitAll: mocks.commitAll,
 	commitAllAndPushBranch: mocks.commitAllAndPushBranch,
 	createMergeRequest: mocks.createMergeRequest,
 	getGitInfo: mocks.getGitInfo,
+	getRepoSubPath: vi.fn().mockReturnValue(''),
 	getUserGitIdentity: mocks.getUserGitIdentity,
 	gitlabBaseUrl: () => 'https://gitlab.com',
+	pushBranch: mocks.pushBranch,
 }));
 
 describe('createRecommendationPullRequest (GitLab)', () => {

@@ -2,6 +2,9 @@ import { execFileSync } from 'node:child_process';
 
 import { env } from '../env';
 import { GitIdentity, NAO_CO_AUTHOR, withCoAuthors } from '../utils/git-identity';
+import { configDir, getRepoSubPath, isContextConfigFile, shallowestSubPath } from './git-repo';
+
+export { getRepoSubPath };
 
 export { NAO_CO_AUTHOR };
 
@@ -567,6 +570,22 @@ export async function getFileContent(
 	};
 }
 
+export async function findContextConfigSubPath(token: string, repo: string): Promise<string> {
+	try {
+		const { default_branch } = await githubFetchJson<{ default_branch: string }>(token, `/repos/${repo}`);
+		const tree = await githubFetchJson<RawGitTree>(
+			token,
+			`/repos/${repo}/git/trees/${encodeURIComponent(default_branch)}?recursive=1`,
+		);
+		const dirs = tree.tree
+			.filter((entry) => entry.type === 'blob' && isContextConfigFile(entry.path))
+			.map((entry) => configDir(entry.path));
+		return shallowestSubPath(dirs);
+	} catch {
+		return '';
+	}
+}
+
 export async function createIssue(
 	token: string,
 	repo: string,
@@ -777,6 +796,11 @@ interface RawFileContent {
 	size: number;
 	content: string;
 	html_url: string;
+}
+
+interface RawGitTree {
+	tree: Array<{ path: string; type: 'blob' | 'tree' | 'commit' }>;
+	truncated: boolean;
 }
 
 function toIssueSummary(issue: RawIssue): GithubIssueSummary {

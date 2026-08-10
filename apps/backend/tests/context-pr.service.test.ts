@@ -18,16 +18,21 @@ import { GENERIC_GIT_PROVIDER } from '../src/services/generic-git';
 import type { ProposedEdit } from '../src/types/context-recommendation';
 
 const mocks = vi.hoisted(() => ({
+	checkoutNewBranch: vi.fn(),
 	cloneRepo: vi.fn(),
+	commitAll: vi.fn().mockReturnValue(true),
 	commitAllAndPushBranch: vi.fn(),
 	createPullRequest: vi.fn(),
+	findContextConfigSubPath: vi.fn().mockResolvedValue(''),
 	getConfig: vi.fn(),
 	getGitInfo: vi.fn(),
 	getGithubToken: vi.fn(),
 	getUser: vi.fn(),
 	getProjectById: vi.fn(),
 	getRecommendationById: vi.fn(),
+	getRepoSubPath: vi.fn().mockReturnValue(''),
 	getUserGitIdentity: vi.fn(),
+	pushBranch: vi.fn(),
 	setRecommendationPr: vi.fn(),
 }));
 
@@ -62,11 +67,16 @@ vi.mock('../src/utils/logger', () => ({
 
 vi.mock('../src/services/github', () => ({
 	NAO_CO_AUTHOR: { email: 'bot@nao.dev', name: 'nao' },
+	checkoutNewBranch: mocks.checkoutNewBranch,
 	cloneRepo: mocks.cloneRepo,
+	commitAll: mocks.commitAll,
 	commitAllAndPushBranch: mocks.commitAllAndPushBranch,
 	createPullRequest: mocks.createPullRequest,
+	findContextConfigSubPath: mocks.findContextConfigSubPath,
 	getGitInfo: mocks.getGitInfo,
+	getRepoSubPath: mocks.getRepoSubPath,
 	getUserGitIdentity: mocks.getUserGitIdentity,
+	pushBranch: mocks.pushBranch,
 }));
 
 describe('createRecommendationPullRequest', () => {
@@ -77,8 +87,10 @@ describe('createRecommendationPullRequest', () => {
 		mocks.getGithubToken.mockResolvedValue('github-token');
 		mocks.getUser.mockResolvedValue({ id: 'user-1', name: 'User', email: 'user@example.com' });
 		mocks.getGitInfo.mockReturnValue({ branch: 'main', isGithub: true, repoFullName: 'nao/context' });
+		mocks.getRepoSubPath.mockReturnValue('');
 		mocks.getUserGitIdentity.mockResolvedValue({ email: 'user@example.com', name: 'User' });
 		mocks.createPullRequest.mockResolvedValue({ html_url: 'https://github.com/nao/context/pull/1' });
+		mocks.findContextConfigSubPath.mockResolvedValue('');
 	});
 
 	it('writes proposed edits into the cloned repository', async () => {
@@ -231,6 +243,96 @@ describe('createRecommendationPullRequest', () => {
 		} finally {
 			fs.rmSync(workdir, { force: true, recursive: true });
 		}
+	});
+
+	it('auto-detects the monorepo subPath from nao_config.yaml when none is configured', async () => {
+		mocks.getConfig.mockResolvedValue({ repoFullName: 'nao/context' });
+		mocks.getRecommendationById.mockResolvedValue(recommendation());
+		mocks.cloneRepo.mockImplementation((_token: string, _repoFullName: string, dir: string) => {
+			fs.mkdirSync(path.join(dir, 'apps', 'nao'), { recursive: true });
+			fs.writeFileSync(path.join(dir, 'apps', 'nao', 'nao_config.yaml'), 'project_name: demo\n');
+			fs.writeFileSync(path.join(dir, 'apps', 'nao', 'RULES.md'), 'old');
+		});
+		mocks.commitAllAndPushBranch.mockImplementation(({ dir }: { dir: string }) => {
+			expect(fs.readFileSync(path.join(dir, 'apps', 'nao', 'RULES.md'), 'utf-8')).toBe('new');
+			expect(fs.existsSync(path.join(dir, 'RULES.md'))).toBe(false);
+		});
+
+		await expect(createRecommendationPullRequest('project-1', 'rec-123456789', 'user-1')).resolves.toMatchObject({
+			url: 'https://github.com/nao/context/pull/1',
+		});
+	});
+
+	it('prefers the sub-path from the project git checkout over clone-time detection', async () => {
+		mocks.getProjectById.mockResolvedValue({ path: '/local/project' });
+		mocks.getRepoSubPath.mockReturnValue('apps/nao');
+		mocks.getRecommendationById.mockResolvedValue(recommendation());
+		mocks.cloneRepo.mockImplementation((_token: string, _repoFullName: string, dir: string) => {
+			fs.mkdirSync(path.join(dir, 'apps', 'nao'), { recursive: true });
+			fs.writeFileSync(path.join(dir, 'apps', 'nao', 'RULES.md'), 'old');
+			fs.mkdirSync(path.join(dir, 'elsewhere'), { recursive: true });
+			fs.writeFileSync(path.join(dir, 'elsewhere', 'nao_config.yaml'), 'project_name: demo\n');
+		});
+		mocks.commitAllAndPushBranch.mockImplementation(({ dir }: { dir: string }) => {
+			expect(fs.readFileSync(path.join(dir, 'apps', 'nao', 'RULES.md'), 'utf-8')).toBe('new');
+			expect(fs.existsSync(path.join(dir, 'elsewhere', 'RULES.md'))).toBe(false);
+		});
+
+		await expect(createRecommendationPullRequest('project-1', 'rec-123456789', 'user-1')).resolves.toMatchObject({
+			url: 'https://github.com/nao/context/pull/1',
+		});
+	});
+
+	it('writes at the repository root when nao_config.yaml sits at the root', async () => {
+		mocks.getConfig.mockResolvedValue({ repoFullName: 'nao/context' });
+		mocks.getRecommendationById.mockResolvedValue(recommendation());
+		mocks.cloneRepo.mockImplementation((_token: string, _repoFullName: string, dir: string) => {
+			fs.writeFileSync(path.join(dir, 'nao_config.yaml'), 'project_name: demo\n');
+			fs.writeFileSync(path.join(dir, 'RULES.md'), 'old');
+		});
+		mocks.commitAllAndPushBranch.mockImplementation(({ dir }: { dir: string }) => {
+			expect(fs.readFileSync(path.join(dir, 'RULES.md'), 'utf-8')).toBe('new');
+		});
+
+		await expect(createRecommendationPullRequest('project-1', 'rec-123456789', 'user-1')).resolves.toMatchObject({
+			url: 'https://github.com/nao/context/pull/1',
+		});
+	});
+});
+
+describe('resolveRecommendationRepo', () => {
+	beforeEach(() => {
+		vi.resetAllMocks();
+		mocks.getProjectById.mockResolvedValue({ path: null });
+		mocks.getConfig.mockResolvedValue({ repoFullName: 'sarah/lph' });
+		mocks.getGithubToken.mockResolvedValue('github-token');
+		mocks.findContextConfigSubPath.mockResolvedValue('');
+	});
+
+	it('leaves the sub-path empty when no user is provided to detect it', async () => {
+		mocks.findContextConfigSubPath.mockResolvedValue('apps/example');
+
+		const repo = await resolveRecommendationRepo('project-1');
+
+		expect(repo).toMatchObject({ repoFullName: 'sarah/lph', source: 'settings', subPath: '' });
+		expect(mocks.findContextConfigSubPath).not.toHaveBeenCalled();
+	});
+
+	it('detects the monorepo sub-path of a configured repo for the copyable prompt', async () => {
+		mocks.findContextConfigSubPath.mockResolvedValue('apps/example');
+
+		const repo = await resolveRecommendationRepo('project-1', 'user-1');
+
+		expect(repo).toMatchObject({ repoFullName: 'sarah/lph', source: 'settings', subPath: 'apps/example' });
+		expect(mocks.findContextConfigSubPath).toHaveBeenCalledWith('github-token', 'sarah/lph');
+	});
+
+	it('falls back to the repo root when nao_config.yaml cannot be located', async () => {
+		mocks.findContextConfigSubPath.mockResolvedValue('');
+
+		const repo = await resolveRecommendationRepo('project-1', 'user-1');
+
+		expect(repo).toMatchObject({ subPath: '' });
 	});
 });
 

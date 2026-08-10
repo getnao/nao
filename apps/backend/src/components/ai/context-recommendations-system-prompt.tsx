@@ -333,6 +333,14 @@ function ProposeFixesSection({
 				pull request. Pass the same <Code>suggestedFile</Code> and <Code>subjectKey</Code> you recorded so the
 				fix attaches to the right recommendation.
 			</Span>
+			<Span>
+				<Bold>Each recommendation is applied independently.</Bold> Every fix is evaluated against a clean copy
+				of the current file, and the user may apply one recommendation without the others. When several
+				recommendations edit the <Bold>same</Bold> file, each <Code>edit_file</Code> call must contain{' '}
+				<Bold>only that recommendation&apos;s change</Bold> relative to the file as it exists on disk now —
+				never carry over the edit you just proposed for another recommendation. Do not assume an earlier fix is
+				already applied.
+			</Span>
 			<LinkedRepos repos={linkedRepos} />
 			<List>
 				<ListItem>
@@ -341,7 +349,8 @@ function ProposeFixesSection({
 					{contextRepoConnected ? (
 						<>
 							call <Code>edit_file</Code> with a precise <Code>old_string</Code> / <Code>new_string</Code>{' '}
-							(omit <Code>old_string</Code> to create a file). Read the file first so the edit applies
+							scoped to just this finding&apos;s change (omit <Code>old_string</Code> only to create a new
+							file — you cannot replace a whole existing file). Read the file first so the edit applies
 							cleanly.
 						</>
 					) : (
