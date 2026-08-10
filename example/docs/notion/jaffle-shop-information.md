@@ -4,6 +4,7 @@ id: 2f8c7a70bc0680a4b7d0caf99f055360
 ---
 
 ## About Jaffle Shop
+
 Jaffle Shop is a popular cafe and eatery specializing in delicious jaffles - toasted sandwiches with a variety of savory and sweet fillings. Known for its cozy atmosphere and creative menu, Jaffle Shop has become a favorite spot for locals and visitors alike.
 
 ### What We Offer
