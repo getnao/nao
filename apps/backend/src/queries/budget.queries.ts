@@ -20,18 +20,24 @@ export const getProviderBudget = async (
 	return row ?? null;
 };
 
-export const getProviderCurrentSpend = async (projectId: string, provider: LlmProvider): Promise<number> => {
-	const costs = await getProviderPeriodCosts(projectId, provider);
-	return costs[provider] ?? 0;
-};
-
-export const getUserProviderCurrentSpend = async (
+export const getProviderBudgetSpend = async (
 	projectId: string,
-	userId: string,
 	provider: LlmProvider,
-): Promise<number> => {
-	const costs = await getProviderPeriodCosts(projectId, provider, userId);
-	return costs[provider] ?? 0;
+	userId?: string,
+): Promise<{ projectSpend: number; userSpend: number }> => {
+	const rows = await queryProviderPeriodCosts(projectId, { provider });
+
+	let projectTotal = 0;
+	let userTotal = 0;
+	for (const row of rows) {
+		const cost = Number(row.totalCost ?? 0);
+		projectTotal += cost;
+		if (userId && row.userId === userId) {
+			userTotal += cost;
+		}
+	}
+
+	return { projectSpend: roundCost(projectTotal), userSpend: roundCost(userTotal) };
 };
 
 export const getProjectProviderBudgets = async (projectId: string): Promise<DBProjectProviderBudget[]> => {

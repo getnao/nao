@@ -52,10 +52,12 @@ function BudgetInput({
 	value,
 	disabled,
 	onChange,
+	onBlur,
 }: {
 	value: number;
 	disabled: boolean;
 	onChange: (v: number) => void;
+	onBlur?: () => void;
 }) {
 	return (
 		<div className='flex items-center gap-1'>
@@ -67,6 +69,7 @@ function BudgetInput({
 				disabled={disabled}
 				value={value}
 				onChange={(e) => onChange(Number(e.target.value))}
+				onBlur={onBlur}
 				className='w-16 h-7 text-center px-1 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none'
 			/>
 			<div className='flex flex-col items-center'>
@@ -170,15 +173,15 @@ function RouteComponent() {
 	function updateBudget(provider: string, budget: number) {
 		const clamped = Math.round(Math.min(MAX_BUDGET_LIMIT_USD, Math.max(0, budget)));
 		setBudgets((prev) => ({ ...prev, [provider]: clamped }));
-		if (clamped === 0 && (perUserBudgets[provider] ?? 0) === 0) {
-			setPeriods((prev) => ({ ...prev, [provider]: 'none' }));
-		}
 	}
 
 	function updatePerUserBudget(provider: string, budget: number) {
 		const clamped = Math.round(Math.min(MAX_BUDGET_LIMIT_USD, Math.max(0, budget)));
 		setPerUserBudgets((prev) => ({ ...prev, [provider]: clamped }));
-		if (clamped === 0 && (budgets[provider] ?? 0) === 0) {
+	}
+
+	function clearPeriodIfNoBudget(provider: string) {
+		if ((budgets[provider] ?? 0) === 0 && (perUserBudgets[provider] ?? 0) === 0) {
 			setPeriods((prev) => ({ ...prev, [provider]: 'none' }));
 		}
 	}
@@ -257,6 +260,7 @@ function RouteComponent() {
 											value={budget}
 											disabled={!isAdmin}
 											onChange={(v) => updateBudget(provider, v)}
+											onBlur={() => clearPeriodIfNoBudget(provider)}
 										/>
 									</TableCell>
 									{hasUserBudget && (
@@ -265,6 +269,7 @@ function RouteComponent() {
 												value={perUserBudget}
 												disabled={!isAdmin}
 												onChange={(v) => updatePerUserBudget(provider, v)}
+												onBlur={() => clearPeriodIfNoBudget(provider)}
 											/>
 										</TableCell>
 									)}

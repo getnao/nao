@@ -18,17 +18,13 @@ export async function checkBudgetStatus(
 	provider: LlmProvider,
 	userId?: string,
 ): Promise<BudgetStatus> {
-	const [projectUsage, userUsage] = await Promise.all([
-		resolveBudgetUsage(projectId, provider),
-		resolveUserBudgetUsage(projectId, provider, userId),
-	]);
+	const usages = await resolveBudgetUsages(projectId, provider, userId);
 
-	const statuses = [projectUsage, userUsage].filter(Boolean) as BudgetUsage[];
-	if (statuses.length === 0 || statuses.every((u) => u.ratio < WARNING_BUDGET_THRESHOLD)) {
+	if (usages.length === 0 || usages.every((u) => u.ratio < WARNING_BUDGET_THRESHOLD)) {
 		return { level: 'ok', message: null };
 	}
 
-	const worst = statuses.reduce((highest, usage) => (usage.ratio > highest.ratio ? usage : highest));
+	const worst = usages.reduce((highest, usage) => (usage.ratio > highest.ratio ? usage : highest));
 	return {
 		level: worst.ratio >= 1 ? 'exceeded' : 'warning',
 		message: buildBudgetMessage(worst.ratio, providerLabel(provider), worst.resetLabel, worst.scope),
@@ -40,10 +36,9 @@ export async function assertBudgetNotExceeded(
 	provider: LlmProvider,
 	userId?: string,
 ): Promise<void> {
-	const [projectUsage, userUsage] = await Promise.all([
-		resolveBudgetUsage(projectId, provider),
-		resolveUserBudgetUsage(projectId, provider, userId),
-	]);
+	const usages = await resolveBudgetUsages(projectId, provider, userId);
+	const projectUsage = usages.find((u) => u.scope === 'project');
+	const userUsage = usages.find((u) => u.scope === 'user');
 
 	if (projectUsage && projectUsage.ratio >= 1) {
 		await notifyAdminsOnBudgetLimitReached(
@@ -74,51 +69,56 @@ type BudgetUsage = {
 
 function buildBudgetMessage(ratio: number, label: string, resetLabel: string, scope: 'project' | 'user'): string {
 	const percent = Math.min(Math.round(ratio * 100), 100);
-	const scopeLabel = scope === 'user' ? 'your personal' : `your ${label}`;
+	const scopeLabel = scope === 'user' ? `your personal ${label}` : `your ${label}`;
 	return `You've used ${percent}% of ${scopeLabel} budget. It will reset ${resetLabel}.`;
 }
 
-async function resolveBudgetUsage(projectId: string, provider: LlmProvider): Promise<BudgetUsage | null> {
-	const budget = await budgetQueries.getProviderBudget(projectId, provider);
-	if (!budget || budget.limitUsd <= 0) {
-		return null;
-	}
-
-	await budgetQueries.advanceStaleBudgetPeriods(projectId, provider);
-	const currentSpend = await budgetQueries.getProviderCurrentSpend(projectId, provider);
-	const ratio = currentSpend / budget.limitUsd;
-	const period = budget.period as BudgetPeriod;
-	const resetLabel = formatResetDate(getNextPeriodStart(period), period);
-
-	return { budget, currentSpend, ratio, resetLabel, scope: 'project' };
-}
-
-async function resolveUserBudgetUsage(
+async function resolveBudgetUsages(
 	projectId: string,
 	provider: LlmProvider,
 	userId: string | undefined,
-): Promise<BudgetUsage | null> {
-	if (!userId) {
-		return null;
-	}
-
-	const isEnabled = await hasFeature(LICENSE_FEATURES.userBudget);
-	if (!isEnabled) {
-		return null;
-	}
-
+): Promise<BudgetUsage[]> {
 	const budget = await budgetQueries.getProviderBudget(projectId, provider);
-	if (!budget || !budget.perUserLimitUsd || budget.perUserLimitUsd <= 0) {
-		return null;
+	if (!budget) {
+		return [];
+	}
+
+	const hasProjectLimit = budget.limitUsd > 0;
+	const hasUserLimit =
+		!!userId &&
+		!!budget.perUserLimitUsd &&
+		budget.perUserLimitUsd > 0 &&
+		(await hasFeature(LICENSE_FEATURES.userBudget));
+
+	if (!hasProjectLimit && !hasUserLimit) {
+		return [];
 	}
 
 	await budgetQueries.advanceStaleBudgetPeriods(projectId, provider);
-	const currentSpend = await budgetQueries.getUserProviderCurrentSpend(projectId, userId, provider);
-	const ratio = currentSpend / budget.perUserLimitUsd;
+	const { projectSpend, userSpend } = await budgetQueries.getProviderBudgetSpend(projectId, provider, userId);
 	const period = budget.period as BudgetPeriod;
 	const resetLabel = formatResetDate(getNextPeriodStart(period), period);
 
-	return { budget, currentSpend, ratio, resetLabel, scope: 'user' };
+	const usages: BudgetUsage[] = [];
+	if (hasProjectLimit) {
+		usages.push({
+			budget,
+			currentSpend: projectSpend,
+			ratio: projectSpend / budget.limitUsd,
+			resetLabel,
+			scope: 'project',
+		});
+	}
+	if (hasUserLimit && budget.perUserLimitUsd) {
+		usages.push({
+			budget,
+			currentSpend: userSpend,
+			ratio: userSpend / budget.perUserLimitUsd,
+			resetLabel,
+			scope: 'user',
+		});
+	}
+	return usages;
 }
 
 async function notifyAdminsOnBudgetLimitReached(

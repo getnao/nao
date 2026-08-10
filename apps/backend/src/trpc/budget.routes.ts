@@ -42,6 +42,10 @@ export const budgetRoutes = {
 		}),
 
 	setBudgets: adminProtectedProcedure.input(setBudgetsInputSchema).mutation(async ({ ctx, input }) => {
-		return budgetQueries.setProjectProviderBudgets(ctx.project.id, input.budgets);
+		const userBudgetEnabled = await hasFeature(LICENSE_FEATURES.userBudget);
+		const budgets = userBudgetEnabled
+			? input.budgets
+			: input.budgets.map((b) => ({ provider: b.provider, limitUsd: b.limitUsd, period: b.period }));
+		return budgetQueries.setProjectProviderBudgets(ctx.project.id, budgets);
 	}),
 };
