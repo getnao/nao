@@ -45,10 +45,39 @@ export function FileTree({
 	contentSearchTruncated,
 }: FileTreeProps) {
 	const isSearching = search.trim().length > 0;
+	const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set());
 	const filteredEntries = useMemo(() => {
 		const terms = search.toLowerCase().trim().split(/\s+/).filter(Boolean);
 		return terms.length > 0 ? filterTree(entries, terms, contentMatches) : entries;
 	}, [contentMatches, entries, search]);
+
+	useEffect(() => {
+		if (isSearching) {
+			setExpandedPaths(new Set(getDirectoryPaths(entries)));
+		}
+	}, [entries, isSearching]);
+
+	useEffect(() => {
+		if (!isSearching) {
+			setExpandedPaths(new Set());
+		}
+	}, [isSearching]);
+
+	const handleToggleDirectory = (entry: FileTreeEntry) => {
+		setExpandedPaths((currentPaths) => {
+			const nextPaths = new Set(currentPaths);
+
+			if (currentPaths.has(entry.path)) {
+				nextPaths.delete(entry.path);
+			} else {
+				for (const path of getAutoExpandPaths(entry)) {
+					nextPaths.add(path);
+				}
+			}
+
+			return nextPaths;
+		});
+	};
 
 	return (
 		<div className='flex flex-col h-full'>
@@ -109,8 +138,9 @@ export function FileTree({
 							depth={0}
 							selectedPath={selectedPath}
 							onSelectFile={onSelectFile}
-							isSearching={isSearching}
 							contentMatches={contentMatches}
+							expandedPaths={expandedPaths}
+							onToggleDirectory={handleToggleDirectory}
 						/>
 					))
 				)}
@@ -152,23 +182,28 @@ interface FileTreeNodeProps {
 	depth: number;
 	selectedPath: string | null;
 	onSelectFile: (path: string, options: FileSelectionOptions) => void;
-	isSearching: boolean;
 	contentMatches: Map<string, ContentMatch>;
+	expandedPaths: Set<string>;
+	onToggleDirectory: (entry: FileTreeEntry) => void;
 }
 
-function FileTreeNode({ entry, depth, selectedPath, onSelectFile, isSearching, contentMatches }: FileTreeNodeProps) {
-	const [isExpanded, setIsExpanded] = useState(isSearching);
+function FileTreeNode({
+	entry,
+	depth,
+	selectedPath,
+	onSelectFile,
+	contentMatches,
+	expandedPaths,
+	onToggleDirectory,
+}: FileTreeNodeProps) {
 	const isDirectory = entry.type === 'directory';
+	const isExpanded = expandedPaths.has(entry.path);
 	const isSelected = entry.path === selectedPath;
 	const contentMatch = contentMatches.get(entry.path);
 
-	useEffect(() => {
-		setIsExpanded(isSearching);
-	}, [isSearching]);
-
 	const handleClick = () => {
 		if (isDirectory) {
-			setIsExpanded((prev) => !prev);
+			onToggleDirectory(entry);
 		} else {
 			onSelectFile(entry.path, { isContentMatch: contentMatch !== undefined });
 		}
@@ -219,14 +254,45 @@ function FileTreeNode({ entry, depth, selectedPath, onSelectFile, isSearching, c
 							depth={depth + 1}
 							selectedPath={selectedPath}
 							onSelectFile={onSelectFile}
-							isSearching={isSearching}
 							contentMatches={contentMatches}
+							expandedPaths={expandedPaths}
+							onToggleDirectory={onToggleDirectory}
 						/>
 					))}
 				</div>
 			)}
 		</div>
 	);
+}
+
+function getAutoExpandPaths(entry: FileTreeEntry): string[] {
+	const paths: string[] = [];
+	let current: FileTreeEntry | undefined = entry;
+
+	while (current?.type === 'directory') {
+		paths.push(current.path);
+		const children: FileTreeEntry[] = current.children ?? [];
+		if (children.length !== 1 || children[0].type !== 'directory') {
+			break;
+		}
+		current = children[0];
+	}
+
+	return paths;
+}
+
+function getDirectoryPaths(entries: FileTreeEntry[]): string[] {
+	const paths: string[] = [];
+
+	for (const entry of entries) {
+		if (entry.type !== 'directory') {
+			continue;
+		}
+		paths.push(entry.path);
+		paths.push(...getDirectoryPaths(entry.children ?? []));
+	}
+
+	return paths;
 }
 
 function filterTree(
