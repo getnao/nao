@@ -1,3 +1,4 @@
+import type { CustomBoundarySet } from '@nao/shared';
 import { markSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
 import { story } from '@nao/shared/tools';
 import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
@@ -106,20 +107,22 @@ export interface AgentToolsContext {
 	toolContext: ToolContext;
 	/** Web-search tools resolved from project settings, or null when web search is disabled. */
 	webTools: Record<string, unknown> | null;
+	/** Custom GeoJSON boundary sets defined by the project admin. */
+	customBoundaries: CustomBoundarySet[];
 }
 
 /** Builds the tool set a run should expose. Callers pass one to `create` to customise tools. */
 export type AgentToolsResolver = (context: AgentToolsContext) => AgentTools | Promise<AgentTools>;
 
 /** Default tool set for interactive runs: all built-ins, MCP tools and web search. */
-export const defaultAgentTools: AgentToolsResolver = ({ chat, agentSettings, webTools }) =>
-	getTools(agentSettings, webTools ?? {}, { testMode: chat.testMode });
+export const defaultAgentTools: AgentToolsResolver = ({ chat, agentSettings, webTools, customBoundaries }) =>
+	getTools(agentSettings, webTools ?? {}, { testMode: chat.testMode, customBoundaries });
 
 /** Default tool set minus the given built-ins — for runs whose surface cannot render them. */
 export const defaultAgentToolsExcluding =
 	(excludeBuiltinTools: string[]): AgentToolsResolver =>
-	({ chat, agentSettings, webTools }) =>
-		getTools(agentSettings, webTools ?? {}, { testMode: chat.testMode, excludeBuiltinTools });
+	({ chat, agentSettings, webTools, customBoundaries }) =>
+		getTools(agentSettings, webTools ?? {}, { testMode: chat.testMode, excludeBuiltinTools, customBoundaries });
 
 /**
  * Admin-mode tool set: the same `execute_sql` tool the chat already uses (it
@@ -189,16 +192,16 @@ async function _buildContextBase(opts: {
 		envVars,
 		azureAccessToken,
 		queryResults: new Map(),
-		generatedArtifacts: { charts: [], stories: [] },
+		generatedArtifacts: { charts: [], maps: [], stories: [] },
 	};
 }
 
 export class AgentService {
 	private _agents = new Map<string, AgentManager>();
 
-	async assertBudget(projectId: string, modelSelection?: LlmSelectedModel): Promise<void> {
+	async assertBudget(projectId: string, modelSelection?: LlmSelectedModel, userId?: string): Promise<void> {
 		const resolved = await this._getResolvedLlmSelectedModel(projectId, modelSelection);
-		await assertBudgetNotExceeded(projectId, resolved.provider);
+		await assertBudgetNotExceeded(projectId, resolved.provider, userId);
 	}
 
 	/** Resolves the concrete model a run will use (project default when none is configured). */
@@ -247,9 +250,12 @@ export class AgentService {
 	): Promise<AgentManager> {
 		this._disposeAgent(chat.id);
 		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
-		await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider);
+		await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider, chat.userId);
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel);
-		const agentSettings = await projectQueries.getAgentSettings(chat.projectId);
+		const [agentSettings, customBoundaries] = await Promise.all([
+			projectQueries.getAgentSettings(chat.projectId),
+			projectQueries.getCustomBoundaries(chat.projectId),
+		]);
 		const toolContext = await this._getToolContext(
 			chat.projectId,
 			chat.id,
@@ -260,7 +266,7 @@ export class AgentService {
 		);
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
 		const resolveTools = options.tools ?? defaultAgentTools;
-		const agentTools = await resolveTools({ chat, agentSettings, toolContext, webTools });
+		const agentTools = await resolveTools({ chat, agentSettings, toolContext, webTools, customBoundaries });
 		const stopWhen: StopCondition<AgentTools>[] = options.excludeFollowUps
 			? [stepCountIs(options.maxSteps ?? 20)]
 			: chat.testMode
@@ -885,10 +891,23 @@ class AgentManager {
 		const skillContent = skillMention
 			? skillService.getSkillContent(this.chat.projectId, skillMention.id)
 			: undefined;
-		if (!skillContent) {
+		if (!skillMention || !skillContent) {
 			return messages;
 		}
-		return this._transformLastUserMessageText(messages, () => truncateMiddle(skillContent, 16_000));
+		const skill = truncateMiddle(skillContent, 16_000);
+		return this._transformLastUserMessageText(messages, (text) =>
+			this._expandSkillMention(text, skillMention, skill),
+		);
+	}
+
+	private _expandSkillMention(text: string, mention: Mention, skill: string): string {
+		const tokens = [`${mention.trigger}[${mention.label}]`, `${mention.trigger}[${mention.id}]`];
+		const matchedToken = tokens.find((token) => text.includes(token));
+		if (matchedToken) {
+			return text.replaceAll(matchedToken, () => skill).trim();
+		}
+		const rest = text.trim();
+		return rest ? `${skill}\n\n${rest}` : skill;
 	}
 
 	private _addDatabaseContext(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {

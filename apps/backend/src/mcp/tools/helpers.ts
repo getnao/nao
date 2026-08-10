@@ -1,18 +1,24 @@
 import { randomUUID } from 'node:crypto';
 
-import { buildStoryChartBlock } from '@nao/shared';
-import type { displayChart } from '@nao/shared/tools';
+import { buildStoryChartBlock, buildStoryMapBlock, type CustomBoundarySet } from '@nao/shared';
+import type { displayChart, displayMap } from '@nao/shared/tools';
 
 import * as chatQueries from '../../queries/chat.queries';
-import { insertMcpChartEmbed } from '../../queries/mcp-chart-embed.queries';
+import { insertMcpChartEmbed, insertMcpMapEmbed } from '../../queries/mcp-embed.queries';
 import { getMcpQueryData, upsertMcpQueryData } from '../../queries/mcp-query-data.queries';
 import type { UserStoryRow } from '../../queries/story.queries';
 import * as storyQueries from '../../queries/story.queries';
+import { validateMapConfig } from '../../utils/display-map-validate';
 import { logger } from '../../utils/logger';
-import { buildStoryToolResult, type ChartToolPayload, type StoryMcpToolPayload } from '../embed/embed-tool-result';
-import { buildChartSandboxHtml, buildStorySandboxHtml } from '../embed/sandbox-html';
+import {
+	buildStoryToolResult,
+	type ChartToolPayload,
+	type MapToolPayload,
+	type StoryMcpToolPayload,
+} from '../embed/embed-tool-result';
+import { buildChartSandboxHtml, buildMapSandboxHtml, buildStorySandboxHtml } from '../embed/sandbox-html';
 import { type McpContext, type ToolResult } from '../logging';
-import { chartEmbedUrl, chatUrl, storyChatUrl, storyEmbedUrl, storyUrl } from '../urls';
+import { chartEmbedUrl, chatUrl, mapEmbedUrl, storyChatUrl, storyEmbedUrl, storyUrl } from '../urls';
 
 export async function resolveChartChatId(chatId: string | undefined, ctx: McpContext): Promise<string | undefined> {
 	if (!chatId) {
@@ -214,7 +220,7 @@ export async function buildChartEmbedFromArtifact(
 	const naoChatUrl = effectiveChatId ? chatUrl(effectiveChatId) : null;
 	let sandboxChartHtml: string | null = null;
 	try {
-		sandboxChartHtml = buildChartSandboxHtml({
+		sandboxChartHtml = await buildChartSandboxHtml({
 			title,
 			chartBlock: block,
 			queryId: query_id,
@@ -235,6 +241,90 @@ export async function buildChartEmbedFromArtifact(
 		chatId: effectiveChatId,
 	};
 	return { payload, sandboxChartHtml };
+}
+
+type MapKeyError = { invalidKeys: string[]; availableColumns: string[] };
+
+export async function buildMapEmbedFromArtifact(
+	input: displayMap.Input,
+	ctx: McpContext,
+	opts: { chatId: string | null; callLogId: string; customBoundaries?: CustomBoundarySet[] },
+): Promise<
+	| { payload: MapToolPayload; sandboxMapHtml: string | null }
+	| { keyError: MapKeyError }
+	| { validationError: string }
+	| null
+> {
+	const { query_id } = input;
+	const block = buildStoryMapBlock(input);
+
+	const queryData = await resolveChartQueryData({
+		queryId: query_id,
+		ctx,
+		callLogId: opts.callLogId,
+		validatedChatId: opts.chatId,
+	});
+
+	if (!queryData) {
+		return null;
+	}
+
+	const validation = await validateMapConfig(input, queryData);
+	if (!validation.success) {
+		const error = validation.error ?? 'Map config is invalid.';
+		const isKeyError = error.startsWith('Column "') || error.startsWith('Column(s) ');
+		if (isKeyError) {
+			return { keyError: { invalidKeys: [], availableColumns: queryData.columns } };
+		}
+		return { validationError: error };
+	}
+
+	const effectiveChatId = opts.chatId ?? queryData.sourceChatId ?? null;
+
+	let mapEmbedId: string | null = null;
+	let embedUrl: string | null = null;
+	try {
+		const id = randomUUID();
+		const inserted = await insertMcpMapEmbed({
+			mapEmbedId: id,
+			queryId: query_id,
+			projectId: ctx.projectId,
+			mapConfig: input,
+			sourceChatId: effectiveChatId,
+		});
+		if (inserted) {
+			mapEmbedId = id;
+			embedUrl = mapEmbedUrl(id, ctx.projectId);
+		}
+	} catch (dbErr) {
+		logger.warn(`MCP map embed persistence failed: ${String(dbErr)}`, { source: 'tool' });
+	}
+
+	const naoChatUrl = effectiveChatId ? chatUrl(effectiveChatId) : null;
+	let sandboxMapHtml: string | null = null;
+	try {
+		sandboxMapHtml = await buildMapSandboxHtml({
+			title: input.title,
+			mapBlock: block,
+			queryId: query_id,
+			columns: queryData.columns,
+			data: queryData.data,
+			naoChatUrl,
+			customBoundaries: opts.customBoundaries,
+		});
+	} catch (sandboxErr) {
+		logger.warn(`MCP map sandbox HTML failed: ${String(sandboxErr)}`, { source: 'tool' });
+	}
+
+	const payload: MapToolPayload = {
+		embedUrl,
+		mapEmbedId,
+		block,
+		queryId: query_id,
+		title: input.title,
+		chatId: effectiveChatId,
+	};
+	return { payload, sandboxMapHtml };
 }
 
 export async function buildStoryEmbedFromArtifact(

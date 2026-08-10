@@ -1,3 +1,4 @@
+import { MAX_TRIGGER_CHATS } from '@nao/shared/context-recommendation';
 import { REPO_PROVIDERS } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
@@ -8,7 +9,10 @@ import * as crQueries from '../queries/context-recommendation.queries';
 import * as userQueries from '../queries/user.queries';
 import { agentService } from '../services/agent';
 import { createRecommendationPullRequest, resolveRecommendationRepo } from '../services/context-pr.service';
-import { runContextRecommendations } from '../services/context-recommendations.service';
+import {
+	repairRecommendationTriggerRefs,
+	runContextRecommendations,
+} from '../services/context-recommendations.service';
 import * as github from '../services/github';
 import * as gitlabService from '../services/gitlab';
 import {
@@ -35,7 +39,19 @@ const recommendationsProcedure = contextAdminProtectedProcedure.use(async ({ nex
 export const contextRecommendationRoutes = {
 	list: recommendationsProcedure
 		.input(z.object({ status: z.enum(CONTEXT_RECOMMENDATION_STATUSES).optional() }).optional())
-		.query(async ({ ctx, input }) => crQueries.listRecommendations(ctx.project.id, input?.status)),
+		.query(async ({ ctx, input }) => {
+			const recommendations = await crQueries.listRecommendations(ctx.project.id, input?.status);
+			const repaired = await repairRecommendationTriggerRefs(ctx.project.id, recommendations);
+			const feedbackLinks = await crQueries.listFeedbacksForRecommendations(
+				ctx.project.id,
+				repaired.map((r) => r.id),
+			);
+			const feedbacksByRecId = feedbackLinks.reduce<Record<string, typeof feedbackLinks>>((acc, link) => {
+				(acc[link.recommendationId] ??= []).push(link);
+				return acc;
+			}, {});
+			return repaired.map((rec) => ({ ...rec, feedbacks: feedbacksByRecId[rec.id] ?? [] }));
+		}),
 
 	latestRun: recommendationsProcedure.query(async ({ ctx }) => crQueries.getLatestRun(ctx.project.id)),
 
@@ -135,7 +151,6 @@ export const contextRecommendationRoutes = {
 			z.object({
 				id: z.string(),
 				status: z.enum(CONTEXT_RECOMMENDATION_STATUSES),
-				snoozedUntil: z.number().optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -143,7 +158,6 @@ export const contextRecommendationRoutes = {
 				id: input.id,
 				projectId: ctx.project.id,
 				status: input.status,
-				snoozedUntil: input.snoozedUntil ? new Date(input.snoozedUntil) : null,
 				userId: ctx.user.id,
 			});
 		}),
@@ -207,4 +221,8 @@ export const contextRecommendationRoutes = {
 			});
 		}
 	}),
+
+	listRecoTriggerChatMetadata: recommendationsProcedure
+		.input(z.object({ chatIds: z.array(z.string()).max(MAX_TRIGGER_CHATS) }))
+		.query(async ({ ctx, input }) => crQueries.getRecommendationChatMetadata(ctx.project.id, input.chatIds)),
 };

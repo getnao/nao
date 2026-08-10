@@ -85,6 +85,10 @@ html.nao-embed {
 	background-color: var(--panel);
 }
 
+html.nao-embed.dark {
+	color-scheme: dark;
+}
+
 html.nao-embed,
 html.nao-embed body {
 	overflow: hidden;
@@ -103,6 +107,12 @@ html.nao-embed #app {
 	overflow-x: auto;
 	overflow-y: hidden;
 	background-color: var(--panel);
+}
+
+html.nao-embed-app,
+html.nao-embed-app body,
+html.nao-embed-app #app {
+	background-color: var(--background);
 }
 
 * {
@@ -192,6 +202,7 @@ code.dollar:before {
 }
 
 :root {
+	color-scheme: light;
 	--radius: 0.625rem;
 	--background: oklch(1 0 0);
 	--panel: oklch(0.98 0 0);
@@ -238,6 +249,7 @@ code.dollar:before {
 }
 
 .dark {
+	color-scheme: dark;
 	--background: oklch(0.145 0.005 270);
 	--panel: oklch(0.21 0.008 270);
 	--foreground: oklch(0.984 0.003 247.858);
@@ -635,12 +647,27 @@ code.dollar:before {
 }
 
 .replay-nav-highlight:not([data-replay-bordered='true']) {
-	@apply rounded-xl ring-2 ring-inset ring-primary p-[2px];
+	@apply rounded-xl;
+	outline: 2px solid var(--primary);
+	outline-offset: -2px;
+	animation: replay-highlight-pulse 2s ease-out forwards;
 }
 
 [data-replay-bordered='true'].replay-nav-highlight {
-	@apply rounded-xl ring-2 ring-primary ring-offset-2 -mx-3;
-	--tw-ring-offset-color: var(--background);
+	@apply rounded-xl;
+	outline: 2px solid var(--primary);
+	outline-offset: 2px;
+	animation: replay-highlight-pulse 2s ease-out forwards;
+}
+
+@keyframes replay-highlight-pulse {
+	0%,
+	70% {
+		outline-color: var(--primary);
+	}
+	100% {
+		outline-color: transparent;
+	}
 }
 
 .chats-replay-datepicker.react-datepicker,
@@ -783,40 +810,47 @@ code.dollar:before {
 	border-radius: inherit;
 }
 
-/* MapLibre controls (zoom +/- and attribution) follow the app light/dark theme */
-.dark .maplibregl-ctrl-group {
-	background: var(--background);
+/*
+ * MapLibre controls (zoom +/- and attribution) follow the app theme by default (via the fallback variables).
+ * The interactive map view overrides them per-container through JS custom properties to match the selected map style.
+ */
+.dark {
+	--map-ctrl-icon-filter-default: invert(1);
 }
 
-.dark .maplibregl-ctrl-group button + button {
-	border-top-color: var(--border);
+.maplibregl-map .maplibregl-ctrl-group {
+	background: var(--map-ctrl-bg, var(--background));
 }
 
-.dark .maplibregl-ctrl-group button:not(:disabled):hover,
-.dark .maplibregl-ctrl-group button:not(:disabled):active {
-	background-color: var(--accent);
+.maplibregl-map .maplibregl-ctrl-group button + button {
+	border-top-color: var(--map-ctrl-border, var(--border));
 }
 
-.dark .maplibregl-ctrl button .maplibregl-ctrl-icon,
-.dark .maplibregl-ctrl-attrib.maplibregl-compact:after {
-	filter: invert(1);
+.maplibregl-map .maplibregl-ctrl-group button:not(:disabled):hover,
+.maplibregl-map .maplibregl-ctrl-group button:not(:disabled):active {
+	background-color: var(--map-ctrl-hover, var(--accent));
 }
 
-.dark .maplibregl-ctrl.maplibregl-ctrl-attrib {
-	background-color: color-mix(in srgb, var(--background) 50%, transparent);
+.maplibregl-map .maplibregl-ctrl button .maplibregl-ctrl-icon,
+.maplibregl-map .maplibregl-ctrl-attrib.maplibregl-compact:after {
+	filter: var(--map-ctrl-icon-filter, var(--map-ctrl-icon-filter-default, none));
 }
 
-.dark .maplibregl-ctrl-attrib.maplibregl-compact {
-	background-color: var(--background);
-	color: var(--foreground);
+.maplibregl-map .maplibregl-ctrl.maplibregl-ctrl-attrib {
+	background-color: color-mix(in srgb, var(--map-ctrl-bg, var(--background)) 50%, transparent);
 }
 
-.dark .maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-button {
-	background-color: var(--accent);
+.maplibregl-map .maplibregl-ctrl-attrib.maplibregl-compact {
+	background-color: var(--map-ctrl-bg, var(--background));
+	color: var(--map-ctrl-fg, var(--foreground));
 }
 
-.dark .maplibregl-ctrl-attrib a {
-	color: var(--foreground);
+.maplibregl-map .maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-button {
+	background-color: var(--map-ctrl-hover, var(--accent));
+}
+
+.maplibregl-map .maplibregl-ctrl-attrib a {
+	color: var(--map-ctrl-fg, var(--foreground));
 }
 
 @keyframes chat-input-border-draw {

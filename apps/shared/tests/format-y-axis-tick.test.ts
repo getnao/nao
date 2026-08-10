@@ -38,4 +38,14 @@ describe('formatYAxisTick', () => {
 		it('keeps a short fractional value', () => expect(formatYAxisTick(0.5)).toBe('0.5'));
 		it('abbreviates fractional thousands', () => expect(formatYAxisTick(1234.5678)).toBe('1.23K'));
 	});
+
+	describe('boundary promotion', () => {
+		it('promotes rounded millions to billions', () => {
+			expect(formatYAxisTick(999_999_999)).toBe('1B');
+			expect(formatYAxisTick(-999_999_999)).toBe('-1B');
+		});
+		it('promotes rounded billions to trillions', () => expect(formatYAxisTick(999_999_999_999)).toBe('1T'));
+		it('keeps values below the rounding cutoff in millions', () =>
+			expect(formatYAxisTick(999_000_000)).toBe('999M'));
+	});
 });

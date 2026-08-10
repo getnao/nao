@@ -3,8 +3,12 @@ import { CITATION_TAG_REGEX, pluralize, TOOL_LABELS } from '@nao/shared';
 import type { CardChild, CardElement, ModalElement } from 'chat';
 import { Actions, Button, Card, CardText, Image, LinkButton, Table } from 'chat';
 
-import { ToolCallEntry } from '../types/messaging-provider';
+import { generateMapImage } from '../components/generate-map';
+import * as projectQueries from '../queries/project.queries';
+import { UIMessagePart } from '../types/chat';
+import { StreamState, ToolCallEntry } from '../types/messaging-provider';
 import { BudgetExceededError } from './error';
+import { logger } from './logger';
 
 export const EXCLUDED_TOOLS = [
 	'tool-suggest_follow_ups',
@@ -158,6 +162,32 @@ export const createTelegramMapLinkCard = (title: string, chatUrl: string): CardC
 /** WhatsApp has no interactive card UI, so a map degrades to a plain-text link to the nao chat. */
 export const createWhatsappMapLink = (title: string, chatUrl: string): string =>
 	`🗺️ ${title}\nView interactive map in nao: ${chatUrl}`;
+
+/** Renders an interactive map tool call to a static PNG. */
+export async function renderMapImage(
+	part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
+	state: StreamState,
+	projectId: string,
+	logContext: Record<string, unknown> = {},
+): Promise<Buffer | null> {
+	if (part.state !== 'output-available') {
+		return null;
+	}
+	const sqlOutput = state.sqlOutputs.get(part.input.query_id);
+	if (!sqlOutput) {
+		return null;
+	}
+	try {
+		const customBoundaries = await projectQueries.getCustomBoundaries(projectId);
+		return await generateMapImage({ config: part.input, rows: sqlOutput.rows, customBoundaries });
+	} catch (error) {
+		logger.error(`Map image generation failed: ${String(error)}`, {
+			source: 'system',
+			context: { projectId, ...logContext },
+		});
+		return null;
+	}
+}
 
 export const createPlainTextBlock = (text: string): CardChild => {
 	return CardText(stripMarkdown(text));

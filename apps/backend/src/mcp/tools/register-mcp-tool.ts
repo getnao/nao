@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Tool } from 'ai';
-import type { AnyZodObject } from 'zod/v3';
+import type { AnyZodObject, ZodTypeAny } from 'zod/v3';
 
 import { logger } from '../../utils/logger';
 import { type LoggedToolHandler, type McpContext, type ToolResult, withLogging } from '../logging';
@@ -61,6 +61,10 @@ export function registerAgentToolAsMcp<TAgentInput, TOutput, TMcpInput = TAgentI
 		_meta: options._meta,
 		handler: async (input, _extra, callLogId) => {
 			const agentInput = options.mapInput ? options.mapInput(input) : (input as unknown as TAgentInput);
+			const inputError = validateAgentToolInput(options.agentTool.inputSchema, agentInput);
+			if (inputError) {
+				return { content: [{ type: 'text' as const, text: inputError }], isError: true };
+			}
 			const chatId = options.resolveChatId ? options.resolveChatId(input) : undefined;
 			const output = await runAgentTool(options.agentTool, agentInput, ctx, chatId);
 			if (options.formatResult) {
@@ -72,6 +76,21 @@ export function registerAgentToolAsMcp<TAgentInput, TOutput, TMcpInput = TAgentI
 			};
 		},
 	});
+}
+
+function validateAgentToolInput(schema: unknown, input: unknown): string | null {
+	if (!isZodSchema(schema)) {
+		return null;
+	}
+	const result = schema.safeParse(input);
+	if (result.success) {
+		return null;
+	}
+	return result.error.issues[0]?.message ?? 'Invalid tool input.';
+}
+
+function isZodSchema(schema: unknown): schema is ZodTypeAny {
+	return typeof schema === 'object' && schema !== null && typeof (schema as ZodTypeAny).safeParse === 'function';
 }
 
 function buildMcpHandler(

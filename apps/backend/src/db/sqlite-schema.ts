@@ -1,4 +1,4 @@
-import type { McpChartEmbedStoredConfig } from '@nao/shared';
+import type { MapSettings, McpChartEmbedStoredConfig, McpMapEmbedStoredConfig } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
 import type {
 	AnalyticsEventMetadata,
@@ -35,11 +35,13 @@ import { AgentSettings } from '../types/agent-settings';
 import { AUTOMATION_RUN_STATUSES, AutomationIntegrationConfig, AutomationIntegrationResult } from '../types/automation';
 import { ForkMetadata, MESSAGE_SOURCES, StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import {
+	CONTEXT_RECOMMENDATION_CATEGORIES,
 	CONTEXT_RECOMMENDATION_FIX_KINDS,
+	CONTEXT_RECOMMENDATION_FIX_TARGETS,
 	CONTEXT_RECOMMENDATION_FREQUENCIES,
+	CONTEXT_RECOMMENDATION_ROOT_CAUSE_KINDS,
 	CONTEXT_RECOMMENDATION_RUN_STATUSES,
 	CONTEXT_RECOMMENDATION_RUN_TRIGGERS,
-	CONTEXT_RECOMMENDATION_SEVERITIES,
 	CONTEXT_RECOMMENDATION_STATUSES,
 	ProposedEdit,
 	RecommendationImpact,
@@ -216,6 +218,7 @@ export const project = sqliteTable(
 		whatsappSettings: text('whatsapp_settings', { mode: 'json' }).$type<WhatsappSettings>(),
 		mcpEndpointSettings: text('mcp_endpoint_settings', { mode: 'json' }).$type<McpEndpointSettings>(),
 		displaySettings: text('display_settings', { mode: 'json' }).$type<DisplaySettings>(),
+		mapSettings: text('map_settings', { mode: 'json' }).$type<MapSettings>(),
 
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -478,6 +481,7 @@ export const projectProviderBudget = sqliteTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		provider: text('provider').$type<LlmProvider>().notNull(),
 		limitUsd: integer('limit_usd').notNull(),
+		perUserLimitUsd: integer('per_user_limit_usd'),
 		period: text('period', { enum: BUDGET_PERIODS }).notNull(),
 		currentPeriodStart: integer('current_period_start', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -748,8 +752,6 @@ export const contextRecommendation = sqliteTable(
 		suggestedFile: text('suggested_file').notNull(),
 		subjectKey: text('subject_key').notNull(),
 		status: text('status', { enum: CONTEXT_RECOMMENDATION_STATUSES }).notNull().default('open'),
-		snoozedUntil: integer('snoozed_until', { mode: 'timestamp_ms' }),
-		severity: text('severity', { enum: CONTEXT_RECOMMENDATION_SEVERITIES }).notNull().default('medium'),
 		impactScore: integer('impact_score').notNull().default(0),
 		impact: text('impact', { mode: 'json' }).$type<RecommendationImpact>(),
 		insights: text('insights', { mode: 'json' }).$type<RecommendationInsight[]>().notNull().default([]),
@@ -757,6 +759,10 @@ export const contextRecommendation = sqliteTable(
 		summary: text('summary').notNull(),
 		suggestedAction: text('suggested_action').notNull(),
 		fixKind: text('fix_kind', { enum: CONTEXT_RECOMMENDATION_FIX_KINDS }),
+		fixTarget: text('fix_target', { enum: CONTEXT_RECOMMENDATION_FIX_TARGETS }),
+		category: text('category', { enum: CONTEXT_RECOMMENDATION_CATEGORIES }),
+		rootCause: text('root_cause'),
+		rootCauseKind: text('root_cause_kind', { enum: CONTEXT_RECOMMENDATION_ROOT_CAUSE_KINDS }),
 		proposedEdits: text('proposed_edits', { mode: 'json' }).$type<ProposedEdit[]>(),
 		fixGuidance: text('fix_guidance'),
 		fixPrompt: text('fix_prompt'),
@@ -789,6 +795,25 @@ export const contextRecommendation = sqliteTable(
 			foreignColumns: [contextRecommendationRun.id, contextRecommendationRun.projectId],
 			name: 'context_recommendation_run_fk',
 		}),
+	],
+);
+
+export const contextRecommendationLinkedFeedback = sqliteTable(
+	'context_recommendation_linked_feedback',
+	{
+		recommendationId: text('recommendation_id')
+			.notNull()
+			.references(() => contextRecommendation.id, { onDelete: 'cascade' }),
+		messageId: text('message_id')
+			.notNull()
+			.references(() => chatMessage.id, { onDelete: 'cascade' }),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.recommendationId, t.messageId] }),
+		index('context_recommendation_linked_feedback_message_id_idx').on(t.messageId),
 	],
 );
 
@@ -892,6 +917,22 @@ export const mcpChartEmbed = sqliteTable(
 			.notNull(),
 	},
 	(t) => [index('mcp_chart_embed_query_id_idx').on(t.queryId)],
+);
+
+export const mcpMapEmbed = sqliteTable(
+	'mcp_map_embed',
+	{
+		mapEmbedId: text('map_embed_id').primaryKey(),
+		queryId: text('query_id')
+			.notNull()
+			.references(() => mcpQueryData.queryId, { onDelete: 'cascade' }),
+		mapConfig: text('map_config', { mode: 'json' }).$type<McpMapEmbedStoredConfig>().notNull(),
+		sourceChatId: text('source_chat_id'),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [index('mcp_map_embed_query_id_idx').on(t.queryId)],
 );
 
 export const storyDataCache = sqliteTable('story_data_cache', {

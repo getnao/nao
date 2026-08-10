@@ -408,14 +408,14 @@ export const PROVIDER_META: ProviderMetaMap = {
 				id: 'gpt-5.6-terra',
 				name: 'GPT 5.6 Terra',
 				contextWindow: 1_050_000,
-				costPerM: { inputNoCache: 2.5, inputCacheRead: 0.25, inputCacheWrite: 3.125, output: 15 },
+				costPerM: { inputNoCache: 2, inputCacheRead: 0.2, inputCacheWrite: 2.5, output: 12 },
 				capabilities: OPENAI_5_6_REASONING,
 			},
 			{
 				id: 'gpt-5.6-luna',
 				name: 'GPT 5.6 Luna',
 				contextWindow: 1_050_000,
-				costPerM: { inputNoCache: 1, inputCacheRead: 0.1, inputCacheWrite: 1.25, output: 6 },
+				costPerM: { inputNoCache: 0.2, inputCacheRead: 0.02, inputCacheWrite: 0.25, output: 1.2 },
 				capabilities: OPENAI_5_6_REASONING,
 			},
 			{

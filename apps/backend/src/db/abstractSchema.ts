@@ -105,6 +105,11 @@ export type NewContextBranchOwnership = typeof sqliteSchema.contextBranchOwnersh
 export type DBContextRecommendation = typeof sqliteSchema.contextRecommendation.$inferSelect;
 export type NewContextRecommendation = typeof sqliteSchema.contextRecommendation.$inferInsert;
 
+export type DBContextRecommendationLinkedFeedback =
+	typeof sqliteSchema.contextRecommendationLinkedFeedback.$inferSelect;
+export type NewContextRecommendationLinkedFeedback =
+	typeof sqliteSchema.contextRecommendationLinkedFeedback.$inferInsert;
+
 export type DBLog = typeof sqliteSchema.log.$inferSelect;
 export type NewLog = typeof sqliteSchema.log.$inferInsert;
 
@@ -116,6 +121,9 @@ export type NewMcpQueryData = typeof sqliteSchema.mcpQueryData.$inferInsert;
 
 export type DBMcpChartEmbed = typeof sqliteSchema.mcpChartEmbed.$inferSelect;
 export type NewMcpChartEmbed = typeof sqliteSchema.mcpChartEmbed.$inferInsert;
+
+export type DBMcpMapEmbed = typeof sqliteSchema.mcpMapEmbed.$inferSelect;
+export type NewMcpMapEmbed = typeof sqliteSchema.mcpMapEmbed.$inferInsert;
 
 export type DBMessageImage = typeof sqliteSchema.messageImage.$inferSelect;
 export type NewMessageImage = typeof sqliteSchema.messageImage.$inferInsert;

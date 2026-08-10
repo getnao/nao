@@ -4,6 +4,7 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
+		"./context-recommendation": "./src/context-recommendation.ts",
 		"./date": "./src/date.ts",
 		"./types": "./src/types.ts",
 		"./posthog": "./src/posthog.ts",

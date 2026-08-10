@@ -30,20 +30,6 @@ const tokenChartDisplayOptions: { value: TokenChartDisplayMode; label: string }[
 	{ value: 'dollars', label: 'Show in dollars' },
 ];
 
-const tokenSeries = [
-	{ data_key: 'inputNoCacheTokens', color: 'var(--chart-1)', label: 'Input' },
-	{ data_key: 'inputCacheReadTokens', color: 'var(--chart-2)', label: 'Cache read' },
-	{ data_key: 'inputCacheWriteTokens', color: 'var(--chart-3)', label: 'Cache write' },
-	{ data_key: 'outputTotalTokens', color: 'var(--chart-4)', label: 'Output' },
-];
-
-const costSeries = [
-	{ data_key: 'inputNoCacheCost', color: 'var(--chart-1)', label: 'Input' },
-	{ data_key: 'inputCacheReadCost', color: 'var(--chart-2)', label: 'Cache read' },
-	{ data_key: 'inputCacheWriteCost', color: 'var(--chart-3)', label: 'Cache write' },
-	{ data_key: 'outputCost', color: 'var(--chart-4)', label: 'Output' },
-];
-
 const messageSeries = [
 	{ data_key: 'webMessageCount', color: 'var(--chart-1)', label: 'Web' },
 	{ data_key: 'slackMessageCount', color: 'var(--chart-2)', label: 'Slack' },
@@ -165,7 +151,7 @@ function UsageOverview({
 	);
 
 	return (
-		<div className='flex flex-1 min-h-0 overflow-auto xl:overflow-hidden'>
+		<div className='flex flex-1 min-h-0 overflow-auto xl:overflow-hidden bg-background'>
 			<div className='flex min-h-0 w-full flex-col xl:h-full'>
 				<div className='flex flex-col w-full gap-2 px-4 md:p-8 xl:shrink-0'>
 					{filtersComponent}

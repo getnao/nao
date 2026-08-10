@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
-import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
+import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
 import type { QueryDataMap } from '@/components/story-embeds';
 import type { StoryPageHeaderProps } from '@/components/story-page-header';
@@ -15,7 +15,7 @@ import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { StoryPageBody } from '@/components/story-page-body';
 import { StoryPageHeader } from '@/components/story-page-header';
 import { StoryRouteError } from '@/components/story-access-error';
-import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
+import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { StoryTabbedContent } from '@/components/story-tabbed-content';
 import { Spinner } from '@/components/ui/spinner';
 import { SidePanelProvider } from '@/contexts/side-panel';
@@ -98,6 +98,8 @@ function SharedStoryPage() {
 				storyId={story.storyId}
 				chatId={story.chatId}
 				storySlug={story.slug}
+				shareId={shareId}
+				cachedAt={story.cachedAt}
 				onOpenChat={() =>
 					navigate({
 						to: '/$chatId',
@@ -133,6 +135,7 @@ function SharedStoryPage() {
 					story.isLive
 						? {
 								isLive: true,
+								cachedAt: story.cachedAt,
 								isRefreshing: refreshMutation.isPending,
 								onRefresh: () => refreshMutation.mutate({ shareId }),
 							}
@@ -206,6 +209,8 @@ interface SharedStoryOwnerHeaderProps {
 	storyId: string | null;
 	chatId: string;
 	storySlug: string;
+	shareId: string;
+	cachedAt?: string | Date | null;
 	onOpenChat: () => void;
 	viewModeControls: StoryPageHeaderProps['viewModeControls'];
 	versionControls: StoryPageHeaderProps['versionControls'];
@@ -217,6 +222,8 @@ function SharedStoryOwnerHeader({
 	storyId,
 	chatId,
 	storySlug,
+	shareId,
+	cachedAt,
 	onOpenChat,
 	viewModeControls,
 	versionControls,
@@ -234,7 +241,7 @@ function SharedStoryOwnerHeader({
 		isRefreshing,
 		handleSaveSettings,
 		handleRefreshData,
-	} = useStoryViewerLiveSettings({ chatId, storySlug });
+	} = useStoryViewerLiveSettings({ chatId, storySlug, shareId });
 
 	return (
 		<>
@@ -244,6 +251,7 @@ function SharedStoryOwnerHeader({
 				onOpenChat={onOpenChat}
 				live={{
 					isLive,
+					cachedAt,
 					isRefreshing,
 					onRefresh: () => handleRefreshData(),
 					onOpenSettings: () => setIsLiveSettingsOpen(true),
@@ -356,6 +364,27 @@ function SharedStoryContent({
 		[isNoCacheMode, noCacheQuery],
 	);
 
+	const renderMap = useCallback(
+		(
+			map: ParsedMapBlock,
+			{
+				queryData: data,
+				hasActiveFilters,
+				isRefreshing,
+			}: { queryData: QueryDataMap | null; hasActiveFilters: boolean; isRefreshing: boolean },
+		) => (
+			<StoryMapEmbed
+				map={map}
+				queryData={isNoCacheMode && !hasActiveFilters ? undefined : data}
+				liveQuery={isNoCacheMode && !hasActiveFilters ? noCacheQuery : undefined}
+				hasActiveFilters={hasActiveFilters}
+				isRefreshing={isRefreshing}
+				allowExpand
+			/>
+		),
+		[isNoCacheMode, noCacheQuery],
+	);
+
 	return (
 		<div className='flex flex-1 min-h-0 flex-col' data-selection-container>
 			<StoryTabbedContent
@@ -364,6 +393,7 @@ function SharedStoryContent({
 				filterApi={filterApi}
 				renderChart={renderChart}
 				renderTable={renderTable}
+				renderMap={renderMap}
 			/>
 		</div>
 	);

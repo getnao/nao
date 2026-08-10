@@ -1,4 +1,3 @@
-import { format as d3Format, formatSpecifier } from 'd3-format';
 import React from 'react';
 import {
 	Area,
@@ -8,7 +7,6 @@ import {
 	CartesianGrid,
 	ComposedChart,
 	Customized,
-	LabelList,
 	Line,
 	Pie,
 	PieChart,
@@ -24,7 +22,26 @@ import {
 	YAxis,
 } from 'recharts';
 
-import { collectAxisValues, collectStackedAxisValues, resolveYAxisDomain } from './chart-domain';
+import {
+	DATA_LABEL_MARGIN_TOP,
+	DATA_LABEL_X_AXIS_FOOTROOM,
+	getDataLabelSetup,
+	PIE_LABELLED_OUTER_RADIUS,
+	renderDataLabelsLayer,
+	renderPieDataLabelsLayer,
+	shouldReserveDataLabelHeadroom,
+	shouldReserveStackTotalFootroom,
+} from './chart-data-labels';
+import { collectAxisValues, collectStackedAxisValues, resolveBarYAxisDomain, resolveYAxisDomain } from './chart-domain';
+import {
+	attachValueAffixes,
+	formatChartValue,
+	formatCompactNumber,
+	formatCompactUnit,
+	getChartLevelValueFormat,
+	niceAxisMax,
+	toFiniteNumber,
+} from './chart-values';
 import { type DateFormatSettings, formatDateValue, isIsoDateLike } from './date';
 import * as displayChart from './tools/display-chart';
 
@@ -33,17 +50,6 @@ export const DEFAULT_COLORS = ['#104e64', '#f54900', '#009689', '#ffb900', '#fe9
 const AXIS_TICK = { fontSize: 12 };
 const CATEGORY_XAXIS_HEIGHT = 56;
 const X_AXIS_LABEL_HEIGHT = 22;
-const DATA_LABEL_PROPS = {
-	fill: 'var(--foreground, #111827)',
-	fontSize: 11,
-	fontFamily: 'system-ui, sans-serif',
-};
-const DATA_LABEL_MARGIN_TOP = 24;
-const DATA_LABEL_HEADROOM_RATIO = 0.9;
-const MAX_LINE_AREA_DATA_LABELS = 12;
-
-/** Theme-aware background used to draw the thin gaps between pie/donut slices. */
-const DEFAULT_BACKGROUND = 'var(--background, #ffffff)';
 
 /** Beyond this many slices, pie/donut charts bucket the smallest into a single "Other" slice. */
 const MAX_PIE_SLICES = 10;
@@ -58,7 +64,7 @@ const STACK_SEPARATOR_WIDTH = 1;
  * in the browser; the concrete fallback covers the backend PNG/HTML export where the backend
  * passes an explicit `backgroundColor` and CSS vars do not resolve.
  */
-const DEFAULT_BACKGROUND_COLOR = 'var(--background, #ffffff)';
+const DEFAULT_BACKGROUND = 'var(--background, #ffffff)';
 
 /**
  * Reserved width for the Y axis band. Smaller than the Recharts default (60)
@@ -70,6 +76,8 @@ const VALUE_AXIS_DEFAULT_WIDTH = 40;
 const VALUE_AXIS_MAX_WIDTH = 120;
 const VALUE_AXIS_CHARACTER_WIDTH = 7;
 const VALUE_AXIS_PADDING = 12;
+/** Reserves horizontal room for a rotated axis title so it does not overlap tick values. */
+const AXIS_LABEL_WIDTH = 20;
 
 export function labelize(key: unknown, dateFormat?: DateFormatSettings | null): string {
 	const str = String(key);
@@ -77,30 +85,6 @@ export function labelize(key: unknown, dateFormat?: DateFormatSettings | null): 
 		return formatDateValue(str, dateFormat);
 	}
 	return str.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-export function formatCompactNumber(value: number): string {
-	const abs = Math.abs(value);
-	if (abs >= 1_000_000_000) {
-		return `${(value / 1_000_000_000).toFixed(1).replace(/\.0$/, '')}B`;
-	}
-	if (abs >= 1_000_000) {
-		return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
-	}
-	if (abs >= 10_000) {
-		return `${(value / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
-	}
-	return value.toLocaleString();
-}
-
-export function formatChartValue(
-	value: number,
-	valueFormat?: displayChart.ValueFormat,
-	opts?: { compact?: boolean },
-): string {
-	const formatted = formatWithD3(value, valueFormat);
-	const body = formatted ?? (opts?.compact ? formatCompactNumber(value) : value.toLocaleString());
-	return attachValueAffixes(body, valueFormat);
 }
 
 /**
@@ -113,15 +97,8 @@ export function formatChartValue(
  */
 export function formatYAxisTick(value: number): string {
 	const abs = Math.abs(value);
-	const sign = value < 0 ? '-' : '';
-	if (abs >= 1_000_000_000) {
-		return `${sign}${abbreviate(abs, 1_000_000_000)}B`;
-	}
-	if (abs >= 1_000_000) {
-		return `${sign}${abbreviate(abs, 1_000_000)}M`;
-	}
 	if (abs >= 1_000) {
-		return `${sign}${abbreviate(abs, 1_000)}K`;
+		return formatCompactUnit(value, 2);
 	}
 	if (Number.isInteger(value)) {
 		return String(value);
@@ -129,9 +106,14 @@ export function formatYAxisTick(value: number): string {
 	return String(Number(abs < 1 ? value.toPrecision(2) : value.toFixed(2)));
 }
 
-export function computeValueAxisWidth(axisValues: number[], valueFormat?: displayChart.ValueFormat): number {
+export function computeValueAxisWidth(
+	axisValues: number[],
+	valueFormat?: displayChart.ValueFormat,
+	hasLabel = false,
+): number {
+	const labelAllowance = hasLabel ? AXIS_LABEL_WIDTH : 0;
 	if (axisValues.length === 0) {
-		return VALUE_AXIS_DEFAULT_WIDTH;
+		return VALUE_AXIS_DEFAULT_WIDTH + labelAllowance;
 	}
 
 	let minimumValue = axisValues[0];
@@ -150,12 +132,12 @@ export function computeValueAxisWidth(axisValues: number[], valueFormat?: displa
 	}
 
 	const maximumLabelLength = Math.max(...candidates.map((value) => formatValueYAxisTick(value, valueFormat).length));
-	const estimatedWidth = maximumLabelLength * VALUE_AXIS_CHARACTER_WIDTH + VALUE_AXIS_PADDING;
-	return Math.min(VALUE_AXIS_MAX_WIDTH, Math.max(Y_AXIS_WIDTH, estimatedWidth));
-}
-
-function abbreviate(abs: number, unit: number): string {
-	return String(Number((abs / unit).toFixed(2)));
+	const estimatedWidth =
+		maximumLabelLength * VALUE_AXIS_CHARACTER_WIDTH + VALUE_AXIS_PADDING + labelAllowance + labelAllowance;
+	return Math.min(
+		VALUE_AXIS_MAX_WIDTH + labelAllowance + labelAllowance,
+		Math.max(Y_AXIS_WIDTH + labelAllowance + labelAllowance, estimatedWidth),
+	);
 }
 
 /** Formats a 0–1 stack ratio (from Recharts `stackOffset="expand"`) as a whole-number percentage. */
@@ -281,11 +263,6 @@ function parseDateMs(value: unknown): number | null {
 	const normalized = trimmed.length === 7 ? `${trimmed}-01` : trimmed.replace(' ', 'T');
 	const ms = new Date(normalized).getTime();
 	return Number.isNaN(ms) ? null : ms;
-}
-
-export function formatDataLabel(value: unknown, valueFormat?: displayChart.ValueFormat): string {
-	const number = toFiniteNumber(value);
-	return number == null ? '' : formatChartValue(number, valueFormat, { compact: true });
 }
 
 export function defaultColorFor(_key: string, index: number): string {
@@ -449,81 +426,8 @@ function buildChartMargin(props: BuildChartProps, showTitle: boolean) {
 	return { ...props.margin, top: (props.margin?.top ?? 0) + titleTop + labelsTop };
 }
 
-export function shouldReserveDataLabelHeadroom(props: BuildChartProps): boolean {
-	if (props.showDataLabels !== true || !isCartesianLabelChart(props.chartType)) {
-		return false;
-	}
-	const maxValue = getMaxPlottedValue(props);
-	if (maxValue == null || maxValue <= 0) {
-		return false;
-	}
-	return maxValue >= niceAxisMax(maxValue) * DATA_LABEL_HEADROOM_RATIO;
-}
-
-function isCartesianLabelChart(chartType: displayChart.ChartType): boolean {
-	return (
-		chartType === 'bar' ||
-		chartType === 'stacked_bar' ||
-		chartType === 'line' ||
-		chartType === 'area' ||
-		chartType === 'stacked_area' ||
-		chartType === 'mixed'
-	);
-}
-
-function getMaxPlottedValue(props: BuildChartProps): number | null {
-	const isStacked = props.chartType === 'stacked_bar' || props.chartType === 'stacked_area';
-	return isStacked ? getMaxStackTotal(props.data, props.series) : getMaxSeriesValue(props.data, props.series);
-}
-
-function getMaxSeriesValue(data: Record<string, unknown>[], series: displayChart.SeriesConfig[]): number | null {
-	let max: number | null = null;
-	for (const row of data) {
-		for (const item of series) {
-			const value = toFiniteNumber(row[item.data_key]);
-			if (value != null && (max == null || value > max)) {
-				max = value;
-			}
-		}
-	}
-	return max;
-}
-
-function getMaxStackTotal(data: Record<string, unknown>[], series: displayChart.SeriesConfig[]): number | null {
-	let max: number | null = null;
-	for (const row of data) {
-		let positive = 0;
-		for (const item of series) {
-			if (item.is_total) {
-				continue;
-			}
-			const value = toFiniteNumber(row[item.data_key]);
-			if (value != null && value > 0) {
-				positive += value;
-			}
-		}
-		if (positive > 0 && (max == null || positive > max)) {
-			max = positive;
-		}
-	}
-	return max;
-}
-
-export function niceAxisMax(dataMax: number, tickCount = 5): number {
-	if (dataMax <= 0) {
-		return 0;
-	}
-	const roughStep = dataMax / (tickCount - 1);
-	const magnitude = 10 ** Math.floor(Math.log10(roughStep));
-	const normalized = roughStep / magnitude;
-	const niceNormalized =
-		normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 2.5 ? 2.5 : normalized <= 5 ? 5 : 10;
-	const niceStep = niceNormalized * magnitude;
-	return niceStep * Math.ceil(dataMax / niceStep);
-}
-
 function buildKpiCard(props: ResolvedProps, leadingSlot?: React.ReactNode) {
-	const { data, series, valueFormatter } = props;
+	const { data, series } = props;
 
 	return (
 		<KpiCardContainer>
@@ -612,7 +516,7 @@ function KpiTrendArrow({ direction }: { direction: KpiComparisonDirection }) {
 function renderValueYAxis(isPercent = false, valueFormatter = formatYAxisTick, yAxisLabel?: string) {
 	return (
 		<YAxis
-			width={Y_AXIS_WIDTH}
+			width={Y_AXIS_WIDTH + (yAxisLabel ? AXIS_LABEL_WIDTH : 0)}
 			tick={AXIS_TICK}
 			tickLine={false}
 			axisLine={false}
@@ -643,6 +547,7 @@ function renderCategoryXAxis({
 	compactInterval,
 	tickFontSize,
 	maxLabelChars,
+	labelFootroom = 0,
 	xAxisLabel,
 }: {
 	xAxisKey: string;
@@ -653,6 +558,7 @@ function renderCategoryXAxis({
 	compactInterval?: number;
 	tickFontSize?: number;
 	maxLabelChars?: number;
+	labelFootroom?: number;
 	xAxisLabel?: string;
 }) {
 	const tickFormatter = compact
@@ -673,12 +579,12 @@ function renderCategoryXAxis({
 			domain={['dataMin', 'dataMax']}
 			tick={compact ? { ...AXIS_TICK, fontSize: tickFontSize ?? AXIS_TICK.fontSize } : AXIS_TICK}
 			tickLine
-			tickMargin={10}
+			tickMargin={10 + labelFootroom}
 			axisLine={false}
 			minTickGap={12}
 			interval={compact ? (compactInterval ?? 0) : xAxisInterval}
 			tickFormatter={tickFormatter}
-			height={CATEGORY_XAXIS_HEIGHT + (xAxisLabel ? X_AXIS_LABEL_HEIGHT : 0)}
+			height={CATEGORY_XAXIS_HEIGHT + labelFootroom + (xAxisLabel ? X_AXIS_LABEL_HEIGHT : 0)}
 			label={xAxisLabelProps(xAxisLabel)}
 			{...(compact ? { angle: -35, textAnchor: 'end' as const } : {})}
 		/>
@@ -710,13 +616,19 @@ function buildBarChart(props: ResolvedProps) {
 	} = props;
 	const isStacked = displayChart.isStackedChartType(chartType);
 	const isPercent = displayChart.isPercentStackedChartType(chartType);
-	const dataKeys = series.map((s) => s.data_key);
+	const { renderedSeries, stackTotalLayer } = getDataLabelSetup(props, isStacked);
+	const dataKeys = renderedSeries.map((s) => s.data_key);
 	const axisValues = isStacked ? collectStackedAxisValues(data, dataKeys) : collectAxisValues(data, dataKeys);
-	const { renderedSeries, stackTotalLabel, stackTotalLabelIndex } = getDataLabelSetup(props, isStacked);
 	const seriesKeys = renderedSeries.map((s) => s.data_key);
-	const separatorColor = props.backgroundColor ?? DEFAULT_BACKGROUND_COLOR;
+	const separatorColor = props.backgroundColor ?? DEFAULT_BACKGROUND;
+	const labelFootroom = shouldReserveStackTotalFootroom(props) ? DATA_LABEL_X_AXIS_FOOTROOM : 0;
 	const chartLevelFormat = getChartLevelValueFormat(series);
-	const valueAxisWidth = computeValueAxisWidth(axisValues, chartLevelFormat);
+	const yAxisDomain = isPercent
+		? undefined
+		: resolveBarYAxisDomain(yAxisMin, yAxisMax, axisValues, showDataLabels === true);
+	const valueAxisValues = typeof yAxisDomain?.[1] === 'number' ? [...axisValues, yAxisDomain[1]] : axisValues;
+	const valueAxisWidth = computeValueAxisWidth(valueAxisValues, chartLevelFormat, Boolean(yAxisLabel));
+	const dataLabelsLayer = showDataLabels && !isStacked ? renderDataLabelsLayer(series) : undefined;
 
 	return (
 		<BarChart data={data} accessibilityLayer margin={margin} stackOffset={isPercent ? 'expand' : undefined}>
@@ -731,7 +643,7 @@ function buildBarChart(props: ResolvedProps) {
 					axisLine={false}
 					minTickGap={12}
 					tickFormatter={(value: number) => formatValueYAxisTick(value, chartLevelFormat)}
-					domain={resolveYAxisDomain(yAxisMin, yAxisMax, axisValues, true)}
+					domain={yAxisDomain}
 					allowDataOverflow={yAxisMin !== undefined || yAxisMax !== undefined}
 					label={axisLabel(yAxisLabel, 'left')}
 				/>
@@ -745,6 +657,7 @@ function buildBarChart(props: ResolvedProps) {
 				compactInterval: compactXAxisInterval,
 				tickFontSize: xAxisTickFontSize,
 				maxLabelChars: xAxisMaxLabelChars,
+				labelFootroom,
 				xAxisLabel,
 			})}
 			{children}
@@ -758,17 +671,10 @@ function buildBarChart(props: ResolvedProps) {
 					shape={isStacked ? renderStackedBarShape(seriesKeys, s.data_key, separatorColor) : undefined}
 					isAnimationActive={Boolean(props.animate)}
 					animationDuration={CHART_ANIMATION_DURATION_MS}
-				>
-					{showDataLabels && !isStacked && (
-						<LabelList
-							position='top'
-							formatter={(value: unknown) => formatDataLabel(value, s.value_format)}
-							{...DATA_LABEL_PROPS}
-						/>
-					)}
-					{stackTotalLabel && i === stackTotalLabelIndex && <LabelList content={stackTotalLabel} />}
-				</Bar>
+				/>
 			))}
+			{stackTotalLayer && <Customized component={stackTotalLayer} />}
+			{dataLabelsLayer && <Customized component={dataLabelsLayer} />}
 		</BarChart>
 	);
 }
@@ -840,12 +746,13 @@ function buildAreaChart(props: ResolvedProps) {
 	const isStacked = displayChart.isStackedChartType(chartType);
 	const isPercent = displayChart.isPercentStackedChartType(chartType);
 	const zeroBaseline = chartType !== 'line';
-	const dataKeys = series.map((s) => s.data_key);
+	const { renderedSeries, stackTotalLayer } = getDataLabelSetup(props, isStacked);
+	const dataKeys = renderedSeries.map((s) => s.data_key);
 	const axisValues = isStacked ? collectStackedAxisValues(data, dataKeys) : collectAxisValues(data, dataKeys);
-	const { renderedSeries, stackTotalLabel, stackTotalLabelIndex } = getDataLabelSetup(props, isStacked);
-	const pointLabelContent = showDataLabels && !isStacked ? buildPointLabelContentBySeries(data, series) : new Map();
+	const labelFootroom = shouldReserveStackTotalFootroom(props) ? DATA_LABEL_X_AXIS_FOOTROOM : 0;
 	const chartLevelFormat = getChartLevelValueFormat(series);
-	const valueAxisWidth = computeValueAxisWidth(axisValues, chartLevelFormat);
+	const valueAxisWidth = computeValueAxisWidth(axisValues, chartLevelFormat, Boolean(yAxisLabel));
+	const dataLabelsLayer = showDataLabels && !isStacked ? renderDataLabelsLayer(series) : undefined;
 
 	return (
 		<AreaChart data={data} accessibilityLayer margin={margin} stackOffset={isPercent ? 'expand' : undefined}>
@@ -886,6 +793,7 @@ function buildAreaChart(props: ResolvedProps) {
 				compactInterval: compactXAxisInterval,
 				tickFontSize: xAxisTickFontSize,
 				maxLabelChars: xAxisMaxLabelChars,
+				labelFootroom,
 				xAxisLabel,
 			})}
 			{children}
@@ -899,11 +807,10 @@ function buildAreaChart(props: ResolvedProps) {
 					stackId={isStacked ? 'stack' : undefined}
 					isAnimationActive={Boolean(props.animate)}
 					animationDuration={CHART_ANIMATION_DURATION_MS}
-				>
-					{showDataLabels && !isStacked && <LabelList content={pointLabelContent.get(s.data_key)} />}
-					{stackTotalLabel && i === stackTotalLabelIndex && <LabelList content={stackTotalLabel} />}
-				</Area>
+				/>
 			))}
+			{stackTotalLayer && <Customized component={stackTotalLayer} />}
+			{dataLabelsLayer && <Customized component={dataLabelsLayer} />}
 		</AreaChart>
 	);
 }
@@ -952,10 +859,10 @@ function buildComboChart(props: ResolvedProps) {
 	const rightFormat = getChartLevelValueFormat(rightSeries);
 	const leftDomain = resolveComboAxisDomain(data, leftSeries, yAxisMin, yAxisMax);
 	const rightDomain = resolveComboAxisDomain(data, rightSeries, yAxisRightMin, yAxisRightMax);
-	const leftAxisWidth = computeComboAxisWidth(data, leftSeries, leftFormat);
-	const rightAxisWidth = computeComboAxisWidth(data, rightSeries, rightFormat);
+	const leftAxisWidth = computeComboAxisWidth(data, leftSeries, leftFormat, Boolean(yAxisLabel));
+	const rightAxisWidth = computeComboAxisWidth(data, rightSeries, rightFormat, Boolean(yAxisRightLabel));
 	const areaSeries = series.filter((s) => comboSeriesType(s, chartType) === 'area');
-	const pointLabelContent = showDataLabels ? buildPointLabelContentBySeries(data, series) : new Map();
+	const dataLabelsLayer = showDataLabels ? renderDataLabelsLayer(series) : undefined;
 
 	return (
 		<ComposedChart data={data} accessibilityLayer margin={margin}>
@@ -1019,17 +926,8 @@ function buildComboChart(props: ResolvedProps) {
 				maxLabelChars: xAxisMaxLabelChars,
 			})}
 			{children}
-			{series.map((s, i) =>
-				renderComboSeries(
-					s,
-					i,
-					chartType,
-					colorFor,
-					showDataLabels,
-					idPrefix,
-					pointLabelContent.get(s.data_key),
-				),
-			)}
+			{series.map((s, i) => renderComboSeries(s, i, chartType, colorFor, idPrefix))}
+			{dataLabelsLayer && <Customized component={dataLabelsLayer} />}
 		</ComposedChart>
 	);
 }
@@ -1051,12 +949,13 @@ function computeComboAxisWidth(
 	data: Record<string, unknown>[],
 	axisSeries: displayChart.SeriesConfig[],
 	valueFormat?: displayChart.ValueFormat,
+	hasLabel = false,
 ) {
 	const values = collectAxisValues(
 		data,
 		axisSeries.map((s) => s.data_key),
 	);
-	return computeValueAxisWidth(values, valueFormat);
+	return computeValueAxisWidth(values, valueFormat, hasLabel);
 }
 
 function renderComboSeries(
@@ -1064,9 +963,7 @@ function renderComboSeries(
 	index: number,
 	baseType: displayChart.ChartType,
 	colorFor: (key: string, index: number) => string,
-	showDataLabels: boolean | undefined,
 	idPrefix: string,
-	pointLabelContent: ReturnType<typeof renderPointLabel> | undefined,
 ) {
 	const color = colorFor(series.data_key, index);
 	const yAxisId = comboAxisSide(series);
@@ -1083,9 +980,7 @@ function renderComboSeries(
 				strokeWidth={2}
 				dot={false}
 				isAnimationActive={false}
-			>
-				{showDataLabels && <LabelList content={pointLabelContent} />}
-			</Line>
+			/>
 		);
 	}
 	if (type === 'area') {
@@ -1098,9 +993,7 @@ function renderComboSeries(
 				stroke={color}
 				fill={`url(#${idPrefix}grad-combo-${index})`}
 				isAnimationActive={false}
-			>
-				{showDataLabels && <LabelList content={pointLabelContent} />}
-			</Area>
+			/>
 		);
 	}
 	return (
@@ -1111,9 +1004,7 @@ function renderComboSeries(
 			fill={color}
 			radius={[4, 4, 4, 4]}
 			isAnimationActive={false}
-		>
-			{showDataLabels && <LabelList position='top' formatter={formatDataLabel} {...DATA_LABEL_PROPS} />}
-		</Bar>
+		/>
 	);
 }
 
@@ -1158,7 +1049,7 @@ function buildScatterChart(props: ResolvedProps) {
 		data,
 		series.map((s) => s.data_key),
 	);
-	const valueAxisWidth = computeValueAxisWidth(axisValues, chartLevelFormat);
+	const valueAxisWidth = computeValueAxisWidth(axisValues, chartLevelFormat, Boolean(yAxisLabel));
 
 	return (
 		<ScatterChart data={data} accessibilityLayer margin={margin}>
@@ -1227,8 +1118,9 @@ function buildRadarChart(props: ResolvedProps) {
 }
 
 function buildPieChart(props: ResolvedProps) {
-	const { data, chartType, xAxisKey, series, colorFor, children, margin, backgroundColor } = props;
+	const { data, chartType, xAxisKey, series, colorFor, children, margin, backgroundColor, showDataLabels } = props;
 	const dataKey = series[0].data_key;
+	const dataLabelsLayer = showDataLabels ? renderPieDataLabelsLayer(series[0].value_format) : undefined;
 
 	// Callers are expected to bucket the data (see `bucketPieData`) so the legend
 	// and slices share one set; the builder does not re-bucket here.
@@ -1247,6 +1139,7 @@ function buildPieChart(props: ResolvedProps) {
 				dataKey={dataKey}
 				nameKey={xAxisKey}
 				innerRadius={chartType === 'donut' ? DONUT_INNER_RADIUS : 0}
+				outerRadius={showDataLabels ? PIE_LABELLED_OUTER_RADIUS : undefined}
 				label={false}
 				labelLine={false}
 				stroke={backgroundColor}
@@ -1254,6 +1147,7 @@ function buildPieChart(props: ResolvedProps) {
 				isAnimationActive={Boolean(props.animate)}
 				animationDuration={CHART_ANIMATION_DURATION_MS}
 			/>
+			{dataLabelsLayer && <Customized component={dataLabelsLayer} />}
 			{children}
 		</PieChart>
 	);
@@ -1317,210 +1211,4 @@ function renderChartTitle(title: string) {
 			)}
 		/>
 	);
-}
-
-type LabelCoordinate = number | string | undefined;
-
-interface StackTotalLabelProps {
-	x?: LabelCoordinate;
-	y?: LabelCoordinate;
-	width?: LabelCoordinate;
-	index?: number;
-}
-
-interface PointLabelProps {
-	x?: LabelCoordinate;
-	y?: LabelCoordinate;
-	value?: unknown;
-	index?: number;
-}
-
-function buildPointLabelContentBySeries(data: Record<string, unknown>[], series: displayChart.SeriesConfig[]) {
-	return new Map(
-		series.map((item) => [
-			item.data_key,
-			renderPointLabel(getLabeledIndices(data, item.data_key), item.value_format),
-		]),
-	);
-}
-
-function DataLabelText({ x, y, children }: { x: number; y: number; children: React.ReactNode }) {
-	return (
-		<text x={x} y={y - 6} textAnchor='middle' dominantBaseline='alphabetic' {...DATA_LABEL_PROPS}>
-			{children}
-		</text>
-	);
-}
-
-function renderPointLabel(labeledIndices: Set<number>, valueFormat?: displayChart.ValueFormat) {
-	return ({ x, y, value, index }: PointLabelProps) => {
-		const labelX = toFiniteNumber(x);
-		const labelY = toFiniteNumber(y);
-		if (labelX == null || labelY == null || index == null || !labeledIndices.has(index)) {
-			return null;
-		}
-
-		const label = formatDataLabel(value, valueFormat);
-		if (!label) {
-			return null;
-		}
-
-		return (
-			<DataLabelText x={labelX} y={labelY}>
-				{label}
-			</DataLabelText>
-		);
-	};
-}
-
-function getLabeledIndices(
-	data: Record<string, unknown>[],
-	dataKey: string,
-	maxLabels = MAX_LINE_AREA_DATA_LABELS,
-): Set<number> {
-	if (data.length <= maxLabels) {
-		return new Set(data.map((_, index) => index));
-	}
-
-	const values = data.map((row) => toFiniteNumber(row[dataKey]));
-	const peaks = values
-		.map((value, index) => ({ value, index }))
-		.filter(
-			(point): point is { value: number; index: number } =>
-				point.value != null && isLocalMaximum(values, point.index),
-		)
-		.sort((a, b) => b.value - a.value || a.index - b.index)
-		.slice(0, maxLabels)
-		.map((point) => point.index);
-
-	const maxIndex = getMaxValueIndex(data, dataKey);
-	if (maxIndex != null) {
-		peaks.push(maxIndex);
-	}
-
-	return new Set(peaks);
-}
-
-function isLocalMaximum(values: (number | null)[], index: number): boolean {
-	const value = values[index];
-	if (value == null) {
-		return false;
-	}
-	const left = values[index - 1] ?? null;
-	const right = values[index + 1] ?? null;
-	return (left == null || value > left) && (right == null || value > right);
-}
-
-function getMaxValueIndex(data: Record<string, unknown>[], dataKey: string): number | null {
-	return (
-		data.reduce<{ value: number; index: number } | null>((max, row, index) => {
-			const value = toFiniteNumber(row[dataKey]);
-			if (value == null || (max != null && value <= max.value)) {
-				return max;
-			}
-			return { value, index };
-		}, null)?.index ?? null
-	);
-}
-
-function renderStackTotalLabel(data: Record<string, unknown>[], series: displayChart.SeriesConfig[]) {
-	const valueFormat = getChartLevelValueFormat(series);
-	return ({ x, y, width, index }: StackTotalLabelProps) => {
-		const labelX = getCenteredLabelX(x, width);
-		const labelY = toFiniteNumber(y);
-		if (labelX == null || labelY == null || index == null) {
-			return null;
-		}
-
-		const total = sumStackValue(data[index], series);
-		if (total == null) {
-			return null;
-		}
-
-		return (
-			<DataLabelText x={labelX} y={labelY}>
-				{formatChartValue(total, valueFormat, { compact: true })}
-			</DataLabelText>
-		);
-	};
-}
-
-function getDataLabelSetup(props: ResolvedProps, isStacked: boolean) {
-	const renderedSeries = getRenderedSeries(isStacked, props.series);
-	const stackTotalLabel =
-		props.showDataLabels && isStacked && renderedSeries.length > 0
-			? renderStackTotalLabel(props.data, props.series)
-			: undefined;
-	return { renderedSeries, stackTotalLabel, stackTotalLabelIndex: renderedSeries.length - 1 };
-}
-
-function getRenderedSeries(isStacked: boolean, series: displayChart.SeriesConfig[]): displayChart.SeriesConfig[] {
-	return isStacked ? series.filter((item) => !item.is_total) : series;
-}
-
-function sumStackValue(row: Record<string, unknown> | undefined, series: displayChart.SeriesConfig[]): number | null {
-	if (!row) {
-		return null;
-	}
-
-	const values = series.filter((s) => !s.is_total).map((s) => toFiniteNumber(row[s.data_key]));
-	const numericValues = values.filter((value): value is number => value != null);
-	return numericValues.length > 0 ? numericValues.reduce((sum, value) => sum + value, 0) : null;
-}
-
-function getCenteredLabelX(x: LabelCoordinate, width: LabelCoordinate): number | null {
-	const labelX = toFiniteNumber(x);
-	if (labelX == null) {
-		return null;
-	}
-
-	const labelWidth = toFiniteNumber(width);
-	return labelWidth == null ? labelX : labelX + labelWidth / 2;
-}
-
-function toFiniteNumber(value: unknown): number | null {
-	if (typeof value === 'number') {
-		return Number.isFinite(value) ? value : null;
-	}
-	if (typeof value === 'string' && value.trim() !== '') {
-		const parsed = Number(value);
-		return Number.isFinite(parsed) ? parsed : null;
-	}
-	return null;
-}
-
-function getChartLevelValueFormat(series: displayChart.SeriesConfig[]): displayChart.ValueFormat | undefined {
-	const formats = series.filter((item) => !item.is_total).map((item) => item.value_format);
-	const firstFormat = formats[0];
-	const allShareFormat = formats.every(
-		(format) =>
-			format?.d3_format === firstFormat?.d3_format &&
-			format?.compact === firstFormat?.compact &&
-			format?.prefix === firstFormat?.prefix &&
-			format?.suffix === firstFormat?.suffix,
-	);
-	return allShareFormat ? firstFormat : undefined;
-}
-
-function formatWithD3(value: number, valueFormat?: displayChart.ValueFormat): string | null {
-	if (!valueFormat?.d3_format) {
-		return null;
-	}
-	try {
-		const specifier = formatSpecifier(valueFormat.d3_format);
-		const formatted = d3Format(valueFormat.d3_format)(value);
-		if (specifier.type !== 's' || valueFormat.compact === 'si') {
-			return formatted;
-		}
-		return formatted.replace(/k$/, 'K').replace(/G$/, 'B');
-	} catch {
-		return null;
-	}
-}
-
-function attachValueAffixes(value: string, valueFormat?: displayChart.ValueFormat): string {
-	const hasNegativeSign = value.startsWith('-') || value.startsWith('−');
-	const body = hasNegativeSign ? value.slice(1) : value;
-	const sign = hasNegativeSign ? '-' : '';
-	return `${sign}${valueFormat?.prefix ?? ''}${body}${valueFormat?.suffix ?? ''}`;
 }

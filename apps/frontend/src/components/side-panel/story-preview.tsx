@@ -1,13 +1,18 @@
 import { NO_CACHE_SCHEDULE } from '@nao/shared';
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { memo, useCallback, useMemo } from 'react';
-import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
+import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
 import type { QueryDataMap } from '@/components/story-embeds';
-import { StoryChartEmbed as LiveChartEmbed, StoryTableEmbed as LiveTableEmbed } from '@/components/story-embeds';
+import {
+	StoryChartEmbed as LiveChartEmbed,
+	StoryMapEmbed as LiveMapEmbed,
+	StoryTableEmbed as LiveTableEmbed,
+} from '@/components/story-embeds';
 import { StoryFilterBar } from '@/components/story-filter-bar';
 import { SegmentList } from '@/components/story-rendering';
 import { StoryChartEmbed as StaticChartEmbed } from '@/components/side-panel/story-chart-embed';
+import { StoryMapEmbed as StaticMapEmbed } from '@/components/side-panel/story-map-embed';
 import { StoryTableEmbed as StaticTableEmbed } from '@/components/side-panel/story-table-embed';
 import { StoryQuerySqlProvider } from '@/contexts/story-query-sql';
 import { useStoryFilters } from '@/hooks/use-story-filters';
@@ -93,6 +98,24 @@ export const StoryPreview = memo(function StoryPreview({
 		[effectiveQueryData, useLiveUnfiltered, noCacheQuery, storyFilters.hasActiveFilters, storyFilters.isFiltering],
 	);
 
+	const renderMap = useCallback(
+		(map: ParsedMapBlock) => {
+			if (!effectiveQueryData && !useLiveUnfiltered) {
+				return <StaticMapEmbed map={map} />;
+			}
+			return (
+				<LiveMapEmbed
+					map={map}
+					queryData={useLiveUnfiltered ? undefined : effectiveQueryData}
+					liveQuery={useLiveUnfiltered ? noCacheQuery : undefined}
+					hasActiveFilters={storyFilters.hasActiveFilters}
+					isRefreshing={storyFilters.isFiltering}
+				/>
+			);
+		},
+		[effectiveQueryData, useLiveUnfiltered, noCacheQuery, storyFilters.hasActiveFilters, storyFilters.isFiltering],
+	);
+
 	return (
 		<StoryQuerySqlProvider value={querySqlSource}>
 			<div data-story-content className='p-6 flex flex-col gap-4'>
@@ -108,6 +131,7 @@ export const StoryPreview = memo(function StoryPreview({
 					versionKey={versionKey}
 					renderChart={renderChart}
 					renderTable={renderTable}
+					renderMap={renderMap}
 				/>
 			</div>
 		</StoryQuerySqlProvider>

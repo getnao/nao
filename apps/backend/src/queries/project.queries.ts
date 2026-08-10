@@ -1,3 +1,4 @@
+import type { CustomBoundarySet, MapSettings } from '@nao/shared';
 import { DEFAULT_DATE_FORMAT_SETTINGS, type DisplaySettings } from '@nao/shared/date';
 import type { UpdatedAtFilter, UserRole } from '@nao/shared/types';
 import { and, asc, desc, eq, gt, gte, isNotNull, lte, or, type SQL, sql } from 'drizzle-orm';
@@ -289,6 +290,64 @@ export const updateDisplaySettings = async (projectId: string, settings: Display
 	await db.update(s.project).set({ displaySettings: next }).where(eq(s.project.id, projectId)).execute();
 	return next;
 };
+
+export const getMapSettings = async (projectId: string): Promise<MapSettings> => {
+	const project = await getProjectById(projectId);
+	return project?.mapSettings ?? {};
+};
+
+export const getCustomBoundaries = async (projectId: string): Promise<CustomBoundarySet[]> => {
+	const settings = await getMapSettings(projectId);
+	return settings.customBoundaries ?? [];
+};
+
+export const addCustomBoundary = (projectId: string, boundary: CustomBoundarySet): Promise<CustomBoundarySet[]> =>
+	mutateCustomBoundaries(projectId, (current) => {
+		if (current.some((b) => b.key === boundary.key)) {
+			throw new Error(`A boundary set with key "${boundary.key}" already exists.`);
+		}
+		return [...current, boundary];
+	});
+
+export const updateCustomBoundary = (
+	projectId: string,
+	key: string,
+	patch: Partial<CustomBoundarySet>,
+): Promise<CustomBoundarySet[]> =>
+	mutateCustomBoundaries(projectId, (current) => {
+		if (patch.key && patch.key !== key && current.some((b) => b.key === patch.key)) {
+			throw new Error(`A boundary set with key "${patch.key}" already exists.`);
+		}
+		return current.map((b) => (b.key === key ? { ...b, ...patch } : b));
+	});
+
+export const deleteCustomBoundary = (projectId: string, key: string): Promise<CustomBoundarySet[]> =>
+	mutateCustomBoundaries(projectId, (current) => current.filter((b) => b.key !== key));
+
+const mutateCustomBoundaries = async (
+	projectId: string,
+	transform: (current: CustomBoundarySet[]) => CustomBoundarySet[],
+): Promise<CustomBoundarySet[]> =>
+	db.transaction(async (tx) => {
+		const base = tx
+			.select({ mapSettings: s.project.mapSettings })
+			.from(s.project)
+			.where(eq(s.project.id, projectId));
+		const [row] = await lockForUpdate(base).execute();
+		const settings = row?.mapSettings ?? {};
+		const next = transform(settings.customBoundaries ?? []);
+		await tx
+			.update(s.project)
+			.set({ mapSettings: { ...settings, customBoundaries: next } })
+			.where(eq(s.project.id, projectId))
+			.execute();
+		return next;
+	});
+
+const lockForUpdate = <Query extends { execute(): unknown }>(query: Query): Query =>
+	dbConfig.dialect === Dialect.Postgres ? (query as Query & Lockable<Query>).for('update') : query;
+
+type Lockable<Query> = { for(strength: 'update'): Query };
 
 export const getEnvVars = async (projectId: string): Promise<Record<string, string>> => {
 	const project = await getProjectById(projectId);

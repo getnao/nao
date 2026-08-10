@@ -134,6 +134,7 @@ export type SummarySegment =
 	| { type: 'text'; content: string }
 	| { type: 'chart'; chartType: string; title: string; kpiCount?: number }
 	| { type: 'table'; title: string }
+	| { type: 'map'; mapType: string; title: string }
 	| { type: 'grid'; cols: number; widths: number[] | null; children: SummarySegment[] };
 
 export type StorySummary = {
@@ -343,13 +344,14 @@ export interface GroupedChatListResponse {
 	groups: ChatGroup[];
 }
 
-export const MCP_EMBED_KINDS = ['story', 'chart'] as const satisfies readonly string[];
+export const MCP_EMBED_KINDS = ['story', 'chart', 'map'] as const satisfies readonly string[];
 
 export type McpEmbedKind = (typeof MCP_EMBED_KINDS)[number];
 
 export const MCP_EMBED_SANDBOX_HTML_FIELD = {
 	story: 'sandboxStoryHtml',
 	chart: 'sandboxChartHtml',
+	map: 'sandboxMapHtml',
 } as const satisfies Record<McpEmbedKind, string>;
 
 export type EmbedTokenPayload = {

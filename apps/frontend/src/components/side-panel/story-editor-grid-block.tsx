@@ -5,6 +5,7 @@ import { GripVertical } from 'lucide-react';
 import { Streamdown } from 'streamdown';
 import { useContext } from 'react';
 import { StoryChartEmbed } from './story-chart-embed';
+import { StoryMapEmbed } from './story-map-embed';
 import { StoryTableEmbed } from './story-table-embed';
 import { blockSelectionPluginKey, selectColumnFromHandle } from './story-block-selection';
 import { BlockSelectionContext } from './story-block-selection-context';
@@ -16,6 +17,7 @@ import type { ReactNodeViewProps } from '@tiptap/react';
 import type { ReactNode } from 'react';
 import { MarkdownTable } from '@/components/chat-messages/markdown-table';
 import { EditorStoryChartEditProvider } from '@/contexts/story-chart-edit';
+import { EditorStoryMapEditProvider } from '@/contexts/story-map-edit';
 import { markdownPlugins } from '@/lib/markdown';
 import { cn } from '@/lib/utils';
 
@@ -58,6 +60,12 @@ function renderColumnContent(
 					dragHandle={dragHandle}
 					dragHandlePlacement={dragHandlePlacement}
 				/>
+			);
+		case 'map':
+			return (
+				<EditorStoryMapEditProvider onReplaceTag={onReplaceTag}>
+					<StoryMapEmbed map={segment.map} dragHandle={dragHandle} />
+				</EditorStoryMapEditProvider>
 			);
 		case 'grid':
 			return (

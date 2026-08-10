@@ -24,6 +24,7 @@ import {
 	createTelegramStopButtonCard,
 	EXCLUDED_TOOLS,
 	formatMessagingError,
+	renderMapImage,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
 import { posthog, PostHogEvent } from './posthog';
@@ -420,8 +421,35 @@ class TelegramService {
 		) {
 			return;
 		}
+		state.renderedToolCallIds.add(part.toolCallId);
+		const png = await renderMapImage(part, state, this._projectId, { toolCallId: part.toolCallId });
+		if (!png) {
+			await this._pushMapLinkCard(part, ctx);
+			return;
+		}
 		try {
-			state.renderedToolCallIds.add(part.toolCallId);
+			ctx.textBlockIndex = -1;
+			await ctx.thread.post({
+				markdown: '',
+				files: [{ data: png, filename: 'map.png' }],
+			});
+			if (ctx.convMessage) {
+				await this._safeEdit(ctx.convMessage, Card({ children: ctx.blocks }));
+			}
+		} catch (error) {
+			console.error('Error posting map image:', error);
+			await this._pushMapLinkCard(part, ctx);
+		}
+	}
+
+	private async _pushMapLinkCard(
+		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
+		ctx: ConversationContext,
+	): Promise<void> {
+		if (part.state !== 'output-available') {
+			return;
+		}
+		try {
 			const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
 			ctx.textBlockIndex = -1;
 			ctx.blocks.push(...createTelegramMapLinkCard(part.input.title, chatUrl));

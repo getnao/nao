@@ -8,6 +8,7 @@
 export const LICENSE_FEATURES = {
 	sso: 'sso',
 	whiteLabel: 'white-label',
+	userBudget: 'user-budget',
 } as const;
 
 export type LicenseFeature = (typeof LICENSE_FEATURES)[keyof typeof LICENSE_FEATURES];

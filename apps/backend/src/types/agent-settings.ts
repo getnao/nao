@@ -2,10 +2,10 @@ export type WebSearchMode = 'provider';
 
 export interface AgentSettings {
 	memoryEnabled?: boolean;
+	mapEnabled?: boolean;
 	experimental?: {
 		pythonSandboxing?: boolean;
 		sandboxes?: boolean;
-		displayMap?: boolean;
 	};
 	transcribe?: {
 		enabled?: boolean;

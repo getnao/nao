@@ -40,6 +40,7 @@ import {
 	FEEDBACK_MODAL_CALLBACK_ID,
 	formatMessagingError,
 	formatSlackMessageText,
+	renderMapImage,
 } from '../utils/messaging-provider';
 import { shouldReplyToSlackThreadMessage } from '../utils/slack-reply-policy';
 import { isEmailDomainAllowed } from '../utils/utils';
@@ -784,6 +785,41 @@ class ProjectSlackBot {
 			return;
 		}
 		state.renderedToolCallIds.add(part.toolCallId);
+		const png = await renderMapImage(part, state, this.projectId, {
+			chatId: ctx.chatId,
+			toolCallId: part.toolCallId,
+		});
+		if (!png) {
+			await this._pushMapLinkCard(part, ctx);
+			return;
+		}
+		try {
+			const mapId = await chartImageQueries.saveChart(part.toolCallId, png.toString('base64'));
+			if (this._config.transportMode === 'socket') {
+				await this._uploadChartImageFile(png, part.input.title, ctx);
+				return;
+			}
+			const imageUrl = new URL(`c/${ctx.chatId}/${mapId}.png`, this._redirectUrl).toString();
+			ctx.textBlockIndex = -1;
+			ctx.textBlockCount = 0;
+			ctx.blocks.push(createImageBlock(imageUrl));
+			await ctx.convMessage?.edit(Card({ children: ctx.blocks }));
+		} catch (error) {
+			logger.error(`Map image rendering failed: ${String(error)}`, {
+				source: 'system',
+				context: { chatId: ctx.chatId, toolCallId: part.toolCallId },
+			});
+			await this._pushMapLinkCard(part, ctx);
+		}
+	}
+
+	private async _pushMapLinkCard(
+		part: Extract<UIMessagePart, { type: 'tool-display_map' }>,
+		ctx: ConversationContext,
+	): Promise<void> {
+		if (part.state !== 'output-available') {
+			return;
+		}
 		try {
 			const chatUrl = new URL(ctx.chatId, this._redirectUrl).toString();
 			ctx.textBlockIndex = -1;

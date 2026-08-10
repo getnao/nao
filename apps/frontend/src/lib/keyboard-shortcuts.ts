@@ -4,6 +4,7 @@ import { formatShortcut, formatShortcutLabel } from '@/lib/platform';
 export type ShortcutId =
 	| 'toggle-sidebar'
 	| 'command-menu'
+	| 'toggle-theme'
 	| 'new-chat'
 	| 'go-to-stories'
 	| 'keyboard-help'
@@ -16,6 +17,7 @@ export type ShortcutDefinition = {
 	label: string;
 	group: ShortcutGroup;
 	shortcut: Shortcut;
+	alternateShortcuts?: readonly Shortcut[];
 	allowInInput?: boolean;
 };
 
@@ -33,10 +35,17 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
 		shortcut: { mod: true, key: 'k' },
 	},
 	{
+		id: 'toggle-theme',
+		label: 'Toggle light/dark mode',
+		group: 'General',
+		shortcut: { mod: true, shift: true, key: 'l' },
+	},
+	{
 		id: 'keyboard-help',
 		label: 'Keyboard shortcuts',
 		group: 'General',
 		shortcut: { mod: true, key: '/' },
+		alternateShortcuts: [{ mod: true, key: ':' }],
 	},
 	{
 		id: 'new-chat',
@@ -78,7 +87,8 @@ export function getShortcutTokens(id: ShortcutId): string[] {
 }
 
 export function getShortcutLabel(id: ShortcutId): string {
-	return formatShortcutLabel(getShortcut(id).shortcut);
+	const { shortcut, alternateShortcuts = [] } = getShortcut(id);
+	return [shortcut, ...alternateShortcuts].map(formatShortcutLabel).join(' · ');
 }
 
 export function isTypingTarget(event: KeyboardEvent): boolean {

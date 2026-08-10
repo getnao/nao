@@ -2,22 +2,18 @@ import { ToolCallWrapper } from './tool-call-wrapper';
 import type { ToolCallComponentProps } from '.';
 import { Badge } from '@/components/ui/badge';
 import { useToolCallContext } from '@/contexts/tool-call';
-import { SEVERITY_BADGE_VARIANT } from '@/lib/recommendation-severity';
-
-type Severity = 'high' | 'medium' | 'low';
 
 interface RecommendationInsight {
 	signalType: string;
 	metric: string;
 	count: number;
-	exampleChatIds?: string[];
+	triggerRefs?: { chatId: string; targetId?: string }[];
 	snippet?: string;
 }
 
 interface RecordRecommendationInput {
 	suggestedFile?: string;
 	subjectKey?: string;
-	severity?: Severity;
 	title?: string;
 	summary?: string;
 	suggestedAction?: string;
@@ -38,11 +34,6 @@ export const RecordRecommendationToolCall = ({ toolPart }: ToolCallComponentProp
 					Recommendation{' '}
 					<span className='text-xs font-normal truncate'>{input?.title ?? input?.subjectKey}</span>
 				</span>
-			}
-			badge={
-				input?.severity ? (
-					<Badge variant={SEVERITY_BADGE_VARIANT[input.severity]}>{input.severity}</Badge>
-				) : undefined
 			}
 		>
 			{isSettled && input ? (

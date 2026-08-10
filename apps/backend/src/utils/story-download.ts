@@ -57,7 +57,7 @@ async function generateStoryBuffer(
 		case 'pdf':
 			return generateStoryPdf(story, queryData, dateFormat);
 		case 'html':
-			return Buffer.from(generateStoryHtml(story, queryData, dateFormat));
+			return Buffer.from(await generateStoryHtml(story, queryData, dateFormat));
 	}
 }
 

@@ -107,6 +107,7 @@ function buildScopedViews(
 
 	const messages = {
 		chat_id: chatMessage.chatId,
+		message_id: chatMessage.id,
 		user_id: chat.userId,
 		user_name: sql<string>`${user.name}`.as('user_name'),
 		title: chat.title,
@@ -121,6 +122,7 @@ function buildScopedViews(
 		message_source: sql<string>`${chatMessage.source}`.as('message_source'),
 		chat_source: chatSource.as('chat_source'),
 		tool_name: messagePart.toolName,
+		tool_call_id: messagePart.toolCallId,
 		tool_state: messagePart.toolState,
 		tool_error_text: messagePart.toolErrorText,
 		tool_input: messagePart.toolInput,

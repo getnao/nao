@@ -140,6 +140,7 @@ export const ToolCallWrapper = ({
 				onMouseEnter={() => setIsHovering(true)}
 				onMouseLeave={() => setIsHovering(false)}
 				className={cn(isBordered && '-mx-3')}
+				data-replay-target-id={toolPart.toolCallId}
 				{...(hasError && {
 					'data-replay-nav': 'tool-error',
 					'data-replay-bordered': isBordered ? 'true' : 'false',

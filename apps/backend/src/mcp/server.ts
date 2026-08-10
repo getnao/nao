@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-import { listUserProjects } from '../queries/project.queries';
+import { getCustomBoundaries, listUserProjects } from '../queries/project.queries';
 import type { McpEndpointSettings } from '../types/mcp-endpoint';
 import { registerNaoMcpApps } from './embed/ui-resources';
 import { registerAssetTools } from './tools/asset-tools';
@@ -20,7 +20,11 @@ export async function resolveProjectId(userId: string): Promise<string> {
 	throw new Error(`MCP only supports single-project workspaces. Multiple projects found for this user:\n${listing}`);
 }
 
-export function createMcpServer(userId: string, projectId: string, settings: McpEndpointSettings): McpServer {
+export async function createMcpServer(
+	userId: string,
+	projectId: string,
+	settings: McpEndpointSettings,
+): Promise<McpServer> {
 	const server = new McpServer({ name: 'nao', version: '0.1.0' }, { capabilities: { tools: {}, resources: {} } });
 	const ctx = { userId, projectId, settings };
 
@@ -32,7 +36,8 @@ export function createMcpServer(userId: string, projectId: string, settings: Mcp
 	}
 
 	if (settings.subAgentModeEnabled || settings.contextLayerModeEnabled) {
-		registerAssetTools(server, ctx);
+		const customBoundaries = await getCustomBoundaries(projectId);
+		registerAssetTools(server, ctx, customBoundaries);
 	}
 
 	registerNaoMcpApps(server);

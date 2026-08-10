@@ -34,6 +34,7 @@ export const TOOL_MODE_MAP: Record<string, (keyof McpEndpointSettings)[]> = {
 	create_story: ['contextLayerModeEnabled'],
 	update_story: ['contextLayerModeEnabled'],
 	display_chart: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
+	display_map: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
 	list_stories: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
 	get_story: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
 	archive_story: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
