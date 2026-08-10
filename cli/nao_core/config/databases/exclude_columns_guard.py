@@ -19,6 +19,8 @@ class _DatabaseConfigLike(Protocol):
 
     def connect(self) -> Any: ...
 
+    def get_database_name(self) -> str: ...
+
     def get_schemas(self, conn: Any) -> list[str]: ...
 
     def column_matches_pattern(self, schema: str, table: str, column: str) -> bool: ...
@@ -69,7 +71,11 @@ class _OutputColumn:
     origins: frozenset[_ColumnOrigin]
 
 
-def enforce_exclude_columns(sql: str, db_config: _DatabaseConfigLike) -> str:
+def enforce_exclude_columns(
+    sql: str,
+    db_config: _DatabaseConfigLike,
+    conn: Any | None = None,
+) -> str:
     if not db_config.exclude_columns:
         return sql
 
@@ -78,9 +84,13 @@ def enforce_exclude_columns(sql: str, db_config: _DatabaseConfigLike) -> str:
         raise _blocked(f"the database dialect '{db_config.type}' is not supported")
 
     expression = _parse_query(sql, dialect)
-    conn = None
+    if not any(expression.find_all(exp.Table)):
+        return sql
+
+    owns_connection = conn is None
     try:
-        conn = db_config.connect()
+        if conn is None:
+            conn = db_config.connect()
         table_infos = _load_table_infos(expression, conn, db_config)
         qualified = _qualify_query(expression, dialect, table_infos)
         analyzer = _ExcludeColumnsAnalyzer(qualified, table_infos, db_config)
@@ -106,7 +116,7 @@ def enforce_exclude_columns(sql: str, db_config: _DatabaseConfigLike) -> str:
     except Exception as error:
         raise _blocked(str(error)) from error
     finally:
-        if conn is not None:
+        if owns_connection and conn is not None:
             conn.disconnect()
 
 
@@ -141,7 +151,7 @@ def _load_table_infos(
             key = _table_key(source)
             if key in infos:
                 continue
-            schema, table = _resolve_table(source, conn, schemas, tables_by_schema)
+            schema, table = _resolve_table(source, conn, schemas, tables_by_schema, db_config)
             try:
                 ibis_schema = conn.table(table, database=schema).schema()
             except Exception as error:
@@ -169,31 +179,24 @@ def _resolve_table(
     conn: BaseBackend,
     schemas: list[str],
     tables_by_schema: dict[str, list[str]],
+    db_config: _DatabaseConfigLike,
 ) -> tuple[str, str]:
     requested_table = table_expression.name
     if not requested_table:
         raise _blocked("a dynamic table reference could not be resolved")
 
-    requested_schemas = [
-        value
-        for value in (
-            ".".join(part for part in (table_expression.catalog, table_expression.db) if part),
-            table_expression.db,
-        )
-        if value
-    ]
-    if requested_schemas:
-        schema = next(
-            (
-                matched
-                for requested in requested_schemas
-                if (matched := _match_identifier(requested, schemas)) is not None
-            ),
-            requested_schemas[0],
-        )
+    requested_catalog = table_expression.catalog
+    if requested_catalog:
+        database_name = db_config.get_database_name()
+        if _match_identifier(requested_catalog, [database_name]) is None:
+            raise _blocked(f"catalog '{requested_catalog}' does not match the connected database '{database_name}'")
+
+    requested_schema = table_expression.db
+    if requested_schema:
+        schema = _match_identifier(requested_schema, schemas) or requested_schema
         table = _find_table(conn, schema, requested_table, tables_by_schema)
         if table is None:
-            raise _blocked(f"table {requested_schemas[0]}.{requested_table} was not found in the live schema")
+            raise _blocked(f"table {requested_schema}.{requested_table} was not found in the live schema")
         return schema, table
 
     matches: list[tuple[str, str]] = []

@@ -46,6 +46,7 @@ class FakeDatabaseConfig:
         self,
         exclude_columns: list[str],
         schemas: dict[str, dict[str, list[str]]] | None = None,
+        database_name: str = "local",
     ):
         self.exclude_columns = exclude_columns
         self.schemas = schemas or {
@@ -54,14 +55,20 @@ class FakeDatabaseConfig:
                 "orders": ["id", "user_id", "total"],
             }
         }
+        self.database_name = database_name
         self.connection = FakeConnection(self.schemas)
         self.connect_count = 0
+        self.get_schemas_count = 0
 
     def connect(self) -> FakeConnection:
         self.connect_count += 1
         return self.connection
 
+    def get_database_name(self) -> str:
+        return self.database_name
+
     def get_schemas(self, conn: FakeConnection) -> list[str]:
+        self.get_schemas_count += 1
         return list(conn.schemas)
 
     def column_matches_pattern(self, schema: str, table: str, column: str) -> bool:
@@ -142,6 +149,23 @@ def test_safe_query_is_allowed_unchanged():
     assert result == sql
 
 
+def test_different_catalog_is_blocked_without_local_schema_fallback():
+    config = FakeDatabaseConfig(["*.email"], database_name="local")
+
+    with pytest.raises(ExcludeColumnsGuardError, match="does not match the connected database"):
+        enforce_exclude_columns("SELECT id FROM remote.main.users", config)
+
+
+def test_matching_catalog_resolves_local_schema():
+    config = FakeDatabaseConfig(["*.email"], database_name="LOCAL")
+    safe_sql = "SELECT id FROM local.main.users"
+
+    assert enforce_exclude_columns(safe_sql, config) == safe_sql
+
+    with pytest.raises(ExcludeColumnsGuardError, match=r"main\.users\.email"):
+        enforce_exclude_columns("SELECT email FROM local.main.users", config)
+
+
 def test_unparseable_query_is_blocked():
     config = FakeDatabaseConfig(["*.email"])
 
@@ -164,6 +188,25 @@ def test_empty_exclude_columns_is_noop_without_connecting():
 
     assert result == sql
     assert config.connect_count == 0
+
+
+def test_query_without_tables_skips_schema_introspection():
+    config = FakeDatabaseConfig(["*.email"])
+    sql = "SELECT 1"
+
+    assert enforce_exclude_columns(sql, config) == sql
+    assert config.connect_count == 0
+    assert config.get_schemas_count == 0
+
+
+def test_existing_connection_is_not_owned_by_guard():
+    config = FakeDatabaseConfig(["*.email"])
+    conn = config.connection
+    sql = "SELECT id FROM users"
+
+    assert enforce_exclude_columns(sql, config, conn=conn) == sql
+    assert config.connect_count == 0
+    assert conn.disconnected is False
 
 
 @pytest.mark.parametrize(

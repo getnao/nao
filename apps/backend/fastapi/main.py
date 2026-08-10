@@ -123,6 +123,18 @@ class HealthResponse(BaseModel):
     refresh_schedule: str | None
 
 
+def _execute_sql_with_exclude_columns(
+    sql: str,
+    db_config,
+) -> pd.DataFrame:
+    conn = db_config.connect()
+    try:
+        validated_sql = enforce_exclude_columns(sql, db_config, conn=conn)
+        return db_config.execute_sql(validated_sql, conn=conn)
+    finally:
+        conn.disconnect()
+
+
 def _convert_value(v: object):
     """Convert a DataFrame cell to a JSON-serializable Python type."""
     if v is None:
@@ -269,25 +281,26 @@ async def execute_sql(request: ExecuteSQLRequest):
         auth_mode_value = getattr(getattr(db_config, "auth_mode", None), "value", None)
 
         try:
-            validated_sql = enforce_exclude_columns(request.sql, db_config)
+            if auth_mode_value == "azure_entra_id":
+                if not request.azure_access_token:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            "azure_access_token is required when the database auth_mode is "
+                            "'azure_entra_id'. Runtime queries must use the end user's access "
+                            "token; any configured user/password is only used by nao sync."
+                        ),
+                    )
+                validated_sql = request.sql
+                if db_config.exclude_columns:
+                    validated_sql = enforce_exclude_columns(request.sql, db_config)
+                df = db_config.execute_sql_with_token(validated_sql, request.azure_access_token)
+            elif db_config.exclude_columns:
+                df = _execute_sql_with_exclude_columns(request.sql, db_config)
+            else:
+                df = db_config.execute_sql(request.sql)
         except ExcludeColumnsGuardError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
-
-        if auth_mode_value == "azure_entra_id":
-            if not request.azure_access_token:
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        "azure_access_token is required when the database auth_mode is "
-                        "'azure_entra_id'. Runtime queries must use the end user's access "
-                        "token; any configured user/password is only used by nao sync."
-                    ),
-                )
-            df = db_config.execute_sql_with_token(
-                validated_sql, request.azure_access_token
-            )
-        else:
-            df = db_config.execute_sql(validated_sql)
 
         data = [
             {k: _convert_value(v) for k, v in row.items()}
