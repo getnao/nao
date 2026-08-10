@@ -45,7 +45,7 @@ export const budgetRoutes = {
 		const userBudgetEnabled = await hasFeature(LICENSE_FEATURES.userBudget);
 		const budgets = userBudgetEnabled
 			? input.budgets
-			: input.budgets.map((b) => ({ provider: b.provider, limitUsd: b.limitUsd, period: b.period }));
+			: input.budgets.map(({ provider, limitUsd, period }) => ({ provider, limitUsd, period }));
 		return budgetQueries.setProjectProviderBudgets(ctx.project.id, budgets);
 	}),
 };

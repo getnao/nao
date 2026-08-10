@@ -66,7 +66,7 @@ export const advanceStaleBudgetPeriods = async (projectId: string, provider?: Ll
 
 export const setProjectProviderBudgets = async (
 	projectId: string,
-	budgets: Array<{ provider: LlmProvider; limitUsd: number; period: BudgetPeriod; perUserLimitUsd?: number }>,
+	budgets: Array<{ provider: LlmProvider; limitUsd: number; period: BudgetPeriod; perUserLimitUsd?: number | null }>,
 ): Promise<DBProjectProviderBudget[]> => {
 	const activeProviders = budgets.map((b) => b.provider);
 
@@ -99,7 +99,7 @@ export const setProjectProviderBudgets = async (
 						.update(s.projectProviderBudget)
 						.set({
 							limitUsd,
-							perUserLimitUsd: perUserLimitUsd ?? null,
+							...(perUserLimitUsd !== undefined && { perUserLimitUsd }),
 							period,
 							...(periodChanged && { currentPeriodStart: new Date() }),
 						})
