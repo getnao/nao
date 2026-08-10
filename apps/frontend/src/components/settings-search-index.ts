@@ -348,7 +348,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		pageLabel: 'MCP Endpoint',
 		title: 'MCP Server Endpoint',
 		description: 'Allow external AI clients to connect to this workspace via MCP.',
-		keywords: ['model context protocol', 'claude desktop', 'cursor', 'external', 'api', 'bearer'],
+		keywords: ['model context protocol', 'claude desktop', 'cursor', 'dust', 'external', 'api', 'bearer'],
 	},
 	{
 		page: '/settings/mcp-endpoint',
