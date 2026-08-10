@@ -33,25 +33,44 @@ class DuckDBConfig(DatabaseConfig):
 
         return DuckDBConfig(name=name, path=path)
 
+    @staticmethod
+    def _is_motherduck_path(path: str) -> bool:
+        """True when *path* targets MotherDuck (`md:` / `motherduck:`)."""
+        normalized = path.strip().lower()
+        return normalized.startswith("md:") or normalized.startswith("motherduck:")
+
     def connect(self) -> BaseBackend:
-        """Create an Ibis DuckDB connection with external file/network access disabled."""
+        """Create an Ibis DuckDB connection with external file/network access disabled.
+
+        MotherDuck paths (`md:` / `motherduck:`) keep external access enabled so the
+        remote service can be reached. Prefer ``type: motherduck`` for new configs.
+        """
         from nao_core.deps import require_database_backend
 
         require_database_backend("duckdb")
         import ibis
 
+        is_motherduck = self._is_motherduck_path(self.path)
+        # MotherDuck is remote and needs write-capable sessions; local files stay read-only.
+        read_only = False if (self.path == ":memory:" or is_motherduck) else True
         conn = ibis.duckdb.connect(
             database=self.path,
-            read_only=False if self.path == ":memory:" else True,
+            read_only=read_only,
         )
-        conn.raw_sql("SET enable_external_access = false")
-        conn.raw_sql("SET lock_configuration = true")
+        if not is_motherduck:
+            conn.raw_sql("SET enable_external_access = false")
+            conn.raw_sql("SET lock_configuration = true")
         return conn
 
     def get_database_name(self) -> str:
         """Get the database name for DuckDB."""
         if self.path == ":memory:":
             return "memory"
+        if self._is_motherduck_path(self.path):
+            # md:my_db or md:my_db?motherduck_token=...
+            remainder = self.path.split(":", 1)[1]
+            db_part = remainder.split("?", 1)[0].strip()
+            return db_part or "motherduck"
         return Path(self.path).stem
 
     def check_connection(self) -> tuple[bool, str]:
