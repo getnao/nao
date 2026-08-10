@@ -350,8 +350,8 @@ function ProposeFixesSection({
 						<>
 							call <Code>edit_file</Code> with a precise <Code>old_string</Code> / <Code>new_string</Code>{' '}
 							scoped to just this finding&apos;s change (omit <Code>old_string</Code> only to create a new
-							file — you cannot replace a whole existing file). Read the file first so the edit applies
-							cleanly.
+							file or to populate an existing empty file — you cannot replace a whole file that already
+							has content). Read the file first so the edit applies cleanly.
 						</>
 					) : (
 						<>

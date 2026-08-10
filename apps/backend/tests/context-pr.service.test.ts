@@ -18,9 +18,7 @@ import { GENERIC_GIT_PROVIDER } from '../src/services/generic-git';
 import type { ProposedEdit } from '../src/types/context-recommendation';
 
 const mocks = vi.hoisted(() => ({
-	checkoutNewBranch: vi.fn(),
 	cloneRepo: vi.fn(),
-	commitAll: vi.fn().mockReturnValue(true),
 	commitAllAndPushBranch: vi.fn(),
 	createPullRequest: vi.fn(),
 	findContextConfigSubPath: vi.fn().mockResolvedValue(''),
@@ -32,7 +30,6 @@ const mocks = vi.hoisted(() => ({
 	getRecommendationById: vi.fn(),
 	getRepoSubPath: vi.fn().mockReturnValue(''),
 	getUserGitIdentity: vi.fn(),
-	pushBranch: vi.fn(),
 	setRecommendationPr: vi.fn(),
 }));
 
@@ -78,7 +75,7 @@ vi.mock('../src/services/github', () => ({
 	findContextConfigSubPath: mocks.findContextConfigSubPath,
 	getGitInfo: mocks.getGitInfo,
 	getUserGitIdentity: mocks.getUserGitIdentity,
-	pushBranch: mocks.pushBranch,
+	pushBranch: vi.fn(),
 }));
 
 describe('createRecommendationPullRequest', () => {
@@ -267,12 +264,13 @@ describe('createRecommendationPullRequest', () => {
 		expect(mocks.commitAllAndPushBranch).toHaveBeenCalledOnce();
 	});
 
-	it('prefers the sub-path from the project git checkout over clone-time detection', async () => {
+	it('prefers the sub-path from the project git checkout when the clone confirms it', async () => {
 		mocks.getProjectById.mockResolvedValue({ path: '/local/project' });
 		mocks.getRepoSubPath.mockReturnValue('apps/nao');
 		mocks.getRecommendationById.mockResolvedValue(recommendation());
 		mocks.cloneRepo.mockImplementation((_token: string, _repoFullName: string, dir: string) => {
 			fs.mkdirSync(path.join(dir, 'apps', 'nao'), { recursive: true });
+			fs.writeFileSync(path.join(dir, 'apps', 'nao', 'nao_config.yaml'), 'project_name: demo\n');
 			fs.writeFileSync(path.join(dir, 'apps', 'nao', 'RULES.md'), 'old');
 			fs.mkdirSync(path.join(dir, 'elsewhere'), { recursive: true });
 			fs.writeFileSync(path.join(dir, 'elsewhere', 'nao_config.yaml'), 'project_name: demo\n');
@@ -280,6 +278,27 @@ describe('createRecommendationPullRequest', () => {
 		mocks.commitAllAndPushBranch.mockImplementation(({ dir }: { dir: string }) => {
 			expect(fs.readFileSync(path.join(dir, 'apps', 'nao', 'RULES.md'), 'utf-8')).toBe('new');
 			expect(fs.existsSync(path.join(dir, 'elsewhere', 'RULES.md'))).toBe(false);
+		});
+
+		await expect(createRecommendationPullRequest('project-1', 'rec-123456789', 'user-1')).resolves.toMatchObject({
+			url: 'https://github.com/nao/context/pull/1',
+		});
+
+		expect(mocks.commitAllAndPushBranch).toHaveBeenCalledOnce();
+	});
+
+	it('falls back to clone detection when the local sub-path is absent in the context repo', async () => {
+		mocks.getProjectById.mockResolvedValue({ path: '/local/project' });
+		mocks.getRepoSubPath.mockReturnValue('apps/nao');
+		mocks.getRecommendationById.mockResolvedValue(recommendation());
+		mocks.cloneRepo.mockImplementation((_token: string, _repoFullName: string, dir: string) => {
+			fs.mkdirSync(path.join(dir, 'context'), { recursive: true });
+			fs.writeFileSync(path.join(dir, 'context', 'nao_config.yaml'), 'project_name: demo\n');
+			fs.writeFileSync(path.join(dir, 'context', 'RULES.md'), 'old');
+		});
+		mocks.commitAllAndPushBranch.mockImplementation(({ dir }: { dir: string }) => {
+			expect(fs.readFileSync(path.join(dir, 'context', 'RULES.md'), 'utf-8')).toBe('new');
+			expect(fs.existsSync(path.join(dir, 'apps', 'nao', 'RULES.md'))).toBe(false);
 		});
 
 		await expect(createRecommendationPullRequest('project-1', 'rec-123456789', 'user-1')).resolves.toMatchObject({

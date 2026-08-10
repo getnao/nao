@@ -21,8 +21,9 @@ const EditSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			'Exact text to replace, scoped to only what THIS recommendation changes. Required when editing a file that ' +
-				'already exists. Omit ONLY to create a brand-new file — then `new_string` is the full file content.',
+			'Exact text to replace, scoped to only what THIS recommendation changes. Required when the file already ' +
+				'has content. Omit ONLY when creating a brand-new file or giving an existing but empty file its first ' +
+				'content — then `new_string` is the full file content.',
 		),
 	new_string: z
 		.string()
@@ -104,9 +105,9 @@ export function createContextFixCollector(
 			'you just recorded. Never target generated warehouse files (databases/**) or unlinked repos/** paths — use ' +
 			'propose_manual_fix for those. Each recommendation is applied INDEPENDENTLY from a clean copy of the ' +
 			'current file, so include ONLY this recommendation\u2019s change — never another recommendation\u2019s edits, ' +
-			'even when several recommendations touch the same file. To edit a file that already exists you must pass ' +
-			'old_string/new_string; omit old_string only to create a new file. Call once per logical change; multiple ' +
-			'edits to the same file within one recommendation are merged.',
+			'even when several recommendations touch the same file. To edit a file that already has content you must pass ' +
+			'old_string/new_string; omit old_string only to create a new file or to populate an existing empty file. ' +
+			'Call once per logical change; multiple edits to the same file within one recommendation are merged.',
 		inputSchema: EditSchema,
 		execute: async ({ suggestedFile, subjectKey, path: filePath, old_string, new_string }) => {
 			const target = resolveEditTarget(filePath, linkedRepos, allowContextEdits);

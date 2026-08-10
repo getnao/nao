@@ -27,6 +27,12 @@ import { REVIEW_REQUEST_PROVIDERS } from './review-request-provider';
 export { REVIEW_REQUEST_PROVIDERS };
 export type { ReviewRequestProvider };
 
+/** Raised when the request itself is invalid (bad selection, no changes, conflicting targets). */
+export class ContextPullRequestInputError extends Error {}
+
+/** Raised when the Git provider account is not connected, so the caller must authenticate. */
+export class ProviderNotConnectedError extends Error {}
+
 export interface CreatePullRequestResult {
 	url: string;
 	branch: string;
@@ -152,10 +158,12 @@ export async function createRecommendationPullRequest(
 ): Promise<CreatePullRequestResult> {
 	const rec = await crQueries.getRecommendationById(projectId, recommendationId);
 	if (!rec) {
-		throw new Error('Recommendation not found.');
+		throw new ContextPullRequestInputError('Recommendation not found.');
 	}
 	if (rec.fixKind !== 'patch' || !rec.proposedEdits || rec.proposedEdits.length === 0) {
-		throw new Error('This recommendation has no automated changes to open as a pull request.');
+		throw new ContextPullRequestInputError(
+			'This recommendation has no automated changes to open as a pull request.',
+		);
 	}
 	if (rec.prUrl) {
 		return { url: rec.prUrl, branch: rec.prBranch ?? '' };
@@ -163,12 +171,14 @@ export async function createRecommendationPullRequest(
 
 	const repo = await resolvePullRequestRepo(projectId, rec.proposedEdits);
 	if (!repo) {
-		throw new Error('No context repository is connected. Connect one in Settings → Git.');
+		throw new ContextPullRequestInputError('No context repository is connected. Connect one in Settings → Git.');
 	}
 
 	const edits = filterPullRequestEdits(rec.proposedEdits);
 	if (edits.length === 0) {
-		throw new Error('The proposed changes only touch auto-generated files and cannot be opened as a pull request.');
+		throw new ContextPullRequestInputError(
+			'The proposed changes only touch auto-generated files and cannot be opened as a pull request.',
+		);
 	}
 
 	const repoFullName = repo.repoFullName;
@@ -215,20 +225,26 @@ export async function createBatchRecommendationPullRequest(
 	);
 
 	if (recs.length === 0) {
-		throw new Error('No eligible recommendations to batch. Each must have drafted changes and no existing PR.');
+		throw new ContextPullRequestInputError(
+			'No eligible recommendations to batch. Each must have drafted changes and no existing PR.',
+		);
 	}
 
 	const repoByKey = new Map<string, RecommendationRepo>();
 	for (const rec of recs) {
 		const repo = await resolvePullRequestRepo(projectId, rec.proposedEdits!);
 		if (!repo) {
-			throw new Error('No context repository is connected. Connect one in Settings → Git.');
+			throw new ContextPullRequestInputError(
+				'No context repository is connected. Connect one in Settings → Git.',
+			);
 		}
 		repoByKey.set(`${repo.provider}:${repo.repoFullName}@${repo.branch ?? ''}`, repo);
 	}
 
 	if (repoByKey.size > 1) {
-		throw new Error('All batched recommendations must target the same repository and branch.');
+		throw new ContextPullRequestInputError(
+			'All batched recommendations must target the same repository and branch.',
+		);
 	}
 
 	const [repo] = repoByKey.values();
@@ -283,7 +299,7 @@ export async function createReviewRequest(args: {
 
 	const [token, user] = await Promise.all([provider.getToken(userId), userQueries.getUser({ id: userId })]);
 	if (token === null) {
-		throw new Error(provider.notConnectedMessage);
+		throw new ProviderNotConnectedError(provider.notConnectedMessage);
 	}
 	if (!user) {
 		throw new Error('User not found.');
@@ -341,7 +357,7 @@ async function createBatchReviewRequest(args: {
 
 	const [token, user] = await Promise.all([provider.getToken(userId), userQueries.getUser({ id: userId })]);
 	if (token === null) {
-		throw new Error(provider.notConnectedMessage);
+		throw new ProviderNotConnectedError(provider.notConnectedMessage);
 	}
 	if (!user) {
 		throw new Error('User not found.');
@@ -375,7 +391,9 @@ async function createBatchReviewRequest(args: {
 	}
 
 	if (committedRecIds.length === 0) {
-		throw new Error('No file changes remain after filtering. All proposed edits target auto-generated files.');
+		throw new ContextPullRequestInputError(
+			'No file changes remain after filtering. All proposed edits target auto-generated files.',
+		);
 	}
 
 	const pushOutput = provider.pushBranch({ token, repoFullName, dir: workdir, branch });
@@ -417,10 +435,14 @@ function resolvePullRequestRepo(projectId: string, edits: ProposedEdit[]): Promi
 		return resolveRecommendationRepo(projectId);
 	}
 	if (targetRepos.size > 1) {
-		throw new Error('A recommendation cannot open one pull request across multiple repositories.');
+		throw new ContextPullRequestInputError(
+			'A recommendation cannot open one pull request across multiple repositories.',
+		);
 	}
 	if (edits.some((edit) => !edit.targetRepo)) {
-		throw new Error('A recommendation cannot mix context repository edits with linked repository edits.');
+		throw new ContextPullRequestInputError(
+			'A recommendation cannot mix context repository edits with linked repository edits.',
+		);
 	}
 
 	const [target] = targetRepos.values();
@@ -465,12 +487,20 @@ function applyEdits(dir: string, edits: ReviewRequestEdit[], subPath: string): v
 const SUBPATH_SCAN_IGNORED_DIRS = new Set(['.git', 'node_modules', '.venv', 'venv', '__pycache__', 'dist', 'build']);
 const SUBPATH_SCAN_MAX_DEPTH = 6;
 
-/** Uses the sub-path already known from the project's local git checkout when available. */
+/** Prefers the sub-path known from the project's local git checkout, but only when the cloned context repo actually holds `nao_config.yaml` there. */
 function resolveEffectiveSubPath(repoDir: string, knownSubPath: string | undefined): string {
-	if (knownSubPath) {
+	if (knownSubPath && cloneHasContextConfig(repoDir, knownSubPath)) {
 		return knownSubPath;
 	}
 	return detectContextSubPath(repoDir);
+}
+
+function cloneHasContextConfig(repoDir: string, subPath: string): boolean {
+	try {
+		return fs.existsSync(path.join(repoDir, subPath, CONTEXT_CONFIG_FILENAME));
+	} catch {
+		return false;
+	}
 }
 
 /** Returns the directory holding `nao_config.yaml` relative to the repo root ('' when at root). */

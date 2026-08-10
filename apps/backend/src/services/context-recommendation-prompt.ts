@@ -42,7 +42,7 @@ function buildRecSection(rec: DBContextRecommendation, subPath: string): string 
 function buildEditLines(edit: ProposedEdit, subPath: string): string[] {
 	const filePath = editFilePath(edit, subPath);
 
-	if (edit.kind === 'create' || !edit.oldContent) {
+	if (edit.kind === 'create') {
 		const fence = fenceFor(edit.newContent);
 		return [`### \`${filePath}\` (new file)`, fence, edit.newContent, fence];
 	}

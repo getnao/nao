@@ -9,8 +9,10 @@ import * as crQueries from '../queries/context-recommendation.queries';
 import * as userQueries from '../queries/user.queries';
 import { agentService } from '../services/agent';
 import {
+	ContextPullRequestInputError,
 	createBatchRecommendationPullRequest,
 	createRecommendationPullRequest,
+	ProviderNotConnectedError,
 	resolveRecommendationRepo,
 } from '../services/context-pr.service';
 import { buildAgentPrompt } from '../services/context-recommendation-prompt';
@@ -40,6 +42,19 @@ const recommendationsProcedure = contextAdminProtectedProcedure.use(async ({ nex
 	}
 	return next();
 });
+
+function toPullRequestTrpcError(err: unknown): TRPCError {
+	if (err instanceof ContextPullRequestInputError) {
+		return new TRPCError({ code: 'BAD_REQUEST', message: err.message });
+	}
+	if (err instanceof ProviderNotConnectedError) {
+		return new TRPCError({ code: 'UNAUTHORIZED', message: err.message });
+	}
+	return new TRPCError({
+		code: 'INTERNAL_SERVER_ERROR',
+		message: err instanceof Error ? err.message : 'Failed to create pull request',
+	});
+}
 
 export const contextRecommendationRoutes = {
 	list: recommendationsProcedure
@@ -224,10 +239,7 @@ export const contextRecommendationRoutes = {
 		try {
 			return await createRecommendationPullRequest(ctx.project.id, input.id, ctx.user.id);
 		} catch (err) {
-			throw new TRPCError({
-				code: 'BAD_REQUEST',
-				message: err instanceof Error ? err.message : 'Failed to create pull request',
-			});
+			throw toPullRequestTrpcError(err);
 		}
 	}),
 
@@ -237,10 +249,7 @@ export const contextRecommendationRoutes = {
 			try {
 				return await createBatchRecommendationPullRequest(ctx.project.id, input.ids, ctx.user.id);
 			} catch (err) {
-				throw new TRPCError({
-					code: 'BAD_REQUEST',
-					message: err instanceof Error ? err.message : 'Failed to create pull request',
-				});
+				throw toPullRequestTrpcError(err);
 			}
 		}),
 

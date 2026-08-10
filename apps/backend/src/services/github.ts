@@ -570,6 +570,9 @@ export async function getFileContent(
 	};
 }
 
+const SUBPATH_SCAN_IGNORED_DIRS = new Set(['.git', 'node_modules', '.venv', 'venv', '__pycache__', 'dist', 'build']);
+const SUBPATH_SCAN_MAX_DEPTH = 6;
+
 export async function findContextConfigSubPath(token: string, repo: string): Promise<string> {
 	try {
 		const { default_branch } = await githubFetchJson<{ default_branch: string }>(token, `/repos/${repo}`);
@@ -578,7 +581,7 @@ export async function findContextConfigSubPath(token: string, repo: string): Pro
 			`/repos/${repo}/git/trees/${encodeURIComponent(default_branch)}?recursive=1`,
 		);
 		if (tree.truncated) {
-			return '';
+			return walkForContextConfigSubPath(token, repo, default_branch);
 		}
 		const dirs = tree.tree
 			.filter((entry) => entry.type === 'blob' && isContextConfigFile(entry.path))
@@ -587,6 +590,33 @@ export async function findContextConfigSubPath(token: string, repo: string): Pro
 	} catch {
 		return '';
 	}
+}
+
+/** Fallback for repos whose recursive tree is truncated: walks the tree one directory level at a time and returns the shallowest directory holding the config. */
+async function walkForContextConfigSubPath(token: string, repo: string, rootSha: string): Promise<string> {
+	let level: { sha: string; prefix: string }[] = [{ sha: rootSha, prefix: '' }];
+	for (let depth = 0; depth <= SUBPATH_SCAN_MAX_DEPTH && level.length > 0; depth++) {
+		const matches: string[] = [];
+		const next: { sha: string; prefix: string }[] = [];
+		for (const dir of level) {
+			const tree = await githubFetchJson<RawGitTree>(
+				token,
+				`/repos/${repo}/git/trees/${encodeURIComponent(dir.sha)}`,
+			);
+			for (const entry of tree.tree) {
+				if (entry.type === 'blob' && isContextConfigFile(entry.path)) {
+					matches.push(dir.prefix);
+				} else if (entry.type === 'tree' && entry.sha && !SUBPATH_SCAN_IGNORED_DIRS.has(entry.path)) {
+					next.push({ sha: entry.sha, prefix: dir.prefix ? `${dir.prefix}/${entry.path}` : entry.path });
+				}
+			}
+		}
+		if (matches.length > 0) {
+			return shallowestSubPath(matches);
+		}
+		level = next;
+	}
+	return '';
 }
 
 export async function createIssue(
@@ -802,7 +832,7 @@ interface RawFileContent {
 }
 
 interface RawGitTree {
-	tree: Array<{ path: string; type: 'blob' | 'tree' | 'commit' }>;
+	tree: Array<{ path: string; type: 'blob' | 'tree' | 'commit'; sha?: string }>;
 	truncated: boolean;
 }
 

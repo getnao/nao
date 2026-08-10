@@ -285,7 +285,16 @@ function RecommendationsPage() {
 	};
 
 	const selectAll = () => {
-		setSelectedIds(new Set(displayedRecommendations.slice(0, MAX_BATCH_SELECTION).map((rec) => rec.id)));
+		setSelectedIds((prev) => {
+			const next = new Set(prev);
+			for (const rec of displayedRecommendations) {
+				if (next.size >= MAX_BATCH_SELECTION) {
+					break;
+				}
+				next.add(rec.id);
+			}
+			return next;
+		});
 		setSelectionMode(true);
 	};
 
@@ -440,6 +449,17 @@ function RecommendationsPage() {
 		});
 		return sorted;
 	}, [baseList, categoryFilter, userFilter, feedbackFilter, sortKey, sortOrder, chatUserById]);
+
+	useEffect(() => {
+		setSelectedIds((prev) => {
+			if (prev.size === 0) {
+				return prev;
+			}
+			const displayedIds = new Set(displayedRecommendations.map((rec) => rec.id));
+			const next = new Set([...prev].filter((id) => displayedIds.has(id)));
+			return next.size === prev.size ? prev : next;
+		});
+	}, [displayedRecommendations]);
 
 	const hasActiveFilters =
 		categoryFilter !== ALL_FILTER || userFilter !== ALL_FILTER || feedbackFilter !== ALL_FILTER;
@@ -836,6 +856,7 @@ function BatchActionBar({ selectedIds, recommendations, onSelectAll, onClear }: 
 	const queryClient = useQueryClient();
 	const { isCopied, copy } = useCopyToClipboard();
 	const [isFetchingPrompt, setIsFetchingPrompt] = useState(false);
+	const [copyError, setCopyError] = useState<string | null>(null);
 	const centeredStyle = useContentCenteredStyle();
 
 	const eligibleIds = recommendations
@@ -849,26 +870,47 @@ function BatchActionBar({ selectedIds, recommendations, onSelectAll, onClear }: 
 		.map((rec) => rec.id);
 
 	const atSelectionLimit = selectedIds.size >= MAX_BATCH_SELECTION;
-	const allSelected =
-		atSelectionLimit || (recommendations.length > 0 && recommendations.every((rec) => selectedIds.has(rec.id)));
+	const allSelected = recommendations.length > 0 && recommendations.every((rec) => selectedIds.has(rec.id));
 
 	const createBatchPr = useMutation(
 		trpc.contextRecommendation.createBatchPullRequest.mutationOptions({
-			onSuccess: (result) => {
-				window.open(result.url, '_blank', 'noopener,noreferrer');
+			onSuccess: () => {
 				queryClient.invalidateQueries({ queryKey: trpc.contextRecommendation.list.queryKey({}) });
 				onClear();
 			},
 		}),
 	);
 
+	const handleOpenPr = () => {
+		// Open the tab synchronously in the click handler so it isn't blocked as a popup,
+		// then point it at the PR once the async mutation resolves.
+		const prTab = window.open('about:blank', '_blank');
+		createBatchPr.mutate(
+			{ ids: eligibleIds },
+			{
+				onSuccess: (result) => {
+					if (prTab) {
+						prTab.opener = null;
+						prTab.location.href = result.url;
+					} else {
+						window.open(result.url, '_blank', 'noopener,noreferrer');
+					}
+				},
+				onError: () => prTab?.close(),
+			},
+		);
+	};
+
 	const handleCopyPrompts = async () => {
 		setIsFetchingPrompt(true);
+		setCopyError(null);
 		try {
 			const prompt = await queryClient.fetchQuery(
 				trpc.contextRecommendation.getAgentPrompt.queryOptions({ ids: [...selectedIds] }),
 			);
 			await copy(prompt);
+		} catch (err) {
+			setCopyError(err instanceof Error ? err.message : 'Failed to copy prompts');
 		} finally {
 			setIsFetchingPrompt(false);
 		}
@@ -900,7 +942,7 @@ function BatchActionBar({ selectedIds, recommendations, onSelectAll, onClear }: 
 			{eligibleIds.length > 0 && (
 				<Button
 					size='sm'
-					onClick={() => createBatchPr.mutate({ ids: eligibleIds })}
+					onClick={handleOpenPr}
 					disabled={createBatchPr.isPending}
 					className='h-7 gap-1.5 rounded-full text-xs'
 				>
@@ -945,6 +987,7 @@ function BatchActionBar({ selectedIds, recommendations, onSelectAll, onClear }: 
 			{createBatchPr.error && (
 				<span className='basis-full text-center text-xs text-destructive'>{createBatchPr.error.message}</span>
 			)}
+			{copyError && <span className='basis-full text-center text-xs text-destructive'>{copyError}</span>}
 		</div>
 	);
 }
