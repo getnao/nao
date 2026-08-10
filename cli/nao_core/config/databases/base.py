@@ -22,6 +22,7 @@ class DatabaseType(str, Enum):
     BIGQUERY = "bigquery"
     CLICKHOUSE = "clickhouse"
     DUCKDB = "duckdb"
+    MOTHERDUCK = "motherduck"
     DATABRICKS = "databricks"
     FABRIC = "fabric"
     SNOWFLAKE = "snowflake"
@@ -33,9 +34,21 @@ class DatabaseType(str, Enum):
     TRINO = "trino"
 
     @classmethod
+    def _label(cls, db_type: "DatabaseType") -> str:
+        """Human-readable label for interactive prompts."""
+        labels = {
+            cls.BIGQUERY: "BigQuery",
+            cls.DUCKDB: "DuckDB",
+            cls.MOTHERDUCK: "MotherDuck",
+            cls.MSSQL: "MSSQL",
+            cls.STARROCKS: "StarRocks",
+        }
+        return labels.get(db_type, db_type.value.capitalize())
+
+    @classmethod
     def choices(cls) -> list[questionary.Choice]:
         """Get questionary choices for all database types."""
-        return [questionary.Choice(db.value.capitalize(), value=db.value) for db in cls]
+        return [questionary.Choice(cls._label(db), value=db.value) for db in cls]
 
 
 class DatabaseTemplate(str, Enum):
