@@ -32,6 +32,21 @@ describe('addPromptCache', () => {
 		});
 	});
 
+	it('uses Anthropic cache control for OpenRouter Claude models', () => {
+		const cached = addPromptCache(messages, modelSelection('openrouter', 'anthropic/claude-haiku-4.5'));
+
+		expect(cached[0].providerOptions).toEqual({
+			anthropic: { cacheControl: { type: 'ephemeral', ttl: '1h' } },
+		});
+		expect(cached[1].providerOptions).toEqual({
+			anthropic: { cacheControl: { type: 'ephemeral' } },
+		});
+	});
+
+	it('does not cache OpenRouter models that cache server-side', () => {
+		expect(addPromptCache(messages, modelSelection('openrouter', 'openai/gpt-5.2'))).toBe(messages);
+	});
+
 	it('uses Bedrock cache points for Bedrock Anthropic foundation models', () => {
 		const cached = addPromptCache(messages, modelSelection('bedrock', 'us.anthropic.claude-sonnet-4-6'));
 
