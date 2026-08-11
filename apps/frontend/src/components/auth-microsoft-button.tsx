@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import MicrosoftIcon from '@/components/icons/microsoft-icon.svg';
 import { AuthSocialButton } from '@/components/ui/button';
+import { rememberSignInMethod } from '@/lib/last-sign-in-method';
 import { handleMicrosoftSignIn } from '@/lib/microsoft-auth';
 import { trpc } from '@/main';
 
@@ -14,15 +15,20 @@ export function useIsMicrosoftSetup(): boolean {
 
 interface MicrosoftSignInButtonProps {
 	callbackUrl?: string;
+	lastUsed?: boolean;
 	className?: string;
 }
 
-export function MicrosoftSignInButton({ callbackUrl, className }: MicrosoftSignInButtonProps = {}) {
+export function MicrosoftSignInButton({ callbackUrl, lastUsed, className }: MicrosoftSignInButtonProps = {}) {
 	return (
 		<AuthSocialButton
 			icon={MicrosoftIcon}
 			label='Continue with Microsoft'
-			onClick={() => void handleMicrosoftSignIn(callbackUrl)}
+			onClick={() => {
+				rememberSignInMethod('microsoft');
+				void handleMicrosoftSignIn(callbackUrl);
+			}}
+			lastUsed={lastUsed}
 			className={className}
 		/>
 	);

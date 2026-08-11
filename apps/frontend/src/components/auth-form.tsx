@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { createContext, useContext, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { trpc } from '../main';
 import { InputGroup } from './ui/input-group';
@@ -7,13 +7,21 @@ import { NakedInput } from '@/components/ui/input';
 import { MicrosoftSignInButton, useIsMicrosoftSetup } from '@/components/auth-microsoft-button';
 import { OidcSignInButton } from '@/components/auth-oidc-button';
 import { Button, ChatButton, AuthSocialButton } from '@/components/ui/button';
+import { LastUsedPill } from '@/components/ui/last-used-pill';
 import GithubIcon from '@/components/icons/github-icon.svg';
 import GitlabIcon from '@/components/icons/gitlab-icon.svg';
 import GoogleIcon from '@/components/icons/google-icon.svg';
 import NaoLogo from '@/components/icons/nao-full-logo.svg';
 import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
 import { handleGithubSignIn, handleGitlabSignIn, handleGoogleSignIn } from '@/lib/auth-client';
+import { loadLastSignInMethod, rememberSignInMethod } from '@/lib/last-sign-in-method';
 import { cn } from '@/lib/utils';
+
+/**
+ * Shrinks the email/password fields when sign-in providers are on screen, so the
+ * provider buttons read as the primary way in.
+ */
+const CompactFieldsContext = createContext({ compact: false, emailLastUsed: false });
 
 interface AuthFormProps {
 	form: any;
@@ -47,54 +55,67 @@ export function AuthForm({
 	const oidcConfig = useQuery(trpc.authConfig.oidc.getConfig.queryOptions());
 	const branding = useBranding();
 
-	const socialProviders: Array<(className?: string) => React.ReactNode> = [
-		isGoogleSetup.data &&
-			((className?: string) => (
-				<AuthSocialButton
-					key='google'
-					icon={GoogleIcon}
-					label='Continue with Google'
-					onClick={() => handleGoogleSignIn(socialCallbackUrl)}
-					className={className}
-				/>
-			)),
-		isGithubSetup.data &&
-			((className?: string) => (
-				<AuthSocialButton
-					key='github'
-					icon={GithubIcon}
-					label='Continue with GitHub'
-					onClick={() => handleGithubSignIn(socialCallbackUrl)}
-					className={className}
-				/>
-			)),
-		isGitlabSetup.data &&
-			((className?: string) => (
-				<AuthSocialButton
-					key='gitlab'
-					icon={GitlabIcon}
-					label='Continue with GitLab'
-					onClick={() => handleGitlabSignIn(socialCallbackUrl)}
-					className={className}
-				/>
-			)),
-		isMicrosoftSetup &&
-			((className?: string) => (
-				<MicrosoftSignInButton key='microsoft' callbackUrl={socialCallbackUrl} className={className} />
-			)),
-		oidcConfig.data &&
-			((className?: string) => (
-				<OidcSignInButton
-					key='oidc'
-					providerId={oidcConfig.data!.providerId}
-					providerName={oidcConfig.data!.providerName}
-					callbackUrl={socialCallbackUrl}
-					className={className}
-				/>
-			)),
-	].filter(Boolean) as Array<(className?: string) => React.ReactNode>;
+	const [lastSignInMethod] = useState(loadLastSignInMethod);
+	const [isEmailFormExpanded, setIsEmailFormExpanded] = useState(lastSignInMethod === 'email');
+
+	const socialProviders = [
+		isGoogleSetup.data && (
+			<AuthSocialButton
+				key='google'
+				icon={GoogleIcon}
+				label='Continue with Google'
+				onClick={() => {
+					rememberSignInMethod('google');
+					handleGoogleSignIn(socialCallbackUrl);
+				}}
+				lastUsed={lastSignInMethod === 'google'}
+			/>
+		),
+		isGithubSetup.data && (
+			<AuthSocialButton
+				key='github'
+				icon={GithubIcon}
+				label='Continue with GitHub'
+				onClick={() => {
+					rememberSignInMethod('github');
+					handleGithubSignIn(socialCallbackUrl);
+				}}
+				lastUsed={lastSignInMethod === 'github'}
+			/>
+		),
+		isGitlabSetup.data && (
+			<AuthSocialButton
+				key='gitlab'
+				icon={GitlabIcon}
+				label='Continue with GitLab'
+				onClick={() => {
+					rememberSignInMethod('gitlab');
+					handleGitlabSignIn(socialCallbackUrl);
+				}}
+				lastUsed={lastSignInMethod === 'gitlab'}
+			/>
+		),
+		isMicrosoftSetup && (
+			<MicrosoftSignInButton
+				key='microsoft'
+				callbackUrl={socialCallbackUrl}
+				lastUsed={lastSignInMethod === 'microsoft'}
+			/>
+		),
+		oidcConfig.data && (
+			<OidcSignInButton
+				key='oidc'
+				providerId={oidcConfig.data.providerId}
+				providerName={oidcConfig.data.providerName}
+				callbackUrl={socialCallbackUrl}
+				lastUsed={lastSignInMethod === 'oidc'}
+			/>
+		),
+	].filter(Boolean);
 
 	const hasAnyProvider = socialProviders.length > 0;
+	const showsProviders = Boolean(displaySocialProviders && hasAnyProvider);
+	const showEmailForm = displayEmailPasswordForm && (!showsProviders || isEmailFormExpanded);
 
 	return (
 		<div className='flex min-h-screen w-full'>
@@ -113,26 +134,9 @@ export function AuthForm({
 						<h1 className='font-borna text-2xl font-medium text-center'>{title}</h1>
 					</div>
 
-					{displaySocialProviders && hasAnyProvider && (
+					{showsProviders && (
 						<div className='mb-6'>
-							<div
-								className={cn(
-									'grid justify-center gap-3 mb-6',
-									socialProviders.length === 1 ? 'grid-cols-1' : 'grid-cols-2',
-								)}
-							>
-								{socialProviders.map((renderProvider, index) => {
-									const isLonelyLast =
-										socialProviders.length > 1 &&
-										socialProviders.length % 2 === 1 &&
-										index === socialProviders.length - 1;
-									return renderProvider(
-										isLonelyLast
-											? 'col-span-2 w-[calc(50%-0.375rem)] justify-self-center'
-											: undefined,
-									);
-								})}
-							</div>
+							<div className='grid grid-cols-1 gap-3 mb-6'>{socialProviders}</div>
 
 							{displayEmailPasswordForm && (
 								<div className='relative'>
@@ -144,34 +148,54 @@ export function AuthForm({
 									</div>
 								</div>
 							)}
+
+							{displayEmailPasswordForm && !isEmailFormExpanded && (
+								<button
+									type='button'
+									onClick={() => setIsEmailFormExpanded(true)}
+									className='mt-6 flex w-full cursor-pointer items-center justify-center gap-2 text-sm font-medium text-foreground'
+								>
+									<span className='underline underline-offset-2'>Use email and password</span>
+									{lastSignInMethod === 'email' && <LastUsedPill />}
+								</button>
+							)}
 						</div>
 					)}
 
 					{serverError && <p className='text-red-500 text-center text-sm mb-4'>{serverError}</p>}
 
-					{displayEmailPasswordForm ? (
-						<form
-							onSubmit={(e) => {
-								e.preventDefault();
-								form.handleSubmit();
-							}}
+					{showEmailForm ? (
+						<CompactFieldsContext.Provider
+							value={{ compact: showsProviders, emailLastUsed: lastSignInMethod === 'email' }}
 						>
-							{children}
+							<form
+								onSubmit={(e) => {
+									e.preventDefault();
+									form.handleSubmit();
+								}}
+							>
+								{children}
 
-							<form.Subscribe selector={(state: { canSubmit: boolean }) => state.canSubmit}>
-								{(canSubmit: boolean) => (
-									<Button
-										type='submit'
-										variant={canSubmit ? 'primary-gradient' : 'default'}
-										className={`w-full h-11 rounded-full ${canSubmit ? '' : 'bg-muted-foreground/20 text-secondary-foreground'}`}
-										disabled={!canSubmit}
-									>
-										{submitText}
-									</Button>
-								)}
-							</form.Subscribe>
-						</form>
+								<form.Subscribe selector={(state: { canSubmit: boolean }) => state.canSubmit}>
+									{(canSubmit: boolean) => (
+										<Button
+											type='submit'
+											variant={canSubmit ? 'primary-gradient' : 'default'}
+											className={cn(
+												'w-full rounded-full',
+												showsProviders ? 'h-10 text-sm' : 'h-11',
+												!canSubmit && 'bg-muted-foreground/20 text-secondary-foreground',
+											)}
+											disabled={!canSubmit}
+										>
+											{submitText}
+										</Button>
+									)}
+								</form.Subscribe>
+							</form>
+						</CompactFieldsContext.Provider>
 					) : (
+						!displayEmailPasswordForm &&
 						emailPasswordDisabledMessage && (
 							<p className='text-center text-sm text-muted-foreground'>{emailPasswordDisabledMessage}</p>
 						)
@@ -232,8 +256,11 @@ interface FormTextFieldProps {
 
 export function FormTextField({ form, name, type = 'text', title, placeholder, className }: FormTextFieldProps) {
 	const [showPassword, setShowPassword] = useState(false);
+	const { compact, emailLastUsed } = useContext(CompactFieldsContext);
 	const isPassword = type === 'password';
 	const inputType = isPassword && showPassword ? 'text' : type;
+	const eyeIconSize = compact ? 16 : 18;
+	const showLastUsed = emailLastUsed && name === 'email';
 
 	return (
 		<form.Field
@@ -244,8 +271,11 @@ export function FormTextField({ form, name, type = 'text', title, placeholder, c
 			}}
 		>
 			{(field: { state: { value: string }; handleChange: (v: string) => void; handleBlur: () => void }) => (
-				<div className={cn('grid gap-2', className)}>
-					<label htmlFor={name} className='text-sm font-medium text-foreground'>
+				<div className={cn('grid', compact ? 'gap-1.5' : 'gap-2', className)}>
+					<label
+						htmlFor={name}
+						className={cn('font-medium text-foreground', compact ? 'text-xs' : 'text-sm')}
+					>
 						{title ?? name.charAt(0).toUpperCase() + name.slice(1)}
 					</label>
 					<div className='relative'>
@@ -256,21 +286,29 @@ export function FormTextField({ form, name, type = 'text', title, placeholder, c
 							value={field.state.value}
 							onChange={(e) => field.handleChange(e.target.value)}
 							onBlur={field.handleBlur}
-							className={cn('h-12 text-base bg-panel w-full rounded-lg p-4', isPassword && 'pr-12')}
+							className={cn(
+								'bg-panel w-full rounded-lg',
+								compact ? 'h-10 text-sm px-3' : 'h-12 text-base p-4',
+								isPassword && (compact ? 'pr-10' : 'pr-12'),
+							)}
 						/>
+						{showLastUsed && <LastUsedPill className='absolute -top-2 right-3' />}
 						{isPassword && (
 							<button
 								type='button'
 								onClick={() => setShowPassword(!showPassword)}
-								className='absolute right-4 top-1/2 -translate-y-1/2 text-foreground transition-colors'
+								className={cn(
+									'absolute top-1/2 -translate-y-1/2 text-foreground transition-colors',
+									compact ? 'right-3' : 'right-4',
+								)}
 								tabIndex={-1}
 								aria-label={showPassword ? 'Hide password' : 'Show password'}
 							>
 								{showPassword ? (
-									<EyeOff size={18} />
+									<EyeOff size={eyeIconSize} />
 								) : (
 									<Eye
-										size={18}
+										size={eyeIconSize}
 										className='[&_circle]:fill-foreground [&_circle]:stroke-foreground'
 									/>
 								)}

@@ -120,6 +120,20 @@ OIDC_AUTH_DOMAINS=yourcompany.com,subsidiary.com
 
 When set, only users with email addresses matching one of the listed domains will be allowed to sign in. When unset, any email from the identity provider is accepted.
 
+## Identity-provider-initiated sign-in
+
+OIDC only defines app-initiated flows: when a user clicks an app tile in their identity provider (Okta's **My Apps**, Auth0's dashboard, …), the provider does not send tokens. It just redirects to the app with an `iss` query param and expects the app to start the flow.
+
+nao exposes `GET /api/sso/start` for this. It starts the authorization request server-side and redirects the browser to the provider, so the user never sees the nao login page. Register it as the provider's initiate-login URI:
+
+```
+https://<your-nao-host>/api/sso/start
+```
+
+In Okta this lives under **General Settings** → **Login**: set **Login initiated by** to `Either Okta or App`, enable **Display application icon to users**, and set **Initiate login URI** to the URL above.
+
+When OIDC is not configured, or the flow cannot be started, the endpoint redirects to `/login`.
+
 ## PKCE
 
 PKCE (Proof Key for Code Exchange) is enabled by default and recommended for all providers. Only disable it if your provider explicitly does not support it:
@@ -145,4 +159,5 @@ OIDC_SCOPES=openid,profile,email,groups
 | "redirect_uri_mismatch" error              | The redirect URI registered in your IdP does not match `https://<host>/api/auth/oauth2/callback/{OIDC_PROVIDER_ID}` exactly      |
 | "invalid_scope" error                      | Your provider doesn't support one of the requested scopes — check `OIDC_SCOPES`                                                  |
 | "This email domain is not authorized"      | The user's email domain is not in `OIDC_AUTH_DOMAINS`                                                                            |
+| App tile lands on the login page           | Initiate login URI is not set to `https://<host>/api/sso/start`                                                                  |
 | Login succeeds but user can't see projects | Expected — an admin needs to add the user to a project after their first login                                                   |

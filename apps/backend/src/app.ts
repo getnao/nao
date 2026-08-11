@@ -43,6 +43,7 @@ import { imageRoutes } from './routes/image';
 import { mapBoundariesRoutes } from './routes/map-boundaries';
 import { mcpOAuthRoutes } from './routes/mcp-oauth';
 import { slackRoutes } from './routes/slack';
+import { ssoRoutes } from './routes/sso';
 import { teamsRoutes } from './routes/teams';
 import { telegramRoutes } from './routes/telegram';
 import { testRoutes } from './routes/test';
@@ -193,6 +194,10 @@ app.register(embedStoryDownloadRoutes, {
 });
 
 app.register(authRoutes, {
+	prefix: '/api',
+});
+
+app.register(ssoRoutes, {
 	prefix: '/api',
 });
 
