@@ -1,0 +1,33 @@
+@chat/apps/backend/src/routes/sso.ts:18 we should check if the license authorise the sso
+
+---
+
+why dont the /api/sso/start route use the iss param?
+
+---
+
+why dont the /api/sso/start route use the iss param?
+
+---
+
+improve the login page ; if there is a single SSO provider make it take the full width and add a Continue with "provider name" also reduce the size of the usual usename passowrd so the social takes visually precedence
+
+---
+
+actually instead of doing for single provider do it when there is at least one
+
+---
+
+hide the username/password under a use username/password in that case ; and keep in the local storage the previously used method to help the user remember what it used
+
+---
+
+Add the "last used" as a floating pill in the button ; for the login with user/password add the text/pill as wel
+
+---
+
+when last used is user/password, open the fields
+
+---
+
+put the last used on the email field

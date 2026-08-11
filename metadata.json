@@ -3,14 +3,20 @@
   "checkpoint_id": "01KZRHC4ZMRHF0E2J18AVHMKKC",
   "strategy": "manual-commit",
   "branch": "feat/okta-login-small-improv",
-  "checkpoints_count": 9,
+  "checkpoints_count": 18,
   "files_touched": [
     "apps/backend/docs/auth-oidc-local-testing.md",
     "apps/backend/docs/auth-oidc.md",
     "apps/backend/src/app.ts",
     "apps/backend/src/routes/sso.ts",
     "apps/frontend/src/components/auth-form.tsx",
-    "apps/frontend/src/routes/login.tsx"
+    "apps/frontend/src/components/auth-microsoft-button.tsx",
+    "apps/frontend/src/components/auth-oidc-button.tsx",
+    "apps/frontend/src/components/ui/button.tsx",
+    "apps/frontend/src/components/ui/last-used-pill.tsx",
+    "apps/frontend/src/lib/last-sign-in-method.ts",
+    "apps/frontend/src/routes/login.tsx",
+    "apps/frontend/src/routes/signup.tsx"
   ],
   "sessions": [
     {
@@ -26,13 +32,20 @@
       "compact_transcript": "/1/transcript.jsonl",
       "content_hash": "/1/content_hash.txt",
       "prompt": "/1/prompt.txt"
+    },
+    {
+      "metadata": "/2/metadata.json",
+      "transcript": "/2/full.jsonl",
+      "compact_transcript": "/2/transcript.jsonl",
+      "content_hash": "/2/content_hash.txt",
+      "prompt": "/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 118,
-    "cache_creation_tokens": 61002,
-    "cache_read_tokens": 8172147,
-    "output_tokens": 32309,
-    "api_call_count": 2
+    "input_tokens": 87165,
+    "cache_creation_tokens": 283527,
+    "cache_read_tokens": 16104288,
+    "output_tokens": 78619,
+    "api_call_count": 9
   }
 }
