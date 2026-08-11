@@ -98,6 +98,8 @@ function SharedStoryPage() {
 				storyId={story.storyId}
 				chatId={story.chatId}
 				storySlug={story.slug}
+				shareId={shareId}
+				cachedAt={story.cachedAt}
 				onOpenChat={() =>
 					navigate({
 						to: '/$chatId',
@@ -133,6 +135,7 @@ function SharedStoryPage() {
 					story.isLive
 						? {
 								isLive: true,
+								cachedAt: story.cachedAt,
 								isRefreshing: refreshMutation.isPending,
 								onRefresh: () => refreshMutation.mutate({ shareId }),
 							}
@@ -206,6 +209,8 @@ interface SharedStoryOwnerHeaderProps {
 	storyId: string | null;
 	chatId: string;
 	storySlug: string;
+	shareId: string;
+	cachedAt?: string | Date | null;
 	onOpenChat: () => void;
 	viewModeControls: StoryPageHeaderProps['viewModeControls'];
 	versionControls: StoryPageHeaderProps['versionControls'];
@@ -217,6 +222,8 @@ function SharedStoryOwnerHeader({
 	storyId,
 	chatId,
 	storySlug,
+	shareId,
+	cachedAt,
 	onOpenChat,
 	viewModeControls,
 	versionControls,
@@ -234,7 +241,7 @@ function SharedStoryOwnerHeader({
 		isRefreshing,
 		handleSaveSettings,
 		handleRefreshData,
-	} = useStoryViewerLiveSettings({ chatId, storySlug });
+	} = useStoryViewerLiveSettings({ chatId, storySlug, shareId });
 
 	return (
 		<>
@@ -244,6 +251,7 @@ function SharedStoryOwnerHeader({
 				onOpenChat={onOpenChat}
 				live={{
 					isLive,
+					cachedAt,
 					isRefreshing,
 					onRefresh: () => handleRefreshData(),
 					onOpenSettings: () => setIsLiveSettingsOpen(true),

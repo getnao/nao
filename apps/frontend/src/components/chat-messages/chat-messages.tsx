@@ -48,11 +48,9 @@ export function ChatMessages() {
 			key={chatId}
 		>
 			<Conversation>
-				<ConversationContent
-					className='max-w-3xl mx-auto gap-0 pt-15 max-md:pt-0'
-					style={{ paddingBottom: 'var(--chat-input-height, 0px)' }}
-				>
+				<ConversationContent className='max-w-3xl mx-auto gap-0 pt-15 pb-0 md:pb-0 max-md:pt-0'>
 					<ChatMessagesContent />
+					<div className='shrink-0' style={{ height: 'var(--chat-input-height, 0px)' }} aria-hidden />
 				</ConversationContent>
 
 				<ConversationScrollButton className='bottom-[calc(var(--chat-input-height,0px)+1rem)]' />

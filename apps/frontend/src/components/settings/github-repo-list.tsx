@@ -10,7 +10,7 @@ export type GithubRepo = inferRouterOutputs<TrpcRouter>['github']['listRepos']['
 
 interface GithubRepoListProps {
 	selected: string | null;
-	onSelect: (repoFullName: string) => void;
+	onSelect: (repoFullName: string, repo: GithubRepo) => void;
 	onSearchChange?: () => void;
 	renderRepoMeta?: (repo: GithubRepo) => ReactNode;
 }

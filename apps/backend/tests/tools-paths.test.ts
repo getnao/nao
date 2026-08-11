@@ -75,6 +75,13 @@ describe('toRealPath', () => {
 			expect(() => toRealPath('/.meta/something', '/home/user/project')).toThrow('excluded directory');
 		});
 
+		it('rejects protected paths regardless of case', async () => {
+			const { toRealPath } = await loadTools('posix');
+			expect(() => toRealPath('/.GIT/config', '/home/user/project')).toThrow('protected .git metadata');
+			expect(() => toRealPath('/.Env', '/home/user/project')).toThrow('protected environment file');
+			expect(() => toRealPath('/.MeTa/something', '/home/user/project')).toThrow('excluded directory');
+		});
+
 		it('normalizes trailing slash on project folder', async () => {
 			const { toRealPath } = await loadTools('posix');
 			expect(toRealPath('/databases', '/home/user/project/')).toBe('/home/user/project/databases');
@@ -117,6 +124,13 @@ describe('toRealPath', () => {
 		it('rejects excluded .meta directory', async () => {
 			const { toRealPath } = await loadTools('win32');
 			expect(() => toRealPath('/.meta/data', 'C:\\Users\\user\\project')).toThrow('excluded directory');
+		});
+
+		it('rejects protected paths regardless of case', async () => {
+			const { toRealPath } = await loadTools('win32');
+			expect(() => toRealPath('/.GIT/config', 'C:\\Users\\user\\project')).toThrow('protected .git metadata');
+			expect(() => toRealPath('/.Env', 'C:\\Users\\user\\project')).toThrow('protected environment file');
+			expect(() => toRealPath('/.MeTa/data', 'C:\\Users\\user\\project')).toThrow('excluded directory');
 		});
 
 		it('handles mixed separators in project folder', async () => {
@@ -270,6 +284,17 @@ describe('isWithinProjectFolder', () => {
 				false,
 			);
 		});
+	});
+});
+
+describe('built-in path exclusions', () => {
+	it('matches excluded entries regardless of case', async () => {
+		const { isExcludedEntry, isInExcludedDir } = await loadTools('posix');
+
+		expect(isExcludedEntry('.GIT')).toBe(true);
+		expect(isExcludedEntry('.Env')).toBe(true);
+		expect(isExcludedEntry('.MeTa')).toBe(true);
+		expect(isInExcludedDir('/home/user/project/.MeTa/file.txt')).toBe(true);
 	});
 });
 

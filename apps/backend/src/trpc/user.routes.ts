@@ -7,6 +7,7 @@ import * as memoryQueries from '../queries/memory';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import * as userPreferenceQueries from '../queries/user-preference.queries';
+import { cleanupContextWorktree } from '../services/context-explorer-git.service';
 import { addTeamMember } from '../services/team-member';
 import { buildUserAddedEmail } from '../utils/email-builders';
 import { adminProtectedProcedure, projectProtectedProcedure, protectedProcedure, publicProcedure } from './trpc';
@@ -52,6 +53,15 @@ export const userRoutes = {
 
 			if (input.newRole && input.newRole !== previousRole) {
 				await projectQueries.updateProjectMemberRole(ctx.project.id, input.userId, input.newRole);
+				const nextRole = await projectQueries.getUserRoleInProject(ctx.project.id, input.userId);
+				if (
+					ctx.project.path &&
+					(previousRole === 'admin' || previousRole === 'context_admin') &&
+					nextRole !== 'admin' &&
+					nextRole !== 'context_admin'
+				) {
+					await cleanupContextWorktree(ctx.project.id, ctx.project.path, input.userId);
+				}
 			}
 			if (input.name && input.name !== previousName) {
 				await userQueries.updateUser(input.userId, input.name);

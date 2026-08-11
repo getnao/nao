@@ -148,6 +148,7 @@ export async function refreshLicenseOnline(): Promise<void> {
 interface ValidateVerdict {
 	valid: boolean;
 	isActive: boolean;
+	expiresAt?: Date;
 	features?: LicenseFeature[];
 	reason?: string;
 }
@@ -168,6 +169,7 @@ async function verifyValidateToken(token: string, expectedSubscriptionId: string
 		return {
 			valid: payload.valid === true,
 			isActive: payload.isActive === true,
+			expiresAt: parseOptionalExpiresAt(payload.expiresAt),
 			features: parseOptionalFeatures(payload.features),
 			reason: typeof payload.reason === 'string' ? payload.reason : undefined,
 		};
@@ -178,15 +180,30 @@ async function verifyValidateToken(token: string, expectedSubscriptionId: string
 	}
 }
 
+/**
+ * Fold a positive verdict back into the cached license so a subscription renewed
+ * on the licenses server takes effect without re-issuing the license file. The
+ * expiry is only ever pushed further out — shortening it is left to the
+ * `isActive` flag, so a replayed stale verdict can never cut a license short.
+ */
 function updateCachedLicenseFromOnlineVerdict(license: NaoLicense, verdict: ValidateVerdict): void {
-	if (!verdict.features) {
-		return;
+	const expiresAt = pickLatestExpiry(license.expiresAt, verdict.expiresAt);
+	if (expiresAt !== license.expiresAt) {
+		console.log(`[license] ${license.subscriptionId} renewed online until ${expiresAt.toISOString()}`);
 	}
 
 	licensePromise = Promise.resolve({
 		...license,
-		features: verdict.features,
+		expiresAt,
+		features: verdict.features ?? license.features,
 	});
+}
+
+function pickLatestExpiry(current: Date, renewed: Date | undefined): Date {
+	if (!renewed || renewed.getTime() <= current.getTime()) {
+		return current;
+	}
+	return renewed;
 }
 
 async function loadAndVerifyLicense(): Promise<NaoLicense | null> {
@@ -284,6 +301,14 @@ function parseFeatures(value: unknown): LicenseFeature[] {
 	}
 	const known = new Set<string>(Object.values(LICENSE_FEATURES));
 	return value.filter((item): item is LicenseFeature => typeof item === 'string' && known.has(item));
+}
+
+function parseOptionalExpiresAt(value: unknown): Date | undefined {
+	if (typeof value !== 'string') {
+		return undefined;
+	}
+	const parsed = new Date(value);
+	return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 }
 
 function parseOptionalFeatures(value: unknown): LicenseFeature[] | undefined {

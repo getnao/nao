@@ -20,9 +20,24 @@ export const getProviderBudget = async (
 	return row ?? null;
 };
 
-export const getProviderCurrentSpend = async (projectId: string, provider: LlmProvider): Promise<number> => {
-	const costs = await getProviderPeriodCosts(projectId, provider);
-	return costs[provider] ?? 0;
+export const getProviderBudgetSpend = async (
+	projectId: string,
+	provider: LlmProvider,
+	userId?: string,
+): Promise<{ projectSpend: number; userSpend: number }> => {
+	const rows = await queryProviderPeriodCosts(projectId, { provider });
+
+	let projectTotal = 0;
+	let userTotal = 0;
+	for (const row of rows) {
+		const cost = Number(row.totalCost ?? 0);
+		projectTotal += cost;
+		if (userId && row.userId === userId) {
+			userTotal += cost;
+		}
+	}
+
+	return { projectSpend: roundCost(projectTotal), userSpend: roundCost(userTotal) };
 };
 
 export const getProjectProviderBudgets = async (projectId: string): Promise<DBProjectProviderBudget[]> => {
@@ -35,7 +50,7 @@ export const advanceStaleBudgetPeriods = async (projectId: string, provider?: Ll
 		: await getProjectProviderBudgets(projectId);
 
 	for (const budget of budgets) {
-		if (budget.limitUsd <= 0) {
+		if (budget.limitUsd <= 0 && !budget.perUserLimitUsd) {
 			continue;
 		}
 		const expectedPeriodStart = getCurrentPeriodStart(budget.period as BudgetPeriod);
@@ -49,45 +64,9 @@ export const advanceStaleBudgetPeriods = async (projectId: string, provider?: Ll
 	}
 };
 
-export const upsertProjectProviderBudget = async (
-	projectId: string,
-	provider: LlmProvider,
-	limitUsd: number,
-	period: BudgetPeriod,
-): Promise<DBProjectProviderBudget> => {
-	const existing = await db
-		.select()
-		.from(s.projectProviderBudget)
-		.where(and(eq(s.projectProviderBudget.projectId, projectId), eq(s.projectProviderBudget.provider, provider)))
-		.execute()
-		.then((rows) => rows[0] ?? null);
-
-	if (existing) {
-		const periodChanged = existing.period !== period;
-		const [updated] = await db
-			.update(s.projectProviderBudget)
-			.set({
-				limitUsd,
-				period,
-				...(periodChanged && { currentPeriodStart: new Date() }),
-			})
-			.where(eq(s.projectProviderBudget.id, existing.id))
-			.returning()
-			.execute();
-		return updated;
-	}
-
-	const [created] = await db
-		.insert(s.projectProviderBudget)
-		.values({ projectId, provider, limitUsd, period })
-		.returning()
-		.execute();
-	return created;
-};
-
 export const setProjectProviderBudgets = async (
 	projectId: string,
-	budgets: Array<{ provider: LlmProvider; limitUsd: number; period: BudgetPeriod }>,
+	budgets: Array<{ provider: LlmProvider; limitUsd: number; period: BudgetPeriod; perUserLimitUsd?: number | null }>,
 ): Promise<DBProjectProviderBudget[]> => {
 	const activeProviders = budgets.map((b) => b.provider);
 
@@ -102,7 +81,7 @@ export const setProjectProviderBudgets = async (
 			.execute();
 
 		const results = await Promise.all(
-			budgets.map(async ({ provider, limitUsd, period }) => {
+			budgets.map(async ({ provider, limitUsd, period, perUserLimitUsd }) => {
 				const [existing] = await tx
 					.select()
 					.from(s.projectProviderBudget)
@@ -120,6 +99,7 @@ export const setProjectProviderBudgets = async (
 						.update(s.projectProviderBudget)
 						.set({
 							limitUsd,
+							...(perUserLimitUsd !== undefined && { perUserLimitUsd }),
 							period,
 							...(periodChanged && { currentPeriodStart: new Date() }),
 						})
@@ -131,7 +111,7 @@ export const setProjectProviderBudgets = async (
 
 				const [created] = await tx
 					.insert(s.projectProviderBudget)
-					.values({ projectId, provider, limitUsd, period })
+					.values({ projectId, provider, limitUsd, perUserLimitUsd: perUserLimitUsd ?? null, period })
 					.returning()
 					.execute();
 				return created;
@@ -142,10 +122,14 @@ export const setProjectProviderBudgets = async (
 	});
 };
 
-export const getProviderPeriodCosts = async (
+type ProviderPeriodCostRow = { provider: string; userId: string | null; totalCost: number };
+
+const roundCost = (value: number): number => Math.round(value * 100) / 100;
+
+const queryProviderPeriodCosts = async (
 	projectId: string,
-	provider?: LlmProvider,
-): Promise<Record<string, number>> => {
+	options: { provider?: LlmProvider; userId?: string; requirePerUserLimit?: boolean } = {},
+): Promise<ProviderPeriodCostRow[]> => {
 	const costLookup = await createCostLookup(projectId);
 	const isPostgres = dbConfig.dialect === Dialect.Postgres;
 	const dayStart = getCurrentPeriodStart('day');
@@ -159,9 +143,10 @@ export const getProviderPeriodCosts = async (
 		WHEN 'month' THEN ${toParam(monthStart)}
 	END`;
 
-	const rows = await db
+	return db
 		.select({
 			provider: s.projectProviderBudget.provider,
+			userId: s.chat.userId,
 			totalCost: sql<number>`sum(${TOTAL_COST_EXPR})`,
 		})
 		.from(s.projectProviderBudget)
@@ -173,14 +158,45 @@ export const getProviderPeriodCosts = async (
 				eq(s.projectProviderBudget.projectId, projectId),
 				sql`${s.chatMessage.llmProvider} = ${s.projectProviderBudget.provider}`,
 				sql`${s.chatMessage.createdAt} >= ${periodStartExpr}`,
-				provider ? eq(s.projectProviderBudget.provider, provider) : undefined,
+				options.provider ? eq(s.projectProviderBudget.provider, options.provider) : undefined,
+				options.userId ? eq(s.chat.userId, options.userId) : undefined,
+				options.requirePerUserLimit ? sql`${s.projectProviderBudget.perUserLimitUsd} > 0` : undefined,
 			),
 		)
-		.groupBy(s.projectProviderBudget.provider);
+		.groupBy(s.projectProviderBudget.provider, s.chat.userId);
+};
+
+export const getProviderPeriodCosts = async (
+	projectId: string,
+	provider?: LlmProvider,
+	userId?: string,
+): Promise<Record<string, number>> => {
+	const rows = await queryProviderPeriodCosts(projectId, { provider, userId });
+
+	const totals: Record<string, number> = {};
+	for (const row of rows) {
+		totals[row.provider] = (totals[row.provider] ?? 0) + Number(row.totalCost ?? 0);
+	}
 
 	const result: Record<string, number> = {};
+	for (const [providerKey, total] of Object.entries(totals)) {
+		result[providerKey] = roundCost(total);
+	}
+	return result;
+};
+
+export const getProviderPeriodCostsByUser = async (
+	projectId: string,
+): Promise<Record<string, Record<string, number>>> => {
+	const rows = await queryProviderPeriodCosts(projectId, { requirePerUserLimit: true });
+
+	const result: Record<string, Record<string, number>> = {};
 	for (const row of rows) {
-		result[row.provider] = Math.round(Number(row.totalCost ?? 0) * 100) / 100;
+		if (!row.userId) {
+			continue;
+		}
+		const providerCosts = (result[row.provider] ??= {});
+		providerCosts[row.userId] = roundCost(Number(row.totalCost ?? 0));
 	}
 	return result;
 };

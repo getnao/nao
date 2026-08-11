@@ -35,6 +35,9 @@ export function getPromptCacheProvider(modelSelection: LlmSelectedModel): Prompt
 	if (provider === 'vertex' && modelId.toLowerCase().startsWith('claude-')) {
 		return 'anthropic';
 	}
+	if (provider === 'openrouter' && modelId.toLowerCase().startsWith('anthropic/')) {
+		return 'anthropic';
+	}
 	if (provider === 'bedrock' && isBedrockAnthropicModel(modelId)) {
 		return 'bedrock';
 	}

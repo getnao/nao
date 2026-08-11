@@ -16,6 +16,7 @@ import { db } from './db/db';
 import dbConfig, { Dialect } from './db/dbConfig';
 import { env, isCloud, MCP_SERVER_URL } from './env';
 import * as orgQueries from './queries/organization.queries';
+import * as projectQueries from './queries/project.queries';
 import * as userQueries from './queries/user.queries';
 import { emailService } from './services/email';
 import { githubOAuthConfig } from './services/github';
@@ -293,6 +294,25 @@ async function createAuthInstance(baseURL: string) {
 								message: 'Account setup could not be completed. Please try again or contact support.',
 							});
 						}
+					},
+				},
+				delete: {
+					before: async (user) => {
+						try {
+							const { cleanupContextWorktree } = await import('./services/context-explorer-git.service');
+							const projects = await projectQueries.listUserProjects(user.id);
+							for (const project of projects) {
+								if (project.path) {
+									await cleanupContextWorktree(project.id, project.path, user.id);
+								}
+							}
+						} catch (error) {
+							logger.warn(`Failed to clean up context worktrees before deleting user ${user.id}`, {
+								source: 'system',
+								context: { error: serializeError(error) },
+							});
+						}
+						return true;
 					},
 				},
 			},

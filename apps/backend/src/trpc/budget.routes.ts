@@ -3,6 +3,7 @@ import { z } from 'zod/v4';
 
 import { PROVIDER_META } from '../agents/provider-meta';
 import * as budgetQueries from '../queries/budget.queries';
+import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { setBudgetsInputSchema } from '../types/budget';
 import { llmProviderSchema } from '../types/llm';
 import { checkBudgetStatus } from '../utils/budget';
@@ -27,13 +28,24 @@ export const budgetRoutes = {
 		return budgetQueries.getProviderPeriodCosts(ctx.project.id);
 	}),
 
+	getPerUserProviderCosts: adminProtectedProcedure.query(async ({ ctx }) => {
+		if (!(await hasFeature(LICENSE_FEATURES.userBudget))) {
+			return {};
+		}
+		return budgetQueries.getProviderPeriodCostsByUser(ctx.project.id);
+	}),
+
 	checkBudgetStatus: projectProtectedProcedure
 		.input(z.object({ provider: llmProviderSchema }))
 		.query(async ({ ctx, input }) => {
-			return checkBudgetStatus(ctx.project.id, input.provider);
+			return checkBudgetStatus(ctx.project.id, input.provider, ctx.user.id);
 		}),
 
 	setBudgets: adminProtectedProcedure.input(setBudgetsInputSchema).mutation(async ({ ctx, input }) => {
-		return budgetQueries.setProjectProviderBudgets(ctx.project.id, input.budgets);
+		const userBudgetEnabled = await hasFeature(LICENSE_FEATURES.userBudget);
+		const budgets = userBudgetEnabled
+			? input.budgets
+			: input.budgets.map(({ provider, limitUsd, period }) => ({ provider, limitUsd, period }));
+		return budgetQueries.setProjectProviderBudgets(ctx.project.id, budgets);
 	}),
 };

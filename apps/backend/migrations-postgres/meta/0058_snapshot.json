@@ -1811,6 +1811,30 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "fix_target": {
+          "name": "fix_target",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "root_cause": {
+          "name": "root_cause",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "root_cause_kind": {
+          "name": "root_cause_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {

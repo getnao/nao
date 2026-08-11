@@ -1,7 +1,6 @@
 import { useState } from 'react';
 
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 
 interface RemoveMemberDialogProps {
 	open: boolean;
@@ -31,22 +30,14 @@ export function RemoveMemberDialog({
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent>
-				<DialogHeader>
-					<DialogTitle>Remove {memberName}?</DialogTitle>
-				</DialogHeader>
-				<p className='text-sm text-muted-foreground'>{description}</p>
-				{error && <p className='text-red-500 text-center text-sm'>{error}</p>}
-				<div className='flex justify-end gap-2'>
-					<Button variant='outline' className='rounded-full border' onClick={() => onOpenChange(false)}>
-						Cancel
-					</Button>
-					<Button variant='destructive' className='rounded-full' onClick={handleConfirm}>
-						Remove
-					</Button>
-				</div>
-			</DialogContent>
-		</Dialog>
+		<ConfirmationDialog
+			open={open}
+			onOpenChange={onOpenChange}
+			title={`Remove ${memberName}?`}
+			description={description}
+			confirmLabel='Remove'
+			onConfirm={handleConfirm}
+			error={error}
+		/>
 	);
 }

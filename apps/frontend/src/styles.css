@@ -432,6 +432,23 @@ code.dollar:before {
 	padding: 0;
 }
 
+.file-viewer-search-match {
+	background-color: rgb(245 158 11 / 18%);
+	border-radius: 2px;
+}
+
+.dark .file-viewer-search-match {
+	background-color: rgb(250 204 21 / 20%);
+}
+
+::highlight(nao-file-preview-search-match) {
+	background-color: rgb(245 158 11 / 18%);
+}
+
+.dark ::highlight(nao-file-preview-search-match) {
+	background-color: rgb(250 204 21 / 20%);
+}
+
 /* Tiptap story editor */
 
 .story-editor .tiptap {

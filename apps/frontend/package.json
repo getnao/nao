@@ -33,6 +33,7 @@
 		"@shikijs/monaco": "^3.23.0",
 		"@shikijs/themes": "^3.23.0",
 		"@streamdown/math": "^1.0.2",
+		"@tabler/icons-react": "^3.46.0",
 		"@tailwindcss/vite": "^4.0.6",
 		"@tanstack/react-devtools": "^0.7.0",
 		"@tanstack/react-form": "^1.28.0",
