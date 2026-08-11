@@ -69,7 +69,10 @@ function buildRepoWebUrl(provider: InternalRepoProvider, repoFullName: string): 
  * configured on the recommendations settings page (or via deployment env) is used; the
  * project's own folder remote is never treated as the context repository.
  */
-export async function resolveRecommendationRepo(projectId: string, userId?: string): Promise<RecommendationRepo | null> {
+export async function resolveRecommendationRepo(
+	projectId: string,
+	userId?: string,
+): Promise<RecommendationRepo | null> {
 	const connection = await resolveContextRepository(projectId);
 	if (!connection) {
 		return null;
@@ -272,7 +275,9 @@ export async function createBatchRecommendationPullRequest(
 
 		const prCreatedAt = new Date();
 		await Promise.all(
-			committedRecIds.map((id) => crQueries.setRecommendationPr(id, { prUrl: url, prBranch: branch, prCreatedAt })),
+			committedRecIds.map((id) =>
+				crQueries.setRecommendationPr(id, { prUrl: url, prBranch: branch, prCreatedAt }),
+			),
 		);
 		return { url, branch };
 	} finally {
