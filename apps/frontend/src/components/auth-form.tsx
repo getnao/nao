@@ -13,7 +13,7 @@ import GitlabIcon from '@/components/icons/gitlab-icon.svg';
 import GoogleIcon from '@/components/icons/google-icon.svg';
 import NaoLogo from '@/components/icons/nao-full-logo.svg';
 import { BrandGradientBackdrop } from '@/components/brand-gradient-backdrop';
-import { useTheme } from '@/contexts/theme.provider';
+import { useIsDarkMode } from '@/contexts/theme.provider';
 import { brandingAssetUrl, DEFAULT_BRAND_COLOR, useBranding } from '@/hooks/use-branding';
 import { handleGithubSignIn, handleGitlabSignIn, handleGoogleSignIn } from '@/lib/auth-client';
 import { cn } from '@/lib/utils';
@@ -49,7 +49,11 @@ export function AuthForm({
 	const isMicrosoftSetup = useIsMicrosoftSetup();
 	const oidcConfig = useQuery(trpc.authConfig.oidc.getConfig.queryOptions());
 	const branding = useBranding();
+	const isDark = useIsDarkMode();
 	const customColor = branding.enabled ? branding.brandColor : null;
+	const brandVars = customColor
+		? (buildBrandVars(customColor, isDark ? 'dark' : 'light') as React.CSSProperties)
+		: undefined;
 
 	const socialProviders: Array<(className?: string) => React.ReactNode> = [
 		isGoogleSetup.data &&
@@ -176,6 +180,7 @@ export function AuthForm({
 										type='submit'
 										variant={canSubmit ? 'primary-gradient' : 'default'}
 										className={`w-full h-11 rounded-full ${canSubmit ? '' : 'bg-muted-foreground/20 text-secondary-foreground'}`}
+										style={canSubmit ? brandVars : undefined}
 										disabled={!canSubmit}
 									>
 										{submitText}
@@ -200,7 +205,7 @@ export function AuthForm({
 function AuthSidePanel() {
 	const [value, setValue] = useState('');
 	const branding = useBranding();
-	const { theme } = useTheme();
+	const isDark = useIsDarkMode();
 	const customColor = branding.enabled ? branding.brandColor : null;
 	const panelRef = useRef<HTMLDivElement>(null);
 
@@ -215,12 +220,11 @@ function AuthSidePanel() {
 			}
 			return;
 		}
-		const isDark = theme === 'dark' || (theme === 'system' && document.documentElement.classList.contains('dark'));
 		const vars = buildBrandVars(customColor, isDark ? 'dark' : 'light');
 		for (const [key, val] of Object.entries(vars)) {
 			el.style.setProperty(key, val);
 		}
-	}, [customColor, theme]);
+	}, [customColor, isDark]);
 
 	return (
 		<div

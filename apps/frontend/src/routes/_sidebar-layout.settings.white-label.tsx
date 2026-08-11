@@ -396,12 +396,7 @@ function BrandColorPreview({ color }: { color: string }) {
 					Link
 				</Button>
 				<Badge variant='admin'>Badge</Badge>
-				<NaoLogoAnimated
-					key={runId}
-					loop={animating}
-					className={cn('size-5', color ? '[&_stop]:[stop-color:var(--brand-logo)]' : undefined)}
-					style={color ? ({ '--brand-logo': color } as React.CSSProperties) : undefined}
-				/>
+				<NaoLogoAnimated key={runId} loop={animating} className='size-5' color={color} />
 			</div>
 		</div>
 	);
