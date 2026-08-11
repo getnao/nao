@@ -231,16 +231,14 @@ def _find_unlisted_tables(referenced_tables: set[str], allowed_tables: set[str])
 def _unlisted_message(unlisted_tables: list[str], allowed_tables: set[str]) -> str:
     names = ", ".join(unlisted_tables)
     message = (
-        "Query blocked because allow_listed_only is enabled and only tables present in synced context "
-        f"may be queried. Unlisted table(s): {names}."
+        "Query blocked because allow_listed_only is enabled. "
+        f"Unlisted table(s): {names}. Only synced context tables are allowed - "
+        "list/read context to see them."
     )
     if not allowed_tables:
-        return f"{message} No tables are currently present in synced context. Sync context before querying tables."
+        return f"{message} No tables are currently present in synced context."
 
-    sorted_allowed = sorted(allowed_tables)
-    label = "Allowed tables" if len(sorted_allowed) <= 10 else "Allowed tables include"
-    allowed_sample = ", ".join(sorted_allowed[:10])
-    return f"{message} {label}: {allowed_sample}. Sync the missing tables into context or query an allowed table."
+    return message
 
 
 def _blocked(reason: str) -> AllowListedOnlyGuardError:

@@ -199,7 +199,7 @@ def test_execute_sql_blocks_table_missing_from_synced_context(
     detail = response.json()["detail"]
     assert "allow_listed_only is enabled" in detail
     assert "Unlisted table(s): main.users" in detail
-    assert "Allowed tables: main.orders" in detail
+    assert "Only synced context tables are allowed - list/read context to see them." in detail
 
 
 def test_execute_sql_with_cte_duckdb(duckdb_project_folder):

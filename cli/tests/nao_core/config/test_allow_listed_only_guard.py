@@ -84,11 +84,12 @@ def test_unlisted_qualified_table_is_blocked(tmp_path: Path):
     create_context_table(tmp_path, "main", "orders")
     config = FakeDatabaseConfig(True)
 
-    with pytest.raises(
-        AllowListedOnlyGuardError,
-        match=r"Unlisted table\(s\): main\.users",
-    ):
+    with pytest.raises(AllowListedOnlyGuardError) as error:
         enforce_allow_listed_only("SELECT * FROM main.users", config, tmp_path)
+
+    message = str(error.value)
+    assert "Unlisted table(s): main.users" in message
+    assert "Only synced context tables are allowed - list/read context to see them." in message
 
 
 def test_unqualified_tables_resolve_against_live_schema(tmp_path: Path):
