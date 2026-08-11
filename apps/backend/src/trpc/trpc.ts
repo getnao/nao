@@ -5,6 +5,7 @@ import superjson from 'superjson';
 
 import { getAuth } from '../auth';
 import * as projectQueries from '../queries/project.queries';
+import { isGroupRoleMappingActive } from '../services/sso-group-mapping.service';
 import { HandlerError } from '../utils/error';
 import { convertHeaders } from '../utils/utils';
 
@@ -139,6 +140,16 @@ export const contextAdminProtectedProcedure = projectProtectedProcedure.use(asyn
 
 	return next({ ctx: { project: ctx.project, userRole: ctx.userRole } });
 });
+
+/** Roles mapped from identity provider groups are re-applied on every sign-in, so manual edits would silently revert. */
+export async function assertRolesAreEditable(): Promise<void> {
+	if (await isGroupRoleMappingActive()) {
+		throw new TRPCError({
+			code: 'FORBIDDEN',
+			message: 'Roles are managed by your identity provider and cannot be changed here.',
+		});
+	}
+}
 
 export function ownedResourceProcedure(
 	getOwnerId: (resourceId: string) => Promise<string | undefined>,

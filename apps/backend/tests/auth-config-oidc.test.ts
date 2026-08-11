@@ -78,6 +78,7 @@ describe('authConfigRoutes.oidc.getConfig', () => {
 		expect(result).toEqual({
 			providerId: 'oidc',
 			providerName: 'SSO',
+			rolesManagedByIdp: false,
 		});
 	});
 
@@ -102,7 +103,26 @@ describe('authConfigRoutes.oidc.getConfig', () => {
 		expect(result).toEqual({
 			providerId: 'okta',
 			providerName: 'Okta',
+			rolesManagedByIdp: false,
 		});
+	});
+
+	it('reports roles as IdP-managed when a group mapping is configured', async () => {
+		mockEnv.OIDC_CLIENT_ID = 'client-id';
+		mockEnv.OIDC_CLIENT_SECRET = 'secret';
+		mockEnv.OIDC_DISCOVERY_URL = 'https://example.com/.well-known/openid-configuration';
+		mockEnv.OIDC_GROUP_ROLE_MAPPING = 'nao-admins:admin';
+
+		await expect(callGetConfig()).resolves.toMatchObject({ rolesManagedByIdp: true });
+	});
+
+	it('reports roles as editable when the group mapping has no usable entry', async () => {
+		mockEnv.OIDC_CLIENT_ID = 'client-id';
+		mockEnv.OIDC_CLIENT_SECRET = 'secret';
+		mockEnv.OIDC_DISCOVERY_URL = 'https://example.com/.well-known/openid-configuration';
+		mockEnv.OIDC_GROUP_ROLE_MAPPING = 'nao-admins:superuser';
+
+		await expect(callGetConfig()).resolves.toMatchObject({ rolesManagedByIdp: false });
 	});
 });
 

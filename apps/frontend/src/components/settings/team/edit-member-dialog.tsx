@@ -14,6 +14,7 @@ import {
 	DropdownMenuContent,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useSsoRoleMapping } from '@/hooks/use-sso-role-mapping';
 
 interface EditMemberDialogProps {
 	open: boolean;
@@ -33,6 +34,7 @@ export function EditMemberDialog({
 	onSubmit,
 }: EditMemberDialogProps) {
 	const [error, setError] = useState('');
+	const { rolesManagedByIdp, providerName } = useSsoRoleMapping();
 
 	const form = useForm({
 		defaultValues: {
@@ -48,7 +50,7 @@ export function EditMemberDialog({
 				await onSubmit({
 					userId: member.id,
 					name: value.name,
-					newRole: value.role,
+					newRole: rolesManagedByIdp ? undefined : value.role,
 				});
 				onOpenChange(false);
 			} catch (err) {
@@ -104,8 +106,12 @@ export function EditMemberDialog({
 										Role
 									</label>
 									<DropdownMenu>
-										<DropdownMenuTrigger asChild>
-											<Button variant='outline' className='w-full justify-between'>
+										<DropdownMenuTrigger asChild disabled={rolesManagedByIdp}>
+											<Button
+												variant='outline'
+												className='w-full justify-between'
+												disabled={rolesManagedByIdp}
+											>
 												<span>{USER_ROLE_LABELS[field.state.value]}</span>
 												<ChevronDown className='h-4 w-4 opacity-50' />
 											</Button>
@@ -122,6 +128,12 @@ export function EditMemberDialog({
 											))}
 										</DropdownMenuContent>
 									</DropdownMenu>
+									{rolesManagedByIdp && (
+										<p className='text-xs text-muted-foreground'>
+											Roles are assigned from {providerName} groups and refresh when the user
+											signs in again.
+										</p>
+									)}
 								</div>
 							)}
 						</form.Field>

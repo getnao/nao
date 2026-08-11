@@ -33,6 +33,7 @@ import {
 	getTrustedProvidersForOidc,
 	isSocialProviderOidc,
 } from './services/oidc-auth.service';
+import { syncRolesFromSsoGroups } from './services/sso-group-mapping.service';
 import { buildForgotPasswordEmail } from './utils/email-builders';
 import { logger, serializeError } from './utils/logger';
 import { buildUsernameAllowlist, isEmailDomainAllowed, resolveProviderId } from './utils/utils';
@@ -313,6 +314,13 @@ async function createAuthInstance(baseURL: string) {
 							});
 						}
 						return true;
+					},
+				},
+			},
+			session: {
+				create: {
+					async after(session) {
+						await syncRolesFromSsoGroups(session.userId);
 					},
 				},
 			},

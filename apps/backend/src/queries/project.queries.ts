@@ -86,6 +86,16 @@ export const updateProjectMemberRole = async (projectId: string, userId: string,
 		.execute();
 };
 
+export const listProjectMembershipsForUser = async (
+	userId: string,
+): Promise<Array<{ projectId: string; role: UserRole }>> => {
+	return db
+		.select({ projectId: s.projectMember.projectId, role: s.projectMember.role })
+		.from(s.projectMember)
+		.where(eq(s.projectMember.userId, userId))
+		.execute();
+};
+
 export const listUserProjectsWithRoles = async (userId: string): Promise<UserProjectWithRole[]> => {
 	const results = await db
 		.select({

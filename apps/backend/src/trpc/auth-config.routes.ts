@@ -10,6 +10,7 @@ import { isGitlabSsoEnabled } from '../services/gitlab';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { isMicrosoftConfigured } from '../services/microsoft-auth.service';
 import { getOidcProviderId, isOidcConfigured } from '../services/oidc-auth.service';
+import { inspectSsoToken, isGroupRoleMappingActive } from '../services/sso-group-mapping.service';
 import { adminProtectedProcedure, publicProcedure } from './trpc';
 
 export const authConfigRoutes = {
@@ -86,8 +87,17 @@ export const authConfigRoutes = {
 			return {
 				providerId: getOidcProviderId(),
 				providerName: env.OIDC_PROVIDER_NAME ?? 'SSO',
+				rolesManagedByIdp: await isGroupRoleMappingActive(),
 			};
 		}),
+		inspectToken: adminProtectedProcedure
+			.input(z.object({ userId: z.string().optional() }))
+			.query(async ({ input, ctx }) => {
+				if (!(await hasFeature(LICENSE_FEATURES.sso)) || !isOidcConfigured()) {
+					throw new TRPCError({ code: 'FORBIDDEN', message: 'OIDC single sign-on is not configured.' });
+				}
+				return inspectSsoToken(input.userId ?? ctx.user.id);
+			}),
 	},
 	smtp: {
 		isSetup: publicProcedure.query(() => emailService.isEnabled()),
