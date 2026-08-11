@@ -53,6 +53,6 @@ export const budgetRoutes = {
 		const budgets = userBudgetEnabled
 			? editable
 			: editable.map(({ provider, limitUsd, period }) => ({ provider, limitUsd, period }));
-		return budgetQueries.setProjectProviderBudgets(ctx.project.id, budgets);
+		return budgetQueries.setProjectProviderBudgets(ctx.project.id, budgets, [...configManaged]);
 	}),
 };

@@ -70,13 +70,15 @@ export const advanceStaleBudgetPeriods = async (projectId: string, provider?: Ll
 export const setProjectProviderBudgets = async (
 	projectId: string,
 	budgets: Array<{ provider: LlmProvider; limitUsd: number; period: BudgetPeriod; perUserLimitUsd?: number | null }>,
+	preserveProviders: LlmProvider[] = [],
 ): Promise<DBProjectProviderBudget[]> => {
 	const activeProviders = budgets.map((b) => b.provider);
+	const retainedProviders = [...activeProviders, ...preserveProviders];
 
 	return db.transaction(async (tx) => {
 		const deleteConditions = [eq(s.projectProviderBudget.projectId, projectId)];
-		if (activeProviders.length > 0) {
-			deleteConditions.push(notInArray(s.projectProviderBudget.provider, activeProviders));
+		if (retainedProviders.length > 0) {
+			deleteConditions.push(notInArray(s.projectProviderBudget.provider, retainedProviders));
 		}
 		await tx
 			.delete(s.projectProviderBudget)
@@ -140,16 +142,12 @@ const queryProviderPeriodCosts = async (
 
 	const costLookup = await createCostLookup(projectId);
 	const isPostgres = dbConfig.dialect === Dialect.Postgres;
-	const dayStart = getCurrentPeriodStart('day');
-	const weekStart = getCurrentPeriodStart('week');
-	const monthStart = getCurrentPeriodStart('month');
 
 	const toParam = (d: Date) => (isPostgres ? sql`${d.toISOString()}::timestamp` : sql`${d.getTime()}`);
-	const periodStartExpr = sql`CASE ${s.projectProviderBudget.period}
-		WHEN 'day' THEN ${toParam(dayStart)}
-		WHEN 'week' THEN ${toParam(weekStart)}
-		WHEN 'month' THEN ${toParam(monthStart)}
-	END`;
+	const periodStartCases = budgets.map(
+		(b) => sql`WHEN ${b.provider} THEN ${toParam(getCurrentPeriodStart(b.period))}`,
+	);
+	const periodStartExpr = sql`CASE ${s.chatMessage.llmProvider} ${sql.join(periodStartCases, sql` `)} END`;
 
 	return db
 		.select({
