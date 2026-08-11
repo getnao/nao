@@ -25,14 +25,17 @@ class FakeConnection:
 class FakeDatabaseConfig:
     type = "duckdb"
     name = "local"
+    catalog: str | None = None
 
     def __init__(
         self,
         allow_listed_only: bool,
         schemas: dict[str, list[str]] | None = None,
+        database_name: str = "local",
     ):
         self.allow_listed_only = allow_listed_only
         self.schemas = schemas or {"main": ["orders", "users"]}
+        self.database_name = database_name
         self.connection = FakeConnection(self.schemas)
         self.connect_count = 0
 
@@ -41,7 +44,7 @@ class FakeDatabaseConfig:
         return self.connection
 
     def get_database_name(self) -> str:
-        return "local"
+        return self.database_name
 
     def get_schemas(self, conn: FakeConnection) -> list[str]:
         return list(conn.schemas)
@@ -119,6 +122,29 @@ def test_starrocks_short_schema_resolves_to_canonical_schema(tmp_path: Path):
 
     with pytest.raises(AllowListedOnlyGuardError):
         enforce_allow_listed_only("SELECT * FROM other.events", config, tmp_path)
+
+
+def test_starrocks_default_catalog_resolves_from_live_schemas(tmp_path: Path):
+    create_context_table(
+        tmp_path,
+        "default_catalog.analytics",
+        "events",
+        database_type="starrocks",
+        database_folder="analytics",
+    )
+    config = FakeDatabaseConfig(
+        True,
+        {"default_catalog.analytics": ["events"]},
+        database_name="analytics",
+    )
+    config.type = "starrocks"
+    config.catalog = None
+    allowed_sql = "SELECT * FROM default_catalog.analytics.events"
+
+    assert enforce_allow_listed_only(allowed_sql, config, tmp_path) == allowed_sql
+
+    with pytest.raises(AllowListedOnlyGuardError, match="does not match the connected database"):
+        enforce_allow_listed_only("SELECT * FROM other_catalog.analytics.events", config, tmp_path)
 
 
 def test_unqualified_tables_resolve_against_live_schema(tmp_path: Path):

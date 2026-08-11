@@ -3,11 +3,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
-import sqlglot
 from sqlglot import exp
-from sqlglot.errors import OptimizeError, ParseError
+from sqlglot.errors import OptimizeError
 from sqlglot.optimizer.qualify import qualify
 from sqlglot.optimizer.scope import Scope, traverse_scope
+
+from nao_core.config.databases.query_guard import (
+    SQLGLOT_DIALECTS,
+    load_schemas,
+    match_identifier,
+    parse_query,
+    resolve_table,
+)
 
 if TYPE_CHECKING:
     from ibis import BaseBackend
@@ -24,23 +31,6 @@ class _DatabaseConfigLike(Protocol):
     def get_schemas(self, conn: Any) -> list[str]: ...
 
     def column_matches_pattern(self, schema: str, table: str, column: str) -> bool: ...
-
-
-_SQLGLOT_DIALECTS = {
-    "athena": "athena",
-    "bigquery": "bigquery",
-    "clickhouse": "clickhouse",
-    "duckdb": "duckdb",
-    "databricks": "databricks",
-    "fabric": "tsql",
-    "snowflake": "snowflake",
-    "mssql": "tsql",
-    "mysql": "mysql",
-    "postgres": "postgres",
-    "redshift": "redshift",
-    "starrocks": "mysql",
-    "trino": "trino",
-}
 
 
 class ExcludeColumnsGuardError(ValueError):
@@ -79,11 +69,11 @@ def enforce_exclude_columns(
     if not db_config.exclude_columns:
         return sql
 
-    dialect = _SQLGLOT_DIALECTS.get(db_config.type)
+    dialect = SQLGLOT_DIALECTS.get(db_config.type)
     if dialect is None:
         raise _blocked(f"the database dialect '{db_config.type}' is not supported")
 
-    expression = _parse_query(sql, dialect)
+    expression = parse_query(sql, dialect, _blocked)
     if not any(expression.find_all(exp.Table)):
         return sql
 
@@ -120,27 +110,12 @@ def enforce_exclude_columns(
             conn.disconnect()
 
 
-def _parse_query(sql: str, dialect: str) -> exp.Query:
-    try:
-        statements = sqlglot.parse(sql, read=dialect)
-    except ParseError as error:
-        raise _blocked(f"the SQL could not be parsed: {error}") from error
-
-    if len(statements) != 1 or statements[0] is None:
-        raise _blocked("exactly one SQL statement is required")
-
-    expression = statements[0]
-    if not isinstance(expression, exp.Query):
-        raise _blocked("only query statements can be validated")
-    return expression
-
-
 def _load_table_infos(
     expression: exp.Query,
     conn: BaseBackend,
     db_config: _DatabaseConfigLike,
 ) -> dict[tuple[str, str, str], _TableInfo]:
-    schemas = _load_schemas(conn, db_config)
+    schemas = load_schemas(conn, db_config, _blocked)
     tables_by_schema: dict[str, list[str]] = {}
     infos: dict[tuple[str, str, str], _TableInfo] = {}
 
@@ -151,7 +126,7 @@ def _load_table_infos(
             key = _table_key(source)
             if key in infos:
                 continue
-            schema, table = _resolve_table(source, conn, schemas, tables_by_schema, db_config)
+            schema, table = resolve_table(source, conn, schemas, tables_by_schema, db_config, _blocked)
             try:
                 ibis_schema = conn.table(table, database=schema).schema()
             except Exception as error:
@@ -166,90 +141,6 @@ def _load_table_infos(
     return infos
 
 
-def _load_schemas(conn: BaseBackend, db_config: _DatabaseConfigLike) -> list[str]:
-    try:
-        schemas = db_config.get_schemas(conn)
-    except Exception as error:
-        raise _blocked(f"live schemas could not be listed: {error}") from error
-    return [str(schema) for schema in schemas]
-
-
-def _resolve_table(
-    table_expression: exp.Table,
-    conn: BaseBackend,
-    schemas: list[str],
-    tables_by_schema: dict[str, list[str]],
-    db_config: _DatabaseConfigLike,
-) -> tuple[str, str]:
-    requested_table = table_expression.name
-    if not requested_table:
-        raise _blocked("a dynamic table reference could not be resolved")
-
-    requested_catalog = table_expression.catalog
-    if requested_catalog:
-        database_name = db_config.get_database_name()
-        if not _catalog_matches_database(requested_catalog, database_name):
-            raise _blocked(f"catalog '{requested_catalog}' does not match the connected database '{database_name}'")
-
-    requested_schema = table_expression.db
-    if requested_schema:
-        schema_candidates = [requested_schema]
-        if requested_catalog:
-            schema_candidates.insert(0, f"{requested_catalog}.{requested_schema}")
-        schema = next(
-            (
-                matched
-                for candidate in schema_candidates
-                if (matched := _match_identifier(candidate, schemas)) is not None
-            ),
-            schema_candidates[0],
-        )
-        table = _find_table(conn, schema, requested_table, tables_by_schema)
-        if table is None:
-            raise _blocked(f"table {schema}.{requested_table} was not found in the live schema")
-        return schema, table
-
-    matches: list[tuple[str, str]] = []
-    for schema in schemas:
-        table = _find_table(conn, schema, requested_table, tables_by_schema)
-        if table is not None:
-            matches.append((schema, table))
-
-    if len(matches) == 1:
-        return matches[0]
-    if not matches:
-        raise _blocked(f"unqualified table {requested_table} was not found in the live schema")
-    matched_names = ", ".join(f"{schema}.{table}" for schema, table in matches)
-    raise _blocked(f"unqualified table {requested_table} is ambiguous across: {matched_names}")
-
-
-def _find_table(
-    conn: BaseBackend,
-    schema: str,
-    requested_table: str,
-    tables_by_schema: dict[str, list[str]],
-) -> str | None:
-    if schema not in tables_by_schema:
-        try:
-            tables_by_schema[schema] = [str(table) for table in conn.list_tables(database=schema)]
-        except Exception as error:
-            raise _blocked(f"tables could not be listed for schema {schema}: {error}") from error
-    return _match_identifier(requested_table, tables_by_schema[schema])
-
-
-def _match_identifier(requested: str, available: list[str]) -> str | None:
-    if requested in available:
-        return requested
-    matches = [value for value in available if value.casefold() == requested.casefold()]
-    return matches[0] if len(matches) == 1 else None
-
-
-def _catalog_matches_database(requested_catalog: str, database_name: str) -> bool:
-    parts = database_name.split(".")
-    candidates = [".".join(parts[:index]) for index in range(1, len(parts) + 1)]
-    return _match_identifier(requested_catalog, candidates) is not None
-
-
 def _qualify_query(
     expression: exp.Query,
     dialect: str,
@@ -258,7 +149,7 @@ def _qualify_query(
     expression = expression.copy()
     for scope in traverse_scope(expression):
         for source in scope.sources.values():
-            if not isinstance(source, exp.Table) or source.db:
+            if not isinstance(source, exp.Table):
                 continue
             info = table_infos.get(_table_key(source))
             if info is None:
@@ -435,7 +326,7 @@ class _ExcludeColumnsAnalyzer:
 
         if isinstance(source, exp.Table):
             info = self._table_info(source)
-            actual_column = _match_identifier(column.name, list(info.columns))
+            actual_column = match_identifier(column.name, list(info.columns))
             if actual_column is None:
                 raise _blocked(f"column {column.table}.{column.name} was not found in the live schema")
             return {_ColumnOrigin(info.schema, info.table, actual_column)}

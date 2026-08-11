@@ -41,6 +41,7 @@ class FakeConnection:
 
 class FakeDatabaseConfig:
     type = "duckdb"
+    catalog: str | None = None
 
     def __init__(
         self,
@@ -189,6 +190,24 @@ def test_multi_part_database_name_blocks_different_catalog():
 
     with pytest.raises(ExcludeColumnsGuardError, match="does not match the connected database"):
         enforce_exclude_columns("SELECT id FROM other.analytics.orders", config)
+
+
+def test_starrocks_default_catalog_resolves_from_live_schemas():
+    config = FakeDatabaseConfig(
+        ["*.email"],
+        schemas={"default_catalog.analytics": {"users": ["id", "email"]}},
+        database_name="analytics",
+    )
+    config.type = "starrocks"
+    config.catalog = None
+
+    assert enforce_exclude_columns("SELECT id FROM default_catalog.analytics.users", config) == (
+        "SELECT id FROM default_catalog.analytics.users"
+    )
+    assert enforce_exclude_columns("SELECT id FROM analytics.users", config) == "SELECT id FROM analytics.users"
+
+    with pytest.raises(ExcludeColumnsGuardError, match="does not match the connected database"):
+        enforce_exclude_columns("SELECT id FROM other_catalog.analytics.users", config)
 
 
 def test_unparseable_query_is_blocked():

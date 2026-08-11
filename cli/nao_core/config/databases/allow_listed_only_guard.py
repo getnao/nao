@@ -5,10 +5,15 @@ from typing import Any, Protocol
 
 import sqlglot
 from sqlglot import exp
-from sqlglot.errors import ParseError
-from sqlglot.optimizer.scope import traverse_scope
 
 from nao_core.commands.sync.cleanup import get_database_folder_names
+from nao_core.config.databases.query_guard import (
+    SQLGLOT_DIALECTS,
+    base_table_expressions,
+    load_schemas,
+    parse_query,
+    resolve_table,
+)
 
 
 class _DatabaseConfigLike(Protocol):
@@ -21,23 +26,6 @@ class _DatabaseConfigLike(Protocol):
     def get_database_name(self) -> str: ...
 
     def get_schemas(self, conn: Any) -> list[str]: ...
-
-
-_SQLGLOT_DIALECTS = {
-    "athena": "athena",
-    "bigquery": "bigquery",
-    "clickhouse": "clickhouse",
-    "duckdb": "duckdb",
-    "databricks": "databricks",
-    "fabric": "tsql",
-    "snowflake": "snowflake",
-    "mssql": "tsql",
-    "mysql": "mysql",
-    "postgres": "postgres",
-    "redshift": "redshift",
-    "starrocks": "mysql",
-    "trino": "trino",
-}
 
 
 class AllowListedOnlyGuardError(ValueError):
@@ -55,12 +43,12 @@ def enforce_allow_listed_only(
 
     owns_connection = conn is None
     try:
-        dialect = _SQLGLOT_DIALECTS.get(db_config.type)
+        dialect = SQLGLOT_DIALECTS.get(db_config.type)
         if dialect is None:
             raise _blocked(f"the database dialect '{db_config.type}' is not supported")
 
-        expression = _parse_query(sql, dialect)
-        table_expressions = _base_table_expressions(expression)
+        expression = parse_query(sql, dialect, _blocked)
+        table_expressions = base_table_expressions(expression, _blocked)
         if not table_expressions:
             return sql
 
@@ -82,7 +70,7 @@ def enforce_allow_listed_only(
 
 
 def query_references_base_tables(sql: str, database_type: str) -> bool:
-    dialect = _SQLGLOT_DIALECTS.get(database_type)
+    dialect = SQLGLOT_DIALECTS.get(database_type)
     if dialect is None:
         return True
 
@@ -90,7 +78,7 @@ def query_references_base_tables(sql: str, database_type: str) -> bool:
         statements = sqlglot.parse(sql, read=dialect)
         if len(statements) != 1 or not isinstance(statements[0], exp.Query):
             return True
-        return bool(_base_table_expressions(statements[0]))
+        return bool(base_table_expressions(statements[0], _blocked))
     except Exception:
         return True
 
@@ -117,128 +105,17 @@ def load_allowed_context_tables(
     return allowed_tables
 
 
-def _parse_query(sql: str, dialect: str) -> exp.Query:
-    try:
-        statements = sqlglot.parse(sql, read=dialect)
-    except ParseError as error:
-        raise _blocked(f"the SQL could not be parsed: {error}") from error
-
-    if len(statements) != 1 or statements[0] is None:
-        raise _blocked("exactly one SQL statement is required")
-
-    expression = statements[0]
-    if not isinstance(expression, exp.Query):
-        raise _blocked("only query statements can be validated")
-    return expression
-
-
-def _base_table_expressions(expression: exp.Query) -> list[exp.Table]:
-    tables: list[exp.Table] = []
-    seen: set[int] = set()
-    for scope in traverse_scope(expression):
-        for source in scope.sources.values():
-            if not isinstance(source, exp.Table) or id(source) in seen:
-                continue
-            seen.add(id(source))
-            tables.append(source)
-
-    if not tables and any(expression.find_all(exp.Table)):
-        raise _blocked("the query's table references could not be resolved")
-    return tables
-
-
 def _resolve_tables(
     table_expressions: list[exp.Table],
     conn: Any,
     db_config: _DatabaseConfigLike,
 ) -> set[str]:
-    try:
-        schemas = [str(schema) for schema in db_config.get_schemas(conn)]
-    except Exception as error:
-        raise _blocked(f"live schemas could not be listed: {error}") from error
-
+    schemas = load_schemas(conn, db_config, _blocked)
     tables_by_schema: dict[str, list[str]] = {}
-    return {".".join(_resolve_table(table, conn, schemas, tables_by_schema, db_config)) for table in table_expressions}
-
-
-def _resolve_table(
-    table_expression: exp.Table,
-    conn: Any,
-    schemas: list[str],
-    tables_by_schema: dict[str, list[str]],
-    db_config: _DatabaseConfigLike,
-) -> tuple[str, str]:
-    requested_table = table_expression.name
-    if not requested_table:
-        raise _blocked("a dynamic table reference could not be resolved")
-
-    requested_catalog = table_expression.catalog
-    if requested_catalog:
-        database_name = db_config.get_database_name()
-        if not _catalog_matches_database(requested_catalog, database_name):
-            raise _blocked(f"catalog '{requested_catalog}' does not match the connected database '{database_name}'")
-
-    requested_schema = table_expression.db
-    if requested_schema:
-        schema_candidates = [requested_schema]
-        if requested_catalog:
-            schema_candidates.insert(0, f"{requested_catalog}.{requested_schema}")
-        match_schema = _match_identifier if requested_catalog else _match_schema_identifier
-        schema = next(
-            (matched for candidate in schema_candidates if (matched := match_schema(candidate, schemas)) is not None),
-            schema_candidates[0],
-        )
-        table = _find_table(conn, schema, requested_table, tables_by_schema)
-        if table is None:
-            raise _blocked(f"table {schema}.{requested_table} was not found in the live schema")
-        return schema, table
-
-    matches: list[tuple[str, str]] = []
-    for schema in schemas:
-        table = _find_table(conn, schema, requested_table, tables_by_schema)
-        if table is not None:
-            matches.append((schema, table))
-
-    if len(matches) == 1:
-        return matches[0]
-    if not matches:
-        raise _blocked(f"unqualified table {requested_table} was not found in the live schema")
-    matched_names = ", ".join(f"{schema}.{table}" for schema, table in matches)
-    raise _blocked(f"unqualified table {requested_table} is ambiguous across: {matched_names}")
-
-
-def _find_table(
-    conn: Any,
-    schema: str,
-    requested_table: str,
-    tables_by_schema: dict[str, list[str]],
-) -> str | None:
-    if schema not in tables_by_schema:
-        try:
-            tables_by_schema[schema] = [str(table) for table in conn.list_tables(database=schema)]
-        except Exception as error:
-            raise _blocked(f"tables could not be listed for schema {schema}: {error}") from error
-    return _match_identifier(requested_table, tables_by_schema[schema])
-
-
-def _match_identifier(requested: str, available: list[str]) -> str | None:
-    if requested in available:
-        return requested
-    matches = [value for value in available if value.casefold() == requested.casefold()]
-    return matches[0] if len(matches) == 1 else None
-
-
-def _match_schema_identifier(requested: str, available: list[str]) -> str | None:
-    if matched := _match_identifier(requested, available):
-        return matched
-    matches = [value for value in available if value.rsplit(".", 1)[-1].casefold() == requested.casefold()]
-    return matches[0] if len(matches) == 1 else None
-
-
-def _catalog_matches_database(requested_catalog: str, database_name: str) -> bool:
-    parts = database_name.split(".")
-    candidates = [".".join(parts[:index]) for index in range(1, len(parts) + 1)]
-    return _match_identifier(requested_catalog, candidates) is not None
+    return {
+        ".".join(resolve_table(table, conn, schemas, tables_by_schema, db_config, _blocked))
+        for table in table_expressions
+    }
 
 
 def _find_unlisted_tables(referenced_tables: set[str], allowed_tables: set[str]) -> list[str]:
