@@ -41,7 +41,6 @@ class FakeConnection:
 
 class FakeDatabaseConfig:
     type = "duckdb"
-    catalog: str | None = None
 
     def __init__(
         self,
@@ -199,12 +198,29 @@ def test_starrocks_default_catalog_resolves_from_live_schemas():
         database_name="analytics",
     )
     config.type = "starrocks"
-    config.catalog = None
 
     assert enforce_exclude_columns("SELECT id FROM default_catalog.analytics.users", config) == (
         "SELECT id FROM default_catalog.analytics.users"
     )
     assert enforce_exclude_columns("SELECT id FROM analytics.users", config) == "SELECT id FROM analytics.users"
+
+    with pytest.raises(ExcludeColumnsGuardError, match="does not match the connected database"):
+        enforce_exclude_columns("SELECT id FROM other_catalog.analytics.users", config)
+
+
+def test_starrocks_catalog_case_variant_with_duplicate_candidates_is_allowed():
+    config = FakeDatabaseConfig(
+        ["*.email"],
+        schemas={
+            "default_catalog.analytics": {"users": ["id", "email"]},
+            "default_catalog.reporting": {"reports": ["id"]},
+        },
+        database_name="default_catalog.analytics",
+    )
+    config.type = "starrocks"
+    sql = "SELECT id FROM DEFAULT_CATALOG.analytics.users"
+
+    assert enforce_exclude_columns(sql, config) == sql
 
     with pytest.raises(ExcludeColumnsGuardError, match="does not match the connected database"):
         enforce_exclude_columns("SELECT id FROM other_catalog.analytics.users", config)

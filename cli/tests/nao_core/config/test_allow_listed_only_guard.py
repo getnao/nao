@@ -25,7 +25,6 @@ class FakeConnection:
 class FakeDatabaseConfig:
     type = "duckdb"
     name = "local"
-    catalog: str | None = None
 
     def __init__(
         self,
@@ -138,7 +137,6 @@ def test_starrocks_default_catalog_resolves_from_live_schemas(tmp_path: Path):
         database_name="analytics",
     )
     config.type = "starrocks"
-    config.catalog = None
     allowed_sql = "SELECT * FROM default_catalog.analytics.events"
 
     assert enforce_allow_listed_only(allowed_sql, config, tmp_path) == allowed_sql

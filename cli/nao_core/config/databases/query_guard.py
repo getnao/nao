@@ -160,4 +160,11 @@ def _catalog_matches_connection(
     database_parts = database_name.split(".")
     database_candidates = [".".join(database_parts[:index]) for index in range(1, len(database_parts) + 1)]
     schema_catalogs = [schema.rsplit(".", 1)[0] for schema in schemas if "." in schema]
-    return match_identifier(requested_catalog, database_candidates + schema_catalogs) is not None
+    return _catalog_in(requested_catalog, database_candidates) or _catalog_in(requested_catalog, schema_catalogs)
+
+
+def _catalog_in(requested: str, candidates: list[str]) -> bool:
+    if requested in candidates:
+        return True
+    folded = requested.casefold()
+    return any(candidate.casefold() == folded for candidate in candidates)
