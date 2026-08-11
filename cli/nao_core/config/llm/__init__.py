@@ -190,6 +190,30 @@ class ModelCosts(BaseModel):
     output: float | None = Field(default=None, ge=0, description="Price of an output token")
 
 
+class BudgetPeriod(str, Enum):
+    """How often a provider's spend limit resets."""
+
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+
+
+class BudgetConfig(BaseModel):
+    """A spend limit for a provider, enforced by the chat app and shown in its budgets page."""
+
+    limit: float | None = Field(default=None, ge=0, description="Project-wide spend limit in US dollars for the period")
+    per_user_limit: float | None = Field(
+        default=None, ge=0, description="Spend limit in US dollars per user for the period"
+    )
+    period: BudgetPeriod = Field(default=BudgetPeriod.MONTH, description="How often the limit resets")
+
+    @model_validator(mode="after")
+    def validate_limits(self) -> "BudgetConfig":
+        if not self.limit and not self.per_user_limit:
+            raise ValueError("budget requires a limit or a per_user_limit")
+        return self
+
+
 class LLMConfigMeta(BaseModel):
     costs: ModelCosts
 
@@ -229,6 +253,9 @@ class ProviderConfig(BaseModel):
     key_file: str | None = Field(default=None, description="Path to service account key file (only for Vertex)")
     models: list[ModelConfig] = Field(
         default_factory=list, description="The models to expose for this provider, in display order"
+    )
+    budget: BudgetConfig | None = Field(
+        default=None, description="Spend limit for this provider, enforced by the chat app"
     )
 
     @property

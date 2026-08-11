@@ -1,6 +1,6 @@
 import { getCurrentPeriodStart } from '@nao/shared/date';
 import type { LlmProvider } from '@nao/shared/types';
-import { and, eq, notInArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, notInArray, sql } from 'drizzle-orm';
 
 import s, { DBProjectProviderBudget } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -20,12 +20,15 @@ export const getProviderBudget = async (
 	return row ?? null;
 };
 
+export type ProviderPeriod = { provider: LlmProvider; period: BudgetPeriod };
+
 export const getProviderBudgetSpend = async (
 	projectId: string,
 	provider: LlmProvider,
+	period: BudgetPeriod,
 	userId?: string,
 ): Promise<{ projectSpend: number; userSpend: number }> => {
-	const rows = await queryProviderPeriodCosts(projectId, { provider });
+	const rows = await queryProviderPeriodCosts(projectId, [{ provider, period }]);
 
 	let projectTotal = 0;
 	let userTotal = 0;
@@ -122,14 +125,19 @@ export const setProjectProviderBudgets = async (
 	});
 };
 
-type ProviderPeriodCostRow = { provider: string; userId: string | null; totalCost: number };
+type ProviderPeriodCostRow = { provider: LlmProvider | null; userId: string | null; totalCost: number };
 
 const roundCost = (value: number): number => Math.round(value * 100) / 100;
 
 const queryProviderPeriodCosts = async (
 	projectId: string,
-	options: { provider?: LlmProvider; userId?: string; requirePerUserLimit?: boolean } = {},
+	budgets: ProviderPeriod[],
+	options: { userId?: string } = {},
 ): Promise<ProviderPeriodCostRow[]> => {
+	if (budgets.length === 0) {
+		return [];
+	}
+
 	const costLookup = await createCostLookup(projectId);
 	const isPostgres = dbConfig.dialect === Dialect.Postgres;
 	const dayStart = getCurrentPeriodStart('day');
@@ -145,36 +153,38 @@ const queryProviderPeriodCosts = async (
 
 	return db
 		.select({
-			provider: s.projectProviderBudget.provider,
+			provider: s.chatMessage.llmProvider,
 			userId: s.chat.userId,
 			totalCost: sql<number>`sum(${TOTAL_COST_EXPR})`,
 		})
-		.from(s.projectProviderBudget)
-		.innerJoin(s.chat, eq(s.chat.projectId, s.projectProviderBudget.projectId))
-		.innerJoin(s.chatMessage, eq(s.chatMessage.chatId, s.chat.id))
+		.from(s.chatMessage)
+		.innerJoin(s.chat, eq(s.chat.id, s.chatMessage.chatId))
 		.leftJoin(costLookup.table, costLookup.joinCondition)
 		.where(
 			and(
-				eq(s.projectProviderBudget.projectId, projectId),
-				sql`${s.chatMessage.llmProvider} = ${s.projectProviderBudget.provider}`,
+				eq(s.chat.projectId, projectId),
+				inArray(
+					s.chatMessage.llmProvider,
+					budgets.map((b) => b.provider),
+				),
 				sql`${s.chatMessage.createdAt} >= ${periodStartExpr}`,
-				options.provider ? eq(s.projectProviderBudget.provider, options.provider) : undefined,
 				options.userId ? eq(s.chat.userId, options.userId) : undefined,
-				options.requirePerUserLimit ? sql`${s.projectProviderBudget.perUserLimitUsd} > 0` : undefined,
 			),
 		)
-		.groupBy(s.projectProviderBudget.provider, s.chat.userId);
+		.groupBy(s.chatMessage.llmProvider, s.chat.userId);
 };
 
 export const getProviderPeriodCosts = async (
 	projectId: string,
-	provider?: LlmProvider,
-	userId?: string,
+	budgets: ProviderPeriod[],
 ): Promise<Record<string, number>> => {
-	const rows = await queryProviderPeriodCosts(projectId, { provider, userId });
+	const rows = await queryProviderPeriodCosts(projectId, budgets);
 
 	const totals: Record<string, number> = {};
 	for (const row of rows) {
+		if (!row.provider) {
+			continue;
+		}
 		totals[row.provider] = (totals[row.provider] ?? 0) + Number(row.totalCost ?? 0);
 	}
 
@@ -187,12 +197,13 @@ export const getProviderPeriodCosts = async (
 
 export const getProviderPeriodCostsByUser = async (
 	projectId: string,
+	budgets: ProviderPeriod[],
 ): Promise<Record<string, Record<string, number>>> => {
-	const rows = await queryProviderPeriodCosts(projectId, { requirePerUserLimit: true });
+	const rows = await queryProviderPeriodCosts(projectId, budgets);
 
 	const result: Record<string, Record<string, number>> = {};
 	for (const row of rows) {
-		if (!row.userId) {
+		if (!row.provider || !row.userId) {
 			continue;
 		}
 		const providerCosts = (result[row.provider] ??= {});

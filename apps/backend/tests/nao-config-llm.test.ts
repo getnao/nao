@@ -65,6 +65,7 @@ describe('readProjectConfigLlm', () => {
 						},
 					],
 					modelSettings: { 'gpt-4.1': { reasoningEffort: 'high' } },
+					budget: null,
 				},
 			],
 		});
@@ -91,8 +92,53 @@ describe('readProjectConfigLlm', () => {
 				enabledModels: [],
 				customModels: [],
 				modelSettings: {},
+				budget: null,
 			},
 		]);
+	});
+
+	it('reads a provider budget with its limits and period', () => {
+		const dir = writeConfig([
+			'llm:',
+			'  providers:',
+			'  - provider: openai',
+			'    api_key: sk-openai',
+			'    budget:',
+			'      limit: 100',
+			'      per_user_limit: 20',
+			'      period: week',
+			'  - provider: anthropic',
+			'    api_key: sk-ant',
+			'    budget:',
+			'      per_user_limit: 5',
+		]);
+
+		const config = readProjectConfigLlm(dir);
+
+		expect(findConfigLlmProvider(config, 'openai')?.budget).toEqual({
+			limitUsd: 100,
+			perUserLimitUsd: 20,
+			period: 'week',
+		});
+		expect(findConfigLlmProvider(config, 'anthropic')?.budget).toEqual({
+			limitUsd: 0,
+			perUserLimitUsd: 5,
+			period: 'month',
+		});
+	});
+
+	it('drops a budget that sets no positive limit', () => {
+		const dir = writeConfig([
+			'llm:',
+			'  providers:',
+			'  - provider: openai',
+			'    api_key: sk-openai',
+			'    budget:',
+			'      limit: 0',
+			'      period: month',
+		]);
+
+		expect(findConfigLlmProvider(readProjectConfigLlm(dir), 'openai')?.budget).toBeNull();
 	});
 
 	it('resolves env placeholders from the project env vars then the process env', () => {
