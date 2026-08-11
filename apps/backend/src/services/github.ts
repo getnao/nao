@@ -2,9 +2,13 @@ import { execFileSync } from 'node:child_process';
 
 import { env } from '../env';
 import { GitIdentity, NAO_CO_AUTHOR, withCoAuthors } from '../utils/git-identity';
-import { configDir, getRepoSubPath, isContextConfigFile, shallowestSubPath } from './git-repo';
-
-export { getRepoSubPath };
+import {
+	configDir,
+	isContextConfigFile,
+	shallowestSubPath,
+	SUBPATH_SCAN_IGNORED_DIRS,
+	SUBPATH_SCAN_MAX_DEPTH,
+} from './git-repo';
 
 export { NAO_CO_AUTHOR };
 
@@ -570,8 +574,10 @@ export async function getFileContent(
 	};
 }
 
-const SUBPATH_SCAN_IGNORED_DIRS = new Set(['.git', 'node_modules', '.venv', 'venv', '__pycache__', 'dist', 'build']);
-const SUBPATH_SCAN_MAX_DEPTH = 6;
+/** Ceiling on serial Trees API round-trips so resolving a truncated monorepo can't fan out unbounded or hit rate limits. */
+const SUBPATH_SCAN_MAX_TREE_REQUESTS = 150;
+/** How many `GET /git/trees/{sha}` lookups run in parallel per level of the fallback walk. */
+const SUBPATH_SCAN_CONCURRENCY = 8;
 
 export async function findContextConfigSubPath(token: string, repo: string): Promise<string> {
 	try {
@@ -595,14 +601,14 @@ export async function findContextConfigSubPath(token: string, repo: string): Pro
 /** Fallback for repos whose recursive tree is truncated: walks the tree one directory level at a time and returns the shallowest directory holding the config. */
 async function walkForContextConfigSubPath(token: string, repo: string, rootSha: string): Promise<string> {
 	let level: { sha: string; prefix: string }[] = [{ sha: rootSha, prefix: '' }];
-	for (let depth = 0; depth <= SUBPATH_SCAN_MAX_DEPTH && level.length > 0; depth++) {
+	let remainingRequests = SUBPATH_SCAN_MAX_TREE_REQUESTS;
+	for (let depth = 0; depth <= SUBPATH_SCAN_MAX_DEPTH && level.length > 0 && remainingRequests > 0; depth++) {
+		const dirs = level.slice(0, remainingRequests);
+		remainingRequests -= dirs.length;
+
 		const matches: string[] = [];
 		const next: { sha: string; prefix: string }[] = [];
-		for (const dir of level) {
-			const tree = await githubFetchJson<RawGitTree>(
-				token,
-				`/repos/${repo}/git/trees/${encodeURIComponent(dir.sha)}`,
-			);
+		for (const { dir, tree } of await fetchTreesInBatches(token, repo, dirs)) {
 			for (const entry of tree.tree) {
 				if (entry.type === 'blob' && isContextConfigFile(entry.path)) {
 					matches.push(dir.prefix);
@@ -617,6 +623,31 @@ async function walkForContextConfigSubPath(token: string, repo: string, rootSha:
 		level = next;
 	}
 	return '';
+}
+
+type TreeLookup = { dir: { sha: string; prefix: string }; tree: RawGitTree };
+
+/** Fetches each directory's tree with a fixed concurrency ceiling to keep the round-trips bounded. */
+async function fetchTreesInBatches(
+	token: string,
+	repo: string,
+	dirs: { sha: string; prefix: string }[],
+): Promise<TreeLookup[]> {
+	const results: TreeLookup[] = [];
+	for (let i = 0; i < dirs.length; i += SUBPATH_SCAN_CONCURRENCY) {
+		const batch = dirs.slice(i, i + SUBPATH_SCAN_CONCURRENCY);
+		const trees = await Promise.all(
+			batch.map(async (dir) => ({
+				dir,
+				tree: await githubFetchJson<RawGitTree>(
+					token,
+					`/repos/${repo}/git/trees/${encodeURIComponent(dir.sha)}`,
+				),
+			})),
+		);
+		results.push(...trees);
+	}
+	return results;
 }
 
 export async function createIssue(

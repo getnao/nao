@@ -18,7 +18,14 @@ import {
 	resolveWritePath,
 	writeFileAtomically,
 } from '../utils/safe-file-write';
-import { checkoutNewBranch, commitAll, getRepoSubPath, shallowestSubPath } from './git-repo';
+import {
+	checkoutNewBranch,
+	commitAll,
+	getRepoSubPath,
+	shallowestSubPath,
+	SUBPATH_SCAN_IGNORED_DIRS,
+	SUBPATH_SCAN_MAX_DEPTH,
+} from './git-repo';
 import * as github from './github';
 import * as gitlab from './gitlab';
 import type { InternalRepoProvider, ReviewRequestProvider } from './review-request-provider';
@@ -484,9 +491,6 @@ function applyEdits(dir: string, edits: ReviewRequestEdit[], subPath: string): v
 	}
 }
 
-const SUBPATH_SCAN_IGNORED_DIRS = new Set(['.git', 'node_modules', '.venv', 'venv', '__pycache__', 'dist', 'build']);
-const SUBPATH_SCAN_MAX_DEPTH = 6;
-
 /** Prefers the sub-path known from the project's local git checkout, but only when the cloned context repo actually holds `nao_config.yaml` there. */
 function resolveEffectiveSubPath(repoDir: string, knownSubPath: string | undefined): string {
 	if (knownSubPath && cloneHasContextConfig(repoDir, knownSubPath)) {
@@ -497,7 +501,7 @@ function resolveEffectiveSubPath(repoDir: string, knownSubPath: string | undefin
 
 function cloneHasContextConfig(repoDir: string, subPath: string): boolean {
 	try {
-		return fs.existsSync(path.join(repoDir, subPath, CONTEXT_CONFIG_FILENAME));
+		return fs.statSync(path.join(repoDir, subPath, CONTEXT_CONFIG_FILENAME)).isFile();
 	} catch {
 		return false;
 	}

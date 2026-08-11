@@ -4,6 +4,20 @@ import { CONTEXT_CONFIG_FILENAME } from '@nao/shared';
 
 import { GitIdentity, withCoAuthors } from '../utils/git-identity';
 
+/** Directories skipped when scanning a repository for `nao_config.yaml`. Shared so every scan path stays in sync. */
+export const SUBPATH_SCAN_IGNORED_DIRS = new Set([
+	'.git',
+	'node_modules',
+	'.venv',
+	'venv',
+	'__pycache__',
+	'dist',
+	'build',
+]);
+
+/** How deep any `nao_config.yaml` scan descends before giving up. */
+export const SUBPATH_SCAN_MAX_DEPTH = 6;
+
 /** Returns the path of `dir` relative to the git repo root, e.g. `apps/analytics/nao`. Empty string when at root. */
 export function getRepoSubPath(dir: string): string {
 	try {
