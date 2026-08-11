@@ -579,6 +579,15 @@ const SUBPATH_SCAN_MAX_TREE_REQUESTS = 150;
 /** How many `GET /git/trees/{sha}` lookups run in parallel per level of the fallback walk. */
 const SUBPATH_SCAN_CONCURRENCY = 8;
 
+export class IncompleteContextConfigScanError extends Error {
+	constructor(repo: string) {
+		super(
+			`Could not determine the nao_config.yaml location in ${repo}: the repository has more candidate directories than the scan budget allows.`,
+		);
+		this.name = 'IncompleteContextConfigScanError';
+	}
+}
+
 export async function findContextConfigSubPath(token: string, repo: string): Promise<string> {
 	try {
 		const { default_branch } = await githubFetchJson<{ default_branch: string }>(token, `/repos/${repo}`);
@@ -587,13 +596,16 @@ export async function findContextConfigSubPath(token: string, repo: string): Pro
 			`/repos/${repo}/git/trees/${encodeURIComponent(default_branch)}?recursive=1`,
 		);
 		if (tree.truncated) {
-			return walkForContextConfigSubPath(token, repo, default_branch);
+			return await walkForContextConfigSubPath(token, repo, default_branch);
 		}
 		const dirs = tree.tree
 			.filter((entry) => entry.type === 'blob' && isContextConfigFile(entry.path))
 			.map((entry) => configDir(entry.path));
 		return shallowestSubPath(dirs);
-	} catch {
+	} catch (error) {
+		if (error instanceof IncompleteContextConfigScanError) {
+			throw error;
+		}
 		return '';
 	}
 }
@@ -602,13 +614,13 @@ export async function findContextConfigSubPath(token: string, repo: string): Pro
 async function walkForContextConfigSubPath(token: string, repo: string, rootSha: string): Promise<string> {
 	let level: { sha: string; prefix: string }[] = [{ sha: rootSha, prefix: '' }];
 	let remainingRequests = SUBPATH_SCAN_MAX_TREE_REQUESTS;
-	for (let depth = 0; depth <= SUBPATH_SCAN_MAX_DEPTH && level.length > 0 && remainingRequests > 0; depth++) {
-		const dirs = level.slice(0, remainingRequests);
-		remainingRequests -= dirs.length;
+	for (let depth = 0; depth <= SUBPATH_SCAN_MAX_DEPTH && level.length > 0; depth++) {
+		const scanned = level.slice(0, remainingRequests);
+		remainingRequests -= scanned.length;
 
 		const matches: string[] = [];
 		const next: { sha: string; prefix: string }[] = [];
-		for (const { dir, tree } of await fetchTreesInBatches(token, repo, dirs)) {
+		for (const { dir, tree } of await fetchTreesInBatches(token, repo, scanned)) {
 			for (const entry of tree.tree) {
 				if (entry.type === 'blob' && isContextConfigFile(entry.path)) {
 					matches.push(dir.prefix);
@@ -619,6 +631,9 @@ async function walkForContextConfigSubPath(token: string, repo: string, rootSha:
 		}
 		if (matches.length > 0) {
 			return shallowestSubPath(matches);
+		}
+		if (scanned.length < level.length) {
+			throw new IncompleteContextConfigScanError(repo);
 		}
 		level = next;
 	}
