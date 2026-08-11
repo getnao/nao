@@ -23,6 +23,7 @@ from nao_core.config import NaoConfig, NaoConfigError
 from nao_core.config.databases.allow_listed_only_guard import (
     AllowListedOnlyGuardError,
     enforce_allow_listed_only,
+    query_references_base_tables,
 )
 from nao_core.config.databases.exclude_columns_guard import (
     ExcludeColumnsGuardError,
@@ -308,20 +309,24 @@ async def execute_sql(request: ExecuteSQLRequest):
                     )
                 validated_sql = request.sql
                 if db_config.allow_listed_only or db_config.exclude_columns:
-                    if not getattr(db_config, "user", None) or not getattr(
-                        db_config, "password", None
+                    needs_live_schema = query_references_base_tables(
+                        request.sql,
+                        db_config.type,
+                    )
+                    if needs_live_schema and (
+                        not getattr(db_config, "user", None)
+                        or not getattr(db_config, "password", None)
                     ):
                         raise HTTPException(
                             status_code=400,
                             detail=(
-                                "allow_listed_only or exclude_columns validation requires sync "
-                                "user and password when auth_mode is 'azure_entra_id'. These "
-                                "credentials are used only to validate the query against the live "
-                                "schema and context rules; the query still executes with the end "
-                                "user's access token."
+                                "Queries that reference tables require sync user and password "
+                                "when allow_listed_only or exclude_columns validation is enabled "
+                                "with auth_mode 'azure_entra_id'. These credentials are used only "
+                                "to validate the query against the live schema and context rules; "
+                                "the query still executes with the end user's access token."
                             ),
                         )
-                if db_config.allow_listed_only or db_config.exclude_columns:
                     validated_sql = _validate_sql(
                         request.sql,
                         db_config,

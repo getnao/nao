@@ -81,6 +81,20 @@ def enforce_allow_listed_only(
             conn.disconnect()
 
 
+def query_references_base_tables(sql: str, database_type: str) -> bool:
+    dialect = _SQLGLOT_DIALECTS.get(database_type)
+    if dialect is None:
+        return True
+
+    try:
+        statements = sqlglot.parse(sql, read=dialect)
+        if len(statements) != 1 or not isinstance(statements[0], exp.Query):
+            return True
+        return bool(_base_table_expressions(statements[0]))
+    except Exception:
+        return True
+
+
 def load_allowed_context_tables(
     project_folder: str | Path,
     db_config: _DatabaseConfigLike,
@@ -169,12 +183,9 @@ def _resolve_table(
         schema_candidates = [requested_schema]
         if requested_catalog:
             schema_candidates.insert(0, f"{requested_catalog}.{requested_schema}")
+        match_schema = _match_identifier if requested_catalog else _match_schema_identifier
         schema = next(
-            (
-                matched
-                for candidate in schema_candidates
-                if (matched := _match_identifier(candidate, schemas)) is not None
-            ),
+            (matched for candidate in schema_candidates if (matched := match_schema(candidate, schemas)) is not None),
             schema_candidates[0],
         )
         table = _find_table(conn, schema, requested_table, tables_by_schema)
@@ -217,6 +228,13 @@ def _match_identifier(requested: str, available: list[str]) -> str | None:
     return matches[0] if len(matches) == 1 else None
 
 
+def _match_schema_identifier(requested: str, available: list[str]) -> str | None:
+    if matched := _match_identifier(requested, available):
+        return matched
+    matches = [value for value in available if value.rsplit(".", 1)[-1].casefold() == requested.casefold()]
+    return matches[0] if len(matches) == 1 else None
+
+
 def _catalog_matches_database(requested_catalog: str, database_name: str) -> bool:
     parts = database_name.split(".")
     candidates = [".".join(parts[:index]) for index in range(1, len(parts) + 1)]
@@ -224,8 +242,7 @@ def _catalog_matches_database(requested_catalog: str, database_name: str) -> boo
 
 
 def _find_unlisted_tables(referenced_tables: set[str], allowed_tables: set[str]) -> list[str]:
-    allowed_by_normalized_name = {table.casefold(): table for table in allowed_tables}
-    return sorted(table for table in referenced_tables if table.casefold() not in allowed_by_normalized_name)
+    return sorted(referenced_tables - allowed_tables)
 
 
 def _unlisted_message(unlisted_tables: list[str], allowed_tables: set[str]) -> str:

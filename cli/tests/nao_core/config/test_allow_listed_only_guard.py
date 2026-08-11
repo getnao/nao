@@ -6,6 +6,7 @@ from nao_core.config.databases.allow_listed_only_guard import (
     AllowListedOnlyGuardError,
     enforce_allow_listed_only,
     load_allowed_context_tables,
+    query_references_base_tables,
 )
 
 
@@ -92,6 +93,34 @@ def test_unlisted_qualified_table_is_blocked(tmp_path: Path):
     assert "Only synced context tables are allowed - list/read context to see them." in message
 
 
+def test_allowlist_requires_exact_resolved_table_name(tmp_path: Path):
+    create_context_table(tmp_path, "main", "Users")
+    config = FakeDatabaseConfig(True, {"main": ["users"]})
+
+    with pytest.raises(AllowListedOnlyGuardError, match=r"main\.users"):
+        enforce_allow_listed_only("SELECT * FROM main.users", config, tmp_path)
+
+
+def test_starrocks_short_schema_resolves_to_canonical_schema(tmp_path: Path):
+    create_context_table(
+        tmp_path,
+        "default_catalog.analytics",
+        "events",
+        database_type="starrocks",
+    )
+    config = FakeDatabaseConfig(
+        True,
+        {"default_catalog.analytics": ["events"]},
+    )
+    config.type = "starrocks"
+    allowed_sql = "SELECT * FROM analytics.events"
+
+    assert enforce_allow_listed_only(allowed_sql, config, tmp_path) == allowed_sql
+
+    with pytest.raises(AllowListedOnlyGuardError):
+        enforce_allow_listed_only("SELECT * FROM other.events", config, tmp_path)
+
+
 def test_unqualified_tables_resolve_against_live_schema(tmp_path: Path):
     create_context_table(tmp_path, "main", "orders")
     config = FakeDatabaseConfig(True)
@@ -122,6 +151,21 @@ def test_query_without_tables_is_allowed_without_connecting(tmp_path: Path):
 
     assert enforce_allow_listed_only(sql, config, tmp_path) == sql
     assert config.connect_count == 0
+
+
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT 1", False),
+        ("SELECT * FROM main.orders", True),
+    ],
+)
+def test_query_references_base_tables(sql: str, expected: bool):
+    assert query_references_base_tables(sql, "duckdb") is expected
+
+
+def test_unparseable_query_conservatively_references_base_tables():
+    assert query_references_base_tables("SELECT (", "duckdb") is True
 
 
 def test_unparseable_query_is_blocked(tmp_path: Path):
