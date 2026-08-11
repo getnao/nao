@@ -82,14 +82,16 @@ export const SelectionProvider = ({
 	const [selection, setSelection] = useState<SelectionState | null>(null);
 	const [anchors, setAnchors] = useState<SelectionAnchor[]>([]);
 	const [openAnchorChatId, setOpenAnchorChatId] = useState<string | null>(null);
+	const [prevResetKey, setPrevResetKey] = useState(resetKey);
 	const [containerMounted, setContainerMounted] = useState(false);
 	const containerRef = useRef<HTMLDivElement>(null);
 
-	useEffect(() => {
+	if (resetKey !== prevResetKey) {
+		setPrevResetKey(resetKey);
 		setSelection(null);
 		setAnchors([]);
 		setOpenAnchorChatId(null);
-	}, [resetKey]);
+	}
 
 	useEffect(() => {
 		setContainerMounted(true);
