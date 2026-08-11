@@ -64,6 +64,44 @@ def duckdb_project_with_excluded_columns():
         yield tmpdir
 
 
+@pytest.fixture
+def duckdb_project_with_listed_tables_only():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_path = Path(tmpdir)
+        database_path = project_path / "test.duckdb"
+        conn = duckdb.connect(str(database_path))
+        conn.execute("CREATE TABLE orders (id INTEGER, total INTEGER)")
+        conn.execute("INSERT INTO orders VALUES (1, 25)")
+        conn.execute("CREATE TABLE users (id INTEGER, name VARCHAR)")
+        conn.execute("INSERT INTO users VALUES (1, 'Alice')")
+        conn.close()
+
+        config = {
+            "project_name": "test-project",
+            "databases": [
+                {
+                    "name": "test-duckdb",
+                    "type": "duckdb",
+                    "path": str(database_path),
+                    "allow_listed_only": True,
+                }
+            ],
+        }
+        config_path = project_path / "nao_config.yaml"
+        with config_path.open("w") as f:
+            yaml.dump(config, f)
+
+        (
+            project_path
+            / "databases"
+            / "type=duckdb"
+            / "database=test"
+            / "schema=main"
+            / "table=orders"
+        ).mkdir(parents=True)
+        yield tmpdir
+
+
 def test_execute_sql_simple_duckdb(duckdb_project_folder):
     """Test execute_sql endpoint with a DuckDB in-memory database."""
     client = TestClient(app)
@@ -120,6 +158,48 @@ def test_execute_sql_blocks_explicit_excluded_column(
 
     assert response.status_code == 400
     assert "main.users.email" in response.json()["detail"]
+
+
+def test_execute_sql_allows_table_present_in_synced_context(
+    duckdb_project_with_listed_tables_only,
+):
+    client = TestClient(app)
+
+    response = client.post(
+        "/execute_sql",
+        json={
+            "sql": "SELECT * FROM orders",
+            "nao_project_folder": duckdb_project_with_listed_tables_only,
+        },
+    )
+
+    assert response.status_code == 200
+    assert_sql_result(
+        response.json(),
+        row_count=1,
+        columns=["id", "total"],
+        expected_data=[{"id": 1, "total": 25}],
+    )
+
+
+def test_execute_sql_blocks_table_missing_from_synced_context(
+    duckdb_project_with_listed_tables_only,
+):
+    client = TestClient(app)
+
+    response = client.post(
+        "/execute_sql",
+        json={
+            "sql": "SELECT * FROM users",
+            "nao_project_folder": duckdb_project_with_listed_tables_only,
+        },
+    )
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "allow_listed_only is enabled" in detail
+    assert "Unlisted table(s): main.users" in detail
+    assert "Allowed tables: main.orders" in detail
 
 
 def test_execute_sql_with_cte_duckdb(duckdb_project_folder):

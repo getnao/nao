@@ -20,6 +20,10 @@ cli_path = Path(__file__).resolve().parent.parent.parent.parent / "cli"
 sys.path.insert(0, str(cli_path))
 
 from nao_core.config import NaoConfig, NaoConfigError
+from nao_core.config.databases.allow_listed_only_guard import (
+    AllowListedOnlyGuardError,
+    enforce_allow_listed_only,
+)
 from nao_core.config.databases.exclude_columns_guard import (
     ExcludeColumnsGuardError,
     enforce_exclude_columns,
@@ -123,13 +127,24 @@ class HealthResponse(BaseModel):
     refresh_schedule: str | None
 
 
-def _execute_sql_with_exclude_columns(
+def _validate_sql(
     sql: str,
     db_config,
+    project_path: Path,
+    conn=None,
+) -> str:
+    validated_sql = enforce_allow_listed_only(sql, db_config, project_path, conn=conn)
+    return enforce_exclude_columns(validated_sql, db_config, conn=conn)
+
+
+def _execute_sql_with_guards(
+    sql: str,
+    db_config,
+    project_path: Path,
 ) -> pd.DataFrame:
     conn = db_config.connect()
     try:
-        validated_sql = enforce_exclude_columns(sql, db_config, conn=conn)
+        validated_sql = _validate_sql(sql, db_config, project_path, conn=conn)
         return db_config.execute_sql(validated_sql, conn=conn)
     finally:
         conn.disconnect()
@@ -292,26 +307,34 @@ async def execute_sql(request: ExecuteSQLRequest):
                         ),
                     )
                 validated_sql = request.sql
-                if db_config.exclude_columns:
+                if db_config.allow_listed_only or db_config.exclude_columns:
                     if not getattr(db_config, "user", None) or not getattr(
                         db_config, "password", None
                     ):
                         raise HTTPException(
                             status_code=400,
                             detail=(
-                                "exclude_columns validation requires sync user and password "
-                                "when auth_mode is 'azure_entra_id'. These credentials are used "
-                                "only to validate the query against the live schema; the query "
-                                "still executes with the end user's access token."
+                                "allow_listed_only or exclude_columns validation requires sync "
+                                "user and password when auth_mode is 'azure_entra_id'. These "
+                                "credentials are used only to validate the query against the live "
+                                "schema and context rules; the query still executes with the end "
+                                "user's access token."
                             ),
                         )
-                    validated_sql = enforce_exclude_columns(request.sql, db_config)
-                df = db_config.execute_sql_with_token(validated_sql, request.azure_access_token)
-            elif db_config.exclude_columns:
-                df = _execute_sql_with_exclude_columns(request.sql, db_config)
+                if db_config.allow_listed_only or db_config.exclude_columns:
+                    validated_sql = _validate_sql(
+                        request.sql,
+                        db_config,
+                        project_path,
+                    )
+                df = db_config.execute_sql_with_token(
+                    validated_sql, request.azure_access_token
+                )
+            elif db_config.allow_listed_only or db_config.exclude_columns:
+                df = _execute_sql_with_guards(request.sql, db_config, project_path)
             else:
                 df = db_config.execute_sql(request.sql)
-        except ExcludeColumnsGuardError as error:
+        except (AllowListedOnlyGuardError, ExcludeColumnsGuardError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
         data = [

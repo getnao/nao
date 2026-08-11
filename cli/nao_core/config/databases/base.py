@@ -92,6 +92,10 @@ class DatabaseConfig(BaseModel, ABC):
         default_factory=list,
         description="Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
     )
+    allow_listed_only: bool = Field(
+        default=False,
+        description="When enabled, SQL may only query tables present in synced context for this database.",
+    )
     exclude_columns: list[str] = Field(
         default_factory=list,
         description=(
