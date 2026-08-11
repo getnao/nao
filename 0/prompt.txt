@@ -1,0 +1,33 @@
+why my nao-local app does not appear in my okta apps page
+
+---
+
+i cant assign bc i need a signon policy
+
+---
+
+ok now it's appearing, the issue now when i click on the app is that it opens the login page but does not login the user
+
+---
+
+can we adapt the login page, if we arrive with iss and okta is enable we just put a but "continue with okta" so the user is not lost
+
+---
+
+can we auto-start OIDC when iss is present?
+
+
+
+can we adapt the login page, if we arrive with iss and okta is enable we just put a but "continue with okta" so the user is not lost
+
+---
+
+can we auto-start OIDC when iss is present?
+
+---
+
+Can we do this at backend level so the user does not even see the /login screen?
+
+---
+
+can you simplify and just keep it to minimal on backend side
