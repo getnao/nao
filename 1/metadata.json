@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "01KZRHC4ZMRHF0E2J18AVHMKKC",
+  "session_id": "8919342b-f3db-42b6-b22e-7d8e386b7f37",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-11T13:49:45.267567Z",
+  "branch": "feat/okta-login-small-improv",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Cursor",
+  "model": "claude-opus-5-thinking-high",
+  "turn_id": "1f6231d3954c",
+  "compact_transcript_start": 0,
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 216678,
+      "user_lines_removed": 1,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "apps/backend/storage/projects/f37210ba-e471-41a9-a41e-5da1a7b69671/users/582d09a8-5fcf-47be-85d5-19e2715bd6da/uploads/2026-08-06/results.csv": 94,
+        "apps/backend/storage/projects/f37210ba-e471-41a9-a41e-5da1a7b69671/users/fKrSnVOasCxSIELYocr1zc8Xas1CU14X/uploads/2026-08-06/agentic-analytics-playbook.pdf": 216048,
+        "apps/backend/storage/projects/f37210ba-e471-41a9-a41e-5da1a7b69671/users/fKrSnVOasCxSIELYocr1zc8Xas1CU14X/uploads/2026-08-06/analyzing-these-charts.md": 434,
+        "apps/backend/storage/projects/f37210ba-e471-41a9-a41e-5da1a7b69671/users/fKrSnVOasCxSIELYocr1zc8Xas1CU14X/uploads/2026-08-06/results(1).csv": 94,
+        "apps/backend/storage/projects/f37210ba-e471-41a9-a41e-5da1a7b69671/users/fKrSnVOasCxSIELYocr1zc8Xas1CU14X/uploads/2026-08-06/sarah-local.nao-license.txt": 1,
+        "example/nao_config.yaml": 7
+      },
+      "user_removed_per_file": {
+        "example/nao_config.yaml": 1
+      }
+    }
+  ]
+}

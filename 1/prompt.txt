@@ -1,0 +1,1 @@
+how can we do okta group mapping so groups on okta side are loaded for the user role in nao (admin viewer user context admin)
