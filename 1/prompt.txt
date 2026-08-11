@@ -1,0 +1,53 @@
+how can we do okta group mapping so groups on okta side are loaded for the user role in nao (admin viewer user context admin)
+
+---
+
+what "Okta SCIM or directory poll here" imply?
+
+---
+
+let's do the poller / revokation later
+
+i want only group mapping, what should we head to
+
+---
+
+explain me what this "OIDC_GROUPS_CLAIM=groups" variable is
+
+---
+
+can we add a section in the admin (license page maybe to debug the okta token in clear ?)
+
+---
+
+what should i do to get the groups because in the jwt i dont see the users groups
+
+{
+  "sub": "00u11bbz3bmKE3qPw698",
+  "name": "Christophe Blefari",
+  "email": "christophe@getnao.io",
+  "ver": 1,
+  "iss": "https://integrator-4300145.okta.com/oauth2/default",
+  "aud": "0oa13z62np1Tw47Eu698",
+  "iat": 1786460397,
+  "exp": 1786463997,
+  "jti": "ID.REDACTED",
+  "amr": [
+    "mfa",
+    "otp",
+    "pwd",
+    "okta_verify"
+  ],
+  "idp": "00o11bblyneNP2Pz7698",
+  "preferred_username": "christophe@getnao.io",
+  "auth_time": 1786460090,
+  "at_hash": "hxTSzvEfLgIK6ny2LN7XKQ"
+}
+
+---
+
+write the documentation in @/Users/blef/Work/naolabs/nao-docs/ about this group mapping setup in a dedicated Okta section, be concise
+
+---
+
+PR this

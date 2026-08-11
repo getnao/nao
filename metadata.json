@@ -3,10 +3,27 @@
   "checkpoint_id": "01KZRPKGMMZCA199BRDQJKYGP4",
   "strategy": "manual-commit",
   "branch": "feat/okta-login-small-improv",
-  "checkpoints_count": 8,
+  "checkpoints_count": 15,
   "files_touched": [
+    ".env.example",
+    "apps/backend/docs/auth-oidc.md",
+    "apps/backend/src/auth.ts",
+    "apps/backend/src/env.ts",
+    "apps/backend/src/queries/account.queries.ts",
+    "apps/backend/src/queries/project.queries.ts",
+    "apps/backend/src/services/sso-group-mapping.service.ts",
     "apps/backend/src/trpc/auth-config.routes.ts",
-    "apps/backend/tests/auth-config-oidc.test.ts"
+    "apps/backend/src/trpc/organization.routes.ts",
+    "apps/backend/src/trpc/trpc.ts",
+    "apps/backend/src/trpc/user.routes.ts",
+    "apps/backend/src/utils/sso-group-mapping.ts",
+    "apps/backend/tests/auth-config-oidc.test.ts",
+    "apps/backend/tests/sso-group-mapping.test.ts",
+    "apps/frontend/src/components/settings-search-index.ts",
+    "apps/frontend/src/components/settings/sso-token-inspector.tsx",
+    "apps/frontend/src/components/settings/team/edit-member-dialog.tsx",
+    "apps/frontend/src/hooks/use-sso-role-mapping.ts",
+    "apps/frontend/src/routes/_sidebar-layout.settings.enterprise.tsx"
   ],
   "sessions": [
     {
@@ -15,6 +32,20 @@
       "compact_transcript": "/0/transcript.jsonl",
       "content_hash": "/0/content_hash.txt",
       "prompt": "/0/prompt.txt"
+    },
+    {
+      "metadata": "/1/metadata.json",
+      "transcript": "/1/full.jsonl",
+      "compact_transcript": "/1/transcript.jsonl",
+      "content_hash": "/1/content_hash.txt",
+      "prompt": "/1/prompt.txt"
     }
-  ]
+  ],
+  "token_usage": {
+    "input_tokens": 125848,
+    "cache_creation_tokens": 409636,
+    "cache_read_tokens": 14525440,
+    "output_tokens": 43527,
+    "api_call_count": 5
+  }
 }
