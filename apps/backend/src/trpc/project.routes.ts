@@ -979,6 +979,7 @@ export const projectRoutes = {
 				chatId: input.chatId,
 				userId: ownerId ?? ctx.user.id,
 				model: model ?? undefined,
+				projectId,
 			});
 
 			if (!usage) {

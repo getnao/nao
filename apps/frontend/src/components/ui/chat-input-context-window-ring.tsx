@@ -142,8 +142,6 @@ export function ReplayContextWindowRing({ chatId, className }: { chatId: string;
 			{ chatId },
 			{
 				enabled: !!chatId,
-				staleTime: Infinity,
-				refetchOnWindowFocus: false,
 			},
 		),
 	);
