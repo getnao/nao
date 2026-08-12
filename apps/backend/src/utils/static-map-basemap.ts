@@ -1,10 +1,11 @@
+import { logger } from './logger';
 import { type Fit, VIEW_HEIGHT, VIEW_WIDTH } from './static-map-svg';
 
 const TILE_SIZE = 256;
-const MAX_ZOOM = 8;
+const MAX_ZOOM = 10;
 const MAX_TILES = 24;
-export const TILE_BYTE_BUDGET = 95 * 1024;
-export const TOTAL_BASEMAP_BYTE_BUDGET = 95 * 1024;
+export const TILE_BYTE_BUDGET = 400 * 1024;
+export const TOTAL_BASEMAP_BYTE_BUDGET = 400 * 1024;
 
 export function basemapByteBudgetForCount(mapCount: number): number {
 	return Math.min(TILE_BYTE_BUDGET, Math.floor(TOTAL_BASEMAP_BYTE_BUDGET / Math.max(1, mapCount)));
@@ -13,7 +14,7 @@ const FETCH_TIMEOUT_MS = 4000;
 const TILE_CACHE_MAX = 512;
 
 export const BASEMAP_TILE_URL =
-	process.env.NAO_STORY_MAP_RASTER_URL || 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png';
+	process.env.NAO_STORY_MAP_RASTER_URL || 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
 export const BASEMAP_ATTRIBUTION = process.env.NAO_STORY_MAP_RASTER_ATTRIBUTION || '\u00a9 OpenStreetMap \u00a9 CARTO';
 const BASEMAP_SUBDOMAINS = (process.env.NAO_STORY_MAP_RASTER_SUBDOMAINS || 'abcd').split('');
 
@@ -41,20 +42,35 @@ export async function buildBasemapTiles(fit: Fit, byteBudget: number = TILE_BYTE
 	if (!fetchEnabled) {
 		return null;
 	}
+	let reason = 'no zoom level produced any tiles';
 	for (let zoom = pickZoom(fit); zoom >= 0; zoom--) {
 		const coords = tileCoords(fit, zoom);
-		if (coords.length === 0 || coords.length > MAX_TILES) {
+		if (coords.length === 0) {
 			continue;
 		}
-		const tiles = await fetchTiles(coords, zoom, fit, byteBudget);
-		if (tiles === null) {
+		if (coords.length > MAX_TILES) {
+			reason = `too many tiles at zoom ${zoom} (${coords.length} > ${MAX_TILES})`;
 			continue;
 		}
-		if (tiles.length > 0) {
-			return { tiles, attribution: BASEMAP_ATTRIBUTION };
+		const result = await fetchTiles(coords, zoom, fit, byteBudget);
+		if (result.tiles.length > 0) {
+			return { tiles: result.tiles, attribution: BASEMAP_ATTRIBUTION };
 		}
+		reason = result.budgetExceeded
+			? `tile payload exceeded the ${byteBudget}-byte budget at zoom ${zoom}`
+			: `all ${result.requested} tile request(s) failed at zoom ${zoom} (network/timeout or non-image response)`;
 	}
+	logger.warn(`Static map basemap unavailable, falling back to plain backdrop: ${reason}`, {
+		source: 'system',
+		context: { tileUrl: BASEMAP_TILE_URL.replace(/\?.*$/, ''), byteBudget },
+	});
 	return null;
+}
+
+interface TileFetchResult {
+	tiles: BasemapTile[];
+	requested: number;
+	budgetExceeded: boolean;
 }
 
 interface TileCoord {
@@ -90,12 +106,7 @@ function clampTile(value: number, tiles: number): number {
 	return Math.max(0, Math.min(tiles - 1, value));
 }
 
-async function fetchTiles(
-	coords: TileCoord[],
-	zoom: number,
-	fit: Fit,
-	byteBudget: number,
-): Promise<BasemapTile[] | null> {
+async function fetchTiles(coords: TileCoord[], zoom: number, fit: Fit, byteBudget: number): Promise<TileFetchResult> {
 	const tiles = 2 ** zoom;
 	const svgSize = (1 / tiles) * fit.scale;
 	const results = await Promise.all(
@@ -124,12 +135,12 @@ async function fetchTiles(
 			seen.add(tile.href);
 			bytes += tile.href.length;
 			if (bytes > byteBudget) {
-				return null;
+				return { tiles: [], requested: coords.length, budgetExceeded: true };
 			}
 		}
 		tilesOut.push(tile);
 	}
-	return tilesOut;
+	return { tiles: tilesOut, requested: coords.length, budgetExceeded: false };
 }
 
 function wrapTile(value: number, tiles: number): number {
@@ -172,7 +183,8 @@ function tileUrl(tx: number, ty: number, zoom: number): string {
 	return BASEMAP_TILE_URL.replace('{s}', subdomain)
 		.replace('{z}', String(zoom))
 		.replace('{x}', String(tx))
-		.replace('{y}', String(ty));
+		.replace('{y}', String(ty))
+		.replace('{r}', '@2x');
 }
 
 function rememberTile(url: string, value: string | null): void {

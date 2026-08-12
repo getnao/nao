@@ -1,7 +1,7 @@
 import { computeMapBounds, type MapGeometry, MERCATOR_MAX_LATITUDE } from '@nao/shared';
 
 export const VIEW_WIDTH = 852;
-export const VIEW_HEIGHT = 360;
+export const VIEW_HEIGHT = 568;
 const PADDING = 12;
 const DATA_BOUNDS_PAD_RATIO = 0.08;
 const MIN_NORMALIZED_SPAN = 0.02;

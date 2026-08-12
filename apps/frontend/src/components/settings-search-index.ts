@@ -444,7 +444,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		page: '/settings/project/slack',
 		pageLabel: 'Slack',
 		title: '/new slash command',
-		description: 'Users can type /new in Slack to start a fresh chat in private conversation and clear the previous main context.',
+		description:
+			'Users can type /new in Slack to start a fresh chat in private conversation and clear the previous main context.',
 		keywords: ['slack new chat', 'slack reset', 'slack fresh session', 'slash command', '/new'],
 	},
 

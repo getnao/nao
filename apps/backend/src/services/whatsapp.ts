@@ -529,7 +529,9 @@ class WhatsappService {
 			(lastMessage?.parts ?? [])
 				.filter((p): p is Extract<UIMessagePart, { type: 'text' }> => p.type === 'text')
 				.map((p) => p.text.replace(CITATION_TAG_REGEX, ''))
-				.join('\n\n') || clarificationText || '';
+				.join('\n\n') ||
+			clarificationText ||
+			'';
 
 		return { finalText, chartUrls, mapLinks };
 	}

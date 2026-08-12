@@ -75,10 +75,10 @@ const CHART_WIDTH = DOC_MAX_WIDTH - DOC_HORIZ_PADDING * 2;
 const CHART_HEIGHT = Math.round((CHART_WIDTH * 9) / 16);
 
 const MAPLIBRE_VERSION = '5.24.0';
-const MAPLIBRE_JS_URL = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.js`;
-const MAPLIBRE_CSS_URL = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.css`;
-const MAP_STYLE_URL = process.env.NAO_STORY_MAP_STYLE_URL || 'https://tiles.openfreemap.org/styles/positron';
-const MAP_HEIGHT = 360;
+export const MAPLIBRE_JS_URL = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.js`;
+export const MAPLIBRE_CSS_URL = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.css`;
+export const MAP_STYLE_URL = process.env.NAO_STORY_MAP_STYLE_URL || 'https://tiles.openfreemap.org/styles/positron';
+const MAP_HEIGHT = 568;
 
 // Static (sandbox) maps enhance the inline SVG with Leaflet — a DOM/raster tile map that needs no
 // WebGL or web-workers, so it renders where MapLibre is blocked. Raster tiles (OpenFreeMap is vector-only).
@@ -1307,7 +1307,7 @@ function renderTooltipScript(datePattern: string): string {
 	return TOOLTIP_SCRIPT_TEMPLATE.replace('__DATE_PATTERN__', escapedPattern);
 }
 
-function renderMapScript(): string {
+export function renderMapScript(): string {
 	return MAP_INIT_SCRIPT_TEMPLATE.replace('__MAP_STYLE_URL__', JSON.stringify(MAP_STYLE_URL));
 }
 
@@ -1355,7 +1355,7 @@ const STATIC_SVG_SCRIPT_TEMPLATE = `
 			el.addEventListener('mousemove',moveTip);
 			el.addEventListener('mouseleave',hideTip);
 		});
-		var base=(svg.getAttribute('viewBox')||'0 0 852 360').split(/\\s+/).map(Number);
+		var base=(svg.getAttribute('viewBox')||'0 0 852 568').split(/\\s+/).map(Number);
 		var baseX=base[0],baseY=base[1],baseW=base[2],baseH=base[3];
 		var view={x:baseX,y:baseY,w:baseW,h:baseH};
 		function apply(){svg.setAttribute('viewBox',view.x+' '+view.y+' '+view.w+' '+view.h);}

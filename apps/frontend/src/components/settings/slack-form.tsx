@@ -201,7 +201,8 @@ export function SlackForm({ webhookUrl, hasProjectConfig, onSubmit, onCancel, is
 						</a>
 					</Button>
 					<p className='text-[11px] text-muted-foreground leading-relaxed'>
-						The manifest includes a <code>/new</code> slash command so users can start a fresh chat in private conversation at any time.
+						The manifest includes a <code>/new</code> slash command so users can start a fresh chat in
+						private conversation at any time.
 					</p>
 				</div>
 

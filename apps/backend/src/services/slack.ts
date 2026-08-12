@@ -483,9 +483,7 @@ class ProjectSlackBot {
 
 	private _newChatConfirmation(hadActiveChat: boolean, hasQuestion: boolean): string {
 		if (hasQuestion) {
-			return hadActiveChat
-				? '✅ Started a new chat with a fresh context.'
-				: '✅ Started a fresh chat.';
+			return hadActiveChat ? '✅ Started a new chat with a fresh context.' : '✅ Started a fresh chat.';
 		}
 		return hadActiveChat
 			? '✅ Started a new chat. Send your next message to continue with a fresh context.'
