@@ -1,0 +1,3 @@
+treat the errors from the review on the PR https://github.com/getnao/nao/pull/1389 
+
+only fix what really makes sense and give me a report per error ; ask gpt5-6 for each fix

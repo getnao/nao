@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "01KZTPSJHP6CGXHDMQPE5KD6QS",
+  "strategy": "manual-commit",
+  "branch": "feat/okta-login-small-improv",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "apps/backend/src/auth.ts",
+    "apps/backend/src/queries/project.queries.ts",
+    "apps/backend/src/services/sso-group-mapping.service.ts",
+    "apps/backend/src/trpc/auth-config.routes.ts",
+    "apps/backend/tests/auth-config-oidc.test.ts",
+    "apps/backend/tests/sso-group-mapping.test.ts",
+    "apps/frontend/src/components/auth-form.tsx",
+    "apps/frontend/src/components/auth-microsoft-button.tsx",
+    "apps/frontend/src/components/settings/sso-token-inspector.tsx",
+    "apps/frontend/src/components/settings/team/edit-member-dialog.tsx",
+    "apps/frontend/src/hooks/use-sso-role-mapping.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 18,
+    "cache_creation_tokens": 113082,
+    "cache_read_tokens": 597368,
+    "output_tokens": 20414,
+    "api_call_count": 1
+  }
+}
