@@ -57,6 +57,12 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 					}),
 				});
 				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
+				queryClient.invalidateQueries({
+					queryKey: trpc.story.getLatest.queryKey({
+						chatId: variables.chatId,
+						storySlug: variables.storySlug,
+					}),
+				});
 			},
 		}),
 	);

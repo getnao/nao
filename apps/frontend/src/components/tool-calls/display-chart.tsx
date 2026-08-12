@@ -93,6 +93,12 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 					}),
 				});
 				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
+				queryClient.invalidateQueries({
+					queryKey: trpc.story.getLatest.queryKey({
+						chatId: variables.chatId,
+						storySlug: variables.storySlug,
+					}),
+				});
 			},
 		}),
 	);
