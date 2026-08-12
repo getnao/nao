@@ -60,7 +60,14 @@ function browserLaunchArgs(): string[] {
 }
 
 function isSandboxDisabled(): boolean {
-	return process.env.DOCKER === '1';
+	if (process.env.PUPPETEER_DISABLE_SANDBOX === '1' || process.env.DOCKER === '1') {
+		return true;
+	}
+	return isRunningAsRoot();
+}
+
+function isRunningAsRoot(): boolean {
+	return typeof process.getuid === 'function' && process.getuid() === 0;
 }
 
 function findChromePath(): string {

@@ -1763,17 +1763,18 @@ const MAP_INIT_SCRIPT_TEMPLATE = `
 		var map;
 		try{map=newMap(container);}catch(e){done();return;}
 		var loaded=false;
+		var failed=false;
 		map.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');
-		map.on('error',function(){if(!loaded)done();});
+		map.on('error',function(){if(!loaded){done();}else{failed=true;}});
 		map.on('load',function(){
 			loaded=true;
 			clampMinZoom(map,container);
 		if(cfg.type==='choropleth'){
 			var ready=cfg.inlineGeoJson?Promise.resolve(cfg.inlineGeoJson):cfg.boundaryUrl?fetch(cfg.boundaryUrl).then(function(r){return r.ok?r.json():null;}).catch(function(){return null;}):Promise.resolve(null);
-				ready.then(function(boundaries){renderChoropleth(map,cfg,boundaries);map.once('idle',function(){markRendered();done();});});
+				ready.then(function(boundaries){renderChoropleth(map,cfg,boundaries);map.once('idle',function(){if(!failed){markRendered();}done();});});
 			}else{
 				renderPoints(map,cfg);
-				map.once('idle',function(){markRendered();done();});
+				map.once('idle',function(){if(!failed){markRendered();}done();});
 			}
 		});
 	});

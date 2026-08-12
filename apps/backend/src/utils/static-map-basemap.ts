@@ -68,7 +68,7 @@ export async function buildBasemapTiles(fit: Fit, byteBudget: number = TILE_BYTE
 }
 
 function sanitizeTileUrlForLog(url: string): string {
-	const match = url.match(/^([a-zA-Z][\w+.-]*:\/\/)(?:[^@/]*@)?([^/?#]*)/);
+	const match = url.match(/^([a-zA-Z][\w+.-]*:\/\/)(?:[^/?#]*@)?([^/?#]*)/);
 	return match ? `${match[1]}${match[2]}` : '[redacted]';
 }
 

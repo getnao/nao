@@ -474,16 +474,6 @@ class ProjectSlackBot {
 			return;
 		}
 
-		const authorized = await this._authorizeSlackUser(event.user.userId);
-		if (!authorized) {
-			await event.channel.postEphemeral(
-				event.user,
-				"❌ You don't have permission to use nao in this project. Please contact an administrator.",
-				ephemeralOpts,
-			);
-			return;
-		}
-
 		const question = event.text.trim();
 
 		if (question && !(await this._isPrivateChannel(event))) {
@@ -492,6 +482,11 @@ class ProjectSlackBot {
 				'❌ `/new <question>` is only available in direct messages and private channels. Send `/new` on its own here, or ask your question in a private conversation with nao.',
 				ephemeralOpts,
 			);
+			return;
+		}
+
+		const authorized = await this._authorizeSlashCommandUser(event, ephemeralOpts);
+		if (!authorized) {
 			return;
 		}
 
@@ -526,9 +521,36 @@ class ProjectSlackBot {
 		);
 	}
 
-	private async _authorizeSlackUser(slackUserId: string): Promise<User | null> {
-		const result = await this._resolveAuthorizedUser(slackUserId);
-		return result.status === 'authorized' ? result.user : null;
+	private async _authorizeSlashCommandUser(
+		event: SlashCommandEvent,
+		ephemeralOpts: { fallbackToDM: boolean },
+	): Promise<User | null> {
+		const result = await this._resolveAuthorizedUser(event.user.userId);
+		switch (result.status) {
+			case 'authorized':
+				return result.user;
+			case 'no-email':
+				await event.channel.postEphemeral(
+					event.user,
+					'❌ Could not retrieve your email from Slack.',
+					ephemeralOpts,
+				);
+				return null;
+			case 'user-not-found':
+				await event.channel.postEphemeral(
+					event.user,
+					`❌ No user found. Create an account with \`${result.email}\` on ${this._redirectUrl} to sign up.`,
+					ephemeralOpts,
+				);
+				return null;
+			case 'no-permission':
+				await event.channel.postEphemeral(
+					event.user,
+					"❌ You don't have permission to use nao in this project. Please contact an administrator.",
+					ephemeralOpts,
+				);
+				return null;
+		}
 	}
 
 	private async _resolveAuthorizedUser(slackUserId: string): Promise<SlackUserAuthorization> {
