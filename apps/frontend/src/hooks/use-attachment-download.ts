@@ -17,8 +17,8 @@ export function useAttachmentDownload(path: string) {
 	return useMutation({
 		mutationFn: () => downloadAttachment(path),
 		onSuccess: () => {
-			const format = documentExtension(path);
-			if (chatId && format) {
+			const format = documentExtension(path) ?? 'other';
+			if (chatId) {
 				logChatDownload.mutate({ chatId, format, title: fileNameOf(path) });
 			}
 		},

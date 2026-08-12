@@ -146,7 +146,12 @@ async function buildDocumentParts(virtualPaths: string[] | undefined, scope: Sto
 }
 
 async function buildDocumentPart(virtualPath: string, scope: StorageScope): Promise<UIMessagePart> {
-	const relativePath = isStoragePath(virtualPath) ? toStorageRelativePath(virtualPath) : '';
+	let relativePath = '';
+	try {
+		relativePath = isStoragePath(virtualPath) ? toStorageRelativePath(virtualPath) : '';
+	} catch {
+		throw new HandlerError('BAD_REQUEST', `Invalid attached file path: ${virtualPath}`);
+	}
 	const stored = relativePath ? await statUserFile(scope, relativePath) : null;
 	if (!stored) {
 		throw new HandlerError('BAD_REQUEST', `Attached file not found: ${virtualPath}`);

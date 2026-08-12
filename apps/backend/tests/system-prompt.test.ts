@@ -124,11 +124,17 @@ describe('SystemPrompt saved files rules', () => {
 		const markdown = renderToMarkdown(SystemPrompt({ options: { canGrepSavedFiles: false } }));
 		expect(markdown).toContain('**grep** cannot look inside **/home**');
 		expect(markdown).toContain('**search**');
+		expect(markdown).not.toContain('lookup');
 	});
 
 	it('omits the saved files section when the run has no write tool', () => {
 		const markdown = renderToMarkdown(SystemPrompt({ toolNames: ['execute_sql'] }));
 		expect(markdown).not.toContain('Saved Files');
+	});
+
+	it('does not recommend save_to when execute_sql is unavailable', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ toolNames: ['write'] }));
+		expect(markdown).not.toContain('**save_to**');
 	});
 
 	it('explains that an attachment arrives as a path, not as content', () => {
@@ -174,6 +180,7 @@ describe('SystemPrompt local database rules', () => {
 
 		expect(withStorage).toContain('**save_to**');
 		expect(withStorage).toContain('format: "parquet"');
+		expect(withStorage).toContain('**saved-file** chip');
 		expect(withoutStorage).not.toContain('**save_to**');
 	});
 

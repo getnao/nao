@@ -18,11 +18,13 @@ export const describeWorkbook = (data: Buffer): string => {
 	}
 
 	return [
-		`Excel workbook with ${sheets.length} ${sheets.length === 1 ? 'sheet' : 'sheets'}, in tab order. No cells are read here: query a sheet by name with the local database, e.g. SELECT * FROM read_xlsx('<path>', sheet = '${first.name}') LIMIT 20.`,
+		`Excel workbook with ${sheets.length} ${sheets.length === 1 ? 'sheet' : 'sheets'}, in tab order. No cells are read here: query a sheet by name with the local database, e.g. SELECT * FROM read_xlsx('<path>', sheet = '${escapeSqlLiteral(first.name)}') LIMIT 20.`,
 		...sheets.map(describeSheet),
 		'The counts are the used range the file records, so they include any title, blank or totals rows around the table — look at the first rows before deciding where the header is.',
 	].join('\n');
 };
+
+const escapeSqlLiteral = (value: string): string => value.replaceAll("'", "''");
 
 interface Sheet {
 	name: string;

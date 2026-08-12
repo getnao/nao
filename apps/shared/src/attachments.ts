@@ -67,7 +67,7 @@ export const isImageMediaType = (mediaType: string): mediaType is ImageMediaType
 /** The accepted extension of a file name, or undefined when nao does not handle that kind of file. */
 export const documentExtension = (fileName: string): DocumentExtension | undefined => {
 	const extension = fileExtension(fileName);
-	return extension in DOCUMENT_MEDIA_TYPES ? (extension as DocumentExtension) : undefined;
+	return Object.hasOwn(DOCUMENT_MEDIA_TYPES, extension) ? (extension as DocumentExtension) : undefined;
 };
 
 /** The media type to store a document under, or undefined when its extension is not accepted. */

@@ -22,6 +22,8 @@ describe('documentMediaType', () => {
 		expect(documentMediaType('installer.exe')).toBeUndefined();
 		expect(documentMediaType('archive.zip')).toBeUndefined();
 		expect(documentMediaType('README')).toBeUndefined();
+		expect(documentMediaType('file.__proto__')).toBeUndefined();
+		expect(documentMediaType('file.constructor')).toBeUndefined();
 	});
 
 	it('reads the extension from the last dot only', () => {

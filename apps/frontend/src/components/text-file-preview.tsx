@@ -83,10 +83,10 @@ function defineCustomThemes(monaco: Monaco) {
 	});
 }
 
-/** Monaco swallows the shortcut, so it is replayed on the window for the app's own palette. */
+/** Monaco swallows the shortcut, so it is replayed on the document for the app's own palette. */
 function forwardCommandPaletteShortcut(editorInstance: editor.IStandaloneCodeEditor, monaco: Monaco) {
 	editorInstance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK, () => {
-		window.dispatchEvent(
+		document.dispatchEvent(
 			new KeyboardEvent('keydown', {
 				key: 'k',
 				code: 'KeyK',

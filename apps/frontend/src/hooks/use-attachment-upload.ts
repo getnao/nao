@@ -16,7 +16,7 @@ export interface Attachment {
 	id: string;
 	kind: AttachmentKind;
 	name: string;
-	size: number;
+	size?: number;
 	mediaType: string;
 	/** Images only: data URL backing the thumbnail and the payload sent with the message. */
 	dataUrl?: string;
@@ -33,7 +33,7 @@ export interface AttachmentPayload {
 
 interface UseAttachmentUploadOptions {
 	/** Off when the instance has no permanent storage, which is where documents are kept. */
-	documentsEnabled: boolean;
+	documentsEnabled: boolean | undefined;
 	maxDocumentSizeMb: number;
 }
 
@@ -87,6 +87,19 @@ export function useAttachmentUpload({ documentsEnabled, maxDocumentSizeMb }: Use
 	const clearAttachments = useCallback(() => {
 		setAttachments([]);
 		setRejection(undefined);
+	}, []);
+
+	const restoreDocuments = useCallback((documents: DocumentAttachment[]) => {
+		setAttachments((previous) => [
+			...previous,
+			...documents.map((document) => ({
+				id: crypto.randomUUID(),
+				kind: 'document' as const,
+				name: document.filename,
+				mediaType: document.mediaType,
+				path: document.path,
+			})),
+		]);
 	}, []);
 
 	const openFilePicker = useCallback(() => {
@@ -146,11 +159,13 @@ export function useAttachmentUpload({ documentsEnabled, maxDocumentSizeMb }: Use
 		addFiles,
 		removeAttachment,
 		clearAttachments,
+		restoreDocuments,
 		openFilePicker,
 		handleFileInputChange,
 		handlePaste,
 		getPayload,
-		hasAttachments: attachments.length > 0,
+		hasAttachments: attachments.some((attachment) => !attachment.error),
+		hasErrors: attachments.some((attachment) => !!attachment.error),
 		/** A document is still on its way to storage, so the message would reference nothing. */
 		isPreparing: attachments.some(isPending),
 	};
@@ -200,13 +215,18 @@ const describeRejection = (
 	{ documentsEnabled, maxDocumentSizeMb }: UseAttachmentUploadOptions,
 ): string | undefined => {
 	if (isImageMediaType(file.type)) {
-		return file.size > MAX_IMAGE_SIZE_MB * 1024 * 1024
-			? `${file.name} is over the ${MAX_IMAGE_SIZE_MB} MB limit for images.`
-			: undefined;
+		return file.size === 0
+			? `${file.name} is empty.`
+			: file.size > MAX_IMAGE_SIZE_MB * 1024 * 1024
+				? `${file.name} is over the ${MAX_IMAGE_SIZE_MB} MB limit for images.`
+				: undefined;
 	}
 
 	if (!documentMediaType(file.name)) {
 		return `${file.name} is not a file type nao can read.`;
+	}
+	if (documentsEnabled === undefined) {
+		return 'Storage configuration is still loading. Try attaching the document again in a moment.';
 	}
 	if (!documentsEnabled) {
 		return 'Attaching files needs permanent storage, which is turned off on this instance.';

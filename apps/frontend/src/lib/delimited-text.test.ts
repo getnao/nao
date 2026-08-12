@@ -33,6 +33,20 @@ describe('parseDelimitedText', () => {
 		]);
 	});
 
+	it('ignores candidate delimiters inside a quoted first record', () => {
+		expect(parseDelimitedText('"description, with comma";amount\nAlpha;12')).toEqual([
+			['description, with comma', 'amount'],
+			['Alpha', '12'],
+		]);
+	});
+
+	it('detects from the first logical record when its quoted field spans lines', () => {
+		expect(parseDelimitedText('"description\nwith, comma";amount\nAlpha;12')).toEqual([
+			['description\nwith, comma', 'amount'],
+			['Alpha', '12'],
+		]);
+	});
+
 	it('uses the given delimiter rather than detecting one', () => {
 		expect(parseDelimitedText('name\tnote\nAlpha\ta, b', '\t')).toEqual([
 			['name', 'note'],
@@ -45,6 +59,15 @@ describe('parseDelimitedText', () => {
 			['a', 'b', 'c'],
 			['1', '', '3'],
 		]);
+	});
+
+	it('keeps a final empty quoted field', () => {
+		expect(parseDelimitedText('""')).toEqual([['']]);
+		expect(parseDelimitedText('a,""')).toEqual([['a', '']]);
+	});
+
+	it('can stop parsing after a bounded number of rows', () => {
+		expect(parseDelimitedText('a\n1\n2\n3', ',', 2)).toEqual([['a'], ['1']]);
 	});
 
 	it('drops the byte order mark a spreadsheet writes', () => {

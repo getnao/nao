@@ -161,6 +161,7 @@ function MyStoragePage() {
 	const limits = useStorageUploadLimits();
 	const isEnabled = limits.data?.enabled === true;
 	const usage = useStorageUsage({ enabled: isEnabled });
+	const limitsError = limits.error instanceof Error ? limits.error.message : 'Failed to load storage configuration.';
 
 	return (
 		<SettingsPageWrapper>
@@ -174,7 +175,11 @@ function MyStoragePage() {
 					</p>
 				</div>
 
-				{limits.data && !isEnabled ? (
+				{limits.isError ? (
+					<ErrorMessage message={limitsError} />
+				) : limits.isPending ? (
+					<div className='text-sm text-muted-foreground'>Loading storage configuration…</div>
+				) : !isEnabled ? (
 					<DisabledNotice>
 						You have no space on this nao instance, and the agent cannot save files for you. Ask an admin to
 						turn permanent storage on.

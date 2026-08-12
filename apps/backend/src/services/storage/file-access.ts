@@ -1,6 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
 import { getStorage, isStorageEnabled } from '.';
 import { sanitizeRelativePath, scopedKey, scopeRoot } from './keys';
@@ -52,13 +53,16 @@ export const openStorageFiles = async (scope: StorageScope, relativePaths: strin
 /** Copies the named files out of object storage into a directory only this caller can see. */
 const stageFiles = async (scope: StorageScope, relativePaths: string[]): Promise<StorageFileAccess> => {
 	const directory = await mkdtemp(join(tmpdir(), 'nao-storage-'));
+	const stagedPaths = new Map<string, string>();
 
 	try {
 		for (const relativePath of new Set(relativePaths)) {
 			assertNotGlob(relativePath);
-			const stagedPath = join(directory, sanitizeRelativePath(relativePath));
+			const safePath = sanitizeRelativePath(relativePath);
+			const stagedPath = join(directory, randomUUID(), basename(safePath));
 			await mkdir(dirname(stagedPath), { recursive: true });
 			await writeFile(stagedPath, await readUserFileBytes(scope, relativePath));
+			stagedPaths.set(relativePath, stagedPath);
 		}
 	} catch (error) {
 		await rm(directory, { recursive: true, force: true });
@@ -66,7 +70,13 @@ const stageFiles = async (scope: StorageScope, relativePaths: string[]): Promise
 	}
 
 	return {
-		realPathOf: (relativePath) => join(directory, sanitizeRelativePath(relativePath)),
+		realPathOf: (relativePath) => {
+			const stagedPath = stagedPaths.get(relativePath);
+			if (!stagedPath) {
+				throw new Error(`File was not staged from permanent storage: ${relativePath}`);
+			}
+			return stagedPath;
+		},
 		directory,
 		release: () => rm(directory, { recursive: true, force: true }),
 	};

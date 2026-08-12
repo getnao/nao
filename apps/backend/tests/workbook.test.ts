@@ -29,6 +29,12 @@ describe('describeWorkbook', () => {
 		expect(outline).toContain("read_xlsx('<path>', sheet = 'Budget FY26')");
 	});
 
+	it('escapes an apostrophe in the suggested SQL sheet name', () => {
+		const outline = describeWorkbook(buildWorkbook([{ name: "Director's view", range: 'A1:C3' }]));
+
+		expect(outline).toContain("sheet = 'Director''s view'");
+	});
+
 	it('flags a hidden sheet rather than passing it off as the working copy', () => {
 		const outline = describeWorkbook(
 			buildWorkbook([

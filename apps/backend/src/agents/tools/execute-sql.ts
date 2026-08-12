@@ -33,6 +33,9 @@ export async function executeQuery(
 			`save_to only works with the "${LOCAL_DATABASE_ID}" database. To keep a warehouse result, re-run it against ${LOCAL_DATABASE_ID} as "SELECT * FROM <query_id>".`,
 		);
 	}
+	if (save_to && context.adminMode) {
+		throw new Error('save_to is unavailable in admin mode. Run the query without save_to.');
+	}
 
 	if (context.adminMode) {
 		return withTemplateWarnings(await executeAppDbQuery(effectiveSql, context, query_id), templateWarnings);

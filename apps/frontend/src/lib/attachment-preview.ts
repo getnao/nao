@@ -6,6 +6,7 @@ import { toSheetTable } from '@/lib/sheet-table';
 
 /** Rows beyond this are dropped: paging through a million of them is slower than the preview is useful. */
 export const MAX_PREVIEW_ROWS = 5000;
+export const MAX_TABULAR_PREVIEW_SIZE_MB = 10;
 
 export interface AttachmentSheet {
 	name: string;
@@ -20,6 +21,7 @@ export type AttachmentPreview =
 	| { kind: 'markdown'; content: string }
 	| { kind: 'text'; content: string }
 	| { kind: 'pdf'; blob: Blob }
+	| { kind: 'too-large' }
 	| { kind: 'unsupported' };
 
 type PreviewKind = 'table' | 'workbook' | 'markdown' | 'text' | 'pdf' | 'unsupported';
@@ -47,6 +49,9 @@ export async function loadAttachmentPreview(path: string): Promise<AttachmentPre
 	}
 
 	const blob = await fetchAttachment(path);
+	if ((kind === 'table' || kind === 'workbook') && blob.size > MAX_TABULAR_PREVIEW_SIZE_MB * 1024 * 1024) {
+		return { kind: 'too-large' };
+	}
 
 	switch (kind) {
 		case 'pdf':
@@ -68,7 +73,7 @@ const previewKindOf = (fileName: string): PreviewKind => {
 
 const readDelimitedSheet = (path: string, text: string): AttachmentSheet => {
 	const delimiter = fileExtension(path) === 'tsv' ? '\t' : undefined;
-	return toSheet(path.split('/').pop() ?? path, parseDelimitedText(text, delimiter));
+	return toSheet(path.split('/').pop() ?? path, parseDelimitedText(text, delimiter, MAX_PREVIEW_ROWS + 1));
 };
 
 /** The workbook parser is loaded on demand, since most chats never open a spreadsheet. */

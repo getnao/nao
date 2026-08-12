@@ -93,6 +93,14 @@ describe('S3StorageProvider keys', () => {
 
 		expect(lastInput().ContentType).toBe('text/csv');
 	});
+
+	it('rejects a key that exceeds the S3 limit after adding the configured prefix', async () => {
+		const storage = new S3StorageProvider({ ...baseConfig, prefix: 'nao' });
+
+		await expect(storage.write('a'.repeat(1021), Buffer.from('x'))).rejects.toThrow(
+			'including the configured prefix',
+		);
+	});
 });
 
 describe('S3StorageProvider read', () => {
@@ -133,6 +141,16 @@ describe('S3StorageProvider list', () => {
 		await storage.list('projects/p1/');
 
 		expect(lastInput().Prefix).toBe('projects/p1/');
+	});
+
+	it('lists the root without inventing a slash prefix', async () => {
+		mocks.respond = () => ({ Contents: [] });
+
+		await new S3StorageProvider(baseConfig).list('');
+		expect(lastInput().Prefix).toBe('');
+
+		await new S3StorageProvider({ ...baseConfig, prefix: 'nao' }).list('');
+		expect(lastInput().Prefix).toBe('nao/');
 	});
 
 	it('follows pagination until the listing is complete', async () => {

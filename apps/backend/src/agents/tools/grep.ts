@@ -25,7 +25,7 @@ import { createTool } from '../../utils/tools';
  * 1. Bundled binary next to the executable (for standalone builds)
  * 2. vscode-ripgrep package (for development)
  */
-function getRipgrepPath(): string {
+async function getRipgrepPath(): Promise<string> {
 	// Check for bundled binary next to the executable
 	const execDir = path.dirname(process.execPath);
 	const bundledRgPath = path.join(execDir, process.platform === 'win32' ? 'rg.exe' : 'rg');
@@ -36,9 +36,8 @@ function getRipgrepPath(): string {
 
 	// Fall back to vscode-ripgrep package
 	try {
-		// Dynamic import to avoid bundling issues
-		// eslint-disable-next-line @typescript-eslint/no-require-imports
-		const { rgPath } = require('@vscode/ripgrep');
+		// Dynamic import keeps the platform package external to standalone bundles.
+		const { rgPath } = await import('@vscode/ripgrep');
 		if (fs.existsSync(rgPath)) {
 			return rgPath;
 		}
@@ -64,6 +63,7 @@ interface SearchTarget {
 	root: string;
 	cwd: string;
 	ignoreGlobs: string[];
+	includeHidden: boolean;
 	/** Returns null when a match must be dropped because it sits outside the target. */
 	toDisplayPath: (absolutePath: string) => string | null;
 	toAbsolutePath: (displayPath: string) => string;
@@ -79,7 +79,7 @@ export default createTool<grep.Input, grep.Output>({
 	inputSchema: grep.InputSchema,
 	outputSchema: grep.OutputSchema,
 	execute: async ({ max_results = 100, ...options }, context) => {
-		const rgPath = getRipgrepPath();
+		const rgPath = await getRipgrepPath();
 		const targets = resolveTargets(options.path, context);
 
 		const results = await Promise.all(
@@ -118,6 +118,7 @@ const projectTarget = (searchPath: string | undefined, projectFolder: string): S
 		root: searchPath ? toRealPath(searchPath, projectFolder) : projectFolder,
 		cwd: projectFolder,
 		ignoreGlobs: loadNaoignorePatterns(projectFolder),
+		includeHidden: false,
 		toDisplayPath: (absolutePath) =>
 			isWithinProjectFolder(absolutePath, projectFolder) ? toVirtualPath(absolutePath, projectFolder) : null,
 		toAbsolutePath: (displayPath) => toRealPath(displayPath, projectFolder),
@@ -132,9 +133,10 @@ const storageTarget = (searchPath: string, context: ToolContext): SearchTarget =
 		root: grepRootForUser(scope, toStorageRelativePath(searchPath)),
 		cwd: spaceRoot,
 		ignoreGlobs: [],
+		includeHidden: true,
 		toDisplayPath: (absolutePath) => {
 			const relativePath = path.relative(spaceRoot, path.resolve(absolutePath));
-			if (relativePath === '' || relativePath.startsWith('..')) {
+			if (relativePath === '' || relativePath === '..' || relativePath.startsWith(`..${path.sep}`)) {
 				return null;
 			}
 			return toStorageVirtualPath(relativePath.replaceAll(path.sep, '/'));
@@ -158,6 +160,9 @@ function searchTarget(
 		'--no-heading',
 		'--line-number',
 	];
+	if (target.includeHidden) {
+		args.push('--hidden');
+	}
 
 	if (case_insensitive) {
 		args.push('--ignore-case');

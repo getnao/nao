@@ -337,6 +337,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 				? {
 						text: getMessageText(lastUserMessage),
 						images: getMessageImages(lastUserMessage),
+						documents: getMessageDocuments(lastUserMessage),
 						citation: lastUserMessage.citation,
 					}
 				: undefined;

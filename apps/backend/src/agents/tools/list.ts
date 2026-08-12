@@ -93,22 +93,14 @@ const listProjectFolder = async (virtualPath: string, context: ToolContext): Pro
 	);
 
 	const isRoot = parentRelativePath === '';
-	return isRoot && isStorageEnabled() ? [...entries, await storageMountEntry(context)] : entries;
+	return isRoot && isStorageEnabled() ? [...entries, storageMountEntry()] : entries;
 };
 
 /** Permanent storage shows up as an ordinary folder at the root of the tree. */
-const storageMountEntry = async (context: ToolContext): Promise<list.Entry> => {
-	const entry = {
+const storageMountEntry = (): list.Entry => {
+	return {
 		path: toStorageVirtualPath(''),
 		name: STORAGE_MOUNT,
 		type: 'directory' as const,
 	};
-
-	try {
-		const files = await listUserDirectory(toStorageScope(context), '');
-		return { ...entry, itemCount: files.length };
-	} catch {
-		// An unreachable storage backend must not break listing the project
-		return entry;
-	}
 };

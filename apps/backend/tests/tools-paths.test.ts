@@ -320,6 +320,7 @@ describe('storage mount', () => {
 	it('never resolves a mount path against the project folder', async () => {
 		const { toRealPath } = await loadTools('posix');
 		expect(() => toRealPath('/home/reports/q1.csv', PROJECT)).toThrow('in permanent storage');
+		expect(() => toRealPath('/tmp/../home/reports/q1.csv', PROJECT)).toThrow('in permanent storage');
 	});
 
 	it('hides a project folder that shadows the mount name', async () => {

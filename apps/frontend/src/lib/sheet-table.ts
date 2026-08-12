@@ -24,7 +24,13 @@ export function toSheetTable(cells: unknown[][]): SheetTable {
 }
 
 const looksLikeHeader = (row: unknown[], width: number): boolean => {
-	return width > 0 && row.length === width && row.every((cell) => typeof cell === 'string' && cell.trim() !== '');
+	return (
+		width > 0 &&
+		row.length === width &&
+		Array.from({ length: width }, (_, index) => row[index]).every(
+			(cell) => typeof cell === 'string' && cell.trim() !== '',
+		)
+	);
 };
 
 /** A repeated label still needs a name of its own, since the rows are keyed by it. */

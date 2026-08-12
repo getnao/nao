@@ -6,6 +6,9 @@ export interface RewrittenSql {
 	storagePaths: string[];
 }
 
+const FILE_READER_CALL =
+	/\b(?:read_(?:blob|csv(?:_auto)?|json(?:_auto|_objects)?|ndjson(?:_auto|_objects)?|parquet|text|xlsx))\s*\(/gi;
+
 /**
  * Rewrites the virtual paths in a query's string literals to the real paths DuckDB has to open.
  *
@@ -16,8 +19,8 @@ export interface RewrittenSql {
 export const rewriteStorageLiterals = (sql: string, toRealPath: (relativePath: string) => string): RewrittenSql => {
 	const storagePaths: string[] = [];
 
-	const rewritten = mapStringLiterals(sql, (literal) => {
-		if (!isStoragePath(literal)) {
+	const rewritten = mapStringLiterals(sql, (literal, beforeLiteral) => {
+		if (!isStoragePath(literal) || !isFilePathArgument(beforeLiteral)) {
 			return literal;
 		}
 
@@ -46,19 +49,37 @@ export const storagePathsIn = (sql: string): string[] => {
  */
 export const referencedQueryIds = (sql: string): string[] => {
 	const withoutLiterals = mapStringLiterals(sql, () => '');
-	return [...new Set(withoutLiterals.match(/\bquery_[A-Za-z0-9_]+/g) ?? [])];
+	const withoutComments = stripSqlComments(withoutLiterals);
+	return [...new Set(withoutComments.match(/\bquery_[A-Za-z0-9_]+/g) ?? [])];
 };
 
 /**
  * Walks single-quoted literals, honouring the doubled-quote escape. Dollar-quoted strings are
  * left alone: they are vanishingly rare in a path argument, and leaving one is the safe failure.
  */
-const mapStringLiterals = (sql: string, map: (literal: string) => string): string => {
+const mapStringLiterals = (sql: string, map: (literal: string, beforeLiteral: string) => string): string => {
 	let result = '';
 	let index = 0;
 
 	while (index < sql.length) {
 		const character = sql[index]!;
+		const next = sql[index + 1];
+
+		if (character === '-' && next === '-') {
+			const end = sql.indexOf('\n', index + 2);
+			const endIndex = end === -1 ? sql.length : end;
+			result += sql.slice(index, endIndex);
+			index = endIndex;
+			continue;
+		}
+
+		if (character === '/' && next === '*') {
+			const close = sql.indexOf('*/', index + 2);
+			const endIndex = close === -1 ? sql.length : close + 2;
+			result += sql.slice(index, endIndex);
+			index = endIndex;
+			continue;
+		}
 
 		if (character !== "'") {
 			result += character;
@@ -73,11 +94,27 @@ const mapStringLiterals = (sql: string, map: (literal: string) => string): strin
 			break;
 		}
 
-		result += `'${escapeLiteral(map(literal.value))}'`;
+		result += `'${escapeLiteral(map(literal.value, result))}'`;
 		index = literal.endIndex;
 	}
 
 	return result;
+};
+
+const isFilePathArgument = (beforeLiteral: string): boolean => {
+	const calls = [...beforeLiteral.matchAll(FILE_READER_CALL)];
+	const latest = calls.at(-1);
+	if (latest?.index === undefined) {
+		return false;
+	}
+
+	const afterOpenParen = beforeLiteral.slice(latest.index + latest[0].length);
+	const structure = stripSqlComments(mapStringLiterals(afterOpenParen, () => '')).replaceAll("''", '');
+	return /^\s*$/.test(structure) || /^\s*\[\s*(?:,\s*)*$/.test(structure);
+};
+
+const stripSqlComments = (sql: string): string => {
+	return sql.replace(/--[^\r\n]*|\/\*[\s\S]*?\*\//g, (comment) => comment.replace(/[^\r\n]/g, ' '));
 };
 
 const readLiteral = (sql: string, openIndex: number): { value: string; endIndex: number } | null => {

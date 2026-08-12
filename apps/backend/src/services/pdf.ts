@@ -1,5 +1,7 @@
 import { extractText, getDocumentProxy } from 'unpdf';
 
+const MAX_PDF_PAGES = 1000;
+
 /**
  * Pulls the text layer out of a PDF so the agent can read one like any other file.
  *
@@ -29,15 +31,25 @@ interface PdfPage {
 }
 
 const extractPages = async (data: Buffer): Promise<PdfPage[]> => {
-	let pageTexts: string[];
+	let document: Awaited<ReturnType<typeof getDocumentProxy>>;
 	try {
-		const document = await getDocumentProxy(new Uint8Array(data));
-		({ text: pageTexts } = await extractText(document, { mergePages: false }));
+		document = await getDocumentProxy(new Uint8Array(data));
 	} catch (error) {
 		throw new Error(`This PDF could not be opened, so it may be corrupt or password-protected: ${reason(error)}`);
 	}
 
-	return pageTexts.map((text, index) => ({ number: index + 1, text: normalizeWhitespace(text) }));
+	try {
+		if (document.numPages > MAX_PDF_PAGES) {
+			throw new Error(
+				`This PDF has ${document.numPages} pages, above the ${MAX_PDF_PAGES}-page extraction limit. Ask for a smaller document or the relevant page range.`,
+			);
+		}
+
+		const { text: pageTexts } = await extractText(document, { mergePages: false });
+		return pageTexts.map((text, index) => ({ number: index + 1, text: normalizeWhitespace(text) }));
+	} finally {
+		await document.loadingTask.destroy();
+	}
 };
 
 /**

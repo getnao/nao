@@ -107,7 +107,7 @@ describe('list', () => {
 			_version: '1',
 			entries: [
 				{ path: '/RULES.md', name: 'RULES.md', type: 'file', size: '5', itemCount: undefined },
-				{ path: '/home', name: 'home', type: 'directory', itemCount: 1 },
+				{ path: '/home', name: 'home', type: 'directory' },
 			],
 		});
 	});
@@ -124,7 +124,7 @@ describe('list', () => {
 
 		const output = (await run(listTool, { path: '/' })) as { entries: { name: string; itemCount?: number }[] };
 
-		expect(output.entries).toEqual([{ path: '/home', name: 'home', type: 'directory', itemCount: 0 }]);
+		expect(output.entries).toEqual([{ path: '/home', name: 'home', type: 'directory' }]);
 	});
 
 	it('lists a folder inside /home', async () => {
@@ -199,6 +199,12 @@ describe('grep', () => {
 
 	it('can be scoped to /home', async () => {
 		expect(await pathsMatching({ pattern: 'revenue', path: '/home' })).toEqual(['/home/exports/q1.csv']);
+	});
+
+	it('keeps valid names that merely start with two dots', async () => {
+		await run(writeTool, { file_path: '/home/..config', content: 'revenue setting' });
+
+		expect(await pathsMatching({ pattern: 'revenue setting', path: '/home' })).toEqual(['/home/..config']);
 	});
 
 	it('can be scoped to the project', async () => {

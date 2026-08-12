@@ -289,6 +289,11 @@ export const toRealPath = (virtualPath: string, projectFolder: string): string =
 		throw new Error(`Access denied: path '${virtualPath}' is outside the project folder`);
 	}
 
+	const normalizedRelativePath = path.relative(normalizedFolder, resolvedPath).replaceAll(path.sep, '/');
+	if (isStoragePath(normalizedRelativePath)) {
+		throw new Error(`Path '${virtualPath}' is in permanent storage, not in the project folder`);
+	}
+
 	// Check if path is in an excluded directory
 	if (isInExcludedDir(resolvedPath)) {
 		throw new Error(`Access denied: path '${virtualPath}' is in an excluded directory`);

@@ -30,6 +30,19 @@ describe('toSheetTable', () => {
 		});
 	});
 
+	it('does not mistake holes in a sparse first row for complete headers', () => {
+		const sparse = Array(2) as unknown[];
+		sparse[0] = 'name';
+
+		expect(toSheetTable([sparse, ['Alpha', 12]])).toEqual({
+			columns: ['A', 'B'],
+			rows: [
+				{ A: 'name', B: null },
+				{ A: 'Alpha', B: 12 },
+			],
+		});
+	});
+
 	it('pads short rows out to the widest one', () => {
 		expect(toSheetTable([['a', 'b', 'c'], ['1']])).toEqual({
 			columns: ['a', 'b', 'c'],

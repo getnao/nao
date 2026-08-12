@@ -13,7 +13,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { TabBar } from '@/components/ui/tab-bar';
 import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useAttachmentDownload } from '@/hooks/use-attachment-download';
-import { loadAttachmentPreview, MAX_PREVIEW_ROWS } from '@/lib/attachment-preview';
+import { loadAttachmentPreview, MAX_PREVIEW_ROWS, MAX_TABULAR_PREVIEW_SIZE_MB } from '@/lib/attachment-preview';
 import { markdownPlugins } from '@/lib/markdown';
 
 const markdownComponents = { table: ({ node, className }: any) => <MarkdownTable node={node} className={className} /> };
@@ -84,6 +84,13 @@ function PreviewBody({ preview, fileName }: { preview: AttachmentPreview; fileNa
 			);
 		case 'pdf':
 			return <PdfPreview blob={preview.blob} fileName={fileName} />;
+		case 'too-large':
+			return (
+				<Notice
+					fileName={fileName}
+					message={`Files over ${MAX_TABULAR_PREVIEW_SIZE_MB} MB are not parsed in the browser. Download it to open it.`}
+				/>
+			);
 		case 'unsupported':
 			return (
 				<Notice fileName={fileName} message='nao cannot preview this kind of file. Download it to open it.' />

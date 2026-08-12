@@ -132,7 +132,7 @@ function ChatInputBase({
 	const { canCycleModels, cycleModel } = useModelSelection();
 	const uploadLimits = useQuery(trpc.storage.getUploadLimits.queryOptions());
 	const attachmentUpload = useAttachmentUpload({
-		documentsEnabled: uploadLimits.data?.enabled ?? false,
+		documentsEnabled: uploadLimits.data?.enabled,
 		maxDocumentSizeMb: uploadLimits.data?.maxFileSizeMb ?? 0,
 	});
 	const chatInputRestore = useChatInputRestore(!!allowQueueing);
@@ -168,6 +168,7 @@ function ChatInputBase({
 		promptRef.current?.insertText(chatInputRestore.text);
 		setInputText(chatInputRestore.text);
 		attachmentUpload.clearAttachments();
+		attachmentUpload.restoreDocuments(chatInputRestore.documents);
 
 		if (chatInputRestore.citation && chatId) {
 			chatPendingCitationStore.set({ ...chatInputRestore.citation, chatId });
@@ -266,7 +267,12 @@ function ChatInputBase({
 				return;
 			}
 
-			if ((isRunning && !allowQueueing) || isBudgetExceeded || attachmentUpload.isPreparing) {
+			if (
+				(isRunning && !allowQueueing) ||
+				isBudgetExceeded ||
+				attachmentUpload.isPreparing ||
+				attachmentUpload.hasErrors
+			) {
 				return;
 			}
 

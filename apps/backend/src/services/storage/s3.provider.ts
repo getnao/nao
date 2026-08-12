@@ -11,6 +11,8 @@ import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
 
 import type { StorageHealth, StorageObject, StorageProvider, WriteOptions } from './types';
 
+const MAX_OBJECT_KEY_BYTES = 1024;
+
 export interface S3StorageConfig {
 	bucket: string;
 	region?: string;
@@ -71,7 +73,8 @@ export class S3StorageProvider implements StorageProvider {
 
 	async list(prefix: string): Promise<StorageObject[]> {
 		const objects: StorageObject[] = [];
-		const listPrefix = this.toObjectKey(prefix.endsWith('/') ? prefix : `${prefix}/`);
+		const normalizedPrefix = prefix === '' || prefix.endsWith('/') ? prefix : `${prefix}/`;
+		const listPrefix = this.toObjectKey(normalizedPrefix);
 		let continuationToken: string | undefined;
 
 		do {
@@ -138,7 +141,13 @@ export class S3StorageProvider implements StorageProvider {
 	}
 
 	private toObjectKey(key: string): string {
-		return this.prefix ? `${this.prefix}/${key}` : key;
+		const objectKey = this.prefix ? `${this.prefix}/${key}` : key;
+		if (Buffer.byteLength(objectKey) > MAX_OBJECT_KEY_BYTES) {
+			throw new Error(
+				`S3 object key is too long: keys including the configured prefix may not exceed 1024 bytes`,
+			);
+		}
+		return objectKey;
 	}
 
 	private toStorageKey(objectKey: string): string {

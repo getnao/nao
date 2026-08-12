@@ -17,6 +17,15 @@ describe('rewriteStorageLiterals', () => {
 		expect(storagePathsIn(sql)).toEqual(['a.csv', 'nested/b.csv']);
 	});
 
+	it('rewrites every path in a file-reader array argument', () => {
+		const sql = "SELECT * FROM read_parquet(['/home/a.parquet', '/home/b.parquet'])";
+
+		expect(rewriteStorageLiterals(sql, toRealPath)).toEqual({
+			sql: "SELECT * FROM read_parquet(['/var/data/users/u1/a.parquet', '/var/data/users/u1/b.parquet'])",
+			storagePaths: ['a.parquet', 'b.parquet'],
+		});
+	});
+
 	it('accepts the ~ shorthand the model reaches for', () => {
 		const { sql } = rewriteStorageLiterals("SELECT * FROM read_csv('~/uploads/sales.csv')", toRealPath);
 
@@ -27,6 +36,18 @@ describe('rewriteStorageLiterals', () => {
 		const sql = "SELECT 'o''brien' AS name, '%/home/%' AS pattern FROM t WHERE country = 'FR'";
 
 		expect(rewriteStorageLiterals(sql, () => '/rewritten')).toEqual({ sql, storagePaths: [] });
+	});
+
+	it('leaves a virtual path used as an ordinary SQL value alone', () => {
+		const sql = "SELECT '/home/uploads/sales.csv' AS path";
+
+		expect(rewriteStorageLiterals(sql, () => '/private/path')).toEqual({ sql, storagePaths: [] });
+	});
+
+	it('ignores virtual paths in SQL comments', () => {
+		const sql = "SELECT 1 /* read_csv('/home/missing.csv') */ -- read_csv('/home/also-missing.csv')";
+
+		expect(rewriteStorageLiterals(sql, () => '/private/path')).toEqual({ sql, storagePaths: [] });
 	});
 
 	it('preserves a quote inside a rewritten path rather than breaking the literal', () => {
@@ -68,5 +89,11 @@ describe('referencedQueryIds', () => {
 
 	it('ignores an id inside a literal, which names a file and not a table', () => {
 		expect(referencedQueryIds("SELECT * FROM read_csv('/home/exports/query_ab12cd34.csv')")).toEqual([]);
+	});
+
+	it('ignores ids inside SQL comments', () => {
+		expect(
+			referencedQueryIds('SELECT * FROM query_real -- JOIN query_not_real\n/* query_also_not_real */'),
+		).toEqual(['query_real']);
 	});
 });

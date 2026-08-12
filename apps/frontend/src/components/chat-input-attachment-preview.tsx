@@ -42,7 +42,12 @@ export function ChatInputAttachmentPreview({ attachments, rejection, onRemove }:
 function ImagePreview({ attachment, onRemove }: { attachment: Attachment; onRemove: (id: string) => void }) {
 	return (
 		<PreviewShell attachment={attachment} onRemove={onRemove}>
-			{attachment.dataUrl ? (
+			{attachment.error ? (
+				<div className='size-16 rounded-lg border border-destructive/50 flex flex-col gap-1 items-center justify-center px-1 text-center'>
+					<AlertTriangle className='size-4 text-destructive' />
+					<span className='line-clamp-2 text-[10px] leading-tight text-destructive'>{attachment.error}</span>
+				</div>
+			) : attachment.dataUrl ? (
 				<img src={attachment.dataUrl} alt='' className='size-16 rounded-lg object-cover border border-border' />
 			) : (
 				<div className='size-16 rounded-lg border border-border flex items-center justify-center'>
@@ -77,7 +82,12 @@ function DocumentPreview({ attachment, onRemove }: { attachment: Attachment; onR
 							attachment.error ? 'text-destructive' : 'text-muted-foreground',
 						)}
 					>
-						{attachment.error ?? (isUploading ? 'Uploading...' : formatBytes(attachment.size))}
+						{attachment.error ??
+							(isUploading
+								? 'Uploading...'
+								: attachment.size === undefined
+									? 'Saved file'
+									: formatBytes(attachment.size))}
 					</p>
 				</div>
 			</div>

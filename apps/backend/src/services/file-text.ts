@@ -3,9 +3,6 @@ import { fileExtension, isBinaryDocument } from '@nao/shared/attachments';
 import { extractPdfText } from './pdf';
 import { describeWorkbook } from './workbook';
 
-/** Enough of the file to tell text from binary without holding a second copy of a large one. */
-const BINARY_SNIFF_BYTES = 8192;
-
 /**
  * Turns a file's bytes into something worth putting in a conversation, wherever it came from.
  *
@@ -26,14 +23,20 @@ export const toReadableText = async (name: string, data: Buffer): Promise<string
 		return describeWorkbook(data);
 	}
 
-	assertReadableAsText(name, data);
-	return data.toString('utf-8');
+	return decodeText(name, data);
 };
 
-const assertReadableAsText = (name: string, data: Buffer): void => {
-	const looksBinary = isBinaryDocument(name) || data.subarray(0, BINARY_SNIFF_BYTES).includes(0);
-	if (!looksBinary) {
-		return;
+const decodeText = (name: string, data: Buffer): string => {
+	if (!isBinaryDocument(name)) {
+		if (data[0] === 0xff && data[1] === 0xfe) {
+			return new TextDecoder('utf-16le').decode(data.subarray(2));
+		}
+		if (data[0] === 0xfe && data[1] === 0xff) {
+			return new TextDecoder('utf-16be').decode(data.subarray(2));
+		}
+		if (!data.includes(0)) {
+			return data.toString('utf-8');
+		}
 	}
 
 	const extension = fileExtension(name);

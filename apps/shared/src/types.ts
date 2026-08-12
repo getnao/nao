@@ -203,8 +203,8 @@ export type ProjectChatListItem = {
 export type DownloadFormat = 'pdf' | 'html';
 export const DOWNLOAD_FORMATS = ['pdf', 'html'] as const satisfies readonly DownloadFormat[];
 
-export type ChatDownloadFormat = 'png' | 'csv' | 'xlsx';
-export const CHAT_DOWNLOAD_FORMATS = ['png', 'csv', 'xlsx'] as const satisfies readonly ChatDownloadFormat[];
+export type ChatDownloadFormat = 'png' | 'csv' | 'xlsx' | 'other';
+export const CHAT_DOWNLOAD_FORMATS = ['png', 'csv', 'xlsx', 'other'] as const satisfies readonly ChatDownloadFormat[];
 
 /** A file taken out of permanent storage is recorded under its own extension. */
 export type AnalyticsDownloadFormat = DownloadFormat | ChatDownloadFormat | DocumentExtension;

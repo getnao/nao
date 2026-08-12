@@ -122,6 +122,7 @@ export function SystemPrompt({
 				<PermanentStorageBlock
 					canGrepSavedFiles={canGrepSavedFiles}
 					canRunSandbox={hasTool('execute_sandboxed_code')}
+					canExecuteSql={hasTool('execute_sql')}
 				/>
 			)}
 			{hasTool('execute_sql') && <LocalDatabaseBlock canSaveResults={hasTool('write')} />}
@@ -311,9 +312,11 @@ function BuiltInSkillsBlock({ skills }: { skills: InternalSkill[] }) {
 function PermanentStorageBlock({
 	canGrepSavedFiles,
 	canRunSandbox,
+	canExecuteSql,
 }: {
 	canGrepSavedFiles: boolean;
 	canRunSandbox: boolean;
+	canExecuteSql: boolean;
 }) {
 	return (
 		<Block>
@@ -340,8 +343,14 @@ function PermanentStorageBlock({
 				<ListItem>
 					<Bold>/home</Bold> is the only writable place: use <Bold>write</Bold> when the user asks to keep,
 					export or update something, or when a result is clearly worth reusing later. Everything else in the
-					tree is read-only. Do not save intermediate work nobody asked for. To keep query rows, pass{' '}
-					<Bold>save_to</Bold> to execute_sql rather than formatting them into a file yourself.
+					tree is read-only. Do not save intermediate work nobody asked for.
+					{canExecuteSql && (
+						<>
+							{' '}
+							To keep query rows, pass <Bold>save_to</Bold> to execute_sql rather than formatting them
+							into a file yourself.
+						</>
+					)}
 					{canRunSandbox && (
 						<>
 							{' '}
@@ -354,7 +363,7 @@ function PermanentStorageBlock({
 					Files the user attaches to a message are saved under <Bold>/home/uploads</Bold>. Only their path
 					reaches you, never their contents, so a large attachment costs nothing until you look at it: read a
 					file when the question actually needs it, and prefer a targeted{' '}
-					{canGrepSavedFiles ? <Bold>grep</Bold> : 'lookup'} over pulling a big one in whole.
+					{canGrepSavedFiles ? <Bold>grep</Bold> : <Bold>search</Bold>} over pulling a big one in whole.
 				</ListItem>
 				<ListItem>
 					<Bold>read</Bold> extracts the text of a PDF, page by page. On an <Bold>.xlsx</Bold> it returns the
@@ -433,7 +442,8 @@ function LocalDatabaseBlock({ canSaveResults }: { canSaveResults: boolean }) {
 					<Span>
 						Use it for a long computation worth keeping — a heavy join later steps build on, or an export
 						the user asked for — and tell them the path. Do not save every query: an ordinary answer is the
-						rows, not a file.
+						rows, not a file. Return it with the <Bold>saved-file</Bold> chip described above, not as a bare
+						path.
 					</Span>
 				</>
 			)}

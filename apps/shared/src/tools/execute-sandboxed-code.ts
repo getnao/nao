@@ -27,6 +27,9 @@ export const SANDBOX_OUTPUT_DIR = 'out';
 export const saveFileSchema = z.object({
 	filename: z
 		.string()
+		.refine((value) => value !== '.' && value !== '..' && !/[\\/\0]/.test(value), {
+			message: 'filename must be a single file name without path segments',
+		})
 		.describe(`Name of a file the code wrote inside \`${SANDBOX_OUTPUT_DIR}/\` (e.g. "revenue-by-month.xlsx").`),
 	home_path: z
 		.string()
