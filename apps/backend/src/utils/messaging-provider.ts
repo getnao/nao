@@ -148,6 +148,14 @@ export const createImageBlock = (url: string): CardChild => {
 	return Image({ url, alt: 'image' });
 };
 
+export function formatClarificationText(question: string, options?: string[]): string {
+	if (!options || options.length === 0) {
+		return question;
+	}
+	const optionLines = options.map((opt, i) => `${i + 1}. ${opt}`).join('\n');
+	return `${question}\n${optionLines}`;
+}
+
 /** Interactive maps cannot be rendered by messaging providers, so they degrade to a link to the nao chat. */
 export const createMapLinkCard = (title: string, chatUrl: string): CardChild[] => [
 	CardText(`🗺️ **${title}**`),

@@ -23,6 +23,7 @@ import {
 	createTelegramMapLinkCard,
 	createTelegramStopButtonCard,
 	EXCLUDED_TOOLS,
+	formatClarificationText,
 	formatMessagingError,
 	renderMapImage,
 } from '../utils/messaging-provider';
@@ -322,6 +323,8 @@ class TelegramService {
 				await this._handleChartPart(part, state, ctx);
 			} else if (part.type === 'tool-display_map') {
 				await this._handleMapPart(part, state, ctx);
+			} else if (part.type === 'tool-clarification') {
+				this._handleClarificationPart(part, ctx);
 			}
 			lastMessage = uiMessage;
 		}
@@ -342,6 +345,17 @@ class TelegramService {
 				throw error;
 			}
 		}
+	}
+
+	private _handleClarificationPart(
+		part: Extract<UIMessagePart, { type: 'tool-clarification' }>,
+		ctx: ConversationContext,
+	): void {
+		if (part.state === 'input-streaming' || !part.input) {
+			return;
+		}
+		const text = formatClarificationText(part.input.question, part.input.options);
+		this._updateTextBlock(text, ctx);
 	}
 
 	private async _handleTextPart(

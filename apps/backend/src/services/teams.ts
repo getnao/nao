@@ -29,6 +29,7 @@ import {
 	createSummaryToolCalls,
 	createTextBlock,
 	EXCLUDED_TOOLS,
+	formatClarificationText,
 	formatMessagingError,
 	renderMapImage,
 } from '../utils/messaging-provider';
@@ -325,12 +326,25 @@ class TeamsService {
 				await this._handleChartPart(part, state, ctx);
 			} else if (part.type === 'tool-display_map') {
 				await this._handleMapPart(part, state, ctx);
+			} else if (part.type === 'tool-clarification') {
+				this._handleClarificationPart(part, ctx);
 			}
 			lastMessage = uiMessage;
 		}
 
 		await this._sendFinalText(ctx);
 		return { ...state, lastMessage };
+	}
+
+	private _handleClarificationPart(
+		part: Extract<UIMessagePart, { type: 'tool-clarification' }>,
+		ctx: ConversationContext,
+	): void {
+		if (part.state === 'input-streaming' || !part.input) {
+			return;
+		}
+		const text = formatClarificationText(part.input.question, part.input.options);
+		this._updateTextBlock(text, ctx);
 	}
 
 	private async _handleTextPart(
