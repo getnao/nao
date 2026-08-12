@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "01KZTNSKDT4P0PAENJ4KFWY4HR",
+  "session_id": "797611c4-b059-4cc5-bba8-1f9daf7b11d7",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-12T09:45:28.299355Z",
+  "branch": "feat/okta-login-small-improv",
+  "checkpoints_count": 8,
+  "save_step_count": 1,
+  "files_touched": [
+    "apps/backend/src/services/oidc-auth.service.ts"
+  ],
+  "agent": "Cursor",
+  "model": "claude-opus-5-thinking-high",
+  "turn_id": "4e698592baef",
+  "compact_transcript_start": 0,
+  "session_metrics": {
+    "duration_ms": 84228044,
+    "turn_count": 8
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-12T09:45:28.270225Z",
+    "agent_lines": 22,
+    "agent_removed": 0,
+    "human_added": 236,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 258,
+    "total_lines_changed": 317,
+    "agent_percentage": 6.940063091482649,
+    "metric_version": 2
+  }
+}
