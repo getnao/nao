@@ -46,6 +46,8 @@ interface ContextGitPanelProps {
 	onRepositoryChanged: () => void;
 }
 
+type ReviewRequestLink = { kind: 'created'; url: string } | { kind: 'link'; url: string; apiRefused?: boolean };
+
 export function ContextGitPanel({
 	selectedDiffPath,
 	hasUnsavedFileChanges,
@@ -65,7 +67,7 @@ export function ContextGitPanel({
 	const [newBranchName, setNewBranchName] = useState('');
 	const [commitMessage, setCommitMessage] = useState('');
 	const [fallbackBaseNotice, setFallbackBaseNotice] = useState(false);
-	const [pushedReviewRequestUrl, setPushedReviewRequestUrl] = useState<string | null>(null);
+	const [pushedReviewRequest, setPushedReviewRequest] = useState<ReviewRequestLink | null>(null);
 	const knownChangedPathsRef = useRef<Set<string>>(new Set());
 
 	const repositoryStatus = useQuery({
@@ -109,7 +111,7 @@ export function ContextGitPanel({
 	}, [changedFiles.data]);
 
 	useEffect(() => {
-		setPushedReviewRequestUrl(null);
+		setPushedReviewRequest(null);
 	}, [currentBranch]);
 
 	const refreshExplorer = async (resetViewer: boolean) => {
@@ -159,7 +161,7 @@ export function ContextGitPanel({
 	const pushBranch = useMutation(
 		trpc.contextExplorer.pushBranch.mutationOptions({
 			onSuccess: async (result) => {
-				setPushedReviewRequestUrl(result.url);
+				setPushedReviewRequest(result.reviewRequest);
 				await refreshExplorer(false);
 			},
 		}),
@@ -214,7 +216,7 @@ export function ContextGitPanel({
 	};
 
 	const handlePush = () => {
-		setPushedReviewRequestUrl(null);
+		setPushedReviewRequest(null);
 		pushBranch.reset();
 		pushBranch.mutate();
 	};
@@ -273,8 +275,23 @@ export function ContextGitPanel({
 	const unpushedCommitCount = branches?.unpushedCommitCount ?? 0;
 	const isReviewBranch = currentBranch !== null && defaultBranch !== null && currentBranch !== defaultBranch;
 	const canPush = isReviewBranch && (unpushedCommitCount > 0 || (aheadCommitCount > 0 && openReviewRequest === null));
-	const reviewRequestUrl = openReviewRequest?.url ?? pushedReviewRequestUrl;
+	const reviewRequest = pushedReviewRequest ?? openReviewRequest;
+	const reviewRequestUrl = reviewRequest?.url ?? null;
 	const reviewRequestNumber = reviewRequestUrl ? getReviewRequestNumber(reviewRequestUrl) : null;
+	const reviewRequestAbbreviation = repo?.platform === 'gitlab' ? 'MR' : 'PR';
+	const reviewRequestName = repo?.platform === 'gitlab' ? 'merge request' : 'pull request';
+	const reviewRequestLabel =
+		reviewRequest?.kind === 'link'
+			? `Open ${reviewRequestAbbreviation}`
+			: reviewRequestNumber
+				? `#${reviewRequestNumber}`
+				: reviewRequestAbbreviation;
+	const reviewRequestTitle =
+		reviewRequest?.kind === 'link'
+			? reviewRequest.apiRefused
+				? `Open ${reviewRequestAbbreviation}. The git token cannot open ${reviewRequestName}s, so you can open it yourself.`
+				: `Open ${reviewRequestAbbreviation}`
+			: `View ${reviewRequestName}${reviewRequestNumber ? ` #${reviewRequestNumber}` : ''}`;
 	const discardDisabledReason = hasUnsavedFileChanges
 		? 'Save or discard the open file before discarding saved changes.'
 		: null;
@@ -444,11 +461,11 @@ export function ContextGitPanel({
 													href={reviewRequestUrl}
 													target='_blank'
 													rel='noreferrer'
-													aria-label={`View pull request${reviewRequestNumber ? ` #${reviewRequestNumber}` : ''}`}
-													title={`View pull request${reviewRequestNumber ? ` #${reviewRequestNumber}` : ''}`}
+													aria-label={reviewRequestTitle}
+													title={reviewRequestTitle}
 												>
 													<GitPullRequest className='size-3' />
-													{reviewRequestNumber ? `#${reviewRequestNumber}` : 'PR'}
+													{reviewRequestLabel}
 												</a>
 											</Button>
 										)}
@@ -904,7 +921,7 @@ function getDiscardAllDescription(changeCount: number): string {
 }
 
 function getReviewRequestNumber(url: string): string | null {
-	return url.match(/\/(?:pull|merge_requests)\/(\d+)\/?(?:[?#].*)?$/)?.[1] ?? null;
+	return url.match(/\/(?:pull|pull-requests|merge_requests)\/(\d+)\/?(?:[?#].*)?$/)?.[1] ?? null;
 }
 
 function getChangeDisplay(kind: ContextChangedFile['kind']) {

@@ -46,15 +46,13 @@ import { ExportDataMenu } from '@/components/export-data-menu';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 import { useBreakoutStyle } from '@/hooks/use-breakout-width';
-import { findStoryIds } from '@/lib/story.utils';
 import { useChatId } from '@/hooks/use-chat-id';
 import { MAP_STYLE_OPTIONS, useMapStyle } from '@/hooks/use-map-style';
 import { useSourceQuery } from '@/hooks/use-source-query';
-import { useOptionalAgentContext } from '@/contexts/agent.provider';
+import { useStoryIds } from '@/hooks/use-story-ids';
+import { useAgentMessagesGetter, useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/contexts/side-panel';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
-
-const EMPTY_MESSAGES: UIMessage[] = [];
 
 const MapView = lazy(() => import('./display-map-view'));
 
@@ -64,7 +62,7 @@ export const DisplayMapToolCall = ({
 	toolPart: { state, input, output, toolCallId },
 }: ToolCallComponentProps<'display_map'>) => {
 	const agent = useOptionalAgentContext();
-	const messages = agent?.messages ?? EMPTY_MESSAGES;
+	const getMessages = useAgentMessagesGetter();
 	const chatId = useChatId();
 	const queryClient = useQueryClient();
 	const { open: openSidePanel, currentStorySlug, currentStoryTabIndex, isVisible } = useSidePanel();
@@ -77,11 +75,11 @@ export const DisplayMapToolCall = ({
 	const breakoutStyle = useBreakoutStyle(slotRef, isExpanded && viewMode === 'map');
 	const mapViewRef = useRef<MapViewHandle>(null);
 	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning);
-	const storyIds = useMemo(() => findStoryIds(messages), [messages]);
-	const logDownload = useMutation(trpc.analyticsEvent.logChatDownload.mutationOptions());
+	const storyIds = useStoryIds();
+	const { mutate: logDownload } = useMutation(trpc.analyticsEvent.logChatDownload.mutationOptions());
 	const { data: customBoundaries = [] } = useQuery(trpc.project.getMapBoundaries.queryOptions());
 
-	const addToStoryMutation = useMutation(
+	const { mutate: addToStory } = useMutation(
 		trpc.story.createVersion.mutationOptions({
 			onSuccess: (_data, variables) => {
 				queryClient.invalidateQueries({
@@ -95,7 +93,7 @@ export const DisplayMapToolCall = ({
 		}),
 	);
 
-	const updateMapMutation = useMutation(
+	const { mutateAsync: updateMap, isPending: isUpdatingMap } = useMutation(
 		trpc.map.updateConfig.mutationOptions({
 			onSuccess: () => {
 				queryClient.invalidateQueries({ queryKey: [['chat', 'get']] });
@@ -104,10 +102,10 @@ export const DisplayMapToolCall = ({
 	);
 
 	const handleSaveConfig = async (next: displayMap.Input) => {
-		const previousMessages = messages;
+		const previousMessages = getMessages();
 		agent?.setMessages(applyMapConfigToMessages(previousMessages, toolCallId, next));
 		try {
-			await updateMapMutation.mutateAsync({ mapId: toolCallId, config: next });
+			await updateMap({ mapId: toolCallId, config: next });
 		} catch (error) {
 			agent?.setMessages(previousMessages);
 			throw error;
@@ -137,7 +135,7 @@ export const DisplayMapToolCall = ({
 			activeTabIndex: currentStoryTabIndex,
 		});
 
-		addToStoryMutation.mutate({
+		addToStory({
 			chatId,
 			storySlug: targetId,
 			title: data.title,
@@ -164,13 +162,13 @@ export const DisplayMapToolCall = ({
 		link.download = `${title || 'map'}.png`;
 		link.click();
 		if (chatId) {
-			logDownload.mutate({ chatId, format: 'png', queryId: config?.query_id, title: config?.title });
+			logDownload({ chatId, format: 'png', queryId: config?.query_id, title: config?.title });
 		}
 	};
 
 	const handleExportData = (format: DataExportFormat) => {
 		if (chatId) {
-			logDownload.mutate({ chatId, format, queryId: config?.query_id, title: config?.title });
+			logDownload({ chatId, format, queryId: config?.query_id, title: config?.title });
 		}
 	};
 
@@ -346,7 +344,7 @@ export const DisplayMapToolCall = ({
 							open={isEditOpen}
 							onOpenChange={setIsEditOpen}
 							config={config}
-							isSaving={updateMapMutation.isPending}
+							isSaving={isUpdatingMap}
 							onSave={handleSaveConfig}
 							description='Tweak the map parameters. Changes are saved to the chat.'
 							boundarySource={boundarySource}

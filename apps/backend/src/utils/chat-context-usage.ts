@@ -17,8 +17,9 @@ export async function getChatContextUsage(opts: {
 	chatId: string;
 	userId: string;
 	model?: { provider: LlmProvider; modelId: string };
+	projectId?: string;
 }): Promise<ContextUsage | null> {
-	const projectId = await chatQueries.getChatProjectId(opts.chatId);
+	const projectId = opts.projectId ?? (await chatQueries.getChatProjectId(opts.chatId));
 	if (!projectId) {
 		return null;
 	}

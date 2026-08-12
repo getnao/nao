@@ -928,6 +928,32 @@ export const getChatProjectId = async (chatId: string): Promise<string | undefin
 	return result?.projectId;
 };
 
+export const getLatestAssistantModel = async (
+	chatId: string,
+): Promise<{ provider: LlmProvider; modelId: string } | null> => {
+	const [result] = await db
+		.select({ provider: s.chatMessage.llmProvider, modelId: s.chatMessage.llmModelId })
+		.from(s.chatMessage)
+		.where(
+			and(
+				eq(s.chatMessage.chatId, chatId),
+				eq(s.chatMessage.role, 'assistant'),
+				isNull(s.chatMessage.supersededAt),
+				isNotNull(s.chatMessage.llmProvider),
+				isNotNull(s.chatMessage.llmModelId),
+			),
+		)
+		.orderBy(desc(s.chatMessage.createdAt))
+		.limit(1)
+		.execute();
+
+	if (!result?.provider || !result?.modelId) {
+		return null;
+	}
+
+	return { provider: result.provider, modelId: result.modelId };
+};
+
 export const getProjectIdByQueryId = async (queryId: string): Promise<string | undefined> => {
 	const owner = await executeSqlQueries.getExecuteSqlOwnerByQueryId(queryId);
 	return owner?.projectId;

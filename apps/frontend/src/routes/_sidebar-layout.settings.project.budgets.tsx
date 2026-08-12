@@ -98,14 +98,24 @@ function RouteComponent() {
 	const licenseFeatures = useLicenseFeatures();
 	const hasUserBudget = licenseFeatures.data?.['user-budget'] === true;
 
-	const { projectConfigs, envProviders } = useLlmProviders();
+	const { projectConfigs, configProviders, envProviders } = useLlmProviders();
 	const allConfiguredProviders = useMemo(
-		() => [...new Set([...projectConfigs.map((config) => config.provider), ...envProviders])],
-		[projectConfigs, envProviders],
+		() => [
+			...new Set([
+				...projectConfigs.map((config) => config.provider),
+				...configProviders.map((config) => config.provider),
+				...envProviders,
+			]),
+		],
+		[projectConfigs, configProviders, envProviders],
 	);
 	const costSupport = useQuery(trpc.budget.getProvidersCostSupport.queryOptions());
 
 	const savedBudgets = useQuery(trpc.budget.getBudgets.queryOptions());
+	const configManagedProviders = useMemo(
+		() => new Set((savedBudgets.data ?? []).filter((row) => row.source === 'config').map((row) => row.provider)),
+		[savedBudgets.data],
+	);
 	const queryClient = useQueryClient();
 	const setBudgetsMutation = useMutation(
 		trpc.budget.setBudgets.mutationOptions({
@@ -152,6 +162,9 @@ function RouteComponent() {
 		}
 		const saved = buildFormState(savedBudgets.data);
 		for (const provider of allConfiguredProviders) {
+			if (configManagedProviders.has(provider)) {
+				continue;
+			}
 			if (
 				(saved.budgets[provider] ?? 0) !== (budgets[provider] ?? 0) ||
 				(saved.perUserBudgets[provider] ?? 0) !== (perUserBudgets[provider] ?? 0) ||
@@ -161,7 +174,7 @@ function RouteComponent() {
 			}
 		}
 		return false;
-	}, [savedBudgets.data, budgets, perUserBudgets, periods, allConfiguredProviders]);
+	}, [savedBudgets.data, budgets, perUserBudgets, periods, allConfiguredProviders, configManagedProviders]);
 
 	function resetForm() {
 		const state = buildFormState(savedBudgets.data ?? []);
@@ -198,6 +211,9 @@ function RouteComponent() {
 	async function handleSave() {
 		const entries = allConfiguredProviders
 			.filter((provider) => {
+				if (configManagedProviders.has(provider)) {
+					return false;
+				}
 				const hasCost = costSupport.data?.[providerKind(provider)] ?? false;
 				const budget = budgets[provider] ?? 0;
 				const perUserBudget = perUserBudgets[provider] ?? 0;
@@ -251,14 +267,27 @@ function RouteComponent() {
 							const perUserBudget = perUserBudgets[provider] ?? 0;
 							const period = periods[provider] ?? 'none';
 							const hasAnyBudget = budget > 0 || perUserBudget > 0;
+							const isConfigManaged = configManagedProviders.has(provider);
 
 							return (
 								<TableRow key={provider}>
-									<TableCell>{providerLabel(provider)}</TableCell>
+									<TableCell>
+										<span className='flex items-center gap-2'>
+											{providerLabel(provider)}
+											{isConfigManaged && (
+												<span
+													className='px-1.5 py-0.5 text-[10px] font-medium rounded bg-muted text-muted-foreground'
+													title='This budget is set in nao_config.yaml'
+												>
+													nao_config.yaml
+												</span>
+											)}
+										</span>
+									</TableCell>
 									<TableCell>
 										<BudgetInput
 											value={budget}
-											disabled={!isAdmin}
+											disabled={!isAdmin || isConfigManaged}
 											onChange={(v) => updateBudget(provider, v)}
 											onBlur={() => clearPeriodIfNoBudget(provider)}
 										/>
@@ -267,7 +296,7 @@ function RouteComponent() {
 										<TableCell>
 											<BudgetInput
 												value={perUserBudget}
-												disabled={!isAdmin}
+												disabled={!isAdmin || isConfigManaged}
 												onChange={(v) => updatePerUserBudget(provider, v)}
 												onBlur={() => clearPeriodIfNoBudget(provider)}
 											/>
@@ -279,7 +308,7 @@ function RouteComponent() {
 											onValueChange={(val) =>
 												setPeriods((prev) => ({ ...prev, [provider]: val as Period }))
 											}
-											disabled={!isAdmin || !hasAnyBudget}
+											disabled={!isAdmin || !hasAnyBudget || isConfigManaged}
 										>
 											<SelectTrigger size='sm' className='w-24'>
 												<SelectValue />

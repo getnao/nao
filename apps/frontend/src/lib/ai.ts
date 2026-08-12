@@ -97,6 +97,36 @@ export const isToolGroupPart = (part: GroupedMessagePart): part is ToolGroupPart
 	return part.type === 'tool-group';
 };
 
+export const areGroupedMessagePartsEqual = (left: GroupedMessagePart, right: GroupedMessagePart): boolean => {
+	if (isToolGroupPart(left) || isToolGroupPart(right)) {
+		return (
+			isToolGroupPart(left) && isToolGroupPart(right) && areGroupedMessagePartArraysEqual(left.parts, right.parts)
+		);
+	}
+
+	if (isToolUIPart(left) || isToolUIPart(right)) {
+		return isToolUIPart(left) && isToolUIPart(right) && areToolPartsEqual(left, right);
+	}
+
+	if (left.type === 'text' && right.type === 'text') {
+		const leftState = 'state' in left ? left.state : undefined;
+		const rightState = 'state' in right ? right.state : undefined;
+		return left.text === right.text && leftState === rightState;
+	}
+
+	if (left.type === 'reasoning' && right.type === 'reasoning') {
+		const leftState = 'state' in left ? left.state : undefined;
+		const rightState = 'state' in right ? right.state : undefined;
+		return left.text === right.text && leftState === rightState;
+	}
+
+	return false;
+};
+
+export const areGroupedMessagePartArraysEqual = (left: GroupedMessagePart[], right: GroupedMessagePart[]): boolean => {
+	return left.length === right.length && left.every((part, index) => areGroupedMessagePartsEqual(part, right[index]));
+};
+
 /**
  * Groups consecutive collapsible parts (tools and reasoning) into 'tool-group' parts.
  * Non-collapsible tools (depending on the density setting) and other message parts are returned as-is.
@@ -147,6 +177,97 @@ export const isPartGroupable = (part: UIMessagePart, density: ToolCallDensity = 
 		return !nonCollapsibleTools.includes(toolName as StaticToolName);
 	}
 	return false;
+};
+
+const areToolPartsEqual = (left: UIToolPart, right: UIToolPart): boolean => {
+	const leftOutput = 'output' in left ? left.output : undefined;
+	const rightOutput = 'output' in right ? right.output : undefined;
+	const leftErrorText = 'errorText' in left ? left.errorText : undefined;
+	const rightErrorText = 'errorText' in right ? right.errorText : undefined;
+	const outputsAreEqual =
+		isToolSettled(left) && isToolSettled(right)
+			? getOutputRevision(left) === getOutputRevision(right)
+			: leftOutput === rightOutput;
+
+	return (
+		left.type === right.type &&
+		getToolName(left) === getToolName(right) &&
+		left.toolCallId === right.toolCallId &&
+		left.state === right.state &&
+		areStructurallyEqual(left.input, right.input) &&
+		outputsAreEqual &&
+		leftErrorText === rightErrorText
+	);
+};
+
+const getOutputRevision = (part: UIToolPart): unknown => {
+	const output = 'output' in part ? part.output : undefined;
+	return output && typeof output === 'object' && 'revision' in output ? output.revision : undefined;
+};
+
+export const areStructurallyEqual = (left: unknown, right: unknown): boolean => {
+	return compareStructuralValues(left, right, new WeakMap());
+};
+
+const compareStructuralValues = (
+	left: unknown,
+	right: unknown,
+	seenPairs: WeakMap<object, WeakSet<object>>,
+): boolean => {
+	if (Object.is(left, right)) {
+		return true;
+	}
+	if (typeof left !== 'object' || left === null || typeof right !== 'object' || right === null) {
+		return false;
+	}
+
+	const leftIsArray = Array.isArray(left);
+	const rightIsArray = Array.isArray(right);
+	if (leftIsArray || rightIsArray) {
+		if (!leftIsArray || !rightIsArray || left.length !== right.length) {
+			return false;
+		}
+		if (hasSeenPair(left, right, seenPairs)) {
+			return true;
+		}
+		return left.every((value, index) => compareStructuralValues(value, right[index], seenPairs));
+	}
+
+	if (!isPlainObject(left) || !isPlainObject(right)) {
+		return false;
+	}
+	if (hasSeenPair(left, right, seenPairs)) {
+		return true;
+	}
+
+	const leftKeys = Object.keys(left);
+	const rightKeys = Object.keys(right);
+	return (
+		leftKeys.length === rightKeys.length &&
+		leftKeys.every(
+			(key) =>
+				Object.prototype.hasOwnProperty.call(right, key) &&
+				compareStructuralValues(left[key], right[key], seenPairs),
+		)
+	);
+};
+
+const hasSeenPair = (left: object, right: object, seenPairs: WeakMap<object, WeakSet<object>>): boolean => {
+	const seenRights = seenPairs.get(left);
+	if (seenRights?.has(right)) {
+		return true;
+	}
+	if (seenRights) {
+		seenRights.add(right);
+	} else {
+		seenPairs.set(left, new WeakSet([right]));
+	}
+	return false;
+};
+
+const isPlainObject = (value: object): value is Record<string, unknown> => {
+	const prototype = Object.getPrototypeOf(value);
+	return prototype === Object.prototype || prototype === null;
 };
 
 export const getLastFollowUpSuggestionsToolCall = (

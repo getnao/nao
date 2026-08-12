@@ -279,7 +279,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 								queryData={queryData ?? null}
 								chatId={chatId}
 								storySlug={resolvedStorySlug}
-								versionKey={`${currentVersionNumber}-${cachedAt ?? ''}`}
+								versionKey={isViewingLatest ? undefined : currentVersionNumber}
 								filtersEnabled={isViewingLatest && !isAgentRunning}
 							/>
 						)

@@ -3,7 +3,9 @@ import path from 'node:path';
 
 import type { ContextGitUnavailableReason, RepoProvider } from '@nao/shared/types';
 
+import { env } from '../env';
 import * as gitlab from '../services/gitlab';
+import type { InternalRepoProvider } from '../services/review-request-provider';
 import { runGit, tryRunGit } from './git-repo';
 
 export interface ContextRepoConfig {
@@ -11,16 +13,19 @@ export interface ContextRepoConfig {
 	provider: RepoProvider;
 }
 
-export interface ContextRepositoryConnection extends ContextRepoConfig {
+export interface ContextRepositoryConnection {
+	repoFullName: string;
+	provider: InternalRepoProvider;
 	branch: string | null;
-	source: 'settings';
+	source: 'settings' | 'deployment';
 	webUrl: string;
 }
 
 export interface UnresolvedContextRepo {
-	provider: RepoProvider;
+	provider: InternalRepoProvider;
 	repoFullName: string;
 	branch: string | null;
+	source: ContextRepositoryConnection['source'];
 	worktreeRoot: string;
 	projectPrefix: null;
 }
@@ -30,7 +35,10 @@ export interface ResolvedContextRepo extends Omit<UnresolvedContextRepo, 'projec
 }
 
 export type ContextRepo = UnresolvedContextRepo | ResolvedContextRepo;
-export type ContextRepoState = Pick<ContextRepo, 'provider' | 'repoFullName' | 'branch'>;
+export type GitPlatform = 'github' | 'gitlab' | 'bitbucket';
+export type ContextRepoState = Pick<ContextRepo, 'provider' | 'repoFullName' | 'branch' | 'source'> & {
+	platform: GitPlatform | null;
+};
 
 export class ContextProjectResolutionError extends Error {
 	constructor(
@@ -58,6 +66,7 @@ export async function resolveContextRepo(
 		provider: connection.provider,
 		repoFullName: connection.repoFullName,
 		branch: readCurrentBranch(worktreeRoot),
+		source: connection.source,
 		worktreeRoot,
 		projectPrefix: null,
 	};
@@ -72,7 +81,18 @@ export async function resolveContextRepository(
 	}
 
 	const config = await readContextRepoConfig(projectId);
-	return config ? toRepositoryConnection(config, null, 'settings') : null;
+	if (config) {
+		return toRepositoryConnection(config, null, 'settings');
+	}
+	return env.NAO_CONTEXT_SOURCE === 'git' && env.NAO_CONTEXT_GIT_URL
+		? {
+				provider: 'generic',
+				repoFullName: env.NAO_CONTEXT_GIT_URL,
+				branch: env.NAO_CONTEXT_GIT_BRANCH || 'main',
+				source: 'deployment',
+				webUrl: sanitizeContextSourceRepositoryUrl(env.NAO_CONTEXT_GIT_URL),
+			}
+		: null;
 }
 
 export function resolveContextProject(
@@ -86,9 +106,12 @@ export function resolveContextProject(
 		return { ...repo, branch: readCurrentBranch(repo.worktreeRoot), projectPrefix: cached.prefix };
 	}
 
-	const prefix = matchingCloneRoot
-		? resolvePrefixFromClone(matchingCloneRoot, projectFolder)
-		: resolvePrefixFromTrackedConfigs(repo.worktreeRoot);
+	const prefix =
+		repo.provider === 'generic' && env.NAO_CONTEXT_GIT_SUBPATH !== undefined
+			? normalizeProjectPath(env.NAO_CONTEXT_GIT_SUBPATH).replace(/\/+$/, '')
+			: matchingCloneRoot
+				? resolvePrefixFromClone(matchingCloneRoot, projectFolder)
+				: resolvePrefixFromTrackedConfigs(repo.worktreeRoot);
 	prefixCache.set(repo.worktreeRoot, { commit, prefix });
 	return { ...repo, branch: readCurrentBranch(repo.worktreeRoot), projectPrefix: prefix };
 }
@@ -114,10 +137,63 @@ export function toContextRepoState(repo: ContextRepo | null): ContextRepoState |
 	return repo
 		? {
 				provider: repo.provider,
-				repoFullName: repo.repoFullName,
+				platform: resolveContextRepoPlatform(repo),
+				repoFullName:
+					repo.provider === 'generic'
+						? sanitizeContextSourceRepositoryUrl(repo.repoFullName)
+						: repo.repoFullName,
 				branch: readCurrentBranch(repo.worktreeRoot),
+				source: repo.source,
 			}
 		: null;
+}
+
+export function sanitizeContextSourceRepositoryUrl(repositoryUrl: string): string {
+	return repositoryUrl.replace(/^(https?:\/\/)[^/]*@/i, '$1');
+}
+
+export function detectGitPlatform(repositoryUrl: string | undefined): GitPlatform | null {
+	if (!repositoryUrl) {
+		return null;
+	}
+	const shorthandHost = !repositoryUrl.includes('://')
+		? repositoryUrl.match(/^(?:[^@/]+@)?([^:/]+):(.+)$/)?.[1]
+		: undefined;
+	let host = shorthandHost;
+	if (!host) {
+		try {
+			host = new URL(repositoryUrl).hostname;
+		} catch {
+			return null;
+		}
+	}
+	const normalizedHost = host.toLowerCase();
+	return normalizedHost === 'github.com'
+		? 'github'
+		: normalizedHost === 'gitlab.com'
+			? 'gitlab'
+			: normalizedHost === 'bitbucket.org'
+				? 'bitbucket'
+				: null;
+}
+
+export function resolveContextSourceGitToken(): string | null {
+	if (env.NAO_CONTEXT_GIT_TOKEN) {
+		return env.NAO_CONTEXT_GIT_TOKEN;
+	}
+	return env.NAO_CONTEXT_GIT_SSH_KEY || hasEmbeddedRepositoryCredentials(env.NAO_CONTEXT_GIT_URL) ? '' : null;
+}
+
+export function hasEmbeddedRepositoryCredentials(repositoryUrl: string | undefined): boolean {
+	if (!repositoryUrl || !/^https?:\/\//i.test(repositoryUrl)) {
+		return false;
+	}
+	try {
+		const parsed = new URL(repositoryUrl);
+		return !!(parsed.username || parsed.password);
+	} catch {
+		return false;
+	}
 }
 
 export function getWorktreeProjectRoot(repo: ResolvedContextRepo): string {
@@ -180,6 +256,13 @@ function resolvePrefixFromClone(cloneRoot: string, projectFolder: string): strin
 		);
 	}
 	return relative.split(path.sep).join('/');
+}
+
+function resolveContextRepoPlatform(repo: ContextRepo): GitPlatform | null {
+	if (repo.provider === 'github' || repo.provider === 'gitlab') {
+		return repo.provider;
+	}
+	return env.NAO_CONTEXT_GIT_PLATFORM ?? detectGitPlatform(repo.repoFullName);
 }
 
 function resolvePrefixFromTrackedConfigs(worktreeRoot: string): string {

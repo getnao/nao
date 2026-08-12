@@ -285,7 +285,7 @@ export function commitAllAndPushBranch(args: {
 	message: string;
 	author: GitIdentity;
 	coAuthors?: GitIdentity[];
-}): void {
+}): string {
 	const { token, repoFullName, dir, branch, message, author, coAuthors = [] } = args;
 	const opts = { cwd: dir, stdio: 'pipe' as const, timeout: 120_000 };
 
@@ -303,11 +303,11 @@ export function commitAllAndPushBranch(args: {
 		env: { ...process.env, ...identity },
 	});
 
-	pushBranch({ token, repoFullName, dir, branch });
+	return pushBranch({ token, repoFullName, dir, branch });
 }
 
-export function pushBranch(args: { token: string; repoFullName: string; dir: string; branch: string }): void {
-	execFileSync(
+export function pushBranch(args: { token: string; repoFullName: string; dir: string; branch: string }): string {
+	return execFileSync(
 		'git',
 		['push', authenticatedRepoUrl(args.token, args.repoFullName), `HEAD:refs/heads/${args.branch}`],
 		{
@@ -315,7 +315,7 @@ export function pushBranch(args: { token: string; repoFullName: string; dir: str
 			stdio: 'pipe',
 			timeout: 120_000,
 		},
-	);
+	).toString();
 }
 
 const GITHUB_API_TIMEOUT_MS = 20_000;
@@ -602,11 +602,16 @@ export async function createPullRequest(
 	token: string,
 	repo: string,
 	input: CreatePullRequestInput,
+	apiBaseUrl = GITHUB_API,
 ): Promise<{ number: number; html_url: string }> {
-	const data = await githubFetchJson<{ number: number; html_url: string }>(token, `/repos/${repo}/pulls`, {
-		method: 'POST',
-		body: JSON.stringify(input),
-	});
+	const data = await githubFetchJson<{ number: number; html_url: string }>(
+		token,
+		`${apiBaseUrl}/repos/${repo}/pulls`,
+		{
+			method: 'POST',
+			body: JSON.stringify(input),
+		},
+	);
 	return { number: data.number, html_url: data.html_url };
 }
 
@@ -614,6 +619,7 @@ export async function findOpenPullRequest(
 	token: string,
 	repo: string,
 	branch: string,
+	apiBaseUrl = GITHUB_API,
 ): Promise<{ url: string } | null> {
 	const owner = repo.split('/')[0];
 	const params = new URLSearchParams({
@@ -621,7 +627,7 @@ export async function findOpenPullRequest(
 		head: `${owner}:${branch}`,
 		per_page: '1',
 	});
-	const pullRequests = await githubFetchJson<RawPullRequest[]>(token, `/repos/${repo}/pulls?${params}`);
+	const pullRequests = await githubFetchJson<RawPullRequest[]>(token, `${apiBaseUrl}/repos/${repo}/pulls?${params}`);
 	return pullRequests[0] ? { url: pullRequests[0].html_url } : null;
 }
 

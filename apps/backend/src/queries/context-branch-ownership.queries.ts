@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
+import type { OpenReviewRequestResult } from '../services/review-request-provider';
 
 export async function listContextBranchOwnerships(): Promise<
 	Array<{ id: string; projectId: string; branch: string; userId: string }>
@@ -65,4 +66,46 @@ export async function isContextBranchOwnedByUser(projectId: string, branch: stri
 		.limit(1)
 		.execute();
 	return row !== undefined;
+}
+
+export async function getContextBranchReviewRequest(
+	projectId: string,
+	branch: string,
+	userId: string,
+): Promise<OpenReviewRequestResult | null> {
+	const [row] = await db
+		.select({
+			url: s.contextBranchOwnership.reviewRequestUrl,
+			kind: s.contextBranchOwnership.reviewRequestKind,
+		})
+		.from(s.contextBranchOwnership)
+		.where(
+			and(
+				eq(s.contextBranchOwnership.projectId, projectId),
+				eq(s.contextBranchOwnership.branch, branch),
+				eq(s.contextBranchOwnership.userId, userId),
+			),
+		)
+		.limit(1)
+		.execute();
+	return row?.url && row.kind ? { url: row.url, kind: row.kind } : null;
+}
+
+export async function setContextBranchReviewRequest(
+	projectId: string,
+	branch: string,
+	userId: string,
+	reviewRequest: OpenReviewRequestResult,
+): Promise<void> {
+	await db
+		.update(s.contextBranchOwnership)
+		.set({ reviewRequestUrl: reviewRequest.url, reviewRequestKind: reviewRequest.kind })
+		.where(
+			and(
+				eq(s.contextBranchOwnership.projectId, projectId),
+				eq(s.contextBranchOwnership.branch, branch),
+				eq(s.contextBranchOwnership.userId, userId),
+			),
+		)
+		.execute();
 }

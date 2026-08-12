@@ -2,9 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import {
+	BUDGET_PERIODS,
+	type BudgetPeriod,
 	LLM_PROVIDERS as LLM_PROVIDER_NAMES,
 	type LlmProvider,
 	type LlmProviderKind,
+	MAX_BUDGET_LIMIT_USD,
 	NAMED_PROVIDER_KIND,
 	providerKind,
 	toNamedProvider,
@@ -21,6 +24,12 @@ import {
 } from '../types/llm';
 import { logger } from './logger';
 
+export type ConfigProviderBudget = {
+	limitUsd: number;
+	perUserLimitUsd: number | null;
+	period: BudgetPeriod;
+};
+
 /** An `llm` provider entry of nao_config.yaml, shaped like the rows of `project_llm_config`. */
 export type ConfigLlmProvider = {
 	provider: LlmProvider;
@@ -30,6 +39,7 @@ export type ConfigLlmProvider = {
 	enabledModels: string[];
 	customModels: CustomModelMetadata[];
 	modelSettings: ModelSettingsMap;
+	budget: ConfigProviderBudget | null;
 };
 
 export type ConfigLlm = {
@@ -74,11 +84,18 @@ const modelSchema = z.object({
 	settings: z.record(z.string(), z.unknown()).optional(),
 });
 
+const budgetSchema = z.object({
+	limit: z.number().min(0).nullish(),
+	per_user_limit: z.number().min(0).nullish(),
+	period: z.enum(BUDGET_PERIODS).nullish(),
+});
+
 const providerSchema = z.looseObject({
 	provider: z.string(),
 	api_key: z.string().nullish(),
 	base_url: z.string().nullish(),
 	models: z.array(modelSchema).nullish(),
+	budget: budgetSchema.nullish(),
 });
 
 const llmSchema = z.looseObject({
@@ -180,7 +197,34 @@ function toConfigProvider(raw: RawProvider, extraEnv: Record<string, string>): C
 		enabledModels: ordered.map((model) => model.id),
 		customModels: ordered.flatMap((model) => toCustomModel(model)),
 		modelSettings: toModelSettings(ordered),
+		budget: toBudget(raw.budget),
 	};
+}
+
+/** Read the `budget` block of a provider, keeping only the limits that actually cap spending. */
+function toBudget(raw: RawProvider['budget']): ConfigProviderBudget | null {
+	if (!raw) {
+		return null;
+	}
+
+	const limitUsd = clampBudget(raw.limit);
+	const perUserLimitUsd = clampBudget(raw.per_user_limit);
+	if (limitUsd <= 0 && perUserLimitUsd <= 0) {
+		return null;
+	}
+
+	return {
+		limitUsd,
+		perUserLimitUsd: perUserLimitUsd > 0 ? perUserLimitUsd : null,
+		period: raw.period ?? 'month',
+	};
+}
+
+function clampBudget(value: number | null | undefined): number {
+	if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+		return 0;
+	}
+	return Math.min(value, MAX_BUDGET_LIMIT_USD);
 }
 
 function toCredentials(

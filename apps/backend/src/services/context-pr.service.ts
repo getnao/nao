@@ -2,10 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import type { RepoProvider } from '@nao/shared/types';
-
 import type { DBContextRecommendation } from '../db/abstractSchema';
 import * as crQueries from '../queries/context-recommendation.queries';
+import * as userQueries from '../queries/user.queries';
 import { ProposedEdit, ProposedEditTargetRepo } from '../types/context-recommendation';
 import { resolveContextRepository } from '../utils/context-repo';
 import { logger } from '../utils/logger';
@@ -17,7 +16,7 @@ import {
 	writeFileAtomically,
 } from '../utils/safe-file-write';
 import * as gitlab from './gitlab';
-import type { ReviewRequestProvider } from './review-request-provider';
+import type { InternalRepoProvider, ReviewRequestProvider } from './review-request-provider';
 import { REVIEW_REQUEST_PROVIDERS } from './review-request-provider';
 
 export { REVIEW_REQUEST_PROVIDERS };
@@ -36,8 +35,8 @@ export interface ReviewRequestEdit {
 export interface RecommendationRepo {
 	repoFullName: string;
 	branch: string | null;
-	source: 'settings' | 'linked';
-	provider: RepoProvider;
+	source: 'settings' | 'deployment' | 'linked';
+	provider: InternalRepoProvider;
 	webUrl: string;
 }
 
@@ -89,7 +88,7 @@ export async function autoCreateRecommendationPullRequests(
  *
  * Works against a fresh, disposable clone so the live project at `project.path` is
  * never mutated: clone → branch → write the proposed file contents → commit → push →
- * open the PR via the GitHub API. Only human-written files are ever written.
+ * create or link to a review request. Only human-written files are ever written.
  */
 export async function createRecommendationPullRequest(
 	projectId: string,
@@ -166,9 +165,12 @@ export async function createReviewRequest(args: {
 }): Promise<{ url: string }> {
 	const { provider, userId, repoFullName, workdir, branch, configuredBase, edits, title, commitMessage, body } = args;
 
-	const token = await provider.getToken(userId);
-	if (!token) {
+	const [token, user] = await Promise.all([provider.getToken(userId), userQueries.getUser({ id: userId })]);
+	if (token === null) {
 		throw new Error(provider.notConnectedMessage);
+	}
+	if (!user) {
+		throw new Error('User not found.');
 	}
 
 	provider.cloneRepo(token, repoFullName, workdir);
@@ -176,8 +178,11 @@ export async function createReviewRequest(args: {
 
 	applyEdits(workdir, edits);
 
-	const author = await provider.getUserGitIdentity(token);
-	provider.commitAllAndPushBranch({
+	const author = await provider.getUserGitIdentity({
+		token,
+		user: { name: user.name, email: user.email },
+	});
+	const pushOutput = provider.commitAllAndPushBranch({
 		token,
 		repoFullName,
 		dir: workdir,
@@ -187,12 +192,18 @@ export async function createReviewRequest(args: {
 		coAuthors: [provider.coAuthor],
 	});
 
-	return provider.openReviewRequest(token, repoFullName, {
+	const reviewRequest = await provider.openReviewRequest(token, repoFullName, {
 		title,
 		head: branch,
 		base,
 		body,
+		requester: { name: user.name, email: user.email },
+		pushOutput,
 	});
+	if (!reviewRequest) {
+		throw new Error(`Branch ${branch} was pushed successfully, but no pull request link was returned.`);
+	}
+	return { url: reviewRequest.url };
 }
 
 /**

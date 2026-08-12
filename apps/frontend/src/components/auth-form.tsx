@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { trpc } from '../main';
 import { InputGroup } from './ui/input-group';
@@ -8,11 +8,14 @@ import { MicrosoftSignInButton, useIsMicrosoftSetup } from '@/components/auth-mi
 import { OidcSignInButton } from '@/components/auth-oidc-button';
 import { Button, ChatButton, AuthSocialButton } from '@/components/ui/button';
 import { LastUsedPill } from '@/components/ui/last-used-pill';
+import { buildBrandVars } from '@/components/brand-color';
 import GithubIcon from '@/components/icons/github-icon.svg';
 import GitlabIcon from '@/components/icons/gitlab-icon.svg';
 import GoogleIcon from '@/components/icons/google-icon.svg';
 import NaoLogo from '@/components/icons/nao-full-logo.svg';
-import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
+import { BrandGradientBackdrop } from '@/components/brand-gradient-backdrop';
+import { useIsDarkMode } from '@/contexts/theme.provider';
+import { brandingAssetUrl, DEFAULT_BRAND_COLOR, useBranding } from '@/hooks/use-branding';
 import { handleGithubSignIn, handleGitlabSignIn, handleGoogleSignIn } from '@/lib/auth-client';
 import { loadLastSignInMethod, rememberSignInMethod } from '@/lib/last-sign-in-method';
 import { cn } from '@/lib/utils';
@@ -54,6 +57,11 @@ export function AuthForm({
 	const { isSetup: isMicrosoftSetup, isPending: isMicrosoftSetupPending } = useIsMicrosoftSetup();
 	const oidcConfig = useQuery(trpc.authConfig.oidc.getConfig.queryOptions());
 	const branding = useBranding();
+	const isDark = useIsDarkMode();
+	const customColor = branding.enabled ? branding.brandColor : null;
+	const brandVars = customColor
+		? (buildBrandVars(customColor, isDark ? 'dark' : 'light') as React.CSSProperties)
+		: undefined;
 
 	const [lastSignInMethod] = useState(loadLastSignInMethod);
 	const [isEmailFormExpanded, setIsEmailFormExpanded] = useState(lastSignInMethod === 'email');
@@ -138,7 +146,15 @@ export function AuthForm({
 								className='h-10 w-auto max-w-[180px] object-contain'
 							/>
 						) : (
-							<NaoLogo className='w-20 h-auto text-foreground' />
+							<NaoLogo
+								className={cn(
+									'w-20 h-auto text-foreground',
+									customColor && '[&_stop]:[stop-color:var(--brand-logo)]',
+								)}
+								style={
+									customColor ? ({ '--brand-logo': customColor } as React.CSSProperties) : undefined
+								}
+							/>
 						)}
 						<h1 className='font-borna text-2xl font-medium text-center'>{title}</h1>
 					</div>
@@ -197,6 +213,7 @@ export function AuthForm({
 												showsProviders ? 'h-10 text-sm' : 'h-11',
 												!canSubmit && 'bg-muted-foreground/20 text-secondary-foreground',
 											)}
+											style={canSubmit ? brandVars : undefined}
 											disabled={!canSubmit}
 										>
 											{submitText}
@@ -222,12 +239,37 @@ export function AuthForm({
 
 function AuthSidePanel() {
 	const [value, setValue] = useState('');
+	const branding = useBranding();
+	const isDark = useIsDarkMode();
+	const customColor = branding.enabled ? branding.brandColor : null;
+	const panelRef = useRef<HTMLDivElement>(null);
+
+	useEffect(() => {
+		const el = panelRef.current;
+		if (!el) {
+			return;
+		}
+		if (!customColor) {
+			for (const key of Object.keys(buildBrandVars('#000000'))) {
+				el.style.removeProperty(key);
+			}
+			return;
+		}
+		const vars = buildBrandVars(customColor, isDark ? 'dark' : 'light');
+		for (const [key, val] of Object.entries(vars)) {
+			el.style.setProperty(key, val);
+		}
+	}, [customColor, isDark]);
 
 	return (
 		<div
-			className='flex flex-col items-center justify-center hidden overflow-hidden lg:flex lg:w-1/2 m-4 rounded-lg'
-			style={{ backgroundImage: "url('/fontNao.webp')", backgroundSize: 'cover', backgroundPosition: 'center' }}
+			ref={panelRef}
+			className='relative flex flex-col items-center justify-center hidden overflow-hidden lg:flex lg:w-1/2 m-4 rounded-lg'
 		>
+			<BrandGradientBackdrop
+				color={customColor ?? DEFAULT_BRAND_COLOR}
+				className='absolute inset-0 h-full w-full'
+			/>
 			<div className='relative w-full mx-auto max-w-md'>
 				<InputGroup
 					htmlFor='chat-input'

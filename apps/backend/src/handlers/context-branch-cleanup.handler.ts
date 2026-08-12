@@ -48,7 +48,7 @@ async function cleanOwnedContextBranch(
 ): Promise<void> {
 	const provider = REVIEW_REQUEST_PROVIDERS[repo.provider];
 	const token = await provider.getToken(ownership.userId);
-	if (!token) {
+	if (token === null) {
 		logSkip(ownership, 'provider token unavailable');
 		return;
 	}

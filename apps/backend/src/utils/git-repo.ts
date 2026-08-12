@@ -49,5 +49,5 @@ export function toGitError(error: unknown): Error {
 		return new Error('The project folder is not inside a Git repository.');
 	}
 
-	return new Error(stderr || (error instanceof Error ? error.message : 'Git operation failed.'));
+	return new Error(stderr || processError.message || 'Git operation failed.');
 }

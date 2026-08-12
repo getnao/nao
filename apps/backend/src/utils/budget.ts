@@ -9,9 +9,49 @@ import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import type { BudgetPeriod } from '../types/budget';
 import { buildBudgetLimitReachedEmail } from './email-builders';
 import { BudgetExceededError } from './error';
+import { getProjectConfigLlm } from './llm';
 import { logger } from './logger';
+import type { ConfigProviderBudget } from './nao-config-llm';
 
 export type BudgetStatus = { level: 'ok' | 'warning' | 'exceeded'; message: string | null };
+
+export type BudgetSource = 'project' | 'config';
+
+export type EffectiveProviderBudget = ConfigProviderBudget & {
+	provider: LlmProvider;
+	source: BudgetSource;
+};
+
+export async function getEffectiveProviderBudgets(projectId: string): Promise<EffectiveProviderBudget[]> {
+	const [dbBudgets, configLlm] = await Promise.all([
+		budgetQueries.getProjectProviderBudgets(projectId),
+		getProjectConfigLlm(projectId),
+	]);
+
+	const byProvider = new Map<LlmProvider, EffectiveProviderBudget>();
+	for (const budget of dbBudgets) {
+		byProvider.set(budget.provider as LlmProvider, {
+			provider: budget.provider as LlmProvider,
+			limitUsd: budget.limitUsd,
+			perUserLimitUsd: budget.perUserLimitUsd ?? null,
+			period: budget.period as BudgetPeriod,
+			source: 'project',
+		});
+	}
+	for (const configured of configLlm?.providers ?? []) {
+		if (configured.budget) {
+			byProvider.set(configured.provider, {
+				provider: configured.provider,
+				limitUsd: configured.budget.limitUsd,
+				perUserLimitUsd: configured.budget.perUserLimitUsd,
+				period: configured.budget.period,
+				source: 'config',
+			});
+		}
+	}
+
+	return [...byProvider.values()];
+}
 
 export async function checkBudgetStatus(
 	projectId: string,
@@ -41,12 +81,14 @@ export async function assertBudgetNotExceeded(
 	const userUsage = usages.find((u) => u.scope === 'user');
 
 	if (projectUsage && projectUsage.ratio >= 1) {
-		await notifyAdminsOnBudgetLimitReached(
-			projectId,
-			projectUsage.budget,
-			projectUsage.currentSpend,
-			projectUsage.resetLabel,
-		).catch(() => {});
+		if (projectUsage.dbBudget) {
+			await notifyAdminsOnBudgetLimitReached(
+				projectId,
+				projectUsage.dbBudget,
+				projectUsage.currentSpend,
+				projectUsage.resetLabel,
+			).catch(() => {});
+		}
 		throw new BudgetExceededError(
 			buildBudgetMessage(projectUsage.ratio, providerLabel(provider), projectUsage.resetLabel, 'project'),
 		);
@@ -60,11 +102,11 @@ export async function assertBudgetNotExceeded(
 }
 
 type BudgetUsage = {
-	budget: DBProjectProviderBudget;
 	currentSpend: number;
 	ratio: number;
 	resetLabel: string;
 	scope: 'project' | 'user';
+	dbBudget: DBProjectProviderBudget | null;
 };
 
 function buildBudgetMessage(ratio: number, label: string, resetLabel: string, scope: 'project' | 'user'): string {
@@ -78,7 +120,8 @@ async function resolveBudgetUsages(
 	provider: LlmProvider,
 	userId: string | undefined,
 ): Promise<BudgetUsage[]> {
-	const budget = await budgetQueries.getProviderBudget(projectId, provider);
+	const budgets = await getEffectiveProviderBudgets(projectId);
+	const budget = budgets.find((b) => b.provider === provider);
 	if (!budget) {
 		return [];
 	}
@@ -94,31 +137,43 @@ async function resolveBudgetUsages(
 		return [];
 	}
 
-	await budgetQueries.advanceStaleBudgetPeriods(projectId, provider);
-	const { projectSpend, userSpend } = await budgetQueries.getProviderBudgetSpend(projectId, provider, userId);
-	const period = budget.period as BudgetPeriod;
-	const resetLabel = formatResetDate(getNextPeriodStart(period), period);
+	const dbBudget = budget.source === 'project' ? await advanceAndFetchDbBudget(projectId, provider) : null;
+	const { projectSpend, userSpend } = await budgetQueries.getProviderBudgetSpend(
+		projectId,
+		provider,
+		budget.period,
+		userId,
+	);
+	const resetLabel = formatResetDate(getNextPeriodStart(budget.period), budget.period);
 
 	const usages: BudgetUsage[] = [];
 	if (hasProjectLimit) {
 		usages.push({
-			budget,
 			currentSpend: projectSpend,
 			ratio: projectSpend / budget.limitUsd,
 			resetLabel,
 			scope: 'project',
+			dbBudget,
 		});
 	}
 	if (hasUserLimit && budget.perUserLimitUsd) {
 		usages.push({
-			budget,
 			currentSpend: userSpend,
 			ratio: userSpend / budget.perUserLimitUsd,
 			resetLabel,
 			scope: 'user',
+			dbBudget,
 		});
 	}
 	return usages;
+}
+
+async function advanceAndFetchDbBudget(
+	projectId: string,
+	provider: LlmProvider,
+): Promise<DBProjectProviderBudget | null> {
+	await budgetQueries.advanceStaleBudgetPeriods(projectId, provider);
+	return budgetQueries.getProviderBudget(projectId, provider);
 }
 
 async function notifyAdminsOnBudgetLimitReached(

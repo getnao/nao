@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Copy, Download, Maximize2 } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -26,108 +26,59 @@ interface DataTableCardProps {
 	headerActions?: ReactNode;
 }
 
-export function DataTableCard({
-	columns,
-	data,
-	title,
-	className,
-	tableContainerClassName,
-	maxRowsBeforePagination = 10,
-	chatId,
-	conditionalFormats,
-	leadingHeader,
-	headerActions,
-}: DataTableCardProps) {
-	const [isFullscreen, setIsFullscreen] = useState(false);
-	const logDownload = useMutation(trpc.analyticsEvent.logChatDownload.mutationOptions());
+export const DataTableCard = memo(
+	({
+		columns,
+		data,
+		title,
+		className,
+		tableContainerClassName,
+		maxRowsBeforePagination = 10,
+		chatId,
+		conditionalFormats,
+		leadingHeader,
+		headerActions,
+	}: DataTableCardProps) => {
+		const [isFullscreen, setIsFullscreen] = useState(false);
+		const logDownload = useMutation(trpc.analyticsEvent.logChatDownload.mutationOptions());
 
-	const resolvedColumns = columns.length > 0 ? columns : inferColumns(data);
+		const resolvedColumns = columns.length > 0 ? columns : inferColumns(data);
 
-	if (resolvedColumns.length === 0) {
-		return null;
-	}
-
-	const handleCopy = () => navigator.clipboard.writeText(tableToTsv(resolvedColumns, data));
-	const handleExport = (format: DataExportFormat) => {
-		if (chatId) {
-			logDownload.mutate({ chatId, format, title });
+		if (resolvedColumns.length === 0) {
+			return null;
 		}
-	};
 
-	return (
-		<div className={cn('flex flex-col gap-2 border rounded-lg pt-2', className)}>
-			<div
-				className={cn(
-					'flex items-center gap-1 px-3',
-					title || leadingHeader ? 'justify-between' : 'justify-end',
-				)}
-			>
-				{title || leadingHeader ? (
-					<div className='flex min-w-0 items-center gap-1'>
-						{leadingHeader}
-						{title ? <span className='text-sm font-medium truncate'>{title}</span> : null}
-					</div>
-				) : null}
-				<div className='flex items-center gap-1'>
-					{headerActions}
-					<Button
-						variant='ghost-muted'
-						size='icon-xs'
-						className='hover:rounded-full hover:bg-accent/70'
-						onClick={handleCopy}
-						title='Copy rows'
-					>
-						<Copy className='size-3 text-muted-foreground/70' />
-					</Button>
-					<ExportDataMenu
-						columns={resolvedColumns}
-						data={data}
-						filename={title || 'table'}
-						onExport={handleExport}
-					>
+		const handleCopy = () => navigator.clipboard.writeText(tableToTsv(resolvedColumns, data));
+		const handleExport = (format: DataExportFormat) => {
+			if (chatId) {
+				logDownload.mutate({ chatId, format, title });
+			}
+		};
+
+		return (
+			<div className={cn('flex flex-col gap-2 border rounded-lg pt-2', className)}>
+				<div
+					className={cn(
+						'flex items-center gap-1 px-3',
+						title || leadingHeader ? 'justify-between' : 'justify-end',
+					)}
+				>
+					{title || leadingHeader ? (
+						<div className='flex min-w-0 items-center gap-1'>
+							{leadingHeader}
+							{title ? <span className='text-sm font-medium truncate'>{title}</span> : null}
+						</div>
+					) : null}
+					<div className='flex items-center gap-1'>
+						{headerActions}
 						<Button
 							variant='ghost-muted'
 							size='icon-xs'
 							className='hover:rounded-full hover:bg-accent/70'
-							title='Export data'
-						>
-							<Download className='size-3 text-muted-foreground/70' />
-						</Button>
-					</ExportDataMenu>
-					<Button
-						variant='ghost-muted'
-						size='icon-xs'
-						className='hover:rounded-full hover:bg-accent/70'
-						onClick={() => setIsFullscreen(true)}
-						title='View fullscreen'
-					>
-						<Maximize2 className='size-3 text-muted-foreground/70' />
-					</Button>
-				</div>
-			</div>
-
-			<TableDisplay
-				data={data}
-				columns={resolvedColumns}
-				tableContainerClassName={tableContainerClassName}
-				maxRowsBeforePagination={maxRowsBeforePagination}
-				compactFooter={true}
-				conditionalFormats={conditionalFormats}
-				humanizeColumnLabels={true}
-			/>
-
-			<Dialog open={isFullscreen} onOpenChange={setIsFullscreen}>
-				<DialogContent className='flex max-h-[90vh] w-fit min-w-[32rem] max-w-[95vw] flex-col gap-2 sm:max-w-[95vw]'>
-					<DialogTitle className='sr-only'>{title ?? 'Table'}</DialogTitle>
-					<div className='flex flex-row justify-end gap-1 -my-1 px-5'>
-						<Button
-							variant='ghost-muted'
-							size='icon-xs'
-							className='hover:rounded-full'
 							onClick={handleCopy}
 							title='Copy rows'
 						>
-							<Copy className='size-3.5' />
+							<Copy className='size-3 text-muted-foreground/70' />
 						</Button>
 						<ExportDataMenu
 							columns={resolvedColumns}
@@ -138,28 +89,79 @@ export function DataTableCard({
 							<Button
 								variant='ghost-muted'
 								size='icon-xs'
-								className='hover:rounded-full'
+								className='hover:rounded-full hover:bg-accent/70'
 								title='Export data'
 							>
-								<Download className='size-3.5' />
+								<Download className='size-3 text-muted-foreground/70' />
 							</Button>
 						</ExportDataMenu>
+						<Button
+							variant='ghost-muted'
+							size='icon-xs'
+							className='hover:rounded-full hover:bg-accent/70'
+							onClick={() => setIsFullscreen(true)}
+							title='View fullscreen'
+						>
+							<Maximize2 className='size-3 text-muted-foreground/70' />
+						</Button>
 					</div>
-					<TableDisplay
-						data={data}
-						columns={resolvedColumns}
-						className='min-h-0 min-w-0 overflow-hidden rounded-lg border'
-						tableContainerClassName='max-h-[75vh] border-t-0'
-						maxRowsBeforePagination={maxRowsBeforePagination}
-						compactFooter={true}
-						conditionalFormats={conditionalFormats}
-						humanizeColumnLabels={true}
-					/>
-				</DialogContent>
-			</Dialog>
-		</div>
-	);
-}
+				</div>
+
+				<TableDisplay
+					data={data}
+					columns={resolvedColumns}
+					tableContainerClassName={tableContainerClassName}
+					maxRowsBeforePagination={maxRowsBeforePagination}
+					compactFooter={true}
+					conditionalFormats={conditionalFormats}
+					humanizeColumnLabels={true}
+				/>
+
+				<Dialog open={isFullscreen} onOpenChange={setIsFullscreen}>
+					<DialogContent className='flex max-h-[90vh] w-fit min-w-[32rem] max-w-[95vw] flex-col gap-2 sm:max-w-[95vw]'>
+						<DialogTitle className='sr-only'>{title ?? 'Table'}</DialogTitle>
+						<div className='flex flex-row justify-end gap-1 -my-1 px-5'>
+							<Button
+								variant='ghost-muted'
+								size='icon-xs'
+								className='hover:rounded-full'
+								onClick={handleCopy}
+								title='Copy rows'
+							>
+								<Copy className='size-3.5' />
+							</Button>
+							<ExportDataMenu
+								columns={resolvedColumns}
+								data={data}
+								filename={title || 'table'}
+								onExport={handleExport}
+							>
+								<Button
+									variant='ghost-muted'
+									size='icon-xs'
+									className='hover:rounded-full'
+									title='Export data'
+								>
+									<Download className='size-3.5' />
+								</Button>
+							</ExportDataMenu>
+						</div>
+						<TableDisplay
+							data={data}
+							columns={resolvedColumns}
+							className='min-h-0 min-w-0 overflow-hidden rounded-lg border'
+							tableContainerClassName='max-h-[75vh] border-t-0'
+							maxRowsBeforePagination={maxRowsBeforePagination}
+							compactFooter={true}
+							conditionalFormats={conditionalFormats}
+							humanizeColumnLabels={true}
+						/>
+					</DialogContent>
+				</Dialog>
+			</div>
+		);
+	},
+);
 
 function inferColumns(data: Record<string, unknown>[]): string[] {
 	const seen = new Set<string>();

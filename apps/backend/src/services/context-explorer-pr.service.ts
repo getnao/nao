@@ -7,12 +7,11 @@ import {
 	pushContextBranch,
 	requireContextExplorerGit,
 } from './context-explorer-git.service';
-import { REVIEW_REQUEST_PROVIDERS } from './review-request-provider';
+import { type OpenReviewRequestResult, REVIEW_REQUEST_PROVIDERS } from './review-request-provider';
 
 export interface ContextPushResult {
-	url: string;
 	branch: string;
-	reviewRequest: 'opened' | 'updated';
+	reviewRequest: OpenReviewRequestResult | null;
 }
 
 export async function pushContextExplorerBranch(context: ContextExplorerGitContext): Promise<ContextPushResult> {
@@ -26,28 +25,41 @@ export async function pushContextExplorerBranch(context: ContextExplorerGitConte
 	if (branches.aheadCommitCount === 0 && branches.unpushedCommitCount === 0) {
 		throw nothingToPushError();
 	}
-	const existingReviewRequest = await provider.findOpenReviewRequest(
-		availableContext.token,
-		repo.repoFullName,
-		currentBranch,
-	);
+	const existingReviewRequest = await provider.findOpenReviewRequest({
+		token: availableContext.token,
+		repoFullName: repo.repoFullName,
+		branch: currentBranch,
+		projectId: context.projectId,
+		userId: context.userId,
+	});
 	if (branches.unpushedCommitCount === 0) {
 		if (existingReviewRequest) {
 			throw new TRPCError({ code: 'BAD_REQUEST', message: 'Everything on this branch is already pushed.' });
 		}
 	}
 	const commitMessages = getContextBranchCommitMessages(repo);
-	const { branch, defaultBranch } = pushContextBranch(repo, context.projectFolder, provider, availableContext.token);
+	const { branch, defaultBranch, pushOutput } = pushContextBranch(
+		repo,
+		context.projectFolder,
+		provider,
+		availableContext.token,
+	);
 	if (existingReviewRequest) {
-		return { url: existingReviewRequest.url, branch, reviewRequest: 'updated' };
+		return { branch, reviewRequest: existingReviewRequest };
 	}
 	const result = await provider.openReviewRequest(availableContext.token, repo.repoFullName, {
 		title: commitMessages[0] ?? 'Context updates',
 		body: commitMessages.map((message) => `- ${message}`).join('\n'),
 		head: branch,
 		base: defaultBranch,
+		requester: context.user,
+		pushOutput,
 	});
-	return { url: result.url, branch, reviewRequest: 'opened' };
+	if (result) {
+		const branchOwnershipQueries = await import('../queries/context-branch-ownership.queries');
+		await branchOwnershipQueries.setContextBranchReviewRequest(context.projectId, branch, context.userId, result);
+	}
+	return { branch, reviewRequest: result };
 }
 
 function nothingToPushError(): TRPCError {

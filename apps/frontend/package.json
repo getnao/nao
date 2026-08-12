@@ -78,6 +78,7 @@
 		"tailwind-merge": "^3.4.0",
 		"tailwindcss": "^4.0.6",
 		"use-stick-to-bottom": "^1.1.1",
+		"use-sync-external-store": "^1.6.0",
 		"write-excel-file": "^4.1.1"
 	},
 	"devDependencies": {
@@ -90,6 +91,7 @@
 		"@types/react": "^19.2.0",
 		"@types/react-dom": "^19.2.0",
 		"@types/react-syntax-highlighter": "^15.5.13",
+		"@types/use-sync-external-store": "^0.0.6",
 		"@vitejs/plugin-react": "^5.0.4",
 		"eslint-plugin-react-hooks": "^7.0.1",
 		"jsdom": "^27.0.0",
