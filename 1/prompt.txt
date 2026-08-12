@@ -1,0 +1,94 @@
+how can we do okta group mapping so groups on okta side are loaded for the user role in nao (admin viewer user context admin)
+
+---
+
+what "Okta SCIM or directory poll here" imply?
+
+---
+
+let's do the poller / revokation later
+
+i want only group mapping, what should we head to
+
+---
+
+explain me what this "OIDC_GROUPS_CLAIM=groups" variable is
+
+---
+
+can we add a section in the admin (license page maybe to debug the okta token in clear ?)
+
+---
+
+what should i do to get the groups because in the jwt i dont see the users groups
+
+{
+  "sub": "00u11bbz3bmKE3qPw698",
+  "name": "Christophe Blefari",
+  "email": "christophe@getnao.io",
+  "ver": 1,
+  "iss": "https://integrator-4300145.okta.com/oauth2/default",
+  "aud": "0oa13z62np1Tw47Eu698",
+  "iat": 1786460397,
+  "exp": 1786463997,
+  "jti": "ID.REDACTED",
+  "amr": [
+    "mfa",
+    "otp",
+    "pwd",
+    "okta_verify"
+  ],
+  "idp": "00o11bblyneNP2Pz7698",
+  "preferred_username": "christophe@getnao.io",
+  "auth_time": 1786460090,
+  "at_hash": "hxTSzvEfLgIK6ny2LN7XKQ"
+}
+
+---
+
+write the documentation in @/Users/blef/Work/naolabs/nao-docs/ about this group mapping setup in a dedicated Okta section, be concise
+
+---
+
+PR this
+
+---
+
+PR this (and all the stuff related to okta waiting to be pushed)
+
+---
+
+how does the refresh of the token works? for instance here i got a okta token that last for 1h but im not sure i'll get a refresh of the token once ive been connected with nao
+
+---
+
+what should we do to provoke a refresh of the token or even should we force the user to be logged out?
+
+---
+
+when there is mapping the mapping should be the truth and by default downgrade/deny
+
+---
+
+what do you think of the discussion about groups / sync here- just give opinion
+
+---
+
+Let prepare a plan for another agent to pick it up ; i want a SSO_SESSION_MAX_AGE, user then is logged out and when we retrieve the groups from the user:
+- if there is mapping/claim and the user has no group anymore it should not be possible to login
+- if there is no mapping/claim the user gets the default role
+- if the user group change it should change in nao
+
+delegate this to a subagent (gpt5.6-sol)
+
+---
+
+whats the unit of the SSO_SESSION_MAX_AGE
+
+---
+
+what happens if the user was admin but from another account (like user/password)?
+
+---
+
+and what happens if we downgrade the latest admin of a project?

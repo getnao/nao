@@ -1,0 +1,98 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "01KZTNSKDT4P0PAENJ4KFWY4HR",
+  "session_id": "8919342b-f3db-42b6-b22e-7d8e386b7f37",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-12T09:45:28.991905Z",
+  "branch": "feat/okta-login-small-improv",
+  "checkpoints_count": 9,
+  "save_step_count": 4,
+  "files_touched": [
+    ".env.example",
+    "apps/backend/docs/auth-oidc.md",
+    "apps/backend/src/auth.ts",
+    "apps/backend/src/env.ts",
+    "apps/backend/src/mcp/auth.ts",
+    "apps/backend/src/middleware/auth.ts",
+    "apps/backend/src/queries/account.queries.ts",
+    "apps/backend/src/routes/analytics.ts",
+    "apps/backend/src/routes/github.ts",
+    "apps/backend/src/routes/gitlab.ts",
+    "apps/backend/src/routes/mcp-oauth.ts",
+    "apps/backend/src/services/oidc-auth.service.ts",
+    "apps/backend/src/services/sso-group-mapping.service.ts",
+    "apps/backend/src/services/sso-session.service.ts",
+    "apps/backend/src/trpc/trpc.ts",
+    "apps/backend/src/utils/sso-group-mapping.ts",
+    "apps/backend/src/utils/sso-session.ts",
+    "apps/backend/tests/sso-group-mapping.test.ts",
+    "apps/frontend/src/components/settings/sso-token-inspector.tsx"
+  ],
+  "agent": "Cursor",
+  "model": "gpt-5.6-sol-high-fast",
+  "turn_id": "349b398884c9",
+  "checkpoint_transcript_start": 134,
+  "transcript_lines_at_start": 134,
+  "compact_transcript_start": 17,
+  "token_usage": {
+    "input_tokens": 27,
+    "cache_creation_tokens": 403466,
+    "cache_read_tokens": 370685,
+    "output_tokens": 10904,
+    "api_call_count": 4
+  },
+  "session_metrics": {
+    "turn_count": 16,
+    "context_tokens": 311978,
+    "context_window_size": 300000
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-12T09:45:28.940548Z",
+    "agent_lines": 263,
+    "agent_removed": 60,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 263,
+    "total_lines_changed": 323,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 216671,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "apps/backend/storage/projects/f37210ba-e471-41a9-a41e-5da1a7b69671/users/582d09a8-5fcf-47be-85d5-19e2715bd6da/uploads/2026-08-06/results.csv": 94,
+        "apps/backend/storage/projects/f37210ba-e471-41a9-a41e-5da1a7b69671/users/fKrSnVOasCxSIELYocr1zc8Xas1CU14X/uploads/2026-08-06/agentic-analytics-playbook.pdf": 216048,
+        "apps/backend/storage/projects/f37210ba-e471-41a9-a41e-5da1a7b69671/users/fKrSnVOasCxSIELYocr1zc8Xas1CU14X/uploads/2026-08-06/analyzing-these-charts.md": 434,
+        "apps/backend/storage/projects/f37210ba-e471-41a9-a41e-5da1a7b69671/users/fKrSnVOasCxSIELYocr1zc8Xas1CU14X/uploads/2026-08-06/results(1).csv": 94,
+        "apps/backend/storage/projects/f37210ba-e471-41a9-a41e-5da1a7b69671/users/fKrSnVOasCxSIELYocr1zc8Xas1CU14X/uploads/2026-08-06/sarah-local.nao-license.txt": 1
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 216934,
+      "agent_lines_removed": 60
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 216934,
+      "agent_lines_removed": 60
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 216934,
+      "agent_lines_removed": 60
+    }
+  ]
+}

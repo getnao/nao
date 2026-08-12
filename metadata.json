@@ -3,9 +3,27 @@
   "checkpoint_id": "01KZTNSKDT4P0PAENJ4KFWY4HR",
   "strategy": "manual-commit",
   "branch": "feat/okta-login-small-improv",
-  "checkpoints_count": 8,
+  "checkpoints_count": 17,
   "files_touched": [
-    "apps/backend/src/services/oidc-auth.service.ts"
+    ".env.example",
+    "apps/backend/docs/auth-oidc.md",
+    "apps/backend/src/auth.ts",
+    "apps/backend/src/env.ts",
+    "apps/backend/src/mcp/auth.ts",
+    "apps/backend/src/middleware/auth.ts",
+    "apps/backend/src/queries/account.queries.ts",
+    "apps/backend/src/routes/analytics.ts",
+    "apps/backend/src/routes/github.ts",
+    "apps/backend/src/routes/gitlab.ts",
+    "apps/backend/src/routes/mcp-oauth.ts",
+    "apps/backend/src/services/oidc-auth.service.ts",
+    "apps/backend/src/services/sso-group-mapping.service.ts",
+    "apps/backend/src/services/sso-session.service.ts",
+    "apps/backend/src/trpc/trpc.ts",
+    "apps/backend/src/utils/sso-group-mapping.ts",
+    "apps/backend/src/utils/sso-session.ts",
+    "apps/backend/tests/sso-group-mapping.test.ts",
+    "apps/frontend/src/components/settings/sso-token-inspector.tsx"
   ],
   "sessions": [
     {
@@ -14,6 +32,20 @@
       "compact_transcript": "/0/transcript.jsonl",
       "content_hash": "/0/content_hash.txt",
       "prompt": "/0/prompt.txt"
+    },
+    {
+      "metadata": "/1/metadata.json",
+      "transcript": "/1/full.jsonl",
+      "compact_transcript": "/1/transcript.jsonl",
+      "content_hash": "/1/content_hash.txt",
+      "prompt": "/1/prompt.txt"
     }
-  ]
+  ],
+  "token_usage": {
+    "input_tokens": 27,
+    "cache_creation_tokens": 403466,
+    "cache_read_tokens": 370685,
+    "output_tokens": 10904,
+    "api_call_count": 4
+  }
 }
