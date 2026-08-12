@@ -141,3 +141,86 @@ def test_sees_committed_writes(seeded: None) -> None:
         assert after == before + 7
     finally:
         reader.disconnect()
+
+
+def test_file_catalog_lock_produces_an_actionable_error(tmp_path) -> None:
+    """A file-based catalog allows one connection; nao must say so clearly."""
+    catalog = tmp_path / "catalog.ducklake"
+    data_path = tmp_path / "data"
+    data_path.mkdir()
+
+    config = parse_database_config(
+        {
+            "type": "ducklake",
+            "name": "filelake",
+            "catalog": {"type": "duckdb", "path": str(catalog)},
+            "data_path": f"{data_path}/",
+        }
+    )
+
+    seeder = _writable_connection(config)
+    try:
+        seeder.raw_sql('CREATE OR REPLACE TABLE "filelake".main.t AS SELECT 1 AS id')
+    finally:
+        seeder.disconnect()
+
+    holder = _writable_connection(config)
+    try:
+        ok, message = config.check_connection()
+        assert not ok
+        assert "locked by another process" in message
+        assert "postgres or mysql catalog" in message
+    finally:
+        holder.disconnect()
+
+
+def test_file_catalog_lock_across_processes(tmp_path) -> None:
+    """DuckDB reports a different error across processes than within one."""
+    import subprocess
+    import sys
+    import textwrap
+
+    catalog = tmp_path / "catalog.ducklake"
+    data_path = tmp_path / "data"
+    data_path.mkdir()
+
+    config = parse_database_config(
+        {
+            "type": "ducklake",
+            "name": "filelake",
+            "catalog": {"type": "duckdb", "path": str(catalog)},
+            "data_path": f"{data_path}/",
+        }
+    )
+
+    seeder = _writable_connection(config)
+    try:
+        seeder.raw_sql('CREATE OR REPLACE TABLE "filelake".main.t AS SELECT 1 AS id')
+    finally:
+        seeder.disconnect()
+
+    holder_script = textwrap.dedent(
+        f"""
+        import duckdb, sys, time
+        con = duckdb.connect(":memory:")
+        for extension in ("ducklake",):
+            con.execute(f"INSTALL {{extension}}")
+            con.execute(f"LOAD {{extension}}")
+        con.execute("ATTACH 'ducklake:{catalog}' AS filelake (DATA_PATH '{data_path}/')")
+        print("READY", flush=True)
+        time.sleep(20)
+        """
+    )
+
+    holder = subprocess.Popen([sys.executable, "-c", holder_script], stdout=subprocess.PIPE, text=True)
+    try:
+        assert holder.stdout is not None
+        assert holder.stdout.readline().strip() == "READY"
+
+        ok, message = config.check_connection()
+        assert not ok
+        assert "locked by another process" in message
+        assert "postgres or mysql catalog" in message
+    finally:
+        holder.kill()
+        holder.wait(timeout=10)
