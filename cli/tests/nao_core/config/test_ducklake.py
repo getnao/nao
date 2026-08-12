@@ -293,3 +293,41 @@ def test_empty_password_does_not_corrupt_unrelated_message() -> None:
         }
     )
     assert cfg.translate_connection_error("some other failure") == "some other failure"
+
+
+class _FakeCursor:
+    def __init__(self, rows: list[tuple[str]]) -> None:
+        self._rows = rows
+
+    def fetchall(self) -> list[tuple[str]]:
+        return self._rows
+
+
+class _FakeConnection:
+    def __init__(self, rows: list[tuple[str]]) -> None:
+        self._rows = rows
+        self.executed: list[str] = []
+
+    def raw_sql(self, sql: str) -> _FakeCursor:
+        self.executed.append(sql)
+        return _FakeCursor(self._rows)
+
+
+def test_schema_discovery_sql_is_scoped_to_the_alias() -> None:
+    sql = _config().schema_discovery_sql()
+    assert "duckdb_schemas()" in sql
+    assert "database_name = 'lake'" in sql
+    assert "NOT internal" in sql
+    assert "information_schema" not in sql
+
+
+def test_get_schemas_returns_catalog_qualified_names() -> None:
+    """Bare names resolve against the in-memory session and silently find nothing."""
+    conn = _FakeConnection([("finance",), ("main",)])
+    assert _config().get_schemas(conn) == ["lake.finance", "lake.main"]
+
+
+def test_get_schemas_honours_schema_name() -> None:
+    conn = _FakeConnection([("finance",), ("main",)])
+    assert _config(schema_name="finance").get_schemas(conn) == ["lake.finance"]
+    assert conn.executed == []

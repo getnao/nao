@@ -158,6 +158,27 @@ class DuckLakeConfig(DatabaseConfig):
             if conn is not None:
                 conn.disconnect()
 
+    def get_schemas(self, conn: BaseBackend) -> list[str]:
+        """Return the lake's schemas, qualified with the catalog alias.
+
+        The inherited implementation falls back to ``list_databases()``, which mixes
+        the attached lake's schemas with the in-memory session's system schemas.
+        Qualification matters just as much: sync passes these names straight to
+        ``list_tables(database=...)``, and a bare name resolves against the session
+        and returns an empty list without raising.
+        """
+        if self.schema_name:
+            return [f"{self.name}.{self.schema_name}"]
+        rows = conn.raw_sql(self.schema_discovery_sql()).fetchall()  # type: ignore[union-attr]
+        return [f"{self.name}.{row[0]}" for row in rows]
+
+    def schema_discovery_sql(self) -> str:
+        """Query listing the attached lake's non-internal schemas."""
+        return (
+            "SELECT schema_name FROM duckdb_schemas() "
+            f"WHERE database_name = {_quote(self.name)} AND NOT internal ORDER BY schema_name"
+        )
+
     def translate_connection_error(self, message: str) -> str:
         """Turn raw DuckDB failures into messages a user can act on.
 
