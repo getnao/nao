@@ -124,6 +124,28 @@ def test_qualified_schemas_actually_list_tables(seeded: None) -> None:
         conn.disconnect()
 
 
+def test_context_profiling_works_against_a_catalog_qualified_schema(seeded: None) -> None:
+    """Regression guard: raw-SQL profiling silently returned zero columns against a
+    catalog-qualified schema, because the schema name was quoted as a single dotted
+    identifier instead of split into catalog + schema (see DuckLakeDatabaseContext).
+    """
+    config = _lake_config()
+    conn = config.connect()
+    try:
+        main_schema = next(schema for schema in config.get_schemas(conn) if schema.endswith(".main"))
+        context = config.create_context(conn, main_schema, "sales")
+
+        profile = context.profiling()
+        assert profile is not None
+        profiled_columns = {col["column"] for col in profile["columns"]}
+        assert profiled_columns == {"id", "amount"}
+
+        assert context.row_count() == 100
+        assert {col["name"] for col in context.columns()} == {"id", "amount"}
+    finally:
+        conn.disconnect()
+
+
 def test_sees_committed_writes(seeded: None) -> None:
     """The claim that closes issue #1264: no re-snapshot needed."""
     config = _lake_config()

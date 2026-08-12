@@ -331,3 +331,17 @@ def test_get_schemas_honours_schema_name() -> None:
     conn = _FakeConnection([("finance",), ("main",)])
     assert _config(schema_name="finance").get_schemas(conn) == ["lake.finance"]
     assert conn.executed == []
+
+
+def test_get_schemas_qualifies_with_a_hyphenated_alias() -> None:
+    """A hyphenated connection name is exactly where naive dot-splitting or quoting breaks."""
+    conn = _FakeConnection([("finance",), ("main",)])
+    cfg = _config(name="analytics-lake")
+    assert cfg.get_schemas(conn) == ["analytics-lake.finance", "analytics-lake.main"]
+
+
+def test_context_splits_a_hyphenated_alias_into_three_part_sql() -> None:
+    """create_context() must split on the first dot only, keeping the hyphen intact."""
+    cfg = _config(name="analytics-lake")
+    context = cfg.create_context(conn=None, schema="analytics-lake.main", table_name="t")
+    assert context._qualified_table_sql() == '"analytics-lake"."main"."t"'

@@ -209,7 +209,7 @@ class DatabaseContext:
         """
         col_sql = self._quote(col["name"])
         col_type = col["type"].lower()
-        table_sql = f"{self._quote(self._schema)}.{self._quote(self._table_name)}"
+        table_sql = self._qualified_table_sql()
         partition_filter = self._partition_filter()
         where_clause = f"WHERE {partition_filter}" if partition_filter else ""
 
@@ -322,6 +322,15 @@ class DatabaseContext:
     def _null_count_sql(self, col_sql: str) -> str:
         return f"COUNT(*) - COUNT({col_sql})"
 
+    def _qualified_table_sql(self) -> str:
+        """Return the schema-qualified, quoted table reference used in raw SQL.
+
+        Overridden by contexts whose ``schema`` carries extra structure the base
+        two-part form can't express (e.g. a catalog-qualified DuckLake schema, or
+        StarRocks' catalog.schema.table).
+        """
+        return f"{self._quote(self._schema)}.{self._quote(self._table_name)}"
+
     # ─── query builders ───────────────────────────────────────────────────────
 
     def _numeric_agg_fragments(self, col_sql: str, col: dict) -> list[tuple[str, str]]:
@@ -341,7 +350,7 @@ class DatabaseContext:
 
     def _build_profiling_query(self, col: dict) -> str:
         col_sql = self._quote(col["name"])
-        table_sql = f"{self._quote(self._schema)}.{self._quote(self._table_name)}"
+        table_sql = self._qualified_table_sql()
 
         partition_filter = self._partition_filter()
         where_clause = f"WHERE {partition_filter}" if partition_filter else ""
@@ -359,7 +368,7 @@ class DatabaseContext:
 
     def _build_top_values_query(self, col: dict) -> str:
         col_sql = self._quote(col["name"])
-        table_sql = f"{self._quote(self._schema)}.{self._quote(self._table_name)}"
+        table_sql = self._qualified_table_sql()
         partition_filter = self._partition_filter()
         where_clause = f"WHERE {partition_filter}" if partition_filter else ""
         return f"""

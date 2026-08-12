@@ -17,6 +17,26 @@ _FILE_CATALOGS = ("sqlite", "duckdb")
 _DEFAULT_CATALOG_PORTS = {"postgres": 5432, "mysql": 3306}
 
 
+class DuckLakeDatabaseContext(DuckDBDatabaseContext):
+    """DuckDB context for a catalog-qualified DuckLake schema (``lake.main``).
+
+    ``get_schemas()`` returns schema names qualified with the lake's attach alias
+    so they resolve against the right catalog. Ibis's ``table(name, database=...)``
+    already parses that dotted string correctly, so ``self._schema`` is kept whole
+    for the inherited Ibis-backed paths (``columns()``, ``preview()``, ``row_count()``).
+    Only the base class's raw-SQL query builders need the split: they quote
+    ``self._schema`` as a single identifier, which produces an invalid
+    ``"lake.main"."sales"`` reference. ``_qualified_table_sql()`` splits the alias
+    out on demand and emits three-part SQL instead.
+    """
+
+    def _qualified_table_sql(self) -> str:
+        catalog, separator, bare_schema = self._schema.partition(".")
+        if not separator:
+            return f"{self._quote(self._schema)}.{self._quote(self._table_name)}"
+        return f"{self._quote(catalog)}.{self._quote(bare_schema)}.{self._quote(self._table_name)}"
+
+
 class DuckLakeCatalogConfig(BaseModel):
     """Metadata catalog backing a DuckLake, either a server or a local file."""
 
@@ -103,8 +123,8 @@ class DuckLakeConfig(DatabaseConfig):
         """Get the database name for DuckLake."""
         return self.name
 
-    def create_context(self, conn: BaseBackend, schema: str, table_name: str) -> DuckDBDatabaseContext:
-        return DuckDBDatabaseContext(conn, schema, table_name)
+    def create_context(self, conn: BaseBackend, schema: str, table_name: str) -> DuckLakeDatabaseContext:
+        return DuckLakeDatabaseContext(conn, schema, table_name)
 
     def connection_statements(self) -> list[str]:
         """SQL run after connecting: extensions, secrets, then the read-only attach."""
