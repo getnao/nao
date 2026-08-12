@@ -49,6 +49,8 @@ const CONTEXT_RECOMMENDATION_CATEGORY_BADGE_VARIANT = {
 	tool_error: 'bg-red-500/10 text-red-600 dark:text-red-400',
 	hallucination: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
 	semantic_missing: 'bg-green-500/10 text-green-600 dark:text-green-400',
+	context_bloat: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+	skills: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
 	other: 'bg-gray-500/10 text-gray-600 dark:text-gray-400',
 } as const;
 
@@ -462,7 +464,7 @@ export function RecommendationCard({
 										}
 									>
 										<ScrollText className='size-3.5' />
-										{edits.length} suggested changes{edits.length === 1 ? '' : 's'}
+										{edits.length} suggested change{edits.length === 1 ? '' : 's'}
 										{diffTotals && (
 											<span className='ml-1 font-mono text-[11px]'>
 												<span className='text-emerald-600 dark:text-emerald-400'>

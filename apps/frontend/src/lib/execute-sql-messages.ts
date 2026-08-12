@@ -1,7 +1,8 @@
+import { areStructurallyEqual } from './ai';
 import type { executeSql } from '@nao/shared/tools';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 
-type SourceQuery = { input?: executeSql.Input; output: executeSql.Output };
+export type SourceQuery = { input?: executeSql.Input; output: executeSql.Output };
 const sourceQueryIndex = new WeakMap<UIMessage[], Map<string, SourceQuery>>();
 
 /** Prefer the latest matching execute_sql in the chat (same rule as stories / SQL edit). */
@@ -26,6 +27,20 @@ export function findLatestExecuteSqlInMessages(messages: UIMessage[], queryId: s
 	}
 	sourceQueryIndex.set(messages, indexed);
 	return indexed.get(queryId) ?? null;
+}
+
+export function areSourceQueriesEqual(left: SourceQuery | null, right: SourceQuery | null): boolean {
+	if (left === right) {
+		return true;
+	}
+	if (!left || !right) {
+		return false;
+	}
+	return (
+		left.output.id === right.output.id &&
+		left.output.revision === right.output.revision &&
+		areStructurallyEqual(left.input, right.input)
+	);
 }
 
 /** Update only the latest matching execute_sql part for a query id. */
@@ -65,7 +80,9 @@ export function applyExecuteSqlResultToMessages(
 			if (partIndex !== latestPartIndex) {
 				return part;
 			}
-			return { ...(part as UIToolPart<'execute_sql'>), input, output } as typeof part;
+			const toolPart = part as UIToolPart<'execute_sql'>;
+			const previousRevision = toolPart.output?.revision ?? 0;
+			return { ...toolPart, input, output: { ...output, revision: previousRevision + 1 } } as typeof part;
 		});
 		return { ...message, parts };
 	});

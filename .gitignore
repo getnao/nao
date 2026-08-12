@@ -24,5 +24,6 @@ apps/backend/storage/
 *.code-workspace
 
 .cursor/
+.nao/
 
 example/tests/outputs/

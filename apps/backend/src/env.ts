@@ -87,6 +87,9 @@ const envSchema = z.object({
 	OIDC_SCOPES: z.string().optional(),
 	OIDC_AUTH_DOMAINS: z.string().optional(),
 	OIDC_PKCE: z.string().optional(),
+	OIDC_GROUPS_CLAIM: z.string().optional(),
+	OIDC_GROUP_ROLE_MAPPING: z.string().optional(),
+	SSO_SESSION_MAX_AGE: z.coerce.number().int().positive().optional(),
 
 	SMTP_PASSWORD: z.string().optional(),
 	SMTP_HOST: z.string().optional(),
@@ -104,6 +107,13 @@ const envSchema = z.object({
 	NAO_MODE: z.enum(['self-hosted', 'cloud']).default('self-hosted'),
 	NAO_PROJECTS_DIR: z.string().default('./projects'),
 	NAO_CORE_VERSION: z.string().optional(),
+	NAO_CONTEXT_SOURCE: z.enum(['local', 'git', 'api']).optional(),
+	NAO_CONTEXT_GIT_URL: z.string().optional(),
+	NAO_CONTEXT_GIT_BRANCH: z.string().optional(),
+	NAO_CONTEXT_GIT_SUBPATH: z.string().optional(),
+	NAO_CONTEXT_GIT_TOKEN: z.string().optional(),
+	NAO_CONTEXT_GIT_SSH_KEY: z.string().optional(),
+	NAO_CONTEXT_GIT_PLATFORM: z.enum(['github', 'gitlab', 'bitbucket']).optional(),
 
 	NAO_STORAGE_BACKEND: z.enum(['none', 'local', 's3']).default('local'),
 	NAO_STORAGE_LOCAL_PATH: z.string().default('./storage'),

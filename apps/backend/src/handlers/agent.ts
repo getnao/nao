@@ -34,7 +34,7 @@ export const handleAgentRoute = async (opts: HandleAgentMessageInput): Promise<H
 		throw new HandlerError('BAD_REQUEST', noProjectMessage());
 	}
 
-	await agentService.assertBudget(projectId, model);
+	await agentService.assertBudget(projectId, model, userId);
 
 	const source: MessageSource = adminMode ? 'admin' : 'web';
 	const scope: StorageScope = { projectId, userId };

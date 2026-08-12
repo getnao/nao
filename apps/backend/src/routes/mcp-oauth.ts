@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import type { UserRole } from '@nao/shared';
 
 import type { App } from '../app';
-import { getAuth } from '../auth';
+import { getSession } from '../auth';
 import { env } from '../env';
 import { claimMcpDiscoveryUser, setMcpDiscoveryUser } from '../queries/mcp-oauth.queries';
 import * as projectQueries from '../queries/project.queries';
@@ -101,8 +101,7 @@ export const mcpOAuthRoutes = async (app: App) => {
 			return reply.status(400).send({ error: 'Missing server' });
 		}
 
-		const auth = await getAuth();
-		const session = await auth.api.getSession({ headers: convertHeaders(request.headers) });
+		const session = await getSession(convertHeaders(request.headers));
 		if (!session?.user) {
 			return reply.status(401).send({ error: 'Unauthorized' });
 		}
@@ -157,8 +156,7 @@ export const mcpOAuthRoutes = async (app: App) => {
 			return reply.status(400).send({ error: 'Invalid state' });
 		}
 
-		const auth = await getAuth();
-		const session = await auth.api.getSession({ headers: convertHeaders(request.headers) });
+		const session = await getSession(convertHeaders(request.headers));
 		if (!session?.user || session.user.id !== decoded.userId) {
 			return reply.type('text/html').send(resultPage('error', decoded.server, decoded.returnTo));
 		}

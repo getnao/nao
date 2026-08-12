@@ -22,7 +22,7 @@ import {
 	ConversationScrollButton,
 } from '@/components/ui/conversation';
 import { cn, isLast } from '@/lib/utils';
-import { useAgentContext } from '@/contexts/agent.provider';
+import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 import { useHeight } from '@/hooks/use-height';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { useScrollToBottomOnNewUserMessage } from '@/hooks/use-scroll-to-bottom-on-new-user-message';
@@ -48,11 +48,9 @@ export function ChatMessages() {
 			key={chatId}
 		>
 			<Conversation>
-				<ConversationContent
-					className='max-w-3xl mx-auto gap-0 pt-15 max-md:pt-0'
-					style={{ paddingBottom: 'var(--chat-input-height, 0px)' }}
-				>
+				<ConversationContent className='max-w-3xl mx-auto gap-0 pt-15 pb-0 md:pb-0 max-md:pt-0'>
 					<ChatMessagesContent />
+					<div className='shrink-0' style={{ height: 'var(--chat-input-height, 0px)' }} aria-hidden />
 				</ConversationContent>
 
 				<ConversationScrollButton className='bottom-[calc(var(--chat-input-height,0px)+1rem)]' />
@@ -61,9 +59,10 @@ export function ChatMessages() {
 	);
 }
 
-export const ChatMessagesContent = memo(() => {
+export const ChatMessagesContent = memo(function ChatMessagesContent() {
 	const chatId = useChatId();
-	const { messages, isRunning } = useAgentContext();
+	const { isRunning } = useAgentContext();
+	const messages = useAgentMessages();
 	const chat = useChatQuery({ chatId });
 	const isAutomationRunning = chat.data?.automationRun?.status === 'running';
 	const effectiveIsRunning = isRunning || isAutomationRunning;

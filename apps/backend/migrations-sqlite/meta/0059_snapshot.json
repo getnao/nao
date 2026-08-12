@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "df8de264-3385-44ce-85cc-0267d85291fa",
+  "id": "eb558f79-5e02-4767-91f1-cc5ba1ccc269",
   "prevId": "e09d1999-4cc0-47f5-ba37-12d9ab388b46",
   "tables": {
     "account": {
@@ -3511,20 +3511,6 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "storage_path": {
-          "name": "storage_path",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "filename": {
-          "name": "filename",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         }
       },
       "indexes": {
@@ -4897,6 +4883,13 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "per_user_limit_usd": {
+          "name": "per_user_limit_usd",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "period": {

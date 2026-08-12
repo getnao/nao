@@ -106,8 +106,8 @@ type FeedbackFilter = 'with' | 'without';
 const FEEDBACK_FILTERS: readonly FeedbackFilter[] = ['with', 'without'];
 
 const FEEDBACK_FILTER_LABELS: Record<FeedbackFilter, string> = {
-	with: 'With feedback',
-	without: 'Without feedback',
+	with: 'With',
+	without: 'Without',
 };
 
 const MAX_AUTO_PR_OPTIONS = [1, 2, 3, 5, 10] as const;

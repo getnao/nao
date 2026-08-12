@@ -150,7 +150,7 @@ function ChatPage() {
 			open={sidePanel.open}
 			close={sidePanel.close}
 		>
-			<SelectionProvider key={chatId}>
+			<SelectionProvider resetKey={chatId}>
 				<div className='flex-1 flex min-w-0 bg-background' ref={containerRef}>
 					<div
 						className='flex flex-col h-full flex-1 min-w-0 overflow-hidden justify-center relative'
@@ -259,8 +259,11 @@ function ChatPage() {
 								<ChatMessages />
 							</>
 						)}
-						<div ref={inputAreaRef} className='pointer-events-none absolute inset-x-0 bottom-0 z-10 pt-8'>
-							<div className='pointer-events-auto bg-gradient-to-t from-background via-background to-transparent'>
+						<div className='pointer-events-none absolute left-0 right-4 bottom-0 z-10 pt-8'>
+							<div
+								ref={inputAreaRef}
+								className='pointer-events-auto bg-gradient-to-t from-background via-background to-transparent'
+							>
 								<ChatInput />
 							</div>
 						</div>

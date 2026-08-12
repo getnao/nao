@@ -25,7 +25,7 @@ import { SimpleTooltip } from '@/components/ui/tooltip';
 
 import { InputGroup, InputGroupAddon } from '@/components/ui/input-group';
 import { trpc } from '@/main';
-import { useAgentContext } from '@/contexts/agent.provider';
+import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useRegisterSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { useTranscribe } from '@/hooks/use-transcribe';
 import { useAttachmentUpload } from '@/hooks/use-attachment-upload';
@@ -111,14 +111,13 @@ function ChatInputBase({
 		submitQueuedMessageNow,
 		error,
 		selectedModel,
-		messages,
 	} = useAgentContext();
 	const navigate = useNavigate();
 	const { canChatWithNaoData } = usePermissions();
 	const chatId = useChatId();
 
 	const isAdminMode = canChatWithNaoData && adminMode;
-	const adminModeLocked = messages.some((message) => message.role === 'user');
+	const adminModeLocked = useAgentMessagesSelector((messages) => messages.some((message) => message.role === 'user'));
 	const handleSelectAdminMode = useCallback(() => {
 		if (!adminModeLocked) {
 			setAdminMode(!isAdminMode);

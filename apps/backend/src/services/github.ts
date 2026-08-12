@@ -1,6 +1,9 @@
-import { execFileSync, execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
 import { env } from '../env';
+import { GitIdentity, NAO_CO_AUTHOR, withCoAuthors } from '../utils/git-identity';
+
+export { NAO_CO_AUTHOR };
 
 const GITHUB_API = 'https://api.github.com';
 const GITHUB_OAUTH_URL = 'https://github.com/login/oauth';
@@ -176,11 +179,11 @@ async function searchRepos(
 	};
 }
 
-function authenticatedRepoUrl(token: string, repoFullName: string): string {
+export function authenticatedRepoUrl(token: string, repoFullName: string): string {
 	return `https://x-access-token:${token}@github.com/${repoFullName}.git`;
 }
 
-function publicRepoUrl(repoFullName: string): string {
+export function publicRepoUrl(repoFullName: string): string {
 	return `https://github.com/${repoFullName}.git`;
 }
 
@@ -220,12 +223,11 @@ export function getGitInfo(projectDir: string): GitInfo {
 	try {
 		const opts = { cwd: projectDir, stdio: 'pipe' as const, timeout: 5_000 };
 
-		const remoteUrl = execSync('git remote get-url origin', opts).toString().trim();
+		const remoteUrl = execFileSync('git', ['remote', 'get-url', 'origin'], opts).toString().trim();
 		const githubMatch = remoteUrl.match(/github\.com[/:]([^/]+\/[^/.]+)/);
-
-		const branch = execSync('git rev-parse --abbrev-ref HEAD', opts).toString().trim();
-		const lastCommitMessage = execSync('git log -1 --format=%s', opts).toString().trim();
-		const lastCommitDate = execSync('git log -1 --format=%cI', opts).toString().trim();
+		const branch = readCurrentBranch(projectDir);
+		const lastCommitMessage = readOptionalGitValue(projectDir, ['log', '-1', '--format=%s']);
+		const lastCommitDate = readOptionalGitValue(projectDir, ['log', '-1', '--format=%cI']);
 
 		return {
 			isGitRepo: true,
@@ -240,6 +242,25 @@ export function getGitInfo(projectDir: string): GitInfo {
 	}
 }
 
+function readCurrentBranch(projectDir: string): string | null {
+	const branch = readOptionalGitValue(projectDir, ['rev-parse', '--abbrev-ref', 'HEAD']);
+	return branch && branch !== 'HEAD' ? branch : null;
+}
+
+function readOptionalGitValue(projectDir: string, args: string[]): string | null {
+	try {
+		return execFileSync('git', args, {
+			cwd: projectDir,
+			stdio: 'pipe',
+			timeout: 5_000,
+		})
+			.toString()
+			.trim();
+	} catch {
+		return null;
+	}
+}
+
 export function removeOriginRemote(projectDir: string): void {
 	execFileSync('git', ['remote', 'remove', 'origin'], {
 		cwd: projectDir,
@@ -247,34 +268,6 @@ export function removeOriginRemote(projectDir: string): void {
 		timeout: 5_000,
 	});
 }
-
-export function pullRepo(token: string, repoFullName: string, projectDir: string): string {
-	const opts = { cwd: projectDir, stdio: 'pipe' as const, timeout: 120_000 };
-
-	execFileSync('git', ['remote', 'set-url', 'origin', authenticatedRepoUrl(token, repoFullName)], opts);
-
-	try {
-		execFileSync('git', ['fetch', '--depth', '1', 'origin'], opts);
-		const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], opts).toString().trim();
-		const output = execFileSync('git', ['reset', '--hard', `origin/${branch}`], opts)
-			.toString()
-			.trim();
-		return output;
-	} finally {
-		execFileSync('git', ['remote', 'set-url', 'origin', publicRepoUrl(repoFullName)], { ...opts, timeout: 5_000 });
-	}
-}
-
-export interface GitIdentity {
-	name: string;
-	email: string;
-}
-
-/** nao's identity, added as a commit co-author so the contribution is credited to nao. */
-export const NAO_CO_AUTHOR: GitIdentity = {
-	name: 'nao',
-	email: 'naoagent@getnao.io',
-};
 
 export async function getUserGitIdentity(token: string): Promise<GitIdentity> {
 	const user = await getUser(token);
@@ -292,7 +285,7 @@ export function commitAllAndPushBranch(args: {
 	message: string;
 	author: GitIdentity;
 	coAuthors?: GitIdentity[];
-}): void {
+}): string {
 	const { token, repoFullName, dir, branch, message, author, coAuthors = [] } = args;
 	const opts = { cwd: dir, stdio: 'pipe' as const, timeout: 120_000 };
 
@@ -310,15 +303,19 @@ export function commitAllAndPushBranch(args: {
 		env: { ...process.env, ...identity },
 	});
 
-	execFileSync('git', ['push', authenticatedRepoUrl(token, repoFullName), `HEAD:refs/heads/${branch}`], opts);
+	return pushBranch({ token, repoFullName, dir, branch });
 }
 
-function withCoAuthors(message: string, coAuthors: GitIdentity[]): string {
-	if (coAuthors.length === 0) {
-		return message;
-	}
-	const trailers = coAuthors.map((c) => `Co-authored-by: ${c.name} <${c.email}>`).join('\n');
-	return `${message.trimEnd()}\n\n${trailers}`;
+export function pushBranch(args: { token: string; repoFullName: string; dir: string; branch: string }): string {
+	return execFileSync(
+		'git',
+		['push', authenticatedRepoUrl(args.token, args.repoFullName), `HEAD:refs/heads/${args.branch}`],
+		{
+			cwd: args.dir,
+			stdio: 'pipe',
+			timeout: 120_000,
+		},
+	).toString();
 }
 
 const GITHUB_API_TIMEOUT_MS = 20_000;
@@ -605,12 +602,75 @@ export async function createPullRequest(
 	token: string,
 	repo: string,
 	input: CreatePullRequestInput,
+	apiBaseUrl = GITHUB_API,
 ): Promise<{ number: number; html_url: string }> {
-	const data = await githubFetchJson<{ number: number; html_url: string }>(token, `/repos/${repo}/pulls`, {
-		method: 'POST',
-		body: JSON.stringify(input),
-	});
+	const data = await githubFetchJson<{ number: number; html_url: string }>(
+		token,
+		`${apiBaseUrl}/repos/${repo}/pulls`,
+		{
+			method: 'POST',
+			body: JSON.stringify(input),
+		},
+	);
 	return { number: data.number, html_url: data.html_url };
+}
+
+export async function findOpenPullRequest(
+	token: string,
+	repo: string,
+	branch: string,
+	apiBaseUrl = GITHUB_API,
+): Promise<{ url: string } | null> {
+	const owner = repo.split('/')[0];
+	const params = new URLSearchParams({
+		state: 'open',
+		head: `${owner}:${branch}`,
+		per_page: '1',
+	});
+	const pullRequests = await githubFetchJson<RawPullRequest[]>(token, `${apiBaseUrl}/repos/${repo}/pulls?${params}`);
+	return pullRequests[0] ? { url: pullRequests[0].html_url } : null;
+}
+
+export async function findPullRequestByBranch(
+	token: string,
+	repo: string,
+	branch: string,
+): Promise<{
+	url: string;
+	state: 'open' | 'closed' | 'merged';
+	mergedAt: string | null;
+	closedAt: string | null;
+} | null> {
+	const owner = repo.split('/')[0];
+	const pullRequest =
+		(await findPullRequestForBranch(token, repo, `${owner}:${branch}`, 'open')) ??
+		(await findPullRequestForBranch(token, repo, `${owner}:${branch}`, 'closed'));
+	if (!pullRequest) {
+		return null;
+	}
+	return {
+		url: pullRequest.html_url,
+		state: pullRequest.merged_at ? 'merged' : pullRequest.state,
+		mergedAt: pullRequest.merged_at,
+		closedAt: pullRequest.closed_at,
+	};
+}
+
+async function findPullRequestForBranch(
+	token: string,
+	repo: string,
+	head: string,
+	state: 'open' | 'closed',
+): Promise<RawPullRequest | null> {
+	const params = new URLSearchParams({
+		head,
+		state,
+		sort: 'updated',
+		direction: 'desc',
+		per_page: '1',
+	});
+	const pullRequests = await githubFetchJson<RawPullRequest[]>(token, `/repos/${repo}/pulls?${params}`);
+	return pullRequests[0] ?? null;
 }
 
 export async function createIssueOrPullRequestComment(
@@ -682,6 +742,7 @@ interface RawIssue {
 interface RawPullRequest extends RawIssue {
 	draft: boolean;
 	merged_at: string | null;
+	closed_at: string | null;
 	additions?: number;
 	deletions?: number;
 	changed_files?: number;

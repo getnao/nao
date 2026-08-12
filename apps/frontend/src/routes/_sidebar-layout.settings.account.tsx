@@ -1,6 +1,5 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Github } from 'lucide-react';
 import { useState } from 'react';
 import type { UserRole } from '@nao/shared/types';
 
@@ -42,13 +41,6 @@ function GeneralPage() {
 	const [editOpen, setEditOpen] = useState(false);
 
 	const modifyUser = useMutation(trpc.user.modify.mutationOptions());
-	const githubAvailable = useQuery(trpc.github.isAvailable.queryOptions());
-	const githubStatus = useQuery({
-		...trpc.github.getStatus.queryOptions(),
-		enabled: githubAvailable.data === true,
-	});
-	const disconnectGithub = useMutation(trpc.github.disconnect.mutationOptions());
-
 	const gitlabAvailable = useQuery(trpc.gitlab.isAvailable.queryOptions());
 	const gitlabStatus = useQuery({
 		...trpc.gitlab.getStatus.queryOptions(),
@@ -84,15 +76,6 @@ function GeneralPage() {
 				},
 			},
 		});
-	};
-
-	const handleDisconnectGithub = async () => {
-		try {
-			await disconnectGithub.mutateAsync();
-			await githubStatus.refetch();
-		} catch (error) {
-			console.error('Failed to disconnect GitHub:', error);
-		}
 	};
 
 	const handleDisconnectGitlab = async () => {
@@ -141,19 +124,6 @@ function GeneralPage() {
 					control={<NewsletterSubscribeInlineForm initialEmail={user?.email} />}
 				/>
 			</SettingsCard>
-
-			{githubAvailable.data === true && (
-				<ProviderConnectionCard
-					providerLabel='GitHub'
-					icon={Github}
-					connectHref='/api/github/connect?returnTo=/settings/account'
-					connected={githubStatus.data?.connected === true}
-					username={githubStatus.data?.connected ? githubStatus.data.user.login : undefined}
-					avatarUrl={githubStatus.data?.connected ? githubStatus.data.user.avatarUrl : undefined}
-					onDisconnect={handleDisconnectGithub}
-					disconnectPending={disconnectGithub.isPending}
-				/>
-			)}
 
 			{gitlabAvailable.data === true && (
 				<ProviderConnectionCard

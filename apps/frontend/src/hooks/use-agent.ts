@@ -41,7 +41,6 @@ import { messageQueueStore } from '@/stores/chat-message-queue';
 
 export interface AgentHelpers {
 	chatId: string | undefined;
-	messages: UIMessage[];
 	setMessages: UseChatHelpers<UIMessage>['setMessages'];
 	queueOrSendMessage: (args: SendMessageArgs) => Promise<void>;
 	editMessage: (
@@ -62,6 +61,10 @@ export interface AgentHelpers {
 	adminMode: boolean;
 	setAdminMode: (enabled: boolean) => void;
 	isReadonly?: boolean;
+}
+
+export interface AgentState extends AgentHelpers {
+	messages: UIMessage[];
 }
 
 export interface SendMessageArgs {
@@ -85,7 +88,7 @@ interface AgentSendRefs {
 }
 const agentSendRefsStore = new WeakMap<Agent<UIMessage>, AgentSendRefs>();
 
-export const useAgent = ({ disableNavigation = false }: { disableNavigation?: boolean } = {}): AgentHelpers => {
+export const useAgent = ({ disableNavigation = false }: { disableNavigation?: boolean } = {}): AgentState => {
 	const navigate = useNavigate();
 	const chatId = useChatId();
 	const chat = useChatQuery({ chatId });
@@ -240,7 +243,12 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 
 	agentSendRefsStore.set(agentInstance, { adminModeRef, selectedModelRef, mentionsRef });
 
-	const { status, error, clearError, sendMessage, setMessages, messages } = useChat({ chat: agentInstance });
+	const { status, error, clearError, sendMessage, setMessages, messages } = useChat({
+		chat: agentInstance,
+		experimental_throttle: 8,
+	});
+	const messagesRef = useRef(messages);
+	messagesRef.current = messages;
 
 	const stopAgentMutation = useMutation(trpc.chat.stop.mutationOptions());
 	const cancelAgentMutation = useMutation(trpc.chat.cancel.mutationOptions());
@@ -310,9 +318,10 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 			return;
 		}
 
-		const lastUserMessageIndex = getLastUserMessageIdx(messages);
-		const lastUserMessage = lastUserMessageIndex !== undefined ? messages[lastUserMessageIndex] : undefined;
-		const lastMessage = messages.at(-1);
+		const currentMessages = messagesRef.current;
+		const lastUserMessageIndex = getLastUserMessageIdx(currentMessages);
+		const lastUserMessage = lastUserMessageIndex !== undefined ? currentMessages[lastUserMessageIndex] : undefined;
+		const lastMessage = currentMessages.at(-1);
 		const lastAssistantMessage = lastMessage?.role === 'assistant' ? lastMessage : undefined;
 
 		if (lastAssistantMessage) {
@@ -331,7 +340,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 			}
 
 			if (lastUserMessageIndex !== undefined) {
-				setMessages(messages.slice(0, lastUserMessageIndex));
+				setMessages(currentMessages.slice(0, lastUserMessageIndex));
 			}
 			const restorePayload = lastUserMessage
 				? {
@@ -354,7 +363,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 		} finally {
 			cancellingMessageIdStore.setCancelling(undefined);
 		}
-	}, [chatId, messages, agentInstance, cancelAgentMutation, setMessages, navigate, queryClient]);
+	}, [chatId, agentInstance, cancelAgentMutation.mutateAsync, setMessages, navigate, queryClient]); // eslint-disable-line
 
 	const handleSendMessage = useCallback<UseChatHelpers<UIMessage>['sendMessage']>(
 		async (...args) => {
@@ -415,12 +424,13 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 				return;
 			}
 
-			const messageIndex = messages.findIndex((message) => message.id === messageId);
+			const currentMessages = messagesRef.current;
+			const messageIndex = currentMessages.findIndex((message) => message.id === messageId);
 			if (messageIndex === -1) {
 				return;
 			}
 
-			const original = messages[messageIndex];
+			const original = currentMessages[messageIndex];
 			const originalImages = await resolveImagesFromMessage(original);
 			const images = [...originalImages, ...(newImages ?? [])];
 			const documents = [...getMessageDocuments(original), ...(newDocuments ?? [])];
@@ -430,14 +440,14 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 			}
 
 			agentCitationStore.set(agentInstance, original.citation);
-			setMessages(messages.slice(0, messageIndex));
+			setMessages(currentMessages.slice(0, messageIndex));
 			const files = attachmentsToFileUIParts({ images, documents });
 			return handleSendMessage(
 				{ text: prompt, files: files.length > 0 ? files : undefined },
 				{ body: { messageToEditId: messageId } },
 			);
 		},
-		[messages, setMessages, isRunning, handleSendMessage, agentInstance],
+		[setMessages, isRunning, handleSendMessage, agentInstance],
 	);
 
 	const resendMessage = useCallback(
@@ -446,12 +456,13 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 				return;
 			}
 
-			const messageIndex = messages.findIndex((message) => message.id === messageId);
+			const currentMessages = messagesRef.current;
+			const messageIndex = currentMessages.findIndex((message) => message.id === messageId);
 			if (messageIndex === -1) {
 				return;
 			}
 
-			const original = messages[messageIndex];
+			const original = currentMessages[messageIndex];
 			const images = await resolveImagesFromMessage(original);
 			const documents = getMessageDocuments(original);
 			const text = getMessageText(original).trim() || defaultAttachmentPrompt({ images, documents });
@@ -460,14 +471,14 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 			}
 
 			agentCitationStore.set(agentInstance, original.citation);
-			setMessages(messages.slice(0, messageIndex));
+			setMessages(currentMessages.slice(0, messageIndex));
 			const files = attachmentsToFileUIParts({ images, documents });
 			return handleSendMessage(
 				{ text, files: files.length > 0 ? files : undefined },
 				{ body: { messageToEditId: messageId } },
 			);
 		},
-		[messages, setMessages, isRunning, handleSendMessage, agentInstance],
+		[setMessages, isRunning, handleSendMessage, agentInstance],
 	);
 
 	const switchMessageVersion = useCallback(
@@ -480,7 +491,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 			await switchMessageVersionMutation.mutateAsync({ chatId: targetChatId, messageId });
 			await queryClient.invalidateQueries({ queryKey: trpc.chat.get.queryKey({ chatId: targetChatId }) });
 		},
-		[isRunning, switchMessageVersionMutation, queryClient],
+		[isRunning, switchMessageVersionMutation.mutateAsync, queryClient], // eslint-disable-line
 	);
 
 	return useMemoObject({
@@ -507,7 +518,7 @@ export const useAgent = ({ disableNavigation = false }: { disableNavigation?: bo
 };
 
 /** Sync the messages between the useChat hook and the query client. */
-export const useSyncMessages = ({ agent }: { agent: AgentHelpers }) => {
+export const useSyncMessages = ({ agent }: { agent: AgentState }) => {
 	const chatId = useChatId();
 	const chat = useChatQuery({ chatId });
 	const setChat = useSetChat();

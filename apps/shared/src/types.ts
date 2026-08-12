@@ -147,7 +147,87 @@ export type FileTreeEntry = {
 	name: string;
 	path: string;
 	type: 'file' | 'directory';
+	isTracked?: boolean;
 	children?: FileTreeEntry[];
+};
+
+export type ContextGitUnavailableReason =
+	| 'github-unavailable'
+	| 'git-unavailable'
+	| 'no-token'
+	| 'no-repo'
+	| 'unsupported-provider'
+	| 'project-not-found'
+	| 'project-ambiguous';
+
+export type FileEditabilityReason =
+	| ContextGitUnavailableReason
+	| 'generated'
+	| 'rendered-template'
+	| 'synced-source'
+	| 'not-tracked';
+
+export type FileEditabilityGuidance =
+	| {
+			message: string;
+			actionKind: 'file' | 'route';
+			actionPath: string;
+			actionLabel: string;
+	  }
+	| {
+			message: string;
+			actionKind: null;
+			actionPath: null;
+			actionLabel: null;
+	  };
+
+export type FileContentResponse = {
+	content: string;
+	hash: string;
+	isEditable: boolean;
+	reason: FileEditabilityReason | null;
+	guidance?: FileEditabilityGuidance;
+};
+
+export type FileWriteResponse = {
+	hash: string;
+};
+
+export type FileContentSearchResult = {
+	path: string;
+	count: number;
+	line: number;
+	text: string;
+};
+
+export type FileContentSearchResponse = {
+	results: FileContentSearchResult[];
+	truncated: boolean;
+};
+
+export type ContextChangedFile = {
+	path: string;
+	kind: 'modified' | 'untracked' | 'deleted';
+	additions: number | null;
+	deletions: number | null;
+};
+
+export type ContextBranchInfo = {
+	currentBranch: string | null;
+	defaultBranch: string;
+	aheadCommitCount: number;
+	unpushedCommitCount: number;
+	branches: string[];
+	suggestedBranch: string;
+};
+
+export type ContextBranchCreationResult = ContextBranchInfo & {
+	usedFallbackBase: boolean;
+};
+
+export type ContextFileDiff = ContextChangedFile & {
+	oldContent: string;
+	newContent: string;
 };
 
 export const WARNING_BUDGET_THRESHOLD = 0.8;

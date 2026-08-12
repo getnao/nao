@@ -74,7 +74,11 @@ const trimSlashes = (value: string): string => {
 /**
  * Directory names that should be excluded from tool operations (list, search, read).
  */
-export const EXCLUDED_DIRS = ['.meta'];
+const EXCLUDED_DIRECTORY_NAMES = ['.meta', '.git'];
+const ENVIRONMENT_FILE_PATTERNS = ['.env', '.env.*'];
+export const BUILT_IN_EXCLUSION_GLOBS = [...EXCLUDED_DIRECTORY_NAMES, ...ENVIRONMENT_FILE_PATTERNS].flatMap(
+	(pattern) => [`!${pattern}`, `!${pattern}/**`, `!**/${pattern}`, `!**/${pattern}/**`],
+);
 
 type NaoignoreCacheEntry = {
 	/** `mtimeMs:size` of the .naoignore file, or `null` if the file does not exist */
@@ -206,14 +210,22 @@ export const isIgnoredPath = (realPath: string, projectFolder: string): boolean 
  */
 export const isInExcludedDir = (filePath: string): boolean => {
 	const parts = filePath.split(path.sep);
-	return parts.some((part) => EXCLUDED_DIRS.includes(part));
+	return parts.some((part) => isExcludedDirectoryName(part) || isEnvironmentFileName(part));
 };
 
 /**
  * Checks if an entry name is an excluded directory.
  */
 export const isExcludedEntry = (name: string): boolean => {
-	return EXCLUDED_DIRS.includes(name);
+	return isExcludedDirectoryName(name) || isEnvironmentFileName(name);
+};
+
+const isExcludedDirectoryName = (name: string): boolean => {
+	return EXCLUDED_DIRECTORY_NAMES.includes(name.toLowerCase());
+};
+
+const isEnvironmentFileName = (name: string): boolean => {
+	return ENVIRONMENT_FILE_PATTERNS.some((pattern) => minimatch(name, pattern, { dot: true, nocase: true }));
 };
 
 /**
@@ -292,6 +304,14 @@ export const toRealPath = (virtualPath: string, projectFolder: string): string =
 	const normalizedRelativePath = path.relative(normalizedFolder, resolvedPath).replaceAll(path.sep, '/');
 	if (isStoragePath(normalizedRelativePath)) {
 		throw new Error(`Path '${virtualPath}' is in permanent storage, not in the project folder`);
+	}
+
+	if (resolvedPath.split(path.sep).some((part) => part.toLowerCase() === '.git')) {
+		throw new Error(`Access denied: path '${virtualPath}' targets protected .git metadata`);
+	}
+
+	if (resolvedPath.split(path.sep).some(isEnvironmentFileName)) {
+		throw new Error(`Access denied: path '${virtualPath}' targets a protected environment file`);
 	}
 
 	// Check if path is in an excluded directory

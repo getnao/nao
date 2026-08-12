@@ -202,9 +202,9 @@ async function _buildContextBase(opts: {
 export class AgentService {
 	private _agents = new Map<string, AgentManager>();
 
-	async assertBudget(projectId: string, modelSelection?: LlmSelectedModel): Promise<void> {
+	async assertBudget(projectId: string, modelSelection?: LlmSelectedModel, userId?: string): Promise<void> {
 		const resolved = await this._getResolvedLlmSelectedModel(projectId, modelSelection);
-		await assertBudgetNotExceeded(projectId, resolved.provider);
+		await assertBudgetNotExceeded(projectId, resolved.provider, userId);
 	}
 
 	/** Resolves the concrete model a run will use (project default when none is configured). */
@@ -253,7 +253,7 @@ export class AgentService {
 	): Promise<AgentManager> {
 		this._disposeAgent(chat.id);
 		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
-		await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider);
+		await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider, chat.userId);
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel);
 		const [agentSettings, customBoundaries] = await Promise.all([
 			projectQueries.getAgentSettings(chat.projectId),
@@ -895,10 +895,23 @@ class AgentManager {
 		const skillContent = skillMention
 			? skillService.getSkillContent(this.chat.projectId, skillMention.id)
 			: undefined;
-		if (!skillContent) {
+		if (!skillMention || !skillContent) {
 			return messages;
 		}
-		return this._transformLastUserMessageText(messages, () => truncateMiddle(skillContent, 16_000));
+		const skill = truncateMiddle(skillContent, 16_000);
+		return this._transformLastUserMessageText(messages, (text) =>
+			this._expandSkillMention(text, skillMention, skill),
+		);
+	}
+
+	private _expandSkillMention(text: string, mention: Mention, skill: string): string {
+		const tokens = [`${mention.trigger}[${mention.label}]`, `${mention.trigger}[${mention.id}]`];
+		const matchedToken = tokens.find((token) => text.includes(token));
+		if (matchedToken) {
+			return text.replaceAll(matchedToken, () => skill).trim();
+		}
+		const rest = text.trim();
+		return rest ? `${skill}\n\n${rest}` : skill;
 	}
 
 	private _addDatabaseContext(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {

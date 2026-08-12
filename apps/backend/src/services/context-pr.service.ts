@@ -2,144 +2,46 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import type { RepoProvider } from '@nao/shared/types';
-
 import type { DBContextRecommendation } from '../db/abstractSchema';
 import * as crQueries from '../queries/context-recommendation.queries';
-import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import { ProposedEdit, ProposedEditTargetRepo } from '../types/context-recommendation';
+import { resolveContextRepository } from '../utils/context-repo';
 import { logger } from '../utils/logger';
 import { isHumanWritableContextPath } from '../utils/nao-context-paths';
-import * as github from './github';
+import {
+	assertNoSymlinkInWritePath,
+	canonicalizeWriteRoot,
+	resolveWritePath,
+	writeFileAtomically,
+} from '../utils/safe-file-write';
 import * as gitlab from './gitlab';
+import type { InternalRepoProvider, ReviewRequestProvider } from './review-request-provider';
+import { REVIEW_REQUEST_PROVIDERS } from './review-request-provider';
 
-/** Git commit author/co-author identity. Defined here since it's a provider-agnostic concept, not owned by either. */
-interface GitIdentity {
-	name: string;
-	email: string;
-}
-
-/** Provider-specific glue for `createReviewRequest` — everything else about opening a PR/MR is identical. */
-interface ReviewRequestProvider {
-	getToken: (userId: string) => Promise<string | null>;
-	notConnectedMessage: string;
-	cloneRepo: (token: string, repoFullName: string, dir: string) => void;
-	getGitInfo: (dir: string) => { branch: string | null };
-	getUserGitIdentity: (token: string) => Promise<GitIdentity>;
-	coAuthor: GitIdentity;
-	commitAllAndPushBranch: (args: {
-		token: string;
-		repoFullName: string;
-		dir: string;
-		branch: string;
-		message: string;
-		author: GitIdentity;
-		coAuthors?: GitIdentity[];
-	}) => void;
-	openReviewRequest: (
-		token: string,
-		repoFullName: string,
-		args: { title: string; head: string; base: string; body: string },
-	) => Promise<{ url: string }>;
-}
-
-const REVIEW_REQUEST_PROVIDERS: Record<RepoProvider, ReviewRequestProvider> = {
-	github: {
-		getToken: userQueries.getGithubToken,
-		notConnectedMessage: 'GitHub is not connected. Connect your GitHub account first.',
-		cloneRepo: github.cloneRepo,
-		getGitInfo: github.getGitInfo,
-		getUserGitIdentity: github.getUserGitIdentity,
-		coAuthor: github.NAO_CO_AUTHOR,
-		commitAllAndPushBranch: github.commitAllAndPushBranch,
-		openReviewRequest: async (token, repoFullName, { title, head, base, body }) => {
-			const pr = await github.createPullRequest(token, repoFullName, { title, head, base, body });
-			return { url: pr.html_url };
-		},
-	},
-	gitlab: {
-		getToken: userQueries.getGitlabToken,
-		notConnectedMessage: 'GitLab is not connected. Connect your GitLab account first.',
-		cloneRepo: gitlab.cloneRepo,
-		getGitInfo: gitlab.getGitInfo,
-		getUserGitIdentity: gitlab.getUserGitIdentity,
-		coAuthor: gitlab.NAO_CO_AUTHOR,
-		commitAllAndPushBranch: gitlab.commitAllAndPushBranch,
-		openReviewRequest: async (token, repoFullName, { title, head, base, body }) => {
-			const mr = await gitlab.createMergeRequest(token, repoFullName, {
-				title,
-				source_branch: head,
-				target_branch: base,
-				description: body,
-			});
-			return { url: mr.web_url };
-		},
-	},
-};
+export { REVIEW_REQUEST_PROVIDERS };
+export type { ReviewRequestProvider };
 
 export interface CreatePullRequestResult {
 	url: string;
 	branch: string;
 }
 
+export interface ReviewRequestEdit {
+	path: string;
+	newContent: string;
+}
+
 export interface RecommendationRepo {
 	repoFullName: string;
 	branch: string | null;
-	source: 'project' | 'settings' | 'linked';
-	provider: RepoProvider;
+	source: 'settings' | 'deployment' | 'linked';
+	provider: InternalRepoProvider;
 	webUrl: string;
 }
 
-function buildRepoWebUrl(provider: RepoProvider, repoFullName: string): string {
-	const base = provider === 'gitlab' ? gitlab.gitlabBaseUrl() : 'https://github.com';
-	return `${base}/${repoFullName}`;
-}
-
-/**
- * Resolves the Git repository (GitHub or GitLab) used for context pull/merge requests.
- * The project's own git remote wins when it points at GitHub or GitLab; otherwise we fall
- * back to the repository configured on the recommendations settings page.
- */
 export async function resolveRecommendationRepo(projectId: string): Promise<RecommendationRepo | null> {
-	const project = await projectQueries.getProjectById(projectId);
-	if (project?.path) {
-		const githubInfo = github.getGitInfo(project.path);
-		if (githubInfo.isGithub && githubInfo.repoFullName) {
-			return {
-				repoFullName: githubInfo.repoFullName,
-				branch: githubInfo.branch,
-				source: 'project',
-				provider: 'github',
-				webUrl: buildRepoWebUrl('github', githubInfo.repoFullName),
-			};
-		}
-
-		const gitlabInfo = gitlab.getGitInfo(project.path);
-		if (gitlabInfo.isGitlab && gitlabInfo.repoFullName) {
-			return {
-				repoFullName: gitlabInfo.repoFullName,
-				branch: gitlabInfo.branch,
-				source: 'project',
-				provider: 'gitlab',
-				webUrl: buildRepoWebUrl('gitlab', gitlabInfo.repoFullName),
-			};
-		}
-	}
-
-	const config = await crQueries.getConfig(projectId);
-	const configured = config?.repoFullName;
-	if (configured) {
-		const provider = config.repoProvider ?? 'github';
-		return {
-			repoFullName: configured,
-			branch: null,
-			source: 'settings',
-			provider,
-			webUrl: buildRepoWebUrl(provider, configured),
-		};
-	}
-	return null;
+	return resolveContextRepository(projectId);
 }
 
 /**
@@ -186,7 +88,7 @@ export async function autoCreateRecommendationPullRequests(
  *
  * Works against a fresh, disposable clone so the live project at `project.path` is
  * never mutated: clone → branch → write the proposed file contents → commit → push →
- * open the PR via the GitHub API. Only human-written files are ever written.
+ * create or link to a review request. Only human-written files are ever written.
  */
 export async function createRecommendationPullRequest(
 	projectId: string,
@@ -206,9 +108,7 @@ export async function createRecommendationPullRequest(
 
 	const repo = await resolvePullRequestRepo(projectId, rec.proposedEdits);
 	if (!repo) {
-		throw new Error(
-			'No GitHub or GitLab repository is configured for this project. Select one in Settings → Recommendations.',
-		);
+		throw new Error('No context repository is connected. Connect one in Settings → Git.');
 	}
 
 	const edits = filterPullRequestEdits(rec.proposedEdits);
@@ -228,8 +128,10 @@ export async function createRecommendationPullRequest(
 			workdir,
 			branch,
 			configuredBase: repo.branch,
-			rec,
-			edits,
+			edits: toReviewRequestEdits(edits),
+			title: prTitle(rec),
+			commitMessage: commitMessage(rec),
+			body: prBody(rec, edits),
 		});
 
 		const prCreatedAt = new Date();
@@ -249,21 +151,26 @@ export async function createRecommendationPullRequest(
  * review request. Identical across providers except for the token lookup and how the review
  * request itself is created — both captured by `provider`.
  */
-async function createReviewRequest(args: {
+export async function createReviewRequest(args: {
 	provider: ReviewRequestProvider;
 	userId: string;
 	repoFullName: string;
 	workdir: string;
 	branch: string;
 	configuredBase: string | null;
-	rec: DBContextRecommendation;
-	edits: ProposedEdit[];
+	edits: ReviewRequestEdit[];
+	title: string;
+	commitMessage: string;
+	body: string;
 }): Promise<{ url: string }> {
-	const { provider, userId, repoFullName, workdir, branch, configuredBase, rec, edits } = args;
+	const { provider, userId, repoFullName, workdir, branch, configuredBase, edits, title, commitMessage, body } = args;
 
-	const token = await provider.getToken(userId);
-	if (!token) {
+	const [token, user] = await Promise.all([provider.getToken(userId), userQueries.getUser({ id: userId })]);
+	if (token === null) {
 		throw new Error(provider.notConnectedMessage);
+	}
+	if (!user) {
+		throw new Error('User not found.');
 	}
 
 	provider.cloneRepo(token, repoFullName, workdir);
@@ -271,23 +178,32 @@ async function createReviewRequest(args: {
 
 	applyEdits(workdir, edits);
 
-	const author = await provider.getUserGitIdentity(token);
-	provider.commitAllAndPushBranch({
+	const author = await provider.getUserGitIdentity({
+		token,
+		user: { name: user.name, email: user.email },
+	});
+	const pushOutput = provider.commitAllAndPushBranch({
 		token,
 		repoFullName,
 		dir: workdir,
 		branch,
-		message: commitMessage(rec),
+		message: commitMessage,
 		author,
 		coAuthors: [provider.coAuthor],
 	});
 
-	return provider.openReviewRequest(token, repoFullName, {
-		title: prTitle(rec),
+	const reviewRequest = await provider.openReviewRequest(token, repoFullName, {
+		title,
 		head: branch,
 		base,
-		body: prBody(rec, edits),
+		body,
+		requester: { name: user.name, email: user.email },
+		pushOutput,
 	});
+	if (!reviewRequest) {
+		throw new Error(`Branch ${branch} was pushed successfully, but no pull request link was returned.`);
+	}
+	return { url: reviewRequest.url };
 }
 
 /**
@@ -324,7 +240,7 @@ function resolvePullRequestRepo(projectId: string, edits: ProposedEdit[]): Promi
 		branch: target.branch,
 		source: 'linked',
 		provider: target.provider,
-		webUrl: buildRepoWebUrl(target.provider, target.repoFullName),
+		webUrl: `${target.provider === 'gitlab' ? gitlab.gitlabBaseUrl() : 'https://github.com'}/${target.repoFullName}`,
 	});
 }
 
@@ -337,63 +253,22 @@ function filterPullRequestEdits(edits: ProposedEdit[]): ProposedEdit[] {
 	});
 }
 
-function applyEdits(dir: string, edits: ProposedEdit[]): void {
-	const root = fs.realpathSync(dir);
+function applyEdits(dir: string, edits: ReviewRequestEdit[]): void {
+	const root = canonicalizeWriteRoot(dir);
 	for (const edit of edits) {
-		const editPath = edit.targetRepo?.path ?? edit.path;
-		const target = path.resolve(root, editPath);
-		assertInsideRepository(root, target, editPath);
-		assertNoSymlinkInPath(root, target, editPath);
+		const editPath = edit.path;
+		const target = resolveWritePath(root, editPath);
+		assertNoSymlinkInWritePath(root, target, editPath);
 		fs.mkdirSync(path.dirname(target), { recursive: true });
-		writeFileNoFollow(target, edit.newContent);
+		writeFileAtomically({ content: edit.newContent, displayPath: editPath, root, target });
 	}
 }
 
-function assertInsideRepository(root: string, target: string, editPath: string): void {
-	const relative = path.relative(root, target);
-	if (relative.startsWith('..') || path.isAbsolute(relative)) {
-		throw new Error(`Refusing to write outside the repository: ${editPath}`);
-	}
-}
-
-function assertNoSymlinkInPath(root: string, target: string, editPath: string): void {
-	const relative = path.relative(root, target);
-	if (relative === '') {
-		return;
-	}
-
-	let current = root;
-	for (const part of relative.split(path.sep)) {
-		current = path.join(current, part);
-		const stat = lstatIfExists(current);
-		if (!stat) {
-			return;
-		}
-		if (stat.isSymbolicLink()) {
-			throw new Error(`Refusing to write through a symlink in the repository: ${editPath}`);
-		}
-	}
-}
-
-function lstatIfExists(filePath: string): fs.Stats | null {
-	try {
-		return fs.lstatSync(filePath);
-	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-			return null;
-		}
-		throw err;
-	}
-}
-
-function writeFileNoFollow(filePath: string, content: string): void {
-	const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_NOFOLLOW;
-	const fd = fs.openSync(filePath, flags, 0o666);
-	try {
-		fs.writeFileSync(fd, content, 'utf-8');
-	} finally {
-		fs.closeSync(fd);
-	}
+function toReviewRequestEdits(edits: ProposedEdit[]): ReviewRequestEdit[] {
+	return edits.map((edit) => ({
+		path: edit.targetRepo?.path ?? edit.path,
+		newContent: edit.newContent,
+	}));
 }
 
 function prTitle(rec: DBContextRecommendation): string {

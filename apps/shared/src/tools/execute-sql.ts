@@ -72,6 +72,11 @@ export const OutputSchema = z.object({
 			size: z.number(),
 		})
 		.optional(),
+	/**
+	 * Bumped in the UI each time this query id is re-run in place, so views bound to
+	 * the query can tell a fresh result from an unchanged one.
+	 */
+	revision: z.number().optional(),
 });
 
 export type Input = z.infer<typeof InputSchema>;

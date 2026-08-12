@@ -156,6 +156,20 @@ function ContextRecommendationsSystemPrompt({
 						domain concept) to answer correctly.
 					</ListItem>
 					<ListItem>
+						<Code>context_bloat</Code> — a monolithic context file whose size inflates token cost on every
+						read (or gets truncated so the agent never sees all of it) and should be split into smaller,
+						focused files. The run prompt&apos;s read-cost table is the signal.
+					</ListItem>
+					<ListItem>
+						<Code>skills</Code> — the finding is about a reusable skill under{' '}
+						<Code>agent/skills/&lt;name&gt;.md</Code>, in any of three ways: <Bold>create</Bold> a new skill
+						when a repeatable analysis process is re-derived across many chats (or a heavy always-loaded
+						procedure surfaced by the read-cost table should move out of the always-loaded context);{' '}
+						<Bold>improve</Bold> an existing skill that is incomplete, unclear, or outdated; or{' '}
+						<Bold>fix</Bold> an existing skill whose instructions are wrong and propagate the same mistake
+						across chats.
+					</ListItem>
+					<ListItem>
 						<Code>other</Code> — repeated corrections, friction, coverage gaps that do not fit above.
 					</ListItem>
 				</List>

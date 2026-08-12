@@ -49,6 +49,7 @@ export function Sidebar() {
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const license = useQuery(trpc.license.getStatus.queryOptions());
 	const branding = useBranding();
+	const customColor = branding.enabled ? branding.brandColor : null;
 	const { isAdmin, isContextAdmin, isViewer } = usePermissions();
 	const isCloud = config.data?.naoMode === 'cloud';
 	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
@@ -154,7 +155,12 @@ export function Sidebar() {
 								className='h-7 w-auto max-w-[9rem] object-contain'
 							/>
 						) : (
-							<NaoLogo className='size-5' />
+							<NaoLogo
+								className={cn('size-5', customColor && '[&_stop]:[stop-color:var(--brand-logo)]')}
+								style={
+									customColor ? ({ '--brand-logo': customColor } as React.CSSProperties) : undefined
+								}
+							/>
 						)}
 					</button>
 

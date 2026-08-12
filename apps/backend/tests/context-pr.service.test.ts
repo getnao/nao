@@ -4,7 +4,17 @@ import path from 'node:path';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createRecommendationPullRequest } from '../src/services/context-pr.service';
+vi.hoisted(() => {
+	process.env.MODE = 'test';
+	process.env.NAO_CONTEXT_SOURCE = 'local';
+});
+
+import {
+	createRecommendationPullRequest,
+	createReviewRequest,
+	resolveRecommendationRepo,
+} from '../src/services/context-pr.service';
+import { GENERIC_GIT_PROVIDER } from '../src/services/generic-git';
 import type { ProposedEdit } from '../src/types/context-recommendation';
 
 const mocks = vi.hoisted(() => ({
@@ -14,6 +24,7 @@ const mocks = vi.hoisted(() => ({
 	getConfig: vi.fn(),
 	getGitInfo: vi.fn(),
 	getGithubToken: vi.fn(),
+	getUser: vi.fn(),
 	getProjectById: vi.fn(),
 	getRecommendationById: vi.fn(),
 	getUserGitIdentity: vi.fn(),
@@ -35,6 +46,7 @@ vi.mock('../src/queries/project.queries', () => ({
 vi.mock('../src/queries/user.queries', () => ({
 	getGithubToken: mocks.getGithubToken,
 	getGitlabToken: vi.fn(),
+	getUser: mocks.getUser,
 }));
 
 vi.mock('../src/utils/logger', () => ({
@@ -43,6 +55,9 @@ vi.mock('../src/utils/logger', () => ({
 		info: vi.fn(),
 		warn: vi.fn(),
 	},
+	serializeError: (error: unknown) => ({
+		message: error instanceof Error ? error.message : String(error),
+	}),
 }));
 
 vi.mock('../src/services/github', () => ({
@@ -60,6 +75,7 @@ describe('createRecommendationPullRequest', () => {
 		mocks.getProjectById.mockResolvedValue({ path: null });
 		mocks.getConfig.mockResolvedValue({ repoFullName: 'nao/context' });
 		mocks.getGithubToken.mockResolvedValue('github-token');
+		mocks.getUser.mockResolvedValue({ id: 'user-1', name: 'User', email: 'user@example.com' });
 		mocks.getGitInfo.mockReturnValue({ branch: 'main', isGithub: true, repoFullName: 'nao/context' });
 		mocks.getUserGitIdentity.mockResolvedValue({ email: 'user@example.com', name: 'User' });
 		mocks.createPullRequest.mockResolvedValue({ html_url: 'https://github.com/nao/context/pull/1' });
@@ -87,7 +103,24 @@ describe('createRecommendationPullRequest', () => {
 		});
 	});
 
-	it('opens linked repo edits against the upstream repository path', async () => {
+	it('does not resolve or open context pull requests from the project folder remote', async () => {
+		mocks.getConfig.mockResolvedValue(null);
+		mocks.getProjectById.mockResolvedValue({ path: '/project-clone' });
+		mocks.getRecommendationById.mockResolvedValue(recommendation());
+
+		await expect(resolveRecommendationRepo('project-1')).resolves.toBeNull();
+		await expect(createRecommendationPullRequest('project-1', 'rec-123456789', 'user-1')).rejects.toThrow(
+			'No context repository is connected. Connect one in Settings → Git.',
+		);
+
+		expect(mocks.getProjectById).not.toHaveBeenCalled();
+		expect(mocks.getGitInfo).not.toHaveBeenCalled();
+		expect(mocks.cloneRepo).not.toHaveBeenCalled();
+		expect(mocks.createPullRequest).not.toHaveBeenCalled();
+	});
+
+	it('opens linked repo edits without a connected context repository', async () => {
+		mocks.getConfig.mockResolvedValue(null);
 		mocks.getRecommendationById.mockResolvedValue(
 			recommendation([
 				edit({
@@ -163,6 +196,40 @@ describe('createRecommendationPullRequest', () => {
 			expect(mocks.createPullRequest).not.toHaveBeenCalled();
 		} finally {
 			fs.rmSync(outsideDir, { force: true, recursive: true });
+		}
+	});
+
+	it('returns the review link printed while pushing a recommendation branch', async () => {
+		const workdir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-context-pr-test-'));
+		const link = 'http://git.example.com/nao/context/merge_requests/new?source=nao/recommendation';
+		const commitAllAndPushBranch = vi.fn().mockReturnValue(`remote: Create merge request:\nremote:   ${link}`);
+
+		try {
+			await expect(
+				createReviewRequest({
+					provider: {
+						...GENERIC_GIT_PROVIDER,
+						getToken: async () => '',
+						cloneRepo: (_token, _repoFullName, dir) => {
+							fs.writeFileSync(path.join(dir, 'RULES.md'), 'old');
+						},
+						getGitInfo: () => ({ branch: 'main' }),
+						commitAllAndPushBranch,
+					},
+					userId: 'user-1',
+					repoFullName: 'git@git.example.com:nao/context.git',
+					workdir,
+					branch: 'nao/recommendation',
+					configuredBase: 'main',
+					edits: [{ path: 'RULES.md', newContent: 'new' }],
+					title: 'Update context',
+					commitMessage: 'Update context',
+					body: 'Update the context rules.',
+				}),
+			).resolves.toEqual({ url: link });
+			expect(commitAllAndPushBranch).toHaveBeenCalledOnce();
+		} finally {
+			fs.rmSync(workdir, { force: true, recursive: true });
 		}
 	});
 });
