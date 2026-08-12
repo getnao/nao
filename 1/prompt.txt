@@ -1,0 +1,1 @@
+When NAO_STORAGE_BACKEND=none it should still be possible to upload files within a conversation but files will not be kept after reload

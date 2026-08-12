@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "01KZTSTYTAGMNMWP0RWJ2NSS9R",
+  "session_id": "c4c94b0e-12c2-40bf-a4d7-a163150f2d6d",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-12T10:56:07.161589Z",
+  "branch": "feat/storage",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "apps/backend/src/agents/tools/grep.ts",
+    "apps/backend/src/agents/tools/list.ts",
+    "apps/backend/src/services/storage/file-access.ts"
+  ],
+  "agent": "Cursor",
+  "model": "cursor-grok-4.5-high-fast",
+  "turn_id": "e8aaf1245689",
+  "checkpoint_transcript_start": 19,
+  "transcript_lines_at_start": 19,
+  "compact_transcript_start": 2,
+  "session_metrics": {
+    "duration_ms": 468645,
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-12T10:56:07.151237Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 421,
+    "human_modified": 20,
+    "human_removed": 0,
+    "total_committed": 421,
+    "total_lines_changed": 509,
+    "agent_percentage": 0,
+    "metric_version": 2
+  }
+}
