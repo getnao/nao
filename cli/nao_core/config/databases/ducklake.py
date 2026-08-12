@@ -159,7 +159,13 @@ class DuckLakeConfig(DatabaseConfig):
                 conn.disconnect()
 
     def translate_connection_error(self, message: str) -> str:
-        """Turn raw DuckDB failures into messages a user can act on."""
+        """Turn raw DuckDB failures into messages a user can act on.
+
+        The recognised cases below build their own fixed text and never echo *message*, but
+        the passthrough case can — DuckDB error text has been observed to echo credentials
+        verbatim (e.g. a malformed CREATE SECRET statement), and this message reaches the
+        LLM agent's context, so it goes through `_redact_secrets` as defence in depth.
+        """
         if "Could not set lock on file" in message or "Unique file handle conflict" in message:
             return (
                 f"DuckLake catalog '{self.catalog.path}' is locked by another process — file-based catalogs "
@@ -169,6 +175,16 @@ class DuckLakeConfig(DatabaseConfig):
             return "Storage access denied — check the storage.key_id and storage.secret values in nao_config.yaml"
         if "Catalog Error" in message and "does not exist" in message:
             return f"DuckLake catalog not found at '{self.catalog_connection_string()}'"
+        return self._redact_secrets(message)
+
+    def _redact_secrets(self, message: str) -> str:
+        """Replace any configured credential values that appear verbatim in *message*."""
+        secrets = [self.catalog.password]
+        if self.storage is not None:
+            secrets += [self.storage.secret, self.storage.key_id]
+        for secret in secrets:
+            if secret:
+                message = message.replace(secret, "[redacted]")
         return message
 
     def _needs_remote_storage(self) -> bool:

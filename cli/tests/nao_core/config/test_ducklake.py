@@ -247,3 +247,49 @@ def test_storage_denied_error_is_translated() -> None:
 def test_unknown_error_is_passed_through() -> None:
     cfg = _config()
     assert cfg.translate_connection_error("some other failure") == "some other failure"
+
+
+def test_unknown_error_redacts_catalog_password() -> None:
+    cfg = _config(
+        catalog={
+            "type": "postgres",
+            "host": "localhost",
+            "database": "cat",
+            "user": "u",
+            "password": "SUPERSECRET",
+        }
+    )
+    message = cfg.translate_connection_error("syntax error near PASSWORD 'SUPERSECRET'")
+    assert "SUPERSECRET" not in message
+    assert "[redacted]" in message
+    assert "syntax error near PASSWORD" in message
+
+
+def test_unknown_error_redacts_storage_secret() -> None:
+    cfg = _config(
+        data_path="s3://bucket/warehouse/",
+        storage={
+            "type": "s3",
+            "key_id": "AKIAKEYID",
+            "secret": "SUPERSECRETSTORAGE",
+            "region": "eu-west-1",
+        },
+    )
+    message = cfg.translate_connection_error("syntax error near SECRET 'SUPERSECRETSTORAGE' and KEY_ID 'AKIAKEYID'")
+    assert "SUPERSECRETSTORAGE" not in message
+    assert "AKIAKEYID" not in message
+    assert message.count("[redacted]") == 2
+
+
+def test_empty_password_does_not_corrupt_unrelated_message() -> None:
+    """Regression guard: replacing an empty string would insert [redacted] between every character."""
+    cfg = _config(
+        catalog={
+            "type": "postgres",
+            "host": "localhost",
+            "database": "cat",
+            "user": "u",
+            "password": "",
+        }
+    )
+    assert cfg.translate_connection_error("some other failure") == "some other failure"
