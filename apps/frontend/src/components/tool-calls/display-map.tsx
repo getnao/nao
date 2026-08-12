@@ -74,9 +74,11 @@ export const DisplayMapToolCall = ({
 	const slotRef = useRef<HTMLDivElement>(null);
 	const breakoutStyle = useBreakoutStyle(slotRef, isExpanded && viewMode === 'map');
 	const mapViewRef = useRef<MapViewHandle>(null);
+	const [hasShownMap, setHasShownMap] = useState(false);
 
 	useEffect(() => {
 		if (viewMode === 'map') {
+			setHasShownMap(true);
 			mapViewRef.current?.resize();
 		}
 	}, [viewMode]);
@@ -364,14 +366,16 @@ export const DisplayMapToolCall = ({
 					)}
 
 					<div className={cn('px-3 pb-3', viewMode !== 'map' && 'hidden')}>
-						<Suspense fallback={<Skeleton className='w-full aspect-3/2 rounded-lg' />}>
-							<MapView
-								ref={mapViewRef}
-								points={visiblePoints}
-								rows={sourceData.data as Record<string, unknown>[]}
-								config={mapConfig}
-							/>
-						</Suspense>
+						{(viewMode === 'map' || hasShownMap) && (
+							<Suspense fallback={<Skeleton className='w-full aspect-3/2 rounded-lg' />}>
+								<MapView
+									ref={mapViewRef}
+									points={visiblePoints}
+									rows={sourceData.data as Record<string, unknown>[]}
+									config={mapConfig}
+								/>
+							</Suspense>
+						)}
 					</div>
 
 					{viewMode === 'table' && (

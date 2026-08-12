@@ -20,6 +20,7 @@ import {
 } from 'chat';
 
 import { generateChartImage } from '../components/generate-chart';
+import type { User } from '../db/abstractSchema';
 import * as chartImageQueries from '../queries/chart-image';
 import * as chatQueries from '../queries/chat.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
@@ -86,6 +87,12 @@ export type SlackFileUpload = {
 	content: Buffer;
 	title?: string;
 };
+
+type SlackUserAuthorization =
+	| { status: 'authorized'; user: User; timezone: string | undefined }
+	| { status: 'no-email' }
+	| { status: 'user-not-found'; email: string }
+	| { status: 'no-permission' };
 
 class ProjectSlackBot {
 	public readonly projectId: string;
@@ -467,17 +474,107 @@ class ProjectSlackBot {
 			return;
 		}
 
+		const authorized = await this._authorizeSlackUser(event.user.userId);
+		if (!authorized) {
+			await event.channel.postEphemeral(
+				event.user,
+				"❌ You don't have permission to use nao in this project. Please contact an administrator.",
+				ephemeralOpts,
+			);
+			return;
+		}
+
+		const question = event.text.trim();
+
+		if (question && !(await this._isPrivateChannel(event))) {
+			await event.channel.postEphemeral(
+				event.user,
+				'❌ `/new <question>` is only available in direct messages and private channels. Send `/new` on its own here, or ask your question in a private conversation with nao.',
+				ephemeralOpts,
+			);
+			return;
+		}
+
 		const chatIds = await chatQueries.clearSlackMainThread(slackChannelId);
 		for (const chatId of chatIds) {
 			agentService.get(chatId)?.stop();
 		}
 
-		const question = event.text.trim();
-		const confirmation = this._newChatConfirmation(chatIds.length > 0, !!question);
-		await event.channel.postEphemeral(event.user, confirmation, ephemeralOpts);
+		if (!question) {
+			await event.channel.postEphemeral(
+				event.user,
+				this._newChatConfirmation(chatIds.length > 0, false),
+				ephemeralOpts,
+			);
+			return;
+		}
 
-		if (question) {
+		try {
 			await this._startNewChatFromCommand(event, slackChannelId, question);
+		} catch (error) {
+			logger.error(`Failed to start new chat from /new command: ${String(error)}`, {
+				source: 'system',
+				context: { projectId: this.projectId, slackChannelId },
+			});
+			await event.channel.postEphemeral(event.user, formatMessagingError(error), ephemeralOpts);
+			return;
+		}
+		await event.channel.postEphemeral(
+			event.user,
+			this._newChatConfirmation(chatIds.length > 0, true),
+			ephemeralOpts,
+		);
+	}
+
+	private async _authorizeSlackUser(slackUserId: string): Promise<User | null> {
+		const result = await this._resolveAuthorizedUser(slackUserId);
+		return result.status === 'authorized' ? result.user : null;
+	}
+
+	private async _resolveAuthorizedUser(slackUserId: string): Promise<SlackUserAuthorization> {
+		const slackUser = await this._getSlackUser(slackUserId);
+		const email = slackUser?.profile?.email?.toLowerCase() || null;
+		if (!email) {
+			return { status: 'no-email' };
+		}
+
+		const timezone = slackUser?.tz || undefined;
+
+		if (this._canAutoProvision(email)) {
+			const project = await projectQueries.getProjectById(this.projectId);
+			const projectName = project?.name ?? 'nao';
+			const displayName = slackUser?.real_name || slackUser?.name || email.split('@')[0];
+			const user = await ensureMessagingProviderUser({
+				email,
+				name: displayName,
+				projectId: this.projectId,
+				buildEmail: (user, temporaryPassword) =>
+					buildUserAddedEmail(user, projectName, 'project', temporaryPassword),
+			});
+			return { status: 'authorized', user, timezone };
+		}
+
+		const user = await getUser({ email });
+		if (!user) {
+			return { status: 'user-not-found', email };
+		}
+		const role = await projectQueries.getUserRoleInProject(this.projectId, user.id);
+		if (role !== 'admin' && role !== 'user' && role !== 'context_admin') {
+			return { status: 'no-permission' };
+		}
+		return { status: 'authorized', user, timezone };
+	}
+
+	private async _isPrivateChannel(event: SlashCommandEvent): Promise<boolean> {
+		try {
+			const info = await event.channel.fetchMetadata();
+			return info.channelVisibility === 'private';
+		} catch (error) {
+			logger.warn(`Failed to resolve Slack channel visibility: ${String(error)}`, {
+				source: 'system',
+				context: { projectId: this.projectId },
+			});
+			return false;
 		}
 	}
 
@@ -527,32 +624,26 @@ class ProjectSlackBot {
 	}
 
 	private async _validateUserAccess(ctx: ConversationContext): Promise<void> {
-		const slackUserId = ctx.userMessage.author.userId;
-		const slackUser = await this._getSlackUser(slackUserId);
-		const email = slackUser?.profile?.email?.toLowerCase() || null;
+		const result = await this._resolveAuthorizedUser(ctx.userMessage.author.userId);
 
-		if (!email) {
-			throw new Error('Could not retrieve user email from Slack');
+		switch (result.status) {
+			case 'authorized':
+				ctx.user = result.user;
+				ctx.timezone = result.timezone;
+				return;
+			case 'no-email':
+				throw new Error('Could not retrieve user email from Slack');
+			case 'user-not-found':
+				await ctx.thread.post(
+					`❌ No user found. Create an account with \`${result.email}\` on ${this._redirectUrl} to sign up.`,
+				);
+				throw new Error('User not found');
+			case 'no-permission':
+				await ctx.thread.post(
+					"❌ You don't have permission to use nao in this project. Please contact an administrator.",
+				);
+				throw new Error('User does not have permission to access this project');
 		}
-
-		ctx.timezone = slackUser?.tz || undefined;
-
-		if (this._canAutoProvision(email)) {
-			const project = await projectQueries.getProjectById(this.projectId);
-			const projectName = project?.name ?? 'nao';
-			const displayName = slackUser?.real_name || slackUser?.name || email.split('@')[0];
-			ctx.user = await ensureMessagingProviderUser({
-				email,
-				name: displayName,
-				projectId: this.projectId,
-				buildEmail: (user, temporaryPassword) =>
-					buildUserAddedEmail(user, projectName, 'project', temporaryPassword),
-			});
-			return;
-		}
-
-		await this._resolveExistingUser(ctx, email);
-		await this._checkUserBelongsToProject(ctx);
 	}
 
 	private _canAutoProvision(email: string): boolean {
@@ -562,30 +653,9 @@ class ProjectSlackBot {
 		return isEmailDomainAllowed(email, this._autoCreateUsersDomains.join(','));
 	}
 
-	private async _resolveExistingUser(ctx: ConversationContext, email: string): Promise<void> {
-		const user = await getUser({ email });
-		if (!user) {
-			await ctx.thread.post(
-				`❌ No user found. Create an account with \`${email}\` on ${this._redirectUrl} to sign up.`,
-			);
-			throw new Error('User not found');
-		}
-		ctx.user = user;
-	}
-
 	private async _getSlackUser(userId: string) {
 		const response = await this._slackClient.users.info({ user: userId });
 		return response?.user || null;
-	}
-
-	private async _checkUserBelongsToProject(ctx: ConversationContext): Promise<void> {
-		const role = await projectQueries.getUserRoleInProject(this.projectId, ctx.user!.id);
-		if (role !== 'admin' && role !== 'user' && role !== 'context_admin') {
-			await ctx.thread.post(
-				"❌ You don't have permission to use nao in this project. Please contact an administrator.",
-			);
-			throw new Error('User does not have permission to access this project');
-		}
 	}
 
 	private async _saveOrUpdateUserMessage(ctx: ConversationContext, fetchUnseenMessages: boolean): Promise<void> {

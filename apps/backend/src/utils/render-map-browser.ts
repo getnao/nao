@@ -5,6 +5,7 @@ import {
 	buildMapPoints,
 	CHOROPLETH_MIN_OPACITY,
 	choroplethValueDomain,
+	computeMapBounds,
 	type CustomBoundarySet,
 	DEFAULT_MARKER_COLOR,
 	DEFAULT_MARKER_RADIUS,
@@ -99,8 +100,21 @@ function buildPointsMap(config: displayMap.Input, rows: Record<string, unknown>[
 			: defaultRadius,
 	}));
 
+	const bounds = computeMapBounds(points);
+
 	return {
-		dataMap: { type: config.map_type, color, radius: defaultRadius, points: mapPoints },
+		dataMap: {
+			type: config.map_type,
+			color,
+			radius: defaultRadius,
+			points: mapPoints,
+			bounds: bounds
+				? [
+						[bounds.west, bounds.south],
+						[bounds.east, bounds.north],
+					]
+				: null,
+		},
 		legendHtml: isBubble && sizeDomain ? bubbleLegendHtml(color, sizeDomain, maxRadius) : '',
 	};
 }
@@ -156,6 +170,12 @@ async function captureHtml(html: string, hasTitle: boolean): Promise<Buffer | nu
 		await page.setContent(html, { waitUntil: 'load', timeout: 30000 });
 		await page.waitForFunction('window.__naoMapsReady === true', { timeout: READY_TIMEOUT_MS }).catch(() => {});
 		await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
+		const rendered = await page
+			.evaluate(() => (window as unknown as { __naoMapsRendered?: number }).__naoMapsRendered ?? 0)
+			.catch(() => 0);
+		if (rendered < 1) {
+			return null;
+		}
 		const element = await page.$('#nao-map-wrap');
 		if (!element) {
 			return null;
@@ -175,6 +195,7 @@ interface PointsDataMap {
 	color: string;
 	radius: number;
 	points: MapPointConfig[];
+	bounds: [[number, number], [number, number]] | null;
 }
 
 interface ChoroplethRegionConfig {
@@ -240,7 +261,11 @@ function bubbleLegendHtml(color: string, domain: NumericDomain, maxRadius: numbe
 		.map((value) => {
 			const radius = scaleBubbleRadius(value, domain, maxRadius);
 			const size = radius * 2;
-			return `<div class="nao-map-legend-item"><div class="nao-map-legend-circle-wrap" style="height:${maxRadius * 2}px"><span class="nao-map-legend-circle" style="width:${size}px;height:${size}px;background:${withOpacity(color, 0.9)}"></span></div><span>${escapeHtml(formatCompactNumber(value))}</span></div>`;
+			const wrapStyle = escapeAttribute(`height:${maxRadius * 2}px`);
+			const circleStyle = escapeAttribute(
+				`width:${size}px;height:${size}px;background:${withOpacity(color, 0.9)}`,
+			);
+			return `<div class="nao-map-legend-item"><div class="nao-map-legend-circle-wrap" style="${wrapStyle}"><span class="nao-map-legend-circle" style="${circleStyle}"></span></div><span>${escapeHtml(formatCompactNumber(value))}</span></div>`;
 		})
 		.join('');
 	return `<div class="nao-map-legend">${items}</div>`;
@@ -248,7 +273,8 @@ function bubbleLegendHtml(color: string, domain: NumericDomain, maxRadius: numbe
 
 function choroplethLegendHtml(color: string, domain: NumericDomain): string {
 	const gradient = `linear-gradient(to right, ${withOpacity(color, CHOROPLETH_MIN_OPACITY)}, ${color})`;
-	return `<div class="nao-map-legend"><div class="nao-map-legend-scale"><span class="nao-map-legend-bar" style="background:${gradient}"></span><span class="nao-map-legend-scale-labels"><span>${escapeHtml(formatCompactNumber(domain.min))}</span><span>${escapeHtml(formatCompactNumber(domain.max))}</span></span></div></div>`;
+	const barStyle = escapeAttribute(`background:${gradient}`);
+	return `<div class="nao-map-legend"><div class="nao-map-legend-scale"><span class="nao-map-legend-bar" style="${barStyle}"></span><span class="nao-map-legend-scale-labels"><span>${escapeHtml(formatCompactNumber(domain.min))}</span><span>${escapeHtml(formatCompactNumber(domain.max))}</span></span></div></div>`;
 }
 
 function escapeHtml(value: string): string {

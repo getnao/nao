@@ -62,9 +62,14 @@ export async function buildBasemapTiles(fit: Fit, byteBudget: number = TILE_BYTE
 	}
 	logger.warn(`Static map basemap unavailable, falling back to plain backdrop: ${reason}`, {
 		source: 'system',
-		context: { tileUrl: BASEMAP_TILE_URL.replace(/\?.*$/, ''), byteBudget },
+		context: { tileUrl: sanitizeTileUrlForLog(BASEMAP_TILE_URL), byteBudget },
 	});
 	return null;
+}
+
+function sanitizeTileUrlForLog(url: string): string {
+	const match = url.match(/^([a-zA-Z][\w+.-]*:\/\/)(?:[^@/]*@)?([^/?#]*)/);
+	return match ? `${match[1]}${match[2]}` : '[redacted]';
 }
 
 interface TileFetchResult {

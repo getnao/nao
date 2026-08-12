@@ -521,17 +521,21 @@ class WhatsappService {
 					mapLinks.push(result.link);
 				}
 			} else if (part.type === 'tool-clarification' && part.state !== 'input-streaming' && part.input) {
-				clarificationText = formatClarificationText(part.input.question, part.input.options);
+				clarificationText = formatClarificationText(part.input.question, part.input.options).replace(
+					CITATION_TAG_REGEX,
+					'',
+				);
 			}
 		}
 
-		const finalText =
-			(lastMessage?.parts ?? [])
-				.filter((p): p is Extract<UIMessagePart, { type: 'text' }> => p.type === 'text')
-				.map((p) => p.text.replace(CITATION_TAG_REGEX, ''))
-				.join('\n\n') ||
-			clarificationText ||
-			'';
+		const textContent = (lastMessage?.parts ?? [])
+			.filter((p): p is Extract<UIMessagePart, { type: 'text' }> => p.type === 'text')
+			.map((p) => p.text.replace(CITATION_TAG_REGEX, ''))
+			.join('\n\n');
+
+		const finalText = [textContent, clarificationText]
+			.filter((part): part is string => Boolean(part && part.trim()))
+			.join('\n\n');
 
 		return { finalText, chartUrls, mapLinks };
 	}

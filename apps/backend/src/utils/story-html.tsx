@@ -1675,8 +1675,11 @@ const MAP_INIT_SCRIPT_TEMPLATE = `
 		return ['interpolate',['linear'],['coalesce',['get','value'],domain.min],domain.min,MIN_OPACITY,domain.max,MAX_OPACITY];
 	}
 	var containers=document.querySelectorAll('.nao-map');
-	if(!containers.length||typeof maplibregl==='undefined'){window.__naoMapsReady=true;return;}
+	if(!containers.length||typeof maplibregl==='undefined'){window.__naoMapsReady=true;window.__naoMapsRendered=0;return;}
 	var pending=containers.length;
+	var rendered=0;
+	window.__naoMapsRendered=0;
+	function markRendered(){rendered++;window.__naoMapsRendered=rendered;}
 	function done(){pending--;if(pending<=0){window.__naoMapsReady=true;}}
 	function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 	function norm(v){return v==null?null:String(v).trim().toLowerCase()||null;}
@@ -1706,9 +1709,10 @@ const MAP_INIT_SCRIPT_TEMPLATE = `
 		});
 		map.addSource('query-points',{type:'geojson',data:{type:'FeatureCollection',features:features}});
 		map.addLayer({id:'query-points-circles',type:'circle',source:'query-points',paint:{'circle-radius':isBubble?['get','radius']:cfg.radius,'circle-color':cfg.color,'circle-opacity':0.9,'circle-stroke-width':1,'circle-stroke-color':'#ffffff'}});
-		var bounds=new maplibregl.LngLatBounds();
-		cfg.points.forEach(function(point){bounds.extend([point.lng,point.lat]);});
-		try{map.fitBounds(bounds,{padding:40,maxZoom:14,duration:0});}catch(e){}
+		try{
+			if(cfg.bounds){map.fitBounds(cfg.bounds,{padding:40,maxZoom:14,duration:0});}
+			else{var bounds=new maplibregl.LngLatBounds();cfg.points.forEach(function(point){bounds.extend([point.lng,point.lat]);});map.fitBounds(bounds,{padding:40,maxZoom:14,duration:0});}
+		}catch(e){}
 		var popup=new maplibregl.Popup({closeButton:false,closeOnClick:false,className:'map-tooltip',offset:12,maxWidth:'280px'});
 		map.on('mousemove','query-points-circles',function(e){
 			var feature=e.features&&e.features[0];if(!feature)return;
@@ -1758,16 +1762,18 @@ const MAP_INIT_SCRIPT_TEMPLATE = `
 		var cfg;try{cfg=JSON.parse(raw);}catch(e){done();return;}
 		var map;
 		try{map=newMap(container);}catch(e){done();return;}
+		var loaded=false;
 		map.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');
-		map.on('error',function(){done();});
+		map.on('error',function(){if(!loaded)done();});
 		map.on('load',function(){
+			loaded=true;
 			clampMinZoom(map,container);
 		if(cfg.type==='choropleth'){
 			var ready=cfg.inlineGeoJson?Promise.resolve(cfg.inlineGeoJson):cfg.boundaryUrl?fetch(cfg.boundaryUrl).then(function(r){return r.ok?r.json():null;}).catch(function(){return null;}):Promise.resolve(null);
-				ready.then(function(boundaries){renderChoropleth(map,cfg,boundaries);map.once('idle',done);});
+				ready.then(function(boundaries){renderChoropleth(map,cfg,boundaries);map.once('idle',function(){markRendered();done();});});
 			}else{
 				renderPoints(map,cfg);
-				map.once('idle',done);
+				map.once('idle',function(){markRendered();done();});
 			}
 		});
 	});

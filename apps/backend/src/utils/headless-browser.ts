@@ -3,6 +3,7 @@ import { existsSync } from 'fs';
 import type { Browser } from 'puppeteer-core';
 
 let browserPromise: Promise<Browser> | null = null;
+let activeBrowser: Browser | null = null;
 
 async function loadPuppeteer() {
 	try {
@@ -17,34 +18,54 @@ async function loadPuppeteer() {
 /** Shared, lazily-launched headless Chromium used for server-side rendering (PDF export, static map images). */
 export async function getBrowser(): Promise<Browser> {
 	if (browserPromise) {
-		const browser = await browserPromise;
-		if (browser.connected) {
+		const browser = await browserPromise.catch(() => null);
+		if (browser?.connected) {
 			return browser;
 		}
-		await browser.close().catch(() => {});
+		await closeBrowser();
 	}
-	const puppeteer = await loadPuppeteer();
-	browserPromise = puppeteer.default
-		.launch({
+	if (!browserPromise) {
+		browserPromise = launchBrowser();
+	}
+	return browserPromise;
+}
+
+async function launchBrowser(): Promise<Browser> {
+	try {
+		const puppeteer = await loadPuppeteer();
+		const browser = await puppeteer.default.launch({
 			headless: true,
 			executablePath: findChromePath(),
-			args: [
-				'--no-sandbox',
-				'--disable-setuid-sandbox',
-				'--disable-gpu',
-				'--disable-dev-shm-usage',
-				'--enable-unsafe-swiftshader',
-			],
-		})
-		.catch((error) => {
-			browserPromise = null;
-			throw error;
+			args: browserLaunchArgs(),
 		});
-	return browserPromise;
+		activeBrowser = browser;
+		browser.on('disconnected', () => {
+			if (activeBrowser === browser) {
+				activeBrowser = null;
+			}
+		});
+		return browser;
+	} catch (error) {
+		browserPromise = null;
+		throw error;
+	}
+}
+
+function browserLaunchArgs(): string[] {
+	const args = ['--disable-gpu', '--disable-dev-shm-usage', '--enable-unsafe-swiftshader'];
+	if (isSandboxDisabled()) {
+		args.unshift('--no-sandbox', '--disable-setuid-sandbox');
+	}
+	return args;
+}
+
+function isSandboxDisabled(): boolean {
+	return process.env.DOCKER === '1';
 }
 
 function findChromePath(): string {
 	const candidates = [
+		process.env.PUPPETEER_EXECUTABLE_PATH,
 		process.env.CHROME_PATH,
 		'/usr/bin/chromium',
 		'/usr/bin/chromium-browser',
@@ -62,19 +83,23 @@ function findChromePath(): string {
 			encoding: 'utf-8',
 		}).trim();
 	} catch {
-		throw new Error('Chrome/Chromium not found. Install chromium or set the CHROME_PATH environment variable.');
+		throw new Error(
+			'Chrome/Chromium not found. Install chromium or set the PUPPETEER_EXECUTABLE_PATH (or CHROME_PATH) environment variable.',
+		);
 	}
 }
 
-async function closeBrowser() {
-	if (!browserPromise) {
+export async function closeBrowser(): Promise<void> {
+	const promise = browserPromise;
+	browserPromise = null;
+	activeBrowser = null;
+	if (!promise) {
 		return;
 	}
-	const browser = await browserPromise.catch(() => null);
-	browserPromise = null;
+	const browser = await promise.catch(() => null);
 	await browser?.close().catch(() => {});
 }
 
-for (const signal of ['SIGINT', 'SIGTERM', 'exit'] as const) {
-	process.on(signal, () => void closeBrowser());
-}
+process.once('exit', () => {
+	activeBrowser?.process()?.kill('SIGKILL');
+});
