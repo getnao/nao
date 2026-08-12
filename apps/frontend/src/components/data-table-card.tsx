@@ -8,6 +8,7 @@ import { ExportDataMenu } from '@/components/export-data-menu';
 import { TableDisplay } from '@/components/tool-calls/display-table';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { useDateFormat } from '@/hooks/use-date-format';
 import { tableToTsv } from '@/lib/table-export';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
@@ -41,6 +42,7 @@ export const DataTableCard = memo(
 	}: DataTableCardProps) => {
 		const [isFullscreen, setIsFullscreen] = useState(false);
 		const logDownload = useMutation(trpc.analyticsEvent.logChatDownload.mutationOptions());
+		const dateFormat = useDateFormat();
 
 		const resolvedColumns = columns.length > 0 ? columns : inferColumns(data);
 
@@ -48,7 +50,7 @@ export const DataTableCard = memo(
 			return null;
 		}
 
-		const handleCopy = () => navigator.clipboard.writeText(tableToTsv(resolvedColumns, data));
+		const handleCopy = () => navigator.clipboard.writeText(tableToTsv(resolvedColumns, data, dateFormat));
 		const handleExport = (format: DataExportFormat) => {
 			if (chatId) {
 				logDownload.mutate({ chatId, format, title });
