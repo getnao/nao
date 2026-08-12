@@ -781,6 +781,17 @@ export const clearWhatsappThread = async (threadId: string): Promise<boolean> =>
 	return result.length > 0;
 };
 
+/** Clears the slack thread mapping for the main conversation of a DM, identified by the raw Slack channel ID (e.g. `D123ABC`). The main conversation is the chat with an empty thread timestamp (`slack:<channelId>:`); explicitly opened threads are left untouched. Returns the affected chat IDs so running agents can be stopped. */
+export const clearSlackMainThread = async (slackChannelId: string): Promise<string[]> => {
+	const result = await db
+		.update(s.chat)
+		.set({ slackThreadId: null })
+		.where(eq(s.chat.slackThreadId, `slack:${slackChannelId}:`))
+		.returning({ id: s.chat.id })
+		.execute();
+	return result.map((r) => r.id);
+};
+
 export type SearchChatResult = {
 	id: string;
 	title: string;

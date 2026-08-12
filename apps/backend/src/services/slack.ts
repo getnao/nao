@@ -7,7 +7,17 @@ import { displayChart } from '@nao/shared/tools';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import { type ChatPostMessageArguments, WebClient } from '@slack/web-api';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
-import { Card, Chat, deriveChannelId, Message, SentMessage, Thread, ThreadImpl } from 'chat';
+import {
+	Card,
+	Chat,
+	deriveChannelId,
+	Message,
+	parseMarkdown,
+	SentMessage,
+	SlashCommandEvent,
+	Thread,
+	ThreadImpl,
+} from 'chat';
 
 import { generateChartImage } from '../components/generate-chart';
 import * as chartImageQueries from '../queries/chart-image';
@@ -284,6 +294,10 @@ class ProjectSlackBot {
 	}
 
 	private _registerHandlers(): void {
+		this._bot.onSlashCommand('/new', async (event) => {
+			await this._handleNewCommand(event);
+		});
+
 		this._bot.onNewMention(async (thread, message) => {
 			const startsThread = await this._isThreadStarter(thread.id);
 			if (startsThread && this._config.replyMode === 'thread') {
@@ -442,6 +456,76 @@ class ProjectSlackBot {
 				await ctx.thread.post(errorMessage);
 			}
 		}
+	}
+
+	private async _handleNewCommand(event: SlashCommandEvent): Promise<void> {
+		const channelJson = event.channel.toJSON();
+		const [, slackChannelId] = channelJson.id.split(':');
+		const ephemeralOpts = { fallbackToDM: true };
+		if (!slackChannelId) {
+			await event.channel.postEphemeral(event.user, '❌ Could not determine the channel.', ephemeralOpts);
+			return;
+		}
+
+		const chatIds = await chatQueries.clearSlackMainThread(slackChannelId);
+		for (const chatId of chatIds) {
+			agentService.get(chatId)?.stop();
+		}
+
+		const question = event.text.trim();
+		const confirmation = this._newChatConfirmation(chatIds.length > 0, !!question);
+		await event.channel.postEphemeral(event.user, confirmation, ephemeralOpts);
+
+		if (question) {
+			await this._startNewChatFromCommand(event, slackChannelId, question);
+		}
+	}
+
+	private _newChatConfirmation(hadActiveChat: boolean, hasQuestion: boolean): string {
+		if (hasQuestion) {
+			return hadActiveChat
+				? '✅ Started a new chat with a fresh context.'
+				: '✅ Started a fresh chat.';
+		}
+		return hadActiveChat
+			? '✅ Started a new chat. Send your next message to continue with a fresh context.'
+			: '✅ No active chat to reset. Send your next message to start a fresh conversation.';
+	}
+
+	private async _startNewChatFromCommand(
+		event: SlashCommandEvent,
+		slackChannelId: string,
+		question: string,
+	): Promise<void> {
+		const rootMessage = await event.channel.post(`<@${event.user.userId}>: ${question}`);
+		const threadId = getSlackThreadId(slackChannelId, rootMessage.id);
+
+		await this._bot.initialize();
+		const adapter = this._bot.getAdapter('slack');
+		const thread = new ThreadImpl({
+			adapter,
+			stateAdapter: this._bot.getState(),
+			id: threadId,
+			channelId: deriveChannelId(adapter, threadId),
+			isDM: false,
+		});
+
+		if (this._config.replyMode === 'thread') {
+			await thread.subscribe();
+		}
+
+		const userMessage = new Message({
+			id: rootMessage.id,
+			threadId,
+			text: question,
+			formatted: parseMarkdown(question),
+			raw: {},
+			author: event.user,
+			metadata: { dateSent: new Date(), edited: false },
+			attachments: [],
+		});
+
+		await this._handleWorkFlow(thread, userMessage, { fetchUnseenMessages: false });
 	}
 
 	private async _validateUserAccess(ctx: ConversationContext): Promise<void> {
