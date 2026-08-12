@@ -781,6 +781,21 @@ code.dollar:before {
 	opacity: 0.9;
 }
 
+/* Reduce the(⌘+scroll) overlay so that it doesn't get over the chat input. */
+.maplibregl-cooperative-gesture-screen {
+	background: rgb(0 0 0 / 0.25);
+	z-index: 2;
+}
+
+.maplibregl-cooperative-gesture-screen.maplibregl-show {
+	transition: opacity 0.05s;
+}
+
+/* Snap the hide-fade so the overlay clears quickly instead of lingering 2 s */
+.maplibregl-cooperative-gesture-screen:not(.maplibregl-show) {
+	transition: opacity 0.3s ease 0.2s;
+}
+
 /* MapLibre hover tooltip: strip default popup chrome so the inner box matches the chart tooltip */
 .maplibregl-popup.map-tooltip {
 	pointer-events: none;
