@@ -9,7 +9,12 @@ import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
 import type { OrgRole } from '../types/organization';
 import { logger, serializeError } from '../utils/logger';
-import { extractGroups, parseGroupRoleMapping, resolveRoleFromGroups } from '../utils/sso-group-mapping';
+import {
+	decideGroupRoleMapping,
+	extractGroups,
+	parseGroupRoleMapping,
+	resolveRoleFromGroups,
+} from '../utils/sso-group-mapping';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { getOidcProviderId } from './oidc-auth.service';
 
@@ -34,21 +39,36 @@ export async function syncRolesFromSsoGroups(userId: string): Promise<void> {
 	}
 
 	try {
-		const groups = await readGroupsFromIdToken(userId);
-		if (!groups) {
+		const token = await readClaimsFromIdToken(userId);
+		if (token.status === 'no-token') {
 			return;
 		}
 
-		const role = resolveRoleFromGroups(groups, parseGroupRoleMapping(env.OIDC_GROUP_ROLE_MAPPING));
-		if (!role) {
-			logger.info('No mapped SSO group matched, leaving roles untouched', {
+		if (token.status === 'undecodable') {
+			logger.warn('Could not decode the SSO ID token, leaving roles untouched', {
 				source: 'system',
-				context: { userId, groups },
+				context: { userId },
 			});
 			return;
 		}
 
-		await applyRole(userId, role);
+		const claimName = env.OIDC_GROUPS_CLAIM ?? DEFAULT_GROUPS_CLAIM;
+		const decision = decideGroupRoleMapping(
+			token.claims,
+			claimName,
+			parseGroupRoleMapping(env.OIDC_GROUP_ROLE_MAPPING),
+		);
+		if (!decision.claimPresent) {
+			logger.warn('The SSO groups claim is missing from the ID token, leaving roles untouched', {
+				source: 'system',
+				context: { userId, claimName },
+			});
+			return;
+		}
+
+		if (decision.role) {
+			await applyRole(userId, decision.role);
+		}
 	} catch (error) {
 		logger.error('Failed to sync roles from SSO groups', {
 			source: 'system',
@@ -133,13 +153,22 @@ function toDate(seconds: unknown): Date | null {
 	return typeof seconds === 'number' ? new Date(seconds * 1000) : null;
 }
 
-async function readGroupsFromIdToken(userId: string): Promise<string[] | null> {
+type IdTokenClaims =
+	| { status: 'no-token' }
+	| { status: 'undecodable' }
+	| { status: 'decoded'; claims: Record<string, unknown> };
+
+async function readClaimsFromIdToken(userId: string): Promise<IdTokenClaims> {
 	const idToken = await accountQueries.getIdToken(userId, getOidcProviderId());
 	if (!idToken) {
-		return null;
+		return { status: 'no-token' };
 	}
 
-	return extractGroups(decodeJwt(idToken), env.OIDC_GROUPS_CLAIM ?? DEFAULT_GROUPS_CLAIM);
+	try {
+		return { status: 'decoded', claims: decodeJwt(idToken) };
+	} catch {
+		return { status: 'undecodable' };
+	}
 }
 
 /**

@@ -3,7 +3,7 @@ import { initTRPC, TRPCError } from '@trpc/server';
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify';
 import superjson from 'superjson';
 
-import { getAuth } from '../auth';
+import { getSession } from '../auth';
 import * as projectQueries from '../queries/project.queries';
 import { isGroupRoleMappingActive } from '../services/sso-group-mapping.service';
 import { HandlerError } from '../utils/error';
@@ -14,8 +14,7 @@ export type MiddlewareFunction = Parameters<typeof t.procedure.use>[0];
 
 export const createContext = async (opts: CreateFastifyContextOptions) => {
 	const headers = convertHeaders(opts.req.headers);
-	const auth = await getAuth();
-	const session = await auth?.api.getSession({ headers });
+	const session = await getSession(headers);
 	return {
 		session,
 		selectedProjectId: headers.get('x-nao-project-id'),

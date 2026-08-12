@@ -18,7 +18,7 @@ const PROBLEM_HINTS: Record<string, string> = {
 	'claim-missing':
 		'The identity provider did not send this claim in the ID token. Check the claim name and that it is included in the ID token, not only in the userinfo endpoint.',
 	'no-group-matched':
-		'The claim was present but none of its groups appear in OIDC_GROUP_ROLE_MAPPING, so the role was left untouched.',
+		'The claim was present but none of its groups appear in OIDC_GROUP_ROLE_MAPPING, so this user can no longer sign in through SSO.',
 };
 
 export function SsoTokenInspector() {

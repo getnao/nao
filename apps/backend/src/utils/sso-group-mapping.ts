@@ -44,6 +44,25 @@ export function resolveRoleFromGroups(groups: string[], mapping: Map<string, Use
 	return ROLE_PRECEDENCE.find((role) => matched.has(role)) ?? null;
 }
 
+export interface GroupRoleMappingDecision {
+	action: 'allow' | 'deny';
+	role: UserRole | null;
+	claimPresent: boolean;
+}
+
+export function decideGroupRoleMapping(
+	claims: Record<string, unknown> | null,
+	claimName: string,
+	mapping: Map<string, UserRole>,
+): GroupRoleMappingDecision {
+	if (!claims || !(claimName in claims)) {
+		return { action: 'allow', role: null, claimPresent: false };
+	}
+
+	const role = resolveRoleFromGroups(extractGroups(claims, claimName), mapping);
+	return role ? { action: 'allow', role, claimPresent: true } : { action: 'deny', role: null, claimPresent: true };
+}
+
 export function extractGroups(claims: Record<string, unknown>, claimName: string): string[] {
 	const value = claims[claimName];
 	if (typeof value === 'string') {

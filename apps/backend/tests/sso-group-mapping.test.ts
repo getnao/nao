@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { extractGroups, parseGroupRoleMapping, resolveRoleFromGroups } from '../src/utils/sso-group-mapping';
+import {
+	decideGroupRoleMapping,
+	extractGroups,
+	parseGroupRoleMapping,
+	resolveRoleFromGroups,
+} from '../src/utils/sso-group-mapping';
+import { hasSsoSessionExceededMaxAge } from '../src/utils/sso-session';
 
 describe('parseGroupRoleMapping', () => {
 	it('parses a comma-separated list of group:role pairs', () => {
@@ -66,9 +72,50 @@ describe('resolveRoleFromGroups', () => {
 		expect(resolveRoleFromGroups(['NAO-Admins'], mapping)).toBe('admin');
 	});
 
-	it('returns null when no group matches, so existing roles are left alone', () => {
+	it('returns null when no group matches', () => {
 		expect(resolveRoleFromGroups(['everyone'], mapping)).toBeNull();
 		expect(resolveRoleFromGroups([], mapping)).toBeNull();
+	});
+});
+
+describe('decideGroupRoleMapping', () => {
+	const mapping = parseGroupRoleMapping('nao-admins:admin,nao-users:user');
+
+	it('allows access and returns the resolved role when a group matches', () => {
+		expect(decideGroupRoleMapping({ groups: ['nao-users'] }, 'groups', mapping)).toEqual({
+			action: 'allow',
+			role: 'user',
+			claimPresent: true,
+		});
+	});
+
+	it('denies access when the claim is present but no group matches', () => {
+		expect(decideGroupRoleMapping({ groups: ['everyone'] }, 'groups', mapping)).toEqual({
+			action: 'deny',
+			role: null,
+			claimPresent: true,
+		});
+		expect(decideGroupRoleMapping({ groups: [] }, 'groups', mapping).action).toBe('deny');
+	});
+
+	it('denies access when the claim is present in an unsupported format', () => {
+		expect(decideGroupRoleMapping({ groups: 42 }, 'groups', mapping).action).toBe('deny');
+	});
+
+	it('allows access without a role when the claim is missing', () => {
+		expect(decideGroupRoleMapping({}, 'groups', mapping)).toEqual({
+			action: 'allow',
+			role: null,
+			claimPresent: false,
+		});
+	});
+
+	it('allows access without a role when claims could not be decoded', () => {
+		expect(decideGroupRoleMapping(null, 'groups', mapping)).toEqual({
+			action: 'allow',
+			role: null,
+			claimPresent: false,
+		});
 	});
 });
 
@@ -92,5 +139,21 @@ describe('extractGroups', () => {
 	it('returns an empty list when the claim is missing or not a group list', () => {
 		expect(extractGroups({}, 'groups')).toEqual([]);
 		expect(extractGroups({ groups: 42 }, 'groups')).toEqual([]);
+	});
+});
+
+describe('hasSsoSessionExceededMaxAge', () => {
+	const createdAt = new Date('2026-08-12T10:00:00.000Z');
+
+	it('keeps a session before the maximum age', () => {
+		expect(hasSsoSessionExceededMaxAge(createdAt, 3600, new Date('2026-08-12T10:59:59.999Z'))).toBe(false);
+	});
+
+	it('expires a session at the maximum age boundary', () => {
+		expect(hasSsoSessionExceededMaxAge(createdAt, 3600, new Date('2026-08-12T11:00:00.000Z'))).toBe(true);
+	});
+
+	it('expires a session after the maximum age', () => {
+		expect(hasSsoSessionExceededMaxAge(createdAt, 3600, new Date('2026-08-12T12:00:00.000Z'))).toBe(true);
 	});
 });

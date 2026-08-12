@@ -4,9 +4,10 @@ import {
 	oauthProviderAuthServerMetadata,
 	oauthProviderOpenIdConfigMetadata,
 } from '@better-auth/oauth-provider';
-import type { BetterAuthPlugin } from 'better-auth';
+import type { BetterAuthPlugin, Session } from 'better-auth';
 import { APIError, betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
+import { createAuthMiddleware } from 'better-auth/api';
 import { verifyAccessToken } from 'better-auth/oauth2';
 import { jwt } from 'better-auth/plugins';
 import { bearer } from 'better-auth/plugins/bearer';
@@ -34,6 +35,7 @@ import {
 	isSocialProviderOidc,
 } from './services/oidc-auth.service';
 import { syncRolesFromSsoGroups } from './services/sso-group-mapping.service';
+import { shouldExpireSsoSession } from './services/sso-session.service';
 import { buildForgotPasswordEmail } from './utils/email-builders';
 import { logger, serializeError } from './utils/logger';
 import { buildUsernameAllowlist, isEmailDomainAllowed, resolveProviderId } from './utils/utils';
@@ -49,6 +51,18 @@ export const getAuth = async () => {
 		defaultAuthPromise = createAuthInstance(env.BETTER_AUTH_URL);
 	}
 	return defaultAuthPromise;
+};
+
+export const getSession = async (headers: Headers) => {
+	const auth = await getAuth();
+	const session = await auth.api.getSession({ headers });
+	if (!session?.session || !(await shouldExpireSsoSession(session.session))) {
+		return session;
+	}
+
+	const context = await auth.$context;
+	await context.internalAdapter.deleteSession(session.session.token);
+	return null;
 };
 
 export function updateAuth() {
@@ -227,6 +241,23 @@ async function createAuthInstance(baseURL: string) {
 				enabled: true,
 				trustedProviders,
 			},
+		},
+		hooks: {
+			after: createAuthMiddleware(async (ctx) => {
+				if (ctx.path !== '/get-session' || !ctx.request) {
+					return;
+				}
+
+				const result = ctx.context.returned as { session?: Session } | null;
+				if (!result?.session || !(await shouldExpireSsoSession(result.session))) {
+					return;
+				}
+
+				await ctx.context.internalAdapter.deleteSession(result.session.token);
+				return new Response('null', {
+					headers: { 'content-type': 'application/json' },
+				});
+			}),
 		},
 		databaseHooks: {
 			user: {
