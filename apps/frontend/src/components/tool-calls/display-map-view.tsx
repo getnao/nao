@@ -52,6 +52,7 @@ const POINT_STROKE_WIDTH = 1;
 
 export interface MapViewHandle {
 	captureImage: (type?: string) => Promise<string | null>;
+	resize: () => void;
 }
 
 interface MapViewProps {
@@ -185,6 +186,9 @@ export default memo(function MapView({
 					regions: regionsRef.current,
 					type,
 				});
+			},
+			resize: () => {
+				mapRef.current?.resize();
 			},
 		}),
 		[],

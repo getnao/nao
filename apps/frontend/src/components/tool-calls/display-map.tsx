@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
 	Code,
@@ -74,6 +74,12 @@ export const DisplayMapToolCall = ({
 	const slotRef = useRef<HTMLDivElement>(null);
 	const breakoutStyle = useBreakoutStyle(slotRef, isExpanded && viewMode === 'map');
 	const mapViewRef = useRef<MapViewHandle>(null);
+
+	useEffect(() => {
+		if (viewMode === 'map') {
+			mapViewRef.current?.resize();
+		}
+	}, [viewMode]);
 	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning);
 	const storyIds = useStoryIds();
 	const { mutate: logDownload } = useMutation(trpc.analyticsEvent.logChatDownload.mutationOptions());
@@ -351,18 +357,16 @@ export const DisplayMapToolCall = ({
 						/>
 					)}
 
-					{viewMode === 'map' && (
-						<div className='px-3 pb-3'>
-							<Suspense fallback={<Skeleton className='w-full aspect-3/2 rounded-lg' />}>
-								<MapView
-									ref={mapViewRef}
-									points={visiblePoints}
-									rows={sourceData.data as Record<string, unknown>[]}
-									config={mapConfig}
-								/>
-							</Suspense>
-						</div>
-					)}
+					<div className={cn('px-3 pb-3', viewMode !== 'map' && 'hidden')}>
+						<Suspense fallback={<Skeleton className='w-full aspect-3/2 rounded-lg' />}>
+							<MapView
+								ref={mapViewRef}
+								points={visiblePoints}
+								rows={sourceData.data as Record<string, unknown>[]}
+								config={mapConfig}
+							/>
+						</Suspense>
+					</div>
 
 					{viewMode === 'table' && (
 						<TableDisplay
