@@ -350,7 +350,11 @@ async function createAuthInstance(baseURL: string) {
 			},
 			session: {
 				create: {
-					async after(session) {
+					async after(session, ctx) {
+						if (!isSocialProviderOidc(resolveProviderId(ctx))) {
+							return;
+						}
+
 						await syncRolesFromSsoGroups(session.userId);
 					},
 				},

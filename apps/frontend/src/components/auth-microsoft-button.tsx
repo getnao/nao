@@ -8,9 +8,12 @@ import { rememberSignInMethod } from '@/lib/last-sign-in-method';
 import { handleMicrosoftSignIn } from '@/lib/microsoft-auth';
 import { trpc } from '@/main';
 
-export function useIsMicrosoftSetup(): boolean {
+export function useIsMicrosoftSetup() {
 	const isMicrosoftSetup = useQuery(trpc.authConfig.microsoft.isSetup.queryOptions());
-	return Boolean(isMicrosoftSetup.data);
+	return {
+		isSetup: Boolean(isMicrosoftSetup.data),
+		isPending: isMicrosoftSetup.isPending,
+	};
 }
 
 interface MicrosoftSignInButtonProps {

@@ -34,7 +34,8 @@ export function EditMemberDialog({
 	onSubmit,
 }: EditMemberDialogProps) {
 	const [error, setError] = useState('');
-	const { rolesManagedByIdp, providerName } = useSsoRoleMapping();
+	const { rolesManagedByIdp, providerName, isLoading } = useSsoRoleMapping();
+	const isRoleEditingDisabled = rolesManagedByIdp || isLoading;
 
 	const form = useForm({
 		defaultValues: {
@@ -50,7 +51,7 @@ export function EditMemberDialog({
 				await onSubmit({
 					userId: member.id,
 					name: value.name,
-					newRole: rolesManagedByIdp ? undefined : value.role,
+					newRole: isRoleEditingDisabled ? undefined : value.role,
 				});
 				onOpenChange(false);
 			} catch (err) {
@@ -106,11 +107,11 @@ export function EditMemberDialog({
 										Role
 									</label>
 									<DropdownMenu>
-										<DropdownMenuTrigger asChild disabled={rolesManagedByIdp}>
+										<DropdownMenuTrigger asChild disabled={isRoleEditingDisabled}>
 											<Button
 												variant='outline'
 												className='w-full justify-between'
-												disabled={rolesManagedByIdp}
+												disabled={isRoleEditingDisabled}
 											>
 												<span>{USER_ROLE_LABELS[field.state.value]}</span>
 												<ChevronDown className='h-4 w-4 opacity-50' />

@@ -88,10 +88,15 @@ export const updateProjectMemberRole = async (projectId: string, userId: string,
 
 export const listProjectMembershipsForUser = async (
 	userId: string,
-): Promise<Array<{ projectId: string; role: UserRole }>> => {
+): Promise<Array<{ projectId: string; projectPath: string | null; role: UserRole }>> => {
 	return db
-		.select({ projectId: s.projectMember.projectId, role: s.projectMember.role })
+		.select({
+			projectId: s.projectMember.projectId,
+			projectPath: s.project.path,
+			role: s.projectMember.role,
+		})
 		.from(s.projectMember)
+		.innerJoin(s.project, eq(s.project.id, s.projectMember.projectId))
 		.where(eq(s.projectMember.userId, userId))
 		.execute();
 };

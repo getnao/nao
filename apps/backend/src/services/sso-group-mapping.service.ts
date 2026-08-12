@@ -16,13 +16,13 @@ import {
 	resolveRoleFromGroups,
 } from '../utils/sso-group-mapping';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
-import { getOidcProviderId } from './oidc-auth.service';
+import { getOidcProviderId, isOidcConfigured } from './oidc-auth.service';
 
 const DEFAULT_GROUPS_CLAIM = 'groups';
 
 /** When active the identity provider owns roles, so nao must not let them be edited by hand. */
 export async function isGroupRoleMappingActive(): Promise<boolean> {
-	if (parseGroupRoleMapping(env.OIDC_GROUP_ROLE_MAPPING).size === 0) {
+	if (!isOidcConfigured() || parseGroupRoleMapping(env.OIDC_GROUP_ROLE_MAPPING).size === 0) {
 		return false;
 	}
 	return hasFeature(LICENSE_FEATURES.sso);
@@ -186,10 +186,40 @@ async function applyRole(userId: string, role: UserRole): Promise<void> {
 		await orgQueries.updateOrgMemberRole(membership.orgId, userId, orgRole);
 	}
 
-	for (const { projectId, role: currentRole } of await projectQueries.listProjectMembershipsForUser(userId)) {
+	for (const { projectId, projectPath, role: currentRole } of await projectQueries.listProjectMembershipsForUser(
+		userId,
+	)) {
 		if (currentRole !== role && (await canDemoteProjectMember(projectId, currentRole, role))) {
 			await projectQueries.updateProjectMemberRole(projectId, userId, role);
+			await cleanupWorktreeAfterDemotion(projectId, projectPath, userId, currentRole, role);
 		}
+	}
+}
+
+async function cleanupWorktreeAfterDemotion(
+	projectId: string,
+	projectPath: string | null,
+	userId: string,
+	currentRole: UserRole,
+	nextRole: UserRole,
+): Promise<void> {
+	if (
+		!projectPath ||
+		(currentRole !== 'admin' && currentRole !== 'context_admin') ||
+		nextRole === 'admin' ||
+		nextRole === 'context_admin'
+	) {
+		return;
+	}
+
+	try {
+		const { cleanupContextWorktree } = await import('./context-explorer-git.service');
+		await cleanupContextWorktree(projectId, projectPath, userId);
+	} catch (error) {
+		logger.warn('Failed to clean up context worktree after SSO group demotion', {
+			source: 'system',
+			context: { projectId, userId, error: serializeError(error) },
+		});
 	}
 }
 

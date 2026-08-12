@@ -4,6 +4,7 @@ import { z } from 'zod/v4';
 import { updateAuth } from '../auth';
 import { env, isCloud } from '../env';
 import * as orgQueries from '../queries/organization.queries';
+import * as projectQueries from '../queries/project.queries';
 import { emailService } from '../services/email';
 import { isGithubSsoEnabled } from '../services/github';
 import { isGitlabSsoEnabled } from '../services/gitlab';
@@ -96,7 +97,14 @@ export const authConfigRoutes = {
 				if (!(await hasFeature(LICENSE_FEATURES.sso)) || !isOidcConfigured()) {
 					throw new TRPCError({ code: 'FORBIDDEN', message: 'OIDC single sign-on is not configured.' });
 				}
-				return inspectSsoToken(input.userId ?? ctx.user.id);
+				const targetUserId = input.userId ?? ctx.user.id;
+				if (
+					targetUserId !== ctx.user.id &&
+					!(await projectQueries.getUserRoleInProject(ctx.project.id, targetUserId))
+				) {
+					throw new TRPCError({ code: 'FORBIDDEN', message: 'User is not a member of this project' });
+				}
+				return inspectSsoToken(targetUserId);
 			}),
 	},
 	smtp: {

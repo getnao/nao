@@ -51,7 +51,7 @@ export function AuthForm({
 	const isGoogleSetup = useQuery(trpc.authConfig.google.isSetup.queryOptions());
 	const isGithubSetup = useQuery(trpc.authConfig.github.isSetup.queryOptions());
 	const isGitlabSetup = useQuery(trpc.authConfig.gitlab.isSetup.queryOptions());
-	const isMicrosoftSetup = useIsMicrosoftSetup();
+	const { isSetup: isMicrosoftSetup, isPending: isMicrosoftSetupPending } = useIsMicrosoftSetup();
 	const oidcConfig = useQuery(trpc.authConfig.oidc.getConfig.queryOptions());
 	const branding = useBranding();
 
@@ -113,9 +113,18 @@ export function AuthForm({
 		),
 	].filter(Boolean);
 
+	const areSocialProvidersPending = Boolean(
+		displaySocialProviders &&
+		(isGoogleSetup.isPending ||
+			isGithubSetup.isPending ||
+			isGitlabSetup.isPending ||
+			isMicrosoftSetupPending ||
+			oidcConfig.isPending),
+	);
 	const hasAnyProvider = socialProviders.length > 0;
-	const showsProviders = Boolean(displaySocialProviders && hasAnyProvider);
-	const showEmailForm = displayEmailPasswordForm && (!showsProviders || isEmailFormExpanded);
+	const showsProviders = Boolean(displaySocialProviders && !areSocialProvidersPending && hasAnyProvider);
+	const showEmailForm =
+		!areSocialProvidersPending && displayEmailPasswordForm && (!showsProviders || isEmailFormExpanded);
 
 	return (
 		<div className='flex min-h-screen w-full'>
@@ -156,7 +165,6 @@ export function AuthForm({
 									className='mt-6 flex w-full cursor-pointer items-center justify-center gap-2 text-sm font-medium text-foreground'
 								>
 									<span className='underline underline-offset-2'>Use email and password</span>
-									{lastSignInMethod === 'email' && <LastUsedPill />}
 								</button>
 							)}
 						</div>
@@ -166,7 +174,10 @@ export function AuthForm({
 
 					{showEmailForm ? (
 						<CompactFieldsContext.Provider
-							value={{ compact: showsProviders, emailLastUsed: lastSignInMethod === 'email' }}
+							value={{
+								compact: showsProviders,
+								emailLastUsed: Boolean(displaySocialProviders && lastSignInMethod === 'email'),
+							}}
 						>
 							<form
 								onSubmit={(e) => {

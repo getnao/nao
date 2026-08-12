@@ -27,7 +27,12 @@ export function SsoTokenInspector() {
 	const members = useQuery(trpc.project.listAllUsersWithRoles.queryOptions());
 	const [selectedUserId, setSelectedUserId] = useState<string | undefined>(undefined);
 
-	const userId = selectedUserId ?? session?.user?.id;
+	const selectedUserIsMember = members.data?.some((member) => member.id === selectedUserId);
+	const userId = members.data
+		? selectedUserIsMember
+			? selectedUserId
+			: session?.user?.id
+		: (selectedUserId ?? session?.user?.id);
 	const inspection = useInspection(userId);
 
 	if (!oidc.data) {

@@ -1,5 +1,61 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const mocks = vi.hoisted(() => ({
+	env: {} as Record<string, string | undefined>,
+	getIdToken: vi.fn(),
+	getUserOrgMembership: vi.fn(),
+	updateOrgMemberRole: vi.fn(),
+	countOrgAdmins: vi.fn(),
+	listProjectMembershipsForUser: vi.fn(),
+	updateProjectMemberRole: vi.fn(),
+	checkProjectHasMoreThanOneAdmin: vi.fn(),
+	hasFeature: vi.fn(),
+	cleanupContextWorktree: vi.fn(),
+	logger: {
+		error: vi.fn(),
+		warn: vi.fn(),
+		info: vi.fn(),
+		debug: vi.fn(),
+	},
+}));
+
+vi.mock('../src/env', () => ({
+	env: mocks.env,
+}));
+
+vi.mock('../src/queries/account.queries', () => ({
+	getIdToken: mocks.getIdToken,
+}));
+
+vi.mock('../src/queries/organization.queries', () => ({
+	getUserOrgMembership: mocks.getUserOrgMembership,
+	updateOrgMemberRole: mocks.updateOrgMemberRole,
+	countOrgAdmins: mocks.countOrgAdmins,
+}));
+
+vi.mock('../src/queries/project.queries', () => ({
+	listProjectMembershipsForUser: mocks.listProjectMembershipsForUser,
+	updateProjectMemberRole: mocks.updateProjectMemberRole,
+	checkProjectHasMoreThanOneAdmin: mocks.checkProjectHasMoreThanOneAdmin,
+}));
+
+vi.mock('../src/services/license.service', () => ({
+	hasFeature: mocks.hasFeature,
+	LICENSE_FEATURES: { sso: 'sso' },
+}));
+
+vi.mock('../src/services/context-explorer-git.service', () => ({
+	cleanupContextWorktree: mocks.cleanupContextWorktree,
+}));
+
+vi.mock('../src/utils/logger', () => ({
+	logger: mocks.logger,
+	serializeError: (error: unknown) => ({
+		message: error instanceof Error ? error.message : String(error),
+	}),
+}));
+
+import { isGroupRoleMappingActive, syncRolesFromSsoGroups } from '../src/services/sso-group-mapping.service';
 import {
 	decideGroupRoleMapping,
 	extractGroups,
@@ -7,6 +63,94 @@ import {
 	resolveRoleFromGroups,
 } from '../src/utils/sso-group-mapping';
 import { hasSsoSessionExceededMaxAge } from '../src/utils/sso-session';
+
+beforeEach(() => {
+	for (const key of Object.keys(mocks.env)) {
+		delete mocks.env[key];
+	}
+	Object.assign(mocks.env, {
+		OIDC_CLIENT_ID: 'client-id',
+		OIDC_CLIENT_SECRET: 'client-secret',
+		OIDC_DISCOVERY_URL: 'https://example.com/.well-known/openid-configuration',
+		OIDC_GROUP_ROLE_MAPPING: 'nao-viewers:viewer',
+	});
+
+	mocks.getIdToken.mockReset();
+	mocks.getUserOrgMembership.mockReset().mockResolvedValue({ orgId: 'org-1', role: 'viewer' });
+	mocks.updateOrgMemberRole.mockReset().mockResolvedValue(undefined);
+	mocks.countOrgAdmins.mockReset().mockResolvedValue(2);
+	mocks.listProjectMembershipsForUser.mockReset().mockResolvedValue([]);
+	mocks.updateProjectMemberRole.mockReset().mockResolvedValue(undefined);
+	mocks.checkProjectHasMoreThanOneAdmin.mockReset().mockResolvedValue(true);
+	mocks.hasFeature.mockReset().mockResolvedValue(true);
+	mocks.cleanupContextWorktree.mockReset().mockResolvedValue(undefined);
+	for (const method of Object.values(mocks.logger)) {
+		method.mockReset();
+	}
+});
+
+describe('isGroupRoleMappingActive', () => {
+	it('returns false when a mapping exists but OIDC is not configured', async () => {
+		delete mocks.env.OIDC_CLIENT_ID;
+		delete mocks.env.OIDC_CLIENT_SECRET;
+		delete mocks.env.OIDC_DISCOVERY_URL;
+
+		await expect(isGroupRoleMappingActive()).resolves.toBe(false);
+		expect(mocks.hasFeature).not.toHaveBeenCalled();
+	});
+
+	it('returns true when OIDC, the mapping, and the SSO feature are configured', async () => {
+		await expect(isGroupRoleMappingActive()).resolves.toBe(true);
+	});
+});
+
+describe('syncRolesFromSsoGroups', () => {
+	it('cleans up context worktrees after project admin demotions', async () => {
+		mocks.getIdToken.mockResolvedValue(createIdToken({ groups: ['nao-viewers'] }));
+		mocks.listProjectMembershipsForUser.mockResolvedValue([
+			{ projectId: 'project-admin', projectPath: '/projects/admin', role: 'admin' },
+			{ projectId: 'project-context-admin', projectPath: '/projects/context-admin', role: 'context_admin' },
+			{ projectId: 'project-user', projectPath: '/projects/user', role: 'user' },
+		]);
+
+		await syncRolesFromSsoGroups('user-1');
+
+		expect(mocks.updateProjectMemberRole).toHaveBeenCalledTimes(3);
+		expect(mocks.cleanupContextWorktree).toHaveBeenCalledTimes(2);
+		expect(mocks.cleanupContextWorktree).toHaveBeenNthCalledWith(1, 'project-admin', '/projects/admin', 'user-1');
+		expect(mocks.cleanupContextWorktree).toHaveBeenNthCalledWith(
+			2,
+			'project-context-admin',
+			'/projects/context-admin',
+			'user-1',
+		);
+	});
+
+	it('continues updating projects when one worktree cleanup fails', async () => {
+		mocks.getIdToken.mockResolvedValue(createIdToken({ groups: ['nao-viewers'] }));
+		mocks.listProjectMembershipsForUser.mockResolvedValue([
+			{ projectId: 'project-1', projectPath: '/projects/one', role: 'admin' },
+			{ projectId: 'project-2', projectPath: '/projects/two', role: 'context_admin' },
+		]);
+		mocks.cleanupContextWorktree
+			.mockRejectedValueOnce(new Error('cleanup failed'))
+			.mockResolvedValueOnce(undefined);
+
+		await syncRolesFromSsoGroups('user-1');
+
+		expect(mocks.updateProjectMemberRole).toHaveBeenNthCalledWith(1, 'project-1', 'user-1', 'viewer');
+		expect(mocks.updateProjectMemberRole).toHaveBeenNthCalledWith(2, 'project-2', 'user-1', 'viewer');
+		expect(mocks.cleanupContextWorktree).toHaveBeenCalledTimes(2);
+		expect(mocks.logger.warn).toHaveBeenCalledWith('Failed to clean up context worktree after SSO group demotion', {
+			source: 'system',
+			context: {
+				projectId: 'project-1',
+				userId: 'user-1',
+				error: { message: 'cleanup failed' },
+			},
+		});
+	});
+});
 
 describe('parseGroupRoleMapping', () => {
 	it('parses a comma-separated list of group:role pairs', () => {
@@ -157,3 +301,9 @@ describe('hasSsoSessionExceededMaxAge', () => {
 		expect(hasSsoSessionExceededMaxAge(createdAt, 3600, new Date('2026-08-12T12:00:00.000Z'))).toBe(true);
 	});
 });
+
+function createIdToken(claims: Record<string, unknown>): string {
+	const header = Buffer.from(JSON.stringify({ alg: 'none' })).toString('base64url');
+	const payload = Buffer.from(JSON.stringify(claims)).toString('base64url');
+	return `${header}.${payload}.`;
+}
