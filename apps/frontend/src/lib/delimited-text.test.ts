@@ -70,6 +70,11 @@ describe('parseDelimitedText', () => {
 		expect(parseDelimitedText('a\n1\n2\n3', ',', 2)).toEqual([['a'], ['1']]);
 	});
 
+	it('returns no rows for a non-positive row limit', () => {
+		expect(parseDelimitedText('a\n1', ',', 0)).toEqual([]);
+		expect(parseDelimitedText('a\n1', ',', -1)).toEqual([]);
+	});
+
 	it('drops the byte order mark a spreadsheet writes', () => {
 		expect(parseDelimitedText('\ufeffname\nAlpha')).toEqual([['name'], ['Alpha']]);
 	});

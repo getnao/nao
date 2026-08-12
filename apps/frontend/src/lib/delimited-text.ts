@@ -10,6 +10,10 @@ export function parseDelimitedText(
 	delimiter: string = detectDelimiter(text),
 	maxRows = Number.POSITIVE_INFINITY,
 ): string[][] {
+	if (maxRows <= 0) {
+		return [];
+	}
+
 	const content = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
 	const rows: string[][] = [];
 	let row: string[] = [];

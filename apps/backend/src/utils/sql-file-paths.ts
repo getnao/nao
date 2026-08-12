@@ -102,14 +102,16 @@ const mapStringLiterals = (sql: string, map: (literal: string, beforeLiteral: st
 };
 
 const isFilePathArgument = (beforeLiteral: string): boolean => {
-	const calls = [...beforeLiteral.matchAll(FILE_READER_CALL)];
+	const withoutLiterals = mapStringLiterals(beforeLiteral, () => '');
+	const withoutComments = stripSqlComments(withoutLiterals);
+	const calls = [...withoutComments.matchAll(FILE_READER_CALL)];
 	const latest = calls.at(-1);
 	if (latest?.index === undefined) {
 		return false;
 	}
 
-	const afterOpenParen = beforeLiteral.slice(latest.index + latest[0].length);
-	const structure = stripSqlComments(mapStringLiterals(afterOpenParen, () => '')).replaceAll("''", '');
+	const afterOpenParen = withoutComments.slice(latest.index + latest[0].length);
+	const structure = afterOpenParen.replaceAll("''", '');
 	return /^\s*$/.test(structure) || /^\s*\[\s*(?:,\s*)*$/.test(structure);
 };
 

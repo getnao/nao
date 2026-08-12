@@ -50,6 +50,14 @@ describe('rewriteStorageLiterals', () => {
 		expect(rewriteStorageLiterals(sql, () => '/private/path')).toEqual({ sql, storagePaths: [] });
 	});
 
+	it('does not treat reader names in comments or values as active calls', () => {
+		const comment = "SELECT 1 /* read_csv( */ , '/home/ordinary-value.csv' AS path";
+		const value = "SELECT 'read_csv(' AS function_name, '/home/ordinary-value.csv' AS path";
+
+		expect(rewriteStorageLiterals(comment, () => '/private/path')).toEqual({ sql: comment, storagePaths: [] });
+		expect(rewriteStorageLiterals(value, () => '/private/path')).toEqual({ sql: value, storagePaths: [] });
+	});
+
 	it('preserves a quote inside a rewritten path rather than breaking the literal', () => {
 		const { sql } = rewriteStorageLiterals("SELECT * FROM read_csv('/home/o''brien.csv')", toRealPath);
 

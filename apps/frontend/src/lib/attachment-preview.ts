@@ -1,6 +1,6 @@
 import { fileExtension } from '@nao/shared/attachments';
 
-import { fetchAttachment } from '@/lib/attachments';
+import { fetchAttachment, fetchAttachmentSize } from '@/lib/attachments';
 import { parseDelimitedText } from '@/lib/delimited-text';
 import { toSheetTable } from '@/lib/sheet-table';
 
@@ -48,8 +48,13 @@ export async function loadAttachmentPreview(path: string): Promise<AttachmentPre
 		return { kind: 'unsupported' };
 	}
 
+	const isTabular = kind === 'table' || kind === 'workbook';
+	if (isTabular && (await fetchAttachmentSize(path)) > MAX_TABULAR_PREVIEW_SIZE_MB * 1024 * 1024) {
+		return { kind: 'too-large' };
+	}
+
 	const blob = await fetchAttachment(path);
-	if ((kind === 'table' || kind === 'workbook') && blob.size > MAX_TABULAR_PREVIEW_SIZE_MB * 1024 * 1024) {
+	if (isTabular && blob.size > MAX_TABULAR_PREVIEW_SIZE_MB * 1024 * 1024) {
 		return { kind: 'too-large' };
 	}
 

@@ -80,37 +80,46 @@ export const attachmentRoutes = async (app: App) => {
 	 * alone. Only the sender's own space is reachable, which is also the only space a chat's
 	 * attachments live in.
 	 */
-	app.get('/file', { schema: { querystring: fileQuerySchema } }, async (request, reply) => {
-		if (!isStorageEnabled()) {
-			throw new HandlerError('BAD_REQUEST', STORAGE_DISABLED_MESSAGE);
-		}
+	app.route({
+		method: ['GET', 'HEAD'],
+		url: '/file',
+		schema: { querystring: fileQuerySchema },
+		handler: async (request, reply) => {
+			if (!isStorageEnabled()) {
+				throw new HandlerError('BAD_REQUEST', STORAGE_DISABLED_MESSAGE);
+			}
 
-		const { user, project } = request;
-		if (!project) {
-			throw new HandlerError('BAD_REQUEST', noProjectMessage());
-		}
+			const { user, project } = request;
+			if (!project) {
+				throw new HandlerError('BAD_REQUEST', noProjectMessage());
+			}
 
-		const { path } = request.query;
-		const relativePath = isStoragePath(path) ? toStorageRelativePath(path) : '';
-		if (!relativePath) {
-			throw new HandlerError('BAD_REQUEST', `${path} is not a path in permanent storage`);
-		}
+			const { path } = request.query;
+			const relativePath = isStoragePath(path) ? toStorageRelativePath(path) : '';
+			if (!relativePath) {
+				throw new HandlerError('BAD_REQUEST', `${path} is not a path in permanent storage`);
+			}
 
-		const scope: StorageScope = { projectId: project.id, userId: user.id };
-		if (!(await statUserFile(scope, relativePath))) {
-			throw new HandlerError('NOT_FOUND', `No such file in permanent storage: ${path}`);
-		}
+			const scope: StorageScope = { projectId: project.id, userId: user.id };
+			const stored = await statUserFile(scope, relativePath);
+			if (!stored) {
+				throw new HandlerError('NOT_FOUND', `No such file in permanent storage: ${path}`);
+			}
 
-		const fileName = fileNameOf(relativePath);
-		return (
+			const fileName = fileNameOf(relativePath);
 			reply
 				.header('Content-Type', documentMediaType(fileName) ?? 'application/octet-stream')
 				// Always a download: an uploaded .html rendered on nao's own origin would run as first-party script.
 				.header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`)
 				.header('X-Content-Type-Options', 'nosniff')
-				.header('Cache-Control', 'private, max-age=3600')
-				.send(await readUserFileBytes(scope, relativePath))
-		);
+				.header('Cache-Control', 'private, max-age=3600');
+
+			if (request.method === 'HEAD') {
+				return reply.header('Content-Length', stored.size).send();
+			}
+
+			return reply.send(await readUserFileBytes(scope, relativePath));
+		},
 	});
 };
 

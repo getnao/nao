@@ -48,6 +48,26 @@ export async function fetchAttachment(path: string): Promise<Blob> {
 	return response.blob();
 }
 
+/** Reads attachment metadata without downloading its contents. */
+export async function fetchAttachmentSize(path: string): Promise<number> {
+	const projectId = getActiveProjectId();
+	const response = await fetch(`/api/attachments/file?path=${encodeURIComponent(path)}`, {
+		method: 'HEAD',
+		headers: projectId ? { 'x-nao-project-id': projectId } : undefined,
+	});
+
+	if (!response.ok) {
+		throw new Error(`Could not inspect ${fileNameOf(path)}`);
+	}
+
+	const contentLength = response.headers.get('Content-Length');
+	const size = contentLength === null ? Number.NaN : Number(contentLength);
+	if (!Number.isFinite(size) || size < 0) {
+		throw new Error(`Could not determine the size of ${fileNameOf(path)}`);
+	}
+	return size;
+}
+
 export async function downloadAttachment(path: string): Promise<void> {
 	triggerDownload(fileNameOf(path), await fetchAttachment(path));
 }
