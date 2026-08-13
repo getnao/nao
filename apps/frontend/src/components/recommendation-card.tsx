@@ -305,7 +305,7 @@ export function RecommendationCard({
 					<span
 						className={cn(
 							'flex h-[1lh] shrink-0 items-center pt-0.5 transition-[margin] duration-150 -mr-2 group-hover:-mr-1',
-							selectionActive && '-mr-1 group-hover:-mr-1',
+selectionActive && '-mr-1',
 						)}
 					>
 						<RecommendationCheckbox
