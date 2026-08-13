@@ -1,4 +1,5 @@
-import { ALLOWED_IMAGE_MEDIA_TYPES, type CitationData } from '@nao/shared/types';
+import { ALLOWED_IMAGE_MEDIA_TYPES, MAX_ATTACHMENTS_PER_MESSAGE, MAX_IMAGE_SIZE_MB } from '@nao/shared/attachments';
+import { type CitationData } from '@nao/shared/types';
 import {
 	DynamicToolUIPart,
 	FinishReason,
@@ -159,8 +160,19 @@ export const MentionSchema = z.object({
 
 export const AgentRequestImageSchema = z.object({
 	mediaType: z.enum(ALLOWED_IMAGE_MEDIA_TYPES),
-	data: z.string().min(1),
+	data: z
+		.string()
+		.min(1)
+		.refine((data) => Buffer.byteLength(data, 'base64') <= MAX_IMAGE_SIZE_MB * 1024 * 1024, {
+			message: `Image exceeds the ${MAX_IMAGE_SIZE_MB} MB limit`,
+		}),
 });
+
+/**
+ * Documents are uploaded before the message is sent, so the message only names them. The
+ * server resolves each path inside the sender's own storage space before trusting it.
+ */
+const AgentRequestDocumentPathSchema = z.string().min(1).max(1024);
 
 const CitationDataSchema = z.object({
 	start: z.number(),
@@ -172,7 +184,8 @@ const CitationDataSchema = z.object({
 export type AgentRequestUserMessage = z.infer<typeof AgentRequestUserMessageSchema>;
 export const AgentRequestUserMessageSchema = z.object({
 	text: z.string(),
-	images: z.array(AgentRequestImageSchema).optional(),
+	images: z.array(AgentRequestImageSchema).max(MAX_ATTACHMENTS_PER_MESSAGE).optional(),
+	documents: z.array(AgentRequestDocumentPathSchema).max(MAX_ATTACHMENTS_PER_MESSAGE).optional(),
 	citation: CitationDataSchema.optional(),
 });
 

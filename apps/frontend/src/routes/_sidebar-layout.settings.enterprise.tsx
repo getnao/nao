@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { CheckCircle2, CircleAlert, CircleX, Clock, Sparkles, TriangleAlert } from 'lucide-react';
 import type { LicenseStatus } from '@nao/backend/license-types';
 
+import { SsoTokenInspector } from '@/components/settings/sso-token-inspector';
 import { Badge } from '@/components/ui/badge';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { requireAdminNonCloudWithLicense } from '@/lib/require-admin';
@@ -69,6 +70,8 @@ function EnterprisePage() {
 						<FeaturesCard features={details.data.features} active={license.data.status === 'active'} />
 					</>
 				)}
+
+				<SsoTokenInspector />
 			</div>
 		</SettingsPageWrapper>
 	);

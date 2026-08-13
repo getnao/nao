@@ -4,6 +4,7 @@ import { formatShortcut, formatShortcutLabel } from '@/lib/platform';
 export type ShortcutId =
 	| 'toggle-sidebar'
 	| 'command-menu'
+	| 'toggle-theme'
 	| 'new-chat'
 	| 'go-to-stories'
 	| 'keyboard-help'
@@ -32,6 +33,12 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
 		label: 'Command menu',
 		group: 'General',
 		shortcut: { mod: true, key: 'k' },
+	},
+	{
+		id: 'toggle-theme',
+		label: 'Toggle light/dark mode',
+		group: 'General',
+		shortcut: { mod: true, shift: true, key: 'l' },
 	},
 	{
 		id: 'keyboard-help',

@@ -1,3 +1,5 @@
+export const CONTEXT_CONFIG_FILENAME = 'nao_config.yaml';
+
 export const TOOL_LABELS: Record<string, string> = {
 	'tool-read': 'file',
 	'tool-search': 'search',

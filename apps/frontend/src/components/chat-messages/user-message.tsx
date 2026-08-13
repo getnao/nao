@@ -12,8 +12,9 @@ import { useIsEditingMessage } from '@/hooks/use-is-editing-message-store';
 import { useClickOutside } from '@/hooks/use-click-outside';
 import { ChatInputInline } from '@/components/chat-input';
 import { ChatMessagesCitationChip } from '@/components/chat-messages/chat-messages-citation-chip';
+import { FileChip } from '@/components/file-chip';
 import { ImageLightbox } from '@/components/image-lightbox';
-import { getMessageText, getMessageImages } from '@/lib/ai';
+import { getMessageText, getMessageImages, getMessageDocuments } from '@/lib/ai';
 import { parseChatMessageCitation } from '@/lib/chat-messages-citation-parser';
 import { Button } from '@/components/ui/button';
 import { SimpleTooltip } from '@/components/ui/tooltip';
@@ -101,6 +102,7 @@ function useMentionConfigs(): MessageMentionConfig[] {
 export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
 	const rawText = useMemo(() => getMessageText(message), [message]);
 	const images = useMemo(() => getMessageImages(message), [message]);
+	const documents = useMemo(() => getMessageDocuments(message), [message]);
 	const mentionConfigs = useMentionConfigs();
 	const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
@@ -130,6 +132,13 @@ export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
 						>
 							<img src={img.url} alt='' className='max-w-48 max-h-48 rounded-lg object-cover' />
 						</button>
+					))}
+				</div>
+			)}
+			{documents.length > 0 && (
+				<div className='flex gap-1.5 flex-wrap mb-2 justify-end'>
+					{documents.map((document) => (
+						<FileChip key={document.path} path={document.path} label={document.filename} />
 					))}
 				</div>
 			)}
@@ -170,9 +179,9 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 					initialText={text}
 					className='p-0 **:data-[slot=input-group]:shadow-none!'
 					onCancel={() => editedMessageIdStore.setEditingId(undefined)}
-					onSubmitMessage={async ({ text: nextText }) => {
+					onSubmitMessage={async ({ text: nextText, images, documents }) => {
 						editedMessageIdStore.setEditingId(undefined);
-						await editMessage({ messageId: message.id, text: nextText });
+						await editMessage({ messageId: message.id, text: nextText, images, documents });
 					}}
 				/>
 			</div>

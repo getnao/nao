@@ -10,7 +10,14 @@ import * as crQueries from '../queries/context-recommendation.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import { agentService } from '../services/agent';
-import { createRecommendationPullRequest, resolveRecommendationRepo } from '../services/context-pr.service';
+import {
+	ContextPullRequestInputError,
+	createBatchRecommendationPullRequest,
+	createRecommendationPullRequest,
+	ProviderNotConnectedError,
+	resolveRecommendationRepo,
+} from '../services/context-pr.service';
+import { buildAgentPrompt } from '../services/context-recommendation-prompt';
 import {
 	repairRecommendationTriggerRefs,
 	runContextRecommendations,
@@ -38,6 +45,19 @@ const recommendationsProcedure = contextAdminProtectedProcedure.use(async ({ nex
 	return next();
 });
 
+function toPullRequestTrpcError(err: unknown): TRPCError {
+	if (err instanceof ContextPullRequestInputError) {
+		return new TRPCError({ code: 'BAD_REQUEST', message: err.message });
+	}
+	if (err instanceof ProviderNotConnectedError) {
+		return new TRPCError({ code: 'UNAUTHORIZED', message: err.message });
+	}
+	return new TRPCError({
+		code: 'INTERNAL_SERVER_ERROR',
+		message: err instanceof Error ? err.message : 'Failed to create pull request',
+	});
+}
+
 export const contextRecommendationRoutes = {
 	list: recommendationsProcedure
 		.input(z.object({ status: z.enum(CONTEXT_RECOMMENDATION_STATUSES).optional() }).optional())
@@ -56,6 +76,10 @@ export const contextRecommendationRoutes = {
 		}),
 
 	latestRun: recommendationsProcedure.query(async ({ ctx }) => crQueries.getLatestRun(ctx.project.id)),
+
+	latestSuccessfulRun: recommendationsProcedure.query(async ({ ctx }) =>
+		crQueries.getLatestSuccessfulRun(ctx.project.id),
+	),
 
 	run: recommendationsProcedure.mutation(async ({ ctx }) => {
 		const latestRun = await crQueries.getLatestRun(ctx.project.id);
@@ -221,12 +245,36 @@ export const contextRecommendationRoutes = {
 		try {
 			return await createRecommendationPullRequest(ctx.project.id, input.id, ctx.user.id);
 		} catch (err) {
-			throw new TRPCError({
-				code: 'BAD_REQUEST',
-				message: err instanceof Error ? err.message : 'Failed to create pull request',
-			});
+			throw toPullRequestTrpcError(err);
 		}
 	}),
+
+	createBatchPullRequest: recommendationsProcedure
+		.input(z.object({ ids: z.array(z.string()).min(1).max(20) }))
+		.mutation(async ({ ctx, input }) => {
+			try {
+				return await createBatchRecommendationPullRequest(ctx.project.id, input.ids, ctx.user.id);
+			} catch (err) {
+				throw toPullRequestTrpcError(err);
+			}
+		}),
+
+	getAgentPrompt: recommendationsProcedure
+		.input(z.object({ ids: z.array(z.string()).min(1).max(20) }))
+		.query(async ({ ctx, input }) => {
+			const results = await Promise.all(
+				input.ids.map((id) => crQueries.getRecommendationById(ctx.project.id, id)),
+			);
+			const recs = results.filter((r): r is NonNullable<typeof r> => r !== null);
+			if (recs.length < input.ids.length) {
+				throw new TRPCError({
+					code: 'NOT_FOUND',
+					message: `Only ${recs.length} of ${input.ids.length} selected recommendations could be found. Some may have been deleted or changed since you selected them; refresh and try again.`,
+				});
+			}
+			const repo = await resolveRecommendationRepo(ctx.project.id, ctx.user.id);
+			return buildAgentPrompt(recs, repo?.subPath ?? '');
+		}),
 
 	listRecoTriggerChatMetadata: recommendationsProcedure
 		.input(z.object({ chatIds: z.array(z.string()).max(MAX_TRIGGER_CHATS) }))

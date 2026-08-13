@@ -1,5 +1,5 @@
 {
-  "id": "4c7adea6-c77e-4441-8693-b92695adb595",
+  "id": "24d98b2a-e5b6-4a37-9fe0-a407336359fc",
   "prevId": "f37fc117-dc8b-4b1c-a093-c54e6ce58222",
   "version": "7",
   "dialect": "postgresql",
@@ -1724,30 +1724,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "fix_target": {
-          "name": "fix_target",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "category": {
-          "name": "category",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "root_cause": {
-          "name": "root_cause",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "root_cause_kind": {
-          "name": "root_cause_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "proposed_edits": {
           "name": "proposed_edits",
           "type": "jsonb",
@@ -1835,6 +1811,30 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "fix_target": {
+          "name": "fix_target",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "root_cause": {
+          "name": "root_cause",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "root_cause_kind": {
+          "name": "root_cause_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -1955,6 +1955,18 @@
           "primaryKey": true,
           "notNull": true
         },
+        "model_provider": {
+          "name": "model_provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "model_id": {
+          "name": "model_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "frequency": {
           "name": "frequency",
           "type": "text",
@@ -2023,89 +2035,6 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.context_recommendation_linked_feedback": {
-      "name": "context_recommendation_linked_feedback",
-      "schema": "",
-      "columns": {
-        "recommendation_id": {
-          "name": "recommendation_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "message_id": {
-          "name": "message_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "context_recommendation_linked_feedback_message_id_idx": {
-          "name": "context_recommendation_linked_feedback_message_id_idx",
-          "columns": [
-            {
-              "expression": "message_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "context_recommendation_linked_feedback_recommendation_id_context_recommendation_id_fk": {
-          "name": "context_recommendation_linked_feedback_recommendation_id_context_recommendation_id_fk",
-          "tableFrom": "context_recommendation_linked_feedback",
-          "tableTo": "context_recommendation",
-          "columnsFrom": [
-            "recommendation_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "context_recommendation_linked_feedback_message_id_chat_message_id_fk": {
-          "name": "context_recommendation_linked_feedback_message_id_chat_message_id_fk",
-          "tableFrom": "context_recommendation_linked_feedback",
-          "tableTo": "chat_message",
-          "columnsFrom": [
-            "message_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "context_recommendation_linked_feedback_recommendation_id_message_id_pk": {
-          "name": "context_recommendation_linked_feedback_recommendation_id_message_id_pk",
-          "columns": [
-            "recommendation_id",
-            "message_id"
-          ]
-        }
-      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
@@ -4893,12 +4822,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "default_models": {
-          "name": "default_models",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -5197,6 +5120,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "per_user_limit_usd": {
+          "name": "per_user_limit_usd",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "period": {
           "name": "period",
           "type": "text",
@@ -5452,6 +5381,89 @@
           "columns": [
             "project_id",
             "whatsapp_user_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.context_recommendation_linked_feedback": {
+      "name": "context_recommendation_linked_feedback",
+      "schema": "",
+      "columns": {
+        "recommendation_id": {
+          "name": "recommendation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "context_recommendation_linked_feedback_message_id_idx": {
+          "name": "context_recommendation_linked_feedback_message_id_idx",
+          "columns": [
+            {
+              "expression": "message_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "context_recommendation_linked_feedback_recommendation_id_context_recommendation_id_fk": {
+          "name": "context_recommendation_linked_feedback_recommendation_id_context_recommendation_id_fk",
+          "tableFrom": "context_recommendation_linked_feedback",
+          "tableTo": "context_recommendation",
+          "columnsFrom": [
+            "recommendation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "context_recommendation_linked_feedback_message_id_chat_message_id_fk": {
+          "name": "context_recommendation_linked_feedback_message_id_chat_message_id_fk",
+          "tableFrom": "context_recommendation_linked_feedback",
+          "tableTo": "chat_message",
+          "columnsFrom": [
+            "message_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "context_recommendation_linked_feedback_recommendation_id_message_id_pk": {
+          "name": "context_recommendation_linked_feedback_recommendation_id_message_id_pk",
+          "columns": [
+            "recommendation_id",
+            "message_id"
           ]
         }
       },

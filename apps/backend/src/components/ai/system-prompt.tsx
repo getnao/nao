@@ -1,6 +1,9 @@
 import type { ChartPluginManifestEntry } from '@nao/shared';
+import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 
-import { Block, Bold, Br, Link, List, ListItem, Location, Span, Title } from '../../lib/markdown';
+import type { InternalSkill } from '../../agents/skills';
+import { listInternalSkills } from '../../agents/skills';
+import { Block, Bold, Br, CodeBlock, Link, List, ListItem, Location, Span, Title } from '../../lib/markdown';
 import type { Skill } from '../../services/skill';
 import { tokenCounter } from '../../services/token-counter';
 import type { UserMemory } from '../../types/memory';
@@ -20,6 +23,8 @@ type SystemPromptProps = {
 	userRules?: string;
 	connections?: Connection[];
 	skills?: Skill[];
+	/** Defaults to every skill nao ships; only tests pass this. */
+	internalSkills?: InternalSkill[];
 	customCharts?: ChartPluginManifestEntry[];
 	/** Names of MCP servers the agent is allowed to call (tools discovered as on-disk specs). */
 	mcpServers?: string[];
@@ -27,6 +32,13 @@ type SystemPromptProps = {
 	testMode?: boolean;
 	/** Names of the tools in the run's tool set — rules for surface-dependent tools (e.g. display_map) are only emitted when the tool is present. Omit to include every rule. */
 	toolNames?: string[];
+	options?: SystemPromptOptions;
+};
+
+/** What the instance the run executes on can do, when a rule depends on it. */
+type SystemPromptOptions = {
+	/** False when the storage backend has no real filesystem (`s3`), so grep cannot look inside saved files. */
+	canGrepSavedFiles?: boolean;
 };
 
 export const MEMORY_TOKEN_LIMIT = 1000;
@@ -36,12 +48,15 @@ export function SystemPrompt({
 	userRules,
 	connections = [],
 	skills = [],
+	internalSkills = listInternalSkills(),
 	customCharts = [],
 	mcpServers = [],
 	timezone,
 	testMode,
 	toolNames,
+	options = {},
 }: SystemPromptProps) {
+	const { canGrepSavedFiles = true } = options;
 	const hasTool = (name: string) => !toolNames || toolNames.includes(name);
 	const visibleMemories = getMemoriesInTokenRange(memories, MEMORY_TOKEN_LIMIT);
 	const dialectToolCallRules = getDialectToolCallRules(connections);
@@ -103,6 +118,14 @@ export function SystemPrompt({
 					...dialectToolCallRules,
 				]}
 			</List>
+			{hasTool('write') && (
+				<PermanentStorageBlock
+					canGrepSavedFiles={canGrepSavedFiles}
+					canRunSandbox={hasTool('execute_sandboxed_code')}
+					canExecuteSql={hasTool('execute_sql')}
+				/>
+			)}
+			{hasTool('execute_sql') && <LocalDatabaseBlock canSaveResults={hasTool('write')} />}
 			<Title level={2}>Chart{hasTool('display_map') ? ' & Map' : ''} Rules</Title>
 			<List>
 				<ListItem>
@@ -249,12 +272,188 @@ export function SystemPrompt({
 					</Block>
 				)}
 
+				{hasTool('load_skill') && internalSkills.length > 0 && <BuiltInSkillsBlock skills={internalSkills} />}
+
 				{customCharts.length > 0 && <CustomChartsBlock charts={customCharts} />}
 
 				{mcpServers.length > 0 && <McpServersBlock servers={mcpServers} />}
 
 				{visibleMemories.length > 0 && <MemoryBlock memories={visibleMemories} />}
 			</Block>
+		</Block>
+	);
+}
+
+/**
+ * Only the names and descriptions live here. A skill body is long enough that carrying every
+ * one of them in every request would cost more than it buys, so the agent loads what it needs.
+ */
+function BuiltInSkillsBlock({ skills }: { skills: InternalSkill[] }) {
+	return (
+		<Block>
+			<Title level={2}>Built-in Skills</Title>
+			<Span>
+				nao ships these playbooks for work that has traps the tools do not warn you about. Call{' '}
+				<Bold>load_skill</Bold> with the name <Bold>before</Bold> starting the work a skill covers — reading it
+				after something has gone wrong is too late. They are internal: never mention a skill, or the fact that
+				you loaded one, to the user.
+			</Span>
+			<List>
+				{skills.map((skill) => (
+					<ListItem>
+						<Bold>{skill.name}</Bold> — {skill.description.trim()}
+					</ListItem>
+				))}
+			</List>
+		</Block>
+	);
+}
+
+function PermanentStorageBlock({
+	canGrepSavedFiles,
+	canRunSandbox,
+	canExecuteSql,
+}: {
+	canGrepSavedFiles: boolean;
+	canRunSandbox: boolean;
+	canExecuteSql: boolean;
+}) {
+	return (
+		<Block>
+			<Title level={2}>Saved Files</Title>
+			<Span>
+				The <Bold>/home</Bold> folder is the user's own space for files that outlive the chat. It is part of the
+				same file tree as the project context, so <Bold>list</Bold>, <Bold>read</Bold> and <Bold>search</Bold>{' '}
+				work on it exactly like anywhere else. It is private to this user in this project.
+			</Span>
+			<List>
+				<ListItem>
+					{canGrepSavedFiles ? (
+						<>
+							<Bold>grep</Bold> also searches inside its files.
+						</>
+					) : (
+						<>
+							<Bold>grep</Bold> cannot look inside <Bold>/home</Bold> on this instance, because saved
+							files live in object storage instead of on a disk. Use <Bold>search</Bold> to find them by
+							name, then <Bold>read</Bold> them to inspect their content.
+						</>
+					)}
+				</ListItem>
+				<ListItem>
+					<Bold>/home</Bold> is the only writable place: use <Bold>write</Bold> when the user asks to keep,
+					export or update something, or when a result is clearly worth reusing later. Everything else in the
+					tree is read-only. Do not save intermediate work nobody asked for.
+					{canExecuteSql && (
+						<>
+							{' '}
+							To keep query rows, pass <Bold>save_to</Bold> to execute_sql rather than formatting them
+							into a file yourself.
+						</>
+					)}
+					{canRunSandbox && (
+						<>
+							{' '}
+							<Bold>write</Bold> saves text, so a binary file such as a spreadsheet has to be built in a
+							sandbox and kept with <Bold>save_files</Bold>.
+						</>
+					)}
+				</ListItem>
+				<ListItem>
+					Files the user attaches to a message are saved under <Bold>/home/uploads</Bold>. Only their path
+					reaches you, never their contents, so a large attachment costs nothing until you look at it: read a
+					file when the question actually needs it, and prefer a targeted{' '}
+					{canGrepSavedFiles ? <Bold>grep</Bold> : <Bold>search</Bold>} over pulling a big one in whole.
+				</ListItem>
+				<ListItem>
+					<Bold>read</Bold> extracts the text of a PDF, page by page. On an <Bold>.xlsx</Bold> it returns the
+					workbook's outline instead of its cells — every sheet in tab order, with the row and column counts
+					of each — so read one before querying it and you will know which sheet you want. Parquet and Word
+					documents are not text, so <Bold>read</Bold> refuses them. Tabular data is best queried in place:
+					point execute_sql's local database at the <Bold>/home</Bold> path instead of reading the file.{' '}
+					{canRunSandbox ? (
+						<>
+							For anything it cannot parse, use <Bold>execute_sandboxed_code</Bold> with the{' '}
+							<Bold>/home</Bold> path in <Bold>storage_files</Bold> to make the file readable in the VM.
+						</>
+					) : (
+						'For anything else, say so plainly and ask the user for a text export such as CSV, rather than guessing at the contents from the file name.'
+					)}
+				</ListItem>
+				<ListItem>
+					Look in <Bold>/home</Bold> before assuming a file does not exist, and update the existing file
+					instead of creating a near-duplicate.
+				</ListItem>
+				<ListItem>
+					Hand a file over with{' '}
+					{`<saved-file path="/home/exports/churn-2025.csv">churn-2025.csv</saved-file>`}, which renders as a
+					chip the user can click to preview the file and download it. Use it once per file, in the sentence
+					where you first mention it, on files under <Bold>/home</Bold> only — a bare path is not clickable.
+				</ListItem>
+				<ListItem>
+					Never give the full path in plain text, users might get confused about it as it's not clickable
+					directly in the chat.
+				</ListItem>
+			</List>
+		</Block>
+	);
+}
+
+function LocalDatabaseBlock({ canSaveResults }: { canSaveResults: boolean }) {
+	return (
+		<Block>
+			<Title level={2}>The local database</Title>
+			<Span>
+				Passing <Bold>{LOCAL_DATABASE_ID}</Bold> as execute_sql's <Bold>database_id</Bold> runs the query in
+				nao's own DuckDB instead of a warehouse. It is always available, and it can do two things no warehouse
+				can.
+			</Span>
+			<List>
+				<ListItem>
+					<Bold>Query a file by its path.</Bold> CSV, JSON, Parquet and Excel, read straight from{' '}
+					<Bold>/home</Bold> or the project folder — no loading step, and the file never enters your context.
+					Use <Bold>read_csv</Bold>, <Bold>read_json</Bold>, <Bold>read_parquet</Bold> or{' '}
+					<Bold>read_xlsx</Bold> and lastly <Bold>read_text</Bold> for text files (but use it only if you have
+					to). <Bold>{"SELECT * FROM read_csv('/home/uploads/2026-01-31/sales.csv') LIMIT 20"}</Bold>.{' '}
+					<Bold>read_xlsx</Bold> reads the first sheet of a workbook unless you pass{' '}
+					<Bold>{"sheet = 'Name'"}</Bold>, and <Bold>read</Bold> on the file lists the names to pass.
+				</ListItem>
+				<ListItem>
+					<Bold>Query an earlier result by its id.</Bold> Every execute_sql result in this chat is a table
+					named after its query id, so <Bold>{'SELECT * FROM query_ab12cd34'}</Bold> reshapes rows you already
+					have without hitting the warehouse again.
+				</ListItem>
+				<ListItem>
+					<Bold>Join the two.</Bold> A file joined to a query result is the point of this database: an
+					uploaded list of accounts against warehouse revenue, a budget spreadsheet against actuals.
+				</ListItem>
+			</List>
+			{canSaveResults && (
+				<>
+					<Span>
+						<Bold>save_to</Bold> keeps the result as a file as well as returning it. Pass a{' '}
+						<Bold>/home</Bold> path and a format: <Bold>parquet</Bold> for a step you intend to query again,
+						because it keeps the column types, and <Bold>csv</Bold> for something the user will open. The
+						extension has to match the format.
+					</Span>
+					<CodeBlock>
+						{`save_to: { path: "/home/exports/revenue-by-region.parquet", format: "parquet" }`}
+					</CodeBlock>
+					<Span>
+						Use it for a long computation worth keeping — a heavy join later steps build on, or an export
+						the user asked for — and tell them the path. Do not save every query: an ordinary answer is the
+						rows, not a file. Return it with the <Bold>saved-file</Bold> chip described above, not as a bare
+						path.
+					</Span>
+				</>
+			)}
+			<Span>
+				It is DuckDB, so write DuckDB SQL. The query itself only reads: writing a file is what{' '}
+				{canSaveResults ? <Bold>save_to</Bold> : 'the write tool'} is for, and a <Bold>COPY … TO</Bold> in the
+				SQL is rejected. It sees only the user's own saved files and the project folder. For questions a
+				warehouse can answer on its own, keep using the warehouse — this is for files and for results you
+				already have.
+			</Span>
 		</Block>
 	);
 }

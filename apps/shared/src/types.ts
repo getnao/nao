@@ -1,3 +1,5 @@
+import type { DocumentExtension } from './attachments';
+
 export type UserRole = 'admin' | 'user' | 'viewer' | 'context_admin';
 
 export const USER_ROLES = ['admin', 'user', 'viewer', 'context_admin'] as const satisfies readonly UserRole[];
@@ -145,15 +147,87 @@ export type FileTreeEntry = {
 	name: string;
 	path: string;
 	type: 'file' | 'directory';
+	isTracked?: boolean;
 	children?: FileTreeEntry[];
 };
 
-export const ALLOWED_IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const;
-export type ImageMediaType = (typeof ALLOWED_IMAGE_MEDIA_TYPES)[number];
+export type ContextGitUnavailableReason =
+	| 'github-unavailable'
+	| 'git-unavailable'
+	| 'no-token'
+	| 'no-repo'
+	| 'unsupported-provider'
+	| 'project-not-found'
+	| 'project-ambiguous';
 
-export type ImageUploadData = {
-	mediaType: ImageMediaType;
-	data: string;
+export type FileEditabilityReason =
+	| ContextGitUnavailableReason
+	| 'generated'
+	| 'rendered-template'
+	| 'synced-source'
+	| 'not-tracked';
+
+export type FileEditabilityGuidance =
+	| {
+			message: string;
+			actionKind: 'file' | 'route';
+			actionPath: string;
+			actionLabel: string;
+	  }
+	| {
+			message: string;
+			actionKind: null;
+			actionPath: null;
+			actionLabel: null;
+	  };
+
+export type FileContentResponse = {
+	content: string;
+	hash: string;
+	isEditable: boolean;
+	reason: FileEditabilityReason | null;
+	guidance?: FileEditabilityGuidance;
+};
+
+export type FileWriteResponse = {
+	hash: string;
+};
+
+export type FileContentSearchResult = {
+	path: string;
+	count: number;
+	line: number;
+	text: string;
+};
+
+export type FileContentSearchResponse = {
+	results: FileContentSearchResult[];
+	truncated: boolean;
+};
+
+export type ContextChangedFile = {
+	path: string;
+	kind: 'modified' | 'untracked' | 'deleted';
+	additions: number | null;
+	deletions: number | null;
+};
+
+export type ContextBranchInfo = {
+	currentBranch: string | null;
+	defaultBranch: string;
+	aheadCommitCount: number;
+	unpushedCommitCount: number;
+	branches: string[];
+	suggestedBranch: string;
+};
+
+export type ContextBranchCreationResult = ContextBranchInfo & {
+	usedFallbackBase: boolean;
+};
+
+export type ContextFileDiff = ContextChangedFile & {
+	oldContent: string;
+	newContent: string;
 };
 
 export const WARNING_BUDGET_THRESHOLD = 0.8;
@@ -209,10 +283,11 @@ export type ProjectChatListItem = {
 export type DownloadFormat = 'pdf' | 'html';
 export const DOWNLOAD_FORMATS = ['pdf', 'html'] as const satisfies readonly DownloadFormat[];
 
-export type ChatDownloadFormat = 'png' | 'csv' | 'xlsx';
-export const CHAT_DOWNLOAD_FORMATS = ['png', 'csv', 'xlsx'] as const satisfies readonly ChatDownloadFormat[];
+export type ChatDownloadFormat = 'png' | 'csv' | 'xlsx' | 'other';
+export const CHAT_DOWNLOAD_FORMATS = ['png', 'csv', 'xlsx', 'other'] as const satisfies readonly ChatDownloadFormat[];
 
-export type AnalyticsDownloadFormat = DownloadFormat | ChatDownloadFormat;
+/** A file taken out of permanent storage is recorded under its own extension. */
+export type AnalyticsDownloadFormat = DownloadFormat | ChatDownloadFormat | DocumentExtension;
 
 export const ANALYTICS_EVENT_TYPES = ['page_view', 'download', 'fork', 'favorite', 'refresh', 'view_duration'] as const;
 export const ANALYTICS_ASSET_TYPES = ['chat', 'story'] as const;

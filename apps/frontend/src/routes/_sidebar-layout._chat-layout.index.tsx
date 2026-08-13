@@ -9,7 +9,7 @@ import { capitalize, cn } from '@/lib/utils';
 import { setActiveProjectId } from '@/lib/active-project';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { ViewerHome } from '@/components/viewer-home';
-import { useAgentContext } from '@/contexts/agent.provider';
+import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 import { usePermissions } from '@/hooks/use-permissions';
 import { SavedPromptSuggestions } from '@/components/chat-saved-prompt-suggestions';
 import { ChatInput } from '@/components/chat-input';
@@ -40,7 +40,8 @@ function RouteComponent() {
 function HomePage() {
 	const { data: session } = useSession();
 	const username = session?.user?.name;
-	const { messages, setAdminMode } = useAgentContext();
+	const { setAdminMode } = useAgentContext();
+	const messages = useAgentMessages();
 	const { canChatWithNaoData } = usePermissions();
 	const { admin: adminSearch } = Route.useSearch();
 	const queryClient = useQueryClient();

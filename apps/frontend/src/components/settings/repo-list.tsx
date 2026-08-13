@@ -14,7 +14,7 @@ interface RepoListPage<T> {
 
 interface RepoListProps<T> {
 	selected: string | null;
-	onSelect: (value: string) => void;
+	onSelect: (value: string, item: T) => void;
 	onSearchChange?: () => void;
 	renderRepoMeta?: (item: T) => ReactNode;
 	searchPlaceholder: string;
@@ -85,7 +85,7 @@ export function RepoList<T>({
 						<button
 							key={getKey(item)}
 							type='button'
-							onClick={() => onSelect(getValue(item))}
+							onClick={() => onSelect(getValue(item), item)}
 							className={`flex items-start gap-3 rounded-lg border p-3 text-left transition-colors ${
 								selected === getValue(item)
 									? 'border-primary bg-primary/5'

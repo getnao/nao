@@ -47,6 +47,19 @@ export function selectBackgroundModel(
 	return settings.categories?.[category] ?? null;
 }
 
+export function setBackgroundModelMode(
+	settings: BackgroundModelSettings | null | undefined,
+	mode: BackgroundModelMode,
+): BackgroundModelSettings {
+	const single = settings?.single;
+	const categories =
+		mode === 'perCategory' && settings?.mode === 'single' && single
+			? Object.fromEntries(BACKGROUND_MODEL_CATEGORIES.map((category) => [category, single]))
+			: settings?.categories;
+
+	return { mode, single, categories };
+}
+
 /**
  * Pins a model for a single category. Switching away from a single default keeps that default
  * applied to every other category, so changing one task never silently changes the rest.
@@ -69,8 +82,4 @@ export function setBackgroundModelForCategory(
 	}
 
 	return { mode: 'perCategory', single, categories };
-}
-
-export function isSameModel(a: LlmSelectedModel | null | undefined, b: LlmSelectedModel | null | undefined): boolean {
-	return !!a && !!b && a.provider === b.provider && a.modelId === b.modelId;
 }

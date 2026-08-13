@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6d7bee11-1d2e-4d91-bc5b-a9dd9343717c",
+  "id": "eb558f79-5e02-4767-91f1-cc5ba1ccc269",
   "prevId": "e09d1999-4cc0-47f5-ba37-12d9ab388b46",
   "tables": {
     "account": {
@@ -1772,6 +1772,20 @@
           "type": "text",
           "primaryKey": true,
           "notNull": true,
+          "autoincrement": false
+        },
+        "model_provider": {
+          "name": "model_provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "model_id": {
+          "name": "model_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "frequency": {
@@ -4586,13 +4600,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "default_models": {
-          "name": "default_models",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -4876,6 +4883,13 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "per_user_limit_usd": {
+          "name": "per_user_limit_usd",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "period": {

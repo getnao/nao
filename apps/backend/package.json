@@ -49,6 +49,7 @@
 		"@ai-sdk/mistral": "^3.0.13",
 		"@ai-sdk/openai": "^3.0.1",
 		"@ai-sdk/openai-compatible": "^2.0.63",
+		"@aws-sdk/client-s3": "^3.1102.0",
 		"@aws-sdk/credential-providers": "^3.1030.0",
 		"@azure/identity": "^4.13.0",
 		"@better-auth/oauth-provider": "^1.6.3",
@@ -91,6 +92,7 @@
 		"fastify-plugin": "^5.1.0",
 		"fastify-raw-body": "^5.0.0",
 		"fastify-type-provider-zod": "^6.1.0",
+		"fflate": "^0.8.3",
 		"gray-matter": "^4.0.3",
 		"jose": "^6.2.2",
 		"js-yaml": "^4.1.1",
@@ -106,6 +108,7 @@
 		"react": "^19.2.4",
 		"react-dom": "^19.2.4",
 		"superjson": "^2.2.6",
+		"unpdf": "^1.8.0",
 		"zod": "^4.2.1"
 	},
 	"optionalDependencies": {

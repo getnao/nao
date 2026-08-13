@@ -1,6 +1,11 @@
-import { execFileSync, execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
 import { env } from '../env';
+import { GitIdentity, NAO_CO_AUTHOR, withCoAuthors } from '../utils/git-identity';
+import { configDir, getRepoSubPath, isContextConfigFile, shallowestSubPath } from './git-repo';
+
+export { NAO_CO_AUTHOR };
+export { getRepoSubPath };
 
 export interface GitLabProject {
 	id: number;
@@ -16,6 +21,14 @@ export interface GitLabProject {
 		path: string;
 		avatar_url: string | null;
 	};
+}
+
+interface GitLabMergeRequestSummary {
+	web_url: string;
+	state: GitLabMergeRequest['state'];
+	merged_at: string | null;
+	closed_at: string | null;
+	source_project_id: number;
 }
 
 export interface GitLabUser {
@@ -40,16 +53,6 @@ export interface GitInfo {
 	lastCommitDate: string | null;
 }
 
-export interface GitIdentity {
-	name: string;
-	email: string;
-}
-
-export const NAO_CO_AUTHOR: GitIdentity = {
-	name: 'nao',
-	email: 'naoagent@getnao.io',
-};
-
 export function gitlabBaseUrl(): string {
 	return env.GITLAB_BASE_URL?.replace(/\/$/, '') || 'https://gitlab.com';
 }
@@ -65,13 +68,13 @@ function callbackUrl(): string | undefined {
 	return undefined;
 }
 
-function authenticatedRepoUrl(token: string, repoFullName: string): string {
+export function authenticatedRepoUrl(token: string, repoFullName: string): string {
 	const base = gitlabBaseUrl();
 	const withoutScheme = base.replace(/^https?:\/\//, '');
 	return `https://oauth2:${token}@${withoutScheme}/${repoFullName}.git`;
 }
 
-function publicRepoUrl(repoFullName: string): string {
+export function publicRepoUrl(repoFullName: string): string {
 	return `${gitlabBaseUrl()}/${repoFullName}.git`;
 }
 
@@ -179,10 +182,10 @@ export async function listProjects(
 	return { projects, hasMore };
 }
 
-export function cloneRepo(token: string, fullName: string, targetDir: string): void {
+export function cloneRepo(token: string, fullName: string, targetDir: string, branch?: string): void {
 	const cloneUrl = authenticatedRepoUrl(token, fullName);
 	const cleanUrl = publicRepoUrl(fullName);
-	execFileSync('git', ['clone', '--depth', '1', cloneUrl, targetDir], {
+	execFileSync('git', ['clone', '--depth', '1', ...(branch ? ['--branch', branch] : []), cloneUrl, targetDir], {
 		timeout: 120_000,
 		stdio: 'pipe',
 	});
@@ -214,13 +217,12 @@ export function getGitInfo(projectDir: string): GitInfo {
 	try {
 		const opts = { cwd: projectDir, stdio: 'pipe' as const, timeout: 5_000 };
 
-		const remoteUrl = execSync('git remote get-url origin', opts).toString().trim();
+		const remoteUrl = execFileSync('git', ['remote', 'get-url', 'origin'], opts).toString().trim();
 		const base = gitlabBaseUrl().replace(/^https?:\/\//, '');
 		const gitlabMatch = remoteUrl.match(new RegExp(`${escapeRegExp(base)}[/:](.+?)(?:\\.git)?$`, 'i'));
-
-		const branch = execSync('git rev-parse --abbrev-ref HEAD', opts).toString().trim();
-		const lastCommitMessage = execSync('git log -1 --format=%s', opts).toString().trim();
-		const lastCommitDate = execSync('git log -1 --format=%cI', opts).toString().trim();
+		const branch = readCurrentBranch(projectDir);
+		const lastCommitMessage = readOptionalGitValue(projectDir, ['log', '-1', '--format=%s']);
+		const lastCommitDate = readOptionalGitValue(projectDir, ['log', '-1', '--format=%cI']);
 
 		return {
 			isGitRepo: true,
@@ -232,6 +234,25 @@ export function getGitInfo(projectDir: string): GitInfo {
 		};
 	} catch {
 		return empty;
+	}
+}
+
+function readCurrentBranch(projectDir: string): string | null {
+	const branch = readOptionalGitValue(projectDir, ['rev-parse', '--abbrev-ref', 'HEAD']);
+	return branch && branch !== 'HEAD' ? branch : null;
+}
+
+function readOptionalGitValue(projectDir: string, args: string[]): string | null {
+	try {
+		return execFileSync('git', args, {
+			cwd: projectDir,
+			stdio: 'pipe',
+			timeout: 5_000,
+		})
+			.toString()
+			.trim();
+	} catch {
+		return null;
 	}
 }
 
@@ -253,7 +274,7 @@ export function commitAllAndPushBranch(args: {
 	message: string;
 	author: GitIdentity;
 	coAuthors?: GitIdentity[];
-}): void {
+}): string {
 	const { token, repoFullName, dir, branch, message, author, coAuthors = [] } = args;
 	const opts = { cwd: dir, stdio: 'pipe' as const, timeout: 120_000 };
 
@@ -271,15 +292,19 @@ export function commitAllAndPushBranch(args: {
 		env: { ...process.env, ...identity },
 	});
 
-	execFileSync('git', ['push', authenticatedRepoUrl(token, repoFullName), `HEAD:refs/heads/${branch}`], opts);
+	return pushBranch({ token, repoFullName, dir, branch });
 }
 
-function withCoAuthors(message: string, coAuthors: GitIdentity[]): string {
-	if (coAuthors.length === 0) {
-		return message;
-	}
-	const trailers = coAuthors.map((c) => `Co-authored-by: ${c.name} <${c.email}>`).join('\n');
-	return `${message.trimEnd()}\n\n${trailers}`;
+export function pushBranch(args: { token: string; repoFullName: string; dir: string; branch: string }): string {
+	return execFileSync(
+		'git',
+		['push', authenticatedRepoUrl(args.token, args.repoFullName), `HEAD:refs/heads/${args.branch}`],
+		{
+			cwd: args.dir,
+			stdio: 'pipe',
+			timeout: 120_000,
+		},
+	).toString();
 }
 
 export interface CreateMergeRequestInput {
@@ -293,9 +318,10 @@ export async function createMergeRequest(
 	token: string,
 	repoFullName: string,
 	input: CreateMergeRequestInput,
+	apiBaseUrl = gitlabApiUrl(),
 ): Promise<{ iid: number; web_url: string }> {
 	const encodedPath = encodeURIComponent(repoFullName);
-	const res = await fetch(`${gitlabApiUrl()}/projects/${encodedPath}/merge_requests`, {
+	const res = await fetch(`${apiBaseUrl}/projects/${encodedPath}/merge_requests`, {
 		method: 'POST',
 		headers: {
 			Authorization: `Bearer ${token}`,
@@ -311,11 +337,98 @@ export async function createMergeRequest(
 	return { iid: data.iid, web_url: data.web_url };
 }
 
+export async function findOpenMergeRequest(
+	token: string,
+	repoFullName: string,
+	branch: string,
+	apiBaseUrl = gitlabApiUrl(),
+): Promise<{ url: string } | null> {
+	const projectId = await getGitLabProjectId(token, repoFullName, apiBaseUrl);
+	const mergeRequest = await findMergeRequestForBranch(token, repoFullName, branch, projectId, 'opened', apiBaseUrl);
+	return mergeRequest ? { url: mergeRequest.web_url } : null;
+}
+
+export async function findMergeRequestByBranch(
+	token: string,
+	repoFullName: string,
+	branch: string,
+): Promise<{
+	url: string;
+	state: 'open' | 'closed' | 'merged';
+	mergedAt: string | null;
+	closedAt: string | null;
+} | null> {
+	const projectId = await getGitLabProjectId(token, repoFullName);
+	const openMergeRequest = await findMergeRequestForBranch(token, repoFullName, branch, projectId, 'opened');
+	const mergeRequest =
+		openMergeRequest ?? (await findMergeRequestForBranch(token, repoFullName, branch, projectId, 'all'));
+	if (!mergeRequest) {
+		return null;
+	}
+	return {
+		url: mergeRequest.web_url,
+		state: mergeRequest.state === 'opened' ? 'open' : mergeRequest.state === 'merged' ? 'merged' : 'closed',
+		mergedAt: mergeRequest.merged_at,
+		closedAt: mergeRequest.closed_at,
+	};
+}
+
+async function getGitLabProjectId(token: string, repoFullName: string, apiBaseUrl = gitlabApiUrl()): Promise<number> {
+	const encodedPath = encodeURIComponent(repoFullName);
+	const res = await fetch(`${apiBaseUrl}/projects/${encodedPath}`, {
+		headers: { Authorization: `Bearer ${token}` },
+	});
+	if (!res.ok) {
+		const body = await res.text();
+		throw new Error(`GitLab API error ${res.status}: ${body}`);
+	}
+	const project = (await res.json()) as Pick<GitLabProject, 'id'>;
+	return project.id;
+}
+
+async function findMergeRequestForBranch(
+	token: string,
+	repoFullName: string,
+	branch: string,
+	projectId: number,
+	state: 'opened' | 'all',
+	apiBaseUrl = gitlabApiUrl(),
+): Promise<GitLabMergeRequestSummary | null> {
+	const encodedPath = encodeURIComponent(repoFullName);
+	let page = '1';
+	while (page) {
+		const params = new URLSearchParams({
+			state,
+			source_branch: branch,
+			scope: 'all',
+			order_by: 'updated_at',
+			sort: 'desc',
+			per_page: '100',
+			page,
+		});
+		const res = await fetch(`${apiBaseUrl}/projects/${encodedPath}/merge_requests?${params}`, {
+			headers: { Authorization: `Bearer ${token}` },
+		});
+		if (!res.ok) {
+			const body = await res.text();
+			throw new Error(`GitLab API error ${res.status}: ${body}`);
+		}
+		const mergeRequests = (await res.json()) as GitLabMergeRequestSummary[];
+		const match = mergeRequests.find((candidate) => candidate.source_project_id === projectId);
+		if (match) {
+			return match;
+		}
+		page = res.headers.get('x-next-page') ?? '';
+	}
+	return null;
+}
+
 export interface GitLabMergeRequest {
 	iid: number;
 	state: 'opened' | 'closed' | 'merged' | 'locked';
 	web_url: string;
 	merged_at: string | null;
+	closed_at: string | null;
 }
 
 export async function getMergeRequest(token: string, repoFullName: string, iid: number): Promise<GitLabMergeRequest> {
@@ -327,6 +440,42 @@ export async function getMergeRequest(token: string, repoFullName: string, iid: 
 		throw new Error(`GitLab API error: ${res.status}`);
 	}
 	return res.json() as Promise<GitLabMergeRequest>;
+}
+
+const TREE_PAGE_SIZE = 100;
+/** Safety ceiling to avoid an unbounded loop; large enough not to cap real repositories. */
+const TREE_MAX_PAGES = 10_000;
+
+export async function findContextConfigSubPath(token: string, repoFullName: string): Promise<string> {
+	try {
+		const encoded = encodeURIComponent(repoFullName);
+		const dirs: string[] = [];
+		for (let page = 1; page <= TREE_MAX_PAGES; page++) {
+			const res = await fetch(
+				`${gitlabApiUrl()}/projects/${encoded}/repository/tree?recursive=true&per_page=${TREE_PAGE_SIZE}&page=${page}`,
+				{ headers: { Authorization: `Bearer ${token}` } },
+			);
+			if (!res.ok) {
+				return '';
+			}
+			const entries = (await res.json()) as Array<{ type: string; path: string }>;
+			for (const entry of entries) {
+				if (entry.type === 'blob' && isContextConfigFile(entry.path)) {
+					const dir = configDir(entry.path);
+					if (dir === '') {
+						return '';
+					}
+					dirs.push(dir);
+				}
+			}
+			if (!res.headers.get('x-next-page')) {
+				return shallowestSubPath(dirs);
+			}
+		}
+		return '';
+	} catch {
+		return '';
+	}
 }
 
 export function parseMergeRequestUrl(url: string): { repo: string; iid: number } | null {

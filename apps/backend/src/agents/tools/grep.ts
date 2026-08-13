@@ -4,41 +4,21 @@ import fs from 'fs';
 import path from 'path';
 
 import { GrepOutput, renderToModelOutput } from '../../components/tool-outputs';
-import { isWithinProjectFolder, loadNaoignorePatterns, toRealPath, toVirtualPath } from '../../utils/tools';
+import { isStorageEnabled } from '../../services/storage';
+import { canGrepUserFiles, grepRootForUser } from '../../services/storage/user-files';
+import type { ToolContext } from '../../types/tools';
+import { getRipgrepPath } from '../../utils/ripgrep';
+import {
+	isStoragePath,
+	isWithinProjectFolder,
+	loadNaoignorePatterns,
+	toRealPath,
+	toStorageRelativePath,
+	toStorageScope,
+	toStorageVirtualPath,
+	toVirtualPath,
+} from '../../utils/tools';
 import { createTool } from '../../utils/tools';
-
-/**
- * Gets the path to the ripgrep binary.
- * Priority:
- * 1. Bundled binary next to the executable (for standalone builds)
- * 2. vscode-ripgrep package (for development)
- */
-function getRipgrepPath(): string {
-	// Check for bundled binary next to the executable
-	const execDir = path.dirname(process.execPath);
-	const bundledRgPath = path.join(execDir, process.platform === 'win32' ? 'rg.exe' : 'rg');
-
-	if (fs.existsSync(bundledRgPath)) {
-		return bundledRgPath;
-	}
-
-	// Fall back to vscode-ripgrep package
-	try {
-		// Dynamic import to avoid bundling issues
-		// eslint-disable-next-line @typescript-eslint/no-require-imports
-		const { rgPath } = require('@vscode/ripgrep');
-		if (fs.existsSync(rgPath)) {
-			return rgPath;
-		}
-	} catch {
-		// Package not available
-	}
-
-	throw new Error(
-		'ripgrep binary not found. Ensure @vscode/ripgrep is installed or the binary is bundled with the executable.',
-	);
-}
-
 interface RipgrepMatch {
 	path: string;
 	line_number: number;
@@ -47,157 +27,214 @@ interface RipgrepMatch {
 	context_after?: string[];
 }
 
+/** A directory ripgrep walks, and how its absolute paths map back to the file tree. */
+interface SearchTarget {
+	root: string;
+	cwd: string;
+	ignoreGlobs: string[];
+	includeHidden: boolean;
+	/** Returns null when a match must be dropped because it sits outside the target. */
+	toDisplayPath: (absolutePath: string) => string | null;
+	toAbsolutePath: (displayPath: string) => string;
+}
+
+interface TargetResult {
+	matches: RipgrepMatch[];
+	totalMatches: number;
+}
+
 export default createTool<grep.Input, grep.Output>({
 	description: 'Search for text patterns in files using ripgrep. Supports regex patterns and respects .gitignore.',
 	inputSchema: grep.InputSchema,
 	outputSchema: grep.OutputSchema,
-	execute: async (
-		{ pattern, path: searchPath, glob, case_insensitive, context_lines, max_results = 100 },
-		context,
-	) => {
-		const projectFolder = context.projectFolder;
-		const rgPath = getRipgrepPath();
+	execute: async ({ max_results = 100, ...options }, context) => {
+		const rgPath = await getRipgrepPath();
+		const targets = resolveTargets(options.path, context);
 
-		// Determine the search path
-		let realSearchPath = projectFolder;
-		if (searchPath) {
-			realSearchPath = toRealPath(searchPath, projectFolder);
-		}
+		const results = await Promise.all(
+			targets.map((target) => searchTarget(rgPath, target, { ...options, max_results })),
+		);
 
-		// Build ripgrep arguments
-		const args: string[] = [
-			'--json', // JSON output for structured parsing
-			'--no-heading',
-			'--line-number',
-		];
+		const totalMatches = results.reduce((total, result) => total + result.totalMatches, 0);
+		const matches = results.flatMap((result) => result.matches).slice(0, max_results);
 
-		if (case_insensitive) {
-			args.push('--ignore-case');
-		}
-
-		if (context_lines && context_lines > 0) {
-			args.push('--context', context_lines.toString());
-		}
-
-		if (glob) {
-			args.push('--glob', glob);
-		}
-
-		// Add .naoignore patterns as exclusions
-		const naoignorePatterns = loadNaoignorePatterns(projectFolder);
-		for (const ignorePattern of naoignorePatterns) {
-			// Convert naoignore patterns to ripgrep glob exclusions
-			const cleanPattern = ignorePattern.endsWith('/') ? ignorePattern.slice(0, -1) : ignorePattern;
-			args.push('--glob', `!${cleanPattern}`);
-			args.push('--glob', `!${cleanPattern}/**`);
-		}
-
-		// Add the pattern and path
-		args.push('--regexp', pattern);
-		args.push('--', realSearchPath);
-
-		return new Promise((resolve, reject) => {
-			const matches: RipgrepMatch[] = [];
-			let totalMatches = 0;
-			let truncated = false;
-
-			const rg = spawn(rgPath, args, {
-				cwd: projectFolder,
-				env: { ...process.env },
-			});
-
-			let stdout = '';
-			let stderr = '';
-
-			rg.stdout.on('data', (data) => {
-				stdout += data.toString();
-			});
-
-			rg.stderr.on('data', (data) => {
-				stderr += data.toString();
-			});
-
-			rg.on('close', (code) => {
-				// ripgrep returns 0 for matches found, 1 for no matches, 2 for errors
-				if (code === 2) {
-					reject(new Error(`ripgrep error: ${stderr}`));
-					return;
-				}
-
-				// Parse JSON lines output
-				const lines = stdout.split('\n').filter((line) => line.trim());
-
-				for (const line of lines) {
-					try {
-						const entry = JSON.parse(line);
-
-						if (entry.type === 'match') {
-							const data = entry.data;
-							const filePath = data.path.text;
-
-							// Security check: ensure file is within project folder
-							if (!isWithinProjectFolder(filePath, projectFolder)) {
-								continue;
-							}
-
-							const virtualPath = toVirtualPath(filePath, projectFolder);
-
-							for (const _submatch of data.submatches) {
-								totalMatches++;
-
-								if (matches.length < max_results) {
-									matches.push({
-										path: virtualPath,
-										line_number: data.line_number,
-										line_content: data.lines.text.replace(/\n$/, ''),
-									});
-								} else {
-									truncated = true;
-								}
-							}
-						} else if (entry.type === 'context') {
-							// Handle context lines if requested
-							const data = entry.data;
-							const filePath = data.path.text;
-
-							if (!isWithinProjectFolder(filePath, projectFolder)) {
-								continue;
-							}
-
-							// Context handling is complex with JSON output
-							// For simplicity, we'll add context in a second pass if needed
-						}
-					} catch {
-						// Skip malformed lines
-					}
-				}
-
-				// If context was requested, do a second pass to collect it
-				if (context_lines && context_lines > 0 && matches.length > 0) {
-					addContextToMatches(matches, context_lines, projectFolder);
-				}
-
-				resolve({
-					_version: '1',
-					matches,
-					total_matches: totalMatches,
-					truncated,
-				});
-			});
-
-			rg.on('error', (err) => {
-				reject(new Error(`Failed to run ripgrep: ${err.message}`));
-			});
-		});
+		return {
+			_version: '1',
+			matches,
+			total_matches: totalMatches,
+			truncated: totalMatches > matches.length,
+		};
 	},
 
 	toModelOutput: ({ output }) => renderToModelOutput(GrepOutput({ output }), output),
 });
 
+/** A search without a path covers the whole tree, permanent storage included. */
+const resolveTargets = (searchPath: string | undefined, context: ToolContext): SearchTarget[] => {
+	if (isStoragePath(searchPath)) {
+		return [storageTarget(searchPath!, context)];
+	}
+	if (searchPath) {
+		return [projectTarget(searchPath, context.projectFolder)];
+	}
+
+	const storage = isStorageEnabled() && canGrepUserFiles() ? [storageTarget(toStorageVirtualPath(''), context)] : [];
+	return [projectTarget(undefined, context.projectFolder), ...storage];
+};
+
+const projectTarget = (searchPath: string | undefined, projectFolder: string): SearchTarget => {
+	return {
+		root: searchPath ? toRealPath(searchPath, projectFolder) : projectFolder,
+		cwd: projectFolder,
+		ignoreGlobs: loadNaoignorePatterns(projectFolder),
+		includeHidden: false,
+		toDisplayPath: (absolutePath) =>
+			isWithinProjectFolder(absolutePath, projectFolder) ? toVirtualPath(absolutePath, projectFolder) : null,
+		toAbsolutePath: (displayPath) => toRealPath(displayPath, projectFolder),
+	};
+};
+
+const storageTarget = (searchPath: string, context: ToolContext): SearchTarget => {
+	const scope = toStorageScope(context);
+	const spaceRoot = grepRootForUser(scope);
+
+	return {
+		root: grepRootForUser(scope, toStorageRelativePath(searchPath)),
+		cwd: spaceRoot,
+		ignoreGlobs: [],
+		includeHidden: true,
+		toDisplayPath: (absolutePath) => {
+			const relativePath = path.relative(spaceRoot, path.resolve(absolutePath));
+			if (relativePath === '' || relativePath === '..' || relativePath.startsWith(`..${path.sep}`)) {
+				return null;
+			}
+			return toStorageVirtualPath(relativePath.replaceAll(path.sep, '/'));
+		},
+		toAbsolutePath: (displayPath) => grepRootForUser(scope, toStorageRelativePath(displayPath)),
+	};
+};
+
+function searchTarget(
+	rgPath: string,
+	target: SearchTarget,
+	{ pattern, glob, case_insensitive, context_lines, max_results }: grep.Input & { max_results: number },
+): Promise<TargetResult> {
+	if (!fs.existsSync(target.root)) {
+		return Promise.resolve({ matches: [], totalMatches: 0 });
+	}
+
+	// Build ripgrep arguments
+	const args: string[] = [
+		'--json', // JSON output for structured parsing
+		'--no-heading',
+		'--line-number',
+	];
+	if (target.includeHidden) {
+		args.push('--hidden');
+	}
+
+	if (case_insensitive) {
+		args.push('--ignore-case');
+	}
+
+	if (context_lines && context_lines > 0) {
+		args.push('--context', context_lines.toString());
+	}
+
+	if (glob) {
+		args.push('--glob', glob);
+	}
+
+	for (const ignorePattern of target.ignoreGlobs) {
+		// Convert naoignore patterns to ripgrep glob exclusions
+		const cleanPattern = ignorePattern.endsWith('/') ? ignorePattern.slice(0, -1) : ignorePattern;
+		args.push('--glob', `!${cleanPattern}`);
+		args.push('--glob', `!${cleanPattern}/**`);
+	}
+
+	// Add the pattern and path
+	args.push('--regexp', pattern);
+	args.push('--', target.root);
+
+	return new Promise((resolve, reject) => {
+		const matches: RipgrepMatch[] = [];
+		let totalMatches = 0;
+
+		const rg = spawn(rgPath, args, {
+			cwd: target.cwd,
+			env: { ...process.env },
+		});
+
+		let stdout = '';
+		let stderr = '';
+
+		rg.stdout.on('data', (data) => {
+			stdout += data.toString();
+		});
+
+		rg.stderr.on('data', (data) => {
+			stderr += data.toString();
+		});
+
+		rg.on('close', (code) => {
+			// ripgrep returns 0 for matches found, 1 for no matches, 2 for errors
+			if (code === 2) {
+				reject(new Error(`ripgrep error: ${stderr}`));
+				return;
+			}
+
+			// Parse JSON lines output
+			const lines = stdout.split('\n').filter((line) => line.trim());
+
+			for (const line of lines) {
+				try {
+					const entry = JSON.parse(line);
+					if (entry.type !== 'match') {
+						continue;
+					}
+
+					const data = entry.data;
+
+					// Security check: ensure the file belongs to the target
+					const displayPath = target.toDisplayPath(data.path.text);
+					if (!displayPath) {
+						continue;
+					}
+
+					for (const _submatch of data.submatches) {
+						totalMatches++;
+
+						if (matches.length < max_results) {
+							matches.push({
+								path: displayPath,
+								line_number: data.line_number,
+								line_content: data.lines.text.replace(/\n$/, ''),
+							});
+						}
+					}
+				} catch {
+					// Skip malformed lines
+				}
+			}
+
+			// If context was requested, do a second pass to collect it
+			if (context_lines && context_lines > 0 && matches.length > 0) {
+				addContextToMatches(matches, context_lines, target);
+			}
+
+			resolve({ matches, totalMatches });
+		});
+
+		rg.on('error', (err) => {
+			reject(new Error(`Failed to run ripgrep: ${err.message}`));
+		});
+	});
+}
+
 /**
  * Add context lines to matches by reading the files.
  */
-function addContextToMatches(matches: RipgrepMatch[], contextLines: number, projectFolder: string): void {
+function addContextToMatches(matches: RipgrepMatch[], contextLines: number, target: SearchTarget): void {
 	// Group matches by file for efficiency
 	const matchesByFile = new Map<string, RipgrepMatch[]>();
 	for (const match of matches) {
@@ -206,10 +243,9 @@ function addContextToMatches(matches: RipgrepMatch[], contextLines: number, proj
 		matchesByFile.set(match.path, existing);
 	}
 
-	for (const [virtualPath, fileMatches] of matchesByFile) {
+	for (const [displayPath, fileMatches] of matchesByFile) {
 		try {
-			const realPath = toRealPath(virtualPath, projectFolder);
-			const content = fs.readFileSync(realPath, 'utf-8');
+			const content = fs.readFileSync(target.toAbsolutePath(displayPath), 'utf-8');
 			const lines = content.split('\n');
 
 			for (const match of fileMatches) {

@@ -12,9 +12,10 @@ import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card
 import { buildBrandVars } from '@/components/brand-color';
 import { requireAdminNonCloud } from '@/lib/require-admin';
 import { useTheme } from '@/contexts/theme.provider';
-import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
+import { brandingAssetUrl, DEFAULT_BRAND_COLOR, useBranding } from '@/hooks/use-branding';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
+import NaoLogoAnimated from '@/components/icons/nao-logo-animated';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/white-label')({
 	beforeLoad: requireAdminNonCloud,
@@ -36,6 +37,7 @@ function WhiteLabelPage() {
 	const queryClient = useQueryClient();
 	const features = useQuery(trpc.license.getFeatures.queryOptions());
 	const branding = useBranding();
+	const customColor = branding.enabled ? branding.brandColor : null;
 	const isWhiteLabelEnabled = features.data?.['white-label'] === true;
 
 	const [appName, setAppName] = useState('');
@@ -51,14 +53,14 @@ function WhiteLabelPage() {
 		const next = {
 			appName: branding.appName ?? '',
 			tabTitle: branding.tabTitle ?? '',
-			brandColor: branding.brandColor ?? null,
+			brandColor: customColor,
 		};
 
 		setAppName((current) => (current === prev.appName ? next.appName : current));
 		setTabTitle((current) => (current === prev.tabTitle ? next.tabTitle : current));
 		setBrandColor((current) => (current === prev.brandColor ? next.brandColor : current));
 		lastSyncedRef.current = next;
-	}, [branding.appName, branding.tabTitle, branding.brandColor]);
+	}, [branding.appName, branding.tabTitle, customColor]);
 
 	const updateMutation = useMutation({
 		...trpc.branding.update.mutationOptions(),
@@ -286,7 +288,6 @@ function LabeledInput({
 }
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
-const DEFAULT_BRAND_COLOR = '#522bff';
 
 function BrandColorPicker({
 	value,
@@ -352,9 +353,14 @@ function BrandColorPicker({
 	);
 }
 
+const PREVIEW_ANIMATION_MS = 2500;
+
 function BrandColorPreview({ color }: { color: string }) {
 	const ref = useRef<HTMLDivElement>(null);
 	const { theme } = useTheme();
+	const [runId, setRunId] = useState(0);
+	const [animating, setAnimating] = useState(false);
+	const isFirstRender = useRef(true);
 
 	useEffect(() => {
 		const el = ref.current;
@@ -368,6 +374,17 @@ function BrandColorPreview({ color }: { color: string }) {
 		}
 	}, [color, theme]);
 
+	useEffect(() => {
+		if (isFirstRender.current) {
+			isFirstRender.current = false;
+			return;
+		}
+		setRunId((id) => id + 1);
+		setAnimating(true);
+		const timeout = setTimeout(() => setAnimating(false), PREVIEW_ANIMATION_MS);
+		return () => clearTimeout(timeout);
+	}, [color]);
+
 	return (
 		<div className='flex items-center gap-2'>
 			<ArrowRight className='size-4' />
@@ -379,6 +396,7 @@ function BrandColorPreview({ color }: { color: string }) {
 					Link
 				</Button>
 				<Badge variant='admin'>Badge</Badge>
+				<NaoLogoAnimated key={runId} loop={animating} className='size-5' color={color} />
 			</div>
 		</div>
 	);

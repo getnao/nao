@@ -1,7 +1,7 @@
 import { computeColumnRange, isConditionalFormatRule, resolveCellBackground } from '@nao/shared/conditional-formatting';
 import { formatCellValue, formatColumnLabel, isNumericColumn, sortTableRows } from '@nao/shared/story-table-utils';
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import type { ColumnConditionalFormats, ColumnRange, ConditionalFormatRule } from '@nao/shared/conditional-formatting';
 import type { SortDirection } from '@nao/shared/story-table-utils';
 import { TablePagination } from '@/components/ui/table-pagination';
@@ -27,7 +27,7 @@ interface TableDisplayProps {
 
 type Sort = { column: string; direction: SortDirection };
 
-export function TableDisplay({
+export const TableDisplay = memo(function TableDisplay({
 	data,
 	columns,
 	title,
@@ -45,7 +45,10 @@ export function TableDisplay({
 		() => (columns && columns.length > 0 ? columns : inferColumns(data)),
 		[columns, data],
 	);
-	const numericColumns = new Set(resolvedColumns.filter((column) => isNumericColumn(data, column)));
+	const numericColumns = useMemo(
+		() => new Set(resolvedColumns.filter((column) => isNumericColumn(data, column))),
+		[data, resolvedColumns],
+	);
 	const hasRows = data.length > 0;
 	const showPagination = hasRows && data.length > maxRowsBeforePagination;
 
@@ -216,7 +219,7 @@ export function TableDisplay({
 			) : null}
 		</div>
 	);
-}
+});
 
 function SortIndicator({ direction }: { direction: SortDirection | null }) {
 	return (

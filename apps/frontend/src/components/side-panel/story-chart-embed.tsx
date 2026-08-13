@@ -9,12 +9,11 @@ import { StoryChartQueryView } from '@/components/side-panel/story-chart-query';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
 import { ChartConfigEditDialog } from '@/components/tool-calls/display-chart-edit-dialog';
 import { Button } from '@/components/ui/button';
-import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useStoryChartEdit } from '@/contexts/story-chart-edit';
 import { useStoryEmbedData } from '@/contexts/story-embed-data';
 import { useStoryQuerySql } from '@/contexts/story-query-sql';
+import { useSourceQuery } from '@/hooks/use-source-query';
 import { sortByDateKey } from '@/lib/charts.utils';
-import { findLatestExecuteSqlInMessages } from '@/lib/execute-sql-messages';
 import { cn } from '@/lib/utils';
 
 const STORY_CHART_HEIGHT_CLASS = 'h-72';
@@ -32,18 +31,11 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 	dragHandlePlacement?: 'leading' | 'trailing';
 	isSelected?: boolean;
 }) {
-	const agent = useOptionalAgentContext();
 	const embedData = useStoryEmbedData();
 	const storyBlockDrag = useContext(StoryBlockDragContext);
-
-	const sourceData = useMemo(() => {
-		const fromEmbedData = embedData?.[chart.queryId];
-		if (fromEmbedData) {
-			return fromEmbedData;
-		}
-
-		return findLatestExecuteSqlInMessages(agent?.messages ?? [], chart.queryId)?.output ?? null;
-	}, [embedData, agent?.messages, chart.queryId]);
+	const embedSourceData = embedData?.[chart.queryId];
+	const { sourceData: agentSourceData } = useSourceQuery(embedSourceData ? undefined : chart.queryId);
+	const sourceData = embedSourceData ?? agentSourceData;
 
 	const data = useMemo(
 		() =>

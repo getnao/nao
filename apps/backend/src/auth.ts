@@ -4,9 +4,10 @@ import {
 	oauthProviderAuthServerMetadata,
 	oauthProviderOpenIdConfigMetadata,
 } from '@better-auth/oauth-provider';
-import type { BetterAuthPlugin } from 'better-auth';
+import type { BetterAuthPlugin, Session } from 'better-auth';
 import { APIError, betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
+import { createAuthMiddleware } from 'better-auth/api';
 import { verifyAccessToken } from 'better-auth/oauth2';
 import { jwt } from 'better-auth/plugins';
 import { bearer } from 'better-auth/plugins/bearer';
@@ -16,6 +17,7 @@ import { db } from './db/db';
 import dbConfig, { Dialect } from './db/dbConfig';
 import { env, isCloud, MCP_SERVER_URL } from './env';
 import * as orgQueries from './queries/organization.queries';
+import * as projectQueries from './queries/project.queries';
 import * as userQueries from './queries/user.queries';
 import { emailService } from './services/email';
 import { githubOAuthConfig } from './services/github';
@@ -32,6 +34,8 @@ import {
 	getTrustedProvidersForOidc,
 	isSocialProviderOidc,
 } from './services/oidc-auth.service';
+import { syncRolesFromSsoGroups } from './services/sso-group-mapping.service';
+import { shouldExpireSsoSession } from './services/sso-session.service';
 import { buildForgotPasswordEmail } from './utils/email-builders';
 import { logger, serializeError } from './utils/logger';
 import { buildUsernameAllowlist, isEmailDomainAllowed, resolveProviderId } from './utils/utils';
@@ -47,6 +51,18 @@ export const getAuth = async () => {
 		defaultAuthPromise = createAuthInstance(env.BETTER_AUTH_URL);
 	}
 	return defaultAuthPromise;
+};
+
+export const getSession = async (headers: Headers) => {
+	const auth = await getAuth();
+	const session = await auth.api.getSession({ headers });
+	if (!session?.session || !(await shouldExpireSsoSession(session.session))) {
+		return session;
+	}
+
+	const context = await auth.$context;
+	await context.internalAdapter.deleteSession(session.session.token);
+	return null;
 };
 
 export function updateAuth() {
@@ -226,6 +242,23 @@ async function createAuthInstance(baseURL: string) {
 				trustedProviders,
 			},
 		},
+		hooks: {
+			after: createAuthMiddleware(async (ctx) => {
+				if (ctx.path !== '/get-session' || !ctx.request) {
+					return;
+				}
+
+				const result = ctx.context.returned as { session?: Session } | null;
+				if (!result?.session || !(await shouldExpireSsoSession(result.session))) {
+					return;
+				}
+
+				await ctx.context.internalAdapter.deleteSession(result.session.token);
+				return new Response('null', {
+					headers: { 'content-type': 'application/json' },
+				});
+			}),
+		},
 		databaseHooks: {
 			user: {
 				create: {
@@ -293,6 +326,36 @@ async function createAuthInstance(baseURL: string) {
 								message: 'Account setup could not be completed. Please try again or contact support.',
 							});
 						}
+					},
+				},
+				delete: {
+					before: async (user) => {
+						try {
+							const { cleanupContextWorktree } = await import('./services/context-explorer-git.service');
+							const projects = await projectQueries.listUserProjects(user.id);
+							for (const project of projects) {
+								if (project.path) {
+									await cleanupContextWorktree(project.id, project.path, user.id);
+								}
+							}
+						} catch (error) {
+							logger.warn(`Failed to clean up context worktrees before deleting user ${user.id}`, {
+								source: 'system',
+								context: { error: serializeError(error) },
+							});
+						}
+						return true;
+					},
+				},
+			},
+			session: {
+				create: {
+					async after(session, ctx) {
+						if (!isSocialProviderOidc(resolveProviderId(ctx))) {
+							return;
+						}
+
+						await syncRolesFromSsoGroups(session.userId);
 					},
 				},
 			},

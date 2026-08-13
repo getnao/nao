@@ -1,6 +1,6 @@
 import { createMemoryState } from '@chat-adapter/state-memory';
 import { createTelegramAdapter } from '@chat-adapter/telegram';
-import { CITATION_TAG_REGEX } from '@nao/shared';
+import { stripAssistantTags } from '@nao/shared';
 import { displayChart } from '@nao/shared/tools';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
@@ -512,7 +512,7 @@ class TelegramService {
 	}
 
 	private _updateTextBlock(text: string, ctx: ConversationContext): void {
-		const block = createPlainTextBlock(text.replace(CITATION_TAG_REGEX, ''));
+		const block = createPlainTextBlock(stripAssistantTags(text));
 		if (ctx.textBlockIndex === -1) {
 			ctx.textBlockIndex = ctx.blocks.length;
 			ctx.blocks.push(block);

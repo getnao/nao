@@ -13,7 +13,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import type { LucideIcon } from 'lucide-react';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 import { trpc } from '@/main';
-import { useAgentContext } from '@/contexts/agent.provider';
+import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 import { cn } from '@/lib/utils';
 
 const CHART_TYPE_OPTIONS: { value: displayChart.ChartType; label: string }[] = [
@@ -708,7 +708,8 @@ export function DisplayChartEditDialog({
 	data,
 }: DisplayChartEditDialogProps) {
 	const queryClient = useQueryClient();
-	const { messages, setMessages } = useAgentContext();
+	const { setMessages } = useAgentContext();
+	const messages = useAgentMessages();
 
 	const updateMutation = useMutation(
 		trpc.chart.updateConfig.mutationOptions({

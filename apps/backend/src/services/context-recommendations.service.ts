@@ -19,6 +19,7 @@ import { extractConfiguredRepos } from '../utils/nao-config';
 import { agentService } from './agent';
 import { autoCreateRecommendationPullRequests, resolveRecommendationRepo } from './context-pr.service';
 import { ensureFeedbackCoverage, normalizeFeedbackLinks } from './context-recommendations.feedback-coverage';
+import { flagExpensiveContextFiles } from './context-recommendations.file-costs';
 import {
 	collectTriggerChatIds,
 	collectTriggerTargetIds,
@@ -68,6 +69,9 @@ export async function runContextRecommendations(
 		const existing = await crQueries.getReconcilableRecommendations(projectId);
 		const dismissedFingerprints = await crQueries.getDismissedFingerprints(projectId);
 		const totals = await crQueries.getWindowTotals(projectId, periodStart, periodEnd);
+		const fileReadCosts = flagExpensiveContextFiles(
+			await crQueries.getContextFileReadCosts(projectId, periodStart, periodEnd),
+		);
 
 		const userId = await crQueries.getFirstProjectAdminUserId(projectId);
 		const [chat] = await chatQueries.createChat(
@@ -77,6 +81,7 @@ export async function runContextRecommendations(
 					windowStart: periodStart,
 					windowEnd: periodEnd,
 					existing,
+					fileReadCosts,
 					proposeFixes,
 					linkedRepos,
 					contextRepoConnected: !!contextRepo,
@@ -118,7 +123,7 @@ export async function runContextRecommendations(
 		});
 
 		const stream = agent.stream(uiChat.messages ?? [], {});
-		for await (const message of readUIMessageStream<UIMessage>({ stream })) {
+		for await (const message of readUIMessageStream<UIMessage>({ stream, terminateOnError: true })) {
 			void message; // drain; the agent persists its own messages, tools mutate the collector by reference
 		}
 

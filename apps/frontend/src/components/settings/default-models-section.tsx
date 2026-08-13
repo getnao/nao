@@ -2,9 +2,11 @@ import {
 	BACKGROUND_MODEL_CATEGORIES,
 	BACKGROUND_MODEL_CATEGORY_DESCRIPTIONS,
 	BACKGROUND_MODEL_CATEGORY_LABELS,
+	setBackgroundModelMode,
 } from '@nao/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle } from 'lucide-react';
+import { useId } from 'react';
 import type { BackgroundModelCategory, BackgroundModelMode, BackgroundModelSettings } from '@nao/shared';
 import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 
@@ -45,7 +47,7 @@ export function DefaultModelsSection({ isAdmin }: DefaultModelsSectionProps) {
 		if (nextMode === mode) {
 			return;
 		}
-		save({ mode: nextMode, single: settings?.single, categories: settings?.categories });
+		save(setBackgroundModelMode(settings, nextMode));
 	};
 
 	const handleSingleChange = (selection: LlmSelectedModel | null) => {
@@ -158,6 +160,8 @@ function ModelField({
 	disabled: boolean;
 	onChange: (selection: LlmSelectedModel | null) => void;
 }) {
+	const labelId = useId();
+	const descriptionId = useId();
 	const selected = value
 		? availableModels.find((m) => m.provider === value.provider && m.modelId === value.modelId)
 		: null;
@@ -177,16 +181,20 @@ function ModelField({
 	return (
 		<div className='grid gap-1.5'>
 			<div className='flex items-center gap-2'>
-				<label className='text-sm font-medium text-foreground'>{label}</label>
+				<label id={labelId} className='text-sm font-medium text-foreground'>
+					{label}
+				</label>
 				{isUnavailable && (
 					<SimpleTooltip content='The selected model is no longer available. nao automatically falls back to another available model until you pick a new one.'>
 						<AlertTriangle className='size-3.5 text-amber-500' />
 					</SimpleTooltip>
 				)}
 			</div>
-			<p className='text-xs text-muted-foreground'>{description}</p>
+			<p id={descriptionId} className='text-xs text-muted-foreground'>
+				{description}
+			</p>
 			<Select value={value ? modelValue(value) : DEFAULT_VALUE} onValueChange={handleChange} disabled={disabled}>
-				<SelectTrigger className='w-full'>
+				<SelectTrigger className='w-full' aria-labelledby={labelId} aria-describedby={descriptionId}>
 					<SelectValue>
 						{value ? (
 							<div className='flex items-center gap-2'>
@@ -219,5 +227,5 @@ function ModelField({
 }
 
 function modelValue(model: { provider: string; modelId: string }): string {
-	return `${model.provider}:${model.modelId}`;
+	return JSON.stringify([model.provider, model.modelId]);
 }

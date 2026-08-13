@@ -14,6 +14,10 @@ import { fileURLToPath } from 'url';
 import { env, isCloud } from './env';
 import { AUTOMATION_JOB_NAME, automationHandler } from './handlers/automation.handler';
 import {
+	CONTEXT_BRANCH_CLEANUP_JOB_NAME,
+	contextBranchCleanupHandler,
+} from './handlers/context-branch-cleanup.handler';
+import {
 	CONTEXT_RECOMMENDATIONS_JOB_NAME,
 	contextRecommendationsHandler,
 	ensureContextRecommendationsSchedules,
@@ -26,6 +30,7 @@ import { mcpServerRoutes } from './mcp/routes';
 import { ensureOrganizationSetup } from './queries/organization.queries';
 import { agentRoutes } from './routes/agent';
 import { analyticsRoutes } from './routes/analytics';
+import { attachmentRoutes } from './routes/attachment';
 import { authRoutes } from './routes/auth';
 import { authErrorRedirectRoutes } from './routes/auth-error-redirect';
 import { automationWebhookRoutes } from './routes/automation-webhook';
@@ -39,6 +44,7 @@ import { imageRoutes } from './routes/image';
 import { mapBoundariesRoutes } from './routes/map-boundaries';
 import { mcpOAuthRoutes } from './routes/mcp-oauth';
 import { slackRoutes } from './routes/slack';
+import { ssoRoutes } from './routes/sso';
 import { teamsRoutes } from './routes/teams';
 import { telegramRoutes } from './routes/telegram';
 import { testRoutes } from './routes/test';
@@ -156,6 +162,10 @@ app.register(agentRoutes, {
 	prefix: '/api/agent',
 });
 
+app.register(attachmentRoutes, {
+	prefix: '/api/attachments',
+});
+
 app.register(analyticsRoutes, {
 	prefix: '/api/analytics',
 });
@@ -189,6 +199,10 @@ app.register(embedStoryDownloadRoutes, {
 });
 
 app.register(authRoutes, {
+	prefix: '/api',
+});
+
+app.register(ssoRoutes, {
 	prefix: '/api',
 });
 
@@ -356,6 +370,13 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		name: MCP_QUERY_DATA_CLEANUP_JOB_NAME,
 		cron: '0 4 * * *',
 		uniqueKey: MCP_QUERY_DATA_CLEANUP_JOB_NAME,
+	});
+
+	registerJob(CONTEXT_BRANCH_CLEANUP_JOB_NAME, contextBranchCleanupHandler);
+	await ensureRecurring({
+		name: CONTEXT_BRANCH_CLEANUP_JOB_NAME,
+		cron: '0 5 * * *',
+		uniqueKey: CONTEXT_BRANCH_CLEANUP_JOB_NAME,
 	});
 
 	if (env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED) {

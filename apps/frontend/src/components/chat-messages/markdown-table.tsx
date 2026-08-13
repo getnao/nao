@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { DataTableCard } from '@/components/data-table-card';
-import { useOptionalAgentContext } from '@/contexts/agent.provider';
+import { useChatId } from '@/hooks/use-chat-id';
 import { cn } from '@/lib/utils';
 
 interface HastNode {
@@ -11,7 +11,7 @@ interface HastNode {
 }
 
 export function MarkdownTable({ node, className }: { node?: HastNode; className?: string }) {
-	const chatId = useOptionalAgentContext()?.chatId;
+	const chatId = useChatId();
 	const { columns, rows } = useMemo(() => extractTable(node), [node]);
 	const data = useMemo(
 		() => rows.map((cells) => Object.fromEntries(columns.map((column, i) => [column, cells[i] ?? '']))),

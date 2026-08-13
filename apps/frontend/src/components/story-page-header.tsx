@@ -434,7 +434,10 @@ export function StoryRefreshFailureBanner({ failure }: { failure: StoryRefreshFa
 	const timeAgo = useTimeAgo(failedAt.getTime());
 
 	return (
-		<div className='flex items-start gap-2 border-b bg-destructive/10 px-4 py-2 text-xs text-destructive md:px-6'>
+		<div
+			role='alert'
+			className='flex items-start gap-2 border-b bg-destructive/10 px-4 py-2 text-xs text-destructive md:px-6'
+		>
 			<CircleAlert className='mt-0.5 size-3.5 shrink-0' />
 			<div className='min-w-0'>
 				<span className='font-medium'>Story refresh failed.</span>{' '}

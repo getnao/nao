@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 
 import { createSlackAdapter } from '@chat-adapter/slack';
 import { createMemoryState } from '@chat-adapter/state-memory';
-import { CITATION_TAG_REGEX } from '@nao/shared';
+import { stripAssistantTags } from '@nao/shared';
 import { displayChart } from '@nao/shared/tools';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import { type ChatPostMessageArguments, WebClient } from '@slack/web-api';
@@ -894,7 +894,7 @@ class ProjectSlackBot {
 	}
 
 	private _updateTextBlock(text: string, ctx: ConversationContext): void {
-		const blocks = createTextBlocks(text.replace(CITATION_TAG_REGEX, ''));
+		const blocks = createTextBlocks(stripAssistantTags(text));
 		if (blocks.length === 0) {
 			return;
 		}

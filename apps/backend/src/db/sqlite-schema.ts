@@ -380,9 +380,11 @@ export const messagePart = sqliteTable(
 		toolProviderMetadata: text('tool_provider_metadata', { mode: 'json' }).$type<ProviderMetadata>(),
 		providerMetadata: text('provider_metadata', { mode: 'json' }).$type<ProviderMetadata>(),
 
-		// file/image columns
+		// file columns: images live in message_image, other attachments in permanent storage
 		mediaType: text('media_type'),
 		imageId: text('image_id').references(() => messageImage.id, { onDelete: 'set null' }),
+		storagePath: text('storage_path'),
+		filename: text('filename'),
 	},
 	(t) => [
 		index('parts_message_id_idx').on(t.messageId),
@@ -487,6 +489,7 @@ export const projectProviderBudget = sqliteTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		provider: text('provider').$type<LlmProvider>().notNull(),
 		limitUsd: integer('limit_usd').notNull(),
+		perUserLimitUsd: integer('per_user_limit_usd'),
 		period: text('period', { enum: BUDGET_PERIODS }).notNull(),
 		currentPeriodStart: integer('current_period_start', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -717,6 +720,31 @@ export const contextRecommendationConfig = sqliteTable('context_recommendation_c
 		.$onUpdate(() => new Date())
 		.notNull(),
 });
+
+export const contextBranchOwnership = sqliteTable(
+	'context_branch_ownership',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		branch: text('branch').notNull(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		reviewRequestUrl: text('review_request_url'),
+		reviewRequestKind: text('review_request_kind', { enum: ['created', 'link'] }),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [
+		unique('context_branch_ownership_project_branch_unique').on(t.projectId, t.branch),
+		index('context_branch_ownership_userId_idx').on(t.userId),
+	],
+);
 
 export const contextRecommendation = sqliteTable(
 	'context_recommendation',

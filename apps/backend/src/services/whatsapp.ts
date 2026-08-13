@@ -1,7 +1,7 @@
 import { createMemoryState } from '@chat-adapter/state-memory';
 import { createRedisState } from '@chat-adapter/state-redis';
 import { createWhatsAppAdapter } from '@chat-adapter/whatsapp';
-import { CITATION_TAG_REGEX } from '@nao/shared';
+import { stripAssistantTags } from '@nao/shared';
 import { displayChart } from '@nao/shared/tools';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
@@ -523,7 +523,7 @@ class WhatsappService {
 
 		const finalText = (lastMessage?.parts ?? [])
 			.filter((p): p is Extract<UIMessagePart, { type: 'text' }> => p.type === 'text')
-			.map((p) => p.text.replace(CITATION_TAG_REGEX, ''))
+			.map((p) => stripAssistantTags(p.text))
 			.join('\n\n');
 
 		return { finalText, chartUrls, mapLinks };

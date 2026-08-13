@@ -1,4 +1,5 @@
 import type { CustomBoundarySet } from '@nao/shared';
+import { fileExtension } from '@nao/shared/attachments';
 import { markSupersededExecuteSqlParts } from '@nao/shared/execute-sql-parts';
 import { story } from '@nao/shared/tools';
 import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
@@ -66,6 +67,7 @@ import { logger } from '../utils/logger';
 import { addPromptCache } from '../utils/prompt-cache';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt } from '../utils/title';
+import { isStoragePath } from '../utils/tools';
 import { truncateMiddle } from '../utils/utils';
 import { listChartPlugins } from './chart-plugin';
 import { compactionService } from './compaction';
@@ -74,6 +76,7 @@ import { mcpService } from './mcp';
 import { memoryService } from './memory';
 import { getAzureAccessTokenForUser } from './microsoft-auth.service';
 import { skillService } from './skill';
+import { canGrepUserFiles } from './storage/user-files';
 import { getStoryTemplateWarnings } from './story-template-validation';
 
 export interface AgentRunResult {
@@ -200,9 +203,9 @@ async function _buildContextBase(opts: {
 export class AgentService {
 	private _agents = new Map<string, AgentManager>();
 
-	async assertBudget(projectId: string, modelSelection?: LlmSelectedModel): Promise<void> {
+	async assertBudget(projectId: string, modelSelection?: LlmSelectedModel, userId?: string): Promise<void> {
 		const resolved = await this._getResolvedLlmSelectedModel(projectId, modelSelection);
-		await assertBudgetNotExceeded(projectId, resolved.provider);
+		await assertBudgetNotExceeded(projectId, resolved.provider, userId);
 	}
 
 	/** Resolves the concrete model a run will use (project default when none is configured). */
@@ -251,7 +254,7 @@ export class AgentService {
 	): Promise<AgentManager> {
 		this._disposeAgent(chat.id);
 		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
-		await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider);
+		await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider, chat.userId);
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel);
 		const [agentSettings, customBoundaries] = await Promise.all([
 			projectQueries.getAgentSettings(chat.projectId),
@@ -563,7 +566,7 @@ class AgentManager {
 		const uiMessagesWithCitation = this._addCitationContext(uiMessagesWithSkills);
 		const uiMessagesWithDbContext = this._addDatabaseContext(uiMessagesWithCitation, mentions);
 		const uiMessagesWithCompaction = compactionService.useLastCompaction(uiMessagesWithDbContext);
-		const uiMessagesWithResolvedImages = await resolveImageUrls(uiMessagesWithCompaction);
+		const uiMessagesWithResolvedAttachments = await resolveAttachments(uiMessagesWithCompaction);
 
 		const systemPrompt = this._systemPromptOverride ?? (await this._buildSystemPrompt(provider, timezone, chatUrl));
 
@@ -573,7 +576,7 @@ class AgentManager {
 		};
 
 		const modelMessages = await convertToModelMessages<UIMessage>(
-			[systemMessage, ...uiMessagesWithResolvedImages],
+			[systemMessage, ...uiMessagesWithResolvedAttachments],
 			{
 				tools: this._agentTools,
 			},
@@ -612,6 +615,7 @@ class AgentManager {
 				timezone,
 				testMode: this.chat.testMode,
 				toolNames: Object.keys(this._agentTools),
+				options: { canGrepSavedFiles: canGrepUserFiles() },
 			}),
 		);
 		const renderedPrompt = provider
@@ -755,7 +759,7 @@ class AgentManager {
 			}),
 		});
 
-		this._trackTitleGenerationInference(summaryModelId, convertToTokenUsage(usage));
+		this._trackTitleGenerationInference(modelResult.model.modelId, convertToTokenUsage(usage));
 
 		const title = sanitizeTitle(text) || titleFromPrompt(userMessageText);
 		if (!title) {
@@ -906,10 +910,23 @@ class AgentManager {
 		const skillContent = skillMention
 			? skillService.getSkillContent(this.chat.projectId, skillMention.id)
 			: undefined;
-		if (!skillContent) {
+		if (!skillMention || !skillContent) {
 			return messages;
 		}
-		return this._transformLastUserMessageText(messages, () => truncateMiddle(skillContent, 16_000));
+		const skill = truncateMiddle(skillContent, 16_000);
+		return this._transformLastUserMessageText(messages, (text) =>
+			this._expandSkillMention(text, skillMention, skill),
+		);
+	}
+
+	private _expandSkillMention(text: string, mention: Mention, skill: string): string {
+		const tokens = [`${mention.trigger}[${mention.label}]`, `${mention.trigger}[${mention.id}]`];
+		const matchedToken = tokens.find((token) => text.includes(token));
+		if (matchedToken) {
+			return text.replaceAll(matchedToken, () => skill).trim();
+		}
+		const rest = text.trim();
+		return rest ? `${skill}\n\n${rest}` : skill;
 	}
 
 	private _addDatabaseContext(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
@@ -990,61 +1007,73 @@ const IMAGE_URL_PATTERN = /^\/i\/([a-f0-9-]+)$/;
 type MessageLike = Omit<UIMessage, 'id'>;
 
 /**
- * Replaces server-relative image URLs (/i/{id}) with raw base64 data so the
- * model provider receives the actual image content inline.
+ * Turns the attachments of a conversation into something a provider can consume.
  *
- * The AI SDK's `convertToModelMessages` maps `FileUIPart.url` → `FilePart.data`.
- * A data-URL string (data:…) would be misinterpreted as a downloadable URL,
- * so we pass the plain base64 string instead — the mediaType is already a
- * separate field on the part.
+ * An image is inlined: its `/i/{id}` URL becomes the raw base64 payload. The AI SDK's
+ * `convertToModelMessages` maps `FileUIPart.url` → `FilePart.data`, and a data-URL string
+ * (data:…) would be misread as a link to download — the mediaType already travels in its
+ * own field, so the bare base64 string is what the provider needs.
+ *
+ * A document in permanent storage is replaced by a line naming where it lives. Its bytes
+ * stay out of the context window; the model reads the path when the question needs it.
  */
-async function resolveImageUrls<T extends MessageLike>(messages: T[]): Promise<T[]> {
+async function resolveAttachments<T extends MessageLike>(messages: T[]): Promise<T[]> {
+	const imageData = await loadImageData(messages);
+
+	return messages.map((message) => ({
+		...message,
+		parts: message.parts.flatMap((part): UIMessagePart[] => {
+			if (part.type !== 'file') {
+				return [part];
+			}
+
+			const imageId = part.url.match(IMAGE_URL_PATTERN)?.[1];
+			if (imageId) {
+				const base64Data = imageData.get(imageId);
+				return [base64Data ? { ...part, url: base64Data } : part];
+			}
+
+			if (isStoragePath(part.url)) {
+				return [{ type: 'text' as const, text: describeStoredAttachment(part) }];
+			}
+
+			return [part];
+		}),
+	}));
+}
+
+async function loadImageData(messages: MessageLike[]): Promise<Map<string, string>> {
 	const imageIds = new Set<string>();
 	for (const message of messages) {
 		for (const part of message.parts) {
-			if (part.type === 'file') {
-				const match = part.url.match(IMAGE_URL_PATTERN);
-				if (match) {
-					imageIds.add(match[1]);
-				}
+			const imageId = part.type === 'file' ? part.url.match(IMAGE_URL_PATTERN)?.[1] : undefined;
+			if (imageId) {
+				imageIds.add(imageId);
 			}
 		}
 	}
 
-	if (imageIds.size === 0) {
-		return messages;
-	}
-
-	const imageDataMap = new Map<string, string>();
+	const imageData = new Map<string, string>();
 	await Promise.all(
 		[...imageIds].map(async (id) => {
 			const image = await imageQueries.getImageById(id);
 			if (image) {
-				imageDataMap.set(id, image.data);
+				imageData.set(id, image.data);
 			}
 		}),
 	);
 
-	return messages.map((message) => ({
-		...message,
-		parts: message.parts.map((part) => {
-			if (part.type !== 'file') {
-				return part;
-			}
-			const match = part.url.match(IMAGE_URL_PATTERN);
-			if (!match) {
-				return part;
-			}
-			const base64Data = imageDataMap.get(match[1]);
-			if (!base64Data) {
-				return part;
-			}
-			return {
-				...part,
-				url: base64Data,
-			};
-		}),
-	}));
+	return imageData;
+}
+
+function describeStoredAttachment(part: { url: string; mediaType: string; filename?: string }): string {
+	const name = part.filename ?? part.url.split('/').pop();
+	const workbookHint =
+		fileExtension(name ?? '') === 'xlsx'
+			? ' Reading a workbook gives you its sheet names and the shape of each, which is what you need before querying one.'
+			: '';
+
+	return `[The user attached ${name} (${part.mediaType}) to this message. It is saved at ${part.url}. Its contents are not included here: read that path when you need them.${workbookHint}]`;
 }
 
 // Singleton instance of the agent service
