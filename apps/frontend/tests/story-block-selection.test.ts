@@ -2,7 +2,7 @@
 
 import { Editor, Node } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { splitGridColumnsRaw } from '@nao/shared/story-segments';
 
 import {
@@ -150,7 +150,7 @@ function dispatchEditorMouseDown(target: Element, init?: MouseEventInit): void {
 	}
 }
 
-function dispatchEditorKeyDown(editor: Editor, key: 'Backspace' | 'Delete'): KeyboardEvent {
+function dispatchEditorKeyDown(editor: Editor, key: string): KeyboardEvent {
 	editor.view.focus();
 	const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
 	editor.view.dom.dispatchEvent(event);
@@ -550,6 +550,23 @@ describe('story block selection', () => {
 			expect(editor.state.doc.childCount).toBe(1);
 			expect(editor.state.doc.textContent).toBe('BB');
 			expect(blockSelectionPluginKey.getState(editor.state)).toEqual(emptySelection());
+		});
+
+		it('cancels block deletion after keyboard caret movement', () => {
+			const [first, , third] = topLevelBlockPositions(editor.state.doc);
+			selectBlocks(editor, [first, third], first);
+
+			const endOfTextblock = vi.spyOn(editor.view, 'endOfTextblock').mockReturnValue(false);
+			const arrowEvent = dispatchEditorKeyDown(editor, 'ArrowDown');
+			endOfTextblock.mockRestore();
+
+			expect(arrowEvent.defaultPrevented).toBe(false);
+			expect(blockSelectionPluginKey.getState(editor.state)).toEqual(emptySelection());
+
+			dispatchEditorKeyDown(editor, 'Backspace');
+
+			expect(editor.state.doc.childCount).toBe(3);
+			expect(editor.state.doc.textContent).toBe('AABBCC');
 		});
 
 		it('deletes mixed blocks and columns from several grids in one keypress', () => {

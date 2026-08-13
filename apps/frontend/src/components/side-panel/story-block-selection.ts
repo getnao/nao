@@ -26,6 +26,17 @@ export type DragUnit = { kind: 'block'; pos: number } | { kind: 'gridColumns'; g
 
 export const blockSelectionPluginKey = new PluginKey<BlockSelectionState>('blockSelection');
 
+const CARET_MOVEMENT_KEYS = new Set([
+	'ArrowLeft',
+	'ArrowRight',
+	'ArrowUp',
+	'ArrowDown',
+	'Home',
+	'End',
+	'PageUp',
+	'PageDown',
+]);
+
 export const BlockSelection = Extension.create({
 	name: 'blockSelection',
 	priority: 200,
@@ -390,6 +401,10 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 				if (event.key === 'Escape') {
 					view.dispatch(view.state.tr.setMeta(blockSelectionPluginKey, emptySelection()));
 					return true;
+				}
+				if (CARET_MOVEMENT_KEYS.has(event.key)) {
+					view.dispatch(view.state.tr.setMeta(blockSelectionPluginKey, emptySelection()));
+					return false;
 				}
 				if (event.key === 'Backspace' || event.key === 'Delete') {
 					event.preventDefault();
