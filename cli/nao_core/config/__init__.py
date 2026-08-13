@@ -1,4 +1,5 @@
 from .base import NaoConfig, NaoConfigError, resolve_project_path
+from .confluence import ConfluenceConfig
 from .databases import (
     AnyDatabaseConfig,
     BigQueryConfig,
@@ -51,6 +52,7 @@ __all__ = [
     "ProviderAuthConfig",
     "ProviderConfig",
     "SlackConfig",
+    "ConfluenceConfig",
     "ComparisonConfig",
     "TestConfig",
     "InitError",

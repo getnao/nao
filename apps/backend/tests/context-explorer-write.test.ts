@@ -50,6 +50,7 @@ describe('context explorer worktree writes', () => {
 			'rendered.md.j2': 'template\n',
 			'repos/source.md': 'synced\n',
 			'docs/notion/page.md': 'notion\n',
+			'docs/confluence/page.md': 'confluence\n',
 			'.gitignore': 'ignored\n',
 		});
 		commitAll(seed);
@@ -65,6 +66,7 @@ describe('context explorer worktree writes', () => {
 			'rendered.md.j2': 'live template\n',
 			'repos/source.md': 'live synced\n',
 			'docs/notion/page.md': 'live notion\n',
+			'docs/confluence/page.md': 'live confluence\n',
 			'untracked.md': 'live only\n',
 			'.env': 'secret\n',
 			'nested/.env.local': 'nested secret\n',
@@ -226,6 +228,7 @@ describe('context explorer worktree writes', () => {
 		['/rendered.md', 'rendered-template', 'file', '/rendered.md.j2'],
 		['/repos/source.md', 'synced-source', 'file', '/nao_config.yaml'],
 		['/docs/notion/page.md', 'synced-source', 'file', '/nao_config.yaml'],
+		['/docs/confluence/page.md', 'synced-source', 'file', '/nao_config.yaml'],
 		['/untracked.md', 'not-tracked', null, null],
 	])('reports guidance for %s', async (filePath, reason, actionKind, actionPath) => {
 		const file = await readFileContent(filePath, access);

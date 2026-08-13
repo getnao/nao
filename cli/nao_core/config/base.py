@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 from nao_core.ui import UI, ask_confirm, ask_select
 
+from .confluence import ConfluenceConfig
 from .databases import DATABASE_CONFIG_CLASSES, AnyDatabaseConfig, DatabaseTemplate, DatabaseType, parse_database_config
 from .error_handler import format_all_validation_errors
 from .llm import LLMConfig
@@ -41,6 +42,7 @@ class NaoConfig(BaseModel):
     databases: list[AnyDatabaseConfig] = Field(default_factory=list, description="The databases to use")
     repos: list[RepoConfig] = Field(default_factory=list, description="The repositories to use")
     notion: NotionConfig | None = Field(default=None, description="The Notion configurations")
+    confluence: ConfluenceConfig | None = Field(default=None, description="The Confluence configuration")
     llm: LLMConfig | None = Field(default=None, description="The LLM configuration")
     slack: SlackConfig | None = Field(default=None, description="The Slack configuration")
     mcp: McpConfig | None = Field(default=None, description="The MCP configuration")
@@ -95,6 +97,8 @@ class NaoConfig(BaseModel):
             UI.print("  Slack: configured")
         if existing.notion:
             UI.print("  Notion: configured")
+        if existing.confluence:
+            UI.print("  Confluence: configured")
         if existing.mcp:
             UI.print("  MCP: configured")
         if existing.skills:
