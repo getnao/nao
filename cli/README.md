@@ -171,6 +171,20 @@ nao debug
 
 Tests connectivity to all configured databases and LLM providers. Displays a summary table showing connection status and details for each resource.
 
+### Inspect or validate the configuration
+
+```bash
+nao config show
+nao config path
+nao config validate
+```
+
+Three read-only actions on `nao_config.yaml`:
+
+- `nao config show` prints the resolved config as YAML, with known-sensitive fields (`api_key`, `*_token`, `*_password`, `*_secret`, plus a small set of well-known names) replaced by `***`. Honours `--format yaml|json`. Pass `--show-secrets` to print the resolved secret values; the flag prints a warning to stderr and is intended for local debugging only.
+- `nao config path` prints the absolute path of the `nao_config.yaml` the CLI would load from the current directory. Useful as `vim "$(nao config path)"` or in CI scripts.
+- `nao config validate` loads the config (resolving every `{{ env(...) }}` / `{{ aws(...) }}` / `{{ k8s(...) }}` reference) and runs the full Pydantic schema. Exits 0 on success, 1 on any parse / validation / missing-secret error. No side effects, no DB calls, no LLM calls — safe to run in CI.
+
 ### Sync resources
 
 ```bash
