@@ -2,9 +2,9 @@ import fnmatch
 
 import pytest
 
-from nao_core.config.databases.exclude_columns_guard import (
-    ExcludeColumnsGuardError,
-    enforce_exclude_columns,
+from nao_core.config.databases.column_access import (
+    ColumnAccessError,
+    validate_column_access,
 )
 
 
@@ -79,8 +79,8 @@ class FakeDatabaseConfig:
 def test_explicit_excluded_select_column_is_blocked():
     config = FakeDatabaseConfig(["*.email"])
 
-    with pytest.raises(ExcludeColumnsGuardError, match=r"main\.users\.email"):
-        enforce_exclude_columns("SELECT email FROM users", config)
+    with pytest.raises(ColumnAccessError, match=r"main\.users\.email"):
+        validate_column_access("SELECT email FROM users", config)
 
 
 @pytest.mark.parametrize(
@@ -94,25 +94,25 @@ def test_explicit_excluded_select_column_is_blocked():
 def test_explicit_excluded_column_outside_select_is_blocked(sql: str):
     config = FakeDatabaseConfig(["*.email"])
 
-    with pytest.raises(ExcludeColumnsGuardError, match=r"main\.users\.email"):
-        enforce_exclude_columns(sql, config)
+    with pytest.raises(ColumnAccessError, match=r"main\.users\.email"):
+        validate_column_access(sql, config)
 
 
 def test_select_star_with_excluded_column_is_blocked():
     config = FakeDatabaseConfig(["*.email"])
 
     with pytest.raises(
-        ExcludeColumnsGuardError,
+        ColumnAccessError,
         match=r"SELECT \* would include excluded column\(s\): main\.users\.email",
     ):
-        enforce_exclude_columns("SELECT * FROM users", config)
+        validate_column_access("SELECT * FROM users", config)
 
 
 def test_qualified_star_already_excluding_column_is_unchanged():
     config = FakeDatabaseConfig(["*.email"])
     sql = "SELECT u.* EXCLUDE (email) FROM users u"
 
-    result = enforce_exclude_columns(sql, config)
+    result = validate_column_access(sql, config)
 
     assert result == sql
 
@@ -121,10 +121,10 @@ def test_cte_star_with_excluded_column_is_blocked():
     config = FakeDatabaseConfig(["*.email"])
 
     with pytest.raises(
-        ExcludeColumnsGuardError,
+        ColumnAccessError,
         match=r"SELECT \* would include excluded column\(s\): main\.users\.email",
     ):
-        enforce_exclude_columns(
+        validate_column_access(
             "WITH selected_users AS (SELECT * FROM users) SELECT * FROM selected_users",
             config,
         )
@@ -133,8 +133,8 @@ def test_cte_star_with_excluded_column_is_blocked():
 def test_explicit_excluded_column_from_cte_star_is_blocked():
     config = FakeDatabaseConfig(["*.email"])
 
-    with pytest.raises(ExcludeColumnsGuardError, match=r"main\.users\.email"):
-        enforce_exclude_columns(
+    with pytest.raises(ColumnAccessError, match=r"main\.users\.email"):
+        validate_column_access(
             "WITH selected_users AS (SELECT * FROM users) SELECT email FROM selected_users",
             config,
         )
@@ -144,7 +144,7 @@ def test_safe_query_is_allowed_unchanged():
     config = FakeDatabaseConfig(["*.email"])
     sql = "SELECT id, name FROM users WHERE id > 10"
 
-    result = enforce_exclude_columns(sql, config)
+    result = validate_column_access(sql, config)
 
     assert result == sql
 
@@ -152,18 +152,18 @@ def test_safe_query_is_allowed_unchanged():
 def test_different_catalog_is_blocked_without_local_schema_fallback():
     config = FakeDatabaseConfig(["*.email"], database_name="local")
 
-    with pytest.raises(ExcludeColumnsGuardError, match="does not match the connected database"):
-        enforce_exclude_columns("SELECT id FROM remote.main.users", config)
+    with pytest.raises(ColumnAccessError, match="does not match the connected database"):
+        validate_column_access("SELECT id FROM remote.main.users", config)
 
 
 def test_matching_catalog_resolves_local_schema():
     config = FakeDatabaseConfig(["*.email"], database_name="LOCAL")
     safe_sql = "SELECT id FROM local.main.users"
 
-    assert enforce_exclude_columns(safe_sql, config) == safe_sql
+    assert validate_column_access(safe_sql, config) == safe_sql
 
-    with pytest.raises(ExcludeColumnsGuardError, match=r"main\.users\.email"):
-        enforce_exclude_columns("SELECT email FROM local.main.users", config)
+    with pytest.raises(ColumnAccessError, match=r"main\.users\.email"):
+        validate_column_access("SELECT email FROM local.main.users", config)
 
 
 def test_multi_part_database_name_resolves_catalog_schema():
@@ -174,10 +174,10 @@ def test_multi_part_database_name_resolves_catalog_schema():
     )
     safe_sql = "SELECT id FROM hive1.analytics.orders"
 
-    assert enforce_exclude_columns(safe_sql, config) == safe_sql
+    assert validate_column_access(safe_sql, config) == safe_sql
 
-    with pytest.raises(ExcludeColumnsGuardError, match=r"hive1\.analytics\.orders\.email"):
-        enforce_exclude_columns("SELECT email FROM hive1.analytics.orders", config)
+    with pytest.raises(ColumnAccessError, match=r"hive1\.analytics\.orders\.email"):
+        validate_column_access("SELECT email FROM hive1.analytics.orders", config)
 
 
 def test_multi_part_database_name_blocks_different_catalog():
@@ -187,29 +187,29 @@ def test_multi_part_database_name_blocks_different_catalog():
         database_name="hive1.analytics",
     )
 
-    with pytest.raises(ExcludeColumnsGuardError, match="does not match the connected database"):
-        enforce_exclude_columns("SELECT id FROM other.analytics.orders", config)
+    with pytest.raises(ColumnAccessError, match="does not match the connected database"):
+        validate_column_access("SELECT id FROM other.analytics.orders", config)
 
 
 def test_unparseable_query_is_blocked():
     config = FakeDatabaseConfig(["*.email"])
 
-    with pytest.raises(ExcludeColumnsGuardError, match="could not be parsed"):
-        enforce_exclude_columns("SELECT (", config)
+    with pytest.raises(ColumnAccessError, match="could not be parsed"):
+        validate_column_access("SELECT (", config)
 
 
 def test_nested_star_expression_is_blocked():
     config = FakeDatabaseConfig(["*.email"])
 
-    with pytest.raises(ExcludeColumnsGuardError, match="nested inside an expression"):
-        enforce_exclude_columns("SELECT ARRAY_AGG(users.*) FROM users", config)
+    with pytest.raises(ColumnAccessError, match="nested inside an expression"):
+        validate_column_access("SELECT ARRAY_AGG(users.*) FROM users", config)
 
 
 def test_empty_exclude_columns_is_noop_without_connecting():
     config = FakeDatabaseConfig([])
     sql = "not valid SQL"
 
-    result = enforce_exclude_columns(sql, config)
+    result = validate_column_access(sql, config)
 
     assert result == sql
     assert config.connect_count == 0
@@ -219,19 +219,18 @@ def test_query_without_tables_skips_schema_introspection():
     config = FakeDatabaseConfig(["*.email"])
     sql = "SELECT 1"
 
-    assert enforce_exclude_columns(sql, config) == sql
+    assert validate_column_access(sql, config) == sql
     assert config.connect_count == 0
     assert config.get_schemas_count == 0
 
 
-def test_existing_connection_is_not_owned_by_guard():
+def test_validator_owns_connection():
     config = FakeDatabaseConfig(["*.email"])
-    conn = config.connection
     sql = "SELECT id FROM users"
 
-    assert enforce_exclude_columns(sql, config, conn=conn) == sql
-    assert config.connect_count == 0
-    assert conn.disconnected is False
+    assert validate_column_access(sql, config) == sql
+    assert config.connect_count == 1
+    assert config.connection.disconnected is True
 
 
 @pytest.mark.parametrize(
@@ -248,8 +247,8 @@ def test_glob_patterns_block_matching_columns(
 ):
     config = FakeDatabaseConfig(patterns)
 
-    with pytest.raises(ExcludeColumnsGuardError, match=excluded_name.replace(".", r"\.")):
-        enforce_exclude_columns(sql, config)
+    with pytest.raises(ColumnAccessError, match=excluded_name.replace(".", r"\.")):
+        validate_column_access(sql, config)
 
 
 def test_ambiguous_unqualified_table_is_blocked():
@@ -261,5 +260,5 @@ def test_ambiguous_unqualified_table_is_blocked():
         },
     )
 
-    with pytest.raises(ExcludeColumnsGuardError, match="ambiguous"):
-        enforce_exclude_columns("SELECT * FROM users", config)
+    with pytest.raises(ColumnAccessError, match="ambiguous"):
+        validate_column_access("SELECT * FROM users", config)

@@ -43,7 +43,7 @@ _SQLGLOT_DIALECTS = {
 }
 
 
-class ExcludeColumnsGuardError(ValueError):
+class ColumnAccessError(ValueError):
     pass
 
 
@@ -71,10 +71,9 @@ class _OutputColumn:
     origins: frozenset[_ColumnOrigin]
 
 
-def enforce_exclude_columns(
+def validate_column_access(
     sql: str,
     db_config: _DatabaseConfigLike,
-    conn: Any | None = None,
 ) -> str:
     if not db_config.exclude_columns:
         return sql
@@ -87,18 +86,16 @@ def enforce_exclude_columns(
     if not any(expression.find_all(exp.Table)):
         return sql
 
-    owns_connection = conn is None
+    conn = db_config.connect()
     try:
-        if conn is None:
-            conn = db_config.connect()
         table_infos = _load_table_infos(expression, conn, db_config)
         qualified = _qualify_query(expression, dialect, table_infos)
-        analyzer = _ExcludeColumnsAnalyzer(qualified, table_infos, db_config)
+        analyzer = _ColumnAccessAnalyzer(qualified, table_infos, db_config)
         analyzer.validate_star_locations()
         excluded_references = analyzer.find_explicit_excluded_references()
         if excluded_references:
             names = ", ".join(sorted(origin.qualified_name for origin in excluded_references))
-            raise ExcludeColumnsGuardError(
+            raise ColumnAccessError(
                 f"Query blocked because it explicitly references excluded column(s): {names}. "
                 "Remove those column references and try again."
             )
@@ -106,18 +103,17 @@ def enforce_exclude_columns(
         excluded_star_references = analyzer.find_excluded_star_references()
         if excluded_star_references:
             names = ", ".join(sorted(origin.qualified_name for origin in excluded_star_references))
-            raise ExcludeColumnsGuardError(
+            raise ColumnAccessError(
                 f"Query blocked because SELECT * would include excluded column(s): {names}. "
                 "Select only allowed columns explicitly instead of using *."
             )
         return sql
-    except ExcludeColumnsGuardError:
+    except ColumnAccessError:
         raise
     except Exception as error:
         raise _blocked(str(error)) from error
     finally:
-        if owns_connection and conn is not None:
-            conn.disconnect()
+        conn.disconnect()
 
 
 def _parse_query(sql: str, dialect: str) -> exp.Query:
@@ -299,7 +295,7 @@ def _qualify_query(
     return qualified
 
 
-class _ExcludeColumnsAnalyzer:
+class _ColumnAccessAnalyzer:
     def __init__(
         self,
         expression: exp.Query,
@@ -486,5 +482,5 @@ def _star_expression(expression: exp.Expr) -> exp.Star:
     raise _blocked("star expression could not be resolved")
 
 
-def _blocked(reason: str) -> ExcludeColumnsGuardError:
-    return ExcludeColumnsGuardError(f"Query blocked because exclude_columns could not safely validate it: {reason}")
+def _blocked(reason: str) -> ColumnAccessError:
+    return ColumnAccessError(f"Query blocked because exclude_columns could not safely validate it: {reason}")

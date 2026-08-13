@@ -190,13 +190,11 @@ class DatabaseConfig(BaseModel, ABC):
         """Create an Ibis connection for this database."""
         ...
 
-    def execute_sql(self, sql: str, conn: BaseBackend | None = None) -> pd.DataFrame:
+    def execute_sql(self, sql: str) -> pd.DataFrame:
         """Execute arbitrary SQL and return results as a DataFrame."""
         import pandas as pd  # noqa: F811
 
-        owns_connection = conn is None
-        if conn is None:
-            conn = self.connect()
+        conn = self.connect()
         try:
             cursor = conn.raw_sql(sql)  # type: ignore[union-attr]
 
@@ -221,8 +219,7 @@ class DatabaseConfig(BaseModel, ABC):
                 "Expected cursor with fetchdf, to_dataframe, to_pandas, result_rows/column_names, or description/fetchall."
             )
         finally:
-            if owns_connection:
-                conn.disconnect()
+            conn.disconnect()
 
     def matches_pattern(self, schema: str, table: str) -> bool:
         """Check if a schema.table matches the include/exclude patterns.
