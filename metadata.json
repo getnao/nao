@@ -1,0 +1,20 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "01KZX55F7HCJJ5KY83ZWBXYNQ7",
+  "strategy": "manual-commit",
+  "branch": "feat/default-models-and-fixes",
+  "checkpoints_count": 8,
+  "files_touched": [
+    "apps/shared/package.json",
+    "apps/shared/src/index.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ]
+}
