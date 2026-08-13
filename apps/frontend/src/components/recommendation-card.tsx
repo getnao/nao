@@ -302,7 +302,12 @@ export function RecommendationCard({
 		>
 			<div className='flex items-top gap-2 px-3 py-3'>
 				{onSelect && !readOnly && (
-					<span className='flex h-[1lh] shrink-0 items-center pt-0.5'>
+					<span
+						className={cn(
+							'flex h-[1lh] shrink-0 items-center pt-0.5 transition-[margin] duration-150 -mr-2 group-hover:-mr-1',
+							selectionActive && '-mr-1 group-hover:-mr-1',
+						)}
+					>
 						<RecommendationCheckbox
 							selected={isSelected}
 							visible={isSelected || selectionActive}
@@ -317,7 +322,7 @@ export function RecommendationCard({
 					<button
 						type='button'
 						onClick={() => setCollapsed((value) => !value)}
-						className='flex items-center rounded-full text-muted-foreground hover:text-foreground'
+						className='flex items-center rounded-full text-muted-foreground hover:text-foreground pl-0.5'
 						aria-expanded={!collapsed}
 						aria-label={collapsed ? 'Expand recommendation' : 'Collapse recommendation'}
 					>
