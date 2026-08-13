@@ -10,6 +10,7 @@ from nao_core import __version__  # noqa: E402
 from nao_core.branding import banner, should_show_banner  # noqa: E402
 from nao_core.commands import (  # noqa: E402
     chat,
+    config,
     debug,
     deploy,
     docs,
@@ -27,6 +28,7 @@ from nao_core.version import check_for_updates  # noqa: E402
 app = App(version=__version__)
 
 app.command(chat)
+app.command(config)
 app.command(debug)
 app.command(deploy)
 app.command(docs)
