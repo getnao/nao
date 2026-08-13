@@ -81,6 +81,10 @@ class DuckLakeConfig(DatabaseConfig):
     catalog: DuckLakeCatalogConfig = Field(description="Catalog holding DuckLake metadata")
     data_path: str = Field(description="Where DuckLake stores data files (local path or s3:// URI)")
     schema_name: str | None = Field(default=None, description="Restrict sync to a single lake schema (optional)")
+    metadata_schema: str | None = Field(
+        default=None,
+        description="Catalog schema holding the ducklake_* metadata tables (default: the catalog's own default schema)",
+    )
     storage: DuckLakeStorageConfig | None = Field(
         default=None, description="Object-storage credentials (omit for a local data_path)"
     )
@@ -295,8 +299,19 @@ class DuckLakeConfig(DatabaseConfig):
         return f"CREATE OR REPLACE SECRET __default_{catalog.type} ({', '.join(fields)})"
 
     def _attach_statement(self) -> str:
+        """Build the ATTACH, including METADATA_SCHEMA when the lake keeps its metadata elsewhere.
+
+        A lake whose ``ducklake_*`` tables live outside the catalog's default schema is
+        invisible without METADATA_SCHEMA: the attach does not fall back to searching other
+        schemas, it reports "Existing DuckLake ... does not exist" and — but for READ_ONLY —
+        would offer to create a fresh empty lake over the existing data path.
+        """
         target = _quote(f"ducklake:{self.catalog_connection_string()}")
-        return f"ATTACH {target} AS {_quote_identifier(self.name)} (DATA_PATH {_quote(self.data_path)}, READ_ONLY)"
+        options = [f"DATA_PATH {_quote(self.data_path)}"]
+        if self.metadata_schema:
+            options.append(f"METADATA_SCHEMA {_quote(self.metadata_schema)}")
+        options.append("READ_ONLY")
+        return f"ATTACH {target} AS {_quote_identifier(self.name)} ({', '.join(options)})"
 
 
 def _quote(value: str) -> str:

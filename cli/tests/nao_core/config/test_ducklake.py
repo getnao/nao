@@ -267,6 +267,25 @@ def test_single_quotes_in_values_are_escaped() -> None:
     assert allowed_directories == "SET allowed_directories = ['/data/o''brien/']"
 
 
+def test_metadata_schema_is_omitted_when_unset() -> None:
+    """Lakes using the catalog's default schema must keep the plain ATTACH."""
+    attach = next(s for s in _config().connection_statements() if s.startswith("ATTACH"))
+    assert "METADATA_SCHEMA" not in attach
+
+
+def test_metadata_schema_is_emitted_when_set() -> None:
+    """Without it, a lake whose ducklake_* tables live in a non-default schema is
+    reported as non-existent — the attach does not search other schemas."""
+    attach = next(s for s in _config(metadata_schema="lake").connection_statements() if s.startswith("ATTACH"))
+    assert "METADATA_SCHEMA 'lake'" in attach
+    assert attach.index("DATA_PATH") < attach.index("METADATA_SCHEMA") < attach.index("READ_ONLY")
+
+
+def test_metadata_schema_single_quotes_are_escaped() -> None:
+    attach = next(s for s in _config(metadata_schema="o'brien").connection_statements() if s.startswith("ATTACH"))
+    assert "METADATA_SCHEMA 'o''brien'" in attach
+
+
 def test_allowed_directories_scopes_to_the_configured_data_path() -> None:
     """An empty allowlist blocks DuckLake from reopening its own Parquet files by
     path — only COUNT(*)-style queries answered from catalog stats keep working,
