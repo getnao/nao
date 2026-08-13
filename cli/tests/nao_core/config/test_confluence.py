@@ -1,5 +1,7 @@
 """Validation tests for the Confluence configuration model."""
 
+from unittest.mock import patch
+
 import pytest
 from pydantic import ValidationError
 
@@ -75,3 +77,18 @@ def test_config_accepts_page_trees_or_labels_alone():
     )
     assert trees.page_trees == ["164100"]
     assert labels.labels == ["DATA:glossary"]
+
+
+@patch("nao_core.config.confluence.UI")
+@patch("nao_core.config.confluence.ask_text")
+def test_prompt_reasks_content_selectors_until_one_is_provided(mock_ask_text, _mock_ui):
+    """A first empty pass through the selectors should re-prompt instead of crashing."""
+    empty_round = ["", "", "", ""]
+    filled_round = ["", "", "", "ENG"]
+    mock_ask_text.side_effect = [*empty_round, *filled_round]
+
+    pages, page_trees, labels, spaces = ConfluenceConfig._promptContentSelectors()
+
+    assert (pages, page_trees, labels) == ([], [], [])
+    assert spaces == ["ENG"]
+    assert mock_ask_text.call_count == 8

@@ -75,17 +75,7 @@ class ConfluenceConfig(BaseModel):
                 username = ask_text("Username:", required_field=True)
                 password = ask_text("Password:", password=True, required_field=True)
 
-        UI.info("Enter Confluence page IDs or URLs to sync (comma-separated, optional):")
-        pages = _split(ask_text("Pages:"))
-
-        UI.info("Enter pages whose whole subtree to sync (comma-separated IDs or URLs, optional):")
-        page_trees = _split(ask_text("Page trees:"))
-
-        UI.info("Enter labels to sync, optionally scoped as SPACE:label (comma-separated, optional):")
-        labels = _split(ask_text("Labels:"))
-
-        UI.info("Enter Confluence space keys to sync in full (comma-separated, optional):")
-        spaces = _split(ask_text("Spaces:"))
+        pages, page_trees, labels, spaces = cls._promptContentSelectors()
 
         return ConfluenceConfig(
             base_url=base_url,  # type: ignore
@@ -100,6 +90,27 @@ class ConfluenceConfig(BaseModel):
             labels=labels,
             spaces=spaces,
         )
+
+    @staticmethod
+    def _promptContentSelectors() -> tuple[list[str], list[str], list[str], list[str]]:
+        """Prompt for what to sync, re-asking until at least one selector is provided."""
+        while True:
+            UI.info("Enter Confluence page IDs or URLs to sync (comma-separated, optional):")
+            pages = _split(ask_text("Pages:"))
+
+            UI.info("Enter pages whose whole subtree to sync (comma-separated IDs or URLs, optional):")
+            page_trees = _split(ask_text("Page trees:"))
+
+            UI.info("Enter labels to sync, optionally scoped as SPACE:label (comma-separated, optional):")
+            labels = _split(ask_text("Labels:"))
+
+            UI.info("Enter Confluence space keys to sync in full (comma-separated, optional):")
+            spaces = _split(ask_text("Spaces:"))
+
+            if pages or page_trees or labels or spaces:
+                return pages, page_trees, labels, spaces
+
+            UI.warn("Confluence needs at least one of pages, page trees, labels or spaces to sync.")
 
 
 def _split(value: str | None) -> list[str]:

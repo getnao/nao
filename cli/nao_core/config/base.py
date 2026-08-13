@@ -71,12 +71,15 @@ class NaoConfig(BaseModel):
         databases = cls._prompt_databases()
         llm = cls._prompt_llm()
         cls._apply_default_templates(databases, llm)
+        confluence, notion = cls._prompt_docs()
 
         return cls(
             project_name=project_name,
             databases=databases,
             repos=cls._prompt_repos(),
             llm=llm,
+            confluence=confluence,
+            notion=notion,
         )
 
     @classmethod
@@ -113,10 +116,14 @@ class NaoConfig(BaseModel):
         if not llm:
             llm = cls._prompt_llm()
 
+        confluence, notion = cls._prompt_docs(existing)
+
         cls._apply_default_templates(new_databases, llm)
         databases.extend(new_databases)
 
-        return existing.model_copy(update={"databases": databases, "repos": repos, "llm": llm})
+        return existing.model_copy(
+            update={"databases": databases, "repos": repos, "llm": llm, "confluence": confluence, "notion": notion}
+        )
 
     @staticmethod
     def _prompt_databases(has_existing: bool = False) -> list[AnyDatabaseConfig]:
@@ -152,6 +159,48 @@ class NaoConfig(BaseModel):
         UI.success(f"Added repository: {repo_config.name}")
 
         return repos
+
+    @staticmethod
+    def _prompt_docs(existing: "NaoConfig | None" = None) -> tuple[ConfluenceConfig | None, NotionConfig | None]:
+        """Prompt for documentation providers synced into the project's `docs/` context.
+
+        Offers Confluence and Notion behind a single gate. Already-configured
+        providers are preserved and not offered again.
+        """
+        confluence = existing.confluence if existing else None
+        notion = existing.notion if existing else None
+
+        def remaining() -> list[str]:
+            options = []
+            if not confluence:
+                options.append("Confluence")
+            if not notion:
+                options.append("Notion")
+            return options
+
+        if not remaining():
+            return confluence, notion
+
+        prompt = (
+            "Add more documentation as context provider?"
+            if (confluence or notion)
+            else "Add documentation as context provider?"
+        )
+        if not ask_confirm(prompt, default=False):
+            return confluence, notion
+
+        while remaining():
+            choice = ask_select("Which documentation provider?", choices=[*remaining(), "Done"])
+            if choice == "Done":
+                break
+            if choice == "Confluence":
+                confluence = ConfluenceConfig.promptConfig()
+                UI.success("Added Confluence configuration")
+            elif choice == "Notion":
+                notion = NotionConfig.promptConfig()
+                UI.success("Added Notion configuration")
+
+        return confluence, notion
 
     @staticmethod
     def _prompt_llm() -> LLMConfig | None:
