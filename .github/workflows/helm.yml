@@ -7,16 +7,9 @@ on:
             - '.github/workflows/helm.yml'
     push:
         tags:
-            # Nao release: republishes the chart with appVersion set to the release tag
-            - 'v*'
-            # Chart-only release: publishes helm/Chart.yaml as-is, no nao release needed
+            # The chart releases on its own cadence, independent of nao's v* tags
             - 'helm-v*'
     workflow_dispatch:
-        inputs:
-            app_version:
-                description: 'nao image tag to pin as appVersion (defaults to helm/Chart.yaml)'
-                required: false
-                type: string
 
 permissions:
     contents: read
@@ -57,7 +50,7 @@ jobs:
     publish:
         name: Publish to GHCR
         needs: lint
-        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/helm-v')
         runs-on: ubuntu-latest
         permissions:
             contents: read
@@ -71,14 +64,11 @@ jobs:
               with:
                   version: ${{ env.HELM_VERSION }}
 
-            - name: Resolve chart version and app tag
+            - name: Read chart version
               id: version
-              env:
-                  APP_VERSION_INPUT: ${{ inputs.app_version }}
               run: |
                   read_field() { awk "/^$1:/ { print \$2; exit }" helm/Chart.yaml | tr -d "'\""; }
                   CHART_VERSION=$(read_field version)
-                  APP_VERSION=$(read_field appVersion)
 
                   case "$GITHUB_REF" in
                       refs/tags/helm-v*)
@@ -88,23 +78,21 @@ jobs:
                               exit 1
                           fi
                           ;;
-                      refs/tags/v*)
-                          APP_VERSION=${GITHUB_REF#refs/tags/v}
-                          ;;
                   esac
 
-                  if [ -n "$APP_VERSION_INPUT" ]; then
-                      APP_VERSION="$APP_VERSION_INPUT"
-                  fi
-
-                  echo "app=$APP_VERSION" >> "$GITHUB_OUTPUT"
                   echo "chart=$CHART_VERSION" >> "$GITHUB_OUTPUT"
-                  echo "Publishing chart $CHART_VERSION (nao image $APP_VERSION)"
+                  echo "Publishing chart $CHART_VERSION (nao image $(read_field appVersion))"
 
-            - name: Pin appVersion to the nao image tag
+            - name: Log in to GHCR
+              run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            - name: Fail if the chart version is already published
               run: |
-                  sed -i.bak "s/^appVersion: .*/appVersion: '${{ steps.version.outputs.app }}'/" helm/Chart.yaml
-                  grep -E '^(version|appVersion):' helm/Chart.yaml
+                  if helm show chart oci://ghcr.io/${{ github.repository }}/charts/nao \
+                      --version ${{ steps.version.outputs.chart }} > /dev/null 2>&1; then
+                      echo "::error::Chart version ${{ steps.version.outputs.chart }} already exists — bump version in helm/Chart.yaml"
+                      exit 1
+                  fi
 
             - name: Add bitnami repo
               run: helm repo add bitnami https://charts.bitnami.com/bitnami
@@ -114,9 +102,6 @@ jobs:
 
             - name: Package chart
               run: helm package ./helm --destination dist
-
-            - name: Log in to GHCR
-              run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
 
             - name: Push chart
               run: helm push dist/nao-${{ steps.version.outputs.chart }}.tgz oci://ghcr.io/${{ github.repository }}/charts

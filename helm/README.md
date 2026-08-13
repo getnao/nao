@@ -36,7 +36,6 @@ Published chart versions are pushed to GHCR on each `v*` tag. `--version` is the
 helm install nao oci://ghcr.io/getnao/nao/charts/nao --version 0.1.0 \
   --namespace nao --create-namespace \
   --set secrets.betterAuthSecret="$(openssl rand -base64 32)" \
-  --set secrets.openaiApiKey=""
 ```
 
 ### From this repository
@@ -110,7 +109,7 @@ projectsPersistence:
 | Key | Default | Description |
 |-----|---------|-------------|
 | `replicaCount` | `1` | Number of pod replicas |
-| `image.repository` | `ghcr.io/getnao/nao` | Container image repository |
+| `image.repository` | `getnao/nao` | Container image repository |
 | `image.tag` | `""` (→ appVersion) | Image tag |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |
 | `config.serverPort` | `"5005"` | Fastify backend listening port |
@@ -207,23 +206,24 @@ helm test nao --namespace nao
 
 ## Releasing the chart
 
-The `Helm` workflow packages the chart and pushes it to `oci://ghcr.io/getnao/nao/charts`. `version` in `Chart.yaml` is the chart semver and must be bumped for every release — GHCR will not replace an already published version.
+The `Helm` workflow packages the chart and pushes it to `oci://ghcr.io/getnao/nao/charts`. The chart releases on its own cadence — nao's `v*` release tags do not publish it.
 
-There are three ways to trigger a release:
+`Chart.yaml` is the only source of truth: `version` is the chart semver and `appVersion` is the nao image tag. Both are set by a commit, never by CI, so every published chart maps to a reviewable commit. The workflow refuses to publish a `version` that already exists in GHCR.
 
-| Trigger | `version` | `appVersion` |
-|---------|-----------|--------------|
-| Tag `helm-v<chart-version>` | `Chart.yaml` (must match the tag) | `Chart.yaml`, unchanged |
-| Tag `v<nao-version>` (nao release) | `Chart.yaml` | the release tag |
-| Manual run (workflow dispatch) | `Chart.yaml` | `Chart.yaml`, or the `app_version` input |
+To release:
 
-Use `helm-v*` to ship chart-only changes (template fixes, new values) against the nao image already pinned in `appVersion`:
+1. In `helm/Chart.yaml`, bump `version`. Also update `appVersion` if the chart should point at a newer nao image.
+2. Commit and merge.
+3. Tag and push:
 
 ```bash
-# bump version in helm/Chart.yaml to 0.1.1, commit, then
 git tag helm-v0.1.1
 git push origin helm-v0.1.1
 ```
+
+The tag must match `version` in `Chart.yaml` or the job fails. A manual run (workflow dispatch) publishes the committed `Chart.yaml` as-is, which is useful for retrying a failed push.
+
+Users who want a nao image other than the one in `appVersion` do not need a chart release — they can set `image.tag`.
 
 ## Uninstall
 

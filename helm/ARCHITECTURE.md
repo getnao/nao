@@ -250,7 +250,7 @@ Environment variables are split between a `ConfigMap` (non-sensitive) and a `Sec
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `image.repository` | `ghcr.io/getnao/nao` | Container image repository — the official nao image published to GitHub Container Registry |
+| `image.repository` | `getnao/nao` | Container image repository — the official nao image published to Docker Hub |
 | `image.tag` | `""` | Image tag. Empty string defaults to `.Chart.AppVersion`. |
 | `image.pullPolicy` | `IfNotPresent` | Pull policy: `Always`, `IfNotPresent`, or `Never` |
 
