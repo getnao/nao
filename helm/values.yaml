@@ -48,7 +48,7 @@ replicaCount: 1
 
 # -- Container image configuration
 image:
-  repository: "ghcr.io/getnao/nao"   # official image from GitHub Container Registry
+  repository: "getnao/nao"   # official image from Docker Hub
   pullPolicy: IfNotPresent
   tag: ""                                 # empty defaults to .Chart.AppVersion
 
@@ -106,6 +106,39 @@ config:
   refreshSchedule: ""
 
   # ---------------------------------------------------------------------------
+  # Database options — mostly relevant when pointing at an external database
+  # through secrets.dbUri.
+  # ---------------------------------------------------------------------------
+  # -- Require TLS on the database connection (most managed Postgres offerings)
+  dbSsl: false
+
+  # ---------------------------------------------------------------------------
+  # Authentication behaviour
+  # ---------------------------------------------------------------------------
+  # -- Email/password login — disable to accept SSO logins only
+  enableUserLogin: true
+  # -- Allow visitors to create their own account
+  enableUserSignup: false
+  # -- Role given to new users: admin, user or viewer
+  defaultUserRole: "user"
+  # -- Enable "Sign in with GitHub" with the OAuth app set in secrets.githubClientId
+  githubSso: false
+  # -- Enable "Sign in with GitLab" with the OAuth app set in secrets.gitlabClientId
+  gitlabSso: false
+  # -- Base URL of a self-hosted GitLab instance (defaults to https://gitlab.com)
+  gitlabBaseUrl: ""
+  # -- OAuth callback URL override, when it cannot be derived from betterAuthUrl
+  gitlabRedirectUri: ""
+
+  # ---------------------------------------------------------------------------
+  # Beta feature flags
+  # ---------------------------------------------------------------------------
+  # -- Recurring prompt automations
+  betaAutomationsEnabled: true
+  # -- Context recommendations in the project settings
+  betaContextRecommendationsEnabled: false
+
+  # ---------------------------------------------------------------------------
   # Git sync — populates the `context` PVC via an initContainer git-clone.
   # Set this to the HTTPS URL of your nao context repository.
   # ---------------------------------------------------------------------------
@@ -129,17 +162,6 @@ config:
     branch: "main"
     image: "alpine/git:latest"
 
-  # -- Optional PostHog analytics key
-  posthogKey: ""
-  posthogHost: "https://eu.i.posthog.com"
-  # -- "true" disables PostHog tracking entirely (editor analytics for NAO).
-  #    Required in internal deployments: without a provided key, NAO defaults to
-  #    their own public PostHog key hardcoded in apps/shared/src/posthog.ts, which
-  #    triggers an outbound connection to eu.i.posthog.com —
-  #    blocked on internal networks without direct internet access
-  #    (FailedToOpenSocket error seen in logs).
-  posthogDisabled: "true"
-
   # ---------------------------------------------------------------------------
   # LLM provider base URLs
   # ---------------------------------------------------------------------------
@@ -160,6 +182,9 @@ secrets:
   # -- LLM provider API keys
   openaiApiKey: ""   # Set your OpenAI API key here
   anthropicApiKey: ""
+  geminiApiKey: ""
+  mistralApiKey: ""
+  openrouterApiKey: ""
 
   # -- Azure OpenAI (optional)
   azureApiKey: ""
@@ -180,6 +205,14 @@ secrets:
   #    level or a dedicated service account), then paste the value below.
   contextGitToken: ""
 
+  # -- Enterprise license issued by getnao — raw token or a path to a file
+  #    containing it. Without it the app runs in OSS mode and EE features
+  #    (SSO providers below) stay off.
+  naoLicense: ""
+
+  # -- Redis connection string (optional) — enables shared caching/pub-sub when
+  #    running more than one replica.
+  redisUrl: ""
 
   # -- SMTP credentials (optional)
   smtpHost: ""
@@ -187,16 +220,45 @@ secrets:
   smtpSsl: "false"
   smtpMailFrom: ""
   smtpPassword: ""
+  # -- Auth username, when it differs from the "From" address (e.g. AWS SES).
+  #    Falls back to smtpMailFrom when empty.
+  smtpUser: ""
 
   # -- Google OAuth (optional)
   googleClientId: ""
   googleClientSecret: ""
   googleAuthDomains: ""
 
-  # -- GitHub OAuth (optional)
+  # -- GitHub OAuth (optional) — set config.githubSso to "true" to also use it
+  #    as a login provider
   githubClientId: ""
   githubClientSecret: ""
   githubAllowedUsers: ""
+
+  # -- GitLab OAuth (optional) — set config.gitlabSso to "true" to also use it
+  #    as a login provider
+  gitlabClientId: ""
+  gitlabClientSecret: ""
+  gitlabAllowedUsers: ""
+
+  # -- Microsoft / Azure AD SSO (Enterprise — requires secrets.naoLicense)
+  azureAdClientId: ""
+  azureAdClientSecret: ""
+  azureAdTenantId: ""
+  # -- Scope used to acquire downstream access tokens (e.g. Redshift native IdP).
+  #    Defaults to <clientId>/.default.
+  azureAdTokenScope: ""
+
+  # -- Generic OIDC SSO — Okta, Auth0, Keycloak, OneLogin, …
+  #    (Enterprise — requires secrets.naoLicense)
+  oidcClientId: ""
+  oidcClientSecret: ""
+  oidcDiscoveryUrl: ""
+  oidcProviderId: ""            # defaults to "oidc"
+  oidcProviderName: ""          # button label, defaults to "SSO"
+  oidcScopes: ""                # defaults to "openid,profile,email"
+  oidcAuthDomains: ""           # comma-separated email domain allowlist
+  oidcPkce: ""                  # "true" (default) or "false"
 
   # -- Notion integration (optional)
   notionApiKey: ""

@@ -29,19 +29,20 @@ data:
   {{- if .Values.config.refreshSchedule }}
   NAO_REFRESH_SCHEDULE: {{ .Values.config.refreshSchedule | quote }}
   {{- end }}
-  {{- if .Values.config.posthogKey }}
-  POSTHOG_KEY: {{ .Values.config.posthogKey | quote }}
-  POSTHOG_HOST: {{ .Values.config.posthogHost | quote }}
+  DB_SSL: {{ eq (toString .Values.config.dbSsl) "true" | quote }}
+  ENABLE_USER_LOGIN: {{ eq (toString .Values.config.enableUserLogin) "true" | quote }}
+  ENABLE_USER_SIGNUP: {{ eq (toString .Values.config.enableUserSignup) "true" | quote }}
+  GITHUB_SSO: {{ eq (toString .Values.config.githubSso) "true" | quote }}
+  GITLAB_SSO: {{ eq (toString .Values.config.gitlabSso) "true" | quote }}
+  BETA_AUTOMATIONS_ENABLED: {{ eq (toString .Values.config.betaAutomationsEnabled) "true" | quote }}
+  BETA_CONTEXT_RECOMMENDATIONS_ENABLED: {{ eq (toString .Values.config.betaContextRecommendationsEnabled) "true" | quote }}
+  DEFAULT_USER_ROLE: {{ .Values.config.defaultUserRole | default "user" | quote }}
+  {{- if .Values.config.gitlabBaseUrl }}
+  GITLAB_BASE_URL: {{ .Values.config.gitlabBaseUrl | quote }}
   {{- end }}
-          {{- /*
-            NAO falls back to the editors' own public PostHog key/host when
-            POSTHOG_KEY is unset (see apps/shared/src/posthog.ts) — so this needs
-            to be sent unconditionally, not just when posthogKey is provided,
-            otherwise analytics tracking silently fires toward eu.i.posthog.com
-            even with no key configured here, which fails on networks without
-            direct internet egress (FailedToOpenSocket).
-          */}}
-  POSTHOG_DISABLED: {{ .Values.config.posthogDisabled | quote }}
+  {{- if .Values.config.gitlabRedirectUri }}
+  GITLAB_REDIRECT_URI: {{ .Values.config.gitlabRedirectUri | quote }}
+  {{- end }}
   {{- if .Values.config.openaiBaseUrl }}
   OPENAI_BASE_URL: {{ .Values.config.openaiBaseUrl | quote }}
   {{- end }}

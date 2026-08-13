@@ -1,6 +1,6 @@
 # nao Helm Chart
 
-Helm chart for deploying nao — an open-source analytics agent that transforms natural language into SQL queries — on Kubernetes.
+Helm chart for deploying nao — an open-source agent to do analytics on your data with AI — on Kubernetes.
 
 ## Prerequisites
 
@@ -30,22 +30,22 @@ helm/
 
 ## Installation
 
-### 1. Add the bitnami repository (for the PostgreSQL dependency)
+Published chart versions are pushed to GHCR on each `v*` tag. `--version` is the **chart** semver (`Chart.yaml` `version`); the nao image tag comes from `appVersion` (override with `--set image.tag=` if needed):
+
+```bash
+helm install nao oci://ghcr.io/getnao/nao/charts/nao --version 0.1.0 \
+  --namespace nao --create-namespace \
+  --set secrets.betterAuthSecret="$(openssl rand -base64 32)" \
+  --set secrets.openaiApiKey=""
+```
+
+### From this repository
 
 ```bash
 helm repo add bitnami https://charts.bitnami.com/bitnami
 helm repo update
-```
-
-### 2. Install dependencies
-
-```bash
 helm dependency update ./helm
-```
 
-### 3. Install the chart
-
-```bash
 helm install nao ./helm \
   --namespace nao --create-namespace \
   --set secrets.betterAuthSecret="$(openssl rand -base64 32)" \
@@ -120,9 +120,23 @@ projectsPersistence:
 | `config.contextGitUrl` | `""` | Git repo URL (git mode) |
 | `config.contextGitBranch` | `"main"` | Git branch to clone (git mode) |
 | `config.refreshSchedule` | `""` | Cron for periodic git pull |
+| `config.dbSsl` | `false` | Require TLS on the database connection |
+| `config.enableUserLogin` | `true` | Email/password login |
+| `config.enableUserSignup` | `false` | Allow self sign-up |
+| `config.defaultUserRole` | `"user"` | Role for new users: `admin` \| `user` \| `viewer` |
+| `config.githubSso` | `false` | Enable "Sign in with GitHub" |
+| `config.gitlabSso` | `false` | Enable "Sign in with GitLab" |
+| `config.gitlabBaseUrl` | `""` | Self-hosted GitLab instance URL |
+| `config.betaAutomationsEnabled` | `true` | Recurring prompt automations |
+| `config.betaContextRecommendationsEnabled` | `false` | Context recommendations |
 | `secrets.betterAuthSecret` | `""` | **Required.** Auth session secret |
 | `secrets.openaiApiKey` | `""` | OpenAI API key |
 | `secrets.anthropicApiKey` | `""` | Anthropic API key |
+| `secrets.naoLicense` | `""` | Enterprise license — required for SSO providers |
+| `secrets.redisUrl` | `""` | Redis connection string |
+| `secrets.gitlabClientId` | `""` | GitLab OAuth app client ID |
+| `secrets.azureAdClientId` | `""` | Microsoft / Azure AD SSO client ID |
+| `secrets.oidcClientId` | `""` | Generic OIDC SSO client ID (Okta, Auth0, Keycloak, …) |
 | `secrets.dbUri` | `""` | Database URI (overridden when `postgresql.enabled=true`) |
 | `secrets.contextGitToken` | `""` | Git token for private repos |
 | `service.type` | `ClusterIP` | Kubernetes service type |
