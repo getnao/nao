@@ -30,12 +30,12 @@ helm/
 
 ## Installation
 
-Published chart versions are pushed to GHCR on each `v*` tag. `--version` is the **chart** semver (`Chart.yaml` `version`); the nao image tag comes from `appVersion` (override with `--set image.tag=` if needed):
+Chart versions are published to GHCR on `helm-v*` tags, see [Releasing the chart](#releasing-the-chart). `--version` is the **chart** semver (`Chart.yaml` `version`); the nao image tag comes from `appVersion` (override with `--set image.tag=` if needed):
 
 ```bash
 helm install nao oci://ghcr.io/getnao/nao/charts/nao --version 0.1.0 \
   --namespace nao --create-namespace \
-  --set secrets.betterAuthSecret="$(openssl rand -base64 32)" \
+  --set secrets.betterAuthSecret="$(openssl rand -base64 32)"
 ```
 
 ### From this repository
