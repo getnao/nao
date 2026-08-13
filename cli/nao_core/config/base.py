@@ -71,12 +71,13 @@ class NaoConfig(BaseModel):
         databases = cls._prompt_databases()
         llm = cls._prompt_llm()
         cls._apply_default_templates(databases, llm)
+        repos = cls._prompt_repos()
         confluence, notion = cls._prompt_docs()
 
         return cls(
             project_name=project_name,
             databases=databases,
-            repos=cls._prompt_repos(),
+            repos=repos,
             llm=llm,
             confluence=confluence,
             notion=notion,
