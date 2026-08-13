@@ -52,6 +52,7 @@ function buildSlackManifest(webhookUrl: string, mentionName: string, transportMo
 			scopes: {
 				bot: [
 					'channels:history',
+					'channels:join',
 					'channels:read',
 					'commands',
 					'groups:history',

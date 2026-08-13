@@ -107,6 +107,7 @@ class ProjectSlackBot {
 	private _autoCreateUsersDomains: string[];
 	private _lastCompletionCard: Map<string, { card: SentMessage; chatUrl: string }> = new Map();
 	private _slackMentionByHandle: Map<string, string> = new Map();
+	private _channelMembershipAttempts: Set<string> = new Set();
 
 	constructor(config: SlackConfig) {
 		this.projectId = config.projectId;
@@ -173,6 +174,7 @@ class ProjectSlackBot {
 	}
 
 	public async postMessage(channelId: string, text: string, threadTs?: string): Promise<SlackPostMessageResult> {
+		await this._ensureChannelMembership(channelId);
 		const resolvedText = await this._resolveSlackUserMentions(text);
 		const args: ChatPostMessageArguments = {
 			channel: channelId,
@@ -207,6 +209,25 @@ class ProjectSlackBot {
 			isDM: false,
 		});
 		await thread.subscribe();
+	}
+
+	private async _ensureChannelMembership(channelId: string, options: { force?: boolean } = {}): Promise<void> {
+		if (
+			channelId.startsWith('D') ||
+			channelId.startsWith('G') ||
+			(!options.force && this._channelMembershipAttempts.has(channelId))
+		) {
+			return;
+		}
+		this._channelMembershipAttempts.add(channelId);
+		try {
+			await this._slackClient.conversations.join({ channel: channelId });
+		} catch (error) {
+			logger.warn(`Failed to join Slack channel: ${String(error)}`, {
+				source: 'system',
+				context: { projectId: this.projectId, channelId },
+			});
+		}
 	}
 
 	private async _resolveSlackUserMentions(text: string): Promise<string> {
@@ -289,7 +310,18 @@ class ProjectSlackBot {
 			return;
 		}
 
+		await this._ensureChannelMembership(channelId);
 		for (const file of files) {
+			await this._uploadFileWithMembershipRecovery(channelId, threadTs, file);
+		}
+	}
+
+	private async _uploadFileWithMembershipRecovery(
+		channelId: string,
+		threadTs: string,
+		file: SlackFileUpload,
+	): Promise<void> {
+		const upload = async () => {
 			await this._slackClient.files.uploadV2({
 				channel_id: channelId,
 				thread_ts: threadTs,
@@ -297,6 +329,16 @@ class ProjectSlackBot {
 				title: file.title,
 				file: file.content,
 			});
+		};
+
+		try {
+			await upload();
+		} catch (error) {
+			if (!isSlackNotInChannelError(error)) {
+				throw error;
+			}
+			await this._ensureChannelMembership(channelId, { force: true });
+			await upload();
 		}
 	}
 
@@ -1306,6 +1348,23 @@ function getSlackUserHandleCandidates(user: SlackUser): string[] {
 function normalizeSlackHandle(handle: string | null | undefined): string | null {
 	const normalized = handle?.trim().replace(/^@/, '').toLowerCase();
 	return normalized || null;
+}
+
+export function isSlackNotInChannelError(error: unknown): boolean {
+	if (!error || typeof error !== 'object') {
+		return false;
+	}
+	const slackError = error as { data?: unknown; message?: unknown };
+	const data = slackError.data;
+	if (
+		data &&
+		typeof data === 'object' &&
+		'error' in data &&
+		(data as { error?: unknown }).error === 'not_in_channel'
+	) {
+		return true;
+	}
+	return typeof slackError.message === 'string' && slackError.message.toLowerCase().includes('not_in_channel');
 }
 
 export const slackService = new SlackService();
