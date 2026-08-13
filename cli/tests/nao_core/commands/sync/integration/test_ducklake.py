@@ -61,13 +61,15 @@ def _writable_connection(config: DuckLakeConfig):
     Skips the lockdown statements too: a writer must still reach the lake's own
     DATA_PATH (e.g. a local-file data_path) after the ATTACH, and the point of
     these fixtures is to seed data as an external writer would, not to exercise
-    the read-only session's own hardening.
+    the read-only session's own hardening. Matched by prefix because
+    `SET allowed_directories = [...]` is parameterized with the lake's
+    `data_path`, not a fixed literal.
     """
     import ibis
 
     conn = ibis.duckdb.connect(database=":memory:", read_only=False)
     for statement in config.connection_statements():
-        if statement in ("SET allowed_directories = []", "SET enable_external_access = false"):
+        if statement.startswith(("SET allowed_directories", "SET enable_external_access")):
             continue
         conn.raw_sql(statement.replace(", READ_ONLY)", ")"))
     return conn
