@@ -1,7 +1,7 @@
 import { popGridColumns, splitGridColumnsRaw } from '@nao/shared/story-segments';
 import { Extension } from '@tiptap/core';
 import { Fragment, Slice } from '@tiptap/pm/model';
-import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state';
 import { dropPoint } from '@tiptap/pm/transform';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { createBlockNode } from './story-editor-utils';
@@ -28,6 +28,7 @@ export const blockSelectionPluginKey = new PluginKey<BlockSelectionState>('block
 
 export const BlockSelection = Extension.create({
 	name: 'blockSelection',
+	priority: 200,
 
 	addProseMirrorPlugins() {
 		return [buildBlockSelectionPlugin()];
@@ -46,6 +47,31 @@ export function emptySelection(): BlockSelectionState {
 	return { blocks: [], gridColumns: [], anchor: null, columnAnchor: null };
 }
 
+export function deleteSelectedBlocks(view: EditorView): boolean {
+	const selection = blockSelectionPluginKey.getState(view.state) ?? emptySelection();
+	if (!selection.blocks.length && !selection.gridColumns.length) {
+		return false;
+	}
+
+	const operations = buildDragUnitOperations(view.state, dragUnitsFromSelection(selection));
+	if (!operations?.length) {
+		view.dispatch(view.state.tr.setMeta(blockSelectionPluginKey, emptySelection()));
+		return true;
+	}
+
+	const transaction = view.state.tr;
+	const selectionPosition = Math.min(...operations.map((operation) => operation.from));
+	applyDragUnitRemovals(transaction, operations);
+	const mappedSelectionPosition = Math.min(
+		transaction.mapping.map(selectionPosition, -1),
+		transaction.doc.content.size,
+	);
+	transaction.setSelection(TextSelection.near(transaction.doc.resolve(mappedSelectionPosition)));
+	transaction.setMeta(blockSelectionPluginKey, emptySelection());
+	view.dispatch(transaction);
+	return true;
+}
+
 export function resolveDragSelection(
 	state: EditorState,
 	origin: { kind: 'block'; pos: number } | { kind: 'gridColumn'; gridPos: number; index: number },
@@ -61,14 +87,28 @@ export function resolveDragSelection(
 		return null;
 	}
 
+	const units = dragUnitsFromSelection(selection);
+	if (
+		units.length === 1 &&
+		(units[0].kind === 'block' || (units[0].kind === 'gridColumns' && units[0].indices.length === 1))
+	) {
+		return null;
+	}
+	return units;
+}
+
+function dragUnitsFromSelection(selection: BlockSelectionState): DragUnit[] {
 	const columnsByGrid = new Map<number, number[]>();
 	for (const column of selection.gridColumns) {
+		if (selection.blocks.includes(column.gridPos)) {
+			continue;
+		}
 		const indices = columnsByGrid.get(column.gridPos) ?? [];
 		indices.push(column.index);
 		columnsByGrid.set(column.gridPos, indices);
 	}
 
-	const units: DragUnit[] = [
+	return [
 		...selection.blocks.map((pos): DragUnit => ({ kind: 'block', pos })),
 		...Array.from(
 			columnsByGrid,
@@ -79,14 +119,6 @@ export function resolveDragSelection(
 			}),
 		),
 	].sort((first, second) => dragUnitPosition(first) - dragUnitPosition(second));
-
-	if (
-		units.length === 1 &&
-		(units[0].kind === 'block' || (units[0].kind === 'gridColumns' && units[0].indices.length === 1))
-	) {
-		return null;
-	}
-	return units;
 }
 
 /**
@@ -223,6 +255,7 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 								const next = selectColumnFromHandle(view.state, gridPos, index);
 								if (next) {
 									view.dispatch(view.state.tr.setMeta(blockSelectionPluginKey, next));
+									view.focus();
 								}
 								return true;
 							}
@@ -245,6 +278,7 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 										columnAnchor: column,
 									}),
 								);
+								view.focus();
 								return true;
 							}
 
@@ -260,6 +294,7 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 									columnAnchor: columnAnchor?.gridPos === gridPos ? columnAnchor : column,
 								}),
 							);
+							view.focus();
 							return true;
 						}
 					}
@@ -284,6 +319,7 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 							}
 							event.preventDefault();
 							view.dispatch(view.state.tr.setMeta(blockSelectionPluginKey, next));
+							view.focus();
 							return true;
 						}
 						if (clickedNode != null && clickedNode.type.name === 'gridBlock') {
@@ -329,6 +365,7 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 								anchor: blockPosition,
 							}),
 						);
+						view.focus();
 						return true;
 					}
 
@@ -340,17 +377,25 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 							anchor,
 						}),
 					);
+					view.focus();
 					return true;
 				},
 			},
 			handleKeyDown(view, event) {
 				const selection = blockSelectionPluginKey.getState(view.state);
-				if (event.key !== 'Escape' || (!selection?.blocks.length && !selection?.gridColumns.length)) {
+				if (!selection?.blocks.length && !selection?.gridColumns.length) {
 					return false;
 				}
 
-				view.dispatch(view.state.tr.setMeta(blockSelectionPluginKey, emptySelection()));
-				return true;
+				if (event.key === 'Escape') {
+					view.dispatch(view.state.tr.setMeta(blockSelectionPluginKey, emptySelection()));
+					return true;
+				}
+				if (event.key === 'Backspace' || event.key === 'Delete') {
+					event.preventDefault();
+					return deleteSelectedBlocks(view);
+				}
+				return false;
 			},
 		},
 		view(editorView) {
@@ -376,6 +421,22 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 			const onKeyDown = (event: KeyboardEvent) => {
 				if (event.key === 'Escape') {
 					clearSelection();
+					return;
+				}
+				if (
+					(event.key !== 'Backspace' && event.key !== 'Delete') ||
+					event.defaultPrevented ||
+					isEditableTarget(event.target)
+				) {
+					return;
+				}
+				const target = event.target;
+				if (target instanceof globalThis.Node && editorView.dom.contains(target)) {
+					return;
+				}
+				if (deleteSelectedBlocks(editorView)) {
+					event.preventDefault();
+					event.stopPropagation();
 				}
 			};
 
@@ -390,6 +451,13 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 			};
 		},
 	});
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+	if (!(target instanceof HTMLElement)) {
+		return false;
+	}
+	return target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
 }
 
 export function topLevelBlockPositions(doc: PMNode): number[] {
@@ -461,13 +529,7 @@ export function buildSelectionMoveTransaction(
 	}
 
 	const transaction = state.tr;
-	for (const operation of [...operations].sort((first, second) => second.from - first.from)) {
-		if (operation.remainingNode) {
-			transaction.replaceWith(operation.from, operation.to, operation.remainingNode);
-		} else {
-			transaction.delete(operation.from, operation.to);
-		}
-	}
+	applyDragUnitRemovals(transaction, operations);
 	const mappedInsert = transaction.mapping.map(insertPos);
 	transaction.insert(mappedInsert, Fragment.fromArray(nodes));
 	transaction.setMeta(blockSelectionPluginKey, emptySelection());
@@ -537,6 +599,16 @@ function buildDragUnitOperations(state: EditorState, units: DragUnit[]): DragUni
 		});
 	}
 	return operations;
+}
+
+function applyDragUnitRemovals(transaction: Transaction, operations: DragUnitOperation[]): void {
+	for (const operation of [...operations].sort((first, second) => second.from - first.from)) {
+		if (operation.remainingNode) {
+			transaction.replaceWith(operation.from, operation.to, operation.remainingNode);
+		} else {
+			transaction.delete(operation.from, operation.to);
+		}
+	}
 }
 
 function dragUnitPosition(unit: DragUnit): number {
