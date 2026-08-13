@@ -1,0 +1,13 @@
+@chat/apps/shared/src/tools/execute-sandboxed-code.ts:30-32 Check if this issue is valid — if so, understand the root cause and fix it. At apps/shared/src/tools/execute-sandboxed-code.ts, line 30:
+
+<comment>When `filename` is empty, this refinement accepts it. The backend then tries to save the `out/` directory instead of a file and fails; require a non-empty filename.</comment>
+
+<file context>
+@@ -27,6 +27,9 @@ export const SANDBOX_OUTPUT_DIR = 'out';
+ export const saveFileSchema = z.object({
+ 	filename: z
+ 		.string()
++		.refine((value) => value !== '.' && value !== '..' && !/[\\/\0]/.test(value), {
++			message: 'filename must be a single file name without path segments',
++		})
+</file context>
