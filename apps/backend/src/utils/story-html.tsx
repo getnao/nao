@@ -1763,18 +1763,19 @@ const MAP_INIT_SCRIPT_TEMPLATE = `
 		var map;
 		try{map=newMap(container);}catch(e){done();return;}
 		var loaded=false;
-		var failed=false;
+		var settled=false;
+		function settle(ok){if(settled)return;settled=true;if(ok){markRendered();}done();}
 		map.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');
-		map.on('error',function(){if(!loaded){done();}else{failed=true;}});
+		map.on('error',function(){if(!loaded){settle(false);}});
 		map.on('load',function(){
 			loaded=true;
 			clampMinZoom(map,container);
 		if(cfg.type==='choropleth'){
 			var ready=cfg.inlineGeoJson?Promise.resolve(cfg.inlineGeoJson):cfg.boundaryUrl?fetch(cfg.boundaryUrl).then(function(r){return r.ok?r.json():null;}).catch(function(){return null;}):Promise.resolve(null);
-				ready.then(function(boundaries){renderChoropleth(map,cfg,boundaries);map.once('idle',function(){if(!failed){markRendered();}done();});});
+				ready.then(function(boundaries){renderChoropleth(map,cfg,boundaries);map.once('idle',function(){settle(true);});});
 			}else{
 				renderPoints(map,cfg);
-				map.once('idle',function(){if(!failed){markRendered();}done();});
+				map.once('idle',function(){settle(true);});
 			}
 		});
 	});
