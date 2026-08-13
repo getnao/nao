@@ -208,25 +208,27 @@ function createSlackTools(
 				const attachments = (await buildGeneratedArtifactAttachments(projectId, context)).filter(
 					(attachment) => !uploadedArtifacts.has(attachment.filename),
 				);
-				try {
-					await slackService.uploadFiles(projectId, result.threadId, attachments.map(toSlackFileUpload));
-					for (const attachment of attachments) {
+				const uploadedAttachments: string[] = [];
+				for (const [index, attachment] of attachments.entries()) {
+					try {
+						await slackService.uploadFiles(projectId, result.threadId, [toSlackFileUpload(attachment)]);
 						uploadedArtifacts.add(attachment.filename);
+						uploadedAttachments.push(attachment.filename);
+					} catch (error) {
+						const errorMessage = getErrorMessage(error);
+						const attachmentError = `Files could not be uploaded: ${errorMessage}`;
+						logger.warn(`Slack automation attachment upload failed: ${errorMessage}`, {
+							source: 'system',
+							projectId,
+							context: {
+								threadId: result.threadId,
+								attachments: attachments.slice(index).map((attachment) => attachment.filename),
+							},
+						});
+						return { ok: true, ...result, attachments: uploadedAttachments, attachmentError };
 					}
-				} catch (error) {
-					const errorMessage = getErrorMessage(error);
-					const attachmentError = `Files could not be uploaded: ${errorMessage}`;
-					logger.warn(`Slack automation attachment upload failed: ${errorMessage}`, {
-						source: 'system',
-						projectId,
-						context: {
-							threadId: result.threadId,
-							attachments: attachments.map((attachment) => attachment.filename),
-						},
-					});
-					return { ok: true, ...result, attachments: [], attachmentError };
 				}
-				return { ok: true, ...result, attachments: attachments.map((attachment) => attachment.filename) };
+				return { ok: true, ...result, attachments: uploadedAttachments };
 			},
 		}),
 	};
