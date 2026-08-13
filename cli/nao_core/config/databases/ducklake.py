@@ -127,7 +127,30 @@ class DuckLakeConfig(DatabaseConfig):
         return DuckLakeDatabaseContext(conn, schema, table_name)
 
     def connection_statements(self) -> list[str]:
-        """SQL run after connecting: extensions, secrets, then the read-only attach."""
+        """SQL run after connecting: extensions, secrets, the attach, then the lockdown.
+
+        Order is load-bearing, not stylistic:
+          1. Extensions must load before any lockdown — a locked-down session refuses
+             to load the ducklake/catalog/httpfs extensions at all.
+          2. Secrets must exist before ATTACH, which needs them to reach the catalog
+             and object store.
+          3. ATTACH must run before the lockdown — with external access already
+             disabled, attaching a Postgres-backed catalog fails outright
+             ("Attaching Postgres databases is disabled through configuration").
+          4. ``allowed_directories`` must be set before ``enable_external_access``
+             is turned off — DuckDB refuses to change ``allowed_directories`` once
+             external access is disabled, and refuses to re-enable external access
+             at all once the session is running. So the lockdown pair below is
+             itself order-sensitive and irreversible: get it wrong and there is no
+             second chance within the same session.
+        ``allowed_directories`` is scoped to exactly the lake's own DATA_PATH, not
+        left empty: DuckLake reads column data by reopening the underlying Parquet
+        files by path, and an empty allowlist blocks that reopen even though the
+        ATTACH itself already succeeded — verified live, ``COUNT(*)`` (answered from
+        catalog stats) kept working with an empty list, but ``SELECT`` of an actual
+        column failed with the same "file system operations are disabled" error
+        that this lockdown is meant to raise for anything outside the lake.
+        """
         statements = ["INSTALL ducklake", "LOAD ducklake"]
 
         if self.catalog.type in ("postgres", "mysql", "sqlite"):
@@ -143,13 +166,18 @@ class DuckLakeConfig(DatabaseConfig):
             statements.append(self._storage_secret_statement())
 
         statements.append(self._attach_statement())
+        statements += [
+            f"SET allowed_directories = [{_quote(self.data_path)}]",
+            "SET enable_external_access = false",
+        ]
         return statements
 
     def connect(self) -> BaseBackend:
         """Create an Ibis DuckDB session with the DuckLake catalog attached read-only.
 
-        External access stays enabled: the lockdown applied to plain DuckDB files
-        blocks extension loading, and read-only safety comes from ATTACH instead.
+        External access is disabled only after the attach (see ``connection_statements``),
+        so the extension loads, the catalog and storage secrets apply, and the lake
+        attaches successfully before local filesystem and network access are cut off.
         """
         from nao_core.deps import require_database_backend
 

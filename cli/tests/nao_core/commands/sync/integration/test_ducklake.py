@@ -56,11 +56,19 @@ def _lake_config(name: str = "lake", **overrides: object) -> DuckLakeConfig:
 
 
 def _writable_connection(config: DuckLakeConfig):
-    """Open the same lake with writes allowed, to seed fixtures."""
+    """Open the same lake with writes allowed, to seed fixtures.
+
+    Skips the lockdown statements too: a writer must still reach the lake's own
+    DATA_PATH (e.g. a local-file data_path) after the ATTACH, and the point of
+    these fixtures is to seed data as an external writer would, not to exercise
+    the read-only session's own hardening.
+    """
     import ibis
 
     conn = ibis.duckdb.connect(database=":memory:", read_only=False)
     for statement in config.connection_statements():
+        if statement in ("SET allowed_directories = []", "SET enable_external_access = false"):
+            continue
         conn.raw_sql(statement.replace(", READ_ONLY)", ")"))
     return conn
 
@@ -82,6 +90,37 @@ def seeded() -> None:
 def test_check_connection_succeeds(seeded: None) -> None:
     ok, message = _lake_config().check_connection()
     assert ok, message
+
+
+def test_local_filesystem_access_is_denied(seeded: None) -> None:
+    """The whole point of the lockdown: no reading arbitrary server files.
+
+    Before the fix, `ducklake` connections skipped DuckDB's external-access
+    lockdown entirely (loading the ducklake extension requires it to be off at
+    load time), which let a SELECT read any file on the server. The connection
+    now runs the lockdown after the ATTACH instead of never running it at all.
+    """
+    conn = _lake_config().connect()
+    try:
+        with pytest.raises(Exception, match="Permission Error|disabled by configuration"):
+            conn.raw_sql("SELECT count(*) FROM read_csv_auto('/etc/passwd', header=false)").fetchall()
+    finally:
+        conn.disconnect()
+
+
+def test_reads_the_lake_while_denying_the_local_filesystem(seeded: None) -> None:
+    """Guards the fix that replaced an empty allowlist: an empty
+    `allowed_directories` blocks DuckLake from reopening its own Parquet files,
+    breaking every read. Scoping the allowlist to data_path keeps the lake
+    readable while still denying everything else."""
+    conn = _lake_config().connect()
+    try:
+        rows = conn.raw_sql('SELECT id FROM "lake".main.sales ORDER BY id LIMIT 3').fetchall()
+        assert rows == [(0,), (1,), (2,)]
+        with pytest.raises(Exception, match="Permission Error|disabled by configuration"):
+            conn.raw_sql("SELECT count(*) FROM read_csv_auto('/etc/passwd', header=false)").fetchall()
+    finally:
+        conn.disconnect()
 
 
 def test_reads_live_data(seeded: None) -> None:
@@ -161,6 +200,33 @@ def test_sees_committed_writes(seeded: None) -> None:
 
         after = reader.raw_sql('SELECT count(*) FROM "lake".main.sales').fetchall()[0][0]
         assert after == before + 7
+    finally:
+        reader.disconnect()
+
+
+def test_sees_committed_writes_under_the_lockdown(seeded: None) -> None:
+    """Freshness must survive the lockdown too, not just a bare COUNT(*).
+
+    COUNT(*) can be answered from catalog statistics without reopening a Parquet
+    file, which would pass even if the lockdown quietly broke real reads (as an
+    empty `allowed_directories` did — see test_reads_the_lake_while_denying_the_
+    local_filesystem). This reads actual column data on the SAME locked-down
+    reader connection, before and after an external writer commits new rows.
+    """
+    config = _lake_config()
+    reader = config.connect()
+    try:
+        before_ids = {row[0] for row in reader.raw_sql('SELECT id FROM "lake".main.sales').fetchall()}
+
+        writer = _writable_connection(config)
+        try:
+            writer.raw_sql('INSERT INTO "lake".main.sales SELECT 9000 + i, 1 FROM range(4) t(i)')
+        finally:
+            writer.disconnect()
+
+        after_ids = {row[0] for row in reader.raw_sql('SELECT id FROM "lake".main.sales').fetchall()}
+        new_ids = after_ids - before_ids
+        assert new_ids == {9000, 9001, 9002, 9003}
     finally:
         reader.disconnect()
 

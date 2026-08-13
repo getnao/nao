@@ -148,7 +148,9 @@ YAML
 nao init --yes
 
 # DuckLake — a postgres or mysql catalog is recommended for concurrent access;
-# file-based catalogs (duckdb/sqlite) allow only a single connection at a time
+# file-based catalogs (duckdb/sqlite) allow only a single connection at a time.
+# The session denies local filesystem and network access once the lake is
+# attached, so queries can only read the configured lake, not arbitrary files.
 cat > nao_config.yaml <<'YAML'
 project_name: my-project
 databases:

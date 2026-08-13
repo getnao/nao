@@ -152,6 +152,8 @@ def test_local_file_catalog_statements() -> None:
         "INSTALL ducklake",
         "LOAD ducklake",
         "ATTACH 'ducklake:/data/catalog.ducklake' AS \"lake\" (DATA_PATH '/data/lake/', READ_ONLY)",
+        "SET allowed_directories = ['/data/lake/']",
+        "SET enable_external_access = false",
     ]
 
 
@@ -220,16 +222,58 @@ def test_local_data_path_needs_no_httpfs() -> None:
     assert not any("SECRET" in s for s in statements)
 
 
-def test_no_lockdown_statements_are_emitted() -> None:
+def test_lockdown_statements_are_emitted_after_the_attach() -> None:
+    """Order is the whole correctness argument: extensions/secrets, ATTACH, then lockdown."""
     statements = _config().connection_statements()
-    assert not any("enable_external_access" in s for s in statements)
+    attach_index = statements.index([s for s in statements if s.startswith("ATTACH")][0])
+    allowed_dirs_index = statements.index("SET allowed_directories = ['/data/lake/']")
+    external_access_index = statements.index("SET enable_external_access = false")
+
+    assert attach_index < allowed_dirs_index
+    assert attach_index < external_access_index
+    assert allowed_dirs_index < external_access_index
     assert not any("lock_configuration" in s for s in statements)
+
+
+def test_extensions_and_secrets_precede_the_attach() -> None:
+    statements = _config(
+        catalog={
+            "type": "postgres",
+            "host": "localhost",
+            "database": "cat",
+            "user": "u",
+            "password": "p",
+        },
+        data_path="s3://bucket/warehouse/",
+        storage={"type": "s3", "key_id": "KEY", "secret": "SECRET"},
+    ).connection_statements()
+    attach_index = statements.index([s for s in statements if s.startswith("ATTACH")][0])
+
+    assert statements.index("INSTALL ducklake") < attach_index
+    assert statements.index("LOAD ducklake") < attach_index
+    assert statements.index("INSTALL postgres") < attach_index
+    assert statements.index("LOAD postgres") < attach_index
+    assert statements.index("INSTALL httpfs") < attach_index
+    assert statements.index("LOAD httpfs") < attach_index
+    secret_indices = [i for i, s in enumerate(statements) if "CREATE OR REPLACE SECRET" in s]
+    assert secret_indices and all(i < attach_index for i in secret_indices)
 
 
 def test_single_quotes_in_values_are_escaped() -> None:
     statements = _config(data_path="/data/o'brien/").connection_statements()
     attach = next(s for s in statements if s.startswith("ATTACH"))
     assert "DATA_PATH '/data/o''brien/'" in attach
+    allowed_directories = next(s for s in statements if s.startswith("SET allowed_directories"))
+    assert allowed_directories == "SET allowed_directories = ['/data/o''brien/']"
+
+
+def test_allowed_directories_scopes_to_the_configured_data_path() -> None:
+    """An empty allowlist blocks DuckLake from reopening its own Parquet files by
+    path — only COUNT(*)-style queries answered from catalog stats keep working,
+    while an actual column read fails with the same error the lockdown is meant to
+    raise for anything outside the lake. Scoping to data_path avoids that."""
+    statements = _config(data_path="s3://bucket/warehouse/").connection_statements()
+    assert "SET allowed_directories = ['s3://bucket/warehouse/']" in statements
 
 
 def test_lock_error_is_translated() -> None:
