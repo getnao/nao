@@ -7,7 +7,16 @@ on:
             - '.github/workflows/helm.yml'
     push:
         tags:
+            # Nao release: republishes the chart with appVersion set to the release tag
             - 'v*'
+            # Chart-only release: publishes helm/Chart.yaml as-is, no nao release needed
+            - 'helm-v*'
+    workflow_dispatch:
+        inputs:
+            app_version:
+                description: 'nao image tag to pin as appVersion (defaults to helm/Chart.yaml)'
+                required: false
+                type: string
 
 permissions:
     contents: read
@@ -48,7 +57,7 @@ jobs:
     publish:
         name: Publish to GHCR
         needs: lint
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
         runs-on: ubuntu-latest
         permissions:
             contents: read
@@ -62,16 +71,37 @@ jobs:
               with:
                   version: ${{ env.HELM_VERSION }}
 
-            - name: Read chart version and app tag
+            - name: Resolve chart version and app tag
               id: version
+              env:
+                  APP_VERSION_INPUT: ${{ inputs.app_version }}
               run: |
-                  APP_VERSION=${GITHUB_REF#refs/tags/v}
-                  CHART_VERSION=$(awk '/^version:/ { print $2; exit }' helm/Chart.yaml | tr -d "'\"")
+                  read_field() { awk "/^$1:/ { print \$2; exit }" helm/Chart.yaml | tr -d "'\""; }
+                  CHART_VERSION=$(read_field version)
+                  APP_VERSION=$(read_field appVersion)
+
+                  case "$GITHUB_REF" in
+                      refs/tags/helm-v*)
+                          TAG_VERSION=${GITHUB_REF#refs/tags/helm-v}
+                          if [ "$TAG_VERSION" != "$CHART_VERSION" ]; then
+                              echo "::error::Tag helm-v${TAG_VERSION} does not match Chart.yaml version ${CHART_VERSION}"
+                              exit 1
+                          fi
+                          ;;
+                      refs/tags/v*)
+                          APP_VERSION=${GITHUB_REF#refs/tags/v}
+                          ;;
+                  esac
+
+                  if [ -n "$APP_VERSION_INPUT" ]; then
+                      APP_VERSION="$APP_VERSION_INPUT"
+                  fi
+
                   echo "app=$APP_VERSION" >> "$GITHUB_OUTPUT"
                   echo "chart=$CHART_VERSION" >> "$GITHUB_OUTPUT"
                   echo "Publishing chart $CHART_VERSION (nao image $APP_VERSION)"
 
-            - name: Set appVersion to the nao image tag
+            - name: Pin appVersion to the nao image tag
               run: |
                   sed -i.bak "s/^appVersion: .*/appVersion: '${{ steps.version.outputs.app }}'/" helm/Chart.yaml
                   grep -E '^(version|appVersion):' helm/Chart.yaml

@@ -205,6 +205,26 @@ helm rollback nao <revision> --namespace nao
 helm test nao --namespace nao
 ```
 
+## Releasing the chart
+
+The `Helm` workflow packages the chart and pushes it to `oci://ghcr.io/getnao/nao/charts`. `version` in `Chart.yaml` is the chart semver and must be bumped for every release — GHCR will not replace an already published version.
+
+There are three ways to trigger a release:
+
+| Trigger | `version` | `appVersion` |
+|---------|-----------|--------------|
+| Tag `helm-v<chart-version>` | `Chart.yaml` (must match the tag) | `Chart.yaml`, unchanged |
+| Tag `v<nao-version>` (nao release) | `Chart.yaml` | the release tag |
+| Manual run (workflow dispatch) | `Chart.yaml` | `Chart.yaml`, or the `app_version` input |
+
+Use `helm-v*` to ship chart-only changes (template fixes, new values) against the nao image already pinned in `appVersion`:
+
+```bash
+# bump version in helm/Chart.yaml to 0.1.1, commit, then
+git tag helm-v0.1.1
+git push origin helm-v0.1.1
+```
+
 ## Uninstall
 
 ```bash
