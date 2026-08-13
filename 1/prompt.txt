@@ -1,0 +1,13 @@
+Check if this issue is valid — if so, understand the root cause and fix it. At apps/frontend/src/lib/attachment-preview.ts, line 52:
+
+<comment>For `.xlsx`, this check only bounds compressed bytes; `readWorkbookSheets` still materializes every row before `toSheet` truncates it, so a highly compressible 10 MB workbook can freeze or exhaust the browser. Bound workbook parsing before materializing rows.</comment>
+
+<file context>
+@@ -46,7 +48,15 @@ export async function loadAttachmentPreview(path: string): Promise<AttachmentPre
+ 	}
+ 
++	const isTabular = kind === 'table' || kind === 'workbook';
++	if (isTabular && (await fetchAttachmentSize(path)) > MAX_TABULAR_PREVIEW_SIZE_MB * 1024 * 1024) {
++		return { kind: 'too-large' };
++	}
+</file context>
