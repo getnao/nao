@@ -1723,6 +1723,7 @@ const MAP_INIT_SCRIPT_TEMPLATE = `
 			popup.setLngLat([point.lng,point.lat]).setHTML(html).addTo(map);
 		});
 		map.on('mouseleave','query-points-circles',function(){map.getCanvas().style.cursor='';popup.remove();});
+		return features.length;
 	}
 	function renderChoropleth(map,cfg,boundaries){
 		var index=null;
@@ -1756,6 +1757,7 @@ const MAP_INIT_SCRIPT_TEMPLATE = `
 			popup.setLngLat(e.lngLat).setHTML(html).addTo(map);
 		});
 		map.on('mouseleave','query-regions-fill',function(){map.getCanvas().style.cursor='';popup.remove();});
+		return features.length;
 	}
 	containers.forEach(function(container){
 		var raw=container.getAttribute('data-map');
@@ -1772,10 +1774,10 @@ const MAP_INIT_SCRIPT_TEMPLATE = `
 			clampMinZoom(map,container);
 		if(cfg.type==='choropleth'){
 			var ready=cfg.inlineGeoJson?Promise.resolve(cfg.inlineGeoJson):cfg.boundaryUrl?fetch(cfg.boundaryUrl).then(function(r){return r.ok?r.json():null;}).catch(function(){return null;}):Promise.resolve(null);
-				ready.then(function(boundaries){renderChoropleth(map,cfg,boundaries);map.once('idle',function(){settle(true);});});
+				ready.then(function(boundaries){var count=renderChoropleth(map,cfg,boundaries);map.once('idle',function(){settle(count>0);});});
 			}else{
-				renderPoints(map,cfg);
-				map.once('idle',function(){settle(true);});
+				var count=renderPoints(map,cfg);
+				map.once('idle',function(){settle(count>0);});
 			}
 		});
 	});
