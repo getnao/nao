@@ -94,7 +94,7 @@ function extractLoggableOutput(result: ToolResult | undefined): unknown {
 		.filter((part): part is { type: 'text'; text: string } => part.type === 'text')
 		.map((part) => part.text)
 		.join('\n');
-	if (text.startsWith('{') || text.startsWith('[')) {
+	if (text.length <= MAX_LOGGED_OUTPUT_CHARS && (text.startsWith('{') || text.startsWith('['))) {
 		const parsed = tryParseJson(text);
 		if (parsed !== undefined) {
 			return parsed;

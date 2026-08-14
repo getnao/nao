@@ -300,7 +300,7 @@ function answerCompletePayload(result: AskNaoResult, ctx: McpContext): ToolResul
 		},
 		{ type: 'text' as const, text: JSON.stringify({ queries: result.queries, story_ids: result.story_ids }) },
 	];
-	if (ctx.chartDataMode && result.queries.length > 0) {
+	if (ctx.chartDataMode && result.queries.length > 0 && result.story_ids.length === 0) {
 		content.push({ type: 'text' as const, text: CHART_DATA_MODE_RESULT_NUDGE });
 	}
 

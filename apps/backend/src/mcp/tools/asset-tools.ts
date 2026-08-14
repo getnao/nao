@@ -6,7 +6,11 @@ import zodV3 from 'zod/v3';
 
 import displayChartTool from '../../agents/tools/display-chart';
 import * as storyQueries from '../../queries/story.queries';
-import { buildAgentRenderedChartText, CHART_DATA_MODE_DISPLAY_CHART_ADDENDUM } from '../chart-data-mode';
+import {
+	buildAgentRenderedChartText,
+	CHART_DATA_MODE_DISPLAY_CHART_ADDENDUM,
+	CHART_DATA_MODE_FALLBACK_NOTE,
+} from '../chart-data-mode';
 import {
 	buildChartToolResult,
 	buildMapToolResult,
@@ -151,15 +155,12 @@ function registerDisplayChart(server: McpServer, ctx: McpContext): void {
 			const toolResult = buildChartToolResult(result.payload, { sandboxChartHtml: result.sandboxChartHtml });
 
 			if (ctx.chartDataMode) {
-				// Null for custom chart types and oversized results: the embed links then remain the intended fallback.
 				const chartText = buildAgentRenderedChartText({
 					config: artifact,
 					columns: result.queryData.columns,
 					rows: result.queryData.data,
 				});
-				if (chartText) {
-					toolResult.content.unshift({ type: 'text', text: chartText });
-				}
+				toolResult.content.unshift({ type: 'text', text: chartText ?? CHART_DATA_MODE_FALLBACK_NOTE });
 			}
 
 			return toolResult;
