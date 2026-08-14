@@ -6,6 +6,8 @@ import sys
 import time
 from pathlib import Path
 
+from packaging.version import Version
+
 from nao_core import __version__
 from nao_core.ui import UI
 
@@ -14,9 +16,20 @@ PYPI_URL = "https://pypi.org/pypi/nao-core/json"
 CHECK_INTERVAL = 24 * 60 * 60
 
 
-def parse_version(v: str) -> tuple[int, ...]:
-    """Parse a version string like '0.0.37' into a comparable tuple."""
-    return tuple(int(x) for x in v.split("."))
+def parse_version(v: str) -> Version:
+    """Parse a version string into a PEP 440 `Version` that compares correctly.
+
+    Accepts the full PEP 440 grammar: final releases (`0.1.9`), pre-releases
+    (`0.1.10a1`, `0.1.10b2`, `0.1.10rc1`), dev builds (`0.1.10.dev1`), and
+    post-releases (`0.1.10.post1`). Comparison follows PEP 440 ordering, so
+    `0.1.10` is greater than `0.1.10rc1` is greater than `0.1.10a1` is greater
+    than `0.1.10.dev1`.
+
+    Raises `packaging.version.InvalidVersion` if the input cannot be parsed as
+    PEP 440. Callers that need to tolerate bad cache files should catch
+    `InvalidVersion` and skip the comparison.
+    """
+    return Version(v)
 
 
 def get_latest_version() -> str | None:

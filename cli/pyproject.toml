@@ -43,6 +43,7 @@ dependencies = [
     "pandas>=2.1.0",
     "sqlglot>=26.0.0",
     "httpx>=0.27.0",
+    "packaging>=23.0",
 ]
 
 [project.optional-dependencies]
