@@ -14,7 +14,7 @@ vi.hoisted(() => {
 
 import type { ContextExplorerFileAccess } from '../src/services/context-explorer.service';
 import {
-	getFileTreeResponse,
+	getFileTree,
 	MAX_CONTEXT_FILE_SIZE,
 	readFileContent,
 	searchFileContents,
@@ -119,11 +119,10 @@ describe('context explorer worktree writes', () => {
 				providerOverride: provider(bare),
 			}),
 		};
-		const tree = await getFileTreeResponse(readOnlyAccess);
+		const tree = await getFileTree(live);
 		const file = await readFileContent('/context.md', readOnlyAccess);
 
-		expect(tree).toMatchObject({ repo: null, gitUnavailableReason: 'no-repo' });
-		expect(tree.entries.map((entry) => entry.name)).toContain('context.md');
+		expect(tree.map((entry) => entry.name)).toContain('context.md');
 		expect(file).toMatchObject({
 			content: 'live content\n',
 			isEditable: false,
@@ -163,11 +162,11 @@ describe('context explorer worktree writes', () => {
 	});
 
 	it('excludes and rejects .git and environment files across tree, read, write, and search', async () => {
-		const tree = await getFileTreeResponse(access);
-		const nested = tree.entries.find((entry) => entry.name === 'nested');
+		const tree = await getFileTree(live);
+		const nested = tree.find((entry) => entry.name === 'nested');
 		const context = await readFileContent('/context.md', access);
 
-		expect(tree.entries.map((entry) => entry.name)).not.toEqual(expect.arrayContaining(['.git', '.env']));
+		expect(tree.map((entry) => entry.name)).not.toEqual(expect.arrayContaining(['.git', '.env']));
 		expect(nested?.children?.map((entry) => entry.name)).not.toContain('.env.local');
 		for (const protectedPath of ['/nested/repository/.git/config', '/.env', '/nested/.env.local']) {
 			await expect(readFileContent(protectedPath, access)).rejects.toMatchObject({ code: 'FORBIDDEN' });

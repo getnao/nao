@@ -17,12 +17,7 @@ import { spawn } from 'child_process';
 import fs from 'fs/promises';
 
 import type { ContextRepoState, ResolvedContextRepo } from '../utils/context-repo';
-import {
-	getCommittedProjectPaths,
-	getWorktreeProjectRoot,
-	normalizeProjectPath,
-	toContextRepoState,
-} from '../utils/context-repo';
+import { getCommittedProjectPaths, getWorktreeProjectRoot, normalizeProjectPath } from '../utils/context-repo';
 import { getRipgrepPath } from '../utils/ripgrep';
 import { assertNoSymlinkInWritePath, canonicalizeWriteRoot, writeFileAtomically } from '../utils/safe-file-write';
 import {
@@ -48,13 +43,6 @@ export interface FileEditability {
 	guidance: FileEditabilityGuidance | null;
 }
 
-export interface FileTreeResponse {
-	entries: FileTreeEntry[];
-	repo: ContextRepoState | null;
-	gitUnavailableReason: FileEditabilityReason | null;
-	gitUnavailableMessage: string | null;
-}
-
 export interface ContextExplorerFileAccess {
 	projectFolder: string;
 	git: ContextExplorerGitResolution;
@@ -71,18 +59,7 @@ type RipgrepMatchEntry = {
 };
 
 export async function getFileTree(projectFolder: string): Promise<FileTreeEntry[]> {
-	return readDirectoryRecursive(projectFolder, projectFolder, new Set<string>());
-}
-
-export async function getFileTreeResponse(access: ContextExplorerFileAccess): Promise<FileTreeResponse> {
-	const repo = availableRepo(access.git);
-	const trackedPaths = repo ? getCommittedProjectPaths(repo) : new Set<string>();
-	return {
-		entries: await readDirectoryRecursive(access.projectFolder, access.projectFolder, trackedPaths),
-		repo: access.git.status === 'available' ? toContextRepoState(access.git.repo) : access.git.repo,
-		gitUnavailableReason: access.git.status === 'unavailable' ? access.git.reason : null,
-		gitUnavailableMessage: access.git.status === 'unavailable' ? access.git.message : null,
-	};
+	return readDirectoryRecursive(projectFolder, projectFolder);
 }
 
 export async function readFileContent(
@@ -379,11 +356,7 @@ function runContentSearch(
 	});
 }
 
-async function readDirectoryRecursive(
-	dirPath: string,
-	projectFolder: string,
-	trackedPaths: Set<string>,
-): Promise<FileTreeEntry[]> {
+async function readDirectoryRecursive(dirPath: string, projectFolder: string): Promise<FileTreeEntry[]> {
 	const dirEntries = await fs.readdir(dirPath, { withFileTypes: true });
 
 	const parentRelativePath = path.relative(projectFolder, dirPath);
@@ -396,7 +369,7 @@ async function readDirectoryRecursive(
 		const virtualPath = '/' + path.relative(projectFolder, fullPath);
 
 		if (entry.isDirectory()) {
-			const children = await readDirectoryRecursive(fullPath, projectFolder, trackedPaths);
+			const children = await readDirectoryRecursive(fullPath, projectFolder);
 			entries.push({
 				name: entry.name,
 				path: virtualPath,
@@ -404,12 +377,10 @@ async function readDirectoryRecursive(
 				children,
 			});
 		} else if (entry.isFile()) {
-			const projectPath = path.relative(projectFolder, fullPath).split(path.sep).join('/');
 			entries.push({
 				name: entry.name,
 				path: virtualPath,
 				type: 'file',
-				isTracked: trackedPaths.has(projectPath),
 			});
 		}
 	}

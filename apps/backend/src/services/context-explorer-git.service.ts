@@ -166,6 +166,16 @@ export async function resolveContextExplorerGit(
 	}
 }
 
+export async function resolveContextExplorerGitSafely(
+	context: ContextExplorerGitContext,
+): Promise<ContextExplorerGitResolution> {
+	try {
+		return await resolveContextExplorerGit(context);
+	} catch {
+		return unavailable('git-unavailable', null);
+	}
+}
+
 export async function requireContextExplorerGit(
 	context: ContextExplorerGitContext,
 ): Promise<{ repo: ResolvedContextRepo; context: ContextExplorerGitContext & { token: string } }> {

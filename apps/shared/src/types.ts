@@ -147,7 +147,6 @@ export type FileTreeEntry = {
 	name: string;
 	path: string;
 	type: 'file' | 'directory';
-	isTracked?: boolean;
 	children?: FileTreeEntry[];
 };
 
