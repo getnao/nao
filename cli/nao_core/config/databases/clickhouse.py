@@ -321,7 +321,7 @@ def _get_table_comment(conn: BaseBackend, database: str, table_name: str) -> str
         return None
 
 
-def _columns_from_system(conn: BaseBackend, database: str, table_name: str) -> list[dict[str, Any]]:
+def _columns_from_system(conn: BaseBackend, database: str, table_name: str) -> list[dict[str, Any]] | None:
     """Return column metadata from system.columns (does not SELECT from the table)."""
     try:
         # Escape single quotes for safe SQL (identifiers from config)
@@ -345,7 +345,7 @@ def _columns_from_system(conn: BaseBackend, database: str, table_name: str) -> l
             for r in rows
         ]
     except Exception:
-        return []
+        return None
 
 
 def _get_table_engine(conn: BaseBackend, database: str, table_name: str) -> str | None:
@@ -444,19 +444,24 @@ class ClickHouseDatabaseContext(DatabaseContext):
     def column_count(self) -> int:
         """Return column count; for stream-like engines use system.columns if table.schema() is disallowed."""
         if self._direct_select_disallowed:
-            return len(_columns_from_system(self._conn, self._schema, self._table_name))
+            return len(_columns_from_system(self._conn, self._schema, self._table_name) or [])
         try:
             return len(self.table.schema())
         except Exception:
-            return len(_columns_from_system(self._conn, self._schema, self._table_name))
+            return len(_columns_from_system(self._conn, self._schema, self._table_name) or [])
 
     def columns(self) -> list[dict[str, Any]]:
         """Return column metadata; for stream-like engines use system.columns (no SELECT from table)."""
         if self._columns_cache is None:
-            self._columns_cache = self._load_columns()
+            self._columns_load_failed = False
+            columns = self._load_columns()
+            if columns is None:
+                self._columns_load_failed = True
+                return []
+            self._columns_cache = columns
         return self._filter_excluded_columns(self._columns_cache)
 
-    def _load_columns(self) -> list[dict[str, Any]]:
+    def _load_columns(self) -> list[dict[str, Any]] | None:
         if self._direct_select_disallowed:
             return _columns_from_system(self._conn, self._schema, self._table_name)
         try:
@@ -476,7 +481,7 @@ class ClickHouseDatabaseContext(DatabaseContext):
             return _columns_from_system(self._conn, self._schema, self._table_name)
 
     def _apply_system_column_metadata(self, columns: list[dict[str, Any]]) -> None:
-        system_columns = _columns_from_system(self._conn, self._schema, self._table_name)
+        system_columns = _columns_from_system(self._conn, self._schema, self._table_name) or []
         system_types = {
             col["name"]: col["type"]
             for col in system_columns

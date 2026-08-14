@@ -8,7 +8,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Collection
 
 from rich.console import Console
 from rich.markup import escape
@@ -195,6 +195,8 @@ def _save_column_catalog(
     database_folder: str,
     project_path: Path,
     partial: bool,
+    preserved_schemas: Collection[str] = (),
+    preserved_tables: Collection[tuple[str, str]] = (),
 ) -> None:
     path = column_catalog_path(project_path, db_config.type, database_folder)
     existing = load_column_catalog(path)
@@ -202,7 +204,10 @@ def _save_column_catalog(
         schema: {table: catalog_columns(columns) for table, columns in tables.items()}
         for schema, tables in state.synced_columns.items()
     }
-    write_column_catalog(path, merge_column_catalog(existing, synced, partial))
+    write_column_catalog(
+        path,
+        merge_column_catalog(existing, synced, partial, preserved_schemas, preserved_tables),
+    )
 
 
 def sync_database(
@@ -238,7 +243,7 @@ def sync_database(
             raw_queries = _fetch_query_history(db_config, conn)
 
         if db_folder is None:
-            db_folder = f"database={db_config.get_database_name()}"
+            db_folder = get_database_folder_names([db_config])[0]
         db_path = base_path / f"type={db_config.type}" / db_folder
         state = DatabaseSyncState(db_path=db_path)
 
@@ -257,6 +262,8 @@ def sync_database(
         total_errors = 0
 
         schema_tables: dict[str, list[str]] = {}
+        failed_schemas: set[str] = set()
+        failed_tables: set[tuple[str, str]] = set()
 
         for schema in schemas:
             try:
@@ -264,6 +271,7 @@ def sync_database(
                 all_tables = conn.list_tables(database=schema)
             except Exception as e:
                 console.print(f"  [yellow]⚠[/yellow] [dim]Skipping schema[/dim] {schema}: {_fmt_error(e)}")
+                failed_schemas.add(schema)
                 progress.update(schema_task, advance=1)
                 continue
 
@@ -395,7 +403,10 @@ def sync_database(
                     output_file = table_path / output_filename
                     output_file.write_text(with_generated_marker(content))
 
-                state.add_table(schema, table, ctx.all_columns())
+                columns = ctx.all_columns()
+                if columns is None:
+                    failed_tables.add((schema, table))
+                state.add_table(schema, table, columns)
                 progress.update(table_task, advance=1)
 
             progress.update(
@@ -432,7 +443,15 @@ def sync_database(
             console.print(f"  [yellow]⚠ {total_errors} total errors during sync[/yellow]")
 
         catalog_project_path = project_path if project_path is not None else base_path.parent
-        _save_column_catalog(state, db_config, db_folder, catalog_project_path, partial=bool(select))
+        _save_column_catalog(
+            state,
+            db_config,
+            db_folder,
+            catalog_project_path,
+            partial=bool(select),
+            preserved_schemas=failed_schemas,
+            preserved_tables=failed_tables,
+        )
         return state
     finally:
         conn.disconnect()

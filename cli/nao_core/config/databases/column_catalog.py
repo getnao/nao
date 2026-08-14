@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Collection
 
 COLUMN_CATALOG_VERSION = 1
 
@@ -18,7 +18,7 @@ def column_catalog_path(project_path: Path, database_type: str, database_folder:
 def load_column_catalog(path: Path) -> Schemas:
     try:
         document = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return {}
     if not isinstance(document, dict):
         return {}
@@ -38,11 +38,28 @@ def write_column_catalog(path: Path, schemas: Schemas) -> None:
     temporary_path.replace(path)
 
 
-def merge_column_catalog(existing: Schemas, synced: Schemas, partial: bool) -> Schemas:
+def merge_column_catalog(
+    existing: Schemas,
+    synced: Schemas,
+    partial: bool,
+    preserved_schemas: Collection[str] = (),
+    preserved_tables: Collection[tuple[str, str]] = (),
+) -> Schemas:
+    retained = existing if partial else {}
     if not partial:
-        return synced
+        preserved_schema_names = set(preserved_schemas)
+        preserved_table_names = set(preserved_tables)
+        for schema, tables in existing.items():
+            if schema in preserved_schema_names:
+                retained[schema] = tables
+                continue
+            preserved = {
+                table: columns for table, columns in tables.items() if (schema, table) in preserved_table_names
+            }
+            if preserved:
+                retained[schema] = preserved
     merged = {
-        schema: {table: list(columns) for table, columns in tables.items()} for schema, tables in existing.items()
+        schema: {table: list(columns) for table, columns in tables.items()} for schema, tables in retained.items()
     }
     for schema, tables in synced.items():
         merged.setdefault(schema, {}).update(tables)
