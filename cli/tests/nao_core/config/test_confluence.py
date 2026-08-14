@@ -79,6 +79,30 @@ def test_config_accepts_page_trees_or_labels_alone():
     assert labels.labels == ["DATA:glossary"]
 
 
+@pytest.mark.parametrize("base_url", ["", "   ", "acme.atlassian.net/wiki", "ftp://acme.atlassian.net"])
+def test_config_rejects_a_non_absolute_http_base_url(base_url):
+    with pytest.raises(ValidationError):
+        ConfluenceConfig(
+            base_url=base_url,
+            deployment="cloud",
+            email="me@acme.com",
+            api_token="secret",
+            spaces=["ENG"],
+        )
+
+
+@pytest.mark.parametrize("selectors", [{"pages": ["100", ""]}, {"spaces": ["  "]}, {"labels": ["ENG:glossary", ""]}])
+def test_config_rejects_blank_selector_entries(selectors):
+    with pytest.raises(ValidationError):
+        ConfluenceConfig(
+            base_url="https://acme.atlassian.net/wiki",
+            deployment="cloud",
+            email="me@acme.com",
+            api_token="secret",
+            **selectors,
+        )
+
+
 @patch("nao_core.config.confluence.UI")
 @patch("nao_core.config.confluence.ask_text")
 def test_prompt_reasks_content_selectors_until_one_is_provided(mock_ask_text, _mock_ui):

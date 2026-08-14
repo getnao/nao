@@ -12,7 +12,9 @@ from nao_core.commands.sync.providers.confluence.provider import (
     build_label_cql,
     html_to_markdown,
     page_relative_path,
+    quote_cql,
     read_existing_versions,
+    read_frontmatter,
     render_document,
     segment,
 )
@@ -152,6 +154,26 @@ def test_render_document_keeps_yaml_significant_titles_readable(title):
 def test_build_label_cql_scopes_to_a_space_when_asked():
     assert build_label_cql("glossary") == 'label = "glossary" and type in (page, blogpost)'
     assert build_label_cql("DATA:glossary") == 'label = "glossary" and space = "DATA" and type in (page, blogpost)'
+
+
+def test_build_label_cql_escapes_quotes_and_backslashes():
+    assert build_label_cql('gl"ossary') == 'label = "gl\\"ossary" and type in (page, blogpost)'
+    assert build_label_cql("SP\\ACE:tag") == 'label = "tag" and space = "SP\\\\ACE" and type in (page, blogpost)'
+
+
+def test_quote_cql_wraps_and_escapes():
+    assert quote_cql("ENG") == '"ENG"'
+    assert quote_cql('a"b\\c') == '"a\\"b\\\\c"'
+
+
+def test_read_frontmatter_keeps_a_title_that_contains_a_delimiter(tmp_path: Path):
+    file_path = tmp_path / "page.md"
+    file_path.write_text(render_document(page("100", title="Before --- After", version=9)), encoding="utf-8")
+
+    meta = read_frontmatter(file_path)
+
+    assert meta["title"] == "Before --- After"
+    assert meta["version"] == 9
 
 
 def test_read_existing_versions_walks_the_tree(tmp_path: Path):

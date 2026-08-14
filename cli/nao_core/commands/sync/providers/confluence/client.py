@@ -164,6 +164,12 @@ class ConfluenceClient:
                 return
             start += len(results)
 
+        raise RuntimeError(
+            f"Confluence search returned more than {MAX_PAGES * PAGE_SIZE} results for CQL '{cql}'. "
+            "Refusing to continue with a truncated result set, which would delete already-synced "
+            "pages beyond the cap. Narrow the selector (e.g. scope a label to a space) and retry."
+        )
+
     def _to_page(self, payload: dict[str, Any]) -> ConfluencePage:
         space = payload.get("space") or {}
         version = payload.get("version") or {}

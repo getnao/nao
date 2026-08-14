@@ -1,10 +1,13 @@
 from typing import Literal, Optional
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, model_validator
 
 from nao_core.ui import UI, ask_select, ask_text
 
 Deployment = Literal["cloud", "server"]
+
+SELECTOR_FIELDS = ("pages", "page_trees", "labels", "spaces")
 
 
 class ConfluenceConfig(BaseModel):
@@ -40,7 +43,10 @@ class ConfluenceConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_config(self) -> "ConfluenceConfig":
-        if not (self.pages or self.page_trees or self.labels or self.spaces):
+        self._validate_base_url()
+
+        selectors = self.pages + self.page_trees + self.labels + self.spaces
+        if not selectors or any(not selector.strip() for selector in selectors):
             raise ValueError("Confluence needs at least one of 'pages', 'page_trees', 'labels' or 'spaces' to sync")
 
         if self.deployment == "cloud":
@@ -56,6 +62,14 @@ class ConfluenceConfig(BaseModel):
                 )
 
         return self
+
+    def _validate_base_url(self) -> None:
+        parsed = urlparse((self.base_url or "").strip())
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError(
+                "Confluence 'base_url' must be a non-empty absolute HTTP(S) URL, e.g. "
+                "https://acme.atlassian.net/wiki (Cloud) or https://confluence.acme.com (Data Center/Server)"
+            )
 
     @classmethod
     def promptConfig(cls) -> "ConfluenceConfig":

@@ -1,5 +1,5 @@
 import re
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +25,10 @@ IMAGE_PATTERN = re.compile(r"!\[[^\]]*\]\([^)]+\)\n?")
 
 # Collapse the runs of blank lines that macro-wrapping divs leave behind once converted.
 BLANK_LINES_PATTERN = re.compile(r"\n{3,}")
+
+# YAML frontmatter: an opening `---` line, the metadata, then a closing `---` line. The delimiters
+# are anchored to the start of a line so a `---` inside a title or URL is never mistaken for one.
+FRONTMATTER_PATTERN = re.compile(r"\A---\n(.*?)\n---(?:\n|$)", re.DOTALL)
 
 # Pages and blog posts are the content types nao reads. Other kinds a space holds (whiteboards,
 # databases, attachments) carry no text the API exposes, so they are left out of every search.
@@ -130,27 +134,35 @@ def read_frontmatter(file_path: Path) -> dict[str, Any]:
     except (OSError, UnicodeError):
         return {}
 
-    if not content.startswith("---"):
-        return {}
-
-    parts = content.split("---", 2)
-    if len(parts) < 3:
+    match = FRONTMATTER_PATTERN.match(content)
+    if not match:
         return {}
 
     try:
-        meta = yaml.safe_load(parts[1])
+        meta = yaml.safe_load(match.group(1))
     except yaml.YAMLError:
         return {}
 
     return meta if isinstance(meta, dict) else {}
 
 
+def quote_cql(value: str) -> str:
+    """Quote a value as a CQL string literal, escaping the backslash and quote it reserves.
+
+    CQL wraps string literals in double quotes and escapes both `\\` and `"` with a backslash, so a
+    space key or label carrying either character keeps its literal meaning instead of terminating
+    the literal early and turning the rest of the query into syntax Confluence rejects.
+    """
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
 def build_label_cql(label: str) -> str:
     """Build the CQL for a label, honouring the optional `SPACE:label` scoping."""
     if ":" in label:
         space, name = label.split(":", 1)
-        return f'label = "{name}" and space = "{space}" and {READABLE_TYPES}'
-    return f'label = "{label}" and {READABLE_TYPES}'
+        return f"label = {quote_cql(name)} and space = {quote_cql(space)} and {READABLE_TYPES}"
+    return f"label = {quote_cql(label)} and {READABLE_TYPES}"
 
 
 def gather_page_refs(client: ConfluenceClient, config: ConfluenceConfig) -> dict[str, int | None]:
@@ -180,7 +192,7 @@ def gather_page_refs(client: ConfluenceClient, config: ConfluenceConfig) -> dict
             note(ref.id, ref.version)
 
     for space in config.spaces:
-        for ref in client.search_refs(f'space = "{space}" and {READABLE_TYPES}'):
+        for ref in client.search_refs(f"space = {quote_cql(space)} and {READABLE_TYPES}"):
             note(ref.id, ref.version)
 
     return refs
@@ -217,18 +229,7 @@ def fetch_pages(client: ConfluenceClient, page_ids: list[str], threads: int) -> 
                 record(page_id)
         else:
             with ThreadPoolExecutor(max_workers=min(threads, len(page_ids))) as executor:
-                futures = {executor.submit(client.get_page, page_id): page_id for page_id in page_ids}
-                for future in as_completed(futures):
-                    page_id = futures[future]
-                    try:
-                        pages[page_id] = future.result()
-                        progress.update(task, advance=1, description=f"Synced: {escape(pages[page_id].title)}")
-                    except Exception as error:  # noqa: BLE001
-                        failed += 1
-                        console.print(
-                            f"[bold red]✗[/bold red] Failed to sync page {escape(page_id)}: {escape(str(error))}"
-                        )
-                        progress.update(task, advance=1)
+                list(executor.map(record, page_ids))
 
     return [pages[page_id] for page_id in page_ids if page_id in pages], failed
 
