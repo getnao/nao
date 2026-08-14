@@ -37,6 +37,13 @@ from nao_core.config.databases.base import (
     ProfilingRefreshPolicy,
     RefreshConfig,
 )
+from nao_core.config.databases.column_catalog import (
+    catalog_columns,
+    column_catalog_path,
+    load_column_catalog,
+    merge_column_catalog,
+    write_column_catalog,
+)
 from nao_core.config.llm import LLMConfig
 from nao_core.templates.context import NaoContext, create_nao_context
 from nao_core.templates.engine import get_template_engine
@@ -180,6 +187,22 @@ def _should_refresh(
             return True
 
     return True
+
+
+def _save_column_catalog(
+    state: DatabaseSyncState,
+    db_config: AnyDatabaseConfig,
+    database_folder: str,
+    project_path: Path,
+    partial: bool,
+) -> None:
+    path = column_catalog_path(project_path, db_config.type, database_folder)
+    existing = load_column_catalog(path)
+    synced = {
+        schema: {table: catalog_columns(columns) for table, columns in tables.items()}
+        for schema, tables in state.synced_columns.items()
+    }
+    write_column_catalog(path, merge_column_catalog(existing, synced, partial))
 
 
 def sync_database(
@@ -372,7 +395,7 @@ def sync_database(
                     output_file = table_path / output_filename
                     output_file.write_text(with_generated_marker(content))
 
-                state.add_table(schema, table)
+                state.add_table(schema, table, ctx.all_columns())
                 progress.update(table_task, advance=1)
 
             progress.update(
@@ -408,6 +431,8 @@ def sync_database(
         if total_errors:
             console.print(f"  [yellow]⚠ {total_errors} total errors during sync[/yellow]")
 
+        catalog_project_path = project_path if project_path is not None else base_path.parent
+        _save_column_catalog(state, db_config, db_folder, catalog_project_path, partial=bool(select))
         return state
     finally:
         conn.disconnect()

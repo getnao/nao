@@ -132,6 +132,11 @@ class TestDatabaseContext:
 
         assert [c["name"] for c in columns] == ["id"]
 
+    def test_all_columns_returns_unfiltered_columns(self):
+        ctx, _ = self._make_context(exclude_columns=["*.name"])
+
+        assert [column["name"] for column in ctx.all_columns()] == ["id", "name"]
+
     def test_columns_returns_all_when_pattern_does_not_match(self):
         ctx, _ = self._make_context(exclude_columns=["*.something_else"])
         columns = ctx.columns()

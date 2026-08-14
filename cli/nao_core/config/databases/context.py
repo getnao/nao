@@ -88,6 +88,11 @@ class DatabaseContext:
             ]
         return self._filter_excluded_columns(self._columns_cache)
 
+    def all_columns(self) -> list[dict[str, Any]]:
+        if self._columns_cache is None:
+            self.columns()
+        return self._columns_cache or []
+
     def row_count(self) -> int:
         if self._row_count_cache is None:
             self._row_count_cache = self.table.count().execute()

@@ -452,11 +452,16 @@ class ClickHouseDatabaseContext(DatabaseContext):
 
     def columns(self) -> list[dict[str, Any]]:
         """Return column metadata; for stream-like engines use system.columns (no SELECT from table)."""
+        if self._columns_cache is None:
+            self._columns_cache = self._load_columns()
+        return self._filter_excluded_columns(self._columns_cache)
+
+    def _load_columns(self) -> list[dict[str, Any]]:
         if self._direct_select_disallowed:
-            return self._filter_excluded_columns(_columns_from_system(self._conn, self._schema, self._table_name))
+            return _columns_from_system(self._conn, self._schema, self._table_name)
         try:
             schema = self.table.schema()
-            cols = [
+            columns = [
                 {
                     "name": name,
                     "type": self._format_type(dtype),
@@ -465,41 +470,42 @@ class ClickHouseDatabaseContext(DatabaseContext):
                 }
                 for name, dtype in schema.items()
             ]
-            system_columns = _columns_from_system(self._conn, self._schema, self._table_name)
-            system_types = {
-                col["name"]: col["type"]
-                for col in system_columns
-                if isinstance(col.get("name"), str) and isinstance(col.get("type"), str) and col["type"]
-            }
-            defaults = {
-                col["name"]: {
-                    "default_kind": col.get("default_kind"),
-                    "default_expression": col.get("default_expression"),
-                }
-                for col in system_columns
-                if isinstance(col.get("name"), str)
-            }
-            descriptions = {
-                col["name"]: col.get("description") for col in system_columns if isinstance(col.get("name"), str)
-            }
-            for col in cols:
-                name = col.get("name")
-                if not isinstance(name, str):
-                    continue
-                # Preserve native ClickHouse type details (e.g. LowCardinality, Decimal params),
-                # then add explicit NOT NULL for consistency with existing markdown output.
-                if native_type := system_types.get(name):
-                    if col.get("nullable") is False and "Nullable(" not in native_type:
-                        col["type"] = f"{native_type} NOT NULL"
-                    else:
-                        col["type"] = native_type
-                if meta := defaults.get(name):
-                    col.update(meta)
-                if description := descriptions.get(name):
-                    col["description"] = description
-            return self._filter_excluded_columns(cols)
+            self._apply_system_column_metadata(columns)
+            return columns
         except Exception:
-            return self._filter_excluded_columns(_columns_from_system(self._conn, self._schema, self._table_name))
+            return _columns_from_system(self._conn, self._schema, self._table_name)
+
+    def _apply_system_column_metadata(self, columns: list[dict[str, Any]]) -> None:
+        system_columns = _columns_from_system(self._conn, self._schema, self._table_name)
+        system_types = {
+            col["name"]: col["type"]
+            for col in system_columns
+            if isinstance(col.get("name"), str) and isinstance(col.get("type"), str) and col["type"]
+        }
+        defaults = {
+            col["name"]: {
+                "default_kind": col.get("default_kind"),
+                "default_expression": col.get("default_expression"),
+            }
+            for col in system_columns
+            if isinstance(col.get("name"), str)
+        }
+        descriptions = {
+            col["name"]: col.get("description") for col in system_columns if isinstance(col.get("name"), str)
+        }
+        for column in columns:
+            name = column.get("name")
+            if not isinstance(name, str):
+                continue
+            if native_type := system_types.get(name):
+                if column.get("nullable") is False and "Nullable(" not in native_type:
+                    column["type"] = f"{native_type} NOT NULL"
+                else:
+                    column["type"] = native_type
+            if metadata := defaults.get(name):
+                column.update(metadata)
+            if description := descriptions.get(name):
+                column["description"] = description
 
     def _fetchone(self, result) -> tuple | None:
         """Normalise clickhouse-connect QueryResult objects for profiling queries."""

@@ -1,3 +1,4 @@
+import json
 import tempfile
 from pathlib import Path
 
@@ -61,6 +62,24 @@ def duckdb_project_with_excluded_columns():
         config_path = Path(tmpdir) / "nao_config.yaml"
         with config_path.open("w") as f:
             yaml.dump(config, f)
+        catalog_path = Path(tmpdir) / ".meta" / "databases" / "type=duckdb" / "database=test" / "columns.json"
+        catalog_path.parent.mkdir(parents=True)
+        catalog_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "schemas": {
+                        "main": {
+                            "users": [
+                                {"name": "id", "type": "INTEGER"},
+                                {"name": "name", "type": "VARCHAR"},
+                                {"name": "email", "type": "VARCHAR"},
+                            ]
+                        }
+                    },
+                }
+            )
+        )
         yield tmpdir
 
 
@@ -101,7 +120,7 @@ def test_execute_sql_blocks_star_with_excluded_columns(
     assert response.status_code == 400
     assert response.json()["detail"] == (
         "Query blocked because SELECT * would include excluded column(s): main.users.email. "
-        "Select only allowed columns explicitly instead of using *."
+        "Use SELECT * EXCLUDE (email) to exclude them."
     )
 
 

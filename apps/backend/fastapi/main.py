@@ -282,7 +282,7 @@ async def execute_sql(request: ExecuteSQLRequest):
         try:
             validated_sql = request.sql
             if db_config.exclude_columns:
-                validated_sql = validate_column_access(request.sql, db_config)
+                validated_sql = validate_column_access(request.sql, db_config, project_path)
         except ColumnAccessError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
