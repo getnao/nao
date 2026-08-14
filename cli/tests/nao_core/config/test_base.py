@@ -6,11 +6,9 @@ import pytest
 from pydantic import ValidationError
 
 from nao_core.config.base import LLM_OVERRIDE_NOTICE, NaoConfig, annotate_llm_override, annotate_optional_templates
-from nao_core.config.confluence import ConfluenceConfig
 from nao_core.config.databases.base import DatabaseTemplate, ProfilingRefreshPolicy
 from nao_core.config.databases.duckdb import DuckDBConfig
 from nao_core.config.llm import LLMConfig, LLMProvider, ProviderConfig
-from nao_core.config.notion import NotionConfig
 from nao_core.config.secrets import process_secrets
 
 
@@ -121,20 +119,7 @@ def test_apply_default_templates_with_llm():
     ]
 
 
-def _make_confluence() -> ConfluenceConfig:
-    return ConfluenceConfig(
-        base_url="https://acme.atlassian.net/wiki",
-        email="user@acme.co",
-        api_token="token",
-        spaces=["ENG"],
-    )
-
-
-def _make_notion() -> NotionConfig:
-    return NotionConfig(api_key="secret", pages=["https://notion.so/page"])
-
-
-def test_fresh_prompt_flow_collects_database_llm_repos_and_docs():
+def test_fresh_prompt_flow_only_collects_database_llm_and_repos():
     db = DuckDBConfig(name="test-db", path=":memory:")
     llm = LLMConfig(providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")])
     prompt_order = []
@@ -143,84 +128,20 @@ def test_fresh_prompt_flow_collects_database_llm_repos_and_docs():
         patch.object(NaoConfig, "_prompt_databases", side_effect=lambda: prompt_order.append("database") or [db]),
         patch.object(NaoConfig, "_prompt_llm", side_effect=lambda: prompt_order.append("llm") or llm),
         patch.object(NaoConfig, "_prompt_repos", side_effect=lambda: prompt_order.append("repos") or []),
-        patch.object(NaoConfig, "_prompt_docs", side_effect=lambda: prompt_order.append("docs") or (None, None)),
     ):
         config = NaoConfig.promptConfig("test-project")
 
-    assert prompt_order == ["database", "llm", "repos", "docs"]
+    assert prompt_order == ["database", "llm", "repos"]
     assert config.databases[0].templates == [
         DatabaseTemplate.COLUMNS,
         DatabaseTemplate.PREVIEW,
         DatabaseTemplate.AI_SUMMARY,
     ]
+    assert config.slack is None
     assert config.confluence is None
     assert config.notion is None
-    assert config.slack is None
     assert config.mcp is None
     assert config.skills is None
-
-
-@patch("nao_core.config.base.ask_confirm")
-def test_prompt_docs_returns_none_when_all_declined(mock_confirm):
-    mock_confirm.return_value = False
-
-    assert NaoConfig._prompt_docs() == (None, None)
-
-
-@patch("nao_core.config.base.UI")
-@patch("nao_core.config.base.ask_select")
-@patch("nao_core.config.base.ask_confirm")
-@patch("nao_core.config.notion.NotionConfig.promptConfig")
-@patch("nao_core.config.confluence.ConfluenceConfig.promptConfig")
-def test_prompt_docs_adds_both_providers_from_menu(mock_confluence, mock_notion, mock_confirm, mock_select, _mock_ui):
-    mock_confirm.return_value = True
-    mock_select.side_effect = ["Confluence", "Notion"]
-    confluence = _make_confluence()
-    notion = _make_notion()
-    mock_confluence.return_value = confluence
-    mock_notion.return_value = notion
-
-    assert NaoConfig._prompt_docs() == (confluence, notion)
-
-
-@patch("nao_core.config.base.UI")
-@patch("nao_core.config.base.ask_select")
-@patch("nao_core.config.base.ask_confirm")
-@patch("nao_core.config.confluence.ConfluenceConfig.promptConfig")
-def test_prompt_docs_stops_when_user_selects_done(mock_confluence, mock_confirm, mock_select, _mock_ui):
-    mock_confirm.return_value = True
-    mock_select.side_effect = ["Confluence", "Done"]
-    confluence = _make_confluence()
-    mock_confluence.return_value = confluence
-
-    assert NaoConfig._prompt_docs() == (confluence, None)
-
-
-@patch("nao_core.config.base.UI")
-def test_extend_prompts_docs_when_not_configured(_mock_ui):
-    existing = NaoConfig(project_name="test-project")
-    confluence = _make_confluence()
-
-    with (
-        patch.object(NaoConfig, "_prompt_databases", return_value=[]),
-        patch.object(NaoConfig, "_prompt_repos", return_value=[]),
-        patch.object(NaoConfig, "_prompt_llm", return_value=None),
-        patch.object(NaoConfig, "_prompt_docs", return_value=(confluence, None)),
-    ):
-        config = NaoConfig.promptConfig("ignored", existing=existing)
-
-    assert config.confluence is confluence
-
-
-@patch("nao_core.config.base.UI")
-@patch("nao_core.config.base.ask_confirm")
-def test_prompt_docs_skips_already_configured_providers(mock_confirm, _mock_ui):
-    confluence = _make_confluence()
-    notion = _make_notion()
-    existing = NaoConfig(project_name="test-project", confluence=confluence, notion=notion)
-
-    assert NaoConfig._prompt_docs(existing) == (confluence, notion)
-    mock_confirm.assert_not_called()
 
 
 def test_extend_handles_no_databases_and_no_llm():
@@ -230,7 +151,6 @@ def test_extend_handles_no_databases_and_no_llm():
         patch.object(NaoConfig, "_prompt_databases", return_value=[]),
         patch.object(NaoConfig, "_prompt_repos", return_value=[]),
         patch.object(NaoConfig, "_prompt_llm", return_value=None),
-        patch.object(NaoConfig, "_prompt_docs", return_value=(None, None)),
         patch("nao_core.config.base.UI"),
     ):
         config = NaoConfig.promptConfig("ignored", existing=existing)
