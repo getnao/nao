@@ -1,6 +1,7 @@
 import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 import yaml
@@ -202,6 +203,7 @@ def fetch_pages(client: ConfluenceClient, page_ids: list[str], threads: int) -> 
     """Fetch each page's body, keeping a failure to the single page it belongs to."""
     pages: dict[str, ConfluencePage] = {}
     failed = 0
+    lock = Lock()
 
     with Progress(
         SpinnerColumn(style="dim"),
@@ -214,15 +216,20 @@ def fetch_pages(client: ConfluenceClient, page_ids: list[str], threads: int) -> 
         task = progress.add_task("Syncing pages", total=len(page_ids))
 
         def record(page_id: str) -> None:
+            """Fetch one page. Runs under threads, so shared state is mutated behind a lock."""
             nonlocal failed
             try:
                 page = client.get_page(page_id)
-                pages[page_id] = page
-                progress.update(task, advance=1, description=f"Synced: {escape(page.title)}")
             except Exception as error:  # noqa: BLE001 - one unreadable page must not stop the rest
-                failed += 1
+                with lock:
+                    failed += 1
                 console.print(f"[bold red]✗[/bold red] Failed to sync page {escape(page_id)}: {escape(str(error))}")
                 progress.update(task, advance=1)
+                return
+
+            with lock:
+                pages[page_id] = page
+            progress.update(task, advance=1, description=f"Synced: {escape(page.title)}")
 
         if threads <= 1 or len(page_ids) == 1:
             for page_id in page_ids:

@@ -45,9 +45,14 @@ class ConfluenceConfig(BaseModel):
     def validate_config(self) -> "ConfluenceConfig":
         self._validate_base_url()
 
-        selectors = self.pages + self.page_trees + self.labels + self.spaces
-        if not selectors or any(not selector.strip() for selector in selectors):
+        selectors = [entry for field in SELECTOR_FIELDS for entry in getattr(self, field)]
+        if not selectors:
             raise ValueError("Confluence needs at least one of 'pages', 'page_trees', 'labels' or 'spaces' to sync")
+        if any(not entry.strip() for entry in selectors):
+            raise ValueError(
+                "Confluence selectors must not be empty; remove blank entries from "
+                "'pages', 'page_trees', 'labels' or 'spaces'"
+            )
 
         if self.deployment == "cloud":
             if not self.email or not self.api_token:
