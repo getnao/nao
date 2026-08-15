@@ -247,6 +247,17 @@ describe('SystemPrompt built-in skills', () => {
 	});
 });
 
+describe('SystemPrompt SQL query rules', () => {
+	it('forbids citing table documentation statistics as answers to data questions', () => {
+		const markdown = renderToMarkdown(SystemPrompt({}));
+
+		expect(markdown).toContain('never present them as the answer to a data question');
+		expect(markdown).toContain(
+			'must come from a query executed in this conversation, or be computed from such results',
+		);
+	});
+});
+
 describe('SystemPrompt display_map rules', () => {
 	it('includes the display_map rule by default', () => {
 		expect(renderToMarkdown(SystemPrompt({}))).toContain('display_map');

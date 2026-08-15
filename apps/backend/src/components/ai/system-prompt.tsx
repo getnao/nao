@@ -201,6 +201,13 @@ export function SystemPrompt({
 						an "exact" count based on the number of rows a limited query returned. To count rows, run a
 						separate query using COUNT(*) (or COUNT over a subquery) without a LIMIT/TOP clause.
 					</ListItem>,
+					<ListItem>
+						Table documentation files (columns.md, preview.md, ai_summary.md, how_to_use.md, ...) are for
+						understanding schema and semantics only. Their statistics (row counts, previews, aggregates) are
+						stale profiling snapshots — never present them as the answer to a data question. Any number you
+						present as an answer to a data question must come from a query executed in this conversation, or
+						be computed from such results.
+					</ListItem>,
 					...dialectSqlQueryRules,
 				]}
 			</List>
