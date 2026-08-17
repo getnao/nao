@@ -66,7 +66,7 @@ import {
 import { logger } from '../utils/logger';
 import { addPromptCache } from '../utils/prompt-cache';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
-import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt } from '../utils/title';
+import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt, titleGenerationUserMessage } from '../utils/title';
 import { isStoragePath } from '../utils/tools';
 import { truncateMiddle } from '../utils/utils';
 import { listChartPlugins } from './chart-plugin';
@@ -748,7 +748,7 @@ class AgentManager {
 			messages: [
 				{
 					role: 'user',
-					content: userMessageText,
+					content: titleGenerationUserMessage(userMessageText),
 				},
 			],
 			maxOutputTokens: TITLE_MAX_OUTPUT_TOKENS,
