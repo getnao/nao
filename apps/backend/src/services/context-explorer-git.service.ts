@@ -171,7 +171,15 @@ export async function resolveContextExplorerGitSafely(
 ): Promise<ContextExplorerGitResolution> {
 	try {
 		return await resolveContextExplorerGit(context);
-	} catch {
+	} catch (error) {
+		const message = `Failed to resolve context explorer git for user ${context.userId} in project ${context.projectId}`;
+		const detail = error instanceof Error ? error.message : String(error);
+		try {
+			const { logger } = await import('../utils/logger');
+			logger.warn(message, { source: 'system', context: { error: detail } });
+		} catch {
+			console.warn(message, detail);
+		}
 		return unavailable('git-unavailable', null);
 	}
 }

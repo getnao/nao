@@ -992,6 +992,13 @@ describe('context explorer worktrees', () => {
 				reason: 'git-unavailable',
 				message: 'Repository status is temporarily unavailable.',
 			});
+			expect(loggerMocks.warn).toHaveBeenCalledWith(
+				'Failed to resolve context explorer git for user user-1 in project project-id',
+				{
+					source: 'system',
+					context: { error: expect.any(String) },
+				},
+			);
 			expect(file).toMatchObject({
 				content: 'live content\n',
 				isEditable: false,
