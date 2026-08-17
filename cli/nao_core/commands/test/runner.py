@@ -18,6 +18,7 @@ from nao_core.config.llm import ModelCosts
 from nao_core.config.test import ComparisonConfig, TestConfig
 from nao_core.ui import UI
 
+from .assertions import combine_check_messages, evaluate_assertions
 from .case import TESTS_FOLDER, TestCase, discover_tests
 from .client import BACKEND_URL, AgentClientError, VerificationResult, get_client
 from .compare import normalize_dataframe_numbers
@@ -214,16 +215,20 @@ def run_test(
         UI.print(f"[dim]  Cost: ${result.cost.totalCost}[/dim]")
         UI.print(f"[dim]  Time: {result.duration_ms}ms[/dim]")
 
+        assertions_passed, assertions_msg = evaluate_assertions(test_case.assertions, result.tool_calls)
+
         if result.verification:
             tolerances = comparison or ComparisonConfig()
             if result.verification.sql:
                 UI.print(f"[dim]  Verification SQL: {result.verification.sql}[/dim]")
-            passed, msg, diff = check_dataframe(
+            data_passed, data_msg, diff = check_dataframe(
                 result.verification,
                 rtol=tolerances.rtol,
                 atol=tolerances.atol,
                 decimals=tolerances.decimals,
             )
+            passed = assertions_passed and data_passed
+            msg = combine_check_messages(assertions_msg, data_msg)
             status = "[green]✓[/green]" if passed else "[red]✗[/red]"
             UI.print(f"  {status} {msg}")
             return TestRunResult(
@@ -243,6 +248,25 @@ def run_test(
                     tool_calls=result.tool_calls,
                     reference_sql=test_case.sql,
                     verification_sql=result.verification.sql,
+                ),
+            )
+
+        if test_case.assertions:
+            status = "[green]✓[/green]" if assertions_passed else "[red]✗[/red]"
+            UI.print(f"  {status} {assertions_msg}")
+            return TestRunResult(
+                name=test_case.name,
+                model=str(model),
+                passed=assertions_passed,
+                message=assertions_msg,
+                tokens=result.usage.totalTokens,
+                cost=result.cost.totalCost,
+                duration_ms=result.duration_ms,
+                tool_call_count=tool_call_count,
+                details=TestRunDetails(
+                    response_text=result.text,
+                    tool_calls=result.tool_calls,
+                    reference_sql=test_case.sql,
                 ),
             )
 

@@ -1,4 +1,9 @@
-from nao_core.commands.test.case import discover_tests
+from pathlib import Path
+
+import pytest
+
+from nao_core.commands.test.assertions import ToolCallAssertion
+from nao_core.commands.test.case import TestCase, discover_tests
 
 
 def test_discover_tests_is_recursive(tmp_path):
@@ -22,3 +27,34 @@ def test_discover_tests_ignores_outputs_dir(tmp_path):
     cases = discover_tests(tmp_path)
 
     assert {c.name for c in cases} == {"real"}
+
+
+def test_from_yaml_loads_tool_call_assertions(tmp_path):
+    path = tmp_path / "ambiguous_revenue.yml"
+    path.write_text(
+        "\n".join(
+            [
+                "name: ambiguous_revenue_period",
+                "prompt: What was the revenue?",
+                "assertions:",
+                "  - type: tool_call",
+                "    tool: clarification",
+                "",
+            ]
+        )
+    )
+
+    case = TestCase.from_yaml(path)
+
+    assert case.name == "ambiguous_revenue_period"
+    assert case.prompt == "What was the revenue?"
+    assert case.sql is None
+    assert case.assertions == [ToolCallAssertion(tool="clarification")]
+
+
+def test_from_yaml_rejects_invalid_assertions(tmp_path):
+    path = tmp_path / "bad.yml"
+    path.write_text("prompt: hi\nassertions:\n  - type: nope\n")
+
+    with pytest.raises(Exception, match="unknown type"):
+        TestCase.from_yaml(Path(path))

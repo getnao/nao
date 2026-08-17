@@ -128,7 +128,8 @@ class AgentClient:
                 "modelId": model_id,
             },
             "prompt": test_case.prompt,
-            "sql": test_case.sql,
+            # sql is optional: assertion-only tests may omit reference SQL
+            "sql": test_case.sql or "",
         }
 
         cost_payload = serialize_model_costs(costs)

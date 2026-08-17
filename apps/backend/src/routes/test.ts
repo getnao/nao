@@ -39,7 +39,8 @@ export const testRoutes = async (app: App) => {
 				body: z.object({
 					prompt: z.string(),
 					model: llmSelectedModelSchema,
-					sql: z.string(),
+					// Optional: assertion-only tests omit reference SQL
+					sql: z.string().optional().default(''),
 					meta: z
 						.object({
 							costs: customModelCostSchema,

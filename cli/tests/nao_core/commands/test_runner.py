@@ -6,6 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from nao_core.commands.test.assertions import ToolCallAssertion
 from nao_core.commands.test.case import TestCase as NaoTestCase
 from nao_core.commands.test.client import (
     AgentClientError,
@@ -251,6 +252,129 @@ def test_run_test_records_reference_sql_on_client_error(monkeypatch):
     assert result.error == "backend unreachable"
     assert result.details is not None
     assert result.details.reference_sql == "select 1"
+
+
+def test_run_test_assertion_only_passes_when_tool_called(monkeypatch):
+    """Issue #1261: assert the agent asked a follow-up (clarification tool)."""
+    test_case = NaoTestCase(
+        name="ambiguous_revenue_period",
+        prompt="What was the revenue?",
+        file_path=Path("tests/ambiguous_revenue_period.yml"),
+        sql=None,
+        assertions=[ToolCallAssertion(tool="clarification")],
+    )
+    model = ModelConfig(provider="openai", model_id="custom-model")
+    client = Mock()
+    client.run_test.return_value = AgentTestResult(
+        text="Which time period should I use?",
+        tool_calls=[{"toolName": "clarification", "args": {"question": "Which time period?"}}],
+        usage=TokenUsage(totalTokens=10),
+        cost=TokenCost(totalCost=0.01),
+        finish_reason="stop",
+        duration_ms=5,
+    )
+    monkeypatch.setattr(test_runner_module, "get_client", lambda **_: client)
+
+    result = run_test(test_case, model)
+
+    assert result.passed is True
+    assert result.message == "tool_call: clarification"
+
+
+def test_run_test_assertion_only_fails_when_agent_returns_numeric_answer(monkeypatch):
+    """Issue #1261 fail direction: numeric SQL answer instead of a follow-up."""
+    test_case = NaoTestCase(
+        name="ambiguous_revenue_period",
+        prompt="What was the revenue?",
+        file_path=Path("tests/ambiguous_revenue_period.yml"),
+        sql=None,
+        assertions=[ToolCallAssertion(tool="clarification")],
+    )
+    model = ModelConfig(provider="openai", model_id="custom-model")
+    client = Mock()
+    client.run_test.return_value = AgentTestResult(
+        text="Total revenue is 52123123",
+        tool_calls=[
+            {
+                "toolName": "execute_sql",
+                "args": {"sql_query": "SELECT SUM(amount) AS total_revenue FROM orders"},
+            }
+        ],
+        usage=TokenUsage(totalTokens=20),
+        cost=TokenCost(totalCost=0.02),
+        finish_reason="stop",
+        duration_ms=8,
+    )
+    monkeypatch.setattr(test_runner_module, "get_client", lambda **_: client)
+
+    result = run_test(test_case, model)
+
+    assert result.passed is False
+    assert result.message == "missing tool_call: clarification"
+
+
+def test_run_test_combines_sql_verification_and_tool_assertion(monkeypatch):
+    test_case = NaoTestCase(
+        name="orders",
+        prompt="total revenue",
+        file_path=Path("tests/orders.yml"),
+        sql="select 1",
+        assertions=[ToolCallAssertion(tool="execute_sql")],
+    )
+    model = ModelConfig(provider="openai", model_id="custom-model")
+    client = Mock()
+    client.run_test.return_value = AgentTestResult(
+        text="ok",
+        tool_calls=[{"toolName": "execute_sql", "args": {"sql_query": "SELECT 1"}}],
+        usage=TokenUsage(totalTokens=5),
+        cost=TokenCost(totalCost=0.0),
+        finish_reason="stop",
+        duration_ms=2,
+        verification=VerificationResult(
+            data=[{"total": 1}],
+            expectedData=[{"total": 1}],
+            expectedColumns=["total"],
+            sql="SELECT total FROM query_abc",
+        ),
+    )
+    monkeypatch.setattr(test_runner_module, "get_client", lambda **_: client)
+
+    result = run_test(test_case, model)
+
+    assert result.passed is True
+    assert result.message == "tool_call: execute_sql; match"
+
+
+def test_run_test_fails_when_sql_matches_but_tool_assertion_missing(monkeypatch):
+    test_case = NaoTestCase(
+        name="orders",
+        prompt="total revenue",
+        file_path=Path("tests/orders.yml"),
+        sql="select 1",
+        assertions=[ToolCallAssertion(tool="clarification")],
+    )
+    model = ModelConfig(provider="openai", model_id="custom-model")
+    client = Mock()
+    client.run_test.return_value = AgentTestResult(
+        text="ok",
+        tool_calls=[{"toolName": "execute_sql", "args": {}}],
+        usage=TokenUsage(totalTokens=5),
+        cost=TokenCost(totalCost=0.0),
+        finish_reason="stop",
+        duration_ms=2,
+        verification=VerificationResult(
+            data=[{"total": 1}],
+            expectedData=[{"total": 1}],
+            expectedColumns=["total"],
+        ),
+    )
+    monkeypatch.setattr(test_runner_module, "get_client", lambda **_: client)
+
+    result = run_test(test_case, model)
+
+    assert result.passed is False
+    assert "missing tool_call: clarification" in result.message
+    assert "match" in result.message
 
 
 def test_filter_test_cases_by_folder(tmp_path):

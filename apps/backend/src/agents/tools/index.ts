@@ -55,6 +55,11 @@ export const getTools = (
 	agentSettings: AgentSettings | null,
 	extraTools?: Record<string, unknown>,
 	options: {
+		/**
+		 * @deprecated No longer strips tools. Kept so existing callers that pass
+		 * `testMode` continue to typecheck. Clarification stays available so
+		 * `nao test` can assert intermediate actions (e.g. follow-up questions).
+		 */
 		testMode?: boolean;
 		mcpEnabled?: boolean;
 		mcpServers?: string[] | null;
@@ -89,14 +94,9 @@ export const getTools = (
 			}
 		: {};
 
-	const {
-		execute_python,
-		execute_sandboxed_code,
-		clarification: clarificationTool,
-		suggest_follow_ups,
-		write: writeTool,
-		...rest
-	} = tools;
+	const { execute_python, execute_sandboxed_code, suggest_follow_ups, write: writeTool, ...rest } = tools;
+	// Keep clarification available in testMode so `nao test` can assert follow-up
+	// questions and other intermediate actions on the recorded tool-call trace.
 	const baseTools = {
 		...rest,
 		...(isStorageEnabled() && { write: writeTool }),
@@ -105,7 +105,6 @@ export const getTools = (
 
 	const allTools = {
 		...baseTools,
-		...(!options.testMode && { clarification: clarificationTool }),
 		...mcpTools,
 		...(agentSettings?.experimental?.pythonSandboxing && execute_python && { execute_python }),
 		...(agentSettings?.experimental?.sandboxes && execute_sandboxed_code && { execute_sandboxed_code }),
