@@ -129,6 +129,8 @@ class _ColumnAccessAnalyzer:
                     outputs[normalized] = _OutputColumn(column, frozenset(origins))
             return list(outputs.values())
         if isinstance(source, Scope):
+            if _is_unnest_scope(source):
+                return []
             return self._scope_outputs(source)
         raise _blocked(f"source type {type(source).__name__} cannot be resolved safely")
 
@@ -182,17 +184,23 @@ class _ColumnAccessAnalyzer:
         if isinstance(source, exp.Table):
             return self._table_column_origins(source, column.name)
         if isinstance(source, Scope):
+            if _is_unnest_scope(source):
+                return set()
             return self._resolve_scope_output(source, column.name)
         raise _blocked(f"column source type {type(source).__name__} cannot be resolved safely")
 
     def _resolve_unqualified_column(self, scope: Scope, column_name: str) -> set[_ColumnOrigin]:
         origins: set[_ColumnOrigin] = set()
+        has_unnest_source = False
         for _, source in scope.selected_sources.values():
             if isinstance(source, exp.Table):
                 origins.update(self._table_column_origins(source, column_name))
             elif isinstance(source, Scope):
-                origins.update(self._matching_scope_output_origins(source, column_name))
-        if origins:
+                if _is_unnest_scope(source):
+                    has_unnest_source = True
+                else:
+                    origins.update(self._matching_scope_output_origins(source, column_name))
+        if origins or has_unnest_source:
             return origins
         raise _blocked(f"column '{column_name}' could not be tied to a source")
 
@@ -223,6 +231,10 @@ class _ColumnAccessAnalyzer:
 
     def _is_excluded(self, origin: _ColumnOrigin) -> bool:
         return not self.db_config.column_matches_pattern(origin.schema, origin.table, origin.column)
+
+
+def _is_unnest_scope(scope: Scope) -> bool:
+    return isinstance(scope.expression, exp.Unnest)
 
 
 def _match_identifier(requested: str, available: list[str]) -> str | None:

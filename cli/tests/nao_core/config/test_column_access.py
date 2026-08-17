@@ -51,6 +51,22 @@ def project_path(
     return tmp_path
 
 
+@pytest.fixture
+def unnest_project_path(tmp_path: Path) -> Path:
+    config = FakeDatabaseConfig([], database_type="bigquery")
+    write_catalog(
+        tmp_path,
+        config,
+        {
+            "main": {
+                "movies": ["title", "actors"],
+                "dim_actors": ["name", "birth_year"],
+            }
+        },
+    )
+    return tmp_path
+
+
 def write_catalog(
     project_path: Path,
     config: FakeDatabaseConfig,
@@ -236,6 +252,71 @@ def test_safe_query_is_allowed_unchanged(project_path: Path):
     sql = "SELECT id, name FROM users WHERE id > 10"
 
     assert validate_column_access(sql, config, project_path) == sql
+
+
+def test_unnest_alias_field_is_allowed(unnest_project_path: Path):
+    config = FakeDatabaseConfig(["*.birth_year"], database_type="bigquery")
+    sql = "SELECT m.title, a.name FROM movies m, UNNEST(m.actors) a"
+
+    assert validate_column_access(sql, config, unnest_project_path) == sql
+
+
+def test_nested_excluded_name_through_unnest_alias_is_allowed(unnest_project_path: Path):
+    config = FakeDatabaseConfig(["*.birth_year"], database_type="bigquery")
+    sql = "SELECT a.birth_year FROM movies m, UNNEST(m.actors) a"
+
+    assert validate_column_access(sql, config, unnest_project_path) == sql
+
+
+def test_excluded_unnest_argument_is_blocked(unnest_project_path: Path):
+    config = FakeDatabaseConfig(["*.actors"], database_type="bigquery")
+
+    with pytest.raises(ColumnAccessError, match=r"main\.movies\.actors"):
+        validate_column_access(
+            "SELECT a.name FROM movies m, UNNEST(m.actors) a",
+            config,
+            unnest_project_path,
+        )
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT x FROM UNNEST(ARRAY(SELECT birth_year FROM dim_actors)) AS x",
+        "SELECT x FROM UNNEST((SELECT ARRAY_AGG(birth_year) FROM dim_actors)) AS x",
+    ],
+)
+def test_excluded_column_in_unnest_subquery_is_blocked(unnest_project_path: Path, sql: str):
+    config = FakeDatabaseConfig(["*.birth_year"], database_type="bigquery")
+
+    with pytest.raises(ColumnAccessError, match=r"main\.dim_actors\.birth_year"):
+        validate_column_access(sql, config, unnest_project_path)
+
+
+def test_star_with_unnest_checks_only_catalog_sources(unnest_project_path: Path):
+    config = FakeDatabaseConfig(["*.birth_year"], database_type="bigquery")
+    sql = "SELECT * FROM movies m, UNNEST(m.actors) a"
+
+    assert validate_column_access(sql, config, unnest_project_path) == sql
+
+
+def test_unqualified_unnest_output_is_allowed(unnest_project_path: Path):
+    config = FakeDatabaseConfig(["*.birth_year"], database_type="bigquery")
+    sql = "SELECT actor FROM movies m, UNNEST(m.actors) AS actor"
+
+    assert validate_column_access(sql, config, unnest_project_path) == sql
+
+
+def test_non_unnest_lateral_scope_still_fails_closed(tmp_path: Path):
+    config = FakeDatabaseConfig(["*.birth_year"], database_type="snowflake")
+    write_catalog(tmp_path, config, {"main": {"movies": ["title", "actors"]}})
+
+    with pytest.raises(ColumnAccessError, match="derived query outputs cannot be resolved safely"):
+        validate_column_access(
+            "SELECT f.value FROM movies m, LATERAL FLATTEN(input => m.actors) f",
+            config,
+            tmp_path,
+        )
 
 
 def test_different_catalog_is_blocked_without_local_schema_fallback(project_path: Path):
