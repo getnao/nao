@@ -75,14 +75,17 @@ const loggerMocks = vi.hoisted(() => ({
 
 vi.mock('../src/queries/context-branch-ownership.queries', () => branchOwnershipMocks);
 vi.mock('../src/queries/context-recommendation.queries', () => contextConfigMocks);
-vi.mock('../src/utils/logger', () => ({
-	logger: {
-		warn: loggerMocks.warn,
-	},
-	serializeError: (error: unknown) => ({
-		message: error instanceof Error ? error.message : String(error),
-	}),
-}));
+vi.mock('../src/utils/logger', () => {
+	const redactCredentialedUrls = (value: string) => value.replace(/:\/\/[^/\s@]+@/g, '://***@');
+	return {
+		logger: {
+			warn: loggerMocks.warn,
+		},
+		serializeError: (error: unknown) => ({
+			message: redactCredentialedUrls(error instanceof Error ? error.message : String(error)),
+		}),
+	};
+});
 
 import { __reloadEnvForTesting } from '../src/env';
 import { getFileTree, readFileContent, writeFileContent } from '../src/services/context-explorer.service';
@@ -996,7 +999,7 @@ describe('context explorer worktrees', () => {
 				'Failed to resolve context explorer git for user user-1 in project project-id',
 				{
 					source: 'system',
-					context: { error: expect.any(String) },
+					context: { error: expect.objectContaining({ message: expect.any(String) }) },
 				},
 			);
 			expect(file).toMatchObject({
@@ -1007,6 +1010,34 @@ describe('context explorer worktrees', () => {
 		} finally {
 			process.env.PATH = originalPath;
 		}
+	});
+
+	it('redacts credentialed URLs from Git resolution errors', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const provider = fixture.context.providerOverride;
+		if (!provider) {
+			throw new Error('Expected a local provider.');
+		}
+		vi.spyOn(provider, 'authenticatedRepoUrl').mockImplementation(() => {
+			throw new Error('Clone failed for https://oauth2:SECRET@example.com/repo.git');
+		});
+
+		await expect(resolveContextExplorerGitSafely(fixture.context)).resolves.toMatchObject({
+			status: 'unavailable',
+			reason: 'git-unavailable',
+		});
+		expect(loggerMocks.warn).toHaveBeenCalledWith(
+			'Failed to resolve context explorer git for user user-1 in project project-id',
+			{
+				source: 'system',
+				context: {
+					error: expect.objectContaining({
+						message: 'Clone failed for https://***@example.com/repo.git',
+					}),
+				},
+			},
+		);
+		expect(JSON.stringify(loggerMocks.warn.mock.calls.at(-1)?.[1])).not.toContain('SECRET');
 	});
 
 	it('reports line changes for tracked, untracked, and binary files without changing the live folder', async () => {
