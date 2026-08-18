@@ -43,7 +43,7 @@ Send a single message asking for:
       • project: <name>
       • warehouse: BigQuery (project=<id>, dataset=<id>, auth=service-account)
       • scope: include=["analytics.fct_*", "analytics.dim_*"], exclude=[]
-      • templates: [columns, preview, description]
+      • templates: [columns, query_history, preview]
       • repos: company-dbt (git@github.com:org/company-dbt.git)
       • llm: anthropic (key via ${{ env('ANTHROPIC_API_KEY') }})
     ```
@@ -57,10 +57,10 @@ Send a single message asking for:
 Per database in the yaml, set:
 
 ```yaml
-templates: [columns, preview, description]
+templates: [columns, query_history, preview]
 ```
 
-That's the set this skill ships. Other values are valid per-warehouse (`how_to_use`, `profiling`, `ai_summary`, and `indexes` for ClickHouse) — see the docs link above — but stick to `[columns, preview, description]` unless the user specifically asks otherwise.
+Valid values are `columns`, `preview`, `profiling`, `query_history`, and `ai_summary`. This skill uses the default `[columns, query_history, preview]` unless the user specifically asks otherwise.
 
 **Don't use `accessors` — deprecated** (renamed to `templates`).
 
@@ -112,7 +112,7 @@ Regular human terminals aren't affected.
 - **Cap at ~100 tables.**
 - **One batch of questions.** Look up warehouse-specific fields from the docs, don't keep pinging the user.
 - **Run `nao init --no-tty`** with the yaml pre-written — never run `nao init` without the flag.
-- **Use `templates: [columns, preview, description]`.** Don't use `accessors`.
+- **Use `templates: [columns, query_history, preview]`.** Don't use `accessors`.
 - **Repos: SSH git URLs only.** No local paths in the `repos:` block.
 - **Print the `nao_config.yaml` summary** and get user confirmation before `nao sync`.
 - **Never have the user paste their LLM key into chat.**
@@ -133,7 +133,7 @@ databases:
       credentials_path: /path/to/service-account.json # or `sso: true`
       include: ['<dataset_pattern>.<table_pattern>'] # e.g. "analytics.fct_*" - use '*' as multiple patterns
       exclude: ['<pattern>']
-      templates: [columns, preview, description]
+      templates: [columns, query_history, preview]
 
 llm:
     providers:

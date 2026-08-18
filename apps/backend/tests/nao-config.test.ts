@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { extractConfiguredRepos } from '../src/utils/nao-config';
+import { extractConfiguredRepos, extractConfiguredTemplates, extractContextPresence } from '../src/utils/nao-config';
 
 vi.mock('../src/utils/logger', () => ({
 	logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -106,6 +106,160 @@ describe('extractConfiguredRepos', () => {
 					url: 'https://bitbucket.org/nao/dbt-models.git',
 				},
 			]);
+		} finally {
+			fs.rmSync(dir, { force: true, recursive: true });
+		}
+	});
+});
+
+describe('extractConfiguredTemplates', () => {
+	it('uses the default templates when a database omits templates', () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-config-'));
+		try {
+			fs.writeFileSync(
+				path.join(dir, 'nao_config.yaml'),
+				[
+					'databases:',
+					'  - type: duckdb',
+					'    name: demo',
+					'    profiling:',
+					'      refresh_policy: always',
+					'    ai_summary:',
+					'      refresh_policy: once',
+				].join('\n'),
+			);
+
+			expect(extractConfiguredTemplates(dir)).toEqual(['columns', 'preview', 'query_history']);
+		} finally {
+			fs.rmSync(dir, { force: true, recursive: true });
+		}
+	});
+
+	it('returns the stable union across databases', () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-config-'));
+		try {
+			fs.writeFileSync(
+				path.join(dir, 'nao_config.yaml'),
+				[
+					'databases:',
+					'  - type: duckdb',
+					'    name: first',
+					'    templates: [ai_summary, columns]',
+					'  - type: postgres',
+					'    name: second',
+					'    templates: [profiling, preview, columns]',
+				].join('\n'),
+			);
+
+			expect(extractConfiguredTemplates(dir)).toEqual(['columns', 'preview', 'profiling', 'ai_summary']);
+		} finally {
+			fs.rmSync(dir, { force: true, recursive: true });
+		}
+	});
+
+	it('migrates how_to_use and drops description', () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-config-'));
+		try {
+			fs.writeFileSync(
+				path.join(dir, 'nao_config.yaml'),
+				[
+					'databases:',
+					'  - type: duckdb',
+					'    name: demo',
+					'    templates: [description, how_to_use, unknown]',
+				].join('\n'),
+			);
+
+			expect(extractConfiguredTemplates(dir)).toEqual(['query_history']);
+		} finally {
+			fs.rmSync(dir, { force: true, recursive: true });
+		}
+	});
+
+	it('accepts accessors as a legacy templates alias', () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-config-'));
+		try {
+			fs.writeFileSync(
+				path.join(dir, 'nao_config.yaml'),
+				['databases:', '  - type: duckdb', '    name: demo', '    accessors: [columns, profiling]'].join('\n'),
+			);
+
+			expect(extractConfiguredTemplates(dir)).toEqual(['columns', 'profiling']);
+		} finally {
+			fs.rmSync(dir, { force: true, recursive: true });
+		}
+	});
+
+	it('returns an empty list for missing or invalid config', () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-config-'));
+		try {
+			expect(extractConfiguredTemplates(dir)).toEqual([]);
+
+			fs.writeFileSync(path.join(dir, 'nao_config.yaml'), 'databases: [');
+			expect(extractConfiguredTemplates(dir)).toEqual([]);
+		} finally {
+			fs.rmSync(dir, { force: true, recursive: true });
+		}
+	});
+});
+
+describe('extractContextPresence', () => {
+	it('reports missing context as absent', () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-config-'));
+		try {
+			expect(extractContextPresence(dir)).toEqual({
+				rules: false,
+				semantics: false,
+				docs: false,
+				notionDocs: false,
+				databases: false,
+			});
+		} finally {
+			fs.rmSync(dir, { force: true, recursive: true });
+		}
+	});
+
+	it('reports empty context folders as absent', () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-config-'));
+		try {
+			for (const folder of ['semantics', 'docs', 'databases']) {
+				fs.mkdirSync(path.join(dir, folder));
+			}
+
+			expect(extractContextPresence(dir)).toEqual({
+				rules: false,
+				semantics: false,
+				docs: false,
+				notionDocs: false,
+				databases: false,
+			});
+		} finally {
+			fs.rmSync(dir, { force: true, recursive: true });
+		}
+	});
+
+	it('reports non-empty context as present', () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-config-'));
+		try {
+			fs.writeFileSync(path.join(dir, 'RULES.md'), '# Rules');
+			for (const [folder, file] of [
+				['semantics', 'metrics.md'],
+				['docs', 'overview.md'],
+				['docs/notion', 'workspace.md'],
+				['databases', 'context.md'],
+			]) {
+				const folderPath = path.join(dir, folder);
+				fs.mkdirSync(folderPath, { recursive: true });
+				fs.writeFileSync(path.join(folderPath, file), 'context');
+			}
+
+			expect(extractContextPresence(dir)).toEqual({
+				rules: true,
+				semantics: true,
+				docs: true,
+				notionDocs: true,
+				databases: true,
+			});
 		} finally {
 			fs.rmSync(dir, { force: true, recursive: true });
 		}

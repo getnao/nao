@@ -43,7 +43,7 @@ function ContextRecommendationsPrompt({
 					<ListItem>
 						Tool errors: v_messages where tool_state = &quot;output-error&quot; — cluster by the failing
 						table/column. Count how many tool calls failed per root cause. Cross-reference
-						databases/**/columns.md and description.md.
+						databases/**/columns.md.
 					</ListItem>
 					<ListItem>
 						Source-code context: if a warehouse gap traces back to SQL, dbt, docs, or application code in{' '}

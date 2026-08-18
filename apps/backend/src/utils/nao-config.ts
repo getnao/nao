@@ -9,6 +9,16 @@ import type { LinkedContextRepo } from '../types/context-recommendation';
 import { logger } from './logger';
 
 const ENV_PATTERN = /\$?\{\{\s*env\(['"]([^'"]+)['"]\)\s*\}\}/g;
+const DATABASE_TEMPLATES = ['columns', 'preview', 'profiling', 'query_history', 'ai_summary'] as const;
+const DEFAULT_DATABASE_TEMPLATES = ['columns', 'query_history', 'preview'] as const;
+
+export type ContextPresence = {
+	rules: boolean;
+	semantics: boolean;
+	docs: boolean;
+	notionDocs: boolean;
+	databases: boolean;
+};
 
 export function extractRequiredEnvVars(projectFolder: string): string[] {
 	const configPath = path.join(projectFolder, 'nao_config.yaml');
@@ -60,6 +70,69 @@ export function extractConfiguredRepos(projectFolder: string): LinkedContextRepo
 			},
 		];
 	});
+}
+
+/** Returns the database templates enabled across all configured databases. */
+export function extractConfiguredTemplates(projectFolder: string): string[] {
+	const configPath = path.join(projectFolder, 'nao_config.yaml');
+	if (!fs.existsSync(configPath)) {
+		return [];
+	}
+
+	const config = loadConfig(configPath);
+	if (!isRecord(config) || !Array.isArray(config.databases)) {
+		return [];
+	}
+
+	const configuredTemplates = new Set<string>();
+	for (const database of config.databases) {
+		if (!isRecord(database)) {
+			continue;
+		}
+
+		const templates = getDatabaseTemplates(database);
+		for (const template of templates) {
+			const normalizedTemplate = template === 'how_to_use' ? 'query_history' : template;
+			if (normalizedTemplate !== 'description') {
+				configuredTemplates.add(normalizedTemplate);
+			}
+		}
+	}
+
+	return DATABASE_TEMPLATES.filter((template) => configuredTemplates.has(template));
+}
+
+/** Returns which filesystem-backed project context is available to read. */
+export function extractContextPresence(projectFolder: string): ContextPresence {
+	return {
+		rules: fs.existsSync(path.join(projectFolder, 'RULES.md')),
+		semantics: hasDirectoryContent(path.join(projectFolder, 'semantics')),
+		docs: hasDirectoryContent(path.join(projectFolder, 'docs')),
+		notionDocs: hasDirectoryContent(path.join(projectFolder, 'docs', 'notion')),
+		databases: hasDirectoryContent(path.join(projectFolder, 'databases')),
+	};
+}
+
+function hasDirectoryContent(directoryPath: string): boolean {
+	if (!fs.existsSync(directoryPath)) {
+		return false;
+	}
+	try {
+		return fs.readdirSync(directoryPath).length > 0;
+	} catch {
+		return false;
+	}
+}
+
+function getDatabaseTemplates(database: Record<string, unknown>): string[] {
+	if (!('templates' in database) && !('accessors' in database)) {
+		return [...DEFAULT_DATABASE_TEMPLATES];
+	}
+
+	const templates = 'templates' in database ? database.templates : database.accessors;
+	return Array.isArray(templates)
+		? templates.filter((template): template is string => typeof template === 'string')
+		: [];
 }
 
 function loadConfig(configPath: string): unknown {
