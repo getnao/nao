@@ -208,8 +208,8 @@ export const getProjectByUserId = async (
 		return null;
 	}
 
-	const membership = await getProjectMember(project.id, userId);
-	return membership ? project : null;
+	const role = await getUserRoleInProject(project.id, userId);
+	return role ? project : null;
 };
 
 export const checkProjectHasMoreThanOneAdmin = async (projectId: string): Promise<boolean> => {

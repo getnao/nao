@@ -7,7 +7,13 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { db as appDb } from '../src/db/db';
 import * as sqliteSchema from '../src/db/sqlite-schema';
 import { organization, orgMember, project, projectMember, user } from '../src/db/sqlite-schema';
-import { listProjectMembersWithRoles, listUsersWithProjectAccess } from '../src/queries/project.queries';
+import { env, isCloud } from '../src/env';
+import {
+	getProjectByUserId,
+	getUserRoleInProject,
+	listProjectMembersWithRoles,
+	listUsersWithProjectAccess,
+} from '../src/queries/project.queries';
 
 vi.mock('../src/db/db', async () => {
 	const { drizzle } = await import('drizzle-orm/better-sqlite3');
@@ -28,11 +34,15 @@ async function cleanup() {
 	await db.delete(user).where(eq(user.id, 'pau-org-only'));
 	await db.delete(user).where(eq(user.id, 'pau-both'));
 	await db.delete(user).where(eq(user.id, 'pau-ctx'));
+	await db.delete(user).where(eq(user.id, 'pau-none'));
 }
 
 describe('project accessible users', () => {
+	const originalDefaultProjectPath = env.NAO_DEFAULT_PROJECT_PATH;
+
 	beforeEach(async () => {
 		await cleanup();
+		env.NAO_DEFAULT_PROJECT_PATH = '/tmp/pau';
 		await db.insert(organization).values({ id: 'pau-org', name: 'PAU', slug: 'pau-org' });
 		await db.insert(project).values([
 			{ id: 'pau-proj', orgId: 'pau-org', name: 'PAU', type: 'local', path: '/tmp/pau' },
@@ -50,6 +60,9 @@ describe('project accessible users', () => {
 		db.$client
 			.prepare('insert into user (id, name, email) values (?, ?, ?)')
 			.run('pau-ctx', 'PAU Ctx', 'pau-ctx@example.com');
+		db.$client
+			.prepare('insert into user (id, name, email) values (?, ?, ?)')
+			.run('pau-none', 'PAU None', 'pau-none@example.com');
 		await db.insert(projectMember).values([
 			{ projectId: 'pau-proj', userId: 'pau-direct', role: 'admin' },
 			{ projectId: 'pau-proj', userId: 'pau-both', role: 'viewer' },
@@ -62,7 +75,10 @@ describe('project accessible users', () => {
 		]);
 	});
 
-	afterEach(cleanup);
+	afterEach(async () => {
+		env.NAO_DEFAULT_PROJECT_PATH = originalDefaultProjectPath;
+		await cleanup();
+	});
 
 	afterAll(() => {
 		appDb.$client.close();
@@ -90,5 +106,31 @@ describe('project accessible users', () => {
 		const soloUsers = await listUsersWithProjectAccess('pau-solo');
 
 		expect(soloUsers.map(({ id }) => id).sort()).toEqual(['pau-direct']);
+	});
+
+	it('returns the self-hosted project for an org-only member', async () => {
+		expect(isCloud).toBe(false);
+
+		const result = await getProjectByUserId('pau-org-only');
+
+		expect(result?.id).toBe('pau-proj');
+	});
+
+	it('resolves an org-only member role from the organization', async () => {
+		const role = await getUserRoleInProject('pau-proj', 'pau-org-only');
+
+		expect(role).toBe('user');
+	});
+
+	it('prefers a project member role over the organization role', async () => {
+		const role = await getUserRoleInProject('pau-proj', 'pau-both');
+
+		expect(role).toBe('viewer');
+	});
+
+	it('returns null for a user without project or organization membership', async () => {
+		const result = await getProjectByUserId('pau-none');
+
+		expect(result).toBeNull();
 	});
 });
