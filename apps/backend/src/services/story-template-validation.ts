@@ -4,53 +4,56 @@ import { QueryIdSchema } from '@nao/shared/tools';
 
 import { env } from '../env';
 import * as executeSqlQueries from '../queries/execute-sql.queries';
-import * as storyQueries from '../queries/story.queries';
+
+type SqlQueryMap = Record<string, { sqlQuery: string; databaseId?: string }>;
 
 export async function getStoryTemplateWarnings(chatId: string, code: string): Promise<string[]> {
 	const warnings: string[] = [];
-	warnings.push(...(await getQueryReferenceWarnings(chatId, code)));
+	const { wellFormedIds, malformedWarnings } = partitionReferencedQueryIds(code);
+	warnings.push(...malformedWarnings);
+
+	const sqlQueries =
+		wellFormedIds.size > 0 ? await executeSqlQueries.getLatestSqlQueriesByIds(chatId, wellFormedIds) : {};
+
+	warnings.push(...getMissingQueryWarnings(wellFormedIds, sqlQueries));
+
 	if (env.BETA_STORY_FILTERS_ENABLED) {
-		warnings.push(...(await getFilterWarnings(chatId, code)));
+		warnings.push(...getFilterWarnings(code, sqlQueries));
 	}
+
 	return warnings;
 }
 
-async function getQueryReferenceWarnings(chatId: string, code: string): Promise<string[]> {
-	const referencedIds = extractQueryIds(code);
-	if (referencedIds.size === 0) {
-		return [];
-	}
-
-	const warnings: string[] = [];
+function partitionReferencedQueryIds(code: string): { wellFormedIds: Set<string>; malformedWarnings: string[] } {
 	const wellFormedIds = new Set<string>();
-	for (const queryId of referencedIds) {
+	const malformedWarnings: string[] = [];
+	for (const queryId of extractQueryIds(code)) {
 		if (QueryIdSchema.safeParse(queryId).success) {
 			wellFormedIds.add(queryId);
 		} else {
-			warnings.push(
+			malformedWarnings.push(
 				`Story references query_id "${queryId}", which is not a valid query id. Use the exact id returned in an execute_sql tool output (the "id" field, which looks like "query_..."); a chart/table/map block with an invalid query_id renders empty.`,
 			);
 		}
 	}
+	return { wellFormedIds, malformedWarnings };
+}
 
-	if (wellFormedIds.size > 0) {
-		const existing = await executeSqlQueries.getLatestSqlQueriesByIds(chatId, wellFormedIds);
-		for (const queryId of wellFormedIds) {
-			if (!existing[queryId]) {
-				warnings.push(
-					`Story references query_id "${queryId}", which was not produced by any execute_sql call in this chat. Run execute_sql first and use the exact id returned in its output (the "id" field); a chart/table/map block with an unknown query_id renders empty.`,
-				);
-			}
+function getMissingQueryWarnings(wellFormedIds: Set<string>, sqlQueries: SqlQueryMap): string[] {
+	const warnings: string[] = [];
+	for (const queryId of wellFormedIds) {
+		if (!sqlQueries[queryId]) {
+			warnings.push(
+				`Story references query_id "${queryId}", which was not produced by any execute_sql call in this chat. Run execute_sql first and use the exact id returned in its output (the "id" field); a chart/table/map block with an unknown query_id renders empty.`,
+			);
 		}
 	}
-
 	return warnings;
 }
 
-async function getFilterWarnings(chatId: string, code: string): Promise<string[]> {
+function getFilterWarnings(code: string, sqlQueries: SqlQueryMap): string[] {
 	const filters = getStoryFiltersFromCode(code);
 	const knownFilterIds = filters.map((filter) => filter.id);
-	const sqlQueries = await storyQueries.getSqlQueriesFromCode(chatId, code);
 	const warnings: string[] = [];
 
 	for (const duplicateId of findDuplicateFilterIds(knownFilterIds)) {
