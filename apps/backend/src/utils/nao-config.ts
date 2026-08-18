@@ -116,11 +116,16 @@ function deriveDatabaseNameFromPath(databasePath: string): string {
 	if (trimmedPath === ':memory:') {
 		return 'memory';
 	}
-	if (/^(?:md|motherduck):/i.test(trimmedPath)) {
-		const remainder = trimmedPath.slice(trimmedPath.indexOf(':') + 1);
-		return remainder.split('?', 1)[0].trim() || 'motherduck';
+	const pathWithoutQuery = stripQueryString(trimmedPath);
+	if (/^(?:md|motherduck):/i.test(pathWithoutQuery)) {
+		const remainder = pathWithoutQuery.slice(pathWithoutQuery.indexOf(':') + 1);
+		return remainder.trim() || 'motherduck';
 	}
-	return path.parse(trimmedPath).name;
+	return path.parse(pathWithoutQuery).name;
+}
+
+function stripQueryString(databasePath: string): string {
+	return databasePath.split('?', 1)[0];
 }
 
 function normalizeString(value: unknown): string | null {

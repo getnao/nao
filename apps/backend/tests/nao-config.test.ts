@@ -212,6 +212,9 @@ describe('extractConfiguredDatabases', () => {
 					'  - name: motherduck-default',
 					'    type: duckdb',
 					'    path: "md:"',
+					'  - name: mysql-analytics',
+					'    type: mysql',
+					'    path: "mysql://host:3306/analytics?user=u&password=hunter2"',
 					'  - name: explicit-database',
 					'    type: duckdb',
 					'    path: ./ignored.duckdb',
@@ -225,10 +228,14 @@ describe('extractConfiguredDatabases', () => {
 				{ id: 'in-memory', type: 'duckdb', database: 'memory' },
 				{ id: 'motherduck-analytics', type: 'duckdb', database: 'analytics' },
 				{ id: 'motherduck-default', type: 'duckdb', database: 'motherduck' },
+				{ id: 'mysql-analytics', type: 'mysql', database: 'analytics' },
 				{ id: 'explicit-database', type: 'duckdb', database: 'configured_name' },
 			]);
-			expect(JSON.stringify(databases)).not.toContain('secret123');
-			expect(JSON.stringify(databases)).not.toContain('motherduck_token');
+			const serializedDatabases = JSON.stringify(databases);
+			expect(serializedDatabases).not.toContain('secret123');
+			expect(serializedDatabases).not.toContain('motherduck_token');
+			expect(serializedDatabases).not.toContain('hunter2');
+			expect(serializedDatabases).not.toContain('password');
 		} finally {
 			fs.rmSync(dir, { force: true, recursive: true });
 		}
