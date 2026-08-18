@@ -374,12 +374,13 @@ export const listOrgProjectsWithAccess = async (orgId: string, userId: string): 
 		.select({
 			id: s.project.id,
 			name: s.project.name,
-			role: sql<UserRole>`coalesce(${s.projectMember.role}, 'viewer')`,
+			role: sql<UserRole>`coalesce(${s.projectMember.role}, ${s.orgMember.role}, 'viewer')`,
 			createdAt: s.project.createdAt,
 			updatedAt: s.project.updatedAt,
 		})
 		.from(s.project)
 		.leftJoin(s.projectMember, and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, userId)))
+		.leftJoin(s.orgMember, and(eq(s.orgMember.orgId, s.project.orgId), eq(s.orgMember.userId, userId)))
 		.where(eq(s.project.orgId, orgId))
 		.orderBy(asc(s.project.name))
 		.execute();

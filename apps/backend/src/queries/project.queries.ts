@@ -105,7 +105,7 @@ export const listUserProjectsWithRoles = async (userId: string): Promise<UserPro
 	const results = await db
 		.select({
 			project: s.project,
-			userRole: sql<UserRole>`coalesce(${s.projectMember.role}, 'viewer')`,
+			userRole: sql<UserRole>`coalesce(${s.projectMember.role}, ${s.orgMember.role}, 'viewer')`,
 		})
 		.from(s.project)
 		.leftJoin(s.projectMember, and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, userId)))

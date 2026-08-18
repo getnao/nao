@@ -13,10 +13,12 @@ import { db as appDb } from '../src/db/db';
 import * as sqliteSchema from '../src/db/sqlite-schema';
 import { organization, orgMember, project, projectMember, user } from '../src/db/sqlite-schema';
 import { env, isCloud } from '../src/env';
+import { listOrgProjectsWithAccess } from '../src/queries/organization.queries';
 import {
 	getProjectByUserId,
 	getUserRoleInProject,
 	listProjectMembersWithRoles,
+	listUserProjectsWithRoles,
 	listUsersWithProjectAccess,
 } from '../src/queries/project.queries';
 
@@ -37,6 +39,7 @@ async function cleanup() {
 	await db.delete(organization).where(eq(organization.id, 'pau-org'));
 	await db.delete(user).where(eq(user.id, 'pau-direct'));
 	await db.delete(user).where(eq(user.id, 'pau-org-only'));
+	await db.delete(user).where(eq(user.id, 'pau-org-admin'));
 	await db.delete(user).where(eq(user.id, 'pau-both'));
 	await db.delete(user).where(eq(user.id, 'pau-ctx'));
 	await db.delete(user).where(eq(user.id, 'pau-none'));
@@ -61,6 +64,9 @@ describe('project accessible users', () => {
 			.run('pau-org-only', 'PAU Org Only', 'pau-org-only@example.com');
 		db.$client
 			.prepare('insert into user (id, name, email) values (?, ?, ?)')
+			.run('pau-org-admin', 'PAU Org Admin', 'pau-org-admin@example.com');
+		db.$client
+			.prepare('insert into user (id, name, email) values (?, ?, ?)')
 			.run('pau-both', 'PAU Both', 'pau-both@example.com');
 		db.$client
 			.prepare('insert into user (id, name, email) values (?, ?, ?)')
@@ -76,6 +82,7 @@ describe('project accessible users', () => {
 		]);
 		await db.insert(orgMember).values([
 			{ orgId: 'pau-org', userId: 'pau-org-only', role: 'user' },
+			{ orgId: 'pau-org', userId: 'pau-org-admin', role: 'admin' },
 			{ orgId: 'pau-org', userId: 'pau-both', role: 'admin' },
 		]);
 	});
@@ -94,9 +101,16 @@ describe('project accessible users', () => {
 		const users = await listUsersWithProjectAccess('pau-proj');
 		const rolesById = new Map(users.map(({ id, role }) => [id, role]));
 
-		expect([...rolesById.keys()].sort()).toEqual(['pau-both', 'pau-ctx', 'pau-direct', 'pau-org-only']);
+		expect([...rolesById.keys()].sort()).toEqual([
+			'pau-both',
+			'pau-ctx',
+			'pau-direct',
+			'pau-org-admin',
+			'pau-org-only',
+		]);
 		expect(rolesById.get('pau-direct')).toBe('admin');
 		expect(rolesById.get('pau-org-only')).toBe('user');
+		expect(rolesById.get('pau-org-admin')).toBe('admin');
 		expect(rolesById.get('pau-both')).toBe('viewer');
 		expect(rolesById.get('pau-ctx')).toBe('context_admin');
 	});
@@ -131,6 +145,36 @@ describe('project accessible users', () => {
 		const role = await getUserRoleInProject('pau-proj', 'pau-both');
 
 		expect(role).toBe('viewer');
+	});
+
+	it('returns inherited organization roles in user project listings', async () => {
+		const userProjects = await listUserProjectsWithRoles('pau-org-only');
+		const adminProjects = await listUserProjectsWithRoles('pau-org-admin');
+
+		expect(userProjects).toHaveLength(1);
+		expect(userProjects[0]?.userRole).toBe('user');
+		expect(adminProjects).toHaveLength(1);
+		expect(adminProjects[0]?.userRole).toBe('admin');
+	});
+
+	it('returns inherited organization roles in organization project listings', async () => {
+		const userProjects = await listOrgProjectsWithAccess('pau-org', 'pau-org-only');
+		const adminProjects = await listOrgProjectsWithAccess('pau-org', 'pau-org-admin');
+
+		expect(userProjects).toHaveLength(1);
+		expect(userProjects[0]?.role).toBe('user');
+		expect(adminProjects).toHaveLength(1);
+		expect(adminProjects[0]?.role).toBe('admin');
+	});
+
+	it('prefers explicit roles in both project listings', async () => {
+		const userProjects = await listUserProjectsWithRoles('pau-both');
+		const orgProjects = await listOrgProjectsWithAccess('pau-org', 'pau-both');
+
+		expect(userProjects).toHaveLength(1);
+		expect(userProjects[0]?.userRole).toBe('viewer');
+		expect(orgProjects).toHaveLength(1);
+		expect(orgProjects[0]?.role).toBe('viewer');
 	});
 
 	it('returns null for a user without project or organization membership', async () => {
