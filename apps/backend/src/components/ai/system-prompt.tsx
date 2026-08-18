@@ -309,7 +309,7 @@ function ConfiguredDatabasesBlock({ databases }: { databases: ConfiguredDatabase
 }
 
 function formatConfiguredDatabaseDetails(database: ConfiguredDatabase): string {
-	const identifyingFields = ['path', 'database', 'project_id', 'dataset_id', 'catalog'] as const;
+	const identifyingFields = ['database', 'project_id', 'dataset_id', 'catalog'] as const;
 	const details = [
 		database.type ? `type=${database.type}` : null,
 		...identifyingFields.map((field) => (database[field] ? `${field}=${database[field]}` : null)),

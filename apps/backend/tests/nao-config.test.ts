@@ -181,7 +181,7 @@ describe('extractConfiguredDatabases', () => {
 				{
 					id: 'duckdb-jaffle-shop',
 					type: 'duckdb',
-					path: './jaffle_shop.duckdb',
+					database: 'jaffle_shop',
 				},
 				{
 					id: 'bigquery-prod',
@@ -191,6 +191,44 @@ describe('extractConfiguredDatabases', () => {
 				},
 			]);
 			expect(databases[1]).not.toHaveProperty('credentials_path');
+		} finally {
+			fs.rmSync(dir, { force: true, recursive: true });
+		}
+	});
+
+	it('derives safe database names from DuckDB paths', () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-config-'));
+		try {
+			fs.writeFileSync(
+				path.join(dir, 'nao_config.yaml'),
+				[
+					'databases:',
+					'  - name: in-memory',
+					'    type: duckdb',
+					'    path: ":memory:"',
+					'  - name: motherduck-analytics',
+					'    type: duckdb',
+					'    path: "md:analytics?motherduck_token=secret123"',
+					'  - name: motherduck-default',
+					'    type: duckdb',
+					'    path: "md:"',
+					'  - name: explicit-database',
+					'    type: duckdb',
+					'    path: ./ignored.duckdb',
+					'    database: configured_name',
+				].join('\n'),
+			);
+
+			const databases = extractConfiguredDatabases(dir);
+
+			expect(databases).toEqual([
+				{ id: 'in-memory', type: 'duckdb', database: 'memory' },
+				{ id: 'motherduck-analytics', type: 'duckdb', database: 'analytics' },
+				{ id: 'motherduck-default', type: 'duckdb', database: 'motherduck' },
+				{ id: 'explicit-database', type: 'duckdb', database: 'configured_name' },
+			]);
+			expect(JSON.stringify(databases)).not.toContain('secret123');
+			expect(JSON.stringify(databases)).not.toContain('motherduck_token');
 		} finally {
 			fs.rmSync(dir, { force: true, recursive: true });
 		}

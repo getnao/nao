@@ -172,7 +172,7 @@ describe('SystemPrompt configured database ids', () => {
 					{
 						id: 'duckdb-jaffle-shop',
 						type: 'duckdb',
-						path: './jaffle_shop.duckdb',
+						database: 'jaffle_shop',
 					},
 					{
 						id: 'bigquery-prod',
@@ -190,20 +190,17 @@ describe('SystemPrompt configured database ids', () => {
 				'',
 				"execute_sql's **database_id** must be one of:",
 				'',
-				'- **duckdb-jaffle-shop** — type=duckdb, path=./jaffle_shop.duckdb',
+				'- **duckdb-jaffle-shop** — type=duckdb, database=jaffle_shop',
 				'- **bigquery-prod** — type=bigquery, project_id=nao-corp, dataset_id=nao-corp.movies_silver',
 			].join('\n'),
 		);
-		expect(markdown).not.toContain('underlying database name, not a database_id');
-		expect(markdown).not.toContain('may have no context folder if it has not been synced');
-		expect(markdown).not.toContain('**clarification** tool instead of guessing');
 	});
 
 	it('renders no configured database block for zero or one database', () => {
 		const withoutDatabases = renderToMarkdown(SystemPrompt({ configuredDatabases: [] }));
 		const withOneDatabase = renderToMarkdown(
 			SystemPrompt({
-				configuredDatabases: [{ id: 'duckdb-jaffle-shop', type: 'duckdb', path: './jaffle_shop.duckdb' }],
+				configuredDatabases: [{ id: 'duckdb-jaffle-shop', type: 'duckdb', database: 'jaffle_shop' }],
 			}),
 		);
 

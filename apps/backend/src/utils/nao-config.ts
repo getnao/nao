@@ -9,7 +9,7 @@ import type { LinkedContextRepo } from '../types/context-recommendation';
 import { logger } from './logger';
 
 const ENV_PATTERN = /\$?\{\{\s*env\(['"]([^'"]+)['"]\)\s*\}\}/g;
-const DATABASE_IDENTIFYING_FIELDS = ['path', 'database', 'project_id', 'dataset_id', 'catalog'] as const;
+const DATABASE_IDENTIFYING_FIELDS = ['database', 'project_id', 'dataset_id', 'catalog'] as const;
 
 type DatabaseIdentifyingField = (typeof DATABASE_IDENTIFYING_FIELDS)[number];
 
@@ -99,8 +99,28 @@ export function extractConfiguredDatabases(projectFolder: string): ConfiguredDat
 			}
 		}
 
+		const databasePath = normalizeString(database.path);
+		if (!configuredDatabase.database && databasePath) {
+			const databaseName = deriveDatabaseNameFromPath(databasePath);
+			if (databaseName) {
+				configuredDatabase.database = databaseName;
+			}
+		}
+
 		return [configuredDatabase];
 	});
+}
+
+function deriveDatabaseNameFromPath(databasePath: string): string {
+	const trimmedPath = databasePath.trim();
+	if (trimmedPath === ':memory:') {
+		return 'memory';
+	}
+	if (/^(?:md|motherduck):/i.test(trimmedPath)) {
+		const remainder = trimmedPath.slice(trimmedPath.indexOf(':') + 1);
+		return remainder.split('?', 1)[0].trim() || 'motherduck';
+	}
+	return path.parse(trimmedPath).name;
 }
 
 function normalizeString(value: unknown): string | null {
