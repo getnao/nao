@@ -138,7 +138,7 @@ function RouteComponent() {
 		enabled: perUserSpendEnabled,
 	});
 	const projectMembers = useQuery({
-		...trpc.project.listAllUsersWithRoles.queryOptions(),
+		...trpc.project.listUsersWithAccess.queryOptions(),
 		enabled: perUserSpendEnabled,
 	});
 

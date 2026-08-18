@@ -452,20 +452,10 @@ const ensureDefaultProject = async (org: DBOrganization): Promise<void> => {
 	}
 
 	const projectName = projectPath.split('/').pop() || 'Default Project';
-	const project = await projectQueries.createProject({
+	await projectQueries.createProject({
 		name: projectName,
 		type: 'local',
 		path: projectPath,
 		orgId: org.id,
 	});
-
-	// Add all org members to the new project
-	const orgMembers = await db.select().from(s.orgMember).where(eq(s.orgMember.orgId, org.id)).execute();
-	for (const member of orgMembers) {
-		await projectQueries.addProjectMember({
-			projectId: project.id,
-			userId: member.userId,
-			role: member.role,
-		});
-	}
 };

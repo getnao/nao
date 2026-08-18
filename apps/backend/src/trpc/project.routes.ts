@@ -703,6 +703,10 @@ export const projectRoutes = {
 		return projectQueries.listProjectMembersWithRoles(ctx.project.id);
 	}),
 
+	listUsersWithAccess: projectProtectedProcedure.query(async ({ ctx }) => {
+		return projectQueries.listUsersWithProjectAccess(ctx.project.id);
+	}),
+
 	getProjectMembersByChatId: protectedProcedure
 		.input(z.object({ chatId: z.string() }))
 		.query(async ({ ctx, input }) => {

@@ -1,8 +1,13 @@
-import '../src/env';
-
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.hoisted(() => {
+	process.env.MODE = 'test';
+	process.env.NAO_MODE = 'self-hosted';
+});
+
+import '../src/env';
 
 import { db as appDb } from '../src/db/db';
 import * as sqliteSchema from '../src/db/sqlite-schema';
