@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { extractConfiguredRepos } from '../src/utils/nao-config';
+import { extractConfiguredDatabases, extractConfiguredRepos } from '../src/utils/nao-config';
 
 vi.mock('../src/utils/logger', () => ({
 	logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -106,6 +106,91 @@ describe('extractConfiguredRepos', () => {
 					url: 'https://bitbucket.org/nao/dbt-models.git',
 				},
 			]);
+		} finally {
+			fs.rmSync(dir, { force: true, recursive: true });
+		}
+	});
+});
+
+describe('extractConfiguredDatabases', () => {
+	it('returns an empty list when nao_config.yaml is missing', () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-config-'));
+		try {
+			expect(extractConfiguredDatabases(dir)).toEqual([]);
+		} finally {
+			fs.rmSync(dir, { force: true, recursive: true });
+		}
+	});
+
+	it('returns an empty list when databases is absent', () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-config-'));
+		try {
+			fs.writeFileSync(path.join(dir, 'nao_config.yaml'), 'project_name: demo\n');
+
+			expect(extractConfiguredDatabases(dir)).toEqual([]);
+		} finally {
+			fs.rmSync(dir, { force: true, recursive: true });
+		}
+	});
+
+	it('skips databases without a valid name', () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-config-'));
+		try {
+			fs.writeFileSync(
+				path.join(dir, 'nao_config.yaml'),
+				[
+					'databases:',
+					'  - type: duckdb',
+					'    path: ./missing-name.duckdb',
+					'  - name: "  "',
+					'    type: postgres',
+					'  - name: 123',
+					'    type: bigquery',
+					'  - name: valid-database',
+					'    type: duckdb',
+				].join('\n'),
+			);
+
+			expect(extractConfiguredDatabases(dir)).toEqual([{ id: 'valid-database', type: 'duckdb' }]);
+		} finally {
+			fs.rmSync(dir, { force: true, recursive: true });
+		}
+	});
+
+	it('returns ids, types, and identifying fields without secret-bearing fields', () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-config-'));
+		try {
+			fs.writeFileSync(
+				path.join(dir, 'nao_config.yaml'),
+				[
+					'databases:',
+					'  - name: duckdb-jaffle-shop',
+					'    type: duckdb',
+					'    path: ./jaffle_shop.duckdb',
+					'  - name: bigquery-prod',
+					'    type: bigquery',
+					'    project_id: nao-corp',
+					'    dataset_id: nao-corp.movies_silver',
+					'    credentials_path: ./credentials.json',
+				].join('\n'),
+			);
+
+			const databases = extractConfiguredDatabases(dir);
+
+			expect(databases).toEqual([
+				{
+					id: 'duckdb-jaffle-shop',
+					type: 'duckdb',
+					path: './jaffle_shop.duckdb',
+				},
+				{
+					id: 'bigquery-prod',
+					type: 'bigquery',
+					project_id: 'nao-corp',
+					dataset_id: 'nao-corp.movies_silver',
+				},
+			]);
+			expect(databases[1]).not.toHaveProperty('credentials_path');
 		} finally {
 			fs.rmSync(dir, { force: true, recursive: true });
 		}

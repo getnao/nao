@@ -9,6 +9,14 @@ import type { LinkedContextRepo } from '../types/context-recommendation';
 import { logger } from './logger';
 
 const ENV_PATTERN = /\$?\{\{\s*env\(['"]([^'"]+)['"]\)\s*\}\}/g;
+const DATABASE_IDENTIFYING_FIELDS = ['path', 'database', 'project_id', 'dataset_id', 'catalog'] as const;
+
+type DatabaseIdentifyingField = (typeof DATABASE_IDENTIFYING_FIELDS)[number];
+
+export type ConfiguredDatabase = {
+	id: string;
+	type?: string;
+} & Partial<Record<DatabaseIdentifyingField, string>>;
 
 export function extractRequiredEnvVars(projectFolder: string): string[] {
 	const configPath = path.join(projectFolder, 'nao_config.yaml');
@@ -60,6 +68,50 @@ export function extractConfiguredRepos(projectFolder: string): LinkedContextRepo
 			},
 		];
 	});
+}
+
+export function extractConfiguredDatabases(projectFolder: string): ConfiguredDatabase[] {
+	const configPath = path.join(projectFolder, 'nao_config.yaml');
+	if (!fs.existsSync(configPath)) {
+		return [];
+	}
+
+	const config = loadConfig(configPath);
+	if (!isRecord(config) || !Array.isArray(config.databases)) {
+		return [];
+	}
+
+	return config.databases.flatMap((database) => {
+		if (!isRecord(database) || typeof database.name !== 'string' || database.name.trim() === '') {
+			return [];
+		}
+
+		const configuredDatabase: ConfiguredDatabase = { id: database.name.trim() };
+		const type = normalizeString(database.type);
+		if (type) {
+			configuredDatabase.type = type;
+		}
+
+		for (const field of DATABASE_IDENTIFYING_FIELDS) {
+			const value = normalizeIdentifyingValue(database[field]);
+			if (value) {
+				configuredDatabase[field] = value;
+			}
+		}
+
+		return [configuredDatabase];
+	});
+}
+
+function normalizeString(value: unknown): string | null {
+	return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
+}
+
+function normalizeIdentifyingValue(value: unknown): string | null {
+	if (typeof value === 'number' && Number.isFinite(value)) {
+		return String(value);
+	}
+	return normalizeString(value);
 }
 
 function loadConfig(configPath: string): unknown {

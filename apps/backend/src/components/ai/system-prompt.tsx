@@ -9,6 +9,7 @@ import { tokenCounter } from '../../services/token-counter';
 import type { UserMemory } from '../../types/memory';
 import { MEMORY_CATEGORIES, MemoryCategory } from '../../types/memory';
 import { formatCurrentDate } from '../../utils/date';
+import type { ConfiguredDatabase } from '../../utils/nao-config';
 import { groupBy } from '../../utils/utils';
 import { getDialectSqlQueryRules, getDialectToolCallRules } from './dialect-rules';
 import { NaoContextStructure } from './nao-context-structure';
@@ -22,6 +23,7 @@ type SystemPromptProps = {
 	memories?: UserMemory[];
 	userRules?: string;
 	connections?: Connection[];
+	configuredDatabases?: ConfiguredDatabase[];
 	skills?: Skill[];
 	/** Defaults to every skill nao ships; only tests pass this. */
 	internalSkills?: InternalSkill[];
@@ -47,6 +49,7 @@ export function SystemPrompt({
 	memories = [],
 	userRules,
 	connections = [],
+	configuredDatabases = [],
 	skills = [],
 	internalSkills = listInternalSkills(),
 	customCharts = [],
@@ -254,6 +257,8 @@ export function SystemPrompt({
 					</Block>
 				)}
 
+				{configuredDatabases.length >= 2 && <ConfiguredDatabasesBlock databases={configuredDatabases} />}
+
 				{skills.length > 0 && (
 					<Block>
 						<Title level={2}>Skills</Title>
@@ -282,6 +287,35 @@ export function SystemPrompt({
 			</Block>
 		</Block>
 	);
+}
+
+function ConfiguredDatabasesBlock({ databases }: { databases: ConfiguredDatabase[] }) {
+	return (
+		<Block>
+			<Title level={2}>Databases</Title>
+			<Span>
+				execute_sql's <Bold>database_id</Bold> must be one of:
+			</Span>
+			<List>
+				{databases.map((database) => (
+					<ListItem key={database.id}>
+						<Bold>{database.id}</Bold>
+						{formatConfiguredDatabaseDetails(database)}
+					</ListItem>
+				))}
+			</List>
+		</Block>
+	);
+}
+
+function formatConfiguredDatabaseDetails(database: ConfiguredDatabase): string {
+	const identifyingFields = ['path', 'database', 'project_id', 'dataset_id', 'catalog'] as const;
+	const details = [
+		database.type ? `type=${database.type}` : null,
+		...identifyingFields.map((field) => (database[field] ? `${field}=${database[field]}` : null)),
+	].filter((detail): detail is string => detail !== null);
+
+	return details.length > 0 ? ` — ${details.join(', ')}` : '';
 }
 
 /**
