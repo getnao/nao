@@ -155,6 +155,21 @@ export async function getSharedStoryInfo(
 	return row ?? null;
 }
 
+export type StoryShareAccess = {
+	shareId: string;
+	visibility: string;
+	allowedUserIds: string[];
+};
+
+export async function getStoryShareAccess(storyId: string, projectId: string): Promise<StoryShareAccess | null> {
+	const info = await getSharedStoryInfo(storyId, projectId);
+	if (!info) {
+		return null;
+	}
+	const allowedUserIds = info.visibility === 'specific' ? await getSharedStoryAllowedUserIds(info.id) : [];
+	return { shareId: info.id, visibility: info.visibility, allowedUserIds };
+}
+
 export async function getSharedStoryAllowedUserIds(sharedStoryId: string): Promise<string[]> {
 	const rows = await db
 		.select({ userId: s.sharedStoryAccess.userId })

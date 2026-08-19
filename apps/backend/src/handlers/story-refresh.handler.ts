@@ -2,8 +2,10 @@ import type { DBScheduledJob } from '../db/abstractSchema';
 import * as activityQueries from '../queries/activity.queries';
 import * as storyQueries from '../queries/story.queries';
 import { refreshStoryData } from '../services/live-story';
+import { notifyStoryRefreshed, notifyStoryRefreshFailed } from '../services/notification.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { logger } from '../utils/logger';
+import { deliverStoryOnRefresh } from './story-delivery.handler';
 
 export const STORY_REFRESH_JOB_NAME = 'story.refresh';
 
@@ -51,7 +53,22 @@ export async function runScheduledStoryRefresh(storyId: string): Promise<void> {
 
 	try {
 		const { queryData } = await refreshStoryData(story.chatId, story.slug);
-		await activityQueries.completeActivity(activity.id, { queriesRefreshed: Object.keys(queryData).length });
+		const queriesRefreshed = Object.keys(queryData).length;
+		await activityQueries.completeActivity(activity.id, { queriesRefreshed });
+		await notifyStoryRefreshed({
+			projectId,
+			ownerId: userId,
+			storyId,
+			storyTitle: story.title,
+			queriesRefreshed,
+			trigger: 'schedule',
+		}).catch((notifyError) => {
+			logger.error(`Failed to notify story refresh: ${String(notifyError)}`, {
+				source: 'system',
+				projectId,
+				context: { storyId },
+			});
+		});
 		logAnalyticsEvent({
 			projectId,
 			type: 'refresh',
@@ -61,6 +78,13 @@ export async function runScheduledStoryRefresh(storyId: string): Promise<void> {
 			chatId: story.chatId,
 			metadata: { type: 'refresh', trigger: 'scheduled', queriesRefreshed: Object.keys(queryData).length },
 		});
+		await deliverStoryOnRefresh(storyId, 'schedule', story.cacheSchedule, queryData).catch((error) => {
+			logger.error(`Story delivery after scheduled refresh failed: ${String(error)}`, {
+				source: 'system',
+				projectId,
+				context: { storyId },
+			});
+		});
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		logger.error(`Story refresh failed: ${message}`, {
@@ -69,6 +93,20 @@ export async function runScheduledStoryRefresh(storyId: string): Promise<void> {
 			context: { storyId, activityId: activity.id },
 		});
 		await activityQueries.failActivity(activity.id, message);
+		await notifyStoryRefreshFailed({
+			projectId,
+			ownerId: userId,
+			storyId,
+			storyTitle: story.title,
+			errorMessage: message,
+			trigger: 'schedule',
+		}).catch((notifyError) => {
+			logger.error(`Failed to notify owner of refresh failure: ${String(notifyError)}`, {
+				source: 'system',
+				projectId,
+				context: { storyId },
+			});
+		});
 		throw err;
 	}
 }

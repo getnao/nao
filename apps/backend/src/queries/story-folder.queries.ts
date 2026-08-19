@@ -318,6 +318,19 @@ export async function moveFolder(
 	);
 }
 
+export async function ensureStoryPrivate(
+	storyId: string,
+	options: { storyOwnerId: string; projectId: string },
+): Promise<void> {
+	const current = await getStoryFolderItem(storyId);
+	const currentVisibility = await resolveFolderVisibility(current?.folderId ?? null);
+	if (currentVisibility === 'private') {
+		return;
+	}
+	const privateFolderId = await ensurePrivateRoot(options.storyOwnerId, options.projectId);
+	await moveStoryToFolder(storyId, privateFolderId, options);
+}
+
 export async function moveStoryToFolder(
 	storyId: string,
 	folderId: string | null,

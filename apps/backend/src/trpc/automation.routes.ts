@@ -198,6 +198,19 @@ export const automationRoutes = {
 		return { ...fresh, alreadyTerminal: !updated };
 	}),
 
+	markRunRead: automationReadProcedure.input(z.object({ runId: z.string() })).mutation(async ({ ctx, input }) => {
+		const marked = await automationQueries.markAutomationRunRead(ctx.project.id, ctx.user.id, input.runId);
+		if (!marked) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: `Automation run not found: ${input.runId}` });
+		}
+		return { success: true as const };
+	}),
+
+	markAllRunsRead: automationReadProcedure.mutation(async ({ ctx }) => {
+		await automationQueries.markAllAutomationRunsRead(ctx.project.id, ctx.user.id);
+		return { success: true as const };
+	}),
+
 	parseCronFromText: automationReadProcedure
 		.input(z.object({ text: z.string().min(1) }))
 		.mutation(async ({ ctx, input }) => {
