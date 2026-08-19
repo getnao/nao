@@ -2,6 +2,7 @@ import { DBContextRecommendation } from '../../db/abstractSchema';
 import { Block, Bold, Code, List, ListItem, renderToMarkdown, Span, Title } from '../../lib/markdown';
 import type { FlaggedContextFile } from '../../services/context-recommendations.file-costs';
 import type { LinkedContextRepo } from '../../types/context-recommendation';
+import type { ContextPresence } from '../../utils/nao-config';
 
 type ExistingRecommendationSummary = Pick<
 	DBContextRecommendation,
@@ -17,6 +18,7 @@ type ContextRecommendationsPromptProps = {
 	linkedRepos?: LinkedContextRepo[];
 	contextRepoConnected?: boolean;
 	templates?: string[];
+	contextPresence?: ContextPresence;
 };
 
 export function renderContextRecommendationsPrompt(props: ContextRecommendationsPromptProps): string {
@@ -32,9 +34,12 @@ function ContextRecommendationsPrompt({
 	linkedRepos = [],
 	contextRepoConnected = false,
 	templates,
+	contextPresence,
 }: ContextRecommendationsPromptProps) {
-	const hasColumnsContext = templates === undefined || templates.includes('columns');
-	const hasProfilingContext = templates === undefined || templates.includes('profiling');
+	const hasColumnsContext =
+		contextPresence?.databases !== false && (templates === undefined || templates.includes('columns'));
+	const hasProfilingContext =
+		contextPresence?.databases !== false && (templates === undefined || templates.includes('profiling'));
 
 	return (
 		<Block>

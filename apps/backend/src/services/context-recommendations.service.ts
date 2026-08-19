@@ -88,6 +88,7 @@ export async function runContextRecommendations(
 					proposeFixes,
 					linkedRepos,
 					templates,
+					contextPresence,
 					contextRepoConnected: !!contextRepo,
 				}),
 				source: 'contextRecommendations',

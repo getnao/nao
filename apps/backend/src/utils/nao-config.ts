@@ -111,9 +111,6 @@ function configuredTemplatesFrom(config: unknown): string[] {
 		}
 
 		const templates = getDatabaseTemplates(database);
-		if (templates === null) {
-			continue;
-		}
 		const migratedTemplates = [
 			...new Set(
 				templates
@@ -152,17 +149,17 @@ function hasDirectoryContent(directoryPath: string): boolean {
 	}
 }
 
-function getDatabaseTemplates(database: Record<string, unknown>): string[] | null {
+function getDatabaseTemplates(database: Record<string, unknown>): string[] {
 	if (!('templates' in database) && !('accessors' in database)) {
 		return [...DEFAULT_DATABASE_TEMPLATES];
 	}
 
 	const templates = 'templates' in database ? database.templates : database.accessors;
 	if (!Array.isArray(templates)) {
-		return null;
+		return [...DEFAULT_DATABASE_TEMPLATES];
 	}
 	const stringTemplates = templates.filter((template): template is string => typeof template === 'string');
-	return templates.length === 0 || stringTemplates.length > 0 ? stringTemplates : null;
+	return templates.length === 0 || stringTemplates.length > 0 ? stringTemplates : [...DEFAULT_DATABASE_TEMPLATES];
 }
 
 function loadConfig(configPath: string): unknown {

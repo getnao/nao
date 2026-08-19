@@ -30,4 +30,38 @@ describe('context recommendations prompt', () => {
 		expect(markdown).not.toContain('`databases/**/profiling.md`');
 		expect(markdown).toContain('Count how many tool calls failed per root cause.');
 	});
+
+	it('omits database cross-references when database context is absent', () => {
+		const markdown = renderContextRecommendationsPrompt({
+			...BASE_PROPS,
+			templates: ['columns', 'profiling'],
+			contextPresence: {
+				rules: true,
+				semantics: true,
+				docs: true,
+				notionDocs: true,
+				databases: false,
+			},
+		});
+
+		expect(markdown).not.toContain('`databases/**/columns.md`');
+		expect(markdown).not.toContain('`databases/**/profiling.md`');
+	});
+
+	it('renders configured database cross-references when database context is present', () => {
+		const markdown = renderContextRecommendationsPrompt({
+			...BASE_PROPS,
+			templates: ['columns', 'profiling'],
+			contextPresence: {
+				rules: false,
+				semantics: false,
+				docs: false,
+				notionDocs: false,
+				databases: true,
+			},
+		});
+
+		expect(markdown).toContain('`databases/**/columns.md` for wrong-column failures');
+		expect(markdown).toContain('`databases/**/profiling.md` (`top_values`) for wrong-value failures');
+	});
 });

@@ -235,15 +235,37 @@ describe('extractConfiguredTemplates', () => {
 		}
 	});
 
-	it('uses the default templates for malformed database templates', () => {
+	it('uses the default templates for a lone database with malformed templates', () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-config-'));
 		try {
 			fs.writeFileSync(
 				path.join(dir, 'nao_config.yaml'),
-				['databases:', '  - type: duckdb', '    name: demo', '    templates: 5'].join('\n'),
+				['databases:', '  - type: duckdb', '    name: demo', '    templates: "columns"'].join('\n'),
 			);
 
 			expect(extractConfiguredTemplates(dir)).toEqual(['columns', 'preview']);
+		} finally {
+			fs.rmSync(dir, { force: true, recursive: true });
+		}
+	});
+
+	it('includes defaults when one database has malformed templates', () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-config-'));
+		try {
+			fs.writeFileSync(
+				path.join(dir, 'nao_config.yaml'),
+				[
+					'databases:',
+					'  - type: duckdb',
+					'    name: malformed',
+					'    templates: [123]',
+					'  - type: postgres',
+					'    name: configured',
+					'    templates: [profiling]',
+				].join('\n'),
+			);
+
+			expect(extractConfiguredTemplates(dir)).toEqual(['columns', 'preview', 'profiling']);
 		} finally {
 			fs.rmSync(dir, { force: true, recursive: true });
 		}
