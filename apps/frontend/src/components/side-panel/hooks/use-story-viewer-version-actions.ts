@@ -13,6 +13,7 @@ interface UseStoryViewerVersionActionsParams {
 	storyTitle?: string;
 	currentVersionCode?: string;
 	isViewingLatest: boolean;
+	goToLatestVersion: () => void;
 	tiptapEditorRef: MutableRefObject<TiptapEditor | null>;
 	codeViewRef: MutableRefObject<StoryCodeViewHandle | null>;
 	getEditModeCode?: () => string | null;
@@ -26,6 +27,7 @@ export const useStoryViewerVersionActions = ({
 	storyTitle,
 	currentVersionCode,
 	isViewingLatest,
+	goToLatestVersion,
 	tiptapEditorRef,
 	codeViewRef,
 	getEditModeCode,
@@ -153,7 +155,8 @@ export const useStoryViewerVersionActions = ({
 			code: currentVersionCode,
 			action: 'replace',
 		});
-	}, [chatId, storySlug, storyTitle, currentVersionCode, isViewingLatest, createVersionMutation]);
+		goToLatestVersion();
+	}, [chatId, storySlug, storyTitle, currentVersionCode, isViewingLatest, createVersionMutation, goToLatestVersion]);
 
 	return {
 		handleSave,

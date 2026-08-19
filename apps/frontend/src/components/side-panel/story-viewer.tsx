@@ -26,6 +26,7 @@ import type { StoryCodeViewHandle } from './story-code-view';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useDragAutoScroll } from '@/hooks/use-drag-auto-scroll';
+import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { ReadonlyAgentMessagesProvider, useOptionalAgentContext } from '@/contexts/agent.provider';
 import { StoryChartEditProvider } from '@/contexts/story-chart-edit';
@@ -77,12 +78,10 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		useCallback(() => chatActivityStore.getActivity(chatId).running, [chatId]),
 	);
 
-	const { allStories, draftStory, isAgentRunning } = useStoryViewerAgentState(
-		storySlug,
-		chatMessages,
-		isChatAgentRunning,
-	);
+	const { allStories, draftStory, latestStoryOutputVersion, isAgentRunning, isStoryUpdating, isStoryInterrupted } =
+		useStoryViewerAgentState(storySlug, chatMessages, isChatAgentRunning);
 	const resolvedStorySlug = draftStory?.id ?? storySlug;
+	const isStoryStreaming = Boolean(draftStory?.isStreaming);
 	const prevSlugRef = useRef(resolvedStorySlug);
 	const {
 		versions,
@@ -91,10 +90,18 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		archivedAt,
 		currentVersion,
 		currentVersionNumber,
+		storedVersionNumber,
 		isViewingLatest,
 		goToPreviousVersion,
 		goToNextVersion,
-	} = useStoryViewerVersions({ chatId, storySlug: resolvedStorySlug, isAgentRunning, isReadonlyMode });
+		goToLatestVersion,
+	} = useStoryViewerVersions({
+		chatId,
+		storySlug: resolvedStorySlug,
+		isAgentRunning,
+		latestStoryOutputVersion,
+		isReadonlyMode,
+	});
 	const {
 		storyTitle,
 		storyCode,
@@ -109,7 +116,16 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		draftStory,
 		currentVersion,
 		storedTitle,
+		isViewingLatest,
+		isStoryInterrupted,
 		isReadonlyMode,
+	});
+	const { queryData: versionQueryData, isPending: isVersionQueryDataPending } = useStoryVersionQueryData({
+		chatId,
+		storySlug: resolvedStorySlug,
+		versionNumber: storedVersionNumber,
+		isViewingLatest,
+		latestQueryData: queryData ?? null,
 	});
 	const tabs = useMemo(() => parseStoryTabs(storyCode ?? ''), [storyCode]);
 	const isTabbedStory = Boolean(tabs?.length);
@@ -119,7 +135,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		chatId,
 		storySlug: resolvedStorySlug,
 		storyId,
-		versionNumber: currentVersionNumber > 0 ? currentVersionNumber : undefined,
+		versionNumber: storedVersionNumber > 0 ? storedVersionNumber : undefined,
 	});
 
 	const { handleSave, handleRestore, isSaving } = useStoryViewerVersionActions({
@@ -128,6 +144,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		storyTitle: storedTitle,
 		currentVersionCode: currentVersion?.code,
 		isViewingLatest,
+		goToLatestVersion,
 		tiptapEditorRef,
 		codeViewRef,
 		getEditModeCode,
@@ -188,7 +205,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 
 	useStoryViewerStreamScroll({
 		scrollContainerRef,
-		isStreaming: Boolean(draftStory?.isStreaming),
+		isAppendingContent: Boolean(draftStory?.isStreaming),
 		code: storyCode,
 		viewMode,
 	});
@@ -235,6 +252,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 				onEnlarge={handleEnlarge}
 				isShared={isShared}
 				isAgentRunning={isAgentRunning}
+				isStoryUpdating={isStoryUpdating}
 				isSaving={isSaving}
 				isReadonlyMode={isReadonlyMode}
 				isLive={isLive}
@@ -278,15 +296,18 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 								}
 								fullCode={storyCode}
 								cacheSchedule={cacheSchedule}
-								queryData={queryData ?? null}
+								queryData={versionQueryData}
 								chatId={chatId}
 								storySlug={resolvedStorySlug}
 								versionKey={isViewingLatest ? undefined : currentVersionNumber}
 								filtersEnabled={isViewingLatest && !isAgentRunning}
+								isStreaming={isStoryStreaming}
+								isDataPending={isVersionQueryDataPending}
+								isViewingLatest={isViewingLatest}
 							/>
 						)
 					) : viewMode === 'edit' ? (
-						<StoryEmbedDataProvider value={queryData ?? null}>
+						<StoryEmbedDataProvider value={versionQueryData}>
 							{isTabbedStory ? (
 								<StoryTabbedEditor
 									code={storyCode}

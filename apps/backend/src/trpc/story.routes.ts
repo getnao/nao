@@ -200,6 +200,24 @@ export const storyRoutes = {
 			};
 		}),
 
+	getVersionQueryData: chatOwnerProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				versionNumber: z.number().int().positive(),
+			}),
+		)
+		.query(async ({ input }) => {
+			const version = await storyQueries.getVersionByNumber(input.chatId, input.storySlug, input.versionNumber);
+			if (!version) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story version not found.' });
+			}
+
+			const queryData = await sharedStoryQueries.getQueryDataFromCode(input.chatId, version.code);
+			return { queryData };
+		}),
+
 	listStories: chatOwnerProcedure.input(z.object({ chatId: z.string() })).query(async ({ input }) => {
 		const stories = await storyQueries.listStoriesInChat(input.chatId);
 		return stories.map((s) => ({ storySlug: s.slug, title: s.title, latestVersion: s.latestVersion }));

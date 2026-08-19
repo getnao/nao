@@ -20,6 +20,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
+import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { trpc } from '@/main';
 
@@ -183,6 +184,13 @@ function StandaloneEditableStory({
 	const isShared = Boolean(shareQuery.data?.shareId);
 
 	const editor = useStoryPageEditor({ chatId, storySlug, storyTitle: title, latestCode: code });
+	const { queryData: versionQueryData, isPending: isQueryDataPending } = useStoryVersionQueryData({
+		chatId,
+		storySlug,
+		versionNumber: editor.versionNav.storedVersionNumber,
+		isViewingLatest: editor.versionNav.isViewingLatest,
+		latestQueryData: queryData,
+	});
 
 	const handleSelectionAsk = useCallback(
 		(data: SelectionData) => {
@@ -232,16 +240,17 @@ function StandaloneEditableStory({
 			<StoryPageBody
 				code={editor.code}
 				editor={editor}
-				queryData={queryData}
+				queryData={versionQueryData}
 				preview={
 					<SelectionProvider key={storySlug}>
 						<HighlightBubble onAsk={handleSelectionAsk} disabled={false} />
 						<StandaloneStoryContent
 							code={editor.code}
-							queryData={queryData}
+							queryData={versionQueryData}
 							chatId={chatId}
 							storySlug={storySlug}
 							filtersEnabled={editor.versionNav.isViewingLatest && !editor.isCodeDirty}
+							isDataPending={isQueryDataPending}
 						/>
 					</SelectionProvider>
 				}
@@ -281,12 +290,14 @@ function StandaloneStoryContent({
 	chatId,
 	storySlug,
 	filtersEnabled = true,
+	isDataPending = false,
 }: {
 	code: string;
 	queryData: QueryDataMap | null;
 	chatId?: string | null;
 	storySlug?: string;
 	filtersEnabled?: boolean;
+	isDataPending?: boolean;
 }) {
 	const filterApi = filtersEnabled && chatId && storySlug ? { kind: 'owned' as const, chatId, storySlug } : null;
 
@@ -308,9 +319,10 @@ function StandaloneStoryContent({
 				queryData={data}
 				hasActiveFilters={hasActiveFilters}
 				isRefreshing={isRefreshing}
+				isDataPending={isDataPending}
 			/>
 		),
-		[],
+		[isDataPending],
 	);
 
 	const renderTable = useCallback(
@@ -327,9 +339,10 @@ function StandaloneStoryContent({
 				queryData={data}
 				hasActiveFilters={hasActiveFilters}
 				isRefreshing={isRefreshing}
+				isDataPending={isDataPending}
 			/>
 		),
-		[],
+		[isDataPending],
 	);
 
 	const renderMap = useCallback(
@@ -346,10 +359,11 @@ function StandaloneStoryContent({
 				queryData={data}
 				hasActiveFilters={hasActiveFilters}
 				isRefreshing={isRefreshing}
+				isDataPending={isDataPending}
 				allowExpand
 			/>
 		),
-		[],
+		[isDataPending],
 	);
 
 	return (

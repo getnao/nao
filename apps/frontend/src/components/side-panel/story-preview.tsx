@@ -1,6 +1,6 @@
 import { NO_CACHE_SCHEDULE } from '@nao/shared';
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback, useMemo, useRef } from 'react';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
 import type { QueryDataMap } from '@/components/story-embeds';
@@ -11,11 +11,9 @@ import {
 } from '@/components/story-embeds';
 import { StoryFilterBar } from '@/components/story-filter-bar';
 import { SegmentList } from '@/components/story-rendering';
-import { StoryChartEmbed as StaticChartEmbed } from '@/components/side-panel/story-chart-embed';
-import { StoryMapEmbed as StaticMapEmbed } from '@/components/side-panel/story-map-embed';
-import { StoryTableEmbed as StaticTableEmbed } from '@/components/side-panel/story-table-embed';
 import { StoryQuerySqlProvider } from '@/contexts/story-query-sql';
 import { useStoryFilters } from '@/hooks/use-story-filters';
+import { stabilizeStorySegments } from '@/lib/story-segment-stability';
 import { trpc } from '@/main';
 
 interface StoryPreviewProps {
@@ -27,6 +25,9 @@ interface StoryPreviewProps {
 	storySlug: string;
 	versionKey?: string | number;
 	filtersEnabled?: boolean;
+	isStreaming?: boolean;
+	isDataPending?: boolean;
+	isViewingLatest?: boolean;
 }
 
 export const StoryPreview = memo(function StoryPreview({
@@ -38,8 +39,16 @@ export const StoryPreview = memo(function StoryPreview({
 	storySlug,
 	versionKey,
 	filtersEnabled = true,
+	isStreaming = false,
+	isDataPending = false,
+	isViewingLatest = true,
 }: StoryPreviewProps) {
-	const segments = useMemo(() => splitCodeIntoSegments(code), [code]);
+	const previousSegmentsRef = useRef<ReturnType<typeof splitCodeIntoSegments>>([]);
+	const segments = useMemo(() => {
+		const nextSegments = stabilizeStorySegments(splitCodeIntoSegments(code), previousSegmentsRef.current);
+		previousSegmentsRef.current = nextSegments;
+		return nextSegments;
+	}, [code]);
 	const isNoCacheMode = cacheSchedule === NO_CACHE_SCHEDULE;
 	const filterApi = useMemo(() => ({ kind: 'owned' as const, chatId, storySlug }), [chatId, storySlug]);
 	const storyFilters = useStoryFilters({
@@ -56,64 +65,79 @@ export const StoryPreview = memo(function StoryPreview({
 
 	const effectiveQueryData = storyFilters.queryData;
 
-	const useLiveUnfiltered = isNoCacheMode && !storyFilters.hasActiveFilters;
+	const useLiveUnfiltered = isViewingLatest && isNoCacheMode && !storyFilters.hasActiveFilters;
 	const querySqlSource = useMemo(
 		() => (storyFilters.filtersEnabled ? { api: filterApi, selections: storyFilters.debouncedSelections } : null),
 		[filterApi, storyFilters.filtersEnabled, storyFilters.debouncedSelections],
 	);
 
 	const renderChart = useCallback(
-		(chart: ParsedChartBlock) => {
-			if (!effectiveQueryData && !useLiveUnfiltered) {
-				return <StaticChartEmbed chart={chart} />;
-			}
-			return (
-				<LiveChartEmbed
-					chart={chart}
-					queryData={useLiveUnfiltered ? undefined : effectiveQueryData}
-					liveQuery={useLiveUnfiltered ? noCacheQuery : undefined}
-					hasActiveFilters={storyFilters.hasActiveFilters}
-					isRefreshing={storyFilters.isFiltering}
-				/>
-			);
-		},
-		[effectiveQueryData, useLiveUnfiltered, noCacheQuery, storyFilters.hasActiveFilters, storyFilters.isFiltering],
+		(chart: ParsedChartBlock) => (
+			<LiveChartEmbed
+				chart={chart}
+				queryData={useLiveUnfiltered ? undefined : effectiveQueryData}
+				liveQuery={useLiveUnfiltered ? noCacheQuery : undefined}
+				hasActiveFilters={storyFilters.hasActiveFilters}
+				isRefreshing={storyFilters.isFiltering}
+				isStreaming={isStreaming}
+				isDataPending={isDataPending}
+			/>
+		),
+		[
+			effectiveQueryData,
+			useLiveUnfiltered,
+			noCacheQuery,
+			storyFilters.hasActiveFilters,
+			storyFilters.isFiltering,
+			isStreaming,
+			isDataPending,
+		],
 	);
 
 	const renderTable = useCallback(
-		(table: ParsedTableBlock) => {
-			if (!effectiveQueryData && !useLiveUnfiltered) {
-				return <StaticTableEmbed table={table} />;
-			}
-			return (
-				<LiveTableEmbed
-					table={table}
-					queryData={useLiveUnfiltered ? undefined : effectiveQueryData}
-					liveQuery={useLiveUnfiltered ? noCacheQuery : undefined}
-					hasActiveFilters={storyFilters.hasActiveFilters}
-					isRefreshing={storyFilters.isFiltering}
-				/>
-			);
-		},
-		[effectiveQueryData, useLiveUnfiltered, noCacheQuery, storyFilters.hasActiveFilters, storyFilters.isFiltering],
+		(table: ParsedTableBlock) => (
+			<LiveTableEmbed
+				table={table}
+				queryData={useLiveUnfiltered ? undefined : effectiveQueryData}
+				liveQuery={useLiveUnfiltered ? noCacheQuery : undefined}
+				hasActiveFilters={storyFilters.hasActiveFilters}
+				isRefreshing={storyFilters.isFiltering}
+				isStreaming={isStreaming}
+				isDataPending={isDataPending}
+			/>
+		),
+		[
+			effectiveQueryData,
+			useLiveUnfiltered,
+			noCacheQuery,
+			storyFilters.hasActiveFilters,
+			storyFilters.isFiltering,
+			isStreaming,
+			isDataPending,
+		],
 	);
 
 	const renderMap = useCallback(
-		(map: ParsedMapBlock) => {
-			if (!effectiveQueryData && !useLiveUnfiltered) {
-				return <StaticMapEmbed map={map} />;
-			}
-			return (
-				<LiveMapEmbed
-					map={map}
-					queryData={useLiveUnfiltered ? undefined : effectiveQueryData}
-					liveQuery={useLiveUnfiltered ? noCacheQuery : undefined}
-					hasActiveFilters={storyFilters.hasActiveFilters}
-					isRefreshing={storyFilters.isFiltering}
-				/>
-			);
-		},
-		[effectiveQueryData, useLiveUnfiltered, noCacheQuery, storyFilters.hasActiveFilters, storyFilters.isFiltering],
+		(map: ParsedMapBlock) => (
+			<LiveMapEmbed
+				map={map}
+				queryData={useLiveUnfiltered ? undefined : effectiveQueryData}
+				liveQuery={useLiveUnfiltered ? noCacheQuery : undefined}
+				hasActiveFilters={storyFilters.hasActiveFilters}
+				isRefreshing={storyFilters.isFiltering}
+				isStreaming={isStreaming}
+				isDataPending={isDataPending}
+			/>
+		),
+		[
+			effectiveQueryData,
+			useLiveUnfiltered,
+			noCacheQuery,
+			storyFilters.hasActiveFilters,
+			storyFilters.isFiltering,
+			isStreaming,
+			isDataPending,
+		],
 	);
 
 	return (
