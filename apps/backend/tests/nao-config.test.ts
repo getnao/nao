@@ -4,7 +4,12 @@ import path from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { extractConfiguredRepos, extractConfiguredTemplates, extractContextPresence } from '../src/utils/nao-config';
+import {
+	extractConfiguredRepos,
+	extractConfiguredTemplates,
+	extractContextPresence,
+	readProjectContext,
+} from '../src/utils/nao-config';
 
 vi.mock('../src/utils/logger', () => ({
 	logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -129,7 +134,35 @@ describe('extractConfiguredTemplates', () => {
 				].join('\n'),
 			);
 
-			expect(extractConfiguredTemplates(dir)).toEqual(['columns', 'preview', 'query_history']);
+			expect(extractConfiguredTemplates(dir)).toEqual(['columns', 'preview']);
+		} finally {
+			fs.rmSync(dir, { force: true, recursive: true });
+		}
+	});
+
+	it('uses the default templates when templates is empty', () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-config-'));
+		try {
+			fs.writeFileSync(
+				path.join(dir, 'nao_config.yaml'),
+				['databases:', '  - type: duckdb', '    name: demo', '    templates: []'].join('\n'),
+			);
+
+			expect(extractConfiguredTemplates(dir)).toEqual(['columns', 'preview']);
+		} finally {
+			fs.rmSync(dir, { force: true, recursive: true });
+		}
+	});
+
+	it('uses the default templates when migration removes every template', () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-config-'));
+		try {
+			fs.writeFileSync(
+				path.join(dir, 'nao_config.yaml'),
+				['databases:', '  - type: duckdb', '    name: demo', '    templates: [description]'].join('\n'),
+			);
+
+			expect(extractConfiguredTemplates(dir)).toEqual(['columns', 'preview']);
 		} finally {
 			fs.rmSync(dir, { force: true, recursive: true });
 		}
@@ -190,13 +223,27 @@ describe('extractConfiguredTemplates', () => {
 		}
 	});
 
-	it('returns an empty list for missing or invalid config', () => {
+	it('uses the default templates for missing or invalid config', () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-config-'));
 		try {
-			expect(extractConfiguredTemplates(dir)).toEqual([]);
+			expect(extractConfiguredTemplates(dir)).toEqual(['columns', 'preview']);
 
 			fs.writeFileSync(path.join(dir, 'nao_config.yaml'), 'databases: [');
-			expect(extractConfiguredTemplates(dir)).toEqual([]);
+			expect(extractConfiguredTemplates(dir)).toEqual(['columns', 'preview']);
+		} finally {
+			fs.rmSync(dir, { force: true, recursive: true });
+		}
+	});
+
+	it('uses the default templates for malformed database templates', () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-config-'));
+		try {
+			fs.writeFileSync(
+				path.join(dir, 'nao_config.yaml'),
+				['databases:', '  - type: duckdb', '    name: demo', '    templates: 5'].join('\n'),
+			);
+
+			expect(extractConfiguredTemplates(dir)).toEqual(['columns', 'preview']);
 		} finally {
 			fs.rmSync(dir, { force: true, recursive: true });
 		}
@@ -225,6 +272,7 @@ describe('extractContextPresence', () => {
 			for (const folder of ['semantics', 'docs', 'databases']) {
 				fs.mkdirSync(path.join(dir, folder));
 			}
+			fs.mkdirSync(path.join(dir, 'docs', 'notion'));
 
 			expect(extractContextPresence(dir)).toEqual({
 				rules: false,
@@ -244,9 +292,8 @@ describe('extractContextPresence', () => {
 			fs.writeFileSync(path.join(dir, 'RULES.md'), '# Rules');
 			for (const [folder, file] of [
 				['semantics', 'metrics.md'],
-				['docs', 'overview.md'],
 				['docs/notion', 'workspace.md'],
-				['databases', 'context.md'],
+				['databases/type=duckdb', 'context.md'],
 			]) {
 				const folderPath = path.join(dir, folder);
 				fs.mkdirSync(folderPath, { recursive: true });
@@ -259,6 +306,56 @@ describe('extractContextPresence', () => {
 				docs: true,
 				notionDocs: true,
 				databases: true,
+			});
+		} finally {
+			fs.rmSync(dir, { force: true, recursive: true });
+		}
+	});
+});
+
+describe('readProjectContext', () => {
+	it('returns the same project context as the individual extractors', () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-config-'));
+		try {
+			fs.writeFileSync(
+				path.join(dir, 'nao_config.yaml'),
+				[
+					'databases:',
+					'  - type: duckdb',
+					'    name: demo',
+					'    templates: [columns, profiling]',
+					'repos:',
+					'  - name: dbt',
+					'    url: https://github.com/nao/dbt-models.git',
+				].join('\n'),
+			);
+			fs.writeFileSync(path.join(dir, 'RULES.md'), '# Rules');
+			fs.mkdirSync(path.join(dir, 'docs'));
+			fs.writeFileSync(path.join(dir, 'docs', 'overview.md'), '# Overview');
+
+			expect(readProjectContext(dir)).toEqual({
+				repos: extractConfiguredRepos(dir),
+				templates: extractConfiguredTemplates(dir),
+				presence: extractContextPresence(dir),
+			});
+		} finally {
+			fs.rmSync(dir, { force: true, recursive: true });
+		}
+	});
+
+	it('returns defaults and absent presence when config is missing', () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-config-'));
+		try {
+			expect(readProjectContext(dir)).toEqual({
+				repos: [],
+				templates: ['columns', 'preview'],
+				presence: {
+					rules: false,
+					semantics: false,
+					docs: false,
+					notionDocs: false,
+					databases: false,
+				},
 			});
 		} finally {
 			fs.rmSync(dir, { force: true, recursive: true });

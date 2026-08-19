@@ -10,7 +10,7 @@ import { logger } from './logger';
 
 const ENV_PATTERN = /\$?\{\{\s*env\(['"]([^'"]+)['"]\)\s*\}\}/g;
 const DATABASE_TEMPLATES = ['columns', 'preview', 'profiling', 'query_history', 'ai_summary'] as const;
-const DEFAULT_DATABASE_TEMPLATES = ['columns', 'query_history', 'preview'] as const;
+const DEFAULT_DATABASE_TEMPLATES = ['columns', 'preview'] as const;
 
 export type ContextPresence = {
 	rules: boolean;
@@ -37,12 +37,39 @@ export function extractRequiredEnvVars(projectFolder: string): string[] {
 }
 
 export function extractConfiguredRepos(projectFolder: string): LinkedContextRepo[] {
-	const configPath = path.join(projectFolder, 'nao_config.yaml');
-	if (!fs.existsSync(configPath)) {
-		return [];
-	}
+	return configuredReposFrom(loadProjectConfig(projectFolder));
+}
 
-	const config = loadConfig(configPath);
+/** Returns configured database templates, falling back to the default when unavailable. */
+export function extractConfiguredTemplates(projectFolder: string): string[] {
+	return configuredTemplatesFrom(loadProjectConfig(projectFolder));
+}
+
+export function readProjectContext(projectFolder: string): {
+	repos: LinkedContextRepo[];
+	templates: string[];
+	presence: ContextPresence;
+} {
+	const config = loadProjectConfig(projectFolder);
+	return {
+		repos: configuredReposFrom(config),
+		templates: configuredTemplatesFrom(config),
+		presence: extractContextPresence(projectFolder),
+	};
+}
+
+/** Returns which filesystem-backed project context is available to read. */
+export function extractContextPresence(projectFolder: string): ContextPresence {
+	return {
+		rules: fs.existsSync(path.join(projectFolder, 'RULES.md')),
+		semantics: hasDirectoryContent(path.join(projectFolder, 'semantics')),
+		docs: hasDirectoryContent(path.join(projectFolder, 'docs')),
+		notionDocs: hasDirectoryContent(path.join(projectFolder, 'docs', 'notion')),
+		databases: hasDirectoryContent(path.join(projectFolder, 'databases')),
+	};
+}
+
+function configuredReposFrom(config: unknown): LinkedContextRepo[] {
 	if (!isRecord(config) || !Array.isArray(config.repos)) {
 		return [];
 	}
@@ -72,16 +99,9 @@ export function extractConfiguredRepos(projectFolder: string): LinkedContextRepo
 	});
 }
 
-/** Returns the database templates enabled across all configured databases. */
-export function extractConfiguredTemplates(projectFolder: string): string[] {
-	const configPath = path.join(projectFolder, 'nao_config.yaml');
-	if (!fs.existsSync(configPath)) {
-		return [];
-	}
-
-	const config = loadConfig(configPath);
+function configuredTemplatesFrom(config: unknown): string[] {
 	if (!isRecord(config) || !Array.isArray(config.databases)) {
-		return [];
+		return [...DEFAULT_DATABASE_TEMPLATES];
 	}
 
 	const configuredTemplates = new Set<string>();
@@ -91,26 +111,29 @@ export function extractConfiguredTemplates(projectFolder: string): string[] {
 		}
 
 		const templates = getDatabaseTemplates(database);
-		for (const template of templates) {
-			const normalizedTemplate = template === 'how_to_use' ? 'query_history' : template;
-			if (normalizedTemplate !== 'description') {
-				configuredTemplates.add(normalizedTemplate);
-			}
+		if (templates === null) {
+			continue;
+		}
+		const migratedTemplates = [
+			...new Set(
+				templates
+					.filter((template) => template !== 'description')
+					.map((template) => (template === 'how_to_use' ? 'query_history' : template)),
+			),
+		];
+		const resolvedTemplates = migratedTemplates.length > 0 ? migratedTemplates : DEFAULT_DATABASE_TEMPLATES;
+		for (const template of resolvedTemplates) {
+			configuredTemplates.add(template);
 		}
 	}
 
-	return DATABASE_TEMPLATES.filter((template) => configuredTemplates.has(template));
+	const resolvedTemplates = DATABASE_TEMPLATES.filter((template) => configuredTemplates.has(template));
+	return resolvedTemplates.length > 0 ? resolvedTemplates : [...DEFAULT_DATABASE_TEMPLATES];
 }
 
-/** Returns which filesystem-backed project context is available to read. */
-export function extractContextPresence(projectFolder: string): ContextPresence {
-	return {
-		rules: fs.existsSync(path.join(projectFolder, 'RULES.md')),
-		semantics: hasDirectoryContent(path.join(projectFolder, 'semantics')),
-		docs: hasDirectoryContent(path.join(projectFolder, 'docs')),
-		notionDocs: hasDirectoryContent(path.join(projectFolder, 'docs', 'notion')),
-		databases: hasDirectoryContent(path.join(projectFolder, 'databases')),
-	};
+function loadProjectConfig(projectFolder: string): unknown {
+	const configPath = path.join(projectFolder, 'nao_config.yaml');
+	return fs.existsSync(configPath) ? loadConfig(configPath) : null;
 }
 
 function hasDirectoryContent(directoryPath: string): boolean {
@@ -118,21 +141,28 @@ function hasDirectoryContent(directoryPath: string): boolean {
 		return false;
 	}
 	try {
-		return fs.readdirSync(directoryPath).length > 0;
+		return fs.readdirSync(directoryPath, { withFileTypes: true }).some((entry) => {
+			if (entry.isFile()) {
+				return true;
+			}
+			return entry.isDirectory() && hasDirectoryContent(path.join(directoryPath, entry.name));
+		});
 	} catch {
 		return false;
 	}
 }
 
-function getDatabaseTemplates(database: Record<string, unknown>): string[] {
+function getDatabaseTemplates(database: Record<string, unknown>): string[] | null {
 	if (!('templates' in database) && !('accessors' in database)) {
 		return [...DEFAULT_DATABASE_TEMPLATES];
 	}
 
 	const templates = 'templates' in database ? database.templates : database.accessors;
-	return Array.isArray(templates)
-		? templates.filter((template): template is string => typeof template === 'string')
-		: [];
+	if (!Array.isArray(templates)) {
+		return null;
+	}
+	const stringTemplates = templates.filter((template): template is string => typeof template === 'string');
+	return templates.length === 0 || stringTemplates.length > 0 ? stringTemplates : null;
 }
 
 function loadConfig(configPath: string): unknown {

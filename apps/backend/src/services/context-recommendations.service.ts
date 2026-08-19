@@ -15,7 +15,7 @@ import * as projectQueries from '../queries/project.queries';
 import { DEFAULT_MAX_AUTO_PRS_PER_RUN, RecommendationInsight } from '../types/context-recommendation';
 import { resolveDefaultModelSelection } from '../utils/llm';
 import { logger } from '../utils/logger';
-import { extractConfiguredRepos } from '../utils/nao-config';
+import { readProjectContext } from '../utils/nao-config';
 import { agentService } from './agent';
 import { autoCreateRecommendationPullRequests, resolveRecommendationRepo } from './context-pr.service';
 import { ensureFeedbackCoverage, normalizeFeedbackLinks } from './context-recommendations.feedback-coverage';
@@ -59,7 +59,10 @@ export async function runContextRecommendations(
 
 	try {
 		const project = await projectQueries.getProjectById(projectId);
-		const linkedRepos = project?.path ? extractConfiguredRepos(project.path) : [];
+		const projectContext = project?.path ? readProjectContext(project.path) : undefined;
+		const linkedRepos = projectContext?.repos ?? [];
+		const templates = projectContext?.templates;
+		const contextPresence = projectContext?.presence;
 		const contextRepo = await resolveRecommendationRepo(projectId);
 		const proposeFixes = !!project?.path && (!!contextRepo || linkedRepos.some((repo) => repo.repoFullName));
 		const fixCollector = proposeFixes
@@ -84,6 +87,7 @@ export async function runContextRecommendations(
 					fileReadCosts,
 					proposeFixes,
 					linkedRepos,
+					templates,
 					contextRepoConnected: !!contextRepo,
 				}),
 				source: 'contextRecommendations',
@@ -103,6 +107,8 @@ export async function runContextRecommendations(
 			systemPrompt: renderContextRecommendationsSystemPrompt({
 				proposeFixes,
 				linkedRepos,
+				templates,
+				contextPresence,
 				contextRepoConnected: !!contextRepo,
 				customInstructions: config?.customSystemPromptInstructions ?? undefined,
 			}),

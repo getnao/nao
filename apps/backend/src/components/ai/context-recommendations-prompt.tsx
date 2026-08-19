@@ -16,6 +16,7 @@ type ContextRecommendationsPromptProps = {
 	proposeFixes?: boolean;
 	linkedRepos?: LinkedContextRepo[];
 	contextRepoConnected?: boolean;
+	templates?: string[];
 };
 
 export function renderContextRecommendationsPrompt(props: ContextRecommendationsPromptProps): string {
@@ -30,7 +31,11 @@ function ContextRecommendationsPrompt({
 	proposeFixes = false,
 	linkedRepos = [],
 	contextRepoConnected = false,
+	templates,
 }: ContextRecommendationsPromptProps) {
+	const hasColumnsContext = templates === undefined || templates.includes('columns');
+	const hasProfilingContext = templates === undefined || templates.includes('profiling');
+
 	return (
 		<Block>
 			<Span>
@@ -42,8 +47,26 @@ function ContextRecommendationsPrompt({
 				<List ordered>
 					<ListItem>
 						Tool errors: v_messages where tool_state = &quot;output-error&quot; — cluster by the failing
-						table/column. Count how many tool calls failed per root cause. Cross-reference
-						databases/**/columns.md.
+						table/column. Count how many tool calls failed per root cause.
+						{hasColumnsContext && hasProfilingContext ? (
+							<>
+								{' '}
+								Cross-reference <Code>databases/**/columns.md</Code> for wrong-column failures and{' '}
+								<Code>databases/**/profiling.md</Code> (<Code>top_values</Code>) for wrong-value
+								failures.
+							</>
+						) : hasColumnsContext ? (
+							<>
+								{' '}
+								Cross-reference <Code>databases/**/columns.md</Code> for wrong-column failures.
+							</>
+						) : hasProfilingContext ? (
+							<>
+								{' '}
+								Cross-reference <Code>databases/**/profiling.md</Code> (<Code>top_values</Code>) for
+								wrong-value failures.
+							</>
+						) : null}
 					</ListItem>
 					<ListItem>
 						Source-code context: if a warehouse gap traces back to SQL, dbt, docs, or application code in{' '}

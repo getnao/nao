@@ -64,7 +64,7 @@ import {
 	resolveProviderSettings,
 } from '../utils/llm';
 import { logger } from '../utils/logger';
-import { extractConfiguredRepos, extractConfiguredTemplates, extractContextPresence } from '../utils/nao-config';
+import { readProjectContext } from '../utils/nao-config';
 import { addPromptCache } from '../utils/prompt-cache';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt, titleGenerationUserMessage } from '../utils/title';
@@ -600,9 +600,8 @@ class AgentManager {
 		const memories = await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
 		const userRules = getUserRules(this._toolContext.projectFolder);
 		const connections = getConnections(this._toolContext.projectFolder);
-		const templates = extractConfiguredTemplates(this._toolContext.projectFolder);
-		const repoNames = extractConfiguredRepos(this._toolContext.projectFolder).map((repo) => repo.name);
-		const contextPresence = extractContextPresence(this._toolContext.projectFolder);
+		const { repos, templates, presence: contextPresence } = readProjectContext(this._toolContext.projectFolder);
+		const repoNames = repos.map((repo) => repo.name);
 		const skills = skillService.getSkills(this.chat.projectId);
 		const customCharts = this._toolContext.supportsCustomCharts
 			? listChartPlugins(this._toolContext.projectFolder)

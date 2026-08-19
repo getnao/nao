@@ -5,6 +5,10 @@ import { SystemPrompt } from '../src/components/ai/system-prompt';
 import { renderToMarkdown } from '../src/lib/markdown';
 import { formatCurrentDate, resolveTimezone } from '../src/utils/date';
 
+function getTemplateLine(markdown: string, template: string): string {
+	return markdown.split('\n').find((line) => line.includes(`\`${template}.md\` —`)) ?? '';
+}
+
 describe('resolveTimezone', () => {
 	it('returns UTC when no timezone is provided', () => {
 		expect(resolveTimezone()).toBe('UTC');
@@ -144,6 +148,28 @@ describe('SystemPrompt context structure', () => {
 		expect(markdown).not.toContain('`profiling.md`');
 		expect(markdown).not.toContain('`query_history.md`');
 		expect(markdown).not.toContain('`ai_summary.md`');
+	});
+
+	it('references only visible source files from the ai_summary description', () => {
+		const bothVisible = getTemplateLine(
+			renderToMarkdown(SystemPrompt({ templates: ['ai_summary', 'columns', 'profiling'], internalSkills: [] })),
+			'ai_summary',
+		);
+		const columnsVisible = getTemplateLine(
+			renderToMarkdown(SystemPrompt({ templates: ['ai_summary', 'columns'], internalSkills: [] })),
+			'ai_summary',
+		);
+		const neitherVisible = getTemplateLine(
+			renderToMarkdown(SystemPrompt({ templates: ['ai_summary'], internalSkills: [] })),
+			'ai_summary',
+		);
+
+		expect(bothVisible).toContain('verify specifics against `columns.md` and `profiling.md`.');
+		expect(columnsVisible).toContain('verify specifics against `columns.md`.');
+		expect(columnsVisible).not.toContain('`profiling.md`');
+		expect(neitherVisible).not.toContain('`columns.md`');
+		expect(neitherVisible).not.toContain('`profiling.md`');
+		expect(neitherVisible).toContain('use for orientation, but do not treat it as ground truth.');
 	});
 
 	it('shows only context reported as present', () => {

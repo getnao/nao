@@ -15,6 +15,7 @@ export function NaoContextStructure({
 		templates && templates.length > 0
 			? TEMPLATE_DESCRIPTIONS.filter(({ name }) => templates.includes(name))
 			: TEMPLATE_DESCRIPTIONS;
+	const visibleTemplateNames = new Set(visibleTemplates.map(({ name }) => name));
 	const repoPaths = repoNames.map((name) => `repos/${name}/`).join(', ');
 	const isPresent = (context: keyof ContextPresence) => contextPresence?.[context] !== false;
 
@@ -70,7 +71,10 @@ export function NaoContextStructure({
 									</ListItem>,
 									...visibleTemplates.map(({ name, description }) => (
 										<ListItem key={name}>
-											<Code>{name}.md</Code> — {description}
+											<Code>{name}.md</Code> —{' '}
+											{typeof description === 'function'
+												? description(visibleTemplateNames)
+												: description}
 										</ListItem>
 									)),
 								]}
@@ -82,6 +86,32 @@ export function NaoContextStructure({
 		</Block>
 	);
 }
+
+function AiSummaryDescription({ visibleTemplateNames }: { visibleTemplateNames: ReadonlySet<string> }) {
+	const referencedTemplates = AI_SUMMARY_REFERENCE_TEMPLATES.filter((name) => visibleTemplateNames.has(name));
+
+	return (
+		<>
+			an LLM-written overview of the table, data-quality caveats, and suggested uses; use for orientation, but do
+			not treat it as ground truth
+			{referencedTemplates.length > 0 && (
+				<>
+					{' '}
+					— verify specifics against{' '}
+					{referencedTemplates.map((name, index) => (
+						<>
+							{index > 0 && ' and '}
+							<Code>{name}.md</Code>
+						</>
+					))}
+				</>
+			)}
+			.
+		</>
+	);
+}
+
+const AI_SUMMARY_REFERENCE_TEMPLATES = ['columns', 'profiling'] as const;
 
 const TEMPLATE_DESCRIPTIONS = [
 	{
@@ -106,11 +136,8 @@ const TEMPLATE_DESCRIPTIONS = [
 	},
 	{
 		name: 'ai_summary',
-		description: (
-			<>
-				an LLM-written overview of the table, data-quality caveats, and suggested uses; use for orientation, but
-				verify specifics against <Code>columns.md</Code> and <Code>profiling.md</Code>.
-			</>
+		description: (visibleTemplateNames: ReadonlySet<string>) => (
+			<AiSummaryDescription visibleTemplateNames={visibleTemplateNames} />
 		),
 	},
 ] as const;
