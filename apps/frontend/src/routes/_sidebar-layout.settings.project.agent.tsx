@@ -7,6 +7,9 @@ import { SettingsWebSearch } from '@/components/settings/web-search';
 import { usePermissions } from '@/hooks/use-permissions';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/agent')({
+	staticData: {
+		title: 'Agent',
+	},
 	component: ProjectAgentTabPage,
 });
 

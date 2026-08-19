@@ -6,6 +6,7 @@ import { USER_ROLES } from '@nao/shared/types';
 import type { UserRole } from '@nao/shared/types';
 
 import type { TeamMember } from '@/components/settings/team';
+import { BudgetSettings } from '@/components/settings/budget-settings';
 import {
 	TeamMembersList,
 	AddMemberDialog,
@@ -22,6 +23,9 @@ import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/team')({
+	staticData: {
+		title: 'Team',
+	},
 	component: ProjectTeamTabPage,
 });
 
@@ -128,6 +132,8 @@ function ProjectTeamTabPage() {
 					/>
 				)}
 			</SettingsCard>
+
+			<BudgetSettings />
 
 			<AddMemberDialog
 				open={isAddOpen}

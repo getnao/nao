@@ -5,12 +5,12 @@ export interface SettingsSearchEntry {
 	title: string;
 	description?: string;
 	keywords?: string[];
+	search?: Record<string, string>;
 	adminOnly?: boolean;
 	/** Visible to admins and context admins (observability surfaces). */
 	adminOrContextAdmin?: boolean;
 	cloudHidden?: boolean;
 	cloudOnly?: boolean;
-	licenseRequired?: boolean;
 }
 
 export const settingsSearchIndex: SettingsSearchEntry[] = [
@@ -72,35 +72,35 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	// ── Organization ─────────────────────────────────────────
 	{
 		page: '/settings/organization',
-		pageLabel: 'Organization',
+		pageLabel: 'Organization Settings',
 		title: 'Members',
 		description: 'Manage the members of your organization.',
 		keywords: ['users', 'invite', 'add member', 'roles', 'team'],
 	},
 	{
 		page: '/settings/organization',
-		pageLabel: 'Organization',
+		pageLabel: 'Organization Settings',
 		title: 'Projects',
 		description: 'See every project in your organization and the access you have to each one.',
 		keywords: ['project list', 'access'],
 	},
 	{
 		page: '/settings/organization',
-		pageLabel: 'Organization',
+		pageLabel: 'Organization Settings',
 		title: 'Import from GitHub',
 		description: 'Connect your GitHub account and import a repository as a project.',
 		keywords: ['github', 'repository', 'repo', 'import', 'git', 'integration', 'clone'],
 	},
 	{
 		page: '/settings/organization',
-		pageLabel: 'Organization',
+		pageLabel: 'Organization Settings',
 		title: 'Import from GitLab',
 		description: 'Connect your GitLab account and import a project as a nao project.',
 		keywords: ['gitlab', 'repository', 'repo', 'import', 'git', 'integration', 'clone', 'merge request'],
 	},
 	{
 		page: '/settings/organization',
-		pageLabel: 'Organization',
+		pageLabel: 'Organization Settings',
 		title: 'Sign-in domains',
 		description:
 			'Users who sign in with Google using one of these verified email domains automatically join this organization.',
@@ -109,7 +109,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/organization',
-		pageLabel: 'Organization',
+		pageLabel: 'Organization Settings',
 		title: 'Organization API Keys',
 		description: 'Generate organization-scoped API keys for actions like deploying a project from the nao CLI.',
 		keywords: ['api key', 'deploy key', 'token', 'credentials'],
@@ -118,14 +118,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	// ── Project > General ────────────────────────────────────
 	{
 		page: '/settings/project',
-		pageLabel: 'Project',
+		pageLabel: 'General',
 		title: 'Project Information',
 		description: 'View your project name and path.',
 		keywords: ['project name', 'project path'],
 	},
 	{
 		page: '/settings/project',
-		pageLabel: 'Project',
+		pageLabel: 'General',
 		title: 'Environment Variables',
 		description: 'Set environment variables referenced in nao_config.yaml.',
 		keywords: ['env', 'environment', 'variable', 'secret', 'credential', 'config', 'jinja'],
@@ -133,7 +133,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/project',
-		pageLabel: 'Project',
+		pageLabel: 'General',
 		title: 'Google Credentials',
 		description: 'Configure Google service account credentials for BigQuery and other Google services.',
 		keywords: ['google', 'bigquery', 'service account', 'gcp'],
@@ -141,7 +141,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/project',
-		pageLabel: 'Project',
+		pageLabel: 'General',
 		title: 'Date format',
 		description: 'Choose how dates are displayed in charts, tooltips and query result tables.',
 		keywords: [
@@ -313,10 +313,12 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['write', 'insert', 'update', 'delete', 'ddl', 'sql', 'permissions'],
 	},
 
-	// ── Project > MCP Servers ────────────────────────────────
+	// ── Project > MCP ────────────────────────────────────────
 	{
-		page: '/settings/project/mcp-servers',
-		pageLabel: 'MCP Servers',
+		page: '/settings/project/mcp',
+		pageLabel: 'MCP',
+		section: 'Servers',
+		search: { tab: 'servers' },
 		title: 'MCP Servers',
 		description:
 			'Configure MCP servers in agent/mcps/mcp.json. nao discovers their tools into OpenAPI specs the agent explores on demand.',
@@ -382,27 +384,31 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		adminOrContextAdmin: true,
 	},
 
-	// ── MCP Endpoint ────────────────────────────────────────
+	// ── Project > MCP Endpoint ──────────────────────────────
 	{
-		page: '/settings/mcp-endpoint',
-		pageLabel: 'MCP Endpoint',
+		page: '/settings/project/mcp',
+		pageLabel: 'MCP',
+		section: 'Endpoints',
+		search: { tab: 'endpoints' },
 		title: 'MCP Server Endpoint',
 		description: 'Allow external AI clients to connect to this workspace via MCP.',
 		keywords: ['model context protocol', 'claude desktop', 'cursor', 'external', 'api', 'bearer'],
 	},
 	{
-		page: '/settings/mcp-endpoint',
-		pageLabel: 'MCP Endpoint',
-		section: 'MCP Modes',
+		page: '/settings/project/mcp',
+		pageLabel: 'MCP',
+		section: 'Endpoints',
+		search: { tab: 'endpoints' },
 		title: 'Sub-agent mode',
 		description:
 			"Exposes ask_nao and get_nao_answer — delegates the full analytics task to nao's agent. The reasoning trace is saved as a chat in the nao UI.",
 		keywords: ['ask_nao', 'get_nao_answer', 'agent', 'analytics', 'delegate', 'sub-agent'],
 	},
 	{
-		page: '/settings/mcp-endpoint',
-		pageLabel: 'MCP Endpoint',
-		section: 'MCP Modes',
+		page: '/settings/project/mcp',
+		pageLabel: 'MCP',
+		section: 'Endpoints',
+		search: { tab: 'endpoints' },
 		title: 'Context-layer mode',
 		description:
 			'Exposes ls_nao_context, grep_nao_context, read_nao_context, execute_sql, create_story, update_story — the client MCP drives the workflow step by step.',
@@ -485,33 +491,37 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		cloudHidden: true,
 	},
 
-	// ── Project > Slack ──────────────────────────────────────
+	// ── Project > Integrations ───────────────────────────────
 	{
-		page: '/settings/project/slack',
-		pageLabel: 'Slack',
+		page: '/settings/project/integrations/slack',
+		pageLabel: 'Integrations',
+		section: 'Slack',
 		title: 'Slack Integration',
 		description: 'Configure Slack app credentials, webhook, and bot behavior.',
 		keywords: ['slack bot', 'slack app', 'slack webhook', 'messaging'],
 	},
 	{
-		page: '/settings/project/slack',
-		pageLabel: 'Slack',
+		page: '/settings/project/integrations/slack',
+		pageLabel: 'Integrations',
+		section: 'Slack',
 		title: 'Auto-create users from Slack',
 		description: 'Automatically provision nao accounts for Slack senders whose email domain is in the allowlist.',
 		keywords: ['sign up', 'provision', 'onboarding', 'domain', 'allowlist', 'whitelist', 'auto create'],
 		adminOnly: true,
 	},
 	{
-		page: '/settings/project/slack',
-		pageLabel: 'Slack',
+		page: '/settings/project/integrations/slack',
+		pageLabel: 'Integrations',
+		section: 'Slack',
 		title: 'Reply only when mentioned',
 		description:
 			'Control whether nao answers every message in active Slack threads or only messages that tag the bot.',
 		keywords: ['reply mode', 'mentions', 'tagged', 'thread replies', 'bot behavior'],
 	},
 	{
-		page: '/settings/project/slack',
-		pageLabel: 'Slack',
+		page: '/settings/project/integrations/slack',
+		pageLabel: 'Integrations',
+		section: 'Slack',
 		title: 'Slack transport mode',
 		description: 'Switch between Webhook and Socket Mode for Slack delivery.',
 		keywords: [
@@ -525,50 +535,50 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		],
 	},
 	{
-		page: '/settings/project/slack',
-		pageLabel: 'Slack',
+		page: '/settings/project/integrations/slack',
+		pageLabel: 'Integrations',
+		section: 'Slack',
 		title: '/new slash command',
 		description:
 			'Users can type /new in Slack to start a fresh chat in private conversation and clear the previous main context.',
 		keywords: ['slack new chat', 'slack reset', 'slack fresh session', 'slash command', '/new'],
 	},
-
-	// ── Project > Microsoft Teams ────────────────────────────
 	{
-		page: '/settings/project/teams',
-		pageLabel: 'Microsoft Teams',
+		page: '/settings/project/integrations/teams',
+		pageLabel: 'Integrations',
+		section: 'Microsoft Teams',
 		title: 'Microsoft Teams Integration',
 		description: 'Configure Teams app credentials, messaging endpoint, and bot behavior.',
 		keywords: ['teams bot', 'azure bot', 'teams app', 'messaging'],
 	},
-
-	// ── Project > Telegram ───────────────────────────────────
 	{
-		page: '/settings/project/telegram',
-		pageLabel: 'Telegram',
+		page: '/settings/project/integrations/telegram',
+		pageLabel: 'Integrations',
+		section: 'Telegram',
 		title: 'Telegram Integration',
 		description: 'Configure Telegram bot credentials, webhook, and bot behavior.',
 		keywords: ['telegram bot', 'telegram webhook', 'messaging'],
 	},
 	{
-		page: '/settings/project/telegram',
-		pageLabel: 'Telegram',
+		page: '/settings/project/integrations/telegram',
+		pageLabel: 'Integrations',
+		section: 'Telegram',
 		title: 'Linking Code',
 		description: 'Send /login <code> to the Telegram bot you want to link.',
 		keywords: ['link', 'login', 'telegram'],
 	},
-
-	// ── Project > WhatsApp ───────────────────────────────────
 	{
-		page: '/settings/project/whatsapp',
-		pageLabel: 'WhatsApp',
+		page: '/settings/project/integrations/whatsapp',
+		pageLabel: 'Integrations',
+		section: 'WhatsApp',
 		title: 'WhatsApp Integration',
 		description: 'Configure WhatsApp app credentials, webhook, and bot behavior.',
 		keywords: ['whatsapp bot', 'whatsapp webhook', 'messaging'],
 	},
 	{
-		page: '/settings/project/whatsapp',
-		pageLabel: 'WhatsApp',
+		page: '/settings/project/integrations/whatsapp',
+		pageLabel: 'Integrations',
+		section: 'WhatsApp',
 		title: 'Linking Code',
 		description: 'Send /login <code> from the WhatsApp number you want to link.',
 		keywords: ['link', 'login', 'phone number'],
@@ -582,11 +592,28 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		description: 'Manage the members of your project.',
 		keywords: ['users', 'invite', 'add member', 'roles', 'project members'],
 	},
+	{
+		page: '/settings/project/team',
+		pageLabel: 'Team',
+		section: 'Budgets',
+		title: 'Budgets',
+		description: 'Limit the budgets of your most expensive providers.',
+		keywords: ['budget', 'provider limit', 'spend', 'cost'],
+	},
+	{
+		page: '/settings/project/team',
+		pageLabel: 'Team',
+		section: 'Budgets',
+		title: 'Spend per user',
+		description: 'Review current-period spend for each project member.',
+		keywords: ['user budget', 'member spend', 'cost per user'],
+		adminOnly: true,
+	},
 
 	// ── Usage & Costs ────────────────────────────────────────
 	{
 		page: '/settings/usage',
-		pageLabel: 'Usage & Costs',
+		pageLabel: 'Usage, costs & replay',
 		title: 'Messages',
 		description: 'How many messages have been sent across all chats?',
 		keywords: ['usage', 'analytics', 'statistics'],
@@ -594,7 +621,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/usage',
-		pageLabel: 'Usage & Costs',
+		pageLabel: 'Usage, costs & replay',
 		title: 'Tokens',
 		description: 'Tokens used across all chats.',
 		keywords: ['token usage', 'input tokens', 'output tokens'],
@@ -602,7 +629,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/usage',
-		pageLabel: 'Usage & Costs',
+		pageLabel: 'Usage, costs & replay',
 		title: 'Cost',
 		description: 'Estimated cost in USD based on token usage and model pricing.',
 		keywords: ['price', 'billing', 'expense', 'spending'],
@@ -610,7 +637,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/usage',
-		pageLabel: 'Usage & Costs',
+		pageLabel: 'Usage, costs & replay',
 		title: 'Feedbacks',
 		description: 'Feedbacks users have given to the agent during their sessions.',
 		keywords: ['thumbs up', 'thumbs down', 'rating', 'review'],
@@ -620,7 +647,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	// ── Usage & Costs > Chats Replay ─────────────────────────
 	{
 		page: '/settings/usage',
-		pageLabel: 'Usage & Costs',
+		pageLabel: 'Chats replay',
 		title: 'Chats Replay',
 		description: 'Replay and review past chat conversations.',
 		keywords: ['history', 'conversation', 'replay', 'review'],
@@ -675,7 +702,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	// ── Logs ─────────────────────────────────────────────────
 	{
 		page: '/settings/logs',
-		pageLabel: 'Logs',
+		pageLabel: 'Server logs',
 		title: 'Logs',
 		description: 'Real-time backend logs with auto-refresh.',
 		keywords: ['error', 'warn', 'debug', 'info', 'terminal', 'console'],
@@ -686,29 +713,31 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	// ── Enterprise ───────────────────────────────────────────
 	{
 		page: '/settings/enterprise',
-		pageLabel: 'Enterprise',
+		pageLabel: 'License & branding',
+		section: 'License',
+		search: { tab: 'license' },
 		title: 'License',
 		description: 'View the status of your nao Enterprise license.',
 		keywords: ['enterprise', 'license', 'subscription', 'activation', 'sso', 'nao_license', 'ee'],
 		adminOnly: true,
 		cloudHidden: true,
-		licenseRequired: true,
 	},
 	{
 		page: '/settings/enterprise',
-		pageLabel: 'Enterprise',
-		section: 'Features',
+		pageLabel: 'License & branding',
+		section: 'License',
+		search: { tab: 'license' },
 		title: 'Enterprise features',
 		description: 'Enterprise capabilities enabled by your license.',
 		keywords: ['features', 'sso', 'enterprise', 'plan'],
 		adminOnly: true,
 		cloudHidden: true,
-		licenseRequired: true,
 	},
 	{
 		page: '/settings/enterprise',
-		pageLabel: 'Enterprise',
-		section: 'Single sign-on token',
+		pageLabel: 'License & branding',
+		section: 'License',
+		search: { tab: 'license' },
 		title: 'Single sign-on token',
 		description: 'Inspect the claims your identity provider sent and how they resolved to a role.',
 		keywords: [
@@ -727,11 +756,12 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		],
 		adminOnly: true,
 		cloudHidden: true,
-		licenseRequired: true,
 	},
 	{
-		page: '/settings/white-label',
-		pageLabel: 'White-label',
+		page: '/settings/enterprise',
+		pageLabel: 'License & branding',
+		section: 'Branding',
+		search: { tab: 'branding' },
 		title: 'White-label branding',
 		description: 'Replace the nao name, logo, favicon and brand color with your own branding. Enterprise feature.',
 		keywords: [
@@ -755,9 +785,10 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		cloudHidden: true,
 	},
 	{
-		page: '/settings/white-label',
-		pageLabel: 'White-label',
-		section: 'Brand color',
+		page: '/settings/enterprise',
+		pageLabel: 'License & branding',
+		section: 'Branding',
+		search: { tab: 'branding' },
 		title: 'Brand color',
 		description: 'Set a custom primary color for buttons, links and accents across the app.',
 		keywords: [
@@ -775,9 +806,10 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		cloudHidden: true,
 	},
 	{
-		page: '/settings/white-label',
-		pageLabel: 'White-label',
-		section: 'Logos & favicon',
+		page: '/settings/enterprise',
+		pageLabel: 'License & branding',
+		section: 'Branding',
+		search: { tab: 'branding' },
 		title: 'Logo',
 		description: 'Replace the logo shown in the sidebar and on the login and sign-up pages.',
 		keywords: ['logo', 'sidebar', 'login logo', 'signup logo', 'auth', 'brand', 'enterprise'],
@@ -785,9 +817,10 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		cloudHidden: true,
 	},
 	{
-		page: '/settings/white-label',
-		pageLabel: 'White-label',
-		section: 'Logos & favicon',
+		page: '/settings/enterprise',
+		pageLabel: 'License & branding',
+		section: 'Branding',
+		search: { tab: 'branding' },
 		title: 'Favicon',
 		description: 'Replace the favicon shown in the browser tab.',
 		keywords: ['favicon', 'icon', 'tab', 'enterprise'],
@@ -795,9 +828,10 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		cloudHidden: true,
 	},
 	{
-		page: '/settings/white-label',
-		pageLabel: 'White-label',
-		section: 'Names',
+		page: '/settings/enterprise',
+		pageLabel: 'License & branding',
+		section: 'Branding',
+		search: { tab: 'branding' },
 		title: 'Browser tab title',
 		description: 'Rename the browser tab shown to your users.',
 		keywords: ['tab title', 'page title', 'name', 'enterprise'],
@@ -805,7 +839,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		cloudHidden: true,
 	},
 
-	// ── Memory (user-level) ──────────────────────────────────
+	// ── Memory ───────────────────────────────────────────────
 	{
 		page: '/settings/memory',
 		pageLabel: 'Memory',

@@ -6,6 +6,9 @@ import { SettingsTranscribe } from '@/components/settings/settings-transcribe';
 import { usePermissions } from '@/hooks/use-permissions';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/models')({
+	staticData: {
+		title: 'Models',
+	},
 	component: ProjectModelsTabPage,
 });
 

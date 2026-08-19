@@ -1,19 +1,34 @@
 /* @license Enterprise */
 
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { CheckCircle2, CircleAlert, CircleX, Clock, Sparkles, TriangleAlert } from 'lucide-react';
 import type { LicenseStatus } from '@nao/backend/license-types';
+import type { TabBarItem } from '@/components/ui/tab-bar';
 
 import { SsoTokenInspector } from '@/components/settings/sso-token-inspector';
+import { WhiteLabelSettings } from '@/components/settings/white-label-settings';
 import { Badge } from '@/components/ui/badge';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
-import { requireAdminNonCloudWithLicense } from '@/lib/require-admin';
+import { TabBar, TabPanel } from '@/components/ui/tab-bar';
+import { requireAdminNonCloud } from '@/lib/require-admin';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
+type EnterpriseTab = 'license' | 'branding';
+
+const tabs: TabBarItem<EnterpriseTab>[] = [
+	{ id: 'license', label: 'License' },
+	{ id: 'branding', label: 'Branding' },
+];
+
+const tabIdBase = 'enterprise';
+
 export const Route = createFileRoute('/_sidebar-layout/settings/enterprise')({
-	beforeLoad: requireAdminNonCloudWithLicense,
+	beforeLoad: requireAdminNonCloud,
+	validateSearch: (search: Record<string, unknown>): { tab: EnterpriseTab } => ({
+		tab: isEnterpriseTab(search.tab) ? search.tab : 'license',
+	}),
 	component: EnterprisePage,
 });
 
@@ -22,6 +37,34 @@ const FEATURE_DESCRIPTIONS: Record<string, string> = {
 };
 
 function EnterprisePage() {
+	const { tab } = Route.useSearch();
+	const navigate = useNavigate({ from: Route.fullPath });
+
+	return (
+		<SettingsPageWrapper>
+			<div className='flex flex-col gap-6'>
+				<h1 className='text-lg font-semibold text-foreground'>License & branding</h1>
+				<TabBar
+					tabs={tabs}
+					activeTab={tab}
+					onTabChange={(nextTab) => {
+						navigate({
+							search: { tab: nextTab },
+							replace: true,
+						});
+					}}
+					idBase={tabIdBase}
+					className='border-b'
+				/>
+				<TabPanel idBase={tabIdBase} tabId={tab}>
+					{tab === 'license' ? <LicenseSettings /> : <WhiteLabelSettings />}
+				</TabPanel>
+			</div>
+		</SettingsPageWrapper>
+	);
+}
+
+function LicenseSettings() {
 	const license = useQuery(trpc.license.getStatus.queryOptions());
 	const status = license.data?.status;
 	const hasVerifiedLicense = status === 'active' || status === 'expired';
@@ -31,49 +74,31 @@ function EnterprisePage() {
 	});
 
 	if (license.isLoading) {
-		return (
-			<SettingsPageWrapper>
-				<div className='text-sm text-muted-foreground'>Loading license…</div>
-			</SettingsPageWrapper>
-		);
+		return <div className='text-sm text-muted-foreground'>Loading license…</div>;
 	}
 	if (license.isError || !license.data) {
-		return (
-			<SettingsPageWrapper>
-				<div className='text-sm text-destructive'>Failed to load license status.</div>
-			</SettingsPageWrapper>
-		);
+		return <div className='text-sm text-destructive'>Failed to load license status.</div>;
 	}
 
 	return (
-		<SettingsPageWrapper>
-			<div className='flex flex-col gap-5'>
-				<div>
-					<h1 className='text-lg font-semibold text-foreground'>Enterprise</h1>
-					<p className='text-sm text-muted-foreground'>
-						Offline-verified license for nao Enterprise. Verification runs at server startup against the
-						public key bundled in the build.
-					</p>
-				</div>
+		<div className='flex flex-col gap-5'>
+			<StatusCard status={license.data.status} />
 
-				<StatusCard status={license.data.status} />
+			{hasVerifiedLicense && details.data && (
+				<>
+					<LicenseDetailsCard
+						companyName={details.data.companyName}
+						subscriptionId={details.data.subscriptionId}
+						isOffline={details.data.isOffline}
+						expiresAt={details.data.expiresAt}
+						status={license.data.status}
+					/>
+					<FeaturesCard features={details.data.features} active={license.data.status === 'active'} />
+				</>
+			)}
 
-				{hasVerifiedLicense && details.data && (
-					<>
-						<LicenseDetailsCard
-							companyName={details.data.companyName}
-							subscriptionId={details.data.subscriptionId}
-							isOffline={details.data.isOffline}
-							expiresAt={details.data.expiresAt}
-							status={license.data.status}
-						/>
-						<FeaturesCard features={details.data.features} active={license.data.status === 'active'} />
-					</>
-				)}
-
-				<SsoTokenInspector />
-			</div>
-		</SettingsPageWrapper>
+			<SsoTokenInspector />
+		</div>
 	);
 }
 
@@ -242,4 +267,8 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 			<div className='text-sm text-foreground text-right'>{value}</div>
 		</div>
 	);
+}
+
+function isEnterpriseTab(value: unknown): value is EnterpriseTab {
+	return value === 'license' || value === 'branding';
 }

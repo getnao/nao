@@ -32,7 +32,7 @@ export function useSettingsSearch(query: string): SettingsSearchEntry[] {
 		}
 
 		const matches = fuse.search(query, { limit: 8 }).map((result) => result.item);
-		return dedupeByPage(matches);
+		return dedupeByDestination(matches);
 	}, [fuse, query]);
 }
 
@@ -51,10 +51,8 @@ export function useSettingsSuggestions(): SettingsSearchEntry[] {
 
 function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
-	const license = useQuery(trpc.license.getStatus.queryOptions());
 	const { isAdmin, isContextAdmin, isViewer } = usePermissions();
 	const isCloud = config.data?.naoMode === 'cloud';
-	const hasLicense = license.data?.tokenProvided === true;
 
 	return useMemo(
 		() =>
@@ -64,22 +62,22 @@ function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 						(!entry.adminOnly || isAdmin) &&
 						(!entry.adminOrContextAdmin || isAdmin || isContextAdmin) &&
 						(!entry.cloudHidden || !isCloud) &&
-						(!entry.cloudOnly || isCloud) &&
-						(!entry.licenseRequired || hasLicense),
+						(!entry.cloudOnly || isCloud),
 				)
 				.filter((entry) => !isViewer || viewerVisiblePages.includes(entry.page)),
-		[hasLicense, isAdmin, isCloud, isContextAdmin, isViewer],
+		[isAdmin, isCloud, isContextAdmin, isViewer],
 	);
 }
 
-function dedupeByPage(entries: SettingsSearchEntry[]): SettingsSearchEntry[] {
-	const seenPages = new Set<string>();
+function dedupeByDestination(entries: SettingsSearchEntry[]): SettingsSearchEntry[] {
+	const seenDestinations = new Set<string>();
 	return entries.filter((entry) => {
-		if (seenPages.has(entry.page)) {
+		const destination = `${entry.page}:${JSON.stringify(entry.search ?? {})}`;
+		if (seenDestinations.has(destination)) {
 			return false;
 		}
 
-		seenPages.add(entry.page);
+		seenDestinations.add(destination);
 		return true;
 	});
 }

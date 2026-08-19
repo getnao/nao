@@ -11,6 +11,9 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/')({
+	staticData: {
+		title: 'General',
+	},
 	component: ProjectTabPage,
 });
 

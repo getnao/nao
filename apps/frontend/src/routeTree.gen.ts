@@ -52,10 +52,14 @@ import { Route as SidebarLayoutSettingsProjectSlackRouteImport } from './routes/
 import { Route as SidebarLayoutSettingsProjectModelsRouteImport } from './routes/_sidebar-layout.settings.project.models'
 import { Route as SidebarLayoutSettingsProjectMcpServersRouteImport } from './routes/_sidebar-layout.settings.project.mcp-servers'
 import { Route as SidebarLayoutSettingsProjectMcpEndpointRouteImport } from './routes/_sidebar-layout.settings.project.mcp-endpoint'
+import { Route as SidebarLayoutSettingsProjectMcpRouteImport } from './routes/_sidebar-layout.settings.project.mcp'
+import { Route as SidebarLayoutSettingsProjectIntegrationsRouteImport } from './routes/_sidebar-layout.settings.project.integrations'
 import { Route as SidebarLayoutSettingsProjectBudgetsRouteImport } from './routes/_sidebar-layout.settings.project.budgets'
 import { Route as SidebarLayoutSettingsProjectAgentRouteImport } from './routes/_sidebar-layout.settings.project.agent'
+import { Route as SidebarLayoutSettingsProjectIntegrationsIndexRouteImport } from './routes/_sidebar-layout.settings.project.integrations.index'
 import { Route as SidebarLayoutStoriesPreviewChatIdStorySlugRouteImport } from './routes/_sidebar-layout.stories.preview.$chatId.$storySlug'
 import { Route as SidebarLayoutSettingsUsageReplayChatIdRouteImport } from './routes/_sidebar-layout.settings.usage.replay.$chatId'
+import { Route as SidebarLayoutSettingsProjectIntegrationsIntegrationIdRouteImport } from './routes/_sidebar-layout.settings.project.integrations.$integrationId'
 
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
@@ -300,6 +304,18 @@ const SidebarLayoutSettingsProjectMcpEndpointRoute =
     path: '/mcp-endpoint',
     getParentRoute: () => SidebarLayoutSettingsProjectRoute,
   } as any)
+const SidebarLayoutSettingsProjectMcpRoute =
+  SidebarLayoutSettingsProjectMcpRouteImport.update({
+    id: '/mcp',
+    path: '/mcp',
+    getParentRoute: () => SidebarLayoutSettingsProjectRoute,
+  } as any)
+const SidebarLayoutSettingsProjectIntegrationsRoute =
+  SidebarLayoutSettingsProjectIntegrationsRouteImport.update({
+    id: '/integrations',
+    path: '/integrations',
+    getParentRoute: () => SidebarLayoutSettingsProjectRoute,
+  } as any)
 const SidebarLayoutSettingsProjectBudgetsRoute =
   SidebarLayoutSettingsProjectBudgetsRouteImport.update({
     id: '/budgets',
@@ -312,6 +328,12 @@ const SidebarLayoutSettingsProjectAgentRoute =
     path: '/agent',
     getParentRoute: () => SidebarLayoutSettingsProjectRoute,
   } as any)
+const SidebarLayoutSettingsProjectIntegrationsIndexRoute =
+  SidebarLayoutSettingsProjectIntegrationsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => SidebarLayoutSettingsProjectIntegrationsRoute,
+  } as any)
 const SidebarLayoutStoriesPreviewChatIdStorySlugRoute =
   SidebarLayoutStoriesPreviewChatIdStorySlugRouteImport.update({
     id: '/stories/preview/$chatId/$storySlug',
@@ -323,6 +345,12 @@ const SidebarLayoutSettingsUsageReplayChatIdRoute =
     id: '/replay/$chatId',
     path: '/replay/$chatId',
     getParentRoute: () => SidebarLayoutSettingsUsageRoute,
+  } as any)
+const SidebarLayoutSettingsProjectIntegrationsIntegrationIdRoute =
+  SidebarLayoutSettingsProjectIntegrationsIntegrationIdRouteImport.update({
+    id: '/$integrationId',
+    path: '/$integrationId',
+    getParentRoute: () => SidebarLayoutSettingsProjectIntegrationsRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -358,6 +386,8 @@ export interface FileRoutesByFullPath {
   '/stories/': typeof SidebarLayoutStoriesIndexRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
   '/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
+  '/settings/project/integrations': typeof SidebarLayoutSettingsProjectIntegrationsRouteWithChildren
+  '/settings/project/mcp': typeof SidebarLayoutSettingsProjectMcpRoute
   '/settings/project/mcp-endpoint': typeof SidebarLayoutSettingsProjectMcpEndpointRoute
   '/settings/project/mcp-servers': typeof SidebarLayoutSettingsProjectMcpServersRoute
   '/settings/project/models': typeof SidebarLayoutSettingsProjectModelsRoute
@@ -369,8 +399,10 @@ export interface FileRoutesByFullPath {
   '/stories/shared/$shareId': typeof SidebarLayoutStoriesSharedShareIdRoute
   '/stories/standalone/$storyId': typeof SidebarLayoutStoriesStandaloneStoryIdRoute
   '/settings/project/': typeof SidebarLayoutSettingsProjectIndexRoute
+  '/settings/project/integrations/$integrationId': typeof SidebarLayoutSettingsProjectIntegrationsIntegrationIdRoute
   '/settings/usage/replay/$chatId': typeof SidebarLayoutSettingsUsageReplayChatIdRoute
   '/stories/preview/$chatId/$storySlug': typeof SidebarLayoutStoriesPreviewChatIdStorySlugRoute
+  '/settings/project/integrations/': typeof SidebarLayoutSettingsProjectIntegrationsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof SidebarLayoutChatLayoutIndexRoute
@@ -403,6 +435,7 @@ export interface FileRoutesByTo {
   '/stories': typeof SidebarLayoutStoriesIndexRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
   '/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
+  '/settings/project/mcp': typeof SidebarLayoutSettingsProjectMcpRoute
   '/settings/project/mcp-endpoint': typeof SidebarLayoutSettingsProjectMcpEndpointRoute
   '/settings/project/mcp-servers': typeof SidebarLayoutSettingsProjectMcpServersRoute
   '/settings/project/models': typeof SidebarLayoutSettingsProjectModelsRoute
@@ -414,8 +447,10 @@ export interface FileRoutesByTo {
   '/stories/shared/$shareId': typeof SidebarLayoutStoriesSharedShareIdRoute
   '/stories/standalone/$storyId': typeof SidebarLayoutStoriesStandaloneStoryIdRoute
   '/settings/project': typeof SidebarLayoutSettingsProjectIndexRoute
+  '/settings/project/integrations/$integrationId': typeof SidebarLayoutSettingsProjectIntegrationsIntegrationIdRoute
   '/settings/usage/replay/$chatId': typeof SidebarLayoutSettingsUsageReplayChatIdRoute
   '/stories/preview/$chatId/$storySlug': typeof SidebarLayoutStoriesPreviewChatIdStorySlugRoute
+  '/settings/project/integrations': typeof SidebarLayoutSettingsProjectIntegrationsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -453,6 +488,8 @@ export interface FileRoutesById {
   '/_sidebar-layout/stories/': typeof SidebarLayoutStoriesIndexRoute
   '/_sidebar-layout/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
   '/_sidebar-layout/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
+  '/_sidebar-layout/settings/project/integrations': typeof SidebarLayoutSettingsProjectIntegrationsRouteWithChildren
+  '/_sidebar-layout/settings/project/mcp': typeof SidebarLayoutSettingsProjectMcpRoute
   '/_sidebar-layout/settings/project/mcp-endpoint': typeof SidebarLayoutSettingsProjectMcpEndpointRoute
   '/_sidebar-layout/settings/project/mcp-servers': typeof SidebarLayoutSettingsProjectMcpServersRoute
   '/_sidebar-layout/settings/project/models': typeof SidebarLayoutSettingsProjectModelsRoute
@@ -464,8 +501,10 @@ export interface FileRoutesById {
   '/_sidebar-layout/stories/shared/$shareId': typeof SidebarLayoutStoriesSharedShareIdRoute
   '/_sidebar-layout/stories/standalone/$storyId': typeof SidebarLayoutStoriesStandaloneStoryIdRoute
   '/_sidebar-layout/settings/project/': typeof SidebarLayoutSettingsProjectIndexRoute
+  '/_sidebar-layout/settings/project/integrations/$integrationId': typeof SidebarLayoutSettingsProjectIntegrationsIntegrationIdRoute
   '/_sidebar-layout/settings/usage/replay/$chatId': typeof SidebarLayoutSettingsUsageReplayChatIdRoute
   '/_sidebar-layout/stories/preview/$chatId/$storySlug': typeof SidebarLayoutStoriesPreviewChatIdStorySlugRoute
+  '/_sidebar-layout/settings/project/integrations/': typeof SidebarLayoutSettingsProjectIntegrationsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -502,6 +541,8 @@ export interface FileRouteTypes {
     | '/stories/'
     | '/settings/project/agent'
     | '/settings/project/budgets'
+    | '/settings/project/integrations'
+    | '/settings/project/mcp'
     | '/settings/project/mcp-endpoint'
     | '/settings/project/mcp-servers'
     | '/settings/project/models'
@@ -513,8 +554,10 @@ export interface FileRouteTypes {
     | '/stories/shared/$shareId'
     | '/stories/standalone/$storyId'
     | '/settings/project/'
+    | '/settings/project/integrations/$integrationId'
     | '/settings/usage/replay/$chatId'
     | '/stories/preview/$chatId/$storySlug'
+    | '/settings/project/integrations/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -547,6 +590,7 @@ export interface FileRouteTypes {
     | '/stories'
     | '/settings/project/agent'
     | '/settings/project/budgets'
+    | '/settings/project/mcp'
     | '/settings/project/mcp-endpoint'
     | '/settings/project/mcp-servers'
     | '/settings/project/models'
@@ -558,8 +602,10 @@ export interface FileRouteTypes {
     | '/stories/shared/$shareId'
     | '/stories/standalone/$storyId'
     | '/settings/project'
+    | '/settings/project/integrations/$integrationId'
     | '/settings/usage/replay/$chatId'
     | '/stories/preview/$chatId/$storySlug'
+    | '/settings/project/integrations'
   id:
     | '__root__'
     | '/_sidebar-layout'
@@ -596,6 +642,8 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/stories/'
     | '/_sidebar-layout/settings/project/agent'
     | '/_sidebar-layout/settings/project/budgets'
+    | '/_sidebar-layout/settings/project/integrations'
+    | '/_sidebar-layout/settings/project/mcp'
     | '/_sidebar-layout/settings/project/mcp-endpoint'
     | '/_sidebar-layout/settings/project/mcp-servers'
     | '/_sidebar-layout/settings/project/models'
@@ -607,8 +655,10 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/stories/shared/$shareId'
     | '/_sidebar-layout/stories/standalone/$storyId'
     | '/_sidebar-layout/settings/project/'
+    | '/_sidebar-layout/settings/project/integrations/$integrationId'
     | '/_sidebar-layout/settings/usage/replay/$chatId'
     | '/_sidebar-layout/stories/preview/$chatId/$storySlug'
+    | '/_sidebar-layout/settings/project/integrations/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -924,6 +974,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutSettingsProjectMcpEndpointRouteImport
       parentRoute: typeof SidebarLayoutSettingsProjectRoute
     }
+    '/_sidebar-layout/settings/project/mcp': {
+      id: '/_sidebar-layout/settings/project/mcp'
+      path: '/mcp'
+      fullPath: '/settings/project/mcp'
+      preLoaderRoute: typeof SidebarLayoutSettingsProjectMcpRouteImport
+      parentRoute: typeof SidebarLayoutSettingsProjectRoute
+    }
+    '/_sidebar-layout/settings/project/integrations': {
+      id: '/_sidebar-layout/settings/project/integrations'
+      path: '/integrations'
+      fullPath: '/settings/project/integrations'
+      preLoaderRoute: typeof SidebarLayoutSettingsProjectIntegrationsRouteImport
+      parentRoute: typeof SidebarLayoutSettingsProjectRoute
+    }
     '/_sidebar-layout/settings/project/budgets': {
       id: '/_sidebar-layout/settings/project/budgets'
       path: '/budgets'
@@ -938,6 +1002,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutSettingsProjectAgentRouteImport
       parentRoute: typeof SidebarLayoutSettingsProjectRoute
     }
+    '/_sidebar-layout/settings/project/integrations/': {
+      id: '/_sidebar-layout/settings/project/integrations/'
+      path: '/'
+      fullPath: '/settings/project/integrations/'
+      preLoaderRoute: typeof SidebarLayoutSettingsProjectIntegrationsIndexRouteImport
+      parentRoute: typeof SidebarLayoutSettingsProjectIntegrationsRoute
+    }
     '/_sidebar-layout/stories/preview/$chatId/$storySlug': {
       id: '/_sidebar-layout/stories/preview/$chatId/$storySlug'
       path: '/stories/preview/$chatId/$storySlug'
@@ -951,6 +1022,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/usage/replay/$chatId'
       preLoaderRoute: typeof SidebarLayoutSettingsUsageReplayChatIdRouteImport
       parentRoute: typeof SidebarLayoutSettingsUsageRoute
+    }
+    '/_sidebar-layout/settings/project/integrations/$integrationId': {
+      id: '/_sidebar-layout/settings/project/integrations/$integrationId'
+      path: '/$integrationId'
+      fullPath: '/settings/project/integrations/$integrationId'
+      preLoaderRoute: typeof SidebarLayoutSettingsProjectIntegrationsIntegrationIdRouteImport
+      parentRoute: typeof SidebarLayoutSettingsProjectIntegrationsRoute
     }
   }
 }
@@ -971,9 +1049,29 @@ const SidebarLayoutChatLayoutRouteWithChildren =
     SidebarLayoutChatLayoutRouteChildren,
   )
 
+interface SidebarLayoutSettingsProjectIntegrationsRouteChildren {
+  SidebarLayoutSettingsProjectIntegrationsIntegrationIdRoute: typeof SidebarLayoutSettingsProjectIntegrationsIntegrationIdRoute
+  SidebarLayoutSettingsProjectIntegrationsIndexRoute: typeof SidebarLayoutSettingsProjectIntegrationsIndexRoute
+}
+
+const SidebarLayoutSettingsProjectIntegrationsRouteChildren: SidebarLayoutSettingsProjectIntegrationsRouteChildren =
+  {
+    SidebarLayoutSettingsProjectIntegrationsIntegrationIdRoute:
+      SidebarLayoutSettingsProjectIntegrationsIntegrationIdRoute,
+    SidebarLayoutSettingsProjectIntegrationsIndexRoute:
+      SidebarLayoutSettingsProjectIntegrationsIndexRoute,
+  }
+
+const SidebarLayoutSettingsProjectIntegrationsRouteWithChildren =
+  SidebarLayoutSettingsProjectIntegrationsRoute._addFileChildren(
+    SidebarLayoutSettingsProjectIntegrationsRouteChildren,
+  )
+
 interface SidebarLayoutSettingsProjectRouteChildren {
   SidebarLayoutSettingsProjectAgentRoute: typeof SidebarLayoutSettingsProjectAgentRoute
   SidebarLayoutSettingsProjectBudgetsRoute: typeof SidebarLayoutSettingsProjectBudgetsRoute
+  SidebarLayoutSettingsProjectIntegrationsRoute: typeof SidebarLayoutSettingsProjectIntegrationsRouteWithChildren
+  SidebarLayoutSettingsProjectMcpRoute: typeof SidebarLayoutSettingsProjectMcpRoute
   SidebarLayoutSettingsProjectMcpEndpointRoute: typeof SidebarLayoutSettingsProjectMcpEndpointRoute
   SidebarLayoutSettingsProjectMcpServersRoute: typeof SidebarLayoutSettingsProjectMcpServersRoute
   SidebarLayoutSettingsProjectModelsRoute: typeof SidebarLayoutSettingsProjectModelsRoute
@@ -991,6 +1089,9 @@ const SidebarLayoutSettingsProjectRouteChildren: SidebarLayoutSettingsProjectRou
       SidebarLayoutSettingsProjectAgentRoute,
     SidebarLayoutSettingsProjectBudgetsRoute:
       SidebarLayoutSettingsProjectBudgetsRoute,
+    SidebarLayoutSettingsProjectIntegrationsRoute:
+      SidebarLayoutSettingsProjectIntegrationsRouteWithChildren,
+    SidebarLayoutSettingsProjectMcpRoute: SidebarLayoutSettingsProjectMcpRoute,
     SidebarLayoutSettingsProjectMcpEndpointRoute:
       SidebarLayoutSettingsProjectMcpEndpointRoute,
     SidebarLayoutSettingsProjectMcpServersRoute:
