@@ -1,6 +1,9 @@
 import type { DateFormatSettings } from '@nao/shared/date';
 import type { DownloadFormat } from '@nao/shared/types';
 
+import * as projectQueries from '../queries/project.queries';
+import type { EmailAttachment } from '../types/email';
+import { logger } from './logger';
 import { generateStoryHtml } from './story-html';
 import { generateStoryPdf } from './story-pdf';
 
@@ -45,6 +48,22 @@ export async function buildDownloadResponse(
 		filename,
 		mimeType,
 	};
+}
+
+export async function buildStoryPdfAttachment(
+	title: string,
+	code: string,
+	queryData: QueryDataMap,
+	projectId: string,
+): Promise<EmailAttachment[]> {
+	try {
+		const displaySettings = await projectQueries.getDisplaySettings(projectId);
+		const file = await buildStoryDownloadFile('pdf', title, code, queryData, displaySettings?.dateFormat);
+		return [{ filename: file.filename, content: file.buffer, contentType: file.mimeType }];
+	} catch (error) {
+		logger.error(`Failed to build story PDF attachment: ${String(error)}`, { source: 'system', projectId });
+		return [];
+	}
 }
 
 async function generateStoryBuffer(

@@ -87,8 +87,20 @@ export type ActivityType = DBActivity['type'];
 export type ActivityStatus = DBActivity['status'];
 export type ActivityTrigger = DBActivity['trigger'];
 
+export type DBNotification = typeof sqliteSchema.notification.$inferSelect;
+export type NewNotification = typeof sqliteSchema.notification.$inferInsert;
+
+export type DBNotificationUnsubscribe = typeof sqliteSchema.notificationUnsubscribe.$inferSelect;
+export type NewNotificationUnsubscribe = typeof sqliteSchema.notificationUnsubscribe.$inferInsert;
+
+export type DBStoryDelivery = typeof sqliteSchema.storyDelivery.$inferSelect;
+export type NewStoryDelivery = typeof sqliteSchema.storyDelivery.$inferInsert;
+
 export type DBProjectProviderBudget = typeof sqliteSchema.projectProviderBudget.$inferSelect;
 export type NewProjectProviderBudget = typeof sqliteSchema.projectProviderBudget.$inferInsert;
+
+export type DBBudgetNotification = typeof sqliteSchema.budgetNotification.$inferSelect;
+export type NewBudgetNotification = typeof sqliteSchema.budgetNotification.$inferInsert;
 
 export type DBLlmInference = typeof sqliteSchema.llmInference.$inferSelect;
 export type NewLlmInference = typeof sqliteSchema.llmInference.$inferInsert;

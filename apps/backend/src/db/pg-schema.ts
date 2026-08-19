@@ -9,6 +9,7 @@ import type {
 	AnalyticsEventMetadata,
 	CitationData,
 	LlmProvider,
+	NotificationChannel,
 	RepoProvider,
 	UserPreferences,
 } from '@nao/shared/types';
@@ -18,6 +19,7 @@ import {
 	BUDGET_PERIODS,
 	FOLDER_SYSTEM_TYPE,
 	FOLDER_VISIBILITY,
+	NOTIFICATION_CATEGORIES,
 	SHARE_VISIBILITY,
 	USER_ROLES,
 } from '@nao/shared/types';
@@ -480,6 +482,26 @@ export const projectProviderBudget = pgTable(
 	],
 );
 
+export const budgetNotification = pgTable(
+	'budget_notification',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		provider: text('provider').$type<LlmProvider>().notNull(),
+		scope: text('scope').notNull(),
+		periodStart: timestamp('period_start').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [
+		index('budget_notification_projectId_idx').on(t.projectId),
+		unique('budget_notification_project_provider_scope_period').on(t.projectId, t.provider, t.scope, t.periodStart),
+	],
+);
+
 export const sharedChat = pgTable(
 	'shared_chat',
 	{
@@ -617,6 +639,7 @@ export const automationRun = pgTable(
 		startedAt: timestamp('started_at').defaultNow().notNull(),
 		completedAt: timestamp('completed_at'),
 		errorMessage: text('error_message'),
+		readAt: timestamp('read_at'),
 		integrationResults: jsonb('integration_results').$type<AutomationIntegrationResult[]>().notNull().default([]),
 	},
 	(t) => [
@@ -933,6 +956,76 @@ export const activity = pgTable(
 		index('activity_sharedChatId_idx').on(t.sharedChatId),
 		index('activity_startedAt_idx').on(t.startedAt),
 	],
+);
+
+export const notification = pgTable(
+	'notification',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		category: text('category', { enum: NOTIFICATION_CATEGORIES }).notNull(),
+		title: text('title').notNull(),
+		body: text('body'),
+		linkUrl: text('link_url'),
+		payload: jsonb('payload').$type<Record<string, unknown>>(),
+		readAt: timestamp('read_at'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [
+		index('notification_userId_idx').on(t.userId),
+		index('notification_user_read_idx').on(t.userId, t.readAt),
+		index('notification_user_project_read_idx').on(t.userId, t.projectId, t.readAt),
+		index('notification_createdAt_idx').on(t.createdAt),
+	],
+);
+
+export const notificationUnsubscribe = pgTable(
+	'notification_unsubscribe',
+	{
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		scope: text('scope').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.userId, t.scope] }), index('notification_unsubscribe_userId_idx').on(t.userId)],
+);
+
+export const storyDelivery = pgTable(
+	'story_delivery',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' })
+			.unique(),
+		projectId: text('project_id').references(() => project.id, { onDelete: 'cascade' }),
+		enabled: boolean('enabled').notNull().default(false),
+		cron: text('cron'),
+		scheduleDescription: text('schedule_description'),
+		channels: jsonb('channels').$type<NotificationChannel[]>().notNull(),
+		recipientMode: text('recipient_mode', { enum: ['all', 'specific'] })
+			.notNull()
+			.default('specific'),
+		recipientUserIds: jsonb('recipient_user_ids').$type<string[]>().notNull(),
+		scheduledJobId: text('scheduled_job_id').references(() => scheduledJob.id, { onDelete: 'set null' }),
+		createdBy: text('created_by').references(() => user.id, { onDelete: 'set null' }),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [index('story_delivery_storyId_idx').on(t.storyId)],
 );
 
 export const memories = pgTable(

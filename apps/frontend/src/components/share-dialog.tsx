@@ -192,7 +192,7 @@ export function ManageShareFooter({
 			</Button>
 			<div className='flex items-center gap-2'>
 				{hasChanges && (
-					<Button onClick={onSaveAccess} disabled={isBusy || !canSave} className='gap-1.5'>
+					<Button onClick={onSaveAccess} disabled={isBusy || !canSave} className='gap-1.5 rounded-full'>
 						{isUpdatePending ? (
 							<Loader2 className='size-3.5 animate-spin' />
 						) : (

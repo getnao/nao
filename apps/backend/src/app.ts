@@ -24,6 +24,7 @@ import {
 } from './handlers/context-recommendations.handler';
 import { LOG_CLEANUP_JOB_NAME, logCleanupHandler, runLogCleanup } from './handlers/log-cleanup.handler';
 import { MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler } from './handlers/mcp-query-data-cleanup.handler';
+import { STORY_DELIVERY_JOB_NAME, storyDeliveryHandler } from './handlers/story-delivery.handler';
 import { STORY_REFRESH_JOB_NAME, storyRefreshHandler } from './handlers/story-refresh.handler';
 import { flushTelemetry } from './instrumentation';
 import { mcpServerRoutes } from './mcp/routes';
@@ -43,6 +44,7 @@ import { gitlabRoutes } from './routes/gitlab';
 import { imageRoutes } from './routes/image';
 import { mapBoundariesRoutes } from './routes/map-boundaries';
 import { mcpOAuthRoutes } from './routes/mcp-oauth';
+import { notificationUnsubscribeRoutes } from './routes/notification-unsubscribe';
 import { slackRoutes } from './routes/slack';
 import { ssoRoutes } from './routes/sso';
 import { teamsRoutes } from './routes/teams';
@@ -197,6 +199,10 @@ app.register(authErrorRedirectRoutes, {
 
 app.register(embedStoryDownloadRoutes, {
 	prefix: '/api/embed',
+});
+
+app.register(notificationUnsubscribeRoutes, {
+	prefix: '/api/notifications',
 });
 
 app.register(authRoutes, {
@@ -365,6 +371,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 
 	registerJob(AUTOMATION_JOB_NAME, automationHandler);
 	registerJob(STORY_REFRESH_JOB_NAME, storyRefreshHandler);
+	registerJob(STORY_DELIVERY_JOB_NAME, storyDeliveryHandler);
 
 	registerJob(MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler);
 	await ensureRecurring({

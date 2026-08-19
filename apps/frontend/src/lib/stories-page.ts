@@ -198,7 +198,7 @@ export function buildStoryItems({
 				author: story.authorName,
 				kind: story.visibility === 'specific' ? 'shared-with-me' : ('shared-project' as const),
 				summary: story.summary,
-				isLive: false,
+				isLive: story.isLive,
 				isPinned: story.isPinned,
 				isFavorited,
 				sharing: story.sharing,

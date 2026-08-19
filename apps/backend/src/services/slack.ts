@@ -43,6 +43,7 @@ import {
 	createImageBlock,
 	createLiveToolCall,
 	createMapLinkCard,
+	createNotificationCard,
 	createStopButtonCard,
 	createSummaryToolCalls,
 	createTextBlock,
@@ -300,9 +301,71 @@ class ProjectSlackBot {
 		}
 	}
 
+	public async sendDirectMessageByEmail(
+		email: string,
+		text: string,
+		files: SlackFileUpload[] = [],
+		button?: { url: string; label: string },
+		unsubscribeUrl?: string,
+	): Promise<void> {
+		const userResponse = await this._slackClient.users.lookupByEmail({ email });
+		const userId = userResponse.user?.id;
+		if (!userId) {
+			return;
+		}
+
+		const buttons: { url: string; label: string }[] = [];
+		if (button) {
+			buttons.push(button);
+		}
+		if (unsubscribeUrl) {
+			buttons.push({ url: unsubscribeUrl, label: 'Unsubscribe' });
+		}
+
+		const thread = await this._openDirectMessageThread(userId);
+		const message = buttons.length > 0 ? createNotificationCard(text, buttons) : text;
+		const sent = await thread.post(message);
+
+		if (files.length > 0) {
+			const [, channelId] = thread.id.split(':');
+			for (const file of files) {
+				await this._slackClient.files.uploadV2({
+					channel_id: channelId,
+					thread_ts: sent.id,
+					filename: file.filename,
+					title: file.title ?? file.filename,
+					file: file.content,
+				});
+			}
+		}
+	}
+
+	private async _openDirectMessageThread(slackUserId: string): Promise<Thread> {
+		await this._bot.initialize();
+		const adapter = this._bot.getAdapter('slack');
+		if (!adapter.openDM) {
+			throw new Error('Slack adapter does not support direct messages.');
+		}
+		const threadId = await adapter.openDM(slackUserId);
+		return new ThreadImpl({
+			adapter,
+			stateAdapter: this._bot.getState(),
+			id: threadId,
+			channelId: deriveChannelId(adapter, threadId),
+			isDM: true,
+		});
+	}
+
 	private _registerHandlers(): void {
 		this._bot.onSlashCommand('/new', async (event) => {
 			await this._handleNewCommand(event);
+		});
+
+		this._bot.onAction(async (event) => {
+			logger.info(`Slack action received: ${event.actionId}`, {
+				source: 'system',
+				context: { projectId: this.projectId, actionId: event.actionId, threadId: event.threadId },
+			});
 		});
 
 		this._bot.onNewMention(async (thread, message) => {
@@ -1145,6 +1208,22 @@ class SlackService {
 		}
 		const bot = await this._getOrCreateBot(config);
 		await bot.uploadFiles(threadId, files);
+	}
+
+	public async sendDirectMessageByEmail(
+		projectId: string,
+		email: string,
+		text: string,
+		files: SlackFileUpload[] = [],
+		button?: { url: string; label: string },
+		unsubscribeUrl?: string,
+	): Promise<void> {
+		const config = await getProjectSlackConfig(projectId);
+		if (!config) {
+			return;
+		}
+		const bot = await this._getOrCreateBot(config);
+		await bot.sendDirectMessageByEmail(email, text, files, button, unsubscribeUrl);
 	}
 
 	public async getWebhooks(config: SlackConfig): Promise<SlackBotWebhooks | undefined> {

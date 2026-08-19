@@ -210,25 +210,34 @@ export const getProviderPeriodCostsByUser = async (
 	return result;
 };
 
-export const claimBudgetNotification = async (budget: DBProjectProviderBudget): Promise<boolean> => {
-	const notifiedCondition = budget.notifiedAt
-		? sql`${s.projectProviderBudget.notifiedAt} = ${budget.notifiedAt}`
-		: sql`${s.projectProviderBudget.notifiedAt} IS NULL`;
+export type BudgetNotificationKey = {
+	projectId: string;
+	provider: LlmProvider;
+	scope: string;
+	periodStart: Date;
+};
 
+export const claimBudgetNotification = async (key: BudgetNotificationKey): Promise<boolean> => {
 	const rows = await db
-		.update(s.projectProviderBudget)
-		.set({ notifiedAt: new Date() })
-		.where(and(eq(s.projectProviderBudget.id, budget.id), notifiedCondition))
-		.returning({ id: s.projectProviderBudget.id })
+		.insert(s.budgetNotification)
+		.values(key)
+		.onConflictDoNothing()
+		.returning({ id: s.budgetNotification.id })
 		.execute();
 
 	return rows.length > 0;
 };
 
-export const rollbackBudgetNotification = async (budget: DBProjectProviderBudget): Promise<void> => {
+export const releaseBudgetNotification = async (key: BudgetNotificationKey): Promise<void> => {
 	await db
-		.update(s.projectProviderBudget)
-		.set({ notifiedAt: budget.notifiedAt })
-		.where(eq(s.projectProviderBudget.id, budget.id))
+		.delete(s.budgetNotification)
+		.where(
+			and(
+				eq(s.budgetNotification.projectId, key.projectId),
+				eq(s.budgetNotification.provider, key.provider),
+				eq(s.budgetNotification.scope, key.scope),
+				eq(s.budgetNotification.periodStart, key.periodStart),
+			),
+		)
 		.execute();
 };

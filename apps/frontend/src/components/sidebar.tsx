@@ -36,6 +36,7 @@ import { invalidateStoriesCaches } from '@/lib/stories-cache';
 import { cn, hideIf } from '@/lib/utils';
 import { trpc } from '@/main';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useUnreadCount } from '@/queries/use-notifications';
 
 export function Sidebar() {
 	const navigate = useNavigate();
@@ -53,6 +54,7 @@ export function Sidebar() {
 	const { isAdmin, isContextAdmin, isViewer } = usePermissions();
 	const isCloud = config.data?.naoMode === 'cloud';
 	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
+	const unreadCount = useUnreadCount().data ?? 0;
 	const { groupBy, filters, setGroupBy, toggleFilter } = useChatViewPreferences();
 	const hasLicense = license.data?.tokenProvided === true;
 
@@ -164,42 +166,44 @@ export function Sidebar() {
 						)}
 					</button>
 
-					{isMobile ? (
-						<Button
-							variant='ghost'
-							size='icon-md'
-							onClick={closeMobile}
-							className='text-muted-foreground ml-auto z-10'
-						>
-							<X className='size-4' />
-						</Button>
-					) : (
-						<Tooltip open={toggleHintOpen} onOpenChange={setToggleHintOpen}>
-							<TooltipTrigger asChild>
-								<Button
-									variant='ghost'
-									size='icon-md'
-									onClick={() => toggleSidebar()}
-									className='text-muted-foreground ml-auto z-10'
-									aria-label='Toggle sidebar'
-								>
-									{effectiveIsCollapsed ? (
-										<ArrowRightToLine className='size-4' />
-									) : (
-										<ArrowLeftFromLine className='size-4' />
-									)}
-								</Button>
-							</TooltipTrigger>
-							<TooltipContent side='right'>
-								<span className='flex items-center gap-2'>
-									Toggle sidebar
-									<kbd className='text-[10px] opacity-60 font-sans'>
-										{getShortcutLabel('toggle-sidebar')}
-									</kbd>
-								</span>
-							</TooltipContent>
-						</Tooltip>
-					)}
+					<div className={cn('ml-auto z-10 flex items-center gap-1', effectiveIsCollapsed && 'flex-col')}>
+						{isMobile ? (
+							<Button
+								variant='ghost'
+								size='icon-md'
+								onClick={closeMobile}
+								className='text-muted-foreground'
+							>
+								<X className='size-4' />
+							</Button>
+						) : (
+							<Tooltip open={toggleHintOpen} onOpenChange={setToggleHintOpen}>
+								<TooltipTrigger asChild>
+									<Button
+										variant='ghost'
+										size='icon-md'
+										onClick={() => toggleSidebar()}
+										className='text-muted-foreground'
+										aria-label='Toggle sidebar'
+									>
+										{effectiveIsCollapsed ? (
+											<ArrowRightToLine className='size-4' />
+										) : (
+											<ArrowLeftFromLine className='size-4' />
+										)}
+									</Button>
+								</TooltipTrigger>
+								<TooltipContent side='right'>
+									<span className='flex items-center gap-2'>
+										Toggle sidebar
+										<kbd className='text-[10px] opacity-60 font-sans'>
+											{getShortcutLabel('toggle-sidebar')}
+										</kbd>
+									</span>
+								</TooltipContent>
+							</Tooltip>
+						)}
+					</div>
 				</div>
 				{!isInSettings && (
 					<>
@@ -227,15 +231,14 @@ export function Sidebar() {
 								isCollapsed={effectiveIsCollapsed}
 								onClick={handleNavigateStories}
 							/>
-							{!isViewer && betaAutomationsEnabled && (
-								<SidebarMenuButton
-									icon={NewspaperIcon as unknown as LucideIcon}
-									label='Feed'
-									shortcut=''
-									isCollapsed={effectiveIsCollapsed}
-									onClick={handleNavigateFeed}
-								/>
-							)}
+							<SidebarMenuButton
+								icon={NewspaperIcon as unknown as LucideIcon}
+								label='Feed'
+								shortcut=''
+								isCollapsed={effectiveIsCollapsed}
+								onClick={handleNavigateFeed}
+								indicator={unreadCount > 0}
+							/>
 						</div>
 					</>
 				)}
@@ -310,12 +313,14 @@ function SidebarMenuButton({
 	shortcut,
 	isCollapsed,
 	onClick,
+	indicator = false,
 }: {
 	icon: LucideIcon;
 	label: string;
 	shortcut: string;
 	isCollapsed: boolean;
 	onClick: () => void;
+	indicator?: boolean;
 }) {
 	return (
 		<Button
@@ -326,7 +331,15 @@ function SidebarMenuButton({
 			)}
 			onClick={onClick}
 		>
-			<Icon className='size-4' />
+			<span className='relative flex items-center'>
+				<Icon className='size-4' />
+				{indicator && (
+					<span
+						aria-hidden
+						className='absolute -right-1 -top-1 size-2 rounded-full bg-primary ring-2 ring-sidebar'
+					/>
+				)}
+			</span>
 			<div className={cn('flex items-center transition-[opacity,visibility] duration-300', hideIf(isCollapsed))}>
 				<span>{label}</span>
 				<kbd className='group-hover:opacity-100 opacity-0 absolute right-3 text-[10px] text-muted-foreground font-sans transition-opacity hidden md:inline'>

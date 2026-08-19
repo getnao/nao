@@ -51,6 +51,10 @@ export const countUsers = async (): Promise<number> => {
 	return result?.count ?? 0;
 };
 
+export const listAllUsers = async (): Promise<Array<{ id: string; name: string; email: string }>> => {
+	return db.select({ id: s.user.id, name: s.user.name, email: s.user.email }).from(s.user).execute();
+};
+
 export const getFirstUser = async (): Promise<User | null> => {
 	const [user] = await db.select().from(s.user).limit(1).execute();
 	return user ?? null;

@@ -139,6 +139,14 @@ export function buildSlackTableBlocks(text: string): ReturnType<typeof cardToBlo
 	return cardToBlockKit(Card({ children }));
 }
 
+export const createNotificationCard = (text: string, buttons: { url: string; label: string }[]): CardElement =>
+	Card({
+		children: [
+			...createTextBlocks(text),
+			Actions(buttons.map((button) => LinkButton({ url: button.url, label: button.label }))),
+		],
+	});
+
 export function formatSlackMessageText(text: string): string {
 	const sanitized = stripAssistantTags(text);
 	return mdToMrkdwn(sanitized) || sanitized;
