@@ -10,6 +10,7 @@ import dbConfig, { Dialect } from '../db/dbConfig';
 import { env, isCloud } from '../env';
 import type { ListProjectChatsResponse, ProjectChatsFacetKey, UserWithRole } from '../types/project';
 import { HandlerError } from '../utils/error';
+import { createCostLookup, TOTAL_COST_EXPR } from './usage.queries';
 
 export interface UserProjectWithRole {
 	project: DBProject;
@@ -468,6 +469,26 @@ export const listProjectChats = async (
 		)
 	`;
 
+	const cacheReadTokensExpr = sql<number>`
+		(
+			select coalesce(sum(${s.chatMessage.inputCacheReadTokens}), 0)
+			from ${s.chatMessage}
+			where ${s.chatMessage.chatId} = ${s.chat.id}
+				and ${s.chatMessage.supersededAt} is null
+		)
+	`;
+
+	const costLookup = await createCostLookup(projectId);
+	const totalCostExpr = sql<number>`
+		(
+			select coalesce(sum(${TOTAL_COST_EXPR}), 0)
+			from ${s.chatMessage}
+			left join ${costLookup.table} on ${costLookup.joinCondition}
+			where ${s.chatMessage.chatId} = ${s.chat.id}
+				and ${s.chatMessage.supersededAt} is null
+		)
+	`;
+
 	const downvotesExpr = feedbackExpr('down', sql<number>`count(*)`);
 	const upvotesExpr = feedbackExpr('up', sql<number>`count(*)`);
 	const feedbackTextExpr = feedbackExpr(
@@ -593,6 +614,7 @@ export const listProjectChats = async (
 		sorting,
 		numberOfMessagesExpr,
 		totalTokensExpr,
+		totalCostExpr,
 		downvotesExpr,
 		upvotesExpr,
 		toolErrorCountExpr,
@@ -612,6 +634,8 @@ export const listProjectChats = async (
 			source: sourceExpr.as('source'),
 			numberOfMessages: numberOfMessagesExpr.as('numberOfMessages'),
 			totalTokens: totalTokensExpr.as('totalTokens'),
+			cacheReadTokens: cacheReadTokensExpr.as('cacheReadTokens'),
+			totalCost: totalCostExpr.as('totalCost'),
 			feedbackText: feedbackTextExpr.as('feedbackText'),
 			downvotes: downvotesExpr.as('downvotes'),
 			upvotes: upvotesExpr.as('upvotes'),
@@ -653,6 +677,8 @@ export const listProjectChats = async (
 			source: row.source,
 			numberOfMessages: Number(row.numberOfMessages ?? 0),
 			totalTokens: Number(row.totalTokens ?? 0),
+			cacheReadTokens: Number(row.cacheReadTokens ?? 0),
+			totalCost: Number(row.totalCost ?? 0),
 			feedbackText: row.feedbackText ?? '',
 			downvotes: Number(row.downvotes ?? 0),
 			upvotes: Number(row.upvotes ?? 0),
@@ -685,6 +711,7 @@ function buildProjectChatsOrderBy(args: {
 	sorting: { id: string; desc?: boolean }[];
 	numberOfMessagesExpr: ReturnType<typeof sql<number>>;
 	totalTokensExpr: ReturnType<typeof sql<number>>;
+	totalCostExpr: ReturnType<typeof sql<number>>;
 	downvotesExpr: ReturnType<typeof sql<number>>;
 	upvotesExpr: ReturnType<typeof sql<number>>;
 	toolErrorCountExpr: ReturnType<typeof sql<number>>;
@@ -694,6 +721,7 @@ function buildProjectChatsOrderBy(args: {
 		sorting,
 		numberOfMessagesExpr,
 		totalTokensExpr,
+		totalCostExpr,
 		downvotesExpr,
 		upvotesExpr,
 		toolErrorCountExpr,
@@ -722,6 +750,9 @@ function buildProjectChatsOrderBy(args: {
 				break;
 			case 'totalTokens':
 				sorters.push(dir(totalTokensExpr));
+				break;
+			case 'totalCost':
+				sorters.push(dir(totalCostExpr));
 				break;
 			case 'feedback':
 				sorters.push(...buildTieredSort(dir, downvotesExpr, upvotesExpr));
