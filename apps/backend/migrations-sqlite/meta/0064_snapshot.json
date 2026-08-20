@@ -3904,13 +3904,6 @@
         }
       },
       "indexes": {
-        "notification_userId_idx": {
-          "name": "notification_userId_idx",
-          "columns": [
-            "user_id"
-          ],
-          "isUnique": false
-        },
         "notification_user_read_idx": {
           "name": "notification_user_read_idx",
           "columns": [

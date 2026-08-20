@@ -1232,7 +1232,8 @@ class SlackService {
 					await setSlackDmScopeMissing(projectId, true);
 				}
 				throw new Error(
-					'Slack bot token is missing a required scope for direct messages. Reinstall the Slack app to grant it.',
+					`Slack bot token is missing a required scope for direct messages. Reinstall the Slack app to grant it. (${describeSlackScopeError(error)})`,
+					{ cause: error },
 				);
 			}
 			throw error;
@@ -1340,6 +1341,18 @@ function isMissingScopeError(error: unknown): boolean {
 		return true;
 	}
 	return String((error as { message?: string })?.message ?? error).includes('missing_scope');
+}
+
+/** Extracts the useful detail from a Slack scope error (which scope is needed) for admin-facing logs. */
+function describeSlackScopeError(error: unknown): string {
+	const data = (error as { data?: { error?: string; needed?: string; provided?: string } })?.data;
+	if (data?.needed) {
+		return `missing scope: ${data.needed}`;
+	}
+	if (data?.error) {
+		return data.error;
+	}
+	return error instanceof Error ? error.message : String(error);
 }
 
 function parseSlackThreadTs(threadId: string): string | undefined {

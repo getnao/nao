@@ -163,6 +163,11 @@ export const reclaimStaleJobs = async (now: Date, leaseDurationMs: number): Prom
 	return result.length;
 };
 
+export const getJobById = async (id: string): Promise<DBScheduledJob | null> => {
+	const [row] = await db.select().from(s.scheduledJob).where(eq(s.scheduledJob.id, id)).limit(1).execute();
+	return row ?? null;
+};
+
 export const deleteJob = async (id: string): Promise<void> => {
 	await db.delete(s.scheduledJob).where(eq(s.scheduledJob.id, id)).execute();
 };

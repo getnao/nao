@@ -144,7 +144,12 @@ export const sharedChatRoutes = {
 			const previousAllowedUserIds = await sharedChatQueries.getShareAllowedUserIds(input.shareId);
 			await sharedChatQueries.updateSharedChatAllowedUsers(input.shareId, validUserIds);
 
-			const newlyAddedUserIds = validUserIds.filter((id) => !previousAllowedUserIds.includes(id));
+			// Re-read the committed ACL: a concurrent update could have won the last write,
+			// so only notify users who were newly added AND actually still have access.
+			const committedAllowedUserIds = new Set(await sharedChatQueries.getShareAllowedUserIds(input.shareId));
+			const newlyAddedUserIds = validUserIds.filter(
+				(id) => !previousAllowedUserIds.includes(id) && committedAllowedUserIds.has(id),
+			);
 			if (newlyAddedUserIds.length > 0) {
 				const ownerName = (await userQueries.getUserName(chatOwnerId)) ?? ctx.user.name;
 				notifySharedItem({

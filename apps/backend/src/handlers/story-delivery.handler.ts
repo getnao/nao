@@ -114,20 +114,24 @@ async function deliver(context: DeliveryContext, queryData: StoryQueryData): Pro
 		storyTitle: version.title,
 	};
 
-	await notifyUsers(recipientUserIds, {
-		category: 'story_refresh',
-		title: version.title,
-		body: ownerName
-			? `The latest version of "${version.title}" by ${ownerName} is ready.`
-			: `The latest version of the story "${version.title}" is ready.`,
-		linkUrl,
-		ctaLabel: 'Open story',
-		channels: delivery.channels,
-		projectId,
-		emailAttachments: storyEmail ? [...attachments, ...storyEmail.images] : attachments,
-		emailBodyHtml: storyEmail?.html,
-		payload,
-	});
+	await notifyUsers(
+		recipientUserIds,
+		{
+			category: 'story_refresh',
+			title: version.title,
+			body: ownerName
+				? `The latest version of "${version.title}" by ${ownerName} is ready.`
+				: `The latest version of the story "${version.title}" is ready.`,
+			linkUrl,
+			ctaLabel: 'Open story',
+			channels: delivery.channels,
+			projectId,
+			emailAttachments: storyEmail ? [...attachments, ...storyEmail.images] : attachments,
+			emailBodyHtml: storyEmail?.html,
+			payload,
+		},
+		{ throwOnChannelError: true },
+	);
 
 	logger.info(`Delivered story ${story.id} to ${recipientUserIds.length} recipient(s).`, {
 		source: 'system',

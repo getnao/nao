@@ -25,7 +25,6 @@ CREATE TABLE `notification` (
 	FOREIGN KEY (`project_id`) REFERENCES `project`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE INDEX `notification_userId_idx` ON `notification` (`user_id`);--> statement-breakpoint
 CREATE INDEX `notification_user_read_idx` ON `notification` (`user_id`,`read_at`);--> statement-breakpoint
 CREATE INDEX `notification_user_project_read_idx` ON `notification` (`user_id`,`project_id`,`read_at`);--> statement-breakpoint
 CREATE INDEX `notification_createdAt_idx` ON `notification` (`created_at`);--> statement-breakpoint
@@ -61,6 +60,7 @@ CREATE TABLE `story_delivery` (
 --> statement-breakpoint
 CREATE UNIQUE INDEX `story_delivery_story_id_unique` ON `story_delivery` (`story_id`);--> statement-breakpoint
 ALTER TABLE `automation_run` ADD `read_at` integer;--> statement-breakpoint
+UPDATE `automation_run` SET `read_at` = `started_at` WHERE `read_at` IS NULL;--> statement-breakpoint
 INSERT OR IGNORE INTO `notification` (`id`, `user_id`, `project_id`, `category`, `title`, `body`, `link_url`, `payload`, `read_at`, `created_at`)
 SELECT
 	'activity-' || a.`id` || '-' || pm.`user_id`,
@@ -77,7 +77,13 @@ FROM `activity` a
 JOIN `shared_story` ss ON ss.`id` = a.`shared_story_id`
 JOIN `story` st ON st.`id` = a.`story_id`
 JOIN `user` u ON u.`id` = a.`user_id`
-JOIN `project_member` pm ON pm.`project_id` = a.`project_id` AND pm.`user_id` <> a.`user_id`
+JOIN (
+	SELECT p.`id` AS `project_id`, pm.`user_id` AS `user_id`
+	FROM `project` p JOIN `project_member` pm ON pm.`project_id` = p.`id`
+	UNION
+	SELECT p.`id` AS `project_id`, om.`user_id` AS `user_id`
+	FROM `project` p JOIN `org_member` om ON om.`org_id` = p.`org_id`
+) pm ON pm.`project_id` = a.`project_id` AND pm.`user_id` <> a.`user_id`
 WHERE a.`type` = 'story.shared'
 	AND ss.`visibility` = 'project'
 	AND a.`started_at` >= (unixepoch('now') * 1000 - 7776000000);--> statement-breakpoint
@@ -117,7 +123,13 @@ FROM `activity` a
 JOIN `shared_chat` sc ON sc.`id` = a.`shared_chat_id`
 JOIN `chat` ch ON ch.`id` = a.`chat_id`
 JOIN `user` u ON u.`id` = a.`user_id`
-JOIN `project_member` pm ON pm.`project_id` = a.`project_id` AND pm.`user_id` <> a.`user_id`
+JOIN (
+	SELECT p.`id` AS `project_id`, pm.`user_id` AS `user_id`
+	FROM `project` p JOIN `project_member` pm ON pm.`project_id` = p.`id`
+	UNION
+	SELECT p.`id` AS `project_id`, om.`user_id` AS `user_id`
+	FROM `project` p JOIN `org_member` om ON om.`org_id` = p.`org_id`
+) pm ON pm.`project_id` = a.`project_id` AND pm.`user_id` <> a.`user_id`
 WHERE a.`type` = 'chat.shared'
 	AND sc.`visibility` = 'project'
 	AND a.`started_at` >= (unixepoch('now') * 1000 - 7776000000);--> statement-breakpoint
@@ -176,7 +188,13 @@ SELECT
 FROM `activity` a
 JOIN `story` st ON st.`id` = a.`story_id`
 JOIN `shared_story` ss ON ss.`story_id` = st.`id` AND ss.`project_id` = a.`project_id` AND ss.`visibility` = 'project'
-JOIN `project_member` pm ON pm.`project_id` = a.`project_id`
+JOIN (
+	SELECT p.`id` AS `project_id`, pm.`user_id` AS `user_id`
+	FROM `project` p JOIN `project_member` pm ON pm.`project_id` = p.`id`
+	UNION
+	SELECT p.`id` AS `project_id`, om.`user_id` AS `user_id`
+	FROM `project` p JOIN `org_member` om ON om.`org_id` = p.`org_id`
+) pm ON pm.`project_id` = a.`project_id`
 WHERE a.`type` = 'story.refreshed'
 	AND a.`status` = 'completed'
 	AND a.`started_at` >= (unixepoch('now') * 1000 - 7776000000);--> statement-breakpoint

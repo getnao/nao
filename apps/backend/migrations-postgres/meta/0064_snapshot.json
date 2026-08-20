@@ -4196,21 +4196,6 @@
         }
       },
       "indexes": {
-        "notification_userId_idx": {
-          "name": "notification_userId_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "notification_user_read_idx": {
           "name": "notification_user_read_idx",
           "columns": [

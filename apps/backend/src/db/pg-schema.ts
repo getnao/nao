@@ -979,7 +979,6 @@ export const notification = pgTable(
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [
-		index('notification_userId_idx').on(t.userId),
 		index('notification_user_read_idx').on(t.userId, t.readAt),
 		index('notification_user_project_read_idx').on(t.userId, t.projectId, t.readAt),
 		index('notification_createdAt_idx').on(t.createdAt),

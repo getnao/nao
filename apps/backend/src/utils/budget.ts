@@ -117,16 +117,29 @@ async function notifyOnExceededBudgets(
 	resolved: ResolvedBudget,
 	userId: string | undefined,
 ): Promise<void> {
-	const { budget, usages } = resolved;
+	const { budget, usages, periodStart } = resolved;
 	const projectUsage = usages.find((u) => u.scope === 'project');
 	const userUsage = usages.find((u) => u.scope === 'user');
 
 	if (projectUsage && projectUsage.ratio >= 1) {
-		await notifyAdminsOnBudgetLimitReached(projectId, budget, projectUsage.currentSpend, projectUsage.resetLabel);
+		await notifyAdminsOnBudgetLimitReached(
+			projectId,
+			budget,
+			projectUsage.currentSpend,
+			projectUsage.resetLabel,
+			periodStart,
+		);
 	}
 
 	if (userUsage && userUsage.ratio >= 1 && userId) {
-		await notifyUserOnBudgetLimitReached(projectId, userId, budget, userUsage.currentSpend, userUsage.resetLabel);
+		await notifyUserOnBudgetLimitReached(
+			projectId,
+			userId,
+			budget,
+			userUsage.currentSpend,
+			userUsage.resetLabel,
+			periodStart,
+		);
 	}
 }
 
@@ -140,6 +153,8 @@ type BudgetUsage = {
 type ResolvedBudget = {
 	budget: EffectiveProviderBudget;
 	usages: BudgetUsage[];
+	/** Period start captured at resolution time; carried through so a delayed notify can't claim a later period. */
+	periodStart: Date;
 };
 
 function buildBudgetMessage(ratio: number, label: string, resetLabel: string, scope: 'project' | 'user'): string {
@@ -166,8 +181,9 @@ async function resolveBudgetUsages(
 		budget.perUserLimitUsd > 0 &&
 		(await hasFeature(LICENSE_FEATURES.userBudget));
 
+	const periodStart = getCurrentPeriodStart(budget.period);
 	if (!hasProjectLimit && !hasUserLimit) {
-		return { budget, usages: [] };
+		return { budget, usages: [], periodStart };
 	}
 
 	if (budget.source === 'project') {
@@ -198,7 +214,7 @@ async function resolveBudgetUsages(
 			scope: 'user',
 		});
 	}
-	return { budget, usages };
+	return { budget, usages, periodStart };
 }
 
 async function notifyAdminsOnBudgetLimitReached(
@@ -206,8 +222,9 @@ async function notifyAdminsOnBudgetLimitReached(
 	budget: EffectiveProviderBudget,
 	currentSpendUsd: number,
 	resetLabel: string,
+	periodStart: Date,
 ): Promise<void> {
-	const key = budgetNotificationKey(projectId, budget, 'project');
+	const key = budgetNotificationKey(projectId, budget, 'project', periodStart);
 	if (!(await budgetQueries.claimBudgetNotification(key))) {
 		return;
 	}
@@ -276,8 +293,9 @@ async function notifyUserOnBudgetLimitReached(
 	budget: EffectiveProviderBudget,
 	currentSpendUsd: number,
 	resetLabel: string,
+	periodStart: Date,
 ): Promise<void> {
-	const key = budgetNotificationKey(projectId, budget, `user:${userId}`);
+	const key = budgetNotificationKey(projectId, budget, `user:${userId}`, periodStart);
 	if (!(await budgetQueries.claimBudgetNotification(key))) {
 		return;
 	}
@@ -305,12 +323,13 @@ function budgetNotificationKey(
 	projectId: string,
 	budget: EffectiveProviderBudget,
 	scope: string,
+	periodStart: Date,
 ): BudgetNotificationKey {
 	return {
 		projectId,
 		provider: budget.provider,
 		scope,
-		periodStart: getCurrentPeriodStart(budget.period),
+		periodStart,
 	};
 }
 

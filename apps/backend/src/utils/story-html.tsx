@@ -61,6 +61,7 @@ import {
 	collectPoints,
 	computeFit,
 	type Fit,
+	longitudeUnwrapper,
 	type MapTip,
 	project,
 	simplifyGeometry,
@@ -350,7 +351,8 @@ function computeMapFit(
 	if (points.length === 0) {
 		return null;
 	}
-	return computeFit(points.map((point) => project(point.longitude, point.latitude)));
+	const unwrapLng = longitudeUnwrapper(points.map((point) => point.longitude));
+	return computeFit(points.map((point) => project(unwrapLng(point.longitude), point.latitude)));
 }
 
 function StoryDocument({
@@ -856,10 +858,11 @@ function StaticPointMap({
 		return <Placeholder label={map.title || 'Map'} message='Could not render map' />;
 	}
 	if (emailSink) {
+		const circleFill = escapeSvgAttr(payload.color);
 		const shapes = svg.circles
 			.map(
 				(circle) =>
-					`<circle cx="${circle.cx}" cy="${circle.cy}" r="${circle.r}" fill="${payload.color}" fill-opacity="0.9" stroke="#ffffff" stroke-width="0.75"/>`,
+					`<circle cx="${circle.cx}" cy="${circle.cy}" r="${circle.r}" fill="${circleFill}" fill-opacity="0.9" stroke="#ffffff" stroke-width="0.75"/>`,
 			)
 			.join('');
 		return renderEmailMapImage(map.title, buildStaticMapSvg(svg.viewBox, svg.backdrop, basemap, shapes), emailSink);
@@ -1126,7 +1129,7 @@ function StaticChoroplethMap({
 		const shapes = svg.regions
 			.map(
 				(region) =>
-					`<path d="${region.d}" fill="${region.fill}" stroke="#ffffff" stroke-width="0.4" stroke-opacity="0.6" fill-rule="evenodd"/>`,
+					`<path d="${region.d}" fill="${escapeSvgAttr(region.fill)}" stroke="#ffffff" stroke-width="0.4" stroke-opacity="0.6" fill-rule="evenodd"/>`,
 			)
 			.join('');
 		return renderEmailMapImage(map.title, buildStaticMapSvg(svg.viewBox, svg.backdrop, basemap, shapes), emailSink);

@@ -130,12 +130,18 @@ export async function notifyStoryRefreshFailed(params: {
 	});
 }
 
-export async function notifyUsers(userIds: string[], input: Omit<NotifyInput, 'userId'>): Promise<void> {
+export async function notifyUsers(
+	userIds: string[],
+	input: Omit<NotifyInput, 'userId'>,
+	options: DeliveryOptions = {},
+): Promise<void> {
 	if (userIds.length === 0) {
 		return;
 	}
 	const recipients = await userQueries.getUsersByIds(userIds);
-	await Promise.all(recipients.map((recipient) => deliverToRecipient(recipient, { ...input, userId: recipient.id })));
+	await Promise.all(
+		recipients.map((recipient) => deliverToRecipient(recipient, { ...input, userId: recipient.id }, options)),
+	);
 }
 
 export async function notifySharedItem(params: {
@@ -213,7 +219,21 @@ function toAbsoluteShareUrl(linkUrl: string): string {
 	return `${env.BETTER_AUTH_URL.replace(/\/$/, '')}${linkUrl}`;
 }
 
-async function deliverToRecipient(recipient: NotificationRecipient, input: NotifyInput): Promise<void> {
+/** Options controlling how channel delivery failures are handled. */
+type DeliveryOptions = {
+	/**
+	 * When true, throws after attempting all channels if any failed. Callers that
+	 * back a retry (e.g. scheduled story delivery) rely on this to surface send
+	 * failures; the default swallows them so best-effort notifications never fail.
+	 */
+	throwOnChannelError?: boolean;
+};
+
+async function deliverToRecipient(
+	recipient: NotificationRecipient,
+	input: NotifyInput,
+	options: DeliveryOptions = {},
+): Promise<void> {
 	const targets = notificationChannels.filter((channel) => {
 		if (input.channels && !input.channels.includes(channel.id)) {
 			return false;
@@ -221,32 +241,44 @@ async function deliverToRecipient(recipient: NotificationRecipient, input: Notif
 		return channel.isEnabled();
 	});
 
-	await Promise.all(
+	const results = await Promise.allSettled(
 		targets.map((channel) =>
-			channel
-				.deliver(recipient, {
-					category: input.category,
-					title: input.title,
-					body: input.body,
-					linkUrl: input.linkUrl,
-					ctaLabel: input.ctaLabel,
-					payload: input.payload,
-					projectId: input.projectId,
-					emailAttachments: input.emailAttachments,
-					emailBodyHtml: input.emailBodyHtml,
-					emailOverride: input.emailOverride,
-				})
-				.catch((error) => {
-					logger.error(
-						`Failed to deliver ${input.category} notification via ${channel.id}: ${String(error)}`,
-						{
-							source: 'system',
-							context: { userId: recipient.id, channel: channel.id },
-						},
-					);
-				}),
+			channel.deliver(recipient, {
+				category: input.category,
+				title: input.title,
+				body: input.body,
+				linkUrl: input.linkUrl,
+				ctaLabel: input.ctaLabel,
+				payload: input.payload,
+				projectId: input.projectId,
+				emailAttachments: input.emailAttachments,
+				emailBodyHtml: input.emailBodyHtml,
+				emailOverride: input.emailOverride,
+			}),
 		),
 	);
+
+	const failures: unknown[] = [];
+	results.forEach((result, index) => {
+		if (result.status === 'rejected') {
+			failures.push(result.reason);
+			logger.error(
+				`Failed to deliver ${input.category} notification via ${targets[index].id}: ${String(result.reason)}`,
+				{
+					source: 'system',
+					context: { userId: recipient.id, channel: targets[index].id },
+				},
+			);
+		}
+	});
+
+	if (options.throwOnChannelError && failures.length > 0) {
+		throw new Error(
+			`Failed to deliver ${input.category} notification on ${failures.length} channel(s): ${failures
+				.map((failure) => String(failure))
+				.join('; ')}`,
+		);
+	}
 }
 
 async function resolveRecipient(userId: string): Promise<NotificationRecipient | null> {
