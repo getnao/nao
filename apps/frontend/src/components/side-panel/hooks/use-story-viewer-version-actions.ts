@@ -144,7 +144,7 @@ export const useStoryViewerVersionActions = ({
 
 	const handleRestore = useCallback(() => {
 		const hasVersionData = storyTitle !== undefined && currentVersionCode !== undefined;
-		if (!hasVersionData || isViewingLatest) {
+		if (!hasVersionData || isViewingLatest || createVersionMutation.isPending) {
 			return;
 		}
 

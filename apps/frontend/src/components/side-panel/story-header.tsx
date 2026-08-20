@@ -407,7 +407,13 @@ export const StoryHeader = memo(function StoryHeader({
 							<span className='text-xs text-muted-foreground'>
 								Viewing v{currentVersion} of {totalVersions}
 							</span>
-							<Button variant='outline' size='sm' onClick={onRestore} className='gap-1.5'>
+							<Button
+								variant='outline'
+								size='sm'
+								onClick={onRestore}
+								disabled={isSaving}
+								className='gap-1.5'
+							>
 								<RotateCcw className='size-3' strokeWidth={2.25} />
 								<span>Restore</span>
 							</Button>
