@@ -61,6 +61,11 @@ export async function syncStoryDeliveryJob(storyId: string, enabled: boolean, cr
 	await storyDeliveryQueries.setScheduledJobId(storyId, job.id);
 }
 
+export async function disableStoryDelivery(storyId: string): Promise<void> {
+	await syncStoryDeliveryJob(storyId, false, null);
+	await storyDeliveryQueries.setEnabled(storyId, false);
+}
+
 export async function teardownStoryDelivery(storyId: string): Promise<void> {
 	await syncStoryDeliveryJob(storyId, false, null);
 	await storyDeliveryQueries.disableAndResetRecipients(storyId);
