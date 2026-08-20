@@ -8,6 +8,7 @@ import type {
 
 import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
+import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as userQueries from '../queries/user.queries';
 import type { NotificationRecipient, NotifyInput } from '../types/notification';
@@ -20,6 +21,12 @@ import { resolveDeliverySubscriberIds } from './story-recipients';
 const sharedItemPaths: Record<SharedItemLabel, (shareId: string) => string> = {
 	story: (shareId) => sharedStoryPath(shareId),
 	chat: (shareId) => `/shared-chat/${shareId}`,
+};
+
+/** Reads the committed allow-list for a share, used to revalidate recipients at send time. */
+const sharedItemAllowedUserIds: Record<SharedItemLabel, (shareId: string) => Promise<string[]>> = {
+	story: (shareId) => sharedStoryQueries.getSharedStoryAllowedUserIds(shareId),
+	chat: (shareId) => sharedChatQueries.getShareAllowedUserIds(shareId),
 };
 
 export async function notify(input: NotifyInput): Promise<void> {
@@ -204,15 +211,32 @@ async function resolveOwnerName(ownerId: string): Promise<string | undefined> {
 async function resolveSharedItemRecipientIds(params: {
 	projectId: string;
 	sharerId: string;
+	shareId: string;
+	itemLabel: SharedItemLabel;
 	visibility: Visibility;
 	allowedUserIds?: string[];
 }): Promise<string[]> {
 	const members = await projectQueries.listUsersWithProjectAccess(params.projectId);
-	const allowed = new Set(params.allowedUserIds ?? []);
+	// For specific shares, revalidate the requested recipients against the committed ACL here,
+	// at resolution time: a concurrent revoke between the caller's read and now must not leak the
+	// notification (and its link) to a user who no longer has access.
+	const allowed =
+		params.visibility === 'specific'
+			? new Set(await intersectWithCommittedAcl(params.itemLabel, params.shareId, params.allowedUserIds ?? []))
+			: new Set<string>();
 	return members
 		.filter((member) => member.id !== params.sharerId)
 		.filter((member) => params.visibility === 'project' || allowed.has(member.id))
 		.map((member) => member.id);
+}
+
+async function intersectWithCommittedAcl(
+	itemLabel: SharedItemLabel,
+	shareId: string,
+	requestedUserIds: string[],
+): Promise<string[]> {
+	const committed = new Set(await sharedItemAllowedUserIds[itemLabel](shareId));
+	return requestedUserIds.filter((id) => committed.has(id));
 }
 
 function toAbsoluteShareUrl(linkUrl: string): string {
@@ -243,18 +267,22 @@ async function deliverToRecipient(
 
 	const results = await Promise.allSettled(
 		targets.map((channel) =>
-			channel.deliver(recipient, {
-				category: input.category,
-				title: input.title,
-				body: input.body,
-				linkUrl: input.linkUrl,
-				ctaLabel: input.ctaLabel,
-				payload: input.payload,
-				projectId: input.projectId,
-				emailAttachments: input.emailAttachments,
-				emailBodyHtml: input.emailBodyHtml,
-				emailOverride: input.emailOverride,
-			}),
+			channel.deliver(
+				recipient,
+				{
+					category: input.category,
+					title: input.title,
+					body: input.body,
+					linkUrl: input.linkUrl,
+					ctaLabel: input.ctaLabel,
+					payload: input.payload,
+					projectId: input.projectId,
+					emailAttachments: input.emailAttachments,
+					emailBodyHtml: input.emailBodyHtml,
+					emailOverride: input.emailOverride,
+				},
+				{ propagateErrors: options.throwOnChannelError },
+			),
 		),
 	);
 
