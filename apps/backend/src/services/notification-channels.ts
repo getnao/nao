@@ -24,10 +24,19 @@ export interface DeliverableNotification {
 	emailOverride?: (recipient: NotificationRecipient, unsubscribeUrl?: string) => CreatedEmail;
 }
 
+export interface DeliveryChannelOptions {
+	/** When true, transport failures are rethrown instead of being swallowed by the channel. */
+	propagateErrors?: boolean;
+}
+
 export interface NotificationChannelHandler {
 	id: NotificationChannel;
 	isEnabled(): boolean;
-	deliver(recipient: NotificationRecipient, notification: DeliverableNotification): Promise<void>;
+	deliver(
+		recipient: NotificationRecipient,
+		notification: DeliverableNotification,
+		options?: DeliveryChannelOptions,
+	): Promise<void>;
 }
 
 const inAppChannel: NotificationChannelHandler = {
@@ -49,14 +58,19 @@ const inAppChannel: NotificationChannelHandler = {
 const emailChannel: NotificationChannelHandler = {
 	id: 'email',
 	isEnabled: () => emailService.isEnabled(),
-	deliver: async (recipient, notification) => {
+	deliver: async (recipient, notification, options) => {
 		const scope = resolveUnsubscribeScope('email', notification.category, notification.payload);
 		if (scope && (await notificationUnsubscribeQueries.isUnsubscribed(recipient.id, scope))) {
 			return;
 		}
 		const unsubscribeUrl = scope ? buildUnsubscribeUrl(recipient.id, scope) : undefined;
+		const sendOptions = { throwOnError: options?.propagateErrors };
 		if (notification.emailOverride) {
-			await emailService.sendEmail(recipient.email, notification.emailOverride(recipient, unsubscribeUrl));
+			await emailService.sendEmail(
+				recipient.email,
+				notification.emailOverride(recipient, unsubscribeUrl),
+				sendOptions,
+			);
 			return;
 		}
 		await emailService.sendEmail(
@@ -71,6 +85,7 @@ const emailChannel: NotificationChannelHandler = {
 				unsubscribeUrl,
 				notification.emailBodyHtml,
 			),
+			sendOptions,
 		);
 	},
 };
@@ -78,7 +93,7 @@ const emailChannel: NotificationChannelHandler = {
 const slackChannel: NotificationChannelHandler = {
 	id: 'slack',
 	isEnabled: () => true,
-	deliver: async (recipient, notification) => {
+	deliver: async (recipient, notification, options) => {
 		if (!notification.projectId) {
 			return;
 		}
@@ -124,6 +139,9 @@ const slackChannel: NotificationChannelHandler = {
 				source: 'system',
 				context: { projectId: notification.projectId },
 			});
+			if (options?.propagateErrors) {
+				throw error;
+			}
 		}
 	},
 };

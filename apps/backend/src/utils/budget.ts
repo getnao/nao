@@ -194,6 +194,7 @@ async function resolveBudgetUsages(
 		provider,
 		budget.period,
 		userId,
+		periodStart,
 	);
 	const resetLabel = formatResetDate(getNextPeriodStart(budget.period), budget.period);
 

@@ -20,15 +20,16 @@ export const getProviderBudget = async (
 	return row ?? null;
 };
 
-export type ProviderPeriod = { provider: LlmProvider; period: BudgetPeriod };
+export type ProviderPeriod = { provider: LlmProvider; period: BudgetPeriod; periodStart?: Date };
 
 export const getProviderBudgetSpend = async (
 	projectId: string,
 	provider: LlmProvider,
 	period: BudgetPeriod,
 	userId?: string,
+	periodStart?: Date,
 ): Promise<{ projectSpend: number; userSpend: number }> => {
-	const rows = await queryProviderPeriodCosts(projectId, [{ provider, period }]);
+	const rows = await queryProviderPeriodCosts(projectId, [{ provider, period, periodStart }]);
 
 	let projectTotal = 0;
 	let userTotal = 0;
@@ -145,7 +146,7 @@ const queryProviderPeriodCosts = async (
 
 	const toParam = (d: Date) => (isPostgres ? sql`${d.toISOString()}::timestamp` : sql`${d.getTime()}`);
 	const periodStartCases = budgets.map(
-		(b) => sql`WHEN ${b.provider} THEN ${toParam(getCurrentPeriodStart(b.period))}`,
+		(b) => sql`WHEN ${b.provider} THEN ${toParam(b.periodStart ?? getCurrentPeriodStart(b.period))}`,
 	);
 	const periodStartExpr = sql`CASE ${s.chatMessage.llmProvider} ${sql.join(periodStartCases, sql` `)} END`;
 

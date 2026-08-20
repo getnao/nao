@@ -68,22 +68,12 @@ export function FeedFilterBar({
 	);
 	// Count unread among items that pass the active type/actor filters, since selecting
 	// "Unread only" applies on top of those — otherwise the badge could disagree with the result.
-	const unreadCount = useMemo(() => {
-		const selectedTypes = new Set(filters.types);
-		const selectedActors = new Set(filters.actors);
-		return items.filter((item) => {
-			if (selectedTypes.size > 0 && !selectedTypes.has(getFeedItemTypeKey(item))) {
-				return false;
-			}
-			if (selectedActors.size > 0) {
-				const actor = getFeedItemActor(item, currentUserName);
-				if (!actor || !selectedActors.has(actor)) {
-					return false;
-				}
-			}
-			return isFeedItemUnread(item);
-		}).length;
-	}, [items, filters.types, filters.actors, currentUserName]);
+	const unreadCount = useMemo(
+		() =>
+			items.filter((item) => matchesTypeAndActorFilters(item, filters, currentUserName) && isFeedItemUnread(item))
+				.length,
+		[items, filters, currentUserName],
+	);
 	const hasActiveFilters = filters.types.length > 0 || filters.actors.length > 0 || filters.readStatus !== 'all';
 
 	function toggleType(type: FeedTypeKey) {
@@ -213,17 +203,9 @@ export function applyFeedFilters(
 	filters: FeedFilters,
 	currentUserName?: string | null,
 ): AutomationFeedItem[] {
-	const selectedTypes = new Set(filters.types);
-	const selectedActors = new Set(filters.actors);
 	const filtered = items.filter((item) => {
-		if (selectedTypes.size > 0 && !selectedTypes.has(getFeedItemTypeKey(item))) {
+		if (!matchesTypeAndActorFilters(item, filters, currentUserName)) {
 			return false;
-		}
-		if (selectedActors.size > 0) {
-			const actor = getFeedItemActor(item, currentUserName);
-			if (!actor || !selectedActors.has(actor)) {
-				return false;
-			}
 		}
 		if (filters.readStatus === 'unread' && !isFeedItemUnread(item)) {
 			return false;
@@ -234,6 +216,24 @@ export function applyFeedFilters(
 		const diff = new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime();
 		return filters.sort === 'newest' ? -diff : diff;
 	});
+}
+
+/** Shared type/actor predicate so the "Unread only" badge count and the rendered list stay in sync. */
+function matchesTypeAndActorFilters(
+	item: AutomationFeedItem,
+	filters: FeedFilters,
+	currentUserName?: string | null,
+): boolean {
+	if (filters.types.length > 0 && !filters.types.includes(getFeedItemTypeKey(item))) {
+		return false;
+	}
+	if (filters.actors.length > 0) {
+		const actor = getFeedItemActor(item, currentUserName);
+		if (!actor || !filters.actors.includes(actor)) {
+			return false;
+		}
+	}
+	return true;
 }
 
 function getFeedItemTypeKey(item: AutomationFeedItem): FeedTypeKey {
