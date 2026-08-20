@@ -20,6 +20,17 @@ export interface UpsertRecurringInput {
  * cadence, but `cron` is refreshed so code-level changes propagate.
  */
 export const upsertRecurringJob = async (input: UpsertRecurringInput): Promise<DBScheduledJob> => {
+	const [existing] = await db
+		.select()
+		.from(s.scheduledJob)
+		.where(eq(s.scheduledJob.uniqueKey, input.uniqueKey))
+		.limit(1)
+		.execute();
+
+	if (existing?.status === 'running') {
+		return refreshRunningJobDefinition(existing.id, input);
+	}
+
 	const values: NewScheduledJob = {
 		name: input.name,
 		cron: input.cron,
@@ -58,6 +69,20 @@ export const upsertRecurringJob = async (input: UpsertRecurringInput): Promise<D
 		.returning()
 		.execute();
 
+	return row;
+};
+
+const refreshRunningJobDefinition = async (id: string, input: UpsertRecurringInput): Promise<DBScheduledJob> => {
+	const set: Partial<NewScheduledJob> = {
+		cron: input.cron,
+		name: input.name,
+		payload: input.payload,
+	};
+	if (input.maxAttempts !== undefined) {
+		set.maxAttempts = input.maxAttempts;
+	}
+
+	const [row] = await db.update(s.scheduledJob).set(set).where(eq(s.scheduledJob.id, id)).returning().execute();
 	return row;
 };
 

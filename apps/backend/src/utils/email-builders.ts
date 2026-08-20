@@ -17,10 +17,11 @@ export function buildSharedItemEmail(
 	itemLabel: string,
 	itemTitle: string,
 	itemUrl: string,
+	unsubscribeUrl?: string,
 ): CreatedEmail {
 	return createEmail(
 		`${sharerName} shared "${itemTitle}" with you on nao`,
-		SharedItemEmail({ userName: user.name, sharerName, itemLabel, itemTitle, itemUrl }),
+		SharedItemEmail({ userName: user.name, sharerName, itemLabel, itemTitle, itemUrl, unsubscribeUrl }),
 	);
 }
 

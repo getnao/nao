@@ -97,7 +97,7 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 			setSelected(new Set(delivery.data.recipientUserIds));
 			setEmailEnabled(delivery.data.channels.includes('email'));
 			setSlackEnabled(delivery.data.channels.includes('slack'));
-		}, [open, delivery.data, refreshCron]);
+		}, [open, delivery.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
 		const updateDelivery = useMutation(
 			trpc.story.updateDelivery.mutationOptions({
@@ -145,6 +145,11 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 				setSlackEnabled(false);
 				setRecipientMode('all');
 			}
+		}, []);
+
+		const handleCustomCronChange = useCallback((value: string) => {
+			setCustomCron(value);
+			setSavedNlInput('');
 		}, []);
 
 		const handlePresetChange = useCallback((value: string) => {
@@ -316,7 +321,7 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 											nlConvertPending={cronNlpMutation.isPending}
 											nlConvertError={cronNlpMutation.isError || nlConvertFailed}
 											onPresetChange={handlePresetChange}
-											onCustomCronChange={setCustomCron}
+											onCustomCronChange={handleCustomCronChange}
 											onNlInputChange={(v) => {
 												setNlInput(v);
 												setNlConvertFailed(false);

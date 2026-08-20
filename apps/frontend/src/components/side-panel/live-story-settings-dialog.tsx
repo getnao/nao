@@ -81,6 +81,16 @@ export function LiveStorySettingsDialog({
 	const handleDeliveryStatusChange = useCallback((status: StoryDeliveryStatus) => setDeliveryStatus(status), []);
 	const isBusy = isUpdating || isSaving;
 
+	const handleOpenChange = useCallback(
+		(next: boolean) => {
+			if (!next && isSaving) {
+				return;
+			}
+			onOpenChange(next);
+		},
+		[isSaving, onOpenChange],
+	);
+
 	useEffect(() => {
 		if (open) {
 			setLocalIsLive(isLive);
@@ -90,6 +100,7 @@ export function LiveStorySettingsDialog({
 			setLocalCustomCron(preset === 'custom' ? (cacheSchedule ?? '') : '');
 			setNlInput(preset === 'custom' ? (cacheScheduleDescription ?? '') : '');
 			setSavedNlInput(preset === 'custom' ? (cacheScheduleDescription ?? '') : '');
+			setNlConvertFailed(false);
 		}
 	}, [open, isLive, isLiveTextDynamic, cacheSchedule, cacheScheduleDescription]);
 
@@ -113,6 +124,7 @@ export function LiveStorySettingsDialog({
 			setLocalCustomCron('');
 			setNlInput('');
 			setSavedNlInput('');
+			setNlConvertFailed(false);
 		}
 	}, []);
 
@@ -173,7 +185,7 @@ export function LiveStorySettingsDialog({
 	}, [nlInput, cronNlpMutation]);
 
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
+		<Dialog open={open} onOpenChange={handleOpenChange}>
 			<DialogContent className='sm:max-w-md max-h-[85vh] overflow-y-auto'>
 				<DialogHeader className='gap-4'>
 					<DialogTitle>Live Story Settings</DialogTitle>
@@ -200,7 +212,7 @@ export function LiveStorySettingsDialog({
 						{localIsLive && (
 							<div className='flex flex-col gap-4 pl-10'>
 								<div className='flex flex-col gap-2'>
-									<label className='text-sm font-semibold'>Refresh shcedule</label>
+									<label className='text-sm font-semibold'>Refresh schedule</label>
 									<p className='text-xs text-muted-foreground'>
 										How often the data should be automatically refreshed. You can always refresh
 										manually using the refresh button.
@@ -319,7 +331,7 @@ export function LiveStorySettingsDialog({
 								chatId={chatId}
 								storySlug={storySlug}
 								open={open}
-								refreshCron={cacheSchedule}
+								refreshCron={resolvedCron}
 								onStatusChange={handleDeliveryStatusChange}
 							/>
 						</>
@@ -339,7 +351,7 @@ export function LiveStorySettingsDialog({
 						variant='primary-gradient'
 						className='rounded-full'
 						onClick={handleSave}
-						disabled={!hasChanges || !deliveryStatus.valid || isBusy}
+						disabled={!hasChanges || (localIsLive && !deliveryStatus.valid) || isBusy}
 					>
 						{isBusy && <Loader2 className='size-3.5 animate-spin' />}
 						Save

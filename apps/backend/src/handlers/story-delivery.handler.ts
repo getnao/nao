@@ -150,9 +150,10 @@ async function resolveStoryLink(
 	ownerId: string | null,
 	recipientUserIds: string[],
 ): Promise<string> {
-	const existing = await sharedStoryQueries.getSharedStoryInfo(storyId, projectId);
-	if (existing) {
-		return sharedStoryPath(existing.id);
+	const access = await sharedStoryQueries.getStoryShareAccess(storyId, projectId);
+	if (access) {
+		await grantShareAccessToRecipients(access, recipientUserIds);
+		return sharedStoryPath(access.shareId);
 	}
 	if (!ownerId) {
 		return standaloneStoryPath(storyId);
@@ -162,4 +163,18 @@ async function resolveStoryLink(
 		recipientUserIds,
 	);
 	return sharedStoryPath(shared.id);
+}
+
+async function grantShareAccessToRecipients(
+	access: sharedStoryQueries.StoryShareAccess,
+	recipientUserIds: string[],
+): Promise<void> {
+	if (access.visibility !== 'specific') {
+		return;
+	}
+	const missing = recipientUserIds.filter((id) => !access.allowedUserIds.includes(id));
+	if (missing.length === 0) {
+		return;
+	}
+	await sharedStoryQueries.updateSharedStoryAllowedUsers(access.shareId, [...access.allowedUserIds, ...missing]);
 }

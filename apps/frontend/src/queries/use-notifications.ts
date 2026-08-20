@@ -4,9 +4,23 @@ import { trpc } from '@/main';
 
 const UNREAD_POLL_INTERVAL_MS = 60 * 1000;
 
-export function useUnreadCount() {
+export function useUnreadCount(projectId: string | undefined) {
+	const options = trpc.notification.unreadCount.queryOptions();
 	return useQuery({
-		...trpc.notification.unreadCount.queryOptions(),
+		...options,
+		queryKey: [options.queryKey[0], { ...options.queryKey[1], input: projectId }],
+		enabled: Boolean(projectId),
+		refetchInterval: UNREAD_POLL_INTERVAL_MS,
+		refetchOnWindowFocus: true,
+	});
+}
+
+export function useUnreadAutomationRunCount(enabled: boolean, projectId: string | undefined) {
+	const options = trpc.automation.unreadCount.queryOptions();
+	return useQuery({
+		...options,
+		queryKey: [options.queryKey[0], { ...options.queryKey[1], input: projectId }],
+		enabled: enabled && Boolean(projectId),
 		refetchInterval: UNREAD_POLL_INTERVAL_MS,
 		refetchOnWindowFocus: true,
 	});
