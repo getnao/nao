@@ -22,7 +22,7 @@ export type ToolCallDensity = (typeof TOOL_CALL_DENSITIES)[number];
 export const NOTIFICATION_CHANNELS = ['in_app', 'email', 'slack'] as const;
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
-export const NOTIFICATION_CATEGORIES = ['budget', 'feedback', 'story_refresh', 'shared'] as const;
+export const NOTIFICATION_CATEGORIES = ['budget', 'feedback', 'story_refresh', 'shared', 'subscription'] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
 export const NOTIFICATION_CATEGORY_LABELS: Record<NotificationCategory, string> = {
@@ -30,6 +30,7 @@ export const NOTIFICATION_CATEGORY_LABELS: Record<NotificationCategory, string> 
 	feedback: 'Feedback alerts',
 	story_refresh: 'Story refreshes',
 	shared: 'Shared with you',
+	subscription: 'Subscriptions',
 };
 
 export const NOTIFICATION_CATEGORY_DESCRIPTIONS: Record<NotificationCategory, string> = {
@@ -37,6 +38,7 @@ export const NOTIFICATION_CATEGORY_DESCRIPTIONS: Record<NotificationCategory, st
 	feedback: 'Alerts when users leave positive or negative feedback.',
 	story_refresh: 'Results of your story refreshes.',
 	shared: 'When someone shares a story or chat with you.',
+	subscription: "When you're added to a story's scheduled delivery.",
 };
 
 export type SharedItemLabel = 'story' | 'chat';
@@ -63,6 +65,17 @@ export type StoryRefreshNotificationPayload = {
 	status: 'refreshed' | 'failed';
 	queriesRefreshed?: number;
 	trigger?: 'manual' | 'schedule';
+	ownerName?: string;
+	storyTitle?: string;
+};
+
+export type StorySubscriptionNotificationPayload = {
+	kind: 'story_subscription';
+	storyId: string;
+	storyTitle: string;
+	ownerName: string;
+	/** Share id used to render the live story (charts, tables, maps) as a preview in the notification card. */
+	shareId: string | null;
 };
 
 export type NotificationChannelPreference = { emailEnabled: boolean; inAppEnabled: boolean; slackEnabled: boolean };

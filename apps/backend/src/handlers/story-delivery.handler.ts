@@ -1,12 +1,15 @@
+import type { StoryRefreshNotificationPayload } from '@nao/shared/types';
+
 import type { DBScheduledJob, DBStory, DBStoryDelivery } from '../db/abstractSchema';
-import * as projectQueries from '../queries/project.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyDeliveryQueries from '../queries/story-delivery.queries';
+import * as userQueries from '../queries/user.queries';
 import { refreshStoryData } from '../services/live-story';
 import { notifyUsers } from '../services/notification.service';
+import { resolveDeliveryRecipientUserIds } from '../services/story-recipients';
 import { logger } from '../utils/logger';
-import { buildStoryPdfAttachment } from '../utils/story-download';
+import { buildStoryEmailHtml, buildStoryPdfAttachment } from '../utils/story-email';
 import { sharedStoryPath, standaloneStoryPath } from '../utils/story-links';
 
 export const STORY_DELIVERY_JOB_NAME = 'story.deliver';
@@ -42,7 +45,6 @@ export async function runScheduledStoryDelivery(storyId: string): Promise<void> 
 
 export async function deliverStoryOnRefresh(
 	storyId: string,
-	trigger: 'manual' | 'schedule',
 	refreshCron: string | null,
 	queryData: StoryQueryData,
 ): Promise<void> {
@@ -50,9 +52,8 @@ export async function deliverStoryOnRefresh(
 	if (!delivery || !delivery.enabled) {
 		return;
 	}
-	const isManualMode = delivery.cron === null;
-	const coincidesWithRefresh = delivery.cron !== null && delivery.cron === refreshCron;
-	if (trigger === 'manual' ? !isManualMode : !coincidesWithRefresh) {
+	const deliversOnRefresh = delivery.cron === null || delivery.cron === refreshCron;
+	if (!deliversOnRefresh) {
 		return;
 	}
 
@@ -81,7 +82,7 @@ async function loadDeliveryContext(storyId: string): Promise<DeliveryContext | n
 		throw new Error(`Story ${storyId} is missing a project; cannot deliver.`);
 	}
 
-	const recipientUserIds = await resolveRecipientUserIds(delivery, storyId, projectId, story.userId ?? null);
+	const recipientUserIds = await resolveDeliveryRecipientUserIds(delivery, storyId, projectId, story.userId ?? null);
 	if (recipientUserIds.length === 0) {
 		return null;
 	}
@@ -98,19 +99,34 @@ async function deliver(context: DeliveryContext, queryData: StoryQueryData): Pro
 	}
 
 	const ownerId = story.userId ?? (await storyQueries.getStoryOwnerId(story.id)) ?? null;
+	const ownerName = ownerId ? await userQueries.getUserName(ownerId) : null;
 	const linkUrl = await resolveStoryLink(story.id, projectId, ownerId, recipientUserIds);
-	const attachments = await buildStoryPdfAttachment(version.title, version.code, queryData, projectId);
+	const [attachments, storyEmail] = await Promise.all([
+		buildStoryPdfAttachment(version.title, version.code, queryData, projectId),
+		buildStoryEmailHtml(version.title, version.code, queryData, projectId),
+	]);
+
+	const payload: StoryRefreshNotificationPayload = {
+		kind: 'story_refresh',
+		storyId: story.id,
+		status: 'refreshed',
+		ownerName: ownerName ?? undefined,
+		storyTitle: version.title,
+	};
 
 	await notifyUsers(recipientUserIds, {
 		category: 'story_refresh',
 		title: version.title,
-		body: `The latest version of the story "${version.title}" is ready.`,
+		body: ownerName
+			? `The latest version of "${version.title}" by ${ownerName} is ready.`
+			: `The latest version of the story "${version.title}" is ready.`,
 		linkUrl,
 		ctaLabel: 'Open story',
 		channels: delivery.channels,
 		projectId,
-		emailAttachments: attachments,
-		payload: { storyId: story.id },
+		emailAttachments: storyEmail ? [...attachments, ...storyEmail.images] : attachments,
+		emailBodyHtml: storyEmail?.html,
+		payload,
 	});
 
 	logger.info(`Delivered story ${story.id} to ${recipientUserIds.length} recipient(s).`, {
@@ -118,30 +134,6 @@ async function deliver(context: DeliveryContext, queryData: StoryQueryData): Pro
 		projectId,
 		context: { storyId: story.id },
 	});
-}
-
-async function resolveRecipientUserIds(
-	delivery: DBStoryDelivery,
-	storyId: string,
-	projectId: string,
-	ownerId: string | null,
-): Promise<string[]> {
-	if (delivery.recipientMode !== 'all') {
-		return delivery.recipientUserIds;
-	}
-
-	const access = await sharedStoryQueries.getStoryShareAccess(storyId, projectId);
-	if (!access) {
-		const members = await projectQueries.listProjectMembersWithRoles(projectId);
-		return members.map((member) => member.id).filter((id) => id !== ownerId);
-	}
-
-	if (access.visibility === 'specific') {
-		return access.allowedUserIds;
-	}
-
-	const members = await projectQueries.listUsersWithProjectAccess(projectId);
-	return members.map((member) => member.id).filter((id) => id !== ownerId);
 }
 
 async function resolveStoryLink(

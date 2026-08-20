@@ -5,6 +5,7 @@ interface NotificationEmailProps {
 	userName: string;
 	title: string;
 	body?: string;
+	bodyHtml?: string;
 	linkUrl?: string;
 	ctaLabel?: string;
 	unsubscribeUrl?: string;
@@ -14,6 +15,7 @@ export function NotificationEmail({
 	userName,
 	title,
 	body,
+	bodyHtml,
 	linkUrl,
 	ctaLabel,
 	unsubscribeUrl,
@@ -38,6 +40,13 @@ export function NotificationEmail({
 					</p>
 				)}
 			</div>
+
+			{bodyHtml && (
+				<div
+					style={{ marginTop: 24, paddingTop: 24, borderTop: '1px solid #e5e7eb' }}
+					dangerouslySetInnerHTML={{ __html: bodyHtml }}
+				/>
+			)}
 		</EmailLayout>
 	);
 }

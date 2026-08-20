@@ -16,7 +16,11 @@ import * as storyDeliveryQueries from '../queries/story-delivery.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
-import { notifyStoryRefreshed, notifyStoryRefreshFailed } from '../services/notification.service';
+import {
+	notifyStoryRefreshed,
+	notifyStoryRefreshFailed,
+	notifyStorySubscriptionAdded,
+} from '../services/notification.service';
 import { nextCronTick } from '../services/scheduler.service';
 import {
 	assertValidDeliverySchedule,
@@ -344,6 +348,11 @@ export const storyRoutes = {
 			const projectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
 			assertValidDeliverySchedule(input.enabled, input.cron, input.recipientMode, input.recipientUserIds);
 
+			const existingDelivery = await storyDeliveryQueries.getByStoryId(story.id);
+			const previousRecipientIds = new Set(
+				existingDelivery?.recipientMode === 'specific' ? existingDelivery.recipientUserIds : [],
+			);
+
 			if (input.recipientMode === 'specific' && input.recipientUserIds.length > 0) {
 				if (!projectId) {
 					throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Story has no project.' });
@@ -381,6 +390,19 @@ export const storyRoutes = {
 				createdBy: ctx.user.id,
 			});
 			await syncStoryDeliveryJob(story.id, input.enabled, input.cron);
+
+			if (input.enabled && input.recipientMode === 'specific' && projectId) {
+				const addedUserIds = input.recipientUserIds.filter(
+					(id) => id !== ctx.user.id && !previousRecipientIds.has(id),
+				);
+				await notifyStorySubscribers(story.id, projectId, ctx.user.name, addedUserIds).catch((error) => {
+					logger.error(`Failed to notify story subscribers: ${String(error)}`, {
+						source: 'system',
+						projectId,
+						context: { storyId: story.id },
+					});
+				});
+			}
 		}),
 
 	refreshData: chatOwnerProcedure
@@ -428,7 +450,7 @@ export const storyRoutes = {
 					chatId: story.chatId,
 					metadata: { type: 'refresh', trigger: 'manual', queriesRefreshed: Object.keys(queryData).length },
 				});
-				await deliverStoryOnRefresh(story.id, 'manual', null, queryData).catch((error) => {
+				await deliverStoryOnRefresh(story.id, story.cacheSchedule ?? null, queryData).catch((error) => {
 					logger.error(`Story delivery after manual refresh failed: ${String(error)}`, {
 						source: 'system',
 						projectId,
@@ -740,6 +762,41 @@ async function syncStoryRefreshJob(
 		resetRunAtOnConflict: true,
 	});
 	await activityQueries.linkStoryScheduledJob(story.id, job.id);
+}
+
+async function notifyStorySubscribers(
+	storyId: string,
+	projectId: string,
+	ownerName: string,
+	addedUserIds: string[],
+): Promise<void> {
+	if (addedUserIds.length === 0) {
+		return;
+	}
+	const version = await storyQueries.getLatestVersionByStoryId(storyId);
+	if (!version) {
+		return;
+	}
+	await grantSpecificShareAccess(storyId, projectId, addedUserIds);
+	await notifyStorySubscriptionAdded({
+		projectId,
+		storyId,
+		storyTitle: version.title,
+		ownerName,
+		addedUserIds,
+	});
+}
+
+async function grantSpecificShareAccess(storyId: string, projectId: string, userIds: string[]): Promise<void> {
+	const access = await sharedStoryQueries.getStoryShareAccess(storyId, projectId);
+	if (access?.visibility !== 'specific') {
+		return;
+	}
+	const missing = userIds.filter((id) => !access.allowedUserIds.includes(id));
+	if (missing.length === 0) {
+		return;
+	}
+	await sharedStoryQueries.updateSharedStoryAllowedUsers(access.shareId, [...access.allowedUserIds, ...missing]);
 }
 
 async function unscheduleStoryRefreshJob(storyId: string): Promise<void> {

@@ -2,6 +2,7 @@ import type {
 	SharedItemLabel,
 	SharedNotificationPayload,
 	StoryRefreshNotificationPayload,
+	StorySubscriptionNotificationPayload,
 	Visibility,
 } from '@nao/shared/types';
 
@@ -14,6 +15,7 @@ import { buildSharedItemEmail } from '../utils/email-builders';
 import { logger } from '../utils/logger';
 import { sharedStoryPath, standaloneStoryPath, storyPath } from '../utils/story-links';
 import { notificationChannels } from './notification-channels';
+import { resolveDeliverySubscriberIds } from './story-recipients';
 
 const sharedItemPaths: Record<SharedItemLabel, (shareId: string) => string> = {
 	story: (shareId) => sharedStoryPath(shareId),
@@ -36,10 +38,12 @@ export async function notifyStoryRefreshed(params: {
 	queriesRefreshed: number;
 	trigger: 'manual' | 'schedule';
 }): Promise<void> {
-	const { userIds, linkUrl } = await resolveStoryRefreshRecipients(params.projectId, params.storyId, params.ownerId);
+	const userIds = await resolveDeliverySubscriberIds(params.storyId);
 	if (userIds.length === 0) {
 		return;
 	}
+	const linkUrl = await resolveStoryLink(params.storyId, params.projectId);
+	const ownerName = await resolveOwnerName(params.ownerId);
 
 	const payload: StoryRefreshNotificationPayload = {
 		kind: 'story_refresh',
@@ -47,6 +51,8 @@ export async function notifyStoryRefreshed(params: {
 		status: 'refreshed',
 		queriesRefreshed: params.queriesRefreshed,
 		trigger: params.trigger,
+		ownerName,
+		storyTitle: params.storyTitle,
 	};
 
 	await notifyUsers(userIds, {
@@ -57,6 +63,40 @@ export async function notifyStoryRefreshed(params: {
 		ctaLabel: 'Open story',
 		projectId: params.projectId,
 		payload,
+		channels: ['in_app'],
+	});
+}
+
+export async function notifyStorySubscriptionAdded(params: {
+	projectId: string;
+	storyId: string;
+	storyTitle: string;
+	ownerName: string;
+	addedUserIds: string[];
+}): Promise<void> {
+	if (params.addedUserIds.length === 0) {
+		return;
+	}
+	const access = await sharedStoryQueries.getStoryShareAccess(params.storyId, params.projectId);
+	const linkUrl = storyPath(access ? { id: access.shareId } : null, params.storyId);
+
+	const payload: StorySubscriptionNotificationPayload = {
+		kind: 'story_subscription',
+		storyId: params.storyId,
+		storyTitle: params.storyTitle,
+		ownerName: params.ownerName,
+		shareId: access?.shareId ?? null,
+	};
+
+	await notifyUsers(params.addedUserIds, {
+		category: 'subscription',
+		title: params.storyTitle,
+		body: `${params.ownerName} subscribed you to the scheduled delivery for this story.`,
+		linkUrl,
+		ctaLabel: 'Open story',
+		projectId: params.projectId,
+		payload,
+		channels: ['in_app'],
 	});
 }
 
@@ -146,24 +186,13 @@ export async function notifySharedItem(params: {
 	});
 }
 
-async function resolveStoryRefreshRecipients(
-	projectId: string,
-	storyId: string,
-	ownerId: string,
-): Promise<{ userIds: string[]; linkUrl: string }> {
+async function resolveStoryLink(storyId: string, projectId: string): Promise<string> {
 	const access = await sharedStoryQueries.getStoryShareAccess(storyId, projectId);
-	const linkUrl = storyPath(access ? { id: access.shareId } : null, storyId);
+	return storyPath(access ? { id: access.shareId } : null, storyId);
+}
 
-	const recipients = new Set<string>([ownerId]);
-	if (access) {
-		if (access.visibility === 'specific') {
-			access.allowedUserIds.forEach((id) => recipients.add(id));
-		} else {
-			const members = await projectQueries.listUsersWithProjectAccess(projectId);
-			members.forEach((member) => recipients.add(member.id));
-		}
-	}
-	return { userIds: [...recipients], linkUrl };
+async function resolveOwnerName(ownerId: string): Promise<string | undefined> {
+	return (await userQueries.getUserName(ownerId)) ?? undefined;
 }
 
 async function resolveSharedItemRecipientIds(params: {
@@ -204,6 +233,7 @@ async function deliverToRecipient(recipient: NotificationRecipient, input: Notif
 					payload: input.payload,
 					projectId: input.projectId,
 					emailAttachments: input.emailAttachments,
+					emailBodyHtml: input.emailBodyHtml,
 					emailOverride: input.emailOverride,
 				})
 				.catch((error) => {

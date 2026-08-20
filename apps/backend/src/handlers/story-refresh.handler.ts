@@ -79,7 +79,7 @@ export async function runScheduledStoryRefresh(storyId: string): Promise<void> {
 			chatId: story.chatId,
 			metadata: { type: 'refresh', trigger: 'scheduled', queriesRefreshed: Object.keys(queryData).length },
 		});
-		await deliverStoryOnRefresh(storyId, 'schedule', story.cacheSchedule, queryData).catch(async (error) => {
+		await deliverStoryOnRefresh(storyId, story.cacheSchedule, queryData).catch(async (error) => {
 			logger.error(`Story delivery after scheduled refresh failed; enqueuing retry: ${String(error)}`, {
 				source: 'system',
 				projectId,

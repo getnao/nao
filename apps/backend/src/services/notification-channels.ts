@@ -20,6 +20,7 @@ export interface DeliverableNotification {
 	payload?: Record<string, unknown>;
 	projectId: string;
 	emailAttachments?: EmailAttachment[];
+	emailBodyHtml?: string;
 	emailOverride?: (recipient: NotificationRecipient, unsubscribeUrl?: string) => CreatedEmail;
 }
 
@@ -68,6 +69,7 @@ const emailChannel: NotificationChannelHandler = {
 				notification.ctaLabel,
 				notification.emailAttachments,
 				unsubscribeUrl,
+				notification.emailBodyHtml,
 			),
 		);
 	},
@@ -98,8 +100,9 @@ const slackChannel: NotificationChannelHandler = {
 		const unsubscribeUrl = scope ? buildUnsubscribeUrl(recipient.id, scope) : undefined;
 
 		const files = (notification.emailAttachments ?? [])
-			.filter((attachment): attachment is typeof attachment & { content: Buffer } =>
-				Buffer.isBuffer(attachment.content),
+			.filter(
+				(attachment): attachment is typeof attachment & { content: Buffer } =>
+					Buffer.isBuffer(attachment.content) && !attachment.cid,
 			)
 			.map((attachment) => ({
 				filename: attachment.filename,

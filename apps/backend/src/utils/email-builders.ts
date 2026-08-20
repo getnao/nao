@@ -70,10 +70,11 @@ export function buildNotificationEmail(
 	ctaLabel?: string,
 	attachments?: EmailAttachment[],
 	unsubscribeUrl?: string,
+	bodyHtml?: string,
 ): CreatedEmail {
 	const subject = `${title} — nao`;
 	const html = renderToString(
-		NotificationEmail({ userName: user.name, title, body, linkUrl, ctaLabel, unsubscribeUrl }),
+		NotificationEmail({ userName: user.name, title, body, bodyHtml, linkUrl, ctaLabel, unsubscribeUrl }),
 	);
 	return { subject, html, ...(attachments && attachments.length > 0 ? { attachments } : {}) };
 }
