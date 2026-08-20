@@ -17,7 +17,7 @@ const DATA_LABEL_FONT_SIZE = 11;
 /** Approximate glyph width as a fraction of the font size; used to size collision boxes without a DOM. */
 const DATA_LABEL_CHAR_WIDTH_RATIO = 0.6;
 /** Vertical clearance between the anchor point/line (or bar edge) and the nearest edge of a label. */
-const DATA_LABEL_ANCHOR_GAP = 8;
+export const DATA_LABEL_ANCHOR_GAP = 8;
 /** Padding added around each label's collision box so neighbours keep a little breathing room. */
 const DATA_LABEL_BOX_PADDING = 2;
 /** Series kinds whose points we place labels for; stacked/pie use their own paths. */

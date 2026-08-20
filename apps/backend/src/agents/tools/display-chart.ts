@@ -58,6 +58,14 @@ export default createTool<displayChart.Input, displayChart.Output>({
 			};
 		}
 
+		if (chartType === 'progress_bar' && series.length !== 1) {
+			return {
+				_version: '1',
+				success: false,
+				error: 'Progress bar charts require exactly one series.',
+			};
+		}
+
 		// Validate series is not empty
 		if (series.length === 0) {
 			return { _version: '1', success: false, error: 'At least one series is required.' };

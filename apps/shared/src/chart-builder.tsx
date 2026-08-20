@@ -23,6 +23,7 @@ import {
 } from 'recharts';
 
 import {
+	DATA_LABEL_ANCHOR_GAP,
 	DATA_LABEL_MARGIN_TOP,
 	DATA_LABEL_X_AXIS_FOOTROOM,
 	getDataLabelSetup,
@@ -47,7 +48,8 @@ import * as displayChart from './tools/display-chart';
 
 export const DEFAULT_COLORS = ['#104e64', '#f54900', '#009689', '#ffb900', '#fe9a00'];
 
-const AXIS_TICK = { fontSize: 12 };
+const CHART_LABEL_FONT_SIZE = 12;
+const AXIS_TICK = { fontSize: CHART_LABEL_FONT_SIZE };
 const CATEGORY_XAXIS_HEIGHT = 56;
 const X_AXIS_LABEL_HEIGHT = 22;
 
@@ -65,6 +67,8 @@ const STACK_SEPARATOR_WIDTH = 1;
  * passes an explicit `backgroundColor` and CSS vars do not resolve.
  */
 const DEFAULT_BACKGROUND = 'var(--background, #ffffff)';
+/** Resolves from the browser theme, with a concrete fallback for backend exports. */
+const MUTED_FOREGROUND = 'var(--muted-foreground, #6b7280)';
 
 /**
  * Reserved width for the Y axis band. Smaller than the Recharts default (60)
@@ -76,6 +80,14 @@ const VALUE_AXIS_DEFAULT_WIDTH = 40;
 const VALUE_AXIS_MAX_WIDTH = 120;
 const VALUE_AXIS_CHARACTER_WIDTH = 7;
 const VALUE_AXIS_PADDING = 12;
+const PROGRESS_CATEGORY_AXIS_MIN_WIDTH = 60;
+const PROGRESS_CATEGORY_AXIS_MAX_WIDTH = 180;
+const PROGRESS_CATEGORY_MAX_LABEL_CHARS = 24;
+const PROGRESS_BAR_SIZE = 10;
+const PROGRESS_BAR_RADIUS = 999;
+const PROGRESS_TRACK_COLOR = 'var(--muted, #e5e7eb)';
+const PROGRESS_ORIGINAL_VALUE_KEY = '__naoProgressValue';
+const PROGRESS_VALUE_LABEL_RIGHT_PADDING = 4;
 /** Reserves horizontal room for a rotated axis title so it does not overlap tick values. */
 const AXIS_LABEL_WIDTH = 20;
 
@@ -342,6 +354,9 @@ export function buildChart(props: BuildChartProps) {
 	if (resolved.chartType === 'radar') {
 		return buildRadarChart(resolved);
 	}
+	if (resolved.chartType === 'progress_bar') {
+		return buildProgressChart(resolved);
+	}
 	return buildBarChart(resolved);
 }
 
@@ -562,14 +577,7 @@ function renderCategoryXAxis({
 	xAxisLabel?: string;
 }) {
 	const tickFormatter = compact
-		? (value: string) => {
-				const label = labelFormatter(value);
-				if (maxLabelChars == null) {
-					return label;
-				}
-				const cap = Math.max(3, maxLabelChars);
-				return label.length > cap ? `${label.slice(0, cap - 1)}…` : label;
-			}
+		? (value: string) => formatCategoryTick(value, labelFormatter, maxLabelChars)
 		: labelFormatter;
 
 	return (
@@ -587,6 +595,167 @@ function renderCategoryXAxis({
 			height={CATEGORY_XAXIS_HEIGHT + labelFootroom + (xAxisLabel ? X_AXIS_LABEL_HEIGHT : 0)}
 			label={xAxisLabelProps(xAxisLabel)}
 			{...(compact ? { angle: -35, textAnchor: 'end' as const } : {})}
+		/>
+	);
+}
+
+function formatCategoryTick(value: string, labelFormatter: (value: string) => string, maxLabelChars?: number): string {
+	const label = labelFormatter(value);
+	if (maxLabelChars == null) {
+		return label;
+	}
+	const cap = Math.max(3, maxLabelChars);
+	return label.length > cap ? `${label.slice(0, cap - 1)}…` : label;
+}
+
+function buildProgressChart(props: ResolvedProps) {
+	const { data, xAxisKey, series, colorFor, labelFormatter, children, xAxisMaxLabelChars } = props;
+	const progressSeries = series[0];
+	const dataKey = progressSeries.data_key;
+	const values = data.map((row) => toFiniteNumber(row[dataKey]) ?? 0);
+	const maximum = values.reduce((current, value) => Math.max(current, Math.abs(value)), 0) || 1;
+	const valueFormat = getChartLevelValueFormat(series);
+	const showValueLabels = displayChart.resolveShowDataLabels(props.chartType, props.showDataLabels);
+	const labelCharacterLimit = xAxisMaxLabelChars ?? PROGRESS_CATEGORY_MAX_LABEL_CHARS;
+	const tickFormatter = (value: string) => formatCategoryTick(value, labelFormatter, labelCharacterLimit);
+	const categoryAxisWidth = computeProgressCategoryAxisWidth(data, xAxisKey, tickFormatter);
+	const valueLabelWidth = showValueLabels ? computeProgressValueLabelWidth(values, valueFormat) : 0;
+	const progressValueLabelsLayer = showValueLabels
+		? createProgressValueLabelsLayer(valueFormat, valueLabelWidth)
+		: undefined;
+	const margin = {
+		...props.margin,
+		right: (props.margin?.right ?? 0) + valueLabelWidth,
+	};
+	const progressData = data.map((row) => {
+		const value = toFiniteNumber(row[dataKey]) ?? 0;
+		return {
+			...row,
+			[PROGRESS_ORIGINAL_VALUE_KEY]: value,
+			[dataKey]: Math.abs(value),
+		};
+	});
+
+	return (
+		<BarChart data={progressData} layout='vertical' accessibilityLayer margin={margin}>
+			<XAxis type='number' hide domain={[0, maximum]} />
+			<YAxis
+				type='category'
+				dataKey={xAxisKey}
+				tick={AXIS_TICK}
+				tickLine={false}
+				axisLine={false}
+				width={categoryAxisWidth}
+				tickFormatter={tickFormatter}
+			/>
+			{children}
+			<Bar
+				dataKey={dataKey}
+				fill={colorFor(dataKey, 0)}
+				radius={[PROGRESS_BAR_RADIUS, PROGRESS_BAR_RADIUS, PROGRESS_BAR_RADIUS, PROGRESS_BAR_RADIUS]}
+				background={renderProgressBarBackground}
+				barSize={PROGRESS_BAR_SIZE}
+				isAnimationActive={Boolean(props.animate)}
+				animationDuration={CHART_ANIMATION_DURATION_MS}
+			/>
+			{progressValueLabelsLayer && <Customized component={progressValueLabelsLayer} />}
+		</BarChart>
+	);
+}
+
+function computeProgressCategoryAxisWidth(
+	data: Record<string, unknown>[],
+	xAxisKey: string,
+	tickFormatter: (value: string) => string,
+): number {
+	const longestLabelLength = data.reduce(
+		(current, row) => Math.max(current, tickFormatter(String(row[xAxisKey] ?? '')).length),
+		0,
+	);
+	return Math.min(
+		PROGRESS_CATEGORY_AXIS_MAX_WIDTH,
+		Math.max(
+			PROGRESS_CATEGORY_AXIS_MIN_WIDTH,
+			longestLabelLength * VALUE_AXIS_CHARACTER_WIDTH + VALUE_AXIS_PADDING,
+		),
+	);
+}
+
+function computeProgressValueLabelWidth(values: number[], valueFormat?: displayChart.ValueFormat): number {
+	const longestLabelLength = values.reduce(
+		(current, value) => Math.max(current, formatChartValue(value, valueFormat).length),
+		0,
+	);
+	return Math.max(
+		VALUE_AXIS_DEFAULT_WIDTH,
+		longestLabelLength * VALUE_AXIS_CHARACTER_WIDTH + DATA_LABEL_ANCHOR_GAP + PROGRESS_VALUE_LABEL_RIGHT_PADDING,
+	);
+}
+
+interface ProgressGraphicalPoint {
+	y?: number;
+	height?: number;
+	payload?: Record<string, unknown>;
+}
+
+interface ProgressLabelsLayerProps {
+	formattedGraphicalItems?: Array<{
+		item?: { type?: { displayName?: string } };
+		props?: { data?: ProgressGraphicalPoint[] };
+	}>;
+	offset?: {
+		left?: number;
+		width?: number;
+	};
+}
+
+function createProgressValueLabelsLayer(valueFormat: displayChart.ValueFormat | undefined, valueLabelWidth: number) {
+	function ProgressValueLabelsLayer({ formattedGraphicalItems, offset }: ProgressLabelsLayerProps) {
+		const bar = formattedGraphicalItems?.find((item) => item.item?.type?.displayName === 'Bar');
+		const trackEnd = (toFiniteNumber(offset?.left) ?? 0) + (toFiniteNumber(offset?.width) ?? 0);
+		const labelX = trackEnd + valueLabelWidth - PROGRESS_VALUE_LABEL_RIGHT_PADDING;
+		const points = bar?.props?.data ?? [];
+		if (points.length === 0) {
+			return null;
+		}
+		return (
+			<g className='recharts-progress-value-labels'>
+				{points.map((point) => {
+					const y = toFiniteNumber(point.y);
+					const height = toFiniteNumber(point.height);
+					if (y == null || height == null) {
+						return null;
+					}
+					const value = toFiniteNumber(point.payload?.[PROGRESS_ORIGINAL_VALUE_KEY]) ?? 0;
+					return (
+						<text
+							key={`${y}-${value}`}
+							x={labelX}
+							y={y + height / 2}
+							fill={MUTED_FOREGROUND}
+							fontSize={CHART_LABEL_FONT_SIZE}
+							textAnchor='end'
+							dominantBaseline='central'
+							className='recharts-progress-value-label'
+						>
+							{formatChartValue(value, valueFormat)}
+						</text>
+					);
+				})}
+			</g>
+		);
+	}
+	ProgressValueLabelsLayer.displayName = 'ProgressValueLabelsLayer';
+	return ProgressValueLabelsLayer;
+}
+
+function renderProgressBarBackground(backgroundProps: unknown) {
+	const rectProps = backgroundProps as RectangleProps;
+	return (
+		<Rectangle
+			{...rectProps}
+			fill={PROGRESS_TRACK_COLOR}
+			radius={[PROGRESS_BAR_RADIUS, PROGRESS_BAR_RADIUS, PROGRESS_BAR_RADIUS, PROGRESS_BAR_RADIUS]}
 		/>
 	);
 }
@@ -1008,7 +1177,11 @@ function renderComboSeries(
 	);
 }
 
-const AXIS_LABEL_STYLE = { textAnchor: 'middle' as const, fontSize: 12, fill: 'var(--muted-foreground, #6b7280)' };
+const AXIS_LABEL_STYLE = {
+	textAnchor: 'middle' as const,
+	fontSize: CHART_LABEL_FONT_SIZE,
+	fill: MUTED_FOREGROUND,
+};
 
 function axisLabel(label: string | undefined, side: displayChart.YAxisSide) {
 	if (!label) {

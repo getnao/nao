@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 const CHART_TYPE_OPTIONS: { value: displayChart.ChartType; label: string }[] = [
 	{ value: 'bar', label: 'Bar' },
 	{ value: 'stacked_bar', label: 'Stacked bar' },
+	{ value: 'progress_bar', label: 'Progress bar' },
 	{ value: 'line', label: 'Line' },
 	{ value: 'area', label: 'Area' },
 	{ value: 'stacked_area', label: 'Stacked area' },
@@ -50,7 +51,12 @@ const SERIES_TYPE_OPTIONS: { value: displayChart.SeriesType; label: string; icon
 	{ value: 'area', label: 'Area', icon: ChartArea },
 ];
 
-const Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES = new Set<displayChart.ChartType>(['pie', 'kpi_card', 'radar']);
+const Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES = new Set<displayChart.ChartType>([
+	'pie',
+	'kpi_card',
+	'radar',
+	'progress_bar',
+]);
 
 type UnitPlacement = 'prefix' | 'suffix';
 
@@ -654,7 +660,7 @@ export function ChartConfigEditDialog({
 							</label>
 							<Switch
 								id='show-data-labels'
-								checked={Boolean(draft.show_data_labels)}
+								checked={displayChart.resolveShowDataLabels(draft.chart_type, draft.show_data_labels)}
 								onCheckedChange={(v) => setDraft((prev) => ({ ...prev, show_data_labels: v }))}
 							/>
 						</div>
