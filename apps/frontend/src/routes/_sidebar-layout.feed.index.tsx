@@ -15,6 +15,7 @@ import { SettingsCard } from '@/components/ui/settings-card';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useSession } from '@/lib/auth-client';
 import { getActiveProjectId } from '@/lib/active-project';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
@@ -32,6 +33,8 @@ export const Route = createFileRoute('/_sidebar-layout/feed/')({
 function FeedPage() {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
+	const { data: session } = useSession();
+	const currentUserName = session?.user?.name ?? null;
 	const { isViewer } = usePermissions();
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const automationsEnabled = config.data?.betaAutomationsEnabled === true && !isViewer;
@@ -104,7 +107,10 @@ function FeedPage() {
 	const unreadRunCount = useUnreadAutomationRunCount(automationsEnabled, project.data?.id).data ?? 0;
 	const hasUnread = unreadNotificationCount > 0 || unreadRunCount > 0;
 	const [filters, setFilters] = useFeedFilters();
-	const displayedItems = useMemo(() => applyFeedFilters(feedItems, filters), [feedItems, filters]);
+	const displayedItems = useMemo(
+		() => applyFeedFilters(feedItems, filters, currentUserName),
+		[feedItems, filters, currentUserName],
+	);
 	const lastSeenAt = useFeedLastSeen(feedItems);
 	const isLoading = notifications.isLoading || (automationsEnabled && feed.isLoading);
 
@@ -141,6 +147,7 @@ function FeedPage() {
 								onChange={setFilters}
 								items={feedItems}
 								showAutomations={automationsEnabled}
+								currentUserName={currentUserName}
 							/>
 						)}
 						{automationsEnabled && (
