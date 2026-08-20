@@ -107,7 +107,7 @@ function buildScopedViews(
 
 	const messages = {
 		chat_id: chatMessage.chatId,
-		message_id: chatMessage.id,
+		message_id: sql<string>`${chatMessage.id}`.as('message_id'),
 		user_id: chat.userId,
 		user_name: sql<string>`${user.name}`.as('user_name'),
 		title: chat.title,
