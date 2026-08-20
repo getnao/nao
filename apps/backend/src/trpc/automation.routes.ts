@@ -198,6 +198,10 @@ export const automationRoutes = {
 		return { ...fresh, alreadyTerminal: !updated };
 	}),
 
+	unreadCount: automationReadProcedure.query(async ({ ctx }): Promise<number> => {
+		return automationQueries.countUnreadAutomationRuns(ctx.project.id, ctx.user.id);
+	}),
+
 	markRunRead: automationReadProcedure.input(z.object({ runId: z.string() })).mutation(async ({ ctx, input }) => {
 		const marked = await automationQueries.markAutomationRunRead(ctx.project.id, ctx.user.id, input.runId);
 		if (!marked) {

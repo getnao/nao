@@ -1,5 +1,5 @@
 import { displayChart, executeSql } from '@nao/shared/tools';
-import { and, asc, desc, eq, inArray, isNull, lte, ne } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, lte, ne } from 'drizzle-orm';
 
 import s, {
 	type DBAutomation,
@@ -271,6 +271,18 @@ export const markAutomationRunRead = async (projectId: string, userId: string, r
 	}
 	await db.update(s.automationRun).set({ readAt: new Date() }).where(eq(s.automationRun.id, runId)).execute();
 	return true;
+};
+
+export const countUnreadAutomationRuns = async (projectId: string, userId: string): Promise<number> => {
+	const [row] = await db
+		.select({ value: count() })
+		.from(s.automationRun)
+		.innerJoin(s.automation, eq(s.automation.id, s.automationRun.automationId))
+		.where(
+			and(eq(s.automation.projectId, projectId), eq(s.automation.userId, userId), isNull(s.automationRun.readAt)),
+		)
+		.execute();
+	return row?.value ?? 0;
 };
 
 export const markAllAutomationRunsRead = async (projectId: string, userId: string): Promise<void> => {

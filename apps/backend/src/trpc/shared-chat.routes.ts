@@ -6,6 +6,7 @@ import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as storyQueries from '../queries/story.queries';
+import * as userQueries from '../queries/user.queries';
 import { logActivity } from '../services/activity';
 import { getStoryQueryData } from '../services/live-story';
 import { notifySharedItem } from '../services/notification.service';
@@ -145,10 +146,11 @@ export const sharedChatRoutes = {
 
 			const newlyAddedUserIds = validUserIds.filter((id) => !previousAllowedUserIds.includes(id));
 			if (newlyAddedUserIds.length > 0) {
+				const ownerName = (await userQueries.getUserName(chatOwnerId)) ?? ctx.user.name;
 				notifySharedItem({
 					projectId: ctx.resource.projectId,
-					sharerId: ctx.user.id,
-					sharerName: ctx.user.name,
+					sharerId: chatOwnerId,
+					sharerName: ownerName,
 					shareId: input.shareId,
 					itemLabel: 'chat',
 					itemTitle: ctx.resource.title || '',

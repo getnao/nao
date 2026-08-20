@@ -18,7 +18,12 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { getActiveProjectId } from '@/lib/active-project';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
-import { useNotificationMutations, useNotifications } from '@/queries/use-notifications';
+import {
+	useNotificationMutations,
+	useNotifications,
+	useUnreadAutomationRunCount,
+	useUnreadCount,
+} from '@/queries/use-notifications';
 
 export const Route = createFileRoute('/_sidebar-layout/feed/')({
 	component: FeedPage,
@@ -30,6 +35,7 @@ function FeedPage() {
 	const { isViewer } = usePermissions();
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const automationsEnabled = config.data?.betaAutomationsEnabled === true && !isViewer;
+	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const [isCreating, setIsCreating] = useState(false);
 
 	const automations = useQuery({ ...trpc.automation.list.queryOptions(), enabled: automationsEnabled });
@@ -46,15 +52,16 @@ function FeedPage() {
 	const { markRead, markAllRead } = useNotificationMutations();
 	const createAutomation = useMutation(trpc.automation.create.mutationOptions());
 	const cancelRun = useMutation(trpc.automation.cancelRun.mutationOptions());
+	const invalidateAutomationFeedCaches = () =>
+		Promise.all([
+			queryClient.invalidateQueries({ queryKey: trpc.automation.feed.queryKey() }),
+			queryClient.invalidateQueries({ queryKey: trpc.automation.unreadCount.queryKey() }),
+		]);
 	const markRunRead = useMutation(
-		trpc.automation.markRunRead.mutationOptions({
-			onSuccess: () => queryClient.invalidateQueries({ queryKey: trpc.automation.feed.queryKey() }),
-		}),
+		trpc.automation.markRunRead.mutationOptions({ onSuccess: invalidateAutomationFeedCaches }),
 	);
 	const markAllRunsRead = useMutation(
-		trpc.automation.markAllRunsRead.mutationOptions({
-			onSuccess: () => queryClient.invalidateQueries({ queryKey: trpc.automation.feed.queryKey() }),
-		}),
+		trpc.automation.markAllRunsRead.mutationOptions({ onSuccess: invalidateAutomationFeedCaches }),
 	);
 
 	async function handleCreate(value: AutomationFormValue) {
@@ -93,7 +100,9 @@ function FeedPage() {
 		[notifications.data],
 	);
 	const feedItems = useMemo(() => mergeFeedItems(feed.data ?? [], notificationItems), [feed.data, notificationItems]);
-	const hasUnread = useMemo(() => feedItems.some(isFeedItemUnread), [feedItems]);
+	const unreadNotificationCount = useUnreadCount(project.data?.id).data ?? 0;
+	const unreadRunCount = useUnreadAutomationRunCount(automationsEnabled, project.data?.id).data ?? 0;
+	const hasUnread = unreadNotificationCount > 0 || unreadRunCount > 0;
 	const [filters, setFilters] = useFeedFilters();
 	const displayedItems = useMemo(() => applyFeedFilters(feedItems, filters), [feedItems, filters]);
 	const lastSeenAt = useFeedLastSeen(feedItems);
@@ -260,13 +269,6 @@ function isFeedItemRunning(item: AutomationFeedItem): boolean {
 		return item.run.status === 'running';
 	}
 	return false;
-}
-
-function isFeedItemUnread(item: AutomationFeedItem): boolean {
-	if (item.kind === 'automation') {
-		return !item.run.readAt;
-	}
-	return !item.notification.readAt;
 }
 
 function getFeedLastSeenKey(): string | null {

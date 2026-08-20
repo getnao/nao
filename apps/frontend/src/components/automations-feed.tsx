@@ -435,7 +435,11 @@ function AutomationRunCard({
 									className='size-7 text-muted-foreground rounded-full'
 									asChild
 								>
-									<Link to='/$chatId' params={{ chatId: run.chatId }}>
+									<Link
+										to='/$chatId'
+										params={{ chatId: run.chatId }}
+										onClick={() => onOpen?.(run.id)}
+									>
 										<MessageSquare className='size-3.5' />
 									</Link>
 								</Button>
@@ -443,9 +447,7 @@ function AutomationRunCard({
 							<TooltipContent>Open chat</TooltipContent>
 						</Tooltip>
 					)}
-					<Badge variant='secondary' className='shrink-0'>
-						Automation
-					</Badge>
+					<RunStatusBadge status={run.status} integrationResults={run.integrationResults} />
 				</div>
 			</header>
 
@@ -483,6 +485,51 @@ function SharedObjectBadge({ itemLabel }: { itemLabel: SharedItemLabel }) {
 	return (
 		<Badge variant='secondary' className='shrink-0'>
 			{itemLabel === 'story' ? 'Story shared' : 'Chat shared'}
+		</Badge>
+	);
+}
+
+function RunStatusBadge({
+	status,
+	integrationResults,
+}: {
+	status: AutomationFeedRunStatus;
+	integrationResults: AutomationFeedIntegrationResult[];
+}) {
+	if (status === 'failed') {
+		return (
+			<Badge variant='destructive' className='shrink-0'>
+				Failed
+			</Badge>
+		);
+	}
+	if (status === 'cancelled') {
+		return (
+			<Badge variant='outline' className='shrink-0 text-muted-foreground'>
+				Cancelled
+			</Badge>
+		);
+	}
+	if (status === 'running') {
+		return (
+			<Badge variant='secondary' className='shrink-0 animate-pulse'>
+				Running
+			</Badge>
+		);
+	}
+	if (integrationResults.some((result) => !result.ok)) {
+		return (
+			<Badge
+				variant='secondary'
+				className='shrink-0 border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400'
+			>
+				Completed with errors
+			</Badge>
+		);
+	}
+	return (
+		<Badge variant='secondary' className='shrink-0'>
+			Completed
 		</Badge>
 	);
 }
