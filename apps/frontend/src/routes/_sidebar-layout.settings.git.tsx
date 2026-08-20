@@ -273,7 +273,7 @@ function GitSettingsPage() {
 				titleSize='lg'
 				description='Manage the repository and accounts used to edit context files and open review requests.'
 				unstyled
-				className='gap-10 px-4'
+				className='gap-10'
 			>
 				{isLoading ? (
 					<div className='flex items-center justify-center py-10'>

@@ -7,6 +7,7 @@ export interface SettingsSearchEntry {
 	keywords?: string[];
 	search?: Record<string, string>;
 	adminOnly?: boolean;
+	orgAdminOnly?: boolean;
 	/** Visible to admins and context admins (observability surfaces). */
 	adminOrContextAdmin?: boolean;
 	cloudHidden?: boolean;
@@ -71,8 +72,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 
 	// ── Organization ─────────────────────────────────────────
 	{
-		page: '/settings/organization',
-		pageLabel: 'Organization Settings',
+		page: '/settings/organization/members',
+		pageLabel: 'Members',
 		title: 'Members',
 		description: 'Manage the members of your organization.',
 		keywords: ['users', 'invite', 'add member', 'roles', 'team'],
@@ -113,19 +114,38 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Organization API Keys',
 		description: 'Generate organization-scoped API keys for actions like deploying a project from the nao CLI.',
 		keywords: ['api key', 'deploy key', 'token', 'credentials'],
+		orgAdminOnly: true,
 	},
 
-	// ── Project > General ────────────────────────────────────
+	{
+		page: '/settings/organization',
+		pageLabel: 'Organization Settings',
+		section: 'Projects',
+		title: 'Project names and paths',
+		description: 'View the name and filesystem path of each project in your organization.',
+		keywords: ['project name', 'project path'],
+	},
+	{
+		page: '/settings/organization',
+		pageLabel: 'Organization Settings',
+		title: 'Google SSO',
+		description: 'Configure Google sign-in credentials and allowed domains for this nao instance.',
+		keywords: ['google', 'bigquery', 'service account', 'gcp', 'sso', 'client id', 'auth domain'],
+		orgAdminOnly: true,
+		cloudHidden: true,
+	},
+
+	// ── Project Settings ─────────────────────────────────────
 	{
 		page: '/settings/project',
-		pageLabel: 'General',
-		title: 'Project Information',
-		description: 'View your project name and path.',
+		pageLabel: 'Project Settings',
+		title: 'Information',
+		description: 'View your project name and filesystem path.',
 		keywords: ['project name', 'project path'],
 	},
 	{
 		page: '/settings/project',
-		pageLabel: 'General',
+		pageLabel: 'Project Settings',
 		title: 'Environment Variables',
 		description: 'Set environment variables referenced in nao_config.yaml.',
 		keywords: ['env', 'environment', 'variable', 'secret', 'credential', 'config', 'jinja'],
@@ -133,15 +153,33 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/project',
-		pageLabel: 'General',
-		title: 'Google Credentials',
-		description: 'Configure Google service account credentials for BigQuery and other Google services.',
-		keywords: ['google', 'bigquery', 'service account', 'gcp'],
-		adminOnly: true,
+		pageLabel: 'Project Settings',
+		section: 'Budgets',
+		title: 'Budgets',
+		description: 'Limit the budgets of your most expensive providers.',
+		keywords: ['budget', 'provider limit', 'spend', 'cost'],
 	},
 	{
 		page: '/settings/project',
-		pageLabel: 'General',
+		pageLabel: 'Project Settings',
+		section: 'Budgets',
+		title: 'Spend per user',
+		description: 'Review current-period spend for each project member.',
+		keywords: ['user budget', 'member spend', 'cost per user'],
+		adminOnly: true,
+	},
+
+	// ── Appearance ───────────────────────────────────────────
+	{
+		page: '/settings/appearance',
+		pageLabel: 'Appearance',
+		title: 'Appearance',
+		description: 'Control how nao formats dates and displays map boundaries.',
+		keywords: ['look', 'format', 'display', 'date', 'map', 'geojson'],
+	},
+	{
+		page: '/settings/appearance',
+		pageLabel: 'Appearance',
 		title: 'Date format',
 		description: 'Choose how dates are displayed in charts, tooltips and query result tables.',
 		keywords: [
@@ -157,11 +195,21 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'pattern',
 		],
 	},
-
-	// ── Project > Models ─────────────────────────────────────
 	{
-		page: '/settings/project/models',
-		pageLabel: 'Models',
+		page: '/settings/appearance',
+		pageLabel: 'Appearance',
+		title: 'GeoJSON Boundary Library',
+		description: 'Add custom GeoJSON boundary sets the agent can use for choropleth maps.',
+		keywords: ['geojson', 'boundaries', 'choropleth', 'map', 'regions', 'custom', 'polygon'],
+		adminOnly: true,
+	},
+
+	// ── Project > Agent > Models ─────────────────────────────
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'Models',
+		search: { tab: 'models' },
 		title: 'LLM Configuration',
 		description: 'Configure the LLM providers for the agent in this project.',
 		keywords: [
@@ -186,8 +234,10 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		adminOnly: true,
 	},
 	{
-		page: '/settings/project/models',
-		pageLabel: 'Models',
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'Models',
+		search: { tab: 'models' },
 		title: 'Model parameters',
 		description:
 			'Fine-tune per-model inference parameters like temperature, top_p, top_k, max tokens and thinking effort.',
@@ -206,8 +256,10 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		],
 	},
 	{
-		page: '/settings/project/models',
-		pageLabel: 'Models',
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'Models',
+		search: { tab: 'models' },
 		title: 'Default models',
 		description: 'Choose which models nao uses for background tasks that run without an explicit model selection.',
 		keywords: [
@@ -225,8 +277,10 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		adminOnly: true,
 	},
 	{
-		page: '/settings/project/models',
-		pageLabel: 'Models',
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'Models',
+		search: { tab: 'models' },
 		title: 'Transcription',
 		description: 'Configure speech-to-text transcription provider and model.',
 		keywords: ['voice', 'speech', 'microphone', 'whisper', 'stt'],
@@ -237,13 +291,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
 		section: 'Memory',
-		title: 'Project Memory',
-		description: 'Memories enable nao to remember preferences and facts about team members.',
+		search: { tab: 'memory' },
+		title: 'Project-wide memory',
+		description: 'Admins control whether memory is available to everyone in this project.',
 		keywords: ['remember', 'learn', 'personalization'],
 	},
 	{
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
+		section: 'Capabilities',
+		search: { tab: 'tools' },
 		title: 'Web search',
 		description: 'Allow the agent to search the web for up-to-date information when answering questions.',
 		keywords: ['internet', 'browse', 'fetch', 'online'],
@@ -251,6 +308,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
+		section: 'Capabilities',
+		search: { tab: 'tools' },
 		title: 'Saved Prompts',
 		description: 'Save repeatable, customizable prompts for the agent to follow.',
 		keywords: ['prompt template', 'instruction', 'preset'],
@@ -258,6 +317,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
+		section: 'Capabilities',
+		search: { tab: 'tools' },
 		title: 'Maps',
 		description: 'Enable the agent to render query results on an interactive map.',
 		keywords: ['display map', 'choropleth', 'points', 'scatter', 'bubble', 'geospatial'],
@@ -266,15 +327,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
-		title: 'GeoJSON Boundary Library',
-		description: 'Add custom GeoJSON boundary sets the agent can use for choropleth maps.',
-		keywords: ['geojson', 'boundaries', 'choropleth', 'map', 'regions', 'custom', 'polygon'],
-		adminOnly: true,
-	},
-	{
-		page: '/settings/project/agent',
-		pageLabel: 'Agent',
 		section: 'Experimental',
+		search: { tab: 'tools' },
 		title: 'Python sandboxing',
 		description: 'Allow the agent to execute Python code in a secure sandboxed environment.',
 		keywords: ['code execution', 'sandbox', 'python'],
@@ -283,6 +337,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
 		section: 'Experimental',
+		search: { tab: 'tools' },
 		title: 'Python execution duration',
 		description: 'Configure how long Python code can run before it is stopped.',
 		keywords: ['code execution', 'timeout', 'duration', 'python', 'seconds'],
@@ -291,6 +346,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
 		section: 'Experimental',
+		search: { tab: 'tools' },
 		title: 'Sandboxes',
 		description: 'Allow the agent to use sandboxes to run code in a secure environment. Works with Boxlite.',
 		keywords: ['boxlite', 'code execution'],
@@ -299,6 +355,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
 		section: 'Experimental',
+		search: { tab: 'tools' },
 		title: 'Display map',
 		description:
 			'Allow the agent to render query results with latitude and longitude columns on an interactive map.',
@@ -308,17 +365,18 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
 		section: 'Experimental',
+		search: { tab: 'tools' },
 		title: 'Dangerous write permissions',
 		description: 'Allow the agent to execute INSERT, UPDATE, DELETE and DDL SQL queries.',
 		keywords: ['write', 'insert', 'update', 'delete', 'ddl', 'sql', 'permissions'],
 	},
 
-	// ── Project > MCP ────────────────────────────────────────
+	// ── Project > Agent > MCP servers ───────────────────────
 	{
-		page: '/settings/project/mcp',
-		pageLabel: 'MCP',
-		section: 'Servers',
-		search: { tab: 'servers' },
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'MCP servers',
+		search: { tab: 'mcp-servers' },
 		title: 'MCP Servers',
 		description:
 			'Configure MCP servers in agent/mcps/mcp.json. nao discovers their tools into OpenAPI specs the agent explores on demand.',
@@ -384,31 +442,28 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		adminOrContextAdmin: true,
 	},
 
-	// ── Project > MCP Endpoint ──────────────────────────────
+	// ── Project > Integrations > nao MCP ────────────────────
 	{
-		page: '/settings/project/mcp',
-		pageLabel: 'MCP',
-		section: 'Endpoints',
-		search: { tab: 'endpoints' },
+		page: '/settings/project/integrations/nao-mcp',
+		pageLabel: 'Integrations',
+		section: 'nao MCP',
 		title: 'MCP Server Endpoint',
 		description: 'Allow external AI clients to connect to this workspace via MCP.',
 		keywords: ['model context protocol', 'claude desktop', 'cursor', 'external', 'api', 'bearer'],
 	},
 	{
-		page: '/settings/project/mcp',
-		pageLabel: 'MCP',
-		section: 'Endpoints',
-		search: { tab: 'endpoints' },
+		page: '/settings/project/integrations/nao-mcp',
+		pageLabel: 'Integrations',
+		section: 'nao MCP',
 		title: 'Sub-agent mode',
 		description:
 			"Exposes ask_nao and get_nao_answer — delegates the full analytics task to nao's agent. The reasoning trace is saved as a chat in the nao UI.",
 		keywords: ['ask_nao', 'get_nao_answer', 'agent', 'analytics', 'delegate', 'sub-agent'],
 	},
 	{
-		page: '/settings/project/mcp',
-		pageLabel: 'MCP',
-		section: 'Endpoints',
-		search: { tab: 'endpoints' },
+		page: '/settings/project/integrations/nao-mcp',
+		pageLabel: 'Integrations',
+		section: 'nao MCP',
 		title: 'Context-layer mode',
 		description:
 			'Exposes ls_nao_context, grep_nao_context, read_nao_context, execute_sql, create_story, update_story — the client MCP drives the workflow step by step.',
@@ -588,26 +643,9 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/team',
 		pageLabel: 'Team',
-		title: 'Team Members',
+		title: 'Members',
 		description: 'Manage the members of your project.',
 		keywords: ['users', 'invite', 'add member', 'roles', 'project members'],
-	},
-	{
-		page: '/settings/project/team',
-		pageLabel: 'Team',
-		section: 'Budgets',
-		title: 'Budgets',
-		description: 'Limit the budgets of your most expensive providers.',
-		keywords: ['budget', 'provider limit', 'spend', 'cost'],
-	},
-	{
-		page: '/settings/project/team',
-		pageLabel: 'Team',
-		section: 'Budgets',
-		title: 'Spend per user',
-		description: 'Review current-period spend for each project member.',
-		keywords: ['user budget', 'member spend', 'cost per user'],
-		adminOnly: true,
 	},
 
 	// ── Usage & Costs ────────────────────────────────────────
@@ -713,9 +751,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	// ── Enterprise ───────────────────────────────────────────
 	{
 		page: '/settings/enterprise',
-		pageLabel: 'License & branding',
-		section: 'License',
-		search: { tab: 'license' },
+		pageLabel: 'Enterprise',
 		title: 'License',
 		description: 'View the status of your nao Enterprise license.',
 		keywords: ['enterprise', 'license', 'subscription', 'activation', 'sso', 'nao_license', 'ee'],
@@ -724,9 +760,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/enterprise',
-		pageLabel: 'License & branding',
-		section: 'License',
-		search: { tab: 'license' },
+		pageLabel: 'Enterprise',
 		title: 'Enterprise features',
 		description: 'Enterprise capabilities enabled by your license.',
 		keywords: ['features', 'sso', 'enterprise', 'plan'],
@@ -735,9 +769,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/enterprise',
-		pageLabel: 'License & branding',
-		section: 'License',
-		search: { tab: 'license' },
+		pageLabel: 'Enterprise',
 		title: 'Single sign-on token',
 		description: 'Inspect the claims your identity provider sent and how they resolved to a role.',
 		keywords: [
@@ -757,11 +789,12 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		adminOnly: true,
 		cloudHidden: true,
 	},
+
+	// ── Appearance > Branding ────────────────────────────────
 	{
-		page: '/settings/enterprise',
-		pageLabel: 'License & branding',
+		page: '/settings/appearance',
+		pageLabel: 'Appearance',
 		section: 'Branding',
-		search: { tab: 'branding' },
 		title: 'White-label branding',
 		description: 'Replace the nao name, logo, favicon and brand color with your own branding. Enterprise feature.',
 		keywords: [
@@ -785,10 +818,9 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		cloudHidden: true,
 	},
 	{
-		page: '/settings/enterprise',
-		pageLabel: 'License & branding',
+		page: '/settings/appearance',
+		pageLabel: 'Appearance',
 		section: 'Branding',
-		search: { tab: 'branding' },
 		title: 'Brand color',
 		description: 'Set a custom primary color for buttons, links and accents across the app.',
 		keywords: [
@@ -806,10 +838,9 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		cloudHidden: true,
 	},
 	{
-		page: '/settings/enterprise',
-		pageLabel: 'License & branding',
+		page: '/settings/appearance',
+		pageLabel: 'Appearance',
 		section: 'Branding',
-		search: { tab: 'branding' },
 		title: 'Logo',
 		description: 'Replace the logo shown in the sidebar and on the login and sign-up pages.',
 		keywords: ['logo', 'sidebar', 'login logo', 'signup logo', 'auth', 'brand', 'enterprise'],
@@ -817,10 +848,9 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		cloudHidden: true,
 	},
 	{
-		page: '/settings/enterprise',
-		pageLabel: 'License & branding',
+		page: '/settings/appearance',
+		pageLabel: 'Appearance',
 		section: 'Branding',
-		search: { tab: 'branding' },
 		title: 'Favicon',
 		description: 'Replace the favicon shown in the browser tab.',
 		keywords: ['favicon', 'icon', 'tab', 'enterprise'],
@@ -828,10 +858,9 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		cloudHidden: true,
 	},
 	{
-		page: '/settings/enterprise',
-		pageLabel: 'License & branding',
+		page: '/settings/appearance',
+		pageLabel: 'Appearance',
 		section: 'Branding',
-		search: { tab: 'branding' },
 		title: 'Browser tab title',
 		description: 'Rename the browser tab shown to your users.',
 		keywords: ['tab title', 'page title', 'name', 'enterprise'],
@@ -839,19 +868,23 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		cloudHidden: true,
 	},
 
-	// ── Memory ───────────────────────────────────────────────
+	// ── Project > Agent > Memory ─────────────────────────────
 	{
-		page: '/settings/memory',
-		pageLabel: 'Memory',
-		title: 'Memory',
-		description: 'Memories enables nao to learn about you and your preferences over time.',
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'Memory',
+		search: { tab: 'memory' },
+		title: 'Your memory',
+		description: 'Choose whether nao remembers preferences and facts about you.',
 		keywords: ['remember', 'learn', 'personalization', 'preferences'],
 	},
 	{
-		page: '/settings/memory',
-		pageLabel: 'Memory',
-		title: 'Saved Memories',
-		description: 'Review and manage memory preferences and what the agent has remembered.',
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'Memory',
+		search: { tab: 'memory' },
+		title: 'Your saved memories',
+		description: 'Review and manage the preferences and facts nao has remembered about you.',
 		keywords: ['remembered facts', 'memory list'],
 	},
 

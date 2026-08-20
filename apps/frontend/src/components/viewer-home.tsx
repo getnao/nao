@@ -17,7 +17,6 @@ export function ViewerHome() {
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
 	const projectId = project.data?.id;
 	const switchProject = useProjectSwitch(projectId);
-	const isInMultipleProjects = (projects.data?.length ?? 0) > 1;
 	const sharedChats = useQuery(trpc.sharedChat.list.queryOptions());
 	const sharedStories = useQuery({
 		...trpc.storyShare.list.queryOptions({ projectId: projectId ?? '' }),
@@ -73,7 +72,7 @@ export function ViewerHome() {
 	const isLoading = sharedChats.isLoading || sharedStories.isLoading || project.isLoading;
 	const isEmpty = allItems.length === 0 && !isLoading;
 
-	const projectSelector = project.data && isInMultipleProjects && (
+	const projectSelector = project.data && (
 		<div className='max-md:hidden'>
 			<ProjectSwitcher
 				projects={projects.data ?? []}

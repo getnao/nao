@@ -7,7 +7,7 @@ import { IntegrationsPage } from '@/components/settings/integrations-page';
 export const Route = createFileRoute('/_sidebar-layout/settings/project/integrations/')({
 	staticData: {
 		title: 'Integrations',
-		description: "Connect nao to your team's chat tools",
+		description: 'Connect nao to chat tools and AI clients',
 	},
 	validateSearch: (search: Record<string, unknown>): { integration?: IntegrationId } => ({
 		integration: isIntegrationId(search.integration) ? search.integration : undefined,

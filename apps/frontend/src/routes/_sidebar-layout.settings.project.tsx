@@ -6,6 +6,7 @@ import { GitLabRepoPicker } from '@/components/settings/gitlab-repo-picker';
 import { ImportProviderCard } from '@/components/settings/import-provider-card';
 import GitlabIcon from '@/components/icons/gitlab-icon.svg';
 import { OrgApiKeys } from '@/components/settings/org-api-keys';
+import { useIsCloud } from '@/hooks/use-nao-mode';
 import { usePermissions } from '@/hooks/use-permissions';
 import { queryClient, trpc } from '@/main';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
@@ -30,10 +31,9 @@ export const Route = createFileRoute('/_sidebar-layout/settings/project')({
 
 function ProjectPage() {
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
-	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const { isOrgAdmin } = usePermissions();
 	const pageHeader = useMatches().at(-1)?.staticData;
-	const isCloud = config.data?.naoMode === 'cloud';
+	const isCloud = useIsCloud();
 	const isProjectlessCloud = !project.data && isCloud;
 
 	const emptyMessage = isCloud

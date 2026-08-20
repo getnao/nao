@@ -11,6 +11,7 @@ import {
 } from '@nao/shared/types';
 import type { BudgetPeriod } from '@nao/shared/types';
 
+import { UpgradeBanner } from '@/components/settings/upgrade-banner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -163,7 +164,7 @@ export function BudgetSettings() {
 			.map((provider) => ({
 				provider,
 				limitUsd: budgets[provider] ?? 0,
-				perUserLimitUsd: perUserBudgets[provider] ?? 0,
+				...(hasUserBudget ? { perUserLimitUsd: perUserBudgets[provider] ?? 0 } : {}),
 				period: periods[provider] as BudgetPeriod,
 			}));
 
@@ -297,6 +298,13 @@ export function BudgetSettings() {
 					</div>
 				)}
 			</SettingsCard>
+
+			{!hasUserBudget && (
+				<UpgradeBanner
+					feature='Per-user spend limits'
+					description='Set limits for each team member and see their current spend.'
+				/>
+			)}
 
 			{showPerUserSpend && perUserProviders.length > 0 && (
 				<SettingsCard

@@ -1,5 +1,5 @@
 import { Link, useNavigate } from '@tanstack/react-router';
-import { Search, X } from 'lucide-react';
+import { ArrowUpRight, Search, X } from 'lucide-react';
 import { Fragment, useEffect, useRef, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -23,6 +23,7 @@ interface NavItem {
 	exact?: boolean;
 	badge?: string;
 	badgeVariant?: 'new' | 'enterprise';
+	leavesSettings?: boolean;
 }
 
 interface NavGroup {
@@ -35,14 +36,14 @@ const settingsNavGroups: NavGroup[] = [
 		label: 'Project',
 		items: [
 			{
-				label: 'General',
+				label: 'Project Settings',
 				to: '/settings/project',
 				visible: ({ isViewer }) => !isViewer,
 				exact: true,
 			},
 			{
-				label: 'Models',
-				to: '/settings/project/models',
+				label: 'Team',
+				to: '/settings/project/team',
 				visible: ({ isViewer }) => !isViewer,
 			},
 			{
@@ -56,13 +57,8 @@ const settingsNavGroups: NavGroup[] = [
 				visible: ({ isViewer }) => !isViewer,
 			},
 			{
-				label: 'MCP',
-				to: '/settings/project/mcp',
-				visible: ({ isViewer }) => !isViewer,
-			},
-			{
-				label: 'Team',
-				to: '/settings/project/team',
+				label: 'Appearance',
+				to: '/settings/appearance',
 				visible: ({ isViewer }) => !isViewer,
 			},
 		],
@@ -87,11 +83,6 @@ const settingsNavGroups: NavGroup[] = [
 				to: '/settings/context-explorer',
 				visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
 			},
-			{
-				label: 'Memory',
-				to: '/settings/memory',
-				visible: ({ isViewer }) => !isViewer,
-			},
 		],
 	},
 	{
@@ -103,6 +94,7 @@ const settingsNavGroups: NavGroup[] = [
 				search: { admin: true },
 				visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
 				exact: true,
+				leavesSettings: true,
 			},
 			{
 				label: 'Usage, costs & replay',
@@ -128,6 +120,13 @@ const settingsNavGroups: NavGroup[] = [
 				label: 'Organization Settings',
 				to: '/settings/organization',
 				visible: ({ isViewer }) => !isViewer,
+				exact: true,
+			},
+			{
+				label: 'Members',
+				to: '/settings/organization/members',
+				visible: ({ isViewer }) => !isViewer,
+				exact: true,
 			},
 			{
 				label: 'Storage',
@@ -135,7 +134,7 @@ const settingsNavGroups: NavGroup[] = [
 				visible: ({ isViewer, isCloud }) => !isViewer && !isCloud,
 			},
 			{
-				label: 'License & branding',
+				label: 'Enterprise',
 				to: '/settings/enterprise',
 				visible: ({ isAdmin, isCloud }) => isAdmin && !isCloud,
 			},
@@ -300,6 +299,15 @@ export function SidebarSettingsNav({
 											{item.badge}
 										</Badge>
 									) : null;
+									const leavesSettingsIndicator = item.leavesSettings ? (
+										<>
+											<ArrowUpRight
+												aria-hidden='true'
+												className={cn('size-3.5 text-muted-foreground', !badge && 'ml-auto')}
+											/>
+											<span className='sr-only'>Opens a chat outside settings</span>
+										</>
+									) : null;
 
 									return (
 										<div key={`${item.to}-${item.label}`} className='flex flex-col'>
@@ -313,6 +321,7 @@ export function SidebarSettingsNav({
 												>
 													{item.label}
 													{badge}
+													{leavesSettingsIndicator}
 												</span>
 											) : item.search ? (
 												<Link
@@ -332,6 +341,7 @@ export function SidebarSettingsNav({
 												>
 													{item.label}
 													{badge}
+													{leavesSettingsIndicator}
 												</Link>
 											) : (
 												<Link
@@ -350,6 +360,7 @@ export function SidebarSettingsNav({
 												>
 													{item.label}
 													{badge}
+													{leavesSettingsIndicator}
 												</Link>
 											)}
 										</div>

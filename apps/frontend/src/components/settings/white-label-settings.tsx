@@ -1,17 +1,19 @@
 /* @license Enterprise */
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Lock, Upload, X } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { ArrowRight, Upload, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { buildBrandVars } from '@/components/brand-color';
 import NaoLogoAnimated from '@/components/icons/nao-logo-animated';
+import { UpgradeBanner } from '@/components/settings/upgrade-banner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { useTheme } from '@/contexts/theme.provider';
 import { brandingAssetUrl, DEFAULT_BRAND_COLOR, useBranding } from '@/hooks/use-branding';
+import { useLicenseFeatures } from '@/hooks/use-license';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -43,7 +45,7 @@ interface AssetUploadProps {
 
 export function WhiteLabelSettings() {
 	const queryClient = useQueryClient();
-	const features = useQuery(trpc.license.getFeatures.queryOptions());
+	const features = useLicenseFeatures();
 	const branding = useBranding();
 	const customColor = branding.enabled ? branding.brandColor : null;
 	const isWhiteLabelEnabled = features.data?.['white-label'] === true;
@@ -140,8 +142,6 @@ export function WhiteLabelSettings() {
 
 	return (
 		<div className='flex flex-col gap-6'>
-			{!isWhiteLabelEnabled && <EnterpriseNudge />}
-
 			<fieldset
 				disabled={disabled}
 				className={cn('flex min-w-0 flex-col gap-6 border-0 p-0', disabled && 'pointer-events-none opacity-60')}
@@ -237,23 +237,12 @@ export function WhiteLabelSettings() {
 					</Button>
 				</div>
 			</fieldset>
-		</div>
-	);
-}
-
-function EnterpriseNudge() {
-	return (
-		<div className='flex items-start gap-3 p-4 rounded-xl border border-primary/30 bg-primary/5'>
-			<div className='shrink-0 rounded-full p-2 bg-primary/10 text-primary'>
-				<Lock className='size-4' />
-			</div>
-			<div className='flex flex-col gap-1 min-w-0'>
-				<span className='font-semibold text-foreground'>Branding requires a nao Enterprise license</span>
-				<p className='text-sm text-muted-foreground'>
-					Activate a license with the <code>white-label</code> feature to customize names, logos, favicon and
-					brand color.
-				</p>
-			</div>
+			{!isWhiteLabelEnabled && (
+				<UpgradeBanner
+					feature='Custom branding'
+					description='Customize names, logos, colors, and browser details across your instance.'
+				/>
+			)}
 		</div>
 	);
 }

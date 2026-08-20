@@ -349,6 +349,7 @@ export interface OrgMemberWithUser {
 export interface OrgProjectWithAccess {
 	id: string;
 	name: string;
+	path: string | null;
 	role: UserRole;
 	createdAt: Date;
 	updatedAt: Date;
@@ -374,6 +375,7 @@ export const listOrgProjectsWithAccess = async (orgId: string, userId: string): 
 		.select({
 			id: s.project.id,
 			name: s.project.name,
+			path: s.project.path,
 			role: sql<UserRole>`coalesce(${s.projectMember.role}, 'viewer')`,
 			createdAt: s.project.createdAt,
 			updatedAt: s.project.updatedAt,

@@ -49,9 +49,9 @@ export function SettingsCard({
 				rootClassName,
 			)}
 		>
-			{title && (
+			{(title || action) && (
 				<div className='flex items-center justify-between'>
-					<div className='px-4 space-y-0'>
+					<div className='space-y-0'>
 						<div className='px-0 flex items-center gap-2'>
 							{icon && <div className='size-4 flex items-center justify-center shrink-0'>{icon}</div>}
 							<div className='flex items-center justify-between flex-1'>

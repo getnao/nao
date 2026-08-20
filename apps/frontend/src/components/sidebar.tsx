@@ -29,6 +29,7 @@ import { useCommandMenuCallback } from '@/contexts/command-menu-callback';
 import { useSidebar } from '@/contexts/sidebar';
 import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
 import { useChatViewPreferences } from '@/hooks/use-chat-view-preferences';
+import { useIsCloud } from '@/hooks/use-nao-mode';
 import { useProjectSwitch } from '@/hooks/use-project-switch';
 import { useSidebarSectionOpen } from '@/hooks/use-sidebar-section-open';
 import { useTimeAgo } from '@/hooks/use-time-ago';
@@ -53,7 +54,7 @@ export function Sidebar() {
 	const branding = useBranding();
 	const customColor = branding.enabled ? branding.brandColor : null;
 	const { isAdmin, isContextAdmin, isViewer } = usePermissions();
-	const isCloud = config.data?.naoMode === 'cloud';
+	const isCloud = useIsCloud();
 	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
 	const { groupBy, filters, setGroupBy, toggleFilter } = useChatViewPreferences();
 
@@ -205,7 +206,7 @@ export function Sidebar() {
 						variant='sidebar'
 						className={cn(
 							'overflow-hidden transition-[height,margin,opacity,visibility] duration-300',
-							effectiveIsCollapsed ? 'h-0 mt-0' : 'h-8 mt-1',
+							effectiveIsCollapsed ? 'h-0 mt-0' : 'h-9 mt-4',
 							hideIf(effectiveIsCollapsed),
 						)}
 					/>

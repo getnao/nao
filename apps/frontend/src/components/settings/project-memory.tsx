@@ -30,8 +30,8 @@ export function SettingsProjectMemory({ isAdmin }: SettingsProjectMemoryProps) {
 
 	return (
 		<SettingsCard
-			title='Memory'
-			description='Memories enable nao to remember preferences and facts about team members.'
+			title='Project-wide memory'
+			description='Admins control whether memory is available to everyone in this project.'
 			divide
 		>
 			<SettingsControlRow

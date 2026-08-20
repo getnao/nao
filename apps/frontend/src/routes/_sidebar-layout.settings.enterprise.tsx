@@ -1,34 +1,22 @@
 /* @license Enterprise */
 
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { CheckCircle2, CircleAlert, CircleX, Clock, Sparkles, TriangleAlert } from 'lucide-react';
 import type { LicenseStatus } from '@nao/backend/license-types';
-import type { TabBarItem } from '@/components/ui/tab-bar';
 
 import { SsoTokenInspector } from '@/components/settings/sso-token-inspector';
-import { WhiteLabelSettings } from '@/components/settings/white-label-settings';
 import { Badge } from '@/components/ui/badge';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
-import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { requireAdminNonCloud } from '@/lib/require-admin';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
-type EnterpriseTab = 'license' | 'branding';
-
-const tabs: TabBarItem<EnterpriseTab>[] = [
-	{ id: 'license', label: 'License' },
-	{ id: 'branding', label: 'Branding' },
-];
-
-const tabIdBase = 'enterprise';
-
 export const Route = createFileRoute('/_sidebar-layout/settings/enterprise')({
 	beforeLoad: requireAdminNonCloud,
-	validateSearch: (search: Record<string, unknown>): { tab: EnterpriseTab } => ({
-		tab: isEnterpriseTab(search.tab) ? search.tab : 'license',
-	}),
+	staticData: {
+		title: 'Enterprise',
+	},
 	component: EnterprisePage,
 });
 
@@ -37,28 +25,11 @@ const FEATURE_DESCRIPTIONS: Record<string, string> = {
 };
 
 function EnterprisePage() {
-	const { tab } = Route.useSearch();
-	const navigate = useNavigate({ from: Route.fullPath });
-
 	return (
 		<SettingsPageWrapper>
 			<div className='flex flex-col gap-6'>
-				<h1 className='text-lg font-semibold text-foreground'>License & branding</h1>
-				<TabBar
-					tabs={tabs}
-					activeTab={tab}
-					onTabChange={(nextTab) => {
-						navigate({
-							search: { tab: nextTab },
-							replace: true,
-						});
-					}}
-					idBase={tabIdBase}
-					className='border-b'
-				/>
-				<TabPanel idBase={tabIdBase} tabId={tab}>
-					{tab === 'license' ? <LicenseSettings /> : <WhiteLabelSettings />}
-				</TabPanel>
+				<h1 className='text-lg font-semibold text-foreground'>Enterprise</h1>
+				<LicenseSettings />
 			</div>
 		</SettingsPageWrapper>
 	);
@@ -267,8 +238,4 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 			<div className='text-sm text-foreground text-right'>{value}</div>
 		</div>
 	);
-}
-
-function isEnterpriseTab(value: unknown): value is EnterpriseTab {
-	return value === 'license' || value === 'branding';
 }

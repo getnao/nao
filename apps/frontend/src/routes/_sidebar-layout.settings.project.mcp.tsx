@@ -1,57 +1,23 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import type { TabBarItem } from '@/components/ui/tab-bar';
-import { McpSettings } from '@/components/settings/display-mcp';
-import { McpEndpointSettings } from '@/components/settings/mcp-endpoint';
-import { TabBar, TabPanel } from '@/components/ui/tab-bar';
-import { usePermissions } from '@/hooks/use-permissions';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 import { requireNonViewer } from '@/lib/require-admin';
 
-type McpTab = 'servers' | 'endpoints';
-
-const tabs: TabBarItem<McpTab>[] = [
-	{ id: 'servers', label: 'Servers' },
-	{ id: 'endpoints', label: 'Endpoints' },
-];
-
-const tabIdBase = 'project-mcp';
-
 export const Route = createFileRoute('/_sidebar-layout/settings/project/mcp')({
-	staticData: {
-		title: 'MCP',
-	},
-	beforeLoad: requireNonViewer,
-	validateSearch: (search: Record<string, unknown>): { tab: McpTab } => ({
-		tab: isMcpTab(search.tab) ? search.tab : 'servers',
+	validateSearch: (search: Record<string, unknown>): { tab?: string } => ({
+		tab: typeof search.tab === 'string' ? search.tab : undefined,
 	}),
-	component: ProjectMcpPage,
+	beforeLoad: async ({ search }) => {
+		await requireNonViewer();
+
+		if (search.tab === 'servers') {
+			throw redirect({
+				to: '/settings/project/agent',
+				search: { tab: 'mcp-servers' },
+			});
+		}
+
+		throw redirect({
+			to: '/settings/project/integrations/$integrationId',
+			params: { integrationId: 'nao-mcp' },
+		});
+	},
 });
-
-function ProjectMcpPage() {
-	const { tab } = Route.useSearch();
-	const navigate = useNavigate({ from: Route.fullPath });
-	const { isAdmin } = usePermissions();
-
-	return (
-		<>
-			<TabBar
-				tabs={tabs}
-				activeTab={tab}
-				onTabChange={(nextTab) => {
-					navigate({
-						search: { tab: nextTab },
-						replace: true,
-					});
-				}}
-				idBase={tabIdBase}
-				className='border-b'
-			/>
-			<TabPanel idBase={tabIdBase} tabId={tab} className='flex flex-col gap-12'>
-				{tab === 'servers' ? <McpSettings isAdmin={isAdmin} /> : <McpEndpointSettings isAdmin={isAdmin} />}
-			</TabPanel>
-		</>
-	);
-}
-
-function isMcpTab(value: unknown): value is McpTab {
-	return value === 'servers' || value === 'endpoints';
-}

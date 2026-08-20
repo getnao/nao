@@ -56,7 +56,6 @@ function HomePage() {
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
 	const switchProject = useProjectSwitch(project.data?.id);
-	const isInMultipleProjects = (projects.data?.length ?? 0) > 1;
 	const showProjectSetupCue = project.isSuccess && project.data === null;
 	const stateTitle = `${username ? capitalize(username) : ''}, what do you want to analyze?`;
 	const theme = useTheme();
@@ -128,7 +127,7 @@ function HomePage() {
 	return (
 		<div className='relative flex flex-col h-full flex-1 min-w-72 overflow-hidden justify-center'>
 			<MobileHeader />
-			{project.data && isInMultipleProjects && (
+			{project.data && (
 				<div className='-ml-2 px-4 pt-3 md:px-8 md:pt-4 max-md:hidden'>
 					<ProjectSwitcher
 						projects={projects.data ?? []}

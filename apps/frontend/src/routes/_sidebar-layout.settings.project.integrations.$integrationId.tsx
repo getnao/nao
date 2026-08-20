@@ -6,6 +6,7 @@ import type { IntegrationId } from '@/components/settings/integrations';
 import { IntegrationStatusBadge } from '@/components/settings/integration-card';
 import { integrations, isIntegrationId, useIntegrationStatuses } from '@/components/settings/integrations';
 import { LinkingCodesCard } from '@/components/settings/linking-code-section';
+import { McpEndpointSettings } from '@/components/settings/mcp-endpoint';
 import { SlackConfigSection } from '@/components/settings/slack-config-section';
 import { TeamsConfigSection } from '@/components/settings/teams-config-section';
 import { TelegramConfigSection } from '@/components/settings/telegram-config-section';
@@ -75,6 +76,10 @@ function IntegrationConfiguration({ integrationId, isAdmin }: { integrationId: I
 				<LinkingCodesCard provider='telegram' />
 			</div>
 		);
+	}
+
+	if (integrationId === 'nao-mcp') {
+		return <McpEndpointSettings isAdmin={isAdmin} />;
 	}
 
 	return (

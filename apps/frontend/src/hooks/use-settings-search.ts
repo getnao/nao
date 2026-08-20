@@ -1,12 +1,11 @@
 import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import Fuse from 'fuse.js';
 
 import type { SettingsSearchEntry } from '@/components/settings-search-index';
 
 import { settingsSearchIndex } from '@/components/settings-search-index';
+import { useIsCloud } from '@/hooks/use-nao-mode';
 import { usePermissions } from '@/hooks/use-permissions';
-import { trpc } from '@/main';
 
 export function useSettingsSearch(query: string): SettingsSearchEntry[] {
 	const visibleEntries = useVisibleSettingsEntries();
@@ -50,9 +49,8 @@ export function useSettingsSuggestions(): SettingsSearchEntry[] {
 }
 
 function useVisibleSettingsEntries(): SettingsSearchEntry[] {
-	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
-	const { isAdmin, isContextAdmin, isViewer } = usePermissions();
-	const isCloud = config.data?.naoMode === 'cloud';
+	const { isAdmin, isContextAdmin, isOrgAdmin, isViewer } = usePermissions();
+	const isCloud = useIsCloud();
 
 	return useMemo(
 		() =>
@@ -60,12 +58,13 @@ function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 				.filter(
 					(entry) =>
 						(!entry.adminOnly || isAdmin) &&
+						(!entry.orgAdminOnly || isOrgAdmin) &&
 						(!entry.adminOrContextAdmin || isAdmin || isContextAdmin) &&
 						(!entry.cloudHidden || !isCloud) &&
 						(!entry.cloudOnly || isCloud),
 				)
 				.filter((entry) => !isViewer || viewerVisiblePages.includes(entry.page)),
-		[isAdmin, isCloud, isContextAdmin, isViewer],
+		[isAdmin, isCloud, isContextAdmin, isOrgAdmin, isViewer],
 	);
 }
 
@@ -86,7 +85,7 @@ const settingsSuggestionPages = [
 	'/settings/account',
 	'/settings/organization',
 	'/settings/project',
-	'/settings/project/models',
+	'/settings/context-explorer',
 	'/settings/project/agent',
 	'/settings/usage',
 ];

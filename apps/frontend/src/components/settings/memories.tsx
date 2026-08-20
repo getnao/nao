@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
+import { useMemo, useState } from 'react';
 import type { UserMemoryRecord } from '@nao/backend/memory';
+import type { ReactNode } from 'react';
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -22,14 +22,12 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { SettingsMemoryItem, SettingsMemorySkeleton } from '@/components/settings/memory-item';
 import { useMemoriesQuery, useMemoryMutations, useMemorySettingsQuery } from '@/queries/use-memories';
-import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
 import { cn } from '@/lib/utils';
 
 export function SettingsMemories() {
 	const projectMemorySettings = useQuery(trpc.project.getMemorySettings.queryOptions());
 	const memorySettings = useMemorySettingsQuery();
-	const { isAdmin } = usePermissions();
 
 	const { updateMemorySettingsMutation, updateMutation, deleteMutation } = useMemoryMutations();
 
@@ -47,31 +45,15 @@ export function SettingsMemories() {
 
 	const isUserToggleDisabled = isProjectDisabled || updateMemorySettingsMutation.isPending;
 
-	const memoryStatusMessage = useMemo((): React.ReactNode => {
+	const memoryStatusMessage = useMemo((): ReactNode => {
 		if (isProjectDisabled) {
-			return (
-				<>
-					Memory was disabled for this project.
-					{isAdmin && (
-						<>
-							{' '}
-							You can change this in the{' '}
-							<Link
-								to='/settings/project/agent'
-								className='underline underline-offset-2 hover:text-foreground'
-							>
-								project's settings.
-							</Link>
-						</>
-					)}
-				</>
-			);
+			return 'Memory is disabled for everyone in this project.';
 		}
 		if (isUserDisabled) {
 			return 'Memory is disabled.';
 		}
 		return '';
-	}, [isProjectDisabled, isUserDisabled, isAdmin]);
+	}, [isProjectDisabled, isUserDisabled]);
 
 	const handleUserToggle = (enabled: boolean) => {
 		updateMemorySettingsMutation.mutate({ memoryEnabled: enabled });
@@ -107,9 +89,8 @@ export function SettingsMemories() {
 	return (
 		<>
 			<SettingsCard
-				title='Memory'
-				titleSize='lg'
-				description='Memories enables nao to learn about you and your preferences over time.'
+				title='Your memory'
+				description='Choose whether nao remembers preferences and facts about you.'
 				divide
 			>
 				<SettingsControlRow
@@ -129,8 +110,8 @@ export function SettingsMemories() {
 			</SettingsCard>
 
 			<SettingsCard
-				title='Saved Memories'
-				description='Review and manage memory preferences and what the agent has remembered.'
+				title='Your saved memories'
+				description='Review and manage the preferences and facts nao has remembered about you.'
 				divide
 			>
 				{memoryStatusMessage ? (

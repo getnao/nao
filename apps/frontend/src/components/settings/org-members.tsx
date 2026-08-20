@@ -1,38 +1,30 @@
-import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, useCallback } from 'react';
 import { Plus } from 'lucide-react';
-import { USER_ROLES } from '@nao/shared/types';
+import { useCallback, useState } from 'react';
+import { ORG_MEMBER_ROLES } from '@nao/shared/types';
 import type { UserRole } from '@nao/shared/types';
 
 import type { TeamMember } from '@/components/settings/team';
 import {
-	TeamMembersList,
 	AddMemberDialog,
 	EditMemberDialog,
-	RemoveMemberDialog,
 	NewCredentialsDialog,
+	RemoveMemberDialog,
+	TeamMembersList,
 } from '@/components/settings/team';
-import { SettingsCard } from '@/components/ui/settings-card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import { SettingsCard } from '@/components/ui/settings-card';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 
-export const Route = createFileRoute('/_sidebar-layout/settings/project/team')({
-	staticData: {
-		title: 'Team',
-	},
-	component: ProjectTeamTabPage,
-});
-
-function ProjectTeamTabPage() {
+export function OrgMembers() {
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
-	const usersWithRoles = useQuery(trpc.project.listAllUsersWithRoles.queryOptions());
-	const { isAdmin } = usePermissions();
+	const membersQuery = useQuery(trpc.organization.getMembers.queryOptions());
+	const { isOrgAdmin } = usePermissions();
 
 	const [isAddOpen, setIsAddOpen] = useState(false);
 	const [editMember, setEditMember] = useState<TeamMember | null>(null);
@@ -40,26 +32,26 @@ function ProjectTeamTabPage() {
 	const [resetPasswordMember, setResetPasswordMember] = useState<TeamMember | null>(null);
 	const [credentials, setCredentials] = useState<{ email: string; password: string } | null>(null);
 
-	const members: TeamMember[] =
-		usersWithRoles.data?.map((u) => ({
-			id: u.id,
-			name: u.name,
-			email: u.email,
-			role: u.role,
-		})) ?? [];
-
-	const addUser = useMutation(trpc.user.addUserToProject.mutationOptions());
-	const modifyUser = useMutation(trpc.user.modify.mutationOptions());
-	const removeUser = useMutation(trpc.project.removeProjectMember.mutationOptions());
-	const resetPassword = useMutation(trpc.account.resetPassword.mutationOptions());
-
 	const invalidateMembers = useCallback(() => {
-		queryClient.invalidateQueries({ queryKey: trpc.project.listAllUsersWithRoles.queryKey() });
+		queryClient.invalidateQueries({ queryKey: trpc.organization.getMembers.queryKey() });
 	}, [queryClient]);
+
+	const addMember = useMutation(trpc.organization.addMember.mutationOptions());
+	const modifyMember = useMutation(trpc.organization.modifyMember.mutationOptions());
+	const removeOrgMember = useMutation(trpc.organization.removeMember.mutationOptions());
+	const resetPassword = useMutation(trpc.organization.resetMemberPassword.mutationOptions());
+
+	const members: TeamMember[] =
+		membersQuery.data?.map((member) => ({
+			id: member.id,
+			name: member.name,
+			email: member.email,
+			role: member.role as UserRole,
+		})) ?? [];
 
 	const handleAdd = async (data: { email: string; name?: string }) => {
 		try {
-			const result = await addUser.mutateAsync({
+			const result = await addMember.mutateAsync({
 				email: data.email,
 				name: data.name,
 			});
@@ -77,7 +69,10 @@ function ProjectTeamTabPage() {
 	};
 
 	const handleEdit = async (data: { userId: string; name?: string; newRole?: UserRole }) => {
-		await modifyUser.mutateAsync(data);
+		await modifyMember.mutateAsync({
+			...data,
+			newRole: data.newRole as (typeof ORG_MEMBER_ROLES)[number] | undefined,
+		});
 		invalidateMembers();
 		if (session?.user) {
 			await queryClient.invalidateQueries({ queryKey: ['session'] });
@@ -88,7 +83,7 @@ function ProjectTeamTabPage() {
 		if (!removeMember) {
 			return;
 		}
-		await removeUser.mutateAsync({ userId: removeMember.id });
+		await removeOrgMember.mutateAsync({ userId: removeMember.id });
 		invalidateMembers();
 	};
 
@@ -104,11 +99,9 @@ function ProjectTeamTabPage() {
 	return (
 		<>
 			<SettingsCard
-				title='Members'
-				description='These are people who belong to this project.'
 				divide
 				action={
-					isAdmin ? (
+					isOrgAdmin ? (
 						<Button variant='secondary' size='sm' onClick={() => setIsAddOpen(true)}>
 							<Plus />
 							Add Member
@@ -116,13 +109,13 @@ function ProjectTeamTabPage() {
 					) : undefined
 				}
 			>
-				{usersWithRoles.isLoading ? (
-					<div className='text-sm text-muted-foreground'>Loading users...</div>
+				{membersQuery.isLoading ? (
+					<div className='text-sm text-muted-foreground'>Loading members...</div>
 				) : (
 					<TeamMembersList
 						members={members}
 						currentUserId={session?.user?.id}
-						isAdmin={isAdmin}
+						isAdmin={isOrgAdmin}
 						onEdit={setEditMember}
 						onRemove={setRemoveMember}
 						extraActions={(member) => (
@@ -135,7 +128,7 @@ function ProjectTeamTabPage() {
 			<AddMemberDialog
 				open={isAddOpen}
 				onOpenChange={setIsAddOpen}
-				title='Add User to Project'
+				title='Add Member to Organization'
 				onSubmit={handleAdd}
 			/>
 
@@ -143,8 +136,8 @@ function ProjectTeamTabPage() {
 				open={!!editMember}
 				onOpenChange={(open) => !open && setEditMember(null)}
 				member={editMember}
-				isAdmin={isAdmin}
-				availableRoles={USER_ROLES}
+				isAdmin={isOrgAdmin}
+				availableRoles={ORG_MEMBER_ROLES}
 				onSubmit={handleEdit}
 			/>
 
@@ -152,7 +145,7 @@ function ProjectTeamTabPage() {
 				open={!!removeMember}
 				onOpenChange={(open) => !open && setRemoveMember(null)}
 				memberName={removeMember?.name ?? ''}
-				description='Are you sure you want to remove this user from the project?'
+				description='This will remove the user from the organization. They will lose access to all projects within it.'
 				onConfirm={handleRemove}
 			/>
 

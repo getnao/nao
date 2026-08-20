@@ -122,7 +122,6 @@ function StoriesPage() {
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
 	const activeProjectId = project.data?.id;
 	const switchProject = useProjectSwitch(activeProjectId);
-	const isInMultipleProjects = (projects.data?.length ?? 0) > 1;
 
 	const userStories = useQuery(trpc.story.listAll.queryOptions({ projectId: activeProjectId }));
 	const standaloneStories = useQuery(trpc.story.listStandalone.queryOptions());
@@ -571,7 +570,7 @@ function StoriesPage() {
 							</h1>
 						</div>
 						<div className='flex items-center gap-3 min-w-0'>
-							{project.data && isInMultipleProjects && (
+							{project.data && (
 								<ProjectSwitcher
 									projects={projects.data ?? []}
 									currentProjectId={project.data.id}
