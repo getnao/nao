@@ -25,19 +25,23 @@ export async function resolveDeliveryRecipientUserIds(
 	ownerId: string | null,
 ): Promise<string[]> {
 	if (delivery.recipientMode !== 'all') {
-		return delivery.recipientUserIds;
+		return dedupe(delivery.recipientUserIds);
 	}
 
 	const access = await sharedStoryQueries.getStoryShareAccess(storyId, projectId);
 	if (!access) {
 		const members = await projectQueries.listProjectMembersWithRoles(projectId);
-		return members.map((member) => member.id).filter((id) => id !== ownerId);
+		return dedupe(members.map((member) => member.id).filter((id) => id !== ownerId));
 	}
 
 	if (access.visibility === 'specific') {
-		return access.allowedUserIds;
+		return dedupe(access.allowedUserIds);
 	}
 
 	const members = await projectQueries.listUsersWithProjectAccess(projectId);
-	return members.map((member) => member.id).filter((id) => id !== ownerId);
+	return dedupe(members.map((member) => member.id).filter((id) => id !== ownerId));
+}
+
+function dedupe(ids: string[]): string[] {
+	return [...new Set(ids)];
 }

@@ -66,7 +66,24 @@ export function FeedFilterBar({
 		() => sortActors([...actorCounts.keys()], currentUserName),
 		[actorCounts, currentUserName],
 	);
-	const unreadCount = useMemo(() => items.filter(isFeedItemUnread).length, [items]);
+	// Count unread among items that pass the active type/actor filters, since selecting
+	// "Unread only" applies on top of those — otherwise the badge could disagree with the result.
+	const unreadCount = useMemo(() => {
+		const selectedTypes = new Set(filters.types);
+		const selectedActors = new Set(filters.actors);
+		return items.filter((item) => {
+			if (selectedTypes.size > 0 && !selectedTypes.has(getFeedItemTypeKey(item))) {
+				return false;
+			}
+			if (selectedActors.size > 0) {
+				const actor = getFeedItemActor(item, currentUserName);
+				if (!actor || !selectedActors.has(actor)) {
+					return false;
+				}
+			}
+			return isFeedItemUnread(item);
+		}).length;
+	}, [items, filters.types, filters.actors, currentUserName]);
 	const hasActiveFilters = filters.types.length > 0 || filters.actors.length > 0 || filters.readStatus !== 'all';
 
 	function toggleType(type: FeedTypeKey) {
