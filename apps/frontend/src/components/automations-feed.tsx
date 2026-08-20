@@ -260,7 +260,6 @@ type NotificationPresentation = {
 	Icon: ComponentType<{ className?: string }>;
 	title: string;
 	description: ReactNode;
-	objectLabel: string | null;
 	preview?: ReactNode;
 };
 
@@ -270,14 +269,6 @@ const NOTIFICATION_CATEGORY_ICONS: Record<NotificationCategory, ComponentType<{ 
 	story_refresh: RefreshCw,
 	shared: Share2,
 	subscription: BellPlus,
-};
-
-const NOTIFICATION_OBJECT_LABELS: Record<NotificationCategory, string | null> = {
-	budget: 'Budget',
-	feedback: 'Feedback',
-	story_refresh: 'Story',
-	shared: 'Shared item',
-	subscription: 'Story',
 };
 
 function getNotificationPresentation(
@@ -300,7 +291,6 @@ function getNotificationPresentation(
 						{payload.explanation ? <>: “{payload.explanation}”</> : '.'}
 					</p>
 				),
-				objectLabel: 'Chat',
 			};
 		}
 	}
@@ -312,7 +302,6 @@ function getNotificationPresentation(
 				Icon,
 				title: notification.title,
 				description: <p className='text-destructive'>{notification.body ?? 'Refresh failed.'}</p>,
-				objectLabel: 'Story',
 			};
 		}
 		if (payload?.kind === 'story_refresh' && payload.status === 'refreshed') {
@@ -326,7 +315,6 @@ function getNotificationPresentation(
 				) : (
 					notification.body
 				),
-				objectLabel: 'Story',
 			};
 		}
 	}
@@ -343,7 +331,6 @@ function getNotificationPresentation(
 						delivery for this story.
 					</p>
 				),
-				objectLabel: 'Story',
 				preview: <StoryPreview shareId={payload.shareId} onOpen={notification.linkUrl ? onOpen : undefined} />,
 			};
 		}
@@ -362,7 +349,6 @@ function getNotificationPresentation(
 						visibility={payload.visibility}
 					/>
 				),
-				objectLabel: payload.itemLabel === 'story' ? 'Story' : 'Chat',
 			};
 		}
 	}
@@ -371,7 +357,6 @@ function getNotificationPresentation(
 		Icon,
 		title: notification.title,
 		description: notification.body,
-		objectLabel: NOTIFICATION_OBJECT_LABELS[notification.category] ?? null,
 	};
 }
 
