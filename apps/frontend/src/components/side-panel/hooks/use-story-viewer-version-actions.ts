@@ -148,14 +148,16 @@ export const useStoryViewerVersionActions = ({
 			return;
 		}
 
-		createVersionMutation.mutate({
-			chatId,
-			storySlug,
-			title: storyTitle,
-			code: currentVersionCode,
-			action: 'replace',
-		});
-		goToLatestVersion();
+		createVersionMutation.mutate(
+			{
+				chatId,
+				storySlug,
+				title: storyTitle,
+				code: currentVersionCode,
+				action: 'replace',
+			},
+			{ onSuccess: () => goToLatestVersion() },
+		);
 	}, [chatId, storySlug, storyTitle, currentVersionCode, isViewingLatest, createVersionMutation, goToLatestVersion]);
 
 	return {

@@ -46,12 +46,12 @@ export const useStoryViewerAgentState = (
 
 export function getLatestRelevantStoryAgentState(messages: UIMessage[], storySlug: string, isRunning: boolean) {
 	const partState = findLatestRelevantStoryPartState(messages, storySlug);
-	const isInputStreaming = partState?.isInputStreaming ?? false;
-	const isPersistedInterruption = partState?.isInterrupted ?? false;
+	const isStreamingInput = partState?.isInputStreaming ?? false;
+	const isAbandonedByInterruption = Boolean(partState?.isInterrupted && !partState.hasCompletedOutput);
 
 	return {
-		isStoryStreaming: isInputStreaming && !isPersistedInterruption,
-		isStoryInterrupted: isInputStreaming && (isPersistedInterruption || !isRunning),
+		isStoryStreaming: isStreamingInput && !isAbandonedByInterruption,
+		isStoryInterrupted: isAbandonedByInterruption || (isStreamingInput && !isRunning),
 	};
 }
 
@@ -73,6 +73,7 @@ function findLatestRelevantStoryPartState(messages: UIMessage[], storySlug: stri
 			return {
 				isInputStreaming: part.state === 'input-streaming',
 				isInterrupted: messages[m]?.stopReason === 'interrupted',
+				hasCompletedOutput: part.state === 'output-available',
 			};
 		}
 	}

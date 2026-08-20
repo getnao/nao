@@ -53,6 +53,38 @@ describe('getLatestRelevantStoryAgentState', () => {
 		});
 	});
 
+	it('detects a persisted interrupted story settled with an output error', () => {
+		const messages = [
+			createStoryMessage({
+				messageId: 'message-1',
+				storySlug: 'test-long',
+				stopReason: 'interrupted',
+				state: 'output-error',
+			}),
+		];
+
+		expect(getLatestRelevantStoryAgentState(messages, 'test-long', false)).toEqual({
+			isStoryStreaming: false,
+			isStoryInterrupted: true,
+		});
+	});
+
+	it('keeps a completed story on an interrupted message uninterrupted', () => {
+		const messages = [
+			createStoryMessage({
+				messageId: 'message-1',
+				storySlug: 'test-long',
+				stopReason: 'interrupted',
+				state: 'output-available',
+			}),
+		];
+
+		expect(getLatestRelevantStoryAgentState(messages, 'test-long', false)).toEqual({
+			isStoryStreaming: false,
+			isStoryInterrupted: false,
+		});
+	});
+
 	it('uses the newest matching story part', () => {
 		const messages = [
 			createStoryMessage({
@@ -77,10 +109,12 @@ function createStoryMessage({
 	messageId,
 	storySlug,
 	stopReason,
+	state = 'input-streaming',
 }: {
 	messageId: string;
 	storySlug: string;
 	stopReason?: 'interrupted';
+	state?: 'input-streaming' | 'output-error' | 'output-available';
 }) {
 	return {
 		id: messageId,
@@ -89,7 +123,7 @@ function createStoryMessage({
 		parts: [
 			{
 				type: 'tool-story',
-				state: 'input-streaming',
+				state,
 				input: { id: storySlug },
 			},
 		],

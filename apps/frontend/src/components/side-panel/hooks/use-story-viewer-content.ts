@@ -80,7 +80,7 @@ export const useStoryViewerContent = ({
 		draftStory &&
 		(draftStory.isStreaming || isBridgingDraft || !currentVersion),
 	);
-	const canUseDraftFallback = isViewingLatest && !currentVersion;
+	const canUseDraftFallback = isViewingLatest && !isStoryInterrupted && !currentVersion;
 
 	const storyTitle = useMemo(
 		() =>
