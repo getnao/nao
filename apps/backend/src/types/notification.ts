@@ -13,6 +13,7 @@ export interface NotifyInput {
 	projectId: string;
 	channels?: NotificationChannel[];
 	emailAttachments?: EmailAttachment[];
+	emailBodyHtml?: string;
 	emailOverride?: (recipient: NotificationRecipient, unsubscribeUrl?: string) => CreatedEmail;
 }
 

@@ -1,6 +1,7 @@
 import { Link } from '@tanstack/react-router';
 import {
 	Bell,
+	BellPlus,
 	ChevronLeft,
 	ChevronRight,
 	Github,
@@ -15,27 +16,35 @@ import {
 	Wallet,
 	X,
 } from 'lucide-react';
-import { Fragment, useLayoutEffect, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Fragment, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Streamdown } from 'streamdown';
 import { stripAssistantTags } from '@nao/shared';
+import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { displayChart } from '@nao/shared/tools';
 import { NOTIFICATION_CATEGORY_LABELS } from '@nao/shared/types';
+import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 import type {
 	FeedbackNotificationPayload,
 	NotificationCategory,
 	SharedItemLabel,
 	SharedNotificationPayload,
 	StoryRefreshNotificationPayload,
+	StorySubscriptionNotificationPayload,
 } from '@nao/shared/types';
 import type { ComponentType, ReactNode } from 'react';
 
+import type { QueryDataMap } from '@/components/story-embeds';
 import SlackIcon from '@/components/icons/slack.svg';
+import { SegmentList } from '@/components/story-rendering';
+import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { cn } from '@/lib/utils';
+import { trpc } from '@/main';
 
 export type AutomationFeedRunStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 
@@ -190,7 +199,9 @@ function NotificationFeedCard({
 	const categoryLabel = NOTIFICATION_CATEGORY_LABELS[notification.category] ?? 'Notification';
 	const sharedItemLabel = getSharedItemLabel(notification);
 	const feedbackVote = getFeedbackVote(notification);
-	const { Icon, title, description } = getNotificationPresentation(notification);
+	const { Icon, title, description, preview } = getNotificationPresentation(notification, () =>
+		onOpen?.(notification.id, notification.linkUrl),
+	);
 
 	return (
 		<article
@@ -202,7 +213,9 @@ function NotificationFeedCard({
 			{(isNew || isUnread) && (
 				<span aria-hidden className='absolute -left-1.5 top-4 h-6 w-1 rounded-full bg-primary' />
 			)}
-			<header className={cn('flex items-center justify-between gap-3 px-4 pt-4', !description && 'pb-4')}>
+			<header
+				className={cn('flex items-center justify-between gap-3 px-4 pt-4', !description && !preview && 'pb-4')}
+			>
 				<div className='flex min-w-0 items-center gap-2'>
 					<Icon className='size-3.5 shrink-0 text-muted-foreground' aria-hidden />
 					{notification.linkUrl ? (
@@ -233,7 +246,10 @@ function NotificationFeedCard({
 				)}
 			</header>
 
-			{description && <div className='px-4 pt-1 pb-4 text-sm text-foreground/90'>{description}</div>}
+			{description && (
+				<div className={cn('px-4 pt-1 text-sm text-foreground/90', !preview && 'pb-4')}>{description}</div>
+			)}
+			{preview}
 		</article>
 	);
 }
@@ -243,6 +259,7 @@ type NotificationPresentation = {
 	title: string;
 	description: ReactNode;
 	objectLabel: string | null;
+	preview?: ReactNode;
 };
 
 const NOTIFICATION_CATEGORY_ICONS: Record<NotificationCategory, ComponentType<{ className?: string }>> = {
@@ -250,6 +267,7 @@ const NOTIFICATION_CATEGORY_ICONS: Record<NotificationCategory, ComponentType<{ 
 	feedback: ThumbsDown,
 	story_refresh: RefreshCw,
 	shared: Share2,
+	subscription: BellPlus,
 };
 
 const NOTIFICATION_OBJECT_LABELS: Record<NotificationCategory, string | null> = {
@@ -257,9 +275,13 @@ const NOTIFICATION_OBJECT_LABELS: Record<NotificationCategory, string | null> = 
 	feedback: 'Feedback',
 	story_refresh: 'Story',
 	shared: 'Shared item',
+	subscription: 'Story',
 };
 
-function getNotificationPresentation(notification: NotificationFeedItem['notification']): NotificationPresentation {
+function getNotificationPresentation(
+	notification: NotificationFeedItem['notification'],
+	onOpen?: () => void,
+): NotificationPresentation {
 	const Icon = NOTIFICATION_CATEGORY_ICONS[notification.category] ?? Bell;
 
 	if (notification.category === 'feedback') {
@@ -289,6 +311,38 @@ function getNotificationPresentation(notification: NotificationFeedItem['notific
 				title: notification.title,
 				description: <p className='text-destructive'>{notification.body ?? 'Refresh failed.'}</p>,
 				objectLabel: 'Story',
+			};
+		}
+		if (payload?.kind === 'story_refresh' && payload.status === 'refreshed') {
+			return {
+				Icon,
+				title: payload.storyTitle ?? notification.title,
+				description: payload.ownerName ? (
+					<p>
+						<span className='font-semibold'>{payload.ownerName}</span> · {notification.body}
+					</p>
+				) : (
+					notification.body
+				),
+				objectLabel: 'Story',
+			};
+		}
+	}
+
+	if (notification.category === 'subscription') {
+		const payload = notification.payload as StorySubscriptionNotificationPayload | null;
+		if (payload?.kind === 'story_subscription') {
+			return {
+				Icon,
+				title: payload.storyTitle,
+				description: (
+					<p>
+						<span className='font-semibold'>{payload.ownerName}</span> subscribed you to the scheduled
+						delivery for this story.
+					</p>
+				),
+				objectLabel: 'Story',
+				preview: <StoryPreview shareId={payload.shareId} onOpen={notification.linkUrl ? onOpen : undefined} />,
 			};
 		}
 	}
@@ -459,6 +513,96 @@ function AutomationRunCard({
 				<RunBody output={output} isRunning={isRunning} errorMessage={run.errorMessage} />
 			</div>
 		</article>
+	);
+}
+
+function StoryPreview({ shareId, onOpen }: { shareId: string | null; onOpen?: () => void }) {
+	const [tooltipOpen, setTooltipOpen] = useState(false);
+	const [cursor, setCursor] = useState({ x: 0, y: 0 });
+	const { data, isLoading } = useQuery({
+		...trpc.storyShare.get.queryOptions({ shareId: shareId ?? '' }),
+		enabled: Boolean(shareId),
+	});
+
+	const segments = useMemo(() => (data ? splitCodeIntoSegments(data.code) : []), [data]);
+	const queryData = (data?.queryData ?? null) as QueryDataMap | null;
+
+	const renderChart = useCallback(
+		(chart: ParsedChartBlock) => <StoryChartEmbed chart={chart} queryData={queryData} />,
+		[queryData],
+	);
+	const renderTable = useCallback(
+		(table: ParsedTableBlock) => <StoryTableEmbed table={table} queryData={queryData} />,
+		[queryData],
+	);
+	const renderMap = useCallback(
+		(map: ParsedMapBlock) => <StoryMapEmbed map={map} queryData={queryData} />,
+		[queryData],
+	);
+
+	if (!shareId) {
+		return null;
+	}
+
+	if (isLoading) {
+		return (
+			<div className='p-4'>
+				<div className='flex h-24 items-center justify-center rounded-lg border bg-background text-muted-foreground'>
+					<Loader2 className='size-4 animate-spin' />
+				</div>
+			</div>
+		);
+	}
+
+	if (!data || segments.length === 0) {
+		return null;
+	}
+
+	const inner = (
+		<>
+			<SegmentList
+				segments={segments}
+				renderChart={renderChart}
+				renderTable={renderTable}
+				renderMap={renderMap}
+			/>
+			<div className='absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-background to-transparent' />
+		</>
+	);
+
+	return (
+		<div className='p-4'>
+			{onOpen ? (
+				<>
+					<button
+						type='button'
+						onClick={onOpen}
+						onMouseEnter={(e) => {
+							setCursor({ x: e.clientX, y: e.clientY });
+							setTooltipOpen(true);
+						}}
+						onMouseMove={(e) => setCursor({ x: e.clientX, y: e.clientY })}
+						onMouseLeave={() => setTooltipOpen(false)}
+						className='relative block w-full max-h-60 cursor-pointer overflow-hidden rounded-lg border bg-background px-3 py-2 text-left text-sm transition-colors hover:bg-accent/50'
+					>
+						<div className='pointer-events-none'>{inner}</div>
+					</button>
+					{tooltipOpen && (
+						<div
+							role='tooltip'
+							className='pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-full rounded-lg border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-lg'
+							style={{ left: cursor.x, top: cursor.y - 12 }}
+						>
+							Open story
+						</div>
+					)}
+				</>
+			) : (
+				<div className='pointer-events-none relative max-h-60 overflow-hidden rounded-lg border bg-background px-3 py-2 text-sm'>
+					{inner}
+				</div>
+			)}
+		</div>
 	);
 }
 

@@ -1,5 +1,4 @@
 import { NO_CACHE_SCHEDULE } from '@nao/shared';
-import type { NotificationChannel } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 
 import { STORY_DELIVERY_JOB_NAME } from '../handlers/story-delivery.handler';
@@ -7,10 +6,7 @@ import * as notificationUnsubscribeQueries from '../queries/notification-unsubsc
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyDeliveryQueries from '../queries/story-delivery.queries';
-import { buildStoryUnsubscribeScope } from './notification-unsubscribe';
 import { nextCronTick } from './scheduler.service';
-
-const SUBSCRIPTION_CHANNELS: NotificationChannel[] = ['email', 'slack'];
 
 export function assertValidDeliverySchedule(
 	enabled: boolean,
@@ -69,10 +65,5 @@ export async function disableStoryDelivery(storyId: string): Promise<void> {
 export async function teardownStoryDelivery(storyId: string): Promise<void> {
 	await syncStoryDeliveryJob(storyId, false, null);
 	await storyDeliveryQueries.disableAndResetRecipients(storyId);
-
-	await Promise.all(
-		SUBSCRIPTION_CHANNELS.map((channel) =>
-			notificationUnsubscribeQueries.removeUnsubscribesForScope(buildStoryUnsubscribeScope(channel, storyId)),
-		),
-	);
+	await notificationUnsubscribeQueries.removeUnsubscribesForStory(storyId);
 }
