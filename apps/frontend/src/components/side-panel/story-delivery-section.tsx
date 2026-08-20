@@ -1,5 +1,5 @@
 import { NO_CACHE_SCHEDULE } from '@nao/shared';
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, Mail, Send, Slack, Wand2 } from 'lucide-react';
 import type { NotificationChannel } from '@nao/shared/types';
@@ -79,10 +79,18 @@ export const StoryDeliverySection = forwardRef<StoryDeliveryHandle, StoryDeliver
 		const [slackEnabled, setSlackEnabled] = useState(false);
 		const [search, setSearch] = useState('');
 
+		// Seed the form from server state only once per dialog open. Re-syncing on every
+		// refetch (e.g. after a mutation or window refocus) would discard unsaved edits.
+		const initializedRef = useRef(false);
 		useEffect(() => {
-			if (!open || !delivery.data) {
+			if (!open) {
+				initializedRef.current = false;
 				return;
 			}
+			if (initializedRef.current || !delivery.data) {
+				return;
+			}
+			initializedRef.current = true;
 			setEnabled(delivery.data.enabled);
 			const initialTiming = resolveInitialTiming(delivery.data.cron, delivery.data.enabled, refreshCron);
 			setTiming(initialTiming);
