@@ -36,7 +36,7 @@ import { invalidateStoriesCaches } from '@/lib/stories-cache';
 import { cn, hideIf } from '@/lib/utils';
 import { trpc } from '@/main';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useUnreadCount } from '@/queries/use-notifications';
+import { useUnreadAutomationRunCount, useUnreadCount } from '@/queries/use-notifications';
 
 export function Sidebar() {
 	const navigate = useNavigate();
@@ -54,7 +54,10 @@ export function Sidebar() {
 	const { isAdmin, isContextAdmin, isViewer } = usePermissions();
 	const isCloud = config.data?.naoMode === 'cloud';
 	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
-	const unreadCount = useUnreadCount().data ?? 0;
+	const unreadCount = useUnreadCount(project.data?.id).data ?? 0;
+	const unreadAutomationRunCount =
+		useUnreadAutomationRunCount(betaAutomationsEnabled && !isViewer, project.data?.id).data ?? 0;
+	const hasFeedActivity = unreadCount > 0 || unreadAutomationRunCount > 0;
 	const { groupBy, filters, setGroupBy, toggleFilter } = useChatViewPreferences();
 	const hasLicense = license.data?.tokenProvided === true;
 
@@ -237,7 +240,7 @@ export function Sidebar() {
 								shortcut=''
 								isCollapsed={effectiveIsCollapsed}
 								onClick={handleNavigateFeed}
-								indicator={unreadCount > 0}
+								indicator={hasFeedActivity}
 							/>
 						</div>
 					</>

@@ -65,7 +65,7 @@ export type StoryRefreshNotificationPayload = {
 	trigger?: 'manual' | 'schedule';
 };
 
-export type NotificationChannelPreference = { emailEnabled: boolean; inAppEnabled: boolean };
+export type NotificationChannelPreference = { emailEnabled: boolean; inAppEnabled: boolean; slackEnabled: boolean };
 
 export const DEFAULT_PYTHON_EXECUTION_DURATION_SECS = 30;
 export const MIN_PYTHON_EXECUTION_DURATION_SECS = 1;

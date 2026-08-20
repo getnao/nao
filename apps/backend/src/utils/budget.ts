@@ -66,7 +66,9 @@ export async function checkBudgetStatus(
 		return { level: 'ok', message: null };
 	}
 
-	await notifyOnExceededBudgets(projectId, resolved, userId).catch(() => {});
+	void notifyOnExceededBudgets(projectId, resolved, userId).catch((error) =>
+		logger.error(`Failed to send budget limit notification: ${String(error)}`, { source: 'system' }),
+	);
 
 	const { usages } = resolved;
 	if (usages.length === 0 || usages.every((u) => u.ratio < WARNING_BUDGET_THRESHOLD)) {
@@ -90,7 +92,9 @@ export async function assertBudgetNotExceeded(
 		return;
 	}
 
-	await notifyOnExceededBudgets(projectId, resolved, userId).catch(() => {});
+	void notifyOnExceededBudgets(projectId, resolved, userId).catch((error) =>
+		logger.error(`Failed to send budget limit notification: ${String(error)}`, { source: 'system' }),
+	);
 
 	const projectUsage = resolved.usages.find((u) => u.scope === 'project');
 	const userUsage = resolved.usages.find((u) => u.scope === 'user');

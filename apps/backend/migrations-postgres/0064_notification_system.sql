@@ -60,7 +60,7 @@ CREATE INDEX "notification_user_read_idx" ON "notification" USING btree ("user_i
 CREATE INDEX "notification_user_project_read_idx" ON "notification" USING btree ("user_id","project_id","read_at");--> statement-breakpoint
 CREATE INDEX "notification_createdAt_idx" ON "notification" USING btree ("created_at");--> statement-breakpoint
 CREATE INDEX "notification_unsubscribe_userId_idx" ON "notification_unsubscribe" USING btree ("user_id");--> statement-breakpoint
-CREATE INDEX "story_delivery_storyId_idx" ON "story_delivery" USING btree ("story_id");--> statement-breakpoint
+CREATE INDEX "notification_unsubscribe_scope_idx" ON "notification_unsubscribe" USING btree ("scope");--> statement-breakpoint
 INSERT INTO "notification" ("id", "user_id", "project_id", "category", "title", "body", "link_url", "payload", "read_at", "created_at")
 SELECT
 	'activity-' || a."id" || '-' || pm."user_id",

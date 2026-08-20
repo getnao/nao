@@ -56,7 +56,6 @@ export async function notifyStoryRefreshed(params: {
 		linkUrl,
 		ctaLabel: 'Open story',
 		projectId: params.projectId,
-		channels: ['in_app'],
 		payload,
 	});
 }
@@ -95,7 +94,7 @@ export async function notifyUsers(userIds: string[], input: Omit<NotifyInput, 'u
 	if (userIds.length === 0) {
 		return;
 	}
-	const recipients = await resolveRecipients(userIds);
+	const recipients = await userQueries.getUsersByIds(userIds);
 	await Promise.all(recipients.map((recipient) => deliverToRecipient(recipient, { ...input, userId: recipient.id })));
 }
 
@@ -135,8 +134,15 @@ export async function notifySharedItem(params: {
 		projectId: params.projectId,
 		payload,
 		channels: params.deliverExternally === false ? ['in_app'] : undefined,
-		emailOverride: (recipient) =>
-			buildSharedItemEmail(recipient, params.sharerName, params.itemLabel, params.itemTitle, itemUrl),
+		emailOverride: (recipient, unsubscribeUrl) =>
+			buildSharedItemEmail(
+				recipient,
+				params.sharerName,
+				params.itemLabel,
+				params.itemTitle,
+				itemUrl,
+				unsubscribeUrl,
+			),
 	});
 }
 
@@ -153,7 +159,7 @@ async function resolveStoryRefreshRecipients(
 		if (access.visibility === 'specific') {
 			access.allowedUserIds.forEach((id) => recipients.add(id));
 		} else {
-			const members = await projectQueries.listProjectMembersWithRoles(projectId);
+			const members = await projectQueries.listUsersWithProjectAccess(projectId);
 			members.forEach((member) => recipients.add(member.id));
 		}
 	}
@@ -216,10 +222,4 @@ async function deliverToRecipient(recipient: NotificationRecipient, input: Notif
 async function resolveRecipient(userId: string): Promise<NotificationRecipient | null> {
 	const user = await userQueries.getUser({ id: userId });
 	return user ? { id: user.id, name: user.name, email: user.email } : null;
-}
-
-async function resolveRecipients(userIds: string[]): Promise<NotificationRecipient[]> {
-	const users = await userQueries.listAllUsers();
-	const wanted = new Set(userIds);
-	return users.filter((user) => wanted.has(user.id));
 }

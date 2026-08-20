@@ -30,6 +30,17 @@ export const getUserNames = async (userIds: string[]): Promise<Map<string, strin
 	return new Map(users.map((user) => [user.id, user.name]));
 };
 
+export const getUsersByIds = async (userIds: string[]): Promise<Array<{ id: string; name: string; email: string }>> => {
+	if (userIds.length === 0) {
+		return [];
+	}
+	return db
+		.select({ id: s.user.id, name: s.user.name, email: s.user.email })
+		.from(s.user)
+		.where(inArray(s.user.id, userIds))
+		.execute();
+};
+
 export const updateUser = async (id: string, name: string): Promise<void> => {
 	await db.update(s.user).set({ name }).where(eq(s.user.id, id)).execute();
 };

@@ -289,5 +289,9 @@ function writeFilters(filters: FeedFilters): void {
 	if (!key) {
 		return;
 	}
-	window.localStorage.setItem(key, JSON.stringify(filters));
+	try {
+		window.localStorage.setItem(key, JSON.stringify(filters));
+	} catch {
+		// Ignore storage write failures (e.g. quota exceeded, private mode)
+	}
 }

@@ -38,6 +38,7 @@ CREATE TABLE `notification_unsubscribe` (
 );
 --> statement-breakpoint
 CREATE INDEX `notification_unsubscribe_userId_idx` ON `notification_unsubscribe` (`user_id`);--> statement-breakpoint
+CREATE INDEX `notification_unsubscribe_scope_idx` ON `notification_unsubscribe` (`scope`);--> statement-breakpoint
 CREATE TABLE `story_delivery` (
 	`id` text PRIMARY KEY NOT NULL,
 	`story_id` text NOT NULL,
@@ -59,7 +60,6 @@ CREATE TABLE `story_delivery` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `story_delivery_story_id_unique` ON `story_delivery` (`story_id`);--> statement-breakpoint
-CREATE INDEX `story_delivery_storyId_idx` ON `story_delivery` (`story_id`);--> statement-breakpoint
 ALTER TABLE `automation_run` ADD `read_at` integer;--> statement-breakpoint
 INSERT OR IGNORE INTO `notification` (`id`, `user_id`, `project_id`, `category`, `title`, `body`, `link_url`, `payload`, `read_at`, `created_at`)
 SELECT

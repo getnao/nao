@@ -84,14 +84,16 @@ export const sharedStoryRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found in this project.' });
 			}
 
+			const storyOwnerId = (await storyQueries.getStoryOwnerId(story.id)) ?? ctx.user.id;
+
 			if (input.visibility === 'project') {
 				await storyFolderQueries.moveStoryToFolder(story.id, null, {
-					storyOwnerId: ctx.user.id,
+					storyOwnerId,
 					projectId: ctx.project.id,
 				});
 			} else {
 				await storyFolderQueries.ensureStoryPrivate(story.id, {
-					storyOwnerId: ctx.user.id,
+					storyOwnerId,
 					projectId: ctx.project.id,
 				});
 			}
@@ -333,8 +335,9 @@ export const sharedStoryRoutes = {
 		}
 
 		await sharedStoryQueries.deleteSharedStory(input.shareId);
+		const storyOwnerId = (await storyQueries.getStoryOwnerId(ctx.resource.storyId)) ?? ctx.resource.userId;
 		await storyFolderQueries.ensureStoryPrivate(ctx.resource.storyId, {
-			storyOwnerId: ctx.resource.userId,
+			storyOwnerId,
 			projectId: ctx.resource.projectId,
 		});
 		await teardownStoryDelivery(ctx.resource.storyId);

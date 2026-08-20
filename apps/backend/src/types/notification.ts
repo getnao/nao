@@ -13,7 +13,7 @@ export interface NotifyInput {
 	projectId: string;
 	channels?: NotificationChannel[];
 	emailAttachments?: EmailAttachment[];
-	emailOverride?: (recipient: NotificationRecipient) => CreatedEmail;
+	emailOverride?: (recipient: NotificationRecipient, unsubscribeUrl?: string) => CreatedEmail;
 }
 
 export interface NotificationRecipient {

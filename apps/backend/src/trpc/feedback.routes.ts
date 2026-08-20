@@ -73,6 +73,11 @@ async function notifyDataTeamOfFeedback(
 	vote: 'up' | 'down',
 	explanation?: string,
 ): Promise<void> {
+	const chatInfo = await chatQueries.getChatInfo(chatId);
+	if (!chatInfo || chatInfo.projectId !== projectId) {
+		return;
+	}
+
 	const members = await projectQueries.listProjectMembersWithRoles(projectId);
 	const recipientIds = members
 		.filter((member) => member.role === 'admin' || member.role === 'context_admin')
@@ -84,8 +89,7 @@ async function notifyDataTeamOfFeedback(
 	}
 
 	const trimmedExplanation = explanation?.trim() || null;
-	const chatInfo = await chatQueries.getChatInfo(chatId);
-	const chatTitle = chatInfo?.title || null;
+	const chatTitle = chatInfo.title || null;
 	const sentiment = vote === 'up' ? 'positive' : 'negative';
 	const payload: FeedbackNotificationPayload = {
 		kind: 'feedback',

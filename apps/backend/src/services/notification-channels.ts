@@ -20,7 +20,7 @@ export interface DeliverableNotification {
 	payload?: Record<string, unknown>;
 	projectId: string;
 	emailAttachments?: EmailAttachment[];
-	emailOverride?: (recipient: NotificationRecipient) => CreatedEmail;
+	emailOverride?: (recipient: NotificationRecipient, unsubscribeUrl?: string) => CreatedEmail;
 }
 
 export interface NotificationChannelHandler {
@@ -49,15 +49,15 @@ const emailChannel: NotificationChannelHandler = {
 	id: 'email',
 	isEnabled: () => emailService.isEnabled(),
 	deliver: async (recipient, notification) => {
-		if (notification.emailOverride) {
-			await emailService.sendEmail(recipient.email, notification.emailOverride(recipient));
-			return;
-		}
 		const scope = resolveUnsubscribeScope('email', notification.category, notification.payload);
 		if (scope && (await notificationUnsubscribeQueries.isUnsubscribed(recipient.id, scope))) {
 			return;
 		}
 		const unsubscribeUrl = scope ? buildUnsubscribeUrl(recipient.id, scope) : undefined;
+		if (notification.emailOverride) {
+			await emailService.sendEmail(recipient.email, notification.emailOverride(recipient, unsubscribeUrl));
+			return;
+		}
 		await emailService.sendEmail(
 			recipient.email,
 			buildNotificationEmail(

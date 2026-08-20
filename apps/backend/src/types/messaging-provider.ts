@@ -53,6 +53,7 @@ export type SlackSettings = {
 	slackTransportMode?: SlackTransportMode;
 	slackAppToken?: string;
 	slackReplyMode?: SlackReplyMode;
+	slackDmScopeMissing?: boolean;
 };
 
 export type TeamsSettings = {

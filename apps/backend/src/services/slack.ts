@@ -28,6 +28,7 @@ import * as projectQueries from '../queries/project.queries';
 import {
 	getProjectSlackConfig,
 	listSocketModeSlackConfigs,
+	setSlackDmScopeMissing,
 	SlackConfig,
 } from '../queries/project-slack-config.queries';
 import { getUser } from '../queries/user.queries';
@@ -1223,7 +1224,22 @@ class SlackService {
 			return;
 		}
 		const bot = await this._getOrCreateBot(config);
-		await bot.sendDirectMessageByEmail(email, text, files, button, unsubscribeUrl);
+		try {
+			await bot.sendDirectMessageByEmail(email, text, files, button, unsubscribeUrl);
+		} catch (error) {
+			if (isMissingScopeError(error)) {
+				if (!config.dmScopeMissing) {
+					await setSlackDmScopeMissing(projectId, true);
+				}
+				throw new Error(
+					'Slack bot token is missing a required scope for direct messages. Reinstall the Slack app to grant it.',
+				);
+			}
+			throw error;
+		}
+		if (config.dmScopeMissing) {
+			await setSlackDmScopeMissing(projectId, false);
+		}
 	}
 
 	public async getWebhooks(config: SlackConfig): Promise<SlackBotWebhooks | undefined> {
@@ -1316,6 +1332,14 @@ class SlackService {
 
 function getSlackThreadId(channelId: string, threadTs: string): string {
 	return `slack:${channelId}:${threadTs}`;
+}
+
+function isMissingScopeError(error: unknown): boolean {
+	const data = (error as { data?: { error?: string } })?.data;
+	if (data?.error === 'missing_scope') {
+		return true;
+	}
+	return String((error as { message?: string })?.message ?? error).includes('missing_scope');
 }
 
 function parseSlackThreadTs(threadId: string): string | undefined {

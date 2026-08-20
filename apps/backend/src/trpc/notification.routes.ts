@@ -4,7 +4,6 @@ import { z } from 'zod/v4';
 import type { DBNotification } from '../db/abstractSchema';
 import * as notificationQueries from '../queries/notification.queries';
 import * as notificationUnsubscribeQueries from '../queries/notification-unsubscribe.queries';
-import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyDeliveryQueries from '../queries/story-delivery.queries';
 import { buildStoryUnsubscribeScope } from '../services/notification-unsubscribe';
@@ -18,7 +17,7 @@ type StorySubscriptionState = Record<StorySubscriptionChannel, StoryChannelSubsc
 
 export const notificationRoutes = {
 	list: projectProtectedProcedure
-		.input(z.object({ limit: z.number().min(1).max(100).optional() }).optional())
+		.input(z.object({ limit: z.number().int().min(1).max(100).optional() }).optional())
 		.query(async ({ ctx, input }): Promise<DBNotification[]> => {
 			return notificationQueries.listNotifications(ctx.user.id, ctx.project.id, input?.limit ?? 30);
 		}),
@@ -81,12 +80,8 @@ export const notificationRoutes = {
 };
 
 async function assertStoryAccess(userId: string, storyId: string): Promise<void> {
-	const projectId = await storyQueries.getStoryProjectId(storyId);
-	if (!projectId) {
-		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
-	}
-	const role = await projectQueries.getUserRoleInProject(projectId, userId);
-	if (!role) {
+	const canAccess = await storyQueries.canUserAccessStory(storyId, userId);
+	if (!canAccess) {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'You do not have access to this story.' });
 	}
 }

@@ -15,9 +15,12 @@ export function buildSharedItemEmail(
 	itemLabel: string,
 	itemTitle: string,
 	itemUrl: string,
+	unsubscribeUrl?: string,
 ): CreatedEmail {
 	const subject = `${sharerName} shared "${itemTitle}" with you on nao`;
-	const html = renderToString(SharedItemEmail({ userName: user.name, sharerName, itemLabel, itemTitle, itemUrl }));
+	const html = renderToString(
+		SharedItemEmail({ userName: user.name, sharerName, itemLabel, itemTitle, itemUrl, unsubscribeUrl }),
+	);
 	return { subject, html };
 }
 

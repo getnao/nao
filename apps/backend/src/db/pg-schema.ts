@@ -995,38 +995,38 @@ export const notificationUnsubscribe = pgTable(
 		scope: text('scope').notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
-	(t) => [primaryKey({ columns: [t.userId, t.scope] }), index('notification_unsubscribe_userId_idx').on(t.userId)],
+	(t) => [
+		primaryKey({ columns: [t.userId, t.scope] }),
+		index('notification_unsubscribe_userId_idx').on(t.userId),
+		index('notification_unsubscribe_scope_idx').on(t.scope),
+	],
 );
 
-export const storyDelivery = pgTable(
-	'story_delivery',
-	{
-		id: text('id')
-			.$defaultFn(() => crypto.randomUUID())
-			.primaryKey(),
-		storyId: text('story_id')
-			.notNull()
-			.references(() => story.id, { onDelete: 'cascade' })
-			.unique(),
-		projectId: text('project_id').references(() => project.id, { onDelete: 'cascade' }),
-		enabled: boolean('enabled').notNull().default(false),
-		cron: text('cron'),
-		scheduleDescription: text('schedule_description'),
-		channels: jsonb('channels').$type<NotificationChannel[]>().notNull(),
-		recipientMode: text('recipient_mode', { enum: ['all', 'specific'] })
-			.notNull()
-			.default('specific'),
-		recipientUserIds: jsonb('recipient_user_ids').$type<string[]>().notNull(),
-		scheduledJobId: text('scheduled_job_id').references(() => scheduledJob.id, { onDelete: 'set null' }),
-		createdBy: text('created_by').references(() => user.id, { onDelete: 'set null' }),
-		createdAt: timestamp('created_at').defaultNow().notNull(),
-		updatedAt: timestamp('updated_at')
-			.defaultNow()
-			.$onUpdate(() => new Date())
-			.notNull(),
-	},
-	(t) => [index('story_delivery_storyId_idx').on(t.storyId)],
-);
+export const storyDelivery = pgTable('story_delivery', {
+	id: text('id')
+		.$defaultFn(() => crypto.randomUUID())
+		.primaryKey(),
+	storyId: text('story_id')
+		.notNull()
+		.references(() => story.id, { onDelete: 'cascade' })
+		.unique(),
+	projectId: text('project_id').references(() => project.id, { onDelete: 'cascade' }),
+	enabled: boolean('enabled').notNull().default(false),
+	cron: text('cron'),
+	scheduleDescription: text('schedule_description'),
+	channels: jsonb('channels').$type<NotificationChannel[]>().notNull(),
+	recipientMode: text('recipient_mode', { enum: ['all', 'specific'] })
+		.notNull()
+		.default('specific'),
+	recipientUserIds: jsonb('recipient_user_ids').$type<string[]>().notNull(),
+	scheduledJobId: text('scheduled_job_id').references(() => scheduledJob.id, { onDelete: 'set null' }),
+	createdBy: text('created_by').references(() => user.id, { onDelete: 'set null' }),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+	updatedAt: timestamp('updated_at')
+		.defaultNow()
+		.$onUpdate(() => new Date())
+		.notNull(),
+});
 
 export const memories = pgTable(
 	'memories',

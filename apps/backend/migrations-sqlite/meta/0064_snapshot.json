@@ -4001,6 +4001,13 @@
             "user_id"
           ],
           "isUnique": false
+        },
+        "notification_unsubscribe_scope_idx": {
+          "name": "notification_unsubscribe_scope_idx",
+          "columns": [
+            "scope"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -6455,13 +6462,6 @@
             "story_id"
           ],
           "isUnique": true
-        },
-        "story_delivery_storyId_idx": {
-          "name": "story_delivery_storyId_idx",
-          "columns": [
-            "story_id"
-          ],
-          "isUnique": false
         }
       },
       "foreignKeys": {

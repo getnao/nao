@@ -18,7 +18,11 @@ import { naturalLanguageToCron } from '../services/cron-nlp';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { notifyStoryRefreshed, notifyStoryRefreshFailed } from '../services/notification.service';
 import { nextCronTick } from '../services/scheduler.service';
-import { assertValidDeliverySchedule, syncStoryDeliveryJob } from '../services/story-delivery.service';
+import {
+	assertValidDeliverySchedule,
+	disableStoryDelivery,
+	syncStoryDeliveryJob,
+} from '../services/story-delivery.service';
 import {
 	assertStoryFiltersEnabled,
 	getFilteredStoryQueryData,
@@ -507,7 +511,7 @@ export const storyRoutes = {
 			await syncStoryRefreshJob(input.chatId, input.storySlug, false, null);
 			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
 			if (story) {
-				await syncStoryDeliveryJob(story.id, false, null);
+				await disableStoryDelivery(story.id);
 			}
 		}),
 
@@ -744,7 +748,7 @@ async function unscheduleStoryRefreshJob(storyId: string): Promise<void> {
 		await scheduledJobQueries.deleteJob(story.scheduledJobId);
 		await activityQueries.linkStoryScheduledJob(storyId, null);
 	}
-	await syncStoryDeliveryJob(storyId, false, null);
+	await disableStoryDelivery(storyId);
 }
 
 async function assertBulkItemsOwnership(

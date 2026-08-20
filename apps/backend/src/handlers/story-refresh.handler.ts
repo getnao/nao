@@ -3,9 +3,10 @@ import * as activityQueries from '../queries/activity.queries';
 import * as storyQueries from '../queries/story.queries';
 import { refreshStoryData } from '../services/live-story';
 import { notifyStoryRefreshed, notifyStoryRefreshFailed } from '../services/notification.service';
+import { enqueueOnce } from '../services/scheduler.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { logger } from '../utils/logger';
-import { deliverStoryOnRefresh } from './story-delivery.handler';
+import { deliverStoryOnRefresh, STORY_DELIVERY_JOB_NAME } from './story-delivery.handler';
 
 export const STORY_REFRESH_JOB_NAME = 'story.refresh';
 
@@ -78,11 +79,16 @@ export async function runScheduledStoryRefresh(storyId: string): Promise<void> {
 			chatId: story.chatId,
 			metadata: { type: 'refresh', trigger: 'scheduled', queriesRefreshed: Object.keys(queryData).length },
 		});
-		await deliverStoryOnRefresh(storyId, 'schedule', story.cacheSchedule, queryData).catch((error) => {
-			logger.error(`Story delivery after scheduled refresh failed: ${String(error)}`, {
+		await deliverStoryOnRefresh(storyId, 'schedule', story.cacheSchedule, queryData).catch(async (error) => {
+			logger.error(`Story delivery after scheduled refresh failed; enqueuing retry: ${String(error)}`, {
 				source: 'system',
 				projectId,
 				context: { storyId },
+			});
+			await enqueueOnce({
+				name: STORY_DELIVERY_JOB_NAME,
+				payload: { storyId },
+				uniqueKey: `story-delivery-retry:${activity.id}`,
 			});
 		});
 	} catch (err) {
