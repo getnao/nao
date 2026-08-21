@@ -83,6 +83,11 @@ export const sharedStoryRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found in this project.' });
 			}
 
+			const storyOwnerId = await storyQueries.getStoryOwnerId(story.id);
+			if (storyOwnerId !== ctx.user.id && ctx.userRole !== 'admin') {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can share this.' });
+			}
+
 			if (input.visibility === 'project') {
 				await storyFolderQueries.moveStoryToFolder(story.id, null, {
 					storyOwnerId: ctx.user.id,

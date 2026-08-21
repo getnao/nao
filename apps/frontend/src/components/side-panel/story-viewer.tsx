@@ -61,7 +61,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		setCurrentStorySlug,
 		setCurrentStoryTabIndex,
 	} = useSidePanel();
-	const isReadonlyMode = readonlyProp ?? contextReadonlyMode;
+	const isReadonlyMode = isReplay ? contextReadonlyMode : (readonlyProp ?? contextReadonlyMode);
 	const { viewMode, setViewMode } = useStoryViewerViewMode();
 
 	const outerAgent = useOptionalAgentContext();
