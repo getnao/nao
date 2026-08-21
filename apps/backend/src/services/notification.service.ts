@@ -23,10 +23,28 @@ const sharedItemPaths: Record<SharedItemLabel, (shareId: string) => string> = {
 	chat: (shareId) => `/shared-chat/${shareId}`,
 };
 
-/** Reads the committed allow-list for a share, used to revalidate recipients at send time. */
-const sharedItemAllowedUserIds: Record<SharedItemLabel, (shareId: string) => Promise<string[]>> = {
-	story: (shareId) => sharedStoryQueries.getSharedStoryAllowedUserIds(shareId),
-	chat: (shareId) => sharedChatQueries.getShareAllowedUserIds(shareId),
+type CommittedShareAcl = { visibility: Visibility; allowedUserIds: string[] };
+
+const sharedItemAcl: Record<SharedItemLabel, (shareId: string) => Promise<CommittedShareAcl | null>> = {
+	story: async (shareId) => {
+		const share = await sharedStoryQueries.getSharedStory(shareId);
+		if (!share) {
+			return null;
+		}
+		const visibility = share.visibility as Visibility;
+		const allowedUserIds =
+			visibility === 'specific' ? await sharedStoryQueries.getSharedStoryAllowedUserIds(shareId) : [];
+		return { visibility, allowedUserIds };
+	},
+	chat: async (shareId) => {
+		const share = await sharedChatQueries.getSharedChatInfo(shareId);
+		if (!share) {
+			return null;
+		}
+		const visibility = share.visibility as Visibility;
+		const allowedUserIds = visibility === 'specific' ? await sharedChatQueries.getShareAllowedUserIds(shareId) : [];
+		return { visibility, allowedUserIds };
+	},
 };
 
 export async function notify(input: NotifyInput): Promise<void> {
@@ -216,40 +234,35 @@ async function resolveSharedItemRecipientIds(params: {
 	visibility: Visibility;
 	allowedUserIds?: string[];
 }): Promise<string[]> {
+	const acl = await sharedItemAcl[params.itemLabel](params.shareId);
+	if (!acl) {
+		return [];
+	}
+
+	const hasCurrentAccess = buildShareAccessPredicate(acl);
+	const intendedUserIds = params.visibility === 'specific' ? new Set(params.allowedUserIds ?? []) : null;
+
 	const members = await projectQueries.listUsersWithProjectAccess(params.projectId);
-	// For specific shares, revalidate the requested recipients against the committed ACL here,
-	// at resolution time: a concurrent revoke between the caller's read and now must not leak the
-	// notification (and its link) to a user who no longer has access.
-	const allowed =
-		params.visibility === 'specific'
-			? new Set(await intersectWithCommittedAcl(params.itemLabel, params.shareId, params.allowedUserIds ?? []))
-			: new Set<string>();
 	return members
 		.filter((member) => member.id !== params.sharerId)
-		.filter((member) => params.visibility === 'project' || allowed.has(member.id))
+		.filter((member) => hasCurrentAccess(member.id))
+		.filter((member) => intendedUserIds === null || intendedUserIds.has(member.id))
 		.map((member) => member.id);
 }
 
-async function intersectWithCommittedAcl(
-	itemLabel: SharedItemLabel,
-	shareId: string,
-	requestedUserIds: string[],
-): Promise<string[]> {
-	const committed = new Set(await sharedItemAllowedUserIds[itemLabel](shareId));
-	return requestedUserIds.filter((id) => committed.has(id));
+function buildShareAccessPredicate(acl: CommittedShareAcl): (userId: string) => boolean {
+	if (acl.visibility === 'project') {
+		return () => true;
+	}
+	const allowed = new Set(acl.allowedUserIds);
+	return (userId) => allowed.has(userId);
 }
 
 function toAbsoluteShareUrl(linkUrl: string): string {
 	return `${env.BETTER_AUTH_URL.replace(/\/$/, '')}${linkUrl}`;
 }
 
-/** Options controlling how channel delivery failures are handled. */
 type DeliveryOptions = {
-	/**
-	 * When true, throws after attempting all channels if any failed. Callers that
-	 * back a retry (e.g. scheduled story delivery) rely on this to surface send
-	 * failures; the default swallows them so best-effort notifications never fail.
-	 */
 	throwOnChannelError?: boolean;
 };
 
