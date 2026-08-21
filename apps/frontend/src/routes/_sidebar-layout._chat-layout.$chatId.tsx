@@ -218,7 +218,7 @@ function ChatPage() {
 									disabled={isRunning}
 									aria-label='Analytics'
 								>
-									<Info className='size-3' />
+									<Info className='size-3.5' />
 								</Button>
 								<Button
 									variant='outline'
