@@ -27,7 +27,7 @@ type CommittedShareAcl = { visibility: Visibility; allowedUserIds: string[] };
 
 const sharedItemAcl: Record<SharedItemLabel, (shareId: string) => Promise<CommittedShareAcl | null>> = {
 	story: async (shareId) => {
-		const share = await sharedStoryQueries.getSharedStory(shareId);
+		const share = await sharedStoryQueries.getSharedStoryVisibilityById(shareId);
 		if (!share) {
 			return null;
 		}
@@ -37,7 +37,7 @@ const sharedItemAcl: Record<SharedItemLabel, (shareId: string) => Promise<Commit
 		return { visibility, allowedUserIds };
 	},
 	chat: async (shareId) => {
-		const share = await sharedChatQueries.getSharedChatInfo(shareId);
+		const share = await sharedChatQueries.getSharedChatVisibilityById(shareId);
 		if (!share) {
 			return null;
 		}
