@@ -155,6 +155,17 @@ export async function getSharedStoryInfo(
 	return row ?? null;
 }
 
+export async function getSharedStoryVisibilityById(sharedStoryId: string): Promise<{ visibility: string } | null> {
+	const [row] = await db
+		.select({ visibility: s.sharedStory.visibility })
+		.from(s.sharedStory)
+		.where(eq(s.sharedStory.id, sharedStoryId))
+		.limit(1)
+		.execute();
+
+	return row ?? null;
+}
+
 export type StoryShareAccess = {
 	shareId: string;
 	visibility: string;
