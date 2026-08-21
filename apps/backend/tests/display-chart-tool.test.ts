@@ -9,7 +9,7 @@ import displayChartTool from '../src/agents/tools/display-chart';
 import type { ToolContext } from '../src/types/tools';
 
 describe('display_chart execute', () => {
-	it('rejects horizontal bars with more than one series', async () => {
+	it('accepts horizontal bars with multiple series', async () => {
 		const context = {
 			generatedArtifacts: { charts: [], maps: [], stories: [] },
 		} as unknown as ToolContext;
@@ -27,9 +27,31 @@ describe('display_chart execute', () => {
 			} as Parameters<NonNullable<typeof displayChartTool.execute>>[1],
 		);
 
+		expect(output).toMatchObject({ success: true });
+		expect(context.generatedArtifacts.charts).toHaveLength(1);
+	});
+
+	it('requires multiple series for normalized horizontal bars', async () => {
+		const context = {
+			generatedArtifacts: { charts: [], maps: [], stories: [] },
+		} as unknown as ToolContext;
+		const output = await displayChartTool.execute!(
+			{
+				query_id: 'query-1',
+				chart_type: 'horizontal_bar_100',
+				x_axis_key: 'category',
+				x_axis_type: 'category',
+				series: [{ data_key: 'revenue' }],
+				title: 'Revenue share',
+			},
+			{
+				experimental_context: context,
+			} as Parameters<NonNullable<typeof displayChartTool.execute>>[1],
+		);
+
 		expect(output).toMatchObject({
 			success: false,
-			error: 'Horizontal bar charts require exactly one series.',
+			error: expect.stringContaining('requires at least two series'),
 		});
 		expect(context.generatedArtifacts.charts).toHaveLength(0);
 	});

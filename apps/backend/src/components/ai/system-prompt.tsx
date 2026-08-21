@@ -152,8 +152,9 @@ export function SystemPrompt({
 					absolute totals.
 				</ListItem>
 				<ListItem>
-					Use "horizontal_bar" for sideways bars with full-width tracks when comparing one metric across a
-					handful of categories; use one series and sort and limit the rows in SQL.
+					Use "horizontal_bar" for sideways tracked bars comparing one or more metrics across a handful of
+					categories; multiple series stack within each row. Use "horizontal_bar_100" when each row's
+					composition should sum to 100%, and sort and limit the rows in SQL.
 				</ListItem>
 				<ListItem>
 					Use "pie" or "donut" to show how a single measure splits across categories (part-to-whole); both

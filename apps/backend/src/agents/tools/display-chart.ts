@@ -58,21 +58,13 @@ export default createTool<displayChart.Input, displayChart.Output>({
 			};
 		}
 
-		if (chartType === 'horizontal_bar' && series.length !== 1) {
-			return {
-				_version: '1',
-				success: false,
-				error: 'Horizontal bar charts require exactly one series.',
-			};
-		}
-
 		// Validate series is not empty
 		if (series.length === 0) {
 			return { _version: '1', success: false, error: 'At least one series is required.' };
 		}
 
 		// Stacked charts require at least two series
-		if (displayChart.isStackedChartType(chartType) && series.length < 2) {
+		if (displayChart.isStackedChartType(chartType) && chartType !== 'horizontal_bar' && series.length < 2) {
 			return {
 				_version: '1',
 				success: false,

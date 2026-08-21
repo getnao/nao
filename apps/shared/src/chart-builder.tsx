@@ -27,11 +27,13 @@ import {
 	DATA_LABEL_MARGIN_TOP,
 	DATA_LABEL_X_AXIS_FOOTROOM,
 	getDataLabelSetup,
+	getRenderedSeries,
 	PIE_LABELLED_OUTER_RADIUS,
 	renderDataLabelsLayer,
 	renderPieDataLabelsLayer,
 	shouldReserveDataLabelHeadroom,
 	shouldReserveStackTotalFootroom,
+	sumStackValue,
 } from './chart-data-labels';
 import { collectAxisValues, collectStackedAxisValues, resolveBarYAxisDomain, resolveYAxisDomain } from './chart-domain';
 import {
@@ -84,6 +86,8 @@ const HORIZONTAL_BAR_CATEGORY_AXIS_MIN_WIDTH = 60;
 const HORIZONTAL_BAR_CATEGORY_AXIS_MAX_WIDTH = 180;
 const HORIZONTAL_BAR_CATEGORY_MAX_LABEL_CHARS = 24;
 const HORIZONTAL_BAR_SIZE = 10;
+const HORIZONTAL_BAR_MAX_SIZE = 28;
+const HORIZONTAL_BAR_CATEGORY_GAP = '20%';
 const HORIZONTAL_BAR_RADIUS = 999;
 const HORIZONTAL_BAR_TRACK_COLOR = 'var(--muted, #e5e7eb)';
 const HORIZONTAL_BAR_ORIGINAL_VALUE_KEY = '__naoHorizontalBarValue';
@@ -354,7 +358,7 @@ export function buildChart(props: BuildChartProps) {
 	if (resolved.chartType === 'radar') {
 		return buildRadarChart(resolved);
 	}
-	if (resolved.chartType === 'horizontal_bar') {
+	if (resolved.chartType === 'horizontal_bar' || resolved.chartType === 'horizontal_bar_100') {
 		return buildHorizontalBarChart(resolved);
 	}
 	return buildBarChart(resolved);
@@ -609,36 +613,65 @@ function formatCategoryTick(value: string, labelFormatter: (value: string) => st
 }
 
 function buildHorizontalBarChart(props: ResolvedProps) {
-	const { data, xAxisKey, series, colorFor, labelFormatter, children, xAxisMaxLabelChars } = props;
-	const horizontalBarSeries = series[0];
-	const dataKey = horizontalBarSeries.data_key;
-	const values = data.map((row) => toFiniteNumber(row[dataKey]) ?? 0);
-	const maximum = values.reduce((current, value) => Math.max(current, Math.abs(value)), 0) || 1;
+	const { data, chartType, xAxisKey, series, colorFor, labelFormatter, children, xAxisMaxLabelChars } = props;
+	const isPercent = displayChart.isPercentStackedChartType(chartType);
+	const renderedSeries = getRenderedSeries(series, series.length > 1);
+	const hasMultipleSeries = renderedSeries.length > 1;
+	const seriesKeys = renderedSeries.map((item) => item.data_key);
+	const rowTotals = data.map((row) => sumStackValue(row, renderedSeries) ?? 0);
+	const maximum = rowTotals.reduce((current, value) => Math.max(current, Math.abs(value)), 0) || 1;
 	const valueFormat = getChartLevelValueFormat(series);
+	const valueFormatter = (value: number) =>
+		isPercent ? formatPercentAxisTick(value) : formatChartValue(value, valueFormat);
+	const labelValues = isPercent ? data.map(() => 1) : rowTotals;
 	const showValueLabels = displayChart.resolveShowDataLabels(props.chartType, props.showDataLabels);
 	const labelCharacterLimit = xAxisMaxLabelChars ?? HORIZONTAL_BAR_CATEGORY_MAX_LABEL_CHARS;
 	const tickFormatter = (value: string) => formatCategoryTick(value, labelFormatter, labelCharacterLimit);
 	const categoryAxisWidth = computeHorizontalBarCategoryAxisWidth(data, xAxisKey, tickFormatter);
-	const valueLabelWidth = showValueLabels ? computeHorizontalBarValueLabelWidth(values, valueFormat) : 0;
+	const valueLabelWidth = showValueLabels ? computeHorizontalBarValueLabelWidth(labelValues, valueFormatter) : 0;
 	const horizontalBarValueLabelsLayer = showValueLabels
-		? createHorizontalBarValueLabelsLayer(valueFormat, valueLabelWidth)
+		? createHorizontalBarValueLabelsLayer(valueFormatter, valueLabelWidth)
 		: undefined;
+	const separatorColor = props.backgroundColor ?? DEFAULT_BACKGROUND;
 	const margin = {
 		...props.margin,
 		right: (props.margin?.right ?? 0) + valueLabelWidth,
 	};
-	const horizontalBarData = data.map((row) => {
-		const value = toFiniteNumber(row[dataKey]) ?? 0;
-		return {
+	const horizontalBarData = data.map((row, rowIndex) => {
+		const normalizedRow: Record<string, unknown> = {
 			...row,
-			[HORIZONTAL_BAR_ORIGINAL_VALUE_KEY]: value,
-			[dataKey]: Math.abs(value),
+			[HORIZONTAL_BAR_ORIGINAL_VALUE_KEY]: labelValues[rowIndex],
 		};
+		for (const key of seriesKeys) {
+			normalizedRow[key] = Math.abs(toFiniteNumber(row[key]) ?? 0);
+		}
+		return normalizedRow;
 	});
 
 	return (
-		<BarChart data={horizontalBarData} layout='vertical' accessibilityLayer margin={margin}>
-			<XAxis type='number' hide domain={[0, maximum]} />
+		<BarChart
+			data={horizontalBarData}
+			layout='vertical'
+			accessibilityLayer
+			margin={margin}
+			{...(isPercent ? { stackOffset: 'expand' as const } : {})}
+			{...(hasMultipleSeries ? { barCategoryGap: HORIZONTAL_BAR_CATEGORY_GAP } : {})}
+		>
+			{hasMultipleSeries ? (
+				<XAxis
+					type='number'
+					domain={isPercent ? [0, 1] : [0, maximum]}
+					tick={AXIS_TICK}
+					tickLine={false}
+					axisLine={false}
+					minTickGap={12}
+					tickFormatter={
+						isPercent ? formatPercentAxisTick : (value: number) => formatValueYAxisTick(value, valueFormat)
+					}
+				/>
+			) : (
+				<XAxis type='number' hide domain={[0, maximum]} />
+			)}
 			<YAxis
 				type='category'
 				dataKey={xAxisKey}
@@ -649,15 +682,36 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 				tickFormatter={tickFormatter}
 			/>
 			{children}
-			<Bar
-				dataKey={dataKey}
-				fill={colorFor(dataKey, 0)}
-				radius={[HORIZONTAL_BAR_RADIUS, HORIZONTAL_BAR_RADIUS, HORIZONTAL_BAR_RADIUS, HORIZONTAL_BAR_RADIUS]}
-				background={renderHorizontalBarBackground}
-				barSize={HORIZONTAL_BAR_SIZE}
-				isAnimationActive={Boolean(props.animate)}
-				animationDuration={CHART_ANIMATION_DURATION_MS}
-			/>
+			{hasMultipleSeries ? (
+				renderedSeries.map((item, index) => (
+					<Bar
+						key={item.data_key}
+						dataKey={item.data_key}
+						fill={colorFor(item.data_key, index)}
+						stackId='stack'
+						background={index === 0 ? renderHorizontalBarBackground : undefined}
+						shape={renderHorizontalStackedBarShape(seriesKeys, item.data_key, separatorColor)}
+						maxBarSize={HORIZONTAL_BAR_MAX_SIZE}
+						isAnimationActive={Boolean(props.animate)}
+						animationDuration={CHART_ANIMATION_DURATION_MS}
+					/>
+				))
+			) : (
+				<Bar
+					dataKey={renderedSeries[0]?.data_key}
+					fill={colorFor(renderedSeries[0]?.data_key ?? '', 0)}
+					radius={[
+						HORIZONTAL_BAR_RADIUS,
+						HORIZONTAL_BAR_RADIUS,
+						HORIZONTAL_BAR_RADIUS,
+						HORIZONTAL_BAR_RADIUS,
+					]}
+					background={renderHorizontalBarBackground}
+					barSize={HORIZONTAL_BAR_SIZE}
+					isAnimationActive={Boolean(props.animate)}
+					animationDuration={CHART_ANIMATION_DURATION_MS}
+				/>
+			)}
 			{horizontalBarValueLabelsLayer && <Customized component={horizontalBarValueLabelsLayer} />}
 		</BarChart>
 	);
@@ -681,11 +735,8 @@ function computeHorizontalBarCategoryAxisWidth(
 	);
 }
 
-function computeHorizontalBarValueLabelWidth(values: number[], valueFormat?: displayChart.ValueFormat): number {
-	const longestLabelLength = values.reduce(
-		(current, value) => Math.max(current, formatChartValue(value, valueFormat).length),
-		0,
-	);
+function computeHorizontalBarValueLabelWidth(values: number[], valueFormatter: (value: number) => string): number {
+	const longestLabelLength = values.reduce((current, value) => Math.max(current, valueFormatter(value).length), 0);
 	return Math.max(
 		VALUE_AXIS_DEFAULT_WIDTH,
 		longestLabelLength * VALUE_AXIS_CHARACTER_WIDTH +
@@ -711,10 +762,7 @@ interface HorizontalBarLabelsLayerProps {
 	};
 }
 
-function createHorizontalBarValueLabelsLayer(
-	valueFormat: displayChart.ValueFormat | undefined,
-	valueLabelWidth: number,
-) {
+function createHorizontalBarValueLabelsLayer(valueFormatter: (value: number) => string, valueLabelWidth: number) {
 	function HorizontalBarValueLabelsLayer({ formattedGraphicalItems, offset }: HorizontalBarLabelsLayerProps) {
 		const bar = formattedGraphicalItems?.find((item) => item.item?.type?.displayName === 'Bar');
 		const trackEnd = (toFiniteNumber(offset?.left) ?? 0) + (toFiniteNumber(offset?.width) ?? 0);
@@ -743,7 +791,7 @@ function createHorizontalBarValueLabelsLayer(
 							dominantBaseline='central'
 							className='recharts-horizontal-bar-value-label'
 						>
-							{formatChartValue(value, valueFormat)}
+							{valueFormatter(value)}
 						</text>
 					);
 				})}
@@ -869,7 +917,33 @@ export function isTopmostStackSegment(row: Record<string, unknown>, seriesKeys: 
 	return topKey === currentKey;
 }
 
+function isFirstNonZeroStackSegment(row: Record<string, unknown>, seriesKeys: string[], currentKey: string): boolean {
+	return seriesKeys.find((key) => typeof row[key] === 'number' && row[key] !== 0) === currentKey;
+}
+
 type RectangleProps = React.ComponentProps<typeof Rectangle>;
+
+function renderHorizontalStackedBarShape(seriesKeys: string[], currentKey: string, separatorColor: string) {
+	return function HorizontalStackedBarSegment(shapeProps: unknown) {
+		const rectProps = shapeProps as RectangleProps & { payload?: Record<string, unknown> };
+		const row = rectProps.payload ?? {};
+		const roundLeft = isFirstNonZeroStackSegment(row, seriesKeys, currentKey);
+		const roundRight = isTopmostStackSegment(row, seriesKeys, currentKey);
+		return (
+			<Rectangle
+				{...rectProps}
+				radius={[
+					roundLeft ? HORIZONTAL_BAR_RADIUS : 0,
+					roundRight ? HORIZONTAL_BAR_RADIUS : 0,
+					roundRight ? HORIZONTAL_BAR_RADIUS : 0,
+					roundLeft ? HORIZONTAL_BAR_RADIUS : 0,
+				]}
+				stroke={separatorColor}
+				strokeWidth={STACK_SEPARATOR_WIDTH}
+			/>
+		);
+	};
+}
 
 /**
  * Custom `<Bar>` shape that rounds the top corners of only the topmost non-zero segment of

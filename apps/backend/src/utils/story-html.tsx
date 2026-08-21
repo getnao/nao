@@ -404,7 +404,8 @@ function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: 
 	}
 
 	const isPie = chart.chartType === 'pie' || chart.chartType === 'donut';
-	const isHorizontalBar = chart.chartType === 'horizontal_bar';
+	const isHorizontalBar = chart.chartType === 'horizontal_bar' || chart.chartType === 'horizontal_bar_100';
+	const showLegend = !isPie && (!isHorizontalBar || chart.series.length >= 2);
 	const valueKey = chart.series[0]?.data_key ?? '';
 	const chartRows = isPie ? bucketPieData(rows, chart.xAxisKey, valueKey) : rows;
 
@@ -437,7 +438,7 @@ function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: 
 					data-chart={chartData}
 					dangerouslySetInnerHTML={{ __html: svg }}
 				/>
-				{!isPie && !isHorizontalBar && <ChartLegend series={chart.series} />}
+				{showLegend && <ChartLegend series={chart.series} />}
 			</div>
 		);
 	} catch {
@@ -1610,7 +1611,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 			var isPie=!!pieColorMap;
 			var html='<div class="nao-tooltip-label">'+labelize(label!=null?label:'')+'</div>';
 			html+='<div class="nao-tooltip-rows">';
-			var isPercent=cfg.chartType==='stacked_bar_100'||cfg.chartType==='stacked_area_100';
+			var isPercent=cfg.chartType==='stacked_bar_100'||cfg.chartType==='stacked_area_100'||cfg.chartType==='horizontal_bar_100';
 			var isDualAxis=(cfg.series||[]).some(function(s){return s.y_axis==='right'});
 			var seriesTotal=0;
 			cfg.series.forEach(function(s){var sv=row[s.data_key];if(typeof sv==='number'&&!s.is_total)seriesTotal+=sv;});

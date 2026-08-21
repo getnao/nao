@@ -107,7 +107,11 @@ export function formatDataLabel(value: unknown, valueFormat?: displayChart.Value
 }
 
 export function shouldReserveDataLabelHeadroom<Props extends DataLabelChartProps>(props: Props): boolean {
-	if (props.showDataLabels !== true || !isCartesianLabelChart(props.chartType)) {
+	if (
+		props.showDataLabels !== true ||
+		isHorizontalBarChart(props.chartType) ||
+		!isCartesianLabelChart(props.chartType)
+	) {
 		return false;
 	}
 	if (barChartUsesPaddedDomain(props)) {
@@ -124,7 +128,11 @@ export function shouldReserveDataLabelHeadroom<Props extends DataLabelChartProps
 }
 
 export function shouldReserveStackTotalFootroom<Props extends DataLabelChartProps>(props: Props): boolean {
-	if (props.showDataLabels !== true || !displayChart.isStackedChartType(props.chartType)) {
+	if (
+		props.showDataLabels !== true ||
+		isHorizontalBarChart(props.chartType) ||
+		!displayChart.isStackedChartType(props.chartType)
+	) {
 		return false;
 	}
 	if (displayChart.isPercentStackedChartType(props.chartType)) {
@@ -217,6 +225,10 @@ function isCartesianLabelChart(chartType: displayChart.ChartType): boolean {
 		displayChart.isStackedChartType(chartType) ||
 		chartType === 'mixed'
 	);
+}
+
+function isHorizontalBarChart(chartType: displayChart.ChartType): boolean {
+	return chartType === 'horizontal_bar' || chartType === 'horizontal_bar_100';
 }
 
 function barChartUsesPaddedDomain(props: DataLabelChartProps): boolean {
@@ -642,7 +654,10 @@ function boxesOverlap(a: LabelBox, b: LabelBox): boolean {
 	return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 }
 
-function sumStackValue(row: Record<string, unknown> | undefined, series: displayChart.SeriesConfig[]): number | null {
+export function sumStackValue(
+	row: Record<string, unknown> | undefined,
+	series: displayChart.SeriesConfig[],
+): number | null {
 	if (!row) {
 		return null;
 	}

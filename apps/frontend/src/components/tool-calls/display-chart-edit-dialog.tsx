@@ -56,6 +56,7 @@ const Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES = new Set<displayChart.ChartType>([
 	'kpi_card',
 	'radar',
 	'horizontal_bar',
+	'horizontal_bar_100',
 ]);
 
 type UnitPlacement = 'prefix' | 'suffix';
@@ -70,6 +71,9 @@ function baseChartType(type: displayChart.ChartType): displayChart.ChartType {
 	if (type === 'stacked_area_100') {
 		return 'stacked_area';
 	}
+	if (type === 'horizontal_bar_100') {
+		return 'horizontal_bar';
+	}
 	return type;
 }
 
@@ -80,6 +84,9 @@ function percentChartType(type: displayChart.ChartType): displayChart.ChartType 
 	}
 	if (type === 'stacked_area' || type === 'stacked_area_100') {
 		return 'stacked_area_100';
+	}
+	if (type === 'horizontal_bar' || type === 'horizontal_bar_100') {
+		return 'horizontal_bar_100';
 	}
 	return type;
 }
@@ -130,6 +137,9 @@ export function ChartConfigEditDialog({
 	const [paletteHexes, setPaletteHexes] = useState<string[]>(DEFAULT_COLORS);
 	const supportsYAxisRange = !Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES.has(draft.chart_type);
 	const supportsAxisLabels = displayChart.chartTypeSupportsAxisLabels(draft.chart_type);
+	const canNormalize =
+		displayChart.isStackedChartType(draft.chart_type) &&
+		(baseChartType(draft.chart_type) !== 'horizontal_bar' || draft.series.length >= 2);
 	const unsupportedNumberFormat = useMemo(
 		() =>
 			draft.series
@@ -337,7 +347,7 @@ export function ChartConfigEditDialog({
 						</Select>
 					</div>
 
-					{displayChart.isStackedChartType(draft.chart_type) && (
+					{canNormalize && (
 						<div className='flex items-center justify-between gap-3'>
 							<div className='grid gap-0.5'>
 								<label htmlFor='chart-normalize' className='text-sm font-semibold text-foreground'>
