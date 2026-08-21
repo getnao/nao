@@ -19,7 +19,7 @@ import { cn } from '@/lib/utils';
 const CHART_TYPE_OPTIONS: { value: displayChart.ChartType; label: string }[] = [
 	{ value: 'bar', label: 'Bar' },
 	{ value: 'stacked_bar', label: 'Stacked bar' },
-	{ value: 'progress_bar', label: 'Progress bar' },
+	{ value: 'horizontal_bar', label: 'Horizontal bar' },
 	{ value: 'line', label: 'Line' },
 	{ value: 'area', label: 'Area' },
 	{ value: 'stacked_area', label: 'Stacked area' },
@@ -55,7 +55,7 @@ const Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES = new Set<displayChart.ChartType>([
 	'pie',
 	'kpi_card',
 	'radar',
-	'progress_bar',
+	'horizontal_bar',
 ]);
 
 type UnitPlacement = 'prefix' | 'suffix';

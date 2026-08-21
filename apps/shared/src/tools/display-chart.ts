@@ -4,7 +4,7 @@ export const BUILTIN_CHART_TYPES = [
 	'bar',
 	'stacked_bar',
 	'stacked_bar_100',
-	'progress_bar',
+	'horizontal_bar',
 	'line',
 	'area',
 	'stacked_area',
@@ -321,7 +321,7 @@ const STACKED_CHART_TYPES = new Set<ChartType>(['stacked_bar', 'stacked_bar_100'
 const PERCENT_STACKED_CHART_TYPES = new Set<ChartType>(['stacked_bar_100', 'stacked_area_100']);
 const X_AXIS_REQUIRED_CHART_TYPES = new Set<ChartType>([
 	'bar',
-	'progress_bar',
+	'horizontal_bar',
 	'line',
 	'area',
 	'stacked_area',
@@ -362,14 +362,14 @@ export function isPieChart(chartType: string): boolean {
 	return chartType === 'pie' || chartType === 'donut';
 }
 
-const AXIS_LABEL_UNSUPPORTED_CHART_TYPES = new Set<ChartType>(['pie', 'donut', 'kpi_card', 'radar', 'progress_bar']);
+const AXIS_LABEL_UNSUPPORTED_CHART_TYPES = new Set<ChartType>(['pie', 'donut', 'kpi_card', 'radar', 'horizontal_bar']);
 
 export function chartTypeSupportsAxisLabels(type: string): boolean {
 	return isBuiltinChartType(type) && !AXIS_LABEL_UNSUPPORTED_CHART_TYPES.has(type);
 }
 
 export function resolveShowDataLabels(type: string, showDataLabels?: boolean): boolean {
-	return showDataLabels ?? type === 'progress_bar';
+	return showDataLabels ?? type === 'horizontal_bar';
 }
 
 export function chartTypeSupportsComboSeries(type: ChartType): boolean {

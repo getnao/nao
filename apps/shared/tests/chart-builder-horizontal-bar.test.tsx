@@ -4,14 +4,14 @@ import { describe, expect, it } from 'vitest';
 
 import { buildChart } from '../src/chart-builder';
 
-describe('buildChart progress bars', () => {
-	it('builds one vertical bar series with category and hidden value axes', () => {
+describe('buildChart horizontal bars', () => {
+	it('builds one horizontal bar series with category and hidden value axes', () => {
 		const chart = buildChart({
 			data: [
 				{ category: 'First', value: 20 },
 				{ category: 'Second', value: 50 },
 			],
-			chartType: 'progress_bar',
+			chartType: 'horizontal_bar',
 			xAxisKey: 'category',
 			xAxisType: 'category',
 			series: [{ data_key: 'value' }],
@@ -31,14 +31,14 @@ describe('buildChart progress bars', () => {
 	it('applies the series value format to the always-visible labels', () => {
 		const chart = buildChart({
 			data: [{ category: 'First', value: 1200 }],
-			chartType: 'progress_bar',
+			chartType: 'horizontal_bar',
 			xAxisKey: 'category',
 			xAxisType: 'category',
 			series: [{ data_key: 'value', value_format: { d3_format: ',.0f', prefix: '$', suffix: ' USD' } }],
 		});
 		const html = renderToString(React.cloneElement(chart, { width: 600, height: 300 }));
 
-		expect(readProgressValueLabels(html).map((label) => label.text)).toEqual(['$1,200 USD']);
+		expect(readHorizontalBarValueLabels(html).map((label) => label.text)).toEqual(['$1,200 USD']);
 		expect(html).toContain('fill="var(--muted, #e5e7eb)"');
 	});
 
@@ -48,13 +48,13 @@ describe('buildChart progress bars', () => {
 				{ category: 'Short', value: 200 },
 				{ category: 'Long', value: 1200 },
 			],
-			chartType: 'progress_bar',
+			chartType: 'horizontal_bar',
 			xAxisKey: 'category',
 			xAxisType: 'category',
 			series: [{ data_key: 'value', value_format: { d3_format: ',.0f', prefix: '$', suffix: ' USD' } }],
 		});
 		const html = renderToString(React.cloneElement(chart, { width: 600, height: 300 }));
-		const labels = readProgressValueLabels(html);
+		const labels = readHorizontalBarValueLabels(html);
 
 		expect(labels.map((label) => label.text)).toEqual(['$200 USD', '$1,200 USD']);
 		expect(labels[0].x).toBe(labels[1].x);
@@ -68,13 +68,13 @@ describe('buildChart progress bars', () => {
 				{ category: 'Missing', value: null },
 				{ category: 'Full', value: 100 },
 			],
-			chartType: 'progress_bar',
+			chartType: 'horizontal_bar',
 			xAxisKey: 'category',
 			xAxisType: 'category',
 			series: [{ data_key: 'value' }],
 		});
 		const html = renderToString(React.cloneElement(chart, { width: 600, height: 300 }));
-		const labels = readProgressValueLabels(html);
+		const labels = readHorizontalBarValueLabels(html);
 
 		expect(labels.slice(0, 2).map((label) => label.text)).toEqual(['0', '0']);
 		expect(labels[0].x).toBe(labels[1].x);
@@ -83,7 +83,7 @@ describe('buildChart progress bars', () => {
 	it('shows value labels by default and removes their margin when hidden', () => {
 		const props = {
 			data: [{ category: 'First', value: 50 }],
-			chartType: 'progress_bar' as const,
+			chartType: 'horizontal_bar' as const,
 			xAxisKey: 'category',
 			xAxisType: 'category' as const,
 			series: [{ data_key: 'value' }],
@@ -93,18 +93,20 @@ describe('buildChart progress bars', () => {
 		const visibleHtml = renderToString(React.cloneElement(visibleChart, { width: 600, height: 300 }));
 		const hiddenHtml = renderToString(React.cloneElement(hiddenChart, { width: 600, height: 300 }));
 
-		expect(readProgressValueLabels(visibleHtml)).toHaveLength(1);
-		expect(readProgressValueLabels(hiddenHtml)).toHaveLength(0);
+		expect(readHorizontalBarValueLabels(visibleHtml)).toHaveLength(1);
+		expect(readHorizontalBarValueLabels(hiddenHtml)).toHaveLength(0);
 		expect(visibleChart.props.margin.right).toBeGreaterThan(hiddenChart.props.margin?.right ?? 0);
 	});
 });
 
-function readProgressValueLabels(html: string): Array<{ text: string; textAnchor: string | undefined; x: number }> {
+function readHorizontalBarValueLabels(
+	html: string,
+): Array<{ text: string; textAnchor: string | undefined; x: number }> {
 	const labels: Array<{ text: string; textAnchor: string | undefined; x: number }> = [];
 	const textPattern = /<text([^>]*)>([^<]*)<\/text>/g;
 	for (let match = textPattern.exec(html); match !== null; match = textPattern.exec(html)) {
 		const attributes = match[1];
-		if (!attributes.includes('recharts-progress-value-label')) {
+		if (!attributes.includes('recharts-horizontal-bar-value-label')) {
 			continue;
 		}
 		const x = attributes.match(/\sx="([^"]+)"/)?.[1];

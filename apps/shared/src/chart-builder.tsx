@@ -80,14 +80,14 @@ const VALUE_AXIS_DEFAULT_WIDTH = 40;
 const VALUE_AXIS_MAX_WIDTH = 120;
 const VALUE_AXIS_CHARACTER_WIDTH = 7;
 const VALUE_AXIS_PADDING = 12;
-const PROGRESS_CATEGORY_AXIS_MIN_WIDTH = 60;
-const PROGRESS_CATEGORY_AXIS_MAX_WIDTH = 180;
-const PROGRESS_CATEGORY_MAX_LABEL_CHARS = 24;
-const PROGRESS_BAR_SIZE = 10;
-const PROGRESS_BAR_RADIUS = 999;
-const PROGRESS_TRACK_COLOR = 'var(--muted, #e5e7eb)';
-const PROGRESS_ORIGINAL_VALUE_KEY = '__naoProgressValue';
-const PROGRESS_VALUE_LABEL_RIGHT_PADDING = 4;
+const HORIZONTAL_BAR_CATEGORY_AXIS_MIN_WIDTH = 60;
+const HORIZONTAL_BAR_CATEGORY_AXIS_MAX_WIDTH = 180;
+const HORIZONTAL_BAR_CATEGORY_MAX_LABEL_CHARS = 24;
+const HORIZONTAL_BAR_SIZE = 10;
+const HORIZONTAL_BAR_RADIUS = 999;
+const HORIZONTAL_BAR_TRACK_COLOR = 'var(--muted, #e5e7eb)';
+const HORIZONTAL_BAR_ORIGINAL_VALUE_KEY = '__naoHorizontalBarValue';
+const HORIZONTAL_BAR_VALUE_LABEL_RIGHT_PADDING = 4;
 /** Reserves horizontal room for a rotated axis title so it does not overlap tick values. */
 const AXIS_LABEL_WIDTH = 20;
 
@@ -354,8 +354,8 @@ export function buildChart(props: BuildChartProps) {
 	if (resolved.chartType === 'radar') {
 		return buildRadarChart(resolved);
 	}
-	if (resolved.chartType === 'progress_bar') {
-		return buildProgressChart(resolved);
+	if (resolved.chartType === 'horizontal_bar') {
+		return buildHorizontalBarChart(resolved);
 	}
 	return buildBarChart(resolved);
 }
@@ -608,36 +608,36 @@ function formatCategoryTick(value: string, labelFormatter: (value: string) => st
 	return label.length > cap ? `${label.slice(0, cap - 1)}…` : label;
 }
 
-function buildProgressChart(props: ResolvedProps) {
+function buildHorizontalBarChart(props: ResolvedProps) {
 	const { data, xAxisKey, series, colorFor, labelFormatter, children, xAxisMaxLabelChars } = props;
-	const progressSeries = series[0];
-	const dataKey = progressSeries.data_key;
+	const horizontalBarSeries = series[0];
+	const dataKey = horizontalBarSeries.data_key;
 	const values = data.map((row) => toFiniteNumber(row[dataKey]) ?? 0);
 	const maximum = values.reduce((current, value) => Math.max(current, Math.abs(value)), 0) || 1;
 	const valueFormat = getChartLevelValueFormat(series);
 	const showValueLabels = displayChart.resolveShowDataLabels(props.chartType, props.showDataLabels);
-	const labelCharacterLimit = xAxisMaxLabelChars ?? PROGRESS_CATEGORY_MAX_LABEL_CHARS;
+	const labelCharacterLimit = xAxisMaxLabelChars ?? HORIZONTAL_BAR_CATEGORY_MAX_LABEL_CHARS;
 	const tickFormatter = (value: string) => formatCategoryTick(value, labelFormatter, labelCharacterLimit);
-	const categoryAxisWidth = computeProgressCategoryAxisWidth(data, xAxisKey, tickFormatter);
-	const valueLabelWidth = showValueLabels ? computeProgressValueLabelWidth(values, valueFormat) : 0;
-	const progressValueLabelsLayer = showValueLabels
-		? createProgressValueLabelsLayer(valueFormat, valueLabelWidth)
+	const categoryAxisWidth = computeHorizontalBarCategoryAxisWidth(data, xAxisKey, tickFormatter);
+	const valueLabelWidth = showValueLabels ? computeHorizontalBarValueLabelWidth(values, valueFormat) : 0;
+	const horizontalBarValueLabelsLayer = showValueLabels
+		? createHorizontalBarValueLabelsLayer(valueFormat, valueLabelWidth)
 		: undefined;
 	const margin = {
 		...props.margin,
 		right: (props.margin?.right ?? 0) + valueLabelWidth,
 	};
-	const progressData = data.map((row) => {
+	const horizontalBarData = data.map((row) => {
 		const value = toFiniteNumber(row[dataKey]) ?? 0;
 		return {
 			...row,
-			[PROGRESS_ORIGINAL_VALUE_KEY]: value,
+			[HORIZONTAL_BAR_ORIGINAL_VALUE_KEY]: value,
 			[dataKey]: Math.abs(value),
 		};
 	});
 
 	return (
-		<BarChart data={progressData} layout='vertical' accessibilityLayer margin={margin}>
+		<BarChart data={horizontalBarData} layout='vertical' accessibilityLayer margin={margin}>
 			<XAxis type='number' hide domain={[0, maximum]} />
 			<YAxis
 				type='category'
@@ -652,18 +652,18 @@ function buildProgressChart(props: ResolvedProps) {
 			<Bar
 				dataKey={dataKey}
 				fill={colorFor(dataKey, 0)}
-				radius={[PROGRESS_BAR_RADIUS, PROGRESS_BAR_RADIUS, PROGRESS_BAR_RADIUS, PROGRESS_BAR_RADIUS]}
-				background={renderProgressBarBackground}
-				barSize={PROGRESS_BAR_SIZE}
+				radius={[HORIZONTAL_BAR_RADIUS, HORIZONTAL_BAR_RADIUS, HORIZONTAL_BAR_RADIUS, HORIZONTAL_BAR_RADIUS]}
+				background={renderHorizontalBarBackground}
+				barSize={HORIZONTAL_BAR_SIZE}
 				isAnimationActive={Boolean(props.animate)}
 				animationDuration={CHART_ANIMATION_DURATION_MS}
 			/>
-			{progressValueLabelsLayer && <Customized component={progressValueLabelsLayer} />}
+			{horizontalBarValueLabelsLayer && <Customized component={horizontalBarValueLabelsLayer} />}
 		</BarChart>
 	);
 }
 
-function computeProgressCategoryAxisWidth(
+function computeHorizontalBarCategoryAxisWidth(
 	data: Record<string, unknown>[],
 	xAxisKey: string,
 	tickFormatter: (value: string) => string,
@@ -673,35 +673,37 @@ function computeProgressCategoryAxisWidth(
 		0,
 	);
 	return Math.min(
-		PROGRESS_CATEGORY_AXIS_MAX_WIDTH,
+		HORIZONTAL_BAR_CATEGORY_AXIS_MAX_WIDTH,
 		Math.max(
-			PROGRESS_CATEGORY_AXIS_MIN_WIDTH,
+			HORIZONTAL_BAR_CATEGORY_AXIS_MIN_WIDTH,
 			longestLabelLength * VALUE_AXIS_CHARACTER_WIDTH + VALUE_AXIS_PADDING,
 		),
 	);
 }
 
-function computeProgressValueLabelWidth(values: number[], valueFormat?: displayChart.ValueFormat): number {
+function computeHorizontalBarValueLabelWidth(values: number[], valueFormat?: displayChart.ValueFormat): number {
 	const longestLabelLength = values.reduce(
 		(current, value) => Math.max(current, formatChartValue(value, valueFormat).length),
 		0,
 	);
 	return Math.max(
 		VALUE_AXIS_DEFAULT_WIDTH,
-		longestLabelLength * VALUE_AXIS_CHARACTER_WIDTH + DATA_LABEL_ANCHOR_GAP + PROGRESS_VALUE_LABEL_RIGHT_PADDING,
+		longestLabelLength * VALUE_AXIS_CHARACTER_WIDTH +
+			DATA_LABEL_ANCHOR_GAP +
+			HORIZONTAL_BAR_VALUE_LABEL_RIGHT_PADDING,
 	);
 }
 
-interface ProgressGraphicalPoint {
+interface HorizontalBarGraphicalPoint {
 	y?: number;
 	height?: number;
 	payload?: Record<string, unknown>;
 }
 
-interface ProgressLabelsLayerProps {
+interface HorizontalBarLabelsLayerProps {
 	formattedGraphicalItems?: Array<{
 		item?: { type?: { displayName?: string } };
-		props?: { data?: ProgressGraphicalPoint[] };
+		props?: { data?: HorizontalBarGraphicalPoint[] };
 	}>;
 	offset?: {
 		left?: number;
@@ -709,24 +711,27 @@ interface ProgressLabelsLayerProps {
 	};
 }
 
-function createProgressValueLabelsLayer(valueFormat: displayChart.ValueFormat | undefined, valueLabelWidth: number) {
-	function ProgressValueLabelsLayer({ formattedGraphicalItems, offset }: ProgressLabelsLayerProps) {
+function createHorizontalBarValueLabelsLayer(
+	valueFormat: displayChart.ValueFormat | undefined,
+	valueLabelWidth: number,
+) {
+	function HorizontalBarValueLabelsLayer({ formattedGraphicalItems, offset }: HorizontalBarLabelsLayerProps) {
 		const bar = formattedGraphicalItems?.find((item) => item.item?.type?.displayName === 'Bar');
 		const trackEnd = (toFiniteNumber(offset?.left) ?? 0) + (toFiniteNumber(offset?.width) ?? 0);
-		const labelX = trackEnd + valueLabelWidth - PROGRESS_VALUE_LABEL_RIGHT_PADDING;
+		const labelX = trackEnd + valueLabelWidth - HORIZONTAL_BAR_VALUE_LABEL_RIGHT_PADDING;
 		const points = bar?.props?.data ?? [];
 		if (points.length === 0) {
 			return null;
 		}
 		return (
-			<g className='recharts-progress-value-labels'>
+			<g className='recharts-horizontal-bar-value-labels'>
 				{points.map((point) => {
 					const y = toFiniteNumber(point.y);
 					const height = toFiniteNumber(point.height);
 					if (y == null || height == null) {
 						return null;
 					}
-					const value = toFiniteNumber(point.payload?.[PROGRESS_ORIGINAL_VALUE_KEY]) ?? 0;
+					const value = toFiniteNumber(point.payload?.[HORIZONTAL_BAR_ORIGINAL_VALUE_KEY]) ?? 0;
 					return (
 						<text
 							key={`${y}-${value}`}
@@ -736,7 +741,7 @@ function createProgressValueLabelsLayer(valueFormat: displayChart.ValueFormat | 
 							fontSize={CHART_LABEL_FONT_SIZE}
 							textAnchor='end'
 							dominantBaseline='central'
-							className='recharts-progress-value-label'
+							className='recharts-horizontal-bar-value-label'
 						>
 							{formatChartValue(value, valueFormat)}
 						</text>
@@ -745,17 +750,17 @@ function createProgressValueLabelsLayer(valueFormat: displayChart.ValueFormat | 
 			</g>
 		);
 	}
-	ProgressValueLabelsLayer.displayName = 'ProgressValueLabelsLayer';
-	return ProgressValueLabelsLayer;
+	HorizontalBarValueLabelsLayer.displayName = 'HorizontalBarValueLabelsLayer';
+	return HorizontalBarValueLabelsLayer;
 }
 
-function renderProgressBarBackground(backgroundProps: unknown) {
+function renderHorizontalBarBackground(backgroundProps: unknown) {
 	const rectProps = backgroundProps as RectangleProps;
 	return (
 		<Rectangle
 			{...rectProps}
-			fill={PROGRESS_TRACK_COLOR}
-			radius={[PROGRESS_BAR_RADIUS, PROGRESS_BAR_RADIUS, PROGRESS_BAR_RADIUS, PROGRESS_BAR_RADIUS]}
+			fill={HORIZONTAL_BAR_TRACK_COLOR}
+			radius={[HORIZONTAL_BAR_RADIUS, HORIZONTAL_BAR_RADIUS, HORIZONTAL_BAR_RADIUS, HORIZONTAL_BAR_RADIUS]}
 		/>
 	);
 }

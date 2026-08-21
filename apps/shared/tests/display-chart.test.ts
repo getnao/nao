@@ -23,14 +23,14 @@ describe('display chart custom types', () => {
 
 	it('distinguishes built-in and custom chart types', () => {
 		expect(displayChart.isBuiltinChartType('line')).toBe(true);
-		expect(displayChart.isBuiltinChartType('progress_bar')).toBe(true);
+		expect(displayChart.isBuiltinChartType('horizontal_bar')).toBe(true);
 		expect(displayChart.isBuiltinChartType('bubble')).toBe(false);
 	});
 
-	it('defaults data labels on only for progress bars', () => {
-		expect(displayChart.resolveShowDataLabels('progress_bar', undefined)).toBe(true);
+	it('defaults data labels on only for horizontal bars', () => {
+		expect(displayChart.resolveShowDataLabels('horizontal_bar', undefined)).toBe(true);
 		expect(displayChart.resolveShowDataLabels('bar', undefined)).toBe(false);
-		expect(displayChart.resolveShowDataLabels('progress_bar', false)).toBe(false);
+		expect(displayChart.resolveShowDataLabels('horizontal_bar', false)).toBe(false);
 		expect(displayChart.resolveShowDataLabels('bar', true)).toBe(true);
 	});
 });

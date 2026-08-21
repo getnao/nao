@@ -404,7 +404,7 @@ function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: 
 	}
 
 	const isPie = chart.chartType === 'pie' || chart.chartType === 'donut';
-	const isProgress = chart.chartType === 'progress_bar';
+	const isHorizontalBar = chart.chartType === 'horizontal_bar';
 	const valueKey = chart.series[0]?.data_key ?? '';
 	const chartRows = isPie ? bucketPieData(rows, chart.xAxisKey, valueKey) : rows;
 
@@ -437,7 +437,7 @@ function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: 
 					data-chart={chartData}
 					dangerouslySetInnerHTML={{ __html: svg }}
 				/>
-				{!isPie && !isProgress && <ChartLegend series={chart.series} />}
+				{!isPie && !isHorizontalBar && <ChartLegend series={chart.series} />}
 			</div>
 		);
 	} catch {

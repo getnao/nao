@@ -152,8 +152,8 @@ export function SystemPrompt({
 					absolute totals.
 				</ListItem>
 				<ListItem>
-					Use "progress_bar" to compare one metric across a handful of categories as a share of the largest;
-					use one series and sort and limit the rows in SQL.
+					Use "horizontal_bar" for sideways bars with full-width tracks when comparing one metric across a
+					handful of categories; use one series and sort and limit the rows in SQL.
 				</ListItem>
 				<ListItem>
 					Use "pie" or "donut" to show how a single measure splits across categories (part-to-whole); both

@@ -58,11 +58,11 @@ export default createTool<displayChart.Input, displayChart.Output>({
 			};
 		}
 
-		if (chartType === 'progress_bar' && series.length !== 1) {
+		if (chartType === 'horizontal_bar' && series.length !== 1) {
 			return {
 				_version: '1',
 				success: false,
-				error: 'Progress bar charts require exactly one series.',
+				error: 'Horizontal bar charts require exactly one series.',
 			};
 		}
 
