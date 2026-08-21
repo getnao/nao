@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router';
-import type { ComponentType, SVGProps } from 'react';
+import type { ComponentType } from 'react';
 
 import type { IntegrationId } from '@/components/settings/integrations';
 import { Badge } from '@/components/ui/badge';
@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 interface IntegrationCardProps {
 	id: IntegrationId;
 	name: string;
-	icon: ComponentType<SVGProps<SVGSVGElement>>;
+	icon: ComponentType<{ className?: string }>;
 	connected: boolean;
 	summary: string;
 }

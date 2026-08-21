@@ -6,7 +6,8 @@ import { useEffect, useRef, useState } from 'react';
 
 import { buildBrandVars } from '@/components/brand-color';
 import NaoLogoAnimated from '@/components/icons/nao-logo-animated';
-import { UpgradeBanner } from '@/components/settings/upgrade-banner';
+import { LockedFieldset } from '@/components/settings/locked-fieldset';
+import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -142,15 +143,12 @@ export function WhiteLabelSettings() {
 
 	return (
 		<div className='flex flex-col gap-6'>
-			<fieldset
-				disabled={disabled}
-				className={cn('flex min-w-0 flex-col gap-6 border-0 p-0', disabled && 'pointer-events-none opacity-60')}
-				aria-disabled={disabled}
+			<SettingsCard
+				title='Names'
+				description='Replace the nao name and browser tab title across this instance.'
+				action={disabled ? <UpgradeToEnterprise /> : undefined}
 			>
-				<SettingsCard
-					title='Names'
-					description='Replace the nao name and browser tab title across this instance.'
-				>
+				<LockedFieldset disabled={disabled}>
 					<LabeledInput
 						label='App name'
 						placeholder='Acme Analytics'
@@ -166,9 +164,15 @@ export function WhiteLabelSettings() {
 						onChange={setTabTitle}
 						disabled={disabled}
 					/>
-				</SettingsCard>
+				</LockedFieldset>
+			</SettingsCard>
 
-				<SettingsCard title='Logos & favicon' description='PNG, JPG, SVG, WebP or ICO up to 512KB.'>
+			<SettingsCard
+				title='Logos & favicon'
+				description='PNG, JPG, SVG, WebP or ICO up to 512KB.'
+				action={disabled ? <UpgradeToEnterprise /> : undefined}
+			>
+				<LockedFieldset disabled={disabled}>
 					<AssetUpload
 						label='Logo'
 						helper='Shown in the sidebar and on the login and sign-up pages.'
@@ -193,56 +197,66 @@ export function WhiteLabelSettings() {
 						onReset={() => setPending((previous) => ({ ...previous, favicon: null }))}
 						disabled={disabled}
 					/>
-				</SettingsCard>
+				</LockedFieldset>
+			</SettingsCard>
 
-				<SettingsCard
-					title='Brand color'
-					description='Applied to buttons, links and accents across the app. Leave empty to keep the default nao purple.'
-				>
+			<SettingsCard
+				title='Brand color'
+				description='Applied to buttons, links and accents across the app. Leave empty to keep the default nao purple.'
+				action={disabled ? <UpgradeToEnterprise /> : undefined}
+			>
+				<LockedFieldset disabled={disabled}>
 					<BrandColorPicker value={brandColor} onChange={setBrandColor} disabled={disabled} />
-				</SettingsCard>
+				</LockedFieldset>
+			</SettingsCard>
 
-				{error && (
-					<div className='text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-md border border-destructive/30'>
-						{error}
-					</div>
-				)}
-				{success && (
-					<div className='text-sm text-emerald-600 dark:text-emerald-500 bg-emerald-500/10 px-3 py-2 rounded-md border border-emerald-500/30'>
-						Branding saved.
-					</div>
-				)}
-
-				<div className='flex justify-end gap-2'>
-					<Button
-						variant='outline'
-						size='sm'
-						disabled={disabled || !hasChanges || updateMutation.isPending}
-						onClick={() => {
-							setAppName(branding.appName ?? '');
-							setTabTitle(branding.tabTitle ?? '');
-							setBrandColor(branding.brandColor ?? null);
-							setPending({});
-						}}
-					>
-						Discard
-					</Button>
-					<Button
-						size='sm'
-						variant='primary-gradient'
-						disabled={disabled || !hasChanges || updateMutation.isPending}
-						onClick={handleSave}
-					>
-						{updateMutation.isPending ? 'Saving…' : 'Save changes'}
-					</Button>
+			{error && (
+				<div
+					className={cn(
+						'text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-md border border-destructive/30',
+						disabled && 'pointer-events-none opacity-60',
+					)}
+				>
+					{error}
 				</div>
-			</fieldset>
-			{!isWhiteLabelEnabled && (
-				<UpgradeBanner
-					feature='Custom branding'
-					description='Customize names, logos, colors, and browser details across your instance.'
-				/>
 			)}
+			{success && (
+				<div
+					className={cn(
+						'text-sm text-emerald-600 dark:text-emerald-500 bg-emerald-500/10 px-3 py-2 rounded-md border border-emerald-500/30',
+						disabled && 'pointer-events-none opacity-60',
+					)}
+				>
+					Branding saved.
+				</div>
+			)}
+
+			<div
+				className={cn('flex justify-end gap-2', disabled && 'pointer-events-none opacity-60')}
+				aria-disabled={disabled}
+			>
+				<Button
+					variant='outline'
+					size='sm'
+					disabled={disabled || !hasChanges || updateMutation.isPending}
+					onClick={() => {
+						setAppName(branding.appName ?? '');
+						setTabTitle(branding.tabTitle ?? '');
+						setBrandColor(branding.brandColor ?? null);
+						setPending({});
+					}}
+				>
+					Discard
+				</Button>
+				<Button
+					size='sm'
+					variant='primary-gradient'
+					disabled={disabled || !hasChanges || updateMutation.isPending}
+					onClick={handleSave}
+				>
+					{updateMutation.isPending ? 'Saving…' : 'Save changes'}
+				</Button>
+			</div>
 		</div>
 	);
 }

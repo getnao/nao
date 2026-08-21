@@ -3,7 +3,6 @@ import { ArrowUpRight, Search, X } from 'lucide-react';
 import { Fragment, useEffect, useRef, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
-import { navDensityClasses, useNavDensity } from '@/hooks/use-nav-density';
 import { useSettingsSearch } from '@/hooks/use-settings-search';
 import { cn, hideIf } from '@/lib/utils';
 
@@ -52,7 +51,7 @@ const settingsNavGroups: NavGroup[] = [
 				visible: ({ isViewer }) => !isViewer,
 			},
 			{
-				label: 'Integrations',
+				label: 'Integrations & MCP',
 				to: '/settings/project/integrations',
 				visible: ({ isViewer }) => !isViewer,
 			},
@@ -142,6 +141,9 @@ const settingsNavGroups: NavGroup[] = [
 	},
 ];
 
+const navRowClassName =
+	'flex items-center gap-2 rounded-md transition-colors whitespace-nowrap px-2 py-1 text-[13px] leading-5';
+
 interface SidebarSettingsNavProps {
 	isCollapsed: boolean;
 	isAdmin: boolean;
@@ -173,9 +175,6 @@ export function SidebarSettingsNav({
 			items: group.items.filter((item) => item.visible?.(navContext) ?? true),
 		}))
 		.filter((group) => group.items.length > 0);
-	const navRowCount = navGroups.reduce((count, group) => count + group.items.length, 0);
-	const { containerRef: navContainerRef, density } = useNavDensity(navRowCount, navGroups.length);
-	const densityClasses = navDensityClasses[density];
 
 	useEffect(() => {
 		const handleSlashKey = (e: KeyboardEvent) => {
@@ -221,7 +220,7 @@ export function SidebarSettingsNav({
 							onChange={(e) => setQuery(e.target.value)}
 							onKeyDown={handleKeyDown}
 							className={cn(
-								'w-full rounded-lg border border-input bg-transparent py-1.5 pl-8 pr-8 text-sm',
+								'w-full rounded-md border border-input bg-transparent py-1 pl-8 pr-8 text-[13px] leading-5',
 								'placeholder:text-muted-foreground',
 								'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
 							)}
@@ -246,11 +245,11 @@ export function SidebarSettingsNav({
 				</div>
 			)}
 
-			<div ref={navContainerRef} className='flex-1 min-h-0 overflow-y-auto'>
+			<div className='flex-1 min-h-0 overflow-y-auto'>
 				{isSearching && !isViewer ? (
-					<div className='flex flex-col gap-0.5 px-2 pt-1'>
+					<div className='flex flex-col gap-px px-2 pt-1'>
 						{results.length === 0 ? (
-							<div className='px-3 py-4 text-xs text-muted-foreground text-center'>No results found</div>
+							<div className='px-2 py-4 text-xs text-muted-foreground text-center'>No results found</div>
 						) : (
 							results.map((result) => (
 								<Link
@@ -259,12 +258,12 @@ export function SidebarSettingsNav({
 									search={result.search}
 									onClick={() => setQuery('')}
 									className={cn(
-										'flex flex-col gap-0.5 px-3 py-2 text-sm rounded-md transition-colors',
+										'flex flex-col gap-px px-2 py-1 text-[13px] leading-5 rounded-md transition-colors',
 										'hover:bg-sidebar-accent hover:text-foreground',
 									)}
 								>
 									<span className='font-medium truncate'>{result.title}</span>
-									<span className='text-xs text-muted-foreground truncate'>
+									<span className='text-[11px] leading-4 text-muted-foreground truncate'>
 										{result.pageLabel}
 										{result.section ? ` · ${result.section}` : ''}
 									</span>
@@ -273,13 +272,13 @@ export function SidebarSettingsNav({
 						)}
 					</div>
 				) : (
-					<nav className={cn('flex flex-col px-2', densityClasses.itemContainer)}>
-						{navGroups.map((group) => (
+					<nav className='flex flex-col px-2 gap-px'>
+						{navGroups.map((group, groupIndex) => (
 							<Fragment key={group.label}>
 								<div
 									className={cn(
-										'uppercase text-xs font-medium text-muted-foreground px-3',
-										densityClasses.groupHeader,
+										'px-2 pb-1 text-xs font-medium text-muted-foreground',
+										groupIndex === 0 ? 'pt-1' : 'pt-4',
 									)}
 								>
 									{group.label}
@@ -313,10 +312,7 @@ export function SidebarSettingsNav({
 										<div key={`${item.to}-${item.label}`} className='flex flex-col'>
 											{isDisabled ? (
 												<span
-													className={cn(
-														'flex items-center gap-2 rounded-md whitespace-nowrap cursor-not-allowed',
-														densityClasses.row,
-													)}
+													className={cn(navRowClassName, 'cursor-not-allowed')}
 													aria-disabled='true'
 												>
 													{item.label}
@@ -328,10 +324,7 @@ export function SidebarSettingsNav({
 													to='/'
 													search={item.search}
 													activeOptions={item.exact ? { exact: true } : undefined}
-													className={cn(
-														'flex items-center gap-2 rounded-md transition-colors whitespace-nowrap',
-														densityClasses.row,
-													)}
+													className={navRowClassName}
 													activeProps={{
 														className: cn('bg-sidebar-accent text-foreground font-medium'),
 													}}
@@ -347,10 +340,7 @@ export function SidebarSettingsNav({
 												<Link
 													to={item.to}
 													activeOptions={item.exact ? { exact: true } : undefined}
-													className={cn(
-														'flex items-center gap-2 rounded-md transition-colors whitespace-nowrap',
-														densityClasses.row,
-													)}
+													className={navRowClassName}
 													activeProps={{
 														className: cn('bg-sidebar-accent text-foreground font-medium'),
 													}}

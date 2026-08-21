@@ -19,6 +19,7 @@ import { useToolCallDensity } from '@/hooks/use-tool-call-density';
 import { ThemeSelector } from '@/components/settings/theme-selector';
 import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-slider';
 import { DangerZone } from '@/components/settings/danger-zone';
+import { SettingsMemories } from '@/components/settings/memories';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { SettingsControlRow, SettingsToggleRow } from '@/components/ui/settings-toggle-row';
 import { trpc } from '@/main';
@@ -141,6 +142,8 @@ function GeneralPage() {
 			{!isViewer && <DangerZone />}
 
 			{isAdmin && <SettingsVersionInfo />}
+
+			{isViewer && <SettingsMemories isAdmin={false} />}
 		</SettingsPageWrapper>
 	);
 }

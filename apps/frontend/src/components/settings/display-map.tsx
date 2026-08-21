@@ -71,11 +71,12 @@ export function SettingsDisplayMap({ isAdmin }: SettingsDisplayMapProps) {
 					/>
 				}
 			/>
+			<MapBoundariesLibrary isAdmin={isAdmin} />
 		</SettingsCard>
 	);
 }
 
-export function MapBoundariesLibrary({ isAdmin }: { isAdmin: boolean }) {
+function MapBoundariesLibrary({ isAdmin }: { isAdmin: boolean }) {
 	const [expandedKey, setExpandedKey] = useState<string | null>(null);
 	const [deleteTarget, setDeleteTarget] = useState<CustomBoundarySet | null>(null);
 
@@ -99,71 +100,69 @@ export function MapBoundariesLibrary({ isAdmin }: { isAdmin: boolean }) {
 	};
 
 	return (
-		<SettingsCard>
-			<div className='flex flex-col gap-3'>
-				<SettingsControlRow
-					label='GeoJSON Boundary Library'
-					description='Custom boundary sets the agent can use for choropleth maps.'
-					control={
-						isAdmin ? (
-							<Button variant='secondary' size='sm' onClick={() => toggleExpanded('__new__')}>
-								<Plus className='size-4' />
-								Add
-							</Button>
-						) : null
-					}
-				/>
+		<div className='flex flex-col gap-3'>
+			<SettingsControlRow
+				label='GeoJSON Boundary Library'
+				description='Custom boundary sets the agent can use for choropleth maps.'
+				control={
+					isAdmin ? (
+						<Button variant='secondary' size='sm' onClick={() => toggleExpanded('__new__')}>
+							<Plus className='size-4' />
+							Add
+						</Button>
+					) : null
+				}
+			/>
 
-				{isLoading ? (
-					<div className='text-sm text-muted-foreground py-1'>Loading…</div>
-				) : (
-					<div className='flex flex-col gap-1'>
-						{boundaries.length === 0 && expandedKey !== '__new__' && (
-							<Empty>No custom boundary sets yet.</Empty>
-						)}
-						{boundaries.map((set) => (
-							<BoundarySetItem
-								key={set.key}
-								set={set}
-								isAdmin={isAdmin}
-								isExpanded={expandedKey === set.key}
-								onToggle={() => toggleExpanded(set.key)}
-								onDelete={() => setDeleteTarget(set)}
-								onSaved={() => setExpandedKey(null)}
-							/>
-						))}
-						{expandedKey === '__new__' && (
-							<BoundaryEditPanel
-								editTarget={null}
-								onClose={() => setExpandedKey(null)}
-								onSaved={() => setExpandedKey(null)}
-							/>
-						)}
-					</div>
-				)}
+			{isLoading ? (
+				<div className='text-sm text-muted-foreground py-1'>Loading…</div>
+			) : (
+				<div className='flex flex-col gap-1'>
+					{boundaries.length === 0 && expandedKey !== '__new__' && (
+						<Empty>No custom boundary sets yet.</Empty>
+					)}
+					{boundaries.map((set) => (
+						<BoundarySetItem
+							key={set.key}
+							set={set}
+							isAdmin={isAdmin}
+							isExpanded={expandedKey === set.key}
+							onToggle={() => toggleExpanded(set.key)}
+							onDelete={() => setDeleteTarget(set)}
+							onSaved={() => setExpandedKey(null)}
+						/>
+					))}
+					{expandedKey === '__new__' && (
+						<BoundaryEditPanel
+							editTarget={null}
+							onClose={() => setExpandedKey(null)}
+							onSaved={() => setExpandedKey(null)}
+						/>
+					)}
+				</div>
+			)}
 
-				<AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-					<AlertDialogContent>
-						<AlertDialogHeader>
-							<AlertDialogTitle>Delete boundary set</AlertDialogTitle>
-							<AlertDialogDescription>
-								Remove <strong>{deleteTarget?.label}</strong> ({deleteTarget?.key}) from the library?
-								Maps using this set will no longer display regions.
-							</AlertDialogDescription>
-						</AlertDialogHeader>
-						<AlertDialogFooter>
-							<AlertDialogCancel>Cancel</AlertDialogCancel>
-							<AlertDialogAction
-								className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
-								onClick={confirmDelete}
-							>
-								Delete
-							</AlertDialogAction>
-						</AlertDialogFooter>
-					</AlertDialogContent>
-				</AlertDialog>
-			</div>
-		</SettingsCard>
+			<AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Delete boundary set</AlertDialogTitle>
+						<AlertDialogDescription>
+							Remove <strong>{deleteTarget?.label}</strong> ({deleteTarget?.key}) from the library? Maps
+							using this set will no longer display regions.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+							onClick={confirmDelete}
+						>
+							Delete
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+		</div>
 	);
 }
 

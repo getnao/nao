@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { Cable } from 'lucide-react';
 import type { inferRouterOutputs } from '@trpc/server';
-import type { ComponentType, SVGProps } from 'react';
+import type { ComponentType } from 'react';
 
 import type { TrpcRouter } from '@nao/backend/trpc';
 import TeamsIcon from '@/components/icons/microsoft-teams.svg';
@@ -10,14 +9,14 @@ import TelegramIcon from '@/components/icons/telegram.svg';
 import WhatsAppIcon from '@/components/icons/whatsapp.svg';
 import { trpc } from '@/main';
 
-export const integrationIds = ['slack', 'teams', 'telegram', 'whatsapp', 'nao-mcp'] as const;
+export const integrationIds = ['slack', 'teams', 'telegram', 'whatsapp'] as const;
 
 export type IntegrationId = (typeof integrationIds)[number];
 
 interface IntegrationMetadata {
 	id: IntegrationId;
 	name: string;
-	icon: ComponentType<SVGProps<SVGSVGElement>>;
+	icon: ComponentType<{ className?: string }>;
 }
 
 interface IntegrationStatus {
@@ -48,11 +47,6 @@ export const integrations: IntegrationMetadata[] = [
 		name: 'WhatsApp',
 		icon: WhatsAppIcon,
 	},
-	{
-		id: 'nao-mcp',
-		name: 'nao MCP',
-		icon: Cable,
-	},
 ];
 
 export function useIntegrationStatuses(): Record<IntegrationId, IntegrationStatus> {
@@ -61,7 +55,6 @@ export function useIntegrationStatuses(): Record<IntegrationId, IntegrationStatu
 	const telegramConfig = useQuery(trpc.project.getTelegramConfig.queryOptions());
 	const whatsappConfig = useQuery(trpc.project.getWhatsappConfig.queryOptions());
 	const whatsappLinks = useQuery(trpc.project.getCurrentUserWhatsappLinks.queryOptions());
-	const mcpEndpointSettings = useQuery(trpc.mcpEndpoint.getSettings.queryOptions());
 
 	const slackProjectConfig = slackConfig.data?.projectConfig;
 	const teamsProjectConfig = teamsConfig.data?.projectConfig;
@@ -88,10 +81,6 @@ export function useIntegrationStatuses(): Record<IntegrationId, IntegrationStatu
 			summary: whatsappProjectConfig
 				? getWhatsappSummary(whatsappLinks.data?.length ?? 0)
 				: 'Chat with nao from WhatsApp',
-		},
-		'nao-mcp': {
-			connected: Boolean(mcpEndpointSettings.data?.enabled),
-			summary: 'Let external AI clients query nao',
 		},
 	};
 }

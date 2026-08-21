@@ -1,7 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 
 import { DateFormatSection } from '@/components/settings/date-format-section';
-import { MapBoundariesLibrary } from '@/components/settings/display-map';
 import { WhiteLabelSettings } from '@/components/settings/white-label-settings';
 import { SettingsPageWrapper } from '@/components/ui/settings-card';
 import { useIsCloud } from '@/hooks/use-nao-mode';
@@ -26,7 +25,6 @@ function AppearancePage() {
 				<h1 className='text-lg font-semibold text-foreground'>Appearance</h1>
 				<div className='flex min-w-0 flex-col gap-12'>
 					<DateFormatSection isAdmin={isAdmin} />
-					<MapBoundariesLibrary isAdmin={isAdmin} />
 					{isAdmin && !isCloud && (
 						<section className='flex flex-col gap-6'>
 							<h2 className='text-base font-semibold text-foreground'>Branding</h2>

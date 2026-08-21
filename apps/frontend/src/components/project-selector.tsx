@@ -1,9 +1,10 @@
 import { USER_ROLE_LABELS } from '@nao/shared/types';
-import { Check, ChevronsUpDown, Lock } from 'lucide-react';
+import { Check, ChevronsUpDown } from 'lucide-react';
 import { useState } from 'react';
 
 import type { UserRole } from '@nao/shared/types';
 
+import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useMultiProject } from '@/hooks/use-multi-project';
@@ -114,14 +115,14 @@ export function ProjectSwitcher({
 
 function ProjectUpgradeNudge() {
 	return (
-		<div className='relative flex items-start gap-2 rounded-md px-2 py-1.5 text-sm'>
-			<Lock className='mt-0.5 size-3.5 shrink-0 text-muted-foreground' />
-			<div className='min-w-0 flex-1'>
-				<div className='font-medium text-foreground'>Upgrade to add more projects</div>
-				<p className='mt-0.5 break-words text-xs text-muted-foreground'>
-					Keep separate data contexts for different teams and use cases.
-				</p>
+		<div className='relative rounded-md px-2 py-1.5'>
+			<div className='flex items-center gap-2'>
+				<span className='text-sm text-foreground'>Add more projects</span>
+				<UpgradeToEnterprise className='ml-auto' />
 			</div>
+			<p className='mt-0.5 break-words text-xs text-muted-foreground'>
+				Keep separate data contexts for different teams and use cases.
+			</p>
 		</div>
 	);
 }

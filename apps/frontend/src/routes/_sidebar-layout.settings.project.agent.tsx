@@ -94,8 +94,8 @@ function ToolsSettings({ isAdmin }: { isAdmin: boolean }) {
 function MemorySettings({ isAdmin }: { isAdmin: boolean }) {
 	return (
 		<>
-			<SettingsProjectMemory isAdmin={isAdmin} />
-			<SettingsMemories />
+			{isAdmin && <SettingsProjectMemory />}
+			<SettingsMemories isAdmin={isAdmin} />
 		</>
 	);
 }

@@ -11,7 +11,7 @@ import {
 } from '@nao/shared/types';
 import type { BudgetPeriod } from '@nao/shared/types';
 
-import { UpgradeBanner } from '@/components/settings/upgrade-banner';
+import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -179,7 +179,12 @@ export function BudgetSettings() {
 						<TableRow>
 							<TableHead>Provider</TableHead>
 							<TableHead className='text-center'>Project limit</TableHead>
-							{hasUserBudget && <TableHead className='text-center'>User limit</TableHead>}
+							<TableHead className='text-center'>
+								<div className='flex items-center justify-center gap-1.5'>
+									<span>User limit</span>
+									{!hasUserBudget && <UpgradeToEnterprise />}
+								</div>
+							</TableHead>
 							<TableHead className='text-center'>Period</TableHead>
 							<TableHead className='text-center'>Cost</TableHead>
 							<TableHead className='text-center'>Reset on</TableHead>
@@ -193,7 +198,7 @@ export function BudgetSettings() {
 								return (
 									<TableRow key={provider} className='h-12 opacity-50'>
 										<TableCell>{providerLabel(provider)}</TableCell>
-										<TableCell colSpan={hasUserBudget ? 5 : 4}>
+										<TableCell colSpan={5}>
 											<span className='flex items-center gap-1.5 text-muted-foreground text-sm'>
 												<TriangleAlert className='size-4' />
 												Cost data unavailable for this provider — budget tracking is not
@@ -233,16 +238,14 @@ export function BudgetSettings() {
 											onBlur={() => clearPeriodIfNoBudget(provider)}
 										/>
 									</TableCell>
-									{hasUserBudget && (
-										<TableCell>
-											<BudgetInput
-												value={perUserBudget}
-												disabled={!isAdmin || isConfigManaged}
-												onChange={(value) => updatePerUserBudget(provider, value)}
-												onBlur={() => clearPeriodIfNoBudget(provider)}
-											/>
-										</TableCell>
-									)}
+									<TableCell className={cn('text-center', !hasUserBudget && 'opacity-60')}>
+										<BudgetInput
+											value={perUserBudget}
+											disabled={!hasUserBudget || !isAdmin || isConfigManaged}
+											onChange={(value) => updatePerUserBudget(provider, value)}
+											onBlur={() => clearPeriodIfNoBudget(provider)}
+										/>
+									</TableCell>
 									<TableCell>
 										<Select
 											value={period}
@@ -251,7 +254,7 @@ export function BudgetSettings() {
 											}
 											disabled={!isAdmin || !hasAnyBudget || isConfigManaged}
 										>
-											<SelectTrigger size='sm' className='w-24'>
+											<SelectTrigger size='sm' className='w-24 mx-auto'>
 												<SelectValue />
 											</SelectTrigger>
 											<SelectContent>
@@ -263,19 +266,21 @@ export function BudgetSettings() {
 											</SelectContent>
 										</Select>
 									</TableCell>
-									<TableCell>
+									<TableCell className='text-center'>
 										{period === 'none' ? (
-											<span className='text-muted-foreground text-sm mr-1'>-</span>
+											<span className='text-muted-foreground text-sm'>-</span>
 										) : (
 											<>
 												<span className='text-muted-foreground text-sm mr-1'>$</span>
-												<span className='text-sm mr-1'>
+												<span className='text-sm'>
 													{(providerCosts.data?.[provider] ?? 0).toFixed(2)}
 												</span>
 											</>
 										)}
 									</TableCell>
-									<TableCell>{period === 'none' ? '-' : resetLabels[period]}</TableCell>
+									<TableCell className='text-center'>
+										{period === 'none' ? '-' : resetLabels[period]}
+									</TableCell>
 								</TableRow>
 							);
 						})}
@@ -298,13 +303,6 @@ export function BudgetSettings() {
 					</div>
 				)}
 			</SettingsCard>
-
-			{!hasUserBudget && (
-				<UpgradeBanner
-					feature='Per-user spend limits'
-					description='Set limits for each team member and see their current spend.'
-				/>
-			)}
 
 			{showPerUserSpend && perUserProviders.length > 0 && (
 				<SettingsCard
@@ -364,7 +362,7 @@ function BudgetInput({
 	onBlur?: () => void;
 }) {
 	return (
-		<div className='flex items-center gap-1'>
+		<div className='flex items-center justify-center gap-1'>
 			<span className='text-muted-foreground text-sm mr-1'>$</span>
 			<Input
 				type='number'

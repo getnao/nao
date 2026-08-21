@@ -128,7 +128,54 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/organization',
 		pageLabel: 'Organization Settings',
-		title: 'Google SSO',
+		section: 'Company sign-in (SSO)',
+		title: 'Company sign-in (SSO)',
+		description:
+			'Let people sign in with their existing work account, with roles managed by your identity provider.',
+		keywords: [
+			'sso',
+			'single sign-on',
+			'okta',
+			'auth0',
+			'keycloak',
+			'onelogin',
+			'oidc',
+			'microsoft',
+			'entra',
+			'saml',
+			'identity provider',
+			'idp',
+		],
+		orgAdminOnly: true,
+		cloudHidden: true,
+	},
+	{
+		page: '/settings/organization',
+		pageLabel: 'Organization Settings',
+		section: 'Company sign-in (SSO)',
+		title: 'Single sign-on token',
+		description: 'Inspect the claims your identity provider sent and how they resolved to a role.',
+		keywords: [
+			'sso',
+			'oidc',
+			'okta',
+			'token',
+			'claims',
+			'groups',
+			'group mapping',
+			'role',
+			'debug',
+			'id token',
+			'entra',
+			'keycloak',
+		],
+		orgAdminOnly: true,
+		cloudHidden: true,
+	},
+	{
+		page: '/settings/organization',
+		pageLabel: 'Organization Settings',
+		title: 'Google sign-in',
 		description: 'Configure Google sign-in credentials and allowed domains for this nao instance.',
 		keywords: ['google', 'bigquery', 'service account', 'gcp', 'sso', 'client id', 'auth domain'],
 		orgAdminOnly: true,
@@ -195,15 +242,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'pattern',
 		],
 	},
-	{
-		page: '/settings/appearance',
-		pageLabel: 'Appearance',
-		title: 'GeoJSON Boundary Library',
-		description: 'Add custom GeoJSON boundary sets the agent can use for choropleth maps.',
-		keywords: ['geojson', 'boundaries', 'choropleth', 'map', 'regions', 'custom', 'polygon'],
-		adminOnly: true,
-	},
-
 	// ── Project > Agent > Models ─────────────────────────────
 	{
 		page: '/settings/project/agent',
@@ -292,9 +330,10 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		pageLabel: 'Agent',
 		section: 'Memory',
 		search: { tab: 'memory' },
-		title: 'Project-wide memory',
-		description: 'Admins control whether memory is available to everyone in this project.',
+		title: 'Project memory',
+		description: 'Controls memory for everyone in this project. When off, no member can use memory.',
 		keywords: ['remember', 'learn', 'personalization'],
+		adminOnly: true,
 	},
 	{
 		page: '/settings/project/agent',
@@ -322,6 +361,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Maps',
 		description: 'Enable the agent to render query results on an interactive map.',
 		keywords: ['display map', 'choropleth', 'points', 'scatter', 'bubble', 'geospatial'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'Capabilities',
+		search: { tab: 'tools' },
+		title: 'GeoJSON Boundary Library',
+		description: 'Add custom GeoJSON boundary sets the agent can use for choropleth maps.',
+		keywords: ['geojson', 'boundaries', 'choropleth', 'map', 'regions', 'custom', 'polygon'],
 		adminOnly: true,
 	},
 	{
@@ -442,18 +491,20 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		adminOrContextAdmin: true,
 	},
 
-	// ── Project > Integrations > nao MCP ────────────────────
+	// ── Project > Integrations & MCP > nao MCP ──────────────
 	{
-		page: '/settings/project/integrations/nao-mcp',
-		pageLabel: 'Integrations',
+		page: '/settings/project/integrations',
+		pageLabel: 'Integrations & MCP',
+		search: { tab: 'nao-mcp' },
 		section: 'nao MCP',
 		title: 'MCP Server Endpoint',
 		description: 'Allow external AI clients to connect to this workspace via MCP.',
 		keywords: ['model context protocol', 'claude desktop', 'cursor', 'external', 'api', 'bearer'],
 	},
 	{
-		page: '/settings/project/integrations/nao-mcp',
-		pageLabel: 'Integrations',
+		page: '/settings/project/integrations',
+		pageLabel: 'Integrations & MCP',
+		search: { tab: 'nao-mcp' },
 		section: 'nao MCP',
 		title: 'Sub-agent mode',
 		description:
@@ -461,8 +512,9 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['ask_nao', 'get_nao_answer', 'agent', 'analytics', 'delegate', 'sub-agent'],
 	},
 	{
-		page: '/settings/project/integrations/nao-mcp',
-		pageLabel: 'Integrations',
+		page: '/settings/project/integrations',
+		pageLabel: 'Integrations & MCP',
+		search: { tab: 'nao-mcp' },
 		section: 'nao MCP',
 		title: 'Context-layer mode',
 		description:
@@ -546,10 +598,10 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		cloudHidden: true,
 	},
 
-	// ── Project > Integrations ───────────────────────────────
+	// ── Project > Integrations & MCP ─────────────────────────
 	{
 		page: '/settings/project/integrations/slack',
-		pageLabel: 'Integrations',
+		pageLabel: 'Integrations & MCP',
 		section: 'Slack',
 		title: 'Slack Integration',
 		description: 'Configure Slack app credentials, webhook, and bot behavior.',
@@ -557,7 +609,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/project/integrations/slack',
-		pageLabel: 'Integrations',
+		pageLabel: 'Integrations & MCP',
 		section: 'Slack',
 		title: 'Auto-create users from Slack',
 		description: 'Automatically provision nao accounts for Slack senders whose email domain is in the allowlist.',
@@ -566,7 +618,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/project/integrations/slack',
-		pageLabel: 'Integrations',
+		pageLabel: 'Integrations & MCP',
 		section: 'Slack',
 		title: 'Reply only when mentioned',
 		description:
@@ -575,7 +627,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/project/integrations/slack',
-		pageLabel: 'Integrations',
+		pageLabel: 'Integrations & MCP',
 		section: 'Slack',
 		title: 'Slack transport mode',
 		description: 'Switch between Webhook and Socket Mode for Slack delivery.',
@@ -591,7 +643,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/project/integrations/slack',
-		pageLabel: 'Integrations',
+		pageLabel: 'Integrations & MCP',
 		section: 'Slack',
 		title: '/new slash command',
 		description:
@@ -600,7 +652,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/project/integrations/teams',
-		pageLabel: 'Integrations',
+		pageLabel: 'Integrations & MCP',
 		section: 'Microsoft Teams',
 		title: 'Microsoft Teams Integration',
 		description: 'Configure Teams app credentials, messaging endpoint, and bot behavior.',
@@ -608,7 +660,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/project/integrations/telegram',
-		pageLabel: 'Integrations',
+		pageLabel: 'Integrations & MCP',
 		section: 'Telegram',
 		title: 'Telegram Integration',
 		description: 'Configure Telegram bot credentials, webhook, and bot behavior.',
@@ -616,7 +668,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/project/integrations/telegram',
-		pageLabel: 'Integrations',
+		pageLabel: 'Integrations & MCP',
 		section: 'Telegram',
 		title: 'Linking Code',
 		description: 'Send /login <code> to the Telegram bot you want to link.',
@@ -624,7 +676,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/project/integrations/whatsapp',
-		pageLabel: 'Integrations',
+		pageLabel: 'Integrations & MCP',
 		section: 'WhatsApp',
 		title: 'WhatsApp Integration',
 		description: 'Configure WhatsApp app credentials, webhook, and bot behavior.',
@@ -632,7 +684,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 	{
 		page: '/settings/project/integrations/whatsapp',
-		pageLabel: 'Integrations',
+		pageLabel: 'Integrations & MCP',
 		section: 'WhatsApp',
 		title: 'Linking Code',
 		description: 'Send /login <code> from the WhatsApp number you want to link.',
@@ -761,31 +813,9 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/enterprise',
 		pageLabel: 'Enterprise',
-		title: 'Enterprise features',
-		description: 'Enterprise capabilities enabled by your license.',
-		keywords: ['features', 'sso', 'enterprise', 'plan'],
-		adminOnly: true,
-		cloudHidden: true,
-	},
-	{
-		page: '/settings/enterprise',
-		pageLabel: 'Enterprise',
-		title: 'Single sign-on token',
-		description: 'Inspect the claims your identity provider sent and how they resolved to a role.',
-		keywords: [
-			'sso',
-			'oidc',
-			'okta',
-			'token',
-			'claims',
-			'groups',
-			'group mapping',
-			'role',
-			'debug',
-			'id token',
-			'entra',
-			'keycloak',
-		],
+		title: 'Enterprise feature overview',
+		description: 'See what Enterprise includes and which features your license unlocks.',
+		keywords: ['enterprise', 'license', 'upgrade', 'pricing', 'plan', 'sso', 'white label', 'budget', 'projects'],
 		adminOnly: true,
 		cloudHidden: true,
 	},
@@ -875,17 +905,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		section: 'Memory',
 		search: { tab: 'memory' },
 		title: 'Your memory',
-		description: 'Choose whether nao remembers preferences and facts about you.',
-		keywords: ['remember', 'learn', 'personalization', 'preferences'],
-	},
-	{
-		page: '/settings/project/agent',
-		pageLabel: 'Agent',
-		section: 'Memory',
-		search: { tab: 'memory' },
-		title: 'Your saved memories',
-		description: 'Review and manage the preferences and facts nao has remembered about you.',
-		keywords: ['remembered facts', 'memory list'],
+		description: 'What nao remembers about you. Only you can see and manage these.',
+		keywords: ['remember', 'learn', 'personalization', 'preferences', 'remembered facts', 'memory list'],
 	},
 
 	// ── Context Explorer ─────────────────────────────────────

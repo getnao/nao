@@ -59,7 +59,8 @@ export function Sidebar() {
 	const { groupBy, filters, setGroupBy, toggleFilter } = useChatViewPreferences();
 
 	const locationPath = useRouterState({ select: (s) => s.location.pathname });
-	const isInSettings = matchRoute({ to: '/settings', fuzzy: true });
+	const isSettingsRoute = matchRoute({ to: '/settings', fuzzy: true });
+	const isInSettings = !!isSettingsRoute && !isViewer;
 	const effectiveIsCollapsed = isMobile ? false : isCollapsed;
 
 	useEffect(() => {

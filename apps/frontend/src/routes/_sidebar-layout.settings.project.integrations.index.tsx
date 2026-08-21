@@ -1,15 +1,29 @@
-import { createFileRoute, redirect } from '@tanstack/react-router';
+import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
+import type { TabBarItem } from '@/components/ui/tab-bar';
 
 import type { IntegrationId } from '@/components/settings/integrations';
 import { isIntegrationId } from '@/components/settings/integrations';
 import { IntegrationsPage } from '@/components/settings/integrations-page';
+import { McpEndpointSettings } from '@/components/settings/mcp-endpoint';
+import { TabBar, TabPanel } from '@/components/ui/tab-bar';
+import { usePermissions } from '@/hooks/use-permissions';
+
+type IntegrationsTab = 'integrations' | 'nao-mcp';
+
+const tabs: TabBarItem<IntegrationsTab>[] = [
+	{ id: 'integrations', label: 'Integrations' },
+	{ id: 'nao-mcp', label: 'nao MCP' },
+];
+
+const tabIdBase = 'project-integrations';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/integrations/')({
 	staticData: {
-		title: 'Integrations',
+		title: 'Integrations & MCP',
 		description: 'Connect nao to chat tools and AI clients',
 	},
-	validateSearch: (search: Record<string, unknown>): { integration?: IntegrationId } => ({
+	validateSearch: (search: Record<string, unknown>): { tab: IntegrationsTab; integration?: IntegrationId } => ({
+		tab: isIntegrationsTab(search.tab) ? search.tab : 'integrations',
 		integration: isIntegrationId(search.integration) ? search.integration : undefined,
 	}),
 	beforeLoad: ({ search }) => {
@@ -24,5 +38,32 @@ export const Route = createFileRoute('/_sidebar-layout/settings/project/integrat
 });
 
 function ProjectIntegrationsPage() {
-	return <IntegrationsPage />;
+	const { tab } = Route.useSearch();
+	const navigate = useNavigate({ from: Route.fullPath });
+	const { isAdmin } = usePermissions();
+
+	return (
+		<>
+			<TabBar
+				tabs={tabs}
+				activeTab={tab}
+				onTabChange={(nextTab) => {
+					navigate({
+						search: { tab: nextTab },
+						replace: true,
+					});
+				}}
+				idBase={tabIdBase}
+				className='border-b'
+			/>
+			<TabPanel idBase={tabIdBase} tabId={tab} className='flex flex-col gap-12'>
+				{tab === 'integrations' && <IntegrationsPage />}
+				{tab === 'nao-mcp' && <McpEndpointSettings isAdmin={isAdmin} />}
+			</TabPanel>
+		</>
+	);
+}
+
+function isIntegrationsTab(value: unknown): value is IntegrationsTab {
+	return value === 'integrations' || value === 'nao-mcp';
 }

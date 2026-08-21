@@ -10,6 +10,8 @@ import GitlabIcon from '@/components/icons/gitlab-icon.svg';
 import { GoogleConfigSection } from '@/components/settings/google-credentials-section';
 import { OrgApiKeys } from '@/components/settings/org-api-keys';
 import { OrgSignInDomains } from '@/components/settings/org-signin-domains';
+import { SsoSettingsSection } from '@/components/settings/sso-settings-section';
+import { SsoTokenInspector } from '@/components/settings/sso-token-inspector';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
@@ -124,8 +126,10 @@ function OrganizationSettingsPage() {
 					)}
 				</SettingsCard>
 				{isCloud && <OrgSignInDomains isAdmin={isOrgAdmin} />}
+				{!isCloud && <SsoSettingsSection isAdmin={isOrgAdmin} />}
+				{!isCloud && isOrgAdmin && <SsoTokenInspector />}
 				{!isCloud && (
-					<SettingsCard title='Google SSO'>
+					<SettingsCard title='Google sign-in'>
 						<GoogleConfigSection isAdmin={isOrgAdmin} />
 					</SettingsCard>
 				)}
