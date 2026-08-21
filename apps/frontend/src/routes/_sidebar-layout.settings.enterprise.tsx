@@ -72,10 +72,12 @@ function LicenseSettings() {
 		<div className='flex flex-col gap-5'>
 			<SettingsCard title='Setup'>
 				<StatusCard status={license.data.status} />
-				<p className='text-xs text-muted-foreground'>
-					Set a license key with the <code className='font-mono'>NAO_LICENSE</code> environment variable on
-					the server. It takes effect after the server restarts.
-				</p>
+				{license.data.status === 'unlicensed' && (
+					<p className='text-xs text-muted-foreground'>
+						Set a license key with the <code className='font-mono'>NAO_LICENSE</code> environment variable
+						on the server. It takes effect after the server restarts.
+					</p>
+				)}
 				{hasVerifiedLicense && details.data && (
 					<LicenseDetails
 						companyName={details.data.companyName}

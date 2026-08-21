@@ -142,7 +142,7 @@ const settingsNavGroups: NavGroup[] = [
 ];
 
 const navRowClassName =
-	'flex items-center gap-2 rounded-md transition-colors whitespace-nowrap px-2 py-1 text-[13px] leading-5';
+	'flex items-center gap-2 rounded-md transition-colors whitespace-nowrap px-2 py-[5px] text-[13px] leading-5';
 
 interface SidebarSettingsNavProps {
 	isCollapsed: boolean;
@@ -272,13 +272,13 @@ export function SidebarSettingsNav({
 						)}
 					</div>
 				) : (
-					<nav className='flex flex-col px-2 gap-px'>
+					<nav className='flex flex-col px-2 gap-1'>
 						{navGroups.map((group, groupIndex) => (
 							<Fragment key={group.label}>
 								<div
 									className={cn(
-										'px-2 pb-1 text-xs font-medium text-muted-foreground',
-										groupIndex === 0 ? 'pt-1' : 'pt-4',
+										'px-2 pb-0.5 text-[11px] leading-4 font-medium uppercase tracking-wide text-muted-foreground',
+										groupIndex === 0 ? 'pt-2' : 'pt-4',
 									)}
 								>
 									{group.label}
