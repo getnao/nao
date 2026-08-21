@@ -23,11 +23,14 @@ import {
 } from 'recharts';
 
 import {
+	boxesOverlap,
 	DATA_LABEL_ANCHOR_GAP,
 	DATA_LABEL_MARGIN_TOP,
 	DATA_LABEL_X_AXIS_FOOTROOM,
 	getDataLabelSetup,
 	getRenderedSeries,
+	type LabelBox,
+	labelBox,
 	PIE_LABELLED_OUTER_RADIUS,
 	renderDataLabelsLayer,
 	renderPieDataLabelsLayer,
@@ -613,7 +616,8 @@ function formatCategoryTick(value: string, labelFormatter: (value: string) => st
 }
 
 function buildHorizontalBarChart(props: ResolvedProps) {
-	const { data, chartType, xAxisKey, series, colorFor, labelFormatter, children, xAxisMaxLabelChars } = props;
+	const { data, chartType, xAxisKey, series, colorFor, labelFormatter, children, xAxisInterval, xAxisMaxLabelChars } =
+		props;
 	const isPercent = displayChart.isPercentStackedChartType(chartType);
 	const renderedSeries = getRenderedSeries(series, series.length > 1);
 	const hasMultipleSeries = renderedSeries.length > 1;
@@ -678,6 +682,8 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 				tick={AXIS_TICK}
 				tickLine={false}
 				axisLine={false}
+				minTickGap={12}
+				interval={xAxisInterval ?? 'preserveStartEnd'}
 				width={categoryAxisWidth}
 				tickFormatter={tickFormatter}
 			/>
@@ -762,44 +768,71 @@ interface HorizontalBarLabelsLayerProps {
 	};
 }
 
+interface HorizontalBarValueLabel {
+	key: string;
+	text: string;
+	x: number;
+	y: number;
+}
+
 function createHorizontalBarValueLabelsLayer(valueFormatter: (value: number) => string, valueLabelWidth: number) {
 	function HorizontalBarValueLabelsLayer({ formattedGraphicalItems, offset }: HorizontalBarLabelsLayerProps) {
 		const bar = formattedGraphicalItems?.find((item) => item.item?.type?.displayName === 'Bar');
 		const trackEnd = (toFiniteNumber(offset?.left) ?? 0) + (toFiniteNumber(offset?.width) ?? 0);
 		const labelX = trackEnd + valueLabelWidth - HORIZONTAL_BAR_VALUE_LABEL_RIGHT_PADDING;
 		const points = bar?.props?.data ?? [];
-		if (points.length === 0) {
+		const labels = selectHorizontalBarValueLabels(points, labelX, valueFormatter);
+		if (labels.length === 0) {
 			return null;
 		}
 		return (
 			<g className='recharts-horizontal-bar-value-labels'>
-				{points.map((point) => {
-					const y = toFiniteNumber(point.y);
-					const height = toFiniteNumber(point.height);
-					if (y == null || height == null) {
-						return null;
-					}
-					const value = toFiniteNumber(point.payload?.[HORIZONTAL_BAR_ORIGINAL_VALUE_KEY]) ?? 0;
-					return (
-						<text
-							key={`${y}-${value}`}
-							x={labelX}
-							y={y + height / 2}
-							fill={MUTED_FOREGROUND}
-							fontSize={CHART_LABEL_FONT_SIZE}
-							textAnchor='end'
-							dominantBaseline='central'
-							className='recharts-horizontal-bar-value-label'
-						>
-							{valueFormatter(value)}
-						</text>
-					);
-				})}
+				{labels.map((label) => (
+					<text
+						key={label.key}
+						x={label.x}
+						y={label.y}
+						fill={MUTED_FOREGROUND}
+						fontSize={CHART_LABEL_FONT_SIZE}
+						textAnchor='end'
+						dominantBaseline='central'
+						className='recharts-horizontal-bar-value-label'
+					>
+						{label.text}
+					</text>
+				))}
 			</g>
 		);
 	}
 	HorizontalBarValueLabelsLayer.displayName = 'HorizontalBarValueLabelsLayer';
 	return HorizontalBarValueLabelsLayer;
+}
+
+function selectHorizontalBarValueLabels(
+	points: HorizontalBarGraphicalPoint[],
+	labelX: number,
+	valueFormatter: (value: number) => string,
+): HorizontalBarValueLabel[] {
+	const labels: HorizontalBarValueLabel[] = [];
+	let previousBox: LabelBox | null = null;
+	for (const point of points) {
+		const y = toFiniteNumber(point.y);
+		const height = toFiniteNumber(point.height);
+		if (y == null || height == null) {
+			continue;
+		}
+		const value = toFiniteNumber(point.payload?.[HORIZONTAL_BAR_ORIGINAL_VALUE_KEY]) ?? 0;
+		const text = valueFormatter(value);
+		const labelY = y + height / 2;
+		const halfWidth = (text.length * VALUE_AXIS_CHARACTER_WIDTH) / 2;
+		const box = labelBox(labelX, labelY, halfWidth, 'end', CHART_LABEL_FONT_SIZE);
+		if (previousBox && boxesOverlap(previousBox, box)) {
+			continue;
+		}
+		labels.push({ key: `${y}-${value}`, text, x: labelX, y: labelY });
+		previousBox = box;
+	}
+	return labels;
 }
 
 function renderHorizontalBarBackground(backgroundProps: unknown) {

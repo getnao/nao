@@ -3,6 +3,7 @@ import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import { buildChart } from '../src/chart-builder';
+import { boxesOverlap, labelBox } from '../src/chart-data-labels';
 
 describe('buildChart horizontal bars', () => {
 	it('builds one horizontal bar series with category and hidden value axes', () => {
@@ -159,6 +160,32 @@ describe('buildChart horizontal bars', () => {
 		expect(labels[0].x).toBe(labels[1].x);
 	});
 
+	it('skips value labels and category ticks that do not fit', () => {
+		const rowCount = 96;
+		const chart = buildChart({
+			data: Array.from({ length: rowCount }, (_, index) => ({
+				category: `Month ${index + 1}`,
+				value: index + 1,
+			})),
+			chartType: 'horizontal_bar',
+			xAxisKey: 'category',
+			xAxisType: 'category',
+			series: [{ data_key: 'value' }],
+		});
+		const yAxis = flattenChildren(chart.props.children).find((child) => getDisplayName(child) === 'YAxis');
+		const html = renderToString(React.cloneElement(chart, { width: 600, height: 300 }));
+		const labels = readHorizontalBarValueLabels(html);
+		const boxes = labels.map((label) => labelBox(label.x, label.y, (label.text.length * 7) / 2, 'end', 12));
+
+		expect(labels.length).toBeGreaterThan(0);
+		expect(labels.length).toBeLessThan(rowCount);
+		expect(labels[0].text).toBe('1');
+		expect(boxes.every((box, index) => boxes.slice(index + 1).every((other) => !boxesOverlap(box, other)))).toBe(
+			true,
+		);
+		expect(yAxis?.props.interval).toBe('preserveStartEnd');
+	});
+
 	it('shows value labels by default and removes their margin when hidden', () => {
 		const props = {
 			data: [{ category: 'First', value: 50 }],
@@ -180,8 +207,8 @@ describe('buildChart horizontal bars', () => {
 
 function readHorizontalBarValueLabels(
 	html: string,
-): Array<{ text: string; textAnchor: string | undefined; x: number }> {
-	const labels: Array<{ text: string; textAnchor: string | undefined; x: number }> = [];
+): Array<{ text: string; textAnchor: string | undefined; x: number; y: number }> {
+	const labels: Array<{ text: string; textAnchor: string | undefined; x: number; y: number }> = [];
 	const textPattern = /<text([^>]*)>([^<]*)<\/text>/g;
 	for (let match = textPattern.exec(html); match !== null; match = textPattern.exec(html)) {
 		const attributes = match[1];
@@ -189,8 +216,9 @@ function readHorizontalBarValueLabels(
 			continue;
 		}
 		const x = attributes.match(/\sx="([^"]+)"/)?.[1];
+		const y = attributes.match(/\sy="([^"]+)"/)?.[1];
 		const textAnchor = attributes.match(/\stext-anchor="([^"]+)"/)?.[1];
-		labels.push({ text: match[2], textAnchor, x: Number(x) });
+		labels.push({ text: match[2], textAnchor, x: Number(x), y: Number(y) });
 	}
 	return labels;
 }

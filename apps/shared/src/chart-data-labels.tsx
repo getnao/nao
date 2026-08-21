@@ -78,7 +78,7 @@ interface LabelCandidate {
 	box: LabelBox;
 	text: string;
 	rank: number[];
-	textAnchor: 'start' | 'middle' | 'end';
+	textAnchor: LabelTextAnchor;
 }
 
 interface IndexedLabelCandidate {
@@ -87,7 +87,9 @@ interface IndexedLabelCandidate {
 	value: number;
 }
 
-interface LabelBox {
+export type LabelTextAnchor = 'start' | 'middle' | 'end';
+
+export interface LabelBox {
 	left: number;
 	right: number;
 	top: number;
@@ -634,23 +636,24 @@ function boxFitsBounds(box: LabelBox, bounds: LabelBox): boolean {
 	return box.left >= bounds.left && box.right <= bounds.right && box.top >= bounds.top && box.bottom <= bounds.bottom;
 }
 
-function labelBox(
+export function labelBox(
 	cx: number,
 	baselineY: number,
 	halfWidth: number,
-	textAnchor: LabelCandidate['textAnchor'] = 'middle',
+	textAnchor: LabelTextAnchor = 'middle',
+	fontSize = DATA_LABEL_FONT_SIZE,
 ): LabelBox {
 	const left = textAnchor === 'start' ? cx : textAnchor === 'end' ? cx - halfWidth * 2 : cx - halfWidth;
 	const right = textAnchor === 'start' ? cx + halfWidth * 2 : textAnchor === 'end' ? cx : cx + halfWidth;
 	return {
 		left: left - (textAnchor === 'start' ? 0 : DATA_LABEL_BOX_PADDING),
 		right: right + (textAnchor === 'end' ? 0 : DATA_LABEL_BOX_PADDING),
-		top: baselineY - DATA_LABEL_FONT_SIZE - DATA_LABEL_BOX_PADDING,
+		top: baselineY - fontSize - DATA_LABEL_BOX_PADDING,
 		bottom: baselineY + DATA_LABEL_BOX_PADDING,
 	};
 }
 
-function boxesOverlap(a: LabelBox, b: LabelBox): boolean {
+export function boxesOverlap(a: LabelBox, b: LabelBox): boolean {
 	return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 }
 
