@@ -66,7 +66,10 @@ export const analyticsEventRoutes = {
 			let storyId = input.storyId;
 			if (input.assetType === 'story' && !storyId && input.chatId && input.storySlug) {
 				const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
-				storyId = story?.id;
+				if (!story) {
+					throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+				}
+				storyId = story.id;
 			}
 
 			await assertAssetOwnerOrAdmin(
