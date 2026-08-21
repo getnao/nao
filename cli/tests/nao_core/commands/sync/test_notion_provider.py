@@ -12,6 +12,7 @@ from nao_core.commands.sync.providers.notion.database import DatabaseExportError
 from nao_core.commands.sync.providers.notion.provider import (
     NotionSyncProvider,
     extract_notion_id,
+    extract_page_title,
     extract_view_id,
     markdown_filename,
     render_document,
@@ -111,6 +112,23 @@ def test_extract_notion_id_prefers_the_object_over_the_view():
     url = "https://notion.so/ws/marts-35e5f0e8a00080c69a81ef456a2b174b?v=" + "a" * 32
 
     assert extract_notion_id(url) == "35e5f0e8a00080c69a81ef456a2b174b"
+
+
+def test_extract_page_title_reads_a_custom_named_title_property():
+    page = {
+        "properties": {
+            "Owner": {"type": "people", "people": []},
+            "Topic": {"type": "title", "title": [{"plain_text": "Basic "}, {"plain_text": "Knowledge"}]},
+        }
+    }
+
+    assert extract_page_title(page, "35e5f0e8a00080c69a81ef456a2b174b") == "Basic Knowledge"
+
+
+def test_extract_page_title_falls_back_to_the_id_when_the_title_is_empty():
+    page = {"properties": {"Topic": {"type": "title", "title": []}}}
+
+    assert extract_page_title(page, "35e5f0e8a00080c69a81ef456a2b174b") == "35e5f0e8a00080c69a81ef456a2b174b"
 
 
 @pytest.mark.parametrize(
