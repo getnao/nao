@@ -23,7 +23,7 @@ async function assertAssetOwnerOrAdmin(
 		if (assetProjectId !== projectId) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
 		}
-		if (userRole === 'admin') {
+		if (userRole === 'admin' || userRole === 'context_admin') {
 			return;
 		}
 		const ownerId = await chatQueries.getChatOwnerId(chatId);
@@ -38,7 +38,7 @@ async function assertAssetOwnerOrAdmin(
 		if (assetProjectId !== projectId) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 		}
-		if (userRole === 'admin') {
+		if (userRole === 'admin' || userRole === 'context_admin') {
 			return;
 		}
 		const ownerId = await storyQueries.getStoryOwnerId(storyId);
@@ -58,14 +58,21 @@ export const analyticsEventRoutes = {
 				assetType: z.enum(ANALYTICS_ASSET_TYPES),
 				chatId: z.string().optional(),
 				storyId: z.string().optional(),
+				storySlug: z.string().optional(),
 				limit: z.number().int().min(1).max(200).default(100),
 			}),
 		)
 		.query(async ({ input, ctx }) => {
+			let storyId = input.storyId;
+			if (input.assetType === 'story' && !storyId && input.chatId && input.storySlug) {
+				const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
+				storyId = story?.id;
+			}
+
 			await assertAssetOwnerOrAdmin(
 				input.assetType,
 				input.chatId,
-				input.storyId,
+				storyId,
 				ctx.project.id,
 				ctx.user.id,
 				ctx.userRole,
@@ -74,7 +81,7 @@ export const analyticsEventRoutes = {
 			const rows = await analyticsEventQueries.listEventsForAsset({
 				assetType: input.assetType,
 				chatId: input.chatId,
-				storyId: input.storyId,
+				storyId,
 				limit: input.limit,
 			});
 

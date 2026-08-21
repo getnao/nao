@@ -29,6 +29,7 @@ interface AssetAnalyticsDialogProps {
 	assetType: AnalyticsAssetType;
 	chatId?: string;
 	storyId?: string;
+	storySlug?: string;
 }
 
 interface TabDef {
@@ -77,13 +78,20 @@ const TAB_DEFS: TabDef[] = [
 	},
 ];
 
-export function AssetAnalyticsDialog({ open, onOpenChange, assetType, chatId, storyId }: AssetAnalyticsDialogProps) {
+export function AssetAnalyticsDialog({
+	open,
+	onOpenChange,
+	assetType,
+	chatId,
+	storyId,
+	storySlug,
+}: AssetAnalyticsDialogProps) {
 	const tabs = TAB_DEFS.filter((tab) => tab.assetTypes.includes(assetType));
 	const [activeTab, setActiveTab] = useState<AnalyticsEventType>('page_view');
 	const [search, setSearch] = useState('');
 
 	const query = useQuery({
-		...trpc.analyticsEvent.listForAsset.queryOptions({ assetType, chatId, storyId }),
+		...trpc.analyticsEvent.listForAsset.queryOptions({ assetType, chatId, storyId, storySlug }),
 		enabled: open,
 		staleTime: 0,
 		refetchOnMount: 'always',
