@@ -61,6 +61,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		isVisible: isSidePanelVisible,
 		currentStorySlug,
 		isReadonlyMode: contextReadonlyMode,
+		isReplay,
 		registerBeforeChange,
 		shareId,
 		shareType,
@@ -320,6 +321,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 				isStoryUpdating={isStoryUpdating}
 				isSaving={isSaving}
 				isReadonlyMode={isReadonlyMode}
+				isReplay={isReplay}
 				isLive={isLive}
 				isLiveUpdating={isLiveUpdating}
 				isRefreshing={isRefreshing}
@@ -419,6 +421,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 				assetType='story'
 				chatId={chatId}
 				storyId={storyId ?? undefined}
+				storySlug={resolvedStorySlug}
 			/>
 
 			<LiveStorySettingsDialog

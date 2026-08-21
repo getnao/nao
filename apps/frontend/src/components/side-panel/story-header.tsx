@@ -7,13 +7,13 @@ import {
 	Ellipsis,
 	Eye,
 	Globe,
+	Info,
 	Loader2,
 	Maximize2,
 	Pencil,
 	RefreshCw,
 	RotateCcw,
 	Save,
-	ScanText,
 	Star,
 	Upload,
 	X,
@@ -68,6 +68,7 @@ export interface StoryHeaderProps {
 	isStoryUpdating: boolean;
 	isSaving?: boolean;
 	isReadonlyMode: boolean;
+	isReplay?: boolean;
 	isLive: boolean;
 	isLiveUpdating: boolean;
 	isRefreshing: boolean;
@@ -121,6 +122,7 @@ export const StoryHeader = memo(function StoryHeader({
 	isStoryUpdating,
 	isSaving = false,
 	isReadonlyMode,
+	isReplay = false,
 	isLive,
 	isLiveUpdating,
 	isRefreshing,
@@ -341,6 +343,23 @@ export const StoryHeader = memo(function StoryHeader({
 		</>
 	);
 
+	const replayAnalyticsButton = isReplay && isReadonlyMode && (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<Button
+					variant='ghost'
+					size='icon-sm'
+					className='hover:rounded-full'
+					onClick={onOpenAnalytics}
+					aria-label='Analytics'
+				>
+					<Info className='size-3' />
+				</Button>
+			</TooltipTrigger>
+			<TooltipContent>Analytics</TooltipContent>
+		</Tooltip>
+	);
+
 	const actionButtons = !isReadonlyMode && (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
@@ -354,7 +373,7 @@ export const StoryHeader = memo(function StoryHeader({
 					<span>Share</span>
 				</DropdownMenuItem>
 				<DropdownMenuItem onSelect={onOpenAnalytics}>
-					<ScanText className='size-3' />
+					<Info className='size-3' />
 					<span>Analytics</span>
 				</DropdownMenuItem>
 				<DropdownMenuItem onSelect={onEnlarge}>
@@ -384,6 +403,7 @@ export const StoryHeader = memo(function StoryHeader({
 						{liveControls}
 						{downloadButton}
 						{starButton}
+						{replayAnalyticsButton}
 						{actionButtons}
 					</div>
 					<div className='flex items-center gap-2 border-b px-4 py-2'>
@@ -410,6 +430,7 @@ export const StoryHeader = memo(function StoryHeader({
 					{liveControls}
 					{downloadButton}
 					{starButton}
+					{replayAnalyticsButton}
 					{actionButtons}
 				</div>
 			)}

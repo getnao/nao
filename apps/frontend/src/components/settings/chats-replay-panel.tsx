@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Info } from 'lucide-react';
 import { formatDate } from 'date-fns';
 import type { ReactNode } from 'react';
 import type { StickToBottomContext } from 'use-stick-to-bottom';
 
 import type { ReplayHighlight } from '@/components/settings/usage-route-search';
+import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { SidePanel } from '@/components/side-panel/side-panel';
 import { SettingsCard } from '@/components/ui/settings-card';
@@ -110,6 +111,7 @@ export function ChatsReplayPanel({ chatId, onBack, metadataAction, highlightOnLo
 	const isOwner = session?.user?.id === chatReplayQuery.data?.chatOwnerId;
 	const title = chatReplayQuery.data?.title ?? 'Chat replay';
 	const updatedAt = chatReplayQuery.data?.updatedAt;
+	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 
 	return (
 		<div className='w-full h-full min-h-0 flex flex-col p-4 bg-background'>
@@ -125,6 +127,15 @@ export function ChatsReplayPanel({ chatId, onBack, metadataAction, highlightOnLo
 							{chatReplayQuery.data && <ReplayContextWindowRing chatId={chatId} />}
 						</div>
 						<div className='flex items-center gap-2'>
+							{chatReplayQuery.data && (
+								<button
+									className='hover:rounded-full hover:text-foreground size-[12px] text-muted-foreground'
+									onClick={() => setIsAnalyticsOpen(true)}
+									aria-label='Analytics'
+								>
+									<Info className='size-3' />
+								</button>
+							)}
 							<span className='text-muted-foreground text-xs font-semibold'>
 								{updatedAt != null ? formatDate(new Date(updatedAt), 'yyyy-MM-dd') : '—'}
 							</span>
@@ -169,6 +180,7 @@ export function ChatsReplayPanel({ chatId, onBack, metadataAction, highlightOnLo
 									setCurrentStoryTabIndex={sidePanel.setCurrentStoryTabIndex}
 									chatId={chatId}
 									isReadonlyMode={!isOwner}
+									isReplay={true}
 									open={sidePanel.open}
 									close={sidePanel.close}
 								>
@@ -202,6 +214,13 @@ export function ChatsReplayPanel({ chatId, onBack, metadataAction, highlightOnLo
 					</div>
 				)}
 			</SettingsCard>
+
+			<AssetAnalyticsDialog
+				open={isAnalyticsOpen}
+				onOpenChange={setIsAnalyticsOpen}
+				assetType='chat'
+				chatId={chatId}
+			/>
 		</div>
 	);
 }
