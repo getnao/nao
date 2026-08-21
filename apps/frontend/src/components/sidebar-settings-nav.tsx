@@ -135,7 +135,7 @@ const settingsNavGroups: NavGroup[] = [
 			{
 				label: 'Enterprise',
 				to: '/settings/enterprise',
-				visible: ({ isAdmin, isCloud }) => isAdmin && !isCloud,
+				visible: ({ isViewer, isCloud }) => !isViewer && !isCloud,
 			},
 		],
 	},

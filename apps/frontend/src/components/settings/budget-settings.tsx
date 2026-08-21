@@ -173,7 +173,7 @@ export function BudgetSettings() {
 
 	return (
 		<>
-			<SettingsCard title='Budgets' description='Limit the budgets of your most expensive providers.'>
+			<SettingsCard title='Budgets' description='Limit the budgets of your most expensive providers.' flush>
 				<Table>
 					<TableHeader>
 						<TableRow>
@@ -181,8 +181,8 @@ export function BudgetSettings() {
 							<TableHead className='text-center'>Project limit</TableHead>
 							<TableHead className='text-center'>
 								<div className='flex items-center justify-center gap-1.5'>
-									<span>User limit</span>
-									{!hasUserBudget && <UpgradeToEnterprise />}
+									<span className={cn(!hasUserBudget && 'opacity-60')}>User limit</span>
+									{!hasUserBudget && <UpgradeToEnterprise iconOnly />}
 								</div>
 							</TableHead>
 							<TableHead className='text-center'>Period</TableHead>
@@ -288,7 +288,7 @@ export function BudgetSettings() {
 				</Table>
 
 				{isAdmin && (
-					<div className='flex justify-end gap-2 pt-2'>
+					<div className='flex justify-end gap-2 px-4 pb-4 pt-2'>
 						<Button variant='ghost' size='sm' onClick={resetForm} disabled={!isDirty}>
 							Cancel
 						</Button>

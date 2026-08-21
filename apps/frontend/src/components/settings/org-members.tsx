@@ -99,7 +99,7 @@ export function OrgMembers() {
 	return (
 		<>
 			<SettingsCard
-				divide
+				flush
 				action={
 					isOrgAdmin ? (
 						<Button variant='secondary' size='sm' onClick={() => setIsAddOpen(true)}>
@@ -110,7 +110,7 @@ export function OrgMembers() {
 				}
 			>
 				{membersQuery.isLoading ? (
-					<div className='text-sm text-muted-foreground'>Loading members...</div>
+					<div className='p-4 text-sm text-muted-foreground'>Loading members...</div>
 				) : (
 					<TeamMembersList
 						members={members}

@@ -25,10 +25,10 @@ function AppearancePage() {
 				<h1 className='text-lg font-semibold text-foreground'>Appearance</h1>
 				<div className='flex min-w-0 flex-col gap-12'>
 					<DateFormatSection isAdmin={isAdmin} />
-					{isAdmin && !isCloud && (
+					{!isCloud && (
 						<section className='flex flex-col gap-6'>
 							<h2 className='text-base font-semibold text-foreground'>Branding</h2>
-							<WhiteLabelSettings />
+							<WhiteLabelSettings isAdmin={isAdmin} />
 						</section>
 					)}
 				</div>

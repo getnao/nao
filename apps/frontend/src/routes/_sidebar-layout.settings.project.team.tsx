@@ -106,7 +106,7 @@ function ProjectTeamTabPage() {
 			<SettingsCard
 				title='Members'
 				description='These are people who belong to this project.'
-				divide
+				flush
 				action={
 					isAdmin ? (
 						<Button variant='secondary' size='sm' onClick={() => setIsAddOpen(true)}>
@@ -117,7 +117,7 @@ function ProjectTeamTabPage() {
 				}
 			>
 				{usersWithRoles.isLoading ? (
-					<div className='text-sm text-muted-foreground'>Loading users...</div>
+					<div className='p-4 text-sm text-muted-foreground'>Loading users...</div>
 				) : (
 					<TeamMembersList
 						members={members}

@@ -17,7 +17,9 @@ function OrganizationMembersPage() {
 						These are people in your organization, and they may not belong to every project.
 					</p>
 				</div>
-				<OrgMembers />
+				<div className='flex flex-col gap-12'>
+					<OrgMembers />
+				</div>
 			</div>
 		</SettingsPageWrapper>
 	);

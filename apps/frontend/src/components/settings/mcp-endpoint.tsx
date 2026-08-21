@@ -438,13 +438,13 @@ function CallLogsCard({ logs, isLoading, isError }: { logs: CallLog[]; isLoading
 	const toggle = (id: string) => setExpandedId((current) => (current === id ? null : id));
 
 	return (
-		<SettingsCard title='Recent MCP calls' description='Last 50 calls from external clients.'>
+		<SettingsCard title='Recent MCP calls' description='Last 50 calls from external clients.' flush>
 			{isLoading ? (
-				<p className='text-sm text-muted-foreground text-center py-4'>Loading…</p>
+				<p className='p-4 text-sm text-muted-foreground text-center'>Loading…</p>
 			) : isError ? (
-				<p className='text-sm text-destructive text-center py-4'>Failed to load MCP call logs.</p>
+				<p className='p-4 text-sm text-destructive text-center'>Failed to load MCP call logs.</p>
 			) : logs.length === 0 ? (
-				<p className='text-sm text-muted-foreground text-center py-4'>No MCP calls recorded yet.</p>
+				<p className='p-4 text-sm text-muted-foreground text-center'>No MCP calls recorded yet.</p>
 			) : (
 				<Table>
 					<TableHeader>

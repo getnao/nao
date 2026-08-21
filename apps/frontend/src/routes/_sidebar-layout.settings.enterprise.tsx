@@ -24,12 +24,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { useLicenseFeatures } from '@/hooks/use-license';
-import { requireAdminNonCloud } from '@/lib/require-admin';
+import { requireNonViewerNonCloud } from '@/lib/require-admin';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/enterprise')({
-	beforeLoad: requireAdminNonCloud,
+	beforeLoad: requireNonViewerNonCloud,
 	staticData: {
 		title: 'Enterprise',
 	},
@@ -39,14 +39,16 @@ export const Route = createFileRoute('/_sidebar-layout/settings/enterprise')({
 function EnterprisePage() {
 	return (
 		<SettingsPageWrapper>
-			<div className='flex flex-col gap-6'>
-				<div className='flex flex-col gap-1'>
+			<div className='flex flex-col gap-5'>
+				<div>
 					<h1 className='text-lg font-semibold text-foreground'>Enterprise</h1>
 					<p className='text-sm text-muted-foreground'>
 						Advanced capabilities for teams running nao across a company.
 					</p>
 				</div>
-				<LicenseSettings />
+				<div className='flex flex-col gap-12'>
+					<LicenseSettings />
+				</div>
 			</div>
 		</SettingsPageWrapper>
 	);
@@ -69,7 +71,7 @@ function LicenseSettings() {
 	}
 
 	return (
-		<div className='flex flex-col gap-5'>
+		<div className='flex flex-col gap-12'>
 			<SettingsCard title='Setup'>
 				<StatusCard status={license.data.status} />
 				{license.data.status === 'unlicensed' && (

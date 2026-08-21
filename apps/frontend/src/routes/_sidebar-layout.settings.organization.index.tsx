@@ -86,54 +86,58 @@ function OrganizationSettingsPage() {
 	return (
 		<SettingsPageWrapper>
 			<div className='flex flex-col gap-5'>
-				<h1 className='text-lg font-semibold text-foreground'>Organization Settings</h1>
-				<SettingsCard title='Projects' action={projectsAction}>
-					{projectsQuery.isLoading ? (
-						<div className='text-sm text-muted-foreground'>Loading projects...</div>
-					) : projectsQuery.data?.length ? (
-						<Table>
-							<TableHeader>
-								<TableRow>
-									<TableHead>Name</TableHead>
-									<TableHead>Access</TableHead>
-								</TableRow>
-							</TableHeader>
-							<TableBody>
-								{projectsQuery.data.map((project) => (
-									<TableRow key={project.id}>
-										<TableCell>
-											<div className='font-medium'>{project.name}</div>
-											{project.path && (
-												<div className='font-mono text-xs text-muted-foreground'>
-													{project.path}
-												</div>
-											)}
-										</TableCell>
-										<TableCell>
-											<Badge variant={project.role}>{USER_ROLE_LABELS[project.role]}</Badge>
-										</TableCell>
+				<div>
+					<h1 className='text-lg font-semibold text-foreground'>Organization Settings</h1>
+				</div>
+				<div className='flex flex-col gap-12'>
+					<SettingsCard title='Projects' action={projectsAction} flush>
+						{projectsQuery.isLoading ? (
+							<div className='p-4 text-sm text-muted-foreground'>Loading projects...</div>
+						) : projectsQuery.data?.length ? (
+							<Table>
+								<TableHeader>
+									<TableRow>
+										<TableHead>Name</TableHead>
+										<TableHead>Access</TableHead>
 									</TableRow>
-								))}
-							</TableBody>
-						</Table>
-					) : (
-						<div className='text-sm text-muted-foreground'>
-							No projects found.{' '}
-							<Link to='/settings/project' className='text-primary hover:underline'>
-								Add a first project.
-							</Link>
-						</div>
-					)}
-				</SettingsCard>
-				{isCloud && <OrgSignInDomains isAdmin={isOrgAdmin} />}
-				{!isCloud && <SsoSettingsSection isAdmin={isOrgAdmin} />}
-				{!isCloud && isOrgAdmin && <SsoTokenInspector />}
-				{!isCloud && (
-					<SettingsCard title='Google sign-in'>
-						<GoogleConfigSection isAdmin={isOrgAdmin} />
+								</TableHeader>
+								<TableBody>
+									{projectsQuery.data.map((project) => (
+										<TableRow key={project.id}>
+											<TableCell>
+												<div className='font-medium'>{project.name}</div>
+												{project.path && (
+													<div className='font-mono text-xs text-muted-foreground'>
+														{project.path}
+													</div>
+												)}
+											</TableCell>
+											<TableCell>
+												<Badge variant={project.role}>{USER_ROLE_LABELS[project.role]}</Badge>
+											</TableCell>
+										</TableRow>
+									))}
+								</TableBody>
+							</Table>
+						) : (
+							<div className='p-4 text-sm text-muted-foreground'>
+								No projects found.{' '}
+								<Link to='/settings/project' className='text-primary hover:underline'>
+									Add a first project.
+								</Link>
+							</div>
+						)}
 					</SettingsCard>
-				)}
-				<OrgApiKeys isAdmin={isOrgAdmin} />
+					{isCloud && <OrgSignInDomains isAdmin={isOrgAdmin} />}
+					{!isCloud && <SsoSettingsSection />}
+					{!isCloud && isOrgAdmin && <SsoTokenInspector />}
+					{!isCloud && (
+						<SettingsCard title='Google sign-in'>
+							<GoogleConfigSection isAdmin={isOrgAdmin} />
+						</SettingsCard>
+					)}
+					<OrgApiKeys isAdmin={isOrgAdmin} />
+				</div>
 			</div>
 
 			<GitHubRepoPicker open={repoPickerOpen} onOpenChange={setRepoPickerOpen} />

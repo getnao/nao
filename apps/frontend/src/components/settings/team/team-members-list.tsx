@@ -32,7 +32,7 @@ export function TeamMembersList({
 	extraActions,
 }: TeamMembersListProps) {
 	if (members.length === 0) {
-		return <div className='text-sm text-muted-foreground'>No members found.</div>;
+		return <div className='p-4 text-sm text-muted-foreground'>No members found.</div>;
 	}
 
 	const hasActions = isAdmin && (onEdit || onRemove || extraActions);

@@ -8,10 +8,6 @@ import { SettingsControlRow } from '@/components/ui/settings-toggle-row';
 import { useLicenseFeatures } from '@/hooks/use-license';
 import { trpc } from '@/main';
 
-interface SsoSettingsSectionProps {
-	isAdmin: boolean;
-}
-
 const SSO_OPTIONS = [
 	{
 		label: 'OIDC provider',
@@ -27,22 +23,17 @@ const SSO_OPTIONS = [
 	},
 ] as const;
 
-export function SsoSettingsSection({ isAdmin }: SsoSettingsSectionProps) {
+export function SsoSettingsSection() {
 	const features = useLicenseFeatures();
 	const isSsoEnabled = features.data?.sso === true;
-	const queriesEnabled = isAdmin && isSsoEnabled;
 	const oidcConfig = useQuery({
 		...trpc.authConfig.oidc.getConfig.queryOptions(),
-		enabled: queriesEnabled,
+		enabled: isSsoEnabled,
 	});
 	const microsoftSetup = useQuery({
 		...trpc.authConfig.microsoft.isSetup.queryOptions(),
-		enabled: queriesEnabled,
+		enabled: isSsoEnabled,
 	});
-
-	if (!isAdmin) {
-		return null;
-	}
 
 	return (
 		<SettingsCard

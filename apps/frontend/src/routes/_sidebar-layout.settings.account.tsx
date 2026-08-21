@@ -90,60 +90,74 @@ function GeneralPage() {
 
 	return (
 		<SettingsPageWrapper>
-			<UserProfileCard
-				name={user?.name}
-				email={user?.email}
-				onEdit={() => setEditOpen(true)}
-				onSignOut={handleSignOut}
-			/>
+			<div className='flex flex-col gap-5'>
+				<div>
+					<h1 className='text-lg font-semibold text-foreground'>Account</h1>
+					<p className='text-sm text-muted-foreground'>Manage your account and session.</p>
+				</div>
+				<div className='flex flex-col gap-12'>
+					<UserProfileCard
+						name={user?.name}
+						email={user?.email}
+						onEdit={() => setEditOpen(true)}
+						onSignOut={handleSignOut}
+					/>
 
-			<EditMemberDialog
-				open={editOpen}
-				onOpenChange={setEditOpen}
-				member={editMember}
-				isAdmin={isAdmin}
-				onSubmit={handleEdit}
-			/>
+					<EditMemberDialog
+						open={editOpen}
+						onOpenChange={setEditOpen}
+						member={editMember}
+						isAdmin={isAdmin}
+						onSubmit={handleEdit}
+					/>
 
-			<SettingsCard title='General Settings' divide>
-				<SettingsToggleRow
-					id='sound-notification'
-					label='Sound notification'
-					description='Play a sound when the agent finishes responding.'
-					checked={soundEnabled}
-					onCheckedChange={setSoundEnabled}
-				/>
-				<SettingsControlRow
-					label='Tool Call Density'
-					description='Adjust how much detail is shown for tool calls.'
-					control={<ToolCallDensitySlider value={toolCallDensity} onValueChange={setToolCallDensity} />}
-				/>
-				<SettingsControlRow label='Theme' description='Choose how nao looks.' control={<ThemeSelector />} />
-				<SettingsControlRow
-					label='Newsletter'
-					description='Get product updates, release notes, and analytics agent tips.'
-					control={<NewsletterSubscribeInlineForm initialEmail={user?.email} />}
-				/>
-			</SettingsCard>
+					<SettingsCard title='General Settings' divide>
+						<SettingsToggleRow
+							id='sound-notification'
+							label='Sound notification'
+							description='Play a sound when the agent finishes responding.'
+							checked={soundEnabled}
+							onCheckedChange={setSoundEnabled}
+						/>
+						<SettingsControlRow
+							label='Tool Call Density'
+							description='Adjust how much detail is shown for tool calls.'
+							control={
+								<ToolCallDensitySlider value={toolCallDensity} onValueChange={setToolCallDensity} />
+							}
+						/>
+						<SettingsControlRow
+							label='Theme'
+							description='Choose how nao looks.'
+							control={<ThemeSelector />}
+						/>
+						<SettingsControlRow
+							label='Newsletter'
+							description='Get product updates, release notes, and analytics agent tips.'
+							control={<NewsletterSubscribeInlineForm initialEmail={user?.email} />}
+						/>
+					</SettingsCard>
 
-			{gitlabAvailable.data === true && (
-				<ProviderConnectionCard
-					providerLabel='GitLab'
-					icon={GitlabIcon}
-					connectHref='/api/gitlab/connect?returnTo=/settings/account'
-					connected={gitlabStatus.data?.connected === true}
-					username={gitlabStatus.data?.connected ? gitlabStatus.data.user.username : undefined}
-					avatarUrl={gitlabStatus.data?.connected ? gitlabStatus.data.user.avatarUrl : undefined}
-					onDisconnect={handleDisconnectGitlab}
-					disconnectPending={disconnectGitlab.isPending}
-				/>
-			)}
+					{gitlabAvailable.data === true && (
+						<ProviderConnectionCard
+							providerLabel='GitLab'
+							icon={GitlabIcon}
+							connectHref='/api/gitlab/connect?returnTo=/settings/account'
+							connected={gitlabStatus.data?.connected === true}
+							username={gitlabStatus.data?.connected ? gitlabStatus.data.user.username : undefined}
+							avatarUrl={gitlabStatus.data?.connected ? gitlabStatus.data.user.avatarUrl : undefined}
+							onDisconnect={handleDisconnectGitlab}
+							disconnectPending={disconnectGitlab.isPending}
+						/>
+					)}
 
-			{!isViewer && <DangerZone />}
+					{!isViewer && <DangerZone />}
 
-			{isAdmin && <SettingsVersionInfo />}
+					{isAdmin && <SettingsVersionInfo />}
 
-			{isViewer && <SettingsMemories isAdmin={false} />}
+					{isViewer && <SettingsMemories isAdmin={false} />}
+				</div>
+			</div>
 		</SettingsPageWrapper>
 	);
 }

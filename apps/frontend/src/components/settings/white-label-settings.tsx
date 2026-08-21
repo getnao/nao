@@ -38,13 +38,18 @@ interface AssetUploadProps {
 	current: string | null;
 	pending: PendingAsset | null;
 	pendingSet: boolean;
+	isAdmin: boolean;
 	onPick: (file: File) => void;
 	onClearPending: () => void;
 	onReset: () => void;
 	disabled?: boolean;
 }
 
-export function WhiteLabelSettings() {
+interface WhiteLabelSettingsProps {
+	isAdmin: boolean;
+}
+
+export function WhiteLabelSettings({ isAdmin }: WhiteLabelSettingsProps) {
 	const queryClient = useQueryClient();
 	const features = useLicenseFeatures();
 	const branding = useBranding();
@@ -139,22 +144,22 @@ export function WhiteLabelSettings() {
 		pending.logo !== undefined ||
 		pending.favicon !== undefined;
 
-	const disabled = !isWhiteLabelEnabled;
+	const isReadOnly = !isWhiteLabelEnabled || !isAdmin;
 
 	return (
 		<div className='flex flex-col gap-6'>
 			<SettingsCard
 				title='Names'
 				description='Replace the nao name and browser tab title across this instance.'
-				action={disabled ? <UpgradeToEnterprise /> : undefined}
+				action={!isWhiteLabelEnabled ? <UpgradeToEnterprise /> : undefined}
 			>
-				<LockedFieldset disabled={disabled}>
+				<LockedFieldset disabled={isReadOnly}>
 					<LabeledInput
 						label='App name'
 						placeholder='Acme Analytics'
 						value={appName}
 						onChange={setAppName}
-						disabled={disabled}
+						disabled={isReadOnly}
 						helper='Used as fallback text when a logo is missing.'
 					/>
 					<LabeledInput
@@ -162,7 +167,7 @@ export function WhiteLabelSettings() {
 						placeholder='Acme — Chat with your data'
 						value={tabTitle}
 						onChange={setTabTitle}
-						disabled={disabled}
+						disabled={isReadOnly}
 					/>
 				</LockedFieldset>
 			</SettingsCard>
@@ -170,9 +175,9 @@ export function WhiteLabelSettings() {
 			<SettingsCard
 				title='Logos & favicon'
 				description='PNG, JPG, SVG, WebP or ICO up to 512KB.'
-				action={disabled ? <UpgradeToEnterprise /> : undefined}
+				action={!isWhiteLabelEnabled ? <UpgradeToEnterprise /> : undefined}
 			>
-				<LockedFieldset disabled={disabled}>
+				<LockedFieldset disabled={isReadOnly}>
 					<AssetUpload
 						label='Logo'
 						helper='Shown in the sidebar and on the login and sign-up pages.'
@@ -180,10 +185,11 @@ export function WhiteLabelSettings() {
 						current={branding.hasLogo ? brandingAssetUrl('logo', branding.updatedAt) : null}
 						pending={pending.logo ?? null}
 						pendingSet={pending.logo !== undefined}
+						isAdmin={isAdmin}
 						onPick={(file) => handleFile('logo', file)}
 						onClearPending={() => clearPending('logo')}
 						onReset={() => setPending((previous) => ({ ...previous, logo: null }))}
-						disabled={disabled}
+						disabled={isReadOnly}
 					/>
 					<AssetUpload
 						label='Favicon'
@@ -192,10 +198,11 @@ export function WhiteLabelSettings() {
 						current={branding.hasFavicon ? brandingAssetUrl('favicon', branding.updatedAt) : null}
 						pending={pending.favicon ?? null}
 						pendingSet={pending.favicon !== undefined}
+						isAdmin={isAdmin}
 						onPick={(file) => handleFile('favicon', file)}
 						onClearPending={() => clearPending('favicon')}
 						onReset={() => setPending((previous) => ({ ...previous, favicon: null }))}
-						disabled={disabled}
+						disabled={isReadOnly}
 					/>
 				</LockedFieldset>
 			</SettingsCard>
@@ -203,10 +210,15 @@ export function WhiteLabelSettings() {
 			<SettingsCard
 				title='Brand color'
 				description='Applied to buttons, links and accents across the app. Leave empty to keep the default nao purple.'
-				action={disabled ? <UpgradeToEnterprise /> : undefined}
+				action={!isWhiteLabelEnabled ? <UpgradeToEnterprise /> : undefined}
 			>
-				<LockedFieldset disabled={disabled}>
-					<BrandColorPicker value={brandColor} onChange={setBrandColor} disabled={disabled} />
+				<LockedFieldset disabled={isReadOnly}>
+					<BrandColorPicker
+						value={brandColor}
+						onChange={setBrandColor}
+						isAdmin={isAdmin}
+						disabled={isReadOnly}
+					/>
 				</LockedFieldset>
 			</SettingsCard>
 
@@ -214,7 +226,7 @@ export function WhiteLabelSettings() {
 				<div
 					className={cn(
 						'text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-md border border-destructive/30',
-						disabled && 'pointer-events-none opacity-60',
+						isReadOnly && 'pointer-events-none opacity-60',
 					)}
 				>
 					{error}
@@ -224,39 +236,41 @@ export function WhiteLabelSettings() {
 				<div
 					className={cn(
 						'text-sm text-emerald-600 dark:text-emerald-500 bg-emerald-500/10 px-3 py-2 rounded-md border border-emerald-500/30',
-						disabled && 'pointer-events-none opacity-60',
+						isReadOnly && 'pointer-events-none opacity-60',
 					)}
 				>
 					Branding saved.
 				</div>
 			)}
 
-			<div
-				className={cn('flex justify-end gap-2', disabled && 'pointer-events-none opacity-60')}
-				aria-disabled={disabled}
-			>
-				<Button
-					variant='outline'
-					size='sm'
-					disabled={disabled || !hasChanges || updateMutation.isPending}
-					onClick={() => {
-						setAppName(branding.appName ?? '');
-						setTabTitle(branding.tabTitle ?? '');
-						setBrandColor(branding.brandColor ?? null);
-						setPending({});
-					}}
+			{isAdmin && (
+				<div
+					className={cn('flex justify-end gap-2', isReadOnly && 'pointer-events-none opacity-60')}
+					aria-disabled={isReadOnly}
 				>
-					Discard
-				</Button>
-				<Button
-					size='sm'
-					variant='primary-gradient'
-					disabled={disabled || !hasChanges || updateMutation.isPending}
-					onClick={handleSave}
-				>
-					{updateMutation.isPending ? 'Saving…' : 'Save changes'}
-				</Button>
-			</div>
+					<Button
+						variant='outline'
+						size='sm'
+						disabled={isReadOnly || !hasChanges || updateMutation.isPending}
+						onClick={() => {
+							setAppName(branding.appName ?? '');
+							setTabTitle(branding.tabTitle ?? '');
+							setBrandColor(branding.brandColor ?? null);
+							setPending({});
+						}}
+					>
+						Discard
+					</Button>
+					<Button
+						size='sm'
+						variant='primary-gradient'
+						disabled={isReadOnly || !hasChanges || updateMutation.isPending}
+						onClick={handleSave}
+					>
+						{updateMutation.isPending ? 'Saving…' : 'Save changes'}
+					</Button>
+				</div>
+			)}
 		</div>
 	);
 }
@@ -293,10 +307,12 @@ function LabeledInput({
 function BrandColorPicker({
 	value,
 	onChange,
+	isAdmin,
 	disabled,
 }: {
 	value: string | null;
 	onChange: (value: string | null) => void;
+	isAdmin: boolean;
 	disabled?: boolean;
 }) {
 	const [draft, setDraft] = useState(value ?? '');
@@ -338,7 +354,7 @@ function BrandColorPicker({
 				<BrandColorPreview color={effectiveColor} disabled={disabled} />
 			</div>
 			<div className='self-end'>
-				{value && (
+				{isAdmin && value && (
 					<Button
 						variant='ghost'
 						size='sm'
@@ -408,6 +424,7 @@ function AssetUpload({
 	current,
 	pending,
 	pendingSet,
+	isAdmin,
 	onPick,
 	onClearPending,
 	onReset,
@@ -462,16 +479,17 @@ function AssetUpload({
 						}}
 					/>
 				</label>
-				{pendingSet ? (
-					<Button variant='ghost' size='sm' onClick={onClearPending} disabled={disabled}>
-						<X className='size-3.5' />
-						Undo
-					</Button>
-				) : current ? (
-					<Button variant='ghost' size='sm' onClick={onReset} disabled={disabled}>
-						Remove
-					</Button>
-				) : null}
+				{isAdmin &&
+					(pendingSet ? (
+						<Button variant='ghost' size='sm' onClick={onClearPending} disabled={disabled}>
+							<X className='size-3.5' />
+							Undo
+						</Button>
+					) : current ? (
+						<Button variant='ghost' size='sm' onClick={onReset} disabled={disabled}>
+							Remove
+						</Button>
+					) : null)}
 			</div>
 		</div>
 	);
