@@ -192,6 +192,8 @@ describe('buildChart horizontal bars', () => {
 		expect(axisTickTexts.length).toBeGreaterThan(0);
 		expect(axisTickTexts).not.toEqual(['0', '0', '1', '1', '1']);
 		expect(axisTickTexts).toEqual([...new Set(axisTickTexts)]);
+		expect(axisTickTexts.every((tickText) => !['First', 'Second'].includes(tickText))).toBe(true);
+		expect(axisTickTexts.every((tickText) => Number.isFinite(Number(tickText)))).toBe(true);
 	});
 
 	it('clamps mixed-sign series for the domain while preserving the signed total label', () => {
@@ -393,9 +395,40 @@ function readHorizontalBarValueLabels(
 }
 
 function readHorizontalBarValueAxisTicks(html: string): string[] {
-	const axisStart = html.indexOf('recharts-xAxis');
-	const nextAxisStart = html.indexOf('recharts-yAxis', axisStart);
-	const axisGroup = axisStart >= 0 ? html.slice(axisStart, nextAxisStart >= 0 ? nextAxisStart : undefined) : '';
+	const axisPattern = /<g\b([^>]*)>/g;
+	let axisStart: number | undefined;
+	for (let match = axisPattern.exec(html); match !== null; match = axisPattern.exec(html)) {
+		const className = match[1].match(/\sclass="([^"]+)"/)?.[1];
+		const classes = className?.split(/\s+/) ?? [];
+		if (classes.includes('recharts-cartesian-axis') && classes.includes('recharts-xAxis')) {
+			axisStart = match.index;
+			break;
+		}
+	}
+	if (axisStart === undefined) {
+		throw new Error(
+			'readHorizontalBarValueAxisTicks could not find a value-axis <g> with classes recharts-cartesian-axis and recharts-xAxis',
+		);
+	}
+
+	const groupPattern = /<g\b[^>]*>|<\/g>/g;
+	groupPattern.lastIndex = axisStart;
+	let depth = 0;
+	let axisEnd: number | undefined;
+	for (let match = groupPattern.exec(html); match !== null; match = groupPattern.exec(html)) {
+		depth += match[0] === '</g>' ? -1 : 1;
+		if (depth === 0) {
+			axisEnd = groupPattern.lastIndex;
+			break;
+		}
+	}
+	if (axisEnd === undefined) {
+		throw new Error(
+			'readHorizontalBarValueAxisTicks could not find the closing </g> for the recharts-xAxis value-axis group',
+		);
+	}
+
+	const axisGroup = html.slice(axisStart, axisEnd);
 	const tickTexts: string[] = [];
 	const textPattern = /<text([^>]*)>([\s\S]*?)<\/text>/g;
 	for (let match = textPattern.exec(axisGroup); match !== null; match = textPattern.exec(axisGroup)) {
