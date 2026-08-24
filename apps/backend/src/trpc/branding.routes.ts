@@ -41,6 +41,12 @@ function normalizeAssetData(b64: string): string {
 	const normalizedBase64 = b64.replace(/\s/g, '');
 	const paddingLength = normalizedBase64.match(/=+$/)?.[0].length ?? 0;
 	const decodedBytes = Math.max(0, Math.floor((normalizedBase64.length * 3) / 4) - paddingLength);
+	if (decodedBytes === 0) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: 'Image data is empty.',
+		});
+	}
 	if (decodedBytes > MAX_ASSET_BYTES) {
 		throw new TRPCError({
 			code: 'PAYLOAD_TOO_LARGE',
