@@ -58,6 +58,7 @@ function buildSlackManifest(webhookUrl: string, mentionName: string, transportMo
 					'groups:read',
 					'im:history',
 					'im:read',
+					'im:write',
 					'mpim:history',
 					'mpim:read',
 					'reactions:read',

@@ -1,9 +1,10 @@
 import { BULK_ITEMS_LIMIT, NO_CACHE_SCHEDULE } from '@nao/shared';
-import type { BulkStoryItem, UserRole } from '@nao/shared/types';
-import { DOWNLOAD_FORMATS } from '@nao/shared/types';
+import type { BulkStoryItem, NotificationChannel, UserRole } from '@nao/shared/types';
+import { DOWNLOAD_FORMATS, NOTIFICATION_CHANNELS } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
+import { deliverStoryOnRefresh } from '../handlers/story-delivery.handler';
 import { STORY_REFRESH_JOB_NAME } from '../handlers/story-refresh.handler';
 import * as activityQueries from '../queries/activity.queries';
 import * as chatQueries from '../queries/chat.queries';
@@ -11,10 +12,21 @@ import * as projectQueries from '../queries/project.queries';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
+import * as storyDeliveryQueries from '../queries/story-delivery.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
+import {
+	notifyStoryRefreshed,
+	notifyStoryRefreshFailed,
+	notifyStorySubscriptionAdded,
+} from '../services/notification.service';
 import { nextCronTick } from '../services/scheduler.service';
+import {
+	assertValidDeliverySchedule,
+	disableStoryDelivery,
+	syncStoryDeliveryJob,
+} from '../services/story-delivery.service';
 import {
 	assertStoryFiltersEnabled,
 	getFilteredStoryQueryData,
@@ -22,6 +34,7 @@ import {
 	getStoryQuerySql,
 } from '../services/story-filters';
 import { logAnalyticsEvent } from '../utils/analytics-event';
+import { logger } from '../utils/logger';
 import { buildDownloadResponse } from '../utils/story-download';
 import { backfillMissingQueryData } from '../utils/story-query-data';
 import { extractStorySummary } from '../utils/story-summary';
@@ -255,6 +268,141 @@ export const storyRoutes = {
 				cacheScheduleDescription: input.cacheScheduleDescription,
 			});
 			await syncStoryRefreshJob(input.chatId, input.storySlug, input.isLive, input.cacheSchedule);
+
+			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
+			const delivery = story ? await storyDeliveryQueries.getByStoryId(story.id) : null;
+			if (story && delivery) {
+				const deliveryEnabled = input.isLive && delivery.enabled;
+				if (deliveryEnabled !== delivery.enabled) {
+					await storyDeliveryQueries.setEnabled(story.id, deliveryEnabled);
+				}
+				await syncStoryDeliveryJob(story.id, deliveryEnabled, delivery.cron);
+			}
+		}),
+
+	getDelivery: chatOwnerProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
+		.query(async ({ input }) => {
+			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
+			if (!story) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+			}
+			const delivery = await storyDeliveryQueries.getByStoryId(story.id);
+			return {
+				enabled: delivery?.enabled ?? false,
+				cron: delivery?.cron ?? null,
+				scheduleDescription: delivery?.scheduleDescription ?? null,
+				channels: delivery?.channels ?? (['email'] as NotificationChannel[]),
+				recipientMode: delivery?.recipientMode ?? 'specific',
+				recipientUserIds: delivery?.recipientUserIds ?? [],
+			};
+		}),
+
+	listDeliveryRecipients: chatOwnerProcedure
+		.input(z.object({ chatId: z.string(), storySlug: z.string() }))
+		.query(async ({ input }) => {
+			const projectId = await chatQueries.getChatProjectId(input.chatId);
+			if (!projectId) {
+				return [];
+			}
+			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
+			const access = story ? await sharedStoryQueries.getStoryShareAccess(story.id, projectId) : null;
+			const members = await projectQueries.listProjectMembersWithRoles(projectId);
+			const toRecipient = (member: (typeof members)[number]) => ({
+				id: member.id,
+				name: member.name,
+				email: member.email,
+			});
+
+			if (access?.visibility === 'specific' && access.allowedUserIds.length > 0) {
+				const allowed = new Set(access.allowedUserIds);
+				return members.filter((member) => allowed.has(member.id)).map(toRecipient);
+			}
+			return members.map(toRecipient);
+		}),
+
+	updateDelivery: chatOwnerProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				enabled: z.boolean(),
+				cron: z.string().nullable(),
+				scheduleDescription: z.string().nullable(),
+				channels: z.array(z.enum(NOTIFICATION_CHANNELS)).min(1),
+				recipientMode: z.enum(['all', 'specific']),
+				recipientUserIds: z.array(z.string()),
+			}),
+		)
+		.mutation(async ({ input, ctx }) => {
+			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
+			if (!story) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+			}
+			if (input.enabled && !story.isLive) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: 'Scheduled delivery is only available for live stories.',
+				});
+			}
+			const projectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
+			assertValidDeliverySchedule(input.enabled, input.cron, input.recipientMode, input.recipientUserIds);
+
+			const existingDelivery = await storyDeliveryQueries.getByStoryId(story.id);
+			const previousRecipientIds = new Set(
+				existingDelivery?.recipientMode === 'specific' ? existingDelivery.recipientUserIds : [],
+			);
+
+			if (input.recipientMode === 'specific' && input.recipientUserIds.length > 0) {
+				if (!projectId) {
+					throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Story has no project.' });
+				}
+				const allowedIds = new Set(
+					(await projectQueries.listUsersWithProjectAccess(projectId)).map((member) => member.id),
+				);
+				if (input.recipientUserIds.some((id) => !allowedIds.has(id))) {
+					throw new TRPCError({
+						code: 'FORBIDDEN',
+						message: 'Recipients must have access to this project.',
+					});
+				}
+			}
+
+			if (input.enabled && projectId) {
+				const sharedInfo = await sharedStoryQueries.getSharedStoryInfo(story.id, projectId);
+				if (!sharedInfo) {
+					await storyFolderQueries.moveStoryToFolder(story.id, null, {
+						storyOwnerId: ctx.user.id,
+						projectId,
+					});
+				}
+			}
+
+			await storyDeliveryQueries.upsert({
+				storyId: story.id,
+				projectId,
+				enabled: input.enabled,
+				cron: input.cron,
+				scheduleDescription: input.scheduleDescription,
+				channels: input.channels,
+				recipientMode: input.recipientMode,
+				recipientUserIds: input.recipientUserIds,
+				createdBy: ctx.user.id,
+			});
+			await syncStoryDeliveryJob(story.id, input.enabled, input.cron);
+
+			if (input.enabled && input.recipientMode === 'specific' && projectId) {
+				const addedUserIds = input.recipientUserIds.filter(
+					(id) => id !== ctx.user.id && !previousRecipientIds.has(id),
+				);
+				await notifyStorySubscribers(story.id, projectId, ctx.user.name, addedUserIds).catch((error) => {
+					logger.error(`Failed to notify story subscribers: ${String(error)}`, {
+						source: 'system',
+						projectId,
+						context: { storyId: story.id },
+					});
+				});
+			}
 		}),
 
 	refreshData: chatOwnerProcedure
@@ -277,8 +425,21 @@ export const storyRoutes = {
 			});
 			try {
 				const { queryData } = await refreshStoryData(input.chatId, input.storySlug);
-				await activityQueries.completeActivity(activity.id, {
-					queriesRefreshed: Object.keys(queryData).length,
+				const queriesRefreshed = Object.keys(queryData).length;
+				await activityQueries.completeActivity(activity.id, { queriesRefreshed });
+				await notifyStoryRefreshed({
+					projectId,
+					ownerId: story.userId ?? ctx.user.id,
+					storyId: story.id,
+					storyTitle: story.title,
+					queriesRefreshed,
+					trigger: 'manual',
+				}).catch((notifyError) => {
+					logger.error(`Failed to notify story refresh: ${String(notifyError)}`, {
+						source: 'system',
+						projectId,
+						context: { storyId: story.id },
+					});
 				});
 				logAnalyticsEvent({
 					projectId,
@@ -289,10 +450,31 @@ export const storyRoutes = {
 					chatId: story.chatId,
 					metadata: { type: 'refresh', trigger: 'manual', queriesRefreshed: Object.keys(queryData).length },
 				});
+				await deliverStoryOnRefresh(story.id, story.cacheSchedule ?? null, queryData).catch((error) => {
+					logger.error(`Story delivery after manual refresh failed: ${String(error)}`, {
+						source: 'system',
+						projectId,
+						context: { storyId: story.id },
+					});
+				});
 				return { queryData, cachedAt: new Date() };
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
 				await activityQueries.failActivity(activity.id, message);
+				await notifyStoryRefreshFailed({
+					projectId,
+					ownerId: story.userId ?? ctx.user.id,
+					storyId: story.id,
+					storyTitle: story.title,
+					errorMessage: message,
+					trigger: 'manual',
+				}).catch((notifyError) => {
+					logger.error(`Failed to notify owner of manual refresh failure: ${String(notifyError)}`, {
+						source: 'system',
+						projectId,
+						context: { storyId: story.id },
+					});
+				});
 				throw err;
 			}
 		}),
@@ -349,6 +531,10 @@ export const storyRoutes = {
 		.mutation(async ({ input }) => {
 			await storyQueries.archiveStory(input.chatId, input.storySlug);
 			await syncStoryRefreshJob(input.chatId, input.storySlug, false, null);
+			const story = await storyQueries.getStoryByChatAndSlug(input.chatId, input.storySlug);
+			if (story) {
+				await disableStoryDelivery(story.id);
+			}
 		}),
 
 	unarchive: chatOwnerProcedure
@@ -578,13 +764,48 @@ async function syncStoryRefreshJob(
 	await activityQueries.linkStoryScheduledJob(story.id, job.id);
 }
 
-async function unscheduleStoryRefreshJob(storyId: string): Promise<void> {
-	const story = await storyQueries.getStoryById(storyId);
-	if (!story?.scheduledJobId) {
+async function notifyStorySubscribers(
+	storyId: string,
+	projectId: string,
+	ownerName: string,
+	addedUserIds: string[],
+): Promise<void> {
+	if (addedUserIds.length === 0) {
 		return;
 	}
-	await scheduledJobQueries.deleteJob(story.scheduledJobId);
-	await activityQueries.linkStoryScheduledJob(storyId, null);
+	const version = await storyQueries.getLatestVersionByStoryId(storyId);
+	if (!version) {
+		return;
+	}
+	await grantSpecificShareAccess(storyId, projectId, addedUserIds);
+	await notifyStorySubscriptionAdded({
+		projectId,
+		storyId,
+		storyTitle: version.title,
+		ownerName,
+		addedUserIds,
+	});
+}
+
+async function grantSpecificShareAccess(storyId: string, projectId: string, userIds: string[]): Promise<void> {
+	const access = await sharedStoryQueries.getStoryShareAccess(storyId, projectId);
+	if (access?.visibility !== 'specific') {
+		return;
+	}
+	const missing = userIds.filter((id) => !access.allowedUserIds.includes(id));
+	if (missing.length === 0) {
+		return;
+	}
+	await sharedStoryQueries.updateSharedStoryAllowedUsers(access.shareId, [...access.allowedUserIds, ...missing]);
+}
+
+async function unscheduleStoryRefreshJob(storyId: string): Promise<void> {
+	const story = await storyQueries.getStoryById(storyId);
+	if (story?.scheduledJobId) {
+		await scheduledJobQueries.deleteJob(story.scheduledJobId);
+		await activityQueries.linkStoryScheduledJob(storyId, null);
+	}
+	await disableStoryDelivery(storyId);
 }
 
 async function assertBulkItemsOwnership(

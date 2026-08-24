@@ -6,11 +6,12 @@ import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as storyQueries from '../queries/story.queries';
+import * as userQueries from '../queries/user.queries';
 import { logActivity } from '../services/activity';
 import { getStoryQueryData } from '../services/live-story';
+import { notifySharedItem } from '../services/notification.service';
 import { type UIChat } from '../types/chat';
 import { logAnalyticsEvent } from '../utils/analytics-event';
-import { notifySharedItemRecipients } from '../utils/email';
 import { buildDownloadResponse } from '../utils/story-download';
 import { canSendProcedure, protectedProcedure, resourceProjectProcedure } from './trpc';
 
@@ -70,18 +71,17 @@ export const sharedChatRoutes = {
 				sharedChatId: created.id,
 			});
 
-			if (input.notify) {
-				notifySharedItemRecipients({
-					projectId: ctx.project.id,
-					sharerId: ctx.user.id,
-					sharerName: ctx.user.name,
-					shareId: created.id,
-					itemLabel: 'chat',
-					itemTitle: chatInfo.title,
-					visibility: input.visibility,
-					allowedUserIds: input.allowedUserIds,
-				}).catch((err) => console.error('Failed to notify shared chat recipients', err));
-			}
+			notifySharedItem({
+				projectId: ctx.project.id,
+				sharerId: ctx.user.id,
+				sharerName: ctx.user.name,
+				shareId: created.id,
+				itemLabel: 'chat',
+				itemTitle: chatInfo.title,
+				visibility: input.visibility,
+				allowedUserIds: input.allowedUserIds,
+				deliverExternally: input.notify,
+			}).catch((err) => console.error('Failed to notify shared chat recipients', err));
 
 			return created;
 		}),
@@ -141,18 +141,28 @@ export const sharedChatRoutes = {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'No valid users in the provided list.' });
 			}
 
+			const previousAllowedUserIds = await sharedChatQueries.getShareAllowedUserIds(input.shareId);
 			await sharedChatQueries.updateSharedChatAllowedUsers(input.shareId, validUserIds);
 
-			notifySharedItemRecipients({
-				projectId: ctx.resource.projectId,
-				sharerId: ctx.user.id,
-				sharerName: ctx.user.name,
-				shareId: input.shareId,
-				itemLabel: 'chat',
-				itemTitle: ctx.resource.title || '',
-				visibility: ctx.resource.visibility,
-				allowedUserIds: validUserIds,
-			}).catch((err) => console.error('Failed to notify shared chat recipients', err));
+			// Re-read the committed ACL: a concurrent update could have won the last write,
+			// so only notify users who were newly added AND actually still have access.
+			const committedAllowedUserIds = new Set(await sharedChatQueries.getShareAllowedUserIds(input.shareId));
+			const newlyAddedUserIds = validUserIds.filter(
+				(id) => !previousAllowedUserIds.includes(id) && committedAllowedUserIds.has(id),
+			);
+			if (newlyAddedUserIds.length > 0) {
+				const ownerName = (await userQueries.getUserName(chatOwnerId)) ?? ctx.user.name;
+				notifySharedItem({
+					projectId: ctx.resource.projectId,
+					sharerId: chatOwnerId,
+					sharerName: ownerName,
+					shareId: input.shareId,
+					itemLabel: 'chat',
+					itemTitle: ctx.resource.title || '',
+					visibility: 'specific',
+					allowedUserIds: newlyAddedUserIds,
+				}).catch((err) => console.error('Failed to notify shared chat recipients', err));
+			}
 		}),
 
 	delete: shareProcedure.input(z.object({ shareId: z.string() })).mutation(async ({ input, ctx }) => {

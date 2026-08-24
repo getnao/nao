@@ -49,7 +49,9 @@ import { marked, Renderer } from 'marked';
 import React, { createContext, useContext } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import { renderChartToSvg } from '../components/generate-chart';
+import { generateChartImage, renderChartToSvg } from '../components/generate-chart';
+import type { EmailAttachment } from '../types/email';
+import { svgToPng } from './generate-chart';
 import { getCachedBoundary, setCachedBoundary } from './map-boundary-cache';
 import { parseAndValidateGeoJson, safeFetch } from './safe-fetch';
 import { type Basemap, basemapByteBudgetForCount, buildBasemapTiles } from './static-map-basemap';
@@ -59,9 +61,11 @@ import {
 	collectPoints,
 	computeFit,
 	type Fit,
+	longitudeUnwrapper,
 	type MapTip,
 	project,
 	simplifyGeometry,
+	VIEW_WIDTH,
 } from './static-map-svg';
 import type { QueryDataMap, StoryInput } from './story-download';
 
@@ -99,6 +103,25 @@ const BasemapContext = createContext<Basemaps>(new Map());
 
 /** When true, maps render as inline SVG server-side instead of client-side MapLibre — required for sandboxed embeds that block WebGL/web-workers. */
 const StaticMapsContext = createContext<boolean>(false);
+
+interface EmailImageSink {
+	images: EmailAttachment[];
+	add(png: Buffer): string;
+}
+
+function createEmailImageSink(): EmailImageSink {
+	const images: EmailAttachment[] = [];
+	return {
+		images,
+		add(png: Buffer): string {
+			const cid = `story-img-${images.length}`;
+			images.push({ filename: `${cid}.png`, content: png, contentType: 'image/png', cid });
+			return cid;
+		},
+	};
+}
+
+const EmailImageSinkContext = createContext<EmailImageSink | null>(null);
 
 export async function generateStoryHtml(
 	story: StoryInput,
@@ -138,6 +161,51 @@ export async function generateStoryHtml(
 	);
 	return `<!DOCTYPE html>\n${markup}`;
 }
+
+export interface StoryEmailHtml {
+	html: string;
+	images: EmailAttachment[];
+}
+
+export async function generateStoryEmailHtml(
+	story: StoryInput,
+	queryData: QueryDataMap | null,
+	dateFormat?: DateFormatSettings | null,
+	customBoundaries?: CustomBoundarySet[],
+): Promise<StoryEmailHtml> {
+	const resolvedDateFormat = dateFormat ?? { ...DEFAULT_DATE_FORMAT_SETTINGS };
+	const flattened = flattenStoryTabs(story.code);
+	const segments = splitCodeIntoSegments(flattened);
+	const inlinedBoundaries = await prefetchCustomBoundaries(segments, customBoundaries ?? [], true);
+	const basemaps = await prefetchBasemaps(segments, queryData, inlinedBoundaries);
+	const sink = createEmailImageSink();
+	const markup = renderToStaticMarkup(
+		<DateFormatContext.Provider value={resolvedDateFormat}>
+			<StaticMapsContext.Provider value={true}>
+				<InlinedBoundariesContext.Provider value={inlinedBoundaries}>
+					<BasemapContext.Provider value={basemaps}>
+						<EmailImageSinkContext.Provider value={sink}>
+							<div style={STORY_EMAIL_CONTAINER_STYLE}>
+								{segments.map((seg, i) => (
+									<StorySegment key={i} segment={seg} queryData={queryData} />
+								))}
+								<StoryFooter />
+							</div>
+						</EmailImageSinkContext.Provider>
+					</BasemapContext.Provider>
+				</InlinedBoundariesContext.Provider>
+			</StaticMapsContext.Provider>
+		</DateFormatContext.Provider>,
+	);
+	return { html: markup, images: sink.images };
+}
+
+const STORY_EMAIL_CONTAINER_STYLE: React.CSSProperties = {
+	fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+	lineHeight: 1.6,
+	color: 'rgba(0,0,0,0.85)',
+	padding: '8px 24px 24px',
+};
 
 function segmentsIncludeMap(segments: Segment[]): boolean {
 	return segments.some((seg) => seg.type === 'map' || (seg.type === 'grid' && segmentsIncludeMap(seg.children)));
@@ -283,7 +351,8 @@ function computeMapFit(
 	if (points.length === 0) {
 		return null;
 	}
-	return computeFit(points.map((point) => project(point.longitude, point.latitude)));
+	const unwrapLng = longitudeUnwrapper(points.map((point) => point.longitude));
+	return computeFit(points.map((point) => project(unwrapLng(point.longitude), point.latitude)));
 }
 
 function StoryDocument({
@@ -357,8 +426,39 @@ const safeRenderer = new Renderer();
 safeRenderer.html = () => '';
 
 function MarkdownBlock({ content }: { content: string }) {
+	const emailSink = useContext(EmailImageSinkContext);
 	const html = marked.parse(content, { async: false, renderer: safeRenderer }) as string;
+	if (emailSink) {
+		return <div dangerouslySetInnerHTML={{ __html: inlineMarkdownStyles(html) }} />;
+	}
 	return <div className='nao-md' dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+const MARKDOWN_EMAIL_STYLES: Record<string, string> = {
+	h1: 'font-size:20px;font-weight:700;margin:0 0 24px;color:#111827',
+	h2: 'font-size:20px;font-weight:600;margin:32px 0 12px;color:#111827',
+	h3: 'font-size:18px;font-weight:600;margin:24px 0 8px;color:#374151',
+	h4: 'font-size:16px;font-weight:600;margin:16px 0 8px;color:#374151',
+	p: 'margin:8px 0;font-size:14px',
+	ul: 'padding-left:24px;margin:8px 0;font-size:14px',
+	ol: 'padding-left:24px;margin:8px 0;font-size:14px',
+	li: 'margin:4px 0',
+	blockquote: 'border-left:3px solid #d1d5db;padding-left:16px;margin:12px 0;color:#6b7280',
+	pre: 'background:#f3f4f6;padding:16px;border-radius:8px;overflow-x:auto;font-size:12px;font-family:source-code-pro,Menlo,Monaco,Consolas,monospace',
+	code: 'background:#f3f4f6;padding:2px 6px;border-radius:4px;font-size:12px;font-family:source-code-pro,Menlo,Monaco,Consolas,monospace',
+	table: 'width:100%;border-collapse:collapse;margin:8px 0;font-size:12px;border:1px solid #e5e7eb',
+	th: 'padding:8px 12px;text-align:left;font-weight:500;color:rgba(0,0,0,0.5);border-bottom:1px solid #e5e7eb;background:#fafafa',
+	td: 'padding:4px 12px;font-size:11px;line-height:20px;border-bottom:1px solid rgba(0,0,0,0.05)',
+	a: 'color:#4F46E5',
+};
+
+/** Inlines styles into marked's HTML so markdown keeps the story look in clients that strip `<style>`. */
+function inlineMarkdownStyles(html: string): string {
+	let out = html;
+	for (const [tag, style] of Object.entries(MARKDOWN_EMAIL_STYLES)) {
+		out = out.replace(new RegExp(`<${tag}(?=[\\s>])`, 'g'), `<${tag} style="${style}"`);
+	}
+	return out;
 }
 
 function GridBlock({
@@ -394,6 +494,7 @@ function GridBlock({
 
 function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: QueryDataMap | null }) {
 	const dateFormat = useContext(DateFormatContext);
+	const emailSink = useContext(EmailImageSinkContext);
 	const rows = queryData?.[chart.queryId]?.data as Record<string, unknown>[] | undefined;
 	if (!rows?.length) {
 		return <Placeholder label={chart.title || 'Chart'} message='Data unavailable' />;
@@ -406,6 +507,10 @@ function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: 
 	const isPie = chart.chartType === 'pie' || chart.chartType === 'donut';
 	const valueKey = chart.series[0]?.data_key ?? '';
 	const chartRows = isPie ? bucketPieData(rows, chart.xAxisKey, valueKey) : rows;
+
+	if (emailSink) {
+		return <EmailChart chart={chart} rows={rows} isPie={isPie} dateFormat={dateFormat} sink={emailSink} />;
+	}
 
 	try {
 		// Pie/donut render their legend to the right, baked into the SVG; other
@@ -435,6 +540,45 @@ function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: 
 					style={{ textAlign: 'center', position: 'relative' }}
 					data-chart={chartData}
 					dangerouslySetInnerHTML={{ __html: svg }}
+				/>
+				{!isPie && <ChartLegend series={chart.series} />}
+			</div>
+		);
+	} catch {
+		return <Placeholder label={chart.title || 'Chart'} message='Could not render chart' />;
+	}
+}
+
+function EmailChart({
+	chart,
+	rows,
+	isPie,
+	dateFormat,
+	sink,
+}: {
+	chart: ParsedChartBlock;
+	rows: Record<string, unknown>[];
+	isPie: boolean;
+	dateFormat: DateFormatSettings;
+	sink: EmailImageSink;
+}) {
+	try {
+		const png = generateChartImage({
+			config: toChartConfig(chart),
+			data: rows,
+			width: CHART_WIDTH,
+			height: CHART_HEIGHT,
+			margin: { top: 0, right: 0, bottom: 0, left: 0 },
+			includeLegend: isPie,
+			dateFormat,
+		});
+		const cid = sink.add(png);
+		return (
+			<div style={{ margin: '16px 0' }}>
+				<img
+					src={`cid:${cid}`}
+					alt={chart.title || 'Chart'}
+					style={{ display: 'block', width: '100%', maxWidth: CHART_WIDTH, height: 'auto' }}
 				/>
 				{!isPie && <ChartLegend series={chart.series} />}
 			</div>
@@ -695,6 +839,7 @@ function StaticPointMap({
 	inlinedBoundaries: InlinedBoundaries;
 	legend: React.ReactNode;
 }) {
+	const emailSink = useContext(EmailImageSinkContext);
 	const basemap = useContext(BasemapContext).get(mapBasemapKey(map));
 	const world = basemap
 		? undefined
@@ -711,6 +856,16 @@ function StaticPointMap({
 	});
 	if (!svg) {
 		return <Placeholder label={map.title || 'Map'} message='Could not render map' />;
+	}
+	if (emailSink) {
+		const circleFill = escapeSvgAttr(payload.color);
+		const shapes = svg.circles
+			.map(
+				(circle) =>
+					`<circle cx="${circle.cx}" cy="${circle.cy}" r="${circle.r}" fill="${circleFill}" fill-opacity="0.9" stroke="#ffffff" stroke-width="0.75"/>`,
+			)
+			.join('');
+		return renderEmailMapImage(map.title, buildStaticMapSvg(svg.viewBox, svg.backdrop, basemap, shapes), emailSink);
 	}
 	const leafletPayload: LeafletPayload = {
 		type: 'points',
@@ -796,6 +951,46 @@ function resolveChoroplethGeometries(payload: ChoroplethPayload): ResolvedChorop
 		resolved.push({ geometry, source: region });
 	}
 	return resolved;
+}
+
+/** Assembles a standalone, self-contained SVG (basemap tiles, land backdrop, shapes) for rasterising. */
+function buildStaticMapSvg(viewBox: string, backdrop: string[], basemap: Basemap | undefined, shapes: string): string {
+	const [, , width, height] = viewBox.split(/\s+/).map(Number);
+	const tiles = (basemap?.tiles ?? [])
+		.map(
+			(tile) =>
+				`<image href="${escapeSvgAttr(tile.href)}" x="${tile.x}" y="${tile.y}" width="${tile.size}" height="${tile.size}" preserveAspectRatio="none"/>`,
+		)
+		.join('');
+	const backdropPaths = backdrop
+		.map((path) => `<path d="${path}" fill="#d8dee8" stroke="#eef1f5" stroke-width="0.5" fill-rule="evenodd"/>`)
+		.join('');
+	return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${viewBox}"><rect width="${width}" height="${height}" fill="#eef1f5"/>${tiles}${backdropPaths}${shapes}</svg>`;
+}
+
+function escapeSvgAttr(value: string): string {
+	return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+}
+
+function renderEmailMapImage(title: string | undefined, svg: string, sink: EmailImageSink): React.ReactElement {
+	const cid = sink.add(svgToPng(svg));
+	return (
+		<div style={{ margin: '16px 0' }}>
+			{title && <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>{title}</div>}
+			<img
+				src={`cid:${cid}`}
+				alt={title || 'Map'}
+				style={{
+					display: 'block',
+					width: '100%',
+					maxWidth: VIEW_WIDTH,
+					height: 'auto',
+					borderRadius: 8,
+					border: '1px solid #e5e7eb',
+				}}
+			/>
+		</div>
+	);
 }
 
 function StaticMapShell({
@@ -910,6 +1105,7 @@ function StaticChoroplethMap({
 	payload: ChoroplethPayload;
 	legend: React.ReactNode;
 }) {
+	const emailSink = useContext(EmailImageSinkContext);
 	const basemap = useContext(BasemapContext).get(mapBasemapKey(map));
 	const resolved = resolveChoroplethGeometries(payload);
 	const regions = resolved.map(({ geometry, source }) => ({
@@ -928,6 +1124,15 @@ function StaticChoroplethMap({
 	const svg = buildChoroplethSvg({ regions, backdrop });
 	if (!svg) {
 		return <Placeholder label={map.title || 'Map'} message='Could not render map' />;
+	}
+	if (emailSink) {
+		const shapes = svg.regions
+			.map(
+				(region) =>
+					`<path d="${region.d}" fill="${escapeSvgAttr(region.fill)}" stroke="#ffffff" stroke-width="0.4" stroke-opacity="0.6" fill-rule="evenodd"/>`,
+			)
+			.join('');
+		return renderEmailMapImage(map.title, buildStaticMapSvg(svg.viewBox, svg.backdrop, basemap, shapes), emailSink);
 	}
 	const leafletPayload: LeafletPayload = { type: 'choropleth', color: payload.color, regions: leafletRegions };
 	return (

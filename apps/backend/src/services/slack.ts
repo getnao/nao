@@ -28,6 +28,7 @@ import * as projectQueries from '../queries/project.queries';
 import {
 	getProjectSlackConfig,
 	listSocketModeSlackConfigs,
+	setSlackDmScopeMissing,
 	SlackConfig,
 } from '../queries/project-slack-config.queries';
 import { getUser } from '../queries/user.queries';
@@ -43,6 +44,7 @@ import {
 	createImageBlock,
 	createLiveToolCall,
 	createMapLinkCard,
+	createNotificationCard,
 	createStopButtonCard,
 	createSummaryToolCalls,
 	createTextBlock,
@@ -300,9 +302,71 @@ class ProjectSlackBot {
 		}
 	}
 
+	public async sendDirectMessageByEmail(
+		email: string,
+		text: string,
+		files: SlackFileUpload[] = [],
+		button?: { url: string; label: string },
+		unsubscribeUrl?: string,
+	): Promise<void> {
+		const userResponse = await this._slackClient.users.lookupByEmail({ email });
+		const userId = userResponse.user?.id;
+		if (!userId) {
+			return;
+		}
+
+		const buttons: { url: string; label: string }[] = [];
+		if (button) {
+			buttons.push(button);
+		}
+		if (unsubscribeUrl) {
+			buttons.push({ url: unsubscribeUrl, label: 'Unsubscribe' });
+		}
+
+		const thread = await this._openDirectMessageThread(userId);
+		const message = buttons.length > 0 ? createNotificationCard(text, buttons) : text;
+		const sent = await thread.post(message);
+
+		if (files.length > 0) {
+			const [, channelId] = thread.id.split(':');
+			for (const file of files) {
+				await this._slackClient.files.uploadV2({
+					channel_id: channelId,
+					thread_ts: sent.id,
+					filename: file.filename,
+					title: file.title ?? file.filename,
+					file: file.content,
+				});
+			}
+		}
+	}
+
+	private async _openDirectMessageThread(slackUserId: string): Promise<Thread> {
+		await this._bot.initialize();
+		const adapter = this._bot.getAdapter('slack');
+		if (!adapter.openDM) {
+			throw new Error('Slack adapter does not support direct messages.');
+		}
+		const threadId = await adapter.openDM(slackUserId);
+		return new ThreadImpl({
+			adapter,
+			stateAdapter: this._bot.getState(),
+			id: threadId,
+			channelId: deriveChannelId(adapter, threadId),
+			isDM: true,
+		});
+	}
+
 	private _registerHandlers(): void {
 		this._bot.onSlashCommand('/new', async (event) => {
 			await this._handleNewCommand(event);
+		});
+
+		this._bot.onAction(async (event) => {
+			logger.info(`Slack action received: ${event.actionId}`, {
+				source: 'system',
+				context: { projectId: this.projectId, actionId: event.actionId, threadId: event.threadId },
+			});
 		});
 
 		this._bot.onNewMention(async (thread, message) => {
@@ -1147,6 +1211,38 @@ class SlackService {
 		await bot.uploadFiles(threadId, files);
 	}
 
+	public async sendDirectMessageByEmail(
+		projectId: string,
+		email: string,
+		text: string,
+		files: SlackFileUpload[] = [],
+		button?: { url: string; label: string },
+		unsubscribeUrl?: string,
+	): Promise<void> {
+		const config = await getProjectSlackConfig(projectId);
+		if (!config) {
+			return;
+		}
+		const bot = await this._getOrCreateBot(config);
+		try {
+			await bot.sendDirectMessageByEmail(email, text, files, button, unsubscribeUrl);
+		} catch (error) {
+			if (isMissingScopeError(error)) {
+				if (!config.dmScopeMissing) {
+					await setSlackDmScopeMissing(projectId, true);
+				}
+				throw new Error(
+					`Slack bot token is missing a required scope for direct messages. Reinstall the Slack app to grant it. (${describeSlackScopeError(error)})`,
+					{ cause: error },
+				);
+			}
+			throw error;
+		}
+		if (config.dmScopeMissing) {
+			await setSlackDmScopeMissing(projectId, false);
+		}
+	}
+
 	public async getWebhooks(config: SlackConfig): Promise<SlackBotWebhooks | undefined> {
 		const bot = await this._getOrCreateBot(config);
 		return bot.webhooks;
@@ -1237,6 +1333,26 @@ class SlackService {
 
 function getSlackThreadId(channelId: string, threadTs: string): string {
 	return `slack:${channelId}:${threadTs}`;
+}
+
+function isMissingScopeError(error: unknown): boolean {
+	const data = (error as { data?: { error?: string } })?.data;
+	if (data?.error === 'missing_scope') {
+		return true;
+	}
+	return String((error as { message?: string })?.message ?? error).includes('missing_scope');
+}
+
+/** Extracts the useful detail from a Slack scope error (which scope is needed) for admin-facing logs. */
+function describeSlackScopeError(error: unknown): string {
+	const data = (error as { data?: { error?: string; needed?: string; provided?: string } })?.data;
+	if (data?.needed) {
+		return `missing scope: ${data.needed}`;
+	}
+	if (data?.error) {
+		return data.error;
+	}
+	return error instanceof Error ? error.message : String(error);
 }
 
 function parseSlackThreadTs(threadId: string): string | undefined {

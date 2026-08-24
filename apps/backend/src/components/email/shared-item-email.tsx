@@ -7,9 +7,17 @@ interface SharedItemEmailProps {
 	itemLabel: string;
 	itemTitle: string;
 	itemUrl: string;
+	unsubscribeUrl?: string;
 }
 
-export function SharedItemEmail({ userName, sharerName, itemLabel, itemTitle, itemUrl }: SharedItemEmailProps) {
+export function SharedItemEmail({
+	userName,
+	sharerName,
+	itemLabel,
+	itemTitle,
+	itemUrl,
+	unsubscribeUrl,
+}: SharedItemEmailProps) {
 	return (
 		<EmailLayout>
 			<p>Hi {userName},</p>
@@ -28,6 +36,11 @@ export function SharedItemEmail({ userName, sharerName, itemLabel, itemTitle, it
 
 			<div className='footer'>
 				<p>This is an automated message from nao.</p>
+				{unsubscribeUrl && (
+					<p>
+						<a href={unsubscribeUrl}>Unsubscribe from these emails</a>
+					</p>
+				)}
 			</div>
 		</EmailLayout>
 	);

@@ -69,13 +69,13 @@ export const useStoryViewerLiveSettings = ({ chatId, storySlug, shareId }: UseSt
 	);
 
 	const handleSaveSettings = useCallback(
-		(settings: {
+		async (settings: {
 			isLive: boolean;
 			isLiveTextDynamic: boolean;
 			cacheSchedule: string | null;
 			cacheScheduleDescription: string | null;
 		}) => {
-			updateLiveSettingsMutation.mutate({ chatId, storySlug, ...settings });
+			await updateLiveSettingsMutation.mutateAsync({ chatId, storySlug, ...settings });
 		},
 		[chatId, storySlug, updateLiveSettingsMutation],
 	);

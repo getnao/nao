@@ -8,6 +8,7 @@ interface BudgetLimitReachedProps {
 	currentSpendUsd: number;
 	period: string;
 	resetLabel: string;
+	unsubscribeUrl?: string;
 }
 
 export function BudgetLimitReached({
@@ -17,6 +18,7 @@ export function BudgetLimitReached({
 	currentSpendUsd,
 	period,
 	resetLabel,
+	unsubscribeUrl,
 }: BudgetLimitReachedProps) {
 	return (
 		<EmailLayout>
@@ -44,6 +46,11 @@ export function BudgetLimitReached({
 
 			<div className='footer'>
 				<p>This is an automated message from nao.</p>
+				{unsubscribeUrl && (
+					<p>
+						<a href={unsubscribeUrl}>Unsubscribe from budget alert emails</a>
+					</p>
+				)}
 			</div>
 		</EmailLayout>
 	);

@@ -19,6 +19,67 @@ export const TOOL_CALL_DENSITIES = ['compact', 'detailed'] as const;
 /** How much detail to show for tool calls in the chat. */
 export type ToolCallDensity = (typeof TOOL_CALL_DENSITIES)[number];
 
+export const NOTIFICATION_CHANNELS = ['in_app', 'email', 'slack'] as const;
+export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
+
+export const NOTIFICATION_CATEGORIES = ['budget', 'feedback', 'story_refresh', 'shared', 'subscription'] as const;
+export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
+
+export const NOTIFICATION_CATEGORY_LABELS: Record<NotificationCategory, string> = {
+	budget: 'Budget alerts',
+	feedback: 'Feedback alerts',
+	story_refresh: 'Story refreshes',
+	shared: 'Shared with you',
+	subscription: 'Subscriptions',
+};
+
+export const NOTIFICATION_CATEGORY_DESCRIPTIONS: Record<NotificationCategory, string> = {
+	budget: 'Alerts when a provider budget limit is reached.',
+	feedback: 'Alerts when users leave positive or negative feedback.',
+	story_refresh: 'Results of your story refreshes.',
+	shared: 'When someone shares a story or chat with you.',
+	subscription: "When you're added to a story's scheduled delivery.",
+};
+
+export type SharedItemLabel = 'story' | 'chat';
+
+export type FeedbackNotificationPayload = {
+	kind: 'feedback';
+	vote: 'up' | 'down';
+	submitterName: string;
+	chatTitle: string | null;
+	explanation: string | null;
+};
+
+export type SharedNotificationPayload = {
+	kind: 'shared';
+	sharerName: string;
+	itemLabel: SharedItemLabel;
+	itemTitle: string;
+	visibility: Visibility;
+};
+
+export type StoryRefreshNotificationPayload = {
+	kind: 'story_refresh';
+	storyId: string;
+	status: 'refreshed' | 'failed';
+	queriesRefreshed?: number;
+	trigger?: 'manual' | 'schedule';
+	ownerName?: string;
+	storyTitle?: string;
+};
+
+export type StorySubscriptionNotificationPayload = {
+	kind: 'story_subscription';
+	storyId: string;
+	storyTitle: string;
+	ownerName: string;
+	/** Share id used to render the live story (charts, tables, maps) as a preview in the notification card. */
+	shareId: string | null;
+};
+
+export type NotificationChannelPreference = { emailEnabled: boolean; inAppEnabled: boolean; slackEnabled: boolean };
+
 export const DEFAULT_PYTHON_EXECUTION_DURATION_SECS = 30;
 export const MIN_PYTHON_EXECUTION_DURATION_SECS = 1;
 export const MAX_PYTHON_EXECUTION_DURATION_SECS = 600;

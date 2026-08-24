@@ -9,6 +9,7 @@ import { ForkBubble } from '@/components/highlight-bubble';
 import { SelectionChatPanel } from '@/components/selection-chat-panel';
 import { SidePanel } from '@/components/side-panel/side-panel';
 import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-settings-dialog';
+import { StorySubscriptionDialog } from '@/components/side-panel/story-subscription-dialog';
 import { useStoryViewerLiveSettings } from '@/components/side-panel/hooks/use-story-viewer-live-settings';
 import { ShareStoryDialog } from '@/components/share-dialog.story';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
@@ -126,23 +127,17 @@ function SharedStoryPage() {
 				}}
 			/>
 		) : (
-			<StoryPageHeader
+			<SharedStoryViewerHeader
 				title={story.title}
 				authorName={story.authorName}
-				openChatLabel='Discuss story'
 				onOpenChat={isViewer ? undefined : () => forkMutation.mutate({ shareId, type: 'story' })}
 				isOpeningChat={forkMutation.isPending}
-				live={
-					story.isLive
-						? {
-								isLive: true,
-								cachedAt: story.cachedAt,
-								lastRefreshFailure: story.lastRefreshFailure,
-								isRefreshing: refreshMutation.isPending,
-								onRefresh: () => refreshMutation.mutate({ shareId }),
-							}
-						: undefined
-				}
+				isLive={story.isLive}
+				cachedAt={story.cachedAt}
+				lastRefreshFailure={story.lastRefreshFailure}
+				isRefreshing={refreshMutation.isPending}
+				onRefresh={() => refreshMutation.mutate({ shareId })}
+				storyId={session?.user?.id ? story.storyId : null}
 				download={{ chatId: story.chatId!, storySlug: story.slug, shareId, isOwner: false }}
 			/>
 		);
@@ -273,6 +268,8 @@ function SharedStoryOwnerHeader({
 			<LiveStorySettingsDialog
 				open={isLiveSettingsOpen}
 				onOpenChange={setIsLiveSettingsOpen}
+				chatId={chatId}
+				storySlug={storySlug}
 				isLive={isLive}
 				isLiveTextDynamic={isLiveTextDynamic}
 				cacheSchedule={cacheSchedule}
@@ -295,6 +292,71 @@ function SharedStoryOwnerHeader({
 				storyId={storyId ?? undefined}
 				chatId={chatId}
 			/>
+		</>
+	);
+}
+
+interface SharedStoryViewerHeaderProps {
+	title: string;
+	authorName: string;
+	onOpenChat?: () => void;
+	isOpeningChat: boolean;
+	isLive: boolean;
+	cachedAt?: string | Date | null;
+	lastRefreshFailure?: StoryRefreshFailure | null;
+	isRefreshing: boolean;
+	onRefresh: () => void;
+	storyId: string | null;
+	download: StoryPageHeaderProps['download'];
+}
+
+function SharedStoryViewerHeader({
+	title,
+	authorName,
+	onOpenChat,
+	isOpeningChat,
+	isLive,
+	cachedAt,
+	lastRefreshFailure,
+	isRefreshing,
+	onRefresh,
+	storyId,
+	download,
+}: SharedStoryViewerHeaderProps) {
+	const [isSubscriptionOpen, setIsSubscriptionOpen] = useState(false);
+	const canManageNotifications = isLive && Boolean(storyId);
+
+	return (
+		<>
+			<StoryPageHeader
+				title={title}
+				authorName={authorName}
+				openChatLabel='Discuss story'
+				onOpenChat={onOpenChat}
+				isOpeningChat={isOpeningChat}
+				live={
+					isLive
+						? {
+								isLive: true,
+								cachedAt,
+								lastRefreshFailure,
+								isRefreshing,
+								onRefresh,
+								onOpenSettings: canManageNotifications ? () => setIsSubscriptionOpen(true) : undefined,
+								isDialogNotifManager: true,
+							}
+						: undefined
+				}
+				download={download}
+			/>
+
+			{storyId && (
+				<StorySubscriptionDialog
+					open={isSubscriptionOpen}
+					onOpenChange={setIsSubscriptionOpen}
+					storyId={storyId}
+				/>
+			)}
 		</>
 	);
 }
