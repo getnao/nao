@@ -37,11 +37,13 @@ const updateSchema = z.object({
 const assetKindSchema = z.enum(['logo', 'favicon']);
 
 function assertAssetSize(b64: string) {
-	const approxBytes = Math.ceil((b64.length * 3) / 4);
-	if (approxBytes > MAX_ASSET_BYTES) {
+	const normalizedBase64 = b64.replace(/\s/g, '');
+	const paddingLength = normalizedBase64.match(/=+$/)?.[0].length ?? 0;
+	const decodedBytes = Math.max(0, Math.floor((normalizedBase64.length * 3) / 4) - paddingLength);
+	if (decodedBytes > MAX_ASSET_BYTES) {
 		throw new TRPCError({
 			code: 'PAYLOAD_TOO_LARGE',
-			message: `Image too large (${Math.round(approxBytes / 1024)}KB). Max ${MAX_ASSET_BYTES / 1024}KB.`,
+			message: `Image too large (${Math.round(decodedBytes / 1024)}KB). Max ${MAX_ASSET_BYTES / 1024}KB.`,
 		});
 	}
 }

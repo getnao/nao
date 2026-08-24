@@ -18,7 +18,6 @@ interface NavItem {
 	to?: string;
 	search?: { admin?: boolean };
 	visible?: (ctx: NavContext) => boolean;
-	disabled?: (ctx: NavContext) => boolean;
 	exact?: boolean;
 	badge?: string;
 	badgeVariant?: 'new' | 'enterprise';
@@ -284,7 +283,6 @@ export function SidebarSettingsNav({
 									{group.label}
 								</div>
 								{group.items.map((item) => {
-									const isDisabled = item.disabled?.(navContext) ?? false;
 									const badge = item.badge ? (
 										<Badge
 											variant='ghost'
@@ -310,16 +308,7 @@ export function SidebarSettingsNav({
 
 									return (
 										<div key={`${item.to}-${item.label}`} className='flex flex-col'>
-											{isDisabled ? (
-												<span
-													className={cn(navRowClassName, 'cursor-not-allowed')}
-													aria-disabled='true'
-												>
-													{item.label}
-													{badge}
-													{leavesSettingsIndicator}
-												</span>
-											) : item.search ? (
+											{item.search ? (
 												<Link
 													to='/'
 													search={item.search}

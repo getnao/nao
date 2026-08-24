@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Upload, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 import { buildBrandVars } from '@/components/brand-color';
 import NaoLogoAnimated from '@/components/icons/nao-logo-animated';
@@ -290,16 +290,27 @@ function LabeledInput({
 	placeholder?: string;
 	disabled?: boolean;
 }) {
+	const inputId = useId();
+	const helperId = helper ? `${inputId}-description` : undefined;
+
 	return (
 		<div className='flex flex-col gap-1.5'>
-			<label className='text-sm font-medium text-foreground'>{label}</label>
+			<label htmlFor={inputId} className='text-sm font-medium text-foreground'>
+				{label}
+			</label>
 			<Input
+				id={inputId}
 				value={value}
 				placeholder={placeholder}
 				onChange={(event) => onChange(event.target.value)}
 				disabled={disabled}
+				aria-describedby={helperId}
 			/>
-			{helper && <p className='text-xs text-muted-foreground'>{helper}</p>}
+			{helper && (
+				<p id={helperId} className='text-xs text-muted-foreground'>
+					{helper}
+				</p>
+			)}
 		</div>
 	);
 }

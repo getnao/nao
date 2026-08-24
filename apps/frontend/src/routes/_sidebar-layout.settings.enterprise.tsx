@@ -285,6 +285,7 @@ function WhatsIncludedCard({ isLicenseActive }: { isLicenseActive: boolean }) {
 				{ENTERPRISE_FEATURES.map((feature) => {
 					const Icon = feature.icon;
 					const isIncluded = !('key' in feature) || features.data?.[feature.key] === true;
+					const canShowMarker = !('key' in feature) || features.isSuccess;
 
 					return (
 						<div
@@ -297,7 +298,7 @@ function WhatsIncludedCard({ isLicenseActive }: { isLicenseActive: boolean }) {
 							<div className='flex min-w-0 flex-1 flex-col gap-1'>
 								<div className='flex items-start justify-between gap-2'>
 									<span className='text-sm font-medium'>{feature.label}</span>
-									{isLicenseActive && <FeatureMarker isIncluded={isIncluded} />}
+									{isLicenseActive && canShowMarker && <FeatureMarker isIncluded={isIncluded} />}
 								</div>
 								<span className='text-xs text-muted-foreground'>{feature.description}</span>
 							</div>

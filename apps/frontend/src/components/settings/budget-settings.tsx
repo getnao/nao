@@ -21,7 +21,7 @@ import { useLicenseFeatures } from '@/hooks/use-license';
 import { useLlmProviders } from '@/hooks/use-llm-providers';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
-import { cn, toLocalDateString } from '@/lib/utils';
+import { cn, toUtcDateString } from '@/lib/utils';
 import { trpc } from '@/main';
 
 type Period = 'none' | BudgetPeriod;
@@ -87,6 +87,7 @@ export function BudgetSettings() {
 	const [budgets, setBudgets] = useState<Record<string, number>>({});
 	const [perUserBudgets, setPerUserBudgets] = useState<Record<string, number>>({});
 	const [periods, setPeriods] = useState<Record<string, Period>>({});
+	const [resetBoundaryVersion, setResetBoundaryVersion] = useState(0);
 
 	useEffect(() => {
 		if (!savedBudgets.data) {
@@ -141,13 +142,16 @@ export function BudgetSettings() {
 		}
 	}
 
-	const resetLabels = useMemo(
-		() =>
-			Object.fromEntries(
-				BUDGET_PERIODS.map((period) => [period, toLocalDateString(getNextPeriodStart(period))]),
-			) as Record<BudgetPeriod, string>,
-		[],
-	);
+	useEffect(() => {
+		const nextBoundary = Math.min(...BUDGET_PERIODS.map((period) => getNextPeriodStart(period).getTime()));
+		const delay = Math.max(nextBoundary - Date.now(), 1);
+		const timeout = window.setTimeout(() => setResetBoundaryVersion((version) => version + 1), delay);
+		return () => window.clearTimeout(timeout);
+	}, [resetBoundaryVersion]);
+
+	const resetLabels = Object.fromEntries(
+		BUDGET_PERIODS.map((period) => [period, toUtcDateString(getNextPeriodStart(period))]),
+	) as Record<BudgetPeriod, string>;
 
 	async function handleSave() {
 		const entries = allConfiguredProviders

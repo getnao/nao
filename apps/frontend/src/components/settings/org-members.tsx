@@ -30,6 +30,7 @@ export function OrgMembers() {
 	const [editMember, setEditMember] = useState<TeamMember | null>(null);
 	const [removeMember, setRemoveMember] = useState<TeamMember | null>(null);
 	const [resetPasswordMember, setResetPasswordMember] = useState<TeamMember | null>(null);
+	const [resetPasswordError, setResetPasswordError] = useState<string | null>(null);
 	const [credentials, setCredentials] = useState<{ email: string; password: string } | null>(null);
 
 	const invalidateMembers = useCallback(() => {
@@ -91,9 +92,24 @@ export function OrgMembers() {
 		if (!resetPasswordMember) {
 			return;
 		}
-		const result = await resetPassword.mutateAsync({ userId: resetPasswordMember.id });
+		try {
+			const result = await resetPassword.mutateAsync({ userId: resetPasswordMember.id });
+			setResetPasswordError(null);
+			setResetPasswordMember(null);
+			setCredentials({ email: resetPasswordMember.email, password: result.password });
+		} catch (error) {
+			setResetPasswordError(error instanceof Error ? error.message : 'Failed to reset password.');
+		}
+	};
+
+	const openResetPasswordDialog = (member: TeamMember) => {
+		setResetPasswordError(null);
+		setResetPasswordMember(member);
+	};
+
+	const closeResetPasswordDialog = () => {
+		setResetPasswordError(null);
 		setResetPasswordMember(null);
-		setCredentials({ email: resetPasswordMember.email, password: result.password });
 	};
 
 	return (
@@ -111,6 +127,13 @@ export function OrgMembers() {
 			>
 				{membersQuery.isLoading ? (
 					<div className='p-4 text-sm text-muted-foreground'>Loading members...</div>
+				) : membersQuery.isError ? (
+					<div className='p-4 text-sm text-destructive'>
+						<p>Failed to load members.</p>
+						<Button variant='ghost' size='sm' className='mt-2' onClick={() => membersQuery.refetch()}>
+							Retry
+						</Button>
+					</div>
 				) : (
 					<TeamMembersList
 						members={members}
@@ -119,7 +142,7 @@ export function OrgMembers() {
 						onEdit={setEditMember}
 						onRemove={setRemoveMember}
 						extraActions={(member) => (
-							<ResetPasswordAction onClick={() => setResetPasswordMember(member)} />
+							<ResetPasswordAction onClick={() => openResetPasswordDialog(member)} />
 						)}
 					/>
 				)}
@@ -149,18 +172,19 @@ export function OrgMembers() {
 				onConfirm={handleRemove}
 			/>
 
-			<Dialog open={!!resetPasswordMember} onOpenChange={(open) => !open && setResetPasswordMember(null)}>
+			<Dialog open={!!resetPasswordMember} onOpenChange={(open) => !open && closeResetPasswordDialog()}>
 				<DialogContent>
 					<DialogHeader>
 						<DialogTitle>Reset {resetPasswordMember?.name}'s password?</DialogTitle>
 					</DialogHeader>
 					<p className='text-sm text-muted-foreground'>Are you sure you want to do this?</p>
+					{resetPasswordError && <p className='text-sm text-destructive'>{resetPasswordError}</p>}
 					<div className='flex justify-end gap-2'>
-						<Button variant='outline' onClick={() => setResetPasswordMember(null)}>
+						<Button variant='outline' onClick={closeResetPasswordDialog}>
 							Cancel
 						</Button>
-						<Button variant='destructive' onClick={handleResetPassword}>
-							Reset password
+						<Button variant='destructive' onClick={handleResetPassword} disabled={resetPassword.isPending}>
+							{resetPassword.isPending ? 'Resetting…' : 'Reset password'}
 						</Button>
 					</div>
 				</DialogContent>
