@@ -95,6 +95,7 @@ const HORIZONTAL_BAR_RADIUS = 999;
 const HORIZONTAL_BAR_TRACK_COLOR = 'var(--muted, #e5e7eb)';
 const HORIZONTAL_BAR_ORIGINAL_VALUE_KEY = '__naoHorizontalBarValue';
 const HORIZONTAL_BAR_VALUE_LABEL_RIGHT_PADDING = 4;
+const HORIZONTAL_BAR_LABEL_VERTICAL_ROOM = Math.ceil(CHART_LABEL_FONT_SIZE / 2) + 2;
 /** Reserves horizontal room for a rotated axis title so it does not overlap tick values. */
 const AXIS_LABEL_WIDTH = 20;
 
@@ -616,21 +617,24 @@ function formatCategoryTick(value: string, labelFormatter: (value: string) => st
 }
 
 function buildHorizontalBarChart(props: ResolvedProps) {
-	const { data, chartType, xAxisKey, series, colorFor, labelFormatter, children, xAxisInterval, xAxisMaxLabelChars } =
-		props;
+	const { data, chartType, xAxisKey, series, colorFor, labelFormatter, children, xAxisInterval } = props;
 	const isPercent = displayChart.isPercentStackedChartType(chartType);
 	const renderedSeries = getRenderedSeries(series, series.length > 1);
 	const hasMultipleSeries = renderedSeries.length > 1;
 	const seriesKeys = renderedSeries.map((item) => item.data_key);
-	const rowTotals = data.map((row) => sumStackValue(row, renderedSeries) ?? 0);
-	const maximum = rowTotals.reduce((current, value) => Math.max(current, Math.abs(value)), 0) || 1;
+	const clampedRowTotals = data.map((row) =>
+		seriesKeys.reduce((total, key) => total + clampHorizontalBarValue(row[key]), 0),
+	);
+	const signedRowTotals = data.map((row) => sumStackValue(row, renderedSeries) ?? 0);
+	const maximum = clampedRowTotals.reduce((current, value) => Math.max(current, value), 0) || 1;
+	const visibleValueAxisDomainProps = isPercent ? { domain: [0, 1] as [number, number] } : {};
 	const valueFormat = getChartLevelValueFormat(series);
 	const valueFormatter = (value: number) =>
 		isPercent ? formatPercentAxisTick(value) : formatChartValue(value, valueFormat);
-	const labelValues = isPercent ? data.map(() => 1) : rowTotals;
+	const labelValues = isPercent ? clampedRowTotals.map((value) => (value > 0 ? 1 : 0)) : signedRowTotals;
 	const showValueLabels = displayChart.resolveShowDataLabels(props.chartType, props.showDataLabels);
-	const labelCharacterLimit = xAxisMaxLabelChars ?? HORIZONTAL_BAR_CATEGORY_MAX_LABEL_CHARS;
-	const tickFormatter = (value: string) => formatCategoryTick(value, labelFormatter, labelCharacterLimit);
+	const tickFormatter = (value: string) =>
+		formatCategoryTick(value, labelFormatter, HORIZONTAL_BAR_CATEGORY_MAX_LABEL_CHARS);
 	const categoryAxisWidth = computeHorizontalBarCategoryAxisWidth(data, xAxisKey, tickFormatter);
 	const valueLabelWidth = showValueLabels ? computeHorizontalBarValueLabelWidth(labelValues, valueFormatter) : 0;
 	const horizontalBarValueLabelsLayer = showValueLabels
@@ -639,7 +643,9 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 	const separatorColor = props.backgroundColor ?? DEFAULT_BACKGROUND;
 	const margin = {
 		...props.margin,
+		top: (props.margin?.top ?? 0) + HORIZONTAL_BAR_LABEL_VERTICAL_ROOM,
 		right: (props.margin?.right ?? 0) + valueLabelWidth,
+		bottom: (props.margin?.bottom ?? 0) + HORIZONTAL_BAR_LABEL_VERTICAL_ROOM,
 	};
 	const horizontalBarData = data.map((row, rowIndex) => {
 		const normalizedRow: Record<string, unknown> = {
@@ -647,7 +653,7 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 			[HORIZONTAL_BAR_ORIGINAL_VALUE_KEY]: labelValues[rowIndex],
 		};
 		for (const key of seriesKeys) {
-			normalizedRow[key] = Math.abs(toFiniteNumber(row[key]) ?? 0);
+			normalizedRow[key] = clampHorizontalBarValue(row[key]);
 		}
 		return normalizedRow;
 	});
@@ -664,7 +670,7 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 			{hasMultipleSeries ? (
 				<XAxis
 					type='number'
-					domain={isPercent ? [0, 1] : [0, maximum]}
+					{...visibleValueAxisDomainProps}
 					tick={AXIS_TICK}
 					tickLine={false}
 					axisLine={false}
@@ -721,6 +727,10 @@ function buildHorizontalBarChart(props: ResolvedProps) {
 			{horizontalBarValueLabelsLayer && <Customized component={horizontalBarValueLabelsLayer} />}
 		</BarChart>
 	);
+}
+
+function clampHorizontalBarValue(value: unknown): number {
+	return Math.max(0, toFiniteNumber(value) ?? 0);
 }
 
 function computeHorizontalBarCategoryAxisWidth(

@@ -137,9 +137,12 @@ export function ChartConfigEditDialog({
 	const [paletteHexes, setPaletteHexes] = useState<string[]>(DEFAULT_COLORS);
 	const supportsYAxisRange = !Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES.has(draft.chart_type);
 	const supportsAxisLabels = displayChart.chartTypeSupportsAxisLabels(draft.chart_type);
-	const canNormalize =
+	const isPercentNormalized = displayChart.isPercentStackedChartType(draft.chart_type);
+	const isHorizontalBar = baseChartType(draft.chart_type) === 'horizontal_bar';
+	const showNormalizeToggle =
 		displayChart.isStackedChartType(draft.chart_type) &&
-		(baseChartType(draft.chart_type) !== 'horizontal_bar' || draft.series.length >= 2);
+		(!isHorizontalBar || isPercentNormalized || draft.series.length >= 2);
+	const canEnableNormalize = !isHorizontalBar || draft.series.length >= 2;
 	const unsupportedNumberFormat = useMemo(
 		() =>
 			draft.series
@@ -347,7 +350,7 @@ export function ChartConfigEditDialog({
 						</Select>
 					</div>
 
-					{canNormalize && (
+					{showNormalizeToggle && (
 						<div className='flex items-center justify-between gap-3'>
 							<div className='grid gap-0.5'>
 								<label htmlFor='chart-normalize' className='text-sm font-semibold text-foreground'>
@@ -359,7 +362,8 @@ export function ChartConfigEditDialog({
 							</div>
 							<Switch
 								id='chart-normalize'
-								checked={displayChart.isPercentStackedChartType(draft.chart_type)}
+								checked={isPercentNormalized}
+								disabled={!isPercentNormalized && !canEnableNormalize}
 								onCheckedChange={(checked) =>
 									setDraft((prev) => ({
 										...prev,

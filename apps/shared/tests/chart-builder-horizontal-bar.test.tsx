@@ -39,6 +39,60 @@ describe('buildChart horizontal bars', () => {
 		expect(yAxis?.props).toMatchObject({ type: 'category', dataKey: 'category' });
 	});
 
+	it('adds vertical label room to caller-supplied margins', () => {
+		const props = {
+			data: [{ category: 'First', value: 50 }],
+			chartType: 'horizontal_bar' as const,
+			xAxisKey: 'category',
+			xAxisType: 'category' as const,
+			series: [{ data_key: 'value' }],
+		};
+		const chart = buildChart(props);
+		const chartWithMargin = buildChart({ ...props, margin: { top: 5, right: 5, bottom: 5 } });
+		const hiddenLabelsChart = buildChart({ ...props, showDataLabels: false });
+
+		expect(chart.props.margin.top).toBeGreaterThanOrEqual(8);
+		expect(chart.props.margin.bottom).toBeGreaterThanOrEqual(8);
+		expect(chartWithMargin.props.margin.top).toBe(chart.props.margin.top + 5);
+		expect(chartWithMargin.props.margin.right).toBe(chart.props.margin.right + 5);
+		expect(chartWithMargin.props.margin.bottom).toBe(chart.props.margin.bottom + 5);
+		expect(hiddenLabelsChart.props.margin.top).toBe(chart.props.margin.top);
+		expect(hiddenLabelsChart.props.margin.bottom).toBe(chart.props.margin.bottom);
+	});
+
+	it('keeps category labels beyond the rotated-axis limit and sizes the axis to fit', () => {
+		const chart = buildChart({
+			data: [{ category: 'Eleanor Roberts', value: 20 }],
+			chartType: 'horizontal_bar',
+			xAxisKey: 'category',
+			xAxisType: 'category',
+			series: [{ data_key: 'value' }],
+			labelFormatter: (value) => value,
+			xAxisMaxLabelChars: 14,
+		});
+		const yAxis = flattenChildren(chart.props.children).find((child) => getDisplayName(child) === 'YAxis');
+
+		expect(yAxis?.props.tickFormatter?.('Eleanor Roberts')).toBe('Eleanor Roberts');
+		expect(yAxis?.props.width).toBe(117);
+		expect(yAxis?.props.width).toBeLessThanOrEqual(180);
+	});
+
+	it('truncates category labels longer than 24 characters', () => {
+		const chart = buildChart({
+			data: [{ category: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', value: 20 }],
+			chartType: 'horizontal_bar',
+			xAxisKey: 'category',
+			xAxisType: 'category',
+			series: [{ data_key: 'value' }],
+			labelFormatter: (value) => value,
+		});
+		const yAxis = flattenChildren(chart.props.children).find((child) => getDisplayName(child) === 'YAxis');
+		const formattedLabel = yAxis?.props.tickFormatter?.('ABCDEFGHIJKLMNOPQRSTUVWXYZ');
+
+		expect(formattedLabel).toBe('ABCDEFGHIJKLMNOPQRSTUVW…');
+		expect(formattedLabel).toHaveLength(24);
+	});
+
 	it('applies the series value format to the always-visible labels', () => {
 		const chart = buildChart({
 			data: [{ category: 'First', value: 1200 }],
@@ -94,7 +148,8 @@ describe('buildChart horizontal bars', () => {
 		expect(bars.map((bar) => bar.props.maxBarSize)).toEqual([28, 28]);
 		expect(chart.props.barCategoryGap).toBe('20%');
 		expect(bars.filter((bar) => Boolean(bar.props.background))).toHaveLength(1);
-		expect(xAxis?.props).toMatchObject({ type: 'number', domain: [0, 110] });
+		expect(xAxis?.props).toMatchObject({ type: 'number' });
+		expect(xAxis?.props.domain).toBeUndefined();
 		expect(xAxis?.props.hide).not.toBe(true);
 		expect(readHorizontalBarValueLabels(html).map((label) => label.text)).toEqual(['50', '110']);
 
@@ -115,6 +170,60 @@ describe('buildChart horizontal bars', () => {
 			strokeWidth: 1,
 		});
 		expect(onlyVisibleSegment!.props.radius).toEqual([999, 999, 999, 999]);
+	});
+
+	it('renders distinct value-axis ticks for all-zero multi-series data', () => {
+		const chart = buildChart({
+			data: [
+				{ category: 'First', direct: 0, partner: 0 },
+				{ category: 'Second', direct: 0, partner: 0 },
+			],
+			chartType: 'horizontal_bar',
+			xAxisKey: 'category',
+			xAxisType: 'category',
+			series: [
+				{ data_key: 'direct', value_format: { d3_format: ',.0f' } },
+				{ data_key: 'partner', value_format: { d3_format: ',.0f' } },
+			],
+		});
+		const html = renderToString(React.cloneElement(chart, { width: 600, height: 300 }));
+		const axisTickTexts = readHorizontalBarValueAxisTicks(html);
+
+		expect(axisTickTexts.length).toBeGreaterThan(0);
+		expect(axisTickTexts).not.toEqual(['0', '0', '1', '1', '1']);
+		expect(axisTickTexts).toEqual([...new Set(axisTickTexts)]);
+	});
+
+	it('clamps mixed-sign series for the domain while preserving the signed total label', () => {
+		const chart = buildChart({
+			data: [{ category: 'First', direct: 100, partner: -100 }],
+			chartType: 'horizontal_bar',
+			xAxisKey: 'category',
+			xAxisType: 'category',
+			series: [{ data_key: 'direct' }, { data_key: 'partner' }],
+		});
+		const xAxis = flattenChildren(chart.props.children).find((child) => getDisplayName(child) === 'XAxis');
+		const html = renderToString(React.cloneElement(chart, { width: 600, height: 300 }));
+
+		expect(xAxis?.props.domain).toBeUndefined();
+		expect(chart.props.data[0]).toMatchObject({ direct: 100, partner: 0 });
+		expect(readHorizontalBarValueLabels(html).map((label) => label.text)).toEqual(['0']);
+	});
+
+	it('renders a negative single-series value at the origin with its signed label', () => {
+		const chart = buildChart({
+			data: [{ category: 'First', value: -30 }],
+			chartType: 'horizontal_bar',
+			xAxisKey: 'category',
+			xAxisType: 'category',
+			series: [{ data_key: 'value' }],
+		});
+		const xAxis = flattenChildren(chart.props.children).find((child) => getDisplayName(child) === 'XAxis');
+		const html = renderToString(React.cloneElement(chart, { width: 600, height: 300 }));
+
+		expect(xAxis?.props.domain).toEqual([0, 1]);
+		expect(chart.props.data[0].value).toBe(0);
+		expect(readHorizontalBarValueLabels(html).map((label) => label.text)).toEqual(['-30']);
 	});
 
 	it('normalizes stacked horizontal bars to a percentage axis', () => {
@@ -139,6 +248,23 @@ describe('buildChart horizontal bars', () => {
 		expect(xAxis?.props.tickFormatter?.(0.5)).toBe('50%');
 		expect(readHorizontalBarValueLabels(html)).toHaveLength(0);
 		expect(readHorizontalBarValueLabels(labelledHtml).map((label) => label.text)).toEqual(['100%']);
+	});
+
+	it('labels empty normalized rows as zero percent', () => {
+		const chart = buildChart({
+			data: [
+				{ category: 'Empty', direct: 0, partner: 0 },
+				{ category: 'Full', direct: 20, partner: 30 },
+			],
+			chartType: 'horizontal_bar_100',
+			xAxisKey: 'category',
+			xAxisType: 'category',
+			series: [{ data_key: 'direct' }, { data_key: 'partner' }],
+			showDataLabels: true,
+		});
+		const html = renderToString(React.cloneElement(chart, { width: 600, height: 300 }));
+
+		expect(readHorizontalBarValueLabels(html).map((label) => label.text)).toEqual(['0%', '100%']);
 	});
 
 	it('renders zero and null values at the bar origin', () => {
@@ -186,6 +312,49 @@ describe('buildChart horizontal bars', () => {
 		expect(yAxis?.props.interval).toBe('preserveStartEnd');
 	});
 
+	it('keeps value labels inside a dense horizontal bar chart', () => {
+		const chartHeight = 300;
+		const fontSize = 12;
+		const chart = buildChart({
+			data: Array.from({ length: 60 }, (_, index) => ({
+				category: `Customer ${index + 1}`,
+				value: index + 1,
+			})),
+			chartType: 'horizontal_bar',
+			xAxisKey: 'category',
+			xAxisType: 'category',
+			series: [{ data_key: 'value' }],
+		});
+		const html = renderToString(React.cloneElement(chart, { width: 600, height: chartHeight }));
+		const labels = readHorizontalBarValueLabels(html);
+		const labelTops = labels.map((label) => label.y - fontSize / 2);
+		const labelBottoms = labels.map((label) => label.y + fontSize / 2);
+
+		expect(labels.length).toBeGreaterThan(0);
+		expect(Math.min(...labelTops)).toBeGreaterThanOrEqual(0);
+		expect(Math.max(...labelBottoms)).toBeLessThanOrEqual(chartHeight);
+	});
+
+	it('keeps the first value label centered on its bar', () => {
+		const chart = buildChart({
+			data: Array.from({ length: 60 }, (_, index) => ({
+				category: `Customer ${index + 1}`,
+				value: index + 1,
+			})),
+			chartType: 'horizontal_bar',
+			xAxisKey: 'category',
+			xAxisType: 'category',
+			series: [{ data_key: 'value' }],
+		});
+		const html = renderToString(React.cloneElement(chart, { width: 600, height: 300 }));
+		const labels = readHorizontalBarValueLabels(html);
+		const barCenters = readHorizontalBarCenters(html);
+
+		expect(labels.length).toBeGreaterThan(0);
+		expect(barCenters.length).toBeGreaterThan(0);
+		expect(labels[0].y).toBe(barCenters[0]);
+	});
+
 	it('shows value labels by default and removes their margin when hidden', () => {
 		const props = {
 			data: [{ category: 'First', value: 50 }],
@@ -223,6 +392,37 @@ function readHorizontalBarValueLabels(
 	return labels;
 }
 
+function readHorizontalBarValueAxisTicks(html: string): string[] {
+	const axisStart = html.indexOf('recharts-xAxis');
+	const nextAxisStart = html.indexOf('recharts-yAxis', axisStart);
+	const axisGroup = axisStart >= 0 ? html.slice(axisStart, nextAxisStart >= 0 ? nextAxisStart : undefined) : '';
+	const tickTexts: string[] = [];
+	const textPattern = /<text([^>]*)>([\s\S]*?)<\/text>/g;
+	for (let match = textPattern.exec(axisGroup); match !== null; match = textPattern.exec(axisGroup)) {
+		if (match[1].includes('recharts-cartesian-axis-tick-value')) {
+			tickTexts.push(match[2].replace(/<[^>]+>/g, ''));
+		}
+	}
+	return tickTexts;
+}
+
+function readHorizontalBarCenters(html: string): number[] {
+	const centers: number[] = [];
+	const barPattern = /<g([^>]*)><path([^>]*)>/g;
+	for (let match = barPattern.exec(html); match !== null; match = barPattern.exec(html)) {
+		const className = match[1].match(/\sclass="([^"]+)"/)?.[1];
+		if (!className?.split(' ').includes('recharts-bar-rectangle')) {
+			continue;
+		}
+		const y = match[2].match(/\sy="([^"]+)"/)?.[1];
+		const height = match[2].match(/\sheight="([^"]+)"/)?.[1];
+		if (y !== undefined && height !== undefined) {
+			centers.push(Number(y) + Number(height) / 2);
+		}
+	}
+	return centers;
+}
+
 interface TestElementProps {
 	[key: string]: unknown;
 	background?: unknown;
@@ -233,7 +433,8 @@ interface TestElementProps {
 	radius?: number[];
 	shape?: (props: unknown) => ReactElement<{ radius?: number[]; stroke?: string; strokeWidth?: number }>;
 	stackId?: string;
-	tickFormatter?: (value: number) => string;
+	tickFormatter?: (value: string | number) => string;
+	width?: number;
 }
 
 type TestElement = ReactElement<TestElementProps>;
