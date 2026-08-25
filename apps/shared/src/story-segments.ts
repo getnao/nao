@@ -75,12 +75,19 @@ export interface ParsedFilterBlock {
 	rawTag?: string;
 }
 
+export interface ParsedPluginBlock {
+	title: string | null;
+	code: string;
+	rawContent: string;
+}
+
 export type Segment =
 	| { type: 'markdown'; content: string }
 	| { type: 'chart'; chart: ParsedChartBlock }
 	| { type: 'table'; table: ParsedTableBlock }
 	| { type: 'map'; map: ParsedMapBlock }
 	| { type: 'filter'; filter: ParsedFilterBlock }
+	| { type: 'plugin'; plugin: ParsedPluginBlock }
 	| { type: 'grid'; cols: number; widths: number[] | null; children: Segment[] };
 
 export const TAG_ATTRS = String.raw`(?:[^>"']|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')*?`;
@@ -99,7 +106,7 @@ export function mapTagRegex(flags = ''): RegExp {
 
 export function storyBlockRegex(): RegExp {
 	return new RegExp(
-		String.raw`<grid(?:\s+(${TAG_ATTRS}))?>([\s\S]*?)<\/grid>|<chart\s+(${TAG_ATTRS})\/?>|<table\s+(${TAG_ATTRS})\/?>|<filter\s+(${TAG_ATTRS})\/?>|<map\s+(${TAG_ATTRS})\/?>`,
+		String.raw`<grid(?:\s+(${TAG_ATTRS}))?>([\s\S]*?)<\/grid>|<chart\s+(${TAG_ATTRS})\/?>|<table\s+(${TAG_ATTRS})\/?>|<filter\s+(${TAG_ATTRS})\/?>|<map\s+(${TAG_ATTRS})\/?>|<plugin(?:\s+(${TAG_ATTRS}))?>([\s\S]*?)<\/plugin>`,
 		'g',
 	);
 }
@@ -256,6 +263,15 @@ export function parseFilterBlock(attrString: string): ParsedFilterBlock | null {
 		...(attrs.table && { table: attrs.table }),
 		...(attrs.database_id && { databaseId: attrs.database_id }),
 		...(hasHardcodedOptions && { options }),
+	};
+}
+
+export function parsePluginBlock(attrString: string, code: string, rawContent: string): ParsedPluginBlock {
+	const attrs = parseChartAttributes(attrString);
+	return {
+		title: attrs.title || null,
+		code,
+		rawContent,
 	};
 }
 
@@ -736,6 +752,11 @@ export function splitCodeIntoSegments(code: string): Segment[] {
 			if (map) {
 				segments.push({ type: 'map', map: { ...map, rawTag: match[0] } });
 			}
+		} else if (match[8] !== undefined) {
+			segments.push({
+				type: 'plugin',
+				plugin: parsePluginBlock(match[7] ?? '', match[8], match[0]),
+			});
 		}
 
 		lastIndex = match.index + match[0].length;

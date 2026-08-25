@@ -237,6 +237,10 @@ export const updateAgentSettings = async (projectId: string, settings: AgentSett
 			...current.webSearch,
 			...settings.webSearch,
 		},
+		storyPlugins: {
+			...current.storyPlugins,
+			...settings.storyPlugins,
+		},
 		pythonExecution: {
 			...current.pythonExecution,
 			...settings.pythonExecution,

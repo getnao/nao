@@ -26,6 +26,63 @@ const CHART_TWO =
 	'<chart query_id="q2" chart_type="bar" x_axis_key="month" series=\'[{"data_key":"orders"}]\' title="Orders" />';
 const CHART_THREE =
 	'<chart query_id="q3" chart_type="area" x_axis_key="month" series=\'[{"data_key":"profit"}]\' title="Profit" />';
+const PLUGIN = `<plugin title="Threshold indicator">
+export default function render(element) {
+	const value = 3;
+	element.textContent = value < 5 ? 'Below target' : 'Above > target';
+}
+</plugin>`;
+
+describe('plugin story blocks', () => {
+	it('parses markdown, charts, and plugin code without interpreting JavaScript markup', () => {
+		const code = ['# Revenue', CHART_ONE, PLUGIN, 'Closing note.'].join('\n\n');
+		const segments = splitCodeIntoSegments(code);
+
+		expect(segments).toMatchObject([
+			{ type: 'markdown', content: '# Revenue' },
+			{ type: 'chart', chart: { queryId: 'q1', title: 'Revenue', rawTag: CHART_ONE } },
+			{
+				type: 'plugin',
+				plugin: {
+					title: 'Threshold indicator',
+					code: [
+						'',
+						'export default function render(element) {',
+						'\tconst value = 3;',
+						"\telement.textContent = value < 5 ? 'Below target' : 'Above > target';",
+						'}',
+						'',
+					].join('\n'),
+					rawContent: PLUGIN,
+				},
+			},
+			{ type: 'markdown', content: 'Closing note.' },
+		]);
+	});
+
+	it('uses a null title when the plugin has no title attribute', () => {
+		expect(splitCodeIntoSegments('<plugin>export default function render() {}</plugin>')).toEqual([
+			{
+				type: 'plugin',
+				plugin: {
+					title: null,
+					code: 'export default function render() {}',
+					rawContent: '<plugin>export default function render() {}</plugin>',
+				},
+			},
+		]);
+	});
+
+	it('parses a plugin as a grid column', () => {
+		expect(splitCodeIntoSegments(`<grid widths="1,1">${CHART_ONE}${PLUGIN}</grid>`)).toMatchObject([
+			{
+				type: 'grid',
+				widths: [1, 1],
+				children: [{ type: 'chart' }, { type: 'plugin', plugin: { rawContent: PLUGIN } }],
+			},
+		]);
+	});
+});
 
 describe('grid widths', () => {
 	it('resolves valid widths', () => {

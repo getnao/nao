@@ -138,6 +138,34 @@ describe('validateStoryCode', () => {
 		});
 	});
 
+	describe('plugin validation', () => {
+		it('accepts non-empty JavaScript containing less-than and greater-than operators', () => {
+			const code = [
+				'<plugin title="Threshold">',
+				'export default function render(element) {',
+				"\telement.textContent = 3 < 5 ? 'Below' : 'Above > target';",
+				'}',
+				'</plugin>',
+			].join('\n');
+
+			expect(validateStoryCode(code)).toEqual([]);
+		});
+
+		it('flags empty plugin code', () => {
+			const errors = validateStoryCode('<plugin title="Empty">\n \t\n</plugin>');
+
+			expect(errors).toHaveLength(1);
+			expect(errors[0].message).toBe('Plugin code must not be empty.');
+		});
+
+		it('flags a missing plugin closing tag', () => {
+			const errors = validateStoryCode('<plugin title="Broken">export default function render() {}');
+
+			expect(errors).toHaveLength(1);
+			expect(errors[0].message).toContain('matching </plugin>');
+		});
+	});
+
 	describe('grid validation', () => {
 		it('flags unterminated grid blocks', () => {
 			const code =

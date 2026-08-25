@@ -30,7 +30,7 @@ const VALID_Y_AXIS_SIDES = new Set<string>(YAxisSideEnum.options);
 
 /**
  * Validates the structure of a story's markdown code, looking for common
- * authoring mistakes in <chart />, <table /> and <grid> blocks.
+ * authoring mistakes in <chart />, <table />, <grid> and <plugin> blocks.
  *
  * Returns a list of errors with 1-based line/column coordinates suitable for
  * driving Monaco editor markers.
@@ -42,10 +42,45 @@ export function validateStoryCode(code: string): StoryValidationError[] {
 	errors.push(...validateChartBlocks(code));
 	errors.push(...validateTableBlocks(code));
 	errors.push(...validateFilterBlocks(code));
+	errors.push(...validatePluginBlocks(code));
 	errors.push(...validateTabsBlocks(code));
 	errors.push(...validateUnterminatedTags(code));
 
 	return errors.sort((a, b) => a.line - b.line || a.column - b.column);
+}
+
+function validatePluginBlocks(code: string): StoryValidationError[] {
+	const errors: StoryValidationError[] = [];
+	const openTagRegex = new RegExp(String.raw`<plugin\b(?:\s+(${TAG_ATTRS}))?>`, 'g');
+	let match: RegExpExecArray | null;
+
+	while ((match = openTagRegex.exec(code)) !== null) {
+		const position = getPosition(code, match.index);
+		const closeIndex = code.indexOf('</plugin>', openTagRegex.lastIndex);
+		if (closeIndex === -1) {
+			errors.push({
+				message: '<plugin> tag is missing a matching </plugin> closing tag.',
+				line: position.line,
+				column: position.column,
+				length: match[0].length,
+			});
+			break;
+		}
+
+		const pluginCode = code.slice(openTagRegex.lastIndex, closeIndex);
+		if (!pluginCode.trim()) {
+			errors.push({
+				message: 'Plugin code must not be empty.',
+				line: position.line,
+				column: position.column,
+				length: closeIndex + '</plugin>'.length - match.index,
+			});
+		}
+
+		openTagRegex.lastIndex = closeIndex + '</plugin>'.length;
+	}
+
+	return errors;
 }
 
 function validateTabsBlocks(code: string): StoryValidationError[] {

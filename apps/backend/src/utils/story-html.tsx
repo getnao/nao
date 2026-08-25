@@ -348,6 +348,8 @@ function StorySegment({ segment, queryData }: { segment: Segment; queryData: Que
 			return <MapBlock map={segment.map} queryData={queryData} />;
 		case 'filter':
 			return null;
+		case 'plugin':
+			return null;
 		case 'grid':
 			return <GridBlock segment={segment} queryData={queryData} />;
 	}
