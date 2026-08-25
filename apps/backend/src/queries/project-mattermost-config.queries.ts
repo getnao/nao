@@ -31,7 +31,7 @@ export const upsertProjectMattermostConfig = async (data: {
 					mattermostBotToken: data.botToken,
 					mattermostLlmProvider: data.modelProvider ?? '',
 					mattermostLlmModelId: data.modelId ?? '',
-					mattermostInteractiveButtonsEnabled: data.interactiveButtonsEnabled ?? true,
+					mattermostInteractiveButtonsEnabled: data.interactiveButtonsEnabled ?? false,
 					mattermostCallbackUrl: data.callbackUrl || undefined,
 				},
 			})
@@ -68,7 +68,7 @@ export const updateProjectMattermostModel = async (
 					mattermostBotToken: existing?.mattermostBotToken ?? '',
 					mattermostLlmProvider: modelProvider ?? '',
 					mattermostLlmModelId: modelId ?? '',
-					mattermostInteractiveButtonsEnabled: existing?.mattermostInteractiveButtonsEnabled ?? true,
+					mattermostInteractiveButtonsEnabled: existing?.mattermostInteractiveButtonsEnabled ?? false,
 					mattermostCallbackUrl: existing?.mattermostCallbackUrl,
 				},
 			})
@@ -102,7 +102,7 @@ function toMattermostConfig(
 		botToken: settings.mattermostBotToken,
 		redirectUrl: env.BETTER_AUTH_URL || 'http://localhost:3000/',
 		modelSelection: toLlmSelectedModel(settings.mattermostLlmProvider, settings.mattermostLlmModelId),
-		interactiveButtonsEnabled: settings.mattermostInteractiveButtonsEnabled ?? true,
+		interactiveButtonsEnabled: settings.mattermostInteractiveButtonsEnabled ?? false,
 		callbackUrl: settings.mattermostCallbackUrl,
 	};
 }

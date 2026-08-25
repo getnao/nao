@@ -7,7 +7,7 @@ export type MattermostStopAttachment = {
 			type: 'button';
 			integration: {
 				url: string;
-				context: { action_id: 'stop_generation' };
+				context: { action_id: 'stop_generation'; token: string };
 			};
 		},
 	];
@@ -20,7 +20,7 @@ export type MattermostAnswerPatchBody = {
 	};
 };
 
-export function createMattermostStopAttachment(callbackUrl: string): MattermostStopAttachment {
+export function createMattermostStopAttachment(callbackUrl: string, token: string): MattermostStopAttachment {
 	return {
 		color: '#522bff',
 		actions: [
@@ -30,7 +30,7 @@ export function createMattermostStopAttachment(callbackUrl: string): MattermostS
 				type: 'button',
 				integration: {
 					url: callbackUrl,
-					context: { action_id: 'stop_generation' },
+					context: { action_id: 'stop_generation', token },
 				},
 			},
 		],

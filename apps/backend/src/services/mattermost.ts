@@ -6,6 +6,7 @@ import { Chat, deriveChannelId, type Logger as ChatLogger, Message, Thread, Thre
 import { createMattermostAdapter, type MattermostAdapter } from 'chat-adapter-mattermost';
 
 import { generateChartImage } from '../components/generate-chart';
+import type { User } from '../db/abstractSchema';
 import * as chatQueries from '../queries/chat.queries';
 import * as executeSqlQueries from '../queries/execute-sql.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
@@ -17,7 +18,7 @@ import { ConversationContext, StreamState, ToolCallEntry } from '../types/messag
 import { createChatTitle } from '../utils/ai';
 import { logger } from '../utils/logger';
 import { createMattermostActionSecret } from '../utils/mattermost-action-secret';
-import { parseMattermostLoginCommand } from '../utils/mattermost-login';
+import { getMattermostLoginCommandForUnlinkedUser } from '../utils/mattermost-login';
 import { resolveMattermostReactionFeedback } from '../utils/mattermost-reaction';
 import { type MattermostAuthorType, shouldHandleMattermostMessage } from '../utils/mattermost-reply';
 import { resolveMattermostSqlOutput } from '../utils/mattermost-sql-output';
@@ -33,8 +34,10 @@ import {
 } from '../utils/mattermost-table';
 import { type MattermostPostPlacement, resolveMattermostThreadId } from '../utils/mattermost-thread';
 import {
+	cacheMattermostEmail,
 	fetchMattermostUserEmail,
 	fetchMattermostUserProfile,
+	type MattermostEmailCache,
 	resolveMattermostAccount,
 } from '../utils/mattermost-user';
 import {
@@ -70,19 +73,17 @@ class ProjectMattermostBot {
 	private readonly _bot: Chat;
 	private readonly _adapter: MattermostAdapter;
 	private readonly _callbackUrl: string | undefined;
-	private readonly _emailByMattermostId: Map<string, string> = new Map();
+	private readonly _emailByMattermostId: MattermostEmailCache = new Map();
 	private readonly _isBotByMattermostId: Map<string, boolean> = new Map();
 	private readonly _answerPostMutations = new Map<string, Promise<void>>();
 	private readonly _answerPostStates = new Map<string, MattermostAnswerPostState>();
 
 	constructor(private readonly _config: MattermostConfig) {
-		const callbackToken = createMattermostActionSecret(_config.projectId);
 		this._callbackUrl = _config.interactiveButtonsEnabled
 			? getMessagingProviderWebhookUrl(
 					resolveMattermostCallbackBaseUrl(_config.callbackUrl, _config.redirectUrl),
 					'mattermost',
 					_config.projectId,
-					callbackToken,
 				)
 			: undefined;
 		this._adapter = createMattermostAdapter({
@@ -193,9 +194,7 @@ class ProjectMattermostBot {
 				return 'unknown';
 			}
 			this._isBotByMattermostId.set(mattermostId, profile.isBot);
-			if (profile.email) {
-				this._emailByMattermostId.set(mattermostId, profile.email.toLowerCase());
-			}
+			cacheMattermostEmail(this._emailByMattermostId, mattermostId, profile.email);
 			return profile.isBot ? 'bot' : 'human';
 		} catch (error) {
 			this._warnUnknownMattermostAuthor(String(error));
@@ -216,7 +215,8 @@ class ProjectMattermostBot {
 	private async _handleMessage(thread: Thread, message: Message): Promise<void> {
 		const resolvedThread = this._resolveMessageThread(thread, message);
 		message.text = message.text.replace(/(?:<at>[^<]*<\/at>|@\S+)\s*/g, '').trim();
-		const loginCommand = parseMattermostLoginCommand(message.text);
+		const linkedUser = await this._resolveLinkedUser(message);
+		const loginCommand = getMattermostLoginCommandForUnlinkedUser(message.text, Boolean(linkedUser));
 		if (loginCommand) {
 			await this._handleLoginCommand(resolvedThread, message, loginCommand.code);
 			return;
@@ -311,7 +311,7 @@ class ProjectMattermostBot {
 			return;
 		}
 
-		this._emailByMattermostId.set(mattermostId, user.email.toLowerCase());
+		cacheMattermostEmail(this._emailByMattermostId, mattermostId, user.email);
 		await thread.post(`✅ Linked to ${user.email}. You can now send messages to nao!`);
 	}
 
@@ -326,9 +326,23 @@ class ProjectMattermostBot {
 			throw new Error('Could not retrieve user identity from Mattermost');
 		}
 
-		let user = null;
+		const user = await this._resolveLinkedUser(ctx.userMessage);
+		if (!user) {
+			await ctx.thread.post(
+				'👋 I could not match your Mattermost email. Send `login <your-code>` to link manually. Find your code in project settings.',
+			);
+			throw new Error('User not linked');
+		}
+		ctx.user = user;
+	}
+
+	private async _resolveLinkedUser(message: Message): Promise<User | null> {
+		const mattermostId = this._getMattermostId(message);
+		if (!mattermostId) {
+			return null;
+		}
 		try {
-			user = await resolveMattermostAccount({
+			return await resolveMattermostAccount({
 				userId: mattermostId,
 				emailCache: this._emailByMattermostId,
 				fetchEmail: () =>
@@ -344,14 +358,8 @@ class ProjectMattermostBot {
 				source: 'system',
 				projectId: this._config.projectId,
 			});
+			return null;
 		}
-		if (!user) {
-			await ctx.thread.post(
-				'👋 I could not match your Mattermost email. Send `login <your-code>` to link manually. Find your code in project settings.',
-			);
-			throw new Error('User not linked');
-		}
-		ctx.user = user;
 	}
 
 	private async _checkUserBelongsToProject(ctx: MattermostConversationContext): Promise<void> {
@@ -769,7 +777,14 @@ class ProjectMattermostBot {
 				return;
 			}
 			const attachments =
-				state.stopAttached && this._callbackUrl ? [createMattermostStopAttachment(this._callbackUrl)] : [];
+				state.stopAttached && this._callbackUrl
+					? [
+							createMattermostStopAttachment(
+								this._callbackUrl,
+								createMattermostActionSecret(this._config.projectId, postId),
+							),
+						]
+					: [];
 			await patchMattermostAnswerPost({
 				baseUrl: this._config.baseUrl,
 				botToken: this._config.botToken,
@@ -832,7 +847,10 @@ class ProjectMattermostBot {
 		if (!feedback) {
 			return;
 		}
-		const messageId = await chatQueries.getAssistantMessageIdByMattermostPost(input.mattermostPostId);
+		const messageId = await chatQueries.getAssistantMessageIdByMattermostPost(
+			input.mattermostPostId,
+			this._config.projectId,
+		);
 		if (!messageId) {
 			return;
 		}

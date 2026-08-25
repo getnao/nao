@@ -9,3 +9,13 @@ export function parseMattermostLoginCommand(text: string): MattermostLoginComman
 	}
 	return { code: match[1]?.trim() ?? '' };
 }
+
+export function getMattermostLoginCommandForUnlinkedUser(
+	text: string,
+	isAuthorLinked: boolean,
+): MattermostLoginCommand | null {
+	if (isAuthorLinked) {
+		return null;
+	}
+	return parseMattermostLoginCommand(text);
+}

@@ -741,11 +741,21 @@ export const attachMattermostPostToAssistant = async (
 	return updated.length > 0;
 };
 
-export const getAssistantMessageIdByMattermostPost = async (mattermostPostId: string): Promise<string | null> => {
+export const getAssistantMessageIdByMattermostPost = async (
+	mattermostPostId: string,
+	projectId: string,
+): Promise<string | null> => {
 	const [result] = await db
 		.select({ id: s.chatMessage.id })
 		.from(s.chatMessage)
-		.where(and(eq(s.chatMessage.mattermostPostId, mattermostPostId), eq(s.chatMessage.role, 'assistant')))
+		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
+		.where(
+			and(
+				eq(s.chatMessage.mattermostPostId, mattermostPostId),
+				eq(s.chatMessage.role, 'assistant'),
+				eq(s.chat.projectId, projectId),
+			),
+		)
 		.limit(1)
 		.execute();
 	return result?.id ?? null;
@@ -797,16 +807,6 @@ export const getChatByMattermostThread = async (threadId: string): Promise<{ id:
 
 export const attachMattermostThread = async (chatId: string, mattermostThreadId: string): Promise<void> => {
 	await db.update(s.chat).set({ mattermostThreadId }).where(eq(s.chat.id, chatId)).execute();
-};
-
-export const clearMattermostThread = async (threadId: string): Promise<boolean> => {
-	const result = await db
-		.update(s.chat)
-		.set({ mattermostThreadId: null })
-		.where(eq(s.chat.mattermostThreadId, threadId))
-		.returning({ id: s.chat.id })
-		.execute();
-	return result.length > 0;
 };
 
 export const getChatByWhatsappThread = async (threadId: string): Promise<{ id: string; title: string } | null> => {

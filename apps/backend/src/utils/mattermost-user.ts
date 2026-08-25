@@ -1,17 +1,44 @@
+const MISSING_EMAIL_CACHE_TTL_MS = 5 * 60 * 1000;
+
+export type MattermostEmailCacheEntry = {
+	email: string | null;
+	expiresAt: number;
+};
+
+export type MattermostEmailCache = Map<string, MattermostEmailCacheEntry>;
+
 export async function resolveMattermostAccount<T>(input: {
 	userId: string;
-	emailCache: Map<string, string>;
+	emailCache: MattermostEmailCache;
 	fetchEmail: () => Promise<string | null>;
 	findUser: (email: string) => Promise<T | null>;
+	now?: () => number;
 }): Promise<T | null> {
-	const cachedEmail = input.emailCache.get(input.userId);
-	const email = cachedEmail ?? (await input.fetchEmail());
+	const cachedEntry = input.emailCache.get(input.userId);
+	if (cachedEntry && cachedEntry.expiresAt > (input.now ?? Date.now)()) {
+		return cachedEntry.email ? input.findUser(cachedEntry.email) : null;
+	}
+
+	const email = await input.fetchEmail();
+	cacheMattermostEmail(input.emailCache, input.userId, email, (input.now ?? Date.now)());
 	if (!email) {
 		return null;
 	}
 	const normalizedEmail = email.toLowerCase();
-	input.emailCache.set(input.userId, normalizedEmail);
 	return input.findUser(normalizedEmail);
+}
+
+export function cacheMattermostEmail(
+	emailCache: MattermostEmailCache,
+	userId: string,
+	email: string | null,
+	now = Date.now(),
+): void {
+	const normalizedEmail = email ? email.toLowerCase() : null;
+	emailCache.set(userId, {
+		email: normalizedEmail,
+		expiresAt: normalizedEmail ? Number.POSITIVE_INFINITY : now + MISSING_EMAIL_CACHE_TTL_MS,
+	});
 }
 
 export async function fetchMattermostUserEmail(input: {

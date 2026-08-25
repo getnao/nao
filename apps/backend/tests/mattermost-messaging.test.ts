@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { generateChartImage } from '../src/components/generate-chart';
 import { createMattermostActionSecret, verifyMattermostActionSecret } from '../src/utils/mattermost-action-secret';
 import { createMattermostCallbackResponse, MATTERMOST_CALLBACK_CONTENT_TYPE } from '../src/utils/mattermost-callback';
-import { parseMattermostLoginCommand } from '../src/utils/mattermost-login';
+import { getMattermostLoginCommandForUnlinkedUser, parseMattermostLoginCommand } from '../src/utils/mattermost-login';
 import { resolveMattermostReactionFeedback } from '../src/utils/mattermost-reaction';
 import { shouldHandleMattermostMessage } from '../src/utils/mattermost-reply';
 import { resolveMattermostSqlOutput } from '../src/utils/mattermost-sql-output';
@@ -20,8 +20,16 @@ import {
 	truncateMattermostMarkdown,
 } from '../src/utils/mattermost-table';
 import { resolveMattermostThreadId } from '../src/utils/mattermost-thread';
-import { resolveMattermostAccount } from '../src/utils/mattermost-user';
-import { createMattermostAnswerMessage, resolveMattermostCallbackBaseUrl } from '../src/utils/messaging-provider';
+import {
+	cacheMattermostEmail,
+	type MattermostEmailCacheEntry,
+	resolveMattermostAccount,
+} from '../src/utils/mattermost-user';
+import {
+	createMattermostAnswerMessage,
+	getMessagingProviderWebhookUrl,
+	resolveMattermostCallbackBaseUrl,
+} from '../src/utils/messaging-provider';
 
 vi.mock('../src/queries/project.queries', () => ({}));
 vi.mock('../src/utils/logger', () => ({
@@ -47,6 +55,17 @@ describe('parseMattermostLoginCommand', () => {
 	it('does not treat ordinary messages as login commands', () => {
 		expect(parseMattermostLoginCommand('please login abc-123')).toBeNull();
 		expect(parseMattermostLoginCommand('logins abc-123')).toBeNull();
+	});
+});
+
+describe('getMattermostLoginCommandForUnlinkedUser', () => {
+	it('returns login commands for unlinked authors', () => {
+		expect(getMattermostLoginCommandForUnlinkedUser('login abc-123', false)).toEqual({ code: 'abc-123' });
+	});
+
+	it('ignores login-like messages from linked authors', () => {
+		expect(getMattermostLoginCommandForUnlinkedUser('login abc-123', true)).toBeNull();
+		expect(getMattermostLoginCommandForUnlinkedUser('login is broken for everyone', true)).toBeNull();
 	});
 });
 
@@ -146,8 +165,9 @@ describe('shouldHandleMattermostMessage', () => {
 
 describe('Mattermost answer rendering', () => {
 	it('builds and clears the Stop attachment', () => {
-		const callbackUrl = 'https://nao.example/api/webhooks/mattermost/project/token';
-		const attachment = createMattermostStopAttachment(callbackUrl);
+		const callbackUrl = 'https://nao.example/api/webhooks/mattermost/project';
+		const token = 'callback-token';
+		const attachment = createMattermostStopAttachment(callbackUrl, token);
 		const baseProps = getMattermostPostBaseProps({
 			id: 'post-1',
 			props: { from_bot: 'true', existing: true },
@@ -170,7 +190,7 @@ describe('Mattermost answer rendering', () => {
 								type: 'button',
 								integration: {
 									url: callbackUrl,
-									context: { action_id: 'stop_generation' },
+									context: { action_id: 'stop_generation', token },
 								},
 							},
 						],
@@ -196,7 +216,7 @@ describe('Mattermost answer rendering', () => {
 			postId: 'post-1',
 			message: 'Streaming answer',
 			baseProps: { from_bot: 'true' },
-			attachments: [createMattermostStopAttachment('https://nao.example/callback')],
+			attachments: [createMattermostStopAttachment('https://nao.example/callback', 'callback-token')],
 			fetchImpl,
 		});
 
@@ -376,7 +396,7 @@ describe('Mattermost reaction feedback', () => {
 
 describe('Mattermost account resolution', () => {
 	it('matches a nao user from the Mattermost email and caches it', async () => {
-		const emailCache = new Map<string, string>();
+		const emailCache = new Map<string, MattermostEmailCacheEntry>();
 		const findUser = vi.fn(async (email: string) => ({ email }));
 		const result = await resolveMattermostAccount({
 			userId: 'mattermost-user',
@@ -386,7 +406,10 @@ describe('Mattermost account resolution', () => {
 		});
 
 		expect(result).toEqual({ email: 'user@example.com' });
-		expect(emailCache.get('mattermost-user')).toBe('user@example.com');
+		expect(emailCache.get('mattermost-user')).toEqual({
+			email: 'user@example.com',
+			expiresAt: Number.POSITIVE_INFINITY,
+		});
 		expect(findUser).toHaveBeenCalledWith('user@example.com');
 	});
 
@@ -403,6 +426,81 @@ describe('Mattermost account resolution', () => {
 		expect(findUser).not.toHaveBeenCalled();
 		expect(parseMattermostLoginCommand('login fallback-code')).toEqual({ code: 'fallback-code' });
 	});
+
+	it('caches a missing email', async () => {
+		const currentTime = 10_000;
+		const emailCache = new Map<string, MattermostEmailCacheEntry>();
+		const fetchEmail = vi.fn(async () => null);
+		const findUser = vi.fn(async (email: string) => ({ email }));
+		const input = {
+			userId: 'mattermost-user',
+			emailCache,
+			fetchEmail,
+			findUser,
+			now: () => currentTime,
+		};
+
+		expect(await resolveMattermostAccount(input)).toBeNull();
+		expect(await resolveMattermostAccount(input)).toBeNull();
+
+		expect(fetchEmail).toHaveBeenCalledTimes(1);
+		expect(findUser).not.toHaveBeenCalled();
+		expect(emailCache.get('mattermost-user')).toEqual({
+			email: null,
+			expiresAt: currentTime + 5 * 60 * 1000,
+		});
+	});
+
+	it('retries email resolution when a cached miss expires', async () => {
+		let currentTime = 10_000;
+		const emailCache = new Map<string, MattermostEmailCacheEntry>();
+		const fetchEmail = vi
+			.fn<() => Promise<string | null>>()
+			.mockResolvedValueOnce(null)
+			.mockResolvedValueOnce('Recovered@Example.com');
+		const findUser = vi.fn(async (email: string) => ({ email }));
+		const input = {
+			userId: 'mattermost-user',
+			emailCache,
+			fetchEmail,
+			findUser,
+			now: () => currentTime,
+		};
+
+		expect(await resolveMattermostAccount(input)).toBeNull();
+		currentTime += 5 * 60 * 1000;
+		expect(await resolveMattermostAccount(input)).toEqual({ email: 'recovered@example.com' });
+
+		expect(fetchEmail).toHaveBeenCalledTimes(2);
+		expect(emailCache.get('mattermost-user')).toEqual({
+			email: 'recovered@example.com',
+			expiresAt: Number.POSITIVE_INFINITY,
+		});
+	});
+
+	it('uses a successful email cached after a miss', async () => {
+		const currentTime = 10_000;
+		const emailCache = new Map<string, MattermostEmailCacheEntry>();
+		const fetchEmail = vi.fn(async () => null);
+		const findUser = vi.fn(async (email: string) => ({ email }));
+		const input = {
+			userId: 'mattermost-user',
+			emailCache,
+			fetchEmail,
+			findUser,
+			now: () => currentTime,
+		};
+
+		expect(await resolveMattermostAccount(input)).toBeNull();
+		cacheMattermostEmail(emailCache, 'mattermost-user', 'Manual@Example.com', currentTime);
+		expect(await resolveMattermostAccount(input)).toEqual({ email: 'manual@example.com' });
+
+		expect(fetchEmail).toHaveBeenCalledTimes(1);
+		expect(emailCache.get('mattermost-user')).toEqual({
+			email: 'manual@example.com',
+			expiresAt: Number.POSITIVE_INFINITY,
+		});
+	});
 });
 
 describe('Mattermost callback URL', () => {
@@ -415,6 +513,29 @@ describe('Mattermost callback URL', () => {
 	it('falls back to the browser URL', () => {
 		expect(resolveMattermostCallbackBaseUrl('', 'https://nao.example')).toBe('https://nao.example');
 	});
+
+	it.each([
+		['https://nao.example', 'https://nao.example/api/webhooks/mattermost/project-1'],
+		['https://nao.example/', 'https://nao.example/api/webhooks/mattermost/project-1'],
+		['https://nao.example/backend', 'https://nao.example/backend/api/webhooks/mattermost/project-1'],
+		['https://nao.example/backend/', 'https://nao.example/backend/api/webhooks/mattermost/project-1'],
+	])('builds the callback URL from %s', (baseUrl, expectedUrl) => {
+		expect(getMessagingProviderWebhookUrl(baseUrl, 'mattermost', 'project-1')).toBe(expectedUrl);
+	});
+
+	it('encodes the provider and project ID', () => {
+		expect(getMessagingProviderWebhookUrl('https://nao.example/backend', 'matter/most', 'project one')).toBe(
+			'https://nao.example/backend/api/webhooks/matter%2Fmost/project%20one',
+		);
+	});
+
+	it('does not include the action token in the callback URL', () => {
+		const token = createMattermostActionSecret('project-1', 'post-1');
+		const callbackUrl = getMessagingProviderWebhookUrl('https://nao.example', 'mattermost', 'project-1');
+
+		expect(callbackUrl).toBe('https://nao.example/api/webhooks/mattermost/project-1');
+		expect(callbackUrl).not.toContain(token);
+	});
 });
 
 describe('Mattermost callback response', () => {
@@ -425,10 +546,11 @@ describe('Mattermost callback response', () => {
 });
 
 describe('Mattermost action secrets', () => {
-	it('accepts only the secret derived for the callback project', () => {
-		const secret = createMattermostActionSecret('project-1');
-		expect(verifyMattermostActionSecret('project-1', secret)).toBe(true);
-		expect(verifyMattermostActionSecret('project-2', secret)).toBe(false);
-		expect(verifyMattermostActionSecret('project-1', 'invalid')).toBe(false);
+	it('accepts only the secret derived for the callback project and post', () => {
+		const secret = createMattermostActionSecret('project-1', 'post-1');
+		expect(verifyMattermostActionSecret('project-1', 'post-1', secret)).toBe(true);
+		expect(verifyMattermostActionSecret('project-2', 'post-1', secret)).toBe(false);
+		expect(verifyMattermostActionSecret('project-1', 'post-2', secret)).toBe(false);
+		expect(verifyMattermostActionSecret('project-1', 'post-1', 'invalid')).toBe(false);
 	});
 });

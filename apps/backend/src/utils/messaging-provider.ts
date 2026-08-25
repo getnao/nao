@@ -210,16 +210,13 @@ export const createPlainTextBlock = (text: string): CardChild => {
 	return CardText(stripMarkdown(text));
 };
 
-export const getMessagingProviderWebhookUrl = (
-	baseUrl: string,
-	provider: string,
-	projectId: string,
-	token?: string,
-): string =>
-	new URL(
-		`/api/webhooks/${encodeURIComponent(provider)}/${encodeURIComponent(projectId)}${token ? `/${encodeURIComponent(token)}` : ''}`,
-		baseUrl,
+export const getMessagingProviderWebhookUrl = (baseUrl: string, provider: string, projectId: string): string => {
+	const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+	return new URL(
+		`api/webhooks/${encodeURIComponent(provider)}/${encodeURIComponent(projectId)}`,
+		normalizedBaseUrl,
 	).toString();
+};
 
 export const resolveMattermostCallbackBaseUrl = (callbackUrl: string | undefined, fallbackUrl: string): string =>
 	callbackUrl?.trim() || fallbackUrl;

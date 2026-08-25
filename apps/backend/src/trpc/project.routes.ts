@@ -46,8 +46,6 @@ import {
 	getProjectAvailableModels,
 	getProjectConfigLlm,
 } from '../utils/llm';
-import { createMattermostActionSecret } from '../utils/mattermost-action-secret';
-import { getMessagingProviderWebhookUrl, resolveMattermostCallbackBaseUrl } from '../utils/messaging-provider';
 import { extractRequiredEnvVars } from '../utils/nao-config';
 import { findConfigLlmProvider } from '../utils/nao-config-llm';
 import { parseAndValidateGeoJson, safeFetch } from '../utils/safe-fetch';
@@ -582,7 +580,7 @@ export const projectRoutes = {
 
 	getMattermostConfig: projectProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
-			return { projectConfig: null, projectId: '', webhookUrl: '' };
+			return { projectConfig: null, projectId: '' };
 		}
 
 		const config = await mattermostConfigQueries.getProjectMattermostConfig(ctx.project.id);
@@ -599,12 +597,6 @@ export const projectRoutes = {
 		return {
 			projectConfig,
 			projectId: ctx.project.id,
-			webhookUrl: getMessagingProviderWebhookUrl(
-				resolveMattermostCallbackBaseUrl(config?.callbackUrl, env.BETTER_AUTH_URL || 'http://localhost:3000'),
-				'mattermost',
-				ctx.project.id,
-				createMattermostActionSecret(ctx.project.id),
-			),
 		};
 	}),
 
@@ -615,7 +607,7 @@ export const projectRoutes = {
 				botToken: z.string().min(1),
 				modelProvider: llmProviderSchema.optional(),
 				modelId: z.string().optional(),
-				interactiveButtonsEnabled: z.boolean().default(true),
+				interactiveButtonsEnabled: z.boolean().default(false),
 				callbackUrl: z.union([z.literal(''), httpUrlSchema]).optional(),
 			}),
 		)

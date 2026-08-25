@@ -6,9 +6,10 @@ import { createMattermostCallbackResponse, MATTERMOST_CALLBACK_CONTENT_TYPE } fr
 import { convertHeaders } from '../utils/utils';
 
 export const mattermostRoutes = async (app: App) => {
-	app.post('/:projectId/:token', async (request, reply) => {
-		const { projectId, token } = request.params as { projectId: string; token: string };
-		if (!verifyMattermostActionSecret(projectId, token)) {
+	app.post('/:projectId', async (request, reply) => {
+		const { projectId } = request.params as { projectId: string };
+		const { postId, token } = parseMattermostCallbackBody(request.body);
+		if (typeof postId !== 'string' || !verifyMattermostActionSecret(projectId, postId, token)) {
 			logger.warn('Rejected Mattermost callback', {
 				source: 'http',
 				projectId,
@@ -42,3 +43,14 @@ export const mattermostRoutes = async (app: App) => {
 			.send(createMattermostCallbackResponse());
 	});
 };
+
+function parseMattermostCallbackBody(body: unknown): { postId?: unknown; token?: unknown } {
+	if (!body || typeof body !== 'object' || Array.isArray(body)) {
+		return {};
+	}
+	const { context, post_id: postId } = body as Record<string, unknown>;
+	if (!context || typeof context !== 'object' || Array.isArray(context)) {
+		return { postId };
+	}
+	return { postId, token: (context as Record<string, unknown>).token };
+}
