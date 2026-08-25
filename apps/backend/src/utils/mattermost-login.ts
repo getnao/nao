@@ -3,11 +3,11 @@ export type MattermostLoginCommand = {
 };
 
 export function parseMattermostLoginCommand(text: string): MattermostLoginCommand | null {
-	const match = /^\s*\/?login(?:\s+(.+?))?\s*$/i.exec(text);
+	const match = /^\s*\/?login\s+([a-z0-9_-]{8})\s*$/i.exec(text);
 	if (!match) {
 		return null;
 	}
-	return { code: match[1]?.trim() ?? '' };
+	return { code: match[1].toLowerCase() };
 }
 
 export function getMattermostLoginCommandForUnlinkedUser(

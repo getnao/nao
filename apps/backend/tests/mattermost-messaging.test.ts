@@ -43,29 +43,43 @@ vi.mock('../src/utils/logger', () => ({
 
 describe('parseMattermostLoginCommand', () => {
 	it('parses a bare login command', () => {
-		expect(parseMattermostLoginCommand('login abc-123')).toEqual({ code: 'abc-123' });
-		expect(parseMattermostLoginCommand('  LoGiN   abc-123  ')).toEqual({ code: 'abc-123' });
+		expect(parseMattermostLoginCommand('login abc-1234')).toEqual({ code: 'abc-1234' });
+		expect(parseMattermostLoginCommand('  LoGiN   ABC-1234  ')).toEqual({ code: 'abc-1234' });
 	});
 
 	it('tolerates slash-prefixed login commands', () => {
-		expect(parseMattermostLoginCommand('/login abc-123')).toEqual({ code: 'abc-123' });
-		expect(parseMattermostLoginCommand(' /login   abc-123 ')).toEqual({ code: 'abc-123' });
+		expect(parseMattermostLoginCommand('/login abc-1234')).toEqual({ code: 'abc-1234' });
+		expect(parseMattermostLoginCommand(' /login   ABC-1234 ')).toEqual({ code: 'abc-1234' });
+	});
+
+	it('accepts linking codes with hyphens and underscores', () => {
+		expect(parseMattermostLoginCommand('login ab-c_123')).toEqual({ code: 'ab-c_123' });
 	});
 
 	it('does not treat ordinary messages as login commands', () => {
-		expect(parseMattermostLoginCommand('please login abc-123')).toBeNull();
-		expect(parseMattermostLoginCommand('logins abc-123')).toBeNull();
+		expect(parseMattermostLoginCommand('login to the system is broken')).toBeNull();
+		expect(parseMattermostLoginCommand('login is broken')).toBeNull();
+		expect(parseMattermostLoginCommand('please login abc-1234')).toBeNull();
+		expect(parseMattermostLoginCommand('logins abc-1234')).toBeNull();
+	});
+
+	it('rejects malformed, short, long, or extended linking codes', () => {
+		expect(parseMattermostLoginCommand('login')).toBeNull();
+		expect(parseMattermostLoginCommand('login abc-123')).toBeNull();
+		expect(parseMattermostLoginCommand('login abc-12345')).toBeNull();
+		expect(parseMattermostLoginCommand('login abc.1234')).toBeNull();
+		expect(parseMattermostLoginCommand('login abc-1234 extra')).toBeNull();
 	});
 });
 
 describe('getMattermostLoginCommandForUnlinkedUser', () => {
 	it('returns login commands for unlinked authors', () => {
-		expect(getMattermostLoginCommandForUnlinkedUser('login abc-123', false)).toEqual({ code: 'abc-123' });
+		expect(getMattermostLoginCommandForUnlinkedUser('login ABC-1234', false)).toEqual({ code: 'abc-1234' });
 	});
 
 	it('ignores login-like messages from linked authors', () => {
-		expect(getMattermostLoginCommandForUnlinkedUser('login abc-123', true)).toBeNull();
-		expect(getMattermostLoginCommandForUnlinkedUser('login is broken for everyone', true)).toBeNull();
+		expect(getMattermostLoginCommandForUnlinkedUser('login abc-1234', true)).toBeNull();
+		expect(getMattermostLoginCommandForUnlinkedUser('login is broken', true)).toBeNull();
 	});
 });
 
@@ -424,7 +438,7 @@ describe('Mattermost account resolution', () => {
 
 		expect(result).toBeNull();
 		expect(findUser).not.toHaveBeenCalled();
-		expect(parseMattermostLoginCommand('login fallback-code')).toEqual({ code: 'fallback-code' });
+		expect(parseMattermostLoginCommand('login fallbak1')).toEqual({ code: 'fallbak1' });
 	});
 
 	it('caches a missing email', async () => {
