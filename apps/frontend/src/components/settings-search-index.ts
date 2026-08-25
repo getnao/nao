@@ -499,7 +499,18 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		section: 'nao MCP',
 		title: 'MCP Server Endpoint',
 		description: 'Allow external AI clients to connect to this workspace via MCP.',
-		keywords: ['model context protocol', 'claude desktop', 'cursor', 'external', 'api', 'bearer'],
+		keywords: [
+			'model context protocol',
+			'claude desktop',
+			'cursor',
+			'external',
+			'api',
+			'bearer',
+			'nao mcp',
+			'naomcp',
+			'nao-mcp',
+			'mcp endpoint',
+		],
 	},
 	{
 		page: '/settings/project/integrations',
@@ -807,7 +818,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'License',
 		description: 'View the status of your nao Enterprise license.',
 		keywords: ['enterprise', 'license', 'subscription', 'activation', 'sso', 'nao_license', 'ee'],
-		adminOnly: true,
 		cloudHidden: true,
 	},
 	{
@@ -816,7 +826,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Enterprise feature overview',
 		description: 'See what Enterprise includes and which features your license unlocks.',
 		keywords: ['enterprise', 'license', 'upgrade', 'pricing', 'plan', 'sso', 'white label', 'budget', 'projects'],
-		adminOnly: true,
 		cloudHidden: true,
 	},
 
