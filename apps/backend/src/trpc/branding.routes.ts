@@ -39,8 +39,7 @@ const assetKindSchema = z.enum(['logo', 'favicon']);
 
 function normalizeAssetData(b64: string): string {
 	const normalizedBase64 = b64.replace(/\s/g, '');
-	const paddingLength = normalizedBase64.match(/=+$/)?.[0].length ?? 0;
-	const decodedBytes = Math.max(0, Math.floor((normalizedBase64.length * 3) / 4) - paddingLength);
+	const decodedBytes = Buffer.from(normalizedBase64, 'base64').length;
 	if (decodedBytes === 0) {
 		throw new TRPCError({
 			code: 'BAD_REQUEST',
