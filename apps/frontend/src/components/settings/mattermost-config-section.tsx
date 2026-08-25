@@ -4,7 +4,6 @@ import { Pencil, Trash2 } from 'lucide-react';
 import { MattermostForm } from './mattermost-form';
 import type { MattermostFormValues } from './mattermost-form';
 import { Button } from '@/components/ui/button';
-import { CopyableUrl } from '@/components/ui/copyable-url';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { SettingsCard } from '@/components/ui/settings-card';
@@ -24,7 +23,6 @@ export function MattermostConfigSection({ isAdmin }: MattermostConfigSectionProp
 	const [selectedModel, setSelectedModel] = useState<AvailableModel | null>(null);
 
 	const projectConfig = mattermostConfig.data?.projectConfig;
-	const webhookUrl = mattermostConfig.data?.webhookUrl ?? '';
 
 	useEffect(() => {
 		if (!availableModels || availableModels.length === 0) {
@@ -139,15 +137,6 @@ export function MattermostConfigSection({ isAdmin }: MattermostConfigSectionProp
 					</div>
 				</div>
 			</SettingsCard>
-
-			{projectConfig.interactiveButtonsEnabled && webhookUrl && (
-				<SettingsCard
-					title='Interactive buttons URL'
-					description='Your Mattermost server must be able to reach this URL.'
-				>
-					<CopyableUrl url={webhookUrl} />
-				</SettingsCard>
-			)}
 
 			<SettingsCard title='Settings' description='Configure how the Mattermost bot behaves'>
 				<div className='grid gap-2'>

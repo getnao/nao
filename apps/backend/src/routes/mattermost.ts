@@ -2,6 +2,7 @@ import type { App } from '../app';
 import { mattermostService } from '../services/mattermost';
 import { logger } from '../utils/logger';
 import { verifyMattermostActionSecret } from '../utils/mattermost-action-secret';
+import { createMattermostCallbackResponse, MATTERMOST_CALLBACK_CONTENT_TYPE } from '../utils/mattermost-callback';
 import { convertHeaders } from '../utils/utils';
 
 export const mattermostRoutes = async (app: App) => {
@@ -13,7 +14,7 @@ export const mattermostRoutes = async (app: App) => {
 				projectId,
 				context: { reason: 'invalid-token' },
 			});
-			return reply.status(200).send('OK');
+			return reply.status(200).type(MATTERMOST_CALLBACK_CONTENT_TYPE).send(createMattermostCallbackResponse());
 		}
 
 		const adapter = mattermostService.getAdapter(projectId);
@@ -23,7 +24,7 @@ export const mattermostRoutes = async (app: App) => {
 				projectId,
 				context: { reason: 'adapter-not-running' },
 			});
-			return reply.status(200).send('OK');
+			return reply.status(200).type(MATTERMOST_CALLBACK_CONTENT_TYPE).send(createMattermostCallbackResponse());
 		}
 
 		const webRequest = new Request(`http://localhost${request.url}`, {
@@ -35,8 +36,9 @@ export const mattermostRoutes = async (app: App) => {
 			waitUntil: (task: Promise<unknown>) => task,
 		});
 
-		reply.status(response.status);
-		response.headers.forEach((value, key) => reply.header(key, value));
-		return reply.send(await response.text());
+		return reply
+			.status(response.status)
+			.type(MATTERMOST_CALLBACK_CONTENT_TYPE)
+			.send(createMattermostCallbackResponse());
 	});
 };

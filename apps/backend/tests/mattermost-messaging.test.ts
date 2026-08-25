@@ -1,16 +1,24 @@
 import { createMattermostAdapter } from 'chat-adapter-mattermost';
 import { describe, expect, it, vi } from 'vitest';
 
+import { generateChartImage } from '../src/components/generate-chart';
 import { createMattermostActionSecret, verifyMattermostActionSecret } from '../src/utils/mattermost-action-secret';
+import { createMattermostCallbackResponse, MATTERMOST_CALLBACK_CONTENT_TYPE } from '../src/utils/mattermost-callback';
 import { parseMattermostLoginCommand } from '../src/utils/mattermost-login';
 import { resolveMattermostReactionFeedback } from '../src/utils/mattermost-reaction';
 import { shouldHandleMattermostMessage } from '../src/utils/mattermost-reply';
+import { resolveMattermostSqlOutput } from '../src/utils/mattermost-sql-output';
 import {
 	buildMattermostAnswerPatchBody,
 	createMattermostStopAttachment,
 	getMattermostPostBaseProps,
 	patchMattermostAnswerPost,
 } from '../src/utils/mattermost-stop-action';
+import {
+	createMattermostMarkdownTable,
+	MATTERMOST_TABLE_ROW_LIMIT,
+	truncateMattermostMarkdown,
+} from '../src/utils/mattermost-table';
 import { resolveMattermostThreadId } from '../src/utils/mattermost-thread';
 import { resolveMattermostAccount } from '../src/utils/mattermost-user';
 import { createMattermostAnswerMessage, resolveMattermostCallbackBaseUrl } from '../src/utils/messaging-provider';
@@ -216,6 +224,138 @@ describe('Mattermost answer rendering', () => {
 	});
 });
 
+describe('createMattermostMarkdownTable', () => {
+	it('renders table headers, separators, and rows', () => {
+		expect(
+			createMattermostMarkdownTable({
+				title: 'Top customers',
+				rows: [{ customer: 'Acme', total: 42 }],
+			}),
+		).toBe('**Top customers**\n\n| customer | total |\n| --- | --- |\n| Acme | 42 |');
+	});
+
+	it('escapes pipes and newlines inside cells', () => {
+		expect(
+			createMattermostMarkdownTable({
+				title: 'Values',
+				rows: [{ value: 'first|second\nthird' }],
+			}),
+		).toContain('| first\\|second<br>third |');
+	});
+
+	it('caps rows and reports the omitted count', () => {
+		const rows = Array.from({ length: MATTERMOST_TABLE_ROW_LIMIT + 3 }, (_, index) => ({ row: index + 1 }));
+		const table = createMattermostMarkdownTable({ title: 'Rows', rows });
+
+		expect(table).toContain('_3 rows omitted. Open the full result in nao._');
+		expect(table).toContain(`| ${MATTERMOST_TABLE_ROW_LIMIT} |`);
+		expect(table).not.toContain(`| ${MATTERMOST_TABLE_ROW_LIMIT + 1} |`);
+		expect(table).toContain(`| ${MATTERMOST_TABLE_ROW_LIMIT} |\n\n_3 rows omitted.`);
+	});
+
+	it('does not emit trailing whitespace on table lines', () => {
+		const table = createMattermostMarkdownTable({
+			title: 'Values',
+			rows: [
+				{ first: 'one', second: 'two' },
+				{ first: 'three', second: 'four' },
+			],
+		});
+
+		expect(table?.split('\n').every((line) => !/[ \t]+$/.test(line))).toBe(true);
+	});
+
+	it('returns null when rows are missing or empty', () => {
+		expect(createMattermostMarkdownTable({ title: 'Empty', rows: undefined })).toBeNull();
+		expect(createMattermostMarkdownTable({ title: 'Empty', rows: [] })).toBeNull();
+	});
+
+	it('truncates oversized markdown on a complete line with a visible note', () => {
+		const markdown = Array.from({ length: 20 }, (_, index) => `Line ${index}`).join('\n');
+		const truncated = truncateMattermostMarkdown(markdown, 100);
+
+		expect(truncated.length).toBeLessThanOrEqual(100);
+		expect(truncated).toContain('Response truncated. Open the full result in nao.');
+	});
+});
+
+describe('Mattermost chart images', () => {
+	it('renders date-axis charts from persisted ISO date strings', () => {
+		const image = generateChartImage({
+			config: {
+				chart_type: 'line',
+				x_axis_key: 'month',
+				x_axis_type: 'date',
+				series: [
+					{
+						data_key: 'revenue',
+						label: 'Revenue',
+						value_format: { d3_format: ',.2f', compact: 'financial', prefix: '$' },
+					},
+				],
+				title: 'Monthly Revenue Trend',
+			},
+			data: [
+				{ month: '2018-01-01T00:00:00', orders: 213, revenue: 3641.37, avg_order_value: 17.1 },
+				{ month: '2018-02-01T00:00:00', orders: 185, revenue: 3210.5, avg_order_value: 17.35 },
+				{ month: '2018-03-01T00:00:00', orders: 220, revenue: 4012.75, avg_order_value: 18.24 },
+			],
+		});
+
+		expect(image.byteLength).toBeGreaterThan(0);
+	});
+});
+
+describe('resolveMattermostSqlOutput', () => {
+	it('returns an in-stream result without loading persisted data', async () => {
+		const sqlOutput = { name: 'Current', rows: [{ value: 1 }] };
+		const loadPersisted = vi.fn(async () => null);
+		const result = await resolveMattermostSqlOutput({
+			queryId: 'query-1',
+			sqlOutputs: new Map([['query-1', sqlOutput]]),
+			loadPersisted,
+		});
+
+		expect(result).toBe(sqlOutput);
+		expect(loadPersisted).not.toHaveBeenCalled();
+	});
+
+	it('loads and caches a persisted result after an in-stream miss', async () => {
+		const persisted = { name: 'Persisted', rows: [{ value: 2 }] };
+		const sqlOutputs = new Map();
+		const loadPersisted = vi.fn(async () => persisted);
+		const first = await resolveMattermostSqlOutput({ queryId: 'query-2', sqlOutputs, loadPersisted });
+		const second = await resolveMattermostSqlOutput({ queryId: 'query-2', sqlOutputs, loadPersisted });
+
+		expect(first).toBe(persisted);
+		expect(second).toBe(persisted);
+		expect(sqlOutputs.get('query-2')).toBe(persisted);
+		expect(loadPersisted).toHaveBeenCalledOnce();
+	});
+
+	it('returns nothing when in-stream and persisted results are missing', async () => {
+		await expect(
+			resolveMattermostSqlOutput({
+				queryId: 'missing',
+				sqlOutputs: new Map(),
+				loadPersisted: vi.fn(async () => null),
+			}),
+		).resolves.toBeUndefined();
+	});
+
+	it('returns nothing when the persisted lookup fails', async () => {
+		await expect(
+			resolveMattermostSqlOutput({
+				queryId: 'failed',
+				sqlOutputs: new Map(),
+				loadPersisted: vi.fn(async () => {
+					throw new Error('database unavailable');
+				}),
+			}),
+		).resolves.toBeUndefined();
+	});
+});
+
 describe('Mattermost reaction feedback', () => {
 	it('maps added and removed feedback reactions', () => {
 		expect(resolveMattermostReactionFeedback({ added: true, emojiName: 'thumbs_up', isBot: false })).toEqual({
@@ -274,6 +414,13 @@ describe('Mattermost callback URL', () => {
 
 	it('falls back to the browser URL', () => {
 		expect(resolveMattermostCallbackBaseUrl('', 'https://nao.example')).toBe('https://nao.example');
+	});
+});
+
+describe('Mattermost callback response', () => {
+	it('returns JSON that Mattermost can parse', () => {
+		expect(MATTERMOST_CALLBACK_CONTENT_TYPE).toBe('application/json');
+		expect(JSON.stringify(createMattermostCallbackResponse())).toBe('{}');
 	});
 });
 

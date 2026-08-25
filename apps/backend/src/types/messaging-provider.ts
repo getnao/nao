@@ -16,7 +16,7 @@ export type ConversationContext = {
 	timezone: string | undefined;
 };
 
-type SqlOutput = {
+export type SqlOutput = {
 	name: string | null;
 	rows: Record<string, unknown>[];
 };

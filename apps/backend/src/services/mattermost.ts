@@ -7,6 +7,7 @@ import { createMattermostAdapter, type MattermostAdapter } from 'chat-adapter-ma
 
 import { generateChartImage } from '../components/generate-chart';
 import * as chatQueries from '../queries/chat.queries';
+import * as executeSqlQueries from '../queries/execute-sql.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
 import * as projectQueries from '../queries/project.queries';
 import { listProjectsWithMattermostEnabled, type MattermostConfig } from '../queries/project-mattermost-config.queries';
@@ -19,11 +20,17 @@ import { createMattermostActionSecret } from '../utils/mattermost-action-secret'
 import { parseMattermostLoginCommand } from '../utils/mattermost-login';
 import { resolveMattermostReactionFeedback } from '../utils/mattermost-reaction';
 import { type MattermostAuthorType, shouldHandleMattermostMessage } from '../utils/mattermost-reply';
+import { resolveMattermostSqlOutput } from '../utils/mattermost-sql-output';
 import {
 	createMattermostStopAttachment,
 	getMattermostPostBaseProps,
 	patchMattermostAnswerPost,
 } from '../utils/mattermost-stop-action';
+import {
+	createMattermostMarkdownTable,
+	MATTERMOST_POST_MAX_LENGTH,
+	truncateMattermostMarkdown,
+} from '../utils/mattermost-table';
 import { type MattermostPostPlacement, resolveMattermostThreadId } from '../utils/mattermost-thread';
 import {
 	fetchMattermostUserEmail,
@@ -444,6 +451,16 @@ class ProjectMattermostBot {
 		let lastMessage: UIMessage | null = null;
 
 		for await (const uiMessage of readUIMessageStream<UIMessage>({ stream })) {
+			for (const sqlPart of uiMessage.parts) {
+				if (sqlPart.type === 'tool-execute_sql') {
+					this._handleSqlPart(sqlPart, state);
+				}
+			}
+			for (const chartPart of uiMessage.parts) {
+				if (chartPart.type === 'tool-display_chart') {
+					await this._handleChartPart(chartPart, state, ctx);
+				}
+			}
 			const part = uiMessage.parts[uiMessage.parts.length - 1];
 			if (!part) {
 				continue;
@@ -458,10 +475,6 @@ class ProjectMattermostBot {
 			if (part.type === 'text') {
 				this._flushToolGroup(state, ctx);
 				await this._handleTextPart(part, state, ctx);
-			} else if (part.type === 'tool-execute_sql') {
-				this._handleSqlPart(part, state);
-			} else if (part.type === 'tool-display_chart') {
-				await this._handleChartPart(part, state, ctx);
 			} else if (part.type === 'tool-display_map') {
 				await this._handleMapPart(part, state, ctx);
 			} else if (part.type === 'tool-clarification') {
@@ -479,7 +492,12 @@ class ProjectMattermostBot {
 		if (!answerMessage) {
 			return;
 		}
-		const message = createMattermostAnswerMessage(this._renderBody(ctx), chatUrl).markdown;
+		const linkLength = chatUrl ? createMattermostAnswerMessage('', chatUrl).markdown.length + 2 : 0;
+		const body = truncateMattermostMarkdown(
+			this._renderBody(ctx),
+			Math.max(MATTERMOST_POST_MAX_LENGTH - linkLength, 0),
+		);
+		const message = createMattermostAnswerMessage(body, chatUrl).markdown;
 		await this._patchAnswerPost(answerMessage.id, (state) => {
 			state.message = message;
 		});
@@ -519,6 +537,31 @@ class ProjectMattermostBot {
 		}
 	}
 
+	private async _resolveSqlOutput(queryId: string, chatId: string, state: StreamState) {
+		const sqlOutput = await resolveMattermostSqlOutput({
+			queryId,
+			sqlOutputs: state.sqlOutputs,
+			loadPersisted: async (persistedQueryId) => {
+				const persisted = await executeSqlQueries.getExecuteSqlPartByQueryIdInChat(chatId, persistedQueryId);
+				if (!persisted?.toolOutput.data) {
+					return null;
+				}
+				return {
+					name: persisted.toolInput.name ?? null,
+					rows: persisted.toolOutput.data,
+				};
+			},
+		});
+		if (!sqlOutput) {
+			logger.warn(`Could not resolve SQL output for Mattermost query ${queryId}`, {
+				source: 'system',
+				projectId: this._config.projectId,
+				context: { chatId, queryId },
+			});
+		}
+		return sqlOutput;
+	}
+
 	private async _handleChartPart(
 		part: Extract<UIMessagePart, { type: 'tool-display_chart' }>,
 		state: StreamState,
@@ -527,11 +570,22 @@ class ProjectMattermostBot {
 		if (part.state !== 'output-available' || state.renderedToolCallIds.has(part.toolCallId)) {
 			return;
 		}
-		if (!part.output?.success || displayChart.isTableInput(part.input)) {
+		if (!part.output?.success) {
 			return;
 		}
-		const sqlOutput = state.sqlOutputs.get(part.input.query_id);
+		const sqlOutput = await this._resolveSqlOutput(part.input.query_id, ctx.chatId, state);
 		if (!sqlOutput) {
+			return;
+		}
+		if (displayChart.isTableInput(part.input)) {
+			const table = createMattermostMarkdownTable({ title: part.input.title ?? 'Results', rows: sqlOutput.rows });
+			if (!table) {
+				return;
+			}
+			state.renderedToolCallIds.add(part.toolCallId);
+			ctx.answerTextPartIndex = -1;
+			ctx.bodyParts.push(table);
+			await this._editAnswerMessage(ctx);
 			return;
 		}
 		try {
@@ -549,10 +603,22 @@ class ProjectMattermostBot {
 			});
 			await this._editAnswerMessage(ctx);
 		} catch (error) {
-			logger.error(`Error generating Mattermost chart image: ${String(error)}`, {
+			logger.error(`Error rendering or posting Mattermost chart: ${String(error)}`, {
 				source: 'system',
 				projectId: this._config.projectId,
 			});
+			state.renderedToolCallIds.add(part.toolCallId);
+			ctx.answerTextPartIndex = -1;
+			const chatUrl = new URL(ctx.chatId, this._config.redirectUrl).toString();
+			ctx.bodyParts.push(`⚠️ This chart couldn't be rendered in Mattermost. [Open it in nao](${chatUrl}).`);
+			try {
+				await this._editAnswerMessage(ctx);
+			} catch (editError) {
+				logger.error(`Error showing Mattermost chart failure: ${String(editError)}`, {
+					source: 'system',
+					projectId: this._config.projectId,
+				});
+			}
 		}
 	}
 

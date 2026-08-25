@@ -569,7 +569,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/mattermost',
 		pageLabel: 'Mattermost',
-		title: 'Linking Code',
+		title: 'Link manually',
 		description: 'Accounts link by email; use login <code> if Mattermost hides email addresses.',
 		keywords: ['link', 'login', 'mattermost', 'email'],
 	},
