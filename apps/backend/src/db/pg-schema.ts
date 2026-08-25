@@ -59,7 +59,13 @@ import { LLM_INFERENCE_TYPES, type ModelSettingsMap } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import { McpEndpointSettings } from '../types/mcp-endpoint';
 import { MEMORY_CATEGORIES } from '../types/memory';
-import { SlackSettings, TeamsSettings, TelegramSettings, WhatsappSettings } from '../types/messaging-provider';
+import {
+	MattermostSettings,
+	SlackSettings,
+	TeamsSettings,
+	TelegramSettings,
+	WhatsappSettings,
+} from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
 
 export const user = pgTable('user', {
@@ -205,6 +211,7 @@ export const project = pgTable(
 		slackSettings: jsonb('slack_settings').$type<SlackSettings>(),
 		teamsSettings: jsonb('teams_settings').$type<TeamsSettings>(),
 		telegramSettings: jsonb('telegram_settings').$type<TelegramSettings>(),
+		mattermostSettings: jsonb('mattermost_settings').$type<MattermostSettings>(),
 		whatsappSettings: jsonb('whatsapp_settings').$type<WhatsappSettings>(),
 		mcpEndpointSettings: jsonb('mcp_endpoint_settings').$type<McpEndpointSettings>(),
 		displaySettings: jsonb('display_settings').$type<DisplaySettings>(),
@@ -263,6 +270,7 @@ export const chat = pgTable(
 		slackThreadId: text('slack_thread_id'),
 		teamsThreadId: text('teams_thread_id'),
 		telegramThreadId: text('telegram_thread_id'),
+		mattermostThreadId: text('mattermost_thread_id'),
 		whatsappThreadId: text('whatsapp_thread_id'),
 		forkMetadata: jsonb('fork_metadata').$type<ForkMetadata>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -277,6 +285,7 @@ export const chat = pgTable(
 		index('chat_slack_thread_idx').on(table.slackThreadId),
 		index('chat_teams_thread_idx').on(table.teamsThreadId),
 		index('chat_telegram_thread_idx').on(table.telegramThreadId),
+		index('chat_mattermost_thread_idx').on(table.mattermostThreadId),
 		index('chat_whatsapp_thread_idx').on(table.whatsappThreadId),
 	],
 );
@@ -298,6 +307,7 @@ export const chatMessage = pgTable(
 		supersededAt: timestamp('superseded_at'),
 		versionGroupId: text('version_group_id'),
 		source: text('source', { enum: MESSAGE_SOURCES }),
+		mattermostPostId: text('mattermost_post_id'),
 		isForked: boolean('isForked'),
 		citation: jsonb('citation').$type<CitationData>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -316,6 +326,7 @@ export const chatMessage = pgTable(
 		index('chat_message_chatId_idx').on(table.chatId),
 		index('chat_message_createdAt_idx').on(table.createdAt),
 		index('chat_message_versionGroupId_idx').on(table.versionGroupId),
+		uniqueIndex('chat_message_mattermostPostId_idx').on(table.mattermostPostId),
 	],
 );
 

@@ -15,6 +15,7 @@ import * as chatQueries from '../queries/chat.queries';
 import * as crQueries from '../queries/context-recommendation.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
+import * as mattermostConfigQueries from '../queries/project-mattermost-config.queries';
 import * as savedPromptQueries from '../queries/project-saved-prompt.queries';
 import * as slackConfigQueries from '../queries/project-slack-config.queries';
 import * as teamsConfigQueries from '../queries/project-teams-config.queries';
@@ -23,6 +24,7 @@ import * as whatsappConfigQueries from '../queries/project-whatsapp-config.queri
 import * as projectWhatsappLinkQueries from '../queries/project-whatsapp-link.queries';
 import * as userQueries from '../queries/user.queries';
 import { cleanupContextWorktree } from '../services/context-explorer-git.service';
+import { mattermostService } from '../services/mattermost';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { slackService } from '../services/slack';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
@@ -44,6 +46,8 @@ import {
 	getProjectAvailableModels,
 	getProjectConfigLlm,
 } from '../utils/llm';
+import { createMattermostActionSecret } from '../utils/mattermost-action-secret';
+import { getMessagingProviderWebhookUrl, resolveMattermostCallbackBaseUrl } from '../utils/messaging-provider';
 import { extractRequiredEnvVars } from '../utils/nao-config';
 import { findConfigLlmProvider } from '../utils/nao-config-llm';
 import { parseAndValidateGeoJson, safeFetch } from '../utils/safe-fetch';
@@ -75,6 +79,10 @@ const backgroundModelSettingsSchema = z.object({
 	mode: z.enum(['single', 'perCategory']),
 	single: backgroundModelSelectionSchema.optional(),
 	categories: backgroundModelCategoriesSchema.optional(),
+});
+
+const httpUrlSchema = z.url().refine((value) => ['http:', 'https:'].includes(new URL(value).protocol), {
+	message: 'Enter a valid HTTP or HTTPS URL',
 });
 
 async function validateBoundarySource(url: string): Promise<number> {
@@ -569,6 +577,96 @@ export const projectRoutes = {
 
 	deleteTelegramConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
 		await telegramConfigQueries.deleteProjectTelegramConfig(ctx.project.id);
+		return { success: true };
+	}),
+
+	getMattermostConfig: projectProtectedProcedure.query(async ({ ctx }) => {
+		if (!ctx.project) {
+			return { projectConfig: null, projectId: '', webhookUrl: '' };
+		}
+
+		const config = await mattermostConfigQueries.getProjectMattermostConfig(ctx.project.id);
+		const projectConfig = config
+			? {
+					baseUrl: config.baseUrl,
+					botTokenPreview: config.botToken.slice(0, 4) + '...' + config.botToken.slice(-4),
+					modelSelection: config.modelSelection,
+					interactiveButtonsEnabled: config.interactiveButtonsEnabled,
+					callbackUrl: config.callbackUrl ?? '',
+				}
+			: null;
+
+		return {
+			projectConfig,
+			projectId: ctx.project.id,
+			webhookUrl: getMessagingProviderWebhookUrl(
+				resolveMattermostCallbackBaseUrl(config?.callbackUrl, env.BETTER_AUTH_URL || 'http://localhost:3000'),
+				'mattermost',
+				ctx.project.id,
+				createMattermostActionSecret(ctx.project.id),
+			),
+		};
+	}),
+
+	upsertMattermostConfig: adminProtectedProcedure
+		.input(
+			z.object({
+				baseUrl: httpUrlSchema,
+				botToken: z.string().min(1),
+				modelProvider: llmProviderSchema.optional(),
+				modelId: z.string().optional(),
+				interactiveButtonsEnabled: z.boolean().default(true),
+				callbackUrl: z.union([z.literal(''), httpUrlSchema]).optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			const config = await mattermostConfigQueries.upsertProjectMattermostConfig({
+				projectId: ctx.project.id,
+				baseUrl: input.baseUrl,
+				botToken: input.botToken,
+				modelProvider: input.modelProvider,
+				modelId: input.modelId,
+				interactiveButtonsEnabled: input.interactiveButtonsEnabled,
+				callbackUrl: input.callbackUrl,
+			});
+			await mattermostService.syncProject(config, ctx.project.id);
+
+			posthog.capture(ctx.user.id, PostHogEvent.MattermostConfigured, {
+				project_id: ctx.project.id,
+				modelProvider: input.modelProvider,
+				modelId: input.modelId,
+				interactive_buttons_enabled: input.interactiveButtonsEnabled,
+			});
+
+			return {
+				baseUrl: config.baseUrl,
+				botTokenPreview: config.botToken.slice(0, 4) + '...' + config.botToken.slice(-4),
+				modelSelection: config.modelSelection,
+				interactiveButtonsEnabled: config.interactiveButtonsEnabled,
+				callbackUrl: config.callbackUrl ?? '',
+			};
+		}),
+
+	updateMattermostModelConfig: adminProtectedProcedure
+		.input(
+			z.object({
+				modelProvider: llmProviderSchema.optional(),
+				modelId: z.string().optional(),
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			await mattermostConfigQueries.updateProjectMattermostModel(
+				ctx.project.id,
+				input.modelProvider ?? null,
+				input.modelId ?? null,
+			);
+			const refreshedConfig = await mattermostConfigQueries.getProjectMattermostConfig(ctx.project.id);
+			await mattermostService.syncProject(refreshedConfig, ctx.project.id);
+		}),
+
+	deleteMattermostConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
+		await mattermostConfigQueries.deleteProjectMattermostConfig(ctx.project.id);
+		await mattermostService.stopProject(ctx.project.id);
 		return { success: true };
 	}),
 

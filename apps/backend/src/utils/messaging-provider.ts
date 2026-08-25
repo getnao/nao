@@ -1,6 +1,6 @@
 import { cardToBlockKit } from '@chat-adapter/slack';
 import { pluralize, stripAssistantTags, TOOL_LABELS } from '@nao/shared';
-import type { CardChild, CardElement, ModalElement } from 'chat';
+import type { CardChild, CardElement, ModalElement, PostableMarkdown } from 'chat';
 import { Actions, Button, Card, CardText, Image, LinkButton, Table } from 'chat';
 
 import { generateMapImage } from '../components/generate-map';
@@ -110,6 +110,15 @@ export const createTelegramCompletionCard = (chatUrl: string, vote?: 'up' | 'dow
 		],
 	});
 
+export const createMattermostAnswerMessage = (markdown: string, chatUrl?: string): PostableMarkdown => {
+	if (!chatUrl) {
+		return { markdown };
+	}
+	const body = markdown.trim();
+	const link = `**[Open in nao](${chatUrl})**`;
+	return { markdown: body ? `${body}\n\n${link}` : link };
+};
+
 export const createTextBlock = (text: string): CardChild => {
 	const rendered = mdToMrkdwn(text);
 	return CardText(rendered || text);
@@ -200,6 +209,20 @@ export async function renderMapImage(
 export const createPlainTextBlock = (text: string): CardChild => {
 	return CardText(stripMarkdown(text));
 };
+
+export const getMessagingProviderWebhookUrl = (
+	baseUrl: string,
+	provider: string,
+	projectId: string,
+	token?: string,
+): string =>
+	new URL(
+		`/api/webhooks/${encodeURIComponent(provider)}/${encodeURIComponent(projectId)}${token ? `/${encodeURIComponent(token)}` : ''}`,
+		baseUrl,
+	).toString();
+
+export const resolveMattermostCallbackBaseUrl = (callbackUrl: string | undefined, fallbackUrl: string): string =>
+	callbackUrl?.trim() || fallbackUrl;
 
 type MarkdownSegment = { type: 'text'; text: string } | { type: 'table'; headers: string[]; rows: string[][] };
 

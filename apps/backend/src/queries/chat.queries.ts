@@ -48,6 +48,7 @@ const sourcePlatformExpr = sql<SourcePlatform>`case
 	when ${s.chat.teamsThreadId} is not null then 'Teams'
 	when ${s.chat.whatsappThreadId} is not null then 'WhatsApp'
 	when ${s.chat.telegramThreadId} is not null then 'Telegram'
+	when ${s.chat.mattermostThreadId} is not null then 'Mattermost'
 	when exists(
 		select 1 from ${s.chatMessage}
 		where ${s.chatMessage.chatId} = ${s.chat.id}
@@ -727,6 +728,29 @@ export const getLastAssistantMessageId = async (chatId: string): Promise<string 
 	return result?.id ?? null;
 };
 
+export const attachMattermostPostToAssistant = async (
+	messageId: string,
+	mattermostPostId: string,
+): Promise<boolean> => {
+	const updated = await db
+		.update(s.chatMessage)
+		.set({ mattermostPostId })
+		.where(and(eq(s.chatMessage.id, messageId), eq(s.chatMessage.role, 'assistant')))
+		.returning({ id: s.chatMessage.id })
+		.execute();
+	return updated.length > 0;
+};
+
+export const getAssistantMessageIdByMattermostPost = async (mattermostPostId: string): Promise<string | null> => {
+	const [result] = await db
+		.select({ id: s.chatMessage.id })
+		.from(s.chatMessage)
+		.where(and(eq(s.chatMessage.mattermostPostId, mattermostPostId), eq(s.chatMessage.role, 'assistant')))
+		.limit(1)
+		.execute();
+	return result?.id ?? null;
+};
+
 export const getChatBySlackThread = async (threadId: string): Promise<{ id: string; title: string } | null> => {
 	const result = await db
 		.select({ id: s.chat.id, title: s.chat.title })
@@ -759,6 +783,30 @@ export const getChatByTelegramThread = async (threadId: string): Promise<{ id: s
 		.limit(1)
 		.execute();
 	return result.at(0) || null;
+};
+
+export const getChatByMattermostThread = async (threadId: string): Promise<{ id: string; title: string } | null> => {
+	const result = await db
+		.select({ id: s.chat.id, title: s.chat.title })
+		.from(s.chat)
+		.where(eq(s.chat.mattermostThreadId, threadId))
+		.limit(1)
+		.execute();
+	return result.at(0) || null;
+};
+
+export const attachMattermostThread = async (chatId: string, mattermostThreadId: string): Promise<void> => {
+	await db.update(s.chat).set({ mattermostThreadId }).where(eq(s.chat.id, chatId)).execute();
+};
+
+export const clearMattermostThread = async (threadId: string): Promise<boolean> => {
+	const result = await db
+		.update(s.chat)
+		.set({ mattermostThreadId: null })
+		.where(eq(s.chat.mattermostThreadId, threadId))
+		.returning({ id: s.chat.id })
+		.execute();
+	return result.length > 0;
 };
 
 export const getChatByWhatsappThread = async (threadId: string): Promise<{ id: string; title: string } | null> => {

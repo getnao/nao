@@ -558,6 +558,22 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['link', 'login', 'telegram'],
 	},
 
+	// ── Project > Mattermost ─────────────────────────────────
+	{
+		page: '/settings/project/mattermost',
+		pageLabel: 'Mattermost',
+		title: 'Mattermost Integration',
+		description: 'Configure the Mattermost server, bot token, callback URL, and bot behavior.',
+		keywords: ['mattermost bot', 'server url', 'bot token', 'callback url', 'model', 'stop button', 'messaging'],
+	},
+	{
+		page: '/settings/project/mattermost',
+		pageLabel: 'Mattermost',
+		title: 'Linking Code',
+		description: 'Accounts link by email; use login <code> if Mattermost hides email addresses.',
+		keywords: ['link', 'login', 'mattermost', 'email'],
+	},
+
 	// ── Project > WhatsApp ───────────────────────────────────
 	{
 		page: '/settings/project/whatsapp',

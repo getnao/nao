@@ -50,6 +50,7 @@ One file per surface:
 - `slack.md` — Slack Bot only.
 - `teams.md` — Microsoft Teams Bot only.
 - `telegram.md` — Telegram Bot only.
+- `mattermost.md` — Mattermost Bot only.
 - `whatsapp.md` — WhatsApp Bot only.
 - `automation.md` — scheduled automations only.
 
@@ -82,6 +83,17 @@ _SLACK_PROMPT_EXAMPLE = """<!--
   nao's built-in Slack prompt so you can extend the default instead of replacing
   it entirely. Add your own instructions around it, remove it to fully override,
   or delete this file to use nao's default Slack prompt unchanged. See README.md.
+-->
+
+{{ nao_prompt }}
+"""
+
+_MATTERMOST_PROMPT_EXAMPLE = """<!--
+  Mattermost Bot system prompt. The placeholder below is replaced at runtime
+  with nao's built-in Mattermost prompt so you can extend the default instead
+  of replacing it entirely. Add your own instructions around it, remove it to
+  fully override, or delete this file to use nao's default prompt unchanged.
+  See README.md.
 -->
 
 {{ nao_prompt }}
@@ -181,6 +193,7 @@ def create_empty_structure(project_path: Path) -> tuple[list[str], list[CreatedF
         CreatedFile(path=Path("RULES.md"), content=None),
         CreatedFile(path=Path("agent/prompts/README.md"), content=_PROMPTS_README),
         CreatedFile(path=Path("agent/prompts/slack.md"), content=_SLACK_PROMPT_EXAMPLE),
+        CreatedFile(path=Path("agent/prompts/mattermost.md"), content=_MATTERMOST_PROMPT_EXAMPLE),
         CreatedFile(path=Path(".naoignore"), content="templates/\n*.j2\ntests/\n"),
         CreatedFile(
             path=Path("tests/test_example.yml"),

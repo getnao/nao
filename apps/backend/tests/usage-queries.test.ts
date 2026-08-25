@@ -70,6 +70,7 @@ describe('usage query results', () => {
 			'slack',
 			'teams',
 			'telegram',
+			'mattermost',
 			'whatsapp',
 			'admin',
 			'mcp',
@@ -90,11 +91,12 @@ describe('usage query results', () => {
 		const record = records.find((item) => item.date === formatDate(now, 'day'));
 
 		expect(record).toMatchObject({
-			messageCount: 8,
+			messageCount: 9,
 			webMessageCount: 1,
 			slackMessageCount: 1,
 			teamsMessageCount: 1,
 			telegramMessageCount: 1,
+			mattermostMessageCount: 1,
 			whatsappMessageCount: 1,
 			adminMessageCount: 1,
 			mcpMessageCount: 1,

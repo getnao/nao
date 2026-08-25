@@ -213,6 +213,7 @@ const sourceLabels: Record<UsageSource, string> = {
 	slack: 'Slack',
 	teams: 'Teams',
 	telegram: 'Telegram',
+	mattermost: 'Mattermost',
 	whatsapp: 'WhatsApp',
 	admin: 'Admin mode',
 	mcp: 'MCP',
