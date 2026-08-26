@@ -76,7 +76,7 @@ export function StoryFilterBar({
 
 	return (
 		<div className='flex flex-col gap-2'>
-			<div className='flex flex-wrap items-end gap-3 rounded-lg border bg-muted/20 p-3'>
+			<div data-story-filter-bar='' className='flex flex-wrap items-end gap-3 rounded-lg border bg-muted/20 p-3'>
 				{filters.map((filter) => (
 					<StoryFilterControl
 						key={filter.id}

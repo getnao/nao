@@ -944,6 +944,20 @@ code.dollar:before {
 }
 
 /*
+ * The filter bar is a grouping, not a card.
+ *
+ * It ships with its own outline, so once cards stopped drawing one the filter
+ * block was the only outlined thing on the page - a heavy box around the
+ * controls while every chart floated free. The controls inside it keep their
+ * own borders; the container that holds them does not need one.
+ */
+[data-story-themed='true'] [data-story-filter-bar] {
+	border-color: transparent;
+	background: var(--panel);
+	box-shadow: none;
+}
+
+/*
  * An inverted block carries its own ink, so muted text inside it reads against
  * the dark ground rather than against the page it is sitting on.
  */
