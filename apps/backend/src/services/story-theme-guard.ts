@@ -15,6 +15,7 @@ import {
 	type StoryTheme,
 } from '@nao/shared/story-theme';
 import {
+	clampChroma,
 	contrastRatio,
 	deriveSeriesFromAccent,
 	desaturate,
@@ -27,6 +28,9 @@ import {
 	validateSeries,
 } from '@nao/shared/story-theme-contrast';
 import { z } from 'zod';
+
+/** How much hue text may keep: enough for a warm or cool grey, not a colour. */
+const INK_MAX_CHROMA = 0.025;
 
 export interface InferenceResult {
 	theme: StoryTheme;
@@ -141,6 +145,17 @@ export function applyGuards(
 	// The first cut validated ink against the card alone. Headings render on the
 	// page and filter chips on the sunken surface, so ink that passed against one
 	// could vanish against another.
+	// Text is not data. A trace of the brand's warmth or coolness is worth
+	// keeping, but the accent hue coming through turns labels, axis ticks and
+	// captions into brand-coloured text that fights everything around it.
+	for (const key of ['primary', 'secondary', 'muted'] as const) {
+		const neutral = clampChroma(theme.ink[key], INK_MAX_CHROMA);
+		if (neutral !== theme.ink[key]) {
+			theme.ink[key] = neutral;
+			notes.push(`ink.${key} carried too much of the brand hue for body text, so it was pulled back to neutral.`);
+		}
+	}
+
 	const allSurfaces = [theme.surfaces.page, theme.surfaces.card, theme.surfaces.sunken];
 	const defaultInk = pageIsDark
 		? { primary: '#f5f5f7', secondary: '#b7b9c4', muted: '#8a8d9c' }

@@ -65,6 +65,7 @@ export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 	const [tabIndex, setTabIndex] = useState(0);
 	const [selections, setSelections] = useState<Record<string, StoryFilterSelection>>({});
 	const [hovered, setHovered] = useState<number | null>(null);
+	const [lineHover, setLineHover] = useState<number | null>(null);
 
 	const instance = typeof selections.instance === 'string' ? selections.instance : 'All';
 	const visible = useMemo(
@@ -187,30 +188,98 @@ export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 
 					<div className='rounded-lg border bg-card p-3'>
 						<div className='mb-3 text-sm font-medium'>Trend</div>
-						<svg viewBox='0 0 280 80' className='h-24 w-full' role='img' aria-label='Example line chart'>
-							{[0, 20, 40, 60, 80].map((y) => (
-								<line
-									key={y}
-									x1='0'
-									x2='280'
-									y1={y}
-									y2={y}
-									stroke='var(--chart-grid)'
-									strokeWidth='1'
-								/>
-							))}
-							{visible.map((key, s2) => (
-								<polyline
-									key={key}
-									fill='none'
-									strokeWidth='2'
-									stroke={`var(--chart-${s2 + 1})`}
-									points={SERIES[key]
-										.map((v, i) => `${(i * 280) / (TICKS.length - 1)},${80 - (v / max) * 76}`)
-										.join(' ')}
-								/>
-							))}
-						</svg>
+						<div
+							className='relative'
+							onMouseLeave={() => setLineHover(null)}
+							onPointerMove={(e) => {
+								const box = e.currentTarget.getBoundingClientRect();
+								const ratio = (e.clientX - box.left) / box.width;
+								setLineHover(
+									Math.max(0, Math.min(TICKS.length - 1, Math.round(ratio * (TICKS.length - 1)))),
+								);
+							}}
+						>
+							{/*
+							 * preserveAspectRatio='none' so the plot fills the card. The default
+							 * ('meet') fits a 280x80 viewBox by height, which left the line
+							 * floating in the middle third of a much wider box. Strokes are
+							 * non-scaling so the horizontal stretch does not thicken them.
+							 */}
+							<svg
+								viewBox='0 0 280 80'
+								preserveAspectRatio='none'
+								className='h-24 w-full'
+								role='img'
+								aria-label='Example line chart'
+							>
+								{[0, 20, 40, 60, 80].map((y) => (
+									<line
+										key={y}
+										x1='0'
+										x2='280'
+										y1={y}
+										y2={y}
+										stroke='var(--chart-grid)'
+										strokeWidth='1'
+										vectorEffect='non-scaling-stroke'
+									/>
+								))}
+								{lineHover !== null && (
+									<line
+										x1={(lineHover * 280) / (TICKS.length - 1)}
+										x2={(lineHover * 280) / (TICKS.length - 1)}
+										y1='0'
+										y2='80'
+										stroke='var(--chart-grid)'
+										strokeWidth='1'
+										vectorEffect='non-scaling-stroke'
+									/>
+								)}
+								{visible.map((key, s2) => (
+									<polyline
+										key={key}
+										fill='none'
+										strokeWidth='2'
+										vectorEffect='non-scaling-stroke'
+										stroke={`var(--chart-${s2 + 1})`}
+										points={SERIES[key]
+											.map((v, i) => `${(i * 280) / (TICKS.length - 1)},${80 - (v / max) * 76}`)
+											.join(' ')}
+									/>
+								))}
+								{lineHover !== null &&
+									visible.map((key, s2) => (
+										<circle
+											key={key}
+											cx={(lineHover * 280) / (TICKS.length - 1)}
+											cy={80 - (SERIES[key][lineHover] / max) * 76}
+											r='3'
+											fill={`var(--chart-${s2 + 1})`}
+											stroke='var(--card)'
+											strokeWidth='1.5'
+											vectorEffect='non-scaling-stroke'
+										/>
+									))}
+							</svg>
+							{lineHover !== null && (
+								<div
+									className='pointer-events-none absolute top-0 z-10 -translate-x-1/2 rounded-md border bg-popover px-2.5 py-1.5 text-xs shadow-sm'
+									style={{ left: `${(lineHover / (TICKS.length - 1)) * 100}%` }}
+								>
+									<div className='font-medium'>{TICKS[lineHover]}</div>
+									{visible.map((key, s2) => (
+										<div key={key} className='mt-0.5 flex items-center gap-2'>
+											<span
+												className='size-2 shrink-0 rounded-[2px]'
+												style={{ background: `var(--chart-${s2 + 1})` }}
+											/>
+											<span className='text-muted-foreground'>{key}</span>
+											<span className='ml-auto font-medium'>{fmt(SERIES[key][lineHover])}</span>
+										</div>
+									))}
+								</div>
+							)}
+						</div>
 						{/* Legend, as ChartLegendContent renders it */}
 						<div className='mt-2 flex flex-wrap items-center justify-center gap-4 border-t pt-2'>
 							{visible.map((key, s2) => (

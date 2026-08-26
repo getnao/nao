@@ -492,6 +492,19 @@ function harmonicHue(anchor: number, index: number): number {
 }
 
 /**
+ * Pull most of the hue out of a colour, keeping a trace of it.
+ *
+ * Text is not data. A brand's ink is often very slightly warm or cool and that
+ * is worth keeping, but letting the accent hue through turns labels, axis ticks
+ * and captions into brand-coloured text, which reads as decoration and fights
+ * everything it sits next to.
+ */
+export function clampChroma(hex: string, max: number): string {
+	const oklch = hexToOklch(hex);
+	return oklch.c <= max ? hex : oklchToHex({ ...oklch, c: max });
+}
+
+/**
  * Strip a colour of its hue.
  *
  * Gridlines and hairlines are structure, not data. Painting them in a brand hue

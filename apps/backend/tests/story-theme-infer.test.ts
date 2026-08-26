@@ -393,3 +393,34 @@ describe('monochrome brands', () => {
 		expect(theme.charts.series).toEqual(['#522bff', '#288abb', '#c44310']);
 	});
 });
+
+describe('text stays neutral', () => {
+	it('pulls brand hue out of ink so labels are not brand-coloured text', () => {
+		const { theme, notes } = applyGuards(
+			proposal({ ink: { primary: '#2b0a52', secondary: '#6b3fd4', muted: '#8f6fe8' } }),
+		);
+		for (const key of ['primary', 'secondary', 'muted'] as const) {
+			expect(hexToOklch(theme.ink[key]).c, `ink.${key} still carries hue`).toBeLessThanOrEqual(0.026);
+		}
+		expect(notes.join(' ')).toMatch(/pulled back to neutral/);
+	});
+
+	it('keeps a warm or cool near-grey as the brand chose it', () => {
+		const warm = { primary: '#211d1a', secondary: '#4a443e', muted: '#82796f' };
+		const { theme } = applyGuards(proposal({ ink: warm }));
+		expect(theme.ink).toEqual(warm);
+	});
+
+	it('still guarantees ink is readable after neutralising', () => {
+		const { theme } = applyGuards(
+			proposal({
+				surfaces: { page: '#140309', card: '#140309', sunken: '#241018' },
+				ink: { primary: '#c9a6ff', secondary: '#a688e0', muted: '#8f6fe8' },
+			}),
+		);
+		for (const surface of [theme.surfaces.page, theme.surfaces.card, theme.surfaces.sunken]) {
+			expect(contrastRatio(theme.ink.primary, surface)).toBeGreaterThanOrEqual(4.5);
+			expect(contrastRatio(theme.ink.muted, surface)).toBeGreaterThanOrEqual(3);
+		}
+	});
+});
