@@ -38,6 +38,8 @@ export interface DesignSignals {
 	mode: ExtractionMode;
 	/** Present only in `rendered` mode: role-tagged computed styles. */
 	probe: ProbeResult | null;
+	/** The one or two colours that read as the brand, most salient first. */
+	brandCandidates: { color: string; chroma: number; sources: string[] }[];
 	title: string | null;
 	/** Declared `--*` custom properties whose value looks like a colour. */
 	customProperties: Record<string, string>;
@@ -150,6 +152,7 @@ export function signalsFromProbe(probe: ProbeResult, url: string): DesignSignals
 		mode: 'rendered',
 		probe,
 		title: probe.title,
+		brandCandidates: probe.brandCandidates.map((c) => ({ color: c.color, chroma: c.chroma, sources: c.sources })),
 		customProperties: probe.customProperties,
 		colors: probe.colors.map((c) => ({ hex: c.color, count: c.area, properties: c.properties })),
 		fontFamilies: probe.fonts.map((f) => ({ stack: f.family, count: f.loadable ? 2 : 1 })),
@@ -198,6 +201,7 @@ async function staticSignals(url: URL): Promise<DesignSignals> {
 		mode: 'static',
 		probe: null,
 		title,
+		brandCandidates: [],
 		customProperties,
 		colors,
 		fontFamilies,

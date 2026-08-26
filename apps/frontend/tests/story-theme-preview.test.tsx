@@ -3,6 +3,7 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { DEFAULT_STORY_THEME } from '@nao/shared/story-theme';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type * as ReactQuery from '@tanstack/react-query';
 
 import { StoryThemePreview } from '@/components/settings/story-theme-preview';
 
@@ -18,6 +19,7 @@ vi.mock('@/main', () => ({
 		story: {
 			getFilterOptions: { queryOptions: () => ({ queryKey: ['opts'], queryFn: async () => ({ options: [] }) }) },
 		},
+		analyticsEvent: { logChatDownload: { mutationOptions: () => ({ mutationFn: async () => undefined }) } },
 		storyShare: {
 			getFilterOptions: {
 				queryOptions: () => ({ queryKey: ['sharedOpts'], queryFn: async () => ({ options: [] }) }),
@@ -27,9 +29,12 @@ vi.mock('@/main', () => ({
 	queryClient: {},
 }));
 
+vi.mock('@/hooks/use-date-format', () => ({ useDateFormat: () => ({ preset: 'american' }) }));
+
 vi.mock('@tanstack/react-query', async (importOriginal) => ({
-	...(await importOriginal<typeof import('@tanstack/react-query')>()),
+	...(await importOriginal<typeof ReactQuery>()),
 	useQuery: () => ({ data: undefined, isPending: false, error: null }),
+	useMutation: () => ({ mutate: () => undefined, isPending: false }),
 }));
 
 afterEach(cleanup);
@@ -45,6 +50,12 @@ describe('StoryThemePreview', () => {
 		for (const country of ['United States', 'France', 'Spain', 'United Kingdom', 'India', 'Germany']) {
 			expect(screen.getAllByText(country).length, `${country} missing from the preview`).toBeGreaterThan(0);
 		}
+	});
+
+	it('includes a table, so table type and rules can be judged', () => {
+		render(<StoryThemePreview theme={DEFAULT_STORY_THEME} />);
+		expect(screen.getByText('Users by country')).toBeDefined();
+		expect(screen.getAllByText('Messages').length).toBeGreaterThan(0);
 	});
 
 	it('renders a themed brand without crashing', () => {

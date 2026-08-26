@@ -50,6 +50,16 @@ export interface ProbeResult {
 	surfaces: { color: string; area: number }[];
 	/** Colours weighted by how much of the page they actually paint. */
 	colors: { color: string; area: number; properties: string[] }[];
+	/**
+	 * The one or two colours that actually read as the brand.
+	 *
+	 * Area is the wrong signal for an accent. Black, white and greys dominate
+	 * every page, and a brand colour is by definition used sparingly: Sunday's
+	 * #ff17e9 came ninth by painted area behind two navies and a grey. These are
+	 * ranked by salience instead - saturation, whether the site declared them as
+	 * a token, and whether they are used on something interactive.
+	 */
+	brandCandidates: { color: string; chroma: number; score: number; sources: string[] }[];
 	radii: { px: number; count: number }[];
 	/** Families the page loaded, and whether we can load them too. */
 	fonts: { family: string; loadable: boolean }[];
@@ -104,6 +114,23 @@ function pageProbe(allowedFontHosts: string[]): ProbeResult {
 			)
 			.join('');
 		return `#${hex}`;
+	};
+
+	// OKLCH chroma, inline because the probe cannot import anything.
+	const chromaOf = (hex: string): number => {
+		const lin = (i: number) => {
+			const c = parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) / 255;
+			return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+		};
+		const r = lin(0);
+		const g = lin(1);
+		const b = lin(2);
+		const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+		const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+		const s2 = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+		const A = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s2;
+		const B = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s2;
+		return Math.hypot(A, B);
 	};
 
 	const luminance = (hex: string): number => {
@@ -225,20 +252,26 @@ function pageProbe(allowedFontHosts: string[]): ProbeResult {
 	const bodyText = [...sizeTally.values()].sort((a, b) => b.count - a.count)[0]?.el ?? null;
 
 	// Buttons: a filled one carries the accent, an outlined one the border style.
-	const clickable = all.filter(
-		(el) =>
+	// `cursor: pointer` catches the styled div-as-button that a marketing site
+	// very often uses, which is why Sunday's call to action was found at all.
+	const clickable = all.filter((el) => {
+		if (
 			el.tagName === 'BUTTON' ||
 			el.tagName === 'A' ||
 			el.getAttribute('role') === 'button' ||
-			/(^|\s)(btn|button|cta)(\s|$|-)/i.test(el.className || ''),
-	);
+			/(^|\s)(btn|button|cta)(\s|$|-)/i.test(el.className || '')
+		) {
+			return true;
+		}
+		return getComputedStyle(el).cursor === 'pointer';
+	});
 	let primaryButton: HTMLElement | null = null;
 	let secondaryButton: HTMLElement | null = null;
 	for (const el of clickable) {
 		const cs = getComputedStyle(el);
 		const bg = opaque(cs.backgroundColor);
 		const a = area(el);
-		if (a < 600 || a > 90_000) {
+		if (a < 400 || a > 140_000) {
 			continue;
 		}
 		if (bg && bg !== pageBg) {
@@ -327,6 +360,29 @@ function pageProbe(allowedFontHosts: string[]): ProbeResult {
 		}
 	}
 
+	// Colours used on something you can click. A brand puts its accent on the
+	// call to action long before it puts it anywhere else.
+	const interactiveColors = new Set<string>();
+	for (const el of all) {
+		const cs = getComputedStyle(el);
+		const isInteractive =
+			el.tagName === 'A' ||
+			el.tagName === 'BUTTON' ||
+			el.getAttribute('role') === 'button' ||
+			cs.cursor === 'pointer';
+		if (!isInteractive) {
+			continue;
+		}
+		const bg = opaque(cs.backgroundColor);
+		if (bg && bg !== pageBg) {
+			interactiveColors.add(bg);
+		}
+		const fg = opaque(cs.color);
+		if (fg) {
+			interactiveColors.add(fg);
+		}
+	}
+
 	// SVG marks often carry the brand colour and never appear as a background.
 	for (const el of Array.from(document.querySelectorAll('svg path, svg circle, svg rect')).slice(0, 400)) {
 		const cs = getComputedStyle(el);
@@ -386,6 +442,40 @@ function pageProbe(allowedFontHosts: string[]): ProbeResult {
 		}
 	}
 
+	/* --------------------------------------------- brand colour candidates */
+	const tokenColors = new Set(
+		Object.values(customProperties)
+			.map((v) => opaque(v) ?? '')
+			.filter(Boolean),
+	);
+	const brandCandidates = [...colorTally.entries()]
+		.map(([color, v]) => {
+			const chroma = chromaOf(color);
+			const sources: string[] = [];
+			if (tokenColors.has(color)) {
+				sources.push('design-token');
+			}
+			if (interactiveColors.has(color)) {
+				sources.push('interactive');
+			}
+			if (v.properties.has('fill') || v.properties.has('stroke')) {
+				sources.push('logo-or-icon');
+			}
+			// Saturation dominates. A declared token and use on something clickable
+			// each count for more than raw coverage, and area only breaks ties.
+			const score =
+				chroma * 100 +
+				(sources.includes('design-token') ? 45 : 0) +
+				(sources.includes('interactive') ? 40 : 0) +
+				(sources.includes('logo-or-icon') ? 20 : 0) +
+				Math.min(Math.log10(Math.max(v.area, 1)) * 4, 20);
+			return { color, chroma, score, sources };
+		})
+		// Greys, near-blacks and near-whites are chrome, never the brand colour.
+		.filter((c) => c.chroma >= 0.06)
+		.sort((a, b) => b.score - a.score)
+		.slice(0, 6);
+
 	const prefersDarkGround = luminance(pageBg) < 0.25;
 
 	return {
@@ -404,6 +494,7 @@ function pageProbe(allowedFontHosts: string[]): ProbeResult {
 			.map(([color, a]) => ({ color, area: Math.round(a) }))
 			.sort((x, y) => y.area - x.area)
 			.slice(0, 8),
+		brandCandidates,
 		colors: [...colorTally.entries()]
 			.map(([color, v]) => ({ color, area: Math.round(v.area), properties: [...v.properties] }))
 			.sort((x, y) => y.area - x.area)

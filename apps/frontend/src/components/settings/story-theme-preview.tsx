@@ -3,6 +3,7 @@ import type { ParsedFilterBlock } from '@nao/shared/story-segments';
 import type { StoryFilterSelection } from '@nao/shared/sql-template';
 import type { StoryTheme } from '@nao/shared/story-theme';
 
+import { DataTableCard } from '@/components/data-table-card';
 import { StoryFilterBar } from '@/components/story-filter-bar';
 import { StoryThemeProvider } from '@/components/story-theme-provider';
 import { StoryTabsBar } from '@/components/side-panel/story-tabs-bar';
@@ -32,6 +33,9 @@ const SERIES = {
  * to judge a palette: the colours that clash are usually further down the list.
  */
 const COUNTRIES = ['United States', 'France', 'Spain', 'United Kingdom', 'India', 'Germany'];
+
+/** Real DataTableCard input, so the preview shows nao's own table, not a mock-up. */
+const TABLE_COLUMNS = ['Country', 'Users', 'Messages', 'Share'];
 const BY_COUNTRY = [
 	[820, 910, 1180, 1010, 640, 1240, 890],
 	[610, 700, 940, 780, 520, 980, 720],
@@ -79,6 +83,7 @@ export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 	);
 	const totals = useMemo(() => TICKS.map((_, i) => visible.reduce((sum, key) => sum + SERIES[key][i], 0)), [visible]);
 	const max = Math.max(...totals, 1);
+	const tableTotal = BY_COUNTRY.reduce((sum, row) => sum + row.reduce((a, b) => a + b, 0), 0);
 	const countryMax = Math.max(...TICKS.map((_, i) => BY_COUNTRY.reduce((sum, row) => sum + row[i], 0)), 1);
 	const fmt = (n: number) => n.toLocaleString('en-US');
 
@@ -293,6 +298,19 @@ export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 							))}
 						</div>
 					</div>
+
+					{/* The real table component, so type and rules are themed like a story's */}
+					<DataTableCard
+						title='Users by country'
+						columns={TABLE_COLUMNS}
+						data={COUNTRIES.map((country, c) => ({
+							Country: country,
+							Users: BY_COUNTRY[c].reduce((a, b) => a + b, 0),
+							Messages: Math.round(BY_COUNTRY[c].reduce((a, b) => a + b, 0) * 2.4),
+							Share: `${((BY_COUNTRY[c].reduce((a, b) => a + b, 0) / tableTotal) * 100).toFixed(1)}%`,
+						}))}
+						maxRowsBeforePagination={10}
+					/>
 
 					<div className='flex flex-wrap gap-3'>
 						{theme.charts.series.map((c) => (

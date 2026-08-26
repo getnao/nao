@@ -19,6 +19,7 @@ import {
 	contrastRatio,
 	deriveSeriesFromAccent,
 	desaturate,
+	hexToOklch,
 	isDarkSurface,
 	readableInkFor,
 	separateSurface,
@@ -80,7 +81,7 @@ export const proposalSchema = z.object({
  */
 export function applyGuards(
 	proposal: z.infer<typeof proposalSchema>,
-	signals?: { warnings?: string[] },
+	signals?: { warnings?: string[]; brandCandidates?: { color: string; chroma: number }[] },
 	fontLinks: string[] = [],
 ): InferenceResult {
 	const notes: string[] = [...(signals?.warnings ?? [])];
@@ -169,6 +170,17 @@ export function applyGuards(
 			);
 			theme.ink[key] = defaultInk[key];
 		}
+	}
+
+	// A brand's accent is saturated by definition. If the model settled on a grey
+	// or a near-black while the page clearly carries a vivid colour, that colour
+	// is the accent and the model simply missed it.
+	const vivid = signals?.brandCandidates?.find((c) => c.chroma >= 0.1);
+	if (vivid && hexToOklch(theme.accent).c < 0.06) {
+		notes.push(
+			`The proposed accent had almost no colour in it, so ${vivid.color} was used: the page's own brand colour.`,
+		);
+		theme.accent = vivid.color;
 	}
 
 	// An accent that matches the card is not an accent.

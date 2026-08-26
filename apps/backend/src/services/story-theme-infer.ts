@@ -31,7 +31,14 @@ const SYSTEM_PROMPT = [
 	'',
 	'Rules:',
 	'- Every colour must be a 6-digit hex string like #1a2b3c.',
-	'- accent = the primary button background. accent must not equal surfaces.card.',
+	'- accent: when BRAND COLOUR CANDIDATES are listed, the accent is almost always',
+	'  the first one. That list is ranked by how much a colour behaves like a brand',
+	'  colour - how saturated it is, whether the site declared it as a token, and',
+	'  whether it is used on something clickable - because a brand colour is used',
+	'  sparingly and would never win on painted area. Only pass over the top',
+	'  candidate if it is plainly a status colour (an error red, a success green).',
+	'  Never pick a black, white or grey as the accent when a saturated candidate',
+	'  exists. accent must not equal surfaces.card.',
 	'- surfaces.page = the body/page ground. surfaces.card = the card ground.',
 	'  If the page is dark, the card is usually a slightly lifted dark, not white.',
 	'- shape.radius = the card radius in px. 0 is a valid, deliberate answer.',
@@ -111,6 +118,17 @@ function renderSignals(signals: DesignSignals): string {
 		`Extraction mode: ${signals.mode}${signals.mode === 'static' ? ' (stylesheet text only, weaker signal)' : ' (computed styles from the rendered page)'}`,
 		'',
 	];
+
+	if (signals.brandCandidates.length) {
+		parts.push(
+			'BRAND COLOUR CANDIDATES, most brand-like first:',
+			...signals.brandCandidates.map(
+				(c) =>
+					`  ${c.color}  saturation ${c.chroma.toFixed(2)}${c.sources.length ? `  [${c.sources.join(', ')}]` : ''}`,
+			),
+			'',
+		);
+	}
 
 	if (signals.probe) {
 		const { roles, surfaces, fonts } = signals.probe;

@@ -919,6 +919,15 @@ code.dollar:before {
 	font-family: var(--font-sans);
 }
 
+/*
+ * Tables opt into the body face explicitly. Several table cells and headers
+ * carry their own font utilities, which win over the inherited family, so a
+ * themed story ended up with brand type everywhere except its tables.
+ */
+[data-story-themed='true'] :is(table, th, td, thead, tbody) {
+	font-family: var(--font-sans);
+}
+
 [data-story-themed='true'] :is(h1, h2, h3, h4) {
 	font-family: var(--font-heading);
 	letter-spacing: var(--story-heading-tracking, -0.02em);
