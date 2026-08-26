@@ -113,6 +113,16 @@ export const storyTypographySchema = z.object({
 	headingTracking: z.number().min(-0.06).max(0.06),
 	/** Multiplier on the component type scale. Lets a dense brand stay dense. */
 	scale: z.number().min(0.85).max(1.25),
+	/**
+	 * Which face carries the numbers. An editorial brand sets its figures in the
+	 * display serif, and that single choice does more for recognition than any
+	 * colour: a KPI in Fraunces reads as a different product from one in Inter.
+	 */
+	figureFont: z.enum(['heading', 'body']),
+	/** How large KPI figures run, relative to body text. Editorial brands go big. */
+	figureScale: z.number().min(1).max(3.2),
+	/** Small labels: plain sentence case, or the uppercase tracked eyebrow. */
+	labelStyle: z.enum(['plain', 'uppercase-tracked']),
 });
 
 export const storyShapeSchema = z.object({
@@ -124,6 +134,22 @@ export const storyShapeSchema = z.object({
 	elevation: z.enum(['flat', 'bordered', 'shadowed']),
 	/** Filter controls: brands are usually clearly one or the other. */
 	controlShape: z.enum(['pill', 'rounded', 'square']),
+});
+
+export const storyLayoutSchema = z.object({
+	/** Padding and gaps. A dense brand stays dense; an editorial one breathes. */
+	density: z.enum(['compact', 'regular', 'spacious']),
+	/**
+	 * Whether the lead chart sits on an inverted ground.
+	 *
+	 * Alternating a dark block against a light page is a structural move, not a
+	 * colour: it is most of why a brand's own site looks like itself and a
+	 * dashboard painted in its colours does not.
+	 */
+	emphasis: z.enum(['none', 'inverted-hero']),
+	/** The inverted ground, derived rather than guessed. */
+	invertedSurface: hexColor,
+	invertedInk: hexColor,
 });
 
 export const storyChartsSchema = z.object({
@@ -140,6 +166,14 @@ export const storyChartsSchema = z.object({
 	negative: hexColor,
 	/** Grid and axis lines. */
 	grid: hexColor,
+	/** Corner radius on bars, in px. Square is a real answer. */
+	barRadius: z.number().min(0).max(12),
+	/** Gap between bars as a fraction of slot width. Airy or packed. */
+	barGap: z.number().min(0.05).max(0.6),
+	/** Line stroke weight, in px. */
+	lineWidth: z.number().min(1).max(4),
+	/** A full grid, or just a baseline and the numbers. */
+	axis: z.enum(['full', 'minimal']),
 });
 
 export const storyThemeSchema = z.object({
@@ -147,6 +181,7 @@ export const storyThemeSchema = z.object({
 	ink: storyInkSchema,
 	typography: storyTypographySchema,
 	shape: storyShapeSchema,
+	layout: storyLayoutSchema,
 	charts: storyChartsSchema,
 	/** Primary accent: active filters, links, selected states. */
 	accent: hexColor,
@@ -157,6 +192,7 @@ export type StorySurfaces = z.infer<typeof storySurfacesSchema>;
 export type StoryInk = z.infer<typeof storyInkSchema>;
 export type StoryTypography = z.infer<typeof storyTypographySchema>;
 export type StoryShape = z.infer<typeof storyShapeSchema>;
+export type StoryLayout = z.infer<typeof storyLayoutSchema>;
 export type StoryCharts = z.infer<typeof storyChartsSchema>;
 export type StoryTheme = z.infer<typeof storyThemeSchema>;
 
@@ -178,8 +214,12 @@ export const DEFAULT_STORY_THEME: StoryTheme = {
 		headingTracking: -0.02,
 		scale: 1,
 		fontLinks: [],
+		figureFont: 'body',
+		figureScale: 1.6,
+		labelStyle: 'plain',
 	},
 	shape: { radius: 10, border: '#e6e6e6', elevation: 'bordered', controlShape: 'rounded' },
+	layout: { density: 'regular', emphasis: 'none', invertedSurface: '#18181c', invertedInk: '#f5f5f7' },
 	charts: {
 		// --chart-1 .. --chart-7 exactly as shipped. Note that nao's own palette
 		// does not pass the contrast guard: chart-2 and chart-7 are the same
@@ -191,6 +231,10 @@ export const DEFAULT_STORY_THEME: StoryTheme = {
 		positive: '#22b573',
 		negative: '#f5a623',
 		grid: '#ebebeb',
+		barRadius: 3,
+		barGap: 0.25,
+		lineWidth: 2,
+		axis: 'full',
 	},
 	accent: '#522bff',
 	accentInk: '#ffffff',
@@ -216,6 +260,7 @@ export function mergeStoryTheme(partial: DeepPartial<StoryTheme> | null | undefi
 			),
 		},
 		shape: { ...DEFAULT_STORY_THEME.shape, ...clean(partial.shape) },
+		layout: { ...DEFAULT_STORY_THEME.layout, ...clean(partial.layout) },
 		charts: {
 			...DEFAULT_STORY_THEME.charts,
 			...clean(partial.charts),
@@ -263,6 +308,18 @@ export function storyThemeToCssVars(theme: StoryTheme): Record<string, string> {
 		'--story-heading-tracking': `${theme.typography.headingTracking}em`,
 		'--story-type-scale': String(theme.typography.scale),
 		'--story-control-radius': controlRadius(theme.shape),
+		'--story-figure-font':
+			theme.typography.figureFont === 'heading' ? theme.typography.headingFont : theme.typography.bodyFont,
+		'--story-figure-size': `${theme.typography.figureScale}rem`,
+		'--story-label-transform': theme.typography.labelStyle === 'uppercase-tracked' ? 'uppercase' : 'none',
+		'--story-label-tracking': theme.typography.labelStyle === 'uppercase-tracked' ? '0.09em' : '0',
+		'--story-gap': DENSITY[theme.layout.density].gap,
+		'--story-pad': DENSITY[theme.layout.density].pad,
+		'--story-inverted': theme.layout.invertedSurface,
+		'--story-inverted-ink': theme.layout.invertedInk,
+		'--story-bar-radius': `${theme.charts.barRadius}px`,
+		'--story-bar-gap': String(theme.charts.barGap),
+		'--story-line-width': `${theme.charts.lineWidth}px`,
 		'--story-elevation': theme.shape.elevation,
 
 		'--chart-grid': theme.charts.grid,
@@ -277,6 +334,13 @@ export function storyThemeToCssVars(theme: StoryTheme): Record<string, string> {
 	}
 	return vars;
 }
+
+/** Padding and gap per density step, in rem. */
+const DENSITY = {
+	compact: { gap: '0.5rem', pad: '0.625rem' },
+	regular: { gap: '0.75rem', pad: '0.875rem' },
+	spacious: { gap: '1.25rem', pad: '1.5rem' },
+} as const;
 
 function controlRadius(shape: StoryShape): string {
 	if (shape.controlShape === 'pill') {

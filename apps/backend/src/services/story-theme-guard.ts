@@ -48,9 +48,16 @@ export const proposalSchema = z.object({
 		bodyFont: z.string(),
 		headingTracking: z.number(),
 		scale: z.number(),
+		figureFont: z.enum(['heading', 'body']),
+		figureScale: z.number(),
+		labelStyle: z.enum(['plain', 'uppercase-tracked']),
 		/** Nearest freely loadable family, chosen from the allowed list. */
 		headingFontSubstitute: z.string(),
 		bodyFontSubstitute: z.string(),
+	}),
+	layout: z.object({
+		density: z.enum(['compact', 'regular', 'spacious']),
+		emphasis: z.enum(['none', 'inverted-hero']),
 	}),
 	shape: z.object({
 		radius: z.number(),
@@ -70,6 +77,10 @@ export const proposalSchema = z.object({
 		positive: z.string(),
 		negative: z.string(),
 		grid: z.string(),
+		barRadius: z.number(),
+		barGap: z.number(),
+		lineWidth: z.number(),
+		axis: z.enum(['full', 'minimal']),
 	}),
 	accent: z.string(),
 	rationale: z.string().max(600),
@@ -89,7 +100,14 @@ export function applyGuards(
 	const sanitized = {
 		surfaces: mapValues(proposal.surfaces, hexOrNull),
 		ink: mapValues(proposal.ink, hexOrNull),
+		layout: {
+			density: proposal.layout.density,
+			emphasis: proposal.layout.emphasis,
+		},
 		typography: {
+			figureFont: proposal.typography.figureFont,
+			figureScale: clamp(proposal.typography.figureScale, 1, 3.2),
+			labelStyle: proposal.typography.labelStyle,
 			headingFont: sanitizeFontStack(proposal.typography.headingFont),
 			bodyFont: sanitizeFontStack(proposal.typography.bodyFont),
 			headingTracking: clamp(proposal.typography.headingTracking, -0.06, 0.06),
@@ -105,6 +123,10 @@ export function applyGuards(
 			controlShape: proposal.shape.controlShape,
 		},
 		charts: {
+			barRadius: clamp(Math.round(proposal.charts.barRadius), 0, 12),
+			barGap: clamp(proposal.charts.barGap, 0.05, 0.6),
+			lineWidth: clamp(proposal.charts.lineWidth, 1, 4),
+			axis: proposal.charts.axis,
 			series: proposal.charts.series.map(hexOrNull).filter((c): c is string => Boolean(c)),
 			sequentialAnchor: hexOrNull(proposal.charts.sequentialAnchor),
 			positive: hexOrNull(proposal.charts.positive),
@@ -141,11 +163,27 @@ export function applyGuards(
 	// The sunken surface is always a bare fill, so it has to be visible on its own.
 	theme.surfaces.sunken = separateSurface(theme.surfaces.sunken, theme.surfaces.page, 1.1);
 
+	// Separation comes from the surface or from a border, never from both. When
+	// the card already reads as its own ground, an outline on top of that tonal
+	// change draws a line around every chart for no reason.
+	if (theme.shape.elevation === 'bordered' && contrastRatio(theme.surfaces.card, theme.surfaces.page) >= 1.06) {
+		theme.shape.elevation = 'flat';
+		notes.push('Cards already have their own background, so the outline around them was dropped.');
+	}
+
 	// --- Ink has to survive EVERY surface it is drawn on --------------------
 	//
 	// The first cut validated ink against the card alone. Headings render on the
 	// page and filter chips on the sunken surface, so ink that passed against one
 	// could vanish against another.
+	// The inverted ground is derived from the page, never proposed: it has to be
+	// a genuine opposite of the page and carry readable ink, and a model asked
+	// for "a dark version of this" will happily return something that is neither.
+	theme.layout.invertedSurface = pageIsDark
+		? shiftLightness(theme.surfaces.page, 0.86)
+		: shiftLightness(theme.surfaces.page, -0.86);
+	theme.layout.invertedInk = readableInkFor(theme.layout.invertedSurface, ['#ffffff', '#f5f5f7', '#111111']);
+
 	// Text is not data. A trace of the brand's warmth or coolness is worth
 	// keeping, but the accent hue coming through turns labels, axis ticks and
 	// captions into brand-coloured text that fights everything around it.

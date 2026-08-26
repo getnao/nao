@@ -117,6 +117,7 @@ export function StoryTabsBar({ tabs, activeIndex, onSelect, editable, contentCla
 							<div className='pointer-events-none h-9 w-[3px] shrink-0 self-center rounded-full bg-primary shadow-[0_0_6px] shadow-primary/40' />
 						)}
 						<div
+							data-story-tab=''
 							draggable={Boolean(editable) && editingIndex !== index}
 							onDragStart={(event) => handleDragStart(event, index)}
 							onDragEnd={clearDragState}

@@ -83,6 +83,35 @@ export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 	);
 	const totals = useMemo(() => TICKS.map((_, i) => visible.reduce((sum, key) => sum + SERIES[key][i], 0)), [visible]);
 	const max = Math.max(...totals, 1);
+	// Separation comes from the surface or a border, never both - the same rule
+	// the guard applies to a published theme.
+	// The slots that make a brand look like itself: figure face and size, label
+	// case, density, bar geometry, and whether the lead chart is inverted.
+	const t = theme.typography;
+	const figureStyle = {
+		fontFamily: t.figureFont === 'heading' ? t.headingFont : t.bodyFont,
+		fontSize: `${t.figureScale}rem`,
+		letterSpacing: t.figureFont === 'heading' ? `${t.headingTracking}em` : undefined,
+		lineHeight: 1.05,
+	};
+	const labelClass =
+		t.labelStyle === 'uppercase-tracked'
+			? 'text-[10px] font-medium uppercase tracking-[0.09em] text-muted-foreground'
+			: 'text-xs font-medium text-muted-foreground';
+	const pad = { compact: 'p-2.5', regular: 'p-3.5', spacious: 'p-6' }[theme.layout.density];
+	const gap = { compact: 'gap-2', regular: 'gap-4', spacious: 'gap-7' }[theme.layout.density];
+	const heroInverted = theme.layout.emphasis === 'inverted-hero';
+	const heroStyle = heroInverted
+		? { background: theme.layout.invertedSurface, color: theme.layout.invertedInk }
+		: undefined;
+
+	const cardClass =
+		theme.shape.elevation === 'bordered'
+			? 'rounded-lg border bg-card'
+			: theme.shape.elevation === 'shadowed'
+				? 'rounded-lg bg-card shadow-sm'
+				: 'rounded-lg bg-card';
+
 	const tableTotal = BY_COUNTRY.reduce((sum, row) => sum + row.reduce((a, b) => a + b, 0), 0);
 	const countryMax = Math.max(...TICKS.map((_, i) => BY_COUNTRY.reduce((sum, row) => sum + row[i], 0)), 1);
 	const fmt = (n: number) => n.toLocaleString('en-US');
@@ -93,7 +122,7 @@ export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 				{/* The real tabs bar, exactly as story-tabbed-content mounts it */}
 				<StoryTabsBar tabs={TABS} activeIndex={tabIndex} onSelect={setTabIndex} contentClassName='px-4' />
 
-				<div className='flex flex-col gap-4 p-4'>
+				<div className={`flex flex-col ${gap} p-4`}>
 					<div>
 						<h3 className='text-lg leading-tight font-semibold'>
 							{tabIndex === 0 ? 'Weekly active users' : 'Users by country'}
@@ -118,15 +147,21 @@ export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 							['Average', fmt(Math.round(totals.reduce((a, b) => a + b, 0) / totals.length))],
 							['Peak', fmt(Math.max(...totals))],
 						].map(([label, value]) => (
-							<div key={label} className='rounded-lg border bg-card p-3'>
-								<div className='text-xs font-medium text-muted-foreground'>{label}</div>
-								<div className='mt-1 text-xl font-semibold'>{value}</div>
+							<div key={label} className={`${cardClass} ${pad}`}>
+								<div className={labelClass}>{label}</div>
+								<div className='mt-1 font-semibold' style={figureStyle}>
+									{value}
+								</div>
 							</div>
 						))}
 					</div>
 
 					{/* Six stacked series, so every chart colour is on screen */}
-					<div className='rounded-lg border bg-card p-3'>
+					<div
+						className={heroInverted ? `rounded-lg ${pad}` : `${cardClass} ${pad}`}
+						style={heroStyle}
+						data-story-inverted={heroInverted ? 'true' : undefined}
+					>
 						<div className='mb-3 text-sm font-medium'>Users per week by country</div>
 						<div className='relative flex h-32 items-end gap-2'>
 							{TICKS.map((tick, i) => {
@@ -145,10 +180,14 @@ export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 										{BY_COUNTRY.map((row, c) => (
 											<span
 												key={COUNTRIES[c]}
-												className='block first:rounded-t-[3px]'
+												className='block'
 												style={{
 													height: `${(row[i] / countryMax) * 100}%`,
 													background: `var(--chart-${c + 1})`,
+													borderTopLeftRadius:
+														c === 0 ? `${theme.charts.barRadius}px` : undefined,
+													borderTopRightRadius:
+														c === 0 ? `${theme.charts.barRadius}px` : undefined,
 													opacity: hovered === null || hovered === i ? 1 : 0.45,
 												}}
 											/>
@@ -191,7 +230,7 @@ export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 						</div>
 					</div>
 
-					<div className='rounded-lg border bg-card p-3'>
+					<div className={`${cardClass} ${pad}`}>
 						<div className='mb-3 text-sm font-medium'>Trend</div>
 						<div
 							className='relative'
@@ -217,7 +256,7 @@ export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 								role='img'
 								aria-label='Example line chart'
 							>
-								{[0, 20, 40, 60, 80].map((y) => (
+								{(theme.charts.axis === 'minimal' ? [80] : [0, 20, 40, 60, 80]).map((y) => (
 									<line
 										key={y}
 										x1='0'
@@ -244,7 +283,7 @@ export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 									<polyline
 										key={key}
 										fill='none'
-										strokeWidth='2'
+										strokeWidth={theme.charts.lineWidth}
 										vectorEffect='non-scaling-stroke'
 										stroke={`var(--chart-${s2 + 1})`}
 										points={SERIES[key]

@@ -20,7 +20,13 @@ function proposal(overrides: Record<string, unknown> = {}) {
 			bodyFont: 'Inter, sans-serif',
 			headingTracking: -0.02,
 			scale: 1,
+			figureFont: 'body' as const,
+			figureScale: 1.6,
+			labelStyle: 'plain' as const,
+			headingFontSubstitute: 'Inter',
+			bodyFontSubstitute: 'Inter',
 		},
+		layout: { density: 'regular' as const, emphasis: 'none' as const },
 		shape: { radius: 8, border: '#e5e5e5', elevation: 'bordered' as const, controlShape: 'rounded' as const },
 		charts: {
 			paletteSource: 'brand' as const,
@@ -29,6 +35,10 @@ function proposal(overrides: Record<string, unknown> = {}) {
 			positive: '#22b573',
 			negative: '#f5a623',
 			grid: '#eeeef7',
+			barRadius: 3,
+			barGap: 0.25,
+			lineWidth: 2,
+			axis: 'full' as const,
 		},
 		accent: '#522bff',
 		rationale: 'test',
@@ -198,11 +208,31 @@ describe('font links reaching the theme', () => {
 			'https://brand.example.com/fonts/Display.css',
 			'https://fonts.googleapis.com/css2?family=DM+Sans',
 		]);
-		expect(theme.typography.fontLinks).toEqual(['https://fonts.googleapis.com/css2?family=DM+Sans']);
+		// The probe link survives, the brand's own origin is dropped, and the
+		// substitute stylesheet is appended alongside.
+		expect(theme.typography.fontLinks).toContain('https://fonts.googleapis.com/css2?family=DM+Sans');
+		expect(theme.typography.fontLinks.some((l) => l.includes('ibanfirst'))).toBe(false);
 	});
 
-	it('defaults to no links when the probe found none', () => {
-		expect(applyGuards(proposal()).theme.typography.fontLinks).toEqual([]);
+	it('still serves the named family when the probe found no links', () => {
+		// The fixture letters itself in Inter, which Google Fonts does serve, so a
+		// stylesheet is emitted even though the page linked none itself.
+		const links = applyGuards(proposal()).theme.typography.fontLinks;
+		expect(links).toHaveLength(1);
+		expect(links[0]).toContain('family=Inter');
+	});
+
+	it('emits no links when nothing about the brand is loadable', () => {
+		const { theme } = applyGuards(
+			proposal({
+				typography: {
+					...proposal().typography,
+					headingFontSubstitute: 'Not A Real Family',
+					bodyFontSubstitute: 'Also Not Real',
+				},
+			}),
+		);
+		expect(theme.typography.fontLinks).toEqual([]);
 	});
 });
 
@@ -286,10 +316,9 @@ describe('fonts and structure', () => {
 	const withFonts = (overrides: Record<string, unknown> = {}) =>
 		proposal({
 			typography: {
+				...proposal().typography,
 				headingFont: "'TTRamillas-Bold', serif",
 				bodyFont: "'AtypDisplay-Regular', sans-serif",
-				headingTracking: -0.02,
-				scale: 1,
 				headingFontSubstitute: 'Fraunces',
 				bodyFontSubstitute: 'DM Sans',
 			},
@@ -316,10 +345,9 @@ describe('fonts and structure', () => {
 		const { theme } = applyGuards(
 			withFonts({
 				typography: {
+					...proposal().typography,
 					headingFont: "'Brand', serif",
 					bodyFont: "'Brand', sans-serif",
-					headingTracking: 0,
-					scale: 1,
 					headingFontSubstitute: 'Definitely Not A Google Font',
 					bodyFontSubstitute: 'Comic Sans MS',
 				},
@@ -422,5 +450,34 @@ describe('text stays neutral', () => {
 			expect(contrastRatio(theme.ink.primary, surface)).toBeGreaterThanOrEqual(4.5);
 			expect(contrastRatio(theme.ink.muted, surface)).toBeGreaterThanOrEqual(3);
 		}
+	});
+});
+
+describe('structural slots', () => {
+	it('derives an inverted ground that is a real opposite with readable ink', () => {
+		const light = applyGuards(proposal({ layout: { density: 'spacious', emphasis: 'inverted-hero' } }));
+		expect(contrastRatio(light.theme.layout.invertedSurface, light.theme.surfaces.page)).toBeGreaterThan(7);
+		expect(contrastRatio(light.theme.layout.invertedInk, light.theme.layout.invertedSurface)).toBeGreaterThan(4.5);
+	});
+
+	it('inverts the other way for a dark brand', () => {
+		const dark = applyGuards(
+			proposal({
+				surfaces: { page: '#140309', card: '#140309', sunken: '#241018' },
+				ink: { primary: '#fffdf7', secondary: '#d8d4cc', muted: '#a8a49c' },
+				layout: { density: 'compact', emphasis: 'inverted-hero' },
+			}),
+		);
+		expect(contrastRatio(dark.theme.layout.invertedSurface, dark.theme.surfaces.page)).toBeGreaterThan(7);
+		expect(contrastRatio(dark.theme.layout.invertedInk, dark.theme.layout.invertedSurface)).toBeGreaterThan(4.5);
+	});
+
+	it('clamps chart geometry the model returns', () => {
+		const { theme } = applyGuards(
+			proposal({ charts: { ...proposal().charts, barRadius: 99, barGap: 5, lineWidth: 40 } }),
+		);
+		expect(theme.charts.barRadius).toBe(12);
+		expect(theme.charts.barGap).toBeLessThanOrEqual(0.6);
+		expect(theme.charts.lineWidth).toBeLessThanOrEqual(4);
 	});
 });

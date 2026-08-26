@@ -276,3 +276,27 @@ describe('deriveSeriesFromAccent', () => {
 		}
 	});
 });
+
+describe('the widened contract', () => {
+	it('exposes figure, density and chart geometry as CSS variables', () => {
+		const vars = storyThemeToCssVars(
+			mergeStoryTheme({
+				typography: { figureFont: 'heading', figureScale: 2.6, labelStyle: 'uppercase-tracked' },
+				layout: { density: 'spacious', emphasis: 'inverted-hero' },
+				charts: { barRadius: 0, barGap: 0.5, lineWidth: 3, axis: 'minimal' },
+			}),
+		);
+		expect(vars['--story-figure-size']).toBe('2.6rem');
+		expect(vars['--story-figure-font']).toBe(DEFAULT_STORY_THEME.typography.headingFont);
+		expect(vars['--story-label-transform']).toBe('uppercase');
+		expect(vars['--story-gap']).toBe('1.25rem');
+		expect(vars['--story-bar-radius']).toBe('0px');
+		expect(vars['--story-line-width']).toBe('3px');
+	});
+
+	it('defaults to the plain, regular treatment', () => {
+		const vars = storyThemeToCssVars(DEFAULT_STORY_THEME);
+		expect(vars['--story-label-transform']).toBe('none');
+		expect(vars['--story-gap']).toBe('0.75rem');
+	});
+});

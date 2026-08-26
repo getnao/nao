@@ -924,6 +924,37 @@ code.dollar:before {
  * carry their own font utilities, which win over the inherited family, so a
  * themed story ended up with brand type everywhere except its tables.
  */
+/*
+ * Tabs keep a small, fixed corner whatever the brand radius.
+ * They inherit `rounded-t-md`, which is derived from --radius, so a brand with a
+ * generous radius turned them into fat folder tabs.
+ */
+[data-story-themed='true'] [data-story-tab] {
+	border-top-left-radius: 4px;
+	border-top-right-radius: 4px;
+}
+
+/*
+ * A card that already has its own ground does not also need an outline.
+ * Separation comes from surface or from a border, never from both, otherwise
+ * every chart sits inside a visible box drawn on top of a tonal change.
+ */
+[data-story-themed='true'][data-story-elevation='flat'] :is([data-slot='card'], .story-card, [data-story-card]) {
+	border-color: transparent;
+}
+
+/*
+ * An inverted block carries its own ink, so muted text inside it reads against
+ * the dark ground rather than against the page it is sitting on.
+ */
+[data-story-themed='true'] [data-story-inverted='true'] {
+	--foreground: var(--story-inverted-ink);
+	--card-foreground: var(--story-inverted-ink);
+	--muted-foreground: color-mix(in srgb, var(--story-inverted-ink) 62%, transparent);
+	--border: color-mix(in srgb, var(--story-inverted-ink) 18%, transparent);
+	color: var(--story-inverted-ink);
+}
+
 [data-story-themed='true'] :is(table, th, td, thead, tbody) {
 	font-family: var(--font-sans);
 }
