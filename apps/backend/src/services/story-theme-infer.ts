@@ -21,23 +21,37 @@ import { applyGuards, type InferenceResult, proposalSchema } from './story-theme
  */
 
 const SYSTEM_PROMPT = [
-	"You map a brand website's extracted design signals onto a fixed dashboard theme contract.",
+	"You map a brand's design system onto a fixed dashboard theme contract.",
+	'',
+	'When the signals include ROLE EVIDENCE, trust it over colour frequency: it is',
+	'measured from real rendered elements on the page. The primary button IS the',
+	'accent. The card element IS the card surface, its radius IS the shape language,',
+	'and whether it carries a border or a shadow IS the elevation. Do not average',
+	'these away against a list of colours.',
 	'',
 	'Rules:',
 	'- Every colour must be a 6-digit hex string like #1a2b3c.',
-	'- Prefer colours that appeared as CSS custom properties: those are deliberate design decisions.',
-	'- surfaces.page is the ground the site actually uses for content, not a hero section.',
-	'- surfaces.card sits on top of page and is usually lighter (or darker on a dark site) by a small step.',
-	'- ink.primary must be strongly readable on surfaces.card. Never pick a mid-grey for it.',
-	'- charts.series is a categorical palette for a dashboard. Spread it across distinct hues.',
-	'  Do not return several tints of one hue: they are unusable side by side in a chart.',
-	'- charts.positive and charts.negative carry good/bad meaning and stay out of the series.',
-	'- typography stacks must end in a generic family (serif, sans-serif, monospace).',
-	'  Only name fonts that appeared in the signals, plus safe fallbacks.',
-	'- shape.radius is in px. 0 is a valid, deliberate answer for a sharp-cornered brand.',
-	"- A marketing homepage is more expressive than a dashboard should be. Carry the brand's",
-	'  colours, typefaces and shape language, but do not carry hero-scale drama into a tool',
-	'  someone reads every day.',
+	'- accent = the primary button background. accent must not equal surfaces.card.',
+	'- surfaces.page = the body/page ground. surfaces.card = the card ground.',
+	'  If the page is dark, the card is usually a slightly lifted dark, not white.',
+	'- shape.radius = the card radius in px. 0 is a valid, deliberate answer.',
+	'- shape.controlShape: pill when the button radius is at least half its height,',
+	'  square when it is 0 to 2px, otherwise rounded.',
+	'- shape.elevation: shadowed when cards carry a shadow, bordered when they carry',
+	'  a border, flat when they carry neither.',
+	'- typography.headingFont and bodyFont: name the families the page actually uses,',
+	'  in order, ending in a generic family. Keep the brand face first even when it is',
+	'  marked unloadable, so the intent is recorded; put a close web-safe or Google',
+	'  Fonts equivalent immediately after it as the real fallback.',
+	'- typography.headingTracking is in em and is measured, not invented.',
+	'- charts.series is a categorical palette for a dashboard. Spread it across',
+	'  distinct hues, seeded from the brand palette. Never several tints of one hue:',
+	'  they are unusable side by side in a chart.',
+	'- charts.positive and charts.negative carry good/bad meaning and stay out of the',
+	'  series. Only use a brand colour for them when the brand already uses it that way.',
+	'- A marketing homepage is more expressive than a dashboard should be. Carry the',
+	"  brand's colours, typefaces and shape language, but not hero-scale drama into a",
+	'  tool someone reads every day. Keep typography.scale near 1.',
 	'',
 	'Answer with the object only.',
 ].join('\n');
@@ -59,7 +73,7 @@ export async function inferStoryTheme(projectId: string, signals: DesignSignals)
 		experimental_telemetry: llmTelemetry('nao-story-theme-infer', { projectId }),
 	});
 
-	return applyGuards(object, signals);
+	return applyGuards(object, signals, signals.probe?.fontLinks ?? []);
 }
 
 async function resolveModel(projectId: string): Promise<{ provider: LlmProvider; model: ProviderModelResult } | null> {
@@ -76,28 +90,63 @@ async function resolveModel(projectId: string): Promise<{ provider: LlmProvider;
 export { applyGuards } from './story-theme-guard';
 
 function renderSignals(signals: DesignSignals): string {
-	const lines = [
+	const parts: string[] = [
 		`Website: ${signals.url}`,
-		signals.title ? `Page title: ${signals.title}` : null,
-		`The site's own ground reads as ${signals.prefersDarkGround ? 'dark' : 'light'}.`,
+		signals.title ? `Page title: ${signals.title}` : '',
+		`The page ground reads as ${signals.prefersDarkGround ? 'dark' : 'light'}.`,
+		`Extraction mode: ${signals.mode}${signals.mode === 'static' ? ' (stylesheet text only, weaker signal)' : ' (computed styles from the rendered page)'}`,
 		'',
-		'CSS custom properties that resolve to colours (these are the strongest signal):',
+	];
+
+	if (signals.probe) {
+		const { roles, surfaces, fonts } = signals.probe;
+		parts.push('ROLE EVIDENCE, measured from rendered elements:');
+		for (const [name, style] of Object.entries(roles)) {
+			if (!style) {
+				parts.push(`  ${name}: not found`);
+				continue;
+			}
+			const bits = [
+				style.background ? `bg ${style.background}` : null,
+				style.color ? `text ${style.color}` : null,
+				style.fontFamily ? `font ${style.fontFamily}` : null,
+				style.fontSize ? `${style.fontSize}px` : null,
+				style.fontWeight ? `w${style.fontWeight}` : null,
+				style.letterSpacing ? `tracking ${style.letterSpacing}em` : null,
+				style.borderRadius !== null ? `radius ${style.borderRadius}px` : null,
+				style.hasBorder ? `border ${style.borderColor ?? 'yes'}` : null,
+				style.hasShadow ? 'shadow' : null,
+			].filter(Boolean);
+			parts.push(`  ${name}: ${bits.join(', ')}${style.sample ? `  ("${style.sample}")` : ''}`);
+		}
+		parts.push('', 'Largest painted surfaces, most page area first:');
+		parts.push(surfaces.map((s2) => `  ${s2.color}`).join('\n') || '  (none)');
+		parts.push('', 'Font families the page loaded:');
+		parts.push(
+			fonts.map((f) => `  ${f.family}${f.loadable ? '' : '  (proprietary, nao cannot load it)'}`).join('\n') ||
+				'  (none)',
+		);
+		parts.push('');
+	}
+
+	parts.push(
+		'CSS custom properties resolved on the document root:',
 		Object.entries(signals.customProperties)
 			.slice(0, 40)
 			.map(([k, v]) => `  ${k}: ${v}`)
 			.join('\n') || '  (none declared)',
 		'',
-		'Most frequent colours, with the properties they appeared in:',
+		signals.mode === 'rendered'
+			? 'Colours weighted by how much of the page they actually paint:'
+			: 'Most frequent colours, with the properties they appeared in:',
 		signals.colors
-			.slice(0, 28)
-			.map((c) => `  ${c.hex}  x${c.count}  [${c.properties.join(', ')}]`)
+			.slice(0, 24)
+			.map((c) => `  ${c.hex}  [${c.properties.join(', ')}]`)
 			.join('\n') || '  (none found)',
-		'',
-		'Font stacks, most used first:',
-		signals.fontFamilies.map((f) => `  ${f.stack}  x${f.count}`).join('\n') || '  (none declared)',
 		'',
 		'Border radius values in px, most used first:',
 		signals.radii.map((r) => `  ${r.px}px  x${r.count}`).join('\n') || '  (none declared)',
-	];
-	return lines.filter((l) => l !== null).join('\n');
+	);
+
+	return parts.filter((l) => l !== '').join('\n');
 }

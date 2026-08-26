@@ -6,6 +6,7 @@ import { StoryEditor } from './story-editor';
 import { LiveStorySettingsDialog } from './live-story-settings-dialog';
 import { ArchivedBanner } from './story-archived-banner';
 import { StoryContentLoading } from './story-content-loading';
+
 import { StoryHeader } from './story-header';
 import { StoryPreview } from './story-preview';
 import { StoryCodeView } from './story-code-view';
@@ -23,6 +24,7 @@ import { useStoryViewerVersions } from './hooks/use-story-viewer-versions';
 import { useStoryViewerViewMode } from './hooks/use-story-viewer-view-mode';
 import type { Editor as TiptapEditor } from '@tiptap/react';
 import type { StoryCodeViewHandle } from './story-code-view';
+import { StoryThemeProvider } from '@/components/story-theme-provider';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useDragAutoScroll } from '@/hooks/use-drag-auto-scroll';
@@ -209,136 +211,142 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		);
 	}
 
+	// The side panel is a second story render path that does not go through
+	// StoryPageBody, so it needs the workspace design system applied here too.
 	const content = (
-		<div className='flex h-full flex-col'>
-			<StoryHeader
-				title={storyTitle}
-				chatId={chatId}
-				storySlug={resolvedStorySlug}
-				storyId={storyId}
-				shareId={shareId}
-				shareType={shareType}
-				allStories={allStories}
-				onSwitchStory={switchStory}
-				viewMode={viewMode}
-				onViewModeChange={setViewMode}
-				currentVersion={currentVersionNumber}
-				totalVersions={versions.length}
-				versionNumber={currentVersion?.version}
-				onPreviousVersion={goToPreviousVersion}
-				onNextVersion={goToNextVersion}
-				isViewingLatest={isViewingLatest}
-				onRestore={handleRestore}
-				onSave={handleSave}
-				onShare={handleOpenShare}
-				onOpenAnalytics={handleOpenAnalytics}
-				onEnlarge={handleEnlarge}
-				isShared={isShared}
-				isAgentRunning={isAgentRunning}
-				isSaving={isSaving}
-				isReadonlyMode={isReadonlyMode}
-				isLive={isLive}
-				isRefreshing={isRefreshing}
-				onRefreshData={handleRefreshData}
-				onOpenLiveSettings={handleOpenLiveSettings}
-				onClose={closeSidePanel}
-				isCodeDirty={isCodeDirty}
-				isCodeValid={isCodeValid}
-				cachedAt={cachedAt}
-				lastRefreshFailure={lastRefreshFailure}
-			/>
-
-			{Boolean(archivedAt) && <ArchivedBanner chatId={chatId} storySlug={resolvedStorySlug} />}
-
-			{viewMode === 'preview' && isTabbedStory && tabs && (
-				<StoryTabsBar
-					tabs={tabs.map((tab) => ({ title: tab.title }))}
-					activeIndex={activeTab}
-					onSelect={setActiveTabIndex}
-					contentClassName='px-6'
+		<StoryThemeProvider>
+			<div className='flex h-full flex-col'>
+				<StoryHeader
+					title={storyTitle}
+					chatId={chatId}
+					storySlug={resolvedStorySlug}
+					storyId={storyId}
+					shareId={shareId}
+					shareType={shareType}
+					allStories={allStories}
+					onSwitchStory={switchStory}
+					viewMode={viewMode}
+					onViewModeChange={setViewMode}
+					currentVersion={currentVersionNumber}
+					totalVersions={versions.length}
+					versionNumber={currentVersion?.version}
+					onPreviousVersion={goToPreviousVersion}
+					onNextVersion={goToNextVersion}
+					isViewingLatest={isViewingLatest}
+					onRestore={handleRestore}
+					onSave={handleSave}
+					onShare={handleOpenShare}
+					onOpenAnalytics={handleOpenAnalytics}
+					onEnlarge={handleEnlarge}
+					isShared={isShared}
+					isAgentRunning={isAgentRunning}
+					isSaving={isSaving}
+					isReadonlyMode={isReadonlyMode}
+					isLive={isLive}
+					isRefreshing={isRefreshing}
+					onRefreshData={handleRefreshData}
+					onOpenLiveSettings={handleOpenLiveSettings}
+					onClose={closeSidePanel}
+					isCodeDirty={isCodeDirty}
+					isCodeValid={isCodeValid}
+					cachedAt={cachedAt}
+					lastRefreshFailure={lastRefreshFailure}
 				/>
-			)}
 
-			<div ref={scrollContainerRef} className='flex-1 min-h-0 overflow-auto'>
-				{renderWithEditProvider(
-					!isReadonlyMode && isViewingLatest && !archivedAt && !isAgentRunning && viewMode !== 'edit',
-					{
-						chatId,
-						storySlug: resolvedStorySlug,
-						storyTitle,
-						storyCode,
-					},
-					viewMode === 'preview' ? (
-						isContentLoading ? (
-							<StoryContentLoading />
-						) : (
-							<StoryPreview
-								code={
-									isTabbedStory && tabs ? tabs[activeTab].innerCode : stripStoryTabsMarkup(storyCode)
-								}
-								fullCode={storyCode}
-								cacheSchedule={cacheSchedule}
-								queryData={queryData ?? null}
-								chatId={chatId}
-								storySlug={resolvedStorySlug}
-								versionKey={isViewingLatest ? undefined : currentVersionNumber}
-								filtersEnabled={isViewingLatest && !isAgentRunning}
-							/>
-						)
-					) : viewMode === 'edit' ? (
-						<StoryEmbedDataProvider value={queryData ?? null}>
-							{isTabbedStory ? (
-								<StoryTabbedEditor
-									code={storyCode}
-									editorRef={tiptapEditorRef}
-									onSave={handleSave}
-									getCodeRef={tabbedEditCodeRef}
-									barContentClassName='px-6'
-									contentClassName='p-6'
-								/>
-							) : (
-								<StoryEditor code={storyCode} editorRef={tiptapEditorRef} onSave={handleSave} />
-							)}
-						</StoryEmbedDataProvider>
-					) : (
-						<StoryCodeView
-							code={storyCode}
-							readOnly={isReadonlyMode}
-							codeRef={codeViewRef}
-							onDirtyChange={setIsCodeDirty}
-							onValidChange={setIsCodeValid}
-							onSave={handleSave}
-						/>
-					),
+				{Boolean(archivedAt) && <ArchivedBanner chatId={chatId} storySlug={resolvedStorySlug} />}
+
+				{viewMode === 'preview' && isTabbedStory && tabs && (
+					<StoryTabsBar
+						tabs={tabs.map((tab) => ({ title: tab.title }))}
+						activeIndex={activeTab}
+						onSelect={setActiveTabIndex}
+						contentClassName='px-6'
+					/>
 				)}
+
+				<div ref={scrollContainerRef} className='flex-1 min-h-0 overflow-auto'>
+					{renderWithEditProvider(
+						!isReadonlyMode && isViewingLatest && !archivedAt && !isAgentRunning && viewMode !== 'edit',
+						{
+							chatId,
+							storySlug: resolvedStorySlug,
+							storyTitle,
+							storyCode,
+						},
+						viewMode === 'preview' ? (
+							isContentLoading ? (
+								<StoryContentLoading />
+							) : (
+								<StoryPreview
+									code={
+										isTabbedStory && tabs
+											? tabs[activeTab].innerCode
+											: stripStoryTabsMarkup(storyCode)
+									}
+									fullCode={storyCode}
+									cacheSchedule={cacheSchedule}
+									queryData={queryData ?? null}
+									chatId={chatId}
+									storySlug={resolvedStorySlug}
+									versionKey={isViewingLatest ? undefined : currentVersionNumber}
+									filtersEnabled={isViewingLatest && !isAgentRunning}
+								/>
+							)
+						) : viewMode === 'edit' ? (
+							<StoryEmbedDataProvider value={queryData ?? null}>
+								{isTabbedStory ? (
+									<StoryTabbedEditor
+										code={storyCode}
+										editorRef={tiptapEditorRef}
+										onSave={handleSave}
+										getCodeRef={tabbedEditCodeRef}
+										barContentClassName='px-6'
+										contentClassName='p-6'
+									/>
+								) : (
+									<StoryEditor code={storyCode} editorRef={tiptapEditorRef} onSave={handleSave} />
+								)}
+							</StoryEmbedDataProvider>
+						) : (
+							<StoryCodeView
+								code={storyCode}
+								readOnly={isReadonlyMode}
+								codeRef={codeViewRef}
+								onDirtyChange={setIsCodeDirty}
+								onValidChange={setIsCodeValid}
+								onSave={handleSave}
+							/>
+						),
+					)}
+				</div>
+
+				<ShareStoryDialog
+					open={isShareDialogOpen}
+					onOpenChange={setIsShareDialogOpen}
+					chatId={chatId}
+					storySlug={resolvedStorySlug}
+				/>
+
+				<AssetAnalyticsDialog
+					open={isAnalyticsOpen}
+					onOpenChange={setIsAnalyticsOpen}
+					assetType='story'
+					chatId={chatId}
+					storyId={storyId ?? undefined}
+				/>
+
+				<LiveStorySettingsDialog
+					open={isLiveSettingsOpen}
+					onOpenChange={setIsLiveSettingsOpen}
+					isLive={isLive}
+					isLiveTextDynamic={isLiveTextDynamic}
+					cacheSchedule={cacheSchedule}
+					cacheScheduleDescription={cacheScheduleDescription}
+					isUpdating={isLiveUpdating}
+					onSaveSettings={handleSaveSettings}
+				/>
 			</div>
-
-			<ShareStoryDialog
-				open={isShareDialogOpen}
-				onOpenChange={setIsShareDialogOpen}
-				chatId={chatId}
-				storySlug={resolvedStorySlug}
-			/>
-
-			<AssetAnalyticsDialog
-				open={isAnalyticsOpen}
-				onOpenChange={setIsAnalyticsOpen}
-				assetType='story'
-				chatId={chatId}
-				storyId={storyId ?? undefined}
-			/>
-
-			<LiveStorySettingsDialog
-				open={isLiveSettingsOpen}
-				onOpenChange={setIsLiveSettingsOpen}
-				isLive={isLive}
-				isLiveTextDynamic={isLiveTextDynamic}
-				cacheSchedule={cacheSchedule}
-				cacheScheduleDescription={cacheScheduleDescription}
-				isUpdating={isLiveUpdating}
-				onSaveSettings={handleSaveSettings}
-			/>
-		</div>
+		</StoryThemeProvider>
 	);
 
 	if (!chatMessages) {

@@ -1,11 +1,22 @@
 import { DEFAULT_STORY_THEME, type StoryTheme, storyThemeSchema } from '@nao/shared/story-theme';
 import { eq } from 'drizzle-orm';
 
-import s from '../db/abstractSchema';
+import s, { DBBrandingConfig } from '../db/abstractSchema';
 import { db } from '../db/db';
-import { getBrandingRow } from './branding.queries';
 
 const SINGLETON_ID = 'default';
+
+/**
+ * Read the singleton row directly rather than reusing `branding.queries`.
+ *
+ * That module is `@license Enterprise`; the story design system is Apache 2.0
+ * per #1463, and an Apache file must not depend on a commercially-licensed one.
+ * The two features share a table, not a code path.
+ */
+async function getConfigRow(): Promise<DBBrandingConfig | null> {
+	const [row] = await db.select().from(s.brandingConfig).where(eq(s.brandingConfig.id, SINGLETON_ID)).execute();
+	return row ?? null;
+}
 
 export type StoryThemeSourceKind = 'url' | 'manual';
 
@@ -32,7 +43,7 @@ export const EMPTY_STORY_THEME_STATE: StoryThemeState = {
 };
 
 export async function getStoryThemeState(): Promise<StoryThemeState> {
-	const row = await getBrandingRow();
+	const row = await getConfigRow();
 	if (!row) {
 		return EMPTY_STORY_THEME_STATE;
 	}

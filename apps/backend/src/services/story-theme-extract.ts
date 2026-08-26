@@ -13,7 +13,12 @@
  * gets the last word.
  */
 
+import { FONT_CDN_HOSTS } from '@nao/shared/story-theme';
+
+import { type ProbeResult, probeWithBrowser } from './story-theme-probe';
+
 export type SourceKind = 'url' | 'manual';
+export type ExtractionMode = 'rendered' | 'static';
 
 export interface ColorCandidate {
 	hex: string;
@@ -25,6 +30,14 @@ export interface ColorCandidate {
 
 export interface DesignSignals {
 	url: string;
+	/**
+	 * `rendered` means we interrogated computed styles, which is the only way to
+	 * read a CSS-in-JS design system. `static` means Chromium was unavailable and
+	 * we fell back to parsing stylesheet text, which sees far less.
+	 */
+	mode: ExtractionMode;
+	/** Present only in `rendered` mode: role-tagged computed styles. */
+	probe: ProbeResult | null;
 	title: string | null;
 	/** Declared `--*` custom properties whose value looks like a colour. */
 	customProperties: Record<string, string>;
@@ -79,6 +92,63 @@ export function assertPublicHttpUrl(raw: string): URL {
 
 export async function extractDesignSignals(rawUrl: string): Promise<DesignSignals> {
 	const url = assertPublicHttpUrl(rawUrl);
+
+	let renderReason: string;
+	try {
+		return await renderedSignals(url);
+	} catch (error) {
+		renderReason = error instanceof Error ? error.message : String(error);
+	}
+
+	// Chromium missing is an install-shape problem, not a bad URL: degrade rather
+	// than fail, and say plainly that the read was shallower.
+	try {
+		const fallback = await staticSignals(url);
+		fallback.warnings.unshift(
+			`Could not render the page (${renderReason}). Fell back to reading stylesheet text, which misses design systems defined at runtime.`,
+		);
+		return fallback;
+	} catch (staticError) {
+		// Both paths failed. The rendered attempt has the more useful diagnosis
+		// (bot protection, bad status) so that is what the admin should read,
+		// not a bare "403 Forbidden" from the fallback.
+		const staticReason = staticError instanceof Error ? staticError.message : String(staticError);
+		throw new Error(`${renderReason} Reading the stylesheets directly also failed (${staticReason}).`);
+	}
+}
+
+async function renderedSignals(url: URL): Promise<DesignSignals> {
+	const probe = await probeWithBrowser(url.toString(), [...FONT_CDN_HOSTS]);
+	const warnings: string[] = [];
+
+	const unloadable = probe.fonts.filter((f) => !f.loadable).map((f) => f.family);
+	if (unloadable.length) {
+		warnings.push(
+			`${unloadable.slice(0, 4).join(', ')} ${unloadable.length === 1 ? 'is' : 'are'} served from the brand's own domain under their licence, so nao cannot load ${unloadable.length === 1 ? 'it' : 'them'}. The closest fallback is used instead.`,
+		);
+	}
+	if (!probe.roles.primaryButton) {
+		warnings.push('No filled button was found, so control shape and accent are inferred from other elements.');
+	}
+	if (probe.colors.length < 4) {
+		warnings.push('The page paints very few distinct colours; the palette is largely nao defaults.');
+	}
+
+	return {
+		url: url.toString(),
+		mode: 'rendered',
+		probe,
+		title: probe.title,
+		customProperties: probe.customProperties,
+		colors: probe.colors.map((c) => ({ hex: c.color, count: c.area, properties: c.properties })),
+		fontFamilies: probe.fonts.map((f) => ({ stack: f.family, count: f.loadable ? 2 : 1 })),
+		radii: probe.radii,
+		prefersDarkGround: probe.prefersDarkGround,
+		warnings,
+	};
+}
+
+async function staticSignals(url: URL): Promise<DesignSignals> {
 	const warnings: string[] = [];
 
 	const html = await fetchText(url.toString(), MAX_HTML_BYTES);
@@ -114,6 +184,8 @@ export async function extractDesignSignals(rawUrl: string): Promise<DesignSignal
 
 	return {
 		url: url.toString(),
+		mode: 'static',
+		probe: null,
 		title,
 		customProperties,
 		colors,

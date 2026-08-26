@@ -167,3 +167,28 @@ describe('normalizeColor', () => {
 		expect(normalizeColor('transparent')).toBeNull();
 	});
 });
+
+describe('font links reaching the theme', () => {
+	it('takes links from the probe, never from the model', () => {
+		const { theme } = applyGuards(proposal(), undefined, [
+			'https://fonts.googleapis.com/css2?family=DM+Sans',
+			'https://fr.ibanfirst.com/fonts/AtypDisplay.css',
+			'https://fonts.googleapis.com/css2?family=DM+Sans',
+		]);
+		expect(theme.typography.fontLinks).toEqual(['https://fonts.googleapis.com/css2?family=DM+Sans']);
+	});
+
+	it('defaults to no links when the probe found none', () => {
+		expect(applyGuards(proposal()).theme.typography.fontLinks).toEqual([]);
+	});
+});
+
+describe('accent sanity', () => {
+	it('refuses an accent identical to the card surface', () => {
+		const { theme, notes } = applyGuards(
+			proposal({ accent: '#ffffff', surfaces: { page: '#ffffff', card: '#ffffff', sunken: '#f4f4f6' } }),
+		);
+		expect(theme.accent).not.toBe('#ffffff');
+		expect(notes.join(' ')).toMatch(/identical to the card surface/);
+	});
+});

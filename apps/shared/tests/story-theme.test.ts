@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { DEFAULT_STORY_THEME, mergeStoryTheme, storyThemeSchema, storyThemeToCssVars } from '../src/story-theme';
+import {
+	DEFAULT_STORY_THEME,
+	isAllowedFontLink,
+	mergeStoryTheme,
+	storyThemeSchema,
+	storyThemeToCssVars,
+} from '../src/story-theme';
 import {
 	contrastRatio,
 	deltaE,
@@ -151,5 +157,34 @@ describe('theme contract', () => {
 		const vars = storyThemeToCssVars(mergeStoryTheme({ charts: { series: ['#522bff', '#0e8fa8', '#c2410c'] } }));
 		expect(vars['--chart-4']).toBe('#522bff');
 		expect(vars['--chart-1']).toBe('#522bff');
+	});
+});
+
+describe('font links', () => {
+	it('accepts public font CDNs only', () => {
+		expect(isAllowedFontLink('https://fonts.googleapis.com/css2?family=Geist')).toBe(true);
+		expect(isAllowedFontLink('https://use.typekit.net/abc.css')).toBe(true);
+		// A brand's own origin serves faces they licensed, not faces we may hotlink.
+		expect(isAllowedFontLink('https://fr.ibanfirst.com/fonts/AtypDisplay.woff2')).toBe(false);
+		expect(isAllowedFontLink('http://fonts.googleapis.com/css2')).toBe(false);
+		expect(isAllowedFontLink('https://evil.test/fonts.css')).toBe(false);
+		expect(isAllowedFontLink('not a url')).toBe(false);
+	});
+
+	it('drops disallowed links when merging a theme', () => {
+		const merged = mergeStoryTheme({
+			typography: {
+				fontLinks: ['https://fonts.googleapis.com/css2?family=Geist', 'https://fr.ibanfirst.com/f.css'],
+			},
+		});
+		expect(merged.typography.fontLinks).toEqual(['https://fonts.googleapis.com/css2?family=Geist']);
+	});
+
+	it('rejects a disallowed link at the schema boundary', () => {
+		const bad = {
+			...DEFAULT_STORY_THEME,
+			typography: { ...DEFAULT_STORY_THEME.typography, fontLinks: ['https://evil.test/f.css'] },
+		};
+		expect(() => storyThemeSchema.parse(bad)).toThrow();
 	});
 });

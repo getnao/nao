@@ -10,6 +10,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { NAO_MCP_EMBED_MEASURE_ATTR, useMcpAppEmbedHeightReporting } from '@/hooks/use-mcp-app-embed-height';
 import { readEmbedTokenFromLocation } from '@/lib/embed-token';
 import { trpc, trpcClient } from '@/main';
+import { StoryThemeProvider } from '@/components/story-theme-provider';
 
 export const Route = createFileRoute('/embed/story/$storyId')({
 	validateSearch: (search: Record<string, unknown>) => ({
@@ -55,9 +56,14 @@ function StoryEmbedPage() {
 	}
 
 	return (
-		<div {...{ [NAO_MCP_EMBED_MEASURE_ATTR]: '' }} className='flex min-h-0 min-w-0 flex-1 flex-col bg-background'>
-			{inner}
-		</div>
+		<StoryThemeProvider>
+			<div
+				{...{ [NAO_MCP_EMBED_MEASURE_ATTR]: '' }}
+				className='flex min-h-0 min-w-0 flex-1 flex-col bg-background'
+			>
+				{inner}
+			</div>
+		</StoryThemeProvider>
 	);
 }
 

@@ -6,7 +6,7 @@
  * is the part that decides whether a proposed palette is allowed near a story.
  */
 
-import { DEFAULT_STORY_THEME, mergeStoryTheme, type StoryTheme } from '@nao/shared/story-theme';
+import { DEFAULT_STORY_THEME, isAllowedFontLink, mergeStoryTheme, type StoryTheme } from '@nao/shared/story-theme';
 import {
 	isDarkSurface,
 	readableInkFor,
@@ -56,6 +56,7 @@ export const proposalSchema = z.object({
 export function applyGuards(
 	proposal: z.infer<typeof proposalSchema>,
 	signals?: { warnings?: string[] },
+	fontLinks: string[] = [],
 ): InferenceResult {
 	const notes: string[] = [...(signals?.warnings ?? [])];
 
@@ -67,6 +68,9 @@ export function applyGuards(
 			bodyFont: sanitizeFontStack(proposal.typography.bodyFont),
 			headingTracking: clamp(proposal.typography.headingTracking, -0.06, 0.06),
 			scale: clamp(proposal.typography.scale, 0.85, 1.25),
+			// Never taken from the model: only stylesheets the probe actually saw
+			// on an allowed public font host.
+			fontLinks: [...new Set(fontLinks)].filter(isAllowedFontLink).slice(0, 4),
 		},
 		shape: {
 			radius: clamp(Math.round(proposal.shape.radius), 0, 28),
@@ -102,6 +106,12 @@ export function applyGuards(
 			notes.push(`ink.${key} was unreadable on the card surface and fell back to the nao value.`);
 			theme.ink[key] = defaultInk[key];
 		}
+	}
+
+	// An accent that matches the card is not an accent.
+	if (theme.accent.toLowerCase() === theme.surfaces.card.toLowerCase()) {
+		notes.push('The proposed accent was identical to the card surface, so the nao accent was kept.');
+		theme.accent = DEFAULT_STORY_THEME.accent;
 	}
 
 	// The accent's foreground is derived, never guessed.

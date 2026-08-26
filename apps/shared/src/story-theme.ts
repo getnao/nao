@@ -42,9 +42,36 @@ export const storyInkSchema = z.object({
 	muted: hexColor,
 });
 
+/**
+ * Stylesheet URLs that actually load the brand's faces.
+ *
+ * A font-family string on its own is decoration: if nothing serves the file the
+ * browser silently falls back and the story renders in Arial. Only hosts that
+ * publicly serve webfonts are allowed, and never the brand's own origin - their
+ * licensed faces are theirs to serve, not ours to hotlink.
+ */
+export const FONT_CDN_HOSTS = [
+	'fonts.googleapis.com',
+	'fonts.gstatic.com',
+	'fonts.bunny.net',
+	'use.typekit.net',
+	'p.typekit.net',
+] as const;
+
+export function isAllowedFontLink(raw: string): boolean {
+	try {
+		const url = new URL(raw);
+		return url.protocol === 'https:' && FONT_CDN_HOSTS.some((h) => url.hostname === h);
+	} catch {
+		return false;
+	}
+}
+
 export const storyTypographySchema = z.object({
 	headingFont: fontStack,
 	bodyFont: fontStack,
+	/** Stylesheets to load so the named faces actually resolve. */
+	fontLinks: z.array(z.string().refine(isAllowedFontLink, 'Font stylesheet host is not allowed.')).max(4).default([]),
 	/** Applied to headings only; brand display faces are often tightly tracked. */
 	headingTracking: z.number().min(-0.06).max(0.06),
 	/** Multiplier on the component type scale. Lets a dense brand stay dense. */
@@ -109,6 +136,7 @@ export const DEFAULT_STORY_THEME: StoryTheme = {
 		bodyFont: "Geist, 'Helvetica Neue', Arial, sans-serif",
 		headingTracking: -0.02,
 		scale: 1,
+		fontLinks: [],
 	},
 	shape: { radius: 10, border: '#e4e4f0', elevation: 'bordered', controlShape: 'rounded' },
 	charts: {
@@ -136,7 +164,13 @@ export function mergeStoryTheme(partial: DeepPartial<StoryTheme> | null | undefi
 	return {
 		surfaces: { ...DEFAULT_STORY_THEME.surfaces, ...clean(partial.surfaces) },
 		ink: { ...DEFAULT_STORY_THEME.ink, ...clean(partial.ink) },
-		typography: { ...DEFAULT_STORY_THEME.typography, ...clean(partial.typography) },
+		typography: {
+			...DEFAULT_STORY_THEME.typography,
+			...clean(partial.typography),
+			fontLinks: (partial.typography?.fontLinks ?? []).filter(
+				(l): l is string => typeof l === 'string' && isAllowedFontLink(l),
+			),
+		},
 		shape: { ...DEFAULT_STORY_THEME.shape, ...clean(partial.shape) },
 		charts: {
 			...DEFAULT_STORY_THEME.charts,

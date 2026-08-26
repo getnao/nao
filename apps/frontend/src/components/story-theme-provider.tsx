@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo } from 'react';
+import { createContext, useContext, useEffect, useMemo } from 'react';
 import type { StoryTheme } from '@nao/shared/story-theme';
 import type { ReactNode } from 'react';
 
@@ -37,9 +37,52 @@ interface StoryThemeProviderProps {
  * styles.css (heading face and tracking, control radius) that have no existing
  * token to ride on.
  */
+/**
+ * Load the theme's font stylesheets.
+ *
+ * A font-family string alone changes nothing: without a stylesheet serving the
+ * face the browser silently falls back, which is why the first cut of this
+ * feature rendered every brand in Arial. Links are appended to <head> because
+ * webfonts must be loaded document-wide, and reference-counted so unmounting
+ * one story does not yank a face another view is still using.
+ */
+const linkRefCounts = new Map<string, number>();
+
+function useFontLinks(hrefs: string[]) {
+	const key = hrefs.join('|');
+	useEffect(() => {
+		if (!key) {
+			return;
+		}
+		const urls = key.split('|');
+		for (const href of urls) {
+			const count = linkRefCounts.get(href) ?? 0;
+			linkRefCounts.set(href, count + 1);
+			if (count === 0 && !document.querySelector(`link[data-story-font="${CSS.escape(href)}"]`)) {
+				const link = document.createElement('link');
+				link.rel = 'stylesheet';
+				link.href = href;
+				link.dataset.storyFont = href;
+				document.head.appendChild(link);
+			}
+		}
+		return () => {
+			for (const href of urls) {
+				const next = (linkRefCounts.get(href) ?? 1) - 1;
+				linkRefCounts.set(href, next);
+				if (next <= 0) {
+					linkRefCounts.delete(href);
+					document.querySelector(`link[data-story-font="${CSS.escape(href)}"]`)?.remove();
+				}
+			}
+		};
+	}, [key]);
+}
+
 export function StoryThemeProvider({ children, className, override }: StoryThemeProviderProps) {
 	const { theme: published } = useStoryTheme();
 	const theme = override !== undefined ? override : published;
+	useFontLinks(theme?.typography.fontLinks ?? []);
 	const style = useMemo(() => storyThemeStyle(theme), [theme]);
 	const value = useMemo(() => ({ theme }), [theme]);
 
