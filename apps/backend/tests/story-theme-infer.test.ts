@@ -340,3 +340,28 @@ describe('fonts and structure', () => {
 		}
 	});
 });
+
+describe('structure stays behind the data', () => {
+	it('softens a gridline that is heavy enough to compete with the series', () => {
+		// A dark brand hue desaturates to a near-black grid, which reads louder
+		// than the bars it sits behind.
+		const { theme, notes } = applyGuards(proposal({ charts: { ...proposal().charts, grid: '#1a0a12' } }));
+		const ratio = contrastRatio(theme.charts.grid, theme.surfaces.card);
+		expect(ratio).toBeLessThanOrEqual(1.75);
+		expect(ratio).toBeGreaterThanOrEqual(1.12);
+		expect(notes.join(' ')).toMatch(/compete with the data/);
+	});
+
+	it('keeps structure inside the subtle band on a dark card too', () => {
+		const { theme } = applyGuards(
+			proposal({
+				surfaces: { page: '#140309', card: '#140309', sunken: '#241018' },
+				ink: { primary: '#fffdf7', secondary: '#d8d4cc', muted: '#a8a49c' },
+				charts: { ...proposal().charts, grid: '#ffffff' },
+			}),
+		);
+		const ratio = contrastRatio(theme.charts.grid, theme.surfaces.card);
+		expect(ratio).toBeLessThanOrEqual(1.75);
+		expect(ratio).toBeGreaterThanOrEqual(1.12);
+	});
+});

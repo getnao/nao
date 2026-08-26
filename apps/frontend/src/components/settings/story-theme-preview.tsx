@@ -1,7 +1,11 @@
 import { useMemo, useState } from 'react';
+import type { ParsedFilterBlock } from '@nao/shared/story-segments';
+import type { StoryFilterSelection } from '@nao/shared/sql-template';
 import type { StoryTheme } from '@nao/shared/story-theme';
 
+import { StoryFilterBar } from '@/components/story-filter-bar';
 import { StoryThemeProvider } from '@/components/story-theme-provider';
+import { StoryTabsBar } from '@/components/side-panel/story-tabs-bar';
 
 /**
  * A miniature story rendered in a candidate theme.
@@ -21,19 +25,39 @@ const SERIES = {
 	Local: [1889, 1320, 2560, 1740, 1120, 2280, 1590],
 };
 
-const TABS = ['Overview', 'By country'] as const;
-const INSTANCES = ['All', 'Deployed', 'Local'] as const;
+const TABS = [{ title: 'Overview' }, { title: 'By country' }];
+
+/**
+ * Real filter blocks, so StoryFilterBar renders exactly what a story renders:
+ * its own Select, its own popover, its own Clear button. Hardcoded `options`
+ * keep it from reaching for the warehouse.
+ */
+const FILTERS: ParsedFilterBlock[] = [
+	{
+		id: 'country',
+		label: 'Country',
+		filterType: 'select',
+		options: ['All countries', 'France', 'United States', 'Spain'],
+	},
+	{ id: 'instance', label: 'Instance', filterType: 'select', options: ['All', 'Deployed', 'Local'] },
+];
 
 export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 	// Interactive on purpose: an admin should be able to see what a hover
 	// tooltip, an open control and a selected tab look like before publishing,
 	// because those states carry most of a design system's personality.
-	const [tab, setTab] = useState<(typeof TABS)[number]>('Overview');
-	const [instance, setInstance] = useState<(typeof INSTANCES)[number]>('All');
+	const [tabIndex, setTabIndex] = useState(0);
+	const [selections, setSelections] = useState<Record<string, StoryFilterSelection>>({});
 	const [hovered, setHovered] = useState<number | null>(null);
 
+	const instance = typeof selections.instance === 'string' ? selections.instance : 'All';
 	const visible = useMemo(
-		() => (instance === 'All' ? (['Deployed', 'Local'] as const) : ([instance] as const)),
+		() =>
+			instance === 'Deployed'
+				? (['Deployed'] as const)
+				: instance === 'Local'
+					? (['Local'] as const)
+					: (['Deployed', 'Local'] as const),
 		[instance],
 	);
 	const totals = useMemo(() => TICKS.map((_, i) => visible.reduce((sum, key) => sum + SERIES[key][i], 0)), [visible]);
@@ -43,28 +67,13 @@ export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 	return (
 		<StoryThemeProvider override={theme}>
 			<div className='overflow-hidden rounded-lg border bg-background text-foreground'>
-				{/* Tab strip, as story-tabbed-content renders it */}
-				<div className='flex items-center gap-1 border-b px-4'>
-					{TABS.map((t) => (
-						<button
-							key={t}
-							type='button'
-							onClick={() => setTab(t)}
-							className={
-								t === tab
-									? 'border-b-2 border-primary px-3 py-2 text-sm font-medium text-foreground'
-									: 'border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground hover:text-foreground'
-							}
-						>
-							{t}
-						</button>
-					))}
-				</div>
+				{/* The real tabs bar, exactly as story-tabbed-content mounts it */}
+				<StoryTabsBar tabs={TABS} activeIndex={tabIndex} onSelect={setTabIndex} contentClassName='px-4' />
 
 				<div className='flex flex-col gap-4 p-4'>
 					<div>
 						<h3 className='text-lg leading-tight font-semibold'>
-							{tab === 'Overview' ? 'Weekly active users' : 'Users by country'}
+							{tabIndex === 0 ? 'Weekly active users' : 'Users by country'}
 						</h3>
 						<p className='mt-1 text-sm text-muted-foreground'>
 							How a story looks with this design system. Change a filter, switch tabs or hover a bar: the
@@ -72,37 +81,13 @@ export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 						</p>
 					</div>
 
-					{/* Filter bar, matching story-filter-bar.tsx */}
-					<div className='flex flex-wrap items-end gap-3 rounded-lg border bg-muted/20 p-3'>
-						<div className='flex min-w-36 flex-col gap-1'>
-							<span className='text-xs font-medium text-muted-foreground'>Country</span>
-							<div className='flex h-8 min-w-36 items-center justify-between rounded-md border bg-background px-3 text-xs'>
-								<span>All countries</span>
-								<span className='text-muted-foreground'>&#9662;</span>
-							</div>
-						</div>
-						<div className='flex min-w-36 flex-col gap-1'>
-							<span className='text-xs font-medium text-muted-foreground'>Instance</span>
-							<select
-								value={instance}
-								onChange={(e) => setInstance(e.target.value as (typeof INSTANCES)[number])}
-								className='h-8 min-w-36 rounded-md border bg-background px-3 text-xs'
-							>
-								{INSTANCES.map((i) => (
-									<option key={i} value={i}>
-										{i}
-									</option>
-								))}
-							</select>
-						</div>
-						<button
-							type='button'
-							onClick={() => setInstance('All')}
-							className='flex h-8 items-center px-2 text-xs text-muted-foreground hover:text-foreground'
-						>
-							Clear
-						</button>
-					</div>
+					{/* The real filter bar, not a lookalike */}
+					<StoryFilterBar
+						filters={FILTERS}
+						selections={selections}
+						onSelectionChange={(id, selection) => setSelections((prev) => ({ ...prev, [id]: selection }))}
+						onClear={() => setSelections({})}
+					/>
 
 					<div className='grid grid-cols-3 gap-3'>
 						{[

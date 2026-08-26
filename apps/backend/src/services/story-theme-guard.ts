@@ -204,15 +204,25 @@ export function applyGuards(
 	// Gridlines and hairlines carry no data. A brand hue there decorates the
 	// chart and competes with the series, so both are neutral steps off the
 	// surface they sit on.
-	theme.charts.grid = desaturate(theme.charts.grid);
-	theme.shape.border = desaturate(theme.shape.border);
-	for (const [label, value, set] of [
-		['shape.border', theme.shape.border, (v: string) => (theme.shape.border = v)],
-		['charts.grid', theme.charts.grid, (v: string) => (theme.charts.grid = v)],
+	// Neutral, and within a narrow band off the card: strong enough to read,
+	// faint enough to stay behind the data. Desaturating alone was not enough -
+	// a dark brand hue became a near-black grid that drew more attention than
+	// the series it was supposed to sit behind.
+	const SUBTLE = { min: 1.12, max: 1.75 };
+	for (const [label, set] of [
+		['shape.border', (v: string) => (theme.shape.border = v)],
+		['charts.grid', (v: string) => (theme.charts.grid = v)],
 	] as const) {
-		if (contrastRatio(value, theme.surfaces.card) < 1.12) {
-			set(desaturate(shiftLightness(theme.surfaces.card, pageIsDark ? 0.12 : -0.12)));
-			notes.push(`${label} was invisible against the card surface and was stepped away from it.`);
+		const current = desaturate(label === 'charts.grid' ? theme.charts.grid : theme.shape.border);
+		set(current);
+		const ratio = contrastRatio(current, theme.surfaces.card);
+		if (ratio < SUBTLE.min || ratio > SUBTLE.max) {
+			set(desaturate(shiftLightness(theme.surfaces.card, pageIsDark ? 0.14 : -0.11)));
+			notes.push(
+				ratio < SUBTLE.min
+					? `${label} was invisible against the card surface and was stepped away from it.`
+					: `${label} was heavy enough to compete with the data, so it was softened toward the card surface.`,
+			);
 		}
 	}
 

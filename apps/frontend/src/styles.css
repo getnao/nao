@@ -909,6 +909,14 @@ code.dollar:before {
  */
 [data-story-themed='true'] {
 	font-size: calc(1rem * var(--story-type-scale, 1));
+	/*
+	 * Body face has to be declared here, not just as a token.
+	 * Text, filter labels, KPI figures and axis labels all inherit font-family
+	 * from <body>, which sits outside the themed scope, so overriding
+	 * --font-sans alone changed nothing. Declaring it on the container makes
+	 * every descendant inherit the brand face.
+	 */
+	font-family: var(--font-sans);
 }
 
 [data-story-themed='true'] :is(h1, h2, h3, h4) {
@@ -916,7 +924,15 @@ code.dollar:before {
 	letter-spacing: var(--story-heading-tracking, -0.02em);
 }
 
-[data-story-themed='true'] :is(button, input, select, [role='combobox']) {
+/*
+ * Control shape applies to boxed form controls only.
+ *
+ * This used to include every `button`, which rounded tab buttons too: their
+ * bottom border curved into a bowl instead of underlining the label. Ordinary
+ * buttons already follow the theme, because Tailwind's --radius-sm/md/lg are
+ * all derived from --radius, which the theme overrides.
+ */
+[data-story-themed='true'] :is(input, select, textarea, [role='combobox'], [data-story-control]) {
 	border-radius: var(--story-control-radius, var(--radius));
 }
 
