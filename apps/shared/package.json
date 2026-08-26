@@ -5,18 +5,20 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./attachments": "./src/attachments.ts",
+		"./conditional-formatting": "./src/conditional-formatting.ts",
 		"./context-recommendation": "./src/context-recommendation.ts",
 		"./date": "./src/date.ts",
-		"./types": "./src/types.ts",
+		"./execute-sql-parts": "./src/execute-sql-parts.ts",
 		"./posthog": "./src/posthog.ts",
-		"./tools": "./src/tools/index.ts",
-		"./conditional-formatting": "./src/conditional-formatting.ts",
+		"./sql-template": "./src/sql-template.ts",
 		"./story-segments": "./src/story-segments.ts",
 		"./story-table-utils": "./src/story-table-utils.ts",
 		"./story-tabs": "./src/story-tabs.ts",
+		"./story-theme": "./src/story-theme.ts",
+		"./story-theme-contrast": "./src/story-theme-contrast.ts",
 		"./story-validation": "./src/story-validation.ts",
-		"./sql-template": "./src/sql-template.ts",
-		"./execute-sql-parts": "./src/execute-sql-parts.ts"
+		"./tools": "./src/tools/index.ts",
+		"./types": "./src/types.ts"
 	},
 	"scripts": {
 		"test": "vitest run",

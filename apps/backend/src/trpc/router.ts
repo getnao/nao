@@ -33,6 +33,7 @@ import { sqlRoutes } from './sql.routes';
 import { storageRoutes } from './storage.routes';
 import { storyRoutes } from './story.routes';
 import { storyFolderRoutes } from './story-folder.routes';
+import { storyThemeRoutes } from './story-theme.routes';
 import { systemRoutes } from './system.routes';
 import { transcribeRoutes } from './transcribe.routes';
 import { router } from './trpc';
@@ -42,6 +43,7 @@ import { userRoutes } from './user.routes';
 export const trpcRouter = router({
 	analyticsEvent: analyticsEventRoutes,
 	branding: brandingRoutes,
+	storyTheme: storyThemeRoutes,
 	budget: budgetRoutes,
 	embed: embedRoutes,
 	chart: chartRoutes,

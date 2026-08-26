@@ -897,3 +897,37 @@ code.dollar:before {
 		stroke-dashoffset: 0;
 	}
 }
+
+/*
+ * Story design system (issue #1463).
+ *
+ * Most of a published theme lands through the existing tokens (--card,
+ * --foreground, --chart-1 and friends), which the StoryThemeProvider overrides
+ * on a wrapping element. These few rules cover the slots that have no token to
+ * ride on: the heading face and its tracking, the type scale, and the control
+ * radius that tells a pill-shaped brand from a square-cornered one.
+ */
+[data-story-themed='true'] {
+	font-size: calc(1rem * var(--story-type-scale, 1));
+}
+
+[data-story-themed='true'] :is(h1, h2, h3, h4) {
+	font-family: var(--font-heading);
+	letter-spacing: var(--story-heading-tracking, -0.02em);
+}
+
+[data-story-themed='true'] :is(button, input, select, [role='combobox']) {
+	border-radius: var(--story-control-radius, var(--radius));
+}
+
+[data-story-themed='true'][data-story-elevation='flat'] :is([data-slot='card'], .story-card) {
+	border-color: transparent;
+	box-shadow: none;
+}
+
+[data-story-themed='true'][data-story-elevation='shadowed'] :is([data-slot='card'], .story-card) {
+	border-color: transparent;
+	box-shadow:
+		0 1px 2px rgb(0 0 0 / 6%),
+		0 8px 24px -16px rgb(0 0 0 / 18%);
+}

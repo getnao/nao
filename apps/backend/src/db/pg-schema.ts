@@ -1235,6 +1235,16 @@ export const brandingConfig = pgTable('branding_config', {
 	faviconData: text('favicon_data'),
 	faviconMediaType: text('favicon_media_type'),
 	brandColor: text('brand_color'),
+	/** Inferred-but-unpublished story theme (JSON StoryTheme). Admin reviews this. */
+	storyThemeDraft: text('story_theme_draft'),
+	/** Published story theme (JSON StoryTheme) applied to every story. */
+	storyTheme: text('story_theme'),
+	/** Where the draft came from, shown back to the admin on the review screen. */
+	storyThemeSource: text('story_theme_source'),
+	storyThemeSourceKind: text('story_theme_source_kind'),
+	/** Repairs the contrast guard applied to the inferred palette (JSON string[]). */
+	storyThemeNotes: text('story_theme_notes'),
+	storyThemeEnabled: boolean('story_theme_enabled').default(false).notNull(),
 	updatedAt: timestamp('updated_at')
 		.defaultNow()
 		.$onUpdate(() => /* @__PURE__ */ new Date())

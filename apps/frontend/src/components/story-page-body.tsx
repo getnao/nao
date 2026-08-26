@@ -9,6 +9,7 @@ import { StoryCodeView } from '@/components/side-panel/story-code-view';
 import { StoryEditor } from '@/components/side-panel/story-editor';
 import { StoryTabbedEditor } from '@/components/side-panel/story-tabbed-editor';
 import { StoryEmbedDataProvider } from '@/contexts/story-embed-data';
+import { StoryThemeProvider } from '@/components/story-theme-provider';
 
 interface StoryPageBodyProps {
 	code: string;
@@ -18,6 +19,16 @@ interface StoryPageBodyProps {
 }
 
 export function StoryPageBody({ code, editor, preview, queryData }: StoryPageBodyProps) {
+	// Every story route renders through here, so this is the one place the
+	// workspace design system has to be applied.
+	return (
+		<StoryThemeProvider>
+			<StoryPageBodyInner code={code} editor={editor} preview={preview} queryData={queryData} />
+		</StoryThemeProvider>
+	);
+}
+
+function StoryPageBodyInner({ code, editor, preview, queryData }: StoryPageBodyProps) {
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 	useDragAutoScroll(scrollContainerRef);
 

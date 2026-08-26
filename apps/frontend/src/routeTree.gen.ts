@@ -28,6 +28,7 @@ import { Route as EmbedChartChartEmbedIdRouteImport } from './routes/embed.chart
 import { Route as SidebarLayoutSharedChatShareIdRouteImport } from './routes/_sidebar-layout.shared-chat.$shareId'
 import { Route as SidebarLayoutSettingsWhiteLabelRouteImport } from './routes/_sidebar-layout.settings.white-label'
 import { Route as SidebarLayoutSettingsUsageRouteImport } from './routes/_sidebar-layout.settings.usage'
+import { Route as SidebarLayoutSettingsStoryDesignRouteImport } from './routes/_sidebar-layout.settings.story-design'
 import { Route as SidebarLayoutSettingsStorageRouteImport } from './routes/_sidebar-layout.settings.storage'
 import { Route as SidebarLayoutSettingsRecommendationsRouteImport } from './routes/_sidebar-layout.settings.recommendations'
 import { Route as SidebarLayoutSettingsProjectRouteImport } from './routes/_sidebar-layout.settings.project'
@@ -154,6 +155,12 @@ const SidebarLayoutSettingsUsageRoute =
   SidebarLayoutSettingsUsageRouteImport.update({
     id: '/usage',
     path: '/usage',
+    getParentRoute: () => SidebarLayoutSettingsRoute,
+  } as any)
+const SidebarLayoutSettingsStoryDesignRoute =
+  SidebarLayoutSettingsStoryDesignRouteImport.update({
+    id: '/story-design',
+    path: '/story-design',
     getParentRoute: () => SidebarLayoutSettingsRoute,
   } as any)
 const SidebarLayoutSettingsStorageRoute =
@@ -326,7 +333,6 @@ const SidebarLayoutSettingsUsageReplayChatIdRoute =
   } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof SidebarLayoutChatLayoutIndexRoute
   '/consent': typeof ConsentRoute
   '/embed': typeof EmbedRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
@@ -347,15 +353,17 @@ export interface FileRoutesByFullPath {
   '/settings/project': typeof SidebarLayoutSettingsProjectRouteWithChildren
   '/settings/recommendations': typeof SidebarLayoutSettingsRecommendationsRoute
   '/settings/storage': typeof SidebarLayoutSettingsStorageRoute
+  '/settings/story-design': typeof SidebarLayoutSettingsStoryDesignRoute
   '/settings/usage': typeof SidebarLayoutSettingsUsageRouteWithChildren
   '/settings/white-label': typeof SidebarLayoutSettingsWhiteLabelRoute
   '/shared-chat/$shareId': typeof SidebarLayoutSharedChatShareIdRoute
   '/embed/chart/$chartEmbedId': typeof EmbedChartChartEmbedIdRoute
   '/embed/map/$mapEmbedId': typeof EmbedMapMapEmbedIdRoute
   '/embed/story/$storyId': typeof EmbedStoryStoryIdRoute
-  '/feed/': typeof SidebarLayoutFeedIndexRoute
+  '/': typeof SidebarLayoutChatLayoutIndexRoute
+  '/feed': typeof SidebarLayoutFeedIndexRoute
   '/settings/': typeof SidebarLayoutSettingsIndexRoute
-  '/stories/': typeof SidebarLayoutStoriesIndexRoute
+  '/stories': typeof SidebarLayoutStoriesIndexRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
   '/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
   '/settings/project/mcp-endpoint': typeof SidebarLayoutSettingsProjectMcpEndpointRoute
@@ -373,7 +381,6 @@ export interface FileRoutesByFullPath {
   '/stories/preview/$chatId/$storySlug': typeof SidebarLayoutStoriesPreviewChatIdStorySlugRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof SidebarLayoutChatLayoutIndexRoute
   '/consent': typeof ConsentRoute
   '/embed': typeof EmbedRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
@@ -392,12 +399,14 @@ export interface FileRoutesByTo {
   '/settings/organization': typeof SidebarLayoutSettingsOrganizationRoute
   '/settings/recommendations': typeof SidebarLayoutSettingsRecommendationsRoute
   '/settings/storage': typeof SidebarLayoutSettingsStorageRoute
+  '/settings/story-design': typeof SidebarLayoutSettingsStoryDesignRoute
   '/settings/usage': typeof SidebarLayoutSettingsUsageRouteWithChildren
   '/settings/white-label': typeof SidebarLayoutSettingsWhiteLabelRoute
   '/shared-chat/$shareId': typeof SidebarLayoutSharedChatShareIdRoute
   '/embed/chart/$chartEmbedId': typeof EmbedChartChartEmbedIdRoute
   '/embed/map/$mapEmbedId': typeof EmbedMapMapEmbedIdRoute
   '/embed/story/$storyId': typeof EmbedStoryStoryIdRoute
+  '/': typeof SidebarLayoutChatLayoutIndexRoute
   '/feed': typeof SidebarLayoutFeedIndexRoute
   '/settings': typeof SidebarLayoutSettingsIndexRoute
   '/stories': typeof SidebarLayoutStoriesIndexRoute
@@ -441,6 +450,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/project': typeof SidebarLayoutSettingsProjectRouteWithChildren
   '/_sidebar-layout/settings/recommendations': typeof SidebarLayoutSettingsRecommendationsRoute
   '/_sidebar-layout/settings/storage': typeof SidebarLayoutSettingsStorageRoute
+  '/_sidebar-layout/settings/story-design': typeof SidebarLayoutSettingsStoryDesignRoute
   '/_sidebar-layout/settings/usage': typeof SidebarLayoutSettingsUsageRouteWithChildren
   '/_sidebar-layout/settings/white-label': typeof SidebarLayoutSettingsWhiteLabelRoute
   '/_sidebar-layout/shared-chat/$shareId': typeof SidebarLayoutSharedChatShareIdRoute
@@ -470,7 +480,6 @@ export interface FileRoutesById {
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    | '/'
     | '/consent'
     | '/embed'
     | '/forgot-password'
@@ -491,15 +500,17 @@ export interface FileRouteTypes {
     | '/settings/project'
     | '/settings/recommendations'
     | '/settings/storage'
+    | '/settings/story-design'
     | '/settings/usage'
     | '/settings/white-label'
     | '/shared-chat/$shareId'
     | '/embed/chart/$chartEmbedId'
     | '/embed/map/$mapEmbedId'
     | '/embed/story/$storyId'
-    | '/feed/'
+    | '/'
+    | '/feed'
     | '/settings/'
-    | '/stories/'
+    | '/stories'
     | '/settings/project/agent'
     | '/settings/project/budgets'
     | '/settings/project/mcp-endpoint'
@@ -517,7 +528,6 @@ export interface FileRouteTypes {
     | '/stories/preview/$chatId/$storySlug'
   fileRoutesByTo: FileRoutesByTo
   to:
-    | '/'
     | '/consent'
     | '/embed'
     | '/forgot-password'
@@ -536,12 +546,14 @@ export interface FileRouteTypes {
     | '/settings/organization'
     | '/settings/recommendations'
     | '/settings/storage'
+    | '/settings/story-design'
     | '/settings/usage'
     | '/settings/white-label'
     | '/shared-chat/$shareId'
     | '/embed/chart/$chartEmbedId'
     | '/embed/map/$mapEmbedId'
     | '/embed/story/$storyId'
+    | '/'
     | '/feed'
     | '/settings'
     | '/stories'
@@ -584,6 +596,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/project'
     | '/_sidebar-layout/settings/recommendations'
     | '/_sidebar-layout/settings/storage'
+    | '/_sidebar-layout/settings/story-design'
     | '/_sidebar-layout/settings/usage'
     | '/_sidebar-layout/settings/white-label'
     | '/_sidebar-layout/shared-chat/$shareId'
@@ -668,7 +681,7 @@ declare module '@tanstack/react-router' {
     '/_sidebar-layout': {
       id: '/_sidebar-layout'
       path: ''
-      fullPath: '/'
+      fullPath: ''
       preLoaderRoute: typeof SidebarLayoutRouteImport
       parentRoute: typeof rootRouteImport
     }
@@ -682,14 +695,14 @@ declare module '@tanstack/react-router' {
     '/_sidebar-layout/_chat-layout': {
       id: '/_sidebar-layout/_chat-layout'
       path: ''
-      fullPath: '/'
+      fullPath: ''
       preLoaderRoute: typeof SidebarLayoutChatLayoutRouteImport
       parentRoute: typeof SidebarLayoutRoute
     }
     '/_sidebar-layout/stories/': {
       id: '/_sidebar-layout/stories/'
       path: '/stories'
-      fullPath: '/stories/'
+      fullPath: '/stories'
       preLoaderRoute: typeof SidebarLayoutStoriesIndexRouteImport
       parentRoute: typeof SidebarLayoutRoute
     }
@@ -703,7 +716,7 @@ declare module '@tanstack/react-router' {
     '/_sidebar-layout/feed/': {
       id: '/_sidebar-layout/feed/'
       path: '/feed'
-      fullPath: '/feed/'
+      fullPath: '/feed'
       preLoaderRoute: typeof SidebarLayoutFeedIndexRouteImport
       parentRoute: typeof SidebarLayoutRoute
     }
@@ -754,6 +767,13 @@ declare module '@tanstack/react-router' {
       path: '/usage'
       fullPath: '/settings/usage'
       preLoaderRoute: typeof SidebarLayoutSettingsUsageRouteImport
+      parentRoute: typeof SidebarLayoutSettingsRoute
+    }
+    '/_sidebar-layout/settings/story-design': {
+      id: '/_sidebar-layout/settings/story-design'
+      path: '/story-design'
+      fullPath: '/settings/story-design'
+      preLoaderRoute: typeof SidebarLayoutSettingsStoryDesignRouteImport
       parentRoute: typeof SidebarLayoutSettingsRoute
     }
     '/_sidebar-layout/settings/storage': {
@@ -1043,6 +1063,7 @@ interface SidebarLayoutSettingsRouteChildren {
   SidebarLayoutSettingsProjectRoute: typeof SidebarLayoutSettingsProjectRouteWithChildren
   SidebarLayoutSettingsRecommendationsRoute: typeof SidebarLayoutSettingsRecommendationsRoute
   SidebarLayoutSettingsStorageRoute: typeof SidebarLayoutSettingsStorageRoute
+  SidebarLayoutSettingsStoryDesignRoute: typeof SidebarLayoutSettingsStoryDesignRoute
   SidebarLayoutSettingsUsageRoute: typeof SidebarLayoutSettingsUsageRouteWithChildren
   SidebarLayoutSettingsWhiteLabelRoute: typeof SidebarLayoutSettingsWhiteLabelRoute
   SidebarLayoutSettingsIndexRoute: typeof SidebarLayoutSettingsIndexRoute
@@ -1064,6 +1085,7 @@ const SidebarLayoutSettingsRouteChildren: SidebarLayoutSettingsRouteChildren = {
   SidebarLayoutSettingsRecommendationsRoute:
     SidebarLayoutSettingsRecommendationsRoute,
   SidebarLayoutSettingsStorageRoute: SidebarLayoutSettingsStorageRoute,
+  SidebarLayoutSettingsStoryDesignRoute: SidebarLayoutSettingsStoryDesignRoute,
   SidebarLayoutSettingsUsageRoute: SidebarLayoutSettingsUsageRouteWithChildren,
   SidebarLayoutSettingsWhiteLabelRoute: SidebarLayoutSettingsWhiteLabelRoute,
   SidebarLayoutSettingsIndexRoute: SidebarLayoutSettingsIndexRoute,

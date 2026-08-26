@@ -112,6 +112,13 @@ const settingsNavItems: NavItem[] = [
 		visible: ({ isViewer }) => !isViewer,
 	},
 	{
+		// Story design system is open-source, so it sits with the project settings
+		// rather than under Enterprise (issue #1463).
+		label: 'Story design',
+		to: '/settings/story-design',
+		visible: ({ isAdmin }) => isAdmin,
+	},
+	{
 		label: 'Enterprise',
 		type: 'divider',
 		visible: ({ isAdmin, isCloud }) => isAdmin && !isCloud,
