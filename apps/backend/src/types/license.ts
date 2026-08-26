@@ -6,6 +6,7 @@
  * license wire format and cannot change without re-issuing every license.
  */
 export const LICENSE_FEATURES = {
+	excludeColumns: 'exclude-columns',
 	sso: 'sso',
 	whiteLabel: 'white-label',
 } as const;

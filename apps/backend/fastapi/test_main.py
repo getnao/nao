@@ -114,6 +114,7 @@ def test_execute_sql_blocks_star_with_excluded_columns(
         json={
             "sql": "SELECT * FROM users",
             "nao_project_folder": duckdb_project_with_excluded_columns,
+            "enforce_excluded_columns": True,
         },
     )
 
@@ -134,11 +135,38 @@ def test_execute_sql_blocks_explicit_excluded_column(
         json={
             "sql": "SELECT email FROM users",
             "nao_project_folder": duckdb_project_with_excluded_columns,
+            "enforce_excluded_columns": True,
         },
     )
 
     assert response.status_code == 400
     assert "main.users.email" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "enforce_excluded_columns", [False, None], ids=["disabled", "omitted"]
+)
+def test_execute_sql_allows_excluded_column_without_enforcement(
+    duckdb_project_with_excluded_columns,
+    enforce_excluded_columns,
+):
+    client = TestClient(app)
+    request = {
+        "sql": "SELECT email FROM users",
+        "nao_project_folder": duckdb_project_with_excluded_columns,
+    }
+    if enforce_excluded_columns is not None:
+        request["enforce_excluded_columns"] = enforce_excluded_columns
+
+    response = client.post("/execute_sql", json=request)
+
+    assert response.status_code == 200
+    assert_sql_result(
+        response.json(),
+        row_count=1,
+        columns=["email"],
+        expected_data=[{"email": "alice@example.com"}],
+    )
 
 
 def test_execute_sql_with_cte_duckdb(duckdb_project_folder):

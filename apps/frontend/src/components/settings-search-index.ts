@@ -308,6 +308,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		description: 'Allow the agent to execute INSERT, UPDATE, DELETE and DDL SQL queries.',
 		keywords: ['write', 'insert', 'update', 'delete', 'ddl', 'sql', 'permissions'],
 	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		title: 'Exclude columns',
+		description: 'Prevent the agent from querying columns listed in exclude_columns.',
+		keywords: ['enforce excluded columns', 'sql', 'query', 'column access'],
+		adminOnly: true,
+	},
 
 	// ── Project > MCP Servers ────────────────────────────────
 	{

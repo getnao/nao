@@ -65,7 +65,7 @@ import {
 import { logger } from '../utils/logger';
 import { addPromptCache } from '../utils/prompt-cache';
 import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt } from '../utils/title';
-import { truncateMiddle } from '../utils/utils';
+import { formatErrorMessageForUI, truncateMiddle } from '../utils/utils';
 import { listChartPlugins } from './chart-plugin';
 import { compactionService } from './compaction';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
@@ -510,6 +510,7 @@ class AgentManager {
 				writer.merge(
 					result.toUIMessageStream({
 						sendStart: false,
+						onError: formatErrorMessageForUI,
 					}),
 				);
 			},

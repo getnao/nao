@@ -5,6 +5,7 @@ import { executeSql as schemas } from '@nao/shared/tools';
 import { ExecuteSqlOutput, renderToModelOutput } from '../../components/tool-outputs';
 import { env } from '../../env';
 import { getExecuteSqlPartByQueryIdInChat, updateExecuteSqlPart } from '../../queries/execute-sql.queries';
+import { hasFeature, LICENSE_FEATURES } from '../../services/license.service';
 import { ToolContext } from '../../types/tools';
 import { detectQueryRowLimit, isReadOnlySqlQuery } from '../../utils/sql-filter';
 import { createTool } from '../../utils/tools';
@@ -31,6 +32,9 @@ export async function executeQuery(
 		return withTemplateWarnings(await executeAppDbQuery(effectiveSql, context, query_id), templateWarnings);
 	}
 
+	const enforceExcludedColumns =
+		(await hasFeature(LICENSE_FEATURES.excludeColumns)) &&
+		(context.agentSettings?.sql?.enforceExcludedColumns ?? true);
 	const naoProjectFolder = context.projectFolder;
 	const envVars = context.envVars;
 	const response = await fetch(`http://localhost:${env.FASTAPI_PORT}/execute_sql`, {
@@ -41,6 +45,7 @@ export async function executeQuery(
 		body: JSON.stringify({
 			sql: effectiveSql,
 			nao_project_folder: naoProjectFolder,
+			enforce_excluded_columns: enforceExcludedColumns,
 			...(database_id && { database_id }),
 			...(Object.keys(envVars).length > 0 && { env_vars: envVars }),
 			...(context.azureAccessToken && { azure_access_token: context.azureAccessToken }),

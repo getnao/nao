@@ -14,6 +14,7 @@ export interface AgentSettings {
 	};
 	sql?: {
 		dangerouslyWritePermEnabled?: boolean;
+		enforceExcludedColumns?: boolean;
 	};
 	pythonExecution?: {
 		maxDurationSecs?: number;
