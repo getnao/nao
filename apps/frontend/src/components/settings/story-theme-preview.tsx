@@ -252,20 +252,26 @@ export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 											.join(' ')}
 									/>
 								))}
-								{lineHover !== null &&
-									visible.map((key, s2) => (
-										<circle
-											key={key}
-											cx={(lineHover * 280) / (TICKS.length - 1)}
-											cy={80 - (SERIES[key][lineHover] / max) * 76}
-											r='3'
-											fill={`var(--chart-${s2 + 1})`}
-											stroke='var(--card)'
-											strokeWidth='1.5'
-											vectorEffect='non-scaling-stroke'
-										/>
-									))}
 							</svg>
+							{/*
+							 * Markers are HTML, not <circle>. The SVG is stretched horizontally
+							 * by preserveAspectRatio='none' so the plot can fill the card, and
+							 * that turns any circle inside it into an ellipse. non-scaling-stroke
+							 * fixes stroke width but not geometry.
+							 */}
+							{lineHover !== null &&
+								visible.map((key, s2) => (
+									<span
+										key={key}
+										className='pointer-events-none absolute size-2 -translate-x-1/2 -translate-y-1/2 rounded-full'
+										style={{
+											left: `${(lineHover / (TICKS.length - 1)) * 100}%`,
+											top: `${((80 - (SERIES[key][lineHover] / max) * 76) / 80) * 100}%`,
+											background: `var(--chart-${s2 + 1})`,
+											boxShadow: '0 0 0 2px var(--card)',
+										}}
+									/>
+								))}
 							{lineHover !== null && (
 								<div
 									className='pointer-events-none absolute top-0 z-10 -translate-x-1/2 rounded-md border bg-popover px-2.5 py-1.5 text-xs shadow-sm'
