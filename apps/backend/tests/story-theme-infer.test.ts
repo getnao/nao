@@ -1,5 +1,5 @@
 import { DEFAULT_STORY_THEME } from '@nao/shared/story-theme';
-import { contrastRatio, validateSeries } from '@nao/shared/story-theme-contrast';
+import { contrastRatio, hexToOklch, validateSeries } from '@nao/shared/story-theme-contrast';
 import { describe, expect, it } from 'vitest';
 
 import { assertPublicHttpUrl, normalizeColor } from '../src/services/story-theme-extract';
@@ -278,5 +278,65 @@ describe('readability across every surface', () => {
 			}),
 		);
 		expect(theme.surfaces.card).not.toBe('#ffffff');
+	});
+});
+
+describe('fonts and structure', () => {
+	const withFonts = (overrides: Record<string, unknown> = {}) =>
+		proposal({
+			typography: {
+				headingFont: "'TTRamillas-Bold', serif",
+				bodyFont: "'AtypDisplay-Regular', sans-serif",
+				headingTracking: -0.02,
+				scale: 1,
+				headingFontSubstitute: 'Fraunces',
+				bodyFontSubstitute: 'DM Sans',
+			},
+			...overrides,
+		});
+
+	it('puts a loadable substitute behind the unloadable brand face', () => {
+		const { theme, notes } = applyGuards(withFonts());
+		expect(theme.typography.headingFont).toContain('TTRamillas-Bold');
+		expect(theme.typography.headingFont).toContain('Fraunces');
+		expect(theme.typography.bodyFont).toContain('DM Sans');
+		expect(notes.join(' ')).toMatch(/cannot be loaded/);
+	});
+
+	it('emits a stylesheet that actually serves the substitutes', () => {
+		const { theme } = applyGuards(withFonts());
+		const link = theme.typography.fontLinks.find((l) => l.includes('fonts.googleapis.com'));
+		expect(link).toBeDefined();
+		expect(link).toContain('Fraunces');
+		expect(link).toContain('DM+Sans');
+	});
+
+	it('ignores a substitute the model invented', () => {
+		const { theme } = applyGuards(
+			withFonts({
+				typography: {
+					headingFont: "'Brand', serif",
+					bodyFont: "'Brand', sans-serif",
+					headingTracking: 0,
+					scale: 1,
+					headingFontSubstitute: 'Definitely Not A Google Font',
+					bodyFontSubstitute: 'Comic Sans MS',
+				},
+			}),
+		);
+		expect(theme.typography.fontLinks).toEqual([]);
+		expect(theme.typography.headingFont).not.toContain('Comic Sans');
+	});
+
+	it('keeps gridlines and hairlines neutral, never a brand hue', () => {
+		const { theme } = applyGuards(
+			proposal({
+				charts: { ...proposal().charts, grid: '#8f40ff' },
+				shape: { ...proposal().shape, border: '#00ab5d' },
+			}),
+		);
+		for (const structural of [theme.charts.grid, theme.shape.border]) {
+			expect(hexToOklch(structural).c, `${structural} still carries hue`).toBeLessThan(0.02);
+		}
 	});
 });

@@ -1,4 +1,4 @@
-import { DEFAULT_STORY_THEME } from '@nao/shared/story-theme';
+import { ALLOWED_GOOGLE_FONTS, DEFAULT_STORY_THEME } from '@nao/shared/story-theme';
 import type { LlmProvider } from '@nao/shared/types';
 import { generateObject } from 'ai';
 
@@ -39,6 +39,11 @@ const SYSTEM_PROMPT = [
 	'  square when it is 0 to 2px, otherwise rounded.',
 	'- shape.elevation: shadowed when cards carry a shadow, bordered when they carry',
 	'  a border, flat when they carry neither.',
+	'- typography.headingFontSubstitute and bodyFontSubstitute: the nearest freely',
+	'  loadable family, chosen ONLY from this list. Match by shape, not by name:',
+	`  ${ALLOWED_GOOGLE_FONTS.join(', ')}.`,
+	'- charts.grid and shape.border are structure, not data. Give them a neutral',
+	'  grey stepped off the card surface, never a brand hue.',
 	'- typography.headingFont and bodyFont: name the families the page actually uses,',
 	'  in order, ending in a generic family. Keep the brand face first even when it is',
 	'  marked unloadable, so the intent is recorded; put a close web-safe or Google',
@@ -149,4 +154,66 @@ function renderSignals(signals: DesignSignals): string {
 	);
 
 	return parts.filter((l) => l !== '').join('\n');
+}
+
+const SCREENSHOT_PROMPT = [
+	'You are looking at a screenshot of a company website.',
+	'',
+	'Read its design system from the pixels and map it onto the dashboard theme',
+	'contract. Sample colours you can actually see: the page ground, the colour of',
+	'the most prominent button, the heading colour, the card grounds. Judge the',
+	'corner radius of buttons and cards from their shape, and the typefaces from',
+	'their letterforms (a high-contrast serif, a geometric sans, and so on).',
+	'',
+	'Be honest about uncertainty: where you cannot tell, choose the neutral option',
+	'rather than inventing something specific.',
+].join('\n');
+
+/**
+ * Infer from a screenshot instead of a URL.
+ *
+ * The escape hatch that does not require anything of the admin beyond what they
+ * already have on screen. It reads less precisely than the rendered probe - no
+ * measured radii, no real font names, no custom properties - so the model is
+ * told to prefer neutral answers where the image is ambiguous, and the same
+ * guard runs afterwards regardless.
+ */
+export async function inferStoryThemeFromImage(
+	projectId: string,
+	image: { data: string; mediaType: string },
+	hint?: string,
+): Promise<InferenceResult> {
+	const model = await resolveModel(projectId);
+	if (!model) {
+		return {
+			theme: DEFAULT_STORY_THEME,
+			notes: ['No language model is configured for this project, so the nao default theme was kept.'],
+		};
+	}
+
+	const { object } = await generateObject({
+		...disableModelReasoning(model.provider, model.model),
+		schema: proposalSchema,
+		system: `${SYSTEM_PROMPT}\n\n${SCREENSHOT_PROMPT}`,
+		messages: [
+			{
+				role: 'user',
+				content: [
+					{
+						type: 'text',
+						text: hint ? `The site is ${hint}.` : 'Read the design system from this screenshot.',
+					},
+					{ type: 'image', image: Buffer.from(image.data, 'base64'), mediaType: image.mediaType },
+				],
+			},
+		],
+		experimental_telemetry: llmTelemetry('nao-story-theme-image', { projectId }),
+	});
+
+	const result = applyGuards(object, {
+		warnings: [
+			'Read from a screenshot. Colours and shapes are sampled from the image, so radii, font names and any colour not visible on screen are approximations.',
+		],
+	});
+	return result;
 }

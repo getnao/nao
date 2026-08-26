@@ -58,6 +58,43 @@ export const FONT_CDN_HOSTS = [
 	'p.typekit.net',
 ] as const;
 
+/**
+ * Google Fonts families we are willing to substitute in.
+ *
+ * Most brands letter themselves in faces they licence and self-host, so we can
+ * never load the real thing. Naming it and rendering Arial is the worst of both
+ * worlds. Instead we pick the nearest family that is freely loadable, keep the
+ * brand face first in the stack so the intent is recorded, and tell the admin
+ * what happened. Grouped so an unrecognised face can still be matched by shape.
+ */
+export const GOOGLE_FONT_SUBSTITUTES = {
+	'display-serif': ['Fraunces', 'Playfair Display', 'Instrument Serif', 'Bodoni Moda'],
+	'text-serif': ['EB Garamond', 'Lora', 'Source Serif 4', 'Spectral'],
+	'geometric-sans': ['Jost', 'Poppins', 'Outfit'],
+	'neo-grotesque-sans': ['Inter', 'DM Sans', 'Archivo', 'Manrope', 'Public Sans'],
+	'humanist-sans': ['Figtree', 'Nunito Sans', 'Source Sans 3'],
+	condensed: ['Archivo Narrow', 'Barlow Condensed', 'Oswald'],
+	mono: ['JetBrains Mono', 'IBM Plex Mono', 'Space Mono'],
+} as const;
+
+export type FontShape = keyof typeof GOOGLE_FONT_SUBSTITUTES;
+
+export const ALLOWED_GOOGLE_FONTS: readonly string[] = Object.values(GOOGLE_FONT_SUBSTITUTES).flat();
+
+export function isAllowedGoogleFont(family: string): boolean {
+	return ALLOWED_GOOGLE_FONTS.some((f) => f.toLowerCase() === family.trim().toLowerCase());
+}
+
+/** The stylesheet that actually serves a substituted family. */
+export function googleFontLink(families: string[]): string | null {
+	const allowed = [...new Set(families.filter(isAllowedGoogleFont))];
+	if (!allowed.length) {
+		return null;
+	}
+	const query = allowed.map((f) => `family=${f.trim().replace(/\s+/g, '+')}:wght@400;500;600;700`).join('&');
+	return `https://fonts.googleapis.com/css2?${query}&display=swap`;
+}
+
 export function isAllowedFontLink(raw: string): boolean {
 	try {
 		const url = new URL(raw);

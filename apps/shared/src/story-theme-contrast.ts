@@ -394,6 +394,18 @@ function clamp(v: number, lo: number, hi: number): number {
 	return Math.min(hi, Math.max(lo, v));
 }
 
+/**
+ * Strip a colour of its hue.
+ *
+ * Gridlines and hairlines are structure, not data. Painting them in a brand hue
+ * makes a chart look decorated and competes with the series, so they are always
+ * neutral steps off their own surface.
+ */
+export function desaturate(hex: string): string {
+	const { l } = hexToOklch(hex);
+	return oklchToHex({ l, c: 0, h: 0 });
+}
+
 /** Move a colour along lightness, holding hue, staying inside sRGB. */
 export function shiftLightness(hex: string, delta: number): string {
 	const oklch = hexToOklch(hex);

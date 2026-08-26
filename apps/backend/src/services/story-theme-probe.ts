@@ -67,7 +67,7 @@ const USER_AGENT =
  * anything from this module and must stay self-contained.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export function pageProbe(allowedFontHosts: string[]): ProbeResult {
+function pageProbe(allowedFontHosts: string[]): ProbeResult {
 	const px = (v: string | null | undefined): number | null => {
 		if (!v) {
 			return null;
@@ -451,29 +451,4 @@ export async function probeWithBrowser(url: string, allowedFontHosts: string[]):
 	} finally {
 		await page.close().catch(() => undefined);
 	}
-}
-
-/**
- * The same probe, packaged to run in the admin's own browser.
- *
- * Plenty of brand sites sit behind a WAF that refuses datacenter traffic and
- * headless clients, and we do not work around bot protection. But the admin is
- * already logged into a normal browser on their own company's site, where no
- * such problem exists. They paste this into the console and hand us the result.
- *
- * Serialising the very same function keeps one source of truth: whatever the
- * server probe reads, the snippet reads.
- */
-export function buildProbeSnippet(allowedFontHosts: string[]): string {
-	return [
-		'(function () {',
-		'  // Bundlers that keep function names emit __name(); the page has no such helper.',
-		'  globalThis.__name = globalThis.__name || function (f) { return f; };',
-		`  var probe = ${pageProbe.toString()};`,
-		`  var result = JSON.stringify(probe(${JSON.stringify(allowedFontHosts)}));`,
-		'  if (typeof copy === "function") { copy(result); console.log("Copied. Paste it into nao."); }',
-		'  else { console.log(result); }',
-		'  return result;',
-		'})()',
-	].join('\n');
 }

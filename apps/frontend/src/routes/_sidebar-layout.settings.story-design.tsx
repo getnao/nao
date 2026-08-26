@@ -2,13 +2,12 @@ import { useEffect, useState } from 'react';
 import { DEFAULT_STORY_THEME } from '@nao/shared/story-theme';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Check, ClipboardPaste, Copy, Globe, Loader2, RotateCcw, Sparkles } from 'lucide-react';
+import { AlertTriangle, Check, Globe, Image as ImageIcon, Loader2, RotateCcw, Sparkles } from 'lucide-react';
 import type { StoryTheme } from '@nao/shared/story-theme';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { Switch } from '@/components/ui/switch';
 import { StoryThemePreview } from '@/components/settings/story-theme-preview';
@@ -40,9 +39,7 @@ function StoryDesignPage() {
 	// Shown once a site refuses us: the admin captures the design system in their
 	// own browser instead, where their company's bot protection is not in play.
 	const [showCapture, setShowCapture] = useState(false);
-	const [capture, setCapture] = useState('');
-	const [copied, setCopied] = useState(false);
-	const snippet = useQuery({ ...trpc.storyTheme.getProbeSnippet.queryOptions(), enabled: showCapture });
+	const [shot, setShot] = useState<{ name: string; preview: string } | null>(null);
 
 	useEffect(() => {
 		if (state.data) {
@@ -73,18 +70,41 @@ function StoryDesignPage() {
 		},
 	});
 
-	const inferFromCapture = useMutation({
-		...trpc.storyTheme.inferFromProbe.mutationOptions(),
+	const inferFromImage = useMutation({
+		...trpc.storyTheme.inferFromImage.mutationOptions(),
 		onSuccess: async (result) => {
 			setError(null);
 			setShowCapture(false);
-			setCapture('');
+			setShot(null);
 			setDraft(result.theme as StoryTheme);
 			setNotes(result.notes);
 			await invalidate();
 		},
 		onError: (err) => setError(err.message),
 	});
+
+	const handleScreenshot = (file: File) => {
+		setError(null);
+		if (file.size > 6_000_000) {
+			setError(`That image is ${Math.round(file.size / 1_000_000)}MB. Keep it under 6MB.`);
+			return;
+		}
+		const reader = new FileReader();
+		reader.onload = () => {
+			const dataUrl = String(reader.result);
+			setShot({ name: file.name, preview: dataUrl });
+			if (!project.data?.id) {
+				return;
+			}
+			inferFromImage.mutate({
+				projectId: project.data.id,
+				hint: url.trim() || undefined,
+				mediaType: (file.type as 'image/png' | 'image/jpeg' | 'image/webp') || 'image/png',
+				data: dataUrl.slice(dataUrl.indexOf(',') + 1),
+			});
+		};
+		reader.readAsDataURL(file);
+	};
 
 	const publish = useMutation({
 		...trpc.storyTheme.publish.mutationOptions(),
@@ -177,73 +197,64 @@ function StoryDesignPage() {
 							onClick={() => setShowCapture(true)}
 							className='self-start text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground'
 						>
-							Site blocked, or not public? Capture it from your browser instead
+							Site blocked, behind SSO, or internal? Use a screenshot instead
 						</button>
 					)}
 
 					{showCapture && (
 						<div className='flex flex-col gap-3 rounded-lg border p-4'>
 							<div>
-								<p className='text-sm font-medium'>Capture from your browser</p>
+								<p className='text-sm font-medium'>Use a screenshot instead</p>
 								<p className='mt-1 text-xs text-muted-foreground'>
-									Some sites refuse automated requests, and an internal or staging site may not be
-									reachable from nao at all. Your own browser has no such problem. Open your site,
-									paste this into the developer console, and paste the result back here. It reads
-									styles only and sends nothing anywhere.
+									For sites behind bot protection or single sign-on, and for internal or staging sites
+									nao cannot reach. Drop in a screenshot of your homepage and nao reads the design
+									system from the image. Less precise than reading the live page: radii, font names
+									and any colour not visible on screen are approximations.
 								</p>
 							</div>
-							<div className='flex gap-2'>
-								<Button
-									variant='outline'
-									size='sm'
-									disabled={!snippet.data}
-									onClick={() => {
-										if (!snippet.data) {
-											return;
+
+							<label className='flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed p-6 text-center hover:bg-muted/30'>
+								<ImageIcon className='size-5 text-muted-foreground' />
+								<span className='text-sm'>
+									{shot ? shot.name : 'Choose a screenshot, or drop one here'}
+								</span>
+								<span className='text-xs text-muted-foreground'>PNG, JPEG or WebP, up to 6MB</span>
+								<input
+									type='file'
+									accept='image/png,image/jpeg,image/webp'
+									className='hidden'
+									onChange={(e) => {
+										const file = e.target.files?.[0];
+										if (file) {
+											handleScreenshot(file);
 										}
-										void navigator.clipboard.writeText(snippet.data.snippet);
-										setCopied(true);
-										setTimeout(() => setCopied(false), 2000);
 									}}
+								/>
+							</label>
+
+							{shot && (
+								<img
+									src={shot.preview}
+									alt='Screenshot being read'
+									className='max-h-40 w-full rounded-md border object-cover object-top'
+								/>
+							)}
+
+							<div className='flex items-center gap-2'>
+								{inferFromImage.isPending && (
+									<span className='flex items-center gap-2 text-xs text-muted-foreground'>
+										<Loader2 className='size-3.5 animate-spin' /> Reading the screenshot
+									</span>
+								)}
+								<Button
+									variant='ghost'
+									size='sm'
+									className='ml-auto'
+									onClick={() => setShowCapture(false)}
 								>
-									{copied ? <Check className='size-3.5' /> : <Copy className='size-3.5' />}
-									{copied ? 'Copied' : 'Copy console snippet'}
-								</Button>
-								<Button variant='ghost' size='sm' onClick={() => setShowCapture(false)}>
 									Cancel
 								</Button>
 							</div>
-							<Textarea
-								value={capture}
-								onChange={(e) => setCapture(e.target.value)}
-								placeholder='Paste the console output here'
-								className='min-h-24 font-mono text-xs'
-							/>
-							<Button
-								size='sm'
-								className='self-start'
-								disabled={!capture.trim() || !project.data?.id || inferFromCapture.isPending}
-								onClick={() => {
-									if (!project.data?.id) {
-										return;
-									}
-									inferFromCapture.mutate({
-										projectId: project.data.id,
-										url: url.trim() || undefined,
-										probe: capture.trim(),
-									});
-								}}
-							>
-								{inferFromCapture.isPending ? (
-									<>
-										<Loader2 className='size-4 animate-spin' /> Reading the capture
-									</>
-								) : (
-									<>
-										<ClipboardPaste className='size-4' /> Use this capture
-									</>
-								)}
-							</Button>
 						</div>
 					)}
 				</div>

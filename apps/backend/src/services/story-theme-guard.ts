@@ -6,9 +6,17 @@
  * is the part that decides whether a proposed palette is allowed near a story.
  */
 
-import { DEFAULT_STORY_THEME, isAllowedFontLink, mergeStoryTheme, type StoryTheme } from '@nao/shared/story-theme';
+import {
+	DEFAULT_STORY_THEME,
+	googleFontLink,
+	isAllowedFontLink,
+	isAllowedGoogleFont,
+	mergeStoryTheme,
+	type StoryTheme,
+} from '@nao/shared/story-theme';
 import {
 	contrastRatio,
+	desaturate,
 	isDarkSurface,
 	readableInkFor,
 	separateSurface,
@@ -34,6 +42,9 @@ export const proposalSchema = z.object({
 		bodyFont: z.string(),
 		headingTracking: z.number(),
 		scale: z.number(),
+		/** Nearest freely loadable family, chosen from the allowed list. */
+		headingFontSubstitute: z.string(),
+		bodyFontSubstitute: z.string(),
 	}),
 	shape: z.object({
 		radius: z.number(),
@@ -71,9 +82,9 @@ export function applyGuards(
 			bodyFont: sanitizeFontStack(proposal.typography.bodyFont),
 			headingTracking: clamp(proposal.typography.headingTracking, -0.06, 0.06),
 			scale: clamp(proposal.typography.scale, 0.85, 1.25),
-			// Never taken from the model: only stylesheets the probe actually saw
-			// on an allowed public font host.
-			fontLinks: [...new Set(fontLinks)].filter(isAllowedFontLink).slice(0, 4),
+			// Links the probe saw on an allowed host, plus the substitute stylesheet
+			// built below. Never a URL the model made up.
+			fontLinks: [...new Set(fontLinks)].filter(isAllowedFontLink).slice(0, 3),
 		},
 		shape: {
 			radius: clamp(Math.round(proposal.shape.radius), 0, 28),
@@ -144,17 +155,6 @@ export function applyGuards(
 		}
 	}
 
-	// --- Hairlines and gridlines have to be visible -------------------------
-	for (const [label, value, set] of [
-		['shape.border', theme.shape.border, (v: string) => (theme.shape.border = v)],
-		['charts.grid', theme.charts.grid, (v: string) => (theme.charts.grid = v)],
-	] as const) {
-		if (contrastRatio(value, theme.surfaces.card) < 1.12) {
-			set(shiftLightness(theme.surfaces.card, pageIsDark ? 0.12 : -0.12));
-			notes.push(`${label} was invisible against the card surface and was stepped away from it.`);
-		}
-	}
-
 	// An accent that matches the card is not an accent.
 	if (theme.accent.toLowerCase() === theme.surfaces.card.toLowerCase()) {
 		notes.push('The proposed accent was identical to the card surface, so the nao accent was kept.');
@@ -169,6 +169,52 @@ export function applyGuards(
 
 	// The accent's foreground is derived, never guessed.
 	theme.accentInk = readableInkFor(theme.accent);
+
+	// --- Make the named faces actually loadable ----------------------------
+	//
+	// A brand face we cannot serve renders as Arial, which is worse than an
+	// honest substitute. The model nominates the nearest freely loadable family;
+	// we check it against the allowlist and build the stylesheet ourselves.
+	const substitutes: string[] = [];
+	for (const [slot, nominated] of [
+		['headingFont', proposal.typography.headingFontSubstitute],
+		['bodyFont', proposal.typography.bodyFontSubstitute],
+	] as const) {
+		const family = (nominated ?? '').trim();
+		if (!isAllowedGoogleFont(family)) {
+			continue;
+		}
+		substitutes.push(family);
+		// Brand face first so the intent survives on machines that have it.
+		const stack = theme.typography[slot];
+		if (!stack.toLowerCase().includes(family.toLowerCase())) {
+			const generic = /serif|mono/i.test(stack) && !/sans-serif/i.test(stack) ? 'serif' : 'sans-serif';
+			const brandFace = stack.split(',')[0].trim();
+			theme.typography[slot] = `${brandFace}, '${family}', ${generic}`;
+			notes.push(`${slot}: ${brandFace} cannot be loaded, so ${family} stands in for it.`);
+		}
+	}
+	const substituteLink = googleFontLink(substitutes);
+	if (substituteLink) {
+		theme.typography.fontLinks = [...theme.typography.fontLinks, substituteLink].slice(0, 4);
+	}
+
+	// --- Structure is never a brand colour ---------------------------------
+	//
+	// Gridlines and hairlines carry no data. A brand hue there decorates the
+	// chart and competes with the series, so both are neutral steps off the
+	// surface they sit on.
+	theme.charts.grid = desaturate(theme.charts.grid);
+	theme.shape.border = desaturate(theme.shape.border);
+	for (const [label, value, set] of [
+		['shape.border', theme.shape.border, (v: string) => (theme.shape.border = v)],
+		['charts.grid', theme.charts.grid, (v: string) => (theme.charts.grid = v)],
+	] as const) {
+		if (contrastRatio(value, theme.surfaces.card) < 1.12) {
+			set(desaturate(shiftLightness(theme.surfaces.card, pageIsDark ? 0.12 : -0.12)));
+			notes.push(`${label} was invisible against the card surface and was stepped away from it.`);
+		}
+	}
 
 	// The part the model does not get to decide.
 	const before = theme.charts.series;

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	DEFAULT_STORY_THEME,
+	googleFontLink,
 	isAllowedFontLink,
+	isAllowedGoogleFont,
 	mergeStoryTheme,
 	storyThemeSchema,
 	storyThemeToCssVars,
@@ -10,6 +12,7 @@ import {
 import {
 	contrastRatio,
 	deltaE,
+	desaturate,
 	hexToOklch,
 	isDarkSurface,
 	oklchToHex,
@@ -198,5 +201,34 @@ describe('font links', () => {
 			typography: { ...DEFAULT_STORY_THEME.typography, fontLinks: ['https://evil.test/f.css'] },
 		};
 		expect(() => storyThemeSchema.parse(bad)).toThrow();
+	});
+});
+
+describe('font substitution', () => {
+	it('only accepts families from the allowed list', () => {
+		expect(isAllowedGoogleFont('Fraunces')).toBe(true);
+		expect(isAllowedGoogleFont('dm sans')).toBe(true);
+		expect(isAllowedGoogleFont('TTRamillas-Bold')).toBe(false);
+		expect(isAllowedGoogleFont('AtypDisplay')).toBe(false);
+	});
+
+	it('builds a loadable stylesheet for substitutes and drops invented ones', () => {
+		const link = googleFontLink(['Fraunces', 'DM Sans', 'AtypDisplay']);
+		expect(link).toContain('family=Fraunces');
+		expect(link).toContain('family=DM+Sans');
+		expect(link).not.toContain('AtypDisplay');
+		expect(isAllowedFontLink(link!)).toBe(true);
+	});
+
+	it('returns nothing when no family is allowed', () => {
+		expect(googleFontLink(['AtypDisplay', 'TTRamillas'])).toBeNull();
+	});
+});
+
+describe('desaturate', () => {
+	it('strips hue while holding lightness, so structure never carries brand colour', () => {
+		const grey = desaturate('#8f40ff');
+		expect(hexToOklch(grey).c).toBeLessThan(0.01);
+		expect(hexToOklch(grey).l).toBeCloseTo(hexToOklch('#8f40ff').l, 1);
 	});
 });

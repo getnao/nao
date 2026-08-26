@@ -1,5 +1,4 @@
 import { storyThemeSchema } from '@nao/shared/story-theme';
-import { FONT_CDN_HOSTS } from '@nao/shared/story-theme';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
@@ -10,9 +9,8 @@ import {
 	saveStoryThemeDraft,
 	setStoryThemeEnabled,
 } from '../queries/story-theme.queries';
-import { extractDesignSignals, signalsFromProbe } from '../services/story-theme-extract';
-import { inferStoryTheme } from '../services/story-theme-infer';
-import { buildProbeSnippet, type ProbeResult } from '../services/story-theme-probe';
+import { extractDesignSignals } from '../services/story-theme-extract';
+import { inferStoryTheme, inferStoryThemeFromImage } from '../services/story-theme-infer';
 import { adminProtectedProcedure, protectedProcedure } from './trpc';
 
 /**
@@ -23,6 +21,9 @@ import { adminProtectedProcedure, protectedProcedure } from './trpc';
  * the admin mutations are restricted; reading the published theme is available
  * to any signed-in user because every story render needs it.
  */
+/** ~6MB of base64, which is a generous full-page screenshot. */
+const MAX_IMAGE_BASE64 = 8_000_000;
+
 export const storyThemeRoutes = {
 	/** Read by the story renderer on every page. Keep it cheap. */
 	getActive: protectedProcedure.query(async () => {
@@ -57,50 +58,31 @@ export const storyThemeRoutes = {
 		}),
 
 	/**
-	 * The probe, packaged for the admin's own browser.
+	 * Infer from a screenshot of the site.
 	 *
-	 * The escape hatch for sites behind bot protection. We do not work around a
-	 * WAF; the admin runs the same read themselves, on their own company's site,
-	 * in a browser that is already trusted there.
+	 * The escape hatch for anything nao cannot fetch: sites behind bot
+	 * protection, sites behind SSO, internal and staging sites. It asks nothing
+	 * of the admin beyond what is already on their screen. It reads less
+	 * precisely than the rendered probe, and says so.
 	 */
-	getProbeSnippet: adminProtectedProcedure.query(() => ({
-		snippet: buildProbeSnippet([...FONT_CDN_HOSTS]),
-	})),
-
-	/** Infer from a capture the admin pasted back, rather than one we fetched. */
-	inferFromProbe: adminProtectedProcedure
+	inferFromImage: adminProtectedProcedure
 		.input(
 			z.object({
 				projectId: z.string().min(1),
-				url: z.string().max(2048).optional(),
-				// The capture is shaped by our own snippet, but it arrives as text the
-				// admin pasted, so it is parsed defensively and never trusted wholesale.
-				probe: z.string().min(2).max(400_000),
+				hint: z.string().max(2048).optional(),
+				mediaType: z.enum(['image/png', 'image/jpeg', 'image/webp']),
+				/** base64, no data: prefix. */
+				data: z.string().min(32).max(MAX_IMAGE_BASE64),
 			}),
 		)
 		.mutation(async ({ input }) => {
-			let probe: ProbeResult;
-			try {
-				probe = JSON.parse(input.probe) as ProbeResult;
-			} catch {
-				throw new TRPCError({
-					code: 'BAD_REQUEST',
-					message: 'That is not valid JSON. Paste the whole snippet output.',
-				});
-			}
-			if (!probe || typeof probe !== 'object' || !probe.roles || !Array.isArray(probe.colors)) {
-				throw new TRPCError({
-					code: 'BAD_REQUEST',
-					message:
-						'That JSON is not a nao design capture. Run the snippet again and paste all of its output.',
-				});
-			}
-
-			const signals = signalsFromProbe(probe, input.url ?? 'pasted capture');
-			signals.warnings.unshift('Captured in your browser rather than fetched by nao.');
-			const { theme, notes } = await inferStoryTheme(input.projectId, signals);
-			await saveStoryThemeDraft({ theme, source: input.url ?? null, sourceKind: 'url', notes });
-			return { theme, notes, warnings: signals.warnings };
+			const { theme, notes } = await inferStoryThemeFromImage(
+				input.projectId,
+				{ data: input.data, mediaType: input.mediaType },
+				input.hint,
+			);
+			await saveStoryThemeDraft({ theme, source: input.hint ?? null, sourceKind: 'manual', notes });
+			return { theme, notes, warnings: [] as string[] };
 		}),
 
 	/** Persist admin edits to the draft without publishing them. */
