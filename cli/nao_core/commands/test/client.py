@@ -1,10 +1,11 @@
 import os
+import threading
 from dataclasses import dataclass
 from typing import Any
 
 import requests
 
-from nao_core.auth import clear_stored_cookies, get_auth_session, login, prompt_login
+from nao_core.auth import clear_stored_auth, get_auth_session, interactive_login, login
 from nao_core.config.llm import ModelCosts
 from nao_core.ui import UI
 
@@ -81,36 +82,38 @@ class AgentClient:
         self._email = email
         self._password = password
         self._session: requests.Session | None = None
+        self._auth_lock = threading.Lock()
+        self._auth_generation = 0
 
-    def _get_session(self) -> requests.Session:
-        """Get or create an authenticated session."""
-        if self._session is None:
-            self._session = get_auth_session(
-                self.backend_url,
-                email=self._email,
-                password=self._password,
-            )
-        return self._session
+    def _get_session(self) -> tuple[requests.Session, int]:
+        """Get or create an authenticated session, with its auth generation."""
+        with self._auth_lock:
+            if self._session is None:
+                self._session = get_auth_session(
+                    self.backend_url,
+                    email=self._email,
+                    password=self._password,
+                )
+            return self._session, self._auth_generation
 
-    def _reset_session(self) -> None:
-        """Reset the session (used after re-authentication)."""
-        self._session = None
+    def _handle_auth_retry(self, generation: int) -> bool:
+        """Handle 401 by re-authenticating. Only one thread re-authenticates at a time."""
+        with self._auth_lock:
+            if self._auth_generation != generation:
+                return True
 
-    def _handle_auth_retry(self) -> bool:
-        """Handle 401 by re-authenticating. Uses stored credentials when available."""
-        UI.warn("Session expired or unauthorized.")
-        clear_stored_cookies()
-        self._reset_session()
+            UI.warn("Session expired or unauthorized.")
+            clear_stored_auth()
+            self._session = None
 
-        if self._email and self._password:
-            cookies = login(self.backend_url, self._email, self._password)
-        else:
-            cookies = prompt_login(self.backend_url)
+            if self._email and self._password:
+                authenticated = login(self.backend_url, self._email, self._password) is not None
+            else:
+                authenticated = interactive_login(self.backend_url)
 
-        if cookies:
-            self._reset_session()
-            return True
-        return False
+            if authenticated:
+                self._auth_generation += 1
+            return authenticated
 
     def run_test(
         self,
@@ -121,7 +124,7 @@ class AgentClient:
         retry_auth: bool = True,
     ) -> TestResult:
         """Run a test prompt and return the result."""
-        session = self._get_session()
+        session, auth_generation = self._get_session()
         payload: dict[str, Any] = {
             "model": {
                 "provider": provider,
@@ -141,7 +144,7 @@ class AgentClient:
         )
 
         if response.status_code == 401:
-            if retry_auth and self._handle_auth_retry():
+            if retry_auth and self._handle_auth_retry(auth_generation):
                 return self.run_test(test_case, provider, model_id, costs=costs, retry_auth=False)
             raise AgentClientError("Unauthorized. Please check your credentials.")
 
