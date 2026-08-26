@@ -12,6 +12,7 @@ import * as chatQueries from '../queries/chat.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
 import { assertSafeSqlIdentifier } from '../utils/sql-identifiers';
+import { resolveExcludedColumnEnforcement } from './excluded-columns.service';
 import { executeRawSql } from './live-story';
 
 const FILTER_OPTIONS_LIMIT = 100;
@@ -27,7 +28,10 @@ export async function getStoryFilterOptions(
 	storySlug: string,
 	filterId: string,
 ): Promise<{ options: string[] }> {
-	const { code, projectPath, envVars, databaseId } = await loadStoryExecutionContext(chatId, storySlug);
+	const { code, projectPath, envVars, databaseId, enforceExcludedColumns } = await loadStoryExecutionContext(
+		chatId,
+		storySlug,
+	);
 	const filter = getStoryFiltersFromCode(code).find((candidate) => candidate.id === filterId);
 	if (!filter) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: `Filter "${filterId}" not found in story.` });
@@ -47,7 +51,12 @@ export async function getStoryFilterOptions(
 	const table = assertSafeSqlIdentifier(filter.table, 'table');
 	const column = assertSafeSqlIdentifier(filter.column, 'column');
 	const sql = `SELECT DISTINCT ${column} AS value FROM ${table} WHERE ${column} IS NOT NULL ORDER BY ${column} LIMIT ${FILTER_OPTIONS_LIMIT}`;
-	const result = await executeRawSql(sql, projectPath, filter.databaseId ?? databaseId, envVars);
+	const result = await executeRawSql(sql, {
+		projectFolder: projectPath,
+		databaseId: filter.databaseId ?? databaseId,
+		envVars,
+		enforceExcludedColumns,
+	});
 	const options = result.data
 		.map((row) => {
 			if (!row || typeof row !== 'object') {
@@ -66,14 +75,22 @@ export async function getFilteredStoryQueryData(
 	storySlug: string,
 	selections: StoryFilterSelections,
 ): Promise<Record<string, { data: unknown[]; columns: string[] }>> {
-	const { code, projectPath, envVars, sqlQueries } = await loadStoryExecutionContext(chatId, storySlug);
+	const { code, projectPath, envVars, sqlQueries, enforceExcludedColumns } = await loadStoryExecutionContext(
+		chatId,
+		storySlug,
+	);
 	const types = filterTypesFromCode(code);
 	const queryData: Record<string, { data: unknown[]; columns: string[] }> = {};
 
 	await Promise.all(
 		Object.entries(sqlQueries).map(async ([queryId, { sqlQuery, databaseId }]) => {
 			const renderedSql = renderStorySql(sqlQuery, selections, types);
-			queryData[queryId] = await executeRawSql(renderedSql, projectPath, databaseId, envVars);
+			queryData[queryId] = await executeRawSql(renderedSql, {
+				projectFolder: projectPath,
+				databaseId,
+				envVars,
+				enforceExcludedColumns,
+			});
 		}),
 	);
 
@@ -124,8 +141,12 @@ async function loadStoryExecutionContext(chatId: string, storySlug: string) {
 		throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Project path not configured.' });
 	}
 
-	const envVars = await projectQueries.getEnvVars(projectId);
-	const sqlQueries = await storyQueries.getSqlQueriesFromCode(chatId, version.code);
+	const [envVars, sqlQueries, agentSettings] = await Promise.all([
+		projectQueries.getEnvVars(projectId),
+		storyQueries.getSqlQueriesFromCode(chatId, version.code),
+		projectQueries.getAgentSettings(projectId),
+	]);
+	const enforceExcludedColumns = await resolveExcludedColumnEnforcement(agentSettings);
 	const databaseId = Object.values(sqlQueries).find((query) => query.databaseId)?.databaseId;
 
 	return {
@@ -134,5 +155,6 @@ async function loadStoryExecutionContext(chatId: string, storySlug: string) {
 		envVars,
 		databaseId,
 		sqlQueries,
+		enforceExcludedColumns,
 	};
 }

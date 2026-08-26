@@ -17,6 +17,7 @@ import * as storyQueries from '../queries/story.queries';
 import { getDefaultModelId, resolveProviderModel } from '../utils/llm';
 import { backfillMissingQueryData, findMissingQueryIds } from '../utils/story-query-data';
 import { MAX_OUTPUT_TOKENS } from './agent';
+import { resolveExcludedColumnEnforcement } from './excluded-columns.service';
 const MAX_RENDERED_ROWS = 60;
 
 export async function executeLiveQuery(
@@ -38,8 +39,17 @@ export async function executeLiveQuery(
 		throw new Error('Project path not configured');
 	}
 
-	const envVars = await projectQueries.getEnvVars(projectId);
-	return executeRawSql(stripSqlFilterBlocks(query.sqlQuery), project.path, query.databaseId, envVars);
+	const [envVars, agentSettings] = await Promise.all([
+		projectQueries.getEnvVars(projectId),
+		projectQueries.getAgentSettings(projectId),
+	]);
+	const enforceExcludedColumns = await resolveExcludedColumnEnforcement(agentSettings);
+	return executeRawSql(stripSqlFilterBlocks(query.sqlQuery), {
+		projectFolder: project.path,
+		databaseId: query.databaseId,
+		envVars,
+		enforceExcludedColumns,
+	});
 }
 
 export interface RefreshResult {
@@ -67,17 +77,21 @@ export async function refreshStoryData(chatId: string, slug: string): Promise<Re
 		throw new Error('Project path not configured');
 	}
 
+	const [projectEnvVars, agentSettings] = await Promise.all([
+		projectQueries.getEnvVars(projectId),
+		projectQueries.getAgentSettings(projectId),
+	]);
+	const enforceExcludedColumns = await resolveExcludedColumnEnforcement(agentSettings);
 	const queryData: Record<string, { data: unknown[]; columns: string[] }> = {};
 
 	await Promise.all(
 		Object.entries(sqlQueries).map(async ([queryId, { sqlQuery, databaseId }]) => {
-			const projectEnvVars = await projectQueries.getEnvVars(projectId);
-			const result = await executeRawSql(
-				stripSqlFilterBlocks(sqlQuery),
-				project.path!,
+			const result = await executeRawSql(stripSqlFilterBlocks(sqlQuery), {
+				projectFolder: project.path!,
 				databaseId,
-				projectEnvVars,
-			);
+				envVars: projectEnvVars,
+				enforceExcludedColumns,
+			});
 			queryData[queryId] = result;
 		}),
 	);
@@ -137,20 +151,26 @@ async function resolveFromCache(chatId: string, code: string, cache: DBStoryData
 	return { queryData, cachedAt: cache.cachedAt };
 }
 
+interface RawSqlExecutionOptions {
+	projectFolder: string;
+	enforceExcludedColumns: boolean;
+	databaseId?: string;
+	envVars?: Record<string, string>;
+}
+
 export async function executeRawSql(
 	sqlQuery: string,
-	projectFolder: string,
-	databaseId?: string,
-	envVars?: Record<string, string>,
+	options: RawSqlExecutionOptions,
 ): Promise<{ data: unknown[]; columns: string[] }> {
 	const response = await fetch(`http://localhost:${env.FASTAPI_PORT}/execute_sql`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({
 			sql: sqlQuery,
-			nao_project_folder: projectFolder,
-			...(databaseId && { database_id: databaseId }),
-			...(envVars && Object.keys(envVars).length > 0 && { env_vars: envVars }),
+			nao_project_folder: options.projectFolder,
+			enforce_excluded_columns: options.enforceExcludedColumns,
+			...(options.databaseId && { database_id: options.databaseId }),
+			...(options.envVars && Object.keys(options.envVars).length > 0 && { env_vars: options.envVars }),
 		}),
 	});
 
