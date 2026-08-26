@@ -23,6 +23,7 @@ function proposal(overrides: Record<string, unknown> = {}) {
 		},
 		shape: { radius: 8, border: '#e5e5e5', elevation: 'bordered' as const, controlShape: 'rounded' as const },
 		charts: {
+			paletteSource: 'brand' as const,
 			series: ['#522bff', '#288abb', '#c44310'],
 			sequentialAnchor: '#522bff',
 			positive: '#22b573',
@@ -133,9 +134,9 @@ describe('applyGuards', () => {
 		const { theme, notes } = applyGuards(
 			proposal({ charts: { ...proposal().charts, series: ['nope', 'also-nope', 'still-nope'] } }),
 		);
-		// The nao series is the fallback, then the guard repairs it like any other:
-		// the shipped palette does not pass its own checks.
-		expect(theme.charts.series).toHaveLength(DEFAULT_STORY_THEME.charts.series.length);
+		// A palette derived from the accent beats falling back to nao's colours:
+		// it at least belongs to the brand.
+		expect(theme.charts.series).toHaveLength(6);
 		expect(validateSeries(theme.charts.series, theme.surfaces.card).issues).toEqual([]);
 		expect(notes.join(' ')).toMatch(/Fewer than three/);
 	});
@@ -363,5 +364,32 @@ describe('structure stays behind the data', () => {
 		const ratio = contrastRatio(theme.charts.grid, theme.surfaces.card);
 		expect(ratio).toBeLessThanOrEqual(1.75);
 		expect(ratio).toBeGreaterThanOrEqual(1.12);
+	});
+});
+
+describe('monochrome brands', () => {
+	it('derives a palette rather than sampling one, when the brand has none', () => {
+		const { theme, notes } = applyGuards(
+			proposal({
+				accent: '#121212',
+				charts: {
+					paletteSource: 'derive-from-accent' as const,
+					series: [],
+					sequentialAnchor: '#121212',
+					positive: '#22b573',
+					negative: '#f5a623',
+					grid: '#e6e6e6',
+				},
+			}),
+		);
+		expect(theme.charts.series).toHaveLength(6);
+		expect(new Set(theme.charts.series).size).toBe(6);
+		expect(validateSeries(theme.charts.series, theme.surfaces.card).issues).toEqual([]);
+		expect(notes.join(' ')).toMatch(/derived from its accent/);
+	});
+
+	it('keeps a real brand palette when the brand actually has one', () => {
+		const { theme } = applyGuards(proposal());
+		expect(theme.charts.series).toEqual(['#522bff', '#288abb', '#c44310']);
 	});
 });

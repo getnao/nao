@@ -16,6 +16,7 @@ import {
 } from '@nao/shared/story-theme';
 import {
 	contrastRatio,
+	deriveSeriesFromAccent,
 	desaturate,
 	isDarkSurface,
 	readableInkFor,
@@ -53,7 +54,13 @@ export const proposalSchema = z.object({
 		controlShape: z.enum(['pill', 'rounded', 'square']),
 	}),
 	charts: z.object({
-		series: z.array(z.string()).min(3).max(7),
+		/**
+		 * Whether the brand genuinely has a categorical palette to borrow, or is
+		 * monochrome and needs one derived. Classification is a judgement call, so
+		 * the model makes it; the generation that follows is deterministic.
+		 */
+		paletteSource: z.enum(['brand', 'derive-from-accent']),
+		series: z.array(z.string()).min(0).max(7),
 		sequentialAnchor: z.string(),
 		positive: z.string(),
 		negative: z.string(),
@@ -101,12 +108,6 @@ export function applyGuards(
 		},
 		accent: hexOrNull(proposal.accent),
 	};
-
-	// Checked before the merge: mergeStoryTheme would have already substituted
-	// the nao series, so afterwards there is nothing left to notice.
-	if (sanitized.charts.series.length < 3) {
-		notes.push('Fewer than three usable chart colours were proposed, so the nao series was kept.');
-	}
 
 	const theme = mergeStoryTheme(sanitized);
 
@@ -226,7 +227,22 @@ export function applyGuards(
 		}
 	}
 
-	// The part the model does not get to decide.
+	// --- The palette --------------------------------------------------------
+	//
+	// A monochrome brand has no chart colours to borrow. Sampling its
+	// photography produces a palette that belongs to the pictures rather than
+	// the brand, so we derive one from the accent instead.
+	if (proposal.charts.paletteSource === 'derive-from-accent' || sanitized.charts.series.length < 3) {
+		theme.charts.series = deriveSeriesFromAccent(theme.accent, 6, theme.surfaces.card);
+		// An explicit classification is the more informative reason, so it wins
+		// over the "too few colours" fallback when both are true.
+		notes.push(
+			proposal.charts.paletteSource === 'derive-from-accent'
+				? 'This brand has no categorical palette of its own, so the chart colours were derived from its accent rather than sampled from imagery.'
+				: 'Fewer than three usable chart colours were proposed, so the palette was derived from the accent.',
+		);
+	}
+
 	const before = theme.charts.series;
 	const report = validateSeries(before, theme.surfaces.card);
 	if (!report.ok) {

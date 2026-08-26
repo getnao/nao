@@ -47,6 +47,8 @@ const MIN_CVD_DELTA = 8;
 const MIN_NORMAL_DELTA = 15;
 /** Usable lightness window per surface polarity: too light glares, too dark muddies. */
 const BAND = { light: [0.43, 0.77], dark: [0.48, 0.67] } as const;
+/** Where a palette starts when the brand's own accent carries no hue. */
+const ACHROMATIC_ANCHOR_HUE = 250;
 
 /* ------------------------------------------------------------------ colour */
 
@@ -392,6 +394,101 @@ function maxChroma(l: number, h: number): number {
 
 function clamp(v: number, lo: number, hi: number): number {
 	return Math.min(hi, Math.max(lo, v));
+}
+
+/**
+ * Build a categorical palette from a brand that does not have one.
+ *
+ * Plenty of brands are monochrome by design: black on cream, one accent, and
+ * photography doing the rest. Asked for six distinct chart hues, a model has
+ * nothing to draw on and starts sampling the photographs, which is where a
+ * heritage fashion brand ends up with terracotta and leaf-green bars.
+ *
+ * So when there is no palette to read, we generate one instead of guessing:
+ * hues evenly spaced around the wheel from the brand's own accent, held at a
+ * restrained chroma so it reads editorial rather than primary-coloured, then
+ * put through the same guard as any other palette.
+ */
+export function deriveSeriesFromAccent(accent: string, count: number, surface: string): string[] {
+	const parsed = hexToOklch(accent);
+	// A near-black or near-white accent has no meaningful hue: atan2 on two
+	// values near zero returns noise, so #121212 and #131313 could anchor the
+	// whole palette on different hues. Fall back to a stable anchor instead.
+	const anchor = parsed.c < 0.02 ? ACHROMATIC_ANCHOR_HUE : parsed.h;
+	const [lo, hi] = isDarkSurface(surface) ? BAND.dark : BAND.light;
+	const mid = (lo + hi) / 2;
+	const swing = (hi - lo) * 0.18;
+
+	const seeds: string[] = [];
+	const used: number[] = [];
+	for (let i = 0; i < count; i++) {
+		// Two offsets can be pushed onto the same edge of the muddy arc and land
+		// on the same hue. snapSeries only compares neighbours, so a duplicate in
+		// non-adjacent slots would survive it.
+		const hue = nextFreeHue(harmonicHue(anchor, i), used);
+		used.push(hue);
+		const l = i % 2 === 0 ? mid + swing : mid - swing;
+		seeds.push(oklchToHex({ l, c: Math.min(HARMONIC_CHROMA, maxChroma(l, hue)), h: hue }));
+	}
+	return snapSeries(seeds, surface);
+}
+
+/**
+ * Where each slot sits relative to the brand's own hue.
+ *
+ * Spacing hues evenly around the wheel is what produced the maroon-and-olive
+ * pairing that looked so bad: 360/n walks straight through the dull part of the
+ * spectrum and puts unrelated hues side by side. Designers do not do that. They
+ * work an arc around a base hue and reach for the complement for contrast, so
+ * the set reads as one family.
+ *
+ * These offsets are an analogous fan with a complementary pair folded in, which
+ * keeps six colours related without any two of them fighting.
+ */
+const HARMONIC_OFFSETS = [0, 180, -35, 145, 70, -110, 35, -145];
+/** Held constant across the set: varying saturation is what makes a palette look accidental. */
+const HARMONIC_CHROMA = 0.125;
+/**
+ * Hues in this arc go muddy at mid lightness - mustard, olive, khaki. A
+ * designer sidesteps them; so do we, by nudging to whichever edge is nearer.
+ */
+const MUDDY_ARC = [58, 138] as const;
+/** Minimum wheel separation between any two slots, muddy-arc clamping included. */
+const MIN_HUE_GAP = 22;
+
+function hueGap(a: number, b: number): number {
+	const d = Math.abs(((a - b) % 360) + 360) % 360;
+	return Math.min(d, 360 - d);
+}
+
+/**
+ * Walk to the next hue that is both usable and far enough from every hue
+ * already taken. Stepping by a fixed amount is not enough on its own: a step
+ * that lands inside the muddy arc gets clamped straight back to the edge it
+ * came from, which is how two slots ended up on the same colour.
+ */
+function nextFreeHue(start: number, used: number[]): number {
+	let hue = harmonicHue(start, 0);
+	for (let step = 0; step < 24; step++) {
+		if (!used.some((u) => hueGap(u, hue) < MIN_HUE_GAP)) {
+			return hue;
+		}
+		const next = (hue + MIN_HUE_GAP) % 360;
+		// Jump the arc rather than bouncing off its edge.
+		hue = next > MUDDY_ARC[0] && next < MUDDY_ARC[1] ? MUDDY_ARC[1] + 6 : next;
+	}
+	return hue;
+}
+
+function harmonicHue(anchor: number, index: number): number {
+	const raw = anchor + HARMONIC_OFFSETS[index % HARMONIC_OFFSETS.length];
+	const hue = ((raw % 360) + 360) % 360;
+	if (hue <= MUDDY_ARC[0] || hue >= MUDDY_ARC[1]) {
+		return hue;
+	}
+	const toLow = hue - MUDDY_ARC[0];
+	const toHigh = MUDDY_ARC[1] - hue;
+	return toLow < toHigh ? MUDDY_ARC[0] - 6 : MUDDY_ARC[1] + 6;
 }
 
 /**

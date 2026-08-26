@@ -12,6 +12,7 @@ import {
 import {
 	contrastRatio,
 	deltaE,
+	deriveSeriesFromAccent,
 	desaturate,
 	hexToOklch,
 	isDarkSurface,
@@ -230,5 +231,48 @@ describe('desaturate', () => {
 		const grey = desaturate('#8f40ff');
 		expect(hexToOklch(grey).c).toBeLessThan(0.01);
 		expect(hexToOklch(grey).l).toBeCloseTo(hexToOklch('#8f40ff').l, 1);
+	});
+});
+
+describe('deriveSeriesFromAccent', () => {
+	const brands: [string, string, string][] = [
+		['Chanel-like, black on white', '#000000', '#ffffff'],
+		['heritage ink on bone', '#121212', '#fffdf7'],
+		['navy on cream', '#395999', '#f9f4ef'],
+		['violet on bone', '#8f40ff', '#fffdf7'],
+		['violet on ink', '#8f40ff', '#140309'],
+	];
+
+	for (const [name, accent, surface] of brands) {
+		it(`produces a passing, duplicate-free palette for ${name}`, () => {
+			const series = deriveSeriesFromAccent(accent, 6, surface);
+			expect(series).toHaveLength(6);
+			expect(new Set(series).size, `duplicates in ${series.join(' ')}`).toBe(6);
+			expect(validateSeries(series, surface).issues).toEqual([]);
+		});
+	}
+
+	it('avoids the muddy mustard-to-olive arc that made palettes look cheap', () => {
+		for (const [, accent, surface] of brands) {
+			for (const hex of deriveSeriesFromAccent(accent, 6, surface)) {
+				const { h, c } = hexToOklch(hex);
+				if (c < 0.05) {
+					continue;
+				}
+				expect(h > 58 && h < 138, `${hex} sits at hue ${h.toFixed(0)}, inside the muddy arc`).toBe(false);
+			}
+		}
+	});
+
+	it('holds chroma roughly constant, so the set reads as one family', () => {
+		const chromas = deriveSeriesFromAccent('#8f40ff', 6, '#ffffff').map((c) => hexToOklch(c).c);
+		expect(Math.max(...chromas) - Math.min(...chromas)).toBeLessThan(0.06);
+	});
+
+	it('is deterministic for accents with no meaningful hue', () => {
+		const a = deriveSeriesFromAccent('#121212', 6, '#fffdf7');
+		for (const near of ['#000000', '#131313', '#1a1a1a']) {
+			expect(deriveSeriesFromAccent(near, 6, '#fffdf7')).toEqual(a);
+		}
 	});
 });

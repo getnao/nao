@@ -56,9 +56,14 @@ function useFontLinks(hrefs: string[]) {
 		}
 		const urls = key.split('|');
 		for (const href of urls) {
-			const count = linkRefCounts.get(href) ?? 0;
-			linkRefCounts.set(href, count + 1);
-			if (count === 0 && !document.querySelector(`link[data-story-font="${CSS.escape(href)}"]`)) {
+			linkRefCounts.set(href, (linkRefCounts.get(href) ?? 0) + 1);
+			// Ensure the element exists regardless of the count. Keying insertion
+			// off `count === 0` meant that if a cleanup removed the tag while the
+			// count was still above zero - which happens when themes change in
+			// quick succession, as they do when an admin tries several sites in a
+			// row - no later mount would ever put it back, and the brand face
+			// silently stopped loading.
+			if (!document.querySelector(`link[data-story-font="${CSS.escape(href)}"]`)) {
 				const link = document.createElement('link');
 				link.rel = 'stylesheet';
 				link.href = href;

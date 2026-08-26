@@ -25,6 +25,22 @@ const SERIES = {
 	Local: [1889, 1320, 2560, 1740, 1120, 2280, 1590],
 };
 
+/**
+ * Six series, so the whole palette is on screen.
+ *
+ * Two series only ever exercised --chart-1 and --chart-2, which is not enough
+ * to judge a palette: the colours that clash are usually further down the list.
+ */
+const COUNTRIES = ['United States', 'France', 'Spain', 'United Kingdom', 'India', 'Germany'];
+const BY_COUNTRY = [
+	[820, 910, 1180, 1010, 640, 1240, 890],
+	[610, 700, 940, 780, 520, 980, 720],
+	[380, 420, 560, 470, 310, 590, 430],
+	[240, 280, 350, 300, 200, 380, 275],
+	[160, 190, 240, 205, 140, 260, 185],
+	[120, 140, 180, 155, 105, 195, 140],
+];
+
 const TABS = [{ title: 'Overview' }, { title: 'By country' }];
 
 /**
@@ -62,6 +78,7 @@ export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 	);
 	const totals = useMemo(() => TICKS.map((_, i) => visible.reduce((sum, key) => sum + SERIES[key][i], 0)), [visible]);
 	const max = Math.max(...totals, 1);
+	const countryMax = Math.max(...TICKS.map((_, i) => BY_COUNTRY.reduce((sum, row) => sum + row[i], 0)), 1);
 	const fmt = (n: number) => n.toLocaleString('en-US');
 
 	return (
@@ -102,45 +119,48 @@ export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 						))}
 					</div>
 
-					{/* Stacked bars with a hover tooltip, as a chart block renders */}
+					{/* Six stacked series, so every chart colour is on screen */}
 					<div className='rounded-lg border bg-card p-3'>
-						<div className='mb-3 text-sm font-medium'>Users per week</div>
-						<div className='relative flex h-28 items-end gap-2'>
-							{TICKS.map((tick, i) => (
-								<button
-									type='button'
-									key={tick}
-									onMouseEnter={() => setHovered(i)}
-									onMouseLeave={() => setHovered(null)}
-									onFocus={() => setHovered(i)}
-									onBlur={() => setHovered(null)}
-									className='flex h-full flex-1 flex-col justify-end gap-[2px]'
-									aria-label={`${tick}: ${fmt(totals[i])} users`}
-								>
-									{visible.map((key, s2) => (
-										<span
-											key={key}
-											className='block rounded-t-[3px]'
-											style={{
-												height: `${(SERIES[key][i] / max) * 100}%`,
-												background: `var(--chart-${s2 + 1})`,
-												opacity: hovered === null || hovered === i ? 1 : 0.45,
-											}}
-										/>
-									))}
-								</button>
-							))}
+						<div className='mb-3 text-sm font-medium'>Users per week by country</div>
+						<div className='relative flex h-32 items-end gap-2'>
+							{TICKS.map((tick, i) => {
+								const columnTotal = BY_COUNTRY.reduce((sum, row) => sum + row[i], 0);
+								return (
+									<button
+										type='button'
+										key={tick}
+										onMouseEnter={() => setHovered(i)}
+										onMouseLeave={() => setHovered(null)}
+										onFocus={() => setHovered(i)}
+										onBlur={() => setHovered(null)}
+										className='flex h-full flex-1 flex-col justify-end gap-[2px]'
+										aria-label={`${tick}: ${fmt(columnTotal)} users`}
+									>
+										{BY_COUNTRY.map((row, c) => (
+											<span
+												key={COUNTRIES[c]}
+												className='block first:rounded-t-[3px]'
+												style={{
+													height: `${(row[i] / countryMax) * 100}%`,
+													background: `var(--chart-${c + 1})`,
+													opacity: hovered === null || hovered === i ? 1 : 0.45,
+												}}
+											/>
+										))}
+									</button>
+								);
+							})}
 							{hovered !== null && (
-								<div className='pointer-events-none absolute -top-1 left-1/2 -translate-x-1/2 rounded-md border bg-popover px-2.5 py-1.5 text-xs shadow-sm'>
+								<div className='pointer-events-none absolute -top-1 left-1/2 z-10 -translate-x-1/2 rounded-md border bg-popover px-2.5 py-1.5 text-xs shadow-sm'>
 									<div className='font-medium'>{TICKS[hovered]}</div>
-									{visible.map((key, s2) => (
-										<div key={key} className='mt-0.5 flex items-center gap-2'>
+									{COUNTRIES.map((country, c) => (
+										<div key={country} className='mt-0.5 flex items-center gap-2'>
 											<span
 												className='size-2 shrink-0 rounded-[2px]'
-												style={{ background: `var(--chart-${s2 + 1})` }}
+												style={{ background: `var(--chart-${c + 1})` }}
 											/>
-											<span className='text-muted-foreground'>{key}</span>
-											<span className='ml-auto font-medium'>{fmt(SERIES[key][hovered])}</span>
+											<span className='text-muted-foreground'>{country}</span>
+											<span className='ml-auto font-medium'>{fmt(BY_COUNTRY[c][hovered])}</span>
 										</div>
 									))}
 								</div>
@@ -149,6 +169,18 @@ export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 						<div className='mt-2 flex justify-between border-t pt-2 text-[10px] text-muted-foreground'>
 							{TICKS.map((t) => (
 								<span key={t}>{t}</span>
+							))}
+						</div>
+						{/* Legend, as ChartLegendContent renders it */}
+						<div className='mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1'>
+							{COUNTRIES.map((country, c) => (
+								<span key={country} className='flex items-center gap-1.5 text-xs text-muted-foreground'>
+									<span
+										className='size-2 shrink-0 rounded-[2px]'
+										style={{ background: `var(--chart-${c + 1})` }}
+									/>
+									{country}
+								</span>
 							))}
 						</div>
 					</div>
