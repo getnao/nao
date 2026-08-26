@@ -558,7 +558,7 @@ export async function upsertStoryDataCacheByStoryId(
 export async function getSqlQueriesFromCode(
 	chatId: string,
 	code: string,
-): Promise<Record<string, { sqlQuery: string; databaseId?: string }>> {
+): Promise<Record<string, { sqlQuery: string; databaseId?: string; adminMode: boolean }>> {
 	const queryIds = extractQueryIds(code);
 	if (queryIds.size === 0) {
 		return {};
@@ -570,7 +570,7 @@ export async function getSqlQueriesFromCode(
 export async function getSqlQueryById(
 	chatId: string,
 	queryId: string,
-): Promise<{ sqlQuery: string; databaseId?: string } | null> {
+): Promise<{ sqlQuery: string; databaseId?: string; adminMode: boolean } | null> {
 	const part = await executeSqlQueries.getExecuteSqlPartByQueryIdInChat(chatId, queryId);
 	if (!part) {
 		return null;
@@ -578,6 +578,7 @@ export async function getSqlQueryById(
 	return {
 		sqlQuery: part.toolInput.sql_query,
 		...(part.toolInput.database_id && { databaseId: part.toolInput.database_id }),
+		adminMode: part.adminMode,
 	};
 }
 

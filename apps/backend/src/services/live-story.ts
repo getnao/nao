@@ -5,6 +5,7 @@ import { CronExpressionParser } from 'cron-parser';
 import { z } from 'zod';
 
 import { llmTelemetry } from '../agents/telemetry';
+import { queryAppDb } from '../agents/tools/query-app-db';
 import { LiveStoryRefreshPrompt } from '../components/ai/live-story-refresh-prompt';
 import type { DBStoryDataCache } from '../db/abstractSchema';
 import { env } from '../env';
@@ -41,13 +42,18 @@ export async function executeLiveQuery(
 		throw new Error('Chat project not found');
 	}
 
+	const sqlQuery = stripSqlFilterBlocks(query.sqlQuery);
+	if (query.adminMode) {
+		return executeAppDatabaseSql(projectId, sqlQuery);
+	}
+
 	const project = await projectQueries.retrieveProjectById(projectId);
 	if (!project.path) {
 		throw new Error('Project path not configured');
 	}
 
 	const envVars = await projectQueries.getEnvVars(projectId);
-	return executeRawSql(stripSqlFilterBlocks(query.sqlQuery), project.path, query.databaseId, envVars);
+	return executeRawSql(sqlQuery, project.path, query.databaseId, envVars);
 }
 
 export interface RefreshResult {
@@ -70,22 +76,24 @@ export async function refreshStoryData(chatId: string, slug: string): Promise<Re
 		throw new Error('Chat project not found');
 	}
 
-	const project = await projectQueries.retrieveProjectById(chat.projectId);
-	if (!project.path) {
+	const hasWarehouseQueries = Object.values(sqlQueries).some((query) => !query.adminMode);
+	const project = hasWarehouseQueries ? await projectQueries.retrieveProjectById(chat.projectId) : null;
+	if (project && !project.path) {
 		throw new Error('Project path not configured');
 	}
 
 	const queryData: Record<string, { data: unknown[]; columns: string[] }> = {};
 
 	await Promise.all(
-		Object.entries(sqlQueries).map(async ([queryId, { sqlQuery, databaseId }]) => {
+		Object.entries(sqlQueries).map(async ([queryId, { sqlQuery, databaseId, adminMode }]) => {
+			const effectiveSql = stripSqlFilterBlocks(sqlQuery);
+			if (adminMode) {
+				queryData[queryId] = await executeAppDatabaseSql(chat.projectId, effectiveSql);
+				return;
+			}
+
 			const projectEnvVars = await projectQueries.getEnvVars(chat.projectId);
-			const result = await executeRawSql(
-				stripSqlFilterBlocks(sqlQuery),
-				project.path!,
-				databaseId,
-				projectEnvVars,
-			);
+			const result = await executeRawSql(effectiveSql, project!.path!, databaseId, projectEnvVars);
 			queryData[queryId] = result;
 		}),
 	);
@@ -174,6 +182,14 @@ export async function executeRawSql(
 
 	const data = await response.json();
 	return { data: data.data, columns: data.columns };
+}
+
+async function executeAppDatabaseSql(
+	projectId: string,
+	sqlQuery: string,
+): Promise<{ data: unknown[]; columns: string[] }> {
+	const { columns, rows } = await queryAppDb(projectId, sqlQuery);
+	return { data: rows, columns };
 }
 
 function isCacheExpired(cachedAt: Date, cacheSchedule: string | null): boolean {
