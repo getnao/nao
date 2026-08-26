@@ -7,6 +7,7 @@ import { useDisposeInactiveAgents } from '@/hooks/use-agent';
 import { useSessionOrNavigateToIndexPage } from '@/hooks/use-session-or-navigate-to-index-page';
 import { useNavigateToResetPasswordPageIfNeeded } from '@/hooks/useNavigateToResetPasswordPageIfNeeded';
 import { useIdentifyPostHog } from '@/hooks/use-identify-posthog';
+import { StoryChartPalette } from '@/components/story-chart-palette';
 
 export const Route = createRootRoute({
 	component: RootComponent,
@@ -38,6 +39,7 @@ function AuthenticatedRoot() {
 	return (
 		<div className='flex h-screen'>
 			<BrandingHead />
+			<StoryChartPalette />
 			<BrandColor />
 			<Outlet />
 		</div>

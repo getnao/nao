@@ -17,6 +17,7 @@ import {
 import {
 	clampChroma,
 	contrastRatio,
+	deltaE,
 	deriveSeriesFromAccent,
 	desaturate,
 	hexToOklch,
@@ -210,15 +211,26 @@ export function applyGuards(
 		}
 	}
 
-	// A brand's accent is saturated by definition. If the model settled on a grey
-	// or a near-black while the page clearly carries a vivid colour, that colour
-	// is the accent and the model simply missed it.
-	const vivid = signals?.brandCandidates?.find((c) => c.chroma >= 0.1);
-	if (vivid && hexToOklch(theme.accent).c < 0.06) {
-		notes.push(
-			`The proposed accent had almost no colour in it, so ${vivid.color} was used: the page's own brand colour.`,
-		);
-		theme.accent = vivid.color;
+	// The accent must be a colour the page actually uses.
+	//
+	// The earlier rule only rescued a grey accent, which missed the commoner
+	// failure: the model returns a plausible mid-saturation colour that appears
+	// nowhere on the site, and a vivid brand colour sitting right there in the
+	// candidates gets passed over. A magenta link colour at chroma 0.30 is the
+	// brand; a mauve the model composed is not.
+	const candidates = signals?.brandCandidates ?? [];
+	const strongest = candidates.find((c) => c.chroma >= 0.12);
+	if (strongest) {
+		const accentChroma = hexToOklch(theme.accent).c;
+		const isOnThePage = candidates.some((c) => deltaE(c.color, theme.accent) < 12);
+		if (!isOnThePage || accentChroma < strongest.chroma * 0.6) {
+			notes.push(
+				!isOnThePage
+					? `The proposed accent does not appear on the site, so ${strongest.color} was used: the most brand-like colour actually on the page.`
+					: `The proposed accent was far duller than the brand's own ${strongest.color}, which was used instead.`,
+			);
+			theme.accent = strongest.color;
+		}
 	}
 
 	// An accent that matches the card is not an accent.

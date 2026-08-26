@@ -481,3 +481,31 @@ describe('structural slots', () => {
 		expect(theme.charts.lineWidth).toBeLessThanOrEqual(4);
 	});
 });
+
+describe('the accent has to be a colour on the page', () => {
+	const pink = [{ color: '#ff17e9', chroma: 0.304 }];
+
+	it('replaces an accent the site never uses with the brand colour that is there', () => {
+		// The commonest failure: a plausible mid-saturation colour the model
+		// composed, while a magenta link colour sits right there in the candidates.
+		const { theme, notes } = applyGuards(proposal({ accent: '#a8449b' }), { brandCandidates: pink });
+		expect(theme.accent).toBe('#ff17e9');
+		expect(notes.join(' ')).toMatch(/does not appear on the site/);
+	});
+
+	it('replaces a grey accent too', () => {
+		const { theme } = applyGuards(proposal({ accent: '#3a3a3a' }), { brandCandidates: pink });
+		expect(theme.accent).toBe('#ff17e9');
+	});
+
+	it('keeps an accent that is genuinely on the page', () => {
+		const { theme, notes } = applyGuards(proposal({ accent: '#ff17e9' }), { brandCandidates: pink });
+		expect(theme.accent).toBe('#ff17e9');
+		expect(notes.join(' ')).not.toMatch(/does not appear/);
+	});
+
+	it('leaves the accent alone when nothing salient was detected', () => {
+		const { theme } = applyGuards(proposal({ accent: '#522bff' }), { brandCandidates: [] });
+		expect(theme.accent).toBe('#522bff');
+	});
+});

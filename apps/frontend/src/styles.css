@@ -953,8 +953,9 @@ code.dollar:before {
  */
 [data-story-themed='true'] [data-story-filter-bar] {
 	border-color: transparent;
-	background: var(--panel);
+	background: transparent;
 	box-shadow: none;
+	padding-inline: 0;
 }
 
 /*
