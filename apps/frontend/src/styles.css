@@ -959,6 +959,26 @@ code.dollar:before {
 }
 
 /*
+ * Filter labels and chart titles are brand type, not chrome.
+ *
+ * They were the two places a themed story still read as nao: a brand that sets
+ * its small labels in tracked caps had them everywhere except above its own
+ * filters, and chart titles stayed in the body face while every other heading
+ * moved to the display one.
+ */
+[data-story-themed='true'] [data-story-filter-bar] > div > span:first-child {
+	text-transform: var(--story-label-transform, none);
+	letter-spacing: var(--story-label-tracking, 0);
+}
+
+[data-story-themed='true'] [data-slot='chart-title'],
+[data-story-themed='true'] .recharts-wrapper ~ * [data-chart-title],
+[data-story-themed='true'] [data-story-chart-title] {
+	font-family: var(--font-heading);
+	letter-spacing: var(--story-heading-tracking, -0.02em);
+}
+
+/*
  * An inverted block carries its own ink, so muted text inside it reads against
  * the dark ground rather than against the page it is sitting on.
  */
@@ -968,6 +988,31 @@ code.dollar:before {
 	--muted-foreground: color-mix(in srgb, var(--story-inverted-ink) 62%, transparent);
 	--border: color-mix(in srgb, var(--story-inverted-ink) 18%, transparent);
 	color: var(--story-inverted-ink);
+}
+
+/*
+ * Floating layers keep their own ground, so they must keep their own ink.
+ *
+ * The inverted block hands light ink to everything inside it, and a tooltip
+ * inside that block still paints itself on --popover. That produced pale text
+ * on a pale card: the hover label was legible only as a shape.
+ */
+[data-story-themed='true']
+	[data-story-inverted='true']
+	:is(
+		[data-slot='tooltip-content'],
+		[data-slot='popover-content'],
+		.recharts-tooltip-wrapper,
+		.recharts-default-tooltip
+	) {
+	--card: var(--story-card);
+	--popover: var(--story-card);
+	--foreground: var(--story-ink-primary);
+	--card-foreground: var(--story-ink-primary);
+	--popover-foreground: var(--story-ink-primary);
+	--muted-foreground: var(--story-ink-muted);
+	--border: color-mix(in srgb, var(--story-ink-primary) 14%, transparent);
+	color: var(--story-ink-primary);
 }
 
 [data-story-themed='true'] :is(table, th, td, thead, tbody) {

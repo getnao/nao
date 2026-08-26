@@ -315,6 +315,11 @@ export function storyThemeToCssVars(theme: StoryTheme): Record<string, string> {
 		'--story-label-tracking': theme.typography.labelStyle === 'uppercase-tracked' ? '0.09em' : '0',
 		'--story-gap': DENSITY[theme.layout.density].gap,
 		'--story-pad': DENSITY[theme.layout.density].pad,
+		// Kept as their own tokens so a floating layer inside an inverted block can
+		// reach the page ink again; --foreground is reassigned in that scope.
+		'--story-ink-primary': theme.ink.primary,
+		'--story-ink-muted': theme.ink.muted,
+		'--story-card': theme.surfaces.card,
 		'--story-inverted': theme.layout.invertedSurface,
 		'--story-inverted-ink': theme.layout.invertedInk,
 		'--story-bar-radius': `${theme.charts.barRadius}px`,

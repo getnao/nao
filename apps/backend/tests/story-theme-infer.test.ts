@@ -133,7 +133,9 @@ describe('applyGuards', () => {
 			}),
 		);
 		expect(theme.accent).toBe(DEFAULT_STORY_THEME.accent);
-		expect(theme.shape.radius).toBe(28);
+		// A dashboard is not a marketing page: the brand's radius is honoured only
+		// so far before a grid of KPI tiles starts reading as a toy.
+		expect(theme.shape.radius).toBe(18);
 		expect(theme.shape.border).toBe(DEFAULT_STORY_THEME.shape.border);
 		expect(theme.typography.headingFont).not.toMatch(/[{};]/);
 		expect(theme.typography.headingTracking).toBeLessThanOrEqual(0.06);
@@ -507,5 +509,20 @@ describe('the accent has to be a colour on the page', () => {
 	it('leaves the accent alone when nothing salient was detected', () => {
 		const { theme } = applyGuards(proposal({ accent: '#522bff' }), { brandCandidates: [] });
 		expect(theme.accent).toBe('#522bff');
+	});
+});
+
+describe('cards stay a step off the page, not a slab on it', () => {
+	it('softens a card ground that is too heavy against the page', () => {
+		const { theme, notes } = applyGuards(
+			proposal({ surfaces: { page: '#fffdf7', card: '#d8d3c8', sunken: '#efe9dd' } }),
+		);
+		expect(contrastRatio(theme.surfaces.card, theme.surfaces.page)).toBeLessThanOrEqual(1.23);
+		expect(notes.join(' ')).toMatch(/read as a slab/);
+	});
+
+	it('leaves a card that is already subtle alone', () => {
+		const { theme } = applyGuards(proposal({ surfaces: { page: '#ffffff', card: '#fafafa', sunken: '#f2f2f2' } }));
+		expect(theme.surfaces.card).toBe('#fafafa');
 	});
 });

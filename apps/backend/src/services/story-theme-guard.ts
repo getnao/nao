@@ -33,6 +33,20 @@ import { z } from 'zod';
 
 /** How much hue text may keep: enough for a warm or cool grey, not a colour. */
 const INK_MAX_CHROMA = 0.025;
+/**
+ * A dashboard is not a marketing page. Brands push corner radius hard on hero
+ * cards, and carried onto a grid of KPI tiles it reads as a toy rather than a
+ * tool, so the brand's own radius is honoured up to a point and no further.
+ */
+const MAX_RADIUS = 18;
+/**
+ * How far a card may sit from the page.
+ *
+ * Cards should register as their own surface without becoming a slab. Past this
+ * the grid reads as heavy grey blocks on a light page rather than a page with
+ * cards on it - unless the block is the deliberately inverted hero.
+ */
+const MAX_CARD_STEP = 1.22;
 
 export interface InferenceResult {
 	theme: StoryTheme;
@@ -118,7 +132,7 @@ export function applyGuards(
 			fontLinks: [...new Set(fontLinks)].filter(isAllowedFontLink).slice(0, 3),
 		},
 		shape: {
-			radius: clamp(Math.round(proposal.shape.radius), 0, 28),
+			radius: clamp(Math.round(proposal.shape.radius), 0, MAX_RADIUS),
 			border: hexOrNull(proposal.shape.border),
 			elevation: proposal.shape.elevation,
 			controlShape: proposal.shape.controlShape,
@@ -163,6 +177,21 @@ export function applyGuards(
 	}
 	// The sunken surface is always a bare fill, so it has to be visible on its own.
 	theme.surfaces.sunken = separateSurface(theme.surfaces.sunken, theme.surfaces.page, 1.1);
+
+	// Keep the card a step off the page, not a slab on top of it.
+	if (contrastRatio(theme.surfaces.card, theme.surfaces.page) > MAX_CARD_STEP) {
+		const towardPage = isDarkSurface(theme.surfaces.page) ? 0.03 : -0.03;
+		let softened = theme.surfaces.page;
+		for (let i = 0; i < 8; i++) {
+			const next = shiftLightness(theme.surfaces.page, towardPage * (i + 1));
+			if (contrastRatio(next, theme.surfaces.page) > MAX_CARD_STEP) {
+				break;
+			}
+			softened = next;
+		}
+		theme.surfaces.card = softened;
+		notes.push('The card background was heavy enough to read as a slab, so it was brought closer to the page.');
+	}
 
 	// Separation comes from the surface or from a border, never from both. When
 	// the card already reads as its own ground, an outline on top of that tonal
