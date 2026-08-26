@@ -96,7 +96,7 @@ class TestCreateEmptyStructure:
         content = readme.read_text()
         assert "system.md" in content
         assert "slack.md" in content
-        # Documents the placeholder that keeps nao's default prompt
+        assert "mattermost.md" in content
         assert "{{ nao_prompt }}" in content
 
     def test_creates_example_slack_prompt_file(self, tmp_path: Path):
@@ -107,13 +107,12 @@ class TestCreateEmptyStructure:
         assert slack_prompt.exists()
         assert "{{ nao_prompt }}" in slack_prompt.read_text()
 
-    def test_creates_example_mattermost_prompt_file(self, tmp_path: Path):
-        """Creates an example agent/prompts/mattermost.md with the default prompt placeholder."""
-        folders, files = create_empty_structure(tmp_path)
+    def test_does_not_create_example_mattermost_prompt_file(self, tmp_path: Path):
+        """Does not create an example agent/prompts/mattermost.md."""
+        create_empty_structure(tmp_path)
 
         mattermost_prompt = tmp_path / "agent" / "prompts" / "mattermost.md"
-        assert mattermost_prompt.exists()
-        assert "{{ nao_prompt }}" in mattermost_prompt.read_text()
+        assert not mattermost_prompt.exists()
 
     def test_creates_naoignore_file(self, tmp_path: Path):
         """Creates .naoignore file with ignored generated paths."""

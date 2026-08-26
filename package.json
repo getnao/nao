@@ -9,10 +9,6 @@
 		"node": ">=22.14.0 <23",
 		"npm": "11.10.1"
 	},
-	"overrides": {
-		"@ai-sdk/react": "3.0.267",
-		"ai": "6.0.264"
-	},
 	"scripts": {
 		"dev": "npm-run-all -lp dev:backend dev:frontend dev:fastapi",
 		"dev:backend": "npm run dev -w @nao/backend",
