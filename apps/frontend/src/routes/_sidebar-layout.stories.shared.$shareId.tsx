@@ -263,6 +263,7 @@ function SharedStoryOwnerHeader({
 				}}
 				download={{ chatId, storySlug, isOwner: true }}
 				storyId={storyId}
+				canRename
 				isShared
 				onShare={() => setIsShareDialogOpen(true)}
 				onOpenAnalytics={() => setIsAnalyticsOpen(true)}

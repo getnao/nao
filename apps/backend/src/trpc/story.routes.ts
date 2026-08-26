@@ -205,6 +205,12 @@ export const storyRoutes = {
 		return stories.map((s) => ({ storySlug: s.slug, title: s.title, latestVersion: s.latestVersion }));
 	}),
 
+	rename: storyOwnerProcedure
+		.input(z.object({ storyId: z.string(), title: z.string().min(1).max(255) }))
+		.mutation(async ({ input }) => {
+			await storyQueries.renameStory(input.storyId, input.title);
+		}),
+
 	createVersion: chatOwnerProcedure
 		.input(
 			z.object({

@@ -247,6 +247,9 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 			const latestVersion = await fetchLatestStoryVersion(story);
 			const newTitle = title ?? story.title;
 			const newCode = content ?? latestVersion?.code ?? `# ${newTitle}\n`;
+			if (title !== undefined && title !== story.title) {
+				await storyQueries.renameStory(story.id, title);
+			}
 			const updated = await saveNewVersion(story, ctx, newTitle, newCode);
 			const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
 			const validatedChatId = await resolveChartChatId(chat_id, ctx);

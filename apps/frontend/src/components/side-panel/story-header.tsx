@@ -18,7 +18,7 @@ import {
 	Upload,
 	X,
 } from 'lucide-react';
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { StorySummary } from '@/lib/story.utils';
 import type { StoryViewMode } from './story-viewer.types';
@@ -26,6 +26,7 @@ import type { StoryRefreshFailure } from '@/components/story-page-header';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
 import { StoryDownload } from '@/components/story-download';
+import { EditableStoryTitle } from '@/components/editable-story-title';
 import { Button } from '@/components/ui/button';
 import { trpc } from '@/main';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -118,30 +119,52 @@ export const StoryHeader = memo(function StoryHeader({
 	const isFavorited = !!storyId && (favorites?.storyIds.includes(storyId) ?? false);
 	const otherStories = useMemo(() => allStories.filter((s) => s.id !== storySlug), [allStories, storySlug]);
 	const hasMultiple = otherStories.length > 0;
+	const storyMenuTriggerRef = useRef<HTMLButtonElement>(null);
 	const isEditingCode = viewMode === 'code' && isCodeDirty && !isReadonlyMode;
 	const showSubHeader = viewMode === 'edit' || isEditingCode || !isViewingLatest;
 
 	const titleElement = hasMultiple ? (
-		<DropdownMenu>
-			<DropdownMenuTrigger asChild>
-				<button
-					type='button'
-					className='flex items-center gap-1 min-w-0 flex-1 cursor-pointer hover:text-foreground/80 transition-colors focus:outline-none'
-				>
-					<h3 className='text-sm font-medium truncate'>{title}</h3>
-					<ChevronDown className='size-3 shrink-0 text-muted-foreground' strokeWidth={2.25} />
-				</button>
-			</DropdownMenuTrigger>
-			<DropdownMenuContent align='start'>
-				{otherStories.map((story) => (
-					<DropdownMenuItem key={story.id} onClick={() => onSwitchStory(story.id)}>
-						<span className='truncate'>{story.title}</span>
-					</DropdownMenuItem>
-				))}
-			</DropdownMenuContent>
-		</DropdownMenu>
+		<div className='flex min-w-0 flex-1 items-center gap-1'>
+			<EditableStoryTitle
+				storyId={storyId}
+				title={title}
+				canEdit={!isReadonlyMode}
+				heading='h3'
+				className='min-w-0 truncate text-sm font-medium'
+				inputClassName='text-sm font-medium'
+				onClick={() => storyMenuTriggerRef.current?.click()}
+			/>
+			<DropdownMenu>
+				<DropdownMenuTrigger asChild>
+					<button
+						ref={storyMenuTriggerRef}
+						type='button'
+						aria-label='Switch story'
+						className='shrink-0 cursor-pointer text-muted-foreground transition-colors hover:text-foreground focus:outline-none'
+					>
+						<ChevronDown className='size-3' strokeWidth={2.25} />
+					</button>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent align='start'>
+					{otherStories.map((story) => (
+						<DropdownMenuItem key={story.id} onClick={() => onSwitchStory(story.id)}>
+							<span className='truncate'>{story.title}</span>
+						</DropdownMenuItem>
+					))}
+				</DropdownMenuContent>
+			</DropdownMenu>
+		</div>
 	) : (
-		<h3 className='text-sm font-medium truncate flex-1'>{title}</h3>
+		<div className='min-w-0 flex-1'>
+			<EditableStoryTitle
+				storyId={storyId}
+				title={title}
+				canEdit={!isReadonlyMode}
+				heading='h3'
+				className='truncate text-sm font-medium'
+				inputClassName='text-sm font-medium'
+			/>
+		</div>
 	);
 
 	const versionNav = totalVersions > 1 && (

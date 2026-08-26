@@ -108,6 +108,7 @@ function StoryPreviewPage() {
 				}}
 				download={{ chatId, storySlug, isOwner: true }}
 				storyId={storyId}
+				canRename
 				isShared={isShared}
 				onShare={() => setIsShareDialogOpen(true)}
 				onOpenAnalytics={() => setIsAnalyticsOpen(true)}

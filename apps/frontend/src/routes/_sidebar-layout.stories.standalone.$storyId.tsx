@@ -107,6 +107,7 @@ function StandaloneStoryPage() {
 				isOpeningChat={openStandaloneMutation.isPending}
 				download={{ storyId, isOwner: true }}
 				storyId={storyId}
+				canRename
 				live={
 					story.isLive
 						? {
@@ -208,6 +209,7 @@ function StandaloneEditableStory({
 				}}
 				download={{ storyId, isOwner: true }}
 				storyId={storyId}
+				canRename
 				isShared={isShared}
 				onShare={() => setIsShareDialogOpen(true)}
 				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
