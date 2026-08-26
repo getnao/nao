@@ -55,10 +55,22 @@ describe('CVD simulation', () => {
 });
 
 describe('validateSeries', () => {
-	it('accepts the default nao series on a white card', () => {
+	it("reports that nao's own shipped palette does not pass", () => {
+		// Not a bug in the validator. --chart-2 and --chart-7 in styles.css are the
+		// same colour, and several neighbours sit too close under simulated colour
+		// vision deficiency. Recorded so the default is honest about itself; the
+		// guard repairs it whenever a workspace publishes a theme.
 		const report = validateSeries(DEFAULT_STORY_THEME.charts.series, DEFAULT_STORY_THEME.surfaces.card);
+		expect(report.ok).toBe(false);
+		expect(report.issues.some((i) => i.kind === 'normal-separation')).toBe(true);
+		expect(snapSeries(DEFAULT_STORY_THEME.charts.series, DEFAULT_STORY_THEME.surfaces.card)).not.toEqual(
+			DEFAULT_STORY_THEME.charts.series,
+		);
+	});
+
+	it('accepts a properly spaced series on a white card', () => {
+		const report = validateSeries(['#522bff', '#288abb', '#c44310', '#42a35e'], '#ffffff');
 		expect(report.ok).toBe(true);
-		expect(report.issues).toEqual([]);
 	});
 
 	it('rejects two tints of the same hue as indistinguishable', () => {
@@ -78,7 +90,7 @@ describe('validateSeries', () => {
 	});
 
 	it('flags a brand colour that glares on a dark card', () => {
-		// iBanFirst's accent green: fine as text, too light as a large fill on ink.
+		// A vivid brand green: fine as text, too light as a large fill on ink.
 		const report = validateSeries(['#8f40ff', '#64ffa2', '#c2a3ee'], '#140309');
 		expect(report.issues.some((i) => i.kind === 'lightness')).toBe(true);
 	});
@@ -103,7 +115,7 @@ describe('snapSeries', () => {
 	}
 
 	it('leaves an already-valid series untouched', () => {
-		const series = DEFAULT_STORY_THEME.charts.series;
+		const series = ['#522bff', '#288abb', '#c44310', '#42a35e'];
 		expect(snapSeries(series, '#ffffff')).toEqual(series);
 	});
 
@@ -142,7 +154,7 @@ describe('theme contract', () => {
 		expect(vars['--background']).toBe('#ffffff');
 		expect(vars['--primary']).toBe('#522bff');
 		expect(vars['--radius']).toBe('10px');
-		expect(vars['--chart-1']).toBe('#522bff');
+		expect(vars['--chart-1']).toBe('#104e64');
 		expect(vars['--chart-7']).toBeDefined();
 	});
 
@@ -165,7 +177,7 @@ describe('font links', () => {
 		expect(isAllowedFontLink('https://fonts.googleapis.com/css2?family=Geist')).toBe(true);
 		expect(isAllowedFontLink('https://use.typekit.net/abc.css')).toBe(true);
 		// A brand's own origin serves faces they licensed, not faces we may hotlink.
-		expect(isAllowedFontLink('https://fr.ibanfirst.com/fonts/AtypDisplay.woff2')).toBe(false);
+		expect(isAllowedFontLink('https://brand.example.com/fonts/Display.woff2')).toBe(false);
 		expect(isAllowedFontLink('http://fonts.googleapis.com/css2')).toBe(false);
 		expect(isAllowedFontLink('https://evil.test/fonts.css')).toBe(false);
 		expect(isAllowedFontLink('not a url')).toBe(false);
@@ -174,7 +186,7 @@ describe('font links', () => {
 	it('drops disallowed links when merging a theme', () => {
 		const merged = mergeStoryTheme({
 			typography: {
-				fontLinks: ['https://fonts.googleapis.com/css2?family=Geist', 'https://fr.ibanfirst.com/f.css'],
+				fontLinks: ['https://fonts.googleapis.com/css2?family=Geist', 'https://brand.example.com/f.css'],
 			},
 		});
 		expect(merged.typography.fontLinks).toEqual(['https://fonts.googleapis.com/css2?family=Geist']);

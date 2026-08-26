@@ -1,4 +1,5 @@
 import { storyThemeSchema } from '@nao/shared/story-theme';
+import { FONT_CDN_HOSTS } from '@nao/shared/story-theme';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
@@ -9,8 +10,9 @@ import {
 	saveStoryThemeDraft,
 	setStoryThemeEnabled,
 } from '../queries/story-theme.queries';
-import { extractDesignSignals } from '../services/story-theme-extract';
+import { extractDesignSignals, signalsFromProbe } from '../services/story-theme-extract';
 import { inferStoryTheme } from '../services/story-theme-infer';
+import { buildProbeSnippet, type ProbeResult } from '../services/story-theme-probe';
 import { adminProtectedProcedure, protectedProcedure } from './trpc';
 
 /**
@@ -51,6 +53,53 @@ export const storyThemeRoutes = {
 
 			const { theme, notes } = await inferStoryTheme(input.projectId, signals);
 			await saveStoryThemeDraft({ theme, source: signals.url, sourceKind: 'url', notes });
+			return { theme, notes, warnings: signals.warnings };
+		}),
+
+	/**
+	 * The probe, packaged for the admin's own browser.
+	 *
+	 * The escape hatch for sites behind bot protection. We do not work around a
+	 * WAF; the admin runs the same read themselves, on their own company's site,
+	 * in a browser that is already trusted there.
+	 */
+	getProbeSnippet: adminProtectedProcedure.query(() => ({
+		snippet: buildProbeSnippet([...FONT_CDN_HOSTS]),
+	})),
+
+	/** Infer from a capture the admin pasted back, rather than one we fetched. */
+	inferFromProbe: adminProtectedProcedure
+		.input(
+			z.object({
+				projectId: z.string().min(1),
+				url: z.string().max(2048).optional(),
+				// The capture is shaped by our own snippet, but it arrives as text the
+				// admin pasted, so it is parsed defensively and never trusted wholesale.
+				probe: z.string().min(2).max(400_000),
+			}),
+		)
+		.mutation(async ({ input }) => {
+			let probe: ProbeResult;
+			try {
+				probe = JSON.parse(input.probe) as ProbeResult;
+			} catch {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: 'That is not valid JSON. Paste the whole snippet output.',
+				});
+			}
+			if (!probe || typeof probe !== 'object' || !probe.roles || !Array.isArray(probe.colors)) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message:
+						'That JSON is not a nao design capture. Run the snippet again and paste all of its output.',
+				});
+			}
+
+			const signals = signalsFromProbe(probe, input.url ?? 'pasted capture');
+			signals.warnings.unshift('Captured in your browser rather than fetched by nao.');
+			const { theme, notes } = await inferStoryTheme(input.projectId, signals);
+			await saveStoryThemeDraft({ theme, source: input.url ?? null, sourceKind: 'url', notes });
 			return { theme, notes, warnings: signals.warnings };
 		}),
 

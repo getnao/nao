@@ -129,8 +129,12 @@ export type StoryTheme = z.infer<typeof storyThemeSchema>;
  * onto so a partial inference can never produce a half-rendered story.
  */
 export const DEFAULT_STORY_THEME: StoryTheme = {
-	surfaces: { page: '#ffffff', card: '#ffffff', sunken: '#f5f5f7' },
-	ink: { primary: '#18181c', secondary: '#4a4d57', muted: '#82859a' },
+	// These are nao's real tokens from apps/frontend/src/styles.css, converted
+	// from oklch and composited where the source value is translucent. They must
+	// stay in step with that file: the "no template yet" preview is supposed to
+	// show what a story actually looks like today, not an idealised palette.
+	surfaces: { page: '#ffffff', card: '#ffffff', sunken: '#f8f8f8' },
+	ink: { primary: '#262626', secondary: '#4a4a4a', muted: '#808080' },
 	typography: {
 		headingFont: "Borna, 'Helvetica Neue', Arial, sans-serif",
 		bodyFont: "Geist, 'Helvetica Neue', Arial, sans-serif",
@@ -138,15 +142,18 @@ export const DEFAULT_STORY_THEME: StoryTheme = {
 		scale: 1,
 		fontLinks: [],
 	},
-	shape: { radius: 10, border: '#e4e4f0', elevation: 'bordered', controlShape: 'rounded' },
+	shape: { radius: 10, border: '#e6e6e6', elevation: 'bordered', controlShape: 'rounded' },
 	charts: {
-		// nao purple anchors slot 1; the rest are the output of snapSeries on a
-		// hue-spread seed, so the shipped default provably passes its own guard.
-		series: ['#522bff', '#288abb', '#c44310', '#42a35e', '#a31db0', '#b6540c', '#038965'],
+		// --chart-1 .. --chart-7 exactly as shipped. Note that nao's own palette
+		// does not pass the contrast guard: chart-2 and chart-7 are the same
+		// colour, and several neighbours are too close under simulated colour
+		// vision deficiency. That is a real finding about the product's defaults,
+		// so it is recorded here rather than papered over with a nicer palette.
+		series: ['#104e64', '#f54900', '#009689', '#ffb900', '#fe9a00', '#ff6467', '#f54900'],
 		sequentialAnchor: '#522bff',
 		positive: '#22b573',
 		negative: '#f5a623',
-		grid: '#eeeef7',
+		grid: '#ebebeb',
 	},
 	accent: '#522bff',
 	accentInk: '#ffffff',

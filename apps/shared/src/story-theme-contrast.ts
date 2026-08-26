@@ -394,6 +394,36 @@ function clamp(v: number, lo: number, hi: number): number {
 	return Math.min(hi, Math.max(lo, v));
 }
 
+/** Move a colour along lightness, holding hue, staying inside sRGB. */
+export function shiftLightness(hex: string, delta: number): string {
+	const oklch = hexToOklch(hex);
+	const l = clamp(oklch.l + delta, 0, 1);
+	let c = oklch.c;
+	while (c > 0 && !inGamut({ ...oklch, l, c })) {
+		c -= 0.005;
+	}
+	return oklchToHex({ l, c: Math.max(c, 0), h: oklch.h });
+}
+
+/**
+ * Nudge a surface away from a reference one so the two are visibly distinct.
+ * Used to keep card and sunken from collapsing into the page.
+ */
+export function separateSurface(surface: string, from: string, minRatio = 1.06): string {
+	if (contrastRatio(surface, from) >= minRatio) {
+		return surface;
+	}
+	const away = isDarkSurface(from) ? 1 : -1;
+	let out = surface;
+	for (let i = 0; i < 12; i++) {
+		out = shiftLightness(out, away * 0.02);
+		if (contrastRatio(out, from) >= minRatio) {
+			break;
+		}
+	}
+	return out;
+}
+
 /**
  * Pick readable ink for a filled surface. Used for the accent's foreground so a
  * pale brand accent does not end up with white text on it.

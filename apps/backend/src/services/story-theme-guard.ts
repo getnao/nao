@@ -8,9 +8,12 @@
 
 import { DEFAULT_STORY_THEME, isAllowedFontLink, mergeStoryTheme, type StoryTheme } from '@nao/shared/story-theme';
 import {
+	contrastRatio,
 	isDarkSurface,
 	readableInkFor,
+	separateSurface,
 	type SeriesIssue,
+	shiftLightness,
 	snapSeries,
 	validateSeries,
 } from '@nao/shared/story-theme-contrast';
@@ -96,21 +99,71 @@ export function applyGuards(
 
 	const theme = mergeStoryTheme(sanitized);
 
-	// Ink has to survive its own surface, whatever the model thought.
-	const cardIsDark = isDarkSurface(theme.surfaces.card);
-	const defaultInk = cardIsDark
+	// --- Surface polarity has to be coherent -------------------------------
+	//
+	// A marketing site happily alternates a bone page with ink sections; a
+	// dashboard cannot, because one set of ink tokens is drawn on all three
+	// surfaces. Mixing polarities is what produced pale headings on a bone page
+	// and pale-on-pale filter chips. Page wins; card and sunken follow it.
+	const pageIsDark = isDarkSurface(theme.surfaces.page);
+	for (const key of ['card', 'sunken'] as const) {
+		if (isDarkSurface(theme.surfaces[key]) !== pageIsDark) {
+			const step = key === 'card' ? 0.04 : 0.07;
+			theme.surfaces[key] = shiftLightness(theme.surfaces.page, pageIsDark ? step : -step);
+			notes.push(
+				`surfaces.${key} was the opposite polarity to the page, which leaves text unreadable on one of them. It now sits just off the page colour.`,
+			);
+		}
+	}
+	// A card only needs its own ground when nothing else separates it. nao's own
+	// default is a white card on a white page with a border doing the work, so
+	// forcing a tint here would change the look of every unthemed story.
+	if (theme.shape.elevation === 'flat') {
+		theme.surfaces.card = separateSurface(theme.surfaces.card, theme.surfaces.page);
+	}
+	// The sunken surface is always a bare fill, so it has to be visible on its own.
+	theme.surfaces.sunken = separateSurface(theme.surfaces.sunken, theme.surfaces.page, 1.1);
+
+	// --- Ink has to survive EVERY surface it is drawn on --------------------
+	//
+	// The first cut validated ink against the card alone. Headings render on the
+	// page and filter chips on the sunken surface, so ink that passed against one
+	// could vanish against another.
+	const allSurfaces = [theme.surfaces.page, theme.surfaces.card, theme.surfaces.sunken];
+	const defaultInk = pageIsDark
 		? { primary: '#f5f5f7', secondary: '#b7b9c4', muted: '#8a8d9c' }
 		: DEFAULT_STORY_THEME.ink;
 	for (const key of ['primary', 'secondary', 'muted'] as const) {
-		if (contrastTooLow(theme.ink[key], theme.surfaces.card, key === 'muted' ? 3 : 4.5)) {
-			notes.push(`ink.${key} was unreadable on the card surface and fell back to the nao value.`);
+		const min = key === 'muted' ? 3 : 4.5;
+		const worst = Math.min(...allSurfaces.map((surface) => contrastRatio(theme.ink[key], surface)));
+		if (worst < min) {
+			notes.push(
+				`ink.${key} fell below ${min}:1 against one of the surfaces (worst ${worst.toFixed(1)}:1), so the nao value is used.`,
+			);
 			theme.ink[key] = defaultInk[key];
+		}
+	}
+
+	// --- Hairlines and gridlines have to be visible -------------------------
+	for (const [label, value, set] of [
+		['shape.border', theme.shape.border, (v: string) => (theme.shape.border = v)],
+		['charts.grid', theme.charts.grid, (v: string) => (theme.charts.grid = v)],
+	] as const) {
+		if (contrastRatio(value, theme.surfaces.card) < 1.12) {
+			set(shiftLightness(theme.surfaces.card, pageIsDark ? 0.12 : -0.12));
+			notes.push(`${label} was invisible against the card surface and was stepped away from it.`);
 		}
 	}
 
 	// An accent that matches the card is not an accent.
 	if (theme.accent.toLowerCase() === theme.surfaces.card.toLowerCase()) {
 		notes.push('The proposed accent was identical to the card surface, so the nao accent was kept.');
+		theme.accent = DEFAULT_STORY_THEME.accent;
+	}
+
+	// An accent has to be visible against the surfaces it is placed on.
+	if (contrastRatio(theme.accent, theme.surfaces.page) < 1.5) {
+		notes.push('The accent was too close to the page colour to register, so the nao accent is used.');
 		theme.accent = DEFAULT_STORY_THEME.accent;
 	}
 
@@ -168,18 +221,6 @@ function sanitizeFontStack(raw: string): string {
 function hexOrNull(value: string): string | undefined {
 	const v = value.trim().toLowerCase();
 	return /^#[0-9a-f]{6}$/.test(v) ? v : undefined;
-}
-
-function contrastTooLow(fg: string, bg: string, min: number): boolean {
-	const lum = (hex: string) => {
-		const channel = (i: number) => {
-			const c = parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) / 255;
-			return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-		};
-		return 0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2);
-	};
-	const [hi, lo] = [lum(fg), lum(bg)].sort((a, b) => b - a);
-	return (hi + 0.05) / (lo + 0.05) < min;
 }
 
 function mapValues<T extends Record<string, string>>(obj: T, fn: (v: string) => string | undefined) {

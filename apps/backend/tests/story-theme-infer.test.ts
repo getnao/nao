@@ -1,5 +1,5 @@
 import { DEFAULT_STORY_THEME } from '@nao/shared/story-theme';
-import { validateSeries } from '@nao/shared/story-theme-contrast';
+import { contrastRatio, validateSeries } from '@nao/shared/story-theme-contrast';
 import { describe, expect, it } from 'vitest';
 
 import { assertPublicHttpUrl, normalizeColor } from '../src/services/story-theme-extract';
@@ -40,7 +40,15 @@ describe('applyGuards', () => {
 		const { theme, notes } = applyGuards(proposal());
 		expect(theme.charts.series).toEqual(['#522bff', '#288abb', '#c44310']);
 		expect(theme.accent).toBe('#522bff');
+		expect(theme.surfaces.card).toBe('#ffffff');
 		expect(notes).toEqual([]);
+	});
+
+	it('steps a gridline that would be invisible on the card', () => {
+		// #fdfdfd on white is drawn but not seen.
+		const { theme, notes } = applyGuards(proposal({ charts: { ...proposal().charts, grid: '#fdfdfd' } }));
+		expect(contrastRatio(theme.charts.grid, theme.surfaces.card)).toBeGreaterThanOrEqual(1.12);
+		expect(notes.join(' ')).toMatch(/charts.grid was invisible/);
 	});
 
 	it('always emits a chart palette that passes the guard', () => {
@@ -71,7 +79,7 @@ describe('applyGuards', () => {
 			}),
 		);
 		expect(theme.ink.primary).toBe(DEFAULT_STORY_THEME.ink.primary);
-		expect(notes.join(' ')).toMatch(/unreadable/);
+		expect(notes.join(' ')).toMatch(/fell below/);
 	});
 
 	it('picks light ink for a dark card rather than the light-mode fallback', () => {
@@ -85,8 +93,19 @@ describe('applyGuards', () => {
 	});
 
 	it('derives accent ink instead of trusting the model', () => {
-		expect(applyGuards(proposal({ accent: '#64ffa2' })).theme.accentInk).toBe('#111111');
+		// A pale accent needs a dark page to be legitimate in the first place.
+		const pale = applyGuards(
+			proposal({ accent: '#64ffa2', surfaces: { page: '#140309', card: '#1d1f24', sunken: '#26282f' } }),
+		);
+		expect(pale.theme.accent).toBe('#64ffa2');
+		expect(pale.theme.accentInk).toBe('#111111');
 		expect(applyGuards(proposal({ accent: '#522bff' })).theme.accentInk).toBe('#ffffff');
+	});
+
+	it('rejects an accent that cannot be seen against the page', () => {
+		const { theme, notes } = applyGuards(proposal({ accent: '#64ffa2' }));
+		expect(theme.accent).toBe(DEFAULT_STORY_THEME.accent);
+		expect(notes.join(' ')).toMatch(/too close to the page colour/);
 	});
 
 	it('rejects junk values and falls back rather than emitting broken CSS', () => {
@@ -114,7 +133,10 @@ describe('applyGuards', () => {
 		const { theme, notes } = applyGuards(
 			proposal({ charts: { ...proposal().charts, series: ['nope', 'also-nope', 'still-nope'] } }),
 		);
-		expect(theme.charts.series).toEqual(DEFAULT_STORY_THEME.charts.series);
+		// The nao series is the fallback, then the guard repairs it like any other:
+		// the shipped palette does not pass its own checks.
+		expect(theme.charts.series).toHaveLength(DEFAULT_STORY_THEME.charts.series.length);
+		expect(validateSeries(theme.charts.series, theme.surfaces.card).issues).toEqual([]);
 		expect(notes.join(' ')).toMatch(/Fewer than three/);
 	});
 });
@@ -172,7 +194,7 @@ describe('font links reaching the theme', () => {
 	it('takes links from the probe, never from the model', () => {
 		const { theme } = applyGuards(proposal(), undefined, [
 			'https://fonts.googleapis.com/css2?family=DM+Sans',
-			'https://fr.ibanfirst.com/fonts/AtypDisplay.css',
+			'https://brand.example.com/fonts/Display.css',
 			'https://fonts.googleapis.com/css2?family=DM+Sans',
 		]);
 		expect(theme.typography.fontLinks).toEqual(['https://fonts.googleapis.com/css2?family=DM+Sans']);
@@ -185,10 +207,76 @@ describe('font links reaching the theme', () => {
 
 describe('accent sanity', () => {
 	it('refuses an accent identical to the card surface', () => {
-		const { theme, notes } = applyGuards(
+		const { theme } = applyGuards(
 			proposal({ accent: '#ffffff', surfaces: { page: '#ffffff', card: '#ffffff', sunken: '#f4f4f6' } }),
 		);
 		expect(theme.accent).not.toBe('#ffffff');
-		expect(notes.join(' ')).toMatch(/identical to the card surface/);
+	});
+});
+
+describe('readability across every surface', () => {
+	/**
+	 * Reproduces the theme that shipped an unreadable preview: a bone page with
+	 * an ink card, light ink chosen because it was only ever checked against the
+	 * card, and a pale sunken surface. Headings vanished on the page and the
+	 * filter chips were pale-on-pale.
+	 */
+	const mixedPolarity = proposal({
+		surfaces: { page: '#fffdf7', card: '#140309', sunken: '#a6f5c4' },
+		ink: { primary: '#fffdf7', secondary: '#e8e4dc', muted: '#c9c4bb' },
+		accent: '#8f40ff',
+		charts: {
+			series: ['#8f40ff', '#00ab5d', '#a077da'],
+			sequentialAnchor: '#8f40ff',
+			positive: '#00ab5d',
+			negative: '#8f40ff',
+			grid: '#1a0a12',
+		},
+	});
+
+	it('forces every surface onto one polarity', () => {
+		const { theme, notes } = applyGuards(mixedPolarity);
+		const lum = (hex: string) => {
+			const ch = (i: number) => {
+				const c = parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) / 255;
+				return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+			};
+			return 0.2126 * ch(0) + 0.7152 * ch(1) + 0.0722 * ch(2);
+		};
+		const dark = [theme.surfaces.page, theme.surfaces.card, theme.surfaces.sunken].map((s) => lum(s) < 0.2);
+		expect(new Set(dark).size, 'surfaces must share a polarity').toBe(1);
+		expect(notes.join(' ')).toMatch(/opposite polarity/);
+	});
+
+	it('gives ink that is readable on page, card and sunken alike', () => {
+		const { theme } = applyGuards(mixedPolarity);
+		for (const surface of [theme.surfaces.page, theme.surfaces.card, theme.surfaces.sunken]) {
+			expect(contrastRatio(theme.ink.primary, surface), `primary on ${surface}`).toBeGreaterThanOrEqual(4.5);
+			expect(contrastRatio(theme.ink.secondary, surface), `secondary on ${surface}`).toBeGreaterThanOrEqual(4.5);
+			expect(contrastRatio(theme.ink.muted, surface), `muted on ${surface}`).toBeGreaterThanOrEqual(3);
+		}
+	});
+
+	it('keeps hairlines and gridlines visible on the card', () => {
+		const { theme } = applyGuards(mixedPolarity);
+		expect(contrastRatio(theme.shape.border, theme.surfaces.card)).toBeGreaterThanOrEqual(1.12);
+		expect(contrastRatio(theme.charts.grid, theme.surfaces.card)).toBeGreaterThanOrEqual(1.12);
+	});
+
+	it('leaves a bordered card sharing the page colour, as nao does', () => {
+		const { theme } = applyGuards(proposal({ surfaces: { page: '#ffffff', card: '#ffffff', sunken: '#ffffff' } }));
+		expect(theme.surfaces.card).toBe('#ffffff');
+		// The sunken surface is a bare fill, so it must always be visible.
+		expect(contrastRatio(theme.surfaces.sunken, theme.surfaces.page)).toBeGreaterThanOrEqual(1.1);
+	});
+
+	it('gives a flat card its own ground, since nothing else separates it', () => {
+		const { theme } = applyGuards(
+			proposal({
+				surfaces: { page: '#ffffff', card: '#ffffff', sunken: '#ffffff' },
+				shape: { radius: 8, border: '#e5e5e5', elevation: 'flat' as const, controlShape: 'rounded' as const },
+			}),
+		);
+		expect(theme.surfaces.card).not.toBe('#ffffff');
 	});
 });

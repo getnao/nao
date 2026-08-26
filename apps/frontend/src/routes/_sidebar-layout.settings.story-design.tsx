@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react';
 import { DEFAULT_STORY_THEME } from '@nao/shared/story-theme';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Check, Globe, Loader2, RotateCcw, Sparkles } from 'lucide-react';
+import { AlertTriangle, Check, ClipboardPaste, Copy, Globe, Loader2, RotateCcw, Sparkles } from 'lucide-react';
 import type { StoryTheme } from '@nao/shared/story-theme';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { Switch } from '@/components/ui/switch';
 import { StoryThemePreview } from '@/components/settings/story-theme-preview';
@@ -36,6 +37,12 @@ function StoryDesignPage() {
 	const [draft, setDraft] = useState<StoryTheme | null>(null);
 	const [notes, setNotes] = useState<string[]>([]);
 	const [error, setError] = useState<string | null>(null);
+	// Shown once a site refuses us: the admin captures the design system in their
+	// own browser instead, where their company's bot protection is not in play.
+	const [showCapture, setShowCapture] = useState(false);
+	const [capture, setCapture] = useState('');
+	const [copied, setCopied] = useState(false);
+	const snippet = useQuery({ ...trpc.storyTheme.getProbeSnippet.queryOptions(), enabled: showCapture });
 
 	useEffect(() => {
 		if (state.data) {
@@ -54,6 +61,24 @@ function StoryDesignPage() {
 		...trpc.storyTheme.inferFromUrl.mutationOptions(),
 		onSuccess: async (result) => {
 			setError(null);
+			setDraft(result.theme as StoryTheme);
+			setNotes(result.notes);
+			await invalidate();
+		},
+		onError: (err) => {
+			setError(err.message);
+			if (/403|bot protection|refused an automated request|render the page/i.test(err.message)) {
+				setShowCapture(true);
+			}
+		},
+	});
+
+	const inferFromCapture = useMutation({
+		...trpc.storyTheme.inferFromProbe.mutationOptions(),
+		onSuccess: async (result) => {
+			setError(null);
+			setShowCapture(false);
+			setCapture('');
 			setDraft(result.theme as StoryTheme);
 			setNotes(result.notes);
 			await invalidate();
@@ -143,6 +168,82 @@ function StoryDesignPage() {
 						<div className='flex items-start gap-2 text-sm text-destructive'>
 							<AlertTriangle className='size-4 mt-0.5 shrink-0' />
 							<span>{error}</span>
+						</div>
+					)}
+
+					{!showCapture && (
+						<button
+							type='button'
+							onClick={() => setShowCapture(true)}
+							className='self-start text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground'
+						>
+							Site blocked, or not public? Capture it from your browser instead
+						</button>
+					)}
+
+					{showCapture && (
+						<div className='flex flex-col gap-3 rounded-lg border p-4'>
+							<div>
+								<p className='text-sm font-medium'>Capture from your browser</p>
+								<p className='mt-1 text-xs text-muted-foreground'>
+									Some sites refuse automated requests, and an internal or staging site may not be
+									reachable from nao at all. Your own browser has no such problem. Open your site,
+									paste this into the developer console, and paste the result back here. It reads
+									styles only and sends nothing anywhere.
+								</p>
+							</div>
+							<div className='flex gap-2'>
+								<Button
+									variant='outline'
+									size='sm'
+									disabled={!snippet.data}
+									onClick={() => {
+										if (!snippet.data) {
+											return;
+										}
+										void navigator.clipboard.writeText(snippet.data.snippet);
+										setCopied(true);
+										setTimeout(() => setCopied(false), 2000);
+									}}
+								>
+									{copied ? <Check className='size-3.5' /> : <Copy className='size-3.5' />}
+									{copied ? 'Copied' : 'Copy console snippet'}
+								</Button>
+								<Button variant='ghost' size='sm' onClick={() => setShowCapture(false)}>
+									Cancel
+								</Button>
+							</div>
+							<Textarea
+								value={capture}
+								onChange={(e) => setCapture(e.target.value)}
+								placeholder='Paste the console output here'
+								className='min-h-24 font-mono text-xs'
+							/>
+							<Button
+								size='sm'
+								className='self-start'
+								disabled={!capture.trim() || !project.data?.id || inferFromCapture.isPending}
+								onClick={() => {
+									if (!project.data?.id) {
+										return;
+									}
+									inferFromCapture.mutate({
+										projectId: project.data.id,
+										url: url.trim() || undefined,
+										probe: capture.trim(),
+									});
+								}}
+							>
+								{inferFromCapture.isPending ? (
+									<>
+										<Loader2 className='size-4 animate-spin' /> Reading the capture
+									</>
+								) : (
+									<>
+										<ClipboardPaste className='size-4' /> Use this capture
+									</>
+								)}
+							</Button>
 						</div>
 					)}
 				</div>

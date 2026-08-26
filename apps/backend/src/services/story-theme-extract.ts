@@ -119,6 +119,17 @@ export async function extractDesignSignals(rawUrl: string): Promise<DesignSignal
 
 async function renderedSignals(url: URL): Promise<DesignSignals> {
 	const probe = await probeWithBrowser(url.toString(), [...FONT_CDN_HOSTS]);
+	return signalsFromProbe(probe, url.toString());
+}
+
+/**
+ * Turn a probe result into design signals.
+ *
+ * Shared by the server-rendered path and the browser-capture path, so a theme
+ * inferred from a pasted capture goes through exactly the same mapping as one
+ * inferred from a URL we could fetch ourselves.
+ */
+export function signalsFromProbe(probe: ProbeResult, url: string): DesignSignals {
 	const warnings: string[] = [];
 
 	const unloadable = probe.fonts.filter((f) => !f.loadable).map((f) => f.family);
@@ -135,7 +146,7 @@ async function renderedSignals(url: URL): Promise<DesignSignals> {
 	}
 
 	return {
-		url: url.toString(),
+		url,
 		mode: 'rendered',
 		probe,
 		title: probe.title,
