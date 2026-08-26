@@ -17,29 +17,6 @@ import { UIChat, UIMessage, UIMessagePart } from '../types/chat';
 import { ConversationContext, StreamState, ToolCallEntry } from '../types/messaging-provider';
 import { createChatTitle } from '../utils/ai';
 import { logger } from '../utils/logger';
-import { createMattermostActionSecret } from '../utils/mattermost-action-secret';
-import { getMattermostLoginCommandForUnlinkedUser } from '../utils/mattermost-login';
-import { resolveMattermostReactionFeedback } from '../utils/mattermost-reaction';
-import { type MattermostAuthorType, shouldHandleMattermostMessage } from '../utils/mattermost-reply';
-import { resolveMattermostSqlOutput } from '../utils/mattermost-sql-output';
-import {
-	createMattermostStopAttachment,
-	getMattermostPostBaseProps,
-	patchMattermostAnswerPost,
-} from '../utils/mattermost-stop-action';
-import {
-	createMattermostMarkdownTable,
-	MATTERMOST_POST_MAX_LENGTH,
-	truncateMattermostMarkdown,
-} from '../utils/mattermost-table';
-import { type MattermostPostPlacement, resolveMattermostThreadId } from '../utils/mattermost-thread';
-import {
-	cacheMattermostEmail,
-	fetchMattermostUserEmail,
-	fetchMattermostUserProfile,
-	type MattermostEmailCache,
-	resolveMattermostAccount,
-} from '../utils/mattermost-user';
 import {
 	createLiveToolCall,
 	createMattermostAnswerMessage,
@@ -52,6 +29,28 @@ import {
 	resolveMattermostCallbackBaseUrl,
 } from '../utils/messaging-provider';
 import { agentService } from './agent';
+import {
+	cacheMattermostEmail,
+	createMattermostActionSecret,
+	createMattermostMarkdownTable,
+	createMattermostStopAttachment,
+	fetchMattermostUserEmail,
+	fetchMattermostUserProfile,
+	getMattermostLoginCommandForUnlinkedUser,
+	getMattermostPostBaseProps,
+	hasExplicitMattermostMention,
+	MATTERMOST_POST_MAX_LENGTH,
+	type MattermostAuthorType,
+	type MattermostEmailCache,
+	type MattermostPostPlacement,
+	patchMattermostAnswerPost,
+	resolveMattermostAccount,
+	resolveMattermostReactionFeedback,
+	resolveMattermostSqlOutput,
+	resolveMattermostThreadId,
+	shouldHandleMattermostMessage,
+	truncateMattermostMarkdown,
+} from './mattermost-helpers';
 import { posthog, PostHogEvent } from './posthog';
 
 /** Mattermost throttles frequent post edits and the adapter has no rate-limit backoff. */
@@ -118,18 +117,14 @@ class ProjectMattermostBot {
 	}
 
 	private _registerHandlers(): void {
-		this._bot.onNewMention(async (thread, message) => {
+		const handleMessage = async (thread: Thread, message: Message): Promise<void> => {
 			if (await this._shouldHandleMessage(thread, message)) {
 				await this._handleMessage(thread, message);
 			}
-		});
-
-		this._bot.onNewMessage(/[\s\S]+/, async (thread, message) => {
-			if (message.isMention || !(await this._shouldHandleMessage(thread, message))) {
-				return;
-			}
-			await this._handleMessage(thread, message);
-		});
+		};
+		this._bot.onNewMention(handleMessage);
+		this._bot.onSubscribedMessage(handleMessage);
+		this._bot.onNewMessage(/[\s\S]+/, handleMessage);
 
 		this._bot.onAction('stop_generation', async (event) => {
 			const threadId = event.thread?.id || '';
@@ -154,14 +149,35 @@ class ProjectMattermostBot {
 	private async _shouldHandleMessage(thread: Thread, message: Message): Promise<boolean> {
 		const authorType = await this._resolveMessageAuthorType(message);
 		const isDirectMessage = this._adapter.isDM(thread.id);
-		const existingChat = !isDirectMessage && !message.isMention ? await this._resolveThreadChat(thread.id) : null;
+		const post = message.raw as MattermostPostPlacement;
+		const isThreadReply = Boolean(post.root_id);
+		const hasRawMention = hasExplicitMattermostMention(post, {
+			userId: this._adapter.botUserId,
+			userName: this._adapter.userName,
+		});
+		const isExplicitMention = hasRawMention || (!isDirectMessage && message.isMention === true);
+		const needsThreadContext = authorType === 'human' && !isExplicitMention && (!isDirectMessage || isThreadReply);
+		const threadContext = needsThreadContext
+			? await this._resolveMessageThreadContext(thread, post, isDirectMessage)
+			: { hasExistingChat: false };
 		return shouldHandleMattermostMessage({
 			isDirectMessage,
-			isMention: message.isMention ?? false,
-			hasExistingChat: Boolean(existingChat),
+			isThreadReply,
+			isMention: isExplicitMention,
+			...threadContext,
 			authorType,
 			isOwnMessage: message.author.isMe,
 		});
+	}
+
+	private async _resolveMessageThreadContext(
+		thread: Thread,
+		post: MattermostPostPlacement,
+		isDirectMessage: boolean,
+	): Promise<{ hasExistingChat: boolean }> {
+		const threadId = isDirectMessage ? resolveMattermostThreadId(this._adapter, post, true) : thread.id;
+		const existingChat = await chatQueries.getChatByMattermostThread(threadId);
+		return { hasExistingChat: Boolean(existingChat) };
 	}
 
 	private async _resolveMessageAuthorType(message: Message): Promise<MattermostAuthorType> {
@@ -963,7 +979,7 @@ function createMattermostLogger(projectId: string, prefix = 'mattermost'): ChatL
 			return createMattermostLogger(projectId, `${prefix}:${childPrefix}`);
 		},
 		debug(message: string) {
-			logger.debug(`${prefix} ${message}`, { source: 'system', projectId });
+			void message;
 		},
 		info(message: string) {
 			logger.info(`${prefix} ${message}`, { source: 'system', projectId });

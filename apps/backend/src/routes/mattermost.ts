@@ -1,8 +1,11 @@
 import type { App } from '../app';
 import { mattermostService } from '../services/mattermost';
+import {
+	createMattermostCallbackResponse,
+	MATTERMOST_CALLBACK_CONTENT_TYPE,
+	verifyMattermostActionSecret,
+} from '../services/mattermost-helpers';
 import { logger } from '../utils/logger';
-import { verifyMattermostActionSecret } from '../utils/mattermost-action-secret';
-import { createMattermostCallbackResponse, MATTERMOST_CALLBACK_CONTENT_TYPE } from '../utils/mattermost-callback';
 import { convertHeaders } from '../utils/utils';
 
 export const mattermostRoutes = async (app: App) => {

@@ -2,29 +2,29 @@ import { createMattermostAdapter } from 'chat-adapter-mattermost';
 import { describe, expect, it, vi } from 'vitest';
 
 import { generateChartImage } from '../src/components/generate-chart';
-import { createMattermostActionSecret, verifyMattermostActionSecret } from '../src/utils/mattermost-action-secret';
-import { createMattermostCallbackResponse, MATTERMOST_CALLBACK_CONTENT_TYPE } from '../src/utils/mattermost-callback';
-import { getMattermostLoginCommandForUnlinkedUser, parseMattermostLoginCommand } from '../src/utils/mattermost-login';
-import { resolveMattermostReactionFeedback } from '../src/utils/mattermost-reaction';
-import { shouldHandleMattermostMessage } from '../src/utils/mattermost-reply';
-import { resolveMattermostSqlOutput } from '../src/utils/mattermost-sql-output';
 import {
 	buildMattermostAnswerPatchBody,
-	createMattermostStopAttachment,
-	getMattermostPostBaseProps,
-	patchMattermostAnswerPost,
-} from '../src/utils/mattermost-stop-action';
-import {
-	createMattermostMarkdownTable,
-	MATTERMOST_TABLE_ROW_LIMIT,
-	truncateMattermostMarkdown,
-} from '../src/utils/mattermost-table';
-import { resolveMattermostThreadId } from '../src/utils/mattermost-thread';
-import {
 	cacheMattermostEmail,
+	createMattermostActionSecret,
+	createMattermostCallbackResponse,
+	createMattermostMarkdownTable,
+	createMattermostStopAttachment,
+	getMattermostLoginCommandForUnlinkedUser,
+	getMattermostPostBaseProps,
+	hasExplicitMattermostMention,
+	MATTERMOST_CALLBACK_CONTENT_TYPE,
+	MATTERMOST_TABLE_ROW_LIMIT,
 	type MattermostEmailCacheEntry,
+	parseMattermostLoginCommand,
+	patchMattermostAnswerPost,
 	resolveMattermostAccount,
-} from '../src/utils/mattermost-user';
+	resolveMattermostReactionFeedback,
+	resolveMattermostSqlOutput,
+	resolveMattermostThreadId,
+	shouldHandleMattermostMessage,
+	truncateMattermostMarkdown,
+	verifyMattermostActionSecret,
+} from '../src/services/mattermost-helpers';
 import {
 	createMattermostAnswerMessage,
 	getMessagingProviderWebhookUrl,
@@ -126,37 +126,150 @@ describe('resolveMattermostThreadId', () => {
 	});
 });
 
+describe('hasExplicitMattermostMention', () => {
+	const basePost = {
+		id: 'post-1',
+		channel_id: 'channel-1',
+		message: 'hello',
+	};
+
+	it('detects the bot ID in Mattermost mention metadata', () => {
+		expect(
+			hasExplicitMattermostMention(
+				{
+					...basePost,
+					props: { mentioned_user_ids: '["bot-user-id"]' },
+				},
+				{ userId: 'bot-user-id', userName: 'nao' },
+			),
+		).toBe(true);
+	});
+
+	it('detects the bot username in metadata and message text', () => {
+		expect(
+			hasExplicitMattermostMention(
+				{
+					...basePost,
+					props: { mentions: ['nao'] },
+				},
+				{ userId: 'bot-user-id', userName: 'nao' },
+			),
+		).toBe(true);
+		expect(
+			hasExplicitMattermostMention(
+				{ ...basePost, message: 'please help @nao' },
+				{ userId: 'bot-user-id', userName: 'nao' },
+			),
+		).toBe(true);
+	});
+
+	it('does not infer a mention without raw Mattermost evidence', () => {
+		expect(hasExplicitMattermostMention(basePost, { userId: 'bot-user-id', userName: 'nao' })).toBe(false);
+	});
+});
+
 describe('shouldHandleMattermostMessage', () => {
 	const baseInput = {
 		isDirectMessage: false,
+		isThreadReply: false,
 		isMention: false,
 		hasExistingChat: false,
 		authorType: 'human',
 		isOwnMessage: false,
 	} as const;
 
-	it('handles direct messages without a mention', () => {
+	it('handles top-level direct messages without a mention', () => {
 		expect(shouldHandleMattermostMessage({ ...baseInput, isDirectMessage: true })).toBe(true);
 	});
 
-	it('ignores new channel messages without a mention', () => {
+	it('ignores unrelated direct-message thread replies', () => {
+		expect(
+			shouldHandleMattermostMessage({
+				...baseInput,
+				isDirectMessage: true,
+				isThreadReply: true,
+			}),
+		).toBe(false);
+	});
+
+	it('requires a mention before handling a new direct-message thread rooted on a nao answer', () => {
+		expect(
+			shouldHandleMattermostMessage({
+				...baseInput,
+				isDirectMessage: true,
+				isThreadReply: true,
+			}),
+		).toBe(false);
+		expect(
+			shouldHandleMattermostMessage({
+				...baseInput,
+				isDirectMessage: true,
+				isThreadReply: true,
+				isMention: true,
+			}),
+		).toBe(true);
+		expect(
+			shouldHandleMattermostMessage({
+				...baseInput,
+				isDirectMessage: true,
+				isThreadReply: true,
+				hasExistingChat: true,
+			}),
+		).toBe(true);
+	});
+
+	it('handles direct-message threads with an exact existing chat', () => {
+		expect(
+			shouldHandleMattermostMessage({
+				...baseInput,
+				isDirectMessage: true,
+				isThreadReply: true,
+				hasExistingChat: true,
+			}),
+		).toBe(true);
+	});
+
+	it('handles mentioned direct-message thread replies', () => {
+		expect(
+			shouldHandleMattermostMessage({
+				...baseInput,
+				isDirectMessage: true,
+				isThreadReply: true,
+				isMention: true,
+			}),
+		).toBe(true);
+	});
+
+	it('keeps channel mention and follow-up behavior', () => {
 		expect(shouldHandleMattermostMessage(baseInput)).toBe(false);
-	});
-
-	it('handles channel mentions', () => {
-		expect(shouldHandleMattermostMessage({ ...baseInput, isMention: true })).toBe(true);
-	});
-
-	it('handles channel follow-ups with an existing chat', () => {
-		expect(shouldHandleMattermostMessage({ ...baseInput, hasExistingChat: true })).toBe(true);
+		expect(
+			shouldHandleMattermostMessage({
+				...baseInput,
+				isThreadReply: true,
+				isMention: true,
+			}),
+		).toBe(true);
+		expect(
+			shouldHandleMattermostMessage({
+				...baseInput,
+				isThreadReply: true,
+				hasExistingChat: true,
+			}),
+		).toBe(true);
 	});
 
 	it('ignores the bot own messages and messages from other bots', () => {
-		expect(shouldHandleMattermostMessage({ ...baseInput, isOwnMessage: true })).toBe(false);
-		expect(shouldHandleMattermostMessage({ ...baseInput, authorType: 'bot' })).toBe(false);
+		const mentionedDirectThread = {
+			...baseInput,
+			isDirectMessage: true,
+			isThreadReply: true,
+			isMention: true,
+		};
+		expect(shouldHandleMattermostMessage({ ...mentionedDirectThread, isOwnMessage: true })).toBe(false);
+		expect(shouldHandleMattermostMessage({ ...mentionedDirectThread, authorType: 'bot' })).toBe(false);
 	});
 
-	it('handles direct messages from an unknown author', () => {
+	it('handles top-level direct messages and mentions from an unknown author', () => {
 		expect(
 			shouldHandleMattermostMessage({
 				...baseInput,
@@ -164,13 +277,32 @@ describe('shouldHandleMattermostMessage', () => {
 				isDirectMessage: true,
 			}),
 		).toBe(true);
-	});
-
-	it('ignores unmentioned thread follow-ups from an unknown author', () => {
 		expect(
 			shouldHandleMattermostMessage({
 				...baseInput,
 				authorType: 'unknown',
+				isThreadReply: true,
+				isMention: true,
+			}),
+		).toBe(true);
+		expect(
+			shouldHandleMattermostMessage({
+				...baseInput,
+				authorType: 'unknown',
+				isDirectMessage: true,
+				isThreadReply: true,
+				isMention: true,
+			}),
+		).toBe(true);
+	});
+
+	it('does not let an unknown author activate an unmentioned direct-message thread', () => {
+		expect(
+			shouldHandleMattermostMessage({
+				...baseInput,
+				authorType: 'unknown',
+				isDirectMessage: true,
+				isThreadReply: true,
 				hasExistingChat: true,
 			}),
 		).toBe(false);
