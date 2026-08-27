@@ -5,7 +5,6 @@ export interface UserWithRole {
 	name: string;
 	email: string;
 	role: UserRole;
-	messagingProviderCode: string | null;
 }
 
 export type ProjectChatsFacetKey = 'userName' | 'userRole' | 'toolState' | 'feedback' | 'source';

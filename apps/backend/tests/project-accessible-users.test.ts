@@ -57,8 +57,8 @@ describe('project accessible users', () => {
 			{ id: 'pau-solo', orgId: null, name: 'PAU Solo', type: 'local', path: '/tmp/pau-solo' },
 		]);
 		db.$client
-			.prepare('insert into user (id, name, email) values (?, ?, ?)')
-			.run('pau-direct', 'PAU Direct', 'pau-direct@example.com');
+			.prepare('insert into user (id, name, email, messaging_provider_code) values (?, ?, ?, ?)')
+			.run('pau-direct', 'PAU Direct', 'pau-direct@example.com', 'pau-secret-code');
 		db.$client
 			.prepare('insert into user (id, name, email) values (?, ?, ?)')
 			.run('pau-org-only', 'PAU Org Only', 'pau-org-only@example.com');
@@ -119,6 +119,14 @@ describe('project accessible users', () => {
 		const teamUsers = await listProjectMembersWithRoles('pau-proj');
 
 		expect(teamUsers.map(({ id }) => id).sort()).toEqual(['pau-both', 'pau-ctx', 'pau-direct']);
+	});
+
+	it('omits messaging provider codes from user listings', async () => {
+		const accessibleUsers = await listUsersWithProjectAccess('pau-proj');
+		const teamUsers = await listProjectMembersWithRoles('pau-proj');
+
+		expect(accessibleUsers.every((accessibleUser) => !('messagingProviderCode' in accessibleUser))).toBe(true);
+		expect(teamUsers.every((teamUser) => !('messagingProviderCode' in teamUser))).toBe(true);
 	});
 
 	it('self-hosted project without org returns only direct members', async () => {
