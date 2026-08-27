@@ -189,5 +189,9 @@ describe('usage query results', () => {
 		expect(records6m).toHaveLength(6);
 		const currentMonth = formatDate(new Date(), 'month');
 		expect(records6m.map((r) => r.date)).toContain(currentMonth);
+
+		// Diverging period and granularity
+		const records6mDaily = await getMessagesUsage(PROJECT_ID, { period: '6m', granularity: 'day' });
+		expect(records6mDaily.length).toBeGreaterThan(150);
 	});
 });

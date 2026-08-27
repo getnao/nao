@@ -1,6 +1,6 @@
 import { Radio, ThumbsUp, Users, Wrench } from 'lucide-react';
 import { CHAT_REPLAY_FEEDBACK_STATES, CHAT_REPLAY_TOOL_STATES, providerLabel } from '@nao/shared/types';
-import { USAGE_SOURCES } from '@nao/backend/usage';
+import { DEFAULT_PERIOD_BY_GRANULARITY, PERIOD_CONFIG, USAGE_PERIODS, USAGE_SOURCES } from '@nao/backend/usage';
 import type { Granularity, UsagePeriod, UsageSource } from '@nao/backend/usage';
 import type {
 	ChatReplayFeedbackState,
@@ -21,21 +21,15 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 
-export const periodOptions: { value: UsagePeriod; label: string; granularity: Granularity }[] = [
-	{ value: '24h', label: 'Last 24 hours', granularity: 'hour' },
-	{ value: '7d', label: 'Last 7 days', granularity: 'day' },
-	{ value: '15d', label: 'Last 15 days', granularity: 'day' },
-	{ value: '30d', label: 'Last 30 days', granularity: 'day' },
-	{ value: '60d', label: 'Last 60 days', granularity: 'day' },
-	{ value: '90d', label: 'Last 90 days', granularity: 'day' },
-	{ value: '6m', label: 'Last 6 months', granularity: 'month' },
-];
+export const periodOptions: { value: UsagePeriod; label: string; granularity: Granularity }[] = USAGE_PERIODS.map(
+	(value) => ({
+		value,
+		label: PERIOD_CONFIG[value].label,
+		granularity: PERIOD_CONFIG[value].granularity,
+	}),
+);
 
-export const periodByGranularity: Record<Granularity, UsagePeriod> = {
-	hour: '24h',
-	day: '15d',
-	month: '6m',
-};
+export const periodByGranularity: Record<Granularity, UsagePeriod> = DEFAULT_PERIOD_BY_GRANULARITY;
 
 export const dateFormats: Record<Granularity, string> = {
 	hour: 'MMM d, HH:00',
@@ -75,6 +69,9 @@ export function UsageFilters({
 	onSelectedSourcesChange,
 }: UsageFiltersProps) {
 	const currentPeriod = passedPeriod ?? periodByGranularity[granularity] ?? '15d';
+	const availableOptions = onPeriodChange
+		? periodOptions
+		: periodOptions.filter((o) => o.value === '24h' || o.value === '15d' || o.value === '6m');
 	const userOptions = (chatFacets?.userNames ?? []).map((name) => ({
 		value: name,
 		label: name,
@@ -106,7 +103,7 @@ export function UsageFilters({
 						value={currentPeriod}
 						onValueChange={(value) => {
 							const nextPeriod = value as UsagePeriod;
-							const option = periodOptions.find((o) => o.value === nextPeriod);
+							const option = availableOptions.find((o) => o.value === nextPeriod);
 							if (option) {
 								if (onPeriodChange) {
 									onPeriodChange(option.value, option.granularity);
@@ -120,7 +117,7 @@ export function UsageFilters({
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
-							{periodOptions.map((option) => (
+							{availableOptions.map((option) => (
 								<SelectItem key={option.value} value={option.value}>
 									{option.label}
 								</SelectItem>

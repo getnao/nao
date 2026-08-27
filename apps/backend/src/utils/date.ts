@@ -1,4 +1,7 @@
 import type { Granularity, UsagePeriod, UsageRecord } from '../types/usage';
+import { DEFAULT_PERIOD_BY_GRANULARITY, PERIOD_CONFIG } from '../types/usage';
+
+export { DEFAULT_PERIOD_BY_GRANULARITY, PERIOD_CONFIG };
 
 export function isValidIsoDateString(s: string): boolean {
 	if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) {
@@ -9,73 +12,67 @@ export function isValidIsoDateString(s: string): boolean {
 	return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
 }
 
-export const PERIOD_CONFIG: Record<UsagePeriod, { count: number; granularity: Granularity }> = {
-	'24h': { count: 24, granularity: 'hour' },
-	'7d': { count: 7, granularity: 'day' },
-	'15d': { count: 15, granularity: 'day' },
-	'30d': { count: 30, granularity: 'day' },
-	'60d': { count: 60, granularity: 'day' },
-	'90d': { count: 90, granularity: 'day' },
-	'6m': { count: 6, granularity: 'month' },
-};
+export function getPeriodStartDate(period: UsagePeriod, now: Date = new Date()): Date {
+	const config = PERIOD_CONFIG[period] ?? PERIOD_CONFIG['15d'];
+	const date = new Date(now);
 
-export const DEFAULT_PERIOD_BY_GRANULARITY: Record<Granularity, UsagePeriod> = {
-	hour: '24h',
-	day: '15d',
-	month: '6m',
-};
+	if (config.granularity === 'month') {
+		return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - (config.count - 1), 1, 0, 0, 0, 0));
+	}
 
-export const lookbackPeriods = {
-	hour: 24,
-	day: 15,
-	month: 6,
-};
+	if (config.granularity === 'hour') {
+		date.setUTCHours(date.getUTCHours() - (config.count - 1), 0, 0, 0);
+		return date;
+	}
+
+	date.setUTCDate(date.getUTCDate() - (config.count - 1));
+	date.setUTCHours(0, 0, 0, 0);
+	return date;
+}
 
 export function resolvePeriodAndGranularity(options?: { period?: UsagePeriod; granularity?: Granularity }): {
 	period: UsagePeriod;
 	granularity: Granularity;
 	count: number;
+	startDate: Date;
 } {
-	if (options?.period && PERIOD_CONFIG[options.period]) {
-		const config = PERIOD_CONFIG[options.period];
-		return {
-			period: options.period,
-			granularity: options.granularity ?? config.granularity,
-			count: config.count,
-		};
+	const now = new Date();
+	const period =
+		options?.period && PERIOD_CONFIG[options.period]
+			? options.period
+			: options?.granularity && DEFAULT_PERIOD_BY_GRANULARITY[options.granularity]
+				? DEFAULT_PERIOD_BY_GRANULARITY[options.granularity]
+				: '15d';
+
+	const defaultGranularity = PERIOD_CONFIG[period].granularity;
+	const granularity = options?.granularity ?? defaultGranularity;
+	const startDate = getPeriodStartDate(period, now);
+
+	let count: number;
+	if (granularity === defaultGranularity) {
+		count = PERIOD_CONFIG[period].count;
+	} else if (granularity === 'month') {
+		count =
+			(now.getUTCFullYear() - startDate.getUTCFullYear()) * 12 +
+			(now.getUTCMonth() - startDate.getUTCMonth()) +
+			1;
+	} else if (granularity === 'day') {
+		count = Math.max(1, Math.round((now.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)) + 1);
+	} else {
+		count = Math.max(1, Math.round((now.getTime() - startDate.getTime()) / (60 * 60 * 1000)) + 1);
 	}
-	if (options?.granularity && DEFAULT_PERIOD_BY_GRANULARITY[options.granularity]) {
-		const period = DEFAULT_PERIOD_BY_GRANULARITY[options.granularity];
-		const config = PERIOD_CONFIG[period];
-		return {
-			period,
-			granularity: options.granularity,
-			count: config.count,
-		};
-	}
+
 	return {
-		period: '15d',
-		granularity: 'day',
-		count: 15,
+		period,
+		granularity,
+		count,
+		startDate,
 	};
 }
 
 export function getLookbackTimestamp(granularity?: Granularity, period?: UsagePeriod): number {
 	const resolved = resolvePeriodAndGranularity({ period, granularity });
-	const now = new Date();
-
-	if (resolved.granularity === 'month') {
-		// Include the current partial month plus (count - 1) preceding complete months.
-		// Start at UTC 00:00:00 on the 1st day of the starting month.
-		const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (resolved.count - 1), 1, 0, 0, 0, 0));
-		return start.getTime();
-	}
-
-	if (resolved.granularity === 'hour') {
-		return now.getTime() - resolved.count * 60 * 60 * 1000;
-	}
-
-	return now.getTime() - resolved.count * 24 * 60 * 60 * 1000;
+	return resolved.startDate.getTime();
 }
 
 export function formatDate(date: Date, granularity: Granularity): string {
