@@ -147,7 +147,6 @@ export type FileTreeEntry = {
 	name: string;
 	path: string;
 	type: 'file' | 'directory';
-	isTracked?: boolean;
 	children?: FileTreeEntry[];
 };
 
@@ -273,6 +272,8 @@ export type ProjectChatListItem = {
 	source: string | null;
 	numberOfMessages: number;
 	totalTokens: number;
+	cacheReadTokens: number;
+	totalCost: number;
 	feedbackText: string;
 	downvotes: number;
 	upvotes: number;

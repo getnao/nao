@@ -59,9 +59,12 @@ export const createFeedbackModal = (): ModalElement => ({
 	],
 });
 
+export const createStopButtonActions = (): CardChild =>
+	Actions([Button({ id: 'stop_generation', label: 'Stop Generation', style: 'primary' })]);
+
 export const createStopButtonCard = (): CardElement =>
 	Card({
-		children: [Actions([Button({ id: 'stop_generation', label: 'Stop Generation', style: 'primary' })])],
+		children: [createStopButtonActions()],
 	});
 
 export const createTelegramStopButtonCard = (): CardElement =>
@@ -77,11 +80,20 @@ export const createTelegramStopButtonCard = (): CardElement =>
 		],
 	});
 
-export const createCompletionCard = (chatUrl: string, vote?: 'up' | 'down'): CardElement =>
+export const createCompletionCard = (chatUrl: string, vote?: 'up' | 'down', hiddenTables = 0): CardElement =>
 	Card({
 		children: [
 			Actions([
-				LinkButton({ url: chatUrl, label: 'Open in nao' }),
+				LinkButton({
+					url: chatUrl,
+					label:
+						hiddenTables === 0
+							? 'Open in nao'
+							: hiddenTables === 1
+								? 'Open the other table in nao'
+								: `Open the other ${hiddenTables} tables in nao`,
+					...(hiddenTables > 0 ? { style: 'primary' } : {}),
+				}),
 				Button({ id: 'feedback_positive', label: '👍', style: vote === 'up' ? 'primary' : 'default' }),
 				Button({ id: 'feedback_negative', label: '👎', style: vote === 'down' ? 'primary' : 'default' }),
 			]),
@@ -115,20 +127,205 @@ export const createTextBlock = (text: string): CardChild => {
 	return CardText(rendered || text);
 };
 
-export const createTextBlocks = (text: string): CardChild[] => {
+export const SLACK_SECTION_TEXT_MAX_CHARS = 2900;
+
+export type TruncationNotice = { kind: 'hidden' } | { kind: 'note' } | { kind: 'link'; url: string };
+
+export type SlackTableRenderState = {
+	remainingTableChars: number;
+	hasNativeTable: boolean;
+	tableNumber: number;
+};
+
+export const createSlackTableRenderState = (): SlackTableRenderState => ({
+	remainingTableChars: SLACK_TABLE_MAX_TOTAL_CHARS,
+	hasNativeTable: false,
+	tableNumber: 0,
+});
+
+type CreateTextBlocksOptions = {
+	truncation?: TruncationNotice;
+	tableState?: SlackTableRenderState;
+};
+
+export const createTextBlocks = (text: string, options: CreateTextBlocksOptions = {}): CardChild[] => {
 	const blocks: CardChild[] = [];
+	const tableState = options.tableState ?? createSlackTableRenderState();
+	const truncation = options.truncation ?? { kind: 'note' };
 	for (const segment of splitMarkdownSegments(text)) {
 		if (segment.type === 'table') {
-			blocks.push(Table({ headers: segment.headers, rows: segment.rows }));
+			tableState.tableNumber++;
+			if (tableState.hasNativeTable) {
+				const notice = createHiddenTableNotice(truncation, tableState.tableNumber);
+				if (notice) {
+					blocks.push(notice);
+				}
+				continue;
+			}
+
+			const fittedTable = fitTableToSlackLimits(segment.headers, segment.rows, tableState.remainingTableChars);
+			tableState.remainingTableChars -= fittedTable.totalChars;
+			tableState.hasNativeTable = true;
+
+			if (fittedTable.headers.length > 0) {
+				blocks.push(Table({ headers: fittedTable.headers, rows: fittedTable.rows }));
+			}
+
+			const truncationNotice = createTableTruncationNotice(
+				truncation,
+				fittedTable.hiddenColumns,
+				fittedTable.hiddenRows,
+			);
+			if (truncationNotice) {
+				blocks.push(truncationNotice);
+			}
 			continue;
 		}
 		const rendered = mdToMrkdwn(segment.text).trim();
 		if (rendered) {
-			blocks.push(CardText(rendered));
+			blocks.push(...chunkSlackText(rendered, SLACK_SECTION_TEXT_MAX_CHARS).map((chunk) => CardText(chunk)));
 		}
 	}
 	return blocks;
 };
+
+function createTableTruncationNotice(
+	truncation: TruncationNotice,
+	hiddenColumns: number,
+	hiddenRows: number,
+): CardChild | null {
+	if (truncation.kind === 'hidden' || (hiddenColumns === 0 && hiddenRows === 0)) {
+		return null;
+	}
+	if (truncation.kind === 'link') {
+		return Actions([LinkButton({ url: truncation.url, label: 'Open in nao to see full table' })]);
+	}
+
+	const hiddenParts: string[] = [];
+	if (hiddenRows > 0) {
+		hiddenParts.push(`${hiddenRows} more ${pluralize('row', hiddenRows)}`);
+	}
+	if (hiddenColumns > 0) {
+		hiddenParts.push(`${hiddenColumns} more ${pluralize('column', hiddenColumns)}`);
+	}
+	return CardText(`_…${hiddenParts.join(' and ')}, open in nao_`, { style: 'muted' });
+}
+
+const HIDDEN_TABLE_NOTICE_INDENT = '\u00a0'.repeat(4);
+const HIDDEN_TABLE_NOTICE_PATTERN = /^\u00a0{4}\*\[ Table \d+ \]\*$/;
+
+function createHiddenTableNotice(truncation: TruncationNotice, tableNumber: number): CardChild | null {
+	if (truncation.kind === 'hidden') {
+		return null;
+	}
+	return CardText(`${HIDDEN_TABLE_NOTICE_INDENT}*[ Table ${tableNumber} ]*`, { style: 'muted' });
+}
+
+export function countHiddenTableNotices(children: CardChild[]): number {
+	return children.filter((child) => child.type === 'text' && HIDDEN_TABLE_NOTICE_PATTERN.test(child.content)).length;
+}
+
+const SLACK_CARD_NOTIFICATION_MAX_CHARS = 1000;
+const SLACK_TABLE_NOTIFICATION_TEXT = 'Results table (open in nao for full data)';
+
+export function buildSlackCardNotificationText(children: CardChild[]): string {
+	const { hasTable, text } = collectSlackCardNotificationContent(children);
+	const joinedText = text.join(' ').replace(/\s+/g, ' ').trim();
+	if (hasTable) {
+		const textBudget = SLACK_CARD_NOTIFICATION_MAX_CHARS - SLACK_TABLE_NOTIFICATION_TEXT.length - 1;
+		const fittedText = joinedText ? truncateSlackText(joinedText, textBudget) : '';
+		return fittedText ? `${fittedText}\n${SLACK_TABLE_NOTIFICATION_TEXT}` : SLACK_TABLE_NOTIFICATION_TEXT;
+	}
+	return joinedText ? truncateSlackText(joinedText, SLACK_CARD_NOTIFICATION_MAX_CHARS) : 'nao answer';
+}
+
+function collectSlackCardNotificationContent(children: CardChild[]): {
+	hasTable: boolean;
+	text: string[];
+} {
+	let hasTable = false;
+	const text: string[] = [];
+	for (const child of children) {
+		if (child.type === 'text' && child.content.trim()) {
+			text.push(child.content.trim());
+		} else if (child.type === 'table') {
+			hasTable = true;
+		} else if (child.type === 'section') {
+			const nested = collectSlackCardNotificationContent(child.children);
+			hasTable ||= nested.hasTable;
+			text.push(...nested.text);
+		}
+	}
+	return { hasTable, text };
+}
+
+// Slack's table row limit includes the header row added by the adapter.
+const SLACK_TABLE_MAX_DATA_ROWS = 99;
+const SLACK_TABLE_MAX_COLUMNS = 20;
+const SLACK_TABLE_MAX_CELL_CHARS = 300;
+const SLACK_TABLE_MAX_TOTAL_CHARS = 9000;
+
+type FittedTable = {
+	headers: string[];
+	rows: string[][];
+	hiddenColumns: number;
+	hiddenRows: number;
+	totalChars: number;
+};
+
+const clampCell = (cell: string): string =>
+	cell.length > SLACK_TABLE_MAX_CELL_CHARS ? `${cell.slice(0, SLACK_TABLE_MAX_CELL_CHARS - 1)}…` : cell;
+
+const rowCharCount = (row: string[]): number => row.reduce((total, cell) => total + Math.max(cell.length, 1), 0);
+
+function fitTableToSlackLimits(rawHeaders: string[], rawRows: string[][], characterBudget: number): FittedTable {
+	const columnCount = Math.min(rawHeaders.length, SLACK_TABLE_MAX_COLUMNS);
+	const headers = fitRowToBudget(rawHeaders.slice(0, columnCount).map(clampCell), characterBudget);
+	if (headers.length === 0) {
+		return {
+			headers: [],
+			rows: [],
+			hiddenColumns: rawHeaders.length,
+			hiddenRows: rawRows.length,
+			totalChars: 0,
+		};
+	}
+	const rows: string[][] = [];
+	let totalChars = rowCharCount(headers);
+	for (const rawRow of rawRows) {
+		if (rows.length >= SLACK_TABLE_MAX_DATA_ROWS) {
+			break;
+		}
+		const row = rawRow.slice(0, columnCount).map(clampCell);
+		const cost = rowCharCount(row);
+		if (totalChars + cost > characterBudget) {
+			break;
+		}
+		totalChars += cost;
+		rows.push(row);
+	}
+	return {
+		headers,
+		rows,
+		hiddenColumns: rawHeaders.length - headers.length,
+		hiddenRows: rawRows.length - rows.length,
+		totalChars,
+	};
+}
+
+function fitRowToBudget(row: string[], characterBudget: number): string[] {
+	if (characterBudget < row.length) {
+		return [];
+	}
+	let remainingChars = characterBudget;
+	return row.map((cell, index) => {
+		const remainingCells = row.length - index - 1;
+		const maxCellChars = Math.max(1, remainingChars - remainingCells);
+		const fittedCell = truncateSlackText(cell, maxCellChars);
+		remainingChars -= Math.max(fittedCell.length, 1);
+		return fittedCell;
+	});
+}
 
 export function buildSlackTableBlocks(text: string): ReturnType<typeof cardToBlockKit> | null {
 	const sanitized = stripAssistantTags(text);
@@ -142,6 +339,29 @@ export function buildSlackTableBlocks(text: string): ReturnType<typeof cardToBlo
 export function formatSlackMessageText(text: string): string {
 	const sanitized = stripAssistantTags(text);
 	return mdToMrkdwn(sanitized) || sanitized;
+}
+
+export function chunkSlackText(text: string, maxChars: number): string[] {
+	if (maxChars < 1) {
+		throw new Error('Slack text chunk size must be positive.');
+	}
+	const chunks: string[] = [];
+	let remaining = text.trim();
+	while (remaining.length > maxChars) {
+		const breakAt = findSlackChunkBreak(remaining, maxChars);
+		chunks.push(remaining.slice(0, breakAt).trimEnd());
+		remaining = remaining.slice(breakAt).trimStart();
+	}
+	if (remaining) {
+		chunks.push(remaining);
+	}
+	return chunks;
+}
+
+export function isRecoverableSlackPayloadError(error: unknown): boolean {
+	return /msg_too_long|invalid_blocks?|invalid_(?:arguments?|form_data|json)|block.*(?:invalid|malformed|schema)|(?:invalid|malformed|schema).*block/i.test(
+		slackErrorText(error),
+	);
 }
 
 export const createImageBlock = (url: string): CardChild => {
@@ -338,6 +558,46 @@ function cleanTableCell(cell: string): string {
 		.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
 		.replace(/<br\s*\/?>/gi, ' ')
 		.trim();
+}
+
+function findSlackChunkBreak(text: string, maxChars: number): number {
+	const minimumBreak = Math.floor(maxChars / 2);
+	for (const separator of ['\n\n', '\n', ' ']) {
+		const breakAt = text.lastIndexOf(separator, maxChars - separator.length);
+		if (breakAt >= minimumBreak) {
+			return breakAt + separator.length;
+		}
+	}
+	return maxChars;
+}
+
+function truncateSlackText(text: string, maxChars: number): string {
+	if (text.length <= maxChars) {
+		return text;
+	}
+	if (maxChars === 1) {
+		return '…';
+	}
+	return `${text.slice(0, maxChars - 1).trimEnd()}…`;
+}
+
+function slackErrorText(error: unknown): string {
+	const values: unknown[] = [error];
+	if (error && typeof error === 'object') {
+		const record = error as Record<string, unknown>;
+		values.push(record.message, record.code, record.error);
+		for (const nestedKey of ['data', 'body', 'response']) {
+			const nested = record[nestedKey];
+			if (nested && typeof nested === 'object') {
+				const nestedRecord = nested as Record<string, unknown>;
+				values.push(nestedRecord.error, nestedRecord.message, nestedRecord.code);
+			}
+		}
+	}
+	return values
+		.filter((value) => value !== undefined)
+		.map(String)
+		.join(' ');
 }
 
 function mdToMrkdwn(text: string): string {

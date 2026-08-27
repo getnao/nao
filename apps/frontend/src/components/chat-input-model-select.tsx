@@ -1,6 +1,8 @@
 import { useCallback, useEffect } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Settings, TriangleAlert } from 'lucide-react';
+import { providerLabel, providerName } from '@nao/shared/types';
+import type { LlmProvider } from '@nao/shared/types';
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { SimpleTooltip } from '@/components/ui/tooltip';
@@ -41,9 +43,10 @@ export function ChatInputModelSelect() {
 		[availableModels, navigate, setSelectedModel],
 	);
 
-	const selectedModelName = selectedModel
-		? (availableModels?.find((model) => isSameModel(model, selectedModel))?.name ?? selectedModel.modelId)
-		: 'Select model';
+	const selectedAvailableModel = selectedModel
+		? availableModels?.find((model) => isSameModel(model, selectedModel))
+		: undefined;
+	const selectedModelName = selectedAvailableModel?.name ?? selectedModel?.modelId ?? 'Select model';
 
 	if (isPending) {
 		return null;
@@ -64,8 +67,15 @@ export function ChatInputModelSelect() {
 	if (!canCycleModels) {
 		const singleModel = (
 			<>
-				{selectedModel && <LlmProviderIcon provider={selectedModel.provider} className='size-4' />}
+				{selectedModel && (
+					<LlmProviderIcon
+						provider={selectedModel.provider}
+						baseUrl={selectedAvailableModel?.baseUrl}
+						className='size-4'
+					/>
+				)}
 				<span>{selectedModelName}</span>
+				{selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
 			</>
 		);
 
@@ -94,8 +104,15 @@ export function ChatInputModelSelect() {
 				<SelectTrigger variant='ghost' className='p-0 gap-1 text-sm' size='sm'>
 					<SelectValue>
 						<div className='flex items-center gap-2'>
-							{selectedModel && <LlmProviderIcon provider={selectedModel.provider} className='size-4' />}
+							{selectedModel && (
+								<LlmProviderIcon
+									provider={selectedModel.provider}
+									baseUrl={selectedAvailableModel?.baseUrl}
+									className='size-4'
+								/>
+							)}
 							<span className='leading-none'>{selectedModelName}</span>
+							{selectedModel && <NamedProviderHint provider={selectedModel.provider} />}
 						</div>
 					</SelectValue>
 				</SelectTrigger>
@@ -104,8 +121,13 @@ export function ChatInputModelSelect() {
 			<SelectContent align='center' position='popper' side='top' collisionPadding={12}>
 				{availableModels.map((model) => (
 					<SelectItem key={`${model.provider}-${model.modelId}`} value={`${model.provider}:${model.modelId}`}>
-						<LlmProviderIcon provider={model.provider} className='size-4 opacity-100' />
+						<LlmProviderIcon
+							provider={model.provider}
+							baseUrl={model.baseUrl}
+							className='size-4 opacity-100'
+						/>
 						{model.name}
+						<NamedProviderHint provider={model.provider} />
 					</SelectItem>
 				))}
 
@@ -121,4 +143,12 @@ export function ChatInputModelSelect() {
 			</SelectContent>
 		</Select>
 	);
+}
+
+function NamedProviderHint({ provider }: { provider: LlmProvider }) {
+	const name = providerName(provider);
+	if (!name) {
+		return null;
+	}
+	return <span className='text-muted-foreground'>{providerLabel(provider)}</span>;
 }

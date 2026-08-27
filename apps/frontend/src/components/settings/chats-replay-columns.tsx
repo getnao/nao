@@ -4,6 +4,7 @@ import type { ColumnDef } from '@tanstack/react-table';
 
 import type { ProjectChatListItem } from '@nao/shared/types';
 import { Badge } from '@/components/ui/badge';
+import { SimpleTooltip } from '@/components/ui/tooltip';
 import McpIcon from '@/components/icons/model-context-protocol.svg';
 import TeamsIcon from '@/components/icons/microsoft-teams.svg';
 import SlackIcon from '@/components/icons/slack.svg';
@@ -71,7 +72,18 @@ export function getChatsReplayColumns(): ColumnDef<ProjectChatListItem>[] {
 			},
 		},
 		{ accessorKey: 'numberOfMessages', header: 'Messages' },
-		{ accessorKey: 'totalTokens', header: 'Tokens' },
+		{
+			accessorKey: 'totalTokens',
+			header: 'Tokens',
+			cell: ({ row }) => <TokenUsageCell chat={row.original} showCachedLegend={row.index === 0} />,
+		},
+		{
+			accessorKey: 'totalCost',
+			header: 'Cost',
+			cell: ({ getValue }) => (
+				<span className='whitespace-nowrap text-xs tabular-nums'>{formatCost(getValue<number>())}</span>
+			),
+		},
 		{
 			id: 'feedback',
 			accessorFn: (row) => ({
@@ -127,6 +139,72 @@ export function getChatsReplayColumns(): ColumnDef<ProjectChatListItem>[] {
 			},
 		},
 	];
+}
+
+function TokenUsageCell({ chat, showCachedLegend }: { chat: ProjectChatListItem; showCachedLegend: boolean }) {
+	const cacheReadTokens = Math.max(0, chat.cacheReadTokens);
+	const uncachedTokens = Math.max(0, chat.totalTokens - cacheReadTokens);
+	const representedTokens = uncachedTokens + cacheReadTokens;
+	const uncachedPercentage = representedTokens > 0 ? (uncachedTokens / representedTokens) * 100 : 0;
+	const cachedPercentage = representedTokens > 0 ? (cacheReadTokens / representedTokens) * 100 : 0;
+
+	return (
+		<SimpleTooltip
+			content={
+				<div className='grid grid-cols-[auto_auto] gap-x-3 tabular-nums'>
+					<span>Total</span>
+					<span className='text-right'>{formatExactTokens(chat.totalTokens)}</span>
+					<span>Uncached</span>
+					<span className='text-right'>{formatExactTokens(uncachedTokens)}</span>
+					<span>Cache read</span>
+					<span className='text-right'>{formatExactTokens(cacheReadTokens)}</span>
+				</div>
+			}
+		>
+			<div
+				className='w-28 space-y-1'
+				aria-label={`${formatExactTokens(uncachedTokens)} uncached tokens and ${formatExactTokens(cacheReadTokens)} cache-read tokens`}
+			>
+				<div className='flex items-center justify-between gap-2 text-xs tabular-nums'>
+					<span>{formatCompactTokens(uncachedTokens)}</span>
+					<span className='text-muted-foreground'>
+						{formatCompactTokens(cacheReadTokens)}
+						{showCachedLegend && ' cached'}
+					</span>
+				</div>
+				<div className='flex h-1 overflow-hidden rounded-full bg-muted'>
+					<span className='bg-chart-1' style={{ width: `${uncachedPercentage}%` }} />
+					<span className='bg-chart-2' style={{ width: `${cachedPercentage}%` }} />
+				</div>
+			</div>
+		</SimpleTooltip>
+	);
+}
+
+const compactTokenFormatter = new Intl.NumberFormat('en-US', {
+	notation: 'compact',
+	maximumFractionDigits: 1,
+});
+
+const exactTokenFormatter = new Intl.NumberFormat('en-US');
+
+const costFormatter = new Intl.NumberFormat('en-US', {
+	style: 'currency',
+	currency: 'USD',
+	minimumFractionDigits: 1,
+	maximumFractionDigits: 1,
+});
+
+function formatCompactTokens(value: number): string {
+	return compactTokenFormatter.format(value);
+}
+
+function formatExactTokens(value: number): string {
+	return exactTokenFormatter.format(value);
+}
+
+function formatCost(value: number): string {
+	return costFormatter.format(value);
 }
 
 export function formatLastUpdate(value: number): string {

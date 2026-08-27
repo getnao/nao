@@ -1,0 +1,378 @@
+# =============================================================================
+# nao Helm Chart — values.yaml (SINGLE FILE, ready for helm install)
+# Target namespace: nao
+#
+# METHOD — automatic git-sync via initContainer (HTTPS + Git access token):
+#   config.gitSync.url points to the nao/example repo. The initContainer
+#   clones (or pulls if already cloned) into the PVC `context` on every pod
+#   startup — no manual action required after that.
+#
+#   Prerequisites before `helm install`/`helm upgrade` :
+#     1. Create a Git access token (scope: read_repository) for the repo
+#        (GitHub, GitLab, etc.), or use a dedicated service account.
+#     2. Set secrets.contextGitToken with this token (see below).
+#     3. Ensure config.gitSync.url is the HTTPS URL of the repo
+#        (https://..., NOT git@... — no SSH here; the token is injected
+#        directly into the HTTPS URL by the initContainer).
+#
+#   If the pod restarts/crashes, the initContainer automatically re-clones/pulls
+#   on the next startup — no manual copy needed.
+# =============================================================================
+
+# -- Required because postgresql.image points to bitnamilegacy/postgresql (due to
+#    Bitnami's October 2025 migration, see comment in the postgresql block below).
+#    The subchart blocks any image outside its expected "official" registry by default —
+#    this flag lifts that restriction.
+#    Safe here: same tag/image, just a different Docker Hub repository.
+global:
+  security:
+    # Required: bitnamilegacy/postgresql is an archived image (see values.yaml:303).
+    # Set to false and update image.repository to the official postgres image
+    # when the chart migrates away from the Bitnami postgresql subchart.
+    allowInsecureImages: true
+
+# -- Override chart name
+nameOverride: ""
+# -- Override fully qualified app name
+fullnameOverride: ""
+
+# -- Annotations applied to metadata.annotations of every top-level object
+#    this chart creates (Deployment, Service, ConfigMap, Secret, PVC, etc.).
+#    Required by the Kyverno component annotation check.
+#    IMPORTANT: also set the identical value under postgresql.commonAnnotations
+#    below — Helm does not propagate top-level values to subcharts automatically.
+commonAnnotations: {}
+
+# -- Number of replicas
+replicaCount: 1
+
+# -- Container image configuration
+image:
+  repository: "getnao/nao"   # official image from Docker Hub
+  pullPolicy: IfNotPresent
+  tag: ""                                 # empty defaults to .Chart.AppVersion
+
+# -- Image pull secrets (e.g. for private registries)
+imagePullSecrets: []
+
+# -- Service account configuration
+serviceAccount:
+  create: true
+  # -- commonAnnotations (above) is already merged automatically here by the chart.
+  #    Leave empty unless you need an annotation specific to the ServiceAccount only.
+  annotations: {}
+  name: ""
+
+# -- Extra annotations added to the Pod template (spec.template.metadata).
+#    Does NOT cover metadata.annotations of the Deployment itself — see
+#    commonAnnotations above for that (required by Kyverno).
+podAnnotations: {}
+
+# -- Pod-level security context.
+# NOTE: supervisord inside the image starts as root (uid 0) and drops privileges
+# to the "nao" user (uid 1000). Leave empty unless you have a custom image.
+podSecurityContext: {}
+
+# -- Container-level security context
+securityContext: {}
+
+# =============================================================================
+# Application configuration
+# =============================================================================
+config:
+  # -- Listening port for the Fastify backend
+  serverPort: "5005"
+  # -- Internal FastAPI sidecar port (not exposed externally)
+  fastapiPort: "8005"
+  # -- Node environment
+  nodeEnv: "production"
+  # -- Public URL of the app — used for auth callbacks and trusted origins.
+  #    Matches the backend default (zod validation fallback).
+  #    Override with the URL users access in their browser.
+  betterAuthUrl: "http://localhost:5005"
+
+  # contextSource: local => project mounted as a volume at contextPath,
+  # populated by the gitSync initContainer (see gitSync below).
+  contextSource: "local"
+
+  # -- Path inside the container where the nao project is located.
+  #    Matches the official `docker run` doc convention
+  #    (-v /path/to/your/nao-project:/app/project -e NAO_DEFAULT_PROJECT_PATH=/app/project).
+  contextPath: "/app/project"
+
+  # -- Native git mode fields (only used when contextSource=git)
+  contextGitUrl: ""
+  contextGitBranch: "main"
+  refreshSchedule: ""
+
+  # ---------------------------------------------------------------------------
+  # Database options — mostly relevant when pointing at an external database
+  # through secrets.dbUri.
+  # ---------------------------------------------------------------------------
+  # -- Require TLS on the database connection (most managed Postgres offerings)
+  dbSsl: false
+
+  # ---------------------------------------------------------------------------
+  # Authentication behaviour
+  # ---------------------------------------------------------------------------
+  # -- Email/password login — disable to accept SSO logins only
+  enableUserLogin: true
+  # -- Allow visitors to create their own account
+  enableUserSignup: false
+  # -- Role given to new users: admin, user or viewer
+  defaultUserRole: "user"
+  # -- Enable "Sign in with GitHub" with the OAuth app set in secrets.githubClientId
+  githubSso: false
+  # -- Enable "Sign in with GitLab" with the OAuth app set in secrets.gitlabClientId
+  gitlabSso: false
+  # -- Base URL of a self-hosted GitLab instance (defaults to https://gitlab.com)
+  gitlabBaseUrl: ""
+  # -- OAuth callback URL override, when it cannot be derived from betterAuthUrl
+  gitlabRedirectUri: ""
+
+  # ---------------------------------------------------------------------------
+  # Beta feature flags
+  # ---------------------------------------------------------------------------
+  # -- Recurring prompt automations
+  betaAutomationsEnabled: true
+  # -- Context recommendations in the project settings
+  betaContextRecommendationsEnabled: false
+
+  # ---------------------------------------------------------------------------
+  # Git sync — populates the `context` PVC via an initContainer git-clone.
+  # Set this to the HTTPS URL of your nao context repository.
+  # ---------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # Git sync — DISABLED by default (use kubectl cp for manual population).
+  # Empty url => the chart does not generate a git-sync initContainer (see condition
+  # in deployment.yaml line 35); the PVC `context` is created EMPTY.
+  #
+  # To re-enable git-sync later, set:
+  #   url: "https://github.com/your-org/your-nao-project.git"
+  # ---------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # Git sync — initContainer git-clone, HTTPS + access token.
+  # No SSH here: the initContainer injects the token directly into
+  # the HTTPS URL (https://oauth2:<token>@host/...), handled automatically via
+  # secrets.contextGitToken below. No SSH keys or known_hosts to manage.
+  # The URL should be the "Clone with HTTPS" URL of the repo (not git@...).
+  # ---------------------------------------------------------------------------
+  gitSync:
+    url: ""
+    branch: "main"
+    image: "alpine/git:latest"
+
+  # ---------------------------------------------------------------------------
+  # LLM provider base URLs
+  # ---------------------------------------------------------------------------
+  openaiBaseUrl: ""
+  anthropicBaseUrl: ""
+  geminiBaseUrl: ""
+  mistralBaseUrl: ""
+  openrouterBaseUrl: ""
+  ollamaBaseUrl: ""
+
+# =============================================================================
+# Secrets
+# =============================================================================
+secrets:
+  # -- Required. Generate with: openssl rand -base64 32
+  betterAuthSecret: ""
+
+  # -- LLM provider API keys
+  openaiApiKey: ""   # Set your OpenAI API key here
+  anthropicApiKey: ""
+  geminiApiKey: ""
+  mistralApiKey: ""
+  openrouterApiKey: ""
+
+  # -- Azure OpenAI (optional)
+  azureApiKey: ""
+  azureResourceName: ""
+  azureOpenaiBaseUrl: ""
+  azureApiVersion: ""
+
+  # -- AWS Bedrock (optional)
+  awsBearerTokenBedrock: ""
+  awsRegion: ""
+  awsAccessKeyId: ""
+  awsSecretAccessKey: ""
+
+  # -- Git token for private repositories (used by the initContainer git-sync)
+  # -- Git access token (minimal scope: read_repository) used by
+  #    the initContainer git-sync to clone the context repo via HTTPS.
+  #    Generate this in your Git provider: Settings > Access Tokens (at the project
+  #    level or a dedicated service account), then paste the value below.
+  contextGitToken: ""
+
+  # -- Enterprise license issued by getnao — raw token or a path to a file
+  #    containing it. Without it the app runs in OSS mode and EE features
+  #    (SSO providers below) stay off.
+  naoLicense: ""
+
+  # -- Redis connection string (optional) — enables shared caching/pub-sub when
+  #    running more than one replica.
+  redisUrl: ""
+
+  # -- SMTP credentials (optional)
+  smtpHost: ""
+  smtpPort: ""
+  smtpSsl: "false"
+  smtpMailFrom: ""
+  smtpPassword: ""
+  # -- Auth username, when it differs from the "From" address (e.g. AWS SES).
+  #    Falls back to smtpMailFrom when empty.
+  smtpUser: ""
+
+  # -- Google OAuth (optional)
+  googleClientId: ""
+  googleClientSecret: ""
+  googleAuthDomains: ""
+
+  # -- GitHub OAuth (optional) — set config.githubSso to "true" to also use it
+  #    as a login provider
+  githubClientId: ""
+  githubClientSecret: ""
+  githubAllowedUsers: ""
+
+  # -- GitLab OAuth (optional) — set config.gitlabSso to "true" to also use it
+  #    as a login provider
+  gitlabClientId: ""
+  gitlabClientSecret: ""
+  gitlabAllowedUsers: ""
+
+  # -- Microsoft / Azure AD SSO (Enterprise — requires secrets.naoLicense)
+  azureAdClientId: ""
+  azureAdClientSecret: ""
+  azureAdTenantId: ""
+  # -- Scope used to acquire downstream access tokens (e.g. Redshift native IdP).
+  #    Defaults to <clientId>/.default.
+  azureAdTokenScope: ""
+
+  # -- Generic OIDC SSO — Okta, Auth0, Keycloak, OneLogin, …
+  #    (Enterprise — requires secrets.naoLicense)
+  oidcClientId: ""
+  oidcClientSecret: ""
+  oidcDiscoveryUrl: ""
+  oidcProviderId: ""            # defaults to "oidc"
+  oidcProviderName: ""          # button label, defaults to "SSO"
+  oidcScopes: ""                # defaults to "openid,profile,email"
+  oidcAuthDomains: ""           # comma-separated email domain allowlist
+  oidcPkce: ""                  # "true" (default) or "false"
+
+  # -- Notion integration (optional)
+  notionApiKey: ""
+
+  # -- Database URI. Leave empty: managed automatically via postgresql.enabled=true.
+  dbUri: ""
+
+# =============================================================================
+# Kubernetes Service
+# =============================================================================
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 5005
+  annotations: {}
+
+# =============================================================================
+# Resources
+# =============================================================================
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+# =============================================================================
+# Probes
+# =============================================================================
+livenessProbe:
+  tcpSocket:
+    port: 5005
+  initialDelaySeconds: 30
+  periodSeconds: 15
+  failureThreshold: 3
+
+readinessProbe:
+  tcpSocket:
+    port: 5005
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  failureThreshold: 3
+
+# =============================================================================
+# Autoscaling (HPA)
+# =============================================================================
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# =============================================================================
+# Pod Disruption Budget
+# =============================================================================
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# =============================================================================
+# Node scheduling
+# =============================================================================
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# =============================================================================
+# Persistence — used when config.contextSource = "local"
+# Populated at pod startup by the gitSync initContainer.
+# =============================================================================
+persistence:
+  enabled: false
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 1Gi
+  existingClaim: ""
+  annotations: {}
+
+# =============================================================================
+# Projects volume — used when config.contextSource = "api"
+# =============================================================================
+projectsPersistence:
+  enabled: false
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 5Gi
+  existingClaim: ""
+  annotations: {}
+
+# =============================================================================
+# PostgreSQL subchart (bitnami/postgresql)
+# =============================================================================
+postgresql:
+  enabled: true
+  # -- IMPORTANT: identical to commonAnnotations at the top of this file — Helm does
+  #    not automatically propagate parent chart values to subcharts.
+  #    This resolves the Kyverno error on the nao-postgresql StatefulSet.
+  commonAnnotations: {}
+  # -- Bitnami migrated their versioned images from docker.io/bitnami to
+  #    docker.io/bitnamilegacy (October 2025). Same tag/image, just a
+  #    different repository. This will be replaced with the official
+  #    postgres image or a paid Secure Images subscription in the next
+  #    major chart version.
+  image:
+    repository: bitnamilegacy/postgresql
+    tag: 17.5.0-debian-12-r12
+  auth:
+    database: nao
+    username: nao
+    password: ""     # Change in production
+    postgresPassword: ""   # Change in production
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi

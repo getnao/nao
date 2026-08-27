@@ -1,0 +1,127 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nao.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nao.labels" . | nindent 4 }}
+  {{- with (include "nao.annotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "nao.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print .Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print .Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "nao.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "nao.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if and (eq .Values.config.contextSource "local") .Values.persistence.enabled .Values.config.gitSync.url }}
+      initContainers:
+        - name: git-sync
+          image: {{ .Values.config.gitSync.image | quote }}
+          env:
+            - name: GIT_BRANCH
+              value: {{ .Values.config.gitSync.branch | quote }}
+            - name: GIT_URL
+              value: {{ .Values.config.gitSync.url | quote }}
+            {{- if .Values.secrets.contextGitToken }}
+            - name: GIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nao.fullname" . }}
+                  key: NAO_CONTEXT_GIT_TOKEN
+            - name: GIT_ASKPASS
+              value: /bin/true
+            - name: GIT_TERMINAL_PROMPT
+              value: '0'
+            {{- end }}
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              rm -rf "{{ .Values.config.contextPath }}"/*
+              rm -rf "{{ .Values.config.contextPath }}"/.[!.]* "{{ .Values.config.contextPath }}"/..?*
+              # Configure credential helper so the token is never embedded in .git/config
+              if [ -n "${GIT_TOKEN:-}" ]; then
+                git config --global credential.helper '!f() { echo "username=oauth2"; echo "password='"${GIT_TOKEN}"'"; }; f'
+              fi
+              # Clone using GIT_ASKPASS so the token is never stored in .git/config
+              git clone --depth 1 --branch "${GIT_BRANCH}" "${GIT_URL}" {{ .Values.config.contextPath }}
+              echo "Context repository cloned successfully"
+          volumeMounts:
+            - name: context
+              mountPath: {{ .Values.config.contextPath }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: {{ include "nao.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.config.serverPort | int }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "nao.fullname" . }}
+            - secretRef:
+                name: {{ include "nao.fullname" . }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{- if and (eq .Values.config.contextSource "local") .Values.persistence.enabled }}
+            - name: context
+              mountPath: {{ .Values.config.contextPath }}
+            {{- end }}
+            {{- if and (eq .Values.config.contextSource "api") .Values.projectsPersistence.enabled }}
+            - name: projects
+              mountPath: /app/projects
+            {{- end }}
+      volumes:
+        {{- if and (eq .Values.config.contextSource "local") .Values.persistence.enabled }}
+        - name: context
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (printf "%s-context" (include "nao.fullname" .)) }}
+        {{- end }}
+        {{- if and (eq .Values.config.contextSource "api") .Values.projectsPersistence.enabled }}
+        - name: projects
+          persistentVolumeClaim:
+            claimName: {{ .Values.projectsPersistence.existingClaim | default (printf "%s-projects" (include "nao.fullname" .)) }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
