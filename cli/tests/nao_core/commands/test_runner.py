@@ -356,17 +356,27 @@ def test_model_flag_overrides_the_test_block(tmp_path, monkeypatch):
     assert [str(run["model"]) for run in runs] == ["openai:gpt-4.1"]
 
 
-def test_single_model_runs_print_run_and_pass_metrics_tables(tmp_path, monkeypatch):
+def test_single_model_runs_print_results_and_summary_tables(tmp_path, monkeypatch):
     tables: list = []
 
     run_test_command(monkeypatch, tmp_path, NaoConfig(project_name="test-project"), tables=tables)
 
-    assert [title for title, _ in tables] == ["Test Results", "Pass Metrics by Test"]
-    pass_table = dict(tables)["Pass Metrics by Test"]
-    assert list(pass_table.columns) == ["Test", "Model", "pass@1"]
+    assert [title for title, _ in tables] == ["Test Results", "Summary"]
+    results_table = dict(tables)["Test Results"]
+    assert list(results_table.columns) == [
+        "Test",
+        "Model",
+        "Status",
+        "Success %",
+        "Tokens",
+        "Cost",
+        "Time (s)",
+        "Tools",
+    ]
+    assert results_table["Success %"].tolist() == ["[green]100.0%[/green]"] * 2
 
 
-def test_multi_model_runs_print_per_model_summaries(tmp_path, monkeypatch):
+def test_multi_model_runs_print_summary_and_matrix(tmp_path, monkeypatch):
     config = NaoConfig(project_name="test-project", test=TestConfig(models=["openai:gpt-4.1", "anthropic:claude-4-5"]))
     tables: list = []
 
@@ -375,14 +385,94 @@ def test_multi_model_runs_print_per_model_summaries(tmp_path, monkeypatch):
     titles = [title for title, _ in tables]
     assert titles == [
         "Test Results",
-        "Pass Metrics by Test",
-        "Performance by Model",
+        "Summary",
         "Pass / Fail by Test and Model",
     ]
 
     matrix = dict(tables)["Pass / Fail by Test and Model"]
     assert list(matrix.columns) == ["Test", "openai\ngpt-4.1", "anthropic\nclaude-4-5"]
     assert matrix["Test"].tolist() == ["orders", "users"]
+
+
+def test_results_table_status_requires_all_attempts_to_pass(monkeypatch):
+    results = [
+        NaoTestRunResult(name="orders", model="m", passed=True, message="match"),
+        NaoTestRunResult(name="orders", model="m", passed=False, message="values differ"),
+    ]
+    tables: list = []
+
+    monkeypatch.setattr(test_runner_module.UI, "table", lambda df, title=None, **kwargs: tables.append((title, df)))
+    test_runner_module.print_run_table(results)
+
+    table = dict(tables)["Test Results"]
+    assert table["Status"].tolist() == ["[red]✗[/red]"]
+    assert table["Success %"].tolist() == ["[yellow]50.0%[/yellow]"]
+
+
+def test_model_matrix_status_requires_all_attempts_to_pass(monkeypatch):
+    results = [
+        NaoTestRunResult(name="orders", model="m", passed=True, message="match"),
+        NaoTestRunResult(name="orders", model="m", passed=False, message="values differ"),
+    ]
+    tables: list = []
+
+    monkeypatch.setattr(test_runner_module.UI, "table", lambda df, title=None, **kwargs: tables.append((title, df)))
+    test_runner_module.print_model_matrix(results)
+
+    table = dict(tables)["Pass / Fail by Test and Model"]
+    assert table["m"].tolist() == ["[red]✗[/red]"]
+
+
+def test_summary_table_is_one_totals_row_with_always_pass_rate(monkeypatch):
+    results = [
+        NaoTestRunResult(
+            name="orders",
+            model="m",
+            passed=True,
+            message="match",
+            tokens=100,
+            cost=0.1,
+            duration_ms=1000,
+            tool_call_count=2,
+        ),
+        NaoTestRunResult(
+            name="orders",
+            model="m",
+            passed=False,
+            message="values differ",
+            tokens=200,
+            cost=0.2,
+            duration_ms=2000,
+            tool_call_count=3,
+        ),
+        NaoTestRunResult(
+            name="users",
+            model="m",
+            passed=True,
+            message="match",
+            tokens=300,
+            cost=0.3,
+            duration_ms=3000,
+            tool_call_count=4,
+        ),
+    ]
+    tables: list = []
+
+    monkeypatch.setattr(test_runner_module.UI, "table", lambda df, title=None, **kwargs: tables.append((title, df)))
+    test_runner_module.print_summary_table(results)
+
+    title, table = tables[0]
+    assert title == "Summary"
+    assert len(table) == 1
+    assert table.iloc[0].to_dict() == {
+        "Tests": 2,
+        "Success %": "[yellow]66.7%[/yellow]",
+        "Always Pass %": "[yellow]50.0%[/yellow]",
+        "Tokens": 600,
+        "Cost": "$0.6000",
+        "Time (s)": 6.0,
+        "Tools": 9,
+    }
 
 
 def test_k_flag_runs_each_case_k_times_with_attempt_index(tmp_path, monkeypatch):
@@ -402,9 +492,10 @@ def test_k_flag_runs_each_case_k_times_with_attempt_index(tmp_path, monkeypatch)
         ("users", 2),
         ("users", 3),
     ]
-    pass_table = dict(tables)["Pass Metrics by Test"]
-    assert "pass@3" in pass_table.columns
-    assert "pass^3" in pass_table.columns
+    results_table = dict(tables)["Test Results"]
+    assert len(results_table) == 2
+    assert "Success %" in results_table.columns
+    assert dict(tables)["Summary"]["Always Pass %"].tolist() == ["[green]100.0%[/green]"]
 
 
 def test_k_config_default_used_when_flag_omitted(tmp_path, monkeypatch):

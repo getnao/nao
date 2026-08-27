@@ -21,7 +21,13 @@ from nao_core.ui import UI
 from .case import TESTS_FOLDER, TestCase, discover_tests
 from .client import BACKEND_URL, AgentClientError, VerificationResult, get_client
 from .compare import normalize_dataframe_numbers
-from .summary import ModelSummary, summarize, summarize_by_model, summarize_pass_metrics
+from .summary import (
+    group_by_test_and_model,
+    pass_metrics_for_group,
+    summarize,
+    summarize_by_model,
+    summarize_pass_metrics,
+)
 
 
 @dataclass
@@ -304,79 +310,54 @@ def save_results(results: list[TestRunResult], output_dir: Path) -> Path:
 
 
 def print_run_table(results: list[TestRunResult]) -> None:
-    """Print one row per run/attempt."""
-    df = pd.DataFrame(
-        [
+    """Print one row per (test, model), aggregating all attempts for that pair."""
+    run_dicts = [asdict(r) for r in results]
+    rows = []
+    for (name, model), group in sorted(group_by_test_and_model(run_dicts).items()):
+        metrics = pass_metrics_for_group(group)
+        rows.append(
             {
-                "Test": r.name,
-                "Model": r.model,
-                "Status": status_icon(r.passed),
-                "Message": r.message,
-                "Tokens": r.tokens or 0,
-                "Cost": r.cost or 0,
-                "Time (s)": round((r.duration_ms or 0) / 1000, 1),
-                "Tools": r.tool_call_count or 0,
+                "Test": name,
+                "Model": model,
+                "Status": status_icon(float(metrics["pass_hat_k"]) == 1.0),
+                "Success %": format_pass_fraction(float(metrics["pass_at_1"])),
+                "Tokens": sum(run.get("tokens") or 0 for run in group),
+                "Cost": sum(run.get("cost") or 0 for run in group),
+                "Time (s)": round(sum(run.get("duration_ms") or 0 for run in group) / 1000, 1),
+                "Tools": sum(run.get("tool_call_count") or 0 for run in group),
             }
-            for r in results
-        ]
-    )
+        )
 
-    UI.table(df, title="Test Results", sum_columns={"Tokens": "", "Cost": "$", "Time (s)": "", "Tools": ""})
+    UI.table(pd.DataFrame(rows), title="Test Results")
 
 
-def print_pass_metrics_table(pass_metrics: dict, k_count: int) -> None:
-    """Print per-test-case pass@k metrics. Extra columns only when k > 1."""
-    rows = []
-    for item in pass_metrics.get("by_test", []):
-        row = {
-            "Test": item["name"],
-            "Model": item["model"],
-            "pass@1": format_pass_fraction(float(item["pass_at_1"])),
-        }
-        if k_count > 1:
-            row[f"pass@{k_count}"] = format_pass_fraction(float(item["pass_at_k"]))
-            row[f"pass^{k_count}"] = format_pass_fraction(float(item["pass_hat_k"]))
-        rows.append(row)
-    if rows:
-        UI.table(pd.DataFrame(rows), title="Pass Metrics by Test")
+def print_summary_table(results: list[TestRunResult]) -> None:
+    """Print one totals row across all test/model pairs and attempts."""
+    run_dicts = [asdict(r) for r in results]
+    groups = group_by_test_and_model(run_dicts)
+    total = len(run_dicts)
+    passed = sum(1 for run in run_dicts if run.get("passed"))
+    always_passed = sum(1 for group in groups.values() if all(run.get("passed") for run in group))
+    total_duration_ms = sum(run.get("duration_ms") or 0 for run in run_dicts)
 
-
-def print_model_table(summaries: list[ModelSummary], k_count: int = 1) -> None:
-    """Print one row per model, ranked from best to worst pass rate.
-
-    pass@k / pass^k columns are added only when k > 1 so default output stays lean.
-    """
-    rows = []
-    for s in summaries:
-        row: dict[str, object] = {
-            "Model": column_label(s.model),
-            "Pass Rate": format_pass_rate(s.pass_rate),
-            "Passed": f"{s.passed}/{s.total}",
-            "Tokens": s.total_tokens,
-            "Cost": s.total_cost,
-            "Avg Time (s)": round(s.avg_duration_ms / 1000, 1),
-            "Avg Tools": s.avg_tool_calls,
-        }
-        if k_count > 1:
-            row["pass@1"] = format_pass_fraction(s.pass_at_1)
-            row[f"pass@{k_count}"] = format_pass_fraction(s.pass_at_k)
-            row[f"pass^{k_count}"] = format_pass_fraction(s.pass_hat_k)
-        rows.append(row)
-
-    UI.table(
-        pd.DataFrame(rows),
-        title="Performance by Model",
-        sum_columns={"Tokens": "", "Cost": "$"},
-        fixed_columns={"Model"},
-    )
+    row = {
+        "Tests": len(groups),
+        "Success %": format_pass_fraction(passed / total if total else 0.0),
+        "Always Pass %": format_pass_fraction(always_passed / len(groups) if groups else 0.0),
+        "Tokens": sum(run.get("tokens") or 0 for run in run_dicts),
+        "Cost": f"${sum(run.get('cost') or 0 for run in run_dicts):.4f}",
+        "Time (s)": round(total_duration_ms / 1000, 1),
+        "Tools": sum(run.get("tool_call_count") or 0 for run in run_dicts),
+    }
+    UI.table(pd.DataFrame([row]), title="Summary")
 
 
 def print_model_matrix(results: list[TestRunResult]) -> None:
     """Print a test × model grid to show which model passes which test."""
     models = list(dict.fromkeys(r.model for r in results))
     statuses: dict[tuple[str, str], list[str]] = {}
-    for result in results:
-        statuses.setdefault((result.name, result.model), []).append(status_icon(result.passed))
+    for key, group in group_by_test_and_model([asdict(result) for result in results]).items():
+        statuses[key] = [status_icon(all(bool(run.get("passed")) for run in group))]
 
     rows = [
         {"Test": name}
@@ -395,12 +376,6 @@ def column_label(model: str) -> str:
 def status_icon(passed: bool) -> str:
     """Render a pass/fail marker for terminal tables."""
     return "[green]✓[/green]" if passed else "[red]✗[/red]"
-
-
-def format_pass_rate(pass_rate: float) -> str:
-    """Colour a 0-100 pass rate from green (all passing) to red (mostly failing)."""
-    color = "green" if pass_rate == 100 else "red" if pass_rate < 50 else "yellow"
-    return f"[{color}]{pass_rate}%[/{color}]"
 
 
 def format_pass_fraction(rate: float) -> str:
@@ -639,12 +614,9 @@ def test(
     print_run_table(results)
 
     run_dicts = [asdict(r) for r in results]
-    pass_metrics = summarize_pass_metrics(run_dicts)
     model_summaries = summarize_by_model(run_dicts)
 
-    print_pass_metrics_table(pass_metrics, k_count)
-    if len(model_summaries) > 1 or k_count > 1:
-        print_model_table(model_summaries, k_count)
+    print_summary_table(results)
     if len(model_summaries) > 1:
         print_model_matrix(results)
 
@@ -652,18 +624,7 @@ def test(
     failed = sum(1 for r in results if not r.passed)
     total = len(results)
     unit = "run" if len(model_summaries) > 1 or k_count > 1 else "test"
-    aggregate = pass_metrics["aggregate"]
-
     UI.print("")
-    UI.print(
-        f"pass@1: {format_pass_fraction(float(aggregate['pass_at_1']))}"
-        + (
-            f"  pass@{k_count}: {format_pass_fraction(float(aggregate['pass_at_k']))}"
-            f"  pass^{k_count}: {format_pass_fraction(float(aggregate['pass_hat_k']))}"
-            if k_count > 1
-            else ""
-        )
-    )
     if failed == 0:
         UI.success(f"All {total} {unit}(s) passed")
     else:
