@@ -30,6 +30,7 @@ import {
 	parseNumericValue,
 	pointTooltipKeys,
 	resolveBoundary,
+	resolveDataKey,
 	resolveMapConfig,
 	scaleBubbleRadius,
 	withOpacity,
@@ -392,12 +393,14 @@ function GridBlock({
 	);
 }
 
-function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: QueryDataMap | null }) {
+function ChartBlock({ chart: rawChart, queryData }: { chart: ParsedChartBlock; queryData: QueryDataMap | null }) {
 	const dateFormat = useContext(DateFormatContext);
-	const rows = queryData?.[chart.queryId]?.data as Record<string, unknown>[] | undefined;
+	const rows = queryData?.[rawChart.queryId]?.data as Record<string, unknown>[] | undefined;
 	if (!rows?.length) {
-		return <Placeholder label={chart.title || 'Chart'} message='Data unavailable' />;
+		return <Placeholder label={rawChart.title || 'Chart'} message='Data unavailable' />;
 	}
+
+	const chart = resolveChartKeys(rawChart, rows);
 
 	if (chart.chartType === 'kpi_card') {
 		return <KpiCards chart={chart} rows={rows} />;
@@ -442,6 +445,20 @@ function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: 
 	} catch {
 		return <Placeholder label={chart.title || 'Chart'} message='Could not render chart' />;
 	}
+}
+
+/**
+ * Query data may come from a re-execution whose column-name casing differs from
+ * the one the chart was authored against (e.g. Snowflake uppercases unquoted
+ * identifiers, DuckDB preserves them as written). Resolve the configured keys
+ * against the actual row keys, mirroring the frontend chart components.
+ */
+function resolveChartKeys(chart: ParsedChartBlock, rows: Record<string, unknown>[]): ParsedChartBlock {
+	return {
+		...chart,
+		xAxisKey: resolveDataKey(rows, chart.xAxisKey),
+		series: chart.series.map((s) => ({ ...s, data_key: resolveDataKey(rows, s.data_key) })),
+	};
 }
 
 function ChartLegend({ series }: { series: ParsedChartBlock['series'] }) {
