@@ -214,57 +214,62 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 	// The side panel is a second story render path that does not go through
 	// StoryPageBody, so it needs the workspace design system applied here too.
 	const content = (
-		<StoryThemeProvider>
-			<div className='flex h-full flex-col'>
-				<StoryHeader
-					title={storyTitle}
-					chatId={chatId}
-					storySlug={resolvedStorySlug}
-					storyId={storyId}
-					shareId={shareId}
-					shareType={shareType}
-					allStories={allStories}
-					onSwitchStory={switchStory}
-					viewMode={viewMode}
-					onViewModeChange={setViewMode}
-					currentVersion={currentVersionNumber}
-					totalVersions={versions.length}
-					versionNumber={currentVersion?.version}
-					onPreviousVersion={goToPreviousVersion}
-					onNextVersion={goToNextVersion}
-					isViewingLatest={isViewingLatest}
-					onRestore={handleRestore}
-					onSave={handleSave}
-					onShare={handleOpenShare}
-					onOpenAnalytics={handleOpenAnalytics}
-					onEnlarge={handleEnlarge}
-					isShared={isShared}
-					isAgentRunning={isAgentRunning}
-					isSaving={isSaving}
-					isReadonlyMode={isReadonlyMode}
-					isLive={isLive}
-					isRefreshing={isRefreshing}
-					onRefreshData={handleRefreshData}
-					onOpenLiveSettings={handleOpenLiveSettings}
-					onClose={closeSidePanel}
-					isCodeDirty={isCodeDirty}
-					isCodeValid={isCodeValid}
-					cachedAt={cachedAt}
-					lastRefreshFailure={lastRefreshFailure}
+		<div className='flex h-full flex-col'>
+			<StoryHeader
+				title={storyTitle}
+				chatId={chatId}
+				storySlug={resolvedStorySlug}
+				storyId={storyId}
+				shareId={shareId}
+				shareType={shareType}
+				allStories={allStories}
+				onSwitchStory={switchStory}
+				viewMode={viewMode}
+				onViewModeChange={setViewMode}
+				currentVersion={currentVersionNumber}
+				totalVersions={versions.length}
+				versionNumber={currentVersion?.version}
+				onPreviousVersion={goToPreviousVersion}
+				onNextVersion={goToNextVersion}
+				isViewingLatest={isViewingLatest}
+				onRestore={handleRestore}
+				onSave={handleSave}
+				onShare={handleOpenShare}
+				onOpenAnalytics={handleOpenAnalytics}
+				onEnlarge={handleEnlarge}
+				isShared={isShared}
+				isAgentRunning={isAgentRunning}
+				isSaving={isSaving}
+				isReadonlyMode={isReadonlyMode}
+				isLive={isLive}
+				isRefreshing={isRefreshing}
+				onRefreshData={handleRefreshData}
+				onOpenLiveSettings={handleOpenLiveSettings}
+				onClose={closeSidePanel}
+				isCodeDirty={isCodeDirty}
+				isCodeValid={isCodeValid}
+				cachedAt={cachedAt}
+				lastRefreshFailure={lastRefreshFailure}
+			/>
+
+			{Boolean(archivedAt) && <ArchivedBanner chatId={chatId} storySlug={resolvedStorySlug} />}
+
+			{viewMode === 'preview' && isTabbedStory && tabs && (
+				<StoryTabsBar
+					tabs={tabs.map((tab) => ({ title: tab.title }))}
+					activeIndex={activeTab}
+					onSelect={setActiveTabIndex}
+					contentClassName='px-6'
 				/>
+			)}
 
-				{Boolean(archivedAt) && <ArchivedBanner chatId={chatId} storySlug={resolvedStorySlug} />}
-
-				{viewMode === 'preview' && isTabbedStory && tabs && (
-					<StoryTabsBar
-						tabs={tabs.map((tab) => ({ title: tab.title }))}
-						activeIndex={activeTab}
-						onSelect={setActiveTabIndex}
-						contentClassName='px-6'
-					/>
-				)}
-
-				<div ref={scrollContainerRef} className='flex-1 min-h-0 overflow-auto'>
+			{/*
+			 * Only the story body is themed. The header, its buttons and the story
+			 * title are nao chrome: an admin theming stories for their business
+			 * users should not find the product's own furniture repainted.
+			 */}
+			<StoryThemeProvider className='flex-1 min-h-0 overflow-auto'>
+				<div ref={scrollContainerRef} className='h-full overflow-auto'>
 					{renderWithEditProvider(
 						!isReadonlyMode && isViewingLatest && !archivedAt && !isAgentRunning && viewMode !== 'edit',
 						{
@@ -319,34 +324,34 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 						),
 					)}
 				</div>
+			</StoryThemeProvider>
 
-				<ShareStoryDialog
-					open={isShareDialogOpen}
-					onOpenChange={setIsShareDialogOpen}
-					chatId={chatId}
-					storySlug={resolvedStorySlug}
-				/>
+			<ShareStoryDialog
+				open={isShareDialogOpen}
+				onOpenChange={setIsShareDialogOpen}
+				chatId={chatId}
+				storySlug={resolvedStorySlug}
+			/>
 
-				<AssetAnalyticsDialog
-					open={isAnalyticsOpen}
-					onOpenChange={setIsAnalyticsOpen}
-					assetType='story'
-					chatId={chatId}
-					storyId={storyId ?? undefined}
-				/>
+			<AssetAnalyticsDialog
+				open={isAnalyticsOpen}
+				onOpenChange={setIsAnalyticsOpen}
+				assetType='story'
+				chatId={chatId}
+				storyId={storyId ?? undefined}
+			/>
 
-				<LiveStorySettingsDialog
-					open={isLiveSettingsOpen}
-					onOpenChange={setIsLiveSettingsOpen}
-					isLive={isLive}
-					isLiveTextDynamic={isLiveTextDynamic}
-					cacheSchedule={cacheSchedule}
-					cacheScheduleDescription={cacheScheduleDescription}
-					isUpdating={isLiveUpdating}
-					onSaveSettings={handleSaveSettings}
-				/>
-			</div>
-		</StoryThemeProvider>
+			<LiveStorySettingsDialog
+				open={isLiveSettingsOpen}
+				onOpenChange={setIsLiveSettingsOpen}
+				isLive={isLive}
+				isLiveTextDynamic={isLiveTextDynamic}
+				cacheSchedule={cacheSchedule}
+				cacheScheduleDescription={cacheScheduleDescription}
+				isUpdating={isLiveUpdating}
+				onSaveSettings={handleSaveSettings}
+			/>
+		</div>
 	);
 
 	if (!chatMessages) {

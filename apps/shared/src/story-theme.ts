@@ -317,6 +317,10 @@ export function storyThemeToCssVars(theme: StoryTheme): Record<string, string> {
 		'--story-pad': DENSITY[theme.layout.density].pad,
 		// Kept as their own tokens so a floating layer inside an inverted block can
 		// reach the page ink again; --foreground is reassigned in that scope.
+		// A published template defines its own ground, so a themed story renders in
+		// the template's colours in both app themes rather than flipping with the
+		// viewer. Setting color-scheme keeps native controls and scrollbars in step.
+		'color-scheme': isDarkHex(theme.surfaces.page) ? 'dark' : 'light',
 		'--story-ink-primary': theme.ink.primary,
 		'--story-ink-muted': theme.ink.muted,
 		'--story-card': theme.surfaces.card,
@@ -338,6 +342,15 @@ export function storyThemeToCssVars(theme: StoryTheme): Record<string, string> {
 		vars[`--chart-${i + 1}`] = theme.charts.series[i % theme.charts.series.length];
 	}
 	return vars;
+}
+
+/** Rough luminance test, enough to pick a colour-scheme. */
+function isDarkHex(hex: string): boolean {
+	const ch = (i: number) => {
+		const c = parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) / 255;
+		return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+	};
+	return 0.2126 * ch(0) + 0.7152 * ch(1) + 0.0722 * ch(2) < 0.2;
 }
 
 /** Padding and gap per density step, in rem. */

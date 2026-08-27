@@ -907,8 +907,17 @@ code.dollar:before {
  * ride on: the heading face and its tracking, the type scale, and the control
  * radius that tells a pill-shaped brand from a square-cornered one.
  */
+/*
+ * A themed story has one mode: the template's own.
+ *
+ * A brand design system defines its ground, so a story should not flip between
+ * light and dark with the viewer's app preference - the template would only be
+ * right in one of them. Every token is set on this container, and this rule
+ * stops the app's dark utilities repainting anything inside it.
+ */
 [data-story-themed='true'] {
 	font-size: calc(1rem * var(--story-type-scale, 1));
+	background: var(--background);
 	/*
 	 * Body face has to be declared here, not just as a token.
 	 * Text, filter labels, KPI figures and axis labels all inherit font-family

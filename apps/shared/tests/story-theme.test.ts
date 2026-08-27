@@ -300,3 +300,19 @@ describe('the widened contract', () => {
 		expect(vars['--story-gap']).toBe('0.75rem');
 	});
 });
+
+describe('a themed story has one mode', () => {
+	it('declares the colour-scheme from the template, not the viewer', () => {
+		const light = storyThemeToCssVars(DEFAULT_STORY_THEME);
+		expect(light['color-scheme']).toBe('light');
+
+		const dark = storyThemeToCssVars(
+			mergeStoryTheme({
+				surfaces: { page: '#140309', card: '#1d1f24', sunken: '#26282f' },
+				ink: { primary: '#f5f5f7', secondary: '#b7b9c4', muted: '#8a8d9c' },
+			}),
+		);
+		expect(dark['color-scheme']).toBe('dark');
+		expect(dark['--background']).toBe('#140309');
+	});
+});

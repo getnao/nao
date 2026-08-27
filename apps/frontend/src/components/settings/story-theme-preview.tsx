@@ -65,6 +65,8 @@ const QUERY_DATA: QueryDataMap = {
 	},
 };
 
+const PREVIEW_ID = 'story-theme-preview';
+
 const series = (keys: string[]) => JSON.stringify(keys.map((k) => ({ data_key: k, label: k })));
 
 /** Genuine story markup: the same tags the agent writes when it builds a story. */
@@ -78,6 +80,22 @@ const STORY_CODE = [
 	'',
 	`<filter id="country" label="Country" filter_type="select" options='${JSON.stringify(['All countries', ...COUNTRIES])}' />`,
 	`<filter id="instance" label="Instance" filter_type="select" options='${JSON.stringify(['All', 'Deployed', 'Local'])}' />`,
+	'',
+	'<grid cols="3">',
+	'',
+	'Latest week',
+	'',
+	'## 4,130',
+	'',
+	'Weekly average',
+	'',
+	'## 4,692',
+	'',
+	'Peak week',
+	'',
+	'## 6,680',
+	'',
+	'</grid>',
 	'',
 	`<chart query_id="weekly_by_country" chart_type="bar" x_axis_key="week" series='${series(COUNTRIES)}' title="Users per week by country" />`,
 	'',
@@ -121,6 +139,10 @@ export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 				<div className='overflow-hidden rounded-lg border bg-background text-foreground'>
 					<StoryTabbedContent
 						code={STORY_CODE}
+						// Without an api the renderer disables filters entirely, which is
+						// why they vanished when this became a real story. Options are
+						// hardcoded in the markup, so nothing is fetched.
+						filterApi={{ kind: 'owned', chatId: PREVIEW_ID, storySlug: PREVIEW_ID }}
 						renderChart={(chart) => renderChart(chart)}
 						renderTable={(table) => renderTable(table)}
 						renderMap={() => null}
