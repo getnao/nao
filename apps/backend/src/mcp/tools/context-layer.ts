@@ -214,7 +214,7 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 				.describe(
 					'Story UUID (from `list_stories.id`, `ask_nao.stories[].id`, or a prior `create_story`). Not the slug.',
 				),
-			title: z.string().optional().describe('New title. Omit to keep current.'),
+			title: z.string().trim().min(1).max(255).optional().describe('New title. Omit to keep current.'),
 			content: z
 				.string()
 				.optional()

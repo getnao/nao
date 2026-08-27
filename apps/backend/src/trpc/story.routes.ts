@@ -206,7 +206,7 @@ export const storyRoutes = {
 	}),
 
 	rename: storyOwnerProcedure
-		.input(z.object({ storyId: z.string(), title: z.string().min(1).max(255) }))
+		.input(z.object({ storyId: z.string(), title: z.string().trim().min(1).max(255) }))
 		.mutation(async ({ input }) => {
 			await storyQueries.renameStory(input.storyId, input.title);
 		}),

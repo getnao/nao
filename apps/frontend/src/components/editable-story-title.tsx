@@ -13,7 +13,6 @@ interface EditableStoryTitleProps {
 	heading: 'h1' | 'h3';
 	className?: string;
 	inputClassName?: string;
-	onClick?: () => void;
 }
 
 export function EditableStoryTitle({
@@ -23,12 +22,10 @@ export function EditableStoryTitle({
 	heading,
 	className,
 	inputClassName,
-	onClick,
 }: EditableStoryTitleProps) {
 	const inputRef = useRef<HTMLInputElement>(null);
 	const isEditingRef = useRef(false);
 	const submittingRef = useRef(false);
-	const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const [isEditing, setIsEditing] = useState(false);
 	const [displayTitle, setDisplayTitle] = useState(currentTitle);
 	const [draft, setDraft] = useState(currentTitle);
@@ -47,42 +44,9 @@ export function EditableStoryTitle({
 		}
 	}, [currentTitle]);
 
-	useEffect(
-		() => () => {
-			if (clickTimerRef.current) {
-				clearTimeout(clickTimerRef.current);
-			}
-		},
-		[],
-	);
-
-	const handleClick = (event: MouseEvent<HTMLElement>) => {
-		if (!onClick) {
-			return;
-		}
-		if (!canEdit || !storyId) {
-			onClick();
-			return;
-		}
-
-		event.preventDefault();
-		event.stopPropagation();
-		if (clickTimerRef.current) {
-			clearTimeout(clickTimerRef.current);
-		}
-		clickTimerRef.current = setTimeout(() => {
-			clickTimerRef.current = null;
-			onClick();
-		}, 200);
-	};
-
 	const startEditing = (event: MouseEvent<HTMLElement>) => {
 		event.preventDefault();
 		event.stopPropagation();
-		if (clickTimerRef.current) {
-			clearTimeout(clickTimerRef.current);
-			clickTimerRef.current = null;
-		}
 		if (!canEdit || !storyId || renameStory.isPending) {
 			return;
 		}
@@ -163,7 +127,6 @@ export function EditableStoryTitle({
 	const Heading = heading;
 	return (
 		<Heading
-			onClick={handleClick}
 			onDoubleClick={startEditing}
 			className={cn(canEdit && storyId && !renameStory.isPending && 'cursor-text', className)}
 		>
