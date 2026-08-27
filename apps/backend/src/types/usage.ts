@@ -6,11 +6,15 @@ import { llmProviderSchema } from './llm';
 export const granularitySchema = z.enum(['hour', 'day', 'month']);
 export type Granularity = z.infer<typeof granularitySchema>;
 
+export const usagePeriodSchema = z.enum(['24h', '7d', '15d', '30d', '60d', '90d', '6m']);
+export type UsagePeriod = z.infer<typeof usagePeriodSchema>;
+
 export const USAGE_SOURCES = MESSAGE_SOURCES;
 export type UsageSource = (typeof USAGE_SOURCES)[number];
 
 export const usageFilterSchema = z.object({
-	granularity: granularitySchema.default('day'),
+	granularity: granularitySchema.optional(),
+	period: usagePeriodSchema.optional(),
 	provider: llmProviderSchema.optional(),
 	userNames: z.array(z.string()).optional(),
 	sources: z.array(z.enum(USAGE_SOURCES)).optional(),

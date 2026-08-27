@@ -174,4 +174,20 @@ describe('usage query results', () => {
 			totalTokens: 45,
 		});
 	});
+
+	it('supports flexible time periods (30d, 60d, 90d, 6m)', async () => {
+		const records30d = await getMessagesUsage(PROJECT_ID, { period: '30d' });
+		expect(records30d).toHaveLength(30);
+
+		const records60d = await getMessagesUsage(PROJECT_ID, { period: '60d' });
+		expect(records60d).toHaveLength(60);
+
+		const records90d = await getMessagesUsage(PROJECT_ID, { period: '90d' });
+		expect(records90d).toHaveLength(90);
+
+		const records6m = await getMessagesUsage(PROJECT_ID, { period: '6m' });
+		expect(records6m).toHaveLength(6);
+		const currentMonth = formatDate(new Date(), 'month');
+		expect(records6m.map((r) => r.date)).toContain(currentMonth);
+	});
 });

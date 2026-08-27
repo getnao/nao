@@ -1,7 +1,7 @@
 import { Radio, ThumbsUp, Users, Wrench } from 'lucide-react';
 import { CHAT_REPLAY_FEEDBACK_STATES, CHAT_REPLAY_TOOL_STATES, providerLabel } from '@nao/shared/types';
 import { USAGE_SOURCES } from '@nao/backend/usage';
-import type { Granularity, UsageSource } from '@nao/backend/usage';
+import type { Granularity, UsagePeriod, UsageSource } from '@nao/backend/usage';
 import type {
 	ChatReplayFeedbackState,
 	ChatReplayToolState,
@@ -21,15 +21,17 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 
-type UsagePeriod = '24h' | '15d' | '6m';
-
-const periodOptions: { value: UsagePeriod; label: string; granularity: Granularity }[] = [
+export const periodOptions: { value: UsagePeriod; label: string; granularity: Granularity }[] = [
 	{ value: '24h', label: 'Last 24 hours', granularity: 'hour' },
+	{ value: '7d', label: 'Last 7 days', granularity: 'day' },
 	{ value: '15d', label: 'Last 15 days', granularity: 'day' },
+	{ value: '30d', label: 'Last 30 days', granularity: 'day' },
+	{ value: '60d', label: 'Last 60 days', granularity: 'day' },
+	{ value: '90d', label: 'Last 90 days', granularity: 'day' },
 	{ value: '6m', label: 'Last 6 months', granularity: 'month' },
 ];
 
-const periodByGranularity: Record<Granularity, UsagePeriod> = {
+export const periodByGranularity: Record<Granularity, UsagePeriod> = {
 	hour: '24h',
 	day: '15d',
 	month: '6m',
@@ -45,6 +47,8 @@ interface UsageFiltersProps {
 	showUsageControls?: boolean;
 	provider: LlmProvider | 'all';
 	onProviderChange: (value: LlmProvider | 'all') => void;
+	period?: UsagePeriod;
+	onPeriodChange?: (period: UsagePeriod, granularity: Granularity) => void;
 	granularity: Granularity;
 	onGranularityChange: (value: Granularity) => void;
 	availableProviders: LlmProvider[] | undefined;
@@ -59,6 +63,8 @@ export function UsageFilters({
 	showUsageControls = true,
 	provider,
 	onProviderChange,
+	period: passedPeriod,
+	onPeriodChange,
 	granularity,
 	onGranularityChange,
 	availableProviders,
@@ -68,7 +74,7 @@ export function UsageFilters({
 	selectedSources,
 	onSelectedSourcesChange,
 }: UsageFiltersProps) {
-	const period = periodByGranularity[granularity];
+	const currentPeriod = passedPeriod ?? periodByGranularity[granularity] ?? '15d';
 	const userOptions = (chatFacets?.userNames ?? []).map((name) => ({
 		value: name,
 		label: name,
@@ -97,11 +103,16 @@ export function UsageFilters({
 						</SelectContent>
 					</Select>
 					<Select
-						value={period}
+						value={currentPeriod}
 						onValueChange={(value) => {
-							const option = periodOptions.find((o) => o.value === value);
+							const nextPeriod = value as UsagePeriod;
+							const option = periodOptions.find((o) => o.value === nextPeriod);
 							if (option) {
-								onGranularityChange(option.granularity);
+								if (onPeriodChange) {
+									onPeriodChange(option.value, option.granularity);
+								} else {
+									onGranularityChange(option.granularity);
+								}
 							}
 						}}
 					>

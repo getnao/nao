@@ -7,7 +7,7 @@ import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import type { ModelCosts } from '../types/llm';
 import type { Granularity, TotalUsageRecord, UsageFilter, UsageRecord, UsageSource } from '../types/usage';
-import { fillMissingDates, getLookbackTimestamp } from '../utils/date';
+import { fillMissingDates, getLookbackTimestamp, resolvePeriodAndGranularity } from '../utils/date';
 import { getProjectDeclaredModels } from '../utils/llm';
 
 const COST_COLS = [
@@ -108,10 +108,13 @@ const INFERENCE_USAGE_SOURCE_EXPR = sql<UsageSource | null>`(
 )`;
 
 export const getMessagesUsage = async (projectId: string, filter: UsageFilter): Promise<UsageRecord[]> => {
-	const { granularity, provider } = filter;
+	const { granularity, period } = resolvePeriodAndGranularity({
+		period: filter.period,
+		granularity: filter.granularity,
+	});
 	const messageDateExpr = getDateExpr(s.chatMessage.createdAt, granularity);
 	const inferenceDateExpr = getDateExpr(s.llmInference.createdAt, granularity);
-	const lookbackTs = getLookbackTimestamp(granularity);
+	const lookbackTs = getLookbackTimestamp(granularity, period);
 	const messageLookbackFilter =
 		dbConfig.dialect === Dialect.Postgres
 			? sql`${s.chatMessage.createdAt} >= ${new Date(lookbackTs).toISOString()}`
@@ -123,9 +126,9 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 
 	const messageWhereConditions = [eq(s.chat.projectId, projectId), messageLookbackFilter];
 	const inferenceWhereConditions = [eq(s.llmInference.projectId, projectId), inferenceLookbackFilter];
-	if (provider) {
-		messageWhereConditions.push(sql`${MESSAGE_USAGE_PROVIDER_EXPR} = ${provider}`);
-		inferenceWhereConditions.push(eq(s.llmInference.llmProvider, provider));
+	if (filter.provider) {
+		messageWhereConditions.push(sql`${MESSAGE_USAGE_PROVIDER_EXPR} = ${filter.provider}`);
+		inferenceWhereConditions.push(eq(s.llmInference.llmProvider, filter.provider));
 	}
 	addUserNameFilter(messageWhereConditions, filter.userNames);
 	addUserNameFilter(inferenceWhereConditions, filter.userNames);
@@ -253,12 +256,16 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 		.from(combinedUsage)
 		.groupBy(({ date }) => date);
 
-	return fillMissingDates(rows.map(normalizeMessageUsageRow), granularity);
+	return fillMissingDates(rows.map(normalizeMessageUsageRow), granularity, period);
 };
 
 export const getTotalUsage = async (projectId: string, filter: UsageFilter): Promise<TotalUsageRecord> => {
-	const { granularity, provider } = filter;
-	const lookbackTs = getLookbackTimestamp(granularity);
+	const { granularity, period } = resolvePeriodAndGranularity({
+		period: filter.period,
+		granularity: filter.granularity,
+	});
+	const { provider } = filter;
+	const lookbackTs = getLookbackTimestamp(granularity, period);
 	const lookbackFilter =
 		dbConfig.dialect === Dialect.Postgres
 			? sql`${s.chatMessage.createdAt} >= ${new Date(lookbackTs).toISOString()}`

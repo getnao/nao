@@ -1,6 +1,6 @@
 import { CHAT_REPLAY_FEEDBACK_STATES, CHAT_REPLAY_TOOL_STATES, providerLabels } from '@nao/shared/types';
 import { USAGE_SOURCES } from '@nao/backend/usage';
-import type { Granularity, UsageSource } from '@nao/backend/usage';
+import type { Granularity, UsagePeriod, UsageSource } from '@nao/backend/usage';
 import type { ChatReplayFeedbackState, ChatReplayToolState, LlmProvider } from '@nao/shared/types';
 import type { RecommendationTab } from '@/components/settings/recommendations-route-search';
 import { RECOMMENDATION_TABS } from '@/components/settings/recommendations-route-search';
@@ -14,6 +14,7 @@ export type ReplayOrigin = 'recommendations';
 
 export type UsageRouteSearch = {
 	provider: LlmProvider | 'all';
+	period: UsagePeriod;
 	granularity: Granularity;
 	users: string[] | undefined;
 	feedback: ChatReplayFeedbackState[] | undefined;
@@ -29,6 +30,7 @@ export type UsageRouteSearch = {
 
 export const DEFAULT_USAGE_SEARCH: UsageRouteSearch = {
 	provider: 'all',
+	period: '15d',
 	granularity: 'day',
 	users: undefined,
 	feedback: undefined,
@@ -42,10 +44,27 @@ export const DEFAULT_USAGE_SEARCH: UsageRouteSearch = {
 	recoTab: undefined,
 };
 
+const periods = ['24h', '7d', '15d', '30d', '60d', '90d', '6m'] as const satisfies readonly UsagePeriod[];
 const granularities = ['hour', 'day', 'month'] as const satisfies readonly Granularity[];
 const tokenViews = ['tokens', 'dollars'] as const satisfies readonly TokenChartDisplayMode[];
-const filterSearchKeys = ['provider', 'granularity', 'users', 'feedback', 'tools', 'sources'] as const;
+const filterSearchKeys = ['provider', 'period', 'granularity', 'users', 'feedback', 'tools', 'sources'] as const;
 const usageFiltersStorageKey = 'nao.usage-filters';
+
+export const PERIOD_TO_GRANULARITY: Record<UsagePeriod, Granularity> = {
+	'24h': 'hour',
+	'7d': 'day',
+	'15d': 'day',
+	'30d': 'day',
+	'60d': 'day',
+	'90d': 'day',
+	'6m': 'month',
+};
+
+export const GRANULARITY_TO_PERIOD: Record<Granularity, UsagePeriod> = {
+	hour: '24h',
+	day: '15d',
+	month: '6m',
+};
 
 export function validateUsageSearchWithStoredFilters(search: Record<string, unknown>): UsageRouteSearch {
 	const hasSearchFilters = filterSearchKeys.some((key) => search[key] !== undefined);
@@ -72,9 +91,15 @@ const replayHighlights = ['tool-error', 'feedback'] as const satisfies readonly 
 const replayOrigins = ['recommendations'] as const satisfies readonly ReplayOrigin[];
 
 export function validateUsageSearch(search: Record<string, unknown>): UsageRouteSearch {
+	const rawPeriod = parseOneOf(search.period, periods);
+	const rawGranularity = parseOneOf(search.granularity, granularities);
+	const period = rawPeriod ?? (rawGranularity ? GRANULARITY_TO_PERIOD[rawGranularity] : '15d');
+	const granularity = rawGranularity ?? PERIOD_TO_GRANULARITY[period];
+
 	return {
 		provider: parseProvider(search.provider),
-		granularity: parseOneOf(search.granularity, granularities) ?? 'day',
+		period,
+		granularity,
 		users: parseStringArray(search.users),
 		feedback: parseArrayOf(search.feedback, CHAT_REPLAY_FEEDBACK_STATES),
 		tools: parseArrayOf(search.tools, CHAT_REPLAY_TOOL_STATES),
