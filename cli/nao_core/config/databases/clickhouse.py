@@ -91,11 +91,11 @@ def _server_settings_probe_optional():
                 logger.debug("Full error reading system.settings", exc_info=True)
                 return _NoServerSettings()
 
-        HttpClient.query = query
+        setattr(HttpClient, "query", query)
         try:
             yield
         finally:
-            HttpClient.query = original_query
+            setattr(HttpClient, "query", original_query)
 
 
 class _RestrictedDiscoveryBackend:
