@@ -520,7 +520,7 @@ function GitSettingsPage() {
 						{status?.liveContextUpdate.enabled && (
 							<LiveContextUpdateSettings
 								status={status.liveContextUpdate}
-								repository={status.contextSource}
+								repository={status.liveContextRepository}
 								isAdmin={isAdmin}
 							/>
 						)}
@@ -823,6 +823,7 @@ async function invalidateRepositoryQueries(queryClient: QueryClient): Promise<vo
 		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getChangedFiles.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.readFile.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getFileDiff.queryKey() }),
+		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getLiveContextPullHistory.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.contextRecommendation.getRepo.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.github.getProjectGitInfo.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.gitlab.getProjectGitInfo.queryKey() }),

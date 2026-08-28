@@ -113,6 +113,7 @@ import {
 	resolveContextExplorerGit,
 	resolveContextExplorerGitSafely,
 	sanitizeContextSourceRepositoryUrl,
+	sanitizeLiveContextError,
 	switchContextBranch,
 } from '../src/services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../src/services/context-explorer-pr.service';
@@ -122,6 +123,70 @@ import {
 	resolveContextRepository,
 	validateDeploymentContextSubpath,
 } from '../src/utils/context-repo';
+import { getGitOAuthCredential, runGitWithOAuth } from '../src/utils/git-oauth';
+
+describe('OAuth Git credentials', () => {
+	const temporaryRoots: string[] = [];
+	let originalPath: string | undefined;
+
+	beforeEach(() => {
+		originalPath = process.env.PATH;
+	});
+
+	afterEach(() => {
+		process.env.PATH = originalPath;
+		delete process.env.EXPECTED_OAUTH_TOKEN;
+		for (const root of temporaryRoots.splice(0)) {
+			fs.rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it.each([
+		['github', 'x-access-token'],
+		['gitlab', 'oauth2'],
+	] as const)('uses an ephemeral askpass helper for %s without putting the token in argv', (provider, username) => {
+		const root = temporaryRoot(temporaryRoots);
+		const bin = path.join(root, 'bin');
+		const fakeGit = path.join(bin, 'git');
+		const token = `${provider}-oauth-secret`;
+		fs.mkdirSync(bin);
+		fs.writeFileSync(
+			fakeGit,
+			`#!/bin/sh
+user="$("$GIT_ASKPASS" "Username for repository")"
+password="$("$GIT_ASKPASS" "Password for repository")"
+[ "$password" = "$EXPECTED_OAUTH_TOKEN" ] || exit 2
+case "$*" in *"$EXPECTED_OAUTH_TOKEN"*) exit 3 ;; esac
+printf '%s|%s' "$user" "$GIT_ASKPASS"
+`,
+			{ mode: 0o700 },
+		);
+		process.env.PATH = `${bin}:${originalPath ?? ''}`;
+		process.env.EXPECTED_OAUTH_TOKEN = token;
+
+		const [actualUsername, helperPath] = runGitWithOAuth(
+			root,
+			['fetch', 'https://example.com/nao/context.git'],
+			getGitOAuthCredential(provider, token),
+		)
+			.toString()
+			.split('|');
+
+		expect(actualUsername).toBe(username);
+		expect(fs.existsSync(helperPath)).toBe(false);
+	});
+
+	it('redacts OAuth credentials from live Git errors', () => {
+		const token = 'oauth-secret';
+		const error = sanitizeLiveContextError(
+			new Error(`fatal: failed https://oauth2:${token}@gitlab.com/nao/context.git using ${token}`),
+			token,
+		);
+
+		expect(error.message).not.toContain(token);
+		expect(error.message).toContain('[redacted]');
+	});
+});
 
 describe('deployment context source', () => {
 	let originalEnv: typeof process.env;
@@ -710,6 +775,225 @@ describe('live deployment context updates', () => {
 
 		expect(pull.newCommit).not.toBe(oldCommit);
 		expect(runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(pull.newCommit);
+	});
+});
+
+describe('OAuth live context updates', () => {
+	const temporaryRoots: string[] = [];
+	let originalEnv: typeof process.env;
+
+	beforeEach(() => {
+		originalEnv = { ...process.env };
+		setContextSourceEnv({ source: null });
+		contextConfigMocks.getConfig.mockResolvedValue(null);
+	});
+
+	afterEach(() => {
+		for (const root of temporaryRoots.splice(0)) {
+			fs.rmSync(root, { recursive: true, force: true });
+		}
+		branchOwnershipMocks.owners.clear();
+		vi.clearAllMocks();
+		process.env = originalEnv;
+		__reloadEnvForTesting();
+	});
+
+	it.each(['github', 'gitlab'] as const)(
+		'clones a non-Git root project with the invoking %s credential and keeps a public origin',
+		async (providerName) => {
+			const fixture = createFixture(temporaryRoots);
+			const provider = localProvider(fixture.bare, fixture.bare);
+			fixture.context = {
+				...fixture.context,
+				configOverride: { provider: providerName, repoFullName: 'nao/context' },
+				providerOverride: provider,
+				token: `${providerName}-oauth-secret`,
+			};
+			fs.writeFileSync(path.join(fixture.live, 'live-only.md'), 'not preserved\n');
+
+			const result = await pullLiveContext(fixture.context);
+
+			expect(result).toMatchObject({
+				changed: true,
+				oldCommit: null,
+				configuredBranch: 'main',
+				files: expect.arrayContaining([
+					{ path: '/context.md', additions: 1, deletions: 0 },
+					{ path: '/nao_config.yaml', additions: 1, deletions: 0 },
+				]),
+			});
+			expect(fs.readFileSync(path.join(fixture.live, 'context.md'), 'utf8')).toBe('repository content\n');
+			expect(fs.existsSync(path.join(fixture.live, '.git'))).toBe(true);
+			expect(runGit(fixture.live, ['remote', 'get-url', 'origin']).toString().trim()).toBe(fixture.bare);
+			expect(fs.existsSync(path.join(fixture.live, 'live-only.md'))).toBe(false);
+			expect(JSON.stringify(result)).not.toContain(`${providerName}-oauth-secret`);
+		},
+	);
+
+	it('shows the OAuth update status and repository link without deployment Git', async () => {
+		const fixture = createFixture(temporaryRoots);
+		fixture.context.providerOverride = localProvider(fixture.bare, fixture.bare);
+
+		await expect(getContextRepositoryStatus(fixture.context)).resolves.toMatchObject({
+			liveContextRepository: { repositoryUrl: 'https://github.com/nao/context.git', platform: 'github' },
+			liveContextUpdate: {
+				enabled: true,
+				available: true,
+				configuredBranch: 'main',
+			},
+		});
+	});
+
+	it('explains missing OAuth credentials and wrong live branches in status', async () => {
+		const fixture = createFixture(temporaryRoots);
+		fixture.context.providerOverride = localProvider(fixture.bare, fixture.bare);
+
+		await expect(getContextRepositoryStatus({ ...fixture.context, token: null })).resolves.toMatchObject({
+			liveContextUpdate: {
+				enabled: true,
+				available: false,
+				unavailableReason: 'Connect your GitHub account before updating live context files.',
+			},
+		});
+
+		await pullLiveContext(fixture.context);
+		runGit(fixture.live, ['switch', '-c', 'other']);
+		await expect(getContextRepositoryStatus(fixture.context)).resolves.toMatchObject({
+			liveContextUpdate: {
+				enabled: true,
+				available: false,
+				configuredBranch: 'main',
+				unavailableReason: 'The live checkout is on "other", not the repository default "main" branch.',
+			},
+		});
+	});
+
+	it('leaves the original project untouched when staged project validation fails', async () => {
+		const fixture = createFixture(temporaryRoots, { 'context.md': 'repository content\n' });
+		fixture.context.providerOverride = localProvider(fixture.bare, fixture.bare);
+		const before = snapshot(fixture.live);
+
+		await expect(pullLiveContext(fixture.context)).rejects.toThrow(
+			'No tracked nao_config.yaml was found in the connected repository.',
+		);
+
+		expect(snapshot(fixture.live)).toEqual(before);
+		expect(fs.existsSync(path.join(fixture.live, '.git'))).toBe(false);
+	});
+
+	it('rejects unsafe non-Git targets before cloning', async () => {
+		const fixture = createFixture(temporaryRoots);
+		fixture.context.providerOverride = localProvider(fixture.bare, fixture.bare);
+		fs.rmSync(path.join(fixture.live, 'nao_config.yaml'));
+		const before = snapshot(fixture.live);
+
+		await expect(pullLiveContext(fixture.context)).rejects.toThrow(
+			'The live project folder must contain its expected nao_config.yaml before replacement.',
+		);
+		expect(snapshot(fixture.live)).toEqual(before);
+	});
+
+	it('fast-forwards a matching origin, reports the full range, and handles a no-op', async () => {
+		const fixture = createFixture(temporaryRoots);
+		fixture.context.providerOverride = localProvider(fixture.bare, fixture.bare);
+		const initial = await pullLiveContext(fixture.context);
+		writeRemoteChange(fixture, 'context.md', 'updated\nsecond line\n');
+
+		const updated = await pullLiveContext(fixture.context);
+		const noOp = await pullLiveContext(fixture.context);
+
+		expect(updated).toMatchObject({
+			changed: true,
+			oldCommit: initial.newCommit,
+			files: [{ path: '/context.md', additions: 2, deletions: 1 }],
+		});
+		expect(noOp).toMatchObject({
+			changed: false,
+			oldCommit: updated.newCommit,
+			newCommit: updated.newCommit,
+			files: [],
+		});
+	});
+
+	it('rejects the wrong branch, divergence, local conflicts, and a mismatched origin', async () => {
+		const wrongBranch = createFixture(temporaryRoots);
+		wrongBranch.context.providerOverride = localProvider(wrongBranch.bare, wrongBranch.bare);
+		await pullLiveContext(wrongBranch.context);
+		runGit(wrongBranch.live, ['switch', '-c', 'other']);
+		await expect(pullLiveContext(wrongBranch.context)).rejects.toThrow(
+			'The live checkout is on "other", not the repository default "main" branch.',
+		);
+
+		const divergent = createFixture(temporaryRoots);
+		divergent.context.providerOverride = localProvider(divergent.bare, divergent.bare);
+		await pullLiveContext(divergent.context);
+		fs.writeFileSync(path.join(divergent.live, 'local.md'), 'local\n');
+		commitAll(divergent.live, 'local commit');
+		writeRemoteChange(divergent, 'context.md', 'remote divergence\n');
+		await expect(pullLiveContext(divergent.context)).rejects.toThrow(
+			'The live context branch has diverged and cannot be updated with a fast-forward pull.',
+		);
+
+		const dirty = createFixture(temporaryRoots);
+		dirty.context.providerOverride = localProvider(dirty.bare, dirty.bare);
+		await pullLiveContext(dirty.context);
+		fs.writeFileSync(path.join(dirty.live, 'context.md'), 'local dirty\n');
+		writeRemoteChange(dirty, 'context.md', 'remote dirty\n');
+		await expect(pullLiveContext(dirty.context)).rejects.toThrow(
+			'The live context has local changes that would be overwritten by this update.',
+		);
+
+		const mismatched = createLocalCloneFixture(temporaryRoots);
+		const selected = createFixture(temporaryRoots);
+		mismatched.context.providerOverride = localProvider(selected.bare, selected.bare);
+		await expect(pullLiveContext(mismatched.context)).rejects.toThrow(
+			'The live project uses a different Git origin than the connected repository.',
+		);
+		expect(fs.existsSync(mismatched.live)).toBe(true);
+	});
+
+	it('keeps a nested project at the same path through a restart-style resolution', async () => {
+		const fixture = createFixture(temporaryRoots, {
+			'analytics/nao_config.yaml': 'name: analytics\n',
+			'analytics/context.md': 'nested context\n',
+		});
+		fixture.context.providerOverride = localProvider(fixture.bare, fixture.bare);
+
+		const first = await pullLiveContext(fixture.context);
+		const restartedContext = { ...fixture.context };
+		const second = await pullLiveContext(restartedContext);
+
+		expect(first.oldCommit).toBeNull();
+		expect(fs.lstatSync(fixture.live).isSymbolicLink()).toBe(true);
+		expect(fs.readFileSync(path.join(fixture.live, 'context.md'), 'utf8')).toBe('nested context\n');
+		expect(fs.realpathSync(fixture.live)).toContain(
+			path.join('.nao', 'live-repositories', 'project-id', 'repository', 'analytics'),
+		);
+		expect(second).toMatchObject({ changed: false, oldCommit: first.newCommit, newCommit: first.newCommit });
+	});
+
+	it('updates only clean detached default worktrees after conversion', async () => {
+		const fixture = createFixture(temporaryRoots);
+		fixture.context.providerOverride = localProvider(fixture.bare, fixture.bare);
+		const clean = await ensureContextWorktree(fixture.context);
+		const dirtyContext = { ...fixture.context, userId: 'dirty-user' };
+		const branchContext = { ...fixture.context, userId: 'branch-user' };
+		const dirty = await ensureContextWorktree(dirtyContext);
+		const branch = await ensureContextWorktree(branchContext);
+		const oldCommit = runGit(clean.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();
+		fs.writeFileSync(path.join(dirty.worktreeRoot, 'context.md'), 'dirty\n');
+		await createContextBranch(branchContext, 'nao/personal');
+		writeRemoteChange(fixture, 'context.md', 'new live context\n');
+
+		const result = await pullLiveContext(fixture.context);
+
+		expect(runGit(clean.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(result.newCommit);
+		expect(runGit(dirty.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(oldCommit);
+		expect(fs.readFileSync(path.join(dirty.worktreeRoot, 'context.md'), 'utf8')).toBe('dirty\n');
+		expect(runGit(branch.worktreeRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).toString().trim()).toBe(
+			'nao/personal',
+		);
+		expect(runGit(branch.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(oldCommit);
 	});
 });
 

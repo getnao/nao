@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -27,6 +28,7 @@ import {
 	resolveContextProject,
 	resolveContextRepo,
 	resolveContextSourceGitToken,
+	resolveTrackedContextProjectPrefix,
 	sanitizeContextSourceRepositoryUrl,
 	toContextRepoState,
 	toRepoPath,
@@ -34,6 +36,7 @@ import {
 } from '../utils/context-repo';
 import type { GitIdentity } from '../utils/git-identity';
 import { withCoAuthors } from '../utils/git-identity';
+import { getGitOAuthCredential, runGitWithOAuth } from '../utils/git-oauth';
 import { runGit, toGitError, tryRunGit } from '../utils/git-repo';
 import { toRealPath } from '../utils/tools';
 import {
@@ -82,6 +85,7 @@ export interface ContextRepositoryStatus {
 	repositoryUrl: string | null;
 	managedByContextSource: boolean;
 	contextSource: DeploymentContextSource | null;
+	liveContextRepository: Pick<DeploymentContextSource, 'repositoryUrl' | 'platform'> | null;
 	liveContextUpdate: LiveContextUpdateStatus;
 	gitUnavailableReason: ContextGitUnavailableReason | null;
 	gitUnavailableMessage: string | null;
@@ -119,7 +123,7 @@ export interface LiveContextPullResult {
 	changed: boolean;
 	checkedAt: string;
 	configuredBranch: string;
-	oldCommit: string;
+	oldCommit: string | null;
 	newCommit: string;
 	files: LiveContextPullFile[];
 }
@@ -318,20 +322,22 @@ export async function ensureContextWorktree(
 
 export async function getContextRepositoryStatus(context: ContextExplorerGitContext): Promise<ContextRepositoryStatus> {
 	const contextSource = getDeploymentContextSource();
-	const contextSourceStatus = {
-		managedByContextSource: contextSource !== null,
-		contextSource,
-		liveContextUpdate: getLiveContextUpdateStatus(context.projectFolder),
-	};
 	try {
 		const resolution = await resolveContextExplorerGit(context);
+		const liveContextUpdate = getResolvedLiveContextUpdateStatus(context, resolution);
+		const repositoryState =
+			resolution.status === 'available' ? toContextRepoState(resolution.repo) : resolution.repo;
+		const liveContextRepository = getLiveContextRepository(repositoryState, contextSource);
 		if (resolution.status === 'unavailable') {
 			const provider = resolution.repo ? REVIEW_REQUEST_PROVIDERS[resolution.repo.provider] : null;
 			return {
 				repo: resolution.repo,
 				repositoryUrl:
 					resolution.repo && provider ? provider.publicRepoUrl(resolution.repo.repoFullName) : null,
-				...contextSourceStatus,
+				managedByContextSource: contextSource !== null,
+				contextSource,
+				liveContextRepository,
+				liveContextUpdate,
 				gitUnavailableReason: resolution.reason,
 				gitUnavailableMessage: resolution.message,
 				lastCommitMessage: null,
@@ -344,11 +350,14 @@ export async function getContextRepositoryStatus(context: ContextExplorerGitCont
 		const { repo } = resolution;
 		const provider = resolution.context.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
 		const branches = await getContextBranches(repo, resolution.context);
-		const repoState = toContextRepoState(repo);
+		const repoState = repositoryState;
 		return {
 			repo: repoState ? { ...repoState, branch: branches.currentBranch } : null,
 			repositoryUrl: provider.publicRepoUrl(repo.repoFullName),
-			...contextSourceStatus,
+			managedByContextSource: contextSource !== null,
+			contextSource,
+			liveContextRepository,
+			liveContextUpdate,
 			gitUnavailableReason: null,
 			gitUnavailableMessage: null,
 			lastCommitMessage: readOptionalGitValue(repo.worktreeRoot, ['log', '-1', '--format=%s']),
@@ -366,10 +375,14 @@ export async function getContextRepositoryStatus(context: ContextExplorerGitCont
 			isGitRepository: true,
 		};
 	} catch {
+		const liveContextUpdate = getLiveContextUpdateStatus(context.projectFolder);
 		return {
 			repo: null,
 			repositoryUrl: null,
-			...contextSourceStatus,
+			managedByContextSource: contextSource !== null,
+			contextSource,
+			liveContextRepository: contextSource,
+			liveContextUpdate,
 			gitUnavailableReason: 'git-unavailable',
 			gitUnavailableMessage: unavailableMessage('git-unavailable'),
 			lastCommitMessage: null,
@@ -394,76 +407,44 @@ export function getLiveContextUpdateStatus(projectFolder: string): LiveContextUp
 		};
 	}
 	if (!isValidBranch(configuredBranch)) {
-		return {
-			enabled: true,
-			available: false,
-			configuredBranch,
-			lastCheckedAt: null,
-			unavailableReason: 'NAO_CONTEXT_GIT_BRANCH is not a valid Git branch name.',
-			configurationError: null,
-		};
+		return unavailableLiveContextStatus(configuredBranch, 'NAO_CONTEXT_GIT_BRANCH is not a valid Git branch name.');
 	}
-	const repositoryRoot = discoverLiveRepositoryRoot(projectFolder);
-	if (!repositoryRoot) {
-		return {
-			enabled: true,
-			available: false,
+	const repository = resolveLiveRepository(projectFolder);
+	if (!repository) {
+		return unavailableLiveContextStatus(
 			configuredBranch,
-			lastCheckedAt: null,
-			unavailableReason: 'The live project folder is not inside a Git repository.',
-			configurationError: null,
-		};
+			'The live project folder is not inside a Git repository.',
+		);
 	}
-	const lastCheckedAt = readFetchHeadTime(repositoryRoot);
 	try {
-		validateDeploymentContextSubpath(repositoryRoot, env.NAO_CONTEXT_GIT_SUBPATH);
+		validateDeploymentContextSubpath(repository.repositoryRoot, env.NAO_CONTEXT_GIT_SUBPATH);
 	} catch (error) {
 		if (error instanceof ContextProjectResolutionError) {
-			return {
-				enabled: true,
-				available: false,
+			return unavailableLiveContextStatus(
 				configuredBranch,
-				lastCheckedAt,
-				unavailableReason: error.message,
-				configurationError: error.message,
-			};
+				error.message,
+				repository.lastCheckedAt,
+				error.message,
+			);
 		}
 		throw error;
 	}
-	const currentBranch = readCurrentBranchFromPath(repositoryRoot);
-	if (currentBranch !== configuredBranch) {
-		return {
-			enabled: true,
-			available: false,
-			configuredBranch,
-			lastCheckedAt,
-			unavailableReason: currentBranch
-				? `The live checkout is on "${currentBranch}", not the configured "${configuredBranch}" branch.`
-				: `The live checkout is detached; check out the configured "${configuredBranch}" branch first.`,
-			configurationError: null,
-		};
+	const issue = getLiveRepositoryIssue(repository, configuredBranch, 'configured');
+	if (issue) {
+		return unavailableLiveContextStatus(configuredBranch, issue.message, repository.lastCheckedAt);
 	}
-	if (!readOptionalGitValue(repositoryRoot, ['remote', 'get-url', 'origin'])) {
-		return {
-			enabled: true,
-			available: false,
-			configuredBranch,
-			lastCheckedAt,
-			unavailableReason: 'The live Git repository does not have an origin remote.',
-			configurationError: null,
-		};
-	}
-	return {
-		enabled: true,
-		available: true,
-		configuredBranch,
-		lastCheckedAt,
-		unavailableReason: null,
-		configurationError: null,
-	};
+	return availableLiveContextStatus(configuredBranch, repository.lastCheckedAt);
 }
 
-export function pullLiveContext(projectFolder: string): LiveContextPullResult {
+export function pullLiveContext(projectFolder: string): LiveContextPullResult;
+export function pullLiveContext(context: ContextExplorerGitContext): Promise<LiveContextPullResult>;
+export function pullLiveContext(
+	input: string | ContextExplorerGitContext,
+): LiveContextPullResult | Promise<LiveContextPullResult> {
+	return typeof input === 'string' ? pullDeploymentLiveContext(input) : pullConnectedLiveContext(input);
+}
+
+function pullDeploymentLiveContext(projectFolder: string): LiveContextPullResult {
 	if (!isGitContextSource()) {
 		throw new TRPCError({
 			code: 'BAD_REQUEST',
@@ -477,46 +458,487 @@ export function pullLiveContext(projectFolder: string): LiveContextPullResult {
 			message: 'NAO_CONTEXT_GIT_BRANCH is not a valid Git branch name.',
 		});
 	}
-	const repositoryRoot = discoverLiveRepositoryRoot(projectFolder);
-	if (!repositoryRoot) {
+	const repository = resolveLiveRepository(projectFolder);
+	if (!repository) {
 		throw new TRPCError({
 			code: 'BAD_REQUEST',
 			message: 'The live project folder is not inside a Git repository.',
 		});
 	}
-	validateDeploymentContextSubpath(repositoryRoot, env.NAO_CONTEXT_GIT_SUBPATH);
-	const currentBranch = readCurrentBranchFromPath(repositoryRoot);
-	if (currentBranch !== configuredBranch) {
+	validateDeploymentContextSubpath(repository.repositoryRoot, env.NAO_CONTEXT_GIT_SUBPATH);
+	assertLiveRepositoryUpdatable(repository, configuredBranch, 'configured');
+	return updateLiveRepository(repository, configuredBranch, (repositoryRoot, branch) => {
+		runGit(repositoryRoot, ['fetch', '--no-tags', 'origin', branch], GIT_OPERATION_TIMEOUT_MS);
+	});
+}
+
+async function pullConnectedLiveContext(context: ContextExplorerGitContext): Promise<LiveContextPullResult> {
+	const configuredRepo = await resolveContextRepo(
+		context.projectId,
+		context.projectFolder,
+		context.userId,
+		context.configOverride,
+	);
+	if (!configuredRepo || configuredRepo.source !== 'settings') {
+		return pullDeploymentLiveContext(context.projectFolder);
+	}
+	if (!context.token) {
 		throw new TRPCError({
+			code: 'FORBIDDEN',
+			message: `Connect your ${getRepoProviderDisplayName(configuredRepo.provider)} account before updating live context files.`,
+		});
+	}
+	if (configuredRepo.provider !== 'github' && configuredRepo.provider !== 'gitlab') {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'The connected repository provider is not supported.' });
+	}
+	const { repo, context: availableContext } = await requireContextExplorerGit(context);
+	const provider = availableContext.providerOverride ?? REVIEW_REQUEST_PROVIDERS[configuredRepo.provider];
+	refreshDefaultBranch(repo, configuredRepo.provider, availableContext.token);
+	const configuredBranch = readDefaultBranch(repo);
+	const liveRepository = resolveOAuthLiveRepository(context, provider, configuredRepo.repoFullName);
+	const result = liveRepository
+		? updateOAuthLiveRepository(liveRepository, configuredBranch, configuredRepo.provider, availableContext.token)
+		: convertLiveProjectToOAuthRepository(
+				context,
+				provider,
+				configuredRepo.provider,
+				configuredRepo.repoFullName,
+				configuredBranch,
+				availableContext.token,
+			);
+	synchronizeConnectedDefaultWorktrees(availableContext, repo, provider);
+	return result;
+}
+
+function refreshDefaultBranch(repo: ResolvedContextRepo, provider: RepoProvider, token: string): void {
+	try {
+		runGitWithOAuth(
+			repo.worktreeRoot,
+			['remote', 'set-head', 'origin', '--auto'],
+			getGitOAuthCredential(provider, token),
+			GIT_OPERATION_TIMEOUT_MS,
+		);
+	} catch (error) {
+		throw sanitizeGitError(error, token);
+	}
+}
+
+interface LiveRepository {
+	repositoryRoot: string;
+	projectPrefix: string;
+	lastCheckedAt: string | null;
+}
+
+interface LiveRepositoryIssue {
+	code: 'BAD_REQUEST' | 'CONFLICT';
+	message: string;
+}
+
+function getResolvedLiveContextUpdateStatus(
+	context: ContextExplorerGitContext,
+	resolution: ContextExplorerGitResolution,
+): LiveContextUpdateStatus {
+	if (resolution.repo?.source !== 'settings') {
+		return getLiveContextUpdateStatus(context.projectFolder);
+	}
+	const defaultBranch =
+		resolution.status === 'available'
+			? readDefaultBranch(resolution.repo)
+			: readKnownDefaultBranch(context.projectId, context.projectFolder, context.userId);
+	const configuredBranch = defaultBranch ?? 'default branch';
+	if (!context.token) {
+		return unavailableLiveContextStatus(
+			configuredBranch,
+			`Connect your ${getRepoProviderDisplayName(resolution.repo.provider)} account before updating live context files.`,
+		);
+	}
+	if (resolution.status === 'unavailable') {
+		return unavailableLiveContextStatus(configuredBranch, resolution.message);
+	}
+	const provider = resolution.context.providerOverride ?? REVIEW_REQUEST_PROVIDERS[resolution.repo.provider];
+	try {
+		const liveRepository = resolveOAuthLiveRepository(context, provider, resolution.repo.repoFullName);
+		if (!liveRepository) {
+			assertSafeLiveReplacementTarget(context);
+			return availableLiveContextStatus(configuredBranch, null);
+		}
+		const issue = getLiveRepositoryIssue(liveRepository, configuredBranch, 'repository default');
+		if (issue) {
+			return unavailableLiveContextStatus(configuredBranch, issue.message, liveRepository.lastCheckedAt);
+		}
+		return availableLiveContextStatus(configuredBranch, liveRepository.lastCheckedAt);
+	} catch (error) {
+		return unavailableLiveContextStatus(configuredBranch, sanitizeLiveContextError(error, context.token).message);
+	}
+}
+
+function getLiveContextRepository(
+	repo: ReturnType<typeof toContextRepoState>,
+	contextSource: DeploymentContextSource | null,
+): Pick<DeploymentContextSource, 'repositoryUrl' | 'platform'> | null {
+	if (repo?.source === 'settings' && (repo.provider === 'github' || repo.provider === 'gitlab')) {
+		const provider = REVIEW_REQUEST_PROVIDERS[repo.provider];
+		return {
+			repositoryUrl: provider.publicRepoUrl(repo.repoFullName),
+			platform: repo.provider,
+		};
+	}
+	return contextSource;
+}
+
+function availableLiveContextStatus(configuredBranch: string, lastCheckedAt: string | null): LiveContextUpdateStatus {
+	return {
+		enabled: true,
+		available: true,
+		configuredBranch,
+		lastCheckedAt,
+		unavailableReason: null,
+		configurationError: null,
+	};
+}
+
+function unavailableLiveContextStatus(
+	configuredBranch: string,
+	unavailableReason: string,
+	lastCheckedAt: string | null = null,
+	configurationError: string | null = null,
+): LiveContextUpdateStatus {
+	return {
+		enabled: true,
+		available: false,
+		configuredBranch,
+		lastCheckedAt,
+		unavailableReason,
+		configurationError,
+	};
+}
+
+function readKnownDefaultBranch(projectId: string, projectFolder: string, userId: string): string | null {
+	const worktree = getContextWorktreePath(projectId, projectFolder, userId);
+	return (
+		readDefaultBranchFromRefs(worktree) ??
+		readDefaultBranchFromRefs(discoverLiveRepositoryRoot(projectFolder) ?? '')
+	);
+}
+
+function resolveLiveRepository(projectFolder: string): LiveRepository | null {
+	const repositoryRoot = discoverLiveRepositoryRoot(projectFolder);
+	return repositoryRoot
+		? {
+				repositoryRoot,
+				projectPrefix: resolveLiveProjectPrefix(repositoryRoot, projectFolder),
+				lastCheckedAt: readFetchHeadTime(repositoryRoot),
+			}
+		: null;
+}
+
+function getLiveRepositoryIssue(
+	repository: LiveRepository,
+	configuredBranch: string,
+	branchLabel: 'configured' | 'repository default',
+): LiveRepositoryIssue | null {
+	const currentBranch = readCurrentBranchFromPath(repository.repositoryRoot);
+	if (currentBranch !== configuredBranch) {
+		return {
 			code: 'CONFLICT',
 			message: currentBranch
-				? `The live checkout is on "${currentBranch}", not the configured "${configuredBranch}" branch.`
-				: `The live checkout is detached; check out the configured "${configuredBranch}" branch first.`,
-		});
+				? `The live checkout is on "${currentBranch}", not the ${branchLabel} "${configuredBranch}" branch.`
+				: `The live checkout is detached; check out the ${branchLabel} "${configuredBranch}" branch first.`,
+		};
 	}
-	if (!readOptionalGitValue(repositoryRoot, ['remote', 'get-url', 'origin'])) {
-		throw new TRPCError({
-			code: 'BAD_REQUEST',
-			message: 'The live Git repository does not have an origin remote.',
-		});
+	return getLiveRepositoryOriginIssue(repository);
+}
+
+function getLiveRepositoryOriginIssue(repository: LiveRepository, expectedOrigin?: string): LiveRepositoryIssue | null {
+	const origin = readOptionalGitValue(repository.repositoryRoot, ['remote', 'get-url', 'origin']);
+	if (!origin) {
+		return { code: 'BAD_REQUEST', message: 'The live Git repository does not have an origin remote.' };
 	}
-	const projectPrefix = resolveLiveProjectPrefix(repositoryRoot, projectFolder);
-	const oldCommit = runGit(repositoryRoot, ['rev-parse', 'HEAD']).toString().trim();
+	if (expectedOrigin && normalizeRemote(origin) !== normalizeRemote(expectedOrigin)) {
+		return {
+			code: 'CONFLICT',
+			message: 'The live project uses a different Git origin than the connected repository.',
+		};
+	}
+	return null;
+}
+
+function assertLiveRepositoryUpdatable(
+	repository: LiveRepository,
+	configuredBranch: string,
+	branchLabel: 'configured' | 'repository default',
+): void {
+	const issue = getLiveRepositoryIssue(repository, configuredBranch, branchLabel);
+	if (issue) {
+		throw new TRPCError(issue);
+	}
+}
+
+function resolveOAuthLiveRepository(
+	context: ContextExplorerGitContext,
+	provider: ContextRepositoryProvider,
+	repoFullName: string,
+): LiveRepository | null {
+	const projectFolder = assertAbsoluteProjectPath(context.projectFolder);
+	const stat = fs.lstatSync(projectFolder);
+	if (stat.isSymbolicLink()) {
+		validateManagedLiveProjectSymlink(context);
+	} else if (!stat.isDirectory()) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'The configured live project path is not a directory.' });
+	}
+	const repository = resolveLiveRepository(projectFolder);
+	if (!repository) {
+		return null;
+	}
+	const issue = getLiveRepositoryOriginIssue(repository, provider.publicRepoUrl(repoFullName));
+	if (issue) {
+		throw new TRPCError(issue);
+	}
+	validateLiveProjectAtHead(repository.repositoryRoot, repository.projectPrefix);
+	return repository;
+}
+
+function updateOAuthLiveRepository(
+	liveRepository: LiveRepository,
+	configuredBranch: string,
+	providerName: RepoProvider,
+	token: string,
+): LiveContextPullResult {
+	assertLiveRepositoryUpdatable(liveRepository, configuredBranch, 'repository default');
+	return updateLiveRepository(
+		liveRepository,
+		configuredBranch,
+		(repositoryRoot, branch) => {
+			runGitWithOAuth(
+				repositoryRoot,
+				['fetch', '--no-tags', 'origin', branch],
+				getGitOAuthCredential(providerName, token),
+				GIT_OPERATION_TIMEOUT_MS,
+			);
+		},
+		token,
+	);
+}
+
+function updateLiveRepository(
+	repository: LiveRepository,
+	configuredBranch: string,
+	fetch: (repositoryRoot: string, branch: string) => void,
+	token?: string,
+): LiveContextPullResult {
+	const oldCommit = runGit(repository.repositoryRoot, ['rev-parse', 'HEAD']).toString().trim();
 	try {
-		runGit(repositoryRoot, ['pull', '--ff-only', 'origin', configuredBranch], GIT_OPERATION_TIMEOUT_MS);
+		fetch(repository.repositoryRoot, configuredBranch);
+		runGit(repository.repositoryRoot, ['merge', '--ff-only', 'FETCH_HEAD'], GIT_OPERATION_TIMEOUT_MS);
 	} catch (error) {
-		throw sanitizeLiveContextError(error);
+		throw sanitizeLiveContextError(error, token);
 	}
-	const checkedAt = new Date().toISOString();
-	const newCommit = runGit(repositoryRoot, ['rev-parse', 'HEAD']).toString().trim();
+	const newCommit = runGit(repository.repositoryRoot, ['rev-parse', 'HEAD']).toString().trim();
+	return createLivePullResult(repository, configuredBranch, oldCommit, newCommit);
+}
+
+function createLivePullResult(
+	repository: Pick<LiveRepository, 'repositoryRoot' | 'projectPrefix'>,
+	configuredBranch: string,
+	oldCommit: string | null,
+	newCommit: string,
+): LiveContextPullResult {
 	return {
 		changed: oldCommit !== newCommit,
-		checkedAt,
+		checkedAt: new Date().toISOString(),
 		configuredBranch,
 		oldCommit,
 		newCommit,
-		files: oldCommit === newCommit ? [] : readLivePullFiles(repositoryRoot, oldCommit, newCommit, projectPrefix),
+		files:
+			oldCommit === newCommit
+				? []
+				: oldCommit
+					? readLivePullFiles(repository.repositoryRoot, oldCommit, newCommit, repository.projectPrefix)
+					: readInitialLiveFiles(repository.repositoryRoot, newCommit, repository.projectPrefix),
 	};
+}
+
+function convertLiveProjectToOAuthRepository(
+	context: ContextExplorerGitContext,
+	provider: ContextRepositoryProvider,
+	providerName: RepoProvider,
+	repoFullName: string,
+	configuredBranch: string,
+	token: string,
+): LiveContextPullResult {
+	assertSafeLiveReplacementTarget(context);
+	const projectFolder = path.resolve(context.projectFolder);
+	const managedParent = getManagedLiveRepositoriesParent(projectFolder);
+	fs.mkdirSync(managedParent, { recursive: true });
+	const stagingRoot = path.join(managedParent, `.staging-${context.projectId}-${randomUUID()}`);
+	const stagedRepository = path.join(stagingRoot, 'repository');
+	try {
+		fs.mkdirSync(stagingRoot);
+		runGitWithOAuth(
+			managedParent,
+			[
+				'clone',
+				'--branch',
+				configuredBranch,
+				'--single-branch',
+				provider.publicRepoUrl(repoFullName),
+				stagedRepository,
+			],
+			getGitOAuthCredential(providerName, token),
+			GIT_OPERATION_TIMEOUT_MS,
+		);
+		const projectPrefix = resolveTrackedContextProjectPrefix(stagedRepository);
+		validateLiveProjectAtHead(stagedRepository, projectPrefix);
+		const newCommit = runGit(stagedRepository, ['rev-parse', 'HEAD']).toString().trim();
+		const result = createLivePullResult(
+			{ repositoryRoot: stagedRepository, projectPrefix },
+			configuredBranch,
+			null,
+			newCommit,
+		);
+		promoteStagedLiveRepository(context, stagingRoot, stagedRepository, projectPrefix);
+		return result;
+	} catch (error) {
+		throw sanitizeLiveContextError(error, token);
+	} finally {
+		fs.rmSync(stagingRoot, { recursive: true, force: true });
+	}
+}
+
+function promoteStagedLiveRepository(
+	context: ContextExplorerGitContext,
+	stagingRoot: string,
+	stagedRepository: string,
+	projectPrefix: string,
+): void {
+	const projectFolder = path.resolve(context.projectFolder);
+	const backupPath = path.join(path.dirname(projectFolder), `.nao-live-backup-${context.projectId}-${randomUUID()}`);
+	const managedRoot = getManagedLiveRepositoryContainer(context.projectId, projectFolder);
+	if (projectPrefix && fs.existsSync(managedRoot)) {
+		throw new Error('The managed live repository location already exists.');
+	}
+	fs.renameSync(projectFolder, backupPath);
+	try {
+		if (projectPrefix) {
+			fs.renameSync(stagingRoot, managedRoot);
+			fs.symlinkSync(path.join(managedRoot, 'repository', ...projectPrefix.split('/')), projectFolder, 'dir');
+		} else {
+			fs.renameSync(stagedRepository, projectFolder);
+		}
+	} catch (error) {
+		if (fs.lstatSync(projectFolder, { throwIfNoEntry: false })?.isSymbolicLink()) {
+			fs.unlinkSync(projectFolder);
+		}
+		if (projectPrefix && fs.existsSync(managedRoot)) {
+			fs.renameSync(managedRoot, stagingRoot);
+		}
+		fs.renameSync(backupPath, projectFolder);
+		throw error;
+	}
+	fs.rmSync(backupPath, { recursive: true, force: true });
+}
+
+function assertSafeLiveReplacementTarget(context: ContextExplorerGitContext): void {
+	const projectFolder = assertAbsoluteProjectPath(context.projectFolder);
+	getManagedLiveRepositoryContainer(context.projectId, projectFolder);
+	const stat = fs.lstatSync(projectFolder);
+	if (stat.isSymbolicLink()) {
+		throw new Error('Refusing to replace a live project symlink that is not managed by nao.');
+	}
+	if (!stat.isDirectory()) {
+		throw new Error('The configured live project path is not a directory.');
+	}
+	const home = path.resolve(process.env.HOME ?? '');
+	const applicationRepository = discoverLiveRepositoryRoot(process.cwd());
+	if (
+		projectFolder === path.parse(projectFolder).root ||
+		projectFolder === home ||
+		(applicationRepository !== null && isSameOrAncestor(projectFolder, applicationRepository))
+	) {
+		throw new Error('Refusing to replace an unsafe live project path.');
+	}
+	const configPath = path.join(projectFolder, 'nao_config.yaml');
+	const configStat = fs.lstatSync(configPath, { throwIfNoEntry: false });
+	if (!configStat?.isFile() || configStat.isSymbolicLink()) {
+		throw new Error('The live project folder must contain its expected nao_config.yaml before replacement.');
+	}
+	fs.accessSync(path.dirname(projectFolder), fs.constants.W_OK);
+}
+
+function validateManagedLiveProjectSymlink(context: ContextExplorerGitContext): void {
+	const projectFolder = path.resolve(context.projectFolder);
+	const managedRoot = getManagedLiveRepositoryContainer(context.projectId, projectFolder);
+	const repositoryRoot = path.join(managedRoot, 'repository');
+	const target = fs.realpathSync(projectFolder);
+	if (target === fs.realpathSync(repositoryRoot) || !isSameOrAncestor(fs.realpathSync(repositoryRoot), target)) {
+		throw new Error('Refusing to use a live project symlink that is not managed by nao.');
+	}
+}
+
+function getManagedLiveRepositoriesParent(projectFolder: string): string {
+	return path.join(path.dirname(projectFolder), '.nao', 'live-repositories');
+}
+
+function getManagedLiveRepositoryContainer(projectId: string, projectFolder: string): string {
+	if (!/^[A-Za-z0-9_-]+$/.test(projectId)) {
+		throw new Error('Invalid project id for managed live repository path.');
+	}
+	return path.join(getManagedLiveRepositoriesParent(projectFolder), projectId);
+}
+
+function validateLiveProjectAtHead(repositoryRoot: string, projectPrefix: string): void {
+	const configPath = projectPrefix ? `${projectPrefix}/nao_config.yaml` : 'nao_config.yaml';
+	if (readOptionalGitValue(repositoryRoot, ['cat-file', '-t', `HEAD:${configPath}`]) !== 'blob') {
+		throw new ContextProjectResolutionError(
+			'project-not-found',
+			'No tracked nao_config.yaml was found for the live context project.',
+		);
+	}
+}
+
+function readInitialLiveFiles(repositoryRoot: string, newCommit: string, projectPrefix: string): LiveContextPullFile[] {
+	const emptyTree = runGit(repositoryRoot, ['hash-object', '-t', 'tree', '/dev/null']).toString().trim();
+	return readLivePullFiles(repositoryRoot, emptyTree, newCommit, projectPrefix);
+}
+
+function synchronizeConnectedDefaultWorktrees(
+	context: ContextExplorerGitContext & { token: string },
+	repo: ResolvedContextRepo,
+	provider: ContextRepositoryProvider,
+): void {
+	const worktreesParent = path.dirname(
+		getContextWorktreePath(context.projectId, context.projectFolder, context.userId),
+	);
+	const matchingClone = discoverLiveRepositoryRoot(context.projectFolder);
+	let entries: string[];
+	try {
+		entries = fs.readdirSync(worktreesParent);
+	} catch {
+		return;
+	}
+	for (const entry of entries) {
+		const candidate = { ...repo, worktreeRoot: path.join(worktreesParent, entry) };
+		if (!isHealthyWorktree(candidate, provider)) {
+			continue;
+		}
+		try {
+			synchronizeDefaultContextWorktree(candidate, context.projectFolder, matchingClone, provider, context.token);
+		} catch {
+			continue;
+		}
+	}
+}
+
+function assertAbsoluteProjectPath(projectFolder: string): string {
+	if (!path.isAbsolute(projectFolder) || path.resolve(projectFolder) !== projectFolder) {
+		throw new Error('The configured live project path must be an exact absolute path.');
+	}
+	return projectFolder;
+}
+
+function isSameOrAncestor(candidate: string, target: string): boolean {
+	const relative = path.relative(candidate, target);
+	return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
 export function getDeploymentContextSource(): DeploymentContextSource | null {
@@ -1057,7 +1479,7 @@ async function discardPath(repo: ResolvedContextRepo, projectFolder: string, fil
 }
 
 function synchronizeDefaultContextWorktree(
-	repo: UnresolvedContextRepo,
+	repo: Pick<UnresolvedContextRepo, 'provider' | 'repoFullName' | 'source' | 'worktreeRoot'>,
 	projectFolder: string,
 	matchingClone: string | null,
 	provider: ContextRepositoryProvider,
@@ -1074,18 +1496,12 @@ function synchronizeDefaultContextWorktree(
 		return;
 	}
 	let targetCommit = readOptionalGitValue(repo.worktreeRoot, ['rev-parse', `origin/${defaultBranch}`]);
-	if (matchingClone && isGitContextSource()) {
-		targetCommit = readLiveDefaultCommit(projectFolder, defaultBranch);
-	} else if (repo.source === 'deployment') {
+	if (matchingClone || repo.source === 'deployment') {
 		const liveCommit = readLiveDefaultCommit(projectFolder, defaultBranch);
-		if (liveCommit) {
-			if (!hasCommit(repo.worktreeRoot, liveCommit)) {
-				fetchContextRepository(repo, projectFolder, provider, token);
-			}
-			targetCommit = hasCommit(repo.worktreeRoot, liveCommit)
-				? liveCommit
-				: readOptionalGitValue(repo.worktreeRoot, ['rev-parse', `origin/${defaultBranch}`]);
+		if (liveCommit && !hasCommit(repo.worktreeRoot, liveCommit)) {
+			fetchContextRepository(repo, projectFolder, provider, token);
 		}
+		targetCommit = liveCommit && hasCommit(repo.worktreeRoot, liveCommit) ? liveCommit : targetCommit;
 	}
 	if (!targetCommit) {
 		return;
@@ -1127,11 +1543,20 @@ function provisionByClone(
 	token: string,
 ): void {
 	assertSafeDestructiveWorktreeTarget(repo.worktreeRoot, projectFolder);
-	runGit(
-		path.dirname(repo.worktreeRoot),
-		['clone', provider.authenticatedRepoUrl(token, repo.repoFullName), repo.worktreeRoot],
-		GIT_OPERATION_TIMEOUT_MS,
-	);
+	if (isFirstPartyOAuthProvider(repo.provider, provider)) {
+		runGitWithOAuth(
+			path.dirname(repo.worktreeRoot),
+			['clone', provider.publicRepoUrl(repo.repoFullName), repo.worktreeRoot],
+			getGitOAuthCredential(repo.provider, token),
+			GIT_OPERATION_TIMEOUT_MS,
+		);
+	} else {
+		runGit(
+			path.dirname(repo.worktreeRoot),
+			['clone', provider.authenticatedRepoUrl(token, repo.repoFullName), repo.worktreeRoot],
+			GIT_OPERATION_TIMEOUT_MS,
+		);
+	}
 	runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
 		'remote',
 		'set-url',
@@ -1161,20 +1586,40 @@ function provisionByClone(
 }
 
 function fetchContextRepository(
-	repo: Pick<ResolvedContextRepo, 'worktreeRoot' | 'repoFullName'>,
+	repo: Pick<ResolvedContextRepo, 'worktreeRoot' | 'repoFullName' | 'provider'>,
 	projectFolder: string,
 	provider: ContextRepositoryProvider,
 	token: string,
 ): void {
 	try {
-		runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
-			'fetch',
-			provider.authenticatedRepoUrl(token, repo.repoFullName),
-			'+refs/heads/*:refs/remotes/origin/*',
-		]);
+		if (isFirstPartyOAuthProvider(repo.provider, provider)) {
+			assertSafeDestructiveWorktreeTarget(repo.worktreeRoot, projectFolder);
+			runGitWithOAuth(
+				repo.worktreeRoot,
+				['fetch', provider.publicRepoUrl(repo.repoFullName), '+refs/heads/*:refs/remotes/origin/*'],
+				getGitOAuthCredential(repo.provider, token),
+				GIT_OPERATION_TIMEOUT_MS,
+			);
+		} else {
+			runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
+				'fetch',
+				provider.authenticatedRepoUrl(token, repo.repoFullName),
+				'+refs/heads/*:refs/remotes/origin/*',
+			]);
+		}
 	} catch (error) {
 		throw sanitizeGitError(error, token);
 	}
+}
+
+function isFirstPartyOAuthProvider(
+	providerName: ResolvedContextRepo['provider'],
+	provider: ContextRepositoryProvider,
+): providerName is RepoProvider {
+	return (
+		(providerName === 'github' && provider === REVIEW_REQUEST_PROVIDERS.github) ||
+		(providerName === 'gitlab' && provider === REVIEW_REQUEST_PROVIDERS.gitlab)
+	);
 }
 
 function readLiveDefaultCommit(projectFolder: string, defaultBranch: string): string | null {
@@ -1223,7 +1668,10 @@ function findMatchingLocalClone(
 	}
 }
 
-function isHealthyWorktree(repo: UnresolvedContextRepo, provider: ContextRepositoryProvider): boolean {
+function isHealthyWorktree(
+	repo: Pick<UnresolvedContextRepo, 'worktreeRoot' | 'repoFullName'>,
+	provider: ContextRepositoryProvider,
+): boolean {
 	const topLevel = tryRunGit(repo.worktreeRoot, ['rev-parse', '--show-toplevel'])?.toString().trim();
 	const origin = tryRunGit(repo.worktreeRoot, ['remote', 'get-url', 'origin'])?.toString().trim();
 	return (
@@ -1681,7 +2129,7 @@ function normalizeVirtualPath(filePath: string): string {
 	return `/${normalizeProjectPath(filePath)}`;
 }
 
-export function normalizeRemote(remote: string | undefined): string {
+export function normalizeRemote(remote: string | null | undefined): string {
 	const value = remote?.trim();
 	if (!value) {
 		return '';
@@ -1807,9 +2255,9 @@ function fromLiveRepoPath(repoPath: string, projectPrefix: string): string | nul
 	return repoPath.startsWith(prefix) ? repoPath.slice(prefix.length) : null;
 }
 
-export function sanitizeLiveContextError(error: unknown): Error {
+export function sanitizeLiveContextError(error: unknown, oauthToken?: string | null): Error {
 	let message = error instanceof Error ? error.message : 'Git pull failed.';
-	for (const secret of [env.NAO_CONTEXT_GIT_TOKEN, env.NAO_CONTEXT_GIT_SSH_KEY]) {
+	for (const secret of [env.NAO_CONTEXT_GIT_TOKEN, env.NAO_CONTEXT_GIT_SSH_KEY, oauthToken]) {
 		if (secret) {
 			message = message.replaceAll(secret, '[redacted]');
 		}

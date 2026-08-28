@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatChangedFileCount, getHiddenPullFileCount, getVisiblePullFiles } from './live-context-history';
+import {
+	formatChangedFileCount,
+	getHiddenPullFileCount,
+	getVisiblePullFiles,
+	hasHistoricalPullRange,
+} from './live-context-history';
 
 describe('live context pull history', () => {
 	it.each([
@@ -18,5 +23,10 @@ describe('live context pull history', () => {
 		expect(getVisiblePullFiles(files, true)).toEqual(files);
 		expect(getHiddenPullFileCount(files.length)).toBe(2);
 		expect(getHiddenPullFileCount(2)).toBe(0);
+	});
+
+	it('only enables historical diffs when both commits exist', () => {
+		expect(hasHistoricalPullRange('a'.repeat(40), 'b'.repeat(40))).toBe(true);
+		expect(hasHistoricalPullRange(null, 'b'.repeat(40))).toBe(false);
 	});
 });

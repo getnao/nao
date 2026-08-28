@@ -24,6 +24,7 @@ import {
 	getChangedContextFiles,
 	getContextFileDiff,
 	getContextRepositoryStatus,
+	type LiveContextPullResult,
 	pullLiveContext,
 	resolveContextExplorerGit,
 	resolveContextExplorerGitSafely,
@@ -57,7 +58,10 @@ const pullFileSchema = z.object({
 const pullPayloadSchema = z.object({
 	configuredBranch: z.string().max(200),
 	changed: z.boolean(),
-	oldCommit: z.string().regex(/^[a-f0-9]{40,64}$/),
+	oldCommit: z
+		.string()
+		.regex(/^[a-f0-9]{40,64}$/)
+		.nullable(),
 	newCommit: z.string().regex(/^[a-f0-9]{40,64}$/),
 	files: z.array(pullFileSchema).max(1_000),
 });
@@ -74,11 +78,12 @@ export const contextExplorerRoutes = {
 
 	pullLiveContext: adminProtectedProcedure.mutation(async ({ ctx }) => {
 		const activity = await activityQueries.startContextPullActivity(ctx.project.id, ctx.user.id);
-		let result: ReturnType<typeof pullLiveContext>;
+		const gitContext = await createGitContext(ctx.project.id, ctx.project.path, ctx.user);
+		let result: LiveContextPullResult;
 		try {
-			result = pullLiveContext(requireProjectPath(ctx.project.path));
+			result = await pullLiveContext(gitContext);
 		} catch (error) {
-			const sanitizedError = sanitizeLiveContextError(error);
+			const sanitizedError = sanitizeLiveContextError(error, gitContext.token);
 			try {
 				await activityQueries.failActivity(activity.id, sanitizedError.message);
 			} catch (persistenceError) {

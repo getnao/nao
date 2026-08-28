@@ -261,6 +261,7 @@ describe('live context update access', () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
 		mocks.getUserRoleInProject.mockResolvedValue('admin');
+		mocks.getGithubToken.mockResolvedValue('github-token');
 		mocks.resolveContextRepository.mockResolvedValue({ provider: 'github' });
 		mocks.getContextRepositoryStatus.mockResolvedValue({
 			liveContextUpdate: { enabled: true, available: true, configuredBranch: 'main' },
@@ -283,7 +284,14 @@ describe('live context update access', () => {
 		await expect(createCaller().pullLiveContext()).resolves.toMatchObject({ changed: false, files: [] });
 
 		expect(mocks.startContextPullActivity).toHaveBeenCalledWith('project-id', 'user-id');
-		expect(mocks.pullLiveContext).toHaveBeenCalledWith('/tmp/nao-project');
+		expect(mocks.pullLiveContext).toHaveBeenCalledWith(
+			expect.objectContaining({
+				projectId: 'project-id',
+				projectFolder: '/tmp/nao-project',
+				userId: 'user-id',
+				token: 'github-token',
+			}),
+		);
 		expect(mocks.completeActivity).toHaveBeenCalledWith('activity-id', {
 			configuredBranch: 'main',
 			changed: false,
@@ -310,6 +318,45 @@ describe('live context update access', () => {
 			'activity-id',
 			expect.objectContaining({ configuredBranch: 'main', changed: true, files }),
 		);
+	});
+
+	it('records and parses a first repository clone without an old commit', async () => {
+		mocks.pullLiveContext.mockReturnValue({
+			changed: true,
+			checkedAt: '2026-08-27T10:00:00.000Z',
+			configuredBranch: 'main',
+			oldCommit: null,
+			newCommit: 'b'.repeat(40),
+			files: [{ path: '/context.md', additions: 1, deletions: 0 }],
+		});
+
+		await createCaller().pullLiveContext();
+
+		expect(mocks.completeActivity).toHaveBeenCalledWith(
+			'activity-id',
+			expect.objectContaining({ oldCommit: null, newCommit: 'b'.repeat(40) }),
+		);
+		mocks.listContextPullActivities.mockResolvedValue([
+			{
+				id: 'initial-clone',
+				status: 'completed',
+				payload: {
+					configuredBranch: 'main',
+					changed: true,
+					oldCommit: null,
+					newCommit: 'b'.repeat(40),
+					files: [{ path: '/context.md', additions: 1, deletions: 0 }],
+				},
+				errorMessage: null,
+				startedAt: new Date('2026-08-27T10:00:00.000Z'),
+				completedAt: new Date('2026-08-27T10:00:01.000Z'),
+				actorName: 'Admin User',
+			},
+		]);
+
+		await expect(createCaller().getLiveContextPullHistory()).resolves.toEqual([
+			expect.objectContaining({ oldCommit: null, newCommit: 'b'.repeat(40) }),
+		]);
 	});
 
 	it('returns a successful pull when completing its history fails', async () => {

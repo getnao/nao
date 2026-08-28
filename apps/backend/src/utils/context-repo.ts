@@ -115,7 +115,7 @@ export function resolveContextProject(
 			? validateDeploymentContextSubpath(repo.worktreeRoot, env.NAO_CONTEXT_GIT_SUBPATH)
 			: matchingCloneRoot
 				? resolvePrefixFromClone(matchingCloneRoot, projectFolder)
-				: resolvePrefixFromTrackedConfigs(repo.worktreeRoot);
+				: resolveTrackedContextProjectPrefix(repo.worktreeRoot);
 	prefixCache.set(repo.worktreeRoot, { commit, resolutionKey, prefix });
 	return { ...repo, branch: readCurrentBranch(repo.worktreeRoot), projectPrefix: prefix };
 }
@@ -336,7 +336,7 @@ function resolveContextRepoPlatform(repo: ContextRepo): GitPlatform | null {
 	return env.NAO_CONTEXT_GIT_PLATFORM ?? detectGitPlatform(repo.repoFullName);
 }
 
-function resolvePrefixFromTrackedConfigs(worktreeRoot: string): string {
+export function resolveTrackedContextProjectPrefix(worktreeRoot: string): string {
 	const output = runGit(worktreeRoot, ['ls-files', '-z', '--', 'nao_config.yaml', ':(glob)**/nao_config.yaml']);
 	const candidates = parseNullDelimited(output);
 	if (candidates.length === 0) {

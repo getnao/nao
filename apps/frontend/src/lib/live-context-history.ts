@@ -11,3 +11,7 @@ export function getVisiblePullFiles<T>(files: T[], expanded: boolean): T[] {
 export function getHiddenPullFileCount(fileCount: number): number {
 	return Math.max(0, fileCount - INITIAL_PULL_FILE_LIMIT);
 }
+
+export function hasHistoricalPullRange(from: string | null, to: string | null): boolean {
+	return from !== null && to !== null;
+}

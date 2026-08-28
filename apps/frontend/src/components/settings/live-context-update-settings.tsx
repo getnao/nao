@@ -9,7 +9,12 @@ import type { LiveContextRepository } from '@/lib/live-context-links';
 import { Button } from '@/components/ui/button';
 import { ErrorMessage } from '@/components/ui/error-message';
 import { SettingsCard } from '@/components/ui/settings-card';
-import { formatChangedFileCount, getHiddenPullFileCount, getVisiblePullFiles } from '@/lib/live-context-history';
+import {
+	formatChangedFileCount,
+	getHiddenPullFileCount,
+	getVisiblePullFiles,
+	hasHistoricalPullRange,
+} from '@/lib/live-context-history';
 import { buildCommitUrl } from '@/lib/live-context-links';
 import { trpc } from '@/main';
 
@@ -55,7 +60,8 @@ export function LiveContextUpdateSettings({ status, repository, isAdmin }: LiveC
 		<SettingsCard
 			title='Update context files'
 			icon={<RefreshCw className='size-4' />}
-			description={`Pull the latest changes from Git`}
+			description={`Pull the latest changes from ${status.configuredBranch}`}
+			rootClassName='mt-5'
 			action={
 				<Button
 					size='sm'
@@ -202,7 +208,7 @@ function PullFileList({
 			<ul className='space-y-1 text-sm'>
 				{visibleFiles.map((file) => (
 					<li key={file.path} className='flex min-w-0 items-center justify-between gap-4'>
-						{from && to ? (
+						{hasHistoricalPullRange(from, to) && from && to ? (
 							<Link
 								to='/settings/context-explorer'
 								search={{ path: file.path, from, to }}
