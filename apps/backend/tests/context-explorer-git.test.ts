@@ -106,7 +106,9 @@ import {
 	getChangedContextFiles,
 	getContextRepositoryStatus,
 	getDeploymentContextSource,
+	getLiveContextUpdateStatus,
 	normalizeRemote,
+	pullLiveContext,
 	resolveContextExplorerGit,
 	resolveContextExplorerGitSafely,
 	sanitizeContextSourceRepositoryUrl,
@@ -114,7 +116,11 @@ import {
 } from '../src/services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../src/services/context-explorer-pr.service';
 import { GENERIC_GIT_PROVIDER, parseGenericRepositoryUrl, parseReviewRequestLink } from '../src/services/generic-git';
-import { getContextWorktreePath, resolveContextRepository } from '../src/utils/context-repo';
+import {
+	getContextWorktreePath,
+	resolveContextRepository,
+	validateDeploymentContextSubpath,
+} from '../src/utils/context-repo';
 
 describe('deployment context source', () => {
 	let originalEnv: typeof process.env;
@@ -469,6 +475,241 @@ describe('deployment context source', () => {
 	});
 });
 
+describe('live deployment context updates', () => {
+	const temporaryRoots: string[] = [];
+	let originalEnv: typeof process.env;
+
+	beforeEach(() => {
+		originalEnv = { ...process.env };
+		contextConfigMocks.getConfig.mockResolvedValue(null);
+	});
+
+	afterEach(() => {
+		for (const root of temporaryRoots.splice(0)) {
+			fs.rmSync(root, { recursive: true, force: true });
+		}
+		branchOwnershipMocks.owners.clear();
+		vi.clearAllMocks();
+		process.env = originalEnv;
+		__reloadEnvForTesting();
+	});
+
+	it('rejects a configured context subfolder that is missing', async () => {
+		const fixture = createLocalCloneFixture(temporaryRoots);
+		runGit(fixture.live, ['remote', 'set-url', 'origin', fixture.bare]);
+		setContextSourceEnv({
+			url: fixture.bare,
+			branch: 'main',
+			subpath: 'example',
+			sshKey: 'deployment-key',
+		});
+		fixture.context = {
+			...baseContext(fixture.live),
+			configOverride: undefined,
+			token: '',
+			providerOverride: localProvider(fixture.bare, fixture.bare),
+		};
+
+		await expect(resolveContextExplorerGit(fixture.context)).resolves.toMatchObject({
+			status: 'unavailable',
+			reason: 'project-not-found',
+			message: 'The configured context subfolder "example" was not found in the repository.',
+		});
+		expect(getLiveContextUpdateStatus(fixture.live)).toMatchObject({
+			available: false,
+			unavailableReason: 'The configured context subfolder "example" was not found in the repository.',
+			configurationError: 'The configured context subfolder "example" was not found in the repository.',
+		});
+		const liveCommit = runGit(fixture.live, ['rev-parse', 'HEAD']).toString().trim();
+		writeRemoteChange(fixture, 'project/context.md', 'must not be pulled\n');
+
+		expect(() => pullLiveContext(fixture.live)).toThrow(
+			'The configured context subfolder "example" was not found in the repository.',
+		);
+		expect(runGit(fixture.live, ['rev-parse', 'HEAD']).toString().trim()).toBe(liveCommit);
+	});
+
+	it('rejects a configured context subfolder without a tracked nao config', () => {
+		const fixture = createFixture(temporaryRoots, {
+			'nao_config.yaml': 'name: root\n',
+			'example/context.md': 'context\n',
+		});
+
+		expect(() => validateDeploymentContextSubpath(fixture.seed, 'example')).toThrow(
+			'No tracked nao_config.yaml was found in the configured context subfolder "example".',
+		);
+	});
+
+	it.each([
+		[undefined, '', { 'nao_config.yaml': 'name: root\n' }],
+		['///', '', { 'nao_config.yaml': 'name: root\n' }],
+		['example', 'example', { 'example/nao_config.yaml': 'name: example\n' }],
+	] as const)('accepts configured context subpath %s', (configuredSubpath, expectedPrefix, files) => {
+		const fixture = createFixture(temporaryRoots, files);
+
+		expect(validateDeploymentContextSubpath(fixture.seed, configuredSubpath)).toBe(expectedPrefix);
+	});
+
+	it('fast-forwards the live checkout and reports context-only file stats', () => {
+		const fixture = createLocalCloneFixture(temporaryRoots);
+		runGit(fixture.live, ['remote', 'set-url', 'origin', fixture.bare]);
+		setContextSourceEnv({
+			url: fixture.bare,
+			branch: 'main',
+			subpath: 'project',
+			sshKey: 'deployment-key',
+		});
+		const oldCommit = runGit(fixture.live, ['rev-parse', 'HEAD']).toString().trim();
+		fs.writeFileSync(path.join(fixture.seed, 'project', 'context.md'), 'updated context\nsecond line\n');
+		fs.writeFileSync(path.join(fixture.seed, 'project', 'binary.dat'), Buffer.from([0, 1, 2, 3]));
+		fs.writeFileSync(path.join(fixture.seed, 'outside.md'), 'not part of this nao project\n');
+		commitAll(fixture.seed, 'update deployed context');
+		runGit(fixture.seed, ['push', fixture.bare, 'main']);
+
+		const result = pullLiveContext(fixture.live);
+
+		expect(result).toMatchObject({
+			changed: true,
+			oldCommit,
+			newCommit: runGit(fixture.seed, ['rev-parse', 'HEAD']).toString().trim(),
+			files: [
+				{ path: '/binary.dat', additions: null, deletions: null },
+				{ path: '/context.md', additions: 2, deletions: 1 },
+			],
+		});
+		expect(new Date(result.checkedAt).toISOString()).toBe(result.checkedAt);
+		expect(result.files.some((file) => file.path === '/outside.md')).toBe(false);
+		expect(getLiveContextUpdateStatus(fixture.live)).toMatchObject({
+			enabled: true,
+			available: true,
+			configuredBranch: 'main',
+			lastCheckedAt: expect.any(String),
+		});
+	});
+
+	it('returns already-up-to-date semantics when the live commit does not change', () => {
+		const fixture = createLocalCloneFixture(temporaryRoots);
+		runGit(fixture.live, ['remote', 'set-url', 'origin', fixture.bare]);
+		setContextSourceEnv({ url: fixture.bare, branch: 'main', subpath: 'project', sshKey: 'deployment-key' });
+		const commit = runGit(fixture.live, ['rev-parse', 'HEAD']).toString().trim();
+
+		expect(pullLiveContext(fixture.live)).toMatchObject({
+			changed: false,
+			oldCommit: commit,
+			newCommit: commit,
+			files: [],
+		});
+	});
+
+	it('rejects updates outside Git deployment mode and from the wrong live branch', () => {
+		const fixture = createLocalCloneFixture(temporaryRoots);
+		runGit(fixture.live, ['remote', 'set-url', 'origin', fixture.bare]);
+		setContextSourceEnv({ source: null });
+
+		expect(() => pullLiveContext(fixture.live)).toThrow(
+			'Live context updates are only available when NAO_CONTEXT_SOURCE is set to git.',
+		);
+
+		setContextSourceEnv({ url: fixture.bare, branch: 'main', subpath: 'project', sshKey: 'deployment-key' });
+		runGit(fixture.live, ['switch', '-c', 'other']);
+
+		expect(() => pullLiveContext(fixture.live)).toThrow(
+			'The live checkout is on "other", not the configured "main" branch.',
+		);
+	});
+
+	it('keeps a linked default worktree at live HEAD when origin advances first', async () => {
+		const fixture = createLocalCloneFixture(temporaryRoots);
+		runGit(fixture.live, ['remote', 'set-url', 'origin', fixture.bare]);
+		fixture.context.providerOverride = localProvider(fixture.bare, fixture.bare);
+		setContextSourceEnv({
+			url: fixture.bare,
+			branch: 'main',
+			subpath: 'project',
+			sshKey: 'deployment-key',
+		});
+		const repo = await ensureContextWorktree(fixture.context);
+		const liveCommit = runGit(fixture.live, ['rev-parse', 'HEAD']).toString().trim();
+		writeRemoteChange(fixture, 'project/context.md', 'fetched but not pulled\n');
+		runGit(fixture.live, ['fetch', 'origin', 'main']);
+		const remoteCommit = runGit(fixture.live, ['rev-parse', 'origin/main']).toString().trim();
+
+		expect(remoteCommit).not.toBe(liveCommit);
+		await ensureContextWorktree(fixture.context);
+		expect(runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(liveCommit);
+
+		const pull = pullLiveContext(fixture.live);
+		await ensureContextWorktree(fixture.context);
+
+		expect(pull.newCommit).toBe(remoteCommit);
+		expect(runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(remoteCommit);
+	});
+
+	it('updates only clean detached default worktrees after the live pull', async () => {
+		const fixture = createLocalCloneFixture(temporaryRoots);
+		runGit(fixture.live, ['remote', 'set-url', 'origin', fixture.bare]);
+		fixture.context.providerOverride = localProvider(fixture.bare, fixture.bare);
+		const cleanContext = fixture.context;
+		const dirtyContext = { ...fixture.context, userId: 'dirty-user' };
+		const branchContext = { ...fixture.context, userId: 'branch-user' };
+		const cleanRepo = await ensureContextWorktree(cleanContext);
+		const dirtyRepo = await ensureContextWorktree(dirtyContext);
+		const branchRepo = await ensureContextWorktree(branchContext);
+		fs.writeFileSync(path.join(dirtyRepo.worktreeRoot, 'project', 'context.md'), 'uncommitted work\n');
+		await createContextBranch(branchContext, 'nao/personal');
+		const oldCommit = runGit(cleanRepo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();
+		setContextSourceEnv({
+			url: fixture.bare,
+			branch: 'main',
+			subpath: 'project',
+			sshKey: 'deployment-key',
+		});
+		writeRemoteChange(fixture, 'project/context.md', 'new deployed context\n');
+
+		const pull = pullLiveContext(fixture.live);
+		await ensureContextWorktree(cleanContext);
+		await ensureContextWorktree(dirtyContext);
+		await ensureContextWorktree(branchContext);
+
+		expect(pull.changed).toBe(true);
+		expect(runGit(cleanRepo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(pull.newCommit);
+		expect(runGit(dirtyRepo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(oldCommit);
+		expect(fs.readFileSync(path.join(dirtyRepo.worktreeRoot, 'project', 'context.md'), 'utf8')).toBe(
+			'uncommitted work\n',
+		);
+		expect(runGit(branchRepo.worktreeRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).toString().trim()).toBe(
+			'nao/personal',
+		);
+		expect(runGit(branchRepo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(oldCommit);
+	});
+
+	it('fetches a standalone deployment worktree only when the live default advances', async () => {
+		const fixture = createLocalCloneFixture(temporaryRoots);
+		runGit(fixture.live, ['remote', 'set-url', 'origin', fixture.bare]);
+		setContextSourceEnv({
+			url: fixture.bare,
+			branch: 'main',
+			subpath: 'project',
+			sshKey: 'deployment-key',
+		});
+		fixture.context = {
+			...baseContext(fixture.live),
+			configOverride: undefined,
+			token: '',
+			providerOverride: localProvider(fixture.bare, fixture.bare),
+		};
+		const repo = await ensureContextWorktree(fixture.context);
+		const oldCommit = runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();
+		writeRemoteChange(fixture, 'project/context.md', 'standalone update\n');
+
+		const pull = pullLiveContext(fixture.live);
+		await ensureContextWorktree(fixture.context);
+
+		expect(pull.newCommit).not.toBe(oldCommit);
+		expect(runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(pull.newCommit);
+	});
+});
+
 describe('repository remote normalization', () => {
 	it.each([
 		['git@github.com:nao/context.git', 'https://github.com/nao/context'],
@@ -773,7 +1014,12 @@ describe('context explorer worktrees', () => {
 
 	it('falls back to deployment Git after disconnecting a cloned project', async () => {
 		const fixture = createLocalCloneFixture(temporaryRoots);
-		setContextSourceEnv({ url: fixture.bare, sshKey: 'deployment-key', platform: 'gitlab' });
+		setContextSourceEnv({
+			url: fixture.bare,
+			subpath: 'project',
+			sshKey: 'deployment-key',
+			platform: 'gitlab',
+		});
 		fixture.context.configOverride = undefined;
 		let connected = true;
 		contextConfigMocks.getConfig.mockImplementation(async () =>

@@ -10,6 +10,7 @@ import GitlabIcon from '@/components/icons/gitlab-icon.svg';
 import { DeploymentManagedGitSettings } from '@/components/settings/deployment-managed-git-settings';
 import { GithubRepoList } from '@/components/settings/github-repo-list';
 import { GitlabRepoList } from '@/components/settings/gitlab-repo-list';
+import { LiveContextUpdateSettings } from '@/components/settings/live-context-update-settings';
 import { ConnectedProviderAccount, ProviderConnectionCard } from '@/components/settings/provider-connection-card';
 import {
 	AlertDialog,
@@ -302,6 +303,7 @@ function GitSettingsPage() {
 						{showDeploymentPanel && (
 							<DeploymentManagedGitSettings
 								contextSource={status.contextSource}
+								configurationError={status.liveContextUpdate.configurationError}
 								recommendedSetupVisible={showRecommendedSetup}
 								onToggleRecommendedSetup={() => {
 									setShowRecommendedSetup((visible) => !visible);
@@ -514,6 +516,9 @@ function GitSettingsPage() {
 									)}
 								</NumberedSetupSection>
 							</div>
+						)}
+						{status?.liveContextUpdate.enabled && (
+							<LiveContextUpdateSettings status={status.liveContextUpdate} isAdmin={isAdmin} />
 						)}
 					</>
 				)}

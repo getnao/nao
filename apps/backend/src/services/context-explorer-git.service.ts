@@ -28,6 +28,7 @@ import {
 	sanitizeContextSourceRepositoryUrl,
 	toContextRepoState,
 	toRepoPath,
+	validateDeploymentContextSubpath,
 } from '../utils/context-repo';
 import type { GitIdentity } from '../utils/git-identity';
 import { withCoAuthors } from '../utils/git-identity';
@@ -78,6 +79,7 @@ export interface ContextRepositoryStatus {
 	repositoryUrl: string | null;
 	managedByContextSource: boolean;
 	contextSource: DeploymentContextSource | null;
+	liveContextUpdate: LiveContextUpdateStatus;
 	gitUnavailableReason: ContextGitUnavailableReason | null;
 	gitUnavailableMessage: string | null;
 	lastCommitMessage: string | null;
@@ -92,6 +94,30 @@ export interface DeploymentContextSource {
 	branch: string | null;
 	subpath: string | null;
 	authMethod: 'token' | 'ssh-key' | 'public';
+}
+
+export interface LiveContextUpdateStatus {
+	enabled: boolean;
+	available: boolean;
+	configuredBranch: string;
+	lastCheckedAt: string | null;
+	unavailableReason: string | null;
+	configurationError: string | null;
+}
+
+export interface LiveContextPullFile {
+	path: string;
+	additions: number | null;
+	deletions: number | null;
+}
+
+export interface LiveContextPullResult {
+	changed: boolean;
+	checkedAt: string;
+	configuredBranch: string;
+	oldCommit: string;
+	newCommit: string;
+	files: LiveContextPullFile[];
 }
 
 export interface CreateBranchAndCommitInput {
@@ -282,6 +308,7 @@ export async function ensureContextWorktree(
 		}
 		invalidateContextProjectPrefix(unresolved.worktreeRoot);
 	}
+	synchronizeDefaultContextWorktree(unresolved, context.projectFolder, matchingClone, provider, context.token);
 	return resolveContextProject(unresolved, context.projectFolder, matchingClone);
 }
 
@@ -290,6 +317,7 @@ export async function getContextRepositoryStatus(context: ContextExplorerGitCont
 	const contextSourceStatus = {
 		managedByContextSource: contextSource !== null,
 		contextSource,
+		liveContextUpdate: getLiveContextUpdateStatus(context.projectFolder),
 	};
 	try {
 		const resolution = await resolveContextExplorerGit(context);
@@ -347,6 +375,144 @@ export async function getContextRepositoryStatus(context: ContextExplorerGitCont
 			isGitRepository: false,
 		};
 	}
+}
+
+export function getLiveContextUpdateStatus(projectFolder: string): LiveContextUpdateStatus {
+	const configuredBranch = env.NAO_CONTEXT_GIT_BRANCH || 'main';
+	if (!isGitContextSource()) {
+		return {
+			enabled: false,
+			available: false,
+			configuredBranch,
+			lastCheckedAt: null,
+			unavailableReason: null,
+			configurationError: null,
+		};
+	}
+	if (!isValidBranch(configuredBranch)) {
+		return {
+			enabled: true,
+			available: false,
+			configuredBranch,
+			lastCheckedAt: null,
+			unavailableReason: 'NAO_CONTEXT_GIT_BRANCH is not a valid Git branch name.',
+			configurationError: null,
+		};
+	}
+	const repositoryRoot = discoverLiveRepositoryRoot(projectFolder);
+	if (!repositoryRoot) {
+		return {
+			enabled: true,
+			available: false,
+			configuredBranch,
+			lastCheckedAt: null,
+			unavailableReason: 'The live project folder is not inside a Git repository.',
+			configurationError: null,
+		};
+	}
+	const lastCheckedAt = readFetchHeadTime(repositoryRoot);
+	try {
+		validateDeploymentContextSubpath(repositoryRoot, env.NAO_CONTEXT_GIT_SUBPATH);
+	} catch (error) {
+		if (error instanceof ContextProjectResolutionError) {
+			return {
+				enabled: true,
+				available: false,
+				configuredBranch,
+				lastCheckedAt,
+				unavailableReason: error.message,
+				configurationError: error.message,
+			};
+		}
+		throw error;
+	}
+	const currentBranch = readCurrentBranchFromPath(repositoryRoot);
+	if (currentBranch !== configuredBranch) {
+		return {
+			enabled: true,
+			available: false,
+			configuredBranch,
+			lastCheckedAt,
+			unavailableReason: currentBranch
+				? `The live checkout is on "${currentBranch}", not the configured "${configuredBranch}" branch.`
+				: `The live checkout is detached; check out the configured "${configuredBranch}" branch first.`,
+			configurationError: null,
+		};
+	}
+	if (!readOptionalGitValue(repositoryRoot, ['remote', 'get-url', 'origin'])) {
+		return {
+			enabled: true,
+			available: false,
+			configuredBranch,
+			lastCheckedAt,
+			unavailableReason: 'The live Git repository does not have an origin remote.',
+			configurationError: null,
+		};
+	}
+	return {
+		enabled: true,
+		available: true,
+		configuredBranch,
+		lastCheckedAt,
+		unavailableReason: null,
+		configurationError: null,
+	};
+}
+
+export function pullLiveContext(projectFolder: string): LiveContextPullResult {
+	if (!isGitContextSource()) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: 'Live context updates are only available when NAO_CONTEXT_SOURCE is set to git.',
+		});
+	}
+	const configuredBranch = env.NAO_CONTEXT_GIT_BRANCH || 'main';
+	if (!isValidBranch(configuredBranch)) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: 'NAO_CONTEXT_GIT_BRANCH is not a valid Git branch name.',
+		});
+	}
+	const repositoryRoot = discoverLiveRepositoryRoot(projectFolder);
+	if (!repositoryRoot) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: 'The live project folder is not inside a Git repository.',
+		});
+	}
+	validateDeploymentContextSubpath(repositoryRoot, env.NAO_CONTEXT_GIT_SUBPATH);
+	const currentBranch = readCurrentBranchFromPath(repositoryRoot);
+	if (currentBranch !== configuredBranch) {
+		throw new TRPCError({
+			code: 'CONFLICT',
+			message: currentBranch
+				? `The live checkout is on "${currentBranch}", not the configured "${configuredBranch}" branch.`
+				: `The live checkout is detached; check out the configured "${configuredBranch}" branch first.`,
+		});
+	}
+	if (!readOptionalGitValue(repositoryRoot, ['remote', 'get-url', 'origin'])) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: 'The live Git repository does not have an origin remote.',
+		});
+	}
+	const projectPrefix = resolveLiveProjectPrefix(repositoryRoot, projectFolder);
+	const oldCommit = runGit(repositoryRoot, ['rev-parse', 'HEAD']).toString().trim();
+	try {
+		runGit(repositoryRoot, ['pull', '--ff-only', 'origin', configuredBranch], GIT_OPERATION_TIMEOUT_MS);
+	} catch (error) {
+		throw sanitizeLiveContextError(error);
+	}
+	const checkedAt = new Date().toISOString();
+	const newCommit = runGit(repositoryRoot, ['rev-parse', 'HEAD']).toString().trim();
+	return {
+		changed: oldCommit !== newCommit,
+		checkedAt,
+		configuredBranch,
+		oldCommit,
+		newCommit,
+		files: oldCommit === newCommit ? [] : readLivePullFiles(repositoryRoot, oldCommit, newCommit, projectPrefix),
+	};
 }
 
 export function getDeploymentContextSource(): DeploymentContextSource | null {
@@ -810,6 +976,52 @@ async function discardPath(repo: ResolvedContextRepo, projectFolder: string, fil
 	fs.unlinkSync(target);
 }
 
+function synchronizeDefaultContextWorktree(
+	repo: UnresolvedContextRepo,
+	projectFolder: string,
+	matchingClone: string | null,
+	provider: ContextRepositoryProvider,
+	token: string,
+): void {
+	if (readCurrentBranchFromPath(repo.worktreeRoot) || !isEntireWorktreeClean(repo.worktreeRoot)) {
+		return;
+	}
+	const defaultBranch =
+		repo.provider === 'generic'
+			? env.NAO_CONTEXT_GIT_BRANCH || 'main'
+			: readDefaultBranchFromRefs(repo.worktreeRoot);
+	if (!defaultBranch) {
+		return;
+	}
+	let targetCommit = readOptionalGitValue(repo.worktreeRoot, ['rev-parse', `origin/${defaultBranch}`]);
+	if (matchingClone && isGitContextSource()) {
+		targetCommit = readLiveDefaultCommit(projectFolder, defaultBranch);
+	} else if (repo.source === 'deployment') {
+		const liveCommit = readLiveDefaultCommit(projectFolder, defaultBranch);
+		if (liveCommit) {
+			if (!hasCommit(repo.worktreeRoot, liveCommit)) {
+				fetchContextRepository(repo, projectFolder, provider, token);
+			}
+			targetCommit = hasCommit(repo.worktreeRoot, liveCommit)
+				? liveCommit
+				: readOptionalGitValue(repo.worktreeRoot, ['rev-parse', `origin/${defaultBranch}`]);
+		}
+	}
+	if (!targetCommit) {
+		return;
+	}
+	const currentCommit = readOptionalGitValue(repo.worktreeRoot, ['rev-parse', 'HEAD']);
+	if (currentCommit === targetCommit) {
+		return;
+	}
+	runDestructiveWorktreeGit(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
+		'switch',
+		'--detach',
+		targetCommit,
+	]);
+	invalidateContextProjectPrefix(repo.worktreeRoot);
+}
+
 function provisionFromLocalClone(repo: UnresolvedContextRepo, projectFolder: string, sourceRoot: string): void {
 	const defaultBranch = readDefaultBranchFromRefs(sourceRoot) ?? readCurrentBranchFromPath(sourceRoot);
 	if (!defaultBranch) {
@@ -869,7 +1081,7 @@ function provisionByClone(
 }
 
 function fetchContextRepository(
-	repo: ResolvedContextRepo,
+	repo: Pick<ResolvedContextRepo, 'worktreeRoot' | 'repoFullName'>,
 	projectFolder: string,
 	provider: ContextRepositoryProvider,
 	token: string,
@@ -883,6 +1095,22 @@ function fetchContextRepository(
 	} catch (error) {
 		throw sanitizeGitError(error, token);
 	}
+}
+
+function readLiveDefaultCommit(projectFolder: string, defaultBranch: string): string | null {
+	const repositoryRoot = discoverLiveRepositoryRoot(projectFolder);
+	if (!repositoryRoot || readCurrentBranchFromPath(repositoryRoot) !== defaultBranch) {
+		return null;
+	}
+	return readOptionalGitValue(repositoryRoot, ['rev-parse', 'HEAD']);
+}
+
+function hasCommit(cwd: string, commit: string): boolean {
+	return tryRunGit(cwd, ['cat-file', '-e', `${commit}^{commit}`]) !== null;
+}
+
+function isEntireWorktreeClean(worktreeRoot: string): boolean {
+	return runGit(worktreeRoot, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', '.']).length === 0;
 }
 
 function readDefaultBranch(repo: ResolvedContextRepo): string {
@@ -1354,15 +1582,19 @@ function validateRepoFullName(repoFullName: string): void {
 }
 
 function validateBranch(branch: string): void {
-	if (
+	if (!isValidBranch(branch)) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid repository branch.' });
+	}
+}
+
+function isValidBranch(branch: string): boolean {
+	return !(
 		!/^[\w][\w./-]*$/.test(branch) ||
 		branch.includes('..') ||
 		branch.includes('//') ||
 		branch.endsWith('/') ||
 		branch.endsWith('.lock')
-	) {
-		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid repository branch.' });
-	}
+	);
 }
 
 function normalizeVirtualPath(filePath: string): string {
@@ -1413,6 +1645,103 @@ function sameRealPath(left: string, right: string): boolean {
 
 function isGitContextSource(): boolean {
 	return env.NAO_CONTEXT_SOURCE === 'git';
+}
+
+function discoverLiveRepositoryRoot(projectFolder: string): string | null {
+	const root = tryRunGit(projectFolder, ['rev-parse', '--show-toplevel'])?.toString().trim();
+	if (!root) {
+		return null;
+	}
+	try {
+		const projectPath = fs.realpathSync(projectFolder);
+		const repositoryPath = fs.realpathSync(root);
+		const relative = path.relative(repositoryPath, projectPath);
+		return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative)) ? repositoryPath : null;
+	} catch {
+		return null;
+	}
+}
+
+function resolveLiveProjectPrefix(repositoryRoot: string, projectFolder: string): string {
+	const relative = path.relative(fs.realpathSync(repositoryRoot), fs.realpathSync(projectFolder));
+	if (relative.startsWith('..') || path.isAbsolute(relative)) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'The live project folder is outside its Git repository.' });
+	}
+	return relative.split(path.sep).join('/');
+}
+
+function readFetchHeadTime(repositoryRoot: string): string | null {
+	const gitPath = readOptionalGitValue(repositoryRoot, ['rev-parse', '--git-path', 'FETCH_HEAD']);
+	if (!gitPath) {
+		return null;
+	}
+	try {
+		const fetchHeadPath = path.isAbsolute(gitPath) ? gitPath : path.resolve(repositoryRoot, gitPath);
+		return fs.statSync(fetchHeadPath).mtime.toISOString();
+	} catch {
+		return null;
+	}
+}
+
+function readLivePullFiles(
+	repositoryRoot: string,
+	oldCommit: string,
+	newCommit: string,
+	projectPrefix: string,
+): LiveContextPullFile[] {
+	const output = runGit(repositoryRoot, [
+		'diff',
+		'--numstat',
+		'-z',
+		'--no-renames',
+		oldCommit,
+		newCommit,
+		'--',
+		projectPrefix || '.',
+	]);
+	const files: LiveContextPullFile[] = [];
+	for (const record of output.toString().split('\0')) {
+		const firstTab = record.indexOf('\t');
+		const secondTab = record.indexOf('\t', firstTab + 1);
+		if (firstTab < 0 || secondTab < 0) {
+			continue;
+		}
+		const filePath = fromLiveRepoPath(record.slice(secondTab + 1), projectPrefix);
+		if (!filePath) {
+			continue;
+		}
+		files.push({
+			path: `/${filePath}`,
+			additions: parseLineCount(record.slice(0, firstTab)),
+			deletions: parseLineCount(record.slice(firstTab + 1, secondTab)),
+		});
+	}
+	return files.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function fromLiveRepoPath(repoPath: string, projectPrefix: string): string | null {
+	if (!projectPrefix) {
+		return repoPath;
+	}
+	const prefix = `${projectPrefix}/`;
+	return repoPath.startsWith(prefix) ? repoPath.slice(prefix.length) : null;
+}
+
+export function sanitizeLiveContextError(error: unknown): Error {
+	let message = error instanceof Error ? error.message : 'Git pull failed.';
+	for (const secret of [env.NAO_CONTEXT_GIT_TOKEN, env.NAO_CONTEXT_GIT_SSH_KEY]) {
+		if (secret) {
+			message = message.replaceAll(secret, '[redacted]');
+		}
+	}
+	message = message.replace(/(https?:\/\/)[^/\s@]+@/gi, '$1[redacted]@');
+	if (/Not possible to fast-forward|divergent branches|non-fast-forward/i.test(message)) {
+		return new Error('The live context branch has diverged and cannot be updated with a fast-forward pull.');
+	}
+	if (/local changes.*would be overwritten|would be overwritten by merge/i.test(message)) {
+		return new Error('The live context has local changes that would be overwritten by this update.');
+	}
+	return new Error(translateGitErrorMessage(message) ?? message);
 }
 
 function resolveContextSourceAuthMethod(): DeploymentContextSource['authMethod'] {

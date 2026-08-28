@@ -28,6 +28,16 @@ export interface CreateActivityInput {
 	payload?: Record<string, unknown> | null;
 }
 
+export interface ContextPullActivityRow {
+	id: string;
+	status: DBActivity['status'];
+	payload: Record<string, unknown> | null;
+	errorMessage: string | null;
+	startedAt: Date;
+	completedAt: Date | null;
+	actorName: string | null;
+}
+
 export const createActivity = async (input: CreateActivityInput): Promise<DBActivity> => {
 	const values: NewActivity = {
 		projectId: input.projectId,
@@ -43,6 +53,40 @@ export const createActivity = async (input: CreateActivityInput): Promise<DBActi
 	};
 	const [created] = await db.insert(s.activity).values(values).returning().execute();
 	return created;
+};
+
+export const startContextPullActivity = async (projectId: string, userId: string): Promise<DBActivity> => {
+	return createActivity({
+		projectId,
+		userId,
+		type: 'context.pulled',
+		trigger: 'manual',
+		status: 'running',
+	});
+};
+
+export const listContextPullActivities = async (projectId: string): Promise<ContextPullActivityRow[]> => {
+	return db
+		.select({
+			id: s.activity.id,
+			status: s.activity.status,
+			payload: s.activity.payload,
+			errorMessage: s.activity.errorMessage,
+			startedAt: s.activity.startedAt,
+			completedAt: s.activity.completedAt,
+			actorName: s.user.name,
+		})
+		.from(s.activity)
+		.leftJoin(s.user, eq(s.user.id, s.activity.userId))
+		.where(
+			and(
+				eq(s.activity.projectId, projectId),
+				eq(s.activity.type, 'context.pulled'),
+				eq(s.activity.trigger, 'manual'),
+			),
+		)
+		.orderBy(desc(s.activity.startedAt))
+		.execute();
 };
 
 /**

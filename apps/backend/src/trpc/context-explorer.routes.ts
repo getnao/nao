@@ -2,6 +2,7 @@ import { REPO_PROVIDERS, type RepoProvider } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import * as activityQueries from '../queries/activity.queries';
 import * as userQueries from '../queries/user.queries';
 import type { ContextExplorerFileAccess } from '../services/context-explorer.service';
 import {
@@ -23,22 +24,83 @@ import {
 	getChangedContextFiles,
 	getContextFileDiff,
 	getContextRepositoryStatus,
+	pullLiveContext,
 	resolveContextExplorerGit,
 	resolveContextExplorerGitSafely,
+	sanitizeLiveContextError,
 	suggestContextBranchName,
 	switchContextBranch,
 } from '../services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../services/context-explorer-pr.service';
 import { getRepoProviderDisplayName } from '../services/review-request-provider';
 import { resolveContextRepository, resolveContextSourceGitToken } from '../utils/context-repo';
-import { contextAdminProtectedProcedure } from './trpc';
+import { logger, serializeError } from '../utils/logger';
+import { adminProtectedProcedure, contextAdminProtectedProcedure } from './trpc';
 
 const branchSchema = z.string().trim().min(1).max(200);
 const pathsSchema = z.array(z.string()).min(1).max(100);
+const pullFileSchema = z.object({
+	path: z.string().max(2_000),
+	additions: z.number().int().nonnegative().nullable(),
+	deletions: z.number().int().nonnegative().nullable(),
+});
+const pullPayloadSchema = z.object({
+	configuredBranch: z.string().max(200),
+	changed: z.boolean(),
+	oldCommit: z.string().regex(/^[a-f0-9]{40,64}$/),
+	newCommit: z.string().regex(/^[a-f0-9]{40,64}$/),
+	files: z.array(pullFileSchema).max(1_000),
+});
 
 export const contextExplorerRoutes = {
 	getRepositoryStatus: contextAdminProtectedProcedure.query(async ({ ctx }) => {
 		return getContextRepositoryStatus(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
+	}),
+
+	getLiveContextPullHistory: contextAdminProtectedProcedure.query(async ({ ctx }) => {
+		const activities = await activityQueries.listContextPullActivities(ctx.project.id);
+		return activities.map(toContextPullHistoryEntry);
+	}),
+
+	pullLiveContext: adminProtectedProcedure.mutation(async ({ ctx }) => {
+		const activity = await activityQueries.startContextPullActivity(ctx.project.id, ctx.user.id);
+		let result: ReturnType<typeof pullLiveContext>;
+		try {
+			result = pullLiveContext(requireProjectPath(ctx.project.path));
+		} catch (error) {
+			const sanitizedError = sanitizeLiveContextError(error);
+			try {
+				await activityQueries.failActivity(activity.id, sanitizedError.message);
+			} catch (persistenceError) {
+				logPullHistoryFailure(
+					'Context pull failed, but its history could not be updated.',
+					ctx.project.id,
+					activity.id,
+					persistenceError,
+				);
+			}
+			throw new TRPCError({
+				code: error instanceof TRPCError ? error.code : 'INTERNAL_SERVER_ERROR',
+				message: sanitizedError.message,
+			});
+		}
+		try {
+			await activityQueries.completeActivity(activity.id, {
+				configuredBranch: result.configuredBranch,
+				changed: result.changed,
+				oldCommit: result.oldCommit,
+				newCommit: result.newCommit,
+				files: result.files,
+			});
+		} catch (persistenceError) {
+			logPullHistoryFailure(
+				'Context pull completed, but its history could not be saved.',
+				ctx.project.id,
+				activity.id,
+				persistenceError,
+			);
+		}
+		return result;
 	}),
 
 	connectRepository: contextAdminProtectedProcedure
@@ -172,6 +234,30 @@ export const contextExplorerRoutes = {
 		return pushContextExplorerBranch(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
 	}),
 };
+
+function toContextPullHistoryEntry(activity: activityQueries.ContextPullActivityRow) {
+	const payload = pullPayloadSchema.safeParse(activity.payload);
+	return {
+		id: activity.id,
+		status: activity.status,
+		startedAt: activity.startedAt,
+		completedAt: activity.completedAt,
+		actorName: activity.actorName,
+		configuredBranch: payload.success ? payload.data.configuredBranch : null,
+		changed: payload.success ? payload.data.changed : null,
+		oldCommit: payload.success ? payload.data.oldCommit : null,
+		newCommit: payload.success ? payload.data.newCommit : null,
+		files: payload.success ? payload.data.files : [],
+		errorMessage: activity.status === 'failed' ? (activity.errorMessage ?? 'Context pull failed.') : null,
+	};
+}
+
+function logPullHistoryFailure(message: string, projectId: string, activityId: string, error: unknown): void {
+	logger.warn(message, {
+		source: 'system',
+		context: { projectId, activityId, error: serializeError(error) },
+	});
+}
 
 async function createSafeFileAccess(
 	projectId: string,

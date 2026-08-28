@@ -1,18 +1,40 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+	completeActivity: vi.fn(),
 	connectContextRepository: vi.fn(),
+	failActivity: vi.fn(),
 	getFileTree: vi.fn(),
 	getGithubToken: vi.fn(),
 	getGitlabToken: vi.fn(),
+	getContextRepositoryStatus: vi.fn(),
+	getUserRoleInProject: vi.fn(),
+	listContextPullActivities: vi.fn(),
+	loggerWarn: vi.fn(),
+	pullLiveContext: vi.fn(),
 	readFileContent: vi.fn(),
 	resolveContextExplorerGit: vi.fn(),
 	resolveContextExplorerGitSafely: vi.fn(),
 	resolveContextRepository: vi.fn(),
+	sanitizeLiveContextError: vi.fn((error: unknown) =>
+		error instanceof Error ? error : new Error('Context pull failed.'),
+	),
+	startContextPullActivity: vi.fn(),
 	writeFileContent: vi.fn(),
 }));
 
 vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));
+vi.mock('../src/services/sso-group-mapping.service', () => ({ isGroupRoleMappingActive: vi.fn(async () => false) }));
+vi.mock('../src/utils/logger', () => ({
+	logger: { warn: mocks.loggerWarn },
+	serializeError: (error: unknown) => ({ message: error instanceof Error ? error.message : String(error) }),
+}));
+vi.mock('../src/queries/activity.queries', () => ({
+	completeActivity: mocks.completeActivity,
+	failActivity: mocks.failActivity,
+	listContextPullActivities: mocks.listContextPullActivities,
+	startContextPullActivity: mocks.startContextPullActivity,
+}));
 
 vi.mock('../src/queries/project.queries', () => ({
 	getProjectByUserId: vi.fn(async () => ({
@@ -21,7 +43,7 @@ vi.mock('../src/queries/project.queries', () => ({
 		path: '/tmp/nao-project',
 		envVars: {},
 	})),
-	getUserRoleInProject: vi.fn(async () => 'admin'),
+	getUserRoleInProject: mocks.getUserRoleInProject,
 }));
 
 vi.mock('../src/queries/user.queries', () => ({
@@ -47,9 +69,11 @@ vi.mock('../src/services/context-explorer-git.service', () => ({
 	disconnectContextRepository: vi.fn(),
 	getChangedContextFiles: vi.fn(),
 	getContextFileDiff: vi.fn(),
-	getContextRepositoryStatus: vi.fn(),
+	getContextRepositoryStatus: mocks.getContextRepositoryStatus,
+	pullLiveContext: mocks.pullLiveContext,
 	resolveContextExplorerGit: mocks.resolveContextExplorerGit,
 	resolveContextExplorerGitSafely: mocks.resolveContextExplorerGitSafely,
+	sanitizeLiveContextError: mocks.sanitizeLiveContextError,
 	suggestContextBranchName: vi.fn(),
 	switchContextBranch: vi.fn(),
 }));
@@ -72,6 +96,7 @@ const testRouter = router(contextExplorerRoutes);
 describe('context explorer repository connection', () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
+		mocks.getUserRoleInProject.mockResolvedValue('admin');
 		mocks.getGithubToken.mockResolvedValue('github-token');
 		mocks.getGitlabToken.mockResolvedValue('gitlab-token');
 		mocks.resolveContextRepository.mockResolvedValue({
@@ -135,6 +160,7 @@ describe('context explorer repository connection', () => {
 describe('context explorer file access', () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
+		mocks.getUserRoleInProject.mockResolvedValue('admin');
 		mocks.getGithubToken.mockResolvedValue('github-token');
 		mocks.resolveContextRepository.mockResolvedValue({ provider: 'github' });
 	});
@@ -196,6 +222,143 @@ describe('context explorer file access', () => {
 			'0'.repeat(64),
 			expect.objectContaining({ git: availableGit }),
 		);
+	});
+});
+
+describe('live context update access', () => {
+	beforeEach(() => {
+		vi.resetAllMocks();
+		mocks.getUserRoleInProject.mockResolvedValue('admin');
+		mocks.resolveContextRepository.mockResolvedValue({ provider: 'github' });
+		mocks.getContextRepositoryStatus.mockResolvedValue({
+			liveContextUpdate: { enabled: true, available: true, configuredBranch: 'main' },
+		});
+		mocks.sanitizeLiveContextError.mockImplementation((error: unknown) =>
+			error instanceof Error ? error : new Error('Context pull failed.'),
+		);
+		mocks.startContextPullActivity.mockResolvedValue({ id: 'activity-id' });
+		mocks.pullLiveContext.mockReturnValue({
+			changed: false,
+			checkedAt: '2026-08-27T10:00:00.000Z',
+			configuredBranch: 'main',
+			oldCommit: 'a'.repeat(40),
+			newCommit: 'a'.repeat(40),
+			files: [],
+		});
+	});
+
+	it('records a successful no-change pull for project admins', async () => {
+		await expect(createCaller().pullLiveContext()).resolves.toMatchObject({ changed: false, files: [] });
+
+		expect(mocks.startContextPullActivity).toHaveBeenCalledWith('project-id', 'user-id');
+		expect(mocks.pullLiveContext).toHaveBeenCalledWith('/tmp/nao-project');
+		expect(mocks.completeActivity).toHaveBeenCalledWith('activity-id', {
+			configuredBranch: 'main',
+			changed: false,
+			oldCommit: 'a'.repeat(40),
+			newCommit: 'a'.repeat(40),
+			files: [],
+		});
+	});
+
+	it('records changed file details for a successful pull', async () => {
+		const files = [{ path: '/context.md', additions: 2, deletions: 1 }];
+		mocks.pullLiveContext.mockReturnValue({
+			changed: true,
+			checkedAt: '2026-08-27T10:00:00.000Z',
+			configuredBranch: 'main',
+			oldCommit: 'a'.repeat(40),
+			newCommit: 'b'.repeat(40),
+			files,
+		});
+
+		await createCaller().pullLiveContext();
+
+		expect(mocks.completeActivity).toHaveBeenCalledWith(
+			'activity-id',
+			expect.objectContaining({ configuredBranch: 'main', changed: true, files }),
+		);
+	});
+
+	it('returns a successful pull when completing its history fails', async () => {
+		mocks.completeActivity.mockRejectedValue(new Error('database unavailable'));
+
+		await expect(createCaller().pullLiveContext()).resolves.toMatchObject({ changed: false });
+
+		expect(mocks.failActivity).not.toHaveBeenCalled();
+		expect(mocks.loggerWarn).toHaveBeenCalledWith('Context pull completed, but its history could not be saved.', {
+			source: 'system',
+			context: {
+				projectId: 'project-id',
+				activityId: 'activity-id',
+				error: { message: 'database unavailable' },
+			},
+		});
+	});
+
+	it('records sanitized pull failures', async () => {
+		mocks.pullLiveContext.mockImplementation(() => {
+			throw new Error('safe pull failure');
+		});
+
+		await expect(createCaller().pullLiveContext()).rejects.toThrow('safe pull failure');
+
+		expect(mocks.failActivity).toHaveBeenCalledWith('activity-id', 'safe pull failure');
+	});
+
+	it('lets context admins read status but not pull the live context', async () => {
+		mocks.getUserRoleInProject.mockResolvedValue('context_admin');
+
+		await expect(createCaller().getRepositoryStatus()).resolves.toMatchObject({
+			liveContextUpdate: { enabled: true, available: true },
+		});
+		await expect(createCaller().pullLiveContext()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(mocks.pullLiveContext).not.toHaveBeenCalled();
+	});
+
+	it('returns safely parsed history newest first to context admins', async () => {
+		mocks.getUserRoleInProject.mockResolvedValue('context_admin');
+		mocks.listContextPullActivities.mockResolvedValue([
+			{
+				id: 'newest',
+				status: 'completed',
+				payload: {
+					configuredBranch: 'main',
+					changed: true,
+					oldCommit: 'a'.repeat(40),
+					newCommit: 'b'.repeat(40),
+					files: [{ path: '/context.md', additions: 1, deletions: 0 }],
+				},
+				errorMessage: null,
+				startedAt: new Date('2026-08-27T11:00:00.000Z'),
+				completedAt: new Date('2026-08-27T11:00:01.000Z'),
+				actorName: 'Admin User',
+			},
+			{
+				id: 'older',
+				status: 'failed',
+				payload: { untrusted: true },
+				errorMessage: 'Safe failure',
+				startedAt: new Date('2026-08-27T10:00:00.000Z'),
+				completedAt: new Date('2026-08-27T10:00:01.000Z'),
+				actorName: null,
+			},
+		]);
+
+		await expect(createCaller().getLiveContextPullHistory()).resolves.toEqual([
+			expect.objectContaining({
+				id: 'newest',
+				actorName: 'Admin User',
+				changed: true,
+				files: [{ path: '/context.md', additions: 1, deletions: 0 }],
+			}),
+			expect.objectContaining({
+				id: 'older',
+				changed: null,
+				files: [],
+				errorMessage: 'Safe failure',
+			}),
+		]);
 	});
 });
 
