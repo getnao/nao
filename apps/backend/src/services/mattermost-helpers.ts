@@ -6,6 +6,7 @@ import { env } from '../env';
 import type { SqlOutput } from '../types/messaging-provider';
 
 export const MATTERMOST_CALLBACK_CONTENT_TYPE = 'application/json';
+export const MATTERMOST_FEEDBACK_PROP = 'nao_feedback';
 export const MATTERMOST_POST_MAX_LENGTH = 16_383;
 export const MATTERMOST_TABLE_ROW_LIMIT = 20;
 
@@ -18,6 +19,16 @@ export type MattermostReactionFeedback =
 	| { action: 'delete'; vote: 'up' | 'down' };
 
 export type MattermostAuthorType = 'bot' | 'human' | 'unknown';
+
+export type MattermostFeedbackMetadata = {
+	version: 1;
+	assistantMessageId: string;
+	signature: string;
+};
+
+export type MattermostFeedbackMetadataValidation =
+	| { valid: true; assistantMessageId: string }
+	| { valid: false; reason: 'missing' | 'malformed' | 'invalid_signature' };
 
 export type MattermostStopAttachment = {
 	color: '#522bff';
@@ -69,9 +80,47 @@ export function verifyMattermostActionSecret(projectId: string, postId: string, 
 		return false;
 	}
 	const expected = createMattermostActionSecret(projectId, postId);
-	const expectedBuffer = Buffer.from(expected);
-	const candidateBuffer = Buffer.from(candidate);
-	return expectedBuffer.length === candidateBuffer.length && timingSafeEqual(expectedBuffer, candidateBuffer);
+	return timingSafeStringEqual(expected, candidate);
+}
+
+export function createMattermostFeedbackMetadata(
+	projectId: string,
+	postId: string,
+	assistantMessageId: string,
+): MattermostFeedbackMetadata {
+	return {
+		version: 1,
+		assistantMessageId,
+		signature: createMattermostFeedbackSignature(projectId, postId, assistantMessageId),
+	};
+}
+
+export function verifyMattermostFeedbackMetadata(
+	props: unknown,
+	projectId: string,
+	postId: string,
+): MattermostFeedbackMetadataValidation {
+	if (!props || typeof props !== 'object' || Array.isArray(props) || !(MATTERMOST_FEEDBACK_PROP in props)) {
+		return { valid: false, reason: 'missing' };
+	}
+	const metadata = (props as Record<string, unknown>)[MATTERMOST_FEEDBACK_PROP];
+	if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+		return { valid: false, reason: 'malformed' };
+	}
+	const { version, assistantMessageId, signature } = metadata as Record<string, unknown>;
+	if (
+		version !== 1 ||
+		typeof assistantMessageId !== 'string' ||
+		assistantMessageId.length === 0 ||
+		typeof signature !== 'string'
+	) {
+		return { valid: false, reason: 'malformed' };
+	}
+	const expected = createMattermostFeedbackSignature(projectId, postId, assistantMessageId);
+	if (!timingSafeStringEqual(expected, signature)) {
+		return { valid: false, reason: 'invalid_signature' };
+	}
+	return { valid: true, assistantMessageId };
 }
 
 export function createMattermostCallbackResponse(): Record<string, never> {
@@ -239,6 +288,32 @@ export async function patchMattermostAnswerPost(input: {
 	if (!response.ok) {
 		throw new Error(`Mattermost post patch failed with status ${response.status}`);
 	}
+}
+
+export async function fetchMattermostPost(input: {
+	baseUrl: string;
+	botToken: string;
+	postId: string;
+	fetchImpl?: typeof fetch;
+}): Promise<MattermostPostPlacement | null> {
+	const url = createMattermostPostUrl(input.baseUrl, input.postId);
+	const response = await (input.fetchImpl ?? fetch)(url, {
+		headers: {
+			Accept: 'application/json',
+			Authorization: `Bearer ${input.botToken}`,
+		},
+	});
+	if (response.status === 404) {
+		return null;
+	}
+	if (!response.ok) {
+		throw new Error(`Mattermost post fetch failed with status ${response.status}`);
+	}
+	const post = (await response.json()) as Record<string, unknown>;
+	if (post.id !== input.postId || typeof post.channel_id !== 'string') {
+		throw new Error('Mattermost post fetch returned malformed data');
+	}
+	return post as MattermostPostPlacement;
 }
 
 export function createMattermostMarkdownTable(input: {
@@ -409,10 +484,27 @@ function escapeRegex(value: string): string {
 }
 
 function createMattermostPostPatchUrl(baseUrl: string, postId: string): URL {
+	const url = createMattermostPostUrl(baseUrl, postId);
+	url.pathname = `${url.pathname}/patch`;
+	return url;
+}
+
+function createMattermostPostUrl(baseUrl: string, postId: string): URL {
 	const url = new URL(baseUrl);
 	const basePath = url.pathname.replace(/\/$/, '');
-	url.pathname = `${basePath}/api/v4/posts/${encodeURIComponent(postId)}/patch`;
+	url.pathname = `${basePath}/api/v4/posts/${encodeURIComponent(postId)}`;
 	return url;
+}
+
+function createMattermostFeedbackSignature(projectId: string, postId: string, assistantMessageId: string): string {
+	const payload = JSON.stringify(['mattermost_feedback', 1, projectId, postId, assistantMessageId]);
+	return createHmac('sha256', env.BETTER_AUTH_SECRET).update(payload).digest('base64url');
+}
+
+function timingSafeStringEqual(expected: string, candidate: string): boolean {
+	const expectedBuffer = Buffer.from(expected);
+	const candidateBuffer = Buffer.from(candidate);
+	return expectedBuffer.length === candidateBuffer.length && timingSafeEqual(expectedBuffer, candidateBuffer);
 }
 
 function createOmissionLines(omittedRows: number, omittedColumns: number): string[] {

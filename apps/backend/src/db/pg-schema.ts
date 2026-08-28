@@ -307,7 +307,6 @@ export const chatMessage = pgTable(
 		supersededAt: timestamp('superseded_at'),
 		versionGroupId: text('version_group_id'),
 		source: text('source', { enum: MESSAGE_SOURCES }),
-		mattermostPostId: text('mattermost_post_id'),
 		isForked: boolean('isForked'),
 		citation: jsonb('citation').$type<CitationData>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -326,7 +325,6 @@ export const chatMessage = pgTable(
 		index('chat_message_chatId_idx').on(table.chatId),
 		index('chat_message_createdAt_idx').on(table.createdAt),
 		index('chat_message_versionGroupId_idx').on(table.versionGroupId),
-		uniqueIndex('chat_message_mattermostPostId_idx').on(table.mattermostPostId),
 	],
 );
 

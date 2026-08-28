@@ -32,13 +32,16 @@ import { agentService } from './agent';
 import {
 	cacheMattermostEmail,
 	createMattermostActionSecret,
+	createMattermostFeedbackMetadata,
 	createMattermostMarkdownTable,
 	createMattermostStopAttachment,
+	fetchMattermostPost,
 	fetchMattermostUserEmail,
 	fetchMattermostUserProfile,
 	getMattermostLoginCommandForUnlinkedUser,
 	getMattermostPostBaseProps,
 	hasExplicitMattermostMention,
+	MATTERMOST_FEEDBACK_PROP,
 	MATTERMOST_POST_MAX_LENGTH,
 	type MattermostAuthorType,
 	type MattermostEmailCache,
@@ -50,6 +53,7 @@ import {
 	resolveMattermostThreadId,
 	shouldHandleMattermostMessage,
 	truncateMattermostMarkdown,
+	verifyMattermostFeedbackMetadata,
 } from './mattermost-helpers';
 import { posthog, PostHogEvent } from './posthog';
 
@@ -141,7 +145,8 @@ class ProjectMattermostBot {
 				added: event.added,
 				emojiName: event.emoji.name,
 				isBot: event.user.isMe || event.user.isBot === true,
-				mattermostPostId: event.messageId,
+				postId: event.messageId,
+				post: event.message?.raw as MattermostPostPlacement | undefined,
 			});
 		});
 	}
@@ -786,7 +791,8 @@ class ProjectMattermostBot {
 	private async _patchAnswerPost(
 		postId: string,
 		updateState: (state: MattermostAnswerPostState) => boolean | void,
-	): Promise<void> {
+	): Promise<boolean> {
+		let patched = false;
 		await this._mutateAnswerPost(postId, async () => {
 			const state = this._answerPostStates.get(postId);
 			if (!state || updateState(state) === false) {
@@ -810,7 +816,9 @@ class ProjectMattermostBot {
 				attachments,
 			});
 			state.appliedStopAttached = state.stopAttached;
+			patched = true;
 		});
+		return patched;
 	}
 
 	private async _mutateAnswerPost(postId: string, mutation: () => Promise<void>): Promise<void> {
@@ -833,17 +841,37 @@ class ProjectMattermostBot {
 		if (!ctx.convMessage || !assistantMessageId) {
 			return;
 		}
-		const attached = await chatQueries.attachMattermostPostToAssistant(assistantMessageId, ctx.convMessage.id);
-		if (!attached) {
-			logger.warn('Could not associate Mattermost answer post with assistant message', {
+		const postId = ctx.convMessage.id;
+		const metadata = createMattermostFeedbackMetadata(this._config.projectId, postId, assistantMessageId);
+		try {
+			const persisted = await this._patchAnswerPost(postId, (state) => {
+				state.baseProps = {
+					...state.baseProps,
+					[MATTERMOST_FEEDBACK_PROP]: metadata,
+				};
+			});
+			if (!persisted) {
+				logger.warn(
+					'Could not persist Mattermost feedback metadata because the answer post state was missing',
+					{
+						source: 'system',
+						projectId: this._config.projectId,
+						context: { postId },
+					},
+				);
+				return;
+			}
+		} catch (error) {
+			logger.warn(`Could not persist Mattermost feedback metadata: ${String(error)}`, {
 				source: 'system',
 				projectId: this._config.projectId,
+				context: { postId },
 			});
 			return;
 		}
 		const results = await Promise.allSettled([
-			this._adapter.addReaction(ctx.thread.id, ctx.convMessage.id, '+1'),
-			this._adapter.addReaction(ctx.thread.id, ctx.convMessage.id, '-1'),
+			this._adapter.addReaction(ctx.thread.id, postId, '+1'),
+			this._adapter.addReaction(ctx.thread.id, postId, '-1'),
 		]);
 		if (results.some((result) => result.status === 'rejected')) {
 			logger.warn('Failed to seed one or more Mattermost feedback reactions', {
@@ -857,23 +885,71 @@ class ProjectMattermostBot {
 		added: boolean;
 		emojiName: string;
 		isBot: boolean;
-		mattermostPostId: string;
+		postId: string;
+		post?: MattermostPostPlacement;
 	}): Promise<void> {
 		const feedback = resolveMattermostReactionFeedback(input);
 		if (!feedback) {
 			return;
 		}
-		const messageId = await chatQueries.getAssistantMessageIdByMattermostPost(
-			input.mattermostPostId,
-			this._config.projectId,
-		);
-		if (!messageId) {
+		let post = input.post?.id === input.postId ? input.post : null;
+		if (!post) {
+			try {
+				post = await fetchMattermostPost({
+					baseUrl: this._config.baseUrl,
+					botToken: this._config.botToken,
+					postId: input.postId,
+				});
+			} catch (error) {
+				logger.warn(`Could not fetch Mattermost feedback post: ${String(error)}`, {
+					source: 'system',
+					projectId: this._config.projectId,
+					context: { postId: input.postId },
+				});
+				return;
+			}
+		}
+		if (!post) {
+			logger.warn('Ignoring Mattermost feedback reaction because the post was not found', {
+				source: 'system',
+				projectId: this._config.projectId,
+				context: { postId: input.postId },
+			});
 			return;
 		}
-		if (feedback.action === 'upsert') {
-			await feedbackQueries.upsertFeedback({ messageId, vote: feedback.vote });
-		} else {
-			await feedbackQueries.deleteFeedbackVote(messageId, feedback.vote);
+		const metadata = verifyMattermostFeedbackMetadata(post.props, this._config.projectId, input.postId);
+		if (!metadata.valid) {
+			logger.warn(`Ignoring Mattermost feedback reaction because post metadata is ${metadata.reason}`, {
+				source: 'system',
+				projectId: this._config.projectId,
+				context: { postId: input.postId },
+			});
+			return;
+		}
+		const belongsToProject = await chatQueries.isAssistantMessageInProject(
+			metadata.assistantMessageId,
+			this._config.projectId,
+		);
+		if (!belongsToProject) {
+			logger.warn('Ignoring Mattermost feedback reaction because the assistant message is missing or stale', {
+				source: 'system',
+				projectId: this._config.projectId,
+				context: { postId: input.postId, messageId: metadata.assistantMessageId },
+			});
+			return;
+		}
+		try {
+			if (feedback.action === 'upsert') {
+				await feedbackQueries.upsertFeedback({ messageId: metadata.assistantMessageId, vote: feedback.vote });
+			} else {
+				await feedbackQueries.deleteFeedbackVote(metadata.assistantMessageId, feedback.vote);
+			}
+		} catch (error) {
+			logger.error(`Failed to persist Mattermost feedback: ${String(error)}`, {
+				source: 'system',
+				projectId: this._config.projectId,
+				context: { postId: input.postId, messageId: metadata.assistantMessageId },
+			});
 		}
 	}
 

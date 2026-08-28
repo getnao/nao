@@ -728,37 +728,17 @@ export const getLastAssistantMessageId = async (chatId: string): Promise<string 
 	return result?.id ?? null;
 };
 
-export const attachMattermostPostToAssistant = async (
-	messageId: string,
-	mattermostPostId: string,
-): Promise<boolean> => {
-	const updated = await db
-		.update(s.chatMessage)
-		.set({ mattermostPostId })
-		.where(and(eq(s.chatMessage.id, messageId), eq(s.chatMessage.role, 'assistant')))
-		.returning({ id: s.chatMessage.id })
-		.execute();
-	return updated.length > 0;
-};
-
-export const getAssistantMessageIdByMattermostPost = async (
-	mattermostPostId: string,
-	projectId: string,
-): Promise<string | null> => {
+export const isAssistantMessageInProject = async (messageId: string, projectId: string): Promise<boolean> => {
 	const [result] = await db
 		.select({ id: s.chatMessage.id })
 		.from(s.chatMessage)
 		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
 		.where(
-			and(
-				eq(s.chatMessage.mattermostPostId, mattermostPostId),
-				eq(s.chatMessage.role, 'assistant'),
-				eq(s.chat.projectId, projectId),
-			),
+			and(eq(s.chatMessage.id, messageId), eq(s.chatMessage.role, 'assistant'), eq(s.chat.projectId, projectId)),
 		)
 		.limit(1)
 		.execute();
-	return result?.id ?? null;
+	return Boolean(result);
 };
 
 export const getChatBySlackThread = async (threadId: string): Promise<{ id: string; title: string } | null> => {

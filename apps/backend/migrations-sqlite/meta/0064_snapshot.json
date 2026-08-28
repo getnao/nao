@@ -1350,13 +1350,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "mattermost_post_id": {
-          "name": "mattermost_post_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "isForked": {
           "name": "isForked",
           "type": "integer",
@@ -1457,13 +1450,6 @@
             "version_group_id"
           ],
           "isUnique": false
-        },
-        "chat_message_mattermostPostId_idx": {
-          "name": "chat_message_mattermostPostId_idx",
-          "columns": [
-            "mattermost_post_id"
-          ],
-          "isUnique": true
         }
       },
       "foreignKeys": {

@@ -1518,12 +1518,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "mattermost_post_id": {
-          "name": "mattermost_post_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "isForked": {
           "name": "isForked",
           "type": "boolean",
@@ -1634,21 +1628,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "chat_message_mattermostPostId_idx": {
-          "name": "chat_message_mattermostPostId_idx",
-          "columns": [
-            {
-              "expression": "mattermost_post_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}

@@ -1,10 +1,12 @@
 import '../src/env';
 
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { eq } from 'drizzle-orm';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
-import { getAssistantMessageIdByMattermostPost } from '../src/queries/chat.queries';
+import { isAssistantMessageInProject } from '../src/queries/chat.queries';
+import { deleteFeedbackVote, upsertFeedback } from '../src/queries/feedback.queries';
 
 vi.mock('../src/db/db', async () => {
 	const { default: Database } = await import('better-sqlite3');
@@ -27,7 +29,6 @@ vi.mock('../src/db/db', async () => {
 
 const SOURCE_PROJECT_ID = 'mattermost-source-project';
 const OTHER_PROJECT_ID = 'mattermost-other-project';
-const MATTERMOST_POST_ID = 'mattermost-post';
 const ASSISTANT_MESSAGE_ID = 'mattermost-assistant-message';
 
 describe('Mattermost feedback query', () => {
@@ -67,18 +68,43 @@ describe('Mattermost feedback query', () => {
 			id: ASSISTANT_MESSAGE_ID,
 			chatId: 'mattermost-source-chat',
 			role: 'assistant',
-			mattermostPostId: MATTERMOST_POST_ID,
 		});
+	});
+
+	beforeEach(async () => {
+		await db.delete(s.messageFeedback);
 	});
 
 	afterAll(() => {
 		db.$client.close();
 	});
 
-	it('only returns the assistant message for its project', async () => {
-		await expect(getAssistantMessageIdByMattermostPost(MATTERMOST_POST_ID, SOURCE_PROJECT_ID)).resolves.toBe(
-			ASSISTANT_MESSAGE_ID,
-		);
-		await expect(getAssistantMessageIdByMattermostPost(MATTERMOST_POST_ID, OTHER_PROJECT_ID)).resolves.toBeNull();
+	it('only accepts an assistant message from the configured project', async () => {
+		await expect(isAssistantMessageInProject(ASSISTANT_MESSAGE_ID, SOURCE_PROJECT_ID)).resolves.toBe(true);
+		await expect(isAssistantMessageInProject(ASSISTANT_MESSAGE_ID, OTHER_PROJECT_ID)).resolves.toBe(false);
+	});
+
+	it.each([
+		['up', 'up'],
+		['down', 'down'],
+	] as const)('persists a %s vote through message_feedback', async (_name, vote) => {
+		await upsertFeedback({ messageId: ASSISTANT_MESSAGE_ID, vote });
+
+		const [feedback] = await db
+			.select()
+			.from(s.messageFeedback)
+			.where(eq(s.messageFeedback.messageId, ASSISTANT_MESSAGE_ID));
+		expect(feedback?.vote).toBe(vote);
+	});
+
+	it('deletes a matching reaction vote', async () => {
+		await upsertFeedback({ messageId: ASSISTANT_MESSAGE_ID, vote: 'up' });
+		await deleteFeedbackVote(ASSISTANT_MESSAGE_ID, 'up');
+
+		const feedback = await db
+			.select()
+			.from(s.messageFeedback)
+			.where(eq(s.messageFeedback.messageId, ASSISTANT_MESSAGE_ID));
+		expect(feedback).toEqual([]);
 	});
 });

@@ -328,7 +328,6 @@ export const chatMessage = sqliteTable(
 		supersededAt: integer('superseded_at', { mode: 'timestamp_ms' }),
 		versionGroupId: text('version_group_id'),
 		source: text('source', { enum: MESSAGE_SOURCES }),
-		mattermostPostId: text('mattermost_post_id'),
 		isForked: integer('isForked', { mode: 'boolean' }),
 		citation: text('citation', { mode: 'json' }).$type<CitationData>(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -349,7 +348,6 @@ export const chatMessage = sqliteTable(
 		index('chat_message_chatId_idx').on(table.chatId),
 		index('chat_message_createdAt_idx').on(table.createdAt),
 		index('chat_message_versionGroupId_idx').on(table.versionGroupId),
-		uniqueIndex('chat_message_mattermostPostId_idx').on(table.mattermostPostId),
 	],
 );
 

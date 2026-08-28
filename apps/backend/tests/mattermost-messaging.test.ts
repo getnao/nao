@@ -7,12 +7,15 @@ import {
 	cacheMattermostEmail,
 	createMattermostActionSecret,
 	createMattermostCallbackResponse,
+	createMattermostFeedbackMetadata,
 	createMattermostMarkdownTable,
 	createMattermostStopAttachment,
+	fetchMattermostPost,
 	getMattermostLoginCommandForUnlinkedUser,
 	getMattermostPostBaseProps,
 	hasExplicitMattermostMention,
 	MATTERMOST_CALLBACK_CONTENT_TYPE,
+	MATTERMOST_FEEDBACK_PROP,
 	MATTERMOST_TABLE_ROW_LIMIT,
 	type MattermostEmailCacheEntry,
 	parseMattermostLoginCommand,
@@ -24,6 +27,7 @@ import {
 	shouldHandleMattermostMessage,
 	truncateMattermostMarkdown,
 	verifyMattermostActionSecret,
+	verifyMattermostFeedbackMetadata,
 } from '../src/services/mattermost-helpers';
 import {
 	createMattermostAnswerMessage,
@@ -314,9 +318,10 @@ describe('Mattermost answer rendering', () => {
 		const callbackUrl = 'https://nao.example/api/webhooks/mattermost/project';
 		const token = 'callback-token';
 		const attachment = createMattermostStopAttachment(callbackUrl, token);
+		const feedbackMetadata = createMattermostFeedbackMetadata('project-1', 'post-1', 'message-1');
 		const baseProps = getMattermostPostBaseProps({
 			id: 'post-1',
-			props: { from_bot: 'true', existing: true },
+			props: { from_bot: 'true', existing: true, [MATTERMOST_FEEDBACK_PROP]: feedbackMetadata },
 		});
 		const streaming = buildMattermostAnswerPatchBody('Partial answer', baseProps, [attachment]);
 		const cleared = buildMattermostAnswerPatchBody('Final answer', baseProps, []);
@@ -326,6 +331,7 @@ describe('Mattermost answer rendering', () => {
 			props: {
 				from_bot: 'true',
 				existing: true,
+				[MATTERMOST_FEEDBACK_PROP]: feedbackMetadata,
 				attachments: [
 					{
 						color: '#522bff',
@@ -349,9 +355,37 @@ describe('Mattermost answer rendering', () => {
 			props: {
 				from_bot: 'true',
 				existing: true,
+				[MATTERMOST_FEEDBACK_PROP]: feedbackMetadata,
 				attachments: [],
 			},
 		});
+	});
+
+	it('fetches a post and its props through the Mattermost API', async () => {
+		const props = { [MATTERMOST_FEEDBACK_PROP]: { version: 1 } };
+		const fetchImpl = vi.fn(async () =>
+			Response.json({ id: 'post-1', channel_id: 'channel-1', message: 'Answer', props }),
+		);
+
+		await expect(
+			fetchMattermostPost({
+				baseUrl: 'https://mattermost.example/base/',
+				botToken: 'token',
+				postId: 'post-1',
+				fetchImpl,
+			}),
+		).resolves.toEqual({
+			id: 'post-1',
+			channel_id: 'channel-1',
+			message: 'Answer',
+			props,
+		});
+		expect(fetchImpl).toHaveBeenCalledWith(
+			new URL('https://mattermost.example/base/api/v4/posts/post-1'),
+			expect.objectContaining({
+				headers: expect.objectContaining({ Authorization: 'Bearer token' }),
+			}),
+		);
 	});
 
 	it('patches the post without reading it first', async () => {
@@ -537,6 +571,56 @@ describe('Mattermost reaction feedback', () => {
 	it('ignores bot-authored and unrelated reactions', () => {
 		expect(resolveMattermostReactionFeedback({ added: true, emojiName: 'thumbs_up', isBot: true })).toBeNull();
 		expect(resolveMattermostReactionFeedback({ added: true, emojiName: 'heart', isBot: false })).toBeNull();
+	});
+});
+
+describe('Mattermost feedback metadata', () => {
+	it('round-trips signed metadata', () => {
+		const metadata = createMattermostFeedbackMetadata('project-1', 'post-1', 'message-1');
+
+		expect(
+			verifyMattermostFeedbackMetadata({ [MATTERMOST_FEEDBACK_PROP]: metadata }, 'project-1', 'post-1'),
+		).toEqual({
+			valid: true,
+			assistantMessageId: 'message-1',
+		});
+	});
+
+	it('rejects modified message IDs and mismatched project or post IDs', () => {
+		const metadata = createMattermostFeedbackMetadata('project-1', 'post-1', 'message-1');
+
+		expect(
+			verifyMattermostFeedbackMetadata(
+				{
+					[MATTERMOST_FEEDBACK_PROP]: {
+						...metadata,
+						assistantMessageId: 'message-2',
+					},
+				},
+				'project-1',
+				'post-1',
+			),
+		).toEqual({ valid: false, reason: 'invalid_signature' });
+		expect(
+			verifyMattermostFeedbackMetadata({ [MATTERMOST_FEEDBACK_PROP]: metadata }, 'project-2', 'post-1'),
+		).toEqual({ valid: false, reason: 'invalid_signature' });
+		expect(
+			verifyMattermostFeedbackMetadata({ [MATTERMOST_FEEDBACK_PROP]: metadata }, 'project-1', 'post-2'),
+		).toEqual({ valid: false, reason: 'invalid_signature' });
+	});
+
+	it('rejects missing and malformed props', () => {
+		expect(verifyMattermostFeedbackMetadata(undefined, 'project-1', 'post-1')).toEqual({
+			valid: false,
+			reason: 'missing',
+		});
+		expect(
+			verifyMattermostFeedbackMetadata(
+				{ [MATTERMOST_FEEDBACK_PROP]: { version: 1, assistantMessageId: 'message-1' } },
+				'project-1',
+				'post-1',
+			),
+		).toEqual({ valid: false, reason: 'malformed' });
 	});
 });
 
