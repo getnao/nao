@@ -6,6 +6,7 @@ import { SettingsCard } from '@/components/ui/settings-card';
 
 interface DeploymentContextSource {
 	repositoryUrl: string | null;
+	platform: 'github' | 'gitlab' | 'bitbucket' | null;
 	branch: string | null;
 	subpath: string | null;
 	authMethod: 'token' | 'ssh-key' | 'public';

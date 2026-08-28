@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
 	completeActivity: vi.fn(),
 	connectContextRepository: vi.fn(),
 	failActivity: vi.fn(),
+	getContextFileDiff: vi.fn(),
 	getFileTree: vi.fn(),
 	getGithubToken: vi.fn(),
 	getGitlabToken: vi.fn(),
@@ -68,7 +69,7 @@ vi.mock('../src/services/context-explorer-git.service', () => ({
 	discardContextFileChange: vi.fn(),
 	disconnectContextRepository: vi.fn(),
 	getChangedContextFiles: vi.fn(),
-	getContextFileDiff: vi.fn(),
+	getContextFileDiff: mocks.getContextFileDiff,
 	getContextRepositoryStatus: mocks.getContextRepositoryStatus,
 	pullLiveContext: mocks.pullLiveContext,
 	resolveContextExplorerGit: mocks.resolveContextExplorerGit,
@@ -223,6 +224,37 @@ describe('context explorer file access', () => {
 			expect.objectContaining({ git: availableGit }),
 		);
 	});
+
+	it('passes validated historical commit ranges to the file diff service', async () => {
+		const from = 'a'.repeat(40);
+		const to = 'B'.repeat(64);
+		mocks.resolveContextExplorerGit.mockResolvedValue({ status: 'available', repo: {}, context: {} });
+		mocks.getContextFileDiff.mockResolvedValue({
+			path: '/context.md',
+			kind: 'modified',
+			additions: 1,
+			deletions: 1,
+			oldContent: 'old\n',
+			newContent: 'new\n',
+		});
+
+		await createCaller().getFileDiff({ path: '/context.md', from, to });
+
+		expect(mocks.getContextFileDiff).toHaveBeenCalledWith(
+			expect.objectContaining({ projectId: 'project-id', projectFolder: '/tmp/nao-project' }),
+			'/context.md',
+			{ fromCommit: from, toCommit: to },
+		);
+	});
+
+	it.each([
+		{ path: '/context.md', from: 'abc1234', to: 'b'.repeat(40) },
+		{ path: '/context.md', from: 'a'.repeat(40) },
+		{ path: '/context.md', to: 'b'.repeat(40) },
+	])('rejects invalid or partial historical commit ranges', async (input) => {
+		await expect(createCaller().getFileDiff(input)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		expect(mocks.getContextFileDiff).not.toHaveBeenCalled();
+	});
 });
 
 describe('live context update access', () => {
@@ -335,6 +367,21 @@ describe('live context update access', () => {
 				actorName: 'Admin User',
 			},
 			{
+				id: 'legacy',
+				status: 'completed',
+				payload: {
+					configuredBranch: 'main',
+					changed: false,
+					oldCommit: 'a'.repeat(40),
+					newCommit: 'a'.repeat(40),
+					files: [],
+				},
+				errorMessage: null,
+				startedAt: new Date('2026-08-27T10:30:00.000Z'),
+				completedAt: new Date('2026-08-27T10:30:01.000Z'),
+				actorName: 'Legacy Admin',
+			},
+			{
 				id: 'older',
 				status: 'failed',
 				payload: { untrusted: true },
@@ -345,12 +392,18 @@ describe('live context update access', () => {
 			},
 		]);
 
-		await expect(createCaller().getLiveContextPullHistory()).resolves.toEqual([
+		const history = await createCaller().getLiveContextPullHistory();
+
+		expect(history).toEqual([
 			expect.objectContaining({
 				id: 'newest',
-				actorName: 'Admin User',
 				changed: true,
 				files: [{ path: '/context.md', additions: 1, deletions: 0 }],
+			}),
+			expect.objectContaining({
+				id: 'legacy',
+				changed: false,
+				newCommit: 'a'.repeat(40),
 			}),
 			expect.objectContaining({
 				id: 'older',
@@ -359,6 +412,7 @@ describe('live context update access', () => {
 				errorMessage: 'Safe failure',
 			}),
 		]);
+		expect(history[0]).not.toHaveProperty('actorName');
 	});
 });
 

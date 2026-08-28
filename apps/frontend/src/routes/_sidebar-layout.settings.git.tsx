@@ -518,7 +518,11 @@ function GitSettingsPage() {
 							</div>
 						)}
 						{status?.liveContextUpdate.enabled && (
-							<LiveContextUpdateSettings status={status.liveContextUpdate} isAdmin={isAdmin} />
+							<LiveContextUpdateSettings
+								status={status.liveContextUpdate}
+								repository={status.contextSource}
+								isAdmin={isAdmin}
+							/>
 						)}
 					</>
 				)}

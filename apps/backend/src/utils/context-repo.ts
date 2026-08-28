@@ -185,7 +185,19 @@ export function toContextRepoState(repo: ContextRepo | null): ContextRepoState |
 }
 
 export function sanitizeContextSourceRepositoryUrl(repositoryUrl: string): string {
-	return repositoryUrl.replace(/^(https?:\/\/)[^/]*@/i, '$1');
+	if (!/^https?:\/\//i.test(repositoryUrl)) {
+		return repositoryUrl;
+	}
+	try {
+		const url = new URL(repositoryUrl);
+		url.username = '';
+		url.password = '';
+		url.search = '';
+		url.hash = '';
+		return url.toString();
+	} catch {
+		return repositoryUrl.replace(/^(https?:\/\/)[^/]*@/i, '$1');
+	}
 }
 
 export function detectGitPlatform(repositoryUrl: string | undefined): GitPlatform | null {
@@ -254,7 +266,16 @@ export function getCommittedProjectPaths(repo: ResolvedContextRepo): Set<string>
 }
 
 export function readCommittedFile(repo: ResolvedContextRepo, projectPath: string, maxSize = 10 * 1024 * 1024): Buffer {
-	const object = `HEAD:${toRepoPath(repo, projectPath)}`;
+	return readFileAtCommit(repo, 'HEAD', projectPath, maxSize);
+}
+
+export function readFileAtCommit(
+	repo: ResolvedContextRepo,
+	commit: string,
+	projectPath: string,
+	maxSize = 10 * 1024 * 1024,
+): Buffer {
+	const object = `${commit}:${toRepoPath(repo, projectPath)}`;
 	const size = Number(runGit(repo.worktreeRoot, ['cat-file', '-s', object]).toString().trim());
 	if (!Number.isFinite(size)) {
 		throw new Error(`Unable to determine the committed size of ${projectPath}.`);

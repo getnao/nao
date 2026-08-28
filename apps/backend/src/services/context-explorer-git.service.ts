@@ -13,15 +13,17 @@ import type {
 import { TRPCError } from '@trpc/server';
 
 import { env } from '../env';
-import type { ContextRepoConfig, ResolvedContextRepo, UnresolvedContextRepo } from '../utils/context-repo';
+import type { ContextRepoConfig, GitPlatform, ResolvedContextRepo, UnresolvedContextRepo } from '../utils/context-repo';
 import {
 	ContextProjectResolutionError,
+	detectGitPlatform,
 	fromRepoPath,
 	getContextWorktreePath,
 	getWorktreeProjectRoot,
 	invalidateContextProjectPrefix,
 	normalizeProjectPath,
 	readCommittedFile,
+	readFileAtCommit,
 	resolveContextProject,
 	resolveContextRepo,
 	resolveContextSourceGitToken,
@@ -44,6 +46,7 @@ import type { OpenReviewRequestResult, ReviewRequestProvider } from './review-re
 import { getRepoProviderDisplayName, REVIEW_REQUEST_PROVIDERS } from './review-request-provider';
 
 const REPO_FULL_NAME_PATTERN = /^[\w./-]+\/[\w.-]+$/;
+const COMMIT_PATTERN = /^[a-f0-9]{40,64}$/i;
 const GIT_OPERATION_TIMEOUT_MS = 120_000;
 
 export { sanitizeContextSourceRepositoryUrl };
@@ -91,6 +94,7 @@ export interface ContextRepositoryStatus {
 
 export interface DeploymentContextSource {
 	repositoryUrl: string | null;
+	platform: GitPlatform | null;
 	branch: string | null;
 	subpath: string | null;
 	authMethod: 'token' | 'ssh-key' | 'public';
@@ -521,6 +525,7 @@ export function getDeploymentContextSource(): DeploymentContextSource | null {
 	}
 	return {
 		repositoryUrl: env.NAO_CONTEXT_GIT_URL ? sanitizeContextSourceRepositoryUrl(env.NAO_CONTEXT_GIT_URL) : null,
+		platform: env.NAO_CONTEXT_GIT_PLATFORM ?? detectGitPlatform(env.NAO_CONTEXT_GIT_URL),
 		branch: env.NAO_CONTEXT_GIT_BRANCH || 'main',
 		subpath: env.NAO_CONTEXT_GIT_SUBPATH || null,
 		authMethod: resolveContextSourceAuthMethod(),
@@ -648,9 +653,13 @@ export async function getChangedContextFiles(context: ContextExplorerGitContext)
 export async function getContextFileDiff(
 	context: ContextExplorerGitContext,
 	filePath: string,
+	range?: { fromCommit: string; toCommit: string },
 ): Promise<ContextFileDiff> {
 	const { repo } = await requireContextExplorerGit(context);
 	validateWorktreePath(repo, filePath);
+	if (range) {
+		return getHistoricalContextFileDiff(repo, filePath, range);
+	}
 	const projectPath = normalizeProjectPath(filePath);
 	const changedFile = readChangedFiles(repo).find((entry) => entry.path === `/${projectPath}`);
 	if (!changedFile) {
@@ -661,6 +670,77 @@ export async function getContextFileDiff(
 		oldContent: changedFile.kind === 'untracked' ? '' : readCommittedText(repo, projectPath),
 		newContent: changedFile.kind === 'deleted' ? '' : readWorkingTreeText(repo, filePath),
 	};
+}
+
+function getHistoricalContextFileDiff(
+	repo: ResolvedContextRepo,
+	filePath: string,
+	range: { fromCommit: string; toCommit: string },
+): ContextFileDiff {
+	validateHistoricalCommit(repo, range.fromCommit);
+	validateHistoricalCommit(repo, range.toCommit);
+	const projectPath = normalizeProjectPath(filePath);
+	const repoPath = toRepoPath(repo, projectPath);
+	const lineCounts = readHistoricalLineCounts(repo, range.fromCommit, range.toCommit, projectPath);
+	const existedBefore = hasFileAtCommit(repo, range.fromCommit, repoPath);
+	const existsAfter = hasFileAtCommit(repo, range.toCommit, repoPath);
+	if (!existedBefore && !existsAfter) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'This file was not found in the selected commits.' });
+	}
+	const kind = !existedBefore ? 'untracked' : !existsAfter ? 'deleted' : 'modified';
+	return {
+		path: `/${projectPath}`,
+		kind,
+		...lineCounts,
+		oldContent: existedBefore ? readHistoricalText(repo, range.fromCommit, projectPath) : '',
+		newContent: existsAfter ? readHistoricalText(repo, range.toCommit, projectPath) : '',
+	};
+}
+
+function validateHistoricalCommit(repo: ResolvedContextRepo, commit: string): void {
+	if (!COMMIT_PATTERN.test(commit) || !hasCommit(repo.worktreeRoot, commit)) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid historical commit range.' });
+	}
+}
+
+function hasFileAtCommit(repo: ResolvedContextRepo, commit: string, repoPath: string): boolean {
+	return tryRunGit(repo.worktreeRoot, ['cat-file', '-e', `${commit}:${repoPath}`]) !== null;
+}
+
+function readHistoricalLineCounts(
+	repo: ResolvedContextRepo,
+	fromCommit: string,
+	toCommit: string,
+	projectPath: string,
+): ContextLineCounts {
+	const output = runGit(repo.worktreeRoot, [
+		'diff',
+		'--numstat',
+		'-z',
+		'--no-renames',
+		fromCommit,
+		toCommit,
+		'--',
+		toRepoPath(repo, projectPath),
+	]);
+	for (const record of output.toString().split('\0')) {
+		const firstTab = record.indexOf('\t');
+		const secondTab = record.indexOf('\t', firstTab + 1);
+		if (firstTab < 0 || secondTab < 0 || fromRepoPath(repo, record.slice(secondTab + 1)) !== projectPath) {
+			continue;
+		}
+		return {
+			additions: parseLineCount(record.slice(0, firstTab)),
+			deletions: parseLineCount(record.slice(firstTab + 1, secondTab)),
+		};
+	}
+	throw new TRPCError({ code: 'BAD_REQUEST', message: 'This file did not change in the selected commit range.' });
+}
+
+function readHistoricalText(repo: ResolvedContextRepo, commit: string, projectPath: string): string {
+	const content = readFileAtCommit(repo, commit, projectPath, MAX_CONTEXT_FILE_SIZE);
+	validateContentBuffer(content);
+	return decodeTextContent(content);
 }
 
 export async function discardContextFileChange(

@@ -8,8 +8,15 @@ import { Spinner } from '@/components/ui/spinner';
 import { computeLineDiff } from '@/lib/line-diff';
 import { trpc } from '@/main';
 
-export function ContextFileDiff({ path }: { path: string }) {
-	const fileDiff = useQuery(trpc.contextExplorer.getFileDiff.queryOptions({ path }));
+interface ContextFileDiffProps {
+	path: string;
+	range?: { from: string; to: string };
+}
+
+export function ContextFileDiff({ path, range }: ContextFileDiffProps) {
+	const fileDiff = useQuery(
+		trpc.contextExplorer.getFileDiff.queryOptions(range ? { path, from: range.from, to: range.to } : { path }),
+	);
 	const diff = useMemo(
 		() => (fileDiff.data ? computeLineDiff(fileDiff.data.oldContent, fileDiff.data.newContent) : null),
 		[fileDiff.data],
@@ -26,7 +33,7 @@ export function ContextFileDiff({ path }: { path: string }) {
 	if (fileDiff.isError && fileDiff.error.data?.code === 'BAD_REQUEST') {
 		return (
 			<div className='flex h-full items-center justify-center text-sm text-muted-foreground'>
-				<p>This file no longer has changes.</p>
+				<p>{range ? 'This historical change is unavailable.' : 'This file no longer has changes.'}</p>
 			</div>
 		);
 	}

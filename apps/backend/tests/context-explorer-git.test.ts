@@ -104,6 +104,7 @@ import {
 	disconnectContextRepository,
 	ensureContextWorktree,
 	getChangedContextFiles,
+	getContextFileDiff,
 	getContextRepositoryStatus,
 	getDeploymentContextSource,
 	getLiveContextUpdateStatus,
@@ -140,6 +141,7 @@ describe('deployment context source', () => {
 	it.each([
 		['https://user:token@host/org/repo.git', 'https://host/org/repo.git'],
 		['https://host/org/repo.git', 'https://host/org/repo.git'],
+		['https://user:token@host/org/repo.git?access_token=secret#fragment', 'https://host/org/repo.git'],
 		['git@host:org/repo.git', 'git@host:org/repo.git'],
 	])('sanitizes repository URL %s', (repositoryUrl, expected) => {
 		expect(sanitizeContextSourceRepositoryUrl(repositoryUrl)).toBe(expected);
@@ -454,6 +456,7 @@ describe('deployment context source', () => {
 				'Add NAO_CONTEXT_GIT_TOKEN or NAO_CONTEXT_GIT_SSH_KEY to edit and propose context changes.',
 			contextSource: {
 				repositoryUrl: 'https://github.com/nao/context.git',
+				platform: 'github',
 				branch: 'production',
 				subpath: 'projects/analytics',
 				authMethod: 'public',
@@ -1304,6 +1307,74 @@ describe('context explorer worktrees', () => {
 			{ path: '/new.md', kind: 'untracked', additions: 2, deletions: 0 },
 		]);
 		expectLiveUnchanged(fixture.live, before);
+	});
+
+	it('reads modified, added, and deleted files across a historical commit range', async () => {
+		const fixture = createFixture(temporaryRoots, {
+			'nao_config.yaml': 'name: test\n',
+			'context.md': 'old context\n',
+			'deleted.md': 'remove me\n',
+		});
+		const repo = await ensureContextWorktree(fixture.context);
+		const fromCommit = runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();
+		fs.writeFileSync(path.join(fixture.seed, 'context.md'), 'new context\nsecond line\n');
+		fs.writeFileSync(path.join(fixture.seed, 'added.md'), 'new file\n');
+		fs.rmSync(path.join(fixture.seed, 'deleted.md'));
+		commitAll(fixture.seed, 'historical changes');
+		runGit(fixture.seed, ['push', fixture.bare, 'main']);
+		const toCommit = runGit(fixture.seed, ['rev-parse', 'HEAD']).toString().trim();
+		runGit(repo.worktreeRoot, ['fetch', fixture.bare, 'main']);
+		const range = { fromCommit, toCommit };
+
+		await expect(getContextFileDiff(fixture.context, '/context.md', range)).resolves.toEqual({
+			path: '/context.md',
+			kind: 'modified',
+			additions: 2,
+			deletions: 1,
+			oldContent: 'old context\n',
+			newContent: 'new context\nsecond line\n',
+		});
+		await expect(getContextFileDiff(fixture.context, '/added.md', range)).resolves.toEqual({
+			path: '/added.md',
+			kind: 'untracked',
+			additions: 1,
+			deletions: 0,
+			oldContent: '',
+			newContent: 'new file\n',
+		});
+		await expect(getContextFileDiff(fixture.context, '/deleted.md', range)).resolves.toEqual({
+			path: '/deleted.md',
+			kind: 'deleted',
+			additions: 0,
+			deletions: 1,
+			oldContent: 'remove me\n',
+			newContent: '',
+		});
+	});
+
+	it('rejects invalid historical commits, unchanged files, and paths outside the context project', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const repo = await ensureContextWorktree(fixture.context);
+		const commit = runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();
+
+		await expect(
+			getContextFileDiff(fixture.context, '/context.md', {
+				fromCommit: 'abc1234',
+				toCommit: commit,
+			}),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		await expect(
+			getContextFileDiff(fixture.context, '/context.md', {
+				fromCommit: commit,
+				toCommit: commit,
+			}),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		await expect(
+			getContextFileDiff(fixture.context, '/../outside.md', {
+				fromCommit: commit,
+				toCommit: commit,
+			}),
+		).rejects.toThrow('outside the project folder');
 	});
 
 	it('falls back to the current HEAD when the fetched default cannot accept dirty edits', async () => {

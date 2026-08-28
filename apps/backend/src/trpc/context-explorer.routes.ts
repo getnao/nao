@@ -39,6 +39,16 @@ import { adminProtectedProcedure, contextAdminProtectedProcedure } from './trpc'
 
 const branchSchema = z.string().trim().min(1).max(200);
 const pathsSchema = z.array(z.string()).min(1).max(100);
+const commitSchema = z.string().regex(/^[a-f0-9]{40,64}$/i);
+const fileDiffInputSchema = z
+	.object({
+		path: z.string(),
+		from: commitSchema.optional(),
+		to: commitSchema.optional(),
+	})
+	.refine((input) => Boolean(input.from) === Boolean(input.to), {
+		message: 'Both historical commits are required.',
+	});
 const pullFileSchema = z.object({
 	path: z.string().max(2_000),
 	additions: z.number().int().nonnegative().nullable(),
@@ -170,8 +180,12 @@ export const contextExplorerRoutes = {
 		return getChangedContextFiles(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
 	}),
 
-	getFileDiff: contextAdminProtectedProcedure.input(z.object({ path: z.string() })).query(async ({ ctx, input }) => {
-		return getContextFileDiff(await createGitContext(ctx.project.id, ctx.project.path, ctx.user), input.path);
+	getFileDiff: contextAdminProtectedProcedure.input(fileDiffInputSchema).query(async ({ ctx, input }) => {
+		return getContextFileDiff(
+			await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
+			input.path,
+			input.from && input.to ? { fromCommit: input.from, toCommit: input.to } : undefined,
+		);
 	}),
 
 	switchBranch: contextAdminProtectedProcedure
@@ -242,7 +256,6 @@ function toContextPullHistoryEntry(activity: activityQueries.ContextPullActivity
 		status: activity.status,
 		startedAt: activity.startedAt,
 		completedAt: activity.completedAt,
-		actorName: activity.actorName,
 		configuredBranch: payload.success ? payload.data.configuredBranch : null,
 		changed: payload.success ? payload.data.changed : null,
 		oldCommit: payload.success ? payload.data.oldCommit : null,
