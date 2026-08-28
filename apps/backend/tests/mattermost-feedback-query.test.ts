@@ -97,14 +97,23 @@ describe('Mattermost feedback query', () => {
 		expect(feedback?.vote).toBe(vote);
 	});
 
-	it('deletes a matching reaction vote', async () => {
+	it('only deletes a matching reaction vote', async () => {
 		await upsertFeedback({ messageId: ASSISTANT_MESSAGE_ID, vote: 'up' });
-		await deleteFeedbackVote(ASSISTANT_MESSAGE_ID, 'up');
+		await deleteFeedbackVote(ASSISTANT_MESSAGE_ID, 'down');
 
-		const feedback = await db
+		const feedbackAfterMismatchedDelete = await db
 			.select()
 			.from(s.messageFeedback)
 			.where(eq(s.messageFeedback.messageId, ASSISTANT_MESSAGE_ID));
-		expect(feedback).toEqual([]);
+		expect(feedbackAfterMismatchedDelete).toHaveLength(1);
+		expect(feedbackAfterMismatchedDelete[0]?.vote).toBe('up');
+
+		await deleteFeedbackVote(ASSISTANT_MESSAGE_ID, 'up');
+
+		const feedbackAfterMatchingDelete = await db
+			.select()
+			.from(s.messageFeedback)
+			.where(eq(s.messageFeedback.messageId, ASSISTANT_MESSAGE_ID));
+		expect(feedbackAfterMatchingDelete).toEqual([]);
 	});
 });
