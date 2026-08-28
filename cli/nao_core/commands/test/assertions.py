@@ -111,7 +111,7 @@ def evaluate_tool_call_assertion(
             return (
                 False,
                 f"missing tool_call: {assertion.tool} with args {assertion.args} "
-                f"(found {same_tool} call(s) without matching args)",
+                f"(found {count} matching, need >= {assertion.min_count}; {same_tool} total)",
             )
         return False, f"missing tool_call: {assertion.tool} with args {assertion.args}"
 

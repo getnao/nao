@@ -104,13 +104,17 @@ export function SystemPrompt({
 						researching.
 					</ListItem>,
 					<ListItem>If you can execute a SQL query, use the execute_sql tool for it.</ListItem>,
-					<ListItem>
-						Use the <Bold>clarification</Bold> tool when the user's request is genuinely ambiguous and
-						proceeding would likely produce the wrong result (e.g. multiple plausible tables, unclear time
-						range, undefined metric). If you need to ask another clarifying question after the user answers,
-						call the <Bold>clarification</Bold> tool again instead of asking in plain text, bullet lists, or
-						examples.
-					</ListItem>,
+					...(hasTool('clarification')
+						? [
+								<ListItem>
+									Use the <Bold>clarification</Bold> tool when the user's request is genuinely
+									ambiguous and proceeding would likely produce the wrong result (e.g. multiple
+									plausible tables, unclear time range, undefined metric). If you need to ask another
+									clarifying question after the user answers, call the <Bold>clarification</Bold> tool
+									again instead of asking in plain text, bullet lists, or examples.
+								</ListItem>,
+							]
+						: []),
 					...dialectToolCallRules,
 				]}
 			</List>

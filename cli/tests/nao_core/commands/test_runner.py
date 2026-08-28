@@ -377,6 +377,34 @@ def test_run_test_fails_when_sql_matches_but_tool_assertion_missing(monkeypatch)
     assert "match" in result.message
 
 
+def test_run_test_fails_when_both_sql_and_assertions_configured_but_no_verification_data(monkeypatch):
+    test_case = NaoTestCase(
+        name="orders",
+        prompt="total revenue",
+        file_path=Path("tests/orders.yml"),
+        sql="select 1",
+        assertions=[ToolCallAssertion(tool="execute_sql")],
+    )
+    model = ModelConfig(provider="openai", model_id="custom-model")
+    client = Mock()
+    client.run_test.return_value = AgentTestResult(
+        text="ok",
+        tool_calls=[{"toolName": "execute_sql", "args": {"sql_query": "SELECT 1"}}],
+        usage=TokenUsage(totalTokens=5),
+        cost=TokenCost(totalCost=0.0),
+        finish_reason="stop",
+        duration_ms=2,
+        verification=None,
+    )
+    monkeypatch.setattr(test_runner_module, "get_client", lambda **_: client)
+
+    result = run_test(test_case, model)
+
+    assert result.passed is False
+    assert "tool_call: execute_sql" in result.message
+    assert "no verification data" in result.message
+
+
 def test_filter_test_cases_by_folder(tmp_path):
     tests_dir = tmp_path / "tests"
     tc_orders = NaoTestCase(name="orders", prompt="p1", file_path=tests_dir / "revenue" / "orders.yml", sql="select 1")

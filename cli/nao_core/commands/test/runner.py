@@ -251,7 +251,7 @@ def run_test(
                 ),
             )
 
-        if test_case.assertions:
+        if test_case.assertions and not test_case.sql:
             status = "[green]✓[/green]" if assertions_passed else "[red]✗[/red]"
             UI.print(f"  {status} {assertions_msg}")
             return TestRunResult(
@@ -259,6 +259,25 @@ def run_test(
                 model=str(model),
                 passed=assertions_passed,
                 message=assertions_msg,
+                tokens=result.usage.totalTokens,
+                cost=result.cost.totalCost,
+                duration_ms=result.duration_ms,
+                tool_call_count=tool_call_count,
+                details=TestRunDetails(
+                    response_text=result.text,
+                    tool_calls=result.tool_calls,
+                    reference_sql=test_case.sql,
+                ),
+            )
+
+        if test_case.assertions and test_case.sql:
+            msg = combine_check_messages(assertions_msg, "no verification data")
+            UI.print(f"  [red]✗[/red] {msg}")
+            return TestRunResult(
+                name=test_case.name,
+                model=str(model),
+                passed=False,
+                message=msg,
                 tokens=result.usage.totalTokens,
                 cost=result.cost.totalCost,
                 duration_ms=result.duration_ms,

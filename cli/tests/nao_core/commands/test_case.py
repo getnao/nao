@@ -1,8 +1,6 @@
-from pathlib import Path
-
 import pytest
 
-from nao_core.commands.test.assertions import ToolCallAssertion
+from nao_core.commands.test.assertions import AssertionConfigError, ToolCallAssertion
 from nao_core.commands.test.case import TestCase, discover_tests
 
 
@@ -56,5 +54,19 @@ def test_from_yaml_rejects_invalid_assertions(tmp_path):
     path = tmp_path / "bad.yml"
     path.write_text("prompt: hi\nassertions:\n  - type: nope\n")
 
-    with pytest.raises(Exception, match="unknown type"):
-        TestCase.from_yaml(Path(path))
+    with pytest.raises(AssertionConfigError, match="unknown type"):
+        TestCase.from_yaml(path)
+
+
+def test_evaluate_tool_call_assertion_reports_matched_count_when_min_count_exceeds():
+    from nao_core.commands.test.assertions import evaluate_tool_call_assertion
+
+    assertion = ToolCallAssertion(tool="fetch", args={"type": "user"}, min_count=2)
+    tool_calls = [
+        {"toolName": "fetch", "args": {"type": "user"}},
+        {"toolName": "fetch", "args": {"type": "other"}},
+    ]
+    passed, msg = evaluate_tool_call_assertion(assertion, tool_calls)
+
+    assert passed is False
+    assert "(found 1 matching, need >= 2; 2 total)" in msg
