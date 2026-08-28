@@ -369,6 +369,31 @@ describe('live context update access', () => {
 				files: files.slice(0, 1_000),
 			}),
 		]);
+		mocks.listContextPullActivities.mockResolvedValue([
+			{
+				id: 'legacy-large-pull',
+				status: 'completed',
+				payload: {
+					configuredBranch: 'main',
+					changed: true,
+					oldCommit: 'a'.repeat(40),
+					newCommit: 'b'.repeat(40),
+					files,
+				},
+				errorMessage: null,
+				startedAt: new Date('2026-08-26T10:00:00.000Z'),
+				completedAt: new Date('2026-08-26T10:00:01.000Z'),
+				actorName: 'Admin User',
+			},
+		]);
+
+		await expect(createCaller().getLiveContextPullHistory()).resolves.toEqual([
+			expect.objectContaining({
+				newCommit: 'b'.repeat(40),
+				fileCount: 1_001,
+				files: files.slice(0, 1_000),
+			}),
+		]);
 	});
 
 	it('records and parses a first repository clone without an old commit', async () => {

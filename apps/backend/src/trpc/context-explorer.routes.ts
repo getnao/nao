@@ -267,7 +267,7 @@ export const contextExplorerRoutes = {
 };
 
 function toContextPullHistoryEntry(activity: activityQueries.ContextPullActivityRow) {
-	const payload = pullPayloadSchema.safeParse(activity.payload);
+	const payload = parsePullPayload(activity.payload);
 	return {
 		id: activity.id,
 		status: activity.status,
@@ -281,6 +281,17 @@ function toContextPullHistoryEntry(activity: activityQueries.ContextPullActivity
 		files: payload.success ? payload.data.files : [],
 		errorMessage: activity.status === 'failed' ? (activity.errorMessage ?? 'Context pull failed.') : null,
 	};
+}
+
+function parsePullPayload(payload: Record<string, unknown> | null) {
+	if (!payload || !Array.isArray(payload.files)) {
+		return pullPayloadSchema.safeParse(payload);
+	}
+	return pullPayloadSchema.safeParse({
+		...payload,
+		fileCount: payload.fileCount ?? payload.files.length,
+		files: payload.files.slice(0, MAX_PULL_HISTORY_FILES),
+	});
 }
 
 function logPullHistoryFailure(message: string, projectId: string, activityId: string, error: unknown): void {
