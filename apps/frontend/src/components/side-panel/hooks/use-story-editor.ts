@@ -1,11 +1,13 @@
 import { popGridColumn } from '@nao/shared/story-segments';
 import { Extension } from '@tiptap/core';
+import { isHistoryTransaction } from '@tiptap/pm/history';
 import { Fragment, Slice } from '@tiptap/pm/model';
 import { dropPoint } from '@tiptap/pm/transform';
 import { useEditor } from '@tiptap/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
 	blockSelectionPluginKey,
+	blockSelectionForInsertedNodes,
 	buildDragUnitNodes,
 	buildSelectionMoveTransaction,
 	emptySelection,
@@ -22,11 +24,12 @@ import {
 	dispatchDropWithScroll,
 	preprocessForEditor,
 	removeCardFromOrigin,
+	scrollPosIntoView,
 } from '../story-editor-utils';
 import type { GridDragSource, StoryBlockDragSource } from '../story-editor-drag-context';
 import type { DragUnit, GridColumnRef } from '../story-block-selection';
 import type { Node as PMNode } from '@tiptap/pm/model';
-import type { EditorState } from '@tiptap/pm/state';
+import type { EditorState, Transaction } from '@tiptap/pm/state';
 import type { Editor } from '@tiptap/react';
 import type { MutableRefObject } from 'react';
 
@@ -149,6 +152,7 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 							return true;
 						}
 						dispatchDropWithScroll(view, move.transaction, move.insertPos);
+						view.focus();
 						event.preventDefault();
 						return true;
 					} finally {
@@ -202,8 +206,14 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 						// Bias mapping to the right for drops at/after the grid so the popped
 						// column lands after the remaining grid, left otherwise.
 						const insertAssoc = insertPos >= gridTo ? 1 : -1;
-						transaction.insert(transaction.mapping.map(insertPos, insertAssoc), poppedNode);
-						view.dispatch(transaction);
+						const mappedInsert = transaction.mapping.map(insertPos, insertAssoc);
+						transaction.insert(mappedInsert, poppedNode);
+						transaction.setMeta(
+							blockSelectionPluginKey,
+							blockSelectionForInsertedNodes(mappedInsert, [poppedNode], [result.popped]),
+						);
+						dispatchDropWithScroll(view, transaction, mappedInsert);
+						view.focus();
 						event.preventDefault();
 						return true;
 					} finally {
@@ -244,7 +254,13 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 						const transaction = view.state.tr;
 						transaction.insert(insertPos, node);
 						removeCardFromOrigin(transaction, view.state, source.origin);
-						view.dispatch(transaction);
+						const finalInsertPos = transaction.mapping.map(insertPos, -1);
+						transaction.setMeta(
+							blockSelectionPluginKey,
+							blockSelectionForInsertedNodes(finalInsertPos, [node], [source.markup]),
+						);
+						dispatchDropWithScroll(view, transaction, finalInsertPos);
+						view.focus();
 						event.preventDefault();
 						return true;
 					} finally {
@@ -375,7 +391,7 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 			return;
 		}
 
-		const syncGridColumns = () => {
+		const syncGridColumns = ({ transaction }: { transaction?: Transaction } = {}) => {
 			const next = getSelectedGridColumns(editor.state);
 			setSelectedGridColumns((current) => (sameGridColumns(current, next) ? current : next));
 			const nextBlocks = getSelectedBlockPositions(editor.state);
@@ -384,11 +400,68 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 					? current
 					: nextBlocks,
 			);
+			if (transaction?.docChanged && isHistoryTransaction(transaction)) {
+				if (nextBlocks[0] !== undefined) {
+					scrollPosIntoView(editor.view, nextBlocks[0]);
+				} else if (next[0] !== undefined) {
+					scrollPosIntoView(editor.view, next[0].gridPos, next[0].index);
+				}
+			}
 		};
 		syncGridColumns();
 		editor.on('transaction', syncGridColumns);
 		return () => {
 			editor.off('transaction', syncGridColumns);
+		};
+	}, [editor]);
+
+	useEffect(() => {
+		if (!editor) {
+			return;
+		}
+
+		const forwardHistoryShortcut = (event: KeyboardEvent) => {
+			if (
+				editor.isFocused ||
+				event.altKey ||
+				(!event.metaKey && !event.ctrlKey) ||
+				event.key.toLowerCase() !== 'z'
+			) {
+				return;
+			}
+			const target = event.target;
+			if (
+				target instanceof Element &&
+				target.closest(
+					'input, textarea, select, [contenteditable]:not([contenteditable="false"]), dialog, [role="dialog"]',
+				)
+			) {
+				return;
+			}
+			const blockSelection = blockSelectionPluginKey.getState(editor.state);
+			const targetInsideEditor = target instanceof Node && storyEditorRef.current?.contains(target);
+			if (
+				!targetInsideEditor &&
+				!blockSelection?.blocks.length &&
+				!blockSelection?.gridColumns.length &&
+				blockSelection?.movedMarkups === undefined
+			) {
+				return;
+			}
+
+			event.preventDefault();
+			event.stopPropagation();
+			editor.commands.focus();
+			if (event.shiftKey) {
+				editor.commands.redo();
+			} else {
+				editor.commands.undo();
+			}
+		};
+
+		document.addEventListener('keydown', forwardHistoryShortcut, true);
+		return () => {
+			document.removeEventListener('keydown', forwardHistoryShortcut, true);
 		};
 	}, [editor]);
 
@@ -437,7 +510,8 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 					event.dataTransfer.effectAllowed = 'move';
 				}
 			} else {
-				multiSelectionDragRef.current = null;
+				multiSelectionDragRef.current =
+					hoveredPosition == null ? null : [{ kind: 'block', pos: hoveredPosition }];
 				dragPreviewElementsRef.current =
 					hoveredPosition == null
 						? null
@@ -495,10 +569,10 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 			return;
 		}
 		const next = selectBlockFromHandle(editor.state, pos);
-		if (!next) {
-			return;
+		if (next) {
+			editor.view.dispatch(editor.state.tr.setMeta(blockSelectionPluginKey, next));
 		}
-		editor.view.dispatch(editor.state.tr.setMeta(blockSelectionPluginKey, next));
+		editor.view.focus();
 	}, [editor]);
 
 	return {

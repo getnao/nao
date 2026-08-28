@@ -1,14 +1,16 @@
 import { popGridColumns, splitGridColumnsRaw } from '@nao/shared/story-segments';
 import { Extension } from '@tiptap/core';
+import { isHistoryTransaction } from '@tiptap/pm/history';
 import { Fragment, Slice } from '@tiptap/pm/model';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { dropPoint } from '@tiptap/pm/transform';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
-import { createBlockNode } from './story-editor-utils';
+import { createBlockNode, setCollapsedTextSelection } from './story-editor-utils';
 
 import type { Node as PMNode } from '@tiptap/pm/model';
 import type { EditorState, Transaction } from '@tiptap/pm/state';
 import type { EditorView } from '@tiptap/pm/view';
+import type { CardOrigin } from './story-editor-drag-context';
 
 export interface GridColumnRef {
 	gridPos: number;
@@ -20,6 +22,7 @@ export interface BlockSelectionState {
 	gridColumns: GridColumnRef[];
 	anchor: number | null;
 	columnAnchor: GridColumnRef | null;
+	movedMarkups?: string[];
 }
 
 export type DragUnit = { kind: 'block'; pos: number } | { kind: 'gridColumns'; gridPos: number; indices: number[] };
@@ -44,6 +47,91 @@ export function getSelectedGridColumns(state: EditorState): GridColumnRef[] {
 
 export function emptySelection(): BlockSelectionState {
 	return { blocks: [], gridColumns: [], anchor: null, columnAnchor: null };
+}
+
+export function blockSelectionFromDragUnits(units: DragUnit[], movedMarkups?: string[]): BlockSelectionState {
+	const blocks: number[] = [];
+	const gridColumns: GridColumnRef[] = [];
+	for (const unit of units) {
+		if (unit.kind === 'block') {
+			blocks.push(unit.pos);
+			continue;
+		}
+		for (const index of unit.indices) {
+			gridColumns.push({ gridPos: unit.gridPos, index });
+		}
+	}
+	blocks.sort((first, second) => first - second);
+	gridColumns.sort((first, second) => first.gridPos - second.gridPos || first.index - second.index);
+	return withMovedMarkups(
+		{
+			blocks,
+			gridColumns,
+			anchor: blocks[0] ?? null,
+			columnAnchor: gridColumns[0] ?? null,
+		},
+		movedMarkups,
+	);
+}
+
+export function blockSelectionFromOrigin(origin: CardOrigin, movedMarkups?: string[]): BlockSelectionState {
+	if (origin.kind === 'block') {
+		return withMovedMarkups(
+			{
+				blocks: [origin.pos],
+				gridColumns: [],
+				anchor: origin.pos,
+				columnAnchor: null,
+			},
+			movedMarkups,
+		);
+	}
+	const column = { gridPos: origin.gridPos, index: origin.columnIndex };
+	return withMovedMarkups(
+		{
+			blocks: [],
+			gridColumns: [column],
+			anchor: null,
+			columnAnchor: column,
+		},
+		movedMarkups,
+	);
+}
+
+export function blockSelectionForInsertedNodes(
+	insertPos: number,
+	nodes: PMNode[],
+	movedMarkups?: string[],
+): BlockSelectionState {
+	const blocks: number[] = [];
+	let position = insertPos;
+	for (const node of nodes) {
+		blocks.push(position);
+		position += node.nodeSize;
+	}
+	return withMovedMarkups(
+		{
+			blocks,
+			gridColumns: [],
+			anchor: blocks[0] ?? null,
+			columnAnchor: null,
+		},
+		movedMarkups,
+	);
+}
+
+export function applyBlockSelection(view: EditorView, selection: BlockSelectionState): void {
+	const transaction = view.state.tr;
+	const selectedPositions = [...selection.blocks, ...selection.gridColumns.map((column) => column.gridPos)].sort(
+		(first, second) => first - second,
+	);
+	const selectionPosition = selectedPositions[0];
+	if (selectionPosition !== undefined) {
+		setCollapsedTextSelection(transaction, selectionPosition);
+	}
+	transaction.setMeta(blockSelectionPluginKey, selection);
+	transaction.setMeta('addToHistory', false);
+	view.dispatch(transaction);
 }
 
 export function resolveDragSelection(
@@ -123,10 +211,22 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 			apply(tr, value) {
 				const meta = tr.getMeta(blockSelectionPluginKey) as BlockSelectionState | undefined;
 				if (meta !== undefined) {
+					if (
+						meta.blocks.length === 0 &&
+						meta.gridColumns.length === 0 &&
+						!Object.hasOwn(meta, 'movedMarkups')
+					) {
+						return withMovedMarkups(meta, value.movedMarkups);
+					}
 					return meta;
 				}
 				if (!tr.docChanged) {
 					return value;
+				}
+				if (isHistoryTransaction(tr)) {
+					return value.movedMarkups === undefined
+						? emptySelection()
+						: selectionFromMovedMarkups(tr.doc, value.movedMarkups);
 				}
 
 				const valid = new Set(topLevelBlockPositions(tr.doc));
@@ -152,7 +252,15 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 					isValidGridColumn(tr.doc, mappedColumnAnchor)
 						? mappedColumnAnchor
 						: null;
-				return { blocks, gridColumns, anchor, columnAnchor };
+				return withMovedMarkups(
+					{
+						blocks,
+						gridColumns,
+						anchor,
+						columnAnchor,
+					},
+					tr.getMeta('appendedTransaction') === undefined ? undefined : value.movedMarkups,
+				);
 			},
 		},
 		props: {
@@ -215,8 +323,7 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 									(selected) => selected.gridPos === gridPos && selected.index === index,
 								);
 								if (alreadySelected) {
-									// Already selected (alone or within a multi-selection): let the native
-									// drag start so the column can be dragged directly from its body.
+									view.focus();
 									return false;
 								}
 								event.preventDefault();
@@ -224,6 +331,7 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 								if (next) {
 									view.dispatch(view.state.tr.setMeta(blockSelectionPluginKey, next));
 								}
+								view.focus();
 								return true;
 							}
 
@@ -245,6 +353,7 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 										columnAnchor: column,
 									}),
 								);
+								view.focus();
 								return true;
 							}
 
@@ -260,6 +369,7 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 									columnAnchor: columnAnchor?.gridPos === gridPos ? columnAnchor : column,
 								}),
 							);
+							view.focus();
 							return true;
 						}
 					}
@@ -278,12 +388,12 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 						) {
 							const next = selectBlockFromHandle(view.state, clickedBlockPos);
 							if (!next) {
-								// Already selected: allow the native drag to start so the block can
-								// be dragged directly from its body.
+								view.focus();
 								return false;
 							}
 							event.preventDefault();
 							view.dispatch(view.state.tr.setMeta(blockSelectionPluginKey, next));
+							view.focus();
 							return true;
 						}
 						if (clickedNode != null && clickedNode.type.name === 'gridBlock') {
@@ -329,6 +439,7 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 								anchor: blockPosition,
 							}),
 						);
+						view.focus();
 						return true;
 					}
 
@@ -340,6 +451,7 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 							anchor,
 						}),
 					);
+					view.focus();
 					return true;
 				},
 			},
@@ -418,6 +530,7 @@ interface DragUnitOperation {
 	from: number;
 	to: number;
 	remainingNode: PMNode | null;
+	movedMarkups: string[];
 }
 
 export function buildDragUnitNodes(state: EditorState, units: DragUnit[]): PMNode[] | null {
@@ -470,7 +583,9 @@ export function buildSelectionMoveTransaction(
 	}
 	const mappedInsert = transaction.mapping.map(insertPos);
 	transaction.insert(mappedInsert, Fragment.fromArray(nodes));
-	transaction.setMeta(blockSelectionPluginKey, emptySelection());
+	const movedMarkups = operations.flatMap((operation) => operation.movedMarkups);
+	transaction.setMeta(blockSelectionPluginKey, blockSelectionForInsertedNodes(mappedInsert, nodes, movedMarkups));
+	setCollapsedTextSelection(transaction, mappedInsert);
 	return { transaction, insertPos: mappedInsert };
 }
 
@@ -497,7 +612,11 @@ export function buildBlockMoveTransaction(
 
 	const mappedInsert = transaction.mapping.map(insertPos);
 	transaction.insert(mappedInsert, Fragment.fromArray(nodes));
-	transaction.setMeta(blockSelectionPluginKey, emptySelection());
+	transaction.setMeta(
+		blockSelectionPluginKey,
+		blockSelectionForInsertedNodes(mappedInsert, nodes, nodes.flatMap(rawMarkupsForNode)),
+	);
+	setCollapsedTextSelection(transaction, mappedInsert);
 	return { transaction, insertPos: mappedInsert };
 }
 
@@ -515,6 +634,7 @@ function buildDragUnitOperations(state: EditorState, units: DragUnit[]): DragUni
 				from: unit.pos,
 				to: unit.pos + node.nodeSize,
 				remainingNode: null,
+				movedMarkups: rawMarkupsForNode(node),
 			});
 			continue;
 		}
@@ -534,6 +654,9 @@ function buildDragUnitOperations(state: EditorState, units: DragUnit[]): DragUni
 			from: unit.gridPos,
 			to: unit.gridPos + grid.nodeSize,
 			remainingNode,
+			movedMarkups: unit.indices
+				.map((index) => splitGridColumnsRaw(grid.attrs.rawContent as string).columns[index])
+				.filter((markup): markup is string => markup !== undefined),
 		});
 	}
 	return operations;
@@ -575,6 +698,79 @@ export function rangeBetween(doc: PMNode, first: number, second: number): number
 	const start = Math.min(first, second);
 	const end = Math.max(first, second);
 	return topLevelBlockPositions(doc).filter((position) => position >= start && position <= end);
+}
+
+function selectionFromMovedMarkups(doc: PMNode, movedMarkups: string[]): BlockSelectionState {
+	const blocks: number[] = [];
+	const gridColumns: GridColumnRef[] = [];
+	const usedBlocks = new Set<number>();
+	const usedGridColumns = new Set<string>();
+	const normalizedMarkups = normalizeMovedMarkups(movedMarkups);
+	for (const markup of normalizedMarkups) {
+		const matches: Array<{ block: number } | { gridColumn: GridColumnRef }> = [];
+		doc.forEach((node, position) => {
+			const blockMarkup = rawMarkupForBlock(node);
+			if (blockMarkup?.trim() === markup && !usedBlocks.has(position)) {
+				matches.push({ block: position });
+			}
+			if (node.type.name !== 'gridBlock') {
+				return;
+			}
+			for (const [index, column] of splitGridColumnsRaw(node.attrs.rawContent as string).columns.entries()) {
+				if (column.trim() === markup && !usedGridColumns.has(gridColumnKey(position, index))) {
+					matches.push({ gridColumn: { gridPos: position, index } });
+				}
+			}
+		});
+		if (matches.length !== 1) {
+			continue;
+		}
+		const [match] = matches;
+		if ('block' in match) {
+			blocks.push(match.block);
+			usedBlocks.add(match.block);
+		} else {
+			gridColumns.push(match.gridColumn);
+			usedGridColumns.add(gridColumnKey(match.gridColumn.gridPos, match.gridColumn.index));
+		}
+	}
+
+	blocks.sort((first, second) => first - second);
+	gridColumns.sort((first, second) => first.gridPos - second.gridPos || first.index - second.index);
+	return {
+		blocks,
+		gridColumns,
+		anchor: blocks[0] ?? null,
+		columnAnchor: gridColumns[0] ?? null,
+		movedMarkups: normalizedMarkups,
+	};
+}
+
+function rawMarkupForBlock(node: PMNode): string | null {
+	if (node.type.name === 'chartBlock' || node.type.name === 'tableBlock') {
+		return node.attrs.rawTag as string;
+	}
+	return node.isTextblock ? `text:${node.type.name}:${node.textContent}` : null;
+}
+
+function rawMarkupsForNode(node: PMNode): string[] {
+	const blockMarkup = rawMarkupForBlock(node);
+	if (blockMarkup !== null) {
+		return [blockMarkup];
+	}
+	return node.type.name === 'gridBlock' ? splitGridColumnsRaw(node.attrs.rawContent as string).columns : [];
+}
+
+function withMovedMarkups(selection: BlockSelectionState, movedMarkups?: string[]): BlockSelectionState {
+	return movedMarkups === undefined ? selection : { ...selection, movedMarkups: normalizeMovedMarkups(movedMarkups) };
+}
+
+function normalizeMovedMarkups(markups: string[]): string[] {
+	return markups.map((markup) => markup.trim()).filter(Boolean);
+}
+
+function gridColumnKey(gridPos: number, index: number): string {
+	return `${gridPos}:${index}`;
 }
 
 function getChangedGridPositions(tr: Transaction, selection: BlockSelectionState): Set<number> {

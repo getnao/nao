@@ -1,5 +1,5 @@
 import { popGridColumn, TAG_ATTRS } from '@nao/shared/story-segments';
-import { Selection } from '@tiptap/pm/state';
+import { Selection, TextSelection } from '@tiptap/pm/state';
 import type { Node as PMNode, Schema } from '@tiptap/pm/model';
 import type { EditorState, Transaction } from '@tiptap/pm/state';
 import type { EditorView } from '@tiptap/pm/view';
@@ -110,14 +110,73 @@ export function cloneElementWithStyles(node: HTMLElement): HTMLElement {
 	return clone;
 }
 
+export function setCollapsedTextSelection(transaction: Transaction, position: number): void {
+	const clampedPosition = Math.max(0, Math.min(position, transaction.doc.content.size));
+	const $position = transaction.doc.resolve(clampedPosition);
+	const nearbySelection =
+		Selection.findFrom($position, 1, true) ?? Selection.findFrom($position, -1, true) ?? Selection.near($position);
+	transaction.setSelection(TextSelection.create(transaction.doc, nearbySelection.from));
+}
+
 export function dispatchDropWithScroll(view: EditorView, transaction: Transaction, pos: number): void {
-	const target = Math.max(0, Math.min(pos, transaction.doc.content.size));
-	transaction.setSelection(Selection.near(transaction.doc.resolve(target)));
+	setCollapsedTextSelection(transaction, pos);
 	view.dispatch(transaction);
+	scrollPosIntoView(view, pos);
+}
+
+export function scrollPosIntoView(view: EditorView, pos: number, gridColumnIndex?: number): void {
 	requestAnimationFrame(() => {
 		const clamped = Math.max(0, Math.min(pos, view.state.doc.content.size));
-		const dom = view.nodeDOM(clamped);
+		const gridColumn =
+			gridColumnIndex === undefined
+				? null
+				: view.dom.querySelector<HTMLElement>(
+						`[data-grid-pos="${clamped}"][data-col-index="${gridColumnIndex}"]`,
+					);
+		const dom = gridColumn ?? view.nodeDOM(clamped);
 		const element = dom instanceof HTMLElement ? dom : (dom?.parentElement ?? null);
-		element?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+		if (!element || isReasonablyVisible(element)) {
+			return;
+		}
+		element.scrollIntoView({ block: 'center', behavior: 'smooth' });
 	});
+}
+
+const SCROLL_VISIBILITY_MARGIN = 24;
+
+function isReasonablyVisible(element: HTMLElement): boolean {
+	const scrollContainer = findVerticalScrollContainer(element);
+	if (!scrollContainer) {
+		return false;
+	}
+
+	const elementRect = element.getBoundingClientRect();
+	const scrollportRect = scrollContainer.getBoundingClientRect();
+	if (
+		elementRect.bottom <= elementRect.top ||
+		elementRect.right <= elementRect.left ||
+		scrollportRect.bottom <= scrollportRect.top ||
+		scrollportRect.right <= scrollportRect.left
+	) {
+		return false;
+	}
+
+	return (
+		elementRect.top >= scrollportRect.top - SCROLL_VISIBILITY_MARGIN &&
+		elementRect.bottom <= scrollportRect.bottom + SCROLL_VISIBILITY_MARGIN &&
+		elementRect.left >= scrollportRect.left - SCROLL_VISIBILITY_MARGIN &&
+		elementRect.right <= scrollportRect.right + SCROLL_VISIBILITY_MARGIN
+	);
+}
+
+function findVerticalScrollContainer(element: HTMLElement): HTMLElement | null {
+	let ancestor = element.parentElement;
+	while (ancestor) {
+		const { overflowY } = window.getComputedStyle(ancestor);
+		if (['auto', 'scroll', 'overlay'].includes(overflowY) && ancestor.scrollHeight - ancestor.clientHeight > 1) {
+			return ancestor;
+		}
+		ancestor = ancestor.parentElement;
+	}
+	return null;
 }
