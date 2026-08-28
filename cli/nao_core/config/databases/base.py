@@ -61,6 +61,12 @@ class DatabaseTemplate(str, Enum):
     QUERY_HISTORY = "query_history"
 
 
+DEFAULT_DATABASE_TEMPLATES = [
+    DatabaseTemplate.COLUMNS,
+    DatabaseTemplate.PREVIEW,
+]
+
+
 # Backward-compatible alias
 DatabaseAccessor = DatabaseTemplate
 
@@ -114,15 +120,11 @@ class DatabaseConfig(BaseModel, ABC):
         ),
     )
     templates: list[DatabaseTemplate] = Field(
-        default_factory=lambda: [
-            DatabaseTemplate.COLUMNS,
-            DatabaseTemplate.QUERY_HISTORY,
-            DatabaseTemplate.PREVIEW,
-        ],
+        default_factory=lambda: list(DEFAULT_DATABASE_TEMPLATES),
         description=(
             "Which default templates to render per table "
-            "(e.g., ['columns', 'query_history', 'profiling', 'ai_summary']). "
-            "Defaults to ['columns', 'query_history', 'preview']."
+            "(e.g., ['columns', 'preview', 'profiling', 'query_history', 'ai_summary']). "
+            "Defaults to ['columns', 'preview']; an empty list uses this default."
         ),
     )
     query_history_days: int | None = Field(
@@ -181,6 +183,8 @@ class DatabaseConfig(BaseModel, ABC):
                 if template != "description"
             ]
             data["templates"] = list(dict.fromkeys(migrated_templates))
+            if not data["templates"]:
+                data["templates"] = list(DEFAULT_DATABASE_TEMPLATES)
         return data
 
     profiling: ProfilingConfig = Field(

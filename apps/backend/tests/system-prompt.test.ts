@@ -5,6 +5,10 @@ import { SystemPrompt } from '../src/components/ai/system-prompt';
 import { renderToMarkdown } from '../src/lib/markdown';
 import { formatCurrentDate, resolveTimezone } from '../src/utils/date';
 
+function getTemplateLine(markdown: string, template: string): string {
+	return markdown.split('\n').find((line) => line.includes(`\`${template}.md\` —`)) ?? '';
+}
+
 describe('resolveTimezone', () => {
 	it('returns UTC when no timezone is provided', () => {
 		expect(resolveTimezone()).toBe('UTC');
@@ -111,6 +115,120 @@ describe('SystemPrompt timezone rendering', () => {
 		expect(markdown).toContain('And 10 more custom chart types in agent/charts');
 		expect(markdown).not.toContain('x'.repeat(400));
 		expect(markdown).toContain(`${'x'.repeat(199)}…`);
+	});
+});
+
+describe('SystemPrompt context structure', () => {
+	it('describes all table templates when templates are omitted or empty', () => {
+		const withoutTemplates = renderToMarkdown(SystemPrompt({ internalSkills: [] }));
+		const withEmptyTemplates = renderToMarkdown(SystemPrompt({ templates: [], internalSkills: [] }));
+
+		for (const contextPath of ['RULES.md', 'semantics/', 'docs/', 'docs/notion/', 'databases/']) {
+			expect(withoutTemplates).toContain(`\`${contextPath}\``);
+		}
+		for (const template of ['columns.md', 'preview.md', 'profiling.md', 'query_history.md', 'ai_summary.md']) {
+			expect(withoutTemplates).toContain(`\n\t- \`${template}\``);
+			expect(withEmptyTemplates).toContain(`\n\t- \`${template}\``);
+		}
+		expect(withoutTemplates).toContain('\n\t- `annotations.md` —');
+		expect(withoutTemplates).toContain('Inside each table folder:');
+		expect(withoutTemplates).toContain('table description, row count, columns with types and descriptions');
+		expect(withoutTemplates).toContain('tiny, non-representative sample');
+		expect(withoutTemplates).toContain('per-column statistics as JSONL');
+		expect(withoutTemplates).toContain('common joins, and top queries as SQL');
+		expect(withoutTemplates).toContain('an LLM-written overview of the table');
+	});
+
+	it('describes only the configured table templates plus annotations', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ templates: ['columns'], internalSkills: [] }));
+
+		expect(markdown).toContain('\n\t- `annotations.md` —');
+		expect(markdown).toContain('\n\t- `columns.md` —');
+		expect(markdown).not.toContain('`preview.md`');
+		expect(markdown).not.toContain('`profiling.md`');
+		expect(markdown).not.toContain('`query_history.md`');
+		expect(markdown).not.toContain('`ai_summary.md`');
+	});
+
+	it('references only visible source files from the ai_summary description', () => {
+		const bothVisible = getTemplateLine(
+			renderToMarkdown(SystemPrompt({ templates: ['ai_summary', 'columns', 'profiling'], internalSkills: [] })),
+			'ai_summary',
+		);
+		const columnsVisible = getTemplateLine(
+			renderToMarkdown(SystemPrompt({ templates: ['ai_summary', 'columns'], internalSkills: [] })),
+			'ai_summary',
+		);
+		const neitherVisible = getTemplateLine(
+			renderToMarkdown(SystemPrompt({ templates: ['ai_summary'], internalSkills: [] })),
+			'ai_summary',
+		);
+
+		expect(bothVisible).toContain('verify specifics against `columns.md` and `profiling.md`.');
+		expect(columnsVisible).toContain('verify specifics against `columns.md`.');
+		expect(columnsVisible).not.toContain('`profiling.md`');
+		expect(neitherVisible).not.toContain('`columns.md`');
+		expect(neitherVisible).not.toContain('`profiling.md`');
+		expect(neitherVisible).toContain('use for orientation, but do not treat it as ground truth.');
+	});
+
+	it('shows only context reported as present', () => {
+		const absent = renderToMarkdown(
+			SystemPrompt({
+				contextPresence: {
+					rules: false,
+					semantics: false,
+					docs: false,
+					notionDocs: false,
+					databases: false,
+				},
+				internalSkills: [],
+			}),
+		);
+		const present = renderToMarkdown(
+			SystemPrompt({
+				contextPresence: {
+					rules: true,
+					semantics: true,
+					docs: true,
+					notionDocs: true,
+					databases: true,
+				},
+				internalSkills: [],
+			}),
+		);
+		const docsWithoutNotion = renderToMarkdown(
+			SystemPrompt({
+				contextPresence: {
+					rules: false,
+					semantics: false,
+					docs: true,
+					notionDocs: false,
+					databases: false,
+				},
+				internalSkills: [],
+			}),
+		);
+
+		for (const contextPath of ['RULES.md', 'semantics/', 'docs/', 'docs/notion/', 'databases/']) {
+			expect(absent).not.toContain(`\n- \`${contextPath}\``);
+			expect(present).toContain(`\`${contextPath}\``);
+		}
+		expect(docsWithoutNotion).toContain('`docs/` —');
+		expect(docsWithoutNotion).not.toContain('`docs/notion/`');
+	});
+
+	it('names configured repositories', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ repoNames: ['dbt', 'api'], internalSkills: [] }));
+
+		expect(markdown).toContain('`repos/dbt/, repos/api/` —');
+	});
+
+	it('omits repositories when none are configured', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ repoNames: [], internalSkills: [] }));
+
+		expect(markdown).not.toContain('`repos/<name>/`');
+		expect(markdown).not.toContain('— source repositories;');
 	});
 });
 

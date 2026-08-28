@@ -33,11 +33,12 @@ def reset_template_engine():
 def synced(tmp_path_factory, db_config):
     """Run sync once for the whole module and return (state, output_path, config).
 
-    Profiling is explicitly enabled so that integration tests cover the full
-    template surface (profiling is opt-in during ``nao init``).
+    Optional templates are explicitly enabled so integration tests cover the
+    full template surface.
     """
-    if DatabaseTemplate.PROFILING not in db_config.templates:
-        db_config.templates.append(DatabaseTemplate.PROFILING)
+    for template in (DatabaseTemplate.PROFILING, DatabaseTemplate.QUERY_HISTORY):
+        if template not in db_config.templates:
+            db_config.templates.append(template)
 
     output = tmp_path_factory.mktemp(f"{db_config.type}_sync")
 

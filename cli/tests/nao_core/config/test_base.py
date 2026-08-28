@@ -278,6 +278,23 @@ def test_templates_key_works_without_deprecation_warning():
     assert len(deprecation_warnings) == 0
 
 
+def test_empty_templates_use_default():
+    db = DuckDBConfig.model_validate({"type": "duckdb", "name": "test-db", "path": ":memory:", "templates": []})
+
+    assert db.templates == [DatabaseTemplate.COLUMNS, DatabaseTemplate.PREVIEW]
+
+
+def test_legacy_description_only_uses_default_after_migration():
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        db = DuckDBConfig.model_validate(
+            {"type": "duckdb", "name": "test-db", "path": ":memory:", "templates": ["description"]}
+        )
+
+    assert db.templates == [DatabaseTemplate.COLUMNS, DatabaseTemplate.PREVIEW]
+    assert any("description" in str(warning.message) for warning in caught)
+
+
 def test_query_history_template_variant():
     """query_history can be added to the templates list."""
     from nao_core.config.databases.base import DatabaseTemplate
@@ -322,12 +339,9 @@ def test_legacy_description_removed_and_how_to_use_maps_to_query_history():
     assert any("how_to_use" in message and "query_history" in message for message in warning_messages)
 
 
-def test_default_templates_exclude_profiling():
-    """Default templates should not include profiling."""
-    from nao_core.config.databases.base import DatabaseTemplate
-
+def test_default_templates():
     db = DuckDBConfig(name="test-db", path=":memory:")
-    assert DatabaseTemplate.PROFILING not in db.templates
+    assert db.templates == [DatabaseTemplate.COLUMNS, DatabaseTemplate.PREVIEW]
 
 
 def test_ai_summary_refresh_config_defaults_to_always():

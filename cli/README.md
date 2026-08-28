@@ -179,7 +179,7 @@ nao sync
 
 Syncs configured resources to local files:
 
-- **Databases** - generates markdown docs (`columns.md` with table schema, description, row count, and partition/clustering/index metadata, `query_history.md`, and `preview.md`) for each table into `databases/`
+- **Databases** - generates configured markdown docs for each table into `databases/` (`columns.md` and `preview.md` by default; optional `profiling.md`, `query_history.md`, and `ai_summary.md`)
 - **Git repositories** — clones or pulls repos into `repos/`
 - **Notion pages** — exports pages as markdown into `docs/notion/`. Databases are exported as markdown tables, whether configured directly or embedded inline in a page. A database embedded in a page is exported through one of its views — Notion exposes no way to tell which view a page renders, so the first one listed is used — applying that view's filters, sorts and visible columns rather than dumping the whole data source. A database configured by URL exports every row and column, unless the URL carries `?v=<view_id>`, in which case that view applies. When a database cannot be exported, its page fails to sync and the previously synced markdown is left untouched, rather than being rewritten without its table.
 
