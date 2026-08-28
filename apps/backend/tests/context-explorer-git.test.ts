@@ -186,6 +186,17 @@ printf '%s|%s' "$user" "$GIT_ASKPASS"
 		expect(error.message).not.toContain(token);
 		expect(error.message).toContain('[redacted]');
 	});
+
+	it('redacts unknown URL credentials independently of the OAuth token', () => {
+		const error = sanitizeLiveContextError(
+			new Error('fatal: failed https://unknown-user:unknown-pass@example.com/nao/context.git'),
+			'separate-oauth-token',
+		);
+
+		expect(error.message).toBe('fatal: failed https://[redacted]@example.com/nao/context.git');
+		expect(error.message).not.toContain('unknown-user');
+		expect(error.message).not.toContain('unknown-pass');
+	});
 });
 
 describe('deployment context source', () => {

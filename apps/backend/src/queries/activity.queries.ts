@@ -14,6 +14,7 @@ export const storyRefreshJobUniqueKey = (storyId: string): string => `story-refr
 
 const ACTIVITY_RUN_STALE_MS = 30 * 60 * 1_000;
 const ACTIVITY_RUN_STALE_MESSAGE = 'Activity did not finish before the timeout.';
+const CONTEXT_PULL_HISTORY_LIMIT = 100;
 
 export interface CreateActivityInput {
 	projectId: string;
@@ -66,6 +67,8 @@ export const startContextPullActivity = async (projectId: string, userId: string
 };
 
 export const listContextPullActivities = async (projectId: string): Promise<ContextPullActivityRow[]> => {
+	await failStaleActivities();
+
 	return db
 		.select({
 			id: s.activity.id,
@@ -86,6 +89,7 @@ export const listContextPullActivities = async (projectId: string): Promise<Cont
 			),
 		)
 		.orderBy(desc(s.activity.startedAt))
+		.limit(CONTEXT_PULL_HISTORY_LIMIT)
 		.execute();
 };
 

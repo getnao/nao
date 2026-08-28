@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+	ContextProjectResolutionError: class ContextProjectResolutionError extends Error {},
 	completeActivity: vi.fn(),
 	connectContextRepository: vi.fn(),
 	failActivity: vi.fn(),
@@ -84,6 +85,7 @@ vi.mock('../src/services/context-explorer-pr.service', () => ({
 }));
 
 vi.mock('../src/utils/context-repo', () => ({
+	ContextProjectResolutionError: mocks.ContextProjectResolutionError,
 	resolveContextRepository: mocks.resolveContextRepository,
 	resolveContextSourceGitToken: vi.fn(() => null),
 	sanitizeContextSourceRepositoryUrl: vi.fn((url: string) => url),
@@ -297,6 +299,7 @@ describe('live context update access', () => {
 			changed: false,
 			oldCommit: 'a'.repeat(40),
 			newCommit: 'a'.repeat(40),
+			fileCount: 0,
 			files: [],
 		});
 	});
@@ -318,6 +321,54 @@ describe('live context update access', () => {
 			'activity-id',
 			expect.objectContaining({ configuredBranch: 'main', changed: true, files }),
 		);
+	});
+
+	it('limits persisted file details without truncating the pull result', async () => {
+		const files = Array.from({ length: 1_001 }, (_, index) => ({
+			path: `/context-${index}.md`,
+			additions: 1,
+			deletions: 0,
+		}));
+		mocks.pullLiveContext.mockReturnValue({
+			changed: true,
+			checkedAt: '2026-08-27T10:00:00.000Z',
+			configuredBranch: 'main',
+			oldCommit: 'a'.repeat(40),
+			newCommit: 'b'.repeat(40),
+			files,
+		});
+
+		const result = await createCaller().pullLiveContext();
+
+		expect(result.files).toEqual(files);
+		expect(result.files).toHaveLength(1_001);
+		expect(mocks.completeActivity).toHaveBeenCalledWith(
+			'activity-id',
+			expect.objectContaining({
+				newCommit: 'b'.repeat(40),
+				fileCount: 1_001,
+				files: files.slice(0, 1_000),
+			}),
+		);
+		mocks.listContextPullActivities.mockResolvedValue([
+			{
+				id: 'large-pull',
+				status: 'completed',
+				payload: mocks.completeActivity.mock.calls[0][1],
+				errorMessage: null,
+				startedAt: new Date('2026-08-27T10:00:00.000Z'),
+				completedAt: new Date('2026-08-27T10:00:01.000Z'),
+				actorName: 'Admin User',
+			},
+		]);
+
+		await expect(createCaller().getLiveContextPullHistory()).resolves.toEqual([
+			expect.objectContaining({
+				newCommit: 'b'.repeat(40),
+				fileCount: 1_001,
+				files: files.slice(0, 1_000),
+			}),
+		]);
 	});
 
 	it('records and parses a first repository clone without an old commit', async () => {
@@ -385,6 +436,31 @@ describe('live context update access', () => {
 		expect(mocks.failActivity).toHaveBeenCalledWith('activity-id', 'safe pull failure');
 	});
 
+	it('maps context project resolution failures to bad requests', async () => {
+		mocks.pullLiveContext.mockImplementation(() => {
+			throw new mocks.ContextProjectResolutionError('Configured context subfolder was not found.');
+		});
+
+		await expect(createCaller().pullLiveContext()).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+			message: 'Configured context subfolder was not found.',
+		});
+		expect(mocks.failActivity).toHaveBeenCalledWith('activity-id', 'Configured context subfolder was not found.');
+	});
+
+	it('records failures while creating the Git context', async () => {
+		const setupError = new Error('repository setup failed');
+		mocks.resolveContextRepository.mockRejectedValue(setupError);
+
+		await expect(createCaller().pullLiveContext()).rejects.toMatchObject({
+			code: 'INTERNAL_SERVER_ERROR',
+			message: 'repository setup failed',
+		});
+		expect(mocks.sanitizeLiveContextError).toHaveBeenCalledWith(setupError, undefined);
+		expect(mocks.failActivity).toHaveBeenCalledWith('activity-id', 'repository setup failed');
+		expect(mocks.pullLiveContext).not.toHaveBeenCalled();
+	});
+
 	it('lets context admins read status but not pull the live context', async () => {
 		mocks.getUserRoleInProject.mockResolvedValue('context_admin');
 
@@ -445,16 +521,19 @@ describe('live context update access', () => {
 			expect.objectContaining({
 				id: 'newest',
 				changed: true,
+				fileCount: 1,
 				files: [{ path: '/context.md', additions: 1, deletions: 0 }],
 			}),
 			expect.objectContaining({
 				id: 'legacy',
 				changed: false,
 				newCommit: 'a'.repeat(40),
+				fileCount: 0,
 			}),
 			expect.objectContaining({
 				id: 'older',
 				changed: null,
+				fileCount: 0,
 				files: [],
 				errorMessage: 'Safe failure',
 			}),

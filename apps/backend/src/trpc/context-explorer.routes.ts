@@ -24,7 +24,6 @@ import {
 	getChangedContextFiles,
 	getContextFileDiff,
 	getContextRepositoryStatus,
-	type LiveContextPullResult,
 	pullLiveContext,
 	resolveContextExplorerGit,
 	resolveContextExplorerGitSafely,
@@ -34,13 +33,18 @@ import {
 } from '../services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../services/context-explorer-pr.service';
 import { getRepoProviderDisplayName } from '../services/review-request-provider';
-import { resolveContextRepository, resolveContextSourceGitToken } from '../utils/context-repo';
+import {
+	ContextProjectResolutionError,
+	resolveContextRepository,
+	resolveContextSourceGitToken,
+} from '../utils/context-repo';
 import { logger, serializeError } from '../utils/logger';
 import { adminProtectedProcedure, contextAdminProtectedProcedure } from './trpc';
 
 const branchSchema = z.string().trim().min(1).max(200);
 const pathsSchema = z.array(z.string()).min(1).max(100);
 const commitSchema = z.string().regex(/^[a-f0-9]{40,64}$/i);
+const MAX_PULL_HISTORY_FILES = 1_000;
 const fileDiffInputSchema = z
 	.object({
 		path: z.string(),
@@ -63,7 +67,8 @@ const pullPayloadSchema = z.object({
 		.regex(/^[a-f0-9]{40,64}$/)
 		.nullable(),
 	newCommit: z.string().regex(/^[a-f0-9]{40,64}$/),
-	files: z.array(pullFileSchema).max(1_000),
+	fileCount: z.number().int().nonnegative().optional(),
+	files: z.array(pullFileSchema).max(MAX_PULL_HISTORY_FILES),
 });
 
 export const contextExplorerRoutes = {
@@ -78,12 +83,31 @@ export const contextExplorerRoutes = {
 
 	pullLiveContext: adminProtectedProcedure.mutation(async ({ ctx }) => {
 		const activity = await activityQueries.startContextPullActivity(ctx.project.id, ctx.user.id);
-		const gitContext = await createGitContext(ctx.project.id, ctx.project.path, ctx.user);
-		let result: LiveContextPullResult;
+		let token: string | null | undefined;
 		try {
-			result = await pullLiveContext(gitContext);
+			const gitContext = await createGitContext(ctx.project.id, ctx.project.path, ctx.user);
+			token = gitContext.token;
+			const result = await pullLiveContext(gitContext);
+			try {
+				await activityQueries.completeActivity(activity.id, {
+					configuredBranch: result.configuredBranch,
+					changed: result.changed,
+					oldCommit: result.oldCommit,
+					newCommit: result.newCommit,
+					fileCount: result.files.length,
+					files: result.files.slice(0, MAX_PULL_HISTORY_FILES),
+				});
+			} catch (persistenceError) {
+				logPullHistoryFailure(
+					'Context pull completed, but its history could not be saved.',
+					ctx.project.id,
+					activity.id,
+					persistenceError,
+				);
+			}
+			return result;
 		} catch (error) {
-			const sanitizedError = sanitizeLiveContextError(error, gitContext.token);
+			const sanitizedError = sanitizeLiveContextError(error, token);
 			try {
 				await activityQueries.failActivity(activity.id, sanitizedError.message);
 			} catch (persistenceError) {
@@ -95,27 +119,15 @@ export const contextExplorerRoutes = {
 				);
 			}
 			throw new TRPCError({
-				code: error instanceof TRPCError ? error.code : 'INTERNAL_SERVER_ERROR',
+				code:
+					error instanceof TRPCError
+						? error.code
+						: error instanceof ContextProjectResolutionError
+							? 'BAD_REQUEST'
+							: 'INTERNAL_SERVER_ERROR',
 				message: sanitizedError.message,
 			});
 		}
-		try {
-			await activityQueries.completeActivity(activity.id, {
-				configuredBranch: result.configuredBranch,
-				changed: result.changed,
-				oldCommit: result.oldCommit,
-				newCommit: result.newCommit,
-				files: result.files,
-			});
-		} catch (persistenceError) {
-			logPullHistoryFailure(
-				'Context pull completed, but its history could not be saved.',
-				ctx.project.id,
-				activity.id,
-				persistenceError,
-			);
-		}
-		return result;
 	}),
 
 	connectRepository: contextAdminProtectedProcedure
@@ -265,6 +277,7 @@ function toContextPullHistoryEntry(activity: activityQueries.ContextPullActivity
 		changed: payload.success ? payload.data.changed : null,
 		oldCommit: payload.success ? payload.data.oldCommit : null,
 		newCommit: payload.success ? payload.data.newCommit : null,
+		fileCount: payload.success ? (payload.data.fileCount ?? payload.data.files.length) : 0,
 		files: payload.success ? payload.data.files : [],
 		errorMessage: activity.status === 'failed' ? (activity.errorMessage ?? 'Context pull failed.') : null,
 	};

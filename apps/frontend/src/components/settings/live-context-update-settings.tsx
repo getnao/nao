@@ -40,6 +40,7 @@ interface PullHistoryEntry {
 	changed: boolean | null;
 	oldCommit: string | null;
 	newCommit: string | null;
+	fileCount: number;
 	files: Array<{ path: string; additions: number | null; deletions: number | null }>;
 	errorMessage: string | null;
 }
@@ -130,8 +131,8 @@ function HistoryEntry({
 					{new Date(timestamp).toLocaleString()}
 				</time>
 			</div>
-			{hasCompletedDiff && activity.files.length > 0 ? (
-				<p className='mt-2 text-xs text-muted-foreground'>{formatChangedFileCount(activity.files.length)}</p>
+			{hasCompletedDiff && activity.fileCount > 0 ? (
+				<p className='mt-2 text-xs text-muted-foreground'>{formatChangedFileCount(activity.fileCount)}</p>
 			) : hasCompletedDiff ? (
 				<div className='mt-2 h-4' aria-hidden='true' />
 			) : null}
