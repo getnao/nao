@@ -1240,7 +1240,7 @@ describe('context explorer worktrees', () => {
 				repoFullName: 'nao/selected',
 			},
 			{
-				provider: localProvider(selected.bare, 'https://github.com/nao/selected.git'),
+				provider: localProvider(selected.bare, selected.bare),
 				updateConfig,
 			},
 		);
@@ -1252,6 +1252,65 @@ describe('context explorer worktrees', () => {
 			repoProvider: 'github',
 		});
 		expect(fs.readFileSync(path.join(worktree, 'context.md'), 'utf8')).toBe('selected repository content\n');
+	});
+
+	it('refreshes a missing GitLab origin HEAD and detects a non-main default branch before saving', async () => {
+		const fixture = createFixture(temporaryRoots);
+		runGit(fixture.seed, ['branch', 'develop']);
+		runGit(fixture.seed, ['push', fixture.bare, 'develop']);
+		runGit(fixture.root, ['--git-dir', fixture.bare, 'symbolic-ref', 'HEAD', 'refs/heads/develop']);
+		const context = {
+			...fixture.context,
+			configOverride: { provider: 'gitlab' as const, repoFullName: 'nao/context' },
+			providerOverride: localProvider(fixture.bare, fixture.bare),
+		};
+		const repo = await ensureContextWorktree(context);
+		runGit(repo.worktreeRoot, ['symbolic-ref', '--delete', 'refs/remotes/origin/HEAD']);
+		const updateConfig = vi.fn().mockResolvedValue(undefined);
+
+		const result = await connectContextRepository(
+			{
+				...context,
+				provider: 'gitlab',
+				repoFullName: 'nao/context',
+			},
+			{ provider: context.providerOverride, updateConfig },
+		);
+
+		expect(result).toMatchObject({ provider: 'gitlab', defaultBranch: 'develop', branch: 'develop' });
+		expect(
+			runGit(repo.worktreeRoot, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).toString().trim(),
+		).toBe('origin/develop');
+		expect(updateConfig).toHaveBeenCalledWith('project-id', {
+			repoFullName: 'nao/context',
+			repoProvider: 'gitlab',
+		});
+	});
+
+	it('does not save the connection when the default branch refresh fails', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const context = {
+			...fixture.context,
+			configOverride: { provider: 'gitlab' as const, repoFullName: 'nao/context' },
+			providerOverride: localProvider(fixture.bare, fixture.bare),
+		};
+		const repo = await ensureContextWorktree(context);
+		const missingRemote = path.join(fixture.root, 'missing.git');
+		runGit(repo.worktreeRoot, ['remote', 'set-url', 'origin', missingRemote]);
+		const provider = localProvider(fixture.bare, missingRemote);
+		const updateConfig = vi.fn().mockResolvedValue(undefined);
+
+		await expect(
+			connectContextRepository(
+				{
+					...context,
+					provider: 'gitlab',
+					repoFullName: 'nao/context',
+				},
+				{ provider, updateConfig },
+			),
+		).rejects.toThrow();
+		expect(updateConfig).not.toHaveBeenCalled();
 	});
 
 	it('supports GitLab repositories below the setup boundary', async () => {
