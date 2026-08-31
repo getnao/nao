@@ -1,0 +1,34 @@
+it's weird cause with gitlab when I merge I never get the popup to update file explorer at all
+
+---
+
+oh wow really
+
+---
+
+confused because earlier it still gave me the popup to update the file explorer even when it was clean
+
+---
+
+Look I don't get it, under what condition does update File Explorer get done automatically after Pull is done
+
+---
+
+oooooooh I see it's because in NAO_CONTEXT_SOURCE we never store the commit locally?
+
+---
+
+ww
+
+---
+
+ok well then I'm happy, we're all good with this PR aren't we
+
+---
+
+ok so in Gitlab/GitHub connected, we never see the little Update Icon button do we?
+
+---
+
+Final task to finish of this PR, 
+apps/backend/src/services/context-explorer-git.service.ts
