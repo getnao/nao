@@ -1,4 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { extractQueryIds } from '@nao/shared/story-segments';
 import { executeSql, grep, list, readFile } from '@nao/shared/tools';
 import { z } from 'zod';
 import zodV3 from 'zod/v3';
@@ -8,7 +9,7 @@ import grepTool from '../../agents/tools/grep';
 import listTool from '../../agents/tools/list';
 import readTool from '../../agents/tools/read';
 import * as chatQueries from '../../queries/chat.queries';
-import { upsertMcpQueryData } from '../../queries/mcp-query-data.queries';
+import { getMcpQueryData, upsertMcpQueryData } from '../../queries/mcp-query-data.queries';
 import * as storyQueries from '../../queries/story.queries';
 import * as storyFolderQueries from '../../queries/story-folder.queries';
 import { pinQueryDataToChat, pinStoryMessageToChat } from '../../utils/chat-message-story';
@@ -134,6 +135,8 @@ function registerExecuteSql(server: McpServer, ctx: McpContext): void {
 
 			await upsertMcpQueryData(queryId, callLogId, ctx.projectId, output.columns, output.data, {
 				sourceChatId: validatedSourceChat ?? null,
+				sqlQuery: input.sql_query,
+				databaseId: input.database_id ?? null,
 			});
 
 			const mcpOutput = { ...output, query_id: queryId };
@@ -288,8 +291,25 @@ async function cacheStoryQueryData(
 	}
 	await storyQueries.upsertStoryDataCacheByStoryId(storyId, resolvedQueryData);
 	if (chatId) {
-		await pinQueryDataToChat(chatId, resolvedQueryData);
+		const queryDefinitions = await resolveMcpQueryDefinitions(code, ctx);
+		await pinQueryDataToChat(chatId, resolvedQueryData, queryDefinitions);
 	}
+}
+
+async function resolveMcpQueryDefinitions(code: string, ctx: McpContext) {
+	const queryIds = [...extractQueryIds(code)];
+	const rows = await Promise.all(
+		queryIds.map((queryId) => getMcpQueryData(queryId, ctx.projectId, { userId: ctx.userId })),
+	);
+
+	return Object.fromEntries(
+		queryIds.flatMap((queryId, index) => {
+			const row = rows[index];
+			return row?.sqlQuery
+				? [[queryId, { sqlQuery: row.sqlQuery, databaseId: row.databaseId ?? undefined }]]
+				: [];
+		}),
+	);
 }
 
 function generateSlug(title: string): string {

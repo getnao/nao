@@ -449,6 +449,13 @@
       "when": 1786610518729,
       "tag": "0063_default_models",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1787136533123,
+      "tag": "0064_persist_mcp_query_definitions",
+      "breakpoints": true
     }
   ]
 }

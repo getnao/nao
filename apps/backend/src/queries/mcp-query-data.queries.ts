@@ -10,16 +10,20 @@ export async function upsertMcpQueryData(
 	projectId: string,
 	columns: string[],
 	data: Record<string, unknown>[],
-	options?: { sourceChatId?: string | null },
+	options?: { sourceChatId?: string | null; sqlQuery?: string; databaseId?: string | null },
 ): Promise<void> {
 	const expiresAt = new Date(Date.now() + MCP_QUERY_DATA_RETENTION_MS);
 	const sourceChatId = options?.sourceChatId ?? null;
+	const queryDefinition = {
+		...(options?.sqlQuery !== undefined && { sqlQuery: options.sqlQuery }),
+		...(options && 'databaseId' in options && { databaseId: options.databaseId ?? null }),
+	};
 	await db
 		.insert(s.mcpQueryData)
-		.values({ queryId, callLogId, projectId, columns, data, expiresAt, sourceChatId })
+		.values({ queryId, callLogId, projectId, columns, data, expiresAt, sourceChatId, ...queryDefinition })
 		.onConflictDoUpdate({
 			target: s.mcpQueryData.queryId,
-			set: { callLogId, columns, data, expiresAt, sourceChatId },
+			set: { callLogId, columns, data, expiresAt, sourceChatId, ...queryDefinition },
 		})
 		.execute();
 }
@@ -28,12 +32,20 @@ export async function getMcpQueryData(
 	queryId: string,
 	projectId: string,
 	options?: { userId?: string },
-): Promise<{ columns: string[]; data: Record<string, unknown>[]; sourceChatId: string | null } | null> {
+): Promise<{
+	columns: string[];
+	data: Record<string, unknown>[];
+	sourceChatId: string | null;
+	sqlQuery: string | null;
+	databaseId: string | null;
+} | null> {
 	const baseQuery = db
 		.select({
 			columns: s.mcpQueryData.columns,
 			data: s.mcpQueryData.data,
 			sourceChatId: s.mcpQueryData.sourceChatId,
+			sqlQuery: s.mcpQueryData.sqlQuery,
+			databaseId: s.mcpQueryData.databaseId,
 		})
 		.from(s.mcpQueryData)
 		.$dynamic();
@@ -59,5 +71,7 @@ export async function getMcpQueryData(
 		columns: row.columns as string[],
 		data: row.data as Record<string, unknown>[],
 		sourceChatId: row.sourceChatId ?? null,
+		sqlQuery: row.sqlQuery ?? null,
+		databaseId: row.databaseId ?? null,
 	};
 }

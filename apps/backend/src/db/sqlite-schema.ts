@@ -898,6 +898,8 @@ export const mcpQueryData = sqliteTable(
 			.notNull()
 			.references(() => project.id, { onDelete: 'cascade' }),
 		sourceChatId: text('source_chat_id'),
+		sqlQuery: text('sql_query'),
+		databaseId: text('database_id'),
 		columns: text('columns', { mode: 'json' }).$type<string[]>().notNull(),
 		data: text('data', { mode: 'json' }).$type<Record<string, unknown>[]>().notNull(),
 		expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),

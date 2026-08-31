@@ -840,6 +840,8 @@ export const mcpQueryData = pgTable(
 			.notNull()
 			.references(() => project.id, { onDelete: 'cascade' }),
 		sourceChatId: text('source_chat_id'),
+		sqlQuery: text('sql_query'),
+		databaseId: text('database_id'),
 		columns: jsonb('columns').$type<string[]>().notNull(),
 		data: jsonb('data').$type<Record<string, unknown>[]>().notNull(),
 		expiresAt: timestamp('expires_at').notNull(),
