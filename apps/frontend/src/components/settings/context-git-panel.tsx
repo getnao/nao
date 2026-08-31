@@ -11,11 +11,16 @@ import {
 	GitPullRequest,
 	Pencil,
 	Plus,
+	RefreshCw,
 	X,
 } from 'lucide-react';
 import type { QueryClient } from '@tanstack/react-query';
 import type { ContextChangedFile } from '@nao/shared/types';
 
+import {
+	ContextWorktreeUpdateDialog,
+	isDirtyWorktreeConflict,
+} from '@/components/settings/context-worktree-update-dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
@@ -64,6 +69,8 @@ export function ContextGitPanel({
 	const [discardFile, setDiscardFile] = useState<ContextChangedFile | null>(null);
 	const [isDiscardAllOpen, setIsDiscardAllOpen] = useState(false);
 	const [isCreateBranchOpen, setIsCreateBranchOpen] = useState(false);
+	const [isUpdateWorktreeOpen, setIsUpdateWorktreeOpen] = useState(false);
+	const [isUpdateWorktreeBlocked, setIsUpdateWorktreeBlocked] = useState(false);
 	const [newBranchName, setNewBranchName] = useState('');
 	const [commitMessage, setCommitMessage] = useState('');
 	const [fallbackBaseNotice, setFallbackBaseNotice] = useState(false);
@@ -91,6 +98,7 @@ export function ContextGitPanel({
 	});
 	const changedFileList = changedFiles.data ?? [];
 	const hasUncommittedChanges = changedFileList.length > 0;
+	const hasKnownDirtyWorktree = hasUnsavedFileChanges || hasUncommittedChanges;
 	const commitBranchName = suggestedBranchName.data?.trim() || branches?.suggestedBranch.trim() || null;
 
 	useEffect(() => {
@@ -125,6 +133,22 @@ export function ContextGitPanel({
 		trpc.contextExplorer.switchBranch.mutationOptions({
 			onSuccess: async () => {
 				await refreshExplorer(true);
+			},
+		}),
+	);
+
+	const updateWorktree = useMutation(
+		trpc.contextExplorer.updateWorktree.mutationOptions({
+			onSuccess: () => {
+				setIsUpdateWorktreeOpen(false);
+				setIsUpdateWorktreeBlocked(false);
+				onRepositoryChanged();
+				void invalidateExplorerQueries(queryClient);
+			},
+			onError: (error) => {
+				if (isDirtyWorktreeConflict(error)) {
+					setIsUpdateWorktreeBlocked(true);
+				}
 			},
 		}),
 	);
@@ -304,6 +328,25 @@ export function ContextGitPanel({
 						<GitBranch className='size-3.5' />
 						Git
 					</span>
+				}
+				titleAction={
+					status?.fileExplorerUpdate?.updateNeeded === true ? (
+						<Button
+							type='button'
+							variant='default'
+							size='icon-sm'
+							aria-label='Update File Explorer'
+							title='Update File Explorer'
+							onClick={(event) => {
+								event.stopPropagation();
+								updateWorktree.reset();
+								setIsUpdateWorktreeBlocked(hasKnownDirtyWorktree);
+								setIsUpdateWorktreeOpen(true);
+							}}
+						>
+							<RefreshCw />
+						</Button>
+					) : null
 				}
 				trailingContent={
 					<div className='flex min-w-0 max-w-[80%] shrink-0 items-center gap-2'>
@@ -504,6 +547,27 @@ export function ContextGitPanel({
 				onBranchNameChange={setNewBranchName}
 				onOpenChange={setIsCreateBranchOpen}
 				onCreate={() => createBranch.mutate({ branch: newBranchName.trim() })}
+			/>
+			<ContextWorktreeUpdateDialog
+				open={isUpdateWorktreeOpen}
+				branch={status?.fileExplorerUpdate?.branch ?? defaultBranch ?? 'the live branch'}
+				isPending={updateWorktree.isPending}
+				isBlocked={isUpdateWorktreeBlocked || (isUpdateWorktreeOpen && hasKnownDirtyWorktree)}
+				error={updateWorktree.error?.message}
+				onOpenChange={(open) => {
+					if (!open && !updateWorktree.isPending) {
+						setIsUpdateWorktreeOpen(false);
+						setIsUpdateWorktreeBlocked(false);
+						updateWorktree.reset();
+					}
+				}}
+				onConfirm={() => {
+					if (hasKnownDirtyWorktree) {
+						setIsUpdateWorktreeBlocked(true);
+						return;
+					}
+					updateWorktree.mutate({ requiredCommits: [] });
+				}}
 			/>
 			<ConfirmationDialog
 				open={discardFile !== null}
@@ -934,11 +998,12 @@ function getChangeDisplay(kind: ContextChangedFile['kind']) {
 	return { icon: FilePen, label: 'Edited', color: 'text-amber-500' };
 }
 
-async function invalidateExplorerQueries(queryClient: QueryClient): Promise<void> {
+export async function invalidateExplorerQueries(queryClient: QueryClient): Promise<void> {
 	await Promise.all([
 		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getRepositoryStatus.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getChangedFiles.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.suggestBranchName.queryKey() }),
+		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getLiveContextPullHistory.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getFileTree.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.readFile.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.contextExplorer.getFileDiff.queryKey() }),

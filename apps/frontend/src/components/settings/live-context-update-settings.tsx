@@ -1,12 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
+import { useNavigate } from '@tanstack/react-router';
 import { RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 
 import type { QueryClient } from '@tanstack/react-query';
 import type { LiveContextRepository } from '@/lib/live-context-links';
 
+import {
+	ContextWorktreeUpdateDialog,
+	isDirtyWorktreeConflict,
+} from '@/components/settings/context-worktree-update-dialog';
 import { Button } from '@/components/ui/button';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { ErrorMessage } from '@/components/ui/error-message';
 import { SettingsCard } from '@/components/ui/settings-card';
 import {
@@ -43,10 +48,23 @@ interface PullHistoryEntry {
 	fileCount: number;
 	files: Array<{ path: string; additions: number | null; deletions: number | null }>;
 	errorMessage: string | null;
+	fileExplorerAction: HistoricalDiffAction;
 }
+
+type HistoricalDiffAction = 'open' | 'switch' | 'update' | 'blocked';
 
 export function LiveContextUpdateSettings({ status, repository, isAdmin }: LiveContextUpdateSettingsProps) {
 	const queryClient = useQueryClient();
+	const navigate = useNavigate();
+	const [pendingHistoricalDiff, setPendingHistoricalDiff] = useState<{
+		path: string;
+		from: string;
+		to: string;
+	} | null>(null);
+	const [historicalDiffError, setHistoricalDiffError] = useState<string | null>(null);
+	const [isDirtyWorktreeDialogOpen, setIsDirtyWorktreeDialogOpen] = useState(false);
+	const [isWorktreeUpdateBlocked, setIsWorktreeUpdateBlocked] = useState(false);
+	const [isCheckingHistoricalDiff, setIsCheckingHistoricalDiff] = useState(false);
 	const history = useQuery(trpc.contextExplorer.getLiveContextPullHistory.queryOptions());
 	const pullContext = useMutation(
 		trpc.contextExplorer.pullLiveContext.mutationOptions({
@@ -55,7 +73,86 @@ export function LiveContextUpdateSettings({ status, repository, isAdmin }: LiveC
 			},
 		}),
 	);
+	const updateWorktree = useMutation(trpc.contextExplorer.updateWorktree.mutationOptions());
 	const latestRecordedError = history.data?.[0]?.status === 'failed' ? history.data[0].errorMessage : null;
+
+	const navigateToHistoricalDiff = (input: { path: string; from: string; to: string }) => {
+		queryClient.removeQueries({
+			queryKey: trpc.contextExplorer.getFileDiff.queryKey(input),
+			exact: true,
+		});
+		return navigate({
+			to: '/settings/context-explorer',
+			search: input,
+		});
+	};
+
+	const openHistoricalDiff = async (input: { path: string; from: string; to: string }) => {
+		setHistoricalDiffError(null);
+		setIsCheckingHistoricalDiff(true);
+		let action: HistoricalDiffAction;
+		try {
+			action = await queryClient.fetchQuery({
+				...trpc.contextExplorer.getHistoricalDiffAction.queryOptions({
+					from: input.from,
+					to: input.to,
+				}),
+				staleTime: 0,
+			});
+		} catch (error) {
+			setHistoricalDiffError(error instanceof Error ? error.message : 'This historical change is unavailable.');
+			setIsCheckingHistoricalDiff(false);
+			return;
+		}
+		setIsCheckingHistoricalDiff(false);
+		if (action === 'open') {
+			void navigateToHistoricalDiff(input);
+		} else if (action === 'switch') {
+			void switchAndOpenHistoricalDiff(input);
+		} else if (action === 'blocked') {
+			setIsDirtyWorktreeDialogOpen(true);
+		} else {
+			updateWorktree.reset();
+			setIsWorktreeUpdateBlocked(false);
+			setPendingHistoricalDiff(input);
+		}
+	};
+
+	const switchAndOpenHistoricalDiff = async (input: { path: string; from: string; to: string }) => {
+		updateWorktree.reset();
+		try {
+			await updateWorktree.mutateAsync({ requiredCommits: [input.from, input.to] });
+			await navigateToHistoricalDiff(input);
+			void invalidateContextQueries(queryClient);
+		} catch (error) {
+			if (isDirtyWorktreeConflict(error)) {
+				setIsDirtyWorktreeDialogOpen(true);
+				return;
+			}
+			setHistoricalDiffError(error instanceof Error ? error.message : 'Unable to open this historical change.');
+		}
+	};
+
+	const confirmWorktreeUpdate = async () => {
+		if (!pendingHistoricalDiff) {
+			return;
+		}
+		try {
+			await updateWorktree.mutateAsync({
+				requiredCommits: [pendingHistoricalDiff.from, pendingHistoricalDiff.to],
+			});
+			const target = pendingHistoricalDiff;
+			setPendingHistoricalDiff(null);
+			setIsWorktreeUpdateBlocked(false);
+			await navigateToHistoricalDiff(target);
+			void invalidateContextQueries(queryClient);
+		} catch (error) {
+			if (isDirtyWorktreeConflict(error)) {
+				setIsWorktreeUpdateBlocked(true);
+			}
+			return;
+		}
+	};
 
 	return (
 		<SettingsCard
@@ -88,6 +185,7 @@ export function LiveContextUpdateSettings({ status, repository, isAdmin }: LiveC
 			{pullContext.error && latestRecordedError !== pullContext.error.message && (
 				<ErrorMessage message={pullContext.error.message} />
 			)}
+			{historicalDiffError && <ErrorMessage message={historicalDiffError} />}
 			{history.isLoading ? (
 				<p className='text-sm text-muted-foreground'>Loading pull history…</p>
 			) : history.error ? (
@@ -99,10 +197,49 @@ export function LiveContextUpdateSettings({ status, repository, isAdmin }: LiveC
 			) : (
 				<div className='divide-y divide-border'>
 					{history.data?.map((activity) => (
-						<HistoryEntry key={activity.id} activity={activity} repository={repository} />
+						<HistoryEntry
+							key={activity.id}
+							activity={activity}
+							repository={repository}
+							isOpeningHistoricalDiff={
+								isCheckingHistoricalDiff ||
+								pendingHistoricalDiff !== null ||
+								isDirtyWorktreeDialogOpen ||
+								updateWorktree.isPending
+							}
+							onOpenHistoricalDiff={openHistoricalDiff}
+						/>
 					))}
 				</div>
 			)}
+			<ContextWorktreeUpdateDialog
+				open={pendingHistoricalDiff !== null}
+				branch={status.configuredBranch}
+				isPending={updateWorktree.isPending}
+				isBlocked={isWorktreeUpdateBlocked}
+				error={updateWorktree.error?.message}
+				onOpenChange={(open) => {
+					if (!open && !updateWorktree.isPending) {
+						setPendingHistoricalDiff(null);
+						setIsWorktreeUpdateBlocked(false);
+						updateWorktree.reset();
+					}
+				}}
+				onConfirm={confirmWorktreeUpdate}
+				onBlockedAction={() => navigate({ to: '/settings/context-explorer' })}
+			/>
+			<ConfirmationDialog
+				open={isDirtyWorktreeDialogOpen}
+				title='Finish your changes first'
+				description='File Explorer has uncommitted changes. Commit or discard them before viewing these changes.'
+				confirmLabel='Open File Explorer'
+				confirmVariant='primary-gradient'
+				onOpenChange={setIsDirtyWorktreeDialogOpen}
+				onConfirm={() => {
+					setIsDirtyWorktreeDialogOpen(false);
+					void navigate({ to: '/settings/context-explorer' });
+				}}
+			/>
 		</SettingsCard>
 	);
 }
@@ -110,9 +247,13 @@ export function LiveContextUpdateSettings({ status, repository, isAdmin }: LiveC
 function HistoryEntry({
 	activity,
 	repository,
+	isOpeningHistoricalDiff,
+	onOpenHistoricalDiff,
 }: {
 	activity: PullHistoryEntry;
 	repository: LiveContextRepository | null;
+	isOpeningHistoricalDiff: boolean;
+	onOpenHistoricalDiff: (input: { path: string; from: string; to: string }) => Promise<void>;
 }) {
 	const [isExpanded, setIsExpanded] = useState(false);
 	const timestamp = activity.completedAt ?? activity.startedAt;
@@ -146,6 +287,8 @@ function HistoryEntry({
 					to={activity.newCommit}
 					isExpanded={isExpanded}
 					onExpandedChange={setIsExpanded}
+					isOpeningHistoricalDiff={isOpeningHistoricalDiff}
+					onOpenHistoricalDiff={onOpenHistoricalDiff}
 				/>
 			)}
 		</div>
@@ -194,12 +337,16 @@ function PullFileList({
 	to,
 	isExpanded,
 	onExpandedChange,
+	isOpeningHistoricalDiff,
+	onOpenHistoricalDiff,
 }: {
 	files: Array<{ path: string; additions: number | null; deletions: number | null }>;
 	from: string | null;
 	to: string | null;
 	isExpanded: boolean;
 	onExpandedChange: (expanded: boolean) => void;
+	isOpeningHistoricalDiff: boolean;
+	onOpenHistoricalDiff: (input: { path: string; from: string; to: string }) => Promise<void>;
 }) {
 	const visibleFiles = getVisiblePullFiles(files, isExpanded);
 	const hiddenFileCount = getHiddenPullFileCount(files.length);
@@ -210,14 +357,17 @@ function PullFileList({
 				{visibleFiles.map((file) => (
 					<li key={file.path} className='flex min-w-0 items-center justify-between gap-4'>
 						{hasHistoricalPullRange(from, to) && from && to ? (
-							<Link
-								to='/settings/context-explorer'
-								search={{ path: file.path, from, to }}
+							<button
+								type='button'
 								className='min-w-0 truncate font-mono text-xs text-muted-foreground hover:text-foreground hover:underline'
 								aria-label={`Open ${file.path} in File Explorer`}
+								disabled={isOpeningHistoricalDiff}
+								onClick={() => {
+									void onOpenHistoricalDiff({ path: file.path, from, to });
+								}}
 							>
 								{file.path}
-							</Link>
+							</button>
 						) : (
 							<span className='min-w-0 truncate font-mono text-xs text-muted-foreground'>
 								{file.path}

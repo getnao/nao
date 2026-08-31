@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 	getFileTree: vi.fn(),
 	getGithubToken: vi.fn(),
 	getGitlabToken: vi.fn(),
+	getHistoricalContextDiffActions: vi.fn(),
 	getContextRepositoryStatus: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	listContextPullActivities: vi.fn(),
@@ -22,6 +23,7 @@ const mocks = vi.hoisted(() => ({
 		error instanceof Error ? error : new Error('Context pull failed.'),
 	),
 	startContextPullActivity: vi.fn(),
+	updateContextWorktree: vi.fn(),
 	writeFileContent: vi.fn(),
 }));
 
@@ -72,12 +74,14 @@ vi.mock('../src/services/context-explorer-git.service', () => ({
 	getChangedContextFiles: vi.fn(),
 	getContextFileDiff: mocks.getContextFileDiff,
 	getContextRepositoryStatus: mocks.getContextRepositoryStatus,
+	getHistoricalContextDiffActions: mocks.getHistoricalContextDiffActions,
 	pullLiveContext: mocks.pullLiveContext,
 	resolveContextExplorerGit: mocks.resolveContextExplorerGit,
 	resolveContextExplorerGitSafely: mocks.resolveContextExplorerGitSafely,
 	sanitizeLiveContextError: mocks.sanitizeLiveContextError,
 	suggestContextBranchName: vi.fn(),
 	switchContextBranch: vi.fn(),
+	updateContextWorktree: mocks.updateContextWorktree,
 }));
 
 vi.mock('../src/services/context-explorer-pr.service', () => ({
@@ -249,6 +253,33 @@ describe('context explorer file access', () => {
 		);
 	});
 
+	it('checks only the selected historical range action', async () => {
+		const from = 'a'.repeat(40);
+		const to = 'b'.repeat(40);
+		mocks.getHistoricalContextDiffActions.mockResolvedValue(['switch']);
+
+		await expect(createCaller().getHistoricalDiffAction({ from, to })).resolves.toBe('switch');
+
+		expect(mocks.getHistoricalContextDiffActions).toHaveBeenCalledWith(
+			expect.objectContaining({ projectId: 'project-id', projectFolder: '/tmp/nao-project' }),
+			[{ fromCommit: from, toCommit: to }],
+		);
+		expect(mocks.listContextPullActivities).not.toHaveBeenCalled();
+	});
+
+	it('updates the current user worktree with required historical commits', async () => {
+		const from = 'a'.repeat(40);
+		const to = 'b'.repeat(40);
+		mocks.updateContextWorktree.mockResolvedValue({ branch: 'main', commit: to });
+
+		await createCaller().updateWorktree({ requiredCommits: [from, to] });
+
+		expect(mocks.updateContextWorktree).toHaveBeenCalledWith(
+			expect.objectContaining({ projectId: 'project-id', projectFolder: '/tmp/nao-project' }),
+			[from, to],
+		);
+	});
+
 	it.each([
 		{ path: '/context.md', from: 'abc1234', to: 'b'.repeat(40) },
 		{ path: '/context.md', from: 'a'.repeat(40) },
@@ -265,6 +296,9 @@ describe('live context update access', () => {
 		mocks.getUserRoleInProject.mockResolvedValue('admin');
 		mocks.getGithubToken.mockResolvedValue('github-token');
 		mocks.resolveContextRepository.mockResolvedValue({ provider: 'github' });
+		mocks.getHistoricalContextDiffActions.mockImplementation(async (_context, ranges: unknown[]) =>
+			ranges.map(() => 'update'),
+		);
 		mocks.getContextRepositoryStatus.mockResolvedValue({
 			liveContextUpdate: { enabled: true, available: true, configuredBranch: 'main' },
 		});
@@ -498,6 +532,7 @@ describe('live context update access', () => {
 
 	it('returns safely parsed history newest first to context admins', async () => {
 		mocks.getUserRoleInProject.mockResolvedValue('context_admin');
+		mocks.getHistoricalContextDiffActions.mockResolvedValue(['open', 'switch', 'blocked']);
 		mocks.listContextPullActivities.mockResolvedValue([
 			{
 				id: 'newest',
@@ -547,6 +582,7 @@ describe('live context update access', () => {
 				id: 'newest',
 				changed: true,
 				fileCount: 1,
+				fileExplorerAction: 'open',
 				files: [{ path: '/context.md', additions: 1, deletions: 0 }],
 			}),
 			expect.objectContaining({

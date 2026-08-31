@@ -92,9 +92,22 @@ export interface ContextRepositoryStatus {
 	lastCommitMessage: string | null;
 	lastCommitDate: string | null;
 	branches: ContextBranchInfo | null;
+	fileExplorerUpdate: ContextWorktreeUpdateStatus | null;
 	openReviewRequest: OpenReviewRequestResult | null;
 	isGitRepository: boolean;
 }
+
+export interface ContextWorktreeUpdateStatus {
+	updateNeeded: boolean;
+	switchNeeded: boolean;
+	branch: string;
+}
+
+interface ContextWorktreeTarget extends ContextWorktreeUpdateStatus {
+	commit: string | null;
+}
+
+export type ContextHistoricalDiffAction = 'open' | 'switch' | 'update' | 'blocked';
 
 export interface DeploymentContextSource {
 	repositoryUrl: string | null;
@@ -301,6 +314,7 @@ export async function ensureContextWorktree(
 		unresolved.provider === 'generic'
 			? null
 			: findMatchingLocalClone(context.projectFolder, unresolved.repoFullName, provider);
+	let provisioned = false;
 	if (!isHealthyWorktree(unresolved, provider)) {
 		removeBrokenWorktree(unresolved, context.projectFolder, matchingClone);
 		fs.mkdirSync(path.dirname(unresolved.worktreeRoot), { recursive: true });
@@ -315,8 +329,11 @@ export async function ensureContextWorktree(
 			throw sanitizeGitError(error, context.token);
 		}
 		invalidateContextProjectPrefix(unresolved.worktreeRoot);
+		provisioned = true;
 	}
-	synchronizeDefaultContextWorktree(unresolved, context.projectFolder, matchingClone, provider, context.token);
+	if (provisioned) {
+		synchronizeDefaultContextWorktree(unresolved, context.projectFolder, matchingClone, provider, context.token);
+	}
 	return resolveContextProject(unresolved, context.projectFolder, matchingClone);
 }
 
@@ -343,6 +360,7 @@ export async function getContextRepositoryStatus(context: ContextExplorerGitCont
 				lastCommitMessage: null,
 				lastCommitDate: null,
 				branches: null,
+				fileExplorerUpdate: null,
 				openReviewRequest: null,
 				isGitRepository: false,
 			};
@@ -363,6 +381,7 @@ export async function getContextRepositoryStatus(context: ContextExplorerGitCont
 			lastCommitMessage: readOptionalGitValue(repo.worktreeRoot, ['log', '-1', '--format=%s']),
 			lastCommitDate: readOptionalGitValue(repo.worktreeRoot, ['log', '-1', '--format=%cI']),
 			branches,
+			fileExplorerUpdate: readContextWorktreeUpdateStatus(repo, context.projectFolder),
 			openReviewRequest: await findOpenContextReviewRequest(
 				provider,
 				resolution.context.token,
@@ -388,6 +407,7 @@ export async function getContextRepositoryStatus(context: ContextExplorerGitCont
 			lastCommitMessage: null,
 			lastCommitDate: null,
 			branches: null,
+			fileExplorerUpdate: null,
 			openReviewRequest: null,
 			isGitRepository: false,
 		};
@@ -1019,6 +1039,99 @@ export async function switchContextBranch(
 	return getContextBranches(resolveAfterBranchChange(repo, context.projectFolder, provider), context);
 }
 
+export async function updateContextWorktree(
+	context: ContextExplorerGitContext,
+	requiredCommits: string[] = [],
+): Promise<{ branch: string; commit: string; fetched: boolean }> {
+	const { repo, context: availableContext } = await requireContextExplorerGit(context);
+	const provider = availableContext.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
+	assertEntireWorktreeClean(repo);
+	let target = readContextWorktreeTarget(repo, context.projectFolder);
+	const requiredCommitMissing = requiredCommits.some(
+		(commit) => !COMMIT_PATTERN.test(commit) || !hasCommit(repo.worktreeRoot, commit),
+	);
+	const fetched = target.updateNeeded || requiredCommitMissing;
+	if (fetched) {
+		fetchContextRepository(repo, context.projectFolder, provider, availableContext.token);
+		if (isFirstPartyOAuthProvider(repo.provider, provider)) {
+			refreshDefaultBranch(repo, repo.provider, availableContext.token);
+		}
+		target = readContextWorktreeTarget(repo, context.projectFolder);
+	}
+	if (target.updateNeeded) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'The latest live context commit is unavailable.' });
+	}
+	if (!target.commit) {
+		throw new TRPCError({ code: 'NOT_FOUND', message: `Branch not found: ${target.branch}` });
+	}
+	if (target.switchNeeded) {
+		try {
+			runDestructiveWorktreeGit(repo.worktreeRoot, context.projectFolder, repo.worktreeRoot, [
+				'switch',
+				'--detach',
+				target.commit,
+			]);
+		} catch (error) {
+			if (isDirtySwitchConflict(error)) {
+				throw new TRPCError({
+					code: 'CONFLICT',
+					message: 'Commit or discard changes before switching branches.',
+				});
+			}
+			throw error;
+		}
+		invalidateContextProjectPrefix(repo.worktreeRoot);
+	}
+	if (!requiredCommits.every((commit) => COMMIT_PATTERN.test(commit) && hasCommit(repo.worktreeRoot, commit))) {
+		throw new TRPCError({ code: 'BAD_REQUEST', message: 'This historical change is unavailable.' });
+	}
+	return { branch: target.branch, commit: target.commit, fetched };
+}
+
+export async function getHistoricalContextDiffActions(
+	context: ContextExplorerGitContext,
+	ranges: Array<{ fromCommit: string | null; toCommit: string | null }>,
+): Promise<ContextHistoricalDiffAction[]> {
+	try {
+		const configuredRepo = await resolveContextRepo(
+			context.projectId,
+			context.projectFolder,
+			context.userId,
+			context.configOverride,
+		);
+		if (!configuredRepo) {
+			return ranges.map(() => 'update');
+		}
+		const provider = context.providerOverride ?? REVIEW_REQUEST_PROVIDERS[configuredRepo.provider];
+		if (!provider || !isHealthyWorktree(configuredRepo, provider)) {
+			return ranges.map(() => 'update');
+		}
+		const matchingClone =
+			configuredRepo.provider === 'generic'
+				? null
+				: findMatchingLocalClone(context.projectFolder, configuredRepo.repoFullName, provider);
+		const repo = resolveContextProject(configuredRepo, context.projectFolder, matchingClone);
+		if (!isEntireWorktreeClean(repo.worktreeRoot)) {
+			return ranges.map(() => 'blocked');
+		}
+		const updateStatus = readContextWorktreeUpdateStatus(repo, context.projectFolder);
+		return ranges.map(({ fromCommit, toCommit }) => {
+			const commitsAvailable = Boolean(
+				fromCommit &&
+				toCommit &&
+				hasCommit(repo.worktreeRoot, fromCommit) &&
+				hasCommit(repo.worktreeRoot, toCommit),
+			);
+			if (updateStatus.updateNeeded || !commitsAvailable) {
+				return 'update';
+			}
+			return updateStatus.switchNeeded ? 'switch' : 'open';
+		});
+	} catch {
+		return ranges.map(() => 'update');
+	}
+}
+
 export async function createContextBranch(
 	context: ContextExplorerGitContext,
 	branch: string,
@@ -1630,6 +1743,40 @@ function readLiveDefaultCommit(projectFolder: string, defaultBranch: string): st
 	return readOptionalGitValue(repositoryRoot, ['rev-parse', 'HEAD']);
 }
 
+function readContextWorktreeUpdateStatus(
+	repo: ResolvedContextRepo,
+	projectFolder: string,
+): ContextWorktreeUpdateStatus {
+	const target = readContextWorktreeTarget(repo, projectFolder);
+	return {
+		updateNeeded: target.updateNeeded,
+		switchNeeded: target.switchNeeded,
+		branch: target.branch,
+	};
+}
+
+function readContextWorktreeTarget(repo: ResolvedContextRepo, projectFolder: string): ContextWorktreeTarget {
+	const liveRepositoryRoot = discoverLiveRepositoryRoot(projectFolder);
+	const branch =
+		repo.provider === 'generic'
+			? env.NAO_CONTEXT_GIT_BRANCH || 'main'
+			: ((liveRepositoryRoot ? readDefaultBranchFromRefs(liveRepositoryRoot) : null) ?? readDefaultBranch(repo));
+	const defaultRef = readDefaultBranchRef(repo, branch);
+	const cachedCommit = defaultRef ? readOptionalGitValue(repo.worktreeRoot, ['rev-parse', defaultRef]) : null;
+	const liveCommit = readLiveDefaultCommit(projectFolder, branch);
+	const targetCommit = liveCommit ?? cachedCommit;
+	const currentCommit = readOptionalGitValue(repo.worktreeRoot, ['rev-parse', 'HEAD']);
+	return {
+		updateNeeded:
+			!targetCommit ||
+			!hasCommit(repo.worktreeRoot, targetCommit) ||
+			Boolean(liveCommit && cachedCommit !== liveCommit),
+		switchNeeded: readCurrentBranch(repo) !== null || !targetCommit || currentCommit !== targetCommit,
+		branch,
+		commit: targetCommit,
+	};
+}
+
 function hasCommit(cwd: string, commit: string): boolean {
 	return tryRunGit(cwd, ['cat-file', '-e', `${commit}^{commit}`]) !== null;
 }
@@ -1881,6 +2028,12 @@ function assertBranchAvailable(repo: ResolvedContextRepo, branch: string): void 
 
 function assertCleanWorktree(repo: ResolvedContextRepo): void {
 	if (!isCleanWorktree(repo)) {
+		throw new TRPCError({ code: 'CONFLICT', message: 'Commit or discard changes before switching branches.' });
+	}
+}
+
+function assertEntireWorktreeClean(repo: ResolvedContextRepo): void {
+	if (!isEntireWorktreeClean(repo.worktreeRoot)) {
 		throw new TRPCError({ code: 'CONFLICT', message: 'Commit or discard changes before switching branches.' });
 	}
 }

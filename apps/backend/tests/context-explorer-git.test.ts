@@ -107,6 +107,7 @@ import {
 	getContextFileDiff,
 	getContextRepositoryStatus,
 	getDeploymentContextSource,
+	getHistoricalContextDiffActions,
 	getLiveContextUpdateStatus,
 	normalizeRemote,
 	pullLiveContext,
@@ -115,6 +116,7 @@ import {
 	sanitizeContextSourceRepositoryUrl,
 	sanitizeLiveContextError,
 	switchContextBranch,
+	updateContextWorktree,
 } from '../src/services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../src/services/context-explorer-pr.service';
 import { GENERIC_GIT_PROVIDER, parseGenericRepositoryUrl, parseReviewRequestLink } from '../src/services/generic-git';
@@ -697,7 +699,7 @@ describe('live deployment context updates', () => {
 		);
 	});
 
-	it('keeps a linked default worktree at live HEAD when origin advances first', async () => {
+	it('waits for confirmation before moving a linked default worktree to live HEAD', async () => {
 		const fixture = createLocalCloneFixture(temporaryRoots);
 		runGit(fixture.live, ['remote', 'set-url', 'origin', fixture.bare]);
 		fixture.context.providerOverride = localProvider(fixture.bare, fixture.bare);
@@ -721,10 +723,14 @@ describe('live deployment context updates', () => {
 		await ensureContextWorktree(fixture.context);
 
 		expect(pull.newCommit).toBe(remoteCommit);
+		expect(runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(liveCommit);
+
+		await updateContextWorktree(fixture.context);
+
 		expect(runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(remoteCommit);
 	});
 
-	it('updates only clean detached default worktrees after the live pull', async () => {
+	it('updates only the confirmed user worktree after the live pull', async () => {
 		const fixture = createLocalCloneFixture(temporaryRoots);
 		runGit(fixture.live, ['remote', 'set-url', 'origin', fixture.bare]);
 		fixture.context.providerOverride = localProvider(fixture.bare, fixture.bare);
@@ -751,7 +757,7 @@ describe('live deployment context updates', () => {
 		await ensureContextWorktree(branchContext);
 
 		expect(pull.changed).toBe(true);
-		expect(runGit(cleanRepo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(pull.newCommit);
+		expect(runGit(cleanRepo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(oldCommit);
 		expect(runGit(dirtyRepo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(oldCommit);
 		expect(fs.readFileSync(path.join(dirtyRepo.worktreeRoot, 'project', 'context.md'), 'utf8')).toBe(
 			'uncommitted work\n',
@@ -760,9 +766,15 @@ describe('live deployment context updates', () => {
 			'nao/personal',
 		);
 		expect(runGit(branchRepo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(oldCommit);
+
+		await updateContextWorktree(cleanContext);
+
+		expect(runGit(cleanRepo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(pull.newCommit);
+		expect(runGit(dirtyRepo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(oldCommit);
+		expect(runGit(branchRepo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(oldCommit);
 	});
 
-	it('fetches a standalone deployment worktree only when the live default advances', async () => {
+	it('waits for confirmation before updating a standalone deployment worktree', async () => {
 		const fixture = createLocalCloneFixture(temporaryRoots);
 		runGit(fixture.live, ['remote', 'set-url', 'origin', fixture.bare]);
 		setContextSourceEnv({
@@ -785,6 +797,13 @@ describe('live deployment context updates', () => {
 		await ensureContextWorktree(fixture.context);
 
 		expect(pull.newCommit).not.toBe(oldCommit);
+		expect(runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(oldCommit);
+		await expect(getContextRepositoryStatus(fixture.context)).resolves.toMatchObject({
+			fileExplorerUpdate: { updateNeeded: true, switchNeeded: true, branch: 'main' },
+		});
+
+		await updateContextWorktree(fixture.context);
+
 		expect(runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(pull.newCommit);
 	});
 });
@@ -1645,6 +1664,153 @@ describe('context explorer worktrees', () => {
 			oldContent: 'remove me\n',
 			newContent: '',
 		});
+	});
+
+	it('updates a feature-branch worktree only after the explicit update action', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const provider = localProvider(fixture.bare, fixture.bare);
+		fixture.context.providerOverride = provider;
+		const repo = await ensureContextWorktree(fixture.context);
+		const fromCommit = runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();
+		runGit(repo.worktreeRoot, ['branch', 'review']);
+		branchOwnershipMocks.owners.set('project-id:review', 'user-1');
+		await switchContextBranch(fixture.context, 'review');
+		writeRemoteChange(fixture, 'context.md', 'latest live context\n');
+		const toCommit = runGit(fixture.seed, ['rev-parse', 'HEAD']).toString().trim();
+		await pullLiveContext(fixture.context);
+
+		expect(() => runGit(repo.worktreeRoot, ['cat-file', '-e', `${toCommit}^{commit}`])).toThrow();
+		await expect(getHistoricalContextDiffActions(fixture.context, [{ fromCommit, toCommit }])).resolves.toEqual([
+			'update',
+		]);
+		await expect(getContextRepositoryStatus(fixture.context)).resolves.toMatchObject({
+			fileExplorerUpdate: { updateNeeded: true, switchNeeded: true, branch: 'main' },
+		});
+		expect(() => runGit(repo.worktreeRoot, ['cat-file', '-e', `${toCommit}^{commit}`])).toThrow();
+		const authenticatedRepoUrl = vi.spyOn(provider, 'authenticatedRepoUrl');
+
+		await expect(updateContextWorktree(fixture.context, [fromCommit, toCommit])).resolves.toEqual({
+			branch: 'main',
+			commit: toCommit,
+			fetched: true,
+		});
+		expect(authenticatedRepoUrl).toHaveBeenCalledOnce();
+		await expect(
+			getContextFileDiff(fixture.context, '/context.md', { fromCommit, toCommit }),
+		).resolves.toMatchObject({
+			path: '/context.md',
+			oldContent: 'repository content\n',
+			newContent: 'latest live context\n',
+		});
+
+		expect(runGit(repo.worktreeRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).toString().trim()).toBe('HEAD');
+		expect(runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(toCommit);
+		expect(runGit(repo.worktreeRoot, ['rev-parse', 'review']).toString().trim()).toBe(fromCommit);
+		await expect(getHistoricalContextDiffActions(fixture.context, [{ fromCommit, toCommit }])).resolves.toEqual([
+			'open',
+		]);
+		await expect(getContextRepositoryStatus(fixture.context)).resolves.toMatchObject({
+			fileExplorerUpdate: { updateNeeded: false, switchNeeded: false, branch: 'main' },
+		});
+	});
+
+	it('switches locally from a feature branch when the live target is current', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const provider = localProvider(fixture.bare, fixture.bare);
+		fixture.context.providerOverride = provider;
+		const repo = await ensureContextWorktree(fixture.context);
+		const commit = runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();
+		runGit(repo.worktreeRoot, ['branch', 'review']);
+		branchOwnershipMocks.owners.set('project-id:review', 'user-1');
+		await switchContextBranch(fixture.context, 'review');
+		const authenticatedRepoUrl = vi.spyOn(provider, 'authenticatedRepoUrl');
+
+		await expect(getContextRepositoryStatus(fixture.context)).resolves.toMatchObject({
+			fileExplorerUpdate: { updateNeeded: false, switchNeeded: true, branch: 'main' },
+		});
+		await expect(
+			getHistoricalContextDiffActions(fixture.context, [{ fromCommit: commit, toCommit: commit }]),
+		).resolves.toEqual(['switch']);
+
+		await expect(updateContextWorktree(fixture.context, [commit])).resolves.toEqual({
+			branch: 'main',
+			commit,
+			fetched: false,
+		});
+
+		expect(authenticatedRepoUrl).not.toHaveBeenCalled();
+		expect(runGit(repo.worktreeRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).toString().trim()).toBe('HEAD');
+		expect(runGit(repo.worktreeRoot, ['rev-parse', 'review']).toString().trim()).toBe(commit);
+		await expect(
+			getHistoricalContextDiffActions(fixture.context, [{ fromCommit: commit, toCommit: commit }]),
+		).resolves.toEqual(['open']);
+	});
+
+	it('keeps a dirty feature branch unchanged when preparing a historical diff', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const provider = localProvider(fixture.bare, fixture.bare);
+		fixture.context.providerOverride = provider;
+		const repo = await ensureContextWorktree(fixture.context);
+		const commit = runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();
+		runGit(repo.worktreeRoot, ['branch', 'review']);
+		branchOwnershipMocks.owners.set('project-id:review', 'user-1');
+		await switchContextBranch(fixture.context, 'review');
+		fs.writeFileSync(path.join(repo.worktreeRoot, 'context.md'), 'uncommitted feature edit\n');
+		writeRemoteChange(fixture, 'context.md', 'remote context edit\n');
+		const authenticatedRepoUrl = vi.spyOn(provider, 'authenticatedRepoUrl');
+
+		await expect(
+			getHistoricalContextDiffActions(fixture.context, [{ fromCommit: commit, toCommit: commit }]),
+		).resolves.toEqual(['blocked']);
+
+		await expect(updateContextWorktree(fixture.context, [commit])).rejects.toMatchObject({
+			code: 'CONFLICT',
+			message: 'Commit or discard changes before switching branches.',
+		});
+
+		expect(authenticatedRepoUrl).not.toHaveBeenCalled();
+		expect(runGit(repo.worktreeRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).toString().trim()).toBe('review');
+		expect(runGit(repo.worktreeRoot, ['rev-parse', 'origin/main']).toString().trim()).toBe(commit);
+		expect(fs.readFileSync(path.join(repo.worktreeRoot, 'context.md'), 'utf8')).toBe('uncommitted feature edit\n');
+	});
+
+	it('updates to the configured deployment branch', async () => {
+		const fixture = createFixture(temporaryRoots);
+		runGit(fixture.seed, ['switch', '-c', 'release']);
+		fs.writeFileSync(path.join(fixture.seed, 'context.md'), 'released context\n');
+		commitAll(fixture.seed, 'release context');
+		runGit(fixture.seed, ['push', fixture.bare, 'release']);
+		setContextSourceEnv({ url: fixture.bare, branch: 'release', token: 'deployment-token' });
+		fixture.context = {
+			...baseContext(fixture.live),
+			configOverride: undefined,
+			token: '',
+			providerOverride: localProvider(fixture.bare, fixture.bare),
+		};
+		const repo = await ensureContextWorktree(fixture.context);
+		const fromCommit = runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();
+		runGit(repo.worktreeRoot, ['branch', 'review']);
+		branchOwnershipMocks.owners.set('project-id:review', 'user-1');
+		await switchContextBranch(fixture.context, 'review');
+		fs.writeFileSync(path.join(fixture.seed, 'context.md'), 'latest released context\n');
+		commitAll(fixture.seed, 'update release context');
+		runGit(fixture.seed, ['push', fixture.bare, 'release']);
+		const toCommit = runGit(fixture.seed, ['rev-parse', 'HEAD']).toString().trim();
+
+		await expect(updateContextWorktree(fixture.context, [fromCommit, toCommit])).resolves.toEqual({
+			branch: 'release',
+			commit: toCommit,
+			fetched: true,
+		});
+		await expect(
+			getContextFileDiff(fixture.context, '/context.md', { fromCommit, toCommit }),
+		).resolves.toMatchObject({
+			oldContent: 'released context\n',
+			newContent: 'latest released context\n',
+		});
+
+		expect(runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(toCommit);
+		expect(runGit(repo.worktreeRoot, ['rev-parse', 'review']).toString().trim()).toBe(fromCommit);
 	});
 
 	it('rejects invalid historical commits, unchanged files, and paths outside the context project', async () => {

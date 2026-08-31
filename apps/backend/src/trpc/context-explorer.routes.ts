@@ -24,12 +24,14 @@ import {
 	getChangedContextFiles,
 	getContextFileDiff,
 	getContextRepositoryStatus,
+	getHistoricalContextDiffActions,
 	pullLiveContext,
 	resolveContextExplorerGit,
 	resolveContextExplorerGitSafely,
 	sanitizeLiveContextError,
 	suggestContextBranchName,
 	switchContextBranch,
+	updateContextWorktree,
 } from '../services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../services/context-explorer-pr.service';
 import { getRepoProviderDisplayName } from '../services/review-request-provider';
@@ -78,7 +80,12 @@ export const contextExplorerRoutes = {
 
 	getLiveContextPullHistory: contextAdminProtectedProcedure.query(async ({ ctx }) => {
 		const activities = await activityQueries.listContextPullActivities(ctx.project.id);
-		return activities.map(toContextPullHistoryEntry);
+		const entries = activities.map(toContextPullHistoryEntry);
+		const actions = await getHistoricalContextDiffActions(
+			await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
+			entries.map((entry) => ({ fromCommit: entry.oldCommit, toCommit: entry.newCommit })),
+		);
+		return entries.map((entry, index) => ({ ...entry, fileExplorerAction: actions[index] ?? 'update' }));
 	}),
 
 	pullLiveContext: adminProtectedProcedure.mutation(async ({ ctx }) => {
@@ -204,6 +211,25 @@ export const contextExplorerRoutes = {
 			input.from && input.to ? { fromCommit: input.from, toCommit: input.to } : undefined,
 		);
 	}),
+
+	getHistoricalDiffAction: contextAdminProtectedProcedure
+		.input(z.object({ from: commitSchema, to: commitSchema }))
+		.query(async ({ ctx, input }) => {
+			const actions = await getHistoricalContextDiffActions(
+				await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
+				[{ fromCommit: input.from, toCommit: input.to }],
+			);
+			return actions[0] ?? 'update';
+		}),
+
+	updateWorktree: contextAdminProtectedProcedure
+		.input(z.object({ requiredCommits: z.array(commitSchema).max(2).default([]) }))
+		.mutation(async ({ ctx, input }) => {
+			return updateContextWorktree(
+				await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
+				input.requiredCommits,
+			);
+		}),
 
 	switchBranch: contextAdminProtectedProcedure
 		.input(z.object({ branch: branchSchema }))

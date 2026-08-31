@@ -41,7 +41,7 @@ export function DeploymentManagedGitSettings({
 			description={getDescription(contextSource?.authMethod)}
 			action={
 				repositoryUrl && isHttpUrl(repositoryUrl) ? (
-					<Button size='sm' variant='secondary' asChild>
+					<Button size='sm' variant='primary-gradient' asChild>
 						<a href={repositoryUrl} target='_blank' rel='noreferrer'>
 							Open repository
 						</a>
