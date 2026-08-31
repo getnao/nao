@@ -82,7 +82,7 @@ export const Expandable = ({
 								headerClassName='w-auto min-w-0 shrink'
 								className={cn(
 									'select-none flex items-baseline gap-2 py-0 overflow-hidden transition-opacity duration-150 hover:no-underline [&>svg:last-child]:hidden',
-									'flex-none',
+									'min-w-0 flex-1',
 									canExpand ? 'cursor-pointer' : '',
 								)}
 							>
