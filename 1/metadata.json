@@ -1,0 +1,1086 @@
+{
+  "cli_version": "0.10.0",
+  "checkpoint_id": "01M1C2NKK3K7HYQVFYS3X1DYCW",
+  "session_id": "aa7ab5be-4bb4-4173-bf55-ec5ac534ebb6",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-31T14:15:54.452535Z",
+  "branch": "feat/pull-context-from-UI-1493",
+  "checkpoints_count": 37,
+  "save_step_count": 37,
+  "files_touched": [
+    "apps/backend/src/services/context-explorer-git.service.ts",
+    "apps/backend/src/trpc/context-explorer.routes.ts",
+    "apps/backend/tests/context-explorer-git.test.ts",
+    "apps/backend/tests/context-explorer.routes.test.ts",
+    "apps/frontend/src/components/settings/context-git-panel.tsx",
+    "apps/frontend/src/components/settings/deployment-managed-git-settings.tsx",
+    "apps/frontend/src/components/settings/live-context-update-settings.tsx",
+    "apps/frontend/src/components/ui/accordion.tsx",
+    "apps/frontend/src/components/ui/confirmation-dialog.tsx",
+    "apps/frontend/src/components/ui/expandable.tsx"
+  ],
+  "agent": "Cursor",
+  "model": "gpt-5.6-sol-high",
+  "turn_id": "dc5ca8b4072b",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 192,
+    "cache_creation_tokens": 82414,
+    "cache_read_tokens": 9746913,
+    "output_tokens": 20344,
+    "api_call_count": 36
+  },
+  "session_metrics": {
+    "turn_count": 37
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-31T14:15:54.424122Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 403,
+    "human_modified": 235,
+    "human_removed": 0,
+    "total_committed": 403,
+    "total_lines_changed": 638,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 3331,
+      "user_lines_removed": 6,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/backend/src/services/context-explorer-git.service.ts": 35,
+        "apps/backend/src/trpc/context-explorer.routes.ts": 11,
+        "apps/backend/tests/context-explorer-git.test.ts": 91,
+        "apps/backend/tests/context-explorer.routes.test.ts": 23,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 168,
+        "apps/frontend/src/components/settings/live-context-update-settings.tsx": 43,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/live-context-update-settings.tsx": 6
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 371,
+      "agent_lines_removed": 6,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 371,
+      "agent_lines_removed": 6,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 371,
+      "agent_lines_removed": 6,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 371,
+      "agent_lines_removed": 6,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 371,
+      "agent_lines_removed": 6,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 371,
+      "agent_lines_removed": 6,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 371,
+      "agent_lines_removed": 6,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 9,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 371,
+      "agent_lines_removed": 6,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 10,
+      "user_lines_added": 3327,
+      "user_lines_removed": 92,
+      "agent_lines_added": 371,
+      "agent_lines_removed": 6,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/backend/src/services/context-explorer-git.service.ts": 80,
+        "apps/backend/src/trpc/context-explorer.routes.ts": 12,
+        "apps/backend/tests/context-explorer-git.test.ts": 36,
+        "apps/backend/tests/context-explorer.routes.test.ts": 14,
+        "apps/frontend/src/components/settings/context-git-panel.tsx": 35,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 49,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 78,
+        "apps/frontend/src/components/settings/live-context-update-settings.tsx": 58,
+        "apps/frontend/src/components/ui/confirmation-dialog.tsx": 5,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/backend/src/services/context-explorer-git.service.ts": 10,
+        "apps/backend/src/trpc/context-explorer.routes.ts": 7,
+        "apps/backend/tests/context-explorer-git.test.ts": 18,
+        "apps/backend/tests/context-explorer.routes.test.ts": 15,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 27,
+        "apps/frontend/src/components/settings/live-context-update-settings.tsx": 14,
+        "apps/frontend/src/components/ui/confirmation-dialog.tsx": 1
+      }
+    },
+    {
+      "checkpoint_number": 11,
+      "user_lines_added": 3087,
+      "user_lines_removed": 27,
+      "agent_lines_added": 563,
+      "agent_lines_removed": 13,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 49,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 78,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 27
+      }
+    },
+    {
+      "checkpoint_number": 12,
+      "user_lines_added": 3094,
+      "user_lines_removed": 28,
+      "agent_lines_added": 563,
+      "agent_lines_removed": 13,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/backend/src/services/context-explorer-git.service.ts": 5,
+        "apps/backend/tests/context-explorer-git.test.ts": 2,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 49,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 78,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/backend/src/services/context-explorer-git.service.ts": 1,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 27
+      }
+    },
+    {
+      "checkpoint_number": 13,
+      "user_lines_added": 3087,
+      "user_lines_removed": 27,
+      "agent_lines_added": 569,
+      "agent_lines_removed": 13,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 49,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 78,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 27
+      }
+    },
+    {
+      "checkpoint_number": 14,
+      "user_lines_added": 3298,
+      "user_lines_removed": 102,
+      "agent_lines_added": 569,
+      "agent_lines_removed": 13,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/backend/src/services/context-explorer-git.service.ts": 82,
+        "apps/backend/src/trpc/context-explorer.routes.ts": 3,
+        "apps/backend/tests/context-explorer-git.test.ts": 55,
+        "apps/backend/tests/context-explorer.routes.test.ts": 6,
+        "apps/frontend/src/components/settings/context-git-panel.tsx": 1,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 55,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 102,
+        "apps/frontend/src/components/settings/live-context-update-settings.tsx": 34,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/backend/src/services/context-explorer-git.service.ts": 41,
+        "apps/backend/src/trpc/context-explorer.routes.ts": 3,
+        "apps/backend/tests/context-explorer-git.test.ts": 10,
+        "apps/backend/tests/context-explorer.routes.test.ts": 6,
+        "apps/frontend/src/components/settings/context-git-panel.tsx": 1,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 29,
+        "apps/frontend/src/components/settings/live-context-update-settings.tsx": 12
+      }
+    },
+    {
+      "checkpoint_number": 15,
+      "user_lines_added": 3117,
+      "user_lines_removed": 29,
+      "agent_lines_added": 677,
+      "agent_lines_removed": 13,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 55,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 102,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 29
+      }
+    },
+    {
+      "checkpoint_number": 16,
+      "user_lines_added": 3117,
+      "user_lines_removed": 29,
+      "agent_lines_added": 677,
+      "agent_lines_removed": 13,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 55,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 102,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 29
+      }
+    },
+    {
+      "checkpoint_number": 17,
+      "user_lines_added": 3209,
+      "user_lines_removed": 53,
+      "agent_lines_added": 677,
+      "agent_lines_removed": 13,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/backend/src/trpc/context-explorer.routes.ts": 10,
+        "apps/backend/tests/context-explorer.routes.test.ts": 14,
+        "apps/frontend/src/components/settings/context-git-panel.tsx": 2,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 55,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 144,
+        "apps/frontend/src/components/settings/live-context-update-settings.tsx": 24,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/context-git-panel.tsx": 1,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 44,
+        "apps/frontend/src/components/settings/live-context-update-settings.tsx": 8
+      }
+    },
+    {
+      "checkpoint_number": 18,
+      "user_lines_added": 3163,
+      "user_lines_removed": 43,
+      "agent_lines_added": 719,
+      "agent_lines_removed": 14,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 55,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 148,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 43
+      }
+    },
+    {
+      "checkpoint_number": 19,
+      "user_lines_added": 3163,
+      "user_lines_removed": 43,
+      "agent_lines_added": 719,
+      "agent_lines_removed": 14,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 55,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 148,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 43
+      }
+    },
+    {
+      "checkpoint_number": 20,
+      "user_lines_added": 3239,
+      "user_lines_removed": 45,
+      "agent_lines_added": 719,
+      "agent_lines_removed": 14,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 55,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 196,
+        "apps/frontend/src/components/settings/live-context-update-settings.tsx": 28,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 42,
+        "apps/frontend/src/components/settings/live-context-update-settings.tsx": 3
+      }
+    },
+    {
+      "checkpoint_number": 21,
+      "user_lines_added": 3345,
+      "user_lines_removed": 53,
+      "agent_lines_added": 744,
+      "agent_lines_removed": 14,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-git-panel.test.tsx": 149,
+        "apps/frontend/src/components/settings/context-git-panel.tsx": 18,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 34,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 184,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/context-git-panel.tsx": 11,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 42
+      }
+    },
+    {
+      "checkpoint_number": 22,
+      "user_lines_added": 3376,
+      "user_lines_removed": 75,
+      "agent_lines_added": 751,
+      "agent_lines_removed": 14,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-git-panel.test.tsx": 149,
+        "apps/frontend/src/components/settings/context-git-panel.tsx": 18,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 34,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 184,
+        "apps/frontend/src/components/ui/accordion.tsx": 7,
+        "apps/frontend/src/components/ui/expandable.tsx": 24,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/context-git-panel.tsx": 16,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 42,
+        "apps/frontend/src/components/ui/accordion.tsx": 2,
+        "apps/frontend/src/components/ui/expandable.tsx": 15
+      }
+    },
+    {
+      "checkpoint_number": 23,
+      "user_lines_added": 3334,
+      "user_lines_removed": 44,
+      "agent_lines_added": 784,
+      "agent_lines_removed": 31,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-git-panel.test.tsx": 149,
+        "apps/frontend/src/components/settings/context-git-panel.tsx": 1,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 34,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 184,
+        "apps/frontend/src/components/ui/expandable.tsx": 6,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/context-git-panel.tsx": 1,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 42,
+        "apps/frontend/src/components/ui/expandable.tsx": 1
+      }
+    },
+    {
+      "checkpoint_number": 24,
+      "user_lines_added": 3522,
+      "user_lines_removed": 54,
+      "agent_lines_added": 786,
+      "agent_lines_removed": 28,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-git-panel.test.tsx": 218,
+        "apps/frontend/src/components/settings/context-git-panel.tsx": 22,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 96,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 211,
+        "apps/frontend/src/components/settings/live-context-update-settings.tsx": 15,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/context-git-panel.tsx": 2,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 43,
+        "apps/frontend/src/components/settings/live-context-update-settings.tsx": 9
+      }
+    },
+    {
+      "checkpoint_number": 25,
+      "user_lines_added": 3496,
+      "user_lines_removed": 43,
+      "agent_lines_added": 812,
+      "agent_lines_removed": 28,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-git-panel.test.tsx": 230,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 93,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 213,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 43
+      }
+    },
+    {
+      "checkpoint_number": 26,
+      "user_lines_added": 3496,
+      "user_lines_removed": 43,
+      "agent_lines_added": 812,
+      "agent_lines_removed": 28,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-git-panel.test.tsx": 230,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 93,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 213,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 43
+      }
+    },
+    {
+      "checkpoint_number": 27,
+      "user_lines_added": 3547,
+      "user_lines_removed": 45,
+      "agent_lines_added": 812,
+      "agent_lines_removed": 28,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-git-panel.test.tsx": 279,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 93,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 213,
+        "apps/frontend/src/components/ui/expandable.tsx": 2,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 43,
+        "apps/frontend/src/components/ui/expandable.tsx": 2
+      }
+    },
+    {
+      "checkpoint_number": 28,
+      "user_lines_added": 3545,
+      "user_lines_removed": 43,
+      "agent_lines_added": 812,
+      "agent_lines_removed": 28,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-git-panel.test.tsx": 279,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 93,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 213,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 43
+      }
+    },
+    {
+      "checkpoint_number": 29,
+      "user_lines_added": 3545,
+      "user_lines_removed": 43,
+      "agent_lines_added": 812,
+      "agent_lines_removed": 28,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-git-panel.test.tsx": 279,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 93,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 213,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 43
+      }
+    },
+    {
+      "checkpoint_number": 30,
+      "user_lines_added": 3545,
+      "user_lines_removed": 43,
+      "agent_lines_added": 812,
+      "agent_lines_removed": 28,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-git-panel.test.tsx": 279,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 93,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 213,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 43
+      }
+    },
+    {
+      "checkpoint_number": 31,
+      "user_lines_added": 3545,
+      "user_lines_removed": 43,
+      "agent_lines_added": 812,
+      "agent_lines_removed": 28,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-git-panel.test.tsx": 279,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 93,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 213,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 43
+      }
+    },
+    {
+      "checkpoint_number": 32,
+      "user_lines_added": 3545,
+      "user_lines_removed": 43,
+      "agent_lines_added": 812,
+      "agent_lines_removed": 28,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-git-panel.test.tsx": 279,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 93,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 213,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 43
+      }
+    },
+    {
+      "checkpoint_number": 33,
+      "user_lines_added": 3545,
+      "user_lines_removed": 43,
+      "agent_lines_added": 812,
+      "agent_lines_removed": 28,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-git-panel.test.tsx": 279,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 93,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 213,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 43
+      }
+    },
+    {
+      "checkpoint_number": 34,
+      "user_lines_added": 3545,
+      "user_lines_removed": 43,
+      "agent_lines_added": 812,
+      "agent_lines_removed": 28,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-git-panel.test.tsx": 279,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 93,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 213,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 43
+      }
+    },
+    {
+      "checkpoint_number": 35,
+      "user_lines_added": 3545,
+      "user_lines_removed": 43,
+      "agent_lines_added": 812,
+      "agent_lines_removed": 28,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-git-panel.test.tsx": 279,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 93,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 213,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 43
+      }
+    },
+    {
+      "checkpoint_number": 36,
+      "user_lines_added": 3545,
+      "user_lines_removed": 43,
+      "agent_lines_added": 812,
+      "agent_lines_removed": 28,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-git-panel.test.tsx": 279,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 93,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 213,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 43
+      }
+    },
+    {
+      "checkpoint_number": 37,
+      "user_lines_added": 3546,
+      "user_lines_removed": 44,
+      "agent_lines_added": 812,
+      "agent_lines_removed": 28,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-git-panel.test.tsx": 279,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 93,
+        "apps/frontend/src/components/settings/deployment-managed-git-settings.tsx": 1,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 213,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/deployment-managed-git-settings.tsx": 1,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 43
+      }
+    }
+  ]
+}

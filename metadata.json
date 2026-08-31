@@ -3,13 +3,18 @@
   "checkpoint_id": "01M1C2NKK3K7HYQVFYS3X1DYCW",
   "strategy": "manual-commit",
   "branch": "feat/pull-context-from-UI-1493",
-  "checkpoints_count": 3,
+  "checkpoints_count": 40,
   "files_touched": [
     "apps/backend/src/services/context-explorer-git.service.ts",
     "apps/backend/src/trpc/context-explorer.routes.ts",
     "apps/backend/tests/context-explorer-git.test.ts",
     "apps/backend/tests/context-explorer.routes.test.ts",
-    "apps/frontend/src/components/settings/live-context-update-settings.tsx"
+    "apps/frontend/src/components/settings/context-git-panel.tsx",
+    "apps/frontend/src/components/settings/deployment-managed-git-settings.tsx",
+    "apps/frontend/src/components/settings/live-context-update-settings.tsx",
+    "apps/frontend/src/components/ui/accordion.tsx",
+    "apps/frontend/src/components/ui/confirmation-dialog.tsx",
+    "apps/frontend/src/components/ui/expandable.tsx"
   ],
   "sessions": [
     {
@@ -18,13 +23,20 @@
       "compact_transcript": "/0/transcript.jsonl",
       "content_hash": "/0/content_hash.txt",
       "prompt": "/0/prompt.txt"
+    },
+    {
+      "metadata": "/1/metadata.json",
+      "transcript": "/1/full.jsonl",
+      "compact_transcript": "/1/transcript.jsonl",
+      "content_hash": "/1/content_hash.txt",
+      "prompt": "/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 39,
-    "cache_creation_tokens": 58323,
-    "cache_read_tokens": 466887,
-    "output_tokens": 3423,
-    "api_call_count": 3
+    "input_tokens": 231,
+    "cache_creation_tokens": 140737,
+    "cache_read_tokens": 10213800,
+    "output_tokens": 23767,
+    "api_call_count": 39
   }
 }
