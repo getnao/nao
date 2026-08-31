@@ -1,0 +1,10 @@
+I'm on PR 1466 right now
+I don't understand the purpose of isAssistantMessageInProject(), can you tell me
+
+---
+
+ok and then read the PR thread, see we wanted to avoid dirtying the DB by adding mattermost reactions to chat_messages DB
+
+---
+
+yeah and so I don't get why we kept the function CTO complained about: deleteFeedbackVote()

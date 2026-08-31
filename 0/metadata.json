@@ -1,0 +1,118 @@
+{
+  "cli_version": "0.10.0",
+  "checkpoint_id": "01M1C2NKK3K7HYQVFYS3X1DYCW",
+  "session_id": "7331537c-0bd7-45b5-8f10-32ee6e7612b8",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-31T14:15:54.351546Z",
+  "branch": "feat/pull-context-from-UI-1493",
+  "checkpoints_count": 3,
+  "save_step_count": 3,
+  "files_touched": [
+    "apps/backend/src/services/context-explorer-git.service.ts",
+    "apps/backend/src/trpc/context-explorer.routes.ts",
+    "apps/backend/tests/context-explorer-git.test.ts",
+    "apps/backend/tests/context-explorer.routes.test.ts",
+    "apps/frontend/src/components/settings/live-context-update-settings.tsx"
+  ],
+  "agent": "Cursor",
+  "model": "gpt-5.6-sol-high",
+  "turn_id": "ba8935136147",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 39,
+    "cache_creation_tokens": 58323,
+    "cache_read_tokens": 466887,
+    "output_tokens": 3423,
+    "api_call_count": 3
+  },
+  "session_metrics": {
+    "duration_ms": 252487,
+    "turn_count": 3
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-31T14:15:54.347269Z",
+    "agent_lines": 418,
+    "agent_removed": 12,
+    "human_added": 184,
+    "human_modified": 11,
+    "human_removed": 0,
+    "total_committed": 602,
+    "total_lines_changed": 645,
+    "agent_percentage": 66.66666666666666,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 3006,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/backend/src/services/context-explorer-git.service.ts": 35,
+        "apps/backend/src/trpc/context-explorer.routes.ts": 11,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 3201,
+      "user_lines_removed": 0,
+      "agent_lines_added": 90,
+      "agent_lines_removed": 6,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/backend/tests/context-explorer-git.test.ts": 53,
+        "apps/backend/tests/context-explorer.routes.test.ts": 23,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 165,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 3129,
+      "user_lines_removed": 0,
+      "agent_lines_added": 166,
+      "agent_lines_removed": 6,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 169,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    }
+  ]
+}
