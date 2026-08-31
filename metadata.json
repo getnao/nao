@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.10.0",
+  "checkpoint_id": "01M1C32BHXB6TQC6XFGV8CZEM0",
+  "strategy": "manual-commit",
+  "branch": "feat/pull-context-from-UI-1493",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "apps/frontend/src/components/settings/context-git-panel.test.tsx",
+    "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx",
+    "apps/frontend/src/components/settings/live-context-update-settings.test.tsx"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 36,
+    "cache_creation_tokens": 21387,
+    "cache_read_tokens": 2897187,
+    "output_tokens": 4259,
+    "api_call_count": 1
+  }
+}

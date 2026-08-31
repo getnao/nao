@@ -1,0 +1,70 @@
+{
+  "cli_version": "0.10.0",
+  "checkpoint_id": "01M1C32BHXB6TQC6XFGV8CZEM0",
+  "session_id": "aa7ab5be-4bb4-4173-bf55-ec5ac534ebb6",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-31T14:20:45.425415Z",
+  "branch": "feat/pull-context-from-UI-1493",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "apps/frontend/src/components/settings/context-git-panel.test.tsx",
+    "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx",
+    "apps/frontend/src/components/settings/live-context-update-settings.test.tsx"
+  ],
+  "agent": "Cursor",
+  "model": "gpt-5.6-sol-high",
+  "turn_id": "60542716874a",
+  "checkpoint_transcript_start": 305,
+  "transcript_lines_at_start": 305,
+  "compact_transcript_start": 150,
+  "token_usage": {
+    "input_tokens": 36,
+    "cache_creation_tokens": 21387,
+    "cache_read_tokens": 2897187,
+    "output_tokens": 4259,
+    "api_call_count": 1
+  },
+  "session_metrics": {
+    "turn_count": 38
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-31T14:20:45.396219Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 0,
+    "total_lines_changed": 0,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 3662,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/settings/context-git-panel.test.tsx": 273,
+        "apps/frontend/src/components/settings/context-worktree-update-dialog.tsx": 93,
+        "apps/frontend/src/components/settings/live-context-update-settings.test.tsx": 336,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    }
+  ]
+}
