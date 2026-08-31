@@ -1,20 +1,4 @@
-is this BS?
-
-Check if this issue is valid — if so, understand the root cause and fix it. At apps/frontend/src/components/ui/expandable.tsx, line 85:
-
-<comment>When a bordered or plain `Expandable` title exceeds the available header width, `flex-none` keeps the trigger at max-content width while the ancestor clips it, so the title does not truncate with an ellipsis. Let the trigger flex within the header instead.</comment>
-
-<file context>
-@@ -75,24 +77,33 @@ export const Expandable = ({
--									hasHeaderRow ? 'font-medium' : 'text-sm',
--									isLoading && 'text-shimmer',
-+									'select-none flex items-baseline gap-2 py-0 overflow-hidden transition-opacity duration-150 hover:no-underline [&>svg:last-child]:hidden',
-+									'flex-none',
-+									canExpand ? 'cursor-pointer' : '',
- 								)}
-</file context>
-
----
+<timestamp>Monday, Aug 31, 2026, 5:45 PM (UTC+2)</timestamp>
 
 Cubic made comments on this PR, review only those that are not marked adressed, resoled or outdated then tell me if they're valid or not
 In the order cubic posted them on github
