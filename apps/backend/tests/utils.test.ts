@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { UIMessage, UIMessagePart } from '../src/types/chat';
 import { settleInterruptedToolParts } from '../src/utils/ai';
-import { buildUsernameAllowlist, truncateMiddle } from '../src/utils/utils';
+import { buildUsernameAllowlist, replaceEnvVars, truncateMiddle } from '../src/utils/utils';
 
 describe('buildUsernameAllowlist', () => {
 	it('returns an empty set when unset', () => {
@@ -38,6 +38,26 @@ describe('truncateMiddle', () => {
 
 	it('uses a custom ellipsis string', () => {
 		expect(truncateMiddle('abcdefghij', 8, '--')).toBe('abc--hij');
+	});
+});
+
+describe('replaceEnvVars', () => {
+	it('replaces placeholders from extra env before process env', () => {
+		const previous = process.env.DBT_TOKEN;
+		process.env.DBT_TOKEN = 'from-process';
+		try {
+			expect(replaceEnvVars('${DBT_TOKEN}', { DBT_TOKEN: 'from-project' })).toBe('from-project');
+		} finally {
+			if (previous === undefined) {
+				delete process.env.DBT_TOKEN;
+			} else {
+				process.env.DBT_TOKEN = previous;
+			}
+		}
+	});
+
+	it('keeps the placeholder when no value exists', () => {
+		expect(replaceEnvVars('${MISSING_TOKEN}')).toBe('${MISSING_TOKEN}');
 	});
 });
 

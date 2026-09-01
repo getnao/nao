@@ -17,7 +17,12 @@ import {
 	getMcpOAuthClient,
 	hasMcpUserToken,
 } from '../queries/mcp-oauth.queries';
-import { getDisabledMcpServers, getDisabledMcpTools, retrieveProjectById } from '../queries/project.queries';
+import {
+	getDisabledMcpServers,
+	getDisabledMcpTools,
+	getEnvVars,
+	retrieveProjectById,
+} from '../queries/project.queries';
 import { logger } from '../utils/logger';
 import { replaceEnvVars } from '../utils/utils';
 import { getValidAccessToken, isOAuthServer, isUnauthorizedError, McpAuthRequiredError } from './mcp-oauth';
@@ -483,7 +488,8 @@ export class McpService {
 
 		try {
 			const fileContent = await readFile(this._mcpJsonFilePath, 'utf8');
-			const resolved = replaceEnvVars(fileContent);
+			const envVars = this._projectId ? await getEnvVars(this._projectId) : {};
+			const resolved = replaceEnvVars(fileContent, envVars);
 			const parsed = mcpJsonSchema.parse(JSON.parse(resolved));
 			this._mcpServers = parsed.mcpServers;
 			this._configError = null;

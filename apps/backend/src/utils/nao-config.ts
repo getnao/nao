@@ -8,7 +8,8 @@ import { escapeRegExp, gitlabBaseUrl } from '../services/gitlab';
 import type { LinkedContextRepo } from '../types/context-recommendation';
 import { logger } from './logger';
 
-const ENV_PATTERN = /\$?\{\{\s*env\(['"]([^'"]+)['"]\)\s*\}\}/g;
+const NAO_CONFIG_ENV_PATTERN = /\$?\{\{\s*env\(['"]([^'"]+)['"]\)\s*\}\}/g;
+const MCP_CONFIG_ENV_PATTERN = /\$\{(\w+)\}/g;
 const DATABASE_IDENTIFYING_FIELDS = ['database', 'project_id', 'dataset_id', 'catalog'] as const;
 
 type DatabaseIdentifyingField = (typeof DATABASE_IDENTIFYING_FIELDS)[number];
@@ -20,18 +21,25 @@ export type ConfiguredDatabase = {
 
 export function extractRequiredEnvVars(projectFolder: string): string[] {
 	const configPath = path.join(projectFolder, 'nao_config.yaml');
-	if (!fs.existsSync(configPath)) {
-		return [];
-	}
-
-	const content = fs.readFileSync(configPath, 'utf-8');
+	const mcpConfigPath = path.join(projectFolder, 'agent', 'mcps', 'mcp.json');
 	const vars = new Set<string>();
 
-	for (const match of content.matchAll(ENV_PATTERN)) {
-		vars.add(match[1]);
-	}
+	addEnvVarsFromFile(configPath, NAO_CONFIG_ENV_PATTERN, vars);
+	addEnvVarsFromFile(mcpConfigPath, MCP_CONFIG_ENV_PATTERN, vars);
 
 	return [...vars];
+}
+
+function addEnvVarsFromFile(filePath: string, pattern: RegExp, vars: Set<string>) {
+	if (!fs.existsSync(filePath)) {
+		return;
+	}
+
+	const content = fs.readFileSync(filePath, 'utf-8');
+
+	for (const match of content.matchAll(pattern)) {
+		vars.add(match[1]);
+	}
 }
 
 export function extractConfiguredRepos(projectFolder: string): LinkedContextRepo[] {
