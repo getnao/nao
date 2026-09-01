@@ -1,0 +1,175 @@
+{
+  "cli_version": "0.10.0",
+  "checkpoint_id": "01M1EGSKFDW2HJAN3RWK5144E9",
+  "session_id": "aa7ab5be-4bb4-4173-bf55-ec5ac534ebb6",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-01T12:58:35.773272Z",
+  "branch": "feat/auto-save-story-edits-1443",
+  "checkpoints_count": 5,
+  "save_step_count": 5,
+  "files_touched": [
+    "apps/frontend/src/components/side-panel/story-viewer.tsx",
+    "apps/frontend/src/contexts/story-before-agent-send.test.tsx"
+  ],
+  "agent": "Cursor",
+  "model": "gpt-5.6-sol-high",
+  "turn_id": "316b2ff6a528",
+  "checkpoint_transcript_start": 473,
+  "transcript_lines_at_start": 473,
+  "compact_transcript_start": 261,
+  "token_usage": {
+    "input_tokens": 33,
+    "cache_creation_tokens": 172039,
+    "cache_read_tokens": 1336184,
+    "output_tokens": 4650,
+    "api_call_count": 5
+  },
+  "session_metrics": {
+    "duration_ms": 76935884,
+    "turn_count": 34,
+    "context_tokens": 255069,
+    "context_window_size": 272000
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-01T12:58:35.729016Z",
+    "agent_lines": 31,
+    "agent_removed": 0,
+    "human_added": 241,
+    "human_modified": 72,
+    "human_removed": 0,
+    "total_committed": 344,
+    "total_lines_changed": 433,
+    "agent_percentage": 7.159353348729793,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 3003,
+      "user_lines_removed": 32,
+      "agent_lines_added": 116,
+      "agent_lines_removed": 10,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/side-panel/story-before-agent-send.test.ts": 9,
+        "apps/frontend/src/components/side-panel/story-before-agent-send.ts": 2,
+        "apps/frontend/src/components/side-panel/story-viewer.tsx": 32,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/side-panel/story-before-agent-send.test.ts": 1,
+        "apps/frontend/src/components/side-panel/story-before-agent-send.ts": 1,
+        "apps/frontend/src/components/side-panel/story-viewer.tsx": 30
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 3196,
+      "user_lines_removed": 44,
+      "agent_lines_added": 42,
+      "agent_lines_removed": 106,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/side-panel/story-header.test.tsx": 112,
+        "apps/frontend/src/components/side-panel/story-header.tsx": 5,
+        "apps/frontend/src/components/side-panel/story-viewer.tsx": 40,
+        "apps/frontend/src/contexts/story-before-agent-send.test.tsx": 79,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/side-panel/story-header.tsx": 2,
+        "apps/frontend/src/components/side-panel/story-viewer.tsx": 42
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 3072,
+      "user_lines_removed": 0,
+      "agent_lines_added": 25,
+      "agent_lines_removed": 9,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/side-panel/story-header.test.tsx": 112,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 3072,
+      "user_lines_removed": 0,
+      "agent_lines_added": 25,
+      "agent_lines_removed": 9,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/frontend/src/components/side-panel/story-header.test.tsx": 112,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+Cubic made comments on this PR, review only those that are not marked adressed, resoled or outdated then tell me if they're valid or not
+In the order cubic posted them on github
+I want us to go through them one by one
+So just answer saying how many comments are there, how many are valid, how many aren't.
+Then just tell me about the #1 concisely and we'll begin
+
+---
+
+give a full prompt like description of each feedback on the cubic comment
+
+---
+
+Give me one for both #2 and #3
+
+---
+
+Why is #3 invalid?
+
+---
+
+is that right: Without NAO_CONTEXT_SOURCE=git in .env those other vars would have 0 effect so no need to block them
