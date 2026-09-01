@@ -10,10 +10,10 @@ import {
 import { act, renderHook } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { selectStoryEditorCode, useStoryEditBuffer } from './use-story-edit-buffer';
-import { useStoryEditTransitions } from './use-story-edit-transitions';
-import { getStoryNavigationBlockerOptions } from './use-story-exit-guard';
 import type { StoryViewMode } from '@/components/side-panel/story-viewer.types';
+import { selectStoryEditorCode, useStoryEditBuffer } from '@/hooks/use-story-edit-buffer';
+import { useStoryEditTransitions } from '@/hooks/use-story-edit-transitions';
+import { getStoryNavigationBlockerOptions } from '@/hooks/use-story-exit-guard';
 import type { StorySaveResult } from '@/lib/story-save';
 
 const tabbedStory = [
