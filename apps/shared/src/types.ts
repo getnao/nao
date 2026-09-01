@@ -281,8 +281,8 @@ export type ProjectChatListItem = {
 	toolAvailableCount: number;
 };
 
-export type DownloadFormat = 'pdf' | 'html';
-export const DOWNLOAD_FORMATS = ['pdf', 'html'] as const satisfies readonly DownloadFormat[];
+export type DownloadFormat = 'pdf' | 'html' | 'md';
+export const DOWNLOAD_FORMATS = ['pdf', 'html', 'md'] as const satisfies readonly DownloadFormat[];
 
 export type ChatDownloadFormat = 'png' | 'csv' | 'xlsx' | 'other';
 export const CHAT_DOWNLOAD_FORMATS = ['png', 'csv', 'xlsx', 'other'] as const satisfies readonly ChatDownloadFormat[];
