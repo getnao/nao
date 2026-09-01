@@ -41,6 +41,7 @@ interface LiveControls {
 	cachedAt?: string | Date | null;
 	lastRefreshFailure?: StoryRefreshFailure | null;
 	isRefreshing?: boolean;
+	isUpdating?: boolean;
 	onRefresh?: () => void;
 	/** When provided, the live state can be toggled (owner). Otherwise the badge is read-only. */
 	onOpenSettings?: () => void;
@@ -326,7 +327,7 @@ function StorySubHeader({
 }
 
 function LiveStoryControls({ live }: { live: LiveControls }) {
-	const { isLive, cachedAt, isRefreshing = false, onRefresh, onOpenSettings } = live;
+	const { isLive, cachedAt, isRefreshing = false, isUpdating = false, onRefresh, onOpenSettings } = live;
 
 	if (!onOpenSettings) {
 		if (!isLive) {
@@ -359,9 +360,15 @@ function LiveStoryControls({ live }: { live: LiveControls }) {
 						onClick={onOpenSettings}
 						className='flex items-center gap-2 border rounded-full px-2 py-0.75 cursor-pointer hover:bg-secondary'
 					>
-						<Activity className='size-3.5 text-foreground' strokeWidth={2.25} />
-						<span className='text-xs font-medium'>Live story</span>
-						<SwitchIndicator checked={isLive} />
+						{isUpdating ? (
+							<Loader2 className='size-3.5 animate-spin' strokeWidth={2.25} />
+						) : (
+							<>
+								<Activity className='size-3.5 text-foreground' strokeWidth={2.25} />
+								<span className='text-xs font-medium'>Live story</span>
+								<SwitchIndicator checked={isLive} />
+							</>
+						)}
 					</button>
 				</TooltipTrigger>
 				<TooltipContent>{isLive ? 'Live story settings' : 'Enable live mode'}</TooltipContent>
