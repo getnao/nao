@@ -1215,11 +1215,10 @@ describe('OAuth live context updates', () => {
 });
 
 describe('repository remote normalization', () => {
-	it.each([
-		['git@github.com:nao/context.git', 'https://github.com/nao/context'],
-		['ssh://git@github.com:2222/nao/context.git', 'https://github.com/nao/context'],
-	])('matches SSH remote %s to HTTPS', (sshRemote, httpsRemote) => {
-		expect(normalizeRemote(sshRemote)).toBe(normalizeRemote(httpsRemote));
+	it('matches SSH shorthand to HTTPS', () => {
+		expect(normalizeRemote('git@github.com:nao/context.git')).toBe(
+			normalizeRemote('https://github.com/nao/context'),
+		);
 	});
 
 	it('keeps different repositories distinct', () => {
@@ -1228,8 +1227,26 @@ describe('repository remote normalization', () => {
 		);
 	});
 
-	it('ignores URL credentials and ports', () => {
+	it('keeps different non-default ports distinct', () => {
+		expect(normalizeRemote('https://github.com:8443/nao/context.git')).not.toBe(
+			normalizeRemote('https://github.com:9443/nao/context.git'),
+		);
+	});
+
+	it('ignores an explicit default HTTPS port', () => {
+		expect(normalizeRemote('https://github.com:443/nao/context.git')).toBe(
+			normalizeRemote('https://github.com/nao/context'),
+		);
+	});
+
+	it('ignores URL credentials', () => {
 		expect(normalizeRemote('https://user:token@github.com:8443/nao/context.git/')).toBe(
+			normalizeRemote('https://github.com:8443/nao/context'),
+		);
+	});
+
+	it('keeps non-default SSH ports distinct from unported HTTPS', () => {
+		expect(normalizeRemote('ssh://git@github.com:2222/nao/context.git')).not.toBe(
 			normalizeRemote('https://github.com/nao/context'),
 		);
 	});

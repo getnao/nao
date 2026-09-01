@@ -225,7 +225,7 @@ export function normalizeRemote(remote: string | null | undefined): string {
 	}
 	try {
 		const parsed = new URL(value);
-		return normalizeRemoteParts(parsed.hostname, parsed.pathname);
+		return normalizeRemoteParts(parsed.host, parsed.pathname);
 	} catch {
 		return value
 			.replace(/\.git$/i, '')
