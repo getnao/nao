@@ -1,0 +1,18 @@
+Ok final bug which was hard to spot.
+
+Brace yourself:
+
+I was in cloud mode, having put env vars for a NAO_CONTEXT_SOURCE=git setup
+
+So that kind of connects the repo without any UI buttons or confirmation
+But in cloud mode, you can switch projects, so in certain cases it says it can;t fetch cause the repo doesn't match
+
+Tough problem but it's acually fine cause NAO_CONTEXT_SOURCE just shouldn't be accepted in cloud mode
+
+So just an npm run dev error that says NAO_CONTEXT_SOURCE can't be used in cloud mode
+
+(kind of like the error that says you can't have cloud mode + default path too set)
+
+---
+
+commit message
