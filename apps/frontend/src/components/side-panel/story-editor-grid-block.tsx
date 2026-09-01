@@ -1,13 +1,12 @@
 import { getGridClass, getGridTemplateColumns } from '@nao/shared/story-segments';
 import { mergeAttributes, Node } from '@tiptap/core';
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
-import { GripVertical } from 'lucide-react';
 import { Streamdown } from 'streamdown';
 import { useContext } from 'react';
 import { StoryChartEmbed } from './story-chart-embed';
+import { StoryBlockActionGrip } from './story-editor-block-drag';
 import { StoryMapEmbed } from './story-map-embed';
 import { StoryTableEmbed } from './story-table-embed';
-import { blockSelectionPluginKey, selectColumnFromHandle } from './story-block-selection';
 import { BlockSelectionContext } from './story-block-selection-context';
 import { StoryBlockDragContext } from './story-editor-drag-context';
 import { decodeFromAttr } from './story-editor-utils';
@@ -136,39 +135,19 @@ function GridBlockView(props: ReactNodeViewProps) {
 						// columns get a move handle.
 						const columnGrip =
 							segments.length >= 2 && (segment.type === 'chart' || segment.type === 'table') ? (
-								<button
-									type='button'
-									aria-label={`Move column ${i + 1}`}
-									data-block-drag-grip=''
-									contentEditable={false}
+								<StoryBlockActionGrip
+									editor={props.editor}
+									getOrigin={() =>
+										gridPos === null ? null : { kind: 'gridColumn', gridPos, index: i }
+									}
+									ariaLabel={`Move column ${i + 1}`}
 									draggable
-									className='cursor-grab rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing'
-									onClick={(event) => {
-										event.stopPropagation();
-										if (gridPos === null) {
-											return;
-										}
-										const next = selectColumnFromHandle(props.editor.state, gridPos, i);
-										if (next) {
-											props.editor.view.dispatch(
-												props.editor.state.tr.setMeta(blockSelectionPluginKey, next),
-											);
-										}
-										props.editor.view.focus();
-									}}
-									onPointerDown={(event) => {
-										event.stopPropagation();
-									}}
-									onDragStart={(event) => {
-										handleColumnDragStart(i, event);
-									}}
+									onDragStart={(event) => handleColumnDragStart(i, event)}
 									onDragEnd={(event) => {
 										event.stopPropagation();
 										clearDrag();
 									}}
-								>
-									<GripVertical className='size-3.5' />
-								</button>
+								/>
 							) : null;
 						const isLeftmostColumn = i === 0;
 						const canDragColumn = columnGrip !== null;

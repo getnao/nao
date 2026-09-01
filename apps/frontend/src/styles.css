@@ -539,7 +539,7 @@ code.dollar:before {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	padding-right: 1rem;
+	transform: translateX(-1rem);
 	cursor: grab;
 }
 
@@ -547,10 +547,11 @@ code.dollar:before {
 	cursor: grabbing;
 }
 
-.story-editor .drag-handle-button {
+.story-editor .drag-handle > .drag-handle-button {
 	display: flex;
 	align-items: center;
 	justify-content: center;
+	flex: 0 0 1.5rem;
 	width: 1.5rem;
 	height: 1.5rem;
 	border-radius: 0.25rem;
@@ -560,7 +561,7 @@ code.dollar:before {
 		color 0.1s ease;
 }
 
-.story-editor .drag-handle:hover .drag-handle-button {
+.story-editor .drag-handle:hover > .drag-handle-button {
 	@apply bg-muted text-muted-foreground;
 }
 

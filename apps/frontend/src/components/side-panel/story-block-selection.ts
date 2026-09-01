@@ -23,6 +23,7 @@ export interface BlockSelectionState {
 }
 
 export type DragUnit = { kind: 'block'; pos: number } | { kind: 'gridColumns'; gridPos: number; indices: number[] };
+export type DragOrigin = { kind: 'block'; pos: number } | { kind: 'gridColumn'; gridPos: number; index: number };
 
 export const blockSelectionPluginKey = new PluginKey<BlockSelectionState>('blockSelection');
 
@@ -58,47 +59,28 @@ export function emptySelection(): BlockSelectionState {
 	return { blocks: [], gridColumns: [], anchor: null, columnAnchor: null };
 }
 
-export function deleteSelectedBlocks(view: EditorView): boolean {
-	const selection = blockSelectionPluginKey.getState(view.state) ?? emptySelection();
-	if (!selection.blocks.length && !selection.gridColumns.length) {
+export function deleteSelectedBlocks(view: EditorView, origin?: DragOrigin): boolean {
+	const units = origin ? resolveActionSelection(view.state, origin) : selectedDragUnits(view.state);
+	if (!units.length) {
 		return false;
 	}
 
-	const operations = buildDragUnitOperations(view.state, dragUnitsFromSelection(selection));
-	if (!operations?.length) {
+	const transfer = buildDragUnitTransfer(view.state, units);
+	if (!transfer) {
 		view.dispatch(view.state.tr.setMeta(blockSelectionPluginKey, emptySelection()));
 		return true;
 	}
 
-	const transaction = view.state.tr;
-	const selectionPosition = Math.min(...operations.map((operation) => operation.from));
-	applyDragUnitRemovals(transaction, operations);
-	const mappedSelectionPosition = Math.min(
-		transaction.mapping.map(selectionPosition, -1),
-		transaction.doc.content.size,
-	);
-	transaction.setSelection(TextSelection.near(transaction.doc.resolve(mappedSelectionPosition)));
-	transaction.setMeta(blockSelectionPluginKey, emptySelection());
-	view.dispatch(transaction);
+	view.dispatch(transfer.transaction);
 	return true;
 }
 
-export function resolveDragSelection(
-	state: EditorState,
-	origin: { kind: 'block'; pos: number } | { kind: 'gridColumn'; gridPos: number; index: number },
-): DragUnit[] | null {
-	const selection = blockSelectionPluginKey.getState(state) ?? emptySelection();
-	const originSelected =
-		origin.kind === 'block'
-			? selection.blocks.includes(origin.pos)
-			: selection.gridColumns.some(
-					(column) => column.gridPos === origin.gridPos && column.index === origin.index,
-				);
-	if (!originSelected) {
+export function resolveDragSelection(state: EditorState, origin: DragOrigin): DragUnit[] | null {
+	const units = resolveActionSelection(state, origin);
+	if (!isOriginSelected(state, origin)) {
 		return null;
 	}
 
-	const units = dragUnitsFromSelection(selection);
 	if (
 		units.length === 1 &&
 		(units[0].kind === 'block' || (units[0].kind === 'gridColumns' && units[0].indices.length === 1))
@@ -106,6 +88,19 @@ export function resolveDragSelection(
 		return null;
 	}
 	return units;
+}
+
+export function resolveActionSelection(state: EditorState, origin: DragOrigin): DragUnit[] {
+	if (isOriginSelected(state, origin)) {
+		return selectedDragUnits(state);
+	}
+	return origin.kind === 'block'
+		? [{ kind: 'block', pos: origin.pos }]
+		: [{ kind: 'gridColumns', gridPos: origin.gridPos, indices: [origin.index] }];
+}
+
+export function selectedDragUnits(state: EditorState): DragUnit[] {
+	return dragUnitsFromSelection(blockSelectionPluginKey.getState(state) ?? emptySelection());
 }
 
 function dragUnitsFromSelection(selection: BlockSelectionState): DragUnit[] {
@@ -130,6 +125,13 @@ function dragUnitsFromSelection(selection: BlockSelectionState): DragUnit[] {
 			}),
 		),
 	].sort((first, second) => dragUnitPosition(first) - dragUnitPosition(second));
+}
+
+function isOriginSelected(state: EditorState, origin: DragOrigin): boolean {
+	const selection = blockSelectionPluginKey.getState(state) ?? emptySelection();
+	return origin.kind === 'block'
+		? selection.blocks.includes(origin.pos)
+		: selection.gridColumns.some((column) => column.gridPos === origin.gridPos && column.index === origin.index);
 }
 
 /**
@@ -430,6 +432,9 @@ function buildBlockSelectionPlugin(): Plugin<BlockSelectionState> {
 				if (target instanceof Element && target.closest('.drag-handle')) {
 					return;
 				}
+				if (target instanceof Element && target.closest('[data-story-block-action-menu]')) {
+					return;
+				}
 				clearSelection();
 			};
 
@@ -496,6 +501,11 @@ export interface BlockMove {
 	insertPos: number;
 }
 
+export interface DragUnitTransfer {
+	transaction: Transaction;
+	nodes: PMNode[];
+}
+
 interface DragUnitOperation {
 	node: PMNode;
 	from: number;
@@ -505,6 +515,27 @@ interface DragUnitOperation {
 
 export function buildDragUnitNodes(state: EditorState, units: DragUnit[]): PMNode[] | null {
 	return buildDragUnitOperations(state, units)?.map((operation) => operation.node) ?? null;
+}
+
+export function buildDragUnitTransfer(state: EditorState, units: DragUnit[]): DragUnitTransfer | null {
+	const operations = buildDragUnitOperations(state, units);
+	if (!operations?.length) {
+		return null;
+	}
+
+	const transaction = state.tr;
+	const selectionPosition = Math.min(...operations.map((operation) => operation.from));
+	applyDragUnitRemovals(transaction, operations);
+	const mappedSelectionPosition = Math.min(
+		transaction.mapping.map(selectionPosition, -1),
+		transaction.doc.content.size,
+	);
+	transaction.setSelection(TextSelection.near(transaction.doc.resolve(mappedSelectionPosition)));
+	transaction.setMeta(blockSelectionPluginKey, emptySelection());
+	return {
+		transaction,
+		nodes: operations.map((operation) => operation.node),
+	};
 }
 
 export function buildSelectionMoveTransaction(

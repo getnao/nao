@@ -1,7 +1,7 @@
 import { DragHandle } from '@tiptap/extension-drag-handle-react';
 import { EditorContent } from '@tiptap/react';
-import { GripVertical } from 'lucide-react';
 import { memo } from 'react';
+import { StoryBlockActionGrip } from './story-editor-block-drag';
 import { useStoryEditor } from './hooks/use-story-editor';
 import { BlockSelectionContext, SelectedBlockPositionsContext } from './story-block-selection-context';
 import { GridDragContext, StoryBlockDragContext } from './story-editor-drag-context';
@@ -29,11 +29,14 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 		storyEditorRef,
 		onElementDragStart,
 		onElementDragEnd,
-		onDragHandleClick,
+		getDragHandleOrigin,
 	} = useStoryEditor({ code, editorRef, onSave });
 
 	const hideFloatingHandle =
-		handleNodeType === 'gridBlock' || handleNodeType === 'chartBlock' || handleNodeType === 'tableBlock';
+		handleNodeType === 'gridBlock' ||
+		handleNodeType === 'chartBlock' ||
+		handleNodeType === 'tableBlock' ||
+		handleNodeType === 'mapBlock';
 
 	return (
 		<GridDragContext.Provider value={gridDragSourceRef}>
@@ -53,9 +56,14 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 							onElementDragStart={onElementDragStart}
 							onElementDragEnd={onElementDragEnd}
 						>
-							<div className='drag-handle-button' onClick={onDragHandleClick}>
-								{hideFloatingHandle ? null : <GripVertical className='size-4' />}
-							</div>
+							<StoryBlockActionGrip
+								editor={editor}
+								getOrigin={getDragHandleOrigin}
+								ariaLabel='Move story block'
+								iconClassName='size-4'
+								lockHandleWhileOpen
+								wrapperClassName={cn('drag-handle-button', hideFloatingHandle && 'invisible')}
+							/>
 						</DragHandle>
 					)}
 					<BlockSelectionContext.Provider value={selectedGridColumns}>

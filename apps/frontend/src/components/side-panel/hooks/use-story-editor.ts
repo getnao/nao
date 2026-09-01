@@ -12,7 +12,6 @@ import {
 	getSelectedBlockPositions,
 	getSelectedGridColumns,
 	resolveDragSelection,
-	selectBlockFromHandle,
 } from '../story-block-selection';
 import { EDITOR_EXTENSIONS } from '../story-editor-extensions';
 import { GRID_COLUMN_DRAG_TYPE, STORY_BLOCK_DRAG_TYPE } from '../story-editor-drag-context';
@@ -479,26 +478,25 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 		[activeDropZone, beginMultiSelectionDrag, endMultiSelectionDrag, isBlockDragging],
 	);
 	const onElementDragEnd = endMultiSelectionDrag;
-	const onDragHandleClick = useCallback(() => {
+	const getDragHandleOrigin = useCallback(() => {
 		if (!editor) {
-			return;
+			return null;
 		}
 		const pos = handleNodePosRef.current;
 		if (pos == null) {
-			return;
+			return null;
 		}
 		const node = editor.state.doc.nodeAt(pos);
 		if (
 			node != null &&
-			(node.type.name === 'gridBlock' || node.type.name === 'chartBlock' || node.type.name === 'tableBlock')
+			(node.type.name === 'gridBlock' ||
+				node.type.name === 'chartBlock' ||
+				node.type.name === 'tableBlock' ||
+				node.type.name === 'mapBlock')
 		) {
-			return;
+			return null;
 		}
-		const next = selectBlockFromHandle(editor.state, pos);
-		if (!next) {
-			return;
-		}
-		editor.view.dispatch(editor.state.tr.setMeta(blockSelectionPluginKey, next));
+		return { kind: 'block' as const, pos };
 	}, [editor]);
 
 	return {
@@ -512,7 +510,7 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 		storyEditorRef,
 		onElementDragStart,
 		onElementDragEnd,
-		onDragHandleClick,
+		getDragHandleOrigin,
 	};
 }
 

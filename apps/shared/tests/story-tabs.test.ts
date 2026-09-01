@@ -45,6 +45,12 @@ describe('story tabs', () => {
 		]);
 	});
 
+	it('parses unquoted tab titles', () => {
+		expect(parseStoryTabs('<tab title=Banana >\nContent\n</tab>')).toEqual([
+			{ title: 'Banana', innerCode: '\nContent\n' },
+		]);
+	});
+
 	it('strips complete and partial tab markup', () => {
 		expect(stripStoryTabsMarkup(storyCode)).not.toMatch(/<\/?tab\b/);
 		expect(stripStoryTabsMarkup(storyCode)).toContain('<table query_id="details" title="Details" />');

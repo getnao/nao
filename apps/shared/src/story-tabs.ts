@@ -18,6 +18,14 @@ export function parseStoryTabs(code: string): StoryTab[] | null {
 	return findStoryTabBlocks(code).map(({ title, innerCode }) => ({ title, innerCode }));
 }
 
+export function parseStoryTabTitle(attributes: string): string {
+	const parsedTitle = parseChartAttributes(attributes).title;
+	if (parsedTitle !== undefined) {
+		return parsedTitle;
+	}
+	return attributes.match(/\btitle\s*=\s*([^\s"'=<>`]+)/)?.[1] ?? '';
+}
+
 export function appendBlockToStoryCode(
 	code: string,
 	block: string,
@@ -132,7 +140,7 @@ function findStoryTabBlocks(code: string): StoryTabBlock[] {
 		const blockStart = match.index;
 		const innerCode = match[2];
 		blocks.push({
-			title: parseChartAttributes(match[1] ?? '').title ?? '',
+			title: parseStoryTabTitle(match[1] ?? ''),
 			innerCode,
 			start: blockStart,
 			end: blockStart + match[0].length,
