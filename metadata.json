@@ -3,10 +3,16 @@
   "checkpoint_id": "01M1EGSKFDW2HJAN3RWK5144E9",
   "strategy": "manual-commit",
   "branch": "feat/auto-save-story-edits-1443",
-  "checkpoints_count": 5,
+  "checkpoints_count": 23,
   "files_touched": [
+    "apps/frontend/src/components/chat-input.tsx",
+    "apps/frontend/src/components/side-panel/hooks/use-story-viewer-version-actions.ts",
     "apps/frontend/src/components/side-panel/story-viewer.tsx",
-    "apps/frontend/src/contexts/story-before-agent-send.test.tsx"
+    "apps/frontend/src/contexts/story-before-agent-send.test.tsx",
+    "apps/frontend/src/contexts/story-before-agent-send.tsx",
+    "apps/frontend/src/hooks/use-story-edit-transitions.ts",
+    "apps/frontend/src/hooks/use-story-editing.test.ts",
+    "apps/frontend/src/hooks/use-story-page-editor.ts"
   ],
   "sessions": [
     {
@@ -15,13 +21,20 @@
       "compact_transcript": "/0/transcript.jsonl",
       "content_hash": "/0/content_hash.txt",
       "prompt": "/0/prompt.txt"
+    },
+    {
+      "metadata": "/1/metadata.json",
+      "transcript": "/1/full.jsonl",
+      "compact_transcript": "/1/transcript.jsonl",
+      "content_hash": "/1/content_hash.txt",
+      "prompt": "/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 33,
-    "cache_creation_tokens": 172039,
-    "cache_read_tokens": 1336184,
-    "output_tokens": 4650,
-    "api_call_count": 5
+    "input_tokens": 96,
+    "cache_creation_tokens": 195224,
+    "cache_read_tokens": 4723984,
+    "output_tokens": 14849,
+    "api_call_count": 18
   }
 }
