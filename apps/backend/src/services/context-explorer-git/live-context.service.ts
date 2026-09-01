@@ -18,7 +18,12 @@ import {
 	toContextRepoState,
 	validateDeploymentContextSubpath,
 } from '../../utils/context-repo';
-import { getGitOAuthCredential, runGitWithOAuth } from '../../utils/git-oauth';
+import {
+	getGitOAuthCredential,
+	getGitRemoteCredentialSecrets,
+	runGitFetchWithCredentials,
+	runGitWithOAuth,
+} from '../../utils/git-oauth';
 import { runGit } from '../../utils/git-repo';
 import { getRepoProviderDisplayName, REVIEW_REQUEST_PROVIDERS } from '../review-request-provider';
 import {
@@ -86,7 +91,7 @@ export function getLiveContextUpdateStatus(projectFolder: string): LiveContextUp
 		}
 		throw error;
 	}
-	const issue = getLiveRepositoryIssue(repository, configuredBranch, 'configured');
+	const issue = getLiveRepositoryIssue(repository, configuredBranch, 'configured', env.NAO_CONTEXT_GIT_URL);
 	if (issue) {
 		return unavailableLiveContextStatus(configuredBranch, issue.message, repository.lastCheckedAt);
 	}
@@ -138,10 +143,33 @@ function pullDeploymentLiveContext(projectFolder: string): LiveContextPullResult
 		});
 	}
 	validateDeploymentContextSubpath(repository.repositoryRoot, env.NAO_CONTEXT_GIT_SUBPATH);
-	assertLiveRepositoryUpdatable(repository, configuredBranch, 'configured');
-	return updateLiveRepository(repository, configuredBranch, (repositoryRoot, branch) => {
-		runGit(repositoryRoot, ['fetch', '--no-tags', 'origin', branch], GIT_OPERATION_TIMEOUT_MS);
-	});
+	assertLiveRepositoryUpdatable(repository, configuredBranch, 'configured', env.NAO_CONTEXT_GIT_URL);
+	const repositoryUrl = env.NAO_CONTEXT_GIT_URL;
+	return updateLiveRepository(
+		repository,
+		configuredBranch,
+		(repositoryRoot, branch) => {
+			if (!repositoryUrl) {
+				runGit(repositoryRoot, ['fetch', '--no-tags', 'origin', branch], GIT_OPERATION_TIMEOUT_MS);
+				return;
+			}
+			runGitFetchWithCredentials(
+				repositoryRoot,
+				repositoryUrl,
+				branch,
+				{
+					platform: env.NAO_CONTEXT_GIT_PLATFORM ?? detectGitPlatform(repositoryUrl),
+					sshKey: env.NAO_CONTEXT_GIT_SSH_KEY,
+					token: env.NAO_CONTEXT_GIT_TOKEN,
+				},
+				GIT_OPERATION_TIMEOUT_MS,
+			);
+		},
+		getGitRemoteCredentialSecrets(repositoryUrl, {
+			sshKey: env.NAO_CONTEXT_GIT_SSH_KEY,
+			token: env.NAO_CONTEXT_GIT_TOKEN,
+		}),
+	);
 }
 
 async function pullConnectedLiveContext(context: ContextExplorerGitContext): Promise<LiveContextPullResult> {
@@ -284,6 +312,7 @@ function getLiveRepositoryIssue(
 	repository: LiveRepository,
 	configuredBranch: string,
 	branchLabel: 'configured' | 'repository default',
+	expectedOrigin?: string,
 ): LiveRepositoryIssue | null {
 	const currentBranch = readCurrentBranchFromPath(repository.repositoryRoot);
 	if (currentBranch !== configuredBranch) {
@@ -294,10 +323,18 @@ function getLiveRepositoryIssue(
 				: `The live checkout is detached; check out the ${branchLabel} "${configuredBranch}" branch first.`,
 		};
 	}
-	return getLiveRepositoryOriginIssue(repository);
+	return getLiveRepositoryOriginIssue(
+		repository,
+		expectedOrigin,
+		"The configured repository does not match the live project's Git repository.",
+	);
 }
 
-function getLiveRepositoryOriginIssue(repository: LiveRepository, expectedOrigin?: string): LiveRepositoryIssue | null {
+function getLiveRepositoryOriginIssue(
+	repository: LiveRepository,
+	expectedOrigin?: string,
+	mismatchMessage = 'The live project uses a different Git origin than the connected repository.',
+): LiveRepositoryIssue | null {
 	const origin = readOptionalGitValue(repository.repositoryRoot, ['remote', 'get-url', 'origin']);
 	if (!origin) {
 		return { code: 'BAD_REQUEST', message: 'The live Git repository does not have an origin remote.' };
@@ -305,7 +342,7 @@ function getLiveRepositoryOriginIssue(repository: LiveRepository, expectedOrigin
 	if (expectedOrigin && normalizeRemote(origin) !== normalizeRemote(expectedOrigin)) {
 		return {
 			code: 'CONFLICT',
-			message: 'The live project uses a different Git origin than the connected repository.',
+			message: mismatchMessage,
 		};
 	}
 	return null;
@@ -315,8 +352,9 @@ function assertLiveRepositoryUpdatable(
 	repository: LiveRepository,
 	configuredBranch: string,
 	branchLabel: 'configured' | 'repository default',
+	expectedOrigin?: string,
 ): void {
-	const issue = getLiveRepositoryIssue(repository, configuredBranch, branchLabel);
+	const issue = getLiveRepositoryIssue(repository, configuredBranch, branchLabel, expectedOrigin);
 	if (issue) {
 		throw new TRPCError(issue);
 	}
@@ -372,14 +410,14 @@ function updateLiveRepository(
 	repository: LiveRepository,
 	configuredBranch: string,
 	fetch: (repositoryRoot: string, branch: string) => void,
-	token?: string,
+	secrets?: string | string[],
 ): LiveContextPullResult {
 	const oldCommit = runGit(repository.repositoryRoot, ['rev-parse', 'HEAD']).toString().trim();
 	try {
 		fetch(repository.repositoryRoot, configuredBranch);
 		runGit(repository.repositoryRoot, ['merge', '--ff-only', 'FETCH_HEAD'], GIT_OPERATION_TIMEOUT_MS);
 	} catch (error) {
-		throw sanitizeLiveContextError(error, token);
+		throw sanitizeLiveContextError(error, secrets);
 	}
 	const newCommit = runGit(repository.repositoryRoot, ['rev-parse', 'HEAD']).toString().trim();
 	return createLivePullResult(repository, configuredBranch, oldCommit, newCommit);

@@ -88,7 +88,12 @@ vi.mock('../src/utils/logger', () => {
 });
 
 import { __reloadEnvForTesting } from '../src/env';
-import { getFileTree, readFileContent, writeFileContent } from '../src/services/context-explorer.service';
+import {
+	getFileTree,
+	MAX_CONTEXT_FILE_SIZE,
+	readFileContent,
+	writeFileContent,
+} from '../src/services/context-explorer.service';
 import {
 	assertSafeDestructiveWorktreeCommand,
 	assertSafeDestructiveWorktreeTarget,
@@ -125,7 +130,7 @@ import {
 	resolveContextRepository,
 	validateDeploymentContextSubpath,
 } from '../src/utils/context-repo';
-import { getGitOAuthCredential, runGitWithOAuth } from '../src/utils/git-oauth';
+import { getGitOAuthCredential, runGitFetchWithCredentials, runGitWithOAuth } from '../src/utils/git-oauth';
 
 describe('OAuth Git credentials', () => {
 	const temporaryRoots: string[] = [];
@@ -176,6 +181,112 @@ printf '%s|%s' "$user" "$GIT_ASKPASS"
 
 		expect(actualUsername).toBe(username);
 		expect(fs.existsSync(helperPath)).toBe(false);
+	});
+
+	it.each([
+		['github', 'x-access-token'],
+		['gitlab', 'oauth2'],
+		['bitbucket', 'x-token-auth'],
+		[null, 'git'],
+	] as const)('fetches with a scoped %s deployment token', (platform, expectedUsername) => {
+		const root = temporaryRoot(temporaryRoots);
+		const bin = path.join(root, 'bin');
+		const fakeGit = path.join(bin, 'git');
+		const token = 'deployment-secret';
+		fs.mkdirSync(bin);
+		fs.writeFileSync(
+			fakeGit,
+			`#!/bin/sh
+username="$("$GIT_ASKPASS" "Username for repository")"
+password="$("$GIT_ASKPASS" "Password for repository")"
+printf '%s|%s|%s|%s' "$*" "$username" "$password" "$GIT_ASKPASS"
+`,
+			{ mode: 0o700 },
+		);
+		process.env.PATH = `${bin}:${originalPath ?? ''}`;
+
+		const [argv, username, password, helperPath] = runGitFetchWithCredentials(
+			root,
+			'https://example.com/nao/context.git',
+			'main',
+			{ platform, token },
+		)
+			.toString()
+			.split('|');
+
+		expect(argv).toBe('fetch --no-tags https://example.com/nao/context.git main');
+		expect(argv).not.toContain(token);
+		expect(username).toBe(expectedUsername);
+		expect(password).toBe(token);
+		expect(fs.existsSync(helperPath)).toBe(false);
+	});
+
+	it('removes embedded HTTPS credentials from fetch argv and cleans up askpass', () => {
+		const root = temporaryRoot(temporaryRoots);
+		const bin = path.join(root, 'bin');
+		const fakeGit = path.join(bin, 'git');
+		fs.mkdirSync(bin);
+		fs.writeFileSync(
+			fakeGit,
+			`#!/bin/sh
+printf '%s|%s|%s|%s' "$*" "$("$GIT_ASKPASS" "Username")" "$("$GIT_ASKPASS" "Password")" "$GIT_ASKPASS"
+`,
+			{ mode: 0o700 },
+		);
+		process.env.PATH = `${bin}:${originalPath ?? ''}`;
+
+		const [argv, username, password, helperPath] = runGitFetchWithCredentials(
+			root,
+			'https://deploy-user:deploy-secret@example.com/nao/context.git',
+			'main',
+			{},
+		)
+			.toString()
+			.split('|');
+
+		expect(argv).toBe('fetch --no-tags https://example.com/nao/context.git main');
+		expect(argv).not.toContain('deploy-user');
+		expect(argv).not.toContain('deploy-secret');
+		expect(username).toBe('deploy-user');
+		expect(password).toBe('deploy-secret');
+		expect(fs.existsSync(helperPath)).toBe(false);
+	});
+
+	it('supports credential-free fetches and removes temporary SSH keys', () => {
+		const root = temporaryRoot(temporaryRoots);
+		const bin = path.join(root, 'bin');
+		const fakeGit = path.join(bin, 'git');
+		fs.mkdirSync(bin);
+		fs.writeFileSync(
+			fakeGit,
+			`#!/bin/sh
+printf '%s|%s|%s' "$*" "$GIT_ASKPASS" "$GIT_SSH_COMMAND"
+`,
+			{ mode: 0o700 },
+		);
+		process.env.PATH = `${bin}:${originalPath ?? ''}`;
+
+		const [publicArgv, publicAskpass] = runGitFetchWithCredentials(
+			root,
+			'https://example.com/nao/context.git',
+			'main',
+			{},
+		)
+			.toString()
+			.split('|');
+		const [sshArgv, , sshCommand] = runGitFetchWithCredentials(root, 'git@example.com:nao/context.git', 'main', {
+			sshKey: 'private-key',
+		})
+			.toString()
+			.split('|');
+		const keyPath = sshCommand.match(/-i '([^']+)'/)?.[1];
+
+		expect(publicArgv).toBe('fetch --no-tags https://example.com/nao/context.git main');
+		expect(publicAskpass).toBe('');
+		expect(sshArgv).toBe('fetch --no-tags git@example.com:nao/context.git main');
+		expect(sshCommand).not.toContain('StrictHostKeyChecking=no');
+		expect(keyPath).toBeTruthy();
+		expect(fs.existsSync(keyPath ?? '')).toBe(false);
 	});
 
 	it('redacts OAuth credentials from live Git errors', () => {
@@ -699,6 +810,82 @@ describe('live deployment context updates', () => {
 		);
 	});
 
+	it('rejects a mismatched deployment origin before fetching', () => {
+		const fixture = createLocalCloneFixture(temporaryRoots);
+		runGit(fixture.live, ['remote', 'set-url', 'origin', fixture.bare]);
+		setContextSourceEnv({
+			url: path.join(fixture.root, 'different.git'),
+			branch: 'main',
+			subpath: 'project',
+		});
+		const commit = runGit(fixture.live, ['rev-parse', 'HEAD']).toString().trim();
+
+		expect(getLiveContextUpdateStatus(fixture.live)).toMatchObject({
+			available: false,
+			unavailableReason: "The configured repository does not match the live project's Git repository.",
+		});
+		expect(() => pullLiveContext(fixture.live)).toThrow(
+			"The configured repository does not match the live project's Git repository.",
+		);
+		expect(runGit(fixture.live, ['rev-parse', 'HEAD']).toString().trim()).toBe(commit);
+	});
+
+	it('accepts equivalent deployment origins with different URL forms and credentials', () => {
+		const fixture = createLocalCloneFixture(temporaryRoots);
+		runGit(fixture.live, ['remote', 'set-url', 'origin', 'git@github.com:nao/context.git']);
+		setContextSourceEnv({
+			url: 'https://deploy-user:deploy-secret@github.com/nao/context.git',
+			branch: 'main',
+			subpath: 'project',
+		});
+
+		expect(getLiveContextUpdateStatus(fixture.live)).toMatchObject({
+			available: true,
+			unavailableReason: null,
+		});
+	});
+
+	it('redacts deployment credentials from fetch errors and removes askpass', () => {
+		const fixture = createLocalCloneFixture(temporaryRoots);
+		const repositoryUrl = 'https://deploy-user:deploy-secret@example.com/nao/context.git';
+		const publicUrl = 'https://example.com/nao/context.git';
+		runGit(fixture.live, ['remote', 'set-url', 'origin', publicUrl]);
+		setContextSourceEnv({ url: repositoryUrl, branch: 'main', subpath: 'project' });
+		const bin = path.join(fixture.root, 'bin');
+		const fakeGit = path.join(bin, 'git');
+		const capturePath = path.join(fixture.root, 'askpass-path');
+		const realGit = execFileSync('sh', ['-c', 'command -v git']).toString().trim();
+		fs.mkdirSync(bin);
+		fs.writeFileSync(
+			fakeGit,
+			`#!/bin/sh
+if [ "$1" = "fetch" ]; then
+  printf '%s' "$GIT_ASKPASS" > "$CAPTURE_ASKPASS_PATH"
+  password="$("$GIT_ASKPASS" "Password")"
+  printf 'fatal: rejected %s for %s\\n' "$password" "$*" >&2
+  exit 1
+fi
+exec '${realGit.replaceAll("'", "'\\''")}' "$@"
+`,
+			{ mode: 0o700 },
+		);
+		process.env.PATH = `${bin}:${process.env.PATH ?? ''}`;
+		process.env.CAPTURE_ASKPASS_PATH = capturePath;
+
+		let error: Error | null = null;
+		try {
+			pullLiveContext(fixture.live);
+		} catch (caught) {
+			error = caught as Error;
+		}
+		const helperPath = fs.readFileSync(capturePath, 'utf8');
+
+		expect(error?.message).not.toContain('deploy-user');
+		expect(error?.message).not.toContain('deploy-secret');
+		expect(error?.message).toContain('[redacted]');
+		expect(fs.existsSync(helperPath)).toBe(false);
+	});
+
 	it('waits for confirmation before moving a linked default worktree to live HEAD', async () => {
 		const fixture = createLocalCloneFixture(temporaryRoots);
 		runGit(fixture.live, ['remote', 'set-url', 'origin', fixture.bare]);
@@ -977,7 +1164,7 @@ describe('OAuth live context updates', () => {
 		const selected = createFixture(temporaryRoots);
 		mismatched.context.providerOverride = localProvider(selected.bare, selected.bare);
 		await expect(pullLiveContext(mismatched.context)).rejects.toThrow(
-			'The live project uses a different Git origin than the connected repository.',
+			"The selected repository does not match the live project's Git repository.",
 		);
 		expect(fs.existsSync(mismatched.live)).toBe(true);
 	});
@@ -1100,8 +1287,10 @@ describe('context explorer worktrees', () => {
 		const before = snapshot(fixture.live);
 
 		const repo = await ensureContextWorktree(fixture.context);
+		const resolution = await resolveContextExplorerGit(fixture.context);
 
 		expect(repo.projectPrefix).toBe('project');
+		expect(resolution).toMatchObject({ status: 'available' });
 		expect(fs.readFileSync(path.join(repo.worktreeRoot, 'project', 'context.md'), 'utf8')).toBe(
 			'repository content\n',
 		);
@@ -1224,34 +1413,54 @@ describe('context explorer worktrees', () => {
 		});
 	});
 
-	it('connects the selected repository when the project clone points elsewhere', async () => {
+	it('rejects a repository connection when the live project clone points elsewhere', async () => {
 		const fixture = createLocalCloneFixture(temporaryRoots);
 		const selected = createFixture(temporaryRoots, {
 			'nao_config.yaml': 'name: selected\n',
 			'context.md': 'selected repository content\n',
 		});
 		const updateConfig = vi.fn().mockResolvedValue(undefined);
-		setContextSourceEnv({ token: 'deployment-token' });
-
-		const result = await connectContextRepository(
-			{
-				...fixture.context,
-				provider: 'github',
-				repoFullName: 'nao/selected',
-			},
-			{
-				provider: localProvider(selected.bare, selected.bare),
-				updateConfig,
-			},
-		);
 		const worktree = getContextWorktreePath('project-id', fixture.live, 'user-1');
 
-		expect(result).toMatchObject({ provider: 'github', repoFullName: 'nao/selected' });
-		expect(updateConfig).toHaveBeenCalledWith('project-id', {
-			repoFullName: 'nao/selected',
-			repoProvider: 'github',
+		await expect(
+			connectContextRepository(
+				{
+					...fixture.context,
+					provider: 'github',
+					repoFullName: 'nao/selected',
+				},
+				{
+					provider: localProvider(selected.bare, 'https://github.com/nao/selected.git'),
+					updateConfig,
+				},
+			),
+		).rejects.toThrow("The selected repository does not match the live project's Git repository.");
+		expect(updateConfig).not.toHaveBeenCalled();
+		expect(fs.existsSync(worktree)).toBe(false);
+	});
+
+	it('keeps a persisted repository mismatch unavailable and blocks Git mutations', async () => {
+		const fixture = createLocalCloneFixture(temporaryRoots);
+		const selected = createFixture(temporaryRoots);
+		const context = {
+			...fixture.context,
+			configOverride: { provider: 'github' as const, repoFullName: 'nao/selected' },
+			providerOverride: localProvider(selected.bare, 'https://github.com/nao/selected.git'),
+		};
+
+		await expect(resolveContextExplorerGit(context)).resolves.toMatchObject({
+			status: 'unavailable',
+			reason: 'repository-mismatch',
+			message: "The selected repository does not match the live project's Git repository.",
 		});
-		expect(fs.readFileSync(path.join(worktree, 'context.md'), 'utf8')).toBe('selected repository content\n');
+		await expect(getContextRepositoryStatus(context)).resolves.toMatchObject({
+			gitUnavailableReason: 'repository-mismatch',
+			gitUnavailableMessage: "The selected repository does not match the live project's Git repository.",
+			isGitRepository: false,
+		});
+		await expect(createContextBranch(context, 'nao/blocked')).rejects.toThrow(
+			"The selected repository does not match the live project's Git repository.",
+		);
 	});
 
 	it('refreshes a missing GitLab origin HEAD and detects a non-main default branch before saving', async () => {
@@ -1680,6 +1889,57 @@ describe('context explorer worktrees', () => {
 			{ path: '/new.md', kind: 'untracked', additions: 2, deletions: 0 },
 		]);
 		expectLiveUnchanged(fixture.live, before);
+	});
+
+	it('does not count lines in oversized untracked files', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const repo = await ensureContextWorktree(fixture.context);
+		const oversizedFile = path.join(repo.worktreeRoot, 'oversized.md');
+		fs.writeFileSync(oversizedFile, '');
+		fs.truncateSync(oversizedFile, MAX_CONTEXT_FILE_SIZE + 1);
+
+		await expect(getChangedContextFiles(fixture.context)).resolves.toEqual([
+			{ path: '/oversized.md', kind: 'untracked', additions: null, deletions: null },
+		]);
+	});
+
+	it('does not read an untracked symlink and discards only the link', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const repo = await ensureContextWorktree(fixture.context);
+		const externalFile = path.join(fixture.root, 'external-secret.md');
+		const symlinkPath = path.join(repo.worktreeRoot, 'external-link.md');
+		fs.writeFileSync(externalFile, 'external secret\n');
+		fs.symlinkSync(externalFile, symlinkPath);
+
+		await expect(getContextFileDiff(fixture.context, '/external-link.md')).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		await expect(discardContextFileChange(fixture.context, '/external-link.md')).resolves.toEqual({
+			hash: null,
+		});
+
+		expect(fs.existsSync(symlinkPath)).toBe(false);
+		expect(fs.readFileSync(externalFile, 'utf8')).toBe('external secret\n');
+	});
+
+	it('rejects discard through a symlinked parent before touching the external file', async () => {
+		const fixture = createFixture(temporaryRoots, {
+			'nao_config.yaml': 'name: test\n',
+			'nested/context.md': 'repository content\n',
+		});
+		const repo = await ensureContextWorktree(fixture.context);
+		const nestedPath = path.join(repo.worktreeRoot, 'nested');
+		const externalDirectory = path.join(fixture.root, 'external');
+		const externalFile = path.join(externalDirectory, 'context.md');
+		fs.rmSync(nestedPath, { recursive: true });
+		fs.mkdirSync(externalDirectory);
+		fs.writeFileSync(externalFile, 'external file\n');
+		fs.symlinkSync(externalDirectory, nestedPath, 'dir');
+
+		await expect(discardContextFileChange(fixture.context, '/nested/context.md')).rejects.toThrow('symlink');
+
+		expect(fs.readFileSync(externalFile, 'utf8')).toBe('external file\n');
+		expect(fs.lstatSync(nestedPath).isSymbolicLink()).toBe(true);
 	});
 
 	it('reads modified, added, and deleted files across a historical commit range', async () => {

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 
 import type { ContextChangedFile, ContextFileDiff } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
@@ -13,11 +14,14 @@ import {
 	toRepoPath,
 } from '../../utils/context-repo';
 import { runGit, tryRunGit } from '../../utils/git-repo';
+import { assertNoSymlinkInWritePath, canonicalizeWriteRoot } from '../../utils/safe-file-write';
 import { toRealPath } from '../../utils/tools';
 import {
 	decodeTextContent,
 	hashContent,
 	MAX_CONTEXT_FILE_SIZE,
+	readValidatedContextFileSync,
+	resolveAndValidatePath,
 	validateContentBuffer,
 } from '../context-explorer.service';
 import {
@@ -70,8 +74,7 @@ export async function discardContextFileChange(
 ): Promise<{ hash: string | null }> {
 	const { repo } = await requireContextExplorerGit(context);
 	await discardPath(repo, context.projectFolder, filePath);
-	const target = toRealPath(filePath, getWorktreeProjectRoot(repo));
-	return { hash: fs.existsSync(target) ? hashContent(fs.readFileSync(target)) : null };
+	return { hash: readWorkingTreeHash(repo, filePath) };
 }
 
 export async function discardAllContextChanges(context: ContextExplorerGitContext): Promise<void> {
@@ -156,7 +159,9 @@ function readHistoricalText(repo: ResolvedContextRepo, commit: string, projectPa
 async function discardPath(repo: ResolvedContextRepo, projectFolder: string, filePath: string): Promise<void> {
 	validateWorktreePath(repo, filePath);
 	const repoPath = toRepoPath(repo, filePath);
+	const { root, target } = resolveDiscardTarget(repo, filePath);
 	if (tryRunGit(repo.worktreeRoot, ['ls-files', '--error-unmatch', '--', repoPath]) !== null) {
+		assertNoSymlinkInWritePath(root, path.dirname(target), filePath);
 		runDestructiveWorktreeGit(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
 			'restore',
 			'--source=HEAD',
@@ -167,13 +172,20 @@ async function discardPath(repo: ResolvedContextRepo, projectFolder: string, fil
 		]);
 		return;
 	}
-	const target = toRealPath(filePath, getWorktreeProjectRoot(repo));
 	assertSafeDestructiveWorktreeTarget(repo.worktreeRoot, projectFolder);
 	const stat = fs.lstatSync(target);
 	if (!stat.isFile() && !stat.isSymbolicLink()) {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'Only individual files can be discarded.' });
 	}
+	assertNoSymlinkInWritePath(root, path.dirname(target), filePath);
 	fs.unlinkSync(target);
+}
+
+function resolveDiscardTarget(repo: ResolvedContextRepo, filePath: string): { root: string; target: string } {
+	const root = canonicalizeWriteRoot(getWorktreeProjectRoot(repo));
+	const target = toRealPath(filePath, root);
+	assertNoSymlinkInWritePath(root, path.dirname(target), filePath);
+	return { root, target };
 }
 
 export function readStatus(repo: Pick<ResolvedContextRepo, 'worktreeRoot' | 'projectPrefix'>): Buffer {
@@ -245,10 +257,7 @@ function addTrackedLineCounts(
 
 function readUntrackedLineCounts(repo: ResolvedContextRepo, filePath: string): ContextLineCounts {
 	try {
-		const content = fs.readFileSync(toRealPath(filePath, getWorktreeProjectRoot(repo)));
-		if (content.includes(0)) {
-			return { additions: null, deletions: null };
-		}
+		const content = readWorkingTreeContent(repo, filePath);
 		let additions = 0;
 		for (const byte of content) {
 			if (byte === 10) {
@@ -310,10 +319,20 @@ function readCommittedText(repo: ResolvedContextRepo, projectPath: string): stri
 }
 
 function readWorkingTreeText(repo: ResolvedContextRepo, filePath: string): string {
-	const target = toRealPath(filePath, getWorktreeProjectRoot(repo));
-	const content = fs.readFileSync(target);
-	validateContentBuffer(content);
-	return decodeTextContent(content);
+	return decodeTextContent(readWorkingTreeContent(repo, filePath));
+}
+
+function readWorkingTreeHash(repo: ResolvedContextRepo, filePath: string): string | null {
+	try {
+		return hashContent(readWorkingTreeContent(repo, filePath));
+	} catch {
+		return null;
+	}
+}
+
+function readWorkingTreeContent(repo: ResolvedContextRepo, filePath: string): Buffer {
+	const { realPath } = resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo));
+	return readValidatedContextFileSync(realPath, filePath);
 }
 
 export function validateWorktreePath(repo: ResolvedContextRepo, filePath: string): void {

@@ -50,6 +50,8 @@ import type {
 } from './types';
 import { COMMIT_PATTERN, GIT_OPERATION_TIMEOUT_MS } from './types';
 
+const REPOSITORY_MISMATCH_MESSAGE = "The selected repository does not match the live project's Git repository.";
+
 export async function resolveContextExplorerGit(
 	context: ContextExplorerGitContext,
 ): Promise<ContextExplorerGitResolution> {
@@ -65,6 +67,9 @@ export async function resolveContextExplorerGit(
 	const provider = context.providerOverride ?? REVIEW_REQUEST_PROVIDERS[configuredRepo.provider];
 	if (!provider) {
 		return unavailable('unsupported-provider', configuredRepo);
+	}
+	if (hasLiveRepositoryMismatch(configuredRepo, context.projectFolder, provider)) {
+		return unavailable('repository-mismatch', configuredRepo);
 	}
 	if (
 		configuredRepo.provider !== 'generic' &&
@@ -189,6 +194,7 @@ export async function ensureContextWorktree(
 			message: unavailableMessage('unsupported-provider', unresolved.provider),
 		});
 	}
+	assertLiveRepositoryMatches(unresolved, context.projectFolder, provider);
 	const matchingClone =
 		unresolved.provider === 'generic'
 			? null
@@ -223,7 +229,7 @@ export async function updateContextWorktree(
 	const { repo, context: availableContext } = await requireContextExplorerGit(context);
 	const provider = availableContext.providerOverride ?? REVIEW_REQUEST_PROVIDERS[repo.provider];
 	assertEntireWorktreeClean(repo);
-	let target = readContextWorktreeTarget(repo, context.projectFolder);
+	let target = readContextWorktreeTarget(repo, context.projectFolder, provider);
 	const requiredCommitMissing = requiredCommits.some(
 		(commit) => !COMMIT_PATTERN.test(commit) || !hasCommit(repo.worktreeRoot, commit),
 	);
@@ -233,7 +239,7 @@ export async function updateContextWorktree(
 		if (isFirstPartyOAuthProvider(repo.provider, provider)) {
 			refreshDefaultBranch(repo, repo.provider, availableContext.token);
 		}
-		target = readContextWorktreeTarget(repo, context.projectFolder);
+		target = readContextWorktreeTarget(repo, context.projectFolder, provider);
 	}
 	if (target.updateNeeded) {
 		throw new TRPCError({ code: 'BAD_REQUEST', message: 'The latest live context commit is unavailable.' });
@@ -291,7 +297,7 @@ export async function getHistoricalContextDiffActions(
 		if (!isEntireWorktreeClean(repo.worktreeRoot)) {
 			return ranges.map(() => 'blocked');
 		}
-		const updateStatus = readContextWorktreeUpdateStatus(repo, context.projectFolder);
+		const updateStatus = readContextWorktreeUpdateStatus(repo, context.projectFolder, provider);
 		return ranges.map(({ fromCommit, toCommit }) => {
 			const commitsAvailable = Boolean(
 				fromCommit &&
@@ -500,8 +506,9 @@ function readLiveDefaultCommit(projectFolder: string, defaultBranch: string): st
 export function readContextWorktreeUpdateStatus(
 	repo: ResolvedContextRepo,
 	projectFolder: string,
+	provider: ContextRepositoryProvider,
 ): ContextWorktreeUpdateStatus {
-	const target = readContextWorktreeTarget(repo, projectFolder);
+	const target = readContextWorktreeTarget(repo, projectFolder, provider);
 	return {
 		updateNeeded: target.updateNeeded,
 		switchNeeded: target.switchNeeded,
@@ -509,7 +516,12 @@ export function readContextWorktreeUpdateStatus(
 	};
 }
 
-function readContextWorktreeTarget(repo: ResolvedContextRepo, projectFolder: string): ContextWorktreeTarget {
+function readContextWorktreeTarget(
+	repo: ResolvedContextRepo,
+	projectFolder: string,
+	provider: ContextRepositoryProvider,
+): ContextWorktreeTarget {
+	assertLiveRepositoryMatches(repo, projectFolder, provider);
 	const liveRepositoryRoot = discoverLiveRepositoryRoot(projectFolder);
 	const branch =
 		repo.provider === 'generic'
@@ -543,6 +555,32 @@ function findMatchingLocalClone(
 	} catch {
 		return null;
 	}
+}
+
+function assertLiveRepositoryMatches(
+	repo: Pick<UnresolvedContextRepo, 'provider' | 'repoFullName' | 'source'>,
+	projectFolder: string,
+	provider: ContextRepositoryProvider,
+): void {
+	if (hasLiveRepositoryMismatch(repo, projectFolder, provider)) {
+		throw new TRPCError({ code: 'CONFLICT', message: REPOSITORY_MISMATCH_MESSAGE });
+	}
+}
+
+function hasLiveRepositoryMismatch(
+	repo: Pick<UnresolvedContextRepo, 'provider' | 'repoFullName' | 'source'>,
+	projectFolder: string,
+	provider: ContextRepositoryProvider,
+): boolean {
+	if (repo.provider === 'generic' || repo.source !== 'settings') {
+		return false;
+	}
+	const repositoryRoot = discoverLiveRepositoryRoot(projectFolder);
+	if (!repositoryRoot) {
+		return false;
+	}
+	const origin = readOptionalGitValue(repositoryRoot, ['remote', 'get-url', 'origin']);
+	return normalizeRemote(origin) !== normalizeRemote(provider.publicRepoUrl(repo.repoFullName));
 }
 
 export function isHealthyWorktree(
@@ -608,6 +646,7 @@ export function unavailableMessage(reason: ContextGitUnavailableReason, provider
 	return {
 		'github-unavailable': `${providerName} is not configured for this instance. Add the ${providerName} client credentials first.`,
 		'git-unavailable': 'Repository status is temporarily unavailable.',
+		'repository-mismatch': REPOSITORY_MISMATCH_MESSAGE,
 		'no-token': isGitContextSource()
 			? 'Add NAO_CONTEXT_GIT_TOKEN or NAO_CONTEXT_GIT_SSH_KEY to edit and propose context changes.'
 			: `Connect your ${providerName} account before using Git actions in the context explorer.`,

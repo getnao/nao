@@ -59,7 +59,7 @@ export async function getContextRepositoryStatus(context: ContextExplorerGitCont
 			lastCommitMessage: readOptionalGitValue(repo.worktreeRoot, ['log', '-1', '--format=%s']),
 			lastCommitDate: readOptionalGitValue(repo.worktreeRoot, ['log', '-1', '--format=%cI']),
 			branches,
-			fileExplorerUpdate: readContextWorktreeUpdateStatus(repo, context.projectFolder),
+			fileExplorerUpdate: readContextWorktreeUpdateStatus(repo, context.projectFolder, provider),
 			openReviewRequest: await findOpenContextReviewRequest(
 				provider,
 				resolution.context.token,

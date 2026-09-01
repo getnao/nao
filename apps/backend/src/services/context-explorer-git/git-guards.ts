@@ -281,9 +281,10 @@ export function resolveLiveProjectPrefix(repositoryRoot: string, projectFolder: 
 	return relative.split(path.sep).join('/');
 }
 
-export function sanitizeLiveContextError(error: unknown, oauthToken?: string | null): Error {
+export function sanitizeLiveContextError(error: unknown, credentials?: string | string[] | null): Error {
 	let message = error instanceof Error ? error.message : 'Git pull failed.';
-	for (const secret of [env.NAO_CONTEXT_GIT_TOKEN, env.NAO_CONTEXT_GIT_SSH_KEY, oauthToken]) {
+	const providedCredentials = Array.isArray(credentials) ? credentials : [credentials];
+	for (const secret of [env.NAO_CONTEXT_GIT_TOKEN, env.NAO_CONTEXT_GIT_SSH_KEY, ...providedCredentials]) {
 		if (secret) {
 			message = message.replaceAll(secret, '[redacted]');
 		}
