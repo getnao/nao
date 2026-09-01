@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -1189,28 +1190,80 @@ describe('OAuth live context updates', () => {
 		expect(second).toMatchObject({ changed: false, oldCommit: first.newCommit, newCommit: first.newCommit });
 	});
 
-	it('updates only clean detached default worktrees after conversion', async () => {
+	it('refreshes independent worktree refs without changing feature branches or dirty files', async () => {
 		const fixture = createFixture(temporaryRoots);
-		fixture.context.providerOverride = localProvider(fixture.bare, fixture.bare);
+		const provider = localProvider(fixture.bare, fixture.bare);
+		fixture.context.providerOverride = provider;
 		const clean = await ensureContextWorktree(fixture.context);
 		const dirtyContext = { ...fixture.context, userId: 'dirty-user' };
 		const branchContext = { ...fixture.context, userId: 'branch-user' };
 		const dirty = await ensureContextWorktree(dirtyContext);
 		const branch = await ensureContextWorktree(branchContext);
 		const oldCommit = runGit(clean.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();
-		fs.writeFileSync(path.join(dirty.worktreeRoot, 'context.md'), 'dirty\n');
 		await createContextBranch(branchContext, 'nao/personal');
+		await createContextBranch(dirtyContext, 'nao/dirty');
+		fs.writeFileSync(path.join(dirty.worktreeRoot, 'context.md'), 'dirty\n');
 		writeRemoteChange(fixture, 'context.md', 'new live context\n');
 
 		const result = await pullLiveContext(fixture.context);
 
+		expect(runGit(clean.worktreeRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).toString().trim()).toBe('HEAD');
 		expect(runGit(clean.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(result.newCommit);
-		expect(runGit(dirty.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(oldCommit);
-		expect(fs.readFileSync(path.join(dirty.worktreeRoot, 'context.md'), 'utf8')).toBe('dirty\n');
+		expect(runGit(clean.worktreeRoot, ['rev-parse', 'origin/main']).toString().trim()).toBe(result.newCommit);
 		expect(runGit(branch.worktreeRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).toString().trim()).toBe(
 			'nao/personal',
 		);
 		expect(runGit(branch.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(oldCommit);
+		expect(runGit(branch.worktreeRoot, ['rev-parse', 'origin/main']).toString().trim()).toBe(result.newCommit);
+		await expect(getContextRepositoryStatus(branchContext)).resolves.toMatchObject({
+			fileExplorerUpdate: { updateNeeded: false, switchNeeded: true, branch: 'main' },
+		});
+		await expect(
+			getHistoricalContextDiffActions(branchContext, [{ fromCommit: oldCommit, toCommit: result.newCommit }]),
+		).resolves.toEqual(['switch']);
+		expect(runGit(dirty.worktreeRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).toString().trim()).toBe('nao/dirty');
+		expect(runGit(dirty.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(oldCommit);
+		expect(runGit(dirty.worktreeRoot, ['rev-parse', 'origin/main']).toString().trim()).toBe(result.newCommit);
+		expect(fs.readFileSync(path.join(dirty.worktreeRoot, 'context.md'), 'utf8')).toBe('dirty\n');
+		await expect(
+			getHistoricalContextDiffActions(dirtyContext, [{ fromCommit: oldCommit, toCommit: result.newCommit }]),
+		).resolves.toEqual(['blocked']);
+	});
+
+	it('rechecks the current branch after refreshing independent refs', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const provider = localProvider(fixture.bare, fixture.bare);
+		fixture.context.providerOverride = provider;
+		const repo = await ensureContextWorktree(fixture.context);
+		const oldCommit = runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();
+		writeRemoteChange(fixture, 'context.md', 'new live context\n');
+		const authenticatedRepoUrl = vi.spyOn(provider, 'authenticatedRepoUrl').mockImplementation(() => {
+			runGit(repo.worktreeRoot, ['switch', '-c', 'during-fetch']);
+			return fixture.bare;
+		});
+
+		const result = await pullLiveContext(fixture.context);
+
+		expect(authenticatedRepoUrl).toHaveBeenCalledOnce();
+		expect(runGit(repo.worktreeRoot, ['rev-parse', 'origin/main']).toString().trim()).toBe(result.newCommit);
+		expect(runGit(repo.worktreeRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).toString().trim()).toBe('during-fetch');
+		expect(runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(oldCommit);
+	});
+
+	it('does not fetch a linked worktree when shared refs already match live HEAD', async () => {
+		const fixture = createLocalCloneFixture(temporaryRoots);
+		runGit(fixture.live, ['remote', 'set-url', 'origin', fixture.bare]);
+		const provider = localProvider(fixture.bare, fixture.bare);
+		fixture.context.providerOverride = provider;
+		const repo = await ensureContextWorktree(fixture.context);
+		writeRemoteChange(fixture, 'project/context.md', 'new linked context\n');
+		const authenticatedRepoUrl = vi.spyOn(provider, 'authenticatedRepoUrl');
+
+		const result = await pullLiveContext(fixture.context);
+
+		expect(runGit(repo.worktreeRoot, ['rev-parse', 'origin/main']).toString().trim()).toBe(result.newCommit);
+		expect(runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(result.newCommit);
+		expect(authenticatedRepoUrl).not.toHaveBeenCalled();
 	});
 });
 
@@ -1920,6 +1973,36 @@ describe('context explorer worktrees', () => {
 		]);
 	});
 
+	it('returns the restored hash when discarding a tracked binary file', async () => {
+		const restoredContent = Buffer.from([0, 1, 2, 3]);
+		const fixture = createFixture(temporaryRoots, {
+			'nao_config.yaml': 'name: test\n',
+			'binary.dat': restoredContent.toString(),
+		});
+		const repo = await ensureContextWorktree(fixture.context);
+		fs.writeFileSync(path.join(repo.worktreeRoot, 'binary.dat'), Buffer.from([5, 6, 7]));
+
+		const result = await discardContextFileChange(fixture.context, '/binary.dat');
+
+		expect(result.hash).not.toBeNull();
+		expect(result.hash).toBe(createHash('sha256').update(restoredContent).digest('hex'));
+	});
+
+	it('returns the restored hash when discarding a tracked oversized file', async () => {
+		const restoredContent = 'x'.repeat(MAX_CONTEXT_FILE_SIZE + 1);
+		const fixture = createFixture(temporaryRoots, {
+			'nao_config.yaml': 'name: test\n',
+			'oversized.md': restoredContent,
+		});
+		const repo = await ensureContextWorktree(fixture.context);
+		fs.writeFileSync(path.join(repo.worktreeRoot, 'oversized.md'), 'changed\n');
+
+		const result = await discardContextFileChange(fixture.context, '/oversized.md');
+
+		expect(result.hash).not.toBeNull();
+		expect(result.hash).toBe(createHash('sha256').update(restoredContent).digest('hex'));
+	});
+
 	it('does not read an untracked symlink and discards only the link', async () => {
 		const fixture = createFixture(temporaryRoots);
 		const repo = await ensureContextWorktree(fixture.context);
@@ -2002,7 +2085,7 @@ describe('context explorer worktrees', () => {
 		});
 	});
 
-	it('updates a feature-branch worktree only after the explicit update action', async () => {
+	it('makes a pulled feature-branch target available for an immediate local switch', async () => {
 		const fixture = createFixture(temporaryRoots);
 		const provider = localProvider(fixture.bare, fixture.bare);
 		fixture.context.providerOverride = provider;
@@ -2013,22 +2096,25 @@ describe('context explorer worktrees', () => {
 		await switchContextBranch(fixture.context, 'review');
 		writeRemoteChange(fixture, 'context.md', 'latest live context\n');
 		const toCommit = runGit(fixture.seed, ['rev-parse', 'HEAD']).toString().trim();
+		const authenticatedRepoUrl = vi.spyOn(provider, 'authenticatedRepoUrl');
 		await pullLiveContext(fixture.context);
 
-		expect(() => runGit(repo.worktreeRoot, ['cat-file', '-e', `${toCommit}^{commit}`])).toThrow();
+		expect(() => runGit(repo.worktreeRoot, ['cat-file', '-e', `${toCommit}^{commit}`])).not.toThrow();
+		expect(runGit(repo.worktreeRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).toString().trim()).toBe('review');
+		expect(runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim()).toBe(fromCommit);
+		expect(runGit(repo.worktreeRoot, ['rev-parse', 'origin/main']).toString().trim()).toBe(toCommit);
 		await expect(getHistoricalContextDiffActions(fixture.context, [{ fromCommit, toCommit }])).resolves.toEqual([
-			'update',
+			'switch',
 		]);
 		await expect(getContextRepositoryStatus(fixture.context)).resolves.toMatchObject({
-			fileExplorerUpdate: { updateNeeded: true, switchNeeded: true, branch: 'main' },
+			fileExplorerUpdate: { updateNeeded: false, switchNeeded: true, branch: 'main' },
 		});
-		expect(() => runGit(repo.worktreeRoot, ['cat-file', '-e', `${toCommit}^{commit}`])).toThrow();
-		const authenticatedRepoUrl = vi.spyOn(provider, 'authenticatedRepoUrl');
+		expect(authenticatedRepoUrl).toHaveBeenCalledOnce();
 
 		await expect(updateContextWorktree(fixture.context, [fromCommit, toCommit])).resolves.toEqual({
 			branch: 'main',
 			commit: toCommit,
-			fetched: true,
+			fetched: false,
 		});
 		expect(authenticatedRepoUrl).toHaveBeenCalledOnce();
 		await expect(

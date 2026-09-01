@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -18,7 +19,6 @@ import { assertNoSymlinkInWritePath, canonicalizeWriteRoot } from '../../utils/s
 import { toRealPath } from '../../utils/tools';
 import {
 	decodeTextContent,
-	hashContent,
 	MAX_CONTEXT_FILE_SIZE,
 	readValidatedContextFileSync,
 	resolveAndValidatePath,
@@ -324,9 +324,32 @@ function readWorkingTreeText(repo: ResolvedContextRepo, filePath: string): strin
 
 function readWorkingTreeHash(repo: ResolvedContextRepo, filePath: string): string | null {
 	try {
-		return hashContent(readWorkingTreeContent(repo, filePath));
+		return hashRawWorkingTreeFile(repo, filePath);
 	} catch {
 		return null;
+	}
+}
+
+function hashRawWorkingTreeFile(repo: ResolvedContextRepo, filePath: string): string {
+	const { realPath } = resolveAndValidatePath(filePath, getWorktreeProjectRoot(repo));
+	let fileDescriptor: number | null = null;
+	try {
+		fileDescriptor = fs.openSync(realPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+		if (!fs.fstatSync(fileDescriptor).isFile()) {
+			throw new Error('Only regular files can be hashed.');
+		}
+		const hash = createHash('sha256');
+		const buffer = Buffer.alloc(64 * 1024);
+		let bytesRead: number;
+		do {
+			bytesRead = fs.readSync(fileDescriptor, buffer, 0, buffer.byteLength, null);
+			hash.update(buffer.subarray(0, bytesRead));
+		} while (bytesRead > 0);
+		return hash.digest('hex');
+	} finally {
+		if (fileDescriptor !== null) {
+			fs.closeSync(fileDescriptor);
+		}
 	}
 }
 

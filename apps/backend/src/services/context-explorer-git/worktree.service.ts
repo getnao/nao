@@ -358,9 +358,6 @@ export function synchronizeDefaultContextWorktree(
 	provider: ContextRepositoryProvider,
 	token: string,
 ): void {
-	if (readCurrentBranchFromPath(repo.worktreeRoot) || !isEntireWorktreeClean(repo.worktreeRoot)) {
-		return;
-	}
 	const defaultBranch =
 		repo.provider === 'generic'
 			? env.NAO_CONTEXT_GIT_BRANCH || 'main'
@@ -369,18 +366,36 @@ export function synchronizeDefaultContextWorktree(
 		return;
 	}
 	let targetCommit = readOptionalGitValue(repo.worktreeRoot, ['rev-parse', `origin/${defaultBranch}`]);
-	if (matchingClone || repo.source === 'deployment') {
-		const liveCommit = readLiveDefaultCommit(projectFolder, defaultBranch);
-		if (liveCommit && !hasCommit(repo.worktreeRoot, liveCommit)) {
+	const liveCommit =
+		matchingClone || repo.source === 'deployment' ? readLiveDefaultCommit(projectFolder, defaultBranch) : null;
+	if (
+		repo.source === 'settings' &&
+		liveCommit &&
+		(!hasCommit(repo.worktreeRoot, liveCommit) || targetCommit !== liveCommit)
+	) {
+		fetchContextRepository(repo, projectFolder, provider, token);
+		targetCommit = readOptionalGitValue(repo.worktreeRoot, ['rev-parse', `origin/${defaultBranch}`]);
+	}
+	if (
+		repo.source !== 'settings' &&
+		(readCurrentBranchFromPath(repo.worktreeRoot) || !isEntireWorktreeClean(repo.worktreeRoot))
+	) {
+		return;
+	}
+	if (liveCommit) {
+		if (!hasCommit(repo.worktreeRoot, liveCommit)) {
 			fetchContextRepository(repo, projectFolder, provider, token);
 		}
-		targetCommit = liveCommit && hasCommit(repo.worktreeRoot, liveCommit) ? liveCommit : targetCommit;
+		targetCommit = hasCommit(repo.worktreeRoot, liveCommit) ? liveCommit : targetCommit;
 	}
 	if (!targetCommit) {
 		return;
 	}
 	const currentCommit = readOptionalGitValue(repo.worktreeRoot, ['rev-parse', 'HEAD']);
 	if (currentCommit === targetCommit) {
+		return;
+	}
+	if (readCurrentBranchFromPath(repo.worktreeRoot) || !isEntireWorktreeClean(repo.worktreeRoot)) {
 		return;
 	}
 	runDestructiveWorktreeGit(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
