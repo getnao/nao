@@ -1,9 +1,7 @@
-import { Download, Loader2 } from 'lucide-react';
-import { useCallback, useState } from 'react';
-import { McpAppHeader } from './mcp-app-header';
-import { OpenInNaoButton } from './open-in-nao-button';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 import type { DownloadFormat } from '@nao/shared/types';
+import { Download, Loader2 } from 'lucide-react';
+import { useCallback, useState } from 'react';
 
 import type { QueryDataMap } from '@/components/story-embeds';
 import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
@@ -15,6 +13,9 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+
+import { McpAppHeader } from './mcp-app-header';
+import { OpenInNaoButton } from './open-in-nao-button';
 
 interface StoryAppViewProps {
 	title: string;
@@ -133,6 +134,7 @@ function StoryDownloadButton({ onDownload }: { onDownload: (format: DownloadForm
 			<DropdownMenuContent align='end'>
 				<DropdownMenuItem onClick={() => handleSelect('pdf')}>PDF</DropdownMenuItem>
 				<DropdownMenuItem onClick={() => handleSelect('html')}>HTML</DropdownMenuItem>
+				<DropdownMenuItem onClick={() => handleSelect('md')}>Markdown</DropdownMenuItem>
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);

@@ -2,6 +2,7 @@ import type { DateFormatSettings } from '@nao/shared/date';
 import type { DownloadFormat } from '@nao/shared/types';
 
 import { generateStoryHtml } from './story-html';
+import { generateStoryMarkdown } from './story-markdown';
 import { generateStoryPdf } from './story-pdf';
 
 export type QueryDataMap = Record<string, { data: unknown[]; columns: string[] }>;
@@ -14,6 +15,7 @@ export interface StoryInput {
 const MIME_TYPES: Record<DownloadFormat, string> = {
 	pdf: 'application/pdf',
 	html: 'text/html',
+	md: 'text/markdown',
 };
 
 export async function buildStoryDownloadFile(
@@ -58,6 +60,8 @@ async function generateStoryBuffer(
 			return generateStoryPdf(story, queryData, dateFormat);
 		case 'html':
 			return Buffer.from(await generateStoryHtml(story, queryData, dateFormat));
+		case 'md':
+			return Buffer.from(generateStoryMarkdown(story, queryData, dateFormat));
 	}
 }
 
