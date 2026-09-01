@@ -79,16 +79,18 @@ function ChatPage() {
 		}
 	}, [shouldRedirectToReplay, chatId, router]);
 
+	const { isError: isChatError, refetch: refetchChat } = chat;
+
 	useEffect(() => {
-		if (!chat.isError) {
+		if (!isChatError) {
 			return;
 		}
 		const onOnline = () => {
-			void chat.refetch();
+			void refetchChat();
 		};
 		window.addEventListener('online', onOnline);
 		return () => window.removeEventListener('online', onOnline);
-	}, [chat.isError, chat.refetch]);
+	}, [isChatError, refetchChat]);
 
 	const shareQuery = useQuery({
 		...trpc.sharedChat.getShareOptionsByChatId.queryOptions({ chatId }),
@@ -148,7 +150,7 @@ function ChatPage() {
 		if (shouldRedirectToReplay || isResolvingReplayRedirect) {
 			return null;
 		}
-		return <ChatAccessError error={chat.error} onRetry={() => chat.refetch()} chatId={chatId} />;
+		return <ChatAccessError error={chat.error} onRetry={() => refetchChat()} chatId={chatId} />;
 	}
 
 	return (

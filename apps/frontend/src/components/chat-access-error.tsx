@@ -4,12 +4,7 @@ import { Lock, SearchX, TriangleAlert, WifiOff } from 'lucide-react';
 import { MobileHeader } from '@/components/mobile-header';
 import { Button } from '@/components/ui/button';
 import { getSafeRedirectPath } from '@/lib/safe-redirect';
-import {
-	isForbiddenError,
-	isInternalServerError,
-	isNotFoundError,
-	isUnauthorizedError,
-} from '@/lib/trpc-error';
+import { isForbiddenError, isInternalServerError, isNotFoundError, isUnauthorizedError } from '@/lib/trpc-error';
 
 export function ChatAccessError({
 	error,
