@@ -37,7 +37,7 @@ describe('generateStoryMarkdown', () => {
 		expect(md).toContain('Here are the deep dive details.');
 	});
 
-	it('renders table blocks as standard Markdown tables', () => {
+	it('renders table blocks as standard Markdown tables with escaped backslashes and pipes', () => {
 		const story = {
 			title: 'Financial Summary',
 			code: '<table query_id="q_revenue" title="Revenue By Department" />',
@@ -45,10 +45,10 @@ describe('generateStoryMarkdown', () => {
 
 		const queryData = {
 			q_revenue: {
-				columns: ['department', 'revenue', 'headcount'],
+				columns: ['department', 'revenue', 'notes'],
 				data: [
-					{ department: 'Engineering', revenue: 150000, headcount: 45 },
-					{ department: 'Sales & Marketing', revenue: 320000, headcount: 30 },
+					{ department: 'Engineering', revenue: 150000, notes: 'Path C:\\proj | team A' },
+					{ department: 'Sales & Marketing', revenue: 320000, notes: 'Target | Q3' },
 				],
 			},
 		};
@@ -56,16 +56,15 @@ describe('generateStoryMarkdown', () => {
 		const md = generateStoryMarkdown(story, queryData);
 
 		expect(md).toContain('### Revenue By Department');
-		expect(md).toContain('| Department | Revenue | Headcount |');
-		expect(md).toContain('| --- | ---: | ---: |');
-		expect(md).toContain('| Engineering | 150000 | 45 |');
-		expect(md).toContain('| Sales & Marketing | 320000 | 30 |');
+		expect(md).toContain('| Department | Revenue | Notes |');
+		expect(md).toContain('| --- | ---: | --- |');
+		expect(md).toContain('| Engineering | 150000 | Path C:\\\\proj \\| team A |');
 	});
 
-	it('renders chart blocks with metadata and series data tables', () => {
+	it('resolves column casing and applies value_format to chart tables', () => {
 		const story = {
 			title: 'Analytics Dashboard',
-			code: '<chart query_id="q_monthly" chart_type="bar" x_axis_key="month" series=\'[{"data_key":"revenue","label":"Revenue"}]\' title="Monthly Growth" />',
+			code: `<chart query_id="q_monthly" chart_type="bar" x_axis_key="MONTH" series='[{"data_key":"REVENUE","label":"Monthly Revenue","value_format":{"prefix":"$"}}]' title="Monthly Growth" />`,
 		};
 
 		const queryData = {
@@ -82,28 +81,56 @@ describe('generateStoryMarkdown', () => {
 
 		expect(md).toContain('### Monthly Growth');
 		expect(md).toContain('*(Chart: Bar)*');
-		expect(md).toContain('| Month | Revenue |');
-		expect(md).toContain('| 2026-01 | 10,000 |');
-		expect(md).toContain('| 2026-02 | 15,000 |');
+		expect(md).toContain('| Month | Monthly Revenue |');
+		expect(md).toContain('| 2026-01 | $10,000 |');
+		expect(md).toContain('| 2026-02 | $15,000 |');
 	});
 
-	it('renders KPI cards as highlighted bold metrics', () => {
+	it('renders KPI cards selecting the latest date-sorted row, handling multiple series and value_format', () => {
 		const story = {
 			title: 'KPI Story',
-			code: '<chart query_id="q_kpi" chart_type="kpi_card" series=\'[{"data_key":"total_sales"}]\' title="Total Revenue" />',
+			code: `<chart query_id="q_kpi" chart_type="kpi_card" x_axis_key="DATE" x_axis_type="date" series='[{"data_key":"TOTAL_SALES","label":"Sales","value_format":{"prefix":"$"}},{"data_key":"ACTIVE_USERS","label":"Users"}]' title="Performance" />`,
 		};
 
 		const queryData = {
 			q_kpi: {
-				columns: ['total_sales'],
-				data: [{ total_sales: 1250000 }],
+				columns: ['date', 'total_sales', 'active_users'],
+				data: [
+					{ date: '2026-01-01', total_sales: 1000000, active_users: 50 },
+					{ date: '2026-03-01', total_sales: 1250000, active_users: 120 },
+					{ date: '2026-02-01', total_sales: 1100000, active_users: 80 },
+				],
 			},
 		};
 
 		const md = generateStoryMarkdown(story, queryData);
 
-		expect(md).toContain('### Total Revenue');
-		expect(md).toContain('**1,250,000**');
+		expect(md).toContain('### Performance');
+		expect(md).toContain('**Sales:** $1,250,000 · **Users:** 120');
+	});
+
+	it('renders map blocks with formatted dates and cells', () => {
+		const story = {
+			title: 'Map Story',
+			code: '<map query_id="q_map" map_type="choropleth" region_key="COUNTRY" value_key="POPULATION" title="Global Reach" />',
+		};
+
+		const queryData = {
+			q_map: {
+				columns: ['country', 'population'],
+				data: [
+					{ country: 'US', population: 330000000 },
+					{ country: 'FR', population: 67000000 },
+				],
+			},
+		};
+
+		const md = generateStoryMarkdown(story, queryData);
+
+		expect(md).toContain('### Global Reach');
+		expect(md).toContain('*(Map: Choropleth)*');
+		expect(md).toContain('| Country | Population |');
+		expect(md).toContain('| US | 330000000 |');
 	});
 
 	it('integrates with buildStoryDownloadFile for format md', async () => {

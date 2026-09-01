@@ -1,7 +1,7 @@
-import { formatChartValue, labelize } from '@nao/shared';
+import { formatChartValue, labelize, resolveDataKey, resolveMapConfig } from '@nao/shared';
 import { type DateFormatSettings, DEFAULT_DATE_FORMAT_SETTINGS } from '@nao/shared/date';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
-import { splitCodeIntoSegments } from '@nao/shared/story-segments';
+import { mapBlockToInput, splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { formatCellValue, isNumericColumn } from '@nao/shared/story-table-utils';
 import { flattenStoryTabs } from '@nao/shared/story-tabs';
 
@@ -48,7 +48,7 @@ function renderSegmentToMarkdown(
 			return renderChartSegment(segment.chart, queryData, dateFormat);
 
 		case 'map':
-			return renderMapSegment(segment.map, queryData);
+			return renderMapSegment(segment.map, queryData, dateFormat);
 
 		case 'grid':
 			return segment.children
@@ -109,14 +109,36 @@ function renderChartSegment(
 
 	if (chart.chartType === 'kpi_card') {
 		if (chartData?.data?.length) {
-			const firstRow = chartData.data[0] as Record<string, unknown>;
-			const seriesKey = chart.series?.[0]?.data_key ?? chartData.columns?.[0];
-			if (seriesKey && firstRow[seriesKey] !== undefined) {
-				const rawVal = firstRow[seriesKey];
+			const rows = chartData.data as Record<string, unknown>[];
+			const resolvedXAxisKey = resolveDataKey(rows, chart.xAxisKey);
+			const sortedRows = [...rows].sort((a, b) => {
+				const av = a[resolvedXAxisKey];
+				const bv = b[resolvedXAxisKey];
+				if (chart.xAxisType === 'date') {
+					return new Date(String(av)).getTime() - new Date(String(bv)).getTime();
+				}
+				return 0;
+			});
+			const lastRow = sortedRows[sortedRows.length - 1] ?? {};
+
+			const seriesList =
+				chart.series && chart.series.length > 0
+					? chart.series
+					: chartData.columns.map((data_key) => ({ data_key, label: labelize(data_key) }));
+
+			const kpiItems = seriesList.map((s) => {
+				const resolvedKey = resolveDataKey(rows, s.data_key);
+				const rawVal = lastRow[resolvedKey];
 				const value =
-					typeof rawVal === 'number' ? formatChartValue(rawVal) : formatCellValue(rawVal, dateFormat);
-				parts.push(`**${value}**`);
-			}
+					typeof rawVal === 'number'
+						? formatChartValue(rawVal, s.value_format)
+						: rawVal != null
+							? formatCellValue(rawVal, dateFormat)
+							: '';
+				const label = s.label ?? s.data_key;
+				return seriesList.length === 1 && !s.label ? `**${value}**` : `**${label}:** ${value}`;
+			});
+			parts.push(kpiItems.join(' · '));
 		}
 		return parts.join('\n\n');
 	}
@@ -126,13 +148,17 @@ function renderChartSegment(
 
 	if (chartData && chartData.columns?.length && chartData.data?.length) {
 		const rows = chartData.data as Record<string, unknown>[];
-		const xAxisKey = chart.xAxisKey || chartData.columns[0];
-		const seriesList =
+		const xAxisKey = resolveDataKey(rows, chart.xAxisKey) || chartData.columns[0];
+		const seriesList = (
 			chart.series && chart.series.length > 0
 				? chart.series
 				: chartData.columns
 						.filter((c) => c !== xAxisKey)
-						.map((data_key) => ({ data_key, label: labelize(data_key) }));
+						.map((data_key) => ({ data_key, label: labelize(data_key) }))
+		).map((s) => ({
+			...s,
+			data_key: resolveDataKey(rows, s.data_key),
+		}));
 
 		const headers = [
 			labelize(chart.xAxisLabel || xAxisKey),
@@ -146,7 +172,9 @@ function renderChartSegment(
 			const seriesVals = seriesList.map((s) => {
 				const rawVal = row[s.data_key];
 				const formatted =
-					typeof rawVal === 'number' ? formatChartValue(rawVal) : formatCellValue(rawVal, dateFormat);
+					typeof rawVal === 'number'
+						? formatChartValue(rawVal, s.value_format)
+						: formatCellValue(rawVal, dateFormat);
 				return escapeMarkdownCell(formatted);
 			});
 			return `| ${[xVal, ...seriesVals].join(' | ')} |`;
@@ -158,7 +186,7 @@ function renderChartSegment(
 	return parts.join('\n\n');
 }
 
-function renderMapSegment(map: ParsedMapBlock, queryData: QueryDataMap | null): string {
+function renderMapSegment(map: ParsedMapBlock, queryData: QueryDataMap | null, dateFormat: DateFormatSettings): string {
 	const parts: string[] = [];
 	if (map.title?.trim()) {
 		parts.push(`### ${map.title.trim()}`);
@@ -169,16 +197,30 @@ function renderMapSegment(map: ParsedMapBlock, queryData: QueryDataMap | null): 
 	const mapData = queryData?.[map.queryId];
 	if (mapData && mapData.columns?.length && mapData.data?.length) {
 		const rows = (mapData.data ?? []) as Record<string, unknown>[];
-		const labelKey = map.labelKey || map.regionKey || mapData.columns[0];
-		const valKey = map.valueKey || map.sizeKey || mapData.columns.find((c) => c !== labelKey);
+		const config = resolveMapConfig(rows, mapBlockToInput(map));
+		const labelKey =
+			config.map_type === 'choropleth'
+				? config.region_key
+				: config.map_type === 'bubble'
+					? config.label_key || config.latitude_key
+					: config.label_key || config.latitude_key;
+		const valKey =
+			config.map_type === 'choropleth'
+				? config.value_key
+				: config.map_type === 'bubble'
+					? config.size_key || config.color_key
+					: config.color_key;
 
-		if (labelKey && valKey) {
-			const headers = [labelize(labelKey), labelize(valKey)];
+		const resolvedLabelKey = resolveDataKey(rows, labelKey) || mapData.columns[0];
+		const resolvedValKey = resolveDataKey(rows, valKey) || mapData.columns.find((c) => c !== resolvedLabelKey);
+
+		if (resolvedLabelKey && resolvedValKey) {
+			const headers = [labelize(resolvedLabelKey), labelize(resolvedValKey)];
 			const headerRow = `| ${headers.map(escapeMarkdownCell).join(' | ')} |`;
 			const separatorRow = `| --- | ---: |`;
 			const dataRows = rows.map((row) => {
-				const lVal = escapeMarkdownCell(String(row[labelKey] ?? ''));
-				const vVal = escapeMarkdownCell(String(row[valKey] ?? ''));
+				const lVal = escapeMarkdownCell(formatCellValue(row[resolvedLabelKey], dateFormat));
+				const vVal = escapeMarkdownCell(formatCellValue(row[resolvedValKey], dateFormat));
 				return `| ${lVal} | ${vVal} |`;
 			});
 			parts.push([headerRow, separatorRow, ...dataRows].join('\n'));
@@ -189,5 +231,5 @@ function renderMapSegment(map: ParsedMapBlock, queryData: QueryDataMap | null): 
 }
 
 function escapeMarkdownCell(value: string): string {
-	return value.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+	return value.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 }
