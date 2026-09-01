@@ -20,6 +20,7 @@ import StoryIcon from './ui/story-icon';
 import type { PromptHandle, SelectedMention } from 'prompt-mentions';
 import type { FormEvent } from 'react';
 import type { AgentHelpers } from '@/hooks/use-agent';
+import type { BeforeAgentSendResult } from '@/contexts/story-before-agent-send';
 import { ContextWindowRing } from '@/components/ui/chat-input-context-window-ring';
 import { SimpleTooltip } from '@/components/ui/tooltip';
 
@@ -277,7 +278,10 @@ function ChatInputBase({
 				return;
 			}
 
-			if (chatId && !(await storyBeforeAgentSend.run(chatId))) {
+			const beforeAgentSendResult: BeforeAgentSendResult = chatId
+				? await storyBeforeAgentSend.run(chatId)
+				: { canSend: true };
+			if (!beforeAgentSendResult.canSend) {
 				return;
 			}
 
@@ -300,7 +304,9 @@ function ChatInputBase({
 			const { images, documents } = attachmentUpload.getPayload();
 			attachmentUpload.clearAttachments();
 
-			await onSubmitMessage({ text: trimmedInput, images, documents, citation });
+			const submitPromise = onSubmitMessage({ text: trimmedInput, images, documents, citation });
+			beforeAgentSendResult.afterSend?.();
+			await submitPromise;
 		},
 		[
 			onSubmitMessage,

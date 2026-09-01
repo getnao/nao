@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Editor as TiptapEditor } from '@tiptap/react';
 
 import type { StoryCodeViewHandle } from '@/components/side-panel/story-code-view';
@@ -45,19 +45,8 @@ export function useStoryPageEditor({
 	const codeViewRef = useRef<StoryCodeViewHandle | null>(null);
 	const tabbedEditCodeRef = useRef<(() => string) | null>(null);
 	const [isCodeValid, setIsCodeValid] = useState(true);
-	const editBuffer = useStoryEditBuffer(code);
-	const codeBuffer = useStoryEditBuffer(code);
-	const isCodeDirty = codeBuffer.isDirty;
-	const handleVersionSaved = useCallback(
-		(savedCode: string) => {
-			if (viewMode === 'edit') {
-				editBuffer.markSaved(savedCode);
-			} else if (viewMode === 'code') {
-				codeBuffer.markSaved(savedCode);
-			}
-		},
-		[codeBuffer, editBuffer, viewMode],
-	);
+	const storyBuffer = useStoryEditBuffer(code);
+	const isCodeDirty = storyBuffer.isDirty;
 
 	const { handleSave, saveCurrentVersion, handleRestore, isSaving } = useStoryViewerVersionActions({
 		chatId,
@@ -66,32 +55,24 @@ export function useStoryPageEditor({
 		currentVersionCode: code,
 		isViewingLatest,
 		goToLatestVersion,
-		tiptapEditorRef,
 		codeViewRef,
-		getEditModeCode: editBuffer.getCode,
+		getCurrentCode: storyBuffer.getCode,
 		viewMode,
 		setViewMode,
-		onVersionSaved: handleVersionSaved,
+		onVersionSaved: storyBuffer.markSaved,
 	});
-	const isDirty = viewMode === 'edit' ? editBuffer.isDirty : viewMode === 'code' && isCodeDirty;
-	const discardChanges = useCallback(() => {
-		if (viewMode === 'edit') {
-			editBuffer.discard();
-		} else {
-			codeBuffer.discard();
-		}
-	}, [codeBuffer, editBuffer, viewMode]);
+	const isDirty = storyBuffer.isDirty;
 	const exitGuard = useStoryExitGuard({
 		isDirty,
 		canSave: viewMode !== 'code' || isCodeValid,
 		save: saveCurrentVersion,
-		discard: discardChanges,
+		discard: storyBuffer.discard,
 	});
 	const transitions = useStoryEditTransitions({
 		viewMode,
 		setViewMode,
-		isEditDirty: editBuffer.isDirty,
-		isCodeDirty,
+		isDirty,
+		isCodeValid,
 		isSaving,
 		save: saveCurrentVersion,
 		requestExit: exitGuard.requestExit,
@@ -112,22 +93,22 @@ export function useStoryPageEditor({
 		tiptapEditorRef,
 		codeViewRef,
 		tabbedEditCodeRef,
-		isEditDirty: editBuffer.isDirty,
+		isEditDirty: storyBuffer.isDirty,
 		editCode: selectStoryEditorCode({
 			persistedCode: code,
-			bufferCode: editBuffer.getCode(),
-			isDirty: editBuffer.isDirty,
+			bufferCode: storyBuffer.getCode(),
+			isDirty: storyBuffer.isDirty,
 			isSaving,
 		}),
-		onEditCodeChange: editBuffer.handleCodeChange,
+		onEditCodeChange: storyBuffer.handleCodeChange,
 		isCodeDirty,
 		codeDraft: selectStoryEditorCode({
 			persistedCode: code,
-			bufferCode: codeBuffer.getCode(),
-			isDirty: codeBuffer.isDirty,
+			bufferCode: storyBuffer.getCode(),
+			isDirty: storyBuffer.isDirty,
 			isSaving,
 		}),
-		onCodeChange: codeBuffer.handleCodeChange,
+		onCodeChange: storyBuffer.handleCodeChange,
 		isCodeValid,
 		setIsCodeValid,
 		handleSave,

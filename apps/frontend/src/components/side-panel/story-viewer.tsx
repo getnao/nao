@@ -136,19 +136,8 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 	const tabs = useMemo(() => parseStoryTabs(storyCode ?? ''), [storyCode]);
 	const isTabbedStory = Boolean(tabs?.length);
 	const activeTab = tabs?.length ? Math.min(activeTabIndex, tabs.length - 1) : 0;
-	const editBuffer = useStoryEditBuffer(storyCode ?? '');
-	const codeBuffer = useStoryEditBuffer(storyCode ?? '');
-	const isCodeDirty = codeBuffer.isDirty;
-	const handleVersionSaved = useCallback(
-		(savedCode: string) => {
-			if (viewMode === 'edit') {
-				editBuffer.markSaved(savedCode);
-			} else if (viewMode === 'code') {
-				codeBuffer.markSaved(savedCode);
-			}
-		},
-		[codeBuffer, editBuffer, viewMode],
-	);
+	const storyBuffer = useStoryEditBuffer(storyCode ?? '');
+	const isCodeDirty = storyBuffer.isDirty;
 	useTrackViewDuration({
 		assetType: 'story',
 		chatId,
@@ -164,32 +153,24 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		currentVersionCode: currentVersion?.code ?? storyCode,
 		isViewingLatest,
 		goToLatestVersion,
-		tiptapEditorRef,
 		codeViewRef,
-		getEditModeCode: editBuffer.getCode,
+		getCurrentCode: storyBuffer.getCode,
 		viewMode,
 		setViewMode,
-		onVersionSaved: handleVersionSaved,
+		onVersionSaved: storyBuffer.markSaved,
 	});
-	const isDirty = viewMode === 'edit' ? editBuffer.isDirty : viewMode === 'code' && isCodeDirty;
-	const discardChanges = useCallback(() => {
-		if (viewMode === 'edit') {
-			editBuffer.discard();
-		} else {
-			codeBuffer.discard();
-		}
-	}, [codeBuffer, editBuffer, viewMode]);
+	const isDirty = storyBuffer.isDirty;
 	const exitGuard = useStoryExitGuard({
 		isDirty,
 		canSave: viewMode !== 'code' || isCodeValid,
 		save: saveCurrentVersion,
-		discard: discardChanges,
+		discard: storyBuffer.discard,
 	});
 	const transitions = useStoryEditTransitions({
 		viewMode,
 		setViewMode,
-		isEditDirty: editBuffer.isDirty,
-		isCodeDirty,
+		isDirty,
+		isCodeValid,
 		isSaving,
 		save: saveCurrentVersion,
 		requestExit: exitGuard.requestExit,
@@ -197,14 +178,20 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 	useEffect(() => registerBeforeChange(exitGuard.requestExit), [exitGuard.requestExit, registerBeforeChange]);
 	const handleBeforeAgentSend = useCallback(async () => {
 		if (!isDirty) {
-			return true;
+			return { canSend: true };
 		}
 		if (viewMode === 'code' && !isCodeValid) {
-			return false;
+			return { canSend: false };
 		}
 		const result = await saveCurrentVersion();
-		return result === 'saved' || result === 'unchanged';
-	}, [isCodeValid, isDirty, saveCurrentVersion, viewMode]);
+		if (result !== 'saved' && result !== 'unchanged') {
+			return { canSend: false };
+		}
+		return {
+			canSend: true,
+			afterSend: () => setViewMode('preview'),
+		};
+	}, [isCodeValid, isDirty, saveCurrentVersion, setViewMode, viewMode]);
 	useRegisterStoryBeforeAgentSend({
 		chatId,
 		enabled: !isReadonlyMode && isSidePanelVisible && currentStorySlug === resolvedStorySlug,
@@ -291,14 +278,16 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 
 	const editCode = selectStoryEditorCode({
 		persistedCode: storyCode,
-		bufferCode: editBuffer.getCode(),
-		isDirty: editBuffer.isDirty,
+		bufferCode: storyBuffer.getCode(),
+		isDirty: storyBuffer.isDirty,
 		isSaving,
 	});
+	const editTabs = parseStoryTabs(editCode);
+	const isEditTabbedStory = Boolean(editTabs?.length);
 	const codeDraft = selectStoryEditorCode({
 		persistedCode: storyCode,
-		bufferCode: codeBuffer.getCode(),
-		isDirty: codeBuffer.isDirty,
+		bufferCode: storyBuffer.getCode(),
+		isDirty: storyBuffer.isDirty,
 		isSaving,
 	});
 	const content = (
@@ -384,12 +373,12 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 						)
 					) : viewMode === 'edit' ? (
 						<StoryEmbedDataProvider value={versionQueryData}>
-							{isTabbedStory ? (
+							{isEditTabbedStory ? (
 								<StoryTabbedEditor
 									code={editCode}
 									editorRef={tiptapEditorRef}
 									onSave={handleSave}
-									onChange={editBuffer.handleCodeChange}
+									onChange={storyBuffer.handleCodeChange}
 									getCodeRef={tabbedEditCodeRef}
 									barContentClassName='px-6'
 									contentClassName='p-6'
@@ -399,7 +388,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 									code={editCode}
 									editorRef={tiptapEditorRef}
 									onSave={handleSave}
-									onChange={editBuffer.handleCodeChange}
+									onChange={storyBuffer.handleCodeChange}
 								/>
 							)}
 						</StoryEmbedDataProvider>
@@ -408,7 +397,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 							code={codeDraft}
 							readOnly={isReadonlyMode}
 							codeRef={codeViewRef}
-							onCodeChange={codeBuffer.handleCodeChange}
+							onCodeChange={storyBuffer.handleCodeChange}
 							onValidChange={setIsCodeValid}
 							onSave={handleSave}
 						/>

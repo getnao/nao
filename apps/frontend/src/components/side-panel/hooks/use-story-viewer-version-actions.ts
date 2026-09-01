@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { getEditorMarkdown } from '../story-editor';
 import type { MutableRefObject } from 'react';
-import type { Editor as TiptapEditor } from '@tiptap/react';
 import type { StoryViewMode } from '../story-viewer.types';
 import type { StoryCodeViewHandle } from '../story-code-view';
 import type { StorySaveResult } from '@/lib/story-save';
@@ -16,9 +14,8 @@ interface UseStoryViewerVersionActionsParams {
 	currentVersionCode?: string;
 	isViewingLatest: boolean;
 	goToLatestVersion: () => void;
-	tiptapEditorRef: MutableRefObject<TiptapEditor | null>;
 	codeViewRef: MutableRefObject<StoryCodeViewHandle | null>;
-	getEditModeCode?: () => string | null;
+	getCurrentCode: () => string;
 	viewMode: StoryViewMode;
 	setViewMode: (mode: StoryViewMode) => void;
 	onVersionSaved?: (code: string) => void;
@@ -31,9 +28,8 @@ export const useStoryViewerVersionActions = ({
 	currentVersionCode,
 	isViewingLatest,
 	goToLatestVersion,
-	tiptapEditorRef,
 	codeViewRef,
-	getEditModeCode,
+	getCurrentCode,
 	viewMode,
 	setViewMode,
 	onVersionSaved,
@@ -50,7 +46,7 @@ export const useStoryViewerVersionActions = ({
 		storySlug,
 		storyTitle,
 		currentVersionCode,
-		getEditModeCode,
+		getCurrentCode,
 		viewMode,
 		onVersionSaved,
 	});
@@ -63,7 +59,7 @@ export const useStoryViewerVersionActions = ({
 		storySlug,
 		storyTitle,
 		currentVersionCode,
-		getEditModeCode,
+		getCurrentCode,
 		viewMode,
 		onVersionSaved,
 	};
@@ -92,14 +88,6 @@ export const useStoryViewerVersionActions = ({
 		if (params.storyTitle === undefined || params.currentVersionCode === undefined) {
 			return 'unavailable';
 		}
-		if (params.viewMode === 'edit') {
-			const trackedCode = params.getEditModeCode?.();
-			if (trackedCode != null) {
-				return { code: trackedCode };
-			}
-			const editor = tiptapEditorRef.current;
-			return editor ? { code: getEditorMarkdown(editor) } : 'unavailable';
-		}
 		if (params.viewMode === 'code') {
 			const codeView = codeViewRef.current;
 			if (!codeView) {
@@ -108,10 +96,9 @@ export const useStoryViewerVersionActions = ({
 			if (codeView.getErrors().length > 0) {
 				return 'invalid';
 			}
-			return { code: codeView.getCode() };
 		}
-		return 'unavailable';
-	}, [codeViewRef, tiptapEditorRef]);
+		return { code: params.getCurrentCode() };
+	}, [codeViewRef]);
 
 	const saveCurrentVersion = useCallback(() => {
 		if (savePromiseRef.current) {

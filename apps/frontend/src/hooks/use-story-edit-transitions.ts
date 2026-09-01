@@ -9,16 +9,16 @@ function didSaveSucceed(result: StorySaveResult) {
 export function useStoryEditTransitions({
 	viewMode,
 	setViewMode,
-	isEditDirty,
-	isCodeDirty,
+	isDirty,
+	isCodeValid,
 	isSaving,
 	save,
 	requestExit,
 }: {
 	viewMode: StoryViewMode;
 	setViewMode: (mode: StoryViewMode) => void;
-	isEditDirty: boolean;
-	isCodeDirty: boolean;
+	isDirty: boolean;
+	isCodeValid: boolean;
 	isSaving: boolean;
 	save: () => Promise<StorySaveResult>;
 	requestExit: (action: () => void) => void;
@@ -28,30 +28,40 @@ export function useStoryEditTransitions({
 			if (targetMode === viewMode || isSaving) {
 				return;
 			}
-			if (viewMode === 'edit') {
+
+			const isSwitchingEditors =
+				(viewMode === 'edit' && targetMode === 'code') || (viewMode === 'code' && targetMode === 'edit');
+			if (isSwitchingEditors) {
+				if (viewMode === 'code' && !isCodeValid) {
+					return;
+				}
+				setViewMode(targetMode);
+				return;
+			}
+
+			if ((viewMode === 'edit' || viewMode === 'code') && targetMode === 'preview') {
+				if (viewMode === 'code' && !isCodeValid) {
+					return;
+				}
 				const result = await save();
 				if (didSaveSucceed(result)) {
 					setViewMode(targetMode);
 				}
 				return;
 			}
-			if (viewMode === 'code' && isCodeDirty) {
-				requestExit(() => setViewMode(targetMode));
-				return;
-			}
+
 			setViewMode(targetMode);
 		},
-		[isCodeDirty, isSaving, requestExit, save, setViewMode, viewMode],
+		[isCodeValid, isSaving, save, setViewMode, viewMode],
 	);
 
 	const requestCancel = useCallback(() => {
-		const isDirty = viewMode === 'edit' ? isEditDirty : viewMode === 'code' && isCodeDirty;
 		if (!isDirty) {
 			setViewMode('preview');
 			return;
 		}
 		requestExit(() => setViewMode('preview'));
-	}, [isCodeDirty, isEditDirty, requestExit, setViewMode, viewMode]);
+	}, [isDirty, requestExit, setViewMode]);
 
 	return {
 		requestViewMode,

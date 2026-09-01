@@ -1,6 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 
-type BeforeAgentSendGuard = () => Promise<boolean>;
+export interface BeforeAgentSendResult {
+	canSend: boolean;
+	afterSend?: () => void;
+}
+
+type BeforeAgentSendGuard = () => Promise<BeforeAgentSendResult>;
 
 interface RegisteredGuard {
 	chatId: string;
@@ -8,7 +13,7 @@ interface RegisteredGuard {
 }
 
 interface StoryBeforeAgentSendContextValue {
-	run: (chatId: string) => Promise<boolean>;
+	run: (chatId: string) => Promise<BeforeAgentSendResult>;
 	register: (registration: RegisteredGuard) => () => void;
 }
 
@@ -29,7 +34,7 @@ export function StoryBeforeAgentSendProvider({ children }: { children: React.Rea
 	const run = useCallback(async (chatId: string) => {
 		const registration = guardRef.current;
 		if (!registration || registration.chatId !== chatId) {
-			return true;
+			return { canSend: true };
 		}
 		return registration.guard();
 	}, []);
@@ -39,10 +44,10 @@ export function StoryBeforeAgentSendProvider({ children }: { children: React.Rea
 	return <StoryBeforeAgentSendContext.Provider value={value}>{children}</StoryBeforeAgentSendContext.Provider>;
 }
 
-export function useStoryBeforeAgentSend() {
+export function useStoryBeforeAgentSend(): Pick<StoryBeforeAgentSendContextValue, 'run'> {
 	const context = useContext(StoryBeforeAgentSendContext);
 	if (!context) {
-		return { run: async () => true };
+		return { run: async () => ({ canSend: true }) };
 	}
 	return context;
 }
