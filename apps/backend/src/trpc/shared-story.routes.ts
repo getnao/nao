@@ -227,7 +227,6 @@ export const sharedStoryRoutes = {
 			}),
 		)
 		.query(async ({ input, ctx }) => {
-			assertStoryFiltersEnabled();
 			const shared = ctx.resource;
 			if (!shared.chatId) {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });

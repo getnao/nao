@@ -67,7 +67,10 @@ export const StoryPreview = memo(function StoryPreview({
 
 	const useLiveUnfiltered = isViewingLatest && isNoCacheMode && !storyFilters.hasActiveFilters;
 	const querySqlSource = useMemo(
-		() => (storyFilters.filtersEnabled ? { api: filterApi, selections: storyFilters.debouncedSelections } : null),
+		() => ({ 
+			api: filterApi,
+			selections: storyFilters.filtersEnabled ? storyFilters.debouncedSelections : {},
+		}),
 		[filterApi, storyFilters.filtersEnabled, storyFilters.debouncedSelections],
 	);
 
