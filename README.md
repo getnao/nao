@@ -194,9 +194,11 @@ Docs on nao skills: https://docs.getnao.io/nao-agent/context-engineering/skills
 ## 👩🏻‍💻 Development
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, commands, and guidelines.
+
 ### Start nao locally
 
-Prerequisites: 
+Prerequisites:
+
 - nvm
 - bun
 - uv

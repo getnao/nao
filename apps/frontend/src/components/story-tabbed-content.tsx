@@ -51,11 +51,11 @@ export function StoryTabbedContent({
 	});
 	const querySqlSource = useMemo(
 		() =>
-			filterApi ? 
-				{ 
-					api: filterApi,
-					selections: storyFilters.filtersEnabled ? storyFilters.debouncedSelections : {}
-				}
+			filterApi
+				? {
+						api: filterApi,
+						selections: storyFilters.filtersEnabled ? storyFilters.debouncedSelections : {},
+					}
 				: null,
 		[filterApi, storyFilters.filtersEnabled, storyFilters.debouncedSelections],
 	);
