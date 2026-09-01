@@ -1,0 +1,76 @@
+<timestamp>Monday, Aug 31, 2026, 5:45 PM (UTC+2)</timestamp>
+
+Cubic made comments on this PR, review only those that are not marked adressed, resoled or outdated then tell me if they're valid or not
+In the order cubic posted them on github
+
+Ignore the first one, you just fixed it
+
+---
+
+#1 yeah but how does that happen, that's a crazy edge case, I mean user would have hit errors with connecting or making PRs from File explorer before
+
+---
+
+I don't quite see how that'll happen, anyway, what fix do you propose
+
+---
+
+speak clearly and concisely, what is your fix exactly
+
+---
+
+ok so I think there is a conceptual misunderstanding with something
+the live folder and worktree MUST BE on the same git repo, like it makes no sense if they're not since the worktrees serve to modify the live folder!
+
+---
+
+yeah I guess, let's do that but if user didn't setup, file explorer fallbacks on live folder right?
+
+---
+
+yeah sure, fine
+
+---
+
+what is a symlink>
+
+---
+
+sure yeah, is this behavior of rejection symlinks what the repo usually does ?
+
+---
+
+ok agrred
+
+---
+
+ok agreed, #4 now
+
+---
+
+ok so can you tell me one concrete case where it would fail?
+
+---
+
+ok fine, I accept
+
+---
+
+ok yeah do #5 aligned with #1
+
+---
+
+what do you mean by discarding
+
+---
+
+oh yeah and it doesn't right now?
+
+---
+
+I can't even rename on file explorer anyway?
+
+---
+
+ok cool are #1 to #5 done?
+if yes give a commit message
