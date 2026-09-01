@@ -18,3 +18,5 @@ routeTree.gen.ts
 
 # Helm YAML uses 2-space indent; Go templates aren't valid YAML
 helm/
+sandbox/
+.heal/

@@ -92,6 +92,31 @@ describe('runSqlOverQueryResults', () => {
 		).rejects.toThrow(/allowlist/i);
 	});
 
+	it('accepts DuckDB-specific syntax such as TRY_CAST', async () => {
+		const result = await runSqlOverQueryResults(
+			new Map([['query_orders', orders]]),
+			'SELECT SUM(TRY_CAST(customer_id AS BIGINT)) AS total FROM query_orders',
+		);
+
+		expect(result.data).toEqual([{ total: 105 }]);
+	});
+
+	it('accepts DuckDB-specific syntax such as QUALIFY', async () => {
+		const result = await runSqlOverQueryResults(
+			new Map([['query_orders', orders]]),
+			`SELECT customer_id, SUM(total_amount) AS revenue FROM query_orders GROUP BY customer_id
+			 QUALIFY ROW_NUMBER() OVER (ORDER BY revenue DESC) = 1`,
+		);
+
+		expect(result.data).toEqual([{ customer_id: 51, revenue: 100 }]);
+	});
+
+	it('rejects unparseable SQL, naming DuckDB and the parser error', async () => {
+		await expect(
+			runSqlOverQueryResults(new Map([['query_orders', orders]]), 'SELECT FROM WHERE )('),
+		).rejects.toThrow(/Could not parse the query as DuckDB.*syntax error/s);
+	});
+
 	it('allows CTEs that only read allowlisted tables', async () => {
 		const result = await runSqlOverQueryResults(
 			new Map([['query_orders', orders]]),

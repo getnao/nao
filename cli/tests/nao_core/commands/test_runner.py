@@ -8,6 +8,7 @@ import pytest
 
 from nao_core.commands.test.case import TestCase as NaoTestCase
 from nao_core.commands.test.client import (
+    AgentClient,
     AgentClientError,
     TokenCost,
     TokenUsage,
@@ -162,6 +163,47 @@ def test_serialize_model_costs_uses_backend_field_names():
         "inputCacheWrite": 1.25,
         "output": 2.0,
     }
+
+
+def _successful_run_response() -> Mock:
+    response = Mock()
+    response.status_code = 200
+    response.json.return_value = {
+        "text": "",
+        "toolCalls": [],
+        "usage": {"totalTokens": 0},
+        "cost": {"totalCost": 0},
+        "finishReason": "stop",
+    }
+    return response
+
+
+def test_client_sends_the_test_case_database_as_database_id(monkeypatch):
+    test_case = NaoTestCase(
+        name="orders", prompt="p1", file_path=Path("tests/orders.yml"), sql="select 1", database="bigquery-prod"
+    )
+    client = AgentClient(backend_url="http://backend")
+    session = Mock()
+    session.post.return_value = _successful_run_response()
+    monkeypatch.setattr(client, "_get_session", lambda: session)
+
+    client.run_test(test_case)
+
+    payload = session.post.call_args.kwargs["json"]
+    assert payload["databaseId"] == "bigquery-prod"
+
+
+def test_client_omits_database_id_when_the_test_case_has_none(monkeypatch):
+    test_case = NaoTestCase(name="orders", prompt="p1", file_path=Path("tests/orders.yml"), sql="select 1")
+    client = AgentClient(backend_url="http://backend")
+    session = Mock()
+    session.post.return_value = _successful_run_response()
+    monkeypatch.setattr(client, "_get_session", lambda: session)
+
+    client.run_test(test_case)
+
+    payload = session.post.call_args.kwargs["json"]
+    assert "databaseId" not in payload
 
 
 def test_run_test_passes_configured_costs_to_client(monkeypatch):
