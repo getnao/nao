@@ -1,0 +1,235 @@
+{
+  "cli_version": "0.10.0",
+  "checkpoint_id": "01M1E6W2HMZX7Z9DG96E4AZC3G",
+  "session_id": "aa7ab5be-4bb4-4173-bf55-ec5ac534ebb6",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-01T10:05:10.963379Z",
+  "branch": "feat/pull-context-from-UI-1493",
+  "checkpoints_count": 9,
+  "save_step_count": 8,
+  "files_touched": [
+    "apps/backend/src/services/context-explorer-git/changes.service.ts",
+    "apps/backend/src/services/context-explorer-git/worktree.service.ts",
+    "apps/backend/tests/context-explorer-git.test.ts"
+  ],
+  "agent": "Cursor",
+  "model": "gpt-5.6-sol-high",
+  "turn_id": "96b3bfc326f8",
+  "checkpoint_transcript_start": 446,
+  "transcript_lines_at_start": 446,
+  "compact_transcript_start": 250,
+  "token_usage": {
+    "input_tokens": 57,
+    "cache_creation_tokens": 128924,
+    "cache_read_tokens": 1265137,
+    "output_tokens": 4209,
+    "api_call_count": 8
+  },
+  "session_metrics": {
+    "duration_ms": 76935884,
+    "turn_count": 27,
+    "context_tokens": 255069,
+    "context_window_size": 272000
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-01T10:05:10.92073Z",
+    "agent_lines": 2,
+    "agent_removed": 6,
+    "human_added": 29,
+    "human_modified": 30,
+    "human_removed": 0,
+    "total_committed": 52,
+    "total_lines_changed": 67,
+    "agent_percentage": 11.940298507462686,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 3055,
+      "user_lines_removed": 19,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/backend/src/services/context-explorer-git/worktree.service.ts": 22,
+        "apps/backend/tests/context-explorer-git.test.ts": 73,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/backend/src/services/context-explorer-git/worktree.service.ts": 7,
+        "apps/backend/tests/context-explorer-git.test.ts": 12
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 95,
+      "agent_lines_removed": 19,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 95,
+      "agent_lines_removed": 19,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 95,
+      "agent_lines_removed": 19,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 95,
+      "agent_lines_removed": 19,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 95,
+      "agent_lines_removed": 19,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 3016,
+      "user_lines_removed": 2,
+      "agent_lines_added": 95,
+      "agent_lines_removed": 19,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/backend/src/services/context-explorer-git/changes.service.ts": 25,
+        "apps/backend/tests/context-explorer-git.test.ts": 31,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/backend/src/services/context-explorer-git/changes.service.ts": 2
+      }
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 151,
+      "agent_lines_removed": 21,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+we're still not done it seems, there are issues, 
+
+One is, we agreed that the Update button doesn't really show if the repo is connected via oAuth, that was indeed the case with GitLab but now I tested with Github (admittedly on cloud mode though) 
+But now the udpate button shows
+
+---
+
+In the meantime any idea what this is ?
+
+It happens always with gitlab, I think in cloud but unsure
+
+---
+
+Do I need GITLAB_REDIRECT_URI in cloud?
+
+---
+
+wait so I set it or not?
+
+---
+
+you said not necessarily?
+
+---
+
+Changed this, cool?
+
+---
+
+Fix Cubic comment #2 in `apps/backend/src/services/context-explorer-git/changes.service.ts`.
+
+Problem:
+After `discardContextFileChange` successfully restores a tracked binary or file larger than 1 MB, `readWorkingTreeHash` returns `null`. It currently uses `readWorkingTreeContent`, which applies file explorer text and size restrictions.
+
+Implementation:
+- Add a separate safe function for hashing raw files.
+- Open the file with `O_RDONLY | O_NOFOLLOW`.
+- Confirm the descriptor points to a regular file.
+- Hash the raw bytes without text validation or the 1 MB limit.
+- Always close the descriptor.
+- Keep the existing restricted reader unchanged for viewing/editing files.
+- Preserve current symlink protections.
+- Add tests for discarding:
+  - A tracked binary file.
+  - A tracked file larger than 1 MB.
+- Both should return the restored file’s SHA-256 hash, not `null`.
+
+Follow existing style, avoid inline comments, and do not run git mutations.
+
+Verify with:
+- Relevant backend tests.
+- `npm run lint`.
+
+---
+
+What's this?
+
+---
+
+so it's fixed?
+
+review uncommited changes and draft a commit message
