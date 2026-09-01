@@ -1274,6 +1274,17 @@ describe('repository remote normalization', () => {
 		);
 	});
 
+	it('preserves numeric path segments in SSH shorthand', () => {
+		expect(normalizeRemote('git@host:2222/owner/repo.git')).toBe('host/2222/owner/repo');
+		expect(normalizeRemote('git@host:2222/owner/repo.git')).not.toBe(normalizeRemote('git@host:owner/repo.git'));
+	});
+
+	it('keeps SSH shorthand numeric paths distinct from SSH URL ports', () => {
+		expect(normalizeRemote('git@host:2222/owner/repo.git')).not.toBe(
+			normalizeRemote('ssh://git@host:2222/owner/repo.git'),
+		);
+	});
+
 	it('keeps different repositories distinct', () => {
 		expect(normalizeRemote('git@github.com:nao/context.git')).not.toBe(
 			normalizeRemote('https://github.com/nao/other.git'),
@@ -1301,6 +1312,18 @@ describe('repository remote normalization', () => {
 	it('keeps non-default SSH ports distinct from unported HTTPS', () => {
 		expect(normalizeRemote('ssh://git@github.com:2222/nao/context.git')).not.toBe(
 			normalizeRemote('https://github.com/nao/context'),
+		);
+	});
+
+	it('matches equivalent SSH URLs with the same non-default port', () => {
+		expect(normalizeRemote('ssh://git:secret@github.com:2222/nao/context.git/')).toBe(
+			normalizeRemote('ssh://github.com:2222/nao/context'),
+		);
+	});
+
+	it('keeps different non-default SSH ports distinct', () => {
+		expect(normalizeRemote('ssh://git@github.com:2222/nao/context.git')).not.toBe(
+			normalizeRemote('ssh://git@github.com:2223/nao/context.git'),
 		);
 	});
 });

@@ -218,7 +218,7 @@ export function normalizeRemote(remote: string | null | undefined): string {
 		return '';
 	}
 	if (!value.includes('://')) {
-		const shorthand = value.match(/^(?:[^@/]+@)?([^:/]+):(?:(?:\d+)\/)?(.+)$/);
+		const shorthand = value.match(/^(?:[^@/]+@)?([^:/]+):(.+)$/);
 		if (shorthand) {
 			return normalizeRemoteParts(shorthand[1], shorthand[2]);
 		}
