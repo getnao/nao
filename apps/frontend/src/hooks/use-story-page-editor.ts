@@ -5,6 +5,9 @@ import type { StoryCodeViewHandle } from '@/components/side-panel/story-code-vie
 import { useStoryViewerVersionActions } from '@/components/side-panel/hooks/use-story-viewer-version-actions';
 import { useStoryViewerVersions } from '@/components/side-panel/hooks/use-story-viewer-versions';
 import { useStoryViewerViewMode } from '@/components/side-panel/hooks/use-story-viewer-view-mode';
+import { selectStoryEditorCode, useStoryEditBuffer } from '@/hooks/use-story-edit-buffer';
+import { useStoryEditTransitions } from '@/hooks/use-story-edit-transitions';
+import { useStoryExitGuard } from '@/hooks/use-story-exit-guard';
 
 interface UseStoryPageEditorParams {
 	chatId: string;
@@ -41,11 +44,22 @@ export function useStoryPageEditor({
 	const tiptapEditorRef = useRef<TiptapEditor | null>(null);
 	const codeViewRef = useRef<StoryCodeViewHandle | null>(null);
 	const tabbedEditCodeRef = useRef<(() => string) | null>(null);
-	const getEditModeCode = useCallback(() => tabbedEditCodeRef.current?.() ?? null, []);
-	const [isCodeDirty, setIsCodeDirty] = useState(false);
 	const [isCodeValid, setIsCodeValid] = useState(true);
+	const editBuffer = useStoryEditBuffer(code);
+	const codeBuffer = useStoryEditBuffer(code);
+	const isCodeDirty = codeBuffer.isDirty;
+	const handleVersionSaved = useCallback(
+		(savedCode: string) => {
+			if (viewMode === 'edit') {
+				editBuffer.markSaved(savedCode);
+			} else if (viewMode === 'code') {
+				codeBuffer.markSaved(savedCode);
+			}
+		},
+		[codeBuffer, editBuffer, viewMode],
+	);
 
-	const { handleSave, handleRestore } = useStoryViewerVersionActions({
+	const { handleSave, saveCurrentVersion, handleRestore, isSaving } = useStoryViewerVersionActions({
 		chatId,
 		storySlug,
 		storyTitle,
@@ -54,39 +68,79 @@ export function useStoryPageEditor({
 		goToLatestVersion,
 		tiptapEditorRef,
 		codeViewRef,
-		getEditModeCode,
+		getEditModeCode: editBuffer.getCode,
 		viewMode,
 		setViewMode,
+		onVersionSaved: handleVersionSaved,
+	});
+	const isDirty = viewMode === 'edit' ? editBuffer.isDirty : viewMode === 'code' && isCodeDirty;
+	const discardChanges = useCallback(() => {
+		if (viewMode === 'edit') {
+			editBuffer.discard();
+		} else {
+			codeBuffer.discard();
+		}
+	}, [codeBuffer, editBuffer, viewMode]);
+	const exitGuard = useStoryExitGuard({
+		isDirty,
+		canSave: viewMode !== 'code' || isCodeValid,
+		save: saveCurrentVersion,
+		discard: discardChanges,
+	});
+	const transitions = useStoryEditTransitions({
+		viewMode,
+		setViewMode,
+		isEditDirty: editBuffer.isDirty,
+		isCodeDirty,
+		isSaving,
+		save: saveCurrentVersion,
+		requestExit: exitGuard.requestExit,
 	});
 
 	useEffect(() => {
 		if (viewMode !== 'code') {
-			setIsCodeDirty(false);
 			setIsCodeValid(true);
 		}
 	}, [viewMode]);
 
 	return {
 		viewMode,
-		setViewMode,
+		setViewMode: transitions.requestViewMode,
+		handleCancel: transitions.requestCancel,
 		code,
 		storyId,
 		tiptapEditorRef,
 		codeViewRef,
 		tabbedEditCodeRef,
+		isEditDirty: editBuffer.isDirty,
+		editCode: selectStoryEditorCode({
+			persistedCode: code,
+			bufferCode: editBuffer.getCode(),
+			isDirty: editBuffer.isDirty,
+			isSaving,
+		}),
+		onEditCodeChange: editBuffer.handleCodeChange,
 		isCodeDirty,
-		setIsCodeDirty,
+		codeDraft: selectStoryEditorCode({
+			persistedCode: code,
+			bufferCode: codeBuffer.getCode(),
+			isDirty: codeBuffer.isDirty,
+			isSaving,
+		}),
+		onCodeChange: codeBuffer.handleCodeChange,
 		isCodeValid,
 		setIsCodeValid,
 		handleSave,
 		handleRestore,
+		isSaving,
+		exitDialog: exitGuard.dialogProps,
 		versionNav: {
 			currentVersion: currentVersionNumber,
 			storedVersionNumber,
 			totalVersions: versions.length,
 			isViewingLatest,
-			goToPrevious: goToPreviousVersion,
-			goToNext: goToNextVersion,
+			goToPrevious: () => exitGuard.requestExit(goToPreviousVersion),
+			goToNext: () => exitGuard.requestExit(goToNextVersion),
 		},
 	};
 }

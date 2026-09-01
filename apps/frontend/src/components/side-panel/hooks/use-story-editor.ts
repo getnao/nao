@@ -34,6 +34,7 @@ interface UseStoryEditorParams {
 	code: string;
 	editorRef: MutableRefObject<Editor | null>;
 	onSave?: () => void;
+	onChange?: (code: string) => void;
 }
 
 /**
@@ -41,9 +42,10 @@ interface UseStoryEditorParams {
  * block extensions, the save shortcut, and the drag-and-drop handlers that move
  * story blocks and grid columns around the document.
  */
-export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams) {
+export function useStoryEditor({ code, editorRef, onSave, onChange }: UseStoryEditorParams) {
 	const processedContent = useMemo(() => preprocessForEditor(code), [code]);
 	const onSaveRef = useRef(onSave);
+	const onChangeRef = useRef(onChange);
 	const gridDragSourceRef = useRef<GridDragSource | null>(null);
 	const storyBlockSourceRef = useRef<StoryBlockDragSource | null>(null);
 	const multiSelectionDragRef = useRef<DragUnit[] | null>(null);
@@ -89,6 +91,7 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 		handleNodePosRef.current = node ? pos : null;
 	}, []);
 	onSaveRef.current = onSave;
+	onChangeRef.current = onChange;
 
 	const extensions = useMemo(
 		() => [
@@ -398,6 +401,17 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 			editorRef.current = null;
 		};
 	}, [editor, editorRef]);
+
+	useEffect(() => {
+		if (!editor) {
+			return;
+		}
+		const handleUpdate = () => onChangeRef.current?.(editor.getMarkdown());
+		editor.on('update', handleUpdate);
+		return () => {
+			editor.off('update', handleUpdate);
+		};
+	}, [editor]);
 
 	useEffect(() => {
 		if (!editor) {

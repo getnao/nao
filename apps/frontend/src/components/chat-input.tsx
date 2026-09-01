@@ -42,6 +42,7 @@ import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { useChatPendingCitation } from '@/hooks/use-chat-pending-citation';
 import { SelectionCitationBanner } from '@/components/selection-citation-banner';
 import { ChatInputSuggestions } from '@/components/chat-input-suggestions';
+import { useStoryBeforeAgentSend } from '@/contexts/story-before-agent-send';
 
 const cycleModelShortcut = getShortcut('cycle-model').shortcut;
 
@@ -115,6 +116,7 @@ function ChatInputBase({
 	const navigate = useNavigate();
 	const { canChatWithNaoData } = usePermissions();
 	const chatId = useChatId();
+	const storyBeforeAgentSend = useStoryBeforeAgentSend();
 
 	const isAdminMode = canChatWithNaoData && adminMode;
 	const adminModeLocked = useAgentMessagesSelector((messages) => messages.some((message) => message.role === 'user'));
@@ -275,6 +277,10 @@ function ChatInputBase({
 				return;
 			}
 
+			if (chatId && !(await storyBeforeAgentSend.run(chatId))) {
+				return;
+			}
+
 			const citation = hasCitation
 				? {
 						start: citationSnapshot.start,
@@ -305,6 +311,7 @@ function ChatInputBase({
 			promptRef,
 			attachmentUpload,
 			chatId,
+			storyBeforeAgentSend,
 			submitQueuedMessageNow,
 		],
 	);
