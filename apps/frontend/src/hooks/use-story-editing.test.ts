@@ -59,12 +59,12 @@ describe('Story editing', () => {
 		).toBe('# Saved Story');
 		expect(
 			selectStoryEditorCode({
-				persistedCode: '# Saved Story',
-				bufferCode: '# Saved Story',
+				persistedCode: '# Refreshed persisted Story',
+				bufferCode: '# Stale buffer Story',
 				isDirty: false,
 				isSaving: false,
 			}),
-		).toBe('# Saved Story');
+		).toBe('# Refreshed persisted Story');
 	});
 
 	it('switches dirty Edit to Code without saving or losing the buffer', async () => {

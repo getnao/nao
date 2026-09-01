@@ -7,6 +7,24 @@ export interface BeforeAgentSendResult {
 
 type BeforeAgentSendGuard = () => Promise<BeforeAgentSendResult>;
 
+export async function runWithStoryBeforeAgentSend({
+	beforeSend,
+	send,
+}: {
+	beforeSend: BeforeAgentSendGuard;
+	send: () => Promise<void>;
+}): Promise<boolean> {
+	const result = await beforeSend();
+	if (!result.canSend) {
+		return false;
+	}
+
+	const sendPromise = send();
+	result.afterSend?.();
+	await sendPromise;
+	return true;
+}
+
 interface RegisteredGuard {
 	chatId: string;
 	guard: BeforeAgentSendGuard;

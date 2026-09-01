@@ -23,6 +23,7 @@ import {
 	preprocessForEditor,
 	removeCardFromOrigin,
 } from '../story-editor-utils';
+import { shouldSyncStoryEditorContent } from './story-editor-content-sync';
 import type { GridDragSource, StoryBlockDragSource } from '../story-editor-drag-context';
 import type { DragUnit, GridColumnRef } from '../story-block-selection';
 import type { Node as PMNode } from '@tiptap/pm/model';
@@ -46,6 +47,7 @@ export function useStoryEditor({ code, editorRef, onSave, onChange }: UseStoryEd
 	const processedContent = useMemo(() => preprocessForEditor(code), [code]);
 	const onSaveRef = useRef(onSave);
 	const onChangeRef = useRef(onChange);
+	const lastEmittedMarkdownRef = useRef<string | null>(null);
 	const gridDragSourceRef = useRef<GridDragSource | null>(null);
 	const storyBlockSourceRef = useRef<StoryBlockDragSource | null>(null);
 	const multiSelectionDragRef = useRef<DragUnit[] | null>(null);
@@ -406,7 +408,11 @@ export function useStoryEditor({ code, editorRef, onSave, onChange }: UseStoryEd
 		if (!editor) {
 			return;
 		}
-		const handleUpdate = () => onChangeRef.current?.(editor.getMarkdown());
+		const handleUpdate = () => {
+			const markdown = editor.getMarkdown();
+			lastEmittedMarkdownRef.current = markdown;
+			onChangeRef.current?.(markdown);
+		};
 		editor.on('update', handleUpdate);
 		return () => {
 			editor.off('update', handleUpdate);
@@ -417,9 +423,17 @@ export function useStoryEditor({ code, editorRef, onSave, onChange }: UseStoryEd
 		if (!editor) {
 			return;
 		}
-		if (editor.getMarkdown() === code) {
+		if (
+			!shouldSyncStoryEditorContent({
+				editorMarkdown: editor.getMarkdown(),
+				incomingCode: code,
+				lastEmittedMarkdown: lastEmittedMarkdownRef.current,
+			})
+		) {
+			lastEmittedMarkdownRef.current = null;
 			return;
 		}
+		lastEmittedMarkdownRef.current = null;
 		editor.commands.setContent(processedContent, { emitUpdate: false, contentType: 'markdown' });
 	}, [editor, code, processedContent]);
 

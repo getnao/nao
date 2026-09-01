@@ -3,6 +3,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+	runWithStoryBeforeAgentSend,
 	StoryBeforeAgentSendProvider,
 	useRegisterStoryBeforeAgentSend,
 	useStoryBeforeAgentSend,
@@ -16,13 +17,10 @@ function SendHarness({ guard, send }: { guard: () => Promise<BeforeAgentSendResu
 	return (
 		<button
 			onClick={async () => {
-				const result = await beforeAgentSend.run('chat-1');
-				if (!result.canSend) {
-					return;
-				}
-				const sendPromise = send();
-				result.afterSend?.();
-				await sendPromise;
+				await runWithStoryBeforeAgentSend({
+					beforeSend: () => beforeAgentSend.run('chat-1'),
+					send,
+				});
 			}}
 		>
 			Send
@@ -131,5 +129,46 @@ describe('StoryBeforeAgentSendProvider', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 		await waitFor(() => expect(send).toHaveBeenCalledOnce());
 		expect(preview).not.toHaveBeenCalled();
+	});
+});
+
+describe('runWithStoryBeforeAgentSend', () => {
+	it('invokes an allowed queued send once before afterSend', async () => {
+		const events: string[] = [];
+		let finishSend = () => {};
+		const submitQueuedMessageNow = vi.fn(
+			() =>
+				new Promise<void>((resolve) => {
+					events.push('send invoked');
+					finishSend = resolve;
+				}),
+		);
+		const promise = runWithStoryBeforeAgentSend({
+			beforeSend: async () => ({
+				canSend: true,
+				afterSend: () => events.push('after send'),
+			}),
+			send: () => submitQueuedMessageNow(),
+		});
+
+		await waitFor(() => expect(events).toEqual(['send invoked', 'after send']));
+		expect(submitQueuedMessageNow).toHaveBeenCalledOnce();
+
+		finishSend();
+		await promise;
+	});
+
+	it('does not invoke a blocked queued send or afterSend', async () => {
+		const afterSend = vi.fn();
+		const submitQueuedMessageNow = vi.fn(async () => {});
+
+		const sent = await runWithStoryBeforeAgentSend({
+			beforeSend: async () => ({ canSend: false, afterSend }),
+			send: submitQueuedMessageNow,
+		});
+
+		expect(sent).toBe(false);
+		expect(submitQueuedMessageNow).not.toHaveBeenCalled();
+		expect(afterSend).not.toHaveBeenCalled();
 	});
 });
