@@ -47,6 +47,7 @@ class VerificationResult:
     expectedColumns: list[str]
     sql: str | None = None
     error: str | None = None
+    usage: TokenUsage | None = None
 
 
 @dataclass
@@ -149,6 +150,19 @@ class AgentClient:
             raise AgentClientError(f"Request failed: {response.status_code} {response.text}")
 
         data = response.json()
+        verification_data: dict[str, Any] | None = data.get("verification")
+        verification = None
+        if verification_data:
+            verification_usage = verification_data.get("usage")
+            verification = VerificationResult(
+                data=verification_data["data"],
+                expectedData=verification_data["expectedData"],
+                expectedColumns=verification_data["expectedColumns"],
+                sql=verification_data.get("sql"),
+                error=verification_data.get("error"),
+                usage=TokenUsage(**verification_usage) if verification_usage else None,
+            )
+
         return TestResult(
             text=data["text"],
             tool_calls=data["toolCalls"],
@@ -156,7 +170,7 @@ class AgentClient:
             cost=TokenCost(**data["cost"]),
             finish_reason=data["finishReason"],
             duration_ms=data.get("durationMs", 0),
-            verification=VerificationResult(**data["verification"]) if data.get("verification") else None,
+            verification=verification,
         )
 
 

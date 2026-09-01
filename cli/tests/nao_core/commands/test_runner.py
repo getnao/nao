@@ -8,6 +8,7 @@ import pytest
 
 from nao_core.commands.test.case import TestCase as NaoTestCase
 from nao_core.commands.test.client import (
+    AgentClient,
     AgentClientError,
     TokenCost,
     TokenUsage,
@@ -164,6 +165,38 @@ def test_serialize_model_costs_uses_backend_field_names():
     }
 
 
+def test_agent_client_parses_verification_usage(monkeypatch):
+    test_case = NaoTestCase(name="orders", prompt="p1", file_path=Path("tests/orders.yml"), sql="select 1")
+    response = Mock(status_code=200)
+    response.json.return_value = {
+        "text": "done",
+        "toolCalls": [],
+        "usage": {"inputCacheReadTokens": 20, "totalTokens": 30},
+        "cost": {"totalCost": 0.1},
+        "finishReason": "stop",
+        "durationMs": 100,
+        "verification": {
+            "data": [{"total": 1}],
+            "expectedData": [{"total": 1}],
+            "expectedColumns": ["total"],
+            "sql": "SELECT total FROM query_abc",
+            "error": None,
+            "usage": {"inputNoCacheTokens": 4, "outputTotalTokens": 2, "totalTokens": 6},
+        },
+    }
+    session = Mock()
+    session.post.return_value = response
+    client = AgentClient()
+    monkeypatch.setattr(client, "_get_session", lambda: session)
+
+    result = client.run_test(test_case)
+
+    assert result.usage.inputCacheReadTokens == 20
+    assert result.verification is not None
+    assert result.verification.usage is not None
+    assert result.verification.usage.inputNoCacheTokens == 4
+
+
 def test_run_test_passes_configured_costs_to_client(monkeypatch):
     test_case = NaoTestCase(name="orders", prompt="p1", file_path=Path("tests/orders.yml"), sql="select 1")
     model = ModelConfig(provider="openai", model_id="custom-model")
@@ -197,7 +230,13 @@ def test_run_test_records_reference_sql_with_verification(monkeypatch):
     client.run_test.return_value = AgentTestResult(
         text="",
         tool_calls=[],
-        usage=TokenUsage(totalTokens=0),
+        usage=TokenUsage(
+            inputNoCacheTokens=10,
+            inputCacheReadTokens=20,
+            inputCacheWriteTokens=30,
+            outputTotalTokens=40,
+            totalTokens=100,
+        ),
         cost=TokenCost(totalCost=0),
         finish_reason="stop",
         duration_ms=1,
@@ -206,6 +245,13 @@ def test_run_test_records_reference_sql_with_verification(monkeypatch):
             expectedData=[{"total": 1}],
             expectedColumns=["total"],
             sql="SELECT total FROM query_abc",
+            usage=TokenUsage(
+                inputNoCacheTokens=5,
+                inputCacheReadTokens=6,
+                inputCacheWriteTokens=7,
+                outputTotalTokens=8,
+                totalTokens=26,
+            ),
         ),
     )
     monkeypatch.setattr(test_runner_module, "get_client", lambda **_: client)
@@ -216,6 +262,10 @@ def test_run_test_records_reference_sql_with_verification(monkeypatch):
     assert result.details is not None
     assert result.details.reference_sql == "select 1"
     assert result.details.verification_sql == "SELECT total FROM query_abc"
+    assert result.usage is not None
+    assert result.usage.inputCacheReadTokens == 20
+    assert result.verification_usage is not None
+    assert result.verification_usage.inputCacheReadTokens == 6
 
 
 def test_run_test_records_reference_sql_without_verification(monkeypatch):
@@ -419,6 +469,8 @@ def test_save_results_records_per_model_summaries(tmp_path):
             cost=0.2,
             duration_ms=1000,
             tool_call_count=2,
+            usage=TokenUsage(inputCacheReadTokens=90, totalTokens=100),
+            verification_usage=TokenUsage(inputNoCacheTokens=8, outputTotalTokens=2, totalTokens=10),
         ),
         NaoTestRunResult(
             name="orders",
@@ -439,3 +491,5 @@ def test_save_results_records_per_model_summaries(tmp_path):
     assert [model["model"] for model in data["by_model"]] == ["openai:gpt-4.1", "anthropic:claude-4-5"]
     assert data["by_model"][0]["pass_rate"] == 100.0
     assert data["by_model"][1]["avg_duration_ms"] == 3000
+    assert data["results"][0]["usage"]["inputCacheReadTokens"] == 90
+    assert data["results"][0]["verification_usage"]["inputNoCacheTokens"] == 8

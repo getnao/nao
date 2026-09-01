@@ -19,7 +19,7 @@ from nao_core.config.test import ComparisonConfig, TestConfig
 from nao_core.ui import UI
 
 from .case import TESTS_FOLDER, TestCase, discover_tests
-from .client import BACKEND_URL, AgentClientError, VerificationResult, get_client
+from .client import BACKEND_URL, AgentClientError, TokenUsage, VerificationResult, get_client
 from .compare import normalize_dataframe_numbers
 from .summary import ModelSummary, summarize, summarize_by_model
 
@@ -68,6 +68,8 @@ class TestRunResult:
     cost: float | None = None
     duration_ms: int | None = None
     tool_call_count: int | None = None
+    usage: TokenUsage | None = None
+    verification_usage: TokenUsage | None = None
     error: str | None = None
     details: TestRunDetails | None = None
 
@@ -235,6 +237,8 @@ def run_test(
                 cost=result.cost.totalCost,
                 duration_ms=result.duration_ms,
                 tool_call_count=tool_call_count,
+                usage=result.usage,
+                verification_usage=result.verification.usage,
                 details=TestRunDetails(
                     response_text=result.text,
                     actual_data=result.verification.data,
@@ -256,6 +260,7 @@ def run_test(
             cost=result.cost.totalCost,
             duration_ms=result.duration_ms,
             tool_call_count=tool_call_count,
+            usage=result.usage,
             details=TestRunDetails(
                 response_text=result.text,
                 tool_calls=result.tool_calls,

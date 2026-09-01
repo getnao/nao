@@ -3,9 +3,10 @@ import { generateText, ModelMessage, Output } from 'ai';
 import { z } from 'zod/v4';
 
 import { llmTelemetry } from '../agents/telemetry';
-import type { UIMessage } from '../types/chat';
+import type { TokenUsage, UIMessage } from '../types/chat';
 import type { ModelCosts } from '../types/llm';
 import type { QueryResult } from '../types/tools';
+import { addTokenUsage, convertToTokenUsage } from '../utils/ai';
 import { AgentRunResult, AgentService } from './agent';
 import { runSqlOverQueryResults } from './duckdb.service';
 
@@ -15,6 +16,8 @@ export interface VerificationResult {
 	/** The DuckDB query the agent wrote over its own query results */
 	sql: string | null;
 	error: string | null;
+	/** Usage across every verification attempt, including repairs */
+	usage?: TokenUsage;
 }
 
 export interface ToolCallResult {
@@ -87,6 +90,7 @@ export class TestAgentService extends AgentService {
 
 		let sql: string | null = null;
 		let error: string | null = null;
+		let usage: TokenUsage | undefined;
 
 		for (let attempt = 0; attempt < MAX_VERIFICATION_ATTEMPTS; attempt++) {
 			const result = await generateText({
@@ -95,15 +99,16 @@ export class TestAgentService extends AgentService {
 				messages,
 				experimental_telemetry: llmTelemetry('nao-test-verification', { projectId }),
 			});
+			usage = addTokenUsage(usage, convertToTokenUsage(result.usage));
 
 			sql = result.output.sql?.trim() || null;
 			if (!sql) {
-				return { data: null, sql: null, error: 'The agent could not answer from its query results.' };
+				return { data: null, sql: null, error: 'The agent could not answer from its query results.', usage };
 			}
 
 			try {
 				const { data } = await runSqlOverQueryResults(queryResults, sql);
-				return { data, sql, error: null };
+				return { data, sql, error: null, usage };
 			} catch (err) {
 				error = err instanceof Error ? err.message : String(err);
 				messages.push(
@@ -113,7 +118,7 @@ export class TestAgentService extends AgentService {
 			}
 		}
 
-		return { data: null, sql, error };
+		return { data: null, sql, error, usage };
 	}
 
 	private static _buildUserMessage(text: string): UIMessage {

@@ -22,6 +22,29 @@ export const convertToTokenUsage = (usage: LanguageModelUsage): TokenUsage => ({
 	totalTokens: usage.totalTokens,
 });
 
+export const addTokenUsage = (...usages: (TokenUsage | undefined)[]): TokenUsage | undefined => {
+	const presentUsages = usages.filter((usage): usage is TokenUsage => usage !== undefined);
+	if (presentUsages.length === 0) {
+		return undefined;
+	}
+
+	const sum = (field: keyof TokenUsage): number | undefined => {
+		const values = presentUsages.map((usage) => usage[field]).filter((value) => value !== undefined);
+		return values.length === 0 ? undefined : values.reduce((total, value) => total + value, 0);
+	};
+
+	return {
+		inputTotalTokens: sum('inputTotalTokens'),
+		inputNoCacheTokens: sum('inputNoCacheTokens'),
+		inputCacheReadTokens: sum('inputCacheReadTokens'),
+		inputCacheWriteTokens: sum('inputCacheWriteTokens'),
+		outputTotalTokens: sum('outputTotalTokens'),
+		outputTextTokens: sum('outputTextTokens'),
+		outputReasoningTokens: sum('outputReasoningTokens'),
+		totalTokens: sum('totalTokens'),
+	};
+};
+
 export const convertToCost = (
 	usage: TokenUsage,
 	provider: LlmProvider,
