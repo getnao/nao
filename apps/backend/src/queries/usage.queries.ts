@@ -6,7 +6,14 @@ import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import type { ModelCosts } from '../types/llm';
-import type { Granularity, TotalUsageRecord, UsageFilter, UsageRecord, UsageSource } from '../types/usage';
+import {
+	type Granularity,
+	resolveUsageChartGranularity,
+	type TotalUsageRecord,
+	type UsageFilter,
+	type UsageRecord,
+	type UsageSource,
+} from '../types/usage';
 import { fillMissingDates, getLookbackTimestamp } from '../utils/date';
 import { getProjectDeclaredModels } from '../utils/llm';
 
@@ -108,10 +115,11 @@ const INFERENCE_USAGE_SOURCE_EXPR = sql<UsageSource | null>`(
 )`;
 
 export const getMessagesUsage = async (projectId: string, filter: UsageFilter): Promise<UsageRecord[]> => {
-	const { granularity, provider } = filter;
+	const { period, provider } = filter;
+	const granularity = resolveUsageChartGranularity(period);
 	const messageDateExpr = getDateExpr(s.chatMessage.createdAt, granularity);
 	const inferenceDateExpr = getDateExpr(s.llmInference.createdAt, granularity);
-	const lookbackTs = getLookbackTimestamp(granularity);
+	const lookbackTs = getLookbackTimestamp(period);
 	const messageLookbackFilter =
 		dbConfig.dialect === Dialect.Postgres
 			? sql`${s.chatMessage.createdAt} >= ${new Date(lookbackTs).toISOString()}`
@@ -259,12 +267,12 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 		.from(combinedUsage)
 		.groupBy(({ date }) => date);
 
-	return fillMissingDates(rows.map(normalizeMessageUsageRow), granularity);
+	return fillMissingDates(rows.map(normalizeMessageUsageRow), period);
 };
 
 export const getTotalUsage = async (projectId: string, filter: UsageFilter): Promise<TotalUsageRecord> => {
-	const { granularity, provider } = filter;
-	const lookbackTs = getLookbackTimestamp(granularity);
+	const { period, provider } = filter;
+	const lookbackTs = getLookbackTimestamp(period);
 	const lookbackFilter =
 		dbConfig.dialect === Dialect.Postgres
 			? sql`${s.chatMessage.createdAt} >= ${new Date(lookbackTs).toISOString()}`

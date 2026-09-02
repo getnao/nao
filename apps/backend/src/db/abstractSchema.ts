@@ -12,6 +12,9 @@ export type User = typeof sqliteSchema.user.$inferSelect;
 export type DBUserPreference = typeof sqliteSchema.userPreference.$inferSelect;
 export type NewUserPreference = typeof sqliteSchema.userPreference.$inferInsert;
 
+export type DBUserProjectPreference = typeof sqliteSchema.userProjectPreference.$inferSelect;
+export type NewUserProjectPreference = typeof sqliteSchema.userProjectPreference.$inferInsert;
+
 export type NewAccount = typeof sqliteSchema.account.$inferInsert;
 export type Account = typeof sqliteSchema.account.$inferSelect;
 

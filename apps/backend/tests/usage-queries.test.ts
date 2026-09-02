@@ -5,6 +5,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
 import { getMessagesUsage, getTotalUsage } from '../src/queries/usage.queries';
+import {
+	getUserProjectPreferences,
+	updateUserProjectPreferences,
+} from '../src/queries/user-project-preference.queries';
+import type { UsagePeriodRange } from '../src/types/usage';
+import { usagePeriodRangeSchema } from '../src/types/usage';
 import { formatDate } from '../src/utils/date';
 
 vi.mock('../src/db/db', async () => {
@@ -31,19 +37,26 @@ vi.mock('../src/queries/project-llm-config.queries', () => ({
 }));
 
 const PROJECT_ID = 'usage-project';
+const OTHER_PROJECT_ID = 'usage-project-other';
 const USER_ID = 'usage-user';
+const OTHER_USER_ID = 'usage-user-other';
 const CHAT_ID = 'usage-chat';
 
 describe('usage query results', () => {
 	beforeAll(async () => {
-		await db.insert(s.user).values({ id: USER_ID, name: 'Usage User', email: 'usage@example.com' });
-		await db
-			.insert(s.project)
-			.values({ id: PROJECT_ID, name: 'Usage Project', type: 'local', path: '/tmp/usage-project' });
+		await db.insert(s.user).values([
+			{ id: USER_ID, name: 'Usage User', email: 'usage@example.com' },
+			{ id: OTHER_USER_ID, name: 'Other Usage User', email: 'other-usage@example.com' },
+		]);
+		await db.insert(s.project).values([
+			{ id: PROJECT_ID, name: 'Usage Project', type: 'local', path: '/tmp/usage-project' },
+			{ id: OTHER_PROJECT_ID, name: 'Other Usage Project', type: 'local', path: '/tmp/usage-project-other' },
+		]);
 		await db.insert(s.chat).values({ id: CHAT_ID, projectId: PROJECT_ID, userId: USER_ID });
 	});
 
 	beforeEach(async () => {
+		await db.delete(s.userProjectPreference);
 		await db.delete(s.llmInference);
 		await db.delete(s.chatMessage);
 	});
@@ -58,10 +71,44 @@ describe('usage query results', () => {
 			{ id: 'total-2', chatId: CHAT_ID, role: 'user' },
 		]);
 
-		await expect(getTotalUsage(PROJECT_ID, { granularity: 'day' })).resolves.toEqual({
+		await expect(getTotalUsage(PROJECT_ID, { period: { value: 15, unit: 'day' } })).resolves.toEqual({
 			totalMessages: 2,
 			uniqueUsers: 1,
 		});
+	});
+
+	it.each([
+		[{ value: 24, unit: 'hour' }, 24],
+		[{ value: 15, unit: 'day' }, 15],
+		[{ value: 30, unit: 'day' }, 30],
+		[{ value: 6, unit: 'month' }, 6],
+	] satisfies [UsagePeriodRange, number][])(
+		'returns one data point per period within the natural granularity cap',
+		async (period, expectedLength) => {
+			await expect(getMessagesUsage(PROJECT_ID, { period })).resolves.toHaveLength(expectedLength);
+		},
+	);
+
+	it('stores period preferences independently for each user and project', async () => {
+		const usagePeriod = {
+			mode: 'custom' as const,
+			customPeriod: { value: 30, unit: 'day' as const },
+		};
+
+		await updateUserProjectPreferences(USER_ID, PROJECT_ID, { usagePeriod });
+
+		await expect(getUserProjectPreferences(USER_ID, PROJECT_ID)).resolves.toEqual({ usagePeriod });
+		await expect(getUserProjectPreferences(OTHER_USER_ID, PROJECT_ID)).resolves.toEqual({});
+		await expect(getUserProjectPreferences(USER_ID, OTHER_PROJECT_ID)).resolves.toEqual({});
+	});
+
+	it('enforces custom period limits by unit', () => {
+		expect(usagePeriodRangeSchema.safeParse({ value: 24, unit: 'hour' }).success).toBe(true);
+		expect(usagePeriodRangeSchema.safeParse({ value: 25, unit: 'hour' }).success).toBe(false);
+		expect(usagePeriodRangeSchema.safeParse({ value: 30, unit: 'day' }).success).toBe(true);
+		expect(usagePeriodRangeSchema.safeParse({ value: 31, unit: 'day' }).success).toBe(false);
+		expect(usagePeriodRangeSchema.safeParse({ value: 24, unit: 'month' }).success).toBe(true);
+		expect(usagePeriodRangeSchema.safeParse({ value: 25, unit: 'month' }).success).toBe(false);
 	});
 
 	it('counts messages by source, including context recommendations', async () => {
@@ -87,7 +134,7 @@ describe('usage query results', () => {
 			})),
 		);
 
-		const records = await getMessagesUsage(PROJECT_ID, { granularity: 'day' });
+		const records = await getMessagesUsage(PROJECT_ID, { period: { value: 15, unit: 'day' } });
 		const record = records.find((item) => item.date === formatDate(now, 'day'));
 
 		expect(record).toMatchObject({
@@ -159,7 +206,7 @@ describe('usage query results', () => {
 			},
 		]);
 
-		const records = await getMessagesUsage(PROJECT_ID, { granularity: 'day' });
+		const records = await getMessagesUsage(PROJECT_ID, { period: { value: 15, unit: 'day' } });
 
 		expect(records.find((item) => item.date === formatDate(now, 'day'))).toMatchObject({
 			messageCount: 1,

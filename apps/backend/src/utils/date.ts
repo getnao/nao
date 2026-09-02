@@ -1,4 +1,9 @@
-import type { Granularity, UsageRecord } from '../types/usage';
+import {
+	type Granularity,
+	resolveUsageChartGranularity,
+	type UsagePeriodRange,
+	type UsageRecord,
+} from '../types/usage';
 
 export function isValidIsoDateString(s: string): boolean {
 	if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) {
@@ -9,23 +14,19 @@ export function isValidIsoDateString(s: string): boolean {
 	return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
 }
 
-export const lookbackPeriods = {
-	hour: 24,
-	day: 15,
-	month: 6,
-};
-
-export function getLookbackTimestamp(granularity: Granularity): number {
+export function getLookbackTimestamp(period: UsagePeriodRange): number {
 	const now = Date.now();
-	const periods = lookbackPeriods[granularity];
 
-	switch (granularity) {
+	switch (period.unit) {
 		case 'hour':
-			return now - periods * 60 * 60 * 1000;
+			return now - period.value * 60 * 60 * 1000;
 		case 'day':
-			return now - periods * 24 * 60 * 60 * 1000;
-		case 'month':
-			return now - periods * 30 * 24 * 60 * 60 * 1000;
+			return now - period.value * 24 * 60 * 60 * 1000;
+		case 'month': {
+			const start = new Date(now);
+			start.setUTCMonth(start.getUTCMonth() - period.value);
+			return start.getTime();
+		}
 	}
 }
 
@@ -45,32 +46,53 @@ export function formatDate(date: Date, granularity: Granularity): string {
 	}
 }
 
-export function generateDateSeries(granularity: Granularity): string[] {
+export function generateDateSeries(period: UsagePeriodRange): string[] {
+	const granularity = resolveUsageChartGranularity(period);
+	if (granularity !== period.unit) {
+		return generateCoarsenedDateSeries(period, granularity);
+	}
+
 	const dates: string[] = [];
-	const periods = lookbackPeriods[granularity];
 	const now = new Date();
 
-	for (let i = periods - 1; i >= 0; i--) {
+	for (let i = period.value - 1; i >= 0; i--) {
 		const date = new Date(now);
-
-		switch (granularity) {
-			case 'hour':
-				date.setUTCHours(date.getUTCHours() - i, 0, 0, 0);
-				break;
-			case 'day':
-				date.setUTCDate(date.getUTCDate() - i);
-				date.setUTCHours(0, 0, 0, 0);
-				break;
-			case 'month':
-				date.setUTCMonth(date.getUTCMonth() - i, 1);
-				date.setUTCHours(0, 0, 0, 0);
-				break;
-		}
-
+		moveToBucket(date, granularity, i);
 		dates.push(formatDate(date, granularity));
 	}
 
 	return dates;
+}
+
+function generateCoarsenedDateSeries(period: UsagePeriodRange, granularity: Granularity): string[] {
+	const dates: string[] = [];
+	const firstBucket = new Date(getLookbackTimestamp(period));
+	moveToBucket(firstBucket, granularity, 0);
+	const date = new Date();
+	moveToBucket(date, granularity, 0);
+
+	while (date.getTime() >= firstBucket.getTime()) {
+		dates.unshift(formatDate(date, granularity));
+		moveToBucket(date, granularity, 1);
+	}
+
+	return dates;
+}
+
+function moveToBucket(date: Date, granularity: Granularity, bucketsBack: number): void {
+	switch (granularity) {
+		case 'hour':
+			date.setUTCHours(date.getUTCHours() - bucketsBack, 0, 0, 0);
+			break;
+		case 'day':
+			date.setUTCDate(date.getUTCDate() - bucketsBack);
+			date.setUTCHours(0, 0, 0, 0);
+			break;
+		case 'month':
+			date.setUTCMonth(date.getUTCMonth() - bucketsBack, 1);
+			date.setUTCHours(0, 0, 0, 0);
+			break;
+	}
 }
 
 export function resolveTimezone(timezone?: string): string {
@@ -97,9 +119,9 @@ export function formatCurrentDate(timezone?: string): string {
 	return tz === 'UTC' ? `${formatted} (UTC)` : `${formatted} (${tz})`;
 }
 
-export function fillMissingDates(records: UsageRecord[], granularity: Granularity): UsageRecord[] {
+export function fillMissingDates(records: UsageRecord[], period: UsagePeriodRange): UsageRecord[] {
 	const dateSet = new Map(records.map((r) => [r.date, r]));
-	const allDates = generateDateSeries(granularity);
+	const allDates = generateDateSeries(period);
 
 	return allDates.map(
 		(date) =>

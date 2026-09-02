@@ -1,13 +1,19 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { createFileRoute, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
+import { DEFAULT_USAGE_PERIOD_PREFERENCE, resolveUsageChartGranularity, resolveUsagePeriod } from '@nao/backend/usage';
+import type { UsagePeriodPreference } from '@nao/backend/usage';
 import type { TokenChartDisplayMode, UsageRouteSearch } from '@/components/settings/usage-route-search';
 import type { displayChart } from '@nao/shared/tools';
 import { ChatsReplayPage } from '@/components/settings/chats-replay-page';
 import { UsageChartCard } from '@/components/settings/usage-chart-card';
 import { ReplayFilters, UsageFilters, dateFormats } from '@/components/settings/usage-filters';
-import { saveUsageFilters, validateUsageSearchWithStoredFilters } from '@/components/settings/usage-route-search';
+import {
+	readStoredUsagePeriodPreference,
+	saveUsageFilters,
+	validateUsageSearchWithStoredFilters,
+} from '@/components/settings/usage-route-search';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { usePermissions } from '@/hooks/use-permissions';
 import { trpc } from '@/main';
@@ -104,8 +110,44 @@ function UsageOverview({
 	onUpdateSearch: (next: Partial<UsageRouteSearch>) => void;
 	onOpenChatReplay: (chatId: string) => void;
 }) {
-	const { granularity, provider, users, feedback, tools, sources, tokenView } = usageSearch;
+	const { periodMode, periodValue, periodUnit, provider, users, feedback, tools, sources, tokenView } = usageSearch;
 	const { canViewUsage } = usePermissions();
+	const queryClient = useQueryClient();
+	const [legacyPeriodPreference] = useState(readStoredUsagePeriodPreference);
+	const periodPreferenceQueryKey = trpc.usage.getPeriodPreference.queryKey();
+
+	const periodPreferenceQuery = useQuery({
+		...trpc.usage.getPeriodPreference.queryOptions(),
+		enabled: canViewUsage,
+	});
+	const updatePeriodPreference = useMutation(
+		trpc.usage.updatePeriodPreference.mutationOptions({
+			onMutate: async (nextPreference) => {
+				await queryClient.cancelQueries({ queryKey: periodPreferenceQueryKey });
+				const previousPreference = queryClient.getQueryData<UsagePeriodPreference | null>(
+					periodPreferenceQueryKey,
+				);
+				queryClient.setQueryData(periodPreferenceQueryKey, nextPreference);
+				return { previousPreference };
+			},
+			onError: (_error, _nextPreference, context) => {
+				queryClient.setQueryData(periodPreferenceQueryKey, context?.previousPreference);
+			},
+			onSettled: () => {
+				queryClient.invalidateQueries({ queryKey: periodPreferenceQueryKey });
+			},
+		}),
+	);
+	const savedPeriodPreference = periodPreferenceQuery.data ?? DEFAULT_USAGE_PERIOD_PREFERENCE;
+	const periodPreference = resolvePeriodPreference(savedPeriodPreference, periodMode, periodValue, periodUnit);
+	const period = resolveUsagePeriod(periodPreference);
+	const granularity = resolveUsageChartGranularity(period);
+
+	useEffect(() => {
+		if (canViewUsage && periodPreferenceQuery.data === null && legacyPeriodPreference) {
+			updatePeriodPreference.mutate(legacyPeriodPreference);
+		}
+	}, [canViewUsage, legacyPeriodPreference, periodPreferenceQuery.data, updatePeriodPreference]);
 
 	const usedProviders = useQuery({
 		...trpc.usage.getUsedProviders.queryOptions(),
@@ -120,7 +162,7 @@ function UsageOverview({
 	});
 	const messagesUsage = useQuery({
 		...trpc.usage.getMessagesUsage.queryOptions({
-			granularity,
+			period,
 			provider: provider === 'all' ? undefined : provider,
 			userNames: users,
 			sources,
@@ -130,7 +172,7 @@ function UsageOverview({
 	});
 	const totalUsage = useQuery({
 		...trpc.usage.getTotalUsage.queryOptions({
-			granularity,
+			period,
 			provider: provider === 'all' ? undefined : provider,
 			userNames: users,
 			sources,
@@ -153,8 +195,15 @@ function UsageOverview({
 			showUsageControls={canViewUsage}
 			provider={provider}
 			onProviderChange={(value) => onUpdateSearch({ provider: value })}
-			granularity={granularity}
-			onGranularityChange={(value) => onUpdateSearch({ granularity: value })}
+			periodPreference={periodPreference}
+			onPeriodPreferenceChange={(value) => {
+				onUpdateSearch({
+					periodMode: value.mode,
+					periodValue: value.mode === 'custom' ? value.customPeriod.value : undefined,
+					periodUnit: value.mode === 'custom' ? value.customPeriod.unit : undefined,
+				});
+				updatePeriodPreference.mutate(value);
+			}}
 			availableProviders={usedProviders.data}
 			chatFacets={chatFacets.data?.facets}
 			selectedUserNames={users}
@@ -266,6 +315,22 @@ function UsageOverview({
 			</div>
 		</div>
 	);
+}
+
+function resolvePeriodPreference(
+	savedPreference: UsagePeriodPreference,
+	mode: UsageRouteSearch['periodMode'],
+	value: number | undefined,
+	unit: UsageRouteSearch['periodUnit'],
+): UsagePeriodPreference {
+	if (!mode) {
+		return savedPreference;
+	}
+
+	return {
+		mode,
+		customPeriod: mode === 'custom' && value && unit ? { value, unit } : savedPreference.customPeriod,
+	};
 }
 
 function formatUsd(value: number): string {

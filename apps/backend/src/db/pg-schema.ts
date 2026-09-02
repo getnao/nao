@@ -67,6 +67,7 @@ import {
 	WhatsappSettings,
 } from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
+import type { UserProjectPreferences } from '../types/usage';
 
 export const user = pgTable('user', {
 	id: text('id').primaryKey(),
@@ -403,6 +404,25 @@ export const messageFeedback = pgTable('message_feedback', {
 		.$onUpdate(() => new Date())
 		.notNull(),
 });
+
+export const userProjectPreference = pgTable(
+	'user_project_preference',
+	{
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		preferences: jsonb('preferences').$type<UserProjectPreferences>().notNull().default({}),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.userId, t.projectId] })],
+);
 
 export const projectMember = pgTable(
 	'project_member',
