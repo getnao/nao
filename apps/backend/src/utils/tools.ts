@@ -293,15 +293,35 @@ export const toRealPath = (virtualPath: string, projectFolder: string): string =
 	const relativePath = virtualPath.startsWith('/') ? virtualPath.slice(1) : virtualPath;
 
 	// Resolve and normalize (this handles .. and .)
-	const resolvedPath = path.resolve(normalizedFolder, relativePath);
+	const candidatePath = path.resolve(normalizedFolder, relativePath);
 
-	// Check if path is outside project folder
-	const withinFolder = resolvedPath === normalizedFolder || resolvedPath.startsWith(normalizedFolder + path.sep);
+	const lexicallyWithinFolder =
+		candidatePath === normalizedFolder || candidatePath.startsWith(normalizedFolder + path.sep);
+	if (!lexicallyWithinFolder) {
+		throw new Error(`Access denied: path '${virtualPath}' is outside the project folder`);
+	}
+
+	// The lexical check above is not enough on its own: a symlink inside the project folder can
+	// point anywhere, and fs follows it. Re-check containment against the symlink-resolved path
+	// (and, for a path that does not exist yet, against its resolved parent), so every guard
+	// below sees the file that will actually be opened.
+	let resolvedPath = candidatePath;
+	if (fs.existsSync(candidatePath)) {
+		resolvedPath = fs.realpathSync(candidatePath);
+	} else {
+		const parentPath = path.dirname(candidatePath);
+		if (fs.existsSync(parentPath)) {
+			resolvedPath = path.join(fs.realpathSync(parentPath), path.basename(candidatePath));
+		}
+	}
+
+	const realFolder = fs.existsSync(normalizedFolder) ? fs.realpathSync(normalizedFolder) : normalizedFolder;
+	const withinFolder = resolvedPath === realFolder || resolvedPath.startsWith(realFolder + path.sep);
 	if (!withinFolder) {
 		throw new Error(`Access denied: path '${virtualPath}' is outside the project folder`);
 	}
 
-	const normalizedRelativePath = path.relative(normalizedFolder, resolvedPath).replaceAll(path.sep, '/');
+	const normalizedRelativePath = path.relative(realFolder, resolvedPath).replaceAll(path.sep, '/');
 	if (isStoragePath(normalizedRelativePath)) {
 		throw new Error(`Path '${virtualPath}' is in permanent storage, not in the project folder`);
 	}
@@ -320,7 +340,7 @@ export const toRealPath = (virtualPath: string, projectFolder: string): string =
 	}
 
 	// Check if path is ignored by .naoignore
-	if (isIgnoredPath(resolvedPath, normalizedFolder)) {
+	if (isIgnoredPath(resolvedPath, realFolder)) {
 		throw new Error(`Access denied: path '${virtualPath}' is ignored by .naoignore`);
 	}
 
