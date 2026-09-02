@@ -17,7 +17,7 @@ import * as storyQueries from '../queries/story.queries';
 import { getDefaultModelId, resolveProviderModel } from '../utils/llm';
 import { backfillMissingQueryData, findMissingQueryIds } from '../utils/story-query-data';
 import { MAX_OUTPUT_TOKENS } from './agent';
-import { resolveExcludedColumnEnforcement } from './excluded-columns.service';
+import { resolveExcludedColumnEnforcementForProject } from './excluded-columns.service';
 const MAX_RENDERED_ROWS = 60;
 
 export async function executeLiveQuery(
@@ -39,16 +39,12 @@ export async function executeLiveQuery(
 		throw new Error('Project path not configured');
 	}
 
-	const [envVars, agentSettings] = await Promise.all([
-		projectQueries.getEnvVars(projectId),
-		projectQueries.getAgentSettings(projectId),
-	]);
-	const enforceExcludedColumns = await resolveExcludedColumnEnforcement(agentSettings);
+	const envVars = await projectQueries.getEnvVars(projectId);
 	return executeRawSql(stripSqlFilterBlocks(query.sqlQuery), {
 		projectFolder: project.path,
+		projectId,
 		databaseId: query.databaseId,
 		envVars,
-		enforceExcludedColumns,
 	});
 }
 
@@ -77,20 +73,16 @@ export async function refreshStoryData(chatId: string, slug: string): Promise<Re
 		throw new Error('Project path not configured');
 	}
 
-	const [projectEnvVars, agentSettings] = await Promise.all([
-		projectQueries.getEnvVars(projectId),
-		projectQueries.getAgentSettings(projectId),
-	]);
-	const enforceExcludedColumns = await resolveExcludedColumnEnforcement(agentSettings);
+	const projectEnvVars = await projectQueries.getEnvVars(projectId);
 	const queryData: Record<string, { data: unknown[]; columns: string[] }> = {};
 
 	await Promise.all(
 		Object.entries(sqlQueries).map(async ([queryId, { sqlQuery, databaseId }]) => {
 			const result = await executeRawSql(stripSqlFilterBlocks(sqlQuery), {
 				projectFolder: project.path!,
+				projectId,
 				databaseId,
 				envVars: projectEnvVars,
-				enforceExcludedColumns,
 			});
 			queryData[queryId] = result;
 		}),
@@ -153,7 +145,7 @@ async function resolveFromCache(chatId: string, code: string, cache: DBStoryData
 
 interface RawSqlExecutionOptions {
 	projectFolder: string;
-	enforceExcludedColumns: boolean;
+	projectId: string;
 	databaseId?: string;
 	envVars?: Record<string, string>;
 }
@@ -162,13 +154,14 @@ export async function executeRawSql(
 	sqlQuery: string,
 	options: RawSqlExecutionOptions,
 ): Promise<{ data: unknown[]; columns: string[] }> {
+	const enforceExcludedColumns = await resolveExcludedColumnEnforcementForProject(options.projectId);
 	const response = await fetch(`http://localhost:${env.FASTAPI_PORT}/execute_sql`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({
 			sql: sqlQuery,
 			nao_project_folder: options.projectFolder,
-			enforce_excluded_columns: options.enforceExcludedColumns,
+			enforce_excluded_columns: enforceExcludedColumns,
 			...(options.databaseId && { database_id: options.databaseId }),
 			...(options.envVars && Object.keys(options.envVars).length > 0 && { env_vars: options.envVars }),
 		}),

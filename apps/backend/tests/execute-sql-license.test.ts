@@ -8,6 +8,9 @@ vi.mock('../src/queries/execute-sql.queries', () => ({
 	getExecuteSqlPartByQueryIdInChat: vi.fn(),
 	updateExecuteSqlPart: vi.fn(),
 }));
+vi.mock('../src/queries/project.queries', () => ({
+	getAgentSettings: vi.fn(),
+}));
 vi.mock('../src/agents/tools/query-app-db', () => ({
 	queryAppDb: vi.fn(),
 }));
