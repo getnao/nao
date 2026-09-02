@@ -105,7 +105,7 @@ def test_local_filesystem_access_is_denied(seeded: None) -> None:
     conn = _lake_config().connect()
     try:
         with pytest.raises(Exception, match="Permission Error|disabled by configuration"):
-            conn.raw_sql("SELECT count(*) FROM read_csv_auto('/etc/passwd', header=false)").fetchall()
+            conn.raw_sql("SELECT count(*) FROM read_csv_auto('/etc/passwd', header=false)").fetchall()  # type: ignore[union-attr]
     finally:
         conn.disconnect()
 
@@ -117,10 +117,10 @@ def test_reads_the_lake_while_denying_the_local_filesystem(seeded: None) -> None
     readable while still denying everything else."""
     conn = _lake_config().connect()
     try:
-        rows = conn.raw_sql('SELECT id FROM "lake".main.sales ORDER BY id LIMIT 3').fetchall()
+        rows = conn.raw_sql('SELECT id FROM "lake".main.sales ORDER BY id LIMIT 3').fetchall()  # type: ignore[union-attr]
         assert rows == [(0,), (1,), (2,)]
         with pytest.raises(Exception, match="Permission Error|disabled by configuration"):
-            conn.raw_sql("SELECT count(*) FROM read_csv_auto('/etc/passwd', header=false)").fetchall()
+            conn.raw_sql("SELECT count(*) FROM read_csv_auto('/etc/passwd', header=false)").fetchall()  # type: ignore[union-attr]
     finally:
         conn.disconnect()
 
@@ -192,7 +192,7 @@ def test_sees_committed_writes(seeded: None) -> None:
     config = _lake_config()
     reader = config.connect()
     try:
-        before = reader.raw_sql('SELECT count(*) FROM "lake".main.sales').fetchall()[0][0]
+        before = reader.raw_sql('SELECT count(*) FROM "lake".main.sales').fetchall()[0][0]  # type: ignore[union-attr]
 
         writer = _writable_connection(config)
         try:
@@ -200,7 +200,7 @@ def test_sees_committed_writes(seeded: None) -> None:
         finally:
             writer.disconnect()
 
-        after = reader.raw_sql('SELECT count(*) FROM "lake".main.sales').fetchall()[0][0]
+        after = reader.raw_sql('SELECT count(*) FROM "lake".main.sales').fetchall()[0][0]  # type: ignore[union-attr]
         assert after == before + 7
     finally:
         reader.disconnect()
@@ -218,7 +218,7 @@ def test_sees_committed_writes_under_the_lockdown(seeded: None) -> None:
     config = _lake_config()
     reader = config.connect()
     try:
-        before_ids = {row[0] for row in reader.raw_sql('SELECT id FROM "lake".main.sales').fetchall()}
+        before_ids = {row[0] for row in reader.raw_sql('SELECT id FROM "lake".main.sales').fetchall()}  # type: ignore[union-attr]
 
         writer = _writable_connection(config)
         try:
@@ -226,7 +226,7 @@ def test_sees_committed_writes_under_the_lockdown(seeded: None) -> None:
         finally:
             writer.disconnect()
 
-        after_ids = {row[0] for row in reader.raw_sql('SELECT id FROM "lake".main.sales').fetchall()}
+        after_ids = {row[0] for row in reader.raw_sql('SELECT id FROM "lake".main.sales').fetchall()}  # type: ignore[union-attr]
         new_ids = after_ids - before_ids
         assert new_ids == {9000, 9001, 9002, 9003}
     finally:
@@ -239,7 +239,7 @@ def test_file_catalog_lock_produces_an_actionable_error(tmp_path) -> None:
     data_path = tmp_path / "data"
     data_path.mkdir()
 
-    config = parse_database_config(
+    config: DuckLakeConfig = parse_database_config(  # type: ignore[invalid-assignment]
         {
             "type": "ducklake",
             "name": "filelake",
@@ -274,7 +274,7 @@ def test_file_catalog_lock_across_processes(tmp_path) -> None:
     data_path = tmp_path / "data"
     data_path.mkdir()
 
-    config = parse_database_config(
+    config: DuckLakeConfig = parse_database_config(  # type: ignore[invalid-assignment]
         {
             "type": "ducklake",
             "name": "filelake",
