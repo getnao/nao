@@ -1,9 +1,14 @@
+import type { MemberStatus } from '@nao/shared/types';
 import crypto from 'crypto';
-import { count, eq, inArray } from 'drizzle-orm';
+import { and, count, eq, inArray, lt, sql } from 'drizzle-orm';
 
 import s, { NewAccount, NewUser, User } from '../db/abstractSchema';
 import { db } from '../db/db';
 import { takeFirstOrThrow } from '../utils/queries';
+
+export const userMemberStatus = sql<MemberStatus>`case when exists(select 1 from ${s.session} where ${s.session.userId} = ${s.user.id}) then 'active' else 'invited' end`;
+
+export const INVITATION_TTL_DAYS = 7;
 
 export const getUser = async (identifier: { id: string } | { email: string }): Promise<User | null> => {
 	const condition = 'id' in identifier ? eq(s.user.id, identifier.id) : eq(s.user.email, identifier.email);
@@ -104,4 +109,20 @@ export const createUser = async (user: NewUser, account: NewAccount): Promise<Us
 		await tx.insert(s.account).values(account).execute();
 		return created;
 	});
+};
+
+export const deleteExpiredInvitations = async (now = new Date()): Promise<number> => {
+	const cutoff = new Date(now.getTime() - INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000);
+	const deleted = await db
+		.delete(s.user)
+		.where(
+			and(
+				lt(s.user.createdAt, cutoff),
+				sql`not exists(select 1 from ${s.session} where ${s.session.userId} = ${s.user.id})`,
+				sql`not exists(select 1 from ${s.chat} where ${s.chat.userId} = ${s.user.id})`,
+			),
+		)
+		.returning({ id: s.user.id })
+		.execute();
+	return deleted.length;
 };

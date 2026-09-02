@@ -116,7 +116,7 @@ export const projectRoutes = {
 			return null;
 		}
 		const userRole = await projectQueries.getUserRoleInProject(project.id, ctx.user.id);
-		return { ...project, userRole };
+		return { id: project.id, name: project.name, path: project.path, userRole };
 	}),
 
 	getDatabaseObjects: projectProtectedProcedure

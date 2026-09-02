@@ -7,6 +7,9 @@ export const USER_ROLES = ['admin', 'user', 'viewer', 'context_admin'] as const 
 /** Project roles available when editing organization members (org roles never include context_admin). */
 export const ORG_MEMBER_ROLES = ['admin', 'user', 'viewer'] as const satisfies readonly UserRole[];
 
+/** `invited` until the user signs in for the first time. */
+export type MemberStatus = 'invited' | 'active';
+
 export const USER_ROLE_LABELS: Record<UserRole, string> = {
 	admin: 'Admin',
 	user: 'User',

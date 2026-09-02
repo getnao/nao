@@ -18,6 +18,7 @@ import { GitLabRepoPicker } from '@/components/settings/gitlab-repo-picker';
 import GitlabIcon from '@/components/icons/gitlab-icon.svg';
 import { OrgApiKeys } from '@/components/settings/org-api-keys';
 import { OrgSignInDomains } from '@/components/settings/org-signin-domains';
+import { EditableOrganizationName } from '@/components/settings/editable-organization-name';
 import { Badge } from '@/components/ui/badge';
 import { SettingsCard, SettingsPageWrapper } from '@/components/ui/settings-card';
 import { Button } from '@/components/ui/button';
@@ -61,7 +62,6 @@ function OrganizationPage() {
 	const [removeMember, setRemoveMember] = useState<TeamMember | null>(null);
 	const [resetPasswordMember, setResetPasswordMember] = useState<TeamMember | null>(null);
 	const [credentials, setCredentials] = useState<{ email: string; password: string } | null>(null);
-
 	const invalidateMembers = useCallback(() => {
 		queryClient.invalidateQueries({ queryKey: trpc.organization.getMembers.queryKey() });
 	}, [queryClient]);
@@ -77,6 +77,7 @@ function OrganizationPage() {
 			name: m.name,
 			email: m.email,
 			role: m.role as UserRole,
+			status: m.status,
 		})) ?? [];
 
 	const handleAdd = async (data: { email: string; name?: string }) => {
@@ -168,7 +169,7 @@ function OrganizationPage() {
 	return (
 		<SettingsPageWrapper>
 			<div className='flex flex-col gap-5'>
-				<h1 className='text-lg font-semibold text-foreground'>{org.data?.name ?? 'Organization'}</h1>
+				<EditableOrganizationName name={org.data?.name ?? 'Organization'} canEdit={isOrgAdmin && !!org.data} />
 				<SettingsCard
 					title='Members'
 					divide
@@ -190,9 +191,11 @@ function OrganizationPage() {
 							isAdmin={isOrgAdmin}
 							onEdit={setEditMember}
 							onRemove={setRemoveMember}
-							extraActions={(member) => (
-								<ResetPasswordAction onClick={() => setResetPasswordMember(member)} />
-							)}
+							extraActions={
+								isCloud
+									? undefined
+									: (member) => <ResetPasswordAction onClick={() => setResetPasswordMember(member)} />
+							}
 						/>
 					)}
 				</SettingsCard>

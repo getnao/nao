@@ -55,6 +55,11 @@ export function TeamMembersList({
 							<TableCell className='font-medium'>
 								{member.name}
 								{isCurrentUser && <span className='text-muted-foreground ml-1'>(you)</span>}
+								{member.status === 'invited' && (
+									<Badge variant='outline' className='ml-2'>
+										Invited
+									</Badge>
+								)}
 							</TableCell>
 							<TableCell className='font-mono text-muted-foreground'>{member.email}</TableCell>
 							<TableCell>
