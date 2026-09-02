@@ -51,7 +51,7 @@ const usageFiltersStorageKey = 'nao.usage-filters';
 
 export function validateUsageSearchWithStoredFilters(search: Record<string, unknown>): UsageRouteSearch {
 	const hasSearchFilters = [...filterSearchKeys, ...periodSearchKeys].some((key) => search[key] !== undefined);
-	const storedFilters = hasSearchFilters ? {} : readStoredUsageFilters();
+	const storedFilters = hasSearchFilters ? {} : pickUsageFilters(readStoredUsageFilters());
 
 	return validateUsageSearch({ ...storedFilters, ...search });
 }
@@ -61,7 +61,7 @@ export function saveUsageFilters(search: UsageRouteSearch): void {
 		return;
 	}
 
-	const filters = Object.fromEntries(filterSearchKeys.map((key) => [key, search[key]]));
+	const filters = pickUsageFilters(search);
 
 	try {
 		localStorage.setItem(getUsageFiltersStorageKey(), JSON.stringify(filters));
@@ -141,6 +141,10 @@ function readStoredUsageFilters(storageKey = getUsageFiltersStorageKey()): Recor
 
 function getUsageFiltersStorageKey(projectId = getActiveProjectId() ?? 'default'): string {
 	return `${usageFiltersStorageKey}.${projectId}`;
+}
+
+function pickUsageFilters(filters: Record<string, unknown>): Record<string, unknown> {
+	return Object.fromEntries(filterSearchKeys.map((key) => [key, filters[key]]));
 }
 
 function parsePeriodSearch(search: Record<string, unknown>): { mode: UsagePeriodPreset | undefined } {

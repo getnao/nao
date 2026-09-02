@@ -99,7 +99,9 @@ export function UsagePeriodFilter({
 						className='h-8 w-40 justify-between px-2.5 font-normal'
 						disabled={isLoading}
 					>
-						<span className='truncate'>{formatPeriodPreference(value, entries)}</span>
+						<span className='truncate'>
+							{isLoading && value.mode === 'saved' ? 'Loading…' : formatPeriodPreference(value, entries)}
+						</span>
 						<ChevronDownIcon className='size-4 shrink-0 text-muted-foreground' />
 					</Button>
 				</PopoverTrigger>

@@ -41,11 +41,13 @@ export const usageRoutes = {
 		return usageQueries.getUsedProviders(ctx.project.id);
 	}),
 
-	getPeriodPreference: adminProtectedProcedure.input(projectPreferenceInputSchema).query(async ({ ctx, input }) => {
+	getPeriodSettings: adminProtectedProcedure.input(projectPreferenceInputSchema).query(async ({ ctx, input }) => {
 		assertPreferenceProject(input.projectId, ctx.project.id);
 		const preferences = await getSanitizedPeriodPreferences(ctx.user.id, ctx.project.id);
-		const parsedPreference = usagePeriodPreferenceSchema.safeParse(preferences.usagePeriod);
-		return parsedPreference.success ? parsedPreference.data : null;
+		return {
+			preference: preferences.usagePeriod ?? null,
+			entries: parsePeriodEntries(preferences),
+		};
 	}),
 
 	updatePeriodPreference: adminProtectedProcedure
@@ -70,12 +72,6 @@ export const usageRoutes = {
 			);
 			return preferences.usagePeriod;
 		}),
-
-	getPeriodEntries: adminProtectedProcedure.input(projectPreferenceInputSchema).query(async ({ ctx, input }) => {
-		assertPreferenceProject(input.projectId, ctx.project.id);
-		const preferences = await getSanitizedPeriodPreferences(ctx.user.id, ctx.project.id);
-		return parsePeriodEntries(preferences);
-	}),
 
 	createPeriodEntry: adminProtectedProcedure.input(createPeriodEntryInputSchema).mutation(async ({ ctx, input }) => {
 		assertPreferenceProject(input.projectId, ctx.project.id);

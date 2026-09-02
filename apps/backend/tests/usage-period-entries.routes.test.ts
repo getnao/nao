@@ -59,35 +59,37 @@ describe('usage period entry routes', () => {
 		});
 
 		expect(created.id).toEqual(expect.any(String));
-		await expect(caller.getPeriodEntries({ projectId: 'project-id' })).resolves.toEqual([created]);
-		await expect(caller.getPeriodPreference({ projectId: 'project-id' })).resolves.toEqual({
-			mode: 'saved',
-			entryId: created.id,
+		await expect(caller.getPeriodSettings({ projectId: 'project-id' })).resolves.toEqual({
+			preference: { mode: 'saved', entryId: created.id },
+			entries: [created],
 		});
 
 		const updated = await caller.updatePeriodEntry({
 			projectId: 'project-id',
 			entry: { ...created, days: 730, granularity: 'day' },
 		});
-		await expect(caller.getPeriodEntries({ projectId: 'project-id' })).resolves.toEqual([updated]);
+		await expect(caller.getPeriodSettings({ projectId: 'project-id' })).resolves.toEqual({
+			preference: { mode: 'saved', entryId: created.id },
+			entries: [updated],
+		});
 
 		await caller.updatePeriodPreference({
 			projectId: 'project-id',
 			preference: { mode: 'saved', entryId: created.id },
 		});
-		await expect(caller.getPeriodPreference({ projectId: 'project-id' })).resolves.toEqual({
-			mode: 'saved',
-			entryId: created.id,
+		await expect(caller.getPeriodSettings({ projectId: 'project-id' })).resolves.toEqual({
+			preference: { mode: 'saved', entryId: created.id },
+			entries: [updated],
 		});
 
 		await expect(caller.deletePeriodEntry({ projectId: 'project-id', id: created.id })).resolves.toEqual({
 			id: created.id,
 			usagePeriod: DEFAULT_USAGE_PERIOD_PREFERENCE,
 		});
-		await expect(caller.getPeriodEntries({ projectId: 'project-id' })).resolves.toEqual([]);
-		await expect(caller.getPeriodPreference({ projectId: 'project-id' })).resolves.toEqual(
-			DEFAULT_USAGE_PERIOD_PREFERENCE,
-		);
+		await expect(caller.getPeriodSettings({ projectId: 'project-id' })).resolves.toEqual({
+			preference: DEFAULT_USAGE_PERIOD_PREFERENCE,
+			entries: [],
+		});
 	});
 
 	it('rejects unknown entries', async () => {
@@ -118,10 +120,10 @@ describe('usage period entry routes', () => {
 			entry: { days: 365, granularity: 'month' },
 		});
 
-		await expect(caller.getPeriodEntries({ projectId: 'project-id' })).resolves.toEqual([
-			{ id: 'valid', days: 30, granularity: 'day' },
-			created,
-		]);
+		await expect(caller.getPeriodSettings({ projectId: 'project-id' })).resolves.toEqual({
+			preference: { mode: 'saved', entryId: created.id },
+			entries: [{ id: 'valid', days: 30, granularity: 'day' }, created],
+		});
 	});
 
 	it('repairs an orphaned saved preference', async () => {
@@ -130,9 +132,10 @@ describe('usage period entry routes', () => {
 			usagePeriodEntries: [{ id: 'invalid', days: 0, granularity: 'day' }],
 		};
 
-		await expect(createCaller().getPeriodPreference({ projectId: 'project-id' })).resolves.toEqual(
-			DEFAULT_USAGE_PERIOD_PREFERENCE,
-		);
+		await expect(createCaller().getPeriodSettings({ projectId: 'project-id' })).resolves.toEqual({
+			preference: DEFAULT_USAGE_PERIOD_PREFERENCE,
+			entries: [],
+		});
 		expect(state.preferences).toEqual({
 			usagePeriod: DEFAULT_USAGE_PERIOD_PREFERENCE,
 			usagePeriodEntries: [],
@@ -146,7 +149,10 @@ describe('usage period entry routes', () => {
 			usagePeriodEntries: [validEntry, { id: 'invalid', days: 0, granularity: 'day' }],
 		};
 
-		await expect(createCaller().getPeriodEntries({ projectId: 'project-id' })).resolves.toEqual([validEntry]);
+		await expect(createCaller().getPeriodSettings({ projectId: 'project-id' })).resolves.toEqual({
+			preference: DEFAULT_USAGE_PERIOD_PREFERENCE,
+			entries: [validEntry],
+		});
 		expect(state.preferences).toEqual({
 			usagePeriod: DEFAULT_USAGE_PERIOD_PREFERENCE,
 			usagePeriodEntries: [validEntry],
@@ -154,7 +160,7 @@ describe('usage period entry routes', () => {
 	});
 
 	it('rejects preference requests for a stale project', async () => {
-		await expect(createCaller().getPeriodEntries({ projectId: 'other-project' })).rejects.toMatchObject({
+		await expect(createCaller().getPeriodSettings({ projectId: 'other-project' })).rejects.toMatchObject({
 			code: 'BAD_REQUEST',
 		});
 	});

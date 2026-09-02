@@ -5,12 +5,29 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_USAGE_PERIOD_PREFERENCE } from '@nao/backend/usage';
 
 import { UsageFilters } from './usage-filters';
+import { UsagePeriodFilter } from './usage-period-filter';
 import type { UsagePeriodEntry } from '@nao/backend/usage';
 
 const periodEntries: UsagePeriodEntry[] = [{ id: 'year', days: 365, granularity: 'month' }];
 
 describe('UsageFilters', () => {
 	afterEach(cleanup);
+
+	it('shows a neutral label while a saved entry is loading', () => {
+		render(
+			<UsagePeriodFilter
+				value={{ mode: 'saved', entryId: 'year' }}
+				entries={[]}
+				isLoading
+				onChange={vi.fn()}
+				onCreateEntry={vi.fn()}
+				onUpdateEntry={vi.fn()}
+				onDeleteEntry={vi.fn()}
+			/>,
+		);
+
+		expect(screen.getByRole('button', { name: 'Loading…' }).hasAttribute('disabled')).toBe(true);
+	});
 
 	it('opens an add-entry dialog without a maximum day limit', () => {
 		const onCreatePeriodEntry = vi.fn();

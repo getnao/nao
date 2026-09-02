@@ -9,24 +9,19 @@ import type { UsageRouteSearch } from '@/components/settings/usage-route-search'
 import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
 
 const mocks = vi.hoisted(() => ({
-	getPreference: vi.fn(),
-	getEntries: vi.fn(),
+	getSettings: vi.fn(),
 	updatePreference: vi.fn(),
 	createEntry: vi.fn(),
 	updateEntry: vi.fn(),
 	deleteEntry: vi.fn(),
-	preferenceQueryOptions: vi.fn(),
-	entriesQueryOptions: vi.fn(),
+	settingsQueryOptions: vi.fn(),
 }));
 
 vi.mock('@/main', () => ({
 	trpc: {
 		usage: {
-			getPeriodPreference: {
-				queryOptions: mocks.preferenceQueryOptions,
-			},
-			getPeriodEntries: {
-				queryOptions: mocks.entriesQueryOptions,
+			getPeriodSettings: {
+				queryOptions: mocks.settingsQueryOptions,
 			},
 			updatePeriodPreference: {
 				mutationOptions: (options: object) => ({ mutationFn: mocks.updatePreference, ...options }),
@@ -48,19 +43,17 @@ describe('useUsagePeriodPreferences', () => {
 	beforeEach(() => {
 		localStorage.clear();
 		localStorage.setItem('nao.active-project-id', JSON.stringify('project-a'));
-		mocks.getPreference.mockResolvedValue(DEFAULT_USAGE_PERIOD_PREFERENCE);
-		mocks.getEntries.mockResolvedValue([{ id: 'year', days: 365, granularity: 'month' }]);
+		mocks.getSettings.mockResolvedValue({
+			preference: DEFAULT_USAGE_PERIOD_PREFERENCE,
+			entries: [{ id: 'year', days: 365, granularity: 'month' }],
+		});
 		mocks.updatePreference.mockResolvedValue(DEFAULT_USAGE_PERIOD_PREFERENCE);
 		mocks.createEntry.mockResolvedValue({ id: 'created', days: 30, granularity: 'day' });
 		mocks.updateEntry.mockImplementation(async ({ entry }) => entry);
 		mocks.deleteEntry.mockResolvedValue({ id: 'year', usagePeriod: DEFAULT_USAGE_PERIOD_PREFERENCE });
-		mocks.preferenceQueryOptions.mockImplementation((input) => ({
-			queryKey: [['usage', 'getPeriodPreference'], { input }],
-			queryFn: () => mocks.getPreference(input),
-		}));
-		mocks.entriesQueryOptions.mockImplementation((input) => ({
-			queryKey: [['usage', 'getPeriodEntries'], { input }],
-			queryFn: () => mocks.getEntries(input),
+		mocks.settingsQueryOptions.mockImplementation((input) => ({
+			queryKey: [['usage', 'getPeriodSettings'], { input }],
+			queryFn: () => mocks.getSettings(input),
 		}));
 	});
 
@@ -70,28 +63,29 @@ describe('useUsagePeriodPreferences', () => {
 	});
 
 	it('waits for saved entries and scopes queries by project', async () => {
-		let resolveEntries: (value: unknown[]) => void = () => undefined;
-		mocks.getEntries.mockReturnValue(
+		let resolveSettings: (value: unknown) => void = () => undefined;
+		mocks.getSettings.mockReturnValue(
 			new Promise((resolve) => {
-				resolveEntries = resolve;
+				resolveSettings = resolve;
 			}),
 		);
 		const onUpdateSearch = vi.fn();
 		const { rerenderHarness } = renderHarness(onUpdateSearch);
 
 		expect(screen.getByTestId('status').textContent).toBe('loading');
-		expect(mocks.preferenceQueryOptions).toHaveBeenCalledWith({ projectId: 'project-a' });
-		expect(mocks.entriesQueryOptions).toHaveBeenCalledWith({ projectId: 'project-a' });
+		expect(mocks.settingsQueryOptions).toHaveBeenCalledWith({ projectId: 'project-a' });
 
 		await act(async () => {
-			resolveEntries([{ id: 'year', days: 365, granularity: 'month' }]);
+			resolveSettings({
+				preference: DEFAULT_USAGE_PERIOD_PREFERENCE,
+				entries: [{ id: 'year', days: 365, granularity: 'month' }],
+			});
 		});
 		await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('ready'));
 
 		localStorage.setItem('nao.active-project-id', JSON.stringify('project-b'));
 		rerenderHarness(1);
-		await waitFor(() => expect(mocks.preferenceQueryOptions).toHaveBeenLastCalledWith({ projectId: 'project-b' }));
-		expect(mocks.entriesQueryOptions).toHaveBeenLastCalledWith({ projectId: 'project-b' });
+		await waitFor(() => expect(mocks.settingsQueryOptions).toHaveBeenLastCalledWith({ projectId: 'project-b' }));
 	});
 
 	it('restores URL state when preference persistence fails', async () => {
@@ -111,7 +105,7 @@ describe('useUsagePeriodPreferences', () => {
 	it('migrates legacy preferences once per project', async () => {
 		localStorage.setItem('nao.usage-filters.project-a', JSON.stringify({ periodMode: '6m' }));
 		localStorage.setItem('nao.usage-filters.project-b', JSON.stringify({ periodMode: '24h' }));
-		mocks.getPreference.mockResolvedValue(null);
+		mocks.getSettings.mockResolvedValue({ preference: null, entries: [] });
 		const onUpdateSearch = vi.fn();
 		const { rerenderHarness } = renderHarness(onUpdateSearch);
 
@@ -135,7 +129,7 @@ describe('useUsagePeriodPreferences', () => {
 
 	it('does not automatically retry a failed legacy migration', async () => {
 		localStorage.setItem('nao.usage-filters.project-a', JSON.stringify({ periodMode: '6m' }));
-		mocks.getPreference.mockResolvedValue(null);
+		mocks.getSettings.mockResolvedValue({ preference: null, entries: [] });
 		mocks.updatePreference.mockRejectedValue(new Error('Migration failed'));
 		renderHarness(vi.fn());
 

@@ -1,8 +1,19 @@
-import { describe, expect, it } from 'vitest';
+// @vitest-environment jsdom
 
-import { validateUsageSearch } from './usage-route-search';
+import { beforeEach, describe, expect, it } from 'vitest';
+
+import {
+	readStoredUsagePeriodPreference,
+	validateUsageSearch,
+	validateUsageSearchWithStoredFilters,
+} from './usage-route-search';
 
 describe('validateUsageSearch', () => {
+	beforeEach(() => {
+		localStorage.clear();
+		localStorage.setItem('nao.active-project-id', JSON.stringify('project-a'));
+	});
+
 	it('accepts supported providers', () => {
 		expect(validateUsageSearch({ provider: 'openai' }).provider).toBe('openai');
 		expect(validateUsageSearch({ provider: 'all' }).provider).toBe('all');
@@ -35,5 +46,15 @@ describe('validateUsageSearch', () => {
 		expect(validateUsageSearch({ granularity: 'hour' }).periodMode).toBe('24h');
 		expect(validateUsageSearch({ granularity: 'day' }).periodMode).toBe('15d');
 		expect(validateUsageSearch({ granularity: 'month' }).periodMode).toBe('6m');
+	});
+
+	it('keeps stored periods for migration without applying them to route state', () => {
+		localStorage.setItem('nao.usage-filters.project-a', JSON.stringify({ provider: 'openai', periodMode: '6m' }));
+
+		expect(validateUsageSearchWithStoredFilters({})).toMatchObject({
+			provider: 'openai',
+			periodMode: undefined,
+		});
+		expect(readStoredUsagePeriodPreference('project-a')).toEqual({ mode: '6m' });
 	});
 });
