@@ -30,7 +30,14 @@ vi.mock('../src/db/db', async () => {
 const ORG_ID = 'status-org';
 const PROJECT_ID = 'status-project';
 const ACTIVE_USER_ID = 'active-user';
+const LOGGED_OUT_USER_ID = 'logged-out-user';
 const INVITED_USER_ID = 'invited-user';
+
+const EXPECTED_STATUSES = {
+	[ACTIVE_USER_ID]: 'active',
+	[LOGGED_OUT_USER_ID]: 'active',
+	[INVITED_USER_ID]: 'invited',
+};
 
 describe('member status', () => {
 	beforeAll(async () => {
@@ -40,7 +47,8 @@ describe('member status', () => {
 			.values({ id: PROJECT_ID, orgId: ORG_ID, name: 'Status Project', type: 'local', path: '/tmp' });
 		await db.insert(s.user).values([
 			{ id: ACTIVE_USER_ID, name: 'Active', email: 'active@example.com' },
-			{ id: INVITED_USER_ID, name: 'Invited', email: 'invited@example.com' },
+			{ id: LOGGED_OUT_USER_ID, name: 'Logged out', email: 'logged-out@example.com' },
+			{ id: INVITED_USER_ID, name: 'Invited', email: 'invited@example.com', requiresPasswordReset: true },
 		]);
 		await db.insert(s.session).values({
 			id: 'session-1',
@@ -51,31 +59,35 @@ describe('member status', () => {
 		});
 		await db.insert(s.orgMember).values([
 			{ orgId: ORG_ID, userId: ACTIVE_USER_ID, role: 'admin' },
+			{ orgId: ORG_ID, userId: LOGGED_OUT_USER_ID, role: 'user' },
 			{ orgId: ORG_ID, userId: INVITED_USER_ID, role: 'user' },
 		]);
 		await db.insert(s.projectMember).values([
 			{ projectId: PROJECT_ID, userId: ACTIVE_USER_ID, role: 'admin' },
+			{ projectId: PROJECT_ID, userId: LOGGED_OUT_USER_ID, role: 'user' },
 			{ projectId: PROJECT_ID, userId: INVITED_USER_ID, role: 'user' },
 		]);
 	});
 
-	it('marks users without any session as invited in organization members', async () => {
+	it('marks users who still have a temporary password as invited in organization members', async () => {
 		const members = await listOrgMembersWithUsers(ORG_ID);
 
-		expect(statusById(members)).toEqual({ [ACTIVE_USER_ID]: 'active', [INVITED_USER_ID]: 'invited' });
+		expect(statusById(members)).toEqual(EXPECTED_STATUSES);
 	});
 
-	it('marks users without any session as invited in project members', async () => {
+	it('marks users who still have a temporary password as invited in project members', async () => {
 		const members = await listProjectMembersWithRoles(PROJECT_ID);
 
-		expect(statusById(members)).toEqual({ [ACTIVE_USER_ID]: 'active', [INVITED_USER_ID]: 'invited' });
+		expect(statusById(members)).toEqual(EXPECTED_STATUSES);
 	});
 });
 
 describe('expired invitation cleanup', () => {
 	const EXPIRED_ID = 'expired-invite';
 	const FRESH_ID = 'fresh-invite';
-	const ACTIVE_OLD_ID = 'active-old';
+	const REISSUED_ID = 'reissued-invite';
+	const ONBOARDING_ID = 'onboarding-invite';
+	const LOGGED_OUT_OLD_ID = 'logged-out-old';
 	const MESSAGING_ID = 'messaging-invite';
 
 	beforeAll(async () => {
@@ -89,15 +101,23 @@ describe('expired invitation cleanup', () => {
 			path: '/tmp/cleanup',
 		});
 		await db.insert(s.user).values([
-			{ id: EXPIRED_ID, name: 'Expired', email: 'expired@example.com', createdAt: eightDaysAgo },
-			{ id: FRESH_ID, name: 'Fresh', email: 'fresh@example.com' },
-			{ id: ACTIVE_OLD_ID, name: 'Active Old', email: 'active-old@example.com', createdAt: eightDaysAgo },
-			{ id: MESSAGING_ID, name: 'Messaging', email: 'messaging@example.com', createdAt: eightDaysAgo },
+			{ ...invitedUser(EXPIRED_ID), createdAt: eightDaysAgo, updatedAt: eightDaysAgo },
+			invitedUser(FRESH_ID),
+			{ ...invitedUser(REISSUED_ID), createdAt: eightDaysAgo },
+			{ ...invitedUser(ONBOARDING_ID), createdAt: eightDaysAgo, updatedAt: eightDaysAgo },
+			{ ...invitedUser(MESSAGING_ID), createdAt: eightDaysAgo, updatedAt: eightDaysAgo },
+			{
+				id: LOGGED_OUT_OLD_ID,
+				name: LOGGED_OUT_OLD_ID,
+				email: `${LOGGED_OUT_OLD_ID}@example.com`,
+				createdAt: eightDaysAgo,
+				updatedAt: eightDaysAgo,
+			},
 		]);
 		await db.insert(s.session).values({
-			id: 'session-old',
-			token: 'token-old',
-			userId: ACTIVE_OLD_ID,
+			id: 'session-onboarding',
+			token: 'token-onboarding',
+			userId: ONBOARDING_ID,
 			expiresAt: new Date(Date.now() + 60_000),
 			updatedAt: new Date(),
 		});
@@ -109,15 +129,21 @@ describe('expired invitation cleanup', () => {
 		});
 	});
 
-	it('deletes invited users older than 7 days who never signed in', async () => {
-		expect(await deleteExpiredInvitations()).toBe(1);
+	it('deletes only invitations whose temporary password is over 7 days old and unused', async () => {
+		await deleteExpiredInvitations();
 
 		const remaining = await db.select({ id: s.user.id }).from(s.user).execute();
 		const remainingIds = remaining.map((user) => user.id);
 		expect(remainingIds).not.toContain(EXPIRED_ID);
-		expect(remainingIds).toEqual(expect.arrayContaining([FRESH_ID, ACTIVE_OLD_ID, MESSAGING_ID, ACTIVE_USER_ID]));
+		expect(remainingIds).toEqual(
+			expect.arrayContaining([FRESH_ID, REISSUED_ID, ONBOARDING_ID, LOGGED_OUT_OLD_ID, MESSAGING_ID]),
+		);
 	});
 });
+
+function invitedUser(id: string) {
+	return { id, name: id, email: `${id}@example.com`, requiresPasswordReset: true };
+}
 
 function statusById(members: { id: string; status: string }[]): Record<string, string> {
 	return Object.fromEntries(members.map((member) => [member.id, member.status]));

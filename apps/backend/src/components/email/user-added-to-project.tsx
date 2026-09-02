@@ -1,3 +1,4 @@
+import { getEmailDomain } from '../../utils/utils';
 import { EmailButton } from './email-button';
 import { EmailLayout } from './email-layout';
 import { EmailCode, EmailParagraph } from './email-text';
@@ -22,8 +23,8 @@ export function UserAddedToProject({
 	invitedBy,
 }: UserAddedToProjectProps) {
 	const isNewUser = !!temporaryPassword;
-	const inviterDomain = emailDomain(invitedBy);
-	const recipientDomain = emailDomain(to);
+	const inviterDomain = invitedBy ? getEmailDomain(invitedBy) : null;
+	const recipientDomain = getEmailDomain(to);
 	const isForeignInviter = !!inviterDomain && inviterDomain !== recipientDomain;
 
 	return (
@@ -73,8 +74,4 @@ export function UserAddedToProject({
 			</EmailParagraph>
 		</EmailLayout>
 	);
-}
-
-function emailDomain(email?: string): string | undefined {
-	return email?.split('@').at(1)?.toLowerCase();
 }

@@ -6,6 +6,9 @@ export const emailColors = {
 	brand: '#522bff',
 };
 
+export const emailFontsUrl =
+	'https://fonts.googleapis.com/css2?family=Geist:wght@400;600&family=Geist+Mono&display=swap';
+
 export const emailFonts = {
 	sans: "'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
 	mono: "'Geist Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace",

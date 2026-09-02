@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 import { EMAIL_LOGO_CID, emailLogoAttachment } from '../../utils/email-logo';
-import { emailColors, emailFonts, emailText } from './email-theme';
+import { emailColors, emailFonts, emailFontsUrl, emailText } from './email-theme';
 
 interface EmailLayoutProps {
 	title: string;
@@ -17,6 +17,7 @@ export function EmailLayout({ title, children }: EmailLayoutProps) {
 				<meta name='color-scheme' content='light' />
 				<meta name='supported-color-schemes' content='light' />
 				<title>{title}</title>
+				<link href={emailFontsUrl} rel='stylesheet' />
 			</head>
 			<body style={{ margin: 0, padding: 0, backgroundColor: '#ffffff', fontFamily: emailFonts.sans }}>
 				<table role='presentation' width='100%' cellPadding={0} cellSpacing={0}>
