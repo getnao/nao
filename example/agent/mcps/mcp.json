@@ -10,16 +10,6 @@
         "METABASE_URL": "${METABASE_URL}",
         "METABASE_API_KEY": "${METABASE_API_KEY}"
       }
-    },
-		"dbt": {
-			"command": "npx",
-			"args": [
-				"-y",
-				"@example/dbt-mcp-server"
-			],
-			"env": {
-				"DBT_TOKEN": "${DBT_TOKEN}"
-			}
 		},
     "notion": {
 			"transport": "streamable-http",

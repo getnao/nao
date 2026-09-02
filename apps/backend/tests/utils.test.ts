@@ -56,6 +56,20 @@ describe('replaceEnvVars', () => {
 		}
 	});
 
+	it('does not fall back to process env when extra env contains an empty value', () => {
+		const previous = process.env.DBT_TOKEN;
+		process.env.DBT_TOKEN = 'from-process';
+		try {
+			expect(replaceEnvVars('${DBT_TOKEN}', { DBT_TOKEN: '' })).toBe('');
+		} finally {
+			if (previous === undefined) {
+				delete process.env.DBT_TOKEN;
+			} else {
+				process.env.DBT_TOKEN = previous;
+			}
+		}
+	});
+
 	it('keeps the placeholder when no value exists', () => {
 		expect(replaceEnvVars('${MISSING_TOKEN}')).toBe('${MISSING_TOKEN}');
 	});

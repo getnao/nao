@@ -118,7 +118,10 @@ export const regexPassword = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[#?!@$%
 
 export const replaceEnvVars = (fileContent: string, extraEnv: Record<string, string> = {}) => {
 	const replaced = fileContent.replace(/\$\{(\w+)\}/g, (match, varName) => {
-		return extraEnv[varName] || process.env[varName] || match;
+		if (Object.hasOwn(extraEnv, varName)) {
+			return extraEnv[varName];
+		}
+		return process.env[varName] ?? match;
 	});
 	return replaced;
 };
