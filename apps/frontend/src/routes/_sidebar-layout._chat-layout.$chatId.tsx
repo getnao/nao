@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Folder, GitFork, Globe, ScanText, TimerIcon, Upload } from 'lucide-react';
+import { Folder, GitFork, Globe, Info, TimerIcon, Upload } from 'lucide-react';
 import type { ForkMetadata } from '@nao/backend/chat';
 import type { SelectionData } from '@/components/highlight-bubble';
 import { NEW_CHAT_ID } from '@/lib/ai';
@@ -219,7 +219,7 @@ function ChatPage() {
 									disabled={isRunning}
 									aria-label='Analytics'
 								>
-									<ScanText className='size-3' />
+									<Info className='size-3.5' />
 								</Button>
 								<Button
 									variant='outline'

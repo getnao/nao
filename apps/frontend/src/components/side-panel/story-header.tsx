@@ -7,13 +7,13 @@ import {
 	Ellipsis,
 	Eye,
 	Globe,
+	Info,
 	Loader2,
 	Maximize2,
 	Pencil,
 	RefreshCw,
 	RotateCcw,
 	Save,
-	ScanText,
 	Star,
 	Upload,
 	X,
@@ -67,6 +67,7 @@ export interface StoryHeaderProps {
 	isStoryUpdating: boolean;
 	isSaving?: boolean;
 	isReadonlyMode: boolean;
+	isReplay?: boolean;
 	isLive: boolean;
 	isRefreshing: boolean;
 	onRefreshData: () => void;
@@ -118,6 +119,7 @@ export const StoryHeader = memo(function StoryHeader({
 	isStoryUpdating,
 	isSaving = false,
 	isReadonlyMode,
+	isReplay = false,
 	isLive,
 	isRefreshing,
 	onRefreshData,
@@ -259,7 +261,7 @@ export const StoryHeader = memo(function StoryHeader({
 		/>
 	);
 
-	const starButton = storyId && (
+	const starButton = !isReadonlyMode && storyId && (
 		<Tooltip>
 			<TooltipTrigger asChild>
 				<Button
@@ -280,14 +282,14 @@ export const StoryHeader = memo(function StoryHeader({
 		</Tooltip>
 	);
 
-	const liveControls = !isReadonlyMode && (
+	const liveControls = (!isReadonlyMode || isReplay) && (
 		<>
 			<Tooltip>
 				<TooltipTrigger asChild>
 					<button
 						type='button'
 						onClick={onOpenLiveSettings}
-						disabled={isAgentRunning}
+						disabled={isReadonlyMode || isAgentRunning}
 						className='flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 border hover:bg-secondary rounded-full px-2 py-0.75'
 					>
 						<Activity className='size-3.5 text-foreground' strokeWidth={2.25} />
@@ -295,33 +297,60 @@ export const StoryHeader = memo(function StoryHeader({
 						<SwitchIndicator checked={isLive} />
 					</button>
 				</TooltipTrigger>
-				<TooltipContent>{isLive ? 'Live story settings' : 'Enable live mode'}</TooltipContent>
+				<TooltipContent>
+					{isReadonlyMode
+						? isLive
+							? 'Live mode on'
+							: 'Live mode off'
+						: isLive
+							? 'Live story settings'
+							: 'Enable live mode'}
+				</TooltipContent>
 			</Tooltip>
 			{isLive && (
 				<>
 					{cachedAt && <LiveStoryTimestamp cachedAt={cachedAt} />}
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								variant='ghost'
-								size='icon-sm'
-								className='hover:rounded-full'
-								onClick={onRefreshData}
-								disabled={isRefreshing}
-								aria-label='Refresh data'
-							>
-								{isRefreshing ? (
-									<Loader2 className='size-3 animate-spin' strokeWidth={2.25} />
-								) : (
-									<RefreshCw className='size-3' strokeWidth={2.25} />
-								)}
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent>Refresh data</TooltipContent>
-					</Tooltip>
+					{!isReadonlyMode && (
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Button
+									variant='ghost'
+									size='icon-sm'
+									className='hover:rounded-full'
+									onClick={onRefreshData}
+									disabled={isRefreshing}
+									aria-label='Refresh data'
+								>
+									{isRefreshing ? (
+										<Loader2 className='size-3 animate-spin' strokeWidth={2.25} />
+									) : (
+										<RefreshCw className='size-3' strokeWidth={2.25} />
+									)}
+								</Button>
+							</TooltipTrigger>
+							<TooltipContent>Refresh data</TooltipContent>
+						</Tooltip>
+					)}
 				</>
 			)}
 		</>
+	);
+
+	const replayAnalyticsButton = isReplay && isReadonlyMode && (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<Button
+					variant='ghost'
+					size='icon-sm'
+					className='hover:rounded-full'
+					onClick={onOpenAnalytics}
+					aria-label='Analytics'
+				>
+					<Info className='size-3' />
+				</Button>
+			</TooltipTrigger>
+			<TooltipContent>Analytics</TooltipContent>
+		</Tooltip>
 	);
 
 	const actionButtons = !isReadonlyMode && (
@@ -337,7 +366,7 @@ export const StoryHeader = memo(function StoryHeader({
 					<span>Share</span>
 				</DropdownMenuItem>
 				<DropdownMenuItem onSelect={onOpenAnalytics}>
-					<ScanText className='size-3' />
+					<Info className='size-3' />
 					<span>Analytics</span>
 				</DropdownMenuItem>
 				<DropdownMenuItem onSelect={onEnlarge}>
@@ -367,6 +396,7 @@ export const StoryHeader = memo(function StoryHeader({
 						{liveControls}
 						{downloadButton}
 						{starButton}
+						{replayAnalyticsButton}
 						{actionButtons}
 					</div>
 					<div className='flex items-center gap-2 border-b px-4 py-2'>
@@ -393,6 +423,7 @@ export const StoryHeader = memo(function StoryHeader({
 					{liveControls}
 					{downloadButton}
 					{starButton}
+					{replayAnalyticsButton}
 					{actionButtons}
 				</div>
 			)}

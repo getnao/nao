@@ -7,13 +7,13 @@ import {
 	Ellipsis,
 	Eye,
 	Globe,
+	Info,
 	Loader2,
 	MessageSquare,
 	Pencil,
 	RefreshCw,
 	RotateCcw,
 	Save,
-	ScanText,
 	Star,
 	Upload,
 } from 'lucide-react';
@@ -179,7 +179,7 @@ export function StoryPageHeader({
 									)}
 									{onOpenAnalytics && (
 										<DropdownMenuItem onSelect={onOpenAnalytics}>
-											<ScanText className='size-3' />
+											<Info className='size-3' />
 											<span>Analytics</span>
 										</DropdownMenuItem>
 									)}
