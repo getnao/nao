@@ -25,6 +25,7 @@ import * as projectWhatsappLinkQueries from '../queries/project-whatsapp-link.qu
 import * as userQueries from '../queries/user.queries';
 import { cleanupContextWorktree } from '../services/context-explorer-git.service';
 import { mattermostService } from '../services/mattermost';
+import { mcpService } from '../services/mcp';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { slackService } from '../services/slack';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
@@ -1128,6 +1129,7 @@ export const projectRoutes = {
 		.input(z.object({ envVars: z.record(z.string(), z.string()) }))
 		.mutation(async ({ ctx, input }) => {
 			await projectQueries.updateEnvVars(ctx.project.id, input.envVars);
+			await mcpService.refreshProjectConfig(ctx.project.id);
 		}),
 
 	getMapBoundaries: projectProtectedProcedure.query(async ({ ctx }) => {

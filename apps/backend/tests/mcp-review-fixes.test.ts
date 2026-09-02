@@ -130,6 +130,49 @@ describe('MCP first discovery', () => {
 	});
 });
 
+describe('MCP config refresh', () => {
+	it('reloads the current project config and clears cached runtime state', async () => {
+		const service = new McpService() as unknown as {
+			_projectId: string;
+			_initPromise: Promise<void> | null;
+			_runtimePromise: Promise<unknown> | null;
+			_discovered: Record<string, unknown[]>;
+			_loadConfig: () => Promise<void>;
+			_ensureSpecs: () => Promise<void>;
+			refreshProjectConfig: (projectId: string) => Promise<void>;
+		};
+		service._projectId = 'project';
+		service._initPromise = Promise.resolve();
+		service._runtimePromise = Promise.resolve({});
+		service._discovered = { server: [{ name: 'search' }] };
+		const loadConfig = vi.spyOn(service, '_loadConfig').mockResolvedValue();
+		const ensureSpecs = vi.spyOn(service, '_ensureSpecs').mockResolvedValue();
+
+		await service.refreshProjectConfig('project');
+
+		expect(loadConfig).toHaveBeenCalledOnce();
+		expect(ensureSpecs).toHaveBeenCalledOnce();
+		expect(service._runtimePromise).toBeNull();
+		expect(service._discovered).toEqual({});
+	});
+
+	it('does nothing when another project is cached', async () => {
+		const service = new McpService() as unknown as {
+			_projectId: string;
+			_initPromise: Promise<void> | null;
+			_loadConfig: () => Promise<void>;
+			refreshProjectConfig: (projectId: string) => Promise<void>;
+		};
+		service._projectId = 'other-project';
+		service._initPromise = Promise.resolve();
+		const loadConfig = vi.spyOn(service, '_loadConfig').mockResolvedValue();
+
+		await service.refreshProjectConfig('project');
+
+		expect(loadConfig).not.toHaveBeenCalled();
+	});
+});
+
 describe('MCP discovery ownership', () => {
 	it('uses the stored discovery owner when another user already owns the server', async () => {
 		vi.spyOn(mcpOAuthService, 'getValidAccessToken').mockResolvedValue('user-token');

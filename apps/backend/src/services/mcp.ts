@@ -124,6 +124,29 @@ export class McpService {
 		return this._initPromise;
 	}
 
+	public async refreshProjectConfig(projectId: string): Promise<void> {
+		if (!this._initPromise || this._projectId !== projectId) {
+			return;
+		}
+
+		try {
+			await this._initPromise;
+			if (this._projectId !== projectId) {
+				return;
+			}
+
+			this._resetRuntime();
+			this._resetDiscovery();
+			await this._loadConfig();
+			await this._ensureSpecs();
+		} catch (error) {
+			logger.error(`MCP config refresh failed: ${String(error)}`, {
+				source: 'tool',
+				projectId,
+			});
+		}
+	}
+
 	public getConfiguredServerNames(): string[] {
 		return Object.keys(this._mcpServers);
 	}
