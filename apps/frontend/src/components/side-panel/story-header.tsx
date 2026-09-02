@@ -68,6 +68,7 @@ export interface StoryHeaderProps {
 	isSaving?: boolean;
 	isReadonlyMode: boolean;
 	isLive: boolean;
+	isLiveUpdating: boolean;
 	isRefreshing: boolean;
 	onRefreshData: () => void;
 	onOpenLiveSettings: () => void;
@@ -119,6 +120,7 @@ export const StoryHeader = memo(function StoryHeader({
 	isSaving = false,
 	isReadonlyMode,
 	isLive,
+	isLiveUpdating,
 	isRefreshing,
 	onRefreshData,
 	onOpenLiveSettings,
@@ -287,15 +289,21 @@ export const StoryHeader = memo(function StoryHeader({
 					<button
 						type='button'
 						onClick={onOpenLiveSettings}
-						disabled={isAgentRunning}
+						disabled={isAgentRunning || isLiveUpdating}
 						className='flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 border hover:bg-secondary rounded-full px-2 py-0.75'
 					>
 						<Activity className='size-3.5 text-foreground' strokeWidth={2.25} />
 						<span className='text-xs font-medium'>Live story</span>
-						<SwitchIndicator checked={isLive} />
+						{isLiveUpdating ? (
+							<Loader2 className='size-3.5 animate-spin' strokeWidth={2.25} />
+						) : (
+							<SwitchIndicator checked={isLive} />
+						)}
 					</button>
 				</TooltipTrigger>
-				<TooltipContent>{isLive ? 'Live story settings' : 'Enable live mode'}</TooltipContent>
+				<TooltipContent>
+					{isLive ? 'Live story settings' : isLiveUpdating ? 'Live story uploading...' : 'Enable live mode'}
+				</TooltipContent>
 			</Tooltip>
 			{isLive && (
 				<>
