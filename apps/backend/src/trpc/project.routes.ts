@@ -1129,7 +1129,7 @@ export const projectRoutes = {
 		.input(z.object({ envVars: z.record(z.string(), z.string()) }))
 		.mutation(async ({ ctx, input }) => {
 			await projectQueries.updateEnvVars(ctx.project.id, input.envVars);
-			await mcpService.refreshProjectConfig(ctx.project.id);
+			void mcpService.refreshProjectConfig(ctx.project.id);
 		}),
 
 	getMapBoundaries: projectProtectedProcedure.query(async ({ ctx }) => {

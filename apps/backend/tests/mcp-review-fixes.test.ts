@@ -1,4 +1,6 @@
-import { resolve } from 'node:path';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -8,6 +10,7 @@ import { getTools } from '../src/agents/tools';
 import { authRequiredOutput, createMcpCallTool } from '../src/agents/tools/mcp-call';
 import { createMcpConnectTool } from '../src/agents/tools/mcp-connect';
 import * as mcpOAuthQueries from '../src/queries/mcp-oauth.queries';
+import * as projectQueries from '../src/queries/project.queries';
 import { normalizeReturnTo, resultPage } from '../src/routes/mcp-oauth';
 import { McpArgsValidationError, McpService, mcpService } from '../src/services/mcp';
 import * as mcpOAuthService from '../src/services/mcp-oauth';
@@ -131,6 +134,43 @@ describe('MCP first discovery', () => {
 });
 
 describe('MCP config refresh', () => {
+	it('loads project variables containing JSON control characters', async () => {
+		const projectFolder = await mkdtemp(join(tmpdir(), 'nao-mcp-config-'));
+		try {
+			const configPath = join(projectFolder, 'mcp.json');
+			const token = 'Bearer "quoted"\\path\nnext';
+			await writeFile(
+				configPath,
+				JSON.stringify({
+					mcpServers: {
+						remote: {
+							type: 'http',
+							url: 'https://mcp.example.com',
+							headers: { Authorization: '${DBTOKEN}' },
+						},
+					},
+				}),
+			);
+			vi.spyOn(projectQueries, 'getEnvVars').mockResolvedValue({ DBTOKEN: token });
+			const service = new McpService() as unknown as {
+				_projectId: string;
+				_mcpJsonFilePath: string;
+				_mcpServers: Record<string, { headers?: Record<string, string> }>;
+				_configError: string | null;
+				_loadConfig: () => Promise<void>;
+			};
+			service._projectId = 'project';
+			service._mcpJsonFilePath = configPath;
+
+			await service._loadConfig();
+
+			expect(service._configError).toBeNull();
+			expect(service._mcpServers.remote.headers?.Authorization).toBe(token);
+		} finally {
+			await rm(projectFolder, { force: true, recursive: true });
+		}
+	});
+
 	it('reloads the current project config and clears cached runtime state', async () => {
 		const service = new McpService() as unknown as {
 			_projectId: string;
@@ -138,7 +178,7 @@ describe('MCP config refresh', () => {
 			_runtimePromise: Promise<unknown> | null;
 			_discovered: Record<string, unknown[]>;
 			_loadConfig: () => Promise<void>;
-			_ensureSpecs: () => Promise<void>;
+			_discoverAll: () => Promise<void>;
 			refreshProjectConfig: (projectId: string) => Promise<void>;
 		};
 		service._projectId = 'project';
@@ -146,12 +186,12 @@ describe('MCP config refresh', () => {
 		service._runtimePromise = Promise.resolve({});
 		service._discovered = { server: [{ name: 'search' }] };
 		const loadConfig = vi.spyOn(service, '_loadConfig').mockResolvedValue();
-		const ensureSpecs = vi.spyOn(service, '_ensureSpecs').mockResolvedValue();
+		const discoverAll = vi.spyOn(service, '_discoverAll').mockResolvedValue();
 
 		await service.refreshProjectConfig('project');
 
 		expect(loadConfig).toHaveBeenCalledOnce();
-		expect(ensureSpecs).toHaveBeenCalledOnce();
+		expect(discoverAll).toHaveBeenCalledOnce();
 		expect(service._runtimePromise).toBeNull();
 		expect(service._discovered).toEqual({});
 	});

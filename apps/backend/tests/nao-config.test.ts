@@ -83,6 +83,18 @@ describe('extractRequiredEnvVars', () => {
 			fs.rmSync(dir, { force: true, recursive: true });
 		}
 	});
+
+	it('skips config files that cannot be read', () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-config-'));
+		try {
+			const mcpConfigPath = path.join(dir, 'agent', 'mcps', 'mcp.json');
+			fs.mkdirSync(mcpConfigPath, { recursive: true });
+
+			expect(extractRequiredEnvVars(dir)).toEqual([]);
+		} finally {
+			fs.rmSync(dir, { force: true, recursive: true });
+		}
+	});
 });
 
 describe('extractConfiguredRepos', () => {

@@ -35,7 +35,15 @@ function addEnvVarsFromFile(filePath: string, pattern: RegExp, vars: Set<string>
 		return;
 	}
 
-	const content = fs.readFileSync(filePath, 'utf-8');
+	let content: string;
+	try {
+		content = fs.readFileSync(filePath, 'utf-8');
+	} catch (err) {
+		logger.warn(`Failed to read ${filePath}: ${err instanceof Error ? err.message : String(err)}`, {
+			source: 'system',
+		});
+		return;
+	}
 
 	for (const match of content.matchAll(pattern)) {
 		vars.add(match[1]);

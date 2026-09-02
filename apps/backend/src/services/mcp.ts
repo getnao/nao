@@ -68,6 +68,24 @@ function isWithinDirectory(base: string, target: string): boolean {
 	);
 }
 
+function resolveConfigEnvVars(value: unknown, envVars: Record<string, string>): unknown {
+	if (typeof value === 'string') {
+		return replaceEnvVars(value, envVars);
+	}
+	if (Array.isArray(value)) {
+		return value.map((item) => resolveConfigEnvVars(item, envVars));
+	}
+	if (value && typeof value === 'object') {
+		return Object.fromEntries(
+			Object.entries(value).map(([key, item]) => [
+				replaceEnvVars(key, envVars),
+				resolveConfigEnvVars(item, envVars),
+			]),
+		);
+	}
+	return value;
+}
+
 /**
  * Manages MCP servers declared in `agent/mcps/mcp.json`. Instead of loading every tool
  * into the agent context window, it discovers each server's tools and writes the enabled
@@ -138,7 +156,7 @@ export class McpService {
 			this._resetRuntime();
 			this._resetDiscovery();
 			await this._loadConfig();
-			await this._ensureSpecs();
+			await this._discoverAll();
 		} catch (error) {
 			logger.error(`MCP config refresh failed: ${String(error)}`, {
 				source: 'tool',
@@ -512,8 +530,8 @@ export class McpService {
 		try {
 			const fileContent = await readFile(this._mcpJsonFilePath, 'utf8');
 			const envVars = this._projectId ? await getEnvVars(this._projectId) : {};
-			const resolved = replaceEnvVars(fileContent, envVars);
-			const parsed = mcpJsonSchema.parse(JSON.parse(resolved));
+			const resolved = resolveConfigEnvVars(JSON.parse(fileContent), envVars);
+			const parsed = mcpJsonSchema.parse(resolved);
 			this._mcpServers = parsed.mcpServers;
 			this._configError = null;
 		} catch (error) {
