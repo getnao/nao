@@ -472,7 +472,17 @@ describe('edit-mode chart actions', () => {
 		const submenu = destinationItem.closest('[data-slot="dropdown-menu-sub-content"]');
 		expect(submenu?.getAttribute('data-side')).toBe('right');
 		expect(submenu?.getAttribute('data-align')).toBe('start');
-		expect(Number(submenu?.getAttribute('data-story-block-action-submenu-offset'))).toBeGreaterThan(0);
+		expect(submenu?.getAttribute('data-story-block-action-submenu-offset')).toBe('5');
+		expect(submenu?.getAttribute('data-story-block-action-submenu-align-offset')).toBe('-4');
+		expect(submenu?.classList.contains('border-border/50')).toBe(true);
+		expect(submenu?.classList.contains('shadow-xl')).toBe(true);
+		expect(destinationItem.getAttribute('role')).toBe('menuitem');
+		for (const className of ['rounded-sm', 'py-0.5', 'pr-2', 'pl-2', 'text-sm', 'font-normal', 'leading-5']) {
+			expect(destinationItem.classList.contains(className)).toBe(true);
+		}
+		for (const className of ['py-1', 'py-2', 'pr-8', 'text-xs', 'font-medium', 'leading-none']) {
+			expect(destinationItem.classList.contains(className)).toBe(false);
+		}
 		fireEvent.click(destinationItem);
 
 		await waitFor(() => {

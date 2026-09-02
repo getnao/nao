@@ -28,7 +28,10 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useStoryEditorSelectionActions } from '@/contexts/story-editor-selection-actions';
 import { cn } from '@/lib/utils';
 
-const STORY_ACTION_SUBMENU_SIDE_OFFSET = 4;
+const STORY_ACTION_SUBMENU_SIDE_OFFSET = 5;
+const STORY_ACTION_SUBMENU_ALIGN_OFFSET = -4;
+const STORY_ACTION_SUBMENU_CLASS_NAME = 'border-border/50 shadow-xl';
+const STORY_ACTION_DESTINATION_CLASS_NAME = 'py-0.5 pr-2 pl-2 text-sm font-normal leading-5';
 
 export function useStoryBlockDrag({ node, editor, getPos }: Pick<ReactNodeViewProps, 'node' | 'editor' | 'getPos'>) {
 	const dragContext = useContext(StoryBlockDragContext);
@@ -299,14 +302,17 @@ export function StoryBlockActionGrip({
 							<span>Move to a tab</span>
 						</DropdownMenuSubTrigger>
 						<DropdownMenuSubContent
+							className={STORY_ACTION_SUBMENU_CLASS_NAME}
 							data-story-block-action-menu=''
 							data-story-block-action-submenu-offset={STORY_ACTION_SUBMENU_SIDE_OFFSET}
+							data-story-block-action-submenu-align-offset={STORY_ACTION_SUBMENU_ALIGN_OFFSET}
 							sideOffset={STORY_ACTION_SUBMENU_SIDE_OFFSET}
-							alignOffset={0}
+							alignOffset={STORY_ACTION_SUBMENU_ALIGN_OFFSET}
 						>
 							{selectionActions.destinations.map((destination) => (
 								<DropdownMenuItem
 									key={destination.index}
+									className={STORY_ACTION_DESTINATION_CLASS_NAME}
 									onSelect={() => {
 										const origin = getOrigin();
 										if (origin) {
