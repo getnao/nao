@@ -70,6 +70,20 @@ describe('replaceEnvVars', () => {
 		}
 	});
 
+	it('keeps the placeholder when process env contains an empty value', () => {
+		const previous = process.env.DBTOKEN;
+		process.env.DBTOKEN = '';
+		try {
+			expect(replaceEnvVars('${DBTOKEN}')).toBe('${DBTOKEN}');
+		} finally {
+			if (previous === undefined) {
+				delete process.env.DBTOKEN;
+			} else {
+				process.env.DBTOKEN = previous;
+			}
+		}
+	});
+
 	it('does not fall back to process env when extra env contains an empty value', () => {
 		const previous = process.env.DBT_TOKEN;
 		process.env.DBT_TOKEN = 'from-process';

@@ -121,7 +121,7 @@ export const replaceEnvVars = (fileContent: string, extraEnv: Record<string, str
 		if (Object.hasOwn(extraEnv, varName)) {
 			return extraEnv[varName];
 		}
-		return process.env[varName] ?? match;
+		return process.env[varName] || match;
 	});
 	return replaced;
 };
