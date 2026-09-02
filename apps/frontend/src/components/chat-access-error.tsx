@@ -60,22 +60,23 @@ export function ChatAccessError({
 		);
 	}
 
-	const isServerError = isInternalServerError(error);
+	if (isInternalServerError(error)) {
+		return (
+			<ChatErrorLayout
+				icon={<TriangleAlert className='size-4' aria-hidden />}
+				title='Something went wrong'
+				description="We couldn't load this chat. This is likely a temporary problem, so please try again."
+			>
+				{onRetry ? <Button onClick={onRetry}>Retry</Button> : null}
+			</ChatErrorLayout>
+		);
+	}
+	
 	return (
 		<ChatErrorLayout
-			icon={
-				isServerError ? (
-					<TriangleAlert className='size-4' aria-hidden />
-				) : (
-					<WifiOff className='size-4' aria-hidden />
-				)
-			}
-			title={isServerError ? 'Something went wrong' : "Can't reach nao"}
-			description={
-				isServerError
-					? "We couldn't load this chat. This is likely a temporary problem, so please try again."
-					: 'Check your connection and try again.'
-			}
+			icon={<WifiOff className='size-4' aria-hidden />}
+			title="Can't reach nao"
+			description='Check your connection and try again.'
 		>
 			{onRetry ? <Button onClick={onRetry}>Retry</Button> : null}
 		</ChatErrorLayout>
