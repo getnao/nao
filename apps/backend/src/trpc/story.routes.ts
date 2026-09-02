@@ -200,10 +200,34 @@ export const storyRoutes = {
 			};
 		}),
 
+	getVersionQueryData: chatOwnerProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				storySlug: z.string(),
+				versionNumber: z.number().int().positive(),
+			}),
+		)
+		.query(async ({ input }) => {
+			const version = await storyQueries.getVersionByNumber(input.chatId, input.storySlug, input.versionNumber);
+			if (!version) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story version not found.' });
+			}
+
+			const queryData = await sharedStoryQueries.getQueryDataFromCode(input.chatId, version.code);
+			return { queryData };
+		}),
+
 	listStories: chatOwnerProcedure.input(z.object({ chatId: z.string() })).query(async ({ input }) => {
 		const stories = await storyQueries.listStoriesInChat(input.chatId);
 		return stories.map((s) => ({ storySlug: s.slug, title: s.title, latestVersion: s.latestVersion }));
 	}),
+
+	rename: storyOwnerProcedure
+		.input(z.object({ storyId: z.string(), title: z.string().trim().min(1).max(255) }))
+		.mutation(async ({ input }) => {
+			await storyQueries.renameStory(input.storyId, input.title);
+		}),
 
 	createVersion: chatOwnerProcedure
 		.input(
@@ -333,7 +357,6 @@ export const storyRoutes = {
 			}),
 		)
 		.query(async ({ input }) => {
-			assertStoryFiltersEnabled();
 			return getStoryQuerySql(input.chatId, input.storySlug, input.queryId, input.selections);
 		}),
 

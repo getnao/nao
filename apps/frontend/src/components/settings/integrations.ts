@@ -3,13 +3,14 @@ import type { inferRouterOutputs } from '@trpc/server';
 import type { ComponentType } from 'react';
 
 import type { TrpcRouter } from '@nao/backend/trpc';
+import MattermostIcon from '@/components/icons/mattermost.svg';
 import TeamsIcon from '@/components/icons/microsoft-teams.svg';
 import SlackIcon from '@/components/icons/slack.svg';
 import TelegramIcon from '@/components/icons/telegram.svg';
 import WhatsAppIcon from '@/components/icons/whatsapp.svg';
 import { trpc } from '@/main';
 
-export const integrationIds = ['slack', 'teams', 'telegram', 'whatsapp'] as const;
+export const integrationIds = ['slack', 'teams', 'telegram', 'whatsapp', 'mattermost'] as const;
 
 export type IntegrationId = (typeof integrationIds)[number];
 
@@ -47,6 +48,11 @@ export const integrations: IntegrationMetadata[] = [
 		name: 'WhatsApp',
 		icon: WhatsAppIcon,
 	},
+	{
+		id: 'mattermost',
+		name: 'Mattermost',
+		icon: MattermostIcon,
+	},
 ];
 
 export function useIntegrationStatuses(): Record<IntegrationId, IntegrationStatus> {
@@ -55,11 +61,13 @@ export function useIntegrationStatuses(): Record<IntegrationId, IntegrationStatu
 	const telegramConfig = useQuery(trpc.project.getTelegramConfig.queryOptions());
 	const whatsappConfig = useQuery(trpc.project.getWhatsappConfig.queryOptions());
 	const whatsappLinks = useQuery(trpc.project.getCurrentUserWhatsappLinks.queryOptions());
+	const mattermostConfig = useQuery(trpc.project.getMattermostConfig.queryOptions());
 
 	const slackProjectConfig = slackConfig.data?.projectConfig;
 	const teamsProjectConfig = teamsConfig.data?.projectConfig;
 	const telegramProjectConfig = telegramConfig.data?.projectConfig;
 	const whatsappProjectConfig = whatsappConfig.data?.projectConfig;
+	const mattermostProjectConfig = mattermostConfig.data?.projectConfig;
 
 	return {
 		slack: {
@@ -81,6 +89,15 @@ export function useIntegrationStatuses(): Record<IntegrationId, IntegrationStatu
 			summary: whatsappProjectConfig
 				? getWhatsappSummary(whatsappLinks.data?.length ?? 0)
 				: 'Chat with nao from WhatsApp',
+		},
+		mattermost: {
+			connected: mattermostConfig.data?.connected === true,
+			summary:
+				mattermostConfig.data?.connected === true
+					? 'Bot connected'
+					: mattermostProjectConfig
+						? 'Saved configuration is not connected'
+						: 'Chat with nao from Mattermost',
 		},
 	};
 }

@@ -420,6 +420,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		description: 'Allow the agent to execute INSERT, UPDATE, DELETE and DDL SQL queries.',
 		keywords: ['write', 'insert', 'update', 'delete', 'ddl', 'sql', 'permissions'],
 	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'Capabilities',
+		search: { tab: 'tools' },
+		title: 'Exclude columns',
+		description: 'Prevent the agent from querying columns listed in exclude_columns.',
+		keywords: ['enforce excluded columns', 'sql', 'query', 'column access'],
+		adminOnly: true,
+	},
 
 	// ── Project > Agent > MCP servers ───────────────────────
 	{
@@ -707,6 +717,23 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['link', 'login', 'telegram'],
 	},
 	{
+		page: '/settings/project/integrations/mattermost',
+		pageLabel: 'Integrations & MCP',
+		section: 'Mattermost',
+		title: 'Mattermost Integration',
+		description: 'Configure the Mattermost server, bot token, callback URL, and bot behavior.',
+		keywords: ['mattermost bot', 'server url', 'bot token', 'callback url', 'model', 'stop button', 'messaging'],
+	},
+	{
+		page: '/settings/project/integrations/mattermost',
+		pageLabel: 'Integrations & MCP',
+		section: 'Mattermost',
+		title: 'Link manually',
+		description: 'Accounts link by email; use login <code> if Mattermost hides email addresses.',
+		keywords: ['link', 'login', 'mattermost', 'email'],
+	},
+
+	{
 		page: '/settings/project/integrations/whatsapp',
 		pageLabel: 'Integrations & MCP',
 		section: 'WhatsApp',
@@ -846,7 +873,18 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		pageLabel: 'Enterprise',
 		title: 'Enterprise feature overview',
 		description: 'See what Enterprise includes and which features your license unlocks.',
-		keywords: ['enterprise', 'license', 'upgrade', 'pricing', 'plan', 'sso', 'white label', 'budget', 'projects'],
+		keywords: [
+			'enterprise',
+			'license',
+			'upgrade',
+			'pricing',
+			'plan',
+			'sso',
+			'white label',
+			'budget',
+			'projects',
+			'excluded columns',
+		],
 		cloudHidden: true,
 	},
 

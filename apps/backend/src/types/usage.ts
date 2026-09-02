@@ -24,6 +24,7 @@ export interface UsageRecord {
 	slackMessageCount: number;
 	teamsMessageCount: number;
 	telegramMessageCount: number;
+	mattermostMessageCount: number;
 	whatsappMessageCount: number;
 	adminMessageCount: number;
 	mcpMessageCount: number;

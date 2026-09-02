@@ -55,6 +55,7 @@ import { Route as SidebarLayoutSettingsProjectModelsRouteImport } from './routes
 import { Route as SidebarLayoutSettingsProjectMcpServersRouteImport } from './routes/_sidebar-layout.settings.project.mcp-servers'
 import { Route as SidebarLayoutSettingsProjectMcpEndpointRouteImport } from './routes/_sidebar-layout.settings.project.mcp-endpoint'
 import { Route as SidebarLayoutSettingsProjectMcpRouteImport } from './routes/_sidebar-layout.settings.project.mcp'
+import { Route as SidebarLayoutSettingsProjectMattermostRouteImport } from './routes/_sidebar-layout.settings.project.mattermost'
 import { Route as SidebarLayoutSettingsProjectIntegrationsRouteImport } from './routes/_sidebar-layout.settings.project.integrations'
 import { Route as SidebarLayoutSettingsProjectBudgetsRouteImport } from './routes/_sidebar-layout.settings.project.budgets'
 import { Route as SidebarLayoutSettingsProjectAgentRouteImport } from './routes/_sidebar-layout.settings.project.agent'
@@ -325,6 +326,12 @@ const SidebarLayoutSettingsProjectMcpRoute =
     path: '/mcp',
     getParentRoute: () => SidebarLayoutSettingsProjectRoute,
   } as any)
+const SidebarLayoutSettingsProjectMattermostRoute =
+  SidebarLayoutSettingsProjectMattermostRouteImport.update({
+    id: '/mattermost',
+    path: '/mattermost',
+    getParentRoute: () => SidebarLayoutSettingsProjectRoute,
+  } as any)
 const SidebarLayoutSettingsProjectIntegrationsRoute =
   SidebarLayoutSettingsProjectIntegrationsRouteImport.update({
     id: '/integrations',
@@ -410,6 +417,7 @@ export interface FileRoutesByFullPath {
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
   '/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
   '/settings/project/integrations': typeof SidebarLayoutSettingsProjectIntegrationsRouteWithChildren
+  '/settings/project/mattermost': typeof SidebarLayoutSettingsProjectMattermostRoute
   '/settings/project/mcp': typeof SidebarLayoutSettingsProjectMcpRoute
   '/settings/project/mcp-endpoint': typeof SidebarLayoutSettingsProjectMcpEndpointRoute
   '/settings/project/mcp-servers': typeof SidebarLayoutSettingsProjectMcpServersRoute
@@ -460,6 +468,7 @@ export interface FileRoutesByTo {
   '/settings/organization/members': typeof SidebarLayoutSettingsOrganizationMembersRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
   '/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
+  '/settings/project/mattermost': typeof SidebarLayoutSettingsProjectMattermostRoute
   '/settings/project/mcp': typeof SidebarLayoutSettingsProjectMcpRoute
   '/settings/project/mcp-endpoint': typeof SidebarLayoutSettingsProjectMcpEndpointRoute
   '/settings/project/mcp-servers': typeof SidebarLayoutSettingsProjectMcpServersRoute
@@ -517,6 +526,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
   '/_sidebar-layout/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
   '/_sidebar-layout/settings/project/integrations': typeof SidebarLayoutSettingsProjectIntegrationsRouteWithChildren
+  '/_sidebar-layout/settings/project/mattermost': typeof SidebarLayoutSettingsProjectMattermostRoute
   '/_sidebar-layout/settings/project/mcp': typeof SidebarLayoutSettingsProjectMcpRoute
   '/_sidebar-layout/settings/project/mcp-endpoint': typeof SidebarLayoutSettingsProjectMcpEndpointRoute
   '/_sidebar-layout/settings/project/mcp-servers': typeof SidebarLayoutSettingsProjectMcpServersRoute
@@ -573,6 +583,7 @@ export interface FileRouteTypes {
     | '/settings/project/agent'
     | '/settings/project/budgets'
     | '/settings/project/integrations'
+    | '/settings/project/mattermost'
     | '/settings/project/mcp'
     | '/settings/project/mcp-endpoint'
     | '/settings/project/mcp-servers'
@@ -623,6 +634,7 @@ export interface FileRouteTypes {
     | '/settings/organization/members'
     | '/settings/project/agent'
     | '/settings/project/budgets'
+    | '/settings/project/mattermost'
     | '/settings/project/mcp'
     | '/settings/project/mcp-endpoint'
     | '/settings/project/mcp-servers'
@@ -679,6 +691,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/project/agent'
     | '/_sidebar-layout/settings/project/budgets'
     | '/_sidebar-layout/settings/project/integrations'
+    | '/_sidebar-layout/settings/project/mattermost'
     | '/_sidebar-layout/settings/project/mcp'
     | '/_sidebar-layout/settings/project/mcp-endpoint'
     | '/_sidebar-layout/settings/project/mcp-servers'
@@ -1032,6 +1045,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutSettingsProjectMcpRouteImport
       parentRoute: typeof SidebarLayoutSettingsProjectRoute
     }
+    '/_sidebar-layout/settings/project/mattermost': {
+      id: '/_sidebar-layout/settings/project/mattermost'
+      path: '/mattermost'
+      fullPath: '/settings/project/mattermost'
+      preLoaderRoute: typeof SidebarLayoutSettingsProjectMattermostRouteImport
+      parentRoute: typeof SidebarLayoutSettingsProjectRoute
+    }
     '/_sidebar-layout/settings/project/integrations': {
       id: '/_sidebar-layout/settings/project/integrations'
       path: '/integrations'
@@ -1147,6 +1167,7 @@ interface SidebarLayoutSettingsProjectRouteChildren {
   SidebarLayoutSettingsProjectAgentRoute: typeof SidebarLayoutSettingsProjectAgentRoute
   SidebarLayoutSettingsProjectBudgetsRoute: typeof SidebarLayoutSettingsProjectBudgetsRoute
   SidebarLayoutSettingsProjectIntegrationsRoute: typeof SidebarLayoutSettingsProjectIntegrationsRouteWithChildren
+  SidebarLayoutSettingsProjectMattermostRoute: typeof SidebarLayoutSettingsProjectMattermostRoute
   SidebarLayoutSettingsProjectMcpRoute: typeof SidebarLayoutSettingsProjectMcpRoute
   SidebarLayoutSettingsProjectMcpEndpointRoute: typeof SidebarLayoutSettingsProjectMcpEndpointRoute
   SidebarLayoutSettingsProjectMcpServersRoute: typeof SidebarLayoutSettingsProjectMcpServersRoute
@@ -1167,6 +1188,8 @@ const SidebarLayoutSettingsProjectRouteChildren: SidebarLayoutSettingsProjectRou
       SidebarLayoutSettingsProjectBudgetsRoute,
     SidebarLayoutSettingsProjectIntegrationsRoute:
       SidebarLayoutSettingsProjectIntegrationsRouteWithChildren,
+    SidebarLayoutSettingsProjectMattermostRoute:
+      SidebarLayoutSettingsProjectMattermostRoute,
     SidebarLayoutSettingsProjectMcpRoute: SidebarLayoutSettingsProjectMcpRoute,
     SidebarLayoutSettingsProjectMcpEndpointRoute:
       SidebarLayoutSettingsProjectMcpEndpointRoute,

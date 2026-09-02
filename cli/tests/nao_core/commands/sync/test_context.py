@@ -132,6 +132,26 @@ class TestDatabaseContext:
 
         assert [c["name"] for c in columns] == ["id"]
 
+    def test_all_columns_returns_unfiltered_columns(self):
+        ctx, _ = self._make_context(exclude_columns=["*.name"])
+
+        columns = ctx.all_columns()
+
+        assert columns is not None
+        assert [column["name"] for column in columns] == ["id", "name"]
+
+    def test_all_columns_returns_none_when_column_read_fails(self):
+        ctx, mock_table = self._make_context()
+        mock_table.schema.side_effect = RuntimeError("metadata unavailable")
+
+        assert ctx.all_columns() is None
+
+    def test_all_columns_returns_empty_when_column_read_succeeds_without_columns(self):
+        ctx, mock_table = self._make_context()
+        mock_table.schema.return_value.items.return_value = []
+
+        assert ctx.all_columns() == []
+
     def test_columns_returns_all_when_pattern_does_not_match(self):
         ctx, _ = self._make_context(exclude_columns=["*.something_else"])
         columns = ctx.columns()

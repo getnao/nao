@@ -5,11 +5,14 @@ import type { ServerNotification, ServerRequest } from '@modelcontextprotocol/sd
 
 import { insertMcpCallLog } from '../queries/mcp-endpoint.queries';
 import type { McpEndpointSettings } from '../types/mcp-endpoint';
+import { truncateMiddle } from '../utils/utils';
 
 export interface McpContext {
 	userId: string;
 	projectId: string;
 	settings: McpEndpointSettings;
+	/** When true, chart tools return config + data rows for the client agent to render itself instead of embed links/apps only. */
+	chartDataMode: boolean;
 }
 
 export type ToolContent = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string };
@@ -81,6 +84,8 @@ export function withLogging<T>(toolName: string, ctx: McpContext, handler: Logge
 	};
 }
 
+const MAX_LOGGED_OUTPUT_CHARS = 10_000;
+
 function extractLoggableOutput(result: ToolResult | undefined): unknown {
 	if (!result) {
 		return undefined;
@@ -89,10 +94,20 @@ function extractLoggableOutput(result: ToolResult | undefined): unknown {
 		.filter((part): part is { type: 'text'; text: string } => part.type === 'text')
 		.map((part) => part.text)
 		.join('\n');
+	if (text.length <= MAX_LOGGED_OUTPUT_CHARS && (text.startsWith('{') || text.startsWith('['))) {
+		const parsed = tryParseJson(text);
+		if (parsed !== undefined) {
+			return parsed;
+		}
+	}
+	return truncateMiddle(text, MAX_LOGGED_OUTPUT_CHARS, ' … [truncated] … ');
+}
+
+function tryParseJson(text: string): unknown {
 	try {
 		return JSON.parse(text);
 	} catch {
-		return text;
+		return undefined;
 	}
 }
 

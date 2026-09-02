@@ -11,9 +11,10 @@ import { trpc } from '@/main';
 
 interface TelegramConfigSectionProps {
 	isAdmin: boolean;
+	onCancelSetup: () => void;
 }
 
-export function TelegramConfigSection({ isAdmin }: TelegramConfigSectionProps) {
+export function TelegramConfigSection({ isAdmin, onCancelSetup }: TelegramConfigSectionProps) {
 	const queryClient = useQueryClient();
 	const telegramConfig = useQuery(trpc.project.getTelegramConfig.queryOptions());
 	const { data: availableModels } = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
@@ -68,6 +69,14 @@ export function TelegramConfigSection({ isAdmin }: TelegramConfigSectionProps) {
 		queryClient.removeQueries(trpc.project.getTelegramConfig.queryOptions());
 	};
 
+	const handleCancel = () => {
+		if (projectConfig) {
+			setIsEditing(false);
+			return;
+		}
+		onCancelSetup();
+	};
+
 	const handleStartEditing = () => {
 		const persisted = projectConfig?.modelSelection;
 		const match =
@@ -114,7 +123,7 @@ export function TelegramConfigSection({ isAdmin }: TelegramConfigSectionProps) {
 			<TelegramForm
 				hasProjectConfig={!!projectConfig}
 				onSubmit={handleSubmit}
-				onCancel={() => setIsEditing(false)}
+				onCancel={handleCancel}
 				isPending={upsertTelegramConfig.isPending}
 			/>
 		);

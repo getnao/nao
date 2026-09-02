@@ -3,10 +3,11 @@ import type { TabBarItem } from '@/components/ui/tab-bar';
 
 import { DefaultModelsSection } from '@/components/settings/default-models-section';
 import { McpSettings } from '@/components/settings/display-mcp';
+import { SettingsExcludeColumns } from '@/components/settings/exclude-columns';
+import { SettingsExperimental } from '@/components/settings/experimental';
 import { LlmProvidersSection } from '@/components/settings/llm-providers-section';
 import { SavedPrompts } from '@/components/settings/saved-prompts';
 import { SettingsDisplayMap } from '@/components/settings/display-map';
-import { SettingsExperimental } from '@/components/settings/experimental';
 import { SettingsProjectMemory } from '@/components/settings/project-memory';
 import { SettingsTranscribe } from '@/components/settings/settings-transcribe';
 import { SettingsWebSearch } from '@/components/settings/web-search';
@@ -85,6 +86,7 @@ function ToolsSettings({ isAdmin }: { isAdmin: boolean }) {
 			{isAdmin && <SettingsProjectMemory />}
 			<SettingsDisplayMap isAdmin={isAdmin} />
 			<SettingsExperimental isAdmin={isAdmin} />
+			<SettingsExcludeColumns isAdmin={isAdmin} />
 		</>
 	);
 }

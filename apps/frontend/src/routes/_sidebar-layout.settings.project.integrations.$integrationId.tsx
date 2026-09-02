@@ -6,6 +6,7 @@ import type { IntegrationId } from '@/components/settings/integrations';
 import { IntegrationStatusBadge } from '@/components/settings/integration-card';
 import { integrations, isIntegrationId, useIntegrationStatuses } from '@/components/settings/integrations';
 import { LinkingCodesCard } from '@/components/settings/linking-code-section';
+import { MattermostConfigSection } from '@/components/settings/mattermost-config-section';
 import { SlackConfigSection } from '@/components/settings/slack-config-section';
 import { TeamsConfigSection } from '@/components/settings/teams-config-section';
 import { TelegramConfigSection } from '@/components/settings/telegram-config-section';
@@ -33,8 +34,16 @@ export const Route = createFileRoute('/_sidebar-layout/settings/project/integrat
 
 function IntegrationDetailPage() {
 	const { integrationId } = Route.useParams();
+	const navigate = Route.useNavigate();
 	const integrationStatuses = useIntegrationStatuses();
 	const { isAdmin } = usePermissions();
+
+	const handleCancelSetup = () => {
+		void navigate({
+			to: '/settings/project/integrations',
+			search: { tab: 'integrations' },
+		});
+	};
 
 	if (!isIntegrationId(integrationId)) {
 		return null;
@@ -65,33 +74,58 @@ function IntegrationDetailPage() {
 					<IntegrationStatusBadge connected={status.connected} />
 				</div>
 			</div>
-			<IntegrationConfiguration integrationId={integrationId} isAdmin={isAdmin} />
+			<IntegrationConfiguration
+				integrationId={integrationId}
+				isAdmin={isAdmin}
+				onCancelSetup={handleCancelSetup}
+			/>
 		</div>
 	);
 }
 
-function IntegrationConfiguration({ integrationId, isAdmin }: { integrationId: IntegrationId; isAdmin: boolean }) {
+function IntegrationConfiguration({
+	integrationId,
+	isAdmin,
+	onCancelSetup,
+}: {
+	integrationId: IntegrationId;
+	isAdmin: boolean;
+	onCancelSetup: () => void;
+}) {
 	if (integrationId === 'slack') {
-		return <SlackConfigSection isAdmin={isAdmin} />;
+		return <SlackConfigSection isAdmin={isAdmin} onCancelSetup={onCancelSetup} />;
 	}
 
 	if (integrationId === 'teams') {
-		return <TeamsConfigSection isAdmin={isAdmin} />;
+		return <TeamsConfigSection isAdmin={isAdmin} onCancelSetup={onCancelSetup} />;
 	}
 
 	if (integrationId === 'telegram') {
 		return (
 			<div className='flex flex-col gap-6'>
-				<TelegramConfigSection isAdmin={isAdmin} />
+				<TelegramConfigSection isAdmin={isAdmin} onCancelSetup={onCancelSetup} />
 				<LinkingCodesCard provider='telegram' />
 			</div>
 		);
 	}
 
-	return (
-		<div className='flex flex-col gap-6'>
-			<WhatsappConfigSection isAdmin={isAdmin} />
-			<LinkingCodesCard provider='whatsapp' />
-		</div>
-	);
+	if (integrationId === 'mattermost') {
+		return (
+			<div className='flex flex-col gap-6'>
+				<MattermostConfigSection isAdmin={isAdmin} onCancelSetup={onCancelSetup} />
+				<LinkingCodesCard provider='mattermost' />
+			</div>
+		);
+	}
+
+	if (integrationId === 'whatsapp') {
+		return (
+			<div className='flex flex-col gap-6'>
+				<WhatsappConfigSection isAdmin={isAdmin} onCancelSetup={onCancelSetup} />
+				<LinkingCodesCard provider='whatsapp' />
+			</div>
+		);
+	}
+
+	return null;
 }

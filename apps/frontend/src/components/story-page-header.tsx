@@ -20,6 +20,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 
 import type { StoryViewMode } from '@/components/side-panel/story-viewer.types';
+import { EditableStoryTitle } from '@/components/editable-story-title';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { StoryDownload } from '@/components/story-download';
 import { Button } from '@/components/ui/button';
@@ -87,6 +88,7 @@ export interface StoryPageHeaderProps {
 	live?: LiveControls;
 	download?: DownloadConfig;
 	storyId?: string | null;
+	canRename?: boolean;
 	isShared?: boolean;
 	onShare?: () => void;
 	onOpenAnalytics?: () => void;
@@ -103,6 +105,7 @@ export function StoryPageHeader({
 	live,
 	download,
 	storyId,
+	canRename = false,
 	isShared = false,
 	onShare,
 	onOpenAnalytics,
@@ -112,7 +115,14 @@ export function StoryPageHeader({
 	return (
 		<div className='shrink-0'>
 			<header className='flex items-center gap-2 border-b bg-background px-4 py-2.5 md:px-6'>
-				<h1 className='min-w-0 truncate text-base font-medium'>{title}</h1>
+				<EditableStoryTitle
+					storyId={storyId}
+					title={title}
+					canEdit={canRename}
+					heading='h1'
+					className='min-w-0 max-w-full truncate text-base font-medium'
+					inputClassName='text-base font-medium'
+				/>
 				{authorName && <span className='shrink-0 text-sm text-muted-foreground'>by {authorName}</span>}
 
 				{versionControls && <VersionNav controls={versionControls} />}

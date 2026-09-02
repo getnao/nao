@@ -30,6 +30,7 @@ import {
 	parseNumericValue,
 	pointTooltipKeys,
 	resolveBoundary,
+	resolveDataKey,
 	resolveMapConfig,
 	scaleBubbleRadius,
 	withOpacity,
@@ -392,18 +393,22 @@ function GridBlock({
 	);
 }
 
-function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: QueryDataMap | null }) {
+function ChartBlock({ chart: rawChart, queryData }: { chart: ParsedChartBlock; queryData: QueryDataMap | null }) {
 	const dateFormat = useContext(DateFormatContext);
-	const rows = queryData?.[chart.queryId]?.data as Record<string, unknown>[] | undefined;
+	const rows = queryData?.[rawChart.queryId]?.data as Record<string, unknown>[] | undefined;
 	if (!rows?.length) {
-		return <Placeholder label={chart.title || 'Chart'} message='Data unavailable' />;
+		return <Placeholder label={rawChart.title || 'Chart'} message='Data unavailable' />;
 	}
+
+	const chart = resolveChartKeys(rawChart, rows);
 
 	if (chart.chartType === 'kpi_card') {
 		return <KpiCards chart={chart} rows={rows} />;
 	}
 
 	const isPie = chart.chartType === 'pie' || chart.chartType === 'donut';
+	const isHorizontalBar = chart.chartType === 'horizontal_bar' || chart.chartType === 'horizontal_bar_100';
+	const showLegend = !isPie && (!isHorizontalBar || chart.series.length >= 2);
 	const valueKey = chart.series[0]?.data_key ?? '';
 	const chartRows = isPie ? bucketPieData(rows, chart.xAxisKey, valueKey) : rows;
 
@@ -436,12 +441,26 @@ function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: 
 					data-chart={chartData}
 					dangerouslySetInnerHTML={{ __html: svg }}
 				/>
-				{!isPie && <ChartLegend series={chart.series} />}
+				{showLegend && <ChartLegend series={chart.series} />}
 			</div>
 		);
 	} catch {
 		return <Placeholder label={chart.title || 'Chart'} message='Could not render chart' />;
 	}
+}
+
+/**
+ * Query data may come from a re-execution whose column-name casing differs from
+ * the one the chart was authored against (e.g. Snowflake uppercases unquoted
+ * identifiers, DuckDB preserves them as written). Resolve the configured keys
+ * against the actual row keys, mirroring the frontend chart components.
+ */
+function resolveChartKeys(chart: ParsedChartBlock, rows: Record<string, unknown>[]): ParsedChartBlock {
+	return {
+		...chart,
+		xAxisKey: resolveDataKey(rows, chart.xAxisKey),
+		series: chart.series.map((s) => ({ ...s, data_key: resolveDataKey(rows, s.data_key) })),
+	};
 }
 
 function ChartLegend({ series }: { series: ParsedChartBlock['series'] }) {
@@ -1609,7 +1628,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 			var isPie=!!pieColorMap;
 			var html='<div class="nao-tooltip-label">'+labelize(label!=null?label:'')+'</div>';
 			html+='<div class="nao-tooltip-rows">';
-			var isPercent=cfg.chartType==='stacked_bar_100'||cfg.chartType==='stacked_area_100';
+			var isPercent=cfg.chartType==='stacked_bar_100'||cfg.chartType==='stacked_area_100'||cfg.chartType==='horizontal_bar_100';
 			var isDualAxis=(cfg.series||[]).some(function(s){return s.y_axis==='right'});
 			var seriesTotal=0;
 			cfg.series.forEach(function(s){var sv=row[s.data_key];if(typeof sv==='number'&&!s.is_total)seriesTotal+=sv;});

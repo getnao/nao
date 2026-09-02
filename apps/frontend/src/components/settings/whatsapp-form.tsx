@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { useForm } from '@tanstack/react-form';
-import { ExternalLink, X } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { PasswordField, TextField } from '@/components/ui/form-fields';
+import { ErrorMessage } from '@/components/ui/error-message';
+import { getSubmitErrorMessage, PasswordField, TextField } from '@/components/ui/form-fields';
 
 export interface WhatsappFormProps {
 	hasProjectConfig: boolean;
@@ -16,16 +18,27 @@ export interface WhatsappFormProps {
 }
 
 export function WhatsappForm({ hasProjectConfig, onSubmit, onCancel, isPending }: WhatsappFormProps) {
+	const [submitError, setSubmitError] = useState<string>();
 	const form = useForm({
 		defaultValues: { accessToken: '', appSecret: '', phoneNumberId: '', verifyToken: '' },
 		onSubmit: async ({ value }) => {
-			await onSubmit(value);
-			form.reset();
+			setSubmitError(undefined);
+			try {
+				await onSubmit(value);
+				form.reset();
+			} catch (error) {
+				setSubmitError(getSubmitErrorMessage(error, 'Failed to save integration.'));
+			}
 		},
 	});
 
+	const handleCancel = () => {
+		setSubmitError(undefined);
+		onCancel();
+	};
+
 	return (
-		<div className='flex flex-col gap-4 p-4 rounded-lg border border-violet bg-background'>
+		<div className='flex flex-col gap-4 p-4 rounded-xl border border-border bg-background'>
 			<form
 				onSubmit={(e) => {
 					e.preventDefault();
@@ -33,12 +46,7 @@ export function WhatsappForm({ hasProjectConfig, onSubmit, onCancel, isPending }
 				}}
 				className='flex flex-col gap-4'
 			>
-				<div className='flex items-center justify-between'>
-					<span className='text-sm font-medium text-foreground'>WhatsApp</span>
-					<Button variant='ghost' size='icon-sm' type='button' onClick={onCancel}>
-						<X className='size-4' />
-					</Button>
-				</div>
+				<span className='text-sm font-medium text-foreground'>WhatsApp</span>
 
 				<div className='grid gap-3'>
 					<p className='text-[11px] text-muted-foreground leading-relaxed'>
@@ -82,17 +90,19 @@ export function WhatsappForm({ hasProjectConfig, onSubmit, onCancel, isPending }
 					/>
 				</div>
 
+				{submitError && <ErrorMessage message={submitError} />}
+
 				<div className='flex justify-end gap-2 pt-2'>
-					<Button variant='ghost' size='sm' type='button' onClick={onCancel}>
+					<Button variant='ghost' size='sm' type='button' onClick={handleCancel}>
 						Cancel
 					</Button>
-					<form.Subscribe selector={(state: { canSubmit: boolean }) => state.canSubmit}>
-						{(canSubmit: boolean) => (
+					<form.Subscribe selector={(state) => [state.canSubmit, state.values] as const}>
+						{([canSubmit, values]) => (
 							<Button
 								size='sm'
 								type='submit'
 								variant='primary-gradient'
-								disabled={!canSubmit || isPending}
+								disabled={!canSubmit || !hasRequiredWhatsappValues(values) || isPending}
 							>
 								{hasProjectConfig ? 'Update' : 'Save'}
 							</Button>
@@ -101,5 +111,19 @@ export function WhatsappForm({ hasProjectConfig, onSubmit, onCancel, isPending }
 				</div>
 			</form>
 		</div>
+	);
+}
+
+function hasRequiredWhatsappValues(values: {
+	accessToken: string;
+	appSecret: string;
+	phoneNumberId: string;
+	verifyToken: string;
+}): boolean {
+	return Boolean(
+		values.accessToken.trim() &&
+		values.appSecret.trim() &&
+		values.phoneNumberId.trim() &&
+		values.verifyToken.trim(),
 	);
 }

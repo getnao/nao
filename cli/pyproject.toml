@@ -73,6 +73,9 @@ ollama = ["ollama>=0.4.0"]
 # depends on notion2md's marker for unconvertible databases. 3.1 is the floor because it
 # retries rate limits itself, which also covers the client notion2md builds internally.
 notion = ["notion-client>=3.1.0,<4", "notion2md>=2.9.0,<3"]
+# Confluence talks to the v1 REST API over httpx (a core dependency); markdownify turns the HTML
+# body Confluence renders into the markdown the context layer stores.
+confluence = ["markdownify>=0.13.0,<2"]
 
 # Secret resolution backends
 aws-secrets = ["boto3>=1.34.0", "glom>=23.0.0"]
@@ -83,7 +86,7 @@ all-databases = [
     "nao-core[postgres,bigquery,snowflake,duckdb,clickhouse,databricks,mysql,mssql,athena,trino,redshift,fabric,starrocks]",
 ]
 all-llms = ["nao-core[openai,anthropic,mistral,gemini,ollama]"]
-all = ["nao-core[all-databases,all-llms,notion,aws-secrets,k8s-secrets]"]
+all = ["nao-core[all-databases,all-llms,notion,confluence,aws-secrets,k8s-secrets]"]
 dev = ["pytest-cov", "pytest-timeout>=2.3.0"]
 
 [project.scripts]

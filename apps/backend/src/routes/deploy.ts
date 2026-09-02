@@ -8,7 +8,6 @@ import yaml from 'js-yaml';
 import type { App } from '../app';
 import { env } from '../env';
 import { ensureContextRecommendationsScheduleForNewProject } from '../handlers/context-recommendations.handler';
-import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
 import { validateApiKey } from '../services/api-key.service';
 
@@ -84,14 +83,6 @@ export const deployRoutes = async (app: App) => {
 				projectId = project.id;
 				status = 'created';
 
-				const orgMembers = await orgQueries.listOrgMembersWithUsers(org.id);
-				for (const member of orgMembers) {
-					await projectQueries.addProjectMember({
-						projectId,
-						userId: member.id,
-						role: member.role,
-					});
-				}
 				await ensureContextRecommendationsScheduleForNewProject(projectId);
 			}
 

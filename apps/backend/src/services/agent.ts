@@ -64,11 +64,12 @@ import {
 	resolveProviderSettings,
 } from '../utils/llm';
 import { logger } from '../utils/logger';
+import { extractConfiguredDatabases } from '../utils/nao-config';
 import { addPromptCache } from '../utils/prompt-cache';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt, titleGenerationUserMessage } from '../utils/title';
 import { isStoragePath } from '../utils/tools';
-import { truncateMiddle } from '../utils/utils';
+import { formatErrorMessageForUI, truncateMiddle } from '../utils/utils';
 import { listChartPlugins } from './chart-plugin';
 import { compactionService } from './compaction';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
@@ -514,6 +515,7 @@ class AgentManager {
 				writer.merge(
 					result.toUIMessageStream({
 						sendStart: false,
+						onError: formatErrorMessageForUI,
 					}),
 				);
 			},
@@ -599,6 +601,7 @@ class AgentManager {
 		const memories = await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
 		const userRules = getUserRules(this._toolContext.projectFolder);
 		const connections = getConnections(this._toolContext.projectFolder);
+		const configuredDatabases = extractConfiguredDatabases(this._toolContext.projectFolder);
 		const skills = skillService.getSkills(this.chat.projectId);
 		const customCharts = this._toolContext.supportsCustomCharts
 			? listChartPlugins(this._toolContext.projectFolder)
@@ -609,6 +612,7 @@ class AgentManager {
 				memories,
 				userRules,
 				connections,
+				configuredDatabases,
 				skills,
 				customCharts,
 				mcpServers,

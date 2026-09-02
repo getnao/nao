@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 		NAO_DEFAULT_PROJECT_PATH: '/tmp/multi-project-default',
 	},
 	isCloud: true,
+	hasFeature: vi.fn(),
 }));
 
 vi.mock('../src/env', () => ({
@@ -16,6 +17,11 @@ vi.mock('../src/env', () => ({
 	get isCloud() {
 		return mocks.isCloud;
 	},
+}));
+
+vi.mock('../src/services/license.service', () => ({
+	hasFeature: mocks.hasFeature,
+	LICENSE_FEATURES: { multiProject: 'multi-project' },
 }));
 
 vi.mock('../src/db/db', async () => {
@@ -39,6 +45,7 @@ describe('multi-project cloud gate', () => {
 	beforeEach(async () => {
 		await cleanup();
 		mocks.isCloud = true;
+		mocks.hasFeature.mockReset().mockResolvedValue(true);
 		await db.insert(user).values({
 			id: USER_ID,
 			name: 'Multi Project User',
@@ -71,10 +78,20 @@ describe('multi-project cloud gate', () => {
 		db.$client.close();
 	});
 
-	it('honours the selected project in cloud mode without requiring a license feature', async () => {
+	it('honours the selected project in cloud mode with the multi-project feature', async () => {
 		const result = await getProjectByUserId(USER_ID, SELECTED_PROJECT_ID);
 
 		expect(result?.id).toBe(SELECTED_PROJECT_ID);
+		expect(mocks.hasFeature).toHaveBeenCalledWith('multi-project');
+	});
+
+	it('falls back to the default project in cloud mode without the multi-project feature', async () => {
+		mocks.hasFeature.mockResolvedValue(false);
+
+		const result = await getProjectByUserId(USER_ID, SELECTED_PROJECT_ID);
+
+		expect(result?.id).toBe(DEFAULT_PROJECT_ID);
+		expect(mocks.hasFeature).toHaveBeenCalledWith('multi-project');
 	});
 
 	it('falls back to the default project outside cloud mode', async () => {
@@ -83,6 +100,7 @@ describe('multi-project cloud gate', () => {
 		const result = await getProjectByUserId(USER_ID, SELECTED_PROJECT_ID);
 
 		expect(result?.id).toBe(DEFAULT_PROJECT_ID);
+		expect(mocks.hasFeature).not.toHaveBeenCalled();
 	});
 });
 

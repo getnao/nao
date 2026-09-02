@@ -56,7 +56,13 @@ import { LLM_INFERENCE_TYPES, type ModelSettingsMap } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import { McpEndpointSettings } from '../types/mcp-endpoint';
 import { MEMORY_CATEGORIES } from '../types/memory';
-import { SlackSettings, TeamsSettings, TelegramSettings, WhatsappSettings } from '../types/messaging-provider';
+import {
+	MattermostSettings,
+	SlackSettings,
+	TeamsSettings,
+	TelegramSettings,
+	WhatsappSettings,
+} from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
 
 export const user = sqliteTable('user', {
@@ -220,6 +226,7 @@ export const project = sqliteTable(
 		slackSettings: text('slack_settings', { mode: 'json' }).$type<SlackSettings>(),
 		teamsSettings: text('teams_settings', { mode: 'json' }).$type<TeamsSettings>(),
 		telegramSettings: text('telegram_settings', { mode: 'json' }).$type<TelegramSettings>(),
+		mattermostSettings: text('mattermost_settings', { mode: 'json' }).$type<MattermostSettings>(),
 		whatsappSettings: text('whatsapp_settings', { mode: 'json' }).$type<WhatsappSettings>(),
 		mcpEndpointSettings: text('mcp_endpoint_settings', { mode: 'json' }).$type<McpEndpointSettings>(),
 		displaySettings: text('display_settings', { mode: 'json' }).$type<DisplaySettings>(),
@@ -282,6 +289,7 @@ export const chat = sqliteTable(
 		slackThreadId: text('slack_thread_id'),
 		teamsThreadId: text('teams_thread_id'),
 		telegramThreadId: text('telegram_thread_id'),
+		mattermostThreadId: text('mattermost_thread_id'),
 		whatsappThreadId: text('whatsapp_thread_id'),
 		forkMetadata: text('fork_metadata', { mode: 'json' }).$type<ForkMetadata>(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -298,6 +306,7 @@ export const chat = sqliteTable(
 		index('chat_slack_thread_idx').on(table.slackThreadId),
 		index('chat_teams_thread_idx').on(table.teamsThreadId),
 		index('chat_telegram_thread_idx').on(table.telegramThreadId),
+		index('chat_mattermost_thread_idx').on(table.mattermostThreadId),
 		index('chat_whatsapp_thread_idx').on(table.whatsappThreadId),
 	],
 );

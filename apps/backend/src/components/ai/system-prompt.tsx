@@ -9,6 +9,7 @@ import { tokenCounter } from '../../services/token-counter';
 import type { UserMemory } from '../../types/memory';
 import { MEMORY_CATEGORIES, MemoryCategory } from '../../types/memory';
 import { formatCurrentDate } from '../../utils/date';
+import type { ConfiguredDatabase } from '../../utils/nao-config';
 import { groupBy } from '../../utils/utils';
 import { getDialectSqlQueryRules, getDialectToolCallRules } from './dialect-rules';
 import { NaoContextStructure } from './nao-context-structure';
@@ -22,6 +23,7 @@ type SystemPromptProps = {
 	memories?: UserMemory[];
 	userRules?: string;
 	connections?: Connection[];
+	configuredDatabases?: ConfiguredDatabase[];
 	skills?: Skill[];
 	/** Defaults to every skill nao ships; only tests pass this. */
 	internalSkills?: InternalSkill[];
@@ -47,6 +49,7 @@ export function SystemPrompt({
 	memories = [],
 	userRules,
 	connections = [],
+	configuredDatabases = [],
 	skills = [],
 	internalSkills = listInternalSkills(),
 	customCharts = [],
@@ -152,6 +155,11 @@ export function SystemPrompt({
 					absolute totals.
 				</ListItem>
 				<ListItem>
+					Use "horizontal_bar" for sideways tracked bars comparing one or more metrics across a handful of
+					categories; multiple series stack within each row. Use "horizontal_bar_100" when each row's
+					composition should sum to 100%, and sort and limit the rows in SQL.
+				</ListItem>
+				<ListItem>
 					Use "pie" or "donut" to show how a single measure splits across categories (part-to-whole); both
 					take exactly one series, and slices beyond the top 10 are grouped into an "Other" slice
 					automatically.
@@ -200,6 +208,13 @@ export function SystemPrompt({
 						A LIMIT/TOP clause caps how many rows are returned, not how many exist. Never state a total or
 						an "exact" count based on the number of rows a limited query returned. To count rows, run a
 						separate query using COUNT(*) (or COUNT over a subquery) without a LIMIT/TOP clause.
+					</ListItem>,
+					<ListItem>
+						Table documentation files (columns.md, preview.md, ai_summary.md, how_to_use.md, ...) are for
+						understanding schema and semantics only. Their statistics (row counts, previews, aggregates) are
+						stale profiling snapshots — never present them as the answer to a data question. Any number you
+						present as an answer to a data question must come from a query executed in this conversation, or
+						be computed from such results.
 					</ListItem>,
 					...dialectSqlQueryRules,
 				]}
@@ -254,6 +269,8 @@ export function SystemPrompt({
 					</Block>
 				)}
 
+				{configuredDatabases.length >= 2 && <ConfiguredDatabasesBlock databases={configuredDatabases} />}
+
 				{skills.length > 0 && (
 					<Block>
 						<Title level={2}>Skills</Title>
@@ -282,6 +299,35 @@ export function SystemPrompt({
 			</Block>
 		</Block>
 	);
+}
+
+function ConfiguredDatabasesBlock({ databases }: { databases: ConfiguredDatabase[] }) {
+	return (
+		<Block>
+			<Title level={2}>Databases</Title>
+			<Span>
+				execute_sql's <Bold>database_id</Bold> must be one of:
+			</Span>
+			<List>
+				{databases.map((database) => (
+					<ListItem key={database.id}>
+						<Bold>{database.id}</Bold>
+						{formatConfiguredDatabaseDetails(database)}
+					</ListItem>
+				))}
+			</List>
+		</Block>
+	);
+}
+
+function formatConfiguredDatabaseDetails(database: ConfiguredDatabase): string {
+	const identifyingFields = ['database', 'project_id', 'dataset_id', 'catalog'] as const;
+	const details = [
+		database.type ? `type=${database.type}` : null,
+		...identifyingFields.map((field) => (database[field] ? `${field}=${database[field]}` : null)),
+	].filter((detail): detail is string => detail !== null);
+
+	return details.length > 0 ? ` — ${details.join(', ')}` : '';
 }
 
 /**

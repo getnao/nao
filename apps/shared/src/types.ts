@@ -272,6 +272,8 @@ export type ProjectChatListItem = {
 	source: string | null;
 	numberOfMessages: number;
 	totalTokens: number;
+	cacheReadTokens: number;
+	totalCost: number;
 	feedbackText: string;
 	downvotes: number;
 	upvotes: number;

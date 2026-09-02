@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import fnmatch
+import functools
 import logging
 import re
+import threading
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import Field
@@ -26,6 +29,126 @@ def _is_direct_select_disallowed(exc: BaseException) -> bool:
     """True if the exception is ClickHouse code 620 / direct select not allowed (e.g. Kafka/RabbitMQ/FileLog)."""
     msg = str(exc)
     return any(s in msg for s in _DIRECT_SELECT_DISALLOWED)
+
+
+# Tinybird serves the system database to ADMIN tokens only, so a token scoped to a few tables
+# cannot read system.settings (read while the client is constructed), system.databases or
+# system.tables (discovery). The remaining system reads already fail soft.
+_SERVER_SETTINGS_PROBE_PATTERN = re.compile(
+    r"^\s*select\s+name\s*,\s*value\s*,.*\breadonly\b.*\bfrom\s+system\.settings\b.*\blimit\s+10000\s*$",
+    re.IGNORECASE | re.DOTALL,
+)
+_SERVER_SETTINGS_PROBE_LOCK = threading.Lock()
+
+
+def _is_server_settings_probe(sql: Any) -> bool:
+    return isinstance(sql, str) and bool(_SERVER_SETTINGS_PROBE_PATTERN.match(sql))
+
+
+def _brief_reason(error: Exception) -> str:
+    """First sentence of an error, so a repeated fallback does not log a paragraph each time."""
+    first = str(error).strip().split(". ", 1)[0]
+    return first if len(first) <= 160 else f"{first[:160]}…"
+
+
+class _NoServerSettings:
+    """Empty stand-in for the server settings probe result."""
+
+    def named_results(self) -> tuple:
+        return ()
+
+
+@contextmanager
+def _server_settings_probe_optional():
+    """Let the connection survive a server that refuses to serve system.settings.
+
+    The probe only feeds client-side setting validation, and an empty result is already a
+    supported state — Tinybird returns no rows even for an ADMIN token — so a refused probe
+    degrades to that instead of failing the connection. Servers that do serve the table are
+    unaffected: the fallback is reached only when the probe itself errors.
+
+    clickhouse-connect builds the client and runs the probe inside ``__init__``, so there is no
+    client to configure beforehand; the query method is wrapped for the length of the connection
+    instead. The lock keeps concurrent connections from restoring each other's wrapper.
+    """
+    from clickhouse_connect.driver.httpclient import HttpClient
+
+    with _SERVER_SETTINGS_PROBE_LOCK:
+        original_query = HttpClient.query
+
+        @functools.wraps(original_query)
+        def query(self, *args, **kwargs):
+            try:
+                return original_query(self, *args, **kwargs)
+            except Exception as e:
+                sql = args[0] if args else kwargs.get("query")
+                if not _is_server_settings_probe(sql):
+                    raise
+                logger.warning(
+                    "system.settings is not readable, connecting without client-side setting validation: %s",
+                    _brief_reason(e),
+                )
+                logger.debug("Full error reading system.settings", exc_info=True)
+                return _NoServerSettings()
+
+        setattr(HttpClient, "query", query)
+        try:
+            yield
+        finally:
+            setattr(HttpClient, "query", original_query)
+
+
+class _RestrictedDiscoveryBackend:
+    """Ibis backend wrapper for credentials that cannot read the system database.
+
+    Schema and table discovery normally comes from system.databases and system.tables. When a
+    least-privilege token cannot read those, discovery falls back to the tables named outright in
+    ``include``, so nao reads exactly what it was pointed at and nothing more. Everything else is
+    delegated untouched.
+    """
+
+    def __init__(self, backend: BaseBackend, targets: dict[str, list[str]], unexpandable: list[str] | None = None):
+        self._backend = backend
+        self._targets = targets
+        self._unexpandable = unexpandable or []
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._backend, name)
+
+    def list_databases(self, *args: Any, **kwargs: Any) -> list[str]:
+        list_databases = getattr(self._backend, "list_databases", None)
+        if list_databases is None:
+            self._warn_unexpandable()
+            return list(self._targets)
+        try:
+            return list_databases(*args, **kwargs)
+        except Exception as e:
+            logger.warning("Cannot list databases (%s); using the schemas named in include", _brief_reason(e))
+            logger.debug("Full error listing databases", exc_info=True)
+            self._warn_unexpandable()
+            return list(self._targets)
+
+    def list_tables(self, *args: Any, database: str | None = None, **kwargs: Any) -> list[str]:
+        try:
+            return self._backend.list_tables(*args, database=database, **kwargs)
+        except Exception as e:
+            logger.warning(
+                "Cannot list tables in %s (%s); using the tables named in include", database, _brief_reason(e)
+            )
+            logger.debug("Full error listing tables in %s", database, exc_info=True)
+            self._warn_unexpandable()
+            return list(self._targets.get(database or "", []))
+
+    def _warn_unexpandable(self) -> None:
+        """Name the include patterns being dropped, so an all-wildcard include is not silent."""
+        if not self._unexpandable:
+            return
+        logger.warning(
+            "Ignoring include patterns that need a table listing to expand: %s. "
+            "Name these tables individually to sync them.",
+            ", ".join(self._unexpandable),
+        )
+        self._unexpandable = []
 
 
 # AggregateFunction(type_str) -> first argument is the function name (uniq, sum, etc.)
@@ -321,7 +444,7 @@ def _get_table_comment(conn: BaseBackend, database: str, table_name: str) -> str
         return None
 
 
-def _columns_from_system(conn: BaseBackend, database: str, table_name: str) -> list[dict[str, Any]]:
+def _columns_from_system(conn: BaseBackend, database: str, table_name: str) -> list[dict[str, Any]] | None:
     """Return column metadata from system.columns (does not SELECT from the table)."""
     try:
         # Escape single quotes for safe SQL (identifiers from config)
@@ -345,7 +468,46 @@ def _columns_from_system(conn: BaseBackend, database: str, table_name: str) -> l
             for r in rows
         ]
     except Exception:
+        return None
+
+
+def _quote_identifier(name: str) -> str:
+    """Backtick-quote an identifier, doubling any backtick it contains."""
+    escaped = name.replace("`", "``")
+    return f"`{escaped}`"
+
+
+def _columns_from_describe(conn: BaseBackend, database: str, table_name: str) -> list[dict[str, Any]]:
+    """Return column metadata from DESCRIBE TABLE, which needs no system database access."""
+    target = f"{_quote_identifier(database)}.{_quote_identifier(table_name)}"
+    try:
+        cursor = conn.raw_sql(f"DESCRIBE TABLE {target}")  # type: ignore[union-attr]
+        rows = _raw_sql_to_rows(cursor)
+    except Exception:
         return []
+    return [
+        {
+            "name": r["name"],
+            "type": str(r.get("type", "")),
+            "nullable": "Nullable" in str(r.get("type", "")),
+            "description": str(r.get("comment", "")).strip() or None,
+            # DESCRIBE calls this default_type; system.columns calls it default_kind.
+            "default_kind": str(r.get("default_type", "")).strip() or None,
+            "default_expression": str(r.get("default_expression", "")).strip() or None,
+        }
+        for r in rows
+        if r.get("name")
+    ]
+
+
+def _column_metadata(
+    conn: BaseBackend, database: str, table_name: str, describe_fallback: bool = False
+) -> list[dict[str, Any]] | None:
+    """Return column metadata from system.columns, falling back to DESCRIBE only when allowed."""
+    columns = _columns_from_system(conn, database, table_name)
+    if columns or not describe_fallback:
+        return columns
+    return _columns_from_describe(conn, database, table_name)
 
 
 def _get_table_engine(conn: BaseBackend, database: str, table_name: str) -> str | None:
@@ -378,10 +540,14 @@ class ClickHouseDatabaseContext(DatabaseContext):
     use the no-SELECT path (SHOW CREATE TABLE + system.columns) for all later operations on that table.
     """
 
-    def __init__(self, conn: BaseBackend, schema: str, table_name: str):
+    def __init__(self, conn: BaseBackend, schema: str, table_name: str, describe_fallback: bool = False):
         super().__init__(conn, schema, table_name)
         self._direct_select_disallowed: bool = False
         self._is_dictionary_obj: bool | None = None
+        self._describe_fallback = describe_fallback
+
+    def _column_metadata(self) -> list[dict[str, Any]] | None:
+        return _column_metadata(self._conn, self._schema, self._table_name, self._describe_fallback)
 
     @staticmethod
     def _format_type(dtype: Any) -> str:
@@ -444,19 +610,29 @@ class ClickHouseDatabaseContext(DatabaseContext):
     def column_count(self) -> int:
         """Return column count; for stream-like engines use system.columns if table.schema() is disallowed."""
         if self._direct_select_disallowed:
-            return len(_columns_from_system(self._conn, self._schema, self._table_name))
+            return len(self._column_metadata() or [])
         try:
             return len(self.table.schema())
         except Exception:
-            return len(_columns_from_system(self._conn, self._schema, self._table_name))
+            return len(self._column_metadata() or [])
 
     def columns(self) -> list[dict[str, Any]]:
         """Return column metadata; for stream-like engines use system.columns (no SELECT from table)."""
+        if self._columns_cache is None:
+            self._columns_load_failed = False
+            columns = self._load_columns()
+            if columns is None:
+                self._columns_load_failed = True
+                return []
+            self._columns_cache = columns
+        return self._filter_excluded_columns(self._columns_cache)
+
+    def _load_columns(self) -> list[dict[str, Any]] | None:
         if self._direct_select_disallowed:
-            return self._filter_excluded_columns(_columns_from_system(self._conn, self._schema, self._table_name))
+            return self._column_metadata()
         try:
             schema = self.table.schema()
-            cols = [
+            columns = [
                 {
                     "name": name,
                     "type": self._format_type(dtype),
@@ -465,41 +641,42 @@ class ClickHouseDatabaseContext(DatabaseContext):
                 }
                 for name, dtype in schema.items()
             ]
-            system_columns = _columns_from_system(self._conn, self._schema, self._table_name)
-            system_types = {
-                col["name"]: col["type"]
-                for col in system_columns
-                if isinstance(col.get("name"), str) and isinstance(col.get("type"), str) and col["type"]
-            }
-            defaults = {
-                col["name"]: {
-                    "default_kind": col.get("default_kind"),
-                    "default_expression": col.get("default_expression"),
-                }
-                for col in system_columns
-                if isinstance(col.get("name"), str)
-            }
-            descriptions = {
-                col["name"]: col.get("description") for col in system_columns if isinstance(col.get("name"), str)
-            }
-            for col in cols:
-                name = col.get("name")
-                if not isinstance(name, str):
-                    continue
-                # Preserve native ClickHouse type details (e.g. LowCardinality, Decimal params),
-                # then add explicit NOT NULL for consistency with existing markdown output.
-                if native_type := system_types.get(name):
-                    if col.get("nullable") is False and "Nullable(" not in native_type:
-                        col["type"] = f"{native_type} NOT NULL"
-                    else:
-                        col["type"] = native_type
-                if meta := defaults.get(name):
-                    col.update(meta)
-                if description := descriptions.get(name):
-                    col["description"] = description
-            return self._filter_excluded_columns(cols)
+            self._apply_system_column_metadata(columns)
+            return columns
         except Exception:
-            return self._filter_excluded_columns(_columns_from_system(self._conn, self._schema, self._table_name))
+            return self._column_metadata()
+
+    def _apply_system_column_metadata(self, columns: list[dict[str, Any]]) -> None:
+        system_columns = self._column_metadata() or []
+        system_types = {
+            col["name"]: col["type"]
+            for col in system_columns
+            if isinstance(col.get("name"), str) and isinstance(col.get("type"), str) and col["type"]
+        }
+        defaults = {
+            col["name"]: {
+                "default_kind": col.get("default_kind"),
+                "default_expression": col.get("default_expression"),
+            }
+            for col in system_columns
+            if isinstance(col.get("name"), str)
+        }
+        descriptions = {
+            col["name"]: col.get("description") for col in system_columns if isinstance(col.get("name"), str)
+        }
+        for column in columns:
+            name = column.get("name")
+            if not isinstance(name, str):
+                continue
+            if native_type := system_types.get(name):
+                if column.get("nullable") is False and "Nullable(" not in native_type:
+                    column["type"] = f"{native_type} NOT NULL"
+                else:
+                    column["type"] = native_type
+            if metadata := defaults.get(name):
+                column.update(metadata)
+            if description := descriptions.get(name):
+                column["description"] = description
 
     def _fetchone(self, result) -> tuple | None:
         """Normalise clickhouse-connect QueryResult objects for profiling queries."""
@@ -614,6 +791,17 @@ class ClickHouseConfig(DatabaseConfig):
         default=True,
         description="Verify TLS certificates when using protocol='native' with secure=True.",
     )
+    tolerate_unreadable_system_tables: bool = Field(
+        default=False,
+        description=(
+            "Work with a credential that cannot read the system database. Needed for Tinybird, "
+            "which serves system tables to ADMIN tokens only, so a token scoped to a few tables "
+            "cannot connect at all. Connection tolerates an unreadable system.settings, and "
+            "schema/table discovery falls back to the tables named outright in `include` — "
+            "wildcard patterns cannot be expanded without a table listing, so list each table. "
+            "Query settings are then validated by the server rather than by the client."
+        ),
+    )
     # System databases are skipped by default unless explicitly included.
     _SYSTEM_DATABASES = frozenset(("INFORMATION_SCHEMA", "information_schema", "system"))
     accessors: list[DatabaseAccessor] = Field(
@@ -674,14 +862,38 @@ class ClickHouseConfig(DatabaseConfig):
         ``clickhouse-driver`` so that nao can talk to ClickHouse instances that
         only expose the native TCP protocol (port 9000 by default).
         """
-        if self.protocol == "native":
-            return self._connect_native()
-        return self._connect_http()
+        backend = self._connect_native() if self.protocol == "native" else self._connect_http()
+        if not self.tolerate_unreadable_system_tables:
+            return backend
+        targets, unexpandable = self._include_targets()
+        return _RestrictedDiscoveryBackend(backend, targets, unexpandable)  # type: ignore[return-value]
+
+    def _include_targets(self) -> tuple[dict[str, list[str]], list[str]]:
+        """Split include into tables named outright and patterns that need a listing to expand."""
+        targets: dict[str, list[str]] = {}
+        unexpandable: list[str] = []
+        for pattern in self.include:
+            schema, separator, table = pattern.partition(".")
+            if any(char in pattern for char in "*?[") or not separator or not table:
+                unexpandable.append(pattern)
+                continue
+            targets.setdefault(schema, []).append(table)
+        return targets, unexpandable
 
     def _connect_http(self) -> BaseBackend:
         from nao_core.deps import require_database_backend
 
         require_database_backend("clickhouse")
+
+        if self.tolerate_unreadable_system_tables:
+            with _server_settings_probe_optional():
+                return self._connect_http_client()
+        # Hold the same lock so a concurrent opt-in connection's process-wide patch cannot
+        # leak into a connection that did not ask for it.
+        with _SERVER_SETTINGS_PROBE_LOCK:
+            return self._connect_http_client()
+
+    def _connect_http_client(self) -> BaseBackend:
         import ibis
 
         kwargs: dict = {
@@ -761,7 +973,22 @@ class ClickHouseConfig(DatabaseConfig):
 
     def create_context(self, conn: BaseBackend, schema: str, table_name: str) -> ClickHouseDatabaseContext:
         """Use ClickHouse-specific context for resilient preview."""
-        return ClickHouseDatabaseContext(conn, schema, table_name)
+        return ClickHouseDatabaseContext(
+            conn, schema, table_name, describe_fallback=self.tolerate_unreadable_system_tables
+        )
+
+    def _connection_error_message(self, error: Exception) -> str:
+        """Point at the escape hatch when the connection died on a system database read."""
+        message = str(error)
+        if "system." in message and not self.tolerate_unreadable_system_tables:
+            return (
+                f"{message}\n"
+                "This credential cannot read the system database, which the ClickHouse client "
+                "reads when connecting and when discovering tables. Set "
+                "tolerate_unreadable_system_tables: true on this connection and list the tables "
+                "you want in `include`."
+            )
+        return message
 
     def check_connection(self) -> tuple[bool, str]:
         """Test connectivity to ClickHouse."""
@@ -773,7 +1000,7 @@ class ClickHouseConfig(DatabaseConfig):
                 return True, f"Connected successfully ({len(schemas)} databases found)"
             return True, "Connected successfully"
         except Exception as e:
-            return False, str(e)
+            return False, self._connection_error_message(e)
         finally:
             if conn is not None:
                 conn.disconnect()

@@ -10,6 +10,7 @@ import {
 	CircleDollarSign,
 	CircleX,
 	Clock,
+	Columns3,
 	FileCheck,
 	KeyRound,
 	LifeBuoy,
@@ -253,6 +254,12 @@ const ENTERPRISE_FEATURES = [
 		label: 'Multiple projects',
 		description: 'Keep separate data contexts for different teams and use cases.',
 		icon: Boxes,
+	},
+	{
+		key: 'exclude-columns',
+		label: 'Excluded columns',
+		description: 'Block the agent from querying columns marked as excluded.',
+		icon: Columns3,
 	},
 	{
 		label: 'Row-level security',

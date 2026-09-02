@@ -7,6 +7,11 @@ import zodV3 from 'zod/v3';
 import displayChartTool from '../../agents/tools/display-chart';
 import * as storyQueries from '../../queries/story.queries';
 import {
+	buildAgentRenderedChartText,
+	CHART_DATA_MODE_DISPLAY_CHART_ADDENDUM,
+	CHART_DATA_MODE_FALLBACK_NOTE,
+} from '../chart-data-mode';
+import {
 	buildChartToolResult,
 	buildMapToolResult,
 	STORY_OUTPUT_SCHEMA,
@@ -35,6 +40,8 @@ const DISPLAY_CHART_DESCRIPTION =
 	'both the SQL and the chart in one shot. Also skip when you just called `create_story` or ' +
 	'`update_story` — the story embed already renders all its `<chart>` blocks; calling ' +
 	'`display_chart` again would duplicate them.';
+
+const DISPLAY_CHART_DATA_MODE_DESCRIPTION = DISPLAY_CHART_DESCRIPTION + CHART_DATA_MODE_DISPLAY_CHART_ADDENDUM;
 
 const LIST_STORIES_DESCRIPTION = 'List nao stories.';
 
@@ -82,7 +89,7 @@ function registerDisplayChart(server: McpServer, ctx: McpContext): void {
 		name: 'display_chart',
 		agentTool: displayChartTool,
 		title: 'Display Chart',
-		description: DISPLAY_CHART_DESCRIPTION,
+		description: ctx.chartDataMode ? DISPLAY_CHART_DATA_MODE_DESCRIPTION : DISPLAY_CHART_DESCRIPTION,
 		inputSchema: displayChart.ChartInputObjectSchema.extend({
 			chat_id: zodV3
 				.string()
@@ -119,22 +126,7 @@ function registerDisplayChart(server: McpServer, ctx: McpContext): void {
 		mapInput: ({ chat_id: _chatId, ...input }) => input,
 		resolveChatId: (input) => input.chat_id ?? null,
 		formatResult: async ({ input, output, callLogId }) => {
-			const {
-				query_id,
-				chart_type,
-				x_axis_key,
-				x_axis_type,
-				x_axis_label,
-				series,
-				y_axis_min,
-				y_axis_max,
-				y_axis_label,
-				y_axis_right_min,
-				y_axis_right_max,
-				y_axis_right_label,
-				title,
-				chat_id,
-			} = input;
+			const { chat_id, ...artifact } = input;
 			if (!output.success) {
 				return {
 					content: [{ type: 'text' as const, text: output.error ?? 'Chart config is invalid.' }],
@@ -143,35 +135,35 @@ function registerDisplayChart(server: McpServer, ctx: McpContext): void {
 			}
 
 			const validatedChatId = await resolveChartChatId(chat_id, ctx);
-			const result = await buildChartEmbedFromArtifact(
-				{
-					query_id,
-					chart_type,
-					x_axis_key,
-					x_axis_type,
-					x_axis_label,
-					series,
-					y_axis_min,
-					y_axis_max,
-					y_axis_label,
-					y_axis_right_min,
-					y_axis_right_max,
-					y_axis_right_label,
-					title,
-				},
-				ctx,
-				{ chatId: validatedChatId ?? null, callLogId },
-			);
+			const result = await buildChartEmbedFromArtifact(artifact, ctx, {
+				chatId: validatedChatId ?? null,
+				callLogId,
+			});
 
 			if (!result) {
-				return buildMissingQueryDataResult({ queryId: query_id, chatIdInput: chat_id, validatedChatId });
+				return buildMissingQueryDataResult({
+					queryId: artifact.query_id,
+					chatIdInput: chat_id,
+					validatedChatId,
+				});
 			}
 
 			if ('keyError' in result) {
 				return buildInvalidKeysResult(result.keyError);
 			}
 
-			return buildChartToolResult(result.payload, { sandboxChartHtml: result.sandboxChartHtml });
+			const toolResult = buildChartToolResult(result.payload, { sandboxChartHtml: result.sandboxChartHtml });
+
+			if (ctx.chartDataMode) {
+				const chartText = buildAgentRenderedChartText({
+					config: artifact,
+					columns: result.queryData.columns,
+					rows: result.queryData.data,
+				});
+				toolResult.content.unshift({ type: 'text', text: chartText ?? CHART_DATA_MODE_FALLBACK_NOTE });
+			}
+
+			return toolResult;
 		},
 	});
 }

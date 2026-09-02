@@ -92,6 +92,7 @@ const budgetSchema = z.object({
 
 const providerSchema = z.looseObject({
 	provider: z.string(),
+	name: z.string().nullish(),
 	api_key: z.string().nullish(),
 	base_url: z.string().nullish(),
 	models: z.array(modelSchema).nullish(),
@@ -180,7 +181,7 @@ function normalizeLegacyShape(llm: Record<string, unknown>): RawProvider {
 }
 
 function toConfigProvider(raw: RawProvider, extraEnv: Record<string, string>): ConfigLlmProvider | null {
-	const provider = resolveProviderName(raw.provider);
+	const provider = resolveProviderName(raw.provider, raw.name);
 	if (!provider) {
 		logger.warn(`Ignoring unknown LLM provider '${raw.provider}' in nao_config.yaml`, { source: 'system' });
 		return null;
@@ -309,20 +310,24 @@ function resolveSecrets(value: unknown, extraEnv: Record<string, string>): strin
 }
 
 /**
- * Read the `provider` field of an entry, which is either a kind or, for the kinds that allow
- * several instances, a kind and the name given to that instance: `openai-compatible/my-vllm`.
+ * Read how a provider is addressed. The name can sit on the provider field
+ * (`openai-compatible/my-vllm`) or on a sibling `name` key, matching the CLI.
  */
-function resolveProviderName(name: string): LlmProvider | null {
+function resolveProviderName(name: string, instanceName?: string | null): LlmProvider | null {
 	const [rawKind, ...rest] = (name ?? '').trim().split('/');
 	const kind = resolveProviderKind(rawKind);
-	if (!kind || rest.length === 0) {
-		return kind;
-	}
-	if (kind !== NAMED_PROVIDER_KIND || rest.length > 1) {
+	if (!kind || rest.length > 1) {
 		return null;
 	}
-	const instanceName = toProviderName(rest[0]);
-	return instanceName ? toNamedProvider(instanceName) : null;
+	if (kind !== NAMED_PROVIDER_KIND && (rest.length > 0 || instanceName)) {
+		return null;
+	}
+	const rawInstance = rest[0] || instanceName?.trim();
+	if (!rawInstance) {
+		return kind;
+	}
+	const normalized = toProviderName(rawInstance);
+	return normalized ? toNamedProvider(normalized) : null;
 }
 
 function resolveProviderKind(name: string): LlmProviderKind | null {

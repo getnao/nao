@@ -20,6 +20,10 @@ cli_path = Path(__file__).resolve().parent.parent.parent.parent / "cli"
 sys.path.insert(0, str(cli_path))
 
 from nao_core.config import NaoConfig, NaoConfigError
+from nao_core.config.databases.column_access import (
+    ColumnAccessError,
+    validate_column_access,
+)
 from nao_core.context import get_context_provider
 
 port = int(os.environ.get("PORT", 8005))
@@ -97,6 +101,7 @@ class ExecuteSQLRequest(BaseModel):
     database_id: str | None = None
     env_vars: dict[str, str] | None = None
     azure_access_token: str | None = None
+    enforce_excluded_columns: bool = False
 
 
 class ExecuteSQLResponse(BaseModel):
@@ -263,22 +268,31 @@ async def execute_sql(request: ExecuteSQLRequest):
             )
 
         auth_mode_value = getattr(getattr(db_config, "auth_mode", None), "value", None)
+        is_azure_entra_id = auth_mode_value == "azure_entra_id"
 
-        if auth_mode_value == "azure_entra_id":
-            if not request.azure_access_token:
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        "azure_access_token is required when the database auth_mode is "
-                        "'azure_entra_id'. Runtime queries must use the end user's access "
-                        "token; any configured user/password is only used by nao sync."
-                    ),
-                )
-            df = db_config.execute_sql_with_token(
-                request.sql, request.azure_access_token
+        if is_azure_entra_id and not request.azure_access_token:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "azure_access_token is required when the database auth_mode is "
+                    "'azure_entra_id'. Runtime queries must use the end user's access "
+                    "token; any configured user/password is only used by nao sync."
+                ),
             )
+
+        try:
+            validated_sql = request.sql
+            if request.enforce_excluded_columns and db_config.exclude_columns:
+                validated_sql = validate_column_access(
+                    request.sql, db_config, project_path
+                )
+        except ColumnAccessError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+        if is_azure_entra_id:
+            df = db_config.execute_sql_with_token(validated_sql, request.azure_access_token)
         else:
-            df = db_config.execute_sql(request.sql)
+            df = db_config.execute_sql(validated_sql)
 
         data = [
             {k: _convert_value(v) for k, v in row.items()}

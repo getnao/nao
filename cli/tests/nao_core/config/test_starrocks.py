@@ -1,4 +1,6 @@
-from nao_core.config.databases.starrocks import StarRocksConfig
+from unittest.mock import MagicMock, patch
+
+from nao_core.config.databases.starrocks import StarRocksConfig, StarRocksDatabaseContext
 
 
 class DummyConn:
@@ -10,6 +12,85 @@ class DummyConn:
             "default_catalog": ["information_schema", "sales"],
             "hive1": ["analytics"],
         }[catalog]
+
+
+def test_columns_retries_after_failed_load():
+    context = StarRocksDatabaseContext(MagicMock(), "default_catalog.sales", "events")
+    columns = [{"name": "id", "type": "BIGINT"}]
+
+    with (
+        patch.object(
+            context,
+            "_columns_from_information_schema",
+            side_effect=[RuntimeError("metadata unavailable"), columns],
+        ) as information_schema_columns,
+        patch.object(
+            context,
+            "_columns_from_show_full_columns",
+            side_effect=RuntimeError("fallback unavailable"),
+        ) as fallback_columns,
+    ):
+        assert context.columns() == []
+        assert context._columns_cache is None
+        assert context._columns_load_failed is True
+        assert context.columns() == columns
+
+    assert information_schema_columns.call_count == 2
+    assert fallback_columns.call_count == 1
+
+
+def test_columns_falls_back_after_empty_information_schema():
+    context = StarRocksDatabaseContext(MagicMock(), "default_catalog.sales", "events")
+    columns = [{"name": "id", "type": "BIGINT"}]
+
+    with (
+        patch.object(context, "_columns_from_information_schema", return_value=[]) as information_schema_columns,
+        patch.object(context, "_columns_from_show_full_columns", return_value=columns) as fallback_columns,
+    ):
+        assert context.columns() == columns
+        assert context.columns() == columns
+
+    assert context._columns_cache == columns
+    assert context._columns_load_failed is False
+    information_schema_columns.assert_called_once()
+    fallback_columns.assert_called_once()
+
+
+def test_columns_falls_back_after_information_schema_failure():
+    context = StarRocksDatabaseContext(MagicMock(), "default_catalog.sales", "events")
+    columns = [{"name": "id", "type": "BIGINT"}]
+
+    with (
+        patch.object(
+            context,
+            "_columns_from_information_schema",
+            side_effect=RuntimeError("metadata unavailable"),
+        ) as information_schema_columns,
+        patch.object(context, "_columns_from_show_full_columns", return_value=columns) as fallback_columns,
+    ):
+        assert context.columns() == columns
+        assert context.columns() == columns
+
+    assert context._columns_cache == columns
+    assert context._columns_load_failed is False
+    information_schema_columns.assert_called_once()
+    fallback_columns.assert_called_once()
+
+
+def test_columns_caches_empty_fallback():
+    context = StarRocksDatabaseContext(MagicMock(), "default_catalog.sales", "events")
+
+    with (
+        patch.object(context, "_columns_from_information_schema", return_value=[]) as information_schema_columns,
+        patch.object(context, "_columns_from_show_full_columns", return_value=[]) as fallback_columns,
+    ):
+        assert context.columns() == []
+        assert context.columns() == []
+
+    assert context._columns_cache == []
+    assert context._columns_load_failed is False
+    information_schema_columns.assert_called_once()
+    fallback_columns.assert_called_once()
 
 
 def test_starrocks_get_schemas_without_explicit_schema():

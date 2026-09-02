@@ -376,12 +376,13 @@ export const listOrgProjectsWithAccess = async (orgId: string, userId: string): 
 			id: s.project.id,
 			name: s.project.name,
 			path: s.project.path,
-			role: sql<UserRole>`coalesce(${s.projectMember.role}, 'viewer')`,
+			role: sql<UserRole>`coalesce(${s.projectMember.role}, ${s.orgMember.role}, 'viewer')`,
 			createdAt: s.project.createdAt,
 			updatedAt: s.project.updatedAt,
 		})
 		.from(s.project)
 		.leftJoin(s.projectMember, and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, userId)))
+		.leftJoin(s.orgMember, and(eq(s.orgMember.orgId, s.project.orgId), eq(s.orgMember.userId, userId)))
 		.where(eq(s.project.orgId, orgId))
 		.orderBy(asc(s.project.name))
 		.execute();
@@ -454,20 +455,10 @@ const ensureDefaultProject = async (org: DBOrganization): Promise<void> => {
 	}
 
 	const projectName = projectPath.split('/').pop() || 'Default Project';
-	const project = await projectQueries.createProject({
+	await projectQueries.createProject({
 		name: projectName,
 		type: 'local',
 		path: projectPath,
 		orgId: org.id,
 	});
-
-	// Add all org members to the new project
-	const orgMembers = await db.select().from(s.orgMember).where(eq(s.orgMember.orgId, org.id)).execute();
-	for (const member of orgMembers) {
-		await projectQueries.addProjectMember({
-			projectId: project.id,
-			userId: member.userId,
-			role: member.role,
-		});
-	}
 };

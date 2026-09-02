@@ -8,8 +8,10 @@ import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import { env, isCloud } from '../env';
+import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import type { ListProjectChatsResponse, ProjectChatsFacetKey, UserWithRole } from '../types/project';
 import { HandlerError } from '../utils/error';
+import { createCostLookup, TOTAL_COST_EXPR } from './usage.queries';
 
 export interface UserProjectWithRole {
 	project: DBProject;
@@ -105,7 +107,7 @@ export const listUserProjectsWithRoles = async (userId: string): Promise<UserPro
 	const results = await db
 		.select({
 			project: s.project,
-			userRole: sql<UserRole>`coalesce(${s.projectMember.role}, 'viewer')`,
+			userRole: sql<UserRole>`coalesce(${s.projectMember.role}, ${s.orgMember.role}, 'viewer')`,
 		})
 		.from(s.project)
 		.leftJoin(s.projectMember, and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, userId)))
@@ -149,7 +151,6 @@ export const listProjectMembersWithRoles = async (projectId: string): Promise<Us
 			name: s.user.name,
 			email: s.user.email,
 			role: s.projectMember.role,
-			messagingProviderCode: s.user.messagingProviderCode,
 		})
 		.from(s.user)
 		.innerJoin(s.projectMember, eq(s.projectMember.userId, s.user.id))
@@ -167,7 +168,6 @@ export const listUsersWithProjectAccess = async (projectId: string): Promise<Use
 			name: s.user.name,
 			email: s.user.email,
 			role: sql<UserRole>`coalesce(${s.projectMember.role}, ${s.orgMember.role})`,
-			messagingProviderCode: s.user.messagingProviderCode,
 		})
 		.from(s.user)
 		.leftJoin(s.projectMember, and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)))
@@ -192,7 +192,7 @@ export const getProjectByUserId = async (
 	userId: string,
 	selectedProjectId?: string | null,
 ): Promise<DBProject | null> => {
-	if (canSelectProject()) {
+	if (await canSelectProject()) {
 		const projects = await listUserProjects(userId);
 		if (selectedProjectId) {
 			const selectedProject = projects.find((project) => project.id === selectedProjectId);
@@ -208,11 +208,11 @@ export const getProjectByUserId = async (
 		return null;
 	}
 
-	const membership = await getProjectMember(project.id, userId);
-	return membership ? project : null;
+	const role = await getUserRoleInProject(project.id, userId);
+	return role ? project : null;
 };
 
-const canSelectProject = (): boolean => isCloud;
+const canSelectProject = async (): Promise<boolean> => isCloud && (await hasFeature(LICENSE_FEATURES.multiProject));
 
 export const checkProjectHasMoreThanOneAdmin = async (projectId: string): Promise<boolean> => {
 	const userWithRoles = await listProjectMembersWithRoles(projectId);
@@ -470,6 +470,26 @@ export const listProjectChats = async (
 		)
 	`;
 
+	const cacheReadTokensExpr = sql<number>`
+		(
+			select coalesce(sum(${s.chatMessage.inputCacheReadTokens}), 0)
+			from ${s.chatMessage}
+			where ${s.chatMessage.chatId} = ${s.chat.id}
+				and ${s.chatMessage.supersededAt} is null
+		)
+	`;
+
+	const costLookup = await createCostLookup(projectId);
+	const totalCostExpr = sql<number>`
+		(
+			select coalesce(sum(${TOTAL_COST_EXPR}), 0)
+			from ${s.chatMessage}
+			left join ${costLookup.table} on ${costLookup.joinCondition}
+			where ${s.chatMessage.chatId} = ${s.chat.id}
+				and ${s.chatMessage.supersededAt} is null
+		)
+	`;
+
 	const downvotesExpr = feedbackExpr('down', sql<number>`count(*)`);
 	const upvotesExpr = feedbackExpr('up', sql<number>`count(*)`);
 	const feedbackTextExpr = feedbackExpr(
@@ -595,6 +615,7 @@ export const listProjectChats = async (
 		sorting,
 		numberOfMessagesExpr,
 		totalTokensExpr,
+		totalCostExpr,
 		downvotesExpr,
 		upvotesExpr,
 		toolErrorCountExpr,
@@ -614,6 +635,8 @@ export const listProjectChats = async (
 			source: sourceExpr.as('source'),
 			numberOfMessages: numberOfMessagesExpr.as('numberOfMessages'),
 			totalTokens: totalTokensExpr.as('totalTokens'),
+			cacheReadTokens: cacheReadTokensExpr.as('cacheReadTokens'),
+			totalCost: totalCostExpr.as('totalCost'),
 			feedbackText: feedbackTextExpr.as('feedbackText'),
 			downvotes: downvotesExpr.as('downvotes'),
 			upvotes: upvotesExpr.as('upvotes'),
@@ -655,6 +678,8 @@ export const listProjectChats = async (
 			source: row.source,
 			numberOfMessages: Number(row.numberOfMessages ?? 0),
 			totalTokens: Number(row.totalTokens ?? 0),
+			cacheReadTokens: Number(row.cacheReadTokens ?? 0),
+			totalCost: Number(row.totalCost ?? 0),
 			feedbackText: row.feedbackText ?? '',
 			downvotes: Number(row.downvotes ?? 0),
 			upvotes: Number(row.upvotes ?? 0),
@@ -687,6 +712,7 @@ function buildProjectChatsOrderBy(args: {
 	sorting: { id: string; desc?: boolean }[];
 	numberOfMessagesExpr: ReturnType<typeof sql<number>>;
 	totalTokensExpr: ReturnType<typeof sql<number>>;
+	totalCostExpr: ReturnType<typeof sql<number>>;
 	downvotesExpr: ReturnType<typeof sql<number>>;
 	upvotesExpr: ReturnType<typeof sql<number>>;
 	toolErrorCountExpr: ReturnType<typeof sql<number>>;
@@ -696,6 +722,7 @@ function buildProjectChatsOrderBy(args: {
 		sorting,
 		numberOfMessagesExpr,
 		totalTokensExpr,
+		totalCostExpr,
 		downvotesExpr,
 		upvotesExpr,
 		toolErrorCountExpr,
@@ -724,6 +751,9 @@ function buildProjectChatsOrderBy(args: {
 				break;
 			case 'totalTokens':
 				sorters.push(dir(totalTokensExpr));
+				break;
+			case 'totalCost':
+				sorters.push(dir(totalCostExpr));
 				break;
 			case 'feedback':
 				sorters.push(...buildTieredSort(dir, downvotesExpr, upvotesExpr));
