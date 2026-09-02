@@ -33,6 +33,7 @@ class DatabaseContext:
         self._exclude_columns = list(exclude_columns) if exclude_columns else []
         self._table_ref = None
         self._columns_cache: list[dict[str, Any]] | None = None
+        self._columns_load_failed = False
         self._row_count_cache: int | None = None
 
     def set_exclude_columns(self, patterns: list[str] | None) -> None:
@@ -87,6 +88,18 @@ class DatabaseContext:
                 for name, dtype in schema.items()
             ]
         return self._filter_excluded_columns(self._columns_cache)
+
+    def all_columns(self) -> list[dict[str, Any]] | None:
+        if self._columns_cache is None:
+            self._columns_load_failed = False
+            try:
+                self.columns()
+            except Exception:
+                self._columns_load_failed = True
+                return None
+        if self._columns_load_failed:
+            return None
+        return self._columns_cache if self._columns_cache is not None else []
 
     def row_count(self) -> int:
         if self._row_count_cache is None:

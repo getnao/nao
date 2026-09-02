@@ -498,9 +498,9 @@ class BigQueryConfig(DatabaseConfig):
 
     def execute_sql(self, sql: str) -> pd.DataFrame:
         conn = self.connect()
-        if self.max_query_size and self.max_query_size > 0:
-            self._check_max_query_size(sql, conn)
         try:
+            if self.max_query_size and self.max_query_size > 0:
+                self._check_max_query_size(sql, conn)
             cursor = conn.raw_sql(sql)  # type: ignore[union-attr]
             return cursor.to_dataframe(create_bqstorage_client=False)
         finally:

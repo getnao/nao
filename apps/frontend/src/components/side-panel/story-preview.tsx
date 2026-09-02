@@ -67,8 +67,14 @@ export const StoryPreview = memo(function StoryPreview({
 
 	const useLiveUnfiltered = isViewingLatest && isNoCacheMode && !storyFilters.hasActiveFilters;
 	const querySqlSource = useMemo(
-		() => (storyFilters.filtersEnabled ? { api: filterApi, selections: storyFilters.debouncedSelections } : null),
-		[filterApi, storyFilters.filtersEnabled, storyFilters.debouncedSelections],
+		() =>
+			filtersEnabled
+				? {
+						api: filterApi,
+						selections: storyFilters.debouncedSelections,
+					}
+				: null,
+		[filterApi, filtersEnabled, storyFilters.debouncedSelections],
 	);
 
 	const renderChart = useCallback(

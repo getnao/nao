@@ -928,7 +928,12 @@ export const projectRoutes = {
 						modelId: z.string().optional(),
 					})
 					.optional(),
-				sql: z.object({ dangerouslyWritePermEnabled: z.boolean().optional() }).optional(),
+				sql: z
+					.object({
+						dangerouslyWritePermEnabled: z.boolean().optional(),
+						enforceExcludedColumns: z.boolean().optional(),
+					})
+					.optional(),
 				pythonExecution: z
 					.object({
 						maxDurationSecs: z
@@ -965,6 +970,7 @@ export const projectRoutes = {
 				transcribe_provider: merged.transcribe?.provider,
 				transcribe_model_id: merged.transcribe?.modelId,
 				sql_dangerously_write_perm_enabled: merged.sql?.dangerouslyWritePermEnabled,
+				sql_enforce_excluded_columns: merged.sql?.enforceExcludedColumns,
 				python_execution_max_duration_secs: merged.pythonExecution?.maxDurationSecs,
 				python_sandboxing_enabled: merged.experimental?.pythonSandboxing,
 				map_enabled: merged.mapEnabled,

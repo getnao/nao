@@ -8,6 +8,7 @@ import { NEW_CHAT_ID } from '@/lib/ai';
 import { StoryOpenButton } from '@/components/story-open-button';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
+import { ChatAccessError } from '@/components/chat-access-error';
 import { ChatInput } from '@/components/chat-input';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
 import { HighlightBubble } from '@/components/highlight-bubble';
@@ -136,7 +137,7 @@ function ChatPage() {
 		if (shouldRedirectToReplay || isResolvingReplayRedirect) {
 			return null;
 		}
-		return <ChatNotFoundState />;
+		return <ChatAccessError error={chat.error} onRetry={() => chat.refetch()} chatId={chatId} />;
 	}
 
 	return (
@@ -289,27 +290,6 @@ function ChatPage() {
 				chatId={chatId}
 			/>
 		</SidePanelProvider>
-	);
-}
-
-function ChatNotFoundState() {
-	return (
-		<div className='flex h-full flex-1 flex-col min-w-0 overflow-hidden justify-center bg-panel'>
-			<MobileHeader />
-			<div className='flex flex-1 items-center justify-center p-6'>
-				<div className='flex max-w-sm flex-col items-center gap-4 text-center'>
-					<div className='space-y-2'>
-						<h1 className='text-lg font-medium tracking-tight'>Chat not found</h1>
-						<p className='text-sm text-muted-foreground'>
-							This chat may have been deleted, moved, or you may not have access to it.
-						</p>
-					</div>
-					<Button asChild variant='secondary'>
-						<Link to='/'>Start a new chat</Link>
-					</Button>
-				</div>
-			</div>
-		</div>
 	);
 }
 

@@ -357,7 +357,6 @@ export const storyRoutes = {
 			}),
 		)
 		.query(async ({ input }) => {
-			assertStoryFiltersEnabled();
 			return getStoryQuerySql(input.chatId, input.storySlug, input.queryId, input.selections);
 		}),
 

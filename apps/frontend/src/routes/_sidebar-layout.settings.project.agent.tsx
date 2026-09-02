@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { SavedPrompts } from '@/components/settings/saved-prompts';
 import { SettingsExperimental } from '@/components/settings/experimental';
 import { SettingsDisplayMap } from '@/components/settings/display-map';
+import { SettingsExcludeColumns } from '@/components/settings/exclude-columns';
 import { SettingsProjectMemory } from '@/components/settings/project-memory';
 import { SettingsWebSearch } from '@/components/settings/web-search';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -20,6 +21,7 @@ function ProjectAgentTabPage() {
 			<SavedPrompts isAdmin={isAdmin} />
 			<SettingsDisplayMap isAdmin={isAdmin} />
 			<SettingsExperimental isAdmin={isAdmin} />
+			<SettingsExcludeColumns isAdmin={isAdmin} />
 		</>
 	);
 }

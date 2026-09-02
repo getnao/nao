@@ -1,6 +1,8 @@
+import json
 import tempfile
 from pathlib import Path
 
+import duckdb
 import pytest
 import yaml
 from fastapi.testclient import TestClient
@@ -37,6 +39,50 @@ def duckdb_project_folder():
         yield tmpdir
 
 
+@pytest.fixture
+def duckdb_project_with_excluded_columns():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        database_path = Path(tmpdir) / "test.duckdb"
+        conn = duckdb.connect(str(database_path))
+        conn.execute("CREATE TABLE users (id INTEGER, name VARCHAR, email VARCHAR)")
+        conn.execute("INSERT INTO users VALUES (1, 'Alice', 'alice@example.com')")
+        conn.close()
+
+        config = {
+            "project_name": "test-project",
+            "databases": [
+                {
+                    "name": "test-duckdb",
+                    "type": "duckdb",
+                    "path": str(database_path),
+                    "exclude_columns": ["*.email"],
+                }
+            ],
+        }
+        config_path = Path(tmpdir) / "nao_config.yaml"
+        with config_path.open("w") as f:
+            yaml.dump(config, f)
+        catalog_path = Path(tmpdir) / ".meta" / "databases" / "type=duckdb" / "database=test" / "columns.json"
+        catalog_path.parent.mkdir(parents=True)
+        catalog_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "schemas": {
+                        "main": {
+                            "users": [
+                                {"name": "id", "type": "INTEGER"},
+                                {"name": "name", "type": "VARCHAR"},
+                                {"name": "email", "type": "VARCHAR"},
+                            ]
+                        }
+                    },
+                }
+            )
+        )
+        yield tmpdir
+
+
 def test_execute_sql_simple_duckdb(duckdb_project_folder):
     """Test execute_sql endpoint with a DuckDB in-memory database."""
     client = TestClient(app)
@@ -55,6 +101,71 @@ def test_execute_sql_simple_duckdb(duckdb_project_folder):
         row_count=1,
         columns=["id", "message"],
         expected_data=[{"id": 1, "message": "hello"}],
+    )
+
+
+def test_execute_sql_blocks_star_with_excluded_columns(
+    duckdb_project_with_excluded_columns,
+):
+    client = TestClient(app)
+
+    response = client.post(
+        "/execute_sql",
+        json={
+            "sql": "SELECT * FROM users",
+            "nao_project_folder": duckdb_project_with_excluded_columns,
+            "enforce_excluded_columns": True,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "Query blocked because SELECT * would include excluded column(s): main.users.email. "
+        "Use SELECT * EXCLUDE (email) to exclude them."
+    )
+
+
+def test_execute_sql_blocks_explicit_excluded_column(
+    duckdb_project_with_excluded_columns,
+):
+    client = TestClient(app)
+
+    response = client.post(
+        "/execute_sql",
+        json={
+            "sql": "SELECT email FROM users",
+            "nao_project_folder": duckdb_project_with_excluded_columns,
+            "enforce_excluded_columns": True,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "main.users.email" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "enforce_excluded_columns", [False, None], ids=["disabled", "omitted"]
+)
+def test_execute_sql_allows_excluded_column_without_enforcement(
+    duckdb_project_with_excluded_columns,
+    enforce_excluded_columns,
+):
+    client = TestClient(app)
+    request = {
+        "sql": "SELECT email FROM users",
+        "nao_project_folder": duckdb_project_with_excluded_columns,
+    }
+    if enforce_excluded_columns is not None:
+        request["enforce_excluded_columns"] = enforce_excluded_columns
+
+    response = client.post("/execute_sql", json=request)
+
+    assert response.status_code == 200
+    assert_sql_result(
+        response.json(),
+        row_count=1,
+        columns=["email"],
+        expected_data=[{"email": "alice@example.com"}],
     )
 
 
