@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.10.0",
+  "checkpoint_id": "01M1H0KXVS1DY15VN1V4HQM28A",
+  "strategy": "manual-commit",
+  "branch": "feat/exclude-columns-from-agent-1015",
+  "checkpoints_count": 9,
+  "files_touched": [
+    "apps/backend/src/services/excluded-columns.service.ts",
+    "apps/backend/src/services/live-story.ts",
+    "apps/backend/src/services/story-filters.ts",
+    "apps/backend/tests/excluded-columns.test.ts",
+    "apps/backend/tests/execute-sql-license.test.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 241433,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1514880,
+    "output_tokens": 17339,
+    "api_call_count": 8
+  }
+}

@@ -1,0 +1,39 @@
+We're on PR #1373 review, fetch it
+
+---
+
+Do #1
+
+---
+
+So for #2 he's saying we should make enforceExcludedColumns a boolean parameter of executeRawSQL pretty much? so that we can do ifs inside hence making it factorised and cleaner?
+
+---
+
+What first step is that, fetching the setting?
+
+---
+
+well good idea right?
+
+---
+
+what about another factorised method which takes care of both
+loads the project’s agent settings
+Calls resolveExcludedColumnEnforcement (licence + that setting)
+so that makes it factorised nicely?
+Maybe in the short apps/backend/src/services/excluded-columns.service.ts file
+
+---
+
+Clean version: put the helper in excluded-columns.service.ts, and have executeRawSql call it. Story SQL is then always safe. Agent SQL stays on the existing function.
+sounds good do that
+
+---
+
+did you run the test?
+and why a dynamic impory?
+
+---
+
+wait did you change .nao?
