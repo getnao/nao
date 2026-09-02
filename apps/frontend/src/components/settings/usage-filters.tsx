@@ -1,15 +1,16 @@
-import { useState } from 'react';
-import { CheckIcon, Radio, ThumbsUp, Users, Wrench } from 'lucide-react';
-import { CHAT_REPLAY_FEEDBACK_STATES, CHAT_REPLAY_TOOL_STATES, providerLabel } from '@nao/shared/types';
-import { USAGE_SOURCES } from '@nao/backend/usage';
-import type { Granularity, UsageSource } from '@nao/backend/usage';
+import type { Granularity, UsagePeriod, UsageSource } from '@nao/backend/usage';
+import { DEFAULT_PERIOD_BY_GRANULARITY, PERIOD_CONFIG, USAGE_PERIODS, USAGE_SOURCES } from '@nao/backend/usage';
 import type {
 	ChatReplayFeedbackState,
 	ChatReplayToolState,
 	LlmProvider,
 	ProjectChatReplayFacets,
 } from '@nao/shared/types';
+import { CHAT_REPLAY_FEEDBACK_STATES, CHAT_REPLAY_TOOL_STATES, providerLabel } from '@nao/shared/types';
 import type { LucideIcon } from 'lucide-react';
+import { CheckIcon, Radio, ThumbsUp, Users, Wrench } from 'lucide-react';
+import { useState } from 'react';
+
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
@@ -17,19 +18,15 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 
-type UsagePeriod = '24h' | '15d' | '6m';
+export const periodOptions: { value: UsagePeriod; label: string; granularity: Granularity }[] = USAGE_PERIODS.map(
+	(value) => ({
+		value,
+		label: PERIOD_CONFIG[value].label,
+		granularity: PERIOD_CONFIG[value].granularity,
+	}),
+);
 
-const periodOptions: { value: UsagePeriod; label: string; granularity: Granularity }[] = [
-	{ value: '24h', label: 'Last 24 hours', granularity: 'hour' },
-	{ value: '15d', label: 'Last 15 days', granularity: 'day' },
-	{ value: '6m', label: 'Last 6 months', granularity: 'month' },
-];
-
-const periodByGranularity: Record<Granularity, UsagePeriod> = {
-	hour: '24h',
-	day: '15d',
-	month: '6m',
-};
+export const periodByGranularity: Record<Granularity, UsagePeriod> = DEFAULT_PERIOD_BY_GRANULARITY;
 
 export const dateFormats: Record<Granularity, string> = {
 	hour: 'MMM d, HH:00',
@@ -41,8 +38,10 @@ interface UsageFiltersProps {
 	showUsageControls?: boolean;
 	provider: LlmProvider | 'all';
 	onProviderChange: (value: LlmProvider | 'all') => void;
+	period?: UsagePeriod;
+	onPeriodChange?: (period: UsagePeriod, granularity: Granularity) => void;
 	granularity: Granularity;
-	onGranularityChange: (value: Granularity) => void;
+	onGranularityChange?: (value: Granularity) => void;
 	availableProviders: LlmProvider[] | undefined;
 	chatFacets: ProjectChatReplayFacets | undefined;
 	selectedUserNames: string[] | undefined;
@@ -55,6 +54,8 @@ export function UsageFilters({
 	showUsageControls = true,
 	provider,
 	onProviderChange,
+	period: passedPeriod,
+	onPeriodChange,
 	granularity,
 	onGranularityChange,
 	availableProviders,
@@ -64,7 +65,10 @@ export function UsageFilters({
 	selectedSources,
 	onSelectedSourcesChange,
 }: UsageFiltersProps) {
-	const period = periodByGranularity[granularity];
+	const currentPeriod = passedPeriod ?? periodByGranularity[granularity] ?? '15d';
+	const availableOptions = onPeriodChange
+		? periodOptions
+		: periodOptions.filter((o) => o.value === '24h' || o.value === '15d' || o.value === '6m');
 	const userOptions = (chatFacets?.userNames ?? []).map((name) => ({
 		value: name,
 		label: name,
@@ -93,11 +97,16 @@ export function UsageFilters({
 						</SelectContent>
 					</Select>
 					<Select
-						value={period}
+						value={currentPeriod}
 						onValueChange={(value) => {
-							const option = periodOptions.find((o) => o.value === value);
+							const nextPeriod = value as UsagePeriod;
+							const option = availableOptions.find((o) => o.value === nextPeriod);
 							if (option) {
-								onGranularityChange(option.granularity);
+								if (onPeriodChange) {
+									onPeriodChange(option.value, option.granularity);
+								} else {
+									onGranularityChange(option.granularity);
+								}
 							}
 						}}
 					>
@@ -105,7 +114,7 @@ export function UsageFilters({
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
-							{periodOptions.map((option) => (
+							{availableOptions.map((option) => (
 								<SelectItem key={option.value} value={option.value}>
 									{option.label}
 								</SelectItem>

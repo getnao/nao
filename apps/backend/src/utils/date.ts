@@ -1,4 +1,15 @@
-import type { Granularity, UsageRecord } from '../types/usage';
+import type { Granularity, UsagePeriod, UsageRecord } from '../types/usage';
+import { DEFAULT_PERIOD_BY_GRANULARITY, PERIOD_CONFIG } from '../types/usage';
+
+export { DEFAULT_PERIOD_BY_GRANULARITY, PERIOD_CONFIG };
+
+export interface ResolvedPeriod {
+	period: UsagePeriod;
+	granularity: Granularity;
+	count: number;
+	startDate: Date;
+	now: Date;
+}
 
 export function isValidIsoDateString(s: string): boolean {
 	if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) {
@@ -9,24 +20,69 @@ export function isValidIsoDateString(s: string): boolean {
 	return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
 }
 
-export const lookbackPeriods = {
-	hour: 24,
-	day: 15,
-	month: 6,
-};
+export function getPeriodStartDate(period: UsagePeriod, now: Date = new Date()): Date {
+	const config = PERIOD_CONFIG[period] ?? PERIOD_CONFIG['15d'];
+	const date = new Date(now);
 
-export function getLookbackTimestamp(granularity: Granularity): number {
-	const now = Date.now();
-	const periods = lookbackPeriods[granularity];
-
-	switch (granularity) {
-		case 'hour':
-			return now - periods * 60 * 60 * 1000;
-		case 'day':
-			return now - periods * 24 * 60 * 60 * 1000;
-		case 'month':
-			return now - periods * 30 * 24 * 60 * 60 * 1000;
+	if (config.granularity === 'month') {
+		return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - (config.count - 1), 1, 0, 0, 0, 0));
 	}
+
+	if (config.granularity === 'hour') {
+		date.setUTCHours(date.getUTCHours() - (config.count - 1), 0, 0, 0);
+		return date;
+	}
+
+	date.setUTCDate(date.getUTCDate() - (config.count - 1));
+	date.setUTCHours(0, 0, 0, 0);
+	return date;
+}
+
+export function resolvePeriodAndGranularity(
+	options?: { period?: UsagePeriod; granularity?: Granularity },
+	now: Date = new Date(),
+): ResolvedPeriod {
+	const period =
+		options?.period && PERIOD_CONFIG[options.period]
+			? options.period
+			: options?.granularity && DEFAULT_PERIOD_BY_GRANULARITY[options.granularity]
+				? DEFAULT_PERIOD_BY_GRANULARITY[options.granularity]
+				: '15d';
+
+	const defaultGranularity = PERIOD_CONFIG[period].granularity;
+	const granularity = options?.granularity ?? defaultGranularity;
+	const startDate = getPeriodStartDate(period, now);
+
+	let count: number;
+	if (granularity === defaultGranularity) {
+		count = PERIOD_CONFIG[period].count;
+	} else if (granularity === 'month') {
+		count =
+			(now.getUTCFullYear() - startDate.getUTCFullYear()) * 12 +
+			(now.getUTCMonth() - startDate.getUTCMonth()) +
+			1;
+	} else if (granularity === 'day') {
+		const currentDayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+		const startDayUtc = Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), startDate.getUTCDate());
+		count = Math.floor((currentDayUtc - startDayUtc) / (24 * 60 * 60 * 1000)) + 1;
+	} else {
+		const currentHourUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), now.getUTCHours());
+		const startHourUtc = Date.UTC(
+			startDate.getUTCFullYear(),
+			startDate.getUTCMonth(),
+			startDate.getUTCDate(),
+			startDate.getUTCHours(),
+		);
+		count = Math.floor((currentHourUtc - startHourUtc) / (60 * 60 * 1000)) + 1;
+	}
+
+	return {
+		period,
+		granularity,
+		count,
+		startDate,
+		now,
+	};
 }
 
 export function formatDate(date: Date, granularity: Granularity): string {
@@ -45,15 +101,18 @@ export function formatDate(date: Date, granularity: Granularity): string {
 	}
 }
 
-export function generateDateSeries(granularity: Granularity): string[] {
+export function generateDateSeries(granularity?: Granularity | ResolvedPeriod, period?: UsagePeriod): string[] {
+	const resolved =
+		typeof granularity === 'object' && granularity !== null
+			? granularity
+			: resolvePeriodAndGranularity({ period, granularity });
 	const dates: string[] = [];
-	const periods = lookbackPeriods[granularity];
-	const now = new Date();
+	const now = resolved.now;
 
-	for (let i = periods - 1; i >= 0; i--) {
+	for (let i = resolved.count - 1; i >= 0; i--) {
 		const date = new Date(now);
 
-		switch (granularity) {
+		switch (resolved.granularity) {
 			case 'hour':
 				date.setUTCHours(date.getUTCHours() - i, 0, 0, 0);
 				break;
@@ -67,7 +126,7 @@ export function generateDateSeries(granularity: Granularity): string[] {
 				break;
 		}
 
-		dates.push(formatDate(date, granularity));
+		dates.push(formatDate(date, resolved.granularity));
 	}
 
 	return dates;
@@ -97,9 +156,17 @@ export function formatCurrentDate(timezone?: string): string {
 	return tz === 'UTC' ? `${formatted} (UTC)` : `${formatted} (${tz})`;
 }
 
-export function fillMissingDates(records: UsageRecord[], granularity: Granularity): UsageRecord[] {
+export function fillMissingDates(
+	records: UsageRecord[],
+	granularity?: Granularity | ResolvedPeriod,
+	period?: UsagePeriod,
+): UsageRecord[] {
+	const resolved =
+		typeof granularity === 'object' && granularity !== null
+			? granularity
+			: resolvePeriodAndGranularity({ period, granularity });
 	const dateSet = new Map(records.map((r) => [r.date, r]));
-	const allDates = generateDateSeries(granularity);
+	const allDates = generateDateSeries(resolved);
 
 	return allDates.map(
 		(date) =>

@@ -1,17 +1,19 @@
-import { useEffect } from 'react';
-import { createFileRoute, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { format } from 'date-fns';
-import type { TokenChartDisplayMode, UsageRouteSearch } from '@/components/settings/usage-route-search';
+import type { Granularity } from '@nao/backend/usage';
 import type { displayChart } from '@nao/shared/tools';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { createFileRoute, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
+import { format } from 'date-fns';
+import { useEffect } from 'react';
+
 import { ChatsReplayPage } from '@/components/settings/chats-replay-page';
 import { UsageChartCard } from '@/components/settings/usage-chart-card';
-import { ReplayFilters, UsageFilters, dateFormats } from '@/components/settings/usage-filters';
+import { dateFormats, ReplayFilters, UsageFilters } from '@/components/settings/usage-filters';
+import type { TokenChartDisplayMode, UsageRouteSearch } from '@/components/settings/usage-route-search';
 import { saveUsageFilters, validateUsageSearchWithStoredFilters } from '@/components/settings/usage-route-search';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { usePermissions } from '@/hooks/use-permissions';
-import { trpc } from '@/main';
 import { requireContextAdminOrAdmin } from '@/lib/require-admin';
+import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/usage')({
 	beforeLoad: requireContextAdminOrAdmin,
@@ -95,6 +97,29 @@ function UsagePage() {
 	);
 }
 
+function formatChartXAxisLabel(value: string, granularity: Granularity): string {
+	if (/^\d{4}-\d{2}$/.test(value)) {
+		const [y, m] = value.split('-').map(Number);
+		return format(new Date(y, m - 1, 1), dateFormats.month);
+	}
+	if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+		const [y, m, d] = value.split('-').map(Number);
+		return format(new Date(y, m - 1, d), dateFormats.day);
+	}
+	if (/^\d{4}-\d{2}-\d{2} \d{2}:00$/.test(value)) {
+		const [datePart, timePart] = value.split(' ');
+		const [y, m, d] = datePart.split('-').map(Number);
+		const [h] = timePart.split(':').map(Number);
+		const dateStr = format(new Date(y, m - 1, d, 12), dateFormats.day);
+		return `${dateStr}, ${String(h).padStart(2, '0')}:00`;
+	}
+	try {
+		return format(new Date(value), dateFormats[granularity]);
+	} catch {
+		return value;
+	}
+}
+
 function UsageOverview({
 	usageSearch,
 	onUpdateSearch,
@@ -104,7 +129,7 @@ function UsageOverview({
 	onUpdateSearch: (next: Partial<UsageRouteSearch>) => void;
 	onOpenChatReplay: (chatId: string) => void;
 }) {
-	const { granularity, provider, users, feedback, tools, sources, tokenView } = usageSearch;
+	const { period, granularity, provider, users, feedback, tools, sources, tokenView } = usageSearch;
 	const { canViewUsage } = usePermissions();
 
 	const usedProviders = useQuery({
@@ -120,6 +145,7 @@ function UsageOverview({
 	});
 	const messagesUsage = useQuery({
 		...trpc.usage.getMessagesUsage.queryOptions({
+			period,
 			granularity,
 			provider: provider === 'all' ? undefined : provider,
 			userNames: users,
@@ -130,6 +156,7 @@ function UsageOverview({
 	});
 	const totalUsage = useQuery({
 		...trpc.usage.getTotalUsage.queryOptions({
+			period,
 			granularity,
 			provider: provider === 'all' ? undefined : provider,
 			userNames: users,
@@ -153,8 +180,11 @@ function UsageOverview({
 			showUsageControls={canViewUsage}
 			provider={provider}
 			onProviderChange={(value) => onUpdateSearch({ provider: value })}
+			period={period}
+			onPeriodChange={(nextPeriod, nextGranularity) =>
+				onUpdateSearch({ period: nextPeriod, granularity: nextGranularity })
+			}
 			granularity={granularity}
-			onGranularityChange={(value) => onUpdateSearch({ granularity: value })}
 			availableProviders={usedProviders.data}
 			chatFacets={chatFacets.data?.facets}
 			selectedUserNames={users}
@@ -202,7 +232,7 @@ function UsageOverview({
 								isError={messagesUsage.isError}
 								data={chartData}
 								chartType='stacked_bar'
-								xAxisLabelFormatter={(value) => format(new Date(value), dateFormats[granularity])}
+								xAxisLabelFormatter={(value) => formatChartXAxisLabel(value, granularity)}
 								titleAccessory={
 									<span className='text-xs text-muted-foreground'>Number of messages by source</span>
 								}
@@ -217,7 +247,7 @@ function UsageOverview({
 								isError={messagesUsage.isError}
 								data={chartData}
 								chartType='stacked_bar'
-								xAxisLabelFormatter={(value) => format(new Date(value), dateFormats[granularity])}
+								xAxisLabelFormatter={(value) => formatChartXAxisLabel(value, granularity)}
 								valueFormatter={showCost ? formatUsd : undefined}
 								series={showCost ? costSeries : tokenSeries}
 								titleAccessory={

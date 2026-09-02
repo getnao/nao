@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
 import { getMessagesUsage, getTotalUsage } from '../src/queries/usage.queries';
-import { formatDate } from '../src/utils/date';
+import { formatDate, resolvePeriodAndGranularity } from '../src/utils/date';
 
 vi.mock('../src/db/db', async () => {
 	const { default: Database } = await import('better-sqlite3');
@@ -175,5 +175,87 @@ describe('usage query results', () => {
 			outputTotalTokens: 5,
 			totalTokens: 45,
 		});
+	});
+
+	it('supports flexible time periods (30d, 60d, 90d, 6m)', async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-08-28T12:00:00.000Z'));
+		try {
+			// Insert rows near boundaries:
+			// 1. One ms before 6m start boundary (2026-02-28 23:59:59.999 UTC) -> should be excluded
+			// 2. Exactly at 6m start boundary (2026-03-01 00:00:00.000 UTC) -> should be included in 2026-03
+			// 3. In the current active month (2026-08-28 10:00:00.000 UTC) -> should be included in 2026-08
+			await db.insert(s.chatMessage).values([
+				{
+					id: 'out-of-range-before-6m',
+					chatId: CHAT_ID,
+					role: 'user',
+					createdAt: new Date('2026-02-28T23:59:59.999Z'),
+				},
+				{
+					id: 'exact-boundary-6m',
+					chatId: CHAT_ID,
+					role: 'user',
+					createdAt: new Date('2026-03-01T00:00:00.000Z'),
+				},
+				{
+					id: 'current-month-active',
+					chatId: CHAT_ID,
+					role: 'user',
+					createdAt: new Date('2026-08-28T10:00:00.000Z'),
+				},
+			]);
+
+			const records30d = await getMessagesUsage(PROJECT_ID, { period: '30d' });
+			expect(records30d).toHaveLength(30);
+			expect(records30d.find((r) => r.date === '2026-08-28')?.messageCount).toBe(1);
+			expect(records30d.reduce((sum, r) => sum + r.messageCount, 0)).toBe(1);
+
+			const records60d = await getMessagesUsage(PROJECT_ID, { period: '60d' });
+			expect(records60d).toHaveLength(60);
+			expect(records60d.find((r) => r.date === '2026-08-28')?.messageCount).toBe(1);
+			expect(records60d.reduce((sum, r) => sum + r.messageCount, 0)).toBe(1);
+
+			const records90d = await getMessagesUsage(PROJECT_ID, { period: '90d' });
+			expect(records90d).toHaveLength(90);
+			expect(records90d.find((r) => r.date === '2026-08-28')?.messageCount).toBe(1);
+			expect(records90d.reduce((sum, r) => sum + r.messageCount, 0)).toBe(1);
+
+			const records6m = await getMessagesUsage(PROJECT_ID, { period: '6m' });
+			expect(records6m).toHaveLength(6);
+			expect(records6m.map((r) => r.date)).toEqual([
+				'2026-03',
+				'2026-04',
+				'2026-05',
+				'2026-06',
+				'2026-07',
+				'2026-08',
+			]);
+			expect(records6m.find((r) => r.date === '2026-03')?.messageCount).toBe(1);
+			expect(records6m.find((r) => r.date === '2026-08')?.messageCount).toBe(1);
+			expect(records6m.find((r) => r.date === '2026-04')?.messageCount).toBe(0);
+			expect(records6m.reduce((sum, r) => sum + r.messageCount, 0)).toBe(2);
+
+			// Diverging period and granularity
+			const records6mDaily = await getMessagesUsage(PROJECT_ID, { period: '6m', granularity: 'day' });
+			expect(records6mDaily).toHaveLength(181);
+			expect(records6mDaily[0].date).toBe('2026-03-01');
+			expect(records6mDaily[0].messageCount).toBe(1);
+			expect(records6mDaily[records6mDaily.length - 1].date).toBe('2026-08-28');
+			expect(records6mDaily[records6mDaily.length - 1].messageCount).toBe(1);
+			expect(records6mDaily.reduce((sum, r) => sum + r.messageCount, 0)).toBe(2);
+
+			// Verify that advancing past midnight UTC increments the daily bucket count by exactly 1
+			const beforeMidnight = new Date('2026-08-28T23:59:59.000Z');
+			const afterMidnight = new Date('2026-08-29T00:00:01.000Z');
+			const resolvedBefore = resolvePeriodAndGranularity({ period: '6m', granularity: 'day' }, beforeMidnight);
+			const resolvedAfter = resolvePeriodAndGranularity({ period: '6m', granularity: 'day' }, afterMidnight);
+			expect(resolvedBefore.count).toBe(181);
+			expect(resolvedAfter.count).toBe(182);
+			expect(resolvedBefore.startDate.toISOString()).toBe('2026-03-01T00:00:00.000Z');
+			expect(resolvedAfter.startDate.toISOString()).toBe('2026-03-01T00:00:00.000Z');
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });
