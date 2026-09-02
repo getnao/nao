@@ -1,0 +1,125 @@
+Need to fetch this branch locally, how can I ?
+give git commands
+
+---
+
+Need to fetch this branch locally: https://github.com/getnao/nao/pull/1423 , how can I ?
+give git commands
+
+---
+
+ok so we've got tons of things, let's go 1 by 1
+First generate me a local licence that gives local access to full licence of everything, add it to @.env
+
+---
+
+Ok we'll begin with this.
+
+In chat view right now, the project selector shows always in different ways depending on scenario
+
+Change that to simply be:
+If user has multiple projects, then we show it
+
+---
+
+layout problem here
+
+---
+
+nope, no progress
+
+---
+
+I think you put the wrong condition for hiding the project selector here because I'm on self-hosted mode, with full licence
+
+But technically nothing says that I have multi projects (that works only in cloud normallly)
+Can you tell me why it shows my project name still, although with no dropdown?
+
+---
+
+ok so let me explain
+
+the project selector showing in settings in DIFFERENT from the one in chat space, it's different from now on
+
+Let's keep the one in settings as is for now 
+But the one in chat space should be based on only one thing: not is the guy self-hosted, or is he cloud or anything:just does the user have multiple projects
+
+Now am I right that a user simply cannot have multiple projects in self hosted or not?
+
+---
+
+ok fine let's consider the DB rows of projects as the source of truth
+
+if there is more than one, than show dropdown
+If only one, then don't even show the project name with no "<>" button like now, just show NOTHING
+
+---
+
+ok whatever
+Now let's change the condition for access to multu project, normally right now if it's cloud and has licence you get access.
+Let's make it if isCloud, you just get access directly
+
+---
+
+Let's just unify a bit, because since self-hosted is !isCloud, we can also hide the dysfunctionnal project selector from chat space right?
+
+---
+
+yes so effectively licence is useless?
+
+---
+
+yes so effectively multi project licence is useless?
+
+---
+
+fine that's good
+
+Now I want you to reduce size of project selector just a little bit of padding above and below, 
+add bit of spacing between search bar and "PROJECT" headline, you can take that spacing from above the project selector
+
+---
+
+In Accounts page, Versions were sticked to the bottom (space between)
+revert that back
+
+---
+
+Doesn't look bottom pinned to me, I mean if I dezoom it does remain attached to the top
+
+---
+
+Let's make MCP servers show in two places, where it is in Agent currently and also as a 3rd tab in "Integrations & MCP" just for user-friendliness
+
+---
+
+Cool, now
+
+When hovering on tabs : each entry of the tab should be cursor:pointer in css
+
+---
+
+ok good
+
+Now normally in account settings, there is an if isViewer that then shows the user-level memory
+Well we should make that the case for everybody, all roles
+and remove user-level memory from Memory section of Agent
+
+move memories for everybody into account page (Like it is for Viewers currently)
+
+---
+
+Make your memory section Above  Danger Zone section
+
+Also I notice a stale Gitlab account connection in Account, this has been moved to git page so remove it
+
+finally remove altogether the Memory tab from Agent, you can just put the remaining project memory section to Agent> Capabilities
+
+---
+
+Put project memory between Saved Prompts and Maps
+
+---
+
+One last thing
+The Project selector button is as a different height than other button and maybe the paddings are not aligned altogether, should be more uniform id say (cf. left align on the "T"s)

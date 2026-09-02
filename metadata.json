@@ -3,15 +3,23 @@
   "checkpoint_id": "01M1HC5Y9XE7R4NB8MQFAS8M31",
   "strategy": "manual-commit",
   "branch": "feat/settings-layout-redesign-proposal",
-  "checkpoints_count": 13,
+  "checkpoints_count": 35,
   "files_touched": [
     "apps/backend/src/queries/project.queries.ts",
+    "apps/backend/tests/multi-project-license.test.ts",
+    "apps/frontend/src/components/project-selector.tsx",
     "apps/frontend/src/components/settings-search-index.ts",
+    "apps/frontend/src/components/settings/memories.tsx",
     "apps/frontend/src/components/sidebar-settings-nav.tsx",
     "apps/frontend/src/components/sidebar.tsx",
     "apps/frontend/src/components/ui/tab-bar.tsx",
+    "apps/frontend/src/components/viewer-home.tsx",
+    "apps/frontend/src/hooks/use-multi-project.ts",
     "apps/frontend/src/routes/_sidebar-layout._chat-layout.index.tsx",
-    "apps/frontend/src/routes/_sidebar-layout.settings.account.tsx"
+    "apps/frontend/src/routes/_sidebar-layout.settings.account.tsx",
+    "apps/frontend/src/routes/_sidebar-layout.settings.memory.tsx",
+    "apps/frontend/src/routes/_sidebar-layout.settings.project.agent.tsx",
+    "apps/frontend/src/routes/_sidebar-layout.settings.project.integrations.index.tsx"
   ],
   "sessions": [
     {
@@ -20,13 +28,20 @@
       "compact_transcript": "/0/transcript.jsonl",
       "content_hash": "/0/content_hash.txt",
       "prompt": "/0/prompt.txt"
+    },
+    {
+      "metadata": "/1/metadata.json",
+      "transcript": "/1/full.jsonl",
+      "compact_transcript": "/1/transcript.jsonl",
+      "content_hash": "/1/content_hash.txt",
+      "prompt": "/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 41247,
-    "cache_creation_tokens": 0,
-    "cache_read_tokens": 3222272,
-    "output_tokens": 10798,
-    "api_call_count": 9
+    "input_tokens": 427428,
+    "cache_creation_tokens": 56808,
+    "cache_read_tokens": 13940571,
+    "output_tokens": 54210,
+    "api_call_count": 28
   }
 }
