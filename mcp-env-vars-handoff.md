@@ -69,14 +69,14 @@ Example:
 
 ```json
 {
-  "mcpServers": {
-    "dbt": {
-      "command": "npx",
-      "env": {
-        "DBT_TOKEN": "${DBT_TOKEN}"
-      }
-    }
-  }
+	"mcpServers": {
+		"dbt": {
+			"command": "npx",
+			"env": {
+				"DBT_TOKEN": "${DBT_TOKEN}"
+			}
+		}
+	}
 }
 ```
 
@@ -137,7 +137,7 @@ apps/backend/src/utils/nao-config.ts
 The function is:
 
 ```ts
-extractRequiredEnvVars(projectFolder)
+extractRequiredEnvVars(projectFolder);
 ```
 
 Before the fix, it only looked at:
@@ -219,7 +219,7 @@ When the user clicks save, the frontend sends an object like this:
 
 ```ts
 {
-  DBT_TOKEN: "real-secret-value"
+	DBT_TOKEN: 'real-secret-value';
 }
 ```
 
@@ -232,13 +232,13 @@ apps/backend/src/trpc/project.routes.ts
 The route is:
 
 ```ts
-project.updateEnvVars
+project.updateEnvVars;
 ```
 
 That route calls:
 
 ```ts
-projectQueries.updateEnvVars(ctx.project.id, input.envVars)
+projectQueries.updateEnvVars(ctx.project.id, input.envVars);
 ```
 
 The DB write happens in:
@@ -250,7 +250,7 @@ apps/backend/src/queries/project.queries.ts
 The function is:
 
 ```ts
-updateEnvVars(projectId, envVars)
+updateEnvVars(projectId, envVars);
 ```
 
 The values are stored on the project row in:
@@ -289,7 +289,7 @@ apps/backend/src/services/mcp.ts
 The method is:
 
 ```ts
-_loadConfig()
+_loadConfig();
 ```
 
 Before the fix, MCP did this:
@@ -339,10 +339,10 @@ It now works like this:
 
 ```ts
 export const replaceEnvVars = (fileContent: string, extraEnv: Record<string, string> = {}) => {
-  const replaced = fileContent.replace(/\$\{(\w+)\}/g, (match, varName) => {
-    return extraEnv[varName] || process.env[varName] || match;
-  });
-  return replaced;
+	const replaced = fileContent.replace(/\$\{(\w+)\}/g, (match, varName) => {
+		return extraEnv[varName] || process.env[varName] || match;
+	});
+	return replaced;
 };
 ```
 
