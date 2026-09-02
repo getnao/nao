@@ -71,7 +71,7 @@ export function ChatAccessError({
 			</ChatErrorLayout>
 		);
 	}
-	
+
 	return (
 		<ChatErrorLayout
 			icon={<WifiOff className='size-4' aria-hidden />}
