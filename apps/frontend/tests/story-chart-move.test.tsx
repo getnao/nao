@@ -447,6 +447,35 @@ describe('edit-mode chart actions', () => {
 		}
 	});
 
+	it('clears the block selection when directly clicking another tab', async () => {
+		const code = [
+			'<tab title="Source">',
+			'Selected',
+			'</tab>',
+			'',
+			'<tab title="Destination">',
+			'Existing',
+			'</tab>',
+		].join('\n');
+		const editorRef = { current: null } as MutableRefObject<Editor | null>;
+		render(<EditorHarness code={code} exposedEditorRef={editorRef} />);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Select first block' }));
+		const editor = editorRef.current;
+		expect(editor).not.toBeNull();
+		if (!editor) {
+			return;
+		}
+		expect(blockSelectionPluginKey.getState(editor.state)?.blocks).not.toHaveLength(0);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Destination' }));
+
+		await waitFor(() => {
+			expect(blockSelectionPluginKey.getState(editor.state)).toEqual(emptySelection());
+			expect(screen.getByText('Existing')).not.toBeNull();
+		});
+	});
+
 	it('moves a chart through the nested grip menu and selects it in the destination tab', async () => {
 		const code = [
 			'<tab title="Source">',
@@ -565,7 +594,60 @@ describe('edit-mode chart actions', () => {
 		expect(trailingParagraph?.classList.contains('nao-block-selected')).toBe(false);
 	});
 
-	it('keeps editor drag layers behind the tab drop target', async () => {
+	it('deactivates an editor drop target before moving a single block to a tab', async () => {
+		const secondChart = rawTag.replace('q1', 'q2');
+		const code = [
+			'<tab title="Source">',
+			rawTag,
+			'',
+			secondChart,
+			'</tab>',
+			'',
+			'<tab title="Destination">',
+			'Existing',
+			'</tab>',
+		].join('\n');
+		render(<EditorHarness code={code} />);
+
+		const grips = await screen.findAllByRole('button', { name: 'Move story block' });
+		const dataTransfer = createDataTransfer();
+		fireEvent.dragStart(grips[0], { dataTransfer });
+
+		const editorDropZone = await waitFor(() => {
+			const zone = document.querySelector<HTMLElement>('[data-story-block-drop-zone$=":left"]');
+			expect(zone).not.toBeNull();
+			return zone as HTMLElement;
+		});
+		fireEvent.dragOver(editorDropZone, { dataTransfer });
+		expect(document.querySelector('.story-editor')?.classList.contains('drop-indicator-active')).toBe(true);
+		expect(editorDropZone.firstElementChild?.classList.contains('bg-primary-muted')).toBe(true);
+
+		const destinationButton = screen.getByRole('button', { name: 'Destination' });
+		const destinationTab = destinationButton.parentElement as HTMLElement;
+		fireEvent.dragOver(destinationTab, { dataTransfer });
+
+		expect(document.querySelectorAll('[data-story-block-drop-target]')).toHaveLength(1);
+		expect(document.querySelector('.story-editor')?.classList.contains('drop-indicator-active')).toBe(false);
+		expect(document.querySelector('[data-story-block-drop-zone]')).toBeNull();
+		expect(document.querySelector('.drop-cursor')).toBeNull();
+
+		fireEvent.drop(destinationTab, { dataTransfer });
+
+		await waitFor(() => {
+			expect(screen.getByText('Chart q1').closest('.nao-block-selected')).not.toBeNull();
+			expect(destinationButton.parentElement?.classList.contains('bg-background')).toBe(true);
+		});
+		expect(document.querySelector('[data-story-block-drop-target]')).toBeNull();
+		expect(document.querySelector('.story-editor')?.classList.contains('drop-indicator-active')).toBe(false);
+		expect(document.querySelector('.drop-cursor')).toBeNull();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Snapshot' }));
+		const tabs = parseStoryTabs(screen.getByRole('status').textContent ?? '');
+		expect(tabs?.[0].innerCode.trim()).toBe(secondChart);
+		expect(tabs?.[1].innerCode.trim()).toBe(`Existing\n\n${rawTag}`);
+	});
+
+	it('clears the tab drop target when a block drag ends', async () => {
 		const code = [
 			'<tab title="Source">',
 			rawTag,
@@ -581,17 +663,14 @@ describe('edit-mode chart actions', () => {
 		const dataTransfer = createDataTransfer();
 		fireEvent.dragStart(grip, { dataTransfer });
 
-		const destinationButton = screen.getByRole('button', { name: 'Destination' });
-		const destinationTab = destinationButton.parentElement as HTMLElement;
+		const destinationTab = screen.getByRole('button', { name: 'Destination' }).parentElement as HTMLElement;
 		fireEvent.dragOver(destinationTab, { dataTransfer });
-
-		const stickyTabLayer = destinationTab.closest('.sticky');
-		const stackingClass = Array.from(stickyTabLayer?.classList ?? []).find((className) =>
-			/^z-\d+$/.test(className),
-		);
 		expect(destinationTab.hasAttribute('data-story-block-drop-target')).toBe(true);
-		expect(stickyTabLayer?.classList.contains('bg-background')).toBe(true);
-		expect(Number(stackingClass?.slice(2))).toBeGreaterThan(40);
+
+		fireEvent.dragEnd(grip, { dataTransfer });
+
+		expect(document.querySelector('[data-story-block-drop-target]')).toBeNull();
+		expect(document.querySelector('.story-editor')?.classList.contains('drop-indicator-active')).toBe(false);
 	});
 
 	it('moves a mixed multi-selection when dropped on an inactive tab', async () => {

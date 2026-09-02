@@ -22,7 +22,7 @@ import {
 	preprocessForEditor,
 	removeCardFromOrigin,
 } from '../story-editor-utils';
-import type { GridDragSource, StoryBlockDragSource } from '../story-editor-drag-context';
+import type { GridDragSource, StoryBlockDragSource, StoryEditorDragControls } from '../story-editor-drag-context';
 import type { DragUnit, GridColumnRef } from '../story-block-selection';
 import type { Node as PMNode } from '@tiptap/pm/model';
 import type { EditorState } from '@tiptap/pm/state';
@@ -33,6 +33,7 @@ interface UseStoryEditorParams {
 	code: string;
 	editorRef: MutableRefObject<Editor | null>;
 	onSave?: () => void;
+	onDragControlsChange?: (controls: StoryEditorDragControls | null) => void;
 }
 
 /**
@@ -40,7 +41,7 @@ interface UseStoryEditorParams {
  * block extensions, the save shortcut, and the drag-and-drop handlers that move
  * story blocks and grid columns around the document.
  */
-export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams) {
+export function useStoryEditor({ code, editorRef, onSave, onDragControlsChange }: UseStoryEditorParams) {
 	const processedContent = useMemo(() => preprocessForEditor(code), [code]);
 	const onSaveRef = useRef(onSave);
 	const gridDragSourceRef = useRef<GridDragSource | null>(null);
@@ -54,6 +55,7 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 	const [isBlockDragging, setIsBlockDragging] = useState(false);
 	const [isHandleTooltipSuppressed, setIsHandleTooltipSuppressed] = useState(false);
 	const [activeDropZone, setActiveDropZone] = useState<string | null>(null);
+	const [isDropTargetSuppressed, setIsDropTargetSuppressed] = useState(false);
 	const [handleNodeType, setHandleNodeType] = useState<string | null>(null);
 	const [selectedGridColumns, setSelectedGridColumns] = useState<GridColumnRef[]>([]);
 	const [selectedBlocks, setSelectedBlocks] = useState<number[]>([]);
@@ -64,6 +66,7 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 		dragPreviewElementsRef.current = null;
 		pendingDropRef.current = null;
 		setIsBlockDragging(false);
+		setIsDropTargetSuppressed(false);
 		setActiveDropZone((current) => (current === null ? current : null));
 	}, []);
 	const buildStoryDragSlice = useCallback((state: EditorState): Slice | null => {
@@ -130,6 +133,7 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 						event.dataTransfer?.types.includes(STORY_BLOCK_DRAG_TYPE)
 					) {
 						event.preventDefault();
+						setIsDropTargetSuppressed(false);
 						setActiveDropZone((current) => (current === null ? current : null));
 						pendingDropRef.current = null;
 						if (!view.dragging) {
@@ -267,6 +271,23 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 		},
 	});
 
+	const deactivateDropTargets = useCallback(() => {
+		pendingDropRef.current = null;
+		setIsDropTargetSuppressed(true);
+		setActiveDropZone((current) => (current === null ? current : null));
+		if (editor) {
+			editor.view.dom.dispatchEvent(new DragEvent('dragleave'));
+		}
+	}, [editor]);
+
+	useEffect(() => {
+		if (!onDragControlsChange) {
+			return;
+		}
+		onDragControlsChange({ deactivateDropTargets });
+		return () => onDragControlsChange(null);
+	}, [deactivateDropTargets, onDragControlsChange]);
+
 	useEffect(() => {
 		const container = storyEditorRef.current;
 		if (!container || !editor) {
@@ -342,8 +363,10 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 
 		const resetBlockDragState = () => {
 			setIsBlockDragging(false);
+			setIsDropTargetSuppressed(false);
 			setActiveDropZone((current) => (current === null ? current : null));
 			pendingDropRef.current = null;
+			gridDragSourceRef.current = null;
 			storyBlockSourceRef.current = null;
 			multiSelectionDragRef.current = null;
 			dragPreviewElementsRef.current = null;
@@ -521,6 +544,7 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 			releaseHandleTooltipSuppression,
 			activeDropZone,
 			setActiveDropZone,
+			isDropTargetSuppressed,
 			pendingDropRef,
 			beginMultiSelectionDrag,
 			endMultiSelectionDrag,
@@ -530,6 +554,7 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 			beginMultiSelectionDrag,
 			endMultiSelectionDrag,
 			isBlockDragging,
+			isDropTargetSuppressed,
 			isHandleTooltipSuppressed,
 			releaseHandleTooltipSuppression,
 			suppressHandleTooltips,

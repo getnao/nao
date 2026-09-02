@@ -343,6 +343,7 @@ export function StoryBlockDropZones({ node, editor, getPos }: Pick<ReactNodeView
 	const isDropTarget =
 		typeof currentPos === 'number' &&
 		dragContext?.isDragging === true &&
+		!dragContext.isDropTargetSuppressed &&
 		dragContext.sourceRef.current !== null &&
 		!(sourceOrigin?.kind === 'block' && sourceOrigin.pos === currentPos);
 
@@ -398,6 +399,7 @@ export function StoryBlockDropZones({ node, editor, getPos }: Pick<ReactNodeView
 				<div
 					key={side}
 					contentEditable={false}
+					data-story-block-drop-zone={zoneId}
 					className={`absolute inset-y-0 z-30 w-1/2 ${side === 'left' ? 'left-0' : 'right-0'}`}
 					onDragOver={(event) => {
 						event.preventDefault();

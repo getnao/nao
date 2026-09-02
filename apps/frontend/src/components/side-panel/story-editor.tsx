@@ -5,6 +5,7 @@ import { StoryBlockActionGrip } from './story-editor-block-drag';
 import { useStoryEditor } from './hooks/use-story-editor';
 import { BlockSelectionContext, SelectedBlockPositionsContext } from './story-block-selection-context';
 import { GridDragContext, StoryBlockDragContext } from './story-editor-drag-context';
+import type { StoryEditorDragControls } from './story-editor-drag-context';
 import type { Editor } from '@tiptap/react';
 import { cn } from '@/lib/utils';
 
@@ -15,9 +16,15 @@ interface StoryEditorProps {
 	code: string;
 	editorRef: React.MutableRefObject<Editor | null>;
 	onSave?: () => void;
+	onDragControlsChange?: (controls: StoryEditorDragControls | null) => void;
 }
 
-export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }: StoryEditorProps) {
+export const StoryEditor = memo(function StoryEditor({
+	code,
+	editorRef,
+	onSave,
+	onDragControlsChange,
+}: StoryEditorProps) {
 	const {
 		editor,
 		gridDragSourceRef,
@@ -30,7 +37,7 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 		onElementDragStart,
 		onElementDragEnd,
 		getDragHandleOrigin,
-	} = useStoryEditor({ code, editorRef, onSave });
+	} = useStoryEditor({ code, editorRef, onSave, onDragControlsChange });
 
 	const hideFloatingHandle =
 		handleNodeType === 'gridBlock' ||

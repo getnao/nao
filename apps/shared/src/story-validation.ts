@@ -6,7 +6,6 @@ import {
 	parseStringArrayAttribute,
 	TAG_ATTRS,
 } from './story-segments';
-import { parseStoryTabTitle } from './story-tabs';
 import { ChartTypeEnum, SeriesTypeEnum, XAxisTypeEnum, YAxisSideEnum } from './tools/display-chart';
 
 export interface StoryValidationError {
@@ -74,7 +73,8 @@ function validateTabsBlocks(code: string): StoryValidationError[] {
 		}
 
 		tabBlocks.push({ start: opener.index, end: closeIndex + '</tab>'.length });
-		if (!parseStoryTabTitle(opener[1] ?? '').trim()) {
+		const attrs = parseChartAttributes(opener[0]);
+		if (!attrs.title?.trim()) {
 			const position = getPosition(code, opener.index);
 			errors.push({
 				message: 'Tab is missing a required `title` attribute.',

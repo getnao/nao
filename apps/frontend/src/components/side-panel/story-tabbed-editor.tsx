@@ -12,11 +12,13 @@ import { getEditorMarkdown, preprocessForEditor, StoryEditor } from './story-edi
 import {
 	blockSelectionPluginKey,
 	buildDragUnitTransfer,
+	emptySelection,
 	resolveActionSelection,
 	topLevelBlockPositions,
 } from './story-block-selection';
 import { StoryTabsBar } from './story-tabs-bar';
 import type { DragOrigin } from './story-block-selection';
+import type { StoryEditorDragControls } from './story-editor-drag-context';
 import type { Node as PMNode } from '@tiptap/pm/model';
 import type { MutableRefObject } from 'react';
 import type { Editor as TiptapEditor } from '@tiptap/react';
@@ -46,6 +48,7 @@ export function StoryTabbedEditor({
 	const bufferRef = useRef(bufferCode);
 	const activeRef = useRef(active);
 	const pendingMovedSelectionRef = useRef<{ destinationBlockOffset: number; tabIndex: number } | null>(null);
+	const editorDragControlsRef = useRef<StoryEditorDragControls | null>(null);
 
 	bufferRef.current = bufferCode;
 	activeRef.current = active;
@@ -76,6 +79,9 @@ export function StoryTabbedEditor({
 		(nextIndex: number) => {
 			pendingMovedSelectionRef.current = null;
 			const editor = editorRef.current;
+			if (editor) {
+				editor.view.dispatch(editor.state.tr.setMeta(blockSelectionPluginKey, emptySelection()));
+			}
 			const spliced = editor ? replaceStoryTabInner(bufferCode, active, getEditorMarkdown(editor)) : bufferCode;
 			setBufferCode(spliced);
 			setActiveIndex(nextIndex);
@@ -135,6 +141,12 @@ export function StoryTabbedEditor({
 		}),
 		[active, handleMoveSelection, tabs],
 	);
+	const handleDragControlsChange = useCallback((controls: StoryEditorDragControls | null) => {
+		editorDragControlsRef.current = controls;
+	}, []);
+	const deactivateEditorDropTargets = useCallback(() => {
+		editorDragControlsRef.current?.deactivateDropTargets();
+	}, []);
 
 	useEffect(() => {
 		const pending = pendingMovedSelectionRef.current;
@@ -178,7 +190,12 @@ export function StoryTabbedEditor({
 		const plainCode = stripStoryTabsMarkup(bufferCode).trim();
 		return (
 			<StoryEditorSelectionActionsProvider value={selectionActions}>
-				<StoryEditor code={plainCode} editorRef={editorRef} onSave={onSave} />
+				<StoryEditor
+					code={plainCode}
+					editorRef={editorRef}
+					onSave={onSave}
+					onDragControlsChange={handleDragControlsChange}
+				/>
 			</StoryEditorSelectionActionsProvider>
 		);
 	}
@@ -192,7 +209,10 @@ export function StoryTabbedEditor({
 						activeIndex={active}
 						onSelect={handleSelect}
 						contentClassName={barContentClassName}
-						externalDrop={{ onDrop: handleMoveSelection }}
+						externalDrop={{
+							onDrop: handleMoveSelection,
+							onTargetActivate: deactivateEditorDropTargets,
+						}}
 						editable={{
 							onRename: (index, title) => setBufferCode(renameStoryTab(spliceCurrent(), index, title)),
 							onDelete: (index) => {
@@ -225,7 +245,12 @@ export function StoryTabbedEditor({
 					/>
 				</div>
 				<div className={contentClassName}>
-					<StoryEditor code={tabs[active]?.innerCode ?? ''} editorRef={editorRef} onSave={onSave} />
+					<StoryEditor
+						code={tabs[active]?.innerCode ?? ''}
+						editorRef={editorRef}
+						onSave={onSave}
+						onDragControlsChange={handleDragControlsChange}
+					/>
 				</div>
 			</div>
 		</StoryEditorSelectionActionsProvider>

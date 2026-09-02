@@ -52,6 +52,10 @@ export type GridDragSource = {
 
 export type StoryBlockDropSide = 'left' | 'right';
 
+export interface StoryEditorDragControls {
+	deactivateDropTargets: () => void;
+}
+
 export const StoryBlockDragContext = createContext<{
 	sourceRef: MutableRefObject<StoryBlockDragSource | null>;
 	isDragging: boolean;
@@ -61,6 +65,7 @@ export const StoryBlockDragContext = createContext<{
 	releaseHandleTooltipSuppression: () => void;
 	activeDropZone: string | null;
 	setActiveDropZone: Dispatch<SetStateAction<string | null>>;
+	isDropTargetSuppressed: boolean;
 	pendingDropRef: MutableRefObject<(() => void) | null>;
 	beginMultiSelectionDrag: (units: DragUnit[], event: DragEvent) => void;
 	endMultiSelectionDrag: () => void;
