@@ -355,22 +355,27 @@ function LiveStoryControls({ live }: { live: LiveControls }) {
 		<>
 			<Tooltip>
 				<TooltipTrigger asChild>
-					<button
-						type='button'
-						onClick={onOpenSettings}
-						disabled={isUpdating}
-						className='flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 border hover:bg-secondary rounded-full px-2 py-0.75'
-					>
-						<>
-							<Activity className='size-3.5 text-foreground' strokeWidth={2.25} />
-							<span className='text-xs font-medium'>Live story</span>
-							{isUpdating ? (
-								<Loader2 className='size-3.5 animate-spin' strokeWidth={2.25} />
-							) : (
-								<SwitchIndicator checked={isLive} />
+					<span className='inline-flex' tabIndex={isUpdating ? 0 : undefined}>
+						<button
+							type='button'
+							onClick={onOpenSettings}
+							disabled={isUpdating}
+							className={cn(
+								'flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 border hover:bg-secondary rounded-full px-2 py-0.75',
+								isUpdating && 'pointer-events-none',
 							)}
-						</>
-					</button>
+						>
+							<>
+								<Activity className='size-3.5 text-foreground' strokeWidth={2.25} />
+								<span className='text-xs font-medium'>Live story</span>
+								{isUpdating ? (
+									<Loader2 className='size-3.5 animate-spin' strokeWidth={2.25} />
+								) : (
+									<SwitchIndicator checked={isLive} />
+								)}
+							</>
+						</button>
+					</span>
 				</TooltipTrigger>
 				<TooltipContent>
 					{isUpdating ? 'Live story uploading...' : isLive ? 'Live story settings' : 'Enable live mode'}
