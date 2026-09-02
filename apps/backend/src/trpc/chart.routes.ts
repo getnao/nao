@@ -22,14 +22,21 @@ export const chartRoutes = {
 			}),
 		)
 		.query(async ({ input, ctx }) => {
+			const owner = await getChartOwnerInfo(input.toolCallId);
+			if (!owner) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Chart not found.' });
+			}
+			if (owner.projectId !== ctx.project.id) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'You are not authorized to view this chart.' });
+			}
+
 			const config = await readDownloadableChartConfig(input.toolCallId);
 			const data = await getChartDataByQueryId(config.query_id);
 			const displaySettings = await getDisplaySettings(ctx.project.id);
 			const png = generateChartImage({ config, data, dateFormat: displaySettings.dateFormat });
 
 			try {
-				const owner = await getChartOwnerInfo(input.toolCallId);
-				if (owner?.chatId) {
+				if (owner.chatId) {
 					logAnalyticsEvent({
 						projectId: ctx.project.id,
 						type: 'download',

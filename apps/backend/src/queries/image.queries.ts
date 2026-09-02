@@ -44,6 +44,20 @@ export const saveImages = async (
 		.execute();
 };
 
+/**
+ * Chats that reference `imageId`. An image row carries no owner column, so this join is the only
+ * path to one; a fork re-references the same row, hence the plural result.
+ */
+export const getChatIdsByImageId = async (imageId: string): Promise<string[]> => {
+	const rows = await db
+		.selectDistinct({ chatId: s.chatMessage.chatId })
+		.from(s.messagePart)
+		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
+		.where(eq(s.messagePart.imageId, imageId))
+		.execute();
+	return rows.map((row) => row.chatId);
+};
+
 export const getImageById = async (id: string): Promise<{ data: string; mediaType: string } | undefined> => {
 	const [row] = await db
 		.select({ data: s.messageImage.data, mediaType: s.messageImage.mediaType })
