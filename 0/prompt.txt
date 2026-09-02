@@ -1,0 +1,13 @@
+You're on issue #1539, it's very small easy bug, find the cause
+
+---
+
+be concise and clear what causes this issue?
+
+---
+
+ok yeah so the id must be changed to adpat the live picker color (or default color if live picker is empty then)
+
+---
+
+good, give PR summary
