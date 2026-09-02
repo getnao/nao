@@ -32,6 +32,7 @@ import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { getTextOffset } from '@/lib/selection-dom.utils';
+import { shouldShowChatAccessError } from '@/lib/chat-error-state';
 import { isForbiddenError } from '@/lib/trpc-error';
 
 export const Route = createFileRoute('/_sidebar-layout/_chat-layout/$chatId')({
@@ -65,6 +66,7 @@ function ChatPage() {
 	const title = chat.data?.title;
 
 	const isForbidden = chat.isError && isForbiddenError(chat.error);
+	const shouldShowChatError = shouldShowChatAccessError(chat);
 	const shouldRedirectToReplay = isForbidden && canViewChatReplay;
 	const isResolvingReplayRedirect = isForbidden && role === undefined;
 
@@ -81,7 +83,7 @@ function ChatPage() {
 
 	const shareQuery = useQuery({
 		...trpc.sharedChat.getShareOptionsByChatId.queryOptions({ chatId }),
-		enabled: chat.isSuccess,
+		enabled: !!chat.data && !shouldShowChatError,
 	});
 	const isShared = !!shareQuery.data?.shareId;
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
@@ -118,7 +120,7 @@ function ChatPage() {
 
 	useEffect(() => {
 		const openStorySlug = router.state.location.state.openStorySlug;
-		if (chat.isError || !openStorySlug || isLoadingMessages) {
+		if (shouldShowChatError || !openStorySlug || isLoadingMessages) {
 			return;
 		}
 
@@ -131,9 +133,9 @@ function ChatPage() {
 			});
 		});
 		return () => clearTimeout(timer);
-	}, [chat.isError, isLoadingMessages]); // eslint-disable-line react-hooks/exhaustive-deps
+	}, [shouldShowChatError, isLoadingMessages]); // eslint-disable-line react-hooks/exhaustive-deps
 
-	if (chat.isError) {
+	if (shouldShowChatError) {
 		if (shouldRedirectToReplay || isResolvingReplayRedirect) {
 			return null;
 		}

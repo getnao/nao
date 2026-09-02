@@ -4,7 +4,15 @@ import { Lock, SearchX, TriangleAlert, WifiOff } from 'lucide-react';
 import { MobileHeader } from '@/components/mobile-header';
 import { Button } from '@/components/ui/button';
 import { getSafeRedirectPath } from '@/lib/safe-redirect';
-import { isForbiddenError, isInternalServerError, isNotFoundError, isUnauthorizedError } from '@/lib/trpc-error';
+import {
+	isForbiddenError,
+	isNetworkError,
+	isNotFoundError,
+	isServiceUnavailableError,
+	isTimeoutError,
+	isTooManyRequestsError,
+	isUnauthorizedError,
+} from '@/lib/trpc-error';
 
 export function ChatAccessError({
 	error,
@@ -60,12 +68,48 @@ export function ChatAccessError({
 		);
 	}
 
-	if (isInternalServerError(error)) {
+	if (isTimeoutError(error)) {
 		return (
 			<ChatErrorLayout
 				icon={<TriangleAlert className='size-4' aria-hidden />}
-				title='Something went wrong'
-				description="We couldn't load this chat. This is likely a temporary problem, so please try again."
+				title='Nao is taking too long to respond'
+				description='The server did not respond after several attempts. Please try again.'
+			>
+				{onRetry ? <Button onClick={onRetry}>Retry</Button> : null}
+			</ChatErrorLayout>
+		);
+	}
+
+	if (isTooManyRequestsError(error)) {
+		return (
+			<ChatErrorLayout
+				icon={<TriangleAlert className='size-4' aria-hidden />}
+				title='Nao is busy'
+				description='Too many requests are being handled right now. Please try again shortly.'
+			>
+				{onRetry ? <Button onClick={onRetry}>Retry</Button> : null}
+			</ChatErrorLayout>
+		);
+	}
+
+	if (isServiceUnavailableError(error)) {
+		return (
+			<ChatErrorLayout
+				icon={<TriangleAlert className='size-4' aria-hidden />}
+				title='Nao is temporarily unavailable'
+				description='The server returned an error after several attempts. Please try again.'
+			>
+				{onRetry ? <Button onClick={onRetry}>Retry</Button> : null}
+			</ChatErrorLayout>
+		);
+	}
+
+	if (isNetworkError(error)) {
+		return (
+			<ChatErrorLayout
+				icon={<WifiOff className='size-4' aria-hidden />}
+				title="Can't connect to nao"
+				description="We couldn't reach the server after several attempts. Check your connection and try again."
 			>
 				{onRetry ? <Button onClick={onRetry}>Retry</Button> : null}
 			</ChatErrorLayout>
@@ -74,9 +118,9 @@ export function ChatAccessError({
 
 	return (
 		<ChatErrorLayout
-			icon={<WifiOff className='size-4' aria-hidden />}
-			title="Can't reach nao"
-			description='Check your connection and try again.'
+			icon={<TriangleAlert className='size-4' aria-hidden />}
+			title="Couldn't load this chat"
+			description='An unexpected error prevented this chat from loading. Please try again.'
 		>
 			{onRetry ? <Button onClick={onRetry}>Retry</Button> : null}
 		</ChatErrorLayout>
