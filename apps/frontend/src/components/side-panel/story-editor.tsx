@@ -1,10 +1,11 @@
 import { DragHandle } from '@tiptap/extension-drag-handle-react';
 import { EditorContent } from '@tiptap/react';
-import { GripVertical } from 'lucide-react';
 import { memo } from 'react';
+import { StoryBlockActionGrip } from './story-editor-block-drag';
 import { useStoryEditor } from './hooks/use-story-editor';
 import { BlockSelectionContext, SelectedBlockPositionsContext } from './story-block-selection-context';
 import { GridDragContext, StoryBlockDragContext } from './story-editor-drag-context';
+import type { StoryEditorDragControls } from './story-editor-drag-context';
 import type { Editor } from '@tiptap/react';
 import { cn } from '@/lib/utils';
 
@@ -15,9 +16,15 @@ interface StoryEditorProps {
 	code: string;
 	editorRef: React.MutableRefObject<Editor | null>;
 	onSave?: () => void;
+	onDragControlsChange?: (controls: StoryEditorDragControls | null) => void;
 }
 
-export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }: StoryEditorProps) {
+export const StoryEditor = memo(function StoryEditor({
+	code,
+	editorRef,
+	onSave,
+	onDragControlsChange,
+}: StoryEditorProps) {
 	const {
 		editor,
 		gridDragSourceRef,
@@ -29,11 +36,14 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 		storyEditorRef,
 		onElementDragStart,
 		onElementDragEnd,
-		onDragHandleClick,
-	} = useStoryEditor({ code, editorRef, onSave });
+		getDragHandleOrigin,
+	} = useStoryEditor({ code, editorRef, onSave, onDragControlsChange });
 
 	const hideFloatingHandle =
-		handleNodeType === 'gridBlock' || handleNodeType === 'chartBlock' || handleNodeType === 'tableBlock';
+		handleNodeType === 'gridBlock' ||
+		handleNodeType === 'chartBlock' ||
+		handleNodeType === 'tableBlock' ||
+		handleNodeType === 'mapBlock';
 
 	return (
 		<GridDragContext.Provider value={gridDragSourceRef}>
@@ -53,9 +63,14 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 							onElementDragStart={onElementDragStart}
 							onElementDragEnd={onElementDragEnd}
 						>
-							<div className='drag-handle-button' onClick={onDragHandleClick}>
-								{hideFloatingHandle ? null : <GripVertical className='size-4' />}
-							</div>
+							<StoryBlockActionGrip
+								editor={editor}
+								getOrigin={getDragHandleOrigin}
+								ariaLabel='Move story block'
+								iconClassName='size-4'
+								lockHandleWhileOpen
+								wrapperClassName={cn('drag-handle-button', hideFloatingHandle && 'invisible')}
+							/>
 						</DragHandle>
 					)}
 					<BlockSelectionContext.Provider value={selectedGridColumns}>

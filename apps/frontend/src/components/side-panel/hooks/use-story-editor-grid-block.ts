@@ -14,7 +14,7 @@ import { removeCardFromOrigin } from '../story-editor-utils';
 import {
 	GRID_COLUMN_DRAG_TYPE,
 	GridDragContext,
-	STORY_BLOCK_DRAG_TYPE,
+	setStoryBlockDragOrigin,
 	StoryBlockDragContext,
 } from '../story-editor-drag-context';
 import { resolveDragSelection } from '../story-block-selection';
@@ -106,8 +106,13 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 			setBlockDropIndex(null);
 			setDropColumnIndex(null);
 			setDragColumnIndex(null);
+			return;
 		}
-	}, [storyBlockDrag?.isDragging]);
+		if (storyBlockDrag.isDropTargetSuppressed) {
+			setBlockDropIndex(null);
+			setDropColumnIndex(null);
+		}
+	}, [storyBlockDrag?.isDragging, storyBlockDrag?.isDropTargetSuppressed]);
 
 	/**
 	 * Resize handles are absolutely positioned as fractions of the full grid
@@ -174,13 +179,14 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 	const handleColumnDragStart = useCallback(
 		(columnIndex: number, event: ReactDragEvent<HTMLElement>) => {
 			const gridPos = getPos();
-			const units =
-				typeof gridPos === 'number'
-					? resolveDragSelection(editor.state, { kind: 'gridColumn', gridPos, index: columnIndex })
-					: null;
+			const dragOrigin =
+				typeof gridPos === 'number' ? { kind: 'gridColumn' as const, gridPos, index: columnIndex } : null;
+			const units = dragOrigin === null ? null : resolveDragSelection(editor.state, dragOrigin);
+			if (dragOrigin) {
+				setStoryBlockDragOrigin(event.dataTransfer, dragOrigin);
+			}
 			if (units && storyBlockDrag) {
 				event.stopPropagation();
-				event.dataTransfer.setData(STORY_BLOCK_DRAG_TYPE, '1');
 				storyBlockDrag.beginMultiSelectionDrag(units, event.nativeEvent);
 				storyBlockDrag.setDragging(true);
 				setDropColumnIndex(null);
@@ -191,7 +197,6 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 			event.stopPropagation();
 			event.dataTransfer.effectAllowed = 'move';
 			event.dataTransfer.setData(GRID_COLUMN_DRAG_TYPE, String(columnIndex));
-			event.dataTransfer.setData(STORY_BLOCK_DRAG_TYPE, '1');
 			if (typeof gridPos === 'number' && gridDragSourceRef) {
 				gridDragSourceRef.current = { gridPos, columnIndex };
 			}
@@ -212,6 +217,9 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 
 	const handleGridDragOver = useCallback(
 		(event: ReactDragEvent<HTMLDivElement>) => {
+			if (storyBlockDrag?.isDropTargetSuppressed) {
+				return;
+			}
 			if (dragColumnIndex !== null) {
 				event.preventDefault();
 				event.stopPropagation();
@@ -461,8 +469,10 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 	}, [isSingleRow, segments, visualWidths]);
 
 	const indicatorIndex = blockDropIndex ?? dropColumnIndex;
+	const gridPos = getPos();
+	const gridDropTargetActive = typeof gridPos === 'number' && storyBlockDrag?.activeDropZone === `grid:${gridPos}`;
 	const dropIndicatorLeft =
-		indicatorIndex === null
+		indicatorIndex === null || !gridDropTargetActive
 			? null
 			: indicatorIndex === 0
 				? '0%'
@@ -470,9 +480,9 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 					? '100%'
 					: (resizeHandlePositions[indicatorIndex - 1]?.left ?? null);
 	const externalBlockSource = storyBlockDrag?.sourceRef.current;
-	const gridPos = getPos();
 	const externalBlockActive =
 		storyBlockDrag?.isDragging === true &&
+		!storyBlockDrag.isDropTargetSuppressed &&
 		externalBlockSource !== null &&
 		externalBlockSource !== undefined &&
 		!(externalBlockSource.origin.kind === 'gridColumn' && externalBlockSource.origin.gridPos === gridPos);
