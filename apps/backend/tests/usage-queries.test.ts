@@ -7,6 +7,7 @@ import { db } from '../src/db/db';
 import { getMessagesUsage, getTotalUsage } from '../src/queries/usage.queries';
 import {
 	getUserProjectPreferences,
+	mutateUserProjectPreferences,
 	updateUserProjectPreferences,
 } from '../src/queries/user-project-preference.queries';
 import type { UsagePeriodRange } from '../src/types/usage';
@@ -90,25 +91,62 @@ describe('usage query results', () => {
 	);
 
 	it('stores period preferences independently for each user and project', async () => {
-		const usagePeriod = {
-			mode: 'custom' as const,
-			customPeriod: { value: 30, unit: 'day' as const },
-		};
+		const usagePeriod = { mode: '6m' as const };
+		const usagePeriodEntries = [{ id: 'year', days: 365, granularity: 'month' as const }];
 
-		await updateUserProjectPreferences(USER_ID, PROJECT_ID, { usagePeriod });
+		await updateUserProjectPreferences(USER_ID, PROJECT_ID, { usagePeriod, usagePeriodEntries });
 
-		await expect(getUserProjectPreferences(USER_ID, PROJECT_ID)).resolves.toEqual({ usagePeriod });
+		await expect(getUserProjectPreferences(USER_ID, PROJECT_ID)).resolves.toEqual({
+			usagePeriod,
+			usagePeriodEntries,
+		});
 		await expect(getUserProjectPreferences(OTHER_USER_ID, PROJECT_ID)).resolves.toEqual({});
 		await expect(getUserProjectPreferences(USER_ID, OTHER_PROJECT_ID)).resolves.toEqual({});
 	});
 
-	it('enforces custom period limits by unit', () => {
+	it('serializes concurrent project preference transforms', async () => {
+		await Promise.all([
+			mutateUserProjectPreferences(USER_ID, PROJECT_ID, (current) => ({
+				...current,
+				usagePeriodEntries: [
+					...(current.usagePeriodEntries ?? []),
+					{ id: 'first', days: 30, granularity: 'day' },
+				],
+			})),
+			mutateUserProjectPreferences(USER_ID, PROJECT_ID, (current) => ({
+				...current,
+				usagePeriodEntries: [
+					...(current.usagePeriodEntries ?? []),
+					{ id: 'second', days: 365, granularity: 'month' },
+				],
+			})),
+		]);
+
+		const preferences = await getUserProjectPreferences(USER_ID, PROJECT_ID);
+		expect(preferences.usagePeriodEntries).toHaveLength(2);
+		expect(preferences.usagePeriodEntries).toEqual(
+			expect.arrayContaining([
+				{ id: 'first', days: 30, granularity: 'day' },
+				{ id: 'second', days: 365, granularity: 'month' },
+			]),
+		);
+	});
+
+	it('accepts positive period values without a maximum', () => {
 		expect(usagePeriodRangeSchema.safeParse({ value: 24, unit: 'hour' }).success).toBe(true);
-		expect(usagePeriodRangeSchema.safeParse({ value: 25, unit: 'hour' }).success).toBe(false);
-		expect(usagePeriodRangeSchema.safeParse({ value: 30, unit: 'day' }).success).toBe(true);
-		expect(usagePeriodRangeSchema.safeParse({ value: 31, unit: 'day' }).success).toBe(false);
-		expect(usagePeriodRangeSchema.safeParse({ value: 24, unit: 'month' }).success).toBe(true);
-		expect(usagePeriodRangeSchema.safeParse({ value: 25, unit: 'month' }).success).toBe(false);
+		expect(usagePeriodRangeSchema.safeParse({ value: 5000, unit: 'day' }).success).toBe(true);
+		expect(usagePeriodRangeSchema.safeParse({ value: 1000, unit: 'month' }).success).toBe(true);
+		expect(usagePeriodRangeSchema.safeParse({ value: 0, unit: 'day' }).success).toBe(false);
+		expect(usagePeriodRangeSchema.safeParse({ value: 1.5, unit: 'day' }).success).toBe(false);
+	});
+
+	it('uses an explicit chart granularity', async () => {
+		await expect(
+			getMessagesUsage(PROJECT_ID, {
+				period: { value: 365, unit: 'day' },
+				granularity: 'month',
+			}),
+		).resolves.toHaveLength(13);
 	});
 
 	it('counts messages by source, including context recommendations', async () => {

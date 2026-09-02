@@ -46,8 +46,10 @@ export function formatDate(date: Date, granularity: Granularity): string {
 	}
 }
 
-export function generateDateSeries(period: UsagePeriodRange): string[] {
-	const granularity = resolveUsageChartGranularity(period);
+export function generateDateSeries(
+	period: UsagePeriodRange,
+	granularity: Granularity = resolveUsageChartGranularity(period),
+): string[] {
 	if (granularity !== period.unit) {
 		return generateCoarsenedDateSeries(period, granularity);
 	}
@@ -72,11 +74,11 @@ function generateCoarsenedDateSeries(period: UsagePeriodRange, granularity: Gran
 	moveToBucket(date, granularity, 0);
 
 	while (date.getTime() >= firstBucket.getTime()) {
-		dates.unshift(formatDate(date, granularity));
+		dates.push(formatDate(date, granularity));
 		moveToBucket(date, granularity, 1);
 	}
 
-	return dates;
+	return dates.reverse();
 }
 
 function moveToBucket(date: Date, granularity: Granularity, bucketsBack: number): void {
@@ -119,9 +121,13 @@ export function formatCurrentDate(timezone?: string): string {
 	return tz === 'UTC' ? `${formatted} (UTC)` : `${formatted} (${tz})`;
 }
 
-export function fillMissingDates(records: UsageRecord[], period: UsagePeriodRange): UsageRecord[] {
+export function fillMissingDates(
+	records: UsageRecord[],
+	period: UsagePeriodRange,
+	granularity: Granularity = resolveUsageChartGranularity(period),
+): UsageRecord[] {
 	const dateSet = new Map(records.map((r) => [r.date, r]));
-	const allDates = generateDateSeries(period);
+	const allDates = generateDateSeries(period, granularity);
 
 	return allDates.map(
 		(date) =>

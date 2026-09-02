@@ -19,28 +19,19 @@ describe('validateUsageSearch', () => {
 		]);
 	});
 
-	it('accepts valid custom usage periods', () => {
-		expect(validateUsageSearch({ periodMode: 'custom', periodValue: '30', periodUnit: 'day' })).toMatchObject({
-			periodMode: 'custom',
-			periodValue: 30,
-			periodUnit: 'day',
-		});
+	it('ignores removed custom period parameters', () => {
+		expect(
+			validateUsageSearch({ periodMode: 'custom', periodValue: 30, periodUnit: 'day' }).periodMode,
+		).toBeUndefined();
 	});
 
-	it('rejects custom usage periods outside unit limits', () => {
-		expect(validateUsageSearch({ periodMode: 'custom', periodValue: 25, periodUnit: 'hour' })).toMatchObject({
-			periodMode: 'custom',
-			periodValue: undefined,
-			periodUnit: undefined,
-		});
+	it('accepts a saved period entry id', () => {
+		expect(validateUsageSearch({ periodEntryId: 'last-year' }).periodEntryId).toBe('last-year');
+		expect(validateUsageSearch({ periodEntryId: '' }).periodEntryId).toBeUndefined();
 	});
 
 	it('converts fixed and granularity period values', () => {
-		expect(validateUsageSearch({ period: '30d' })).toMatchObject({
-			periodMode: 'custom',
-			periodValue: 30,
-			periodUnit: 'day',
-		});
+		expect(validateUsageSearch({ period: '30d' }).periodMode).toBeUndefined();
 		expect(validateUsageSearch({ granularity: 'hour' }).periodMode).toBe('24h');
 		expect(validateUsageSearch({ granularity: 'day' }).periodMode).toBe('15d');
 		expect(validateUsageSearch({ granularity: 'month' }).periodMode).toBe('6m');

@@ -1,12 +1,6 @@
 import { CHAT_REPLAY_FEEDBACK_STATES, CHAT_REPLAY_TOOL_STATES, providerLabels } from '@nao/shared/types';
-import {
-	DEFAULT_USAGE_PERIOD_PREFERENCE,
-	USAGE_PERIOD_LIMITS,
-	USAGE_PERIOD_MODES,
-	USAGE_PERIOD_UNITS,
-	USAGE_SOURCES,
-} from '@nao/backend/usage';
-import type { UsagePeriodMode, UsagePeriodPreference, UsagePeriodUnit, UsageSource } from '@nao/backend/usage';
+import { USAGE_PERIOD_PRESET_NAMES, USAGE_SOURCES } from '@nao/backend/usage';
+import type { UsagePeriodPreference, UsagePeriodPreset, UsageSource } from '@nao/backend/usage';
 import type { ChatReplayFeedbackState, ChatReplayToolState, LlmProvider } from '@nao/shared/types';
 import type { RecommendationTab } from '@/components/settings/recommendations-route-search';
 import { RECOMMENDATION_TABS } from '@/components/settings/recommendations-route-search';
@@ -20,9 +14,8 @@ export type ReplayOrigin = 'recommendations';
 
 export type UsageRouteSearch = {
 	provider: LlmProvider | 'all';
-	periodMode: UsagePeriodMode | undefined;
-	periodValue: number | undefined;
-	periodUnit: UsagePeriodUnit | undefined;
+	periodMode: UsagePeriodPreset | undefined;
+	periodEntryId: string | undefined;
 	users: string[] | undefined;
 	feedback: ChatReplayFeedbackState[] | undefined;
 	tools: ChatReplayToolState[] | undefined;
@@ -38,8 +31,7 @@ export type UsageRouteSearch = {
 export const DEFAULT_USAGE_SEARCH: UsageRouteSearch = {
 	provider: 'all',
 	periodMode: undefined,
-	periodValue: undefined,
-	periodUnit: undefined,
+	periodEntryId: undefined,
 	users: undefined,
 	feedback: undefined,
 	tools: undefined,
@@ -54,7 +46,7 @@ export const DEFAULT_USAGE_SEARCH: UsageRouteSearch = {
 
 const tokenViews = ['tokens', 'dollars'] as const satisfies readonly TokenChartDisplayMode[];
 const filterSearchKeys = ['provider', 'users', 'feedback', 'tools', 'sources'] as const;
-const periodSearchKeys = ['periodMode', 'periodValue', 'periodUnit', 'period', 'granularity'] as const;
+const periodSearchKeys = ['periodMode', 'periodValue', 'periodUnit', 'periodEntryId', 'period', 'granularity'] as const;
 const usageFiltersStorageKey = 'nao.usage-filters';
 
 export function validateUsageSearchWithStoredFilters(search: Record<string, unknown>): UsageRouteSearch {
@@ -78,19 +70,31 @@ export function saveUsageFilters(search: UsageRouteSearch): void {
 	}
 }
 
-export function readStoredUsagePeriodPreference(): UsagePeriodPreference | undefined {
-	const period = parsePeriodSearch(readStoredUsageFilters());
+export function readStoredUsagePeriodPreference(projectId: string | null): UsagePeriodPreference | undefined {
+	const period = parsePeriodSearch(readStoredUsageFilters(getUsageFiltersStorageKey(projectId ?? 'default')));
 	if (!period.mode) {
 		return undefined;
 	}
 
-	return {
-		mode: period.mode,
-		customPeriod:
-			period.value && period.unit
-				? { value: period.value, unit: period.unit }
-				: DEFAULT_USAGE_PERIOD_PREFERENCE.customPeriod,
-	};
+	return { mode: period.mode };
+}
+
+export function clearStoredUsagePeriodPreference(projectId: string): void {
+	if (typeof window === 'undefined') {
+		return;
+	}
+
+	const storageKey = getUsageFiltersStorageKey(projectId);
+	const filters = readStoredUsageFilters(storageKey);
+	for (const key of periodSearchKeys) {
+		delete filters[key];
+	}
+
+	try {
+		localStorage.setItem(storageKey, JSON.stringify(filters));
+	} catch {
+		return;
+	}
 }
 
 const replayHighlights = ['tool-error', 'feedback'] as const satisfies readonly ReplayHighlight[];
@@ -102,8 +106,10 @@ export function validateUsageSearch(search: Record<string, unknown>): UsageRoute
 	return {
 		provider: parseProvider(search.provider),
 		periodMode: period.mode,
-		periodValue: period.value,
-		periodUnit: period.unit,
+		periodEntryId:
+			typeof search.periodEntryId === 'string' && search.periodEntryId.length > 0
+				? search.periodEntryId
+				: undefined,
 		users: parseStringArray(search.users),
 		feedback: parseArrayOf(search.feedback, CHAT_REPLAY_FEEDBACK_STATES),
 		tools: parseArrayOf(search.tools, CHAT_REPLAY_TOOL_STATES),
@@ -117,13 +123,13 @@ export function validateUsageSearch(search: Record<string, unknown>): UsageRoute
 	};
 }
 
-function readStoredUsageFilters(): Record<string, unknown> {
+function readStoredUsageFilters(storageKey = getUsageFiltersStorageKey()): Record<string, unknown> {
 	if (typeof window === 'undefined') {
 		return {};
 	}
 
 	try {
-		const stored = localStorage.getItem(getUsageFiltersStorageKey());
+		const stored = localStorage.getItem(storageKey);
 		const parsed = stored ? JSON.parse(stored) : null;
 		return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
 			? (parsed as Record<string, unknown>)
@@ -133,62 +139,36 @@ function readStoredUsageFilters(): Record<string, unknown> {
 	}
 }
 
-function getUsageFiltersStorageKey(): string {
-	return `${usageFiltersStorageKey}.${getActiveProjectId() ?? 'default'}`;
+function getUsageFiltersStorageKey(projectId = getActiveProjectId() ?? 'default'): string {
+	return `${usageFiltersStorageKey}.${projectId}`;
 }
 
-function parsePeriodSearch(search: Record<string, unknown>): {
-	mode: UsagePeriodMode | undefined;
-	value: number | undefined;
-	unit: UsagePeriodUnit | undefined;
-} {
-	const mode = parseOneOf(search.periodMode, USAGE_PERIOD_MODES);
+function parsePeriodSearch(search: Record<string, unknown>): { mode: UsagePeriodPreset | undefined } {
+	const mode = parseOneOf(search.periodMode, USAGE_PERIOD_PRESET_NAMES);
 	if (mode) {
-		const customPeriod = parseCustomPeriod(search.periodValue, search.periodUnit);
-		return { mode, value: customPeriod?.value, unit: customPeriod?.unit };
+		return { mode };
 	}
 
 	return parseLegacyPeriod(search.period, search.granularity);
 }
 
-function parseCustomPeriod(rawValue: unknown, rawUnit: unknown): { value: number; unit: UsagePeriodUnit } | undefined {
-	const unit = parseOneOf(rawUnit, USAGE_PERIOD_UNITS);
-	const value =
-		typeof rawValue === 'number'
-			? rawValue
-			: typeof rawValue === 'string' && rawValue.trim() !== ''
-				? Number(rawValue)
-				: Number.NaN;
-
-	if (!unit || !Number.isInteger(value) || value < 1 || value > USAGE_PERIOD_LIMITS[unit]) {
-		return undefined;
-	}
-
-	return { value, unit };
-}
-
-function parseLegacyPeriod(
-	rawPeriod: unknown,
-	rawGranularity: unknown,
-): { mode: UsagePeriodMode | undefined; value: number | undefined; unit: UsagePeriodUnit | undefined } {
+function parseLegacyPeriod(rawPeriod: unknown, rawGranularity: unknown): { mode: UsagePeriodPreset | undefined } {
 	switch (rawPeriod) {
 		case '24h':
 		case '15d':
 		case '6m':
-			return { mode: rawPeriod, value: undefined, unit: undefined };
-		case '30d':
-			return { mode: 'custom', value: 30, unit: 'day' };
+			return { mode: rawPeriod };
 	}
 
 	switch (rawGranularity) {
 		case 'hour':
-			return { mode: '24h', value: undefined, unit: undefined };
+			return { mode: '24h' };
 		case 'day':
-			return { mode: '15d', value: undefined, unit: undefined };
+			return { mode: '15d' };
 		case 'month':
-			return { mode: '6m', value: undefined, unit: undefined };
+			return { mode: '6m' };
 		default:
-			return { mode: undefined, value: undefined, unit: undefined };
+			return { mode: undefined };
 	}
 }
 

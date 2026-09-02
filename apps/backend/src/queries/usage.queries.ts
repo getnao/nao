@@ -116,7 +116,7 @@ const INFERENCE_USAGE_SOURCE_EXPR = sql<UsageSource | null>`(
 
 export const getMessagesUsage = async (projectId: string, filter: UsageFilter): Promise<UsageRecord[]> => {
 	const { period, provider } = filter;
-	const granularity = resolveUsageChartGranularity(period);
+	const granularity = filter.granularity ?? resolveUsageChartGranularity(period);
 	const messageDateExpr = getDateExpr(s.chatMessage.createdAt, granularity);
 	const inferenceDateExpr = getDateExpr(s.llmInference.createdAt, granularity);
 	const lookbackTs = getLookbackTimestamp(period);
@@ -267,7 +267,7 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 		.from(combinedUsage)
 		.groupBy(({ date }) => date);
 
-	return fillMissingDates(rows.map(normalizeMessageUsageRow), period);
+	return fillMissingDates(rows.map(normalizeMessageUsageRow), period, granularity);
 };
 
 export const getTotalUsage = async (projectId: string, filter: UsageFilter): Promise<TotalUsageRecord> => {
