@@ -148,7 +148,10 @@ export function StoryTabbedEditor({
 				return;
 			}
 			const positions = topLevelBlockPositions(editor.state.doc);
-			const movedPositions = positions.slice(currentPending.destinationBlockOffset);
+			const movedPositions = trimTrailingEmptyParagraphs(
+				editor.state.doc,
+				positions.slice(currentPending.destinationBlockOffset),
+			);
 			if (!movedPositions.length) {
 				pendingMovedSelectionRef.current = null;
 				return;
@@ -183,12 +186,13 @@ export function StoryTabbedEditor({
 	return (
 		<StoryEditorSelectionActionsProvider value={selectionActions}>
 			<div className='flex flex-col'>
-				<div className='sticky top-0 z-10 bg-background'>
+				<div className='sticky top-0 z-50 bg-background'>
 					<StoryTabsBar
 						tabs={tabs.map((tab) => ({ title: tab.title }))}
 						activeIndex={active}
 						onSelect={handleSelect}
 						contentClassName={barContentClassName}
+						externalDrop={{ onDrop: handleMoveSelection }}
 						editable={{
 							onRename: (index, title) => setBufferCode(renameStoryTab(spliceCurrent(), index, title)),
 							onDelete: (index) => {
@@ -240,7 +244,28 @@ function serializeMovedNodes(editor: TiptapEditor, nodes: readonly PMNode[]): st
 }
 
 function getMarkdownBlockCount(editor: TiptapEditor, markdown: string): number {
-	return editor.markdown?.parse(preprocessForEditor(markdown)).content?.length ?? 0;
+	const content = editor.markdown?.parse(preprocessForEditor(markdown)).content ?? [];
+	let end = content.length;
+	while (end > 0) {
+		const node = content[end - 1];
+		if (node.type !== 'paragraph' || node.content?.length) {
+			break;
+		}
+		end -= 1;
+	}
+	return end;
+}
+
+function trimTrailingEmptyParagraphs(doc: PMNode, positions: number[]): number[] {
+	let end = positions.length;
+	while (end > 0) {
+		const node = doc.nodeAt(positions[end - 1]);
+		if (node?.type.name !== 'paragraph' || node.content.size > 0) {
+			break;
+		}
+		end -= 1;
+	}
+	return positions.slice(0, end);
 }
 
 function findLastContentPosition(editor: TiptapEditor, positions: number[]): number {

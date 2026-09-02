@@ -10,7 +10,7 @@ import {
 	selectColumnFromHandle,
 } from './story-block-selection';
 import { createBlockNode, removeCardFromOrigin } from './story-editor-utils';
-import { GridDragContext, STORY_BLOCK_DRAG_TYPE, StoryBlockDragContext } from './story-editor-drag-context';
+import { GridDragContext, setStoryBlockDragOrigin, StoryBlockDragContext } from './story-editor-drag-context';
 import type { ReactNodeViewProps } from '@tiptap/react';
 import type { DragEvent as ReactDragEvent } from 'react';
 import type { DragOrigin } from './story-block-selection';
@@ -24,8 +24,11 @@ import {
 	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useStoryEditorSelectionActions } from '@/contexts/story-editor-selection-actions';
 import { cn } from '@/lib/utils';
+
+const STORY_ACTION_SUBMENU_SIDE_OFFSET = 4;
 
 export function useStoryBlockDrag({ node, editor, getPos }: Pick<ReactNodeViewProps, 'node' | 'editor' | 'getPos'>) {
 	const dragContext = useContext(StoryBlockDragContext);
@@ -37,8 +40,9 @@ export function useStoryBlockDrag({ node, editor, getPos }: Pick<ReactNodeViewPr
 			if (typeof pos !== 'number' || !dragContext) {
 				return;
 			}
-			event.dataTransfer.setData(STORY_BLOCK_DRAG_TYPE, '1');
-			const units = resolveDragSelection(editor.state, { kind: 'block', pos });
+			const origin = { kind: 'block' as const, pos };
+			setStoryBlockDragOrigin(event.dataTransfer, origin);
+			const units = resolveDragSelection(editor.state, origin);
 			if (units) {
 				dragContext.beginMultiSelectionDrag(units, event.nativeEvent);
 				return;
@@ -118,7 +122,9 @@ export function StoryBlockActionGrip({
 	wrapperClassName?: string;
 }) {
 	const selectionActions = useStoryEditorSelectionActions();
+	const dragContext = useContext(StoryBlockDragContext);
 	const [open, setOpen] = useState(false);
+	const [tooltipOpen, setTooltipOpen] = useState(false);
 	const gripRef = useRef<HTMLButtonElement>(null);
 	const interactedOutsideRef = useRef(false);
 	const selectOrigin = useCallback(() => {
@@ -137,6 +143,7 @@ export function StoryBlockActionGrip({
 	}, [editor, getOrigin]);
 	const openMenu = useCallback(() => {
 		if (selectOrigin()) {
+			setTooltipOpen(false);
 			setOpen(true);
 		}
 	}, [selectOrigin]);
@@ -161,6 +168,23 @@ export function StoryBlockActionGrip({
 	}, [open]);
 
 	useEffect(() => {
+		if (!tooltipOpen) {
+			return;
+		}
+		const closeForDrag = () => {
+			setTooltipOpen(false);
+		};
+		document.addEventListener('dragstart', closeForDrag, true);
+		return () => document.removeEventListener('dragstart', closeForDrag, true);
+	}, [tooltipOpen]);
+
+	useEffect(() => {
+		if (dragContext?.isHandleTooltipSuppressed) {
+			setTooltipOpen(false);
+		}
+	}, [dragContext?.isHandleTooltipSuppressed]);
+
+	useEffect(() => {
 		if (!lockHandleWhileOpen || !open) {
 			return;
 		}
@@ -182,52 +206,79 @@ export function StoryBlockActionGrip({
 			}}
 			modal={false}
 		>
-			<span className={cn('relative inline-flex', wrapperClassName)}>
-				<DropdownMenuTrigger
-					aria-hidden
-					disabled
-					tabIndex={-1}
-					className='pointer-events-none absolute inset-0 opacity-0'
-				/>
-				<button
-					ref={gripRef}
-					type='button'
-					aria-label={ariaLabel}
-					aria-haspopup='menu'
-					aria-expanded={open}
-					data-block-drag-grip=''
-					contentEditable={false}
-					className='cursor-grab rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing'
-					draggable={draggable}
-					onClick={(event) => {
-						event.stopPropagation();
-						openMenu();
+			<TooltipProvider>
+				<Tooltip
+					open={tooltipOpen && !open && !dragContext?.isHandleTooltipSuppressed}
+					onOpenChange={(nextOpen) => {
+						setTooltipOpen(nextOpen && !open && !dragContext?.isHandleTooltipSuppressed);
 					}}
-					onPointerDown={(event) => {
-						event.stopPropagation();
-					}}
-					onMouseDown={(event) => {
-						event.stopPropagation();
-					}}
-					onKeyDown={(event) => {
-						event.stopPropagation();
-						if (event.key === 'ArrowDown') {
-							event.preventDefault();
-							openMenu();
-						}
-					}}
-					onDragStart={(event) => {
-						setOpen(false);
-						onDragStart?.(event);
-					}}
-					onDragEnd={onDragEnd}
 				>
-					<GripVertical className={iconClassName} />
-				</button>
-			</span>
+					<TooltipTrigger asChild>
+						<span
+							className={cn('relative inline-flex', wrapperClassName)}
+							onPointerLeave={dragContext?.releaseHandleTooltipSuppression}
+						>
+							<DropdownMenuTrigger
+								aria-hidden
+								disabled
+								tabIndex={-1}
+								className='pointer-events-none absolute inset-0 opacity-0'
+							/>
+							<button
+								ref={gripRef}
+								type='button'
+								aria-label={ariaLabel}
+								aria-haspopup='menu'
+								aria-expanded={open}
+								data-block-drag-grip=''
+								contentEditable={false}
+								className='cursor-grab rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing'
+								draggable={draggable}
+								onClick={(event) => {
+									event.stopPropagation();
+									openMenu();
+								}}
+								onPointerDown={(event) => {
+									event.stopPropagation();
+								}}
+								onMouseDown={(event) => {
+									event.stopPropagation();
+								}}
+								onKeyDown={(event) => {
+									event.stopPropagation();
+									if (event.key === 'ArrowDown') {
+										event.preventDefault();
+										openMenu();
+									}
+								}}
+								onDragStart={(event) => {
+									dragContext?.suppressHandleTooltips();
+									setTooltipOpen(false);
+									setOpen(false);
+									onDragStart?.(event);
+								}}
+								onDragEnd={onDragEnd}
+							>
+								<GripVertical className={iconClassName} />
+							</button>
+						</span>
+					</TooltipTrigger>
+					<TooltipContent side='bottom' align='center' className='space-y-0.5'>
+						<div>
+							<span className='font-medium text-foreground'>Click</span>{' '}
+							<span className='text-muted-foreground'>to open menu</span>
+						</div>
+						<div>
+							<span className='font-medium text-foreground'>Drag</span>{' '}
+							<span className='text-muted-foreground'>to move</span>
+						</div>
+					</TooltipContent>
+				</Tooltip>
+			</TooltipProvider>
 			<DropdownMenuContent
 				data-story-block-action-menu=''
-				align='start'
+				side='bottom'
+				align='center'
 				aria-label={`${ariaLabel} actions`}
 				aria-labelledby={undefined}
 				onInteractOutside={() => {
@@ -247,7 +298,12 @@ export function StoryBlockActionGrip({
 							<CornerUpRight />
 							<span>Move to a tab</span>
 						</DropdownMenuSubTrigger>
-						<DropdownMenuSubContent data-story-block-action-menu=''>
+						<DropdownMenuSubContent
+							data-story-block-action-menu=''
+							data-story-block-action-submenu-offset={STORY_ACTION_SUBMENU_SIDE_OFFSET}
+							sideOffset={STORY_ACTION_SUBMENU_SIDE_OFFSET}
+							alignOffset={0}
+						>
 							{selectionActions.destinations.map((destination) => (
 								<DropdownMenuItem
 									key={destination.index}

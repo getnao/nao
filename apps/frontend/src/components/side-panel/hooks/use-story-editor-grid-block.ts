@@ -14,7 +14,7 @@ import { removeCardFromOrigin } from '../story-editor-utils';
 import {
 	GRID_COLUMN_DRAG_TYPE,
 	GridDragContext,
-	STORY_BLOCK_DRAG_TYPE,
+	setStoryBlockDragOrigin,
 	StoryBlockDragContext,
 } from '../story-editor-drag-context';
 import { resolveDragSelection } from '../story-block-selection';
@@ -174,13 +174,14 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 	const handleColumnDragStart = useCallback(
 		(columnIndex: number, event: ReactDragEvent<HTMLElement>) => {
 			const gridPos = getPos();
-			const units =
-				typeof gridPos === 'number'
-					? resolveDragSelection(editor.state, { kind: 'gridColumn', gridPos, index: columnIndex })
-					: null;
+			const dragOrigin =
+				typeof gridPos === 'number' ? { kind: 'gridColumn' as const, gridPos, index: columnIndex } : null;
+			const units = dragOrigin === null ? null : resolveDragSelection(editor.state, dragOrigin);
+			if (dragOrigin) {
+				setStoryBlockDragOrigin(event.dataTransfer, dragOrigin);
+			}
 			if (units && storyBlockDrag) {
 				event.stopPropagation();
-				event.dataTransfer.setData(STORY_BLOCK_DRAG_TYPE, '1');
 				storyBlockDrag.beginMultiSelectionDrag(units, event.nativeEvent);
 				storyBlockDrag.setDragging(true);
 				setDropColumnIndex(null);
@@ -191,7 +192,6 @@ export function useStoryEditorGridBlock({ node, updateAttributes, getPos, editor
 			event.stopPropagation();
 			event.dataTransfer.effectAllowed = 'move';
 			event.dataTransfer.setData(GRID_COLUMN_DRAG_TYPE, String(columnIndex));
-			event.dataTransfer.setData(STORY_BLOCK_DRAG_TYPE, '1');
 			if (typeof gridPos === 'number' && gridDragSourceRef) {
 				gridDragSourceRef.current = { gridPos, columnIndex };
 			}
