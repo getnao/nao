@@ -6,12 +6,19 @@ import {
 	ArrowDownWideNarrow,
 	ArrowUp01,
 	ArrowUpWideNarrow,
+	AlertTriangle,
+	Check,
 	ClockArrowDown,
 	ClockArrowUp,
+	Copy,
+	GitPullRequest,
+	ListChecks,
 	ListFilter,
+	Loader2,
 	X,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { selectBackgroundModel } from '@nao/shared';
 import {
 	CONTEXT_RECOMMENDATION_CATEGORIES,
 	CONTEXT_RECOMMENDATION_CATEGORY_LABELS,
@@ -22,7 +29,6 @@ import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import type { TrpcRouter } from '@nao/backend/trpc';
-import type { LlmProvider } from '@nao/shared/types';
 import type { inferRouterOutputs } from '@trpc/server';
 
 import type { TabBarItem } from '@/components/ui/tab-bar';
@@ -49,7 +55,9 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { validateRecommendationsSearch } from '@/components/settings/recommendations-route-search';
 import { SidePanelProvider } from '@/contexts/side-panel';
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useRecommendationsViewState } from '@/hooks/use-recommendations-view-state';
+import { useContentCenteredStyle } from '@/hooks/use-sidebar-content-offset';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { requireContextAdminOrAdmin } from '@/lib/require-admin';
 import { cn } from '@/lib/utils';
@@ -106,12 +114,14 @@ type FeedbackFilter = 'with' | 'without';
 const FEEDBACK_FILTERS: readonly FeedbackFilter[] = ['with', 'without'];
 
 const FEEDBACK_FILTER_LABELS: Record<FeedbackFilter, string> = {
-	with: 'With feedback',
-	without: 'Without feedback',
+	with: 'With',
+	without: 'Without',
 };
 
 const MAX_AUTO_PR_OPTIONS = [1, 2, 3, 5, 10] as const;
 const DEFAULT_MAX_AUTO_PRS = 3;
+
+const MAX_BATCH_SELECTION = 20;
 const MAX_CUSTOM_SYSTEM_PROMPT_INSTRUCTIONS_LENGTH = 4000;
 
 type TopTab = 'config' | 'recommendations' | 'applied' | 'dismissed';
@@ -173,6 +183,10 @@ function RecommendationsPage() {
 		enabled: isEnabled,
 		refetchInterval: (query) => (query.state.data?.status === 'running' ? 3000 : false),
 	});
+	const latestSuccessfulRun = useQuery({
+		...trpc.contextRecommendation.latestSuccessfulRun.queryOptions(),
+		enabled: isEnabled,
+	});
 
 	const setStatus = useMutation(trpc.contextRecommendation.setStatus.mutationOptions());
 	const run = useMutation(trpc.contextRecommendation.run.mutationOptions());
@@ -211,6 +225,7 @@ function RecommendationsPage() {
 		const status = latestRun.data?.status;
 		if (previousRunStatus.current === 'running' && status && status !== 'running') {
 			queryClient.invalidateQueries({ queryKey: trpc.contextRecommendation.list.queryKey({}) });
+			queryClient.invalidateQueries({ queryKey: trpc.contextRecommendation.latestSuccessfulRun.queryKey() });
 		}
 		previousRunStatus.current = status;
 	}, [latestRun.data?.status, queryClient]);
@@ -235,6 +250,69 @@ function RecommendationsPage() {
 				? dismissedRecommendations
 				: activeRecommendations;
 
+	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+	const [selectionMode, setSelectionMode] = useState(false);
+	const lastSelectedIdRef = useRef<string | null>(null);
+	const selectionActive = selectionMode || selectedIds.size > 0;
+
+	const handleSelect = (id: string, checked: boolean, shiftKey = false) => {
+		const orderedIds = displayedRecommendations.map((rec) => rec.id);
+		const anchorId = lastSelectedIdRef.current;
+		setSelectedIds((prev) => {
+			const next = new Set(prev);
+			const anchorIndex = anchorId ? orderedIds.indexOf(anchorId) : -1;
+			const clickedIndex = orderedIds.indexOf(id);
+			if (shiftKey && anchorIndex !== -1 && clickedIndex !== -1) {
+				const [from, to] =
+					anchorIndex < clickedIndex ? [anchorIndex, clickedIndex] : [clickedIndex, anchorIndex];
+				for (let i = from; i <= to; i++) {
+					if (checked) {
+						next.add(orderedIds[i]);
+					} else {
+						next.delete(orderedIds[i]);
+					}
+				}
+			} else if (checked) {
+				next.add(id);
+			} else {
+				next.delete(id);
+			}
+			if (next.size <= MAX_BATCH_SELECTION) {
+				return next;
+			}
+			return new Set([...next].slice(0, MAX_BATCH_SELECTION));
+		});
+		lastSelectedIdRef.current = id;
+	};
+
+	const selectAll = () => {
+		setSelectedIds((prev) => {
+			const next = new Set(prev);
+			for (const rec of displayedRecommendations) {
+				if (next.size >= MAX_BATCH_SELECTION) {
+					break;
+				}
+				next.add(rec.id);
+			}
+			return next;
+		});
+		setSelectionMode(true);
+	};
+
+	const clearSelection = () => {
+		setSelectedIds(new Set());
+		setSelectionMode(false);
+		lastSelectedIdRef.current = null;
+	};
+
+	const toggleSelectionMode = () => {
+		if (selectionActive) {
+			clearSelection();
+		} else {
+			setSelectionMode(true);
+		}
+	};
+
 	const [view, setView] = useRecommendationsViewState({
 		sortKey: 'date' as SortKey,
 		sortOrder: 'desc' as SortOrder,
@@ -256,6 +334,9 @@ function RecommendationsPage() {
 		}
 		previousTab.current = activeTab;
 		setView({ categoryFilter: ALL_FILTER, userFilter: ALL_FILTER, feedbackFilter: ALL_FILTER });
+		setSelectedIds(new Set());
+		setSelectionMode(false);
+		lastSelectedIdRef.current = null;
 	}, [activeTab, setView]);
 
 	const triggerChatIdChunks = useMemo(() => {
@@ -370,6 +451,17 @@ function RecommendationsPage() {
 		return sorted;
 	}, [baseList, categoryFilter, userFilter, feedbackFilter, sortKey, sortOrder, chatUserById]);
 
+	useEffect(() => {
+		setSelectedIds((prev) => {
+			if (prev.size === 0) {
+				return prev;
+			}
+			const displayedIds = new Set(displayedRecommendations.map((rec) => rec.id));
+			const next = new Set([...prev].filter((id) => displayedIds.has(id)));
+			return next.size === prev.size ? prev : next;
+		});
+	}, [displayedRecommendations]);
+
 	const hasActiveFilters =
 		categoryFilter !== ALL_FILTER || userFilter !== ALL_FILTER || feedbackFilter !== ALL_FILTER;
 
@@ -449,17 +541,26 @@ function RecommendationsPage() {
 										{isRunning ? 'Running…' : 'Run now'}
 									</Button>
 								</div>
-								{latestRun.data ? (
+								{latestSuccessfulRun.data ? (
 									<span className='text-xs text-muted-foreground italic'>
-										Latest {new Date(latestRun.data.startedAt).toLocaleString()}
+										Latest{' '}
+										{new Date(
+											latestSuccessfulRun.data.completedAt ?? latestSuccessfulRun.data.startedAt,
+										).toLocaleString()}
 									</span>
 								) : (
 									<span className='text-xs text-muted-foreground italic'>Never run</span>
 								)}
+								{latestRun.data?.status === 'failed' && (
+									<span className='text-xs text-destructive italic'>
+										Last run failed
+										{latestRun.data.errorMessage ? `: ${latestRun.data.errorMessage}` : ''}
+									</span>
+								)}
 							</div>
 						</div>
 
-						<div className='sticky top-0 z-20 -mt-2 bg-background pt-2'>
+						<div className='sticky top-0 z-20 -mx-2 -mt-2 bg-background px-2 pt-2'>
 							<div className='flex flex-wrap items-center gap-x-4 gap-y-2 border-b'>
 								<TabBar
 									tabs={topTabs}
@@ -485,6 +586,9 @@ function RecommendationsPage() {
 										onSortOrderChange={setSortOrder}
 										hasActiveFilters={hasActiveFilters}
 										onClearFilters={clearFilters}
+										showSelectionToggle={activeTab === 'recommendations'}
+										selectionActive={selectionActive}
+										onToggleSelection={toggleSelectionMode}
 									/>
 								)}
 							</div>
@@ -507,6 +611,11 @@ function RecommendationsPage() {
 									onChangeStatus={changeStatus}
 									isPending={setStatus.isPending}
 									openChatsRecId={search.openChats}
+									selectedIds={selectedIds}
+									selectionActive={selectionActive}
+									onSelect={handleSelect}
+									onSelectAll={selectAll}
+									onClearSelection={clearSelection}
 								/>
 							</TabPanel>
 						)}
@@ -573,6 +682,11 @@ interface RecommendationsTabProps {
 	onChangeStatus: ChangeStatus;
 	isPending: boolean;
 	openChatsRecId?: string;
+	selectedIds: Set<string>;
+	selectionActive: boolean;
+	onSelect: (id: string, checked: boolean, shiftKey?: boolean) => void;
+	onSelectAll: () => void;
+	onClearSelection: () => void;
 }
 
 const NO_MATCHES_LABEL = 'No recommendations match your filters.';
@@ -586,6 +700,11 @@ function RecommendationsTab({
 	onChangeStatus,
 	isPending,
 	openChatsRecId,
+	selectedIds,
+	selectionActive,
+	onSelect,
+	onSelectAll,
+	onClearSelection,
 }: RecommendationsTabProps) {
 	if (isLoading) {
 		return (
@@ -608,6 +727,11 @@ function RecommendationsTab({
 			isPending={isPending}
 			emptyLabel={NO_MATCHES_LABEL}
 			openChatsRecId={openChatsRecId}
+			selectedIds={selectedIds}
+			selectionActive={selectionActive}
+			onSelect={onSelect}
+			onSelectAll={onSelectAll}
+			onClearSelection={onClearSelection}
 		/>
 	);
 }
@@ -669,6 +793,11 @@ interface RecommendationListProps {
 	defaultCollapsed?: boolean;
 	readOnly?: boolean;
 	openChatsRecId?: string;
+	selectedIds?: Set<string>;
+	selectionActive?: boolean;
+	onSelect?: (id: string, checked: boolean, shiftKey?: boolean) => void;
+	onSelectAll?: () => void;
+	onClearSelection?: () => void;
 }
 
 function RecommendationList({
@@ -679,6 +808,11 @@ function RecommendationList({
 	defaultCollapsed = false,
 	readOnly = false,
 	openChatsRecId,
+	selectedIds,
+	selectionActive = false,
+	onSelect,
+	onSelectAll,
+	onClearSelection,
 }: RecommendationListProps) {
 	if (recommendations.length === 0) {
 		return <Empty>{emptyLabel}</Empty>;
@@ -695,8 +829,166 @@ function RecommendationList({
 					defaultCollapsed={defaultCollapsed}
 					readOnly={readOnly}
 					highlightOpen={rec.id === openChatsRecId}
+					isSelected={selectedIds?.has(rec.id) ?? false}
+					selectionActive={selectionActive}
+					onSelect={onSelect}
 				/>
 			))}
+			{selectedIds && selectionActive && onClearSelection && onSelectAll && (
+				<BatchActionBar
+					selectedIds={selectedIds}
+					recommendations={recommendations}
+					onSelectAll={onSelectAll}
+					onClear={onClearSelection}
+				/>
+			)}
+		</div>
+	);
+}
+
+interface BatchActionBarProps {
+	selectedIds: Set<string>;
+	recommendations: Recommendation[];
+	onSelectAll: () => void;
+	onClear: () => void;
+}
+
+function BatchActionBar({ selectedIds, recommendations, onSelectAll, onClear }: BatchActionBarProps) {
+	const queryClient = useQueryClient();
+	const { isCopied, copy } = useCopyToClipboard();
+	const [isFetchingPrompt, setIsFetchingPrompt] = useState(false);
+	const [copyError, setCopyError] = useState<string | null>(null);
+	const centeredStyle = useContentCenteredStyle();
+
+	const eligibleIds = recommendations
+		.filter(
+			(rec) =>
+				selectedIds.has(rec.id) &&
+				rec.fixKind === 'patch' &&
+				(rec.proposedEdits?.length ?? 0) > 0 &&
+				!rec.prUrl,
+		)
+		.map((rec) => rec.id);
+
+	const atSelectionLimit = selectedIds.size >= MAX_BATCH_SELECTION;
+	const allSelected = recommendations.length > 0 && recommendations.every((rec) => selectedIds.has(rec.id));
+
+	const createBatchPr = useMutation(
+		trpc.contextRecommendation.createBatchPullRequest.mutationOptions({
+			onSuccess: () => {
+				queryClient.invalidateQueries({ queryKey: trpc.contextRecommendation.list.queryKey({}) });
+				onClear();
+			},
+		}),
+	);
+
+	const handleOpenPr = () => {
+		// Open the tab synchronously in the click handler so it isn't blocked as a popup,
+		// then point it at the PR once the async mutation resolves.
+		const prTab = window.open('about:blank', '_blank');
+		createBatchPr.mutate(
+			{ ids: eligibleIds },
+			{
+				onSuccess: (result) => {
+					if (prTab) {
+						prTab.opener = null;
+						prTab.location.href = result.url;
+					} else {
+						window.open(result.url, '_blank', 'noopener,noreferrer');
+					}
+				},
+				onError: () => prTab?.close(),
+			},
+		);
+	};
+
+	const handleCopyPrompts = async () => {
+		setIsFetchingPrompt(true);
+		setCopyError(null);
+		try {
+			const prompt = await queryClient.fetchQuery(
+				trpc.contextRecommendation.getAgentPrompt.queryOptions({ ids: [...selectedIds] }),
+			);
+			await copy(prompt);
+		} catch (err) {
+			setCopyError(err instanceof Error ? err.message : 'Failed to copy prompts');
+		} finally {
+			setIsFetchingPrompt(false);
+		}
+	};
+
+	return (
+		<div
+			style={centeredStyle}
+			className={cn(
+				'fixed bottom-6 z-50 -translate-x-1/2 transition-[left] duration-300',
+				'flex flex-wrap items-center justify-center gap-x-3 gap-y-1.5 rounded-full px-4 py-2.5',
+				'border bg-background shadow-lg',
+			)}
+		>
+			<span className='text-sm font-medium text-foreground tabular-nums'>
+				{eligibleIds.length} commit{eligibleIds.length === 1 ? '' : 's'}
+			</span>
+			<div className='h-4 w-px bg-border' />
+			<Button
+				size='sm'
+				variant='ghost'
+				onClick={allSelected ? onClear : onSelectAll}
+				className='h-7 gap-1.5 rounded-full text-xs'
+			>
+				<ListChecks className='size-3.5' />
+				{allSelected ? 'Deselect all' : 'Select all'}
+			</Button>
+			<div className='h-4 w-px bg-border' />
+			{eligibleIds.length > 0 && (
+				<Button
+					size='sm'
+					onClick={handleOpenPr}
+					disabled={createBatchPr.isPending}
+					className='h-7 gap-1.5 rounded-full text-xs'
+				>
+					{createBatchPr.isPending ? (
+						<Loader2 className='size-3.5 animate-spin' />
+					) : (
+						<GitPullRequest className='size-3.5' />
+					)}
+					Open 1 PR
+				</Button>
+			)}
+			<Button
+				size='sm'
+				variant='ghost'
+				onClick={handleCopyPrompts}
+				disabled={isFetchingPrompt}
+				className='h-7 gap-1.5 rounded-full text-xs'
+			>
+				{isCopied ? (
+					<Check className='size-3.5' />
+				) : isFetchingPrompt ? (
+					<Loader2 className='size-3.5 animate-spin' />
+				) : (
+					<Copy className='size-3.5' />
+				)}
+				{isCopied ? 'Copied' : 'Copy prompts'}
+			</Button>
+			<Button
+				size='icon-xs'
+				variant='ghost'
+				onClick={onClear}
+				aria-label='Cancel selection'
+				className='rounded-full hover:rounded-full'
+			>
+				<X className='size-3.5' />
+			</Button>
+			{atSelectionLimit && (
+				<span className='basis-full text-center text-xs text-muted-foreground'>
+					Up to {MAX_BATCH_SELECTION} can be actioned at once
+				</span>
+			)}
+			{createBatchPr.error && (
+				<span className='basis-full text-center text-xs text-destructive'>{createBatchPr.error.message}</span>
+			)}
+			{copyError && <span className='basis-full text-center text-xs text-destructive'>{copyError}</span>}
 		</div>
 	);
 }
@@ -718,6 +1010,23 @@ interface RecommendationsToolbarProps {
 	onSortOrderChange: (value: SortOrder) => void;
 	hasActiveFilters: boolean;
 	onClearFilters: () => void;
+	showSelectionToggle: boolean;
+	selectionActive: boolean;
+	onToggleSelection: () => void;
+}
+
+function SelectionToggle({ active, onToggle }: { active: boolean; onToggle: () => void }) {
+	return (
+		<Button
+			variant='ghost'
+			className={cn('relative h-8 px-2', active ? 'text-foreground' : 'text-muted-foreground')}
+			aria-label='Selection'
+			aria-pressed={active}
+			onClick={onToggle}
+		>
+			<span className='relative'>{active ? <X className='size-4' /> : <ListChecks className='size-4' />}</span>
+		</Button>
+	);
 }
 
 function ToolbarOption({
@@ -765,9 +1074,13 @@ function RecommendationsToolbar({
 	onSortOrderChange,
 	hasActiveFilters,
 	onClearFilters,
+	showSelectionToggle,
+	selectionActive,
+	onToggleSelection,
 }: RecommendationsToolbarProps) {
 	return (
-		<div className='flex items-center gap-1 pb-2 sm:ml-auto sm:pb-0'>
+		<div className='ml-auto flex items-center gap-1'>
+			{showSelectionToggle && <SelectionToggle active={selectionActive} onToggle={onToggleSelection} />}
 			<DropdownMenu>
 				<DropdownMenuTrigger asChild>
 					<Button variant='ghost' className='relative h-8 px-2 text-muted-foreground' aria-label='Filter'>
@@ -888,20 +1201,27 @@ function ConfigTab({ enabled }: { enabled: boolean }) {
 
 	const availableModels = useQuery({ ...trpc.contextRecommendation.listAvailableModels.queryOptions(), enabled });
 	const config = useQuery({ ...trpc.contextRecommendation.getConfig.queryOptions(), enabled });
+	const defaultModels = useQuery({ ...trpc.project.getDefaultModels.queryOptions(), enabled });
 	const setConfig = useMutation(trpc.contextRecommendation.setConfig.mutationOptions());
 
 	const invalidateConfig = () => {
 		queryClient.invalidateQueries({ queryKey: trpc.contextRecommendation.getConfig.queryKey() });
+		queryClient.invalidateQueries({ queryKey: trpc.project.getDefaultModels.queryOptions().queryKey });
 	};
 
-	const selectedModelValue =
-		config.data?.modelProvider && config.data?.modelId
-			? `${config.data.modelProvider}:${config.data.modelId}`
-			: undefined;
+	const selectedModel = selectBackgroundModel(defaultModels.data?.settings, 'context_recommendation');
+	const selectedModelValue = selectedModel ? modelValue(selectedModel) : undefined;
+	const selectedAvailableModel = selectedModel
+		? availableModels.data?.find((model) => modelValue(model) === selectedModelValue)
+		: undefined;
+	const selectedModelUnavailable = !!selectedModel && !selectedAvailableModel;
 
 	const handleModelChange = async (value: string) => {
-		const [provider, ...rest] = value.split(':');
-		await setConfig.mutateAsync({ modelProvider: provider as LlmProvider, modelId: rest.join(':') });
+		const model = availableModels.data?.find((candidate) => modelValue(candidate) === value);
+		if (!model) {
+			return;
+		}
+		await setConfig.mutateAsync({ modelProvider: model.provider, modelId: model.modelId });
 		invalidateConfig();
 	};
 
@@ -978,14 +1298,47 @@ function ConfigTab({ enabled }: { enabled: boolean }) {
 								disabled={setConfig.isPending}
 							>
 								<SelectTrigger className='w-full'>
-									<SelectValue placeholder='Project default' />
+									<SelectValue placeholder='Project default'>
+										{selectedModel && (
+											<div className='flex items-center gap-2'>
+												<LlmProviderIcon
+													provider={selectedModel.provider}
+													baseUrl={selectedAvailableModel?.baseUrl ?? null}
+													className='size-4'
+												/>
+												<span
+													className={cn(
+														selectedModelUnavailable &&
+															'text-amber-600 dark:text-amber-500',
+													)}
+												>
+													{selectedAvailableModel?.name ?? selectedModel.modelId}
+												</span>
+												{selectedModelUnavailable && (
+													<AlertTriangle
+														className='size-3.5 text-amber-500'
+														aria-label='Selected model is unavailable; nao will use an available fallback'
+													/>
+												)}
+											</div>
+										)}
+									</SelectValue>
 								</SelectTrigger>
 								<SelectContent>
+									{selectedModelUnavailable && selectedModelValue && (
+										<SelectItem value={selectedModelValue} disabled>
+											<div className='flex items-center gap-2 text-amber-600 dark:text-amber-500'>
+												<LlmProviderIcon
+													provider={selectedModel.provider}
+													baseUrl={null}
+													className='size-4'
+												/>
+												{selectedModel.modelId} (unavailable)
+											</div>
+										</SelectItem>
+									)}
 									{availableModels.data?.map((m) => (
-										<SelectItem
-											key={`${m.provider}:${m.modelId}`}
-											value={`${m.provider}:${m.modelId}`}
-										>
+										<SelectItem key={modelValue(m)} value={modelValue(m)}>
 											<div className='flex items-center gap-2'>
 												<LlmProviderIcon
 													provider={m.provider}
@@ -1117,4 +1470,8 @@ function ConfigTab({ enabled }: { enabled: boolean }) {
 			<RecommendationRepoCard />
 		</div>
 	);
+}
+
+function modelValue(model: { provider: string; modelId: string }): string {
+	return JSON.stringify([model.provider, model.modelId]);
 }

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Fragment, useLayoutEffect, useRef, useState } from 'react';
 import { Streamdown } from 'streamdown';
+import { stripAssistantTags } from '@nao/shared';
 import { displayChart } from '@nao/shared/tools';
 import type { ReactNode } from 'react';
 
@@ -684,7 +685,7 @@ function ExpandableText({ text }: { text: string }) {
 						: undefined
 				}
 			>
-				<Streamdown>{text}</Streamdown>
+				<Streamdown>{stripAssistantTags(text)}</Streamdown>
 			</div>
 			{(isClamped || isExpanded) && (
 				<button

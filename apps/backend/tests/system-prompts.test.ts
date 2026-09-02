@@ -55,6 +55,11 @@ describe('getSystemPromptOverride', () => {
 		expect(getSystemPromptOverride(ROOT, 'slack')).toBe('Slack override');
 	});
 
+	it('supports a Mattermost-specific prompt override', () => {
+		setupPromptFiles({ 'system.md': 'Global override', 'mattermost.md': 'Mattermost override' });
+		expect(getSystemPromptOverride(ROOT, 'mattermost')).toBe('Mattermost override');
+	});
+
 	it('falls back to system.md when no surface-specific file exists', () => {
 		setupPromptFiles({ 'system.md': 'Global override' });
 		expect(getSystemPromptOverride(ROOT, 'slack')).toBe('Global override');

@@ -29,9 +29,11 @@ export function useStoryPageEditor({
 		storyId,
 		currentVersion,
 		currentVersionNumber,
+		storedVersionNumber,
 		isViewingLatest,
 		goToPreviousVersion,
 		goToNextVersion,
+		goToLatestVersion,
 	} = useStoryViewerVersions({ chatId, storySlug, isAgentRunning, isReadonlyMode });
 
 	const code = currentVersion?.code ?? latestCode;
@@ -49,6 +51,7 @@ export function useStoryPageEditor({
 		storyTitle,
 		currentVersionCode: code,
 		isViewingLatest,
+		goToLatestVersion,
 		tiptapEditorRef,
 		codeViewRef,
 		getEditModeCode,
@@ -79,6 +82,7 @@ export function useStoryPageEditor({
 		handleRestore,
 		versionNav: {
 			currentVersion: currentVersionNumber,
+			storedVersionNumber,
 			totalVersions: versions.length,
 			isViewingLatest,
 			goToPrevious: goToPreviousVersion,

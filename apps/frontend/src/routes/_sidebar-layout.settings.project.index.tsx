@@ -3,7 +3,6 @@ import { useQuery } from '@tanstack/react-query';
 
 import { DateFormatSection } from '@/components/settings/date-format-section';
 import { EnvVarsSection } from '@/components/settings/env-vars-section';
-import { GitSyncSection } from '@/components/settings/git-sync-section';
 import { GoogleConfigSection } from '@/components/settings/google-credentials-section';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { Input } from '@/components/ui/input';
@@ -42,8 +41,6 @@ function ProjectTabPage() {
 					/>
 				</div>
 			</SettingsCard>
-
-			<GitSyncSection />
 
 			<EnvVarsSection isAdmin={isAdmin} />
 

@@ -87,6 +87,9 @@ const envSchema = z.object({
 	OIDC_SCOPES: z.string().optional(),
 	OIDC_AUTH_DOMAINS: z.string().optional(),
 	OIDC_PKCE: z.string().optional(),
+	OIDC_GROUPS_CLAIM: z.string().optional(),
+	OIDC_GROUP_ROLE_MAPPING: z.string().optional(),
+	SSO_SESSION_MAX_AGE: z.coerce.number().int().positive().optional(),
 
 	SMTP_PASSWORD: z.string().optional(),
 	SMTP_HOST: z.string().optional(),
@@ -104,6 +107,59 @@ const envSchema = z.object({
 	NAO_MODE: z.enum(['self-hosted', 'cloud']).default('self-hosted'),
 	NAO_PROJECTS_DIR: z.string().default('./projects'),
 	NAO_CORE_VERSION: z.string().optional(),
+	NAO_CONTEXT_SOURCE: z.enum(['local', 'git', 'api']).optional(),
+	NAO_CONTEXT_GIT_URL: z.string().optional(),
+	NAO_CONTEXT_GIT_BRANCH: z.string().optional(),
+	NAO_CONTEXT_GIT_SUBPATH: z.string().optional(),
+	NAO_CONTEXT_GIT_TOKEN: z.string().optional(),
+	NAO_CONTEXT_GIT_SSH_KEY: z.string().optional(),
+	NAO_CONTEXT_GIT_PLATFORM: z.enum(['github', 'gitlab', 'bitbucket']).optional(),
+
+	NAO_STORAGE_BACKEND: z.enum(['none', 'local', 's3']).default('local'),
+	NAO_STORAGE_LOCAL_PATH: z.string().default('./storage'),
+	NAO_STORAGE_S3_BUCKET: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	NAO_STORAGE_S3_REGION: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	NAO_STORAGE_S3_ENDPOINT: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined)
+		.pipe(z.url({ message: 'NAO_STORAGE_S3_ENDPOINT must be a valid URL' }).optional()),
+	NAO_STORAGE_S3_PREFIX: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	NAO_STORAGE_S3_ACCESS_KEY_ID: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	NAO_STORAGE_S3_SECRET_ACCESS_KEY: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	NAO_STORAGE_S3_FORCE_PATH_STYLE: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('false')
+		.transform((val) => val === 'true'),
+	NAO_STORAGE_MAX_FILE_SIZE_MB: z.coerce
+		.number({ message: 'NAO_STORAGE_MAX_FILE_SIZE_MB must be a number of megabytes' })
+		.positive({ message: 'NAO_STORAGE_MAX_FILE_SIZE_MB must be greater than 0' })
+		.default(10),
+
+	/**
+	 * Where DuckDB extensions were pre-installed at image build time. Set so that spreadsheet
+	 * support works with no network at query time, since the query runs with external access off.
+	 */
+	DUCKDB_EXTENSION_DIR: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
 
 	NAO_LICENSE: z
 		.string()
@@ -162,6 +218,11 @@ if (!result.success) {
 
 if (result.data.NAO_DEFAULT_PROJECT_PATH && result.data.NAO_MODE === 'cloud') {
 	console.error('NAO_DEFAULT_PROJECT_PATH and NAO_MODE=cloud cannot be set at the same time.');
+	process.exit(1);
+}
+
+if (result.data.NAO_STORAGE_BACKEND === 's3' && !result.data.NAO_STORAGE_S3_BUCKET) {
+	console.error('NAO_STORAGE_S3_BUCKET is required when NAO_STORAGE_BACKEND=s3.');
 	process.exit(1);
 }
 

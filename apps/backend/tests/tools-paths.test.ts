@@ -75,6 +75,13 @@ describe('toRealPath', () => {
 			expect(() => toRealPath('/.meta/something', '/home/user/project')).toThrow('excluded directory');
 		});
 
+		it('rejects protected paths regardless of case', async () => {
+			const { toRealPath } = await loadTools('posix');
+			expect(() => toRealPath('/.GIT/config', '/home/user/project')).toThrow('protected .git metadata');
+			expect(() => toRealPath('/.Env', '/home/user/project')).toThrow('protected environment file');
+			expect(() => toRealPath('/.MeTa/something', '/home/user/project')).toThrow('excluded directory');
+		});
+
 		it('normalizes trailing slash on project folder', async () => {
 			const { toRealPath } = await loadTools('posix');
 			expect(toRealPath('/databases', '/home/user/project/')).toBe('/home/user/project/databases');
@@ -117,6 +124,13 @@ describe('toRealPath', () => {
 		it('rejects excluded .meta directory', async () => {
 			const { toRealPath } = await loadTools('win32');
 			expect(() => toRealPath('/.meta/data', 'C:\\Users\\user\\project')).toThrow('excluded directory');
+		});
+
+		it('rejects protected paths regardless of case', async () => {
+			const { toRealPath } = await loadTools('win32');
+			expect(() => toRealPath('/.GIT/config', 'C:\\Users\\user\\project')).toThrow('protected .git metadata');
+			expect(() => toRealPath('/.Env', 'C:\\Users\\user\\project')).toThrow('protected environment file');
+			expect(() => toRealPath('/.MeTa/data', 'C:\\Users\\user\\project')).toThrow('excluded directory');
 		});
 
 		it('handles mixed separators in project folder', async () => {
@@ -270,6 +284,82 @@ describe('isWithinProjectFolder', () => {
 				false,
 			);
 		});
+	});
+});
+
+describe('built-in path exclusions', () => {
+	it('matches excluded entries regardless of case', async () => {
+		const { isExcludedEntry, isInExcludedDir } = await loadTools('posix');
+
+		expect(isExcludedEntry('.GIT')).toBe(true);
+		expect(isExcludedEntry('.Env')).toBe(true);
+		expect(isExcludedEntry('.MeTa')).toBe(true);
+		expect(isInExcludedDir('/home/user/project/.MeTa/file.txt')).toBe(true);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// storage mount
+// ---------------------------------------------------------------------------
+
+describe('storage mount', () => {
+	const PROJECT = '/srv/project';
+
+	it.each(['/home', 'home', '/home/', '/home/reports/q1.csv', 'home/reports/q1.csv', '~', '~/reports/q1.csv'])(
+		'recognises %j as permanent storage',
+		async (virtualPath) => {
+			const { isStoragePath } = await loadTools('posix');
+			expect(isStoragePath(virtualPath)).toBe(true);
+		},
+	);
+
+	it.each(['/', '/databases', '/homes', '/agent/home', 'my-home', '~notes.md', undefined])(
+		'does not recognise %j as permanent storage',
+		async (virtualPath) => {
+			const { isStoragePath } = await loadTools('posix');
+			expect(isStoragePath(virtualPath)).toBe(false);
+		},
+	);
+
+	it('maps a mount path to the path inside the user space', async () => {
+		const { toStorageRelativePath } = await loadTools('posix');
+		expect(toStorageRelativePath('/home/reports/q1.csv')).toBe('reports/q1.csv');
+		expect(toStorageRelativePath('/home')).toBe('');
+		expect(toStorageRelativePath('/home/')).toBe('');
+	});
+
+	it('accepts the ~ shorthand but never emits it', async () => {
+		const { toStorageRelativePath, toStorageVirtualPath } = await loadTools('posix');
+
+		expect(toStorageRelativePath('~/reports/q1.csv')).toBe('reports/q1.csv');
+		expect(toStorageRelativePath('~')).toBe('');
+		expect(toStorageVirtualPath('reports/q1.csv')).toBe('/home/reports/q1.csv');
+	});
+
+	it('maps a path inside the user space back to the tree', async () => {
+		const { toStorageVirtualPath } = await loadTools('posix');
+		expect(toStorageVirtualPath('reports/q1.csv')).toBe('/home/reports/q1.csv');
+		expect(toStorageVirtualPath('')).toBe('/home');
+	});
+
+	it('never resolves a mount path against the project folder', async () => {
+		const { toRealPath } = await loadTools('posix');
+		expect(() => toRealPath('/home/reports/q1.csv', PROJECT)).toThrow('in permanent storage');
+		expect(() => toRealPath('/tmp/../home/reports/q1.csv', PROJECT)).toThrow('in permanent storage');
+	});
+
+	it('hides a project folder that shadows the mount name', async () => {
+		const { isWithinProjectFolder, shouldExcludeEntry } = await loadTools('posix');
+
+		expect(isWithinProjectFolder(`${PROJECT}/home/notes.md`, PROJECT)).toBe(false);
+		expect(shouldExcludeEntry('home', '', PROJECT)).toBe(true);
+	});
+
+	it('keeps a nested folder called home reachable', async () => {
+		const { isWithinProjectFolder, shouldExcludeEntry } = await loadTools('posix');
+
+		expect(isWithinProjectFolder(`${PROJECT}/docs/home/notes.md`, PROJECT)).toBe(true);
+		expect(shouldExcludeEntry('home', 'docs', PROJECT)).toBe(false);
 	});
 });
 

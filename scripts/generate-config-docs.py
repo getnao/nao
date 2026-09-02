@@ -28,6 +28,7 @@ from nao_core.config.databases import (  # noqa: E402
     BigQueryConfig,
     DatabricksConfig,
     DuckDBConfig,
+    MotherDuckConfig,
     MssqlConfig,
     PostgresConfig,
     RedshiftConfig,
@@ -44,6 +45,7 @@ from nao_core.config.llm import (  # noqa: E402
     LLMConfig,
     LLMProvider,
 )
+from nao_core.config.confluence import ConfluenceConfig  # noqa: E402
 from nao_core.config.mcp import McpConfig  # noqa: E402
 from nao_core.config.notion import NotionConfig  # noqa: E402
 from nao_core.config.repos.base import RepoConfig  # noqa: E402
@@ -161,6 +163,7 @@ DATABASE_CONFIGS: list[tuple[str, str, type[DatabaseConfig]]] = [
     ("Snowflake", "snowflake", SnowflakeConfig),
     ("BigQuery", "bigquery", BigQueryConfig),
     ("DuckDB", "duckdb", DuckDBConfig),
+    ("MotherDuck", "motherduck", MotherDuckConfig),
     ("Databricks", "databricks", DatabricksConfig),
     ("Microsoft SQL Server", "mssql", MssqlConfig),
     ("Amazon Redshift", "redshift", RedshiftConfig),
@@ -244,6 +247,14 @@ def _section_notion() -> str:
     return "\n".join(parts)
 
 
+def _section_confluence() -> str:
+    parts: list[str] = []
+    parts.append("## Confluence\n")
+    parts.append(_fields_table(ConfluenceConfig))
+    parts.append("")
+    return "\n".join(parts)
+
+
 def _section_slack() -> str:
     parts: list[str] = []
     parts.append("## Slack\n")
@@ -312,6 +323,21 @@ notion:
   pages:
     - https://notion.so/my-page-id
 
+confluence:
+  base_url: ${{ env('CONFLUENCE_BASE_URL') }}
+  deployment: cloud
+  email: ${{ env('CONFLUENCE_EMAIL') }}
+  api_token: ${{ env('CONFLUENCE_API_TOKEN') }}
+  pages:
+    - https://acme.atlassian.net/wiki/spaces/ENG/pages/123456/Runbook
+  page_trees:
+    - 123456
+  labels:
+    - data-catalog
+    - DATA:glossary
+  spaces:
+    - DATA
+
 slack:
   bot_token: ${{ env('SLACK_BOT_TOKEN') }}
   signing_secret: ${{ env('SLACK_SIGNING_SECRET') }}
@@ -348,6 +374,7 @@ def generate_markdown() -> str:
                 "databases": "[DatabaseConfig[]](#databases)",
                 "repos": "[RepoConfig[]](#repos)",
                 "notion": "[NotionConfig](#notion)",
+                "confluence": "[ConfluenceConfig](#confluence)",
                 "llm": "[LLMConfig](#llm)",
                 "slack": "[SlackConfig](#slack)",
                 "mcp": "[McpConfig](#mcp)",
@@ -361,6 +388,7 @@ def generate_markdown() -> str:
     parts.append(_section_llm())
     parts.append(_section_repos())
     parts.append(_section_notion())
+    parts.append(_section_confluence())
     parts.append(_section_slack())
     parts.append(_section_mcp())
     parts.append(_section_skills())

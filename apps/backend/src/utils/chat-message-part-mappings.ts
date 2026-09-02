@@ -4,6 +4,7 @@ import { getToolName, isToolUIPart } from 'ai';
 import { DBMessagePart, NewMessagePart } from '../db/abstractSchema';
 import { UIMessagePart, UIToolPart } from '../types/chat';
 import { buildImageUrl } from './image';
+import { isStoragePath, toStorageRelativePath, toStorageVirtualPath } from './tools';
 
 const PROVIDER_EXECUTED_TOOLS = new Set(['web_search', 'web_fetch', 'google_search']);
 
@@ -57,14 +58,22 @@ export const convertUIPartToDBPart = (
 				reasoningText: part.text,
 				providerMetadata: part.providerMetadata,
 			};
-		case 'file':
+		case 'file': {
+			const imageId = extractImageIdFromUrl(part.url);
+			const storagePath = imageId ? null : extractStoragePathFromUrl(part.url);
+			if (!imageId && !storagePath) {
+				return undefined;
+			}
 			return {
 				messageId,
 				order,
 				type: 'file',
 				mediaType: part.mediaType,
-				imageId: extractImageIdFromUrl(part.url),
+				imageId,
+				storagePath,
+				filename: part.filename ?? null,
 			};
+		}
 		case 'step-start':
 			return {
 				type: 'step-start',
@@ -109,14 +118,22 @@ export const convertDBPartToUIPart = (part: DBMessagePart): UIMessagePart | unde
 				providerMetadata: part.providerMetadata ?? undefined,
 			};
 		case 'file':
-			if (!part.imageId) {
-				return undefined;
+			if (part.imageId) {
+				return {
+					type: 'file',
+					mediaType: part.mediaType!,
+					url: buildImageUrl(part.imageId),
+				};
 			}
-			return {
-				type: 'file',
-				mediaType: part.mediaType!,
-				url: buildImageUrl(part.imageId),
-			};
+			if (part.storagePath) {
+				return {
+					type: 'file',
+					mediaType: part.mediaType!,
+					filename: part.filename ?? undefined,
+					url: toStorageVirtualPath(part.storagePath),
+				};
+			}
+			return undefined;
 		case 'step-start':
 			return {
 				type: 'step-start',
@@ -166,4 +183,9 @@ const IMAGE_URL_PATTERN = /^\/i\/([a-f0-9-]+)$/;
 function extractImageIdFromUrl(url: string): string | null {
 	const match = url.match(IMAGE_URL_PATTERN);
 	return match?.[1] ?? null;
+}
+
+/** A file kept in permanent storage carries its virtual `/home/…` path as its URL. */
+function extractStoragePathFromUrl(url: string): string | null {
+	return isStoragePath(url) ? toStorageRelativePath(url) || null : null;
 }

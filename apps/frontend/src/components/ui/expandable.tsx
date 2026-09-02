@@ -3,7 +3,6 @@ import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 
-/** 'plain' renders the same header row as 'bordered' (incl. trailing actions) but without border, background, or padding. */
 type ExpandableVariant = 'inline' | 'bordered' | 'plain';
 
 interface ExpandableProps {
@@ -35,6 +34,8 @@ export const Expandable = ({
 }: ExpandableProps) => {
 	const canExpand = !disabled;
 	const isBordered = variant === 'bordered';
+	const isPlain = variant === 'plain';
+	const isInline = variant === 'inline';
 	const hasHeaderRow = variant !== 'inline';
 
 	const handleValueChange = () => {
@@ -69,6 +70,7 @@ export const Expandable = ({
 						className={cn(
 							'flex items-center justify-between gap-2',
 							isBordered && 'py-2 px-3',
+							isPlain && 'px-2 py-2',
 							canExpand && 'cursor-pointer',
 						)}
 						onClick={() => canExpand && onExpandedChange(!expanded)}
@@ -83,7 +85,7 @@ export const Expandable = ({
 							<span
 								className={cn(
 									'flex-1 truncate min-w-0',
-									isBordered ? 'font-medium' : 'text-sm',
+									hasHeaderRow ? 'font-medium' : 'text-sm',
 									isLoading && 'text-shimmer',
 								)}
 							>
@@ -113,9 +115,11 @@ export const Expandable = ({
 					</AccordionTrigger>
 				)}
 
-				<AccordionContent className={cn('pb-0', !isBordered && 'pt-1.5')}>
+				<AccordionContent className={cn('pb-0', isInline && 'pt-1.5')}>
 					{isBordered ? (
 						<div className='border-t border-border'>{children}</div>
+					) : isPlain ? (
+						<div>{children}</div>
 					) : (
 						<div className='pl-5 bg-backgroundSecondary relative'>
 							<div className='h-full border-l border-l-border absolute top-0 left-[6px]' />

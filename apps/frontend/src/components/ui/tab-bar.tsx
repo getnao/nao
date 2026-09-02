@@ -68,7 +68,7 @@ export function TabBar<Id extends string>({
 						onClick={() => onTabChange(tab.id)}
 						className={cn(
 							'-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm transition-colors',
-							fitted && 'w-full justify-center',
+							fitted ? 'w-full justify-center' : 'shrink-0 whitespace-nowrap',
 							isActive
 								? 'border-primary font-medium text-foreground'
 								: 'border-transparent text-muted-foreground hover:text-foreground',

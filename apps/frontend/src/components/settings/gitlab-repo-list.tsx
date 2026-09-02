@@ -10,7 +10,7 @@ export type GitlabProject = inferRouterOutputs<TrpcRouter>['gitlab']['listProjec
 
 interface GitlabRepoListProps {
 	selected: string | null;
-	onSelect: (projectPathWithNamespace: string) => void;
+	onSelect: (projectPathWithNamespace: string, project: GitlabProject) => void;
 	onSearchChange?: () => void;
 	renderRepoMeta?: (project: GitlabProject) => ReactNode;
 }

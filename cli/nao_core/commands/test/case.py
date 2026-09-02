@@ -16,6 +16,7 @@ class TestCase:
     prompt: str
     file_path: Path
     sql: str
+    database: str | None = None
 
     @classmethod
     def from_yaml(cls, file_path: Path) -> "TestCase":
@@ -27,6 +28,7 @@ class TestCase:
             name=data.get("name", file_path.stem),
             prompt=data["prompt"],
             sql=data.get("sql"),
+            database=data.get("database"),
             file_path=file_path,
         )
 

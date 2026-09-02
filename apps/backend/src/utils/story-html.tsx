@@ -30,6 +30,7 @@ import {
 	parseNumericValue,
 	pointTooltipKeys,
 	resolveBoundary,
+	resolveDataKey,
 	resolveMapConfig,
 	scaleBubbleRadius,
 	withOpacity,
@@ -75,10 +76,10 @@ const CHART_WIDTH = DOC_MAX_WIDTH - DOC_HORIZ_PADDING * 2;
 const CHART_HEIGHT = Math.round((CHART_WIDTH * 9) / 16);
 
 const MAPLIBRE_VERSION = '5.24.0';
-const MAPLIBRE_JS_URL = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.js`;
-const MAPLIBRE_CSS_URL = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.css`;
-const MAP_STYLE_URL = process.env.NAO_STORY_MAP_STYLE_URL || 'https://tiles.openfreemap.org/styles/positron';
-const MAP_HEIGHT = 360;
+export const MAPLIBRE_JS_URL = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.js`;
+export const MAPLIBRE_CSS_URL = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.css`;
+export const MAP_STYLE_URL = process.env.NAO_STORY_MAP_STYLE_URL || 'https://tiles.openfreemap.org/styles/positron';
+const MAP_HEIGHT = 568;
 
 // Static (sandbox) maps enhance the inline SVG with Leaflet — a DOM/raster tile map that needs no
 // WebGL or web-workers, so it renders where MapLibre is blocked. Raster tiles (OpenFreeMap is vector-only).
@@ -392,18 +393,22 @@ function GridBlock({
 	);
 }
 
-function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: QueryDataMap | null }) {
+function ChartBlock({ chart: rawChart, queryData }: { chart: ParsedChartBlock; queryData: QueryDataMap | null }) {
 	const dateFormat = useContext(DateFormatContext);
-	const rows = queryData?.[chart.queryId]?.data as Record<string, unknown>[] | undefined;
+	const rows = queryData?.[rawChart.queryId]?.data as Record<string, unknown>[] | undefined;
 	if (!rows?.length) {
-		return <Placeholder label={chart.title || 'Chart'} message='Data unavailable' />;
+		return <Placeholder label={rawChart.title || 'Chart'} message='Data unavailable' />;
 	}
+
+	const chart = resolveChartKeys(rawChart, rows);
 
 	if (chart.chartType === 'kpi_card') {
 		return <KpiCards chart={chart} rows={rows} />;
 	}
 
 	const isPie = chart.chartType === 'pie' || chart.chartType === 'donut';
+	const isHorizontalBar = chart.chartType === 'horizontal_bar' || chart.chartType === 'horizontal_bar_100';
+	const showLegend = !isPie && (!isHorizontalBar || chart.series.length >= 2);
 	const valueKey = chart.series[0]?.data_key ?? '';
 	const chartRows = isPie ? bucketPieData(rows, chart.xAxisKey, valueKey) : rows;
 
@@ -436,12 +441,26 @@ function ChartBlock({ chart, queryData }: { chart: ParsedChartBlock; queryData: 
 					data-chart={chartData}
 					dangerouslySetInnerHTML={{ __html: svg }}
 				/>
-				{!isPie && <ChartLegend series={chart.series} />}
+				{showLegend && <ChartLegend series={chart.series} />}
 			</div>
 		);
 	} catch {
 		return <Placeholder label={chart.title || 'Chart'} message='Could not render chart' />;
 	}
+}
+
+/**
+ * Query data may come from a re-execution whose column-name casing differs from
+ * the one the chart was authored against (e.g. Snowflake uppercases unquoted
+ * identifiers, DuckDB preserves them as written). Resolve the configured keys
+ * against the actual row keys, mirroring the frontend chart components.
+ */
+function resolveChartKeys(chart: ParsedChartBlock, rows: Record<string, unknown>[]): ParsedChartBlock {
+	return {
+		...chart,
+		xAxisKey: resolveDataKey(rows, chart.xAxisKey),
+		series: chart.series.map((s) => ({ ...s, data_key: resolveDataKey(rows, s.data_key) })),
+	};
 }
 
 function ChartLegend({ series }: { series: ParsedChartBlock['series'] }) {
@@ -1307,7 +1326,7 @@ function renderTooltipScript(datePattern: string): string {
 	return TOOLTIP_SCRIPT_TEMPLATE.replace('__DATE_PATTERN__', escapedPattern);
 }
 
-function renderMapScript(): string {
+export function renderMapScript(): string {
 	return MAP_INIT_SCRIPT_TEMPLATE.replace('__MAP_STYLE_URL__', JSON.stringify(MAP_STYLE_URL));
 }
 
@@ -1355,7 +1374,7 @@ const STATIC_SVG_SCRIPT_TEMPLATE = `
 			el.addEventListener('mousemove',moveTip);
 			el.addEventListener('mouseleave',hideTip);
 		});
-		var base=(svg.getAttribute('viewBox')||'0 0 852 360').split(/\\s+/).map(Number);
+		var base=(svg.getAttribute('viewBox')||'0 0 852 568').split(/\\s+/).map(Number);
 		var baseX=base[0],baseY=base[1],baseW=base[2],baseH=base[3];
 		var view={x:baseX,y:baseY,w:baseW,h:baseH};
 		function apply(){svg.setAttribute('viewBox',view.x+' '+view.y+' '+view.w+' '+view.h);}
@@ -1609,7 +1628,7 @@ const TOOLTIP_SCRIPT_TEMPLATE = `
 			var isPie=!!pieColorMap;
 			var html='<div class="nao-tooltip-label">'+labelize(label!=null?label:'')+'</div>';
 			html+='<div class="nao-tooltip-rows">';
-			var isPercent=cfg.chartType==='stacked_bar_100'||cfg.chartType==='stacked_area_100';
+			var isPercent=cfg.chartType==='stacked_bar_100'||cfg.chartType==='stacked_area_100'||cfg.chartType==='horizontal_bar_100';
 			var isDualAxis=(cfg.series||[]).some(function(s){return s.y_axis==='right'});
 			var seriesTotal=0;
 			cfg.series.forEach(function(s){var sv=row[s.data_key];if(typeof sv==='number'&&!s.is_total)seriesTotal+=sv;});
@@ -1675,8 +1694,11 @@ const MAP_INIT_SCRIPT_TEMPLATE = `
 		return ['interpolate',['linear'],['coalesce',['get','value'],domain.min],domain.min,MIN_OPACITY,domain.max,MAX_OPACITY];
 	}
 	var containers=document.querySelectorAll('.nao-map');
-	if(!containers.length||typeof maplibregl==='undefined'){window.__naoMapsReady=true;return;}
+	if(!containers.length||typeof maplibregl==='undefined'){window.__naoMapsReady=true;window.__naoMapsRendered=0;return;}
 	var pending=containers.length;
+	var rendered=0;
+	window.__naoMapsRendered=0;
+	function markRendered(){rendered++;window.__naoMapsRendered=rendered;}
 	function done(){pending--;if(pending<=0){window.__naoMapsReady=true;}}
 	function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 	function norm(v){return v==null?null:String(v).trim().toLowerCase()||null;}
@@ -1706,9 +1728,10 @@ const MAP_INIT_SCRIPT_TEMPLATE = `
 		});
 		map.addSource('query-points',{type:'geojson',data:{type:'FeatureCollection',features:features}});
 		map.addLayer({id:'query-points-circles',type:'circle',source:'query-points',paint:{'circle-radius':isBubble?['get','radius']:cfg.radius,'circle-color':cfg.color,'circle-opacity':0.9,'circle-stroke-width':1,'circle-stroke-color':'#ffffff'}});
-		var bounds=new maplibregl.LngLatBounds();
-		cfg.points.forEach(function(point){bounds.extend([point.lng,point.lat]);});
-		try{map.fitBounds(bounds,{padding:40,maxZoom:14,duration:0});}catch(e){}
+		try{
+			if(cfg.bounds){map.fitBounds(cfg.bounds,{padding:40,maxZoom:14,duration:0});}
+			else{var bounds=new maplibregl.LngLatBounds();cfg.points.forEach(function(point){bounds.extend([point.lng,point.lat]);});map.fitBounds(bounds,{padding:40,maxZoom:14,duration:0});}
+		}catch(e){}
 		var popup=new maplibregl.Popup({closeButton:false,closeOnClick:false,className:'map-tooltip',offset:12,maxWidth:'280px'});
 		map.on('mousemove','query-points-circles',function(e){
 			var feature=e.features&&e.features[0];if(!feature)return;
@@ -1719,6 +1742,7 @@ const MAP_INIT_SCRIPT_TEMPLATE = `
 			popup.setLngLat([point.lng,point.lat]).setHTML(html).addTo(map);
 		});
 		map.on('mouseleave','query-points-circles',function(){map.getCanvas().style.cursor='';popup.remove();});
+		return features.length;
 	}
 	function renderChoropleth(map,cfg,boundaries){
 		var index=null;
@@ -1752,22 +1776,27 @@ const MAP_INIT_SCRIPT_TEMPLATE = `
 			popup.setLngLat(e.lngLat).setHTML(html).addTo(map);
 		});
 		map.on('mouseleave','query-regions-fill',function(){map.getCanvas().style.cursor='';popup.remove();});
+		return features.length;
 	}
 	containers.forEach(function(container){
 		var raw=container.getAttribute('data-map');
 		var cfg;try{cfg=JSON.parse(raw);}catch(e){done();return;}
 		var map;
 		try{map=newMap(container);}catch(e){done();return;}
+		var loaded=false;
+		var settled=false;
+		function settle(ok){if(settled)return;settled=true;if(ok){markRendered();}done();}
 		map.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');
-		map.on('error',function(){done();});
+		map.on('error',function(){if(!loaded){settle(false);}});
 		map.on('load',function(){
+			loaded=true;
 			clampMinZoom(map,container);
 		if(cfg.type==='choropleth'){
 			var ready=cfg.inlineGeoJson?Promise.resolve(cfg.inlineGeoJson):cfg.boundaryUrl?fetch(cfg.boundaryUrl).then(function(r){return r.ok?r.json():null;}).catch(function(){return null;}):Promise.resolve(null);
-				ready.then(function(boundaries){renderChoropleth(map,cfg,boundaries);map.once('idle',done);});
+				ready.then(function(boundaries){var count=renderChoropleth(map,cfg,boundaries);map.once('idle',function(){settle(count>0);});});
 			}else{
-				renderPoints(map,cfg);
-				map.once('idle',done);
+				var count=renderPoints(map,cfg);
+				map.once('idle',function(){settle(count>0);});
 			}
 		});
 	});

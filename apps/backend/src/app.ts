@@ -14,6 +14,10 @@ import { fileURLToPath } from 'url';
 import { env, isCloud } from './env';
 import { AUTOMATION_JOB_NAME, automationHandler } from './handlers/automation.handler';
 import {
+	CONTEXT_BRANCH_CLEANUP_JOB_NAME,
+	contextBranchCleanupHandler,
+} from './handlers/context-branch-cleanup.handler';
+import {
 	CONTEXT_RECOMMENDATIONS_JOB_NAME,
 	contextRecommendationsHandler,
 	ensureContextRecommendationsSchedules,
@@ -26,6 +30,7 @@ import { mcpServerRoutes } from './mcp/routes';
 import { ensureOrganizationSetup } from './queries/organization.queries';
 import { agentRoutes } from './routes/agent';
 import { analyticsRoutes } from './routes/analytics';
+import { attachmentRoutes } from './routes/attachment';
 import { authRoutes } from './routes/auth';
 import { authErrorRedirectRoutes } from './routes/auth-error-redirect';
 import { automationWebhookRoutes } from './routes/automation-webhook';
@@ -37,14 +42,17 @@ import { githubRoutes } from './routes/github';
 import { gitlabRoutes } from './routes/gitlab';
 import { imageRoutes } from './routes/image';
 import { mapBoundariesRoutes } from './routes/map-boundaries';
+import { mattermostRoutes } from './routes/mattermost';
 import { mcpOAuthRoutes } from './routes/mcp-oauth';
 import { slackRoutes } from './routes/slack';
+import { ssoRoutes } from './routes/sso';
 import { teamsRoutes } from './routes/teams';
 import { telegramRoutes } from './routes/telegram';
 import { testRoutes } from './routes/test';
 import { whatsappRoutes } from './routes/whatsapp';
 import { startLicenseHeartbeat } from './services/license.service';
 import { logLicenseStatus } from './services/license-startup';
+import { mattermostService } from './services/mattermost';
 import { pingLicensesServer } from './services/ping';
 import { posthog, PostHogEvent } from './services/posthog';
 import { ensureRecurring, registerJob, startScheduler } from './services/scheduler.service';
@@ -52,6 +60,7 @@ import { slackService } from './services/slack';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
 import { BudgetExceededError, HandlerError } from './utils/error';
+import { closeBrowser } from './utils/headless-browser';
 import { logger } from './utils/logger';
 
 // Get the directory of the current module (works in both dev and compiled)
@@ -156,6 +165,10 @@ app.register(agentRoutes, {
 	prefix: '/api/agent',
 });
 
+app.register(attachmentRoutes, {
+	prefix: '/api/attachments',
+});
+
 app.register(analyticsRoutes, {
 	prefix: '/api/analytics',
 });
@@ -192,6 +205,10 @@ app.register(authRoutes, {
 	prefix: '/api',
 });
 
+app.register(ssoRoutes, {
+	prefix: '/api',
+});
+
 app.register(slackRoutes, {
 	prefix: '/api/webhooks/slack',
 });
@@ -202,6 +219,10 @@ app.register(teamsRoutes, {
 
 app.register(telegramRoutes, {
 	prefix: '/api/webhooks/telegram',
+});
+
+app.register(mattermostRoutes, {
+	prefix: '/api/webhooks/mattermost',
 });
 
 app.register(whatsappRoutes, {
@@ -358,6 +379,13 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		uniqueKey: MCP_QUERY_DATA_CLEANUP_JOB_NAME,
 	});
 
+	registerJob(CONTEXT_BRANCH_CLEANUP_JOB_NAME, contextBranchCleanupHandler);
+	await ensureRecurring({
+		name: CONTEXT_BRANCH_CLEANUP_JOB_NAME,
+		cron: '0 5 * * *',
+		uniqueKey: CONTEXT_BRANCH_CLEANUP_JOB_NAME,
+	});
+
 	if (env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED) {
 		registerJob(CONTEXT_RECOMMENDATIONS_JOB_NAME, contextRecommendationsHandler);
 		try {
@@ -378,10 +406,12 @@ export const startServer = async (opts: { port: number; host: string }) => {
 
 	void pingLicensesServer();
 	void slackService.startSocketModeForAllProjects();
+	void mattermostService.startForAllProjects();
 
 	posthog.capture(undefined, PostHogEvent.ServerStarted, { ...opts, address });
 
 	const handleShutdown = async () => {
+		await closeBrowser();
 		await flushTelemetry();
 		await posthog.shutdown();
 		process.exit(0);

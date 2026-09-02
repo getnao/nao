@@ -2,7 +2,7 @@
 
 import { Editor, Node } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { splitGridColumnsRaw } from '@nao/shared/story-segments';
 
 import {
@@ -84,6 +84,10 @@ const FIRST_THREE_COLUMN_GRID = `<grid widths="1,1,1">
 <chart query_id="q2" chart_type="bar" x_axis_key="month" />
 <chart query_id="q3" chart_type="area" x_axis_key="month" />
 </grid>`;
+const FIRST_TWO_COLUMN_GRID = `<grid widths="1,1">
+<chart query_id="q1" chart_type="line" x_axis_key="month" />
+<chart query_id="q2" chart_type="bar" x_axis_key="month" />
+</grid>`;
 const SECOND_THREE_COLUMN_GRID = `<grid widths="1,1,1">
 <table query_id="q4" />
 <chart query_id="q5" chart_type="bar" x_axis_key="month" />
@@ -144,6 +148,13 @@ function dispatchEditorMouseDown(target: Element, init?: MouseEventInit): void {
 			value: elementFromPoint,
 		});
 	}
+}
+
+function dispatchEditorKeyDown(editor: Editor, key: string): KeyboardEvent {
+	editor.view.focus();
+	const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+	editor.view.dom.dispatchEvent(event);
+	return event;
 }
 
 function dispatchEditorMouseDownAtPosition(
@@ -477,6 +488,143 @@ describe('story block selection', () => {
 			);
 
 			expect(selectColumnFromHandle(editor.state, 4, 1)).toBeNull();
+		});
+	});
+
+	describe('deleting the selection', () => {
+		it('removes one grid column and collapses a two-column grid to a plain block', () => {
+			const gridEditor = createDocumentEditor([
+				{ type: 'gridBlock', attrs: { rawContent: FIRST_THREE_COLUMN_GRID } },
+				{ type: 'gridBlock', attrs: { rawContent: FIRST_TWO_COLUMN_GRID } },
+			]);
+			const [threeColumnGridPos] = topLevelBlockPositions(gridEditor.state.doc);
+			selectMixed(gridEditor, [], [{ gridPos: threeColumnGridPos, index: 1 }]);
+
+			const firstEvent = dispatchEditorKeyDown(gridEditor, 'Backspace');
+
+			expect(firstEvent.defaultPrevented).toBe(true);
+			expect(gridEditor.state.doc.child(0).type.name).toBe('gridBlock');
+			const remainingColumns = splitGridColumnsRaw(
+				gridEditor.state.doc.child(0).attrs.rawContent as string,
+			).columns;
+			expect(remainingColumns).toHaveLength(2);
+			expect(remainingColumns[0]).toContain('query_id="q1"');
+			expect(remainingColumns[1]).toContain('query_id="q3"');
+			expect(blockSelectionPluginKey.getState(gridEditor.state)).toEqual(emptySelection());
+
+			const [, twoColumnGridPos] = topLevelBlockPositions(gridEditor.state.doc);
+			selectMixed(gridEditor, [], [{ gridPos: twoColumnGridPos, index: 0 }]);
+			const secondEvent = dispatchEditorKeyDown(gridEditor, 'Backspace');
+
+			expect(secondEvent.defaultPrevented).toBe(true);
+			expect(gridEditor.state.doc.child(1).type.name).toBe('chartBlock');
+			expect(gridEditor.state.doc.child(1).attrs.rawTag).toContain('query_id="q2"');
+			expect(blockSelectionPluginKey.getState(gridEditor.state)).toEqual(emptySelection());
+			gridEditor.destroy();
+		});
+
+		it('removes the grid when its last column is selected', () => {
+			const gridEditor = createDocumentEditor([
+				{ type: 'gridBlock', attrs: { rawContent: FIRST_GRID } },
+				{ type: 'paragraph', content: [{ type: 'text', text: 'After' }] },
+			]);
+			const [gridPos] = topLevelBlockPositions(gridEditor.state.doc);
+			selectMixed(gridEditor, [], [{ gridPos, index: 0 }]);
+
+			const event = dispatchEditorKeyDown(gridEditor, 'Backspace');
+
+			expect(event.defaultPrevented).toBe(true);
+			expect(gridEditor.state.doc.childCount).toBe(1);
+			expect(gridEditor.state.doc.child(0).textContent).toBe('After');
+			expect(blockSelectionPluginKey.getState(gridEditor.state)).toEqual(emptySelection());
+			gridEditor.destroy();
+		});
+
+		it('deletes several selected top-level blocks', () => {
+			const [first, , third] = topLevelBlockPositions(editor.state.doc);
+			selectBlocks(editor, [first, third], first);
+
+			const event = dispatchEditorKeyDown(editor, 'Backspace');
+
+			expect(event.defaultPrevented).toBe(true);
+			expect(editor.state.doc.childCount).toBe(1);
+			expect(editor.state.doc.textContent).toBe('BB');
+			expect(blockSelectionPluginKey.getState(editor.state)).toEqual(emptySelection());
+		});
+
+		it('cancels block deletion after keyboard caret movement', () => {
+			const [first, , third] = topLevelBlockPositions(editor.state.doc);
+			selectBlocks(editor, [first, third], first);
+
+			const endOfTextblock = vi.spyOn(editor.view, 'endOfTextblock').mockReturnValue(false);
+			const arrowEvent = dispatchEditorKeyDown(editor, 'ArrowDown');
+			endOfTextblock.mockRestore();
+
+			expect(arrowEvent.defaultPrevented).toBe(false);
+			expect(blockSelectionPluginKey.getState(editor.state)).toEqual(emptySelection());
+
+			dispatchEditorKeyDown(editor, 'Backspace');
+
+			expect(editor.state.doc.childCount).toBe(3);
+			expect(editor.state.doc.textContent).toBe('AABBCC');
+		});
+
+		it('deletes mixed blocks and columns from several grids in one keypress', () => {
+			const mixedEditor = createDocumentEditor([
+				{ type: 'paragraph', content: [{ type: 'text', text: 'Remove A' }] },
+				{ type: 'gridBlock', attrs: { rawContent: FIRST_THREE_COLUMN_GRID } },
+				{ type: 'paragraph', content: [{ type: 'text', text: 'Remove B' }] },
+				{ type: 'gridBlock', attrs: { rawContent: SECOND_THREE_COLUMN_GRID } },
+				{ type: 'paragraph', content: [{ type: 'text', text: 'Keep' }] },
+			]);
+			const [firstBlockPos, firstGridPos, secondBlockPos, secondGridPos] = topLevelBlockPositions(
+				mixedEditor.state.doc,
+			);
+			selectMixed(
+				mixedEditor,
+				[firstBlockPos, secondBlockPos],
+				[
+					{ gridPos: firstGridPos, index: 1 },
+					{ gridPos: secondGridPos, index: 0 },
+					{ gridPos: secondGridPos, index: 2 },
+				],
+			);
+
+			const event = dispatchEditorKeyDown(mixedEditor, 'Delete');
+
+			expect(event.defaultPrevented).toBe(true);
+			expect(mixedEditor.state.doc.childCount).toBe(3);
+			expect(mixedEditor.state.doc.child(0).type.name).toBe('gridBlock');
+			const firstGridColumns = splitGridColumnsRaw(
+				mixedEditor.state.doc.child(0).attrs.rawContent as string,
+			).columns;
+			expect(firstGridColumns).toHaveLength(2);
+			expect(firstGridColumns[0]).toContain('query_id="q1"');
+			expect(firstGridColumns[1]).toContain('query_id="q3"');
+			expect(mixedEditor.state.doc.child(1).type.name).toBe('chartBlock');
+			expect(mixedEditor.state.doc.child(1).attrs.rawTag).toContain('query_id="q5"');
+			expect(mixedEditor.state.doc.child(2).textContent).toBe('Keep');
+			expect(blockSelectionPluginKey.getState(mixedEditor.state)).toEqual(emptySelection());
+			mixedEditor.destroy();
+		});
+
+		it('handles deletion from outside the editor when focus is lost', () => {
+			const [first] = topLevelBlockPositions(editor.state.doc);
+			selectBlocks(editor, [first], first);
+			const outside = document.createElement('div');
+			document.body.appendChild(outside);
+			const event = new KeyboardEvent('keydown', {
+				key: 'Backspace',
+				bubbles: true,
+				cancelable: true,
+			});
+
+			outside.dispatchEvent(event);
+
+			expect(event.defaultPrevented).toBe(true);
+			expect(editor.state.doc.textContent).toBe('BBCC');
+			expect(blockSelectionPluginKey.getState(editor.state)).toEqual(emptySelection());
+			outside.remove();
 		});
 	});
 

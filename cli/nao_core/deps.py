@@ -41,6 +41,7 @@ _EXTRAS: dict[str, list[str]] = {
     "ollama": ["ollama"],
     # Integrations
     "notion": ["notion_client", "notion2md"],
+    "confluence": ["markdownify"],
     # Secret resolution backends
     "aws-secrets": ["boto3", "glom"],
     "k8s-secrets": ["kubernetes"],
@@ -54,6 +55,8 @@ _PROVIDER_ALIASES: dict[str, str] = {
     "minimax": "openai",
     "moonshot": "openai",
     "openaiCompatible": "openai",
+    # MotherDuck is DuckDB-compatible and uses the duckdb extra/backend.
+    "motherduck": "duckdb",
 }
 
 
@@ -123,6 +126,10 @@ def get_required_extras(config: NaoConfig) -> list[str]:
     if config.notion and "notion" not in seen:
         extras.append("notion")
         seen.add("notion")
+
+    if config.confluence and "confluence" not in seen:
+        extras.append("confluence")
+        seen.add("confluence")
 
     return extras
 

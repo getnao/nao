@@ -14,7 +14,7 @@ import {
 	findLastUserMessageIndex,
 } from '../utils/ai';
 import { debugCompaction } from '../utils/debug';
-import { resolveAnnotationModelId, resolveProviderModel } from '../utils/llm';
+import { resolveAnnotationModelId, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { ITokenCounter, TokenCounter } from './token-counter';
 
@@ -171,16 +171,20 @@ export class CompactionService {
 	}
 
 	private async _resolveCompactionLLM(projectId: string, provider: LlmProvider, selectedModelId: string) {
-		const modelId = await resolveAnnotationModelId(
-			projectId,
-			{ provider, modelId: selectedModelId },
-			getProviderMeta(provider).extractorModelId,
-		);
-		const model = await resolveProviderModel(projectId, provider, modelId, false);
+		const pinned = await resolveDefaultModelSelection(projectId, 'compaction');
+		const effectiveProvider = pinned?.provider ?? provider;
+		const modelId =
+			pinned?.modelId ??
+			(await resolveAnnotationModelId(
+				projectId,
+				{ provider, modelId: selectedModelId },
+				getProviderMeta(provider).extractorModelId,
+			));
+		const model = await resolveProviderModel(projectId, effectiveProvider, modelId, false);
 		if (!model) {
 			return undefined;
 		}
-		return this.options.createCompactionLlm(disableModelReasoning(provider, model), this._tc);
+		return this.options.createCompactionLlm(disableModelReasoning(effectiveProvider, model), this._tc);
 	}
 
 	/** Summarizes conversation up to the latest user message and replaces that range in-place. */

@@ -207,6 +207,14 @@ export const sharedChatRoutes = {
 				},
 			});
 
-			return buildDownloadResponse(input.format, version.title, version.code, queryData);
+			const displaySettings = await projectQueries.getDisplaySettings(share.projectId);
+
+			return buildDownloadResponse(
+				input.format,
+				version.title,
+				version.code,
+				queryData,
+				displaySettings.dateFormat,
+			);
 		}),
 };

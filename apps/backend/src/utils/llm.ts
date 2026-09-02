@@ -1,3 +1,4 @@
+import { type BackgroundModelCategory, selectBackgroundModel } from '@nao/shared';
 import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
 
 import {
@@ -242,6 +243,32 @@ function resolveConfigAnnotationTarget(configLlm: ConfigLlm | null): { provider:
 
 	const owner = configLlm.providers.find((candidate) => candidate.enabledModels.includes(modelId));
 	return { provider: (owner ?? configLlm.providers[0]).provider, modelId };
+}
+
+/**
+ * The model an admin pinned for a background task, substituting an available model when the pinned
+ * one has been disabled or removed. Returns null when no default is configured for the category, so
+ * callers fall back to nao's built-in per-provider defaults.
+ */
+export async function resolveDefaultModelSelection(
+	projectId: string,
+	category: BackgroundModelCategory,
+): Promise<LlmSelectedModel | null> {
+	const configured = selectBackgroundModel(await projectQueries.getDefaultModelSettings(projectId), category);
+	if (!configured) {
+		return null;
+	}
+
+	const available = await getProjectAvailableModels(projectId);
+	if (available.length === 0) {
+		return null;
+	}
+	if (available.some((m) => m.provider === configured.provider && m.modelId === configured.modelId)) {
+		return configured;
+	}
+
+	const substitute = available.find((m) => m.provider === configured.provider) ?? available[0];
+	return { provider: substitute.provider, modelId: substitute.modelId };
 }
 
 export const getProjectAvailableModels = async (

@@ -4,7 +4,7 @@ import { Button } from '../ui/button';
 import { Skeleton } from '../ui/skeleton';
 import type { ToolCallComponentProps } from '.';
 import type { UIMessage } from '@nao/backend/chat';
-import { useAgentContext } from '@/contexts/agent.provider';
+import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { getMessageText } from '@/lib/ai';
 import { cn } from '@/lib/utils';
@@ -13,7 +13,8 @@ type AnsweredState = { isAnswered: true; answer: string } | { isAnswered: false;
 
 export const ClarificationToolCall = memo(({ toolPart }: ToolCallComponentProps<'clarification'>) => {
 	const { isSettled } = useToolCallContext();
-	const { messages, queueOrSendMessage, isRunning } = useAgentContext();
+	const { queueOrSendMessage, isRunning } = useAgentContext();
+	const messages = useAgentMessages();
 
 	const answeredState = useMemo<AnsweredState>(
 		() => getAnsweredStateForToolCall(messages, toolPart.toolCallId),

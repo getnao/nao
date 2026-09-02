@@ -49,9 +49,19 @@ const settingsNavItems: NavItem[] = [
 		visible: ({ isViewer, isInMultipleProjects }) => !isViewer || isInMultipleProjects,
 	},
 	{
+		label: 'Git',
+		to: '/settings/git',
+		visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
+	},
+	{
 		label: 'MCP Endpoint',
 		to: '/settings/mcp-endpoint',
 		visible: ({ isViewer }) => !isViewer,
+	},
+	{
+		label: 'Storage',
+		to: '/settings/storage',
+		visible: ({ isViewer, isCloud }) => !isViewer && !isCloud,
 	},
 	{
 		label: 'Observability',
@@ -94,7 +104,7 @@ const settingsNavItems: NavItem[] = [
 	{
 		label: 'File Explorer',
 		to: '/settings/context-explorer',
-		visible: ({ isAdmin }) => isAdmin,
+		visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
 	},
 	{
 		label: 'Memory',

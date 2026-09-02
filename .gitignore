@@ -13,14 +13,17 @@ count.txt
 chats
 nao-chat-server
 .pytest_cache/
+uploads/
 
 *.pyc
 
 rsa_key.*
 apps/backend/projects/
+apps/backend/storage/
 
 *.code-workspace
 
 .cursor/
+.nao/
 
 example/tests/outputs/

@@ -4,12 +4,14 @@ import { z } from 'zod/v4';
 import { updateAuth } from '../auth';
 import { env, isCloud } from '../env';
 import * as orgQueries from '../queries/organization.queries';
+import * as projectQueries from '../queries/project.queries';
 import { emailService } from '../services/email';
 import { isGithubSsoEnabled } from '../services/github';
 import { isGitlabSsoEnabled } from '../services/gitlab';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { isMicrosoftConfigured } from '../services/microsoft-auth.service';
 import { getOidcProviderId, isOidcConfigured } from '../services/oidc-auth.service';
+import { inspectSsoToken, isGroupRoleMappingActive } from '../services/sso-group-mapping.service';
 import { adminProtectedProcedure, publicProcedure } from './trpc';
 
 export const authConfigRoutes = {
@@ -86,8 +88,24 @@ export const authConfigRoutes = {
 			return {
 				providerId: getOidcProviderId(),
 				providerName: env.OIDC_PROVIDER_NAME ?? 'SSO',
+				rolesManagedByIdp: await isGroupRoleMappingActive(),
 			};
 		}),
+		inspectToken: adminProtectedProcedure
+			.input(z.object({ userId: z.string().optional() }))
+			.query(async ({ input, ctx }) => {
+				if (!(await hasFeature(LICENSE_FEATURES.sso)) || !isOidcConfigured()) {
+					throw new TRPCError({ code: 'FORBIDDEN', message: 'OIDC single sign-on is not configured.' });
+				}
+				const targetUserId = input.userId ?? ctx.user.id;
+				if (
+					targetUserId !== ctx.user.id &&
+					!(await projectQueries.getUserRoleInProject(ctx.project.id, targetUserId))
+				) {
+					throw new TRPCError({ code: 'FORBIDDEN', message: 'User is not a member of this project' });
+				}
+				return inspectSsoToken(targetUserId);
+			}),
 	},
 	smtp: {
 		isSetup: publicProcedure.query(() => emailService.isEnabled()),

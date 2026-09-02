@@ -264,6 +264,21 @@ function ConnectionCard() {
 			],
 		},
 		{
+			id: 'dust',
+			label: 'Dust',
+			methods: [
+				{
+					steps: [
+						'Open {Spaces > Tools} and click `Add Tool > Add MCP Server`.',
+						'Paste the URL below into the `MCP server URL` field — keep the `?chart_output=data` parameter: it returns chart config and data so Dust agents can render charts as interactive frames.',
+						'Authenticate in your browser when prompted.',
+					],
+					config: `${endpointUrl}?chart_output=data`,
+					configLabel: 'MCP Endpoint URL',
+				},
+			],
+		},
+		{
 			id: 'cli',
 			label: 'CLI',
 			methods: [

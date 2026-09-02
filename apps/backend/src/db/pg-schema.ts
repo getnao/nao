@@ -1,4 +1,9 @@
-import type { MapSettings, McpChartEmbedStoredConfig, McpMapEmbedStoredConfig } from '@nao/shared';
+import type {
+	BackgroundModelSettings,
+	MapSettings,
+	McpChartEmbedStoredConfig,
+	McpMapEmbedStoredConfig,
+} from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
 import type {
 	AnalyticsEventMetadata,
@@ -54,7 +59,13 @@ import { LLM_INFERENCE_TYPES, type ModelSettingsMap } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import { McpEndpointSettings } from '../types/mcp-endpoint';
 import { MEMORY_CATEGORIES } from '../types/memory';
-import { SlackSettings, TeamsSettings, TelegramSettings, WhatsappSettings } from '../types/messaging-provider';
+import {
+	MattermostSettings,
+	SlackSettings,
+	TeamsSettings,
+	TelegramSettings,
+	WhatsappSettings,
+} from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
 
 export const user = pgTable('user', {
@@ -200,10 +211,12 @@ export const project = pgTable(
 		slackSettings: jsonb('slack_settings').$type<SlackSettings>(),
 		teamsSettings: jsonb('teams_settings').$type<TeamsSettings>(),
 		telegramSettings: jsonb('telegram_settings').$type<TelegramSettings>(),
+		mattermostSettings: jsonb('mattermost_settings').$type<MattermostSettings>(),
 		whatsappSettings: jsonb('whatsapp_settings').$type<WhatsappSettings>(),
 		mcpEndpointSettings: jsonb('mcp_endpoint_settings').$type<McpEndpointSettings>(),
 		displaySettings: jsonb('display_settings').$type<DisplaySettings>(),
 		mapSettings: jsonb('map_settings').$type<MapSettings>(),
+		defaultModels: jsonb('default_models').$type<BackgroundModelSettings>(),
 
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
@@ -257,6 +270,7 @@ export const chat = pgTable(
 		slackThreadId: text('slack_thread_id'),
 		teamsThreadId: text('teams_thread_id'),
 		telegramThreadId: text('telegram_thread_id'),
+		mattermostThreadId: text('mattermost_thread_id'),
 		whatsappThreadId: text('whatsapp_thread_id'),
 		forkMetadata: jsonb('fork_metadata').$type<ForkMetadata>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -271,6 +285,7 @@ export const chat = pgTable(
 		index('chat_slack_thread_idx').on(table.slackThreadId),
 		index('chat_teams_thread_idx').on(table.teamsThreadId),
 		index('chat_telegram_thread_idx').on(table.telegramThreadId),
+		index('chat_mattermost_thread_idx').on(table.mattermostThreadId),
 		index('chat_whatsapp_thread_idx').on(table.whatsappThreadId),
 	],
 );
@@ -348,9 +363,11 @@ export const messagePart = pgTable(
 		toolProviderMetadata: jsonb('tool_provider_metadata').$type<ProviderMetadata>(),
 		providerMetadata: jsonb('provider_metadata').$type<ProviderMetadata>(),
 
-		// file/image columns
+		// file columns: images live in message_image, other attachments in permanent storage
 		mediaType: text('media_type'),
 		imageId: text('image_id').references(() => messageImage.id, { onDelete: 'set null' }),
+		storagePath: text('storage_path'),
+		filename: text('filename'),
 	},
 	(t) => [
 		index('parts_message_id_idx').on(t.messageId),
@@ -369,7 +386,7 @@ export const messagePart = pgTable(
 		),
 		check(
 			'file_fields_required',
-			sql`CASE WHEN ${t.type} = 'file' THEN ${t.mediaType} IS NOT NULL AND ${t.imageId} IS NOT NULL ELSE TRUE END`,
+			sql`CASE WHEN ${t.type} = 'file' THEN ${t.mediaType} IS NOT NULL AND (${t.imageId} IS NOT NULL OR ${t.storagePath} IS NOT NULL) ELSE TRUE END`,
 		),
 	],
 );
@@ -455,6 +472,7 @@ export const projectProviderBudget = pgTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		provider: text('provider').$type<LlmProvider>().notNull(),
 		limitUsd: integer('limit_usd').notNull(),
+		perUserLimitUsd: integer('per_user_limit_usd'),
 		period: text('period', { enum: BUDGET_PERIODS }).notNull(),
 		currentPeriodStart: timestamp('current_period_start').defaultNow().notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -652,8 +670,6 @@ export const contextRecommendationConfig = pgTable('context_recommendation_confi
 	projectId: text('project_id')
 		.primaryKey()
 		.references(() => project.id, { onDelete: 'cascade' }),
-	modelProvider: text('model_provider').$type<LlmProvider>(),
-	modelId: text('model_id'),
 	frequency: text('frequency', { enum: CONTEXT_RECOMMENDATION_FREQUENCIES }),
 	customSystemPromptInstructions: text('custom_system_prompt_instructions'),
 	repoFullName: text('repo_full_name'),
@@ -666,6 +682,29 @@ export const contextRecommendationConfig = pgTable('context_recommendation_confi
 		.$onUpdate(() => new Date())
 		.notNull(),
 });
+
+export const contextBranchOwnership = pgTable(
+	'context_branch_ownership',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		branch: text('branch').notNull(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		reviewRequestUrl: text('review_request_url'),
+		reviewRequestKind: text('review_request_kind', { enum: ['created', 'link'] }),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [
+		unique('context_branch_ownership_project_branch_unique').on(t.projectId, t.branch),
+		index('context_branch_ownership_userId_idx').on(t.userId),
+	],
+);
 
 export const contextRecommendation = pgTable(
 	'context_recommendation',

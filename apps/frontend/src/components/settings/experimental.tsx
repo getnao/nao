@@ -150,7 +150,7 @@ export function SettingsExperimental({ isAdmin }: SettingsExperimentalProps) {
 						</a>
 						.
 						{!sandboxAvailable &&
-							' The runtime is not installed — on macOS or Linux, run `nao chat --sandbox` and restart nao.'}
+							' The sandbox runtime is unavailable on this host. Install it with `nao chat --sandbox` on a supported host.'}
 					</span>
 				}
 				control={

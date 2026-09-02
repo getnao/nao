@@ -61,7 +61,12 @@ async function handleMcpRequest(request: FastifyRequest, reply: FastifyReply): P
 		return;
 	}
 
-	const server = await createMcpServer(request.mcpUserId, request.mcpProjectId, settings);
+	const server = await createMcpServer(
+		request.mcpUserId,
+		request.mcpProjectId,
+		settings,
+		isChartDataModeRequest(request),
+	);
 	const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 
 	reply.raw.on('close', () => {
@@ -72,6 +77,11 @@ async function handleMcpRequest(request: FastifyRequest, reply: FastifyReply): P
 	await server.connect(transport);
 	await transport.handleRequest(request.raw, reply.raw, request.body as Record<string, unknown>);
 	reply.hijack();
+}
+
+function isChartDataModeRequest(request: FastifyRequest): boolean {
+	const { chart_output } = request.query as { chart_output?: string };
+	return chart_output?.toLowerCase() === 'data';
 }
 
 function replyMethodNotAllowed(reply: FastifyReply) {

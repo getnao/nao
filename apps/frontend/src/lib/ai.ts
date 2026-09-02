@@ -4,9 +4,11 @@ import {
 	getStaticToolName as getStaticToolNameAi,
 	getToolName as getToolNameAi,
 } from 'ai';
+import { isImageMediaType } from '@nao/shared/attachments';
 import type { ReasoningUIPart, ToolUIPart } from 'ai';
 import type { UseChatHelpers } from '@ai-sdk/react';
 import type { UITools, UIToolPart, UIMessage, UIMessagePart, StaticToolName } from '@nao/backend/chat';
+import type { ImageUploadData } from '@nao/shared/attachments';
 import type { ToolCallDensity } from '@nao/shared/types';
 import type { GroupablePart, ToolGroupPart, GroupedMessagePart, MessageGroup } from '@/types/ai';
 import type { DynamicToolName } from '@/components/tool-calls';
@@ -97,6 +99,36 @@ export const isToolGroupPart = (part: GroupedMessagePart): part is ToolGroupPart
 	return part.type === 'tool-group';
 };
 
+export const areGroupedMessagePartsEqual = (left: GroupedMessagePart, right: GroupedMessagePart): boolean => {
+	if (isToolGroupPart(left) || isToolGroupPart(right)) {
+		return (
+			isToolGroupPart(left) && isToolGroupPart(right) && areGroupedMessagePartArraysEqual(left.parts, right.parts)
+		);
+	}
+
+	if (isToolUIPart(left) || isToolUIPart(right)) {
+		return isToolUIPart(left) && isToolUIPart(right) && areToolPartsEqual(left, right);
+	}
+
+	if (left.type === 'text' && right.type === 'text') {
+		const leftState = 'state' in left ? left.state : undefined;
+		const rightState = 'state' in right ? right.state : undefined;
+		return left.text === right.text && leftState === rightState;
+	}
+
+	if (left.type === 'reasoning' && right.type === 'reasoning') {
+		const leftState = 'state' in left ? left.state : undefined;
+		const rightState = 'state' in right ? right.state : undefined;
+		return left.text === right.text && leftState === rightState;
+	}
+
+	return false;
+};
+
+export const areGroupedMessagePartArraysEqual = (left: GroupedMessagePart[], right: GroupedMessagePart[]): boolean => {
+	return left.length === right.length && left.every((part, index) => areGroupedMessagePartsEqual(part, right[index]));
+};
+
 /**
  * Groups consecutive collapsible parts (tools and reasoning) into 'tool-group' parts.
  * Non-collapsible tools (depending on the density setting) and other message parts are returned as-is.
@@ -149,6 +181,97 @@ export const isPartGroupable = (part: UIMessagePart, density: ToolCallDensity = 
 	return false;
 };
 
+const areToolPartsEqual = (left: UIToolPart, right: UIToolPart): boolean => {
+	const leftOutput = 'output' in left ? left.output : undefined;
+	const rightOutput = 'output' in right ? right.output : undefined;
+	const leftErrorText = 'errorText' in left ? left.errorText : undefined;
+	const rightErrorText = 'errorText' in right ? right.errorText : undefined;
+	const outputsAreEqual =
+		isToolSettled(left) && isToolSettled(right)
+			? getOutputRevision(left) === getOutputRevision(right)
+			: leftOutput === rightOutput;
+
+	return (
+		left.type === right.type &&
+		getToolName(left) === getToolName(right) &&
+		left.toolCallId === right.toolCallId &&
+		left.state === right.state &&
+		areStructurallyEqual(left.input, right.input) &&
+		outputsAreEqual &&
+		leftErrorText === rightErrorText
+	);
+};
+
+const getOutputRevision = (part: UIToolPart): unknown => {
+	const output = 'output' in part ? part.output : undefined;
+	return output && typeof output === 'object' && 'revision' in output ? output.revision : undefined;
+};
+
+export const areStructurallyEqual = (left: unknown, right: unknown): boolean => {
+	return compareStructuralValues(left, right, new WeakMap());
+};
+
+const compareStructuralValues = (
+	left: unknown,
+	right: unknown,
+	seenPairs: WeakMap<object, WeakSet<object>>,
+): boolean => {
+	if (Object.is(left, right)) {
+		return true;
+	}
+	if (typeof left !== 'object' || left === null || typeof right !== 'object' || right === null) {
+		return false;
+	}
+
+	const leftIsArray = Array.isArray(left);
+	const rightIsArray = Array.isArray(right);
+	if (leftIsArray || rightIsArray) {
+		if (!leftIsArray || !rightIsArray || left.length !== right.length) {
+			return false;
+		}
+		if (hasSeenPair(left, right, seenPairs)) {
+			return true;
+		}
+		return left.every((value, index) => compareStructuralValues(value, right[index], seenPairs));
+	}
+
+	if (!isPlainObject(left) || !isPlainObject(right)) {
+		return false;
+	}
+	if (hasSeenPair(left, right, seenPairs)) {
+		return true;
+	}
+
+	const leftKeys = Object.keys(left);
+	const rightKeys = Object.keys(right);
+	return (
+		leftKeys.length === rightKeys.length &&
+		leftKeys.every(
+			(key) =>
+				Object.prototype.hasOwnProperty.call(right, key) &&
+				compareStructuralValues(left[key], right[key], seenPairs),
+		)
+	);
+};
+
+const hasSeenPair = (left: object, right: object, seenPairs: WeakMap<object, WeakSet<object>>): boolean => {
+	const seenRights = seenPairs.get(left);
+	if (seenRights?.has(right)) {
+		return true;
+	}
+	if (seenRights) {
+		seenRights.add(right);
+	} else {
+		seenPairs.set(left, new WeakSet([right]));
+	}
+	return false;
+};
+
+const isPlainObject = (value: object): value is Record<string, unknown> => {
+	const prototype = Object.getPrototypeOf(value);
+	return prototype === Object.prototype || prototype === null;
+};
+
 export const getLastFollowUpSuggestionsToolCall = (
 	messages: UIMessage[],
 ): UIToolPart<'suggest_follow_ups'> | undefined => {
@@ -167,25 +290,99 @@ export const getMessageText = (message: UIMessage): string => {
 };
 
 export const getMessageImages = (message: UIMessage): { url: string; mediaType: string }[] => {
-	return message.parts
-		.filter((part): part is Extract<UIMessagePart, { type: 'file' }> => part.type === 'file')
+	return getFileParts(message)
 		.filter((part) => part.mediaType.startsWith('image/'))
 		.map((part) => ({ url: part.url, mediaType: part.mediaType }));
 };
 
-/** Extracts base64 image data from file parts in a message for the upload payload. */
-export const extractImagesFromMessage = (message: UIMessage): { mediaType: string; data: string }[] => {
-	return message.parts
-		.filter((part): part is Extract<UIMessagePart, { type: 'file' }> => part.type === 'file')
+/** Attachments kept in permanent storage, whose URL is the path the agent reads them from. */
+export const getMessageDocuments = (message: UIMessage): { path: string; mediaType: string; filename: string }[] => {
+	return getFileParts(message)
+		.filter((part) => !part.mediaType.startsWith('image/'))
+		.map((part) => ({
+			path: part.url,
+			mediaType: part.mediaType,
+			filename: part.filename ?? (part.url.split('/').pop() as string),
+		}));
+};
+
+export const extractDocumentPathsFromMessage = (message: UIMessage): string[] => {
+	return getMessageDocuments(message).map((document) => document.path);
+};
+
+const getFileParts = (message: UIMessage): Extract<UIMessagePart, { type: 'file' }>[] => {
+	return message.parts.filter((part): part is Extract<UIMessagePart, { type: 'file' }> => part.type === 'file');
+};
+
+/** Extracts base64 image data from optimistic `data:` file parts for the upload payload. */
+export const extractImagesFromMessage = (message: UIMessage): ImageUploadData[] => {
+	return getFileParts(message)
 		.filter((part) => part.mediaType.startsWith('image/') && part.url.startsWith('data:'))
-		.map((part) => {
+		.flatMap((part) => {
+			if (!isImageMediaType(part.mediaType)) {
+				return [];
+			}
 			const commaIdx = part.url.indexOf(',');
-			return {
-				mediaType: part.mediaType,
-				data: commaIdx >= 0 ? part.url.slice(commaIdx + 1) : part.url,
-			};
+			return [
+				{
+					mediaType: part.mediaType,
+					data: commaIdx >= 0 ? part.url.slice(commaIdx + 1) : part.url,
+				},
+			];
 		});
 };
+
+/**
+ * Resolves image file parts into upload payloads. Handles optimistic `data:` URLs and
+ * persisted `/i/{id}` URLs (fetched and re-encoded so edit/resend can reuse them).
+ */
+export const resolveImagesFromMessage = async (message: UIMessage): Promise<ImageUploadData[]> => {
+	const imageParts = getFileParts(message).filter((part) => part.mediaType.startsWith('image/'));
+	const images = await Promise.all(imageParts.map(imageUploadDataFromFilePart));
+	return images.filter((image): image is ImageUploadData => image !== null);
+};
+
+async function imageUploadDataFromFilePart(
+	part: Extract<UIMessagePart, { type: 'file' }>,
+): Promise<ImageUploadData | null> {
+	if (part.url.startsWith('data:')) {
+		if (!isImageMediaType(part.mediaType)) {
+			return null;
+		}
+		const commaIdx = part.url.indexOf(',');
+		return {
+			mediaType: part.mediaType,
+			data: commaIdx >= 0 ? part.url.slice(commaIdx + 1) : part.url,
+		};
+	}
+
+	const response = await fetch(part.url);
+	if (!response.ok) {
+		throw new Error(`Failed to load attached image (${response.status})`);
+	}
+	const blob = await response.blob();
+	const mediaType = isImageMediaType(part.mediaType)
+		? part.mediaType
+		: isImageMediaType(blob.type)
+			? blob.type
+			: null;
+	if (!mediaType) {
+		return null;
+	}
+	return { mediaType, data: await blobToBase64(blob) };
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+	return new Promise((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onloadend = () => {
+			const dataUrl = reader.result as string;
+			resolve(dataUrl.split(',')[1] ?? '');
+		};
+		reader.onerror = reject;
+		reader.readAsDataURL(blob);
+	});
+}
 
 /** Group messages into user and response (assistant) messages. */
 export const groupMessages = (messages: UIMessage[]): MessageGroup[] => {

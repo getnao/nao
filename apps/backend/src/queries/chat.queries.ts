@@ -48,6 +48,7 @@ const sourcePlatformExpr = sql<SourcePlatform>`case
 	when ${s.chat.teamsThreadId} is not null then 'Teams'
 	when ${s.chat.whatsappThreadId} is not null then 'WhatsApp'
 	when ${s.chat.telegramThreadId} is not null then 'Telegram'
+	when ${s.chat.mattermostThreadId} is not null then 'Mattermost'
 	when exists(
 		select 1 from ${s.chatMessage}
 		where ${s.chatMessage.chatId} = ${s.chat.id}
@@ -72,7 +73,7 @@ export const listGroupedChats = async (
 	filters: ChatFilterType[],
 ): Promise<GroupedChatListResponse> => {
 	const effective = filters.length === 0 || filters.includes('all') ? (['all'] as ChatFilterType[]) : filters;
-	const needsShared = effective.includes('all') || effective.includes('shared_with_me') || groupBy === 'ownership';
+	const needsShared = effective.includes('shared_with_me') || groupBy === 'ownership';
 
 	const [ownItems, sharedItems] = await Promise.all([
 		listOwnChats(userId),
@@ -727,6 +728,19 @@ export const getLastAssistantMessageId = async (chatId: string): Promise<string 
 	return result?.id ?? null;
 };
 
+export const isAssistantMessageInProject = async (messageId: string, projectId: string): Promise<boolean> => {
+	const [result] = await db
+		.select({ id: s.chatMessage.id })
+		.from(s.chatMessage)
+		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
+		.where(
+			and(eq(s.chatMessage.id, messageId), eq(s.chatMessage.role, 'assistant'), eq(s.chat.projectId, projectId)),
+		)
+		.limit(1)
+		.execute();
+	return Boolean(result);
+};
+
 export const getChatBySlackThread = async (threadId: string): Promise<{ id: string; title: string } | null> => {
 	const result = await db
 		.select({ id: s.chat.id, title: s.chat.title })
@@ -761,6 +775,20 @@ export const getChatByTelegramThread = async (threadId: string): Promise<{ id: s
 	return result.at(0) || null;
 };
 
+export const getChatByMattermostThread = async (threadId: string): Promise<{ id: string; title: string } | null> => {
+	const result = await db
+		.select({ id: s.chat.id, title: s.chat.title })
+		.from(s.chat)
+		.where(eq(s.chat.mattermostThreadId, threadId))
+		.limit(1)
+		.execute();
+	return result.at(0) || null;
+};
+
+export const attachMattermostThread = async (chatId: string, mattermostThreadId: string): Promise<void> => {
+	await db.update(s.chat).set({ mattermostThreadId }).where(eq(s.chat.id, chatId)).execute();
+};
+
 export const getChatByWhatsappThread = async (threadId: string): Promise<{ id: string; title: string } | null> => {
 	const result = await db
 		.select({ id: s.chat.id, title: s.chat.title })
@@ -779,6 +807,17 @@ export const clearWhatsappThread = async (threadId: string): Promise<boolean> =>
 		.returning({ id: s.chat.id })
 		.execute();
 	return result.length > 0;
+};
+
+/** Clears the slack thread mapping for the main conversation of a DM, identified by the raw Slack channel ID (e.g. `D123ABC`). The main conversation is the chat with an empty thread timestamp (`slack:<channelId>:`); explicitly opened threads are left untouched. Returns the affected chat IDs so running agents can be stopped. */
+export const clearSlackMainThread = async (slackChannelId: string): Promise<string[]> => {
+	const result = await db
+		.update(s.chat)
+		.set({ slackThreadId: null })
+		.where(eq(s.chat.slackThreadId, `slack:${slackChannelId}:`))
+		.returning({ id: s.chat.id })
+		.execute();
+	return result.map((r) => r.id);
 };
 
 export type SearchChatResult = {
@@ -926,6 +965,32 @@ export const getChatProjectId = async (chatId: string): Promise<string | undefin
 		.where(eq(s.chat.id, chatId))
 		.execute();
 	return result?.projectId;
+};
+
+export const getLatestAssistantModel = async (
+	chatId: string,
+): Promise<{ provider: LlmProvider; modelId: string } | null> => {
+	const [result] = await db
+		.select({ provider: s.chatMessage.llmProvider, modelId: s.chatMessage.llmModelId })
+		.from(s.chatMessage)
+		.where(
+			and(
+				eq(s.chatMessage.chatId, chatId),
+				eq(s.chatMessage.role, 'assistant'),
+				isNull(s.chatMessage.supersededAt),
+				isNotNull(s.chatMessage.llmProvider),
+				isNotNull(s.chatMessage.llmModelId),
+			),
+		)
+		.orderBy(desc(s.chatMessage.createdAt))
+		.limit(1)
+		.execute();
+
+	if (!result?.provider || !result?.modelId) {
+		return null;
+	}
+
+	return { provider: result.provider, modelId: result.modelId };
 };
 
 export const getProjectIdByQueryId = async (queryId: string): Promise<string | undefined> => {

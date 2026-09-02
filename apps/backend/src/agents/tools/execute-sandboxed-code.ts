@@ -6,15 +6,21 @@ import path from 'path';
 
 import { ChatImage, getImagesByChatId } from '../../queries/image.queries';
 import { getQueryResult } from '../../services/query-result.service';
+import { sandboxRuntime } from '../../services/sandbox-runtime';
+import { readUserFileBytes, writeUserFileBytes } from '../../services/storage/user-files';
 import { QueryResult, ToolContext } from '../../types/tools';
-import { createTool, shouldExcludeEntry } from '../../utils/tools';
+import {
+	createTool,
+	isStoragePath,
+	shouldExcludeEntry,
+	toStorageRelativePath,
+	toStorageScope,
+	toStorageVirtualPath,
+} from '../../utils/tools';
 
-let boxliteModule: typeof import('@boxlite-ai/boxlite') | null = null;
-try {
-	boxliteModule = await import('@boxlite-ai/boxlite');
-} catch {
-	console.warn('⚠ sandbox runtime not installed — execute_sandboxed_code tool disabled (run `nao chat --sandbox`)');
-}
+const boxliteModule = sandboxRuntime;
+
+export { isSandboxAvailable } from '../../services/sandbox-runtime';
 
 const WORKING_DIR = '/root';
 const SANDBOX_TTL_MS = 5 * 60 * 1000;
@@ -107,6 +113,8 @@ async function getOrCreateSandbox(
 
 const CONTEXT_DIR = `${WORKING_DIR}/context`;
 const IMAGES_DIR = `${WORKING_DIR}/images`;
+const STORAGE_FILES_DIR = `${WORKING_DIR}/files`;
+const OUTPUT_DIR = `${WORKING_DIR}/${schemas.SANDBOX_OUTPUT_DIR}`;
 
 async function copyProjectToSandbox(box: CodeBox, projectFolder: string, tmpDir: string): Promise<void> {
 	const walkDir = (dir: string, relativeDir: string): void => {
@@ -179,8 +187,109 @@ async function copyChatImagesToSandbox(box: CodeBox, images: ChatImage[], tmpDir
 	await Promise.all(promises);
 }
 
+/**
+ * Copies saved files into the VM under their path below /home, so a file the agent found by
+ * listing storage is readable at a location it can work out without being told.
+ */
+async function copyStorageFilesToSandbox(
+	box: CodeBox,
+	virtualPaths: string[],
+	context: ToolContext,
+	tmpDir: string,
+): Promise<void> {
+	const scope = toStorageScope(context);
+	const promises: Promise<void>[] = [];
+
+	for (const virtualPath of virtualPaths) {
+		if (!isStoragePath(virtualPath)) {
+			throw new Error(
+				`'${virtualPath}' is not a saved file. storage_files takes paths under /home; use data_files for query results and the context mount for project files.`,
+			);
+		}
+
+		const relativePath = toStorageRelativePath(virtualPath);
+		if (relativePath === '') {
+			throw new Error('storage_files needs the path of a file, not the /home root.');
+		}
+
+		const data = await readUserFileBytes(scope, relativePath);
+		const hostPath = path.join(tmpDir, 'files', relativePath);
+		fs.mkdirSync(path.dirname(hostPath), { recursive: true });
+		fs.writeFileSync(hostPath, data);
+		promises.push(box.copyIn(hostPath, `${STORAGE_FILES_DIR}/${relativePath}`));
+	}
+
+	await Promise.all(promises);
+}
+
+/**
+ * Copies files the code produced out of the doomed VM and into permanent storage, which is the only
+ * way anything a sandbox makes outlives it.
+ * @returns The /home paths now holding them.
+ */
+async function saveSandboxFilesToStorage(
+	box: CodeBox,
+	files: schemas.SaveFile[],
+	context: ToolContext,
+	tmpDir: string,
+): Promise<string[]> {
+	const scope = toStorageScope(context);
+	const saved: string[] = [];
+
+	for (const { filename, home_path } of files) {
+		if (
+			!filename ||
+			filename === '.' ||
+			filename === '..' ||
+			filename !== path.basename(filename) ||
+			/[\\\0]/.test(filename)
+		) {
+			throw new Error(`save_files filename must be a single file name, not a path: '${filename}'`);
+		}
+		if (!isStoragePath(home_path)) {
+			throw new Error(
+				`'${home_path}' is not a place files can be kept. save_files writes under /home, e.g. '/home/exports/${filename}'.`,
+			);
+		}
+
+		const relativePath = toStorageRelativePath(home_path);
+		if (relativePath === '') {
+			throw new Error('save_files needs the path of a file, not the /home root.');
+		}
+
+		const hostPath = path.join(tmpDir, 'out', filename);
+		fs.mkdirSync(path.dirname(hostPath), { recursive: true });
+
+		try {
+			await box.copyOut(`${OUTPUT_DIR}/${filename}`, hostPath);
+		} catch (error) {
+			throw new Error(
+				`The code did not leave a file at ${OUTPUT_DIR}/${filename}. Write files you want to keep into ${schemas.SANDBOX_OUTPUT_DIR}/ inside the working directory.`,
+				{ cause: error },
+			);
+		}
+
+		await writeUserFileBytes(scope, relativePath, fs.readFileSync(hostPath));
+		saved.push(toStorageVirtualPath(relativePath));
+	}
+
+	return saved;
+}
+
+const savedFiles = async (
+	box: CodeBox,
+	files: schemas.SaveFile[] | undefined,
+	context: ToolContext,
+	tmpDir: string,
+): Promise<{ saved_files?: string[] }> => {
+	if (!files?.length) {
+		return {};
+	}
+	return { saved_files: await saveSandboxFilesToStorage(box, files, context, tmpDir) };
+};
+
 async function executeSandboxedCode(
-	{ sandbox_id, code, language, image, vm_size, packages, data_files }: schemas.Input,
+	{ sandbox_id, code, language, image, vm_size, packages, data_files, storage_files, save_files }: schemas.Input,
 	context: ToolContext,
 ): Promise<schemas.Output> {
 	const { projectFolder, chatId } = context;
@@ -217,12 +326,18 @@ async function executeSandboxedCode(
 		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-sandbox-'));
 
 		if (!reused) {
+			// Exists from the start so that code writing to out/ never has to create it first.
+			await box.exec('mkdir', '-p', OUTPUT_DIR);
 			await copyProjectToSandbox(box, projectFolder, tmpDir);
 		}
 
 		const chatImages = await getImagesByChatId(chatId);
 		if (chatImages.length > 0) {
 			await copyChatImagesToSandbox(box, chatImages, tmpDir);
+		}
+
+		if (storage_files?.length) {
+			await copyStorageFilesToSandbox(box, storage_files, context, tmpDir);
 		}
 
 		if (data_files?.length) {
@@ -246,7 +361,13 @@ async function executeSandboxedCode(
 
 		if (language === 'python') {
 			const stdout = await box.run(code);
-			return { sandbox_id: id, stdout, stderr: stderrParts.join('\n'), exitCode: 0 };
+			return {
+				sandbox_id: id,
+				stdout,
+				stderr: stderrParts.join('\n'),
+				exitCode: 0,
+				...(await savedFiles(box, save_files, context, tmpDir)),
+			};
 		}
 
 		const result = await box.exec('sh', '-c', code);
@@ -255,6 +376,7 @@ async function executeSandboxedCode(
 			stdout: result.stdout,
 			stderr: [result.stderr, ...stderrParts].filter(Boolean).join('\n'),
 			exitCode: result.exitCode,
+			...(result.exitCode === 0 ? await savedFiles(box, save_files, context, tmpDir) : {}),
 		};
 	} catch (err) {
 		if (err instanceof ExecError) {
@@ -282,8 +404,6 @@ async function executeSandboxedCode(
 		}
 	}
 }
-
-export const isSandboxAvailable = boxliteModule !== null;
 
 export default boxliteModule
 	? createTool<schemas.Input, schemas.Output>({

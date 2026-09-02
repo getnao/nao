@@ -88,12 +88,18 @@ export async function getExecuteSqlOwnerByQueryId(
 export async function getExecuteSqlPartByQueryIdInChat(
 	chatId: string,
 	queryId: string,
-): Promise<{ toolCallId: string; toolInput: executeSql.Input; toolOutput: executeSql.Output } | null> {
+): Promise<{
+	toolCallId: string;
+	toolInput: executeSql.Input;
+	toolOutput: executeSql.Output;
+	adminMode: boolean;
+} | null> {
 	const [row] = await db
 		.select({
 			toolCallId: s.messagePart.toolCallId,
 			toolInput: s.messagePart.toolInput,
 			toolOutput: s.messagePart.toolOutput,
+			messageSource: s.chatMessage.source,
 		})
 		.from(s.messagePart)
 		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
@@ -117,6 +123,7 @@ export async function getExecuteSqlPartByQueryIdInChat(
 		toolCallId: row.toolCallId,
 		toolInput: executeSql.InputSchema.parse(row.toolInput),
 		toolOutput: executeSql.OutputSchema.parse(row.toolOutput),
+		adminMode: row.messageSource === 'admin',
 	};
 }
 
@@ -140,6 +147,7 @@ async function loadLatestExecuteSqlParts(chatId: string, queryIds: Set<string>) 
 		.select({
 			toolInput: s.messagePart.toolInput,
 			toolOutput: s.messagePart.toolOutput,
+			messageSource: s.chatMessage.source,
 		})
 		.from(s.messagePart)
 		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
@@ -162,13 +170,13 @@ async function loadLatestExecuteSqlParts(chatId: string, queryIds: Set<string>) 
 export async function getLatestSqlQueriesByIds(
 	chatId: string,
 	queryIds: Set<string>,
-): Promise<Record<string, { sqlQuery: string; databaseId?: string }>> {
+): Promise<Record<string, { sqlQuery: string; databaseId?: string; adminMode: boolean }>> {
 	if (queryIds.size === 0) {
 		return {};
 	}
 
 	const parts = await loadLatestExecuteSqlParts(chatId, queryIds);
-	const queries: Record<string, { sqlQuery: string; databaseId?: string }> = {};
+	const queries: Record<string, { sqlQuery: string; databaseId?: string; adminMode: boolean }> = {};
 	for (const part of parts) {
 		const output = part.toolOutput as { id?: string } | null;
 		const input = part.toolInput as { sql_query?: string; database_id?: string } | null;
@@ -176,6 +184,7 @@ export async function getLatestSqlQueriesByIds(
 			queries[output.id] = {
 				sqlQuery: input.sql_query,
 				...(input.database_id && { databaseId: input.database_id }),
+				adminMode: part.messageSource === 'admin',
 			};
 		}
 	}

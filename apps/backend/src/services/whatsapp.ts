@@ -1,7 +1,7 @@
 import { createMemoryState } from '@chat-adapter/state-memory';
 import { createRedisState } from '@chat-adapter/state-redis';
 import { createWhatsAppAdapter } from '@chat-adapter/whatsapp';
-import { CITATION_TAG_REGEX } from '@nao/shared';
+import { stripAssistantTags } from '@nao/shared';
 import { displayChart } from '@nao/shared/tools';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
@@ -24,6 +24,7 @@ import { logger } from '../utils/logger';
 import {
 	createWhatsappMapLink,
 	EXCLUDED_TOOLS,
+	formatClarificationText,
 	formatMessagingError,
 	renderMapImage,
 } from '../utils/messaging-provider';
@@ -494,6 +495,7 @@ class WhatsappService {
 		const chartUrls: string[] = [];
 		const mapLinks: string[] = [];
 		let lastMessage: UIMessage | null = null;
+		let clarificationText: string | null = null;
 
 		for await (const uiMessage of readUIMessageStream<UIMessage>({ stream })) {
 			lastMessage = uiMessage;
@@ -518,12 +520,20 @@ class WhatsappService {
 				} else if (result?.link) {
 					mapLinks.push(result.link);
 				}
+			} else if (part.type === 'tool-clarification' && part.state !== 'input-streaming' && part.input) {
+				clarificationText = stripAssistantTags(
+					formatClarificationText(part.input.question, part.input.options),
+				);
 			}
 		}
 
-		const finalText = (lastMessage?.parts ?? [])
+		const textContent = (lastMessage?.parts ?? [])
 			.filter((p): p is Extract<UIMessagePart, { type: 'text' }> => p.type === 'text')
-			.map((p) => p.text.replace(CITATION_TAG_REGEX, ''))
+			.map((p) => stripAssistantTags(p.text))
+			.join('\n\n');
+
+		const finalText = [textContent, clarificationText]
+			.filter((part): part is string => Boolean(part && part.trim()))
 			.join('\n\n');
 
 		return { finalText, chartUrls, mapLinks };

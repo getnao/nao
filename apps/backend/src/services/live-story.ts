@@ -5,6 +5,7 @@ import { CronExpressionParser } from 'cron-parser';
 import { z } from 'zod';
 
 import { llmTelemetry } from '../agents/telemetry';
+import { queryAppDb } from '../agents/tools/query-app-db';
 import { LiveStoryRefreshPrompt } from '../components/ai/live-story-refresh-prompt';
 import type { DBStoryDataCache } from '../db/abstractSchema';
 import { env } from '../env';
@@ -14,11 +15,19 @@ import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { getQueryDataFromCode } from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
-import { getDefaultModelId, resolveProviderModel } from '../utils/llm';
+import { convertToTokenUsage } from '../utils/ai';
+import { getDefaultModelId, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
+import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { backfillMissingQueryData, findMissingQueryIds } from '../utils/story-query-data';
 import { MAX_OUTPUT_TOKENS } from './agent';
 import { resolveExcludedColumnEnforcementForProject } from './excluded-columns.service';
 const MAX_RENDERED_ROWS = 60;
+
+interface StoryRefreshTarget {
+	projectId: string;
+	userId: string;
+	chatId: string;
+}
 
 export async function executeLiveQuery(
 	chatId: string,
@@ -34,13 +43,18 @@ export async function executeLiveQuery(
 		throw new Error('Chat project not found');
 	}
 
+	const sqlQuery = stripSqlFilterBlocks(query.sqlQuery);
+	if (query.adminMode) {
+		return executeAppDatabaseSql(projectId, sqlQuery);
+	}
+
 	const project = await projectQueries.retrieveProjectById(projectId);
 	if (!project.path) {
 		throw new Error('Project path not configured');
 	}
 
 	const envVars = await projectQueries.getEnvVars(projectId);
-	return executeRawSql(stripSqlFilterBlocks(query.sqlQuery), {
+	return executeRawSql(sqlQuery, {
 		projectFolder: project.path,
 		projectId,
 		databaseId: query.databaseId,
@@ -63,24 +77,31 @@ export async function refreshStoryData(chatId: string, slug: string): Promise<Re
 		return { queryData: {} };
 	}
 
-	const projectId = await chatQueries.getChatProjectId(chatId);
-	if (!projectId) {
+	const chat = await chatQueries.getChatInfo(chatId);
+	if (!chat) {
 		throw new Error('Chat project not found');
 	}
 
-	const project = await projectQueries.retrieveProjectById(projectId);
-	if (!project.path) {
+	const hasWarehouseQueries = Object.values(sqlQueries).some((query) => !query.adminMode);
+	const project = hasWarehouseQueries ? await projectQueries.retrieveProjectById(chat.projectId) : null;
+	if (project && !project.path) {
 		throw new Error('Project path not configured');
 	}
 
-	const projectEnvVars = await projectQueries.getEnvVars(projectId);
 	const queryData: Record<string, { data: unknown[]; columns: string[] }> = {};
 
 	await Promise.all(
-		Object.entries(sqlQueries).map(async ([queryId, { sqlQuery, databaseId }]) => {
-			const result = await executeRawSql(stripSqlFilterBlocks(sqlQuery), {
-				projectFolder: project.path!,
-				projectId,
+		Object.entries(sqlQueries).map(async ([queryId, { sqlQuery, databaseId, adminMode }]) => {
+			const effectiveSql = stripSqlFilterBlocks(sqlQuery);
+			if (adminMode) {
+				queryData[queryId] = await executeAppDatabaseSql(chat.projectId, effectiveSql);
+				return;
+			}
+
+			const projectEnvVars = await projectQueries.getEnvVars(chat.projectId);
+			const result = await executeRawSql(effectiveSql, {
+				projectFolder: project!.path!,
+				projectId: chat.projectId,
 				databaseId,
 				envVars: projectEnvVars,
 			});
@@ -89,7 +110,12 @@ export async function refreshStoryData(chatId: string, slug: string): Promise<Re
 	);
 
 	if (version.isLiveTextDynamic) {
-		const newCode = await generateDynamicStoryCode(projectId, version.title, version.code, queryData);
+		const newCode = await generateDynamicStoryCode(
+			{ projectId: chat.projectId, userId: chat.userId, chatId },
+			version.title,
+			version.code,
+			queryData,
+		);
 		if (newCode) {
 			await storyQueries.updateLatestVersionCode(chatId, slug, newCode);
 		}
@@ -176,6 +202,14 @@ export async function executeRawSql(
 	return { data: data.data, columns: data.columns };
 }
 
+async function executeAppDatabaseSql(
+	projectId: string,
+	sqlQuery: string,
+): Promise<{ data: unknown[]; columns: string[] }> {
+	const { columns, rows } = await queryAppDb(projectId, sqlQuery);
+	return { data: rows, columns };
+}
+
 function isCacheExpired(cachedAt: Date, cacheSchedule: string | null): boolean {
 	if (!cacheSchedule) {
 		return false;
@@ -191,17 +225,20 @@ function isCacheExpired(cachedAt: Date, cacheSchedule: string | null): boolean {
 }
 
 async function generateDynamicStoryCode(
-	projectId: string,
+	target: StoryRefreshTarget,
 	title: string,
 	originalCode: string,
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
 ): Promise<string | null> {
-	const provider = await llmConfigQueries.getProjectModelProvider(projectId);
+	const { projectId } = target;
+	const pinned = await resolveDefaultModelSelection(projectId, 'live_story');
+	const provider = pinned?.provider ?? (await llmConfigQueries.getProjectModelProvider(projectId));
 	if (!provider) {
 		return null;
 	}
 
-	const model = await resolveProviderModel(projectId, provider, getDefaultModelId(provider));
+	const modelId = pinned?.modelId ?? getDefaultModelId(provider);
+	const model = await resolveProviderModel(projectId, provider, modelId);
 	if (!model) {
 		return null;
 	}
@@ -210,7 +247,7 @@ async function generateDynamicStoryCode(
 		const querySummaries = buildQueryDataSummary(queryData);
 		const systemPrompt = renderToMarkdown(LiveStoryRefreshPrompt({ title, originalCode, querySummaries }));
 
-		const { output } = await generateText({
+		const { output, usage } = await generateText({
 			...model,
 			system: systemPrompt,
 			messages: [{ role: 'user', content: 'Refresh the story narrative with the latest query results.' }],
@@ -223,14 +260,24 @@ async function generateDynamicStoryCode(
 			experimental_telemetry: llmTelemetry('nao-live-story', { projectId, tags: [provider] }),
 		});
 
+		scheduleSaveLlmInferenceRecord({
+			type: 'live_story_refresh',
+			projectId,
+			userId: target.userId,
+			chatId: target.chatId,
+			llmProvider: provider,
+			llmModelId: model.model.modelId,
+			...convertToTokenUsage(usage),
+		});
+
 		const candidate = stripCodeFence(output.code.trim());
 		if (!candidate || !preservesStoryStructure(originalCode, candidate)) {
 			return null;
 		}
 
 		return candidate;
-	} catch {
-		return null;
+	} catch (error) {
+		throw error instanceof Error ? error : new Error(String(error));
 	}
 }
 

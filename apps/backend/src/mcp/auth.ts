@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { and, eq, gt } from 'drizzle-orm';
 
-import { getAuth, verifyOAuthAccessToken } from '../auth';
+import { getSession, verifyOAuthAccessToken } from '../auth';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import { MCP_SERVER_URL } from '../env';
@@ -13,10 +13,9 @@ export async function resolveUserId(fastifyRequest: {
 	headers: Record<string, string | string[] | undefined>;
 	url: string;
 }): Promise<string | null> {
-	const auth = await getAuth();
 	const headers = convertHeaders(fastifyRequest.headers);
 
-	const session = await auth.api.getSession({ headers });
+	const session = await getSession(headers);
 	if (session?.user) {
 		return session.user.id;
 	}

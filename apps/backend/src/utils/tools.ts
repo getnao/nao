@@ -3,9 +3,20 @@ import fs from 'fs';
 import { minimatch } from 'minimatch';
 import path from 'path';
 
-import { ToolContext } from '../types/tools';
+import type { StorageScope } from '../services/storage';
+import { McpToolContext, ToolContext } from '../types/tools';
 
 const MCP_TOOL_SEPARATOR = '__';
+
+/**
+ * Top-level folder of the virtual tree holding the user's permanent storage.
+ * The name is reserved: a project folder called `home` is never exposed, so a
+ * path under it always means permanent storage.
+ */
+export const STORAGE_MOUNT = 'home';
+
+/** Shorthand the model is likely to reach for, accepted on input but never emitted. */
+const STORAGE_MOUNT_ALIAS = '~';
 
 /** Creates a tool with a typed execution `context` */
 export const createTool = <TInput, TOutput>(
@@ -21,10 +32,53 @@ export const createTool = <TInput, TOutput>(
 	} as Tool<TInput, TOutput>);
 };
 
+/** The permanent-storage space a run may reach: the current user, in the current project. */
+export const toStorageScope = (context: ToolContext | McpToolContext): StorageScope => {
+	return { projectId: context.projectId, userId: context.userId };
+};
+
+/** True when a virtual path addresses permanent storage: `/home`, `~` or anything below them. */
+export const isStoragePath = (virtualPath: string | undefined | null): boolean => {
+	return typeof virtualPath === 'string' && storageMountOf(virtualPath) !== null;
+};
+
+/**
+ * Converts a virtual path to the path inside the user's storage space.
+ * An empty result addresses the storage root itself.
+ */
+export const toStorageRelativePath = (virtualPath: string): string => {
+	const mount = storageMountOf(virtualPath);
+	return mount === null ? '' : trimSlashes(trimSlashes(virtualPath).slice(mount.length));
+};
+
+/** The spelling of the mount the path uses, or null when it is not a storage path. */
+const storageMountOf = (virtualPath: string): string | null => {
+	const trimmed = trimSlashes(virtualPath);
+
+	return (
+		[STORAGE_MOUNT, STORAGE_MOUNT_ALIAS].find((mount) => trimmed === mount || trimmed.startsWith(`${mount}/`)) ??
+		null
+	);
+};
+
+/** Virtual path of a file inside permanent storage. */
+export const toStorageVirtualPath = (relativePath: string): string => {
+	const trimmed = trimSlashes(relativePath);
+	return trimmed === '' ? `/${STORAGE_MOUNT}` : `/${STORAGE_MOUNT}/${trimmed}`;
+};
+
+const trimSlashes = (value: string): string => {
+	return value.trim().replace(/^\/+|\/+$/g, '');
+};
+
 /**
  * Directory names that should be excluded from tool operations (list, search, read).
  */
-export const EXCLUDED_DIRS = ['.meta'];
+const EXCLUDED_DIRECTORY_NAMES = ['.meta', '.git'];
+const ENVIRONMENT_FILE_PATTERNS = ['.env', '.env.*'];
+export const BUILT_IN_EXCLUSION_GLOBS = [...EXCLUDED_DIRECTORY_NAMES, ...ENVIRONMENT_FILE_PATTERNS].flatMap(
+	(pattern) => [`!${pattern}`, `!${pattern}/**`, `!**/${pattern}`, `!**/${pattern}/**`],
+);
 
 type NaoignoreCacheEntry = {
 	/** `mtimeMs:size` of the .naoignore file, or `null` if the file does not exist */
@@ -156,14 +210,22 @@ export const isIgnoredPath = (realPath: string, projectFolder: string): boolean 
  */
 export const isInExcludedDir = (filePath: string): boolean => {
 	const parts = filePath.split(path.sep);
-	return parts.some((part) => EXCLUDED_DIRS.includes(part));
+	return parts.some((part) => isExcludedDirectoryName(part) || isEnvironmentFileName(part));
 };
 
 /**
  * Checks if an entry name is an excluded directory.
  */
 export const isExcludedEntry = (name: string): boolean => {
-	return EXCLUDED_DIRS.includes(name);
+	return isExcludedDirectoryName(name) || isEnvironmentFileName(name);
+};
+
+const isExcludedDirectoryName = (name: string): boolean => {
+	return EXCLUDED_DIRECTORY_NAMES.includes(name.toLowerCase());
+};
+
+const isEnvironmentFileName = (name: string): boolean => {
+	return ENVIRONMENT_FILE_PATTERNS.some((pattern) => minimatch(name, pattern, { dot: true, nocase: true }));
 };
 
 /**
@@ -177,6 +239,11 @@ export const isExcludedEntry = (name: string): boolean => {
 export const shouldExcludeEntry = (entryName: string, parentPath: string, projectFolder: string): boolean => {
 	// First check built-in exclusions
 	if (isExcludedEntry(entryName)) {
+		return true;
+	}
+
+	// The storage mount owns this name at the root of the tree
+	if (parentPath === '' && isStoragePath(entryName)) {
 		return true;
 	}
 
@@ -199,6 +266,9 @@ export const isWithinProjectFolder = (filePath: string, projectFolder: string): 
 	if (isInExcludedDir(resolved)) {
 		return false;
 	}
+	if (isStoragePath(path.relative(normalizedFolder, resolved).replaceAll(path.sep, '/'))) {
+		return false;
+	}
 	if (isIgnoredPath(resolved, normalizedFolder)) {
 		return false;
 	}
@@ -215,6 +285,10 @@ export const isWithinProjectFolder = (filePath: string, projectFolder: string): 
 export const toRealPath = (virtualPath: string, projectFolder: string): string => {
 	const normalizedFolder = path.resolve(projectFolder);
 
+	if (isStoragePath(virtualPath)) {
+		throw new Error(`Path '${virtualPath}' is in permanent storage, not in the project folder`);
+	}
+
 	// Strip leading slash to make it relative to project folder
 	const relativePath = virtualPath.startsWith('/') ? virtualPath.slice(1) : virtualPath;
 
@@ -225,6 +299,19 @@ export const toRealPath = (virtualPath: string, projectFolder: string): string =
 	const withinFolder = resolvedPath === normalizedFolder || resolvedPath.startsWith(normalizedFolder + path.sep);
 	if (!withinFolder) {
 		throw new Error(`Access denied: path '${virtualPath}' is outside the project folder`);
+	}
+
+	const normalizedRelativePath = path.relative(normalizedFolder, resolvedPath).replaceAll(path.sep, '/');
+	if (isStoragePath(normalizedRelativePath)) {
+		throw new Error(`Path '${virtualPath}' is in permanent storage, not in the project folder`);
+	}
+
+	if (resolvedPath.split(path.sep).some((part) => part.toLowerCase() === '.git')) {
+		throw new Error(`Access denied: path '${virtualPath}' targets protected .git metadata`);
+	}
+
+	if (resolvedPath.split(path.sep).some(isEnvironmentFileName)) {
+		throw new Error(`Access denied: path '${virtualPath}' targets a protected environment file`);
 	}
 
 	// Check if path is in an excluded directory

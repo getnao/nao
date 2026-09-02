@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Streamdown } from 'streamdown';
 import { executeSandboxedCode } from '@nao/shared/tools';
-import { Box, Code, Copy, Cpu, Database, Package, Terminal } from 'lucide-react';
+import { Box, Code, Copy, Cpu, Database, Package, Save, Terminal } from 'lucide-react';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import type { ToolCallComponentProps } from '.';
 import { useToolCallContext } from '@/contexts/tool-call';
@@ -51,6 +51,7 @@ export const ExecuteSandboxedCodeToolCall = ({
 	const vmSize = input?.vm_size ?? 'xxs';
 	const vmSpecs = executeSandboxedCode.VM_SIZE_SPECS[vmSize];
 	const sandboxId = output?.sandbox_id;
+	const savedFiles = output?.saved_files;
 
 	const setupInfo = [
 		...(packages?.length ? [`${packages.length} pkg${packages.length > 1 ? 's' : ''}`] : []),
@@ -131,7 +132,17 @@ export const ExecuteSandboxedCodeToolCall = ({
 							</Streamdown>
 						</pre>
 					)}
-					{!output.stdout && !output.stderr && (
+					{!!savedFiles?.length && (
+						<div className='flex flex-col gap-1 px-3 py-2 text-xs text-foreground/60'>
+							{savedFiles.map((savedPath) => (
+								<span key={savedPath} className='flex items-center gap-1.5 font-mono'>
+									<Save size={10} className='shrink-0' />
+									<span className='truncate'>{savedPath}</span>
+								</span>
+							))}
+						</div>
+					)}
+					{!output.stdout && !output.stderr && !savedFiles?.length && (
 						<div className='p-4 text-center text-foreground/50 text-sm'>No output</div>
 					)}
 				</div>

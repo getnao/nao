@@ -39,12 +39,22 @@ function buildSlackManifest(webhookUrl: string, mentionName: string, transportMo
 				display_name: name,
 				always_online: true,
 			},
+			slash_commands: [
+				{
+					command: '/new',
+					description: 'Start a fresh conversation with nao',
+					should_escape: false,
+					...(isSocket ? {} : { url: webhookUrl }),
+				},
+			],
 		},
 		oauth_config: {
 			scopes: {
 				bot: [
 					'channels:history',
+					'channels:join',
 					'channels:read',
+					'commands',
 					'groups:history',
 					'groups:read',
 					'im:history',
@@ -191,6 +201,10 @@ export function SlackForm({ webhookUrl, hasProjectConfig, onSubmit, onCancel, is
 							Create Slack App
 						</a>
 					</Button>
+					<p className='text-[11px] text-muted-foreground leading-relaxed'>
+						The manifest includes a <code>/new</code> slash command so users can start a fresh chat in
+						private conversation at any time.
+					</p>
 				</div>
 
 				{/* Step 3 */}

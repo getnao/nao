@@ -1,5 +1,6 @@
 import {
 	Activity,
+	CircleAlert,
 	ChevronLeft,
 	ChevronRight,
 	Code,
@@ -19,6 +20,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 
 import type { StoryViewMode } from '@/components/side-panel/story-viewer.types';
+import { EditableStoryTitle } from '@/components/editable-story-title';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { StoryDownload } from '@/components/story-download';
 import { Button } from '@/components/ui/button';
@@ -37,10 +39,16 @@ import { trpc } from '@/main';
 interface LiveControls {
 	isLive: boolean;
 	cachedAt?: string | Date | null;
+	lastRefreshFailure?: StoryRefreshFailure | null;
 	isRefreshing?: boolean;
 	onRefresh?: () => void;
 	/** When provided, the live state can be toggled (owner). Otherwise the badge is read-only. */
 	onOpenSettings?: () => void;
+}
+
+export interface StoryRefreshFailure {
+	errorMessage: string;
+	failedAt: string | Date;
 }
 
 interface DownloadConfig {
@@ -80,6 +88,7 @@ export interface StoryPageHeaderProps {
 	live?: LiveControls;
 	download?: DownloadConfig;
 	storyId?: string | null;
+	canRename?: boolean;
 	isShared?: boolean;
 	onShare?: () => void;
 	onOpenAnalytics?: () => void;
@@ -96,6 +105,7 @@ export function StoryPageHeader({
 	live,
 	download,
 	storyId,
+	canRename = false,
 	isShared = false,
 	onShare,
 	onOpenAnalytics,
@@ -105,7 +115,14 @@ export function StoryPageHeader({
 	return (
 		<div className='shrink-0'>
 			<header className='flex items-center gap-2 border-b bg-background px-4 py-2.5 md:px-6'>
-				<h1 className='min-w-0 truncate text-base font-medium'>{title}</h1>
+				<EditableStoryTitle
+					storyId={storyId}
+					title={title}
+					canEdit={canRename}
+					heading='h1'
+					className='min-w-0 max-w-full truncate text-base font-medium'
+					inputClassName='text-base font-medium'
+				/>
 				{authorName && <span className='shrink-0 text-sm text-muted-foreground'>by {authorName}</span>}
 
 				{versionControls && <VersionNav controls={versionControls} />}
@@ -173,6 +190,7 @@ export function StoryPageHeader({
 				</div>
 			</header>
 
+			{live?.lastRefreshFailure && <StoryRefreshFailureBanner failure={live.lastRefreshFailure} />}
 			<StorySubHeader viewModeControls={viewModeControls} versionControls={versionControls} />
 		</div>
 	);
@@ -418,5 +436,26 @@ export function LiveStoryTimestamp({ cachedAt }: { cachedAt: string | Date }) {
 			</TooltipTrigger>
 			<TooltipContent>Updated {new Date(cachedAt).toLocaleString()}</TooltipContent>
 		</Tooltip>
+	);
+}
+
+export function StoryRefreshFailureBanner({ failure }: { failure: StoryRefreshFailure }) {
+	const failedAt = new Date(failure.failedAt);
+	const timeAgo = useTimeAgo(failedAt.getTime());
+
+	return (
+		<div
+			role='alert'
+			className='flex items-start gap-2 border-b bg-destructive/10 px-4 py-2 text-xs text-destructive md:px-6'
+		>
+			<CircleAlert className='mt-0.5 size-3.5 shrink-0' />
+			<div className='min-w-0'>
+				<span className='font-medium'>Story refresh failed.</span>{' '}
+				<span className='break-words'>{failure.errorMessage}</span>
+				<span className='ml-1 opacity-70' title={failedAt.toLocaleString()}>
+					{timeAgo.humanReadable}
+				</span>
+			</div>
+		</div>
 	);
 }

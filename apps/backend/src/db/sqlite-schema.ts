@@ -1,4 +1,9 @@
-import type { MapSettings, McpChartEmbedStoredConfig, McpMapEmbedStoredConfig } from '@nao/shared';
+import type {
+	BackgroundModelSettings,
+	MapSettings,
+	McpChartEmbedStoredConfig,
+	McpMapEmbedStoredConfig,
+} from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
 import type {
 	AnalyticsEventMetadata,
@@ -51,7 +56,13 @@ import { LLM_INFERENCE_TYPES, type ModelSettingsMap } from '../types/llm';
 import { LOG_LEVELS, LOG_SOURCES } from '../types/log';
 import { McpEndpointSettings } from '../types/mcp-endpoint';
 import { MEMORY_CATEGORIES } from '../types/memory';
-import { SlackSettings, TeamsSettings, TelegramSettings, WhatsappSettings } from '../types/messaging-provider';
+import {
+	MattermostSettings,
+	SlackSettings,
+	TeamsSettings,
+	TelegramSettings,
+	WhatsappSettings,
+} from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
 
 export const user = sqliteTable('user', {
@@ -215,10 +226,12 @@ export const project = sqliteTable(
 		slackSettings: text('slack_settings', { mode: 'json' }).$type<SlackSettings>(),
 		teamsSettings: text('teams_settings', { mode: 'json' }).$type<TeamsSettings>(),
 		telegramSettings: text('telegram_settings', { mode: 'json' }).$type<TelegramSettings>(),
+		mattermostSettings: text('mattermost_settings', { mode: 'json' }).$type<MattermostSettings>(),
 		whatsappSettings: text('whatsapp_settings', { mode: 'json' }).$type<WhatsappSettings>(),
 		mcpEndpointSettings: text('mcp_endpoint_settings', { mode: 'json' }).$type<McpEndpointSettings>(),
 		displaySettings: text('display_settings', { mode: 'json' }).$type<DisplaySettings>(),
 		mapSettings: text('map_settings', { mode: 'json' }).$type<MapSettings>(),
+		defaultModels: text('default_models', { mode: 'json' }).$type<BackgroundModelSettings>(),
 
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -276,6 +289,7 @@ export const chat = sqliteTable(
 		slackThreadId: text('slack_thread_id'),
 		teamsThreadId: text('teams_thread_id'),
 		telegramThreadId: text('telegram_thread_id'),
+		mattermostThreadId: text('mattermost_thread_id'),
 		whatsappThreadId: text('whatsapp_thread_id'),
 		forkMetadata: text('fork_metadata', { mode: 'json' }).$type<ForkMetadata>(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -292,6 +306,7 @@ export const chat = sqliteTable(
 		index('chat_slack_thread_idx').on(table.slackThreadId),
 		index('chat_teams_thread_idx').on(table.teamsThreadId),
 		index('chat_telegram_thread_idx').on(table.telegramThreadId),
+		index('chat_mattermost_thread_idx').on(table.mattermostThreadId),
 		index('chat_whatsapp_thread_idx').on(table.whatsappThreadId),
 	],
 );
@@ -374,9 +389,11 @@ export const messagePart = sqliteTable(
 		toolProviderMetadata: text('tool_provider_metadata', { mode: 'json' }).$type<ProviderMetadata>(),
 		providerMetadata: text('provider_metadata', { mode: 'json' }).$type<ProviderMetadata>(),
 
-		// file/image columns
+		// file columns: images live in message_image, other attachments in permanent storage
 		mediaType: text('media_type'),
 		imageId: text('image_id').references(() => messageImage.id, { onDelete: 'set null' }),
+		storagePath: text('storage_path'),
+		filename: text('filename'),
 	},
 	(t) => [
 		index('parts_message_id_idx').on(t.messageId),
@@ -481,6 +498,7 @@ export const projectProviderBudget = sqliteTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		provider: text('provider').$type<LlmProvider>().notNull(),
 		limitUsd: integer('limit_usd').notNull(),
+		perUserLimitUsd: integer('per_user_limit_usd'),
 		period: text('period', { enum: BUDGET_PERIODS }).notNull(),
 		currentPeriodStart: integer('current_period_start', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -697,8 +715,6 @@ export const contextRecommendationConfig = sqliteTable('context_recommendation_c
 	projectId: text('project_id')
 		.primaryKey()
 		.references(() => project.id, { onDelete: 'cascade' }),
-	modelProvider: text('model_provider').$type<LlmProvider>(),
-	modelId: text('model_id'),
 	frequency: text('frequency', { enum: CONTEXT_RECOMMENDATION_FREQUENCIES }),
 	customSystemPromptInstructions: text('custom_system_prompt_instructions'),
 	repoFullName: text('repo_full_name'),
@@ -713,6 +729,31 @@ export const contextRecommendationConfig = sqliteTable('context_recommendation_c
 		.$onUpdate(() => new Date())
 		.notNull(),
 });
+
+export const contextBranchOwnership = sqliteTable(
+	'context_branch_ownership',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		branch: text('branch').notNull(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		reviewRequestUrl: text('review_request_url'),
+		reviewRequestKind: text('review_request_kind', { enum: ['created', 'link'] }),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [
+		unique('context_branch_ownership_project_branch_unique').on(t.projectId, t.branch),
+		index('context_branch_ownership_userId_idx').on(t.userId),
+	],
+);
 
 export const contextRecommendation = sqliteTable(
 	'context_recommendation',

@@ -84,7 +84,7 @@ nao init
 
 This will create a new nao project in the current directory. It will prompt you for a project name and ask you to configure:
 
-- **Database connections** (BigQuery, DuckDB, Databricks, Snowflake, PostgreSQL, Redshift, MSSQL, Trino, StarRocks)
+- **Database connections** (BigQuery, DuckDB, MotherDuck, Databricks, Snowflake, PostgreSQL, Redshift, MSSQL, Trino, StarRocks)
 - **Git repositories** to sync
 - **LLM provider** (OpenAI, Anthropic, Mistral, Gemini, OpenRouter, Ollama)
 - **`ai_summary` template + model** (prompted only when you enable `ai_summary` for databases)
@@ -133,6 +133,17 @@ databases:
   - type: duckdb
     name: local
     path: ":memory:"
+YAML
+nao init --yes
+
+# MotherDuck (DuckDB-compatible cloud) — token via env recommended
+cat > nao_config.yaml <<'YAML'
+project_name: my-project
+databases:
+  - type: motherduck
+    name: md-analytics
+    database: my_db
+    token: "{{ env('MOTHERDUCK_TOKEN') }}"
 YAML
 nao init --yes
 ```

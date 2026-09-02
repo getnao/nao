@@ -1,7 +1,7 @@
 import { sanitizeConditionalFormats } from '@nao/shared/conditional-formatting';
 import { buildStoryTableBlock } from '@nao/shared';
 import { appendBlockToStoryCode } from '@nao/shared/story-tabs';
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { FilePlus, Pencil } from 'lucide-react';
 import { DataTableCard } from '../data-table-card';
@@ -9,17 +9,18 @@ import { Button } from '../ui/button';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import { TableFormatEditDialog } from './display-table-edit-dialog';
 import type { ColumnConditionalFormats } from '@nao/shared/conditional-formatting';
-import type { displayChart, executeSql } from '@nao/shared/tools';
+import type { displayChart } from '@nao/shared/tools';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
-import { useOptionalAgentContext } from '@/contexts/agent.provider';
+import { useAgentMessagesGetter, useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useChatId } from '@/hooks/use-chat-id';
 import { useSidePanel } from '@/contexts/side-panel';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
-import { findLatestExecuteSqlInMessages } from '@/lib/execute-sql-messages';
-import { findStoryIds } from '@/lib/story.utils';
+import { useStoryIds } from '@/hooks/use-story-ids';
+import { useSourceQuery } from '@/hooks/use-source-query';
 import { trpc } from '@/main';
 
-const EMPTY_MESSAGES: UIMessage[] = [];
+const EMPTY_COLUMNS: string[] = [];
+const EMPTY_ROWS: Record<string, unknown>[] = [];
 
 interface DisplayChartTableProps {
 	config?: displayChart.TableInput;
@@ -29,30 +30,24 @@ interface DisplayChartTableProps {
 
 export function DisplayChartTable({ config, outputError, toolCallId }: DisplayChartTableProps) {
 	const agent = useOptionalAgentContext();
-	const messages = agent?.messages ?? EMPTY_MESSAGES;
+	const getMessages = useAgentMessagesGetter();
 	const chatId = useChatId();
 	const queryClient = useQueryClient();
 	const { open: openSidePanel, currentStorySlug, currentStoryTabIndex, isVisible } = useSidePanel();
 	const [isEditOpen, setIsEditOpen] = useState(false);
 
-	const storyIds = useMemo(() => findStoryIds(messages), [messages]);
+	const storyIds = useStoryIds();
 	const isEditable = Boolean(agent && !agent.isReadonly && !agent.isRunning);
 	const isPersistingRef = useRef(false);
+	const { sourceData } = useSourceQuery(config?.query_id);
 
-	const sourceData = useMemo<executeSql.Output | null>(() => {
-		if (!config?.query_id) {
-			return null;
-		}
-		return findLatestExecuteSqlInMessages(messages, config.query_id)?.output ?? null;
-	}, [messages, config?.query_id]);
-
-	const updateMutation = useMutation(
+	const { mutateAsync: updateChart, isPending: isUpdatingChart } = useMutation(
 		trpc.chart.updateConfig.mutationOptions({
 			onSuccess: () => queryClient.invalidateQueries({ queryKey: [['chat', 'get']] }),
 		}),
 	);
 
-	const addToStoryMutation = useMutation(
+	const { mutateAsync: addToStory, isPending: isAddingToStory } = useMutation(
 		trpc.story.createVersion.mutationOptions({
 			onSuccess: (_data, variables) => {
 				queryClient.invalidateQueries({
@@ -62,8 +57,98 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 					}),
 				});
 				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
+				queryClient.invalidateQueries({
+					queryKey: trpc.story.getLatest.queryKey({
+						chatId: variables.chatId,
+						storySlug: variables.storySlug,
+					}),
+				});
 			},
 		}),
+	);
+	const columns = sourceData?.columns ?? EMPTY_COLUMNS;
+	const rows = (sourceData?.data as Record<string, unknown>[] | undefined) ?? EMPTY_ROWS;
+	const conditionalFormats = useMemo(
+		() => sanitizeConditionalFormats(config?.conditional_formats) ?? {},
+		[config?.conditional_formats],
+	);
+
+	const handleAddToStory = useCallback(async () => {
+		const latestStoryId = storyIds[storyIds.length - 1];
+		const usingVisibleStory = Boolean(isVisible && currentStorySlug && storyIds.includes(currentStorySlug));
+		const targetId = usingVisibleStory ? currentStorySlug! : latestStoryId;
+		if (!targetId || !chatId || !config) {
+			return;
+		}
+
+		const data = await queryClient.fetchQuery({
+			...trpc.story.listVersions.queryOptions({ chatId, storySlug: targetId }),
+			staleTime: 0,
+		});
+		const latest = data.versions.at(-1);
+		if (!latest) {
+			return;
+		}
+
+		const tableBlock = buildStoryTableBlock(config);
+		const { code: newCode, tabIndex: openTabIndex } = appendBlockToStoryCode(latest.code, tableBlock, {
+			usingVisibleStory,
+			activeTabIndex: currentStoryTabIndex,
+		});
+
+		await addToStory({
+			chatId,
+			storySlug: targetId,
+			title: data.title,
+			code: newCode,
+			action: 'update',
+		});
+
+		if (!usingVisibleStory) {
+			openSidePanel(
+				<StoryViewer chatId={chatId} storySlug={targetId} initialTabIndex={openTabIndex} />,
+				targetId,
+			);
+		}
+	}, [
+		storyIds,
+		isVisible,
+		currentStorySlug,
+		chatId,
+		config,
+		queryClient,
+		currentStoryTabIndex,
+		addToStory,
+		openSidePanel,
+	]);
+	const headerActions = useMemo(
+		() =>
+			isEditable ? (
+				<>
+					{storyIds.length > 0 && (
+						<Button
+							variant='ghost-muted'
+							size='icon-xs'
+							className='hover:rounded-full hover:bg-accent/70'
+							onClick={handleAddToStory}
+							disabled={isAddingToStory}
+							title='Add to story'
+						>
+							<FilePlus className='size-3 text-muted-foreground/70' />
+						</Button>
+					)}
+					<Button
+						variant='ghost-muted'
+						size='icon-xs'
+						className='hover:rounded-full hover:bg-accent/70'
+						onClick={() => setIsEditOpen(true)}
+						title='Edit formatting'
+					>
+						<Pencil className='size-3 text-muted-foreground/70' />
+					</Button>
+				</>
+			) : null,
+		[isEditable, storyIds.length, handleAddToStory, isAddingToStory],
 	);
 
 	const persistFormats = async (nextFormats: ColumnConditionalFormats) => {
@@ -71,11 +156,11 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 			return;
 		}
 		isPersistingRef.current = true;
-		const previousMessages = messages;
+		const previousMessages = getMessages();
 		const nextConfig: displayChart.TableInput = { ...config, conditional_formats: nextFormats };
 		agent?.setMessages(applyTableConfigToMessages(previousMessages, toolCallId, nextConfig));
 		try {
-			await updateMutation.mutateAsync({ toolCallId, config: nextConfig });
+			await updateChart({ toolCallId, config: nextConfig });
 		} catch (err) {
 			agent?.setMessages(previousMessages);
 			throw err;
@@ -104,79 +189,10 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 		);
 	}
 
-	const columns = sourceData.columns ?? [];
-	const rows = sourceData.data as Record<string, unknown>[];
-	const conditionalFormats = sanitizeConditionalFormats(config.conditional_formats) ?? {};
-
-	const handleAddToStory = async () => {
-		const latestStoryId = storyIds[storyIds.length - 1];
-		const usingVisibleStory = Boolean(isVisible && currentStorySlug && storyIds.includes(currentStorySlug));
-		const targetId = usingVisibleStory ? currentStorySlug! : latestStoryId;
-		if (!targetId || !chatId) {
-			return;
-		}
-
-		const data = await queryClient.fetchQuery({
-			...trpc.story.listVersions.queryOptions({ chatId, storySlug: targetId }),
-			staleTime: 0,
-		});
-		const latest = data.versions.at(-1);
-		if (!latest) {
-			return;
-		}
-
-		const tableBlock = buildStoryTableBlock(config);
-		const { code: newCode, tabIndex: openTabIndex } = appendBlockToStoryCode(latest.code, tableBlock, {
-			usingVisibleStory,
-			activeTabIndex: currentStoryTabIndex,
-		});
-
-		await addToStoryMutation.mutateAsync({
-			chatId,
-			storySlug: targetId,
-			title: data.title,
-			code: newCode,
-			action: 'update',
-		});
-
-		if (!usingVisibleStory) {
-			openSidePanel(
-				<StoryViewer chatId={chatId} storySlug={targetId} initialTabIndex={openTabIndex} />,
-				targetId,
-			);
-		}
-	};
-
-	const headerActions = isEditable ? (
-		<>
-			{storyIds.length > 0 && (
-				<Button
-					variant='ghost-muted'
-					size='icon-xs'
-					className='hover:rounded-full hover:bg-accent/70'
-					onClick={handleAddToStory}
-					disabled={addToStoryMutation.isPending}
-					title='Add to story'
-				>
-					<FilePlus className='size-3 text-muted-foreground/70' />
-				</Button>
-			)}
-			<Button
-				variant='ghost-muted'
-				size='icon-xs'
-				className='hover:rounded-full hover:bg-accent/70'
-				onClick={() => setIsEditOpen(true)}
-				title='Edit formatting'
-			>
-				<Pencil className='size-3 text-muted-foreground/70' />
-			</Button>
-		</>
-	) : null;
-
 	return (
 		<div className='my-2'>
 			<DataTableCard
-				data={sourceData.data as Record<string, unknown>[]}
+				data={rows}
 				columns={columns}
 				title={config.title}
 				chatId={chatId ?? undefined}
@@ -193,7 +209,7 @@ export function DisplayChartTable({ config, outputError, toolCallId }: DisplayCh
 					data={rows}
 					formats={conditionalFormats}
 					onSave={persistFormats}
-					isSaving={updateMutation.isPending}
+					isSaving={isUpdatingChart}
 					description='Apply conditional formatting to columns. Changes are saved to the chat.'
 				/>
 			)}

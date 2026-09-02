@@ -28,12 +28,14 @@ import { Route as EmbedChartChartEmbedIdRouteImport } from './routes/embed.chart
 import { Route as SidebarLayoutSharedChatShareIdRouteImport } from './routes/_sidebar-layout.shared-chat.$shareId'
 import { Route as SidebarLayoutSettingsWhiteLabelRouteImport } from './routes/_sidebar-layout.settings.white-label'
 import { Route as SidebarLayoutSettingsUsageRouteImport } from './routes/_sidebar-layout.settings.usage'
+import { Route as SidebarLayoutSettingsStorageRouteImport } from './routes/_sidebar-layout.settings.storage'
 import { Route as SidebarLayoutSettingsRecommendationsRouteImport } from './routes/_sidebar-layout.settings.recommendations'
 import { Route as SidebarLayoutSettingsProjectRouteImport } from './routes/_sidebar-layout.settings.project'
 import { Route as SidebarLayoutSettingsOrganizationRouteImport } from './routes/_sidebar-layout.settings.organization'
 import { Route as SidebarLayoutSettingsMemoryRouteImport } from './routes/_sidebar-layout.settings.memory'
 import { Route as SidebarLayoutSettingsMcpEndpointRouteImport } from './routes/_sidebar-layout.settings.mcp-endpoint'
 import { Route as SidebarLayoutSettingsLogsRouteImport } from './routes/_sidebar-layout.settings.logs'
+import { Route as SidebarLayoutSettingsGitRouteImport } from './routes/_sidebar-layout.settings.git'
 import { Route as SidebarLayoutSettingsEnterpriseRouteImport } from './routes/_sidebar-layout.settings.enterprise'
 import { Route as SidebarLayoutSettingsContextExplorerRouteImport } from './routes/_sidebar-layout.settings.context-explorer'
 import { Route as SidebarLayoutSettingsAccountRouteImport } from './routes/_sidebar-layout.settings.account'
@@ -50,6 +52,7 @@ import { Route as SidebarLayoutSettingsProjectSlackRouteImport } from './routes/
 import { Route as SidebarLayoutSettingsProjectModelsRouteImport } from './routes/_sidebar-layout.settings.project.models'
 import { Route as SidebarLayoutSettingsProjectMcpServersRouteImport } from './routes/_sidebar-layout.settings.project.mcp-servers'
 import { Route as SidebarLayoutSettingsProjectMcpEndpointRouteImport } from './routes/_sidebar-layout.settings.project.mcp-endpoint'
+import { Route as SidebarLayoutSettingsProjectMattermostRouteImport } from './routes/_sidebar-layout.settings.project.mattermost'
 import { Route as SidebarLayoutSettingsProjectBudgetsRouteImport } from './routes/_sidebar-layout.settings.project.budgets'
 import { Route as SidebarLayoutSettingsProjectAgentRouteImport } from './routes/_sidebar-layout.settings.project.agent'
 import { Route as SidebarLayoutStoriesPreviewChatIdStorySlugRouteImport } from './routes/_sidebar-layout.stories.preview.$chatId.$storySlug'
@@ -154,6 +157,12 @@ const SidebarLayoutSettingsUsageRoute =
     path: '/usage',
     getParentRoute: () => SidebarLayoutSettingsRoute,
   } as any)
+const SidebarLayoutSettingsStorageRoute =
+  SidebarLayoutSettingsStorageRouteImport.update({
+    id: '/storage',
+    path: '/storage',
+    getParentRoute: () => SidebarLayoutSettingsRoute,
+  } as any)
 const SidebarLayoutSettingsRecommendationsRoute =
   SidebarLayoutSettingsRecommendationsRouteImport.update({
     id: '/recommendations',
@@ -188,6 +197,12 @@ const SidebarLayoutSettingsLogsRoute =
   SidebarLayoutSettingsLogsRouteImport.update({
     id: '/logs',
     path: '/logs',
+    getParentRoute: () => SidebarLayoutSettingsRoute,
+  } as any)
+const SidebarLayoutSettingsGitRoute =
+  SidebarLayoutSettingsGitRouteImport.update({
+    id: '/git',
+    path: '/git',
     getParentRoute: () => SidebarLayoutSettingsRoute,
   } as any)
 const SidebarLayoutSettingsEnterpriseRoute =
@@ -286,6 +301,12 @@ const SidebarLayoutSettingsProjectMcpEndpointRoute =
     path: '/mcp-endpoint',
     getParentRoute: () => SidebarLayoutSettingsProjectRoute,
   } as any)
+const SidebarLayoutSettingsProjectMattermostRoute =
+  SidebarLayoutSettingsProjectMattermostRouteImport.update({
+    id: '/mattermost',
+    path: '/mattermost',
+    getParentRoute: () => SidebarLayoutSettingsProjectRoute,
+  } as any)
 const SidebarLayoutSettingsProjectBudgetsRoute =
   SidebarLayoutSettingsProjectBudgetsRouteImport.update({
     id: '/budgets',
@@ -325,12 +346,14 @@ export interface FileRoutesByFullPath {
   '/settings/account': typeof SidebarLayoutSettingsAccountRoute
   '/settings/context-explorer': typeof SidebarLayoutSettingsContextExplorerRoute
   '/settings/enterprise': typeof SidebarLayoutSettingsEnterpriseRoute
+  '/settings/git': typeof SidebarLayoutSettingsGitRoute
   '/settings/logs': typeof SidebarLayoutSettingsLogsRoute
   '/settings/mcp-endpoint': typeof SidebarLayoutSettingsMcpEndpointRoute
   '/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
   '/settings/organization': typeof SidebarLayoutSettingsOrganizationRoute
   '/settings/project': typeof SidebarLayoutSettingsProjectRouteWithChildren
   '/settings/recommendations': typeof SidebarLayoutSettingsRecommendationsRoute
+  '/settings/storage': typeof SidebarLayoutSettingsStorageRoute
   '/settings/usage': typeof SidebarLayoutSettingsUsageRouteWithChildren
   '/settings/white-label': typeof SidebarLayoutSettingsWhiteLabelRoute
   '/shared-chat/$shareId': typeof SidebarLayoutSharedChatShareIdRoute
@@ -342,6 +365,7 @@ export interface FileRoutesByFullPath {
   '/stories/': typeof SidebarLayoutStoriesIndexRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
   '/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
+  '/settings/project/mattermost': typeof SidebarLayoutSettingsProjectMattermostRoute
   '/settings/project/mcp-endpoint': typeof SidebarLayoutSettingsProjectMcpEndpointRoute
   '/settings/project/mcp-servers': typeof SidebarLayoutSettingsProjectMcpServersRoute
   '/settings/project/models': typeof SidebarLayoutSettingsProjectModelsRoute
@@ -369,11 +393,13 @@ export interface FileRoutesByTo {
   '/settings/account': typeof SidebarLayoutSettingsAccountRoute
   '/settings/context-explorer': typeof SidebarLayoutSettingsContextExplorerRoute
   '/settings/enterprise': typeof SidebarLayoutSettingsEnterpriseRoute
+  '/settings/git': typeof SidebarLayoutSettingsGitRoute
   '/settings/logs': typeof SidebarLayoutSettingsLogsRoute
   '/settings/mcp-endpoint': typeof SidebarLayoutSettingsMcpEndpointRoute
   '/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
   '/settings/organization': typeof SidebarLayoutSettingsOrganizationRoute
   '/settings/recommendations': typeof SidebarLayoutSettingsRecommendationsRoute
+  '/settings/storage': typeof SidebarLayoutSettingsStorageRoute
   '/settings/usage': typeof SidebarLayoutSettingsUsageRouteWithChildren
   '/settings/white-label': typeof SidebarLayoutSettingsWhiteLabelRoute
   '/shared-chat/$shareId': typeof SidebarLayoutSharedChatShareIdRoute
@@ -385,6 +411,7 @@ export interface FileRoutesByTo {
   '/stories': typeof SidebarLayoutStoriesIndexRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
   '/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
+  '/settings/project/mattermost': typeof SidebarLayoutSettingsProjectMattermostRoute
   '/settings/project/mcp-endpoint': typeof SidebarLayoutSettingsProjectMcpEndpointRoute
   '/settings/project/mcp-servers': typeof SidebarLayoutSettingsProjectMcpServersRoute
   '/settings/project/models': typeof SidebarLayoutSettingsProjectModelsRoute
@@ -415,12 +442,14 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/account': typeof SidebarLayoutSettingsAccountRoute
   '/_sidebar-layout/settings/context-explorer': typeof SidebarLayoutSettingsContextExplorerRoute
   '/_sidebar-layout/settings/enterprise': typeof SidebarLayoutSettingsEnterpriseRoute
+  '/_sidebar-layout/settings/git': typeof SidebarLayoutSettingsGitRoute
   '/_sidebar-layout/settings/logs': typeof SidebarLayoutSettingsLogsRoute
   '/_sidebar-layout/settings/mcp-endpoint': typeof SidebarLayoutSettingsMcpEndpointRoute
   '/_sidebar-layout/settings/memory': typeof SidebarLayoutSettingsMemoryRoute
   '/_sidebar-layout/settings/organization': typeof SidebarLayoutSettingsOrganizationRoute
   '/_sidebar-layout/settings/project': typeof SidebarLayoutSettingsProjectRouteWithChildren
   '/_sidebar-layout/settings/recommendations': typeof SidebarLayoutSettingsRecommendationsRoute
+  '/_sidebar-layout/settings/storage': typeof SidebarLayoutSettingsStorageRoute
   '/_sidebar-layout/settings/usage': typeof SidebarLayoutSettingsUsageRouteWithChildren
   '/_sidebar-layout/settings/white-label': typeof SidebarLayoutSettingsWhiteLabelRoute
   '/_sidebar-layout/shared-chat/$shareId': typeof SidebarLayoutSharedChatShareIdRoute
@@ -433,6 +462,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/stories/': typeof SidebarLayoutStoriesIndexRoute
   '/_sidebar-layout/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
   '/_sidebar-layout/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
+  '/_sidebar-layout/settings/project/mattermost': typeof SidebarLayoutSettingsProjectMattermostRoute
   '/_sidebar-layout/settings/project/mcp-endpoint': typeof SidebarLayoutSettingsProjectMcpEndpointRoute
   '/_sidebar-layout/settings/project/mcp-servers': typeof SidebarLayoutSettingsProjectMcpServersRoute
   '/_sidebar-layout/settings/project/models': typeof SidebarLayoutSettingsProjectModelsRoute
@@ -463,12 +493,14 @@ export interface FileRouteTypes {
     | '/settings/account'
     | '/settings/context-explorer'
     | '/settings/enterprise'
+    | '/settings/git'
     | '/settings/logs'
     | '/settings/mcp-endpoint'
     | '/settings/memory'
     | '/settings/organization'
     | '/settings/project'
     | '/settings/recommendations'
+    | '/settings/storage'
     | '/settings/usage'
     | '/settings/white-label'
     | '/shared-chat/$shareId'
@@ -480,6 +512,7 @@ export interface FileRouteTypes {
     | '/stories/'
     | '/settings/project/agent'
     | '/settings/project/budgets'
+    | '/settings/project/mattermost'
     | '/settings/project/mcp-endpoint'
     | '/settings/project/mcp-servers'
     | '/settings/project/models'
@@ -507,11 +540,13 @@ export interface FileRouteTypes {
     | '/settings/account'
     | '/settings/context-explorer'
     | '/settings/enterprise'
+    | '/settings/git'
     | '/settings/logs'
     | '/settings/mcp-endpoint'
     | '/settings/memory'
     | '/settings/organization'
     | '/settings/recommendations'
+    | '/settings/storage'
     | '/settings/usage'
     | '/settings/white-label'
     | '/shared-chat/$shareId'
@@ -523,6 +558,7 @@ export interface FileRouteTypes {
     | '/stories'
     | '/settings/project/agent'
     | '/settings/project/budgets'
+    | '/settings/project/mattermost'
     | '/settings/project/mcp-endpoint'
     | '/settings/project/mcp-servers'
     | '/settings/project/models'
@@ -552,12 +588,14 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/account'
     | '/_sidebar-layout/settings/context-explorer'
     | '/_sidebar-layout/settings/enterprise'
+    | '/_sidebar-layout/settings/git'
     | '/_sidebar-layout/settings/logs'
     | '/_sidebar-layout/settings/mcp-endpoint'
     | '/_sidebar-layout/settings/memory'
     | '/_sidebar-layout/settings/organization'
     | '/_sidebar-layout/settings/project'
     | '/_sidebar-layout/settings/recommendations'
+    | '/_sidebar-layout/settings/storage'
     | '/_sidebar-layout/settings/usage'
     | '/_sidebar-layout/settings/white-label'
     | '/_sidebar-layout/shared-chat/$shareId'
@@ -570,6 +608,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/stories/'
     | '/_sidebar-layout/settings/project/agent'
     | '/_sidebar-layout/settings/project/budgets'
+    | '/_sidebar-layout/settings/project/mattermost'
     | '/_sidebar-layout/settings/project/mcp-endpoint'
     | '/_sidebar-layout/settings/project/mcp-servers'
     | '/_sidebar-layout/settings/project/models'
@@ -730,6 +769,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutSettingsUsageRouteImport
       parentRoute: typeof SidebarLayoutSettingsRoute
     }
+    '/_sidebar-layout/settings/storage': {
+      id: '/_sidebar-layout/settings/storage'
+      path: '/storage'
+      fullPath: '/settings/storage'
+      preLoaderRoute: typeof SidebarLayoutSettingsStorageRouteImport
+      parentRoute: typeof SidebarLayoutSettingsRoute
+    }
     '/_sidebar-layout/settings/recommendations': {
       id: '/_sidebar-layout/settings/recommendations'
       path: '/recommendations'
@@ -770,6 +816,13 @@ declare module '@tanstack/react-router' {
       path: '/logs'
       fullPath: '/settings/logs'
       preLoaderRoute: typeof SidebarLayoutSettingsLogsRouteImport
+      parentRoute: typeof SidebarLayoutSettingsRoute
+    }
+    '/_sidebar-layout/settings/git': {
+      id: '/_sidebar-layout/settings/git'
+      path: '/git'
+      fullPath: '/settings/git'
+      preLoaderRoute: typeof SidebarLayoutSettingsGitRouteImport
       parentRoute: typeof SidebarLayoutSettingsRoute
     }
     '/_sidebar-layout/settings/enterprise': {
@@ -884,6 +937,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutSettingsProjectMcpEndpointRouteImport
       parentRoute: typeof SidebarLayoutSettingsProjectRoute
     }
+    '/_sidebar-layout/settings/project/mattermost': {
+      id: '/_sidebar-layout/settings/project/mattermost'
+      path: '/mattermost'
+      fullPath: '/settings/project/mattermost'
+      preLoaderRoute: typeof SidebarLayoutSettingsProjectMattermostRouteImport
+      parentRoute: typeof SidebarLayoutSettingsProjectRoute
+    }
     '/_sidebar-layout/settings/project/budgets': {
       id: '/_sidebar-layout/settings/project/budgets'
       path: '/budgets'
@@ -934,6 +994,7 @@ const SidebarLayoutChatLayoutRouteWithChildren =
 interface SidebarLayoutSettingsProjectRouteChildren {
   SidebarLayoutSettingsProjectAgentRoute: typeof SidebarLayoutSettingsProjectAgentRoute
   SidebarLayoutSettingsProjectBudgetsRoute: typeof SidebarLayoutSettingsProjectBudgetsRoute
+  SidebarLayoutSettingsProjectMattermostRoute: typeof SidebarLayoutSettingsProjectMattermostRoute
   SidebarLayoutSettingsProjectMcpEndpointRoute: typeof SidebarLayoutSettingsProjectMcpEndpointRoute
   SidebarLayoutSettingsProjectMcpServersRoute: typeof SidebarLayoutSettingsProjectMcpServersRoute
   SidebarLayoutSettingsProjectModelsRoute: typeof SidebarLayoutSettingsProjectModelsRoute
@@ -951,6 +1012,8 @@ const SidebarLayoutSettingsProjectRouteChildren: SidebarLayoutSettingsProjectRou
       SidebarLayoutSettingsProjectAgentRoute,
     SidebarLayoutSettingsProjectBudgetsRoute:
       SidebarLayoutSettingsProjectBudgetsRoute,
+    SidebarLayoutSettingsProjectMattermostRoute:
+      SidebarLayoutSettingsProjectMattermostRoute,
     SidebarLayoutSettingsProjectMcpEndpointRoute:
       SidebarLayoutSettingsProjectMcpEndpointRoute,
     SidebarLayoutSettingsProjectMcpServersRoute:
@@ -995,12 +1058,14 @@ interface SidebarLayoutSettingsRouteChildren {
   SidebarLayoutSettingsAccountRoute: typeof SidebarLayoutSettingsAccountRoute
   SidebarLayoutSettingsContextExplorerRoute: typeof SidebarLayoutSettingsContextExplorerRoute
   SidebarLayoutSettingsEnterpriseRoute: typeof SidebarLayoutSettingsEnterpriseRoute
+  SidebarLayoutSettingsGitRoute: typeof SidebarLayoutSettingsGitRoute
   SidebarLayoutSettingsLogsRoute: typeof SidebarLayoutSettingsLogsRoute
   SidebarLayoutSettingsMcpEndpointRoute: typeof SidebarLayoutSettingsMcpEndpointRoute
   SidebarLayoutSettingsMemoryRoute: typeof SidebarLayoutSettingsMemoryRoute
   SidebarLayoutSettingsOrganizationRoute: typeof SidebarLayoutSettingsOrganizationRoute
   SidebarLayoutSettingsProjectRoute: typeof SidebarLayoutSettingsProjectRouteWithChildren
   SidebarLayoutSettingsRecommendationsRoute: typeof SidebarLayoutSettingsRecommendationsRoute
+  SidebarLayoutSettingsStorageRoute: typeof SidebarLayoutSettingsStorageRoute
   SidebarLayoutSettingsUsageRoute: typeof SidebarLayoutSettingsUsageRouteWithChildren
   SidebarLayoutSettingsWhiteLabelRoute: typeof SidebarLayoutSettingsWhiteLabelRoute
   SidebarLayoutSettingsIndexRoute: typeof SidebarLayoutSettingsIndexRoute
@@ -1011,6 +1076,7 @@ const SidebarLayoutSettingsRouteChildren: SidebarLayoutSettingsRouteChildren = {
   SidebarLayoutSettingsContextExplorerRoute:
     SidebarLayoutSettingsContextExplorerRoute,
   SidebarLayoutSettingsEnterpriseRoute: SidebarLayoutSettingsEnterpriseRoute,
+  SidebarLayoutSettingsGitRoute: SidebarLayoutSettingsGitRoute,
   SidebarLayoutSettingsLogsRoute: SidebarLayoutSettingsLogsRoute,
   SidebarLayoutSettingsMcpEndpointRoute: SidebarLayoutSettingsMcpEndpointRoute,
   SidebarLayoutSettingsMemoryRoute: SidebarLayoutSettingsMemoryRoute,
@@ -1020,6 +1086,7 @@ const SidebarLayoutSettingsRouteChildren: SidebarLayoutSettingsRouteChildren = {
     SidebarLayoutSettingsProjectRouteWithChildren,
   SidebarLayoutSettingsRecommendationsRoute:
     SidebarLayoutSettingsRecommendationsRoute,
+  SidebarLayoutSettingsStorageRoute: SidebarLayoutSettingsStorageRoute,
   SidebarLayoutSettingsUsageRoute: SidebarLayoutSettingsUsageRouteWithChildren,
   SidebarLayoutSettingsWhiteLabelRoute: SidebarLayoutSettingsWhiteLabelRoute,
   SidebarLayoutSettingsIndexRoute: SidebarLayoutSettingsIndexRoute,

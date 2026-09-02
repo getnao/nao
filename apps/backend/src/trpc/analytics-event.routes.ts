@@ -1,3 +1,4 @@
+import { DOCUMENT_EXTENSIONS } from '@nao/shared/attachments';
 import type { AnalyticsAssetType } from '@nao/shared/types';
 import { ANALYTICS_ASSET_TYPES, CHAT_DOWNLOAD_FORMATS } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
@@ -80,11 +81,12 @@ export const analyticsEventRoutes = {
 			return rows;
 		}),
 
+	/** Exports made in the browser, which the server never sees: table exports and saved files. */
 	logChatDownload: projectProtectedProcedure
 		.input(
 			z.object({
 				chatId: z.string(),
-				format: z.enum(CHAT_DOWNLOAD_FORMATS),
+				format: z.enum([...CHAT_DOWNLOAD_FORMATS, ...DOCUMENT_EXTENSIONS]),
 				queryId: z.string().optional(),
 				title: z.string().optional(),
 			}),

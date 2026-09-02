@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { count, eq } from 'drizzle-orm';
+import { count, eq, inArray } from 'drizzle-orm';
 
 import s, { NewAccount, NewUser, User } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -16,6 +16,18 @@ export const getUser = async (identifier: { id: string } | { email: string }): P
 export const getUserName = async (userId: string): Promise<string | null> => {
 	const [user] = await db.select({ name: s.user.name }).from(s.user).where(eq(s.user.id, userId)).execute();
 	return user ? user.name : null;
+};
+
+export const getUserNames = async (userIds: string[]): Promise<Map<string, string>> => {
+	if (userIds.length === 0) {
+		return new Map();
+	}
+	const users = await db
+		.select({ id: s.user.id, name: s.user.name })
+		.from(s.user)
+		.where(inArray(s.user.id, userIds))
+		.execute();
+	return new Map(users.map((user) => [user.id, user.name]));
 };
 
 export const updateUser = async (id: string, name: string): Promise<void> => {
