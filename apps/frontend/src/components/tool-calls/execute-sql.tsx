@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Code, Copy, Download, Palette, Pencil, Table as TableIcon } from 'lucide-react';
 import { ToolCallWrapper } from './tool-call-wrapper';
+import { ToolOutputFallback } from './tool-output-fallback';
 import { TableFormatEditDialog } from './display-table-edit-dialog';
 import { SqlQueryDisplay } from './sql-query-display';
 import { SqlResultDisplay } from './sql-result-display';
@@ -132,7 +133,7 @@ export const ExecuteSqlToolCall = ({
 					/>
 				</>
 			) : (
-				<div className='p-4 text-center text-foreground/50 text-sm'>Executing query...</div>
+				<ToolOutputFallback runningLabel='Executing query...' />
 			)}
 		</ToolCallWrapper>
 	);
