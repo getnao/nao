@@ -2,17 +2,19 @@ import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import type { TabBarItem } from '@/components/ui/tab-bar';
 
 import type { IntegrationId } from '@/components/settings/integrations';
+import { McpSettings } from '@/components/settings/display-mcp';
 import { isIntegrationId } from '@/components/settings/integrations';
 import { IntegrationsPage } from '@/components/settings/integrations-page';
 import { McpEndpointSettings } from '@/components/settings/mcp-endpoint';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { usePermissions } from '@/hooks/use-permissions';
 
-type IntegrationsTab = 'integrations' | 'nao-mcp';
+type IntegrationsTab = 'integrations' | 'nao-mcp' | 'mcp-servers';
 
 const tabs: TabBarItem<IntegrationsTab>[] = [
 	{ id: 'integrations', label: 'Integrations' },
 	{ id: 'nao-mcp', label: 'nao MCP' },
+	{ id: 'mcp-servers', label: 'MCP servers' },
 ];
 
 const tabIdBase = 'project-integrations';
@@ -59,11 +61,12 @@ function ProjectIntegrationsPage() {
 			<TabPanel idBase={tabIdBase} tabId={tab} className='flex flex-col gap-12'>
 				{tab === 'integrations' && <IntegrationsPage />}
 				{tab === 'nao-mcp' && <McpEndpointSettings isAdmin={isAdmin} />}
+				{tab === 'mcp-servers' && <McpSettings isAdmin={isAdmin} />}
 			</TabPanel>
 		</>
 	);
 }
 
 function isIntegrationsTab(value: unknown): value is IntegrationsTab {
-	return value === 'integrations' || value === 'nao-mcp';
+	return value === 'integrations' || value === 'nao-mcp' || value === 'mcp-servers';
 }

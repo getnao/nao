@@ -58,9 +58,10 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/account',
 		pageLabel: 'Account',
-		title: 'GitLab',
-		description: 'Connect your GitLab account for automations.',
-		keywords: ['gitlab', 'automations', 'automation', 'merge request'],
+		section: 'Your memory',
+		title: 'Your memory',
+		description: 'What nao remembers about you. Only you can see and manage these.',
+		keywords: ['remember', 'learn', 'personalization', 'preferences', 'remembered facts', 'memory list'],
 	},
 	{
 		page: '/settings/account',
@@ -328,8 +329,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
-		section: 'Memory',
-		search: { tab: 'memory' },
+		section: 'Capabilities',
+		search: { tab: 'tools' },
 		title: 'Project memory',
 		description: 'Controls memory for everyone in this project. When off, no member can use memory.',
 		keywords: ['remember', 'learn', 'personalization'],
@@ -492,6 +493,26 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	},
 
 	// ── Project > Integrations & MCP > nao MCP ──────────────
+	{
+		page: '/settings/project/integrations',
+		pageLabel: 'Integrations & MCP',
+		search: { tab: 'mcp-servers' },
+		section: 'MCP servers',
+		title: 'MCP Servers',
+		description:
+			'Configure MCP servers in agent/mcps/mcp.json. nao discovers their tools into OpenAPI specs the agent explores on demand.',
+		keywords: [
+			'model context protocol',
+			'tool',
+			'integration',
+			'extension',
+			'discover',
+			'openapi',
+			'spec',
+			'connect',
+			'oauth',
+		],
+	},
 	{
 		page: '/settings/project/integrations',
 		pageLabel: 'Integrations & MCP',
@@ -905,17 +926,6 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['tab title', 'page title', 'name', 'enterprise'],
 		adminOnly: true,
 		cloudHidden: true,
-	},
-
-	// ── Project > Agent > Memory ─────────────────────────────
-	{
-		page: '/settings/project/agent',
-		pageLabel: 'Agent',
-		section: 'Memory',
-		search: { tab: 'memory' },
-		title: 'Your memory',
-		description: 'What nao remembers about you. Only you can see and manage these.',
-		keywords: ['remember', 'learn', 'personalization', 'preferences', 'remembered facts', 'memory list'],
 	},
 
 	// ── Context Explorer ─────────────────────────────────────

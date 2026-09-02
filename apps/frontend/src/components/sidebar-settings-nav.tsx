@@ -34,7 +34,7 @@ const settingsNavGroups: NavGroup[] = [
 		label: 'Project',
 		items: [
 			{
-				label: 'Project Settings',
+				label: 'Project Settings & Budget',
 				to: '/settings/project',
 				visible: ({ isViewer }) => !isViewer,
 				exact: true,
@@ -272,14 +272,9 @@ export function SidebarSettingsNav({
 					</div>
 				) : (
 					<nav className='flex flex-col px-2 gap-1'>
-						{navGroups.map((group, groupIndex) => (
+						{navGroups.map((group) => (
 							<Fragment key={group.label}>
-								<div
-									className={cn(
-										'px-2 pb-0.5 text-[11px] leading-4 font-medium uppercase tracking-wide text-muted-foreground',
-										groupIndex === 0 ? 'pt-2' : 'pt-4',
-									)}
-								>
+								<div className='px-2 pt-4 pb-0.5 text-[11px] leading-4 font-medium uppercase tracking-wide text-muted-foreground'>
 									{group.label}
 								</div>
 								{group.items.map((item) => {

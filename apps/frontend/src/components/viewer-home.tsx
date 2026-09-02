@@ -8,6 +8,7 @@ import { ViewerToolbarControls } from '@/components/viewer-toolbar-controls';
 import { NoResults } from '@/components/item-card';
 import { ViewerEmptyState, ViewerGroups } from '@/components/viewer-shared-items';
 import { Spinner } from '@/components/ui/spinner';
+import { useMultiProject } from '@/hooks/use-multi-project';
 import { useProjectSwitch } from '@/hooks/use-project-switch';
 import { VIEWER_DISPLAY_KEY, VIEWER_GROUP_KEY, filterItems, getStoredSetting, groupItems } from '@/lib/viewer-home';
 import { trpc } from '@/main';
@@ -17,6 +18,7 @@ export function ViewerHome() {
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
 	const projectId = project.data?.id;
 	const switchProject = useProjectSwitch(projectId);
+	const multiProjectMode = useMultiProject();
 	const sharedChats = useQuery(trpc.sharedChat.list.queryOptions());
 	const sharedStories = useQuery({
 		...trpc.storyShare.list.queryOptions({ projectId: projectId ?? '' }),
@@ -72,7 +74,7 @@ export function ViewerHome() {
 	const isLoading = sharedChats.isLoading || sharedStories.isLoading || project.isLoading;
 	const isEmpty = allItems.length === 0 && !isLoading;
 
-	const projectSelector = project.data && (
+	const projectSelector = multiProjectMode === 'switch' && project.data && (projects.data?.length ?? 0) > 1 && (
 		<div className='max-md:hidden'>
 			<ProjectSwitcher
 				projects={projects.data ?? []}

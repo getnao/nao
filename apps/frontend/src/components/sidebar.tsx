@@ -207,7 +207,7 @@ export function Sidebar() {
 						variant='sidebar'
 						className={cn(
 							'overflow-hidden transition-[height,margin,opacity,visibility] duration-300',
-							effectiveIsCollapsed ? 'h-0 mt-0' : 'h-9 mt-4',
+							effectiveIsCollapsed ? 'h-0 mt-0' : 'h-[30px] mt-2',
 							hideIf(effectiveIsCollapsed),
 						)}
 					/>

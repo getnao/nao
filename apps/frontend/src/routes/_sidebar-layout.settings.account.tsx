@@ -1,12 +1,10 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { UserRole } from '@nao/shared/types';
 
 import type { TeamMember } from '@/components/settings/team';
-import GitlabIcon from '@/components/icons/gitlab-icon.svg';
 import { EditMemberDialog } from '@/components/settings/team';
-import { ProviderConnectionCard } from '@/components/settings/provider-connection-card';
 import { NewsletterSubscribeInlineForm } from '@/components/newsletter-subscribe';
 import { signOut, useSession } from '@/lib/auth-client';
 import { SettingsVersionInfo } from '@/components/settings/version-info';
@@ -42,12 +40,6 @@ function GeneralPage() {
 	const [editOpen, setEditOpen] = useState(false);
 
 	const modifyUser = useMutation(trpc.user.modify.mutationOptions());
-	const gitlabAvailable = useQuery(trpc.gitlab.isAvailable.queryOptions());
-	const gitlabStatus = useQuery({
-		...trpc.gitlab.getStatus.queryOptions(),
-		enabled: gitlabAvailable.data === true,
-	});
-	const disconnectGitlab = useMutation(trpc.gitlab.disconnect.mutationOptions());
 
 	const editMember: TeamMember | null =
 		user && editOpen
@@ -77,15 +69,6 @@ function GeneralPage() {
 				},
 			},
 		});
-	};
-
-	const handleDisconnectGitlab = async () => {
-		try {
-			await disconnectGitlab.mutateAsync();
-			await gitlabStatus.refetch();
-		} catch (error) {
-			console.error('Failed to disconnect GitLab:', error);
-		}
 	};
 
 	return (
@@ -138,26 +121,12 @@ function GeneralPage() {
 						/>
 					</SettingsCard>
 
-					{gitlabAvailable.data === true && (
-						<ProviderConnectionCard
-							providerLabel='GitLab'
-							icon={GitlabIcon}
-							connectHref='/api/gitlab/connect?returnTo=/settings/account'
-							connected={gitlabStatus.data?.connected === true}
-							username={gitlabStatus.data?.connected ? gitlabStatus.data.user.username : undefined}
-							avatarUrl={gitlabStatus.data?.connected ? gitlabStatus.data.user.avatarUrl : undefined}
-							onDisconnect={handleDisconnectGitlab}
-							disconnectPending={disconnectGitlab.isPending}
-						/>
-					)}
+					<SettingsMemories isAdmin={isAdmin} />
 
 					{!isViewer && <DangerZone />}
-
-					{isAdmin && <SettingsVersionInfo />}
-
-					{isViewer && <SettingsMemories isAdmin={false} />}
 				</div>
 			</div>
+			{isAdmin && <SettingsVersionInfo />}
 		</SettingsPageWrapper>
 	);
 }

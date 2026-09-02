@@ -31,11 +31,65 @@ export function ProjectSwitcher({
 	variant = 'sidebar',
 	className,
 }: ProjectSwitcherProps) {
-	const [open, setOpen] = useState(false);
-	const mode = useMultiProject();
 	const currentProject =
 		projects.find((project) => project.id === currentProjectId) ?? (projects.length === 1 ? projects[0] : null);
-	const wrapperClassName = variant === 'sidebar' ? 'w-full' : 'inline-flex max-w-full';
+
+	if (variant === 'inline') {
+		return (
+			<InlineProjectSwitcher
+				projects={projects}
+				currentProject={currentProject}
+				onChange={onChange}
+				className={className}
+			/>
+		);
+	}
+
+	return (
+		<SidebarProjectSwitcher
+			projects={projects}
+			currentProject={currentProject}
+			onChange={onChange}
+			className={className}
+		/>
+	);
+}
+
+function InlineProjectSwitcher({
+	projects,
+	currentProject,
+	onChange,
+	className,
+}: Omit<ProjectSwitcherProps, 'currentProjectId' | 'variant'> & {
+	currentProject: ProjectOption | null;
+}) {
+	const mode = useMultiProject();
+
+	if (mode !== 'switch' || projects.length <= 1 || !currentProject) {
+		return null;
+	}
+
+	return (
+		<ProjectDropdown
+			projects={projects}
+			currentProject={currentProject}
+			onChange={onChange}
+			variant='inline'
+			className={className}
+			mode='switch'
+		/>
+	);
+}
+
+function SidebarProjectSwitcher({
+	projects,
+	currentProject,
+	onChange,
+	className,
+}: Omit<ProjectSwitcherProps, 'currentProjectId' | 'variant'> & {
+	currentProject: ProjectOption | null;
+}) {
+	const mode = useMultiProject();
 
 	if (!currentProject) {
 		return null;
@@ -43,13 +97,40 @@ export function ProjectSwitcher({
 
 	if (mode === 'static' || (mode === 'switch' && projects.length === 1)) {
 		return (
-			<div className={cn(wrapperClassName, className)}>
-				<div className={getTriggerClassName(variant)}>
+			<div className={cn('w-full', className)}>
+				<div className={getTriggerClassName('sidebar')}>
 					<span className='truncate text-sm font-semibold'>{currentProject.name}</span>
 				</div>
 			</div>
 		);
 	}
+
+	return (
+		<ProjectDropdown
+			projects={projects}
+			currentProject={currentProject}
+			onChange={onChange}
+			variant='sidebar'
+			className={className}
+			mode={mode}
+		/>
+	);
+}
+
+function ProjectDropdown({
+	projects,
+	currentProject,
+	onChange,
+	variant,
+	className,
+	mode,
+}: Omit<ProjectSwitcherProps, 'currentProjectId' | 'variant'> & {
+	currentProject: ProjectOption;
+	variant: 'sidebar' | 'inline';
+	mode: 'switch' | 'upgrade';
+}) {
+	const [open, setOpen] = useState(false);
+	const wrapperClassName = variant === 'sidebar' ? 'w-full' : 'inline-flex max-w-full';
 
 	return (
 		<div className={cn(wrapperClassName, className)}>
@@ -69,7 +150,10 @@ export function ProjectSwitcher({
 						<ChevronsUpDown className='ml-auto size-3.5 shrink-0 text-muted-foreground' />
 					</button>
 				</PopoverTrigger>
-				<PopoverContent align='start' className='w-[var(--radix-popover-trigger-width)] p-0'>
+				<PopoverContent
+					align='start'
+					className={cn('p-0', variant === 'sidebar' && 'w-[var(--radix-popover-trigger-width)]')}
+				>
 					<Command loop={mode !== 'upgrade'}>
 						{mode !== 'upgrade' && projects.length > 5 && <CommandInput placeholder='Search projects...' />}
 						<CommandList className='max-h-72'>
@@ -129,7 +213,7 @@ function ProjectUpgradeNudge() {
 
 function getTriggerClassName(variant: 'sidebar' | 'inline') {
 	return cn(
-		'flex min-w-0 items-center gap-1.5 rounded-lg px-1.5 text-foreground transition-colors',
-		variant === 'sidebar' ? 'h-9 w-full' : 'h-8 w-auto max-w-full',
+		'flex min-w-0 items-center gap-1.5 text-foreground transition-colors',
+		variant === 'sidebar' ? 'h-[30px] w-full rounded-md px-2' : 'h-8 w-auto max-w-full rounded-lg px-1.5',
 	);
 }

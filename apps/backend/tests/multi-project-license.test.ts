@@ -8,7 +8,6 @@ const mocks = vi.hoisted(() => ({
 		DB_URI: 'sqlite:./db.sqlite',
 		NAO_DEFAULT_PROJECT_PATH: '/tmp/multi-project-default',
 	},
-	hasFeature: vi.fn(),
 	isCloud: true,
 }));
 
@@ -25,11 +24,6 @@ vi.mock('../src/db/db', async () => {
 	return { db: drizzle('./db.sqlite', { schema }) };
 });
 
-vi.mock('../src/services/license.service', () => ({
-	hasFeature: mocks.hasFeature,
-	LICENSE_FEATURES: { multiProject: 'multi-project' },
-}));
-
 import { db as appDb } from '../src/db/db';
 import * as sqliteSchema from '../src/db/sqlite-schema';
 import { project, projectMember, user } from '../src/db/sqlite-schema';
@@ -41,11 +35,10 @@ const DEFAULT_PROJECT_ID = 'multi-project-license-default';
 const SELECTED_PROJECT_ID = 'multi-project-license-selected';
 const DEFAULT_PROJECT_PATH = '/tmp/multi-project-default';
 
-describe('multi-project license gate', () => {
+describe('multi-project cloud gate', () => {
 	beforeEach(async () => {
 		await cleanup();
 		mocks.isCloud = true;
-		mocks.hasFeature.mockReset();
 		await db.insert(user).values({
 			id: USER_ID,
 			name: 'Multi Project User',
@@ -78,31 +71,18 @@ describe('multi-project license gate', () => {
 		db.$client.close();
 	});
 
-	it('honours the selected project in cloud mode with the feature', async () => {
-		mocks.hasFeature.mockResolvedValue(true);
-
+	it('honours the selected project in cloud mode without requiring a license feature', async () => {
 		const result = await getProjectByUserId(USER_ID, SELECTED_PROJECT_ID);
 
 		expect(result?.id).toBe(SELECTED_PROJECT_ID);
-		expect(mocks.hasFeature).toHaveBeenCalledWith('multi-project');
 	});
 
-	it('falls back to the default project in cloud mode without the feature', async () => {
-		mocks.hasFeature.mockResolvedValue(false);
-
-		const result = await getProjectByUserId(USER_ID, SELECTED_PROJECT_ID);
-
-		expect(result?.id).toBe(DEFAULT_PROJECT_ID);
-	});
-
-	it('falls back to the default project outside cloud mode with the feature', async () => {
+	it('falls back to the default project outside cloud mode', async () => {
 		mocks.isCloud = false;
-		mocks.hasFeature.mockResolvedValue(true);
 
 		const result = await getProjectByUserId(USER_ID, SELECTED_PROJECT_ID);
 
 		expect(result?.id).toBe(DEFAULT_PROJECT_ID);
-		expect(mocks.hasFeature).not.toHaveBeenCalled();
 	});
 });
 

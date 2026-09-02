@@ -4,7 +4,6 @@ import type { TabBarItem } from '@/components/ui/tab-bar';
 import { DefaultModelsSection } from '@/components/settings/default-models-section';
 import { McpSettings } from '@/components/settings/display-mcp';
 import { LlmProvidersSection } from '@/components/settings/llm-providers-section';
-import { SettingsMemories } from '@/components/settings/memories';
 import { SavedPrompts } from '@/components/settings/saved-prompts';
 import { SettingsDisplayMap } from '@/components/settings/display-map';
 import { SettingsExperimental } from '@/components/settings/experimental';
@@ -15,13 +14,12 @@ import { SettingsCard } from '@/components/ui/settings-card';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { usePermissions } from '@/hooks/use-permissions';
 
-type AgentTab = 'models' | 'tools' | 'mcp-servers' | 'memory';
+type AgentTab = 'models' | 'tools' | 'mcp-servers';
 
 const tabs: TabBarItem<AgentTab>[] = [
 	{ id: 'models', label: 'Models' },
 	{ id: 'tools', label: 'Capabilities' },
 	{ id: 'mcp-servers', label: 'MCP servers' },
-	{ id: 'memory', label: 'Memory' },
 ];
 
 const tabIdBase = 'project-agent';
@@ -31,7 +29,7 @@ export const Route = createFileRoute('/_sidebar-layout/settings/project/agent')(
 		title: 'Agent',
 	},
 	validateSearch: (search: Record<string, unknown>): { tab: AgentTab } => ({
-		tab: isAgentTab(search.tab) ? search.tab : 'models',
+		tab: search.tab === 'memory' ? 'tools' : isAgentTab(search.tab) ? search.tab : 'models',
 	}),
 	component: ProjectAgentPage,
 });
@@ -59,7 +57,6 @@ function ProjectAgentPage() {
 				{tab === 'models' && <ModelsSettings isAdmin={isAdmin} />}
 				{tab === 'tools' && <ToolsSettings isAdmin={isAdmin} />}
 				{tab === 'mcp-servers' && <McpSettings isAdmin={isAdmin} />}
-				{tab === 'memory' && <MemorySettings isAdmin={isAdmin} />}
 			</TabPanel>
 		</>
 	);
@@ -85,21 +82,13 @@ function ToolsSettings({ isAdmin }: { isAdmin: boolean }) {
 		<>
 			<SettingsWebSearch isAdmin={isAdmin} />
 			<SavedPrompts isAdmin={isAdmin} />
+			{isAdmin && <SettingsProjectMemory />}
 			<SettingsDisplayMap isAdmin={isAdmin} />
 			<SettingsExperimental isAdmin={isAdmin} />
 		</>
 	);
 }
 
-function MemorySettings({ isAdmin }: { isAdmin: boolean }) {
-	return (
-		<>
-			{isAdmin && <SettingsProjectMemory />}
-			<SettingsMemories isAdmin={isAdmin} />
-		</>
-	);
-}
-
 function isAgentTab(value: unknown): value is AgentTab {
-	return value === 'models' || value === 'tools' || value === 'mcp-servers' || value === 'memory';
+	return value === 'models' || value === 'tools' || value === 'mcp-servers';
 }

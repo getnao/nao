@@ -47,10 +47,10 @@ export function SettingsMemories({ isAdmin }: { isAdmin: boolean }) {
 		if (isProjectDisabled) {
 			return {
 				toggle: isAdmin
-					? 'Turned off for the whole project above.'
+					? 'Turned off for the whole project.'
 					: 'An admin has turned memory off for this project.',
 				empty: isAdmin
-					? 'Turn on project memory above to see and use your saved memories.'
+					? 'Turn on project memory in Agent → Capabilities to see and use your saved memories.'
 					: 'Ask an admin to turn on project memory to see and use your saved memories.',
 			};
 		}

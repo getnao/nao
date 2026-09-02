@@ -1,19 +1,15 @@
-import { useLicenseFeatures } from '@/hooks/use-license';
-import { useIsCloud } from '@/hooks/use-nao-mode';
+import { useQuery } from '@tanstack/react-query';
+
+import { trpc } from '@/main';
 
 export type ProjectSwitcherMode = 'switch' | 'static' | 'upgrade';
 
 export function useMultiProject(): ProjectSwitcherMode {
-	const features = useLicenseFeatures();
-	const isCloud = useIsCloud();
+	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
 
-	if (features.isPending) {
+	if (config.isPending) {
 		return 'static';
 	}
 
-	if (features.data?.['multi-project'] !== true) {
-		return 'upgrade';
-	}
-
-	return isCloud ? 'switch' : 'static';
+	return config.data?.naoMode === 'cloud' ? 'switch' : 'static';
 }
