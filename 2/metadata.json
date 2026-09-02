@@ -1,0 +1,58 @@
+{
+  "cli_version": "0.10.0",
+  "checkpoint_id": "01M1HEAGT6GNXT8QRNR1DP2KFY",
+  "session_id": "def1eb2b-2f8c-4a83-9e52-2ddc0917a288",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-02T16:13:08.394022Z",
+  "branch": "feat/settings-layout-redesign-proposal",
+  "checkpoints_count": 13,
+  "files_touched": [
+    "apps/frontend/src/components/side-panel/story-header.tsx"
+  ],
+  "agent": "Cursor",
+  "model": "gpt-5.6-sol-high",
+  "turn_id": "e25991c47004",
+  "checkpoint_transcript_start": 108,
+  "transcript_lines_at_start": 108,
+  "compact_transcript_start": 48,
+  "session_metrics": {
+    "duration_ms": 16973706,
+    "turn_count": 31
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-02T16:13:08.373544Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 28723,
+    "human_modified": 17,
+    "human_removed": 0,
+    "total_committed": 28723,
+    "total_lines_changed": 30316,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    }
+  ]
+}

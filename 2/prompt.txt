@@ -1,0 +1,145 @@
+We're on this issue #1443, fetch it
+
+---
+
+ok we're on a fresh branch, I noted three things C officers want:
+If I ask agent to change my story, he auto saves,
+If I try to leave page I get a warning to save
+If I swap from Edit to View, I get a warning or it auto saves
+
+---
+
+I confirm, let's go
+
+---
+
+Give PR summary now
+
+---
+
+Ok I tested asking the agent to make edits to see if he'll save my edits before
+
+He did. However in terms of UI, The Save button kept appearing the whole time, I think when he takes the action of saving it should kind of show for a sec, like save, get me the new version then, and then make edits on that you see?
+
+I say this because I know it made an intermediate version with my changes before editing so it makes sense that the UI shows that, with a disappearance, albeit temporary of the Save button
+
+---
+
+You caused a crazy bug, when I press the send button to send a prompt, it just tries to saves the story
+
+---
+
+Did you make it so that the Save banner shows only if changes are done?
+
+In `main` normally if I'm in edit mode even if I made no changes it still shows the save button
+
+---
+
+is that a good idea? why do that?
+
+---
+
+In any case when agent edits the story and I'm in View mode I remain in view mode, so that tracks
+It'll then be that always when agent edits story (since it auto saves) It'll always edit whilst user is in View mode
+
+---
+
+Button looks a lot worse, is that this PR?
+
+---
+
+Ok I think first one is done, let's do second one, IF I try to leave page, i.e. change tabs, go in settings, change chat, close tab
+
+well I get a warning, the same warning I get usually when hitting Cancel instead of save or hitting View currently in Edit mode
+
+---
+
+Indeed, inside the view works great,
+What about when I close the tab, I get this, is that expected
+
+---
+
+Ok cool, remains last feature: 
+If I swap from Edit to View, I get a warning or it auto saves
+
+---
+
+What about if go in Markdown code view
+
+---
+
+not true, I tested
+
+---
+
+So Edit with unsaved changes -> Code skips auto save and doesn't even show Save Button
+Since Edit and Code are two edition pages, I would want both to just carry together their changes and keep showing the save banner you know
+
+---
+
+Ok very satisfied, give commit message, 
+And shall PR summary be updated?
+
+---
+
+No but like the commit message should adapt to the uncommited changes not just the PR, which is already created btw
+
+---
+
+Cubic made comments on this PR, review only those that are not marked adressed, resoled or outdated then tell me if they're valid or not
+In the order cubic posted them on github
+I want us to go through them one by one
+So just answer saying how many comments are there, how many are valid, how many aren't.
+Then just tell me about the #1 concisely and we'll begin
+
+---
+
+oh yes indeed valid
+
+---
+
+what? story changes whil a save is finishing? can that even happen?
+
+---
+
+ok so what's the fix ?
+
+---
+
+ok fine, what about #3?
+
+---
+
+ok so whats the fix?
+
+---
+
+ok fine
+
+---
+
+ok fine, begin fixing all
+
+---
+
+We noticed you added two tests in frontend/hooks
+
+That's no their place.
+So move these AND the other test that was there in tests/hooks
+
+---
+
+What the hell does story slug mean?
+
+---
+
+ok now explain the changes in apps/frontend/src/components/side-panel/hooks/use-story-viewer-version-actions.ts
+
+---
+
+apps/frontend/src/components/chat-input.tsx
+I don't see what change here makes it auto save story before sending prompt
+
+---
+
+Where is the posthog tracking code? I mean do we call some log function in code places?
