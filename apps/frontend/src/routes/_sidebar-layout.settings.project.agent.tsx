@@ -4,6 +4,7 @@ import { SettingsExperimental } from '@/components/settings/experimental';
 import { SettingsDisplayMap } from '@/components/settings/display-map';
 import { SettingsExcludeColumns } from '@/components/settings/exclude-columns';
 import { SettingsProjectMemory } from '@/components/settings/project-memory';
+import { SettingsStoryPlugins } from '@/components/settings/story-plugins';
 import { SettingsWebSearch } from '@/components/settings/web-search';
 import { usePermissions } from '@/hooks/use-permissions';
 
@@ -20,6 +21,7 @@ function ProjectAgentTabPage() {
 			<SettingsWebSearch isAdmin={isAdmin} />
 			<SavedPrompts isAdmin={isAdmin} />
 			<SettingsDisplayMap isAdmin={isAdmin} />
+			<SettingsStoryPlugins isAdmin={isAdmin} />
 			<SettingsExperimental isAdmin={isAdmin} />
 			<SettingsExcludeColumns isAdmin={isAdmin} />
 		</>

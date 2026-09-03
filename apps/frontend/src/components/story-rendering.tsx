@@ -4,6 +4,7 @@ import { Streamdown } from 'streamdown';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock, Segment } from '@nao/shared/story-segments';
 
 import { MarkdownTable } from '@/components/chat-messages/markdown-table';
+import { StoryPluginEmbed } from '@/components/story-plugin-embed';
 import { StoryGridProvider } from '@/contexts/story-grid';
 import { markdownPlugins } from '@/lib/markdown';
 
@@ -43,6 +44,8 @@ export const SegmentList = memo(function SegmentList({
 						return <Fragment key={key}>{renderMap(segment.map, i)}</Fragment>;
 					case 'filter':
 						return null;
+					case 'plugin':
+						return <StoryPluginEmbed key={key} plugin={segment.plugin} />;
 					case 'grid':
 						return (
 							<StoryGrid
@@ -109,6 +112,8 @@ const StoryGrid = memo(function StoryGrid({
 								renderTable(segment.table, i)
 							) : segment.type === 'map' ? (
 								renderMap(segment.map, i)
+							) : segment.type === 'plugin' ? (
+								<StoryPluginEmbed plugin={segment.plugin} />
 							) : segment.type === 'grid' ? (
 								<StoryGrid
 									cols={segment.cols}

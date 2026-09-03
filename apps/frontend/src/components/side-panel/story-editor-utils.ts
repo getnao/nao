@@ -14,7 +14,7 @@ export function decodeFromAttr(encoded: string): string {
 }
 
 /**
- * Replaces custom <chart />, <table /> and <grid> tags with HTML-safe elements that
+ * Replaces custom story block tags with HTML-safe elements that
  * Tiptap's DOMParser can match against custom node extensions.
  */
 export function preprocessForEditor(code: string): string {
@@ -23,6 +23,10 @@ export function preprocessForEditor(code: string): string {
 	// recognises standard HTML block elements like <div>).
 	let result = code.replace(/<grid(?:\s+[^>]*)?>[\s\S]*?<\/grid>/g, (match) => {
 		return `<div><grid-embed data-raw="${encodeForAttr(match)}"></grid-embed></div>\n\n`;
+	});
+
+	result = result.replace(new RegExp(`<plugin(?:\\s+${TAG_ATTRS})?>[\\s\\S]*?<\\/plugin>`, 'g'), (match) => {
+		return `<div><plugin-embed data-raw="${encodeForAttr(match)}"></plugin-embed></div>\n\n`;
 	});
 
 	result = result.replace(new RegExp(`<chart\\s+${TAG_ATTRS}\\/?>`, 'g'), (match) => {
@@ -50,6 +54,9 @@ export function createBlockNode(schema: Schema, markup: string): PMNode | null {
 	}
 	if (trimmedMarkup.startsWith('<map')) {
 		return schema.nodes.mapBlock?.create({ rawTag: trimmedMarkup }) ?? null;
+	}
+	if (trimmedMarkup.startsWith('<plugin')) {
+		return schema.nodes.pluginBlock?.create({ rawContent: trimmedMarkup }) ?? null;
 	}
 	if (trimmedMarkup.startsWith('<grid')) {
 		return schema.nodes.gridBlock?.create({ rawContent: trimmedMarkup }) ?? null;

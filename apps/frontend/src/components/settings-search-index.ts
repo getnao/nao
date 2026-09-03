@@ -266,6 +266,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
+		title: 'Vibe coded plugins',
+		description: 'Allow the agent to generate custom interactive plugin blocks inside stories.',
+		keywords: ['plugin', 'vibe', 'story', 'custom component'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
 		title: 'GeoJSON Boundary Library',
 		description: 'Add custom GeoJSON boundary sets the agent can use for choropleth maps.',
 		keywords: ['geojson', 'boundaries', 'choropleth', 'map', 'regions', 'custom', 'polygon'],

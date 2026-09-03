@@ -127,9 +127,13 @@ export const getTools = (
 
 	if ('story' in result) {
 		const mapsEnabled = 'display_map' in result;
+		const storyPluginsEnabled = agentSettings?.storyPlugins?.enabled === true;
 		result = {
 			...result,
-			story: { ...result.story, description: buildStoryToolDescription({ mapsEnabled }) },
+			story: {
+				...result.story,
+				description: buildStoryToolDescription({ mapsEnabled, storyPluginsEnabled }),
+			},
 		};
 	}
 

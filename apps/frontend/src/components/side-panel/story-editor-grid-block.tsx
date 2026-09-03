@@ -10,6 +10,7 @@ import { StoryTableEmbed } from './story-table-embed';
 import { blockSelectionPluginKey, selectColumnFromHandle } from './story-block-selection';
 import { BlockSelectionContext } from './story-block-selection-context';
 import { StoryBlockDragContext } from './story-editor-drag-context';
+import { StoryPluginPlaceholder } from './story-editor-plugin-block';
 import { decodeFromAttr } from './story-editor-utils';
 import { useStoryEditorGridBlock } from './hooks/use-story-editor-grid-block';
 import type { Segment } from '@nao/shared/story-segments';
@@ -67,6 +68,8 @@ function renderColumnContent(
 					<StoryMapEmbed map={segment.map} dragHandle={dragHandle} />
 				</EditorStoryMapEditProvider>
 			);
+		case 'plugin':
+			return <StoryPluginPlaceholder plugin={segment.plugin} dragHandle={dragHandle} />;
 		case 'grid':
 			return (
 				<div className='flex flex-col gap-4'>
@@ -132,10 +135,11 @@ function GridBlockView(props: ReactNodeViewProps) {
 				>
 					{segments.map((segment, i) => {
 						// Markdown columns cannot be dragged out (createBlockNode would
-						// turn their markdown into literal text), so only chart/table
-						// columns get a move handle.
+						// turn their markdown into literal text), so only supported story
+						// block columns get a move handle.
 						const columnGrip =
-							segments.length >= 2 && (segment.type === 'chart' || segment.type === 'table') ? (
+							segments.length >= 2 &&
+							(segment.type === 'chart' || segment.type === 'table' || segment.type === 'plugin') ? (
 								<button
 									type='button'
 									aria-label={`Move column ${i + 1}`}

@@ -23,4 +23,7 @@ export interface AgentSettings {
 		enabled?: boolean;
 		mode?: WebSearchMode;
 	};
+	storyPlugins?: {
+		enabled?: boolean;
+	};
 }

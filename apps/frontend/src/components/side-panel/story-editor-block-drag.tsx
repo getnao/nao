@@ -37,12 +37,12 @@ export function useStoryBlockDrag({ node, editor, getPos }: Pick<ReactNodeViewPr
 
 			event.dataTransfer.effectAllowed = 'move';
 			dragContext.sourceRef.current = {
-				markup: node.attrs.rawTag as string,
+				markup: getStoryBlockMarkup(node),
 				origin: { kind: 'block', pos },
 			};
 			dragContext.setDragging(true);
 		},
-		[dragContext, editor, getPos, node.attrs.rawTag],
+		[dragContext, editor, getPos, node],
 	);
 
 	const handleDragEnd = useCallback(
@@ -134,7 +134,7 @@ export function StoryBlockDropZones({ node, editor, getPos }: Pick<ReactNodeView
 			}
 
 			const state = editor.state;
-			const targetMarkup = node.attrs.rawTag as string;
+			const targetMarkup = getStoryBlockMarkup(node);
 			const leftMarkup = side === 'left' ? source.markup : targetMarkup;
 			const rightMarkup = side === 'left' ? targetMarkup : source.markup;
 			const gridNode = createBlockNode(state.schema, groupBlocksIntoGrid(leftMarkup, rightMarkup));
@@ -185,4 +185,12 @@ export function StoryBlockDropZones({ node, editor, getPos }: Pick<ReactNodeView
 			);
 		})
 	);
+}
+
+function getStoryBlockMarkup(node: ReactNodeViewProps['node']): string {
+	const rawContent = node.attrs.rawContent;
+	if (typeof rawContent === 'string' && rawContent) {
+		return rawContent;
+	}
+	return typeof node.attrs.rawTag === 'string' ? node.attrs.rawTag : '';
 }

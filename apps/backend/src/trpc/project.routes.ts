@@ -950,6 +950,11 @@ export const projectRoutes = {
 						mode: z.enum(['provider']).optional(),
 					})
 					.optional(),
+				storyPlugins: z
+					.object({
+						enabled: z.boolean().optional(),
+					})
+					.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -962,6 +967,7 @@ export const projectRoutes = {
 				sql: { ...existing.sql, ...input.sql },
 				pythonExecution: { ...existing.pythonExecution, ...input.pythonExecution },
 				webSearch: { ...existing.webSearch, ...input.webSearch },
+				storyPlugins: { ...existing.storyPlugins, ...input.storyPlugins },
 			};
 			posthog.capture(ctx.user.id, PostHogEvent.ProjectAgentSettingsUpdated, {
 				project_id: ctx.project.id,
@@ -976,6 +982,7 @@ export const projectRoutes = {
 				memory_enabled: merged.memoryEnabled,
 				web_search_enabled: merged.webSearch?.enabled,
 				web_search_mode: merged.webSearch?.mode,
+				story_plugins_enabled: merged.storyPlugins?.enabled,
 			});
 			return projectQueries.updateAgentSettings(ctx.project.id, merged);
 		}),

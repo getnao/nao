@@ -34,7 +34,10 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave, 
 	} = useStoryEditor({ code, editorRef, onSave, onChange });
 
 	const hideFloatingHandle =
-		handleNodeType === 'gridBlock' || handleNodeType === 'chartBlock' || handleNodeType === 'tableBlock';
+		handleNodeType === 'gridBlock' ||
+		handleNodeType === 'chartBlock' ||
+		handleNodeType === 'tableBlock' ||
+		handleNodeType === 'pluginBlock';
 
 	return (
 		<GridDragContext.Provider value={gridDragSourceRef}>

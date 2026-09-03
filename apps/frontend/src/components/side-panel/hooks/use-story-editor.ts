@@ -448,7 +448,8 @@ export function useStoryEditor({ code, editorRef, onSave, onChange }: UseStoryEd
 				hoveredNode != null &&
 				(hoveredNode.type.name === 'gridBlock' ||
 					hoveredNode.type.name === 'chartBlock' ||
-					hoveredNode.type.name === 'tableBlock')
+					hoveredNode.type.name === 'tableBlock' ||
+					hoveredNode.type.name === 'pluginBlock')
 			) {
 				event.preventDefault();
 				return;
@@ -518,7 +519,10 @@ export function useStoryEditor({ code, editorRef, onSave, onChange }: UseStoryEd
 		const node = editor.state.doc.nodeAt(pos);
 		if (
 			node != null &&
-			(node.type.name === 'gridBlock' || node.type.name === 'chartBlock' || node.type.name === 'tableBlock')
+			(node.type.name === 'gridBlock' ||
+				node.type.name === 'chartBlock' ||
+				node.type.name === 'tableBlock' ||
+				node.type.name === 'pluginBlock')
 		) {
 			return;
 		}

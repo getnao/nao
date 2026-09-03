@@ -22,7 +22,18 @@ const STORY_FILTER_DESCRIPTION = [
 	'When adding filters to existing charts, prefer execute_sql with query_id set to the existing query so chart/table tags keep the same query_id.',
 ].join(' ');
 
-export function buildStoryToolDescription({ mapsEnabled = false }: { mapsEnabled?: boolean } = {}) {
+const STORY_PLUGIN_DESCRIPTION = [
+	'Plugins are embedded via <plugin title="...">...</plugin> blocks.',
+	'Use a plugin only when built-in chart, table, map, or markdown blocks cannot express the desired interactive component.',
+	'Plugin code must be a self-contained vanilla JavaScript ES module with export default function render(element) that renders into the provided DOM element.',
+	'Do not use imports or make network calls to external services.',
+	`Example: <plugin title="Counter">export default function render(element) { let count = 0; element.innerHTML = '<button>Count: 0</button>'; const button = element.querySelector('button'); button.onclick = () => { count += 1; button.textContent = 'Count: ' + count; }; }</plugin>.`,
+].join(' ');
+
+export function buildStoryToolDescription({
+	mapsEnabled = false,
+	storyPluginsEnabled = false,
+}: { mapsEnabled?: boolean; storyPluginsEnabled?: boolean } = {}) {
 	return [
 		'Create or modify a nao Story — an interactive document combining markdown text and chart visualizations.',
 		'Use "create" to initialize a new story, "update" to search-and-replace within it (producing a new version),',
@@ -33,8 +44,9 @@ export function buildStoryToolDescription({ mapsEnabled = false }: { mapsEnabled
 		...(mapsEnabled
 			? ['Maps are embedded via <map query_id="..." map_type="points|scatter_bubble|choropleth" title="..." />.']
 			: []),
+		...(storyPluginsEnabled ? [STORY_PLUGIN_DESCRIPTION] : []),
 		...(env.BETA_STORY_FILTERS_ENABLED ? [STORY_FILTER_DESCRIPTION] : []),
-		`Use <grid>...</grid> to place 2–4 charts/tables${mapsEnabled ? '/maps' : ''} side by side; its direct <chart>/<table>${mapsEnabled ? '/<map>' : ''} blocks are the columns.`,
+		`Use <grid>...</grid> to place 2–4 charts/tables${mapsEnabled ? '/maps' : ''}${storyPluginsEnabled ? '/plugins' : ''} side by side; its direct <chart>/<table>${mapsEnabled ? '/<map>' : ''}${storyPluginsEnabled ? '/<plugin>' : ''} blocks are the columns.`,
 		'For unequal columns add widths="w1,w2,..." to the <grid> — one positive integer per column giving its relative width (e.g. widths="2,1" makes the first column twice as wide as the second). The number of values must equal the number of columns; omit widths for equal columns. Choose widths that fit the content, e.g. a wide time-series next to a narrow KPI or pie.',
 		'Use consecutive <tab title="...">...</tab> blocks to organize a story into top-level tabs.',
 		'Default to a single flowing story. Use tabs only when the user asks for tabs, or when the content splits into clearly distinct sections that are better separated than stacked (e.g. overview vs. detail, one topic/department/metric per tab). Avoid tabs for a short or single-topic story. Always follow the user\'s explicit request (e.g. "a tab per chart" means one chart per tab). When using tabs, the entire story must consist of <tab title="...">...</tab> blocks — no content outside a tab.',
