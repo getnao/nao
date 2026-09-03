@@ -116,7 +116,7 @@ const envSchema = z.object({
 	NAO_CONTEXT_GIT_SSH_KEY: z.string().optional(),
 	NAO_CONTEXT_GIT_PLATFORM: z.enum(['github', 'gitlab', 'bitbucket']).optional(),
 
-	NAO_STORAGE_BACKEND: z.enum(['none', 'local', 's3']).default('local'),
+	NAO_STORAGE_BACKEND: z.enum(['none', 'local', 's3', 'gcs']).default('local'),
 	NAO_STORAGE_LOCAL_PATH: z.string().default('./storage'),
 	NAO_STORAGE_S3_BUCKET: z
 		.string()
@@ -148,6 +148,26 @@ const envSchema = z.object({
 		.optional()
 		.default('false')
 		.transform((val) => val === 'true'),
+	NAO_STORAGE_GCS_BUCKET: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	NAO_STORAGE_GCS_PROJECT_ID: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	NAO_STORAGE_GCS_PREFIX: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	NAO_STORAGE_GCS_KEY_FILE: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	NAO_STORAGE_GCS_CREDENTIALS: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
 	NAO_STORAGE_MAX_FILE_SIZE_MB: z.coerce
 		.number({ message: 'NAO_STORAGE_MAX_FILE_SIZE_MB must be a number of megabytes' })
 		.positive({ message: 'NAO_STORAGE_MAX_FILE_SIZE_MB must be greater than 0' })
@@ -253,6 +273,11 @@ if (result.data.NAO_DEFAULT_PROJECT_PATH && result.data.NAO_MODE === 'cloud') {
 
 if (result.data.NAO_STORAGE_BACKEND === 's3' && !result.data.NAO_STORAGE_S3_BUCKET) {
 	console.error('NAO_STORAGE_S3_BUCKET is required when NAO_STORAGE_BACKEND=s3.');
+	process.exit(1);
+}
+
+if (result.data.NAO_STORAGE_BACKEND === 'gcs' && !result.data.NAO_STORAGE_GCS_BUCKET) {
+	console.error('NAO_STORAGE_GCS_BUCKET is required when NAO_STORAGE_BACKEND=gcs.');
 	process.exit(1);
 }
 

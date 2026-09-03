@@ -434,7 +434,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		pageLabel: 'Storage',
 		title: 'Permanent Storage',
 		description:
-			'Review the durable storage backend where the agent saves files: local disk, an S3 bucket, or disabled.',
+			'Review the durable storage backend where the agent saves files: local disk, an S3 bucket, Google Cloud Storage, or disabled.',
 		keywords: [
 			'storage',
 			'permanent',
@@ -451,6 +451,9 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			's3',
 			'minio',
 			'r2',
+			'gcs',
+			'gcp',
+			'google cloud storage',
 			'volume',
 			'disk',
 			'local',
