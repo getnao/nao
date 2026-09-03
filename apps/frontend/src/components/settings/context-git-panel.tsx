@@ -487,6 +487,12 @@ export function ContextGitPanel({
 										review.
 									</p>
 								)}
+								{reviewRequest?.kind === 'link' && reviewRequest.apiRefused && (
+									<p className='text-xs text-amber-700 dark:text-amber-400'>
+										Branch pushed. The git provider could not create the {reviewRequestName}{' '}
+										automatically — click Open {reviewRequestAbbreviation} to finish.
+									</p>
+								)}
 								{pushBranch.error && <ErrorMessage message={pushBranch.error.message} />}
 							</div>
 						</>
