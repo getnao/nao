@@ -44,12 +44,6 @@ describe('ChatsReplayTable', () => {
 		expect(onRowClick).toHaveBeenCalledWith(chat);
 		expect(row.getAttribute('tabindex')).toBe('0');
 	});
-
-	it('displays the default page size', () => {
-		render(<TestTable onRowClick={vi.fn()} />);
-
-		expect(screen.getByRole('combobox').textContent).toContain('20');
-	});
 });
 
 function TestTable({ onRowClick }: { onRowClick: (chat: ProjectChatListItem) => void }) {

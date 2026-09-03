@@ -29,13 +29,15 @@ export function UsagePeriodEntryDialog({ open, onOpenChange, entry, onSave }: Us
 	const exceedsBucketLimit = bucketCount > MAX_USAGE_CHART_BUCKETS_PER_REQUEST;
 	const suggestedGranularity = hasValidDays ? getSuggestedGranularity(parsedDays, granularity) : undefined;
 	const isValid = hasValidDays && !exceedsBucketLimit;
-	const validationMessage = exceedsBucketLimit
-		? `${USAGE_CHART_BUCKET_LIMIT_MESSAGE} ${
-				suggestedGranularity
-					? `Use ${granularityLabels[suggestedGranularity].toLowerCase()} grouping for this range.`
-					: 'Reduce the number of days.'
-			}`
-		: undefined;
+	const validationMessage = !hasValidDays
+		? 'Enter a positive whole number of days.'
+		: exceedsBucketLimit
+			? `${USAGE_CHART_BUCKET_LIMIT_MESSAGE} ${
+					suggestedGranularity
+						? `Use ${granularityLabels[suggestedGranularity].toLowerCase()} grouping for this range.`
+						: 'Reduce the number of days.'
+				}`
+			: undefined;
 
 	useEffect(() => {
 		if (!open) {
@@ -111,7 +113,7 @@ export function UsagePeriodEntryDialog({ open, onOpenChange, entry, onSave }: Us
 									id='usage-period-entry-granularity'
 									size='input'
 									aria-invalid={exceedsBucketLimit}
-									aria-describedby={validationMessage ? 'usage-period-entry-validation' : undefined}
+									aria-describedby={exceedsBucketLimit ? 'usage-period-entry-validation' : undefined}
 								>
 									<SelectValue />
 								</SelectTrigger>

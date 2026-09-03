@@ -463,6 +463,13 @@
       "when": 1788344460102,
       "tag": "0065_user_project_preferences",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1788444241865,
+      "tag": "0066_user_project_preference_project_id_index",
+      "breakpoints": true
     }
   ]
 }

@@ -421,7 +421,10 @@ export const userProjectPreference = pgTable(
 			.$onUpdate(() => new Date())
 			.notNull(),
 	},
-	(t) => [primaryKey({ columns: [t.userId, t.projectId] })],
+	(t) => [
+		primaryKey({ columns: [t.userId, t.projectId] }),
+		index('user_project_preference_projectId_idx').on(t.projectId),
+	],
 );
 
 export const projectMember = pgTable(

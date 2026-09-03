@@ -175,6 +175,9 @@ describe('usage query results', () => {
 	});
 
 	it('uses an explicit chart granularity', async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-09-03T10:00:00Z'));
+
 		await expect(
 			getMessagesUsage(PROJECT_ID, {
 				period: { value: 365, unit: 'day' },

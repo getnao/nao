@@ -37,7 +37,6 @@ export function useUsagePeriodPreferences({
 	const migrationStatus = migrationStatuses[queryProjectId];
 
 	const settingsOptions = trpc.usage.getPeriodSettings.queryOptions({ projectId: queryProjectId });
-	const settingsQueryKey = settingsOptions.queryKey;
 	const settingsQuery = useQuery({
 		...settingsOptions,
 		enabled: queriesEnabled,
@@ -45,19 +44,20 @@ export function useUsagePeriodPreferences({
 
 	const updatePreference = useMutation({
 		...trpc.usage.updatePeriodPreference.mutationOptions({
-			onMutate: async ({ preference: nextPreference }) => {
-				await queryClient.cancelQueries({ queryKey: settingsQueryKey });
-				const previousSettings = queryClient.getQueryData<UsagePeriodSettings>(settingsQueryKey);
-				queryClient.setQueryData<UsagePeriodSettings>(settingsQueryKey, (current) =>
+			onMutate: async ({ projectId: mutationProjectId, preference: nextPreference }) => {
+				const queryKey = getPeriodSettingsQueryKey(mutationProjectId);
+				await queryClient.cancelQueries({ queryKey });
+				const previousSettings = queryClient.getQueryData<UsagePeriodSettings>(queryKey);
+				queryClient.setQueryData<UsagePeriodSettings>(queryKey, (current) =>
 					current ? { ...current, preference: nextPreference } : current,
 				);
 				return { previousSettings };
 			},
-			onError: (_error, _input, context) => {
-				queryClient.setQueryData(settingsQueryKey, context?.previousSettings);
+			onError: (_error, { projectId: mutationProjectId }, context) => {
+				queryClient.setQueryData(getPeriodSettingsQueryKey(mutationProjectId), context?.previousSettings);
 			},
-			onSettled: () => {
-				queryClient.invalidateQueries({ queryKey: settingsQueryKey });
+			onSettled: (_data, _error, { projectId: mutationProjectId }) => {
+				queryClient.invalidateQueries({ queryKey: getPeriodSettingsQueryKey(mutationProjectId) });
 			},
 		}),
 		scope: { id: `usage-period-preference-${queryProjectId}` },
@@ -65,24 +65,28 @@ export function useUsagePeriodPreferences({
 
 	const createEntryMutation = useMutation(
 		trpc.usage.createPeriodEntry.mutationOptions({
-			onSuccess: (entry) => {
-				queryClient.setQueryData<UsagePeriodSettings>(settingsQueryKey, (current) => ({
-					preference: { mode: 'saved', entryId: entry.id },
-					entries: [...(current?.entries ?? []), entry],
-				}));
+			onSuccess: (entry, { projectId: mutationProjectId }) => {
+				queryClient.setQueryData<UsagePeriodSettings>(
+					getPeriodSettingsQueryKey(mutationProjectId),
+					(current) => ({
+						preference: { mode: 'saved', entryId: entry.id },
+						entries: [...(current?.entries ?? []), entry],
+					}),
+				);
 			},
-			onSettled: () => {
-				queryClient.invalidateQueries({ queryKey: settingsQueryKey });
+			onSettled: (_data, _error, { projectId: mutationProjectId }) => {
+				queryClient.invalidateQueries({ queryKey: getPeriodSettingsQueryKey(mutationProjectId) });
 			},
 		}),
 	);
 
 	const updateEntryMutation = useMutation(
 		trpc.usage.updatePeriodEntry.mutationOptions({
-			onMutate: async ({ entry }) => {
-				await queryClient.cancelQueries({ queryKey: settingsQueryKey });
-				const previousSettings = queryClient.getQueryData<UsagePeriodSettings>(settingsQueryKey);
-				queryClient.setQueryData<UsagePeriodSettings>(settingsQueryKey, (current) =>
+			onMutate: async ({ projectId: mutationProjectId, entry }) => {
+				const queryKey = getPeriodSettingsQueryKey(mutationProjectId);
+				await queryClient.cancelQueries({ queryKey });
+				const previousSettings = queryClient.getQueryData<UsagePeriodSettings>(queryKey);
+				queryClient.setQueryData<UsagePeriodSettings>(queryKey, (current) =>
 					current
 						? {
 								...current,
@@ -92,21 +96,22 @@ export function useUsagePeriodPreferences({
 				);
 				return { previousSettings };
 			},
-			onError: (_error, _input, context) => {
-				queryClient.setQueryData(settingsQueryKey, context?.previousSettings);
+			onError: (_error, { projectId: mutationProjectId }, context) => {
+				queryClient.setQueryData(getPeriodSettingsQueryKey(mutationProjectId), context?.previousSettings);
 			},
-			onSettled: () => {
-				queryClient.invalidateQueries({ queryKey: settingsQueryKey });
+			onSettled: (_data, _error, { projectId: mutationProjectId }) => {
+				queryClient.invalidateQueries({ queryKey: getPeriodSettingsQueryKey(mutationProjectId) });
 			},
 		}),
 	);
 
 	const deleteEntryMutation = useMutation(
 		trpc.usage.deletePeriodEntry.mutationOptions({
-			onMutate: async ({ id }) => {
-				await queryClient.cancelQueries({ queryKey: settingsQueryKey });
-				const previousSettings = queryClient.getQueryData<UsagePeriodSettings>(settingsQueryKey);
-				queryClient.setQueryData<UsagePeriodSettings>(settingsQueryKey, (current) => {
+			onMutate: async ({ projectId: mutationProjectId, id }) => {
+				const queryKey = getPeriodSettingsQueryKey(mutationProjectId);
+				await queryClient.cancelQueries({ queryKey });
+				const previousSettings = queryClient.getQueryData<UsagePeriodSettings>(queryKey);
+				queryClient.setQueryData<UsagePeriodSettings>(queryKey, (current) => {
 					if (!current) {
 						return current;
 					}
@@ -121,17 +126,17 @@ export function useUsagePeriodPreferences({
 				});
 				return { previousSettings };
 			},
-			onError: (_error, _input, context) => {
-				queryClient.setQueryData(settingsQueryKey, context?.previousSettings);
+			onError: (_error, { projectId: mutationProjectId }, context) => {
+				queryClient.setQueryData(getPeriodSettingsQueryKey(mutationProjectId), context?.previousSettings);
 			},
-			onSettled: () => {
-				queryClient.invalidateQueries({ queryKey: settingsQueryKey });
+			onSettled: (_data, _error, { projectId: mutationProjectId }) => {
+				queryClient.invalidateQueries({ queryKey: getPeriodSettingsQueryKey(mutationProjectId) });
 			},
 		}),
 	);
 
 	const entries = settingsQuery.data?.entries ?? [];
-	const savedPreference = settingsQuery.data?.preference ?? DEFAULT_USAGE_PERIOD_PREFERENCE;
+	const savedPreference = settingsQuery.data?.preference ?? legacyPeriodPreference ?? DEFAULT_USAGE_PERIOD_PREFERENCE;
 	const preference = resolvePeriodPreference(
 		savedPreference,
 		settingsQuery.data?.entries,
@@ -143,11 +148,25 @@ export function useUsagePeriodPreferences({
 		const mutationProjectId = queryProjectId;
 		const previousPreference = preference;
 		const version = ++selectionVersion.current;
+		const replacesLegacyPreference =
+			migrationStatus === 'failed' &&
+			settingsQuery.data?.preference === null &&
+			legacyPeriodPreference !== undefined;
 		setActionError(undefined);
+		if (replacesLegacyPreference) {
+			setMigrationStatuses((current) => ({ ...current, [mutationProjectId]: 'pending' }));
+		}
 		onUpdateSearch(toPeriodSearch(nextPreference));
 		try {
 			await updatePreference.mutateAsync({ projectId: mutationProjectId, preference: nextPreference });
+			if (replacesLegacyPreference) {
+				clearStoredUsagePeriodPreference(mutationProjectId);
+				setMigrationStatuses((current) => ({ ...current, [mutationProjectId]: 'succeeded' }));
+			}
 		} catch (cause) {
+			if (replacesLegacyPreference) {
+				setMigrationStatuses((current) => ({ ...current, [mutationProjectId]: 'failed' }));
+			}
 			if (version === selectionVersion.current && isActiveProject(mutationProjectId)) {
 				onUpdateSearch(toPeriodSearch(previousPreference));
 				setActionError({
@@ -166,6 +185,14 @@ export function useUsagePeriodPreferences({
 		if (isActiveProject(mutationProjectId)) {
 			onUpdateSearch(toPeriodSearch({ mode: 'saved', entryId: entry.id }));
 		}
+		if (
+			migrationStatus === 'failed' &&
+			settingsQuery.data?.preference === null &&
+			legacyPeriodPreference !== undefined
+		) {
+			clearStoredUsagePeriodPreference(mutationProjectId);
+			setMigrationStatuses((current) => ({ ...current, [mutationProjectId]: 'succeeded' }));
+		}
 	};
 
 	const updateEntry = async (entry: UsagePeriodEntry) => {
@@ -183,13 +210,38 @@ export function useUsagePeriodPreferences({
 		}
 	};
 
-	const retry = () => {
+	const retry = async () => {
 		setActionError(undefined);
-		if (migrationStatus === 'failed') {
-			setMigrationStatuses((current) => omitProjectStatus(current, queryProjectId));
-		}
 		if (loadError) {
-			void settingsQuery.refetch();
+			await settingsQuery.refetch();
+			return;
+		}
+		if (migrationStatus !== 'failed' || !legacyPeriodPreference) {
+			return;
+		}
+
+		const migrationProjectId = queryProjectId;
+		setMigrationStatuses((current) => ({ ...current, [migrationProjectId]: 'pending' }));
+		try {
+			const settings = await queryClient.fetchQuery(
+				trpc.usage.getPeriodSettings.queryOptions({ projectId: migrationProjectId }),
+			);
+			if (settings.preference === null) {
+				await updatePreference.mutateAsync({
+					projectId: migrationProjectId,
+					preference: legacyPeriodPreference,
+				});
+			}
+			clearStoredUsagePeriodPreference(migrationProjectId);
+			setMigrationStatuses((current) => ({ ...current, [migrationProjectId]: 'succeeded' }));
+		} catch (cause) {
+			setMigrationStatuses((current) => ({ ...current, [migrationProjectId]: 'failed' }));
+			if (isActiveProject(migrationProjectId)) {
+				setActionError({
+					projectId: migrationProjectId,
+					message: toErrorMessage(cause, 'Unable to migrate the saved period.'),
+				});
+			}
 		}
 	};
 
@@ -269,7 +321,7 @@ export function useUsagePeriodPreferences({
 		isLoading: canViewUsage && (projectId === null || (!isReady && !loadError)),
 		isReady,
 		error,
-		retry: loadError || migrationStatus === 'failed' ? retry : undefined,
+		retry: loadError || migrationStatus === 'failed' ? () => void retry() : undefined,
 		selectPreference,
 		createEntry,
 		updateEntry,
@@ -310,13 +362,8 @@ function isActiveProject(projectId: string): boolean {
 	return getActiveProjectId() === projectId;
 }
 
-function omitProjectStatus(
-	statuses: Record<string, MigrationStatus>,
-	projectId: string,
-): Record<string, MigrationStatus> {
-	const nextStatuses = { ...statuses };
-	delete nextStatuses[projectId];
-	return nextStatuses;
+function getPeriodSettingsQueryKey(projectId: string) {
+	return trpc.usage.getPeriodSettings.queryOptions({ projectId }).queryKey;
 }
 
 type MigrationStatus = 'pending' | 'failed' | 'succeeded';

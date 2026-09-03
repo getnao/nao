@@ -111,10 +111,16 @@ describe('UsageFilters', () => {
 
 		fireEvent.click(screen.getByRole('button', { name: 'Last 15 days' }));
 		fireEvent.click(screen.getByRole('button', { name: 'Create filter' }));
-		fireEvent.change(screen.getByRole('spinbutton', { name: 'Days' }), { target: { value: '2001' } });
+		const daysInput = screen.getByRole('spinbutton', { name: 'Days' });
+		fireEvent.change(daysInput, { target: { value: '2001' } });
 
 		expect(screen.getByText(/Use monthly grouping/)).toBeDefined();
 		expect(screen.getByRole('button', { name: 'Create' }).hasAttribute('disabled')).toBe(true);
+
+		fireEvent.change(daysInput, { target: { value: '' } });
+		const validationMessage = screen.getByText('Enter a positive whole number of days.');
+		expect(daysInput.getAttribute('aria-invalid')).toBe('true');
+		expect(daysInput.getAttribute('aria-describedby')).toBe(validationMessage.id);
 	});
 
 	it('selects, edits, and deletes saved entries', async () => {
@@ -154,7 +160,7 @@ describe('UsageFilters', () => {
 			granularity: 'month',
 		});
 
-		await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Edit usage period' })).toBeNull());
+		await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Edit period filter' })).toBeNull());
 		fireEvent.click(screen.getByRole('button', { name: 'Last 15 days' }));
 		fireEvent.click(screen.getByRole('button', { name: 'Delete Last 365 days - Monthly' }));
 		fireEvent.click(screen.getByRole('button', { name: 'Remove' }));

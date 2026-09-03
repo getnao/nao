@@ -101,7 +101,7 @@ export const MAX_USAGE_CHART_BUCKETS: Record<Granularity, number> = {
 
 export function resolveUsageChartGranularity(period: UsagePeriodRange): Granularity {
 	if (period.unit === 'hour' && period.value > MAX_USAGE_CHART_BUCKETS.hour) {
-		return 'day';
+		return getUsageChartBucketCount(period, 'day') > MAX_USAGE_CHART_BUCKETS.day ? 'month' : 'day';
 	}
 	if (period.unit === 'day' && period.value > MAX_USAGE_CHART_BUCKETS.day) {
 		return 'month';
@@ -124,8 +124,9 @@ export function getUsageChartBucketCount(period: UsagePeriodRange, granularity: 
 		return period.value;
 	}
 
-	const firstBucket = new Date(getUsagePeriodStartTimestamp(period, now));
+	const firstBucket = new Date(now);
 	const lastBucket = new Date(now);
+	moveToUsageBucket(firstBucket, period.unit, period.value - 1);
 	moveToUsageBucket(firstBucket, granularity);
 	moveToUsageBucket(lastBucket, granularity);
 	if (!Number.isFinite(firstBucket.getTime()) || !Number.isFinite(lastBucket.getTime())) {
@@ -176,26 +177,17 @@ function addBucketLimitIssue(period: UsagePeriodRange, granularity: Granularity,
 	});
 }
 
-function getUsagePeriodStartTimestamp(period: UsagePeriodRange, now: Date): number {
-	if (period.unit === 'month') {
-		const start = new Date(now);
-		start.setUTCMonth(start.getUTCMonth() - period.value);
-		return start.getTime();
-	}
-	const milliseconds = period.unit === 'hour' ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
-	return now.getTime() - period.value * milliseconds;
-}
-
-function moveToUsageBucket(date: Date, granularity: Granularity): void {
+function moveToUsageBucket(date: Date, granularity: Granularity, bucketsBack = 0): void {
 	if (granularity === 'hour') {
-		date.setUTCMinutes(0, 0, 0);
+		date.setUTCHours(date.getUTCHours() - bucketsBack, 0, 0, 0);
 		return;
 	}
 	if (granularity === 'day') {
+		date.setUTCDate(date.getUTCDate() - bucketsBack);
 		date.setUTCHours(0, 0, 0, 0);
 		return;
 	}
-	date.setUTCDate(1);
+	date.setUTCMonth(date.getUTCMonth() - bucketsBack, 1);
 	date.setUTCHours(0, 0, 0, 0);
 }
 

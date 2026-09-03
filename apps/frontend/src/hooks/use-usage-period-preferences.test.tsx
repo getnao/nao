@@ -155,6 +155,53 @@ describe('useUsagePeriodPreferences', () => {
 		await waitFor(() => expect(mocks.updatePreference).toHaveBeenCalledTimes(2));
 	});
 
+	it('uses the legacy preference while migration is failed', async () => {
+		localStorage.setItem('nao.usage-filters.project-a', JSON.stringify({ periodMode: '6m' }));
+		mocks.getSettings.mockResolvedValue({ preference: null, entries: [] });
+		mocks.updatePreference.mockRejectedValue(new Error('Migration failed'));
+
+		renderHarness(vi.fn());
+
+		expect((await screen.findByRole('alert')).textContent).toBe('Migration failed');
+		expect(screen.getByTestId('status').textContent).toBe('ready');
+		expect(screen.getByTestId('preference').textContent).toBe('6m');
+		expect(screen.getByTestId('period').textContent).toBe('6-month');
+	});
+
+	it('does not overwrite a newer server preference when retrying migration', async () => {
+		localStorage.setItem('nao.usage-filters.project-a', JSON.stringify({ periodMode: '6m' }));
+		mocks.getSettings.mockResolvedValue({ preference: null, entries: [] });
+		mocks.updatePreference.mockRejectedValue(new Error('Migration failed'));
+		renderHarness(vi.fn());
+		await screen.findByRole('alert');
+
+		mocks.getSettings.mockResolvedValue({ preference: { mode: '24h' }, entries: [] });
+		fireEvent.click(screen.getByRole('button', { name: 'Retry migration' }));
+
+		await waitFor(() => expect(readStoredUsagePeriodPreference('project-a')).toBeUndefined());
+		expect(mocks.updatePreference).toHaveBeenCalledTimes(1);
+		expect(screen.queryByRole('button', { name: 'Retry migration' })).toBeNull();
+	});
+
+	it('reconciles failed migration state with a newer user selection', async () => {
+		localStorage.setItem('nao.usage-filters.project-a', JSON.stringify({ periodMode: '6m' }));
+		mocks.getSettings.mockResolvedValue({ preference: null, entries: [] });
+		mocks.updatePreference
+			.mockRejectedValueOnce(new Error('Migration failed'))
+			.mockResolvedValueOnce({ mode: '24h' });
+		renderHarness(vi.fn());
+		await screen.findByRole('alert');
+
+		fireEvent.click(screen.getByRole('button', { name: 'Select 24 hours' }));
+
+		await waitFor(() => expect(readStoredUsagePeriodPreference('project-a')).toBeUndefined());
+		expect(mocks.updatePreference.mock.calls.at(-1)?.[0]).toEqual({
+			projectId: 'project-a',
+			preference: { mode: '24h' },
+		});
+		expect(screen.queryByRole('button', { name: 'Retry migration' })).toBeNull();
+	});
+
 	it('retries a failed legacy migration after a page reload', async () => {
 		localStorage.setItem('nao.usage-filters.project-a', JSON.stringify({ periodMode: '6m' }));
 		mocks.getSettings.mockResolvedValue({ preference: null, entries: [] });
@@ -192,14 +239,54 @@ describe('useUsagePeriodPreferences', () => {
 			}),
 		);
 		const onUpdateSearch = vi.fn();
-		const { rerenderHarness } = renderHarness(onUpdateSearch);
+		const { queryClient, rerenderHarness } = renderHarness(onUpdateSearch);
 		await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('ready'));
 
 		fireEvent.click(screen.getByRole('button', { name: 'Create period' }));
 		localStorage.setItem('nao.active-project-id', JSON.stringify('project-b'));
 		rerenderHarness(1);
+		await waitFor(() => expect(mocks.settingsQueryOptions).toHaveBeenLastCalledWith({ projectId: 'project-b' }));
 		await act(async () => resolveCreate({ id: 'created', days: 30, granularity: 'day' }));
 
+		expect(onUpdateSearch).not.toHaveBeenCalled();
+		expect(getCachedEntries(queryClient, 'project-a')).toContainEqual({
+			id: 'created',
+			days: 30,
+			granularity: 'day',
+		});
+		expect(getCachedEntries(queryClient, 'project-b')).not.toContainEqual(
+			expect.objectContaining({ id: 'created' }),
+		);
+	});
+
+	it('optimistically updates an entry and rolls it back without changing the URL', async () => {
+		let rejectUpdate: (cause: Error) => void = () => undefined;
+		mocks.updateEntry.mockReturnValue(
+			new Promise((_resolve, reject) => {
+				rejectUpdate = reject;
+			}),
+		);
+		const onUpdateSearch = vi.fn();
+		renderHarness(onUpdateSearch);
+		await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('ready'));
+
+		fireEvent.click(screen.getByRole('button', { name: 'Update period' }));
+		await waitFor(() =>
+			expect(JSON.parse(screen.getByTestId('entries').textContent ?? '[]')).toContainEqual({
+				id: 'year',
+				days: 730,
+				granularity: 'month',
+			}),
+		);
+
+		await act(async () => rejectUpdate(new Error('Update failed')));
+		await waitFor(() =>
+			expect(JSON.parse(screen.getByTestId('entries').textContent ?? '[]')).toContainEqual({
+				id: 'year',
+				days: 365,
+				granularity: 'month',
+			}),
+		);
 		expect(onUpdateSearch).not.toHaveBeenCalled();
 	});
 
@@ -268,6 +355,7 @@ function renderHarness(
 	);
 	return {
 		...result,
+		queryClient,
 		rerenderHarness(revision: number) {
 			result.rerender(
 				<QueryClientProvider client={queryClient}>
@@ -276,6 +364,14 @@ function renderHarness(
 			);
 		},
 	};
+}
+
+function getCachedEntries(queryClient: QueryClient, projectId: string) {
+	return (
+		queryClient.getQueryData<{
+			entries: { id: string; days: number; granularity: string }[];
+		}>([['usage', 'getPeriodSettings'], { input: { projectId } }])?.entries ?? []
+	);
 }
 
 function Harness({
@@ -292,6 +388,9 @@ function Harness({
 	return (
 		<div data-revision={revision}>
 			<div data-testid='status'>{state.isReady ? 'ready' : state.isLoading ? 'loading' : 'error'}</div>
+			<div data-testid='preference'>{state.preference.mode}</div>
+			<div data-testid='period'>{`${state.period.value}-${state.period.unit}`}</div>
+			<div data-testid='entries'>{JSON.stringify(state.entries)}</div>
 			{state.error && <div role='alert'>{state.error}</div>}
 			<button
 				type='button'
@@ -304,10 +403,26 @@ function Harness({
 			<button
 				type='button'
 				onClick={() => {
+					void state.selectPreference({ mode: '24h' }).catch(() => undefined);
+				}}
+			>
+				Select 24 hours
+			</button>
+			<button
+				type='button'
+				onClick={() => {
 					void state.createEntry({ days: 30, granularity: 'day' });
 				}}
 			>
 				Create period
+			</button>
+			<button
+				type='button'
+				onClick={() => {
+					void state.updateEntry({ id: 'year', days: 730, granularity: 'month' }).catch(() => undefined);
+				}}
+			>
+				Update period
 			</button>
 			<button
 				type='button'

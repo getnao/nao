@@ -140,10 +140,12 @@ function parsePeriodEntries(preferences: UserProjectPreferences) {
 	if (!Array.isArray(preferences.usagePeriodEntries)) {
 		return [];
 	}
-	return preferences.usagePeriodEntries.flatMap((entry) => {
-		const parsed = usagePeriodEntrySchema.safeParse(entry);
-		return parsed.success ? [parsed.data] : [];
-	});
+	return preferences.usagePeriodEntries
+		.flatMap((entry) => {
+			const parsed = usagePeriodEntrySchema.safeParse(entry);
+			return parsed.success ? [parsed.data] : [];
+		})
+		.slice(0, MAX_USAGE_PERIOD_ENTRIES);
 }
 
 async function getSanitizedPeriodPreferences(userId: string, projectId: string): Promise<UserProjectPreferences> {

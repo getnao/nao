@@ -116,6 +116,28 @@ describe('usage period entry routes', () => {
 		expect(state.preferences).toEqual({ usagePeriodEntries: entries });
 	});
 
+	it('repairs stored entries above the saved entry limit', async () => {
+		const entries = Array.from({ length: MAX_USAGE_PERIOD_ENTRIES + 1 }, (_, index) => ({
+			id: `entry-${index}`,
+			days: index + 1,
+			granularity: 'day' as const,
+		}));
+		const retainedEntries = entries.slice(0, MAX_USAGE_PERIOD_ENTRIES);
+		state.preferences = {
+			usagePeriod: { mode: 'saved', entryId: entries.at(-1)?.id ?? '' },
+			usagePeriodEntries: entries,
+		};
+
+		await expect(createCaller().getPeriodSettings({ projectId: 'project-id' })).resolves.toEqual({
+			preference: DEFAULT_USAGE_PERIOD_PREFERENCE,
+			entries: retainedEntries,
+		});
+		expect(state.preferences).toEqual({
+			usagePeriod: DEFAULT_USAGE_PERIOD_PREFERENCE,
+			usagePeriodEntries: retainedEntries,
+		});
+	});
+
 	it('rejects unknown entries', async () => {
 		const caller = createCaller();
 

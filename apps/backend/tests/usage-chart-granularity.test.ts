@@ -30,18 +30,25 @@ describe('usage chart granularity', () => {
 	});
 
 	it('coarsens ranges above their natural granularity cap', () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-09-03T10:00:00Z'));
+
 		expect(resolveUsageChartGranularity({ value: 25, unit: 'hour' })).toBe('day');
 		expect(resolveUsageChartGranularity({ value: 31, unit: 'day' })).toBe('month');
 		expect(resolveUsageChartGranularity({ value: 300, unit: 'day' })).toBe('month');
 		expect(resolveUsageChartGranularity({ value: 365, unit: 'day' })).toBe('month');
 		expect(resolveUsageChartGranularity({ value: 168, unit: 'hour' })).toBe('day');
+		expect(resolveUsageChartGranularity({ value: 720, unit: 'hour' })).toBe('month');
 	});
 
 	it('keeps generated series within the resolved granularity cap', () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-09-03T10:00:00Z'));
 		const periods = [
 			{ value: 365, unit: 'day' as const },
 			{ value: 300, unit: 'day' as const },
 			{ value: 168, unit: 'hour' as const },
+			{ value: 720, unit: 'hour' as const },
 			{ value: 24, unit: 'month' as const },
 		];
 
@@ -75,6 +82,8 @@ describe('usage chart granularity', () => {
 	});
 
 	it('uses a saved entry period and explicit granularity', () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-09-03T10:00:00Z'));
 		const entry = { id: 'year', days: 365, granularity: 'month' as const };
 		const preference = { mode: 'saved' as const, entryId: entry.id };
 
@@ -101,7 +110,10 @@ describe('usage chart granularity', () => {
 	});
 
 	it('validates explicit chart requests against their actual bucket count', () => {
-		expect(getUsageChartBucketCount({ value: 83, unit: 'day' }, 'hour')).toBe(1993);
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-09-03T10:00:00Z'));
+
+		expect(getUsageChartBucketCount({ value: 83, unit: 'day' }, 'hour')).toBe(1979);
 		expect(
 			usageChartFilterSchema.safeParse({
 				period: { value: 83, unit: 'day' },
@@ -114,6 +126,20 @@ describe('usage chart granularity', () => {
 				granularity: 'hour',
 			}).success,
 		).toBe(false);
+	});
+
+	it('counts the same coarsened buckets as the generated date series', () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-03-31T12:30:00Z'));
+		const cases = [
+			[{ value: 83, unit: 'day' as const }, 'hour' as const],
+			[{ value: 365, unit: 'day' as const }, 'month' as const],
+			[{ value: 1, unit: 'month' as const }, 'day' as const],
+		] as const;
+
+		for (const [period, granularity] of cases) {
+			expect(getUsageChartBucketCount(period, granularity)).toBe(generateDateSeries(period, granularity).length);
+		}
 	});
 
 	it('requires callers to provide an explicit period', () => {
