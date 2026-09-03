@@ -147,9 +147,7 @@ export function OrgMembers() {
 						extraActions={
 							isCloud
 								? undefined
-								: (member) => (
-										<ResetPasswordAction onClick={() => openResetPasswordDialog(member)} />
-									)
+								: (member) => <ResetPasswordAction onClick={() => openResetPasswordDialog(member)} />
 						}
 					/>
 				)}
