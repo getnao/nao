@@ -41,11 +41,11 @@ def extract_table_references(sql: str, dialect: str | None = None) -> list[str]:
 
 
 def _cte_reference_ids(statement: exp.Expr) -> set[int]:
-    """Return a set of ids for tables defined within a CTE (Common Table Expression) scope."""
+    """Return the ids of table nodes that reference CTEs."""
     references: set[int] = set()
     for scope in traverse_scope(statement):
-        for table_node in scope.tables:
-            if isinstance(scope.sources.get(table_node.alias_or_name), Scope):
+        for source_name, table_node in scope.references:
+            if isinstance(table_node, exp.Table) and isinstance(scope.sources.get(source_name), Scope):
                 references.add(id(table_node))
     return references
 
