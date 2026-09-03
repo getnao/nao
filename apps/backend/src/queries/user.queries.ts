@@ -1,17 +1,38 @@
 import crypto from 'crypto';
-import { count, eq, inArray } from 'drizzle-orm';
+import { count, eq, inArray, sql } from 'drizzle-orm';
 
 import s, { NewAccount, NewUser, User } from '../db/abstractSchema';
 import { db } from '../db/db';
+import dbConfig, { Dialect } from '../db/dbConfig';
 import { takeFirstOrThrow } from '../utils/queries';
 
 export const getUser = async (identifier: { id: string } | { email: string }): Promise<User | null> => {
-	const condition = 'id' in identifier ? eq(s.user.id, identifier.id) : eq(s.user.email, identifier.email);
+	if ('id' in identifier) {
+		const [user] = await db.select().from(s.user).where(eq(s.user.id, identifier.id)).execute();
+		return user ?? null;
+	}
 
-	const [user] = await db.select().from(s.user).where(condition).execute();
-
-	return user ?? null;
+	return getUserByEmail(identifier.email);
 };
+
+async function getUserByEmail(email: string): Promise<User | null> {
+	const normalizedEmail = email.toLowerCase();
+	const [user] = await db.select().from(s.user).where(eq(s.user.email, normalizedEmail)).execute();
+	if (user) {
+		return user;
+	}
+
+	const variationCondition =
+		dbConfig.dialect === Dialect.Postgres
+			? sql`${s.user.emailVariations} @> ${JSON.stringify([normalizedEmail])}::jsonb`
+			: sql`exists (
+					select 1
+					from json_each(${s.user.emailVariations})
+					where json_each.value = ${normalizedEmail}
+				)`;
+	const users = await db.select().from(s.user).where(variationCondition).limit(2).execute();
+	return users.length === 1 ? users[0] : null;
+}
 
 export const getUserName = async (userId: string): Promise<string | null> => {
 	const [user] = await db.select({ name: s.user.name }).from(s.user).where(eq(s.user.id, userId)).execute();
@@ -32,6 +53,29 @@ export const getUserNames = async (userIds: string[]): Promise<Map<string, strin
 
 export const updateUser = async (id: string, name: string): Promise<void> => {
 	await db.update(s.user).set({ name }).where(eq(s.user.id, id)).execute();
+};
+
+export const addUserEmailDomain = async (userId: string, emailVariation: string): Promise<User> => {
+	const normalizedEmail = emailVariation.trim().toLowerCase();
+	return db.transaction(async (tx) => {
+		const user = await takeFirstOrThrow(
+			tx.select().from(s.user).where(eq(s.user.id, userId)).execute(),
+			`User not found: ${userId}`,
+		);
+		if (!normalizedEmail || user.emailVariations.includes(normalizedEmail)) {
+			return user;
+		}
+
+		return takeFirstOrThrow(
+			tx
+				.update(s.user)
+				.set({ emailVariations: [...user.emailVariations, normalizedEmail] })
+				.where(eq(s.user.id, userId))
+				.returning()
+				.execute(),
+			`User not found: ${userId}`,
+		);
+	});
 };
 
 export const getUserMemoryEnabled = async (userId: string): Promise<boolean> => {

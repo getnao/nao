@@ -27,6 +27,17 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 	const [selectedModel, setSelectedModel] = useState<AvailableModel | null>(null);
 
 	const projectConfig = slackConfig.data?.projectConfig;
+	// DONT FORGET TO REMOVE THIS
+	// const projectConfig = {
+	// 	transportMode: 'webhook' as const,
+	// 	replyMode: 'thread',
+	// 	botTokenPreview: '1234567890',
+	// 	signingSecretPreview: '1234567890',
+	// 	appTokenPreview: '1234567890',
+	// 	autoCreateUsersEnabled: false,
+	// 	autoCreateUsersDomains: [],
+	// 	modelSelection: undefined,
+	// };
 	const webhookUrl = slackConfig.data?.webhookUrl ?? '';
 	const transportMode = projectConfig?.transportMode ?? 'webhook';
 	const replyMode = projectConfig?.replyMode ?? 'thread';
@@ -291,6 +302,7 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 			<AutoCreateUsersCard
 				enabled={projectConfig.autoCreateUsersEnabled ?? false}
 				domains={projectConfig.autoCreateUsersDomains ?? []}
+				mergeUsersEnabled={projectConfig.autoMergeUsersEnabled ?? false}
 			/>
 		</div>
 	);
@@ -299,30 +311,37 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 interface AutoCreateUsersCardProps {
 	enabled: boolean;
 	domains: string[];
+	mergeUsersEnabled: boolean;
 }
 
-function AutoCreateUsersCard({ enabled: initialEnabled, domains: initialDomains }: AutoCreateUsersCardProps) {
+function AutoCreateUsersCard({
+	enabled: initialEnabled,
+	domains: initialDomains,
+	mergeUsersEnabled: initialMergeUsersEnabled,
+}: AutoCreateUsersCardProps) {
 	const queryClient = useQueryClient();
 	const [enabled, setEnabled] = useState(initialEnabled);
+	const [detectExistingUsers, setDetectExistingUsers] = useState(initialMergeUsersEnabled);
 	const [domainsText, setDomainsText] = useState(initialDomains.join(', '));
 	const [error, setError] = useState<string | null>(null);
 
 	useEffect(() => {
 		setEnabled(initialEnabled);
+		setDetectExistingUsers(initialMergeUsersEnabled);
 		setDomainsText(initialDomains.join(', '));
-	}, [initialEnabled, initialDomains]);
+	}, [initialEnabled, initialDomains, initialMergeUsersEnabled]);
 
 	const parsedDomains = useMemo(() => parseDomains(domainsText), [domainsText]);
 
 	const hasChanges = useMemo(() => {
-		if (enabled !== initialEnabled) {
+		if (enabled !== initialEnabled || detectExistingUsers !== initialMergeUsersEnabled) {
 			return true;
 		}
 		if (parsedDomains.length !== initialDomains.length) {
 			return true;
 		}
 		return parsedDomains.some((d, i) => d !== initialDomains[i]);
-	}, [enabled, initialEnabled, parsedDomains, initialDomains]);
+	}, [detectExistingUsers, enabled, initialDomains, initialEnabled, initialMergeUsersEnabled, parsedDomains]);
 
 	const updateMutation = useMutation(
 		trpc.project.updateSlackAutoCreateUsers.mutationOptions({
@@ -341,7 +360,7 @@ function AutoCreateUsersCard({ enabled: initialEnabled, domains: initialDomains 
 			setError('Add at least one allowed domain to enable auto-creation.');
 			return;
 		}
-		updateMutation.mutate({ enabled, domains: parsedDomains });
+		updateMutation.mutate({ enabled, domains: parsedDomains, mergeUsersEnabled: detectExistingUsers });
 	};
 
 	return (
@@ -391,6 +410,20 @@ function AutoCreateUsersCard({ enabled: initialEnabled, domains: initialDomains 
 					{updateMutation.isPending ? 'Saving…' : 'Save'}
 				</Button>
 			</div>
+			<SettingsControlRow
+				id='slack-detect-existing-users'
+				label='Match existing users'
+				description='Before creating an account, look for an existing nao user with a matching username at another allowed domain.'
+				className='border-t pt-4'
+				control={
+					<Switch
+						id='slack-detect-existing-users'
+						checked={enabled && detectExistingUsers}
+						onCheckedChange={setDetectExistingUsers}
+						disabled={!enabled || updateMutation.isPending}
+					/>
+				}
+			/>
 		</SettingsCard>
 	);
 }

@@ -50,6 +50,7 @@ export type SlackSettings = {
 	slackllmModelId: string;
 	autoCreateUsersEnabled?: boolean;
 	autoCreateUsersDomains?: string[];
+	autoMergeUsersEnabled?: boolean;
 	slackTransportMode?: SlackTransportMode;
 	slackAppToken?: string;
 	slackReplyMode?: SlackReplyMode;

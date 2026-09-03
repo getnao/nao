@@ -25,7 +25,7 @@ import {
 	listSocketModeSlackConfigs,
 	SlackConfig,
 } from '../queries/project-slack-config.queries';
-import { getUser } from '../queries/user.queries';
+import { addUserEmailDomain, getUser } from '../queries/user.queries';
 import { UIChat, UIMessage, UIMessagePart } from '../types/chat';
 import { ConversationContext, StreamState, ToolCallEntry } from '../types/messaging-provider';
 import { createChatTitle } from '../utils/ai';
@@ -132,6 +132,7 @@ class ProjectSlackBot {
 	private _adapterSigningSecret: string;
 	private _autoCreateUsersEnabled: boolean;
 	private _autoCreateUsersDomains: string[];
+	private _autoMergeUsersEnabled: boolean;
 	private _lastCompletionCard = new Map<string, SlackCompletionCard>();
 	private _slackMentionByHandle: Map<string, string> = new Map();
 	private _channelMembershipAttempts: Set<string> = new Set();
@@ -143,6 +144,7 @@ class ProjectSlackBot {
 		this._config = config;
 		this._autoCreateUsersEnabled = config.autoCreateUsersEnabled;
 		this._autoCreateUsersDomains = config.autoCreateUsersDomains;
+		this._autoMergeUsersEnabled = config.autoMergeUsersEnabled;
 		this._redirectUrl = config.redirectUrl;
 		this._modelSelection = config.modelSelection;
 		this._slackClient = new WebClient(config.botToken);
@@ -922,6 +924,14 @@ class ProjectSlackBot {
 		ctx.timezone = slackUser?.tz || undefined;
 
 		if (this._canAutoProvision(email)) {
+			if (this._autoMergeUsersEnabled) {
+				const linkedUser = await this._linkEmailVarToUser(email, ctx);
+				if (linkedUser) {
+					ctx.user = linkedUser;
+					return;
+				}
+			}
+
 			const project = await projectQueries.getProjectById(this.projectId);
 			const projectName = project?.name ?? 'nao';
 			const displayName = slackUser?.real_name || slackUser?.name || email.split('@')[0];
@@ -965,6 +975,47 @@ class ProjectSlackBot {
 			return false;
 		}
 		return isEmailDomainAllowed(email, this._autoCreateUsersDomains.join(','));
+	}
+
+	private async _findPotentialExistingUsers(email: string) {
+		const [username] = email.split('@');
+		if (!username) {
+			return [];
+		}
+
+		const allowedDomains = new Set(this._autoCreateUsersDomains);
+		const users = await projectQueries.listUsersWithProjectAccess(this.projectId);
+		const matchingUsers = users.filter((user) => {
+			const normalizedEmail = user.email.toLowerCase();
+			const [candidateUsername, candidateDomain] = normalizedEmail.split('@');
+			return (
+				normalizedEmail !== email &&
+				candidateUsername === username &&
+				!!candidateDomain &&
+				allowedDomains.has(candidateDomain)
+			);
+		});
+		const userProfiles = await Promise.all(matchingUsers.map((user) => getUser({ id: user.id })));
+		return userProfiles.filter((user): user is User => user !== null);
+	}
+
+	private async _linkEmailVarToUser(email: string, ctx: ConversationContext): Promise<User | null> {
+		const potentialUsers = await this._findPotentialExistingUsers(email);
+		const linkedUsers = email ? potentialUsers.filter((user) => user.emailVariations.includes(email)) : [];
+
+		if (linkedUsers.length === 1) {
+			return linkedUsers[0];
+		}
+		if (potentialUsers.length === 1) {
+			return email ? await addUserEmailDomain(potentialUsers[0].id, email) : potentialUsers[0];
+		}
+		if (potentialUsers.length > 1) {
+			await ctx.thread.post(
+				'❌ Multiple existing nao users match your Slack email. Please contact an administrator.',
+			);
+			throw new Error('Multiple users match the Slack email username');
+		}
+		return null;
 	}
 
 	private async _getSlackUser(userId: string) {
@@ -1639,6 +1690,7 @@ class SlackService {
 			previous.replyMode !== next.replyMode ||
 			previous.autoCreateUsersEnabled !== next.autoCreateUsersEnabled ||
 			previous.autoCreateUsersDomains.join('\0') !== next.autoCreateUsersDomains.join('\0') ||
+			previous.autoMergeUsersEnabled !== next.autoMergeUsersEnabled ||
 			previous.modelSelection?.provider !== next.modelSelection?.provider ||
 			previous.modelSelection?.modelId !== next.modelSelection?.modelId
 		);
