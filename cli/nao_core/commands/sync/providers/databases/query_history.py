@@ -40,6 +40,7 @@ def extract_table_references(sql: str, dialect: str | None = None) -> list[str]:
 
 
 def _statement_cte_names(statement: exp.Expr) -> set[str]:
+    """Return a set of CTE names (in lowercase) defined in the statement."""
     return {cte.alias_or_name.lower() for cte in statement.find_all(exp.CTE) if cte.alias_or_name}
 
 
