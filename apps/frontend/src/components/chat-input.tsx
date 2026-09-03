@@ -42,6 +42,7 @@ import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { useChatPendingCitation } from '@/hooks/use-chat-pending-citation';
 import { SelectionCitationBanner } from '@/components/selection-citation-banner';
 import { ChatInputSuggestions } from '@/components/chat-input-suggestions';
+import { runWithStoryBeforeAgentSend, useStoryBeforeAgentSend } from '@/contexts/story-before-agent-send';
 
 const cycleModelShortcut = getShortcut('cycle-model').shortcut;
 
@@ -115,6 +116,7 @@ function ChatInputBase({
 	const navigate = useNavigate();
 	const { canChatWithNaoData } = usePermissions();
 	const chatId = useChatId();
+	const storyBeforeAgentSend = useStoryBeforeAgentSend();
 
 	const isAdminMode = canChatWithNaoData && adminMode;
 	const adminModeLocked = useAgentMessagesSelector((messages) => messages.some((message) => message.role === 'user'));
@@ -250,6 +252,22 @@ function ChatInputBase({
 		micWarningTimer.current = window.setTimeout(() => setMicWarning(false), 5000);
 	}, []);
 
+	const runGuardedAgentSend = useCallback(
+		(send: () => Promise<void>) =>
+			runWithStoryBeforeAgentSend({
+				beforeSend: () => (chatId ? storyBeforeAgentSend.run(chatId) : Promise.resolve({ canSend: true })),
+				send,
+			}),
+		[chatId, storyBeforeAgentSend],
+	);
+
+	const submitQueuedMessageWithGuard = useCallback(
+		async (messageId: string) => {
+			await runGuardedAgentSend(() => submitQueuedMessageNow(messageId));
+		},
+		[runGuardedAgentSend, submitQueuedMessageNow],
+	);
+
 	const submitMessage = useCallback(
 		async (text: string, currentMentions: SelectedMention[] = []) => {
 			const trimmedInput = text.trim();
@@ -260,7 +278,7 @@ function ChatInputBase({
 				if (isRunning && allowQueueing) {
 					const queue = messageQueueStore.getSnapshot(chatId);
 					if (queue?.length) {
-						await submitQueuedMessageNow(queue[0].id);
+						await submitQueuedMessageWithGuard(queue[0].id);
 					}
 				}
 				return;
@@ -275,26 +293,28 @@ function ChatInputBase({
 				return;
 			}
 
-			const citation = hasCitation
-				? {
-						start: citationSnapshot.start,
-						end: citationSnapshot.end,
-						text: citationSnapshot.text,
-						storySlug: citationSnapshot.storySlug,
-					}
-				: undefined;
-			if (hasCitation) {
-				chatPendingCitationStore.clear();
-			}
+			await runGuardedAgentSend(() => {
+				const citation = hasCitation
+					? {
+							start: citationSnapshot.start,
+							end: citationSnapshot.end,
+							text: citationSnapshot.text,
+							storySlug: citationSnapshot.storySlug,
+						}
+					: undefined;
+				if (hasCitation) {
+					chatPendingCitationStore.clear();
+				}
 
-			setMentions(currentMentions.map((m) => ({ id: m.id, label: m.label, trigger: m.trigger })));
-			promptRef.current?.clear();
-			setInputText('');
+				setMentions(currentMentions.map((m) => ({ id: m.id, label: m.label, trigger: m.trigger })));
+				promptRef.current?.clear();
+				setInputText('');
 
-			const { images, documents } = attachmentUpload.getPayload();
-			attachmentUpload.clearAttachments();
+				const { images, documents } = attachmentUpload.getPayload();
+				attachmentUpload.clearAttachments();
 
-			await onSubmitMessage({ text: trimmedInput, images, documents, citation });
+				return onSubmitMessage({ text: trimmedInput, images, documents, citation });
+			});
 		},
 		[
 			onSubmitMessage,
@@ -305,7 +325,8 @@ function ChatInputBase({
 			promptRef,
 			attachmentUpload,
 			chatId,
-			submitQueuedMessageNow,
+			runGuardedAgentSend,
+			submitQueuedMessageWithGuard,
 		],
 	);
 
@@ -371,7 +392,7 @@ function ChatInputBase({
 
 	return (
 		<div ref={dropZoneRef} className={cn('px-3 pb-3 pt-0 md:px-4 md:pb-4 max-w-3xl w-full mx-auto', className)}>
-			<ChatInputMessageQueue onEditMessage={handleEditQueuedMessage} onSubmitNow={submitQueuedMessageNow} />
+			<ChatInputMessageQueue onEditMessage={handleEditQueuedMessage} onSubmitNow={submitQueuedMessageWithGuard} />
 			<SelectionCitationBanner />
 			<BudgetBanner />
 			{allowQueueing && !isAdminMode && <ChatInputSuggestions isHidden={inputText.trim().length > 0} />}

@@ -1,16 +1,18 @@
 import math
 import os
+import secrets
 import sys
 from contextlib import asynccontextmanager
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
+from typing import Annotated
 
 import numpy as np
 import pandas as pd
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -111,12 +113,6 @@ class ExecuteSQLResponse(BaseModel):
     dialect: str | None = None
 
 
-class RefreshResponse(BaseModel):
-    status: str
-    updated: bool
-    message: str
-
-
 class HealthResponse(BaseModel):
     status: str
     context_source: str
@@ -166,6 +162,20 @@ def _convert_value(v: object):
     return v
 
 
+def require_internal_secret(
+    provided: Annotated[str | None, Header(alias="X-Nao-Internal-Secret")] = None,
+):
+    """Only the nao backend, which shares BETTER_AUTH_SECRET, may call internal routes."""
+    expected = os.environ.get("BETTER_AUTH_SECRET")
+    if not expected:
+        raise HTTPException(status_code=503, detail="BETTER_AUTH_SECRET is not configured")
+    if provided is None or not secrets.compare_digest(provided, expected):
+        raise HTTPException(status_code=401, detail="Invalid internal secret")
+
+
+internal_only = [Depends(require_internal_secret)]
+
+
 # =============================================================================
 # API Endpoints
 # =============================================================================
@@ -192,39 +202,7 @@ async def health_check():
         )
 
 
-@app.post("/api/refresh", response_model=RefreshResponse)
-async def refresh_context():
-    """Trigger a context refresh (git pull if using git source).
-
-    This endpoint can be called by:
-    - CI/CD pipelines after pushing new context
-    - Webhooks when data schemas change
-    - Manual triggers for immediate updates
-    """
-    try:
-        provider = get_context_provider()
-        updated = provider.refresh()
-
-        if updated:
-            return RefreshResponse(
-                status="ok",
-                updated=True,
-                message="Context updated successfully",
-            )
-        else:
-            return RefreshResponse(
-                status="ok",
-                updated=False,
-                message="Context already up-to-date",
-            )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to refresh context: {str(e)}",
-        )
-
-
-@app.post("/execute_sql", response_model=ExecuteSQLResponse)
+@app.post("/execute_sql", response_model=ExecuteSQLResponse, dependencies=internal_only)
 async def execute_sql(request: ExecuteSQLRequest):
     try:
         project_path = Path(request.nao_project_folder)
@@ -314,4 +292,4 @@ async def execute_sql(request: ExecuteSQLRequest):
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=port, reload=True)

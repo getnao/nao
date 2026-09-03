@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 
+import { isLlmProvider, LLM_PROVIDERS, NAMED_PROVIDER_KIND } from '@nao/shared/types';
 import dotenv from 'dotenv';
 import { z } from 'zod/v4';
 
@@ -166,12 +167,41 @@ const envSchema = z.object({
 		.optional()
 		.transform((val) => val?.trim() || undefined),
 
+	/**
+	 * Default for the MCP endpoint toggle (Settings > MCP Endpoint) while a project has no stored
+	 * settings — lets a deployment come up with the endpoint already enabled. Once an admin saves
+	 * the settings, the stored value wins and this is ignored.
+	 */
+	MCP_ENDPOINT_ENABLED: z
+		.enum(['true', 'false'])
+		.optional()
+		.transform((val) => (val === undefined ? undefined : val === 'true')),
+
 	POSTHOG_KEY: z.string().optional(),
 	POSTHOG_HOST: z.url({ message: 'POSTHOG_HOST must be a valid URL' }).optional(),
 	POSTHOG_DISABLED: z
 		.enum(['true', 'false'])
 		.optional()
 		.transform((val) => val === 'true'),
+
+	/**
+	 * Comma-separated providers to keep out of the deployment entirely, regardless of where their
+	 * credentials come from. Ambient credentials otherwise auto-register providers — e.g. EKS IRSA
+	 * sets AWS_WEB_IDENTITY_TOKEN_FILE on every pod, which surfaces Bedrock even when the role has
+	 * no Bedrock permissions. Accepts provider kinds and named instances (openaiCompatible/name).
+	 */
+	DISABLED_PROVIDERS: z
+		.string()
+		.optional()
+		.transform((val) =>
+			(val ?? '')
+				.split(',')
+				.map((entry) => entry.trim())
+				.filter(Boolean),
+		)
+		.refine((providers) => providers.every(isLlmProvider), {
+			message: `DISABLED_PROVIDERS must be a comma-separated list of provider kinds (${LLM_PROVIDERS.join(', ')}) or named instances (${NAMED_PROVIDER_KIND}/<name>)`,
+		}),
 
 	LANGFUSE_PUBLIC_KEY: z
 		.string()

@@ -4,14 +4,26 @@ This module provides analytics tracking to help improve nao.
 Tracking is enabled when POSTHOG_DISABLED is not 'true' AND both POSTHOG_KEY and POSTHOG_HOST are configured.
 """
 
+from __future__ import annotations
+
 import atexit
 import os
 import uuid
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
-from posthog import Posthog
+if TYPE_CHECKING:
+    from posthog import Posthog
+else:
+    try:
+        from posthog import Posthog
+    except ImportError:
+        # Some pinned posthog versions lack the Posthog client class (the
+        # relaxed floor exists because dbt toolchains commonly pin posthog<3,
+        # e.g. elementary-data — 2.5+ still works). Tracking degrades to a
+        # no-op when the class is unavailable.
+        Posthog = None
 
 from nao_core import __version__
 from nao_core.mode import MODE
@@ -53,7 +65,7 @@ def get_or_create_posthog_client() -> Posthog | None:
     if _client is not None:
         return _client
 
-    if POSTHOG_DISABLED or not POSTHOG_KEY or not POSTHOG_HOST or MODE != "prod":
+    if Posthog is None or POSTHOG_DISABLED or not POSTHOG_KEY or not POSTHOG_HOST or MODE != "prod":
         return None
 
     try:

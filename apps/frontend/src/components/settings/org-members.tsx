@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { SettingsCard } from '@/components/ui/settings-card';
+import { useIsCloud } from '@/hooks/use-nao-mode';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
@@ -25,6 +26,7 @@ export function OrgMembers() {
 	const queryClient = useQueryClient();
 	const membersQuery = useQuery(trpc.organization.getMembers.queryOptions());
 	const { isOrgAdmin } = usePermissions();
+	const isCloud = useIsCloud();
 
 	const [isAddOpen, setIsAddOpen] = useState(false);
 	const [editMember, setEditMember] = useState<TeamMember | null>(null);
@@ -48,6 +50,7 @@ export function OrgMembers() {
 			name: member.name,
 			email: member.email,
 			role: member.role as UserRole,
+			status: member.status,
 		})) ?? [];
 
 	const handleAdd = async (data: { email: string; name?: string }) => {
@@ -141,9 +144,13 @@ export function OrgMembers() {
 						isAdmin={isOrgAdmin}
 						onEdit={setEditMember}
 						onRemove={setRemoveMember}
-						extraActions={(member) => (
-							<ResetPasswordAction onClick={() => openResetPasswordDialog(member)} />
-						)}
+						extraActions={
+							isCloud
+								? undefined
+								: (member) => (
+										<ResetPasswordAction onClick={() => openResetPasswordDialog(member)} />
+									)
+						}
 					/>
 				)}
 			</SettingsCard>

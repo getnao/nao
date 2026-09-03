@@ -48,6 +48,7 @@ function GeneralPage() {
 					name: user.name,
 					email: user.email,
 					role: role ?? 'user',
+					status: 'active',
 				}
 			: null;
 

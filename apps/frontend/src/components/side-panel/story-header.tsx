@@ -59,6 +59,7 @@ export interface StoryHeaderProps {
 	isViewingLatest: boolean;
 	onRestore: () => void;
 	onSave: () => void;
+	onCancel: () => void;
 	onShare: () => void;
 	onOpenAnalytics: () => void;
 	onEnlarge: () => void;
@@ -110,6 +111,7 @@ export const StoryHeader = memo(function StoryHeader({
 	isViewingLatest,
 	onRestore,
 	onSave,
+	onCancel,
 	onShare,
 	onOpenAnalytics,
 	onEnlarge,
@@ -220,6 +222,7 @@ export const StoryHeader = memo(function StoryHeader({
 				className={cn(viewMode === 'preview' && 'bg-accent rounded-full', 'hover:rounded-full')}
 				size='icon-xs'
 				onClick={() => onViewModeChange('preview')}
+				disabled={isSaving}
 			>
 				<Eye className='size-3' strokeWidth={2.25} />
 			</Button>
@@ -229,7 +232,7 @@ export const StoryHeader = memo(function StoryHeader({
 					className={cn(viewMode === 'edit' && 'bg-accent rounded-full', 'hover:rounded-full')}
 					size='icon-xs'
 					onClick={() => onViewModeChange('edit')}
-					disabled={isAgentRunning}
+					disabled={isAgentRunning || isSaving}
 				>
 					<Pencil className='size-3' strokeWidth={2.25} />
 				</Button>
@@ -239,6 +242,7 @@ export const StoryHeader = memo(function StoryHeader({
 				className={cn(viewMode === 'code' && 'bg-accent rounded-full', 'hover:rounded-full')}
 				size='icon-xs'
 				onClick={() => onViewModeChange('code')}
+				disabled={isSaving}
 			>
 				<Code className='size-3' strokeWidth={2.25} />
 			</Button>
@@ -404,10 +408,17 @@ export const StoryHeader = memo(function StoryHeader({
 						<>
 							<span className='text-xs text-muted-foreground'>Editing</span>
 							<div className='flex items-center gap-2'>
-								<Button variant='outline' size='sm' onClick={() => onViewModeChange('preview')}>
+								<Button variant='outline' size='sm' onClick={onCancel} disabled={isSaving}>
 									Cancel
 								</Button>
-								<Button variant='primary-gradient' size='sm' onClick={onSave} className='gap-1.5'>
+								<Button
+									variant='primary-gradient'
+									size='sm'
+									onClick={onSave}
+									disabled={isSaving}
+									isLoading={isSaving}
+									className='gap-1.5'
+								>
 									<Save className='size-3' strokeWidth={2.25} />
 									<span>Save</span>
 									<kbd className='text-[10px] opacity-60 font-sans'>⌘S</kbd>
@@ -420,14 +431,15 @@ export const StoryHeader = memo(function StoryHeader({
 								{isCodeValid ? 'Editing code' : 'Fix validation errors to save'}
 							</span>
 							<div className='flex items-center gap-2'>
-								<Button variant='outline' size='sm' onClick={() => onViewModeChange('preview')}>
+								<Button variant='outline' size='sm' onClick={onCancel} disabled={isSaving}>
 									Cancel
 								</Button>
 								<Button
 									variant='primary-gradient'
 									size='sm'
 									onClick={onSave}
-									disabled={!isCodeValid}
+									disabled={isSaving || !isCodeValid}
+									isLoading={isSaving}
 									className='gap-1.5'
 								>
 									<Save className='size-3' strokeWidth={2.25} />

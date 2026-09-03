@@ -124,6 +124,8 @@ function SharedStoryPage() {
 					isCodeDirty: editor.isCodeDirty,
 					isCodeValid: editor.isCodeValid,
 					onSave: editor.handleSave,
+					onCancel: editor.handleCancel,
+					isSaving: editor.isSaving,
 				}}
 				versionControls={{
 					currentVersion: editor.versionNav.currentVersion,
@@ -179,7 +181,6 @@ function SharedStoryPage() {
 					<div className='flex flex-1 min-h-0 min-w-0'>
 						<div ref={contentAreaRef} className='flex flex-col flex-1 min-w-0 min-h-0'>
 							<StoryPageBody
-								code={editor.code}
 								editor={editor}
 								queryData={queryData}
 								preview={

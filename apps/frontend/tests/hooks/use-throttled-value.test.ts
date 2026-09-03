@@ -3,7 +3,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { useThrottledValue } from './use-throttled-value';
+import { useThrottledValue } from '@/hooks/use-throttled-value';
 
 describe('useThrottledValue', () => {
 	afterEach(() => {

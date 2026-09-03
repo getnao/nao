@@ -1,4 +1,4 @@
-import type { UserRole } from '@nao/shared/types';
+import type { MemberStatus, UserRole } from '@nao/shared/types';
 import { and, asc, count, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 
 import s, { DBOrganization, DBOrgMember, NewOrganization, NewOrgMember } from '../db/abstractSchema';
@@ -116,6 +116,10 @@ export const findOrganizationByEmailDomain = async (email: string): Promise<DBOr
 		.execute();
 
 	return orgs.find((org) => parseEmailDomains(org.googleAuthDomains).includes(domain)) ?? null;
+};
+
+export const updateOrganizationName = async (orgId: string, name: string): Promise<void> => {
+	await db.update(s.organization).set({ name }).where(eq(s.organization.id, orgId)).execute();
 };
 
 export const updateOrganizationEmailDomains = async (orgId: string, domains: string | null): Promise<void> => {
@@ -344,6 +348,7 @@ export interface OrgMemberWithUser {
 	name: string;
 	email: string;
 	role: OrgRole;
+	status: MemberStatus;
 }
 
 export interface OrgProjectWithAccess {
@@ -362,6 +367,7 @@ export const listOrgMembersWithUsers = async (orgId: string): Promise<OrgMemberW
 			name: s.user.name,
 			email: s.user.email,
 			role: s.orgMember.role,
+			status: userQueries.userMemberStatus,
 		})
 		.from(s.orgMember)
 		.innerJoin(s.user, eq(s.orgMember.userId, s.user.id))

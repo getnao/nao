@@ -128,6 +128,9 @@ projectsPersistence:
 | `config.gitlabBaseUrl` | `""` | Self-hosted GitLab instance URL |
 | `config.betaAutomationsEnabled` | `true` | Recurring prompt automations |
 | `config.betaContextRecommendationsEnabled` | `false` | Context recommendations |
+| `existingSecret` | `""` | Load all secret env vars from a pre-existing Secret instead of rendering one (the `secrets.*` block is then ignored). Rotations of that Secret need an external rollout trigger |
+| `extraEnv` | `[]` | Extra env vars appended verbatim to the nao container |
+| `extraEnvFrom` | `[]` | Extra `envFrom` sources appended after the chart's ConfigMap/Secret |
 | `secrets.betterAuthSecret` | `""` | **Required.** Auth session secret |
 | `secrets.openaiApiKey` | `""` | OpenAI API key |
 | `secrets.anthropicApiKey` | `""` | Anthropic API key |

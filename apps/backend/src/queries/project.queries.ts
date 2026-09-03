@@ -12,6 +12,7 @@ import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import type { ListProjectChatsResponse, ProjectChatsFacetKey, UserWithRole } from '../types/project';
 import { HandlerError } from '../utils/error';
 import { createCostLookup, TOTAL_COST_EXPR } from './usage.queries';
+import { userMemberStatus } from './user.queries';
 
 export interface UserProjectWithRole {
 	project: DBProject;
@@ -151,6 +152,7 @@ export const listProjectMembersWithRoles = async (projectId: string): Promise<Us
 			name: s.user.name,
 			email: s.user.email,
 			role: s.projectMember.role,
+			status: userMemberStatus,
 		})
 		.from(s.user)
 		.innerJoin(s.projectMember, eq(s.projectMember.userId, s.user.id))
@@ -168,6 +170,7 @@ export const listUsersWithProjectAccess = async (projectId: string): Promise<Use
 			name: s.user.name,
 			email: s.user.email,
 			role: sql<UserRole>`coalesce(${s.projectMember.role}, ${s.orgMember.role})`,
+			status: userMemberStatus,
 		})
 		.from(s.user)
 		.leftJoin(s.projectMember, and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)))
