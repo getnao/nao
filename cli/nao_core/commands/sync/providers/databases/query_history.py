@@ -30,12 +30,17 @@ def extract_table_references(sql: str, dialect: str | None = None) -> list[str]:
     for statement in parsed:
         if statement is None:
             continue
+        cte_names = _statement_cte_names(statement)
         for table_node in statement.find_all(exp.Table):
             name = _table_node_to_name(table_node)
-            if name:
+            if name and name.lower() not in cte_names:
                 tables.add(name.lower())
 
     return sorted(tables) if tables else _extract_table_references_fallback(sql)
+
+
+def _statement_cte_names(statement: exp.Expr) -> set[str]:
+    return {cte.alias_or_name.lower() for cte in statement.find_all(exp.CTE) if cte.alias_or_name}
 
 
 def _table_node_to_name(table_node: exp.Table) -> str | None:
@@ -57,16 +62,26 @@ _TABLE_RE = re.compile(
     re.IGNORECASE,
 )
 
+_CTE_RE = re.compile(
+    r"""(?:\bWITH\b|,)\s*"""
+    r"""(?:RECURSIVE\s+)?"""
+    r"""`?(\w+)`?\s+AS\s*\(""",
+    re.IGNORECASE,
+)
+
 
 def _extract_table_references_fallback(sql: str) -> list[str]:
     """Regex fallback when sqlglot parsing yields nothing useful."""
     tables: set[str] = set()
+    cte_names = {match.group(1).lower() for match in _CTE_RE.finditer(sql)}
     for match in _TABLE_RE.finditer(sql):
         schema_part, table_part = match.group(1), match.group(2)
         if table_part.upper() in _SQL_KEYWORDS:
             continue
         name = f"{schema_part}.{table_part}" if schema_part else table_part
-        tables.add(name.lower())
+        normalized_name = name.lower()
+        if normalized_name not in cte_names:
+            tables.add(normalized_name)
     return sorted(tables)
 
 
@@ -124,6 +139,7 @@ def extract_join_pairs(sql: str, dialect: str | None = None) -> list[tuple[str, 
     for statement in parsed:
         if statement is None:
             continue
+        cte_names = _statement_cte_names(statement)
         for join_node in statement.find_all(exp.Join):
             right_table = join_node.find(exp.Table)
             if right_table is None:
@@ -145,7 +161,12 @@ def extract_join_pairs(sql: str, dialect: str | None = None) -> list[tuple[str, 
             if not left_name:
                 continue
 
-            pairs.append((left_name.lower(), right_name.lower()))
+            normalized_left = left_name.lower()
+            normalized_right = right_name.lower()
+            if normalized_left in cte_names or normalized_right in cte_names:
+                continue
+
+            pairs.append((normalized_left, normalized_right))
 
     return pairs
 
