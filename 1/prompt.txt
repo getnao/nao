@@ -1,0 +1,318 @@
+There's an issue within this PR that seems that affect cloud mode such that they lose access to all projects. perhaps if when they are part of more than one org
+
+---
+
+Wait what, 
+when did that get coded
+
+---
+
+ok so that's just a bug, I guess it happened when I locked multi project behind a licence
+Although I later reverted that to being free to all cloud users
+
+---
+
+oh really okay, so what is the behavior exactly in that, and how does it differ from main's old behavior
+
+---
+
+wait what would be the requested project, would that be the most recently used based on DB?
+
+---
+
+ok fair enough,
+There's only one problem with this narrative, when I encountered the bug,
+I indeed had no access to a project. Chat page said "Set up a Project"
+But I went on settings and saw that I was indeed part of an organisation
+
+---
+
+yeah but a PR was recently merged to make it so that org members inherit access to all projects in that org.
+
+Which means I don't see how an org member could not have access to a project, unless it's a project not part of his org and he got added only to that project's team, not ts org
+
+---
+
+yeah but a PR was recently merged to make it so that org members inherit access to all projects in that org.
+
+Which means I don't see how an org member could not have access to a project, unless it's a project not part of his org and he got added only to that project's team, not its org and that's clearly not what happened to me
+
+---
+
+no I'm pretty sure that wasn't the case here
+
+---
+
+yes so my guess is the merge conflicts between the new settings and the org members inherit all projects access was badly resolved
+So fetch this PR's merge commit, and investigate
+
+---
+
+ok let's assume that's true, how do I reproduce the bug?
+
+---
+
+Well I already had an org A and a project A
+
+Made a new account B, hence Org B, deployed then project B
+
+Just in case I added Account B2 to Org B and logged in, and he inherited indeed access to project B so
+
+---
+
+what, if project B appears then we know the bug source huh?
+
+---
+
+yeah well project loaded fine
+
+---
+
+what
+
+---
+
+yes it loaded it fine
+
+---
+
+to be clear I have not been able to reproduce a situation where I see set up a project when I'm supposed to have a project
+
+---
+
+yeah and I wanna figure out how that accidental merge mistake would cause the bug
+
+---
+
+yeah and I wanna figure out how that accidental merge mistake would cause the bug
+What if local storage says your're on a second project and you're not supposed to have project switch allowed so it blocks?
+
+---
+
+Look I was here, so multi projects here
+
+But project selector was not visable (The new one)
+And in chat page there was the setup project block
+
+---
+
+whaaat
+
+---
+
+yeah but what is the global project?
+
+---
+
+ok well I still don't get what caused the problem
+
+How can I reproduce it
+
+---
+
+my screenshot was not when the bug happened you know? it's an older clean version
+
+---
+
+I reproduced it!!
+
+Went back to user B in org B, but with licence disabled.
+
+So the pattern is this
+Licence off -> multi project off -> it wants to just find the default project, not among the user's projects, so it fails even though the user does have projects and asks to set up
+
+---
+
+and global default project is either some localstorage thing or the first project ever created in the instance, because it works fine for User A I checked
+
+---
+
+ok fine,
+
+So first we remove old licence gate, multi project is free for cloud users.
+
+Then we refine the project selection, to make it among user's own projects
+
+Pretty much we revert everything that was lost
+
+---
+
+ok fine,
+
+So first we remove old licence gate, multi project is free for cloud users.
+
+Then we refine the project selection, to make it among user's own projects
+
+Pretty much we revert everything that was lost in this regard
+
+---
+
+wait I didn't say multi project is no longer part of licence, it still is
+
+---
+
+so I still want multi project listed in licence features, but effectively in code it isn't really for now, only cloud projects get it for free and self hosted don't
+
+Cloud without the feature uses the user’s first accessible project and ignores project switching. -> cloud without the feature changes nothing since in fact it always has the feature
+Cloud with the feature honors the selected accessible project.
+ -> yeah
+Cloud never falls back to a project outside the user’s accessible projects. -> yeah and neither does self-hosted right?
+
+---
+
+It uses NAO_DEFAULT_PROJECT_PATH, or the database’s first project if unset.
+what if he can't access that first project?
+
+---
+
+I see fine.
+
+So the fix should:
+
+Always use user-accessible projects in cloud.
+Keep self-hosted behavior unchanged.
+Keep multi-project listed as a licence feature.
+Make project switching available to all cloud users, without checking the licence.
+
+-> yes, feel free to just look at the commit before the merge in settings PR, it's probably there
+
+---
+
+did we keep the Entreprise upgrade banner in multi select project code, or not? I know it's useless right now but it will not be later
+
+---
+
+Ok and by the way, is there a little Upgrade Banner in the Exclude columns feature or not?
+
+---
+
+cool, so let's add this
+Simple, just follow what budget table, or White Label in Appearance page both do
+Just if licence is not activated for the feature, we show the section grayed out, and little ENTREPRISE with a lock banner at the top right of the section
+
+---
+
+cool, so let's add this
+Simple, just follow what budget table, or White Label in Appearance page both do
+Just if licence is not activated for the feature, we show the section grayed out, and little ENTREPRISE with a lock banner at the top right of the section
+
+If it is activated, just leave it as is, with toggle functionnal, by default on true
+
+---
+
+generate a new local licence that includes all features, even exclude columns
+
+---
+
+how do I check if it's in use, it shouldn't be
+
+npm run dev
+
+> dev
+> npm-run-all -lp dev:backend dev:frontend dev:fastapi
+
+[dev:frontend] 
+[dev:frontend] > dev:frontend
+[dev:frontend] > npm run dev -w @nao/frontend
+[dev:frontend] 
+[dev:backend ] 
+[dev:backend ] > dev:backend
+[dev:backend ] > npm run dev -w @nao/backend
+[dev:backend ] 
+[dev:fastapi ] 
+[dev:fastapi ] > dev:fastapi
+[dev:fastapi ] > npm run fastapi -w @nao/backend
+[dev:fastapi ] 
+[dev:frontend] 
+[dev:frontend] > dev
+[dev:frontend] > vite --port 3000
+[dev:frontend] 
+[dev:fastapi ] 
+[dev:fastapi ] > fastapi
+[dev:fastapi ] > cd ../../cli && uv run ../apps/backend/fastapi/main.py
+[dev:fastapi ] 
+[dev:backend ] 
+[dev:backend ] > dev
+[dev:backend ] > bun --watch src/index.ts
+[dev:backend ] 
+[dev:fastapi ] python-dotenv could not parse statement starting at line 33
+[dev:frontend] 
+[dev:frontend]   VITE v7.3.2  ready in 634 ms
+[dev:frontend] 
+[dev:frontend]   ➜  Local:   http://localhost:3000/
+[dev:frontend]   ➜  Network: use --host to expose
+[dev:frontend]   ➜  press h + enter to show help
+[dev:fastapi ] INFO:     Will watch for changes in these directories: ['/Users/adam/Documents/1 Projects/Nao/nao/cli']
+[dev:fastapi ] ERROR:    [Errno 48] Address already in use
+[dev:fastapi ] npm error Lifecycle script `fastapi` failed with error:
+[dev:fastapi ] npm error code 1
+[dev:fastapi ] npm error path /Users/adam/Documents/1 Projects/Nao/nao/apps/backend
+[dev:fastapi ] npm error workspace @nao/backend
+[dev:fastapi ] npm error location /Users/adam/Documents/1 Projects/Nao/nao/apps/backend
+[dev:fastapi ] npm error command failed
+[dev:fastapi ] npm error command sh -c cd ../../cli && uv run ../apps/backend/fastapi/main.py
+ERROR: "dev:fastapi" exited with 1.
+
+---
+
+need to kill forced
+
+---
+
+what git ci "hotfix: default project bug in cloud, should look at available projects only"
+
+> lint
+> npm-run-all -lp lint:backend lint:frontend lint:shared
+
+[lint:frontend] 
+[lint:frontend] > lint:frontend
+[lint:frontend] > npm run lint -w @nao/frontend
+[lint:frontend] 
+[lint:backend ] 
+[lint:backend ] > lint:backend
+[lint:backend ] > npm run lint -w @nao/backend
+[lint:backend ] 
+[lint:shared  ] 
+[lint:shared  ] > lint:shared
+[lint:shared  ] > npm run lint -w @nao/shared
+[lint:shared  ] 
+[lint:frontend] 
+[lint:frontend] > lint
+[lint:frontend] > tsc --noEmit && eslint
+[lint:frontend] 
+[lint:backend ] 
+[lint:backend ] > lint
+[lint:backend ] > tsc --noEmit && eslint
+[lint:backend ] 
+[lint:shared  ] 
+[lint:shared  ] > lint
+[lint:shared  ] > tsc --noEmit && eslint
+[lint:shared  ] 
+[lint:backend ] 
+[lint:backend ] /Users/adam/Documents/1 Projects/Nao/nao/apps/backend/projects/19642aa0-9555-402a-802b-436d5fd0ff94/agent/charts/progress-bars.js
+[lint:backend ]   14:16  error  'document' is not defined  no-undef
+[lint:backend ]   20:16  error  'document' is not defined  no-undef
+[lint:backend ]   26:17  error  'document' is not defined  no-undef
+[lint:backend ]   31:17  error  'document' is not defined  no-undef
+[lint:backend ]   37:15  error  'document' is not defined  no-undef
+[lint:backend ]   44:17  error  'document' is not defined  no-undef
+[lint:backend ] 
+[lint:backend ] /Users/adam/Documents/1 Projects/Nao/nao/apps/backend/projects/c6ab7077-d957-44bc-955c-b120482fb118/agent/charts/progress-bars.js
+[lint:backend ]   14:16  error  'document' is not defined  no-undef
+[lint:backend ]   20:16  error  'document' is not defined  no-undef
+[lint:backend ]   26:17  error  'document' is not defined  no-undef
+[lint:backend ]   31:17  error  'document' is not defined  no-undef
+[lint:backend ]   37:15  error  'document' is not defined  no-undef
+[lint:backend ]   44:17  error  'document' is not defined  no-undef
+[lint:backend ] 
+[lint:backend ] ✖ 12 problems (12 errors, 0 warnings)
+[lint:backend ] 
+[lint:backend ] npm error Lifecycle script `lint` failed with error:
+[lint:backend ] npm error code 1
+[lint:backend ] npm error path /Users/adam/Documents/1 Projects/Nao/nao/apps/backend
+[lint:backend ] npm error workspace @nao/backend
+[lint:backend ] npm error location /Users/adam/Documents/1 Projects/Nao/nao/apps/backend
+[lint:backend ] npm error command failed
+[lint:backend ] npm error command sh -c tsc --noEmit && eslint
+ERROR: "lint:backend" exited with 1.
+husky - pre-commit script failed (code 1)
