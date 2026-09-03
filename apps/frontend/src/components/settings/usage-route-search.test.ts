@@ -3,7 +3,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
+	DEFAULT_USAGE_SEARCH,
 	readStoredUsagePeriodPreference,
+	saveUsageFilters,
 	validateUsageSearch,
 	validateUsageSearchWithStoredFilters,
 } from './usage-route-search';
@@ -56,5 +58,17 @@ describe('validateUsageSearch', () => {
 			periodMode: undefined,
 		});
 		expect(readStoredUsagePeriodPreference('project-a')).toEqual({ mode: '6m' });
+	});
+
+	it('preserves a legacy period while saving other filters', () => {
+		localStorage.setItem('nao.usage-filters.project-a', JSON.stringify({ periodMode: '6m' }));
+
+		saveUsageFilters({ ...DEFAULT_USAGE_SEARCH, provider: 'openai' });
+
+		expect(readStoredUsagePeriodPreference('project-a')).toEqual({ mode: '6m' });
+		expect(JSON.parse(localStorage.getItem('nao.usage-filters.project-a') ?? '{}')).toMatchObject({
+			provider: 'openai',
+			periodMode: '6m',
+		});
 	});
 });

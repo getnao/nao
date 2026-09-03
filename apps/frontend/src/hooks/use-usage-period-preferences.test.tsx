@@ -6,7 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_USAGE_PERIOD_PREFERENCE } from '@nao/backend/usage';
 import { useUsagePeriodPreferences } from './use-usage-period-preferences';
 import type { UsageRouteSearch } from '@/components/settings/usage-route-search';
-import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
+import {
+	DEFAULT_USAGE_SEARCH,
+	readStoredUsagePeriodPreference,
+	saveUsageFilters,
+} from '@/components/settings/usage-route-search';
 
 const mocks = vi.hoisted(() => ({
 	getSettings: vi.fn(),
@@ -127,6 +131,16 @@ describe('useUsagePeriodPreferences', () => {
 		);
 	});
 
+	it('clears a legacy period when the server already has a preference', async () => {
+		localStorage.setItem('nao.usage-filters.project-a', JSON.stringify({ periodMode: '6m' }));
+		mocks.getSettings.mockResolvedValue({ preference: { mode: '24h' }, entries: [] });
+
+		renderHarness(vi.fn());
+
+		await waitFor(() => expect(readStoredUsagePeriodPreference('project-a')).toBeUndefined());
+		expect(mocks.updatePreference).not.toHaveBeenCalled();
+	});
+
 	it('does not automatically retry a failed legacy migration', async () => {
 		localStorage.setItem('nao.usage-filters.project-a', JSON.stringify({ periodMode: '6m' }));
 		mocks.getSettings.mockResolvedValue({ preference: null, entries: [] });
@@ -139,6 +153,28 @@ describe('useUsagePeriodPreferences', () => {
 
 		fireEvent.click(screen.getByRole('button', { name: 'Retry migration' }));
 		await waitFor(() => expect(mocks.updatePreference).toHaveBeenCalledTimes(2));
+	});
+
+	it('retries a failed legacy migration after a page reload', async () => {
+		localStorage.setItem('nao.usage-filters.project-a', JSON.stringify({ periodMode: '6m' }));
+		mocks.getSettings.mockResolvedValue({ preference: null, entries: [] });
+		mocks.updatePreference.mockRejectedValue(new Error('Migration failed'));
+		const firstPage = renderHarness(vi.fn());
+
+		saveUsageFilters(DEFAULT_USAGE_SEARCH);
+		expect((await screen.findByRole('alert')).textContent).toBe('Migration failed');
+		expect(readStoredUsagePeriodPreference('project-a')).toEqual({ mode: '6m' });
+
+		firstPage.unmount();
+		mocks.updatePreference.mockResolvedValue({ mode: '6m' });
+		renderHarness(vi.fn());
+
+		await waitFor(() => expect(mocks.updatePreference).toHaveBeenCalledTimes(2));
+		expect(mocks.updatePreference.mock.calls[1]?.[0]).toEqual({
+			projectId: 'project-a',
+			preference: { mode: '6m' },
+		});
+		await waitFor(() => expect(readStoredUsagePeriodPreference('project-a')).toBeUndefined());
 	});
 
 	it('clears a stale period entry id after entries load', async () => {

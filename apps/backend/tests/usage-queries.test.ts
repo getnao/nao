@@ -1,6 +1,6 @@
 import '../src/env';
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
@@ -62,6 +62,10 @@ describe('usage query results', () => {
 		await db.delete(s.chatMessage);
 	});
 
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
 	afterAll(() => {
 		db.$client.close();
 	});
@@ -89,6 +93,36 @@ describe('usage query results', () => {
 			await expect(getMessagesUsage(PROJECT_ID, { period })).resolves.toHaveLength(expectedLength);
 		},
 	);
+
+	it('uses the same calendar boundary for totals and chart data', async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-09-03T10:00:00Z'));
+		const period = { value: 15, unit: 'day' as const };
+
+		await db.insert(s.chatMessage).values([
+			{
+				id: 'outside-calendar-range',
+				chatId: CHAT_ID,
+				role: 'user',
+				createdAt: new Date('2026-08-19T12:00:00Z'),
+			},
+			{
+				id: 'inside-calendar-range',
+				chatId: CHAT_ID,
+				role: 'user',
+				createdAt: new Date('2026-08-20T12:00:00Z'),
+			},
+		]);
+
+		const [records, total] = await Promise.all([
+			getMessagesUsage(PROJECT_ID, { period }),
+			getTotalUsage(PROJECT_ID, { period }),
+		]);
+
+		expect(records[0]?.date).toBe('2026-08-20');
+		expect(records.reduce((sum, record) => sum + record.messageCount, 0)).toBe(1);
+		expect(total.totalMessages).toBe(1);
+	});
 
 	it('stores period preferences independently for each user and project', async () => {
 		const usagePeriod = { mode: '6m' as const };

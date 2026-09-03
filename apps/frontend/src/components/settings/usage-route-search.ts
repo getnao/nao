@@ -61,10 +61,15 @@ export function saveUsageFilters(search: UsageRouteSearch): void {
 		return;
 	}
 
-	const filters = pickUsageFilters(search);
+	const storageKey = getUsageFiltersStorageKey();
+	const storedPeriod = parsePeriodSearch(readStoredUsageFilters(storageKey));
+	const filters = {
+		...(storedPeriod.mode ? { periodMode: storedPeriod.mode } : {}),
+		...pickUsageFilters(search),
+	};
 
 	try {
-		localStorage.setItem(getUsageFiltersStorageKey(), JSON.stringify(filters));
+		localStorage.setItem(storageKey, JSON.stringify(filters));
 	} catch {
 		return;
 	}

@@ -194,12 +194,16 @@ export function useUsagePeriodPreferences({
 	};
 
 	useEffect(() => {
-		if (
-			!queriesEnabled ||
-			settingsQuery.data?.preference !== null ||
-			!legacyPeriodPreference ||
-			migrationStatus !== undefined
-		) {
+		if (!queriesEnabled || !settingsQuery.data || !legacyPeriodPreference) {
+			return;
+		}
+		if (settingsQuery.data.preference !== null) {
+			if (migrationStatus === undefined) {
+				clearStoredUsagePeriodPreference(queryProjectId);
+			}
+			return;
+		}
+		if (migrationStatus !== undefined) {
 			return;
 		}
 
@@ -225,7 +229,7 @@ export function useUsagePeriodPreferences({
 		migrationStatus,
 		queriesEnabled,
 		queryProjectId,
-		settingsQuery.data?.preference,
+		settingsQuery.data,
 		updatePreference,
 	]);
 

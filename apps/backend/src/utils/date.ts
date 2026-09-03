@@ -15,19 +15,9 @@ export function isValidIsoDateString(s: string): boolean {
 }
 
 export function getLookbackTimestamp(period: UsagePeriodRange): number {
-	const now = Date.now();
-
-	switch (period.unit) {
-		case 'hour':
-			return now - period.value * 60 * 60 * 1000;
-		case 'day':
-			return now - period.value * 24 * 60 * 60 * 1000;
-		case 'month': {
-			const start = new Date(now);
-			start.setUTCMonth(start.getUTCMonth() - period.value);
-			return start.getTime();
-		}
-	}
+	const start = new Date();
+	moveToBucket(start, period.unit, period.value - 1);
+	return start.getTime();
 }
 
 export function formatDate(date: Date, granularity: Granularity): string {

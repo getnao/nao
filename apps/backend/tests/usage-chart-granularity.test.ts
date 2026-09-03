@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
 	getUsageChartBucketCount,
@@ -13,9 +13,13 @@ import {
 	usagePeriodEntryInputSchema,
 	usagePeriodPreferenceSchema,
 } from '../src/types/usage';
-import { generateDateSeries } from '../src/utils/date';
+import { formatDate, generateDateSeries, getLookbackTimestamp } from '../src/utils/date';
 
 describe('usage chart granularity', () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
 	it('keeps natural granularity for presets and short custom ranges', () => {
 		expect(resolveUsageChartGranularity(USAGE_PERIOD_PRESETS['24h'])).toBe('hour');
 		expect(resolveUsageChartGranularity(USAGE_PERIOD_PRESETS['15d'])).toBe('day');
@@ -53,6 +57,21 @@ describe('usage chart granularity', () => {
 		expect(generateDateSeries(USAGE_PERIOD_PRESETS['6m']).length).toBe(6);
 		expect(generateDateSeries({ value: 30, unit: 'day' }).length).toBe(30);
 		expect(generateDateSeries({ value: 24, unit: 'month' }).length).toBe(24);
+	});
+
+	it('aligns the lookback with the first visible calendar bucket', () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-08-31T12:30:00Z'));
+
+		for (const period of Object.values(USAGE_PERIOD_PRESETS)) {
+			const firstBucket = generateDateSeries(period)[0];
+			const lookback = formatDate(new Date(getLookbackTimestamp(period)), period.unit);
+
+			expect(lookback).toBe(firstBucket);
+		}
+		expect(new Date(getLookbackTimestamp(USAGE_PERIOD_PRESETS['6m'])).toISOString()).toBe(
+			'2026-03-01T00:00:00.000Z',
+		);
 	});
 
 	it('uses a saved entry period and explicit granularity', () => {
@@ -110,9 +129,11 @@ describe('usage chart granularity', () => {
 	});
 
 	it('keeps coarsened date series ordered after linear-time generation', () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-09-03T23:30:00Z'));
 		const dates = generateDateSeries({ value: 30, unit: 'day' }, 'hour');
 
-		expect(dates).toHaveLength(721);
+		expect(dates).toHaveLength(720);
 		expect([...dates].sort()).toEqual(dates);
 	});
 });
