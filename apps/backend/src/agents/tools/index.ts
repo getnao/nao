@@ -5,6 +5,7 @@ import type { CustomBoundarySet } from '@nao/shared';
 import type { Tool } from 'ai';
 
 import { mcpService } from '../../services/mcp';
+import { isStorageEnabled } from '../../services/storage';
 import { AgentSettings } from '../../types/agent-settings';
 import clarification from './clarification';
 import displayChart from './display-chart';
@@ -14,6 +15,7 @@ import executeSandboxedCode from './execute-sandboxed-code';
 import executeSql from './execute-sql';
 import grep from './grep';
 import list from './list';
+import loadSkill from './load-skill';
 import { createMcpCallTool } from './mcp-call';
 import { createMcpConnectTool } from './mcp-connect';
 import read from './read';
@@ -21,6 +23,7 @@ import readQueryResult from './read-query-result';
 import search from './search';
 import story, { buildStoryToolDescription } from './story';
 import suggestFollowUps from './suggest-follow-ups';
+import write from './write';
 
 /**
  * Tools excluded from the MCP sub-agent (`ask_nao`): it returns a text summary to the calling client,
@@ -39,8 +42,10 @@ export const tools = {
 	read_query_result: readQueryResult,
 	grep,
 	list,
+	load_skill: loadSkill,
 	read,
 	search,
+	write,
 	suggest_follow_ups: suggestFollowUps,
 };
 
@@ -89,9 +94,14 @@ export const getTools = (
 		execute_sandboxed_code,
 		clarification: clarificationTool,
 		suggest_follow_ups,
+		write: writeTool,
 		...rest
 	} = tools;
-	const baseTools = options.excludeFollowUps ? rest : { ...rest, suggest_follow_ups };
+	const baseTools = {
+		...rest,
+		...(isStorageEnabled() && { write: writeTool }),
+		...(!options.excludeFollowUps && { suggest_follow_ups }),
+	};
 
 	const allTools = {
 		...baseTools,

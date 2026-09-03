@@ -1,18 +1,18 @@
-import { useMemo } from 'react';
 import { useParams } from '@tanstack/react-router';
 import { Button } from './ui/button';
 import StoryIcon from './ui/story-icon';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
+import type { StorySummary } from '@/lib/story.utils';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { useSidePanel } from '@/contexts/side-panel';
-import { useOptionalAgentContext } from '@/contexts/agent.provider';
+import { useAgentMessagesSelector, useOptionalAgentContext } from '@/contexts/agent.provider';
 import { findStories } from '@/lib/story.utils';
 
 export function StoryOpenButton({ variant = 'outline' }: { variant?: 'outline' | 'ghost' }) {
 	const agent = useOptionalAgentContext();
 	const { chatId } = useParams({ strict: false });
 	const { isVisible, open: openSidePanel } = useSidePanel();
-	const stories = useMemo(() => findStories(agent?.messages ?? []), [agent?.messages]);
+	const stories = useAgentMessagesSelector(findStories, areStoriesEqual);
 
 	if (!agent || stories.length === 0 || isVisible || !chatId) {
 		return null;
@@ -59,5 +59,12 @@ export function StoryOpenButton({ variant = 'outline' }: { variant?: 'outline' |
 				))}
 			</DropdownMenuContent>
 		</DropdownMenu>
+	);
+}
+
+function areStoriesEqual(left: StorySummary[], right: StorySummary[]): boolean {
+	return (
+		left.length === right.length &&
+		left.every((story, index) => story.id === right[index]?.id && story.title === right[index]?.title)
 	);
 }

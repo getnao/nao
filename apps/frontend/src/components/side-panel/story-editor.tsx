@@ -15,9 +15,10 @@ interface StoryEditorProps {
 	code: string;
 	editorRef: React.MutableRefObject<Editor | null>;
 	onSave?: () => void;
+	onChange?: (code: string) => void;
 }
 
-export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }: StoryEditorProps) {
+export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave, onChange }: StoryEditorProps) {
 	const {
 		editor,
 		gridDragSourceRef,
@@ -30,7 +31,7 @@ export const StoryEditor = memo(function StoryEditor({ code, editorRef, onSave }
 		onElementDragStart,
 		onElementDragEnd,
 		onDragHandleClick,
-	} = useStoryEditor({ code, editorRef, onSave });
+	} = useStoryEditor({ code, editorRef, onSave, onChange });
 
 	const hideFloatingHandle =
 		handleNodeType === 'gridBlock' || handleNodeType === 'chartBlock' || handleNodeType === 'tableBlock';

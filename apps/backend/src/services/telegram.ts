@@ -1,6 +1,6 @@
 import { createMemoryState } from '@chat-adapter/state-memory';
 import { createTelegramAdapter } from '@chat-adapter/telegram';
-import { CITATION_TAG_REGEX } from '@nao/shared';
+import { stripAssistantTags } from '@nao/shared';
 import { displayChart } from '@nao/shared/tools';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
@@ -23,6 +23,7 @@ import {
 	createTelegramMapLinkCard,
 	createTelegramStopButtonCard,
 	EXCLUDED_TOOLS,
+	formatClarificationText,
 	formatMessagingError,
 	renderMapImage,
 } from '../utils/messaging-provider';
@@ -322,6 +323,8 @@ class TelegramService {
 				await this._handleChartPart(part, state, ctx);
 			} else if (part.type === 'tool-display_map') {
 				await this._handleMapPart(part, state, ctx);
+			} else if (part.type === 'tool-clarification') {
+				this._handleClarificationPart(part, state, ctx);
 			}
 			lastMessage = uiMessage;
 		}
@@ -342,6 +345,19 @@ class TelegramService {
 				throw error;
 			}
 		}
+	}
+
+	private _handleClarificationPart(
+		part: Extract<UIMessagePart, { type: 'tool-clarification' }>,
+		state: StreamState,
+		ctx: ConversationContext,
+	): void {
+		if (part.state === 'input-streaming' || !part.input) {
+			return;
+		}
+		this._flushToolGroup(state, ctx);
+		const text = formatClarificationText(part.input.question, part.input.options);
+		this._updateTextBlock(text, ctx);
 	}
 
 	private async _handleTextPart(
@@ -512,7 +528,7 @@ class TelegramService {
 	}
 
 	private _updateTextBlock(text: string, ctx: ConversationContext): void {
-		const block = createPlainTextBlock(text.replace(CITATION_TAG_REGEX, ''));
+		const block = createPlainTextBlock(stripAssistantTags(text));
 		if (ctx.textBlockIndex === -1) {
 			ctx.textBlockIndex = ctx.blocks.length;
 			ctx.blocks.push(block);

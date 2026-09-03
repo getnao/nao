@@ -9,12 +9,14 @@ const mocks = vi.hoisted(() => ({
 	compactMock: vi.fn(),
 	resolveProviderModelMock: vi.fn(),
 	resolveAnnotationModelIdMock: vi.fn(),
+	resolveDefaultModelSelectionMock: vi.fn(),
 	scheduleSaveMock: vi.fn(),
 }));
 
 vi.mock('../src/utils/llm', () => ({
 	resolveProviderModel: mocks.resolveProviderModelMock,
 	resolveAnnotationModelId: mocks.resolveAnnotationModelIdMock,
+	resolveDefaultModelSelection: mocks.resolveDefaultModelSelectionMock,
 }));
 
 vi.mock('../src/utils/schedule-task', () => ({
@@ -50,6 +52,7 @@ describe('compactionService.compactConversationIfNeeded', () => {
 			contextWindow: 200_000,
 		});
 		mocks.resolveAnnotationModelIdMock.mockResolvedValue('gpt-4.1-mini');
+		mocks.resolveDefaultModelSelectionMock.mockResolvedValue(null);
 		mocks.compactMock.mockResolvedValue({
 			summary: 'Conversation summary',
 			usage: { totalTokens: 123 },

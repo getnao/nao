@@ -120,7 +120,7 @@ Regular human terminals aren't affected.
 
 ## Appendix — `nao_config.yaml` skeleton (BigQuery example)
 
-Use this shape and adapt the `databases:` block per warehouse — see [docs.getnao.io/nao-agent/context-builder/databases](https://docs.getnao.io/nao-agent/context-builder/databases) for the exact required/optional fields for Snowflake, Postgres, Redshift, Databricks, Athena, ClickHouse, Fabric, MSSQL, MySQL, Trino.
+Use this shape and adapt the `databases:` block per warehouse — see [docs.getnao.io/nao-agent/context-builder/databases](https://docs.getnao.io/nao-agent/context-builder/databases) for the exact required/optional fields for Snowflake, Postgres, Redshift, Databricks, Athena, ClickHouse, Fabric, MSSQL, MySQL, Trino, MotherDuck.
 
 ```yaml
 project_name: <project>

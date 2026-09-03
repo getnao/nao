@@ -18,6 +18,8 @@ const chat: ProjectChatListItem = {
 	source: 'web',
 	numberOfMessages: 2,
 	totalTokens: 10,
+	cacheReadTokens: 0,
+	totalCost: 0,
 	feedbackText: '',
 	downvotes: 0,
 	upvotes: 0,

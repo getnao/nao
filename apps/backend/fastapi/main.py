@@ -1,16 +1,18 @@
 import math
 import os
+import secrets
 import sys
 from contextlib import asynccontextmanager
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
+from typing import Annotated
 
 import numpy as np
 import pandas as pd
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -25,9 +27,9 @@ from nao_core.config.databases.allow_listed_only_guard import (
     enforce_allow_listed_only,
     query_references_base_tables,
 )
-from nao_core.config.databases.exclude_columns_guard import (
-    ExcludeColumnsGuardError,
-    enforce_exclude_columns,
+from nao_core.config.databases.column_access import (
+    ColumnAccessError,
+    validate_column_access,
 )
 from nao_core.context import get_context_provider
 
@@ -106,6 +108,7 @@ class ExecuteSQLRequest(BaseModel):
     database_id: str | None = None
     env_vars: dict[str, str] | None = None
     azure_access_token: str | None = None
+    enforce_excluded_columns: bool = False
 
 
 class ExecuteSQLResponse(BaseModel):
@@ -113,12 +116,6 @@ class ExecuteSQLResponse(BaseModel):
     row_count: int
     columns: list[str]
     dialect: str | None = None
-
-
-class RefreshResponse(BaseModel):
-    status: str
-    updated: bool
-    message: str
 
 
 class HealthResponse(BaseModel):
@@ -132,20 +129,30 @@ def _validate_sql(
     sql: str,
     db_config,
     project_path: Path,
+    enforce_excluded_columns: bool,
     conn=None,
 ) -> str:
     validated_sql = enforce_allow_listed_only(sql, db_config, project_path, conn=conn)
-    return enforce_exclude_columns(validated_sql, db_config, conn=conn)
+    if enforce_excluded_columns:
+        validated_sql = validate_column_access(validated_sql, db_config, project_path)
+    return validated_sql
 
 
 def _execute_sql_with_guards(
     sql: str,
     db_config,
     project_path: Path,
+    enforce_excluded_columns: bool,
 ) -> pd.DataFrame:
     conn = db_config.connect()
     try:
-        validated_sql = _validate_sql(sql, db_config, project_path, conn=conn)
+        validated_sql = _validate_sql(
+            sql,
+            db_config,
+            project_path,
+            enforce_excluded_columns,
+            conn=conn,
+        )
         return db_config.execute_sql(validated_sql, conn=conn)
     finally:
         conn.disconnect()
@@ -193,6 +200,20 @@ def _convert_value(v: object):
     return v
 
 
+def require_internal_secret(
+    provided: Annotated[str | None, Header(alias="X-Nao-Internal-Secret")] = None,
+):
+    """Only the nao backend, which shares BETTER_AUTH_SECRET, may call internal routes."""
+    expected = os.environ.get("BETTER_AUTH_SECRET")
+    if not expected:
+        raise HTTPException(status_code=503, detail="BETTER_AUTH_SECRET is not configured")
+    if provided is None or not secrets.compare_digest(provided, expected):
+        raise HTTPException(status_code=401, detail="Invalid internal secret")
+
+
+internal_only = [Depends(require_internal_secret)]
+
+
 # =============================================================================
 # API Endpoints
 # =============================================================================
@@ -219,39 +240,7 @@ async def health_check():
         )
 
 
-@app.post("/api/refresh", response_model=RefreshResponse)
-async def refresh_context():
-    """Trigger a context refresh (git pull if using git source).
-
-    This endpoint can be called by:
-    - CI/CD pipelines after pushing new context
-    - Webhooks when data schemas change
-    - Manual triggers for immediate updates
-    """
-    try:
-        provider = get_context_provider()
-        updated = provider.refresh()
-
-        if updated:
-            return RefreshResponse(
-                status="ok",
-                updated=True,
-                message="Context updated successfully",
-            )
-        else:
-            return RefreshResponse(
-                status="ok",
-                updated=False,
-                message="Context already up-to-date",
-            )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to refresh context: {str(e)}",
-        )
-
-
-@app.post("/execute_sql", response_model=ExecuteSQLResponse)
+@app.post("/execute_sql", response_model=ExecuteSQLResponse, dependencies=internal_only)
 async def execute_sql(request: ExecuteSQLRequest):
     try:
         project_path = Path(request.nao_project_folder)
@@ -295,51 +284,65 @@ async def execute_sql(request: ExecuteSQLRequest):
             )
 
         auth_mode_value = getattr(getattr(db_config, "auth_mode", None), "value", None)
+        is_azure_entra_id = auth_mode_value == "azure_entra_id"
+
+        if is_azure_entra_id and not request.azure_access_token:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "azure_access_token is required when the database auth_mode is "
+                    "'azure_entra_id'. Runtime queries must use the end user's access "
+                    "token; any configured user/password is only used by nao sync."
+                ),
+            )
 
         try:
-            if auth_mode_value == "azure_entra_id":
-                if not request.azure_access_token:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=(
-                            "azure_access_token is required when the database auth_mode is "
-                            "'azure_entra_id'. Runtime queries must use the end user's access "
-                            "token; any configured user/password is only used by nao sync."
-                        ),
-                    )
-                validated_sql = request.sql
-                if db_config.allow_listed_only or db_config.exclude_columns:
-                    needs_live_schema = query_references_base_tables(
-                        request.sql,
-                        db_config.type,
-                    )
-                    if needs_live_schema and (
-                        not getattr(db_config, "user", None)
-                        or not getattr(db_config, "password", None)
+            if is_azure_entra_id:
+                if db_config.allow_listed_only and query_references_base_tables(
+                    request.sql,
+                    db_config.type,
+                ):
+                    if not getattr(db_config, "user", None) or not getattr(
+                        db_config,
+                        "password",
+                        None,
                     ):
                         raise HTTPException(
                             status_code=400,
                             detail=(
                                 "Queries that reference tables require sync user and password "
-                                "when allow_listed_only or exclude_columns validation is enabled "
-                                "with auth_mode 'azure_entra_id'. These credentials are used only "
-                                "to validate the query against the live schema and context rules; "
-                                "the query still executes with the end user's access token."
+                                "when allow_listed_only validation is enabled with auth_mode "
+                                "'azure_entra_id'. These credentials are used only to validate "
+                                "the query against the live schema and context rules; the query "
+                                "still executes with the end user's access token."
                             ),
                         )
-                    validated_sql = _validate_sql(
-                        request.sql,
-                        db_config,
-                        project_path,
-                    )
-                df = db_config.execute_sql_with_token(
-                    validated_sql, request.azure_access_token
+                validated_sql = _validate_sql(
+                    request.sql,
+                    db_config,
+                    project_path,
+                    request.enforce_excluded_columns,
                 )
-            elif db_config.allow_listed_only or db_config.exclude_columns:
-                df = _execute_sql_with_guards(request.sql, db_config, project_path)
+                df = db_config.execute_sql_with_token(
+                    validated_sql,
+                    request.azure_access_token,
+                )
+            elif db_config.allow_listed_only:
+                df = _execute_sql_with_guards(
+                    request.sql,
+                    db_config,
+                    project_path,
+                    request.enforce_excluded_columns,
+                )
             else:
-                df = db_config.execute_sql(request.sql)
-        except (AllowListedOnlyGuardError, ExcludeColumnsGuardError) as error:
+                validated_sql = _validate_sql(
+                    request.sql,
+                    db_config,
+                    project_path,
+                    request.enforce_excluded_columns,
+                )
+                df = db_config.execute_sql(validated_sql)
+        except (AllowListedOnlyGuardError, ColumnAccessError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
         data = [
@@ -362,4 +365,4 @@ async def execute_sql(request: ExecuteSQLRequest):
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=port, reload=True)

@@ -244,13 +244,13 @@ def extract_page_title(page: dict[str, Any], page_id: str) -> str:
     """Read a page's title from its properties, falling back to its ID."""
     properties = page.get("properties", {})
 
-    for prop_name in ["title", "Title", "Name", "name", "Page"]:
-        if prop_name in properties:
-            title_prop = properties[prop_name]
-            if title_prop.get("type") == "title":
-                title_array = title_prop.get("title", [])
-                if title_array:
-                    return "".join(t.get("plain_text", "") for t in title_array)
+    # Database rows name their title property freely (e.g. "Topic"), so match on the
+    # property type rather than a list of conventional names.
+    for title_prop in properties.values():
+        if title_prop.get("type") == "title":
+            title_array = title_prop.get("title", [])
+            if title_array:
+                return "".join(t.get("plain_text", "") for t in title_array)
 
     return page_id
 

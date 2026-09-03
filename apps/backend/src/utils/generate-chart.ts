@@ -158,9 +158,9 @@ export function truncateLabel(label: string, maxChars: number): string {
 	return `${codePoints.slice(0, maxChars - 1).join('')}…`;
 }
 
-export function svgToPng(svg: string): Buffer {
+export function svgToPng(svg: string, zoom = 2): Buffer {
 	const resvg = new Resvg(svg, {
-		fitTo: { mode: 'zoom' as const, value: 2 },
+		fitTo: { mode: 'zoom' as const, value: zoom },
 		font: { loadSystemFonts: true },
 	});
 	return Buffer.from(resvg.render().asPng());

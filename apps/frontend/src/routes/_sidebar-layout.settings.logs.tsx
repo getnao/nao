@@ -238,101 +238,113 @@ function LogsPage() {
 
 	return (
 		<SettingsPageWrapper>
-			<SettingsCard title='Logs' titleSize='lg' description='Real-time backend logs with auto-refresh.'>
-				<div className='flex items-center gap-2 flex-wrap'>
-					<Select value={level} onValueChange={(v) => setLevel(v as LogLevel | 'all')}>
-						<SelectTrigger size='sm'>
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectItem value='all'>All levels</SelectItem>
-							<SelectItem value='error'>Error</SelectItem>
-							<SelectItem value='warn'>Warn</SelectItem>
-							<SelectItem value='info'>Info</SelectItem>
-							<SelectItem value='debug'>Debug</SelectItem>
-						</SelectContent>
-					</Select>
-
-					<Select value={source} onValueChange={(v) => setSource(v as LogSource | 'all')}>
-						<SelectTrigger size='sm'>
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectItem value='all'>All sources</SelectItem>
-							<SelectItem value='http'>HTTP</SelectItem>
-							<SelectItem value='agent'>Agent</SelectItem>
-							<SelectItem value='tool'>Tool</SelectItem>
-							<SelectItem value='system'>System</SelectItem>
-						</SelectContent>
-					</Select>
-
-					<LogsDateRangeFilter value={range} onChange={setRange} />
-
-					<div className='flex-1' />
-
-					<Button variant='outline' size='sm' onClick={handleCopy} disabled={!sortedEntries.length}>
-						{copied ? (
-							<>
-								<Copy className='size-3.5' />
-								Copied
-							</>
-						) : (
-							<>
-								<Copy className='size-3.5' />
-								Copy
-							</>
-						)}
-					</Button>
-					<Button variant='outline' size='sm' onClick={handleRefresh} disabled={isRefreshing}>
-						{isRefreshing ? (
-							<TextShimmer text='Refreshing...' />
-						) : (
-							<>
-								<RefreshCw className='size-3.5' />
-								Refresh
-							</>
-						)}
-					</Button>
+			<div className='flex flex-col gap-5'>
+				<div>
+					<h1 className='text-lg font-semibold text-foreground'>Server logs</h1>
+					<p className='text-sm text-muted-foreground'>Real-time backend logs with auto-refresh.</p>
 				</div>
+				<div className='flex flex-col gap-12'>
+					<SettingsCard>
+						<div className='flex items-center gap-2 flex-wrap'>
+							<Select value={level} onValueChange={(v) => setLevel(v as LogLevel | 'all')}>
+								<SelectTrigger size='sm'>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value='all'>All levels</SelectItem>
+									<SelectItem value='error'>Error</SelectItem>
+									<SelectItem value='warn'>Warn</SelectItem>
+									<SelectItem value='info'>Info</SelectItem>
+									<SelectItem value='debug'>Debug</SelectItem>
+								</SelectContent>
+							</Select>
 
-				<div
-					ref={terminalRef}
-					onScroll={handleScroll}
-					className='rounded-lg bg-background border border-border font-mono text-xs overflow-auto max-h-[480px] min-h-[300px]'
-				>
-					{logs.isLoading ? (
-						<div className='flex items-center justify-center h-[280px]'>
-							<TextShimmer text='Loading logs...' />
-						</div>
-					) : logs.isError ? (
-						<div className='flex flex-col items-center justify-center h-[280px] gap-2 text-muted-foreground'>
-							<Terminal className='size-8 opacity-30' />
-							<span className='text-sm'>Failed to load logs.</span>
-							<Button variant='outline' size='sm' onClick={handleRefresh}>
-								Retry
+							<Select value={source} onValueChange={(v) => setSource(v as LogSource | 'all')}>
+								<SelectTrigger size='sm'>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value='all'>All sources</SelectItem>
+									<SelectItem value='http'>HTTP</SelectItem>
+									<SelectItem value='agent'>Agent</SelectItem>
+									<SelectItem value='tool'>Tool</SelectItem>
+									<SelectItem value='system'>System</SelectItem>
+								</SelectContent>
+							</Select>
+
+							<LogsDateRangeFilter value={range} onChange={setRange} />
+
+							<div className='flex-1' />
+
+							<Button variant='outline' size='sm' onClick={handleCopy} disabled={!sortedEntries.length}>
+								{copied ? (
+									<>
+										<Copy className='size-3.5' />
+										Copied
+									</>
+								) : (
+									<>
+										<Copy className='size-3.5' />
+										Copy
+									</>
+								)}
+							</Button>
+							<Button variant='outline' size='sm' onClick={handleRefresh} disabled={isRefreshing}>
+								{isRefreshing ? (
+									<TextShimmer text='Refreshing...' />
+								) : (
+									<>
+										<RefreshCw className='size-3.5' />
+										Refresh
+									</>
+								)}
 							</Button>
 						</div>
-					) : !sortedEntries.length ? (
-						<div className='flex flex-col items-center justify-center h-[280px] gap-2 text-muted-foreground'>
-							<Terminal className='size-8 opacity-30' />
-							<span className='text-sm'>No logs yet.</span>
+
+						<div
+							ref={terminalRef}
+							onScroll={handleScroll}
+							className='rounded-lg bg-background border border-border font-mono text-xs overflow-auto max-h-[480px] min-h-[300px]'
+						>
+							{logs.isLoading ? (
+								<div className='flex items-center justify-center h-[280px]'>
+									<TextShimmer text='Loading logs...' />
+								</div>
+							) : logs.isError ? (
+								<div className='flex flex-col items-center justify-center h-[280px] gap-2 text-muted-foreground'>
+									<Terminal className='size-8 opacity-30' />
+									<span className='text-sm'>Failed to load logs.</span>
+									<Button variant='outline' size='sm' onClick={handleRefresh}>
+										Retry
+									</Button>
+								</div>
+							) : !sortedEntries.length ? (
+								<div className='flex flex-col items-center justify-center h-[280px] gap-2 text-muted-foreground'>
+									<Terminal className='size-8 opacity-30' />
+									<span className='text-sm'>No logs yet.</span>
+								</div>
+							) : (
+								<div className='flex flex-col p-1'>
+									<LoadMoreHeader
+										isLoading={isLoadingOlder}
+										hasMore={hasMoreOlder}
+										onClick={loadOlder}
+									/>
+									{sortedEntries.map((entry) => (
+										<LogRow
+											key={entry.id}
+											entry={entry}
+											expanded={expandedIds.has(entry.id)}
+											onToggle={() => toggleExpand(entry.id)}
+											formatTimestamp={formatTimestamp}
+										/>
+									))}
+								</div>
+							)}
 						</div>
-					) : (
-						<div className='flex flex-col p-1'>
-							<LoadMoreHeader isLoading={isLoadingOlder} hasMore={hasMoreOlder} onClick={loadOlder} />
-							{sortedEntries.map((entry) => (
-								<LogRow
-									key={entry.id}
-									entry={entry}
-									expanded={expandedIds.has(entry.id)}
-									onToggle={() => toggleExpand(entry.id)}
-									formatTimestamp={formatTimestamp}
-								/>
-							))}
-						</div>
-					)}
+					</SettingsCard>
 				</div>
-			</SettingsCard>
+			</div>
 		</SettingsPageWrapper>
 	);
 }

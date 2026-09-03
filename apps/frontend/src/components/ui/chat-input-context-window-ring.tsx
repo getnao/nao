@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/main';
 import { useChatId } from '@/hooks/use-chat-id';
-import { useAgentContext } from '@/contexts/agent.provider';
+import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 
 const RADIUS = 8;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
@@ -45,36 +45,15 @@ function ringColor(value: number): string {
 	return 'stroke-primary';
 }
 
-interface ContextWindowRingProps {
+export function ContextWindowRingView({
+	tokensUsed,
+	contextWindow,
+	className,
+}: {
+	tokensUsed: number;
+	contextWindow: number;
 	className?: string;
-}
-
-export function ContextWindowRing({ className }: ContextWindowRingProps) {
-	const chatId = useChatId();
-	const { selectedModel, messages, isRunning } = useAgentContext();
-	const hasAssistantMessage = messages.some((m) => m.role === 'assistant');
-
-	const contextUsage = useQuery(
-		trpc.chat.getContextUsage.queryOptions(
-			{
-				chatId: chatId ?? '',
-				model: selectedModel ? { provider: selectedModel.provider, modelId: selectedModel.modelId } : undefined,
-			},
-			{
-				enabled: !!chatId && !isRunning && hasAssistantMessage && !!selectedModel,
-				staleTime: 0,
-				refetchOnWindowFocus: false,
-			},
-		),
-	);
-
-	if (!hasAssistantMessage || contextUsage.data?.contextWindow == null) {
-		return null;
-	}
-
-	const tokensUsed = contextUsage.data.tokensUsed;
-	const contextWindow = contextUsage.data.contextWindow;
-
+}) {
 	const percentRaw = tokensUsed > 0 ? (tokensUsed / contextWindow) * 100 : 0;
 	const percent = tokensUsed > 0 ? Math.min(100, Math.max(0.1, parseFloat(percentRaw.toFixed(1)))) : 0;
 	const clamped = clampPercent(percent);
@@ -87,7 +66,7 @@ export function ContextWindowRing({ className }: ContextWindowRingProps) {
 				<span
 					tabIndex={0}
 					aria-label={tooltipText}
-					className='inline-flex rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background'
+					className='inline-flex shrink-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background'
 				>
 					<svg
 						width='20'
@@ -122,5 +101,61 @@ export function ContextWindowRing({ className }: ContextWindowRingProps) {
 				{tooltipText}
 			</TooltipContent>
 		</Tooltip>
+	);
+}
+
+export function ContextWindowRing({ className }: { className?: string }) {
+	const chatId = useChatId();
+	const { selectedModel, isRunning } = useAgentContext();
+	const messages = useAgentMessages();
+	const hasAssistantMessage = messages.some((m) => m.role === 'assistant');
+
+	const contextUsage = useQuery(
+		trpc.chat.getContextUsage.queryOptions(
+			{
+				chatId: chatId ?? '',
+				model: selectedModel ? { provider: selectedModel.provider, modelId: selectedModel.modelId } : undefined,
+			},
+			{
+				enabled: !!chatId && !isRunning && hasAssistantMessage && !!selectedModel,
+				staleTime: 0,
+				refetchOnWindowFocus: false,
+			},
+		),
+	);
+
+	if (!hasAssistantMessage || contextUsage.data?.contextWindow == null) {
+		return null;
+	}
+
+	return (
+		<ContextWindowRingView
+			tokensUsed={contextUsage.data.tokensUsed}
+			contextWindow={contextUsage.data.contextWindow}
+			className={className}
+		/>
+	);
+}
+
+export function ReplayContextWindowRing({ chatId, className }: { chatId: string; className?: string }) {
+	const contextUsage = useQuery(
+		trpc.project.getChatReplayContextUsage.queryOptions(
+			{ chatId },
+			{
+				enabled: !!chatId,
+			},
+		),
+	);
+
+	if (contextUsage.data?.contextWindow == null) {
+		return null;
+	}
+
+	return (
+		<ContextWindowRingView
+			tokensUsed={contextUsage.data.tokensUsed}
+			contextWindow={contextUsage.data.contextWindow}
+			className={className}
+		/>
 	);
 }

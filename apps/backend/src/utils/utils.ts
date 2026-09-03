@@ -25,6 +25,11 @@ export const getErrorMessage = (error: unknown): string | null => {
 	return String(error);
 };
 
+export const formatErrorMessageForUI = (error: unknown): string => {
+	const message = error instanceof Error ? getErrorMessage(error)?.trim() : null;
+	return message || 'An error occurred.';
+};
+
 /** GitHub and GitLab usernames are case-insensitive, so entries are normalized to lowercase. */
 export const buildUsernameAllowlist = (allowedUsers?: string): Set<string> => {
 	const allowed = new Set<string>();

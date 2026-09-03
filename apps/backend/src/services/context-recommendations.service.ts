@@ -7,21 +7,19 @@ import { ContextFixCollector, createContextFixCollector } from '../agents/tools/
 import { createQueryAppDbTool } from '../agents/tools/query-app-db';
 import { createRecommendationCollector } from '../agents/tools/record-recommendation';
 import { renderContextRecommendationsPrompt, renderContextRecommendationsSystemPrompt } from '../components/ai';
-import s, {
-	DBContextRecommendation,
-	DBContextRecommendationConfig,
-	NewContextRecommendation,
-} from '../db/abstractSchema';
+import s, { DBContextRecommendation, NewContextRecommendation } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
 import * as chatQueries from '../queries/chat.queries';
 import * as crQueries from '../queries/context-recommendation.queries';
 import * as projectQueries from '../queries/project.queries';
 import { DEFAULT_MAX_AUTO_PRS_PER_RUN, RecommendationInsight } from '../types/context-recommendation';
+import { resolveDefaultModelSelection } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { extractConfiguredRepos } from '../utils/nao-config';
 import { agentService } from './agent';
 import { autoCreateRecommendationPullRequests, resolveRecommendationRepo } from './context-pr.service';
 import { ensureFeedbackCoverage, normalizeFeedbackLinks } from './context-recommendations.feedback-coverage';
+import { flagExpensiveContextFiles } from './context-recommendations.file-costs';
 import {
 	collectTriggerChatIds,
 	collectTriggerTargetIds,
@@ -47,7 +45,8 @@ export async function runContextRecommendations(
 	const periodStart = period?.start ?? (await resolvePeriodStart(projectId, periodEnd));
 
 	const config = await crQueries.getConfig(projectId);
-	const model = await agentService.resolveModelSelection(projectId, resolveConfiguredModel(config));
+	const configuredModel = await resolveDefaultModelSelection(projectId, 'context_recommendation');
+	const model = await agentService.resolveModelSelection(projectId, configuredModel ?? undefined);
 
 	const run = await crQueries.createRun({
 		projectId,
@@ -70,6 +69,9 @@ export async function runContextRecommendations(
 		const existing = await crQueries.getReconcilableRecommendations(projectId);
 		const dismissedFingerprints = await crQueries.getDismissedFingerprints(projectId);
 		const totals = await crQueries.getWindowTotals(projectId, periodStart, periodEnd);
+		const fileReadCosts = flagExpensiveContextFiles(
+			await crQueries.getContextFileReadCosts(projectId, periodStart, periodEnd),
+		);
 
 		const userId = await crQueries.getFirstProjectAdminUserId(projectId);
 		const [chat] = await chatQueries.createChat(
@@ -79,6 +81,7 @@ export async function runContextRecommendations(
 					windowStart: periodStart,
 					windowEnd: periodEnd,
 					existing,
+					fileReadCosts,
 					proposeFixes,
 					linkedRepos,
 					contextRepoConnected: !!contextRepo,
@@ -120,7 +123,7 @@ export async function runContextRecommendations(
 		});
 
 		const stream = agent.stream(uiChat.messages ?? [], {});
-		for await (const message of readUIMessageStream<UIMessage>({ stream })) {
+		for await (const message of readUIMessageStream<UIMessage>({ stream, terminateOnError: true })) {
 			void message; // drain; the agent persists its own messages, tools mutate the collector by reference
 		}
 
@@ -181,13 +184,6 @@ export async function repairRecommendationTriggerRefs<T extends { insights: Reco
 		crQueries.filterExistingProjectChatIds(projectId, chatIds),
 	]);
 	return repairTriggerRefs(items, resolvedByTarget, validChatIds);
-}
-
-function resolveConfiguredModel(config: DBContextRecommendationConfig | null): LlmSelectedModel | undefined {
-	if (config?.modelProvider && config?.modelId) {
-		return { provider: config.modelProvider, modelId: config.modelId };
-	}
-	return undefined; // agentService resolves the project default
 }
 
 async function resolvePeriodStart(projectId: string, end: Date): Promise<Date> {

@@ -11,14 +11,11 @@ import {
 	DEFAULT_MARKER_RADIUS,
 	formatCompactNumber,
 	indexBoundaries,
-	MAP_BOUNDARY_URLS,
-	type MapFeatureCollection,
 	type MapGeometry,
 	MAX_MAP_POINTS,
 	type NumericDomain,
 	numericDomain,
 	parseNumericValue,
-	resolveBoundary,
 	resolveMapConfig,
 	scaleBubbleRadius,
 	withOpacity,
@@ -28,8 +25,8 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import { svgToPng } from '../utils/generate-chart';
-import { getCachedBoundary, setCachedBoundary } from '../utils/map-boundary-cache';
-import { parseAndValidateGeoJson, safeFetch } from '../utils/safe-fetch';
+import { builtinBoundaryUrl, fetchBoundary, resolveChoroplethBoundary } from '../utils/map-boundary-resolve';
+import { renderMapWithBrowser } from '../utils/render-map-browser';
 import { type Basemap, buildBasemapTiles } from '../utils/static-map-basemap';
 import {
 	buildChoroplethSvg,
@@ -51,8 +48,16 @@ export interface RenderMapInput {
 
 /** Renders a `display_map` tool call to a PNG for surfaces that cannot run the interactive map (Slack, Teams, Telegram, WhatsApp). Returns null when there is nothing to draw. */
 export async function generateMapImage(input: RenderMapInput): Promise<Buffer | null> {
+	const browserImage = await renderMapWithBrowser({
+		config: input.config,
+		rows: input.rows,
+		customBoundaries: input.customBoundaries,
+	});
+	if (browserImage) {
+		return browserImage;
+	}
 	const svg = await renderMapToSvg(input);
-	return svg ? svgToPng(svg) : null;
+	return svg ? svgToPng(svg, 3) : null;
 }
 
 async function renderMapToSvg({ config, rows, customBoundaries = [] }: RenderMapInput): Promise<string | null> {
@@ -100,7 +105,6 @@ async function renderChoroplethSvg(
 	}
 
 	return renderSvgMarkup({
-		viewBox: svg.viewBox,
 		basemap,
 		backdrop: svg.backdrop,
 		title: config.title,
@@ -154,7 +158,6 @@ async function renderPointsSvg(config: displayMap.Input, rows: Record<string, un
 	}
 
 	return renderSvgMarkup({
-		viewBox: svg.viewBox,
 		basemap,
 		backdrop: svg.backdrop,
 		title: config.title,
@@ -175,70 +178,79 @@ async function renderPointsSvg(config: displayMap.Input, rows: Record<string, un
 	});
 }
 
+const TITLE_BAND_HEIGHT = 34;
+
 function renderSvgMarkup(args: {
-	viewBox: string;
 	basemap?: Basemap | null;
 	backdrop: string[];
 	title?: string;
 	legend: React.ReactNode;
 	children: React.ReactNode;
 }): string {
+	const bandHeight = args.title ? TITLE_BAND_HEIGHT : 0;
+	const totalHeight = VIEW_HEIGHT + bandHeight;
 	const markup = renderToStaticMarkup(
 		<svg
 			xmlns='http://www.w3.org/2000/svg'
 			width={VIEW_WIDTH}
-			height={VIEW_HEIGHT}
-			viewBox={args.viewBox}
+			height={totalHeight}
+			viewBox={`0 0 ${VIEW_WIDTH} ${totalHeight}`}
 			preserveAspectRatio='xMidYMid meet'
 		>
-			<rect x={0} y={0} width={VIEW_WIDTH} height={VIEW_HEIGHT} fill='#eef1f5' />
-			{args.basemap?.tiles.map((tile, index) => (
-				<image
-					key={`tile-${index}`}
-					href={tile.href}
-					x={tile.x}
-					y={tile.y}
-					width={tile.size}
-					height={tile.size}
-					preserveAspectRatio='none'
-				/>
-			))}
-			{args.backdrop.map((path, index) => (
-				<path
-					key={`backdrop-${index}`}
-					d={path}
-					fill='#d8dee8'
-					stroke='#eef1f5'
-					strokeWidth={0.5}
-					fillRule='evenodd'
-				/>
-			))}
-			{args.children}
-			{args.title && <TitleOverlay title={args.title} />}
-			{args.legend}
-			{args.basemap && <Attribution text={args.basemap.attribution} />}
+			<rect x={0} y={0} width={VIEW_WIDTH} height={totalHeight} fill='#ffffff' />
+			{args.title && <TitleHeader title={args.title} bandHeight={bandHeight} />}
+			<svg
+				x={0}
+				y={bandHeight}
+				width={VIEW_WIDTH}
+				height={VIEW_HEIGHT}
+				viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`}
+			>
+				<rect x={0} y={0} width={VIEW_WIDTH} height={VIEW_HEIGHT} fill='#eef1f5' />
+				{args.basemap?.tiles.map((tile, index) => (
+					<image
+						key={`tile-${index}`}
+						href={tile.href}
+						x={tile.x}
+						y={tile.y}
+						width={tile.size}
+						height={tile.size}
+						preserveAspectRatio='none'
+					/>
+				))}
+				{args.backdrop.map((path, index) => (
+					<path
+						key={`backdrop-${index}`}
+						d={path}
+						fill='#d8dee8'
+						stroke='#eef1f5'
+						strokeWidth={0.5}
+						fillRule='evenodd'
+					/>
+				))}
+				{args.children}
+				{args.legend}
+				{args.basemap && <Attribution text={args.basemap.attribution} />}
+			</svg>
 		</svg>,
 	);
 	return markup;
 }
 
-function TitleOverlay({ title }: { title: string }) {
-	const width = Math.min(VIEW_WIDTH - 24, title.length * 7 + 16);
+function TitleHeader({ title, bandHeight }: { title: string; bandHeight: number }) {
 	return (
-		<g>
-			<rect
-				x={12}
-				y={12}
-				width={width}
-				height={22}
-				rx={4}
-				fill='rgba(255,255,255,0.9)'
-				stroke='rgba(0,0,0,0.08)'
-			/>
-			<text x={20} y={27} fontSize={12} fontWeight={500} fontFamily='system-ui, sans-serif' fill='#111827'>
-				{title}
-			</text>
-		</g>
+		<text
+			x={VIEW_WIDTH / 2}
+			y={bandHeight / 2}
+			fontSize={15}
+			fontWeight={300}
+			fontFamily='system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
+			fill='#0a0a0a'
+			textAnchor='middle'
+			dominantBaseline='middle'
+		>
+			{title}
+		</text>
 	);
 }
 
@@ -329,58 +341,4 @@ function Attribution({ text }: { text: string }) {
 			</text>
 		</g>
 	);
-}
-
-async function resolveChoroplethBoundary(
-	config: displayMap.Input,
-	customBoundaries: CustomBoundarySet[],
-): Promise<{ geojson: MapFeatureCollection; joinProps: string[] | null } | null> {
-	if (config.geometry_key) {
-		return null;
-	}
-	if (config.boundaries_url) {
-		const geojson = await fetchBoundary(config.boundaries_url);
-		return geojson
-			? { geojson, joinProps: config.boundaries_join_property ? [config.boundaries_join_property] : null }
-			: null;
-	}
-	if (config.region_boundaries) {
-		const boundary = resolveBoundary(config.region_boundaries, customBoundaries);
-		if (!boundary) {
-			return null;
-		}
-		const isCustom = customBoundaries.some((set) => set.key === config.region_boundaries);
-		const url = isCustom ? boundary.url : builtinBoundaryUrl(config.region_boundaries);
-		const geojson = await fetchBoundary(url);
-		return geojson ? { geojson, joinProps: boundary.joinProps } : null;
-	}
-	return null;
-}
-
-async function fetchBoundary(url: string): Promise<MapFeatureCollection | null> {
-	if (!url) {
-		return null;
-	}
-	const cached = getCachedBoundary(url);
-	if (cached) {
-		return cached;
-	}
-	try {
-		const text = await safeFetch(url);
-		const { geojson } = parseAndValidateGeoJson(text);
-		setCachedBoundary(url, geojson);
-		return geojson;
-	} catch {
-		return null;
-	}
-}
-
-function builtinBoundaryUrl(set: string): string {
-	if (set === 'world_countries') {
-		return process.env.NAO_STORY_MAP_BOUNDARIES_WORLD_URL || MAP_BOUNDARY_URLS.world_countries;
-	}
-	if (set === 'france_regions') {
-		return process.env.NAO_STORY_MAP_BOUNDARIES_FRANCE_URL || MAP_BOUNDARY_URLS.france_regions;
-	}
-	return resolveBoundary(set)?.url ?? '';
 }

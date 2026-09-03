@@ -2,7 +2,7 @@ import { ANALYTICS_ASSET_TYPES } from '@nao/shared/types';
 import { z } from 'zod';
 
 import type { App } from '../app';
-import { getAuth } from '../auth';
+import { getSession } from '../auth';
 import * as chatQueries from '../queries/chat.queries';
 import * as storyQueries from '../queries/story.queries';
 import { logAnalyticsEvent } from '../utils/analytics-event';
@@ -22,12 +22,7 @@ const viewDurationBodySchema = z.object({
 
 export const analyticsRoutes = async (app: App) => {
 	app.post('/view-duration', async (request, reply) => {
-		const auth = await getAuth();
-		if (!auth) {
-			return reply.status(401).send({ error: 'Unauthorized' });
-		}
-
-		const session = await auth.api.getSession({ headers: convertHeaders(request.headers) });
+		const session = await getSession(convertHeaders(request.headers));
 		if (!session) {
 			return reply.status(401).send({ error: 'Unauthorized' });
 		}

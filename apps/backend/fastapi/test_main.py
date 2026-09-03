@@ -1,3 +1,4 @@
+import json
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,6 +9,14 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 from main import app
+
+INTERNAL_SECRET = "test-internal-secret-at-least-20-characters"
+INTERNAL_HEADERS = {"X-Nao-Internal-Secret": INTERNAL_SECRET}
+
+
+@pytest.fixture(autouse=True)
+def internal_secret(monkeypatch):
+    monkeypatch.setenv("BETTER_AUTH_SECRET", INTERNAL_SECRET)
 
 
 def assert_sql_result(
@@ -63,6 +72,31 @@ def duckdb_project_with_excluded_columns():
         config_path = Path(tmpdir) / "nao_config.yaml"
         with config_path.open("w") as f:
             yaml.dump(config, f)
+        catalog_path = (
+            Path(tmpdir)
+            / ".meta"
+            / "databases"
+            / "type=duckdb"
+            / "database=test"
+            / "columns.json"
+        )
+        catalog_path.parent.mkdir(parents=True)
+        catalog_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "schemas": {
+                        "main": {
+                            "users": [
+                                {"name": "id", "type": "INTEGER"},
+                                {"name": "name", "type": "VARCHAR"},
+                                {"name": "email", "type": "VARCHAR"},
+                            ]
+                        }
+                    },
+                }
+            )
+        )
         yield tmpdir
 
 
@@ -104,9 +138,39 @@ def duckdb_project_with_listed_tables_only():
         yield tmpdir
 
 
+def test_health_does_not_require_internal_secret():
+    response = TestClient(app).get("/health")
+
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize("headers", [{}, {"X-Nao-Internal-Secret": "wrong-secret"}])
+def test_internal_routes_reject_missing_or_wrong_secret(headers):
+    client = TestClient(app, headers=INTERNAL_HEADERS)
+    client.headers.pop("X-Nao-Internal-Secret")
+
+    response = client.post(
+        "/execute_sql",
+        headers=headers,
+        json={"sql": "SELECT 1", "nao_project_folder": "/tmp"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_internal_routes_fail_closed_without_configured_secret(monkeypatch):
+    monkeypatch.delenv("BETTER_AUTH_SECRET")
+
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/execute_sql", json={"sql": "SELECT 1", "nao_project_folder": "/tmp"}
+    )
+
+    assert response.status_code == 503
+
+
 def test_execute_sql_simple_duckdb(duckdb_project_folder):
     """Test execute_sql endpoint with a DuckDB in-memory database."""
-    client = TestClient(app)
+    client = TestClient(app, headers=INTERNAL_HEADERS)
 
     response = client.post(
         "/execute_sql",
@@ -128,33 +192,35 @@ def test_execute_sql_simple_duckdb(duckdb_project_folder):
 def test_execute_sql_blocks_star_with_excluded_columns(
     duckdb_project_with_excluded_columns,
 ):
-    client = TestClient(app)
+    client = TestClient(app, headers=INTERNAL_HEADERS)
 
     response = client.post(
         "/execute_sql",
         json={
             "sql": "SELECT * FROM users",
             "nao_project_folder": duckdb_project_with_excluded_columns,
+            "enforce_excluded_columns": True,
         },
     )
 
     assert response.status_code == 400
     assert response.json()["detail"] == (
         "Query blocked because SELECT * would include excluded column(s): main.users.email. "
-        "Select only allowed columns explicitly instead of using *."
+        "Use SELECT * EXCLUDE (email) to exclude them."
     )
 
 
 def test_execute_sql_blocks_explicit_excluded_column(
     duckdb_project_with_excluded_columns,
 ):
-    client = TestClient(app)
+    client = TestClient(app, headers=INTERNAL_HEADERS)
 
     response = client.post(
         "/execute_sql",
         json={
             "sql": "SELECT email FROM users",
             "nao_project_folder": duckdb_project_with_excluded_columns,
+            "enforce_excluded_columns": True,
         },
     )
 
@@ -162,10 +228,36 @@ def test_execute_sql_blocks_explicit_excluded_column(
     assert "main.users.email" in response.json()["detail"]
 
 
+@pytest.mark.parametrize(
+    "enforce_excluded_columns", [False, None], ids=["disabled", "omitted"]
+)
+def test_execute_sql_allows_excluded_column_without_enforcement(
+    duckdb_project_with_excluded_columns,
+    enforce_excluded_columns,
+):
+    client = TestClient(app, headers=INTERNAL_HEADERS)
+    request = {
+        "sql": "SELECT email FROM users",
+        "nao_project_folder": duckdb_project_with_excluded_columns,
+    }
+    if enforce_excluded_columns is not None:
+        request["enforce_excluded_columns"] = enforce_excluded_columns
+
+    response = client.post("/execute_sql", json=request)
+
+    assert response.status_code == 200
+    assert_sql_result(
+        response.json(),
+        row_count=1,
+        columns=["email"],
+        expected_data=[{"email": "alice@example.com"}],
+    )
+
+
 def test_execute_sql_allows_table_present_in_synced_context(
     duckdb_project_with_listed_tables_only,
 ):
-    client = TestClient(app)
+    client = TestClient(app, headers=INTERNAL_HEADERS)
 
     response = client.post(
         "/execute_sql",
@@ -187,7 +279,7 @@ def test_execute_sql_allows_table_present_in_synced_context(
 def test_execute_sql_blocks_table_missing_from_synced_context(
     duckdb_project_with_listed_tables_only,
 ):
-    client = TestClient(app)
+    client = TestClient(app, headers=INTERNAL_HEADERS)
 
     response = client.post(
         "/execute_sql",
@@ -228,7 +320,7 @@ def test_azure_entra_tableless_query_does_not_require_sync_credentials(
         staticmethod(lambda *args, **kwargs: config),
     )
 
-    response = TestClient(app).post(
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
         "/execute_sql",
         json={
             "sql": "SELECT 1 AS value",
@@ -248,7 +340,7 @@ def test_azure_entra_tableless_query_does_not_require_sync_credentials(
 
 def test_execute_sql_with_cte_duckdb(duckdb_project_folder):
     """Test execute_sql endpoint with a DuckDB in-memory database."""
-    client = TestClient(app)
+    client = TestClient(app, headers=INTERNAL_HEADERS)
 
     response = client.post(
         "/execute_sql",
@@ -293,7 +385,7 @@ def bigquery_project_folder():
 
 def test_execute_sql_simple_bigquery(bigquery_project_folder):
     """Test execute_sql endpoint with BigQuery using SSO."""
-    client = TestClient(app)
+    client = TestClient(app, headers=INTERNAL_HEADERS)
 
     response = client.post(
         "/execute_sql",
@@ -314,7 +406,7 @@ def test_execute_sql_simple_bigquery(bigquery_project_folder):
 
 def test_execute_sql_with_cte_bigquery(bigquery_project_folder):
     """Test execute_sql endpoint with a CTE query on BigQuery."""
-    client = TestClient(app)
+    client = TestClient(app, headers=INTERNAL_HEADERS)
 
     cte_sql = """
     WITH users AS (

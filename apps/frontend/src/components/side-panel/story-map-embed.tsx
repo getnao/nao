@@ -7,12 +7,11 @@ import type { ParsedMapBlock } from '@nao/shared/story-segments';
 import { StoryMapRender } from '@/components/story-map-embed';
 import { MapConfigEditDialog } from '@/components/tool-calls/display-map-edit-dialog';
 import { Button } from '@/components/ui/button';
-import { useOptionalAgentContext } from '@/contexts/agent.provider';
 import { useStoryEmbedData } from '@/contexts/story-embed-data';
 import { useIsInStoryGrid } from '@/contexts/story-grid';
 import { useStoryMapEdit } from '@/contexts/story-map-edit';
 import { useBreakoutStyle } from '@/hooks/use-breakout-width';
-import { findLatestExecuteSqlInMessages } from '@/lib/execute-sql-messages';
+import { useSourceQuery } from '@/hooks/use-source-query';
 import { cn } from '@/lib/utils';
 
 export const StoryMapEmbed = memo(function StoryMapEmbed({
@@ -22,17 +21,10 @@ export const StoryMapEmbed = memo(function StoryMapEmbed({
 	map: ParsedMapBlock;
 	dragHandle?: React.ReactNode;
 }) {
-	const agent = useOptionalAgentContext();
 	const embedData = useStoryEmbedData();
-
-	const sourceData = useMemo(() => {
-		const fromEmbedData = embedData?.[map.queryId];
-		if (fromEmbedData) {
-			return fromEmbedData;
-		}
-
-		return findLatestExecuteSqlInMessages(agent?.messages ?? [], map.queryId)?.output ?? null;
-	}, [embedData, agent?.messages, map.queryId]);
+	const embedSourceData = embedData?.[map.queryId];
+	const { sourceData: agentSourceData } = useSourceQuery(embedSourceData ? undefined : map.queryId);
+	const sourceData = embedSourceData ?? agentSourceData;
 
 	if (!sourceData?.data || sourceData.data.length === 0) {
 		return (

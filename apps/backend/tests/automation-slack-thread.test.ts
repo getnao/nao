@@ -82,6 +82,7 @@ describe('renderAutomationRunPrompt slack threading guidance', () => {
 describe('send_automation_slack_message threading', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		vi.mocked(slackService.uploadFiles).mockResolvedValue(undefined);
 	});
 
 	it('starts a thread on the first call and replies into it afterwards', async () => {
@@ -144,5 +145,84 @@ describe('send_automation_slack_message threading', () => {
 		const uploadedFiles = vi.mocked(slackService.uploadFiles).mock.calls.flatMap((call) => call[2]);
 		expect(uploadedFiles).toHaveLength(1);
 		expect(uploadedFiles[0].filename).toBe('revenue.png');
+	});
+
+	it('keeps the delivered message successful and retries failed attachments', async () => {
+		vi.mocked(slackService.postMessage).mockResolvedValue({
+			channel: CHANNEL_ID,
+			ts: '111.222',
+			threadId: ROOT_THREAD_ID,
+		});
+		vi.mocked(slackService.uploadFiles).mockRejectedValueOnce(new Error('not_in_channel'));
+
+		const tools = createAutomationTools({
+			projectId: 'project-1',
+			chatId: 'chat-1',
+			githubToken: null,
+			integrations: slackIntegrations(),
+		});
+		const tool = tools.send_automation_slack_message;
+		const context = emptyContext();
+		context.generatedArtifacts.charts = [
+			{ type: 'bar', title: 'Revenue', query_id: 'q1' } as ToolContext['generatedArtifacts']['charts'][number],
+		];
+
+		const failedUpload = await runTool(tool, { text: 'Headline' }, context);
+		expect(failedUpload).toMatchObject({
+			ok: true,
+			threadId: ROOT_THREAD_ID,
+			attachments: [],
+			attachmentError: 'Files could not be uploaded: not_in_channel',
+		});
+
+		const retry = await runTool(tool, { text: 'Body', thread_id: ROOT_THREAD_ID }, context);
+		expect(retry).toMatchObject({
+			ok: true,
+			threadId: ROOT_THREAD_ID,
+			attachments: ['revenue.png'],
+		});
+		expect(slackService.uploadFiles).toHaveBeenCalledTimes(2);
+	});
+
+	it('preserves successful uploads when a later attachment fails', async () => {
+		vi.mocked(slackService.postMessage).mockResolvedValue({
+			channel: CHANNEL_ID,
+			ts: '111.222',
+			threadId: ROOT_THREAD_ID,
+		});
+		vi.mocked(slackService.uploadFiles)
+			.mockResolvedValueOnce(undefined)
+			.mockRejectedValueOnce(new Error('upload_failed'));
+
+		const tools = createAutomationTools({
+			projectId: 'project-1',
+			chatId: 'chat-1',
+			githubToken: null,
+			integrations: slackIntegrations(),
+		});
+		const tool = tools.send_automation_slack_message;
+		const context = emptyContext();
+		context.generatedArtifacts.charts = [
+			{ type: 'bar', title: 'Revenue', query_id: 'q1' } as ToolContext['generatedArtifacts']['charts'][number],
+			{ type: 'bar', title: 'Expenses', query_id: 'q2' } as ToolContext['generatedArtifacts']['charts'][number],
+		];
+
+		const partialUpload = await runTool(tool, { text: 'Headline' }, context);
+		expect(partialUpload).toMatchObject({
+			ok: true,
+			threadId: ROOT_THREAD_ID,
+			attachments: ['revenue.png'],
+			attachmentError: 'Files could not be uploaded: upload_failed',
+		});
+
+		const retry = await runTool(tool, { text: 'Body', thread_id: ROOT_THREAD_ID }, context);
+		expect(retry).toMatchObject({
+			ok: true,
+			threadId: ROOT_THREAD_ID,
+			attachments: ['expenses.png'],
+		});
+		expect(
+			vi.mocked(slackService.uploadFiles).mock.calls.map((call) => call[2].map((file) => file.filename)),
+		).toEqual([['revenue.png'], ['expenses.png'], ['expenses.png']]);
 	});
 });

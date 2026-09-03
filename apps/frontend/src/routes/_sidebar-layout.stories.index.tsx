@@ -13,7 +13,7 @@ import { getEventCoordinates } from '@dnd-kit/utilities';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { Archive, Folder, Home } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BULK_ITEMS_LIMIT } from '@nao/shared';
 import type { BulkStoryItem, StoryPanelDisplayMode } from '@nao/shared/types';
 import type { CollisionDetection, DragEndEvent, DragStartEvent, Modifier } from '@dnd-kit/core';
@@ -26,12 +26,12 @@ import { FolderCreateDialog } from '@/components/stories-folder-create-dialog';
 import { FolderDeleteDialog } from '@/components/stories-folder-delete-dialog';
 import { FolderPickerDialog } from '@/components/stories-folder-picker-dialog';
 import { MobileHeader } from '@/components/mobile-header';
-import { ProjectSelector } from '@/components/project-selector';
+import { ProjectSwitcher } from '@/components/project-selector';
 import { SortHeader } from '@/components/stories-sort-header';
 import { StoriesExplorer } from '@/components/stories-explorer';
 import { PromotedSections } from '@/components/stories-pinned-favorites';
 import { StoriesToolbarControls } from '@/components/stories-toolbar-controls';
-import { setActiveProjectId } from '@/lib/active-project';
+import { useProjectSwitch } from '@/hooks/use-project-switch';
 import { useSession } from '@/lib/auth-client';
 import {
 	buildCurrentLevelEntries,
@@ -120,8 +120,8 @@ function StoriesPage() {
 
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
-	const isInMultipleProjects = (projects.data?.length ?? 0) > 1;
 	const activeProjectId = project.data?.id;
+	const switchProject = useProjectSwitch(activeProjectId);
 
 	const userStories = useQuery(trpc.story.listAll.queryOptions({ projectId: activeProjectId }));
 	const standaloneStories = useQuery(trpc.story.listStandalone.queryOptions());
@@ -151,18 +151,6 @@ function StoriesPage() {
 	const folderItems = useQuery(trpc.storyFolder.listItems.queryOptions());
 
 	const currentUserName = session?.user?.name ?? 'Me';
-
-	const handleProjectChange = useCallback(
-		async (projectId: string) => {
-			if (!activeProjectId || projectId === activeProjectId) {
-				return;
-			}
-			setActiveProjectId(projectId);
-			await queryClient.invalidateQueries();
-			navigate({ to: '/stories', search: { folderId: null } });
-		},
-		[activeProjectId, queryClient, navigate],
-	);
 
 	const folderItemMap = useMemo(() => {
 		const map = new Map<string, string>();
@@ -299,6 +287,13 @@ function StoriesPage() {
 		setSearchQuery('');
 		clearSelection();
 		if (value) {
+			navigate({ to: '/stories', search: { folderId: null } });
+		}
+	}
+
+	async function handleProjectChange(projectId: string) {
+		const didSwitch = await switchProject(projectId);
+		if (didSwitch) {
 			navigate({ to: '/stories', search: { folderId: null } });
 		}
 	}
@@ -575,13 +570,12 @@ function StoriesPage() {
 							</h1>
 						</div>
 						<div className='flex items-center gap-3 min-w-0'>
-							{project.data && isInMultipleProjects && (
-								<ProjectSelector
+							{project.data && (
+								<ProjectSwitcher
 									projects={projects.data ?? []}
 									currentProjectId={project.data.id}
 									onChange={handleProjectChange}
-									triggerVariant='ghost'
-									triggerClassName='h-8 text-sm'
+									variant='inline'
 								/>
 							)}
 							{(!isEmpty || showArchived) && (

@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 
+import { isLlmProvider, LLM_PROVIDERS, NAMED_PROVIDER_KIND } from '@nao/shared/types';
 import dotenv from 'dotenv';
 import { z } from 'zod/v4';
 
@@ -87,6 +88,9 @@ const envSchema = z.object({
 	OIDC_SCOPES: z.string().optional(),
 	OIDC_AUTH_DOMAINS: z.string().optional(),
 	OIDC_PKCE: z.string().optional(),
+	OIDC_GROUPS_CLAIM: z.string().optional(),
+	OIDC_GROUP_ROLE_MAPPING: z.string().optional(),
+	SSO_SESSION_MAX_AGE: z.coerce.number().int().positive().optional(),
 
 	SMTP_PASSWORD: z.string().optional(),
 	SMTP_HOST: z.string().optional(),
@@ -104,11 +108,87 @@ const envSchema = z.object({
 	NAO_MODE: z.enum(['self-hosted', 'cloud']).default('self-hosted'),
 	NAO_PROJECTS_DIR: z.string().default('./projects'),
 	NAO_CORE_VERSION: z.string().optional(),
+	NAO_CONTEXT_SOURCE: z.enum(['local', 'git', 'api']).optional(),
+	NAO_CONTEXT_GIT_URL: z.string().optional(),
+	NAO_CONTEXT_GIT_BRANCH: z.string().optional(),
+	NAO_CONTEXT_GIT_SUBPATH: z.string().optional(),
+	NAO_CONTEXT_GIT_TOKEN: z.string().optional(),
+	NAO_CONTEXT_GIT_SSH_KEY: z.string().optional(),
+	NAO_CONTEXT_GIT_PLATFORM: z.enum(['github', 'gitlab', 'bitbucket']).optional(),
+
+	NAO_STORAGE_BACKEND: z.enum(['none', 'local', 's3']).default('local'),
+	NAO_STORAGE_LOCAL_PATH: z.string().default('./storage'),
+	NAO_STORAGE_S3_BUCKET: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	NAO_STORAGE_S3_REGION: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	NAO_STORAGE_S3_ENDPOINT: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined)
+		.pipe(z.url({ message: 'NAO_STORAGE_S3_ENDPOINT must be a valid URL' }).optional()),
+	NAO_STORAGE_S3_PREFIX: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	NAO_STORAGE_S3_ACCESS_KEY_ID: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	NAO_STORAGE_S3_SECRET_ACCESS_KEY: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	NAO_STORAGE_S3_FORCE_PATH_STYLE: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('false')
+		.transform((val) => val === 'true'),
+	NAO_STORAGE_MAX_FILE_SIZE_MB: z.coerce
+		.number({ message: 'NAO_STORAGE_MAX_FILE_SIZE_MB must be a number of megabytes' })
+		.positive({ message: 'NAO_STORAGE_MAX_FILE_SIZE_MB must be greater than 0' })
+		.default(10),
+
+	/**
+	 * Where DuckDB extensions were pre-installed at image build time. Set so that spreadsheet
+	 * support works with no network at query time, since the query runs with external access off.
+	 */
+	DUCKDB_EXTENSION_DIR: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
 
 	NAO_LICENSE: z
 		.string()
 		.optional()
 		.transform((val) => val?.trim() || undefined),
+
+	/**
+	 * Default for the MCP endpoint toggle (Settings > MCP Endpoint) while a project has no stored
+	 * settings — lets a deployment come up with the endpoint already enabled. Once an admin saves
+	 * the settings, the stored value wins and this is ignored.
+	 */
+	MCP_ENDPOINT_ENABLED: z
+		.enum(['true', 'false'])
+		.optional()
+		.transform((val) => (val === undefined ? undefined : val === 'true')),
+
+	/**
+	 * Public base URL external MCP clients connect to, when it differs from BETTER_AUTH_URL — e.g.
+	 * a deployment that serves the MCP endpoint on an internet-facing host while the UI stays on a
+	 * private/VPN-only host. Its `/mcp` URL is added to the OAuth token audiences, and the
+	 * protected-resource metadata + WWW-Authenticate header advertise whichever host the client
+	 * used. Leave unset for single-host deployments.
+	 */
+	MCP_PUBLIC_URL: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined)
+		.pipe(z.url({ message: 'MCP_PUBLIC_URL must be a valid URL' }).optional()),
 
 	POSTHOG_KEY: z.string().optional(),
 	POSTHOG_HOST: z.url({ message: 'POSTHOG_HOST must be a valid URL' }).optional(),
@@ -116,6 +196,25 @@ const envSchema = z.object({
 		.enum(['true', 'false'])
 		.optional()
 		.transform((val) => val === 'true'),
+
+	/**
+	 * Comma-separated providers to keep out of the deployment entirely, regardless of where their
+	 * credentials come from. Ambient credentials otherwise auto-register providers — e.g. EKS IRSA
+	 * sets AWS_WEB_IDENTITY_TOKEN_FILE on every pod, which surfaces Bedrock even when the role has
+	 * no Bedrock permissions. Accepts provider kinds and named instances (openaiCompatible/name).
+	 */
+	DISABLED_PROVIDERS: z
+		.string()
+		.optional()
+		.transform((val) =>
+			(val ?? '')
+				.split(',')
+				.map((entry) => entry.trim())
+				.filter(Boolean),
+		)
+		.refine((providers) => providers.every(isLlmProvider), {
+			message: `DISABLED_PROVIDERS must be a comma-separated list of provider kinds (${LLM_PROVIDERS.join(', ')}) or named instances (${NAMED_PROVIDER_KIND}/<name>)`,
+		}),
 
 	LANGFUSE_PUBLIC_KEY: z
 		.string()
@@ -165,6 +264,11 @@ if (result.data.NAO_DEFAULT_PROJECT_PATH && result.data.NAO_MODE === 'cloud') {
 	process.exit(1);
 }
 
+if (result.data.NAO_STORAGE_BACKEND === 's3' && !result.data.NAO_STORAGE_S3_BUCKET) {
+	console.error('NAO_STORAGE_S3_BUCKET is required when NAO_STORAGE_BACKEND=s3.');
+	process.exit(1);
+}
+
 export const env = result.data;
 
 /**
@@ -192,6 +296,33 @@ export const isSelfHosted = env.NAO_MODE === 'self-hosted';
 
 const normalizedBaseUrl = env.BETTER_AUTH_URL.replace(/\/+$/, '');
 export const MCP_SERVER_URL = `${normalizedBaseUrl}/mcp`;
+
+const normalizedMcpPublicUrl = env.MCP_PUBLIC_URL?.replace(/\/+$/, '');
+/** The `/mcp` URL on the public host, when MCP_PUBLIC_URL is set. */
+export const MCP_PUBLIC_SERVER_URL = normalizedMcpPublicUrl ? `${normalizedMcpPublicUrl}/mcp` : undefined;
+/** OAuth resource identifiers the token endpoint accepts (RFC 8707 audiences). */
+export const MCP_VALID_AUDIENCES = [
+	env.BETTER_AUTH_URL,
+	MCP_SERVER_URL,
+	...(MCP_PUBLIC_SERVER_URL ? [MCP_PUBLIC_SERVER_URL] : []),
+];
+/** Audiences a bearer token may carry to call /mcp — the MCP resource URLs, on either host. */
+export const MCP_TOKEN_AUDIENCES = [MCP_SERVER_URL, ...(MCP_PUBLIC_SERVER_URL ? [MCP_PUBLIC_SERVER_URL] : [])];
+
+// URL normalizes host to lowercase; compare request hosts case-insensitively to match.
+const mcpPublicHost = normalizedMcpPublicUrl ? new URL(normalizedMcpPublicUrl).host : undefined;
+
+/**
+ * The origin a client is talking to, so the protected-resource metadata and WWW-Authenticate
+ * header advertise the host actually in use. Returns the public MCP origin when the request came in
+ * on it, else BETTER_AUTH_URL — never an arbitrary Host header, so only known origins are advertised.
+ */
+export function resolveMcpFacingOrigin(requestHost: string | undefined): string {
+	if (normalizedMcpPublicUrl && requestHost && requestHost.toLowerCase() === mcpPublicHost) {
+		return normalizedMcpPublicUrl;
+	}
+	return normalizedBaseUrl;
+}
 
 export function noProjectMessage(): string {
 	return isCloud

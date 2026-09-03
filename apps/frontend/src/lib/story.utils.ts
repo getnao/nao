@@ -12,6 +12,8 @@ export interface StoryDraft {
 	isStreaming: boolean;
 }
 
+const storiesByMessages = new WeakMap<UIMessage[], StorySummary[]>();
+
 const isStoryIdMatch = (expectedId: string, candidateId: string) => {
 	return expectedId === candidateId;
 };
@@ -25,6 +27,11 @@ const isStoryIdPrefixMatch = (expectedId: string, candidateId: string) => {
  * Uses completed tool outputs only.
  */
 export function findStories(messages: UIMessage[]): StorySummary[] {
+	const cachedStories = storiesByMessages.get(messages);
+	if (cachedStories) {
+		return cachedStories;
+	}
+
 	const seen = new Map<string, string>();
 
 	for (const message of messages) {
@@ -40,7 +47,9 @@ export function findStories(messages: UIMessage[]): StorySummary[] {
 		}
 	}
 
-	return [...seen.entries()].map(([id, title]) => ({ id, title }));
+	const stories = [...seen.entries()].map(([id, title]) => ({ id, title }));
+	storiesByMessages.set(messages, stories);
+	return stories;
 }
 
 export function findStoryIds(messages: UIMessage[]): string[] {

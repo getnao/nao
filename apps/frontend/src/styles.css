@@ -143,6 +143,7 @@ code {
 	font-size: 0.75rem;
 	background-color: var(--color-muted);
 	border-radius: var(--radius-sm);
+	padding: 0.125rem 0.25rem;
 }
 
 code.dollar:before {
@@ -183,6 +184,9 @@ code.dollar:before {
 	--color-chart-3: var(--chart-3);
 	--color-chart-4: var(--chart-4);
 	--color-chart-5: var(--chart-5);
+	--color-chart-6: var(--chart-6);
+	--color-chart-7: var(--chart-7);
+	--color-chart-8: var(--chart-8);
 	--color-sidebar: var(--sidebar);
 	--color-sidebar-foreground: var(--sidebar-foreground);
 	--color-sidebar-primary: var(--sidebar-primary);
@@ -236,7 +240,8 @@ code.dollar:before {
 	--chart-4: oklch(0.828 0.189 84.429);
 	--chart-5: oklch(0.769 0.188 70.08);
 	--chart-6: oklch(0.704 0.191 22.216);
-	--chart-7: oklch(0.646 0.222 41.116);
+	--chart-7: oklch(0.58 0.22 295);
+	--chart-8: oklch(0.52 0.18 265);
 
 	--sidebar: oklch(0.99 0 0);
 	--sidebar-foreground: oklch(0.129 0.042 264.695);
@@ -285,7 +290,8 @@ code.dollar:before {
 	--chart-4: oklch(0.88 0.18 84.429);
 	--chart-5: oklch(0.82 0.18 70.08);
 	--chart-6: oklch(0.76 0.19 22.216);
-	--chart-7: oklch(0.704 0.191 22.216);
+	--chart-7: oklch(0.72 0.22 295);
+	--chart-8: oklch(0.68 0.18 265);
 }
 
 @layer base {
@@ -430,6 +436,23 @@ code.dollar:before {
 .hide-code-header [data-streamdown='code-block-body'] {
 	border: none;
 	padding: 0;
+}
+
+.file-viewer-search-match {
+	background-color: rgb(245 158 11 / 18%);
+	border-radius: 2px;
+}
+
+.dark .file-viewer-search-match {
+	background-color: rgb(250 204 21 / 20%);
+}
+
+::highlight(nao-file-preview-search-match) {
+	background-color: rgb(245 158 11 / 18%);
+}
+
+.dark ::highlight(nao-file-preview-search-match) {
+	background-color: rgb(250 204 21 / 20%);
 }
 
 /* Tiptap story editor */
@@ -762,6 +785,21 @@ code.dollar:before {
 	background-color: var(--primary);
 	color: var(--primary-foreground);
 	opacity: 0.9;
+}
+
+/* Reduce the(⌘+scroll) overlay so that it doesn't get over the chat input. */
+.maplibregl-cooperative-gesture-screen {
+	background: rgb(0 0 0 / 0.25);
+	z-index: 2;
+}
+
+.maplibregl-cooperative-gesture-screen.maplibregl-show {
+	transition: opacity 0.05s;
+}
+
+/* Snap the hide-fade so the overlay clears quickly instead of lingering 2 s */
+.maplibregl-cooperative-gesture-screen:not(.maplibregl-show) {
+	transition: opacity 0.3s ease 0.2s;
 }
 
 /* MapLibre hover tooltip: strip default popup chrome so the inner box matches the chart tooltip */

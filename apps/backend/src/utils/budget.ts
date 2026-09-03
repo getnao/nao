@@ -5,55 +5,175 @@ import type { DBProjectProviderBudget } from '../db/abstractSchema';
 import * as budgetQueries from '../queries/budget.queries';
 import * as projectQueries from '../queries/project.queries';
 import { emailService } from '../services/email';
+import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import type { BudgetPeriod } from '../types/budget';
 import { buildBudgetLimitReachedEmail } from './email-builders';
 import { BudgetExceededError } from './error';
+import { getProjectConfigLlm } from './llm';
 import { logger } from './logger';
+import type { ConfigProviderBudget } from './nao-config-llm';
 
 export type BudgetStatus = { level: 'ok' | 'warning' | 'exceeded'; message: string | null };
 
-export async function checkBudgetStatus(projectId: string, provider: LlmProvider): Promise<BudgetStatus> {
-	const usage = await resolveBudgetUsage(projectId, provider);
-	if (!usage || usage.ratio < WARNING_BUDGET_THRESHOLD) {
+export type BudgetSource = 'project' | 'config';
+
+export type EffectiveProviderBudget = ConfigProviderBudget & {
+	provider: LlmProvider;
+	source: BudgetSource;
+};
+
+export async function getEffectiveProviderBudgets(projectId: string): Promise<EffectiveProviderBudget[]> {
+	const [dbBudgets, configLlm] = await Promise.all([
+		budgetQueries.getProjectProviderBudgets(projectId),
+		getProjectConfigLlm(projectId),
+	]);
+
+	const byProvider = new Map<LlmProvider, EffectiveProviderBudget>();
+	for (const budget of dbBudgets) {
+		byProvider.set(budget.provider as LlmProvider, {
+			provider: budget.provider as LlmProvider,
+			limitUsd: budget.limitUsd,
+			perUserLimitUsd: budget.perUserLimitUsd ?? null,
+			period: budget.period as BudgetPeriod,
+			source: 'project',
+		});
+	}
+	for (const configured of configLlm?.providers ?? []) {
+		if (configured.budget) {
+			byProvider.set(configured.provider, {
+				provider: configured.provider,
+				limitUsd: configured.budget.limitUsd,
+				perUserLimitUsd: configured.budget.perUserLimitUsd,
+				period: configured.budget.period,
+				source: 'config',
+			});
+		}
+	}
+
+	return [...byProvider.values()];
+}
+
+export async function checkBudgetStatus(
+	projectId: string,
+	provider: LlmProvider,
+	userId?: string,
+): Promise<BudgetStatus> {
+	const usages = await resolveBudgetUsages(projectId, provider, userId);
+
+	if (usages.length === 0 || usages.every((u) => u.ratio < WARNING_BUDGET_THRESHOLD)) {
 		return { level: 'ok', message: null };
 	}
 
+	const worst = usages.reduce((highest, usage) => (usage.ratio > highest.ratio ? usage : highest));
 	return {
-		level: usage.ratio >= 1 ? 'exceeded' : 'warning',
-		message: buildBudgetMessage(usage.ratio, providerLabel(provider), usage.resetLabel),
+		level: worst.ratio >= 1 ? 'exceeded' : 'warning',
+		message: buildBudgetMessage(worst.ratio, providerLabel(provider), worst.resetLabel, worst.scope),
 	};
 }
 
-export async function assertBudgetNotExceeded(projectId: string, provider: LlmProvider): Promise<void> {
-	const usage = await resolveBudgetUsage(projectId, provider);
-	if (!usage || usage.ratio < 1) {
-		return;
+export async function assertBudgetNotExceeded(
+	projectId: string,
+	provider: LlmProvider,
+	userId?: string,
+): Promise<void> {
+	const usages = await resolveBudgetUsages(projectId, provider, userId);
+	const projectUsage = usages.find((u) => u.scope === 'project');
+	const userUsage = usages.find((u) => u.scope === 'user');
+
+	if (projectUsage && projectUsage.ratio >= 1) {
+		if (projectUsage.dbBudget) {
+			await notifyAdminsOnBudgetLimitReached(
+				projectId,
+				projectUsage.dbBudget,
+				projectUsage.currentSpend,
+				projectUsage.resetLabel,
+			).catch(() => {});
+		}
+		throw new BudgetExceededError(
+			buildBudgetMessage(projectUsage.ratio, providerLabel(provider), projectUsage.resetLabel, 'project'),
+		);
 	}
 
-	await notifyAdminsOnBudgetLimitReached(projectId, usage.budget, usage.currentSpend, usage.resetLabel).catch(
-		() => {},
-	);
-	throw new BudgetExceededError(buildBudgetMessage(usage.ratio, providerLabel(provider), usage.resetLabel));
+	if (userUsage && userUsage.ratio >= 1) {
+		throw new BudgetExceededError(
+			buildBudgetMessage(userUsage.ratio, providerLabel(provider), userUsage.resetLabel, 'user'),
+		);
+	}
 }
 
-function buildBudgetMessage(ratio: number, label: string, resetLabel: string): string {
+type BudgetUsage = {
+	currentSpend: number;
+	ratio: number;
+	resetLabel: string;
+	scope: 'project' | 'user';
+	dbBudget: DBProjectProviderBudget | null;
+};
+
+function buildBudgetMessage(ratio: number, label: string, resetLabel: string, scope: 'project' | 'user'): string {
 	const percent = Math.min(Math.round(ratio * 100), 100);
-	return `You've used ${percent}% of your ${label} budget. It will reset ${resetLabel}.`;
+	const scopeLabel = scope === 'user' ? `your personal ${label}` : `your ${label}`;
+	return `You've used ${percent}% of ${scopeLabel} budget. It will reset ${resetLabel}.`;
 }
 
-async function resolveBudgetUsage(projectId: string, provider: LlmProvider) {
-	const budget = await budgetQueries.getProviderBudget(projectId, provider);
-	if (!budget || budget.limitUsd <= 0) {
-		return null;
+async function resolveBudgetUsages(
+	projectId: string,
+	provider: LlmProvider,
+	userId: string | undefined,
+): Promise<BudgetUsage[]> {
+	const budgets = await getEffectiveProviderBudgets(projectId);
+	const budget = budgets.find((b) => b.provider === provider);
+	if (!budget) {
+		return [];
 	}
 
-	await budgetQueries.advanceStaleBudgetPeriods(projectId, provider);
-	const currentSpend = await budgetQueries.getProviderCurrentSpend(projectId, provider);
-	const ratio = currentSpend / budget.limitUsd;
-	const period = budget.period as BudgetPeriod;
-	const resetLabel = formatResetDate(getNextPeriodStart(period), period);
+	const hasProjectLimit = budget.limitUsd > 0;
+	const hasUserLimit =
+		!!userId &&
+		!!budget.perUserLimitUsd &&
+		budget.perUserLimitUsd > 0 &&
+		(await hasFeature(LICENSE_FEATURES.userBudget));
 
-	return { budget, currentSpend, ratio, resetLabel };
+	if (!hasProjectLimit && !hasUserLimit) {
+		return [];
+	}
+
+	const dbBudget = budget.source === 'project' ? await advanceAndFetchDbBudget(projectId, provider) : null;
+	const { projectSpend, userSpend } = await budgetQueries.getProviderBudgetSpend(
+		projectId,
+		provider,
+		budget.period,
+		userId,
+	);
+	const resetLabel = formatResetDate(getNextPeriodStart(budget.period), budget.period);
+
+	const usages: BudgetUsage[] = [];
+	if (hasProjectLimit) {
+		usages.push({
+			currentSpend: projectSpend,
+			ratio: projectSpend / budget.limitUsd,
+			resetLabel,
+			scope: 'project',
+			dbBudget,
+		});
+	}
+	if (hasUserLimit && budget.perUserLimitUsd) {
+		usages.push({
+			currentSpend: userSpend,
+			ratio: userSpend / budget.perUserLimitUsd,
+			resetLabel,
+			scope: 'user',
+			dbBudget,
+		});
+	}
+	return usages;
+}
+
+async function advanceAndFetchDbBudget(
+	projectId: string,
+	provider: LlmProvider,
+): Promise<DBProjectProviderBudget | null> {
+	await budgetQueries.advanceStaleBudgetPeriods(projectId, provider);
+	return budgetQueries.getProviderBudget(projectId, provider);
 }
 
 async function notifyAdminsOnBudgetLimitReached(

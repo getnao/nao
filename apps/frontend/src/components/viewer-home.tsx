@@ -1,22 +1,24 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, useMemo, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useState, useMemo } from 'react';
 import type { StoryPanelDisplayMode } from '@nao/shared/types';
 import type { GroupBy, SharedItem } from '@/lib/viewer-home';
 import { MobileHeader } from '@/components/mobile-header';
-import { ProjectSelector } from '@/components/project-selector';
+import { ProjectSwitcher } from '@/components/project-selector';
 import { ViewerToolbarControls } from '@/components/viewer-toolbar-controls';
 import { NoResults } from '@/components/item-card';
 import { ViewerEmptyState, ViewerGroups } from '@/components/viewer-shared-items';
 import { Spinner } from '@/components/ui/spinner';
+import { useMultiProject } from '@/hooks/use-multi-project';
+import { useProjectSwitch } from '@/hooks/use-project-switch';
 import { VIEWER_DISPLAY_KEY, VIEWER_GROUP_KEY, filterItems, getStoredSetting, groupItems } from '@/lib/viewer-home';
-import { setActiveProjectId } from '@/lib/active-project';
 import { trpc } from '@/main';
 
 export function ViewerHome() {
-	const queryClient = useQueryClient();
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
 	const projectId = project.data?.id;
+	const switchProject = useProjectSwitch(projectId);
+	const multiProjectMode = useMultiProject();
 	const sharedChats = useQuery(trpc.sharedChat.list.queryOptions());
 	const sharedStories = useQuery({
 		...trpc.storyShare.list.queryOptions({ projectId: projectId ?? '' }),
@@ -28,18 +30,6 @@ export function ViewerHome() {
 	);
 	const [groupBy, setGroupBy] = useState<GroupBy>(() =>
 		getStoredSetting(VIEWER_GROUP_KEY, ['type', 'date', 'author'], 'type'),
-	);
-	const isInMultipleProjects = (projects.data?.length ?? 0) > 1;
-
-	const handleProjectChange = useCallback(
-		async (newProjectId: string) => {
-			if (!project.data || newProjectId === project.data.id) {
-				return;
-			}
-			setActiveProjectId(newProjectId);
-			await queryClient.invalidateQueries();
-		},
-		[project.data, queryClient],
 	);
 
 	function handleDisplayChange(mode: StoryPanelDisplayMode) {
@@ -84,13 +74,13 @@ export function ViewerHome() {
 	const isLoading = sharedChats.isLoading || sharedStories.isLoading || project.isLoading;
 	const isEmpty = allItems.length === 0 && !isLoading;
 
-	const projectSelector = project.data && isInMultipleProjects && (
+	const projectSelector = multiProjectMode === 'switch' && project.data && (projects.data?.length ?? 0) > 1 && (
 		<div className='max-md:hidden'>
-			<ProjectSelector
+			<ProjectSwitcher
 				projects={projects.data ?? []}
 				currentProjectId={project.data.id}
-				onChange={handleProjectChange}
-				triggerVariant='ghost'
+				onChange={switchProject}
+				variant='inline'
 			/>
 		</div>
 	);

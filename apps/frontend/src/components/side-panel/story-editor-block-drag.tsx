@@ -78,10 +78,10 @@ export function StoryBlockDragGrip({ node, editor, getPos }: Pick<ReactNodeViewP
 					return;
 				}
 				const next = selectBlockFromHandle(editor.state, pos);
-				if (!next) {
-					return;
+				if (next) {
+					editor.view.dispatch(editor.state.tr.setMeta(blockSelectionPluginKey, next));
 				}
-				editor.view.dispatch(editor.state.tr.setMeta(blockSelectionPluginKey, next));
+				editor.view.focus();
 			}}
 			onPointerDown={(event) => {
 				event.stopPropagation();

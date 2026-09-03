@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mockEnv: Record<string, unknown> = {};
 let mockSsoEnabled = true;
 const mockGetGoogleConfig = vi.fn();
+const mockGetUserRoleInProject = vi.fn();
+const mockInspectSsoToken = vi.fn();
 
 vi.mock('../src/env', () => ({
 	get env() {
@@ -22,6 +24,10 @@ vi.mock('../src/queries/organization.queries', () => ({
 	getGoogleConfig: mockGetGoogleConfig,
 }));
 
+vi.mock('../src/queries/project.queries', () => ({
+	getUserRoleInProject: mockGetUserRoleInProject,
+}));
+
 vi.mock('../src/services/email', () => ({
 	emailService: { isEnabled: () => false },
 }));
@@ -29,6 +35,11 @@ vi.mock('../src/services/email', () => ({
 vi.mock('../src/services/license.service', () => ({
 	hasFeature: vi.fn().mockImplementation(() => Promise.resolve(mockSsoEnabled)),
 	LICENSE_FEATURES: { sso: 'sso' },
+}));
+
+vi.mock('../src/services/sso-group-mapping.service', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../src/services/sso-group-mapping.service')>()),
+	inspectSsoToken: mockInspectSsoToken,
 }));
 
 vi.mock('../src/db/db', () => ({ db: {} }));
@@ -78,6 +89,7 @@ describe('authConfigRoutes.oidc.getConfig', () => {
 		expect(result).toEqual({
 			providerId: 'oidc',
 			providerName: 'SSO',
+			rolesManagedByIdp: false,
 		});
 	});
 
@@ -102,7 +114,55 @@ describe('authConfigRoutes.oidc.getConfig', () => {
 		expect(result).toEqual({
 			providerId: 'okta',
 			providerName: 'Okta',
+			rolesManagedByIdp: false,
 		});
+	});
+
+	it('reports roles as IdP-managed when a group mapping is configured', async () => {
+		mockEnv.OIDC_CLIENT_ID = 'client-id';
+		mockEnv.OIDC_CLIENT_SECRET = 'secret';
+		mockEnv.OIDC_DISCOVERY_URL = 'https://example.com/.well-known/openid-configuration';
+		mockEnv.OIDC_GROUP_ROLE_MAPPING = 'nao-admins:admin';
+
+		await expect(callGetConfig()).resolves.toMatchObject({ rolesManagedByIdp: true });
+	});
+
+	it('reports roles as editable when the group mapping has no usable entry', async () => {
+		mockEnv.OIDC_CLIENT_ID = 'client-id';
+		mockEnv.OIDC_CLIENT_SECRET = 'secret';
+		mockEnv.OIDC_DISCOVERY_URL = 'https://example.com/.well-known/openid-configuration';
+		mockEnv.OIDC_GROUP_ROLE_MAPPING = 'nao-admins:superuser';
+
+		await expect(callGetConfig()).resolves.toMatchObject({ rolesManagedByIdp: false });
+	});
+});
+
+describe('authConfigRoutes.oidc.inspectToken', () => {
+	beforeEach(() => {
+		Object.keys(mockEnv).forEach((key) => delete mockEnv[key]);
+		mockEnv.OIDC_CLIENT_ID = 'client-id';
+		mockEnv.OIDC_CLIENT_SECRET = 'secret';
+		mockEnv.OIDC_DISCOVERY_URL = 'https://example.com/.well-known/openid-configuration';
+		mockSsoEnabled = true;
+		mockGetUserRoleInProject.mockReset();
+		mockInspectSsoToken.mockReset();
+		mockInspectSsoToken.mockResolvedValue({ problem: null });
+	});
+
+	it('rejects inspection for a user outside the project', async () => {
+		mockGetUserRoleInProject.mockResolvedValue(null);
+
+		await expect(callInspectToken('outside-user')).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(mockGetUserRoleInProject).toHaveBeenCalledWith('project-id', 'outside-user');
+		expect(mockInspectSsoToken).not.toHaveBeenCalled();
+	});
+
+	it('allows inspection for another project member', async () => {
+		mockGetUserRoleInProject.mockResolvedValue('viewer');
+
+		await expect(callInspectToken('project-member')).resolves.toEqual({ problem: null });
+		expect(mockGetUserRoleInProject).toHaveBeenCalledWith('project-id', 'project-member');
+		expect(mockInspectSsoToken).toHaveBeenCalledWith('project-member');
 	});
 });
 
@@ -154,6 +214,18 @@ async function callGetConfig() {
 	}
 	// Fallback: try calling directly if the structure differs
 	return null;
+}
+
+async function callInspectToken(userId: string) {
+	vi.resetModules();
+	const { authConfigRoutes } = await import('../src/trpc/auth-config.routes');
+	const procedure = authConfigRoutes.oidc.inspectToken;
+	// @ts-expect-error accessing internal tRPC structure for testing
+	const resolver = procedure._def.query ?? procedure._def.resolver;
+	return resolver({
+		ctx: { project: { id: 'project-id' }, user: { id: 'current-user' } },
+		input: { userId },
+	});
 }
 
 async function callGoogleIsSetup() {

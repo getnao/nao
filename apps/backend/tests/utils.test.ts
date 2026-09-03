@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { UIMessage, UIMessagePart } from '../src/types/chat';
 import { settleInterruptedToolParts } from '../src/utils/ai';
-import { buildUsernameAllowlist, truncateMiddle } from '../src/utils/utils';
+import { buildUsernameAllowlist, formatErrorMessageForUI, truncateMiddle } from '../src/utils/utils';
 
 describe('buildUsernameAllowlist', () => {
 	it('returns an empty set when unset', () => {
@@ -21,6 +21,20 @@ describe('buildUsernameAllowlist', () => {
 		const allowlist = buildUsernameAllowlist('alice,, ,bob');
 		expect(allowlist.size).toBe(2);
 	});
+});
+
+describe('formatErrorMessageForUI', () => {
+	it('returns the message from a normal Error', () => {
+		const reason = 'Query blocked because main.customers.last_name is an excluded column.';
+		expect(formatErrorMessageForUI(new Error(reason))).toBe(reason);
+	});
+
+	it.each([undefined, null, '', 'raw error', {}, new Error(''), new Error('   ')])(
+		'returns a generic message for unknown or empty values',
+		(error) => {
+			expect(formatErrorMessageForUI(error)).toBe('An error occurred.');
+		},
+	);
 });
 
 describe('truncateMiddle', () => {

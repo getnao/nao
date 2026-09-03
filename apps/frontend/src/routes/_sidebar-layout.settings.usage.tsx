@@ -30,17 +30,31 @@ const tokenChartDisplayOptions: { value: TokenChartDisplayMode; label: string }[
 	{ value: 'dollars', label: 'Show in dollars' },
 ];
 
+const tokenSeries = [
+	{ data_key: 'inputNoCacheTokens', color: 'var(--chart-1)', label: 'Input' },
+	{ data_key: 'inputCacheReadTokens', color: 'var(--chart-2)', label: 'Cache read' },
+	{ data_key: 'inputCacheWriteTokens', color: 'var(--chart-3)', label: 'Cache write' },
+	{ data_key: 'outputTotalTokens', color: 'var(--chart-4)', label: 'Output' },
+];
+
+const costSeries = [
+	{ data_key: 'inputNoCacheCost', color: 'var(--chart-1)', label: 'Input', value_format: USD_VALUE_FORMAT },
+	{ data_key: 'inputCacheReadCost', color: 'var(--chart-2)', label: 'Cache read', value_format: USD_VALUE_FORMAT },
+	{ data_key: 'inputCacheWriteCost', color: 'var(--chart-3)', label: 'Cache write', value_format: USD_VALUE_FORMAT },
+	{ data_key: 'outputCost', color: 'var(--chart-4)', label: 'Output', value_format: USD_VALUE_FORMAT },
+];
+
 const messageSeries = [
 	{ data_key: 'webMessageCount', color: 'var(--chart-1)', label: 'Web' },
 	{ data_key: 'slackMessageCount', color: 'var(--chart-2)', label: 'Slack' },
 	{ data_key: 'teamsMessageCount', color: 'var(--chart-3)', label: 'Teams' },
 	{ data_key: 'telegramMessageCount', color: 'var(--chart-4)', label: 'Telegram' },
 	{ data_key: 'whatsappMessageCount', color: 'var(--chart-5)', label: 'WhatsApp' },
-	{ data_key: 'adminMessageCount', color: 'var(--chart-7)', label: 'Admin mode' },
-	{ data_key: 'mcpMessageCount', color: 'var(--destructive)', label: 'MCP' },
+	{ data_key: 'adminMessageCount', color: 'var(--chart-6)', label: 'Admin mode' },
+	{ data_key: 'mcpMessageCount', color: 'var(--chart-7)', label: 'MCP' },
 	{
 		data_key: 'contextRecommendationsMessageCount',
-		color: 'var(--chart-6)',
+		color: 'var(--chart-8)',
 		label: 'Context recommendations',
 	},
 ] as const;
@@ -205,32 +219,7 @@ function UsageOverview({
 								chartType='stacked_bar'
 								xAxisLabelFormatter={(value) => format(new Date(value), dateFormats[granularity])}
 								valueFormatter={showCost ? formatUsd : undefined}
-								series={[
-									{
-										data_key: 'inputNoCacheCost',
-										color: 'var(--chart-1)',
-										label: 'Input',
-										value_format: USD_VALUE_FORMAT,
-									},
-									{
-										data_key: 'inputCacheReadCost',
-										color: 'var(--chart-2)',
-										label: 'Input (cache read)',
-										value_format: USD_VALUE_FORMAT,
-									},
-									{
-										data_key: 'inputCacheWriteCost',
-										color: 'var(--chart-3)',
-										label: 'Input (cache write)',
-										value_format: USD_VALUE_FORMAT,
-									},
-									{
-										data_key: 'outputCost',
-										color: 'var(--chart-4)',
-										label: 'Output',
-										value_format: USD_VALUE_FORMAT,
-									},
-								]}
+								series={showCost ? costSeries : tokenSeries}
 								titleAccessory={
 									<Select
 										value={tokenView}

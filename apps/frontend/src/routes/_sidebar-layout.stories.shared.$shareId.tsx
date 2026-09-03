@@ -4,7 +4,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
 import type { QueryDataMap } from '@/components/story-embeds';
-import type { StoryPageHeaderProps } from '@/components/story-page-header';
+import type { StoryPageHeaderProps, StoryRefreshFailure } from '@/components/story-page-header';
 import { ForkBubble } from '@/components/highlight-bubble';
 import { SelectionChatPanel } from '@/components/selection-chat-panel';
 import { SidePanel } from '@/components/side-panel/side-panel';
@@ -22,6 +22,7 @@ import { SidePanelProvider } from '@/contexts/side-panel';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
+import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
@@ -47,7 +48,7 @@ function SharedStoryPage() {
 
 	const refreshMutation = useMutation(
 		trpc.storyShare.refreshData.mutationOptions({
-			onSuccess: () => {
+			onSettled: () => {
 				queryClient.invalidateQueries({ queryKey: trpc.storyShare.get.queryKey({ shareId }) });
 			},
 		}),
@@ -79,6 +80,14 @@ function SharedStoryPage() {
 		latestCode: story?.code ?? '',
 		isReadonlyMode: !isOwner,
 	});
+	const { queryData, isPending: isQueryDataPending } = useStoryVersionQueryData({
+		chatId: story?.chatId ?? '',
+		storySlug: story?.slug ?? '',
+		versionNumber: editor.versionNav.storedVersionNumber,
+		isViewingLatest: editor.versionNav.isViewingLatest,
+		latestQueryData: (story?.queryData as QueryDataMap | null | undefined) ?? null,
+		shareId,
+	});
 
 	if (isLoading) {
 		return (
@@ -100,6 +109,7 @@ function SharedStoryPage() {
 				storySlug={story.slug}
 				shareId={shareId}
 				cachedAt={story.cachedAt}
+				lastRefreshFailure={story.lastRefreshFailure}
 				onOpenChat={() =>
 					navigate({
 						to: '/$chatId',
@@ -114,6 +124,8 @@ function SharedStoryPage() {
 					isCodeDirty: editor.isCodeDirty,
 					isCodeValid: editor.isCodeValid,
 					onSave: editor.handleSave,
+					onCancel: editor.handleCancel,
+					isSaving: editor.isSaving,
 				}}
 				versionControls={{
 					currentVersion: editor.versionNav.currentVersion,
@@ -136,6 +148,7 @@ function SharedStoryPage() {
 						? {
 								isLive: true,
 								cachedAt: story.cachedAt,
+								lastRefreshFailure: story.lastRefreshFailure,
 								isRefreshing: refreshMutation.isPending,
 								onRefresh: () => refreshMutation.mutate({ shareId }),
 							}
@@ -168,19 +181,20 @@ function SharedStoryPage() {
 					<div className='flex flex-1 min-h-0 min-w-0'>
 						<div ref={contentAreaRef} className='flex flex-col flex-1 min-w-0 min-h-0'>
 							<StoryPageBody
-								code={editor.code}
 								editor={editor}
-								queryData={story.queryData as QueryDataMap | null}
+								queryData={queryData}
 								preview={
 									<SharedStoryContent
 										code={editor.code}
-										queryData={story.queryData as QueryDataMap | null}
+										queryData={queryData}
 										chatId={story.chatId!}
 										shareId={shareId}
 										cacheSchedule={story.cacheSchedule}
 										filtersEnabled={
 											!isOwner || (editor.versionNav.isViewingLatest && !editor.isCodeDirty)
 										}
+										isDataPending={isQueryDataPending}
+										isViewingLatest={editor.versionNav.isViewingLatest}
 									/>
 								}
 							/>
@@ -211,6 +225,7 @@ interface SharedStoryOwnerHeaderProps {
 	storySlug: string;
 	shareId: string;
 	cachedAt?: string | Date | null;
+	lastRefreshFailure?: StoryRefreshFailure | null;
 	onOpenChat: () => void;
 	viewModeControls: StoryPageHeaderProps['viewModeControls'];
 	versionControls: StoryPageHeaderProps['versionControls'];
@@ -224,6 +239,7 @@ function SharedStoryOwnerHeader({
 	storySlug,
 	shareId,
 	cachedAt,
+	lastRefreshFailure,
 	onOpenChat,
 	viewModeControls,
 	versionControls,
@@ -252,12 +268,14 @@ function SharedStoryOwnerHeader({
 				live={{
 					isLive,
 					cachedAt,
+					lastRefreshFailure,
 					isRefreshing,
 					onRefresh: () => handleRefreshData(),
 					onOpenSettings: () => setIsLiveSettingsOpen(true),
 				}}
 				download={{ chatId, storySlug, isOwner: true }}
 				storyId={storyId}
+				canRename
 				isShared
 				onShare={() => setIsShareDialogOpen(true)}
 				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
@@ -301,6 +319,8 @@ function SharedStoryContent({
 	shareId,
 	cacheSchedule,
 	filtersEnabled,
+	isDataPending,
+	isViewingLatest,
 }: {
 	code: string;
 	queryData: QueryDataMap | null;
@@ -308,16 +328,19 @@ function SharedStoryContent({
 	shareId: string;
 	cacheSchedule?: string | null;
 	filtersEnabled: boolean;
+	isDataPending: boolean;
+	isViewingLatest: boolean;
 }) {
 	const isNoCacheMode = cacheSchedule === 'no-cache';
+	const useLiveUnfiltered = isViewingLatest && isNoCacheMode;
 	const filterApi = useMemo(
 		() => (filtersEnabled ? { kind: 'shared' as const, shareId } : null),
 		[filtersEnabled, shareId],
 	);
 
 	const noCacheQuery = useMemo(
-		() => (isNoCacheMode ? { queryOptions: trpc.storyShare.getLiveQueryData.queryOptions, chatId } : undefined),
-		[isNoCacheMode, chatId],
+		() => (useLiveUnfiltered ? { queryOptions: trpc.storyShare.getLiveQueryData.queryOptions, chatId } : undefined),
+		[useLiveUnfiltered, chatId],
 	);
 
 	const renderChart = useCallback(
@@ -335,13 +358,14 @@ function SharedStoryContent({
 		) => (
 			<StoryChartEmbed
 				chart={chart}
-				queryData={isNoCacheMode && !hasActiveFilters ? undefined : data}
-				liveQuery={isNoCacheMode && !hasActiveFilters ? noCacheQuery : undefined}
+				queryData={useLiveUnfiltered && !hasActiveFilters ? undefined : data}
+				liveQuery={useLiveUnfiltered && !hasActiveFilters ? noCacheQuery : undefined}
 				hasActiveFilters={hasActiveFilters}
 				isRefreshing={isRefreshing}
+				isDataPending={isDataPending}
 			/>
 		),
-		[isNoCacheMode, noCacheQuery],
+		[isDataPending, noCacheQuery, useLiveUnfiltered],
 	);
 
 	const renderTable = useCallback(
@@ -355,13 +379,14 @@ function SharedStoryContent({
 		) => (
 			<StoryTableEmbed
 				table={table}
-				queryData={isNoCacheMode && !hasActiveFilters ? undefined : data}
-				liveQuery={isNoCacheMode && !hasActiveFilters ? noCacheQuery : undefined}
+				queryData={useLiveUnfiltered && !hasActiveFilters ? undefined : data}
+				liveQuery={useLiveUnfiltered && !hasActiveFilters ? noCacheQuery : undefined}
 				hasActiveFilters={hasActiveFilters}
 				isRefreshing={isRefreshing}
+				isDataPending={isDataPending}
 			/>
 		),
-		[isNoCacheMode, noCacheQuery],
+		[isDataPending, noCacheQuery, useLiveUnfiltered],
 	);
 
 	const renderMap = useCallback(
@@ -375,14 +400,15 @@ function SharedStoryContent({
 		) => (
 			<StoryMapEmbed
 				map={map}
-				queryData={isNoCacheMode && !hasActiveFilters ? undefined : data}
-				liveQuery={isNoCacheMode && !hasActiveFilters ? noCacheQuery : undefined}
+				queryData={useLiveUnfiltered && !hasActiveFilters ? undefined : data}
+				liveQuery={useLiveUnfiltered && !hasActiveFilters ? noCacheQuery : undefined}
 				hasActiveFilters={hasActiveFilters}
 				isRefreshing={isRefreshing}
+				isDataPending={isDataPending}
 				allowExpand
 			/>
 		),
-		[isNoCacheMode, noCacheQuery],
+		[isDataPending, noCacheQuery, useLiveUnfiltered],
 	);
 
 	return (

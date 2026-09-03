@@ -16,7 +16,7 @@ export type ConversationContext = {
 	timezone: string | undefined;
 };
 
-type SqlOutput = {
+export type SqlOutput = {
 	name: string | null;
 	rows: Record<string, unknown>[];
 };
@@ -35,7 +35,7 @@ export type StreamState = {
 	toolGroupBlockIndex: number;
 };
 
-export type Provider = 'slack' | 'teams' | 'telegram' | 'whatsapp' | 'automation';
+export type Provider = 'slack' | 'teams' | 'telegram' | 'mattermost' | 'whatsapp' | 'automation';
 
 export const SLACK_TRANSPORT_MODES = ['webhook', 'socket'] as const;
 export type SlackTransportMode = (typeof SLACK_TRANSPORT_MODES)[number];
@@ -67,6 +67,15 @@ export type TelegramSettings = {
 	telegramBotToken: string;
 	telegramLlmProvider: string;
 	telegramLlmModelId: string;
+};
+
+export type MattermostSettings = {
+	mattermostBaseUrl: string;
+	mattermostBotToken: string;
+	mattermostLlmProvider: string;
+	mattermostLlmModelId: string;
+	mattermostInteractiveButtonsEnabled?: boolean;
+	mattermostCallbackUrl?: string;
 };
 
 export type WhatsappSettings = {

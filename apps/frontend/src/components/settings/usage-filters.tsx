@@ -1,4 +1,5 @@
-import { Radio, ThumbsUp, Users, Wrench } from 'lucide-react';
+import { useState } from 'react';
+import { CheckIcon, Radio, ThumbsUp, Users, Wrench } from 'lucide-react';
 import { CHAT_REPLAY_FEEDBACK_STATES, CHAT_REPLAY_TOOL_STATES, providerLabel } from '@nao/shared/types';
 import { USAGE_SOURCES } from '@nao/backend/usage';
 import type { Granularity, UsageSource } from '@nao/backend/usage';
@@ -11,13 +12,8 @@ import type {
 import type { LucideIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-	DropdownMenu,
-	DropdownMenuCheckboxItem,
-	DropdownMenuContent,
-	DropdownMenuSeparator,
-	DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 
@@ -213,11 +209,20 @@ const sourceLabels: Record<UsageSource, string> = {
 	slack: 'Slack',
 	teams: 'Teams',
 	telegram: 'Telegram',
+	mattermost: 'Mattermost',
 	whatsapp: 'WhatsApp',
 	admin: 'Admin mode',
 	mcp: 'MCP',
 	contextRecommendations: 'Context recommendations',
 };
+
+function sameValues<T extends string>(a: T[], b: T[]): boolean {
+	if (a.length !== b.length) {
+		return false;
+	}
+	const setA = new Set(a);
+	return b.every((value) => setA.has(value));
+}
 
 function MultiSelectFilter<T extends string>({
 	label,
@@ -227,16 +232,32 @@ function MultiSelectFilter<T extends string>({
 	onChange,
 }: MultiSelectFilterProps<T>) {
 	const allValues = options.map((option) => option.value);
-	const currentValues = selectedValues ?? allValues;
+	const committedValues = selectedValues ?? allValues;
 	const hasPartialSelection = selectedValues !== undefined && selectedValues.length < allValues.length;
 
-	const updateSelection = (next: T[]) => {
-		onChange(next.length === 0 || next.length === allValues.length ? undefined : next);
+	const [open, setOpen] = useState(false);
+	const [draft, setDraft] = useState<T[]>(committedValues);
+	const isDirty = !sameValues(draft, committedValues);
+
+	const handleOpenChange = (next: boolean) => {
+		if (next) {
+			setDraft(selectedValues ?? allValues);
+		}
+		setOpen(next);
+	};
+
+	const toggleValue = (value: T) => {
+		setDraft((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]));
+	};
+
+	const applyDraft = () => {
+		onChange(draft.length === 0 || draft.length === allValues.length ? undefined : draft);
+		setOpen(false);
 	};
 
 	return (
-		<DropdownMenu>
-			<DropdownMenuTrigger asChild>
+		<Popover open={open} onOpenChange={handleOpenChange}>
+			<PopoverTrigger asChild>
 				<Button
 					variant='ghost'
 					size='sm'
@@ -247,56 +268,59 @@ function MultiSelectFilter<T extends string>({
 					{label}
 					{hasPartialSelection && (
 						<Badge variant='secondary' className='h-4 px-1 text-xs'>
-							{currentValues.length}
+							{committedValues.length}
 						</Badge>
 					)}
 				</Button>
-			</DropdownMenuTrigger>
-			<DropdownMenuContent align='start' className='w-56 max-h-64 overflow-y-auto'>
-				<div className='px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide'>
-					{label}
-				</div>
-				<DropdownMenuSeparator />
-				{options.map((option) => (
-					<DropdownMenuCheckboxItem
-						key={option.value}
-						checked={currentValues.includes(option.value)}
-						onSelect={(event) => event.preventDefault()}
-						onCheckedChange={(checked) => {
-							if (!selectedValues) {
-								updateSelection([option.value]);
-								return;
-							}
-
-							const next = checked
-								? Array.from(new Set([...currentValues, option.value]))
-								: currentValues.filter((value) => value !== option.value);
-							updateSelection(next);
-						}}
-					>
-						<div className='flex w-full items-center justify-between gap-2'>
-							<span className='truncate'>{option.label}</span>
-							{typeof option.count === 'number' && (
-								<Badge variant='secondary' className='h-4 px-1 text-xs'>
-									{option.count}
-								</Badge>
-							)}
-						</div>
-					</DropdownMenuCheckboxItem>
-				))}
-				{hasPartialSelection && (
-					<>
-						<DropdownMenuSeparator />
+			</PopoverTrigger>
+			<PopoverContent align='start' className='w-56 p-0'>
+				<Command>
+					<CommandInput placeholder={`Search ${label.toLowerCase()}...`} />
+					<div className='flex items-center justify-between border-b px-2 py-1'>
 						<button
 							type='button'
-							className='w-full rounded-sm px-2 py-1.5 text-left text-xs text-muted-foreground hover:text-foreground'
-							onClick={() => onChange(undefined)}
+							className='text-xs text-muted-foreground hover:text-foreground'
+							onClick={() => setDraft(allValues)}
 						>
-							Show all
+							Select all
 						</button>
-					</>
-				)}
-			</DropdownMenuContent>
-		</DropdownMenu>
+						<button
+							type='button'
+							className='text-xs text-muted-foreground hover:text-foreground'
+							onClick={() => setDraft([])}
+						>
+							Deselect all
+						</button>
+					</div>
+					<CommandList className='max-h-64 overflow-y-auto'>
+						<CommandEmpty className='py-4 text-center text-xs text-muted-foreground'>
+							No matches
+						</CommandEmpty>
+						{options.map((option) => (
+							<CommandItem
+								key={option.value}
+								value={option.label}
+								onSelect={() => toggleValue(option.value)}
+							>
+								<span className='flex size-4 items-center justify-center'>
+									{draft.includes(option.value) && <CheckIcon className='size-4' />}
+								</span>
+								<span className='flex-1 truncate'>{option.label}</span>
+								{typeof option.count === 'number' && (
+									<Badge variant='secondary' className='h-4 px-1 text-xs'>
+										{option.count}
+									</Badge>
+								)}
+							</CommandItem>
+						))}
+					</CommandList>
+					<div className='flex justify-end border-t p-2'>
+						<Button size='sm' disabled={!isDirty} onClick={applyDraft}>
+							Apply
+						</Button>
+					</div>
+				</Command>
+			</PopoverContent>
+		</Popover>
 	);
 }

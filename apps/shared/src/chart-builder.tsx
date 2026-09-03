@@ -23,14 +23,20 @@ import {
 } from 'recharts';
 
 import {
+	boxesOverlap,
+	DATA_LABEL_ANCHOR_GAP,
 	DATA_LABEL_MARGIN_TOP,
 	DATA_LABEL_X_AXIS_FOOTROOM,
 	getDataLabelSetup,
+	getRenderedSeries,
+	type LabelBox,
+	labelBox,
 	PIE_LABELLED_OUTER_RADIUS,
 	renderDataLabelsLayer,
 	renderPieDataLabelsLayer,
 	shouldReserveDataLabelHeadroom,
 	shouldReserveStackTotalFootroom,
+	sumStackValue,
 } from './chart-data-labels';
 import { collectAxisValues, collectStackedAxisValues, resolveBarYAxisDomain, resolveYAxisDomain } from './chart-domain';
 import {
@@ -47,7 +53,8 @@ import * as displayChart from './tools/display-chart';
 
 export const DEFAULT_COLORS = ['#104e64', '#f54900', '#009689', '#ffb900', '#fe9a00'];
 
-const AXIS_TICK = { fontSize: 12 };
+const CHART_LABEL_FONT_SIZE = 12;
+const AXIS_TICK = { fontSize: CHART_LABEL_FONT_SIZE };
 const CATEGORY_XAXIS_HEIGHT = 56;
 const X_AXIS_LABEL_HEIGHT = 22;
 
@@ -65,6 +72,8 @@ const STACK_SEPARATOR_WIDTH = 1;
  * passes an explicit `backgroundColor` and CSS vars do not resolve.
  */
 const DEFAULT_BACKGROUND = 'var(--background, #ffffff)';
+/** Resolves from the browser theme, with a concrete fallback for backend exports. */
+const MUTED_FOREGROUND = 'var(--muted-foreground, #6b7280)';
 
 /**
  * Reserved width for the Y axis band. Smaller than the Recharts default (60)
@@ -76,6 +85,17 @@ const VALUE_AXIS_DEFAULT_WIDTH = 40;
 const VALUE_AXIS_MAX_WIDTH = 120;
 const VALUE_AXIS_CHARACTER_WIDTH = 7;
 const VALUE_AXIS_PADDING = 12;
+const HORIZONTAL_BAR_CATEGORY_AXIS_MIN_WIDTH = 60;
+const HORIZONTAL_BAR_CATEGORY_AXIS_MAX_WIDTH = 180;
+const HORIZONTAL_BAR_CATEGORY_MAX_LABEL_CHARS = 24;
+const HORIZONTAL_BAR_SIZE = 10;
+const HORIZONTAL_BAR_MAX_SIZE = 28;
+const HORIZONTAL_BAR_CATEGORY_GAP = '20%';
+const HORIZONTAL_BAR_RADIUS = 999;
+const HORIZONTAL_BAR_TRACK_COLOR = 'var(--muted, #e5e7eb)';
+const HORIZONTAL_BAR_ORIGINAL_VALUE_KEY = '__naoHorizontalBarValue';
+const HORIZONTAL_BAR_VALUE_LABEL_RIGHT_PADDING = 4;
+const HORIZONTAL_BAR_LABEL_VERTICAL_ROOM = Math.ceil(CHART_LABEL_FONT_SIZE / 2) + 2;
 /** Reserves horizontal room for a rotated axis title so it does not overlap tick values. */
 const AXIS_LABEL_WIDTH = 20;
 
@@ -342,6 +362,9 @@ export function buildChart(props: BuildChartProps) {
 	if (resolved.chartType === 'radar') {
 		return buildRadarChart(resolved);
 	}
+	if (resolved.chartType === 'horizontal_bar' || resolved.chartType === 'horizontal_bar_100') {
+		return buildHorizontalBarChart(resolved);
+	}
 	return buildBarChart(resolved);
 }
 
@@ -562,14 +585,7 @@ function renderCategoryXAxis({
 	xAxisLabel?: string;
 }) {
 	const tickFormatter = compact
-		? (value: string) => {
-				const label = labelFormatter(value);
-				if (maxLabelChars == null) {
-					return label;
-				}
-				const cap = Math.max(3, maxLabelChars);
-				return label.length > cap ? `${label.slice(0, cap - 1)}…` : label;
-			}
+		? (value: string) => formatCategoryTick(value, labelFormatter, maxLabelChars)
 		: labelFormatter;
 
 	return (
@@ -587,6 +603,255 @@ function renderCategoryXAxis({
 			height={CATEGORY_XAXIS_HEIGHT + labelFootroom + (xAxisLabel ? X_AXIS_LABEL_HEIGHT : 0)}
 			label={xAxisLabelProps(xAxisLabel)}
 			{...(compact ? { angle: -35, textAnchor: 'end' as const } : {})}
+		/>
+	);
+}
+
+function formatCategoryTick(value: string, labelFormatter: (value: string) => string, maxLabelChars?: number): string {
+	const label = labelFormatter(value);
+	if (maxLabelChars == null) {
+		return label;
+	}
+	const cap = Math.max(3, maxLabelChars);
+	return label.length > cap ? `${label.slice(0, cap - 1)}…` : label;
+}
+
+function buildHorizontalBarChart(props: ResolvedProps) {
+	const { data, chartType, xAxisKey, series, colorFor, labelFormatter, children, xAxisInterval } = props;
+	const isPercent = displayChart.isPercentStackedChartType(chartType);
+	const renderedSeries = getRenderedSeries(series, series.length > 1);
+	const hasMultipleSeries = renderedSeries.length > 1;
+	const seriesKeys = renderedSeries.map((item) => item.data_key);
+	const clampedRowTotals = data.map((row) =>
+		seriesKeys.reduce((total, key) => total + clampHorizontalBarValue(row[key]), 0),
+	);
+	const signedRowTotals = data.map((row) => sumStackValue(row, renderedSeries) ?? 0);
+	const maximum = clampedRowTotals.reduce((current, value) => Math.max(current, value), 0) || 1;
+	const visibleValueAxisDomainProps = isPercent ? { domain: [0, 1] as [number, number] } : {};
+	const valueFormat = getChartLevelValueFormat(series);
+	const valueFormatter = (value: number) =>
+		isPercent ? formatPercentAxisTick(value) : formatChartValue(value, valueFormat);
+	const labelValues = isPercent ? clampedRowTotals.map((value) => (value > 0 ? 1 : 0)) : signedRowTotals;
+	const showValueLabels = displayChart.resolveShowDataLabels(props.chartType, props.showDataLabels);
+	const tickFormatter = (value: string) =>
+		formatCategoryTick(value, labelFormatter, HORIZONTAL_BAR_CATEGORY_MAX_LABEL_CHARS);
+	const categoryAxisWidth = computeHorizontalBarCategoryAxisWidth(data, xAxisKey, tickFormatter);
+	const valueLabelWidth = showValueLabels ? computeHorizontalBarValueLabelWidth(labelValues, valueFormatter) : 0;
+	const horizontalBarValueLabelsLayer = showValueLabels
+		? createHorizontalBarValueLabelsLayer(valueFormatter, valueLabelWidth)
+		: undefined;
+	const separatorColor = props.backgroundColor ?? DEFAULT_BACKGROUND;
+	const margin = {
+		...props.margin,
+		top: (props.margin?.top ?? 0) + HORIZONTAL_BAR_LABEL_VERTICAL_ROOM,
+		right: (props.margin?.right ?? 0) + valueLabelWidth,
+		bottom: (props.margin?.bottom ?? 0) + HORIZONTAL_BAR_LABEL_VERTICAL_ROOM,
+	};
+	const horizontalBarData = data.map((row, rowIndex) => {
+		const normalizedRow: Record<string, unknown> = {
+			...row,
+			[HORIZONTAL_BAR_ORIGINAL_VALUE_KEY]: labelValues[rowIndex],
+		};
+		for (const key of seriesKeys) {
+			normalizedRow[key] = clampHorizontalBarValue(row[key]);
+		}
+		return normalizedRow;
+	});
+
+	return (
+		<BarChart
+			data={horizontalBarData}
+			layout='vertical'
+			accessibilityLayer
+			margin={margin}
+			{...(isPercent ? { stackOffset: 'expand' as const } : {})}
+			{...(hasMultipleSeries ? { barCategoryGap: HORIZONTAL_BAR_CATEGORY_GAP } : {})}
+		>
+			{hasMultipleSeries ? (
+				<XAxis
+					type='number'
+					{...visibleValueAxisDomainProps}
+					tick={AXIS_TICK}
+					tickLine={false}
+					axisLine={false}
+					minTickGap={12}
+					tickFormatter={
+						isPercent ? formatPercentAxisTick : (value: number) => formatValueYAxisTick(value, valueFormat)
+					}
+				/>
+			) : (
+				<XAxis type='number' hide domain={[0, maximum]} />
+			)}
+			<YAxis
+				type='category'
+				dataKey={xAxisKey}
+				tick={AXIS_TICK}
+				tickLine={false}
+				axisLine={false}
+				minTickGap={12}
+				interval={xAxisInterval ?? 'preserveStartEnd'}
+				width={categoryAxisWidth}
+				tickFormatter={tickFormatter}
+			/>
+			{children}
+			{hasMultipleSeries ? (
+				renderedSeries.map((item, index) => (
+					<Bar
+						key={item.data_key}
+						dataKey={item.data_key}
+						fill={colorFor(item.data_key, index)}
+						stackId='stack'
+						background={index === 0 ? renderHorizontalBarBackground : undefined}
+						shape={renderHorizontalStackedBarShape(seriesKeys, item.data_key, separatorColor)}
+						maxBarSize={HORIZONTAL_BAR_MAX_SIZE}
+						isAnimationActive={Boolean(props.animate)}
+						animationDuration={CHART_ANIMATION_DURATION_MS}
+					/>
+				))
+			) : (
+				<Bar
+					dataKey={renderedSeries[0]?.data_key}
+					fill={colorFor(renderedSeries[0]?.data_key ?? '', 0)}
+					radius={[
+						HORIZONTAL_BAR_RADIUS,
+						HORIZONTAL_BAR_RADIUS,
+						HORIZONTAL_BAR_RADIUS,
+						HORIZONTAL_BAR_RADIUS,
+					]}
+					background={renderHorizontalBarBackground}
+					barSize={HORIZONTAL_BAR_SIZE}
+					isAnimationActive={Boolean(props.animate)}
+					animationDuration={CHART_ANIMATION_DURATION_MS}
+				/>
+			)}
+			{horizontalBarValueLabelsLayer && <Customized component={horizontalBarValueLabelsLayer} />}
+		</BarChart>
+	);
+}
+
+function clampHorizontalBarValue(value: unknown): number {
+	return Math.max(0, toFiniteNumber(value) ?? 0);
+}
+
+function computeHorizontalBarCategoryAxisWidth(
+	data: Record<string, unknown>[],
+	xAxisKey: string,
+	tickFormatter: (value: string) => string,
+): number {
+	const longestLabelLength = data.reduce(
+		(current, row) => Math.max(current, tickFormatter(String(row[xAxisKey] ?? '')).length),
+		0,
+	);
+	return Math.min(
+		HORIZONTAL_BAR_CATEGORY_AXIS_MAX_WIDTH,
+		Math.max(
+			HORIZONTAL_BAR_CATEGORY_AXIS_MIN_WIDTH,
+			longestLabelLength * VALUE_AXIS_CHARACTER_WIDTH + VALUE_AXIS_PADDING,
+		),
+	);
+}
+
+function computeHorizontalBarValueLabelWidth(values: number[], valueFormatter: (value: number) => string): number {
+	const longestLabelLength = values.reduce((current, value) => Math.max(current, valueFormatter(value).length), 0);
+	return Math.max(
+		VALUE_AXIS_DEFAULT_WIDTH,
+		longestLabelLength * VALUE_AXIS_CHARACTER_WIDTH +
+			DATA_LABEL_ANCHOR_GAP +
+			HORIZONTAL_BAR_VALUE_LABEL_RIGHT_PADDING,
+	);
+}
+
+interface HorizontalBarGraphicalPoint {
+	y?: number;
+	height?: number;
+	payload?: Record<string, unknown>;
+}
+
+interface HorizontalBarLabelsLayerProps {
+	formattedGraphicalItems?: Array<{
+		item?: { type?: { displayName?: string } };
+		props?: { data?: HorizontalBarGraphicalPoint[] };
+	}>;
+	offset?: {
+		left?: number;
+		width?: number;
+	};
+}
+
+interface HorizontalBarValueLabel {
+	key: string;
+	text: string;
+	x: number;
+	y: number;
+}
+
+function createHorizontalBarValueLabelsLayer(valueFormatter: (value: number) => string, valueLabelWidth: number) {
+	function HorizontalBarValueLabelsLayer({ formattedGraphicalItems, offset }: HorizontalBarLabelsLayerProps) {
+		const bar = formattedGraphicalItems?.find((item) => item.item?.type?.displayName === 'Bar');
+		const trackEnd = (toFiniteNumber(offset?.left) ?? 0) + (toFiniteNumber(offset?.width) ?? 0);
+		const labelX = trackEnd + valueLabelWidth - HORIZONTAL_BAR_VALUE_LABEL_RIGHT_PADDING;
+		const points = bar?.props?.data ?? [];
+		const labels = selectHorizontalBarValueLabels(points, labelX, valueFormatter);
+		if (labels.length === 0) {
+			return null;
+		}
+		return (
+			<g className='recharts-horizontal-bar-value-labels'>
+				{labels.map((label) => (
+					<text
+						key={label.key}
+						x={label.x}
+						y={label.y}
+						fill={MUTED_FOREGROUND}
+						fontSize={CHART_LABEL_FONT_SIZE}
+						textAnchor='end'
+						dominantBaseline='central'
+						className='recharts-horizontal-bar-value-label'
+					>
+						{label.text}
+					</text>
+				))}
+			</g>
+		);
+	}
+	HorizontalBarValueLabelsLayer.displayName = 'HorizontalBarValueLabelsLayer';
+	return HorizontalBarValueLabelsLayer;
+}
+
+function selectHorizontalBarValueLabels(
+	points: HorizontalBarGraphicalPoint[],
+	labelX: number,
+	valueFormatter: (value: number) => string,
+): HorizontalBarValueLabel[] {
+	const labels: HorizontalBarValueLabel[] = [];
+	let previousBox: LabelBox | null = null;
+	for (const point of points) {
+		const y = toFiniteNumber(point.y);
+		const height = toFiniteNumber(point.height);
+		if (y == null || height == null) {
+			continue;
+		}
+		const value = toFiniteNumber(point.payload?.[HORIZONTAL_BAR_ORIGINAL_VALUE_KEY]) ?? 0;
+		const text = valueFormatter(value);
+		const labelY = y + height / 2;
+		const halfWidth = (text.length * VALUE_AXIS_CHARACTER_WIDTH) / 2;
+		const box = labelBox(labelX, labelY, halfWidth, 'end', CHART_LABEL_FONT_SIZE);
+		if (previousBox && boxesOverlap(previousBox, box)) {
+			continue;
+		}
+		labels.push({ key: `${y}-${value}`, text, x: labelX, y: labelY });
+		previousBox = box;
+	}
+	return labels;
+}
+
+function renderHorizontalBarBackground(backgroundProps: unknown) {
+	const rectProps = backgroundProps as RectangleProps;
+	return (
+		<Rectangle
+			{...rectProps}
+			fill={HORIZONTAL_BAR_TRACK_COLOR}
+			radius={[HORIZONTAL_BAR_RADIUS, HORIZONTAL_BAR_RADIUS, HORIZONTAL_BAR_RADIUS, HORIZONTAL_BAR_RADIUS]}
 		/>
 	);
 }
@@ -695,7 +960,33 @@ export function isTopmostStackSegment(row: Record<string, unknown>, seriesKeys: 
 	return topKey === currentKey;
 }
 
+function isFirstNonZeroStackSegment(row: Record<string, unknown>, seriesKeys: string[], currentKey: string): boolean {
+	return seriesKeys.find((key) => typeof row[key] === 'number' && row[key] !== 0) === currentKey;
+}
+
 type RectangleProps = React.ComponentProps<typeof Rectangle>;
+
+function renderHorizontalStackedBarShape(seriesKeys: string[], currentKey: string, separatorColor: string) {
+	return function HorizontalStackedBarSegment(shapeProps: unknown) {
+		const rectProps = shapeProps as RectangleProps & { payload?: Record<string, unknown> };
+		const row = rectProps.payload ?? {};
+		const roundLeft = isFirstNonZeroStackSegment(row, seriesKeys, currentKey);
+		const roundRight = isTopmostStackSegment(row, seriesKeys, currentKey);
+		return (
+			<Rectangle
+				{...rectProps}
+				radius={[
+					roundLeft ? HORIZONTAL_BAR_RADIUS : 0,
+					roundRight ? HORIZONTAL_BAR_RADIUS : 0,
+					roundRight ? HORIZONTAL_BAR_RADIUS : 0,
+					roundLeft ? HORIZONTAL_BAR_RADIUS : 0,
+				]}
+				stroke={separatorColor}
+				strokeWidth={STACK_SEPARATOR_WIDTH}
+			/>
+		);
+	};
+}
 
 /**
  * Custom `<Bar>` shape that rounds the top corners of only the topmost non-zero segment of
@@ -1008,7 +1299,11 @@ function renderComboSeries(
 	);
 }
 
-const AXIS_LABEL_STYLE = { textAnchor: 'middle' as const, fontSize: 12, fill: 'var(--muted-foreground, #6b7280)' };
+const AXIS_LABEL_STYLE = {
+	textAnchor: 'middle' as const,
+	fontSize: CHART_LABEL_FONT_SIZE,
+	fill: MUTED_FOREGROUND,
+};
 
 function axisLabel(label: string | undefined, side: displayChart.YAxisSide) {
 	if (!label) {

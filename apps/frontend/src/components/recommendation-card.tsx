@@ -3,6 +3,9 @@ import { Link } from '@tanstack/react-router';
 import {
 	Check,
 	ChevronRight,
+	Circle,
+	CircleCheck,
+	Copy,
 	ExternalLink,
 	GitMerge,
 	GitPullRequest,
@@ -20,6 +23,7 @@ import {
 	CONTEXT_RECOMMENDATION_CATEGORY_LABELS,
 	normalizeContextRecommendationCategory,
 } from '@nao/shared/context-recommendation';
+import type { MouseEvent } from 'react';
 import type { inferRouterOutputs } from '@trpc/server';
 
 import type { ContextRecommendationSignalType } from '@nao/backend/context-recommendation';
@@ -34,6 +38,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidePanel } from '@/contexts/side-panel';
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useRecommendationCollapsed } from '@/hooks/use-recommendation-collapsed';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { computeLineDiff } from '@/lib/line-diff';
@@ -49,6 +54,8 @@ const CONTEXT_RECOMMENDATION_CATEGORY_BADGE_VARIANT = {
 	tool_error: 'bg-red-500/10 text-red-600 dark:text-red-400',
 	hallucination: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
 	semantic_missing: 'bg-green-500/10 text-green-600 dark:text-green-400',
+	context_bloat: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+	skills: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
 	other: 'bg-gray-500/10 text-gray-600 dark:text-gray-400',
 } as const;
 
@@ -151,6 +158,9 @@ interface RecommendationCardProps {
 	defaultCollapsed?: boolean;
 	readOnly?: boolean;
 	highlightOpen?: boolean;
+	isSelected?: boolean;
+	selectionActive?: boolean;
+	onSelect?: (id: string, checked: boolean, shiftKey?: boolean) => void;
 }
 
 export function RecommendationCard({
@@ -160,6 +170,9 @@ export function RecommendationCard({
 	defaultCollapsed = false,
 	readOnly = false,
 	highlightOpen = false,
+	isSelected = false,
+	selectionActive = false,
+	onSelect,
 }: RecommendationCardProps) {
 	const allLinks = useMemo(() => chatLinks(rec.insights), [rec.insights]);
 	const feedbacks = useMemo(() => rec.feedbacks ?? [], [rec.feedbacks]);
@@ -175,8 +188,11 @@ export function RecommendationCard({
 	const sidePanel = useSidePanel();
 	const [collapsed, setCollapsed] = useRecommendationCollapsed(rec.id, defaultCollapsed);
 	const [chatsExpanded, setChatsExpanded] = useState(false);
+	const [isFetchingPrompt, setIsFetchingPrompt] = useState(false);
+	const [promptError, setPromptError] = useState<string | null>(null);
 	const createdAgo = useTimeAgo(new Date(rec.createdAt).getTime());
 	const cardRef = useRef<HTMLDivElement>(null);
+	const { isCopied, copy } = useCopyToClipboard();
 
 	useEffect(() => {
 		if (!highlightOpen) {
@@ -244,46 +260,123 @@ export function RecommendationCard({
 		);
 	}, [edits, hasPatch]);
 
+	const handleCopyPrompt = async () => {
+		setIsFetchingPrompt(true);
+		setPromptError(null);
+		try {
+			const prompt = await queryClient.fetchQuery(
+				trpc.contextRecommendation.getAgentPrompt.queryOptions({ ids: [rec.id] }),
+			);
+			await copy(prompt);
+		} catch (err) {
+			setPromptError(err instanceof Error ? err.message : 'Failed to copy prompt');
+		} finally {
+			setIsFetchingPrompt(false);
+		}
+	};
+
+	const selectable = !!onSelect && !readOnly;
+
+	const handleCardClick = (event: MouseEvent<HTMLDivElement>) => {
+		if (!onSelect || readOnly) {
+			return;
+		}
+		if ((event.target as HTMLElement).closest('button, a')) {
+			return;
+		}
+		if (window.getSelection()?.toString()) {
+			return;
+		}
+		onSelect(rec.id, !isSelected, event.shiftKey);
+	};
+
 	return (
-		<Card ref={cardRef} className='gap-0 rounded-lg border py-0 bg-background shadow-none'>
+		<Card
+			ref={cardRef}
+			onClick={selectable ? handleCardClick : undefined}
+			className={cn(
+				'group gap-0 rounded-lg border py-0 bg-background shadow-none',
+				selectable && 'cursor-pointer',
+				isSelected && 'ring-2 ring-primary',
+			)}
+		>
 			<div className='flex items-top gap-2 px-3 py-3'>
-				<button
-					type='button'
-					onClick={() => setCollapsed((value) => !value)}
-					className='flex min-w-0 flex-1 items-start gap-2 text-left'
-					aria-expanded={!collapsed}
-				>
-					<span className='flex h-[1lh] shrink-0 items-center'>
-						<ChevronRight
-							className={cn(
-								'size-3.5 text-muted-foreground transition-transform',
-								!collapsed && 'rotate-90',
-							)}
+				{onSelect && !readOnly && (
+					<span
+						className={cn(
+							'flex h-[1lh] shrink-0 items-center pt-0.5 transition-[margin] duration-150 -mr-2 group-hover:-mr-1',
+							selectionActive && '-mr-1',
+						)}
+					>
+						<RecommendationCheckbox
+							selected={isSelected}
+							visible={isSelected || selectionActive}
+							onClick={(e) => {
+								e.stopPropagation();
+								onSelect(rec.id, !isSelected, e.shiftKey);
+							}}
 						/>
 					</span>
+				)}
+				<span className='flex h-[1lh] shrink-0 items-center'>
+					<button
+						type='button'
+						onClick={() => setCollapsed((value) => !value)}
+						className='flex items-center rounded-full text-muted-foreground hover:text-foreground pl-0.5'
+						aria-expanded={!collapsed}
+						aria-label={collapsed ? 'Expand recommendation' : 'Collapse recommendation'}
+					>
+						<ChevronRight className={cn('size-3.5 transition-transform', !collapsed && 'rotate-90')} />
+					</button>
+				</span>
+				<div className='flex min-w-0 flex-1 items-start gap-2'>
 					<span className='min-w-0 flex-1 text-md font-bold flex items-start gap-2'>{rec.title}</span>
-					{collapsed && diffTotals && (
-						<span className='flex h-[1lh] shrink-0 items-center gap-1 font-mono text-[11px]'>
-							<span className='text-emerald-600 dark:text-emerald-400'>+{diffTotals.additions}</span>
-							<span className='text-red-600 dark:text-red-400'>−{diffTotals.deletions}</span>
-						</span>
-					)}
-					<span className='flex h-[1lh] shrink-0 items-center'>
-						<Badge
-							className={
-								CONTEXT_RECOMMENDATION_CATEGORY_BADGE_VARIANT[
-									normalizeContextRecommendationCategory(rec.category)
-								]
-							}
-						>
-							{
-								CONTEXT_RECOMMENDATION_CATEGORY_LABELS[
-									normalizeContextRecommendationCategory(rec.category)
-								]
-							}
-						</Badge>
-					</span>
-				</button>
+					<div className='py-1'>
+						{collapsed && diffTotals && (
+							<span className='flex h-[1lh] shrink-0 items-center gap-1 font-mono text-[11px]'>
+								<span className='text-emerald-600 dark:text-emerald-400'>+{diffTotals.additions}</span>
+								<span className='text-red-600 dark:text-red-400'>−{diffTotals.deletions}</span>
+							</span>
+						)}
+					</div>
+				</div>
+				<div className='flex h-[1lh] shrink-0 items-center gap-1'>
+					<TooltipProvider delayDuration={150}>
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Button
+									size='icon'
+									variant='ghost'
+									className={cn(
+										'size-6 rounded-full text-muted-foreground hover:text-foreground',
+										isFetchingPrompt && 'bg-accent disabled:opacity-100 dark:bg-accent/50',
+									)}
+									onClick={handleCopyPrompt}
+									disabled={isFetchingPrompt}
+								>
+									{isCopied ? (
+										<Check className='size-3.5' />
+									) : isFetchingPrompt ? (
+										<Loader2 className='size-3.5 animate-spin' />
+									) : (
+										<Copy className='size-3.5' />
+									)}
+									<span className='sr-only'>Copy prompt</span>
+								</Button>
+							</TooltipTrigger>
+							<TooltipContent>{isCopied ? 'Copied' : 'Copy prompt'}</TooltipContent>
+						</Tooltip>
+					</TooltipProvider>
+					<Badge
+						className={
+							CONTEXT_RECOMMENDATION_CATEGORY_BADGE_VARIANT[
+								normalizeContextRecommendationCategory(rec.category)
+							]
+						}
+					>
+						{CONTEXT_RECOMMENDATION_CATEGORY_LABELS[normalizeContextRecommendationCategory(rec.category)]}
+					</Badge>
+				</div>
 				<div className='flex shrink-0 items-top gap-0.5'>
 					{!readOnly && (
 						<TooltipProvider delayDuration={150}>
@@ -321,6 +414,7 @@ export function RecommendationCard({
 					)}
 				</div>
 			</div>
+			{promptError && <div className='px-3 pb-2 text-xs text-destructive'>{promptError}</div>}
 			<div
 				className={cn(
 					'grid transition-[grid-template-rows] duration-300 ease-in-out px-3',
@@ -462,7 +556,7 @@ export function RecommendationCard({
 										}
 									>
 										<ScrollText className='size-3.5' />
-										{edits.length} suggested changes{edits.length === 1 ? '' : 's'}
+										{edits.length} suggested change{edits.length === 1 ? '' : 's'}
 										{diffTotals && (
 											<span className='ml-1 font-mono text-[11px]'>
 												<span className='text-emerald-600 dark:text-emerald-400'>
@@ -524,6 +618,33 @@ export function RecommendationCard({
 				</div>
 			)}
 		</Card>
+	);
+}
+
+function RecommendationCheckbox({
+	selected,
+	visible,
+	onClick,
+}: {
+	selected: boolean;
+	visible: boolean;
+	onClick: (e: MouseEvent<HTMLElement>) => void;
+}) {
+	return (
+		<button
+			type='button'
+			aria-label={selected ? 'Deselect recommendation' : 'Select recommendation'}
+			aria-pressed={selected}
+			onClick={onClick}
+			className={cn(
+				'inline-flex items-center justify-center size-5 transition-all duration-150 cursor-pointer rounded shrink-0',
+				'text-muted-foreground hover:text-foreground',
+				visible ? 'opacity-100' : 'w-0 opacity-0 overflow-hidden group-hover:w-5 group-hover:opacity-100',
+				selected && 'text-primary',
+			)}
+		>
+			{selected ? <CircleCheck className='size-3.5' /> : <Circle className='size-3.5' />}
+		</button>
 	);
 }
 

@@ -1,3 +1,4 @@
+import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SystemPrompt } from '../src/components/ai/system-prompt';
@@ -110,6 +111,196 @@ describe('SystemPrompt timezone rendering', () => {
 		expect(markdown).toContain('And 10 more custom chart types in agent/charts');
 		expect(markdown).not.toContain('x'.repeat(400));
 		expect(markdown).toContain(`${'x'.repeat(199)}…`);
+	});
+});
+
+describe('SystemPrompt saved files rules', () => {
+	it('tells the agent grep also searches inside saved files on a filesystem backend', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ options: { canGrepSavedFiles: true } }));
+		expect(markdown).toContain('**grep** also searches inside its files.');
+	});
+
+	it('tells the agent to search by name instead when grep cannot read saved files', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ options: { canGrepSavedFiles: false } }));
+		expect(markdown).toContain('**grep** cannot look inside **/home**');
+		expect(markdown).toContain('**search**');
+		expect(markdown).not.toContain('lookup');
+	});
+
+	it('omits the saved files section when the run has no write tool', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ toolNames: ['execute_sql'] }));
+		expect(markdown).not.toContain('Saved Files');
+	});
+
+	it('does not recommend save_to when execute_sql is unavailable', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ toolNames: ['write'] }));
+		expect(markdown).not.toContain('**save_to**');
+	});
+
+	it('explains that an attachment arrives as a path, not as content', () => {
+		const markdown = renderToMarkdown(SystemPrompt({}));
+		expect(markdown).toContain('**/home/uploads**');
+		expect(markdown).toContain('Only their path reaches you, never their contents');
+	});
+
+	it('says a pdf comes back as text and a workbook as its sheet list', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ toolNames: ['write'] }));
+		expect(markdown).toContain('**read** extracts the text of a PDF');
+		expect(markdown).toContain("workbook's outline instead of its cells");
+		expect(markdown).toContain('ask the user for a text export such as CSV');
+	});
+
+	it('points at the sandbox for the formats read cannot handle, when there is one', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ toolNames: ['write', 'execute_sandboxed_code'] }));
+		expect(markdown).toContain('**storage_files**');
+		expect(markdown).not.toContain('ask the user for a text export such as CSV');
+	});
+
+	it('says how to keep a binary file only when a sandbox can produce one', () => {
+		expect(renderToMarkdown(SystemPrompt({ toolNames: ['write', 'execute_sandboxed_code'] }))).toContain(
+			'**save_files**',
+		);
+		expect(renderToMarkdown(SystemPrompt({ toolNames: ['write'] }))).not.toContain('**save_files**');
+	});
+});
+
+describe('SystemPrompt configured database ids', () => {
+	it('renders every configured database when several are configured', () => {
+		const markdown = renderToMarkdown(
+			SystemPrompt({
+				configuredDatabases: [
+					{
+						id: 'duckdb-jaffle-shop',
+						type: 'duckdb',
+						database: 'jaffle_shop',
+					},
+					{
+						id: 'bigquery-prod',
+						type: 'bigquery',
+						project_id: 'nao-corp',
+						dataset_id: 'nao-corp.movies_silver',
+					},
+				],
+			}),
+		);
+
+		expect(markdown).toContain(
+			[
+				'## Databases',
+				'',
+				"execute_sql's **database_id** must be one of:",
+				'',
+				'- **duckdb-jaffle-shop** — type=duckdb, database=jaffle_shop',
+				'- **bigquery-prod** — type=bigquery, project_id=nao-corp, dataset_id=nao-corp.movies_silver',
+			].join('\n'),
+		);
+	});
+
+	it('renders no configured database block for zero or one database', () => {
+		const withoutDatabases = renderToMarkdown(SystemPrompt({ configuredDatabases: [] }));
+		const withOneDatabase = renderToMarkdown(
+			SystemPrompt({
+				configuredDatabases: [{ id: 'duckdb-jaffle-shop', type: 'duckdb', database: 'jaffle_shop' }],
+			}),
+		);
+
+		expect(withoutDatabases).not.toContain('## Databases');
+		expect(withOneDatabase).not.toContain('## Databases');
+		expect(withOneDatabase).not.toContain('duckdb-jaffle-shop');
+	});
+});
+
+describe('SystemPrompt local database rules', () => {
+	it('names the reserved database id and what it is for', () => {
+		const markdown = renderToMarkdown(SystemPrompt({}));
+
+		expect(markdown).toContain('The local database');
+		expect(markdown).toContain(`**${LOCAL_DATABASE_ID}**`);
+		expect(markdown).toContain('read_xlsx');
+		expect(markdown).toContain('SELECT * FROM query_ab12cd34');
+	});
+
+	it('offers save_to only when there is somewhere to save to', () => {
+		const withStorage = renderToMarkdown(SystemPrompt({ toolNames: ['execute_sql', 'write'] }));
+		const withoutStorage = renderToMarkdown(SystemPrompt({ toolNames: ['execute_sql'] }));
+
+		expect(withStorage).toContain('**save_to**');
+		expect(withStorage).toContain('format: "parquet"');
+		expect(withStorage).toContain('**saved-file** chip');
+		expect(withoutStorage).not.toContain('**save_to**');
+	});
+
+	it('still tells the model the query itself cannot write a file', () => {
+		expect(renderToMarkdown(SystemPrompt({}))).toContain('**COPY … TO**');
+	});
+
+	it('says a workbook needs its sheet named, and where to get the name', () => {
+		const markdown = renderToMarkdown(SystemPrompt({}));
+
+		expect(markdown).toContain("**sheet = 'Name'**");
+		expect(markdown).toContain('**read** on the file lists the names to pass');
+	});
+
+	it('omits it when the run cannot run SQL at all', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ toolNames: ['write'] }));
+
+		expect(markdown).not.toContain('The local database');
+	});
+});
+
+describe('SystemPrompt built-in skills', () => {
+	const internalSkills = [
+		{ name: 'pdf-handling', description: 'How to get data out of a PDF.', body: () => 'body' },
+		{ name: 'other-thing', description: 'Something else entirely.', body: () => 'body' },
+	];
+
+	it('lists each built-in skill by name and description', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ internalSkills }));
+
+		expect(markdown).toContain('Built-in Skills');
+		expect(markdown).toContain('**pdf-handling** — How to get data out of a PDF.');
+		expect(markdown).toContain('**other-thing** — Something else entirely.');
+	});
+
+	it('never carries a skill body, which is the point of loading them on demand', () => {
+		const body = 'the full text of the skill';
+		const markdown = renderToMarkdown(
+			SystemPrompt({ internalSkills: [{ name: 'a-skill', description: 'A skill.', body: () => body }] }),
+		);
+
+		expect(markdown).not.toContain(body);
+		expect(markdown).toContain('**load_skill**');
+	});
+
+	it('tells the agent to keep them to itself', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ internalSkills }));
+		expect(markdown).toContain('never mention a skill');
+	});
+
+	it('omits the section when the run has no load_skill tool', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ internalSkills, toolNames: ['read'] }));
+		expect(markdown).not.toContain('Built-in Skills');
+	});
+
+	it('omits the section when nao ships no built-in skills', () => {
+		const markdown = renderToMarkdown(SystemPrompt({ internalSkills: [] }));
+		expect(markdown).not.toContain('Built-in Skills');
+	});
+
+	it('lists the real skills by default, so a new one needs no wiring', () => {
+		const markdown = renderToMarkdown(SystemPrompt({}));
+		expect(markdown).toContain('**pdf-handling**');
+	});
+});
+
+describe('SystemPrompt SQL query rules', () => {
+	it('forbids citing table documentation statistics as answers to data questions', () => {
+		const markdown = renderToMarkdown(SystemPrompt({}));
+
+		expect(markdown).toContain('never present them as the answer to a data question');
+		expect(markdown).toContain(
+			'must come from a query executed in this conversation, or be computed from such results',
+		);
 	});
 });
 

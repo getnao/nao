@@ -31,12 +31,14 @@ dependencies = [
     "uvicorn>=0.40.0",
     "cryptography>=46.0.3",
     "dotenv>=0.9.9",
-    "pytest>=9.0.2",
     "python-dotenv>=1.2.1",
     "jinja2>=3.1.0",
     "apscheduler>=3.10.0",
     "questionary>=2.1.0",
-    "posthog>=7.8.0",
+    # Loose floor on purpose: tracking.py degrades to no-op telemetry when the
+    # resolver lands on an old posthog (dbt toolchains commonly pin posthog<3,
+    # e.g. elementary-data), instead of making nao-core uninstallable there.
+    "posthog>=2.0.0",
     "pyngrok>=7.0.0",
     "python-dateutil>=2.8.0",
     "numpy>=1.26.0",
@@ -73,6 +75,9 @@ ollama = ["ollama>=0.4.0"]
 # depends on notion2md's marker for unconvertible databases. 3.1 is the floor because it
 # retries rate limits itself, which also covers the client notion2md builds internally.
 notion = ["notion-client>=3.1.0,<4", "notion2md>=2.9.0,<3"]
+# Confluence talks to the v1 REST API over httpx (a core dependency); markdownify turns the HTML
+# body Confluence renders into the markdown the context layer stores.
+confluence = ["markdownify>=0.13.0,<2"]
 
 # Secret resolution backends
 aws-secrets = ["boto3>=1.34.0", "glom>=23.0.0"]
@@ -83,8 +88,8 @@ all-databases = [
     "nao-core[postgres,bigquery,snowflake,duckdb,clickhouse,databricks,mysql,mssql,athena,trino,redshift,fabric,starrocks]",
 ]
 all-llms = ["nao-core[openai,anthropic,mistral,gemini,ollama]"]
-all = ["nao-core[all-databases,all-llms,notion,aws-secrets,k8s-secrets]"]
-dev = ["pytest-cov", "pytest-timeout>=2.3.0"]
+all = ["nao-core[all-databases,all-llms,notion,confluence,aws-secrets,k8s-secrets]"]
+dev = ["pytest>=9.0.2", "pytest-cov", "pytest-timeout>=2.3.0"]
 
 [project.scripts]
 nao = "nao_core.main:main"
@@ -94,7 +99,7 @@ Homepage = "https://getnao.io"
 Repository = "https://github.com/naolabs/chat"
 
 [dependency-groups]
-dev = ["ruff>=0.8.0", "ty>=0.0.9", "nao-core[all]"]
+dev = ["pytest>=9.0.2", "ruff>=0.8.0", "ty>=0.0.9", "nao-core[all]"]
 
 [build-system]
 requires = ["hatchling"]

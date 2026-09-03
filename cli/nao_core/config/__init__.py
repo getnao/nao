@@ -1,4 +1,5 @@
 from .base import NaoConfig, NaoConfigError, resolve_project_path
+from .confluence import ConfluenceConfig
 from .databases import (
     AnyDatabaseConfig,
     BigQueryConfig,
@@ -6,6 +7,7 @@ from .databases import (
     DatabaseType,
     DatabricksConfig,
     DuckDBConfig,
+    MotherDuckConfig,
     MssqlConfig,
     PostgresConfig,
     RedshiftConfig,
@@ -34,6 +36,7 @@ __all__ = [
     "ClickHouseConfig",
     "DuckDBConfig",
     "DatabricksConfig",
+    "MotherDuckConfig",
     "SnowflakeConfig",
     "PostgresConfig",
     "MssqlConfig",
@@ -49,6 +52,7 @@ __all__ = [
     "ProviderAuthConfig",
     "ProviderConfig",
     "SlackConfig",
+    "ConfluenceConfig",
     "ComparisonConfig",
     "TestConfig",
     "InitError",

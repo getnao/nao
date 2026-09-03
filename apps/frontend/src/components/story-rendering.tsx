@@ -26,22 +26,15 @@ export const SegmentList = memo(function SegmentList({
 	renderTable,
 	renderMap,
 }: SegmentRendererProps) {
+	const blockOccurrences = new Map<string, number>();
+
 	return (
 		<>
 			{segments.map((segment, i) => {
-				const key = versionKey != null ? `${versionKey}-${i}` : i;
+				const key = getSegmentKey(segment, i, blockOccurrences, versionKey);
 				switch (segment.type) {
 					case 'markdown':
-						return (
-							<Streamdown
-								key={key}
-								mode='static'
-								plugins={markdownPlugins}
-								components={markdownComponents}
-							>
-								{segment.content}
-							</Streamdown>
-						);
+						return <MarkdownSegment key={key} content={segment.content} />;
 					case 'chart':
 						return <Fragment key={key}>{renderChart(segment.chart, i)}</Fragment>;
 					case 'table':
@@ -68,6 +61,14 @@ export const SegmentList = memo(function SegmentList({
 	);
 });
 
+const MarkdownSegment = memo(function MarkdownSegment({ content }: { content: string }) {
+	return (
+		<Streamdown mode='static' plugins={markdownPlugins} components={markdownComponents}>
+			{content}
+		</Streamdown>
+	);
+});
+
 const StoryGrid = memo(function StoryGrid({
 	cols,
 	widths,
@@ -83,6 +84,8 @@ const StoryGrid = memo(function StoryGrid({
 	renderTable: (table: ParsedTableBlock, key: number) => React.ReactNode;
 	renderMap: (map: ParsedMapBlock, key: number) => React.ReactNode;
 }) {
+	const blockOccurrences = new Map<string, number>();
+
 	return (
 		<div className='@container'>
 			<div
@@ -96,12 +99,10 @@ const StoryGrid = memo(function StoryGrid({
 					: {})}
 			>
 				{children.map((segment, i) => (
-					<StoryGridProvider key={i}>
+					<StoryGridProvider key={getSegmentKey(segment, i, blockOccurrences)}>
 						<div className='min-w-0'>
 							{segment.type === 'markdown' ? (
-								<Streamdown mode='static' plugins={markdownPlugins} components={markdownComponents}>
-									{segment.content}
-								</Streamdown>
+								<MarkdownSegment content={segment.content} />
 							) : segment.type === 'chart' ? (
 								renderChart(segment.chart, i)
 							) : segment.type === 'table' ? (
@@ -125,3 +126,33 @@ const StoryGrid = memo(function StoryGrid({
 		</div>
 	);
 });
+
+function getSegmentKey(
+	segment: Segment,
+	index: number,
+	blockOccurrences: Map<string, number>,
+	versionKey?: string | number,
+): string {
+	const blockIdentity = getBlockIdentity(segment, blockOccurrences);
+	const segmentIdentity = blockIdentity ?? `index:${index}`;
+	return versionKey != null ? `${versionKey}:${segmentIdentity}` : segmentIdentity;
+}
+
+function getBlockIdentity(segment: Segment, blockOccurrences: Map<string, number>): string | null {
+	const rawTag =
+		segment.type === 'chart'
+			? segment.chart.rawTag
+			: segment.type === 'table'
+				? segment.table.rawTag
+				: segment.type === 'map'
+					? segment.map.rawTag
+					: undefined;
+	if (!rawTag || (segment.type !== 'chart' && segment.type !== 'table' && segment.type !== 'map')) {
+		return null;
+	}
+
+	const sourceKey = `${segment.type}:${rawTag}`;
+	const occurrence = blockOccurrences.get(sourceKey) ?? 0;
+	blockOccurrences.set(sourceKey, occurrence + 1);
+	return `block:${sourceKey}:${occurrence}`;
+}

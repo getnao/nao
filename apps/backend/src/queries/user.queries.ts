@@ -1,9 +1,14 @@
+import type { MemberStatus } from '@nao/shared/types';
 import crypto from 'crypto';
-import { count, eq } from 'drizzle-orm';
+import { and, count, eq, inArray, lt, sql } from 'drizzle-orm';
 
 import s, { NewAccount, NewUser, User } from '../db/abstractSchema';
 import { db } from '../db/db';
 import { takeFirstOrThrow } from '../utils/queries';
+
+export const userMemberStatus = sql<MemberStatus>`case when ${s.user.requiresPasswordReset} then 'invited' else 'active' end`;
+
+export const INVITATION_TTL_DAYS = 7;
 
 export const getUser = async (identifier: { id: string } | { email: string }): Promise<User | null> => {
 	const condition = 'id' in identifier ? eq(s.user.id, identifier.id) : eq(s.user.email, identifier.email);
@@ -16,6 +21,18 @@ export const getUser = async (identifier: { id: string } | { email: string }): P
 export const getUserName = async (userId: string): Promise<string | null> => {
 	const [user] = await db.select({ name: s.user.name }).from(s.user).where(eq(s.user.id, userId)).execute();
 	return user ? user.name : null;
+};
+
+export const getUserNames = async (userIds: string[]): Promise<Map<string, string>> => {
+	if (userIds.length === 0) {
+		return new Map();
+	}
+	const users = await db
+		.select({ id: s.user.id, name: s.user.name })
+		.from(s.user)
+		.where(inArray(s.user.id, userIds))
+		.execute();
+	return new Map(users.map((user) => [user.id, user.name]));
 };
 
 export const updateUser = async (id: string, name: string): Promise<void> => {
@@ -92,4 +109,22 @@ export const createUser = async (user: NewUser, account: NewAccount): Promise<Us
 		await tx.insert(s.account).values(account).execute();
 		return created;
 	});
+};
+
+/** Removes users whose temporary password was issued (or re-issued) over a week ago and never replaced. */
+export const deleteExpiredInvitations = async (now = new Date()): Promise<number> => {
+	const cutoff = new Date(now.getTime() - INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000);
+	const deleted = await db
+		.delete(s.user)
+		.where(
+			and(
+				eq(s.user.requiresPasswordReset, true),
+				lt(s.user.updatedAt, cutoff),
+				sql`not exists(select 1 from ${s.session} where ${s.session.userId} = ${s.user.id})`,
+				sql`not exists(select 1 from ${s.chat} where ${s.chat.userId} = ${s.user.id})`,
+			),
+		)
+		.returning({ id: s.user.id })
+		.execute();
+	return deleted.length;
 };

@@ -817,3 +817,35 @@ llm:
         assert any("[bold red]✗[/bold red]" in call for call in calls)
 
         mock_check.assert_called_once()
+
+    def test_debug_preserves_provider_extra_in_missing_dependency_message(self, create_config):
+        """MissingDependencyError pip extras like [anthropic] must survive Rich table rendering."""
+        from io import StringIO
+
+        from rich.console import Console
+
+        from nao_core.deps import MissingDependencyError
+
+        create_config("""\
+project_name: test-project
+llm:
+  provider: anthropic
+  api_key: sk-test-key
+""")
+
+        missing_message = str(MissingDependencyError("anthropic", "anthropic", "for Anthropic LLM provider"))
+        assert "pip install 'nao-core[anthropic]'" in missing_message
+
+        buffer = StringIO()
+        real_console = Console(file=buffer, force_terminal=True, width=200, color_system=None)
+
+        with patch(
+            "nao_core.commands.debug.check_llm_connection",
+            return_value=(False, missing_message),
+        ):
+            with patch("nao_core.commands.debug.console", real_console):
+                debug()
+
+        output = buffer.getvalue()
+        assert "pip install 'nao-core[anthropic]'" in output
+        assert "uv pip install 'nao-core[anthropic]'" in output

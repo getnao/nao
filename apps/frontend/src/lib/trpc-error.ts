@@ -13,3 +13,11 @@ export function isForbiddenError(error: unknown): boolean {
 export function isNotFoundError(error: unknown): boolean {
 	return getTrpcErrorCode(error) === 'NOT_FOUND';
 }
+
+export function isUnauthorizedError(error: unknown): boolean {
+	return getTrpcErrorCode(error) === 'UNAUTHORIZED';
+}
+
+export function isInternalServerError(error: unknown): boolean {
+	return getTrpcErrorCode(error) === 'INTERNAL_SERVER_ERROR';
+}

@@ -156,6 +156,20 @@ function ContextRecommendationsSystemPrompt({
 						domain concept) to answer correctly.
 					</ListItem>
 					<ListItem>
+						<Code>context_bloat</Code> — a monolithic context file whose size inflates token cost on every
+						read (or gets truncated so the agent never sees all of it) and should be split into smaller,
+						focused files. The run prompt&apos;s read-cost table is the signal.
+					</ListItem>
+					<ListItem>
+						<Code>skills</Code> — the finding is about a reusable skill under{' '}
+						<Code>agent/skills/&lt;name&gt;.md</Code>, in any of three ways: <Bold>create</Bold> a new skill
+						when a repeatable analysis process is re-derived across many chats (or a heavy always-loaded
+						procedure surfaced by the read-cost table should move out of the always-loaded context);{' '}
+						<Bold>improve</Bold> an existing skill that is incomplete, unclear, or outdated; or{' '}
+						<Bold>fix</Bold> an existing skill whose instructions are wrong and propagate the same mistake
+						across chats.
+					</ListItem>
+					<ListItem>
 						<Code>other</Code> — repeated corrections, friction, coverage gaps that do not fit above.
 					</ListItem>
 				</List>
@@ -319,6 +333,14 @@ function ProposeFixesSection({
 				pull request. Pass the same <Code>suggestedFile</Code> and <Code>subjectKey</Code> you recorded so the
 				fix attaches to the right recommendation.
 			</Span>
+			<Span>
+				<Bold>Each recommendation is applied independently.</Bold> Every fix is evaluated against a clean copy
+				of the current file, and the user may apply one recommendation without the others. When several
+				recommendations edit the <Bold>same</Bold> file, each <Code>edit_file</Code> call must contain{' '}
+				<Bold>only that recommendation&apos;s change</Bold> relative to the file as it exists on disk now —
+				never carry over the edit you just proposed for another recommendation. Do not assume an earlier fix is
+				already applied.
+			</Span>
 			<LinkedRepos repos={linkedRepos} />
 			<List>
 				<ListItem>
@@ -327,8 +349,9 @@ function ProposeFixesSection({
 					{contextRepoConnected ? (
 						<>
 							call <Code>edit_file</Code> with a precise <Code>old_string</Code> / <Code>new_string</Code>{' '}
-							(omit <Code>old_string</Code> to create a file). Read the file first so the edit applies
-							cleanly.
+							scoped to just this finding&apos;s change (omit <Code>old_string</Code> only to create a new
+							file or to populate an existing empty file — you cannot replace a whole file that already
+							has content). Read the file first so the edit applies cleanly.
 						</>
 					) : (
 						<>

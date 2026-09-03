@@ -1,17 +1,9 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { SettingsMemories } from '@/components/settings/memories';
-import { requireNonViewer } from '@/lib/require-admin';
-import { SettingsPageWrapper } from '@/components/ui/settings-card';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/memory')({
-	beforeLoad: requireNonViewer,
-	component: MemoryPage,
+	beforeLoad: () => {
+		throw redirect({
+			to: '/settings/account',
+		});
+	},
 });
-
-function MemoryPage() {
-	return (
-		<SettingsPageWrapper>
-			<SettingsMemories />
-		</SettingsPageWrapper>
-	);
-}

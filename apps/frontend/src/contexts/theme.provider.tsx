@@ -15,6 +15,30 @@ export const useTheme = () => {
 	return context;
 };
 
+const prefersDark = () =>
+	typeof window !== 'undefined' &&
+	typeof window.matchMedia === 'function' &&
+	window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+/** Resolves the effective dark state, staying in sync with the OS when theme is 'system'. */
+export const useIsDarkMode = (): boolean => {
+	const { theme } = useTheme();
+	const [systemDark, setSystemDark] = useState(prefersDark);
+
+	useEffect(() => {
+		if (theme !== 'system' || typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+			return;
+		}
+		const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+		setSystemDark(mediaQuery.matches);
+		const onChange = (e: MediaQueryListEvent) => setSystemDark(e.matches);
+		mediaQuery.addEventListener('change', onChange);
+		return () => mediaQuery.removeEventListener('change', onChange);
+	}, [theme]);
+
+	return theme === 'dark' || (theme === 'system' && systemDark);
+};
+
 function syncThemeColor() {
 	const meta = document.querySelector('meta[name="theme-color"]');
 	if (meta) {

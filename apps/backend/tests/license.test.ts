@@ -104,12 +104,12 @@ describe('license.service', () => {
 	it('only exposes known features from the license payload', async () => {
 		const { licensePath, publicKeyPem } = await createSignedLicenseFile({
 			...DEFAULT_CLAIMS,
-			features: ['sso', 'unknown-future-feature'],
+			features: [LICENSE_FEATURES.sso, LICENSE_FEATURES.excludeColumns, 'unknown-future-feature'],
 		});
 		setLicenseEnv({ licensePath, publicKeyPem });
 
 		const license = await getLicense();
-		expect(license?.features).toEqual(['sso']);
+		expect(license?.features).toEqual([LICENSE_FEATURES.sso, LICENSE_FEATURES.excludeColumns]);
 	});
 
 	it('updates cached features from signed online validation', async () => {
@@ -118,18 +118,12 @@ describe('license.service', () => {
 			features: [],
 		});
 		setLicenseEnv({ licensePath, publicKeyPem });
-		vi.stubGlobal(
-			'fetch',
-			vi.fn(async () => {
-				const token = await createSignedValidateToken(privateKey, {
-					subscriptionId: DEFAULT_CLAIMS.subscriptionId,
-					valid: true,
-					isActive: true,
-					features: [LICENSE_FEATURES.sso],
-				});
-				return new Response(JSON.stringify({ token }));
-			}),
-		);
+		stubValidateResponse(privateKey, {
+			subscriptionId: DEFAULT_CLAIMS.subscriptionId,
+			valid: true,
+			isActive: true,
+			features: [LICENSE_FEATURES.sso],
+		});
 
 		expect(await hasFeature(LICENSE_FEATURES.sso)).toBe(false);
 
@@ -137,6 +131,47 @@ describe('license.service', () => {
 
 		expect(await hasFeature(LICENSE_FEATURES.sso)).toBe(true);
 		expect((await getLicense())?.features).toEqual([LICENSE_FEATURES.sso]);
+	});
+
+	it('extends an expired license when the renewal is verified online', async () => {
+		const eightDaysAgoSeconds = -8 * 24 * 60 * 60;
+		const { licensePath, privateKey, publicKeyPem } = await createSignedLicenseFile(DEFAULT_CLAIMS, {
+			expiresInSeconds: eightDaysAgoSeconds,
+		});
+		const renewedExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+		setLicenseEnv({ licensePath, publicKeyPem });
+		stubValidateResponse(privateKey, {
+			subscriptionId: DEFAULT_CLAIMS.subscriptionId,
+			valid: true,
+			isActive: true,
+			expiresAt: renewedExpiry.toISOString(),
+			features: [LICENSE_FEATURES.sso],
+		});
+
+		expect(await hasFeature(LICENSE_FEATURES.sso)).toBe(false);
+
+		await refreshLicenseOnline();
+
+		expect(await hasFeature(LICENSE_FEATURES.sso)).toBe(true);
+		expect((await getLicense())?.expiresAt).toEqual(renewedExpiry);
+	});
+
+	it('never shortens the license expiry from an online verdict', async () => {
+		const { licensePath, privateKey, publicKeyPem } = await createSignedLicenseFile(DEFAULT_CLAIMS);
+		setLicenseEnv({ licensePath, publicKeyPem });
+		const originalExpiry = (await getLicense())?.expiresAt;
+		stubValidateResponse(privateKey, {
+			subscriptionId: DEFAULT_CLAIMS.subscriptionId,
+			valid: true,
+			isActive: true,
+			expiresAt: new Date(Date.now() - 60_000).toISOString(),
+			features: [LICENSE_FEATURES.sso],
+		});
+
+		await refreshLicenseOnline();
+
+		expect((await getLicense())?.expiresAt).toEqual(originalExpiry);
+		expect(await hasFeature(LICENSE_FEATURES.sso)).toBe(true);
 	});
 
 	it('never checks online for offline licenses', async () => {
@@ -281,17 +316,27 @@ async function createSignedLicenseFile(
 	return { licensePath, privateKey, publicKeyPem };
 }
 
-async function createSignedValidateToken(
-	privateKey: CryptoKey,
-	claims: {
-		subscriptionId: string;
-		valid: boolean;
-		isActive: boolean;
-		features: string[];
-	},
-): Promise<string> {
+interface ValidateClaims {
+	subscriptionId: string;
+	valid: boolean;
+	isActive: boolean;
+	expiresAt?: string;
+	features: string[];
+}
+
+function stubValidateResponse(privateKey: CryptoKey, claims: ValidateClaims): void {
+	vi.stubGlobal(
+		'fetch',
+		vi.fn(async () => {
+			const token = await createSignedValidateToken(privateKey, claims);
+			return new Response(JSON.stringify({ token }));
+		}),
+	);
+}
+
+async function createSignedValidateToken(privateKey: CryptoKey, claims: ValidateClaims): Promise<string> {
 	const now = Math.floor(Date.now() / 1000);
-	return new SignJWT(claims)
+	return new SignJWT({ ...claims })
 		.setProtectedHeader({ alg: 'EdDSA' })
 		.setIssuer('getnao')
 		.setIssuedAt(now)

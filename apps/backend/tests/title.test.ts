@@ -7,9 +7,11 @@ describe('sanitizeTitle', () => {
 		expect(sanitizeTitle('Revenue by region last quarter')).toBe('Revenue by region last quarter');
 	});
 
-	it('strips the quotes models wrap titles in', () => {
+	it('strips the quotes and markdown decoration models wrap titles in', () => {
 		expect(sanitizeTitle('"Revenue by region"')).toBe('Revenue by region');
 		expect(sanitizeTitle('`Revenue by region`')).toBe('Revenue by region');
+		expect(sanitizeTitle('**Revenue by region**')).toBe('Revenue by region');
+		expect(sanitizeTitle('## Revenue by region')).toBe('Revenue by region');
 	});
 
 	it('keeps only the first line when the model adds commentary', () => {
@@ -20,8 +22,13 @@ describe('sanitizeTitle', () => {
 		expect(sanitizeTitle('   \n  ')).toBe('');
 	});
 
-	it('truncates a title that exceeds the column length', () => {
-		expect(sanitizeTitle('a'.repeat(300))).toHaveLength(255);
+	it('rejects prose that does not look like a title', () => {
+		expect(
+			sanitizeTitle(
+				"I don't have access to your proprietary subscription data, databases, or business systems — I can't pull live metrics.",
+			),
+		).toBe('');
+		expect(sanitizeTitle('a'.repeat(300))).toBe('');
 	});
 });
 

@@ -30,11 +30,9 @@ import { SqlResultDisplay } from './sql-result-display';
 import { ToolCallWrapper } from './tool-call-wrapper';
 import type { ToolCallComponentProps } from '.';
 import type { ChartConfig } from '../ui/chart';
-import type { UIMessage } from '@nao/backend/chat';
 import type { DateRange } from '@/lib/charts.utils';
 import type { DataExportFormat } from '@/components/export-data-menu';
 import { trpc } from '@/main';
-import { findStoryIds } from '@/lib/story.utils';
 import {
 	DATE_RANGE_OPTIONS,
 	filterByDateRange,
@@ -45,6 +43,7 @@ import {
 import { useDateFormat } from '@/hooks/use-date-format';
 import { useChatId } from '@/hooks/use-chat-id';
 import { useResizeObserver } from '@/hooks/use-resize-observer';
+import { useStoryIds } from '@/hooks/use-story-ids';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
@@ -53,7 +52,6 @@ import { ExportDataMenu } from '@/components/export-data-menu';
 import { useSourceQuery } from '@/hooks/use-source-query';
 
 const Colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
-const EMPTY_MESSAGES: UIMessage[] = [];
 const LEGEND_SCROLL_OFFSET = 120;
 const PIE_LEGEND_BREAKPOINT = 280;
 const HORIZONTAL_LABEL_GAP = 12;
@@ -67,11 +65,9 @@ const MAX_TICK_LABEL_HEIGHT = 44;
 
 type ViewMode = 'chart' | 'data' | 'query';
 
-export const DisplayChartToolCall = ({
-	toolPart: { state, input, output, toolCallId },
-}: ToolCallComponentProps<'display_chart'>) => {
+export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'display_chart'>) => {
+	const { state, input, output, toolCallId } = toolPart;
 	const agent = useOptionalAgentContext();
-	const messages = agent?.messages ?? EMPTY_MESSAGES;
 	const chatId = useChatId();
 	const queryClient = useQueryClient();
 	const { open: openSidePanel, currentStorySlug, currentStoryTabIndex, isVisible } = useSidePanel();
@@ -83,11 +79,11 @@ export const DisplayChartToolCall = ({
 	const isBuiltinChart = chartConfig ? displayChart.isBuiltinChartType(chartConfig.chart_type) : false;
 	const [dataRange, setDataRange] = useState<DateRange>('all');
 	const [viewMode, setViewMode] = useState<ViewMode>('chart');
-	const storyIds = useMemo(() => findStoryIds(messages), [messages]);
+	const storyIds = useStoryIds();
 	const normalSize = useMemo(() => (document.querySelector('[data-selection-container]') ? true : false), []);
-	const logDownload = useMutation(trpc.analyticsEvent.logChatDownload.mutationOptions());
+	const { mutate: logDownload } = useMutation(trpc.analyticsEvent.logChatDownload.mutationOptions());
 
-	const addToStoryMutation = useMutation(
+	const { mutate: addToStory } = useMutation(
 		trpc.story.createVersion.mutationOptions({
 			onSuccess: (_data, variables) => {
 				queryClient.invalidateQueries({
@@ -97,6 +93,12 @@ export const DisplayChartToolCall = ({
 					}),
 				});
 				queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
+				queryClient.invalidateQueries({
+					queryKey: trpc.story.getLatest.queryKey({
+						chatId: variables.chatId,
+						storySlug: variables.storySlug,
+					}),
+				});
 			},
 		}),
 	);
@@ -129,7 +131,7 @@ export const DisplayChartToolCall = ({
 
 	const handleExportData = (format: DataExportFormat) => {
 		if (chatId) {
-			logDownload.mutate({ chatId, format, queryId: chartConfig?.query_id, title: chartConfig?.title });
+			logDownload({ chatId, format, queryId: chartConfig?.query_id, title: chartConfig?.title });
 		}
 	};
 
@@ -144,6 +146,17 @@ export const DisplayChartToolCall = ({
 		const sorted = sortByDateKey(sourceData.data, xAxisKey);
 		return filterByDateRange(sorted, xAxisKey, dataRange);
 	}, [sourceData?.data, chartConfig, dataRange]);
+	const customChartConfig = useMemo(
+		() =>
+			chartConfig
+				? {
+						...chartConfig,
+						x_axis_key: chartConfig.x_axis_key ?? '',
+						x_axis_type: chartConfig.x_axis_type ?? null,
+					}
+				: undefined,
+		[chartConfig],
+	);
 
 	if (isTableVariant) {
 		return <DisplayChartTable config={tableConfig} outputError={output?.error} toolCallId={toolCallId} />;
@@ -157,7 +170,7 @@ export const DisplayChartToolCall = ({
 		);
 	}
 
-	if (!chartConfig) {
+	if (!chartConfig || !customChartConfig) {
 		// Only show the loader while the input is genuinely still streaming. An
 		// orphaned partial tool call stuck in `input-streaming` after the message
 		// settled would otherwise render an endless loader.
@@ -222,7 +235,7 @@ export const DisplayChartToolCall = ({
 			activeTabIndex: currentStoryTabIndex,
 		});
 
-		addToStoryMutation.mutate({
+		addToStory({
 			chatId,
 			storySlug: targetId,
 			title: data.title,
@@ -385,14 +398,7 @@ export const DisplayChartToolCall = ({
 			) : viewMode === 'query' && sqlQuery ? (
 				<SqlQueryDisplay query={sqlQuery} />
 			) : !displayChart.isBuiltinChartType(chartConfig.chart_type) ? (
-				<CustomChart
-					config={{
-						...chartConfig,
-						x_axis_key: chartConfig.x_axis_key ?? '',
-						x_axis_type: chartConfig.x_axis_type ?? null,
-					}}
-					data={filteredData}
-				/>
+				<CustomChart config={customChartConfig} data={filteredData} />
 			) : (
 				<ChartDisplay
 					data={filteredData}

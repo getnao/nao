@@ -1,6 +1,6 @@
-import { ALLOWED_IMAGE_MEDIA_TYPES } from '@nao/shared/types';
+import { isImageMediaType } from '@nao/shared/attachments';
 import type { UIMessage } from '@nao/backend/chat';
-import type { ImageUploadData } from '@nao/shared/types';
+import type { ImageUploadData } from '@nao/shared/attachments';
 import type { SendMessageArgs } from '@/hooks/use-agent';
 
 export function lastUserMessagePayload(messages: UIMessage[]): SendMessageArgs | null {
@@ -37,12 +37,8 @@ function imageFromFilePart(part: UIMessage['parts'][number]): ImageUploadData | 
 	}
 	const match = file.url.match(/^data:([^;]+);base64,(.*)$/);
 	const mediaType = file.mediaType ?? match?.[1];
-	if (!match || !isImageMediaType(mediaType)) {
+	if (!match || !mediaType || !isImageMediaType(mediaType)) {
 		return null;
 	}
 	return { mediaType, data: match[2] };
-}
-
-function isImageMediaType(value: unknown): value is ImageUploadData['mediaType'] {
-	return typeof value === 'string' && ALLOWED_IMAGE_MEDIA_TYPES.includes(value as ImageUploadData['mediaType']);
 }
