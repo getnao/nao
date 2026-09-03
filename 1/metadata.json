@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.10.0",
+  "checkpoint_id": "01M1KQ2C64TVY5V82VWVN70S33",
+  "session_id": "48c41bb2-5145-46d4-9b7c-eb086b85efdd",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-03T13:24:26.794237Z",
+  "branch": "fix/bitbucket-ssh-access-bug",
+  "checkpoints_count": 13,
+  "save_step_count": 1,
+  "files_touched": [
+    "apps/frontend/src/components/settings/context-git-panel.tsx"
+  ],
+  "agent": "Cursor",
+  "model": "cursor-grok-4.6-high",
+  "turn_id": "a2262a70876f",
+  "compact_transcript_start": 0,
+  "session_metrics": {
+    "turn_count": 22
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-03T13:24:26.781358Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 9,
+    "human_removed": 2,
+    "total_committed": 0,
+    "total_lines_changed": 11,
+    "agent_percentage": 0,
+    "metric_version": 2
+  }
+}
