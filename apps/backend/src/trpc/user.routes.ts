@@ -95,7 +95,8 @@ export const userRoutes = {
 				addMember: async (userId) => {
 					await projectQueries.addProjectMember({ userId, projectId, role: env.DEFAULT_USER_ROLE });
 				},
-				buildEmail: (user, password) => buildUserAddedEmail(user, ctx.project.name, 'project', password),
+				buildEmail: (user, password) =>
+					buildUserAddedEmail(user, ctx.project.name, 'project', password, ctx.user.email),
 			});
 		}),
 

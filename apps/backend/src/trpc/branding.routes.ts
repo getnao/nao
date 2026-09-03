@@ -12,10 +12,11 @@ import {
 import { adminProtectedProcedure, publicProcedure } from './trpc';
 
 const MAX_ASSET_BYTES = 512 * 1024;
+const MAX_ASSET_DATA_LENGTH = MAX_ASSET_BYTES * 2;
 
 const assetSchema = z
 	.object({
-		data: z.string().min(1),
+		data: z.string().min(1).max(MAX_ASSET_DATA_LENGTH, 'Image data too large. Max image size is 512KB.'),
 		mediaType: z
 			.string()
 			.regex(/^image\/(png|jpe?g|svg\+xml|webp|gif|x-icon|vnd\.microsoft\.icon)$/i, 'Unsupported image type.'),
@@ -36,14 +37,22 @@ const updateSchema = z.object({
 
 const assetKindSchema = z.enum(['logo', 'favicon']);
 
-function assertAssetSize(b64: string) {
-	const approxBytes = Math.ceil((b64.length * 3) / 4);
-	if (approxBytes > MAX_ASSET_BYTES) {
+function normalizeAssetData(b64: string): string {
+	const normalizedBase64 = b64.replace(/\s/g, '');
+	const decodedBytes = Buffer.from(normalizedBase64, 'base64').length;
+	if (decodedBytes === 0) {
 		throw new TRPCError({
-			code: 'PAYLOAD_TOO_LARGE',
-			message: `Image too large (${Math.round(approxBytes / 1024)}KB). Max ${MAX_ASSET_BYTES / 1024}KB.`,
+			code: 'BAD_REQUEST',
+			message: 'Image data is empty.',
 		});
 	}
+	if (decodedBytes > MAX_ASSET_BYTES) {
+		throw new TRPCError({
+			code: 'PAYLOAD_TOO_LARGE',
+			message: `Image too large (${Math.round(decodedBytes / 1024)}KB). Max ${MAX_ASSET_BYTES / 1024}KB.`,
+		});
+	}
+	return normalizedBase64;
 }
 
 export const brandingRoutes = {
@@ -68,12 +77,12 @@ export const brandingRoutes = {
 				message: 'White-label customization requires the Enterprise white-label feature.',
 			});
 		}
-		for (const asset of [input.logo, input.favicon]) {
-			if (asset) {
-				assertAssetSize(asset.data);
-			}
-		}
-		await updateBranding(input);
+		const normalizedInput = {
+			...input,
+			...(input.logo ? { logo: { ...input.logo, data: normalizeAssetData(input.logo.data) } } : {}),
+			...(input.favicon ? { favicon: { ...input.favicon, data: normalizeAssetData(input.favicon.data) } } : {}),
+		};
+		await updateBranding(normalizedInput);
 		return { ok: true };
 	}),
 

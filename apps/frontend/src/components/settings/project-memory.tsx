@@ -4,11 +4,7 @@ import { SettingsControlRow } from '@/components/ui/settings-toggle-row';
 import { Switch } from '@/components/ui/switch';
 import { trpc } from '@/main';
 
-interface SettingsProjectMemoryProps {
-	isAdmin: boolean;
-}
-
-export function SettingsProjectMemory({ isAdmin }: SettingsProjectMemoryProps) {
+export function SettingsProjectMemory() {
 	const queryClient = useQueryClient();
 	const projectMemorySettings = useQuery(trpc.project.getMemorySettings.queryOptions());
 
@@ -30,20 +26,20 @@ export function SettingsProjectMemory({ isAdmin }: SettingsProjectMemoryProps) {
 
 	return (
 		<SettingsCard
-			title='Memory'
-			description='Memories enable nao to remember preferences and facts about team members.'
+			title='Project memory'
+			description='Controls memory for everyone in this project. When off, no member can use memory.'
 			divide
 		>
 			<SettingsControlRow
 				id='project-memory'
-				label='Enable memory'
-				description='Allow the agent to maintain a personal memory with each project member.'
+				label='Enable memory for this project'
+				description='Allow members to use personal memory.'
 				control={
 					<Switch
 						id='project-memory'
 						checked={projectMemoryEnabled}
 						onCheckedChange={handleProjectToggle}
-						disabled={!isAdmin || updateProjectMemory.isPending}
+						disabled={updateProjectMemory.isPending}
 					/>
 				}
 			/>

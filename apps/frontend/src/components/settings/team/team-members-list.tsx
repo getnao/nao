@@ -32,7 +32,7 @@ export function TeamMembersList({
 	extraActions,
 }: TeamMembersListProps) {
 	if (members.length === 0) {
-		return <div className='text-sm text-muted-foreground'>No members found.</div>;
+		return <div className='p-4 text-sm text-muted-foreground'>No members found.</div>;
 	}
 
 	const hasActions = isAdmin && (onEdit || onRemove || extraActions);
@@ -55,6 +55,11 @@ export function TeamMembersList({
 							<TableCell className='font-medium'>
 								{member.name}
 								{isCurrentUser && <span className='text-muted-foreground ml-1'>(you)</span>}
+								{member.status === 'invited' && (
+									<Badge variant='outline' className='ml-2'>
+										Invited
+									</Badge>
+								)}
 							</TableCell>
 							<TableCell className='font-mono text-muted-foreground'>{member.email}</TableCell>
 							<TableCell>

@@ -1,6 +1,7 @@
+import { getEmailDomain } from '../../utils/utils';
 import { EmailButton } from './email-button';
 import { EmailLayout } from './email-layout';
-import { WarningBox } from './warning-box';
+import { EmailCode, EmailParagraph } from './email-text';
 
 interface UserAddedToProjectProps {
 	userName: string;
@@ -9,6 +10,7 @@ interface UserAddedToProjectProps {
 	loginUrl: string;
 	to: string;
 	temporaryPassword?: string;
+	invitedBy?: string;
 }
 
 export function UserAddedToProject({
@@ -18,60 +20,58 @@ export function UserAddedToProject({
 	loginUrl,
 	to,
 	temporaryPassword,
+	invitedBy,
 }: UserAddedToProjectProps) {
 	const isNewUser = !!temporaryPassword;
+	const inviterDomain = invitedBy ? getEmailDomain(invitedBy) : null;
+	const recipientDomain = getEmailDomain(to);
+	const isForeignInviter = !!inviterDomain && inviterDomain !== recipientDomain;
 
 	return (
-		<EmailLayout>
-			<p>Hi {userName},</p>
+		<EmailLayout title={`You've been added to ${teamName} on nao`}>
+			<EmailParagraph>Hi {userName},</EmailParagraph>
 
-			<p>
-				{isNewUser ? (
+			{isForeignInviter && (
+				<EmailParagraph>
+					<strong>Please check that you recognize this inviter before continuing.</strong> The inviter's email
+					domain, <strong>{inviterDomain}</strong>, does not match your domain,{' '}
+					<strong>{recipientDomain}</strong>.
+				</EmailParagraph>
+			)}
+
+			<EmailParagraph>
+				{invitedBy ? (
+					<>
+						<strong>{invitedBy}</strong> {isNewUser ? 'invited you to join' : 'added you to'} the{' '}
+						{teamLabel} <strong>{teamName}</strong> on nao.
+					</>
+				) : isNewUser ? (
 					<>
 						You've been invited to join the {teamLabel} <strong>{teamName}</strong> on nao.
 					</>
 				) : (
-					<>You've been added to a new {teamLabel} on nao.</>
+					<>
+						You've been added to the {teamLabel} <strong>{teamName}</strong> on nao.
+					</>
 				)}
-			</p>
+			</EmailParagraph>
 
 			{isNewUser ? (
-				<>
-					<div className='credentials'>
-						<p>
-							<strong>Your login credentials:</strong>
-						</p>
-						<p>
-							Email: <strong>{to || ''}</strong>
-						</p>
-						<p>
-							Temporary Password: <span className='password'>{temporaryPassword}</span>
-						</p>
-					</div>
-
-					<WarningBox>
-						You will be required to change this password on your first login for security reasons.
-					</WarningBox>
-				</>
+				<EmailParagraph>
+					Log in with your email address <strong>{to}</strong> and the temporary password{' '}
+					<EmailCode>{temporaryPassword}</EmailCode>. You will be asked to choose a new password the first
+					time you log in.
+				</EmailParagraph>
 			) : (
-				<div className='info-box'>
-					<p>
-						<strong className='capitalize'>{teamLabel}:</strong> {teamName}
-					</p>
-					<p>You can now access this {teamLabel} using your existing nao account.</p>
-				</div>
+				<EmailParagraph>You can access it right away with your existing nao account.</EmailParagraph>
 			)}
 
-			<EmailButton href={loginUrl}>Login to nao</EmailButton>
+			<EmailButton href={loginUrl}>{isNewUser ? 'Log in to nao' : 'Open nao'}</EmailButton>
 
-			<p>
+			<EmailParagraph>
 				If you have any questions{isNewUser ? '' : ` about this ${teamLabel}`}, please contact your {teamLabel}{' '}
 				administrator.
-			</p>
-
-			<div className='footer'>
-				<p>This is an automated message from nao.</p>
-			</div>
+			</EmailParagraph>
 		</EmailLayout>
 	);
 }

@@ -15,9 +15,10 @@ import { trpc } from '@/main';
 
 interface SlackConfigSectionProps {
 	isAdmin: boolean;
+	onCancelSetup: () => void;
 }
 
-export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
+export function SlackConfigSection({ isAdmin, onCancelSetup }: SlackConfigSectionProps) {
 	const queryClient = useQueryClient();
 	const slackConfig = useQuery(trpc.project.getSlackConfig.queryOptions());
 	const { data: availableModels } = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
@@ -65,6 +66,14 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 	const handleDelete = async () => {
 		await deleteSlackConfig.mutateAsync();
 		queryClient.removeQueries(trpc.project.getSlackConfig.queryOptions());
+	};
+
+	const handleCancel = () => {
+		if (projectConfig) {
+			setIsEditing(false);
+			return;
+		}
+		onCancelSetup();
 	};
 
 	const handleStartEditing = () => {
@@ -146,7 +155,7 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 				webhookUrl={webhookUrl}
 				hasProjectConfig={!!projectConfig}
 				onSubmit={handleSubmit}
-				onCancel={() => setIsEditing(false)}
+				onCancel={handleCancel}
 				isPending={upsertSlackConfig.isPending}
 			/>
 		);

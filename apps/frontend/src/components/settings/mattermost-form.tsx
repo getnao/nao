@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { useForm } from '@tanstack/react-form';
-import { ExternalLink, X } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { PasswordField } from '@/components/ui/form-fields';
+import { ErrorMessage } from '@/components/ui/error-message';
+import { getSubmitErrorMessage, PasswordField } from '@/components/ui/form-fields';
 import { Input } from '@/components/ui/input';
 import { SettingsControlRow } from '@/components/ui/settings-toggle-row';
 import { Switch } from '@/components/ui/switch';
@@ -32,6 +34,7 @@ export function MattermostForm({
 	onCancel,
 	isPending,
 }: MattermostFormProps) {
+	const [submitError, setSubmitError] = useState<string>();
 	const form = useForm({
 		defaultValues: {
 			baseUrl: initialBaseUrl,
@@ -40,13 +43,23 @@ export function MattermostForm({
 			callbackUrl: initialCallbackUrl,
 		},
 		onSubmit: async ({ value }) => {
-			await onSubmit(value);
-			form.reset();
+			setSubmitError(undefined);
+			try {
+				await onSubmit(value);
+				form.reset();
+			} catch (error) {
+				setSubmitError(getSubmitErrorMessage(error, 'Failed to save integration.'));
+			}
 		},
 	});
 
+	const handleCancel = () => {
+		setSubmitError(undefined);
+		onCancel();
+	};
+
 	return (
-		<div className='flex flex-col gap-4 p-4 rounded-lg border border-violet bg-background'>
+		<div className='flex flex-col gap-4 p-4 rounded-xl border border-border bg-background'>
 			<form
 				onSubmit={(event) => {
 					event.preventDefault();
@@ -54,12 +67,7 @@ export function MattermostForm({
 				}}
 				className='flex flex-col gap-4'
 			>
-				<div className='flex items-center justify-between'>
-					<span className='text-sm font-medium text-foreground'>Mattermost</span>
-					<Button variant='ghost' size='icon-sm' type='button' onClick={onCancel}>
-						<X className='size-4' />
-					</Button>
-				</div>
+				<span className='text-sm font-medium text-foreground'>Mattermost</span>
 
 				<div className='grid gap-3'>
 					<p className='text-[11px] text-muted-foreground leading-relaxed'>
@@ -77,7 +85,8 @@ export function MattermostForm({
 					<form.Field
 						name='baseUrl'
 						validators={{
-							onChange: ({ value }: { value: string }) => validateMattermostUrl(value),
+							onChange: validateRequiredMattermostUrl,
+							onSubmit: validateRequiredMattermostUrl,
 						}}
 					>
 						{(field) => (
@@ -93,6 +102,7 @@ export function MattermostForm({
 									value={field.state.value}
 									onChange={(event) => field.handleChange(event.target.value)}
 									onBlur={field.handleBlur}
+									required
 								/>
 								{field.state.meta.errors.length > 0 && (
 									<p className='text-xs text-destructive'>{field.state.meta.errors[0]}</p>
@@ -129,8 +139,8 @@ export function MattermostForm({
 								<form.Field
 									name='callbackUrl'
 									validators={{
-										onChange: ({ value }: { value: string }) =>
-											value ? validateMattermostUrl(value, false) : undefined,
+										onChange: validateOptionalMattermostUrl,
+										onSubmit: validateOptionalMattermostUrl,
 									}}
 								>
 									{(field) => (
@@ -166,17 +176,19 @@ export function MattermostForm({
 					</form.Subscribe>
 				</div>
 
+				{submitError && <ErrorMessage message={submitError} />}
+
 				<div className='flex justify-end gap-2 pt-2'>
-					<Button variant='ghost' size='sm' type='button' onClick={onCancel}>
+					<Button variant='ghost' size='sm' type='button' onClick={handleCancel}>
 						Cancel
 					</Button>
-					<form.Subscribe selector={(state: { canSubmit: boolean }) => state.canSubmit}>
-						{(canSubmit: boolean) => (
+					<form.Subscribe selector={(state) => [state.canSubmit, state.values] as const}>
+						{([canSubmit, values]) => (
 							<Button
 								size='sm'
 								type='submit'
 								variant='primary-gradient'
-								disabled={!canSubmit || isPending}
+								disabled={!canSubmit || !hasRequiredMattermostValues(values) || isPending}
 							>
 								{hasProjectConfig ? 'Update' : 'Save'}
 							</Button>
@@ -186,6 +198,18 @@ export function MattermostForm({
 			</form>
 		</div>
 	);
+}
+
+function hasRequiredMattermostValues(values: MattermostFormValues): boolean {
+	return Boolean(values.baseUrl.trim() && values.botToken.trim());
+}
+
+function validateRequiredMattermostUrl({ value }: { value: string }): string | undefined {
+	return validateMattermostUrl(value);
+}
+
+function validateOptionalMattermostUrl({ value }: { value: string }): string | undefined {
+	return validateMattermostUrl(value, false);
 }
 
 function validateMattermostUrl(value: string, required = true): string | undefined {

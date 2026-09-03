@@ -1,13 +1,10 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { TeamsConfigSection } from '@/components/settings/teams-config-section';
-import { usePermissions } from '@/hooks/use-permissions';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/teams')({
-	component: ProjectTeamsTabPage,
+	beforeLoad: () => {
+		throw redirect({
+			to: '/settings/project/integrations/$integrationId',
+			params: { integrationId: 'teams' },
+		});
+	},
 });
-
-function ProjectTeamsTabPage() {
-	const { isAdmin } = usePermissions();
-
-	return <TeamsConfigSection isAdmin={isAdmin} />;
-}

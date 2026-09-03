@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo } from 'react';
+import { createContext, useCallback, useContext, useMemo, useRef } from 'react';
 
 type ShareType = 'chat' | 'story';
 
@@ -14,6 +14,7 @@ interface SidePanelContext {
 	isReadonlyMode: boolean;
 	open: (content: React.ReactNode, storySlug?: string) => void;
 	close: () => void;
+	registerBeforeChange: (guard: (continueChange: () => void) => void) => () => void;
 }
 
 const SidePanelContext = createContext<SidePanelContext | null>(null);
@@ -30,6 +31,7 @@ const noopSidePanel: SidePanelContext = {
 	isReadonlyMode: false,
 	open: () => {},
 	close: () => {},
+	registerBeforeChange: () => () => {},
 };
 
 export const useSidePanel = () => {
@@ -63,6 +65,32 @@ export const SidePanelProvider = ({
 	open: (content: React.ReactNode, storySlug?: string) => void;
 	close: () => void;
 }) => {
+	const beforeChangeRef = useRef<((continueChange: () => void) => void) | null>(null);
+	const registerBeforeChange = useCallback((guard: (continueChange: () => void) => void) => {
+		beforeChangeRef.current = guard;
+		return () => {
+			if (beforeChangeRef.current === guard) {
+				beforeChangeRef.current = null;
+			}
+		};
+	}, []);
+	const guardedOpen = useCallback(
+		(content: React.ReactNode, storySlug?: string) => {
+			if (isVisible && currentStorySlug && beforeChangeRef.current) {
+				beforeChangeRef.current(() => open(content, storySlug));
+				return;
+			}
+			open(content, storySlug);
+		},
+		[currentStorySlug, isVisible, open],
+	);
+	const guardedClose = useCallback(() => {
+		if (isVisible && currentStorySlug && beforeChangeRef.current) {
+			beforeChangeRef.current(close);
+			return;
+		}
+		close();
+	}, [close, currentStorySlug, isVisible]);
 	const value = useMemo(
 		() => ({
 			isVisible,
@@ -74,8 +102,9 @@ export const SidePanelProvider = ({
 			shareId,
 			shareType,
 			isReadonlyMode,
-			open,
-			close,
+			open: guardedOpen,
+			close: guardedClose,
+			registerBeforeChange,
 		}),
 		[
 			isVisible,
@@ -87,8 +116,9 @@ export const SidePanelProvider = ({
 			shareId,
 			shareType,
 			isReadonlyMode,
-			open,
-			close,
+			guardedOpen,
+			guardedClose,
+			registerBeforeChange,
 		],
 	);
 	return <SidePanelContext.Provider value={value}>{children}</SidePanelContext.Provider>;

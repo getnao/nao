@@ -23,6 +23,7 @@ import {
 	preprocessForEditor,
 	removeCardFromOrigin,
 } from '../story-editor-utils';
+import { shouldSyncStoryEditorContent } from './story-editor-content-sync';
 import type { GridDragSource, StoryBlockDragSource } from '../story-editor-drag-context';
 import type { DragUnit, GridColumnRef } from '../story-block-selection';
 import type { Node as PMNode } from '@tiptap/pm/model';
@@ -34,6 +35,7 @@ interface UseStoryEditorParams {
 	code: string;
 	editorRef: MutableRefObject<Editor | null>;
 	onSave?: () => void;
+	onChange?: (code: string) => void;
 }
 
 /**
@@ -41,9 +43,11 @@ interface UseStoryEditorParams {
  * block extensions, the save shortcut, and the drag-and-drop handlers that move
  * story blocks and grid columns around the document.
  */
-export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams) {
+export function useStoryEditor({ code, editorRef, onSave, onChange }: UseStoryEditorParams) {
 	const processedContent = useMemo(() => preprocessForEditor(code), [code]);
 	const onSaveRef = useRef(onSave);
+	const onChangeRef = useRef(onChange);
+	const lastEmittedMarkdownRef = useRef<string | null>(null);
 	const gridDragSourceRef = useRef<GridDragSource | null>(null);
 	const storyBlockSourceRef = useRef<StoryBlockDragSource | null>(null);
 	const multiSelectionDragRef = useRef<DragUnit[] | null>(null);
@@ -89,6 +93,7 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 		handleNodePosRef.current = node ? pos : null;
 	}, []);
 	onSaveRef.current = onSave;
+	onChangeRef.current = onChange;
 
 	const extensions = useMemo(
 		() => [
@@ -403,9 +408,32 @@ export function useStoryEditor({ code, editorRef, onSave }: UseStoryEditorParams
 		if (!editor) {
 			return;
 		}
-		if (editor.getMarkdown() === code) {
+		const handleUpdate = () => {
+			const markdown = editor.getMarkdown();
+			lastEmittedMarkdownRef.current = markdown;
+			onChangeRef.current?.(markdown);
+		};
+		editor.on('update', handleUpdate);
+		return () => {
+			editor.off('update', handleUpdate);
+		};
+	}, [editor]);
+
+	useEffect(() => {
+		if (!editor) {
 			return;
 		}
+		if (
+			!shouldSyncStoryEditorContent({
+				editorMarkdown: editor.getMarkdown(),
+				incomingCode: code,
+				lastEmittedMarkdown: lastEmittedMarkdownRef.current,
+			})
+		) {
+			lastEmittedMarkdownRef.current = null;
+			return;
+		}
+		lastEmittedMarkdownRef.current = null;
 		editor.commands.setContent(processedContent, { emitUpdate: false, contentType: 'markdown' });
 	}, [editor, code, processedContent]);
 

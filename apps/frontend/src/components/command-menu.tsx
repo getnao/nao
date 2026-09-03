@@ -185,10 +185,17 @@ export function CommandMenu({ onOpenKeyboardShortcuts }: { onOpenKeyboardShortcu
 					<CommandGroup heading='Settings'>
 						{displayedSettingsEntries.map((entry) => (
 							<SettingsCommandItem
-								key={entry.page}
+								key={`${entry.page}-${entry.section ?? ''}`}
 								entry={entry}
 								isSuggestion={showSettingsSuggestions}
-								onSelect={() => runCommand(() => navigate({ to: entry.page }))}
+								onSelect={() =>
+									runCommand(() =>
+										navigate({
+											to: entry.page,
+											search: entry.search,
+										}),
+									)
+								}
 							/>
 						))}
 					</CommandGroup>
@@ -271,7 +278,7 @@ function SettingsCommandItem({
 	onSelect: () => void;
 }) {
 	return (
-		<CommandItem value={`settings-${entry.page}`} onSelect={onSelect}>
+		<CommandItem value={`settings-${entry.page}-${entry.section ?? ''}`} onSelect={onSelect}>
 			<SettingsIcon />
 			<div className='flex flex-col gap-0.5 overflow-hidden'>
 				<span className='truncate'>{isSuggestion ? entry.pageLabel : entry.title}</span>

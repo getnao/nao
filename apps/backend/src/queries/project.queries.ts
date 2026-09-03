@@ -8,9 +8,11 @@ import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import { env, isCloud } from '../env';
+import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import type { ListProjectChatsResponse, ProjectChatsFacetKey, UserWithRole } from '../types/project';
 import { HandlerError } from '../utils/error';
 import { createCostLookup, TOTAL_COST_EXPR } from './usage.queries';
+import { userMemberStatus } from './user.queries';
 
 export interface UserProjectWithRole {
 	project: DBProject;
@@ -150,6 +152,7 @@ export const listProjectMembersWithRoles = async (projectId: string): Promise<Us
 			name: s.user.name,
 			email: s.user.email,
 			role: s.projectMember.role,
+			status: userMemberStatus,
 		})
 		.from(s.user)
 		.innerJoin(s.projectMember, eq(s.projectMember.userId, s.user.id))
@@ -167,6 +170,7 @@ export const listUsersWithProjectAccess = async (projectId: string): Promise<Use
 			name: s.user.name,
 			email: s.user.email,
 			role: sql<UserRole>`coalesce(${s.projectMember.role}, ${s.orgMember.role})`,
+			status: userMemberStatus,
 		})
 		.from(s.user)
 		.leftJoin(s.projectMember, and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)))
@@ -191,7 +195,7 @@ export const getProjectByUserId = async (
 	userId: string,
 	selectedProjectId?: string | null,
 ): Promise<DBProject | null> => {
-	if (isCloud) {
+	if (await canSelectProject()) {
 		const projects = await listUserProjects(userId);
 		if (selectedProjectId) {
 			const selectedProject = projects.find((project) => project.id === selectedProjectId);
@@ -210,6 +214,8 @@ export const getProjectByUserId = async (
 	const role = await getUserRoleInProject(project.id, userId);
 	return role ? project : null;
 };
+
+const canSelectProject = async (): Promise<boolean> => isCloud && (await hasFeature(LICENSE_FEATURES.multiProject));
 
 export const checkProjectHasMoreThanOneAdmin = async (projectId: string): Promise<boolean> => {
 	const userWithRoles = await listProjectMembersWithRoles(projectId);

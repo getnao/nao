@@ -1,10 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { Folder, Search, X } from 'lucide-react';
+import { ArrowUpRight, Search, X } from 'lucide-react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 
-import type { ProjectOption } from '@/components/project-selector';
-
-import { ProjectSelector } from '@/components/project-selector';
 import { Badge } from '@/components/ui/badge';
 import { useSettingsSearch } from '@/hooks/use-settings-search';
 import { cn, hideIf } from '@/lib/utils';
@@ -13,9 +10,7 @@ interface NavContext {
 	isAdmin: boolean;
 	isContextAdmin: boolean;
 	isCloud: boolean;
-	hasLicense: boolean;
 	isViewer: boolean;
-	isInMultipleProjects: boolean;
 }
 
 interface NavItem {
@@ -23,110 +18,130 @@ interface NavItem {
 	to?: string;
 	search?: { admin?: boolean };
 	visible?: (ctx: NavContext) => boolean;
-	disabled?: (ctx: NavContext) => boolean;
-	type?: 'divider' | 'item';
+	exact?: boolean;
 	badge?: string;
 	badgeVariant?: 'new' | 'enterprise';
+	leavesSettings?: boolean;
 }
 
-const settingsNavItems: NavItem[] = [
-	{
-		label: 'Settings',
-		type: 'divider',
-	},
-	{
-		label: 'Account',
-		to: '/settings/account',
-	},
-	{
-		label: 'Organization',
-		to: '/settings/organization',
-		visible: ({ isViewer }) => !isViewer,
-	},
+interface NavGroup {
+	label: string;
+	items: NavItem[];
+}
+
+const settingsNavGroups: NavGroup[] = [
 	{
 		label: 'Project',
-		to: '/settings/project',
-		visible: ({ isViewer, isInMultipleProjects }) => !isViewer || isInMultipleProjects,
-	},
-	{
-		label: 'Git',
-		to: '/settings/git',
-		visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
-	},
-	{
-		label: 'MCP Endpoint',
-		to: '/settings/mcp-endpoint',
-		visible: ({ isViewer }) => !isViewer,
-	},
-	{
-		label: 'Storage',
-		to: '/settings/storage',
-		visible: ({ isViewer, isCloud }) => !isViewer && !isCloud,
-	},
-	{
-		label: 'Observability',
-		type: 'divider',
-		visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
-	},
-	{
-		label: 'Chat with nao data',
-		to: '/',
-		search: { admin: true },
-		visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
-	},
-	{
-		label: 'Usage, costs & replay',
-		to: '/settings/usage',
-		visible: ({ isAdmin }) => isAdmin,
-	},
-	{
-		label: 'Chats replay',
-		to: '/settings/usage',
-		visible: ({ isAdmin, isContextAdmin }) => !isAdmin && isContextAdmin,
-	},
-	{
-		label: 'Server logs',
-		to: '/settings/logs',
-		visible: ({ isAdmin, isCloud }) => isAdmin && !isCloud,
+		items: [
+			{
+				label: 'Project Settings & Budget',
+				to: '/settings/project',
+				visible: ({ isViewer }) => !isViewer,
+				exact: true,
+			},
+			{
+				label: 'Team',
+				to: '/settings/project/team',
+				visible: ({ isViewer }) => !isViewer,
+			},
+			{
+				label: 'Agent',
+				to: '/settings/project/agent',
+				visible: ({ isViewer }) => !isViewer,
+			},
+			{
+				label: 'Integrations & MCP',
+				to: '/settings/project/integrations',
+				visible: ({ isViewer }) => !isViewer,
+			},
+			{
+				label: 'Appearance',
+				to: '/settings/appearance',
+				visible: ({ isViewer }) => !isViewer,
+			},
+		],
 	},
 	{
 		label: 'Context',
-		type: 'divider',
-		visible: ({ isViewer }) => !isViewer,
+		items: [
+			{
+				label: 'Git',
+				to: '/settings/git',
+				visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
+			},
+			{
+				label: 'Recommendations',
+				to: '/settings/recommendations',
+				visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
+				badge: 'Beta',
+				badgeVariant: 'new',
+			},
+			{
+				label: 'File Explorer',
+				to: '/settings/context-explorer',
+				visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
+			},
+		],
 	},
 	{
-		label: 'Recommendations',
-		to: '/settings/recommendations',
-		visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
-		badge: 'Beta',
-		badgeVariant: 'new',
+		label: 'Observability',
+		items: [
+			{
+				label: 'Chat with nao data',
+				to: '/',
+				search: { admin: true },
+				visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
+				exact: true,
+				leavesSettings: true,
+			},
+			{
+				label: 'Usage, costs & replay',
+				to: '/settings/usage',
+				visible: ({ isAdmin }) => isAdmin,
+			},
+			{
+				label: 'Chats replay',
+				to: '/settings/usage',
+				visible: ({ isAdmin, isContextAdmin }) => !isAdmin && isContextAdmin,
+			},
+			{
+				label: 'Server logs',
+				to: '/settings/logs',
+				visible: ({ isAdmin, isCloud }) => isAdmin && !isCloud,
+			},
+		],
 	},
 	{
-		label: 'File Explorer',
-		to: '/settings/context-explorer',
-		visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
-	},
-	{
-		label: 'Memory',
-		to: '/settings/memory',
-		visible: ({ isViewer }) => !isViewer,
-	},
-	{
-		label: 'Enterprise',
-		type: 'divider',
-		visible: ({ isAdmin, isCloud }) => isAdmin && !isCloud,
-	},
-	{
-		label: 'License',
-		to: '/settings/enterprise',
-		visible: ({ isAdmin, isCloud, hasLicense }) => isAdmin && !isCloud && hasLicense,
-	},
-	{
-		label: 'White-label',
-		to: '/settings/white-label',
-		visible: ({ isAdmin, isCloud }) => isAdmin && !isCloud,
+		label: 'Organization',
+		items: [
+			{
+				label: 'Organization Settings',
+				to: '/settings/organization',
+				visible: ({ isViewer }) => !isViewer,
+				exact: true,
+			},
+			{
+				label: 'Members',
+				to: '/settings/organization/members',
+				visible: ({ isViewer }) => !isViewer,
+				exact: true,
+			},
+			{
+				label: 'Storage',
+				to: '/settings/storage',
+				visible: ({ isViewer, isCloud }) => !isViewer && !isCloud,
+			},
+			{
+				label: 'Enterprise',
+				to: '/settings/enterprise',
+				visible: ({ isViewer, isCloud }) => !isViewer && !isCloud,
+			},
+		],
 	},
 ];
+
+const navRowClassName =
+	'flex items-center gap-2 rounded-md transition-colors whitespace-nowrap px-2 py-[5px] text-[13px] leading-5';
 
 interface SidebarSettingsNavProps {
 	isCollapsed: boolean;
@@ -134,10 +149,6 @@ interface SidebarSettingsNavProps {
 	isContextAdmin: boolean;
 	isViewer: boolean;
 	isCloud: boolean;
-	hasLicense: boolean;
-	projects: ProjectOption[];
-	currentProjectId?: string;
-	onProjectChange: (projectId: string) => void;
 }
 
 export function SidebarSettingsNav({
@@ -146,27 +157,23 @@ export function SidebarSettingsNav({
 	isContextAdmin,
 	isViewer,
 	isCloud,
-	hasLicense,
-	projects,
-	currentProjectId,
-	onProjectChange,
 }: SidebarSettingsNavProps) {
 	const navigate = useNavigate();
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [query, setQuery] = useState('');
 
-	const navItems = settingsNavItems.filter(
-		(item) =>
-			item.visible?.({
-				isAdmin,
-				isContextAdmin,
-				isCloud,
-				isViewer,
-				isInMultipleProjects: projects.length > 1,
-				hasLicense,
-			}) ?? true,
-	);
-	const canSwitchProjects = projects.length > 1 && !!currentProjectId;
+	const navContext = {
+		isAdmin,
+		isContextAdmin,
+		isCloud,
+		isViewer,
+	};
+	const navGroups = settingsNavGroups
+		.map((group) => ({
+			...group,
+			items: group.items.filter((item) => item.visible?.(navContext) ?? true),
+		}))
+		.filter((group) => group.items.length > 0);
 
 	useEffect(() => {
 		const handleSlashKey = (e: KeyboardEvent) => {
@@ -194,7 +201,7 @@ export function SidebarSettingsNav({
 			inputRef.current?.blur();
 		} else if (e.key === 'Enter' && results.length > 0) {
 			setQuery('');
-			navigate({ to: results[0].page });
+			navigate({ to: results[0].page, search: results[0].search });
 		}
 	};
 
@@ -212,7 +219,7 @@ export function SidebarSettingsNav({
 							onChange={(e) => setQuery(e.target.value)}
 							onKeyDown={handleKeyDown}
 							className={cn(
-								'w-full rounded-lg border border-input bg-transparent py-1.5 pl-8 pr-8 text-sm',
+								'w-full rounded-md border border-input bg-transparent py-1 pl-8 pr-8 text-[13px] leading-5',
 								'placeholder:text-muted-foreground',
 								'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
 							)}
@@ -237,152 +244,107 @@ export function SidebarSettingsNav({
 				</div>
 			)}
 
-			{isSearching && !isViewer ? (
-				<div className='flex flex-col gap-0.5 px-2 pt-1'>
-					{results.length === 0 ? (
-						<div className='px-3 py-4 text-xs text-muted-foreground text-center'>No results found</div>
-					) : (
-						results.map((result) => (
-							<Link
-								key={result.page + result.title}
-								to={result.page}
-								onClick={() => setQuery('')}
-								className={cn(
-									'flex flex-col gap-0.5 px-3 py-2 text-sm rounded-md transition-colors',
-									'hover:bg-sidebar-accent hover:text-foreground',
-								)}
-							>
-								<span className='font-medium truncate'>{result.title}</span>
-								<span className='text-xs text-muted-foreground truncate'>
-									{result.pageLabel}
-									{result.section ? ` · ${result.section}` : ''}
-								</span>
-							</Link>
-						))
-					)}
-				</div>
-			) : (
-				<nav className='flex flex-col gap-1 px-2'>
-					{navItems.map((item) => {
-						if (item.type === 'divider') {
-							return (
-								<div
-									key={item.label}
-									className='uppercase text-xs font-medium text-muted-foreground px-3 pt-4'
+			<div className='flex-1 min-h-0 overflow-y-auto'>
+				{isSearching && !isViewer ? (
+					<div className='flex flex-col gap-px px-2 pt-1'>
+						{results.length === 0 ? (
+							<div className='px-2 py-4 text-xs text-muted-foreground text-center'>No results found</div>
+						) : (
+							results.map((result) => (
+								<Link
+									key={result.page + result.title}
+									to={result.page}
+									search={result.search}
+									onClick={() => setQuery('')}
+									className={cn(
+										'flex flex-col gap-px px-2 py-1 text-[13px] leading-5 rounded-md transition-colors',
+										'hover:bg-sidebar-accent hover:text-foreground',
+									)}
 								>
-									{item.label}
-								</div>
-							);
-						}
-
-						const isProjectItem = item.to === '/settings/project';
-						const isDisabled =
-							item.disabled?.({
-								isAdmin,
-								isContextAdmin,
-								isCloud,
-								isViewer,
-								isInMultipleProjects: projects.length > 1,
-								hasLicense,
-							}) ?? false;
-
-						const badge = item.badge ? (
-							<Badge
-								variant='ghost'
-								className={cn(
-									'ml-auto h-4 px-1.5 py-0 text-[10px] font-medium uppercase tracking-wide',
-									item.badgeVariant === 'enterprise'
-										? 'bg-primary/10 text-primary'
-										: 'bg-secondary text-secondary-foreground',
-								)}
-							>
-								{item.badge}
-							</Badge>
-						) : null;
-
-						return (
-							<div key={item.to} className='flex flex-col'>
-								{isDisabled ? (
-									<span
-										className='flex items-center gap-2 px-3 py-2 text-sm rounded-md whitespace-nowrap cursor-not-allowed'
-										aria-disabled='true'
-									>
-										{item.label}
-										{badge}
+									<span className='font-medium truncate'>{result.title}</span>
+									<span className='text-[11px] leading-4 text-muted-foreground truncate'>
+										{result.pageLabel}
+										{result.section ? ` · ${result.section}` : ''}
 									</span>
-								) : item.search ? (
-									<Link
-										to='/'
-										search={item.search}
-										className={cn(
-											'flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors whitespace-nowrap',
-										)}
-										activeProps={{
-											className: cn('bg-sidebar-accent text-foreground font-medium'),
-										}}
-										inactiveProps={{
-											className: cn('hover:bg-sidebar-accent hover:text-foreground'),
-										}}
-									>
-										{item.label}
-										{badge}
-									</Link>
-								) : (
-									<Link
-										to={item.to}
-										className={cn(
-											'flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors whitespace-nowrap',
-										)}
-										activeProps={{
-											className: cn('bg-sidebar-accent text-foreground font-medium'),
-										}}
-										inactiveProps={{
-											className: cn('hover:bg-sidebar-accent hover:text-foreground'),
-										}}
-									>
-										{item.label}
-										{badge}
-									</Link>
-								)}
-								{isProjectItem && canSwitchProjects && currentProjectId && (
-									<ProjectSwitcherSubItem
-										projects={projects}
-										currentProjectId={currentProjectId}
-										onChange={onProjectChange}
-									/>
-								)}
-							</div>
-						);
-					})}
-				</nav>
-			)}
-		</div>
-	);
-}
+								</Link>
+							))
+						)}
+					</div>
+				) : (
+					<nav className='flex flex-col px-2 gap-1'>
+						{navGroups.map((group) => (
+							<Fragment key={group.label}>
+								<div className='px-2 pt-4 pb-0.5 text-[11px] leading-4 font-medium uppercase tracking-wide text-muted-foreground'>
+									{group.label}
+								</div>
+								{group.items.map((item) => {
+									const badge = item.badge ? (
+										<Badge
+											variant='ghost'
+											className={cn(
+												'ml-auto h-4 px-1.5 py-0 text-[10px] font-medium uppercase tracking-wide',
+												item.badgeVariant === 'enterprise'
+													? 'bg-primary/10 text-primary'
+													: 'bg-secondary text-secondary-foreground',
+											)}
+										>
+											{item.badge}
+										</Badge>
+									) : null;
+									const leavesSettingsIndicator = item.leavesSettings ? (
+										<>
+											<ArrowUpRight
+												aria-hidden='true'
+												className={cn('size-3.5 text-muted-foreground', !badge && 'ml-auto')}
+											/>
+											<span className='sr-only'>Opens a chat outside settings</span>
+										</>
+									) : null;
 
-function ProjectSwitcherSubItem({
-	projects,
-	currentProjectId,
-	onChange,
-}: {
-	projects: ProjectOption[];
-	currentProjectId: string;
-	onChange: (projectId: string) => void;
-}) {
-	return (
-		<div className='ml-3 mt-1 pl-3 border-l border-sidebar-border'>
-			<div className='px-1 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground'>Switch project</div>
-			<ProjectSelector
-				projects={projects}
-				currentProjectId={currentProjectId}
-				onChange={onChange}
-				triggerVariant='ghost'
-				triggerIcon={<Folder className='size-3.5 shrink-0' />}
-				triggerClassName={cn(
-					'w-full h-auto py-1.5 px-2 text-sm rounded-md',
-					'bg-sidebar-accent/40 hover:bg-sidebar-accent hover:text-foreground',
+									return (
+										<div key={`${item.to}-${item.label}`} className='flex flex-col'>
+											{item.search ? (
+												<Link
+													to='/'
+													search={item.search}
+													activeOptions={item.exact ? { exact: true } : undefined}
+													className={navRowClassName}
+													activeProps={{
+														className: cn('bg-sidebar-accent text-foreground font-medium'),
+													}}
+													inactiveProps={{
+														className: cn('hover:bg-sidebar-accent hover:text-foreground'),
+													}}
+												>
+													{item.label}
+													{badge}
+													{leavesSettingsIndicator}
+												</Link>
+											) : (
+												<Link
+													to={item.to}
+													activeOptions={item.exact ? { exact: true } : undefined}
+													className={navRowClassName}
+													activeProps={{
+														className: cn('bg-sidebar-accent text-foreground font-medium'),
+													}}
+													inactiveProps={{
+														className: cn('hover:bg-sidebar-accent hover:text-foreground'),
+													}}
+												>
+													{item.label}
+													{badge}
+													{leavesSettingsIndicator}
+												</Link>
+											)}
+										</div>
+									);
+								})}
+							</Fragment>
+						))}
+					</nav>
 				)}
-			/>
+			</div>
 		</div>
 	);
 }

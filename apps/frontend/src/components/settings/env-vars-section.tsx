@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Check, Loader2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { ErrorMessage } from '@/components/ui/error-message';
@@ -13,7 +13,6 @@ export function EnvVarsSection({ isAdmin }: { isAdmin: boolean }) {
 	const queryClient = useQueryClient();
 	const envVarsQuery = useQuery(trpc.project.getEnvVars.queryOptions());
 	const [localValues, setLocalValues] = useState<Record<string, string>>({});
-	const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set());
 	const [hasChanges, setHasChanges] = useState(false);
 	const initializedRef = useRef(false);
 
@@ -55,18 +54,6 @@ export function EnvVarsSection({ isAdmin }: { isAdmin: boolean }) {
 		setHasChanges(true);
 	};
 
-	const toggleReveal = (key: string) => {
-		setRevealedKeys((prev) => {
-			const next = new Set(prev);
-			if (next.has(key)) {
-				next.delete(key);
-			} else {
-				next.add(key);
-			}
-			return next;
-		});
-	};
-
 	const handleSave = () => {
 		const envVars: Record<string, string> = {};
 		for (const key of required) {
@@ -95,16 +82,18 @@ export function EnvVarsSection({ isAdmin }: { isAdmin: boolean }) {
 				) : undefined
 			}
 		>
-			<div className='grid gap-3'>
+			<div className='grid gap-4'>
 				{required.map((key) => {
 					const value = localValues[key] ?? '';
-					const isRevealed = revealedKeys.has(key);
 					const isSet = !!value;
+					const inputId = `env-var-${key}`;
 
 					return (
 						<div key={key} className='grid gap-1.5'>
 							<div className='flex items-center gap-2'>
-								<label className='text-sm font-medium font-mono text-foreground'>{key}</label>
+								<label htmlFor={inputId} className='text-sm font-medium text-foreground'>
+									{key}
+								</label>
 								{!isAdmin && (
 									<span className='text-xs text-muted-foreground'>
 										{isSet ? '(configured)' : '(not set)'}
@@ -112,29 +101,20 @@ export function EnvVarsSection({ isAdmin }: { isAdmin: boolean }) {
 								)}
 							</div>
 							{isAdmin ? (
-								<div className='flex gap-2'>
-									<Input
-										type={isRevealed ? 'text' : 'password'}
-										value={value}
-										onChange={(e) => handleChange(key, e.target.value)}
-										placeholder='Enter value...'
-										className='font-mono text-sm'
-									/>
-									<Button
-										type='button'
-										variant='ghost'
-										size='icon'
-										onClick={() => toggleReveal(key)}
-										className='shrink-0'
-									>
-										{isRevealed ? <EyeOff className='size-4' /> : <Eye className='size-4' />}
-									</Button>
-								</div>
+								<Input
+									id={inputId}
+									type='password'
+									value={value}
+									onChange={(e) => handleChange(key, e.target.value)}
+									placeholder='Enter value...'
+									className='font-mono'
+								/>
 							) : (
 								<Input
+									id={inputId}
 									value={isSet ? '••••••••' : ''}
 									readOnly
-									className='bg-muted/50 font-mono text-sm'
+									className='bg-muted/50 font-mono'
 									placeholder='Not configured'
 								/>
 							)}
