@@ -41,6 +41,7 @@ def extract_table_references(sql: str, dialect: str | None = None) -> list[str]:
 
 
 def _cte_reference_ids(statement: exp.Expr) -> set[int]:
+    """Return a set of ids for tables defined within a CTE (Common Table Expression) scope."""
     references: set[int] = set()
     for scope in traverse_scope(statement):
         for table_node in scope.tables:
