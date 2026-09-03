@@ -295,6 +295,11 @@ export function ContextGitPanel({
 	const discardDisabledReason = hasUnsavedFileChanges
 		? 'Save or discard the open file before discarding saved changes.'
 		: null;
+	const handleOpenReviewRequest = () => {
+		if (reviewRequestUrl) {
+			window.open(reviewRequestUrl, '_blank', 'noopener,noreferrer');
+		}
+	};
 
 	return (
 		<div className='max-h-[65%] shrink-0 overflow-auto border-t'>
@@ -452,21 +457,14 @@ export function ContextGitPanel({
 									<div className='flex shrink-0 items-center gap-1'>
 										{reviewRequestUrl && (
 											<Button
-												asChild
 												variant='ghost-muted'
 												size='sm'
 												className='h-6 gap-1 px-1.5 text-[11px]'
+												aria-label={reviewRequestTitle}
+												onClick={handleOpenReviewRequest}
 											>
-												<a
-													href={reviewRequestUrl}
-													target='_blank'
-													rel='noreferrer'
-													aria-label={reviewRequestTitle}
-													title={reviewRequestTitle}
-												>
-													<GitPullRequest className='size-3' />
-													{reviewRequestLabel}
-												</a>
+												<GitPullRequest className='size-3' />
+												{reviewRequestLabel}
 											</Button>
 										)}
 										<Button
