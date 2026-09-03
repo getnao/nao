@@ -8,7 +8,6 @@ import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import { env, isCloud } from '../env';
-import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import type { ListProjectChatsResponse, ProjectChatsFacetKey, UserWithRole } from '../types/project';
 import { HandlerError } from '../utils/error';
 import { createCostLookup, TOTAL_COST_EXPR } from './usage.queries';
@@ -195,7 +194,7 @@ export const getProjectByUserId = async (
 	userId: string,
 	selectedProjectId?: string | null,
 ): Promise<DBProject | null> => {
-	if (await canSelectProject()) {
+	if (isCloud) {
 		const projects = await listUserProjects(userId);
 		if (selectedProjectId) {
 			const selectedProject = projects.find((project) => project.id === selectedProjectId);
@@ -214,8 +213,6 @@ export const getProjectByUserId = async (
 	const role = await getUserRoleInProject(project.id, userId);
 	return role ? project : null;
 };
-
-const canSelectProject = async (): Promise<boolean> => isCloud && (await hasFeature(LICENSE_FEATURES.multiProject));
 
 export const checkProjectHasMoreThanOneAdmin = async (projectId: string): Promise<boolean> => {
 	const userWithRoles = await listProjectMembersWithRoles(projectId);
