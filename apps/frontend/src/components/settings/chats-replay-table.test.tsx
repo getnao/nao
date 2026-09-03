@@ -44,6 +44,12 @@ describe('ChatsReplayTable', () => {
 		expect(onRowClick).toHaveBeenCalledWith(chat);
 		expect(row.getAttribute('tabindex')).toBe('0');
 	});
+
+	it('displays the default page size', () => {
+		render(<TestTable onRowClick={vi.fn()} />);
+
+		expect(screen.getByRole('combobox').textContent).toContain('20');
+	});
 });
 
 function TestTable({ onRowClick }: { onRowClick: (chat: ProjectChatListItem) => void }) {
@@ -51,6 +57,7 @@ function TestTable({ onRowClick }: { onRowClick: (chat: ProjectChatListItem) => 
 		data: [chat],
 		columns,
 		getCoreRowModel: getCoreRowModel(),
+		initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
 	});
 
 	return <ChatsReplayTable table={table} onRowClick={onRowClick} />;

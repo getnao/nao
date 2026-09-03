@@ -33,7 +33,7 @@ export function ChatsReplayPage({
 	const [sorting, setSorting] = useState<SortingState>([]);
 	const [pagination, setPagination] = useState<PaginationState>({
 		pageIndex: 0,
-		pageSize: 30,
+		pageSize: 20,
 	});
 	const columns = useMemo(() => getChatsReplayColumns(), []);
 
