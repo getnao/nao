@@ -6,7 +6,7 @@ const RETRYABLE_TRPC_ERROR_CODES = new Set([
 	'TIMEOUT',
 ]);
 
-export function getTrpcErrorCode(error: unknown): string | undefined {
+function getTrpcErrorCode(error: unknown): string | undefined {
 	if (typeof error !== 'object' || error === null || !('data' in error)) {
 		return undefined;
 	}
@@ -17,27 +17,6 @@ export function getTrpcErrorCode(error: unknown): string | undefined {
 export function isRetryableTrpcError(error: unknown): boolean {
 	const code = getTrpcErrorCode(error);
 	return code === undefined || RETRYABLE_TRPC_ERROR_CODES.has(code);
-}
-
-export function isNetworkError(error: unknown): boolean {
-	if (getTrpcErrorCode(error) !== undefined || !(error instanceof Error)) {
-		return false;
-	}
-	return /failed to fetch|fetch failed|network(?:error| request failed)|load failed/i.test(error.message);
-}
-
-export function isTimeoutError(error: unknown): boolean {
-	const code = getTrpcErrorCode(error);
-	return code === 'TIMEOUT' || code === 'GATEWAY_TIMEOUT';
-}
-
-export function isServiceUnavailableError(error: unknown): boolean {
-	const code = getTrpcErrorCode(error);
-	return code === 'INTERNAL_SERVER_ERROR' || code === 'BAD_GATEWAY' || code === 'SERVICE_UNAVAILABLE';
-}
-
-export function isTooManyRequestsError(error: unknown): boolean {
-	return getTrpcErrorCode(error) === 'TOO_MANY_REQUESTS';
 }
 
 export function isDefinitiveChatError(error: unknown): boolean {
@@ -55,4 +34,8 @@ export function isNotFoundError(error: unknown): boolean {
 
 export function isUnauthorizedError(error: unknown): boolean {
 	return getTrpcErrorCode(error) === 'UNAUTHORIZED';
+}
+
+export function isInternalServerError(error: unknown): boolean {
+	return getTrpcErrorCode(error) === 'INTERNAL_SERVER_ERROR';
 }
