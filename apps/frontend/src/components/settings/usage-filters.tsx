@@ -2,13 +2,7 @@ import { useState } from 'react';
 import { CheckIcon, Radio, ThumbsUp, Users, Wrench } from 'lucide-react';
 import { CHAT_REPLAY_FEEDBACK_STATES, CHAT_REPLAY_TOOL_STATES, providerLabel } from '@nao/shared/types';
 import { USAGE_SOURCES } from '@nao/backend/usage';
-import type {
-	Granularity,
-	UsagePeriodEntry,
-	UsagePeriodEntryInput,
-	UsagePeriodPreference,
-	UsageSource,
-} from '@nao/backend/usage';
+import type { UsagePeriodEntry, UsagePeriodEntryInput, UsagePeriodPreference, UsageSource } from '@nao/backend/usage';
 import type {
 	ChatReplayFeedbackState,
 	ChatReplayToolState,
@@ -23,12 +17,6 @@ import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-
-export const dateFormats: Record<Granularity, string> = {
-	hour: 'MMM d, HH:00',
-	day: 'MMM d',
-	month: 'MMM yyyy',
-};
 
 interface UsageFiltersProps {
 	showUsageControls?: boolean;

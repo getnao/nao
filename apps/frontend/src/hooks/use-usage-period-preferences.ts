@@ -224,14 +224,7 @@ export function useUsagePeriodPreferences({
 					});
 				}
 			});
-	}, [
-		legacyPeriodPreference,
-		migrationStatus,
-		queriesEnabled,
-		queryProjectId,
-		settingsQuery.data,
-		updatePreference,
-	]);
+	}, [legacyPeriodPreference, migrationStatus, queriesEnabled, queryProjectId, settingsQuery.data, updatePreference]);
 
 	useEffect(() => {
 		const entryId = usageSearch.periodEntryId;

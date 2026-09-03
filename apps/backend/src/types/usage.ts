@@ -71,7 +71,11 @@ export const usagePeriodEntrySchema = usagePeriodEntryInputObjectSchema
 	});
 export type UsagePeriodEntry = z.infer<typeof usagePeriodEntrySchema>;
 
-export const usagePeriodEntriesSchema = z.array(usagePeriodEntrySchema);
+export const MAX_USAGE_PERIOD_ENTRIES = 16;
+export const USAGE_PERIOD_ENTRY_LIMIT_MESSAGE = `You can save up to ${MAX_USAGE_PERIOD_ENTRIES} usage period entries.`;
+export const usagePeriodEntriesSchema = z
+	.array(usagePeriodEntrySchema)
+	.max(MAX_USAGE_PERIOD_ENTRIES, USAGE_PERIOD_ENTRY_LIMIT_MESSAGE);
 
 export interface UserProjectPreferences {
 	usagePeriod?: UsagePeriodPreference;
@@ -147,7 +151,7 @@ export const USAGE_SOURCES = MESSAGE_SOURCES;
 export type UsageSource = (typeof USAGE_SOURCES)[number];
 
 const usageFilterObjectSchema = z.object({
-	period: usagePeriodRangeSchema.default(USAGE_PERIOD_PRESETS['15d']),
+	period: usagePeriodRangeSchema,
 	granularity: granularitySchema.optional(),
 	provider: llmProviderSchema.optional(),
 	userNames: z.array(z.string()).optional(),

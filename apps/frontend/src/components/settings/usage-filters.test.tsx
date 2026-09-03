@@ -2,7 +2,7 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_USAGE_PERIOD_PREFERENCE } from '@nao/backend/usage';
+import { DEFAULT_USAGE_PERIOD_PREFERENCE, MAX_USAGE_PERIOD_ENTRIES } from '@nao/backend/usage';
 
 import { UsageFilters } from './usage-filters';
 import { UsagePeriodFilter } from './usage-period-filter';
@@ -27,6 +27,31 @@ describe('UsageFilters', () => {
 		);
 
 		expect(screen.getByRole('button', { name: 'Loading…' }).hasAttribute('disabled')).toBe(true);
+	});
+
+	it('disables creation when the saved entry limit is reached', () => {
+		const entries: UsagePeriodEntry[] = Array.from({ length: MAX_USAGE_PERIOD_ENTRIES }, (_, index) => ({
+			id: `entry-${index}`,
+			days: index + 1,
+			granularity: 'day',
+		}));
+		render(
+			<UsagePeriodFilter
+				value={DEFAULT_USAGE_PERIOD_PREFERENCE}
+				entries={entries}
+				onChange={vi.fn()}
+				onCreateEntry={vi.fn()}
+				onUpdateEntry={vi.fn()}
+				onDeleteEntry={vi.fn()}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Last 15 days' }));
+
+		const addEntry = screen.getByRole('button', { name: `Entry limit reached (${MAX_USAGE_PERIOD_ENTRIES})` });
+		expect(addEntry.hasAttribute('disabled')).toBe(true);
+		fireEvent.click(addEntry);
+		expect(screen.queryByRole('dialog', { name: 'Add usage period' })).toBeNull();
 	});
 
 	it('opens an add-entry dialog without a maximum day limit', () => {

@@ -42,7 +42,11 @@ vi.mock('../src/services/sso-group-mapping.service', () => ({
 
 import { router } from '../src/trpc/trpc';
 import { usageRoutes } from '../src/trpc/usage.routes';
-import { DEFAULT_USAGE_PERIOD_PREFERENCE } from '../src/types/usage';
+import {
+	DEFAULT_USAGE_PERIOD_PREFERENCE,
+	MAX_USAGE_PERIOD_ENTRIES,
+	USAGE_PERIOD_ENTRY_LIMIT_MESSAGE,
+} from '../src/types/usage';
 
 const testRouter = router(usageRoutes);
 
@@ -90,6 +94,26 @@ describe('usage period entry routes', () => {
 			preference: DEFAULT_USAGE_PERIOD_PREFERENCE,
 			entries: [],
 		});
+	});
+
+	it('rejects creating more than the saved entry limit', async () => {
+		const entries = Array.from({ length: MAX_USAGE_PERIOD_ENTRIES }, (_, index) => ({
+			id: `entry-${index}`,
+			days: index + 1,
+			granularity: 'day',
+		}));
+		state.preferences = { usagePeriodEntries: entries };
+
+		await expect(
+			createCaller().createPeriodEntry({
+				projectId: 'project-id',
+				entry: { days: 30, granularity: 'day' },
+			}),
+		).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+			message: USAGE_PERIOD_ENTRY_LIMIT_MESSAGE,
+		});
+		expect(state.preferences).toEqual({ usagePeriodEntries: entries });
 	});
 
 	it('rejects unknown entries', async () => {

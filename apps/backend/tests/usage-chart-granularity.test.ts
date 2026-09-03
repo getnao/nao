@@ -116,6 +116,11 @@ describe('usage chart granularity', () => {
 		).toBe(false);
 	});
 
+	it('requires callers to provide an explicit period', () => {
+		expect(usageFilterSchema.safeParse({}).success).toBe(false);
+		expect(usageChartFilterSchema.safeParse({ granularity: 'hour' }).success).toBe(false);
+	});
+
 	it('rejects removed custom preferences and oversized usage requests', () => {
 		const period = { value: 1001, unit: 'month' as const };
 

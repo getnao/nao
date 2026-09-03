@@ -1,12 +1,11 @@
 import { useEffect } from 'react';
 import { createFileRoute, Outlet, useRouterState } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { format } from 'date-fns';
 import type { TokenChartDisplayMode, UsageRouteSearch } from '@/components/settings/usage-route-search';
 import type { displayChart } from '@nao/shared/tools';
 import { ChatsReplayPage } from '@/components/settings/chats-replay-page';
 import { UsageChartCard } from '@/components/settings/usage-chart-card';
-import { ReplayFilters, UsageFilters, dateFormats } from '@/components/settings/usage-filters';
+import { ReplayFilters, UsageFilters } from '@/components/settings/usage-filters';
 import {
 	saveUsageFilters,
 	validateUsageSearch,
@@ -17,6 +16,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useUsagePeriodPreferences } from '@/hooks/use-usage-period-preferences';
 import { trpc } from '@/main';
 import { requireContextAdminOrAdmin } from '@/lib/require-admin';
+import { formatUsageBucketLabel } from '@/lib/usage-date';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/usage')({
 	beforeLoad: requireContextAdminOrAdmin,
@@ -217,7 +217,7 @@ function UsageOverview({
 								isError={messagesUsage.isError}
 								data={chartData}
 								chartType='stacked_bar'
-								xAxisLabelFormatter={(value) => format(new Date(value), dateFormats[granularity])}
+								xAxisLabelFormatter={(value) => formatUsageBucketLabel(value, granularity)}
 								titleAccessory={
 									<span className='text-xs text-muted-foreground'>Number of messages by source</span>
 								}
@@ -232,7 +232,7 @@ function UsageOverview({
 								isError={messagesUsage.isError}
 								data={chartData}
 								chartType='stacked_bar'
-								xAxisLabelFormatter={(value) => format(new Date(value), dateFormats[granularity])}
+								xAxisLabelFormatter={(value) => formatUsageBucketLabel(value, granularity)}
 								valueFormatter={showCost ? formatUsd : undefined}
 								series={showCost ? costSeries : tokenSeries}
 								titleAccessory={

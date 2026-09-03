@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { CheckIcon, ChevronDownIcon, PencilIcon, PlusIcon, Trash2Icon } from 'lucide-react';
+import { MAX_USAGE_PERIOD_ENTRIES } from '@nao/backend/usage';
 import type {
 	Granularity,
 	UsagePeriodEntry,
@@ -54,6 +55,7 @@ export function UsagePeriodFilter({
 	const [isDeleting, setIsDeleting] = useState(false);
 	const [deleteError, setDeleteError] = useState<string>();
 	const deletingRef = useRef(false);
+	const isEntryLimitReached = entries.length >= MAX_USAGE_PERIOD_ENTRIES;
 
 	const openEntryDialog = (entry?: UsagePeriodEntry) => {
 		setEditingEntry(entry);
@@ -162,11 +164,14 @@ export function UsagePeriodFilter({
 						<div className='mt-1 border-t pt-1'>
 							<button
 								type='button'
-								className='flex h-8 w-full items-center gap-2 rounded-sm px-2 text-left text-sm hover:bg-accent hover:text-accent-foreground'
+								className='flex h-8 w-full items-center gap-2 rounded-sm px-2 text-left text-sm hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50'
+								disabled={isEntryLimitReached}
 								onClick={() => openEntryDialog()}
 							>
 								<PlusIcon className='size-4' />
-								Add entry
+								{isEntryLimitReached
+									? `Entry limit reached (${MAX_USAGE_PERIOD_ENTRIES})`
+									: 'Add entry'}
 							</button>
 						</div>
 					</div>

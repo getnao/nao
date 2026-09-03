@@ -6,6 +6,8 @@ import * as userProjectPreferenceQueries from '../queries/user-project-preferenc
 import type { UserProjectPreferences } from '../types/usage';
 import {
 	DEFAULT_USAGE_PERIOD_PREFERENCE,
+	MAX_USAGE_PERIOD_ENTRIES,
+	USAGE_PERIOD_ENTRY_LIMIT_MESSAGE,
 	usageChartFilterSchema,
 	usageFilterSchema,
 	usagePeriodEntryInputSchema,
@@ -78,10 +80,14 @@ export const usageRoutes = {
 		const entry = { id: crypto.randomUUID(), ...input.entry };
 		await userProjectPreferenceQueries.mutateUserProjectPreferences(ctx.user.id, ctx.project.id, (current) => {
 			const sanitizedCurrent = sanitizePeriodPreferences(current).preferences;
+			const entries = parsePeriodEntries(sanitizedCurrent);
+			if (entries.length >= MAX_USAGE_PERIOD_ENTRIES) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: USAGE_PERIOD_ENTRY_LIMIT_MESSAGE });
+			}
 			return {
 				...sanitizedCurrent,
 				usagePeriod: { mode: 'saved', entryId: entry.id },
-				usagePeriodEntries: [...parsePeriodEntries(sanitizedCurrent), entry],
+				usagePeriodEntries: [...entries, entry],
 			};
 		});
 		return entry;
