@@ -301,8 +301,89 @@ export function SlackConfigSection({ isAdmin, onCancelSetup }: SlackConfigSectio
 				enabled={projectConfig.autoCreateUsersEnabled ?? false}
 				domains={projectConfig.autoCreateUsersDomains ?? []}
 			/>
+
+			<EmailDomainAliasesCard domains={projectConfig.emailDomainAliases ?? []} />
 		</div>
 	);
+}
+
+interface EmailDomainAliasesCardProps {
+	domains: string[];
+}
+
+function EmailDomainAliasesCard({ domains: initialDomains }: EmailDomainAliasesCardProps) {
+	const queryClient = useQueryClient();
+	const [domainsText, setDomainsText] = useState(initialDomains.join(', '));
+	const [error, setError] = useState<string | null>(null);
+
+	useEffect(() => {
+		setDomainsText(initialDomains.join(', '));
+	}, [initialDomains]);
+
+	const parsedDomains = useMemo(() => parseDomains(domainsText), [domainsText]);
+	const hasChanges = useMemo(
+		() => !areDomainListsEqual(parsedDomains, initialDomains),
+		[parsedDomains, initialDomains],
+	);
+
+	const updateMutation = useMutation(
+		trpc.project.updateSlackEmailDomainAliases.mutationOptions({
+			onSuccess: () => {
+				setError(null);
+				queryClient.invalidateQueries(trpc.project.getSlackConfig.queryOptions());
+			},
+			onError: (err) => {
+				setError(err.message);
+			},
+		}),
+	);
+
+	const handleSave = () => {
+		if (parsedDomains.length === 1) {
+			setError('Add at least two domains to treat them as aliases of each other.');
+			return;
+		}
+		updateMutation.mutate({ domains: parsedDomains });
+	};
+
+	return (
+		<SettingsCard
+			title='Email domain aliases'
+			description='Treat these domains as the same company so a Slack sender matches the nao user with the same name under another domain.'
+		>
+			<div className='grid gap-2'>
+				<label htmlFor='slack-email-domain-aliases' className='text-sm font-medium text-foreground'>
+					Equivalent email domains
+				</label>
+				<p className='text-xs text-muted-foreground'>
+					Comma-separated list (e.g. <code>example.com, example.fr</code>). A Slack user{' '}
+					<code>jane@example.fr</code> is matched to the existing nao user <code>jane@example.com</code>{' '}
+					instead of creating a second account.
+				</p>
+				<Textarea
+					id='slack-email-domain-aliases'
+					value={domainsText}
+					onChange={(e) => {
+						setDomainsText(e.target.value);
+						setError(null);
+					}}
+					placeholder='example.com, example.fr'
+					rows={2}
+					disabled={updateMutation.isPending}
+				/>
+			</div>
+			<FormError error={error ?? undefined} />
+			<div className='flex justify-end'>
+				<Button size='sm' onClick={handleSave} disabled={!hasChanges || updateMutation.isPending}>
+					{updateMutation.isPending ? 'Saving…' : 'Save'}
+				</Button>
+			</div>
+		</SettingsCard>
+	);
+}
+
+function areDomainListsEqual(left: string[], right: string[]): boolean {
+	return left.length === right.length && left.every((domain, index) => domain === right[index]);
 }
 
 interface AutoCreateUsersCardProps {

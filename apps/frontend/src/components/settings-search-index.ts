@@ -662,6 +662,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		page: '/settings/project/integrations/slack',
 		pageLabel: 'Integrations & MCP',
 		section: 'Slack',
+		title: 'Email domain aliases',
+		description:
+			'Match Slack senders to existing nao users who share the same name under an equivalent email domain.',
+		keywords: ['alias', 'domain', 'duplicate users', 'merge users', 'email mismatch', 'same user'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/integrations/slack',
+		pageLabel: 'Integrations & MCP',
+		section: 'Slack',
 		title: 'Reply only when mentioned',
 		description:
 			'Control whether nao answers every message in active Slack threads or only messages that tag the bot.',

@@ -37,6 +37,33 @@ export const hasAccountForProvider = async (userId: string, providerId: string):
 	return !!account;
 };
 
+export const getUserIdByProviderAccount = async (providerId: string, accountId: string): Promise<string | null> => {
+	const [account] = await db
+		.select({ userId: s.account.userId })
+		.from(s.account)
+		.where(and(eq(s.account.providerId, providerId), eq(s.account.accountId, accountId)))
+		.limit(1)
+		.execute();
+
+	return account?.userId ?? null;
+};
+
+export const linkProviderAccount = async (data: {
+	providerId: string;
+	accountId: string;
+	userId: string;
+}): Promise<void> => {
+	const linkedUserId = await getUserIdByProviderAccount(data.providerId, data.accountId);
+	if (linkedUserId) {
+		return;
+	}
+
+	await db
+		.insert(s.account)
+		.values({ id: crypto.randomUUID(), ...data })
+		.execute();
+};
+
 export const updateAccountPassword = async (
 	accountId: string,
 	hashedPassword: string,
