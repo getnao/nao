@@ -6,6 +6,7 @@ import type { McpServerStatus } from '@nao/shared';
 import type { LlmProvider } from '@nao/shared/types';
 import type { FormEvent, ReactNode, RefObject } from 'react';
 import type { PromptHandle } from 'prompt-mentions';
+import type { ScheduleConfig, ScheduleFrequency } from '@/lib/cron-schedule';
 import McpIcon from '@/components/icons/model-context-protocol.svg';
 import SlackIcon from '@/components/icons/slack.svg';
 import { ChatPrompt, DATABASE_MENTION_TRIGGER, SKILL_MENTION_TRIGGER } from '@/components/chat-input-prompt';
@@ -26,6 +27,14 @@ import { Input } from '@/components/ui/input';
 import { LlmProviderIcon } from '@/components/ui/llm-provider-icon';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import {
+	buildScheduleCron,
+	DAY_OF_WEEK_LABELS,
+	defaultScheduleConfig,
+	describeCron,
+	describeSchedule,
+	parseScheduleCron,
+} from '@/lib/cron-schedule';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
@@ -122,14 +131,9 @@ type AutomationDetails = {
 	lastRunAt?: Date | string | null;
 };
 
-type ScheduleOption = 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'custom';
+type ScheduleMode = 'friendly' | 'advanced';
 
-type SchedulePreset = {
-	value: Exclude<ScheduleOption, 'custom'>;
-	label: string;
-	cron: string;
-	description: string;
-};
+type ScheduleSelectOption = ScheduleFrequency | 'advanced';
 
 type AvailableModel = {
 	provider: LlmProvider;
@@ -140,9 +144,6 @@ type AvailableModel = {
 
 const defaultModelValue = 'default';
 const MODE_MENTION_TRIGGER = '#';
-const DEFAULT_SCHEDULE_CRON = '0 9 * * 1';
-const DEFAULT_SCHEDULE_DESCRIPTION = 'Every Monday at 9am';
-const CUSTOM_SCHEDULE_DESCRIPTION = 'Custom schedule';
 
 const defaultValue: AutomationFormValue = {
 	title: '',
@@ -158,13 +159,19 @@ const defaultValue: AutomationFormValue = {
 	webhookEnabled: false,
 };
 
-const schedulePresets: SchedulePreset[] = [
-	{ value: 'hourly', label: 'Hourly', cron: '0 * * * *', description: 'Hourly' },
-	{ value: 'daily', label: 'Daily', cron: '0 9 * * *', description: 'Daily at 9am' },
-	{ value: 'weekdays', label: 'Weekdays', cron: '0 9 * * 1-5', description: 'Weekdays at 9am' },
-	{ value: 'weekly', label: 'Weekly', cron: DEFAULT_SCHEDULE_CRON, description: DEFAULT_SCHEDULE_DESCRIPTION },
-	{ value: 'monthly', label: 'Monthly', cron: '0 9 1 * *', description: 'Monthly on the 1st at 9am' },
+const scheduleFrequencyOptions: Array<{ value: ScheduleFrequency; label: string }> = [
+	{ value: 'hourly', label: 'Hourly' },
+	{ value: 'daily', label: 'Daily' },
+	{ value: 'weekdays', label: 'Weekdays' },
+	{ value: 'weekly', label: 'Weekly' },
+	{ value: 'monthly', label: 'Monthly' },
 ];
+
+const dayOfMonthOptions = Array.from({ length: 31 }, (_, index) => index + 1);
+const weekdayToggleOptions: Array<{ value: number; label: string }> = [1, 2, 3, 4, 5, 6, 0].map((value) => ({
+	value,
+	label: DAY_OF_WEEK_LABELS[value].charAt(0),
+}));
 
 export function AutomationForm({
 	id,
@@ -212,8 +219,10 @@ export function AutomationForm({
 				<TriggersSection
 					cron={form.value.cron}
 					hasSchedule={form.hasSchedule}
-					scheduleOption={form.scheduleOption}
-					onScheduleOptionChange={form.handleScheduleOptionChange}
+					scheduleMode={form.scheduleMode}
+					scheduleConfig={form.scheduleConfig}
+					onScheduleSelectChange={form.handleScheduleSelectChange}
+					onScheduleConfigChange={form.applyScheduleConfig}
 					onCustomCronChange={form.setCustomCron}
 					onAddSchedule={form.handleAddSchedule}
 					onRemoveSchedule={form.handleRemoveSchedule}
@@ -302,7 +311,7 @@ function useAutomationFormController({
 		deserializeAutomationValue(initialValueSnapshot),
 	);
 	const [value, setValue] = useState<AutomationFormValue>(savedValue);
-	const [scheduleOption, setScheduleOption] = useState<ScheduleOption>(() => inferScheduleOption(savedValue));
+	const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(() => inferScheduleMode(savedValue.cron));
 	const [hasSchedule, setHasSchedule] = useState<boolean>(() => savedValue.cron.trim().length > 0);
 	const [promptError, setPromptError] = useState(false);
 	const [triggerError, setTriggerError] = useState(false);
@@ -330,7 +339,7 @@ function useAutomationFormController({
 		const nextValue = deserializeAutomationValue(initialValueSnapshot);
 		setSavedValue(nextValue);
 		setValue(nextValue);
-		setScheduleOption(inferScheduleOption(nextValue));
+		setScheduleMode(inferScheduleMode(nextValue.cron));
 		setHasSchedule(nextValue.cron.trim().length > 0);
 		setPromptError(false);
 		setTriggerError(false);
@@ -388,7 +397,7 @@ function useAutomationFormController({
 		setValue({
 			...value,
 			cron,
-			scheduleDescription: CUSTOM_SCHEDULE_DESCRIPTION,
+			scheduleDescription: describeCron(cron),
 		});
 	}
 
@@ -464,17 +473,17 @@ function useAutomationFormController({
 
 	function handleAddSchedule() {
 		setTriggerError(false);
-		setScheduleOption('weekly');
+		setScheduleMode('friendly');
 		setHasSchedule(true);
 		handleControlValueChange({
 			...value,
-			cron: DEFAULT_SCHEDULE_CRON,
-			scheduleDescription: DEFAULT_SCHEDULE_DESCRIPTION,
+			cron: buildScheduleCron(defaultScheduleConfig),
+			scheduleDescription: describeSchedule(defaultScheduleConfig),
 		});
 	}
 
 	function handleRemoveSchedule() {
-		setScheduleOption('custom');
+		setScheduleMode('friendly');
 		setHasSchedule(false);
 		handleControlValueChange({
 			...value,
@@ -492,20 +501,23 @@ function useAutomationFormController({
 		handleControlValueChange({ ...value, webhookEnabled: false });
 	}
 
-	function handleScheduleOptionChange(option: ScheduleOption) {
+	function applyScheduleConfig(config: ScheduleConfig) {
 		setTriggerError(false);
-		setScheduleOption(option);
-		if (option === 'custom') {
-			handleControlValueChange({ ...value, scheduleDescription: CUSTOM_SCHEDULE_DESCRIPTION });
-			return;
-		}
-
-		const preset = getSchedulePreset(option);
+		setScheduleMode('friendly');
 		handleControlValueChange({
 			...value,
-			cron: preset.cron,
-			scheduleDescription: preset.description,
+			cron: buildScheduleCron(config),
+			scheduleDescription: describeSchedule(config),
 		});
+	}
+
+	function handleScheduleSelectChange(option: ScheduleSelectOption) {
+		if (option === 'advanced') {
+			setScheduleMode('advanced');
+			return;
+		}
+		const currentConfig = parseScheduleCron(value.cron) ?? defaultScheduleConfig;
+		applyScheduleConfig({ ...currentConfig, frequency: option });
 	}
 
 	function handleModelChange(modelValue: string) {
@@ -521,6 +533,7 @@ function useAutomationFormController({
 	}
 
 	return {
+		applyScheduleConfig,
 		availableModels: availableModels.data,
 		clearEmailRecipientsError,
 		controlsDisabled,
@@ -534,14 +547,15 @@ function useAutomationFormController({
 		handlePromptChange,
 		handleRemoveSchedule,
 		handleRemoveWebhook,
-		handleScheduleOptionChange,
+		handleScheduleSelectChange,
 		handleSubmit,
 		handleValueChange,
 		hasSchedule,
 		mcpServers: mcpServersQuery.data,
 		promptError,
 		promptRef,
-		scheduleOption,
+		scheduleConfig: parseScheduleCron(value.cron) ?? defaultScheduleConfig,
+		scheduleMode,
 		selectedModelName,
 		selectedModelValue,
 		setCustomCron,
@@ -578,8 +592,10 @@ function AutomationTitleField({
 function TriggersSection({
 	cron,
 	hasSchedule,
-	scheduleOption,
-	onScheduleOptionChange,
+	scheduleMode,
+	scheduleConfig,
+	onScheduleSelectChange,
+	onScheduleConfigChange,
 	onCustomCronChange,
 	onAddSchedule,
 	onRemoveSchedule,
@@ -592,8 +608,10 @@ function TriggersSection({
 }: {
 	cron: string;
 	hasSchedule: boolean;
-	scheduleOption: ScheduleOption;
-	onScheduleOptionChange: (option: ScheduleOption) => void;
+	scheduleMode: ScheduleMode;
+	scheduleConfig: ScheduleConfig;
+	onScheduleSelectChange: (option: ScheduleSelectOption) => void;
+	onScheduleConfigChange: (config: ScheduleConfig) => void;
 	onCustomCronChange: (cron: string) => void;
 	onAddSchedule: () => void;
 	onRemoveSchedule: () => void;
@@ -618,8 +636,10 @@ function TriggersSection({
 				{hasSchedule && (
 					<ScheduleTriggerRow
 						cron={cron}
-						scheduleOption={scheduleOption}
-						onScheduleOptionChange={onScheduleOptionChange}
+						scheduleMode={scheduleMode}
+						scheduleConfig={scheduleConfig}
+						onScheduleSelectChange={onScheduleSelectChange}
+						onScheduleConfigChange={onScheduleConfigChange}
 						onCustomCronChange={onCustomCronChange}
 						onRemove={onRemoveSchedule}
 						disabled={disabled}
@@ -645,69 +665,295 @@ function TriggersSection({
 
 function ScheduleTriggerRow({
 	cron,
-	scheduleOption,
-	onScheduleOptionChange,
+	scheduleMode,
+	scheduleConfig,
+	onScheduleSelectChange,
+	onScheduleConfigChange,
 	onCustomCronChange,
 	onRemove,
 	disabled,
 }: {
 	cron: string;
-	scheduleOption: ScheduleOption;
-	onScheduleOptionChange: (option: ScheduleOption) => void;
+	scheduleMode: ScheduleMode;
+	scheduleConfig: ScheduleConfig;
+	onScheduleSelectChange: (option: ScheduleSelectOption) => void;
+	onScheduleConfigChange: (config: ScheduleConfig) => void;
 	onCustomCronChange: (cron: string) => void;
 	onRemove: () => void;
 	disabled: boolean;
 }) {
+	const selectValue: ScheduleSelectOption = scheduleMode === 'advanced' ? 'advanced' : scheduleConfig.frequency;
+
 	return (
 		<div className='grid gap-1.5 rounded-lg px-2 py-1.5'>
-			<div className='flex items-center justify-between gap-3'>
-				<div className='flex min-w-0 items-center gap-2'>
+			<div className='flex items-start justify-between gap-3'>
+				<div className='flex min-w-0 flex-1 flex-wrap items-center gap-2'>
 					<Calendar className='size-4 shrink-0 text-muted-foreground' />
 					<span className='text-sm font-medium'>On schedule</span>
-				</div>
-				<div className='flex items-center gap-1'>
-					<Select
-						value={scheduleOption}
-						onValueChange={(option) => onScheduleOptionChange(option as ScheduleOption)}
+					<ScheduleFrequencySelect
+						value={selectValue}
+						onChange={onScheduleSelectChange}
 						disabled={disabled}
-					>
-						<SelectTrigger
-							variant='ghost'
-							size='sm'
-							className='min-w-0 max-w-40 justify-end px-2 text-right'
-						>
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							{schedulePresets.map((preset) => (
-								<SelectItem key={preset.value} value={preset.value}>
-									{preset.label}
-								</SelectItem>
-							))}
-							<SelectItem value='custom'>Custom</SelectItem>
-						</SelectContent>
-					</Select>
-					<button
-						type='button'
-						onClick={onRemove}
-						disabled={disabled}
-						aria-label='Remove schedule trigger'
-						className='inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50'
-					>
-						<Trash2 className='size-3.5' />
-					</button>
+					/>
+					{scheduleMode === 'advanced' ? (
+						<AdvancedScheduleInput cron={cron} onChange={onCustomCronChange} disabled={disabled} />
+					) : (
+						<FriendlyScheduleControls
+							config={scheduleConfig}
+							onChange={onScheduleConfigChange}
+							disabled={disabled}
+						/>
+					)}
 				</div>
+				<button
+					type='button'
+					onClick={onRemove}
+					disabled={disabled}
+					aria-label='Remove schedule trigger'
+					className='inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50'
+				>
+					<Trash2 className='size-3.5' />
+				</button>
 			</div>
 
-			{scheduleOption === 'custom' && (
-				<Input
-					value={cron}
-					onChange={(event) => onCustomCronChange(event.target.value)}
-					placeholder='0 9 * * 1'
-					className='h-8'
-				/>
-			)}
+			{scheduleMode === 'advanced' && <p className='text-xs text-muted-foreground'>{describeCron(cron)}</p>}
+			<p className='text-xs text-muted-foreground'>Times run in the server timezone.</p>
 		</div>
+	);
+}
+
+function ScheduleFrequencySelect({
+	value,
+	onChange,
+	disabled,
+}: {
+	value: ScheduleSelectOption;
+	onChange: (option: ScheduleSelectOption) => void;
+	disabled: boolean;
+}) {
+	return (
+		<Select value={value} onValueChange={(next) => onChange(next as ScheduleSelectOption)} disabled={disabled}>
+			<SelectTrigger variant='ghost' size='sm' className='h-8 w-32'>
+				<SelectValue />
+			</SelectTrigger>
+			<SelectContent>
+				{scheduleFrequencyOptions.map((option) => (
+					<SelectItem key={option.value} value={option.value}>
+						{option.label}
+					</SelectItem>
+				))}
+				<SelectItem value='advanced'>Advanced (cron)</SelectItem>
+			</SelectContent>
+		</Select>
+	);
+}
+
+function FriendlyScheduleControls({
+	config,
+	onChange,
+	disabled,
+}: {
+	config: ScheduleConfig;
+	onChange: (config: ScheduleConfig) => void;
+	disabled: boolean;
+}) {
+	if (config.frequency === 'hourly') {
+		return (
+			<>
+				<span className='text-sm text-muted-foreground'>at minute</span>
+				<MinuteInput
+					minute={config.minute}
+					onChange={(minute) => onChange({ ...config, minute })}
+					disabled={disabled}
+				/>
+			</>
+		);
+	}
+
+	return (
+		<>
+			{config.frequency === 'weekly' && (
+				<>
+					<span className='text-sm text-muted-foreground'>on</span>
+					<DaysOfWeekToggle
+						daysOfWeek={config.daysOfWeek}
+						onChange={(daysOfWeek) => onChange({ ...config, daysOfWeek })}
+						disabled={disabled}
+					/>
+				</>
+			)}
+			{config.frequency === 'monthly' && (
+				<>
+					<span className='text-sm text-muted-foreground'>on day</span>
+					<DayOfMonthSelect
+						dayOfMonth={config.dayOfMonth}
+						onChange={(dayOfMonth) => onChange({ ...config, dayOfMonth })}
+						disabled={disabled}
+					/>
+				</>
+			)}
+			<span className='text-sm text-muted-foreground'>at</span>
+			<TimeField
+				hour={config.hour}
+				minute={config.minute}
+				onChange={(hour, minute) => onChange({ ...config, hour, minute })}
+				disabled={disabled}
+			/>
+		</>
+	);
+}
+
+function TimeField({
+	hour,
+	minute,
+	onChange,
+	disabled,
+}: {
+	hour: number;
+	minute: number;
+	onChange: (hour: number, minute: number) => void;
+	disabled: boolean;
+}) {
+	return (
+		<Input
+			type='time'
+			className='h-8 w-32'
+			value={`${padTwo(hour)}:${padTwo(minute)}`}
+			disabled={disabled}
+			aria-label='Time of day'
+			onChange={(event) => {
+				const match = /^(\d{2}):(\d{2})$/.exec(event.target.value);
+				if (match) {
+					onChange(Number(match[1]), Number(match[2]));
+				}
+			}}
+		/>
+	);
+}
+
+function MinuteInput({
+	minute,
+	onChange,
+	disabled,
+}: {
+	minute: number;
+	onChange: (minute: number) => void;
+	disabled: boolean;
+}) {
+	return (
+		<Input
+			type='number'
+			min={0}
+			max={59}
+			className='h-8 w-16'
+			value={String(minute)}
+			disabled={disabled}
+			aria-label='Minute past the hour'
+			onChange={(event) => {
+				const parsed = Number.parseInt(event.target.value, 10);
+				if (!Number.isNaN(parsed)) {
+					onChange(Math.min(Math.max(parsed, 0), 59));
+				}
+			}}
+		/>
+	);
+}
+
+function DaysOfWeekToggle({
+	daysOfWeek,
+	onChange,
+	disabled,
+}: {
+	daysOfWeek: number[];
+	onChange: (daysOfWeek: number[]) => void;
+	disabled: boolean;
+}) {
+	const selected = new Set(daysOfWeek);
+
+	function toggleDay(day: number) {
+		const next = new Set(selected);
+		if (next.has(day)) {
+			if (next.size === 1) {
+				return;
+			}
+			next.delete(day);
+		} else {
+			next.add(day);
+		}
+		onChange([...next].sort((left, right) => left - right));
+	}
+
+	return (
+		<div className='flex items-center gap-1'>
+			{weekdayToggleOptions.map((option) => {
+				const isSelected = selected.has(option.value);
+				return (
+					<button
+						key={option.value}
+						type='button'
+						onClick={() => toggleDay(option.value)}
+						disabled={disabled}
+						aria-pressed={isSelected}
+						aria-label={DAY_OF_WEEK_LABELS[option.value]}
+						title={DAY_OF_WEEK_LABELS[option.value]}
+						className={cn(
+							'inline-flex size-7 items-center justify-center rounded-md border text-xs font-medium transition-colors disabled:opacity-50',
+							isSelected
+								? 'border-primary bg-primary text-primary-foreground'
+								: 'border-input bg-background text-muted-foreground hover:bg-muted hover:text-foreground',
+						)}
+					>
+						{option.label}
+					</button>
+				);
+			})}
+		</div>
+	);
+}
+
+function DayOfMonthSelect({
+	dayOfMonth,
+	onChange,
+	disabled,
+}: {
+	dayOfMonth: number;
+	onChange: (dayOfMonth: number) => void;
+	disabled: boolean;
+}) {
+	return (
+		<Select value={String(dayOfMonth)} onValueChange={(next) => onChange(Number(next))} disabled={disabled}>
+			<SelectTrigger variant='ghost' size='sm' className='h-8 w-20'>
+				<SelectValue />
+			</SelectTrigger>
+			<SelectContent>
+				{dayOfMonthOptions.map((day) => (
+					<SelectItem key={day} value={String(day)}>
+						{day}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
+	);
+}
+
+function AdvancedScheduleInput({
+	cron,
+	onChange,
+	disabled,
+}: {
+	cron: string;
+	onChange: (cron: string) => void;
+	disabled: boolean;
+}) {
+	return (
+		<Input
+			value={cron}
+			onChange={(event) => onChange(event.target.value)}
+			placeholder='0 9 * * 1'
+			className='h-8 w-44 font-mono'
+			disabled={disabled}
+			aria-label='Cron expression'
+		/>
 	);
 }
 
@@ -1795,19 +2041,15 @@ function mergeValue(value: Partial<AutomationFormValue> | undefined): Automation
 	};
 }
 
-function getScheduleOption(cron: string): ScheduleOption {
-	return schedulePresets.find((preset) => preset.cron === cron)?.value ?? 'custom';
-}
-
-function inferScheduleOption(value: AutomationFormValue): ScheduleOption {
-	if (!value.cron) {
-		return 'weekly';
+function inferScheduleMode(cron: string): ScheduleMode {
+	if (!cron.trim()) {
+		return 'friendly';
 	}
-	return value.scheduleDescription === CUSTOM_SCHEDULE_DESCRIPTION ? 'custom' : getScheduleOption(value.cron);
+	return parseScheduleCron(cron) ? 'friendly' : 'advanced';
 }
 
-function getSchedulePreset(value: Exclude<ScheduleOption, 'custom'>): SchedulePreset {
-	return schedulePresets.find((preset) => preset.value === value) ?? schedulePresets[0];
+function padTwo(value: number): string {
+	return value.toString().padStart(2, '0');
 }
 
 function areAutomationValuesEqual(left: AutomationFormValue, right: AutomationFormValue): boolean {

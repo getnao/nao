@@ -333,7 +333,6 @@ const SidebarLayoutSettingsUsageReplayChatIdRoute =
   } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof SidebarLayoutChatLayoutIndexRoute
   '/consent': typeof ConsentRoute
   '/embed': typeof EmbedRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
@@ -360,9 +359,10 @@ export interface FileRoutesByFullPath {
   '/embed/chart/$chartEmbedId': typeof EmbedChartChartEmbedIdRoute
   '/embed/map/$mapEmbedId': typeof EmbedMapMapEmbedIdRoute
   '/embed/story/$storyId': typeof EmbedStoryStoryIdRoute
-  '/feed/': typeof SidebarLayoutFeedIndexRoute
+  '/': typeof SidebarLayoutChatLayoutIndexRoute
+  '/feed': typeof SidebarLayoutFeedIndexRoute
   '/settings/': typeof SidebarLayoutSettingsIndexRoute
-  '/stories/': typeof SidebarLayoutStoriesIndexRoute
+  '/stories': typeof SidebarLayoutStoriesIndexRoute
   '/settings/project/agent': typeof SidebarLayoutSettingsProjectAgentRoute
   '/settings/project/budgets': typeof SidebarLayoutSettingsProjectBudgetsRoute
   '/settings/project/mattermost': typeof SidebarLayoutSettingsProjectMattermostRoute
@@ -381,7 +381,6 @@ export interface FileRoutesByFullPath {
   '/stories/preview/$chatId/$storySlug': typeof SidebarLayoutStoriesPreviewChatIdStorySlugRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof SidebarLayoutChatLayoutIndexRoute
   '/consent': typeof ConsentRoute
   '/embed': typeof EmbedRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
@@ -406,6 +405,7 @@ export interface FileRoutesByTo {
   '/embed/chart/$chartEmbedId': typeof EmbedChartChartEmbedIdRoute
   '/embed/map/$mapEmbedId': typeof EmbedMapMapEmbedIdRoute
   '/embed/story/$storyId': typeof EmbedStoryStoryIdRoute
+  '/': typeof SidebarLayoutChatLayoutIndexRoute
   '/feed': typeof SidebarLayoutFeedIndexRoute
   '/settings': typeof SidebarLayoutSettingsIndexRoute
   '/stories': typeof SidebarLayoutStoriesIndexRoute
@@ -480,7 +480,6 @@ export interface FileRoutesById {
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    | '/'
     | '/consent'
     | '/embed'
     | '/forgot-password'
@@ -507,9 +506,10 @@ export interface FileRouteTypes {
     | '/embed/chart/$chartEmbedId'
     | '/embed/map/$mapEmbedId'
     | '/embed/story/$storyId'
-    | '/feed/'
+    | '/'
+    | '/feed'
     | '/settings/'
-    | '/stories/'
+    | '/stories'
     | '/settings/project/agent'
     | '/settings/project/budgets'
     | '/settings/project/mattermost'
@@ -528,7 +528,6 @@ export interface FileRouteTypes {
     | '/stories/preview/$chatId/$storySlug'
   fileRoutesByTo: FileRoutesByTo
   to:
-    | '/'
     | '/consent'
     | '/embed'
     | '/forgot-password'
@@ -553,6 +552,7 @@ export interface FileRouteTypes {
     | '/embed/chart/$chartEmbedId'
     | '/embed/map/$mapEmbedId'
     | '/embed/story/$storyId'
+    | '/'
     | '/feed'
     | '/settings'
     | '/stories'
@@ -681,7 +681,7 @@ declare module '@tanstack/react-router' {
     '/_sidebar-layout': {
       id: '/_sidebar-layout'
       path: ''
-      fullPath: '/'
+      fullPath: ''
       preLoaderRoute: typeof SidebarLayoutRouteImport
       parentRoute: typeof rootRouteImport
     }
@@ -695,14 +695,14 @@ declare module '@tanstack/react-router' {
     '/_sidebar-layout/_chat-layout': {
       id: '/_sidebar-layout/_chat-layout'
       path: ''
-      fullPath: '/'
+      fullPath: ''
       preLoaderRoute: typeof SidebarLayoutChatLayoutRouteImport
       parentRoute: typeof SidebarLayoutRoute
     }
     '/_sidebar-layout/stories/': {
       id: '/_sidebar-layout/stories/'
       path: '/stories'
-      fullPath: '/stories/'
+      fullPath: '/stories'
       preLoaderRoute: typeof SidebarLayoutStoriesIndexRouteImport
       parentRoute: typeof SidebarLayoutRoute
     }
@@ -716,7 +716,7 @@ declare module '@tanstack/react-router' {
     '/_sidebar-layout/feed/': {
       id: '/_sidebar-layout/feed/'
       path: '/feed'
-      fullPath: '/feed/'
+      fullPath: '/feed'
       preLoaderRoute: typeof SidebarLayoutFeedIndexRouteImport
       parentRoute: typeof SidebarLayoutRoute
     }
