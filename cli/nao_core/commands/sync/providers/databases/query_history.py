@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 
 import sqlglot
 from sqlglot import exp
+from sqlglot.optimizer.scope import Scope, traverse_scope
 
 
 @dataclass
@@ -30,18 +31,22 @@ def extract_table_references(sql: str, dialect: str | None = None) -> list[str]:
     for statement in parsed:
         if statement is None:
             continue
-        cte_names = _statement_cte_names(statement)
+        cte_references = _cte_reference_ids(statement)
         for table_node in statement.find_all(exp.Table):
             name = _table_node_to_name(table_node)
-            if name and name.lower() not in cte_names:
+            if name and id(table_node) not in cte_references:
                 tables.add(name.lower())
 
     return sorted(tables) if tables else _extract_table_references_fallback(sql)
 
 
-def _statement_cte_names(statement: exp.Expr) -> set[str]:
-    """Return a set of CTE names (in lowercase) defined in the statement."""
-    return {cte.alias_or_name.lower() for cte in statement.find_all(exp.CTE) if cte.alias_or_name}
+def _cte_reference_ids(statement: exp.Expr) -> set[int]:
+    references: set[int] = set()
+    for scope in traverse_scope(statement):
+        for table_node in scope.tables:
+            if isinstance(scope.sources.get(table_node.alias_or_name), Scope):
+                references.add(id(table_node))
+    return references
 
 
 def _table_node_to_name(table_node: exp.Table) -> str | None:
@@ -66,7 +71,7 @@ _TABLE_RE = re.compile(
 _CTE_RE = re.compile(
     r"""(?:\bWITH\b|,)\s*"""
     r"""(?:RECURSIVE\s+)?"""
-    r"""`?(\w+)`?\s+AS\s*\(""",
+    r"""`?(\w+)`?(?:\s*\([^)]*\)\s*|\s+)AS\s*\(""",
     re.IGNORECASE,
 )
 
@@ -140,7 +145,7 @@ def extract_join_pairs(sql: str, dialect: str | None = None) -> list[tuple[str, 
     for statement in parsed:
         if statement is None:
             continue
-        cte_names = _statement_cte_names(statement)
+        cte_references = _cte_reference_ids(statement)
         for join_node in statement.find_all(exp.Join):
             right_table = join_node.find(exp.Table)
             if right_table is None:
@@ -164,7 +169,7 @@ def extract_join_pairs(sql: str, dialect: str | None = None) -> list[tuple[str, 
 
             normalized_left = left_name.lower()
             normalized_right = right_name.lower()
-            if normalized_left in cte_names or normalized_right in cte_names:
+            if id(left_table) in cte_references or id(right_table) in cte_references:
                 continue
 
             pairs.append((normalized_left, normalized_right))
