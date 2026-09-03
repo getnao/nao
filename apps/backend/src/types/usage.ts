@@ -6,7 +6,7 @@ import { llmProviderSchema } from './llm';
 export const granularitySchema = z.enum(['hour', 'day', 'month']);
 export type Granularity = z.infer<typeof granularitySchema>;
 
-export const MAX_USAGE_CHART_BUCKETS_PER_REQUEST = 1000;
+export const MAX_USAGE_CHART_BUCKETS_PER_REQUEST = 2000;
 export const USAGE_CHART_BUCKET_LIMIT_MESSAGE = `Choose a range and granularity that produce at most ${MAX_USAGE_CHART_BUCKETS_PER_REQUEST.toLocaleString()} chart buckets.`;
 
 export const USAGE_PERIOD_UNITS = ['hour', 'day', 'month'] as const;

@@ -97,20 +97,20 @@ describe('usage chart granularity', () => {
 			}).success,
 		).toBe(false);
 		expect(usagePeriodEntryInputSchema.safeParse({ days: 5000, granularity: 'month' }).success).toBe(true);
-		expect(usagePeriodEntryInputSchema.safeParse({ days: 42, granularity: 'hour' }).success).toBe(false);
+		expect(usagePeriodEntryInputSchema.safeParse({ days: 84, granularity: 'hour' }).success).toBe(false);
 	});
 
 	it('validates explicit chart requests against their actual bucket count', () => {
-		expect(getUsageChartBucketCount({ value: 41, unit: 'day' }, 'hour')).toBe(985);
+		expect(getUsageChartBucketCount({ value: 83, unit: 'day' }, 'hour')).toBe(1993);
 		expect(
 			usageChartFilterSchema.safeParse({
-				period: { value: 41, unit: 'day' },
+				period: { value: 83, unit: 'day' },
 				granularity: 'hour',
 			}).success,
 		).toBe(true);
 		expect(
 			usageChartFilterSchema.safeParse({
-				period: { value: 42, unit: 'day' },
+				period: { value: 84, unit: 'day' },
 				granularity: 'hour',
 			}).success,
 		).toBe(false);
@@ -122,7 +122,7 @@ describe('usage chart granularity', () => {
 	});
 
 	it('rejects removed custom preferences and oversized usage requests', () => {
-		const period = { value: 1001, unit: 'month' as const };
+		const period = { value: 2001, unit: 'month' as const };
 
 		expect(
 			usagePeriodPreferenceSchema.safeParse({

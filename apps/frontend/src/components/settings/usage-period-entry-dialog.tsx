@@ -75,7 +75,7 @@ export function UsagePeriodEntryDialog({ open, onOpenChange, entry, onSave }: Us
 		<Dialog open={open} onOpenChange={handleOpenChange}>
 			<DialogContent className='sm:max-w-md'>
 				<DialogHeader>
-					<DialogTitle>{entry ? 'Edit usage period' : 'Add usage period'}</DialogTitle>
+					<DialogTitle>{entry ? 'Edit period filter' : 'Create period filter'}</DialogTitle>
 					<DialogDescription>Choose the date range and grouping used by the usage charts.</DialogDescription>
 				</DialogHeader>
 				<form
@@ -109,6 +109,7 @@ export function UsagePeriodEntryDialog({ open, onOpenChange, entry, onSave }: Us
 							<Select value={granularity} onValueChange={(value) => setGranularity(value as Granularity)}>
 								<SelectTrigger
 									id='usage-period-entry-granularity'
+									size='input'
 									aria-invalid={exceedsBucketLimit}
 									aria-describedby={validationMessage ? 'usage-period-entry-validation' : undefined}
 								>
@@ -143,7 +144,7 @@ export function UsagePeriodEntryDialog({ open, onOpenChange, entry, onSave }: Us
 							Cancel
 						</Button>
 						<Button type='submit' size='sm' disabled={!isValid || isPending} isLoading={isPending}>
-							{entry ? 'Save' : 'Add'}
+							{entry ? 'Save' : 'Create'}
 						</Button>
 					</div>
 				</form>

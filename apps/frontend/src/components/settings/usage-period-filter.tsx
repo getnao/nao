@@ -171,7 +171,7 @@ export function UsagePeriodFilter({
 								<PlusIcon className='size-4' />
 								{isEntryLimitReached
 									? `Entry limit reached (${MAX_USAGE_PERIOD_ENTRIES})`
-									: 'Add entry'}
+									: 'Create filter'}
 							</button>
 						</div>
 					</div>
@@ -203,9 +203,9 @@ export function UsagePeriodFilter({
 						setDeleteError(undefined);
 					}
 				}}
-				title='Delete usage period?'
+				title='Remove filter?'
 				description={`“${entryToDelete ? formatPeriodEntry(entryToDelete) : ''}” will no longer be available in the period menu.`}
-				confirmLabel='Delete'
+				confirmLabel='Remove'
 				onConfirm={deleteEntry}
 				isPending={isDeleting}
 				error={deleteError}
@@ -224,5 +224,6 @@ function formatPeriodPreference(preference: UsagePeriodPreference, entries: Usag
 }
 
 function formatPeriodEntry(entry: UsagePeriodEntry): string {
-	return `${entry.days}d / ${granularityLabels[entry.granularity]}`;
+	const dayLabel = entry.days === 1 ? 'day' : 'days';
+	return `Last ${entry.days} ${dayLabel} - ${granularityLabels[entry.granularity]}`;
 }

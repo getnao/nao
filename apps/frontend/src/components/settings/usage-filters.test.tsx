@@ -51,7 +51,7 @@ describe('UsageFilters', () => {
 		const addEntry = screen.getByRole('button', { name: `Entry limit reached (${MAX_USAGE_PERIOD_ENTRIES})` });
 		expect(addEntry.hasAttribute('disabled')).toBe(true);
 		fireEvent.click(addEntry);
-		expect(screen.queryByRole('dialog', { name: 'Add usage period' })).toBeNull();
+		expect(screen.queryByRole('dialog', { name: 'Create period filter' })).toBeNull();
 	});
 
 	it('opens an add-entry dialog without a maximum day limit', () => {
@@ -76,15 +76,15 @@ describe('UsageFilters', () => {
 		);
 
 		fireEvent.click(screen.getByRole('button', { name: 'Last 15 days' }));
-		fireEvent.click(screen.getByRole('button', { name: 'Add entry' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Create filter' }));
 
 		const daysInput = screen.getByRole('spinbutton', { name: 'Days' });
 		expect(daysInput.getAttribute('max')).toBeNull();
-		fireEvent.change(daysInput, { target: { value: '1000' } });
-		fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+		fireEvent.change(daysInput, { target: { value: '2000' } });
+		fireEvent.click(screen.getByRole('button', { name: 'Create' }));
 
 		expect(onCreatePeriodEntry).toHaveBeenCalledWith({
-			days: 1000,
+			days: 2000,
 			granularity: 'day',
 		});
 	});
@@ -110,11 +110,11 @@ describe('UsageFilters', () => {
 		);
 
 		fireEvent.click(screen.getByRole('button', { name: 'Last 15 days' }));
-		fireEvent.click(screen.getByRole('button', { name: 'Add entry' }));
-		fireEvent.change(screen.getByRole('spinbutton', { name: 'Days' }), { target: { value: '1001' } });
+		fireEvent.click(screen.getByRole('button', { name: 'Create filter' }));
+		fireEvent.change(screen.getByRole('spinbutton', { name: 'Days' }), { target: { value: '2001' } });
 
 		expect(screen.getByText(/Use monthly grouping/)).toBeDefined();
-		expect(screen.getByRole('button', { name: 'Add' }).hasAttribute('disabled')).toBe(true);
+		expect(screen.getByRole('button', { name: 'Create' }).hasAttribute('disabled')).toBe(true);
 	});
 
 	it('selects, edits, and deletes saved entries', async () => {
@@ -141,11 +141,11 @@ describe('UsageFilters', () => {
 		);
 
 		fireEvent.click(screen.getByRole('button', { name: 'Last 15 days' }));
-		fireEvent.click(screen.getByRole('button', { name: '365d / Monthly' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Last 365 days - Monthly' }));
 		expect(onPeriodPreferenceChange).toHaveBeenCalledWith({ mode: 'saved', entryId: 'year' });
 
 		fireEvent.click(screen.getByRole('button', { name: 'Last 15 days' }));
-		fireEvent.click(screen.getByRole('button', { name: 'Edit 365d / Monthly' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Edit Last 365 days - Monthly' }));
 		fireEvent.change(screen.getByRole('spinbutton', { name: 'Days' }), { target: { value: '730' } });
 		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 		expect(onUpdatePeriodEntry).toHaveBeenCalledWith({
@@ -156,8 +156,8 @@ describe('UsageFilters', () => {
 
 		await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Edit usage period' })).toBeNull());
 		fireEvent.click(screen.getByRole('button', { name: 'Last 15 days' }));
-		fireEvent.click(screen.getByRole('button', { name: 'Delete 365d / Monthly' }));
-		fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Delete Last 365 days - Monthly' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
 		expect(onDeletePeriodEntry).toHaveBeenCalledWith('year');
 	});
 
@@ -183,11 +183,11 @@ describe('UsageFilters', () => {
 		);
 
 		fireEvent.click(screen.getByRole('button', { name: 'Last 15 days' }));
-		fireEvent.click(screen.getByRole('button', { name: 'Delete 365d / Monthly' }));
-		fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Delete Last 365 days - Monthly' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
 
 		expect(await screen.findByText('Delete failed')).toBeDefined();
-		expect(screen.getByRole('dialog', { name: 'Delete usage period?' })).toBeDefined();
+		expect(screen.getByRole('dialog', { name: 'Remove filter?' })).toBeDefined();
 		expect(onDeletePeriodEntry).toHaveBeenCalledTimes(1);
 	});
 
@@ -219,12 +219,12 @@ describe('UsageFilters', () => {
 		);
 
 		fireEvent.click(screen.getByRole('button', { name: 'Last 15 days' }));
-		fireEvent.click(screen.getByRole('button', { name: 'Add entry' }));
-		fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Create filter' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Create' }));
 		fireEvent.click(screen.getByRole('button', { name: 'Close' }));
 
-		expect(screen.getByRole('dialog', { name: 'Add usage period' })).toBeDefined();
+		expect(screen.getByRole('dialog', { name: 'Create period filter' })).toBeDefined();
 		await act(async () => resolveSave());
-		await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add usage period' })).toBeNull());
+		await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Create period filter' })).toBeNull());
 	});
 });
