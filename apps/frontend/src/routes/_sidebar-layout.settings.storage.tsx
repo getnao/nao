@@ -45,7 +45,7 @@ function AdminStoragePage() {
 		);
 	}
 
-	const { backend, local, s3, maxFileSizeMb } = config.data;
+	const { backend, local, s3, gcs, maxFileSizeMb } = config.data;
 
 	return (
 		<SettingsPageWrapper>
@@ -61,7 +61,8 @@ function AdminStoragePage() {
 				{backend === 'none' ? (
 					<DisabledNotice>
 						The agent cannot save files, and files saved earlier are not reachable. Set{' '}
-						<Mono>NAO_STORAGE_BACKEND</Mono> to <Mono>local</Mono> or <Mono>s3</Mono> to turn it on.
+						<Mono>NAO_STORAGE_BACKEND</Mono> to <Mono>local</Mono>, <Mono>s3</Mono> or <Mono>gcs</Mono> to
+						turn it on.
 					</DisabledNotice>
 				) : (
 					<>
@@ -126,6 +127,33 @@ function AdminStoragePage() {
 										</div>
 									) : (
 										<Muted>Default AWS credential chain</Muted>
+									)
+								}
+							/>
+						</>
+					)}
+
+					{gcs && (
+						<>
+							<DetailRow label='Bucket' value={<Mono>{gcs.bucket}</Mono>} />
+							<DetailRow
+								label='Project'
+								value={gcs.projectId ? <Mono>{gcs.projectId}</Mono> : <NotSet />}
+							/>
+							<DetailRow
+								label='Key prefix'
+								value={gcs.prefix ? <Mono>{gcs.prefix}/</Mono> : <Muted>bucket root</Muted>}
+							/>
+							<DetailRow
+								label='Credentials'
+								value={
+									gcs.credentialSource === 'explicit' ? (
+										<div className='flex items-center gap-2'>
+											<Muted>Service account key</Muted>
+											<EnvBadge />
+										</div>
+									) : (
+										<Muted>Default application credentials</Muted>
 									)
 								}
 							/>
@@ -351,13 +379,14 @@ const BACKEND_LABELS: Record<StorageBackend, string> = {
 	none: 'Disabled',
 	local: 'Local directory',
 	s3: 'S3-compatible bucket',
+	gcs: 'Google Cloud Storage bucket',
 };
 
 function BackendIcon({ backend }: { backend: StorageBackend }) {
 	if (backend === 'none') {
 		return <Ban className='size-3.5' />;
 	}
-	return backend === 's3' ? <Cloud className='size-3.5' /> : <HardDrive className='size-3.5' />;
+	return backend === 's3' || backend === 'gcs' ? <Cloud className='size-3.5' /> : <HardDrive className='size-3.5' />;
 }
 
 function DisabledNotice({ children }: { children: React.ReactNode }) {
@@ -386,7 +415,7 @@ function SharedVolumeNotice() {
 					A local directory is only shared between replicas if you make it so. Mount the same read-write-many
 					volume at this path on every replica — NFS, Amazon EFS, Google Filestore or a RWX
 					PersistentVolumeClaim — otherwise each replica sees a different set of files. Switching to the{' '}
-					<Mono>s3</Mono> backend avoids the problem entirely.
+					<Mono>s3</Mono> or <Mono>gcs</Mono> backend avoids the problem entirely.
 				</p>
 			</div>
 		</div>

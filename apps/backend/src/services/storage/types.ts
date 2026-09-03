@@ -1,4 +1,4 @@
-export type StorageBackend = 'local' | 's3';
+export type StorageBackend = 'local' | 's3' | 'gcs';
 
 /** What the admin configured, including turning permanent storage off entirely. */
 export type StorageBackendSetting = StorageBackend | 'none';

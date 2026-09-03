@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import { env } from '../../env';
+import { GcsStorageProvider } from './gcs.provider';
 import { LocalStorageProvider } from './local.provider';
 import { S3StorageProvider } from './s3.provider';
 import type { StorageBackendSetting, StorageHealth, StorageProvider } from './types';
@@ -30,10 +31,16 @@ export interface StorageConfigSummary {
 		credentialSource: CredentialSource;
 		accessKeyId?: string;
 	};
+	gcs?: {
+		bucket: string;
+		projectId?: string;
+		prefix?: string;
+		credentialSource: CredentialSource;
+	};
 }
 
 export const STORAGE_DISABLED_MESSAGE =
-	'Permanent storage is disabled on this nao instance. Ask an admin to set NAO_STORAGE_BACKEND to `local` or `s3`.';
+	'Permanent storage is disabled on this nao instance. Ask an admin to set NAO_STORAGE_BACKEND to `local`, `s3` or `gcs`.';
 
 let provider: StorageProvider | null = null;
 
@@ -81,6 +88,19 @@ export const getStorageConfig = (): StorageConfigSummary => {
 		};
 	}
 
+	if (env.NAO_STORAGE_BACKEND === 'gcs') {
+		return {
+			backend: 'gcs',
+			maxFileSizeMb,
+			gcs: {
+				bucket: env.NAO_STORAGE_GCS_BUCKET ?? '',
+				projectId: env.NAO_STORAGE_GCS_PROJECT_ID,
+				prefix: env.NAO_STORAGE_GCS_PREFIX,
+				credentialSource: hasExplicitGcsCredentials() ? 'explicit' : 'default-chain',
+			},
+		};
+	}
+
 	return {
 		backend: 'local',
 		maxFileSizeMb,
@@ -106,11 +126,25 @@ const createProvider = (): StorageProvider => {
 		});
 	}
 
+	if (env.NAO_STORAGE_BACKEND === 'gcs') {
+		return new GcsStorageProvider({
+			bucket: env.NAO_STORAGE_GCS_BUCKET!,
+			projectId: env.NAO_STORAGE_GCS_PROJECT_ID,
+			prefix: env.NAO_STORAGE_GCS_PREFIX,
+			keyFilename: env.NAO_STORAGE_GCS_KEY_FILE,
+			credentials: env.NAO_STORAGE_GCS_CREDENTIALS,
+		});
+	}
+
 	return new LocalStorageProvider(env.NAO_STORAGE_LOCAL_PATH);
 };
 
 const hasExplicitS3Credentials = (): boolean => {
 	return Boolean(env.NAO_STORAGE_S3_ACCESS_KEY_ID && env.NAO_STORAGE_S3_SECRET_ACCESS_KEY);
+};
+
+const hasExplicitGcsCredentials = (): boolean => {
+	return Boolean(env.NAO_STORAGE_GCS_KEY_FILE || env.NAO_STORAGE_GCS_CREDENTIALS);
 };
 
 const maskCredential = (value: string | undefined): string | undefined => {
