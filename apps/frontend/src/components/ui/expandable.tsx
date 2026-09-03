@@ -14,6 +14,7 @@ interface ExpandableProps {
 	disabled?: boolean;
 	isLoading?: boolean;
 	leadingIcon?: ReactNode;
+	titleAction?: ReactNode;
 	trailingContent?: ReactNode;
 	variant?: ExpandableVariant;
 	className?: string;
@@ -28,6 +29,7 @@ export const Expandable = ({
 	disabled = false,
 	isLoading = false,
 	leadingIcon,
+	titleAction,
 	trailingContent,
 	variant = 'inline',
 	className,
@@ -75,24 +77,33 @@ export const Expandable = ({
 						)}
 						onClick={() => canExpand && onExpandedChange(!expanded)}
 					>
-						<AccordionTrigger
-							className={cn(
-								'flex-1 select-none flex items-baseline gap-2 py-0 overflow-hidden transition-opacity duration-150 hover:no-underline [&>svg:last-child]:hidden',
-								canExpand ? 'cursor-pointer' : '',
-							)}
-						>
-							<div className='size-3 flex items-center justify-center shrink-0 self-center'>{icon}</div>
-							<span
+						<div className={cn('flex min-w-0 flex-1 items-center', titleAction ? 'gap-2' : 'gap-1')}>
+							<AccordionTrigger
+								headerClassName='w-auto min-w-0 shrink'
 								className={cn(
-									'flex-1 truncate min-w-0',
-									hasHeaderRow ? 'font-medium' : 'text-sm',
-									isLoading && 'text-shimmer',
+									'select-none flex items-baseline gap-2 py-0 overflow-hidden transition-opacity duration-150 hover:no-underline [&>svg:last-child]:hidden',
+									'min-w-0 flex-1',
+									canExpand ? 'cursor-pointer' : '',
 								)}
 							>
-								{title}
-							</span>
-							{badge && !expanded && <span className='text-xs opacity-30 ml-auto shrink-0'>{badge}</span>}
-						</AccordionTrigger>
+								<div className='size-3 flex items-center justify-center shrink-0 self-center'>
+									{icon}
+								</div>
+								<span
+									className={cn(
+										'flex-1 truncate min-w-0',
+										hasHeaderRow ? 'font-medium' : 'text-sm',
+										isLoading && 'text-shimmer',
+									)}
+								>
+									{title}
+								</span>
+								{badge && !expanded && (
+									<span className='text-xs opacity-30 ml-auto shrink-0'>{badge}</span>
+								)}
+							</AccordionTrigger>
+							{titleAction}
+						</div>
 						{trailingContent}
 					</div>
 				) : (

@@ -102,7 +102,7 @@ export function buildAuthorizationUrl(state: string): string {
 	const params = new URLSearchParams({
 		client_id: config.clientId,
 		response_type: 'code',
-		scope: 'api read_user openid email',
+		scope: 'api read_user openid email read_repository write_repository',
 		state,
 	});
 	const redirectUri = callbackUrl();

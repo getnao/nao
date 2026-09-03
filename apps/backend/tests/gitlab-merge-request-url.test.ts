@@ -13,6 +13,29 @@ async function loadGitlabService() {
 	return import('../src/services/gitlab');
 }
 
+describe('buildAuthorizationUrl', () => {
+	beforeEach(() => {
+		Object.keys(mockEnv).forEach((key) => delete mockEnv[key]);
+	});
+
+	it('requests repository read and write access', async () => {
+		mockEnv.GITLAB_CLIENT_ID = 'client-id';
+		mockEnv.GITLAB_CLIENT_SECRET = 'client-secret';
+		const { buildAuthorizationUrl } = await loadGitlabService();
+
+		const url = new URL(buildAuthorizationUrl('state'));
+
+		expect(url.searchParams.get('scope')?.split(' ')).toEqual([
+			'api',
+			'read_user',
+			'openid',
+			'email',
+			'read_repository',
+			'write_repository',
+		]);
+	});
+});
+
 describe('parseMergeRequestUrl with a self-hosted GITLAB_BASE_URL under a subpath', () => {
 	beforeEach(() => {
 		Object.keys(mockEnv).forEach((key) => delete mockEnv[key]);

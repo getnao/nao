@@ -389,6 +389,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		],
 		adminOrContextAdmin: true,
 	},
+	{
+		page: '/settings/git',
+		pageLabel: 'Git',
+		title: 'Update context files',
+		description: 'Pull the configured deployment branch into this nao instance.',
+		keywords: ['git pull', 'pull latest', 'refresh context', 'deployment branch', 'update context'],
+		adminOrContextAdmin: true,
+	},
 
 	// ── MCP Endpoint ────────────────────────────────────────
 	{

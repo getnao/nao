@@ -156,6 +156,7 @@ export type FileTreeEntry = {
 export type ContextGitUnavailableReason =
 	| 'github-unavailable'
 	| 'git-unavailable'
+	| 'repository-mismatch'
 	| 'no-token'
 	| 'no-repo'
 	| 'unsupported-provider'
