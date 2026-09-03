@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.10.0",
+  "checkpoint_id": "01M1M1P1537TE98SM12Z8PSCYK",
+  "strategy": "manual-commit",
+  "branch": "feat/add-user-groups-1496",
+  "checkpoints_count": 8,
+  "files_touched": [
+    "apps/backend/migrations-postgres/meta/_journal.json",
+    "apps/backend/migrations-sqlite/meta/_journal.json",
+    "apps/backend/scripts/license-generate-dev.ts",
+    "apps/backend/src/db/abstractSchema.ts",
+    "apps/backend/src/db/pg-schema.ts",
+    "apps/backend/src/db/sqlite-schema.ts",
+    "apps/backend/src/trpc/router.ts",
+    "apps/backend/src/types/license.ts",
+    "apps/frontend/src/components/settings-search-index.ts",
+    "apps/frontend/src/components/sidebar-settings-nav.tsx",
+    "apps/frontend/src/routeTree.gen.ts",
+    "apps/frontend/src/routes/_sidebar-layout.settings.enterprise.tsx",
+    "apps/shared/src/index.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 39,
+    "cache_creation_tokens": 41765,
+    "cache_read_tokens": 1035347,
+    "output_tokens": 6361,
+    "api_call_count": 4
+  }
+}
