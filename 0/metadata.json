@@ -1,0 +1,267 @@
+{
+  "cli_version": "0.10.0",
+  "checkpoint_id": "01M1KYNARR9MX85HY3HRAR2T3K",
+  "session_id": "1ac7e5cb-d2d0-4363-a98b-001f374c6667",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-03T15:37:07.931063Z",
+  "branch": "fix/bitbucket-ssh-access-bug-1571",
+  "checkpoints_count": 18,
+  "save_step_count": 10,
+  "files_touched": [
+    "docker/entrypoint.sh"
+  ],
+  "agent": "Cursor",
+  "model": "gpt-5.6-sol-high",
+  "turn_id": "923336261245",
+  "checkpoint_transcript_start": 120,
+  "transcript_lines_at_start": 120,
+  "compact_transcript_start": 59,
+  "token_usage": {
+    "input_tokens": 57,
+    "cache_creation_tokens": 17379,
+    "cache_read_tokens": 2579235,
+    "output_tokens": 5365,
+    "api_call_count": 10
+  },
+  "session_metrics": {
+    "turn_count": 45
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-03T15:37:07.910367Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 3,
+    "total_committed": 0,
+    "total_lines_changed": 3,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 2966,
+      "user_lines_removed": 3,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "docker/entrypoint.sh": 6,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "docker/entrypoint.sh": 3
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 6,
+      "agent_lines_removed": 3,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 6,
+      "agent_lines_removed": 3,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 6,
+      "agent_lines_removed": 3,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 6,
+      "agent_lines_removed": 3,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 6,
+      "agent_lines_removed": 3,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 6,
+      "agent_lines_removed": 3,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 6,
+      "agent_lines_removed": 3,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 9,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 6,
+      "agent_lines_removed": 3,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 10,
+      "user_lines_added": 2960,
+      "user_lines_removed": 0,
+      "agent_lines_added": 6,
+      "agent_lines_removed": 3,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    }
+  ]
+}
