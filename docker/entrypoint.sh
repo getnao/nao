@@ -40,11 +40,9 @@ if [ "$NAO_CONTEXT_SOURCE" = "git" ]; then
             
             SSH_DIR="/tmp/.nao-ssh"
             mkdir -p "$SSH_DIR"
-            chmod 700 "$SSH_DIR"
             
             SSH_KEY_FILE="$SSH_DIR/id_deploy"
             printf '%s\n' "$NAO_CONTEXT_GIT_SSH_KEY" > "$SSH_KEY_FILE"
-            chmod 600 "$SSH_KEY_FILE"
             
             # Pre-pin host keys for GitHub (https://api.github.com/meta) and Bitbucket (https://bitbucket.org/site/ssh)
             KNOWN_HOSTS_FILE="$SSH_DIR/known_hosts"
@@ -56,7 +54,12 @@ bitbucket.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIazEu89wgQZ4bqs3d63QSMzYVa0Mu
 bitbucket.org ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBPIQmuzMBuKdWeF4+a2sjSSpBK0iqitSQ+5BM9KhpexuGt20JpTVM7u5BDZngncgrqDMbWdxMWWOGtZ9UgbqgZE=
 bitbucket.org ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDQeJzhupRu0u0cdegZIa8e86EG2qOCsIsD1Xw0xSeiPDlCr7kq97NLmMbpKTX6Esc30NuoqEEHCuc7yWtwp8dI76EEEB1VqY9QJq6vk+aySyboD5QF61I/1WeTwu+deCbgKMGbUijeXhtfbxSxm6JwGrXrhBdofTsbKRUsrN1WoNgUa8uqN1Vx6WAJw1JHPhglEGGHea6QICwJOAr/6mrui/oB7pkaWKHj3z7d1IC4KWLtY47elvjbaTlkN04Kc/5LFEirorGYVbt15kAUlqGM65pk6ZBxtaO3+30LVlORZkxOh+LKL/BvbZ/iRNhItLqNyieoQj/uh/7Iv4uyH/cV/0b4WDSd3DptigWq84lJubb9t/DnZlrJazxyDCulTmKdOR7vs9gMTo+uoIrPSb8ScTtvw65+odKAlBj59dhnVp9zd7QUojOpXlL62Aw56U4oO+FALuevvMjiWeavKhJqlR7i5n9srYcrNV7ttmDw7kf/97P5zauIhxcjX+xHv4M=
 EOF
-            chmod 644 "$KNOWN_HOSTS_FILE"
+            chown root:nao "$SSH_DIR"
+            chown nao:nao "$SSH_KEY_FILE"
+            chown root:nao "$KNOWN_HOSTS_FILE"
+            chmod 750 "$SSH_DIR"
+            chmod 600 "$SSH_KEY_FILE"
+            chmod 640 "$KNOWN_HOSTS_FILE"
             
             export GIT_SSH_COMMAND="ssh -i $SSH_KEY_FILE -o IdentitiesOnly=yes -o UserKnownHostsFile=$KNOWN_HOSTS_FILE -o StrictHostKeyChecking=yes"
             echo "Using SSH deploy key authentication"
