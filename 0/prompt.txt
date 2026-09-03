@@ -1,0 +1,151 @@
+We need to figure out what might've caused this
+
+this is something about the git PR I did a while back,
+The idea was that if the git URL en var points to bitbucket, we detect that and handle it
+I'm guessing there's an edge case where Bitbucket is not happy with how I authenticate
+
+---
+
+hmm ok so how come I didn't get that when testing locally?
+
+---
+
+so it's mostly once self-hosted through docker that it can cause problems is it?
+
+---
+
+it's about the nao instance and it's files access rights?
+
+---
+
+How could I reproduce this bug then?
+
+---
+
+I'm not so used to docker, explain in clear terms what this implies, I need to use docker to get create a nao container from its github link
+
+---
+
+I'm not so used to docker, explain in clear terms what this implies, I need to use docker to get create a nao container from its github link
+Then through it add my bitbucket repo?
+
+---
+
+this about right?
+
+---
+
+I didn't even know we supported SSH keys for this,
+is BitBucket the only one who suppport this?
+
+---
+
+ok I'm going about testing locally, no docker first, to make sure basics are fine, so how do I setup locally with SSH keys?
+
+---
+
+ssh -T -i ~/.ssh/nao_bitbucket_test -o IdentitiesOnly=yes git@bitbucket.org
+Enter passphrase for key '/Users/adam/.ssh/nao_bitbucket_test': 
+authenticated via ssh key.
+
+You can use git to connect to Bitbucket. Shell access is disabled
+
+---
+
+cloning worked
+
+---
+
+lacking the env vars bro
+
+---
+
+you sure about the two SSH vars a command?
+
+---
+
+I tested, the File Explorer can't load, and git says repository status unavailable
+
+---
+
+why do logs ask me this?
+Username for 'https://bitbucket.org':
+
+---
+
+ok now this
+Enter passphrase for key '/Users/adam/.ssh/nao_bitbucket_test':
+
+---
+
+I insist the caching of it doesn't work
+
+---
+
+why are we not using my usual Mac SSH key
+
+---
+
+okay will my normal key require a passphrase
+
+---
+
+The tooltip on PR button annoys me, it always stops me from seeing the button
+
+---
+
+Pretty sure it's still here
+
+---
+
+still there...
+
+---
+
+ok finally
+
+So I was able to connect the repo, view file explorer, make edits and create a PR
+So we good?
+Time to test on docker then
+
+---
+
+so how do I test with Docker?
+
+---
+
+ssh -T \
+  -i ~/.ssh/nao_bitbucket_docker \
+  -o IdentitiesOnly=yes \
+  -o BatchMode=yes \
+  git@bitbucket.org
+git@bitbucket.org: Permission denied (publickey).
+
+---
+
+docker build -t nao-bitbucket-test .
+
+[+] Building 5.9s (5/5) FINISHED                                                              docker:desktop-linux
+ => [internal] load build definition from Dockerfile                                                          0.0s
+ => => transferring dockerfile: 6.34kB                                                                        0.0s
+ => ERROR [internal] load metadata for ghcr.io/astral-sh/uv:latest                                            5.8s
+ => CANCELED [internal] load metadata for docker.io/library/python:3.12-slim                                  5.8s
+ => CANCELED [internal] load metadata for docker.io/library/node:24-slim                                      5.8s
+ => [auth] astral-sh/uv:pull token for ghcr.io                                                                0.0s
+------
+ > [internal] load metadata for ghcr.io/astral-sh/uv:latest:
+------
+Dockerfile:57
+--------------------
+  55 |         && rm -rf /var/lib/apt/lists/*
+  56 |     
+  57 | >>> COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+  58 |     
+  59 |     COPY cli ./cli
+--------------------
+ERROR: failed to build: failed to solve: failed to fetch oauth token: denied: denied
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/39e7nqhz780bgf7jjrwuuk6mn
+
+What's next:
+    Debug this build failure with Gordon → docker ai "help me fix this build failure"

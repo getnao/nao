@@ -1,0 +1,119 @@
+{
+  "cli_version": "0.10.0",
+  "checkpoint_id": "01M1KVRP1H590QEDP0JBZN5N1K",
+  "session_id": "1ac7e5cb-d2d0-4363-a98b-001f374c6667",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-03T14:46:31.969138Z",
+  "branch": "feat/settings-layout-redesign-proposal",
+  "checkpoints_count": 3,
+  "save_step_count": 4,
+  "files_touched": [
+    "apps/backend/src/queries/project.queries.ts",
+    "apps/backend/tests/multi-project-license.test.ts",
+    "apps/frontend/src/components/settings/exclude-columns.tsx",
+    "apps/frontend/src/hooks/use-multi-project.ts"
+  ],
+  "agent": "Cursor",
+  "model": "gpt-5.6-sol-high",
+  "turn_id": "b187898be157",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 12,
+    "cache_creation_tokens": 112426,
+    "cache_read_tokens": 330864,
+    "output_tokens": 2426,
+    "api_call_count": 3
+  },
+  "session_metrics": {
+    "turn_count": 27
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-03T14:46:31.958007Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 388,
+    "human_modified": 19,
+    "human_removed": 0,
+    "total_committed": 388,
+    "total_lines_changed": 407,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 3121,
+      "user_lines_removed": 19,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/backend/src/queries/project.queries.ts": 3,
+        "apps/backend/tests/project-selection.test.ts": 123,
+        "apps/frontend/src/components/settings/exclude-columns.tsx": 24,
+        "apps/frontend/src/hooks/use-multi-project.ts": 11,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      },
+      "user_removed_per_file": {
+        "apps/frontend/src/components/settings/exclude-columns.tsx": 19
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 3083,
+      "user_lines_removed": 0,
+      "agent_lines_added": 27,
+      "agent_lines_removed": 147,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/backend/tests/project-selection.test.ts": 123,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 3083,
+      "user_lines_removed": 0,
+      "agent_lines_added": 27,
+      "agent_lines_removed": 147,
+      "user_added_per_file": {
+        ".pr-review/architecture.md": 47,
+        ".pr-review/dep-graph-backend.dot": 183,
+        ".pr-review/dep-graph-backend.svg": 806,
+        ".pr-review/dep-graph-frontend.dot": 52,
+        ".pr-review/dep-graph-frontend.svg": 123,
+        ".pr-review/dep-graph.dot": 214,
+        ".pr-review/dep-graph.svg": 899,
+        ".pr-review/review-order.md": 85,
+        "apps/backend/tests/project-selection.test.ts": 123,
+        "nao-prod/.naoignore": 3,
+        "nao-prod/RULES.md": 3,
+        "nao-prod/credentials.json": 13,
+        "nao-prod/nao_config.yaml": 31,
+        "scripts/pr-dep-graph.mjs": 501
+      }
+    }
+  ]
+}

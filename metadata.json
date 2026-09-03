@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.10.0",
+  "checkpoint_id": "01M1KVRP1H590QEDP0JBZN5N1K",
+  "strategy": "manual-commit",
+  "branch": "feat/settings-layout-redesign-proposal",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "apps/backend/src/queries/project.queries.ts",
+    "apps/backend/tests/multi-project-license.test.ts",
+    "apps/frontend/src/components/settings/exclude-columns.tsx",
+    "apps/frontend/src/hooks/use-multi-project.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 12,
+    "cache_creation_tokens": 112426,
+    "cache_read_tokens": 330864,
+    "output_tokens": 2426,
+    "api_call_count": 3
+  }
+}
