@@ -1,0 +1,42 @@
+Begin on this, fetch it, work on it
+
+ #1496
+
+---
+
+First let's resolve conflicts
+
+Do main.py first, not that exclude columns guard was actually renamed to columns access per CTO's complaints
+
+---
+
+cool, now adapt the test
+And resolve bigquery, it's easy
+
+---
+
+ok good now we ready to begin user groups
+
+Have you understood fully the issue, I know it's huge
+
+---
+
+for the paid aspect, we can just gate the whole feature behind the licence, that's simpler for now
+
+We'll see once we're onto RLS, you'll ask me then
+
+First I'd like to see some page called User Groups, project level
+
+That shows the list of everybody who has access to that project (through project or org), their role, and then toggles to tons of things, as issue describes
+
+---
+
+yeah pretty much, and then there would be a detailled group creation panel where you say what you allow
+
+---
+
+Need an udpated local licence that contains all features to test this
+
+---
+
+There is a title and headline duplication here

@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.10.0",
+  "checkpoint_id": "01M1NR24RZMTGMV7YP0PJT9NK4",
+  "session_id": "341ad488-0d10-4e34-a75d-8a55a7b31324",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-04T08:20:16.584636Z",
+  "branch": "fix/settings-page-bug",
+  "checkpoints_count": 8,
+  "save_step_count": 1,
+  "files_touched": [
+    "apps/frontend/src/components/settings/env-vars-section.tsx"
+  ],
+  "agent": "Cursor",
+  "model": "gpt-5.6-sol-high",
+  "turn_id": "1414e633bd9f",
+  "compact_transcript_start": 0,
+  "session_metrics": {
+    "turn_count": 8
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-04T08:20:16.573445Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 7,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 7,
+    "total_lines_changed": 7,
+    "agent_percentage": 0,
+    "metric_version": 2
+  }
+}
