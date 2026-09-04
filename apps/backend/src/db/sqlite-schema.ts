@@ -70,7 +70,6 @@ export const user = sqliteTable('user', {
 	name: text('name').notNull(),
 	email: text('email').notNull().unique(),
 	emailVerified: integer('email_verified', { mode: 'boolean' }).default(false).notNull(),
-	emailVariations: text('email_variations', { mode: 'json' }).$type<string[]>().notNull().default([]),
 	image: text('image'),
 	requiresPasswordReset: integer('requires_password_reset', { mode: 'boolean' }).default(false).notNull(),
 	memoryEnabled: integer('memory_enabled', { mode: 'boolean' }).default(true).notNull(),

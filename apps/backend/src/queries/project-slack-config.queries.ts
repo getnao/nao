@@ -51,6 +51,23 @@ export const getProjectSlackConfig = async (projectId: string): Promise<SlackCon
 	};
 };
 
+export const listSlackUserMatchingConfigs = async (): Promise<{ projectId: string; domains: string[] }[]> => {
+	const projects = await db
+		.select({ projectId: s.project.id, slackSettings: s.project.slackSettings })
+		.from(s.project)
+		.execute();
+
+	return projects.flatMap(({ projectId, slackSettings }) => {
+		if (!slackSettings?.autoMergeUsersEnabled) {
+			return [];
+		}
+		const domains = [
+			...new Set((slackSettings.autoCreateUsersDomains ?? []).map((domain) => domain.trim().toLowerCase())),
+		];
+		return domains.length > 1 ? [{ projectId, domains }] : [];
+	});
+};
+
 export const upsertProjectSlackConfig = async (data: {
 	projectId: string;
 	botToken: string;

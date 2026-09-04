@@ -27,17 +27,6 @@ export function SlackConfigSection({ isAdmin }: SlackConfigSectionProps) {
 	const [selectedModel, setSelectedModel] = useState<AvailableModel | null>(null);
 
 	const projectConfig = slackConfig.data?.projectConfig;
-	// DONT FORGET TO REMOVE THIS
-	// const projectConfig = {
-	// 	transportMode: 'webhook' as const,
-	// 	replyMode: 'thread',
-	// 	botTokenPreview: '1234567890',
-	// 	signingSecretPreview: '1234567890',
-	// 	appTokenPreview: '1234567890',
-	// 	autoCreateUsersEnabled: false,
-	// 	autoCreateUsersDomains: [],
-	// 	modelSelection: undefined,
-	// };
 	const webhookUrl = slackConfig.data?.webhookUrl ?? '';
 	const transportMode = projectConfig?.transportMode ?? 'webhook';
 	const replyMode = projectConfig?.replyMode ?? 'thread';
@@ -340,7 +329,7 @@ function AutoCreateUsersCard({
 		if (parsedDomains.length !== initialDomains.length) {
 			return true;
 		}
-		return parsedDomains.some((d, i) => d !== initialDomains[i]);
+		return parsedDomains.some((domain, index) => domain !== initialDomains[index]);
 	}, [detectExistingUsers, enabled, initialDomains, initialEnabled, initialMergeUsersEnabled, parsedDomains]);
 
 	const updateMutation = useMutation(
@@ -360,6 +349,7 @@ function AutoCreateUsersCard({
 			setError('Add at least one allowed domain to enable auto-creation.');
 			return;
 		}
+
 		updateMutation.mutate({ enabled, domains: parsedDomains, mergeUsersEnabled: detectExistingUsers });
 	};
 
@@ -414,7 +404,6 @@ function AutoCreateUsersCard({
 				id='slack-detect-existing-users'
 				label='Match existing users'
 				description='Before creating an account, look for an existing nao user with a matching username at another allowed domain.'
-				className='border-t pt-4'
 				control={
 					<Switch
 						id='slack-detect-existing-users'

@@ -470,6 +470,13 @@
       "when": 1788437742005,
       "tag": "0066_add_user_email_variations",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1788517781930,
+      "tag": "0067_remove_user_email_variations",
+      "breakpoints": true
     }
   ]
 }

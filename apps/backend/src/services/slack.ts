@@ -16,6 +16,7 @@ import { Card, Chat, deriveChannelId, Message, parseMarkdown, SlashCommandEvent,
 
 import { generateChartImage } from '../components/generate-chart';
 import type { User } from '../db/abstractSchema';
+import * as accountQueries from '../queries/account.queries';
 import * as chartImageQueries from '../queries/chart-image';
 import * as chatQueries from '../queries/chat.queries';
 import * as feedbackQueries from '../queries/feedback.queries';
@@ -25,7 +26,7 @@ import {
 	listSocketModeSlackConfigs,
 	SlackConfig,
 } from '../queries/project-slack-config.queries';
-import { addUserEmailDomain, getUser } from '../queries/user.queries';
+import { getUser } from '../queries/user.queries';
 import { UIChat, UIMessage, UIMessagePart } from '../types/chat';
 import { ConversationContext, StreamState, ToolCallEntry } from '../types/messaging-provider';
 import { createChatTitle } from '../utils/ai';
@@ -56,13 +57,14 @@ import {
 	type TruncationNotice,
 } from '../utils/messaging-provider';
 import { shouldReplyToSlackThreadMessage } from '../utils/slack-reply-policy';
-import { isEmailDomainAllowed } from '../utils/utils';
+import { buildEmailDomainAliases, isEmailDomainAllowed } from '../utils/utils';
 import { agentService } from './agent';
 import { posthog, PostHogEvent } from './posthog';
 import { SlackSocketBridge } from './slack-socket-bridge';
 import { ensureMessagingProviderUser } from './team-member';
 
 const UPDATE_INTERVAL_MS = 200;
+const SLACK_ACCOUNT_PROVIDER_ID = 'slack';
 
 const SLACK_MENTION_REGEX = /(?:<@|@)([A-Z0-9]+)(?:\|[^>]+)?>?\s*/g;
 const SLACK_USER_MENTION_REGEX = /(^|[^\w<])@([a-zA-Z0-9._-]+)/g;
@@ -71,6 +73,7 @@ const RESERVED_SLACK_MENTIONS = new Set(['channel', 'everyone', 'here']);
 
 type SlackReplyMessage = NonNullable<Awaited<ReturnType<WebClient['conversations']['replies']>>['messages']>[number];
 type SlackUser = NonNullable<Awaited<ReturnType<WebClient['users']['list']>>['members']>[number];
+type SlackUserInfo = NonNullable<Awaited<ReturnType<WebClient['users']['info']>>['user']>;
 
 type SlackBotWebhooks = NonNullable<Chat['webhooks']>;
 type SlackPostMessageOptions = {
@@ -487,7 +490,7 @@ class ProjectSlackBot {
 			const slackUserId = event.user?.userId;
 			const slackUser = slackUserId ? await this._getSlackUser(slackUserId) : null;
 			const email = slackUser?.profile?.email?.toLowerCase() || null;
-			const user = email ? await getUser({ email }) : null;
+			const user = slackUserId && email ? await this._findUser(slackUserId, email) : null;
 
 			if (ownerId !== user?.id) {
 				throw new Error(`You are not authorized to provide feedback on this message.`);
@@ -829,24 +832,15 @@ class ProjectSlackBot {
 
 		const timezone = slackUser?.tz || undefined;
 
-		if (this._canAutoProvision(email)) {
-			const project = await projectQueries.getProjectById(this.projectId);
-			const projectName = project?.name ?? 'nao';
-			const displayName = slackUser?.real_name || slackUser?.name || email.split('@')[0];
-			const user = await ensureMessagingProviderUser({
-				email,
-				name: displayName,
-				projectId: this.projectId,
-				buildEmail: (user, temporaryPassword) =>
-					buildUserAddedEmail(user, projectName, 'project', temporaryPassword),
-			});
-			return { status: 'authorized', user, timezone };
-		}
-
-		const user = await getUser({ email });
+		const user = await this._resolveUser(slackUserId, slackUser, email);
 		if (!user) {
 			return { status: 'user-not-found', email };
 		}
+
+		if (this._canAutoProvision(email)) {
+			return { status: 'authorized', user, timezone };
+		}
+
 		const role = await projectQueries.getUserRoleInProject(this.projectId, user.id);
 		if (role !== 'admin' && role !== 'user' && role !== 'context_admin') {
 			return { status: 'no-permission' };
@@ -923,34 +917,7 @@ class ProjectSlackBot {
 
 		ctx.timezone = slackUser?.tz || undefined;
 
-		if (this._canAutoProvision(email)) {
-			if (this._autoMergeUsersEnabled) {
-				const linkedUser = await this._linkEmailVarToUser(email, ctx);
-				if (linkedUser) {
-					ctx.user = linkedUser;
-					return;
-				}
-			}
-
-			const project = await projectQueries.getProjectById(this.projectId);
-			const projectName = project?.name ?? 'nao';
-			const displayName = slackUser?.real_name || slackUser?.name || email.split('@')[0];
-			ctx.user = await ensureMessagingProviderUser({
-				email,
-				name: displayName,
-				projectId: this.projectId,
-				buildEmail: (user, temporaryPassword) =>
-					buildUserAddedEmail(user, projectName, 'project', temporaryPassword),
-			});
-			return;
-		}
-
-		await this._resolveExistingUser(ctx, email);
-		await this._checkUserBelongsToProject(ctx);
-	}
-
-	private async _resolveExistingUser(ctx: ConversationContext, email: string): Promise<void> {
-		const user = await getUser({ email });
+		const user = await this._resolveUser(slackUserId, slackUser, email);
 		if (!user) {
 			await ctx.thread.post(
 				`❌ No user found. Create an account with \`${email}\` on ${this._redirectUrl} to sign up.`,
@@ -958,6 +925,71 @@ class ProjectSlackBot {
 			throw new Error('User not found');
 		}
 		ctx.user = user;
+		if (!this._canAutoProvision(email)) {
+			await this._checkUserBelongsToProject(ctx);
+		}
+	}
+
+	/**
+	 * Resolves the nao user behind a Slack sender, auto-provisioning them when their domain allows it,
+	 * and records the Slack identity as a better-auth account so later lookups no longer depend on email.
+	 */
+	private async _resolveUser(
+		slackUserId: string,
+		slackUser: SlackUserInfo | null,
+		email: string,
+	): Promise<User | null> {
+		const user = this._canAutoProvision(email)
+			? await this._provisionUser(slackUserId, slackUser, email)
+			: await this._findUser(slackUserId, email);
+
+		if (user) {
+			await accountQueries.linkProviderAccount({
+				providerId: SLACK_ACCOUNT_PROVIDER_ID,
+				accountId: slackUserId,
+				userId: user.id,
+			});
+		}
+		return user;
+	}
+
+	private async _provisionUser(slackUserId: string, slackUser: SlackUserInfo | null, email: string): Promise<User> {
+		const project = await projectQueries.getProjectById(this.projectId);
+		const projectName = project?.name ?? 'nao';
+		const displayName = slackUser?.real_name || slackUser?.name || email.split('@')[0];
+		return ensureMessagingProviderUser({
+			email,
+			name: displayName,
+			projectId: this.projectId,
+			buildEmail: (user, temporaryPassword) =>
+				buildUserAddedEmail(user, projectName, 'project', temporaryPassword),
+			findExistingUser: () => this._findUser(slackUserId, email),
+		});
+	}
+
+	/** Linked Slack account first, then exact email, then the same local part under an aliased domain. */
+	private async _findUser(slackUserId: string, email: string): Promise<User | null> {
+		const linkedUserId = await accountQueries.getUserIdByProviderAccount(SLACK_ACCOUNT_PROVIDER_ID, slackUserId);
+		if (linkedUserId) {
+			return getUser({ id: linkedUserId });
+		}
+
+		const user = await getUser({ email });
+		return user ?? this._findUserByAliasEmail(email);
+	}
+
+	private async _findUserByAliasEmail(email: string): Promise<User | null> {
+		if (!this._autoMergeUsersEnabled) {
+			return null;
+		}
+
+		for (const aliasEmail of buildEmailDomainAliases(email, this._autoCreateUsersDomains)) {
+			const user = await getUser({ email: aliasEmail });
+			if (user) {
+				return user;
+			}
+		}
+		return null;
 	}
 
 	private async _checkUserBelongsToProject(ctx: ConversationContext): Promise<void> {
@@ -975,47 +1007,6 @@ class ProjectSlackBot {
 			return false;
 		}
 		return isEmailDomainAllowed(email, this._autoCreateUsersDomains.join(','));
-	}
-
-	private async _findPotentialExistingUsers(email: string) {
-		const [username] = email.split('@');
-		if (!username) {
-			return [];
-		}
-
-		const allowedDomains = new Set(this._autoCreateUsersDomains);
-		const users = await projectQueries.listUsersWithProjectAccess(this.projectId);
-		const matchingUsers = users.filter((user) => {
-			const normalizedEmail = user.email.toLowerCase();
-			const [candidateUsername, candidateDomain] = normalizedEmail.split('@');
-			return (
-				normalizedEmail !== email &&
-				candidateUsername === username &&
-				!!candidateDomain &&
-				allowedDomains.has(candidateDomain)
-			);
-		});
-		const userProfiles = await Promise.all(matchingUsers.map((user) => getUser({ id: user.id })));
-		return userProfiles.filter((user): user is User => user !== null);
-	}
-
-	private async _linkEmailVarToUser(email: string, ctx: ConversationContext): Promise<User | null> {
-		const potentialUsers = await this._findPotentialExistingUsers(email);
-		const linkedUsers = email ? potentialUsers.filter((user) => user.emailVariations.includes(email)) : [];
-
-		if (linkedUsers.length === 1) {
-			return linkedUsers[0];
-		}
-		if (potentialUsers.length === 1) {
-			return email ? await addUserEmailDomain(potentialUsers[0].id, email) : potentialUsers[0];
-		}
-		if (potentialUsers.length > 1) {
-			await ctx.thread.post(
-				'❌ Multiple existing nao users match your Slack email. Please contact an administrator.',
-			);
-			throw new Error('Multiple users match the Slack email username');
-		}
-		return null;
 	}
 
 	private async _getSlackUser(userId: string) {

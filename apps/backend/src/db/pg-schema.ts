@@ -73,7 +73,6 @@ export const user = pgTable('user', {
 	name: text('name').notNull(),
 	email: text('email').notNull().unique(),
 	emailVerified: boolean('email_verified').default(false).notNull(),
-	emailVariations: jsonb('email_variations').$type<string[]>().notNull().default([]),
 	image: text('image'),
 	requiresPasswordReset: boolean('requires_password_reset').default(false).notNull(),
 	memoryEnabled: boolean('memory_enabled').default(true).notNull(),

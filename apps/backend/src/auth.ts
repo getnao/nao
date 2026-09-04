@@ -8,16 +8,20 @@ import type { BetterAuthPlugin, Session } from 'better-auth';
 import { APIError, betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { createAuthMiddleware } from 'better-auth/api';
+import { setSessionCookie } from 'better-auth/cookies';
 import { verifyAccessToken } from 'better-auth/oauth2';
 import { jwt } from 'better-auth/plugins';
 import { bearer } from 'better-auth/plugins/bearer';
 import type { JWTPayload } from 'jose';
 
+import type { User as DBUser } from './db/abstractSchema';
 import { db } from './db/db';
 import dbConfig, { Dialect } from './db/dbConfig';
 import { env, isCloud, MCP_SERVER_URL } from './env';
+import * as accountQueries from './queries/account.queries';
 import * as orgQueries from './queries/organization.queries';
 import * as projectQueries from './queries/project.queries';
+import * as slackConfigQueries from './queries/project-slack-config.queries';
 import * as userQueries from './queries/user.queries';
 import { emailService } from './services/email';
 import { githubOAuthConfig } from './services/github';
@@ -38,7 +42,12 @@ import { syncRolesFromSsoGroups } from './services/sso-group-mapping.service';
 import { shouldExpireSsoSession } from './services/sso-session.service';
 import { buildForgotPasswordEmail } from './utils/email-builders';
 import { logger, serializeError } from './utils/logger';
-import { buildUsernameAllowlist, isEmailDomainAllowed, resolveProviderId } from './utils/utils';
+import {
+	buildEmailDomainAliases,
+	buildUsernameAllowlist,
+	isEmailDomainAllowed,
+	resolveProviderId,
+} from './utils/utils';
 
 type MetadataHandler = (request: Request) => Promise<Response>;
 
@@ -243,6 +252,61 @@ async function createAuthInstance(baseURL: string) {
 			},
 		},
 		hooks: {
+			before: createAuthMiddleware(async (ctx) => {
+				if (ctx.path !== '/sign-up/email') {
+					return;
+				}
+
+				const body = ctx.body as {
+					email?: string;
+					name?: string;
+					password?: string;
+					rememberMe?: boolean;
+				};
+				if (
+					typeof body.email !== 'string' ||
+					typeof body.name !== 'string' ||
+					typeof body.password !== 'string'
+				) {
+					return;
+				}
+
+				const normalizedEmail = body.email.trim().toLowerCase();
+				if (await userQueries.getUser({ email: normalizedEmail })) {
+					return;
+				}
+
+				const slackUser = await findSlackLinkedUserWithAliasedEmail(normalizedEmail);
+				if (!slackUser) {
+					return;
+				}
+
+				const { minPasswordLength, maxPasswordLength } = ctx.context.password.config;
+				if (body.password.length < minPasswordLength) {
+					throw new APIError('BAD_REQUEST', { message: 'Password is too short.' });
+				}
+				if (body.password.length > maxPasswordLength) {
+					throw new APIError('BAD_REQUEST', { message: 'Password is too long.' });
+				}
+
+				const hashedPassword = await ctx.context.password.hash(body.password);
+				const user = await accountQueries.claimSlackLinkedUser({
+					userId: slackUser.id,
+					email: normalizedEmail,
+					name: body.name,
+					hashedPassword,
+				});
+				const session = await ctx.context.internalAdapter.createSession(user.id, body.rememberMe === false);
+				if (!session) {
+					throw new APIError('INTERNAL_SERVER_ERROR', {
+						message: 'Account setup could not be completed. Please try again.',
+					});
+				}
+
+				const authUser = toAuthUser(user);
+				await setSessionCookie(ctx, { session, user: authUser }, body.rememberMe === false);
+				return ctx.json({ token: session.token, user: authUser });
+			}),
 			after: createAuthMiddleware(async (ctx) => {
 				if (ctx.path !== '/get-session' || !ctx.request) {
 					return;
@@ -367,6 +431,49 @@ async function createAuthInstance(baseURL: string) {
 			},
 		},
 	});
+}
+
+async function findSlackLinkedUserWithAliasedEmail(email: string): Promise<DBUser | null> {
+	const aliasConfigs = await slackConfigQueries.listSlackUserMatchingConfigs();
+	const matchingUserIds = new Set<string>();
+
+	for (const { projectId, domains } of aliasConfigs) {
+		const aliasEmails = new Set(buildEmailDomainAliases(email, domains));
+		if (aliasEmails.size === 0) {
+			continue;
+		}
+
+		const users = await projectQueries.listUsersWithProjectAccess(projectId);
+		const candidates = users.filter((user) => aliasEmails.has(user.email.toLowerCase()));
+		for (const candidate of candidates) {
+			if (await accountQueries.hasAccountForProvider(candidate.id, 'slack')) {
+				matchingUserIds.add(candidate.id);
+			}
+		}
+	}
+
+	if (matchingUserIds.size > 1) {
+		throw new APIError('CONFLICT', {
+			message: 'Multiple Slack-linked accounts match this email. Contact an administrator.',
+		});
+	}
+
+	const [userId] = matchingUserIds;
+	return userId ? userQueries.getUser({ id: userId }) : null;
+}
+
+function toAuthUser(user: DBUser) {
+	return {
+		id: user.id,
+		name: user.name,
+		email: user.email,
+		emailVerified: user.emailVerified,
+		image: user.image,
+		createdAt: user.createdAt,
+		updatedAt: user.updatedAt,
+		requiresPasswordReset: user.requiresPasswordReset,
+		messagingProviderCode: user.messagingProviderCode ?? '',
+	};
 }
 
 async function shouldDisableEmailSignUp(): Promise<boolean> {
