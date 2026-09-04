@@ -115,7 +115,7 @@ class TestRepositorySyncProvider:
 
     @patch("nao_core.commands.sync.providers.repositories.provider.sync_repo")
     @patch("nao_core.commands.sync.providers.repositories.provider.console")
-    def test_sync_counts_successful_repos(self, mock_console, mock_sync, tmp_path: Path):
+    def test_sync_counts_successful_repos_and_reports_failures(self, mock_console, mock_sync, tmp_path: Path):
         provider = RepositorySyncProvider()
         repos = [
             RepoConfig(name="repo1", url="https://github.com/test/repo1"),
@@ -127,6 +127,7 @@ class TestRepositorySyncProvider:
         result = provider.sync(repos, tmp_path)
 
         assert result.items_synced == 2
+        assert result.error == "Failed to sync 1 repository: repo2"
 
     @patch("nao_core.commands.sync.providers.repositories.provider.sync_repo", return_value=True)
     @patch("nao_core.commands.sync.providers.repositories.provider.console")

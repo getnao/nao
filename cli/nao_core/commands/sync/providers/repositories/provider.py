@@ -257,6 +257,7 @@ class RepositorySyncProvider(SyncProvider):
 
         output_path.mkdir(parents=True, exist_ok=True)
         success_count = 0
+        failed_repositories: list[str] = []
 
         console.print(f"\n[bold cyan]{self.emoji} Syncing {self.name}[/bold cyan]")
         console.print(f"[dim]Location:[/dim] {output_path.absolute()}\n")
@@ -266,6 +267,8 @@ class RepositorySyncProvider(SyncProvider):
                 if sync_repo(repo, output_path):
                     success_count += 1
                     console.print(f"  [green]✓[/green] {repo.name}")
+                else:
+                    failed_repositories.append(repo.name)
         else:
             console.print(f"[dim]Threads:[/dim] {threads}\n")
             with ThreadPoolExecutor(max_workers=min(threads, len(items))) as executor:
@@ -276,7 +279,16 @@ class RepositorySyncProvider(SyncProvider):
                         if future.result():
                             success_count += 1
                             console.print(f"  [green]✓[/green] {repo.name}")
+                        else:
+                            failed_repositories.append(repo.name)
                     except Exception as e:
+                        failed_repositories.append(repo.name)
                         console.print(f"  [yellow]⚠[/yellow] Error syncing {repo.name}: {e}")
 
-        return SyncResult(provider_name=self.name, items_synced=success_count)
+        error = None
+        if failed_repositories:
+            failed_names = ", ".join(sorted(failed_repositories))
+            repository_label = "repository" if len(failed_repositories) == 1 else "repositories"
+            error = f"Failed to sync {len(failed_repositories)} {repository_label}: {failed_names}"
+
+        return SyncResult(provider_name=self.name, items_synced=success_count, error=error)

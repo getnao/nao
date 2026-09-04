@@ -499,6 +499,7 @@ class DatabaseSyncProvider(SyncProvider):
         total_tables = 0
         total_removed = 0
         sync_states: list[DatabaseSyncState] = []
+        failures: list[str] = []
 
         nao_ctx = create_nao_context(self._nao_config, project_path=project_path) if self._nao_config else None
         llm_config = self._nao_config.llm if self._nao_config else None
@@ -545,7 +546,9 @@ class DatabaseSyncProvider(SyncProvider):
                         total_datasets += state.schemas_synced
                         total_tables += state.tables_synced
                     except Exception as e:
-                        console.print(f"[bold red]✗[/bold red] Failed to sync {db.name}: {_fmt_error(e)}")
+                        error = _fmt_error(e)
+                        failures.append(f"{db.name}: {error}")
+                        console.print(f"[bold red]✗[/bold red] Failed to sync {db.name}: {error}")
             else:
                 with ThreadPoolExecutor(max_workers=min(threads, len(items))) as executor:
                     futures = {
@@ -570,7 +573,9 @@ class DatabaseSyncProvider(SyncProvider):
                             total_datasets += state.schemas_synced
                             total_tables += state.tables_synced
                         except Exception as e:
-                            console.print(f"[bold red]✗[/bold red] Failed to sync {db.name}: {_fmt_error(e)}")
+                            error = _fmt_error(e)
+                            failures.append(f"{db.name}: {error}")
+                            console.print(f"[bold red]✗[/bold red] Failed to sync {db.name}: {error}")
 
         if not select:
             for state in sync_states:
@@ -582,6 +587,11 @@ class DatabaseSyncProvider(SyncProvider):
         if total_removed > 0:
             summary += f", {total_removed} stale removed"
 
+        error = None
+        if failures:
+            database_label = "database" if len(failures) == 1 else "databases"
+            error = f"Failed to sync {len(failures)} {database_label}: {'; '.join(failures)}"
+
         return SyncResult(
             provider_name=self.name,
             items_synced=total_tables,
@@ -591,4 +601,5 @@ class DatabaseSyncProvider(SyncProvider):
                 "removed": total_removed,
             },
             summary=summary,
+            error=error,
         )

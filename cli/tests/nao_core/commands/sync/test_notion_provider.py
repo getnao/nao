@@ -74,6 +74,7 @@ def test_sync_keeps_existing_pages_when_one_failed(mock_get_page, tmp_path: Path
     assert result.items_synced == 1
     assert result.details is not None
     assert result.details["removed"] == 0
+    assert result.error == "Failed to sync 1 Notion page"
 
 
 def api_error(code: APIErrorCode, status: int) -> APIResponseError:
@@ -197,6 +198,7 @@ def test_sync_survives_an_error_that_looks_like_console_markup(mock_get_page, tm
     result = provider.sync([NotionConfig(api_key="secret", pages=["page-a"])], tmp_path)
 
     assert result.items_synced == 0
+    assert result.error == "Failed to sync 1 Notion page"
 
 
 def test_extract_ids_accept_dashed_uuids():

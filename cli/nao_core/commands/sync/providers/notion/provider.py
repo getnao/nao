@@ -390,10 +390,13 @@ class NotionSyncProvider(SyncProvider):
         summary = f"{pages_synced} pages synced as markdown"
         if removed_count > 0:
             summary += f", {removed_count} stale removed"
+        page_label = "page" if failed_pages == 1 else "pages"
+        error = f"Failed to sync {failed_pages} Notion {page_label}" if failed_pages else None
 
         return SyncResult(
             provider_name=self.name,
             items_synced=pages_synced,
             details={"pages": synced_pages, "removed": removed_count},
             summary=summary,
+            error=error,
         )

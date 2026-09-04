@@ -152,11 +152,13 @@ class TestDatabaseSyncProvider:
         )
 
         with patch("nao_core.commands.sync.providers.databases.provider.console", console):
-            provider.sync([db], tmp_path)
+            result = provider.sync([db], tmp_path)
 
         text = output.getvalue()
         assert "ibis-framework[postgres]" in text
         assert "nao-core[redshift]" in text
+        assert result.error is not None
+        assert result.error.startswith("Failed to sync 1 database: redshift:")
 
 
 class TestMatchesSelection:

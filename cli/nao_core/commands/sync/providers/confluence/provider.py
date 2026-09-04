@@ -362,12 +362,15 @@ class ConfluenceSyncProvider(SyncProvider):
             summary += f", {len(reused)} unchanged"
         if removed_count:
             summary += f", {removed_count} stale removed"
+        page_label = "page" if failed_pages == 1 else "pages"
+        error = f"Failed to sync {failed_pages} Confluence {page_label}" if failed_pages else None
 
         return SyncResult(
             provider_name=self.name,
             items_synced=pages_synced,
             details={"synced": len(written), "unchanged": len(reused), "removed": removed_count},
             summary=summary,
+            error=error,
         )
 
     @staticmethod
