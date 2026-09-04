@@ -1,19 +1,10 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { TelegramConfigSection } from '@/components/settings/telegram-config-section';
-import { LinkingCodesCard } from '@/components/settings/linking-code-section';
-import { usePermissions } from '@/hooks/use-permissions';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/telegram')({
-	component: ProjectTelegramTabPage,
+	beforeLoad: () => {
+		throw redirect({
+			to: '/settings/project/integrations/$integrationId',
+			params: { integrationId: 'telegram' },
+		});
+	},
 });
-
-function ProjectTelegramTabPage() {
-	const { isAdmin } = usePermissions();
-
-	return (
-		<>
-			<TelegramConfigSection isAdmin={isAdmin} />
-			<LinkingCodesCard provider='telegram' />
-		</>
-	);
-}

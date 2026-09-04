@@ -26,6 +26,7 @@ import {
 	resolveMattermostThreadId,
 	shouldHandleMattermostMessage,
 	truncateMattermostMarkdown,
+	validateMattermostConnection,
 	verifyMattermostActionSecret,
 	verifyMattermostFeedbackMetadata,
 } from '../src/services/mattermost-helpers';
@@ -44,6 +45,78 @@ vi.mock('../src/utils/logger', () => ({
 		debug: vi.fn(),
 	},
 }));
+
+describe('validateMattermostConnection', () => {
+	it('accepts a valid Mattermost user response', async () => {
+		const fetchImpl = vi.fn(async () => Response.json({ id: 'bot-user-id', username: 'nao' }));
+
+		await expect(
+			validateMattermostConnection({
+				baseUrl: 'https://mattermost.example/base/',
+				botToken: 'test-token',
+				fetchImpl,
+			}),
+		).resolves.toBeUndefined();
+
+		expect(fetchImpl).toHaveBeenCalledWith(
+			new URL('https://mattermost.example/base/api/v4/users/me'),
+			expect.objectContaining({
+				headers: expect.objectContaining({
+					Accept: 'application/json',
+					Authorization: expect.any(String),
+				}),
+			}),
+		);
+	});
+
+	it.each([401, 403])('reports rejected bot tokens for HTTP %s', async (status) => {
+		const fetchImpl = vi.fn(async () => new Response(null, { status }));
+
+		await expect(
+			validateMattermostConnection({
+				baseUrl: 'https://mattermost.example',
+				botToken: 'test-token',
+				fetchImpl,
+			}),
+		).rejects.toThrow('Mattermost rejected the bot token. Check the token and try again.');
+	});
+
+	it('reports when the server URL has no Mattermost API', async () => {
+		const fetchImpl = vi.fn(async () => new Response(null, { status: 404 }));
+
+		await expect(
+			validateMattermostConnection({
+				baseUrl: 'https://mattermost.example',
+				botToken: 'test-token',
+				fetchImpl,
+			}),
+		).rejects.toThrow('No Mattermost API was found at this server URL.');
+	});
+
+	it('reports network failures without exposing provider details', async () => {
+		const fetchImpl = vi.fn<typeof fetch>().mockRejectedValue(new Error('connect ECONNREFUSED secret-host'));
+
+		await expect(
+			validateMattermostConnection({
+				baseUrl: 'https://mattermost.example',
+				botToken: 'test-token',
+				fetchImpl,
+			}),
+		).rejects.toThrow('Could not reach the Mattermost server. Check the server URL.');
+	});
+
+	it.each([{}, { id: '' }, { id: 42 }])('rejects malformed successful responses', async (body) => {
+		const fetchImpl = vi.fn(async () => Response.json(body));
+
+		await expect(
+			validateMattermostConnection({
+				baseUrl: 'https://mattermost.example',
+				botToken: 'test-token',
+				fetchImpl,
+			}),
+		).rejects.toThrow('Mattermost returned an unexpected response.');
+	});
+});
 
 describe('parseMattermostLoginCommand', () => {
 	it('parses a bare login command', () => {

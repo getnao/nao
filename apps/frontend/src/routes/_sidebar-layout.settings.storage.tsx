@@ -23,137 +23,144 @@ function StoragePage() {
 	return isAdmin ? <AdminStoragePage /> : <MyStoragePage />;
 }
 
+function StoragePageLayout({ description, children }: { description: React.ReactNode; children: React.ReactNode }) {
+	return (
+		<SettingsPageWrapper>
+			<div className='flex flex-col gap-5'>
+				<div>
+					<h1 className='text-lg font-semibold text-foreground'>Storage</h1>
+					<p className='text-sm text-muted-foreground'>{description}</p>
+				</div>
+				<div className='flex flex-col gap-12'>{children}</div>
+			</div>
+		</SettingsPageWrapper>
+	);
+}
+
 function AdminStoragePage() {
 	const config = useStorageConfig();
 	const isEnabled = config.data ? config.data.backend !== 'none' : false;
 	const health = useStorageHealth({ enabled: isEnabled });
 	const usage = useStorageUsage({ enabled: isEnabled });
+	const description = (
+		<>
+			Permanent storage is where the agent keeps files that outlive a chat. It appears to the agent as the{' '}
+			<Mono>/home</Mono> folder for each user, alongside the project context.
+		</>
+	);
 
 	if (config.isLoading) {
 		return (
-			<SettingsPageWrapper>
+			<StoragePageLayout description={description}>
 				<div className='text-sm text-muted-foreground'>Loading storage configuration…</div>
-			</SettingsPageWrapper>
+			</StoragePageLayout>
 		);
 	}
 
 	if (config.isError || !config.data) {
 		return (
-			<SettingsPageWrapper>
+			<StoragePageLayout description={description}>
 				<div className='text-sm text-destructive'>Failed to load storage configuration.</div>
-			</SettingsPageWrapper>
+			</StoragePageLayout>
 		);
 	}
 
 	const { backend, local, s3, maxFileSizeMb } = config.data;
 
 	return (
-		<SettingsPageWrapper>
-			<div className='flex flex-col gap-5'>
-				<div>
-					<h1 className='text-lg font-semibold text-foreground'>Storage</h1>
-					<p className='text-sm text-muted-foreground'>
-						Permanent storage is where the agent keeps files that outlive a chat. It appears to the agent as
-						the <Mono>/home</Mono> folder for each user, alongside the project context.
-					</p>
-				</div>
+		<StoragePageLayout description={description}>
+			{backend === 'none' ? (
+				<DisabledNotice>
+					The agent cannot save files, and files saved earlier are not reachable. Set{' '}
+					<Mono>NAO_STORAGE_BACKEND</Mono> to <Mono>local</Mono> or <Mono>s3</Mono> to turn it on.
+				</DisabledNotice>
+			) : (
+				<>
+					{!health.isLoading && health.data?.ok === false && (
+						<ErrorMessage message={health.data.error ?? 'The storage location could not be reached.'} />
+					)}
+					<ProjectUsageCard usage={usage} />
+				</>
+			)}
 
-				{backend === 'none' ? (
-					<DisabledNotice>
-						The agent cannot save files, and files saved earlier are not reachable. Set{' '}
-						<Mono>NAO_STORAGE_BACKEND</Mono> to <Mono>local</Mono> or <Mono>s3</Mono> to turn it on.
-					</DisabledNotice>
-				) : (
-					<>
-						{!health.isLoading && health.data?.ok === false && (
-							<ErrorMessage message={health.data.error ?? 'The storage location could not be reached.'} />
-						)}
-						<ProjectUsageCard usage={usage} />
-					</>
+			<SettingsCard title='Configuration' description='Read-only — set through environment variables.'>
+				{backend !== 'none' && (
+					<DetailRow
+						label='Status'
+						value={
+							health.isLoading ? (
+								<Muted>Checking…</Muted>
+							) : health.data?.ok ? (
+								'Reachable'
+							) : (
+								<span className='text-destructive'>Unreachable</span>
+							)
+						}
+					/>
 				)}
+				<DetailRow
+					label='Backend'
+					value={
+						<div className='flex items-center gap-2'>
+							<BackendIcon backend={backend} />
+							<span>{BACKEND_LABELS[backend]}</span>
+							<EnvBadge />
+						</div>
+					}
+				/>
 
-				<SettingsCard title='Configuration' description='Read-only — set through environment variables.'>
-					{backend !== 'none' && (
+				{local && <DetailRow label='Path' value={<Mono>{local.path}</Mono>} />}
+
+				{s3 && (
+					<>
+						<DetailRow label='Bucket' value={<Mono>{s3.bucket}</Mono>} />
+						<DetailRow label='Region' value={s3.region ? <Mono>{s3.region}</Mono> : <NotSet />} />
 						<DetailRow
-							label='Status'
+							label='Endpoint'
+							value={s3.endpoint ? <Mono>{s3.endpoint}</Mono> : <Muted>AWS S3</Muted>}
+						/>
+						<DetailRow
+							label='Key prefix'
+							value={s3.prefix ? <Mono>{s3.prefix}/</Mono> : <Muted>bucket root</Muted>}
+						/>
+						<DetailRow label='Path-style addressing' value={s3.forcePathStyle ? 'Enabled' : 'Disabled'} />
+						<DetailRow
+							label='Credentials'
 							value={
-								health.isLoading ? (
-									<Muted>Checking…</Muted>
-								) : health.data?.ok ? (
-									'Reachable'
+								s3.credentialSource === 'explicit' ? (
+									<div className='flex items-center gap-2'>
+										<Mono>{s3.accessKeyId}</Mono>
+										<EnvBadge />
+									</div>
 								) : (
-									<span className='text-destructive'>Unreachable</span>
+									<Muted>Default AWS credential chain</Muted>
 								)
 							}
 						/>
-					)}
-					<DetailRow
-						label='Backend'
-						value={
-							<div className='flex items-center gap-2'>
-								<BackendIcon backend={backend} />
-								<span>{BACKEND_LABELS[backend]}</span>
-								<EnvBadge />
-							</div>
-						}
-					/>
+					</>
+				)}
 
-					{local && <DetailRow label='Path' value={<Mono>{local.path}</Mono>} />}
+				{backend !== 'none' && (
+					<>
+						<DetailRow
+							label='Max file size'
+							value={
+								<div className='flex items-center gap-2'>
+									<span>{maxFileSizeMb} MB</span>
+									<EnvBadge />
+								</div>
+							}
+						/>
+						<DetailRow
+							label='File layout'
+							value={<Mono>projects/&lt;project&gt;/users/&lt;user&gt;/…</Mono>}
+						/>
+					</>
+				)}
+			</SettingsCard>
 
-					{s3 && (
-						<>
-							<DetailRow label='Bucket' value={<Mono>{s3.bucket}</Mono>} />
-							<DetailRow label='Region' value={s3.region ? <Mono>{s3.region}</Mono> : <NotSet />} />
-							<DetailRow
-								label='Endpoint'
-								value={s3.endpoint ? <Mono>{s3.endpoint}</Mono> : <Muted>AWS S3</Muted>}
-							/>
-							<DetailRow
-								label='Key prefix'
-								value={s3.prefix ? <Mono>{s3.prefix}/</Mono> : <Muted>bucket root</Muted>}
-							/>
-							<DetailRow
-								label='Path-style addressing'
-								value={s3.forcePathStyle ? 'Enabled' : 'Disabled'}
-							/>
-							<DetailRow
-								label='Credentials'
-								value={
-									s3.credentialSource === 'explicit' ? (
-										<div className='flex items-center gap-2'>
-											<Mono>{s3.accessKeyId}</Mono>
-											<EnvBadge />
-										</div>
-									) : (
-										<Muted>Default AWS credential chain</Muted>
-									)
-								}
-							/>
-						</>
-					)}
-
-					{backend !== 'none' && (
-						<>
-							<DetailRow
-								label='Max file size'
-								value={
-									<div className='flex items-center gap-2'>
-										<span>{maxFileSizeMb} MB</span>
-										<EnvBadge />
-									</div>
-								}
-							/>
-							<DetailRow
-								label='File layout'
-								value={<Mono>projects/&lt;project&gt;/users/&lt;user&gt;/…</Mono>}
-							/>
-						</>
-					)}
-				</SettingsCard>
-
-				{backend === 'local' && <SharedVolumeNotice />}
-			</div>
-		</SettingsPageWrapper>
+			{backend === 'local' && <SharedVolumeNotice />}
+		</StoragePageLayout>
 	);
 }
 
@@ -162,35 +169,26 @@ function MyStoragePage() {
 	const isEnabled = limits.data?.enabled === true;
 	const usage = useStorageUsage({ enabled: isEnabled });
 	const limitsError = limits.error instanceof Error ? limits.error.message : 'Failed to load storage configuration.';
+	const description =
+		'Permanent storage is where the agent keeps files that outlive a chat: the exports it writes, the spreadsheets it builds, and the files you attach to a message. You get your own space in every project you belong to, and nobody else can read it.';
 
 	return (
-		<SettingsPageWrapper>
-			<div className='flex flex-col gap-5'>
-				<div>
-					<h1 className='text-lg font-semibold text-foreground'>Storage</h1>
-					<p className='text-sm text-muted-foreground'>
-						Permanent storage is where the agent keeps files that outlive a chat: the exports it writes, the
-						spreadsheets it builds, and the files you attach to a message. You get your own space in every
-						project you belong to, and nobody else can read it.
-					</p>
-				</div>
-
-				{limits.isError ? (
-					<ErrorMessage message={limitsError} />
-				) : limits.isPending ? (
-					<div className='text-sm text-muted-foreground'>Loading storage configuration…</div>
-				) : !isEnabled ? (
-					<DisabledNotice>
-						You have no space on this nao instance, and the agent cannot save files for you. Ask an admin to
-						turn permanent storage on.
-					</DisabledNotice>
-				) : (
-					<SettingsCard title='Your space' description='Files stored for you in this project.'>
-						<OwnUsageKpis usage={usage} />
-					</SettingsCard>
-				)}
-			</div>
-		</SettingsPageWrapper>
+		<StoragePageLayout description={description}>
+			{limits.isError ? (
+				<ErrorMessage message={limitsError} />
+			) : limits.isPending ? (
+				<div className='text-sm text-muted-foreground'>Loading storage configuration…</div>
+			) : !isEnabled ? (
+				<DisabledNotice>
+					You have no space on this nao instance, and the agent cannot save files for you. Ask an admin to
+					turn permanent storage on.
+				</DisabledNotice>
+			) : (
+				<SettingsCard title='Your space' description='Files stored for you in this project.'>
+					<OwnUsageKpis usage={usage} />
+				</SettingsCard>
+			)}
+		</StoragePageLayout>
 	);
 }
 

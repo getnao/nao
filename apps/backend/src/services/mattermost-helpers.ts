@@ -30,6 +30,13 @@ export type MattermostFeedbackMetadataValidation =
 	| { valid: true; assistantMessageId: string }
 	| { valid: false; reason: 'missing' | 'malformed' | 'invalid_signature' };
 
+export class MattermostConnectionError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = 'MattermostConnectionError';
+	}
+}
+
 export type MattermostStopAttachment = {
 	color: '#522bff';
 	actions: [
@@ -290,6 +297,45 @@ export async function patchMattermostAnswerPost(input: {
 	}
 }
 
+export async function validateMattermostConnection(input: {
+	baseUrl: string;
+	botToken: string;
+	fetchImpl?: typeof fetch;
+}): Promise<void> {
+	let response: Response;
+	try {
+		const url = createMattermostApiUrl(input.baseUrl, 'users/me');
+		response = await (input.fetchImpl ?? fetch)(url, {
+			headers: {
+				Accept: 'application/json',
+				Authorization: `Bearer ${input.botToken}`,
+			},
+		});
+	} catch {
+		throw new MattermostConnectionError('Could not reach the Mattermost server. Check the server URL.');
+	}
+
+	if (response.status === 401 || response.status === 403) {
+		throw new MattermostConnectionError('Mattermost rejected the bot token. Check the token and try again.');
+	}
+	if (response.status === 404) {
+		throw new MattermostConnectionError('No Mattermost API was found at this server URL.');
+	}
+	if (!response.ok) {
+		throw new MattermostConnectionError(`Mattermost connection failed (HTTP ${response.status}).`);
+	}
+
+	let user: unknown;
+	try {
+		user = await response.json();
+	} catch {
+		throw new MattermostConnectionError('Mattermost returned an unexpected response.');
+	}
+	if (!isMattermostUser(user)) {
+		throw new MattermostConnectionError('Mattermost returned an unexpected response.');
+	}
+}
+
 export async function fetchMattermostPost(input: {
 	baseUrl: string;
 	botToken: string;
@@ -490,10 +536,24 @@ function createMattermostPostPatchUrl(baseUrl: string, postId: string): URL {
 }
 
 function createMattermostPostUrl(baseUrl: string, postId: string): URL {
+	return createMattermostApiUrl(baseUrl, `posts/${encodeURIComponent(postId)}`);
+}
+
+function createMattermostApiUrl(baseUrl: string, path: string): URL {
 	const url = new URL(baseUrl);
 	const basePath = url.pathname.replace(/\/$/, '');
-	url.pathname = `${basePath}/api/v4/posts/${encodeURIComponent(postId)}`;
+	url.pathname = `${basePath}/api/v4/${path}`;
 	return url;
+}
+
+function isMattermostUser(value: unknown): value is { id: string } {
+	return (
+		Boolean(value) &&
+		typeof value === 'object' &&
+		!Array.isArray(value) &&
+		typeof (value as { id?: unknown }).id === 'string' &&
+		Boolean((value as { id: string }).id.trim())
+	);
 }
 
 function createMattermostFeedbackSignature(projectId: string, postId: string, assistantMessageId: string): string {

@@ -1,5 +1,7 @@
 """Unit tests for query history extraction and analysis."""
 
+from unittest.mock import patch
+
 from nao_core.commands.sync.providers.databases.query_history import (
     TableUsageStats,
     compute_table_usage,
@@ -52,6 +54,71 @@ class TestExtractTableReferences:
         assert any("some_table" in r for r in refs)
         assert any("another_table" in r for r in refs)
 
+    def test_cte_names_are_excluded(self):
+        sql = """
+        WITH active_users AS (
+            SELECT * FROM analytics.users WHERE active = true
+        )
+        SELECT *
+        FROM active_users
+        JOIN analytics.orders ON active_users.id = orders.user_id
+        """
+        refs = extract_table_references(sql)
+
+        assert "active_users" not in refs
+        assert "analytics.users" in refs
+        assert "analytics.orders" in refs
+
+    def test_nested_cte_does_not_hide_outer_table_with_same_name(self):
+        sql = """
+        SELECT *
+        FROM users
+        JOIN orders ON users.id = orders.user_id
+        WHERE EXISTS (
+            WITH users AS (
+                SELECT * FROM staging.users
+            )
+            SELECT * FROM users
+        )
+        """
+        refs = extract_table_references(sql)
+
+        assert "users" in refs
+        assert "orders" in refs
+        assert "staging.users" in refs
+
+    def test_cte_names_are_excluded_by_regex_fallback(self):
+        sql = """
+        WITH active_users AS (
+            SELECT * FROM analytics.users
+        )
+        SELECT *
+        FROM active_users
+        JOIN analytics.orders ON active_users.id = orders.user_id
+        """
+        parse_path = "nao_core.commands.sync.providers.databases.query_history.sqlglot.parse"
+        with patch(parse_path, side_effect=ValueError):
+            refs = extract_table_references(sql)
+
+        assert "active_users" not in refs
+        assert "analytics.users" in refs
+        assert "analytics.orders" in refs
+
+    def test_cte_column_list_is_excluded_by_regex_fallback(self):
+        sql = """
+        WITH active_users (id, name) AS (
+            SELECT id, name FROM analytics.users
+        )
+        SELECT *
+        FROM active_users
+        """
+        parse_path = "nao_core.commands.sync.providers.databases.query_history.sqlglot.parse"
+        with patch(parse_path, side_effect=ValueError):
+            refs = extract_table_references(sql)
+
+        assert "active_users" not in refs
+        assert "analytics.users" in refs
+
 
 class TestExtractJoinPairs:
     def test_simple_join(self):
@@ -75,6 +142,35 @@ class TestExtractJoinPairs:
 		"""
         pairs = extract_join_pairs(sql)
         assert len(pairs) >= 2
+
+    def test_cte_join_is_excluded(self):
+        sql = """
+        WITH active_users AS (
+            SELECT * FROM users WHERE active = true
+        )
+        SELECT *
+        FROM orders
+        JOIN active_users ON orders.user_id = active_users.id
+        """
+        pairs = extract_join_pairs(sql)
+
+        assert pairs == []
+
+    def test_nested_cte_does_not_hide_outer_join_with_same_name(self):
+        sql = """
+        SELECT *
+        FROM users
+        JOIN orders ON users.id = orders.user_id
+        WHERE EXISTS (
+            WITH users AS (
+                SELECT * FROM staging.users
+            )
+            SELECT * FROM users
+        )
+        """
+        pairs = extract_join_pairs(sql)
+
+        assert ("users", "orders") in pairs
 
 
 class TestComputeTableUsage:

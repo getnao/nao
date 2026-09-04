@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useForm } from '@tanstack/react-form';
-import { ExternalLink, X } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ErrorMessage } from '@/components/ui/error-message';
 import { Input } from '@/components/ui/input';
-import { PasswordField } from '@/components/ui/form-fields';
+import { getSubmitErrorMessage, PasswordField } from '@/components/ui/form-fields';
 import { cn } from '@/lib/utils';
 
 export type SlackTransportMode = 'webhook' | 'socket';
@@ -96,16 +97,26 @@ function buildManifestUrl(webhookUrl: string, mentionName: string, transportMode
 export function SlackForm({ webhookUrl, hasProjectConfig, onSubmit, onCancel, isPending }: SlackFormProps) {
 	const [mentionName, setMentionName] = useState('nao');
 	const [transportMode, setTransportMode] = useState<SlackTransportMode>('webhook');
+	const [submitError, setSubmitError] = useState<string>();
 
 	const form = useForm({
 		defaultValues: { botToken: '', signingSecret: '', appToken: '' },
 		onSubmit: async ({ value }) => {
-			await onSubmit({ ...value, transportMode });
-			form.reset();
+			setSubmitError(undefined);
+			try {
+				await onSubmit({ ...value, transportMode });
+				form.reset();
+			} catch (error) {
+				setSubmitError(getSubmitErrorMessage(error, 'Failed to save integration.'));
+			}
 		},
 	});
 
 	const isSocket = transportMode === 'socket';
+	const handleCancel = () => {
+		setSubmitError(undefined);
+		onCancel();
+	};
 	const manifestUrl = isSocket
 		? buildManifestUrl('', mentionName, transportMode)
 		: webhookUrl
@@ -113,7 +124,7 @@ export function SlackForm({ webhookUrl, hasProjectConfig, onSubmit, onCancel, is
 			: '';
 
 	return (
-		<div className='flex flex-col gap-4 p-4 rounded-lg border border-violet bg-background'>
+		<div className='flex flex-col gap-4 p-4 rounded-xl border border-border bg-background'>
 			<form
 				onSubmit={(e) => {
 					e.preventDefault();
@@ -121,12 +132,7 @@ export function SlackForm({ webhookUrl, hasProjectConfig, onSubmit, onCancel, is
 				}}
 				className='flex flex-col gap-4'
 			>
-				<div className='flex items-center justify-between'>
-					<span className='text-sm font-medium text-foreground'>Slack</span>
-					<Button variant='ghost' size='icon-sm' type='button' onClick={onCancel}>
-						<X className='size-4' />
-					</Button>
-				</div>
+				<span className='text-sm font-medium text-foreground'>Slack</span>
 				<p className='text-[11px] text-muted-foreground leading-relaxed'>
 					<a
 						href='https://docs.getnao.io/nao-agent/chat/slack'
@@ -258,17 +264,19 @@ export function SlackForm({ webhookUrl, hasProjectConfig, onSubmit, onCancel, is
 					)}
 				</div>
 
+				{submitError && <ErrorMessage message={submitError} />}
+
 				<div className='flex justify-end gap-2 pt-2'>
-					<Button variant='ghost' size='sm' type='button' onClick={onCancel}>
+					<Button variant='ghost' size='sm' type='button' onClick={handleCancel}>
 						Cancel
 					</Button>
-					<form.Subscribe selector={(state: { canSubmit: boolean }) => state.canSubmit}>
-						{(canSubmit: boolean) => (
+					<form.Subscribe selector={(state) => [state.canSubmit, state.values] as const}>
+						{([canSubmit, values]) => (
 							<Button
 								size='sm'
 								type='submit'
 								variant='primary-gradient'
-								disabled={!canSubmit || isPending}
+								disabled={!canSubmit || !hasRequiredSlackValues(values, transportMode) || isPending}
 							>
 								{hasProjectConfig ? 'Update' : 'Save'}
 							</Button>
@@ -278,4 +286,12 @@ export function SlackForm({ webhookUrl, hasProjectConfig, onSubmit, onCancel, is
 			</form>
 		</div>
 	);
+}
+
+function hasRequiredSlackValues(
+	values: { botToken: string; signingSecret: string; appToken: string },
+	transportMode: SlackTransportMode,
+): boolean {
+	const modeToken = transportMode === 'socket' ? values.appToken : values.signingSecret;
+	return Boolean(values.botToken.trim() && modeToken.trim());
 }

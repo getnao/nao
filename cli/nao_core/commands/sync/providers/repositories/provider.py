@@ -185,7 +185,14 @@ def sync_local_repo(repo: RepoConfig, base_path: Path) -> bool:
         has_filters = bool(repo.include or repo.exclude)
 
         if not has_filters:
-            shutil.copytree(source_path, repo_path, dirs_exist_ok=True)
+            # Skip .git/ so a source that happens to be a git checkout doesn't turn
+            # repo_path into a nested repo (which git records as a gitlink, not files).
+            shutil.copytree(
+                source_path,
+                repo_path,
+                dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns(".git"),
+            )
         else:
             repo_path.mkdir(parents=True, exist_ok=True)
             for file_path in source_path.rglob("*"):
@@ -193,6 +200,8 @@ def sync_local_repo(repo: RepoConfig, base_path: Path) -> bool:
                     continue
 
                 relative = PurePosixPath(file_path.relative_to(source_path)).as_posix()
+                if relative == ".git" or relative.startswith(".git/"):
+                    continue
                 if not _matches_patterns(relative, repo.include, repo.exclude):
                     continue
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { useQuery } from '@tanstack/react-query';
 import { parseStoryTabs, stripStoryTabsMarkup } from '@nao/shared/story-tabs';
 import { ShareStoryDialog } from '../share-dialog.story';
+import { StoryUnsavedChangesDialog } from '../story-unsaved-changes-dialog';
 import { StoryEditor } from './story-editor';
 import { LiveStorySettingsDialog } from './live-story-settings-dialog';
 import { ArchivedBanner } from './story-archived-banner';
@@ -28,6 +29,9 @@ import { useSidePanel } from '@/contexts/side-panel';
 import { useDragAutoScroll } from '@/hooks/use-drag-auto-scroll';
 import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
+import { selectStoryEditorCode, useStoryEditBuffer } from '@/hooks/use-story-edit-buffer';
+import { useStoryEditTransitions } from '@/hooks/use-story-edit-transitions';
+import { useStoryExitGuard } from '@/hooks/use-story-exit-guard';
 import { ReadonlyAgentMessagesProvider, useOptionalAgentContext } from '@/contexts/agent.provider';
 import { StoryChartEditProvider } from '@/contexts/story-chart-edit';
 import { StoryMapEditProvider } from '@/contexts/story-map-edit';
@@ -35,6 +39,7 @@ import { StoryTableEditProvider } from '@/contexts/story-table-edit';
 import { StoryEmbedDataProvider } from '@/contexts/story-embed-data';
 import { Spinner } from '@/components/ui/spinner';
 import { chatActivityStore } from '@/stores/chat-activity';
+import { useRegisterStoryBeforeAgentSend } from '@/contexts/story-before-agent-send';
 import { trpc } from '@/main';
 
 interface StoryViewerProps {
@@ -48,14 +53,15 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 	const tiptapEditorRef = useRef<TiptapEditor | null>(null);
 	const codeViewRef = useRef<StoryCodeViewHandle | null>(null);
 	const tabbedEditCodeRef = useRef<(() => string) | null>(null);
-	const getEditModeCode = useCallback(() => tabbedEditCodeRef.current?.() ?? null, []);
-	const [isCodeDirty, setIsCodeDirty] = useState(false);
 	const [isCodeValid, setIsCodeValid] = useState(true);
 	const [activeTabIndex, setActiveTabIndex] = useState(initialTabIndex ?? 0);
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 	const {
 		close: closeSidePanel,
+		isVisible: isSidePanelVisible,
+		currentStorySlug,
 		isReadonlyMode: contextReadonlyMode,
+		registerBeforeChange,
 		shareId,
 		shareType,
 		setCurrentStorySlug,
@@ -130,6 +136,8 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 	const tabs = useMemo(() => parseStoryTabs(storyCode ?? ''), [storyCode]);
 	const isTabbedStory = Boolean(tabs?.length);
 	const activeTab = tabs?.length ? Math.min(activeTabIndex, tabs.length - 1) : 0;
+	const storyBuffer = useStoryEditBuffer(storyCode ?? '');
+	const isCodeDirty = storyBuffer.isDirty;
 	useTrackViewDuration({
 		assetType: 'story',
 		chatId,
@@ -138,18 +146,56 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		versionNumber: storedVersionNumber > 0 ? storedVersionNumber : undefined,
 	});
 
-	const { handleSave, handleRestore, isSaving } = useStoryViewerVersionActions({
+	const { handleSave, saveCurrentVersion, handleRestore, isSaving } = useStoryViewerVersionActions({
 		chatId,
 		storySlug: resolvedStorySlug,
-		storyTitle: storedTitle,
-		currentVersionCode: currentVersion?.code,
+		storyTitle,
+		currentVersionCode: currentVersion?.code ?? storyCode,
 		isViewingLatest,
 		goToLatestVersion,
-		tiptapEditorRef,
 		codeViewRef,
-		getEditModeCode,
+		getCurrentCode: storyBuffer.getCode,
 		viewMode,
 		setViewMode,
+		onVersionSaved: storyBuffer.markSaved,
+	});
+	const isDirty = storyBuffer.isDirty;
+	const exitGuard = useStoryExitGuard({
+		isDirty,
+		canSave: viewMode !== 'code' || isCodeValid,
+		save: saveCurrentVersion,
+		discard: storyBuffer.discard,
+	});
+	const transitions = useStoryEditTransitions({
+		viewMode,
+		setViewMode,
+		isDirty,
+		isCodeValid,
+		isSaving,
+		save: saveCurrentVersion,
+		requestExit: exitGuard.requestExit,
+	});
+	useEffect(() => registerBeforeChange(exitGuard.requestExit), [exitGuard.requestExit, registerBeforeChange]);
+	const handleBeforeAgentSend = useCallback(async () => {
+		if (!isDirty) {
+			return { canSend: true };
+		}
+		if (viewMode === 'code' && !isCodeValid) {
+			return { canSend: false };
+		}
+		const result = await saveCurrentVersion();
+		if (result !== 'saved' && result !== 'unchanged') {
+			return { canSend: false };
+		}
+		return {
+			canSend: true,
+			afterSend: () => setViewMode('preview'),
+		};
+	}, [isCodeValid, isDirty, saveCurrentVersion, setViewMode, viewMode]);
+	useRegisterStoryBeforeAgentSend({
+		chatId,
+		enabled: !isReadonlyMode && isSidePanelVisible && currentStorySlug === resolvedStorySlug,
+		guard: handleBeforeAgentSend,
 	});
 	const { isShareDialogOpen, setIsShareDialogOpen, isShared } = useStoryViewerSharing({
 		chatId,
@@ -180,10 +226,14 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		[chatId, readonlyProp],
 	);
 	const { switchStory } = useStoryViewerSwitchStory({ renderStoryViewer });
+	const handlePreviousVersion = useCallback(
+		() => exitGuard.requestExit(goToPreviousVersion),
+		[exitGuard, goToPreviousVersion],
+	);
+	const handleNextVersion = useCallback(() => exitGuard.requestExit(goToNextVersion), [exitGuard, goToNextVersion]);
 
 	useEffect(() => {
 		if (viewMode !== 'code') {
-			setIsCodeDirty(false);
 			setIsCodeValid(true);
 		}
 	}, [viewMode]);
@@ -226,6 +276,20 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		);
 	}
 
+	const editCode = selectStoryEditorCode({
+		persistedCode: storyCode,
+		bufferCode: storyBuffer.getCode(),
+		isDirty: storyBuffer.isDirty,
+		isSaving,
+	});
+	const editTabs = parseStoryTabs(editCode);
+	const isEditTabbedStory = Boolean(editTabs?.length);
+	const codeDraft = selectStoryEditorCode({
+		persistedCode: storyCode,
+		bufferCode: storyBuffer.getCode(),
+		isDirty: storyBuffer.isDirty,
+		isSaving,
+	});
 	const content = (
 		<div className='flex h-full flex-col'>
 			<StoryHeader
@@ -238,15 +302,16 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 				allStories={allStories}
 				onSwitchStory={switchStory}
 				viewMode={viewMode}
-				onViewModeChange={setViewMode}
+				onViewModeChange={transitions.requestViewMode}
 				currentVersion={currentVersionNumber}
 				totalVersions={versions.length}
 				versionNumber={currentVersion?.version}
-				onPreviousVersion={goToPreviousVersion}
-				onNextVersion={goToNextVersion}
+				onPreviousVersion={handlePreviousVersion}
+				onNextVersion={handleNextVersion}
 				isViewingLatest={isViewingLatest}
 				onRestore={handleRestore}
 				onSave={handleSave}
+				onCancel={transitions.requestCancel}
 				onShare={handleOpenShare}
 				onOpenAnalytics={handleOpenAnalytics}
 				onEnlarge={handleEnlarge}
@@ -308,25 +373,31 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 						)
 					) : viewMode === 'edit' ? (
 						<StoryEmbedDataProvider value={versionQueryData}>
-							{isTabbedStory ? (
+							{isEditTabbedStory ? (
 								<StoryTabbedEditor
-									code={storyCode}
+									code={editCode}
 									editorRef={tiptapEditorRef}
 									onSave={handleSave}
+									onChange={storyBuffer.handleCodeChange}
 									getCodeRef={tabbedEditCodeRef}
 									barContentClassName='px-6'
 									contentClassName='p-6'
 								/>
 							) : (
-								<StoryEditor code={storyCode} editorRef={tiptapEditorRef} onSave={handleSave} />
+								<StoryEditor
+									code={editCode}
+									editorRef={tiptapEditorRef}
+									onSave={handleSave}
+									onChange={storyBuffer.handleCodeChange}
+								/>
 							)}
 						</StoryEmbedDataProvider>
 					) : (
 						<StoryCodeView
-							code={storyCode}
+							code={codeDraft}
 							readOnly={isReadonlyMode}
 							codeRef={codeViewRef}
-							onDirtyChange={setIsCodeDirty}
+							onCodeChange={storyBuffer.handleCodeChange}
 							onValidChange={setIsCodeValid}
 							onSave={handleSave}
 						/>
@@ -359,6 +430,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 				isUpdating={isLiveUpdating}
 				onSaveSettings={handleSaveSettings}
 			/>
+			<StoryUnsavedChangesDialog {...exitGuard.dialogProps} />
 		</div>
 	);
 
