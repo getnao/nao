@@ -17,7 +17,12 @@ import {
 	getMcpOAuthClient,
 	hasMcpUserToken,
 } from '../queries/mcp-oauth.queries';
-import { getDisabledMcpServers, getDisabledMcpTools, retrieveProjectById } from '../queries/project.queries';
+import {
+	getDisabledMcpServers,
+	getDisabledMcpTools,
+	getEnvVars,
+	retrieveProjectById,
+} from '../queries/project.queries';
 import { logger } from '../utils/logger';
 import { replaceEnvVars } from '../utils/utils';
 import { getValidAccessToken, isOAuthServer, isUnauthorizedError, McpAuthRequiredError } from './mcp-oauth';
@@ -61,6 +66,24 @@ function isWithinDirectory(base: string, target: string): boolean {
 		relativePath === '' ||
 		(!!relativePath && relativePath !== '..' && !relativePath.startsWith(`..${sep}`) && !isAbsolute(relativePath))
 	);
+}
+
+function resolveConfigEnvVars(value: unknown, envVars: Record<string, string>): unknown {
+	if (typeof value === 'string') {
+		return replaceEnvVars(value, envVars);
+	}
+	if (Array.isArray(value)) {
+		return value.map((item) => resolveConfigEnvVars(item, envVars));
+	}
+	if (value && typeof value === 'object') {
+		return Object.fromEntries(
+			Object.entries(value).map(([key, item]) => [
+				replaceEnvVars(key, envVars),
+				resolveConfigEnvVars(item, envVars),
+			]),
+		);
+	}
+	return value;
 }
 
 /**
@@ -117,6 +140,29 @@ export class McpService {
 			throw err;
 		});
 		return this._initPromise;
+	}
+
+	public async refreshProjectConfig(projectId: string): Promise<void> {
+		if (!this._initPromise || this._projectId !== projectId) {
+			return;
+		}
+
+		try {
+			await this._initPromise;
+			if (this._projectId !== projectId) {
+				return;
+			}
+
+			this._resetRuntime();
+			this._resetDiscovery();
+			await this._loadConfig();
+			await this._discoverAll();
+		} catch (error) {
+			logger.error(`MCP config refresh failed: ${String(error)}`, {
+				source: 'tool',
+				projectId,
+			});
+		}
 	}
 
 	public getConfiguredServerNames(): string[] {
@@ -483,8 +529,9 @@ export class McpService {
 
 		try {
 			const fileContent = await readFile(this._mcpJsonFilePath, 'utf8');
-			const resolved = replaceEnvVars(fileContent);
-			const parsed = mcpJsonSchema.parse(JSON.parse(resolved));
+			const envVars = this._projectId ? await getEnvVars(this._projectId) : {};
+			const resolved = resolveConfigEnvVars(JSON.parse(fileContent), envVars);
+			const parsed = mcpJsonSchema.parse(resolved);
 			this._mcpServers = parsed.mcpServers;
 			this._configError = null;
 		} catch (error) {

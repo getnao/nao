@@ -121,8 +121,11 @@ export function resolveProviderId(ctx?: { params?: Record<string, string> } | nu
 
 export const regexPassword = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[#?!@$%^&*-]).{8,}$/;
 
-export const replaceEnvVars = (fileContent: string) => {
+export const replaceEnvVars = (fileContent: string, extraEnv: Record<string, string> = {}) => {
 	const replaced = fileContent.replace(/\$\{(\w+)\}/g, (match, varName) => {
+		if (Object.hasOwn(extraEnv, varName)) {
+			return extraEnv[varName];
+		}
 		return process.env[varName] || match;
 	});
 	return replaced;
