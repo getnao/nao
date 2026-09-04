@@ -1,17 +1,20 @@
-import type { LlmProvider } from '@nao/shared/types';
+import type { LlmSelectedModel } from '@nao/shared/types';
 import type { ModelMessage } from 'ai';
 
+import { usesGoogleGenerativeAiApi } from '../agents/provider-meta';
 import type { QueryResult } from '../types/tools';
 
 export function buildVerificationMessages(
-	provider: LlmProvider,
+	modelSelection: LlmSelectedModel,
 	prompt: string,
 	responseMessages: ModelMessage[],
 	expectedColumns: string[],
 	queryResults: Map<string, QueryResult>,
 ): ModelMessage[] {
 	return [
-		...(provider === 'google' ? [{ role: 'user' as const, content: prompt }] : []),
+		...(usesGoogleGenerativeAiApi(modelSelection.provider, modelSelection.modelId)
+			? [{ role: 'user' as const, content: prompt }]
+			: []),
 		...responseMessages,
 		{ role: 'user', content: buildVerificationPrompt(expectedColumns, queryResults) },
 	];

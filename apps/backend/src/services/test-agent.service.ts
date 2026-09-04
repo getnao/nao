@@ -82,7 +82,7 @@ export class TestAgentService extends AgentService {
 		const modelConfig = await this._getModelConfig(projectId, resolvedSelectedModel);
 
 		const messages = buildVerificationMessages(
-			resolvedSelectedModel.provider,
+			resolvedSelectedModel,
 			prompt,
 			agentResult.responseMessages,
 			expectedColumns,

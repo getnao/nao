@@ -1,4 +1,4 @@
-import { LLM_PROVIDERS, type LlmProvider } from '@nao/shared/types';
+import type { LlmSelectedModel } from '@nao/shared/types';
 import type { ModelMessage } from 'ai';
 import { describe, expect, it } from 'vitest';
 
@@ -41,15 +41,21 @@ const responseMessages: ModelMessage[] = [
 	{ role: 'assistant', content: 'Revenue is 42.' },
 ];
 
-const nonGoogleProviders = [
-	...LLM_PROVIDERS.filter((provider) => provider !== 'google'),
-	'openaiCompatible/custom',
-] satisfies LlmProvider[];
+const googleTransportModels = [
+	{ provider: 'google', modelId: 'gemini-2.5-flash' },
+	{ provider: 'vertex', modelId: 'gemini-3-flash-preview' },
+] satisfies LlmSelectedModel[];
+
+const otherTransportModels = [
+	{ provider: 'vertex', modelId: 'claude-sonnet-4-6' },
+	{ provider: 'openrouter', modelId: 'google/gemini-2.5-flash' },
+	{ provider: 'openaiCompatible/custom', modelId: 'gemini-2.5-flash' },
+] satisfies LlmSelectedModel[];
 
 describe('buildVerificationMessages', () => {
-	it('restores the original user turn for Google', () => {
+	it.each(googleTransportModels)('restores the original user turn for $provider/$modelId', (modelSelection) => {
 		const messages = buildVerificationMessages(
-			'google',
+			modelSelection,
 			'What is the revenue?',
 			responseMessages,
 			['revenue'],
@@ -63,9 +69,9 @@ describe('buildVerificationMessages', () => {
 		});
 	});
 
-	it.each(nonGoogleProviders)('keeps the existing message sequence for %s', (provider) => {
+	it.each(otherTransportModels)('keeps the existing message sequence for $provider/$modelId', (modelSelection) => {
 		const messages = buildVerificationMessages(
-			provider,
+			modelSelection,
 			'What is the revenue?',
 			responseMessages,
 			['revenue'],
