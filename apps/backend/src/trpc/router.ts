@@ -22,6 +22,7 @@ import { logRoutes } from './log.routes';
 import { mapRoutes } from './map.routes';
 import { mcpRoutes } from './mcp.routes';
 import { mcpEndpointRoutes } from './mcp-endpoint.routes';
+import { mcpOAuthClientsRoutes } from './mcp-oauth-clients.routes';
 import { memoryRoutes } from './memory.routes';
 import { organizationRoutes } from './organization.routes';
 import { posthogRoutes } from './posthog.routes';
@@ -76,6 +77,7 @@ export const trpcRouter = router({
 	apiKey: apiKeyRoutes,
 	mcp: mcpRoutes,
 	mcpEndpoint: mcpEndpointRoutes,
+	mcpOAuthClients: mcpOAuthClientsRoutes,
 	system: systemRoutes,
 	skill: skillRoutes,
 	transcribe: transcribeRoutes,

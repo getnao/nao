@@ -548,6 +548,18 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		pageLabel: 'Integrations & MCP',
 		search: { tab: 'nao-mcp' },
 		section: 'nao MCP',
+		title: 'Connected apps',
+		description: 'Create and manage the OAuth clients external MCP tools use to connect (client id + secret).',
+		keywords: ['oauth', 'client', 'client id', 'client secret', 'connected apps', 'dust', 'static oauth', 'mcp'],
+		// Admin-only card, self-hosted only (OAuth clients are deployment-wide).
+		adminOrContextAdmin: true,
+		cloudHidden: true,
+	},
+	{
+		page: '/settings/project/integrations',
+		pageLabel: 'Integrations & MCP',
+		search: { tab: 'nao-mcp' },
+		section: 'nao MCP',
 		title: 'Sub-agent mode',
 		description:
 			"Exposes ask_nao and get_nao_answer — delegates the full analytics task to nao's agent. The reasoning trace is saved as a chat in the nao UI.",
