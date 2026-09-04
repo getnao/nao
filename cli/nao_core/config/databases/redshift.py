@@ -343,7 +343,7 @@ class RedshiftConfig(DatabaseConfig):
             **kwargs,
         )
 
-    def execute_sql(self, sql: str) -> pd.DataFrame:
+    def execute_sql(self, sql: str, conn: BaseBackend | None = None) -> pd.DataFrame:
         """Execute SQL using user/password credentials.
 
         Forbidden when auth_mode=azure_entra_id: runtime queries must flow
@@ -355,34 +355,41 @@ class RedshiftConfig(DatabaseConfig):
                 "execute_sql is not allowed when auth_mode='azure_entra_id'. "
                 "Use execute_sql_with_token() with the end user's access token instead."
             )
-        return super().execute_sql(sql)
+        return super().execute_sql(sql, conn=conn)
 
-    def execute_sql_with_token(self, sql: str, access_token: str) -> pd.DataFrame:
+    def execute_sql_with_token(
+        self,
+        sql: str,
+        access_token: str,
+        conn: Any | None = None,
+    ) -> pd.DataFrame:
         """Execute SQL using a JWT access token for Azure Entra ID native IdP federation."""
         import pandas as pd
 
-        from nao_core.deps import require_dependency
+        owns_connection = conn is None
+        if conn is None:
+            from nao_core.deps import require_dependency
 
-        require_dependency("redshift_connector", "redshift", "for Redshift JWT authentication")
-        import redshift_connector
+            require_dependency("redshift_connector", "redshift", "for Redshift JWT authentication")
+            import redshift_connector
 
-        kwargs: dict = {
-            "iam": True,
-            "host": self.host,
-            "port": self.port,
-            "database": self.database,
-            "credentials_provider": "BasicJwtCredentialsProvider",
-            "web_identity_token": access_token,
-            "group_federation": True,
-            "ssl": True,
-        }
+            kwargs: dict = {
+                "iam": True,
+                "host": self.host,
+                "port": self.port,
+                "database": self.database,
+                "credentials_provider": "BasicJwtCredentialsProvider",
+                "web_identity_token": access_token,
+                "group_federation": True,
+                "ssl": True,
+            }
 
-        serverless_parts = self._parse_serverless_host()
-        if serverless_parts:
-            kwargs["serverless_work_group"] = serverless_parts["work_group"]
-            kwargs["serverless_acct_id"] = serverless_parts["acct_id"]
+            serverless_parts = self._parse_serverless_host()
+            if serverless_parts:
+                kwargs["serverless_work_group"] = serverless_parts["work_group"]
+                kwargs["serverless_acct_id"] = serverless_parts["acct_id"]
 
-        conn = redshift_connector.connect(**kwargs)
+            conn = redshift_connector.connect(**kwargs)
         try:
             cursor = conn.cursor()
             cursor.execute(sql)
@@ -392,7 +399,8 @@ class RedshiftConfig(DatabaseConfig):
             rows = cursor.fetchall()
             return pd.DataFrame(rows, columns=columns)  # type: ignore[arg-type]
         finally:
-            conn.close()
+            if owns_connection:
+                conn.close()
 
     def _parse_serverless_host(self) -> dict[str, str] | None:
         """Extract workgroup and account ID from a Redshift Serverless endpoint.
