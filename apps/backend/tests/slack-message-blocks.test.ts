@@ -692,6 +692,41 @@ describe('Slack payload safety', () => {
 		expect(reconstructChunkedText(chunks)).toBe(source);
 	});
 
+	it.each([
+		{ maxChars: 40, prefixLength: 18, indentationLength: 20 },
+		{ maxChars: SLACK_SECTION_TEXT_MAX_CHARS, prefixLength: 1448, indentationLength: 1449 },
+	])('keeps an opening fence marker intact at a $maxChars-character boundary', (example) => {
+		const openingMarker = `${'\t'.repeat(example.indentationLength)}\`\`\`sql`;
+		const source = ['p'.repeat(example.prefixLength), openingMarker, 'SELECT 1;', '```', 'Done.'].join('\n');
+		const chunks = chunkSlackText(source, example.maxChars);
+
+		expect(chunks.every((chunk) => chunk.length <= example.maxChars)).toBe(true);
+		expect(chunks.some((chunk) => chunk.includes(openingMarker))).toBe(true);
+		expect(
+			chunks.filter((chunk) => chunk.includes('```')).every((chunk) => tripleBacktickCount(chunk) % 2 === 0),
+		).toBe(true);
+		expect(reconstructChunkedText(chunks)).toBe(source);
+	});
+
+	it('keeps an indented closing fence marker line intact when it fits the next chunk', () => {
+		const closingMarker = `${'\t'.repeat(19)}\`\`\``;
+		const source = ['```sql', 'x', closingMarker, 'Done.'].join('\n');
+		const chunks = chunkSlackText(source, 30);
+
+		expect(chunks.every((chunk) => chunk.length <= 30)).toBe(true);
+		expect(chunks.some((chunk) => chunk.includes(closingMarker))).toBe(true);
+		expect(
+			chunks.filter((chunk) => chunk.includes('```')).every((chunk) => tripleBacktickCount(chunk) % 2 === 0),
+		).toBe(true);
+		expect(reconstructChunkedText(chunks)).toBe(source);
+	});
+
+	it('rejects a chunk size too small for a complete fence marker line', () => {
+		expect(() => chunkSlackText('```sql\nx\n```', 6)).toThrow(
+			'Slack text chunk size is too small for a code fence marker line.',
+		);
+	});
+
 	it('keeps replies below the Slack message limit in one chunk', () => {
 		const text = 'x'.repeat(SLACK_SECTION_TEXT_MAX_CHARS - 1);
 		const chunks = chunkSlackText(text, SLACK_SECTION_TEXT_MAX_CHARS);
