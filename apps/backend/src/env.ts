@@ -10,7 +10,7 @@ dotenv.config({
 	path: path.join(process.cwd(), '..', '..', '.env'),
 });
 
-const envSchema = z.object({
+const baseEnvSchema = z.object({
 	MODE: z.enum(['dev', 'prod', 'test']).default('dev'),
 
 	DB_URI: z.string().default('sqlite:./db.sqlite'),
@@ -98,6 +98,25 @@ const envSchema = z.object({
 	SMTP_USER: z.string().optional(),
 	SMTP_MAIL_FROM: z.string().optional(),
 	SMTP_SSL: z.enum(['true', 'false']).optional(),
+
+	/**
+	 * Declarative Slack setup: when SLACK_BOT_TOKEN is set, these seed the default project's Slack
+	 * settings on boot (see seedSlackConfigFromEnv), replacing the manual Settings > Slack form.
+	 * SLACK_TRANSPORT_MODE defaults to socket when SLACK_APP_TOKEN is present, webhook otherwise.
+	 */
+	SLACK_BOT_TOKEN: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	SLACK_SIGNING_SECRET: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	SLACK_APP_TOKEN: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	SLACK_TRANSPORT_MODE: z.enum(['webhook', 'socket']).optional(),
 
 	FASTAPI_PORT: z.coerce.number().default(8005),
 	APP_VERSION: z.string().default('dev'),
@@ -247,6 +266,34 @@ const envSchema = z.object({
 		.optional()
 		.default('false')
 		.transform((val) => val === 'true'),
+});
+
+const envSchema = baseEnvSchema.superRefine((data, ctx) => {
+	if (!data.SLACK_BOT_TOKEN) {
+		if (data.SLACK_SIGNING_SECRET || data.SLACK_APP_TOKEN || data.SLACK_TRANSPORT_MODE) {
+			ctx.addIssue({
+				code: 'custom',
+				path: ['SLACK_BOT_TOKEN'],
+				message: 'SLACK_BOT_TOKEN is required when other SLACK_* variables are set',
+			});
+		}
+		return;
+	}
+	const transport = data.SLACK_TRANSPORT_MODE ?? (data.SLACK_APP_TOKEN ? 'socket' : 'webhook');
+	if (transport === 'socket' && !data.SLACK_APP_TOKEN) {
+		ctx.addIssue({
+			code: 'custom',
+			path: ['SLACK_APP_TOKEN'],
+			message: 'SLACK_APP_TOKEN (xapp-...) is required when SLACK_TRANSPORT_MODE=socket',
+		});
+	}
+	if (transport === 'webhook' && !data.SLACK_SIGNING_SECRET) {
+		ctx.addIssue({
+			code: 'custom',
+			path: ['SLACK_SIGNING_SECRET'],
+			message: 'SLACK_SIGNING_SECRET is required when Slack runs in webhook mode',
+		});
+	}
 });
 
 const result = envSchema.safeParse(process.env);
