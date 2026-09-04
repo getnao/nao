@@ -32,7 +32,7 @@ import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { getTextOffset } from '@/lib/selection-dom.utils';
-import { isDefinitiveChatError, isForbiddenError } from '@/lib/trpc-error';
+import { isForbiddenError, shouldShowChatAccessError } from '@/lib/trpc-error';
 
 export const Route = createFileRoute('/_sidebar-layout/_chat-layout/$chatId')({
 	component: RouteComponent,
@@ -65,7 +65,7 @@ function ChatPage() {
 	const title = chat.data?.title;
 
 	const isForbidden = chat.isError && isForbiddenError(chat.error);
-	const shouldShowChatError = chat.isLoadingError || (chat.isError && isDefinitiveChatError(chat.error));
+	const shouldShowChatError = shouldShowChatAccessError(chat);
 	const shouldRedirectToReplay = isForbidden && canViewChatReplay;
 	const isResolvingReplayRedirect = isForbidden && role === undefined;
 
