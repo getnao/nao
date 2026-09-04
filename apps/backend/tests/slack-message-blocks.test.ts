@@ -125,6 +125,16 @@ describe('createTextBlocks', () => {
 		expect(balanceSlackStreamingCodeFence(completed)).toBe(completed);
 	});
 
+	it('balances an incomplete final fence only for a stopped stream', () => {
+		const incomplete = 'Before\n```sql\nSELECT **value**';
+		const renderFinal = (stopRequested: boolean) =>
+			textContents(createTextBlocks(incomplete, { balanceIncompleteCodeFence: stopRequested }));
+
+		expect(renderFinal(false)).toEqual(['Before\n```sql\nSELECT *value*']);
+		expect(renderFinal(true)).toEqual([`${incomplete}\n\`\`\``]);
+		expect(incomplete).toBe('Before\n```sql\nSELECT **value**');
+	});
+
 	it('keeps long incomplete streaming code balanced within Slack limits', () => {
 		const incomplete = `\`\`\`sql\n${Array.from(
 			{ length: 200 },

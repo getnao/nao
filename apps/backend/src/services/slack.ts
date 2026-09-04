@@ -1432,6 +1432,7 @@ class ProjectSlackBot {
 				blockIndex: run.blockIndex,
 				blockCount: run.blockCount,
 				blocks: createTextBlocks(streamState.latestSourceText.slice(run.sourceStart, run.sourceEnd), {
+					balanceIncompleteCodeFence: activeStream.stopRequested,
 					truncation: { kind: 'link', url: chatUrl },
 					tableState,
 				}),
@@ -1447,6 +1448,7 @@ class ProjectSlackBot {
 				blockIndex: ctx.textBlockIndex === -1 ? emptyRunBlockIndex : ctx.textBlockIndex,
 				blockCount: ctx.textBlockIndex === -1 ? 0 : ctx.textBlockCount,
 				blocks: createTextBlocks(openRunText, {
+					balanceIncompleteCodeFence: activeStream.stopRequested,
 					truncation: { kind: 'link', url: chatUrl },
 					tableState,
 				}),
