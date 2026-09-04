@@ -32,7 +32,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { SwitchIndicator } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
+import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
@@ -114,6 +116,10 @@ export function StoryPageHeader({
 	viewModeControls,
 	versionControls,
 }: StoryPageHeaderProps) {
+	useKeyboardShortcuts({
+		'toggle-story-chat': onOpenChat && !isOpeningChat ? onOpenChat : undefined,
+	});
+
 	return (
 		<div className='shrink-0'>
 			<header className='flex items-center gap-2 border-b bg-background px-4 py-2.5 md:px-6'>
@@ -133,20 +139,32 @@ export function StoryPageHeader({
 					{viewModeControls && <ViewModeToggle controls={viewModeControls} />}
 
 					{onOpenChat && (
-						<Button
-							variant='outline'
-							size='sm'
-							className='gap-1.5 rounded-full text-xs'
-							onClick={onOpenChat}
-							disabled={isOpeningChat}
-						>
-							{isOpeningChat ? (
-								<Loader2 className='size-3.5 animate-spin' strokeWidth={2.25} />
-							) : (
-								<MessageSquare className='size-3.5' strokeWidth={2.25} />
-							)}
-							<span>{openChatLabel}</span>
-						</Button>
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Button
+									variant='outline'
+									size='sm'
+									className='gap-1.5 rounded-full text-xs'
+									onClick={onOpenChat}
+									disabled={isOpeningChat}
+								>
+									{isOpeningChat ? (
+										<Loader2 className='size-3.5 animate-spin' strokeWidth={2.25} />
+									) : (
+										<MessageSquare className='size-3.5' strokeWidth={2.25} />
+									)}
+									<span>{openChatLabel}</span>
+								</Button>
+							</TooltipTrigger>
+							<TooltipContent>
+								<span className='flex items-center gap-2'>
+									{openChatLabel}
+									<kbd className='text-[10px] opacity-60 font-sans'>
+										{getShortcutLabel('toggle-story-chat')}
+									</kbd>
+								</span>
+							</TooltipContent>
+						</Tooltip>
 					)}
 
 					{live && <LiveStoryControls live={live} />}
