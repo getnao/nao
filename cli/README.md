@@ -206,6 +206,14 @@ databases:
       interval_days: 7
 ```
 
+### Log in
+
+```bash
+nao login
+```
+
+Connects the CLI to your nao account: it opens the app in your browser, asks you to approve the CLI, and stores the resulting session. Commands that talk to the backend (like `nao test`) trigger the same browser flow automatically when you are not logged in yet, and fall back to an email/password prompt when no browser is available. Use `nao logout` to revoke the stored session.
+
 ### Run tests
 
 ```bash
@@ -219,7 +227,7 @@ Options:
 - `--model` / `-m`: Models to test against (default: `openai:gpt-4.1`). Can be specified multiple times.
 - `--threads` / `-t`: Number of parallel threads (default: `1`)
 - `--select` / `-s`: Run only selected tests by name, yaml stem, or subfolder. Comma-separated.
-- `--username` / `-u`, `--password`: Credentials for the nao backend. Fall back to `NAO_USERNAME` / `NAO_PASSWORD`.
+- `--username` / `-u`, `--password`: Credentials for the nao backend, for non-interactive runs. Fall back to `NAO_USERNAME` / `NAO_PASSWORD`. When omitted, the CLI uses your stored login or opens the browser login flow.
 
 Examples:
 

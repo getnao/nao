@@ -15,6 +15,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as EmbedRouteImport } from './routes/embed'
 import { Route as ConsentRouteImport } from './routes/consent'
+import { Route as CliLoginRouteImport } from './routes/cli-login'
 import { Route as SidebarLayoutRouteImport } from './routes/_sidebar-layout'
 import { Route as SidebarLayoutSettingsRouteImport } from './routes/_sidebar-layout.settings'
 import { Route as SidebarLayoutChatLayoutRouteImport } from './routes/_sidebar-layout._chat-layout'
@@ -93,6 +94,11 @@ const EmbedRoute = EmbedRouteImport.update({
 const ConsentRoute = ConsentRouteImport.update({
   id: '/consent',
   path: '/consent',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CliLoginRoute = CliLoginRouteImport.update({
+  id: '/cli-login',
+  path: '/cli-login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SidebarLayoutRoute = SidebarLayoutRouteImport.update({
@@ -383,6 +389,7 @@ const SidebarLayoutSettingsProjectIntegrationsIntegrationIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof SidebarLayoutChatLayoutIndexRoute
+  '/cli-login': typeof CliLoginRoute
   '/consent': typeof ConsentRoute
   '/embed': typeof EmbedRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
@@ -438,6 +445,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof SidebarLayoutChatLayoutIndexRoute
+  '/cli-login': typeof CliLoginRoute
   '/consent': typeof ConsentRoute
   '/embed': typeof EmbedRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
@@ -490,6 +498,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_sidebar-layout': typeof SidebarLayoutRouteWithChildren
+  '/cli-login': typeof CliLoginRoute
   '/consent': typeof ConsentRoute
   '/embed': typeof EmbedRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
@@ -549,6 +558,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/cli-login'
     | '/consent'
     | '/embed'
     | '/forgot-password'
@@ -604,6 +614,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/cli-login'
     | '/consent'
     | '/embed'
     | '/forgot-password'
@@ -655,6 +666,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_sidebar-layout'
+    | '/cli-login'
     | '/consent'
     | '/embed'
     | '/forgot-password'
@@ -713,6 +725,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   SidebarLayoutRoute: typeof SidebarLayoutRouteWithChildren
+  CliLoginRoute: typeof CliLoginRoute
   ConsentRoute: typeof ConsentRoute
   EmbedRoute: typeof EmbedRouteWithChildren
   ForgotPasswordRoute: typeof ForgotPasswordRoute
@@ -763,6 +776,13 @@ declare module '@tanstack/react-router' {
       path: '/consent'
       fullPath: '/consent'
       preLoaderRoute: typeof ConsentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cli-login': {
+      id: '/cli-login'
+      path: '/cli-login'
+      fullPath: '/cli-login'
+      preLoaderRoute: typeof CliLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_sidebar-layout': {
@@ -1324,6 +1344,7 @@ const EmbedRouteWithChildren = EmbedRoute._addFileChildren(EmbedRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   SidebarLayoutRoute: SidebarLayoutRouteWithChildren,
+  CliLoginRoute: CliLoginRoute,
   ConsentRoute: ConsentRoute,
   EmbedRoute: EmbedRouteWithChildren,
   ForgotPasswordRoute: ForgotPasswordRoute,

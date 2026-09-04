@@ -41,6 +41,7 @@ import { authErrorRedirectRoutes } from './routes/auth-error-redirect';
 import { automationWebhookRoutes } from './routes/automation-webhook';
 import { brandingRoutes } from './routes/branding';
 import { chartRoutes } from './routes/chart';
+import { cliAuthRoutes } from './routes/cli-auth';
 import { deployRoutes } from './routes/deploy';
 import { embedStoryDownloadRoutes } from './routes/embed-story-download';
 import { githubRoutes } from './routes/github';
@@ -180,6 +181,10 @@ app.register(analyticsRoutes, {
 
 app.register(testRoutes, {
 	prefix: '/api/test',
+});
+
+app.register(cliAuthRoutes, {
+	prefix: '/api/cli-auth',
 });
 
 app.register(chartRoutes, {
