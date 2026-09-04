@@ -321,6 +321,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 				isSaving={isSaving}
 				isReadonlyMode={isReadonlyMode}
 				isLive={isLive}
+				isLiveUpdating={isLiveUpdating}
 				isRefreshing={isRefreshing}
 				onRefreshData={handleRefreshData}
 				onOpenLiveSettings={handleOpenLiveSettings}

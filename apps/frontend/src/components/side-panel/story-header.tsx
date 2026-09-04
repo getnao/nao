@@ -69,6 +69,7 @@ export interface StoryHeaderProps {
 	isSaving?: boolean;
 	isReadonlyMode: boolean;
 	isLive: boolean;
+	isLiveUpdating: boolean;
 	isRefreshing: boolean;
 	onRefreshData: () => void;
 	onOpenLiveSettings: () => void;
@@ -121,6 +122,7 @@ export const StoryHeader = memo(function StoryHeader({
 	isSaving = false,
 	isReadonlyMode,
 	isLive,
+	isLiveUpdating,
 	isRefreshing,
 	onRefreshData,
 	onOpenLiveSettings,
@@ -288,18 +290,29 @@ export const StoryHeader = memo(function StoryHeader({
 		<>
 			<Tooltip>
 				<TooltipTrigger asChild>
-					<button
-						type='button'
-						onClick={onOpenLiveSettings}
-						disabled={isAgentRunning}
-						className='flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 border hover:bg-secondary rounded-full px-2 py-0.75'
-					>
-						<Activity className='size-3.5 text-foreground' strokeWidth={2.25} />
-						<span className='text-xs font-medium'>Live story</span>
-						<SwitchIndicator checked={isLive} />
-					</button>
+					<span className='inline-flex' tabIndex={isLiveUpdating ? 0 : undefined}>
+						<button
+							type='button'
+							onClick={onOpenLiveSettings}
+							disabled={isAgentRunning || isLiveUpdating}
+							className={cn(
+								'flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 border hover:bg-secondary rounded-full px-2 py-0.75',
+								isLiveUpdating && 'pointer-events-none',
+							)}
+						>
+							<Activity className='size-3.5 text-foreground' strokeWidth={2.25} />
+							<span className='text-xs font-medium'>Live story</span>
+							{isLiveUpdating ? (
+								<Loader2 className='size-3.5 animate-spin' strokeWidth={2.25} />
+							) : (
+								<SwitchIndicator checked={isLive} />
+							)}
+						</button>
+					</span>
 				</TooltipTrigger>
-				<TooltipContent>{isLive ? 'Live story settings' : 'Enable live mode'}</TooltipContent>
+				<TooltipContent>
+					{isLiveUpdating ? 'Live story uploading...' : isLive ? 'Live story settings' : 'Enable live mode'}
+				</TooltipContent>
 			</Tooltip>
 			{isLive && (
 				<>
