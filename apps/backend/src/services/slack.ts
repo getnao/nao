@@ -31,7 +31,7 @@ import { UIChat, UIMessage, UIMessagePart } from '../types/chat';
 import { ConversationContext, StreamState, ToolCallEntry } from '../types/messaging-provider';
 import { createChatTitle } from '../utils/ai';
 import { buildUserAddedEmail } from '../utils/email-builders';
-import { logger } from '../utils/logger';
+import { logger, serializeError } from '../utils/logger';
 import {
 	buildSlackCardNotificationText,
 	buildSlackTableBlocks,
@@ -65,6 +65,8 @@ import { ensureMessagingProviderUser } from './team-member';
 
 const UPDATE_INTERVAL_MS = 200;
 const SLACK_ACCOUNT_PROVIDER_ID = 'slack';
+const SLACK_USER_AMBIGUITY_MESSAGE =
+	'Multiple existing nao users match your Slack email. Please contact an administrator';
 
 const SLACK_MENTION_REGEX = /(?:<@|@)([A-Z0-9]+)(?:\|[^>]+)?>?\s*/g;
 const SLACK_USER_MENTION_REGEX = /(^|[^\w<])@([a-zA-Z0-9._-]+)/g;
@@ -112,6 +114,9 @@ type SlackActiveStream = {
 	agent: Awaited<ReturnType<typeof agentService.create>> | null;
 	stopRequested: boolean;
 };
+
+class SlackUserAmbiguityError extends Error {}
+
 export type SlackFileUpload = {
 	filename: string;
 	content: Buffer;
@@ -921,7 +926,16 @@ class ProjectSlackBot {
 		try {
 			user = await this._resolveUser(slackUserId, slackUser, email);
 		} catch (error) {
-			await ctx.thread.post(formatMessagingError(error));
+			if (error instanceof SlackUserAmbiguityError) {
+				await ctx.thread.post(`❌ ${error.message}`);
+			} else {
+				logger.error('Failed to resolve Slack user', {
+					source: 'system',
+					projectId: this.projectId,
+					context: { slackUserId, error: serializeError(error) },
+				});
+				await ctx.thread.post('❌ Unable to verify your account right now. Please try again later.');
+			}
 			throw error;
 		}
 		if (!user) {
@@ -996,7 +1010,7 @@ class ProjectSlackBot {
 		);
 		const matches = users.filter((user): user is User => user !== null);
 		if (matches.length > 1) {
-			throw new Error('Multiple existing nao users match your Slack email. Please contact an administrator');
+			throw new SlackUserAmbiguityError(SLACK_USER_AMBIGUITY_MESSAGE);
 		}
 		return matches[0] ?? null;
 	}
