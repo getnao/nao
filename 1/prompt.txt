@@ -1,0 +1,87 @@
+Quick we have a bug to fix
+
+---
+
+somehow when my CEO clicks project settings the sidebar causes crazy
+
+---
+
+but why does it
+
+---
+
+but like why is it only when she clicks on Project Settings & Budget
+
+---
+
+oh yeah that makes sense
+
+---
+
+I wanna test how do I save this into google PAssword
+
+---
+
+Found it!, so it
+
+---
+
+Found it!, so it actually happens only when you also have an env variable to fill in the page
+
+It's like it thinks search bar is username and env field is password
+
+---
+
+did you already make the env var non login field?
+
+---
+
+ok I wonder if we should keep them as they were, but just make sure search bar can't be completed.
+
+Idea is I just want both to be how they were before thisPR
+
+---
+
+no no that was on main branch
+
+---
+
+ok so now I tested with these current changes, so removing the auto complete on search bar was not enough I guess
+
+---
+
+is it supposed to never autofill now, or if I click the field it should see list proposed passwords?
+
+---
+
+Well as you can see it keeps on proposing this fill, although at least it's not autofill
+
+---
+
+yes so of course we can keep the type password of env field
+What annoys me is that then it tries to put the email in the search field which is stupid
+
+---
+
+yeah that sounds good do that
+First fetch commits to see how it was done before the settings PR
+
+---
+
+Okay looks good, any idea why it suggests autofill on first env var but not on second?
+
+---
+
+ok it doesn't, if I do choose an autofill, it fills first env field, leaves second empty
+
+---
+
+yeah I'm just asking why
+
+---
+
+yeah I'm just asking why the second can't be autofilled nor get suggestings
+
+---
+
+fine, why did you add thise line @apps/frontend/src/components/settings/env-vars-section.tsx:107  I mean why new password
