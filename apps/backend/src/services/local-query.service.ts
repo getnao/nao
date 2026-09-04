@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { fileExtension } from '@nao/shared/attachments';
 import type { executeSql } from '@nao/shared/tools';
 
+import { env } from '../env';
 import type { QueryResult, ToolContext } from '../types/tools';
 import { referencedQueryIds, rewriteStorageLiterals, storagePathsIn } from '../utils/sql-file-paths';
 import {
@@ -48,7 +49,12 @@ export async function runQueryOnLocalFiles(
 		const result = await runLocalQuery({
 			sql: access.sql,
 			queryResults: await collectReferencedResults(sql, context),
-			allowedDirectories: [context.projectFolder, ...access.directories, ...(staging ? [staging.directory] : [])],
+			allowedDirectories: [
+				context.projectFolder,
+				...(env.NAO_MCP_SCRATCH_DIR ? [env.NAO_MCP_SCRATCH_DIR] : []),
+				...access.directories,
+				...(staging ? [staging.directory] : []),
+			],
 			...(staging && { output: { filePath: staging.filePath, format: staging.format } }),
 		});
 
