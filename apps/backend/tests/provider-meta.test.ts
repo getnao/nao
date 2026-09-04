@@ -4,7 +4,7 @@ import {
 	getModelCapabilities,
 	getModelParameterSpec,
 	isAnthropicApiModel,
-	usesGoogleGenerativeAiApi,
+	requiresGeminiTurnSequence,
 } from '../src/agents/provider-meta';
 import type { ParamControl } from '../src/types/llm';
 
@@ -30,16 +30,16 @@ describe('isAnthropicApiModel', () => {
 	});
 });
 
-describe('usesGoogleGenerativeAiApi', () => {
+describe('requiresGeminiTurnSequence', () => {
 	it('matches direct Google and Gemini on Vertex', () => {
-		expect(usesGoogleGenerativeAiApi('google', 'gemini-2.5-flash')).toBe(true);
-		expect(usesGoogleGenerativeAiApi('vertex', 'gemini-3-flash-preview')).toBe(true);
+		expect(requiresGeminiTurnSequence('google', 'gemini-2.5-flash')).toBe(true);
+		expect(requiresGeminiTurnSequence('vertex', 'gemini-3-flash-preview')).toBe(true);
 	});
 
-	it('excludes Vertex Claude and OpenAI-style transports', () => {
-		expect(usesGoogleGenerativeAiApi('vertex', 'claude-sonnet-4-6')).toBe(false);
-		expect(usesGoogleGenerativeAiApi('openrouter', 'google/gemini-2.5-flash')).toBe(false);
-		expect(usesGoogleGenerativeAiApi('openaiCompatible/custom', 'gemini-2.5-flash')).toBe(false);
+	it('excludes Vertex Claude and OpenAI-style adapters', () => {
+		expect(requiresGeminiTurnSequence('vertex', 'claude-sonnet-4-6')).toBe(false);
+		expect(requiresGeminiTurnSequence('openrouter', 'google/gemini-2.5-flash')).toBe(false);
+		expect(requiresGeminiTurnSequence('openaiCompatible/custom', 'gemini-2.5-flash')).toBe(false);
 	});
 });
 

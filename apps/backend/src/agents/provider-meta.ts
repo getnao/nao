@@ -872,8 +872,8 @@ export function isAnthropicApiModel(provider: LlmProvider, modelId: string): boo
 	}
 }
 
-/** Whether a model uses Google's native Generative AI message transport. */
-export function usesGoogleGenerativeAiApi(provider: LlmProvider, modelId: string): boolean {
+/** Whether the selected provider/model adapter requires Gemini's user-first alternating turn sequence. */
+export function requiresGeminiTurnSequence(provider: LlmProvider, modelId: string): boolean {
 	switch (providerKind(provider)) {
 		case 'google':
 			return true;

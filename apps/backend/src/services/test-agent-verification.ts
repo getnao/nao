@@ -1,7 +1,7 @@
 import type { LlmSelectedModel } from '@nao/shared/types';
 import type { ModelMessage } from 'ai';
 
-import { usesGoogleGenerativeAiApi } from '../agents/provider-meta';
+import { requiresGeminiTurnSequence } from '../agents/provider-meta';
 import type { QueryResult } from '../types/tools';
 
 export function buildVerificationMessages(
@@ -12,7 +12,7 @@ export function buildVerificationMessages(
 	queryResults: Map<string, QueryResult>,
 ): ModelMessage[] {
 	return [
-		...(usesGoogleGenerativeAiApi(modelSelection.provider, modelSelection.modelId)
+		...(requiresGeminiTurnSequence(modelSelection.provider, modelSelection.modelId)
 			? [{ role: 'user' as const, content: prompt }]
 			: []),
 		...responseMessages,

@@ -41,19 +41,19 @@ const responseMessages: ModelMessage[] = [
 	{ role: 'assistant', content: 'Revenue is 42.' },
 ];
 
-const googleTransportModels = [
+const geminiTurnSequenceModels = [
 	{ provider: 'google', modelId: 'gemini-2.5-flash' },
 	{ provider: 'vertex', modelId: 'gemini-3-flash-preview' },
 ] satisfies LlmSelectedModel[];
 
-const otherTransportModels = [
+const otherMessageSequenceModels = [
 	{ provider: 'vertex', modelId: 'claude-sonnet-4-6' },
 	{ provider: 'openrouter', modelId: 'google/gemini-2.5-flash' },
 	{ provider: 'openaiCompatible/custom', modelId: 'gemini-2.5-flash' },
 ] satisfies LlmSelectedModel[];
 
 describe('buildVerificationMessages', () => {
-	it.each(googleTransportModels)('restores the original user turn for $provider/$modelId', (modelSelection) => {
+	it.each(geminiTurnSequenceModels)('restores the original user turn for $provider/$modelId', (modelSelection) => {
 		const messages = buildVerificationMessages(
 			modelSelection,
 			'What is the revenue?',
@@ -69,17 +69,20 @@ describe('buildVerificationMessages', () => {
 		});
 	});
 
-	it.each(otherTransportModels)('keeps the existing message sequence for $provider/$modelId', (modelSelection) => {
-		const messages = buildVerificationMessages(
-			modelSelection,
-			'What is the revenue?',
-			responseMessages,
-			['revenue'],
-			queryResults,
-		);
+	it.each(otherMessageSequenceModels)(
+		'keeps the existing message sequence for $provider/$modelId',
+		(modelSelection) => {
+			const messages = buildVerificationMessages(
+				modelSelection,
+				'What is the revenue?',
+				responseMessages,
+				['revenue'],
+				queryResults,
+			);
 
-		expect(messages.slice(0, -1)).toEqual(responseMessages);
-		expect(messages).toHaveLength(responseMessages.length + 1);
-		expect(messages.at(-1)).toMatchObject({ role: 'user' });
-	});
+			expect(messages.slice(0, -1)).toEqual(responseMessages);
+			expect(messages).toHaveLength(responseMessages.length + 1);
+			expect(messages.at(-1)).toMatchObject({ role: 'user' });
+		},
+	);
 });
