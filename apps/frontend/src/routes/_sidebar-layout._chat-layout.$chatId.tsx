@@ -2,9 +2,10 @@ import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Folder, GitFork, Globe, ScanText, TimerIcon, Upload } from 'lucide-react';
-import type { ForkMetadata } from '@nao/backend/chat';
+import type { ForkMetadata, UIMessage } from '@nao/backend/chat';
 import type { SelectionData } from '@/components/highlight-bubble';
 import { NEW_CHAT_ID } from '@/lib/ai';
+import { ChatStoryShortcut } from '@/components/chat-story-shortcut';
 import { StoryOpenButton } from '@/components/story-open-button';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
@@ -17,7 +18,7 @@ import { MobileHeader } from '@/components/mobile-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
-import { useAgentContext } from '@/contexts/agent.provider';
+import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { EditableChatTitle } from '@/components/editable-chat-title';
@@ -32,6 +33,7 @@ import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { getTextOffset } from '@/lib/selection-dom.utils';
+import { findStories } from '@/lib/story.utils';
 import { isForbiddenError } from '@/lib/trpc-error';
 
 export const Route = createFileRoute('/_sidebar-layout/_chat-layout/$chatId')({
@@ -94,6 +96,7 @@ function ChatPage() {
 	const inputAreaHeight = useHeight(inputAreaRef);
 
 	const sidePanel = useSidePanel({ containerRef, sidePanelRef });
+	const latestStorySlug = useAgentMessagesSelector(findLatestStorySlug);
 	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 	const chatInputCallback = useSetChatInputCallback();
@@ -151,6 +154,7 @@ function ChatPage() {
 			open={sidePanel.open}
 			close={sidePanel.close}
 		>
+			<ChatStoryShortcut chatId={chatId} latestStorySlug={latestStorySlug} />
 			<SelectionProvider resetKey={chatId}>
 				<div className='flex-1 flex min-w-0 bg-background' ref={containerRef}>
 					<div
@@ -291,6 +295,10 @@ function ChatPage() {
 			/>
 		</SidePanelProvider>
 	);
+}
+
+function findLatestStorySlug(messages: UIMessage[]): string | undefined {
+	return findStories(messages).at(-1)?.id;
 }
 
 function resolveStoryCitationMeta(
