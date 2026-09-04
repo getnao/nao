@@ -1479,7 +1479,11 @@ class ProjectSlackBot {
 		streamState.latestSourceText = stripAssistantTags(text);
 		const visibleText = streamState.latestSourceText.slice(streamState.textRunStart);
 		const tableState = { ...streamState.tableStateAtRunStart };
-		const blocks = createTextBlocks(visibleText, { ...options, tableState });
+		const blocks = createTextBlocks(visibleText, {
+			...options,
+			balanceIncompleteCodeFence: true,
+			tableState,
+		});
 		streamState.tableStateAtRunEnd = tableState;
 		if (blocks.length === 0) {
 			if (visibleText.trim() && streamState.emptyRunBlockIndex === -1) {

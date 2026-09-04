@@ -137,6 +137,8 @@ export const createTextBlock = (text: string): CardChild => {
 };
 
 export const SLACK_SECTION_TEXT_MAX_CHARS = 2900;
+const SLACK_CODE_FENCE_PREFIX = '```\n';
+const SLACK_CODE_FENCE_SUFFIX = '\n```';
 
 export type TruncationNotice = { kind: 'hidden' } | { kind: 'note' } | { kind: 'link'; url: string };
 
@@ -153,6 +155,7 @@ export const createSlackTableRenderState = (): SlackTableRenderState => ({
 });
 
 type CreateTextBlocksOptions = {
+	balanceIncompleteCodeFence?: boolean;
 	truncation?: TruncationNotice;
 	tableState?: SlackTableRenderState;
 };
@@ -161,7 +164,8 @@ export const createTextBlocks = (text: string, options: CreateTextBlocksOptions 
 	const blocks: CardChild[] = [];
 	const tableState = options.tableState ?? createSlackTableRenderState();
 	const truncation = options.truncation ?? { kind: 'note' };
-	for (const segment of splitMarkdownSegments(text)) {
+	const renderedText = options.balanceIncompleteCodeFence ? balanceSlackStreamingCodeFence(text) : text;
+	for (const segment of splitMarkdownSegments(renderedText)) {
 		if (segment.type === 'table') {
 			tableState.tableNumber++;
 			if (tableState.hasNativeTable) {
@@ -354,17 +358,40 @@ export function chunkSlackText(text: string, maxChars: number): string[] {
 	if (maxChars < 1) {
 		throw new Error('Slack text chunk size must be positive.');
 	}
-	const chunks: string[] = [];
-	let remaining = text.trim();
-	while (remaining.length > maxChars) {
-		const breakAt = findSlackChunkBreak(remaining, maxChars);
-		chunks.push(remaining.slice(0, breakAt).trimEnd());
-		remaining = remaining.slice(breakAt).trimStart();
+	const source = text.trim();
+	if (!source) {
+		return [];
 	}
-	if (remaining) {
-		chunks.push(remaining);
+
+	const chunks: string[] = [];
+	let sourceOffset = 0;
+	while (sourceOffset < source.length) {
+		const remaining = source.slice(sourceOffset);
+		const startsInsideFence = isTripleBacktickFenceOpen(source.slice(0, sourceOffset));
+		const prefix = startsInsideFence ? SLACK_CODE_FENCE_PREFIX : '';
+		if (prefix.length + remaining.length <= maxChars) {
+			chunks.push(prefix + remaining);
+			break;
+		}
+
+		const { breakAt, endsInsideFence } = findSlackFenceAwareBreak(source, sourceOffset, maxChars - prefix.length);
+		const sourceChunk = remaining.slice(0, breakAt);
+		const suffix = endsInsideFence ? SLACK_CODE_FENCE_SUFFIX : '';
+		chunks.push(prefix + (endsInsideFence ? sourceChunk : sourceChunk.trimEnd()) + suffix);
+
+		sourceOffset += breakAt;
+		if (!endsInsideFence) {
+			sourceOffset = skipLeadingWhitespace(source, sourceOffset);
+		}
 	}
 	return chunks;
+}
+
+export function balanceSlackStreamingCodeFence(text: string): string {
+	if (!isTripleBacktickFenceOpen(text)) {
+		return text;
+	}
+	return text.endsWith('\n') ? `${text}\`\`\`` : `${text}\n\`\`\``;
 }
 
 export function isRecoverableSlackPayloadError(error: unknown): boolean {
@@ -578,6 +605,45 @@ function cleanTableCell(cell: string): string {
 		.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
 		.replace(/<br\s*\/?>/gi, ' ')
 		.trim();
+}
+
+function findSlackFenceAwareBreak(
+	source: string,
+	sourceOffset: number,
+	availableChars: number,
+): { breakAt: number; endsInsideFence: boolean } {
+	const remaining = source.slice(sourceOffset);
+	let breakAt = findSlackChunkBreak(remaining, availableChars);
+	let endsInsideFence = isTripleBacktickFenceOpen(source.slice(0, sourceOffset + breakAt));
+	if (endsInsideFence && breakAt + SLACK_CODE_FENCE_SUFFIX.length > availableChars) {
+		if (availableChars <= SLACK_CODE_FENCE_SUFFIX.length) {
+			throw new Error('Slack text chunk size is too small for fenced code.');
+		}
+		breakAt = findSlackChunkBreak(remaining, availableChars - SLACK_CODE_FENCE_SUFFIX.length);
+		endsInsideFence = isTripleBacktickFenceOpen(source.slice(0, sourceOffset + breakAt));
+	}
+	return { breakAt, endsInsideFence };
+}
+
+function isTripleBacktickFenceOpen(text: string): boolean {
+	let openFenceChar: string | null = null;
+	for (const line of text.split('\n')) {
+		const marker = fenceMarker(line);
+		if (!marker) {
+			continue;
+		}
+		if (openFenceChar === null) {
+			openFenceChar = marker;
+		} else if (marker === openFenceChar) {
+			openFenceChar = null;
+		}
+	}
+	return openFenceChar === '`';
+}
+
+function skipLeadingWhitespace(text: string, offset: number): number {
+	const remaining = text.slice(offset);
+	return offset + remaining.length - remaining.trimStart().length;
 }
 
 function findSlackChunkBreak(text: string, maxChars: number): number {
