@@ -1,15 +1,17 @@
+import type { LlmProvider } from '@nao/shared/types';
 import type { ModelMessage } from 'ai';
 
 import type { QueryResult } from '../types/tools';
 
 export function buildVerificationMessages(
+	provider: LlmProvider,
 	prompt: string,
 	responseMessages: ModelMessage[],
 	expectedColumns: string[],
 	queryResults: Map<string, QueryResult>,
 ): ModelMessage[] {
 	return [
-		{ role: 'user', content: prompt },
+		...(provider === 'google' ? [{ role: 'user' as const, content: prompt }] : []),
 		...responseMessages,
 		{ role: 'user', content: buildVerificationPrompt(expectedColumns, queryResults) },
 	];

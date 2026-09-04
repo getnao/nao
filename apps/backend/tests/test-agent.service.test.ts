@@ -1,3 +1,4 @@
+import { LLM_PROVIDERS, type LlmProvider } from '@nao/shared/types';
 import type { ModelMessage } from 'ai';
 import { describe, expect, it } from 'vitest';
 
@@ -14,35 +15,46 @@ const queryResults = new Map<string, QueryResult>([
 	],
 ]);
 
-describe('buildVerificationMessages', () => {
-	it('restores the original user turn before tool-call response messages', () => {
-		const responseMessages: ModelMessage[] = [
+const responseMessages: ModelMessage[] = [
+	{
+		role: 'assistant',
+		content: [
 			{
-				role: 'assistant',
-				content: [
-					{
-						type: 'tool-call',
-						toolCallId: 'call-1',
-						toolName: 'execute_sql',
-						input: { sql_query: 'SELECT 42 AS revenue' },
-					},
-				],
+				type: 'tool-call',
+				toolCallId: 'call-1',
+				toolName: 'execute_sql',
+				input: { sql_query: 'SELECT 42 AS revenue' },
 			},
+		],
+	},
+	{
+		role: 'tool',
+		content: [
 			{
-				role: 'tool',
-				content: [
-					{
-						type: 'tool-result',
-						toolCallId: 'call-1',
-						toolName: 'execute_sql',
-						output: { type: 'json', value: { data: [{ revenue: 42 }] } },
-					},
-				],
+				type: 'tool-result',
+				toolCallId: 'call-1',
+				toolName: 'execute_sql',
+				output: { type: 'json', value: { data: [{ revenue: 42 }] } },
 			},
-			{ role: 'assistant', content: 'Revenue is 42.' },
-		];
+		],
+	},
+	{ role: 'assistant', content: 'Revenue is 42.' },
+];
 
-		const messages = buildVerificationMessages('What is the revenue?', responseMessages, ['revenue'], queryResults);
+const nonGoogleProviders = [
+	...LLM_PROVIDERS.filter((provider) => provider !== 'google'),
+	'openaiCompatible/custom',
+] satisfies LlmProvider[];
+
+describe('buildVerificationMessages', () => {
+	it('restores the original user turn for Google', () => {
+		const messages = buildVerificationMessages(
+			'google',
+			'What is the revenue?',
+			responseMessages,
+			['revenue'],
+			queryResults,
+		);
 
 		expect(messages.slice(0, -1)).toEqual([{ role: 'user', content: 'What is the revenue?' }, ...responseMessages]);
 		expect(messages.at(-1)).toMatchObject({
@@ -51,14 +63,17 @@ describe('buildVerificationMessages', () => {
 		});
 	});
 
-	it('keeps text-only response messages between the original and verification user turns', () => {
-		const responseMessages: ModelMessage[] = [{ role: 'assistant', content: 'Revenue is 42.' }];
+	it.each(nonGoogleProviders)('keeps the existing message sequence for %s', (provider) => {
+		const messages = buildVerificationMessages(
+			provider,
+			'What is the revenue?',
+			responseMessages,
+			['revenue'],
+			queryResults,
+		);
 
-		const messages = buildVerificationMessages('What is the revenue?', responseMessages, ['revenue'], queryResults);
-
-		expect(messages).toHaveLength(3);
-		expect(messages[0]).toEqual({ role: 'user', content: 'What is the revenue?' });
-		expect(messages[1]).toEqual(responseMessages[0]);
-		expect(messages[2]).toMatchObject({ role: 'user' });
+		expect(messages.slice(0, -1)).toEqual(responseMessages);
+		expect(messages).toHaveLength(responseMessages.length + 1);
+		expect(messages.at(-1)).toMatchObject({ role: 'user' });
 	});
 });
