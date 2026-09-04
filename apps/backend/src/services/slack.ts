@@ -917,7 +917,13 @@ class ProjectSlackBot {
 
 		ctx.timezone = slackUser?.tz || undefined;
 
-		const user = await this._resolveUser(slackUserId, slackUser, email);
+		let user: User | null;
+		try {
+			user = await this._resolveUser(slackUserId, slackUser, email);
+		} catch (error) {
+			await ctx.thread.post(formatMessagingError(error));
+			throw error;
+		}
 		if (!user) {
 			await ctx.thread.post(
 				`❌ No user found. Create an account with \`${email}\` on ${this._redirectUrl} to sign up.`,
