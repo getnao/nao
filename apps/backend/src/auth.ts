@@ -253,11 +253,11 @@ async function createAuthInstance(baseURL: string) {
 		},
 		hooks: {
 			before: createAuthMiddleware(async (ctx) => {
-				if (ctx.path !== '/sign-up/email') {
+				if (ctx.path !== '/sign-up/email' || env.ENABLE_USER_LOGIN !== true) {
 					return;
 				}
 
-				const body = ctx.body as {
+				const body = (ctx.body ?? {}) as {
 					email?: string;
 					name?: string;
 					password?: string;

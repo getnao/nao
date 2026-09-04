@@ -187,7 +187,7 @@ export const updateProjectSlackAutoCreateUsers = async (
 	projectId: string,
 	enabled: boolean,
 	domains: string[],
-	mergeUsersEnabled: boolean,
+	mergeUsersEnabled?: boolean,
 ): Promise<void> => {
 	await db.transaction(async (tx) => {
 		const project = await takeFirstOrThrow(
@@ -206,7 +206,7 @@ export const updateProjectSlackAutoCreateUsers = async (
 					...existing,
 					autoCreateUsersEnabled: enabled,
 					autoCreateUsersDomains: domains,
-					autoMergeUsersEnabled: mergeUsersEnabled,
+					autoMergeUsersEnabled: enabled && (mergeUsersEnabled ?? existing.autoMergeUsersEnabled ?? false),
 				},
 			})
 			.where(eq(s.project.id, projectId))

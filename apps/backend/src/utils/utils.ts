@@ -116,7 +116,12 @@ export const isEmailDomainAllowed = (userEmail: string, authDomains?: string) =>
  * Returns nothing when the email's domain is not itself one of the aliases.
  */
 export const buildEmailDomainAliases = (email: string, aliasDomains: string[]): string[] => {
-	const [localPart, domain] = email.toLowerCase().split('@');
+	const atIndex = email.indexOf('@');
+	if (atIndex <= 0 || atIndex !== email.lastIndexOf('@') || atIndex === email.length - 1) {
+		return [];
+	}
+	const localPart = email.slice(0, atIndex).toLowerCase();
+	const domain = email.slice(atIndex + 1).toLowerCase();
 	if (!localPart || !domain) {
 		return [];
 	}

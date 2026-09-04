@@ -409,7 +409,7 @@ export const projectRoutes = {
 			z.object({
 				enabled: z.boolean(),
 				domains: z.array(z.string().trim().toLowerCase()).default([]),
-				mergeUsersEnabled: z.boolean().default(false),
+				mergeUsersEnabled: z.boolean().optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {

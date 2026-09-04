@@ -983,13 +983,16 @@ class ProjectSlackBot {
 			return null;
 		}
 
-		for (const aliasEmail of buildEmailDomainAliases(email, this._autoCreateUsersDomains)) {
-			const user = await getUser({ email: aliasEmail });
-			if (user) {
-				return user;
-			}
+		const users = await Promise.all(
+			buildEmailDomainAliases(email, this._autoCreateUsersDomains).map((aliasEmail) =>
+				getUser({ email: aliasEmail }),
+			),
+		);
+		const matches = users.filter((user): user is User => user !== null);
+		if (matches.length > 1) {
+			throw new Error('Multiple existing nao users match your Slack email. Please contact an administrator');
 		}
-		return null;
+		return matches[0] ?? null;
 	}
 
 	private async _checkUserBelongsToProject(ctx: ConversationContext): Promise<void> {
