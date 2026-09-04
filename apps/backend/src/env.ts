@@ -166,6 +166,12 @@ const envSchema = z.object({
 		.optional()
 		.transform((val) => val?.trim() || undefined),
 
+	MCP_PUBLIC_URL: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined)
+		.pipe(z.url({ message: 'MCP_PUBLIC_URL must be a valid URL' }).optional()),
+
 	POSTHOG_KEY: z.string().optional(),
 	POSTHOG_HOST: z.url({ message: 'POSTHOG_HOST must be a valid URL' }).optional(),
 	POSTHOG_DISABLED: z
@@ -253,6 +259,24 @@ export const isSelfHosted = env.NAO_MODE === 'self-hosted';
 
 const normalizedBaseUrl = env.BETTER_AUTH_URL.replace(/\/+$/, '');
 export const MCP_SERVER_URL = `${normalizedBaseUrl}/mcp`;
+
+const normalizedMcpPublicUrl = env.MCP_PUBLIC_URL?.replace(/\/+$/, '');
+export const MCP_PUBLIC_SERVER_URL = normalizedMcpPublicUrl ? `${normalizedMcpPublicUrl}/mcp` : undefined;
+export const MCP_VALID_AUDIENCES = [
+	env.BETTER_AUTH_URL,
+	MCP_SERVER_URL,
+	...(MCP_PUBLIC_SERVER_URL ? [MCP_PUBLIC_SERVER_URL] : []),
+];
+export const MCP_TOKEN_AUDIENCES = [MCP_SERVER_URL, ...(MCP_PUBLIC_SERVER_URL ? [MCP_PUBLIC_SERVER_URL] : [])];
+
+const mcpPublicHost = normalizedMcpPublicUrl ? new URL(normalizedMcpPublicUrl).host : undefined;
+
+export function resolveMcpFacingOrigin(requestHost: string | undefined): string {
+	if (normalizedMcpPublicUrl && requestHost && requestHost.toLowerCase() === mcpPublicHost) {
+		return normalizedMcpPublicUrl;
+	}
+	return normalizedBaseUrl;
+}
 
 export function noProjectMessage(): string {
 	return isCloud

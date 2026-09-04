@@ -253,10 +253,12 @@ app.register(mcpServerRoutes, {
 	prefix: '/mcp',
 });
 
-app.get('/.well-known/oauth-protected-resource', async (_request, reply) => {
+app.get('/.well-known/oauth-protected-resource', async (request, reply) => {
 	const { buildProtectedResourceMetadata } = await import('./auth');
-	const { MCP_SERVER_URL } = await import('./env');
-	const metadata = await buildProtectedResourceMetadata({ resource: MCP_SERVER_URL });
+	const { resolveMcpFacingOrigin } = await import('./env');
+	const metadata = await buildProtectedResourceMetadata({
+		resource: `${resolveMcpFacingOrigin(request.host)}/mcp`,
+	});
 	reply
 		.status(200)
 		.header('Content-Type', 'application/json')
