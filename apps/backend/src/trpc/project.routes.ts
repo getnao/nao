@@ -313,6 +313,7 @@ export const projectRoutes = {
 					modelSelection: config.modelSelection,
 					autoCreateUsersEnabled: config.autoCreateUsersEnabled,
 					autoCreateUsersDomains: config.autoCreateUsersDomains,
+					emailDomainAliases: config.emailDomainAliases,
 					replyMode: config.replyMode,
 				}
 			: null;
@@ -422,6 +423,22 @@ export const projectRoutes = {
 			const refreshedConfig = await slackConfigQueries.getProjectSlackConfig(ctx.project.id);
 			await slackService.syncProjectSocketMode(refreshedConfig, ctx.project.id);
 			return { enabled: input.enabled, domains: cleanedDomains };
+		}),
+
+	updateSlackEmailDomainAliases: adminProtectedProcedure
+		.input(z.object({ domains: z.array(z.string().trim().toLowerCase()).default([]) }))
+		.mutation(async ({ ctx, input }) => {
+			const cleanedDomains = [...new Set(input.domains.filter((domain) => domain.length > 0))];
+			if (cleanedDomains.length === 1) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: 'Add at least two domains to treat them as aliases of each other.',
+				});
+			}
+			await slackConfigQueries.updateProjectSlackEmailDomainAliases(ctx.project.id, cleanedDomains);
+			const refreshedConfig = await slackConfigQueries.getProjectSlackConfig(ctx.project.id);
+			await slackService.syncProjectSocketMode(refreshedConfig, ctx.project.id);
+			return { domains: cleanedDomains };
 		}),
 
 	deleteSlackConfig: adminProtectedProcedure.mutation(async ({ ctx }) => {
