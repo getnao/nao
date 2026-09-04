@@ -104,6 +104,7 @@ export function EnvVarsSection({ isAdmin }: { isAdmin: boolean }) {
 								<Input
 									id={inputId}
 									type='password'
+									autoComplete='new-password'
 									value={value}
 									onChange={(e) => handleChange(key, e.target.value)}
 									placeholder='Enter value...'

@@ -161,6 +161,7 @@ export function SidebarSettingsNav({
 	const navigate = useNavigate();
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [query, setQuery] = useState('');
+	const [isSearchFocused, setIsSearchFocused] = useState(false);
 
 	const navContext = {
 		isAdmin,
@@ -214,8 +215,13 @@ export function SidebarSettingsNav({
 						<input
 							ref={inputRef}
 							type='text'
+							name='settings-search'
+							autoComplete='off'
 							placeholder='Search settings...'
 							value={query}
+							readOnly={!isSearchFocused}
+							onFocus={() => setIsSearchFocused(true)}
+							onBlur={() => setIsSearchFocused(false)}
 							onChange={(e) => setQuery(e.target.value)}
 							onKeyDown={handleKeyDown}
 							className={cn(
