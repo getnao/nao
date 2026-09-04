@@ -1,17 +1,22 @@
 import { useEffect } from 'react';
-import { createFileRoute, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
+import { createFileRoute, Outlet, useRouterState } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { format } from 'date-fns';
 import type { TokenChartDisplayMode, UsageRouteSearch } from '@/components/settings/usage-route-search';
 import type { displayChart } from '@nao/shared/tools';
 import { ChatsReplayPage } from '@/components/settings/chats-replay-page';
 import { UsageChartCard } from '@/components/settings/usage-chart-card';
-import { ReplayFilters, UsageFilters, dateFormats } from '@/components/settings/usage-filters';
-import { saveUsageFilters, validateUsageSearchWithStoredFilters } from '@/components/settings/usage-route-search';
+import { ReplayFilters, UsageFilters } from '@/components/settings/usage-filters';
+import {
+	saveUsageFilters,
+	validateUsageSearch,
+	validateUsageSearchWithStoredFilters,
+} from '@/components/settings/usage-route-search';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useUsagePeriodPreferences } from '@/hooks/use-usage-period-preferences';
 import { trpc } from '@/main';
 import { requireContextAdminOrAdmin } from '@/lib/require-admin';
+import { formatUsageBucketLabel } from '@/lib/usage-date';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/usage')({
 	beforeLoad: requireContextAdminOrAdmin,
@@ -61,7 +66,7 @@ const messageSeries = [
 
 function UsagePage() {
 	const usageSearch = Route.useSearch();
-	const navigate = useNavigate();
+	const navigate = Route.useNavigate();
 	const isReplayRoute = useRouterState({
 		select: (state) => state.location.pathname.startsWith('/settings/usage/replay/'),
 	});
@@ -80,7 +85,7 @@ function UsagePage() {
 			onUpdateSearch={(next) => {
 				navigate({
 					to: '/settings/usage',
-					search: { ...usageSearch, ...next },
+					search: (current) => validateUsageSearch({ ...current, ...next }),
 					replace: true,
 				});
 			}}
@@ -104,8 +109,10 @@ function UsageOverview({
 	onUpdateSearch: (next: Partial<UsageRouteSearch>) => void;
 	onOpenChatReplay: (chatId: string) => void;
 }) {
-	const { granularity, provider, users, feedback, tools, sources, tokenView } = usageSearch;
+	const { provider, users, feedback, tools, sources, tokenView } = usageSearch;
 	const { canViewUsage } = usePermissions();
+	const periodState = useUsagePeriodPreferences({ canViewUsage, usageSearch, onUpdateSearch });
+	const { period, granularity } = periodState;
 
 	const usedProviders = useQuery({
 		...trpc.usage.getUsedProviders.queryOptions(),
@@ -120,23 +127,24 @@ function UsageOverview({
 	});
 	const messagesUsage = useQuery({
 		...trpc.usage.getMessagesUsage.queryOptions({
+			period,
 			granularity,
 			provider: provider === 'all' ? undefined : provider,
 			userNames: users,
 			sources,
 		}),
 		placeholderData: keepPreviousData,
-		enabled: canViewUsage,
+		enabled: canViewUsage && periodState.isReady,
 	});
 	const totalUsage = useQuery({
 		...trpc.usage.getTotalUsage.queryOptions({
-			granularity,
+			period,
 			provider: provider === 'all' ? undefined : provider,
 			userNames: users,
 			sources,
 		}),
 		placeholderData: keepPreviousData,
-		enabled: canViewUsage,
+		enabled: canViewUsage && periodState.isReady,
 	});
 
 	const chartData = messagesUsage.data ?? [];
@@ -153,8 +161,15 @@ function UsageOverview({
 			showUsageControls={canViewUsage}
 			provider={provider}
 			onProviderChange={(value) => onUpdateSearch({ provider: value })}
-			granularity={granularity}
-			onGranularityChange={(value) => onUpdateSearch({ granularity: value })}
+			periodPreference={periodState.preference}
+			onPeriodPreferenceChange={periodState.selectPreference}
+			periodEntries={periodState.entries}
+			isPeriodLoading={periodState.isLoading}
+			periodError={periodState.error}
+			onRetryPeriod={periodState.retry}
+			onCreatePeriodEntry={periodState.createEntry}
+			onUpdatePeriodEntry={periodState.updateEntry}
+			onDeletePeriodEntry={periodState.deleteEntry}
 			availableProviders={usedProviders.data}
 			chatFacets={chatFacets.data?.facets}
 			selectedUserNames={users}
@@ -175,7 +190,7 @@ function UsageOverview({
 							<div className='lg:col-span-2 xl:col-span-1'>
 								<UsageChartCard
 									title='Messages'
-									isLoading={totalUsage.isLoading}
+									isLoading={periodState.isLoading || totalUsage.isLoading}
 									isFetching={totalUsage.isFetching}
 									isError={totalUsage.isError}
 									data={totalUsageChartData}
@@ -197,12 +212,12 @@ function UsageOverview({
 
 							<UsageChartCard
 								title='Messages'
-								isLoading={messagesUsage.isLoading}
+								isLoading={periodState.isLoading || messagesUsage.isLoading}
 								isFetching={messagesUsage.isFetching}
 								isError={messagesUsage.isError}
 								data={chartData}
 								chartType='stacked_bar'
-								xAxisLabelFormatter={(value) => format(new Date(value), dateFormats[granularity])}
+								xAxisLabelFormatter={(value) => formatUsageBucketLabel(value, granularity)}
 								titleAccessory={
 									<span className='text-xs text-muted-foreground'>Number of messages by source</span>
 								}
@@ -212,12 +227,12 @@ function UsageOverview({
 
 							<UsageChartCard
 								title={showCost ? 'Cost' : 'Tokens'}
-								isLoading={messagesUsage.isLoading}
+								isLoading={periodState.isLoading || messagesUsage.isLoading}
 								isFetching={messagesUsage.isFetching}
 								isError={messagesUsage.isError}
 								data={chartData}
 								chartType='stacked_bar'
-								xAxisLabelFormatter={(value) => format(new Date(value), dateFormats[granularity])}
+								xAxisLabelFormatter={(value) => formatUsageBucketLabel(value, granularity)}
 								valueFormatter={showCost ? formatUsd : undefined}
 								series={showCost ? costSeries : tokenSeries}
 								titleAccessory={

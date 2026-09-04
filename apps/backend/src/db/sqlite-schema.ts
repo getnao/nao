@@ -64,6 +64,7 @@ import {
 	WhatsappSettings,
 } from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
+import type { UserProjectPreferences } from '../types/usage';
 
 export const user = sqliteTable('user', {
 	id: text('id').primaryKey(),
@@ -425,6 +426,30 @@ export const messageFeedback = sqliteTable('message_feedback', {
 		.$onUpdate(() => new Date())
 		.notNull(),
 });
+
+export const userProjectPreference = sqliteTable(
+	'user_project_preference',
+	{
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		preferences: text('preferences', { mode: 'json' }).$type<UserProjectPreferences>().notNull().default({}),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.userId, t.projectId] }),
+		index('user_project_preference_projectId_idx').on(t.projectId),
+	],
+);
 
 export const projectMember = sqliteTable(
 	'project_member',

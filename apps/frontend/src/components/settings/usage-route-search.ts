@@ -1,6 +1,6 @@
 import { CHAT_REPLAY_FEEDBACK_STATES, CHAT_REPLAY_TOOL_STATES, providerLabels } from '@nao/shared/types';
-import { USAGE_SOURCES } from '@nao/backend/usage';
-import type { Granularity, UsageSource } from '@nao/backend/usage';
+import { USAGE_PERIOD_PRESET_NAMES, USAGE_SOURCES } from '@nao/backend/usage';
+import type { UsagePeriodPreference, UsagePeriodPreset, UsageSource } from '@nao/backend/usage';
 import type { ChatReplayFeedbackState, ChatReplayToolState, LlmProvider } from '@nao/shared/types';
 import type { RecommendationTab } from '@/components/settings/recommendations-route-search';
 import { RECOMMENDATION_TABS } from '@/components/settings/recommendations-route-search';
@@ -14,7 +14,8 @@ export type ReplayOrigin = 'recommendations';
 
 export type UsageRouteSearch = {
 	provider: LlmProvider | 'all';
-	granularity: Granularity;
+	periodMode: UsagePeriodPreset | undefined;
+	periodEntryId: string | undefined;
 	users: string[] | undefined;
 	feedback: ChatReplayFeedbackState[] | undefined;
 	tools: ChatReplayToolState[] | undefined;
@@ -29,7 +30,8 @@ export type UsageRouteSearch = {
 
 export const DEFAULT_USAGE_SEARCH: UsageRouteSearch = {
 	provider: 'all',
-	granularity: 'day',
+	periodMode: undefined,
+	periodEntryId: undefined,
 	users: undefined,
 	feedback: undefined,
 	tools: undefined,
@@ -42,14 +44,14 @@ export const DEFAULT_USAGE_SEARCH: UsageRouteSearch = {
 	recoTab: undefined,
 };
 
-const granularities = ['hour', 'day', 'month'] as const satisfies readonly Granularity[];
 const tokenViews = ['tokens', 'dollars'] as const satisfies readonly TokenChartDisplayMode[];
-const filterSearchKeys = ['provider', 'granularity', 'users', 'feedback', 'tools', 'sources'] as const;
+const filterSearchKeys = ['provider', 'users', 'feedback', 'tools', 'sources'] as const;
+const periodSearchKeys = ['periodMode', 'periodValue', 'periodUnit', 'periodEntryId', 'period', 'granularity'] as const;
 const usageFiltersStorageKey = 'nao.usage-filters';
 
 export function validateUsageSearchWithStoredFilters(search: Record<string, unknown>): UsageRouteSearch {
-	const hasSearchFilters = filterSearchKeys.some((key) => search[key] !== undefined);
-	const storedFilters = hasSearchFilters ? {} : readStoredUsageFilters();
+	const hasSearchFilters = [...filterSearchKeys, ...periodSearchKeys].some((key) => search[key] !== undefined);
+	const storedFilters = hasSearchFilters ? {} : pickUsageFilters(readStoredUsageFilters());
 
 	return validateUsageSearch({ ...storedFilters, ...search });
 }
@@ -59,10 +61,42 @@ export function saveUsageFilters(search: UsageRouteSearch): void {
 		return;
 	}
 
-	const filters = Object.fromEntries(filterSearchKeys.map((key) => [key, search[key]]));
+	const storageKey = getUsageFiltersStorageKey();
+	const storedPeriod = parsePeriodSearch(readStoredUsageFilters(storageKey));
+	const filters = {
+		...(storedPeriod.mode ? { periodMode: storedPeriod.mode } : {}),
+		...pickUsageFilters(search),
+	};
 
 	try {
-		localStorage.setItem(getUsageFiltersStorageKey(), JSON.stringify(filters));
+		localStorage.setItem(storageKey, JSON.stringify(filters));
+	} catch {
+		return;
+	}
+}
+
+export function readStoredUsagePeriodPreference(projectId: string | null): UsagePeriodPreference | undefined {
+	const period = parsePeriodSearch(readStoredUsageFilters(getUsageFiltersStorageKey(projectId ?? 'default')));
+	if (!period.mode) {
+		return undefined;
+	}
+
+	return { mode: period.mode };
+}
+
+export function clearStoredUsagePeriodPreference(projectId: string): void {
+	if (typeof window === 'undefined') {
+		return;
+	}
+
+	const storageKey = getUsageFiltersStorageKey(projectId);
+	const filters = readStoredUsageFilters(storageKey);
+	for (const key of periodSearchKeys) {
+		delete filters[key];
+	}
+
+	try {
+		localStorage.setItem(storageKey, JSON.stringify(filters));
 	} catch {
 		return;
 	}
@@ -72,9 +106,15 @@ const replayHighlights = ['tool-error', 'feedback'] as const satisfies readonly 
 const replayOrigins = ['recommendations'] as const satisfies readonly ReplayOrigin[];
 
 export function validateUsageSearch(search: Record<string, unknown>): UsageRouteSearch {
+	const period = parsePeriodSearch(search);
+
 	return {
 		provider: parseProvider(search.provider),
-		granularity: parseOneOf(search.granularity, granularities) ?? 'day',
+		periodMode: period.mode,
+		periodEntryId:
+			typeof search.periodEntryId === 'string' && search.periodEntryId.length > 0
+				? search.periodEntryId
+				: undefined,
 		users: parseStringArray(search.users),
 		feedback: parseArrayOf(search.feedback, CHAT_REPLAY_FEEDBACK_STATES),
 		tools: parseArrayOf(search.tools, CHAT_REPLAY_TOOL_STATES),
@@ -88,13 +128,13 @@ export function validateUsageSearch(search: Record<string, unknown>): UsageRoute
 	};
 }
 
-function readStoredUsageFilters(): Record<string, unknown> {
+function readStoredUsageFilters(storageKey = getUsageFiltersStorageKey()): Record<string, unknown> {
 	if (typeof window === 'undefined') {
 		return {};
 	}
 
 	try {
-		const stored = localStorage.getItem(getUsageFiltersStorageKey());
+		const stored = localStorage.getItem(storageKey);
 		const parsed = stored ? JSON.parse(stored) : null;
 		return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
 			? (parsed as Record<string, unknown>)
@@ -104,8 +144,41 @@ function readStoredUsageFilters(): Record<string, unknown> {
 	}
 }
 
-function getUsageFiltersStorageKey(): string {
-	return `${usageFiltersStorageKey}.${getActiveProjectId() ?? 'default'}`;
+function getUsageFiltersStorageKey(projectId = getActiveProjectId() ?? 'default'): string {
+	return `${usageFiltersStorageKey}.${projectId}`;
+}
+
+function pickUsageFilters(filters: Record<string, unknown>): Record<string, unknown> {
+	return Object.fromEntries(filterSearchKeys.map((key) => [key, filters[key]]));
+}
+
+function parsePeriodSearch(search: Record<string, unknown>): { mode: UsagePeriodPreset | undefined } {
+	const mode = parseOneOf(search.periodMode, USAGE_PERIOD_PRESET_NAMES);
+	if (mode) {
+		return { mode };
+	}
+
+	return parseLegacyPeriod(search.period, search.granularity);
+}
+
+function parseLegacyPeriod(rawPeriod: unknown, rawGranularity: unknown): { mode: UsagePeriodPreset | undefined } {
+	switch (rawPeriod) {
+		case '24h':
+		case '15d':
+		case '6m':
+			return { mode: rawPeriod };
+	}
+
+	switch (rawGranularity) {
+		case 'hour':
+			return { mode: '24h' };
+		case 'day':
+			return { mode: '15d' };
+		case 'month':
+			return { mode: '6m' };
+		default:
+			return { mode: undefined };
+	}
 }
 
 function parseProvider(value: unknown): LlmProvider | 'all' {

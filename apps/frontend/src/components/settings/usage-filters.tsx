@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { CheckIcon, Radio, ThumbsUp, Users, Wrench } from 'lucide-react';
 import { CHAT_REPLAY_FEEDBACK_STATES, CHAT_REPLAY_TOOL_STATES, providerLabel } from '@nao/shared/types';
 import { USAGE_SOURCES } from '@nao/backend/usage';
-import type { Granularity, UsageSource } from '@nao/backend/usage';
+import type { UsagePeriodEntry, UsagePeriodEntryInput, UsagePeriodPreference, UsageSource } from '@nao/backend/usage';
 import type {
 	ChatReplayFeedbackState,
 	ChatReplayToolState,
@@ -10,6 +10,7 @@ import type {
 	ProjectChatReplayFacets,
 } from '@nao/shared/types';
 import type { LucideIcon } from 'lucide-react';
+import { UsagePeriodFilter } from '@/components/settings/usage-period-filter';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
@@ -17,32 +18,19 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 
-type UsagePeriod = '24h' | '15d' | '6m';
-
-const periodOptions: { value: UsagePeriod; label: string; granularity: Granularity }[] = [
-	{ value: '24h', label: 'Last 24 hours', granularity: 'hour' },
-	{ value: '15d', label: 'Last 15 days', granularity: 'day' },
-	{ value: '6m', label: 'Last 6 months', granularity: 'month' },
-];
-
-const periodByGranularity: Record<Granularity, UsagePeriod> = {
-	hour: '24h',
-	day: '15d',
-	month: '6m',
-};
-
-export const dateFormats: Record<Granularity, string> = {
-	hour: 'MMM d, HH:00',
-	day: 'MMM d',
-	month: 'MMM yyyy',
-};
-
 interface UsageFiltersProps {
 	showUsageControls?: boolean;
 	provider: LlmProvider | 'all';
 	onProviderChange: (value: LlmProvider | 'all') => void;
-	granularity: Granularity;
-	onGranularityChange: (value: Granularity) => void;
+	periodPreference: UsagePeriodPreference;
+	onPeriodPreferenceChange: (value: UsagePeriodPreference) => void | Promise<void>;
+	periodEntries: UsagePeriodEntry[];
+	isPeriodLoading?: boolean;
+	periodError?: string;
+	onRetryPeriod?: () => void;
+	onCreatePeriodEntry: (value: UsagePeriodEntryInput) => void | Promise<void>;
+	onUpdatePeriodEntry: (value: UsagePeriodEntry) => void | Promise<void>;
+	onDeletePeriodEntry: (id: string) => void | Promise<void>;
 	availableProviders: LlmProvider[] | undefined;
 	chatFacets: ProjectChatReplayFacets | undefined;
 	selectedUserNames: string[] | undefined;
@@ -55,8 +43,15 @@ export function UsageFilters({
 	showUsageControls = true,
 	provider,
 	onProviderChange,
-	granularity,
-	onGranularityChange,
+	periodPreference,
+	onPeriodPreferenceChange,
+	periodEntries,
+	isPeriodLoading,
+	periodError,
+	onRetryPeriod,
+	onCreatePeriodEntry,
+	onUpdatePeriodEntry,
+	onDeletePeriodEntry,
 	availableProviders,
 	chatFacets,
 	selectedUserNames,
@@ -64,7 +59,6 @@ export function UsageFilters({
 	selectedSources,
 	onSelectedSourcesChange,
 }: UsageFiltersProps) {
-	const period = periodByGranularity[granularity];
 	const userOptions = (chatFacets?.userNames ?? []).map((name) => ({
 		value: name,
 		label: name,
@@ -92,26 +86,17 @@ export function UsageFilters({
 							))}
 						</SelectContent>
 					</Select>
-					<Select
-						value={period}
-						onValueChange={(value) => {
-							const option = periodOptions.find((o) => o.value === value);
-							if (option) {
-								onGranularityChange(option.granularity);
-							}
-						}}
-					>
-						<SelectTrigger className='w-40'>
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							{periodOptions.map((option) => (
-								<SelectItem key={option.value} value={option.value}>
-									{option.label}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
+					<UsagePeriodFilter
+						value={periodPreference}
+						entries={periodEntries}
+						isLoading={isPeriodLoading}
+						error={periodError}
+						onRetry={onRetryPeriod}
+						onChange={onPeriodPreferenceChange}
+						onCreateEntry={onCreatePeriodEntry}
+						onUpdateEntry={onUpdatePeriodEntry}
+						onDeleteEntry={onDeletePeriodEntry}
+					/>
 				</>
 			)}
 
