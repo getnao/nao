@@ -17,6 +17,7 @@ def create_sync_setup(profiling_policy, summary_policy):
     config.type = "duckdb"
     config.templates = [DatabaseTemplate.PROFILING, DatabaseTemplate.AI_SUMMARY]
     config.exclude_columns = []
+    config.column_selection_for.return_value = ([], [])
     config.query_history_days = None
     config.profiling = ProfilingConfig(refresh_policy=profiling_policy)
     config.ai_summary = RefreshConfig(refresh_policy=summary_policy)
