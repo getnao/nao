@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from ibis import BaseBackend
 
 from .base import DatabaseConfig
-from .context import DatabaseContext
+from .context import DatabaseContext, quote_sql_literal
 
 
 class RedshiftAuthMode(str, Enum):
@@ -33,8 +33,8 @@ class RedshiftDatabaseContext(DatabaseContext):
                     column_name, data_type, is_nullable,
                     character_maximum_length, numeric_precision, numeric_scale
                 FROM information_schema.columns
-                WHERE table_schema = '{self._schema}'
-                AND table_name = '{self._table_name}'
+                WHERE table_schema = '{quote_sql_literal(self._schema)}'
+                AND table_name = '{quote_sql_literal(self._table_name)}'
                 ORDER BY ordinal_position
             """
             result = self._fetchall(self._conn.raw_sql(query))  # type: ignore[union-attr]
@@ -133,7 +133,7 @@ class RedshiftDatabaseContext(DatabaseContext):
                 JOIN pg_catalog.pg_class c ON c.oid = d.objoid
                 JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum = d.objsubid
                 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-                WHERE n.nspname = '{_quote_literal(self._schema)}' AND c.relname = '{_quote_literal(self._table_name)}' AND d.objsubid > 0
+                WHERE n.nspname = '{quote_sql_literal(self._schema)}' AND c.relname = '{quote_sql_literal(self._table_name)}' AND d.objsubid > 0
             """
             rows = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
             return {row[0]: str(row[1]) for row in rows if row[1]}
@@ -148,7 +148,7 @@ class RedshiftDatabaseContext(DatabaseContext):
                 FROM pg_catalog.pg_description d
                 JOIN pg_catalog.pg_class c ON c.oid = d.objoid
                 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-                WHERE n.nspname = '{_quote_literal(self._schema)}' AND c.relname = '{_quote_literal(self._table_name)}' AND d.objsubid = 0
+                WHERE n.nspname = '{quote_sql_literal(self._schema)}' AND c.relname = '{quote_sql_literal(self._table_name)}' AND d.objsubid = 0
             """
             row = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
             if row and row[0]:
@@ -164,15 +164,10 @@ class RedshiftDatabaseContext(DatabaseContext):
         return f"JSON_SERIALIZE({col_sql})"
 
 
-def _quote_literal(value: str) -> str:
-    """Escape a value for safe use inside a SQL string literal."""
-    return value.replace("'", "''")
-
-
 def _get_redshift_sortkey_columns(conn: BaseBackend, schema: str, table: str) -> list[str]:
     """Return SORTKEY columns for a Redshift table, ordered by sort position."""
-    schema_literal = _quote_literal(schema)
-    table_literal = _quote_literal(table)
+    schema_literal = quote_sql_literal(schema)
+    table_literal = quote_sql_literal(table)
     query = f"""
         SELECT a.attname
         FROM pg_attribute a

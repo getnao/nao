@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from ibis import BaseBackend
 
 from .base import DatabaseConfig
-from .context import DatabaseContext
+from .context import DatabaseContext, quote_sql_literal
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ class SnowflakeDatabaseContext(DatabaseContext):
         try:
             query = f"""
                 SELECT COMMENT FROM INFORMATION_SCHEMA.TABLES
-                WHERE TABLE_SCHEMA = '{self._schema}' AND TABLE_NAME = '{self._table_name}'
+                WHERE TABLE_SCHEMA = '{quote_sql_literal(self._schema)}' AND TABLE_NAME = '{quote_sql_literal(self._table_name)}'
             """
             row = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
             if row and row[0]:
@@ -61,7 +61,7 @@ class SnowflakeDatabaseContext(DatabaseContext):
     def _fetch_column_descriptions(self) -> dict[str, str]:
         query = f"""
             SELECT COLUMN_NAME, COMMENT FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE TABLE_SCHEMA = '{self._schema}' AND TABLE_NAME = '{self._table_name}'
+            WHERE TABLE_SCHEMA = '{quote_sql_literal(self._schema)}' AND TABLE_NAME = '{quote_sql_literal(self._table_name)}'
               AND COMMENT IS NOT NULL AND COMMENT != ''
         """
         rows = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
