@@ -13,7 +13,12 @@ from nao_core.config.databases.base import ProfilingConfig, ProfilingRefreshPoli
 
 
 class TestDatabaseContext:
-    def _make_context(self, exclude_columns: list[str] | None = None):
+    def _make_context(
+        self,
+        exclude_columns: list[str] | None = None,
+        include_patterns: list[str] | None = None,
+        table_exclude_patterns: list[str] | None = None,
+    ):
         mock_conn = MagicMock()
         mock_table = MagicMock()
         mock_schema = MagicMock()
@@ -25,7 +30,14 @@ class TestDatabaseContext:
         mock_schema.__len__ = lambda s: len(schema_items)
         mock_table.schema.return_value = mock_schema
         mock_conn.table.return_value = mock_table
-        ctx = DatabaseContext(mock_conn, "my_schema", "my_table", exclude_columns=exclude_columns)
+        ctx = DatabaseContext(
+            mock_conn,
+            "my_schema",
+            "my_table",
+            exclude_columns=exclude_columns,
+            include_patterns=include_patterns,
+            table_exclude_patterns=table_exclude_patterns,
+        )
         return ctx, mock_table
 
     def test_columns_returns_metadata(self):
@@ -206,6 +218,70 @@ class TestDatabaseContext:
     def test_column_count_uses_filtered_columns(self):
         ctx, _ = self._make_context(exclude_columns=["*.name"])
         assert ctx.column_count() == 1
+
+    def test_columns_filters_with_include_patterns(self):
+        ctx, _ = self._make_context(include_patterns=["id"])
+        columns = ctx.columns()
+
+        assert [c["name"] for c in columns] == ["id"]
+
+    def test_columns_include_supports_glob_on_column_name(self):
+        ctx, _ = self._make_context(include_patterns=["i*"])
+        columns = ctx.columns()
+
+        assert [c["name"] for c in columns] == ["id"]
+
+    def test_columns_filters_with_table_exclude_patterns(self):
+        ctx, _ = self._make_context(table_exclude_patterns=["name"])
+        columns = ctx.columns()
+
+        assert [c["name"] for c in columns] == ["id"]
+
+    def test_include_patterns_applied_before_table_exclude_patterns(self):
+        ctx, _ = self._make_context(include_patterns=["id", "name"], table_exclude_patterns=["name"])
+        columns = ctx.columns()
+
+        assert [c["name"] for c in columns] == ["id"]
+
+    def test_include_patterns_combine_with_exclude_columns(self):
+        ctx, _ = self._make_context(exclude_columns=["my_schema.my_table.name"], include_patterns=["id", "name"])
+        columns = ctx.columns()
+
+        assert [c["name"] for c in columns] == ["id"]
+
+    def test_preview_filters_with_include_patterns(self):
+        ctx, mock_table = self._make_context(include_patterns=["id"])
+        df = pd.DataFrame({"id": [1, 2], "name": ["Alice", "Bob"]})
+        mock_table.limit.return_value.execute.return_value = df
+
+        rows = ctx.preview(limit=2)
+
+        assert rows[0] == {"id": 1}
+        assert rows[1] == {"id": 2}
+
+    def test_all_columns_ignores_include_patterns(self):
+        ctx, _ = self._make_context(include_patterns=["id"])
+
+        columns = ctx.all_columns()
+
+        assert columns is not None
+        assert [column["name"] for column in columns] == ["id", "name"]
+
+    def test_set_column_selection_overrides_constructor_value(self):
+        ctx, _ = self._make_context(include_patterns=["id"])
+        ctx.set_column_selection(None, ["name"])
+
+        columns = ctx.columns()
+
+        assert [c["name"] for c in columns] == ["id"]
+
+    def test_set_column_selection_with_none_clears_filters(self):
+        ctx, _ = self._make_context(include_patterns=["id"], table_exclude_patterns=["name"])
+        ctx.set_column_selection(None, None)
+
+        columns = ctx.columns()
+
+        assert [c["name"] for c in columns] == ["id", "name"]
 
 
 class TestNormalizeType:

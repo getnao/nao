@@ -5,10 +5,10 @@ import re
 import warnings
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import questionary
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -89,6 +89,38 @@ class ProfilingConfig(RefreshConfig):
     """Configuration for profiling refresh policy."""
 
 
+class TableColumnSelection(BaseModel):
+    """Per-table column allow/deny rules used by ``column_selection``.
+
+    ``include`` keeps only matching columns (allowlist), ``exclude`` drops
+    matching columns (denylist). When both are set on the same table,
+    ``include`` is applied first and ``exclude`` then removes columns from
+    the survivors.
+    """
+
+    include: list[str] | None = Field(
+        default=None,
+        description=(
+            "Allowlist of column names or glob patterns (e.g., ['id', 'email', 'order_*']). "
+            "Only matching columns are kept. A single pattern string is also accepted."
+        ),
+    )
+    exclude: list[str] | None = Field(
+        default=None,
+        description=(
+            "Denylist of column names or glob patterns (e.g., ['ssn', '*_pii']). "
+            "Matching columns are dropped. A single pattern string is also accepted."
+        ),
+    )
+
+    @field_validator("include", "exclude", mode="before")
+    @classmethod
+    def _coerce_single_pattern(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return [value]
+        return value
+
+
 class DatabaseConfig(BaseModel, ABC):
     """Base configuration for all database backends."""
 
@@ -111,6 +143,18 @@ class DatabaseConfig(BaseModel, ABC):
             "Glob patterns for columns to exclude. Patterns are matched against the "
             "fully-qualified 'schema.table.column' name (e.g., '*.version', '*._peerdb_*', "
             "'analytics.events.*_id'). Empty means no columns are excluded."
+        ),
+    )
+    column_selection: dict[str, TableColumnSelection] = Field(
+        default_factory=dict,
+        description=(
+            "Per-table column selection rules, keyed by 'schema.table' or 'table' "
+            "(glob patterns are allowed, e.g., 'analytics.*'). Each entry accepts "
+            "'include' (allowlist) and/or 'exclude' (denylist) with column names or "
+            "glob patterns matched against the column name. When both are set on the "
+            "same table, 'include' is applied first, then 'exclude' removes columns "
+            "from the survivors. Global 'exclude_columns' still applies on top. "
+            "Example: {analytics.events: {exclude: ['*_pii']}, users: {include: ['id', 'email']}}."
         ),
     )
     templates: list[DatabaseTemplate] = Field(
@@ -260,13 +304,43 @@ class DatabaseConfig(BaseModel, ABC):
 
         return True
 
-    def column_matches_pattern(self, schema: str, table: str, column: str) -> bool:
-        """Check if a column should be included given the exclude_columns patterns.
+    def column_selection_for(self, schema: str, table: str) -> tuple[list[str], list[str]]:
+        """Resolve the (include, exclude) column patterns that apply to a table.
 
-        Patterns are matched against the fully-qualified ``schema.table.column``
-        name using shell-style globs (``fnmatch``). Returns ``True`` when the
-        column should be kept, ``False`` when it should be excluded.
+        Keys are looked up in tiers; only the first non-empty tier is used:
+        an exact ``schema.table`` key, then an exact ``table`` key, then every
+        key that glob-matches either name (their patterns are merged).
         """
+        if not self.column_selection:
+            return [], []
+
+        full_name = f"{schema}.{table}"
+        entry = self.column_selection.get(full_name) or self.column_selection.get(table)
+        if entry is not None:
+            return list(entry.include or []), list(entry.exclude or [])
+
+        include: list[str] = []
+        exclude: list[str] = []
+        for key, matched in self.column_selection.items():
+            if fnmatch.fnmatch(full_name, key) or fnmatch.fnmatch(table, key):
+                include.extend(matched.include or [])
+                exclude.extend(matched.exclude or [])
+        return include, exclude
+
+    def column_matches_pattern(self, schema: str, table: str, column: str) -> bool:
+        """Check if a column should be included given the configured column filters.
+
+        Per-table ``column_selection`` patterns are matched against the bare
+        column name; legacy ``exclude_columns`` patterns are matched against
+        the fully-qualified ``schema.table.column`` name using shell-style
+        globs (``fnmatch``). Returns ``True`` when the column should be kept,
+        ``False`` when it should be excluded.
+        """
+        include_patterns, exclude_patterns = self.column_selection_for(schema, table)
+        if include_patterns and not any(fnmatch.fnmatch(column, pattern) for pattern in include_patterns):
+            return False
+        if exclude_patterns and any(fnmatch.fnmatch(column, pattern) for pattern in exclude_patterns):
+            return False
         if not self.exclude_columns:
             return True
         full_name = f"{schema}.{table}.{column}"
@@ -301,7 +375,15 @@ class DatabaseConfig(BaseModel, ABC):
         """Create a DatabaseContext for this table. Override in subclasses for custom metadata."""
         from nao_core.config.databases.context import DatabaseContext
 
-        return DatabaseContext(conn, schema, table_name, exclude_columns=self.exclude_columns)
+        include_patterns, exclude_patterns = self.column_selection_for(schema, table_name)
+        return DatabaseContext(
+            conn,
+            schema,
+            table_name,
+            exclude_columns=self.exclude_columns,
+            include_patterns=include_patterns,
+            table_exclude_patterns=exclude_patterns,
+        )
 
     def get_semantic_views(self, conn: "BaseBackend", schema: str) -> list[dict[str, str]]:
         """Fetch semantic views for a schema. Override in subclasses that support semantic views."""

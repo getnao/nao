@@ -333,6 +333,8 @@ def sync_database(
 
                 ctx = db_config.create_context(conn, schema, table)
                 ctx.set_exclude_columns(db_config.exclude_columns)
+                include_patterns, exclude_patterns = db_config.column_selection_for(schema, table)
+                ctx.set_column_selection(include_patterns, exclude_patterns)
                 table_usage = usage_stats.get(f"{schema}.{table}", TableUsageStats())
                 has_profiling = DatabaseTemplate.PROFILING in db_config.templates
                 has_ai_summary = DatabaseTemplate.AI_SUMMARY in db_config.templates
