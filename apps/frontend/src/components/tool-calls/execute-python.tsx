@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Streamdown } from 'streamdown';
 import { Code, Copy, Terminal } from 'lucide-react';
 import { ToolCallWrapper } from './tool-call-wrapper';
+import { ToolOutputFallback } from './tool-output-fallback';
 import type { ToolCallComponentProps } from '.';
 import { useToolCallContext } from '@/contexts/tool-call';
 
@@ -81,7 +82,7 @@ export const ExecutePythonToolCall = ({ toolPart: { output, input } }: ToolCallC
 					</div>
 				</div>
 			) : (
-				<div className='p-4 text-center text-foreground/50 text-sm'>Executing Python...</div>
+				<ToolOutputFallback runningLabel='Executing Python...' />
 			)}
 		</ToolCallWrapper>
 	);
