@@ -872,6 +872,18 @@ export function isAnthropicApiModel(provider: LlmProvider, modelId: string): boo
 	}
 }
 
+/** Whether the selected provider/model adapter requires Gemini's user-first alternating turn sequence. */
+export function requiresGeminiTurnSequence(provider: LlmProvider, modelId: string): boolean {
+	switch (providerKind(provider)) {
+		case 'google':
+			return true;
+		case 'vertex':
+			return !modelId.startsWith('claude-');
+		default:
+			return false;
+	}
+}
+
 /**
  * Resolve the tunable-parameter capabilities for a model. Falls back to sensible per-provider
  * defaults for custom (unlisted) models so tuning still works for user-added model ids.

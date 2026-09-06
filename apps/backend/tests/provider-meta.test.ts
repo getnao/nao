@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { getModelCapabilities, getModelParameterSpec, isAnthropicApiModel } from '../src/agents/provider-meta';
+import {
+	getModelCapabilities,
+	getModelParameterSpec,
+	isAnthropicApiModel,
+	requiresGeminiTurnSequence,
+} from '../src/agents/provider-meta';
 import type { ParamControl } from '../src/types/llm';
 
 describe('isAnthropicApiModel', () => {
@@ -22,6 +27,19 @@ describe('isAnthropicApiModel', () => {
 	it('does not match other providers, even for Claude model ids', () => {
 		expect(isAnthropicApiModel('openai', 'gpt-5.5')).toBe(false);
 		expect(isAnthropicApiModel('openrouter', 'anthropic/claude-sonnet-4.5')).toBe(false);
+	});
+});
+
+describe('requiresGeminiTurnSequence', () => {
+	it('matches direct Google and Gemini on Vertex', () => {
+		expect(requiresGeminiTurnSequence('google', 'gemini-2.5-flash')).toBe(true);
+		expect(requiresGeminiTurnSequence('vertex', 'gemini-3-flash-preview')).toBe(true);
+	});
+
+	it('excludes Vertex Claude and OpenAI-style adapters', () => {
+		expect(requiresGeminiTurnSequence('vertex', 'claude-sonnet-4-6')).toBe(false);
+		expect(requiresGeminiTurnSequence('openrouter', 'google/gemini-2.5-flash')).toBe(false);
+		expect(requiresGeminiTurnSequence('openaiCompatible/custom', 'gemini-2.5-flash')).toBe(false);
 	});
 });
 

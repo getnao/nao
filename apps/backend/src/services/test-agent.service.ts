@@ -1,13 +1,13 @@
 import type { LlmSelectedModel } from '@nao/shared/types';
-import { generateText, ModelMessage, Output } from 'ai';
+import { generateText, Output } from 'ai';
 import { z } from 'zod/v4';
 
 import { llmTelemetry } from '../agents/telemetry';
 import type { UIMessage } from '../types/chat';
 import type { ModelCosts } from '../types/llm';
-import type { QueryResult } from '../types/tools';
 import { AgentRunResult, AgentService } from './agent';
 import { runSqlOverQueryResults } from './duckdb.service';
+import { buildVerificationMessages } from './test-agent-verification';
 
 export interface VerificationResult {
 	/** Rows the verification query returned, or null when no answer could be produced */
@@ -68,6 +68,7 @@ export class TestAgentService extends AgentService {
 	 */
 	async runVerification(
 		projectId: string,
+		prompt: string,
 		agentResult: AgentRunResult,
 		expectedColumns: string[],
 		modelSelection?: LlmSelectedModel,
@@ -80,10 +81,13 @@ export class TestAgentService extends AgentService {
 		const resolvedSelectedModel = await this._getResolvedLlmSelectedModel(projectId, modelSelection);
 		const modelConfig = await this._getModelConfig(projectId, resolvedSelectedModel);
 
-		const messages: ModelMessage[] = [
-			...agentResult.responseMessages,
-			{ role: 'user', content: TestAgentService._buildVerificationPrompt(expectedColumns, queryResults) },
-		];
+		const messages = buildVerificationMessages(
+			resolvedSelectedModel,
+			prompt,
+			agentResult.responseMessages,
+			expectedColumns,
+			queryResults,
+		);
 
 		let sql: string | null = null;
 		let error: string | null = null;
@@ -122,24 +126,6 @@ export class TestAgentService extends AgentService {
 			role: 'user',
 			parts: [{ type: 'text', text }],
 		};
-	}
-
-	private static _buildVerificationPrompt(columns: string[], queryResults: Map<string, QueryResult>): string {
-		const tables = [...queryResults.entries()]
-			.map(([queryId, result]) => `- ${queryId} (${result.data.length} rows): ${result.columns.join(', ')}`)
-			.join('\n');
-
-		return `Based on your previous analysis, write a DuckDB query returning the final answer to the original question.
-
-Every query you ran is loaded in DuckDB as a table named after its query id:
-${tables}
-
-Rules:
-- Only read from the tables above, the warehouse is not reachable anymore.
-- Return exactly these columns, with these names: ${columns.join(', ')}
-- Read the values from the tables, never retype them as literals.
-- Apply the same filters, aggregations and ordering as the answer you gave.
-- Set sql to null if these tables cannot answer the question.`;
 	}
 
 	private static _buildRepairPrompt(error: string): string {
