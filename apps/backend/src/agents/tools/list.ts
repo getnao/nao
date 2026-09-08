@@ -3,18 +3,18 @@ import fs from 'fs/promises';
 import path from 'path';
 
 import { ListOutput, renderToModelOutput } from '../../components/tool-outputs';
+import { assertContextPathAllowed, isContextPathAllowed } from '../../services/context-access';
 import { isStorageEnabled } from '../../services/storage';
 import { listUserDirectory } from '../../services/storage/user-files';
 import type { ToolContext } from '../../types/tools';
 import {
 	isStoragePath,
+	resolveCanonicalProjectPath,
 	shouldExcludeEntry,
 	STORAGE_MOUNT,
-	toRealPath,
 	toStorageRelativePath,
 	toStorageScope,
 	toStorageVirtualPath,
-	toVirtualPath,
 } from '../../utils/tools';
 import { createTool } from '../../utils/tools';
 
@@ -47,16 +47,20 @@ const listStorage = async (virtualPath: string, context: ToolContext): Promise<l
 
 const listProjectFolder = async (virtualPath: string, context: ToolContext): Promise<list.Entry[]> => {
 	const projectFolder = context.projectFolder;
-	const realPath = toRealPath(virtualPath, projectFolder);
+	const canonical = resolveCanonicalProjectPath(virtualPath, projectFolder);
+	assertContextPathAllowed(context.warehouseTableAccess, canonical.virtualPath);
+	const realPath = canonical.realPath;
 
 	// Get the relative path of the parent directory for naoignore matching
-	const parentRelativePath = path.relative(projectFolder, realPath);
+	const parentRelativePath = canonical.virtualPath.replace(/^\/+/, '');
 
 	const dirEntries = await fs.readdir(realPath, { withFileTypes: true });
 
 	// Filter out excluded entries (including .naoignore patterns)
 	const filteredEntries = dirEntries.filter(
-		(entry) => !shouldExcludeEntry(entry.name, parentRelativePath, projectFolder),
+		(entry) =>
+			!shouldExcludeEntry(entry.name, parentRelativePath, projectFolder) &&
+			isAllowedProjectEntry(path.posix.join(canonical.virtualPath, entry.name), context),
 	);
 
 	const entries = await Promise.all(
@@ -76,14 +80,16 @@ const listProjectFolder = async (virtualPath: string, context: ToolContext): Pro
 			if (type === 'directory') {
 				try {
 					const subEntries = await fs.readdir(fullRealPath);
-					itemCount = subEntries.length;
+					itemCount = subEntries.filter((name) =>
+						isAllowedProjectEntry(path.posix.join(canonical.virtualPath, entry.name, name), context),
+					).length;
 				} catch {
 					// If we can't read the directory, leave itemCount undefined
 				}
 			}
 
 			return {
-				path: toVirtualPath(fullRealPath, projectFolder),
+				path: path.posix.join(canonical.virtualPath, entry.name),
 				name: entry.name,
 				type,
 				size,
@@ -95,6 +101,15 @@ const listProjectFolder = async (virtualPath: string, context: ToolContext): Pro
 	const isRoot = parentRelativePath === '';
 	return isRoot && isStorageEnabled() ? [...entries, storageMountEntry()] : entries;
 };
+
+function isAllowedProjectEntry(virtualPath: string, context: ToolContext): boolean {
+	try {
+		const canonical = resolveCanonicalProjectPath(virtualPath, context.projectFolder);
+		return isContextPathAllowed(context.warehouseTableAccess, canonical.virtualPath);
+	} catch {
+		return false;
+	}
+}
 
 /** Permanent storage shows up as an ordinary folder at the root of the tree. */
 const storageMountEntry = (): list.Entry => {

@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -14,13 +14,14 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 load_dotenv()
 
 cli_path = Path(__file__).resolve().parent.parent.parent.parent / "cli"
 sys.path.insert(0, str(cli_path))
 
+from nao_core.commands.sync.cleanup import get_database_folder_names
 from nao_core.config import NaoConfig, NaoConfigError
 from nao_core.config.databases.allow_listed_only_guard import (
     AllowListedOnlyGuardError,
@@ -102,13 +103,49 @@ app.add_middleware(
 # =============================================================================
 
 
-class ExecuteSQLRequest(BaseModel):
+class StrictRequestModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class TableAccessTable(StrictRequestModel):
+    database_type: str = Field(min_length=1)
+    database: str = Field(min_length=1)
+    schema_name: str = Field(alias="schema", min_length=1)
+    table: str = Field(min_length=1)
+
+
+class UnenforcedTableAccess(StrictRequestModel):
+    enforced: Literal[False]
+
+
+class EnforcedTableAccess(StrictRequestModel):
+    enforced: Literal[True]
+    tables: list[TableAccessTable]
+
+
+TableAccess = Annotated[
+    UnenforcedTableAccess | EnforcedTableAccess,
+    Field(discriminator="enforced"),
+]
+
+
+class ExecuteSQLRequest(StrictRequestModel):
     sql: str
     nao_project_folder: str
+    table_access: TableAccess
     database_id: str | None = None
     env_vars: dict[str, str] | None = None
     azure_access_token: str | None = None
     enforce_excluded_columns: bool = False
+
+    @field_validator("table_access", mode="before")
+    @classmethod
+    def validate_table_access_discriminant(cls, value):
+        if not isinstance(value, dict) or not isinstance(
+            value.get("enforced"), bool
+        ):
+            raise ValueError("table_access.enforced must be a boolean")
+        return value
 
 
 class ExecuteSQLResponse(BaseModel):
@@ -116,6 +153,11 @@ class ExecuteSQLResponse(BaseModel):
     row_count: int
     columns: list[str]
     dialect: str | None = None
+
+
+class ValidateSQLResponse(BaseModel):
+    valid: Literal[True]
+    dialect: str
 
 
 class HealthResponse(BaseModel):
@@ -131,8 +173,17 @@ def _validate_sql(
     project_path: Path,
     enforce_excluded_columns: bool,
     conn=None,
+    group_allowed_tables: set[tuple[str, str]] | None = None,
+    database_folder: str | None = None,
 ) -> str:
-    validated_sql = enforce_allow_listed_only(sql, db_config, project_path, conn=conn)
+    validated_sql = enforce_allow_listed_only(
+        sql,
+        db_config,
+        project_path,
+        conn=conn,
+        group_allowed_tables=group_allowed_tables,
+        database_folder=database_folder,
+    )
     if enforce_excluded_columns:
         validated_sql = validate_column_access(validated_sql, db_config, project_path)
     return validated_sql
@@ -143,6 +194,8 @@ def _execute_sql_with_guards(
     db_config,
     project_path: Path,
     enforce_excluded_columns: bool,
+    group_allowed_tables: set[tuple[str, str]] | None,
+    database_folder: str,
 ) -> pd.DataFrame:
     conn = db_config.connect()
     try:
@@ -152,6 +205,8 @@ def _execute_sql_with_guards(
             project_path,
             enforce_excluded_columns,
             conn=conn,
+            group_allowed_tables=group_allowed_tables,
+            database_folder=database_folder,
         )
         return db_config.execute_sql(validated_sql, conn=conn)
     finally:
@@ -214,6 +269,168 @@ def require_internal_secret(
 internal_only = [Depends(require_internal_secret)]
 
 
+def _load_database(request: ExecuteSQLRequest) -> tuple[Path, Any, str]:
+    project_path = Path(request.nao_project_folder)
+    config = NaoConfig.try_load(
+        project_path,
+        raise_on_error=True,
+        extra_env=request.env_vars,
+    )
+    assert config is not None
+
+    if len(config.databases) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="No databases configured in nao_config.yaml",
+        )
+
+    names = [db.name for db in config.databases]
+    duplicate_names = sorted(
+        {name for name in names if names.count(name) > 1}
+    )
+    if duplicate_names:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Database connection names must be unique. Duplicate name(s): "
+                + ", ".join(duplicate_names)
+            ),
+        )
+
+    if len(config.databases) == 1:
+        selected_index = 0
+    elif request.database_id:
+        selected_index = next(
+            (
+                index
+                for index, db in enumerate(config.databases)
+                if db.name == request.database_id
+            ),
+            None,
+        )
+        if selected_index is None:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": f"Database '{request.database_id}' not found",
+                    "available_databases": [db.name for db in config.databases],
+                },
+            )
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Multiple databases configured. Please specify database_id.",
+                "available_databases": [db.name for db in config.databases],
+            },
+        )
+
+    db_config = config.databases[selected_index]
+    database_folders = get_database_folder_names(config.databases)
+    database_folder = database_folders[selected_index]
+    authorization_identity = (str(db_config.type).lower(), database_folder)
+    matching_identities = [
+        index
+        for index, (candidate, candidate_folder) in enumerate(
+            zip(config.databases, database_folders, strict=True)
+        )
+        if (str(candidate.type).lower(), candidate_folder)
+        == authorization_identity
+    ]
+    if len(matching_identities) != 1:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Database authorization identity is ambiguous for connection "
+                f"'{db_config.name}' ({authorization_identity[0]}, {database_folder})."
+            ),
+        )
+
+    return project_path, db_config, database_folder
+
+
+def _active_group_allowed_tables(
+    table_access: TableAccess,
+    db_config: Any,
+    database_folder: str,
+) -> set[tuple[str, str]] | None:
+    if not table_access.enforced:
+        return None
+
+    database_folder_name = database_folder.removeprefix("database=")
+    database_type = str(db_config.type).lower()
+    return {
+        (entry.schema_name, entry.table)
+        for entry in table_access.tables
+        if entry.database_type.lower() == database_type
+        and entry.database == database_folder_name
+    }
+
+
+def _is_azure_entra_id(db_config: Any) -> bool:
+    return getattr(getattr(db_config, "auth_mode", None), "value", None) == (
+        "azure_entra_id"
+    )
+
+
+def _assert_azure_request_can_validate(
+    request: ExecuteSQLRequest,
+    db_config: Any,
+    group_allowed_tables: set[tuple[str, str]] | None,
+) -> None:
+    if not _is_azure_entra_id(db_config):
+        return
+    if not request.azure_access_token:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "azure_access_token is required when the database auth_mode is "
+                "'azure_entra_id'. Runtime queries must use the end user's access "
+                "token; any configured user/password is only used by nao sync."
+            ),
+        )
+
+    table_validation_enabled = (
+        db_config.allow_listed_only or group_allowed_tables is not None
+    )
+    if (
+        table_validation_enabled
+        and query_references_base_tables(request.sql, db_config.type)
+        and (
+            not getattr(db_config, "user", None)
+            or not getattr(db_config, "password", None)
+        )
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Queries that reference tables require sync user and password "
+                "when table access validation is enabled with auth_mode "
+                "'azure_entra_id'. These credentials are used only to validate "
+                "the query against the live schema and context rules; the query "
+                "still executes with the end user's access token."
+            ),
+        )
+
+
+def _validate_request(
+    request: ExecuteSQLRequest,
+    db_config: Any,
+    project_path: Path,
+    group_allowed_tables: set[tuple[str, str]] | None,
+    database_folder: str,
+) -> str:
+    _assert_azure_request_can_validate(request, db_config, group_allowed_tables)
+    return _validate_sql(
+        request.sql,
+        db_config,
+        project_path,
+        request.enforce_excluded_columns,
+        group_allowed_tables=group_allowed_tables,
+        database_folder=database_folder,
+    )
+
+
 # =============================================================================
 # API Endpoints
 # =============================================================================
@@ -243,103 +460,39 @@ async def health_check():
 @app.post("/execute_sql", response_model=ExecuteSQLResponse, dependencies=internal_only)
 async def execute_sql(request: ExecuteSQLRequest):
     try:
-        project_path = Path(request.nao_project_folder)
-        config = NaoConfig.try_load(
-            project_path,
-            raise_on_error=True,
-            extra_env=request.env_vars,
+        project_path, db_config, database_folder = _load_database(request)
+        group_allowed_tables = _active_group_allowed_tables(
+            request.table_access, db_config, database_folder
         )
-        assert config is not None
-
-        if len(config.databases) == 0:
-            raise HTTPException(
-                status_code=400,
-                detail="No databases configured in nao_config.yaml",
-            )
-
-        if len(config.databases) == 1:
-            db_config = config.databases[0]
-        elif request.database_id:
-            db_config = next(
-                (db for db in config.databases if db.name == request.database_id),
-                None,
-            )
-            if db_config is None:
-                available_databases = [db.name for db in config.databases]
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "message": f"Database '{request.database_id}' not found",
-                        "available_databases": available_databases,
-                    },
-                )
-        else:
-            available_databases = [db.name for db in config.databases]
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "message": "Multiple databases configured. Please specify database_id.",
-                    "available_databases": available_databases,
-                },
-            )
-
-        auth_mode_value = getattr(getattr(db_config, "auth_mode", None), "value", None)
-        is_azure_entra_id = auth_mode_value == "azure_entra_id"
-
-        if is_azure_entra_id and not request.azure_access_token:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "azure_access_token is required when the database auth_mode is "
-                    "'azure_entra_id'. Runtime queries must use the end user's access "
-                    "token; any configured user/password is only used by nao sync."
-                ),
-            )
-
         try:
-            if is_azure_entra_id:
-                if db_config.allow_listed_only and query_references_base_tables(
-                    request.sql,
-                    db_config.type,
-                ):
-                    if not getattr(db_config, "user", None) or not getattr(
-                        db_config,
-                        "password",
-                        None,
-                    ):
-                        raise HTTPException(
-                            status_code=400,
-                            detail=(
-                                "Queries that reference tables require sync user and password "
-                                "when allow_listed_only validation is enabled with auth_mode "
-                                "'azure_entra_id'. These credentials are used only to validate "
-                                "the query against the live schema and context rules; the query "
-                                "still executes with the end user's access token."
-                            ),
-                        )
-                validated_sql = _validate_sql(
-                    request.sql,
+            if _is_azure_entra_id(db_config):
+                validated_sql = _validate_request(
+                    request,
                     db_config,
                     project_path,
-                    request.enforce_excluded_columns,
+                    group_allowed_tables,
+                    database_folder,
                 )
                 df = db_config.execute_sql_with_token(
                     validated_sql,
                     request.azure_access_token,
                 )
-            elif db_config.allow_listed_only:
+            elif db_config.allow_listed_only or group_allowed_tables is not None:
                 df = _execute_sql_with_guards(
                     request.sql,
                     db_config,
                     project_path,
                     request.enforce_excluded_columns,
+                    group_allowed_tables,
+                    database_folder,
                 )
             else:
-                validated_sql = _validate_sql(
-                    request.sql,
+                validated_sql = _validate_request(
+                    request,
                     db_config,
                     project_path,
-                    request.enforce_excluded_columns,
+                    group_allowed_tables,
+                    database_folder,
                 )
                 df = db_config.execute_sql(validated_sql)
         except (AllowListedOnlyGuardError, ColumnAccessError) as error:
@@ -356,6 +509,36 @@ async def execute_sql(request: ExecuteSQLRequest):
             columns=[str(c) for c in df.columns.tolist()],
             dialect=db_config.type,
         )
+    except HTTPException:
+        raise
+    except NaoConfigError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(
+    "/validate_sql",
+    response_model=ValidateSQLResponse,
+    dependencies=internal_only,
+)
+async def validate_sql(request: ExecuteSQLRequest):
+    try:
+        project_path, db_config, database_folder = _load_database(request)
+        group_allowed_tables = _active_group_allowed_tables(
+            request.table_access, db_config, database_folder
+        )
+        try:
+            _validate_request(
+                request,
+                db_config,
+                project_path,
+                group_allowed_tables,
+                database_folder,
+            )
+        except (AllowListedOnlyGuardError, ColumnAccessError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return ValidateSQLResponse(valid=True, dialect=db_config.type)
     except HTTPException:
         raise
     except NaoConfigError as e:

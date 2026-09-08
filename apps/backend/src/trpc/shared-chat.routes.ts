@@ -189,6 +189,7 @@ export const sharedChatRoutes = {
 				version.code,
 				version.isLive,
 				version.cacheSchedule,
+				ctx.user.id,
 			);
 
 			logAnalyticsEvent({

@@ -327,6 +327,37 @@ export const toRealPath = (virtualPath: string, projectFolder: string): string =
 	return resolvedPath;
 };
 
+export const resolveCanonicalProjectPath = (
+	virtualPath: string,
+	projectFolder: string,
+): { realPath: string; virtualPath: string } => {
+	const projectRoot = path.resolve(projectFolder);
+	const canonicalProjectRoot = fs.realpathSync.native(projectRoot);
+	const candidatePath = toRealPath(virtualPath, projectFolder);
+	let realPath: string;
+	try {
+		realPath = fs.realpathSync.native(candidatePath);
+	} catch (error) {
+		if (!isMissingPathError(error)) {
+			throw error;
+		}
+		realPath = path.resolve(canonicalProjectRoot, path.relative(projectRoot, candidatePath));
+	}
+
+	if (!isWithinProjectFolder(realPath, canonicalProjectRoot)) {
+		throw new Error(`Access denied: path '${virtualPath}' resolves outside the project folder`);
+	}
+
+	const relativePath = path.relative(canonicalProjectRoot, realPath).replaceAll(path.sep, '/');
+	return {
+		realPath,
+		virtualPath: relativePath ? `/${relativePath}` : '/',
+	};
+};
+
+const isMissingPathError = (error: unknown): error is NodeJS.ErrnoException =>
+	error instanceof Error && 'code' in error && error.code === 'ENOENT';
+
 /**
  * Converts a real filesystem path to a virtual path (where / = project folder).
  * - `{projectFolder}/foo/bar` → `/foo/bar`

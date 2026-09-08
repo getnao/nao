@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { GrepOutput, renderToModelOutput } from '../../components/tool-outputs';
+import { assertContextPathAllowed, isContextPathAllowed } from '../../services/context-access';
 import { isStorageEnabled } from '../../services/storage';
 import { canGrepUserFiles, grepRootForUser } from '../../services/storage/user-files';
 import type { ToolContext } from '../../types/tools';
@@ -12,11 +13,10 @@ import {
 	isStoragePath,
 	isWithinProjectFolder,
 	loadNaoignorePatterns,
-	toRealPath,
+	resolveCanonicalProjectPath,
 	toStorageRelativePath,
 	toStorageScope,
 	toStorageVirtualPath,
-	toVirtualPath,
 } from '../../utils/tools';
 import { createTool } from '../../utils/tools';
 interface RipgrepMatch {
@@ -36,6 +36,7 @@ interface SearchTarget {
 	/** Returns null when a match must be dropped because it sits outside the target. */
 	toDisplayPath: (absolutePath: string) => string | null;
 	toAbsolutePath: (displayPath: string) => string;
+	isAllowedDisplayPath: (displayPath: string) => boolean;
 }
 
 interface TargetResult {
@@ -75,24 +76,44 @@ const resolveTargets = (searchPath: string | undefined, context: ToolContext): S
 		return [storageTarget(searchPath!, context)];
 	}
 	if (searchPath) {
-		return [projectTarget(searchPath, context.projectFolder)];
+		return [projectTarget(searchPath, context)];
 	}
 
 	const storage = isStorageEnabled() && canGrepUserFiles() ? [storageTarget(toStorageVirtualPath(''), context)] : [];
-	return [projectTarget(undefined, context.projectFolder), ...storage];
+	return [projectTarget(undefined, context), ...storage];
 };
 
-const projectTarget = (searchPath: string | undefined, projectFolder: string): SearchTarget => {
+const projectTarget = (searchPath: string | undefined, context: ToolContext): SearchTarget => {
+	const projectFolder = context.projectFolder;
+	const root = resolveCanonicalProjectPath(searchPath ?? '/', projectFolder);
+	if (searchPath) {
+		assertContextPathAllowed(context.warehouseTableAccess, root.virtualPath);
+	}
 	return {
-		root: searchPath ? toRealPath(searchPath, projectFolder) : projectFolder,
+		root: root.realPath,
 		cwd: projectFolder,
 		ignoreGlobs: loadNaoignorePatterns(projectFolder),
 		includeHidden: false,
-		toDisplayPath: (absolutePath) =>
-			isWithinProjectFolder(absolutePath, projectFolder) ? toVirtualPath(absolutePath, projectFolder) : null,
-		toAbsolutePath: (displayPath) => toRealPath(displayPath, projectFolder),
+		toDisplayPath: (absolutePath) => canonicalAllowedDisplayPath(absolutePath, context),
+		toAbsolutePath: (displayPath) => resolveCanonicalProjectPath(displayPath, projectFolder).realPath,
+		isAllowedDisplayPath: () => true,
 	};
 };
+
+function canonicalAllowedDisplayPath(absolutePath: string, context: ToolContext): string | null {
+	try {
+		const canonicalRoot = resolveCanonicalProjectPath('/', context.projectFolder).realPath;
+		if (!isWithinProjectFolder(absolutePath, canonicalRoot)) {
+			return null;
+		}
+		const relativePath = path.relative(canonicalRoot, absolutePath).replaceAll(path.sep, '/');
+		const virtualPath = relativePath ? `/${relativePath}` : '/';
+		const canonical = resolveCanonicalProjectPath(virtualPath, context.projectFolder);
+		return isContextPathAllowed(context.warehouseTableAccess, canonical.virtualPath) ? canonical.virtualPath : null;
+	} catch {
+		return null;
+	}
+}
 
 const storageTarget = (searchPath: string, context: ToolContext): SearchTarget => {
 	const scope = toStorageScope(context);
@@ -111,6 +132,7 @@ const storageTarget = (searchPath: string, context: ToolContext): SearchTarget =
 			return toStorageVirtualPath(relativePath.replaceAll(path.sep, '/'));
 		},
 		toAbsolutePath: (displayPath) => grepRootForUser(scope, toStorageRelativePath(displayPath)),
+		isAllowedDisplayPath: () => true,
 	};
 };
 
@@ -197,7 +219,7 @@ function searchTarget(
 
 					// Security check: ensure the file belongs to the target
 					const displayPath = target.toDisplayPath(data.path.text);
-					if (!displayPath) {
+					if (!displayPath || !target.isAllowedDisplayPath(displayPath)) {
 						continue;
 					}
 

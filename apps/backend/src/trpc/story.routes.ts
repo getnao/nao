@@ -156,11 +156,17 @@ export const storyRoutes = {
 			});
 		}
 
-		const queryData = story.chatId
-			? await backfillMissingQueryData(story.code, cache?.queryData ?? null, { chatId: story.chatId })
-			: (cache?.queryData ?? null);
+		const liveData =
+			story.chatId && story.isLive
+				? await getStoryQueryData(story.chatId, story.slug, story.code, true, story.cacheSchedule, ctx.user.id)
+				: null;
+		const queryData = liveData
+			? liveData.queryData
+			: story.chatId
+				? await backfillMissingQueryData(story.code, cache?.queryData ?? null, { chatId: story.chatId })
+				: (cache?.queryData ?? null);
 
-		return { ...story, queryData, cachedAt: cache?.cachedAt ?? null, lastRefreshFailure };
+		return { ...story, queryData, cachedAt: liveData?.cachedAt ?? cache?.cachedAt ?? null, lastRefreshFailure };
 	}),
 
 	getLatest: chatStoryProcedure
@@ -176,6 +182,7 @@ export const storyRoutes = {
 				version.code,
 				version.isLive,
 				version.cacheSchedule,
+				ctx.user.id,
 			);
 			const lastRefreshFailure = await activityQueries.getLatestStoryRefreshFailure(version.storyId);
 
@@ -333,7 +340,7 @@ export const storyRoutes = {
 				trigger: 'manual',
 			});
 			try {
-				const { queryData } = await refreshStoryData(input.chatId, input.storySlug);
+				const { queryData } = await refreshStoryData(input.chatId, input.storySlug, ctx.user.id);
 				await activityQueries.completeActivity(activity.id, {
 					queriesRefreshed: Object.keys(queryData).length,
 				});
@@ -356,15 +363,15 @@ export const storyRoutes = {
 
 	getLiveQueryData: chatStoryProcedure
 		.input(z.object({ chatId: z.string(), queryId: z.string() }))
-		.query(async ({ input }) => {
-			return executeLiveQuery(input.chatId, input.queryId);
+		.query(async ({ input, ctx }) => {
+			return executeLiveQuery(input.chatId, input.queryId, ctx.user.id);
 		}),
 
 	getFilterOptions: chatStoryProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string(), filterId: z.string() }))
-		.query(async ({ input }) => {
+		.query(async ({ input, ctx }) => {
 			assertStoryFiltersEnabled();
-			return getStoryFilterOptions(input.chatId, input.storySlug, input.filterId);
+			return getStoryFilterOptions(input.chatId, input.storySlug, input.filterId, ctx.user.id);
 		}),
 
 	getFilteredQueryData: chatStoryProcedure
@@ -375,9 +382,9 @@ export const storyRoutes = {
 				selections: z.record(z.string(), z.union([z.string(), z.array(z.string())])),
 			}),
 		)
-		.query(async ({ input }) => {
+		.query(async ({ input, ctx }) => {
 			assertStoryFiltersEnabled();
-			return getFilteredStoryQueryData(input.chatId, input.storySlug, input.selections);
+			return getFilteredStoryQueryData(input.chatId, input.storySlug, input.selections, ctx.user.id);
 		}),
 
 	getQuerySql: chatStoryProcedure
@@ -509,12 +516,23 @@ export const storyRoutes = {
 				});
 			}
 
+			const liveData =
+				story.chatId && story.isLive
+					? await getStoryQueryData(
+							story.chatId,
+							story.slug,
+							story.code,
+							true,
+							story.cacheSchedule,
+							ctx.user.id,
+						)
+					: null;
 			const displaySettings = story.projectId ? await projectQueries.getDisplaySettings(story.projectId) : null;
 			return buildDownloadResponse(
 				input.format,
 				story.title,
 				story.code,
-				cache?.queryData ?? null,
+				liveData?.queryData ?? cache?.queryData ?? null,
 				displaySettings?.dateFormat,
 			);
 		}),
@@ -542,6 +560,7 @@ export const storyRoutes = {
 				version.code,
 				version.isLive,
 				version.cacheSchedule,
+				ctx.user.id,
 			);
 
 			const projectId = await chatQueries.getChatProjectId(input.chatId);

@@ -1,4 +1,6 @@
 import {
+	ALL_DATABASE_CONTEXT_ACCESS,
+	type DatabaseContextAccess,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	type ToolCallDensityPolicy,
 	USER_GROUP_FEATURES,
@@ -14,6 +16,7 @@ export type UserGroupFeatureFlags = Record<UserGroupFeature, boolean>;
 export interface EffectiveUserGroupAccess {
 	features: UserGroupFeatureFlags;
 	toolCallDensityPolicy: ToolCallDensityPolicy;
+	databaseAccess: DatabaseContextAccess;
 }
 
 export class UserGroupFeatureAccessError extends HandlerError {
@@ -31,12 +34,14 @@ export async function getEffectiveUserGroupAccess(
 		return {
 			features: createFeatureFlags(USER_GROUP_FEATURES),
 			toolCallDensityPolicy: DEFAULT_TOOL_CALL_DENSITY_POLICY,
+			databaseAccess: ALL_DATABASE_CONTEXT_ACCESS,
 		};
 	}
 	const access = await resolveEffectiveUserGroupAccess(projectId, userId);
 	return {
 		features: createFeatureFlags(access.features),
 		toolCallDensityPolicy: access.toolCallDensityPolicy,
+		databaseAccess: access.databaseAccess,
 	};
 }
 

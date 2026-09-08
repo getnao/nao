@@ -4,11 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('fs');
 
-import { getDatabaseObjects, getTableColumnsContent } from '../src/agents/user-rules';
+import { getDatabaseContextCatalog, getDatabaseObjects, getTableColumnsContent } from '../src/agents/user-rules';
 
 const mockExistsSync = vi.mocked(existsSync);
 const mockReaddirSync = vi.mocked(readdirSync);
 const mockReadFileSync = vi.mocked(readFileSync);
+const unrestrictedAccess = { enforced: false } as const;
 
 function makeDirent(name: string, isDirectory = true): Dirent {
 	return { name, isDirectory: () => isDirectory } as unknown as Dirent;
@@ -125,6 +126,56 @@ describe('getDatabaseObjects', () => {
 	});
 });
 
+describe('getDatabaseContextCatalog', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('distinguishes a missing databases tree from a successful empty scan', () => {
+		mockExistsSync.mockReturnValue(false);
+		expect(getDatabaseContextCatalog('/project-catalog-missing')).toEqual({
+			syncState: 'missing',
+			objects: [],
+		});
+
+		setupDirStructure('/project-catalog-empty', {});
+		expect(getDatabaseContextCatalog('/project-catalog-empty')).toEqual({
+			syncState: 'ready',
+			objects: [],
+		});
+	});
+
+	it('returns normalized sorted object identities without paths', () => {
+		const root = '/project-catalog';
+		setupDirStructure(root, {
+			[join(root, 'databases')]: ['type=SnowFlake', 'type=postgres'],
+			[join(root, 'databases', 'type=SnowFlake')]: ['database=Warehouse'],
+			[join(root, 'databases', 'type=SnowFlake', 'database=Warehouse')]: ['schema=Raw'],
+			[join(root, 'databases', 'type=SnowFlake', 'database=Warehouse', 'schema=Raw')]: ['table=Events'],
+			[join(root, 'databases', 'type=postgres')]: ['database=app'],
+			[join(root, 'databases', 'type=postgres', 'database=app')]: ['schema=public'],
+			[join(root, 'databases', 'type=postgres', 'database=app', 'schema=public')]: ['table=users'],
+		});
+
+		expect(getDatabaseContextCatalog(root)).toEqual({
+			syncState: 'ready',
+			objects: [
+				{ databaseType: 'postgres', database: 'app', schema: 'public', table: 'users' },
+				{ databaseType: 'snowflake', database: 'Warehouse', schema: 'Raw', table: 'Events' },
+			],
+		});
+	});
+
+	it('surfaces filesystem scan failures', () => {
+		mockExistsSync.mockReturnValue(true);
+		mockReaddirSync.mockImplementation(() => {
+			throw new Error('Permission denied');
+		});
+
+		expect(() => getDatabaseContextCatalog('/project-catalog-error')).toThrow('Permission denied');
+	});
+});
+
 describe('getTableColumnsContent', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -132,7 +183,7 @@ describe('getTableColumnsContent', () => {
 
 	it('returns undefined when the fqdn does not match any database object', () => {
 		mockExistsSync.mockReturnValue(false);
-		const result = getTableColumnsContent('/project-x', 'db.schema.unknown');
+		const result = getTableColumnsContent('/project-x', 'db.schema.unknown', unrestrictedAccess);
 		expect(result).toBeUndefined();
 	});
 
@@ -146,7 +197,7 @@ describe('getTableColumnsContent', () => {
 		});
 		mockReadFileSync.mockReturnValue('# id\n# name\n');
 
-		const result = getTableColumnsContent(root, 'mydb.public.users');
+		const result = getTableColumnsContent(root, 'mydb.public.users', unrestrictedAccess);
 
 		const expectedPath = join(
 			root,
@@ -173,8 +224,26 @@ describe('getTableColumnsContent', () => {
 			throw new Error('File not found');
 		});
 
-		const result = getTableColumnsContent(root, 'mydb.public.users');
+		const result = getTableColumnsContent(root, 'mydb.public.users', unrestrictedAccess);
 
 		expect(result).toBeUndefined();
+	});
+
+	it('does not read columns for a denied table', () => {
+		const root = '/project-cols-denied';
+		setupDirStructure(root, {
+			[join(root, 'databases')]: ['type=postgres'],
+			[join(root, 'databases', 'type=postgres')]: ['database=mydb'],
+			[join(root, 'databases', 'type=postgres', 'database=mydb')]: ['schema=public'],
+			[join(root, 'databases', 'type=postgres', 'database=mydb', 'schema=public')]: ['table=users'],
+		});
+
+		const result = getTableColumnsContent(root, 'mydb.public.users', {
+			enforced: true,
+			tables: [],
+		});
+
+		expect(result).toBeUndefined();
+		expect(mockReadFileSync).not.toHaveBeenCalled();
 	});
 });

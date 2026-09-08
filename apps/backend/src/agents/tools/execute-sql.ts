@@ -7,6 +7,7 @@ import { env } from '../../env';
 import { getExecuteSqlPartByQueryIdInChat, updateExecuteSqlPart } from '../../queries/execute-sql.queries';
 import { resolveExcludedColumnEnforcement } from '../../services/excluded-columns.service';
 import { runQueryOnLocalFiles } from '../../services/local-query.service';
+import { executeWarehouseSql } from '../../services/warehouse-sql.service';
 import { ToolContext } from '../../types/tools';
 import { detectQueryRowLimit, isReadOnlySqlQuery } from '../../utils/sql-filter';
 import { createTool } from '../../utils/tools';
@@ -51,30 +52,14 @@ export async function executeQuery(
 	}
 
 	const enforceExcludedColumns = await resolveExcludedColumnEnforcement(context.agentSettings);
-	const naoProjectFolder = context.projectFolder;
-	const envVars = context.envVars;
-	const response = await fetch(`http://localhost:${env.FASTAPI_PORT}/execute_sql`, {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json',
-			'X-Nao-Internal-Secret': env.BETTER_AUTH_SECRET,
-		},
-		body: JSON.stringify({
-			sql: effectiveSql,
-			nao_project_folder: naoProjectFolder,
-			enforce_excluded_columns: enforceExcludedColumns,
-			...(database_id && { database_id }),
-			...(Object.keys(envVars).length > 0 && { env_vars: envVars }),
-			...(context.azureAccessToken && { azure_access_token: context.azureAccessToken }),
-		}),
+	const data = await executeWarehouseSql(effectiveSql, {
+		projectFolder: context.projectFolder,
+		databaseId: database_id,
+		envVars: context.envVars,
+		azureAccessToken: context.azureAccessToken,
+		enforceExcludedColumns,
+		tableAccess: context.warehouseTableAccess,
 	});
-
-	if (!response.ok) {
-		const errorData = await response.json().catch(() => ({ detail: response.statusText }));
-		throw new Error(`Error executing SQL query: ${JSON.stringify(errorData.detail)}`);
-	}
-
-	const data = await response.json();
 	const id = query_id ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
 
 	context.queryResults.set(id, { columns: data.columns, data: data.data });
