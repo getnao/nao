@@ -10,7 +10,7 @@ vi.hoisted(() => {
 vi.mock('../src/db/db', async () => {
 	const { drizzle } = await import('drizzle-orm/better-sqlite3');
 	const schema = await import('../src/db/sqlite-schema');
-	return { db: drizzle('./db.sqlite', { schema }) };
+	return { db: drizzle(process.env.NAO_TEST_DATABASE_PATH ?? './db.sqlite', { schema }) };
 });
 
 import { db as appDb } from '../src/db/db';
@@ -35,13 +35,14 @@ import {
 	UserGroupQueryError,
 } from '../src/queries/user-group.queries';
 
-const db = drizzle('./db.sqlite', { schema: sqliteSchema });
+const db = drizzle(process.env.NAO_TEST_DATABASE_PATH ?? './db.sqlite', { schema: sqliteSchema });
 const PROJECT_ID = 'user-group-project';
 const ORG_ID = 'user-group-org';
 const DIRECT_USER_ID = 'user-group-direct';
 const INHERITED_USER_ID = 'user-group-inherited';
 const BOTH_USER_ID = 'user-group-both';
 const OUTSIDER_USER_ID = 'user-group-outsider';
+const DEFAULT_DENSITY = { defaultDensity: 'detailed', canChange: true } as const;
 
 describe('user group queries', () => {
 	beforeEach(async () => {
@@ -90,6 +91,7 @@ describe('user group queries', () => {
 					canChange: true,
 				},
 			},
+			contextGrants: { version: 1, access: { mode: 'all' } },
 		});
 
 		const overview = await getUserGroupOverview(PROJECT_ID);
@@ -98,6 +100,7 @@ describe('user group queries', () => {
 		expect(defaultGroup).toMatchObject({
 			name: 'All Users',
 			featureGrants: ['story-creation', 'automation-creation'],
+			databaseAccess: { mode: 'all' },
 			toolCallDensityPolicy: {
 				defaultDensity: 'detailed',
 				canChange: true,
@@ -143,6 +146,7 @@ describe('user group queries', () => {
 		const group = await createUserGroup(PROJECT_ID, 'Analysts');
 
 		expect(group.featureGrants).toEqual([]);
+		expect(group.databaseAccess).toEqual({ mode: 'restricted', grants: [] });
 		expect(group.toolCallDensityPolicy).toEqual({
 			defaultDensity: 'detailed',
 			canChange: true,
@@ -156,6 +160,18 @@ describe('user group queries', () => {
 		const updated = await updateUserGroup(PROJECT_ID, group.id, {
 			name: 'Data Analysts',
 			featureGrants: ['story-creation'],
+			databaseAccess: {
+				mode: 'restricted',
+				grants: [
+					{
+						kind: 'table',
+						databaseType: 'POSTGRES',
+						database: 'app',
+						schema: 'public',
+						table: 'users',
+					},
+				],
+			},
 			toolCallDensityPolicy: {
 				defaultDensity: 'compact',
 				canChange: false,
@@ -168,9 +184,21 @@ describe('user group queries', () => {
 				defaultDensity: 'compact',
 				canChange: false,
 			},
+			databaseAccess: {
+				mode: 'restricted',
+				grants: [
+					{
+						kind: 'table',
+						databaseType: 'postgres',
+						database: 'app',
+						schema: 'public',
+						table: 'users',
+					},
+				],
+			},
 		});
 		const [storedUpdated] = await db
-			.select({ featureGrants: userGroup.featureGrants })
+			.select({ contextGrants: userGroup.contextGrants, featureGrants: userGroup.featureGrants })
 			.from(userGroup)
 			.where(eq(userGroup.id, group.id));
 		expect(storedUpdated.featureGrants).toEqual({
@@ -181,6 +209,29 @@ describe('user group queries', () => {
 				canChange: false,
 			},
 		});
+		expect(storedUpdated.contextGrants).toEqual({
+			version: 1,
+			access: {
+				mode: 'restricted',
+				grants: [
+					{
+						kind: 'table',
+						databaseType: 'postgres',
+						database: 'app',
+						schema: 'public',
+						table: 'users',
+					},
+				],
+			},
+		});
+
+		await updateUserGroup(PROJECT_ID, group.id, {
+			featureGrants: [],
+			toolCallDensityPolicy: DEFAULT_DENSITY,
+		});
+		expect(
+			(await getUserGroupOverview(PROJECT_ID)).groups.find(({ id }) => id === group.id)?.databaseAccess,
+		).toEqual(updated.databaseAccess);
 
 		await expect(
 			setUserGroupMembership(PROJECT_ID, group.id, OUTSIDER_USER_ID, true),
@@ -249,6 +300,66 @@ describe('user group queries', () => {
 			'story-creation',
 			'automation-creation',
 		]);
+	});
+
+	it('unions database grants and lets all access dominate', async () => {
+		const overview = await getUserGroupOverview(PROJECT_ID);
+		const defaultGroup = overview.groups[0];
+		await updateUserGroup(PROJECT_ID, defaultGroup.id, {
+			featureGrants: defaultGroup.featureGrants,
+			databaseAccess: { mode: 'restricted', grants: [] },
+		});
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts', [], DEFAULT_DENSITY, {
+			mode: 'restricted',
+			grants: [
+				{ kind: 'schema', databaseType: 'POSTGRES', database: 'app', schema: 'analytics' },
+				{ kind: 'table', databaseType: 'postgres', database: 'app', schema: 'public', table: 'users' },
+			],
+		});
+		await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, true);
+
+		await expect(resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
+			databaseAccess: {
+				mode: 'restricted',
+				grants: [
+					{ kind: 'schema', databaseType: 'postgres', database: 'app', schema: 'analytics' },
+					{ kind: 'table', databaseType: 'postgres', database: 'app', schema: 'public', table: 'users' },
+				],
+			},
+		});
+
+		await updateUserGroup(PROJECT_ID, defaultGroup.id, {
+			featureGrants: defaultGroup.featureGrants,
+			databaseAccess: { mode: 'all' },
+		});
+		await expect(resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
+			databaseAccess: { mode: 'all' },
+		});
+	});
+
+	it('uses null defaults and fails malformed stored access closed', async () => {
+		const overview = await getUserGroupOverview(PROJECT_ID);
+		const defaultGroup = overview.groups[0];
+		const customGroup = await createUserGroup(PROJECT_ID, 'Custom');
+		await db.update(userGroup).set({ contextGrants: null }).where(eq(userGroup.id, defaultGroup.id));
+		await db.update(userGroup).set({ contextGrants: null }).where(eq(userGroup.id, customGroup.id));
+
+		let groups = (await getUserGroupOverview(PROJECT_ID)).groups;
+		expect(groups.find(({ id }) => id === defaultGroup.id)?.databaseAccess).toEqual({ mode: 'all' });
+		expect(groups.find(({ id }) => id === customGroup.id)?.databaseAccess).toEqual({
+			mode: 'restricted',
+			grants: [],
+		});
+
+		await db
+			.update(userGroup)
+			.set({ contextGrants: { version: 1, access: { mode: 'broken' } } as never })
+			.where(eq(userGroup.id, defaultGroup.id));
+		groups = (await getUserGroupOverview(PROJECT_ID)).groups;
+		expect(groups.find(({ id }) => id === defaultGroup.id)?.databaseAccess).toEqual({
+			mode: 'restricted',
+			grants: [],
+		});
 	});
 
 	it('uses a custom group when the default has no grants', async () => {

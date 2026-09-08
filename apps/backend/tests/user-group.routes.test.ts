@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
 	createUserGroup: vi.fn(),
 	getUserGroupOverview: vi.fn(),
+	getDatabaseContextCatalog: vi.fn(),
 	hasFeature: vi.fn(),
 	resolveEffectiveUserGroupAccess: vi.fn(),
 	role: 'admin' as 'admin' | 'user' | 'viewer',
@@ -10,8 +11,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));
+vi.mock('../src/agents/user-rules', () => ({
+	getDatabaseContextCatalog: mocks.getDatabaseContextCatalog,
+}));
 vi.mock('../src/queries/project.queries', () => ({
-	getProjectByUserId: vi.fn(async () => ({ id: 'project-id', name: 'Project' })),
+	getProjectByUserId: vi.fn(async () => ({ id: 'project-id', name: 'Project', path: '/project' })),
 	getUserRoleInProject: vi.fn(async () => mocks.role),
 }));
 vi.mock('../src/queries/user-group.queries', () => ({
@@ -42,8 +46,10 @@ describe('user group routes', () => {
 		mocks.role = 'admin';
 		mocks.hasFeature.mockResolvedValue(true);
 		mocks.getUserGroupOverview.mockResolvedValue({ users: [], groups: [], memberships: [] });
+		mocks.getDatabaseContextCatalog.mockReturnValue({ syncState: 'ready', objects: [] });
 		mocks.resolveEffectiveUserGroupAccess.mockResolvedValue({
 			features: ['story-creation'],
+			databaseAccess: { mode: 'restricted', grants: [] },
 			toolCallDensityPolicy: {
 				defaultDensity: 'compact',
 				canChange: false,
@@ -84,10 +90,68 @@ describe('user group routes', () => {
 		});
 
 		expect(mocks.hasFeature).toHaveBeenCalledWith('user-groups');
-		expect(mocks.createUserGroup).toHaveBeenCalledWith('project-id', 'Analysts', ['story-creation'], {
-			defaultDensity: 'compact',
-			canChange: false,
+		expect(mocks.createUserGroup).toHaveBeenCalledWith(
+			'project-id',
+			'Analysts',
+			['story-creation'],
+			{
+				defaultDensity: 'compact',
+				canChange: false,
+			},
+			{ mode: 'restricted', grants: [] },
+		);
+	});
+
+	it('normalizes database access on create', async () => {
+		mocks.getDatabaseContextCatalog.mockReturnValue({
+			syncState: 'ready',
+			objects: [{ databaseType: 'postgres', database: 'app', schema: 'public', table: 'orders' }],
 		});
+		await createCaller().create({
+			name: 'Analysts',
+			databaseAccess: {
+				mode: 'restricted',
+				grants: [
+					{ kind: 'schema', databaseType: 'POSTGRES', database: 'app', schema: 'public' },
+					{ kind: 'schema', databaseType: 'postgres', database: 'app', schema: 'public' },
+				],
+			},
+		});
+
+		expect(mocks.createUserGroup).toHaveBeenCalledWith(
+			'project-id',
+			'Analysts',
+			[],
+			{ defaultDensity: 'detailed', canChange: true },
+			{
+				mode: 'restricted',
+				grants: [{ kind: 'schema', databaseType: 'postgres', database: 'app', schema: 'public' }],
+			},
+		);
+	});
+
+	it('rejects grants that are not currently synced', async () => {
+		await expect(
+			createCaller().create({
+				name: 'Analysts',
+				databaseAccess: {
+					mode: 'restricted',
+					grants: [
+						{
+							kind: 'table',
+							databaseType: 'postgres',
+							database: 'app',
+							schema: 'public',
+							table: 'missing',
+						},
+					],
+				},
+			}),
+		).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+			message: 'Context grants must reference currently synced database tables or schemas.',
+		});
+		expect(mocks.createUserGroup).not.toHaveBeenCalled();
 	});
 
 	it('rejects invalid density policies', async () => {
@@ -135,6 +199,39 @@ describe('user group routes', () => {
 		});
 	});
 
+	it('preserves database access when update omits it', async () => {
+		await createCaller().update({
+			groupId: 'group-id',
+			featureGrants: [],
+			toolCallDensityPolicy: {
+				defaultDensity: 'detailed',
+				canChange: true,
+			},
+		});
+
+		expect(mocks.updateUserGroup).toHaveBeenCalledWith('project-id', 'group-id', {
+			name: undefined,
+			featureGrants: [],
+			toolCallDensityPolicy: {
+				defaultDensity: 'detailed',
+				canChange: true,
+			},
+		});
+	});
+
+	it('returns a fresh admin context catalog', async () => {
+		mocks.getDatabaseContextCatalog.mockReturnValue({
+			syncState: 'ready',
+			objects: [{ databaseType: 'postgres', database: 'app', schema: 'public', table: 'users' }],
+		});
+
+		await expect(createCaller().contextCatalog()).resolves.toEqual({
+			syncState: 'ready',
+			objects: [{ databaseType: 'postgres', database: 'app', schema: 'public', table: 'users' }],
+		});
+		expect(mocks.getDatabaseContextCatalog).toHaveBeenCalledWith('/project');
+	});
+
 	it('returns effective access to viewers', async () => {
 		mocks.role = 'viewer';
 
@@ -147,6 +244,7 @@ describe('user group routes', () => {
 				defaultDensity: 'compact',
 				canChange: false,
 			},
+			databaseAccess: { mode: 'restricted', grants: [] },
 		});
 		expect(mocks.resolveEffectiveUserGroupAccess).toHaveBeenCalledWith('project-id', 'user-id');
 	});
@@ -164,6 +262,7 @@ describe('user group routes', () => {
 				defaultDensity: 'detailed',
 				canChange: true,
 			},
+			databaseAccess: { mode: 'all' },
 		});
 		expect(mocks.resolveEffectiveUserGroupAccess).not.toHaveBeenCalled();
 	});

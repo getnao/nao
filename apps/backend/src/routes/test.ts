@@ -6,7 +6,7 @@ import { executeQuery } from '../agents/tools/execute-sql';
 import type { App } from '../app';
 import { noProjectMessage } from '../env';
 import { authMiddleware } from '../middleware/auth';
-import { retrieveProjectById } from '../queries/project.queries';
+import { buildToolContext } from '../services/agent';
 import { TestAgentService, testAgentService } from '../services/test-agent.service';
 import { customModelCostSchema, llmSelectedModelSchema } from '../types/llm';
 import { truncateMiddle } from '../utils/utils';
@@ -63,24 +63,18 @@ export const testRoutes = async (app: App) => {
 			try {
 				const modelSelection = model as LlmSelectedModel | undefined;
 				const result = await testAgentService.runTest(projectId, prompt, modelSelection, costs);
-				const project = await retrieveProjectById(projectId);
 
 				let verification;
 				if (sql) {
+					const toolContext = await buildToolContext({
+						projectId,
+						userId,
+						chatId: '',
+						supportsCustomCharts: false,
+					});
 					const { data: expectedData, columns: expectedColumns } = await executeQuery(
 						{ sql_query: sql, database_id: databaseId },
-						{
-							projectFolder: project.path!,
-							chatId: '',
-							userId,
-							projectId: projectId,
-							supportsCustomCharts: false,
-							agentSettings: null,
-							envVars: {},
-							azureAccessToken: null,
-							queryResults: new Map(),
-							generatedArtifacts: { charts: [], maps: [], stories: [] },
-						},
+						toolContext,
 					);
 					const verified = await testAgentService.runVerification(
 						projectId,

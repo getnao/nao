@@ -11,19 +11,23 @@ import readTool from '../src/agents/tools/read';
 import searchTool from '../src/agents/tools/search';
 import writeTool from '../src/agents/tools/write';
 import { __reloadEnvForTesting } from '../src/env';
+import type { WarehouseTableAccess } from '../src/services/context-access';
 import { __resetStorageForTesting } from '../src/services/storage';
 import type { ToolContext } from '../src/types/tools';
 
 let storageRoot: string;
 let projectFolder: string;
 let originalEnv: typeof process.env;
+let warehouseTableAccess: WarehouseTableAccess;
 
-const context = () => ({ projectFolder, projectId: 'proj-1', userId: 'user-1' }) as unknown as ToolContext;
+const context = () =>
+	({ projectFolder, projectId: 'proj-1', userId: 'user-1', warehouseTableAccess }) as unknown as ToolContext;
 
 beforeEach(async () => {
 	originalEnv = { ...process.env };
 	storageRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'nao-storage-tools-'));
 	projectFolder = await fs.mkdtemp(path.join(os.tmpdir(), 'nao-project-tools-'));
+	warehouseTableAccess = { enforced: false };
 
 	useBackend('local');
 });
@@ -223,6 +227,106 @@ describe('grep', () => {
 		await expect(pathsMatching({ pattern: 'revenue', path: '/home' })).rejects.toThrow(
 			'requires the `local` storage backend',
 		);
+	});
+});
+
+describe('database Context permissions', () => {
+	beforeEach(async () => {
+		const tableRoot = path.join(projectFolder, 'databases/type=postgres/database=analytics/schema=public');
+		await fs.mkdir(path.join(tableRoot, 'table=orders'), { recursive: true });
+		await fs.mkdir(path.join(tableRoot, 'table=users'), { recursive: true });
+		await fs.writeFile(path.join(tableRoot, 'table=orders/columns.md'), 'allowed marker');
+		await fs.writeFile(path.join(tableRoot, 'table=users/columns.md'), 'denied marker');
+		warehouseTableAccess = {
+			enforced: true,
+			tables: [
+				{
+					databaseType: 'postgres',
+					database: 'analytics',
+					schema: 'public',
+					table: 'orders',
+				},
+			],
+		};
+	});
+
+	it('blocks direct reads and lists of denied tables', async () => {
+		const deniedTable = '/databases/type=postgres/database=analytics/schema=public/table=users';
+		await expect(run(readTool, { file_path: `${deniedTable}/columns.md` })).rejects.toThrow('Access denied');
+		await expect(run(listTool, { path: deniedTable })).rejects.toThrow('Access denied');
+	});
+
+	it('authorizes canonical paths after resolving traversal and symlinks', async () => {
+		const schemaRoot = path.join(projectFolder, 'databases/type=postgres/database=analytics/schema=public');
+		const allowedTable = path.join(schemaRoot, 'table=orders');
+		const outsideFile = path.join(storageRoot, 'outside.md');
+		await fs.writeFile(outsideFile, 'outside marker');
+		await fs.symlink('../table=users', path.join(allowedTable, 'users-link'));
+		await fs.symlink(outsideFile, path.join(allowedTable, 'outside-link.md'));
+
+		const traversedDeniedPath =
+			'/databases/type=postgres/database=analytics/schema=public/table=orders/../table=users/columns.md';
+		const deniedSymlinkPath =
+			'/databases/type=postgres/database=analytics/schema=public/table=orders/users-link/columns.md';
+		const outsideSymlinkPath =
+			'/databases/type=postgres/database=analytics/schema=public/table=orders/outside-link.md';
+
+		await expect(run(readTool, { file_path: traversedDeniedPath })).rejects.toThrow('Access denied');
+		await expect(run(readTool, { file_path: deniedSymlinkPath })).rejects.toThrow('Access denied');
+		await expect(run(readTool, { file_path: outsideSymlinkPath })).rejects.toThrow('Access denied');
+		await expect(run(listTool, { path: path.dirname(deniedSymlinkPath) })).rejects.toThrow('Access denied');
+		await expect(run(grepTool, { pattern: 'marker', path: path.dirname(deniedSymlinkPath) })).rejects.toThrow(
+			'Access denied',
+		);
+
+		const listOutput = (await run(listTool, {
+			path: '/databases/type=postgres/database=analytics/schema=public/table=orders',
+		})) as { entries: { name: string }[] };
+		expect(listOutput.entries.map((entry) => entry.name)).not.toContain('users-link');
+		expect(listOutput.entries.map((entry) => entry.name)).not.toContain('outside-link.md');
+
+		const searchOutput = (await run(searchTool, { pattern: '*link*' })) as {
+			files: { path: string }[];
+		};
+		expect(searchOutput.files).toEqual([]);
+	});
+
+	it('fails malformed database hierarchies closed without blocking ordinary files', async () => {
+		await fs.writeFile(path.join(projectFolder, 'notes.md'), 'ordinary context');
+
+		await expect(
+			run(readTool, {
+				file_path: '/databases/type=postgres/not-a-database/schema=public/table=orders/columns.md',
+			}),
+		).rejects.toThrow('Access denied');
+		await expect(run(listTool, { path: '/databases/not-a-type' })).rejects.toThrow('Access denied');
+		await expect(run(readTool, { file_path: '/notes.md' })).resolves.toMatchObject({
+			content: 'ordinary context',
+		});
+	});
+
+	it('filters denied table branches from directory listings', async () => {
+		const output = (await run(listTool, {
+			path: '/databases/type=postgres/database=analytics/schema=public',
+		})) as { entries: { name: string }[] };
+
+		expect(output.entries.map((entry) => entry.name)).toEqual(['table=orders']);
+	});
+
+	it('filters denied files from search and grep results', async () => {
+		const searchOutput = (await run(searchTool, { pattern: 'columns.md' })) as {
+			files: { path: string }[];
+		};
+		expect(searchOutput.files.map((file) => file.path)).toEqual([
+			'/databases/type=postgres/database=analytics/schema=public/table=orders/columns.md',
+		]);
+
+		const grepOutput = (await run(grepTool, { pattern: 'marker' })) as {
+			matches: { path: string }[];
+		};
+		expect(grepOutput.matches.map((match) => match.path)).toEqual([
+			'/databases/type=postgres/database=analytics/schema=public/table=orders/columns.md',
+		]);
 	});
 });
 

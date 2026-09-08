@@ -1,8 +1,13 @@
-import { DEFAULT_TOOL_CALL_DENSITY_POLICY, USER_GROUP_FEATURE_DEFINITIONS } from '@nao/shared';
+import {
+	DEFAULT_TOOL_CALL_DENSITY_POLICY,
+	EMPTY_DATABASE_CONTEXT_ACCESS,
+	USER_GROUP_FEATURE_DEFINITIONS,
+} from '@nao/shared';
 import { USER_ROLE_LABELS } from '@nao/shared/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, Pencil, Plus } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { DatabaseContextAccess } from '@nao/shared';
 import type { MemberStatus, ToolCallDensity, UserRole } from '@nao/shared/types';
 import type { QueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
@@ -43,6 +48,7 @@ interface UserGroup {
 	isDefault: boolean;
 	featureGrants: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
+	databaseAccess: DatabaseContextAccess;
 }
 
 type ProjectAccessSource = 'project' | 'organization' | 'both';
@@ -427,6 +433,7 @@ function UserGroupDialog({
 	const [toolCallDensityPolicy, setToolCallDensityPolicy] = useState<ToolCallDensityPolicy>(
 		DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	);
+	const [databaseAccess, setDatabaseAccess] = useState<DatabaseContextAccess>(EMPTY_DATABASE_CONTEXT_ACCESS);
 	const [formError, setFormError] = useState<string | null>(null);
 	const [confirmDelete, setConfirmDelete] = useState(false);
 	const [activeTab, setActiveTab] = useState<UserGroupDialogTab>('features');
@@ -438,6 +445,7 @@ function UserGroupDialog({
 		setName(existingGroup?.name ?? '');
 		setFeatureGrants(existingGroup?.featureGrants ?? []);
 		setToolCallDensityPolicy(existingGroup?.toolCallDensityPolicy ?? DEFAULT_TOOL_CALL_DENSITY_POLICY);
+		setDatabaseAccess(existingGroup?.databaseAccess ?? EMPTY_DATABASE_CONTEXT_ACCESS);
 		setFormError(null);
 		setConfirmDelete(false);
 		setActiveTab('features');
@@ -452,9 +460,10 @@ function UserGroupDialog({
 					...(existingGroup.isDefault ? {} : { name }),
 					featureGrants,
 					toolCallDensityPolicy,
+					databaseAccess,
 				});
 			} else {
-				await createGroup.mutateAsync({ name, featureGrants, toolCallDensityPolicy });
+				await createGroup.mutateAsync({ name, featureGrants, toolCallDensityPolicy, databaseAccess });
 			}
 			await invalidateUserGroupQueries(queryClient);
 			onOpenChange(false);
@@ -517,9 +526,10 @@ function UserGroupDialog({
 									/>
 								)}
 								{activeTab === 'context' && (
-									<UserGroupPlaceholder>
-										Table and file access will be configured here.
-									</UserGroupPlaceholder>
+									<UserGroupContextAccess
+										databaseAccess={databaseAccess}
+										onDatabaseAccessChange={setDatabaseAccess}
+									/>
 								)}
 								{activeTab === 'security' && (
 									<UserGroupPlaceholder>

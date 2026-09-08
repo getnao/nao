@@ -3,9 +3,11 @@ import { readFile } from '@nao/shared/tools';
 import fs from 'fs/promises';
 
 import { ReadOutput, renderToModelOutput } from '../../components/tool-outputs';
+import { assertContextPathAllowed } from '../../services/context-access';
 import { toReadableText } from '../../services/file-text';
 import { readUserFile } from '../../services/storage/user-files';
-import { isStoragePath, toRealPath, toStorageRelativePath, toStorageScope } from '../../utils/tools';
+import type { ToolContext } from '../../types/tools';
+import { isStoragePath, resolveCanonicalProjectPath, toStorageRelativePath, toStorageScope } from '../../utils/tools';
 import { createTool } from '../../utils/tools';
 
 export default createTool<readFile.Input, readFile.Output>({
@@ -15,7 +17,7 @@ export default createTool<readFile.Input, readFile.Output>({
 	execute: async ({ file_path }, context) => {
 		const content = isStoragePath(file_path)
 			? await readUserFile(toStorageScope(context), toStorageRelativePath(file_path))
-			: await readProjectFile(toRealPath(file_path, context.projectFolder));
+			: await readProjectFile(resolveAllowedProjectPath(file_path, context));
 
 		return {
 			_version: '1' as const,
@@ -26,6 +28,12 @@ export default createTool<readFile.Input, readFile.Output>({
 
 	toModelOutput: ({ output }) => renderToModelOutput(ReadOutput({ output }), output),
 });
+
+function resolveAllowedProjectPath(filePath: string, context: ToolContext): string {
+	const canonical = resolveCanonicalProjectPath(filePath, context.projectFolder);
+	assertContextPathAllowed(context.warehouseTableAccess, canonical.virtualPath);
+	return canonical.realPath;
+}
 
 /** Only non-text formats need their bytes inspected, so plain files keep the cheaper path. */
 const readProjectFile = async (realPath: string): Promise<string> => {

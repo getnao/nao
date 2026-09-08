@@ -1,5 +1,9 @@
+import { createHash } from 'node:crypto';
+
 import { stripSqlFilterBlocks } from '@nao/shared/sql-template';
 import { TAG_ATTRS } from '@nao/shared/story-segments';
+import { extractQueryIds } from '@nao/shared/story-segments';
+import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import { generateText, Output } from 'ai';
 import { CronExpressionParser } from 'cron-parser';
 import { z } from 'zod';
@@ -8,19 +12,20 @@ import { llmTelemetry } from '../agents/telemetry';
 import { queryAppDb } from '../agents/tools/query-app-db';
 import { LiveStoryRefreshPrompt } from '../components/ai/live-story-refresh-prompt';
 import type { DBStoryDataCache } from '../db/abstractSchema';
-import { env } from '../env';
 import { renderToMarkdown } from '../lib/markdown';
 import * as chatQueries from '../queries/chat.queries';
-import * as projectQueries from '../queries/project.queries';
 import * as llmConfigQueries from '../queries/project-llm-config.queries';
 import { getQueryDataFromCode } from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
+import type { StoryQuerySources } from '../types/story-cache';
+import type { McpToolContext } from '../types/tools';
 import { convertToTokenUsage } from '../utils/ai';
 import { getDefaultModelId, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { backfillMissingQueryData, findMissingQueryIds } from '../utils/story-query-data';
-import { MAX_OUTPUT_TOKENS } from './agent';
-import { resolveExcludedColumnEnforcementForProject } from './excluded-columns.service';
+import { buildMcpToolContext, MAX_OUTPUT_TOKENS } from './agent';
+import { resolveExcludedColumnEnforcement } from './excluded-columns.service';
+import { executeWarehouseSql, validateWarehouseSql, WarehouseSqlError } from './warehouse-sql.service';
 const MAX_RENDERED_ROWS = 60;
 
 interface StoryRefreshTarget {
@@ -32,33 +37,23 @@ interface StoryRefreshTarget {
 export async function executeLiveQuery(
 	chatId: string,
 	queryId: string,
+	principalUserId: string,
 ): Promise<{ data: unknown[]; columns: string[] }> {
 	const query = await storyQueries.getSqlQueryById(chatId, queryId);
 	if (!query) {
 		throw new Error(`Query ${queryId} not found in chat ${chatId}`);
 	}
 
-	const projectId = await chatQueries.getChatProjectId(chatId);
-	if (!projectId) {
-		throw new Error('Chat project not found');
-	}
-
 	const sqlQuery = stripSqlFilterBlocks(query.sqlQuery);
 	if (query.adminMode) {
+		const projectId = await requireChatProjectId(chatId);
 		return executeAppDatabaseSql(projectId, sqlQuery);
 	}
 
-	const project = await projectQueries.retrieveProjectById(projectId);
-	if (!project.path) {
-		throw new Error('Project path not configured');
-	}
-
-	const envVars = await projectQueries.getEnvVars(projectId);
+	const executionContext = await createStoryExecutionContext(chatId, principalUserId);
 	return executeRawSql(sqlQuery, {
-		projectFolder: project.path,
-		projectId,
+		executionContext,
 		databaseId: query.databaseId,
-		envVars,
 	});
 }
 
@@ -66,13 +61,25 @@ export interface RefreshResult {
 	queryData: Record<string, { data: unknown[]; columns: string[] }>;
 }
 
-export async function refreshStoryData(chatId: string, slug: string): Promise<RefreshResult> {
+export async function refreshStoryData(chatId: string, slug: string, principalUserId: string): Promise<RefreshResult> {
+	const executionContext = await createStoryExecutionContext(chatId, principalUserId);
+	return refreshStoryDataWithContext(chatId, slug, executionContext);
+}
+
+async function refreshStoryDataWithContext(
+	chatId: string,
+	slug: string,
+	executionContext: StoryExecutionContext,
+): Promise<RefreshResult> {
 	const version = await storyQueries.getLatestVersionByChatAndSlug(chatId, slug);
 	if (!version) {
 		throw new Error('Story not found');
 	}
 
 	const sqlQueries = await storyQueries.getSqlQueriesFromCode(chatId, version.code);
+	if (executionContext.toolContext.warehouseTableAccess.enforced) {
+		assertAllStoryQueriesResolved(version.code, sqlQueries);
+	}
 	if (Object.keys(sqlQueries).length === 0) {
 		return { queryData: {} };
 	}
@@ -80,12 +87,6 @@ export async function refreshStoryData(chatId: string, slug: string): Promise<Re
 	const chat = await chatQueries.getChatInfo(chatId);
 	if (!chat) {
 		throw new Error('Chat project not found');
-	}
-
-	const hasWarehouseQueries = Object.values(sqlQueries).some((query) => !query.adminMode);
-	const project = hasWarehouseQueries ? await projectQueries.retrieveProjectById(chat.projectId) : null;
-	if (project && !project.path) {
-		throw new Error('Project path not configured');
 	}
 
 	const queryData: Record<string, { data: unknown[]; columns: string[] }> = {};
@@ -98,12 +99,9 @@ export async function refreshStoryData(chatId: string, slug: string): Promise<Re
 				return;
 			}
 
-			const projectEnvVars = await projectQueries.getEnvVars(chat.projectId);
 			const result = await executeRawSql(effectiveSql, {
-				projectFolder: project!.path!,
-				projectId: chat.projectId,
+				executionContext,
 				databaseId,
-				envVars: projectEnvVars,
 			});
 			queryData[queryId] = result;
 		}),
@@ -121,7 +119,7 @@ export async function refreshStoryData(chatId: string, slug: string): Promise<Re
 		}
 	}
 
-	await storyQueries.upsertStoryDataCache(chatId, slug, queryData);
+	await storyQueries.upsertStoryDataCache(chatId, slug, queryData, buildQuerySources(sqlQueries));
 
 	return { queryData };
 }
@@ -137,72 +135,219 @@ export async function getStoryQueryData(
 	code: string,
 	isLive: boolean,
 	cacheSchedule: string | null,
+	principalUserId: string,
 ): Promise<StoryQueryDataResult> {
 	if (!isLive) {
 		return { queryData: await getQueryDataFromCode(chatId, code), cachedAt: null };
 	}
 
+	const executionContext = await createStoryExecutionContext(chatId, principalUserId);
+	const sqlQueries = await storyQueries.getSqlQueriesFromCode(chatId, code);
 	const cache = await storyQueries.getStoryDataCacheByChatAndSlug(chatId, slug);
+	const enforced = executionContext.toolContext.warehouseTableAccess.enforced;
+	const allQueriesResolved = areAllStoryQueriesResolved(code, sqlQueries);
+	if (enforced && !allQueriesResolved) {
+		throw new Error('Live Story query sources could not be resolved.');
+	}
+	const querySources = buildQuerySources(sqlQueries);
+	const cacheMatchesCurrentSources =
+		cache !== null && allQueriesResolved && doesCacheMatchCurrentSources(code, cache, querySources);
 
-	if (cache && !isCacheExpired(cache.cachedAt, cacheSchedule)) {
-		return resolveFromCache(chatId, code, cache);
+	if (cache && !isCacheExpired(cache.cachedAt, cacheSchedule) && (!enforced || cacheMatchesCurrentSources)) {
+		await validateCachedWarehouseSources(sqlQueries, executionContext);
+		return enforced ? resolveValidatedCache(code, cache) : resolveLegacyCache(chatId, code, cache);
 	}
 
 	try {
-		const { queryData } = await refreshStoryData(chatId, slug);
+		const { queryData } = await refreshStoryDataWithContext(chatId, slug, executionContext);
 		return {
 			queryData: Object.keys(queryData).length > 0 ? queryData : null,
 			cachedAt: new Date(),
 		};
-	} catch {
+	} catch (error) {
+		if (enforced && !cacheMatchesCurrentSources) {
+			throw error;
+		}
+		await validateCachedWarehouseSources(sqlQueries, executionContext);
 		if (cache) {
-			return resolveFromCache(chatId, code, cache);
+			return enforced ? resolveValidatedCache(code, cache) : resolveLegacyCache(chatId, code, cache);
+		}
+		if (enforced) {
+			throw error;
 		}
 		return { queryData: await getQueryDataFromCode(chatId, code), cachedAt: null };
 	}
 }
 
-async function resolveFromCache(chatId: string, code: string, cache: DBStoryDataCache): Promise<StoryQueryDataResult> {
+function resolveValidatedCache(code: string, cache: DBStoryDataCache): StoryQueryDataResult {
+	const queryData = selectCurrentQueryData(code, cache.queryData);
+	return { queryData, cachedAt: cache.cachedAt };
+}
+
+async function resolveLegacyCache(
+	chatId: string,
+	code: string,
+	cache: DBStoryDataCache,
+): Promise<StoryQueryDataResult> {
 	const missing = findMissingQueryIds(code, cache.queryData);
 	const queryData =
 		missing.length > 0 ? await backfillMissingQueryData(code, cache.queryData, { chatId }) : cache.queryData;
 	return { queryData, cachedAt: cache.cachedAt };
 }
 
+type StorySqlQueries = Awaited<ReturnType<typeof storyQueries.getSqlQueriesFromCode>>;
+
+function assertAllStoryQueriesResolved(code: string, sqlQueries: StorySqlQueries): void {
+	if (!areAllStoryQueriesResolved(code, sqlQueries)) {
+		throw new Error('Live Story query sources could not be resolved.');
+	}
+}
+
+function areAllStoryQueriesResolved(code: string, sqlQueries: StorySqlQueries): boolean {
+	return [...extractQueryIds(code)].every((queryId) => Object.hasOwn(sqlQueries, queryId));
+}
+
+function buildQuerySources(sqlQueries: StorySqlQueries): StoryQuerySources {
+	return Object.fromEntries(
+		Object.entries(sqlQueries).map(([queryId, query]) => {
+			const databaseId = query.databaseId ?? null;
+			const normalizedSql = normalizeEffectiveSql(query.sqlQuery);
+			const canonicalSource = JSON.stringify({
+				sql: normalizedSql,
+				databaseId,
+				adminMode: query.adminMode,
+			});
+			return [
+				queryId,
+				{
+					fingerprint: createHash('sha256').update(canonicalSource).digest('hex'),
+					databaseId,
+					adminMode: query.adminMode,
+				},
+			];
+		}),
+	);
+}
+
+function normalizeEffectiveSql(sql: string): string {
+	return stripSqlFilterBlocks(sql).replaceAll('\r\n', '\n').trim();
+}
+
+function doesCacheMatchCurrentSources(
+	code: string,
+	cache: DBStoryDataCache,
+	currentSources: StoryQuerySources,
+): boolean {
+	if (!cache.querySources) {
+		return false;
+	}
+	return [...extractQueryIds(code)].every((queryId) => {
+		const cachedSource = cache.querySources?.[queryId];
+		const currentSource = currentSources[queryId];
+		return (
+			cache.queryData[queryId] !== undefined &&
+			cachedSource !== undefined &&
+			currentSource !== undefined &&
+			cachedSource.fingerprint === currentSource.fingerprint &&
+			cachedSource.databaseId === currentSource.databaseId &&
+			cachedSource.adminMode === currentSource.adminMode
+		);
+	});
+}
+
+function selectCurrentQueryData(
+	code: string,
+	queryData: Record<string, { data: unknown[]; columns: string[] }>,
+): Record<string, { data: unknown[]; columns: string[] }> | null {
+	const selected = Object.fromEntries(
+		[...extractQueryIds(code)].flatMap((queryId) =>
+			queryData[queryId] === undefined ? [] : [[queryId, queryData[queryId]]],
+		),
+	);
+	return Object.keys(selected).length > 0 ? selected : null;
+}
+
+export interface StoryExecutionContext {
+	toolContext: McpToolContext;
+	enforceExcludedColumns: boolean;
+}
+
 interface RawSqlExecutionOptions {
-	projectFolder: string;
-	projectId: string;
+	executionContext: StoryExecutionContext;
 	databaseId?: string;
-	envVars?: Record<string, string>;
 }
 
 export async function executeRawSql(
 	sqlQuery: string,
 	options: RawSqlExecutionOptions,
 ): Promise<{ data: unknown[]; columns: string[] }> {
-	const enforceExcludedColumns = await resolveExcludedColumnEnforcementForProject(options.projectId);
-	const response = await fetch(`http://localhost:${env.FASTAPI_PORT}/execute_sql`, {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json',
-			'X-Nao-Internal-Secret': env.BETTER_AUTH_SECRET,
-		},
-		body: JSON.stringify({
-			sql: sqlQuery,
-			nao_project_folder: options.projectFolder,
-			enforce_excluded_columns: enforceExcludedColumns,
-			...(options.databaseId && { database_id: options.databaseId }),
-			...(options.envVars && Object.keys(options.envVars).length > 0 && { env_vars: options.envVars }),
-		}),
+	const context = options.executionContext.toolContext;
+	const data = await executeWarehouseSql(sqlQuery, {
+		projectFolder: context.projectFolder,
+		databaseId: options.databaseId,
+		envVars: context.envVars,
+		azureAccessToken: context.azureAccessToken,
+		enforceExcludedColumns: options.executionContext.enforceExcludedColumns,
+		tableAccess: context.warehouseTableAccess,
 	});
-
-	if (!response.ok) {
-		const errorData = await response.json().catch(() => ({ detail: response.statusText }));
-		throw new Error(`Error executing SQL query: ${JSON.stringify(errorData.detail)}`);
-	}
-
-	const data = await response.json();
 	return { data: data.data, columns: data.columns };
+}
+
+export async function createStoryExecutionContext(
+	chatId: string,
+	principalUserId: string,
+): Promise<StoryExecutionContext> {
+	const projectId = await requireChatProjectId(chatId);
+	const toolContext = await buildMcpToolContext({ projectId, userId: principalUserId });
+	return {
+		toolContext,
+		enforceExcludedColumns: await resolveExcludedColumnEnforcement(toolContext.agentSettings),
+	};
+}
+
+async function validateWarehouseSources(
+	sqlQueries: Awaited<ReturnType<typeof storyQueries.getSqlQueriesFromCode>>,
+	executionContext: StoryExecutionContext,
+): Promise<void> {
+	const context = executionContext.toolContext;
+	await Promise.all(
+		Object.values(sqlQueries)
+			.filter((query) => !query.adminMode && query.databaseId !== LOCAL_DATABASE_ID)
+			.map((query) =>
+				validateWarehouseSql(stripSqlFilterBlocks(query.sqlQuery), {
+					projectFolder: context.projectFolder,
+					databaseId: query.databaseId,
+					envVars: context.envVars,
+					azureAccessToken: context.azureAccessToken,
+					enforceExcludedColumns: executionContext.enforceExcludedColumns,
+					tableAccess: context.warehouseTableAccess,
+				}),
+			),
+	);
+}
+
+async function validateCachedWarehouseSources(
+	sqlQueries: Awaited<ReturnType<typeof storyQueries.getSqlQueriesFromCode>>,
+	executionContext: StoryExecutionContext,
+): Promise<void> {
+	try {
+		await validateWarehouseSources(sqlQueries, executionContext);
+	} catch (error) {
+		const isRestricted = executionContext.toolContext.warehouseTableAccess.enforced;
+		const isExistingGuardDenial =
+			error instanceof WarehouseSqlError && (error.status === 400 || error.status === 422);
+		if (isRestricted || isExistingGuardDenial) {
+			throw error;
+		}
+	}
+}
+
+async function requireChatProjectId(chatId: string): Promise<string> {
+	const projectId = await chatQueries.getChatProjectId(chatId);
+	if (!projectId) {
+		throw new Error('Chat project not found');
+	}
+	return projectId;
 }
 
 async function executeAppDatabaseSql(

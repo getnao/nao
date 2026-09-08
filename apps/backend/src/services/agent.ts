@@ -79,6 +79,7 @@ import { getAzureAccessTokenForUser } from './microsoft-auth.service';
 import { skillService } from './skill';
 import { canGrepUserFiles } from './storage/user-files';
 import { getStoryTemplateWarnings } from './story-template-validation';
+import { resolveWarehouseTableAccess } from './user-group-context-access.service';
 import { getEffectiveUserGroupFeatureFlags } from './user-group-feature-access.service';
 
 export interface AgentRunResult {
@@ -216,9 +217,10 @@ async function _buildContextBase(opts: {
 	}
 	const agentSettings =
 		opts.agentSettings !== undefined ? opts.agentSettings : await projectQueries.getAgentSettings(opts.projectId);
-	const [envVars, azureAccessToken] = await Promise.all([
+	const [envVars, azureAccessToken, warehouseTableAccess] = await Promise.all([
 		projectQueries.getEnvVars(opts.projectId),
 		hasFeature(LICENSE_FEATURES.sso).then((has) => (has ? getAzureAccessTokenForUser(opts.userId) : null)),
+		resolveWarehouseTableAccess(opts.projectId, opts.userId, project.path),
 	]);
 	return {
 		projectFolder: project.path,
@@ -228,6 +230,7 @@ async function _buildContextBase(opts: {
 		supportsCustomCharts: opts.supportsCustomCharts !== false,
 		agentSettings,
 		envVars,
+		warehouseTableAccess,
 		azureAccessToken,
 		queryResults: new Map(),
 		generatedArtifacts: { charts: [], maps: [], stories: [] },
@@ -997,7 +1000,11 @@ class AgentManager {
 
 		const contextParts: string[] = [];
 		for (const mention of dbMentions) {
-			const content = getTableColumnsContent(this._toolContext.projectFolder, mention.id);
+			const content = getTableColumnsContent(
+				this._toolContext.projectFolder,
+				mention.id,
+				this._toolContext.warehouseTableAccess,
+			);
 			if (content) {
 				contextParts.push(`[Table: ${mention.id}]\n${content}`);
 			}

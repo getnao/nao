@@ -1,8 +1,14 @@
 import {
+	ALL_DATABASE_CONTEXT_ACCESS,
+	type DatabaseContextAccess,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
+	EMPTY_DATABASE_CONTEXT_ACCESS,
+	parseStoredDatabaseContextAccess,
 	parseStoredUserGroupConfig,
+	serializeDatabaseContextAccess,
 	serializeUserGroupConfig,
 	type ToolCallDensityPolicy,
+	unionDatabaseContextAccess,
 	USER_GROUP_FEATURES,
 	type UserGroupFeature,
 } from '@nao/shared';
@@ -20,9 +26,10 @@ import {
 const USER_GROUP_NAME_CONFLICT_MESSAGE = 'A user group with this name already exists.';
 const USER_GROUP_NAME_UNIQUE_CONSTRAINT = 'user_group_project_name_unique';
 
-export interface UserGroup extends Omit<DBUserGroup, 'featureGrants'> {
+export interface UserGroup extends Omit<DBUserGroup, 'contextGrants' | 'featureGrants'> {
 	featureGrants: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
+	databaseAccess: DatabaseContextAccess;
 }
 
 export interface UserGroupOverview {
@@ -34,6 +41,7 @@ export interface UserGroupOverview {
 export interface EffectiveUserGroupAccess {
 	features: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
+	databaseAccess: DatabaseContextAccess;
 }
 
 export class UserGroupQueryError extends Error {
@@ -71,6 +79,7 @@ export const resolveEffectiveUserGroupAccess = async (
 			id: s.userGroup.id,
 			isDefault: s.userGroup.isDefault,
 			featureGrants: s.userGroup.featureGrants,
+			contextGrants: s.userGroup.contextGrants,
 			membershipCreatedAt: s.userGroupMember.createdAt,
 		})
 		.from(s.userGroup)
@@ -89,6 +98,7 @@ export const resolveEffectiveUserGroupAccess = async (
 	const applicableGroups = groups.map((group) => ({
 		...group,
 		config: parseStoredUserGroupConfig(group.featureGrants),
+		databaseAccess: normalizeStoredDatabaseAccess(group.contextGrants, group.isDefault),
 	}));
 	const grantedFeatures = new Set(applicableGroups.flatMap((group) => group.config.features));
 	const defaultGroup = applicableGroups.find((group) => group.isDefault);
@@ -114,6 +124,7 @@ export const resolveEffectiveUserGroupAccess = async (
 				densitySource?.config.toolCallDensity.defaultDensity ?? DEFAULT_TOOL_CALL_DENSITY_POLICY.defaultDensity,
 			canChange: applicableGroups.some((group) => group.config.toolCallDensity.canChange),
 		},
+		databaseAccess: unionDatabaseContextAccess(applicableGroups.map((group) => group.databaseAccess)),
 	};
 };
 
@@ -131,6 +142,7 @@ export const createUserGroup = async (
 	name: string,
 	featureGrants: UserGroupFeature[] = [],
 	toolCallDensityPolicy: ToolCallDensityPolicy = DEFAULT_TOOL_CALL_DENSITY_POLICY,
+	databaseAccess: DatabaseContextAccess = EMPTY_DATABASE_CONTEXT_ACCESS,
 ): Promise<UserGroup> => {
 	await assertNameAvailable(projectId, name);
 	const [group] = await executeUserGroupNameMutation(() =>
@@ -140,6 +152,7 @@ export const createUserGroup = async (
 				projectId,
 				name,
 				featureGrants: serializeUserGroupConfig(featureGrants, toolCallDensityPolicy),
+				contextGrants: serializeDatabaseContextAccess(databaseAccess),
 				isDefault: false,
 			})
 			.returning()
@@ -155,6 +168,7 @@ export const updateUserGroup = async (
 		name?: string;
 		featureGrants: UserGroupFeature[];
 		toolCallDensityPolicy?: ToolCallDensityPolicy;
+		databaseAccess?: DatabaseContextAccess;
 	},
 ): Promise<UserGroup> => {
 	const group = await getUserGroup(projectId, groupId);
@@ -174,6 +188,9 @@ export const updateUserGroup = async (
 					data.featureGrants,
 					data.toolCallDensityPolicy ?? currentConfig.toolCallDensity,
 				),
+				...(data.databaseAccess === undefined
+					? {}
+					: { contextGrants: serializeDatabaseContextAccess(data.databaseAccess) }),
 				updatedAt: new Date(),
 			})
 			.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
@@ -287,5 +304,13 @@ function normalizeUserGroup(group: DBUserGroup): UserGroup {
 		...group,
 		featureGrants: config.features,
 		toolCallDensityPolicy: config.toolCallDensity,
+		databaseAccess: normalizeStoredDatabaseAccess(group.contextGrants, group.isDefault),
 	};
+}
+
+function normalizeStoredDatabaseAccess(value: unknown, isDefault: boolean): DatabaseContextAccess {
+	if (value === null) {
+		return isDefault ? ALL_DATABASE_CONTEXT_ACCESS : EMPTY_DATABASE_CONTEXT_ACCESS;
+	}
+	return parseStoredDatabaseContextAccess(value);
 }
