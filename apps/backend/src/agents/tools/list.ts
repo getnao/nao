@@ -3,7 +3,11 @@ import fs from 'fs/promises';
 import path from 'path';
 
 import { ListOutput, renderToModelOutput } from '../../components/tool-outputs';
-import { assertContextPathAllowed, isContextPathAllowed } from '../../services/context-access';
+import {
+	assertProjectContextPathAllowed,
+	isDocsProjectPath,
+	isProjectContextPathAllowed,
+} from '../../services/project-context-path-access.service';
 import { isStorageEnabled } from '../../services/storage';
 import { listUserDirectory } from '../../services/storage/user-files';
 import type { ToolContext } from '../../types/tools';
@@ -48,7 +52,7 @@ const listStorage = async (virtualPath: string, context: ToolContext): Promise<l
 const listProjectFolder = async (virtualPath: string, context: ToolContext): Promise<list.Entry[]> => {
 	const projectFolder = context.projectFolder;
 	const canonical = resolveCanonicalProjectPath(virtualPath, projectFolder);
-	assertContextPathAllowed(context.warehouseTableAccess, canonical.virtualPath);
+	assertProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, 'directory');
 	const realPath = canonical.realPath;
 
 	// Get the relative path of the parent directory for naoignore matching
@@ -57,11 +61,14 @@ const listProjectFolder = async (virtualPath: string, context: ToolContext): Pro
 	const dirEntries = await fs.readdir(realPath, { withFileTypes: true });
 
 	// Filter out excluded entries (including .naoignore patterns)
-	const filteredEntries = dirEntries.filter(
-		(entry) =>
+	const filteredEntries = dirEntries.filter((entry) => {
+		const childPath = path.posix.join(canonical.virtualPath, entry.name);
+		return (
 			!shouldExcludeEntry(entry.name, parentRelativePath, projectFolder) &&
-			isAllowedProjectEntry(path.posix.join(canonical.virtualPath, entry.name), context),
-	);
+			!(entry.isSymbolicLink() && isDocsProjectPath(childPath)) &&
+			isAllowedProjectEntry(childPath, context, entry.isDirectory() ? 'directory' : 'file')
+		);
+	});
 
 	const entries = await Promise.all(
 		filteredEntries.map(async (entry) => {
@@ -79,10 +86,16 @@ const listProjectFolder = async (virtualPath: string, context: ToolContext): Pro
 			let itemCount: number | undefined;
 			if (type === 'directory') {
 				try {
-					const subEntries = await fs.readdir(fullRealPath);
-					itemCount = subEntries.filter((name) =>
-						isAllowedProjectEntry(path.posix.join(canonical.virtualPath, entry.name, name), context),
-					).length;
+					const subEntries = await fs.readdir(fullRealPath, { withFileTypes: true });
+					const childParentPath = path.posix.join(parentRelativePath, entry.name);
+					itemCount = subEntries.filter((subEntry) => {
+						const childPath = path.posix.join(canonical.virtualPath, entry.name, subEntry.name);
+						return (
+							!shouldExcludeEntry(subEntry.name, childParentPath, projectFolder) &&
+							!(subEntry.isSymbolicLink() && isDocsProjectPath(childPath)) &&
+							isAllowedProjectEntry(childPath, context, subEntry.isDirectory() ? 'directory' : 'file')
+						);
+					}).length;
 				} catch {
 					// If we can't read the directory, leave itemCount undefined
 				}
@@ -102,10 +115,10 @@ const listProjectFolder = async (virtualPath: string, context: ToolContext): Pro
 	return isRoot && isStorageEnabled() ? [...entries, storageMountEntry()] : entries;
 };
 
-function isAllowedProjectEntry(virtualPath: string, context: ToolContext): boolean {
+function isAllowedProjectEntry(virtualPath: string, context: ToolContext, kind: 'file' | 'directory'): boolean {
 	try {
 		const canonical = resolveCanonicalProjectPath(virtualPath, context.projectFolder);
-		return isContextPathAllowed(context.warehouseTableAccess, canonical.virtualPath);
+		return isProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, kind);
 	} catch {
 		return false;
 	}

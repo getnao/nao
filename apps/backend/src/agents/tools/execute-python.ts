@@ -7,8 +7,10 @@ import {
 import fs from 'fs';
 import path from 'path';
 
+import { isProjectContextPathAllowed } from '../../services/project-context-path-access.service';
 import type { AgentSettings } from '../../types/agent-settings';
-import { isWithinProjectFolder, toVirtualPath } from '../../utils/tools';
+import type { ToolContext } from '../../types/tools';
+import { isWithinProjectFolder, resolveCanonicalProjectPath, toVirtualPath } from '../../utils/tools';
 import { createTool } from '../../utils/tools';
 
 // @pydantic/monty uses native bindings that aren't available on all platforms
@@ -27,17 +29,14 @@ const RESOURCE_LIMITS = {
 	maxRecursionDepth: 500,
 };
 
-async function executePython(
-	{ code, inputs }: schemas.Input,
-	{ projectFolder, agentSettings }: { projectFolder: string; agentSettings: AgentSettings | null },
-): Promise<schemas.Output> {
+async function executePython({ code, inputs }: schemas.Input, context: ToolContext): Promise<schemas.Output> {
 	if (!montyModule) {
 		throw new Error('Python execution is not available on this platform');
 	}
 
 	const { Monty, MontyRuntimeError, MontySnapshot, MontySyntaxError, MontyTypingError } = montyModule;
 	const inputNames = inputs ? Object.keys(inputs) : [];
-	const virtualFS = createVirtualFS(projectFolder);
+	const virtualFS = createVirtualFS(context);
 
 	let monty: InstanceType<typeof Monty>;
 	try {
@@ -62,7 +61,7 @@ async function executePython(
 	try {
 		state = monty.start({
 			...(inputNames.length > 0 && { inputs }),
-			limits: getResourceLimits(agentSettings),
+			limits: getResourceLimits(context.agentSettings),
 		});
 
 		while (state instanceof MontySnapshot) {
@@ -115,7 +114,7 @@ function resolveMaxDurationSecs(agentSettings: AgentSettings | null): number {
 	return Math.min(MAX_PYTHON_EXECUTION_DURATION_SECS, Math.max(MIN_PYTHON_EXECUTION_DURATION_SECS, value));
 }
 
-function findAllFiles(dir: string, projectFolder: string): schemas.VirtualFile[] {
+function findAllFiles(dir: string, context: ToolContext): schemas.VirtualFile[] {
 	const files: schemas.VirtualFile[] = [];
 
 	try {
@@ -124,16 +123,24 @@ function findAllFiles(dir: string, projectFolder: string): schemas.VirtualFile[]
 		for (const entry of entries) {
 			const fullPath = path.join(dir, entry.name);
 
-			if (!isWithinProjectFolder(fullPath, projectFolder)) {
+			if (!isWithinProjectFolder(fullPath, context.projectFolder) || entry.isSymbolicLink()) {
 				continue;
 			}
 
 			if (entry.isDirectory()) {
-				files.push(...findAllFiles(fullPath, projectFolder));
+				const virtualPath = toVirtualPath(fullPath, context.projectFolder);
+				const canonical = resolveCanonicalProjectPath(virtualPath, context.projectFolder);
+				if (isProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, 'directory')) {
+					files.push(...findAllFiles(fullPath, context));
+				}
 			} else if (entry.isFile()) {
 				try {
+					const virtualPath = toVirtualPath(fullPath, context.projectFolder);
+					const canonical = resolveCanonicalProjectPath(virtualPath, context.projectFolder);
+					if (!isProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, 'file')) {
+						continue;
+					}
 					const content = fs.readFileSync(fullPath, 'utf-8');
-					const virtualPath = toVirtualPath(fullPath, projectFolder);
 					files.push({ path: virtualPath, content });
 				} catch {
 					// Skip files that can't be read (binary files, permission issues, etc.)
@@ -147,10 +154,10 @@ function findAllFiles(dir: string, projectFolder: string): schemas.VirtualFile[]
 	return files;
 }
 
-function createVirtualFS(projectFolder: string): Map<string, string> {
+export function createVirtualFS(context: ToolContext): Map<string, string> {
 	const vfs = new Map<string, string>();
 
-	const projectFiles = findAllFiles(projectFolder, projectFolder);
+	const projectFiles = findAllFiles(context.projectFolder, context);
 	for (const file of projectFiles) {
 		vfs.set(file.path, file.content);
 	}
@@ -169,10 +176,7 @@ export default montyModule
 			inputSchema: schemas.inputSchema,
 			outputSchema: schemas.outputSchema,
 			execute: async (input, context) => {
-				return executePython(input, {
-					projectFolder: context.projectFolder,
-					agentSettings: context.agentSettings,
-				});
+				return executePython(input, context);
 			},
 		})
 	: null;

@@ -73,7 +73,16 @@ function serializeTableAccess(access: WarehouseTableAccess) {
 	if (enforced === false) {
 		return { enforced: false as const };
 	}
-	if (enforced === true && 'tables' in access && Array.isArray(access.tables)) {
+	if (
+		enforced === true &&
+		'strict' in access &&
+		typeof access.strict === 'boolean' &&
+		'tables' in access &&
+		Array.isArray(access.tables)
+	) {
+		if (!access.strict) {
+			return { enforced: false as const };
+		}
 		return {
 			enforced: true as const,
 			tables: access.tables.map((table) => ({

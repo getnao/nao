@@ -1,12 +1,14 @@
 import {
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
+	EMPTY_DOCS_CONTEXT_ACCESS,
 	normalizeDatabaseContextAccess,
+	normalizeDocsContextAccess,
 	USER_GROUP_FEATURE_DEFINITIONS,
 } from '@nao/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useState } from 'react';
-import type { DatabaseContextAccess } from '@nao/shared';
+import type { DatabaseContextAccess, DocsContextAccess } from '@nao/shared';
 import type { ToolCallDensity } from '@nao/shared/types';
 import type { QueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
@@ -15,10 +17,10 @@ import type { TabBarItem } from '@/components/ui/tab-bar';
 import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-slider';
 import { UserGroupContextAccess } from '@/components/settings/user-group-context-access';
 import { UserGroupFeatureCard } from '@/components/settings/user-group-feature-card';
+import { UserGroupSwitchRow } from '@/components/settings/user-group-switch-row';
 import { Button } from '@/components/ui/button';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { trpc } from '@/main';
 
@@ -36,6 +38,7 @@ export interface UserGroupEditorGroup {
 	featureGrants: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	databaseAccess: DatabaseContextAccess;
+	docsAccess: DocsContextAccess;
 }
 
 export type UserGroupEditorTab = 'features' | 'context' | 'security';
@@ -73,6 +76,9 @@ export function UserGroupEditor({
 	const [databaseAccess, setDatabaseAccess] = useState<DatabaseContextAccess>(
 		existingGroup?.databaseAccess ?? EMPTY_DATABASE_CONTEXT_ACCESS,
 	);
+	const [docsAccess, setDocsAccess] = useState<DocsContextAccess>(
+		existingGroup?.docsAccess ?? EMPTY_DOCS_CONTEXT_ACCESS,
+	);
 	const [formError, setFormError] = useState<string | null>(null);
 	const [confirmDelete, setConfirmDelete] = useState(false);
 	const createGroup = useMutation(trpc.userGroup.create.mutationOptions());
@@ -85,6 +91,7 @@ export function UserGroupEditor({
 			featureGrants,
 			toolCallDensityPolicy,
 			databaseAccess,
+			docsAccess,
 		});
 
 	const resetForm = useCallback(() => {
@@ -92,6 +99,7 @@ export function UserGroupEditor({
 		setFeatureGrants(existingGroup?.featureGrants ?? []);
 		setToolCallDensityPolicy(existingGroup?.toolCallDensityPolicy ?? DEFAULT_TOOL_CALL_DENSITY_POLICY);
 		setDatabaseAccess(existingGroup?.databaseAccess ?? EMPTY_DATABASE_CONTEXT_ACCESS);
+		setDocsAccess(existingGroup?.docsAccess ?? EMPTY_DOCS_CONTEXT_ACCESS);
 		setFormError(null);
 		setConfirmDelete(false);
 	}, [existingGroup]);
@@ -110,6 +118,7 @@ export function UserGroupEditor({
 					featureGrants,
 					toolCallDensityPolicy,
 					databaseAccess,
+					docsAccess,
 				});
 				await invalidateUserGroupQueries(queryClient);
 			} else {
@@ -118,6 +127,7 @@ export function UserGroupEditor({
 					featureGrants,
 					toolCallDensityPolicy,
 					databaseAccess,
+					docsAccess,
 				});
 				await invalidateUserGroupQueries(queryClient);
 				onCreated(createdGroup);
@@ -186,7 +196,9 @@ export function UserGroupEditor({
 						{activeTab === 'context' && (
 							<UserGroupContextAccess
 								databaseAccess={databaseAccess}
+								docsAccess={docsAccess}
 								onDatabaseAccessChange={setDatabaseAccess}
+								onDocsAccessChange={setDocsAccess}
 							/>
 						)}
 						{activeTab === 'security' && (
@@ -243,6 +255,7 @@ export function hasUserGroupEditorChanges(
 		featureGrants: UserGroupFeature[];
 		toolCallDensityPolicy: ToolCallDensityPolicy;
 		databaseAccess: DatabaseContextAccess;
+		docsAccess?: DocsContextAccess;
 	},
 ): boolean {
 	return (
@@ -250,7 +263,8 @@ export function hasUserGroupEditorChanges(
 		!haveSameItems(values.featureGrants, group.featureGrants) ||
 		values.toolCallDensityPolicy.defaultDensity !== group.toolCallDensityPolicy.defaultDensity ||
 		values.toolCallDensityPolicy.canChange !== group.toolCallDensityPolicy.canChange ||
-		!haveSameDatabaseAccess(values.databaseAccess, group.databaseAccess)
+		!haveSameDatabaseAccess(values.databaseAccess, group.databaseAccess) ||
+		!haveSameDocsAccess(values.docsAccess ?? group.docsAccess, group.docsAccess)
 	);
 }
 
@@ -332,32 +346,6 @@ function UserGroupFeatures({
 	);
 }
 
-function UserGroupSwitchRow({
-	id,
-	label,
-	description,
-	checked,
-	onCheckedChange,
-}: {
-	id: string;
-	label: string;
-	description: string;
-	checked: boolean;
-	onCheckedChange: (checked: boolean) => void;
-}) {
-	return (
-		<div className='flex items-start justify-between gap-4 rounded-lg border p-3'>
-			<div>
-				<label htmlFor={id} className='text-sm font-medium'>
-					{label}
-				</label>
-				<p className='text-xs text-muted-foreground'>{description}</p>
-			</div>
-			<Switch id={id} checked={checked} onCheckedChange={onCheckedChange} />
-		</div>
-	);
-}
-
 function haveSameItems<T>(left: T[], right: T[]): boolean {
 	const leftItems = new Set(left);
 	const rightItems = new Set(right);
@@ -368,6 +356,10 @@ function haveSameDatabaseAccess(left: DatabaseContextAccess, right: DatabaseCont
 	return (
 		JSON.stringify(normalizeDatabaseContextAccess(left)) === JSON.stringify(normalizeDatabaseContextAccess(right))
 	);
+}
+
+function haveSameDocsAccess(left: DocsContextAccess, right: DocsContextAccess): boolean {
+	return JSON.stringify(normalizeDocsContextAccess(left)) === JSON.stringify(normalizeDocsContextAccess(right));
 }
 
 function UserGroupPlaceholder({ children }: { children: ReactNode }) {

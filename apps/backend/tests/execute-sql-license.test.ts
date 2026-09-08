@@ -69,14 +69,31 @@ describe('execute_sql excluded-column enforcement', () => {
 			expected: { enforced: false },
 		},
 		{
-			name: 'licensed restricted empty',
-			access: { enforced: true, tables: [] } as WarehouseTableAccess,
+			name: 'licensed strict restricted empty',
+			access: { enforced: true, strict: true, tables: [] } as WarehouseTableAccess,
 			expected: { enforced: true, tables: [] },
+		},
+		{
+			name: 'licensed non-strict filtered access',
+			access: {
+				enforced: true,
+				strict: false,
+				tables: [
+					{
+						databaseType: 'postgres',
+						database: 'analytics',
+						schema: 'public',
+						table: 'orders',
+					},
+				],
+			} as WarehouseTableAccess,
+			expected: { enforced: false },
 		},
 		{
 			name: 'licensed expanded schema or table grants',
 			access: {
 				enforced: true,
+				strict: true,
 				tables: [
 					{
 						databaseType: 'postgres',

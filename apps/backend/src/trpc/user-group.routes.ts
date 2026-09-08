@@ -1,8 +1,10 @@
 import {
-	type DatabaseContextAccess,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
+	EMPTY_DOCS_CONTEXT_ACCESS,
 	normalizeDatabaseContextAccess,
+	normalizeDocsContextAccess,
+	normalizeDocsContextPath,
 	TOOL_CALL_DENSITIES,
 	USER_GROUP_FEATURES,
 } from '@nao/shared';
@@ -11,6 +13,7 @@ import { z } from 'zod';
 
 import { getDatabaseContextCatalog } from '../agents/user-rules';
 import * as userGroupQueries from '../queries/user-group.queries';
+import { getDocsContextCatalog } from '../services/docs-context-catalog.service';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { getEffectiveUserGroupAccess } from '../services/user-group-feature-access.service';
 import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
@@ -23,23 +26,47 @@ const toolCallDensityPolicySchema = z.object({
 });
 const contextNameSchema = z.string().trim().min(1).max(255);
 const databaseContextGrantSchema = z.discriminatedUnion('kind', [
-	z.object({
-		kind: z.literal('schema'),
-		databaseType: contextNameSchema,
-		database: contextNameSchema,
-		schema: contextNameSchema,
-	}),
-	z.object({
-		kind: z.literal('table'),
-		databaseType: contextNameSchema,
-		database: contextNameSchema,
-		schema: contextNameSchema,
-		table: contextNameSchema,
-	}),
+	z
+		.object({
+			kind: z.literal('schema'),
+			databaseType: contextNameSchema,
+			database: contextNameSchema,
+			schema: contextNameSchema,
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal('table'),
+			databaseType: contextNameSchema,
+			database: contextNameSchema,
+			schema: contextNameSchema,
+			table: contextNameSchema,
+		})
+		.strict(),
 ]);
 const databaseAccessSchema = z.discriminatedUnion('mode', [
-	z.object({ mode: z.literal('all') }),
-	z.object({ mode: z.literal('restricted'), grants: z.array(databaseContextGrantSchema).max(10_000) }),
+	z.object({ mode: z.literal('all'), strict: z.boolean().default(true) }).strict(),
+	z
+		.object({
+			mode: z.literal('restricted'),
+			strict: z.boolean().default(true),
+			grants: z.array(databaseContextGrantSchema).max(10_000),
+			patterns: z.array(z.string().max(255)).max(200).default([]),
+		})
+		.strict(),
+]);
+const docsPathSchema = z
+	.string()
+	.max(1_024)
+	.refine((value) => normalizeDocsContextPath(value) !== null, 'Invalid docs path.')
+	.transform((value) => normalizeDocsContextPath(value)!);
+const docsContextGrantSchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('folder'), path: docsPathSchema }).strict(),
+	z.object({ kind: z.literal('file'), path: docsPathSchema }).strict(),
+]);
+const docsAccessSchema = z.discriminatedUnion('mode', [
+	z.object({ mode: z.literal('all') }).strict(),
+	z.object({ mode: z.literal('restricted'), grants: z.array(docsContextGrantSchema).max(10_000) }).strict(),
 ]);
 
 export const userGroupRoutes = {
@@ -60,6 +87,11 @@ export const userGroupRoutes = {
 		return getDatabaseContextCatalog(ctx.project.path);
 	}),
 
+	docsContextCatalog: adminProtectedProcedure.query(async ({ ctx }) => {
+		await assertUserGroupsLicensed();
+		return getDocsContextCatalog(requireProjectPath(ctx.project.path));
+	}),
+
 	create: adminProtectedProcedure
 		.input(
 			z.object({
@@ -67,12 +99,13 @@ export const userGroupRoutes = {
 				featureGrants: featureGrantsSchema.default([]),
 				toolCallDensityPolicy: toolCallDensityPolicySchema.default(DEFAULT_TOOL_CALL_DENSITY_POLICY),
 				databaseAccess: databaseAccessSchema.default(EMPTY_DATABASE_CONTEXT_ACCESS),
+				docsAccess: docsAccessSchema.default(EMPTY_DOCS_CONTEXT_ACCESS),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
 			await assertUserGroupsLicensed();
 			const databaseAccess = normalizeDatabaseContextAccess(input.databaseAccess);
-			assertDatabaseAccessAvailable(databaseAccess, requireProjectPath(ctx.project.path));
+			const docsAccess = normalizeDocsContextAccess(input.docsAccess);
 			return handleQuery(() =>
 				userGroupQueries.createUserGroup(
 					ctx.project.id,
@@ -80,6 +113,7 @@ export const userGroupRoutes = {
 					unique(input.featureGrants),
 					input.toolCallDensityPolicy,
 					databaseAccess,
+					docsAccess,
 				),
 			);
 		}),
@@ -92,21 +126,22 @@ export const userGroupRoutes = {
 				featureGrants: featureGrantsSchema,
 				toolCallDensityPolicy: toolCallDensityPolicySchema,
 				databaseAccess: databaseAccessSchema.optional(),
+				docsAccess: docsAccessSchema.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
 			await assertUserGroupsLicensed();
 			const databaseAccess =
 				input.databaseAccess === undefined ? undefined : normalizeDatabaseContextAccess(input.databaseAccess);
-			if (databaseAccess) {
-				assertDatabaseAccessAvailable(databaseAccess, requireProjectPath(ctx.project.path));
-			}
+			const docsAccess =
+				input.docsAccess === undefined ? undefined : normalizeDocsContextAccess(input.docsAccess);
 			return handleQuery(() =>
 				userGroupQueries.updateUserGroup(ctx.project.id, input.groupId, {
 					name: input.name,
 					featureGrants: unique(input.featureGrants),
 					toolCallDensityPolicy: input.toolCallDensityPolicy,
 					...(databaseAccess === undefined ? {} : { databaseAccess }),
+					...(docsAccess === undefined ? {} : { docsAccess }),
 				}),
 			);
 		}),
@@ -161,28 +196,4 @@ function requireProjectPath(projectPath: string | null | undefined): string {
 		throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'The project path is not configured.' });
 	}
 	return projectPath;
-}
-
-function assertDatabaseAccessAvailable(access: DatabaseContextAccess, projectPath: string): void {
-	if (access.mode === 'all') {
-		return;
-	}
-
-	const objects = getDatabaseContextCatalog(projectPath).objects;
-	const unavailableGrant = access.grants.find(
-		(grant) =>
-			!objects.some(
-				(object) =>
-					object.databaseType === grant.databaseType &&
-					object.database === grant.database &&
-					object.schema === grant.schema &&
-					(grant.kind === 'schema' || object.table === grant.table),
-			),
-	);
-	if (unavailableGrant) {
-		throw new TRPCError({
-			code: 'BAD_REQUEST',
-			message: 'Context grants must reference currently synced database tables or schemas.',
-		});
-	}
 }

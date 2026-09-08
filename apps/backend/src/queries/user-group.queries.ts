@@ -1,14 +1,16 @@
 import {
-	ALL_DATABASE_CONTEXT_ACCESS,
 	type DatabaseContextAccess,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
+	type DocsContextAccess,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
-	parseStoredDatabaseContextAccess,
+	EMPTY_DOCS_CONTEXT_ACCESS,
 	parseStoredUserGroupConfig,
-	serializeDatabaseContextAccess,
+	parseStoredUserGroupContextAccess,
 	serializeUserGroupConfig,
+	serializeUserGroupContextAccess,
 	type ToolCallDensityPolicy,
 	unionDatabaseContextAccess,
+	unionDocsContextAccess,
 	USER_GROUP_FEATURES,
 	type UserGroupFeature,
 } from '@nao/shared';
@@ -33,6 +35,7 @@ export interface UserGroup extends Omit<
 	featureGrants: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	databaseAccess: DatabaseContextAccess;
+	docsAccess: DocsContextAccess;
 }
 
 export interface UserGroupOverview {
@@ -45,6 +48,7 @@ export interface EffectiveUserGroupAccess {
 	features: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	databaseAccess: DatabaseContextAccess;
+	docsAccess: DocsContextAccess;
 }
 
 export class UserGroupQueryError extends Error {
@@ -101,7 +105,7 @@ export const resolveEffectiveUserGroupAccess = async (
 	const applicableGroups = groups.map((group) => ({
 		...group,
 		config: parseStoredUserGroupConfig(group.featureGrants),
-		databaseAccess: normalizeStoredDatabaseAccess(group.contextGrants, group.isDefault),
+		contextAccess: parseStoredUserGroupContextAccess(group.contextGrants, group.isDefault),
 	}));
 	const grantedFeatures = new Set(applicableGroups.flatMap((group) => group.config.features));
 	const defaultGroup = applicableGroups.find((group) => group.isDefault);
@@ -127,7 +131,8 @@ export const resolveEffectiveUserGroupAccess = async (
 				densitySource?.config.toolCallDensity.defaultDensity ?? DEFAULT_TOOL_CALL_DENSITY_POLICY.defaultDensity,
 			canChange: applicableGroups.some((group) => group.config.toolCallDensity.canChange),
 		},
-		databaseAccess: unionDatabaseContextAccess(applicableGroups.map((group) => group.databaseAccess)),
+		databaseAccess: unionDatabaseContextAccess(applicableGroups.map((group) => group.contextAccess.databaseAccess)),
+		docsAccess: unionDocsContextAccess(applicableGroups.map((group) => group.contextAccess.docsAccess)),
 	};
 };
 
@@ -146,6 +151,7 @@ export const createUserGroup = async (
 	featureGrants: UserGroupFeature[] = [],
 	toolCallDensityPolicy: ToolCallDensityPolicy = DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	databaseAccess: DatabaseContextAccess = EMPTY_DATABASE_CONTEXT_ACCESS,
+	docsAccess: DocsContextAccess = EMPTY_DOCS_CONTEXT_ACCESS,
 ): Promise<UserGroup> => {
 	await assertNameAvailable(projectId, name);
 	const [group] = await executeUserGroupNameMutation(() =>
@@ -155,7 +161,7 @@ export const createUserGroup = async (
 				projectId,
 				name,
 				featureGrants: serializeUserGroupConfig(featureGrants, toolCallDensityPolicy),
-				contextGrants: serializeDatabaseContextAccess(databaseAccess),
+				contextGrants: serializeUserGroupContextAccess(databaseAccess, docsAccess),
 				isDefault: false,
 			})
 			.returning()
@@ -172,10 +178,12 @@ export const updateUserGroup = async (
 		featureGrants: UserGroupFeature[];
 		toolCallDensityPolicy?: ToolCallDensityPolicy;
 		databaseAccess?: DatabaseContextAccess;
+		docsAccess?: DocsContextAccess;
 	},
 ): Promise<UserGroup> => {
 	const group = await getUserGroup(projectId, groupId);
 	const currentConfig = parseStoredUserGroupConfig(group.featureGrants);
+	const currentContext = parseStoredUserGroupContextAccess(group.contextGrants, group.isDefault);
 	if (group.isDefault && data.name !== undefined && data.name !== group.name) {
 		throw new UserGroupQueryError('BAD_REQUEST', 'The All Users group cannot be renamed.');
 	}
@@ -191,9 +199,14 @@ export const updateUserGroup = async (
 					data.featureGrants,
 					data.toolCallDensityPolicy ?? currentConfig.toolCallDensity,
 				),
-				...(data.databaseAccess === undefined
+				...(data.databaseAccess === undefined && data.docsAccess === undefined
 					? {}
-					: { contextGrants: serializeDatabaseContextAccess(data.databaseAccess) }),
+					: {
+							contextGrants: serializeUserGroupContextAccess(
+								data.databaseAccess ?? currentContext.databaseAccess,
+								data.docsAccess ?? currentContext.docsAccess,
+							),
+						}),
 				updatedAt: new Date(),
 			})
 			.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
@@ -303,6 +316,7 @@ function isUserGroupNameUniqueViolation(error: unknown): boolean {
 
 function normalizeUserGroup(group: DBUserGroup): UserGroup {
 	const config = parseStoredUserGroupConfig(group.featureGrants);
+	const contextAccess = parseStoredUserGroupContextAccess(group.contextGrants, group.isDefault);
 	return {
 		id: group.id,
 		projectId: group.projectId,
@@ -312,13 +326,7 @@ function normalizeUserGroup(group: DBUserGroup): UserGroup {
 		updatedAt: group.updatedAt,
 		featureGrants: config.features,
 		toolCallDensityPolicy: config.toolCallDensity,
-		databaseAccess: normalizeStoredDatabaseAccess(group.contextGrants, group.isDefault),
+		databaseAccess: contextAccess.databaseAccess,
+		docsAccess: contextAccess.docsAccess,
 	};
-}
-
-function normalizeStoredDatabaseAccess(value: unknown, isDefault: boolean): DatabaseContextAccess {
-	if (value === null) {
-		return isDefault ? ALL_DATABASE_CONTEXT_ACCESS : EMPTY_DATABASE_CONTEXT_ACCESS;
-	}
-	return parseStoredDatabaseContextAccess(value);
 }

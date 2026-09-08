@@ -1,10 +1,29 @@
-import { normalizeDatabaseContextAccess } from '@nao/shared';
+import {
+	isDatabaseContextTableGranted,
+	matchesDatabaseContextPattern,
+	normalizeDatabaseContextAccess,
+	normalizeDatabaseContextPatterns,
+} from '@nao/shared';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import type { DatabaseContextAccess, DatabaseContextGrant, DatabaseSchemaGrant, DatabaseTableGrant } from '@nao/shared';
+import type {
+	DatabaseContextAccess,
+	DatabaseContextGrant,
+	DatabaseSchemaGrant,
+	DatabaseTableGrant,
+	DocsContextAccess,
+} from '@nao/shared';
 
 import { FileExplorerIcon } from '@/components/settings/file-explorer-icon';
+import { UserGroupContextModeSelector } from '@/components/settings/user-group-context-mode-selector';
+import {
+	DocsContextTreeRoot,
+	getDocsContextSelectionCount,
+	getUnavailableDocsContextGrants,
+	UnavailableDocsGrants,
+} from '@/components/settings/user-group-docs-context-access';
+import { UserGroupSwitchRow } from '@/components/settings/user-group-switch-row';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -27,133 +46,274 @@ export interface DatabaseContextObject {
 
 interface UserGroupContextAccessProps {
 	databaseAccess: DatabaseContextAccess;
+	docsAccess?: DocsContextAccess;
 	onDatabaseAccessChange: (access: DatabaseContextAccess) => void;
+	onDocsAccessChange?: (access: DocsContextAccess) => void;
 }
 
-export function UserGroupContextAccess({ databaseAccess, onDatabaseAccessChange }: UserGroupContextAccessProps) {
+export function UserGroupContextAccess({
+	databaseAccess,
+	docsAccess,
+	onDatabaseAccessChange,
+	onDocsAccessChange = () => undefined,
+}: UserGroupContextAccessProps) {
 	const catalog = useQuery(trpc.userGroup.contextCatalog.queryOptions());
+	const docsCatalog = useQuery(trpc.userGroup.docsContextCatalog.queryOptions());
 	const [search, setSearch] = useState('');
+	const [draftPattern, setDraftPattern] = useState('');
 
 	const objects = catalog.data?.objects ?? [];
+	const docsEntries = docsCatalog.data?.entries ?? [];
 	const unavailableGrants =
 		catalog.isLoading || catalog.isError ? [] : getUnavailableDatabaseContextGrants(databaseAccess, objects);
-	const hasSyncedObjects = catalog.data?.syncState === 'ready' && objects.length > 0;
-	const isSearchEnabled = databaseAccess.mode === 'restricted';
+	const unavailableDocsGrants =
+		docsAccess === undefined || docsCatalog.isLoading || docsCatalog.isError
+			? []
+			: getUnavailableDocsContextGrants(docsAccess, docsEntries);
+	const combinedMode =
+		databaseAccess.mode === 'all' && (docsAccess === undefined || docsAccess.mode === 'all') ? 'all' : 'restricted';
+	const isSearchEnabled = combinedMode === 'restricted';
 	const isSearching = isSearchEnabled && search.trim().length > 0;
 	const treeObjects = isSearchEnabled ? filterDatabaseContextObjects(objects, search) : objects;
+	const tableSummary = getDatabaseContextTableSelectionSummary(databaseAccess, objects);
+	const docsCount = docsAccess === undefined ? undefined : getDocsContextSelectionCount(docsAccess, docsEntries);
 
 	return (
 		<div className='flex flex-col gap-4'>
 			<p className='text-sm text-muted-foreground'>
-				Choose which synced database tables this group can access. Access from groups is combined.
+				Choose which synced database tables and docs this group can access. Access from groups is combined.
 			</p>
-			<ContextAccessModeSelector access={databaseAccess} onChange={onDatabaseAccessChange} />
-			{catalog.isLoading ? (
-				<div className='flex min-h-40 items-center justify-center rounded-lg border border-dashed p-6 text-sm text-muted-foreground'>
-					Loading synced database tables...
-				</div>
-			) : catalog.isError ? (
-				<div className='flex min-h-40 flex-col items-center justify-center gap-3 rounded-lg border border-dashed p-6 text-center'>
-					<p className='text-sm text-destructive'>Failed to load synced database tables.</p>
-					<Button size='sm' variant='outline' onClick={() => catalog.refetch()}>
-						Retry
-					</Button>
-				</div>
-			) : hasSyncedObjects ? (
-				<>
-					<div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
-						{isSearchEnabled && (
-							<Input
-								value={search}
-								onChange={(event) => setSearch(event.target.value)}
-								placeholder='Search databases, schemas, or tables'
-								aria-label='Search database context'
-								className='min-w-0'
-							/>
-						)}
-						<Badge variant='secondary' className='w-fit whitespace-nowrap'>
-							{getDatabaseContextTableSelectionSummary(databaseAccess, objects)}
-						</Badge>
-					</div>
-					<DatabaseContextTree
-						objects={treeObjects}
-						databaseAccess={databaseAccess}
-						onChange={onDatabaseAccessChange}
-						isSearching={isSearching}
-					/>
-					{databaseAccess.mode === 'restricted' && unavailableGrants.length > 0 && (
-						<UnavailableSelections
-							grants={unavailableGrants}
-							databaseAccess={databaseAccess}
-							onChange={onDatabaseAccessChange}
-						/>
-					)}
-				</>
-			) : (
-				<div className='flex min-h-40 items-center justify-center rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground'>
-					No synced database tables found. Run nao sync to populate this list.
-				</div>
-			)}
-		</div>
-	);
-}
-
-function ContextAccessModeSelector({
-	access,
-	onChange,
-}: {
-	access: DatabaseContextAccess;
-	onChange: (access: DatabaseContextAccess) => void;
-}) {
-	return (
-		<div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
-			<AccessModeButton
-				title='Everything'
-				description='All synced tables, including future tables.'
-				selected={access.mode === 'all'}
-				onClick={() => onChange({ mode: 'all' })}
-			/>
-			<AccessModeButton
-				title='Specific selection'
-				description='Choose schemas and tables.'
-				selected={access.mode === 'restricted'}
-				onClick={() => {
-					if (access.mode === 'all') {
-						onChange({ mode: 'restricted', grants: [] });
+			<UserGroupContextModeSelector
+				mode={combinedMode}
+				everythingDescription='All current and future tables and docs.'
+				specificDescription='Choose tables, folders, and files.'
+				onEverything={() => {
+					onDatabaseAccessChange({ mode: 'all', strict: databaseAccess.strict });
+					if (docsAccess !== undefined) {
+						onDocsAccessChange({ mode: 'all' });
+					}
+				}}
+				onSpecific={() => {
+					if (combinedMode === 'all') {
+						onDatabaseAccessChange({
+							mode: 'restricted',
+							strict: databaseAccess.strict,
+							grants: [],
+							patterns: [],
+						});
+						if (docsAccess !== undefined) {
+							onDocsAccessChange({ mode: 'restricted', grants: [] });
+						}
 					}
 				}}
 			/>
+			<div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
+				{isSearchEnabled && (
+					<Input
+						value={search}
+						onChange={(event) => setSearch(event.target.value)}
+						placeholder='Search tables and docs paths'
+						aria-label='Search context'
+						className='min-w-0'
+					/>
+				)}
+				<Badge variant='secondary' className='w-fit whitespace-nowrap'>
+					{tableSummary}
+					{docsCount !== undefined && ` · ${docsCount} ${docsCount === 1 ? 'doc' : 'docs'}`}
+				</Badge>
+			</div>
+			<div data-testid='combined-context-tree' className='h-80 overflow-auto rounded-lg border'>
+				<ul>
+					{catalog.isLoading ? (
+						<ContextTreeStatusRow label='Database tables' status='Loading...' />
+					) : catalog.isError ? (
+						<ContextTreeStatusRow
+							label='Database tables'
+							status='Failed to load'
+							onRetry={() => catalog.refetch()}
+						/>
+					) : treeObjects.length > 0 ? (
+						<DatabaseContextTree
+							objects={treeObjects}
+							databaseAccess={databaseAccess}
+							onChange={onDatabaseAccessChange}
+							isSearching={
+								isSearching || (databaseAccess.mode === 'restricted' && draftPattern.trim().length > 0)
+							}
+							draftPattern={draftPattern}
+						/>
+					) : (
+						<ContextTreeStatusRow
+							label='Database tables'
+							status={isSearching ? 'No matches' : 'No synced tables'}
+						/>
+					)}
+					{docsAccess !== undefined && (
+						<DocsContextTreeRoot
+							entries={docsEntries}
+							access={docsAccess}
+							search={isSearchEnabled ? search : ''}
+							searching={isSearching}
+							syncState={docsCatalog.data?.syncState}
+							isLoading={docsCatalog.isLoading}
+							isError={docsCatalog.isError}
+							disabled={combinedMode === 'all'}
+							onRetry={() => docsCatalog.refetch()}
+							onChange={onDocsAccessChange}
+						/>
+					)}
+				</ul>
+			</div>
+			{databaseAccess.mode === 'restricted' && unavailableGrants.length > 0 && (
+				<UnavailableSelections
+					grants={unavailableGrants}
+					databaseAccess={databaseAccess}
+					onChange={onDatabaseAccessChange}
+				/>
+			)}
+			{docsAccess?.mode === 'restricted' && unavailableDocsGrants.length > 0 && (
+				<UnavailableDocsGrants
+					grants={unavailableDocsGrants}
+					access={docsAccess}
+					onChange={onDocsAccessChange}
+				/>
+			)}
+			{databaseAccess.mode === 'restricted' && (
+				<DynamicPatterns
+					access={databaseAccess}
+					objects={objects}
+					draftPattern={draftPattern}
+					onDraftPatternChange={setDraftPattern}
+					onChange={onDatabaseAccessChange}
+				/>
+			)}
+			<div className='border-t pt-5'>
+				<UserGroupSwitchRow
+					id='user-group-context-strict'
+					label='Strict mode'
+					description="Block SQL queries to tables outside the user's combined group access."
+					checked={databaseAccess.strict}
+					onCheckedChange={(strict) => onDatabaseAccessChange({ ...databaseAccess, strict })}
+				/>
+			</div>
 		</div>
 	);
 }
 
-function AccessModeButton({
-	title,
-	description,
-	selected,
-	onClick,
-}: {
-	title: string;
-	description: string;
-	selected: boolean;
-	onClick: () => void;
-}) {
+function ContextTreeStatusRow({ label, status, onRetry }: { label: string; status: string; onRetry?: () => void }) {
 	return (
-		<button
-			type='button'
-			aria-pressed={selected}
-			onClick={onClick}
-			className={cn(
-				'min-h-16 rounded-lg border p-3 text-left transition-colors hover:bg-muted/50',
-				'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-				selected && 'border-primary/30 bg-primary/10 text-primary hover:bg-primary/15',
+		<li className='flex h-8 items-center gap-2 px-3 text-sm text-muted-foreground'>
+			<span className='min-w-0 flex-1 truncate'>{label}</span>
+			<span className={cn('text-xs', status === 'Failed to load' && 'text-destructive')}>{status}</span>
+			{onRetry && (
+				<Button type='button' size='sm' variant='ghost' className='h-6 px-2 text-xs' onClick={onRetry}>
+					Retry
+				</Button>
 			)}
-		>
-			<span className='block text-sm font-medium'>{title}</span>
-			<span className={cn('block text-xs text-muted-foreground', selected && 'text-primary/80')}>
-				{description}
-			</span>
-		</button>
+		</li>
+	);
+}
+
+function DynamicPatterns({
+	access,
+	objects,
+	draftPattern,
+	onDraftPatternChange,
+	onChange,
+}: {
+	access: Extract<DatabaseContextAccess, { mode: 'restricted' }>;
+	objects: DatabaseContextObject[];
+	draftPattern: string;
+	onDraftPatternChange: (pattern: string) => void;
+	onChange: (access: DatabaseContextAccess) => void;
+}) {
+	const normalizedDraft = normalizeDatabaseContextPatterns([draftPattern])[0];
+	const draftMatchCount = normalizedDraft ? countPatternMatches(normalizedDraft, objects) : 0;
+
+	const addPattern = () => {
+		if (!normalizedDraft) {
+			return;
+		}
+		onChange(
+			normalizeDatabaseContextAccess({
+				...access,
+				patterns: [...access.patterns, normalizedDraft],
+			}),
+		);
+		onDraftPatternChange('');
+	};
+
+	return (
+		<div className='flex flex-col gap-3 border-t pt-4'>
+			<div>
+				<h3 className='text-sm font-medium'>Dynamic table patterns</h3>
+				<p className='text-xs text-muted-foreground'>
+					Match schema.table across every configured database. New matching tables are included after sync.
+				</p>
+			</div>
+			<div className='flex gap-2'>
+				<Input
+					value={draftPattern}
+					onChange={(event) => onDraftPatternChange(event.target.value)}
+					onKeyDown={(event) => {
+						if (event.key === 'Enter') {
+							event.preventDefault();
+							addPattern();
+						}
+					}}
+					placeholder='main.* or sales.customer_*'
+					aria-label='Dynamic table pattern'
+					maxLength={255}
+					className='min-w-0'
+				/>
+				<Button type='button' variant='outline' className='shrink-0 rounded-full' onClick={addPattern}>
+					Add pattern
+				</Button>
+			</div>
+			{normalizedDraft && (
+				<p className='text-xs text-primary'>
+					{draftMatchCount} current {draftMatchCount === 1 ? 'match' : 'matches'} · future matching tables are
+					included
+				</p>
+			)}
+			{access.patterns.length > 0 && (
+				<ul className='mt-1 rounded-lg border'>
+					{access.patterns.map((pattern) => {
+						const matchCount = countPatternMatches(pattern, objects);
+						return (
+							<li
+								key={pattern}
+								className='flex min-h-10 items-center gap-2 border-b px-3 py-1.5 last:border-b-0'
+							>
+								<span className='min-w-0 flex-1 break-all font-mono text-xs'>{pattern}</span>
+								<span className='shrink-0 text-xs text-muted-foreground'>
+									{matchCount} {matchCount === 1 ? 'table' : 'tables'}
+								</span>
+								<Button
+									type='button'
+									size='icon'
+									variant='ghost'
+									className='size-7 shrink-0 rounded-full'
+									aria-label={`Remove dynamic pattern ${pattern}`}
+									onClick={() =>
+										onChange(
+											normalizeDatabaseContextAccess({
+												...access,
+												patterns: access.patterns.filter(
+													(savedPattern) => savedPattern !== pattern,
+												),
+											}),
+										)
+									}
+								>
+									<X className='size-3.5' />
+								</Button>
+							</li>
+						);
+					})}
+				</ul>
+			)}
+		</div>
 	);
 }
 
@@ -162,21 +322,19 @@ function DatabaseContextTree({
 	databaseAccess,
 	onChange,
 	isSearching,
+	draftPattern,
 }: {
 	objects: DatabaseContextObject[];
 	databaseAccess: DatabaseContextAccess;
 	onChange: (access: DatabaseContextAccess) => void;
 	isSearching: boolean;
+	draftPattern: string;
 }) {
 	const databases = useMemo(() => groupDatabaseContextObjects(objects), [objects]);
 	const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 
 	if (databases.length === 0) {
-		return (
-			<div className='flex h-80 items-center justify-center rounded-lg border text-sm text-muted-foreground'>
-				No matching tables.
-			</div>
-		);
+		return null;
 	}
 
 	const toggleFolder = (folder: GroupedDatabase | GroupedSchema) => {
@@ -194,21 +352,20 @@ function DatabaseContextTree({
 	};
 
 	return (
-		<div className='h-80 overflow-auto rounded-lg border'>
-			<ul>
-				{databases.map((database) => (
-					<DatabaseNode
-						key={database.key}
-						database={database}
-						expandedKeys={expandedKeys}
-						isSearching={isSearching}
-						onToggle={toggleFolder}
-						databaseAccess={databaseAccess}
-						onChange={onChange}
-					/>
-				))}
-			</ul>
-		</div>
+		<>
+			{databases.map((database) => (
+				<DatabaseNode
+					key={database.key}
+					database={database}
+					expandedKeys={expandedKeys}
+					isSearching={isSearching}
+					onToggle={toggleFolder}
+					databaseAccess={databaseAccess}
+					onChange={onChange}
+					draftPattern={draftPattern}
+				/>
+			))}
+		</>
 	);
 }
 
@@ -246,6 +403,7 @@ function DatabaseNode({
 	onToggle,
 	databaseAccess,
 	onChange,
+	draftPattern,
 }: {
 	database: GroupedDatabase;
 	expandedKeys: Set<string>;
@@ -253,6 +411,7 @@ function DatabaseNode({
 	onToggle: (folder: GroupedDatabase | GroupedSchema) => void;
 	databaseAccess: DatabaseContextAccess;
 	onChange: (access: DatabaseContextAccess) => void;
+	draftPattern: string;
 }) {
 	const folderChain = getSingleChildFolderChain(database, DATABASE_TREE_EXPANSION_ADAPTER);
 	const compactSchema = folderChain.length === 2 ? folderChain[1] : undefined;
@@ -268,6 +427,7 @@ function DatabaseNode({
 				onToggle={() => onToggle(compactSchema)}
 				databaseAccess={databaseAccess}
 				onChange={onChange}
+				draftPattern={draftPattern}
 			/>
 		);
 	}
@@ -317,6 +477,7 @@ function DatabaseNode({
 							onToggle={() => onToggle(schema)}
 							databaseAccess={databaseAccess}
 							onChange={onChange}
+							draftPattern={draftPattern}
 						/>
 					))}
 				</ul>
@@ -334,6 +495,7 @@ function SchemaRow({
 	onToggle,
 	databaseAccess,
 	onChange,
+	draftPattern,
 }: {
 	schema: GroupedSchema;
 	label: string;
@@ -343,6 +505,7 @@ function SchemaRow({
 	onToggle: () => void;
 	databaseAccess: DatabaseContextAccess;
 	onChange: (access: DatabaseContextAccess) => void;
+	draftPattern: string;
 }) {
 	const schemaGrant: DatabaseSchemaGrant = {
 		kind: 'schema',
@@ -413,6 +576,7 @@ function SchemaRow({
 							databaseAccess={databaseAccess}
 							parentSchemaExplicit={explicitSchema}
 							onChange={onChange}
+							draftPattern={draftPattern}
 						/>
 					))}
 				</ul>
@@ -427,21 +591,31 @@ function TableRow({
 	databaseAccess,
 	parentSchemaExplicit,
 	onChange,
+	draftPattern,
 }: {
 	object: DatabaseContextObject;
 	depth: number;
 	databaseAccess: DatabaseContextAccess;
 	parentSchemaExplicit: boolean;
 	onChange: (access: DatabaseContextAccess) => void;
+	draftPattern: string;
 }) {
 	const grant: DatabaseTableGrant = { kind: 'table', ...object };
-	const inherited = databaseAccess.mode === 'all' || parentSchemaExplicit;
+	const patternInherited =
+		databaseAccess.mode === 'restricted' &&
+		databaseAccess.patterns.some((pattern) => matchesDatabaseContextPattern(pattern, object));
+	const inherited = databaseAccess.mode === 'all' || parentSchemaExplicit || patternInherited;
 	const selected = inherited || hasDatabaseContextGrant(databaseAccess, grant);
+	const previewed = draftPattern.trim().length > 0 && matchesDatabaseContextPattern(draftPattern, object);
 
 	return (
 		<li>
 			<div
-				className={cn(TREE_ROW_LAYOUT_CLASS, selected && 'bg-primary/10 text-primary hover:bg-primary/15')}
+				className={cn(
+					TREE_ROW_LAYOUT_CLASS,
+					previewed && !selected && 'bg-primary/5 hover:bg-primary/10',
+					selected && 'bg-primary/10 text-primary hover:bg-primary/15',
+				)}
 				style={{ paddingLeft: `${getTreeNodePadding(depth)}px` }}
 			>
 				<span className='size-4 shrink-0' />
@@ -449,6 +623,11 @@ function TableRow({
 					checked={selected}
 					aria-label={`${object.table} table access`}
 					disabled={inherited}
+					title={
+						patternInherited
+							? 'Allowed by a dynamic pattern. Remove the pattern to revoke access.'
+							: undefined
+					}
 					className='disabled:cursor-default'
 					onCheckedChange={(checked) =>
 						onChange(toggleDatabaseTableGrant(databaseAccess, grant, checked === true))
@@ -476,7 +655,7 @@ function UnavailableSelections({
 	return (
 		<div className='flex flex-col gap-2 border-t pt-4'>
 			<div>
-				<h3 className='text-sm font-medium'>Unavailable selections</h3>
+				<h3 className='text-sm font-medium'>Unavailable table selections</h3>
 				<p className='text-xs text-muted-foreground'>These saved selections are not in the latest sync.</p>
 			</div>
 			<ul className='rounded-lg border'>
@@ -513,7 +692,9 @@ export function toggleDatabaseSchemaGrant(
 	const remaining = access.grants.filter((grant) => !sameSchema(grant, schema));
 	return normalizeDatabaseContextAccess({
 		mode: 'restricted',
+		strict: access.strict,
 		grants: checked ? [...remaining, schema] : remaining,
+		patterns: access.patterns,
 	});
 }
 
@@ -530,7 +711,9 @@ export function toggleDatabaseTableGrant(
 	);
 	return normalizeDatabaseContextAccess({
 		mode: 'restricted',
+		strict: access.strict,
 		grants: checked ? [...remaining, table] : remaining,
+		patterns: access.patterns,
 	});
 }
 
@@ -564,13 +747,7 @@ export function getDatabaseContextTableSelectionSummary(
 	objects: readonly DatabaseContextObject[],
 ): string {
 	const selectedTableKeys = new Set(
-		objects
-			.filter(
-				(object) =>
-					access.mode === 'all' ||
-					access.grants.some((grant) => databaseContextGrantMatchesObject(grant, object)),
-			)
-			.map(databaseContextObjectKey),
+		objects.filter((object) => isDatabaseContextTableGranted(access, object)).map(databaseContextObjectKey),
 	);
 	const count = selectedTableKeys.size;
 	return `${count} ${count === 1 ? 'table' : 'tables'}`;
@@ -585,9 +762,11 @@ function removeDatabaseContextGrant(
 	}
 	return normalizeDatabaseContextAccess({
 		mode: 'restricted',
+		strict: access.strict,
 		grants: access.grants.filter(
 			(grant) => databaseContextGrantKey(grant) !== databaseContextGrantKey(grantToRemove),
 		),
+		patterns: access.patterns,
 	});
 }
 
@@ -660,6 +839,12 @@ function sameSchema(
 
 function databaseContextGrantMatchesObject(grant: DatabaseContextGrant, object: DatabaseContextObject): boolean {
 	return sameSchema(grant, object) && (grant.kind === 'schema' || grant.table === object.table);
+}
+
+function countPatternMatches(pattern: string, objects: readonly DatabaseContextObject[]): number {
+	return new Set(
+		objects.filter((object) => matchesDatabaseContextPattern(pattern, object)).map(databaseContextObjectKey),
+	).size;
 }
 
 function toDomId(value: string): string {

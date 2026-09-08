@@ -21,6 +21,7 @@ import { hasFeature } from '../src/services/license.service';
 import {
 	expandDatabaseAccess,
 	isDatabaseObjectAllowed,
+	resolveProjectContextAccess,
 	resolveWarehouseTableAccess,
 } from '../src/services/user-group-context-access.service';
 
@@ -62,9 +63,33 @@ describe('warehouse Context access', () => {
 		expect(resolveEffectiveUserGroupAccess).not.toHaveBeenCalled();
 	});
 
+	it('returns an unrestricted docs bypass when unlicensed and an enforced policy when licensed', async () => {
+		vi.mocked(hasFeature).mockResolvedValue(false);
+		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toEqual({
+			warehouseTableAccess: { enforced: false },
+			docsContextAccess: { enforced: false },
+			userGroupFeatures: ['story-creation', 'automation-creation'],
+		});
+
+		vi.mocked(hasFeature).mockResolvedValue(true);
+		vi.mocked(resolveEffectiveUserGroupAccess).mockResolvedValue({
+			features: [],
+			toolCallDensityPolicy: { defaultDensity: 'medium', canChange: false },
+			databaseAccess: { mode: 'all', strict: true },
+			docsAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
+		});
+		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toMatchObject({
+			docsContextAccess: {
+				enforced: true,
+				access: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
+			},
+		});
+	});
+
 	it('denies all warehouse tables for restricted access without grants', () => {
-		expect(expandDatabaseAccess({ mode: 'restricted', grants: [] }, catalog)).toEqual({
+		expect(expandDatabaseAccess({ mode: 'restricted', strict: true, grants: [], patterns: [] }, catalog)).toEqual({
 			enforced: true,
+			strict: true,
 			tables: [],
 		});
 	});
@@ -74,6 +99,7 @@ describe('warehouse Context access', () => {
 			expandDatabaseAccess(
 				{
 					mode: 'restricted',
+					strict: true,
 					grants: [
 						{
 							kind: 'schema',
@@ -82,11 +108,13 @@ describe('warehouse Context access', () => {
 							schema: 'public',
 						},
 					],
+					patterns: [],
 				},
 				catalog,
 			),
 		).toEqual({
 			enforced: true,
+			strict: true,
 			tables: [
 				{ databaseType: 'postgres', database: 'analytics', schema: 'public', table: 'orders' },
 				{ databaseType: 'postgres', database: 'analytics', schema: 'public', table: 'users' },
@@ -99,6 +127,7 @@ describe('warehouse Context access', () => {
 			expandDatabaseAccess(
 				{
 					mode: 'restricted',
+					strict: true,
 					grants: [
 						{
 							kind: 'table',
@@ -108,29 +137,68 @@ describe('warehouse Context access', () => {
 							table: 'events',
 						},
 					],
+					patterns: [],
 				},
 				catalog,
 			),
 		).toEqual({
 			enforced: true,
+			strict: true,
 			tables: [{ databaseType: 'snowflake', database: 'warehouse', schema: 'raw', table: 'events' }],
 		});
 	});
 
-	it('expands all access and fails closed when the catalog is missing', () => {
-		expect(expandDatabaseAccess({ mode: 'all' }, catalog)).toEqual({
+	it('expands patterns across databases without allowing unrelated tables', () => {
+		const catalogWithRepeatedName = {
+			...catalog,
+			objects: [
+				...catalog.objects,
+				{ databaseType: 'snowflake', database: 'warehouse', schema: 'public', table: 'users' },
+			],
+		};
+		expect(
+			expandDatabaseAccess(
+				{ mode: 'restricted', strict: true, grants: [], patterns: ['PUBLIC.u*', 'raw.events'] },
+				catalogWithRepeatedName,
+			),
+		).toEqual({
 			enforced: true,
-			tables: catalog.objects,
+			strict: true,
+			tables: [
+				{ databaseType: 'postgres', database: 'analytics', schema: 'public', table: 'users' },
+				{ databaseType: 'snowflake', database: 'warehouse', schema: 'public', table: 'users' },
+				{ databaseType: 'snowflake', database: 'warehouse', schema: 'raw', table: 'events' },
+			],
 		});
-		expect(expandDatabaseAccess({ mode: 'all' }, { syncState: 'missing', objects: [] })).toEqual({
+	});
+
+	it('keeps unmatched patterns restrictive until matching tables are synced', () => {
+		expect(
+			expandDatabaseAccess({ mode: 'restricted', strict: false, grants: [], patterns: ['future.*'] }, catalog),
+		).toEqual({
 			enforced: true,
+			strict: false,
 			tables: [],
 		});
 	});
 
-	it('filters project database objects by canonical identity', () => {
+	it('expands all access and fails closed when the catalog is missing', () => {
+		expect(expandDatabaseAccess({ mode: 'all', strict: true }, catalog)).toEqual({
+			enforced: true,
+			strict: true,
+			tables: catalog.objects,
+		});
+		expect(expandDatabaseAccess({ mode: 'all', strict: false }, { syncState: 'missing', objects: [] })).toEqual({
+			enforced: true,
+			strict: false,
+			tables: [],
+		});
+	});
+
+	it('filters project database objects when strict mode is off', () => {
 		const access = {
 			enforced: true as const,
+			strict: false,
 			tables: [{ databaseType: 'postgres', database: 'analytics', schema: 'public', table: 'orders' }],
 		};
 
@@ -158,7 +226,8 @@ describe('warehouse Context access', () => {
 		vi.mocked(resolveEffectiveUserGroupAccess).mockResolvedValue({
 			features: [],
 			toolCallDensityPolicy: { defaultDensity: 'medium', canChange: false },
-			databaseAccess: { mode: 'all' },
+			databaseAccess: { mode: 'all', strict: true },
+			docsAccess: { mode: 'all' },
 		});
 		vi.mocked(getDatabaseContextCatalog).mockImplementation(() => {
 			throw new Error('permission denied');
