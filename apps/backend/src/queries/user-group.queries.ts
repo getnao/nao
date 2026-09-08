@@ -1,14 +1,18 @@
 import {
 	ALL_DATABASE_CONTEXT_ACCESS,
+	ALL_DOCS_CONTEXT_ACCESS,
 	type DatabaseContextAccess,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
+	type DocsContextAccess,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
-	parseStoredDatabaseContextAccess,
+	EMPTY_DOCS_CONTEXT_ACCESS,
 	parseStoredUserGroupConfig,
-	serializeDatabaseContextAccess,
+	parseStoredUserGroupContextAccess,
 	serializeUserGroupConfig,
+	serializeUserGroupContextAccess,
 	type ToolCallDensityPolicy,
 	unionDatabaseContextAccess,
+	unionDocsContextAccess,
 	USER_GROUP_FEATURES,
 	type UserGroupFeature,
 } from '@nao/shared';
@@ -30,6 +34,7 @@ export interface UserGroup extends Omit<DBUserGroup, 'contextGrants' | 'featureG
 	featureGrants: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	databaseAccess: DatabaseContextAccess;
+	docsAccess: DocsContextAccess;
 }
 
 export interface UserGroupOverview {
@@ -42,6 +47,7 @@ export interface EffectiveUserGroupAccess {
 	features: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	databaseAccess: DatabaseContextAccess;
+	docsAccess: DocsContextAccess;
 }
 
 export class UserGroupQueryError extends Error {
@@ -70,6 +76,39 @@ export const getUserGroupOverview = async (projectId: string): Promise<UserGroup
 	};
 };
 
+<<<<<<< HEAD
+=======
+export const ensureDefaultUserGroup = async (projectId: string): Promise<UserGroup> => {
+	await db
+		.insert(s.userGroup)
+		.values({
+			projectId,
+			name: DEFAULT_USER_GROUP_NAME,
+			isDefault: true,
+			featureGrants: serializeUserGroupConfig(USER_GROUP_FEATURES, DEFAULT_TOOL_CALL_DENSITY_POLICY),
+			contextGrants: serializeUserGroupContextAccess(ALL_DATABASE_CONTEXT_ACCESS, ALL_DOCS_CONTEXT_ACCESS),
+		})
+		.onConflictDoNothing()
+		.execute();
+
+	const [group] = await db
+		.select()
+		.from(s.userGroup)
+		.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroup.isDefault, true)))
+		.limit(1)
+		.execute();
+	if (!group) {
+		throw new UserGroupQueryError('CONFLICT', 'The All Users group could not be created.');
+	}
+	return normalizeUserGroup(group);
+};
+
+export const resolveEffectiveUserGroupFeatures = async (
+	projectId: string,
+	userId: string,
+): Promise<UserGroupFeature[]> => (await resolveEffectiveUserGroupAccess(projectId, userId)).features;
+
+>>>>>>> f9f41abd (Add table and docs permissions to user groups)
 export const resolveEffectiveUserGroupAccess = async (
 	projectId: string,
 	userId: string,
@@ -98,7 +137,7 @@ export const resolveEffectiveUserGroupAccess = async (
 	const applicableGroups = groups.map((group) => ({
 		...group,
 		config: parseStoredUserGroupConfig(group.featureGrants),
-		databaseAccess: normalizeStoredDatabaseAccess(group.contextGrants, group.isDefault),
+		contextAccess: parseStoredUserGroupContextAccess(group.contextGrants, group.isDefault),
 	}));
 	const grantedFeatures = new Set(applicableGroups.flatMap((group) => group.config.features));
 	const defaultGroup = applicableGroups.find((group) => group.isDefault);
@@ -124,7 +163,8 @@ export const resolveEffectiveUserGroupAccess = async (
 				densitySource?.config.toolCallDensity.defaultDensity ?? DEFAULT_TOOL_CALL_DENSITY_POLICY.defaultDensity,
 			canChange: applicableGroups.some((group) => group.config.toolCallDensity.canChange),
 		},
-		databaseAccess: unionDatabaseContextAccess(applicableGroups.map((group) => group.databaseAccess)),
+		databaseAccess: unionDatabaseContextAccess(applicableGroups.map((group) => group.contextAccess.databaseAccess)),
+		docsAccess: unionDocsContextAccess(applicableGroups.map((group) => group.contextAccess.docsAccess)),
 	};
 };
 
@@ -143,8 +183,10 @@ export const createUserGroup = async (
 	featureGrants: UserGroupFeature[] = [],
 	toolCallDensityPolicy: ToolCallDensityPolicy = DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	databaseAccess: DatabaseContextAccess = EMPTY_DATABASE_CONTEXT_ACCESS,
+	docsAccess: DocsContextAccess = EMPTY_DOCS_CONTEXT_ACCESS,
 ): Promise<UserGroup> => {
 	await assertNameAvailable(projectId, name);
+<<<<<<< HEAD
 	const [group] = await executeUserGroupNameMutation(() =>
 		db
 			.insert(s.userGroup)
@@ -158,6 +200,19 @@ export const createUserGroup = async (
 			.returning()
 			.execute(),
 	);
+=======
+	const [group] = await db
+		.insert(s.userGroup)
+		.values({
+			projectId,
+			name,
+			featureGrants: serializeUserGroupConfig(featureGrants, toolCallDensityPolicy),
+			contextGrants: serializeUserGroupContextAccess(databaseAccess, docsAccess),
+			isDefault: false,
+		})
+		.returning()
+		.execute();
+>>>>>>> f9f41abd (Add table and docs permissions to user groups)
 	return normalizeUserGroup(group);
 };
 
@@ -169,16 +224,19 @@ export const updateUserGroup = async (
 		featureGrants: UserGroupFeature[];
 		toolCallDensityPolicy?: ToolCallDensityPolicy;
 		databaseAccess?: DatabaseContextAccess;
+		docsAccess?: DocsContextAccess;
 	},
 ): Promise<UserGroup> => {
 	const group = await getUserGroup(projectId, groupId);
 	const currentConfig = parseStoredUserGroupConfig(group.featureGrants);
+	const currentContext = parseStoredUserGroupContextAccess(group.contextGrants, group.isDefault);
 	if (group.isDefault && data.name !== undefined && data.name !== group.name) {
 		throw new UserGroupQueryError('BAD_REQUEST', 'The All Users group cannot be renamed.');
 	}
 	if (data.name !== undefined && data.name !== group.name) {
 		await assertNameAvailable(projectId, data.name, groupId);
 	}
+<<<<<<< HEAD
 	const [updated] = await executeUserGroupNameMutation(() =>
 		db
 			.update(s.userGroup)
@@ -197,6 +255,29 @@ export const updateUserGroup = async (
 			.returning()
 			.execute(),
 	);
+=======
+	const [updated] = await db
+		.update(s.userGroup)
+		.set({
+			...(data.name === undefined ? {} : { name: data.name }),
+			featureGrants: serializeUserGroupConfig(
+				data.featureGrants,
+				data.toolCallDensityPolicy ?? currentConfig.toolCallDensity,
+			),
+			...(data.databaseAccess === undefined && data.docsAccess === undefined
+				? {}
+				: {
+						contextGrants: serializeUserGroupContextAccess(
+							data.databaseAccess ?? currentContext.databaseAccess,
+							data.docsAccess ?? currentContext.docsAccess,
+						),
+					}),
+			updatedAt: new Date(),
+		})
+		.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
+		.returning()
+		.execute();
+>>>>>>> f9f41abd (Add table and docs permissions to user groups)
 	return normalizeUserGroup(updated);
 };
 
@@ -300,17 +381,12 @@ function isUserGroupNameUniqueViolation(error: unknown): boolean {
 
 function normalizeUserGroup(group: DBUserGroup): UserGroup {
 	const config = parseStoredUserGroupConfig(group.featureGrants);
+	const contextAccess = parseStoredUserGroupContextAccess(group.contextGrants, group.isDefault);
 	return {
 		...group,
 		featureGrants: config.features,
 		toolCallDensityPolicy: config.toolCallDensity,
-		databaseAccess: normalizeStoredDatabaseAccess(group.contextGrants, group.isDefault),
+		databaseAccess: contextAccess.databaseAccess,
+		docsAccess: contextAccess.docsAccess,
 	};
-}
-
-function normalizeStoredDatabaseAccess(value: unknown, isDefault: boolean): DatabaseContextAccess {
-	if (value === null) {
-		return isDefault ? ALL_DATABASE_CONTEXT_ACCESS : EMPTY_DATABASE_CONTEXT_ACCESS;
-	}
-	return parseStoredDatabaseContextAccess(value);
 }

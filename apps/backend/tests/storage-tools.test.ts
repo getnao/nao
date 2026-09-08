@@ -13,21 +13,30 @@ import writeTool from '../src/agents/tools/write';
 import { __reloadEnvForTesting } from '../src/env';
 import type { WarehouseTableAccess } from '../src/services/context-access';
 import { __resetStorageForTesting } from '../src/services/storage';
+import type { ResolvedDocsContextAccess } from '../src/services/user-group-context-access.service';
 import type { ToolContext } from '../src/types/tools';
 
 let storageRoot: string;
 let projectFolder: string;
 let originalEnv: typeof process.env;
 let warehouseTableAccess: WarehouseTableAccess;
+let docsContextAccess: ResolvedDocsContextAccess;
 
 const context = () =>
-	({ projectFolder, projectId: 'proj-1', userId: 'user-1', warehouseTableAccess }) as unknown as ToolContext;
+	({
+		projectFolder,
+		projectId: 'proj-1',
+		userId: 'user-1',
+		warehouseTableAccess,
+		docsContextAccess,
+	}) as unknown as ToolContext;
 
 beforeEach(async () => {
 	originalEnv = { ...process.env };
 	storageRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'nao-storage-tools-'));
 	projectFolder = await fs.mkdtemp(path.join(os.tmpdir(), 'nao-project-tools-'));
 	warehouseTableAccess = { enforced: false };
+	docsContextAccess = { enforced: false };
 
 	useBackend('local');
 });
@@ -99,6 +108,73 @@ describe('read', () => {
 		await fs.writeFile(path.join(projectFolder, 'RULES.md'), 'project rules');
 
 		expect(await run(readTool, { file_path: '/RULES.md' })).toMatchObject({ content: 'project rules' });
+	});
+});
+
+describe('docs context access', () => {
+	beforeEach(async () => {
+		await fs.mkdir(path.join(projectFolder, 'docs', 'allowed'), { recursive: true });
+		await fs.mkdir(path.join(projectFolder, 'docs', 'legal'), { recursive: true });
+		await fs.mkdir(path.join(projectFolder, 'docs', 'private'), { recursive: true });
+		await fs.writeFile(path.join(projectFolder, 'docs', 'allowed', 'report.md'), 'shared needle');
+		await fs.writeFile(path.join(projectFolder, 'docs', 'legal', 'terms.md'), 'legal needle');
+		await fs.writeFile(path.join(projectFolder, 'docs', 'legal', 'private.md'), 'private needle');
+		await fs.writeFile(path.join(projectFolder, 'docs', 'private', 'secret.md'), 'secret needle');
+		docsContextAccess = {
+			enforced: true,
+			access: {
+				mode: 'restricted',
+				grants: [
+					{ kind: 'folder', path: 'allowed' },
+					{ kind: 'file', path: 'legal/terms.md' },
+				],
+			},
+		};
+	});
+
+	it('allows direct granted reads and denies siblings', async () => {
+		await expect(run(readTool, { file_path: '/docs/allowed/report.md' })).resolves.toMatchObject({
+			content: 'shared needle',
+		});
+		await expect(run(readTool, { file_path: '/docs/legal/terms.md' })).resolves.toMatchObject({
+			content: 'legal needle',
+		});
+		await expect(run(readTool, { file_path: '/docs/legal/private.md' })).rejects.toThrow('Access denied');
+		await expect(run(readTool, { file_path: '/docs/private/secret.md' })).rejects.toThrow('Access denied');
+	});
+
+	it('lists only traversable ancestors and allowed children without leaking counts', async () => {
+		await expect(run(listTool, { path: '/docs' })).resolves.toMatchObject({
+			entries: [
+				expect.objectContaining({ name: 'allowed', itemCount: 1 }),
+				expect.objectContaining({ name: 'legal', itemCount: 1 }),
+			],
+		});
+		const legal = (await run(listTool, { path: '/docs/legal' })) as { entries: Array<{ name: string }> };
+		expect(legal.entries.map((entry) => entry.name)).toEqual(['terms.md']);
+		await expect(run(listTool, { path: '/docs/private' })).rejects.toThrow('Access denied');
+	});
+
+	it('filters search and grep matches before totals and snippets are returned', async () => {
+		const search = (await run(searchTool, { pattern: '*.md' })) as { files: Array<{ path: string }> };
+		expect(
+			search.files
+				.map((file) => file.path)
+				.filter((filePath) => filePath.startsWith('/docs'))
+				.sort(),
+		).toEqual(['/docs/allowed/report.md', '/docs/legal/terms.md']);
+
+		const grep = (await run(grepTool, { pattern: 'needle' })) as {
+			matches: Array<{ path: string }>;
+			total_matches: number;
+		};
+		expect(
+			grep.matches
+				.map((match) => match.path)
+				.filter((filePath) => filePath.startsWith('/docs'))
+				.sort(),
+		).toEqual(['/docs/allowed/report.md', '/docs/legal/terms.md']);
+		expect(grep.total_matches).toBe(2);
 	});
 });
 
@@ -239,6 +315,7 @@ describe('database Context permissions', () => {
 		await fs.writeFile(path.join(tableRoot, 'table=users/columns.md'), 'denied marker');
 		warehouseTableAccess = {
 			enforced: true,
+			strict: false,
 			tables: [
 				{
 					databaseType: 'postgres',

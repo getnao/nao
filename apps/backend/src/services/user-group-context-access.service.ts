@@ -1,3 +1,6 @@
+import type { DocsContextAccess, UserGroupFeature } from '@nao/shared';
+import { USER_GROUP_FEATURES } from '@nao/shared';
+
 import { getDatabaseContextCatalog } from '../agents/user-rules';
 import { getUserRoleInProject } from '../queries/project.queries';
 import { resolveEffectiveUserGroupAccess } from '../queries/user-group.queries';
@@ -7,22 +10,43 @@ import { hasFeature, LICENSE_FEATURES } from './license.service';
 
 export * from './context-access';
 
-export async function resolveWarehouseTableAccess(
+export type ResolvedDocsContextAccess = { enforced: false } | { enforced: true; access: DocsContextAccess };
+
+export async function resolveProjectContextAccess(
 	projectId: string,
 	userId: string,
 	projectFolder: string,
-): Promise<WarehouseTableAccess> {
+): Promise<{
+	warehouseTableAccess: WarehouseTableAccess;
+	docsContextAccess: ResolvedDocsContextAccess;
+	userGroupFeatures: UserGroupFeature[];
+}> {
 	if (!(await getUserRoleInProject(projectId, userId))) {
 		throw new HandlerError('FORBIDDEN', 'You do not have access to this project.');
 	}
 	if (!(await hasFeature(LICENSE_FEATURES.userGroups))) {
-		return { enforced: false };
+		return {
+			warehouseTableAccess: { enforced: false },
+			docsContextAccess: { enforced: false },
+			userGroupFeatures: [...USER_GROUP_FEATURES],
+		};
 	}
 
 	const [effectiveAccess, catalog] = await Promise.all([
 		resolveEffectiveUserGroupAccess(projectId, userId),
 		Promise.resolve().then(() => getDatabaseContextCatalog(projectFolder)),
 	]);
+	return {
+		warehouseTableAccess: expandDatabaseAccess(effectiveAccess.databaseAccess, catalog),
+		docsContextAccess: { enforced: true, access: effectiveAccess.docsAccess },
+		userGroupFeatures: effectiveAccess.features,
+	};
+}
 
-	return expandDatabaseAccess(effectiveAccess.databaseAccess, catalog);
+export async function resolveWarehouseTableAccess(
+	projectId: string,
+	userId: string,
+	projectFolder: string,
+): Promise<WarehouseTableAccess> {
+	return (await resolveProjectContextAccess(projectId, userId, projectFolder)).warehouseTableAccess;
 }

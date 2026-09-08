@@ -4,7 +4,10 @@ import fs from 'fs';
 import path from 'path';
 
 import { GrepOutput, renderToModelOutput } from '../../components/tool-outputs';
-import { assertContextPathAllowed, isContextPathAllowed } from '../../services/context-access';
+import {
+	assertProjectContextPathAllowed,
+	isProjectContextPathAllowed,
+} from '../../services/project-context-path-access.service';
 import { isStorageEnabled } from '../../services/storage';
 import { canGrepUserFiles, grepRootForUser } from '../../services/storage/user-files';
 import type { ToolContext } from '../../types/tools';
@@ -87,7 +90,8 @@ const projectTarget = (searchPath: string | undefined, context: ToolContext): Se
 	const projectFolder = context.projectFolder;
 	const root = resolveCanonicalProjectPath(searchPath ?? '/', projectFolder);
 	if (searchPath) {
-		assertContextPathAllowed(context.warehouseTableAccess, root.virtualPath);
+		const kind = fs.statSync(root.realPath).isDirectory() ? 'directory' : 'file';
+		assertProjectContextPathAllowed(context, searchPath, root.virtualPath, kind);
 	}
 	return {
 		root: root.realPath,
@@ -109,7 +113,9 @@ function canonicalAllowedDisplayPath(absolutePath: string, context: ToolContext)
 		const relativePath = path.relative(canonicalRoot, absolutePath).replaceAll(path.sep, '/');
 		const virtualPath = relativePath ? `/${relativePath}` : '/';
 		const canonical = resolveCanonicalProjectPath(virtualPath, context.projectFolder);
-		return isContextPathAllowed(context.warehouseTableAccess, canonical.virtualPath) ? canonical.virtualPath : null;
+		return isProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, 'file')
+			? canonical.virtualPath
+			: null;
 	} catch {
 		return null;
 	}

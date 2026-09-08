@@ -6,8 +6,10 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { MemberStatus, UserRole } from '@nao/shared/types';
 
 import type { DatabaseContextObject } from '@/components/settings/user-group-context-access';
+import type { DocsContextCatalogEntry } from '@/components/settings/user-group-docs-context-access';
 import type { UserGroupEditorGroup } from '@/components/settings/user-group-editor';
 import { getDatabaseContextTableSelectionSummary } from '@/components/settings/user-group-context-access';
+import { getDocsContextSelectionSummary } from '@/components/settings/user-group-docs-context-access';
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { invalidateUserGroupQueries } from '@/components/settings/user-group-editor';
 import { Badge } from '@/components/ui/badge';
@@ -78,6 +80,7 @@ export function resolveUserGroupsPageTab(value: unknown): UserGroupsPageTab {
 function LicensedUserGroupsTable({ tab, onTabChange }: UserGroupsTableProps) {
 	const overview = useQuery(trpc.userGroup.overview.queryOptions());
 	const contextCatalog = useQuery(trpc.userGroup.contextCatalog.queryOptions());
+	const docsContextCatalog = useQuery(trpc.userGroup.docsContextCatalog.queryOptions());
 	const navigate = useNavigate();
 	const membershipKeys = useMemo(
 		() => new Set(overview.data?.memberships.map(({ groupId, userId }) => `${groupId}:${userId}`)),
@@ -113,6 +116,7 @@ function LicensedUserGroupsTable({ tab, onTabChange }: UserGroupsTableProps) {
 	const organizationUsers = overview.data.users.filter((user) => user.source === 'organization');
 	const groups = overview.data.groups;
 	const contextObjects = contextCatalog.data?.objects ?? [];
+	const docsEntries = docsContextCatalog.data?.entries ?? [];
 
 	return (
 		<>
@@ -123,6 +127,7 @@ function LicensedUserGroupsTable({ tab, onTabChange }: UserGroupsTableProps) {
 						groups={groups}
 						memberships={overview.data.memberships}
 						contextObjects={contextObjects}
+						docsEntries={docsEntries}
 						onOpenGroup={(groupId) => {
 							void navigate({
 								to: '/settings/project/user-groups/$groupId',
@@ -158,18 +163,20 @@ function GroupsTable({
 	groups,
 	memberships,
 	contextObjects,
+	docsEntries,
 	onOpenGroup,
 	onCreateGroup,
 }: {
 	groups: UserGroup[];
 	memberships: Array<{ groupId: string; userId: string }>;
 	contextObjects: DatabaseContextObject[];
+	docsEntries: DocsContextCatalogEntry[];
 	onOpenGroup: (groupId: string) => void;
 	onCreateGroup: () => void;
 }) {
 	return (
 		<SettingsCard
-			description='Configure the features and database tables each group can access.'
+			description='Configure the features, database tables, and docs each group can access.'
 			action={
 				<Button onClick={onCreateGroup}>
 					<Plus />
@@ -215,7 +222,7 @@ function GroupsTable({
 								{memberships.filter((membership) => membership.groupId === group.id).length}
 							</TableCell>
 							<TableCell className='whitespace-nowrap text-muted-foreground'>
-								{getGroupAccessSummary(group, contextObjects)}
+								{getGroupAccessSummary(group, contextObjects, docsEntries)}
 							</TableCell>
 						</TableRow>
 					))}
@@ -470,7 +477,11 @@ function GroupNameChip({ name, measure }: { name: string; measure?: 'group' | nu
 	);
 }
 
-function getGroupAccessSummary(group: UserGroup, contextObjects: DatabaseContextObject[]): string {
+function getGroupAccessSummary(
+	group: UserGroup,
+	contextObjects: DatabaseContextObject[],
+	docsEntries: DocsContextCatalogEntry[],
+): string {
 	const featureCount = group.featureGrants.length;
 	const featureSummary =
 		featureCount === 0 ? 'No features' : `${featureCount} ${featureCount === 1 ? 'feature' : 'features'}`;
@@ -478,6 +489,10 @@ function getGroupAccessSummary(group: UserGroup, contextObjects: DatabaseContext
 		group.databaseAccess.mode === 'all'
 			? 'All tables'
 			: getDatabaseContextTableSelectionSummary(group.databaseAccess, contextObjects);
+	const docsSummary =
+		group.docsAccess.mode === 'all' ? 'All docs' : getDocsContextSelectionSummary(group.docsAccess, docsEntries);
 
-	return `${featureSummary} · ${tableSummary === '0 tables' ? 'No tables' : tableSummary}`;
+	return `${featureSummary} · ${tableSummary === '0 tables' ? 'No tables' : tableSummary} · ${
+		group.databaseAccess.strict ? 'Strict' : 'Not strict'
+	} · ${docsSummary.startsWith('0 docs') ? 'No docs' : docsSummary}`;
 }

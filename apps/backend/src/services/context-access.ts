@@ -1,4 +1,4 @@
-import type { DatabaseContextAccess, DatabaseContextGrant } from '@nao/shared';
+import { type DatabaseContextAccess, isDatabaseContextTableGranted } from '@nao/shared';
 
 import type { DatabaseContextCatalog, DatabaseObject } from '../agents/user-rules';
 
@@ -13,6 +13,7 @@ export type WarehouseTableAccess =
 	| { enforced: false }
 	| {
 			enforced: true;
+			strict: boolean;
 			tables: WarehouseTableIdentity[];
 	  };
 
@@ -21,13 +22,11 @@ export function expandDatabaseAccess(
 	catalog: DatabaseContextCatalog,
 ): WarehouseTableAccess {
 	if (catalog.syncState === 'missing') {
-		return { enforced: true, tables: [] };
+		return { enforced: true, strict: access.strict, tables: [] };
 	}
 
-	const tables = catalog.objects.filter(
-		(object) => access.mode === 'all' || access.grants.some((grant) => matchesGrant(grant, object)),
-	);
-	return { enforced: true, tables: deduplicateAndSortTables(tables) };
+	const tables = catalog.objects.filter((object) => isDatabaseContextTableGranted(access, object));
+	return { enforced: true, strict: access.strict, tables: deduplicateAndSortTables(tables) };
 }
 
 export function isDatabaseObjectAllowed(access: WarehouseTableAccess, object: DatabaseObject): boolean {
@@ -89,15 +88,6 @@ export function assertWarehouseTableAccess(access: WarehouseTableAccess | undefi
 		throw new Error('Warehouse table access was not resolved for this request.');
 	}
 	return access;
-}
-
-function matchesGrant(grant: DatabaseContextGrant, table: WarehouseTableIdentity): boolean {
-	return (
-		grant.databaseType === table.databaseType &&
-		grant.database === table.database &&
-		grant.schema === table.schema &&
-		(grant.kind === 'schema' || grant.table === table.table)
-	);
 }
 
 function deduplicateAndSortTables(tables: WarehouseTableIdentity[]): WarehouseTableIdentity[] {

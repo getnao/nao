@@ -3,8 +3,8 @@ import { readFile } from '@nao/shared/tools';
 import fs from 'fs/promises';
 
 import { ReadOutput, renderToModelOutput } from '../../components/tool-outputs';
-import { assertContextPathAllowed } from '../../services/context-access';
 import { toReadableText } from '../../services/file-text';
+import { assertProjectContextPathAllowed } from '../../services/project-context-path-access.service';
 import { readUserFile } from '../../services/storage/user-files';
 import type { ToolContext } from '../../types/tools';
 import { isStoragePath, resolveCanonicalProjectPath, toStorageRelativePath, toStorageScope } from '../../utils/tools';
@@ -31,7 +31,7 @@ export default createTool<readFile.Input, readFile.Output>({
 
 function resolveAllowedProjectPath(filePath: string, context: ToolContext): string {
 	const canonical = resolveCanonicalProjectPath(filePath, context.projectFolder);
-	assertContextPathAllowed(context.warehouseTableAccess, canonical.virtualPath);
+	assertProjectContextPathAllowed(context, filePath, canonical.virtualPath, 'file');
 	return canonical.realPath;
 }
 

@@ -762,8 +762,9 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		page: '/settings/project/user-groups',
 		pageLabel: 'User Groups',
 		title: 'User Groups',
-		description: 'Assign project users to groups and configure which features and database tables they can use.',
-		keywords: ['users', 'groups', 'permissions', 'features', 'context', 'schemas', 'tables', 'enterprise'],
+		description:
+			'Assign project users to groups and configure which features, database tables, and docs they can use.',
+		keywords: ['users', 'groups', 'permissions', 'features', 'context', 'schemas', 'tables', 'docs', 'enterprise'],
 		adminOnly: true,
 	},
 	{
@@ -782,8 +783,8 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		section: 'Manage Groups',
 		search: { tab: 'groups' },
 		title: 'Manage Groups',
-		description: 'Configure which features and database tables each group can use.',
-		keywords: ['groups', 'permissions', 'features', 'context', 'schemas', 'tables'],
+		description: 'Configure which features, database tables, and docs each group can use.',
+		keywords: ['groups', 'permissions', 'features', 'context', 'schemas', 'tables', 'docs'],
 		adminOnly: true,
 	},
 

@@ -225,7 +225,7 @@ describe('live story SQL execution', () => {
 			envVars: {},
 			azureAccessToken: null,
 			agentSettings: null,
-			warehouseTableAccess: { enforced: true, tables: [] },
+			warehouseTableAccess: { enforced: true, strict: true, tables: [] },
 		});
 		vi.stubGlobal(
 			'fetch',
@@ -259,6 +259,7 @@ describe('live story SQL execution', () => {
 			agentSettings: null,
 			warehouseTableAccess: {
 				enforced: true,
+				strict: true,
 				tables: [
 					{
 						databaseType: 'duckdb',
@@ -317,7 +318,7 @@ describe('live story SQL execution', () => {
 			envVars: {},
 			azureAccessToken: null,
 			agentSettings: null,
-			warehouseTableAccess: { enforced: true, tables: [] },
+			warehouseTableAccess: { enforced: true, strict: true, tables: [] },
 		});
 		vi.stubGlobal(
 			'fetch',
@@ -349,7 +350,7 @@ describe('live story SQL execution', () => {
 			envVars: {},
 			azureAccessToken: null,
 			agentSettings: null,
-			warehouseTableAccess: { enforced: true, tables: [] },
+			warehouseTableAccess: { enforced: true, strict: true, tables: [] },
 		});
 		const fetchMock = vi.fn();
 		vi.stubGlobal('fetch', fetchMock);
@@ -380,7 +381,7 @@ describe('live story SQL execution', () => {
 			envVars: {},
 			azureAccessToken: null,
 			agentSettings: null,
-			warehouseTableAccess: { enforced: true, tables: [] },
+			warehouseTableAccess: { enforced: true, strict: true, tables: [] },
 		});
 		vi.stubGlobal(
 			'fetch',
@@ -420,7 +421,7 @@ describe('live story SQL execution', () => {
 			envVars: {},
 			azureAccessToken: null,
 			agentSettings: null,
-			warehouseTableAccess: { enforced: true, tables: [] },
+			warehouseTableAccess: { enforced: true, strict: true, tables: [] },
 		});
 		vi.stubGlobal(
 			'fetch',

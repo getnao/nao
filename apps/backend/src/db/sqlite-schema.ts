@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import {
 	type BackgroundModelSettings,
 	DEFAULT_USER_GROUP_CONFIG,
@@ -6,6 +7,15 @@ import {
 	type McpMapEmbedStoredConfig,
 	type StoredDatabaseContextAccess,
 	type StoredUserGroupConfig,
+=======
+import type {
+	BackgroundModelSettings,
+	MapSettings,
+	McpChartEmbedStoredConfig,
+	McpMapEmbedStoredConfig,
+	StoredUserGroupConfig,
+	StoredUserGroupContextAccess,
+>>>>>>> f9f41abd (Add table and docs permissions to user groups)
 } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
 import type {
@@ -458,11 +468,16 @@ export const userGroup = sqliteTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		name: text('name').notNull(),
 		isDefault: integer('is_default', { mode: 'boolean' }).default(false).notNull(),
+<<<<<<< HEAD
 		featureGrants: text('feature_grants', { mode: 'json' })
 			.$type<StoredUserGroupConfig>()
 			.notNull()
 			.default(DEFAULT_USER_GROUP_CONFIG),
 		contextGrants: text('context_grants', { mode: 'json' }).$type<StoredDatabaseContextAccess>(),
+=======
+		featureGrants: text('feature_grants', { mode: 'json' }).$type<StoredUserGroupConfig>().notNull().default([]),
+		contextGrants: text('context_grants', { mode: 'json' }).$type<StoredUserGroupContextAccess>(),
+>>>>>>> f9f41abd (Add table and docs permissions to user groups)
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),

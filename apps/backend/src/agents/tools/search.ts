@@ -5,7 +5,7 @@ import { minimatch } from 'minimatch';
 import path from 'path';
 
 import { renderToModelOutput, SearchOutput } from '../../components/tool-outputs';
-import { isContextPathAllowed } from '../../services/context-access';
+import { isDocsProjectPath, isProjectContextPathAllowed } from '../../services/project-context-path-access.service';
 import { isStorageEnabled, relativePathFromKey } from '../../services/storage';
 import { findUserFiles } from '../../services/storage/user-files';
 import type { ToolContext } from '../../types/tools';
@@ -85,11 +85,21 @@ const searchProjectFolder = async (recursivePattern: string, context: ToolContex
 		matchedPaths.map(async (matchedPath): Promise<searchFiles.File | null> => {
 			try {
 				const virtualPath = toVirtualPath(matchedPath, projectFolder);
-				const canonical = resolveCanonicalProjectPath(virtualPath, projectFolder);
-				if (!isContextPathAllowed(context.warehouseTableAccess, canonical.virtualPath)) {
+				if (isDocsProjectPath(virtualPath) && (await fs.lstat(matchedPath)).isSymbolicLink()) {
 					return null;
 				}
+				const canonical = resolveCanonicalProjectPath(virtualPath, projectFolder);
 				const stats = await fs.stat(canonical.realPath);
+				if (
+					!isProjectContextPathAllowed(
+						context,
+						virtualPath,
+						canonical.virtualPath,
+						stats.isDirectory() ? 'directory' : 'file',
+					)
+				) {
+					return null;
+				}
 				return {
 					path: canonical.virtualPath,
 					dir: path.dirname(canonical.virtualPath),

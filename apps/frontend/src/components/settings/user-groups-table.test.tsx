@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
 
-import { DEFAULT_TOOL_CALL_DENSITY_POLICY, EMPTY_DATABASE_CONTEXT_ACCESS } from '@nao/shared';
+import {
+	ALL_DOCS_CONTEXT_ACCESS,
+	DEFAULT_TOOL_CALL_DENSITY_POLICY,
+	EMPTY_DATABASE_CONTEXT_ACCESS,
+	EMPTY_DOCS_CONTEXT_ACCESS,
+} from '@nao/shared';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -37,6 +42,7 @@ vi.mock('@/main', () => ({
 		userGroup: {
 			overview: { queryOptions: vi.fn(), queryKey: vi.fn(() => ['overview']) },
 			contextCatalog: { queryOptions: vi.fn() },
+			docsContextCatalog: { queryOptions: vi.fn() },
 			effectiveAccess: { queryKey: vi.fn(() => ['effective-access']) },
 			setMembership: { mutationOptions: vi.fn() },
 			create: { mutationOptions: vi.fn() },
@@ -52,10 +58,43 @@ vi.mock('@/components/settings/tool-call-density-slider', () => ({
 }));
 vi.mock('@/components/settings/user-group-context-access', () => ({
 	UserGroupContextAccess: ({
+		databaseAccess,
 		onDatabaseAccessChange,
 	}: {
-		onDatabaseAccessChange: (access: { mode: 'all' }) => void;
-	}) => <button onClick={() => onDatabaseAccessChange({ mode: 'all' })}>Context permissions</button>,
+		databaseAccess:
+			| { mode: 'all'; strict: boolean }
+			| { mode: 'restricted'; strict: boolean; grants: unknown[]; patterns: string[] };
+		onDatabaseAccessChange: (access: {
+			mode: 'all' | 'restricted';
+			strict: boolean;
+			grants?: unknown[];
+			patterns?: string[];
+		}) => void;
+	}) => (
+		<div>
+			<button onClick={() => onDatabaseAccessChange({ mode: 'all', strict: databaseAccess.strict })}>
+				Context permissions
+			</button>
+			<button onClick={() => onDatabaseAccessChange({ ...databaseAccess, strict: !databaseAccess.strict })}>
+				Strict mode
+			</button>
+			{databaseAccess.mode === 'restricted' && (
+				<>
+					<button
+						onClick={() =>
+							onDatabaseAccessChange({
+								...databaseAccess,
+								patterns: [...databaseAccess.patterns, 'sales.*'],
+							})
+						}
+					>
+						Add test pattern
+					</button>
+					<span>{databaseAccess.patterns.join(', ')}</span>
+				</>
+			)}
+		</div>
+	),
 	getDatabaseContextTableSelectionSummary: () => '0 tables',
 }));
 vi.mock('@/components/settings/user-group-feature-card', () => ({
@@ -76,14 +115,16 @@ const allUsers = {
 	isDefault: true,
 	featureGrants: [],
 	toolCallDensityPolicy: DEFAULT_TOOL_CALL_DENSITY_POLICY,
-	databaseAccess: { mode: 'all' as const },
+	databaseAccess: { mode: 'all' as const, strict: true },
+	docsAccess: ALL_DOCS_CONTEXT_ACCESS,
 };
 const analysts = {
 	...allUsers,
 	id: 'analysts',
 	name: 'Analysts',
 	isDefault: false,
-	databaseAccess: EMPTY_DATABASE_CONTEXT_ACCESS,
+	databaseAccess: { ...EMPTY_DATABASE_CONTEXT_ACCESS, strict: false },
+	docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
 };
 const overview = {
 	groups: [allUsers, analysts],
@@ -113,6 +154,7 @@ const overview = {
 };
 
 beforeEach(() => {
+	mocks.mutateAsync.mockReset();
 	mocks.useLicenseFeatures.mockReturnValue({
 		isLoading: false,
 		isError: false,
@@ -151,8 +193,8 @@ describe('UserGroupsTable', () => {
 		expect(screen.getByText('Default')).toBeTruthy();
 		expect(screen.getByRole('row', { name: /All Users/ })).toBeTruthy();
 		expect(screen.getByRole('row', { name: /Analysts/ })).toBeTruthy();
-		expect(screen.getByText('No features · All tables')).toBeTruthy();
-		expect(screen.getByText('No features · No tables')).toBeTruthy();
+		expect(screen.getByText('No features · All tables · Strict · All docs')).toBeTruthy();
+		expect(screen.getByText('No features · No tables · Not strict · No docs')).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Create group' })).toBeTruthy();
 	});
 
@@ -260,6 +302,36 @@ describe('UserGroupEditor', () => {
 		expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
 	});
 
+	it('restores dynamic patterns on cancel', () => {
+		renderEditor('context');
+
+		fireEvent.click(screen.getByRole('button', { name: 'Add test pattern' }));
+		expect(screen.getByText('sales.*')).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+		expect(screen.queryByText('sales.*')).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+	});
+
+	it('tracks, restores, and saves strict mode', async () => {
+		renderEditor('context');
+
+		fireEvent.click(screen.getByRole('button', { name: 'Strict mode' }));
+		expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+		expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Strict mode' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+		expect(mocks.mutateAsync).toHaveBeenCalledWith(
+			expect.objectContaining({
+				databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
+			}),
+		);
+	});
+
 	it.each([
 		{ tab: 'features' as const, control: 'Stories' },
 		{ tab: 'features' as const, control: 'Density slider' },
@@ -320,7 +392,16 @@ describe('UserGroupEditor', () => {
 			featureGrants: ['story-creation', 'automation-creation'],
 			databaseAccess: {
 				mode: 'restricted',
+				strict: true,
 				grants: [schemaGrant, tableGrant],
+				patterns: ['sales.*'],
+			},
+			docsAccess: {
+				mode: 'restricted',
+				grants: [
+					{ kind: 'folder', path: 'finance' },
+					{ kind: 'file', path: 'legal/terms.md' },
+				],
 			},
 		};
 
@@ -331,10 +412,50 @@ describe('UserGroupEditor', () => {
 				toolCallDensityPolicy: { ...group.toolCallDensityPolicy },
 				databaseAccess: {
 					mode: 'restricted',
+					strict: true,
 					grants: [tableGrant, schemaGrant, tableGrant],
+					patterns: [' SALES.* ', 'sales.*'],
+				},
+				docsAccess: {
+					mode: 'restricted',
+					grants: [
+						{ kind: 'file', path: 'legal/terms.md' },
+						{ kind: 'folder', path: 'finance' },
+						{ kind: 'folder', path: 'finance' },
+					],
 				},
 			}),
 		).toBe(false);
+		expect(
+			hasUserGroupEditorChanges(group, {
+				name: group.name,
+				featureGrants: group.featureGrants,
+				toolCallDensityPolicy: group.toolCallDensityPolicy,
+				databaseAccess: {
+					mode: 'restricted',
+					strict: true,
+					grants: [schemaGrant, tableGrant],
+					patterns: [],
+				},
+			}),
+		).toBe(true);
+		expect(
+			hasUserGroupEditorChanges(group, {
+				name: group.name,
+				featureGrants: group.featureGrants,
+				toolCallDensityPolicy: group.toolCallDensityPolicy,
+				databaseAccess: group.databaseAccess,
+				docsAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
+			}),
+		).toBe(true);
+		expect(
+			hasUserGroupEditorChanges(group, {
+				name: group.name,
+				featureGrants: group.featureGrants,
+				toolCallDensityPolicy: group.toolCallDensityPolicy,
+				databaseAccess: { ...group.databaseAccess, strict: false },
+			}),
+		).toBe(true);
 		expect(
 			hasUserGroupEditorChanges(group, {
 				name: group.name,

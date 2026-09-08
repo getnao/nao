@@ -240,6 +240,7 @@ describe('getTableColumnsContent', () => {
 
 		const result = getTableColumnsContent(root, 'mydb.public.users', {
 			enforced: true,
+			strict: false,
 			tables: [],
 		});
 
