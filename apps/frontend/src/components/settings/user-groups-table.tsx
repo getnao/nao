@@ -14,6 +14,7 @@ import type { ReactNode } from 'react';
 
 import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-slider';
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
+import { UserGroupContextAccess } from '@/components/settings/user-group-context-access';
 import { UserGroupFeatureCard } from '@/components/settings/user-group-feature-card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
