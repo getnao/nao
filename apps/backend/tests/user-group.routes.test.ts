@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
 	getUserGroupOverview: vi.fn(),
 	getDatabaseContextCatalog: vi.fn(),
 	getDocsContextCatalog: vi.fn(),
+	getUserRoleInProject: vi.fn(),
 	hasFeature: vi.fn(),
 	resolveEffectiveUserGroupAccess: vi.fn(),
 	role: 'admin' as 'admin' | 'user' | 'viewer',
@@ -17,7 +18,7 @@ vi.mock('../src/agents/user-rules', () => ({
 }));
 vi.mock('../src/queries/project.queries', () => ({
 	getProjectByUserId: vi.fn(async () => ({ id: 'project-id', name: 'Project', path: '/project' })),
-	getUserRoleInProject: vi.fn(async () => mocks.role),
+	getUserRoleInProject: mocks.getUserRoleInProject,
 }));
 vi.mock('../src/queries/user-group.queries', () => ({
 	UserGroupQueryError: class UserGroupQueryError extends Error {},
@@ -48,6 +49,9 @@ describe('user group routes', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.role = 'admin';
+		mocks.getUserRoleInProject.mockImplementation(async (_projectId, userId) =>
+			userId === 'target-user-id' ? 'viewer' : mocks.role,
+		);
 		mocks.hasFeature.mockResolvedValue(true);
 		mocks.getUserGroupOverview.mockResolvedValue({ users: [], groups: [], memberships: [] });
 		mocks.getDatabaseContextCatalog.mockReturnValue({ syncState: 'ready', objects: [] });
@@ -346,6 +350,49 @@ describe('user group routes', () => {
 			docsAccess: { mode: 'restricted', grants: [] },
 		});
 		expect(mocks.resolveEffectiveUserGroupAccess).toHaveBeenCalledWith('project-id', 'user-id');
+	});
+
+	it('returns effective access for a project user to admins', async () => {
+		await expect(createCaller().effectiveAccessForUser({ userId: 'target-user-id' })).resolves.toEqual({
+			features: {
+				'story-creation': true,
+				'automation-creation': false,
+			},
+			toolCallDensityPolicy: {
+				defaultDensity: 'compact',
+				canChange: false,
+			},
+			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
+			docsAccess: { mode: 'restricted', grants: [] },
+		});
+		expect(mocks.getUserRoleInProject).toHaveBeenCalledWith('project-id', 'target-user-id');
+		expect(mocks.resolveEffectiveUserGroupAccess).toHaveBeenCalledWith('project-id', 'target-user-id');
+	});
+
+	it('rejects effective access for a user outside the project', async () => {
+		mocks.getUserRoleInProject.mockImplementation(async (_projectId, userId) =>
+			userId === 'missing-user-id' ? null : mocks.role,
+		);
+
+		await expect(createCaller().effectiveAccessForUser({ userId: 'missing-user-id' })).rejects.toMatchObject({
+			code: 'NOT_FOUND',
+			message: 'This user does not have access to the project.',
+		});
+		expect(mocks.resolveEffectiveUserGroupAccess).not.toHaveBeenCalled();
+	});
+
+	it('requires an admin and a license for arbitrary-user effective access', async () => {
+		mocks.role = 'user';
+		await expect(createCaller().effectiveAccessForUser({ userId: 'target-user-id' })).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+
+		mocks.role = 'admin';
+		mocks.hasFeature.mockResolvedValue(false);
+		await expect(createCaller().effectiveAccessForUser({ userId: 'target-user-id' })).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+			message: 'User Groups requires the Enterprise user-groups feature.',
+		});
 	});
 
 	it('returns all effective features without a user-groups license', async () => {

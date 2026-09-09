@@ -12,6 +12,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { getDatabaseContextCatalog } from '../agents/user-rules';
+import * as projectQueries from '../queries/project.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
 import { getDocsContextCatalog } from '../services/docs-context-catalog.service';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
@@ -73,6 +74,19 @@ export const userGroupRoutes = {
 	effectiveAccess: projectProtectedProcedure.query(async ({ ctx }) => {
 		return getEffectiveUserGroupAccess(ctx.project.id, ctx.user.id);
 	}),
+
+	effectiveAccessForUser: adminProtectedProcedure
+		.input(z.object({ userId: z.string().min(1) }))
+		.query(async ({ ctx, input }) => {
+			await assertUserGroupsLicensed();
+			if (!(await projectQueries.getUserRoleInProject(ctx.project.id, input.userId))) {
+				throw new TRPCError({
+					code: 'NOT_FOUND',
+					message: 'This user does not have access to the project.',
+				});
+			}
+			return getEffectiveUserGroupAccess(ctx.project.id, input.userId);
+		}),
 
 	overview: adminProtectedProcedure.query(async ({ ctx }) => {
 		await assertUserGroupsLicensed();

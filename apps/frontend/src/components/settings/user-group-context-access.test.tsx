@@ -71,7 +71,11 @@ describe('user group context access selection', () => {
 
 		render(<UserGroupContextAccess databaseAccess={empty} onDatabaseAccessChange={vi.fn()} />);
 
-		expect(screen.getByText(/Choose which synced database tables/)).toBeTruthy();
+		expect(
+			screen.getByText(
+				'Choose which synced database tables and docs this group can access. Access from groups is combined.',
+			),
+		).toBeTruthy();
 		expect(screen.getByRole('button', { name: /Everything/ })).toBeTruthy();
 		expect(screen.getByRole('button', { name: /Specific selection/ })).toBeTruthy();
 		expect(screen.getByText('Loading...')).toBeTruthy();
@@ -252,7 +256,7 @@ describe('user group context access selection', () => {
 		expect(onChange).toHaveBeenCalledWith({ mode: 'restricted', strict: true, grants: [schema], patterns: [] });
 	});
 
-	it('keeps schema unselected until its checkbox is explicitly selected', () => {
+	it('shows explicit table grants as partial until the schema is selected', () => {
 		render(<StatefulContextAccess />);
 		fireEvent.click(screen.getByRole('button', { name: 'Expand app/public folder' }));
 
@@ -261,17 +265,26 @@ describe('user group context access selection', () => {
 		const usersAccess = screen.getByRole('checkbox', { name: 'users table access' });
 		const ordersAccess = screen.getByRole('checkbox', { name: 'orders table access' });
 		fireEvent.click(usersAccess);
-		fireEvent.click(ordersAccess);
 
 		expect(usersAccess.getAttribute('data-state')).toBe('checked');
+		expect(schemaAccess.getAttribute('data-state')).toBe('indeterminate');
+		expect(schemaAccess.className).toContain('data-[state=indeterminate]:bg-primary/15');
+		expect(schemaRow.className).not.toContain('bg-primary/[0.04]');
+		expect(schemaRow.className).not.toContain('bg-primary/10');
+		expect(schemaRow.className).not.toContain('text-primary');
+		expect(schemaRow.querySelector('.tabler-icon-folder')?.getAttribute('class')).not.toContain('text-primary');
+		expect(screen.getByText('Partial').className).toContain('text-muted-foreground');
+
+		fireEvent.click(ordersAccess);
 		expect(ordersAccess.getAttribute('data-state')).toBe('checked');
-		expect(schemaAccess.getAttribute('data-state')).toBe('unchecked');
-		expect(schemaRow.className).not.toContain('bg-primary');
-		expect(screen.queryByText('Partial')).toBeNull();
+		expect(schemaAccess.getAttribute('data-state')).toBe('indeterminate');
 		expect(screen.getByText('2 tables')).toBeTruthy();
 
 		fireEvent.click(schemaAccess);
 		expect(schemaAccess.getAttribute('data-state')).toBe('checked');
+		expect(schemaRow.className).toContain('bg-primary/10');
+		expect(schemaRow.className).not.toContain('bg-primary/[0.04]');
+		expect(screen.queryByText('Partial')).toBeNull();
 		expect(screen.getByRole('checkbox', { name: 'users table access' }).hasAttribute('disabled')).toBe(true);
 		expect(screen.getByRole('checkbox', { name: 'orders table access' }).hasAttribute('disabled')).toBe(true);
 
@@ -332,6 +345,34 @@ describe('user group context access selection', () => {
 		expect(screen.getByText('public')).toBeTruthy();
 		expect(screen.getByText('audit')).toBeTruthy();
 		expect(screen.queryByText('app/public')).toBeNull();
+	});
+
+	it('marks a branched database and its schema partial for descendant access', () => {
+		setCatalogObjects([
+			...objects,
+			{ databaseType: 'postgres', database: 'app', schema: 'audit', table: 'events' },
+		]);
+		render(
+			<StatefulContextAccess
+				initialAccess={{ mode: 'restricted', strict: true, grants: [users], patterns: [] }}
+			/>,
+		);
+
+		const databaseRow = screen.getByRole('button', { name: 'Expand app database' });
+		expect(databaseRow.className).not.toContain('bg-primary/[0.04]');
+		expect(databaseRow.className).not.toContain('bg-primary/10');
+		expect(databaseRow.className).not.toContain('text-primary');
+		expect(databaseRow.querySelector('.tabler-icon-folder')?.getAttribute('class')).not.toContain('text-primary');
+		expect(screen.getByText('Partial').className).toContain('text-muted-foreground');
+
+		fireEvent.click(databaseRow);
+		expect(screen.getByRole('checkbox', { name: 'public schema access' }).getAttribute('data-state')).toBe(
+			'indeterminate',
+		);
+		expect(screen.getAllByText('Partial')).toHaveLength(2);
+		expect(screen.getByRole('checkbox', { name: 'audit schema access' }).getAttribute('data-state')).toBe(
+			'unchecked',
+		);
 	});
 
 	it('highlights a branched database root in Everything mode', () => {
@@ -432,6 +473,9 @@ describe('user group context access selection', () => {
 				initialAccess={{ mode: 'restricted', strict: true, grants: [], patterns: ['public.*'] }}
 			/>,
 		);
+		const schemaAccess = screen.getByRole('checkbox', { name: 'app/public schema access' });
+		expect(schemaAccess.getAttribute('data-state')).toBe('indeterminate');
+		expect(screen.getByText('Partial')).toBeTruthy();
 		fireEvent.click(screen.getByRole('button', { name: 'Expand app/public folder' }));
 
 		expect(screen.getByRole('checkbox', { name: 'users table access' }).hasAttribute('disabled')).toBe(true);

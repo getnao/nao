@@ -1,15 +1,18 @@
 import { ArrowRight, Check, Clock3, FileText, Zap } from 'lucide-react';
+import type { ReactNode } from 'react';
 import type { UserGroupFeature } from '@nao/shared';
 
 import { GRID_CARD_CLASS } from '@/components/item-card';
 import { cn } from '@/lib/utils';
 
+interface UserGroupFeatureDefinition {
+	key: UserGroupFeature;
+	label: string;
+	description: string;
+}
+
 interface UserGroupFeatureCardProps {
-	feature: {
-		key: UserGroupFeature;
-		label: string;
-		description: string;
-	};
+	feature: UserGroupFeatureDefinition;
 	selected: boolean;
 	onSelectedChange: (selected: boolean) => void;
 }
@@ -29,23 +32,61 @@ export function UserGroupFeatureCard({ feature, selected, onSelectedChange }: Us
 				selected && 'border-primary bg-primary/[0.04] ring-1 ring-primary/40 hover:bg-primary/[0.06]',
 			)}
 		>
+			<UserGroupFeatureCardContent
+				feature={feature}
+				status={
+					<div
+						className={cn(
+							'absolute right-2 top-2 z-10 flex size-5 items-center justify-center rounded-full border bg-background/90 transition-colors',
+							selected
+								? 'border-primary bg-primary text-primary-foreground'
+								: 'border-border text-transparent',
+						)}
+						aria-hidden='true'
+					>
+						<Check className='size-3' strokeWidth={3} />
+					</div>
+				}
+			/>
+		</button>
+	);
+}
+
+export function UserGroupFeatureSummaryCard({
+	feature,
+	allowed,
+}: {
+	feature: UserGroupFeatureDefinition;
+	allowed: boolean;
+}) {
+	const status = allowed ? 'Allowed' : 'Not allowed';
+
+	return (
+		<article
+			aria-label={`${feature.label}. ${feature.description}. ${status}.`}
+			className={cn(
+				GRID_CARD_CLASS,
+				'h-[120px] w-full text-left',
+				allowed && 'border-primary bg-primary/[0.04] ring-1 ring-primary/40',
+			)}
+		>
+			<UserGroupFeatureCardContent feature={feature} />
+		</article>
+	);
+}
+
+function UserGroupFeatureCardContent({ feature, status }: { feature: UserGroupFeatureDefinition; status?: ReactNode }) {
+	return (
+		<>
 			<div className='pointer-events-none absolute inset-x-1 top-1 bottom-12 overflow-hidden rounded-md bg-sidebar/70 dark:bg-sidebar/35'>
 				{feature.key === 'story-creation' ? <StoryCreationPreview /> : <AutomationCreationPreview />}
 			</div>
-			<div
-				className={cn(
-					'absolute right-2 top-2 z-10 flex size-5 items-center justify-center rounded-full border bg-background/90 transition-colors',
-					selected ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-transparent',
-				)}
-				aria-hidden='true'
-			>
-				<Check className='size-3' strokeWidth={3} />
-			</div>
+			{status}
 			<div className='absolute inset-x-0 bottom-0 flex h-12 min-w-0 flex-col justify-center px-3'>
 				<span className='truncate text-xs font-medium'>{feature.label}</span>
 				<span className='truncate text-[10px] text-muted-foreground'>{feature.description}</span>
 			</div>
-		</button>
+		</>
 	);
 }
 
