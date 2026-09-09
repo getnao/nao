@@ -17,6 +17,7 @@ import { SettingsCard } from '@/components/ui/settings-card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import { useLicenseFeatures } from '@/hooks/use-license';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
@@ -28,19 +29,25 @@ export const Route = createFileRoute('/_sidebar-layout/settings/project/team')({
 	component: ProjectTeamTabPage,
 });
 
-function ProjectTeamTabPage() {
+export function ProjectTeamTabPage() {
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
 	const usersWithRoles = useQuery(trpc.project.listAllUsersWithRoles.queryOptions());
 	const systemConfig = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const { isAdmin } = usePermissions();
+	const licenseFeatures = useLicenseFeatures();
 	const isCloud = systemConfig.data?.naoMode === 'cloud';
+	const hasUserGroups = licenseFeatures.data?.['user-groups'] === true;
 
 	const [isAddOpen, setIsAddOpen] = useState(false);
 	const [editMember, setEditMember] = useState<TeamMember | null>(null);
 	const [removeMember, setRemoveMember] = useState<TeamMember | null>(null);
 	const [resetPasswordMember, setResetPasswordMember] = useState<TeamMember | null>(null);
 	const [credentials, setCredentials] = useState<{ email: string; password: string } | null>(null);
+	const userGroups = useQuery({
+		...trpc.userGroup.overview.queryOptions(),
+		enabled: isAdmin && isAddOpen && hasUserGroups,
+	});
 
 	const members: TeamMember[] =
 		usersWithRoles.data?.map((u) => ({
@@ -57,16 +64,20 @@ function ProjectTeamTabPage() {
 	const resetPassword = useMutation(trpc.account.resetPassword.mutationOptions());
 
 	const invalidateMembers = useCallback(() => {
-		queryClient.invalidateQueries({ queryKey: trpc.project.listAllUsersWithRoles.queryKey() });
+		return queryClient.invalidateQueries({ queryKey: trpc.project.listAllUsersWithRoles.queryKey() });
 	}, [queryClient]);
 
-	const handleAdd = async (data: { email: string; name?: string }) => {
+	const handleAdd = async (data: { email: string; name?: string; groupIds?: string[] }) => {
 		try {
 			const result = await addUser.mutateAsync({
 				email: data.email,
 				name: data.name,
+				groupIds: data.groupIds ?? [],
 			});
-			invalidateMembers();
+			await Promise.all([
+				invalidateMembers(),
+				queryClient.invalidateQueries({ queryKey: trpc.userGroup.overview.queryKey() }),
+			]);
 			if (result.password) {
 				setCredentials({ email: data.email, password: result.password });
 			}
@@ -142,6 +153,8 @@ function ProjectTeamTabPage() {
 				onOpenChange={setIsAddOpen}
 				title='Add User to Project'
 				onSubmit={handleAdd}
+				groupOptions={hasUserGroups ? (userGroups.data?.groups ?? []) : undefined}
+				groupsLoading={hasUserGroups && userGroups.isLoading}
 			/>
 
 			<EditMemberDialog

@@ -2,9 +2,11 @@ import {
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
+	isMicrosoftEntraGroupId,
 	normalizeDatabaseContextAccess,
 	normalizeDocsContextAccess,
 	normalizeDocsContextPath,
+	normalizeUserGroupSsoMappings,
 	TOOL_CALL_DENSITIES,
 	USER_GROUP_FEATURES,
 } from '@nao/shared';
@@ -69,6 +71,22 @@ const docsAccessSchema = z.discriminatedUnion('mode', [
 	z.object({ mode: z.literal('all') }).strict(),
 	z.object({ mode: z.literal('restricted'), grants: z.array(docsContextGrantSchema).max(10_000) }).strict(),
 ]);
+const ssoIdentifierSchema = z.string().trim().min(1).max(255);
+const ssoMappingsSchema = z
+	.object({
+		version: z.literal(1),
+		providers: z
+			.object({
+				oidc: z.array(ssoIdentifierSchema).max(200),
+				microsoft: z
+					.array(
+						ssoIdentifierSchema.refine(isMicrosoftEntraGroupId, 'Invalid Microsoft Entra group object ID.'),
+					)
+					.max(200),
+			})
+			.strict(),
+	})
+	.strict();
 
 export const userGroupRoutes = {
 	effectiveAccess: projectProtectedProcedure.query(async ({ ctx }) => {
@@ -114,22 +132,26 @@ export const userGroupRoutes = {
 				toolCallDensityPolicy: toolCallDensityPolicySchema.default(DEFAULT_TOOL_CALL_DENSITY_POLICY),
 				databaseAccess: databaseAccessSchema.default(EMPTY_DATABASE_CONTEXT_ACCESS),
 				docsAccess: docsAccessSchema.default(EMPTY_DOCS_CONTEXT_ACCESS),
+				ssoMappings: ssoMappingsSchema.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
 			await assertUserGroupsLicensed();
 			const databaseAccess = normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess = normalizeDocsContextAccess(input.docsAccess);
-			return handleQuery(() =>
-				userGroupQueries.createUserGroup(
+			return handleQuery(() => {
+				const values = [
 					ctx.project.id,
 					input.name,
 					unique(input.featureGrants),
 					input.toolCallDensityPolicy,
 					databaseAccess,
 					docsAccess,
-				),
-			);
+				] as const;
+				return input.ssoMappings === undefined
+					? userGroupQueries.createUserGroup(...values)
+					: userGroupQueries.createUserGroup(...values, normalizeUserGroupSsoMappings(input.ssoMappings));
+			});
 		}),
 
 	update: adminProtectedProcedure
@@ -141,6 +163,7 @@ export const userGroupRoutes = {
 				toolCallDensityPolicy: toolCallDensityPolicySchema,
 				databaseAccess: databaseAccessSchema.optional(),
 				docsAccess: docsAccessSchema.optional(),
+				ssoMappings: ssoMappingsSchema.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -156,6 +179,9 @@ export const userGroupRoutes = {
 					toolCallDensityPolicy: input.toolCallDensityPolicy,
 					...(databaseAccess === undefined ? {} : { databaseAccess }),
 					...(docsAccess === undefined ? {} : { docsAccess }),
+					...(input.ssoMappings === undefined
+						? {}
+						: { ssoMappings: normalizeUserGroupSsoMappings(input.ssoMappings) }),
 				}),
 			);
 		}),

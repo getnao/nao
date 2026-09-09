@@ -113,6 +113,48 @@ describe('user group routes', () => {
 		);
 	});
 
+	it('normalizes provider-specific SSO mappings on create', async () => {
+		await createCaller().create({
+			name: 'Analysts',
+			ssoMappings: {
+				version: 1,
+				providers: {
+					oidc: [' Finance ', 'finance', 'DATA'],
+					microsoft: [' A0B1C2D3-E4F5-6789-ABCD-EF0123456789 ', 'a0b1c2d3-e4f5-6789-abcd-ef0123456789'],
+				},
+			},
+		});
+
+		expect(mocks.createUserGroup).toHaveBeenCalledWith(
+			'project-id',
+			'Analysts',
+			[],
+			{ defaultDensity: 'detailed', canChange: true },
+			{ mode: 'restricted', strict: true, grants: [], patterns: [] },
+			{ mode: 'restricted', grants: [] },
+			{
+				version: 1,
+				providers: {
+					oidc: ['finance', 'data'],
+					microsoft: ['a0b1c2d3-e4f5-6789-abcd-ef0123456789'],
+				},
+			},
+		);
+	});
+
+	it('rejects invalid Microsoft Entra group object IDs', async () => {
+		await expect(
+			createCaller().create({
+				name: 'Analysts',
+				ssoMappings: {
+					version: 1,
+					providers: { oidc: [], microsoft: ['not-a-guid'] },
+				},
+			}),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		expect(mocks.createUserGroup).not.toHaveBeenCalled();
+	});
+
 	it('normalizes database access on create', async () => {
 		mocks.getDatabaseContextCatalog.mockReturnValue({
 			syncState: 'ready',

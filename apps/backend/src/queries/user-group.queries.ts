@@ -6,19 +6,22 @@ import {
 	EMPTY_DOCS_CONTEXT_ACCESS,
 	parseStoredUserGroupConfig,
 	parseStoredUserGroupContextAccess,
+	parseStoredUserGroupSsoMappings,
 	serializeUserGroupConfig,
 	serializeUserGroupContextAccess,
+	serializeUserGroupSsoMappings,
 	type ToolCallDensityPolicy,
 	unionDatabaseContextAccess,
 	unionDocsContextAccess,
 	USER_GROUP_FEATURES,
 	type UserGroupFeature,
+	type UserGroupSsoMappings,
 } from '@nao/shared';
-import { and, asc, desc, eq, isNotNull, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 
 import type { DBUserGroup } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
-import { db } from '../db/db';
+import { db, type DBExecutor } from '../db/db';
 import {
 	listUsersWithProjectAccess,
 	listUsersWithProjectAccessDetails,
@@ -28,17 +31,19 @@ import {
 const USER_GROUP_NAME_CONFLICT_MESSAGE = 'A user group with this name already exists.';
 const USER_GROUP_NAME_UNIQUE_CONSTRAINT = 'user_group_project_name_unique';
 
-export interface UserGroup extends Omit<DBUserGroup, 'contextGrants' | 'featureGrants'> {
+export interface UserGroup extends Omit<DBUserGroup, 'contextGrants' | 'featureGrants' | 'ssoMappings'> {
 	featureGrants: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
+	ssoMappings: UserGroupSsoMappings;
 }
 
 export interface UserGroupOverview {
 	users: UserWithProjectAccessDetails[];
 	groups: UserGroup[];
 	memberships: Array<{ groupId: string; userId: string }>;
+	ssoMemberships: Array<{ groupId: string; userId: string; provider: string }>;
 }
 
 export interface EffectiveUserGroupAccess {
@@ -58,19 +63,26 @@ export class UserGroupQueryError extends Error {
 }
 
 export const getUserGroupOverview = async (projectId: string): Promise<UserGroupOverview> => {
-	const [users, groups, storedMemberships] = await Promise.all([
+	const [users, groups, manualMemberships, ssoMemberships] = await Promise.all([
 		listUsersWithProjectAccessDetails(projectId),
 		listUserGroups(projectId),
 		listUserGroupMemberships(projectId),
+		listUserGroupSsoMemberships(projectId),
 	]);
 	const defaultGroup = groups.find((group) => group.isDefault);
 	const defaultMemberships = defaultGroup ? users.map((user) => ({ groupId: defaultGroup.id, userId: user.id })) : [];
 	const effectiveUserIds = new Set(users.map((user) => user.id));
+	const effectiveMemberships = deduplicateMemberships([
+		...defaultMemberships,
+		...manualMemberships,
+		...ssoMemberships,
+	]).filter(({ userId }) => effectiveUserIds.has(userId));
 
 	return {
 		users,
 		groups,
-		memberships: [...defaultMemberships, ...storedMemberships.filter(({ userId }) => effectiveUserIds.has(userId))],
+		memberships: effectiveMemberships,
+		ssoMemberships: ssoMemberships.filter(({ userId }) => effectiveUserIds.has(userId)),
 	};
 };
 
@@ -78,32 +90,36 @@ export const resolveEffectiveUserGroupAccess = async (
 	projectId: string,
 	userId: string,
 ): Promise<EffectiveUserGroupAccess> => {
-	const groups = await db
-		.select({
-			id: s.userGroup.id,
-			isDefault: s.userGroup.isDefault,
-			featureGrants: s.userGroup.featureGrants,
-			contextGrants: s.userGroup.contextGrants,
-			membershipCreatedAt: s.userGroupMember.createdAt,
-		})
-		.from(s.userGroup)
-		.leftJoin(
-			s.userGroupMember,
-			and(eq(s.userGroupMember.groupId, s.userGroup.id), eq(s.userGroupMember.userId, userId)),
-		)
-		.where(
-			and(
-				eq(s.userGroup.projectId, projectId),
-				or(eq(s.userGroup.isDefault, true), isNotNull(s.userGroupMember.userId)),
-			),
-		)
-		.execute();
-
-	const applicableGroups = groups.map((group) => ({
-		...group,
-		config: parseStoredUserGroupConfig(group.featureGrants),
-		contextAccess: parseStoredUserGroupContextAccess(group.contextGrants, group.isDefault),
-	}));
+	const [groups, manualMemberships, ssoMemberships] = await Promise.all([
+		db.select().from(s.userGroup).where(eq(s.userGroup.projectId, projectId)).execute(),
+		db
+			.select({ groupId: s.userGroupMember.groupId, createdAt: s.userGroupMember.createdAt })
+			.from(s.userGroupMember)
+			.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
+			.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroupMember.userId, userId)))
+			.execute(),
+		db
+			.select({ groupId: s.userGroupSsoMember.groupId, createdAt: s.userGroupSsoMember.createdAt })
+			.from(s.userGroupSsoMember)
+			.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupSsoMember.groupId))
+			.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroupSsoMember.userId, userId)))
+			.execute(),
+	]);
+	const membershipDates = new Map<string, Date>();
+	for (const membership of [...manualMemberships, ...ssoMemberships]) {
+		const current = membershipDates.get(membership.groupId);
+		if (!current || membership.createdAt > current) {
+			membershipDates.set(membership.groupId, membership.createdAt);
+		}
+	}
+	const applicableGroups = groups
+		.filter((group) => group.isDefault || membershipDates.has(group.id))
+		.map((group) => ({
+			...group,
+			membershipCreatedAt: membershipDates.get(group.id) ?? null,
+			config: parseStoredUserGroupConfig(group.featureGrants),
+			contextAccess: parseStoredUserGroupContextAccess(group.contextGrants, group.isDefault),
+		}));
 	const grantedFeatures = new Set(applicableGroups.flatMap((group) => group.config.features));
 	const defaultGroup = applicableGroups.find((group) => group.isDefault);
 	const newestExplicitGroup = applicableGroups
@@ -149,6 +165,7 @@ export const createUserGroup = async (
 	toolCallDensityPolicy: ToolCallDensityPolicy = DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	databaseAccess: DatabaseContextAccess = EMPTY_DATABASE_CONTEXT_ACCESS,
 	docsAccess: DocsContextAccess = EMPTY_DOCS_CONTEXT_ACCESS,
+	ssoMappings?: UserGroupSsoMappings,
 ): Promise<UserGroup> => {
 	await assertNameAvailable(projectId, name);
 	const [group] = await executeUserGroupNameMutation(() =>
@@ -159,6 +176,7 @@ export const createUserGroup = async (
 				name,
 				featureGrants: serializeUserGroupConfig(featureGrants, toolCallDensityPolicy),
 				contextGrants: serializeUserGroupContextAccess(databaseAccess, docsAccess),
+				ssoMappings: serializeUserGroupSsoMappings(ssoMappings),
 				isDefault: false,
 			})
 			.returning()
@@ -176,6 +194,7 @@ export const updateUserGroup = async (
 		toolCallDensityPolicy?: ToolCallDensityPolicy;
 		databaseAccess?: DatabaseContextAccess;
 		docsAccess?: DocsContextAccess;
+		ssoMappings?: UserGroupSsoMappings;
 	},
 ): Promise<UserGroup> => {
 	const group = await getUserGroup(projectId, groupId);
@@ -183,6 +202,15 @@ export const updateUserGroup = async (
 	const currentContext = parseStoredUserGroupContextAccess(group.contextGrants, group.isDefault);
 	if (group.isDefault && data.name !== undefined && data.name !== group.name) {
 		throw new UserGroupQueryError('BAD_REQUEST', 'The All Users group cannot be renamed.');
+	}
+	if (
+		group.isDefault &&
+		data.ssoMappings !== undefined &&
+		Object.values(serializeUserGroupSsoMappings(data.ssoMappings).providers).some(
+			(identifiers) => identifiers.length > 0,
+		)
+	) {
+		throw new UserGroupQueryError('BAD_REQUEST', 'The All Users group cannot be mapped to SSO groups.');
 	}
 	if (data.name !== undefined && data.name !== group.name) {
 		await assertNameAvailable(projectId, data.name, groupId);
@@ -204,6 +232,9 @@ export const updateUserGroup = async (
 								data.docsAccess ?? currentContext.docsAccess,
 							),
 						}),
+				...(data.ssoMappings === undefined
+					? {}
+					: { ssoMappings: serializeUserGroupSsoMappings(data.ssoMappings) }),
 				updatedAt: new Date(),
 			})
 			.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
@@ -236,6 +267,55 @@ export const listUserGroupMemberships = async (
 		.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
 		.where(eq(s.userGroup.projectId, projectId))
 		.execute();
+
+export const listUserGroupSsoMemberships = async (
+	projectId: string,
+): Promise<Array<{ groupId: string; userId: string; provider: string }>> =>
+	db
+		.select({
+			groupId: s.userGroupSsoMember.groupId,
+			userId: s.userGroupSsoMember.userId,
+			provider: s.userGroupSsoMember.provider,
+		})
+		.from(s.userGroupSsoMember)
+		.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupSsoMember.groupId))
+		.where(eq(s.userGroup.projectId, projectId))
+		.execute();
+
+export const validateAssignableUserGroupIds = async (projectId: string, groupIds: string[]): Promise<string[]> => {
+	const uniqueGroupIds = [...new Set(groupIds)];
+	if (uniqueGroupIds.length === 0) {
+		return [];
+	}
+
+	const groups = await db
+		.select({ id: s.userGroup.id, isDefault: s.userGroup.isDefault })
+		.from(s.userGroup)
+		.where(and(eq(s.userGroup.projectId, projectId), inArray(s.userGroup.id, uniqueGroupIds)))
+		.execute();
+	const groupsById = new Map(groups.map((group) => [group.id, group]));
+	if (uniqueGroupIds.some((groupId) => !groupsById.has(groupId) || groupsById.get(groupId)?.isDefault)) {
+		throw new UserGroupQueryError('BAD_REQUEST', 'One or more user groups cannot be assigned to this user.');
+	}
+
+	return uniqueGroupIds;
+};
+
+export const addUserGroupMemberships = async (
+	groupIds: string[],
+	userId: string,
+	executor: DBExecutor = db,
+): Promise<void> => {
+	const uniqueGroupIds = [...new Set(groupIds)];
+	if (uniqueGroupIds.length === 0) {
+		return;
+	}
+	await executor
+		.insert(s.userGroupMember)
+		.values(uniqueGroupIds.map((groupId) => ({ groupId, userId })))
+		.onConflictDoNothing()
+		.execute();
+};
 
 export const setUserGroupMembership = async (
 	projectId: string,
@@ -320,5 +400,14 @@ function normalizeUserGroup(group: DBUserGroup): UserGroup {
 		toolCallDensityPolicy: config.toolCallDensity,
 		databaseAccess: contextAccess.databaseAccess,
 		docsAccess: contextAccess.docsAccess,
+		ssoMappings: parseStoredUserGroupSsoMappings(group.ssoMappings),
 	};
+}
+
+function deduplicateMemberships(
+	memberships: Array<{ groupId: string; userId: string }>,
+): Array<{ groupId: string; userId: string }> {
+	return [
+		...new Map(memberships.map(({ groupId, userId }) => [`${groupId}:${userId}`, { groupId, userId }])).values(),
+	];
 }

@@ -85,6 +85,10 @@ function LicensedUserGroupsTable({ tab, onTabChange }: UserGroupsTableProps) {
 		() => new Set(overview.data?.memberships.map(({ groupId, userId }) => `${groupId}:${userId}`)),
 		[overview.data?.memberships],
 	);
+	const ssoMembershipKeys = useMemo(
+		() => new Set(overview.data?.ssoMemberships.map(({ groupId, userId }) => `${groupId}:${userId}`)),
+		[overview.data?.ssoMemberships],
+	);
 
 	const tabs = (
 		<TabBar
@@ -150,6 +154,7 @@ function LicensedUserGroupsTable({ tab, onTabChange }: UserGroupsTableProps) {
 							organizationUsers={organizationUsers}
 							groups={groups}
 							membershipKeys={membershipKeys}
+							ssoMembershipKeys={ssoMembershipKeys}
 							onOpenUser={(userId) => {
 								void navigate({
 									to: '/settings/project/user-groups/users/$userId',
@@ -242,12 +247,14 @@ function UserAccessTable({
 	organizationUsers,
 	groups,
 	membershipKeys,
+	ssoMembershipKeys,
 	onOpenUser,
 }: {
 	projectUsers: UserWithProjectAccess[];
 	organizationUsers: UserWithProjectAccess[];
 	groups: UserGroup[];
 	membershipKeys: Set<string>;
+	ssoMembershipKeys: Set<string>;
 	onOpenUser: (userId: string) => void;
 }) {
 	const hasUsers = projectUsers.length > 0 || organizationUsers.length > 0;
@@ -276,6 +283,7 @@ function UserAccessTable({
 							users={projectUsers}
 							groups={groups}
 							membershipKeys={membershipKeys}
+							ssoMembershipKeys={ssoMembershipKeys}
 							onOpenUser={onOpenUser}
 						/>
 					)}
@@ -285,6 +293,7 @@ function UserAccessTable({
 							users={organizationUsers}
 							groups={groups}
 							membershipKeys={membershipKeys}
+							ssoMembershipKeys={ssoMembershipKeys}
 							onOpenUser={onOpenUser}
 						/>
 					)}
@@ -299,12 +308,14 @@ function UserAccessSection({
 	users,
 	groups,
 	membershipKeys,
+	ssoMembershipKeys,
 	onOpenUser,
 }: {
 	label: string;
 	users: UserWithProjectAccess[];
 	groups: UserGroup[];
 	membershipKeys: Set<string>;
+	ssoMembershipKeys: Set<string>;
 	onOpenUser: (userId: string) => void;
 }) {
 	return (
@@ -342,7 +353,12 @@ function UserAccessSection({
 						<Badge variant={user.role}>{USER_ROLE_LABELS[user.role]}</Badge>
 					</TableCell>
 					<TableCell className='min-w-0 overflow-hidden'>
-						<UserGroupsCell user={user} groups={groups} membershipKeys={membershipKeys} />
+						<UserGroupsCell
+							user={user}
+							groups={groups}
+							membershipKeys={membershipKeys}
+							ssoMembershipKeys={ssoMembershipKeys}
+						/>
 					</TableCell>
 				</TableRow>
 			))}
@@ -354,10 +370,12 @@ function UserGroupsCell({
 	user,
 	groups,
 	membershipKeys,
+	ssoMembershipKeys,
 }: {
 	user: UserWithProjectAccess;
 	groups: UserGroup[];
 	membershipKeys: Set<string>;
+	ssoMembershipKeys: Set<string>;
 }) {
 	const queryClient = useQueryClient();
 	const setMembership = useMutation(
@@ -394,23 +412,33 @@ function UserGroupsCell({
 				className='max-h-64 min-w-56'
 				onClick={(event) => event.stopPropagation()}
 			>
-				{groups.map((group) => (
-					<DropdownMenuCheckboxItem
-						key={group.id}
-						checked={group.isDefault || membershipKeys.has(`${group.id}:${user.id}`)}
-						disabled={group.isDefault || setMembership.isPending}
-						onSelect={(event) => event.preventDefault()}
-						onCheckedChange={(checked) =>
-							setMembership.mutate({
-								groupId: group.id,
-								userId: user.id,
-								isMember: checked === true,
-							})
-						}
-					>
-						{group.name}
-					</DropdownMenuCheckboxItem>
-				))}
+				{groups.map((group) => {
+					const membershipKey = `${group.id}:${user.id}`;
+					const isManagedBySso = ssoMembershipKeys.has(membershipKey);
+					return (
+						<DropdownMenuCheckboxItem
+							key={group.id}
+							checked={group.isDefault || membershipKeys.has(membershipKey)}
+							disabled={group.isDefault || isManagedBySso || setMembership.isPending}
+							aria-label={isManagedBySso ? `${group.name}, managed by SSO` : group.name}
+							onSelect={(event) => event.preventDefault()}
+							onCheckedChange={(checked) =>
+								setMembership.mutate({
+									groupId: group.id,
+									userId: user.id,
+									isMember: checked === true,
+								})
+							}
+						>
+							<span className='min-w-0 flex-1 truncate'>{group.name}</span>
+							{isManagedBySso && (
+								<Badge variant='secondary' className='ml-2 h-5 px-1.5 py-0 text-[10px] font-normal'>
+									Managed by SSO
+								</Badge>
+							)}
+						</DropdownMenuCheckboxItem>
+					);
+				})}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);

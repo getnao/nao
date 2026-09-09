@@ -470,6 +470,13 @@
       "when": 1788794266068,
       "tag": "0066_context_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "6",
+      "when": 1788964021061,
+      "tag": "0067_user_group_sso_mapping",
+      "breakpoints": true
     }
   ]
 }
