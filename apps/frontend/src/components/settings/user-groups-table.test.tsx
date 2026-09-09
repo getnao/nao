@@ -9,16 +9,19 @@ import {
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { hasUserGroupEditorChanges, UserGroupEditor } from './user-group-editor';
+import { hasUserGroupEditorChanges, invalidateUserGroupQueries, UserGroupEditor } from './user-group-editor';
+import { UserGroupEffectiveContext } from './user-group-effective-context';
+import { UserGroupUserDetail } from './user-group-user-detail';
 import { resolveUserGroupsPageTab, UserGroupsTable } from './user-groups-table';
 import type { UserGroupEditorGroup } from './user-group-editor';
-import type { MouseEventHandler, ReactNode } from 'react';
+import type { ComponentProps, MouseEventHandler, ReactNode } from 'react';
 
 const mocks = vi.hoisted(() => ({
 	useLicenseFeatures: vi.fn(),
 	useQuery: vi.fn(),
 	useMutation: vi.fn(),
 	invalidateQueries: vi.fn(),
+	mutate: vi.fn(),
 	mutateAsync: vi.fn(),
 	navigate: vi.fn(),
 }));
@@ -39,11 +42,15 @@ vi.mock('@tanstack/react-router', () => ({
 }));
 vi.mock('@/main', () => ({
 	trpc: {
+		project: {
+			getDatabaseObjects: { queryKey: vi.fn(() => ['database-objects']) },
+		},
 		userGroup: {
 			overview: { queryOptions: vi.fn(), queryKey: vi.fn(() => ['overview']) },
 			contextCatalog: { queryOptions: vi.fn() },
 			docsContextCatalog: { queryOptions: vi.fn() },
 			effectiveAccess: { queryKey: vi.fn(() => ['effective-access']) },
+			effectiveAccessForUser: { queryKey: vi.fn(() => ['effective-access-for-user']) },
 			setMembership: { mutationOptions: vi.fn() },
 			create: { mutationOptions: vi.fn() },
 			update: { mutationOptions: vi.fn() },
@@ -52,8 +59,16 @@ vi.mock('@/main', () => ({
 	},
 }));
 vi.mock('@/components/settings/tool-call-density-slider', () => ({
-	ToolCallDensitySlider: ({ onValueChange }: { onValueChange: (density: 'compact' | 'detailed') => void }) => (
-		<button onClick={() => onValueChange('compact')}>Density slider</button>
+	ToolCallDensitySlider: ({
+		onValueChange,
+		disabled,
+	}: {
+		onValueChange: (density: 'compact' | 'detailed') => void;
+		disabled?: boolean;
+	}) => (
+		<button onClick={() => onValueChange('compact')} disabled={disabled}>
+			Density slider
+		</button>
 	),
 }));
 vi.mock('@/components/settings/user-group-context-access', () => ({
@@ -97,18 +112,6 @@ vi.mock('@/components/settings/user-group-context-access', () => ({
 	),
 	getDatabaseContextTableSelectionSummary: () => '0 tables',
 }));
-vi.mock('@/components/settings/user-group-feature-card', () => ({
-	UserGroupFeatureCard: ({
-		feature,
-		selected,
-		onSelectedChange,
-	}: {
-		feature: { label: string };
-		selected: boolean;
-		onSelectedChange: (selected: boolean) => void;
-	}) => <button onClick={() => onSelectedChange(!selected)}>{feature.label}</button>,
-}));
-
 const allUsers = {
 	id: 'all-users',
 	name: 'All Users',
@@ -154,7 +157,9 @@ const overview = {
 };
 
 beforeEach(() => {
+	mocks.mutate.mockReset();
 	mocks.mutateAsync.mockReset();
+	mocks.invalidateQueries.mockReset();
 	mocks.useLicenseFeatures.mockReturnValue({
 		isLoading: false,
 		isError: false,
@@ -162,7 +167,7 @@ beforeEach(() => {
 	});
 	mocks.useQuery.mockReturnValue({ isLoading: false, isError: false, data: overview });
 	mocks.useMutation.mockReturnValue({
-		mutate: vi.fn(),
+		mutate: mocks.mutate,
 		mutateAsync: mocks.mutateAsync,
 		isPending: false,
 	});
@@ -228,6 +233,44 @@ describe('UserGroupsTable', () => {
 		expect(screen.getByText('Organisation User')).toBeTruthy();
 	});
 
+	it('navigates from user rows but not from the groups dropdown', () => {
+		render(<UserGroupsTable tab='users' onTabChange={vi.fn()} />);
+
+		const userRow = screen.getByRole('row', { name: /Project User/ });
+		expect(userRow.className).toContain('cursor-pointer');
+		expect(userRow.className).toContain('hover:bg-primary/10');
+		expect(screen.getByRole('link', { name: 'Project User' })).toBeTruthy();
+
+		fireEvent.click(userRow);
+		expect(mocks.navigate).toHaveBeenCalledWith({
+			to: '/settings/project/user-groups/users/$userId',
+			params: { userId: 'project-user' },
+			search: { tab: 'features' },
+		});
+
+		mocks.navigate.mockReset();
+		fireEvent.click(screen.getByRole('button', { name: /Manage groups for Project User/ }));
+		expect(mocks.navigate).not.toHaveBeenCalled();
+	});
+
+	it('updates group membership from the dropdown without opening the user', () => {
+		render(<UserGroupsTable tab='users' onTabChange={vi.fn()} />);
+
+		fireEvent.pointerDown(screen.getByRole('button', { name: /Manage groups for Organisation User/ }), {
+			button: 0,
+			ctrlKey: false,
+		});
+		fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Analysts' }));
+
+		expect(mocks.mutate).toHaveBeenCalledWith({
+			groupId: 'analysts',
+			userId: 'organization-user',
+			isMember: true,
+		});
+		expect(mocks.navigate).not.toHaveBeenCalled();
+		expect(screen.getByRole('menuitemcheckbox', { name: 'Analysts' })).toBeTruthy();
+	});
+
 	it('keeps the users table columns fixed while group chips overflow inside their cell', () => {
 		render(<UserGroupsTable tab='users' onTabChange={vi.fn()} />);
 
@@ -262,6 +305,17 @@ describe('UserGroupsTable', () => {
 });
 
 describe('UserGroupEditor', () => {
+	it('invalidates effective user access and database objects with user-group queries', async () => {
+		const queryClient = {
+			invalidateQueries: mocks.invalidateQueries,
+		} as unknown as Parameters<typeof invalidateUserGroupQueries>[0];
+
+		await invalidateUserGroupQueries(queryClient);
+
+		expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['effective-access-for-user'] });
+		expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['database-objects'] });
+	});
+
 	it('shows the active editor tab', () => {
 		renderEditor();
 
@@ -351,7 +405,7 @@ describe('UserGroupEditor', () => {
 	});
 
 	it.each([
-		{ tab: 'features' as const, control: 'Stories' },
+		{ tab: 'features' as const, control: /Stories/ },
 		{ tab: 'features' as const, control: 'Density slider' },
 		{ tab: 'context' as const, control: 'Context permissions' },
 	])('shows actions after changing $control', ({ tab, control }) => {
@@ -485,6 +539,167 @@ describe('UserGroupEditor', () => {
 	});
 });
 
+describe('UserGroupUserDetail', () => {
+	it('shows compact memberships and static feature access', () => {
+		const unrelatedGroup = { ...analysts, id: 'finance', name: 'Finance' };
+		renderUserDetail({ groups: [allUsers, analysts, unrelatedGroup] });
+
+		expect(screen.getByRole('heading', { name: 'Project User' })).toBeTruthy();
+		expect(screen.getByText('project@example.com')).toBeTruthy();
+		expect(screen.getByText('Active')).toBeTruthy();
+		expect(screen.getByText('User')).toBeTruthy();
+		expect(screen.getAllByText('All Users').length).toBeGreaterThan(0);
+		expect(screen.getAllByText('Analysts').length).toBeGreaterThan(0);
+		expect(screen.queryByText('Finance')).toBeNull();
+		expect(screen.queryByText('Default')).toBeNull();
+		expect(screen.getByText('1 feature · 0 tables · 0 docs · Strict')).toBeTruthy();
+
+		const stories = screen.getByRole('article', { name: /Stories.*Allowed/ });
+		const automations = screen.getByRole('article', { name: /Automations.*Not allowed/ });
+		expect(stories.className).toContain('border-primary');
+		expect(stories.className).toContain('ring-1');
+		expect(automations.className).not.toContain('border-primary');
+		expect(screen.getByTestId('story-creation-preview')).toBeTruthy();
+		expect(screen.getByTestId('automation-creation-preview')).toBeTruthy();
+		expect(screen.queryByRole('button', { name: /Stories/ })).toBeNull();
+		expect(stories.className).not.toMatch(/cursor-pointer|hover:|focus-visible:/);
+		expect(stories.querySelector('.lucide-check')).toBeNull();
+		expect(screen.queryByText('Allowed')).toBeNull();
+		expect(screen.queryByText('Not allowed')).toBeNull();
+		expect(screen.getByText('Compact')).toBeTruthy();
+		expect(screen.getByText('Member may change it')).toBeTruthy();
+		expect(screen.getByText('Yes')).toBeTruthy();
+		expect(screen.queryByRole('switch')).toBeNull();
+		expect(screen.queryByText('Density slider')).toBeNull();
+	});
+
+	it('counts current effective access without overlap, including Everything mode', () => {
+		const contextObjects = [
+			{ databaseType: 'postgres', database: 'app', schema: 'public', table: 'users' },
+			{ databaseType: 'postgres', database: 'app', schema: 'public', table: 'users' },
+			{ databaseType: 'postgres', database: 'app', schema: 'public', table: 'orders' },
+		];
+		const docsEntries = [
+			{ kind: 'folder' as const, path: 'finance' },
+			{ kind: 'file' as const, path: 'finance/kpis.md' },
+			{ kind: 'file' as const, path: 'finance/kpis.md' },
+			{ kind: 'file' as const, path: 'readme.md' },
+		];
+		renderUserDetail({
+			contextObjects,
+			docsEntries,
+			effectiveAccess: {
+				features: { 'story-creation': true, 'automation-creation': true },
+				toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
+				databaseAccess: { mode: 'all', strict: false },
+				docsAccess: { mode: 'all' },
+			},
+		});
+
+		expect(screen.getByText('2 features · 2 tables · 2 docs · Not strict')).toBeTruthy();
+		expect(screen.queryByText(/All tables|All docs/)).toBeNull();
+	});
+
+	it('shows only allowed context and static dynamic patterns', () => {
+		const contextObjects = [
+			{ databaseType: 'postgres', database: 'app', schema: 'public', table: 'users' },
+			{ databaseType: 'postgres', database: 'app', schema: 'public', table: 'orders' },
+			{ databaseType: 'postgres', database: 'app', schema: 'public', table: 'secrets' },
+		];
+		const docsEntries = [
+			{ kind: 'folder' as const, path: 'finance' },
+			{ kind: 'file' as const, path: 'finance/kpis.md' },
+			{ kind: 'file' as const, path: 'private.md' },
+		];
+		renderUserDetail({
+			activeTab: 'context',
+			contextObjects,
+			docsEntries,
+			effectiveAccess: {
+				features: { 'story-creation': true, 'automation-creation': false },
+				toolCallDensityPolicy: { defaultDensity: 'compact', canChange: true },
+				databaseAccess: {
+					mode: 'restricted',
+					strict: true,
+					grants: [
+						{
+							kind: 'table',
+							databaseType: 'postgres',
+							database: 'app',
+							schema: 'public',
+							table: 'users',
+						},
+					],
+					patterns: ['public.o*'],
+				},
+				docsAccess: { mode: 'restricted', grants: [{ kind: 'file', path: 'finance/kpis.md' }] },
+			},
+		});
+
+		expect(screen.getByText('Specific selection')).toBeTruthy();
+		expect(screen.getByText('Strict')).toBeTruthy();
+		expect(screen.getByText('2 tables · 1 doc')).toBeTruthy();
+		expect(screen.queryByRole('checkbox')).toBeNull();
+		expect(screen.queryByRole('switch')).toBeNull();
+		expect(screen.queryByRole('button', { name: /Everything|Specific selection/ })).toBeNull();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Expand app/public folder' }));
+		expect(screen.getByText('users')).toBeTruthy();
+		expect(screen.getByText('orders')).toBeTruthy();
+		expect(screen.queryByText('secrets')).toBeNull();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Expand docs folder' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Expand finance folder' }));
+		expect(screen.getByText('kpis.md')).toBeTruthy();
+		expect(screen.queryByText('private.md')).toBeNull();
+		expect(screen.getByText('public.o*')).toBeTruthy();
+		expect(screen.getByText('1 match')).toBeTruthy();
+		expect(screen.queryByRole('button', { name: /Remove dynamic pattern/ })).toBeNull();
+	});
+
+	it('shows current catalog content in Everything mode and clean catalog states', () => {
+		const contextObjects = [{ databaseType: 'postgres', database: 'app', schema: 'public', table: 'users' }];
+		const docsEntries = [{ kind: 'file' as const, path: 'readme.md' }];
+		const { rerender } = renderUserDetail({
+			activeTab: 'context',
+			contextObjects,
+			docsEntries,
+			effectiveAccess: {
+				features: { 'story-creation': false, 'automation-creation': false },
+				toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
+				databaseAccess: { mode: 'all', strict: false },
+				docsAccess: { mode: 'all' },
+			},
+		});
+
+		expect(screen.getByText('Everything')).toBeTruthy();
+		expect(screen.getByText('Not strict')).toBeTruthy();
+		expect(screen.getByText('1 table · 1 doc')).toBeTruthy();
+		fireEvent.click(screen.getByRole('button', { name: 'Expand app/public folder' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Expand docs folder' }));
+		expect(screen.getByText('users')).toBeTruthy();
+		expect(screen.getByText('readme.md')).toBeTruthy();
+
+		rerender(
+			<UserGroupEffectiveContext
+				databaseAccess={{ mode: 'all', strict: true }}
+				docsAccess={{ mode: 'all' }}
+				contextObjects={[]}
+				docsEntries={[]}
+				databaseCatalogState='loading'
+				docsCatalogState='error'
+			/>,
+		);
+		expect(screen.getByText('Loading...')).toBeTruthy();
+		expect(screen.getByText('Failed to load')).toBeTruthy();
+	});
+
+	it('keeps the security placeholder', () => {
+		renderUserDetail({ activeTab: 'security' });
+		expect(screen.getByText('Row-level security is not available yet.')).toBeTruthy();
+	});
+});
+
 function renderEditor(
 	activeTab: 'features' | 'context' | 'security' = 'features',
 	onTabChange = vi.fn(),
@@ -499,5 +714,52 @@ function renderEditor(
 			onCreated={vi.fn()}
 			onDeleted={vi.fn()}
 		/>,
+	);
+}
+
+function renderUserDetail({
+	groups = [allUsers, analysts],
+	activeTab = 'features',
+	contextObjects = [],
+	docsEntries = [],
+	effectiveAccess = {
+		features: { 'story-creation': true, 'automation-creation': false },
+		toolCallDensityPolicy: { defaultDensity: 'compact', canChange: true },
+		databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
+		docsAccess: { mode: 'restricted', grants: [] },
+	},
+}: {
+	groups?: UserGroupEditorGroup[];
+	activeTab?: 'features' | 'context' | 'security';
+	contextObjects?: Array<{ databaseType: string; database: string; schema: string; table: string }>;
+	docsEntries?: Array<{ kind: 'folder' | 'file'; path: string }>;
+	effectiveAccess?: ComponentProps<typeof UserGroupUserDetail>['effectiveAccess'];
+} = {}) {
+	return render(createUserDetail(activeTab, groups, contextObjects, docsEntries, effectiveAccess));
+}
+
+function createUserDetail(
+	activeTab: 'features' | 'context' | 'security',
+	groups: UserGroupEditorGroup[] = [allUsers, analysts],
+	contextObjects: Array<{ databaseType: string; database: string; schema: string; table: string }> = [],
+	docsEntries: Array<{ kind: 'folder' | 'file'; path: string }> = [],
+	effectiveAccess: ComponentProps<typeof UserGroupUserDetail>['effectiveAccess'] = {
+		features: { 'story-creation': true, 'automation-creation': false },
+		toolCallDensityPolicy: { defaultDensity: 'compact', canChange: true },
+		databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
+		docsAccess: { mode: 'restricted', grants: [] },
+	},
+) {
+	return (
+		<UserGroupUserDetail
+			user={{ ...overview.users[0], role: 'user', status: 'active' }}
+			groups={groups}
+			memberships={overview.memberships}
+			effectiveAccess={effectiveAccess}
+			contextObjects={contextObjects}
+			docsEntries={docsEntries}
+			activeTab={activeTab}
+			onTabChange={vi.fn()}
+		/>
 	);
 }

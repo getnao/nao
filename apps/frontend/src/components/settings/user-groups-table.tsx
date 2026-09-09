@@ -2,14 +2,14 @@ import { USER_ROLE_LABELS } from '@nao/shared/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { ChevronDown, Plus } from 'lucide-react';
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useMemo } from 'react';
 import type { MemberStatus, UserRole } from '@nao/shared/types';
 
 import type { DatabaseContextObject } from '@/components/settings/user-group-context-access';
 import type { DocsContextCatalogEntry } from '@/components/settings/user-group-docs-context-access';
 import type { UserGroupEditorGroup } from '@/components/settings/user-group-editor';
-import { getDatabaseContextTableSelectionSummary } from '@/components/settings/user-group-context-access';
-import { getDocsContextSelectionSummary } from '@/components/settings/user-group-docs-context-access';
+import { getUserGroupAccessSummary } from '@/components/settings/user-group-access-summary';
+import { ResponsiveGroupChips } from '@/components/settings/user-group-chips';
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { invalidateUserGroupQueries } from '@/components/settings/user-group-editor';
 import { Badge } from '@/components/ui/badge';
@@ -24,7 +24,6 @@ import { SettingsCard } from '@/components/ui/settings-card';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useLicenseFeatures } from '@/hooks/use-license';
-import { calculateVisibleGroupChipCount } from '@/lib/user-group-chip-overflow';
 import { trpc } from '@/main';
 
 type UserGroup = UserGroupEditorGroup;
@@ -151,6 +150,13 @@ function LicensedUserGroupsTable({ tab, onTabChange }: UserGroupsTableProps) {
 							organizationUsers={organizationUsers}
 							groups={groups}
 							membershipKeys={membershipKeys}
+							onOpenUser={(userId) => {
+								void navigate({
+									to: '/settings/project/user-groups/users/$userId',
+									params: { userId },
+									search: { tab: 'features' },
+								});
+							}}
 						/>
 					</SettingsCard>
 				)}
@@ -158,7 +164,6 @@ function LicensedUserGroupsTable({ tab, onTabChange }: UserGroupsTableProps) {
 		</>
 	);
 }
-
 function GroupsTable({
 	groups,
 	memberships,
@@ -222,7 +227,7 @@ function GroupsTable({
 								{memberships.filter((membership) => membership.groupId === group.id).length}
 							</TableCell>
 							<TableCell className='whitespace-nowrap text-muted-foreground'>
-								{getGroupAccessSummary(group, contextObjects, docsEntries)}
+								{getUserGroupAccessSummary(group, contextObjects, docsEntries)}
 							</TableCell>
 						</TableRow>
 					))}
@@ -237,11 +242,13 @@ function UserAccessTable({
 	organizationUsers,
 	groups,
 	membershipKeys,
+	onOpenUser,
 }: {
 	projectUsers: UserWithProjectAccess[];
 	organizationUsers: UserWithProjectAccess[];
 	groups: UserGroup[];
 	membershipKeys: Set<string>;
+	onOpenUser: (userId: string) => void;
 }) {
 	const hasUsers = projectUsers.length > 0 || organizationUsers.length > 0;
 
@@ -269,6 +276,7 @@ function UserAccessTable({
 							users={projectUsers}
 							groups={groups}
 							membershipKeys={membershipKeys}
+							onOpenUser={onOpenUser}
 						/>
 					)}
 					{organizationUsers.length > 0 && (
@@ -277,6 +285,7 @@ function UserAccessTable({
 							users={organizationUsers}
 							groups={groups}
 							membershipKeys={membershipKeys}
+							onOpenUser={onOpenUser}
 						/>
 					)}
 				</TableBody>
@@ -290,11 +299,13 @@ function UserAccessSection({
 	users,
 	groups,
 	membershipKeys,
+	onOpenUser,
 }: {
 	label: string;
 	users: UserWithProjectAccess[];
 	groups: UserGroup[];
 	membershipKeys: Set<string>;
+	onOpenUser: (userId: string) => void;
 }) {
 	return (
 		<>
@@ -304,12 +315,23 @@ function UserAccessSection({
 				</TableCell>
 			</TableRow>
 			{users.map((user) => (
-				<TableRow key={user.id}>
+				<TableRow
+					key={user.id}
+					className='cursor-pointer hover:bg-primary/10'
+					onClick={() => onOpenUser(user.id)}
+				>
 					<TableCell className='min-w-0 overflow-hidden'>
 						<div className='flex min-w-0 flex-col'>
-							<span className='truncate font-medium' title={user.name}>
+							<Link
+								to='/settings/project/user-groups/users/$userId'
+								params={{ userId: user.id }}
+								search={{ tab: 'features' }}
+								className='truncate font-medium hover:underline'
+								title={user.name}
+								onClick={(event) => event.stopPropagation()}
+							>
 								{user.name}
-							</span>
+							</Link>
 							<span className='truncate text-xs text-muted-foreground' title={user.email}>
 								{user.email}
 								{user.status ? ` · ${user.status}` : ''}
@@ -361,12 +383,17 @@ function UserGroupsCell({
 					className='h-8 w-full min-w-0 justify-between overflow-hidden bg-background font-normal'
 					aria-label={`Manage groups for ${user.name}. Current groups: ${selectedGroupLabel}`}
 					title={selectedGroupLabel}
+					onClick={(event) => event.stopPropagation()}
 				>
 					<ResponsiveGroupChips names={selectedGroupNames} />
 					<ChevronDown className='shrink-0' />
 				</Button>
 			</DropdownMenuTrigger>
-			<DropdownMenuContent align='start' className='max-h-64 min-w-56'>
+			<DropdownMenuContent
+				align='start'
+				className='max-h-64 min-w-56'
+				onClick={(event) => event.stopPropagation()}
+			>
 				{groups.map((group) => (
 					<DropdownMenuCheckboxItem
 						key={group.id}
@@ -387,114 +414,4 @@ function UserGroupsCell({
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
-}
-
-function ResponsiveGroupChips({ names }: { names: string[] }) {
-	const labelAreaRef = useRef<HTMLSpanElement>(null);
-	const measurementRef = useRef<HTMLSpanElement>(null);
-	const [visibleCount, setVisibleCount] = useState(0);
-
-	const measure = useCallback(() => {
-		const labelArea = labelAreaRef.current;
-		const measurement = measurementRef.current;
-		if (!labelArea || !measurement) {
-			return;
-		}
-
-		const groupChipWidths = Array.from(
-			measurement.querySelectorAll<HTMLElement>('[data-measure-group]'),
-			(element) => element.getBoundingClientRect().width,
-		);
-		const overflowChipWidths = Array<number>(names.length + 1);
-		for (const element of measurement.querySelectorAll<HTMLElement>('[data-measure-overflow]')) {
-			overflowChipWidths[Number(element.dataset.measureOverflow)] = element.getBoundingClientRect().width;
-		}
-		const gap = Number.parseFloat(getComputedStyle(measurement).columnGap) || 0;
-		setVisibleCount(
-			calculateVisibleGroupChipCount({
-				availableWidth: labelArea.getBoundingClientRect().width,
-				groupChipWidths,
-				overflowChipWidths,
-				gap,
-			}),
-		);
-	}, [names]);
-
-	useLayoutEffect(() => {
-		measure();
-		const labelArea = labelAreaRef.current;
-		const measurement = measurementRef.current;
-		if (!labelArea || !measurement) {
-			return;
-		}
-
-		const observer = new ResizeObserver(measure);
-		observer.observe(labelArea);
-		observer.observe(measurement);
-		return () => observer.disconnect();
-	}, [measure]);
-
-	const safeVisibleCount = Math.min(visibleCount, names.length);
-	const hiddenCount = names.length - safeVisibleCount;
-
-	return (
-		<span ref={labelAreaRef} className='relative flex min-w-0 flex-1 items-center gap-1 overflow-hidden'>
-			{names.length === 0 ? (
-				<GroupNameChip name='No groups' />
-			) : (
-				<>
-					{names.slice(0, safeVisibleCount).map((name, index) => (
-						<GroupNameChip key={`${name}-${index}`} name={name} />
-					))}
-					{hiddenCount > 0 && <GroupNameChip name={`+${hiddenCount}`} />}
-				</>
-			)}
-			<span
-				ref={measurementRef}
-				aria-hidden
-				className='invisible absolute left-0 top-0 flex w-max items-center gap-1 pointer-events-none'
-			>
-				{names.map((name, index) => (
-					<GroupNameChip key={`measure-${name}-${index}`} name={name} measure='group' />
-				))}
-				{names.map((_, index) => {
-					const hidden = index + 1;
-					return <GroupNameChip key={`measure-overflow-${hidden}`} name={`+${hidden}`} measure={hidden} />;
-				})}
-			</span>
-		</span>
-	);
-}
-
-function GroupNameChip({ name, measure }: { name: string; measure?: 'group' | number }) {
-	return (
-		<Badge
-			variant='secondary'
-			className='h-5 px-1.5 py-0 text-[10px] font-normal'
-			data-measure-group={measure === 'group' ? '' : undefined}
-			data-measure-overflow={typeof measure === 'number' ? measure : undefined}
-		>
-			{name}
-		</Badge>
-	);
-}
-
-function getGroupAccessSummary(
-	group: UserGroup,
-	contextObjects: DatabaseContextObject[],
-	docsEntries: DocsContextCatalogEntry[],
-): string {
-	const featureCount = group.featureGrants.length;
-	const featureSummary =
-		featureCount === 0 ? 'No features' : `${featureCount} ${featureCount === 1 ? 'feature' : 'features'}`;
-	const tableSummary =
-		group.databaseAccess.mode === 'all'
-			? 'All tables'
-			: getDatabaseContextTableSelectionSummary(group.databaseAccess, contextObjects);
-	const docsSummary =
-		group.docsAccess.mode === 'all' ? 'All docs' : getDocsContextSelectionSummary(group.docsAccess, docsEntries);
-
-	return `${featureSummary} · ${tableSummary === '0 tables' ? 'No tables' : tableSummary} · ${
-		group.databaseAccess.strict ? 'Strict' : 'Not strict'
-	} · ${docsSummary.startsWith('0 docs') ? 'No docs' : docsSummary}`;
 }

@@ -135,6 +135,7 @@ export function UserGroupContextAccess({
 					) : treeObjects.length > 0 ? (
 						<DatabaseContextTree
 							objects={treeObjects}
+							selectionObjects={objects}
 							databaseAccess={databaseAccess}
 							onChange={onDatabaseAccessChange}
 							isSearching={
@@ -319,12 +320,14 @@ function DynamicPatterns({
 
 function DatabaseContextTree({
 	objects,
+	selectionObjects,
 	databaseAccess,
 	onChange,
 	isSearching,
 	draftPattern,
 }: {
 	objects: DatabaseContextObject[];
+	selectionObjects: DatabaseContextObject[];
 	databaseAccess: DatabaseContextAccess;
 	onChange: (access: DatabaseContextAccess) => void;
 	isSearching: boolean;
@@ -363,6 +366,7 @@ function DatabaseContextTree({
 					databaseAccess={databaseAccess}
 					onChange={onChange}
 					draftPattern={draftPattern}
+					selectionObjects={selectionObjects}
 				/>
 			))}
 		</>
@@ -395,6 +399,8 @@ const DATABASE_TREE_EXPANSION_ADAPTER = {
 
 const TREE_ROW_LAYOUT_CLASS =
 	'flex h-8 w-full items-center gap-1 pr-2 text-left text-sm transition-colors hover:bg-muted/50';
+const PARTIAL_CHECKBOX_CLASS =
+	'data-[state=indeterminate]:bg-primary/15 data-[state=indeterminate]:text-primary/70 data-[state=indeterminate]:shadow-none';
 
 function DatabaseNode({
 	database,
@@ -404,6 +410,7 @@ function DatabaseNode({
 	databaseAccess,
 	onChange,
 	draftPattern,
+	selectionObjects,
 }: {
 	database: GroupedDatabase;
 	expandedKeys: Set<string>;
@@ -412,6 +419,7 @@ function DatabaseNode({
 	databaseAccess: DatabaseContextAccess;
 	onChange: (access: DatabaseContextAccess) => void;
 	draftPattern: string;
+	selectionObjects: DatabaseContextObject[];
 }) {
 	const folderChain = getSingleChildFolderChain(database, DATABASE_TREE_EXPANSION_ADAPTER);
 	const compactSchema = folderChain.length === 2 ? folderChain[1] : undefined;
@@ -428,6 +436,7 @@ function DatabaseNode({
 				databaseAccess={databaseAccess}
 				onChange={onChange}
 				draftPattern={draftPattern}
+				selectionObjects={selectionObjects}
 			/>
 		);
 	}
@@ -435,6 +444,14 @@ function DatabaseNode({
 	const open = isSearching || expandedKeys.has(database.key);
 	const panelId = `database-${toDomId(database.key)}`;
 	const inherited = databaseAccess.mode === 'all';
+	const partial =
+		!inherited &&
+		selectionObjects.some(
+			(object) =>
+				object.databaseType === database.databaseType &&
+				object.database === database.database &&
+				isDatabaseContextTableGranted(databaseAccess, object),
+		);
 
 	return (
 		<li>
@@ -456,11 +473,12 @@ function DatabaseNode({
 				<FileExplorerIcon
 					name={database.database}
 					type='directory'
-					className={inherited ? 'text-primary' : undefined}
+					className={cn(inherited && 'text-primary')}
 				/>
 				<span className='min-w-0 flex-1 truncate font-medium' title={database.database}>
 					{database.database}
 				</span>
+				{partial && <span className='shrink-0 text-[10px] text-muted-foreground'>Partial</span>}
 				<Badge variant='secondary' className='h-5 shrink-0 px-1.5 text-[10px] font-normal'>
 					{database.databaseType}
 				</Badge>
@@ -478,6 +496,7 @@ function DatabaseNode({
 							databaseAccess={databaseAccess}
 							onChange={onChange}
 							draftPattern={draftPattern}
+							selectionObjects={selectionObjects}
 						/>
 					))}
 				</ul>
@@ -496,6 +515,7 @@ function SchemaRow({
 	databaseAccess,
 	onChange,
 	draftPattern,
+	selectionObjects,
 }: {
 	schema: GroupedSchema;
 	label: string;
@@ -506,6 +526,7 @@ function SchemaRow({
 	databaseAccess: DatabaseContextAccess;
 	onChange: (access: DatabaseContextAccess) => void;
 	draftPattern: string;
+	selectionObjects: DatabaseContextObject[];
 }) {
 	const schemaGrant: DatabaseSchemaGrant = {
 		kind: 'schema',
@@ -516,6 +537,11 @@ function SchemaRow({
 	const explicitSchema = hasDatabaseContextGrant(databaseAccess, schemaGrant);
 	const inherited = databaseAccess.mode === 'all';
 	const selected = inherited || explicitSchema;
+	const partial =
+		!selected &&
+		selectionObjects.some(
+			(object) => sameSchema(object, schema) && isDatabaseContextTableGranted(databaseAccess, object),
+		);
 	const panelId = `schema-${toDomId(schema.key)}`;
 
 	return (
@@ -535,10 +561,10 @@ function SchemaRow({
 					<ChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} />
 				</button>
 				<Checkbox
-					checked={selected}
+					checked={partial ? 'indeterminate' : selected}
 					aria-label={`${label} schema access`}
 					disabled={inherited}
-					className='disabled:cursor-default'
+					className={cn('disabled:cursor-default', PARTIAL_CHECKBOX_CLASS)}
 					onCheckedChange={(checked) =>
 						onChange(toggleDatabaseSchemaGrant(databaseAccess, schemaGrant, checked === true))
 					}
@@ -553,12 +579,13 @@ function SchemaRow({
 					<FileExplorerIcon
 						name={schema.schema}
 						type='directory'
-						className={selected ? 'text-primary' : undefined}
+						className={cn(selected && 'text-primary')}
 					/>
 					<span className='min-w-0 flex-1 truncate' title={label}>
 						{label}
 					</span>
 					{inherited && <span className='shrink-0 text-[10px] text-primary/80'>Inherited</span>}
+					{partial && <span className='shrink-0 text-[10px] text-muted-foreground'>Partial</span>}
 					{databaseType && (
 						<Badge variant='secondary' className='h-5 shrink-0 px-1.5 text-[10px] font-normal'>
 							{databaseType}

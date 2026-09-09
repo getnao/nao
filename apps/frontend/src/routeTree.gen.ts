@@ -67,6 +67,7 @@ import { Route as SidebarLayoutStoriesPreviewChatIdStorySlugRouteImport } from '
 import { Route as SidebarLayoutSettingsUsageReplayChatIdRouteImport } from './routes/_sidebar-layout.settings.usage.replay.$chatId'
 import { Route as SidebarLayoutSettingsProjectUserGroupsGroupIdRouteImport } from './routes/_sidebar-layout.settings.project.user-groups.$groupId'
 import { Route as SidebarLayoutSettingsProjectIntegrationsIntegrationIdRouteImport } from './routes/_sidebar-layout.settings.project.integrations.$integrationId'
+import { Route as SidebarLayoutSettingsProjectUserGroupsUsersUserIdRouteImport } from './routes/_sidebar-layout.settings.project.user-groups.users.$userId'
 
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
@@ -401,6 +402,12 @@ const SidebarLayoutSettingsProjectIntegrationsIntegrationIdRoute =
     path: '/$integrationId',
     getParentRoute: () => SidebarLayoutSettingsProjectIntegrationsRoute,
   } as any)
+const SidebarLayoutSettingsProjectUserGroupsUsersUserIdRoute =
+  SidebarLayoutSettingsProjectUserGroupsUsersUserIdRouteImport.update({
+    id: '/users/$userId',
+    path: '/users/$userId',
+    getParentRoute: () => SidebarLayoutSettingsProjectUserGroupsRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof SidebarLayoutChatLayoutIndexRoute
@@ -459,6 +466,7 @@ export interface FileRoutesByFullPath {
   '/stories/preview/$chatId/$storySlug': typeof SidebarLayoutStoriesPreviewChatIdStorySlugRoute
   '/settings/project/integrations/': typeof SidebarLayoutSettingsProjectIntegrationsIndexRoute
   '/settings/project/user-groups/': typeof SidebarLayoutSettingsProjectUserGroupsIndexRoute
+  '/settings/project/user-groups/users/$userId': typeof SidebarLayoutSettingsProjectUserGroupsUsersUserIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof SidebarLayoutChatLayoutIndexRoute
@@ -512,6 +520,7 @@ export interface FileRoutesByTo {
   '/stories/preview/$chatId/$storySlug': typeof SidebarLayoutStoriesPreviewChatIdStorySlugRoute
   '/settings/project/integrations': typeof SidebarLayoutSettingsProjectIntegrationsIndexRoute
   '/settings/project/user-groups': typeof SidebarLayoutSettingsProjectUserGroupsIndexRoute
+  '/settings/project/user-groups/users/$userId': typeof SidebarLayoutSettingsProjectUserGroupsUsersUserIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -573,6 +582,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/stories/preview/$chatId/$storySlug': typeof SidebarLayoutStoriesPreviewChatIdStorySlugRoute
   '/_sidebar-layout/settings/project/integrations/': typeof SidebarLayoutSettingsProjectIntegrationsIndexRoute
   '/_sidebar-layout/settings/project/user-groups/': typeof SidebarLayoutSettingsProjectUserGroupsIndexRoute
+  '/_sidebar-layout/settings/project/user-groups/users/$userId': typeof SidebarLayoutSettingsProjectUserGroupsUsersUserIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -633,6 +643,7 @@ export interface FileRouteTypes {
     | '/stories/preview/$chatId/$storySlug'
     | '/settings/project/integrations/'
     | '/settings/project/user-groups/'
+    | '/settings/project/user-groups/users/$userId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -686,6 +697,7 @@ export interface FileRouteTypes {
     | '/stories/preview/$chatId/$storySlug'
     | '/settings/project/integrations'
     | '/settings/project/user-groups'
+    | '/settings/project/user-groups/users/$userId'
   id:
     | '__root__'
     | '/_sidebar-layout'
@@ -746,6 +758,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/stories/preview/$chatId/$storySlug'
     | '/_sidebar-layout/settings/project/integrations/'
     | '/_sidebar-layout/settings/project/user-groups/'
+    | '/_sidebar-layout/settings/project/user-groups/users/$userId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -1166,6 +1179,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutSettingsProjectIntegrationsIntegrationIdRouteImport
       parentRoute: typeof SidebarLayoutSettingsProjectIntegrationsRoute
     }
+    '/_sidebar-layout/settings/project/user-groups/users/$userId': {
+      id: '/_sidebar-layout/settings/project/user-groups/users/$userId'
+      path: '/users/$userId'
+      fullPath: '/settings/project/user-groups/users/$userId'
+      preLoaderRoute: typeof SidebarLayoutSettingsProjectUserGroupsUsersUserIdRouteImport
+      parentRoute: typeof SidebarLayoutSettingsProjectUserGroupsRoute
+    }
   }
 }
 
@@ -1224,6 +1244,7 @@ const SidebarLayoutSettingsProjectIntegrationsRouteWithChildren =
 interface SidebarLayoutSettingsProjectUserGroupsRouteChildren {
   SidebarLayoutSettingsProjectUserGroupsGroupIdRoute: typeof SidebarLayoutSettingsProjectUserGroupsGroupIdRoute
   SidebarLayoutSettingsProjectUserGroupsIndexRoute: typeof SidebarLayoutSettingsProjectUserGroupsIndexRoute
+  SidebarLayoutSettingsProjectUserGroupsUsersUserIdRoute: typeof SidebarLayoutSettingsProjectUserGroupsUsersUserIdRoute
 }
 
 const SidebarLayoutSettingsProjectUserGroupsRouteChildren: SidebarLayoutSettingsProjectUserGroupsRouteChildren =
@@ -1232,6 +1253,8 @@ const SidebarLayoutSettingsProjectUserGroupsRouteChildren: SidebarLayoutSettings
       SidebarLayoutSettingsProjectUserGroupsGroupIdRoute,
     SidebarLayoutSettingsProjectUserGroupsIndexRoute:
       SidebarLayoutSettingsProjectUserGroupsIndexRoute,
+    SidebarLayoutSettingsProjectUserGroupsUsersUserIdRoute:
+      SidebarLayoutSettingsProjectUserGroupsUsersUserIdRoute,
   }
 
 const SidebarLayoutSettingsProjectUserGroupsRouteWithChildren =

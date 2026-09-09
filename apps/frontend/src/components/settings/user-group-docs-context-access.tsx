@@ -19,6 +19,9 @@ interface DocsTreeNode extends DocsContextCatalogEntry {
 	children: DocsTreeNode[];
 }
 
+const PARTIAL_CHECKBOX_CLASS =
+	'data-[state=indeterminate]:bg-primary/15 data-[state=indeterminate]:text-primary/70 data-[state=indeterminate]:shadow-none';
+
 export function DocsContextTreeRoot({
 	entries,
 	access,
@@ -54,6 +57,8 @@ export function DocsContextTreeRoot({
 	const open = searching || rootExpanded;
 	const visible =
 		!query || rootMatches || filteredEntries.length > 0 || syncState === 'missing' || isLoading || isError;
+	const selected = access.mode === 'all';
+	const partial = !selected && hasSelectedDocsDescendant(access, entries);
 
 	if (!visible) {
 		return null;
@@ -64,7 +69,7 @@ export function DocsContextTreeRoot({
 			<div
 				className={cn(
 					'flex h-8 w-full items-center gap-1 pr-2 text-sm hover:bg-muted/50',
-					access.mode === 'all' && 'bg-primary/10 text-primary',
+					selected && 'bg-primary/10 text-primary',
 				)}
 				style={{ paddingLeft: `${getTreeNodePadding(0)}px` }}
 			>
@@ -78,9 +83,10 @@ export function DocsContextTreeRoot({
 					<ChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} />
 				</button>
 				<Checkbox
-					checked={access.mode === 'all'}
+					checked={partial ? 'indeterminate' : selected}
 					disabled={disabled}
 					aria-label='docs folder access'
+					className={PARTIAL_CHECKBOX_CLASS}
 					onCheckedChange={(checked) =>
 						onChange(checked === true ? { mode: 'all' } : { mode: 'restricted', grants: [] })
 					}
@@ -90,8 +96,9 @@ export function DocsContextTreeRoot({
 					className='flex min-w-0 flex-1 items-center gap-1 text-left'
 					onClick={() => setRootExpanded((current) => !current)}
 				>
-					<FileExplorerIcon name='docs' type='directory' />
+					<FileExplorerIcon name='docs' type='directory' className={cn(selected && 'text-primary')} />
 					<span className='min-w-0 flex-1 truncate'>docs</span>
+					{partial && <span className='shrink-0 text-[10px] text-muted-foreground'>Partial</span>}
 				</button>
 				<DocsRootStatus
 					entryCount={entries.length}
@@ -111,6 +118,7 @@ export function DocsContextTreeRoot({
 							access={access}
 							expanded={expanded}
 							searching={searching}
+							selectionEntries={entries}
 							onToggle={(path) =>
 								setExpanded((current) => {
 									const next = new Set(current);
@@ -186,6 +194,7 @@ function DocsNode({
 	access,
 	expanded,
 	searching,
+	selectionEntries,
 	onToggle,
 	onChange,
 }: {
@@ -194,6 +203,7 @@ function DocsNode({
 	access: DocsContextAccess;
 	expanded: Set<string>;
 	searching: boolean;
+	selectionEntries: DocsContextCatalogEntry[];
 	onToggle: (path: string) => void;
 	onChange: (access: DocsContextAccess) => void;
 }) {
@@ -205,6 +215,7 @@ function DocsNode({
 	const explicit = hasDocsGrant(access, { kind: 'folder', path: displayed.path });
 	const inherited = access.mode === 'all' || hasAncestorFolderGrant(access, displayed.path);
 	const selected = explicit || inherited;
+	const partial = !selected && hasSelectedDocsDescendant(access, selectionEntries, displayed.path);
 	const open = searching || expanded.has(displayed.path);
 
 	return (
@@ -226,7 +237,7 @@ function DocsNode({
 					<ChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} />
 				</button>
 				<Checkbox
-					checked={selected}
+					checked={partial ? 'indeterminate' : selected}
 					disabled={inherited && !explicit}
 					title={
 						inherited && !explicit
@@ -234,6 +245,7 @@ function DocsNode({
 							: undefined
 					}
 					aria-label={`${displayed.label} folder access`}
+					className={PARTIAL_CHECKBOX_CLASS}
 					onCheckedChange={(checked) =>
 						onChange(
 							toggleDocsContextGrant(access, { kind: 'folder', path: displayed.path }, checked === true),
@@ -245,11 +257,16 @@ function DocsNode({
 					className='flex min-w-0 flex-1 items-center gap-1 text-left'
 					onClick={() => onToggle(displayed.path)}
 				>
-					<FileExplorerIcon name={displayed.name} type='directory' />
+					<FileExplorerIcon
+						name={displayed.name}
+						type='directory'
+						className={cn(selected && 'text-primary')}
+					/>
 					<span className='min-w-0 flex-1 truncate' title={displayed.label}>
 						{displayed.label}
 					</span>
 					{inherited && !explicit && <span className='text-[10px] text-primary/80'>Inherited</span>}
+					{partial && <span className='shrink-0 text-[10px] text-muted-foreground'>Partial</span>}
 				</button>
 			</div>
 			{open && (
@@ -262,6 +279,7 @@ function DocsNode({
 							access={access}
 							expanded={expanded}
 							searching={searching}
+							selectionEntries={selectionEntries}
 							onToggle={onToggle}
 							onChange={onChange}
 						/>
@@ -482,4 +500,19 @@ function hasAncestorFolderGrant(access: DocsContextAccess, docsPath: string): bo
 			(grant) => grant.kind === 'folder' && docsPath !== grant.path && docsPath.startsWith(`${grant.path}/`),
 		)
 	);
+}
+
+function hasSelectedDocsDescendant(
+	access: DocsContextAccess,
+	entries: readonly DocsContextCatalogEntry[],
+	parentPath?: string,
+): boolean {
+	return entries.some((entry) => {
+		if (parentPath && (entry.path === parentPath || !entry.path.startsWith(`${parentPath}/`))) {
+			return false;
+		}
+		return entry.kind === 'file'
+			? isDocsContextFileGranted(access, entry.path)
+			: hasDocsGrant(access, { kind: 'folder', path: entry.path }) || hasAncestorFolderGrant(access, entry.path);
+	});
 }

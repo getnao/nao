@@ -39,13 +39,66 @@ describe('user group docs context tree', () => {
 			access: { mode: 'restricted', grants: [{ kind: 'folder', path: 'confluence/space=OPS/runbooks' }] },
 		});
 
+		expect(screen.getByRole('checkbox', { name: 'docs folder access' }).getAttribute('data-state')).toBe(
+			'indeterminate',
+		);
 		fireEvent.click(screen.getByRole('button', { name: 'Expand docs folder' }));
+		const compactParent = screen.getByRole('checkbox', {
+			name: 'confluence/space=OPS folder access',
+		});
+		expect(compactParent.getAttribute('data-state')).toBe('indeterminate');
+		expect(compactParent.parentElement?.className).not.toContain('bg-primary/[0.04]');
+		expect(compactParent.parentElement?.className).not.toContain('text-primary');
+		expect(compactParent.parentElement?.querySelector('.tabler-icon-folder')?.getAttribute('class')).not.toContain(
+			'text-primary',
+		);
 		fireEvent.click(screen.getByRole('button', { name: 'Expand confluence/space=OPS folder' }));
+		const grantedFolder = screen.getByRole('checkbox', { name: 'runbooks folder access' });
+		expect(grantedFolder.getAttribute('data-state')).toBe('checked');
+		expect(grantedFolder.parentElement?.className).toContain('bg-primary/10');
+		expect(grantedFolder.parentElement?.className).not.toContain('bg-primary/[0.04]');
 		fireEvent.click(screen.getByRole('button', { name: 'Expand runbooks folder' }));
 
 		const file = screen.getByRole('checkbox', { name: 'on-call.md file access' });
 		expect(file.getAttribute('data-state')).toBe('checked');
 		expect(file.hasAttribute('disabled')).toBe(true);
+	});
+
+	it('shows nested file grants as partial and grants a compact folder when clicked', () => {
+		const onChange = vi.fn();
+		renderTree({
+			access: {
+				mode: 'restricted',
+				grants: [{ kind: 'file', path: 'confluence/space=OPS/runbooks/on-call.md' }],
+			},
+			onChange,
+		});
+
+		const docsAccess = screen.getByRole('checkbox', { name: 'docs folder access' });
+		expect(docsAccess.getAttribute('data-state')).toBe('indeterminate');
+		expect(docsAccess.className).toContain('data-[state=indeterminate]:bg-primary/15');
+		expect(docsAccess.parentElement?.className).not.toContain('bg-primary/[0.04]');
+		expect(docsAccess.parentElement?.className).not.toContain('text-primary');
+		expect(docsAccess.parentElement?.querySelector('.tabler-icon-folder')?.getAttribute('class')).not.toContain(
+			'text-primary',
+		);
+		expect(screen.getByText('Partial').className).toContain('text-muted-foreground');
+
+		fireEvent.click(screen.getByRole('button', { name: 'Expand docs folder' }));
+		const folderAccess = screen.getByRole('checkbox', {
+			name: 'confluence/space=OPS/runbooks folder access',
+		});
+		expect(folderAccess.getAttribute('data-state')).toBe('indeterminate');
+		expect(screen.getAllByText('Partial')).toHaveLength(2);
+
+		fireEvent.click(folderAccess);
+		expect(onChange).toHaveBeenCalledWith({
+			mode: 'restricted',
+			grants: [
+				{ kind: 'folder', path: 'confluence/space=OPS/runbooks' },
+				{ kind: 'file', path: 'confluence/space=OPS/runbooks/on-call.md' },
+			],
+		});
 	});
 
 	it('filters paths, retains ancestors, and expands matches', () => {
