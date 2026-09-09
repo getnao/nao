@@ -228,6 +228,24 @@ describe('UserGroupsTable', () => {
 		expect(screen.getByText('Organisation User')).toBeTruthy();
 	});
 
+	it('keeps the users table columns fixed while group chips overflow inside their cell', () => {
+		render(<UserGroupsTable tab='users' onTabChange={vi.fn()} />);
+
+		const table = screen.getByRole('table');
+		const headers = screen.getAllByRole('columnheader');
+		const projectUserCells = screen.getByRole('row', { name: /Project User/ }).querySelectorAll('td');
+		const groupsButton = screen.getByRole('button', { name: /Manage groups for Project User/ });
+
+		expect(table.classList.contains('table-fixed')).toBe(true);
+		expect(table.classList.contains('min-w-3xl')).toBe(true);
+		expect(headers[0]?.classList.contains('w-[38%]')).toBe(true);
+		expect(headers[1]?.classList.contains('w-1/5')).toBe(true);
+		expect(headers[2]?.classList.contains('w-[42%]')).toBe(true);
+		expect(projectUserCells[2]?.classList.contains('overflow-hidden')).toBe(true);
+		expect(groupsButton.classList.contains('w-full')).toBe(true);
+		expect(groupsButton.classList.contains('min-w-0')).toBe(true);
+	});
+
 	it('reports tab changes to the route', () => {
 		const onTabChange = vi.fn();
 		render(<UserGroupsTable tab='groups' onTabChange={onTabChange} />);

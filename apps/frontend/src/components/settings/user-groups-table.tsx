@@ -247,12 +247,12 @@ function UserAccessTable({
 
 	return (
 		<div className='overflow-x-auto'>
-			<Table className='min-w-3xl'>
+			<Table className='min-w-3xl table-fixed'>
 				<TableHeader>
 					<TableRow className='[&_th]:h-12'>
-						<TableHead className='min-w-64'>User</TableHead>
-						<TableHead className='min-w-36'>Role</TableHead>
-						<TableHead className='min-w-52'>Groups</TableHead>
+						<TableHead className='w-[38%]'>User</TableHead>
+						<TableHead className='w-1/5'>Role</TableHead>
+						<TableHead className='w-[42%]'>Groups</TableHead>
 					</TableRow>
 				</TableHeader>
 				<TableBody>
@@ -305,19 +305,21 @@ function UserAccessSection({
 			</TableRow>
 			{users.map((user) => (
 				<TableRow key={user.id}>
-					<TableCell>
-						<div className='flex flex-col'>
-							<span className='font-medium'>{user.name}</span>
-							<span className='text-xs text-muted-foreground'>
+					<TableCell className='min-w-0 overflow-hidden'>
+						<div className='flex min-w-0 flex-col'>
+							<span className='truncate font-medium' title={user.name}>
+								{user.name}
+							</span>
+							<span className='truncate text-xs text-muted-foreground' title={user.email}>
 								{user.email}
 								{user.status ? ` · ${user.status}` : ''}
 							</span>
 						</div>
 					</TableCell>
-					<TableCell>
+					<TableCell className='min-w-0 overflow-hidden'>
 						<Badge variant={user.role}>{USER_ROLE_LABELS[user.role]}</Badge>
 					</TableCell>
-					<TableCell>
+					<TableCell className='min-w-0 overflow-hidden'>
 						<UserGroupsCell user={user} groups={groups} membershipKeys={membershipKeys} />
 					</TableCell>
 				</TableRow>
