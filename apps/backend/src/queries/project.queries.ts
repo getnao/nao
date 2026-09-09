@@ -16,7 +16,7 @@ import { and, asc, desc, eq, gt, gte, isNotNull, lte, or, type SQL, sql } from '
 
 import type { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
-import { db, type DBTransaction } from '../db/db';
+import { db, type DBExecutor, type DBTransaction } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import { env, isCloud } from '../env';
 import type { ListProjectChatsResponse, ProjectChatsFacetKey, UserWithRole } from '../types/project';
@@ -85,8 +85,11 @@ export const getProjectMember = async (projectId: string, userId: string): Promi
 	return member ?? null;
 };
 
-export const addProjectMember = async (member: NewProjectMember): Promise<DBProjectMember> => {
-	const [created] = await db.insert(s.projectMember).values(member).returning().execute();
+export const addProjectMember = async (
+	member: NewProjectMember,
+	executor: DBExecutor = db,
+): Promise<DBProjectMember> => {
+	const [created] = await executor.insert(s.projectMember).values(member).returning().execute();
 	return created;
 };
 
