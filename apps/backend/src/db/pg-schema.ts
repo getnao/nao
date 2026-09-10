@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import {
 	type BackgroundModelSettings,
 	DEFAULT_USER_GROUP_CONFIG,
@@ -7,15 +6,7 @@ import {
 	type McpMapEmbedStoredConfig,
 	type StoredDatabaseContextAccess,
 	type StoredUserGroupConfig,
-=======
-import type {
-	BackgroundModelSettings,
-	MapSettings,
-	McpChartEmbedStoredConfig,
-	McpMapEmbedStoredConfig,
-	StoredUserGroupConfig,
-	StoredUserGroupContextAccess,
->>>>>>> f9f41abd (Add table and docs permissions to user groups)
+	type StoredUserGroupContextAccess,
 } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
 import type {
@@ -444,16 +435,11 @@ export const userGroup = pgTable(
 			.references(() => project.id, { onDelete: 'cascade' }),
 		name: text('name').notNull(),
 		isDefault: boolean('is_default').default(false).notNull(),
-<<<<<<< HEAD
 		featureGrants: jsonb('feature_grants')
 			.$type<StoredUserGroupConfig>()
 			.notNull()
 			.default(DEFAULT_USER_GROUP_CONFIG),
-		contextGrants: jsonb('context_grants').$type<StoredDatabaseContextAccess>(),
-=======
-		featureGrants: jsonb('feature_grants').$type<StoredUserGroupConfig>().notNull().default([]),
-		contextGrants: jsonb('context_grants').$type<StoredUserGroupContextAccess>(),
->>>>>>> f9f41abd (Add table and docs permissions to user groups)
+		contextGrants: jsonb('context_grants').$type<StoredDatabaseContextAccess | StoredUserGroupContextAccess>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()

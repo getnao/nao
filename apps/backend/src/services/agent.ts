@@ -189,7 +189,6 @@ export async function buildToolContext(opts: {
 	agentSettings?: AgentSettings | null;
 	adminMode?: boolean;
 	supportsCustomCharts?: boolean;
-	storyCreationEnabled?: boolean;
 }): Promise<ToolContext> {
 	const base = await _buildContextBase(opts);
 	return { ...base, chatId: opts.chatId, adminMode: opts.adminMode ?? false };
@@ -209,7 +208,6 @@ async function _buildContextBase(opts: {
 	userId: string;
 	agentSettings?: AgentSettings | null;
 	supportsCustomCharts?: boolean;
-	storyCreationEnabled?: boolean;
 }): Promise<Omit<ToolContext, 'chatId'>> {
 	const project = await projectQueries.retrieveProjectById(opts.projectId);
 	if (!project.path) {
@@ -226,7 +224,7 @@ async function _buildContextBase(opts: {
 		projectFolder: project.path,
 		userId: opts.userId,
 		projectId: opts.projectId,
-		storyCreationEnabled: opts.storyCreationEnabled ?? true,
+		storyCreationEnabled: contextAccess.userGroupFeatures.includes('story-creation'),
 		supportsCustomCharts: opts.supportsCustomCharts !== false,
 		agentSettings,
 		envVars,
@@ -295,10 +293,9 @@ export class AgentService {
 		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
 		await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider, chat.userId);
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel);
-		const [agentSettings, customBoundaries, featureFlags] = await Promise.all([
+		const [agentSettings, customBoundaries] = await Promise.all([
 			projectQueries.getAgentSettings(chat.projectId),
 			projectQueries.getCustomBoundaries(chat.projectId),
-			getEffectiveUserGroupFeatureFlags(chat.projectId, chat.userId),
 		]);
 		const toolContext = await this._getToolContext(
 			chat.projectId,
@@ -307,15 +304,11 @@ export class AgentService {
 			agentSettings,
 			options.adminMode,
 			options.supportsCustomCharts,
-			featureFlags['story-creation'],
 		);
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
 		const resolveTools = options.tools ?? defaultAgentTools;
 		const resolvedTools = await resolveTools({ chat, agentSettings, toolContext, webTools, customBoundaries });
-<<<<<<< HEAD
-=======
 		const featureFlags = createUserGroupFeatureFlags(toolContext.userGroupFeatures);
->>>>>>> f9f41abd (Add table and docs permissions to user groups)
 		const storyCreationEnabled = featureFlags['story-creation'];
 		const storyCreationRestricted = isStoryCreationRestricted(resolvedTools, storyCreationEnabled);
 		const agentTools = resolvedTools;
@@ -369,7 +362,6 @@ export class AgentService {
 		agentSettings: AgentSettings | null,
 		adminMode?: boolean,
 		supportsCustomCharts?: boolean,
-		storyCreationEnabled?: boolean,
 	): Promise<ToolContext> {
 		return buildToolContext({
 			projectId,
@@ -378,7 +370,6 @@ export class AgentService {
 			agentSettings,
 			adminMode,
 			supportsCustomCharts,
-			storyCreationEnabled,
 		});
 	}
 

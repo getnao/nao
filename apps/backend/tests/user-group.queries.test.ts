@@ -32,7 +32,6 @@ import {
 	resolveEffectiveUserGroupAccess,
 	setUserGroupMembership,
 	updateUserGroup,
-	UserGroupQueryError,
 } from '../src/queries/user-group.queries';
 
 const db = drizzle(process.env.NAO_TEST_DATABASE_PATH ?? './db.sqlite', { schema: sqliteSchema });
@@ -91,7 +90,11 @@ describe('user group queries', () => {
 					canChange: true,
 				},
 			},
-			contextGrants: { version: 1, access: { mode: 'all' } },
+			contextGrants: {
+				version: 4,
+				databaseAccess: { mode: 'all', strict: true },
+				docsAccess: { mode: 'all' },
+			},
 		});
 
 		const overview = await getUserGroupOverview(PROJECT_ID);
@@ -107,26 +110,6 @@ describe('user group queries', () => {
 				canChange: true,
 			},
 		});
-<<<<<<< HEAD
-=======
-		const [storedDefaultGroup] = await db
-			.select({ contextGrants: userGroup.contextGrants, featureGrants: userGroup.featureGrants })
-			.from(userGroup)
-			.where(eq(userGroup.id, defaultGroup?.id ?? ''));
-		expect(storedDefaultGroup.featureGrants).toEqual({
-			version: 2,
-			features: ['story-creation', 'automation-creation'],
-			toolCallDensity: {
-				defaultDensity: 'detailed',
-				canChange: true,
-			},
-		});
-		expect(storedDefaultGroup.contextGrants).toEqual({
-			version: 4,
-			databaseAccess: { mode: 'all', strict: true },
-			docsAccess: { mode: 'all' },
-		});
->>>>>>> f9f41abd (Add table and docs permissions to user groups)
 		expect(overview.users.map(({ id }) => id).sort()).toEqual(
 			[BOTH_USER_ID, DIRECT_USER_ID, INHERITED_USER_ID].sort(),
 		);
@@ -269,16 +252,16 @@ describe('user group queries', () => {
 			grants: [{ kind: 'folder', path: 'finance' }],
 		});
 
-		await expect(
-			setUserGroupMembership(PROJECT_ID, group.id, OUTSIDER_USER_ID, true),
-		).rejects.toMatchObject<UserGroupQueryError>({ code: 'BAD_REQUEST' });
-		await expect(
-			setUserGroupMembership(PROJECT_ID, defaultGroup.id, DIRECT_USER_ID, false),
-		).rejects.toMatchObject<UserGroupQueryError>({ code: 'BAD_REQUEST' });
+		await expect(setUserGroupMembership(PROJECT_ID, group.id, OUTSIDER_USER_ID, true)).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+		});
+		await expect(setUserGroupMembership(PROJECT_ID, defaultGroup.id, DIRECT_USER_ID, false)).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+		});
 		await expect(
 			updateUserGroup(PROJECT_ID, defaultGroup.id, { name: 'Everyone', featureGrants: [] }),
-		).rejects.toMatchObject<UserGroupQueryError>({ code: 'BAD_REQUEST' });
-		await expect(deleteUserGroup(PROJECT_ID, defaultGroup.id)).rejects.toMatchObject<UserGroupQueryError>({
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		await expect(deleteUserGroup(PROJECT_ID, defaultGroup.id)).rejects.toMatchObject({
 			code: 'BAD_REQUEST',
 		});
 

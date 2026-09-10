@@ -1,6 +1,4 @@
 import {
-	ALL_DATABASE_CONTEXT_ACCESS,
-	ALL_DOCS_CONTEXT_ACCESS,
 	type DatabaseContextAccess,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	type DocsContextAccess,
@@ -76,39 +74,6 @@ export const getUserGroupOverview = async (projectId: string): Promise<UserGroup
 	};
 };
 
-<<<<<<< HEAD
-=======
-export const ensureDefaultUserGroup = async (projectId: string): Promise<UserGroup> => {
-	await db
-		.insert(s.userGroup)
-		.values({
-			projectId,
-			name: DEFAULT_USER_GROUP_NAME,
-			isDefault: true,
-			featureGrants: serializeUserGroupConfig(USER_GROUP_FEATURES, DEFAULT_TOOL_CALL_DENSITY_POLICY),
-			contextGrants: serializeUserGroupContextAccess(ALL_DATABASE_CONTEXT_ACCESS, ALL_DOCS_CONTEXT_ACCESS),
-		})
-		.onConflictDoNothing()
-		.execute();
-
-	const [group] = await db
-		.select()
-		.from(s.userGroup)
-		.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroup.isDefault, true)))
-		.limit(1)
-		.execute();
-	if (!group) {
-		throw new UserGroupQueryError('CONFLICT', 'The All Users group could not be created.');
-	}
-	return normalizeUserGroup(group);
-};
-
-export const resolveEffectiveUserGroupFeatures = async (
-	projectId: string,
-	userId: string,
-): Promise<UserGroupFeature[]> => (await resolveEffectiveUserGroupAccess(projectId, userId)).features;
-
->>>>>>> f9f41abd (Add table and docs permissions to user groups)
 export const resolveEffectiveUserGroupAccess = async (
 	projectId: string,
 	userId: string,
@@ -186,7 +151,6 @@ export const createUserGroup = async (
 	docsAccess: DocsContextAccess = EMPTY_DOCS_CONTEXT_ACCESS,
 ): Promise<UserGroup> => {
 	await assertNameAvailable(projectId, name);
-<<<<<<< HEAD
 	const [group] = await executeUserGroupNameMutation(() =>
 		db
 			.insert(s.userGroup)
@@ -194,25 +158,12 @@ export const createUserGroup = async (
 				projectId,
 				name,
 				featureGrants: serializeUserGroupConfig(featureGrants, toolCallDensityPolicy),
-				contextGrants: serializeDatabaseContextAccess(databaseAccess),
+				contextGrants: serializeUserGroupContextAccess(databaseAccess, docsAccess),
 				isDefault: false,
 			})
 			.returning()
 			.execute(),
 	);
-=======
-	const [group] = await db
-		.insert(s.userGroup)
-		.values({
-			projectId,
-			name,
-			featureGrants: serializeUserGroupConfig(featureGrants, toolCallDensityPolicy),
-			contextGrants: serializeUserGroupContextAccess(databaseAccess, docsAccess),
-			isDefault: false,
-		})
-		.returning()
-		.execute();
->>>>>>> f9f41abd (Add table and docs permissions to user groups)
 	return normalizeUserGroup(group);
 };
 
@@ -236,7 +187,6 @@ export const updateUserGroup = async (
 	if (data.name !== undefined && data.name !== group.name) {
 		await assertNameAvailable(projectId, data.name, groupId);
 	}
-<<<<<<< HEAD
 	const [updated] = await executeUserGroupNameMutation(() =>
 		db
 			.update(s.userGroup)
@@ -246,38 +196,20 @@ export const updateUserGroup = async (
 					data.featureGrants,
 					data.toolCallDensityPolicy ?? currentConfig.toolCallDensity,
 				),
-				...(data.databaseAccess === undefined
+				...(data.databaseAccess === undefined && data.docsAccess === undefined
 					? {}
-					: { contextGrants: serializeDatabaseContextAccess(data.databaseAccess) }),
+					: {
+							contextGrants: serializeUserGroupContextAccess(
+								data.databaseAccess ?? currentContext.databaseAccess,
+								data.docsAccess ?? currentContext.docsAccess,
+							),
+						}),
 				updatedAt: new Date(),
 			})
 			.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
 			.returning()
 			.execute(),
 	);
-=======
-	const [updated] = await db
-		.update(s.userGroup)
-		.set({
-			...(data.name === undefined ? {} : { name: data.name }),
-			featureGrants: serializeUserGroupConfig(
-				data.featureGrants,
-				data.toolCallDensityPolicy ?? currentConfig.toolCallDensity,
-			),
-			...(data.databaseAccess === undefined && data.docsAccess === undefined
-				? {}
-				: {
-						contextGrants: serializeUserGroupContextAccess(
-							data.databaseAccess ?? currentContext.databaseAccess,
-							data.docsAccess ?? currentContext.docsAccess,
-						),
-					}),
-			updatedAt: new Date(),
-		})
-		.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
-		.returning()
-		.execute();
->>>>>>> f9f41abd (Add table and docs permissions to user groups)
 	return normalizeUserGroup(updated);
 };
 
