@@ -5,7 +5,15 @@ import { LocalStorageProvider } from './local.provider';
 import { S3StorageProvider } from './s3.provider';
 import type { StorageBackendSetting, StorageHealth, StorageProvider } from './types';
 
-export { relativePathFromKey, sanitizeRelativePath, scopedKey, scopeRoot } from './keys';
+export {
+	projectDatasetKey,
+	projectDatasetRelativePathFromKey,
+	projectDatasetRoot,
+	relativePathFromKey,
+	sanitizeRelativePath,
+	scopedKey,
+	scopeRoot,
+} from './keys';
 export type {
 	StorageBackend,
 	StorageBackendSetting,

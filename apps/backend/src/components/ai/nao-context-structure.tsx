@@ -8,6 +8,9 @@ export function NaoContextStructure() {
 			<List>
 				<ListItem>All the context available to you is stored as files in the project folder.</ListItem>
 				<ListItem>
+					Generated web catalogues live under <Italic>/datasets</Italic> and are project-scoped.
+				</ListItem>
+				<ListItem>
 					In the <Italic>databases</Italic> folder you can find the databases context, each layer is a folder
 					from the databases, schema and then tables.
 				</ListItem>

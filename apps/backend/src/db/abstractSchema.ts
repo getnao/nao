@@ -53,6 +53,11 @@ export type NewAutomation = typeof sqliteSchema.automation.$inferInsert;
 export type DBAutomationRun = typeof sqliteSchema.automationRun.$inferSelect;
 export type NewAutomationRun = typeof sqliteSchema.automationRun.$inferInsert;
 
+export type DBWebRobot = typeof sqliteSchema.webRobot.$inferSelect;
+export type NewWebRobot = typeof sqliteSchema.webRobot.$inferInsert;
+export type DBWebRobotRun = typeof sqliteSchema.webRobotRun.$inferSelect;
+export type NewWebRobotRun = typeof sqliteSchema.webRobotRun.$inferInsert;
+
 export type DBMemory = typeof sqliteSchema.memories.$inferSelect;
 export type DBNewMemory = typeof sqliteSchema.memories.$inferInsert;
 

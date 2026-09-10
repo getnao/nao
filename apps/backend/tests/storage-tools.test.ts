@@ -12,6 +12,7 @@ import searchTool from '../src/agents/tools/search';
 import writeTool from '../src/agents/tools/write';
 import { __reloadEnvForTesting } from '../src/env';
 import { __resetStorageForTesting } from '../src/services/storage';
+import { writeProjectDataset } from '../src/services/storage/project-datasets';
 import type { ToolContext } from '../src/types/tools';
 
 let storageRoot: string;
@@ -96,6 +97,14 @@ describe('read', () => {
 
 		expect(await run(readTool, { file_path: '/RULES.md' })).toMatchObject({ content: 'project rules' });
 	});
+
+	it('reads a generated dataset README', async () => {
+		await writeProjectDataset('proj-1', 'catalog/latest/README.md', 'catalog docs');
+
+		expect(await run(readTool, { file_path: '/datasets/catalog/latest/README.md' })).toMatchObject({
+			content: 'catalog docs',
+		});
+	});
 });
 
 describe('list', () => {
@@ -108,6 +117,7 @@ describe('list', () => {
 			entries: [
 				{ path: '/RULES.md', name: 'RULES.md', type: 'file', size: '5', itemCount: undefined },
 				{ path: '/home', name: 'home', type: 'directory' },
+				{ path: '/datasets', name: 'datasets', type: 'directory' },
 			],
 		});
 	});
@@ -124,7 +134,10 @@ describe('list', () => {
 
 		const output = (await run(listTool, { path: '/' })) as { entries: { name: string; itemCount?: number }[] };
 
-		expect(output.entries).toEqual([{ path: '/home', name: 'home', type: 'directory' }]);
+		expect(output.entries).toEqual([
+			{ path: '/home', name: 'home', type: 'directory' },
+			{ path: '/datasets', name: 'datasets', type: 'directory' },
+		]);
 	});
 
 	it('lists a folder inside /home', async () => {
@@ -135,6 +148,31 @@ describe('list', () => {
 			entries: [
 				{ path: '/home/reports/2025', name: '2025', type: 'directory', itemCount: 1 },
 				{ path: '/home/reports/q1.csv', name: 'q1.csv', type: 'file' },
+			],
+		});
+	});
+
+	it('lists generated project datasets', async () => {
+		await writeProjectDataset('proj-1', 'catalog/latest/products.parquet', 'parquet-bytes');
+		await writeProjectDataset('proj-1', 'catalog/latest/README.md', 'docs');
+
+		expect(await run(listTool, { path: '/datasets/catalog/latest' })).toEqual({
+			_version: '1',
+			entries: [
+				{
+					path: '/datasets/catalog/latest/products.parquet',
+					name: 'products.parquet',
+					type: 'file',
+					size: '13',
+					itemCount: undefined,
+				},
+				{
+					path: '/datasets/catalog/latest/README.md',
+					name: 'README.md',
+					type: 'file',
+					size: '4',
+					itemCount: undefined,
+				},
 			],
 		});
 	});
@@ -170,6 +208,15 @@ describe('search', () => {
 		});
 	});
 
+	it('finds generated dataset files by name', async () => {
+		await writeProjectDataset('proj-1', 'catalog/latest/products.parquet', 'parquet-bytes');
+
+		expect(await run(searchTool, { pattern: 'datasets/**/*.parquet' })).toEqual({
+			_version: '1',
+			files: [{ path: '/datasets/catalog/latest/products.parquet', dir: '/datasets/catalog/latest', size: '13' }],
+		});
+	});
+
 	it('leaves saved files out when storage is disabled', async () => {
 		await run(writeTool, { file_path: '/home/q2.csv', content: 'q2' });
 		useBackend('none');
@@ -199,6 +246,14 @@ describe('grep', () => {
 
 	it('can be scoped to /home', async () => {
 		expect(await pathsMatching({ pattern: 'revenue', path: '/home' })).toEqual(['/home/exports/q1.csv']);
+	});
+
+	it('can be scoped to /datasets', async () => {
+		await writeProjectDataset('proj-1', 'catalog/latest/README.md', 'catalog revenue docs');
+
+		expect(await pathsMatching({ pattern: 'catalog revenue', path: '/datasets' })).toEqual([
+			'/datasets/catalog/latest/README.md',
+		]);
 	});
 
 	it('keeps valid names that merely start with two dots', async () => {

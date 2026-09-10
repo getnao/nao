@@ -4,12 +4,17 @@ import path from 'path';
 
 import { ListOutput, renderToModelOutput } from '../../components/tool-outputs';
 import { isStorageEnabled } from '../../services/storage';
+import { listProjectDatasetDirectory } from '../../services/storage/project-datasets';
 import { listUserDirectory } from '../../services/storage/user-files';
 import type { ToolContext } from '../../types/tools';
 import {
+	DATASET_MOUNT,
+	isDatasetPath,
 	isStoragePath,
 	shouldExcludeEntry,
 	STORAGE_MOUNT,
+	toDatasetRelativePath,
+	toDatasetVirtualPath,
 	toRealPath,
 	toStorageRelativePath,
 	toStorageScope,
@@ -25,7 +30,9 @@ export default createTool<list.Input, list.Output>({
 	execute: async ({ path: filePath }, context) => {
 		const entries = isStoragePath(filePath)
 			? await listStorage(filePath, context)
-			: await listProjectFolder(filePath, context);
+			: isDatasetPath(filePath)
+				? await listDatasets(filePath, context)
+				: await listProjectFolder(filePath, context);
 
 		return { _version: '1' as const, entries };
 	},
@@ -38,6 +45,18 @@ const listStorage = async (virtualPath: string, context: ToolContext): Promise<l
 
 	return entries.map((entry) => ({
 		path: toStorageVirtualPath(entry.relativePath),
+		name: entry.name,
+		type: entry.type,
+		size: entry.size?.toString(),
+		itemCount: entry.itemCount,
+	}));
+};
+
+const listDatasets = async (virtualPath: string, context: ToolContext): Promise<list.Entry[]> => {
+	const entries = await listProjectDatasetDirectory(context.projectId, toDatasetRelativePath(virtualPath));
+
+	return entries.map((entry) => ({
+		path: toDatasetVirtualPath(entry.relativePath),
 		name: entry.name,
 		type: entry.type,
 		size: entry.size?.toString(),
@@ -93,7 +112,10 @@ const listProjectFolder = async (virtualPath: string, context: ToolContext): Pro
 	);
 
 	const isRoot = parentRelativePath === '';
-	return isRoot && isStorageEnabled() ? [...entries, storageMountEntry()] : entries;
+	if (!isRoot || !isStorageEnabled()) {
+		return entries;
+	}
+	return [...entries, storageMountEntry(), datasetMountEntry()];
 };
 
 /** Permanent storage shows up as an ordinary folder at the root of the tree. */
@@ -101,6 +123,14 @@ const storageMountEntry = (): list.Entry => {
 	return {
 		path: toStorageVirtualPath(''),
 		name: STORAGE_MOUNT,
+		type: 'directory' as const,
+	};
+};
+
+const datasetMountEntry = (): list.Entry => {
+	return {
+		path: toDatasetVirtualPath(''),
+		name: DATASET_MOUNT,
 		type: 'directory' as const,
 	};
 };

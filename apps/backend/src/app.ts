@@ -30,6 +30,7 @@ import {
 import { LOG_CLEANUP_JOB_NAME, logCleanupHandler, runLogCleanup } from './handlers/log-cleanup.handler';
 import { MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler } from './handlers/mcp-query-data-cleanup.handler';
 import { STORY_REFRESH_JOB_NAME, storyRefreshHandler } from './handlers/story-refresh.handler';
+import { WEB_ROBOT_JOB_NAME, webRobotRunJob } from './handlers/web-robot.handler';
 import { flushTelemetry } from './instrumentation';
 import { mcpServerRoutes } from './mcp/routes';
 import { ensureOrganizationSetup } from './queries/organization.queries';
@@ -404,6 +405,10 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		cron: '0 5 * * *',
 		uniqueKey: CONTEXT_BRANCH_CLEANUP_JOB_NAME,
 	});
+
+	if (env.BETA_WEB_ROBOTS_ENABLED) {
+		registerJob(WEB_ROBOT_JOB_NAME, webRobotRunJob);
+	}
 
 	if (env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED) {
 		registerJob(CONTEXT_RECOMMENDATIONS_JOB_NAME, contextRecommendationsHandler);

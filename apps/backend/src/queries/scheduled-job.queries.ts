@@ -138,6 +138,17 @@ export const reclaimStaleJobs = async (now: Date, leaseDurationMs: number): Prom
 	return result.length;
 };
 
+/** Extends the running job's lease while its handler is still making progress. */
+export const renewJobLease = async (id: string, lockedBy: string): Promise<void> => {
+	await db
+		.update(s.scheduledJob)
+		.set({ lockedAt: new Date() })
+		.where(
+			and(eq(s.scheduledJob.id, id), eq(s.scheduledJob.status, 'running'), eq(s.scheduledJob.lockedBy, lockedBy)),
+		)
+		.execute();
+};
+
 export const deleteJob = async (id: string): Promise<void> => {
 	await db.delete(s.scheduledJob).where(eq(s.scheduledJob.id, id)).execute();
 };

@@ -38,6 +38,7 @@ import { transcribeRoutes } from './transcribe.routes';
 import { router } from './trpc';
 import { usageRoutes } from './usage.routes';
 import { userRoutes } from './user.routes';
+import { webRobotRoutes } from './web-robot.routes';
 
 export const trpcRouter = router({
 	analyticsEvent: analyticsEventRoutes,
@@ -79,6 +80,7 @@ export const trpcRouter = router({
 	system: systemRoutes,
 	skill: skillRoutes,
 	transcribe: transcribeRoutes,
+	webRobot: webRobotRoutes,
 });
 
 export type TrpcRouter = typeof trpcRouter;

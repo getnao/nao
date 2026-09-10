@@ -4,8 +4,16 @@ import fs from 'fs/promises';
 
 import { ReadOutput, renderToModelOutput } from '../../components/tool-outputs';
 import { toReadableText } from '../../services/file-text';
+import { readProjectDataset } from '../../services/storage/project-datasets';
 import { readUserFile } from '../../services/storage/user-files';
-import { isStoragePath, toRealPath, toStorageRelativePath, toStorageScope } from '../../utils/tools';
+import {
+	isDatasetPath,
+	isStoragePath,
+	toDatasetRelativePath,
+	toRealPath,
+	toStorageRelativePath,
+	toStorageScope,
+} from '../../utils/tools';
 import { createTool } from '../../utils/tools';
 
 export default createTool<readFile.Input, readFile.Output>({
@@ -15,7 +23,9 @@ export default createTool<readFile.Input, readFile.Output>({
 	execute: async ({ file_path }, context) => {
 		const content = isStoragePath(file_path)
 			? await readUserFile(toStorageScope(context), toStorageRelativePath(file_path))
-			: await readProjectFile(toRealPath(file_path, context.projectFolder));
+			: isDatasetPath(file_path)
+				? await readProjectDataset(context.projectId, toDatasetRelativePath(file_path))
+				: await readProjectFile(toRealPath(file_path, context.projectFolder));
 
 		return {
 			_version: '1' as const,

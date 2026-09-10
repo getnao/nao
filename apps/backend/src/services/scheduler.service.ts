@@ -9,6 +9,7 @@ export type JobHandler<T = unknown> = (payload: T, job: DBScheduledJob) => Promi
 const POLL_INTERVAL_MS = 30_000;
 const RECLAIM_INTERVAL_MS = 60_000;
 const LEASE_DURATION_MS = 10 * 60_000;
+const JOB_HEARTBEAT_MS = 60_000;
 const CLAIM_BATCH_SIZE = 10;
 const RETRY_BACKOFF_MS = [30_000, 60_000, 120_000, 300_000, 600_000];
 
@@ -97,7 +98,14 @@ async function runPoll(): Promise<void> {
 	pollInFlight = true;
 	try {
 		const jobs = await scheduledJobQueries.claimDueJobs(new Date(), CLAIM_BATCH_SIZE, instanceId);
-		await Promise.all(jobs.map((job) => executeJob(job)));
+		for (const job of jobs) {
+			void executeJob(job).catch((error) => {
+				logger.error(`Scheduler job '${job.name}' crashed outside its handler`, {
+					source: 'system',
+					context: { jobId: job.id, name: job.name, error: serializeError(error) },
+				});
+			});
+		}
 	} catch (err) {
 		logger.error('Scheduler poll failed', { source: 'system', context: serializeError(err) });
 	} finally {
@@ -127,11 +135,25 @@ async function executeJob(job: DBScheduledJob): Promise<void> {
 		return;
 	}
 
+	const heartbeat = setInterval(() => {
+		void scheduledJobQueries.renewJobLease(job.id, instanceId).catch((error) => {
+			logger.error(
+				`Scheduler failed to renew job '${job.name}' lease: ${error instanceof Error ? error.message : error}`,
+				{
+					source: 'system',
+					context: { jobId: job.id, name: job.name },
+				},
+			);
+		});
+	}, JOB_HEARTBEAT_MS);
+
 	try {
 		await handler(job.payload ?? {}, job);
 		await onJobSuccess(job);
 	} catch (err) {
 		await onJobFailure(job, err);
+	} finally {
+		clearInterval(heartbeat);
 	}
 }
 

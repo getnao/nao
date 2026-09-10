@@ -1,9 +1,15 @@
-import { isStoragePath, toStorageRelativePath } from './tools';
+import { isDatasetPath, isStoragePath, toDatasetRelativePath, toStorageRelativePath } from './tools';
 
 export interface RewrittenSql {
 	sql: string;
 	/** Paths inside the user's storage space the query asks for, in the order they appear. */
 	storagePaths: string[];
+}
+
+export interface RewrittenVirtualSql {
+	sql: string;
+	storagePaths: string[];
+	datasetPaths: string[];
 }
 
 const FILE_READER_CALL =
@@ -12,35 +18,66 @@ const FILE_READER_CALL =
 /**
  * Rewrites the virtual paths in a query's string literals to the real paths DuckDB has to open.
  *
- * Only literals are touched, and only ones addressing `/home`. Security does not rest on this
+ * Only literals are touched, and only ones addressing `/home` or `/datasets`. Security does not rest on this
  * being exhaustive — DuckDB is confined to an allowlist of directories, so a literal this misses
  * fails to open rather than reaching somewhere it should not.
  */
 export const rewriteStorageLiterals = (sql: string, toRealPath: (relativePath: string) => string): RewrittenSql => {
+	const rewritten = rewriteVirtualFileLiterals(sql, toRealPath, (relativePath) => relativePath);
+	return { sql: rewritten.sql, storagePaths: rewritten.storagePaths };
+};
+
+/** Rewrites `/home` and `/datasets` literals to real paths DuckDB can open. */
+export const rewriteVirtualFileLiterals = (
+	sql: string,
+	toStorageRealPath: (relativePath: string) => string,
+	toDatasetRealPath: (relativePath: string) => string,
+): RewrittenVirtualSql => {
 	const storagePaths: string[] = [];
+	const datasetPaths: string[] = [];
 
 	const rewritten = mapStringLiterals(sql, (literal, beforeLiteral) => {
-		if (!isStoragePath(literal) || !isFilePathArgument(beforeLiteral)) {
+		if (!isFilePathArgument(beforeLiteral)) {
 			return literal;
 		}
-
-		const relativePath = toStorageRelativePath(literal);
-		if (relativePath === '') {
-			throw new Error(
-				`'${literal}' is the root of your saved files, not a file. Name the file you want, e.g. '/home/uploads/sales.csv'.`,
-			);
+		if (isStoragePath(literal)) {
+			const relativePath = toStorageRelativePath(literal);
+			if (relativePath === '') {
+				throw new Error(
+					`'${literal}' is the root of your saved files, not a file. Name the file you want, e.g. '/home/uploads/sales.csv'.`,
+				);
+			}
+			storagePaths.push(relativePath);
+			return toStorageRealPath(relativePath);
 		}
-
-		storagePaths.push(relativePath);
-		return toRealPath(relativePath);
+		if (isDatasetPath(literal)) {
+			const relativePath = toDatasetRelativePath(literal);
+			if (relativePath === '') {
+				throw new Error(
+					`'${literal}' is the root of project datasets, not a file. Name the file you want, e.g. '/datasets/catalog/products.parquet'.`,
+				);
+			}
+			datasetPaths.push(relativePath);
+			return toDatasetRealPath(relativePath);
+		}
+		return literal;
 	});
 
-	return { sql: rewritten, storagePaths };
+	return { sql: rewritten, storagePaths, datasetPaths };
 };
 
 /** The saved files a query asks for, as paths inside the user's storage space. */
 export const storagePathsIn = (sql: string): string[] => {
 	return rewriteStorageLiterals(sql, (relativePath) => relativePath).storagePaths;
+};
+
+/** The generated project files a query asks for, as paths inside the dataset space. */
+export const datasetPathsIn = (sql: string): string[] => {
+	return rewriteVirtualFileLiterals(
+		sql,
+		(relativePath) => relativePath,
+		(relativePath) => relativePath,
+	).datasetPaths;
 };
 
 /**

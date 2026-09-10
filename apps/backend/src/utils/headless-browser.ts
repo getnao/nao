@@ -51,7 +51,7 @@ async function launchBrowser(): Promise<Browser> {
 	}
 }
 
-function browserLaunchArgs(): string[] {
+export function browserLaunchArgs(): string[] {
 	const args = ['--disable-gpu', '--disable-dev-shm-usage', '--enable-unsafe-swiftshader'];
 	if (isSandboxDisabled()) {
 		args.unshift('--no-sandbox', '--disable-setuid-sandbox');
@@ -70,7 +70,7 @@ function isRunningAsRoot(): boolean {
 	return typeof process.getuid === 'function' && process.getuid() === 0;
 }
 
-function findChromePath(): string {
+export function findChromePath(): string {
 	const candidates = [
 		process.env.PUPPETEER_EXECUTABLE_PATH,
 		process.env.CHROME_PATH,

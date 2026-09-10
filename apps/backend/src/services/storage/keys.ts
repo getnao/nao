@@ -27,6 +27,31 @@ export const projectRoot = (projectId: string): string => {
 	return `projects/${safeIdentifier(projectId, 'project id')}`;
 };
 
+/** The prefix holding generated project data such as web-robot catalogues. */
+export const projectDatasetRoot = (projectId: string): string => {
+	return `${projectRoot(projectId)}/datasets`;
+};
+
+/** Builds a storage key inside the generated project dataset space. */
+export const projectDatasetKey = (projectId: string, relativePath: string): string => {
+	const key = `${projectDatasetRoot(projectId)}/${sanitizeRelativePath(relativePath)}`;
+
+	if (Buffer.byteLength(key) > MAX_KEY_LENGTH) {
+		throw new Error(`Path is too long: keys may not exceed ${MAX_KEY_LENGTH} bytes`);
+	}
+
+	return key;
+};
+
+/** Converts a project dataset key back to its path below `projects/<id>/datasets`. */
+export const projectDatasetRelativePathFromKey = (projectId: string, key: string): string => {
+	const root = `${projectDatasetRoot(projectId)}/`;
+	if (!key.startsWith(root)) {
+		throw new Error('Key does not belong to this project dataset');
+	}
+	return key.slice(root.length);
+};
+
 /** The owner of a key, or null when the key sits outside a user space. */
 export const userIdFromKey = (key: string): string | null => {
 	const [projects, , users, userId, ...rest] = key.split('/');

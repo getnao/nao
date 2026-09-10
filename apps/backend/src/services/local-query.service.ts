@@ -6,7 +6,12 @@ import { fileExtension } from '@nao/shared/attachments';
 import type { executeSql } from '@nao/shared/tools';
 
 import type { QueryResult, ToolContext } from '../types/tools';
-import { referencedQueryIds, rewriteStorageLiterals, storagePathsIn } from '../utils/sql-file-paths';
+import {
+	datasetPathsIn,
+	referencedQueryIds,
+	rewriteVirtualFileLiterals,
+	storagePathsIn,
+} from '../utils/sql-file-paths';
 import {
 	isStoragePath,
 	STORAGE_MOUNT,
@@ -17,7 +22,9 @@ import {
 import { runLocalQuery } from './duckdb.service';
 import { getQueryResult } from './query-result.service';
 import { isStorageEnabled, relativePathFromKey, STORAGE_DISABLED_MESSAGE } from './storage';
+import type { StorageFileAccess } from './storage/file-access';
 import { openStorageFiles } from './storage/file-access';
+import { openProjectDatasetFiles } from './storage/project-datasets';
 import { assertWithinStorageSizeLimit, writeUserFileFromDisk } from './storage/user-files';
 
 export interface LocalQueryOutcome {
@@ -30,8 +37,8 @@ export interface LocalQueryOutcome {
  * Runs a query against nao's own DuckDB rather than a warehouse: files by path, earlier query
  * results by id, and joins across the two.
  *
- * Two translations happen before DuckDB sees anything. Paths under `/home` become the real paths
- * the files live at, which differ per user and per storage backend, and every `query_…` the SQL
+ * Two translations happen before DuckDB sees anything. Paths under `/home` and `/datasets` become
+ * the real paths the files live at, which differ per scope and storage backend, and every `query_…` the SQL
  * mentions is materialised as a table. DuckDB is then confined to just the directories those
  * translations produced.
  */
@@ -127,24 +134,46 @@ async function keepOutputFile(
 }
 
 /**
- * Resolves the `/home` paths in the query to real ones, and reports the directories that has to
- * make reachable. A query touching no saved file needs no storage at all, so it keeps working on
- * instances where storage is switched off.
+ * Resolves the `/home` and `/datasets` paths in the query to real ones, and reports the
+ * directories that have to be reachable. A query touching no generated or saved file needs no
+ * storage at all, so it keeps working on instances where storage is switched off.
  */
 async function openStorageFilesFor(
 	sql: string,
 	context: ToolContext,
 ): Promise<{ sql: string; directories: string[]; release: () => Promise<void> }> {
 	const storagePaths = storagePathsIn(sql);
+	const datasetPaths = datasetPathsIn(sql);
 
-	if (storagePaths.length === 0) {
+	if (storagePaths.length === 0 && datasetPaths.length === 0) {
 		return { sql, directories: [], release: async () => {} };
 	}
 
-	const access = await openStorageFiles(toStorageScope(context), storagePaths);
-	const rewritten = rewriteStorageLiterals(sql, access.realPathOf);
+	const storageAccess =
+		storagePaths.length > 0 ? await openStorageFiles(toStorageScope(context), storagePaths) : null;
+	let datasetAccess: StorageFileAccess | null = null;
+	try {
+		datasetAccess = datasetPaths.length > 0 ? await openProjectDatasetFiles(context.projectId, datasetPaths) : null;
+	} catch (error) {
+		await storageAccess?.release();
+		throw error;
+	}
+	const rewritten = rewriteVirtualFileLiterals(
+		sql,
+		(relativePath) => storageAccess!.realPathOf(relativePath),
+		(relativePath) => datasetAccess!.realPathOf(relativePath),
+	);
 
-	return { sql: rewritten.sql, directories: [access.directory], release: access.release };
+	return {
+		sql: rewritten.sql,
+		directories: [storageAccess?.directory, datasetAccess?.directory].filter((value): value is string =>
+			Boolean(value),
+		),
+		release: async () => {
+			await storageAccess?.release();
+			await datasetAccess?.release();
+		},
+	};
 }
 
 async function collectReferencedResults(sql: string, context: ToolContext): Promise<Map<string, QueryResult>> {

@@ -16,7 +16,8 @@
 		"./story-tabs": "./src/story-tabs.ts",
 		"./story-validation": "./src/story-validation.ts",
 		"./sql-template": "./src/sql-template.ts",
-		"./execute-sql-parts": "./src/execute-sql-parts.ts"
+		"./execute-sql-parts": "./src/execute-sql-parts.ts",
+		"./web-robot": "./src/web-robot.ts"
 	},
 	"scripts": {
 		"test": "vitest run",

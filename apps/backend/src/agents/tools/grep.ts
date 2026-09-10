@@ -5,13 +5,17 @@ import path from 'path';
 
 import { GrepOutput, renderToModelOutput } from '../../components/tool-outputs';
 import { isStorageEnabled } from '../../services/storage';
+import { canGrepProjectDatasets, grepRootForProjectDatasets } from '../../services/storage/project-datasets';
 import { canGrepUserFiles, grepRootForUser } from '../../services/storage/user-files';
 import type { ToolContext } from '../../types/tools';
 import { getRipgrepPath } from '../../utils/ripgrep';
 import {
+	isDatasetPath,
 	isStoragePath,
 	isWithinProjectFolder,
 	loadNaoignorePatterns,
+	toDatasetRelativePath,
+	toDatasetVirtualPath,
 	toRealPath,
 	toStorageRelativePath,
 	toStorageScope,
@@ -74,12 +78,16 @@ const resolveTargets = (searchPath: string | undefined, context: ToolContext): S
 	if (isStoragePath(searchPath)) {
 		return [storageTarget(searchPath!, context)];
 	}
+	if (isDatasetPath(searchPath)) {
+		return [datasetTarget(searchPath!, context)];
+	}
 	if (searchPath) {
 		return [projectTarget(searchPath, context.projectFolder)];
 	}
 
 	const storage = isStorageEnabled() && canGrepUserFiles() ? [storageTarget(toStorageVirtualPath(''), context)] : [];
-	return [projectTarget(undefined, context.projectFolder), ...storage];
+	const datasets = canGrepProjectDatasets() ? [datasetTarget(toDatasetVirtualPath(''), context)] : [];
+	return [projectTarget(undefined, context.projectFolder), ...storage, ...datasets];
 };
 
 const projectTarget = (searchPath: string | undefined, projectFolder: string): SearchTarget => {
@@ -111,6 +119,26 @@ const storageTarget = (searchPath: string, context: ToolContext): SearchTarget =
 			return toStorageVirtualPath(relativePath.replaceAll(path.sep, '/'));
 		},
 		toAbsolutePath: (displayPath) => grepRootForUser(scope, toStorageRelativePath(displayPath)),
+	};
+};
+
+const datasetTarget = (searchPath: string, context: ToolContext): SearchTarget => {
+	const spaceRoot = grepRootForProjectDatasets(context.projectId);
+
+	return {
+		root: grepRootForProjectDatasets(context.projectId, toDatasetRelativePath(searchPath)),
+		cwd: spaceRoot,
+		ignoreGlobs: [],
+		includeHidden: true,
+		toDisplayPath: (absolutePath) => {
+			const relativePath = path.relative(spaceRoot, path.resolve(absolutePath));
+			if (relativePath === '' || relativePath === '..' || relativePath.startsWith(`..${path.sep}`)) {
+				return null;
+			}
+			return toDatasetVirtualPath(relativePath.replaceAll(path.sep, '/'));
+		},
+		toAbsolutePath: (displayPath) =>
+			grepRootForProjectDatasets(context.projectId, toDatasetRelativePath(displayPath)),
 	};
 };
 

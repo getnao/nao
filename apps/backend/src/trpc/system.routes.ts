@@ -9,6 +9,7 @@ export const systemRoutes = {
 		enableUserLogin: env.ENABLE_USER_LOGIN,
 		enableUserSignup: await isUserSignupAvailable(),
 		betaAutomationsEnabled: env.BETA_AUTOMATIONS_ENABLED,
+		betaWebRobotsEnabled: env.BETA_WEB_ROBOTS_ENABLED,
 		betaContextRecommendationsEnabled: env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED,
 		betaStoryFiltersEnabled: env.BETA_STORY_FILTERS_ENABLED,
 	})),

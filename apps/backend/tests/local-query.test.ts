@@ -15,6 +15,7 @@ import { __reloadEnvForTesting } from '../src/env';
 import type { LocalQueryOutcome } from '../src/services/local-query.service';
 import { runQueryOnLocalFiles } from '../src/services/local-query.service';
 import { __resetStorageForTesting } from '../src/services/storage';
+import { writeProjectDataset } from '../src/services/storage/project-datasets';
 import { statUserFile, writeUserFile } from '../src/services/storage/user-files';
 import type { QueryResult, ToolContext } from '../src/types/tools';
 
@@ -84,6 +85,27 @@ describe('querying saved files', () => {
 		const result = await run(`SELECT target FROM read_csv('${path.join(projectFolder, 'targets.csv')}')`);
 
 		expect(result.data).toEqual([{ target: 100 }]);
+	});
+
+	it('reads generated project datasets by their /datasets path', async () => {
+		await writeProjectDataset(scope.projectId, 'catalog/latest/products.csv', 'sku,name\nA-1,Product A\n');
+
+		const result = await run("SELECT sku, name FROM read_csv('/datasets/catalog/latest/products.csv')");
+
+		expect(result.data).toEqual([{ sku: 'A-1', name: 'Product A' }]);
+	});
+
+	it('joins generated project data to a user file in the same query', async () => {
+		await writeProjectDataset(scope.projectId, 'catalog/latest/products.csv', 'sku,name\nA-1,Product A\n');
+		await writeUserFile(scope, 'watchlist.csv', 'sku\nA-1\n');
+
+		const result = await run(
+			`SELECT p.name
+			 FROM read_csv('/datasets/catalog/latest/products.csv') p
+			 JOIN read_csv('/home/watchlist.csv') w ON w.sku = p.sku`,
+		);
+
+		expect(result.data).toEqual([{ name: 'Product A' }]);
 	});
 });
 

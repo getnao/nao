@@ -19,3 +19,4 @@ export * from './pluralize';
 export * from './sql-template';
 export * from './types';
 export * from './utils';
+export * from './web-robot';

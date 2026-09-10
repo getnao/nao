@@ -15,6 +15,9 @@ const MCP_TOOL_SEPARATOR = '__';
  */
 export const STORAGE_MOUNT = 'home';
 
+/** Top-level folder of generated project data shared by every project member. */
+export const DATASET_MOUNT = 'datasets';
+
 /** Shorthand the model is likely to reach for, accepted on input but never emitted. */
 const STORAGE_MOUNT_ALIAS = '~';
 
@@ -65,6 +68,26 @@ const storageMountOf = (virtualPath: string): string | null => {
 export const toStorageVirtualPath = (relativePath: string): string => {
 	const trimmed = trimSlashes(relativePath);
 	return trimmed === '' ? `/${STORAGE_MOUNT}` : `/${STORAGE_MOUNT}/${trimmed}`;
+};
+
+/** True when a virtual path addresses generated project datasets. */
+export const isDatasetPath = (virtualPath: string | undefined | null): boolean => {
+	if (typeof virtualPath !== 'string') {
+		return false;
+	}
+	const trimmed = trimSlashes(virtualPath);
+	return trimmed === DATASET_MOUNT || trimmed.startsWith(`${DATASET_MOUNT}/`);
+};
+
+/** Converts `/datasets/<robot>/<file>` to the path below the project dataset space. */
+export const toDatasetRelativePath = (virtualPath: string): string => {
+	return isDatasetPath(virtualPath) ? trimSlashes(virtualPath).slice(DATASET_MOUNT.length).replace(/^\/+/, '') : '';
+};
+
+/** Virtual path of a generated project dataset file. */
+export const toDatasetVirtualPath = (relativePath: string): string => {
+	const trimmed = trimSlashes(relativePath);
+	return trimmed === '' ? `/${DATASET_MOUNT}` : `/${DATASET_MOUNT}/${trimmed}`;
 };
 
 const trimSlashes = (value: string): string => {
@@ -242,8 +265,8 @@ export const shouldExcludeEntry = (entryName: string, parentPath: string, projec
 		return true;
 	}
 
-	// The storage mount owns this name at the root of the tree
-	if (parentPath === '' && isStoragePath(entryName)) {
+	// Virtual mounts own these names at the root of the tree
+	if (parentPath === '' && (isStoragePath(entryName) || isDatasetPath(entryName))) {
 		return true;
 	}
 
@@ -266,7 +289,8 @@ export const isWithinProjectFolder = (filePath: string, projectFolder: string): 
 	if (isInExcludedDir(resolved)) {
 		return false;
 	}
-	if (isStoragePath(path.relative(normalizedFolder, resolved).replaceAll(path.sep, '/'))) {
+	const normalizedProjectPath = path.relative(normalizedFolder, resolved).replaceAll(path.sep, '/');
+	if (isStoragePath(normalizedProjectPath) || isDatasetPath(normalizedProjectPath)) {
 		return false;
 	}
 	if (isIgnoredPath(resolved, normalizedFolder)) {
@@ -288,6 +312,9 @@ export const toRealPath = (virtualPath: string, projectFolder: string): string =
 	if (isStoragePath(virtualPath)) {
 		throw new Error(`Path '${virtualPath}' is in permanent storage, not in the project folder`);
 	}
+	if (isDatasetPath(virtualPath)) {
+		throw new Error(`Path '${virtualPath}' is a generated project dataset, not a project context file`);
+	}
 
 	// Strip leading slash to make it relative to project folder
 	const relativePath = virtualPath.startsWith('/') ? virtualPath.slice(1) : virtualPath;
@@ -304,6 +331,9 @@ export const toRealPath = (virtualPath: string, projectFolder: string): string =
 	const normalizedRelativePath = path.relative(normalizedFolder, resolvedPath).replaceAll(path.sep, '/');
 	if (isStoragePath(normalizedRelativePath)) {
 		throw new Error(`Path '${virtualPath}' is in permanent storage, not in the project folder`);
+	}
+	if (isDatasetPath(normalizedRelativePath)) {
+		throw new Error(`Path '${virtualPath}' is a generated project dataset, not a project context file`);
 	}
 
 	if (resolvedPath.split(path.sep).some((part) => part.toLowerCase() === '.git')) {

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { referencedQueryIds, rewriteStorageLiterals, storagePathsIn } from '../src/utils/sql-file-paths';
+import {
+	datasetPathsIn,
+	referencedQueryIds,
+	rewriteStorageLiterals,
+	rewriteVirtualFileLiterals,
+	storagePathsIn,
+} from '../src/utils/sql-file-paths';
 
 const toRealPath = (relativePath: string): string => `/var/data/users/u1/${relativePath}`;
 
@@ -81,6 +87,39 @@ describe('rewriteStorageLiterals', () => {
 		const sql = "SELECT * FROM read_csv('/home/sales.csv";
 
 		expect(rewriteStorageLiterals(sql, toRealPath).sql).toBe(sql);
+	});
+	it('rewrites generated dataset paths separately from user storage paths', () => {
+		const sql = "SELECT * FROM read_parquet('/datasets/deublin/latest/products.parquet')";
+		const rewritten = rewriteVirtualFileLiterals(
+			sql,
+			(path) => `/var/data/users/u1/${path}`,
+			(path) => `/var/data/projects/p1/datasets/${path}`,
+		);
+
+		expect(rewritten).toEqual({
+			sql: "SELECT * FROM read_parquet('/var/data/projects/p1/datasets/deublin/latest/products.parquet')",
+			storagePaths: [],
+			datasetPaths: ['deublin/latest/products.parquet'],
+		});
+		expect(datasetPathsIn(sql)).toEqual(['deublin/latest/products.parquet']);
+	});
+
+	it('stages user files and project datasets from the same query', () => {
+		const sql =
+			"SELECT * FROM read_csv('/home/uploads/accounts.csv') JOIN read_parquet('/datasets/catalog/latest/products.parquet') USING (sku)";
+
+		expect(storagePathsIn(sql)).toEqual(['uploads/accounts.csv']);
+		expect(datasetPathsIn(sql)).toEqual(['catalog/latest/products.parquet']);
+	});
+
+	it('refuses the dataset root, which is a directory', () => {
+		expect(() =>
+			rewriteVirtualFileLiterals(
+				"SELECT * FROM read_parquet('/datasets')",
+				(path) => path,
+				(path) => path,
+			),
+		).toThrow('root of project datasets');
 	});
 });
 

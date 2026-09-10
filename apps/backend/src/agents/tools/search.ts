@@ -5,13 +5,16 @@ import { minimatch } from 'minimatch';
 import path from 'path';
 
 import { renderToModelOutput, SearchOutput } from '../../components/tool-outputs';
-import { isStorageEnabled, relativePathFromKey } from '../../services/storage';
+import { isStorageEnabled, projectDatasetRelativePathFromKey, relativePathFromKey } from '../../services/storage';
+import { findProjectDatasetFiles } from '../../services/storage/project-datasets';
 import { findUserFiles } from '../../services/storage/user-files';
 import type { ToolContext } from '../../types/tools';
 import {
+	DATASET_MOUNT,
 	isWithinProjectFolder,
 	loadNaoignorePatterns,
 	STORAGE_MOUNT,
+	toDatasetVirtualPath,
 	toStorageScope,
 	toStorageVirtualPath,
 	toVirtualPath,
@@ -34,12 +37,13 @@ export default createTool<searchFiles.Input, searchFiles.Output>({
 		// Make pattern recursive if not already
 		const recursivePattern = pattern.startsWith('**/') ? pattern : `**/${pattern}`;
 
-		const [projectFiles, storageFiles] = await Promise.all([
+		const [projectFiles, storageFiles, datasetFiles] = await Promise.all([
 			searchProjectFolder(recursivePattern, context.projectFolder),
 			searchStorage(recursivePattern, context),
+			searchDatasets(recursivePattern, context),
 		]);
 
-		return { _version: '1' as const, files: [...projectFiles, ...storageFiles] };
+		return { _version: '1' as const, files: [...projectFiles, ...storageFiles, ...datasetFiles] };
 	},
 
 	toModelOutput: ({ output }) => renderToModelOutput(SearchOutput({ output }), output),
@@ -57,6 +61,25 @@ const searchStorage = async (recursivePattern: string, context: ToolContext): Pr
 
 	return objects.map((object) => {
 		const virtualPath = toStorageVirtualPath(relativePathFromKey(scope, object.key));
+		return {
+			path: virtualPath,
+			dir: path.dirname(virtualPath),
+			size: object.size.toString(),
+		};
+	});
+};
+
+const searchDatasets = async (recursivePattern: string, context: ToolContext): Promise<searchFiles.File[]> => {
+	if (!isStorageEnabled()) {
+		return [];
+	}
+
+	const objects = await findProjectDatasetFiles(context.projectId, (relativePath) =>
+		minimatch(`${DATASET_MOUNT}/${relativePath}`, recursivePattern, { dot: true }),
+	);
+
+	return objects.map((object) => {
+		const virtualPath = toDatasetVirtualPath(projectDatasetRelativePathFromKey(context.projectId, object.key));
 		return {
 			path: virtualPath,
 			dir: path.dirname(virtualPath),

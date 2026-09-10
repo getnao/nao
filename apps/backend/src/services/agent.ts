@@ -33,6 +33,7 @@ import * as chatQueries from '../queries/chat.queries';
 import * as imageQueries from '../queries/image.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
+import * as webRobotQueries from '../queries/web-robot.queries';
 import { AgentSettings } from '../types/agent-settings';
 import {
 	AgentTools,
@@ -610,7 +611,10 @@ class AgentManager {
 		const customCharts = this._toolContext.supportsCustomCharts
 			? listChartPlugins(this._toolContext.projectFolder)
 			: [];
-		const mcpServers = await mcpService.getEnabledServers(this.chat.projectId);
+		const [mcpServers, webDatasets] = await Promise.all([
+			mcpService.getEnabledServers(this.chat.projectId),
+			webRobotQueries.listPublishedWebDatasets(this.chat.projectId),
+		]);
 		const basePrompt = renderToMarkdown(
 			SystemPrompt({
 				memories,
@@ -620,6 +624,7 @@ class AgentManager {
 				skills,
 				customCharts,
 				mcpServers,
+				webDatasets,
 				timezone,
 				testMode: this.chat.testMode,
 				toolNames: Object.keys(this._agentTools),

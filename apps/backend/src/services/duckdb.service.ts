@@ -103,6 +103,36 @@ async function runAndWriteOut(
 
 const SAVED_RESULT_TABLE = 'nao_saved_result';
 
+/** Materializes trusted generated JSONL rows without loading user-facing spreadsheet extensions. */
+export async function writeJsonLinesAsParquet({
+	inputPath,
+	outputPath,
+	columns,
+	hasRows,
+	allowedDirectory,
+}: {
+	inputPath: string;
+	outputPath: string;
+	columns: string[];
+	hasRows: boolean;
+	allowedDirectory: string;
+}): Promise<void> {
+	const duckdb = await loadDuckDB();
+	const instance = await duckdb.DuckDBInstance.create(':memory:', extensionConfig());
+	const connection = await instance.connect();
+
+	try {
+		await restrictToDirectories(connection, [allowedDirectory]);
+		const sql = hasRows
+			? `SELECT * FROM read_ndjson(${quoteLiteral(inputPath)})`
+			: `SELECT ${columns.map((column) => `CAST(NULL AS VARCHAR) AS ${quoteIdentifier(column)}`).join(', ')} WHERE false`;
+		await runAndWriteOut(connection, sql, { filePath: outputPath, format: 'parquet' }, duckdb);
+	} finally {
+		connection.closeSync();
+		instance.closeSync();
+	}
+}
+
 function copyOptions(format: SaveFormat): string {
 	return format === 'csv' ? 'FORMAT csv, HEADER' : 'FORMAT parquet';
 }

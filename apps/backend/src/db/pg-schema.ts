@@ -15,6 +15,7 @@ import {
 	SHARE_VISIBILITY,
 	USER_ROLES,
 } from '@nao/shared/types';
+import type { WebRobotRecipe, WebRobotRunStats } from '@nao/shared/web-robot';
 import { type ProviderMetadata } from 'ai';
 import { sql } from 'drizzle-orm';
 import {
@@ -62,6 +63,7 @@ import {
 } from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
 import type { StoredUserPreferences } from '../types/usage';
+import { WEB_ROBOT_RUN_STATUSES, WEB_ROBOT_RUN_TRIGGERS } from '../types/web-robot';
 
 export const user = pgTable('user', {
 	id: text('id').primaryKey(),
@@ -1086,6 +1088,75 @@ export const scheduledJob = pgTable(
 			.notNull(),
 	},
 	(t) => [index('scheduled_job_status_runAt_idx').on(t.status, t.runAt), index('scheduled_job_name_idx').on(t.name)],
+);
+
+export const webRobot = pgTable(
+	'web_robot',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		scheduledJobId: text('scheduled_job_id').references(() => scheduledJob.id, { onDelete: 'set null' }),
+		name: text('name').notNull(),
+		slug: text('slug').notNull(),
+		description: text('description'),
+		definition: jsonb('definition').$type<WebRobotRecipe>().notNull(),
+		definitionVersion: integer('definition_version').notNull().default(1),
+		definitionHash: text('definition_hash').notNull(),
+		archivedAt: timestamp('archived_at'),
+		lastSuccessfulRunId: text('last_successful_run_id'),
+		lastSuccessfulRunAt: timestamp('last_successful_run_at'),
+		lastPublishedProductCount: integer('last_published_product_count'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		unique('web_robot_project_slug_unique').on(t.projectId, t.slug),
+		index('web_robot_projectId_idx').on(t.projectId),
+		index('web_robot_userId_idx').on(t.userId),
+		index('web_robot_scheduledJobId_idx').on(t.scheduledJobId),
+		index('web_robot_archivedAt_idx').on(t.archivedAt),
+	],
+);
+
+export const webRobotRun = pgTable(
+	'web_robot_run',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		robotId: text('robot_id')
+			.notNull()
+			.references(() => webRobot.id, { onDelete: 'cascade' }),
+		scheduledJobId: text('scheduled_job_id').references(() => scheduledJob.id, { onDelete: 'set null' }),
+		triggeredByUserId: text('triggered_by_user_id').references(() => user.id, { onDelete: 'set null' }),
+		trigger: text('trigger', { enum: WEB_ROBOT_RUN_TRIGGERS }).notNull(),
+		status: text('status', { enum: WEB_ROBOT_RUN_STATUSES }).notNull().default('queued'),
+		definition: jsonb('definition').$type<WebRobotRecipe>().notNull(),
+		definitionHash: text('definition_hash').notNull(),
+		stats: jsonb('stats').$type<WebRobotRunStats>().notNull(),
+		artifactPrefix: text('artifact_prefix'),
+		errorMessage: text('error_message'),
+		cancelRequestedAt: timestamp('cancel_requested_at'),
+		queuedAt: timestamp('queued_at').defaultNow().notNull(),
+		startedAt: timestamp('started_at'),
+		completedAt: timestamp('completed_at'),
+	},
+	(t) => [
+		index('web_robot_run_robotId_idx').on(t.robotId),
+		index('web_robot_run_robotId_queuedAt_idx').on(t.robotId, t.queuedAt),
+		index('web_robot_run_status_idx').on(t.status),
+		index('web_robot_run_scheduledJobId_idx').on(t.scheduledJobId),
+	],
 );
 
 export const mcpCallLog = pgTable(
