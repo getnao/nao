@@ -1,3 +1,4 @@
+import type { DatabaseContextAccess, DocsContextAccess, UserGroupSsoMappings } from '@nao/shared';
 import {
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
@@ -8,14 +9,13 @@ import {
 	normalizeUserGroupSsoMappings,
 	USER_GROUP_FEATURE_DEFINITIONS,
 } from '@nao/shared';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { DatabaseContextAccess, DocsContextAccess, UserGroupSsoMappings } from '@nao/shared';
 import type { ToolCallDensity } from '@nao/shared/types';
 import type { QueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Check, Copy, FolderOpen } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { TabBarItem } from '@/components/ui/tab-bar';
 import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-slider';
 import { UserGroupContextAccess } from '@/components/settings/user-group-context-access';
 import { UserGroupFeatureCard } from '@/components/settings/user-group-feature-card';
@@ -24,7 +24,9 @@ import { UserGroupSwitchRow } from '@/components/settings/user-group-switch-row'
 import { Button } from '@/components/ui/button';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Input } from '@/components/ui/input';
+import type { TabBarItem } from '@/components/ui/tab-bar';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { trpc } from '@/main';
 
 type UserGroupFeature = (typeof USER_GROUP_FEATURE_DEFINITIONS)[number]['key'];
@@ -271,6 +273,7 @@ export function UserGroupEditor({
 										)}
 									</>
 								)}
+								<ConditionalRulesHelp groupName={name} />
 								<UserGroupPlaceholder>Row-level security will be configured here.</UserGroupPlaceholder>
 							</div>
 						)}
@@ -315,6 +318,50 @@ export function UserGroupEditor({
 				preventCloseWhilePending
 			/>
 		</>
+	);
+}
+
+export function ConditionalRulesHelp({ groupName }: { groupName: string }) {
+	const { isCopied, copy } = useCopyToClipboard();
+	const normalizedName = groupName.trim();
+	const snippet = normalizedName
+		? `{% if group(${JSON.stringify(normalizedName)}) %}\nGroup-specific instructions...\n{% endif %}`
+		: null;
+
+	return (
+		<section className='flex flex-col gap-3 rounded-lg border p-4'>
+			<div>
+				<h3 className='text-sm font-medium'>Conditional RULES</h3>
+				<p className='text-xs text-muted-foreground'>
+					In the project-root RULES.md, this block is included for members of any named group.
+				</p>
+			</div>
+			{snippet ? (
+				<div className='relative rounded-md bg-muted p-3 pr-12'>
+					<pre className='overflow-x-auto text-xs'>
+						<code>{snippet}</code>
+					</pre>
+					<Button
+						type='button'
+						variant='ghost'
+						size='icon-sm'
+						className='absolute right-2 top-2'
+						aria-label='Copy conditional RULES snippet'
+						onClick={() => void copy(snippet)}
+					>
+						{isCopied ? <Check className='size-3.5' /> : <Copy className='size-3.5' />}
+					</Button>
+				</div>
+			) : (
+				<p className='text-xs text-muted-foreground'>Enter a group name to generate a snippet.</p>
+			)}
+			<Button asChild type='button' variant='outline' size='sm' className='w-fit'>
+				<a href='/settings/context-explorer'>
+					<FolderOpen className='size-3.5' />
+					Open File Explorer
+				</a>
+			</Button>
+		</section>
 	);
 }
 

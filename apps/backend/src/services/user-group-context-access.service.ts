@@ -1,5 +1,6 @@
 import type { DocsContextAccess, UserGroupFeature } from '@nao/shared';
 import { USER_GROUP_FEATURES } from '@nao/shared';
+import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
 
 import { getDatabaseContextCatalog } from '../agents/user-rules';
 import { getUserRoleInProject } from '../queries/project.queries';
@@ -20,6 +21,7 @@ export async function resolveProjectContextAccess(
 	warehouseTableAccess: WarehouseTableAccess;
 	docsContextAccess: ResolvedDocsContextAccess;
 	userGroupFeatures: UserGroupFeature[];
+	userRulesGroupAccess: UserRulesGroupAccess;
 }> {
 	if (!(await getUserRoleInProject(projectId, userId))) {
 		throw new HandlerError('FORBIDDEN', 'You do not have access to this project.');
@@ -29,6 +31,7 @@ export async function resolveProjectContextAccess(
 			warehouseTableAccess: { enforced: false },
 			docsContextAccess: { enforced: false },
 			userGroupFeatures: [...USER_GROUP_FEATURES],
+			userRulesGroupAccess: { enforced: false },
 		};
 	}
 
@@ -40,6 +43,7 @@ export async function resolveProjectContextAccess(
 		warehouseTableAccess: expandDatabaseAccess(effectiveAccess.databaseAccess, catalog),
 		docsContextAccess: { enforced: true, access: effectiveAccess.docsAccess },
 		userGroupFeatures: effectiveAccess.features,
+		userRulesGroupAccess: { enforced: true, groupNames: effectiveAccess.groupNames },
 	};
 }
 

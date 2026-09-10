@@ -4,7 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('fs');
 
-import { getDatabaseContextCatalog, getDatabaseObjects, getTableColumnsContent } from '../src/agents/user-rules';
+import {
+	getDatabaseContextCatalog,
+	getDatabaseObjects,
+	getTableColumnsContent,
+	getUserRules,
+} from '../src/agents/user-rules';
 
 const mockExistsSync = vi.mocked(existsSync);
 const mockReaddirSync = vi.mocked(readdirSync);
@@ -22,6 +27,46 @@ function setupDirStructure(root: string, structure: Record<string, string[]>) {
 	});
 	mockExistsSync.mockImplementation((path) => (path as string).startsWith(root));
 }
+
+describe('getUserRules', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('returns undefined without a project-root RULES.md', () => {
+		mockExistsSync.mockReturnValue(false);
+
+		expect(getUserRules('/project', { enforced: true, groupNames: ['finance'] })).toBeUndefined();
+		expect(mockReadFileSync).not.toHaveBeenCalled();
+	});
+
+	it('reads and renders only the project-root RULES.md for effective groups', () => {
+		mockExistsSync.mockReturnValue(true);
+		mockReadFileSync.mockReturnValue(
+			'Public\n{% if group("finance") %}\nFinance\n{% endif %}\n{% if group("sales") %}\nSales\n{% endif %}\n',
+		);
+
+		expect(getUserRules('/project', { enforced: true, groupNames: ['finance'] })).toBe('Public\nFinance\n');
+		expect(mockReadFileSync).toHaveBeenCalledWith(join('/project', 'RULES.md'), 'utf-8');
+	});
+
+	it('includes conditional blocks when group enforcement is unavailable', () => {
+		mockExistsSync.mockReturnValue(true);
+		mockReadFileSync.mockReturnValue('{% if group("finance") %}\nVisible\n{% endif %}\n');
+
+		expect(getUserRules('/project')).toBe('Visible\n');
+	});
+
+	it('logs a RULES error and omits all content when rendering fails', () => {
+		mockExistsSync.mockReturnValue(true);
+		mockReadFileSync.mockReturnValue('Public\n{% if group("finance") %}\nGuarded');
+		const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+		expect(getUserRules('/project', { enforced: true, groupNames: ['finance'] })).toBeUndefined();
+		expect(consoleSpy).toHaveBeenCalledWith('Error reading RULES.md:', expect.any(Error));
+		consoleSpy.mockRestore();
+	});
+});
 
 describe('getDatabaseObjects', () => {
 	beforeEach(() => {
