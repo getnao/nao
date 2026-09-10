@@ -47,6 +47,7 @@ export interface UserGroupOverview {
 }
 
 export interface EffectiveUserGroupAccess {
+	groupNames: string[];
 	features: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	databaseAccess: DatabaseContextAccess;
@@ -138,6 +139,7 @@ export const resolveEffectiveUserGroupAccess = async (
 	const densitySource = newestExplicitGroup ?? defaultGroup;
 
 	return {
+		groupNames: applicableGroups.map((group) => group.name),
 		features: USER_GROUP_FEATURES.filter((feature) => grantedFeatures.has(feature)),
 		toolCallDensityPolicy: {
 			defaultDensity:

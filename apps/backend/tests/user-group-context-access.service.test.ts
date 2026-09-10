@@ -69,10 +69,12 @@ describe('warehouse Context access', () => {
 			warehouseTableAccess: { enforced: false },
 			docsContextAccess: { enforced: false },
 			userGroupFeatures: ['story-creation', 'automation-creation'],
+			userRulesGroupAccess: { enforced: false },
 		});
 
 		vi.mocked(hasFeature).mockResolvedValue(true);
 		vi.mocked(resolveEffectiveUserGroupAccess).mockResolvedValue({
+			groupNames: ['All Users', 'Finance'],
 			features: [],
 			toolCallDensityPolicy: { defaultDensity: 'medium', canChange: false },
 			databaseAccess: { mode: 'all', strict: true },
@@ -83,6 +85,7 @@ describe('warehouse Context access', () => {
 				enforced: true,
 				access: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
 			},
+			userRulesGroupAccess: { enforced: true, groupNames: ['All Users', 'Finance'] },
 		});
 	});
 
@@ -224,6 +227,7 @@ describe('warehouse Context access', () => {
 
 	it('surfaces catalog filesystem errors instead of bypassing enforcement', async () => {
 		vi.mocked(resolveEffectiveUserGroupAccess).mockResolvedValue({
+			groupNames: ['All Users'],
 			features: [],
 			toolCallDensityPolicy: { defaultDensity: 'medium', canChange: false },
 			databaseAccess: { mode: 'all', strict: true },

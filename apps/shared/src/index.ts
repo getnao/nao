@@ -16,6 +16,7 @@ export * from './mcp';
 export * from './mcp-embed';
 export * from './mentions';
 export * from './pluralize';
+export * from './rules-template';
 export * from './sql-template';
 export * from './types';
 export * from './user-group-context';

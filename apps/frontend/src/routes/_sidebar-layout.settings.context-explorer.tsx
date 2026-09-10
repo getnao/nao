@@ -67,6 +67,7 @@ function ContextExplorerPage() {
 	});
 
 	const fileTree = useQuery(trpc.contextExplorer.getFileTree.queryOptions());
+	const rulesPreviewGroups = useQuery(trpc.contextExplorer.getRulesPreviewGroups.queryOptions());
 	const fileContent = useQuery({
 		...trpc.contextExplorer.readFile.queryOptions({ path: selectedPath! }),
 		enabled: !!selectedPath,
@@ -287,6 +288,7 @@ function ContextExplorerPage() {
 									}
 									return result.data;
 								}}
+								rulesPreviewGroups={rulesPreviewGroups.data}
 							/>
 						)}
 					</div>
