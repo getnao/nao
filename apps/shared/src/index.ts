@@ -18,5 +18,6 @@ export * from './mentions';
 export * from './pluralize';
 export * from './sql-template';
 export * from './types';
+export * from './user-group-context';
 export * from './user-group-features';
 export * from './utils';

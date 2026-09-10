@@ -1,10 +1,13 @@
 import {
+	ALL_DATABASE_CONTEXT_ACCESS,
+	ALL_DOCS_CONTEXT_ACCESS,
 	type BackgroundModelSettings,
 	type CustomBoundarySet,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	DEFAULT_USER_GROUP_NAME,
 	type MapSettings,
 	serializeUserGroupConfig,
+	serializeUserGroupContextAccess,
 	USER_GROUP_FEATURES,
 } from '@nao/shared';
 import { DEFAULT_DATE_FORMAT_SETTINGS, type DisplaySettings } from '@nao/shared/date';
@@ -443,6 +446,7 @@ const defaultUserGroupValues = (projectId: string) => ({
 	name: DEFAULT_USER_GROUP_NAME,
 	isDefault: true,
 	featureGrants: serializeUserGroupConfig(USER_GROUP_FEATURES, DEFAULT_TOOL_CALL_DENSITY_POLICY),
+	contextGrants: serializeUserGroupContextAccess(ALL_DATABASE_CONTEXT_ACCESS, ALL_DOCS_CONTEXT_ACCESS),
 });
 
 export const getEnvVars = async (projectId: string): Promise<Record<string, string>> => {

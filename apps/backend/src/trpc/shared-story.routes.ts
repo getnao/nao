@@ -137,6 +137,7 @@ export const sharedStoryRoutes = {
 			shared.code,
 			isLive,
 			cacheSchedule,
+			ctx.user.id,
 		);
 		const lastRefreshFailure = await activityQueries.getLatestStoryRefreshFailure(shared.storyId);
 
@@ -185,8 +186,8 @@ export const sharedStoryRoutes = {
 
 	getLiveQueryData: chatProcedure
 		.input(z.object({ chatId: z.string(), queryId: z.string() }))
-		.query(async ({ input }) => {
-			return executeLiveQuery(input.chatId, input.queryId);
+		.query(async ({ input, ctx }) => {
+			return executeLiveQuery(input.chatId, input.queryId, ctx.user.id);
 		}),
 
 	getFilterOptions: shareAccessProcedure
@@ -197,7 +198,7 @@ export const sharedStoryRoutes = {
 			if (!shared.chatId) {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
 			}
-			return getStoryFilterOptions(shared.chatId, shared.slug, input.filterId);
+			return getStoryFilterOptions(shared.chatId, shared.slug, input.filterId, ctx.user.id);
 		}),
 
 	getFilteredQueryData: shareAccessProcedure
@@ -213,7 +214,7 @@ export const sharedStoryRoutes = {
 			if (!shared.chatId) {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
 			}
-			return getFilteredStoryQueryData(shared.chatId, shared.slug, input.selections);
+			return getFilteredStoryQueryData(shared.chatId, shared.slug, input.selections, ctx.user.id);
 		}),
 
 	getQuerySql: shareAccessProcedure
@@ -247,7 +248,7 @@ export const sharedStoryRoutes = {
 					})
 				: null;
 		try {
-			const { queryData } = await refreshStoryData(shared.chatId!, shared.slug);
+			const { queryData } = await refreshStoryData(shared.chatId!, shared.slug, ctx.user.id);
 			if (activity) {
 				await activityQueries.completeActivity(activity.id, {
 					queriesRefreshed: Object.keys(queryData).length,
@@ -369,6 +370,7 @@ export const sharedStoryRoutes = {
 				version.code,
 				version.isLive,
 				version.cacheSchedule,
+				ctx.user.id,
 			);
 
 			logAnalyticsEvent({

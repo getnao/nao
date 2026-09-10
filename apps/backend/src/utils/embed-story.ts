@@ -2,6 +2,7 @@ import type { DateFormatSettings } from '@nao/shared/date';
 
 import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
+import { getStoryQueryData } from '../services/live-story';
 import { assertProjectMcpEnabled, verifyEmbedToken } from './embed-token';
 import { HandlerError } from './error';
 import { backfillMissingQueryDataForSandbox, type StoryQueryDataMap } from './story-query-data';
@@ -46,11 +47,7 @@ export async function loadEmbedStoryContent(storyId: string, token: string): Pro
 	}
 
 	const [queryData, displaySettings] = await Promise.all([
-		backfillMissingQueryDataForSandbox(version.code, {
-			storyId,
-			chatId: version.chatId,
-			projectId,
-		}),
+		loadEmbedQueryData(version, projectId),
 		projectQueries.getDisplaySettings(projectId),
 	]);
 
@@ -64,4 +61,36 @@ export async function loadEmbedStoryContent(storyId: string, token: string): Pro
 		queryData,
 		dateFormat: displaySettings.dateFormat ?? null,
 	};
+}
+
+async function loadEmbedQueryData(
+	version: Awaited<ReturnType<typeof storyQueries.getLatestVersionByStoryId>>,
+	projectId: string,
+): Promise<StoryQueryDataMap | null> {
+	if (!version) {
+		throw new HandlerError('NOT_FOUND', 'Story not found.');
+	}
+	if (!version.isLive) {
+		return backfillMissingQueryDataForSandbox(version.code, {
+			storyId: version.storyId,
+			chatId: version.chatId,
+			projectId,
+		});
+	}
+	if (!version.chatId) {
+		throw new HandlerError('FORBIDDEN', 'Live Story has no execution owner.');
+	}
+	const ownerId = await storyQueries.getStoryOwnerId(version.storyId);
+	if (!ownerId) {
+		throw new HandlerError('FORBIDDEN', 'Live Story has no execution owner.');
+	}
+	const result = await getStoryQueryData(
+		version.chatId,
+		version.slug,
+		version.code,
+		true,
+		version.cacheSchedule,
+		ownerId,
+	);
+	return result.queryData;
 }
