@@ -1,11 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { isRootRulesPath, renderConditionalGroupBlocks } from '@nao/shared/rules-template';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Code, File, Loader2, Save } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDefaultLayout } from 'react-resizable-panels';
 import { Streamdown } from 'streamdown';
+import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
 import type { FileEditabilityGuidance } from '@nao/shared/types';
+
+import type { UserGroupPickerOption } from '@/components/settings/user-group-picker';
 import { FileExplorerIcon } from '@/components/settings/file-explorer-icon';
 import { FileSourceEditor } from '@/components/settings/file-source-editor';
+import { UserGroupPicker } from '@/components/settings/user-group-picker';
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -31,6 +36,8 @@ import { isForbiddenError } from '@/lib/trpc-error';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
+export { isRootRulesPath } from '@nao/shared/rules-template';
+
 interface FileContents {
 	content: string;
 	hash: string;
@@ -49,6 +56,10 @@ interface FileViewerProps {
 	onDirtyChange: (isDirty: boolean) => void;
 	onOpenGuidancePath: (path: string, kind: 'file' | 'route') => void;
 	onReload: () => Promise<FileContents | undefined>;
+	rulesPreviewGroups?: {
+		enforced: boolean;
+		groups: UserGroupPickerOption[];
+	};
 }
 
 interface FileSaveError {
@@ -71,6 +82,7 @@ export function FileViewer({
 	onDirtyChange,
 	onOpenGuidancePath,
 	onReload,
+	rulesPreviewGroups,
 }: FileViewerProps) {
 	if (!filePath) {
 		return (
@@ -110,6 +122,7 @@ export function FileViewer({
 			onDirtyChange={onDirtyChange}
 			onOpenGuidancePath={onOpenGuidancePath}
 			onReload={onReload}
+			rulesPreviewGroups={rulesPreviewGroups}
 		/>
 	);
 }
@@ -125,6 +138,7 @@ function EditableFileViewer({
 	onDirtyChange,
 	onOpenGuidancePath,
 	onReload,
+	rulesPreviewGroups,
 }: Pick<
 	FileViewerProps,
 	| 'filePath'
@@ -137,6 +151,7 @@ function EditableFileViewer({
 	| 'onDirtyChange'
 	| 'onOpenGuidancePath'
 	| 'onReload'
+	| 'rulesPreviewGroups'
 > & {
 	filePath: string;
 	content: string;
@@ -151,17 +166,31 @@ function EditableFileViewer({
 	const [saveError, setSaveError] = useState<FileSaveError | null>(null);
 	const [isReloadDialogOpen, setIsReloadDialogOpen] = useState(false);
 	const [isReloading, setIsReloading] = useState(false);
+	const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
 	const activePathRef = useRef(filePath);
 	const saveInProgressRef = useRef(false);
 	activePathRef.current = filePath;
 
 	const saveMutation = useMutation(trpc.contextExplorer.writeFile.mutationOptions());
 	const isMarkdown = isMarkdownPath(filePath);
+	const isRootRules = isRootRulesPath(filePath);
 	const isSourceOpen = isSourceOpenPreference || isSourceAutoOpened;
 	const isDirty = isEditable && draft !== savedContent;
 	const debouncedPreview = useDebouncedValue(draft, 250);
 	const parsedMarkdownDraft = useMemo(() => parseMarkdownFrontmatter(draft), [draft]);
-	const estimatedTokenCount = useMemo(() => Math.ceil(draft.length / 4), [draft]);
+	const rulesGroupAccess = useMemo(
+		() => getRulesGroupAccess(isRootRules, rulesPreviewGroups, selectedGroupIds),
+		[isRootRules, rulesPreviewGroups, selectedGroupIds],
+	);
+	const preview = useMemo(
+		() => renderRulesPreview(debouncedPreview, isRootRules, rulesGroupAccess),
+		[debouncedPreview, isRootRules, rulesGroupAccess],
+	);
+	const tokenPreview = useMemo(
+		() => renderRulesPreview(draft, isRootRules, rulesGroupAccess),
+		[draft, isRootRules, rulesGroupAccess],
+	);
+	const estimatedTokenCount = useMemo(() => Math.ceil(tokenPreview.content.length / 4), [tokenPreview.content]);
 	const { defaultLayout, onLayoutChanged } = useDefaultLayout({
 		id: 'context-explorer-source',
 		storage: localStorage,
@@ -291,6 +320,14 @@ function EditableFileViewer({
 						<div className='flex min-w-0 items-center gap-2'>
 							<span className='min-w-0 truncate font-mono leading-4'>{fileName}</span>
 							<TokenEstimate count={estimatedTokenCount} />
+							{isRootRules && rulesPreviewGroups?.enforced && (
+								<UserGroupPicker
+									groups={rulesPreviewGroups.groups}
+									selectedGroupIds={selectedGroupIds}
+									compact
+									onSelectedGroupIdsChange={setSelectedGroupIds}
+								/>
+							)}
 						</div>
 						<span className='block truncate text-xs leading-4 opacity-60'>{filePath}</span>
 					</div>
@@ -352,9 +389,10 @@ function EditableFileViewer({
 						>
 							<ResizablePanel id='preview' minSize={180}>
 								<MarkdownPreview
-									content={debouncedPreview}
+									content={preview.content}
 									filePath={filePath}
 									searchQuery={searchQuery}
+									error={preview.error}
 								/>
 							</ResizablePanel>
 							<ResizableSeparator withHandle />
@@ -371,7 +409,12 @@ function EditableFileViewer({
 							</ResizablePanel>
 						</ResizablePanelGroup>
 					) : (
-						<MarkdownPreview content={debouncedPreview} filePath={filePath} searchQuery={searchQuery} />
+						<MarkdownPreview
+							content={preview.content}
+							filePath={filePath}
+							searchQuery={searchQuery}
+							error={preview.error}
+						/>
 					)
 				) : (
 					<FileSourceEditor
@@ -447,10 +490,12 @@ function MarkdownPreview({
 	content,
 	filePath,
 	searchQuery,
+	error,
 }: {
 	content: string;
 	filePath: string;
 	searchQuery: string;
+	error?: string;
 }) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const parsedMarkdown = useMemo(() => parseMarkdownFrontmatter(content), [content]);
@@ -459,9 +504,13 @@ function MarkdownPreview({
 	return (
 		<div ref={containerRef} className='h-full overflow-auto'>
 			<div className='max-w-3xl mx-auto px-8 py-6'>
-				<Streamdown mode='static' controls={false} plugins={markdownPlugins}>
-					{parsedMarkdown.body}
-				</Streamdown>
+				{error ? (
+					<ErrorMessage message={error} />
+				) : (
+					<Streamdown mode='static' controls={false} plugins={markdownPlugins}>
+						{parsedMarkdown.body}
+					</Streamdown>
+				)}
 			</div>
 		</div>
 	);
@@ -501,8 +550,42 @@ function isMarkdownPath(filePath: string): boolean {
 	return extension === 'md' || extension === 'mdx' || extension === 'markdown';
 }
 
+function getRulesGroupAccess(
+	isRootRules: boolean,
+	rulesPreviewGroups: FileViewerProps['rulesPreviewGroups'],
+	selectedGroupIds: string[],
+): UserRulesGroupAccess {
+	if (!isRootRules || !rulesPreviewGroups?.enforced) {
+		return { enforced: false };
+	}
+	return {
+		enforced: true,
+		groupNames: rulesPreviewGroups.groups
+			.filter((group) => group.isDefault || selectedGroupIds.includes(group.id))
+			.map((group) => group.name),
+	};
+}
+
+function renderRulesPreview(
+	content: string,
+	isRootRules: boolean,
+	groupAccess: UserRulesGroupAccess,
+): { content: string; error?: string } {
+	if (!isRootRules) {
+		return { content };
+	}
+	try {
+		return { content: renderConditionalGroupBlocks(content, groupAccess) };
+	} catch (error) {
+		return {
+			content: '',
+			error: error instanceof Error ? error.message : 'RULES.md preview could not be rendered.',
+		};
+	}
+}
+
 function getFileName(filePath: string): string {
-	return filePath.split('/').pop() ?? filePath;
+	return filePath.replaceAll('\\', '/').split('/').pop() ?? filePath;
 }
 
 function formatTokenCount(count: number): string {

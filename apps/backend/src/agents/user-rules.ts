@@ -1,12 +1,17 @@
+import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
 import { existsSync, readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 
+import { renderRootRulesForAgent } from '../services/agent-visible-project-file.service';
 import type { WarehouseTableAccess } from '../services/context-access';
 
 /**
  * Reads user-defined rules from RULES.md in the project folder if it exists
  */
-export function getUserRules(projectFolder: string): string | undefined {
+export function getUserRules(
+	projectFolder: string,
+	groupAccess: UserRulesGroupAccess = { enforced: false },
+): string | undefined {
 	const rulesPath = join(projectFolder, 'RULES.md');
 
 	if (!existsSync(rulesPath)) {
@@ -14,7 +19,11 @@ export function getUserRules(projectFolder: string): string | undefined {
 	}
 
 	try {
-		return readFileSync(rulesPath, 'utf-8');
+		const renderedRules = renderRootRulesForAgent(readFileSync(rulesPath, 'utf-8'), groupAccess);
+		if (!renderedRules) {
+			throw new Error('RULES.md could not be rendered safely');
+		}
+		return renderedRules.content;
 	} catch (error) {
 		console.error('Error reading RULES.md:', error);
 		return undefined;

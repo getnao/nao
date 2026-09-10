@@ -547,6 +547,23 @@ describe('user group queries', () => {
 		]);
 	});
 
+	it('resolves effective names from All Users, manual, and SSO memberships within the project', async () => {
+		const finance = await createUserGroup(PROJECT_ID, 'Finance');
+		const marketing = await createUserGroup(PROJECT_ID, 'Marketing');
+		const foreign = await createUserGroup(FOREIGN_PROJECT_ID, 'Foreign');
+		await setUserGroupMembership(PROJECT_ID, finance.id, DIRECT_USER_ID, true);
+		await db.insert(userGroupSsoMember).values([
+			{ groupId: marketing.id, userId: DIRECT_USER_ID, provider: 'oidc' },
+			{ groupId: foreign.id, userId: DIRECT_USER_ID, provider: 'oidc' },
+		]);
+
+		const access = await resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID);
+
+		expect(access.groupNames).toHaveLength(3);
+		expect(access.groupNames).toEqual(expect.arrayContaining(['All Users', 'Finance', 'Marketing']));
+		expect(access.groupNames).not.toContain('Foreign');
+	});
+
 	it('uses the All Users density policy without explicit memberships', async () => {
 		const overview = await getUserGroupOverview(PROJECT_ID);
 		await updateUserGroup(PROJECT_ID, overview.groups[0].id, {

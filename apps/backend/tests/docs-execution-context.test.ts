@@ -38,6 +38,29 @@ describe('docs execution context filtering', () => {
 		expect([...files.keys()].sort()).toEqual(['/RULES.md', '/docs/legal/terms.md']);
 	});
 
+	it('renders root rules in the Python virtual filesystem and omits malformed rules', () => {
+		fs.writeFileSync(
+			path.join(projectFolder, 'RULES.md'),
+			'Public\n{% if group("finance") %}\nFinance\n{% endif %}\n',
+		);
+
+		const files = createVirtualFS(contextWithDocs([{ kind: 'file', path: 'legal/terms.md' }], ['finance']));
+		expect(files.get('/RULES.md')).toBe('Public\nFinance\n');
+
+		fs.writeFileSync(path.join(projectFolder, 'RULES.md'), 'Public\n{% if group("finance") %}\nFinance\n');
+		expect(
+			createVirtualFS(contextWithDocs([{ kind: 'file', path: 'legal/terms.md' }], ['finance'])).has('/RULES.md'),
+		).toBe(false);
+	});
+
+	it('leaves nested rules files unchanged in execution context', () => {
+		const nestedRules = '{% if group("finance") %}\nNested\n{% endif %}\n';
+		fs.writeFileSync(path.join(projectFolder, 'docs', 'legal', 'RULES.md'), nestedRules);
+
+		const files = createVirtualFS(contextWithDocs([{ kind: 'folder', path: 'legal' }], ['support']));
+		expect(files.get('/docs/legal/RULES.md')).toBe(nestedRules);
+	});
+
 	it('refreshes reused sandbox context for policy changes and future folder files', async () => {
 		const sandbox = new FakeContextSandbox();
 		const folderAccess = contextWithDocs([{ kind: 'folder', path: 'finance' }]);
@@ -60,13 +83,36 @@ describe('docs execution context filtering', () => {
 		);
 		expect(sandbox.paths()).toEqual(['/root/context/RULES.md', '/root/context/docs/legal/terms.md']);
 	});
+
+	it('refreshes sandbox rules for group changes and omits malformed rules', async () => {
+		const sandbox = new FakeContextSandbox();
+		const tmpDir = createTemporaryFolder();
+		fs.writeFileSync(
+			path.join(projectFolder, 'RULES.md'),
+			'Public\n{% if group("finance") %}\nFinance\n{% endif %}\n',
+		);
+
+		await refreshProjectContextInSandbox(sandbox, contextWithDocs([], ['finance']), tmpDir);
+		expect(sandbox.content('/root/context/RULES.md')).toBe('Public\nFinance\n');
+
+		await refreshProjectContextInSandbox(sandbox, contextWithDocs([], ['support']), tmpDir);
+		expect(sandbox.content('/root/context/RULES.md')).toBe('Public\n');
+
+		fs.writeFileSync(path.join(projectFolder, 'RULES.md'), 'Public\n{% if group("finance") %}\nFinance\n');
+		await refreshProjectContextInSandbox(sandbox, contextWithDocs([], ['finance']), tmpDir);
+		expect(sandbox.paths()).not.toContain('/root/context/RULES.md');
+	});
 });
 
-function contextWithDocs(grants: Array<{ kind: 'folder' | 'file'; path: string }>): ToolContext {
+function contextWithDocs(
+	grants: Array<{ kind: 'folder' | 'file'; path: string }>,
+	groupNames: string[] | null = null,
+): ToolContext {
 	return {
 		projectFolder,
 		warehouseTableAccess: { enforced: false },
 		docsContextAccess: { enforced: true, access: { mode: 'restricted', grants } },
+		userRulesGroupAccess: groupNames === null ? { enforced: false } : { enforced: true, groupNames },
 	} as ToolContext;
 }
 
@@ -91,5 +137,9 @@ class FakeContextSandbox {
 
 	paths(): string[] {
 		return [...this.files.keys()].sort();
+	}
+
+	content(path: string): string | undefined {
+		return this.files.get(path);
 	}
 }

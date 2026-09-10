@@ -7,6 +7,7 @@ import {
 import fs from 'fs';
 import path from 'path';
 
+import { renderProjectTextForAgent } from '../../services/agent-visible-project-file.service';
 import { isProjectContextPathAllowed } from '../../services/project-context-path-access.service';
 import type { AgentSettings } from '../../types/agent-settings';
 import type { ToolContext } from '../../types/tools';
@@ -140,7 +141,14 @@ function findAllFiles(dir: string, context: ToolContext): schemas.VirtualFile[] 
 					if (!isProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, 'file')) {
 						continue;
 					}
-					const content = fs.readFileSync(fullPath, 'utf-8');
+					const content = renderProjectTextForAgent(
+						canonical.virtualPath,
+						fs.readFileSync(fullPath, 'utf-8'),
+						context,
+					);
+					if (content === null) {
+						continue;
+					}
 					files.push({ path: virtualPath, content });
 				} catch {
 					// Skip files that can't be read (binary files, permission issues, etc.)
