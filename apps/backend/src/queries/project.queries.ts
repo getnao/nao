@@ -13,7 +13,7 @@ import { and, asc, desc, eq, gt, gte, isNotNull, lte, or, type SQL, sql } from '
 
 import type { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
-import { db, type DBExecutor } from '../db/db';
+import { db, type DBTransaction } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import { env, isCloud } from '../env';
 import type { ListProjectChatsResponse, ProjectChatsFacetKey, UserWithRole } from '../types/project';
@@ -68,9 +68,9 @@ export const setProjectMemoryEnabled = async (projectId: string, memoryEnabled: 
 	await updateAgentSettings(projectId, { memoryEnabled });
 };
 
-export const createProject = async (project: NewProject, executor?: DBExecutor): Promise<DBProject> =>
-	executor
-		? createProjectWithDefaultGroup(project, executor)
+export const createProject = async (project: NewProject, transaction?: DBTransaction): Promise<DBProject> =>
+	transaction
+		? createProjectWithDefaultGroup(project, transaction)
 		: db.transaction((tx) => createProjectWithDefaultGroup(project, tx));
 
 export const getProjectMember = async (projectId: string, userId: string): Promise<DBProjectMember | null> => {
@@ -417,18 +417,24 @@ const lockForUpdate = <Query extends { execute(): unknown }>(query: Query): Quer
 
 type Lockable<Query> = { for(strength: 'update'): Query };
 
-const createProjectWithDefaultGroup = (project: NewProject, executor: DBExecutor): DBProject | Promise<DBProject> => {
+const createProjectWithDefaultGroup = (
+	project: NewProject,
+	transaction: DBTransaction,
+): DBProject | Promise<DBProject> => {
 	if (dbConfig.dialect === Dialect.Postgres) {
-		return createPostgresProjectWithDefaultGroup(project, executor);
+		return createPostgresProjectWithDefaultGroup(project, transaction);
 	}
-	const [created] = executor.insert(s.project).values(project).returning().all();
-	executor.insert(s.userGroup).values(defaultUserGroupValues(created.id)).run();
+	const [created] = transaction.insert(s.project).values(project).returning().all();
+	transaction.insert(s.userGroup).values(defaultUserGroupValues(created.id)).run();
 	return created;
 };
 
-const createPostgresProjectWithDefaultGroup = async (project: NewProject, executor: DBExecutor): Promise<DBProject> => {
-	const [created] = await executor.insert(s.project).values(project).returning().execute();
-	await executor.insert(s.userGroup).values(defaultUserGroupValues(created.id)).execute();
+const createPostgresProjectWithDefaultGroup = async (
+	project: NewProject,
+	transaction: DBTransaction,
+): Promise<DBProject> => {
+	const [created] = await transaction.insert(s.project).values(project).returning().execute();
+	await transaction.insert(s.userGroup).values(defaultUserGroupValues(created.id)).execute();
 	return created;
 };
 
