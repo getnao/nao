@@ -32,7 +32,6 @@ import {
 	resolveEffectiveUserGroupAccess,
 	setUserGroupMembership,
 	updateUserGroup,
-	UserGroupQueryError,
 } from '../src/queries/user-group.queries';
 
 const db = drizzle(process.env.NAO_TEST_DATABASE_PATH ?? './db.sqlite', { schema: sqliteSchema });
@@ -253,16 +252,16 @@ describe('user group queries', () => {
 			grants: [{ kind: 'folder', path: 'finance' }],
 		});
 
-		await expect(
-			setUserGroupMembership(PROJECT_ID, group.id, OUTSIDER_USER_ID, true),
-		).rejects.toMatchObject<UserGroupQueryError>({ code: 'BAD_REQUEST' });
-		await expect(
-			setUserGroupMembership(PROJECT_ID, defaultGroup.id, DIRECT_USER_ID, false),
-		).rejects.toMatchObject<UserGroupQueryError>({ code: 'BAD_REQUEST' });
+		await expect(setUserGroupMembership(PROJECT_ID, group.id, OUTSIDER_USER_ID, true)).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+		});
+		await expect(setUserGroupMembership(PROJECT_ID, defaultGroup.id, DIRECT_USER_ID, false)).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+		});
 		await expect(
 			updateUserGroup(PROJECT_ID, defaultGroup.id, { name: 'Everyone', featureGrants: [] }),
-		).rejects.toMatchObject<UserGroupQueryError>({ code: 'BAD_REQUEST' });
-		await expect(deleteUserGroup(PROJECT_ID, defaultGroup.id)).rejects.toMatchObject<UserGroupQueryError>({
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		await expect(deleteUserGroup(PROJECT_ID, defaultGroup.id)).rejects.toMatchObject({
 			code: 'BAD_REQUEST',
 		});
 
