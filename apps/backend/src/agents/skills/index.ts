@@ -1,10 +1,11 @@
 import { excelSkill } from './excel.skill';
+import { metabaseDashboardMigrationSkill } from './metabase-dashboard-migration.skill';
 import { pdfSkill } from './pdf.skill';
 import type { InternalSkill } from './types';
 
 export type { InternalSkill, SkillCapabilities } from './types';
 
-const INTERNAL_SKILLS: InternalSkill[] = [excelSkill, pdfSkill];
+const INTERNAL_SKILLS: InternalSkill[] = [excelSkill, pdfSkill, metabaseDashboardMigrationSkill];
 
 /** Catalogued in the system prompt so the agent knows what it can load, and when. */
 export const listInternalSkills = (): InternalSkill[] => {

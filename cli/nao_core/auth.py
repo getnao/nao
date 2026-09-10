@@ -121,3 +121,11 @@ def get_auth_session(
             session.cookies.update(cookies)
 
     return session
+
+
+def reauthenticate(backend_url: str, email: str | None = None, password: str | None = None) -> bool:
+    """Clear an expired session and authenticate once."""
+    UI.warn("Session expired or unauthorized.")
+    clear_stored_cookies()
+    cookies = login(backend_url, email, password) if email and password else prompt_login(backend_url)
+    return cookies is not None

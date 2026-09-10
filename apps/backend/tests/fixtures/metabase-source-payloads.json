@@ -1,0 +1,411 @@
+{
+	"collections": [
+		{
+			"id": 2,
+			"name": "Ecommerce",
+			"description": null,
+			"location": "/1/"
+		}
+	],
+	"dashboards": {
+		"data": [
+			{
+				"id": 2,
+				"name": "Native SQL Basics",
+				"description": "Deterministic migration fixture",
+				"collection_id": 2,
+				"archived": false
+			}
+		]
+	},
+	"dashboard": {
+		"id": 2,
+		"name": "Native SQL Basics",
+		"description": "Deterministic migration fixture",
+		"collection_id": 2,
+		"parameters": [],
+		"tabs": [
+			{
+				"id": 5,
+				"name": "Details",
+				"position": 1
+			},
+			{
+				"id": 4,
+				"name": "Overview",
+				"position": 0
+			}
+		],
+		"dashcards": [
+			{
+				"id": 11,
+				"card_id": 7,
+				"dashboard_tab_id": 5,
+				"row": 2,
+				"col": 0,
+				"size_x": 6,
+				"size_y": 4,
+				"parameter_mappings": [],
+				"visualization_settings": {},
+				"card": {
+					"id": 7,
+					"name": "Total completed revenue",
+					"description": "Gross revenue from completed orders.",
+					"database_id": 2,
+					"type": "question",
+					"display": "scalar",
+					"dataset_query": {
+						"type": "native",
+						"database": 2,
+						"native": {
+							"query": "SELECT SUM(quantity * unit_price) AS total_revenue FROM order_items",
+							"template-tags": {}
+						}
+					},
+					"visualization_settings": {
+						"number_style": "currency",
+						"currency": "USD"
+					},
+					"parameters": [],
+					"result_metadata": [
+						{
+							"name": "total_revenue",
+							"base_type": "type/Decimal"
+						}
+					]
+				}
+			},
+			{
+				"id": 12,
+				"card_id": null,
+				"dashboard_tab_id": 4,
+				"row": 0,
+				"col": 0,
+				"size_x": 18,
+				"size_y": 2,
+				"parameter_mappings": [],
+				"visualization_settings": {
+					"virtual_card": {
+						"name": null,
+						"display": "text",
+						"description": null,
+						"dataset_query": {},
+						"visualization_settings": {
+							"text": "# Ecommerce performance"
+						}
+					}
+				},
+				"card": {}
+			}
+		]
+	},
+	"filtersDashboard": {
+		"id": 3,
+		"name": "Filters and Templates",
+		"description": "Native SQL template tags with selective dashboard filter wiring.",
+		"collection_id": 2,
+		"parameters": [
+			{
+				"id": "period",
+				"name": "Period",
+				"type": "date/range",
+				"required": false
+			},
+			{
+				"id": "category",
+				"name": "Category",
+				"type": "string/=",
+				"default": ["Electronics"],
+				"required": true
+			}
+		],
+		"tabs": [],
+		"dashcards": [
+			{
+				"id": 21,
+				"card_id": 9,
+				"dashboard_tab_id": null,
+				"row": 0,
+				"col": 0,
+				"size_x": 6,
+				"size_y": 4,
+				"parameter_mappings": [
+					{
+						"parameter_id": "period",
+						"card_id": 9,
+						"target": ["dimension", ["template-tag", "period"]]
+					},
+					{
+						"parameter_id": "category",
+						"card_id": 9,
+						"target": ["variable", ["template-tag", "category"]]
+					}
+				],
+				"visualization_settings": {},
+				"card": {
+					"id": 9,
+					"name": "Filtered completed revenue",
+					"description": "Completed revenue filtered by period and category.",
+					"database_id": 2,
+					"type": "question",
+					"display": "scalar",
+					"dataset_query": {
+						"type": "native",
+						"database": 2,
+						"native": {
+							"query": "SELECT SUM(order_items.quantity * order_items.unit_price) AS total_revenue FROM orders JOIN order_items ON order_items.order_id = orders.id JOIN products ON products.id = order_items.product_id JOIN categories ON categories.id = products.category_id WHERE orders.status = 'completed' [[AND {{period}}]] [[AND categories.name = {{category}}]]",
+							"template-tags": {
+								"period": {
+									"id": "e02d62a7-0402-4903-af88-7a9e02005b20",
+									"name": "period",
+									"display-name": "Period",
+									"type": "dimension",
+									"dimension": ["field", 88, null],
+									"widget-type": "date/range",
+									"required": false
+								},
+								"category": {
+									"id": "f11f3342-e91f-4a37-81fc-d2947e158861",
+									"name": "category",
+									"display-name": "Category",
+									"type": "text",
+									"required": false
+								}
+							}
+						}
+					},
+					"visualization_settings": {
+						"number_style": "currency",
+						"currency": "USD"
+					},
+					"parameters": [],
+					"result_metadata": [
+						{
+							"name": "total_revenue",
+							"base_type": "type/Decimal"
+						}
+					]
+				}
+			},
+			{
+				"id": 22,
+				"card_id": 10,
+				"dashboard_tab_id": null,
+				"row": 8,
+				"col": 0,
+				"size_x": 18,
+				"size_y": 8,
+				"parameter_mappings": [],
+				"visualization_settings": {},
+				"card": {
+					"id": 10,
+					"name": "Unwired completed revenue by category",
+					"description": "Control card intentionally unaffected by dashboard filters.",
+					"database_id": 2,
+					"type": "question",
+					"display": "bar",
+					"dataset_query": {
+						"type": "native",
+						"database": 2,
+						"native": {
+							"query": "SELECT categories.name AS category, SUM(order_items.quantity * order_items.unit_price) AS revenue FROM orders JOIN order_items ON order_items.order_id = orders.id JOIN products ON products.id = order_items.product_id JOIN categories ON categories.id = products.category_id WHERE orders.status = 'completed' GROUP BY categories.name",
+							"template-tags": {}
+						}
+					},
+					"visualization_settings": {
+						"graph.dimensions": ["category"],
+						"graph.metrics": ["revenue"]
+					},
+					"parameters": [],
+					"result_metadata": []
+				}
+			}
+		]
+	},
+	"nativeCard": {
+		"id": 7,
+		"name": "Total completed revenue",
+		"description": "Gross revenue from completed orders.",
+		"database_id": 2,
+		"type": "question",
+		"display": "scalar",
+		"dataset_query": {
+			"type": "native",
+			"database": 2,
+			"native": {
+				"query": "SELECT SUM(quantity * unit_price) AS total_revenue FROM order_items",
+				"template-tags": {}
+			}
+		},
+		"parameters": []
+	},
+	"mbqlCard": {
+		"id": 8,
+		"name": "Orders by status",
+		"description": null,
+		"database_id": 2,
+		"type": "question",
+		"display": "bar",
+		"dataset_query": {
+			"type": "query",
+			"database": 2,
+			"query": {
+				"source-table": 3,
+				"aggregation": [["count"]],
+				"breakout": [["field", 12, null]]
+			}
+		},
+		"parameters": []
+	},
+	"modelCard": {
+		"id": 49,
+		"name": "Completed orders model",
+		"description": "Reusable SQL model containing completed orders.",
+		"database_id": 2,
+		"type": "model",
+		"display": "table",
+		"dataset_query": {
+			"type": "native",
+			"database": 2,
+			"native": {
+				"query": "SELECT id, customer_id, ordered_at, status FROM orders WHERE status = 'completed'",
+				"template-tags": {}
+			}
+		},
+		"parameters": []
+	},
+	"modelBackedCard": {
+		"id": 50,
+		"name": "Completed orders from model",
+		"description": "Rows selected from the reusable completed-orders model.",
+		"database_id": 2,
+		"type": "question",
+		"display": "table",
+		"dataset_query": {
+			"lib/type": "mbql/query",
+			"database": 2,
+			"stages": [
+				{
+					"lib/type": "mbql.stage/mbql",
+					"source-card": 49,
+					"limit": 5
+				}
+			]
+		},
+		"parameters": []
+	},
+	"metricCard": {
+		"id": 51,
+		"name": "Completed order count metric",
+		"description": "Reusable metric counting completed orders.",
+		"database_id": 2,
+		"type": "metric",
+		"display": "scalar",
+		"dataset_query": {
+			"type": "query",
+			"database": 2,
+			"query": {
+				"source-table": 12,
+				"aggregation": [["count"]],
+				"filter": ["=", ["field", 89, null], "completed"]
+			}
+		},
+		"parameters": []
+	},
+	"segmentBackedCard": {
+		"id": 52,
+		"name": "Completed orders from segment",
+		"description": "Order count using the reusable completed-orders segment.",
+		"database_id": 2,
+		"type": "question",
+		"display": "scalar",
+		"dataset_query": {
+			"lib/type": "mbql/query",
+			"database": 2,
+			"stages": [
+				{
+					"lib/type": "mbql.stage/mbql",
+					"source-table": 12,
+					"aggregation": [["count", { "lib/uuid": "count" }]],
+					"filters": [["segment", { "lib/uuid": "segment" }, 7]]
+				}
+			]
+		},
+		"parameters": []
+	},
+	"visualizationCard": {
+		"id": 60,
+		"name": "Completed revenue share donut",
+		"description": "Completed revenue split by product category with a center total.",
+		"database_id": 2,
+		"type": "question",
+		"display": "pie",
+		"dataset_query": {
+			"lib/type": "mbql/query",
+			"database": 2,
+			"stages": [
+				{
+					"lib/type": "mbql.stage/native",
+					"native": "SELECT category, revenue FROM category_revenue"
+				}
+			]
+		},
+		"visualization_settings": {
+			"pie.dimension": "category",
+			"pie.metric": "revenue",
+			"pie.show_total": true,
+			"pie.percent_visibility": "legend",
+			"column_settings": {
+				"[\"name\",\"revenue\"]": {
+					"number_style": "currency",
+					"currency": "USD",
+					"decimals": 2
+				}
+			}
+		},
+		"result_metadata": [],
+		"parameters": []
+	},
+	"execution": {
+		"status": "completed",
+		"data": {
+			"rows": [[5835.0]],
+			"cols": [
+				{
+					"name": "total_revenue",
+					"display_name": "Total Revenue",
+					"base_type": "type/Decimal"
+				}
+			],
+			"native_form": {
+				"query": "SELECT SUM(quantity * unit_price) AS total_revenue FROM order_items"
+			}
+		}
+	},
+	"mbqlExecution": {
+		"status": "completed",
+		"data": {
+			"rows": [
+				["completed", 18],
+				["pending", 3],
+				["refunded", 3]
+			],
+			"cols": [
+				{
+					"name": "status",
+					"display_name": "Status",
+					"base_type": "type/Text"
+				},
+				{
+					"name": "count",
+					"display_name": "Count",
+					"base_type": "type/BigInteger"
+				}
+			],
+			"native_form": {
+				"query": "SELECT \"public\".\"orders\".\"status\" AS \"status\", COUNT(*) AS \"count\" FROM \"public\".\"orders\" GROUP BY \"public\".\"orders\".\"status\" ORDER BY \"public\".\"orders\".\"status\" ASC",
+				"params": null
+			}
+		}
+	}
+}

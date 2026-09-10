@@ -49,6 +49,7 @@ import { imageRoutes } from './routes/image';
 import { mapBoundariesRoutes } from './routes/map-boundaries';
 import { mattermostRoutes } from './routes/mattermost';
 import { mcpOAuthRoutes } from './routes/mcp-oauth';
+import { dashboardMigrationRoutes } from './routes/metabase-migration';
 import { slackRoutes } from './routes/slack';
 import { ssoRoutes } from './routes/sso';
 import { teamsRoutes } from './routes/teams';
@@ -188,6 +189,10 @@ app.register(chartRoutes, {
 
 app.register(mapBoundariesRoutes, {
 	prefix: '/api/map-boundaries',
+});
+
+app.register(dashboardMigrationRoutes, {
+	prefix: '/api/dashboard-migration',
 });
 
 app.register(imageRoutes, {

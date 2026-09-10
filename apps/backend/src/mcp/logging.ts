@@ -42,6 +42,15 @@ export const TOOL_MODE_MAP: Record<string, (keyof McpEndpointSettings)[]> = {
 	get_story: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
 	archive_story: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
 	delete_story: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
+	list_metabase_collections: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
+	list_metabase_dashboards: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
+	get_metabase_dashboard: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
+	get_metabase_card: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
+	compile_metabase_card_query: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
+	execute_metabase_card: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
+	list_story_folders: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
+	create_story_folder: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
+	move_story_to_folder: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
 };
 
 export function withLogging<T>(toolName: string, ctx: McpContext, handler: LoggedToolHandler<T>): ToolHandler<T> {

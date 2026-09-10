@@ -11,13 +11,14 @@ import * as chatQueries from '../../queries/chat.queries';
 import { upsertMcpQueryData } from '../../queries/mcp-query-data.queries';
 import * as storyQueries from '../../queries/story.queries';
 import * as storyFolderQueries from '../../queries/story-folder.queries';
+import { StoryTargetError, storyTargetService } from '../../services/story-target';
 import { pinQueryDataToChat, pinStoryMessageToChat } from '../../utils/chat-message-story';
 import { backfillMissingQueryData, type StoryQueryDataMap } from '../../utils/story-query-data';
 import { STORY_OUTPUT_SCHEMA, type StoryMcpToolPayload } from '../embed/embed-tool-result';
 import { STORY_APP_URI, uiToolMeta } from '../embed/ui-resources';
 import type { McpContext } from '../logging';
 import { storyChatUrl, storyEmbedUrl, storyUrl } from '../urls';
-import { buildStoryMcpResultWithSandbox, fetchLatestStoryVersion, resolveChartChatId, resolveStory } from './helpers';
+import { buildStoryMcpResultWithSandbox, resolveChartChatId } from './helpers';
 import { registerAgentToolAsMcp, registerMcpTool } from './register-mcp-tool';
 
 const EXECUTE_SQL_DESCRIPTION =
@@ -182,7 +183,7 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 			const code = content ?? `# ${title}\n`;
 			const story = chat_id
 				? await createChatLinkedStory({ chatId: chat_id, slug, title, code, ctx })
-				: await createStandaloneStory({ slug, title, code, ctx });
+				: await createStandaloneStory({ title, code, ctx });
 
 			if ('error' in story) {
 				return { content: [{ type: 'text' as const, text: `Error: ${story.error}` }], isError: true };
@@ -243,25 +244,22 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 		outputSchema: STORY_OUTPUT_SCHEMA,
 		_meta: uiToolMeta(STORY_APP_URI),
 		handler: async ({ story_id, title, content, query_data, chat_id }) => {
-			const story = await resolveStory(story_id, ctx);
-			const latestVersion = await fetchLatestStoryVersion(story);
-			const newTitle = title ?? story.title;
-			const newCode = content ?? latestVersion?.code ?? `# ${newTitle}\n`;
-			if (title !== undefined && title !== story.title) {
-				await storyQueries.renameStory(story.id, title);
-			}
-			const updated = await saveNewVersion(story, ctx, newTitle, newCode);
+			const { story, code, updated } = await storyTargetService.updateStoryById(ctx, {
+				storyId: story_id,
+				title,
+				code: content,
+			});
 			const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
 			const validatedChatId = await resolveChartChatId(chat_id, ctx);
 			const effectiveChatId = validatedChatId ?? story.chatId ?? undefined;
-			await cacheStoryQueryData(story.id, newCode, query_data, effectiveChatId, ctx);
+			await cacheStoryQueryData(story.id, code, query_data, effectiveChatId, ctx);
 			const output: StoryMcpToolPayload = {
 				embedUrl,
 				...updated,
 				url: storyUrl(story),
 				chatUrl: storyChatUrl(story),
 			};
-			return buildStoryMcpResultWithSandbox(output, ctx, newCode, effectiveChatId);
+			return buildStoryMcpResultWithSandbox(output, ctx, code, effectiveChatId);
 		},
 	});
 }
@@ -305,28 +303,20 @@ type CreatedStory = { id: string; title: string; slug: string; chatId: string | 
 type CreateStoryResult = CreatedStory | { error: string };
 
 async function createStandaloneStory(args: {
-	slug: string;
 	title: string;
 	code: string;
 	ctx: McpContext;
 }): Promise<CreateStoryResult> {
-	const story = await storyQueries.createStandaloneStory({
-		userId: args.ctx.userId,
-		projectId: args.ctx.projectId,
-		slug: args.slug,
-		title: args.title,
-		code: args.code,
-		source: 'user',
-	});
-
-	if (!story) {
-		return {
-			error: `A story with title "${args.title}" already exists. Pick a different title or use update_story.`,
-		};
+	try {
+		return await storyTargetService.createStandaloneStory(args.ctx, { title: args.title, code: args.code });
+	} catch (error) {
+		if (error instanceof StoryTargetError && error.code === 'conflict') {
+			return {
+				error: `A story with title "${args.title}" already exists. Pick a different title or use update_story.`,
+			};
+		}
+		throw error;
 	}
-
-	await storyFolderQueries.saveStoryInPrivateRoot(args.ctx.userId, args.ctx.projectId, story.id);
-	return { ...story, chatId: null };
 }
 
 async function createChatLinkedStory(args: {
@@ -382,42 +372,4 @@ async function createChatLinkedStory(args: {
 		chatId: created.chatId,
 		createdAt: created.createdAt,
 	};
-}
-
-async function saveNewVersion(
-	story: { id: string; slug: string; chatId: string | null },
-	ctx: McpContext,
-	title: string,
-	code: string,
-): Promise<{ id: string; title: string; updatedAt: Date }> {
-	if (story.chatId) {
-		await storyQueries.createStoryVersion({
-			chatId: story.chatId,
-			slug: story.slug,
-			title,
-			code,
-			action: 'update',
-			source: 'user',
-		});
-		const updated = await storyQueries.getStoryByChatAndSlug(story.chatId, story.slug);
-		if (!updated) {
-			throw new Error(`Failed to retrieve updated story: ${story.chatId}/${story.slug}`);
-		}
-		return { id: updated.id, title: updated.title, updatedAt: updated.updatedAt };
-	}
-
-	await storyQueries.createStandaloneVersion({
-		userId: ctx.userId,
-		projectId: ctx.projectId,
-		slug: story.slug,
-		title,
-		code,
-		action: 'update',
-		source: 'user',
-	});
-	const updated = await storyQueries.getStandaloneStoryByUserAndSlug(ctx.userId, ctx.projectId, story.slug);
-	if (!updated) {
-		throw new Error(`Failed to retrieve updated story: ${ctx.userId}/${story.slug}`);
-	}
-	return { id: updated.id, title: updated.title, updatedAt: updated.updatedAt };
 }

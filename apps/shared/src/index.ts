@@ -15,6 +15,7 @@ export * from './map';
 export * from './mcp';
 export * from './mcp-embed';
 export * from './mentions';
+export * from './metabase-migration';
 export * from './pluralize';
 export * from './sql-template';
 export * from './types';

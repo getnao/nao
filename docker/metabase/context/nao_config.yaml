@@ -1,0 +1,15 @@
+project_name: metabase-migration-fixture
+databases:
+    - name: ecommerce-analytics
+      type: postgres
+      host: "{{ env('METABASE_ANALYTICS_HOST') }}"
+      port: "{{ env('METABASE_ANALYTICS_PORT') }}"
+      database: "{{ env('METABASE_ANALYTICS_DATABASE') }}"
+      user: "{{ env('METABASE_ANALYTICS_USER') }}"
+      password: "{{ env('METABASE_ANALYTICS_PASSWORD') }}"
+      schema_name: public
+      templates:
+          - columns
+          - preview
+      include: []
+      exclude: []

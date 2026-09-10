@@ -6,6 +6,8 @@ import { CHART_DATA_MODE_SERVER_INSTRUCTIONS } from './chart-data-mode';
 import { registerNaoMcpApps } from './embed/ui-resources';
 import { registerAssetTools } from './tools/asset-tools';
 import { registerContextLayerTools } from './tools/context-layer';
+import { registerMetabaseMigrationTools } from './tools/metabase-migration';
+import { registerStoryFolderTools } from './tools/story-folders';
 import { registerSubAgentTools } from './tools/sub-agent';
 
 export async function resolveProjectId(userId: string): Promise<string> {
@@ -46,6 +48,8 @@ export async function createMcpServer(
 	if (settings.subAgentModeEnabled || settings.contextLayerModeEnabled) {
 		const customBoundaries = await getCustomBoundaries(projectId);
 		registerAssetTools(server, ctx, customBoundaries);
+		registerMetabaseMigrationTools(server, ctx);
+		registerStoryFolderTools(server, ctx);
 	}
 
 	registerNaoMcpApps(server);

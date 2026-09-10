@@ -7,6 +7,7 @@
 		"./attachments": "./src/attachments.ts",
 		"./context-recommendation": "./src/context-recommendation.ts",
 		"./date": "./src/date.ts",
+		"./metabase-migration": "./src/metabase-migration.ts",
 		"./types": "./src/types.ts",
 		"./posthog": "./src/posthog.ts",
 		"./tools": "./src/tools/index.ts",

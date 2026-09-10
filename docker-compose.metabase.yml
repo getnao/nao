@@ -1,0 +1,60 @@
+name: nao-metabase-fixture
+
+services:
+    metabase-db:
+        image: postgres:16-alpine
+        environment:
+            POSTGRES_DB: metabase
+            POSTGRES_USER: metabase
+            POSTGRES_PASSWORD: metabase
+        volumes:
+            - metabase_app_data:/var/lib/postgresql/data
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U metabase -d metabase']
+            interval: 5s
+            timeout: 5s
+            retries: 10
+
+    analytics-db:
+        image: postgres:16-alpine
+        environment:
+            POSTGRES_DB: analytics
+            POSTGRES_USER: analytics
+            POSTGRES_PASSWORD: analytics
+        ports:
+            - '5434:5432'
+        volumes:
+            - metabase_analytics_data:/var/lib/postgresql/data
+            - ./docker/metabase/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+            - ./docker/metabase/verify.sql:/fixture/verify.sql:ro
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U analytics -d analytics']
+            interval: 5s
+            timeout: 5s
+            retries: 10
+
+    metabase:
+        image: metabase/metabase:v0.63.16
+        ports:
+            - '${METABASE_PORT:-3001}:3000'
+        environment:
+            MB_DB_TYPE: postgres
+            MB_DB_DBNAME: metabase
+            MB_DB_PORT: 5432
+            MB_DB_USER: metabase
+            MB_DB_PASS: metabase
+            MB_DB_HOST: metabase-db
+        depends_on:
+            metabase-db:
+                condition: service_healthy
+            analytics-db:
+                condition: service_healthy
+        healthcheck:
+            test: ['CMD-SHELL', 'curl --fail --silent http://localhost:3000/api/health']
+            interval: 10s
+            timeout: 5s
+            retries: 30
+
+volumes:
+    metabase_app_data:
+    metabase_analytics_data:

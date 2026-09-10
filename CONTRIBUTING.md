@@ -82,6 +82,181 @@ npm run dev
 
 This will start the project in development mode. It will start the frontend and backend in development mode.
 
+### Local Metabase migration fixture
+
+The isolated fixture runs Metabase at `http://localhost:3001` and its analytics PostgreSQL database at
+`localhost:5434`. It does not modify the normal development Compose stack or the example context.
+
+```bash
+npm run metabase:start
+npm run metabase:verify-data
+npm run metabase:bootstrap
+```
+
+The first bootstrap prints a `METABASE_API_KEY`. Copy it to `.env`; it is not stored in the repository and
+Metabase will not display it again. If it is lost, run `npm run metabase:reset` and bootstrap the clean fixture
+again. Bootstrap is idempotent, so normal reruns update the named fixture assets without duplicating them.
+
+Use the fixture context when starting nao:
+
+```bash
+export NAO_DEFAULT_PROJECT_PATH="$PWD/docker/metabase/context"
+export METABASE_URL=http://localhost:3001
+export METABASE_API_KEY="<key printed by metabase:bootstrap>"
+export METABASE_ANALYTICS_HOST=localhost
+export METABASE_ANALYTICS_PORT=5434
+export METABASE_ANALYTICS_DATABASE=analytics
+export METABASE_ANALYTICS_USER=analytics
+export METABASE_ANALYTICS_PASSWORD=analytics
+export BETA_STORY_FILTERS_ENABLED=true
+npm run dev:backend
+```
+
+Omit `BETA_STORY_FILTERS_ENABLED` to verify that migration still creates an unfiltered partial story when
+interactive story filters are disabled.
+
+If port 3001 is occupied, set both `METABASE_PORT` and `METABASE_URL`, for example:
+
+```bash
+METABASE_PORT=3002 npm run metabase:start
+METABASE_URL=http://localhost:3002 npm run metabase:bootstrap
+```
+
+Stop the containers without removing fixture state with `npm run metabase:stop`. A clean reset deletes both
+fixture volumes, so start and bootstrap again afterward:
+
+```bash
+npm run metabase:reset
+npm run metabase:start
+npm run metabase:verify-data
+npm run metabase:bootstrap
+```
+
+The reset creates a new API key. Replace the old `METABASE_API_KEY` before restarting the nao backend.
+
+The bootstrap creates five targeted dashboards plus one combined acceptance dashboard:
+
+- `Native SQL Basics`: native SQL, tabs, text, scalar, line, bar, table, and an unsupported funnel.
+- `Layout and Tabs`: multiple tabs, source rows, mixed widths, text, and visual cards.
+- `Filters and Templates`: supported category wiring plus unsupported date/default behavior for partial-report checks.
+- `GUI Query and Reusable Objects`: MBQL, model, metric, and segment references.
+- `Visualization Breadth`: pie, donut, stacked area, combo, scatter, map, formatting, and horizontal bars.
+- `Full Migration Acceptance`: all 20 unique fixture cards grouped into four tabs with filter wiring preserved.
+
+### Migration CLI primitives
+
+Run the commands from `cli/` against a running nao backend. Source commands are read-only.
+
+```bash
+cd cli
+BACKEND_URL=http://localhost:5005 uv run nao metabase collections --json
+BACKEND_URL=http://localhost:5005 uv run nao metabase dashboards --collection-id 6 --json
+BACKEND_URL=http://localhost:5005 uv run nao metabase dashboard "Visualization Breadth" --json
+BACKEND_URL=http://localhost:5005 uv run nao metabase card <card-id> --json
+BACKEND_URL=http://localhost:5005 uv run nao metabase compile-card <card-id> --json
+BACKEND_URL=http://localhost:5005 uv run nao metabase execute-card <card-id> --json
+```
+
+IDs are stable only within one fixture instance. Read collection, dashboard, card, folder, and story IDs from
+the preceding JSON response instead of copying IDs from another reset.
+
+Create and update a story explicitly:
+
+```bash
+printf '# Fixture acceptance\n' > /tmp/metabase-story.md
+BACKEND_URL=http://localhost:5005 uv run nao stories folders --json
+BACKEND_URL=http://localhost:5005 uv run nao stories create-folder "Metabase imports" --json
+BACKEND_URL=http://localhost:5005 uv run nao stories create \
+  --title "Fixture acceptance" \
+  --content-file /tmp/metabase-story.md \
+  --folder-id <folder-id> \
+  --json
+BACKEND_URL=http://localhost:5005 uv run nao stories update <story-id> \
+  --title "Fixture acceptance updated" \
+  --content-file /tmp/metabase-story.md \
+  --json
+BACKEND_URL=http://localhost:5005 uv run nao stories move <story-id> --folder-id <folder-id> --json
+```
+
+The story UUID returned by `create` is required by `update` and `move`. Titles are never used to guess an
+existing target.
+
+### Direct nao MCP primitives
+
+The same normalized source operations are available to MCP clients. Example tool arguments:
+
+```text
+list_metabase_collections {}
+list_metabase_dashboards {"collection_id": 6}
+get_metabase_dashboard {"dashboard_id": 5}
+get_metabase_card {"card_id": 60}
+compile_metabase_card_query {"card_id": 60}
+execute_metabase_card {"card_id": 60}
+list_story_folders {}
+create_story_folder {"name": "Metabase imports"}
+move_story_to_folder {"story_id": "<story-uuid>", "folder_id": "<folder-uuid>"}
+```
+
+Use IDs returned by your own fixture. Use the existing `create_story` and `update_story` tools for story
+content, then `move_story_to_folder` for placement.
+
+### Agent-driven migration
+
+`ask_nao` is the recommended entry point. A complete acceptance prompt is:
+
+```text
+Migrate the Metabase dashboard "Full Migration Acceptance" from the configured "metabase" server.
+Map its analytics database to the only matching nao PostgreSQL database.
+Create a story in the "Metabase imports" folder, execute and compare every source card,
+and finish with the complete migration report. Do not write to Metabase.
+```
+
+For a follow-up, include the returned story UUID and say `update this story`; do not ask for another import by
+title. Run the other four fixture dashboards the same way to cover native SQL, layouts, filters, MBQL, and
+reusable objects.
+
+Database IDs are not assumed to match between Metabase and nao. The migration maps one source database to one
+configured nao database only when the connection is unambiguous; otherwise it asks for the target database
+instead of probing candidates.
+
+Supported direct mappings include KPI, line, bar, horizontal/stacked bar, area, pie/donut, combo, scatter,
+table, point or supported-region maps, and optional string equality filters. Supported formatting is copied
+only when nao has an exact equivalent. Date-range filters, pivot flattening, layout changes, required/default
+filter behavior, and reusable-object inlining are reported as approximations or unsupported behavior. Funnel,
+gauge, progress, sankey, drill-through, click actions, navigation, custom JavaScript, subscriptions, and alerts
+are skipped unless an explicit supported approximation is accepted.
+
+Migration reports are `complete`, `partial`, or `failed`. A report is `partial` whenever an item, interaction,
+format, filter behavior, or reusable semantic definition was skipped, approximated, or not verified. A
+successful query comparison does not claim pixel-identical rendering.
+
+### Fixture troubleshooting
+
+- `authentication`: confirm `METABASE_API_KEY` came from the current fixture reset and restart the backend.
+- `missing_tool` or an empty generated tool folder: confirm the pinned MCP package can run with `npx`, then
+  reconnect the Metabase MCP server. Restart a development backend after changing MCP configuration.
+- `ambiguous_server`: pass `--server-name` in the CLI or `server_name` to the MCP tool.
+- `ambiguous database`: identify the nao database explicitly; do not edit Metabase IDs.
+- Missing `data.native_form.query`: confirm the fixture uses the pinned Metabase/MCP versions; MBQL migration
+  requires SQL compiled by Metabase.
+- Category-filter output differs: check dashboard parameter mappings, template-tag names, and
+  `BETA_STORY_FILTERS_ENABLED`. Date ranges, defaults, and required behavior are currently reported rather than
+  preserved.
+- Source and target rows differ: verify the database mapping and run `npm run metabase:verify-data`. Do not
+  rewrite valid source SQL to force a match.
+- A live-story refresh references `query_*`: recreate or update it with the durable warehouse query ID; local
+  result-table IDs are temporary.
+
+### Maintainer visual review
+
+Automated checks validate source values and story configuration, not pixel equivalence. Before approval:
+
+- Compare story titles, descriptions, tab order, reading order, and relative grid widths.
+- Check axes, series, labels, colors, currency/precision, stacking, and data-label visibility.
+- Check table readability and translated conditional formatting.
+- Check map coordinates, labels, and marker sizing.
+- Confirm every unsupported interaction or approximation appears in the report.
+
 ## Project Structure
 
 ```

@@ -33,10 +33,11 @@ export async function executeLiveQuery(
 	chatId: string,
 	queryId: string,
 ): Promise<{ data: unknown[]; columns: string[] }> {
-	const query = await storyQueries.getSqlQueryById(chatId, queryId);
-	if (!query) {
+	const savedQuery = await storyQueries.getSqlQueryById(chatId, queryId);
+	if (!savedQuery) {
 		throw new Error(`Query ${queryId} not found in chat ${chatId}`);
 	}
+	const query = await resolvePassThroughQuery(chatId, savedQuery);
 
 	const projectId = await chatQueries.getChatProjectId(chatId);
 	if (!projectId) {
@@ -76,13 +77,20 @@ export async function refreshStoryData(chatId: string, slug: string): Promise<Re
 	if (Object.keys(sqlQueries).length === 0) {
 		return { queryData: {} };
 	}
+	const refreshQueries = Object.fromEntries(
+		await Promise.all(
+			Object.entries(sqlQueries).map(
+				async ([queryId, query]) => [queryId, await resolvePassThroughQuery(chatId, query)] as const,
+			),
+		),
+	);
 
 	const chat = await chatQueries.getChatInfo(chatId);
 	if (!chat) {
 		throw new Error('Chat project not found');
 	}
 
-	const hasWarehouseQueries = Object.values(sqlQueries).some((query) => !query.adminMode);
+	const hasWarehouseQueries = Object.values(refreshQueries).some((query) => !query.adminMode);
 	const project = hasWarehouseQueries ? await projectQueries.retrieveProjectById(chat.projectId) : null;
 	if (project && !project.path) {
 		throw new Error('Project path not configured');
@@ -91,7 +99,7 @@ export async function refreshStoryData(chatId: string, slug: string): Promise<Re
 	const queryData: Record<string, { data: unknown[]; columns: string[] }> = {};
 
 	await Promise.all(
-		Object.entries(sqlQueries).map(async ([queryId, { sqlQuery, databaseId, adminMode }]) => {
+		Object.entries(refreshQueries).map(async ([queryId, { sqlQuery, databaseId, adminMode }]) => {
 			const effectiveSql = stripSqlFilterBlocks(sqlQuery);
 			if (adminMode) {
 				queryData[queryId] = await executeAppDatabaseSql(chat.projectId, effectiveSql);
@@ -124,6 +132,34 @@ export async function refreshStoryData(chatId: string, slug: string): Promise<Re
 	await storyQueries.upsertStoryDataCache(chatId, slug, queryData);
 
 	return { queryData };
+}
+
+type RefreshQuery = { sqlQuery: string; databaseId?: string; adminMode: boolean };
+
+async function resolvePassThroughQuery(
+	chatId: string,
+	query: RefreshQuery,
+	visitedQueryIds = new Set<string>(),
+): Promise<RefreshQuery> {
+	const referencedQueryId = getPassThroughQueryId(query.sqlQuery);
+	if (!referencedQueryId) {
+		return query;
+	}
+	if (visitedQueryIds.has(referencedQueryId)) {
+		throw new Error(`Cyclic query dependency found at ${referencedQueryId}`);
+	}
+
+	const referencedQuery = await storyQueries.getSqlQueryById(chatId, referencedQueryId);
+	if (!referencedQuery) {
+		throw new Error(`Query ${referencedQueryId} not found in chat ${chatId}`);
+	}
+
+	visitedQueryIds.add(referencedQueryId);
+	return resolvePassThroughQuery(chatId, referencedQuery, visitedQueryIds);
+}
+
+function getPassThroughQueryId(sqlQuery: string): string | null {
+	return /^\s*SELECT\s+\*\s+FROM\s+(query_[a-z0-9_-]+)\s*;?\s*$/i.exec(sqlQuery)?.[1] ?? null;
 }
 
 export interface StoryQueryDataResult {

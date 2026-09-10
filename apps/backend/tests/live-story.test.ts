@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
 	getChatInfo: vi.fn(),
 	getChatProjectId: vi.fn(),
+	getAgentSettings: vi.fn(),
 	getEnvVars: vi.fn(),
 	getLatestVersionByChatAndSlug: vi.fn(),
 	getSqlQueriesFromCode: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock('../src/queries/chat.queries', () => ({
 }));
 
 vi.mock('../src/queries/project.queries', () => ({
+	getAgentSettings: mocks.getAgentSettings,
 	getEnvVars: mocks.getEnvVars,
 	retrieveProjectById: mocks.retrieveProjectById,
 }));
@@ -71,6 +73,7 @@ describe('live story SQL execution', () => {
 			title: 'Chat',
 		});
 		mocks.getChatProjectId.mockResolvedValue('project-1');
+		mocks.getAgentSettings.mockResolvedValue(null);
 		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
 			code: '<table query="query_admin" />',
 			isLiveTextDynamic: false,
@@ -149,8 +152,51 @@ describe('live story SQL execution', () => {
 		expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
 			sql: 'SELECT * FROM orders',
 			nao_project_folder: '/project',
+			enforce_excluded_columns: false,
 			database_id: 'analytics',
 			env_vars: { TOKEN: 'secret' },
+		});
+	});
+
+	it('refreshes pass-through query aliases from their durable warehouse SQL', async () => {
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_story: {
+				sqlQuery: 'SELECT * FROM query_source',
+				databaseId: 'duckdb_local',
+				adminMode: false,
+			},
+		});
+		mocks.getSqlQueryById.mockResolvedValue({
+			sqlQuery: 'SELECT total FROM orders',
+			databaseId: 'analytics',
+			adminMode: false,
+		});
+		mocks.retrieveProjectById.mockResolvedValue({ path: '/project' });
+		mocks.getEnvVars.mockResolvedValue({});
+		const fetchMock = vi.fn().mockResolvedValue({
+			ok: true,
+			json: vi.fn().mockResolvedValue({
+				columns: ['total'],
+				data: [{ total: 42 }],
+			}),
+		});
+		vi.stubGlobal('fetch', fetchMock);
+
+		await expect(refreshStoryData('chat-1', 'orders')).resolves.toEqual({
+			queryData: {
+				query_story: {
+					columns: ['total'],
+					data: [{ total: 42 }],
+				},
+			},
+		});
+
+		expect(mocks.getSqlQueryById).toHaveBeenCalledWith('chat-1', 'query_source');
+		expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+			sql: 'SELECT total FROM orders',
+			nao_project_folder: '/project',
+			enforce_excluded_columns: false,
+			database_id: 'analytics',
 		});
 	});
 

@@ -18,7 +18,9 @@ const runLoadSkill = async (name: string): Promise<{ name: string; body: string 
 
 describe('internal skill registry', () => {
 	it('ships a skill for each file format the tools cannot simply read', () => {
-		expect(internalSkillNames()).toEqual(expect.arrayContaining(['excel-handling', 'pdf-handling']));
+		expect(internalSkillNames()).toEqual(
+			expect.arrayContaining(['excel-handling', 'pdf-handling', 'metabase-dashboard-migration']),
+		);
 	});
 
 	it('gives every skill a name, a description saying when to load it, and a body either way', () => {
@@ -151,5 +153,102 @@ describe('the excel skill', () => {
 	it('names what to ask for when the file is the older .xls format', () => {
 		expect(bodyOf('excel-handling', false)).toMatch(/pre-2007 format/);
 		expect(bodyOf('excel-handling', true)).toContain('xlrd');
+	});
+});
+
+describe('the Metabase dashboard migration skill', () => {
+	it('reads every source card before it writes the target', () => {
+		const body = bodyOf('metabase-dashboard-migration', false);
+
+		expect(body).toMatch(/read the complete dashboard first/i);
+		expect(body).toMatch(/fetch every referenced saved question before creating or updating/i);
+	});
+
+	it('limits the first query path to parameterless native SQL and supported displays', () => {
+		const body = bodyOf('metabase-dashboard-migration', false);
+
+		expect(body).toContain('dataset_query.type');
+		expect(body).toContain('dataset_query.native.query');
+		expect(body).toContain('dataset_query.native.template-tags');
+		expect(body).toMatch(/scalar.*line.*bar.*table/s);
+		expect(body).toMatch(/never infer replacement SQL/i);
+	});
+
+	it('requires source and nao values to match before claiming verification', () => {
+		const body = bodyOf('metabase-dashboard-migration', false);
+
+		expect(body).toMatch(/compare source and target column names, row counts, and values/i);
+		expect(body).toMatch(/never claim visual or numeric equivalence/i);
+	});
+
+	it('keeps story queries refreshable from their original warehouse SQL', () => {
+		const body = bodyOf('metabase-dashboard-migration', false);
+
+		expect(body).toMatch(/query_id.*warehouse execution/i);
+		expect(body).toContain('duckdb_local');
+		expect(body).toMatch(/never embed.*temporary.*query_\*/i);
+	});
+
+	it('preserves supported category wiring and reports date filters as unsupported', () => {
+		const body = bodyOf('metabase-dashboard-migration', false);
+
+		expect(body).toContain('string/=');
+		expect(body).toContain('[[AND c.name = {{category}}]]');
+		expect(body).toContain('{% filter category %} AND c.name IN ({{ filters.category.sql }}) {% endfilter %}');
+		expect(body).toMatch(/date-range dashboard parameters are not currently supported/i);
+		expect(body).toMatch(/do not emit.*date_range/i);
+		expect(body).toMatch(/only to cards whose.*parameterMappings.*target the matching card/i);
+		expect(body).toMatch(/never apply.*unwired card/i);
+		expect(body).toMatch(/unfiltered story.*partial migration.*support is disabled/is);
+	});
+
+	it('compiles GUI-built MBQL through Metabase without inventing SQL', () => {
+		const body = bodyOf('metabase-dashboard-migration', false);
+
+		expect(body).toContain('dataset_query.query');
+		expect(body).toContain('data.native_form.query');
+		expect(body).toMatch(/execute that compiled SQL unchanged/i);
+		expect(body).toMatch(/never recreate SQL from MBQL/i);
+		expect(body).toMatch(/include its original MBQL in the imported item/i);
+	});
+
+	it('requires exact or reviewed reusable-object mappings', () => {
+		const body = bodyOf('metabase-dashboard-migration', false);
+
+		expect(body).toMatch(/reuse an existing nao context table only when.*exact physical table or view/i);
+		expect(body).toMatch(/never infer or write a business metric/i);
+		expect(body).toMatch(/never create a segment or filter from an inferred label/i);
+		expect(body).toMatch(/reused.*inlined.*review_required.*unsupported/s);
+	});
+
+	it('maps supported visualizations and reports unsupported behavior explicitly', () => {
+		const body = bodyOf('metabase-dashboard-migration', false);
+
+		expect(body).toMatch(/bar.*stacked_bar.*stacked_bar_100.*stackable\.stack_type/s);
+		expect(body).toMatch(/row.*horizontal_bar.*horizontal_bar_100/s);
+		expect(body).toMatch(/area.*stacked_area.*stacked_area_100/s);
+		expect(body).toMatch(/pie.*donut.*pie\.show_total/s);
+		expect(body).toMatch(/combo.*mixed.*series_type.*y_axis/s);
+		expect(body).toMatch(/display_map.*points.*scatter_bubble.*choropleth/s);
+		expect(body).toMatch(/range rule.*color-scale.*single-value.*threshold/s);
+		expect(body).toMatch(/skip funnel, gauge, progress, sankey/i);
+	});
+
+	it('creates a partial story without hiding skipped items or duplicating follow-ups', () => {
+		const body = bodyOf('metabase-dashboard-migration', false);
+
+		expect(body).toMatch(/never silently drop/i);
+		expect(body).toMatch(/update or replace only the explicit story/i);
+		expect(body).toMatch(/complete.*partial.*failed/s);
+	});
+
+	it('preserves virtual text, tab order, reading order, and relative grid widths', () => {
+		const body = bodyOf('metabase-dashboard-migration', false);
+
+		expect(body).toContain('visualization_settings.virtual_card.visualization_settings.text');
+		expect(body).toMatch(/source tab in ascending position order/i);
+		expect(body).toMatch(/row and then column/i);
+		expect(body).toMatch(/smallest whole-number ratio/i);
+		expect(body).toMatch(/only approximate Metabase.*fixed layout/i);
 	});
 });
