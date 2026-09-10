@@ -27,7 +27,7 @@ const ALG = 'EdDSA';
 async function main() {
 	const args = parseArgs(process.argv.slice(2));
 	const company = args.get('company') ?? 'Dev Corp';
-	const features = (args.get('features') ?? 'sso,multi-project')
+	const features = (args.get('features') ?? 'sso,multi-project,user-groups')
 		.split(',')
 		.map((s) => s.trim())
 		.filter(Boolean);

@@ -47,6 +47,7 @@ export function GitHubRepoPicker({ open, onOpenChange }: GitHubRepoPickerProps) 
 				queryClient.invalidateQueries({ queryKey: trpc.project.getCurrent.queryKey() });
 				queryClient.invalidateQueries({ queryKey: trpc.organization.getProjects.queryKey() });
 				queryClient.invalidateQueries({ queryKey: trpc.github.getProjectGitInfo.queryKey() });
+				queryClient.invalidateQueries({ queryKey: trpc.userGroup.effectiveAccess.queryKey() });
 				onOpenChange(false);
 				setRepoToReplace(null);
 				setSelected(null);

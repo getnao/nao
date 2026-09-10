@@ -141,6 +141,7 @@ export function AutomationsFeed({
 	items,
 	isLoading,
 	hasAutomations,
+	canCreateAutomation,
 	lastSeenAt = 0,
 	onCancelRun,
 	cancellingRunId,
@@ -148,6 +149,7 @@ export function AutomationsFeed({
 	items: AutomationFeedItem[];
 	isLoading: boolean;
 	hasAutomations: boolean;
+	canCreateAutomation: boolean;
 	lastSeenAt?: number;
 	onCancelRun?: (runId: string) => void;
 	cancellingRunId?: string | null;
@@ -157,7 +159,7 @@ export function AutomationsFeed({
 	}
 
 	if (items.length === 0) {
-		return <FeedEmptyState hasAutomations={hasAutomations} />;
+		return <FeedEmptyState hasAutomations={hasAutomations} canCreateAutomation={canCreateAutomation} />;
 	}
 
 	const separatorIndex = findFirstSeenIndex(items, lastSeenAt);
@@ -904,7 +906,13 @@ function FeedSkeleton() {
 	);
 }
 
-function FeedEmptyState({ hasAutomations }: { hasAutomations: boolean }) {
+function FeedEmptyState({
+	hasAutomations,
+	canCreateAutomation,
+}: {
+	hasAutomations: boolean;
+	canCreateAutomation: boolean;
+}) {
 	return (
 		<div className='flex flex-col items-center justify-center rounded-xl border border-dashed bg-background/40 p-10 text-center'>
 			<Timer className='size-8 text-muted-foreground mb-3' />
@@ -912,7 +920,9 @@ function FeedEmptyState({ hasAutomations }: { hasAutomations: boolean }) {
 			<p className='mt-1 text-sm text-muted-foreground'>
 				{hasAutomations
 					? 'Once your automations run or your live stories refresh, their output will show up here.'
-					: 'Create your first automation or refresh a live story to start seeing activity in this feed.'}
+					: canCreateAutomation
+						? 'Create your first automation or refresh a live story to start seeing activity in this feed.'
+						: 'Automation and live Story activity will appear here.'}
 			</p>
 		</div>
 	);

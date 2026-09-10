@@ -56,6 +56,7 @@ export function Sidebar() {
 	const { isAdmin, isContextAdmin, isViewer } = usePermissions();
 	const isCloud = useIsCloud();
 	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
+	const showAutomations = !isViewer && betaAutomationsEnabled;
 	const { groupBy, filters, setGroupBy, toggleFilter } = useChatViewPreferences();
 
 	const locationPath = useRouterState({ select: (s) => s.location.pathname });
@@ -238,7 +239,7 @@ export function Sidebar() {
 								isCollapsed={effectiveIsCollapsed}
 								onClick={handleNavigateStories}
 							/>
-							{!isViewer && betaAutomationsEnabled && (
+							{showAutomations && (
 								<SidebarMenuButton
 									icon={NewspaperIcon as unknown as LucideIcon}
 									label='Feed'
@@ -262,10 +263,7 @@ export function Sidebar() {
 				/>
 			) : (
 				<>
-					<SidebarAutomationsNav
-						isCollapsed={effectiveIsCollapsed}
-						enabled={!isViewer && betaAutomationsEnabled}
-					/>
+					<SidebarAutomationsNav isCollapsed={effectiveIsCollapsed} enabled={showAutomations} />
 					<SidebarChatHeader
 						isCollapsed={effectiveIsCollapsed}
 						groupBy={groupBy}

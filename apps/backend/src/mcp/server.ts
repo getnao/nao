@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import { getCustomBoundaries, listUserProjects } from '../queries/project.queries';
+import { hasUserGroupFeature } from '../services/user-group-feature-access.service';
 import type { McpEndpointSettings } from '../types/mcp-endpoint';
 import { CHART_DATA_MODE_SERVER_INSTRUCTIONS } from './chart-data-mode';
 import { registerNaoMcpApps } from './embed/ui-resources';
@@ -34,7 +35,8 @@ export async function createMcpServer(
 			instructions: chartDataMode ? DATA_MODE_SERVER_INSTRUCTIONS : BASE_SERVER_INSTRUCTIONS,
 		},
 	);
-	const ctx = { userId, projectId, settings, chartDataMode };
+	const storyCreationEnabled = await hasUserGroupFeature(projectId, userId, 'story-creation');
+	const ctx = { userId, projectId, settings, chartDataMode, storyCreationEnabled };
 
 	if (settings.subAgentModeEnabled) {
 		registerSubAgentTools(server, ctx);

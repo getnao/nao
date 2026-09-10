@@ -1,8 +1,10 @@
-import type {
-	BackgroundModelSettings,
-	MapSettings,
-	McpChartEmbedStoredConfig,
-	McpMapEmbedStoredConfig,
+import {
+	type BackgroundModelSettings,
+	DEFAULT_USER_GROUP_CONFIG,
+	type MapSettings,
+	type McpChartEmbedStoredConfig,
+	type McpMapEmbedStoredConfig,
+	type StoredUserGroupConfig,
 } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
 import type {
@@ -417,6 +419,50 @@ export const projectMember = pgTable(
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [primaryKey({ columns: [t.projectId, t.userId] }), index('project_member_userId_idx').on(t.userId)],
+);
+
+export const userGroup = pgTable(
+	'user_group',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
+		isDefault: boolean('is_default').default(false).notNull(),
+		featureGrants: jsonb('feature_grants')
+			.$type<StoredUserGroupConfig>()
+			.notNull()
+			.default(DEFAULT_USER_GROUP_CONFIG),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		index('user_group_projectId_idx').on(t.projectId),
+		unique('user_group_project_name_unique').on(t.projectId, t.name),
+		uniqueIndex('user_group_project_default_unique')
+			.on(t.projectId)
+			.where(sql`${t.isDefault} = true`),
+	],
+);
+
+export const userGroupMember = pgTable(
+	'user_group_member',
+	{
+		groupId: text('group_id')
+			.notNull()
+			.references(() => userGroup.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.groupId, t.userId] }), index('user_group_member_userId_idx').on(t.userId)],
 );
 
 export const projectLlmConfig = pgTable(

@@ -3,6 +3,7 @@ import { hashPassword } from 'better-auth/crypto';
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
 import { env } from '../src/env';
+import * as projectQueries from '../src/queries/project.queries';
 import { isGithubSsoEnabled } from '../src/services/github';
 
 const ADMIN_EMAIL = 'test@test.test';
@@ -67,13 +68,12 @@ async function seed() {
 			await tx.insert(s.orgMember).values({ orgId: org.id, userId, role: 'admin' }).execute();
 		}
 
-		const [project] = existingProject
-			? [existingProject]
-			: await tx
-					.insert(s.project)
-					.values({ name: PROJECT_NAME, type: 'local', path: PROJECT_PATH, orgId: org.id })
-					.returning()
-					.execute();
+		const project =
+			existingProject ??
+			(await projectQueries.createProject(
+				{ name: PROJECT_NAME, type: 'local', path: PROJECT_PATH, orgId: org.id },
+				tx,
+			));
 
 		const existingProjectMember = await tx.query.projectMember.findFirst({
 			where: (m, { and, eq }) => and(eq(m.projectId, project.id), eq(m.userId, userId)),

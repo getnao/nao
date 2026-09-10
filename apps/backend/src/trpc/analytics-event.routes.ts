@@ -70,7 +70,6 @@ export const analyticsEventRoutes = {
 				ctx.user.id,
 				ctx.userRole,
 			);
-
 			const rows = await analyticsEventQueries.listEventsForAsset({
 				assetType: input.assetType,
 				chatId: input.chatId,

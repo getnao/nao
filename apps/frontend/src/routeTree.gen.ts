@@ -47,6 +47,7 @@ import { Route as SidebarLayoutSettingsOrganizationIndexRouteImport } from './ro
 import { Route as SidebarLayoutStoriesStandaloneStoryIdRouteImport } from './routes/_sidebar-layout.stories.standalone.$storyId'
 import { Route as SidebarLayoutStoriesSharedShareIdRouteImport } from './routes/_sidebar-layout.stories.shared.$shareId'
 import { Route as SidebarLayoutSettingsProjectWhatsappRouteImport } from './routes/_sidebar-layout.settings.project.whatsapp'
+import { Route as SidebarLayoutSettingsProjectUserGroupsRouteImport } from './routes/_sidebar-layout.settings.project.user-groups'
 import { Route as SidebarLayoutSettingsProjectTelegramRouteImport } from './routes/_sidebar-layout.settings.project.telegram'
 import { Route as SidebarLayoutSettingsProjectTeamsRouteImport } from './routes/_sidebar-layout.settings.project.teams'
 import { Route as SidebarLayoutSettingsProjectTeamRouteImport } from './routes/_sidebar-layout.settings.project.team'
@@ -278,6 +279,12 @@ const SidebarLayoutSettingsProjectWhatsappRoute =
     path: '/whatsapp',
     getParentRoute: () => SidebarLayoutSettingsProjectRoute,
   } as any)
+const SidebarLayoutSettingsProjectUserGroupsRoute =
+  SidebarLayoutSettingsProjectUserGroupsRouteImport.update({
+    id: '/user-groups',
+    path: '/user-groups',
+    getParentRoute: () => SidebarLayoutSettingsProjectRoute,
+  } as any)
 const SidebarLayoutSettingsProjectTelegramRoute =
   SidebarLayoutSettingsProjectTelegramRouteImport.update({
     id: '/telegram',
@@ -426,6 +433,7 @@ export interface FileRoutesByFullPath {
   '/settings/project/team': typeof SidebarLayoutSettingsProjectTeamRoute
   '/settings/project/teams': typeof SidebarLayoutSettingsProjectTeamsRoute
   '/settings/project/telegram': typeof SidebarLayoutSettingsProjectTelegramRoute
+  '/settings/project/user-groups': typeof SidebarLayoutSettingsProjectUserGroupsRoute
   '/settings/project/whatsapp': typeof SidebarLayoutSettingsProjectWhatsappRoute
   '/stories/shared/$shareId': typeof SidebarLayoutStoriesSharedShareIdRoute
   '/stories/standalone/$storyId': typeof SidebarLayoutStoriesStandaloneStoryIdRoute
@@ -477,6 +485,7 @@ export interface FileRoutesByTo {
   '/settings/project/team': typeof SidebarLayoutSettingsProjectTeamRoute
   '/settings/project/teams': typeof SidebarLayoutSettingsProjectTeamsRoute
   '/settings/project/telegram': typeof SidebarLayoutSettingsProjectTelegramRoute
+  '/settings/project/user-groups': typeof SidebarLayoutSettingsProjectUserGroupsRoute
   '/settings/project/whatsapp': typeof SidebarLayoutSettingsProjectWhatsappRoute
   '/stories/shared/$shareId': typeof SidebarLayoutStoriesSharedShareIdRoute
   '/stories/standalone/$storyId': typeof SidebarLayoutStoriesStandaloneStoryIdRoute
@@ -535,6 +544,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/project/team': typeof SidebarLayoutSettingsProjectTeamRoute
   '/_sidebar-layout/settings/project/teams': typeof SidebarLayoutSettingsProjectTeamsRoute
   '/_sidebar-layout/settings/project/telegram': typeof SidebarLayoutSettingsProjectTelegramRoute
+  '/_sidebar-layout/settings/project/user-groups': typeof SidebarLayoutSettingsProjectUserGroupsRoute
   '/_sidebar-layout/settings/project/whatsapp': typeof SidebarLayoutSettingsProjectWhatsappRoute
   '/_sidebar-layout/stories/shared/$shareId': typeof SidebarLayoutStoriesSharedShareIdRoute
   '/_sidebar-layout/stories/standalone/$storyId': typeof SidebarLayoutStoriesStandaloneStoryIdRoute
@@ -592,6 +602,7 @@ export interface FileRouteTypes {
     | '/settings/project/team'
     | '/settings/project/teams'
     | '/settings/project/telegram'
+    | '/settings/project/user-groups'
     | '/settings/project/whatsapp'
     | '/stories/shared/$shareId'
     | '/stories/standalone/$storyId'
@@ -643,6 +654,7 @@ export interface FileRouteTypes {
     | '/settings/project/team'
     | '/settings/project/teams'
     | '/settings/project/telegram'
+    | '/settings/project/user-groups'
     | '/settings/project/whatsapp'
     | '/stories/shared/$shareId'
     | '/stories/standalone/$storyId'
@@ -700,6 +712,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/project/team'
     | '/_sidebar-layout/settings/project/teams'
     | '/_sidebar-layout/settings/project/telegram'
+    | '/_sidebar-layout/settings/project/user-groups'
     | '/_sidebar-layout/settings/project/whatsapp'
     | '/_sidebar-layout/stories/shared/$shareId'
     | '/_sidebar-layout/stories/standalone/$storyId'
@@ -989,6 +1002,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutSettingsProjectWhatsappRouteImport
       parentRoute: typeof SidebarLayoutSettingsProjectRoute
     }
+    '/_sidebar-layout/settings/project/user-groups': {
+      id: '/_sidebar-layout/settings/project/user-groups'
+      path: '/user-groups'
+      fullPath: '/settings/project/user-groups'
+      preLoaderRoute: typeof SidebarLayoutSettingsProjectUserGroupsRouteImport
+      parentRoute: typeof SidebarLayoutSettingsProjectRoute
+    }
     '/_sidebar-layout/settings/project/telegram': {
       id: '/_sidebar-layout/settings/project/telegram'
       path: '/telegram'
@@ -1176,6 +1196,7 @@ interface SidebarLayoutSettingsProjectRouteChildren {
   SidebarLayoutSettingsProjectTeamRoute: typeof SidebarLayoutSettingsProjectTeamRoute
   SidebarLayoutSettingsProjectTeamsRoute: typeof SidebarLayoutSettingsProjectTeamsRoute
   SidebarLayoutSettingsProjectTelegramRoute: typeof SidebarLayoutSettingsProjectTelegramRoute
+  SidebarLayoutSettingsProjectUserGroupsRoute: typeof SidebarLayoutSettingsProjectUserGroupsRoute
   SidebarLayoutSettingsProjectWhatsappRoute: typeof SidebarLayoutSettingsProjectWhatsappRoute
   SidebarLayoutSettingsProjectIndexRoute: typeof SidebarLayoutSettingsProjectIndexRoute
 }
@@ -1205,6 +1226,8 @@ const SidebarLayoutSettingsProjectRouteChildren: SidebarLayoutSettingsProjectRou
       SidebarLayoutSettingsProjectTeamsRoute,
     SidebarLayoutSettingsProjectTelegramRoute:
       SidebarLayoutSettingsProjectTelegramRoute,
+    SidebarLayoutSettingsProjectUserGroupsRoute:
+      SidebarLayoutSettingsProjectUserGroupsRoute,
     SidebarLayoutSettingsProjectWhatsappRoute:
       SidebarLayoutSettingsProjectWhatsappRoute,
     SidebarLayoutSettingsProjectIndexRoute:

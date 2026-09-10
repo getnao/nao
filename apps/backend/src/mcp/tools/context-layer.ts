@@ -146,63 +146,65 @@ function registerExecuteSql(server: McpServer, ctx: McpContext): void {
 }
 
 function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
-	registerMcpTool(server, ctx, {
-		name: 'create_story',
-		title: 'Create Story',
-		description: CREATE_STORY_DESCRIPTION,
-		inputSchema: {
-			title: z.string().describe('Story title.'),
-			content: z
-				.string()
-				.optional()
-				.describe(
-					'Full nao story markdown (with `<chart>`, `<table>`, `<grid>`, `<tab>` blocks). Omit to start from a title-only stub.',
-				),
-			query_data: z
-				.record(
-					z.string(),
-					z.object({ columns: z.array(z.string()), data: z.array(z.record(z.string(), z.unknown())) }),
-				)
-				.optional()
-				.describe(
-					"Pre-fetched rows keyed by `query_id`, used to seed the story's embedded `<chart>` / `<table>` blocks. " +
-						'Provide entries for `query_id`s coming from `ask_nao`; `query_id`s from MCP `execute_sql` are already cached.',
-				),
-			chat_id: z
-				.string()
-				.optional()
-				.describe(
-					'Attach the story to a chat (e.g. `chatId` from `ask_nao`). Omit for a standalone story. The chat must belong to the calling user.',
-				),
-		},
-		outputSchema: STORY_OUTPUT_SCHEMA,
-		_meta: uiToolMeta(STORY_APP_URI),
-		handler: async ({ title, content, query_data, chat_id }) => {
-			const slug = generateSlug(title);
-			const code = content ?? `# ${title}\n`;
-			const story = chat_id
-				? await createChatLinkedStory({ chatId: chat_id, slug, title, code, ctx })
-				: await createStandaloneStory({ slug, title, code, ctx });
+	if (ctx.storyCreationEnabled) {
+		registerMcpTool(server, ctx, {
+			name: 'create_story',
+			title: 'Create Story',
+			description: CREATE_STORY_DESCRIPTION,
+			inputSchema: {
+				title: z.string().describe('Story title.'),
+				content: z
+					.string()
+					.optional()
+					.describe(
+						'Full nao story markdown (with `<chart>`, `<table>`, `<grid>`, `<tab>` blocks). Omit to start from a title-only stub.',
+					),
+				query_data: z
+					.record(
+						z.string(),
+						z.object({ columns: z.array(z.string()), data: z.array(z.record(z.string(), z.unknown())) }),
+					)
+					.optional()
+					.describe(
+						"Pre-fetched rows keyed by `query_id`, used to seed the story's embedded `<chart>` / `<table>` blocks. " +
+							'Provide entries for `query_id`s coming from `ask_nao`; `query_id`s from MCP `execute_sql` are already cached.',
+					),
+				chat_id: z
+					.string()
+					.optional()
+					.describe(
+						'Attach the story to a chat (e.g. `chatId` from `ask_nao`). Omit for a standalone story. The chat must belong to the calling user.',
+					),
+			},
+			outputSchema: STORY_OUTPUT_SCHEMA,
+			_meta: uiToolMeta(STORY_APP_URI),
+			handler: async ({ title, content, query_data, chat_id }) => {
+				const slug = generateSlug(title);
+				const code = content ?? `# ${title}\n`;
+				const story = chat_id
+					? await createChatLinkedStory({ chatId: chat_id, slug, title, code, ctx })
+					: await createStandaloneStory({ slug, title, code, ctx });
 
-			if ('error' in story) {
-				return { content: [{ type: 'text' as const, text: `Error: ${story.error}` }], isError: true };
-			}
+				if ('error' in story) {
+					return { content: [{ type: 'text' as const, text: `Error: ${story.error}` }], isError: true };
+				}
 
-			await cacheStoryQueryData(story.id, code, query_data, chat_id, ctx);
+				await cacheStoryQueryData(story.id, code, query_data, chat_id, ctx);
 
-			const storyForUrl = { id: story.id, slug: story.slug, chatId: story.chatId };
-			const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
-			const output: StoryMcpToolPayload = {
-				embedUrl,
-				id: story.id,
-				title: story.title,
-				createdAt: story.createdAt,
-				url: storyUrl(storyForUrl),
-				chatUrl: storyChatUrl(storyForUrl),
-			};
-			return buildStoryMcpResultWithSandbox(output, ctx, code, story.chatId);
-		},
-	});
+				const storyForUrl = { id: story.id, slug: story.slug, chatId: story.chatId };
+				const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
+				const output: StoryMcpToolPayload = {
+					embedUrl,
+					id: story.id,
+					title: story.title,
+					createdAt: story.createdAt,
+					url: storyUrl(storyForUrl),
+					chatUrl: storyChatUrl(storyForUrl),
+				};
+				return buildStoryMcpResultWithSandbox(output, ctx, code, story.chatId);
+			},
+		});
+	}
 
 	registerMcpTool(server, ctx, {
 		name: 'update_story',

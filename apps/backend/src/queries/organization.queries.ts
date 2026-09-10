@@ -228,11 +228,10 @@ export const initializeDefaultOrganizationForFirstUser = async (userId: string):
 
 			if (!existingProject) {
 				const projectName = projectPath.split('/').pop() || 'Default Project';
-				const [project] = await tx
-					.insert(s.project)
-					.values({ name: projectName, type: 'local', path: projectPath, orgId: org.id })
-					.returning()
-					.execute();
+				const project = await projectQueries.createProject(
+					{ name: projectName, type: 'local', path: projectPath, orgId: org.id },
+					tx,
+				);
 
 				await tx.insert(s.projectMember).values({ projectId: project.id, userId, role: 'admin' }).execute();
 			}

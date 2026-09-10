@@ -758,6 +758,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		description: 'Manage the members of your project.',
 		keywords: ['users', 'invite', 'add member', 'roles', 'project members'],
 	},
+	{
+		page: '/settings/project/user-groups',
+		pageLabel: 'User Groups',
+		title: 'User Groups',
+		description: 'Assign project users to groups and configure which features each group can use.',
+		keywords: ['users', 'groups', 'permissions', 'features', 'enterprise'],
+		adminOnly: true,
+	},
 
 	// ── Usage & Costs ────────────────────────────────────────
 	{

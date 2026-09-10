@@ -51,6 +51,7 @@ export function GitLabRepoPicker({ open, onOpenChange }: GitLabRepoPickerProps) 
 				queryClient.invalidateQueries({ queryKey: trpc.project.getCurrent.queryKey() });
 				queryClient.invalidateQueries({ queryKey: trpc.organization.getProjects.queryKey() });
 				queryClient.invalidateQueries({ queryKey: trpc.gitlab.getProjectGitInfo.queryKey() });
+				queryClient.invalidateQueries({ queryKey: trpc.userGroup.effectiveAccess.queryKey() });
 				onOpenChange(false);
 				setProjectToReplace(null);
 				setSelected(null);
