@@ -125,11 +125,23 @@ export const MetabaseDashboardSchema = z.object({
 
 export type MetabaseDashboard = z.infer<typeof MetabaseDashboardSchema>;
 
+export const MetabaseExecutionParametersSchema = z.array(
+	z.looseObject({
+		id: z.string().min(1),
+		type: z.string().nullable().optional(),
+		value: z.unknown().optional(),
+		target: z.unknown().nullable().optional(),
+	}),
+);
+
+export type MetabaseExecutionParameters = z.infer<typeof MetabaseExecutionParametersSchema>;
+
 export const MetabaseExecutableQuerySchema = z.discriminatedUnion('sourceType', [
 	z.object({
 		sourceType: z.literal('native'),
 		databaseId: MetabaseNumericIdSchema,
 		nativeSql: z.string().min(1),
+		boundParameters: z.array(z.unknown()),
 		templateParameters: UnknownRecordSchema,
 		resultMetadata: z.array(z.unknown()),
 	}),
@@ -288,12 +300,24 @@ export const MigrationReportSchema = z
 			report.status === 'complete' &&
 			(report.skippedItems.length > 0 ||
 				report.approximations.length > 0 ||
-				report.verificationResults.some((result) => !result.matched))
+				report.verificationResults.some((result) => !result.matched) ||
+				report.importedItems.some(
+					(item) =>
+						!report.verificationResults.some(
+							(result) =>
+								result.sourceCardId === item.sourceCardId &&
+								result.targetQueryId === item.targetQueryId &&
+								result.matched,
+						),
+				) ||
+				report.reusableObjectMappings.some(
+					(mapping) => mapping.mode === 'review_required' || mapping.mode === 'unsupported',
+				))
 		) {
 			context.addIssue({
 				code: 'custom',
 				path: ['status'],
-				message: 'A complete migration cannot contain skipped, approximated, or mismatched items.',
+				message: 'A complete migration requires verified items and cannot contain unresolved mappings.',
 			});
 		}
 	});

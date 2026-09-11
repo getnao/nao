@@ -86,6 +86,26 @@ describe('story folder target service', () => {
 			id: 'folder-2',
 		});
 		expect(dependencies.createFolder).toHaveBeenCalledTimes(2);
+		expect(dependencies.createFolder).toHaveBeenLastCalledWith({
+			ownerId: 'user-1',
+			projectId: 'project-1',
+			name: 'Ecommerce',
+			parentId: 'private-root',
+		});
+	});
+
+	it('requires an explicit null parent to create a public top-level folder', async () => {
+		const dependencies = createDependencies();
+		const service = new StoryFolderTargetService(dependencies);
+
+		await service.createFolder(context, { name: 'Public', parentId: null });
+		expect(dependencies.ensurePrivateRoot).not.toHaveBeenCalled();
+		expect(dependencies.createFolder).toHaveBeenCalledWith({
+			ownerId: 'user-1',
+			projectId: 'project-1',
+			name: 'Public',
+			parentId: null,
+		});
 	});
 
 	it('does not expose cross-project or foreign private parent folders', async () => {

@@ -1,3 +1,7 @@
+import type { UserRole } from '@nao/shared/types';
+
+import { db, type DBTransaction } from '../db/db';
+import * as projectQueries from '../queries/project.queries';
 import type { UserStoryRow } from '../queries/story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
@@ -9,7 +13,7 @@ export type StoryTargetContext = {
 
 export class StoryTargetError extends Error {
 	constructor(
-		public readonly code: 'conflict' | 'not_found',
+		public readonly code: 'conflict' | 'forbidden' | 'invalid_input' | 'not_found',
 		message: string,
 	) {
 		super(message);
@@ -18,8 +22,12 @@ export class StoryTargetError extends Error {
 }
 
 export type StoryTargetDependencies = {
+	getUserRoleInProject(projectId: string, userId: string): Promise<UserRole | null>;
+	runInTransaction<T>(operation: (transaction: DBTransaction) => Promise<T>): Promise<T>;
 	createStandaloneStory: typeof storyQueries.createStandaloneStory;
 	saveStoryInPrivateRoot: typeof storyFolderQueries.saveStoryInPrivateRoot;
+	getFolderById: typeof storyFolderQueries.getFolderById;
+	moveStoryToFolder: typeof storyFolderQueries.moveStoryToFolder;
 	getStoryByIdForUser: typeof storyQueries.getStoryByIdForUser;
 	getStoryProjectId: typeof storyQueries.getStoryProjectId;
 	renameStory: typeof storyQueries.renameStory;
@@ -30,8 +38,12 @@ export type StoryTargetDependencies = {
 };
 
 const defaultDependencies: StoryTargetDependencies = {
+	getUserRoleInProject: projectQueries.getUserRoleInProject,
+	runInTransaction: (operation) => db.transaction(operation),
 	createStandaloneStory: storyQueries.createStandaloneStory,
 	saveStoryInPrivateRoot: storyFolderQueries.saveStoryInPrivateRoot,
+	getFolderById: storyFolderQueries.getFolderById,
+	moveStoryToFolder: storyFolderQueries.moveStoryToFolder,
 	getStoryByIdForUser: storyQueries.getStoryByIdForUser,
 	getStoryProjectId: storyQueries.getStoryProjectId,
 	renameStory: storyQueries.renameStory,
@@ -46,26 +58,57 @@ export class StoryTargetService {
 
 	async createStandaloneStory(
 		context: StoryTargetContext,
-		input: { title: string; code?: string },
+		input: { title: string; code?: string; folderId?: string | null },
 	): Promise<{ id: string; title: string; slug: string; chatId: null; createdAt: Date }> {
+		await this.requireCanSend(context);
 		const slug = generateSlug(input.title);
-		const story = await this.dependencies.createStandaloneStory({
-			userId: context.userId,
-			projectId: context.projectId,
-			slug,
-			title: input.title,
-			code: input.code ?? `# ${input.title}\n`,
-			source: 'user',
-		});
-		if (!story) {
-			throw new StoryTargetError(
-				'conflict',
-				`A story with title "${input.title}" already exists. Pick a different title or update it by ID.`,
-			);
-		}
+		return this.dependencies.runInTransaction(async (transaction) => {
+			if (input.folderId) {
+				const folder = await this.dependencies.getFolderById(input.folderId, transaction);
+				if (
+					!folder ||
+					folder.projectId !== context.projectId ||
+					(folder.visibility === 'private' && folder.ownerId !== context.userId)
+				) {
+					throw new StoryTargetError('not_found', 'Target folder not found.');
+				}
+			}
 
-		await this.dependencies.saveStoryInPrivateRoot(context.userId, context.projectId, story.id);
-		return { ...story, chatId: null };
+			const story = await this.dependencies.createStandaloneStory(
+				{
+					userId: context.userId,
+					projectId: context.projectId,
+					slug,
+					title: input.title,
+					code: input.code ?? `# ${input.title}\n`,
+					source: 'user',
+				},
+				transaction,
+			);
+			if (!story) {
+				throw new StoryTargetError(
+					'conflict',
+					`A story with title "${input.title}" already exists. Pick a different title or update it by ID.`,
+				);
+			}
+
+			if (input.folderId === undefined) {
+				await this.dependencies.saveStoryInPrivateRoot(
+					context.userId,
+					context.projectId,
+					story.id,
+					transaction,
+				);
+			} else {
+				await this.dependencies.moveStoryToFolder(
+					story.id,
+					input.folderId,
+					{ storyOwnerId: context.userId, projectId: context.projectId },
+					transaction,
+				);
+			}
+			return { ...story, chatId: null };
+		});
 	}
 
 	async updateStoryById(
@@ -76,6 +119,10 @@ export class StoryTargetService {
 		code: string;
 		updated: { id: string; title: string; updatedAt: Date };
 	}> {
+		await this.requireCanSend(context);
+		if (input.title === undefined && input.code === undefined) {
+			throw new StoryTargetError('invalid_input', 'Provide a title or story content to update.');
+		}
 		const story = await this.dependencies.getStoryByIdForUser(input.storyId, context.userId);
 		if (!story || (await this.dependencies.getStoryProjectId(input.storyId)) !== context.projectId) {
 			throw new StoryTargetError('not_found', `Story not found: ${input.storyId}`);
@@ -131,6 +178,13 @@ export class StoryTargetService {
 			throw new Error(`Failed to retrieve updated story: ${context.userId}/${story.slug}`);
 		}
 		return { id: updated.id, title: updated.title, updatedAt: updated.updatedAt };
+	}
+
+	private async requireCanSend(context: StoryTargetContext): Promise<void> {
+		const role = await this.dependencies.getUserRoleInProject(context.projectId, context.userId);
+		if (!role || role === 'viewer') {
+			throw new StoryTargetError('forbidden', 'Viewers cannot modify stories.');
+		}
 	}
 }
 

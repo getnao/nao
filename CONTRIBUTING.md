@@ -85,7 +85,8 @@ This will start the project in development mode. It will start the frontend and 
 ### Local Metabase migration fixture
 
 The isolated fixture runs Metabase at `http://localhost:3001` and its analytics PostgreSQL database at
-`localhost:5434`. It does not modify the normal development Compose stack or the example context.
+`localhost:5434`. Both published ports bind to `127.0.0.1` and use local-only fixture credentials. The stack does
+not modify the normal development Compose stack or the example context.
 
 ```bash
 npm run metabase:start
@@ -93,9 +94,44 @@ npm run metabase:verify-data
 npm run metabase:bootstrap
 ```
 
+`metabase:start` waits up to five minutes for every service to become healthy and exits nonzero on timeout.
+Bootstrap separately waits up to three minutes for the Metabase API and schema metadata, and each API request
+times out after 30 seconds. Override the bootstrap bounds with
+`METABASE_API_STARTUP_TIMEOUT_SECONDS`, `METABASE_SCHEMA_TIMEOUT_SECONDS`, and
+`METABASE_REQUEST_TIMEOUT_SECONDS`.
+
+Compose derives the project name, volumes, and container names from the checkout directory. This isolates
+checkouts with different directory names. Checkouts with the same directory name must set a distinct project
+name in `.env` before running any fixture command:
+
+```bash
+COMPOSE_PROJECT_NAME=nao-metabase-feature-a
+```
+
+Keep the same value for start, stop, reset, bootstrap, and verification. Changing it selects a different
+fixture instance and different volumes.
+
 The first bootstrap prints a `METABASE_API_KEY`. Copy it to `.env`; it is not stored in the repository and
 Metabase will not display it again. If it is lost, run `npm run metabase:reset` and bootstrap the clean fixture
 again. Bootstrap is idempotent, so normal reruns update the named fixture assets without duplicating them.
+
+The compatible Metabase MCP source currently exists only at commit
+`0465d06448b3fef1b3dadac67fe25201d0bb6de1`; package version `1.2.5` is not published. For local development,
+build that revision in the ignored repo-local path used by the fixture:
+
+```bash
+git clone https://github.com/getnao/nao-mcp-servers.git \
+  docker/metabase/context/agent/mcps/metabase-mcp-server
+git -C docker/metabase/context/agent/mcps/metabase-mcp-server \
+  checkout 0465d06448b3fef1b3dadac67fe25201d0bb6de1
+npm install --prefix \
+  docker/metabase/context/agent/mcps/metabase-mcp-server/nao-metabase-mcp-server
+npm run --prefix \
+  docker/metabase/context/agent/mcps/metabase-mcp-server/nao-metabase-mcp-server build
+```
+
+This development build is intentionally untracked. Replace it with
+`npx -y @getnao/metabase-mcp-server@1.2.5` only after that exact version is published and verified.
 
 Use the fixture context when starting nao:
 
@@ -134,21 +170,33 @@ npm run metabase:bootstrap
 
 The reset creates a new API key. Replace the old `METABASE_API_KEY` before restarting the nao backend.
 
-The bootstrap creates five targeted dashboards plus one combined acceptance dashboard:
+The bootstrap creates five targeted dashboards plus one combined acceptance dashboard. The acceptance dashboard
+contains 30 unique cards:
 
-- `Native SQL Basics`: native SQL, tabs, text, scalar, line, bar, table, and an unsupported funnel.
-- `Layout and Tabs`: multiple tabs, source rows, mixed widths, text, and visual cards.
-- `Filters and Templates`: supported category wiring plus unsupported date/default behavior for partial-report checks.
-- `GUI Query and Reusable Objects`: MBQL, model, metric, and segment references.
-- `Visualization Breadth`: pie, donut, stacked area, combo, scatter, map, formatting, and horizontal bars.
-- `Full Migration Acceptance`: all 20 unique fixture cards grouped into four tabs with filter wiring preserved.
+- `Native SQL Basics`: 5 cards covering scalar, line, bar, table, and unsupported funnel output.
+- `Layout and Tabs`: reuses those 5 cards across multiple tabs, source rows, mixed widths, and text.
+- `Filters and Templates`: 3 cards covering selective category/date wiring and an unwired control.
+- `GUI Query and Reusable Objects`: 4 cards covering MBQL, model, metric, and segment references, backed by one
+  additional reusable source model that is not placed on the acceptance dashboard.
+- `Visualization Breadth`: 18 cards covering pie, donut, stacked and normalized area, KPI comparison, combo,
+  gauge, progress, scatter, map, formatted table, vertical and horizontal stacking, waterfall, sankey, pivot,
+  box plot, and object detail.
+- `Full Migration Acceptance`: all 30 unique cards grouped into four tabs with filter wiring preserved.
 
 ### Migration CLI primitives
 
-Run the commands from `cli/` against a running nao backend. Source commands are read-only.
+Run the commands from `cli/` against a running nao backend. Source commands are read-only. Every Metabase and
+story command accepts `--project-id`; `NAO_PROJECT_ID` provides the same selection for a command sequence.
+Multi-project cloud accounts must select a project explicitly.
+
+The first interactive command can prompt for credentials and store a session cookie. `--json` is
+noninteractive and keeps stdout machine-readable: it uses the stored cookie, or `NAO_USERNAME` and
+`NAO_PASSWORD` supplied by a secret manager. Do not pass passwords as command-line arguments or inline them in
+shell history.
 
 ```bash
 cd cli
+export NAO_PROJECT_ID="<project-id>"
 BACKEND_URL=http://localhost:5005 uv run nao metabase collections --json
 BACKEND_URL=http://localhost:5005 uv run nao metabase dashboards --collection-id 6 --json
 BACKEND_URL=http://localhost:5005 uv run nao metabase dashboard "Visualization Breadth" --json
@@ -166,6 +214,7 @@ Create and update a story explicitly:
 printf '# Fixture acceptance\n' > /tmp/metabase-story.md
 BACKEND_URL=http://localhost:5005 uv run nao stories folders --json
 BACKEND_URL=http://localhost:5005 uv run nao stories create-folder "Metabase imports" --json
+BACKEND_URL=http://localhost:5005 uv run nao stories create-folder "Shared Metabase imports" --public-root --json
 BACKEND_URL=http://localhost:5005 uv run nao stories create \
   --title "Fixture acceptance" \
   --content-file /tmp/metabase-story.md \
@@ -177,6 +226,12 @@ BACKEND_URL=http://localhost:5005 uv run nao stories update <story-id> \
   --json
 BACKEND_URL=http://localhost:5005 uv run nao stories move <story-id> --folder-id <folder-id> --json
 ```
+
+Creating a folder without `--parent-id` puts it under the caller's private root. Use `--public-root` only for a
+deliberate project-visible top-level folder. New stories also start in the caller's private root when no folder
+is supplied. Moving a story without `--folder-id` is an explicit move to the public root. Folder listings expose
+the destination's `visibility` and `ownerId`; private folders are visible only to their owner. Viewers cannot run
+migration operations, create folders, or modify stories.
 
 The story UUID returned by `create` is required by `update` and `move`. Titles are never used to guess an
 existing target.
@@ -193,12 +248,14 @@ get_metabase_card {"card_id": 60}
 compile_metabase_card_query {"card_id": 60}
 execute_metabase_card {"card_id": 60}
 list_story_folders {}
-create_story_folder {"name": "Metabase imports"}
+create_story_folder {"name": "Private Metabase imports"}
+create_story_folder {"name": "Shared Metabase imports", "parent_id": null}
 move_story_to_folder {"story_id": "<story-uuid>", "folder_id": "<folder-uuid>"}
 ```
 
 Use IDs returned by your own fixture. Use the existing `create_story` and `update_story` tools for story
-content, then `move_story_to_folder` for placement.
+content, then `move_story_to_folder` for placement. Omitting `parent_id` creates under the private root; explicit
+`null` selects the public root.
 
 ### Agent-driven migration
 
@@ -212,7 +269,7 @@ and finish with the complete migration report. Do not write to Metabase.
 ```
 
 For a follow-up, include the returned story UUID and say `update this story`; do not ask for another import by
-title. Run the other four fixture dashboards the same way to cover native SQL, layouts, filters, MBQL, and
+title. Run the other five fixture dashboards the same way to cover native SQL, layouts, filters, MBQL, and
 reusable objects.
 
 Database IDs are not assumed to match between Metabase and nao. The migration maps one source database to one
@@ -233,8 +290,15 @@ successful query comparison does not claim pixel-identical rendering.
 ### Fixture troubleshooting
 
 - `authentication`: confirm `METABASE_API_KEY` came from the current fixture reset and restart the backend.
-- `missing_tool` or an empty generated tool folder: confirm the pinned MCP package can run with `npx`, then
-  reconnect the Metabase MCP server. Restart a development backend after changing MCP configuration.
+- `missing_tool` or an empty generated tool folder: confirm the pinned repo-local MCP build above exists, then
+  reconnect the Metabase MCP server. Restart a development backend after rebuilding or changing MCP
+  configuration.
+- Compose reports an unhealthy service: inspect that service before retrying; `metabase:start` already performs
+  a bounded health wait.
+- An unexpected empty fixture: confirm every command is using the same `COMPOSE_PROJECT_NAME`.
+- Multiple projects are available: pass `--project-id` or set `NAO_PROJECT_ID`.
+- JSON automation requests credentials: authenticate once interactively or provide `NAO_USERNAME` and
+  `NAO_PASSWORD` through a secret manager; `--json` never opens a prompt.
 - `ambiguous_server`: pass `--server-name` in the CLI or `server_name` to the MCP tool.
 - `ambiguous database`: identify the nao database explicitly; do not edit Metabase IDs.
 - Missing `data.native_form.query`: confirm the fixture uses the pinned Metabase/MCP versions; MBQL migration

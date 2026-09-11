@@ -16,6 +16,7 @@ import {
 	type MetabaseDatasetQuery,
 	type MetabaseExecutableQuery,
 	MetabaseExecutableQuerySchema,
+	type MetabaseExecutionParameters,
 	type MetabaseParameterMapping,
 } from '@nao/shared/metabase-migration';
 
@@ -105,16 +106,35 @@ export class MetabaseMigrationSourceService {
 	async compileCard(
 		context: MetabaseMigrationSourceContext,
 		cardId: number,
-		options: { serverName?: string; parameters?: Record<string, unknown> } = {},
+		options: { serverName?: string; parameters?: MetabaseExecutionParameters } = {},
 	): Promise<MetabaseExecutableQuery> {
 		const card = await this.getCard(context, cardId, options.serverName);
 		if (card.datasetQuery.type === 'native') {
+			const templateParameters = card.datasetQuery.native?.['template-tags'] ?? {};
+			let nativeSql: string | null | undefined = card.datasetQuery.native?.query;
+			let boundParameters: unknown[] = [];
+			if (Object.keys(templateParameters).length > 0) {
+				const raw = await this.call(context, options.serverName, 'metabase-execute-question', {
+					questionId: cardId,
+					parameters: options.parameters ?? [],
+				});
+				const compiled = extractCompiledQuery(raw);
+				if (!compiled) {
+					throw new MetabaseMigrationSourceError(
+						'unsupported_payload',
+						`Metabase did not return compiled SQL for parameterized native card ${cardId}.`,
+					);
+				}
+				nativeSql = compiled.sql;
+				boundParameters = compiled.parameters;
+			}
 			return normalizePayload(() =>
 				MetabaseExecutableQuerySchema.parse({
 					sourceType: 'native',
 					databaseId: card.databaseId,
-					nativeSql: card.datasetQuery.native?.query,
-					templateParameters: card.datasetQuery.native?.['template-tags'] ?? {},
+					nativeSql,
+					boundParameters,
+					templateParameters,
 					resultMetadata: card.resultMetadata,
 				}),
 			);
@@ -122,9 +142,9 @@ export class MetabaseMigrationSourceService {
 
 		const raw = await this.call(context, options.serverName, 'metabase-execute-question', {
 			questionId: cardId,
-			parameters: options.parameters ?? {},
+			parameters: options.parameters ?? [],
 		});
-		const compiledSql = extractCompiledSql(raw);
+		const compiledSql = extractCompiledQuery(raw)?.sql;
 		if (!compiledSql) {
 			throw new MetabaseMigrationSourceError(
 				'unsupported_payload',
@@ -146,11 +166,11 @@ export class MetabaseMigrationSourceService {
 	async executeCard(
 		context: MetabaseMigrationSourceContext,
 		cardId: number,
-		options: { serverName?: string; parameters?: Record<string, unknown> } = {},
+		options: { serverName?: string; parameters?: MetabaseExecutionParameters } = {},
 	): Promise<MetabaseCardResult> {
 		const raw = await this.call(context, options.serverName, 'metabase-execute-question', {
 			questionId: cardId,
-			parameters: options.parameters ?? {},
+			parameters: options.parameters ?? [],
 		});
 		return normalizePayload(() => normalizeCardResult(raw, cardId));
 	}
@@ -507,7 +527,7 @@ function normalizeCardResult(value: unknown, cardId: number): MetabaseCardResult
 	});
 }
 
-function extractCompiledSql(value: unknown): string | null {
+function extractCompiledQuery(value: unknown): { sql: string; parameters: unknown[] } | null {
 	const raw = asRecord(value);
 	const data = isRecord(raw.data) ? raw.data : raw;
 	const nativeForm = isRecord(data.native_form)
@@ -516,7 +536,13 @@ function extractCompiledSql(value: unknown): string | null {
 			? data.nativeForm
 			: null;
 	const query = nativeForm?.query ?? nativeForm?.sql;
-	return typeof query === 'string' && query.trim() ? query : null;
+	if (typeof query !== 'string' || !query.trim()) {
+		return null;
+	}
+	return {
+		sql: query,
+		parameters: Array.isArray(nativeForm?.params) ? nativeForm.params : [],
+	};
 }
 
 function parseMcpOutput(value: unknown): unknown {

@@ -1,12 +1,15 @@
+import { MetabaseExecutionParametersSchema } from '@nao/shared/metabase-migration';
 import { z } from 'zod/v4';
 
 import type { App } from '../app';
-import { noProjectMessage } from '../env';
+import { isCloud, noProjectMessage } from '../env';
 import { authMiddleware } from '../middleware/auth';
+import * as projectQueries from '../queries/project.queries';
 import { MetabaseMigrationSourceError, metabaseMigrationSourceService } from '../services/metabase-migration-source';
 import { StoryFolderTargetError, storyFolderTargetService } from '../services/story-folder-target';
 import { StoryTargetError, storyTargetService } from '../services/story-target';
 import { HandlerError } from '../utils/error';
+import { convertHeaders } from '../utils/utils';
 
 const serverQuerySchema = z.object({
 	server_name: z.string().trim().min(1).optional(),
@@ -30,11 +33,12 @@ const storyIdParamsSchema = z.object({
 
 const cardBodySchema = z.object({
 	server_name: z.string().trim().min(1).optional(),
-	parameters: z.record(z.string(), z.unknown()).optional(),
+	parameters: MetabaseExecutionParametersSchema.optional(),
 });
 
-export const dashboardMigrationRoutes = async (app: App) => {
+export const metabaseMigrationRoutes = async (app: App) => {
 	app.addHook('preHandler', authMiddleware);
+	app.addHook('preHandler', requireMigrationAccess);
 
 	app.get('/collections', { schema: { querystring: serverQuerySchema } }, async (request) => {
 		const context = migrationContext(request);
@@ -151,17 +155,9 @@ export const dashboardMigrationRoutes = async (app: App) => {
 				storyTargetService.createStandaloneStory(context, {
 					title: request.body.title,
 					code: request.body.code,
+					folderId: request.body.folder_id,
 				}),
 			);
-			const folderId = request.body.folder_id;
-			if (folderId !== undefined) {
-				await run(() =>
-					storyFolderTargetService.moveStory(context, {
-						storyId: story.id,
-						folderId,
-					}),
-				);
-			}
 			return { story };
 		},
 	);
@@ -171,10 +167,14 @@ export const dashboardMigrationRoutes = async (app: App) => {
 		{
 			schema: {
 				params: storyIdParamsSchema,
-				body: z.object({
-					title: z.string().trim().min(1).max(255).optional(),
-					code: z.string().optional(),
-				}),
+				body: z
+					.object({
+						title: z.string().trim().min(1).max(255).optional(),
+						code: z.string().optional(),
+					})
+					.refine((body) => body.title !== undefined || body.code !== undefined, {
+						message: 'Provide a title or story content to update.',
+					}),
 			},
 		},
 		async (request) => {
@@ -209,6 +209,32 @@ export const dashboardMigrationRoutes = async (app: App) => {
 		},
 	);
 };
+
+async function requireMigrationAccess(request: {
+	headers: Record<string, string | string[] | undefined>;
+	user: { id: string };
+	project: { id: string } | null;
+}): Promise<void> {
+	const context = migrationContext(request);
+	if (isCloud) {
+		const projects = await projectQueries.listUserProjects(request.user.id);
+		const selectedProjectId = convertHeaders(request.headers).get('x-nao-project-id');
+		if (selectedProjectId && !projects.some((project) => project.id === selectedProjectId)) {
+			throw new HandlerError('FORBIDDEN', 'The selected project is not available to this user.');
+		}
+		if (!selectedProjectId && projects.length > 1) {
+			throw new HandlerError(
+				'BAD_REQUEST',
+				'Multiple projects are available. Select one with the x-nao-project-id header.',
+			);
+		}
+	}
+
+	const role = await projectQueries.getUserRoleInProject(context.projectId, context.userId);
+	if (!role || role === 'viewer') {
+		throw new HandlerError('FORBIDDEN', 'Viewers cannot access Metabase migration operations.');
+	}
+}
 
 function migrationContext(request: { user: { id: string }; project: { id: string } | null }) {
 	if (!request.project) {
@@ -250,7 +276,9 @@ async function run<T>(operation: () => Promise<T>): Promise<T> {
 			throw new HandlerError(code, error.message);
 		}
 		if (error instanceof StoryTargetError) {
-			throw new HandlerError(error.code === 'not_found' ? 'NOT_FOUND' : 'BAD_REQUEST', error.message);
+			const code =
+				error.code === 'forbidden' ? 'FORBIDDEN' : error.code === 'not_found' ? 'NOT_FOUND' : 'BAD_REQUEST';
+			throw new HandlerError(code, error.message);
 		}
 		throw error;
 	}

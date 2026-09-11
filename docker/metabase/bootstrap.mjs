@@ -1,4 +1,7 @@
+import { pathToFileURL } from 'node:url';
+
 const METABASE_URL = process.env.METABASE_URL ?? 'http://localhost:3001';
+const METABASE_API_KEY = process.env.METABASE_API_KEY;
 const ADMIN_EMAIL = 'fixture-admin@getnao.local';
 const ADMIN_PASSWORD = 'N4o!F1xture#Metabase$1636';
 const ROOT_COLLECTION_NAME = 'nao Migration Fixtures';
@@ -12,8 +15,15 @@ const ACCEPTANCE_DASHBOARD_NAME = 'Full Migration Acceptance';
 const API_KEY_NAME = 'nao Migration Fixture';
 const CATEGORY_PARAMETER_ID = 'category';
 const PERIOD_PARAMETER_ID = 'period';
+const ACCEPTANCE_CARD_COUNT = 30;
+const API_STARTUP_TIMEOUT_MS = secondsFromEnvironment('METABASE_API_STARTUP_TIMEOUT_SECONDS', 180);
+const SCHEMA_TIMEOUT_MS = secondsFromEnvironment('METABASE_SCHEMA_TIMEOUT_SECONDS', 180);
+const REQUEST_TIMEOUT_MS = secondsFromEnvironment('METABASE_REQUEST_TIMEOUT_SECONDS', 30);
+const POLL_INTERVAL_MS = 2_000;
+let useApiKey = false;
 
 async function bootstrap() {
+	await waitForMetabase();
 	const sessionId = await getSessionId();
 	const database = await ensureDatabase(sessionId);
 	const rootCollection = await ensureCollection(sessionId, ROOT_COLLECTION_NAME, null);
@@ -34,7 +44,7 @@ async function bootstrap() {
 	});
 	await ensureDashboardLayout(sessionId, layoutDashboard.id, cards);
 
-	const ordersTable = await getTableMetadata(sessionId, database.id, 'orders');
+	const ordersTable = await getTableMetadata(sessionId, database.id, 'orders', ['ordered_at', 'status']);
 	const orderedAtFieldId = getFieldId(ordersTable, 'ordered_at');
 	const filterDashboard = await ensureDashboard(sessionId, collection.id, {
 		name: FILTER_DASHBOARD_NAME,
@@ -84,7 +94,11 @@ async function bootstrap() {
 		description: 'Direct chart, map, formatting, and table migration fixtures.',
 		parameters: [],
 	});
-	const visualizationCards = await ensureCards(sessionId, collection.id, visualizationCardDefinitions(database.id));
+	const visualizationCards = await ensureCards(
+		sessionId,
+		collection.id,
+		visualizationCardDefinitions(database.id, ordersTable.id, orderedAtFieldId, getFieldId(ordersTable, 'status')),
+	);
 	await ensureSimpleDashboardLayout(sessionId, visualizationDashboard.id, visualizationCards);
 	await verifyVisualizationCards(sessionId, visualizationCards);
 
@@ -101,7 +115,7 @@ async function bootstrap() {
 	});
 	await verifyDashboardFilters(sessionId, acceptanceDashboard.id, filterCards);
 
-	const apiKey = await ensureApiKey(sessionId);
+	const apiKey = useApiKey ? null : await ensureApiKey(sessionId);
 	console.log(`Metabase fixture ready at ${METABASE_URL}/dashboard/${dashboard.id}`);
 	console.log(`Layout fixture ready at ${METABASE_URL}/dashboard/${layoutDashboard.id}`);
 	console.log(`Filter fixture ready at ${METABASE_URL}/dashboard/${filterDashboard.id}`);
@@ -109,12 +123,23 @@ async function bootstrap() {
 	console.log(`Visualization fixture ready at ${METABASE_URL}/dashboard/${visualizationDashboard.id}`);
 	console.log(`Full acceptance fixture ready at ${METABASE_URL}/dashboard/${acceptanceDashboard.id}`);
 	console.log(`Analytics database ID: ${database.id}`);
-	if (apiKey) {
+	if (useApiKey) {
+		console.log('Authenticated with METABASE_API_KEY from the environment.');
+	} else if (apiKey) {
 		console.log(`METABASE_API_KEY=${apiKey}`);
 		console.log('Copy this value into your local .env file. It will not be shown again.');
 	} else {
 		console.log('The fixture API key already exists. Keep the METABASE_API_KEY from its first creation.');
 	}
+}
+
+async function waitForMetabase() {
+	await pollRead('Metabase API startup', API_STARTUP_TIMEOUT_MS, async (remainingMs) => {
+		const health = await request('/api/health', {
+			timeoutMs: Math.min(REQUEST_TIMEOUT_MS, remainingMs),
+		});
+		return health?.status === 'ok' ? health : null;
+	});
 }
 
 async function getSessionId() {
@@ -138,6 +163,11 @@ async function getSessionId() {
 			},
 		});
 		return setup.id;
+	}
+
+	if (METABASE_API_KEY) {
+		useApiKey = true;
+		return null;
 	}
 
 	const session = await request('/api/session', {
@@ -177,13 +207,16 @@ async function ensureDatabase(sessionId) {
 	});
 }
 
-async function getTableMetadata(sessionId, databaseId, tableName) {
-	const metadata = await request(`/api/database/${databaseId}/metadata`, { sessionId });
-	const table = metadata.tables?.find((candidate) => candidate.name === tableName);
-	if (!table) {
-		throw new Error(`Metabase table not found: ${tableName}`);
-	}
-	return table;
+async function getTableMetadata(sessionId, databaseId, tableName, fieldNames) {
+	return pollRead(`Metabase schema metadata for ${tableName}`, SCHEMA_TIMEOUT_MS, async (remainingMs) => {
+		const metadata = await request(`/api/database/${databaseId}/metadata`, {
+			sessionId,
+			timeoutMs: Math.min(REQUEST_TIMEOUT_MS, remainingMs),
+		});
+		const table = metadata.tables?.find((candidate) => candidate.name === tableName);
+		const availableFields = new Set(table?.fields?.map((field) => field.name));
+		return table && fieldNames.every((fieldName) => availableFields.has(fieldName)) ? table : null;
+	});
 }
 
 function getFieldId(table, fieldName) {
@@ -527,6 +560,7 @@ async function ensureAcceptanceDashboardLayout(sessionId, dashboardId, cardGroup
 		.filter((cardId) => cardId !== null)
 		.sort((left, right) => left - right);
 	if (
+		expectedCardIds.length !== ACCEPTANCE_CARD_COUNT ||
 		JSON.stringify(updated.tabs.map((tab) => tab.name)) !== JSON.stringify(expectedTabNames) ||
 		JSON.stringify(actualCardIds) !== JSON.stringify(expectedCardIds)
 	) {
@@ -609,12 +643,48 @@ async function verifyVisualizationCards(sessionId, cards) {
 			total: 5835,
 			settings: { 'stackable.stack_type': 'stacked' },
 		},
+		'Monthly revenue mix normalized': {
+			display: 'area',
+			rowCount: 12,
+			totalColumns: [1, 2],
+			total: 5835,
+			settings: { 'stackable.stack_type': 'normalized' },
+		},
+		'Monthly revenue comparison': {
+			display: 'smartscalar',
+			rowCount: 12,
+			totalColumns: [1],
+			total: 5835,
+			settings: {
+				'scalar.comparisons': [{ id: '5b13a4f6-cae5-48ba-bba6-ebcc7cfa8be3', type: 'previousPeriod' }],
+			},
+		},
 		'Monthly revenue and orders': {
 			display: 'combo',
 			rowCount: 12,
 			totalColumns: [1],
 			total: 5835,
 			settings: { 'graph.dimensions': ['month'] },
+		},
+		'Completed revenue gauge': {
+			display: 'gauge',
+			rowCount: 1,
+			totalColumns: [0],
+			total: 5835,
+			settings: {
+				'gauge.segments': [
+					{ min: 0, max: 3000, color: '#ED6E6E', label: 'Below target' },
+					{ min: 3000, max: 5000, color: '#F9D45C', label: 'Near target' },
+					{ min: 5000, max: 8000, color: '#84BB4C', label: 'On target' },
+				],
+			},
+		},
+		'Completed orders progress': {
+			display: 'progress',
+			rowCount: 1,
+			totalColumns: [0],
+			total: 18,
+			settings: { 'progress.goal': 24 },
 		},
 		'Product price and demand': {
 			display: 'scatter',
@@ -643,8 +713,22 @@ async function verifyVisualizationCards(sessionId, cards) {
 						min_color: '#C6E6FB',
 						max_color: '#509EE3',
 					},
+					{
+						columns: ['revenue'],
+						type: 'single',
+						operator: '>',
+						value: 1500,
+						color: '#ED6E6E',
+					},
 				],
 			},
+		},
+		'Revenue by category and status stacked': {
+			display: 'bar',
+			rowCount: 4,
+			totalColumns: [1, 2, 3],
+			total: 7815,
+			settings: { 'stackable.stack_type': 'stacked' },
 		},
 		'Revenue by category and status': {
 			display: 'row',
@@ -652,6 +736,54 @@ async function verifyVisualizationCards(sessionId, cards) {
 			totalColumns: [1, 2, 3],
 			total: 7815,
 			settings: { 'stackable.stack_type': 'normalized' },
+		},
+		'Monthly completed revenue waterfall': {
+			display: 'waterfall',
+			rowCount: 12,
+			totalColumns: [1],
+			total: 5835,
+			settings: { 'graph.metrics': ['revenue'] },
+		},
+		'Revenue flow by category and status': {
+			display: 'sankey',
+			rowCount: 11,
+			totalColumns: [2],
+			total: 7815,
+			settings: { 'sankey.value': 'revenue' },
+		},
+		'Orders pivot by month and status': {
+			display: 'pivot',
+			rowCount: 34,
+			totalColumns: [3],
+			total: 96,
+			settings: {
+				'pivot_table.column_split': {
+					rows: ['ordered_at'],
+					columns: ['status'],
+					values: ['count'],
+				},
+			},
+		},
+		'Order value distribution by category': {
+			display: 'boxplot',
+			rowCount: 48,
+			totalColumns: [2],
+			total: 7815,
+			settings: { 'boxplot.show_mean': true },
+		},
+		'Most recent order detail': {
+			display: 'object',
+			rowCount: 1,
+			totalColumns: [0],
+			total: 24,
+			settings: {
+				'table.columns': [
+					{ enabled: true, name: 'order_id' },
+					{ enabled: true, name: 'customer' },
+					{ enabled: true, name: 'ordered_at' },
+					{ enabled: true, name: 'status' },
+				],
+			},
 		},
 	};
 
@@ -889,7 +1021,7 @@ function filterDashboardParameters() {
 	];
 }
 
-function visualizationCardDefinitions(databaseId) {
+function visualizationCardDefinitions(databaseId, ordersTableId, orderedAtFieldId, statusFieldId) {
 	const categoryRevenueQuery = `SELECT c.name AS category,
        SUM(oi.quantity * oi.unit_price)::numeric(12, 2) AS revenue
 FROM orders AS o
@@ -899,6 +1031,33 @@ JOIN categories AS c ON c.id = p.category_id
 WHERE o.status = 'completed'
 GROUP BY c.name
 ORDER BY revenue DESC`;
+	const monthlyRevenueQuery = `SELECT date_trunc('month', o.ordered_at)::date AS month,
+       SUM(oi.quantity * oi.unit_price)::numeric(12, 2) AS revenue
+FROM orders AS o
+JOIN order_items AS oi ON oi.order_id = o.id
+WHERE o.status = 'completed'
+GROUP BY 1
+ORDER BY 1`;
+	const monthlyRevenueMixQuery = `SELECT date_trunc('month', o.ordered_at)::date AS month,
+       COALESCE(SUM(oi.quantity * oi.unit_price) FILTER (WHERE c.name = 'Electronics'), 0)::numeric(12, 2) AS electronics,
+       COALESCE(SUM(oi.quantity * oi.unit_price) FILTER (WHERE c.name <> 'Electronics'), 0)::numeric(12, 2) AS other
+FROM orders AS o
+JOIN order_items AS oi ON oi.order_id = o.id
+JOIN products AS p ON p.id = oi.product_id
+JOIN categories AS c ON c.id = p.category_id
+WHERE o.status = 'completed'
+GROUP BY 1
+ORDER BY 1`;
+	const categoryRevenueByStatusQuery = `SELECT c.name AS category,
+       COALESCE(SUM(oi.quantity * oi.unit_price) FILTER (WHERE o.status = 'completed'), 0)::numeric(12, 2) AS completed,
+       COALESCE(SUM(oi.quantity * oi.unit_price) FILTER (WHERE o.status = 'pending'), 0)::numeric(12, 2) AS pending,
+       COALESCE(SUM(oi.quantity * oi.unit_price) FILTER (WHERE o.status = 'refunded'), 0)::numeric(12, 2) AS refunded
+FROM orders AS o
+JOIN order_items AS oi ON oi.order_id = o.id
+JOIN products AS p ON p.id = oi.product_id
+JOIN categories AS c ON c.id = p.category_id
+GROUP BY c.name
+ORDER BY c.name`;
 	return [
 		{
 			name: 'Completed revenue share pie',
@@ -936,19 +1095,7 @@ ORDER BY revenue DESC`;
 			name: 'Monthly revenue mix',
 			description: 'Completed monthly revenue split between electronics and other categories.',
 			display: 'area',
-			dataset_query: nativeQuery(
-				databaseId,
-				`SELECT date_trunc('month', o.ordered_at)::date AS month,
-       COALESCE(SUM(oi.quantity * oi.unit_price) FILTER (WHERE c.name = 'Electronics'), 0)::numeric(12, 2) AS electronics,
-       COALESCE(SUM(oi.quantity * oi.unit_price) FILTER (WHERE c.name <> 'Electronics'), 0)::numeric(12, 2) AS other
-FROM orders AS o
-JOIN order_items AS oi ON oi.order_id = o.id
-JOIN products AS p ON p.id = oi.product_id
-JOIN categories AS c ON c.id = p.category_id
-WHERE o.status = 'completed'
-GROUP BY 1
-ORDER BY 1`,
-			),
+			dataset_query: nativeQuery(databaseId, monthlyRevenueMixQuery),
 			visualization_settings: {
 				'graph.dimensions': ['month'],
 				'graph.metrics': ['electronics', 'other'],
@@ -957,6 +1104,36 @@ ORDER BY 1`,
 				series_settings: {
 					electronics: { color: '#509EE3', title: 'Electronics' },
 					other: { color: '#88BF4D', title: 'Other categories' },
+				},
+			},
+		},
+		{
+			name: 'Monthly revenue mix normalized',
+			description: 'One-hundred-percent stacked monthly revenue composition.',
+			display: 'area',
+			dataset_query: nativeQuery(databaseId, monthlyRevenueMixQuery),
+			visualization_settings: {
+				'graph.dimensions': ['month'],
+				'graph.metrics': ['electronics', 'other'],
+				'stackable.stack_type': 'normalized',
+				'graph.show_values': true,
+			},
+		},
+		{
+			name: 'Monthly revenue comparison',
+			description: 'Completed revenue with previous-period comparison.',
+			display: 'smartscalar',
+			dataset_query: nativeQuery(databaseId, monthlyRevenueQuery),
+			visualization_settings: {
+				'scalar.field': 'revenue',
+				'scalar.comparisons': [{ id: '5b13a4f6-cae5-48ba-bba6-ebcc7cfa8be3', type: 'previousPeriod' }],
+				column_settings: {
+					'["name","revenue"]': {
+						number_style: 'currency',
+						currency: 'USD',
+						currency_style: 'symbol',
+						decimals: 2,
+					},
 				},
 			},
 		},
@@ -998,6 +1175,40 @@ ORDER BY 1`,
 						decimals: 2,
 					},
 				},
+			},
+		},
+		{
+			name: 'Completed revenue gauge',
+			description: 'Completed revenue measured against deterministic ranges.',
+			display: 'gauge',
+			dataset_query: nativeQuery(
+				databaseId,
+				`SELECT SUM(oi.quantity * oi.unit_price)::numeric(12, 2) AS revenue
+FROM orders AS o
+JOIN order_items AS oi ON oi.order_id = o.id
+WHERE o.status = 'completed'`,
+			),
+			visualization_settings: {
+				'gauge.segments': [
+					{ min: 0, max: 3000, color: '#ED6E6E', label: 'Below target' },
+					{ min: 3000, max: 5000, color: '#F9D45C', label: 'Near target' },
+					{ min: 5000, max: 8000, color: '#84BB4C', label: 'On target' },
+				],
+			},
+		},
+		{
+			name: 'Completed orders progress',
+			description: 'Completed orders compared with the 24-order fixture goal.',
+			display: 'progress',
+			dataset_query: nativeQuery(
+				databaseId,
+				`SELECT COUNT(*)::integer AS completed_orders
+FROM orders
+WHERE status = 'completed'`,
+			),
+			visualization_settings: {
+				'progress.goal': 24,
+				'progress.color': '#509EE3',
 			},
 		},
 		{
@@ -1069,31 +1280,145 @@ ORDER BY c.name`,
 						min_color: '#C6E6FB',
 						max_color: '#509EE3',
 					},
+					{
+						columns: ['revenue'],
+						type: 'single',
+						operator: '>',
+						value: 1500,
+						color: '#ED6E6E',
+					},
 				],
+			},
+		},
+		{
+			name: 'Revenue by category and status stacked',
+			description: 'Stacked vertical bars for revenue composition by order status.',
+			display: 'bar',
+			dataset_query: nativeQuery(databaseId, categoryRevenueByStatusQuery),
+			visualization_settings: {
+				'graph.dimensions': ['category'],
+				'graph.metrics': ['completed', 'pending', 'refunded'],
+				'stackable.stack_type': 'stacked',
+				'graph.show_values': true,
 			},
 		},
 		{
 			name: 'Revenue by category and status',
 			description: 'Normalized horizontal bars for revenue composition by order status.',
 			display: 'row',
-			dataset_query: nativeQuery(
-				databaseId,
-				`SELECT c.name AS category,
-       COALESCE(SUM(oi.quantity * oi.unit_price) FILTER (WHERE o.status = 'completed'), 0)::numeric(12, 2) AS completed,
-       COALESCE(SUM(oi.quantity * oi.unit_price) FILTER (WHERE o.status = 'pending'), 0)::numeric(12, 2) AS pending,
-       COALESCE(SUM(oi.quantity * oi.unit_price) FILTER (WHERE o.status = 'refunded'), 0)::numeric(12, 2) AS refunded
-FROM orders AS o
-JOIN order_items AS oi ON oi.order_id = o.id
-JOIN products AS p ON p.id = oi.product_id
-JOIN categories AS c ON c.id = p.category_id
-GROUP BY c.name
-ORDER BY c.name`,
-			),
+			dataset_query: nativeQuery(databaseId, categoryRevenueByStatusQuery),
 			visualization_settings: {
 				'graph.dimensions': ['category'],
 				'graph.metrics': ['completed', 'pending', 'refunded'],
 				'stackable.stack_type': 'normalized',
 				'graph.show_values': true,
+			},
+		},
+		{
+			name: 'Monthly completed revenue waterfall',
+			description: 'Completed revenue changes accumulated across fixture months.',
+			display: 'waterfall',
+			dataset_query: nativeQuery(databaseId, monthlyRevenueQuery),
+			visualization_settings: {
+				'graph.dimensions': ['month'],
+				'graph.metrics': ['revenue'],
+				'graph.show_values': true,
+			},
+		},
+		{
+			name: 'Revenue flow by category and status',
+			description: 'Revenue flowing from product category to order status.',
+			display: 'sankey',
+			dataset_query: nativeQuery(
+				databaseId,
+				`SELECT c.name AS category,
+       o.status,
+       SUM(oi.quantity * oi.unit_price)::numeric(12, 2) AS revenue
+FROM orders AS o
+JOIN order_items AS oi ON oi.order_id = o.id
+JOIN products AS p ON p.id = oi.product_id
+JOIN categories AS c ON c.id = p.category_id
+GROUP BY c.name, o.status
+ORDER BY c.name, o.status`,
+			),
+			visualization_settings: {
+				'sankey.source': 'category',
+				'sankey.target': 'status',
+				'sankey.value': 'revenue',
+				'sankey.node_align': 'justify',
+				'sankey.show_edge_labels': true,
+			},
+		},
+		{
+			name: 'Orders pivot by month and status',
+			description: 'Order counts pivoted by month and status using an MBQL query.',
+			display: 'pivot',
+			dataset_query: {
+				type: 'query',
+				database: databaseId,
+				query: {
+					'source-table': ordersTableId,
+					aggregation: [['count']],
+					breakout: [
+						['field', orderedAtFieldId, { 'temporal-unit': 'month' }],
+						['field', statusFieldId, null],
+					],
+				},
+			},
+			visualization_settings: {
+				'pivot_table.column_split': {
+					rows: ['ordered_at'],
+					columns: ['status'],
+					values: ['count'],
+				},
+			},
+		},
+		{
+			name: 'Order value distribution by category',
+			description: 'Order-value distribution and outliers grouped by category.',
+			display: 'boxplot',
+			dataset_query: nativeQuery(
+				databaseId,
+				`SELECT c.name AS category,
+       o.id AS order_id,
+       SUM(oi.quantity * oi.unit_price)::numeric(12, 2) AS order_value
+FROM orders AS o
+JOIN order_items AS oi ON oi.order_id = o.id
+JOIN products AS p ON p.id = oi.product_id
+JOIN categories AS c ON c.id = p.category_id
+GROUP BY c.name, o.id
+ORDER BY c.name, o.id`,
+			),
+			visualization_settings: {
+				'graph.dimensions': ['category'],
+				'graph.metrics': ['order_value'],
+				'boxplot.points_mode': 'outliers',
+				'boxplot.show_mean': true,
+				'boxplot.show_values_mode': 'median',
+			},
+		},
+		{
+			name: 'Most recent order detail',
+			description: 'A single-record object view of the latest fixture order.',
+			display: 'object',
+			dataset_query: nativeQuery(
+				databaseId,
+				`SELECT o.id AS order_id,
+       c.name AS customer,
+       o.ordered_at,
+       o.status
+FROM orders AS o
+JOIN customers AS c ON c.id = o.customer_id
+ORDER BY o.ordered_at DESC, o.id DESC
+LIMIT 1`,
+			),
+			visualization_settings: {
+				'table.columns': [
+					{ enabled: true, name: 'order_id' },
+					{ enabled: true, name: 'customer' },
+					{ enabled: true, name: 'ordered_at' },
+					{ enabled: true, name: 'status' },
+				],
 			},
 		},
 	];
@@ -1295,22 +1620,65 @@ function categoryTemplateTag() {
 }
 
 async function request(path, options = {}) {
-	const response = await fetch(`${METABASE_URL}${path}`, {
-		method: options.method ?? 'GET',
-		headers: {
-			'Content-Type': 'application/json',
-			...(options.sessionId ? { 'X-Metabase-Session': options.sessionId } : {}),
-		},
-		body: options.body === undefined ? undefined : JSON.stringify(options.body),
-	});
+	const method = options.method ?? 'GET';
+	let response;
+	try {
+		response = await fetch(`${METABASE_URL}${path}`, {
+			method,
+			headers: {
+				'Content-Type': 'application/json',
+				...(useApiKey ? { 'X-Api-Key': METABASE_API_KEY } : {}),
+				...(options.sessionId ? { 'X-Metabase-Session': options.sessionId } : {}),
+			},
+			body: options.body === undefined ? undefined : JSON.stringify(options.body),
+			signal: AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS),
+		});
+	} catch (error) {
+		throw new Error(`${method} ${path} failed: ${error.message}`, { cause: error });
+	}
 	const text = await response.text();
-	const result = text ? JSON.parse(text) : null;
 
 	if (!response.ok) {
-		throw new Error(`${options.method ?? 'GET'} ${path} failed (${response.status}): ${text}`);
+		throw new Error(`${method} ${path} failed (${response.status}): ${text}`);
 	}
 
-	return result;
+	try {
+		return text ? JSON.parse(text) : null;
+	} catch (error) {
+		throw new Error(`${method} ${path} returned invalid JSON`, { cause: error });
+	}
+}
+
+async function pollRead(description, timeoutMs, read, pollIntervalMs = POLL_INTERVAL_MS) {
+	const deadline = Date.now() + timeoutMs;
+	let lastError;
+
+	while (Date.now() < deadline) {
+		const remainingMs = deadline - Date.now();
+		try {
+			const result = await read(remainingMs);
+			if (result) {
+				return result;
+			}
+		} catch (error) {
+			lastError = error;
+		}
+		const waitMs = Math.min(pollIntervalMs, Math.max(0, deadline - Date.now()));
+		if (waitMs > 0) {
+			await new Promise((resolve) => setTimeout(resolve, waitMs));
+		}
+	}
+
+	const detail = lastError ? ` Last error: ${lastError.message}` : '';
+	throw new Error(`${description} did not become ready within ${timeoutMs / 1_000} seconds.${detail}`);
+}
+
+function secondsFromEnvironment(name, fallback) {
+	const seconds = Number(process.env[name] ?? fallback);
+	if (!Number.isSafeInteger(seconds) || seconds <= 0) {
+		throw new Error(`${name} must be a positive integer.`);
+	}
+	return seconds * 1_000;
 }
 
 function asList(value) {
@@ -1323,4 +1691,8 @@ function asList(value) {
 	throw new Error(`Expected a list response, received: ${JSON.stringify(value)}`);
 }
 
-await bootstrap();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+	await bootstrap();
+}
+
+export { pollRead };

@@ -208,7 +208,8 @@ describe('Metabase migration source service', () => {
 			databaseId: 2,
 			nativeSql: 'SELECT SUM(quantity * unit_price) AS total_revenue FROM order_items',
 		});
-		await expect(service.compileCard(context, 8, { parameters: { region: 'EU' } })).resolves.toMatchObject({
+		const parameters = [{ id: 'region', type: 'string/=', value: ['EU'] }];
+		await expect(service.compileCard(context, 8, { parameters })).resolves.toMatchObject({
 			sourceType: 'mbql',
 			databaseId: 2,
 			compiledSql:
@@ -222,7 +223,51 @@ describe('Metabase migration source service', () => {
 		expect(client.callTool).toHaveBeenLastCalledWith(
 			expect.objectContaining({
 				tool: 'metabase-execute-question',
-				args: { questionId: 8, parameters: { region: 'EU' } },
+				args: { questionId: 8, parameters },
+			}),
+		);
+	});
+
+	it('compiles parameterized native cards through Metabase', async () => {
+		const client = createClient();
+		const nativeCard = payloads.nativeCard as Record<string, unknown>;
+		const datasetQuery = nativeCard.dataset_query as Record<string, unknown>;
+		const card = {
+			...nativeCard,
+			dataset_query: {
+				...datasetQuery,
+				native: {
+					query: 'SELECT * FROM orders [[WHERE status = {{status}}]]',
+					'template-tags': { status: { type: 'text' } },
+				},
+			},
+		};
+		client.callTool.mockImplementation(async ({ tool }) =>
+			mcpOutput(
+				tool === 'metabase-get-question'
+					? card
+					: {
+							data: {
+								native_form: {
+									query: 'SELECT * FROM orders WHERE status = ?',
+									params: ['completed'],
+								},
+							},
+						},
+			),
+		);
+		const service = new MetabaseMigrationSourceService(client);
+		const parameters = [{ id: 'status', type: 'string/=', value: ['completed'] }];
+
+		await expect(service.compileCard(context, 7, { parameters })).resolves.toMatchObject({
+			sourceType: 'native',
+			nativeSql: 'SELECT * FROM orders WHERE status = ?',
+			boundParameters: ['completed'],
+		});
+		expect(client.callTool).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				tool: 'metabase-execute-question',
+				args: { questionId: 7, parameters },
 			}),
 		);
 	});

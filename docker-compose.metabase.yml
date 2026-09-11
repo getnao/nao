@@ -1,5 +1,3 @@
-name: nao-metabase-fixture
-
 services:
     metabase-db:
         image: postgres:16-alpine
@@ -22,7 +20,7 @@ services:
             POSTGRES_USER: analytics
             POSTGRES_PASSWORD: analytics
         ports:
-            - '5434:5432'
+            - '127.0.0.1:${METABASE_ANALYTICS_PORT:-5434}:5432'
         volumes:
             - metabase_analytics_data:/var/lib/postgresql/data
             - ./docker/metabase/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -36,7 +34,7 @@ services:
     metabase:
         image: metabase/metabase:v0.63.16
         ports:
-            - '${METABASE_PORT:-3001}:3000'
+            - '127.0.0.1:${METABASE_PORT:-3001}:3000'
         environment:
             MB_DB_TYPE: postgres
             MB_DB_DBNAME: metabase

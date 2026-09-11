@@ -9,6 +9,16 @@ vi.mock('../src/middleware/auth', () => ({
 	}),
 }));
 
+vi.mock('../src/env', () => ({
+	isCloud: true,
+	noProjectMessage: () => 'No project configured.',
+}));
+
+vi.mock('../src/queries/project.queries', () => ({
+	listUserProjects: vi.fn(async () => [{ id: 'project-1' }]),
+	getUserRoleInProject: vi.fn(async () => 'user'),
+}));
+
 vi.mock('../src/services/metabase-migration-source', () => ({
 	MetabaseMigrationSourceError: class extends Error {},
 	metabaseMigrationSourceService: {
@@ -38,7 +48,8 @@ vi.mock('../src/services/story-target', () => ({
 	},
 }));
 
-import { dashboardMigrationRoutes } from '../src/routes/metabase-migration';
+import * as projectQueries from '../src/queries/project.queries';
+import { metabaseMigrationRoutes } from '../src/routes/metabase-migration';
 import { metabaseMigrationSourceService } from '../src/services/metabase-migration-source';
 import { storyFolderTargetService } from '../src/services/story-folder-target';
 import { storyTargetService } from '../src/services/story-target';
@@ -60,12 +71,42 @@ describe('dashboard migration routes', () => {
 			}
 			throw error;
 		});
-		await app.register(dashboardMigrationRoutes, { prefix: '/api/dashboard-migration' });
+		await app.register(metabaseMigrationRoutes, { prefix: '/api/dashboard-migration' });
 		await app.ready();
 	});
 
 	afterEach(async () => {
 		await app.close();
+	});
+
+	it('rejects viewers and requires an explicit project when several are available', async () => {
+		vi.mocked(projectQueries.getUserRoleInProject).mockResolvedValueOnce('viewer');
+		const viewer = await app.inject({
+			method: 'GET',
+			url: '/api/dashboard-migration/collections',
+		});
+		expect(viewer.statusCode).toBe(403);
+		expect(metabaseMigrationSourceService.listCollections).not.toHaveBeenCalled();
+
+		vi.mocked(projectQueries.listUserProjects).mockResolvedValueOnce([
+			{ id: 'project-1' },
+			{ id: 'project-2' },
+		] as never);
+		const ambiguous = await app.inject({
+			method: 'GET',
+			url: '/api/dashboard-migration/collections',
+		});
+		expect(ambiguous.statusCode).toBe(400);
+	});
+
+	it('rejects a selected project that is not available to the user', async () => {
+		const response = await app.inject({
+			method: 'GET',
+			url: '/api/dashboard-migration/collections',
+			headers: { 'x-nao-project-id': 'other-project' },
+		});
+		expect(response.statusCode).toBe(403);
+		expect(metabaseMigrationSourceService.listCollections).not.toHaveBeenCalled();
 	});
 
 	it('returns the same normalized collection envelope as MCP', async () => {
@@ -102,7 +143,7 @@ describe('dashboard migration routes', () => {
 		const compileResponse = await app.inject({
 			method: 'POST',
 			url: '/api/dashboard-migration/cards/7/compile',
-			payload: { server_name: 'metabase', parameters: { region: 'EU' } },
+			payload: { server_name: 'metabase', parameters: [{ id: 'region', value: ['EU'] }] },
 		});
 
 		expect(dashboardResponse.statusCode).toBe(200);
@@ -110,7 +151,7 @@ describe('dashboard migration routes', () => {
 		expect(compileResponse.statusCode).toBe(200);
 		expect(metabaseMigrationSourceService.compileCard).toHaveBeenCalledWith(context, 7, {
 			serverName: 'metabase',
-			parameters: { region: 'EU' },
+			parameters: [{ id: 'region', value: ['EU'] }],
 		});
 	});
 
@@ -137,7 +178,7 @@ describe('dashboard migration routes', () => {
 		expect(metabaseMigrationSourceService.getDashboard).not.toHaveBeenCalled();
 	});
 
-	it('creates stories in private root before explicit folder placement', async () => {
+	it('creates stories with explicit folder placement in one target operation', async () => {
 		vi.mocked(storyTargetService.createStandaloneStory).mockResolvedValue({
 			id: 'story-1',
 			title: 'Sales',
@@ -145,11 +186,6 @@ describe('dashboard migration routes', () => {
 			chatId: null,
 			createdAt: new Date('2026-01-01T00:00:00Z'),
 		});
-		vi.mocked(storyFolderTargetService.moveStory).mockResolvedValue({
-			storyId: 'story-1',
-			folderId: 'folder-1',
-		});
-
 		const response = await app.inject({
 			method: 'POST',
 			url: '/api/dashboard-migration/stories',
@@ -160,11 +196,9 @@ describe('dashboard migration routes', () => {
 		expect(storyTargetService.createStandaloneStory).toHaveBeenCalledWith(context, {
 			title: 'Sales',
 			code: '# Sales\n',
-		});
-		expect(storyFolderTargetService.moveStory).toHaveBeenCalledWith(context, {
-			storyId: 'story-1',
 			folderId: 'folder-1',
 		});
+		expect(storyFolderTargetService.moveStory).not.toHaveBeenCalled();
 	});
 
 	it('updates and moves stories by explicit UUID', async () => {
@@ -195,5 +229,16 @@ describe('dashboard migration routes', () => {
 			storyId: 'story-1',
 			folderId: null,
 		});
+	});
+
+	it('rejects story updates without fields', async () => {
+		const response = await app.inject({
+			method: 'PATCH',
+			url: '/api/dashboard-migration/stories/story-1',
+			payload: {},
+		});
+
+		expect(response.statusCode).toBe(400);
+		expect(storyTargetService.updateStoryById).not.toHaveBeenCalled();
 	});
 });

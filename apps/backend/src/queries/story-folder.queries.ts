@@ -322,15 +322,28 @@ export async function moveStoryToFolder(
 	storyId: string,
 	folderId: string | null,
 	options: { storyOwnerId: string; projectId: string },
+	executor?: DBExecutor,
 ): Promise<void> {
-	await db.delete(s.storyFolderItem).where(eq(s.storyFolderItem.storyId, storyId)).execute();
+	if (executor) {
+		await moveStoryToFolderWithExecutor(storyId, folderId, options, executor);
+		return;
+	}
+	await db.transaction((tx) => moveStoryToFolderWithExecutor(storyId, folderId, options, tx));
+}
 
+async function moveStoryToFolderWithExecutor(
+	storyId: string,
+	folderId: string | null,
+	options: { storyOwnerId: string; projectId: string },
+	executor: DBExecutor,
+): Promise<void> {
+	await executor.delete(s.storyFolderItem).where(eq(s.storyFolderItem.storyId, storyId)).execute();
 	if (folderId) {
-		await db.insert(s.storyFolderItem).values({ storyId, folderId }).execute();
+		await executor.insert(s.storyFolderItem).values({ storyId, folderId }).execute();
 	}
 
-	const newVisibility = await resolveFolderVisibility(folderId);
-	await propagateShareChange([storyId], options.projectId, options.storyOwnerId, newVisibility);
+	const newVisibility = await resolveFolderVisibility(folderId, executor);
+	await propagateShareChange([storyId], options.projectId, options.storyOwnerId, newVisibility, executor);
 }
 
 async function propagateShareChange(

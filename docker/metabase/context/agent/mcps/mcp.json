@@ -1,8 +1,10 @@
 {
 	"mcpServers": {
 		"metabase": {
-			"command": "npx",
-			"args": ["-y", "@getnao/metabase-mcp-server@1.2.4"],
+			"command": "node",
+			"args": [
+				"${NAO_DEFAULT_PROJECT_PATH}/agent/mcps/metabase-mcp-server/nao-metabase-mcp-server/dist/index.js"
+			],
 			"env": {
 				"METABASE_URL": "${METABASE_URL}",
 				"METABASE_API_KEY": "${METABASE_API_KEY}"

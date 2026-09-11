@@ -6,6 +6,7 @@ import {
 	MetabaseDashboardSchema,
 	MetabaseDashboardSummarySchema,
 	MetabaseExecutableQuerySchema,
+	MetabaseExecutionParametersSchema,
 } from '@nao/shared/metabase-migration';
 import { z } from 'zod';
 
@@ -100,11 +101,11 @@ export function registerMetabaseMigrationTools(server: McpServer, context: McpCo
 		name: 'compile_metabase_card_query',
 		title: 'Compile Metabase Card Query',
 		description:
-			'Return executable SQL for a Metabase card. Native SQL is preserved; MBQL must be compiled by Metabase and is never recreated from labels.',
+			'Return SQL for a Metabase card. Parameterized native cards include driver boundParameters; MBQL is compiled by Metabase and never recreated from labels.',
 		inputSchema: {
 			card_id: z.number().int().positive(),
 			server_name: SERVER_NAME_SCHEMA,
-			parameters: z.record(z.string(), z.unknown()).optional(),
+			parameters: MetabaseExecutionParametersSchema.optional(),
 		},
 		outputSchema: {
 			query: MetabaseExecutableQuerySchema,
@@ -127,7 +128,7 @@ export function registerMetabaseMigrationTools(server: McpServer, context: McpCo
 		inputSchema: {
 			card_id: z.number().int().positive(),
 			server_name: SERVER_NAME_SCHEMA,
-			parameters: z.record(z.string(), z.unknown()).optional(),
+			parameters: MetabaseExecutionParametersSchema.optional(),
 		},
 		outputSchema: {
 			result: MetabaseCardResultSchema,

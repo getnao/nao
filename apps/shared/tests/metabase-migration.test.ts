@@ -4,6 +4,7 @@ import {
 	METABASE_MIGRATION_SCHEMA_VERSION,
 	MetabaseDashboardSchema,
 	MetabaseExecutableQuerySchema,
+	MetabaseExecutionParametersSchema,
 	MigrationReportSchema,
 } from '../src/metabase-migration';
 
@@ -30,6 +31,20 @@ const report = {
 };
 
 describe('Metabase migration contracts', () => {
+	it('accepts Metabase parameter arrays with stable IDs', () => {
+		expect(
+			MetabaseExecutionParametersSchema.safeParse([
+				{
+					id: 'category',
+					type: 'string/=',
+					value: ['Electronics'],
+					target: ['variable', ['template-tag', 'category']],
+				},
+			]).success,
+		).toBe(true);
+		expect(MetabaseExecutionParametersSchema.safeParse([{ value: ['Electronics'] }]).success).toBe(false);
+	});
+
 	it('keeps dashboard filter definitions and per-card mappings structured', () => {
 		const result = MetabaseDashboardSchema.safeParse({
 			id: 2,
@@ -164,6 +179,61 @@ describe('Metabase migration contracts', () => {
 				...report,
 				status: 'complete',
 				skippedItems: [{ sourceId: 7, sourceType: 'card', name: 'Funnel', reason: 'Unsupported' }],
+			}).success,
+		).toBe(false);
+		expect(
+			MigrationReportSchema.safeParse({
+				...report,
+				status: 'complete',
+				importedItems: [
+					{
+						sourceCardId: 8,
+						sourceCardName: 'Orders by status',
+						targetQueryId: 'query_orders',
+						targetVisualizationType: 'bar',
+					},
+				],
+			}).success,
+		).toBe(false);
+		expect(
+			MigrationReportSchema.safeParse({
+				...report,
+				status: 'complete',
+				importedItems: [
+					{
+						sourceCardId: 8,
+						sourceCardName: 'Orders by status',
+						targetQueryId: 'query_orders',
+						targetVisualizationType: 'bar',
+					},
+				],
+				verificationResults: [
+					{
+						sourceCardId: 8,
+						targetQueryId: 'query_orders',
+						comparedColumns: ['status', 'count'],
+						rowCount: 3,
+						comparisonMode: 'ordered',
+						matched: true,
+						mismatchSummary: null,
+					},
+				],
+			}).success,
+		).toBe(true);
+		expect(
+			MigrationReportSchema.safeParse({
+				...report,
+				status: 'complete',
+				reusableObjectMappings: [
+					{
+						sourceType: 'metric',
+						sourceId: 51,
+						sourceName: 'Completed order count metric',
+						mode: 'review_required',
+						targetName: null,
+						reason: 'No exact nao semantic metric exists.',
+					},
+				],
 			}).success,
 		).toBe(false);
 		expect(

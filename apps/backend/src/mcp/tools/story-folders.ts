@@ -36,7 +36,7 @@ export function registerStoryFolderTools(server: McpServer, context: McpContext)
 		name: 'create_story_folder',
 		title: 'Create Story Folder',
 		description:
-			'Create a story folder in the current nao project. Use parent_id to preserve a Metabase collection hierarchy.',
+			'Create a story folder in the current nao project. Omit parent_id for the caller private root, pass a folder ID to preserve a hierarchy, or pass null explicitly for the public root.',
 		inputSchema: {
 			name: z.string().trim().min(1).max(100),
 			parent_id: z.string().nullable().optional(),

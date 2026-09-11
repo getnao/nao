@@ -1,3 +1,4 @@
+import type { UserRole } from '@nao/shared/types';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/db/db', () => ({ db: {} }));
@@ -59,6 +60,8 @@ const version: DBStoryVersion & { title: string } = {
 
 const createDependencies = () =>
 	({
+		getUserRoleInProject: vi.fn(async (): Promise<UserRole | null> => 'user'),
+		runInTransaction: vi.fn(async <T>(operation: (transaction: never) => Promise<T>) => operation({} as never)),
 		createStandaloneStory: vi.fn(async () => ({
 			id: 'story-1',
 			slug: 'sales-report',
@@ -67,6 +70,8 @@ const createDependencies = () =>
 			version: 1,
 		})),
 		saveStoryInPrivateRoot: vi.fn(async () => {}),
+		getFolderById: vi.fn(async () => null),
+		moveStoryToFolder: vi.fn(async () => {}),
 		getStoryByIdForUser: vi.fn(async () => userStory()),
 		getStoryProjectId: vi.fn(async () => 'project-1'),
 		renameStory: vi.fn(async () => {}),
@@ -77,6 +82,21 @@ const createDependencies = () =>
 	}) satisfies StoryTargetDependencies;
 
 describe('story target service', () => {
+	it('rejects viewer story mutations', async () => {
+		const dependencies = createDependencies();
+		dependencies.getUserRoleInProject.mockResolvedValue('viewer');
+		const service = new StoryTargetService(dependencies);
+
+		await expect(service.createStandaloneStory(context, { title: 'Blocked' })).rejects.toMatchObject({
+			code: 'forbidden',
+		});
+		await expect(service.updateStoryById(context, { storyId: 'story-1', title: 'Blocked' })).rejects.toMatchObject({
+			code: 'forbidden',
+		});
+		expect(dependencies.createStandaloneStory).not.toHaveBeenCalled();
+		expect(dependencies.createStandaloneVersion).not.toHaveBeenCalled();
+	});
+
 	it('creates standalone stories in private root and reports slug collisions', async () => {
 		const dependencies = createDependencies();
 		const service = new StoryTargetService(dependencies);
@@ -86,20 +106,64 @@ describe('story target service', () => {
 			slug: 'sales-report',
 			chatId: null,
 		});
-		expect(dependencies.createStandaloneStory).toHaveBeenCalledWith({
-			userId: 'user-1',
-			projectId: 'project-1',
-			slug: 'sales-report',
-			title: 'Sales Report',
-			code: '# Sales Report\n',
-			source: 'user',
-		});
-		expect(dependencies.saveStoryInPrivateRoot).toHaveBeenCalledWith('user-1', 'project-1', 'story-1');
+		expect(dependencies.createStandaloneStory).toHaveBeenCalledWith(
+			{
+				userId: 'user-1',
+				projectId: 'project-1',
+				slug: 'sales-report',
+				title: 'Sales Report',
+				code: '# Sales Report\n',
+				source: 'user',
+			},
+			expect.anything(),
+		);
+		expect(dependencies.saveStoryInPrivateRoot).toHaveBeenCalledWith(
+			'user-1',
+			'project-1',
+			'story-1',
+			expect.anything(),
+		);
 
 		dependencies.createStandaloneStory.mockResolvedValueOnce(null);
 		await expect(service.createStandaloneStory(context, { title: 'Sales Report!' })).rejects.toMatchObject({
 			code: 'conflict',
 		});
+	});
+
+	it('creates and places a story in the same transaction', async () => {
+		const dependencies = createDependencies();
+		dependencies.getFolderById.mockResolvedValue({
+			id: 'folder-1',
+			ownerId: 'user-1',
+			projectId: 'project-1',
+			parentId: null,
+			name: 'Imports',
+			visibility: 'private',
+			systemType: null,
+			archivedAt: null,
+			createdAt: now,
+			updatedAt: now,
+		});
+		const service = new StoryTargetService(dependencies);
+
+		await service.createStandaloneStory(context, { title: 'Sales Report', folderId: 'folder-1' });
+		expect(dependencies.moveStoryToFolder).toHaveBeenCalledWith(
+			'story-1',
+			'folder-1',
+			{ storyOwnerId: 'user-1', projectId: 'project-1' },
+			expect.anything(),
+		);
+		expect(dependencies.saveStoryInPrivateRoot).not.toHaveBeenCalled();
+	});
+
+	it('validates explicit folder placement before creating a story', async () => {
+		const dependencies = createDependencies();
+		const service = new StoryTargetService(dependencies);
+
+		await expect(
+			service.createStandaloneStory(context, { title: 'Sales Report', folderId: 'missing-folder' }),
+		).rejects.toMatchObject({ code: 'not_found' });
+		expect(dependencies.createStandaloneStory).not.toHaveBeenCalled();
 	});
 
 	it('updates standalone stories only by their explicit UUID', async () => {
@@ -130,6 +194,17 @@ describe('story target service', () => {
 		});
 	});
 
+	it('rejects updates without changed fields', async () => {
+		const dependencies = createDependencies();
+		const service = new StoryTargetService(dependencies);
+
+		await expect(service.updateStoryById(context, { storyId: 'story-1' })).rejects.toMatchObject({
+			code: 'invalid_input',
+		});
+		expect(dependencies.getStoryByIdForUser).not.toHaveBeenCalled();
+		expect(dependencies.createStandaloneVersion).not.toHaveBeenCalled();
+	});
+
 	it('preserves chat-linked revisions and rejects cross-project story IDs', async () => {
 		const dependencies = createDependencies();
 		dependencies.getStoryByIdForUser.mockResolvedValueOnce(userStory({ chatId: 'chat-1' }));
@@ -146,7 +221,7 @@ describe('story target service', () => {
 		});
 
 		dependencies.getStoryProjectId.mockResolvedValueOnce('project-2');
-		await expect(service.updateStoryById(context, { storyId: 'story-2' })).rejects.toMatchObject({
+		await expect(service.updateStoryById(context, { storyId: 'story-2', title: 'Other' })).rejects.toMatchObject({
 			code: 'not_found',
 		});
 		expect(dependencies.createStandaloneVersion).not.toHaveBeenCalled();

@@ -78,6 +78,7 @@ describe('Metabase migration MCP tools', () => {
 			sourceType: 'native',
 			databaseId: 2,
 			nativeSql: 'SELECT 1',
+			boundParameters: [],
 			templateParameters: {},
 			resultMetadata: [],
 		});

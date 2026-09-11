@@ -85,14 +85,18 @@ export class StoryFolderTargetService {
 		input: { name: string; parentId?: string | null },
 	): Promise<StoryFolderTarget> {
 		await this.requireCanSend(context);
-		if (input.parentId) {
-			await this.getAccessibleFolder(context, input.parentId, 'Parent folder');
+		const parentId =
+			input.parentId === undefined
+				? await this.dependencies.ensurePrivateRoot(context.userId, context.projectId)
+				: input.parentId;
+		if (parentId) {
+			await this.getAccessibleFolder(context, parentId, 'Parent folder');
 		}
 		const folder = await this.dependencies.createFolder({
 			ownerId: context.userId,
 			projectId: context.projectId,
 			name: input.name,
-			parentId: input.parentId ?? null,
+			parentId,
 		});
 		return toTargetFolder(folder, 0);
 	}

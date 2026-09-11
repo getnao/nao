@@ -36,11 +36,12 @@
 		"pg:start": "docker compose -f docker-compose.postgres.yml up -d",
 		"pg:stop": "docker compose -f docker-compose.postgres.yml stop",
 		"pg:reset": "docker compose -f docker-compose.postgres.yml down -v",
-		"metabase:start": "docker compose -f docker-compose.metabase.yml up -d",
+		"metabase:start": "docker compose -f docker-compose.metabase.yml up -d --wait --wait-timeout 300",
 		"metabase:stop": "docker compose -f docker-compose.metabase.yml stop",
 		"metabase:reset": "docker compose -f docker-compose.metabase.yml down -v",
 		"metabase:verify-data": "docker compose -f docker-compose.metabase.yml exec -T analytics-db psql -v ON_ERROR_STOP=1 -U analytics -d analytics -f /fixture/verify.sql",
-		"metabase:bootstrap": "node docker/metabase/bootstrap.mjs"
+		"metabase:bootstrap": "node --env-file-if-exists=.env docker/metabase/bootstrap.mjs",
+		"metabase:check": "node --test docker/metabase/bootstrap.test.mjs"
 	},
 	"devDependencies": {
 		"@eslint/js": "^9.39.2",

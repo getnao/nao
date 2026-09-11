@@ -710,14 +710,29 @@ supported visualization mappings have focused automated coverage.
 
 The branch is not yet complete:
 
-- Metabase `v0.63.16` expects execution parameters as an array, while
-  `@getnao/metabase-mcp-server@1.2.4` sends an empty object. Source execution and MBQL verification therefore
-  need an upstream-compatible package release.
+- nao now sends Metabase execution parameters as arrays. The compatible MCP implementation is pinned for local
+  development, but `@getnao/metabase-mcp-server@1.2.5` still needs to be published before production handoff.
 - Standalone card reads can omit visualization and result metadata; the normalized card reports whether both
   were present instead of claiming full metadata.
 - Date-range dashboard filters are intentionally unsupported for now.
 - Automated checks compare data and configuration, not pixel rendering.
 - The complete CLI, direct-MCP, and `ask_nao` acceptance matrix is not yet automated.
+
+## Local MCP development override and production handoff
+
+Development temporarily uses the ignored repo-local MCP build documented in `CONTRIBUTING.md`. The tracked
+configuration resolves that build from `NAO_DEFAULT_PROJECT_PATH`; it contains no developer home-directory path.
+
+Before production or final review:
+
+1. Complete review and CI for the Metabase MCP changes that preserve standalone visualization metadata and send
+   execution parameters as arrays.
+2. Publish `@getnao/metabase-mcp-server@1.2.5`.
+3. Replace the repo-local development command in
+   [`docker/metabase/context/agent/mcps/mcp.json`](../../docker/metabase/context/agent/mcps/mcp.json) with
+   `npx -y @getnao/metabase-mcp-server@1.2.5`.
+4. Run native and MBQL compile/execute smoke tests plus the full acceptance matrix against the published package.
+5. Confirm the nao diff contains no developer home-directory paths or unpublished package references.
 
 ## Follow-up milestones
 
@@ -882,3 +897,18 @@ Deliver milestones in order, but keep review units small:
 6. Full acceptance and docs: milestone 19.
 
 The native-SQL checkpoint is useful before the feature is complete. The issue itself should remain open until direct CLI/MCP primitives, the broader object mapping, comprehensive fixtures, and full reproduction checks are delivered.
+
+## Future visualization PRs
+
+Native support for the following Metabase visualizations is outside issue #1636. The migration must continue to report or explicitly approximate them until their corresponding nao visualization exists:
+
+- Object/detail: preserve a single record as a labeled detail view, with a flat table as the explicit fallback.
+- Progress: preserve the current value, goal, color, and value formatting.
+- Gauge: preserve the metric, range, ordered segments, labels, colors, and formatting.
+- Funnel: preserve ordered stages, values, labels, colors, and conversion semantics.
+- Waterfall: preserve ordered positive and negative changes, start/end totals, labels, and formatting.
+- Box plot: preserve category grouping, quartiles, whiskers, outliers, mean/median settings, and formatting.
+- Sankey: preserve source, target, value, node alignment, edge labels, colors, and deterministic node ordering.
+- Pivot: preserve row and column dimensions, value aggregations, subtotals, grand totals, formatting, and collapsed state.
+
+Deliver these as separate, reviewable PRs rather than expanding the migration PR. Each PR must add the shared chart schema, story validation and serialization, frontend and exported-image rendering, editing support, Metabase mapping, deterministic fixture coverage, and focused automated tests. A visualization becomes supported only when its source data and material settings are preserved without a silent fallback.
