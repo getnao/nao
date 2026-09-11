@@ -1,4 +1,3 @@
-import type { MetabaseCollection } from '@nao/shared/metabase-migration';
 import type { UserRole } from '@nao/shared/types';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -22,11 +21,6 @@ const folder = (overrides: Partial<DBStoryFolder> = {}): DBStoryFolder => ({
 	updatedAt: new Date('2026-01-01T00:00:00Z'),
 	...overrides,
 });
-
-const collections: MetabaseCollection[] = [
-	{ id: 1, name: 'Analytics', description: null, parentId: null, archived: false },
-	{ id: 2, name: 'Ecommerce', description: null, parentId: 1, archived: false },
-];
 
 const createDependencies = () => ({
 	getUserRoleInProject: vi.fn(async (_projectId: string, _userId: string): Promise<UserRole | null> => 'user'),
@@ -92,43 +86,6 @@ describe('story folder target service', () => {
 			id: 'folder-2',
 		});
 		expect(dependencies.createFolder).toHaveBeenCalledTimes(2);
-	});
-
-	it('creates a missing collection folder path and reuses existing ancestors', async () => {
-		const dependencies = createDependencies();
-		dependencies.listFolderTree.mockResolvedValue([
-			{ ...folder({ id: 'analytics', name: 'Analytics', visibility: 'public' }), storyCount: 0 },
-		]);
-		dependencies.createFolder.mockImplementation(async (data) =>
-			folder({ id: 'ecommerce', name: data.name, parentId: data.parentId, visibility: 'public' }),
-		);
-		const service = new StoryFolderTargetService(dependencies);
-
-		await expect(service.ensureCollectionFolderPath(context, collections, 2)).resolves.toBe('ecommerce');
-		expect(dependencies.createFolder).toHaveBeenCalledOnce();
-		expect(dependencies.createFolder).toHaveBeenCalledWith({
-			ownerId: 'user-1',
-			projectId: 'project-1',
-			name: 'Ecommerce',
-			parentId: 'analytics',
-		});
-	});
-
-	it('rejects ambiguous or incomplete collection folder paths', async () => {
-		const dependencies = createDependencies();
-		dependencies.listFolderTree.mockResolvedValue([
-			{ ...folder({ id: 'analytics-1', name: 'Analytics', visibility: 'public' }), storyCount: 0 },
-			{ ...folder({ id: 'analytics-2', name: 'Analytics', visibility: 'public' }), storyCount: 0 },
-		]);
-		const service = new StoryFolderTargetService(dependencies);
-
-		await expect(service.ensureCollectionFolderPath(context, collections, 2)).rejects.toMatchObject({
-			code: 'ambiguous',
-		});
-		await expect(service.ensureCollectionFolderPath(context, [collections[1]], 2)).rejects.toMatchObject({
-			code: 'invalid_collection_path',
-		});
-		expect(dependencies.createFolder).not.toHaveBeenCalled();
 	});
 
 	it('does not expose cross-project or foreign private parent folders', async () => {

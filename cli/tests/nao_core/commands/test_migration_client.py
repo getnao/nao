@@ -19,7 +19,7 @@ def test_client_reauthenticates_once_after_expired_session(monkeypatch):
     client = migration_client.DashboardMigrationClient("http://localhost:5005")
 
     assert client.request("GET", "/collections") == {"collections": []}
-    reauthenticate.assert_called_once_with("http://localhost:5005", None, None)
+    reauthenticate.assert_called_once_with("http://localhost:5005")
     assert expired.request.call_count == 1
     assert fresh.request.call_count == 1
 

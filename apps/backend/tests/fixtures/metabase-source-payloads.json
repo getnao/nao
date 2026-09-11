@@ -7,17 +7,6 @@
 			"location": "/1/"
 		}
 	],
-	"dashboards": {
-		"data": [
-			{
-				"id": 2,
-				"name": "Native SQL Basics",
-				"description": "Deterministic migration fixture",
-				"collection_id": 2,
-				"archived": false
-			}
-		]
-	},
 	"dashboard": {
 		"id": 2,
 		"name": "Native SQL Basics",

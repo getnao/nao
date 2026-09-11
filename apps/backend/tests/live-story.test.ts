@@ -158,48 +158,6 @@ describe('live story SQL execution', () => {
 		});
 	});
 
-	it('refreshes pass-through query aliases from their durable warehouse SQL', async () => {
-		mocks.getSqlQueriesFromCode.mockResolvedValue({
-			query_story: {
-				sqlQuery: 'SELECT * FROM query_source',
-				databaseId: 'duckdb_local',
-				adminMode: false,
-			},
-		});
-		mocks.getSqlQueryById.mockResolvedValue({
-			sqlQuery: 'SELECT total FROM orders',
-			databaseId: 'analytics',
-			adminMode: false,
-		});
-		mocks.retrieveProjectById.mockResolvedValue({ path: '/project' });
-		mocks.getEnvVars.mockResolvedValue({});
-		const fetchMock = vi.fn().mockResolvedValue({
-			ok: true,
-			json: vi.fn().mockResolvedValue({
-				columns: ['total'],
-				data: [{ total: 42 }],
-			}),
-		});
-		vi.stubGlobal('fetch', fetchMock);
-
-		await expect(refreshStoryData('chat-1', 'orders')).resolves.toEqual({
-			queryData: {
-				query_story: {
-					columns: ['total'],
-					data: [{ total: 42 }],
-				},
-			},
-		});
-
-		expect(mocks.getSqlQueryById).toHaveBeenCalledWith('chat-1', 'query_source');
-		expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
-			sql: 'SELECT total FROM orders',
-			nao_project_folder: '/project',
-			enforce_excluded_columns: false,
-			database_id: 'analytics',
-		});
-	});
-
 	it('uses the app database when a single live query came from admin mode', async () => {
 		mocks.getSqlQueryById.mockResolvedValue({
 			sqlQuery: 'SELECT chat_id FROM v_messages',

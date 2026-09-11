@@ -13,15 +13,8 @@ class DashboardMigrationClientError(RuntimeError):
 
 
 class DashboardMigrationClient:
-    def __init__(
-        self,
-        backend_url: str = BACKEND_URL,
-        email: str | None = None,
-        password: str | None = None,
-    ):
+    def __init__(self, backend_url: str = BACKEND_URL):
         self.backend_url = backend_url.rstrip("/")
-        self.email = email
-        self.password = password
         self._session: requests.Session | None = None
 
     def request(
@@ -44,7 +37,7 @@ class DashboardMigrationClient:
             raise DashboardMigrationClientError(f"Could not reach nao backend: {error}") from error
 
         if response.status_code == 401:
-            if retry_auth and reauthenticate(self.backend_url, self.email, self.password):
+            if retry_auth and reauthenticate(self.backend_url):
                 self._session = get_auth_session(self.backend_url, prompt_if_missing=False)
                 return self.request(method, path, params=params, body=body, retry_auth=False)
             raise DashboardMigrationClientError("Unauthorized. Please check your credentials.")
@@ -66,5 +59,5 @@ class DashboardMigrationClient:
 
     def _get_session(self) -> requests.Session:
         if self._session is None:
-            self._session = get_auth_session(self.backend_url, email=self.email, password=self.password)
+            self._session = get_auth_session(self.backend_url)
         return self._session

@@ -179,10 +179,9 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 		outputSchema: STORY_OUTPUT_SCHEMA,
 		_meta: uiToolMeta(STORY_APP_URI),
 		handler: async ({ title, content, query_data, chat_id }) => {
-			const slug = generateSlug(title);
 			const code = content ?? `# ${title}\n`;
 			const story = chat_id
-				? await createChatLinkedStory({ chatId: chat_id, slug, title, code, ctx })
+				? await createChatLinkedStory({ chatId: chat_id, slug: generateSlug(title), title, code, ctx })
 				: await createStandaloneStory({ title, code, ctx });
 
 			if ('error' in story) {

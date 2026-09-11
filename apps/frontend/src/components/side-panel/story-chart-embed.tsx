@@ -62,6 +62,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 		);
 	}
 
+	const xAxisType = chart.xAxisType === 'number' ? 'number' : ('category' as const);
 	const isKpi = chart.chartType === 'kpi_card';
 	const kpiLeadingHandle = isKpi && dragHandlePlacement === 'leading' ? dragHandle : undefined;
 
@@ -77,7 +78,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 				data={data}
 				chartType={chart.chartType as displayChart.ChartType}
 				xAxisKey={chart.xAxisKey}
-				xAxisType={chart.xAxisType === 'number' ? 'number' : 'category'}
+				xAxisType={xAxisType}
 				xAxisLabel={chart.xAxisLabel}
 				series={chart.series}
 				title={chart.title}

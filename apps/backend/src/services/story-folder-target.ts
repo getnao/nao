@@ -1,4 +1,3 @@
-import type { MetabaseCollection } from '@nao/shared/metabase-migration';
 import type { FolderVisibility, UserRole } from '@nao/shared/types';
 
 import type { DBStoryFolder } from '../db/abstractSchema';
@@ -6,7 +5,7 @@ import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 
-export type StoryFolderTargetErrorCode = 'ambiguous' | 'forbidden' | 'invalid_collection_path' | 'not_found';
+export type StoryFolderTargetErrorCode = 'forbidden' | 'not_found';
 
 export class StoryFolderTargetError extends Error {
 	constructor(
@@ -98,56 +97,6 @@ export class StoryFolderTargetService {
 		return toTargetFolder(folder, 0);
 	}
 
-	async ensureCollectionFolderPath(
-		context: StoryFolderTargetContext,
-		collections: MetabaseCollection[],
-		collectionId: number,
-		explicitFolderId?: string,
-	): Promise<string> {
-		await this.requireCanSend(context);
-		if (explicitFolderId) {
-			const folder = await this.getAccessibleFolder(context, explicitFolderId, 'Target folder');
-			return folder.id;
-		}
-
-		const collectionPath = buildCollectionPath(collections, collectionId);
-		const folders = await this.dependencies.listFolderTree(context.userId, context.projectId, { isViewer: false });
-		let parentId: string | null = null;
-
-		for (const collection of collectionPath) {
-			const matches = folders.filter(
-				(folder) =>
-					folder.systemType === null &&
-					folder.ownerId === context.userId &&
-					folder.parentId === parentId &&
-					folder.name === collection.name,
-			);
-			if (matches.length > 1) {
-				throw new StoryFolderTargetError(
-					'ambiguous',
-					`Multiple story folders match collection path segment "${collection.name}". Select a target folder explicitly.`,
-				);
-			}
-			if (matches.length === 1) {
-				parentId = matches[0].id;
-			} else {
-				const created = await this.dependencies.createFolder({
-					ownerId: context.userId,
-					projectId: context.projectId,
-					name: collection.name,
-					parentId,
-				});
-				folders.push({ ...created, storyCount: 0 });
-				parentId = created.id;
-			}
-		}
-
-		if (!parentId) {
-			throw new StoryFolderTargetError('invalid_collection_path', 'Metabase collection path is empty.');
-		}
-		return parentId;
-	}
-
 	async moveStory(
 		context: StoryFolderTargetContext,
 		input: { storyId: string; folderId: string | null },
@@ -205,34 +154,6 @@ export class StoryFolderTargetService {
 		}
 		return folder;
 	}
-}
-
-function buildCollectionPath(collections: MetabaseCollection[], collectionId: number): MetabaseCollection[] {
-	const byId = new Map(collections.map((collection) => [collection.id, collection]));
-	const path: MetabaseCollection[] = [];
-	const visited = new Set<number>();
-	let currentId: number | null = collectionId;
-
-	while (currentId !== null) {
-		if (visited.has(currentId)) {
-			throw new StoryFolderTargetError(
-				'invalid_collection_path',
-				'Metabase collection ancestry contains a cycle.',
-			);
-		}
-		visited.add(currentId);
-		const collection = byId.get(currentId);
-		if (!collection) {
-			throw new StoryFolderTargetError(
-				'invalid_collection_path',
-				`Metabase collection ${currentId} is missing or inaccessible.`,
-			);
-		}
-		path.unshift(collection);
-		currentId = collection.parentId;
-	}
-
-	return path;
 }
 
 function toTargetFolder(
