@@ -45,3 +45,11 @@ export async function requireAutomationsEnabled() {
 		throw redirect({ to: '/' });
 	}
 }
+
+export async function requireWebRobotsEnabled() {
+	await requireContextAdminOrAdmin();
+	const config = await queryClient.ensureQueryData(trpc.system.getPublicConfig.queryOptions());
+	if (!config.betaWebRobotsEnabled) {
+		throw redirect({ to: '/settings' });
+	}
+}

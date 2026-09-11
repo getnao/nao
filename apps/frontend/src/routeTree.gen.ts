@@ -42,10 +42,13 @@ import { Route as SidebarLayoutSettingsAppearanceRouteImport } from './routes/_s
 import { Route as SidebarLayoutSettingsAccountRouteImport } from './routes/_sidebar-layout.settings.account'
 import { Route as SidebarLayoutAutomationsAutomationIdRouteImport } from './routes/_sidebar-layout.automations.$automationId'
 import { Route as SidebarLayoutChatLayoutChatIdRouteImport } from './routes/_sidebar-layout._chat-layout.$chatId'
+import { Route as SidebarLayoutSettingsWebSourcesIndexRouteImport } from './routes/_sidebar-layout.settings.web-sources.index'
 import { Route as SidebarLayoutSettingsProjectIndexRouteImport } from './routes/_sidebar-layout.settings.project.index'
 import { Route as SidebarLayoutSettingsOrganizationIndexRouteImport } from './routes/_sidebar-layout.settings.organization.index'
 import { Route as SidebarLayoutStoriesStandaloneStoryIdRouteImport } from './routes/_sidebar-layout.stories.standalone.$storyId'
 import { Route as SidebarLayoutStoriesSharedShareIdRouteImport } from './routes/_sidebar-layout.stories.shared.$shareId'
+import { Route as SidebarLayoutSettingsWebSourcesNewRouteImport } from './routes/_sidebar-layout.settings.web-sources.new'
+import { Route as SidebarLayoutSettingsWebSourcesRobotIdRouteImport } from './routes/_sidebar-layout.settings.web-sources.$robotId'
 import { Route as SidebarLayoutSettingsProjectWhatsappRouteImport } from './routes/_sidebar-layout.settings.project.whatsapp'
 import { Route as SidebarLayoutSettingsProjectTelegramRouteImport } from './routes/_sidebar-layout.settings.project.telegram'
 import { Route as SidebarLayoutSettingsProjectTeamsRouteImport } from './routes/_sidebar-layout.settings.project.teams'
@@ -248,6 +251,12 @@ const SidebarLayoutChatLayoutChatIdRoute =
     path: '/$chatId',
     getParentRoute: () => SidebarLayoutChatLayoutRoute,
   } as any)
+const SidebarLayoutSettingsWebSourcesIndexRoute =
+  SidebarLayoutSettingsWebSourcesIndexRouteImport.update({
+    id: '/web-sources/',
+    path: '/web-sources/',
+    getParentRoute: () => SidebarLayoutSettingsRoute,
+  } as any)
 const SidebarLayoutSettingsProjectIndexRoute =
   SidebarLayoutSettingsProjectIndexRouteImport.update({
     id: '/',
@@ -271,6 +280,18 @@ const SidebarLayoutStoriesSharedShareIdRoute =
     id: '/stories/shared/$shareId',
     path: '/stories/shared/$shareId',
     getParentRoute: () => SidebarLayoutRoute,
+  } as any)
+const SidebarLayoutSettingsWebSourcesNewRoute =
+  SidebarLayoutSettingsWebSourcesNewRouteImport.update({
+    id: '/web-sources/new',
+    path: '/web-sources/new',
+    getParentRoute: () => SidebarLayoutSettingsRoute,
+  } as any)
+const SidebarLayoutSettingsWebSourcesRobotIdRoute =
+  SidebarLayoutSettingsWebSourcesRobotIdRouteImport.update({
+    id: '/web-sources/$robotId',
+    path: '/web-sources/$robotId',
+    getParentRoute: () => SidebarLayoutSettingsRoute,
   } as any)
 const SidebarLayoutSettingsProjectWhatsappRoute =
   SidebarLayoutSettingsProjectWhatsappRouteImport.update({
@@ -427,10 +448,13 @@ export interface FileRoutesByFullPath {
   '/settings/project/teams': typeof SidebarLayoutSettingsProjectTeamsRoute
   '/settings/project/telegram': typeof SidebarLayoutSettingsProjectTelegramRoute
   '/settings/project/whatsapp': typeof SidebarLayoutSettingsProjectWhatsappRoute
+  '/settings/web-sources/$robotId': typeof SidebarLayoutSettingsWebSourcesRobotIdRoute
+  '/settings/web-sources/new': typeof SidebarLayoutSettingsWebSourcesNewRoute
   '/stories/shared/$shareId': typeof SidebarLayoutStoriesSharedShareIdRoute
   '/stories/standalone/$storyId': typeof SidebarLayoutStoriesStandaloneStoryIdRoute
   '/settings/organization/': typeof SidebarLayoutSettingsOrganizationIndexRoute
   '/settings/project/': typeof SidebarLayoutSettingsProjectIndexRoute
+  '/settings/web-sources/': typeof SidebarLayoutSettingsWebSourcesIndexRoute
   '/settings/project/integrations/$integrationId': typeof SidebarLayoutSettingsProjectIntegrationsIntegrationIdRoute
   '/settings/usage/replay/$chatId': typeof SidebarLayoutSettingsUsageReplayChatIdRoute
   '/stories/preview/$chatId/$storySlug': typeof SidebarLayoutStoriesPreviewChatIdStorySlugRoute
@@ -478,10 +502,13 @@ export interface FileRoutesByTo {
   '/settings/project/teams': typeof SidebarLayoutSettingsProjectTeamsRoute
   '/settings/project/telegram': typeof SidebarLayoutSettingsProjectTelegramRoute
   '/settings/project/whatsapp': typeof SidebarLayoutSettingsProjectWhatsappRoute
+  '/settings/web-sources/$robotId': typeof SidebarLayoutSettingsWebSourcesRobotIdRoute
+  '/settings/web-sources/new': typeof SidebarLayoutSettingsWebSourcesNewRoute
   '/stories/shared/$shareId': typeof SidebarLayoutStoriesSharedShareIdRoute
   '/stories/standalone/$storyId': typeof SidebarLayoutStoriesStandaloneStoryIdRoute
   '/settings/organization': typeof SidebarLayoutSettingsOrganizationIndexRoute
   '/settings/project': typeof SidebarLayoutSettingsProjectIndexRoute
+  '/settings/web-sources': typeof SidebarLayoutSettingsWebSourcesIndexRoute
   '/settings/project/integrations/$integrationId': typeof SidebarLayoutSettingsProjectIntegrationsIntegrationIdRoute
   '/settings/usage/replay/$chatId': typeof SidebarLayoutSettingsUsageReplayChatIdRoute
   '/stories/preview/$chatId/$storySlug': typeof SidebarLayoutStoriesPreviewChatIdStorySlugRoute
@@ -536,10 +563,13 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/project/teams': typeof SidebarLayoutSettingsProjectTeamsRoute
   '/_sidebar-layout/settings/project/telegram': typeof SidebarLayoutSettingsProjectTelegramRoute
   '/_sidebar-layout/settings/project/whatsapp': typeof SidebarLayoutSettingsProjectWhatsappRoute
+  '/_sidebar-layout/settings/web-sources/$robotId': typeof SidebarLayoutSettingsWebSourcesRobotIdRoute
+  '/_sidebar-layout/settings/web-sources/new': typeof SidebarLayoutSettingsWebSourcesNewRoute
   '/_sidebar-layout/stories/shared/$shareId': typeof SidebarLayoutStoriesSharedShareIdRoute
   '/_sidebar-layout/stories/standalone/$storyId': typeof SidebarLayoutStoriesStandaloneStoryIdRoute
   '/_sidebar-layout/settings/organization/': typeof SidebarLayoutSettingsOrganizationIndexRoute
   '/_sidebar-layout/settings/project/': typeof SidebarLayoutSettingsProjectIndexRoute
+  '/_sidebar-layout/settings/web-sources/': typeof SidebarLayoutSettingsWebSourcesIndexRoute
   '/_sidebar-layout/settings/project/integrations/$integrationId': typeof SidebarLayoutSettingsProjectIntegrationsIntegrationIdRoute
   '/_sidebar-layout/settings/usage/replay/$chatId': typeof SidebarLayoutSettingsUsageReplayChatIdRoute
   '/_sidebar-layout/stories/preview/$chatId/$storySlug': typeof SidebarLayoutStoriesPreviewChatIdStorySlugRoute
@@ -593,10 +623,13 @@ export interface FileRouteTypes {
     | '/settings/project/teams'
     | '/settings/project/telegram'
     | '/settings/project/whatsapp'
+    | '/settings/web-sources/$robotId'
+    | '/settings/web-sources/new'
     | '/stories/shared/$shareId'
     | '/stories/standalone/$storyId'
     | '/settings/organization/'
     | '/settings/project/'
+    | '/settings/web-sources/'
     | '/settings/project/integrations/$integrationId'
     | '/settings/usage/replay/$chatId'
     | '/stories/preview/$chatId/$storySlug'
@@ -644,10 +677,13 @@ export interface FileRouteTypes {
     | '/settings/project/teams'
     | '/settings/project/telegram'
     | '/settings/project/whatsapp'
+    | '/settings/web-sources/$robotId'
+    | '/settings/web-sources/new'
     | '/stories/shared/$shareId'
     | '/stories/standalone/$storyId'
     | '/settings/organization'
     | '/settings/project'
+    | '/settings/web-sources'
     | '/settings/project/integrations/$integrationId'
     | '/settings/usage/replay/$chatId'
     | '/stories/preview/$chatId/$storySlug'
@@ -701,10 +737,13 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/project/teams'
     | '/_sidebar-layout/settings/project/telegram'
     | '/_sidebar-layout/settings/project/whatsapp'
+    | '/_sidebar-layout/settings/web-sources/$robotId'
+    | '/_sidebar-layout/settings/web-sources/new'
     | '/_sidebar-layout/stories/shared/$shareId'
     | '/_sidebar-layout/stories/standalone/$storyId'
     | '/_sidebar-layout/settings/organization/'
     | '/_sidebar-layout/settings/project/'
+    | '/_sidebar-layout/settings/web-sources/'
     | '/_sidebar-layout/settings/project/integrations/$integrationId'
     | '/_sidebar-layout/settings/usage/replay/$chatId'
     | '/_sidebar-layout/stories/preview/$chatId/$storySlug'
@@ -954,6 +993,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutChatLayoutChatIdRouteImport
       parentRoute: typeof SidebarLayoutChatLayoutRoute
     }
+    '/_sidebar-layout/settings/web-sources/': {
+      id: '/_sidebar-layout/settings/web-sources/'
+      path: '/web-sources'
+      fullPath: '/settings/web-sources/'
+      preLoaderRoute: typeof SidebarLayoutSettingsWebSourcesIndexRouteImport
+      parentRoute: typeof SidebarLayoutSettingsRoute
+    }
     '/_sidebar-layout/settings/project/': {
       id: '/_sidebar-layout/settings/project/'
       path: '/'
@@ -981,6 +1027,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/stories/shared/$shareId'
       preLoaderRoute: typeof SidebarLayoutStoriesSharedShareIdRouteImport
       parentRoute: typeof SidebarLayoutRoute
+    }
+    '/_sidebar-layout/settings/web-sources/new': {
+      id: '/_sidebar-layout/settings/web-sources/new'
+      path: '/web-sources/new'
+      fullPath: '/settings/web-sources/new'
+      preLoaderRoute: typeof SidebarLayoutSettingsWebSourcesNewRouteImport
+      parentRoute: typeof SidebarLayoutSettingsRoute
+    }
+    '/_sidebar-layout/settings/web-sources/$robotId': {
+      id: '/_sidebar-layout/settings/web-sources/$robotId'
+      path: '/web-sources/$robotId'
+      fullPath: '/settings/web-sources/$robotId'
+      preLoaderRoute: typeof SidebarLayoutSettingsWebSourcesRobotIdRouteImport
+      parentRoute: typeof SidebarLayoutSettingsRoute
     }
     '/_sidebar-layout/settings/project/whatsapp': {
       id: '/_sidebar-layout/settings/project/whatsapp'
@@ -1247,6 +1307,9 @@ interface SidebarLayoutSettingsRouteChildren {
   SidebarLayoutSettingsUsageRoute: typeof SidebarLayoutSettingsUsageRouteWithChildren
   SidebarLayoutSettingsWhiteLabelRoute: typeof SidebarLayoutSettingsWhiteLabelRoute
   SidebarLayoutSettingsIndexRoute: typeof SidebarLayoutSettingsIndexRoute
+  SidebarLayoutSettingsWebSourcesRobotIdRoute: typeof SidebarLayoutSettingsWebSourcesRobotIdRoute
+  SidebarLayoutSettingsWebSourcesNewRoute: typeof SidebarLayoutSettingsWebSourcesNewRoute
+  SidebarLayoutSettingsWebSourcesIndexRoute: typeof SidebarLayoutSettingsWebSourcesIndexRoute
 }
 
 const SidebarLayoutSettingsRouteChildren: SidebarLayoutSettingsRouteChildren = {
@@ -1269,6 +1332,12 @@ const SidebarLayoutSettingsRouteChildren: SidebarLayoutSettingsRouteChildren = {
   SidebarLayoutSettingsUsageRoute: SidebarLayoutSettingsUsageRouteWithChildren,
   SidebarLayoutSettingsWhiteLabelRoute: SidebarLayoutSettingsWhiteLabelRoute,
   SidebarLayoutSettingsIndexRoute: SidebarLayoutSettingsIndexRoute,
+  SidebarLayoutSettingsWebSourcesRobotIdRoute:
+    SidebarLayoutSettingsWebSourcesRobotIdRoute,
+  SidebarLayoutSettingsWebSourcesNewRoute:
+    SidebarLayoutSettingsWebSourcesNewRoute,
+  SidebarLayoutSettingsWebSourcesIndexRoute:
+    SidebarLayoutSettingsWebSourcesIndexRoute,
 }
 
 const SidebarLayoutSettingsRouteWithChildren =

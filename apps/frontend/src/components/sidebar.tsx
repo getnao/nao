@@ -56,6 +56,7 @@ export function Sidebar() {
 	const { isAdmin, isContextAdmin, isViewer } = usePermissions();
 	const isCloud = useIsCloud();
 	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
+	const betaWebRobotsEnabled = config.data?.betaWebRobotsEnabled === true;
 	const { groupBy, filters, setGroupBy, toggleFilter } = useChatViewPreferences();
 
 	const locationPath = useRouterState({ select: (s) => s.location.pathname });
@@ -259,6 +260,7 @@ export function Sidebar() {
 					isContextAdmin={isContextAdmin}
 					isViewer={isViewer}
 					isCloud={isCloud}
+					betaWebRobotsEnabled={betaWebRobotsEnabled}
 				/>
 			) : (
 				<>

@@ -1,11 +1,12 @@
-import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import Fuse from 'fuse.js';
+import { useMemo } from 'react';
 
 import type { SettingsSearchEntry } from '@/components/settings-search-index';
-
 import { settingsSearchIndex } from '@/components/settings-search-index';
 import { useIsCloud } from '@/hooks/use-nao-mode';
 import { usePermissions } from '@/hooks/use-permissions';
+import { trpc } from '@/main';
 
 export function useSettingsSearch(query: string): SettingsSearchEntry[] {
 	const visibleEntries = useVisibleSettingsEntries();
@@ -51,6 +52,8 @@ export function useSettingsSuggestions(): SettingsSearchEntry[] {
 function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 	const { isAdmin, isContextAdmin, isOrgAdmin, isViewer } = usePermissions();
 	const isCloud = useIsCloud();
+	const publicConfig = useQuery(trpc.system.getPublicConfig.queryOptions());
+	const betaWebRobotsEnabled = publicConfig.data?.betaWebRobotsEnabled === true;
 
 	return useMemo(
 		() =>
@@ -60,11 +63,12 @@ function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 						(!entry.adminOnly || isAdmin) &&
 						(!entry.orgAdminOnly || isOrgAdmin) &&
 						(!entry.adminOrContextAdmin || isAdmin || isContextAdmin) &&
+						(!entry.betaWebRobotsOnly || betaWebRobotsEnabled) &&
 						(!entry.cloudHidden || !isCloud) &&
 						(!entry.cloudOnly || isCloud),
 				)
 				.filter((entry) => !isViewer || viewerVisiblePages.includes(entry.page)),
-		[isAdmin, isCloud, isContextAdmin, isOrgAdmin, isViewer],
+		[isAdmin, isCloud, isContextAdmin, isOrgAdmin, isViewer, betaWebRobotsEnabled],
 	);
 }
 

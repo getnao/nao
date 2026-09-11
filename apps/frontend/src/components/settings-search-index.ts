@@ -10,6 +10,7 @@ export interface SettingsSearchEntry {
 	orgAdminOnly?: boolean;
 	/** Visible to admins and context admins (observability surfaces). */
 	adminOrContextAdmin?: boolean;
+	betaWebRobotsOnly?: boolean;
 	cloudHidden?: boolean;
 	cloudOnly?: boolean;
 }
@@ -974,5 +975,36 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		description: 'Browse and inspect the files and context available to the agent.',
 		keywords: ['files', 'context', 'documents', 'knowledge base'],
 		adminOrContextAdmin: true,
+	},
+
+	// ── Web Sources ──────────────────────────────────────────
+	{
+		page: '/settings/web-sources',
+		pageLabel: 'Web sources',
+		title: 'Web sources',
+		description: 'Manage deterministic web catalogue robots and generated product datasets.',
+		keywords: ['web scraping', 'scraper', 'catalogue', 'products', 'datasets', 'robots'],
+		adminOrContextAdmin: true,
+		betaWebRobotsOnly: true,
+	},
+	{
+		page: '/settings/web-sources/new',
+		pageLabel: 'Web sources',
+		section: 'Create',
+		title: 'New web source',
+		description: 'Create a source from a catalogue URL or write an advanced deterministic recipe.',
+		keywords: ['catalogue url', 'automatic', 'create robot', 'scrape', 'web source', 'recipe', 'products'],
+		adminOrContextAdmin: true,
+		betaWebRobotsOnly: true,
+	},
+	{
+		page: '/settings/web-sources',
+		pageLabel: 'Web sources',
+		section: 'Runs',
+		title: 'Web source run history',
+		description: 'Inspect scheduled and manual scrape runs, product changes, and failures.',
+		keywords: ['run history', 'scrapes', 'changes', 'cancel', 'errors'],
+		adminOrContextAdmin: true,
+		betaWebRobotsOnly: true,
 	},
 ];

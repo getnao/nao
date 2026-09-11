@@ -11,6 +11,7 @@ interface NavContext {
 	isContextAdmin: boolean;
 	isCloud: boolean;
 	isViewer: boolean;
+	betaWebRobotsEnabled: boolean;
 }
 
 interface NavItem {
@@ -81,6 +82,14 @@ const settingsNavGroups: NavGroup[] = [
 				to: '/settings/context-explorer',
 				visible: ({ isAdmin, isContextAdmin }) => isAdmin || isContextAdmin,
 			},
+			{
+				label: 'Web sources',
+				to: '/settings/web-sources',
+				visible: ({ isAdmin, isContextAdmin, betaWebRobotsEnabled }) =>
+					betaWebRobotsEnabled && (isAdmin || isContextAdmin),
+				badge: 'Beta',
+				badgeVariant: 'new',
+			},
 		],
 	},
 	{
@@ -149,6 +158,7 @@ interface SidebarSettingsNavProps {
 	isContextAdmin: boolean;
 	isViewer: boolean;
 	isCloud: boolean;
+	betaWebRobotsEnabled: boolean;
 }
 
 export function SidebarSettingsNav({
@@ -157,6 +167,7 @@ export function SidebarSettingsNav({
 	isContextAdmin,
 	isViewer,
 	isCloud,
+	betaWebRobotsEnabled,
 }: SidebarSettingsNavProps) {
 	const navigate = useNavigate();
 	const inputRef = useRef<HTMLInputElement>(null);
@@ -168,6 +179,7 @@ export function SidebarSettingsNav({
 		isContextAdmin,
 		isCloud,
 		isViewer,
+		betaWebRobotsEnabled,
 	};
 	const navGroups = settingsNavGroups
 		.map((group) => ({
