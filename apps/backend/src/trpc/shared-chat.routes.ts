@@ -171,6 +171,7 @@ export const sharedChatRoutes = {
 				storySlug: z.string(),
 				format: z.enum(DOWNLOAD_FORMATS),
 				versionNumber: z.number().int().positive().optional(),
+				clipboardChartUrls: z.boolean().optional(),
 			}),
 		)
 		.query(async ({ input, ctx }) => {
@@ -215,6 +216,7 @@ export const sharedChatRoutes = {
 				version.code,
 				queryData,
 				displaySettings.dateFormat,
+				{ clipboardChartUrls: input.clipboardChartUrls },
 			);
 		}),
 };

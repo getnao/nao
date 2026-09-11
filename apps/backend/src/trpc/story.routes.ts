@@ -450,7 +450,13 @@ export const storyRoutes = {
 	}),
 
 	downloadStandalone: storyOwnerProcedure
-		.input(z.object({ storyId: z.string(), format: z.enum(DOWNLOAD_FORMATS) }))
+		.input(
+			z.object({
+				storyId: z.string(),
+				format: z.enum(DOWNLOAD_FORMATS),
+				clipboardChartUrls: z.boolean().optional(),
+			}),
+		)
 		.query(async ({ input, ctx }) => {
 			const story = await storyQueries.getStoryByIdForUser(input.storyId, ctx.user.id);
 			if (!story) {
@@ -481,6 +487,7 @@ export const storyRoutes = {
 				story.code,
 				cache?.queryData ?? null,
 				displaySettings?.dateFormat,
+				{ clipboardChartUrls: input.clipboardChartUrls },
 			);
 		}),
 
@@ -491,6 +498,7 @@ export const storyRoutes = {
 				storySlug: z.string(),
 				format: z.enum(DOWNLOAD_FORMATS),
 				versionNumber: z.number().int().positive().optional(),
+				clipboardChartUrls: z.boolean().optional(),
 			}),
 		)
 		.query(async ({ input, ctx }) => {
@@ -535,6 +543,7 @@ export const storyRoutes = {
 				version.code,
 				queryData,
 				displaySettings?.dateFormat,
+				{ clipboardChartUrls: input.clipboardChartUrls },
 			);
 		}),
 };
