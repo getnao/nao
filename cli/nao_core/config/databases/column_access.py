@@ -24,6 +24,7 @@ from nao_core.config.databases.column_catalog import column_catalog_path, load_c
 class _DatabaseConfigLike(Protocol):
     type: str
     exclude_columns: list[str]
+    column_selection: dict[str, Any]
 
     def get_database_name(self) -> str: ...
 
@@ -62,7 +63,7 @@ def validate_column_access(
     db_config: _DatabaseConfigLike,
     project_path: Path,
 ) -> str:
-    if not db_config.exclude_columns:
+    if not db_config.exclude_columns and not db_config.column_selection:
         return sql
 
     dialect = _SQLGLOT_DIALECTS.get(db_config.type)

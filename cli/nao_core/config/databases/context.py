@@ -26,11 +26,15 @@ class DatabaseContext:
         schema: str,
         table_name: str,
         exclude_columns: list[str] | None = None,
+        include_patterns: list[str] | None = None,
+        table_exclude_patterns: list[str] | None = None,
     ):
         self._conn = conn
         self._schema = schema
         self._table_name = table_name
         self._exclude_columns = list(exclude_columns) if exclude_columns else []
+        self._include_patterns = list(include_patterns) if include_patterns else []
+        self._table_exclude_patterns = list(table_exclude_patterns) if table_exclude_patterns else []
         self._table_ref = None
         self._columns_cache: list[dict[str, Any]] | None = None
         self._columns_load_failed = False
@@ -46,28 +50,52 @@ class DatabaseContext:
         """
         self._exclude_columns = list(patterns) if patterns else []
 
-    def _is_column_excluded(self, column_name: str) -> bool:
-        """Return True when the column should be hidden based on ``exclude_columns``.
+    def set_column_selection(self, include_patterns: list[str] | None, exclude_patterns: list[str] | None) -> None:
+        """Set the per-table ``column_selection`` rules resolved for this table.
 
-        Patterns are matched against the fully-qualified ``schema.table.column``
-        name using shell-style globs.
+        Patterns are matched against the bare column name. ``include_patterns``
+        keep only matching columns; ``exclude_patterns`` drop matching columns.
+        Mirrors ``set_exclude_columns`` so the sync provider can thread
+        ``column_selection`` into any context implementation.
         """
+        self._include_patterns = list(include_patterns) if include_patterns else []
+        self._table_exclude_patterns = list(exclude_patterns) if exclude_patterns else []
+
+    def _is_column_excluded(self, column_name: str) -> bool:
+        """Return True when the column should be hidden from the agent.
+
+        Per-table ``column_selection`` patterns are matched against the bare
+        column name: the include allowlist is applied first, then the exclude
+        denylist. Global ``exclude_columns`` patterns are matched against the
+        fully-qualified ``schema.table.column`` name and always apply on top.
+        """
+        if self._include_patterns and not any(
+            fnmatch.fnmatch(column_name, pattern) for pattern in self._include_patterns
+        ):
+            return True
+        if self._table_exclude_patterns and any(
+            fnmatch.fnmatch(column_name, pattern) for pattern in self._table_exclude_patterns
+        ):
+            return True
         if not self._exclude_columns:
             return False
         full_name = f"{self._schema}.{self._table_name}.{column_name}"
         return any(fnmatch.fnmatch(full_name, pattern) for pattern in self._exclude_columns)
 
     def _filter_excluded_columns(self, cols: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Drop columns whose name matches an ``exclude_columns`` pattern."""
-        if not self._exclude_columns:
+        """Drop columns hidden by the configured column filters."""
+        if not self._has_column_filters():
             return cols
         return [col for col in cols if not self._is_column_excluded(str(col.get("name", "")))]
 
     def _filter_excluded_names(self, names: list[str]) -> list[str]:
-        """Drop column names that match an ``exclude_columns`` pattern."""
-        if not self._exclude_columns:
+        """Drop column names hidden by the configured column filters."""
+        if not self._has_column_filters():
             return names
         return [name for name in names if not self._is_column_excluded(name)]
+
+    def _has_column_filters(self) -> bool:
+        return bool(self._exclude_columns or self._include_patterns or self._table_exclude_patterns)
 
     @property
     def table(self):
@@ -122,8 +150,8 @@ class DatabaseContext:
         return rows
 
     def _filter_excluded_row(self, row: dict[str, Any]) -> dict[str, Any]:
-        """Drop keys from a preview row that match an ``exclude_columns`` pattern."""
-        if not self._exclude_columns:
+        """Drop keys from a preview row that are hidden by the configured column filters."""
+        if not self._has_column_filters():
             return row
         return {key: val for key, val in row.items() if not self._is_column_excluded(str(key))}
 

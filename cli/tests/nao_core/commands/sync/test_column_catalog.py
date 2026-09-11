@@ -210,6 +210,7 @@ def _database_config() -> MagicMock:
     config.type = "duckdb"
     config.templates = []
     config.exclude_columns = ["*.email"]
+    config.column_selection_for.return_value = ([], [])
     config.get_database_name.return_value = "analytics"
     config.get_schemas.return_value = ["main"]
     config.matches_pattern.return_value = True
