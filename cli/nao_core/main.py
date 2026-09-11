@@ -23,7 +23,7 @@ from nao_core.commands import (  # noqa: E402
     test,
     upgrade,
 )
-from nao_core.commands.migration_client import DashboardMigrationClientError  # noqa: E402
+from nao_core.commands.migration_client import MigrationError  # noqa: E402
 from nao_core.ui import UI, console  # noqa: E402
 from nao_core.version import check_for_updates  # noqa: E402
 
@@ -51,8 +51,11 @@ def main():
         check_for_updates()
     try:
         app()
-    except DashboardMigrationClientError as error:
-        UI.error(str(error))
+    except MigrationError as error:
+        if "--json" in sys.argv:
+            print(str(error), file=sys.stderr)
+        else:
+            UI.error(str(error))
         raise SystemExit(1) from None
 
 

@@ -3,11 +3,11 @@ from unittest.mock import Mock
 import pytest
 
 import nao_core.main as main_module
-from nao_core.commands.migration_client import DashboardMigrationClientError
+from nao_core.commands.migration_client import MigrationError
 
 
-def test_main_prints_dashboard_migration_errors_without_traceback(monkeypatch):
-    app = Mock(side_effect=DashboardMigrationClientError("Request failed"))
+def test_main_prints_migration_errors_without_traceback(monkeypatch):
+    app = Mock(side_effect=MigrationError("Request failed"))
     error = Mock()
     monkeypatch.setattr(main_module, "app", app)
     monkeypatch.setattr(main_module, "check_for_updates", Mock())
@@ -32,3 +32,16 @@ def test_main_keeps_json_output_machine_readable(monkeypatch):
 
     app.assert_called_once_with()
     check_for_updates.assert_not_called()
+
+
+def test_main_sends_json_mode_errors_to_stderr(monkeypatch, capsys):
+    monkeypatch.setattr(main_module, "app", Mock(side_effect=MigrationError("Request failed")))
+    monkeypatch.setattr(main_module, "check_for_updates", Mock())
+    monkeypatch.setattr(main_module.sys, "argv", ["nao", "stories", "folders", "--json"])
+
+    with pytest.raises(SystemExit):
+        main_module.main()
+
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == "Request failed\n"
