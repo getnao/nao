@@ -21,7 +21,8 @@ class AthenaDatabaseContext(DatabaseContext):
         return f"CAST({col_sql} AS VARCHAR)"
 
     def _quote(self, name: str) -> str:
-        return f'"{name}"'
+        escaped = name.replace('"', '""')
+        return f'"{escaped}"'
 
     def _cast_float(self, expr: str) -> str:
         return f"CAST({expr} AS DOUBLE)"

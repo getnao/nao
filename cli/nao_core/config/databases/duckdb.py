@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from ibis import BaseBackend
 
 from .base import DatabaseConfig
-from .context import DatabaseContext
+from .context import DatabaseContext, quote_sql_literal
 
 
 class DuckDBDatabaseContext(DatabaseContext):
@@ -21,7 +21,7 @@ class DuckDBDatabaseContext(DatabaseContext):
         try:
             query = (
                 "SELECT comment FROM duckdb_tables() "
-                f"WHERE schema_name = '{self._schema}' AND table_name = '{self._table_name}'"
+                f"WHERE schema_name = '{quote_sql_literal(self._schema)}' AND table_name = '{quote_sql_literal(self._table_name)}'"
             )
             row = self._fetchone(self._conn.raw_sql(query))  # type: ignore[union-attr]
             if row and row[0] is not None:
@@ -46,7 +46,7 @@ class DuckDBDatabaseContext(DatabaseContext):
     def _fetch_column_descriptions(self) -> dict[str, str]:
         query = (
             "SELECT column_name, comment FROM duckdb_columns() "
-            f"WHERE schema_name = '{self._schema}' AND table_name = '{self._table_name}'"
+            f"WHERE schema_name = '{quote_sql_literal(self._schema)}' AND table_name = '{quote_sql_literal(self._table_name)}'"
         )
         rows = self._fetchall(self._conn.raw_sql(query))  # type: ignore[union-attr]
         return {row[0]: str(row[1]) for row in rows if row[1] is not None}

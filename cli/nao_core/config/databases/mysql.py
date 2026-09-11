@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from ibis import BaseBackend
 
 from .base import DatabaseConfig
-from .context import DatabaseContext
+from .context import DatabaseContext, quote_sql_literal
 
 SYSTEM_SCHEMAS = ("information_schema", "mysql", "performance_schema", "sys")
 
@@ -20,14 +20,14 @@ class MysqlDatabaseContext(DatabaseContext):
     """MySQL context with information_schema description discovery."""
 
     def _quote(self, name: str) -> str:
-        return f"`{name}`"
+        return f"`{name.replace('`', '``')}`"
 
     def description(self) -> str | None:
         try:
             query = f"""
                 SELECT TABLE_COMMENT
                 FROM information_schema.TABLES
-                WHERE TABLE_SCHEMA = '{self._schema}' AND TABLE_NAME = '{self._table_name}'
+                WHERE TABLE_SCHEMA = '{quote_sql_literal(self._schema)}' AND TABLE_NAME = '{quote_sql_literal(self._table_name)}'
             """
             row = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
             if row and row[0]:
@@ -51,7 +51,7 @@ class MysqlDatabaseContext(DatabaseContext):
         query = f"""
             SELECT COLUMN_NAME, COLUMN_COMMENT
             FROM information_schema.COLUMNS
-            WHERE TABLE_SCHEMA = '{self._schema}' AND TABLE_NAME = '{self._table_name}'
+            WHERE TABLE_SCHEMA = '{quote_sql_literal(self._schema)}' AND TABLE_NAME = '{quote_sql_literal(self._table_name)}'
         """
         rows = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
         return {row[0]: str(row[1]) for row in rows if row[1]}
