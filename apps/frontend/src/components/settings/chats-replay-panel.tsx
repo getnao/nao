@@ -36,6 +36,7 @@ export function ChatsReplayPanel({ chatId, onBack, metadataAction, highlightOnLo
 			{ chatId },
 			{
 				enabled: !!chatId,
+				refetchOnWindowFocus: 'always',
 			},
 		),
 	);

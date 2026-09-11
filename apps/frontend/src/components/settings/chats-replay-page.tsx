@@ -75,6 +75,7 @@ export function ChatsReplayPage({
 	const projectChatsQuery = useQuery({
 		...trpc.project.getProjectChats.queryOptions(queryInput),
 		placeholderData: keepPreviousData,
+		refetchOnWindowFocus: 'always',
 	});
 	const chats = projectChatsQuery.data?.chats ?? [];
 	const total = projectChatsQuery.data?.total ?? 0;
