@@ -115,7 +115,7 @@ export const isEmailDomainAllowed = (userEmail: string, authDomains?: string) =>
  * Resolve the auth provider ID from the better-auth callback context.
  * Social providers use `params.id`, the genericOAuth plugin (OIDC) uses `params.providerId`.
  */
-export function resolveProviderId(ctx?: { params?: Record<string, string> } | null): string | undefined {
+export function resolveProviderId(ctx?: { params?: Record<string, string | undefined> } | null): string | undefined {
 	return ctx?.params?.id ?? ctx?.params?.providerId;
 }
 
