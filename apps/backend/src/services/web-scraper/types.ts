@@ -10,6 +10,9 @@ export type WebRobotCapturedResponse = {
 	name: string;
 	url: string;
 	status: number;
+	requestMethod?: string;
+	requestContentType?: string;
+	requestBody?: unknown;
 	contentType?: string;
 	body: unknown;
 };
@@ -25,8 +28,42 @@ export type WebRobotLoadedSource = {
 	requests: number;
 };
 
+export type WebRobotBlockerKind =
+	| 'access_denied'
+	| 'bot_challenge'
+	| 'captcha'
+	| 'consent'
+	| 'empty_shell'
+	| 'login'
+	| 'rate_limited'
+	| 'site_error';
+
+export type WebRobotSourceBlocker = {
+	kind: WebRobotBlockerKind;
+	loader: 'http' | 'browser';
+	message: string;
+	status?: number;
+	evidence?: string;
+};
+
+export type WebRobotRunWarning = {
+	kind:
+		| 'blocker_detected'
+		| 'selector_fallback'
+		| 'field_coverage_drop'
+		| 'pagination_fallback'
+		| 'pagination_stopped';
+	message: string;
+	blocker?: WebRobotBlockerKind;
+	selector?: string;
+	fallback?: string;
+	field?: string;
+	relocated?: boolean;
+	data?: Record<string, unknown>;
+};
+
 export type WebRobotRunEvent = {
-	type: 'page' | 'error' | 'item';
+	type: 'page' | 'error' | 'item' | 'warning';
 	stageId?: string;
 	url?: string;
 	status?: number;

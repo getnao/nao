@@ -43,6 +43,10 @@ export const statProjectDataset = async (projectId: string, relativePath: string
 	return getStorage().stat(projectDatasetKey(projectId, relativePath));
 };
 
+export const deleteProjectDataset = async (projectId: string, relativePath: string): Promise<void> => {
+	await getStorage().delete(projectDatasetKey(projectId, relativePath));
+};
+
 export const canGrepProjectDatasets = (): boolean => {
 	return isStorageEnabled() && getStorage() instanceof LocalStorageProvider;
 };

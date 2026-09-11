@@ -4,9 +4,18 @@ import { join } from 'node:path';
 
 import type { WebRobotRecipe, WebRobotRunStats } from '@nao/shared/web-robot';
 
+import { env } from '../env';
 import { toDatasetVirtualPath } from '../utils/tools';
 import { writeJsonLinesAsParquet } from './duckdb.service';
-import { readProjectDatasetBytes, statProjectDataset, writeProjectDataset } from './storage/project-datasets';
+import { projectDatasetRelativePathFromKey } from './storage/keys';
+import {
+	deleteProjectDataset,
+	findProjectDatasetFiles,
+	listProjectDatasetDirectory,
+	readProjectDatasetBytes,
+	statProjectDataset,
+	writeProjectDataset,
+} from './storage/project-datasets';
 import { assertPublishAllowed, diffProducts, type ProductDiff } from './web-scraper/diff';
 import type { NormalizedProducts } from './web-scraper/records';
 import type { WebRobotRunEvent } from './web-scraper/types';
@@ -84,6 +93,9 @@ export const publishWebRobotRunArtifacts = async (
 	if (published) {
 		await writeFiles(input.projectId, latestPrefix, files);
 	}
+	await cleanupArtifactVersions(input.projectId, input.robotSlug).catch((error) => {
+		input.stats.errors.push(`Artifact cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+	});
 
 	return {
 		artifactPrefix: toDatasetVirtualPath(runPrefix),
@@ -156,6 +168,47 @@ const buildArtifactFiles = async (
 const writeFiles = async (projectId: string, prefix: string, files: Map<string, Buffer>): Promise<void> => {
 	for (const [name, data] of files) {
 		await writeProjectDataset(projectId, `${prefix}/${name}`, data);
+	}
+};
+
+const cleanupArtifactVersions = async (projectId: string, robotSlug: string): Promise<void> => {
+	const versionsPrefix = `${robotSlug}/versions`;
+	const entries = await listProjectDatasetDirectory(projectId, versionsPrefix);
+	const directories = entries.filter((entry) => entry.type === 'directory');
+	if (directories.length <= env.WEB_ROBOT_ARTIFACT_RETENTION_RUNS) {
+		return;
+	}
+
+	const versions = await Promise.all(
+		directories.map(async (entry) => ({
+			path: entry.relativePath,
+			completedAt: await artifactCompletedAt(projectId, `${entry.relativePath}/manifest.json`),
+		})),
+	);
+	const stale = versions
+		.sort((left, right) => right.completedAt.localeCompare(left.completedAt))
+		.slice(env.WEB_ROBOT_ARTIFACT_RETENTION_RUNS)
+		.map((entry) => entry.path);
+	if (stale.length === 0) {
+		return;
+	}
+
+	const files = await findProjectDatasetFiles(projectId, (relativePath) =>
+		stale.some((directory) => relativePath.startsWith(`${directory}/`)),
+	);
+	for (const file of files) {
+		await deleteProjectDataset(projectId, projectDatasetRelativePathFromKey(projectId, file.key));
+	}
+};
+
+const artifactCompletedAt = async (projectId: string, manifestPath: string): Promise<string> => {
+	try {
+		const manifest = JSON.parse((await readProjectDatasetBytes(projectId, manifestPath)).toString('utf-8')) as {
+			completedAt?: string;
+		};
+		return manifest.completedAt ?? '';
+	} catch {
+		return '';
 	}
 };
 

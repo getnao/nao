@@ -26,6 +26,8 @@ const applyTransform = (value: unknown, transform: WebRobotTransform, baseUrl?: 
 		}
 		case 'replace':
 			return String(value ?? '').replace(new RegExp(transform.pattern, 'g'), transform.replacement);
+		case 'join':
+			return Array.isArray(value) ? value.map((entry) => String(entry ?? '')).join(transform.separator) : value;
 		case 'map':
 			return transform.values[String(value ?? '')] ?? value;
 	}

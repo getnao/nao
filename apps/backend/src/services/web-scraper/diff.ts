@@ -16,7 +16,15 @@ export type ProductChange = {
 	new_value?: unknown;
 };
 
-const DIFF_IGNORED_FIELDS = new Set(['run_id', 'scraped_at', 'last_seen_at', 'first_seen_at']);
+const DIFF_IGNORED_FIELDS = new Set([
+	'product_key',
+	'content_hash',
+	'raw_json',
+	'run_id',
+	'scraped_at',
+	'last_seen_at',
+	'first_seen_at',
+]);
 
 export const diffProducts = (
 	previous: Record<string, unknown>[],

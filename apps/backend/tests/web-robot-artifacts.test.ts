@@ -116,6 +116,46 @@ describe('web robot artifacts', () => {
 		);
 	});
 
+	it('tracks added, unchanged, changed, and removed products across repeated publishes', async () => {
+		const first = [
+			{ sku: 'A-1', name: 'Product A', url: 'https://example.com/a-1' },
+			{ sku: 'B-2', name: 'Product B', url: 'https://example.com/b-2' },
+		];
+
+		const added = await publish('run_1', first);
+		expect(added.diff.added).toHaveLength(2);
+		expect(added.diff.unchanged).toHaveLength(0);
+
+		const unchanged = await publish('run_2', first);
+		expect(unchanged.diff.unchanged).toHaveLength(2);
+		expect(unchanged.diff.added).toHaveLength(0);
+		expect(unchanged.diff.changed).toHaveLength(0);
+		expect(unchanged.diff.removed).toHaveLength(0);
+
+		const changed = await publish('run_3', [{ ...first[0]!, name: 'Product A updated' }]);
+		expect(changed.diff.changed).toHaveLength(1);
+		expect(changed.diff.removed).toHaveLength(1);
+
+		const changes = (await readProjectDataset('proj-1', 'catalog/latest/changes.jsonl'))
+			.trim()
+			.split('\n')
+			.map((line) => JSON.parse(line) as Record<string, unknown>);
+		expect(changes).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ change_type: 'removed', product_key: changed.diff.removed[0] }),
+				expect.objectContaining({
+					change_type: 'changed',
+					product_key: changed.diff.changed[0],
+					field: 'name',
+				}),
+			]),
+		);
+		expect(changes.filter((change) => change.change_type === 'changed').map((change) => change.field)).toEqual([
+			'name',
+		]);
+		expect(JSON.parse(await readProjectDataset('proj-1', 'catalog/latest/manifest.json')).counts.products).toBe(1);
+	});
+
 	it('keeps the previous latest dataset when safeguards reject a run', async () => {
 		await publish('run_1', [{ sku: 'A-1', name: 'Product A', url: 'https://example.com/a-1' }]);
 		const previous = await readProjectDataset('proj-1', 'catalog/latest/products.jsonl');
@@ -129,19 +169,70 @@ describe('web robot artifacts', () => {
 			false,
 		);
 	});
+
+	it('rejects runs that exceed the removed-product safeguard without replacing latest', async () => {
+		const strictRecipe = webRobotRecipeSchema.parse({
+			...recipe,
+			publish: { minItems: 0, maxRemovedPercent: 40 },
+		});
+		await publish(
+			'run_1',
+			[
+				{ sku: 'A-1', name: 'Product A', url: 'https://example.com/a-1' },
+				{ sku: 'B-2', name: 'Product B', url: 'https://example.com/b-2' },
+			],
+			strictRecipe,
+		);
+		const previousLatest = await readProjectDataset('proj-1', 'catalog/latest/products.jsonl');
+		const previousManifest = await readProjectDataset('proj-1', 'catalog/latest/manifest.json');
+
+		const rejected = await publish(
+			'run_2',
+			[{ sku: 'A-1', name: 'Product A', url: 'https://example.com/a-1' }],
+			strictRecipe,
+		);
+
+		expect(rejected.published).toBe(false);
+		expect(rejected.publishError).toContain('50.0% of products would be removed');
+		expect(await readProjectDataset('proj-1', 'catalog/latest/products.jsonl')).toBe(previousLatest);
+		expect(await readProjectDataset('proj-1', 'catalog/latest/manifest.json')).toBe(previousManifest);
+		expect(JSON.parse(await readProjectDataset('proj-1', 'catalog/versions/run_2/manifest.json')).published).toBe(
+			false,
+		);
+	});
+
+	it('retains only the configured number of versioned artifact runs', async () => {
+		process.env.WEB_ROBOT_ARTIFACT_RETENTION_RUNS = '2';
+		__reloadEnvForTesting();
+
+		const row = { sku: 'A-1', name: 'Product A', url: 'https://example.com/a-1' };
+		await publish('run_1', [row], recipe, new Date('2026-01-01T00:00:00.000Z'));
+		await publish('run_2', [row], recipe, new Date('2026-01-02T00:00:00.000Z'));
+		await publish('run_3', [row], recipe, new Date('2026-01-03T00:00:00.000Z'));
+
+		const versions = await listProjectDatasetDirectory('proj-1', 'catalog/versions');
+		expect(versions.map((entry) => entry.name)).toEqual(['run_2', 'run_3']);
+		expect(await statProjectDataset('proj-1', 'catalog/versions/run_1/manifest.json')).toBeNull();
+		expect(JSON.parse(await readProjectDataset('proj-1', 'catalog/latest/manifest.json')).runId).toBe('run_3');
+	});
 });
 
-const publish = async (runId: string, rows: Record<string, unknown>[]) => {
+const publish = async (
+	runId: string,
+	rows: Record<string, unknown>[],
+	publishRecipe = recipe,
+	completedAt = new Date(),
+) => {
 	return publishWebRobotRunArtifacts({
 		projectId: 'proj-1',
 		robotName: 'Catalog',
 		robotSlug: 'catalog',
 		runId,
-		recipe,
+		recipe: publishRecipe,
 		definitionHash: `hash_${runId}`,
 		normalized: normalizeProducts(
 			rows.map((data) => ({ stageId: 'products', url: String(data.url), data })),
-			recipe,
+			publishRecipe,
 			runId,
 		),
 		events: [],
@@ -157,6 +248,6 @@ const publish = async (runId: string, rows: Record<string, unknown>[]) => {
 			extractionErrors: 0,
 			errors: [],
 		},
-		completedAt: new Date(),
+		completedAt,
 	});
 };

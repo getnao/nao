@@ -11,5 +11,7 @@ export type {
 	WebRobotExecutionResult,
 	WebRobotLoadedSource,
 	WebRobotRunEvent,
+	WebRobotRunWarning,
+	WebRobotSourceBlocker,
 	WebRobotStageRecord,
 } from './types';

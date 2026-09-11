@@ -1,24 +1,29 @@
-import {
-	emptyWebRobotRunStats,
-	webRobotBrowserActionSchema,
-	webRobotBrowserCaptureSchema,
-	webRobotRecipeSchema,
-} from '@nao/shared/web-robot';
+import { webRobotBrowserActionSchema, webRobotBrowserCaptureSchema, webRobotRecipeSchema } from '@nao/shared/web-robot';
 import { TRPCError } from '@trpc/server';
-import { CronExpressionParser } from 'cron-parser';
 import { z } from 'zod/v4';
 
 import { env } from '../env';
-import { requestWebRobotCancellation, WEB_ROBOT_JOB_NAME, webRobotJobUniqueKey } from '../handlers/web-robot.handler';
+import { requestWebRobotCancellation } from '../handlers/web-robot.handler';
 import * as projectQueries from '../queries/project.queries';
 import * as scheduledJobQueries from '../queries/scheduled-job.queries';
 import type { WebRobotWithSchedule } from '../queries/web-robot.queries';
 import * as webRobotQueries from '../queries/web-robot.queries';
 import { naturalLanguageToCron } from '../services/cron-nlp';
-import { nextCronTick } from '../services/scheduler.service';
 import { isStorageEnabled, STORAGE_DISABLED_MESSAGE } from '../services/storage';
+import { listProjectDatasetDirectory, readProjectDataset } from '../services/storage/project-datasets';
+import {
+	createWebRobot,
+	enqueueWebRobotRunNow,
+	slugifyWebRobotName,
+	syncWebRobotSchedule,
+	uniqueWebRobotSlug,
+	updateWebRobot,
+} from '../services/web-robot';
+import { authorWebRobotRecipeFromUrl } from '../services/web-robot-authoring';
+import { previewWebRobotRepair } from '../services/web-robot-authoring/repair';
 import { inspectWebRobotUrl, runWebRobotRecipe } from '../services/web-scraper';
-import { webRobotDefinitionHash } from '../services/web-scraper/definition';
+import { isAllowedHostname } from '../services/web-scraper/url-policy';
+import { isDatasetPath, toDatasetRelativePath, toDatasetVirtualPath } from '../utils/tools';
 import { contextAdminProtectedProcedure } from './trpc';
 
 const assertWebRobotsEnabled = () => {
@@ -72,43 +77,74 @@ export const webRobotRoutes = {
 	}),
 
 	create: webRobotProcedure.input(createWebRobotSchema).mutation(async ({ ctx, input }) => {
-		assertValidCron(input.cron);
-		const slug = input.slug ?? slugify(input.name);
-		const recipe = webRobotRecipeSchema.parse(input.recipe);
-		const robot = await webRobotQueries
-			.createWebRobot({
+		return createWebRobot(ctx.project.id, ctx.user.id, input);
+	}),
+
+	createFromUrl: webRobotProcedure
+		.input(z.object({ url: httpUrlSchema.max(4096), name: z.string().trim().min(1).max(255).optional() }))
+		.mutation(async ({ ctx, input }) => {
+			const authored = await authorWebRobotRecipeFromUrl({
 				projectId: ctx.project.id,
-				userId: ctx.user.id,
-				name: input.name,
-				slug,
-				description: input.description || null,
-				definition: recipe,
-				definitionVersion: recipe.version,
-				definitionHash: webRobotDefinitionHash(recipe),
-			})
-			.catch((error) => {
-				if (isUniqueViolation(error)) {
-					throw new TRPCError({ code: 'CONFLICT', message: `A web robot named '${slug}' already exists.` });
-				}
-				throw error;
+				url: input.url,
+				env: await projectQueries.getEnvVars(ctx.project.id),
 			});
-		return syncWebRobotJob(robot.id, input.cron, input.enabled);
+			if (authored.status !== 'ready') {
+				return authored;
+			}
+
+			const name = input.name ?? suggestedRobotName(authored.diagnostics.discovery.title, input.url);
+			const robot = await createWebRobot(ctx.project.id, ctx.user.id, {
+				name,
+				slug: await uniqueWebRobotSlug(ctx.project.id, suggestedRobotSlug(name, input.url)),
+				description: `Automatically generated from ${input.url}`,
+				recipe: authored.recipe,
+				cron: '',
+				enabled: false,
+			});
+			const warnings = [...authored.warnings];
+			const run = await enqueueWebRobotRunNow(ctx.project.id, ctx.user.id, robot.id).catch((error) => {
+				warnings.push(
+					`The source was created, but the initial run could not be queued: ${errorMessage(error)}`,
+				);
+				return null;
+			});
+			return {
+				status: 'created' as const,
+				robot,
+				run,
+				score: authored.score,
+				recipe: authored.recipe,
+				sampleProducts: authored.sampleProducts,
+				warnings,
+				diagnostics: authored.diagnostics,
+			};
+		}),
+
+	importRobot: webRobotProcedure
+		.input(z.object({ robot: createWebRobotSchema }))
+		.mutation(async ({ ctx, input }) => createWebRobot(ctx.project.id, ctx.user.id, input.robot)),
+
+	exportRobot: webRobotProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
+		const robot = await requireWebRobot(ctx.project.id, input.id);
+		return {
+			format: 'nao-web-robot' as const,
+			formatVersion: 1,
+			name: robot.name,
+			slug: robot.slug,
+			description: robot.description ?? undefined,
+			recipe: robot.definition,
+			cron: robot.cron ?? '',
+			enabled: robot.enabled,
+		};
 	}),
 
 	update: webRobotProcedure.input(updateWebRobotSchema).mutation(async ({ ctx, input }) => {
-		assertValidCron(input.cron);
-		const recipe = webRobotRecipeSchema.parse(input.recipe);
-		const robot = await webRobotQueries.updateWebRobot(ctx.project.id, input.id, {
-			name: input.name,
-			description: input.description || null,
-			definition: recipe,
-			definitionVersion: recipe.version,
-			definitionHash: webRobotDefinitionHash(recipe),
-		});
+		const { id, ...definition } = input;
+		const robot = await updateWebRobot(ctx.project.id, id, definition);
 		if (!robot) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: `Web robot not found: ${input.id}` });
 		}
-		return syncWebRobotJob(robot.id, input.cron, input.enabled);
+		return robot;
 	}),
 
 	archive: webRobotProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
@@ -142,7 +178,7 @@ export const webRobotRoutes = {
 			if (!robot) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: `Web robot not found: ${input.id}` });
 			}
-			return syncWebRobotJob(robot.id, robot.cron ?? '', input.enabled);
+			return syncWebRobotSchedule(robot.id, robot.cron ?? '', input.enabled);
 		}),
 
 	inspectUrl: webRobotProcedure
@@ -178,35 +214,7 @@ export const webRobotRoutes = {
 	}),
 
 	runNow: webRobotProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
-		const robot = await webRobotQueries.getWebRobot(ctx.project.id, input.id);
-		if (!robot) {
-			throw new TRPCError({ code: 'NOT_FOUND', message: `Web robot not found: ${input.id}` });
-		}
-		const activeRun = await webRobotQueries.findActiveWebRobotRun(robot.id);
-		if (activeRun) {
-			throw new TRPCError({ code: 'CONFLICT', message: 'This web robot already has an active run.' });
-		}
-
-		const run = await webRobotQueries.createWebRobotRun({
-			robotId: robot.id,
-			triggeredByUserId: ctx.user.id,
-			trigger: 'manual',
-			definition: robot.definition,
-			definitionHash: robot.definitionHash,
-			stats: emptyWebRobotRunStats(),
-		});
-		const job = await scheduledJobQueries.enqueueOnceJob({
-			name: WEB_ROBOT_JOB_NAME,
-			payload: { webRobotId: robot.id, runId: run.id },
-			uniqueKey: `web-robot-manual:${run.id}`,
-			maxAttempts: 1,
-		});
-		if (!job) {
-			await webRobotQueries.cancelQueuedWebRobotRun(run.id);
-			throw new TRPCError({ code: 'CONFLICT', message: 'This web robot run is already queued.' });
-		}
-		await webRobotQueries.setWebRobotRunScheduledJob(run.id, job.id);
-		return webRobotQueries.getWebRobotRun(ctx.project.id, run.id);
+		return enqueueWebRobotRunNow(ctx.project.id, ctx.user.id, input.id);
 	}),
 
 	listRuns: webRobotProcedure
@@ -222,6 +230,94 @@ export const webRobotRoutes = {
 			throw new TRPCError({ code: 'NOT_FOUND', message: `Web robot run not found: ${input.runId}` });
 		}
 		return run;
+	}),
+
+	previewRepair: webRobotProcedure
+		.input(z.object({ id: z.string(), runId: z.string().optional() }))
+		.mutation(async ({ ctx, input }) => {
+			const robot = await requireWebRobot(ctx.project.id, input.id);
+			const run = input.runId ? await webRobotQueries.getWebRobotRun(ctx.project.id, input.runId) : undefined;
+			if (input.runId && !run) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: `Web robot run not found: ${input.runId}` });
+			}
+			if (run && run.robotId !== robot.id) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: 'The selected run belongs to a different web robot.',
+				});
+			}
+			if (run && !['failed', 'partial'].includes(run.status)) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: 'Repair previews are available for failed or partial web robot runs.',
+				});
+			}
+			return previewWebRobotRepair({
+				projectId: ctx.project.id,
+				currentRecipe: robot.definition,
+				runRecipe: run?.definition,
+				env: await projectQueries.getEnvVars(ctx.project.id),
+			});
+		}),
+
+	applyRepair: webRobotProcedure
+		.input(
+			z.object({
+				id: z.string(),
+				expectedDefinitionHash: z.string().trim().min(1).max(128),
+				recipe: webRobotRecipeSchema,
+			}),
+		)
+		.mutation(async ({ ctx, input }) => {
+			const robot = await requireWebRobot(ctx.project.id, input.id);
+			if (robot.definitionHash !== input.expectedDefinitionHash) {
+				throw new TRPCError({
+					code: 'CONFLICT',
+					message:
+						'The web robot changed after the repair preview. Generate a new preview before applying it.',
+				});
+			}
+			assertRepairRecipeScope(robot.definition, input.recipe);
+			const updated = await updateWebRobot(ctx.project.id, robot.id, {
+				name: robot.name,
+				description: robot.description ?? undefined,
+				recipe: input.recipe,
+				cron: robot.cron ?? '',
+				enabled: robot.enabled,
+			});
+			if (!updated) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: `Web robot not found: ${input.id}` });
+			}
+			return {
+				robot: updated,
+				previousDefinitionHash: robot.definitionHash,
+				definitionHash: updated.definitionHash,
+			};
+		}),
+
+	getRunArtifacts: webRobotProcedure.input(z.object({ runId: z.string() })).query(async ({ ctx, input }) => {
+		const run = await webRobotQueries.getWebRobotRun(ctx.project.id, input.runId);
+		if (!run) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: `Web robot run not found: ${input.runId}` });
+		}
+		if (!run.artifactPrefix || !isDatasetPath(run.artifactPrefix)) {
+			return { files: [], manifest: null, readme: null };
+		}
+
+		const relativePath = toDatasetRelativePath(run.artifactPrefix);
+		const files = await listProjectDatasetDirectory(ctx.project.id, relativePath);
+		const manifest = await readProjectDataset(ctx.project.id, `${relativePath}/manifest.json`)
+			.then(parseJsonObject)
+			.catch(() => null);
+		const readme = await readProjectDataset(ctx.project.id, `${relativePath}/README.md`).catch(() => null);
+		return {
+			files: files.map((file) => ({
+				...file,
+				path: toDatasetVirtualPath(file.relativePath),
+			})),
+			manifest,
+			readme,
+		};
 	}),
 
 	cancelRun: webRobotProcedure.input(z.object({ runId: z.string() })).mutation(async ({ ctx, input }) => {
@@ -251,46 +347,28 @@ export const webRobotRoutes = {
 		}),
 };
 
-const syncWebRobotJob = async (robotId: string, cron: string, enabled: boolean): Promise<WebRobotWithSchedule> => {
-	const trimmedCron = cron.trim();
-	if (!trimmedCron) {
-		const robot = await webRobotQueries.getWebRobotById(robotId);
-		if (robot?.scheduledJobId) {
-			await scheduledJobQueries.deleteJob(robot.scheduledJobId);
-			await webRobotQueries.updateWebRobot(robot.projectId, robot.id, { scheduledJobId: null });
+const assertRepairRecipeScope = (current: WebRobotWithSchedule['definition'], next: typeof current): void => {
+	const currentHosts = new Set(current.allowedHosts.map((host) => host.toLowerCase()));
+	for (const host of next.allowedHosts) {
+		if (!currentHosts.has(host.toLowerCase())) {
+			throw new TRPCError({
+				code: 'BAD_REQUEST',
+				message: `Repair recipes cannot add allowed host '${host}'.`,
+			});
 		}
-		const cleared = await webRobotQueries.getWebRobotById(robotId);
-		if (!cleared) {
-			throw new Error(`Web robot not found after scheduling: ${robotId}`);
+	}
+	for (const stage of next.stages) {
+		if (stage.source.url.includes('{{')) {
+			continue;
 		}
-		return cleared;
+		const hostname = new URL(stage.source.url).hostname;
+		if (!isAllowedHostname(hostname, next.allowedHosts)) {
+			throw new TRPCError({
+				code: 'BAD_REQUEST',
+				message: `Stage '${stage.id}' uses a source outside the recipe's allowed hosts.`,
+			});
+		}
 	}
-
-	const runAt = nextCronTick(trimmedCron, new Date());
-	if (!runAt) {
-		throw new TRPCError({ code: 'BAD_REQUEST', message: `Invalid cron expression: ${trimmedCron}` });
-	}
-	const job = await scheduledJobQueries.upsertRecurringJob({
-		name: WEB_ROBOT_JOB_NAME,
-		cron: trimmedCron,
-		uniqueKey: webRobotJobUniqueKey(robotId),
-		payload: { webRobotId: robotId },
-		runAt,
-		status: enabled ? 'pending' : 'paused',
-		maxAttempts: 1,
-		resetRunAtOnConflict: true,
-	});
-
-	const robot = await webRobotQueries.getWebRobotById(robotId);
-	if (!robot) {
-		throw new Error(`Web robot not found after scheduling: ${robotId}`);
-	}
-	await webRobotQueries.updateWebRobot(robot.projectId, robotId, { scheduledJobId: job.id });
-	const linked = await webRobotQueries.getWebRobotById(robotId);
-	if (!linked) {
-		throw new Error(`Web robot not found after scheduling: ${robotId}`);
-	}
-	return linked;
 };
 
 const requireWebRobot = async (projectId: string, id: string): Promise<WebRobotWithSchedule> => {
@@ -301,31 +379,25 @@ const requireWebRobot = async (projectId: string, id: string): Promise<WebRobotW
 	return robot;
 };
 
-const assertValidCron = (cron: string): void => {
-	const trimmed = cron.trim();
-	if (!trimmed) {
-		return;
-	}
+const parseJsonObject = (value: string): Record<string, unknown> => {
+	const parsed = JSON.parse(value) as unknown;
+	return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+		? (parsed as Record<string, unknown>)
+		: {};
+};
+
+const suggestedRobotName = (title: string | undefined, url: string): string => {
+	const base = (title || new URL(url).hostname).slice(0, 80).trim();
+	return /\b(products?|catalogue|catalog)\b/i.test(base) ? base : `${base} products`;
+};
+
+const suggestedRobotSlug = (name: string, url: string): string => {
 	try {
-		CronExpressionParser.parse(trimmed);
+		return slugifyWebRobotName(name);
 	} catch {
-		throw new TRPCError({ code: 'BAD_REQUEST', message: `Invalid cron expression: ${trimmed}` });
+		const parsed = new URL(url);
+		return `${parsed.hostname}${parsed.pathname}`;
 	}
 };
 
-const isUniqueViolation = (error: unknown): boolean => {
-	const candidate = error as { code?: string; message?: string };
-	return candidate.code === '23505' || /unique constraint/i.test(candidate.message ?? '');
-};
-
-const slugify = (name: string): string => {
-	const slug = name
-		.trim()
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, '-')
-		.replace(/^-+|-+$/g, '');
-	if (!slugSchema.safeParse(slug).success) {
-		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Choose a lowercase slug for this web robot.' });
-	}
-	return slug;
-};
+const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));

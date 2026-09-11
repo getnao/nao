@@ -1,4 +1,4 @@
-import type { WebRobotExtract, WebRobotTransform } from '@nao/shared/web-robot';
+import type { WebRobotExtract, WebRobotRecordFilter, WebRobotTransform } from '@nao/shared/web-robot';
 
 import { getPathValue } from './template';
 import { applyTransforms } from './transforms';
@@ -8,9 +8,25 @@ export const extractJsonRecords = (
 	extract: Extract<WebRobotExtract, { type: 'json' | 'network' }>,
 	baseUrl?: string,
 ): Record<string, unknown>[] => {
-	const items = jsonItems(body, extract.itemsPath);
+	return jsonItems(body, extract.itemsPath)
+		.filter((item) => matchesRecordFilters(item, extract.where))
+		.map((item) => extractJsonFields(item, extract.fields, baseUrl));
+};
 
-	return items.map((item) => extractJsonFields(item, extract.fields, baseUrl));
+export const matchesRecordFilters = (item: unknown, filters: WebRobotRecordFilter[] = []): boolean => {
+	return filters.every((filter) => {
+		const value = getPathValue(item, filter.path);
+		if (filter.exists !== undefined && (value !== undefined && value !== null) !== filter.exists) {
+			return false;
+		}
+		if (filter.equals !== undefined && !filterValueEquals(value, filter.equals)) {
+			return false;
+		}
+		if (filter.in !== undefined && !filter.in.some((expected) => filterValueEquals(value, expected))) {
+			return false;
+		}
+		return true;
+	});
 };
 
 export const extractJsonFields = (
@@ -51,6 +67,13 @@ const jsonItems = (body: unknown, itemsPath?: string): unknown[] => {
 		return value;
 	}
 	return value === undefined || value === null ? [] : [value];
+};
+
+const filterValueEquals = (actual: unknown, expected: unknown): boolean => {
+	if (typeof actual === 'string' && typeof expected === 'string') {
+		return actual.toLowerCase() === expected.toLowerCase();
+	}
+	return actual === expected;
 };
 
 const isMissing = (value: unknown): boolean => {

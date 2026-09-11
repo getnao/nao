@@ -1,4 +1,4 @@
-import { emptyWebRobotRunStats } from '@nao/shared/web-robot';
+import { emptyWebRobotRunStats, type WebRobotRecipe } from '@nao/shared/web-robot';
 
 import type { DBScheduledJob, DBWebRobotRun } from '../db/abstractSchema';
 import * as projectQueries from '../queries/project.queries';
@@ -83,19 +83,55 @@ export const webRobotRunJob = async (payload: WebRobotJobPayload, job: DBSchedul
 		});
 
 		if (!artifacts.published) {
+			const publishError = artifacts.publishError ?? 'Web robot did not publish its dataset.';
+			logger.warn(`Web robot run ${run.id} was rejected by publish safeguards`, {
+				source: 'system',
+				projectId: robot.projectId,
+				context: {
+					robotId: robot.id,
+					runId: run.id,
+					artifactPrefix: artifacts.artifactPrefix,
+					publishError,
+					stats: result.stats,
+				},
+			});
 			await webRobotQueries.completeWebRobotRun(
 				run.id,
 				'failed',
 				result.stats,
-				artifacts.publishError ?? 'Web robot did not publish its dataset.',
+				publishError,
 				artifacts.artifactPrefix,
 			);
 			return;
 		}
 
-		const status = result.stats.extractionErrors + result.stats.failedRequests > 0 ? 'partial' : 'completed';
-		await webRobotQueries.completeWebRobotRun(run.id, status, result.stats, null, artifacts.artifactPrefix);
+		const siteChanges = siteChangeSignals(result, robot.lastPublishedProductCount, claimed.definition);
+		result.stats.warnings ??= [];
+		result.stats.warnings.push(...siteChanges);
+		const status =
+			result.stats.extractionErrors + result.stats.failedRequests > 0 || siteChanges.length > 0
+				? 'partial'
+				: 'completed';
+		await webRobotQueries.completeWebRobotRun(
+			run.id,
+			status,
+			result.stats,
+			siteChanges.length ? siteChanges.join(' ') : null,
+			artifacts.artifactPrefix,
+		);
 		await webRobotQueries.markWebRobotPublish(robot.id, run.id, result.normalized.products.length, completedAt);
+		logger.info(`Web robot run ${run.id} finished with status ${status}`, {
+			source: 'system',
+			projectId: robot.projectId,
+			context: {
+				robotId: robot.id,
+				runId: run.id,
+				status,
+				artifactPrefix: artifacts.artifactPrefix,
+				productCount: result.normalized.products.length,
+				stats: result.stats,
+			},
+		});
 	} catch (error) {
 		const latest = await webRobotQueries.getWebRobotRunById(run.id);
 		const cancelled = abort.signal.aborted || latest?.cancelRequestedAt;
@@ -118,6 +154,45 @@ export const webRobotRunJob = async (payload: WebRobotJobPayload, job: DBSchedul
 	} finally {
 		activeRuns.delete(run.id);
 	}
+};
+
+const siteChangeSignals = (
+	result: Awaited<ReturnType<typeof runWebRobotRecipe>>,
+	previousProductCount: number | null,
+	recipe: WebRobotRecipe,
+): string[] => {
+	const signals: string[] = [];
+	const warningKinds = new Set(
+		result.events
+			.filter((event) => event.type === 'warning')
+			.map((event) =>
+				typeof event.data === 'object' && event.data ? (event.data as { kind?: string }).kind : undefined,
+			),
+	);
+	if (warningKinds.has('selector_fallback') || warningKinds.has('pagination_fallback')) {
+		signals.push('Site layout changed; the recipe used fallback selectors.');
+	}
+	if (warningKinds.has('blocker_detected')) {
+		signals.push('Source returned a blocker signal during the run.');
+	}
+	if (warningKinds.has('field_coverage_drop')) {
+		signals.push('Extracted product field coverage dropped below the expected threshold.');
+	}
+	if (warningKinds.has('pagination_stopped')) {
+		signals.push('Pagination stopped on an unexpected target.');
+	}
+	const coverage = result.stats.fieldCoverage ?? {};
+	const extractsSku = recipe.stages.some(
+		(stage) => stage.output === 'product' && stage.extract && 'sku' in stage.extract.fields,
+	);
+	if ((coverage.url ?? 100) < 80 || (coverage.name ?? 100) < 80 || (extractsSku && (coverage.sku ?? 100) < 50)) {
+		signals.push('Extracted product field coverage dropped below the expected threshold.');
+	}
+	const productCount = result.normalized.products.length;
+	if (previousProductCount && previousProductCount > 0 && productCount <= previousProductCount * 0.5) {
+		signals.push(`Product count dropped from ${previousProductCount} to ${productCount}.`);
+	}
+	return [...new Set(signals)];
 };
 
 const createScheduledRun = async (robotId: string, scheduledJobId: string): Promise<DBWebRobotRun> => {

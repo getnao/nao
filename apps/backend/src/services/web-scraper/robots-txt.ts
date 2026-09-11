@@ -1,3 +1,5 @@
+import { readResponseWithLimit } from './request';
+
 type RobotsRule = {
 	path: string;
 	allow: boolean;
@@ -41,6 +43,14 @@ export class RobotsTxtPolicy {
 		return cached;
 	}
 }
+
+export const fetchRobotsTxt = async (robotsUrl: string): Promise<string | null> => {
+	const response = await fetch(robotsUrl, { redirect: 'manual', signal: AbortSignal.timeout(10_000) });
+	if (response.status >= 400) {
+		return null;
+	}
+	return readResponseWithLimit(response, 256 * 1024);
+};
 
 export const parseRobotsTxt = (content: string): RobotsGroup[] => {
 	const groups: RobotsGroup[] = [];

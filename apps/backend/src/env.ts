@@ -265,6 +265,18 @@ const baseEnvSchema = z.object({
 		.optional()
 		.default('false')
 		.transform((val) => val === 'true'),
+	WEB_ROBOT_BROWSER_MAX_CONCURRENCY: z.coerce
+		.number({ message: 'WEB_ROBOT_BROWSER_MAX_CONCURRENCY must be a number' })
+		.int()
+		.min(1)
+		.max(8)
+		.default(2),
+	WEB_ROBOT_ARTIFACT_RETENTION_RUNS: z.coerce
+		.number({ message: 'WEB_ROBOT_ARTIFACT_RETENTION_RUNS must be a number' })
+		.int()
+		.min(1)
+		.max(1000)
+		.default(10),
 
 	BETA_CONTEXT_RECOMMENDATIONS_ENABLED: z
 		.enum(['true', 'false'])

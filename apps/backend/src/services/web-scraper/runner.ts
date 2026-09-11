@@ -7,8 +7,10 @@ import {
 	type WebRobotStage,
 } from '@nao/shared/web-robot';
 
+import { detectLoadedSourceBlockers } from './blockers';
 import { WebRobotBrowserSession } from './browser-loader';
 import { extractDomRecords, findNextLink } from './extract-dom';
+import { extractEmbeddedRecords } from './extract-embedded';
 import { extractJsonRecords } from './extract-json';
 import { extractJsonLdRecords } from './extract-json-ld';
 import { loadHttpSource } from './http-loader';
@@ -22,16 +24,22 @@ import type {
 	WebRobotExecutionResult,
 	WebRobotLoadedSource,
 	WebRobotRunEvent,
+	WebRobotRunWarning,
 	WebRobotStageRecord,
 } from './types';
 import { assertPublicHttpUrl, canonicalHttpUrl } from './url-policy';
+
+const DRY_RUN_PARENT_LIMIT = 3;
+const DRY_RUN_STAGE_PAGE_LIMIT = 3;
 
 type RunnerContext = {
 	recipe: WebRobotRecipe;
 	env: Record<string, string>;
 	signal?: AbortSignal;
+	dryRun: boolean;
 	stats: WebRobotRunStats;
 	events: WebRobotRunEvent[];
+	warningKeys: Set<string>;
 	onEvent?: (event: WebRobotRunEvent) => void | Promise<void>;
 	startedAt: number;
 	robots: RobotsTxtPolicy;
@@ -60,6 +68,8 @@ export const runWebRobotRecipe = async (
 	}
 
 	const normalized = normalizeProducts(productRecords, recipe, options.runId);
+	context.stats.fieldCoverage = productFieldCoverage(normalized.products);
+	await emitWarnings(context, 'run', fieldCoverageWarnings(context.stats.fieldCoverage, recipe));
 	return { stats: context.stats, stageRecords, products: normalized.products, events: context.events, normalized };
 };
 
@@ -68,9 +78,12 @@ const runStage = async (
 	context: RunnerContext,
 	stageRecords: Map<string, WebRobotStageRecord[]>,
 ): Promise<WebRobotStageRecord[]> => {
-	const parents = stage.forEach
-		? (stageRecords.get(stage.forEach.from) ?? []).slice(0, stage.forEach.limit)
-		: [undefined];
+	const parentLimit = stage.forEach
+		? context.dryRun
+			? Math.min(stage.forEach.limit ?? DRY_RUN_PARENT_LIMIT, DRY_RUN_PARENT_LIMIT)
+			: stage.forEach.limit
+		: undefined;
+	const parents = stage.forEach ? (stageRecords.get(stage.forEach.from) ?? []).slice(0, parentLimit) : [undefined];
 	const records: WebRobotStageRecord[] = [];
 	const concurrency = Math.max(1, stage.source.type === 'browser' ? 1 : context.recipe.request.concurrency);
 
@@ -109,41 +122,93 @@ const runStageInput = async (
 	context: RunnerContext,
 	records: WebRobotStageRecord[],
 ): Promise<void> => {
-	let nextSource: WebRobotSource | undefined = stage.source;
-	let page = stage.paginate?.type === 'page' ? stage.paginate.firstPage : 1;
-	let pageCount = 0;
-	const maxPages = Math.min(stage.paginate?.maxPages ?? 1, context.recipe.limits.maxPages);
+	let paginationValue = initialPaginationValue(stage.paginate);
+	const stageMaxPages = stage.paginate?.maxPages ?? 1;
+	const maxPages = context.dryRun ? Math.min(stageMaxPages, DRY_RUN_STAGE_PAGE_LIMIT) : stageMaxPages;
 
+	if (stage.paginate?.type === 'click' || stage.paginate?.type === 'scroll') {
+		if (stage.source.type !== 'browser') {
+			throw new Error('Click and scroll pagination require a browser source');
+		}
+		const warnings: WebRobotRunWarning[] = [];
+		const pages = await loadInteractivePaginatedSource(
+			stage.source,
+			scope,
+			context,
+			{
+				...stage.paginate,
+				maxPages,
+			},
+			(warning) => warnings.push(warning),
+		);
+		await emitWarnings(context, stage.id, warnings);
+		for (const [index, loaded] of pages.entries()) {
+			throwIfStopped(context);
+			await collectLoaded(stage, parent, loaded, context, records);
+			if (index < pages.length - 1) {
+				await delayBetweenRequests(context);
+			}
+		}
+		return;
+	}
+
+	const linkPagination = stage.paginate?.type === 'nextLink' || stage.paginate?.type === 'nextPath';
+	const expectsHtml =
+		stage.extract?.type === 'dom' || stage.extract?.type === 'embedded' || stage.extract?.type === 'jsonld';
+	let nextSource: WebRobotSource | undefined = stage.source;
+	const visitedUrls = new Set<string>();
+	let pageCount = 0;
 	while (nextSource && pageCount < maxPages) {
 		throwIfStopped(context);
-		const pageScope = { ...scope, page };
+		const pageScope = { ...scope, ...paginationScope(stage.paginate, paginationValue) };
 		const loaded = await loadSource(nextSource, pageScope, context);
-		const extracted = extractLoaded(loaded, stage.extract, context);
-		const pageRecords = extracted.map((data) => ({
-			stageId: stage.id,
-			url: recordUrl(data, loaded),
-			data: { ...(parent?.data ?? {}), ...data },
-		}));
-		records.push(...pageRecords);
-		context.stats.itemsExtracted += pageRecords.length;
-		assertLimits(context);
-		for (const record of pageRecords) {
-			await emit(context, {
-				type: 'item',
-				stageId: stage.id,
-				url: record.url,
-				data: record.data,
-				createdAt: now(),
-			});
+		visitedUrls.add(visitedUrlKey(loaded.finalUrl));
+		if (linkPagination && expectsHtml && isNonHtmlContent(loaded.contentType)) {
+			await emitWarnings(context, stage.id, [
+				{
+					kind: 'pagination_stopped',
+					message: `Stopped paginating: '${loaded.finalUrl}' returned non-HTML content ('${loaded.contentType}').`,
+				},
+			]);
+			break;
 		}
+		const extracted = await collectLoaded(stage, parent, loaded, context, records);
 
 		pageCount += 1;
-		nextSource = nextPageSource(stage, loaded, extracted, page);
-		if (nextSource) {
-			page += 1;
+		const warnings: WebRobotRunWarning[] = [];
+		const next = nextPageSource(stage, loaded, extracted, paginationValue, (warning) => warnings.push(warning));
+		await emitWarnings(context, stage.id, warnings);
+		nextSource = next?.source;
+		if (nextSource && linkPagination && visitedUrls.has(visitedUrlKey(nextSource.url))) {
+			await emitWarnings(context, stage.id, [
+				{
+					kind: 'pagination_stopped',
+					message: `Stopped paginating: next page '${nextSource.url}' was already visited.`,
+				},
+			]);
+			nextSource = undefined;
+		}
+		if (nextSource && next) {
+			paginationValue = next.value;
 			await delayBetweenRequests(context);
 		}
 	}
+};
+
+const visitedUrlKey = (url: string): string => {
+	try {
+		return canonicalHttpUrl(url);
+	} catch {
+		return url;
+	}
+};
+
+const isNonHtmlContent = (contentType?: string): boolean => {
+	if (!contentType) {
+		return false;
+	}
+	const type = contentType.toLowerCase();
+	return !type.includes('html') && !type.startsWith('text/plain');
 };
 
 const loadSource = async (
@@ -171,7 +236,40 @@ const loadSource = async (
 					env: context.env,
 					signal: context.signal,
 				});
+	await trackLoaded(context, loaded);
+	return loaded;
+};
 
+const loadInteractivePaginatedSource = async (
+	source: Extract<WebRobotSource, { type: 'browser' }>,
+	scope: TemplateScope,
+	context: RunnerContext,
+	pagination: Extract<NonNullable<WebRobotStage['paginate']>, { type: 'click' | 'scroll' }>,
+	onWarning: (warning: WebRobotRunWarning) => void,
+): Promise<WebRobotLoadedSource[]> => {
+	const renderedUrl = renderSourceUrl(source, scope);
+	await assertPublicHttpUrl(renderedUrl, context.recipe.allowedHosts);
+	if (context.recipe.respectRobotsTxt) {
+		await context.robots.assertAllowed(renderedUrl, context.recipe.request.userAgent);
+	}
+	const pages = await context.browser.loadPaginated(
+		source,
+		{
+			recipe: context.recipe,
+			scope,
+			env: context.env,
+			signal: context.signal,
+			onWarning,
+		},
+		pagination,
+	);
+	for (const loaded of pages) {
+		await trackLoaded(context, loaded);
+	}
+	return pages;
+};
+
+const trackLoaded = async (context: RunnerContext, loaded: WebRobotLoadedSource): Promise<void> => {
 	context.stats.pagesDiscovered += 1;
 	context.stats.pagesFetched += 1;
 	context.stats.requests += loaded.requests;
@@ -182,13 +280,57 @@ const loadSource = async (
 		status: loaded.status,
 		createdAt: now(),
 	});
-	return loaded;
+};
+
+const collectLoaded = async (
+	stage: WebRobotStage,
+	parent: WebRobotStageRecord | undefined,
+	loaded: WebRobotLoadedSource,
+	context: RunnerContext,
+	records: WebRobotStageRecord[],
+): Promise<Record<string, unknown>[]> => {
+	const warnings: WebRobotRunWarning[] = [];
+	const extracted = extractLoaded(loaded, stage.extract, context, (warning) => warnings.push(warning));
+	await emitWarnings(context, stage.id, warnings);
+	await emitWarnings(
+		context,
+		stage.id,
+		detectLoadedSourceBlockers(
+			loaded,
+			stage.source.type === 'browser' ? 'browser' : 'http',
+			extracted.length > 0,
+		).map((blocker) => ({
+			kind: 'blocker_detected' as const,
+			blocker: blocker.kind,
+			message: blocker.message,
+			data: { evidence: blocker.evidence, status: blocker.status },
+		})),
+	);
+	const pageRecords = extracted.map((data) => ({
+		stageId: stage.id,
+		url: recordUrl(data, loaded),
+		data: { ...(parent?.data ?? {}), ...data },
+	}));
+	records.push(...pageRecords);
+	context.stats.itemsExtracted += pageRecords.length;
+	assertLimits(context);
+	for (const record of pageRecords) {
+		await emit(context, {
+			type: 'item',
+			stageId: stage.id,
+			url: record.url,
+			data: record.data,
+			createdAt: now(),
+		});
+	}
+	return extracted;
 };
 
 const extractLoaded = (
 	loaded: WebRobotLoadedSource,
 	extract: WebRobotExtract | undefined,
 	context: RunnerContext,
+	onWarning: (warning: WebRobotRunWarning) => void,
 ): Record<string, unknown>[] => {
 	if (!extract) {
 		return [{ url: loaded.finalUrl, status: loaded.status }];
@@ -197,13 +339,15 @@ const extractLoaded = (
 	try {
 		switch (extract.type) {
 			case 'dom':
-				return extractDomRecords(loaded.bodyText ?? '', extract, loaded.finalUrl);
+				return extractDomRecords(loaded.bodyText ?? '', extract, loaded.finalUrl, onWarning);
 			case 'json':
 				return extractJsonRecords(loaded.bodyJson ?? parseJson(loaded.bodyText), extract, loaded.finalUrl);
 			case 'network':
 				return loaded.captures
 					.filter((capture) => capture.name === extract.capture)
 					.flatMap((capture) => extractJsonRecords(capture.body, extract, loaded.finalUrl));
+			case 'embedded':
+				return extractEmbeddedRecords(loaded.bodyText ?? '', extract, loaded.finalUrl);
 			case 'jsonld':
 				return extractJsonLdRecords(loaded.bodyText ?? '', extract, loaded.finalUrl);
 		}
@@ -213,12 +357,39 @@ const extractLoaded = (
 	}
 };
 
+const initialPaginationValue = (pagination: WebRobotStage['paginate']): unknown => {
+	if (pagination?.type === 'page') {
+		return pagination.firstPage;
+	}
+	if (pagination?.type === 'cursor') {
+		return pagination.firstCursor ?? '';
+	}
+	if (pagination?.type === 'offset') {
+		return pagination.firstOffset;
+	}
+	return 1;
+};
+
+const paginationScope = (pagination: WebRobotStage['paginate'], value: unknown): TemplateScope => {
+	if (pagination?.type === 'page') {
+		return { [pagination.pageVariable]: value };
+	}
+	if (pagination?.type === 'cursor') {
+		return { [pagination.cursorVariable]: value };
+	}
+	if (pagination?.type === 'offset') {
+		return { [pagination.offsetVariable]: value };
+	}
+	return {};
+};
+
 const nextPageSource = (
 	stage: WebRobotStage,
 	loaded: WebRobotLoadedSource,
 	extracted: Record<string, unknown>[],
-	page: number,
-): WebRobotSource | undefined => {
+	paginationValue: unknown,
+	onWarning: (warning: WebRobotRunWarning) => void,
+): { source: WebRobotSource; value: unknown } | undefined => {
 	const pagination = stage.paginate;
 	if (!pagination) {
 		return undefined;
@@ -226,29 +397,122 @@ const nextPageSource = (
 
 	if (pagination.type === 'nextLink') {
 		const href = loaded.bodyText
-			? findNextLink(loaded.bodyText, pagination.selector, pagination.attr, loaded.finalUrl)
+			? findNextLink(
+					loaded.bodyText,
+					pagination.selector,
+					pagination.attr,
+					loaded.finalUrl,
+					pagination.selectors,
+					pagination.fingerprint,
+					onWarning,
+				)
 			: null;
-		return href ? ({ ...stage.source, url: href } as WebRobotSource) : undefined;
+		return href ? { source: { ...stage.source, url: href } as WebRobotSource, value: paginationValue } : undefined;
 	}
 
 	if (pagination.type === 'nextPath') {
 		const next = getPathValue(loaded.bodyJson ?? parseJson(loaded.bodyText), pagination.path);
 		return typeof next === 'string' && next
-			? ({ ...stage.source, url: new URL(next, loaded.finalUrl).toString() } as WebRobotSource)
+			? {
+					source: { ...stage.source, url: new URL(next, loaded.finalUrl).toString() } as WebRobotSource,
+					value: paginationValue,
+				}
+			: undefined;
+	}
+
+	if (pagination.type === 'cursor') {
+		const next = getPathValue(loaded.bodyJson ?? parseJson(loaded.bodyText), pagination.nextCursorPath);
+		return (typeof next === 'string' || typeof next === 'number') && String(next) !== ''
+			? { source: stage.source, value: String(next) }
+			: undefined;
+	}
+
+	if (pagination.type === 'offset') {
+		const nextOffset = Number(paginationValue) + pagination.pageSize;
+		const total = pagination.totalPath
+			? Number(getPathValue(loaded.bodyJson ?? parseJson(loaded.bodyText), pagination.totalPath))
+			: undefined;
+		if (extracted.length === 0 || !Number.isFinite(nextOffset) || nextOffset < 0) {
+			return undefined;
+		}
+		return total === undefined || !Number.isFinite(total) || nextOffset < total
+			? { source: stage.source, value: nextOffset }
 			: undefined;
 	}
 
 	if (pagination.type === 'page') {
+		const nextPage = Number(paginationValue) + 1;
 		if (pagination.totalPagesPath) {
 			const totalPages = Number(
 				getPathValue(loaded.bodyJson ?? parseJson(loaded.bodyText), pagination.totalPagesPath),
 			);
-			return Number.isFinite(totalPages) && page < totalPages ? stage.source : undefined;
+			return Number.isFinite(totalPages) && nextPage <= totalPages
+				? { source: stage.source, value: nextPage }
+				: undefined;
 		}
-		return extracted.length > 0 ? stage.source : undefined;
+		return extracted.length > 0 ? { source: stage.source, value: nextPage } : undefined;
 	}
 
 	return undefined;
+};
+
+const COVERAGE_FIELDS: Record<string, string[]> = {
+	name: ['name'],
+	url: ['source_url', 'canonical_url', 'url'],
+	sku: ['sku'],
+	price: ['price'],
+	description: ['description'],
+	image_url: ['image_urls_json', 'images', 'image_url'],
+	brand: ['brand'],
+	categories: ['categories_json', 'categories'],
+};
+
+const productFieldCoverage = (products: Record<string, unknown>[]): Record<string, number> => {
+	if (!products.length) {
+		return {};
+	}
+	return Object.fromEntries(
+		Object.entries(COVERAGE_FIELDS).map(([field, keys]) => {
+			const count = products.filter((product) => keys.some((key) => hasCoverageValue(product[key]))).length;
+			return [field, Math.round((count / products.length) * 100)];
+		}),
+	);
+};
+
+const hasCoverageValue = (value: unknown): boolean => {
+	return (
+		value !== undefined &&
+		value !== null &&
+		value !== '' &&
+		value !== '[]' &&
+		value !== '{}' &&
+		(!Array.isArray(value) || value.length > 0)
+	);
+};
+
+const fieldCoverageWarnings = (coverage: Record<string, number>, recipe: WebRobotRecipe): WebRobotRunWarning[] => {
+	const extractedFields = new Set(
+		recipe.stages
+			.filter((stage) => stage.output === 'product' && stage.extract)
+			.flatMap((stage) => Object.keys(stage.extract!.fields)),
+	);
+	const warnings: WebRobotRunWarning[] = [];
+	for (const [field, threshold] of [
+		['url', 80],
+		['name', 80],
+		['sku', 50],
+	] as const) {
+		const value = coverage[field];
+		if (value !== undefined && extractedFields.has(field) && value < threshold) {
+			warnings.push({
+				kind: 'field_coverage_drop',
+				field,
+				message: `Field '${field}' coverage is ${value}%, below the ${threshold}% threshold.`,
+				data: { coverage: value, threshold },
+			});
+		}
+	}
+	return warnings;
 };
 
 const parentScope = (stage: WebRobotStage, parent: WebRobotStageRecord | undefined): TemplateScope => {
@@ -282,8 +546,10 @@ const createContext = (recipe: WebRobotRecipe, options: WebRobotExecutionOptions
 	recipe,
 	env: options.env ?? {},
 	signal: options.signal,
+	dryRun: options.dryRun === true,
 	stats: emptyWebRobotRunStats(),
 	events: [],
+	warningKeys: new Set(),
 	onEvent: options.onEvent,
 	startedAt: Date.now(),
 	robots: new RobotsTxtPolicy(fetchRobotsTxt),
@@ -302,8 +568,8 @@ const dryRunRecipe = (recipe: WebRobotRecipe): WebRobotRecipe => ({
 	...recipe,
 	limits: {
 		...recipe.limits,
-		maxPages: Math.min(recipe.limits.maxPages, 3),
-		maxItems: Math.min(recipe.limits.maxItems, 10),
+		maxPages: Math.min(recipe.limits.maxPages, 10),
+		maxItems: Math.min(recipe.limits.maxItems, 50),
 		maxRequests: Math.min(recipe.limits.maxRequests, 250),
 		maxDurationMs: Math.min(recipe.limits.maxDurationMs, 2 * 60_000),
 		maxResponseBytes: Math.min(recipe.limits.maxResponseBytes, 2 * 1024 * 1024),
@@ -362,6 +628,29 @@ const recordError = async (
 		context.stats.errors.push(message);
 	}
 	await emit(context, { type: 'error', url, message, createdAt: now() });
+};
+
+const emitWarnings = async (context: RunnerContext, stageId: string, warnings: WebRobotRunWarning[]): Promise<void> => {
+	for (const warning of warnings) {
+		const key = [stageId, warning.kind, warning.blocker, warning.field, warning.selector, warning.fallback].join(
+			':',
+		);
+		if (context.warningKeys.has(key)) {
+			continue;
+		}
+		context.warningKeys.add(key);
+		context.stats.warnings ??= [];
+		if (context.stats.warnings.length < 100) {
+			context.stats.warnings.push(warning.message);
+		}
+		await emit(context, {
+			type: 'warning',
+			stageId,
+			message: warning.message,
+			data: warning,
+			createdAt: now(),
+		});
+	}
 };
 
 const emit = async (context: RunnerContext, event: WebRobotRunEvent): Promise<void> => {

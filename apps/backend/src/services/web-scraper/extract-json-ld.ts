@@ -25,6 +25,11 @@ export const extractJsonLdRecords = (
 				if (!matchesSchemaType(item, wantedTypes)) {
 					continue;
 				}
+				const listItems = item.itemListElement;
+				if (hasSchemaType(item, 'ItemList') && Array.isArray(listItems)) {
+					records.push(...listItems.map((entry) => extractJsonFields(entry, extract.fields, baseUrl)));
+					continue;
+				}
 				records.push(extractJsonFields(item, extract.fields, baseUrl));
 			}
 		} catch {
@@ -46,6 +51,10 @@ const flattenJsonLd = (value: unknown): Record<string, unknown>[] => {
 	const object = value as Record<string, unknown>;
 	const graph = Array.isArray(object['@graph']) ? object['@graph'].flatMap(flattenJsonLd) : [];
 	return [object, ...graph];
+};
+
+const hasSchemaType = (item: Record<string, unknown>, wantedType: string): boolean => {
+	return matchesSchemaType(item, new Set([wantedType.toLowerCase()]));
 };
 
 const matchesSchemaType = (item: Record<string, unknown>, wantedTypes: Set<string>): boolean => {

@@ -3,8 +3,7 @@ import * as cheerio from 'cheerio';
 
 import { WebRobotBrowserSession } from './browser-loader';
 import { loadHttpSource } from './http-loader';
-import { readResponseWithLimit } from './request';
-import { RobotsTxtPolicy } from './robots-txt';
+import { fetchRobotsTxt, RobotsTxtPolicy } from './robots-txt';
 import type { WebRobotCapturedResponse, WebRobotLoadedSource } from './types';
 import { assertPublicHttpUrl } from './url-policy';
 
@@ -41,7 +40,7 @@ const inspectRecipe = (options: WebRobotInspectOptions): WebRobotRecipe => ({
 	},
 	publish: { minItems: 0, maxRemovedPercent: 100 },
 	identity: { fields: ['url'] },
-	respectRobotsTxt: true,
+	respectRobotsTxt: false,
 	stages: [
 		{
 			id: 'inspect',
@@ -58,7 +57,9 @@ export const inspectWebRobotUrl = async (options: WebRobotInspectOptions): Promi
 	const recipe = inspectRecipe(options);
 	const url = await assertPublicHttpUrl(options.url, recipe.allowedHosts);
 	const robots = new RobotsTxtPolicy(fetchRobotsTxt);
-	await robots.assertAllowed(url.toString());
+	if (recipe.respectRobotsTxt) {
+		await robots.assertAllowed(url.toString());
+	}
 
 	let loaded: WebRobotLoadedSource;
 	if (options.loader === 'browser') {
@@ -111,11 +112,3 @@ const browserSource = (
 	actions: options.actions ?? [],
 	capture: options.capture ?? [],
 });
-
-const fetchRobotsTxt = async (robotsUrl: string): Promise<string | null> => {
-	const response = await fetch(robotsUrl, { redirect: 'manual', signal: AbortSignal.timeout(10_000) });
-	if (response.status >= 400) {
-		return null;
-	}
-	return readResponseWithLimit(response, 256 * 1024);
-};
