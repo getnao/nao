@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Streamdown } from 'streamdown';
 import { Code, Copy, Table as TableIcon } from 'lucide-react';
 import { ToolCallWrapper } from './tool-call-wrapper';
+import { ToolOutputFallback } from './tool-output-fallback';
 import { TableDisplay } from './display-table';
 import type { ToolCallComponentProps } from '.';
 import { useToolCallContext } from '@/contexts/tool-call';
@@ -78,7 +79,7 @@ export const QueryAppDbToolCall = ({ toolPart }: ToolCallComponentProps) => {
 					showRowCount={false}
 				/>
 			) : (
-				<div className='p-4 text-center text-foreground/50 text-sm'>Executing query...</div>
+				<ToolOutputFallback runningLabel='Executing query...' />
 			)}
 		</ToolCallWrapper>
 	);
