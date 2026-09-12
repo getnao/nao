@@ -1,8 +1,8 @@
-import { createFileRoute, Link, useNavigate, useRouter } from '@tanstack/react-router';
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useForm } from '@tanstack/react-form';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { signUp } from '@/lib/auth-client';
+import { authClient, signIn, signUp } from '@/lib/auth-client';
 import { AuthForm, FormTextField } from '@/components/auth-form';
 import { rememberSignInMethod } from '@/lib/last-sign-in-method';
 import { getSafeRedirectPath } from '@/lib/safe-redirect';
@@ -18,7 +18,6 @@ export const Route = createFileRoute('/signup')({
 
 function SignUp() {
 	const navigate = useNavigate();
-	const router = useRouter();
 	const { error: oauthError, redirect } = Route.useSearch();
 	const [serverError, setServerError] = useState<string | undefined>(oauthError);
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
@@ -29,17 +28,23 @@ function SignUp() {
 		defaultValues: { name: '', email: '', password: '', requiresPasswordReset: false, messagingProviderCode: '' },
 		onSubmit: async ({ value }) => {
 			setServerError(undefined);
-			await signUp.email(value, {
-				onSuccess: () => {
-					rememberSignInMethod('email');
-					if (safeRedirect) {
-						router.history.push(safeRedirect);
-					} else {
-						navigate({ to: '/' });
-					}
-				},
-				onError: (err) => setServerError(err.error.message),
-			});
+			const signUpResult = await signUp.email(value);
+			if (signUpResult.error) {
+				setServerError(signUpResult.error.message);
+				return;
+			}
+
+			const session = await authClient.getSession();
+			if (!session.data) {
+				const signInResult = await signIn.email({ email: value.email, password: value.password });
+				if (signInResult.error) {
+					setServerError(signInResult.error.message);
+					return;
+				}
+			}
+
+			rememberSignInMethod('email');
+			window.location.assign(safeRedirect ?? '/');
 		},
 	});
 

@@ -44,10 +44,28 @@ export const getProjectSlackConfig = async (projectId: string): Promise<SlackCon
 		modelSelection: toLlmSelectedModel(settings.slackllmProvider, settings.slackllmModelId),
 		autoCreateUsersEnabled: settings.autoCreateUsersEnabled ?? false,
 		autoCreateUsersDomains: settings.autoCreateUsersDomains ?? [],
+		autoMergeUsersEnabled: settings.autoMergeUsersEnabled ?? false,
 		transportMode,
 		appToken: settings.slackAppToken ?? '',
 		replyMode: toSlackReplyMode(settings.slackReplyMode),
 	};
+};
+
+export const listSlackUserMatchingConfigs = async (): Promise<{ projectId: string; domains: string[] }[]> => {
+	const projects = await db
+		.select({ projectId: s.project.id, slackSettings: s.project.slackSettings })
+		.from(s.project)
+		.execute();
+
+	return projects.flatMap(({ projectId, slackSettings }) => {
+		if (!slackSettings?.autoMergeUsersEnabled) {
+			return [];
+		}
+		const domains = [
+			...new Set((slackSettings.autoCreateUsersDomains ?? []).map((domain) => domain.trim().toLowerCase())),
+		];
+		return domains.length > 1 ? [{ projectId, domains }] : [];
+	});
 };
 
 export const upsertProjectSlackConfig = async (data: {
@@ -84,6 +102,7 @@ export const upsertProjectSlackConfig = async (data: {
 						slackllmModelId: data.modelId ?? '',
 						autoCreateUsersEnabled: existing?.autoCreateUsersEnabled ?? false,
 						autoCreateUsersDomains: existing?.autoCreateUsersDomains ?? [],
+						autoMergeUsersEnabled: existing?.autoMergeUsersEnabled ?? false,
 						slackTransportMode: data.transportMode,
 						slackAppToken: data.appToken ?? '',
 						slackReplyMode: toSlackReplyMode(existing?.slackReplyMode),
@@ -129,6 +148,7 @@ export const updateProjectSlackModel = async (
 					slackllmModelId: modelId ?? '',
 					autoCreateUsersEnabled: existing?.autoCreateUsersEnabled ?? false,
 					autoCreateUsersDomains: existing?.autoCreateUsersDomains ?? [],
+					autoMergeUsersEnabled: existing?.autoMergeUsersEnabled ?? false,
 					slackTransportMode: existing?.slackTransportMode ?? 'webhook',
 					slackAppToken: existing?.slackAppToken ?? '',
 					slackReplyMode: toSlackReplyMode(existing?.slackReplyMode),
@@ -167,6 +187,7 @@ export const updateProjectSlackAutoCreateUsers = async (
 	projectId: string,
 	enabled: boolean,
 	domains: string[],
+	mergeUsersEnabled?: boolean,
 ): Promise<void> => {
 	await db.transaction(async (tx) => {
 		const project = await takeFirstOrThrow(
@@ -185,6 +206,7 @@ export const updateProjectSlackAutoCreateUsers = async (
 					...existing,
 					autoCreateUsersEnabled: enabled,
 					autoCreateUsersDomains: domains,
+					autoMergeUsersEnabled: enabled && (mergeUsersEnabled ?? existing.autoMergeUsersEnabled ?? false),
 				},
 			})
 			.where(eq(s.project.id, projectId))
@@ -204,6 +226,7 @@ export interface SlackConfig {
 	modelSelection?: LlmSelectedModel;
 	autoCreateUsersEnabled: boolean;
 	autoCreateUsersDomains: string[];
+	autoMergeUsersEnabled: boolean;
 	transportMode: SlackTransportMode;
 	appToken: string;
 	replyMode: SlackReplyMode;
@@ -225,6 +248,7 @@ export const listSocketModeSlackConfigs = async (): Promise<SlackConfig[]> => {
 			modelSelection: toLlmSelectedModel(settings.slackllmProvider, settings.slackllmModelId),
 			autoCreateUsersEnabled: settings.autoCreateUsersEnabled ?? false,
 			autoCreateUsersDomains: settings.autoCreateUsersDomains ?? [],
+			autoMergeUsersEnabled: settings.autoMergeUsersEnabled ?? false,
 			transportMode: 'socket',
 			appToken: settings.slackAppToken,
 			replyMode: toSlackReplyMode(settings.slackReplyMode),
