@@ -5,6 +5,7 @@ import os from 'os';
 import path from 'path';
 
 import { ChatImage, getImagesByChatId } from '../../queries/image.queries';
+import { isProjectContextPathAllowed } from '../../services/project-context-path-access.service';
 import { getQueryResult } from '../../services/query-result.service';
 import { sandboxRuntime } from '../../services/sandbox-runtime';
 import { readUserFileBytes, writeUserFileBytes } from '../../services/storage/user-files';
@@ -12,6 +13,7 @@ import { QueryResult, ToolContext } from '../../types/tools';
 import {
 	createTool,
 	isStoragePath,
+	resolveCanonicalProjectPath,
 	shouldExcludeEntry,
 	toStorageRelativePath,
 	toStorageScope,
@@ -26,20 +28,27 @@ const WORKING_DIR = '/root';
 const SANDBOX_TTL_MS = 5 * 60 * 1000;
 
 type CodeBox = InstanceType<NonNullable<typeof boxliteModule>['CodeBox']>;
+interface ContextSandbox {
+	exec: (...args: string[]) => Promise<unknown>;
+	copyIn: (source: string, destination: string) => Promise<void>;
+}
 
 interface PooledSandbox {
 	box: CodeBox;
-	timeout: ReturnType<typeof setTimeout>;
+	timeout?: ReturnType<typeof setTimeout>;
 }
 
 const sandboxPool = new Map<string, PooledSandbox>();
+const sandboxLocks = new Map<string, Promise<void>>();
 
-function evictSandbox(id: string) {
+function evictSandbox(id: string, expectedEntry?: PooledSandbox) {
 	const entry = sandboxPool.get(id);
-	if (!entry) {
+	if (!entry || (expectedEntry && entry !== expectedEntry)) {
 		return;
 	}
-	clearTimeout(entry.timeout);
+	if (entry.timeout) {
+		clearTimeout(entry.timeout);
+	}
 	sandboxPool.delete(id);
 	// Do NOT call box.stop() — boxlite v0.3.0 has a bug where stopping a box
 	// corrupts the runtime, causing all subsequent box creations to fail with
@@ -47,19 +56,60 @@ function evictSandbox(id: string) {
 	// The runtime will clean up the VM resources when the box is GC'd.
 }
 
-function resetSandboxTTL(id: string) {
-	const entry = sandboxPool.get(id);
-	if (!entry) {
+function clearSandboxTTL(entry: PooledSandbox) {
+	if (entry.timeout) {
+		clearTimeout(entry.timeout);
+		entry.timeout = undefined;
+	}
+}
+
+function resetSandboxTTL(id: string, entry: PooledSandbox) {
+	if (sandboxPool.get(id) !== entry) {
 		return;
 	}
-	clearTimeout(entry.timeout);
-	entry.timeout = setTimeout(() => evictSandbox(id), SANDBOX_TTL_MS);
+	clearSandboxTTL(entry);
+	const timeout = setTimeout(() => {
+		void withSandboxLock(id, async () => {
+			if (sandboxPool.get(id) === entry && entry.timeout === timeout) {
+				evictSandbox(id, entry);
+			}
+		});
+	}, SANDBOX_TTL_MS);
+	entry.timeout = timeout;
+}
+
+async function withSandboxLock<T>(id: string, operation: () => Promise<T>): Promise<T> {
+	const previous = sandboxLocks.get(id) ?? Promise.resolve();
+	let release = () => {};
+	const current = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const tail = previous.then(() => current);
+	sandboxLocks.set(id, tail);
+
+	await previous;
+	try {
+		return await operation();
+	} finally {
+		release();
+		if (sandboxLocks.get(id) === tail) {
+			sandboxLocks.delete(id);
+		}
+	}
+}
+
+function getPooledSandbox(id: string): PooledSandbox | undefined {
+	const entry = sandboxPool.get(id);
+	if (!entry) {
+		return undefined;
+	}
+	clearSandboxTTL(entry);
+	return entry;
 }
 
 function registerSandbox(box: CodeBox): string {
 	const id = `sbx_${crypto.randomBytes(6).toString('hex')}`;
-	const timeout = setTimeout(() => evictSandbox(id), SANDBOX_TTL_MS);
-	sandboxPool.set(id, { box, timeout });
+	sandboxPool.set(id, { box });
 	return id;
 }
 
@@ -86,9 +136,8 @@ async function getOrCreateSandbox(
 	vmSize: schemas.VmSize,
 ): Promise<{ id: string; box: CodeBox; reused: boolean }> {
 	if (sandboxId) {
-		const existing = sandboxPool.get(sandboxId);
+		const existing = getPooledSandbox(sandboxId);
 		if (existing) {
-			resetSandboxTTL(sandboxId);
 			return { id: sandboxId, box: existing.box, reused: true };
 		}
 	}
@@ -116,7 +165,8 @@ const IMAGES_DIR = `${WORKING_DIR}/images`;
 const STORAGE_FILES_DIR = `${WORKING_DIR}/files`;
 const OUTPUT_DIR = `${WORKING_DIR}/${schemas.SANDBOX_OUTPUT_DIR}`;
 
-async function copyProjectToSandbox(box: CodeBox, projectFolder: string, tmpDir: string): Promise<void> {
+async function copyProjectToSandbox(box: ContextSandbox, context: ToolContext, tmpDir: string): Promise<void> {
+	const projectFolder = context.projectFolder;
 	const walkDir = (dir: string, relativeDir: string): void => {
 		const entries = fs.readdirSync(dir, { withFileTypes: true });
 		for (const entry of entries) {
@@ -125,9 +175,20 @@ async function copyProjectToSandbox(box: CodeBox, projectFolder: string, tmpDir:
 			}
 			const fullPath = path.join(dir, entry.name);
 			const relativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
+			const virtualPath = `/${relativePath}`;
+			if (entry.isSymbolicLink()) {
+				continue;
+			}
 			if (entry.isDirectory()) {
-				walkDir(fullPath, relativePath);
+				const canonical = resolveCanonicalProjectPath(virtualPath, projectFolder);
+				if (isProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, 'directory')) {
+					walkDir(fullPath, relativePath);
+				}
 			} else if (entry.isFile()) {
+				const canonical = resolveCanonicalProjectPath(virtualPath, projectFolder);
+				if (!isProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, 'file')) {
+					continue;
+				}
 				const tmpPath = path.join(tmpDir, 'context', relativePath);
 				fs.mkdirSync(path.dirname(tmpPath), { recursive: true });
 				fs.copyFileSync(fullPath, tmpPath);
@@ -158,6 +219,15 @@ async function copyProjectToSandbox(box: CodeBox, projectFolder: string, tmpDir:
 	};
 
 	await Promise.all(copyFiles(contextTmpDir, CONTEXT_DIR));
+}
+
+export async function refreshProjectContextInSandbox(
+	box: ContextSandbox,
+	context: ToolContext,
+	tmpDir: string,
+): Promise<void> {
+	await box.exec('sh', '-c', `rm -rf ${CONTEXT_DIR} && mkdir -p ${CONTEXT_DIR}`);
+	await copyProjectToSandbox(box, context, tmpDir);
 }
 
 const MEDIA_TYPE_EXTENSIONS: Record<string, string> = {
@@ -288,11 +358,16 @@ const savedFiles = async (
 	return { saved_files: await saveSandboxFilesToStorage(box, files, context, tmpDir) };
 };
 
-async function executeSandboxedCode(
+async function executeSandboxedCode(input: schemas.Input, context: ToolContext): Promise<schemas.Output> {
+	const lockId = input.sandbox_id ?? `new_${crypto.randomBytes(6).toString('hex')}`;
+	return withSandboxLock(lockId, () => executeSandboxedCodeLocked(input, context));
+}
+
+async function executeSandboxedCodeLocked(
 	{ sandbox_id, code, language, image, vm_size, packages, data_files, storage_files, save_files }: schemas.Input,
 	context: ToolContext,
 ): Promise<schemas.Output> {
-	const { projectFolder, chatId } = context;
+	const { chatId } = context;
 	if (!boxliteModule) {
 		throw new Error('Sandbox execution is not available on this platform');
 	}
@@ -326,10 +401,9 @@ async function executeSandboxedCode(
 		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nao-sandbox-'));
 
 		if (!reused) {
-			// Exists from the start so that code writing to out/ never has to create it first.
 			await box.exec('mkdir', '-p', OUTPUT_DIR);
-			await copyProjectToSandbox(box, projectFolder, tmpDir);
 		}
+		await refreshProjectContextInSandbox(box, context, tmpDir);
 
 		const chatImages = await getImagesByChatId(chatId);
 		if (chatImages.length > 0) {
@@ -401,6 +475,10 @@ async function executeSandboxedCode(
 	} finally {
 		if (tmpDir) {
 			fs.rmSync(tmpDir, { recursive: true, force: true });
+		}
+		const entry = sandboxPool.get(id);
+		if (entry?.box === box) {
+			resetSandboxTTL(id, entry);
 		}
 	}
 }

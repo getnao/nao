@@ -1,8 +1,16 @@
 import {
+	type DatabaseContextAccess,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
+	type DocsContextAccess,
+	EMPTY_DATABASE_CONTEXT_ACCESS,
+	EMPTY_DOCS_CONTEXT_ACCESS,
 	parseStoredUserGroupConfig,
+	parseStoredUserGroupContextAccess,
 	serializeUserGroupConfig,
+	serializeUserGroupContextAccess,
 	type ToolCallDensityPolicy,
+	unionDatabaseContextAccess,
+	unionDocsContextAccess,
 	USER_GROUP_FEATURES,
 	type UserGroupFeature,
 } from '@nao/shared';
@@ -20,9 +28,11 @@ import {
 const USER_GROUP_NAME_CONFLICT_MESSAGE = 'A user group with this name already exists.';
 const USER_GROUP_NAME_UNIQUE_CONSTRAINT = 'user_group_project_name_unique';
 
-export interface UserGroup extends Omit<DBUserGroup, 'featureGrants'> {
+export interface UserGroup extends Omit<DBUserGroup, 'contextGrants' | 'featureGrants'> {
 	featureGrants: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
+	databaseAccess: DatabaseContextAccess;
+	docsAccess: DocsContextAccess;
 }
 
 export interface UserGroupOverview {
@@ -34,6 +44,8 @@ export interface UserGroupOverview {
 export interface EffectiveUserGroupAccess {
 	features: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
+	databaseAccess: DatabaseContextAccess;
+	docsAccess: DocsContextAccess;
 }
 
 export class UserGroupQueryError extends Error {
@@ -71,6 +83,7 @@ export const resolveEffectiveUserGroupAccess = async (
 			id: s.userGroup.id,
 			isDefault: s.userGroup.isDefault,
 			featureGrants: s.userGroup.featureGrants,
+			contextGrants: s.userGroup.contextGrants,
 			membershipCreatedAt: s.userGroupMember.createdAt,
 		})
 		.from(s.userGroup)
@@ -89,6 +102,7 @@ export const resolveEffectiveUserGroupAccess = async (
 	const applicableGroups = groups.map((group) => ({
 		...group,
 		config: parseStoredUserGroupConfig(group.featureGrants),
+		contextAccess: parseStoredUserGroupContextAccess(group.contextGrants, group.isDefault),
 	}));
 	const grantedFeatures = new Set(applicableGroups.flatMap((group) => group.config.features));
 	const defaultGroup = applicableGroups.find((group) => group.isDefault);
@@ -114,6 +128,8 @@ export const resolveEffectiveUserGroupAccess = async (
 				densitySource?.config.toolCallDensity.defaultDensity ?? DEFAULT_TOOL_CALL_DENSITY_POLICY.defaultDensity,
 			canChange: applicableGroups.some((group) => group.config.toolCallDensity.canChange),
 		},
+		databaseAccess: unionDatabaseContextAccess(applicableGroups.map((group) => group.contextAccess.databaseAccess)),
+		docsAccess: unionDocsContextAccess(applicableGroups.map((group) => group.contextAccess.docsAccess)),
 	};
 };
 
@@ -131,6 +147,8 @@ export const createUserGroup = async (
 	name: string,
 	featureGrants: UserGroupFeature[] = [],
 	toolCallDensityPolicy: ToolCallDensityPolicy = DEFAULT_TOOL_CALL_DENSITY_POLICY,
+	databaseAccess: DatabaseContextAccess = EMPTY_DATABASE_CONTEXT_ACCESS,
+	docsAccess: DocsContextAccess = EMPTY_DOCS_CONTEXT_ACCESS,
 ): Promise<UserGroup> => {
 	await assertNameAvailable(projectId, name);
 	const [group] = await executeUserGroupNameMutation(() =>
@@ -140,6 +158,7 @@ export const createUserGroup = async (
 				projectId,
 				name,
 				featureGrants: serializeUserGroupConfig(featureGrants, toolCallDensityPolicy),
+				contextGrants: serializeUserGroupContextAccess(databaseAccess, docsAccess),
 				isDefault: false,
 			})
 			.returning()
@@ -155,10 +174,13 @@ export const updateUserGroup = async (
 		name?: string;
 		featureGrants: UserGroupFeature[];
 		toolCallDensityPolicy?: ToolCallDensityPolicy;
+		databaseAccess?: DatabaseContextAccess;
+		docsAccess?: DocsContextAccess;
 	},
 ): Promise<UserGroup> => {
 	const group = await getUserGroup(projectId, groupId);
 	const currentConfig = parseStoredUserGroupConfig(group.featureGrants);
+	const currentContext = parseStoredUserGroupContextAccess(group.contextGrants, group.isDefault);
 	if (group.isDefault && data.name !== undefined && data.name !== group.name) {
 		throw new UserGroupQueryError('BAD_REQUEST', 'The All Users group cannot be renamed.');
 	}
@@ -174,6 +196,14 @@ export const updateUserGroup = async (
 					data.featureGrants,
 					data.toolCallDensityPolicy ?? currentConfig.toolCallDensity,
 				),
+				...(data.databaseAccess === undefined && data.docsAccess === undefined
+					? {}
+					: {
+							contextGrants: serializeUserGroupContextAccess(
+								data.databaseAccess ?? currentContext.databaseAccess,
+								data.docsAccess ?? currentContext.docsAccess,
+							),
+						}),
 				updatedAt: new Date(),
 			})
 			.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
@@ -282,10 +312,14 @@ function isUserGroupNameUniqueViolation(error: unknown): boolean {
 }
 
 function normalizeUserGroup(group: DBUserGroup): UserGroup {
-	const config = parseStoredUserGroupConfig(group.featureGrants);
+	const { contextGrants, featureGrants, ...storedGroup } = group;
+	const config = parseStoredUserGroupConfig(featureGrants);
+	const contextAccess = parseStoredUserGroupContextAccess(contextGrants, group.isDefault);
 	return {
-		...group,
+		...storedGroup,
 		featureGrants: config.features,
 		toolCallDensityPolicy: config.toolCallDensity,
+		databaseAccess: contextAccess.databaseAccess,
+		docsAccess: contextAccess.docsAccess,
 	};
 }

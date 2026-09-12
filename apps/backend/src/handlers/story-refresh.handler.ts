@@ -50,7 +50,7 @@ export async function runScheduledStoryRefresh(storyId: string): Promise<void> {
 	});
 
 	try {
-		const { queryData } = await refreshStoryData(story.chatId, story.slug);
+		const { queryData } = await refreshStoryData(story.chatId, story.slug, userId);
 		await activityQueries.completeActivity(activity.id, { queriesRefreshed: Object.keys(queryData).length });
 		logAnalyticsEvent({
 			projectId,

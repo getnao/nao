@@ -5,17 +5,17 @@ import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/sh
 
 import type { QueryDataMap } from '@/components/story-embeds';
 import type { StoryPageHeaderProps, StoryRefreshFailure } from '@/components/story-page-header';
+import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
 import { ForkBubble } from '@/components/highlight-bubble';
 import { SelectionChatPanel } from '@/components/selection-chat-panel';
-import { SidePanel } from '@/components/side-panel/side-panel';
-import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-settings-dialog';
-import { useStoryViewerLiveSettings } from '@/components/side-panel/hooks/use-story-viewer-live-settings';
 import { ShareStoryDialog } from '@/components/share-dialog.story';
-import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
-import { StoryPageBody } from '@/components/story-page-body';
-import { StoryPageHeader } from '@/components/story-page-header';
+import { useStoryViewerLiveSettings } from '@/components/side-panel/hooks/use-story-viewer-live-settings';
+import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-settings-dialog';
+import { SidePanel } from '@/components/side-panel/side-panel';
 import { StoryRouteError } from '@/components/story-access-error';
 import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
+import { StoryPageBody } from '@/components/story-page-body';
+import { StoryPageHeader } from '@/components/story-page-header';
 import { StoryTabbedContent } from '@/components/story-tabbed-content';
 import { Spinner } from '@/components/ui/spinner';
 import { SidePanelProvider } from '@/contexts/side-panel';
@@ -150,6 +150,7 @@ function SharedStoryPage() {
 								cachedAt: story.cachedAt,
 								lastRefreshFailure: story.lastRefreshFailure,
 								isRefreshing: refreshMutation.isPending,
+								canRefresh: story.canRefresh,
 								onRefresh: () => refreshMutation.mutate({ shareId }),
 							}
 						: undefined

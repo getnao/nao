@@ -4,6 +4,7 @@ import { and, asc, desc, eq, inArray, isNull, max, or, type SQL, sql } from 'dri
 
 import s, { type DBStory, type DBStoryDataCache, type DBStoryVersion } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
+import type { StoryQuerySources } from '../types/story-cache';
 import * as executeSqlQueries from './execute-sql.queries';
 
 export type UserStoryRow = Pick<
@@ -508,6 +509,7 @@ export async function upsertStoryDataCache(
 	chatId: string,
 	slug: string,
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
+	querySources: StoryQuerySources,
 	analysisResults?: Record<string, string> | null,
 ): Promise<DBStoryDataCache> {
 	const story = await getStoryByChatAndSlug(chatId, slug);
@@ -520,6 +522,7 @@ export async function upsertStoryDataCache(
 		.values({
 			storyId: story.id,
 			queryData,
+			querySources,
 			analysisResults: analysisResults ?? null,
 			cachedAt: new Date(),
 		})
@@ -527,6 +530,7 @@ export async function upsertStoryDataCache(
 			target: s.storyDataCache.storyId,
 			set: {
 				queryData,
+				querySources,
 				analysisResults: analysisResults ?? null,
 				cachedAt: new Date(),
 			},
@@ -543,10 +547,10 @@ export async function upsertStoryDataCacheByStoryId(
 ): Promise<void> {
 	await db
 		.insert(s.storyDataCache)
-		.values({ storyId, queryData, cachedAt: new Date() })
+		.values({ storyId, queryData, querySources: null, cachedAt: new Date() })
 		.onConflictDoUpdate({
 			target: s.storyDataCache.storyId,
-			set: { queryData, cachedAt: new Date() },
+			set: { queryData, querySources: null, cachedAt: new Date() },
 		})
 		.execute();
 }
@@ -701,6 +705,7 @@ async function getStoryDataCache(whereCondition: SQL): Promise<DBStoryDataCache 
 		.select({
 			storyId: s.storyDataCache.storyId,
 			queryData: s.storyDataCache.queryData,
+			querySources: s.storyDataCache.querySources,
 			analysisResults: s.storyDataCache.analysisResults,
 			cachedAt: s.storyDataCache.cachedAt,
 		})

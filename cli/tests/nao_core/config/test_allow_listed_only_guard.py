@@ -75,6 +75,299 @@ def test_flag_off_is_noop_for_unlisted_table(tmp_path: Path):
     assert config.connect_count == 0
 
 
+def test_request_only_table_access_allows_exact_table(tmp_path: Path):
+    config = FakeDatabaseConfig(False)
+    sql = "SELECT * FROM main.orders"
+
+    assert (
+        enforce_allow_listed_only(
+            sql,
+            config,
+            tmp_path,
+            group_allowed_tables={("main", "orders")},
+        )
+        == sql
+    )
+
+
+def test_request_only_table_access_blocks_denied_join(tmp_path: Path):
+    config = FakeDatabaseConfig(False)
+
+    with pytest.raises(
+        AllowListedOnlyGuardError,
+        match=r"Context table permissions.*main\.users",
+    ):
+        enforce_allow_listed_only(
+            "SELECT * FROM orders JOIN users USING (id)",
+            config,
+            tmp_path,
+            group_allowed_tables={("main", "orders")},
+        )
+
+
+def test_request_and_synced_context_are_intersected(tmp_path: Path):
+    create_context_table(tmp_path, "main", "orders")
+    config = FakeDatabaseConfig(True)
+
+    with pytest.raises(AllowListedOnlyGuardError, match=r"main\.users"):
+        enforce_allow_listed_only(
+            "SELECT * FROM users",
+            config,
+            tmp_path,
+            group_allowed_tables={("main", "users")},
+        )
+
+    with pytest.raises(AllowListedOnlyGuardError, match=r"main\.orders"):
+        enforce_allow_listed_only(
+            "SELECT * FROM orders",
+            config,
+            tmp_path,
+            group_allowed_tables={("main", "users")},
+        )
+
+
+def test_empty_request_access_denies_tables_but_allows_tableless_query(tmp_path: Path):
+    config = FakeDatabaseConfig(False)
+
+    assert (
+        enforce_allow_listed_only(
+            "SELECT 1",
+            config,
+            tmp_path,
+            group_allowed_tables=set(),
+        )
+        == "SELECT 1"
+    )
+    with pytest.raises(AllowListedOnlyGuardError, match=r"main\.orders"):
+        enforce_allow_listed_only(
+            "SELECT * FROM orders",
+            config,
+            tmp_path,
+            group_allowed_tables=set(),
+        )
+
+
+def test_request_access_preserves_quoted_exact_case_resolution(tmp_path: Path):
+    config = FakeDatabaseConfig(False, {"main": ["Orders"]})
+    sql = 'SELECT * FROM main."Orders"'
+
+    assert (
+        enforce_allow_listed_only(
+            sql,
+            config,
+            tmp_path,
+            group_allowed_tables={("main", "Orders")},
+        )
+        == sql
+    )
+
+
+def test_postgres_unquoted_and_quoted_tables_resolve_distinct_case(tmp_path: Path):
+    config = FakeDatabaseConfig(False, {"public": ["orders", "Orders"]})
+    config.type = "postgres"
+
+    unquoted_sql = "SELECT * FROM PUBLIC.Orders"
+    assert (
+        enforce_allow_listed_only(
+            unquoted_sql,
+            config,
+            tmp_path,
+            group_allowed_tables={("public", "orders")},
+        )
+        == unquoted_sql
+    )
+    with pytest.raises(AllowListedOnlyGuardError, match=r"public\.orders"):
+        enforce_allow_listed_only(
+            unquoted_sql,
+            config,
+            tmp_path,
+            group_allowed_tables={("public", "Orders")},
+        )
+
+    quoted_sql = 'SELECT * FROM public."Orders"'
+    assert (
+        enforce_allow_listed_only(
+            quoted_sql,
+            config,
+            tmp_path,
+            group_allowed_tables={("public", "Orders")},
+        )
+        == quoted_sql
+    )
+    with pytest.raises(AllowListedOnlyGuardError, match=r"public\.Orders"):
+        enforce_allow_listed_only(
+            quoted_sql,
+            config,
+            tmp_path,
+            group_allowed_tables={("public", "orders")},
+        )
+
+
+def test_postgres_catalog_and_schema_preserve_quoted_case(tmp_path: Path):
+    config = FakeDatabaseConfig(
+        False,
+        {
+            "catalog.public": ["orders"],
+            "catalog.Public": ["orders"],
+        },
+        database_name="catalog.public",
+    )
+    config.type = "postgres"
+
+    unquoted_sql = "SELECT * FROM CATALOG.Public.Orders"
+    assert (
+        enforce_allow_listed_only(
+            unquoted_sql,
+            config,
+            tmp_path,
+            group_allowed_tables={("catalog.public", "orders")},
+        )
+        == unquoted_sql
+    )
+
+    quoted_schema_sql = 'SELECT * FROM catalog."Public".orders'
+    assert (
+        enforce_allow_listed_only(
+            quoted_schema_sql,
+            config,
+            tmp_path,
+            group_allowed_tables={("catalog.Public", "orders")},
+        )
+        == quoted_schema_sql
+    )
+
+    with pytest.raises(AllowListedOnlyGuardError, match="does not match"):
+        enforce_allow_listed_only(
+            'SELECT * FROM "CATALOG".public.orders',
+            config,
+            tmp_path,
+            group_allowed_tables={("catalog.public", "orders")},
+        )
+
+
+def test_case_insensitive_dialect_preserves_unquoted_matching(tmp_path: Path):
+    config = FakeDatabaseConfig(False, {"main": ["Orders"]})
+    sql = "SELECT * FROM MAIN.orders"
+
+    assert (
+        enforce_allow_listed_only(
+            sql,
+            config,
+            tmp_path,
+            group_allowed_tables={("main", "Orders")},
+        )
+        == sql
+    )
+
+
+def test_structured_identity_does_not_collide_on_dots(tmp_path: Path):
+    config = FakeDatabaseConfig(
+        False,
+        {
+            "a.b": ["c"],
+            "a": ["b.c"],
+        },
+    )
+    config.type = "postgres"
+
+    dotted_schema_sql = 'SELECT * FROM "a.b".c'
+    assert (
+        enforce_allow_listed_only(
+            dotted_schema_sql,
+            config,
+            tmp_path,
+            group_allowed_tables={("a.b", "c")},
+        )
+        == dotted_schema_sql
+    )
+    with pytest.raises(AllowListedOnlyGuardError):
+        enforce_allow_listed_only(
+            dotted_schema_sql,
+            config,
+            tmp_path,
+            group_allowed_tables={("a", "b.c")},
+        )
+
+    dotted_table_sql = 'SELECT * FROM a."b.c"'
+    assert (
+        enforce_allow_listed_only(
+            dotted_table_sql,
+            config,
+            tmp_path,
+            group_allowed_tables={("a", "b.c")},
+        )
+        == dotted_table_sql
+    )
+    with pytest.raises(AllowListedOnlyGuardError):
+        enforce_allow_listed_only(
+            dotted_table_sql,
+            config,
+            tmp_path,
+            group_allowed_tables={("a.b", "c")},
+        )
+
+
+@pytest.mark.parametrize(
+    ("allowed_identity", "blocked_sql"),
+    [
+        (("a.b", "c"), 'SELECT * FROM a."b.c"'),
+        (("a", "b.c"), 'SELECT * FROM "a.b".c'),
+    ],
+)
+def test_synced_context_identity_does_not_collide_on_dots(
+    tmp_path: Path,
+    allowed_identity: tuple[str, str],
+    blocked_sql: str,
+):
+    schema, table = allowed_identity
+    create_context_table(
+        tmp_path,
+        schema,
+        table,
+        database_type="postgres",
+    )
+    config = FakeDatabaseConfig(
+        True,
+        {
+            "a.b": ["c"],
+            "a": ["b.c"],
+        },
+    )
+    config.type = "postgres"
+
+    with pytest.raises(AllowListedOnlyGuardError):
+        enforce_allow_listed_only(blocked_sql, config, tmp_path)
+
+
+def test_request_access_fails_closed_for_unsupported_dialect(tmp_path: Path):
+    config = FakeDatabaseConfig(False)
+    config.type = "unsupported"
+
+    with pytest.raises(AllowListedOnlyGuardError, match="not supported"):
+        enforce_allow_listed_only(
+            "SELECT * FROM orders",
+            config,
+            tmp_path,
+            group_allowed_tables={("main", "orders")},
+        )
+
+
+def test_motherduck_uses_duckdb_dialect_for_request_access(tmp_path: Path):
+    config = FakeDatabaseConfig(False)
+    config.type = "motherduck"
+    sql = "SELECT * FROM main.orders"
+
+    assert (
+        enforce_allow_listed_only(
+            sql,
+            config,
+            tmp_path,
+            group_allowed_tables={("main", "orders")},
+        )
+        == sql
+    )
+
+
 def test_listed_qualified_table_is_allowed(tmp_path: Path):
     create_context_table(tmp_path, "main", "orders")
     config = FakeDatabaseConfig(True)
@@ -143,6 +436,72 @@ def test_starrocks_default_catalog_resolves_from_live_schemas(tmp_path: Path):
 
     with pytest.raises(AllowListedOnlyGuardError, match="does not match the connected database"):
         enforce_allow_listed_only("SELECT * FROM other_catalog.analytics.events", config, tmp_path)
+
+
+def test_starrocks_quoted_identifiers_match_exact_case(tmp_path: Path):
+    config = FakeDatabaseConfig(
+        False,
+        {"default_catalog.analytics": ["events", "Events"]},
+        database_name="default_catalog.analytics",
+    )
+    config.type = "starrocks"
+    sql = 'SELECT * FROM "default_catalog"."analytics"."events"'
+
+    assert (
+        enforce_allow_listed_only(
+            sql,
+            config,
+            tmp_path,
+            group_allowed_tables={("default_catalog.analytics", "events")},
+        )
+        == sql
+    )
+
+    sibling_sql = 'SELECT * FROM "default_catalog"."analytics"."Events"'
+    assert (
+        enforce_allow_listed_only(
+            sibling_sql,
+            config,
+            tmp_path,
+            group_allowed_tables={("default_catalog.analytics", "Events")},
+        )
+        == sibling_sql
+    )
+
+    with pytest.raises(AllowListedOnlyGuardError, match=r"default_catalog\.analytics\.Events"):
+        enforce_allow_listed_only(
+            sibling_sql,
+            config,
+            tmp_path,
+            group_allowed_tables={("default_catalog.analytics", "events")},
+        )
+
+    with pytest.raises(AllowListedOnlyGuardError, match="does not match the connected database"):
+        enforce_allow_listed_only(
+            'SELECT * FROM "DEFAULT_CATALOG"."analytics"."events"',
+            config,
+            tmp_path,
+            group_allowed_tables={("default_catalog.analytics", "events")},
+        )
+
+
+def test_explicit_catalog_does_not_fall_back_to_another_catalog_schema(
+    tmp_path: Path,
+):
+    config = FakeDatabaseConfig(
+        False,
+        {"other_catalog.analytics": ["events"]},
+        database_name="default_catalog.analytics",
+    )
+    config.type = "starrocks"
+
+    with pytest.raises(AllowListedOnlyGuardError, match="default_catalog.analytics"):
+        enforce_allow_listed_only(
+            "SELECT * FROM default_catalog.analytics.events",
+            config,
+            tmp_path,
+            group_allowed_tables={("other_catalog.analytics", "events")},
+        )
 
 
 def test_unqualified_tables_resolve_against_live_schema(tmp_path: Path):
@@ -221,4 +580,4 @@ def test_clickhouse_context_uses_sanitized_config_name(tmp_path: Path):
     config.type = "clickhouse"
     config.name = "analytics prod"
 
-    assert load_allowed_context_tables(tmp_path, config) == {"default.events"}
+    assert load_allowed_context_tables(tmp_path, config) == {("default", "events")}
