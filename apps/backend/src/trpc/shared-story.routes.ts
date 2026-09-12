@@ -1,4 +1,4 @@
-import { DOWNLOAD_FORMATS, SHARE_VISIBILITY } from '@nao/shared/types';
+import { DOWNLOAD_FORMATS, SHARE_VISIBILITY, type UserRole } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
@@ -130,6 +130,7 @@ export const sharedStoryRoutes = {
 		const isLiveTextDynamic = storyRow?.isLiveTextDynamic ?? false;
 		const cacheSchedule = storyRow?.cacheSchedule ?? null;
 		const cacheScheduleDescription = storyRow?.cacheScheduleDescription ?? null;
+		const { canRefresh } = await getStoryRefreshAccess(shared.storyId, ctx.user.id, ctx.userRole);
 
 		const { queryData, cachedAt } = await getStoryQueryData(
 			shared.chatId!,
@@ -164,6 +165,7 @@ export const sharedStoryRoutes = {
 			cachedAt,
 			lastRefreshFailure,
 			userRole: ctx.userRole,
+			canRefresh,
 		};
 	}),
 
@@ -242,11 +244,11 @@ export const sharedStoryRoutes = {
 		if (!story) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 		}
-		const storyOwnerId = await storyQueries.getStoryOwnerId(story.id);
+		const { storyOwnerId, canRefresh } = await getStoryRefreshAccess(story.id, ctx.user.id, ctx.userRole);
 		if (!storyOwnerId) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'Live Story has no execution owner.' });
 		}
-		if (ctx.user.id !== storyOwnerId && ctx.userRole !== 'admin') {
+		if (!canRefresh) {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the Story owner or an admin can refresh this.' });
 		}
 		const activity = await activityQueries.startStoryRefreshActivity({
@@ -403,3 +405,15 @@ export const sharedStoryRoutes = {
 			);
 		}),
 };
+
+async function getStoryRefreshAccess(
+	storyId: string,
+	userId: string,
+	userRole: UserRole | null,
+): Promise<{ storyOwnerId: string | undefined; canRefresh: boolean }> {
+	const storyOwnerId = await storyQueries.getStoryOwnerId(storyId);
+	return {
+		storyOwnerId,
+		canRefresh: Boolean(storyOwnerId && (userId === storyOwnerId || userRole === 'admin')),
+	};
+}

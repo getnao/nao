@@ -6,6 +6,7 @@ import {
 	type McpMapEmbedStoredConfig,
 	type StoredDatabaseContextAccess,
 	type StoredLegacyDatabaseContextAccessV1,
+	type StoredLegacyDatabaseContextAccessV2,
 	type StoredUserGroupConfig,
 	type StoredUserGroupContextAccess,
 } from '@nao/shared';
@@ -466,7 +467,10 @@ export const userGroup = sqliteTable(
 			.notNull()
 			.default(DEFAULT_USER_GROUP_CONFIG),
 		contextGrants: text('context_grants', { mode: 'json' }).$type<
-			StoredLegacyDatabaseContextAccessV1 | StoredDatabaseContextAccess | StoredUserGroupContextAccess
+			| StoredLegacyDatabaseContextAccessV1
+			| StoredLegacyDatabaseContextAccessV2
+			| StoredDatabaseContextAccess
+			| StoredUserGroupContextAccess
 		>(),
 		ssoMappings: text('sso_mappings', { mode: 'json' }),
 		rowPolicies: text('row_policies', { mode: 'json' }),

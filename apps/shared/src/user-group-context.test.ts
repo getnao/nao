@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import {
 	ALL_DATABASE_CONTEXT_ACCESS,
 	ALL_DOCS_CONTEXT_ACCESS,
+	type DatabaseContextAccess,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
 	isDatabaseContextTableGranted,
@@ -17,6 +18,7 @@ import {
 	parseStoredUserGroupContextAccess,
 	serializeDatabaseContextAccess,
 	serializeUserGroupContextAccess,
+	type StoredLegacyDatabaseContextAccessV2,
 	unionDatabaseContextAccess,
 	unionDocsContextAccess,
 } from './user-group-context';
@@ -84,18 +86,27 @@ describe('user group database context access', () => {
 	});
 
 	it('migrates version 2 access with strict mode enabled', () => {
-		expect(
-			parseStoredDatabaseContextAccess({
-				version: 2,
-				access: { mode: 'all' },
-			}),
-		).toEqual({ mode: 'all', strict: true });
-		expect(
-			parseStoredDatabaseContextAccess({
-				version: 2,
-				access: { mode: 'restricted', grants: [], patterns: [' Sales.* '] },
-			}),
-		).toEqual({ mode: 'restricted', strict: true, grants: [], patterns: ['sales.*'] });
+		const storedAllAccess: StoredLegacyDatabaseContextAccessV2 = {
+			version: 2,
+			access: { mode: 'all' },
+		};
+		const storedRestrictedAccess: StoredLegacyDatabaseContextAccessV2 = {
+			version: 2,
+			access: { mode: 'restricted', grants: [], patterns: [' Sales.* '] },
+		};
+
+		const allAccess = parseStoredDatabaseContextAccess(storedAllAccess);
+		const restrictedAccess = parseStoredDatabaseContextAccess(storedRestrictedAccess);
+
+		expectTypeOf(allAccess).toEqualTypeOf<DatabaseContextAccess>();
+		expectTypeOf(restrictedAccess).toEqualTypeOf<DatabaseContextAccess>();
+		expect(allAccess).toEqual({ mode: 'all', strict: true });
+		expect(restrictedAccess).toEqual({
+			mode: 'restricted',
+			strict: true,
+			grants: [],
+			patterns: ['sales.*'],
+		});
 	});
 
 	it('fails closed for malformed documents and grants', () => {

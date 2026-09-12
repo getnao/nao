@@ -634,6 +634,17 @@ describe('UserGroupUserDetail', () => {
 		expect(screen.queryByText(/All tables|All docs/)).toBeNull();
 	});
 
+	it('hides the access summary when context is not synced', () => {
+		renderUserDetail({
+			activeTab: 'context',
+			databaseSyncState: 'missing',
+			docsSyncState: 'missing',
+		});
+
+		expect(screen.getAllByText('Not synced')).toHaveLength(2);
+		expect(screen.queryByText('1 feature · 0 tables · 0 docs · Strict')).toBeNull();
+	});
+
 	it('shows only allowed context and static dynamic patterns', () => {
 		const contextObjects = [
 			{ databaseType: 'postgres', database: 'app', schema: 'public', table: 'users' },
@@ -786,6 +797,8 @@ function renderUserDetail({
 	activeTab = 'features',
 	contextObjects = [],
 	docsEntries = [],
+	databaseSyncState = 'ready',
+	docsSyncState = 'ready',
 	databaseCatalogState = 'ready',
 	docsCatalogState = 'ready',
 	onRetryDatabaseCatalog,
@@ -801,6 +814,8 @@ function renderUserDetail({
 	activeTab?: 'features' | 'context' | 'security';
 	contextObjects?: Array<{ databaseType: string; database: string; schema: string; table: string }>;
 	docsEntries?: Array<{ kind: 'folder' | 'file'; path: string }>;
+	databaseSyncState?: 'missing' | 'ready';
+	docsSyncState?: 'missing' | 'ready';
 	databaseCatalogState?: 'loading' | 'error' | 'ready';
 	docsCatalogState?: 'loading' | 'error' | 'ready';
 	onRetryDatabaseCatalog?: () => void;
@@ -814,6 +829,8 @@ function renderUserDetail({
 			contextObjects,
 			docsEntries,
 			effectiveAccess,
+			databaseSyncState,
+			docsSyncState,
 			databaseCatalogState,
 			docsCatalogState,
 			onRetryDatabaseCatalog,
@@ -833,6 +850,8 @@ function createUserDetail(
 		databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
 		docsAccess: { mode: 'restricted', grants: [] },
 	},
+	databaseSyncState: 'missing' | 'ready' = 'ready',
+	docsSyncState: 'missing' | 'ready' = 'ready',
 	databaseCatalogState: 'loading' | 'error' | 'ready' = 'ready',
 	docsCatalogState: 'loading' | 'error' | 'ready' = 'ready',
 	onRetryDatabaseCatalog?: () => void,
@@ -846,6 +865,8 @@ function createUserDetail(
 			effectiveAccess={effectiveAccess}
 			contextObjects={contextObjects}
 			docsEntries={docsEntries}
+			databaseSyncState={databaseSyncState}
+			docsSyncState={docsSyncState}
 			databaseCatalogState={databaseCatalogState}
 			docsCatalogState={docsCatalogState}
 			onRetryDatabaseCatalog={onRetryDatabaseCatalog}

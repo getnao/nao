@@ -35,6 +35,11 @@ export interface StoredLegacyDatabaseContextAccessV1 {
 	access: { mode: 'all' } | { mode: 'restricted'; grants: DatabaseContextGrant[] };
 }
 
+export interface StoredLegacyDatabaseContextAccessV2 {
+	version: 2;
+	access: { mode: 'all' } | { mode: 'restricted'; grants: DatabaseContextGrant[]; patterns: string[] };
+}
+
 export interface StoredDatabaseContextAccess {
 	version: 3;
 	access: DatabaseContextAccess;
