@@ -72,7 +72,7 @@ describe('syncUserGroupsFromOidc', () => {
 		expect(mocks.logger.warn).toHaveBeenCalledOnce();
 	});
 
-	it('gates SSO and User Groups licenses independently', async () => {
+	it('requires SSO and does not query unlimited-groups entitlement', async () => {
 		mocks.hasFeature.mockImplementation((feature: string) => Promise.resolve(feature !== 'sso'));
 		await syncUserGroupsFromOidc('user-1');
 		expect(mocks.hasFeature).toHaveBeenCalledTimes(1);
@@ -81,9 +81,11 @@ describe('syncUserGroupsFromOidc', () => {
 		mocks.hasFeature
 			.mockReset()
 			.mockImplementation((feature: string) => Promise.resolve(feature !== 'user-groups'));
+		mocks.readClaims.mockResolvedValue({ status: 'decoded', claims: { groups: ['Finance'] } });
 		await syncUserGroupsFromOidc('user-1');
-		expect(mocks.hasFeature).toHaveBeenCalledTimes(2);
-		expect(mocks.readClaims).not.toHaveBeenCalled();
+		expect(mocks.hasFeature).toHaveBeenCalledOnce();
+		expect(mocks.hasFeature).toHaveBeenCalledWith('sso');
+		expect(mocks.reconcile).toHaveBeenCalledWith('user-1', 'oidc', ['Finance']);
 	});
 
 	it('skips when no mapping or stale membership exists', async () => {

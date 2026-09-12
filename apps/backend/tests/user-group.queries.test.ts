@@ -29,6 +29,7 @@ import { createProject } from '../src/queries/project.queries';
 import { reconcileSsoUserGroupMemberships } from '../src/queries/sso-user-group-membership.queries';
 import {
 	addUserGroupMemberships,
+	countCustomUserGroups,
 	createUserGroup,
 	deleteUserGroup,
 	getUserGroupOverview,
@@ -156,6 +157,17 @@ describe('user group queries', () => {
 		await expect(getUserGroupOverview(PROJECT_ID)).resolves.toMatchObject({ groups: [] });
 		expect((await resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).features).toEqual([]);
 		await expect(db.select().from(userGroup).where(eq(userGroup.projectId, PROJECT_ID))).resolves.toHaveLength(0);
+	});
+
+	it('counts only custom groups in the selected project', async () => {
+		await getUserGroupOverview(PROJECT_ID);
+		expect(await countCustomUserGroups(PROJECT_ID)).toBe(0);
+
+		await createUserGroup(PROJECT_ID, 'Analysts');
+		await createUserGroup(PROJECT_ID, 'Finance');
+		await createUserGroup(FOREIGN_PROJECT_ID, 'Foreign Analysts');
+
+		expect(await countCustomUserGroups(PROJECT_ID)).toBe(2);
 	});
 
 	it('supports group CRUD and validates membership and default-group rules', async () => {

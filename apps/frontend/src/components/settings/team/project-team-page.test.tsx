@@ -9,7 +9,6 @@ import { ProjectTeamTabPage } from '@/routes/_sidebar-layout.settings.project.te
 const mocks = vi.hoisted(() => ({
 	addUser: vi.fn(),
 	invalidateQueries: vi.fn(),
-	useLicenseFeatures: vi.fn(),
 	useQuery: vi.fn(),
 }));
 
@@ -41,7 +40,6 @@ vi.mock('@/components/ui/settings-card', () => ({
 		</div>
 	),
 }));
-vi.mock('@/hooks/use-license', () => ({ useLicenseFeatures: mocks.useLicenseFeatures }));
 vi.mock('@/hooks/use-permissions', () => ({ usePermissions: () => ({ isAdmin: true }) }));
 vi.mock('@/lib/auth-client', () => ({
 	useSession: () => ({ data: { user: { id: 'admin-id' } } }),
@@ -85,7 +83,6 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	mocks.addUser.mockResolvedValue({ newUser: { id: 'new-user' } });
 	mocks.invalidateQueries.mockResolvedValue(undefined);
-	mocks.useLicenseFeatures.mockReturnValue({ data: { 'user-groups': true } });
 	mocks.useQuery.mockImplementation(({ queryKey }) => {
 		if (queryKey[0] === 'project-members') {
 			return { data: [], isLoading: false };
@@ -110,7 +107,7 @@ afterEach(() => {
 });
 
 describe('ProjectTeamTabPage group onboarding', () => {
-	it('loads licensed groups while open, submits IDs, and refreshes groups', async () => {
+	it('loads groups while open, submits IDs, and refreshes groups', async () => {
 		render(<ProjectTeamTabPage />);
 
 		expect(mocks.useQuery).toHaveBeenCalledWith(
@@ -141,14 +138,13 @@ describe('ProjectTeamTabPage group onboarding', () => {
 		expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['user-group-overview'] });
 	});
 
-	it('does not enable the group query or picker without the license', () => {
-		mocks.useLicenseFeatures.mockReturnValue({ data: { 'user-groups': false } });
+	it('keeps the group query and picker available without an unlimited-groups entitlement', () => {
 		render(<ProjectTeamTabPage />);
 		fireEvent.click(screen.getByRole('button', { name: 'Add Member' }));
 
 		expect(mocks.useQuery).toHaveBeenLastCalledWith(
-			expect.objectContaining({ queryKey: ['user-group-overview'], enabled: false }),
+			expect.objectContaining({ queryKey: ['user-group-overview'], enabled: true }),
 		);
-		expect(screen.queryByRole('button', { name: /Select user groups/ })).toBeNull();
+		expect(screen.getByRole('button', { name: /Select user groups.*All Users/ })).toBeTruthy();
 	});
 });

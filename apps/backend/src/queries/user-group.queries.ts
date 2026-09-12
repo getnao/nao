@@ -17,7 +17,7 @@ import {
 	type UserGroupFeature,
 	type UserGroupSsoMappings,
 } from '@nao/shared';
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
 
 import type { DBUserGroup } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
@@ -159,6 +159,15 @@ export const listUserGroups = async (projectId: string): Promise<UserGroup[]> =>
 		.orderBy(desc(s.userGroup.isDefault), asc(s.userGroup.name))
 		.execute()
 		.then((groups) => groups.map(normalizeUserGroup));
+
+export const countCustomUserGroups = async (projectId: string): Promise<number> => {
+	const [result] = await db
+		.select({ count: count() })
+		.from(s.userGroup)
+		.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroup.isDefault, false)))
+		.execute();
+	return result?.count ?? 0;
+};
 
 export const createUserGroup = async (
 	projectId: string,

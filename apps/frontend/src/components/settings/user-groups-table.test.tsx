@@ -35,8 +35,22 @@ vi.mock('@tanstack/react-query', () => ({
 }));
 vi.mock('@tanstack/react-router', () => ({
 	useNavigate: () => mocks.navigate,
-	Link: ({ children, onClick }: { children: ReactNode; onClick?: MouseEventHandler<HTMLAnchorElement> }) => (
-		<a href='#group' onClick={onClick}>
+	Link: ({
+		children,
+		onClick,
+		to,
+		className,
+		title,
+		'aria-label': ariaLabel,
+	}: {
+		children: ReactNode;
+		onClick?: MouseEventHandler<HTMLAnchorElement>;
+		to: string;
+		className?: string;
+		title?: string;
+		'aria-label'?: string;
+	}) => (
+		<a href={to} onClick={onClick} className={className} title={title} aria-label={ariaLabel}>
 			{children}
 		</a>
 	),
@@ -170,7 +184,7 @@ beforeEach(() => {
 	mocks.useLicenseFeatures.mockReturnValue({
 		isLoading: false,
 		isError: false,
-		data: { 'user-groups': true },
+		data: { sso: true, 'user-groups': true, 'row-level-security': false },
 	});
 	mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => ({
 		isLoading: false,
@@ -204,6 +218,34 @@ afterEach(() => {
 });
 
 describe('UserGroupsTable', () => {
+	it.each([
+		{ isLoading: true, isError: false },
+		{ isLoading: false, isError: true },
+	])('keeps User Groups visible while license resolution is unavailable', (licenseState) => {
+		mocks.useLicenseFeatures.mockReturnValue({ ...licenseState, data: undefined });
+		render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
+
+		expect(screen.getByRole('row', { name: /All Users/ })).toBeTruthy();
+		expect(screen.getByRole('row', { name: /Analysts/ })).toBeTruthy();
+	});
+
+	it('renders free User Groups and keeps existing groups manageable', () => {
+		mocks.useLicenseFeatures.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: { 'user-groups': false },
+		});
+		render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
+
+		expect(screen.getByRole('row', { name: /Analysts/ })).toBeTruthy();
+		fireEvent.click(screen.getByRole('row', { name: /Analysts/ }));
+		expect(mocks.navigate).toHaveBeenCalledWith({
+			to: '/settings/project/user-groups/$groupId',
+			params: { groupId: 'analysts' },
+			search: { tab: 'features' },
+		});
+	});
+
 	it('shows group rows and the create action', () => {
 		render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
 
@@ -231,6 +273,88 @@ describe('UserGroupsTable', () => {
 
 		fireEvent.click(screen.getByRole('button', { name: 'Create group' }));
 		expect(mocks.navigate).toHaveBeenLastCalledWith({
+			to: '/settings/project/user-groups/$groupId',
+			params: { groupId: 'new' },
+			search: { tab: 'features' },
+		});
+	});
+
+	it('creates on free below the custom-group limit and excludes All Users from the count', () => {
+		mocks.useLicenseFeatures.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: { 'user-groups': false },
+		});
+		mocks.useQuery.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: {
+				...overview,
+				groups: [allUsers, analysts, { ...analysts, id: 'finance', name: 'Finance' }],
+			},
+		});
+		render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Create group' }));
+		expect(mocks.navigate).toHaveBeenCalledWith({
+			to: '/settings/project/user-groups/$groupId',
+			params: { groupId: 'new' },
+			search: { tab: 'features' },
+		});
+	});
+
+	it('opens the Enterprise nudge instead of creating at the free custom-group limit', async () => {
+		mocks.useLicenseFeatures.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: { 'user-groups': false },
+		});
+		mocks.useQuery.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: {
+				...overview,
+				groups: [
+					allUsers,
+					analysts,
+					{ ...analysts, id: 'finance', name: 'Finance' },
+					{ ...analysts, id: 'operations', name: 'Operations' },
+				],
+			},
+		});
+		render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Create group' }));
+
+		expect(mocks.navigate).not.toHaveBeenCalled();
+		expect(
+			await screen.findByText(
+				'The free plan includes 3 custom groups. Upgrade to Enterprise to create unlimited groups.',
+			),
+		).toBeTruthy();
+		expect(screen.getByRole('link', { name: 'Upgrade to Enterprise' }).getAttribute('href')).toBe(
+			'/settings/enterprise',
+		);
+	});
+
+	it('creates beyond the free limit with the unlimited-groups entitlement', () => {
+		mocks.useQuery.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: {
+				...overview,
+				groups: [
+					allUsers,
+					analysts,
+					{ ...analysts, id: 'finance', name: 'Finance' },
+					{ ...analysts, id: 'operations', name: 'Operations' },
+				],
+			},
+		});
+		render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Create group' }));
+		expect(mocks.navigate).toHaveBeenCalledWith({
 			to: '/settings/project/user-groups/$groupId',
 			params: { groupId: 'new' },
 			search: { tab: 'features' },
@@ -384,9 +508,10 @@ describe('UserGroupEditor', () => {
 		expect(onTabChange).toHaveBeenCalledWith('context');
 	});
 
-	it('renders context and security panels', () => {
+	it('shows Conditional RULES in Context and the Enterprise RLS placeholder in Security', () => {
 		const { rerender } = renderEditor('context');
 		expect(screen.getByText('Context permissions')).toBeTruthy();
+		expect(screen.getByRole('heading', { name: 'Conditional RULES' })).toBeTruthy();
 
 		rerender(
 			<UserGroupEditor
@@ -398,8 +523,24 @@ describe('UserGroupEditor', () => {
 				onDeleted={vi.fn()}
 			/>,
 		);
-		expect(screen.getByText('Row-level security will be configured here.')).toBeTruthy();
+		expect(screen.queryByRole('heading', { name: 'Conditional RULES' })).toBeNull();
+		expect(screen.getByRole('heading', { name: 'Row-level security' })).toBeTruthy();
+		expect(screen.getByText('Restricting which rows each group can access is not available yet.')).toBeTruthy();
+		expect(screen.getByRole('link', { name: 'Upgrade to Enterprise' })).toBeTruthy();
 		expect(screen.queryByRole('heading', { name: /SSO group mapping/ })).toBeNull();
+	});
+
+	it('removes the Enterprise RLS marker when row-level security is licensed', () => {
+		mocks.useLicenseFeatures.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: { 'user-groups': true, 'row-level-security': true },
+		});
+		renderEditor('security');
+
+		expect(screen.getByRole('heading', { name: 'Row-level security' })).toBeTruthy();
+		expect(screen.getByText('Restricting which rows each group can access is not available yet.')).toBeTruthy();
+		expect(screen.queryByRole('link', { name: 'Upgrade to Enterprise' })).toBeNull();
 	});
 
 	it('edits normalized OIDC mappings and includes them in the save payload', () => {

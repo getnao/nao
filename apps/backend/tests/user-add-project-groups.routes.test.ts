@@ -79,19 +79,17 @@ describe('add user to project groups', () => {
 		expect(mocks.addProjectMemberWithUserGroups).not.toHaveBeenCalled();
 	});
 
-	it('requires a license before adding a user with groups', async () => {
+	it('adds a user with selected groups without unlimited entitlement', async () => {
 		mocks.hasFeature.mockResolvedValue(false);
 
 		await expect(
 			createCaller().addUserToProject({ email: 'added@example.com', groupIds: ['analysts'] }),
-		).rejects.toMatchObject({
-			code: 'FORBIDDEN',
-			message: 'User Groups requires the Enterprise user-groups feature.',
-		});
-		expect(mocks.validateAssignableUserGroupIds).not.toHaveBeenCalled();
-		expect(mocks.addTeamMember).not.toHaveBeenCalled();
+		).resolves.toMatchObject({ newUser: { id: 'added-user-id' } });
+		expect(mocks.validateAssignableUserGroupIds).toHaveBeenCalledWith('project-id', ['analysts']);
+		expect(mocks.addTeamMember).toHaveBeenCalledOnce();
 		expect(mocks.addProjectMember).not.toHaveBeenCalled();
-		expect(mocks.addProjectMemberWithUserGroups).not.toHaveBeenCalled();
+		expect(mocks.addProjectMemberWithUserGroups).toHaveBeenCalledOnce();
+		expect(mocks.hasFeature).not.toHaveBeenCalled();
 	});
 
 	it.each(['missing-group', 'foreign-group', 'all-users'])(
@@ -119,7 +117,7 @@ describe('add user to project groups', () => {
 			groupIds: ['analysts', 'analysts', 'finance'],
 		});
 
-		expect(mocks.hasFeature).toHaveBeenCalledWith('user-groups');
+		expect(mocks.hasFeature).not.toHaveBeenCalled();
 		expect(mocks.validateAssignableUserGroupIds).toHaveBeenCalledWith('project-id', ['analysts', 'finance']);
 		expect(mocks.addProjectMemberWithUserGroups).toHaveBeenCalledWith(
 			{

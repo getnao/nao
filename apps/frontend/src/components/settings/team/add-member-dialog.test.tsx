@@ -28,7 +28,7 @@ afterEach(() => {
 });
 
 describe('AddMemberDialog groups', () => {
-	it('shows licensed groups and submits selected non-default IDs', async () => {
+	it('shows available groups and submits selected non-default IDs', async () => {
 		const onSubmit = vi.fn().mockResolvedValue({});
 		render(<AddMemberDialog open onOpenChange={vi.fn()} groupOptions={groupOptions} onSubmit={onSubmit} />);
 
