@@ -438,14 +438,14 @@ def test_starrocks_default_catalog_resolves_from_live_schemas(tmp_path: Path):
         enforce_allow_listed_only("SELECT * FROM other_catalog.analytics.events", config, tmp_path)
 
 
-def test_starrocks_quoted_identifiers_match_case_insensitively(tmp_path: Path):
+def test_starrocks_quoted_identifiers_match_exact_case(tmp_path: Path):
     config = FakeDatabaseConfig(
         False,
-        {"default_catalog.analytics": ["events"]},
+        {"default_catalog.analytics": ["events", "Events"]},
         database_name="default_catalog.analytics",
     )
     config.type = "starrocks"
-    sql = 'SELECT * FROM "DEFAULT_CATALOG"."ANALYTICS"."EVENTS"'
+    sql = 'SELECT * FROM "default_catalog"."analytics"."events"'
 
     assert (
         enforce_allow_listed_only(
@@ -456,6 +456,33 @@ def test_starrocks_quoted_identifiers_match_case_insensitively(tmp_path: Path):
         )
         == sql
     )
+
+    sibling_sql = 'SELECT * FROM "default_catalog"."analytics"."Events"'
+    assert (
+        enforce_allow_listed_only(
+            sibling_sql,
+            config,
+            tmp_path,
+            group_allowed_tables={("default_catalog.analytics", "Events")},
+        )
+        == sibling_sql
+    )
+
+    with pytest.raises(AllowListedOnlyGuardError, match=r"default_catalog\.analytics\.Events"):
+        enforce_allow_listed_only(
+            sibling_sql,
+            config,
+            tmp_path,
+            group_allowed_tables={("default_catalog.analytics", "events")},
+        )
+
+    with pytest.raises(AllowListedOnlyGuardError, match="does not match the connected database"):
+        enforce_allow_listed_only(
+            'SELECT * FROM "DEFAULT_CATALOG"."analytics"."events"',
+            config,
+            tmp_path,
+            group_allowed_tables={("default_catalog.analytics", "events")},
+        )
 
 
 def test_explicit_catalog_does_not_fall_back_to_another_catalog_schema(

@@ -6,6 +6,7 @@ import {
 	type McpMapEmbedStoredConfig,
 	type StoredDatabaseContextAccess,
 	type StoredLegacyDatabaseContextAccessV1,
+	type StoredLegacyDatabaseContextAccessV2,
 	type StoredUserGroupConfig,
 	type StoredUserGroupContextAccess,
 } from '@nao/shared';
@@ -441,7 +442,10 @@ export const userGroup = pgTable(
 			.notNull()
 			.default(DEFAULT_USER_GROUP_CONFIG),
 		contextGrants: jsonb('context_grants').$type<
-			StoredLegacyDatabaseContextAccessV1 | StoredDatabaseContextAccess | StoredUserGroupContextAccess
+			| StoredLegacyDatabaseContextAccessV1
+			| StoredLegacyDatabaseContextAccessV2
+			| StoredDatabaseContextAccess
+			| StoredUserGroupContextAccess
 		>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')

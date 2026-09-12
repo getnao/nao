@@ -1,8 +1,9 @@
+import { useQuery } from '@tanstack/react-query';
 import {
 	Activity,
-	CircleAlert,
 	ChevronLeft,
 	ChevronRight,
+	CircleAlert,
 	Code,
 	Ellipsis,
 	Eye,
@@ -17,11 +18,9 @@ import {
 	Star,
 	Upload,
 } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
 
 import type { StoryViewMode } from '@/components/side-panel/story-viewer.types';
 import { EditableStoryTitle } from '@/components/editable-story-title';
-import { useTimeAgo } from '@/hooks/use-time-ago';
 import { StoryDownload } from '@/components/story-download';
 import { Button } from '@/components/ui/button';
 import {
@@ -32,6 +31,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { SwitchIndicator } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useTimeAgo } from '@/hooks/use-time-ago';
 import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
@@ -41,6 +41,7 @@ interface LiveControls {
 	cachedAt?: string | Date | null;
 	lastRefreshFailure?: StoryRefreshFailure | null;
 	isRefreshing?: boolean;
+	canRefresh?: boolean;
 	onRefresh?: () => void;
 	/** When provided, the live state can be toggled (owner). Otherwise the badge is read-only. */
 	onOpenSettings?: () => void;
@@ -336,7 +337,14 @@ function StorySubHeader({
 }
 
 function LiveStoryControls({ live }: { live: LiveControls }) {
-	const { isLive, cachedAt, isRefreshing = false, onRefresh, onOpenSettings } = live;
+	const {
+		isLive,
+		cachedAt,
+		isRefreshing = false,
+		canRefresh = Boolean(live.onRefresh),
+		onRefresh,
+		onOpenSettings,
+	} = live;
 
 	if (!onOpenSettings) {
 		if (!isLive) {
@@ -355,7 +363,7 @@ function LiveStoryControls({ live }: { live: LiveControls }) {
 					<TooltipContent>Live story</TooltipContent>
 				</Tooltip>
 				{cachedAt && <LiveStoryTimestamp cachedAt={cachedAt} />}
-				{onRefresh && <RefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
+				{canRefresh && onRefresh && <RefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
 			</>
 		);
 	}
@@ -377,7 +385,7 @@ function LiveStoryControls({ live }: { live: LiveControls }) {
 				<TooltipContent>{isLive ? 'Live story settings' : 'Enable live mode'}</TooltipContent>
 			</Tooltip>
 			{isLive && cachedAt && <LiveStoryTimestamp cachedAt={cachedAt} />}
-			{isLive && onRefresh && <RefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
+			{isLive && canRefresh && onRefresh && <RefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
 		</>
 	);
 }

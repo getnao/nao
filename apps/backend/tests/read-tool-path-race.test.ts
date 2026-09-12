@@ -23,6 +23,7 @@ import type { ToolContext } from '../src/types/tools';
 
 let root: string;
 let projectFolder: string;
+const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!;
 
 beforeEach(async () => {
 	root = await actualFs.mkdtemp(path.join(os.tmpdir(), 'nao-read-race-'));
@@ -32,6 +33,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+	Object.defineProperty(process, 'platform', originalPlatform);
 	fsControls.openMock.mockReset();
 	await actualFs.rm(root, { recursive: true, force: true });
 });
@@ -57,6 +59,15 @@ describe('read project file path safety', () => {
 		});
 
 		await expect(runRead('/context/notes.md')).rejects.toThrow('changed while being read');
+	});
+
+	it('fails closed when descriptor-bound paths are unavailable', async () => {
+		await actualFs.writeFile(path.join(projectFolder, 'notes.md'), 'safe');
+		Object.defineProperty(process, 'platform', { ...originalPlatform, value: 'aix' });
+
+		await expect(runRead('/notes.md')).rejects.toThrow(
+			"Access denied: descriptor-bound file verification is unavailable on 'aix'",
+		);
 	});
 });
 

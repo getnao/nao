@@ -73,7 +73,10 @@ export function UserGroupUserDetail({
 	const applicableGroups = groups.filter((group) => group.isDefault || membershipGroupIds.has(group.id));
 	const applicableGroupNames = applicableGroups.map((group) => group.name);
 	const accessSummary =
-		databaseCatalogState === 'ready' && docsCatalogState === 'ready'
+		databaseCatalogState === 'ready' &&
+		docsCatalogState === 'ready' &&
+		databaseSyncState === 'ready' &&
+		docsSyncState === 'ready'
 			? getEffectiveUserGroupAccessSummary(effectiveAccess, contextObjects, docsEntries)
 			: undefined;
 

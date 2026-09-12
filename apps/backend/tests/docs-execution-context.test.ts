@@ -44,6 +44,7 @@ describe('docs execution context filtering', () => {
 		const swappedDirectory = path.join(scanDirectory, 'a-broken');
 		const outsideDirectory = createTemporaryFolder();
 		fs.mkdirSync(swappedDirectory, { recursive: true });
+		fs.writeFileSync(path.join(outsideDirectory, 'secret.md'), 'secret');
 		fs.writeFileSync(path.join(scanDirectory, 'z-visible.md'), 'visible');
 
 		const originalReaddir = fs.readdirSync.bind(fs);
@@ -59,6 +60,7 @@ describe('docs execution context filtering', () => {
 		}) as typeof fs.readdirSync);
 
 		const files = createVirtualFS(contextWithDocs([]));
+		expect(files.has('/scan/a-broken/secret.md')).toBe(false);
 		expect(files.get('/scan/z-visible.md')).toBe('visible');
 	});
 

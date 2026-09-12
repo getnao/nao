@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
 	startStoryRefreshActivity: vi.fn(),
 	completeActivity: vi.fn(),
 	failActivity: vi.fn(),
+	getLatestStoryRefreshFailure: vi.fn(),
+	getStoryQueryData: vi.fn(),
 	refreshStoryData: vi.fn(),
 	logAnalyticsEvent: vi.fn(),
 }));
@@ -19,6 +21,7 @@ vi.mock('../src/queries/activity.queries', () => ({
 	startStoryRefreshActivity: mocks.startStoryRefreshActivity,
 	completeActivity: mocks.completeActivity,
 	failActivity: mocks.failActivity,
+	getLatestStoryRefreshFailure: mocks.getLatestStoryRefreshFailure,
 }));
 vi.mock('../src/queries/chat.queries', () => ({
 	getChatInfo: vi.fn(),
@@ -38,7 +41,7 @@ vi.mock('../src/queries/story-folder.queries', () => ({}));
 vi.mock('../src/services/activity', () => ({ logActivity: vi.fn() }));
 vi.mock('../src/services/live-story', () => ({
 	executeLiveQuery: vi.fn(),
-	getStoryQueryData: vi.fn(),
+	getStoryQueryData: mocks.getStoryQueryData,
 	refreshStoryData: mocks.refreshStoryData,
 }));
 vi.mock('../src/services/story-filters', () => ({
@@ -74,9 +77,15 @@ describe('shared Story manual refresh', () => {
 		mocks.getStoryByChatAndSlug.mockResolvedValue({
 			id: 'story-1',
 			chatId: 'chat-1',
+			isLive: true,
 		});
 		mocks.getStoryOwnerId.mockResolvedValue('owner-1');
 		mocks.startStoryRefreshActivity.mockResolvedValue({ id: 'activity-1' });
+		mocks.getLatestStoryRefreshFailure.mockResolvedValue(null);
+		mocks.getStoryQueryData.mockResolvedValue({
+			queryData: { query_orders: { columns: ['id'], data: [{ id: 1 }] } },
+			cachedAt: new Date('2026-09-12T10:00:00.000Z'),
+		});
 		mocks.refreshStoryData.mockResolvedValue({
 			queryData: { query_orders: { columns: ['id'], data: [{ id: 1 }] } },
 		});
@@ -84,11 +93,21 @@ describe('shared Story manual refresh', () => {
 			if (userId === 'admin-1') {
 				return 'admin';
 			}
-			if (userId === 'owner-1') {
+			if (userId === 'owner-1' || userId === 'member-1') {
 				return 'user';
 			}
 			return 'viewer';
 		});
+	});
+
+	it.each([
+		['owner', 'owner-1', true],
+		['admin', 'admin-1', true],
+		['member', 'member-1', false],
+	] as const)('reports refresh capability for the %s', async (_label, userId, expected) => {
+		const story = await createCaller(userId).storyShare.get({ shareId: 'share-1' });
+
+		expect(story.canRefresh).toBe(expected);
 	});
 
 	it('rejects a viewer before refreshing the shared cache', async () => {
@@ -111,6 +130,7 @@ describe('shared Story manual refresh', () => {
 			chatId: 'chat-1',
 			trigger: 'manual',
 		});
+		expect(mocks.completeActivity).toHaveBeenCalledWith('activity-1', { queriesRefreshed: 1 });
 		expect(mocks.logAnalyticsEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 'owner-1' }));
 	});
 
@@ -119,7 +139,22 @@ describe('shared Story manual refresh', () => {
 
 		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders', 'owner-1');
 		expect(mocks.startStoryRefreshActivity).toHaveBeenCalledWith(expect.objectContaining({ userId: 'owner-1' }));
+		expect(mocks.completeActivity).toHaveBeenCalledWith('activity-1', { queriesRefreshed: 1 });
 		expect(mocks.logAnalyticsEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 'admin-1' }));
+	});
+
+	it('fails the activity and rethrows the original refresh error', async () => {
+		const refreshError = new Error('Warehouse unavailable');
+		mocks.refreshStoryData.mockRejectedValueOnce(refreshError);
+
+		await expect(createCaller('owner-1').storyShare.refreshData({ shareId: 'share-1' })).rejects.toMatchObject({
+			message: 'Warehouse unavailable',
+			cause: refreshError,
+		});
+
+		expect(mocks.failActivity).toHaveBeenCalledWith('activity-1', 'Warehouse unavailable');
+		expect(mocks.completeActivity).not.toHaveBeenCalled();
+		expect(mocks.logAnalyticsEvent).not.toHaveBeenCalled();
 	});
 });
 
