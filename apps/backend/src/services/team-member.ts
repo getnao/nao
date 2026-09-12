@@ -73,11 +73,13 @@ interface EnsureMessagingProviderUserOptions {
 	name: string;
 	projectId: string;
 	buildEmail: (user: { name: string; email: string }, temporaryPassword?: string) => CreatedEmail;
+	findExistingUser?: (email: string) => Promise<User | null>;
 }
 
 /**
  * Ensure a user exists and has access to the project they are messaging from.
  * Used by messaging providers (Slack, Teams, etc.) to onboard senders on the fly.
+ * - Looks up the existing user by email, or with the provider-specific `findExistingUser` when given.
  * - Creates the user with a temporary password if missing.
  * - Adds the user to the project if not already a member (no org membership granted).
  * - Sends a welcome email (with credentials for brand-new users).
@@ -87,9 +89,12 @@ export async function ensureMessagingProviderUser({
 	name,
 	projectId,
 	buildEmail,
+	findExistingUser,
 }: EnsureMessagingProviderUserOptions): Promise<User> {
 	const normalizedEmail = email.toLowerCase();
-	const existingUser = await userQueries.getUser({ email: normalizedEmail });
+	const existingUser = findExistingUser
+		? await findExistingUser(normalizedEmail)
+		: await userQueries.getUser({ email: normalizedEmail });
 	const { user, temporaryPassword } = existingUser
 		? { user: existingUser, temporaryPassword: undefined }
 		: await createUserWithPassword(normalizedEmail, name);

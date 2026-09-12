@@ -44,6 +44,7 @@ export const getProjectSlackConfig = async (projectId: string): Promise<SlackCon
 		modelSelection: toLlmSelectedModel(settings.slackllmProvider, settings.slackllmModelId),
 		autoCreateUsersEnabled: settings.autoCreateUsersEnabled ?? false,
 		autoCreateUsersDomains: settings.autoCreateUsersDomains ?? [],
+		emailDomainAliases: settings.emailDomainAliases ?? [],
 		transportMode,
 		appToken: settings.slackAppToken ?? '',
 		replyMode: toSlackReplyMode(settings.slackReplyMode),
@@ -84,6 +85,7 @@ export const upsertProjectSlackConfig = async (data: {
 						slackllmModelId: data.modelId ?? '',
 						autoCreateUsersEnabled: existing?.autoCreateUsersEnabled ?? false,
 						autoCreateUsersDomains: existing?.autoCreateUsersDomains ?? [],
+						emailDomainAliases: existing?.emailDomainAliases ?? [],
 						slackTransportMode: data.transportMode,
 						slackAppToken: data.appToken ?? '',
 						slackReplyMode: toSlackReplyMode(existing?.slackReplyMode),
@@ -129,6 +131,7 @@ export const updateProjectSlackModel = async (
 					slackllmModelId: modelId ?? '',
 					autoCreateUsersEnabled: existing?.autoCreateUsersEnabled ?? false,
 					autoCreateUsersDomains: existing?.autoCreateUsersDomains ?? [],
+					emailDomainAliases: existing?.emailDomainAliases ?? [],
 					slackTransportMode: existing?.slackTransportMode ?? 'webhook',
 					slackAppToken: existing?.slackAppToken ?? '',
 					slackReplyMode: toSlackReplyMode(existing?.slackReplyMode),
@@ -192,6 +195,30 @@ export const updateProjectSlackAutoCreateUsers = async (
 	});
 };
 
+export const updateProjectSlackEmailDomainAliases = async (projectId: string, domains: string[]): Promise<void> => {
+	await db.transaction(async (tx) => {
+		const project = await takeFirstOrThrow(
+			tx.select().from(s.project).where(eq(s.project.id, projectId)).execute(),
+			`Project not found: ${projectId}`,
+		);
+		const existing = project.slackSettings;
+		if (!existing) {
+			throw new Error(`Slack is not configured for project ${projectId}`);
+		}
+
+		await tx
+			.update(s.project)
+			.set({
+				slackSettings: {
+					...existing,
+					emailDomainAliases: domains,
+				},
+			})
+			.where(eq(s.project.id, projectId))
+			.execute();
+	});
+};
+
 export const deleteProjectSlackConfig = async (projectId: string): Promise<void> => {
 	await db.update(s.project).set({ slackSettings: null }).where(eq(s.project.id, projectId)).execute();
 };
@@ -204,6 +231,7 @@ export interface SlackConfig {
 	modelSelection?: LlmSelectedModel;
 	autoCreateUsersEnabled: boolean;
 	autoCreateUsersDomains: string[];
+	emailDomainAliases: string[];
 	transportMode: SlackTransportMode;
 	appToken: string;
 	replyMode: SlackReplyMode;
@@ -225,6 +253,7 @@ export const listSocketModeSlackConfigs = async (): Promise<SlackConfig[]> => {
 			modelSelection: toLlmSelectedModel(settings.slackllmProvider, settings.slackllmModelId),
 			autoCreateUsersEnabled: settings.autoCreateUsersEnabled ?? false,
 			autoCreateUsersDomains: settings.autoCreateUsersDomains ?? [],
+			emailDomainAliases: settings.emailDomainAliases ?? [],
 			transportMode: 'socket',
 			appToken: settings.slackAppToken,
 			replyMode: toSlackReplyMode(settings.slackReplyMode),
