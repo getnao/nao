@@ -105,6 +105,10 @@ class DatabaseConfig(BaseModel, ABC):
         default_factory=list,
         description="Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
     )
+    allow_listed_only: bool = Field(
+        default=False,
+        description="When enabled, SQL may only query tables present in synced context for this database.",
+    )
     exclude_columns: list[str] = Field(
         default_factory=list,
         description=(
@@ -203,11 +207,13 @@ class DatabaseConfig(BaseModel, ABC):
         """Create an Ibis connection for this database."""
         ...
 
-    def execute_sql(self, sql: str) -> pd.DataFrame:
+    def execute_sql(self, sql: str, conn: BaseBackend | None = None) -> pd.DataFrame:
         """Execute arbitrary SQL and return results as a DataFrame."""
         import pandas as pd  # noqa: F811
 
-        conn = self.connect()
+        owns_connection = conn is None
+        if conn is None:
+            conn = self.connect()
         try:
             cursor = conn.raw_sql(sql)  # type: ignore[union-attr]
 
@@ -232,7 +238,8 @@ class DatabaseConfig(BaseModel, ABC):
                 "Expected cursor with fetchdf, to_dataframe, to_pandas, result_rows/column_names, or description/fetchall."
             )
         finally:
-            conn.disconnect()
+            if owns_connection:
+                conn.disconnect()
 
     def matches_pattern(self, schema: str, table: str) -> bool:
         """Check if a schema.table matches the include/exclude patterns.
