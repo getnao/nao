@@ -1,20 +1,34 @@
 import { useState } from 'react';
 import { useForm } from '@tanstack/react-form';
 
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+import type { UserGroupPickerOption } from '@/components/settings/user-group-picker';
+import { UserGroupPicker } from '@/components/settings/user-group-picker';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+
+export type AddMemberGroupOption = UserGroupPickerOption;
 
 interface AddMemberDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	title?: string;
-	onSubmit: (data: { email: string; name?: string }) => Promise<{ needsName?: boolean }>;
+	groupOptions?: AddMemberGroupOption[];
+	groupsLoading?: boolean;
+	onSubmit: (data: { email: string; name?: string; groupIds?: string[] }) => Promise<{ needsName?: boolean }>;
 }
 
-export function AddMemberDialog({ open, onOpenChange, title = 'Add Member', onSubmit }: AddMemberDialogProps) {
+export function AddMemberDialog({
+	open,
+	onOpenChange,
+	title = 'Add Member',
+	groupOptions,
+	groupsLoading = false,
+	onSubmit,
+}: AddMemberDialogProps) {
 	const [error, setError] = useState('');
 	const [needsName, setNeedsName] = useState(false);
+	const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
 
 	const form = useForm({
 		defaultValues: { email: '', name: '' },
@@ -28,6 +42,7 @@ export function AddMemberDialog({ open, onOpenChange, title = 'Add Member', onSu
 				const result = await onSubmit({
 					email: value.email,
 					name: needsName ? value.name : undefined,
+					...(groupOptions ? { groupIds: selectedGroupIds } : {}),
 				});
 				if (result.needsName) {
 					setNeedsName(true);
@@ -44,6 +59,7 @@ export function AddMemberDialog({ open, onOpenChange, title = 'Add Member', onSu
 		onOpenChange(false);
 		setError('');
 		setNeedsName(false);
+		setSelectedGroupIds([]);
 		form.reset();
 	};
 
@@ -52,6 +68,7 @@ export function AddMemberDialog({ open, onOpenChange, title = 'Add Member', onSu
 			<DialogContent>
 				<DialogHeader>
 					<DialogTitle>{title}</DialogTitle>
+					<DialogDescription>Enter the member's email to add them.</DialogDescription>
 				</DialogHeader>
 				<form
 					onSubmit={(e) => {
@@ -77,6 +94,15 @@ export function AddMemberDialog({ open, onOpenChange, title = 'Add Member', onSu
 							</div>
 						)}
 					</form.Field>
+
+					{groupOptions && (
+						<UserGroupPicker
+							groups={groupOptions}
+							selectedGroupIds={selectedGroupIds}
+							loading={groupsLoading}
+							onSelectedGroupIdsChange={setSelectedGroupIds}
+						/>
+					)}
 
 					{needsName && (
 						<>

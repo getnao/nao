@@ -1,4 +1,5 @@
 import type { UserGroupFeature } from '@nao/shared';
+import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
 import type { displayChart, displayMap } from '@nao/shared/tools';
 
 import type { WarehouseTableAccess } from '../services/context-access';
@@ -28,6 +29,7 @@ export interface ToolContext {
 	warehouseTableAccess: WarehouseTableAccess;
 	docsContextAccess: ResolvedDocsContextAccess;
 	userGroupFeatures: UserGroupFeature[];
+	userRulesGroupAccess: UserRulesGroupAccess;
 	/**
 	 * Database federation access token. Populated by the EE Microsoft/Azure AD
 	 * integration when the user signs in via Microsoft; always null in the

@@ -5,6 +5,7 @@ import {
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
+	EMPTY_USER_GROUP_SSO_MAPPINGS,
 } from '@nao/shared';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -34,14 +35,32 @@ vi.mock('@tanstack/react-query', () => ({
 }));
 vi.mock('@tanstack/react-router', () => ({
 	useNavigate: () => mocks.navigate,
-	Link: ({ children, onClick }: { children: ReactNode; onClick?: MouseEventHandler<HTMLAnchorElement> }) => (
-		<a href='#group' onClick={onClick}>
+	Link: ({
+		children,
+		onClick,
+		to,
+		className,
+		title,
+		'aria-label': ariaLabel,
+	}: {
+		children: ReactNode;
+		onClick?: MouseEventHandler<HTMLAnchorElement>;
+		to: string;
+		className?: string;
+		title?: string;
+		'aria-label'?: string;
+	}) => (
+		<a href={to} onClick={onClick} className={className} title={title} aria-label={ariaLabel}>
 			{children}
 		</a>
 	),
 }));
 vi.mock('@/main', () => ({
 	trpc: {
+		authConfig: {
+			microsoft: { isSetup: { queryOptions: vi.fn(() => ({ queryKey: ['microsoft-config'] })) } },
+			oidc: { getConfig: { queryOptions: vi.fn(() => ({ queryKey: ['oidc-config'] })) } },
+		},
 		project: {
 			getDatabaseObjects: { queryKey: vi.fn(() => ['database-objects']) },
 		},
@@ -120,6 +139,7 @@ const allUsers = {
 	toolCallDensityPolicy: DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	databaseAccess: { mode: 'all' as const, strict: true },
 	docsAccess: ALL_DOCS_CONTEXT_ACCESS,
+	ssoMappings: EMPTY_USER_GROUP_SSO_MAPPINGS,
 };
 const analysts = {
 	...allUsers,
@@ -154,6 +174,7 @@ const overview = {
 		{ groupId: 'all-users', userId: 'organization-user' },
 		{ groupId: 'analysts', userId: 'project-user' },
 	],
+	ssoMemberships: [],
 };
 
 beforeEach(() => {
@@ -163,9 +184,18 @@ beforeEach(() => {
 	mocks.useLicenseFeatures.mockReturnValue({
 		isLoading: false,
 		isError: false,
-		data: { 'user-groups': true },
+		data: { sso: true, 'user-groups': true, 'row-level-security': false },
 	});
-	mocks.useQuery.mockReturnValue({ isLoading: false, isError: false, data: overview });
+	mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => ({
+		isLoading: false,
+		isError: false,
+		data:
+			options?.queryKey?.[0] === 'oidc-config'
+				? null
+				: options?.queryKey?.[0] === 'microsoft-config'
+					? false
+					: overview,
+	}));
 	mocks.useMutation.mockReturnValue({
 		mutate: mocks.mutate,
 		mutateAsync: mocks.mutateAsync,
@@ -188,6 +218,34 @@ afterEach(() => {
 });
 
 describe('UserGroupsTable', () => {
+	it.each([
+		{ isLoading: true, isError: false },
+		{ isLoading: false, isError: true },
+	])('keeps User Groups visible while license resolution is unavailable', (licenseState) => {
+		mocks.useLicenseFeatures.mockReturnValue({ ...licenseState, data: undefined });
+		render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
+
+		expect(screen.getByRole('row', { name: /All Users/ })).toBeTruthy();
+		expect(screen.getByRole('row', { name: /Analysts/ })).toBeTruthy();
+	});
+
+	it('renders free User Groups and keeps existing groups manageable', () => {
+		mocks.useLicenseFeatures.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: { 'user-groups': false },
+		});
+		render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
+
+		expect(screen.getByRole('row', { name: /Analysts/ })).toBeTruthy();
+		fireEvent.click(screen.getByRole('row', { name: /Analysts/ }));
+		expect(mocks.navigate).toHaveBeenCalledWith({
+			to: '/settings/project/user-groups/$groupId',
+			params: { groupId: 'analysts' },
+			search: { tab: 'features' },
+		});
+	});
+
 	it('shows group rows and the create action', () => {
 		render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
 
@@ -215,6 +273,88 @@ describe('UserGroupsTable', () => {
 
 		fireEvent.click(screen.getByRole('button', { name: 'Create group' }));
 		expect(mocks.navigate).toHaveBeenLastCalledWith({
+			to: '/settings/project/user-groups/$groupId',
+			params: { groupId: 'new' },
+			search: { tab: 'features' },
+		});
+	});
+
+	it('creates on free below the custom-group limit and excludes All Users from the count', () => {
+		mocks.useLicenseFeatures.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: { 'user-groups': false },
+		});
+		mocks.useQuery.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: {
+				...overview,
+				groups: [allUsers, analysts, { ...analysts, id: 'finance', name: 'Finance' }],
+			},
+		});
+		render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Create group' }));
+		expect(mocks.navigate).toHaveBeenCalledWith({
+			to: '/settings/project/user-groups/$groupId',
+			params: { groupId: 'new' },
+			search: { tab: 'features' },
+		});
+	});
+
+	it('opens the Enterprise nudge instead of creating at the free custom-group limit', async () => {
+		mocks.useLicenseFeatures.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: { 'user-groups': false },
+		});
+		mocks.useQuery.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: {
+				...overview,
+				groups: [
+					allUsers,
+					analysts,
+					{ ...analysts, id: 'finance', name: 'Finance' },
+					{ ...analysts, id: 'operations', name: 'Operations' },
+				],
+			},
+		});
+		render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Create group' }));
+
+		expect(mocks.navigate).not.toHaveBeenCalled();
+		expect(
+			await screen.findByText(
+				'The free plan includes 3 custom groups. Upgrade to Enterprise to create unlimited groups.',
+			),
+		).toBeTruthy();
+		expect(screen.getByRole('link', { name: 'Upgrade to Enterprise' }).getAttribute('href')).toBe(
+			'/settings/enterprise',
+		);
+	});
+
+	it('creates beyond the free limit with the unlimited-groups entitlement', () => {
+		mocks.useQuery.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: {
+				...overview,
+				groups: [
+					allUsers,
+					analysts,
+					{ ...analysts, id: 'finance', name: 'Finance' },
+					{ ...analysts, id: 'operations', name: 'Operations' },
+				],
+			},
+		});
+		render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Create group' }));
+		expect(mocks.navigate).toHaveBeenCalledWith({
 			to: '/settings/project/user-groups/$groupId',
 			params: { groupId: 'new' },
 			search: { tab: 'features' },
@@ -269,6 +409,39 @@ describe('UserGroupsTable', () => {
 		});
 		expect(mocks.navigate).not.toHaveBeenCalled();
 		expect(screen.getByRole('menuitemcheckbox', { name: 'Analysts' })).toBeTruthy();
+	});
+
+	it('marks SSO-managed memberships and prevents removing them manually', () => {
+		mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => ({
+			isLoading: false,
+			isError: false,
+			data:
+				options?.queryKey?.[0] === 'oidc-config'
+					? null
+					: options?.queryKey?.[0] === 'microsoft-config'
+						? false
+						: {
+								...overview,
+								memberships: [
+									...overview.memberships,
+									{ groupId: 'analysts', userId: 'organization-user' },
+								],
+								ssoMemberships: [
+									{ groupId: 'analysts', userId: 'organization-user', provider: 'oidc' },
+								],
+							},
+		}));
+		render(<UserGroupsTable tab='users' onTabChange={vi.fn()} />);
+
+		fireEvent.pointerDown(screen.getByRole('button', { name: /Manage groups for Organisation User/ }), {
+			button: 0,
+			ctrlKey: false,
+		});
+		const managedMembership = screen.getByRole('menuitemcheckbox', { name: 'Analysts, managed by SSO' });
+		expect(managedMembership.getAttribute('data-disabled')).not.toBeNull();
+		expect(screen.getByText('Managed by SSO')).toBeTruthy();
+		fireEvent.click(managedMembership);
+		expect(mocks.mutate).not.toHaveBeenCalled();
 	});
 
 	it('keeps the users table columns fixed while group chips overflow inside their cell', () => {
@@ -335,9 +508,10 @@ describe('UserGroupEditor', () => {
 		expect(onTabChange).toHaveBeenCalledWith('context');
 	});
 
-	it('renders context and security panels', () => {
+	it('shows Conditional RULES in Context and the Enterprise RLS placeholder in Security', () => {
 		const { rerender } = renderEditor('context');
 		expect(screen.getByText('Context permissions')).toBeTruthy();
+		expect(screen.getByRole('heading', { name: 'Conditional RULES' })).toBeTruthy();
 
 		rerender(
 			<UserGroupEditor
@@ -349,7 +523,125 @@ describe('UserGroupEditor', () => {
 				onDeleted={vi.fn()}
 			/>,
 		);
-		expect(screen.getByText('Row-level security will be configured here.')).toBeTruthy();
+		expect(screen.queryByRole('heading', { name: 'Conditional RULES' })).toBeNull();
+		expect(screen.getByRole('heading', { name: 'Row-level security' })).toBeTruthy();
+		expect(screen.getByText('Restricting which rows each group can access is not available yet.')).toBeTruthy();
+		expect(screen.getByRole('link', { name: 'Upgrade to Enterprise' })).toBeTruthy();
+		expect(screen.queryByRole('heading', { name: /SSO group mapping/ })).toBeNull();
+	});
+
+	it('removes the Enterprise RLS marker when row-level security is licensed', () => {
+		mocks.useLicenseFeatures.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: { 'user-groups': true, 'row-level-security': true },
+		});
+		renderEditor('security');
+
+		expect(screen.getByRole('heading', { name: 'Row-level security' })).toBeTruthy();
+		expect(screen.getByText('Restricting which rows each group can access is not available yet.')).toBeTruthy();
+		expect(screen.queryByRole('link', { name: 'Upgrade to Enterprise' })).toBeNull();
+	});
+
+	it('edits normalized OIDC mappings and includes them in the save payload', () => {
+		mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => ({
+			isLoading: false,
+			isError: false,
+			data:
+				options?.queryKey?.[0] === 'oidc-config'
+					? { providerId: 'okta', providerName: 'Okta', rolesManagedByIdp: false }
+					: options?.queryKey?.[0] === 'microsoft-config'
+						? false
+						: overview,
+		}));
+		renderEditor('security');
+
+		fireEvent.change(screen.getByRole('textbox', { name: 'Okta group name' }), {
+			target: { value: ' Finance-Team ' },
+		});
+		fireEvent.click(screen.getByRole('button', { name: 'Add group' }));
+		expect(screen.getByText('finance-team')).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+		expect(mocks.mutateAsync).toHaveBeenCalledWith(
+			expect.objectContaining({
+				ssoMappings: {
+					version: 1,
+					providers: { oidc: ['finance-team'], microsoft: [] },
+				},
+			}),
+		);
+	});
+
+	it('validates and saves Microsoft Entra group object IDs', () => {
+		mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => ({
+			isLoading: false,
+			isError: false,
+			data:
+				options?.queryKey?.[0] === 'oidc-config'
+					? null
+					: options?.queryKey?.[0] === 'microsoft-config'
+						? true
+						: overview,
+		}));
+		renderEditor('security');
+
+		const input = screen.getByRole('textbox', { name: 'Microsoft Entra group object ID' });
+		fireEvent.change(input, { target: { value: 'not-a-guid' } });
+		expect(screen.getByText('Enter a valid Microsoft Entra group object ID.')).toBeTruthy();
+		expect(screen.getByRole('button', { name: 'Add group' }).hasAttribute('disabled')).toBe(true);
+
+		fireEvent.change(input, { target: { value: 'A0B1C2D3-E4F5-6789-ABCD-EF0123456789' } });
+		fireEvent.click(screen.getByRole('button', { name: 'Add group' }));
+		expect(screen.getByText('a0b1c2d3-e4f5-6789-abcd-ef0123456789')).toBeTruthy();
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+		expect(mocks.mutateAsync).toHaveBeenCalledWith(
+			expect.objectContaining({
+				ssoMappings: {
+					version: 1,
+					providers: {
+						oidc: [],
+						microsoft: ['a0b1c2d3-e4f5-6789-abcd-ef0123456789'],
+					},
+				},
+			}),
+		);
+	});
+
+	it('shows distinct OIDC and Microsoft mapping sections together', () => {
+		mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => ({
+			isLoading: false,
+			isError: false,
+			data:
+				options?.queryKey?.[0] === 'oidc-config'
+					? { providerId: 'okta', providerName: 'Okta', rolesManagedByIdp: false }
+					: options?.queryKey?.[0] === 'microsoft-config'
+						? true
+						: overview,
+		}));
+		renderEditor('security');
+
+		expect(screen.getByRole('heading', { name: 'SSO group mapping — Okta' })).toBeTruthy();
+		expect(screen.getByRole('heading', { name: 'SSO group mapping — Microsoft Entra' })).toBeTruthy();
+		expect(screen.getByRole('textbox', { name: 'Okta group name' })).toBeTruthy();
+		expect(screen.getByRole('textbox', { name: 'Microsoft Entra group object ID' })).toBeTruthy();
+	});
+
+	it('explains why All Users cannot be mapped', () => {
+		mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => ({
+			isLoading: false,
+			isError: false,
+			data:
+				options?.queryKey?.[0] === 'oidc-config'
+					? { providerId: 'okta', providerName: 'Okta', rolesManagedByIdp: false }
+					: options?.queryKey?.[0] === 'microsoft-config'
+						? false
+						: overview,
+		}));
+		renderEditor('security', vi.fn(), allUsers);
+		expect(screen.getByText(/All Users already includes everyone/)).toBeTruthy();
+		expect(screen.queryByRole('textbox', { name: 'Okta group name' })).toBeNull();
 	});
 
 	it('hides actions for a clean existing group and keeps delete visible', () => {

@@ -28,7 +28,7 @@ export const Route = createFileRoute('/_sidebar-layout/settings/project/team')({
 	component: ProjectTeamTabPage,
 });
 
-function ProjectTeamTabPage() {
+export function ProjectTeamTabPage() {
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
 	const usersWithRoles = useQuery(trpc.project.listAllUsersWithRoles.queryOptions());
@@ -41,6 +41,10 @@ function ProjectTeamTabPage() {
 	const [removeMember, setRemoveMember] = useState<TeamMember | null>(null);
 	const [resetPasswordMember, setResetPasswordMember] = useState<TeamMember | null>(null);
 	const [credentials, setCredentials] = useState<{ email: string; password: string } | null>(null);
+	const userGroups = useQuery({
+		...trpc.userGroup.overview.queryOptions(),
+		enabled: isAdmin && isAddOpen,
+	});
 
 	const members: TeamMember[] =
 		usersWithRoles.data?.map((u) => ({
@@ -57,16 +61,20 @@ function ProjectTeamTabPage() {
 	const resetPassword = useMutation(trpc.account.resetPassword.mutationOptions());
 
 	const invalidateMembers = useCallback(() => {
-		queryClient.invalidateQueries({ queryKey: trpc.project.listAllUsersWithRoles.queryKey() });
+		return queryClient.invalidateQueries({ queryKey: trpc.project.listAllUsersWithRoles.queryKey() });
 	}, [queryClient]);
 
-	const handleAdd = async (data: { email: string; name?: string }) => {
+	const handleAdd = async (data: { email: string; name?: string; groupIds?: string[] }) => {
 		try {
 			const result = await addUser.mutateAsync({
 				email: data.email,
 				name: data.name,
+				groupIds: data.groupIds ?? [],
 			});
-			invalidateMembers();
+			await Promise.all([
+				invalidateMembers(),
+				queryClient.invalidateQueries({ queryKey: trpc.userGroup.overview.queryKey() }),
+			]);
 			if (result.password) {
 				setCredentials({ email: data.email, password: result.password });
 			}
@@ -142,6 +150,8 @@ function ProjectTeamTabPage() {
 				onOpenChange={setIsAddOpen}
 				title='Add User to Project'
 				onSubmit={handleAdd}
+				groupOptions={userGroups.data?.groups ?? []}
+				groupsLoading={userGroups.isLoading}
 			/>
 
 			<EditMemberDialog

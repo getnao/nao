@@ -1,7 +1,8 @@
+import { FREE_CUSTOM_USER_GROUP_LIMIT } from '@nao/shared';
 import { USER_ROLE_LABELS } from '@nao/shared/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { ChevronDown, Plus } from 'lucide-react';
+import { ChevronDown, Lock, Plus } from 'lucide-react';
 import { useMemo } from 'react';
 import type { MemberStatus, UserRole } from '@nao/shared/types';
 
@@ -20,6 +21,7 @@ import {
 	DropdownMenuContent,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -52,31 +54,24 @@ interface UserGroupsTableProps {
 export function UserGroupsTable({ tab, onTabChange }: UserGroupsTableProps) {
 	const licenseFeatures = useLicenseFeatures();
 
-	if (licenseFeatures.isLoading) {
-		return <div className='text-sm text-muted-foreground'>Loading User Groups...</div>;
-	}
-	if (licenseFeatures.isError) {
-		return <div className='text-sm text-destructive'>Failed to load license features.</div>;
-	}
-	if (!licenseFeatures.data?.['user-groups']) {
-		return (
-			<SettingsCard
-				description='Control which product features project users can access.'
-				action={<UpgradeToEnterprise />}
-			>
-				<p className='text-sm text-muted-foreground'>User Groups is available with nao Enterprise.</p>
-			</SettingsCard>
-		);
-	}
-
-	return <LicensedUserGroupsTable tab={tab} onTabChange={onTabChange} />;
+	return (
+		<UserGroupsContent
+			tab={tab}
+			onTabChange={onTabChange}
+			hasUnlimitedGroups={licenseFeatures.data?.['user-groups'] === true}
+		/>
+	);
 }
 
 export function resolveUserGroupsPageTab(value: unknown): UserGroupsPageTab {
 	return value === 'groups' || value === 'users' ? value : 'users';
 }
 
-function LicensedUserGroupsTable({ tab, onTabChange }: UserGroupsTableProps) {
+function UserGroupsContent({
+	tab,
+	onTabChange,
+	hasUnlimitedGroups,
+}: UserGroupsTableProps & { hasUnlimitedGroups: boolean }) {
 	const overview = useQuery(trpc.userGroup.overview.queryOptions());
 	const contextCatalog = useQuery(trpc.userGroup.contextCatalog.queryOptions());
 	const docsContextCatalog = useQuery(trpc.userGroup.docsContextCatalog.queryOptions());
@@ -84,6 +79,10 @@ function LicensedUserGroupsTable({ tab, onTabChange }: UserGroupsTableProps) {
 	const membershipKeys = useMemo(
 		() => new Set(overview.data?.memberships.map(({ groupId, userId }) => `${groupId}:${userId}`)),
 		[overview.data?.memberships],
+	);
+	const ssoMembershipKeys = useMemo(
+		() => new Set(overview.data?.ssoMemberships.map(({ groupId, userId }) => `${groupId}:${userId}`)),
+		[overview.data?.ssoMemberships],
 	);
 
 	const tabs = (
@@ -127,6 +126,7 @@ function LicensedUserGroupsTable({ tab, onTabChange }: UserGroupsTableProps) {
 						memberships={overview.data.memberships}
 						contextObjects={contextObjects}
 						docsEntries={docsEntries}
+						hasUnlimitedGroups={hasUnlimitedGroups}
 						onOpenGroup={(groupId) => {
 							void navigate({
 								to: '/settings/project/user-groups/$groupId',
@@ -150,6 +150,7 @@ function LicensedUserGroupsTable({ tab, onTabChange }: UserGroupsTableProps) {
 							organizationUsers={organizationUsers}
 							groups={groups}
 							membershipKeys={membershipKeys}
+							ssoMembershipKeys={ssoMembershipKeys}
 							onOpenUser={(userId) => {
 								void navigate({
 									to: '/settings/project/user-groups/users/$userId',
@@ -169,6 +170,7 @@ function GroupsTable({
 	memberships,
 	contextObjects,
 	docsEntries,
+	hasUnlimitedGroups,
 	onOpenGroup,
 	onCreateGroup,
 }: {
@@ -176,17 +178,25 @@ function GroupsTable({
 	memberships: Array<{ groupId: string; userId: string }>;
 	contextObjects: DatabaseContextObject[];
 	docsEntries: DocsContextCatalogEntry[];
+	hasUnlimitedGroups: boolean;
 	onOpenGroup: (groupId: string) => void;
 	onCreateGroup: () => void;
 }) {
+	const customGroupCount = groups.filter((group) => !group.isDefault).length;
+	const canCreateGroup = hasUnlimitedGroups || customGroupCount < FREE_CUSTOM_USER_GROUP_LIMIT;
+
 	return (
 		<SettingsCard
 			description='Configure the features, database tables, and docs each group can access.'
 			action={
-				<Button onClick={onCreateGroup}>
-					<Plus />
-					Create group
-				</Button>
+				canCreateGroup ? (
+					<Button onClick={onCreateGroup}>
+						<Plus />
+						Create group
+					</Button>
+				) : (
+					<CreateGroupUpgradeNudge />
+				)
 			}
 			flush
 		>
@@ -237,17 +247,52 @@ function GroupsTable({
 	);
 }
 
+function CreateGroupUpgradeNudge() {
+	return (
+		<Popover>
+			<PopoverTrigger asChild>
+				<Button variant='secondary' aria-label='Create group'>
+					<Plus />
+					Create group
+					<span
+						aria-hidden='true'
+						className='inline-flex h-4 items-center gap-0.5 rounded-full bg-primary/10 px-1.5 text-[10px] font-medium uppercase tracking-wide text-primary'
+					>
+						<Lock className='size-2.5 shrink-0' />
+						Enterprise
+					</span>
+				</Button>
+			</PopoverTrigger>
+			<PopoverContent align='end' aria-labelledby='create-group-upgrade-title'>
+				<div className='flex flex-col gap-3'>
+					<div>
+						<h3 id='create-group-upgrade-title' className='text-sm font-medium'>
+							Unlimited user groups
+						</h3>
+						<p className='mt-1 text-xs text-muted-foreground'>
+							The free plan includes 3 custom groups. Upgrade to Enterprise to create unlimited groups.
+						</p>
+					</div>
+					<UpgradeToEnterprise />
+				</div>
+			</PopoverContent>
+		</Popover>
+	);
+}
+
 function UserAccessTable({
 	projectUsers,
 	organizationUsers,
 	groups,
 	membershipKeys,
+	ssoMembershipKeys,
 	onOpenUser,
 }: {
 	projectUsers: UserWithProjectAccess[];
 	organizationUsers: UserWithProjectAccess[];
 	groups: UserGroup[];
 	membershipKeys: Set<string>;
+	ssoMembershipKeys: Set<string>;
 	onOpenUser: (userId: string) => void;
 }) {
 	const hasUsers = projectUsers.length > 0 || organizationUsers.length > 0;
@@ -276,6 +321,7 @@ function UserAccessTable({
 							users={projectUsers}
 							groups={groups}
 							membershipKeys={membershipKeys}
+							ssoMembershipKeys={ssoMembershipKeys}
 							onOpenUser={onOpenUser}
 						/>
 					)}
@@ -285,6 +331,7 @@ function UserAccessTable({
 							users={organizationUsers}
 							groups={groups}
 							membershipKeys={membershipKeys}
+							ssoMembershipKeys={ssoMembershipKeys}
 							onOpenUser={onOpenUser}
 						/>
 					)}
@@ -299,12 +346,14 @@ function UserAccessSection({
 	users,
 	groups,
 	membershipKeys,
+	ssoMembershipKeys,
 	onOpenUser,
 }: {
 	label: string;
 	users: UserWithProjectAccess[];
 	groups: UserGroup[];
 	membershipKeys: Set<string>;
+	ssoMembershipKeys: Set<string>;
 	onOpenUser: (userId: string) => void;
 }) {
 	return (
@@ -342,7 +391,12 @@ function UserAccessSection({
 						<Badge variant={user.role}>{USER_ROLE_LABELS[user.role]}</Badge>
 					</TableCell>
 					<TableCell className='min-w-0 overflow-hidden'>
-						<UserGroupsCell user={user} groups={groups} membershipKeys={membershipKeys} />
+						<UserGroupsCell
+							user={user}
+							groups={groups}
+							membershipKeys={membershipKeys}
+							ssoMembershipKeys={ssoMembershipKeys}
+						/>
 					</TableCell>
 				</TableRow>
 			))}
@@ -354,10 +408,12 @@ function UserGroupsCell({
 	user,
 	groups,
 	membershipKeys,
+	ssoMembershipKeys,
 }: {
 	user: UserWithProjectAccess;
 	groups: UserGroup[];
 	membershipKeys: Set<string>;
+	ssoMembershipKeys: Set<string>;
 }) {
 	const queryClient = useQueryClient();
 	const setMembership = useMutation(
@@ -394,23 +450,33 @@ function UserGroupsCell({
 				className='max-h-64 min-w-56'
 				onClick={(event) => event.stopPropagation()}
 			>
-				{groups.map((group) => (
-					<DropdownMenuCheckboxItem
-						key={group.id}
-						checked={group.isDefault || membershipKeys.has(`${group.id}:${user.id}`)}
-						disabled={group.isDefault || setMembership.isPending}
-						onSelect={(event) => event.preventDefault()}
-						onCheckedChange={(checked) =>
-							setMembership.mutate({
-								groupId: group.id,
-								userId: user.id,
-								isMember: checked === true,
-							})
-						}
-					>
-						{group.name}
-					</DropdownMenuCheckboxItem>
-				))}
+				{groups.map((group) => {
+					const membershipKey = `${group.id}:${user.id}`;
+					const isManagedBySso = ssoMembershipKeys.has(membershipKey);
+					return (
+						<DropdownMenuCheckboxItem
+							key={group.id}
+							checked={group.isDefault || membershipKeys.has(membershipKey)}
+							disabled={group.isDefault || isManagedBySso || setMembership.isPending}
+							aria-label={isManagedBySso ? `${group.name}, managed by SSO` : group.name}
+							onSelect={(event) => event.preventDefault()}
+							onCheckedChange={(checked) =>
+								setMembership.mutate({
+									groupId: group.id,
+									userId: user.id,
+									isMember: checked === true,
+								})
+							}
+						>
+							<span className='min-w-0 flex-1 truncate'>{group.name}</span>
+							{isManagedBySso && (
+								<Badge variant='secondary' className='ml-2 h-5 px-1.5 py-0 text-[10px] font-normal'>
+									Managed by SSO
+								</Badge>
+							)}
+						</DropdownMenuCheckboxItem>
+					);
+				})}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);

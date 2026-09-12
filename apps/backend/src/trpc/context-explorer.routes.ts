@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import * as userQueries from '../queries/user.queries';
+import * as userGroupQueries from '../queries/user-group.queries';
 import type { ContextExplorerFileAccess } from '../services/context-explorer.service';
 import {
 	getFileTree,
@@ -80,6 +81,14 @@ export const contextExplorerRoutes = {
 	getFileTree: contextAdminProtectedProcedure.query(async ({ ctx }) => {
 		const entries = await getFileTree(requireProjectPath(ctx.project.path));
 		return { entries };
+	}),
+
+	getRulesPreviewGroups: contextAdminProtectedProcedure.query(async ({ ctx }) => {
+		const groups = await userGroupQueries.listUserGroups(ctx.project.id);
+		return {
+			enforced: true as const,
+			groups: groups.map(({ id, name, isDefault }) => ({ id, name, isDefault })),
+		};
 	}),
 
 	readFile: contextAdminProtectedProcedure.input(z.object({ path: z.string() })).query(async ({ ctx, input }) => {

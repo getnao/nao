@@ -40,21 +40,30 @@ describe('warehouse Context access', () => {
 		vi.mocked(hasFeature).mockResolvedValue(true);
 		vi.mocked(getUserRoleInProject).mockResolvedValue('user');
 		vi.mocked(getDatabaseContextCatalog).mockReturnValue(catalog);
+		vi.mocked(resolveEffectiveUserGroupAccess).mockResolvedValue({
+			groupNames: ['All Users', 'Finance'],
+			features: [],
+			toolCallDensityPolicy: { defaultDensity: 'medium', canChange: false },
+			databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
+			docsAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
+		});
 	});
 
-	it('returns an explicit bypass when User Groups is unlicensed', async () => {
+	it('enforces table access without an unlimited-groups entitlement', async () => {
 		vi.mocked(hasFeature).mockResolvedValue(false);
 
 		await expect(resolveWarehouseTableAccess('project-1', 'user-1', '/project')).resolves.toEqual({
-			enforced: false,
+			enforced: true,
+			strict: true,
+			tables: [],
 		});
-		expect(resolveEffectiveUserGroupAccess).not.toHaveBeenCalled();
-		expect(getDatabaseContextCatalog).not.toHaveBeenCalled();
+		expect(resolveEffectiveUserGroupAccess).toHaveBeenCalledWith('project-1', 'user-1');
+		expect(getDatabaseContextCatalog).toHaveBeenCalledWith('/project');
+		expect(hasFeature).not.toHaveBeenCalled();
 	});
 
-	it('rejects revoked principals before returning an unlicensed bypass', async () => {
+	it('rejects revoked principals before resolving group access', async () => {
 		vi.mocked(getUserRoleInProject).mockResolvedValue(null);
-		vi.mocked(hasFeature).mockResolvedValue(false);
 
 		await expect(resolveWarehouseTableAccess('project-1', 'removed-user', '/project')).rejects.toMatchObject({
 			codeMessage: 'FORBIDDEN',
@@ -63,27 +72,18 @@ describe('warehouse Context access', () => {
 		expect(resolveEffectiveUserGroupAccess).not.toHaveBeenCalled();
 	});
 
-	it('returns an unrestricted docs bypass when unlicensed and an enforced policy when licensed', async () => {
+	it('enforces docs, features, and RULES groups without unlimited entitlement', async () => {
 		vi.mocked(hasFeature).mockResolvedValue(false);
 		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toEqual({
-			warehouseTableAccess: { enforced: false },
-			docsContextAccess: { enforced: false },
-			userGroupFeatures: ['story-creation', 'automation-creation'],
-		});
-
-		vi.mocked(hasFeature).mockResolvedValue(true);
-		vi.mocked(resolveEffectiveUserGroupAccess).mockResolvedValue({
-			features: [],
-			toolCallDensityPolicy: { defaultDensity: 'medium', canChange: false },
-			databaseAccess: { mode: 'all', strict: true },
-			docsAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
-		});
-		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toMatchObject({
+			warehouseTableAccess: { enforced: true, strict: true, tables: [] },
 			docsContextAccess: {
 				enforced: true,
 				access: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
 			},
+			userGroupFeatures: [],
+			userRulesGroupAccess: { enforced: true, groupNames: ['All Users', 'Finance'] },
 		});
+		expect(hasFeature).not.toHaveBeenCalled();
 	});
 
 	it('denies all warehouse tables for restricted access without grants', () => {
@@ -224,6 +224,7 @@ describe('warehouse Context access', () => {
 
 	it('surfaces catalog filesystem errors instead of bypassing enforcement', async () => {
 		vi.mocked(resolveEffectiveUserGroupAccess).mockResolvedValue({
+			groupNames: ['All Users'],
 			features: [],
 			toolCallDensityPolicy: { defaultDensity: 'medium', canChange: false },
 			databaseAccess: { mode: 'all', strict: true },

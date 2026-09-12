@@ -231,6 +231,7 @@ async function _buildContextBase(opts: {
 		warehouseTableAccess: contextAccess.warehouseTableAccess,
 		docsContextAccess: contextAccess.docsContextAccess,
 		userGroupFeatures: contextAccess.userGroupFeatures,
+		userRulesGroupAccess: contextAccess.userRulesGroupAccess,
 		azureAccessToken,
 		queryResults: new Map(),
 		generatedArtifacts: { charts: [], maps: [], stories: [] },
@@ -655,7 +656,7 @@ class AgentManager {
 
 	private async _buildDefaultSystemPrompt(provider?: Provider, timezone?: string, chatUrl?: string): Promise<string> {
 		const memories = await memoryService.safeGetUserMemories(this.chat.userId, this.chat.projectId, this.chat.id);
-		const userRules = getUserRules(this._toolContext.projectFolder);
+		const userRules = getUserRules(this._toolContext.projectFolder, this._toolContext.userRulesGroupAccess);
 		const connections = getConnections(this._toolContext.projectFolder);
 		const configuredDatabases = extractConfiguredDatabases(this._toolContext.projectFolder);
 		const skills = skillService.getSkills(this.chat.projectId);

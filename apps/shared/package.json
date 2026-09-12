@@ -15,8 +15,10 @@
 		"./story-table-utils": "./src/story-table-utils.ts",
 		"./story-tabs": "./src/story-tabs.ts",
 		"./story-validation": "./src/story-validation.ts",
+		"./rules-template": "./src/rules-template.ts",
 		"./sql-template": "./src/sql-template.ts",
-		"./execute-sql-parts": "./src/execute-sql-parts.ts"
+		"./execute-sql-parts": "./src/execute-sql-parts.ts",
+		"./user-group-license": "./src/user-group-license.ts"
 	},
 	"scripts": {
 		"test": "vitest run",

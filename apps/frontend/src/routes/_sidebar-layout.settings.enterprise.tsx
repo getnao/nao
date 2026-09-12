@@ -230,7 +230,7 @@ function LicenseDetails({
 	);
 }
 
-const ENTERPRISE_FEATURES = [
+export const ENTERPRISE_FEATURES = [
 	{
 		key: 'sso',
 		label: 'Company sign-in (SSO)',
@@ -252,8 +252,8 @@ const ENTERPRISE_FEATURES = [
 	},
 	{
 		key: 'user-groups',
-		label: 'User groups',
-		description: 'Control which product features different project groups can use.',
+		label: 'Unlimited user groups',
+		description: 'Create more than the 3 custom groups included with the free plan.',
 		icon: UsersRound,
 	},
 	{
@@ -269,6 +269,7 @@ const ENTERPRISE_FEATURES = [
 		icon: Columns3,
 	},
 	{
+		key: 'row-level-security',
 		label: 'Row-level security',
 		description: "Restrict which rows each person can see, using your warehouse's own rules.",
 		icon: ShieldCheck,

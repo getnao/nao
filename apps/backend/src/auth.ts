@@ -34,7 +34,7 @@ import {
 	getTrustedProvidersForOidc,
 	isSocialProviderOidc,
 } from './services/oidc-auth.service';
-import { syncRolesFromSsoGroups } from './services/sso-group-mapping.service';
+import { syncSsoLoginGroups } from './services/sso-login-sync.service';
 import { shouldExpireSsoSession } from './services/sso-session.service';
 import { buildForgotPasswordEmail } from './utils/email-builders';
 import { logger, serializeError } from './utils/logger';
@@ -351,11 +351,7 @@ async function createAuthInstance(baseURL: string) {
 			session: {
 				create: {
 					async after(session, ctx) {
-						if (!isSocialProviderOidc(resolveProviderId(ctx))) {
-							return;
-						}
-
-						await syncRolesFromSsoGroups(session.userId);
+						await syncSsoLoginGroups(session.userId, resolveProviderId(ctx));
 					},
 				},
 			},
