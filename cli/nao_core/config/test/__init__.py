@@ -23,6 +23,11 @@ class TestConfig(BaseModel):
         description="The models to run the tests against, in the format 'provider:model_id'",
     )
     threads: int = Field(default=1, ge=1, description="Number of test runs to execute in parallel")
+    k: int = Field(
+        default=1,
+        ge=1,
+        description="Number of times to run each test case, used to compute pass@k and pass^k",
+    )
     comparison: ComparisonConfig = Field(
         default_factory=ComparisonConfig, description="Tolerances used when comparing results to the expected data"
     )
