@@ -25,6 +25,7 @@ import type {
 	LlmProvidersType,
 	ModelCapabilities,
 	ModelInferenceSettings,
+	ModelMessageFormat,
 	ProviderConfigMap,
 	ProviderSettings,
 	ReasoningEffort,
@@ -93,6 +94,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 	google: {
 		...PROVIDER_META.google,
 		create: (settings, modelId) => createGoogleGenerativeAI(settings).chat(modelId),
+		messageFormat: 'google',
 	},
 	mistral: {
 		...PROVIDER_META.mistral,
@@ -145,6 +147,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 	},
 	vertex: {
 		...PROVIDER_META.vertex,
+		messageFormat: (modelId) => (vertexAdapter(modelId) === 'google' ? 'google' : 'default'),
 		create: (settings, modelId) => {
 			const creds = settings.credentials;
 			const project = creds?.project || process.env.GOOGLE_VERTEX_PROJECT;
@@ -153,7 +156,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 			const googleAuthOptions = buildVertexAuthOptions(creds);
 			const config = { project, location, baseURL: settings.baseURL, googleAuthOptions };
 
-			if (modelId.startsWith('claude-')) {
+			if (vertexAdapter(modelId) === 'anthropic') {
 				return createVertexAnthropic(config)(modelId);
 			}
 			return createVertex(config)(modelId);
@@ -225,6 +228,10 @@ function createModel(provider: LlmProvider, settings: ProviderSettings, modelId:
 		: LLM_PROVIDERS[providerKind(provider)].create(settings, modelId);
 }
 
+function vertexAdapter(modelId: string): 'anthropic' | 'google' {
+	return modelId.startsWith('claude-') ? 'anthropic' : 'google';
+}
+
 export type ModelCallSettings = {
 	temperature?: number;
 	topP?: number;
@@ -238,6 +245,7 @@ export type ProviderOptionsMap = Partial<{ [P in LlmProviderKind]: ProviderConfi
 
 export type ProviderModelResult = {
 	model: LanguageModelV3;
+	messageFormat: ModelMessageFormat;
 	providerOptions: ProviderOptionsMap;
 	contextWindow: number;
 	callSettings?: ModelCallSettings;
@@ -245,7 +253,9 @@ export type ProviderModelResult = {
 
 export function disableModelReasoning(provider: LlmProvider, modelResult: ProviderModelResult): ProviderModelResult {
 	const optionKey =
-		providerKind(provider) === 'vertex' && modelResult.model.modelId.startsWith('claude-') ? 'anthropic' : provider;
+		providerKind(provider) === 'vertex' && vertexAdapter(modelResult.model.modelId) === 'anthropic'
+			? 'anthropic'
+			: provider;
 	const options = { ...(modelResult.providerOptions[optionKey] ?? {}) } as Record<string, unknown>;
 
 	delete options.thinking;
@@ -296,10 +306,15 @@ export function createProviderModel(
 	const { callSettings, providerOverrides } = resolveInferenceOptions(provider, modelId, inferenceSettings);
 
 	// Claude-on-Vertex keys provider options under `anthropic`, not `vertex`.
-	const optionKey: LlmProvider = kind === 'vertex' && modelId.startsWith('claude-') ? 'anthropic' : provider;
+	const optionKey: LlmProvider = kind === 'vertex' && vertexAdapter(modelId) === 'anthropic' ? 'anthropic' : provider;
+	const messageFormat =
+		typeof providerConfig.messageFormat === 'function'
+			? providerConfig.messageFormat(modelId)
+			: (providerConfig.messageFormat ?? 'default');
 
 	return {
 		model: createModel(provider, settings, modelId),
+		messageFormat,
 		providerOptions: {
 			[optionKey]: { ...defaultOptions, ...modelConfig, ...providerOverrides },
 		} as ProviderOptionsMap,

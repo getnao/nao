@@ -219,6 +219,10 @@ describe('OpenAI / Azure', () => {
 });
 
 describe('Google Gemini', () => {
+	it('marks direct Google models with the Google message format', () => {
+		expect(createProviderModel('google', SETTINGS, 'gemini-3.1-pro-preview').messageFormat).toBe('google');
+	});
+
 	it('translates effort to a thinking level and keeps sampling', () => {
 		const { options, callSettings } = resolve('google', 'gemini-3.1-pro-preview', {
 			reasoningEffort: 'max',
@@ -312,6 +316,11 @@ describe('OpenRouter', () => {
 });
 
 describe('Vertex', () => {
+	it('marks Google Vertex models with the Google message format', () => {
+		expect(createProviderModel('vertex', VERTEX_SETTINGS, 'gemini-3-flash-preview').messageFormat).toBe('google');
+		expect(createProviderModel('vertex', VERTEX_SETTINGS, 'gemma-3').messageFormat).toBe('google');
+	});
+
 	it('applies the Claude rules and keys options under anthropic', () => {
 		const { options, providerOptions, callSettings } = resolve('vertex', 'claude-sonnet-4-6', {
 			reasoningEffort: 'high',

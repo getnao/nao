@@ -23,6 +23,7 @@ export const llmSelectedModelSchema = z.object({
 });
 
 export type ProviderSettings = { apiKey: string; baseURL?: string; credentials?: Record<string, string> };
+export type ModelMessageFormat = 'default' | 'google';
 
 export const customModelCostSchema = z.object({
 	inputNoCache: z.number().min(0).optional(),
@@ -276,6 +277,7 @@ export type ProviderMetaMap = {
 /** Full provider configuration with SDK create function (backend-only) */
 type ProviderConfig<P extends LlmProviderKind> = ProviderMeta<P> & {
 	create: (settings: ProviderSettings, modelId: string) => LanguageModelV3;
+	messageFormat?: ModelMessageFormat | ((modelId: string) => ModelMessageFormat);
 	defaultOptions?: ProviderConfigMap[P];
 };
 
