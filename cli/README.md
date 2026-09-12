@@ -84,7 +84,7 @@ nao init
 
 This will create a new nao project in the current directory. It will prompt you for a project name and ask you to configure:
 
-- **Database connections** (BigQuery, DuckDB, MotherDuck, Databricks, Snowflake, PostgreSQL, Redshift, MSSQL, Trino, StarRocks)
+- **Database connections** (BigQuery, DuckDB, MotherDuck, DuckLake, Databricks, Snowflake, PostgreSQL, Redshift, MSSQL, Trino, StarRocks)
 - **Git repositories** to sync
 - **LLM provider** (OpenAI, Anthropic, Mistral, Gemini, OpenRouter, Ollama)
 - **`ai_summary` template + model** (prompted only when you enable `ai_summary` for databases)
@@ -144,6 +144,31 @@ databases:
     name: md-analytics
     database: my_db
     token: "{{ env('MOTHERDUCK_TOKEN') }}"
+YAML
+nao init --yes
+
+# DuckLake — a postgres or mysql catalog is recommended for concurrent access;
+# file-based catalogs (duckdb/sqlite) allow only a single connection at a time.
+# The session denies local filesystem and network access once the lake is
+# attached, so queries can only read the configured lake, not arbitrary files.
+cat > nao_config.yaml <<'YAML'
+project_name: my-project
+databases:
+  - type: ducklake
+    name: lake
+    catalog:
+      type: postgres
+      host: localhost
+      port: 5432
+      database: ducklake_catalog
+      user: "{{ env('DUCKLAKE_CATALOG_USER') }}"
+      password: "{{ env('DUCKLAKE_CATALOG_PASSWORD') }}"
+    data_path: "s3://my-bucket/lake/"
+    storage:
+      type: s3
+      key_id: "{{ env('AWS_ACCESS_KEY_ID') }}"
+      secret: "{{ env('AWS_SECRET_ACCESS_KEY') }}"
+      region: eu-west-1
 YAML
 nao init --yes
 ```

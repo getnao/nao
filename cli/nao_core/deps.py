@@ -57,6 +57,8 @@ _PROVIDER_ALIASES: dict[str, str] = {
     "openaiCompatible": "openai",
     # MotherDuck is DuckDB-compatible and uses the duckdb extra/backend.
     "motherduck": "duckdb",
+    # DuckLake runs on the DuckDB engine and uses the duckdb extra/backend.
+    "ducklake": "duckdb",
 }
 
 

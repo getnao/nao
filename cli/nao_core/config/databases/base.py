@@ -22,6 +22,7 @@ class DatabaseType(str, Enum):
     BIGQUERY = "bigquery"
     CLICKHOUSE = "clickhouse"
     DUCKDB = "duckdb"
+    DUCKLAKE = "ducklake"
     MOTHERDUCK = "motherduck"
     DATABRICKS = "databricks"
     FABRIC = "fabric"
@@ -39,6 +40,7 @@ class DatabaseType(str, Enum):
         labels = {
             cls.BIGQUERY: "BigQuery",
             cls.DUCKDB: "DuckDB",
+            cls.DUCKLAKE: "DuckLake",
             cls.MOTHERDUCK: "MotherDuck",
             cls.MSSQL: "MSSQL",
             cls.STARROCKS: "StarRocks",
