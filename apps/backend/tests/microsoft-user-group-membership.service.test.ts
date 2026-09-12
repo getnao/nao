@@ -142,7 +142,7 @@ describe('syncUserGroupsFromMicrosoft', () => {
 		expect(mocks.logger.error).toHaveBeenCalledOnce();
 	});
 
-	it('gates SSO and User Groups licenses independently', async () => {
+	it('requires SSO and does not query unlimited-groups entitlement', async () => {
 		mocks.hasFeature.mockImplementation((feature: string) => Promise.resolve(feature !== 'sso'));
 		await syncUserGroupsFromMicrosoft('user-1');
 		expect(mocks.hasFeature).toHaveBeenCalledTimes(1);
@@ -151,9 +151,11 @@ describe('syncUserGroupsFromMicrosoft', () => {
 		mocks.hasFeature
 			.mockReset()
 			.mockImplementation((feature: string) => Promise.resolve(feature !== 'user-groups'));
+		mocks.decodeClaims.mockReturnValue({ status: 'decoded', claims: { groups: [GROUP_1] } });
 		await syncUserGroupsFromMicrosoft('user-1');
-		expect(mocks.hasFeature).toHaveBeenCalledTimes(2);
-		expect(mocks.getLoginTokens).not.toHaveBeenCalled();
+		expect(mocks.hasFeature).toHaveBeenCalledOnce();
+		expect(mocks.hasFeature).toHaveBeenCalledWith('sso');
+		expect(mocks.reconcile).toHaveBeenCalledWith('user-1', 'microsoft', [GROUP_1.toLowerCase()]);
 	});
 
 	it('skips when no mapping or stale Microsoft membership exists', async () => {

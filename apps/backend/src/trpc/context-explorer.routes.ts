@@ -30,7 +30,6 @@ import {
 	switchContextBranch,
 } from '../services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../services/context-explorer-pr.service';
-import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { getRepoProviderDisplayName } from '../services/review-request-provider';
 import { resolveContextRepository, resolveContextSourceGitToken } from '../utils/context-repo';
 import { contextAdminProtectedProcedure } from './trpc';
@@ -85,10 +84,6 @@ export const contextExplorerRoutes = {
 	}),
 
 	getRulesPreviewGroups: contextAdminProtectedProcedure.query(async ({ ctx }) => {
-		if (!(await hasFeature(LICENSE_FEATURES.userGroups))) {
-			return { enforced: false as const, groups: [] };
-		}
-		await userGroupQueries.ensureDefaultUserGroup(ctx.project.id);
 		const groups = await userGroupQueries.listUserGroups(ctx.project.id);
 		return {
 			enforced: true as const,

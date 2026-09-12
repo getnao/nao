@@ -53,8 +53,5 @@ async function canSyncOidcUserGroups(userId: string): Promise<boolean> {
 	if (!(await hasFeature(LICENSE_FEATURES.sso))) {
 		return false;
 	}
-	if (!(await hasFeature(LICENSE_FEATURES.userGroups))) {
-		return false;
-	}
 	return hasSsoUserGroupSyncState(userId, 'oidc');
 }

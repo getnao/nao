@@ -9,7 +9,6 @@ import * as userQueries from '../queries/user.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
 import * as userPreferenceQueries from '../queries/user-preference.queries';
 import { cleanupContextWorktree } from '../services/context-explorer-git.service';
-import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { addProjectMemberWithUserGroups } from '../services/project-user-group-membership.service';
 import { addTeamMember } from '../services/team-member';
 import { buildUserAddedEmail } from '../utils/email-builders';
@@ -93,7 +92,6 @@ export const userRoutes = {
 			const projectId = ctx.project.id;
 			const groupIds = unique(input.groupIds);
 			if (groupIds.length > 0) {
-				await assertUserGroupsLicensed();
 				await handleUserGroupQuery(() => userGroupQueries.validateAssignableUserGroupIds(projectId, groupIds));
 			}
 
@@ -139,15 +137,6 @@ export const userRoutes = {
 		return memoryQueries.getUserMemories(ctx.user.id);
 	}),
 };
-
-async function assertUserGroupsLicensed(): Promise<void> {
-	if (!(await hasFeature(LICENSE_FEATURES.userGroups))) {
-		throw new TRPCError({
-			code: 'FORBIDDEN',
-			message: 'User Groups requires the Enterprise user-groups feature.',
-		});
-	}
-}
 
 async function handleUserGroupQuery<T>(operation: () => Promise<T>): Promise<T> {
 	try {

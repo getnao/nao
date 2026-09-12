@@ -1,17 +1,18 @@
+import { FREE_CUSTOM_USER_GROUP_LIMIT } from '@nao/shared';
+import type { MemberStatus, UserRole } from '@nao/shared/types';
 import { USER_ROLE_LABELS } from '@nao/shared/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { ChevronDown, Plus } from 'lucide-react';
+import { ChevronDown, Lock, Plus } from 'lucide-react';
 import { useMemo } from 'react';
-import type { MemberStatus, UserRole } from '@nao/shared/types';
 
+import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import type { UserGroupCatalogState } from '@/components/settings/user-group-access-summary';
+import { getUserGroupAccessSummary } from '@/components/settings/user-group-access-summary';
+import { ResponsiveGroupChips } from '@/components/settings/user-group-chips';
 import type { DatabaseContextObject } from '@/components/settings/user-group-context-access';
 import type { DocsContextCatalogEntry } from '@/components/settings/user-group-docs-context-access';
 import type { UserGroupEditorGroup } from '@/components/settings/user-group-editor';
-import { ResponsiveGroupChips } from '@/components/settings/user-group-chips';
-import { getUserGroupAccessSummary } from '@/components/settings/user-group-access-summary';
-import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { invalidateUserGroupQueries } from '@/components/settings/user-group-editor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -21,6 +22,7 @@ import {
 	DropdownMenuContent,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -53,31 +55,24 @@ interface UserGroupsTableProps {
 export function UserGroupsTable({ tab, onTabChange }: UserGroupsTableProps) {
 	const licenseFeatures = useLicenseFeatures();
 
-	if (licenseFeatures.isLoading) {
-		return <div className='text-sm text-muted-foreground'>Loading User Groups...</div>;
-	}
-	if (licenseFeatures.isError) {
-		return <div className='text-sm text-destructive'>Failed to load license features.</div>;
-	}
-	if (!licenseFeatures.data?.['user-groups']) {
-		return (
-			<SettingsCard
-				description='Control which product features project users can access.'
-				action={<UpgradeToEnterprise />}
-			>
-				<p className='text-sm text-muted-foreground'>User Groups is available with nao Enterprise.</p>
-			</SettingsCard>
-		);
-	}
-
-	return <LicensedUserGroupsTable tab={tab} onTabChange={onTabChange} />;
+	return (
+		<UserGroupsContent
+			tab={tab}
+			onTabChange={onTabChange}
+			hasUnlimitedGroups={licenseFeatures.data?.['user-groups'] === true}
+		/>
+	);
 }
 
 export function resolveUserGroupsPageTab(value: unknown): UserGroupsPageTab {
 	return value === 'groups' || value === 'users' ? value : 'users';
 }
 
-function LicensedUserGroupsTable({ tab, onTabChange }: UserGroupsTableProps) {
+function UserGroupsContent({
+	tab,
+	onTabChange,
+	hasUnlimitedGroups,
+}: UserGroupsTableProps & { hasUnlimitedGroups: boolean }) {
 	const overview = useQuery(trpc.userGroup.overview.queryOptions());
 	const contextCatalog = useQuery(trpc.userGroup.contextCatalog.queryOptions());
 	const docsContextCatalog = useQuery(trpc.userGroup.docsContextCatalog.queryOptions());
@@ -138,6 +133,7 @@ function LicensedUserGroupsTable({ tab, onTabChange }: UserGroupsTableProps) {
 						docsCatalogState={docsCatalogState}
 						onRetryDatabaseCatalog={() => void contextCatalog.refetch()}
 						onRetryDocsCatalog={() => void docsContextCatalog.refetch()}
+						hasUnlimitedGroups={hasUnlimitedGroups}
 						onOpenGroup={(groupId) => {
 							void navigate({
 								to: '/settings/project/user-groups/$groupId',
@@ -185,6 +181,7 @@ function GroupsTable({
 	docsCatalogState,
 	onRetryDatabaseCatalog,
 	onRetryDocsCatalog,
+	hasUnlimitedGroups,
 	onOpenGroup,
 	onCreateGroup,
 }: {
@@ -196,17 +193,25 @@ function GroupsTable({
 	docsCatalogState: UserGroupCatalogState;
 	onRetryDatabaseCatalog: () => void;
 	onRetryDocsCatalog: () => void;
+	hasUnlimitedGroups: boolean;
 	onOpenGroup: (groupId: string) => void;
 	onCreateGroup: () => void;
 }) {
+	const customGroupCount = groups.filter((group) => !group.isDefault).length;
+	const canCreateGroup = hasUnlimitedGroups || customGroupCount < FREE_CUSTOM_USER_GROUP_LIMIT;
+
 	return (
 		<SettingsCard
 			description='Configure the features, database tables, and docs each group can access.'
 			action={
-				<Button onClick={onCreateGroup}>
-					<Plus />
-					Create group
-				</Button>
+				canCreateGroup ? (
+					<Button onClick={onCreateGroup}>
+						<Plus />
+						Create group
+					</Button>
+				) : (
+					<CreateGroupUpgradeNudge />
+				)
 			}
 			flush
 		>
@@ -291,6 +296,39 @@ function GroupsTable({
 				</TableBody>
 			</Table>
 		</SettingsCard>
+	);
+}
+
+function CreateGroupUpgradeNudge() {
+	return (
+		<Popover>
+			<PopoverTrigger asChild>
+				<Button variant='secondary' aria-label='Create group'>
+					<Plus />
+					Create group
+					<span
+						aria-hidden='true'
+						className='inline-flex h-4 items-center gap-0.5 rounded-full bg-primary/10 px-1.5 text-[10px] font-medium uppercase tracking-wide text-primary'
+					>
+						<Lock className='size-2.5 shrink-0' />
+						Enterprise
+					</span>
+				</Button>
+			</PopoverTrigger>
+			<PopoverContent align='end' aria-labelledby='create-group-upgrade-title'>
+				<div className='flex flex-col gap-3'>
+					<div>
+						<h3 id='create-group-upgrade-title' className='text-sm font-medium'>
+							Unlimited user groups
+						</h3>
+						<p className='mt-1 text-xs text-muted-foreground'>
+							The free plan includes 3 custom groups. Upgrade to Enterprise to create unlimited groups.
+						</p>
+					</div>
+					<UpgradeToEnterprise />
+				</div>
+			</PopoverContent>
+		</Popover>
 	);
 }
 
