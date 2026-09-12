@@ -17,6 +17,7 @@ import type { ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-slider';
+import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { UserGroupContextAccess } from '@/components/settings/user-group-context-access';
 import { UserGroupFeatureCard } from '@/components/settings/user-group-feature-card';
 import { UserGroupSsoMapping } from '@/components/settings/user-group-sso-mapping';
@@ -27,6 +28,7 @@ import { Input } from '@/components/ui/input';
 import type { TabBarItem } from '@/components/ui/tab-bar';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
+import { useLicenseFeatures } from '@/hooks/use-license';
 import { trpc } from '@/main';
 
 type UserGroupFeature = (typeof USER_GROUP_FEATURE_DEFINITIONS)[number]['key'];
@@ -94,8 +96,17 @@ export function UserGroupEditor({
 	const createGroup = useMutation(trpc.userGroup.create.mutationOptions());
 	const updateGroup = useMutation(trpc.userGroup.update.mutationOptions());
 	const deleteGroup = useMutation(trpc.userGroup.delete.mutationOptions());
-	const oidcConfig = useQuery(trpc.authConfig.oidc.getConfig.queryOptions());
-	const microsoftConfig = useQuery(trpc.authConfig.microsoft.isSetup.queryOptions());
+	const licenseFeatures = useLicenseFeatures();
+	const hasSso = licenseFeatures.data?.sso === true;
+	const hasRowLevelSecurity = licenseFeatures.data?.['row-level-security'] === true;
+	const oidcConfig = useQuery({
+		...trpc.authConfig.oidc.getConfig.queryOptions(),
+		enabled: hasSso,
+	});
+	const microsoftConfig = useQuery({
+		...trpc.authConfig.microsoft.isSetup.queryOptions(),
+		enabled: hasSso,
+	});
 	const hasUnsavedChanges =
 		existingGroup === null ||
 		hasUserGroupEditorChanges(existingGroup, {
@@ -226,12 +237,15 @@ export function UserGroupEditor({
 							/>
 						)}
 						{activeTab === 'context' && (
-							<UserGroupContextAccess
-								databaseAccess={databaseAccess}
-								docsAccess={docsAccess}
-								onDatabaseAccessChange={setDatabaseAccess}
-								onDocsAccessChange={setDocsAccess}
-							/>
+							<div className='flex flex-col gap-5'>
+								<UserGroupContextAccess
+									databaseAccess={databaseAccess}
+									docsAccess={docsAccess}
+									onDatabaseAccessChange={setDatabaseAccess}
+									onDocsAccessChange={setDocsAccess}
+								/>
+								<ConditionalRulesHelp groupName={name} />
+							</div>
 						)}
 						{activeTab === 'security' && (
 							<div className='flex flex-col gap-5'>
@@ -273,8 +287,7 @@ export function UserGroupEditor({
 										)}
 									</>
 								)}
-								<ConditionalRulesHelp groupName={name} />
-								<UserGroupPlaceholder>Row-level security will be configured here.</UserGroupPlaceholder>
+								<RowLevelSecurityPlaceholder isLicensed={hasRowLevelSecurity} />
 							</div>
 						)}
 					</TabPanel>
@@ -487,10 +500,18 @@ function haveSameSsoMappings(left: UserGroupSsoMappings, right: UserGroupSsoMapp
 	return JSON.stringify(normalizeUserGroupSsoMappings(left)) === JSON.stringify(normalizeUserGroupSsoMappings(right));
 }
 
-function UserGroupPlaceholder({ children }: { children: ReactNode }) {
+function RowLevelSecurityPlaceholder({ isLicensed }: { isLicensed: boolean }) {
 	return (
-		<div className='flex min-h-64 items-center justify-center rounded-lg border border-dashed p-6 text-sm text-muted-foreground'>
-			{children}
-		</div>
+		<section className='flex flex-col gap-3 rounded-lg border border-dashed p-4'>
+			<div className='flex items-start justify-between gap-3'>
+				<div>
+					<h3 className='text-sm font-medium'>Row-level security</h3>
+					<p className='mt-1 text-xs text-muted-foreground'>
+						Restricting which rows each group can access is not available yet.
+					</p>
+				</div>
+				{!isLicensed && <UpgradeToEnterprise />}
+			</div>
+		</section>
 	);
 }

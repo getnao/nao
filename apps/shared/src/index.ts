@@ -21,5 +21,6 @@ export * from './sql-template';
 export * from './types';
 export * from './user-group-context';
 export * from './user-group-features';
+export * from './user-group-license';
 export * from './user-group-sso-mapping';
 export * from './utils';

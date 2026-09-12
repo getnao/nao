@@ -2,6 +2,7 @@ import {
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
+	FREE_CUSTOM_USER_GROUP_LIMIT,
 	isMicrosoftEntraGroupId,
 	normalizeDatabaseContextAccess,
 	normalizeDocsContextAccess,
@@ -96,7 +97,6 @@ export const userGroupRoutes = {
 	effectiveAccessForUser: adminProtectedProcedure
 		.input(z.object({ userId: z.string().min(1) }))
 		.query(async ({ ctx, input }) => {
-			await assertUserGroupsLicensed();
 			if (!(await projectQueries.getUserRoleInProject(ctx.project.id, input.userId))) {
 				throw new TRPCError({
 					code: 'NOT_FOUND',
@@ -107,12 +107,10 @@ export const userGroupRoutes = {
 		}),
 
 	overview: adminProtectedProcedure.query(async ({ ctx }) => {
-		await assertUserGroupsLicensed();
 		return handleQuery(() => userGroupQueries.getUserGroupOverview(ctx.project.id));
 	}),
 
 	contextCatalog: adminProtectedProcedure.query(async ({ ctx }) => {
-		await assertUserGroupsLicensed();
 		if (!ctx.project.path) {
 			throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'The project path is not configured.' });
 		}
@@ -120,7 +118,6 @@ export const userGroupRoutes = {
 	}),
 
 	docsContextCatalog: adminProtectedProcedure.query(async ({ ctx }) => {
-		await assertUserGroupsLicensed();
 		return getDocsContextCatalog(requireProjectPath(ctx.project.path));
 	}),
 
@@ -136,7 +133,7 @@ export const userGroupRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			await assertUserGroupsLicensed();
+			await assertCanCreateCustomUserGroup(ctx.project.id);
 			const databaseAccess = normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess = normalizeDocsContextAccess(input.docsAccess);
 			return handleQuery(() => {
@@ -167,7 +164,6 @@ export const userGroupRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			await assertUserGroupsLicensed();
 			const databaseAccess =
 				input.databaseAccess === undefined ? undefined : normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess =
@@ -187,7 +183,6 @@ export const userGroupRoutes = {
 		}),
 
 	delete: adminProtectedProcedure.input(z.object({ groupId: z.string().min(1) })).mutation(async ({ ctx, input }) => {
-		await assertUserGroupsLicensed();
 		return handleQuery(() => userGroupQueries.deleteUserGroup(ctx.project.id, input.groupId));
 	}),
 
@@ -200,18 +195,20 @@ export const userGroupRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			await assertUserGroupsLicensed();
 			return handleQuery(() =>
 				userGroupQueries.setUserGroupMembership(ctx.project.id, input.groupId, input.userId, input.isMember),
 			);
 		}),
 };
 
-async function assertUserGroupsLicensed(): Promise<void> {
-	if (!(await hasFeature(LICENSE_FEATURES.userGroups))) {
+async function assertCanCreateCustomUserGroup(projectId: string): Promise<void> {
+	if (await hasFeature(LICENSE_FEATURES.userGroups)) {
+		return;
+	}
+	if ((await userGroupQueries.countCustomUserGroups(projectId)) >= FREE_CUSTOM_USER_GROUP_LIMIT) {
 		throw new TRPCError({
 			code: 'FORBIDDEN',
-			message: 'User Groups requires the Enterprise user-groups feature.',
+			message: `Free projects can create up to ${FREE_CUSTOM_USER_GROUP_LIMIT} custom user groups. Enterprise enables unlimited groups.`,
 		});
 	}
 }

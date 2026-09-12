@@ -103,10 +103,6 @@ vi.mock('../src/services/live-story', () => ({
 	getStoryQueryData: mocks.getStoryQueryData,
 	refreshStoryData: vi.fn(),
 }));
-vi.mock('../src/services/license.service', () => ({
-	hasFeature: mocks.hasLicenseFeature,
-	LICENSE_FEATURES: { userGroups: 'user-groups' },
-}));
 vi.mock('../src/services/sso-group-mapping.service', () => ({
 	isGroupRoleMappingActive: vi.fn(async () => false),
 }));
@@ -160,7 +156,6 @@ describe('user group feature route enforcement', () => {
 		mocks.getDisplaySettings.mockResolvedValue({ dateFormat: 'MM/dd/yyyy' });
 		mocks.buildDownloadResponse.mockReturnValue({ body: 'download' });
 		mocks.createSharedStory.mockResolvedValue({ id: 'shared-story-id' });
-		mocks.hasLicenseFeature.mockResolvedValue(true);
 		mockEffectiveFeatures(['story-creation', 'automation-creation']);
 	});
 

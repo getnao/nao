@@ -1,8 +1,5 @@
 import {
-	ALL_DATABASE_CONTEXT_ACCESS,
-	ALL_DOCS_CONTEXT_ACCESS,
 	type DatabaseContextAccess,
-	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	type DocsContextAccess,
 	type ToolCallDensityPolicy,
 	USER_GROUP_FEATURES,
@@ -11,7 +8,6 @@ import {
 
 import { resolveEffectiveUserGroupAccess } from '../queries/user-group.queries';
 import { HandlerError } from '../utils/error';
-import { hasFeature, LICENSE_FEATURES } from './license.service';
 
 export type UserGroupFeatureFlags = Record<UserGroupFeature, boolean>;
 
@@ -33,14 +29,6 @@ export async function getEffectiveUserGroupAccess(
 	projectId: string,
 	userId: string,
 ): Promise<EffectiveUserGroupAccess> {
-	if (!(await hasFeature(LICENSE_FEATURES.userGroups))) {
-		return {
-			features: createUserGroupFeatureFlags(USER_GROUP_FEATURES),
-			toolCallDensityPolicy: DEFAULT_TOOL_CALL_DENSITY_POLICY,
-			databaseAccess: ALL_DATABASE_CONTEXT_ACCESS,
-			docsAccess: ALL_DOCS_CONTEXT_ACCESS,
-		};
-	}
 	const access = await resolveEffectiveUserGroupAccess(projectId, userId);
 	return {
 		features: createUserGroupFeatureFlags(access.features),

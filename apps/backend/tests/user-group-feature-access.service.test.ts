@@ -1,18 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-	hasFeature: vi.fn(),
 	resolveEffectiveUserGroupAccess: vi.fn(),
 }));
 
 vi.mock('../src/queries/user-group.queries', () => ({
 	resolveEffectiveUserGroupAccess: mocks.resolveEffectiveUserGroupAccess,
 }));
-vi.mock('../src/services/license.service', () => ({
-	hasFeature: mocks.hasFeature,
-	LICENSE_FEATURES: { userGroups: 'user-groups' },
-}));
-
 import {
 	assertUserGroupFeature,
 	getEffectiveUserGroupAccess,
@@ -23,7 +17,6 @@ import {
 describe('user group feature access service', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mocks.hasFeature.mockResolvedValue(true);
 		mocks.resolveEffectiveUserGroupAccess.mockResolvedValue({
 			features: ['story-creation'],
 			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
@@ -35,26 +28,23 @@ describe('user group feature access service', () => {
 		});
 	});
 
-	it('fails open without querying groups when user groups are unlicensed', async () => {
-		mocks.hasFeature.mockResolvedValue(false);
-
+	it('resolves group policies without an unlimited-groups entitlement', async () => {
 		await expect(getEffectiveUserGroupAccess('project-id', 'user-id')).resolves.toEqual({
 			features: {
 				'story-creation': true,
-				'automation-creation': true,
+				'automation-creation': false,
 			},
 			toolCallDensityPolicy: {
-				defaultDensity: 'detailed',
-				canChange: true,
+				defaultDensity: 'compact',
+				canChange: false,
 			},
-			databaseAccess: { mode: 'all', strict: true },
-			docsAccess: { mode: 'all' },
+			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
+			docsAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
 		});
-		await expect(hasUserGroupFeature('project-id', 'user-id', 'story-creation')).resolves.toBe(true);
-		expect(mocks.resolveEffectiveUserGroupAccess).not.toHaveBeenCalled();
+		expect(mocks.resolveEffectiveUserGroupAccess).toHaveBeenCalledWith('project-id', 'user-id');
 	});
 
-	it('returns typed flags for licensed effective grants', async () => {
+	it('returns typed flags for effective grants', async () => {
 		await expect(getEffectiveUserGroupFeatureFlags('project-id', 'user-id')).resolves.toEqual({
 			'story-creation': true,
 			'automation-creation': false,
@@ -69,7 +59,7 @@ describe('user group feature access service', () => {
 		});
 	});
 
-	it('allows and denies licensed feature checks', async () => {
+	it('allows and denies feature checks', async () => {
 		await expect(hasUserGroupFeature('project-id', 'user-id', 'story-creation')).resolves.toBe(true);
 		await expect(assertUserGroupFeature('project-id', 'user-id', 'automation-creation')).rejects.toMatchObject({
 			codeMessage: 'FORBIDDEN',
