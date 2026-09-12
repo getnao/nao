@@ -8,7 +8,7 @@ export function getSingleChildFolderChain<Node>(node: Node, adapter: TreeExpansi
 	const folders: Node[] = [];
 	let current: Node | undefined = node;
 
-	while (current && adapter.isFolder(current)) {
+	while (current !== undefined && adapter.isFolder(current)) {
 		folders.push(current);
 		const children = adapter.getChildren(current);
 		if (children.length !== 1 || !adapter.isFolder(children[0])) {

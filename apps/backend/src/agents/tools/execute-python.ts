@@ -128,10 +128,14 @@ function findAllFiles(dir: string, context: ToolContext): schemas.VirtualFile[] 
 			}
 
 			if (entry.isDirectory()) {
-				const virtualPath = toVirtualPath(fullPath, context.projectFolder);
-				const canonical = resolveCanonicalProjectPath(virtualPath, context.projectFolder);
-				if (isProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, 'directory')) {
-					files.push(...findAllFiles(fullPath, context));
+				try {
+					const virtualPath = toVirtualPath(fullPath, context.projectFolder);
+					const canonical = resolveCanonicalProjectPath(virtualPath, context.projectFolder);
+					if (isProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, 'directory')) {
+						files.push(...findAllFiles(fullPath, context));
+					}
+				} catch {
+					continue;
 				}
 			} else if (entry.isFile()) {
 				try {

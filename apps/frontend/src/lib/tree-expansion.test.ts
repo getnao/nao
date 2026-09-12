@@ -43,6 +43,17 @@ describe('tree expansion', () => {
 		expect(getAutoExpandKeys(tree, adapter)).toEqual(['root']);
 	});
 
+	it('supports falsey node values', () => {
+		const booleanAdapter = {
+			getKey: (node: boolean) => String(node),
+			getChildren: () => [] as boolean[],
+			isFolder: () => true,
+		};
+
+		expect(getSingleChildFolderChain(false, booleanAdapter)).toEqual([false]);
+		expect(getAutoExpandKeys(false, booleanAdapter)).toEqual(['false']);
+	});
+
 	it('removes a folder and all expanded descendants', () => {
 		const expanded = new Set(['root', 'root/schema', 'root/schema/nested', 'unrelated']);
 

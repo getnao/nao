@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { UserGroupEffectiveContext } from './user-group-effective-context';
 import type { ComponentProps } from 'react';
@@ -70,6 +70,26 @@ describe('UserGroupEffectiveContext content', () => {
 		expect(screen.getByText('Not synced')).toBeTruthy();
 		expect(screen.queryByText('No context available')).toBeNull();
 		expect(screen.queryByRole('textbox', { name: 'Search effective context' })).toBeNull();
+	});
+
+	it('retries failed catalogs independently', () => {
+		const retryDatabase = vi.fn();
+		const retryDocs = vi.fn();
+		renderEffectiveContext({
+			contextObjects: [],
+			docsEntries: [],
+			databaseCatalogState: 'error',
+			docsCatalogState: 'error',
+			onRetryDatabaseCatalog: retryDatabase,
+			onRetryDocsCatalog: retryDocs,
+		});
+
+		fireEvent.click(screen.getByRole('button', { name: 'Retry database tables' }));
+		expect(retryDatabase).toHaveBeenCalledOnce();
+		expect(retryDocs).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Retry docs' }));
+		expect(retryDocs).toHaveBeenCalledOnce();
 	});
 });
 

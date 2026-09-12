@@ -70,6 +70,7 @@ export const testRoutes = async (app: App) => {
 						projectId,
 						userId,
 						chatId: '',
+						agentSettings: null,
 						supportsCustomCharts: false,
 					});
 					const { data: expectedData, columns: expectedColumns } = await executeQuery(

@@ -7,20 +7,36 @@ import type { UserGroupEditorGroup } from '@/components/settings/user-group-edit
 import { getDatabaseContextTableSelectionSummary } from '@/components/settings/user-group-context-access';
 import { getDocsContextSelectionSummary } from '@/components/settings/user-group-docs-context-access';
 
+export type UserGroupCatalogState = 'loading' | 'error' | 'ready';
+
 export function getUserGroupAccessSummary(
 	group: UserGroupEditorGroup,
 	contextObjects: DatabaseContextObject[],
 	docsEntries: DocsContextCatalogEntry[],
+	catalogStates: {
+		database: UserGroupCatalogState;
+		docs: UserGroupCatalogState;
+	} = { database: 'ready', docs: 'ready' },
 ): string {
 	const featureCount = group.featureGrants.length;
 	const featureSummary =
 		featureCount === 0 ? 'No features' : `${featureCount} ${featureCount === 1 ? 'feature' : 'features'}`;
 	const tableSummary =
-		group.databaseAccess.mode === 'all'
-			? 'All tables'
-			: getDatabaseContextTableSelectionSummary(group.databaseAccess, contextObjects);
+		catalogStates.database === 'loading'
+			? 'Loading tables...'
+			: catalogStates.database === 'error'
+				? 'Tables unavailable'
+				: group.databaseAccess.mode === 'all'
+					? 'All tables'
+					: getDatabaseContextTableSelectionSummary(group.databaseAccess, contextObjects);
 	const docsSummary =
-		group.docsAccess.mode === 'all' ? 'All docs' : getDocsContextSelectionSummary(group.docsAccess, docsEntries);
+		catalogStates.docs === 'loading'
+			? 'Loading docs...'
+			: catalogStates.docs === 'error'
+				? 'Docs unavailable'
+				: group.docsAccess.mode === 'all'
+					? 'All docs'
+					: getDocsContextSelectionSummary(group.docsAccess, docsEntries);
 
 	return `${featureSummary} · ${tableSummary === '0 tables' ? 'No tables' : tableSummary} · ${
 		group.databaseAccess.strict ? 'Strict' : 'Not strict'

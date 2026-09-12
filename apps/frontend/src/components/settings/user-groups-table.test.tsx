@@ -203,6 +203,40 @@ describe('UserGroupsTable', () => {
 		expect(screen.getByRole('button', { name: 'Create group' })).toBeTruthy();
 	});
 
+	it('shows catalog states in group summaries and retries errors', () => {
+		const retryTables = vi.fn();
+		const retryDocs = vi.fn();
+		mocks.useQuery
+			.mockReturnValueOnce({ isLoading: false, isError: false, data: overview })
+			.mockReturnValueOnce({ isLoading: true, isError: false, data: undefined, refetch: retryTables })
+			.mockReturnValueOnce({ isLoading: false, isError: true, data: undefined, refetch: retryDocs });
+
+		render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
+
+		expect(screen.getAllByText(/Loading tables/)).toHaveLength(2);
+		expect(screen.getAllByText(/Docs unavailable/)).toHaveLength(2);
+		expect(screen.queryByText(/No tables/)).toBeNull();
+		expect(screen.queryByText(/No docs/)).toBeNull();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Retry docs for Analysts' }));
+		expect(retryDocs).toHaveBeenCalledOnce();
+		expect(retryTables).not.toHaveBeenCalled();
+		expect(mocks.navigate).not.toHaveBeenCalled();
+	});
+
+	it('keeps the users table available when catalogs fail', () => {
+		mocks.useQuery
+			.mockReturnValueOnce({ isLoading: false, isError: false, data: overview })
+			.mockReturnValueOnce({ isLoading: false, isError: true, data: undefined, refetch: vi.fn() })
+			.mockReturnValueOnce({ isLoading: false, isError: true, data: undefined, refetch: vi.fn() });
+
+		render(<UserGroupsTable tab='users' onTabChange={vi.fn()} />);
+
+		expect(screen.getByText('Project User')).toBeTruthy();
+		expect(screen.getByText('Organisation User')).toBeTruthy();
+		expect(screen.queryByText(/unavailable/i)).toBeNull();
+	});
+
 	it('navigates from a group row and the create action', () => {
 		render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
 
@@ -698,6 +732,36 @@ describe('UserGroupUserDetail', () => {
 		renderUserDetail({ activeTab: 'security' });
 		expect(screen.getByText('Row-level security is not available yet.')).toBeTruthy();
 	});
+
+	it('keeps non-context tabs available while catalogs load or fail', () => {
+		renderUserDetail({
+			databaseCatalogState: 'loading',
+			docsCatalogState: 'error',
+		});
+
+		expect(screen.getByRole('heading', { name: 'Allowed features' })).toBeTruthy();
+		expect(screen.queryByText(/Loading tables/)).toBeNull();
+		expect(screen.queryByText(/Docs unavailable/)).toBeNull();
+	});
+
+	it('shows catalog states and retries only in the context tab', () => {
+		const retryDatabase = vi.fn();
+		const retryDocs = vi.fn();
+		renderUserDetail({
+			activeTab: 'context',
+			databaseCatalogState: 'error',
+			docsCatalogState: 'error',
+			onRetryDatabaseCatalog: retryDatabase,
+			onRetryDocsCatalog: retryDocs,
+		});
+
+		fireEvent.click(screen.getByRole('button', { name: 'Retry database tables' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Retry docs' }));
+
+		expect(retryDatabase).toHaveBeenCalledOnce();
+		expect(retryDocs).toHaveBeenCalledOnce();
+		expect(screen.queryByText('1 feature · 0 tables · 0 docs · Strict')).toBeNull();
+	});
 });
 
 function renderEditor(
@@ -722,6 +786,10 @@ function renderUserDetail({
 	activeTab = 'features',
 	contextObjects = [],
 	docsEntries = [],
+	databaseCatalogState = 'ready',
+	docsCatalogState = 'ready',
+	onRetryDatabaseCatalog,
+	onRetryDocsCatalog,
 	effectiveAccess = {
 		features: { 'story-creation': true, 'automation-creation': false },
 		toolCallDensityPolicy: { defaultDensity: 'compact', canChange: true },
@@ -733,9 +801,25 @@ function renderUserDetail({
 	activeTab?: 'features' | 'context' | 'security';
 	contextObjects?: Array<{ databaseType: string; database: string; schema: string; table: string }>;
 	docsEntries?: Array<{ kind: 'folder' | 'file'; path: string }>;
+	databaseCatalogState?: 'loading' | 'error' | 'ready';
+	docsCatalogState?: 'loading' | 'error' | 'ready';
+	onRetryDatabaseCatalog?: () => void;
+	onRetryDocsCatalog?: () => void;
 	effectiveAccess?: ComponentProps<typeof UserGroupUserDetail>['effectiveAccess'];
 } = {}) {
-	return render(createUserDetail(activeTab, groups, contextObjects, docsEntries, effectiveAccess));
+	return render(
+		createUserDetail(
+			activeTab,
+			groups,
+			contextObjects,
+			docsEntries,
+			effectiveAccess,
+			databaseCatalogState,
+			docsCatalogState,
+			onRetryDatabaseCatalog,
+			onRetryDocsCatalog,
+		),
+	);
 }
 
 function createUserDetail(
@@ -749,6 +833,10 @@ function createUserDetail(
 		databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
 		docsAccess: { mode: 'restricted', grants: [] },
 	},
+	databaseCatalogState: 'loading' | 'error' | 'ready' = 'ready',
+	docsCatalogState: 'loading' | 'error' | 'ready' = 'ready',
+	onRetryDatabaseCatalog?: () => void,
+	onRetryDocsCatalog?: () => void,
 ) {
 	return (
 		<UserGroupUserDetail
@@ -758,6 +846,10 @@ function createUserDetail(
 			effectiveAccess={effectiveAccess}
 			contextObjects={contextObjects}
 			docsEntries={docsEntries}
+			databaseCatalogState={databaseCatalogState}
+			docsCatalogState={docsCatalogState}
+			onRetryDatabaseCatalog={onRetryDatabaseCatalog}
+			onRetryDocsCatalog={onRetryDocsCatalog}
 			activeTab={activeTab}
 			onTabChange={vi.fn()}
 		/>

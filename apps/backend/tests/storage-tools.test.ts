@@ -1,8 +1,8 @@
-import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import type { Tool } from 'ai';
+import fs from 'fs/promises';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import grepTool from '../src/agents/tools/grep';
@@ -143,6 +143,20 @@ describe('docs context access', () => {
 		await expect(run(readTool, { file_path: '/docs/private/secret.md' })).rejects.toThrow('Access denied');
 	});
 
+	it('maps a nested docs grant below the outer docs root', async () => {
+		await fs.mkdir(path.join(projectFolder, 'docs', 'docs'));
+		await fs.writeFile(path.join(projectFolder, 'docs', 'docs', 'nested.md'), 'nested');
+		docsContextAccess = {
+			enforced: true,
+			access: { mode: 'restricted', grants: [{ kind: 'folder', path: 'docs' }] },
+		};
+
+		await expect(run(readTool, { file_path: '/docs/docs/nested.md' })).resolves.toMatchObject({
+			content: 'nested',
+		});
+		await expect(run(readTool, { file_path: '/docs/legal/terms.md' })).rejects.toThrow('Access denied');
+	});
+
 	it('lists only traversable ancestors and allowed children without leaking counts', async () => {
 		await expect(run(listTool, { path: '/docs' })).resolves.toMatchObject({
 			entries: [
@@ -175,6 +189,20 @@ describe('docs context access', () => {
 				.sort(),
 		).toEqual(['/docs/allowed/report.md', '/docs/legal/terms.md']);
 		expect(grep.total_matches).toBe(2);
+	});
+
+	it('counts all authorized grep matches after the result cap', async () => {
+		await fs.writeFile(path.join(projectFolder, 'docs', 'allowed', 'report.md'), 'needle\nneedle\nneedle');
+		await fs.writeFile(path.join(projectFolder, 'docs', 'private', 'secret.md'), 'needle\nneedle\nneedle\nneedle');
+
+		const grep = (await run(grepTool, { pattern: 'needle', max_results: 1 })) as {
+			matches: Array<{ path: string }>;
+			total_matches: number;
+			truncated: boolean;
+		};
+		expect(grep.matches).toHaveLength(1);
+		expect(grep.total_matches).toBe(4);
+		expect(grep.truncated).toBe(true);
 	});
 });
 
@@ -260,6 +288,17 @@ describe('search', () => {
 	it('refuses traversal in a pattern', async () => {
 		await expect(run(searchTool, { pattern: '../**' })).rejects.toThrow("'..' is not allowed");
 	});
+
+	it('returns the matched path instead of its canonical symlink target', async () => {
+		const target = path.join(projectFolder, 'target.md');
+		await fs.writeFile(target, 'target');
+		await fs.symlink(target, path.join(projectFolder, 'alias.md'));
+
+		expect(await run(searchTool, { pattern: 'alias.md' })).toEqual({
+			_version: '1',
+			files: [{ path: '/alias.md', dir: '/', size: '6' }],
+		});
+	});
 });
 
 describe('grep', () => {
@@ -289,6 +328,15 @@ describe('grep', () => {
 
 	it('can be scoped to the project', async () => {
 		expect(await pathsMatching({ pattern: 'revenue', path: '/' })).toEqual(['/RULES.md']);
+	});
+
+	it('returns no matches for an explicit missing project path', async () => {
+		expect(await run(grepTool, { pattern: 'revenue', path: '/missing' })).toEqual({
+			_version: '1',
+			matches: [],
+			total_matches: 0,
+			truncated: false,
+		});
 	});
 
 	it('leaves saved files out when storage is disabled', async () => {

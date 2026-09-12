@@ -312,10 +312,11 @@ function isUserGroupNameUniqueViolation(error: unknown): boolean {
 }
 
 function normalizeUserGroup(group: DBUserGroup): UserGroup {
-	const config = parseStoredUserGroupConfig(group.featureGrants);
-	const contextAccess = parseStoredUserGroupContextAccess(group.contextGrants, group.isDefault);
+	const { contextGrants, featureGrants, ...storedGroup } = group;
+	const config = parseStoredUserGroupConfig(featureGrants);
+	const contextAccess = parseStoredUserGroupContextAccess(contextGrants, group.isDefault);
 	return {
-		...group,
+		...storedGroup,
 		featureGrants: config.features,
 		toolCallDensityPolicy: config.toolCallDensity,
 		databaseAccess: contextAccess.databaseAccess,

@@ -88,25 +88,34 @@ const resolveTargets = (searchPath: string | undefined, context: ToolContext): S
 
 const projectTarget = (searchPath: string | undefined, context: ToolContext): SearchTarget => {
 	const projectFolder = context.projectFolder;
-	const root = resolveCanonicalProjectPath(searchPath ?? '/', projectFolder);
-	if (searchPath) {
+	const canonicalRoot = resolveCanonicalProjectPath('/', projectFolder).realPath;
+	const root = searchPath
+		? resolveCanonicalProjectPath(searchPath, projectFolder)
+		: { realPath: canonicalRoot, virtualPath: '/' };
+	if (searchPath && fs.existsSync(root.realPath)) {
 		const kind = fs.statSync(root.realPath).isDirectory() ? 'directory' : 'file';
 		assertProjectContextPathAllowed(context, searchPath, root.virtualPath, kind);
 	}
+	const displayPathCache = new Map<string, string | null>();
 	return {
 		root: root.realPath,
 		cwd: projectFolder,
 		ignoreGlobs: loadNaoignorePatterns(projectFolder),
 		includeHidden: false,
-		toDisplayPath: (absolutePath) => canonicalAllowedDisplayPath(absolutePath, context),
+		toDisplayPath: (absolutePath) => {
+			const cacheKey = path.resolve(absolutePath);
+			if (!displayPathCache.has(cacheKey)) {
+				displayPathCache.set(cacheKey, canonicalAllowedDisplayPath(cacheKey, canonicalRoot, context));
+			}
+			return displayPathCache.get(cacheKey) ?? null;
+		},
 		toAbsolutePath: (displayPath) => resolveCanonicalProjectPath(displayPath, projectFolder).realPath,
 		isAllowedDisplayPath: () => true,
 	};
 };
 
-function canonicalAllowedDisplayPath(absolutePath: string, context: ToolContext): string | null {
+function canonicalAllowedDisplayPath(absolutePath: string, canonicalRoot: string, context: ToolContext): string | null {
 	try {
-		const canonicalRoot = resolveCanonicalProjectPath('/', context.projectFolder).realPath;
 		if (!isWithinProjectFolder(absolutePath, canonicalRoot)) {
 			return null;
 		}

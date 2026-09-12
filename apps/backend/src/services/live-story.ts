@@ -25,7 +25,7 @@ import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { backfillMissingQueryData, findMissingQueryIds } from '../utils/story-query-data';
 import { buildMcpToolContext, MAX_OUTPUT_TOKENS } from './agent';
 import { resolveExcludedColumnEnforcement } from './excluded-columns.service';
-import { executeWarehouseSql, validateWarehouseSql, WarehouseSqlError } from './warehouse-sql.service';
+import { executeWarehouseSql, validateWarehouseSql } from './warehouse-sql.service';
 const MAX_RENDERED_ROWS = 60;
 
 interface StoryRefreshTarget {
@@ -62,26 +62,30 @@ export interface RefreshResult {
 }
 
 export async function refreshStoryData(chatId: string, slug: string, principalUserId: string): Promise<RefreshResult> {
-	const executionContext = await createStoryExecutionContext(chatId, principalUserId);
-	return refreshStoryDataWithContext(chatId, slug, executionContext);
+	const { queryData } = await refreshStoryDataWithContext(chatId, slug, principalUserId);
+	return { queryData };
 }
 
 async function refreshStoryDataWithContext(
 	chatId: string,
 	slug: string,
-	executionContext: StoryExecutionContext,
-): Promise<RefreshResult> {
+	principalUserId: string,
+	existingExecutionContext?: StoryExecutionContext,
+): Promise<RefreshResult & { code: string }> {
 	const version = await storyQueries.getLatestVersionByChatAndSlug(chatId, slug);
 	if (!version) {
 		throw new Error('Story not found');
 	}
 
 	const sqlQueries = await storyQueries.getSqlQueriesFromCode(chatId, version.code);
-	if (executionContext.toolContext.warehouseTableAccess.enforced) {
+	const executionContext = requiresStoryExecutionContext(version.code, sqlQueries)
+		? (existingExecutionContext ?? (await createStoryExecutionContext(chatId, principalUserId)))
+		: null;
+	if (executionContext?.toolContext.warehouseTableAccess.enforced) {
 		assertAllStoryQueriesResolved(version.code, sqlQueries);
 	}
 	if (Object.keys(sqlQueries).length === 0) {
-		return { queryData: {} };
+		return { queryData: {}, code: version.code };
 	}
 
 	const chat = await chatQueries.getChatInfo(chatId);
@@ -98,6 +102,9 @@ async function refreshStoryDataWithContext(
 				queryData[queryId] = await executeAppDatabaseSql(chat.projectId, effectiveSql);
 				return;
 			}
+			if (!executionContext) {
+				throw new Error('Live Story warehouse query has no execution context.');
+			}
 
 			const result = await executeRawSql(effectiveSql, {
 				executionContext,
@@ -107,6 +114,7 @@ async function refreshStoryDataWithContext(
 		}),
 	);
 
+	let refreshedCode = version.code;
 	if (version.isLiveTextDynamic) {
 		const newCode = await generateDynamicStoryCode(
 			{ projectId: chat.projectId, userId: chat.userId, chatId },
@@ -116,17 +124,19 @@ async function refreshStoryDataWithContext(
 		);
 		if (newCode) {
 			await storyQueries.updateLatestVersionCode(chatId, slug, newCode);
+			refreshedCode = newCode;
 		}
 	}
 
 	await storyQueries.upsertStoryDataCache(chatId, slug, queryData, buildQuerySources(sqlQueries));
 
-	return { queryData };
+	return { queryData, code: refreshedCode };
 }
 
 export interface StoryQueryDataResult {
 	queryData: Record<string, { data: unknown[]; columns: string[] }> | null;
 	cachedAt: Date | null;
+	code: string;
 }
 
 export async function getStoryQueryData(
@@ -138,13 +148,15 @@ export async function getStoryQueryData(
 	principalUserId: string,
 ): Promise<StoryQueryDataResult> {
 	if (!isLive) {
-		return { queryData: await getQueryDataFromCode(chatId, code), cachedAt: null };
+		return { queryData: await getQueryDataFromCode(chatId, code), cachedAt: null, code };
 	}
 
-	const executionContext = await createStoryExecutionContext(chatId, principalUserId);
 	const sqlQueries = await storyQueries.getSqlQueriesFromCode(chatId, code);
+	const executionContext = requiresStoryExecutionContext(code, sqlQueries)
+		? await createStoryExecutionContext(chatId, principalUserId)
+		: null;
 	const cache = await storyQueries.getStoryDataCacheByChatAndSlug(chatId, slug);
-	const enforced = executionContext.toolContext.warehouseTableAccess.enforced;
+	const enforced = executionContext?.toolContext.warehouseTableAccess.enforced ?? false;
 	const allQueriesResolved = areAllStoryQueriesResolved(code, sqlQueries);
 	if (enforced && !allQueriesResolved) {
 		throw new Error('Live Story query sources could not be resolved.');
@@ -154,34 +166,44 @@ export async function getStoryQueryData(
 		cache !== null && allQueriesResolved && doesCacheMatchCurrentSources(code, cache, querySources);
 
 	if (cache && !isCacheExpired(cache.cachedAt, cacheSchedule) && (!enforced || cacheMatchesCurrentSources)) {
-		await validateCachedWarehouseSources(sqlQueries, executionContext);
+		if (enforced && executionContext) {
+			await validateWarehouseSources(sqlQueries, executionContext);
+		}
 		return enforced ? resolveValidatedCache(code, cache) : resolveLegacyCache(chatId, code, cache);
 	}
 
 	try {
-		const { queryData } = await refreshStoryDataWithContext(chatId, slug, executionContext);
+		const { queryData, code: refreshedCode } = await refreshStoryDataWithContext(
+			chatId,
+			slug,
+			principalUserId,
+			executionContext ?? undefined,
+		);
 		return {
 			queryData: Object.keys(queryData).length > 0 ? queryData : null,
 			cachedAt: new Date(),
+			code: refreshedCode,
 		};
 	} catch (error) {
 		if (enforced && !cacheMatchesCurrentSources) {
 			throw error;
 		}
-		await validateCachedWarehouseSources(sqlQueries, executionContext);
+		if (enforced && executionContext) {
+			await validateWarehouseSources(sqlQueries, executionContext);
+		}
 		if (cache) {
 			return enforced ? resolveValidatedCache(code, cache) : resolveLegacyCache(chatId, code, cache);
 		}
 		if (enforced) {
 			throw error;
 		}
-		return { queryData: await getQueryDataFromCode(chatId, code), cachedAt: null };
+		return { queryData: await getQueryDataFromCode(chatId, code), cachedAt: null, code };
 	}
 }
 
 function resolveValidatedCache(code: string, cache: DBStoryDataCache): StoryQueryDataResult {
 	const queryData = selectCurrentQueryData(code, cache.queryData);
-	return { queryData, cachedAt: cache.cachedAt };
+	return { queryData, cachedAt: cache.cachedAt, code };
 }
 
 async function resolveLegacyCache(
@@ -192,7 +214,7 @@ async function resolveLegacyCache(
 	const missing = findMissingQueryIds(code, cache.queryData);
 	const queryData =
 		missing.length > 0 ? await backfillMissingQueryData(code, cache.queryData, { chatId }) : cache.queryData;
-	return { queryData, cachedAt: cache.cachedAt };
+	return { queryData, cachedAt: cache.cachedAt, code };
 }
 
 type StorySqlQueries = Awaited<ReturnType<typeof storyQueries.getSqlQueriesFromCode>>;
@@ -205,6 +227,10 @@ function assertAllStoryQueriesResolved(code: string, sqlQueries: StorySqlQueries
 
 function areAllStoryQueriesResolved(code: string, sqlQueries: StorySqlQueries): boolean {
 	return [...extractQueryIds(code)].every((queryId) => Object.hasOwn(sqlQueries, queryId));
+}
+
+function requiresStoryExecutionContext(code: string, sqlQueries: StorySqlQueries): boolean {
+	return !areAllStoryQueriesResolved(code, sqlQueries) || Object.values(sqlQueries).some((query) => !query.adminMode);
 }
 
 function buildQuerySources(sqlQueries: StorySqlQueries): StoryQuerySources {
@@ -324,22 +350,6 @@ async function validateWarehouseSources(
 				}),
 			),
 	);
-}
-
-async function validateCachedWarehouseSources(
-	sqlQueries: Awaited<ReturnType<typeof storyQueries.getSqlQueriesFromCode>>,
-	executionContext: StoryExecutionContext,
-): Promise<void> {
-	try {
-		await validateWarehouseSources(sqlQueries, executionContext);
-	} catch (error) {
-		const isRestricted = executionContext.toolContext.warehouseTableAccess.enforced;
-		const isExistingGuardDenial =
-			error instanceof WarehouseSqlError && (error.status === 400 || error.status === 422);
-		if (isRestricted || isExistingGuardDenial) {
-			throw error;
-		}
-	}
 }
 
 async function requireChatProjectId(chatId: string): Promise<string> {

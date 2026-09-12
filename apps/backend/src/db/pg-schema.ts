@@ -5,6 +5,7 @@ import {
 	type McpChartEmbedStoredConfig,
 	type McpMapEmbedStoredConfig,
 	type StoredDatabaseContextAccess,
+	type StoredLegacyDatabaseContextAccessV1,
 	type StoredUserGroupConfig,
 	type StoredUserGroupContextAccess,
 } from '@nao/shared';
@@ -439,7 +440,9 @@ export const userGroup = pgTable(
 			.$type<StoredUserGroupConfig>()
 			.notNull()
 			.default(DEFAULT_USER_GROUP_CONFIG),
-		contextGrants: jsonb('context_grants').$type<StoredDatabaseContextAccess | StoredUserGroupContextAccess>(),
+		contextGrants: jsonb('context_grants').$type<
+			StoredLegacyDatabaseContextAccessV1 | StoredDatabaseContextAccess | StoredUserGroupContextAccess
+		>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()

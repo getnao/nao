@@ -36,13 +36,13 @@ function UserGroupUserDetailPage() {
 		}
 	}, [navigate, overviewData, targetUserMissing, user]);
 
-	if (overview.isLoading || effectiveAccess.isLoading || contextCatalog.isLoading || docsContextCatalog.isLoading) {
+	if (overview.isLoading || effectiveAccess.isLoading) {
 		return <div className='text-sm text-muted-foreground'>Loading user access...</div>;
 	}
-	if (overview.isError || effectiveAccess.isError || contextCatalog.isError || docsContextCatalog.isError) {
+	if (overview.isError || effectiveAccess.isError) {
 		return <div className='text-sm text-destructive'>Failed to load user access.</div>;
 	}
-	if (!overviewData || !user || !effectiveAccess.data || !contextCatalog.data || !docsContextCatalog.data) {
+	if (!overviewData || !user || !effectiveAccess.data) {
 		return null;
 	}
 
@@ -61,10 +61,16 @@ function UserGroupUserDetailPage() {
 				groups={overviewData.groups}
 				memberships={overviewData.memberships}
 				effectiveAccess={effectiveAccess.data}
-				contextObjects={contextCatalog.data.objects}
-				docsEntries={docsContextCatalog.data.entries}
-				databaseSyncState={contextCatalog.data.syncState}
-				docsSyncState={docsContextCatalog.data.syncState}
+				contextObjects={contextCatalog.data?.objects ?? []}
+				docsEntries={docsContextCatalog.data?.entries ?? []}
+				databaseSyncState={contextCatalog.data?.syncState}
+				docsSyncState={docsContextCatalog.data?.syncState}
+				databaseCatalogState={contextCatalog.isLoading ? 'loading' : contextCatalog.isError ? 'error' : 'ready'}
+				docsCatalogState={
+					docsContextCatalog.isLoading ? 'loading' : docsContextCatalog.isError ? 'error' : 'ready'
+				}
+				onRetryDatabaseCatalog={() => void contextCatalog.refetch()}
+				onRetryDocsCatalog={() => void docsContextCatalog.refetch()}
 				activeTab={tab}
 				onTabChange={(nextTab) => {
 					void navigate({

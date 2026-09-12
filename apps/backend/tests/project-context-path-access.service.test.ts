@@ -41,6 +41,28 @@ describe('project context path access', () => {
 		expect(isProjectContextPathAllowed(context, '/docs/../RULES.md', '/RULES.md', 'file')).toBe(false);
 	});
 
+	it('rejects malformed paths without blocking genuine non-docs paths', () => {
+		const context = {
+			warehouseTableAccess: unrestrictedWarehouse,
+			docsContextAccess: { enforced: false as const },
+		};
+		expect(isProjectContextPathAllowed(context, '/notes\u0000.md', '/notes\u0000.md', 'file')).toBe(false);
+		expect(isProjectContextPathAllowed(context, '/notes\\private.md', '/notes\\private.md', 'file')).toBe(false);
+		expect(isProjectContextPathAllowed(context, '/notes.md', '/notes.md', 'file')).toBe(true);
+	});
+
+	it('treats nested docs grant paths as relative to the outer docs root', () => {
+		const context = {
+			warehouseTableAccess: unrestrictedWarehouse,
+			docsContextAccess: {
+				enforced: true as const,
+				access: { mode: 'restricted' as const, grants: [{ kind: 'folder' as const, path: 'docs' }] },
+			},
+		};
+		expect(isProjectContextPathAllowed(context, '/docs/docs/nested.md', '/docs/docs/nested.md', 'file')).toBe(true);
+		expect(isProjectContextPathAllowed(context, '/docs/other.md', '/docs/other.md', 'file')).toBe(false);
+	});
+
 	it('composes docs and warehouse policies', () => {
 		const context = {
 			warehouseTableAccess: {

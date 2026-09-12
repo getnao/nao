@@ -272,12 +272,12 @@ def _identifier_matches_metadata(
     *,
     case_insensitive: bool = False,
 ) -> bool:
-    if requested.args.get("quoted"):
-        return requested.name == available
-
     normalized = _normalized_identifier(requested, dialect)
     if case_insensitive:
         return normalized.casefold() == available.casefold()
+    if requested.args.get("quoted"):
+        return requested.name == available
+
     strategy = Dialect.get_or_raise(dialect).NORMALIZATION_STRATEGY
     if strategy in {
         NormalizationStrategy.CASE_INSENSITIVE,

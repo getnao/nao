@@ -52,6 +52,20 @@ describe('docs context catalog', () => {
 
 		expect(getDocsContextCatalog(project)).toEqual({ syncState: 'missing', entries: [] });
 	});
+
+	it('includes a nested folder named docs', () => {
+		const project = createProject();
+		fs.mkdirSync(path.join(project, 'docs', 'docs'), { recursive: true });
+		fs.writeFileSync(path.join(project, 'docs', 'docs', 'nested.md'), 'nested');
+
+		expect(getDocsContextCatalog(project)).toEqual({
+			syncState: 'ready',
+			entries: [
+				{ kind: 'folder', path: 'docs' },
+				{ kind: 'file', path: 'docs/nested.md' },
+			],
+		});
+	});
 });
 
 function createProject(): string {

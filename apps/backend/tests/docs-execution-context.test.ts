@@ -27,6 +27,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	vi.restoreAllMocks();
 	for (const folder of temporaryFolders.splice(0)) {
 		fs.rmSync(folder, { recursive: true, force: true });
 	}
@@ -36,6 +37,29 @@ describe('docs execution context filtering', () => {
 	it('filters denied docs from the Python virtual filesystem', () => {
 		const files = createVirtualFS(contextWithDocs([{ kind: 'file', path: 'legal/terms.md' }]));
 		expect([...files.keys()].sort()).toEqual(['/RULES.md', '/docs/legal/terms.md']);
+	});
+
+	it('keeps scanning siblings after a directory stops resolving safely', () => {
+		const scanDirectory = path.join(projectFolder, 'scan');
+		const swappedDirectory = path.join(scanDirectory, 'a-broken');
+		const outsideDirectory = createTemporaryFolder();
+		fs.mkdirSync(swappedDirectory, { recursive: true });
+		fs.writeFileSync(path.join(scanDirectory, 'z-visible.md'), 'visible');
+
+		const originalReaddir = fs.readdirSync.bind(fs);
+		let swapped = false;
+		vi.spyOn(fs, 'readdirSync').mockImplementation(((directory, options) => {
+			const entries = originalReaddir(directory, options as never);
+			if (!swapped && path.resolve(directory.toString()) === scanDirectory) {
+				swapped = true;
+				fs.rmSync(swappedDirectory, { recursive: true });
+				fs.symlinkSync(outsideDirectory, swappedDirectory, process.platform === 'win32' ? 'junction' : 'dir');
+			}
+			return entries;
+		}) as typeof fs.readdirSync);
+
+		const files = createVirtualFS(contextWithDocs([]));
+		expect(files.get('/scan/z-visible.md')).toBe('visible');
 	});
 
 	it('refreshes reused sandbox context for policy changes and future folder files', async () => {

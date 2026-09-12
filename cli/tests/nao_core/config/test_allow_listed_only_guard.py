@@ -438,6 +438,26 @@ def test_starrocks_default_catalog_resolves_from_live_schemas(tmp_path: Path):
         enforce_allow_listed_only("SELECT * FROM other_catalog.analytics.events", config, tmp_path)
 
 
+def test_starrocks_quoted_identifiers_match_case_insensitively(tmp_path: Path):
+    config = FakeDatabaseConfig(
+        False,
+        {"default_catalog.analytics": ["events"]},
+        database_name="default_catalog.analytics",
+    )
+    config.type = "starrocks"
+    sql = 'SELECT * FROM "DEFAULT_CATALOG"."ANALYTICS"."EVENTS"'
+
+    assert (
+        enforce_allow_listed_only(
+            sql,
+            config,
+            tmp_path,
+            group_allowed_tables={("default_catalog.analytics", "events")},
+        )
+        == sql
+    )
+
+
 def test_explicit_catalog_does_not_fall_back_to_another_catalog_schema(
     tmp_path: Path,
 ):

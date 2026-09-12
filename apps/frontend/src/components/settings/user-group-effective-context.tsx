@@ -7,6 +7,7 @@ import type { DatabaseContextObject } from '@/components/settings/user-group-con
 import type { DocsContextCatalogEntry } from '@/components/settings/user-group-docs-context-access';
 import { FileExplorerIcon } from '@/components/settings/file-explorer-icon';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { getTreeNodePadding, removeExpandedSubtree } from '@/lib/tree-expansion';
 import { cn } from '@/lib/utils';
@@ -23,6 +24,8 @@ interface UserGroupEffectiveContextProps {
 	docsCatalogState?: CatalogState;
 	databaseSyncState?: SyncState;
 	docsSyncState?: SyncState;
+	onRetryDatabaseCatalog?: () => void;
+	onRetryDocsCatalog?: () => void;
 }
 
 interface DatabaseGroup {
@@ -54,6 +57,8 @@ export function UserGroupEffectiveContext({
 	docsCatalogState = 'ready',
 	databaseSyncState = 'ready',
 	docsSyncState = 'ready',
+	onRetryDatabaseCatalog,
+	onRetryDocsCatalog,
 }: UserGroupEffectiveContextProps) {
 	const [search, setSearch] = useState('');
 	const [expandedDatabaseKeys, setExpandedDatabaseKeys] = useState<Set<string>>(new Set());
@@ -137,7 +142,8 @@ export function UserGroupEffectiveContext({
 				<Badge variant='secondary'>{mode}</Badge>
 				<Badge variant='outline'>{databaseAccess.strict ? 'Strict' : 'Not strict'}</Badge>
 				<span className='text-xs text-muted-foreground'>
-					{formatCount(allowedTables.length, 'table')} · {formatCount(allowedDocsFiles.length, 'doc')}
+					{formatCatalogCount(databaseCatalogState, allowedTables.length, 'table')} ·{' '}
+					{formatCatalogCount(docsCatalogState, allowedDocsFiles.length, 'doc')}
 				</span>
 			</div>
 			{hasCurrentContext && (
@@ -158,6 +164,7 @@ export function UserGroupEffectiveContext({
 							searching={searching}
 							expandedKeys={expandedDatabaseKeys}
 							onToggle={toggleDatabaseFolder}
+							onRetry={onRetryDatabaseCatalog}
 						/>
 					)}
 					{showDocsTree && (
@@ -170,6 +177,7 @@ export function UserGroupEffectiveContext({
 							expandedPaths={expandedDocsPaths}
 							onToggleRoot={() => setDocsExpanded((current) => !current)}
 							onToggleFolder={toggleDocsFolder}
+							onRetry={onRetryDocsCatalog}
 						/>
 					)}
 					{showContextEmptyState && <ContextEmptyState />}
@@ -190,6 +198,7 @@ function DatabaseAccessTree({
 	searching,
 	expandedKeys,
 	onToggle,
+	onRetry,
 }: {
 	groups: DatabaseGroup[];
 	catalogState: CatalogState;
@@ -197,10 +206,17 @@ function DatabaseAccessTree({
 	searching: boolean;
 	expandedKeys: Set<string>;
 	onToggle: (key: string) => void;
+	onRetry?: () => void;
 }) {
 	const status = getCatalogIssueStatus(catalogState, syncState);
 	if (status) {
-		return <ContextStatusRow label='Database tables' status={status} />;
+		return (
+			<ContextStatusRow
+				label='Database tables'
+				status={status}
+				onRetry={catalogState === 'error' ? onRetry : undefined}
+			/>
+		);
 	}
 	if (groups.length === 0) {
 		return null;
@@ -337,6 +353,7 @@ function DocsAccessTree({
 	expandedPaths,
 	onToggleRoot,
 	onToggleFolder,
+	onRetry,
 }: {
 	nodes: DocsTreeNode[];
 	catalogState: CatalogState;
@@ -346,10 +363,13 @@ function DocsAccessTree({
 	expandedPaths: Set<string>;
 	onToggleRoot: () => void;
 	onToggleFolder: (path: string) => void;
+	onRetry?: () => void;
 }) {
 	const status = getCatalogIssueStatus(catalogState, syncState);
 	if (status) {
-		return <ContextStatusRow label='Docs' status={status} />;
+		return (
+			<ContextStatusRow label='Docs' status={status} onRetry={catalogState === 'error' ? onRetry : undefined} />
+		);
 	}
 	if (nodes.length === 0) {
 		return null;
@@ -476,13 +496,25 @@ function FolderButton({
 	);
 }
 
-function ContextStatusRow({ label, status }: { label: string; status: string }) {
+function ContextStatusRow({ label, status, onRetry }: { label: string; status: string; onRetry?: () => void }) {
 	return (
 		<li className='flex h-9 items-center gap-2 border-b px-3 text-sm last:border-b-0'>
 			<span className='min-w-0 flex-1 truncate font-medium'>{label}</span>
 			<span className={cn('text-xs text-muted-foreground', status === 'Failed to load' && 'text-destructive')}>
 				{status}
 			</span>
+			{onRetry && (
+				<Button
+					type='button'
+					size='sm'
+					variant='ghost'
+					className='h-6 px-2 text-xs'
+					aria-label={`Retry ${label.toLocaleLowerCase()}`}
+					onClick={onRetry}
+				>
+					Retry
+				</Button>
+			)}
 		</li>
 	);
 }
@@ -604,6 +636,16 @@ function countPatternMatches(pattern: string, objects: DatabaseContextObject[]):
 
 function formatCount(count: number, singular: string): string {
 	return `${count} ${count === 1 ? singular : `${singular}s`}`;
+}
+
+function formatCatalogCount(state: CatalogState, count: number, singular: string): string {
+	if (state === 'loading') {
+		return `Loading ${singular}s...`;
+	}
+	if (state === 'error') {
+		return `${singular[0].toLocaleUpperCase()}${singular.slice(1)}s unavailable`;
+	}
+	return formatCount(count, singular);
 }
 
 function toDomId(value: string): string {

@@ -315,7 +315,6 @@ describe('user group docs context access', () => {
 		for (const unsafe of [
 			'',
 			'/finance',
-			'docs/finance',
 			'finance/',
 			'finance//kpis.md',
 			'finance/./kpis.md',
@@ -329,6 +328,8 @@ describe('user group docs context access', () => {
 			expect(normalizeDocsContextPath(unsafe)).toBeNull();
 		}
 		expect(normalizeDocsContextPath(' Finance/収益.md ')).toBe('Finance/収益.md');
+		expect(normalizeDocsContextPath('docs')).toBe('docs');
+		expect(normalizeDocsContextPath('docs/finance/kpis.md')).toBe('docs/finance/kpis.md');
 		expect(parseDocsContextAccess({ mode: 'restricted', grants: [{ kind: 'file', path: '../secret' }] })).toEqual(
 			EMPTY_DOCS_CONTEXT_ACCESS,
 		);
@@ -357,10 +358,12 @@ describe('user group docs context access', () => {
 			mode: 'restricted' as const,
 			grants: [
 				{ kind: 'folder' as const, path: 'finance' },
+				{ kind: 'folder' as const, path: 'docs' },
 				{ kind: 'file' as const, path: 'legal/terms.md' },
 			],
 		};
 		expect(isDocsContextFileGranted(access, 'finance/future/new.md')).toBe(true);
+		expect(isDocsContextFileGranted(access, 'docs/nested.md')).toBe(true);
 		expect(isDocsContextFileGranted(access, 'finance-old/leak.md')).toBe(false);
 		expect(isDocsContextFileGranted(access, 'legal/terms.md')).toBe(true);
 		expect(isDocsContextFileGranted(access, 'legal/other.md')).toBe(false);

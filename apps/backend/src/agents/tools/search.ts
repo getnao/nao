@@ -101,8 +101,8 @@ const searchProjectFolder = async (recursivePattern: string, context: ToolContex
 					return null;
 				}
 				return {
-					path: canonical.virtualPath,
-					dir: path.dirname(canonical.virtualPath),
+					path: virtualPath,
+					dir: path.dirname(virtualPath),
 					size: stats.size.toString(),
 				};
 			} catch {

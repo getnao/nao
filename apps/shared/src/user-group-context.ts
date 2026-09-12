@@ -30,6 +30,11 @@ export type DocsContextGrant = { kind: 'folder'; path: string } | { kind: 'file'
 
 export type DocsContextAccess = { mode: 'all' } | { mode: 'restricted'; grants: DocsContextGrant[] };
 
+export interface StoredLegacyDatabaseContextAccessV1 {
+	version: 1;
+	access: { mode: 'all' } | { mode: 'restricted'; grants: DatabaseContextGrant[] };
+}
+
 export interface StoredDatabaseContextAccess {
 	version: 3;
 	access: DatabaseContextAccess;
@@ -197,8 +202,6 @@ export function normalizeDocsContextPath(value: string): string | null {
 	if (
 		!normalized ||
 		normalized.length > 1024 ||
-		normalized === 'docs' ||
-		normalized.startsWith('docs/') ||
 		normalized.startsWith('/') ||
 		normalized.endsWith('/') ||
 		normalized.includes('\\') ||

@@ -110,6 +110,7 @@ describe('user group queries', () => {
 				canChange: true,
 			},
 		});
+		expect(defaultGroup).not.toHaveProperty('contextGrants');
 		expect(overview.users.map(({ id }) => id).sort()).toEqual(
 			[BOTH_USER_ID, DIRECT_USER_ID, INHERITED_USER_ID].sort(),
 		);
@@ -412,6 +413,35 @@ describe('user group queries', () => {
 			grants: [],
 			patterns: [],
 		});
+	});
+
+	it('normalizes v1 migration grants without exposing stored context grants', async () => {
+		const overview = await getUserGroupOverview(PROJECT_ID);
+		const defaultGroup = overview.groups[0];
+		const customGroup = await createUserGroup(PROJECT_ID, 'Custom');
+		await db
+			.update(userGroup)
+			.set({ contextGrants: { version: 1, access: { mode: 'all' } } })
+			.where(eq(userGroup.id, defaultGroup.id));
+		await db
+			.update(userGroup)
+			.set({ contextGrants: { version: 1, access: { mode: 'restricted', grants: [] } } })
+			.where(eq(userGroup.id, customGroup.id));
+
+		const groups = (await getUserGroupOverview(PROJECT_ID)).groups;
+		const normalizedDefaultGroup = groups.find(({ id }) => id === defaultGroup.id);
+		const normalizedCustomGroup = groups.find(({ id }) => id === customGroup.id);
+
+		expect(normalizedDefaultGroup).toMatchObject({
+			databaseAccess: { mode: 'all', strict: true },
+			docsAccess: { mode: 'all' },
+		});
+		expect(normalizedCustomGroup).toMatchObject({
+			databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
+			docsAccess: { mode: 'restricted', grants: [] },
+		});
+		expect(normalizedDefaultGroup).not.toHaveProperty('contextGrants');
+		expect(normalizedCustomGroup).not.toHaveProperty('contextGrants');
 	});
 
 	it('uses a custom group when the default has no grants', async () => {
