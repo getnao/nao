@@ -58,7 +58,10 @@ PROVIDER_AUTH: dict[LLMProvider, ProviderAuthConfig] = {
         default_base_url="https://openrouter.ai/api/v1",
     ),
     LLMProvider.REQUESTY: ProviderAuthConfig(
-        env_var="REQUESTY_API_KEY", api_key="required", base_url_env_var="REQUESTY_BASE_URL"
+        env_var="REQUESTY_API_KEY",
+        api_key="required",
+        base_url_env_var="REQUESTY_BASE_URL",
+        default_base_url="https://router.requesty.ai/v1",
     ),
     LLMProvider.OLLAMA: ProviderAuthConfig(
         env_var="OLLAMA_API_KEY", api_key="none", base_url_env_var="OLLAMA_BASE_URL"
@@ -111,6 +114,7 @@ OPENAI_COMPATIBLE_PROVIDERS: frozenset[LLMProvider] = frozenset(
     {
         LLMProvider.OPENAI,
         LLMProvider.OPENROUTER,
+        LLMProvider.REQUESTY,
         LLMProvider.QWEN,
         LLMProvider.MINIMAX,
         LLMProvider.MOONSHOT,

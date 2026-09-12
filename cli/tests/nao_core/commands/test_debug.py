@@ -294,6 +294,32 @@ class TestLLMConnection:
             assert success is False
             assert "Invalid API key" in message
 
+    def test_requesty_connection_success(self):
+        config = ProviderConfig(provider=LLMProvider.REQUESTY, api_key="sk-test-api-key")
+        with patch("openai.OpenAI") as mock_openai_class:
+            mock_client = MagicMock()
+            mock_client.models.list.return_value = [MagicMock(), MagicMock()]
+            mock_openai_class.return_value = mock_client
+            success, message = check_llm_connection(config)
+            assert success is True
+            assert "Connected successfully" in message
+            assert "2 models available" in message
+            # Verify OpenAI was called with the Requesty base_url
+            mock_openai_class.assert_called_once_with(
+                base_url="https://router.requesty.ai/v1", api_key="sk-test-api-key"
+            )
+
+    def test_requesty_exception_returns_failure(self):
+        """API exception should return False with error message."""
+        config = ProviderConfig(provider=LLMProvider.REQUESTY, api_key="invalid")
+        with patch("openai.OpenAI") as mock_class:
+            mock_class.return_value.models.list.side_effect = Exception("Invalid API key")
+
+            success, message = check_llm_connection(config)
+
+            assert success is False
+            assert "Invalid API key" in message
+
     def test_moonshot_connection_uses_the_default_endpoint(self):
         config = ProviderConfig(provider=LLMProvider.MOONSHOT, api_key="sk-test-api-key")
         with patch("openai.OpenAI") as mock_openai_class:
