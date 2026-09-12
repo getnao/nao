@@ -198,7 +198,7 @@ type Flatten<T> = { [K in keyof T]: T[K] };
 export type OpenAICompatibleOptions = OpenAICompatibleProviderOptions & Record<string, JSONValue>;
 
 /** Providers served through a plain OpenAI-compatible chat endpoint rather than a dedicated SDK. */
-export type OpenAICompatibleProvider = 'qwen' | 'minimax' | 'moonshot' | 'openaiCompatible';
+export type OpenAICompatibleProvider = 'qwen' | 'minimax' | 'moonshot' | 'requesty' | 'openaiCompatible';
 
 /** Map each provider kind to its specific config type */
 export type ProviderConfigMap = {
@@ -207,7 +207,6 @@ export type ProviderConfigMap = {
 	anthropic: AnthropicProviderOptions;
 	mistral: MistralLanguageModelOptions;
 	openrouter: OpenRouterProviderOptions;
-	requesty: OpenRouterProviderOptions;
 	ollama: Flatten<OllamaChatProviderOptions>;
 	bedrock: AmazonBedrockLanguageModelOptions;
 	vertex: GoogleGenerativeAIProviderOptions;
@@ -215,6 +214,7 @@ export type ProviderConfigMap = {
 	qwen: OpenAICompatibleOptions;
 	minimax: OpenAICompatibleOptions;
 	moonshot: OpenAICompatibleOptions;
+	requesty: OpenAICompatibleOptions;
 	openaiCompatible: OpenAICompatibleOptions;
 };
 
