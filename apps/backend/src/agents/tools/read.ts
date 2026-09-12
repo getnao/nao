@@ -76,6 +76,9 @@ async function validateOpenedProjectFile(
 
 async function assertHandleUnchanged(handle: FileHandle, openedStats: BigIntStats, filePath: string): Promise<void> {
 	const currentHandleStats = await handle.stat({ bigint: true });
+	if (currentHandleStats.nlink === 0n) {
+		throw new Error(`Access denied: unable to verify opened file '${filePath}'`);
+	}
 	if (!isSameFile(openedStats, currentHandleStats)) {
 		throw new Error(`Access denied: '${filePath}' changed while being read`);
 	}
@@ -88,9 +91,21 @@ async function resolveDescriptorPath(handle: FileHandle, filePath: string): Prom
 	if (process.platform === 'darwin') {
 		return readDarwinDescriptorPath(handle.fd, filePath);
 	}
+	if (process.platform === 'win32') {
+		return readWindowsDescriptorPath(handle.fd, filePath);
+	}
 	throw new Error(
 		`Access denied: descriptor-bound file verification is unavailable on '${process.platform}' for '${filePath}'`,
 	);
+}
+
+async function readWindowsDescriptorPath(descriptor: number, filePath: string): Promise<string> {
+	try {
+		const { resolveWindowsDescriptorPath } = await import('./windows-descriptor-path');
+		return await resolveWindowsDescriptorPath(descriptor);
+	} catch {
+		throw new Error(`Access denied: unable to verify opened file '${filePath}'`);
+	}
 }
 
 async function readLinuxDescriptorPath(descriptor: number, filePath: string): Promise<string> {
@@ -127,7 +142,7 @@ function authorizeDescriptorPath(
 	context: ToolContext,
 	projectRoot: string,
 ): string {
-	if (!path.isAbsolute(descriptorPath) || descriptorPath.endsWith(' (deleted)')) {
+	if (!path.isAbsolute(descriptorPath)) {
 		throw new Error(`Access denied: unable to verify opened file '${filePath}'`);
 	}
 
