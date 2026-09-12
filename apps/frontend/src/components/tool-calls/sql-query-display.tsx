@@ -8,8 +8,8 @@ interface SqlQueryDisplayProps {
 export function SqlQueryDisplay({ query }: SqlQueryDisplayProps) {
 	return (
 		<div className='overflow-auto max-h-80 hide-code-header py-2'>
-			<Streamdown mode='static' controls={{ code: false }} plugins={{ code }}>
-				{`\`\`\`sql\n${query}\n\`\`\``}
+			<Streamdown className='sql-query-display' mode='static' controls={{ code: false }} plugins={{ code }}>
+				{`\`\`\`sql\n${query.trim()}\n\`\`\``}
 			</Streamdown>
 		</div>
 	);

@@ -903,3 +903,10 @@ code.dollar:before {
 		stroke-dashoffset: 0;
 	}
 }
+
+.sql-query-display code {
+	background: transparent;
+	border-radius: 0;
+	font-family: inherit;
+	padding: 0;
+}
