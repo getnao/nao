@@ -78,6 +78,7 @@ describe('embedded Story query data', () => {
 		mocks.getStoryQueryData.mockResolvedValue({
 			queryData: { query_orders: { columns: ['id'], data: [{ id: 1 }] } },
 			cachedAt: new Date(),
+			code: '<table query_id="query_orders" />',
 		});
 
 		await loadEmbedStoryContent('story-1', 'token');
@@ -91,6 +92,31 @@ describe('embedded Story query data', () => {
 			'owner-1',
 		);
 		expect(mocks.backfillMissingQueryDataForSandbox).not.toHaveBeenCalled();
+	});
+
+	it('returns refreshed dynamic code with its query data', async () => {
+		mocks.getLatestVersionByStoryId.mockResolvedValue({
+			storyId: 'story-1',
+			chatId: 'chat-1',
+			slug: 'orders',
+			title: 'Orders',
+			code: '# Old summary\n<table query_id="query_orders" />',
+			isLive: true,
+			isLiveTextDynamic: true,
+			cacheSchedule: null,
+		});
+		mocks.getStoryOwnerId.mockResolvedValue('owner-1');
+		mocks.getStoryQueryData.mockResolvedValue({
+			queryData: { query_orders: { columns: ['id'], data: [{ id: 2 }] } },
+			cachedAt: new Date(),
+			code: '# Refreshed summary\n<table query_id="query_orders" />',
+		});
+
+		await expect(loadEmbedStoryContent('story-1', 'token')).resolves.toMatchObject({
+			code: '# Refreshed summary\n<table query_id="query_orders" />',
+			queryData: { query_orders: { columns: ['id'], data: [{ id: 2 }] } },
+		});
+		expect(mocks.getLatestVersionByStoryId).toHaveBeenCalledOnce();
 	});
 
 	it('fails closed for live embeds without an authorized owner', async () => {

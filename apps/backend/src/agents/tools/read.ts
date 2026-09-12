@@ -1,6 +1,7 @@
 import { isBinaryDocument } from '@nao/shared/attachments';
 import { readFile } from '@nao/shared/tools';
-import fs from 'fs/promises';
+import { type BigIntStats, constants } from 'fs';
+import fs, { type FileHandle } from 'fs/promises';
 
 import { ReadOutput, renderToModelOutput } from '../../components/tool-outputs';
 import { toReadableText } from '../../services/file-text';
@@ -17,7 +18,7 @@ export default createTool<readFile.Input, readFile.Output>({
 	execute: async ({ file_path }, context) => {
 		const content = isStoragePath(file_path)
 			? await readUserFile(toStorageScope(context), toStorageRelativePath(file_path))
-			: await readProjectFile(resolveAllowedProjectPath(file_path, context));
+			: await readProjectFile(file_path, context);
 
 		return {
 			_version: '1' as const,
@@ -29,17 +30,49 @@ export default createTool<readFile.Input, readFile.Output>({
 	toModelOutput: ({ output }) => renderToModelOutput(ReadOutput({ output }), output),
 });
 
+const readProjectFile = async (filePath: string, context: ToolContext): Promise<string> => {
+	const realPath = resolveAllowedProjectPath(filePath, context);
+	const handle = await fs.open(realPath, projectReadFlags());
+
+	try {
+		const openedStats = await handle.stat({ bigint: true });
+		const validatedPath = await validateOpenedProjectFile(handle, openedStats, filePath, context);
+		const bytes = await handle.readFile();
+		await validateOpenedProjectFile(handle, openedStats, filePath, context);
+
+		return isBinaryDocument(validatedPath) ? toReadableText(validatedPath, bytes) : bytes.toString('utf-8');
+	} finally {
+		await handle.close();
+	}
+};
+
 function resolveAllowedProjectPath(filePath: string, context: ToolContext): string {
 	const canonical = resolveCanonicalProjectPath(filePath, context.projectFolder);
 	assertProjectContextPathAllowed(context, filePath, canonical.virtualPath, 'file');
 	return canonical.realPath;
 }
 
-/** Only non-text formats need their bytes inspected, so plain files keep the cheaper path. */
-const readProjectFile = async (realPath: string): Promise<string> => {
-	if (!isBinaryDocument(realPath)) {
-		return fs.readFile(realPath, 'utf-8');
+async function validateOpenedProjectFile(
+	handle: FileHandle,
+	openedStats: BigIntStats,
+	filePath: string,
+	context: ToolContext,
+): Promise<string> {
+	const realPath = resolveAllowedProjectPath(filePath, context);
+	const [currentPathStats, currentHandleStats] = await Promise.all([
+		fs.stat(realPath, { bigint: true }),
+		handle.stat({ bigint: true }),
+	]);
+	if (!isSameFile(openedStats, currentPathStats) || !isSameFile(openedStats, currentHandleStats)) {
+		throw new Error(`Access denied: '${filePath}' changed while being read`);
 	}
+	return realPath;
+}
 
-	return toReadableText(realPath, await fs.readFile(realPath));
-};
+function isSameFile(left: { dev: bigint; ino: bigint }, right: { dev: bigint; ino: bigint }): boolean {
+	return left.dev === right.dev && left.ino === right.ino;
+}
+
+function projectReadFlags(): number {
+	return process.platform === 'win32' ? constants.O_RDONLY : constants.O_RDONLY | constants.O_NOFOLLOW;
+}

@@ -235,42 +235,45 @@ export const sharedStoryRoutes = {
 
 	refreshData: shareAccessProcedure.input(z.object({ shareId: z.string() })).mutation(async ({ ctx }) => {
 		const shared = ctx.resource;
-		const story = await storyQueries.getStoryByChatAndSlug(shared.chatId!, shared.slug);
-		const storyOwnerId = story ? await storyQueries.getStoryOwnerId(story.id) : undefined;
-		const activity =
-			story && storyOwnerId
-				? await activityQueries.startStoryRefreshActivity({
-						projectId: shared.projectId,
-						userId: storyOwnerId,
-						storyId: story.id,
-						chatId: story.chatId,
-						trigger: 'manual',
-					})
-				: null;
+		if (!shared.chatId) {
+			throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
+		}
+		const story = await storyQueries.getStoryByChatAndSlug(shared.chatId, shared.slug);
+		if (!story) {
+			throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
+		}
+		const storyOwnerId = await storyQueries.getStoryOwnerId(story.id);
+		if (!storyOwnerId) {
+			throw new TRPCError({ code: 'FORBIDDEN', message: 'Live Story has no execution owner.' });
+		}
+		if (ctx.user.id !== storyOwnerId && ctx.userRole !== 'admin') {
+			throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the Story owner or an admin can refresh this.' });
+		}
+		const activity = await activityQueries.startStoryRefreshActivity({
+			projectId: shared.projectId,
+			userId: storyOwnerId,
+			storyId: story.id,
+			chatId: story.chatId,
+			trigger: 'manual',
+		});
 		try {
-			const { queryData } = await refreshStoryData(shared.chatId!, shared.slug, ctx.user.id);
-			if (activity) {
-				await activityQueries.completeActivity(activity.id, {
-					queriesRefreshed: Object.keys(queryData).length,
-				});
-			}
-			if (story?.id) {
-				logAnalyticsEvent({
-					projectId: shared.projectId,
-					type: 'refresh',
-					assetType: 'story',
-					actorUserId: ctx.user.id,
-					storyId: story.id,
-					chatId: shared.chatId,
-					sharedStoryId: shared.id,
-					metadata: { type: 'refresh', trigger: 'manual', queriesRefreshed: Object.keys(queryData).length },
-				});
-			}
+			const { queryData } = await refreshStoryData(shared.chatId, shared.slug, storyOwnerId);
+			await activityQueries.completeActivity(activity.id, {
+				queriesRefreshed: Object.keys(queryData).length,
+			});
+			logAnalyticsEvent({
+				projectId: shared.projectId,
+				type: 'refresh',
+				assetType: 'story',
+				actorUserId: ctx.user.id,
+				storyId: story.id,
+				chatId: shared.chatId,
+				sharedStoryId: shared.id,
+				metadata: { type: 'refresh', trigger: 'manual', queriesRefreshed: Object.keys(queryData).length },
+			});
 			return { queryData, cachedAt: new Date() };
 		} catch (err) {
-			if (activity) {
-				await activityQueries.failActivity(activity.id, err instanceof Error ? err.message : String(err));
-			}
+			await activityQueries.failActivity(activity.id, err instanceof Error ? err.message : String(err));
 			throw err;
 		}
 	}),

@@ -5,11 +5,12 @@ import { ChevronDown, Plus } from 'lucide-react';
 import { useMemo } from 'react';
 import type { MemberStatus, UserRole } from '@nao/shared/types';
 
+import type { UserGroupCatalogState } from '@/components/settings/user-group-access-summary';
 import type { DatabaseContextObject } from '@/components/settings/user-group-context-access';
 import type { DocsContextCatalogEntry } from '@/components/settings/user-group-docs-context-access';
 import type { UserGroupEditorGroup } from '@/components/settings/user-group-editor';
-import { getUserGroupAccessSummary } from '@/components/settings/user-group-access-summary';
 import { ResponsiveGroupChips } from '@/components/settings/user-group-chips';
+import { getUserGroupAccessSummary } from '@/components/settings/user-group-access-summary';
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { invalidateUserGroupQueries } from '@/components/settings/user-group-editor';
 import { Badge } from '@/components/ui/badge';
@@ -116,6 +117,8 @@ function LicensedUserGroupsTable({ tab, onTabChange }: UserGroupsTableProps) {
 	const groups = overview.data.groups;
 	const contextObjects = contextCatalog.data?.objects ?? [];
 	const docsEntries = docsContextCatalog.data?.entries ?? [];
+	const databaseCatalogState = getCatalogState(contextCatalog);
+	const docsCatalogState = getCatalogState(docsContextCatalog);
 
 	return (
 		<>
@@ -127,6 +130,10 @@ function LicensedUserGroupsTable({ tab, onTabChange }: UserGroupsTableProps) {
 						memberships={overview.data.memberships}
 						contextObjects={contextObjects}
 						docsEntries={docsEntries}
+						databaseCatalogState={databaseCatalogState}
+						docsCatalogState={docsCatalogState}
+						onRetryDatabaseCatalog={() => void contextCatalog.refetch()}
+						onRetryDocsCatalog={() => void docsContextCatalog.refetch()}
 						onOpenGroup={(groupId) => {
 							void navigate({
 								to: '/settings/project/user-groups/$groupId',
@@ -169,6 +176,10 @@ function GroupsTable({
 	memberships,
 	contextObjects,
 	docsEntries,
+	databaseCatalogState,
+	docsCatalogState,
+	onRetryDatabaseCatalog,
+	onRetryDocsCatalog,
 	onOpenGroup,
 	onCreateGroup,
 }: {
@@ -176,6 +187,10 @@ function GroupsTable({
 	memberships: Array<{ groupId: string; userId: string }>;
 	contextObjects: DatabaseContextObject[];
 	docsEntries: DocsContextCatalogEntry[];
+	databaseCatalogState: UserGroupCatalogState;
+	docsCatalogState: UserGroupCatalogState;
+	onRetryDatabaseCatalog: () => void;
+	onRetryDocsCatalog: () => void;
 	onOpenGroup: (groupId: string) => void;
 	onCreateGroup: () => void;
 }) {
@@ -227,7 +242,44 @@ function GroupsTable({
 								{memberships.filter((membership) => membership.groupId === group.id).length}
 							</TableCell>
 							<TableCell className='whitespace-nowrap text-muted-foreground'>
-								{getUserGroupAccessSummary(group, contextObjects, docsEntries)}
+								<div className='flex items-center gap-1'>
+									<span>
+										{getUserGroupAccessSummary(group, contextObjects, docsEntries, {
+											database: databaseCatalogState,
+											docs: docsCatalogState,
+										})}
+									</span>
+									{databaseCatalogState === 'error' && (
+										<Button
+											type='button'
+											size='sm'
+											variant='ghost'
+											className='h-6 px-2 text-xs'
+											aria-label={`Retry tables for ${group.name}`}
+											onClick={(event) => {
+												event.stopPropagation();
+												onRetryDatabaseCatalog();
+											}}
+										>
+											Retry tables
+										</Button>
+									)}
+									{docsCatalogState === 'error' && (
+										<Button
+											type='button'
+											size='sm'
+											variant='ghost'
+											className='h-6 px-2 text-xs'
+											aria-label={`Retry docs for ${group.name}`}
+											onClick={(event) => {
+												event.stopPropagation();
+												onRetryDocsCatalog();
+											}}
+										>
+											Retry docs
+										</Button>
+									)}
+								</div>
 							</TableCell>
 						</TableRow>
 					))}
@@ -414,4 +466,14 @@ function UserGroupsCell({
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
+}
+
+function getCatalogState(query: { isLoading: boolean; isError: boolean }): UserGroupCatalogState {
+	if (query.isLoading) {
+		return 'loading';
+	}
+	if (query.isError) {
+		return 'error';
+	}
+	return 'ready';
 }

@@ -212,6 +212,32 @@ describe('getTableColumnsContent', () => {
 		expect(mockReadFileSync).toHaveBeenCalledWith(expectedPath, 'utf-8');
 	});
 
+	it('selects an allowed warehouse object when multiple types share an fqdn', () => {
+		const root = '/project-cols-shared-fqdn';
+		setupDirStructure(root, {
+			[join(root, 'databases')]: ['type=postgres', 'type=snowflake'],
+			[join(root, 'databases', 'type=postgres')]: ['database=mydb'],
+			[join(root, 'databases', 'type=postgres', 'database=mydb')]: ['schema=public'],
+			[join(root, 'databases', 'type=postgres', 'database=mydb', 'schema=public')]: ['table=users'],
+			[join(root, 'databases', 'type=snowflake')]: ['database=mydb'],
+			[join(root, 'databases', 'type=snowflake', 'database=mydb')]: ['schema=public'],
+			[join(root, 'databases', 'type=snowflake', 'database=mydb', 'schema=public')]: ['table=users'],
+		});
+		mockReadFileSync.mockReturnValue('# snowflake columns\n');
+
+		const result = getTableColumnsContent(root, 'mydb.public.users', {
+			enforced: true,
+			strict: true,
+			tables: [{ databaseType: 'snowflake', database: 'mydb', schema: 'public', table: 'users' }],
+		});
+
+		expect(result).toBe('# snowflake columns\n');
+		expect(mockReadFileSync).toHaveBeenCalledWith(
+			join(root, 'databases', 'type=snowflake', 'database=mydb', 'schema=public', 'table=users', 'columns.md'),
+			'utf-8',
+		);
+	});
+
 	it('returns undefined when reading the columns file fails', () => {
 		const root = '/project-cols-err';
 		setupDirStructure(root, {

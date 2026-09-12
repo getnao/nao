@@ -111,6 +111,7 @@ describe('live story SQL execution', () => {
 	});
 
 	it('refreshes admin-mode story queries from the app database', async () => {
+		mocks.getChatProjectId.mockResolvedValue(null);
 		mocks.getSqlQueriesFromCode.mockResolvedValue({
 			query_admin: {
 				sqlQuery: 'SELECT * FROM v_messages',
@@ -134,7 +135,7 @@ describe('live story SQL execution', () => {
 		});
 
 		expect(mocks.queryAppDb).toHaveBeenCalledWith('project-1', 'SELECT * FROM v_messages');
-		expect(mocks.buildMcpToolContext).toHaveBeenCalledWith({ projectId: 'project-1', userId: 'user-1' });
+		expect(mocks.buildMcpToolContext).not.toHaveBeenCalled();
 		expect(mocks.upsertStoryDataCache).toHaveBeenCalledWith(
 			'chat-1',
 			'usage',
@@ -278,7 +279,11 @@ describe('live story SQL execution', () => {
 
 		await expect(
 			getStoryQueryData('chat-1', 'orders', '<table query_id="query_warehouse" />', true, null, 'viewer-1'),
-		).resolves.toEqual({ queryData: cache.queryData, cachedAt: cache.cachedAt });
+		).resolves.toEqual({
+			queryData: cache.queryData,
+			cachedAt: cache.cachedAt,
+			code: '<table query_id="query_warehouse" />',
+		});
 		expect(mocks.buildMcpToolContext).toHaveBeenCalledOnce();
 		expect(fetchMock).toHaveBeenCalledOnce();
 		expect(fetchMock.mock.calls[0][0]).toContain('/validate_sql');
@@ -436,10 +441,11 @@ describe('live story SQL execution', () => {
 		).resolves.toEqual({
 			queryData: { query_orders: { columns: ['id'], data: [{ id: 1 }] } },
 			cachedAt,
+			code: '<table query_id="query_orders" />',
 		});
 	});
 
-	it('preserves legacy cache fallback when Context access is unenforced', async () => {
+	it('does not validate a valid cache when Context access is unenforced', async () => {
 		const cache = {
 			queryData: { query_warehouse: { columns: ['id'], data: [{ id: 1 }] } },
 			querySources: null,
@@ -459,6 +465,33 @@ describe('live story SQL execution', () => {
 
 		await expect(
 			getStoryQueryData('chat-1', 'orders', '<table query_id="query_warehouse" />', true, null, 'user-1'),
-		).resolves.toEqual({ queryData: cache.queryData, cachedAt: cache.cachedAt });
+		).resolves.toEqual({
+			queryData: cache.queryData,
+			cachedAt: cache.cachedAt,
+			code: '<table query_id="query_warehouse" />',
+		});
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('reuses admin-only cache without building MCP context', async () => {
+		const code = '<table query_id="query_admin" />';
+		const cache = {
+			queryData: { query_admin: { columns: ['chat_id'], data: [{ chat_id: 'chat-1' }] } },
+			querySources: { query_admin: querySource('SELECT * FROM v_messages', null, true) },
+			cachedAt: new Date(),
+		};
+		mocks.getChatProjectId.mockResolvedValue(null);
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_admin: { sqlQuery: 'SELECT * FROM v_messages', adminMode: true },
+		});
+		mocks.getStoryDataCacheByChatAndSlug.mockResolvedValue(cache);
+
+		await expect(getStoryQueryData('chat-1', 'usage', code, true, null, 'user-1')).resolves.toEqual({
+			queryData: cache.queryData,
+			cachedAt: cache.cachedAt,
+			code,
+		});
+		expect(mocks.buildMcpToolContext).not.toHaveBeenCalled();
+		expect(mocks.queryAppDb).not.toHaveBeenCalled();
 	});
 });

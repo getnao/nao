@@ -432,12 +432,8 @@ export function filterDocsContextEntries(
 	const matchingPaths = entries
 		.filter((entry) => entry.path.toLocaleLowerCase().includes(query))
 		.map((entry) => entry.path);
-	return entries.filter(
-		(entry) =>
-			matchingPaths.some(
-				(matchingPath) => matchingPath === entry.path || matchingPath.startsWith(`${entry.path}/`),
-			) ||
-			(entry.kind === 'file' && matchingPaths.includes(entry.path)),
+	return entries.filter((entry) =>
+		matchingPaths.some((matchingPath) => matchingPath === entry.path || matchingPath.startsWith(`${entry.path}/`)),
 	);
 }
 

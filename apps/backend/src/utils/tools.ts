@@ -334,15 +334,7 @@ export const resolveCanonicalProjectPath = (
 	const projectRoot = path.resolve(projectFolder);
 	const canonicalProjectRoot = fs.realpathSync.native(projectRoot);
 	const candidatePath = toRealPath(virtualPath, projectFolder);
-	let realPath: string;
-	try {
-		realPath = fs.realpathSync.native(candidatePath);
-	} catch (error) {
-		if (!isMissingPathError(error)) {
-			throw error;
-		}
-		realPath = path.resolve(canonicalProjectRoot, path.relative(projectRoot, candidatePath));
-	}
+	const realPath = resolveExistingAncestor(candidatePath);
 
 	if (!isWithinProjectFolder(realPath, canonicalProjectRoot)) {
 		throw new Error(`Access denied: path '${virtualPath}' resolves outside the project folder`);
@@ -354,6 +346,27 @@ export const resolveCanonicalProjectPath = (
 		virtualPath: relativePath ? `/${relativePath}` : '/',
 	};
 };
+
+function resolveExistingAncestor(candidatePath: string): string {
+	const missingSegments: string[] = [];
+	let existingPath = candidatePath;
+
+	while (true) {
+		try {
+			return path.resolve(fs.realpathSync.native(existingPath), ...missingSegments);
+		} catch (error) {
+			if (!isMissingPathError(error)) {
+				throw error;
+			}
+			const parentPath = path.dirname(existingPath);
+			if (parentPath === existingPath) {
+				throw error;
+			}
+			missingSegments.unshift(path.basename(existingPath));
+			existingPath = parentPath;
+		}
+	}
+}
 
 const isMissingPathError = (error: unknown): error is NodeJS.ErrnoException =>
 	error instanceof Error && 'code' in error && error.code === 'ENOENT';

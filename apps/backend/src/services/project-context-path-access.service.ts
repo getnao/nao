@@ -5,6 +5,7 @@ import type { ToolContext } from '../types/tools';
 import { isContextPathAllowed } from './context-access';
 
 type ProjectPathKind = 'file' | 'directory';
+type DocsPath = { kind: 'docs'; relativePath: string } | { kind: 'invalid' } | { kind: 'non-docs' };
 
 export function assertProjectContextPathAllowed(
 	context: Pick<ToolContext, 'warehouseTableAccess' | 'docsContextAccess'>,
@@ -27,47 +28,54 @@ export function isProjectContextPathAllowed(
 		return false;
 	}
 
-	const requestedDocsPath = getDocsRelativePath(requestedVirtualPath);
-	const canonicalDocsPath = getDocsRelativePath(canonicalVirtualPath);
-	if (requestedDocsPath === undefined && canonicalDocsPath === undefined) {
+	const requestedDocsPath = parseDocsPath(requestedVirtualPath);
+	const canonicalDocsPath = parseDocsPath(canonicalVirtualPath);
+	if (requestedDocsPath.kind === 'invalid' || canonicalDocsPath.kind === 'invalid') {
+		return false;
+	}
+	if (requestedDocsPath.kind === 'non-docs' && canonicalDocsPath.kind === 'non-docs') {
 		return true;
 	}
-	if (requestedDocsPath === undefined || canonicalDocsPath === undefined || requestedDocsPath !== canonicalDocsPath) {
+	if (
+		requestedDocsPath.kind !== 'docs' ||
+		canonicalDocsPath.kind !== 'docs' ||
+		requestedDocsPath.relativePath !== canonicalDocsPath.relativePath
+	) {
 		return false;
 	}
 	if (!context.docsContextAccess.enforced) {
 		return true;
 	}
 	if (kind === 'file') {
-		return isDocsContextFileGranted(context.docsContextAccess.access, canonicalDocsPath);
+		return isDocsContextFileGranted(context.docsContextAccess.access, canonicalDocsPath.relativePath);
 	}
 	return (
-		isDocsContextDirectoryGranted(context.docsContextAccess.access, canonicalDocsPath) ||
-		mayTraverseDocsContextDirectory(context.docsContextAccess.access, canonicalDocsPath)
+		isDocsContextDirectoryGranted(context.docsContextAccess.access, canonicalDocsPath.relativePath) ||
+		mayTraverseDocsContextDirectory(context.docsContextAccess.access, canonicalDocsPath.relativePath)
 	);
 }
 
 export function isDocsProjectPath(virtualPath: string): boolean {
-	return getDocsRelativePath(virtualPath) !== undefined;
+	return parseDocsPath(virtualPath).kind === 'docs';
 }
 
-function getDocsRelativePath(virtualPath: string): string | undefined {
+function parseDocsPath(virtualPath: string): DocsPath {
 	if (virtualPath.includes('\\') || hasControlCharacter(virtualPath)) {
-		return undefined;
+		return { kind: 'invalid' };
 	}
 	const relativePath = virtualPath.replace(/^\/+/, '');
 	const addressedDocs = relativePath === 'docs' || relativePath.startsWith('docs/');
 	if (addressedDocs && relativePath.split('/').some((segment) => segment === '.' || segment === '..')) {
-		return '\0invalid';
+		return { kind: 'invalid' };
 	}
 	const normalizedPath = path.posix.normalize(relativePath);
 	if (normalizedPath === 'docs') {
-		return '';
+		return { kind: 'docs', relativePath: '' };
 	}
 	if (normalizedPath.startsWith('docs/')) {
-		return normalizedPath.slice('docs/'.length);
+		return { kind: 'docs', relativePath: normalizedPath.slice('docs/'.length) };
 	}
-	return addressedDocs ? '\0invalid' : undefined;
+	return addressedDocs ? { kind: 'invalid' } : { kind: 'non-docs' };
 }
 
 function hasControlCharacter(value: string): boolean {

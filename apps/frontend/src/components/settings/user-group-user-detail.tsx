@@ -1,13 +1,13 @@
 import { USER_GROUP_FEATURE_DEFINITIONS } from '@nao/shared';
 import { USER_ROLE_LABELS } from '@nao/shared/types';
-import type { DatabaseContextAccess, DocsContextAccess, ToolCallDensityPolicy, UserGroupFeature } from '@nao/shared';
 import type { MemberStatus, UserRole } from '@nao/shared/types';
+import type { DatabaseContextAccess, DocsContextAccess, ToolCallDensityPolicy, UserGroupFeature } from '@nao/shared';
 
 import type { DatabaseContextObject } from '@/components/settings/user-group-context-access';
 import type { DocsContextCatalogEntry } from '@/components/settings/user-group-docs-context-access';
 import type { UserGroupEditorGroup, UserGroupEditorTab } from '@/components/settings/user-group-editor';
-import { getEffectiveUserGroupAccessSummary } from '@/components/settings/user-group-access-summary';
 import { ResponsiveGroupChips } from '@/components/settings/user-group-chips';
+import { getEffectiveUserGroupAccessSummary } from '@/components/settings/user-group-access-summary';
 import { UserGroupEffectiveContext } from '@/components/settings/user-group-effective-context';
 import { UserGroupFeatureSummaryCard } from '@/components/settings/user-group-feature-card';
 import { Badge } from '@/components/ui/badge';
@@ -37,6 +37,10 @@ interface UserGroupUserDetailProps {
 	docsEntries: DocsContextCatalogEntry[];
 	databaseSyncState?: 'missing' | 'ready';
 	docsSyncState?: 'missing' | 'ready';
+	databaseCatalogState?: 'loading' | 'error' | 'ready';
+	docsCatalogState?: 'loading' | 'error' | 'ready';
+	onRetryDatabaseCatalog?: () => void;
+	onRetryDocsCatalog?: () => void;
 	activeTab: UserGroupEditorTab;
 	onTabChange: (tab: UserGroupEditorTab) => void;
 }
@@ -56,6 +60,10 @@ export function UserGroupUserDetail({
 	docsEntries,
 	databaseSyncState,
 	docsSyncState,
+	databaseCatalogState = 'ready',
+	docsCatalogState = 'ready',
+	onRetryDatabaseCatalog,
+	onRetryDocsCatalog,
 	activeTab,
 	onTabChange,
 }: UserGroupUserDetailProps) {
@@ -64,7 +72,10 @@ export function UserGroupUserDetail({
 	);
 	const applicableGroups = groups.filter((group) => group.isDefault || membershipGroupIds.has(group.id));
 	const applicableGroupNames = applicableGroups.map((group) => group.name);
-	const accessSummary = getEffectiveUserGroupAccessSummary(effectiveAccess, contextObjects, docsEntries);
+	const accessSummary =
+		databaseCatalogState === 'ready' && docsCatalogState === 'ready'
+			? getEffectiveUserGroupAccessSummary(effectiveAccess, contextObjects, docsEntries)
+			: undefined;
 
 	return (
 		<div className='flex flex-col gap-6'>
@@ -86,7 +97,7 @@ export function UserGroupUserDetail({
 				</div>
 				<div className='flex min-w-0 flex-col gap-2'>
 					<ResponsiveGroupChips names={applicableGroupNames} />
-					<p className='text-sm text-muted-foreground'>{accessSummary}</p>
+					{accessSummary && <p className='text-sm text-muted-foreground'>{accessSummary}</p>}
 				</div>
 			</section>
 
@@ -112,6 +123,10 @@ export function UserGroupUserDetail({
 							docsEntries={docsEntries}
 							databaseSyncState={databaseSyncState}
 							docsSyncState={docsSyncState}
+							databaseCatalogState={databaseCatalogState}
+							docsCatalogState={docsCatalogState}
+							onRetryDatabaseCatalog={onRetryDatabaseCatalog}
+							onRetryDocsCatalog={onRetryDocsCatalog}
 						/>
 					)}
 					{activeTab === 'security' && (

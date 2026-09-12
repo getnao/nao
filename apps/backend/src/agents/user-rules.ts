@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 
-import type { WarehouseTableAccess } from '../services/context-access';
+import { isDatabaseObjectAllowed, type WarehouseTableAccess } from '../services/context-access';
 
 /**
  * Reads user-defined rules from RULES.md in the project folder if it exists
@@ -146,8 +146,10 @@ export function getTableColumnsContent(
 	fqdn: string,
 	warehouseTableAccess: WarehouseTableAccess,
 ): string | undefined {
-	const obj = getDatabaseObjects(projectFolder).find((o) => o.fqdn === fqdn);
-	if (!obj || !isAllowedObject(obj, warehouseTableAccess)) {
+	const obj = getDatabaseObjects(projectFolder).find(
+		(object) => object.fqdn === fqdn && isDatabaseObjectAllowed(warehouseTableAccess, object),
+	);
+	if (!obj) {
 		return undefined;
 	}
 
@@ -166,17 +168,4 @@ export function getTableColumnsContent(
 	} catch {
 		return undefined;
 	}
-}
-
-function isAllowedObject(object: DatabaseObject, access: WarehouseTableAccess): boolean {
-	return (
-		!access.enforced ||
-		access.tables.some(
-			(table) =>
-				table.databaseType === object.type.toLowerCase() &&
-				table.database === object.database &&
-				table.schema === object.schema &&
-				table.table === object.table,
-		)
-	);
 }

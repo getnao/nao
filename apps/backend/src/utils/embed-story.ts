@@ -46,8 +46,8 @@ export async function loadEmbedStoryContent(storyId: string, token: string): Pro
 		throw new HandlerError('NOT_FOUND', 'Story not found.');
 	}
 
-	const [queryData, displaySettings] = await Promise.all([
-		loadEmbedQueryData(version, projectId),
+	const [storyData, displaySettings] = await Promise.all([
+		loadEmbedStoryData(version, projectId),
 		projectQueries.getDisplaySettings(projectId),
 	]);
 
@@ -55,27 +55,30 @@ export async function loadEmbedStoryContent(storyId: string, token: string): Pro
 		storyId: version.storyId,
 		projectId,
 		title: version.title,
-		code: version.code,
+		code: storyData.code,
 		slug: version.slug,
 		chatId: version.chatId,
-		queryData,
+		queryData: storyData.queryData,
 		dateFormat: displaySettings.dateFormat ?? null,
 	};
 }
 
-async function loadEmbedQueryData(
+async function loadEmbedStoryData(
 	version: Awaited<ReturnType<typeof storyQueries.getLatestVersionByStoryId>>,
 	projectId: string,
-): Promise<StoryQueryDataMap | null> {
+): Promise<{ code: string; queryData: StoryQueryDataMap | null }> {
 	if (!version) {
 		throw new HandlerError('NOT_FOUND', 'Story not found.');
 	}
 	if (!version.isLive) {
-		return backfillMissingQueryDataForSandbox(version.code, {
-			storyId: version.storyId,
-			chatId: version.chatId,
-			projectId,
-		});
+		return {
+			code: version.code,
+			queryData: await backfillMissingQueryDataForSandbox(version.code, {
+				storyId: version.storyId,
+				chatId: version.chatId,
+				projectId,
+			}),
+		};
 	}
 	if (!version.chatId) {
 		throw new HandlerError('FORBIDDEN', 'Live Story has no execution owner.');
@@ -92,5 +95,5 @@ async function loadEmbedQueryData(
 		version.cacheSchedule,
 		ownerId,
 	);
-	return result.queryData;
+	return { code: result.code, queryData: result.queryData };
 }
