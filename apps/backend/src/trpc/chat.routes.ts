@@ -1,16 +1,23 @@
-import { CHAT_FILTER_OPTIONS, CHAT_GROUP_BY_OPTIONS, type GroupedChatListResponse } from '@nao/shared/types';
+import {
+	CHAT_FILTER_OPTIONS,
+	CHAT_GROUP_BY_OPTIONS,
+	DOWNLOAD_FORMATS,
+	type GroupedChatListResponse,
+} from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
 import * as automationQueries from '../queries/automation.queries';
 import type { SearchChatResult } from '../queries/chat.queries';
 import * as chatQueries from '../queries/chat.queries';
+import * as projectQueries from '../queries/project.queries';
 import { agentService } from '../services/agent';
 import { posthog, PostHogEvent } from '../services/posthog';
 import type { ContextUsage, ForkMetadata, UIChat } from '../types/chat';
 import { llmProviderSchema } from '../types/llm';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { getChatContextUsage } from '../utils/chat-context-usage';
+import { buildChatDownloadResponse } from '../utils/chat-download';
 import { ownedResourceProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
 
 const chatOwnerProcedure = ownedResourceProcedure(chatQueries.getChatOwnerId, 'chat');
@@ -40,6 +47,51 @@ export const chatRoutes = {
 			automationRun: (await automationQueries.getAutomationRunByChatId(input.chatId)) ?? undefined,
 		};
 	}),
+
+	download: chatOwnerProcedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				format: z.enum(DOWNLOAD_FORMATS).default('pdf'),
+				includeErrors: z.boolean().default(false),
+				includeSql: z.boolean().default(true),
+				includePython: z.boolean().default(true),
+			}),
+		)
+		.query(async ({ input, ctx }) => {
+			const [chat] = await chatQueries.getChat(input.chatId);
+			if (!chat) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: `Chat with id ${input.chatId} not found.` });
+			}
+
+			const displaySettings = chat.projectId ? await projectQueries.getDisplaySettings(chat.projectId) : null;
+
+			const response = await buildChatDownloadResponse({
+				chatId: chat.id,
+				title: chat.title,
+				createdAt: chat.createdAt,
+				updatedAt: chat.updatedAt,
+				messages: chat.messages,
+				format: input.format,
+				includeErrors: input.includeErrors,
+				includeSql: input.includeSql,
+				includePython: input.includePython,
+				dateFormat: displaySettings?.dateFormat,
+			});
+
+			if (chat.projectId) {
+				logAnalyticsEvent({
+					projectId: chat.projectId,
+					type: 'download',
+					assetType: 'chat',
+					actorUserId: ctx.user.id,
+					chatId: chat.id,
+					metadata: { type: 'download', format: input.format, title: chat.title },
+				});
+			}
+
+			return response;
+		}),
 
 	listGrouped: projectProtectedProcedure
 		.input(
