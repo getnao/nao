@@ -19,6 +19,7 @@ import * as projectQueries from '../queries/project.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
 import { getDocsContextCatalog } from '../services/docs-context-catalog.service';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
+import { assertUserGroupManageable, getAvailableUserGroupOverview } from '../services/user-group-availability.service';
 import { getEffectiveUserGroupAccess } from '../services/user-group-feature-access.service';
 import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
 
@@ -107,7 +108,7 @@ export const userGroupRoutes = {
 		}),
 
 	overview: adminProtectedProcedure.query(async ({ ctx }) => {
-		return handleQuery(() => userGroupQueries.getUserGroupOverview(ctx.project.id));
+		return handleQuery(() => getAvailableUserGroupOverview(ctx.project.id));
 	}),
 
 	contextCatalog: adminProtectedProcedure.query(async ({ ctx }) => {
@@ -164,6 +165,7 @@ export const userGroupRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
+			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
 			const databaseAccess =
 				input.databaseAccess === undefined ? undefined : normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess =
@@ -183,6 +185,7 @@ export const userGroupRoutes = {
 		}),
 
 	delete: adminProtectedProcedure.input(z.object({ groupId: z.string().min(1) })).mutation(async ({ ctx, input }) => {
+		await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
 		return handleQuery(() => userGroupQueries.deleteUserGroup(ctx.project.id, input.groupId));
 	}),
 
@@ -195,6 +198,7 @@ export const userGroupRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
+			await handleQuery(() => assertUserGroupManageable(ctx.project.id, input.groupId));
 			return handleQuery(() =>
 				userGroupQueries.setUserGroupMembership(ctx.project.id, input.groupId, input.userId, input.isMember),
 			);

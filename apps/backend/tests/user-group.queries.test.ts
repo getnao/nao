@@ -312,6 +312,19 @@ describe('user group queries', () => {
 		});
 	});
 
+	it('rejects sequential exact and case-only create name conflicts', async () => {
+		await createUserGroup(PROJECT_ID, 'Finance');
+
+		await expect(createUserGroup(PROJECT_ID, 'Finance')).rejects.toMatchObject({
+			code: 'CONFLICT',
+			message: 'A user group with this name already exists.',
+		});
+		await expect(createUserGroup(PROJECT_ID, 'finance')).rejects.toMatchObject({
+			code: 'CONFLICT',
+			message: 'A user group with this name already exists.',
+		});
+	});
+
 	it('translates concurrent rename name conflicts', async () => {
 		const firstGroup = await createUserGroup(PROJECT_ID, 'First');
 		const secondGroup = await createUserGroup(PROJECT_ID, 'Second');
@@ -326,6 +339,24 @@ describe('user group queries', () => {
 				code: 'CONFLICT',
 				message: 'A user group with this name already exists.',
 			},
+		});
+	});
+
+	it('rejects case-only rename conflicts while allowing case-only self-renames', async () => {
+		const finance = await createUserGroup(PROJECT_ID, 'Finance');
+		const marketing = await createUserGroup(PROJECT_ID, 'Marketing');
+
+		await expect(
+			updateUserGroup(PROJECT_ID, finance.id, { name: 'finance', featureGrants: [] }),
+		).resolves.toMatchObject({
+			id: finance.id,
+			name: 'finance',
+		});
+		await expect(
+			updateUserGroup(PROJECT_ID, marketing.id, { name: 'FINANCE', featureGrants: [] }),
+		).rejects.toMatchObject({
+			code: 'CONFLICT',
+			message: 'A user group with this name already exists.',
 		});
 	});
 
@@ -398,6 +429,54 @@ describe('user group queries', () => {
 			'story-creation',
 			'automation-creation',
 		]);
+	});
+
+	it('excludes suspended groups from every effective access field without changing stored data', async () => {
+		const overview = await getUserGroupOverview(PROJECT_ID);
+		const defaultGroup = overview.groups[0];
+		await updateUserGroup(PROJECT_ID, defaultGroup.id, {
+			featureGrants: [],
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
+			databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
+			docsAccess: { mode: 'restricted', grants: [] },
+		});
+		const activeGroups = await Promise.all(
+			['First', 'Second', 'Third'].map((name) =>
+				createUserGroup(PROJECT_ID, name, [], { defaultDensity: 'detailed', canChange: false }),
+			),
+		);
+		const suspendedGroup = await createUserGroup(
+			PROJECT_ID,
+			'Suspended',
+			['automation-creation'],
+			{ defaultDensity: 'compact', canChange: true },
+			{ mode: 'all', strict: false },
+			{ mode: 'all' },
+		);
+		for (const group of [...activeGroups, suspendedGroup]) {
+			await setUserGroupMembership(PROJECT_ID, group.id, DIRECT_USER_ID, true);
+		}
+
+		const activeGroupIds = new Set([defaultGroup.id, ...activeGroups.map((group) => group.id)]);
+		await expect(resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID, activeGroupIds)).resolves.toEqual({
+			groupNames: ['All Users', 'First', 'Second', 'Third'],
+			features: [],
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
+			databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
+			docsAccess: { mode: 'restricted', grants: [] },
+		});
+
+		expect(await listUserGroupMemberships(PROJECT_ID)).toContainEqual({
+			groupId: suspendedGroup.id,
+			userId: DIRECT_USER_ID,
+		});
+		await expect(resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
+			groupNames: expect.arrayContaining(['Suspended']),
+			features: ['automation-creation'],
+			toolCallDensityPolicy: { canChange: true },
+			databaseAccess: { mode: 'all' },
+			docsAccess: { mode: 'all' },
+		});
 	});
 
 	it('unions database grants and lets all access dominate', async () => {

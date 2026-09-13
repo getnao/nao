@@ -31,8 +31,8 @@ vi.mock('../src/queries/user.queries', () => ({
 	getGitlabToken: mocks.getGitlabToken,
 }));
 
-vi.mock('../src/queries/user-group.queries', () => ({
-	listUserGroups: mocks.listUserGroups,
+vi.mock('../src/services/user-group-availability.service', () => ({
+	listActiveUserGroups: mocks.listUserGroups,
 }));
 
 vi.mock('../src/services/sso-group-mapping.service', () => ({

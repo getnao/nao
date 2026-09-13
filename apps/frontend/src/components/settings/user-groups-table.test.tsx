@@ -256,6 +256,10 @@ describe('UserGroupsTable', () => {
 		expect(screen.getByText('Default')).toBeTruthy();
 		expect(screen.getByRole('row', { name: /All Users/ })).toBeTruthy();
 		expect(screen.getByRole('row', { name: /Analysts/ })).toBeTruthy();
+		expect(screen.getByText('Group access')).toBeTruthy();
+		expect(
+			screen.getByText('Configure the features, database tables, and docs each group can access.'),
+		).toBeTruthy();
 		expect(screen.getByText('No features · All tables · Strict · All docs')).toBeTruthy();
 		expect(screen.getByText('No features · No tables · Not strict · No docs')).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Create group' })).toBeTruthy();
@@ -293,6 +297,29 @@ describe('UserGroupsTable', () => {
 		expect(screen.getByText('Project User')).toBeTruthy();
 		expect(screen.getByText('Organisation User')).toBeTruthy();
 		expect(screen.queryByText(/unavailable/i)).toBeNull();
+	it('orders active groups by name before locked groups without mutating query data', () => {
+		const groups = [
+			{ id: 'aardvark', name: 'Aardvark', isDefault: false, isLocked: true as const },
+			{ ...analysts, id: 'zulu', name: 'Zulu' },
+			allUsers,
+			{ id: 'beta', name: 'Beta', isDefault: false, isLocked: true as const },
+			analysts,
+		];
+		mocks.useQuery.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: { ...overview, groups },
+		});
+		render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
+
+		const expectedNames = ['All Users', 'Analysts', 'Zulu', 'Aardvark', 'Beta'];
+		const renderedNames = screen
+			.getAllByRole('row')
+			.slice(1)
+			.map((row) => expectedNames.find((name) => row.textContent?.includes(name)));
+
+		expect(renderedNames).toEqual(expectedNames);
+		expect(groups.map((group) => group.id)).toEqual(['aardvark', 'zulu', 'all-users', 'beta', 'analysts']);
 	});
 
 	it('navigates from a group row and the create action', () => {
@@ -311,6 +338,32 @@ describe('UserGroupsTable', () => {
 			params: { groupId: 'new' },
 			search: { tab: 'features' },
 		});
+	});
+
+	it('shows locked groups without navigation or active access details', async () => {
+		mocks.useQuery.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: {
+				...overview,
+				groups: [allUsers, analysts, { id: 'archived', name: 'Archived', isDefault: false, isLocked: true }],
+			},
+		});
+		render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
+
+		const lockedRow = screen.getByRole('row', { name: /Archived/ });
+		expect(lockedRow.className).not.toContain('cursor-pointer');
+		expect(screen.queryByRole('link', { name: 'Archived' })).toBeNull();
+		expect(lockedRow.textContent).toContain('Inactive');
+		expect(lockedRow.textContent).toContain('Locked');
+
+		fireEvent.click(lockedRow);
+		expect(mocks.navigate).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole('button', { name: 'Archived requires Enterprise' }));
+		expect(
+			await screen.findByText('The free plan allows only 3 custom groups. Upgrade to Enterprise to have more.'),
+		).toBeTruthy();
+		expect(screen.getByRole('link', { name: 'Upgrade to Enterprise' })).toBeTruthy();
 	});
 
 	it('creates on free below the custom-group limit and excludes All Users from the count', () => {
@@ -358,13 +411,13 @@ describe('UserGroupsTable', () => {
 		});
 		render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
 
-		fireEvent.click(screen.getByRole('button', { name: 'Create group' }));
+		const createGroupButton = screen.getByRole('button', { name: 'Create group' });
+		expect(createGroupButton.classList.contains('w-72')).toBe(true);
+		fireEvent.click(createGroupButton);
 
 		expect(mocks.navigate).not.toHaveBeenCalled();
 		expect(
-			await screen.findByText(
-				'The free plan includes 3 custom groups. Upgrade to Enterprise to create unlimited groups.',
-			),
+			await screen.findByText('The free plan allows only 3 custom groups. Upgrade to Enterprise to create more.'),
 		).toBeTruthy();
 		expect(screen.getByRole('link', { name: 'Upgrade to Enterprise' }).getAttribute('href')).toBe(
 			'/settings/enterprise',
@@ -443,6 +496,28 @@ describe('UserGroupsTable', () => {
 		});
 		expect(mocks.navigate).not.toHaveBeenCalled();
 		expect(screen.getByRole('menuitemcheckbox', { name: 'Analysts' })).toBeTruthy();
+	});
+
+	it('omits locked groups from user chips and assignment menus', () => {
+		mocks.useQuery.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: {
+				...overview,
+				groups: [allUsers, analysts, { id: 'archived', name: 'Archived', isDefault: false, isLocked: true }],
+				memberships: [...overview.memberships, { groupId: 'archived', userId: 'project-user' }],
+			},
+		});
+		render(<UserGroupsTable tab='users' onTabChange={vi.fn()} />);
+
+		expect(
+			screen.getByRole('button', { name: /Manage groups for Project User/ }).getAttribute('aria-label'),
+		).not.toContain('Archived');
+		fireEvent.pointerDown(screen.getByRole('button', { name: /Manage groups for Project User/ }), {
+			button: 0,
+			ctrlKey: false,
+		});
+		expect(screen.queryByRole('menuitemcheckbox', { name: 'Archived' })).toBeNull();
 	});
 
 	it('marks SSO-managed memberships and prevents removing them manually', () => {

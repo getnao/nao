@@ -59,7 +59,7 @@ export interface EffectiveUserGroupAccess {
 
 export class UserGroupQueryError extends Error {
 	constructor(
-		public readonly code: 'NOT_FOUND' | 'BAD_REQUEST' | 'CONFLICT',
+		public readonly code: 'NOT_FOUND' | 'BAD_REQUEST' | 'CONFLICT' | 'FORBIDDEN',
 		message: string,
 	) {
 		super(message);
@@ -93,6 +93,7 @@ export const getUserGroupOverview = async (projectId: string): Promise<UserGroup
 export const resolveEffectiveUserGroupAccess = async (
 	projectId: string,
 	userId: string,
+	activeGroupIds?: ReadonlySet<string>,
 ): Promise<EffectiveUserGroupAccess> => {
 	const [groups, manualMemberships, ssoMemberships] = await Promise.all([
 		db.select().from(s.userGroup).where(eq(s.userGroup.projectId, projectId)).execute(),
@@ -117,7 +118,11 @@ export const resolveEffectiveUserGroupAccess = async (
 		}
 	}
 	const applicableGroups = groups
-		.filter((group) => group.isDefault || membershipDates.has(group.id))
+		.filter(
+			(group) =>
+				(activeGroupIds === undefined || activeGroupIds.has(group.id)) &&
+				(group.isDefault || membershipDates.has(group.id)),
+		)
 		.map((group) => ({
 			...group,
 			membershipCreatedAt: membershipDates.get(group.id) ?? null,
@@ -371,11 +376,12 @@ const getUserGroup = async (projectId: string, groupId: string): Promise<DBUserG
 
 const assertNameAvailable = async (projectId: string, name: string, excludedGroupId?: string): Promise<void> => {
 	const groups = await db
-		.select({ id: s.userGroup.id })
+		.select({ id: s.userGroup.id, name: s.userGroup.name })
 		.from(s.userGroup)
-		.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroup.name, name)))
+		.where(eq(s.userGroup.projectId, projectId))
 		.execute();
-	if (groups.some((group) => group.id !== excludedGroupId)) {
+	const normalizedName = name.toLowerCase();
+	if (groups.some((group) => group.id !== excludedGroupId && group.name.toLowerCase() === normalizedName)) {
 		throw new UserGroupQueryError('CONFLICT', USER_GROUP_NAME_CONFLICT_MESSAGE);
 	}
 };

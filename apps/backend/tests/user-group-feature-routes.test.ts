@@ -76,8 +76,8 @@ vi.mock('../src/queries/shared-story.queries', () => ({
 	getQueryDataFromCode: mocks.getQueryDataFromCode,
 	getSharedStory: vi.fn(),
 }));
-vi.mock('../src/queries/user-group.queries', () => ({
-	resolveEffectiveUserGroupAccess: mocks.resolveEffectiveUserGroupAccess,
+vi.mock('../src/services/user-group-availability.service', () => ({
+	resolveAvailableUserGroupAccess: mocks.resolveEffectiveUserGroupAccess,
 }));
 vi.mock('../src/queries/story.queries', () => ({
 	createStoryVersion: mocks.createStoryVersion,

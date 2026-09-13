@@ -32,8 +32,8 @@ vi.mock('../src/queries/story-folder.queries', () => ({}));
 vi.mock('../src/services/compaction', () => ({
 	compactionService: { useLastCompaction: (messages: unknown[]) => messages },
 }));
-vi.mock('../src/queries/user-group.queries', () => ({
-	resolveEffectiveUserGroupAccess: mocks.resolveEffectiveUserGroupAccess,
+vi.mock('../src/services/user-group-availability.service', () => ({
+	resolveAvailableUserGroupAccess: mocks.resolveEffectiveUserGroupAccess,
 }));
 vi.mock('../src/services/sso-group-mapping.service', () => ({
 	isGroupRoleMappingActive: vi.fn(async () => false),

@@ -6,8 +6,8 @@ import {
 	type UserGroupFeature,
 } from '@nao/shared';
 
-import { resolveEffectiveUserGroupAccess } from '../queries/user-group.queries';
 import { HandlerError } from '../utils/error';
+import { resolveAvailableUserGroupAccess } from './user-group-availability.service';
 
 export type UserGroupFeatureFlags = Record<UserGroupFeature, boolean>;
 
@@ -29,7 +29,7 @@ export async function getEffectiveUserGroupAccess(
 	projectId: string,
 	userId: string,
 ): Promise<EffectiveUserGroupAccess> {
-	const access = await resolveEffectiveUserGroupAccess(projectId, userId);
+	const access = await resolveAvailableUserGroupAccess(projectId, userId);
 	return {
 		features: createUserGroupFeatureFlags(access.features),
 		toolCallDensityPolicy: access.toolCallDensityPolicy,

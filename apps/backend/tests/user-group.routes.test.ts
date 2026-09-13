@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+	assertUserGroupManageable: vi.fn(),
 	countCustomUserGroups: vi.fn(),
 	createUserGroup: vi.fn(),
 	deleteUserGroup: vi.fn(),
@@ -13,6 +14,14 @@ const mocks = vi.hoisted(() => ({
 	role: 'admin' as 'admin' | 'user' | 'viewer',
 	setUserGroupMembership: vi.fn(),
 	updateUserGroup: vi.fn(),
+	UserGroupQueryError: class UserGroupQueryError extends Error {
+		constructor(
+			public readonly code: 'NOT_FOUND' | 'BAD_REQUEST' | 'CONFLICT' | 'FORBIDDEN',
+			message: string,
+		) {
+			super(message);
+		}
+	},
 }));
 
 vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));
@@ -24,7 +33,7 @@ vi.mock('../src/queries/project.queries', () => ({
 	getUserRoleInProject: mocks.getUserRoleInProject,
 }));
 vi.mock('../src/queries/user-group.queries', () => ({
-	UserGroupQueryError: class UserGroupQueryError extends Error {},
+	UserGroupQueryError: mocks.UserGroupQueryError,
 	countCustomUserGroups: mocks.countCustomUserGroups,
 	createUserGroup: mocks.createUserGroup,
 	deleteUserGroup: mocks.deleteUserGroup,
@@ -36,6 +45,11 @@ vi.mock('../src/queries/user-group.queries', () => ({
 vi.mock('../src/services/license.service', () => ({
 	hasFeature: mocks.hasFeature,
 	LICENSE_FEATURES: { userGroups: 'user-groups' },
+}));
+vi.mock('../src/services/user-group-availability.service', () => ({
+	assertUserGroupManageable: mocks.assertUserGroupManageable,
+	getAvailableUserGroupOverview: mocks.getUserGroupOverview,
+	resolveAvailableUserGroupAccess: mocks.resolveEffectiveUserGroupAccess,
 }));
 vi.mock('../src/services/docs-context-catalog.service', () => ({
 	getDocsContextCatalog: mocks.getDocsContextCatalog,
@@ -376,6 +390,43 @@ describe('user group routes', () => {
 		expect(mocks.deleteUserGroup).toHaveBeenCalledWith('project-id', 'group-id');
 		expect(mocks.setUserGroupMembership).toHaveBeenCalledWith('project-id', 'group-id', 'target-user-id', true);
 		expect(mocks.hasFeature).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		[
+			'update',
+			() =>
+				createCaller().update({
+					groupId: 'locked-id',
+					featureGrants: [],
+					toolCallDensityPolicy: {
+						defaultDensity: 'detailed',
+						canChange: true,
+					},
+				}),
+		],
+		['delete', () => createCaller().delete({ groupId: 'locked-id' })],
+		[
+			'setMembership',
+			() =>
+				createCaller().setMembership({
+					groupId: 'locked-id',
+					userId: 'target-user-id',
+					isMember: true,
+				}),
+		],
+	])('rejects %s for a suspended group', async (_operation, call) => {
+		mocks.assertUserGroupManageable.mockRejectedValueOnce(
+			new mocks.UserGroupQueryError('FORBIDDEN', 'Upgrade to Enterprise to reactivate this saved group.'),
+		);
+
+		await expect(call()).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+			message: 'Upgrade to Enterprise to reactivate this saved group.',
+		});
+		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
+		expect(mocks.deleteUserGroup).not.toHaveBeenCalled();
+		expect(mocks.setUserGroupMembership).not.toHaveBeenCalled();
 	});
 
 	it('preserves database access when update omits it', async () => {
