@@ -11,6 +11,7 @@ import { mkdir, readdir, readFile, unlink, writeFile } from 'fs/promises';
 import { createRuntime, type Runtime, ServerDefinition } from 'mcporter';
 import { isAbsolute, join, relative, resolve, sep } from 'path';
 
+import { isCloud } from '../env';
 import {
 	claimMcpDiscoveryUser,
 	deleteMcpUserToken,
@@ -46,6 +47,21 @@ export class McpArgsValidationError extends Error {
 	) {
 		super(`Invalid arguments for MCP tool "${tool}" on server "${server}": ${issues.join('; ')}`);
 		this.name = 'McpArgsValidationError';
+	}
+}
+
+/**
+ * Thrown when a server is declared with a transport this deployment refuses to run. In cloud
+ * mode only HTTP transports are allowed: a stdio server would spawn an arbitrary command on
+ * the shared host, so it is never registered on the runtime.
+ */
+export class McpTransportNotAllowedError extends Error {
+	constructor(public readonly server: string) {
+		super(
+			`MCP server "${server}" uses a command-based (stdio) transport, which is not available in cloud mode. ` +
+				'Use an HTTP transport (streamable-http or sse) instead.',
+		);
+		this.name = 'McpTransportNotAllowedError';
 	}
 }
 
@@ -165,8 +181,11 @@ export class McpService {
 		}
 	}
 
+	/** Configured servers whose transport this deployment is allowed to run. */
 	public getConfiguredServerNames(): string[] {
-		return Object.keys(this._mcpServers);
+		return Object.entries(this._mcpServers)
+			.filter(([, config]) => this._isTransportAllowed(config))
+			.map(([name]) => name);
 	}
 
 	public async getConfigError(projectId: string): Promise<string | null> {
@@ -197,6 +216,9 @@ export class McpService {
 
 		return Promise.all(
 			Object.entries(this._mcpServers).map(async ([name, config]) => {
+				if (!this._isTransportAllowed(config)) {
+					return this._blockedServerStatus(name, config, disabled);
+				}
 				const tools = await this._serverToolSummaries(name, disabled);
 				const discovered = this._discovered[name] !== undefined || existsSync(this._serverDir(name));
 				const oauth = await this._ensureOAuthFlag(name, config);
@@ -218,6 +240,25 @@ export class McpService {
 				};
 			}),
 		);
+	}
+
+	/** Status shown for a server whose transport this deployment refuses to run: visible, but never usable. */
+	private _blockedServerStatus(name: string, config: McpServerConfig, disabled: DisabledSets): McpServerStatus {
+		return {
+			name,
+			transport: this._transportOf(config),
+			url: undefined,
+			enabled: !disabled.servers.has(name),
+			discovered: false,
+			connectionOk: false,
+			oauth: false,
+			oauthConnected: false,
+			toolCount: 0,
+			enabledToolCount: 0,
+			tools: [],
+			specPath: this._virtualServerDir(name),
+			error: new McpTransportNotAllowedError(name).message,
+		};
 	}
 
 	/** Whether the server exposes at least one known tool, from this session or an on-disk spec. */
@@ -274,6 +315,7 @@ export class McpService {
 			const configured = this.getConfiguredServerNames().join(', ') || '(none)';
 			throw new Error(`MCP server "${server}" is not configured. Configured servers: ${configured}.`);
 		}
+		this._assertTransportAllowed(server, config);
 		const disabled = await this._loadDisabled();
 		if (disabled.servers.has(server)) {
 			throw new Error(`MCP server "${server}" is disabled by the project admin.`);
@@ -324,6 +366,7 @@ export class McpService {
 			const configured = this.getConfiguredServerNames().join(', ') || '(none)';
 			throw new Error(`MCP server "${server}" is not configured. Configured servers: ${configured}.`);
 		}
+		this._assertTransportAllowed(server, config);
 		if (allowedServers && !allowedServers.includes(server)) {
 			throw new Error(`MCP server "${server}" is not available in this context.`);
 		}
@@ -588,6 +631,8 @@ export class McpService {
 			if (error instanceof McpAuthRequiredError) {
 				this._failedConnections[name] =
 					'OAuth connection required — connect this server to discover its tools.';
+			} else if (error instanceof McpTransportNotAllowedError) {
+				this._failedConnections[name] = error.message;
 			} else {
 				if (isUnauthorizedError(error) && !this._hasStaticAuth(config)) {
 					this._oauth[name] = true;
@@ -796,6 +841,7 @@ export class McpService {
 		if (!config) {
 			throw new Error(`MCP server "${name}" is not configured.`);
 		}
+		this._assertTransportAllowed(name, config);
 		const session = await this._session();
 		if (!session.registered.has(name)) {
 			session.runtime.registerDefinition(this._toServerDefinition(name, config), { overwrite: true });
@@ -856,6 +902,16 @@ export class McpService {
 		const isHttp =
 			config.type === 'http' || (config.transport !== undefined && HTTP_TRANSPORTS.includes(config.transport));
 		return isHttp ? 'http' : 'stdio';
+	}
+
+	private _isTransportAllowed(config: McpServerConfig): boolean {
+		return !isCloud || this._transportOf(config) === 'http';
+	}
+
+	private _assertTransportAllowed(name: string, config: McpServerConfig): void {
+		if (!this._isTransportAllowed(config)) {
+			throw new McpTransportNotAllowedError(name);
+		}
 	}
 
 	private _toolKey(server: string, tool: string): string {
