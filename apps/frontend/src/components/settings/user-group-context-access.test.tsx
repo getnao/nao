@@ -195,6 +195,15 @@ describe('user group context access selection', () => {
 		fireEvent.click(screen.getByRole('checkbox', { name: 'docs folder access' }));
 		expect(screen.getByText('0 tables · 2 docs')).toBeTruthy();
 		expect(screen.getByRole('button', { name: /Specific selection/ }).getAttribute('aria-pressed')).toBe('true');
+
+		fireEvent.click(screen.getByRole('button', { name: /Everything/ }));
+		expect(screen.getByRole('button', { name: /Everything/ }).getAttribute('aria-pressed')).toBe('true');
+		expect(screen.getByText('2 tables · 2 docs')).toBeTruthy();
+		expect(screen.queryByRole('textbox', { name: 'Search context' })).toBeNull();
+		expect(screen.getByRole('checkbox', { name: 'docs folder access' }).hasAttribute('disabled')).toBe(true);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Expand docs folder' }));
+		expect(screen.getByRole('checkbox', { name: 'readme.md file access' }).hasAttribute('disabled')).toBe(true);
 	});
 
 	it('narrows database access without clearing restricted docs grants', () => {

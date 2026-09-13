@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm, stat } from 'node:fs/promises';
+import { lstat, mkdtemp, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -6,7 +6,7 @@ import { fileExtension } from '@nao/shared/attachments';
 import type { executeSql } from '@nao/shared/tools';
 
 import type { QueryResult, ToolContext } from '../types/tools';
-import { referencedQueryIds, rewriteStorageLiterals, storagePathsIn } from '../utils/sql-file-paths';
+import { filePathAccessIn, referencedQueryIds, rewriteStorageLiterals, storagePathsIn } from '../utils/sql-file-paths';
 import {
 	isStoragePath,
 	resolveCanonicalProjectPath,
@@ -51,7 +51,7 @@ export async function runQueryOnLocalFiles(
 		const result = await runLocalQuery({
 			sql: access.sql,
 			queryResults: await collectReferencedResults(sql, context),
-			allowedPaths: await collectAllowedProjectFiles(context),
+			allowedPaths: await collectAllowedProjectFiles(sql, context),
 			allowedDirectories: [...access.directories, ...(staging ? [staging.directory] : [])],
 			...(staging && { output: { filePath: staging.filePath, format: staging.format } }),
 		});
@@ -63,12 +63,69 @@ export async function runQueryOnLocalFiles(
 	}
 }
 
-async function collectAllowedProjectFiles(context: ToolContext): Promise<string[]> {
-	const root = resolveCanonicalProjectPath('/', context.projectFolder);
+async function collectAllowedProjectFiles(sql: string, context: ToolContext): Promise<string[]> {
+	const access = filePathAccessIn(sql);
+	if (!access.hasUnknownPath && !access.paths.some(hasGlob)) {
+		return collectExactProjectFiles(access.paths, context);
+	}
+
 	const allowedPaths = new Set<string>();
 	const visitedDirectories = new Set<string>();
 
-	await walkAllowedProjectDirectory(root.realPath, '', context, allowedPaths, visitedDirectories);
+	try {
+		const root = resolveCanonicalProjectPath('/', context.projectFolder);
+		await walkAllowedProjectDirectory(root.realPath, '', context, allowedPaths, visitedDirectories);
+	} catch (error) {
+		if (!isSkippableFilesystemError(error)) {
+			throw error;
+		}
+	}
+	return [...allowedPaths];
+}
+
+async function collectExactProjectFiles(paths: string[], context: ToolContext): Promise<string[]> {
+	const projectPaths = paths.filter((requestedPath) => !isStoragePath(requestedPath));
+	if (projectPaths.length === 0) {
+		return [];
+	}
+
+	const allowedPaths = new Set<string>();
+	const projectFolder = path.resolve(context.projectFolder);
+
+	for (const requestedPath of projectPaths) {
+		const filePath = path.resolve(requestedPath);
+		const relativePath = path.relative(projectFolder, filePath);
+		if (relativePath.startsWith(`..${path.sep}`) || relativePath === '..' || path.isAbsolute(relativePath)) {
+			continue;
+		}
+
+		const virtualPath = `/${relativePath.replaceAll(path.sep, '/')}`;
+		const relativeDirectory = path.posix.dirname(relativePath.replaceAll(path.sep, '/'));
+		try {
+			const entry = await lstat(filePath);
+			const canonical = resolveCanonicalProjectPath(virtualPath, context.projectFolder);
+			if (
+				!entry.isFile() ||
+				entry.isSymbolicLink() ||
+				canonical.virtualPath !== virtualPath ||
+				shouldExcludeEntry(
+					path.basename(filePath),
+					relativeDirectory === '.' ? '' : relativeDirectory,
+					context.projectFolder,
+				) ||
+				!isProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, 'file')
+			) {
+				continue;
+			}
+			allowedPaths.add(canonical.realPath);
+			allowedPaths.add(filePath);
+		} catch (error) {
+			if (!isSkippableFilesystemError(error)) {
+				throw error;
+			}
+		}
+	}
+
 	return [...allowedPaths];
 }
 
@@ -84,14 +141,32 @@ async function walkAllowedProjectDirectory(
 	}
 	visitedDirectories.add(directory);
 
-	for (const entry of await readdir(directory, { withFileTypes: true })) {
+	let entries;
+	try {
+		entries = await readdir(directory, { withFileTypes: true });
+	} catch (error) {
+		if (isSkippableFilesystemError(error)) {
+			return;
+		}
+		throw error;
+	}
+
+	for (const entry of entries) {
 		if (shouldExcludeEntry(entry.name, relativeDirectory, context.projectFolder) || entry.isSymbolicLink()) {
 			continue;
 		}
 
 		const relativePath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
 		const virtualPath = `/${relativePath}`;
-		const canonical = resolveCanonicalProjectPath(virtualPath, context.projectFolder);
+		let canonical;
+		try {
+			canonical = resolveCanonicalProjectPath(virtualPath, context.projectFolder);
+		} catch (error) {
+			if (isSkippableFilesystemError(error)) {
+				continue;
+			}
+			throw error;
+		}
 
 		if (entry.isDirectory()) {
 			if (isProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, 'directory')) {
@@ -111,6 +186,15 @@ async function walkAllowedProjectDirectory(
 			allowedPaths.add(path.resolve(context.projectFolder, relativePath));
 		}
 	}
+}
+
+function hasGlob(filePath: string): boolean {
+	return /[*?[\]{}]/.test(filePath);
+}
+
+function isSkippableFilesystemError(error: unknown): boolean {
+	const code = (error as NodeJS.ErrnoException | null)?.code;
+	return code === 'ENOENT' || code === 'ENOTDIR' || code === 'EACCES' || code === 'EPERM' || code === 'ESTALE';
 }
 
 interface Destination {

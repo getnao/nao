@@ -553,21 +553,28 @@ export const storyRoutes = {
 			}),
 		)
 		.query(async ({ input, ctx }) => {
+			const latestVersion = await storyQueries.getLatestVersionByChatAndSlug(input.chatId, input.storySlug);
 			const version = input.versionNumber
 				? await storyQueries.getVersionByNumber(input.chatId, input.storySlug, input.versionNumber)
-				: await storyQueries.getLatestVersionByChatAndSlug(input.chatId, input.storySlug);
+				: latestVersion;
 			if (!version) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 			}
 
-			const { queryData, code } = await getStoryQueryData(
-				input.chatId,
-				input.storySlug,
-				version.code,
-				version.isLive,
-				version.cacheSchedule,
-				ctx.user.id,
-			);
+			const isHistoricalVersion = input.versionNumber !== undefined && version.version !== latestVersion?.version;
+			const { queryData, code } = isHistoricalVersion
+				? {
+						queryData: await sharedStoryQueries.getQueryDataFromCode(input.chatId, version.code),
+						code: version.code,
+					}
+				: await getStoryQueryData(
+						input.chatId,
+						input.storySlug,
+						version.code,
+						version.isLive,
+						version.cacheSchedule,
+						ctx.user.id,
+					);
 
 			const projectId = await chatQueries.getChatProjectId(input.chatId);
 			if (projectId) {

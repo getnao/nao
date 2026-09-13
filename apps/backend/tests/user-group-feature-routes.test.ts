@@ -14,11 +14,13 @@ const mocks = vi.hoisted(() => ({
 	getChatProjectId: vi.fn(),
 	getLatestStoryRefreshFailure: vi.fn(),
 	getLatestVersionByChatAndSlug: vi.fn(),
+	getQueryDataFromCode: vi.fn(),
 	getStoryQueryData: vi.fn(),
 	getStoryByChatAndSlug: vi.fn(),
 	getStorySharingInfo: vi.fn(),
 	getStoryOwnerId: vi.fn(),
 	getStoryProjectId: vi.fn(),
+	getVersionByNumber: vi.fn(),
 	hasLicenseFeature: vi.fn(),
 	listAutomationFeedRuns: vi.fn(),
 	listAutomationRuns: vi.fn(),
@@ -70,6 +72,7 @@ vi.mock('../src/queries/project.queries', () => ({
 }));
 vi.mock('../src/queries/shared-story.queries', () => ({
 	createSharedStory: mocks.createSharedStory,
+	getQueryDataFromCode: mocks.getQueryDataFromCode,
 	getSharedStory: vi.fn(),
 }));
 vi.mock('../src/queries/user-group.queries', () => ({
@@ -83,6 +86,7 @@ vi.mock('../src/queries/story.queries', () => ({
 	getStoryOwnerId: mocks.getStoryOwnerId,
 	getStoryProjectId: mocks.getStoryProjectId,
 	getStorySharingInfo: mocks.getStorySharingInfo,
+	getVersionByNumber: mocks.getVersionByNumber,
 	listUserChatStories: mocks.listUserChatStories,
 	renameStory: mocks.renameStory,
 }));
@@ -143,6 +147,7 @@ describe('user group feature route enforcement', () => {
 			isLive: false,
 			cacheSchedule: null,
 		});
+		mocks.getQueryDataFromCode.mockResolvedValue(null);
 		mocks.getStoryQueryData.mockResolvedValue({ queryData: null, cachedAt: null });
 		mocks.getLatestStoryRefreshFailure.mockResolvedValue(null);
 		mocks.getStorySharingInfo.mockResolvedValue(new Map());
@@ -278,6 +283,81 @@ describe('user group feature route enforcement', () => {
 			}),
 		).resolves.toEqual({ id: 'shared-story-id' });
 		expect(mocks.resolveEffectiveUserGroupAccess).not.toHaveBeenCalled();
+	});
+
+	it('downloads a selected live version without refreshing the latest version', async () => {
+		const queryData = { query_old: { columns: ['total'], data: [{ total: 10 }] } };
+		mocks.getVersionByNumber.mockResolvedValue({
+			storyId: 'story-id',
+			title: 'Existing Story',
+			code: '# Old version\n<table query_id="query_old" />',
+			version: 1,
+			isLive: true,
+			cacheSchedule: '* * * * *',
+		});
+		mocks.getQueryDataFromCode.mockResolvedValue(queryData);
+
+		await createCaller().story.download({
+			chatId: 'chat-id',
+			storySlug: 'existing-story',
+			format: 'html',
+			versionNumber: 1,
+		});
+
+		expect(mocks.getStoryQueryData).not.toHaveBeenCalled();
+		expect(mocks.getQueryDataFromCode).toHaveBeenCalledWith(
+			'chat-id',
+			'# Old version\n<table query_id="query_old" />',
+		);
+		expect(mocks.buildDownloadResponse).toHaveBeenCalledWith(
+			'html',
+			'Existing Story',
+			'# Old version\n<table query_id="query_old" />',
+			queryData,
+			'MM/dd/yyyy',
+		);
+	});
+
+	it('still refreshes a selected live version when it is latest', async () => {
+		const latestVersion = {
+			storyId: 'story-id',
+			title: 'Existing Story',
+			code: '# Latest version',
+			version: 2,
+			isLive: true,
+			cacheSchedule: '* * * * *',
+		};
+		const queryData = { query_latest: { columns: ['total'], data: [{ total: 20 }] } };
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue(latestVersion);
+		mocks.getVersionByNumber.mockResolvedValue(latestVersion);
+		mocks.getStoryQueryData.mockResolvedValue({
+			queryData,
+			code: '# Refreshed latest version',
+			cachedAt: new Date(),
+		});
+
+		await createCaller().story.download({
+			chatId: 'chat-id',
+			storySlug: 'existing-story',
+			format: 'html',
+			versionNumber: 2,
+		});
+
+		expect(mocks.getStoryQueryData).toHaveBeenCalledWith(
+			'chat-id',
+			'existing-story',
+			'# Latest version',
+			true,
+			'* * * * *',
+			'user-id',
+		);
+		expect(mocks.buildDownloadResponse).toHaveBeenCalledWith(
+			'html',
+			'Existing Story',
+			'# Refreshed latest version',
+			queryData,
+			'MM/dd/yyyy',
+		);
 	});
 
 	it.each(['update', 'replace'] as const)(
