@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 	getChatInfo: vi.fn(),
 	getChatOwnerId: vi.fn(),
 	getChatProjectId: vi.fn(),
+	getAuthorizedStoredStoryQueryData: vi.fn(),
 	getLatestStoryRefreshFailure: vi.fn(),
 	getLatestVersionByChatAndSlug: vi.fn(),
 	getQueryDataFromCode: vi.fn(),
@@ -98,6 +99,7 @@ vi.mock('../src/services/activity', () => ({ logActivity: mocks.logActivity }));
 vi.mock('../src/services/agent', () => ({ agentService: { get: vi.fn() } }));
 vi.mock('../src/services/live-story', () => ({
 	executeLiveQuery: vi.fn(),
+	getAuthorizedStoredStoryQueryData: mocks.getAuthorizedStoredStoryQueryData,
 	getStoryQueryData: mocks.getStoryQueryData,
 	refreshStoryData: vi.fn(),
 }));
@@ -148,6 +150,7 @@ describe('user group feature route enforcement', () => {
 			cacheSchedule: null,
 		});
 		mocks.getQueryDataFromCode.mockResolvedValue(null);
+		mocks.getAuthorizedStoredStoryQueryData.mockResolvedValue(null);
 		mocks.getStoryQueryData.mockResolvedValue({ queryData: null, cachedAt: null });
 		mocks.getLatestStoryRefreshFailure.mockResolvedValue(null);
 		mocks.getStorySharingInfo.mockResolvedValue(new Map());
@@ -295,7 +298,7 @@ describe('user group feature route enforcement', () => {
 			isLive: true,
 			cacheSchedule: '* * * * *',
 		});
-		mocks.getQueryDataFromCode.mockResolvedValue(queryData);
+		mocks.getAuthorizedStoredStoryQueryData.mockResolvedValue(queryData);
 
 		await createCaller().story.download({
 			chatId: 'chat-id',
@@ -305,9 +308,10 @@ describe('user group feature route enforcement', () => {
 		});
 
 		expect(mocks.getStoryQueryData).not.toHaveBeenCalled();
-		expect(mocks.getQueryDataFromCode).toHaveBeenCalledWith(
+		expect(mocks.getAuthorizedStoredStoryQueryData).toHaveBeenCalledWith(
 			'chat-id',
 			'# Old version\n<table query_id="query_old" />',
+			'user-id',
 		);
 		expect(mocks.buildDownloadResponse).toHaveBeenCalledWith(
 			'html',

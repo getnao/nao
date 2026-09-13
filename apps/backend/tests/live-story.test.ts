@@ -79,7 +79,12 @@ vi.mock('../src/utils/story-query-data', () => ({
 	findMissingQueryIds: mocks.findMissingQueryIds,
 }));
 
-import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../src/services/live-story';
+import {
+	executeLiveQuery,
+	getAuthorizedStoredStoryQueryData,
+	getStoryQueryData,
+	refreshStoryData,
+} from '../src/services/live-story';
 
 function querySource(sql: string, databaseId: string | null = null, adminMode = false) {
 	return {
@@ -254,6 +259,119 @@ describe('live story SQL execution', () => {
 		await expect(
 			getStoryQueryData('chat-1', 'users', '<table query_id="query_warehouse" />', true, null, 'viewer-1'),
 		).rejects.toThrow('main.users');
+	});
+
+	it('returns stored Story data after validating its warehouse sources', async () => {
+		const code = '<table query_id="query_warehouse" />';
+		const queryData = { query_warehouse: { columns: ['id'], data: [{ id: 1 }] } };
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_warehouse: { sqlQuery: 'SELECT * FROM orders', databaseId: 'analytics', adminMode: false },
+		});
+		mocks.getQueryDataFromCode.mockResolvedValue(queryData);
+		mocks.buildMcpToolContext.mockResolvedValue({
+			projectFolder: '/project',
+			projectId: 'project-1',
+			userId: 'viewer-1',
+			envVars: {},
+			azureAccessToken: null,
+			agentSettings: null,
+			warehouseTableAccess: {
+				enforced: true,
+				strict: true,
+				tables: [
+					{
+						databaseType: 'duckdb',
+						database: 'analytics',
+						schema: 'main',
+						table: 'orders',
+					},
+				],
+			},
+		});
+		const fetchMock = vi.fn().mockResolvedValue({
+			ok: true,
+			json: vi.fn().mockResolvedValue({ valid: true, dialect: 'duckdb' }),
+		});
+		vi.stubGlobal('fetch', fetchMock);
+
+		await expect(getAuthorizedStoredStoryQueryData('chat-1', code, 'viewer-1')).resolves.toEqual(queryData);
+
+		expect(fetchMock).toHaveBeenCalledOnce();
+		expect(fetchMock.mock.calls[0][0]).toContain('/validate_sql');
+		expect(fetchMock.mock.invocationCallOrder[0]).toBeLessThan(
+			mocks.getQueryDataFromCode.mock.invocationCallOrder[0],
+		);
+		expect(mocks.getLatestVersionByChatAndSlug).not.toHaveBeenCalled();
+		expect(mocks.updateLatestVersionCode).not.toHaveBeenCalled();
+		expect(mocks.upsertStoryDataCache).not.toHaveBeenCalled();
+	});
+
+	it('rejects stored Story data when a warehouse source is denied', async () => {
+		const code = '<table query_id="query_warehouse" />';
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_warehouse: { sqlQuery: 'SELECT secret FROM users', adminMode: false },
+		});
+		mocks.buildMcpToolContext.mockResolvedValue({
+			projectFolder: '/project',
+			projectId: 'project-1',
+			userId: 'viewer-1',
+			envVars: {},
+			azureAccessToken: null,
+			agentSettings: null,
+			warehouseTableAccess: { enforced: true, strict: true, tables: [] },
+		});
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue({
+				ok: false,
+				json: vi.fn().mockResolvedValue({ detail: 'Denied column(s): main.users.secret' }),
+			}),
+		);
+
+		await expect(getAuthorizedStoredStoryQueryData('chat-1', code, 'viewer-1')).rejects.toThrow(
+			'main.users.secret',
+		);
+		expect(mocks.getQueryDataFromCode).not.toHaveBeenCalled();
+	});
+
+	it('rejects unresolved stored Story queries when Context access is enforced', async () => {
+		const code = '<table query_id="query_missing" />';
+		mocks.getSqlQueriesFromCode.mockResolvedValue({});
+		mocks.buildMcpToolContext.mockResolvedValue({
+			projectFolder: '/project',
+			projectId: 'project-1',
+			userId: 'viewer-1',
+			envVars: {},
+			azureAccessToken: null,
+			agentSettings: null,
+			warehouseTableAccess: { enforced: true, strict: true, tables: [] },
+		});
+
+		await expect(getAuthorizedStoredStoryQueryData('chat-1', code, 'viewer-1')).rejects.toThrow(
+			'sources could not be resolved',
+		);
+		expect(mocks.getQueryDataFromCode).not.toHaveBeenCalled();
+	});
+
+	it('fails closed for stored Story data with principal-specific credentials', async () => {
+		const code = '<table query_id="query_warehouse" />';
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_warehouse: { sqlQuery: 'SELECT * FROM orders', adminMode: false },
+		});
+		mocks.buildMcpToolContext.mockResolvedValue({
+			projectFolder: '/project',
+			projectId: 'project-1',
+			userId: 'alice',
+			envVars: {},
+			azureAccessToken: 'alice-token',
+			agentSettings: null,
+			warehouseTableAccess: { enforced: false },
+		});
+
+		await expect(getAuthorizedStoredStoryQueryData('chat-1', code, 'alice')).rejects.toThrow(
+			'principal-specific credentials',
+		);
+		expect(mocks.getQueryDataFromCode).not.toHaveBeenCalled();
 	});
 
 	it('validates once and reuses a shared live cache without Azure user credentials', async () => {

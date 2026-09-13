@@ -13,7 +13,12 @@ import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { naturalLanguageToCron } from '../services/cron-nlp';
-import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
+import {
+	executeLiveQuery,
+	getAuthorizedStoredStoryQueryData,
+	getStoryQueryData,
+	refreshStoryData,
+} from '../services/live-story';
 import { nextCronTick } from '../services/scheduler.service';
 import {
 	assertStoryFiltersEnabled,
@@ -564,7 +569,7 @@ export const storyRoutes = {
 			const isHistoricalVersion = input.versionNumber !== undefined && version.version !== latestVersion?.version;
 			const { queryData, code } = isHistoricalVersion
 				? {
-						queryData: await sharedStoryQueries.getQueryDataFromCode(input.chatId, version.code),
+						queryData: await getAuthorizedStoredStoryQueryData(input.chatId, version.code, ctx.user.id),
 						code: version.code,
 					}
 				: await getStoryQueryData(
