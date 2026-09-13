@@ -13,7 +13,13 @@ if TYPE_CHECKING:
     import pandas as pd
     from ibis import BaseBackend
 
-from .base import DatabaseConfig
+from .base import (
+    DatabaseConfig,
+    DEFAULT_SQL_MAX_RESULT_BYTES,
+    DEFAULT_SQL_MAX_RESULT_ROWS,
+    QueryResultStreamingUnsupportedError,
+    dataframe_from_cursor,
+)
 from .context import DatabaseContext
 
 logger = logging.getLogger(__name__)
@@ -496,12 +502,25 @@ class BigQueryConfig(DatabaseConfig):
             max_query_size=max_query_size,
         )
 
-    def execute_sql(self, sql: str) -> pd.DataFrame:
+    def execute_sql(
+        self,
+        sql: str,
+        *,
+        max_rows: int | None = DEFAULT_SQL_MAX_RESULT_ROWS,
+        max_bytes: int | None = DEFAULT_SQL_MAX_RESULT_BYTES,
+    ) -> pd.DataFrame:
         conn = self.connect()
         try:
             if self.max_query_size and self.max_query_size > 0:
                 self._check_max_query_size(sql, conn)
             cursor = conn.raw_sql(sql)  # type: ignore[union-attr]
+            streamed = dataframe_from_cursor(cursor, max_rows=max_rows, max_bytes=max_bytes)
+            if streamed is not None:
+                return streamed
+            if max_rows is not None or max_bytes is not None:
+                raise QueryResultStreamingUnsupportedError(
+                    f"{type(cursor).__name__} cannot stream query results while enforcing a result limit."
+                )
             return cursor.to_dataframe(create_bqstorage_client=False)
         finally:
             conn.disconnect()

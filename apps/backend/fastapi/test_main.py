@@ -70,7 +70,14 @@ def duckdb_project_with_excluded_columns():
         config_path = Path(tmpdir) / "nao_config.yaml"
         with config_path.open("w") as f:
             yaml.dump(config, f)
-        catalog_path = Path(tmpdir) / ".meta" / "databases" / "type=duckdb" / "database=test" / "columns.json"
+        catalog_path = (
+            Path(tmpdir)
+            / ".meta"
+            / "databases"
+            / "type=duckdb"
+            / "database=test"
+            / "columns.json"
+        )
         catalog_path.parent.mkdir(parents=True)
         catalog_path.write_text(
             json.dumps(
@@ -136,6 +143,50 @@ def test_execute_sql_simple_duckdb(duckdb_project_folder):
         row_count=1,
         columns=["id", "message"],
         expected_data=[{"id": 1, "message": "hello"}],
+    )
+
+
+def test_execute_sql_rejects_results_over_the_configured_row_limit(
+    duckdb_project_folder, monkeypatch
+):
+    """An oversized query must fail without relying on an agent-added LIMIT."""
+    monkeypatch.setenv("NAO_SQL_MAX_RESULT_ROWS", "2")
+    client = TestClient(app, headers=INTERNAL_HEADERS)
+
+    response = client.post(
+        "/execute_sql",
+        json={
+            "sql": "SELECT range AS value FROM range(3)",
+            "nao_project_folder": duckdb_project_folder,
+        },
+    )
+
+    assert response.status_code == 413
+    assert (
+        response.json()["detail"]
+        == "Query result is too large; narrow your query and try again."
+    )
+
+
+def test_execute_sql_rejects_results_over_the_configured_byte_limit(
+    duckdb_project_folder, monkeypatch
+):
+    """A wide result must be rejected even when it has only one row."""
+    monkeypatch.setenv("NAO_SQL_MAX_RESULT_BYTES", "16")
+    client = TestClient(app, headers=INTERNAL_HEADERS)
+
+    response = client.post(
+        "/execute_sql",
+        json={
+            "sql": "SELECT repeat('x', 64) AS value",
+            "nao_project_folder": duckdb_project_folder,
+        },
+    )
+
+    assert response.status_code == 413
+    assert (
+        response.json()["detail"]
+        == "Query result is too large; narrow your query and try again."
     )
 
 

@@ -26,9 +26,17 @@ from nao_core.config.databases.column_access import (
     ColumnAccessError,
     validate_column_access,
 )
+from nao_core.config.databases.base import (
+    DEFAULT_SQL_MAX_RESULT_BYTES,
+    DEFAULT_SQL_MAX_RESULT_ROWS,
+    QueryResultStreamingUnsupportedError,
+    QueryResultTooLargeError,
+)
 from nao_core.context import get_context_provider
 
 port = int(os.environ.get("PORT", 8005))
+
+RESULT_TOO_LARGE_MESSAGE = "Query result is too large; narrow your query and try again."
 
 # Global scheduler instance
 scheduler = None
@@ -162,13 +170,32 @@ def _convert_value(v: object):
     return v
 
 
+def _positive_env_int(name: str, default: int) -> int:
+    """Read a positive integer setting, retaining a safe default when malformed."""
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def _sql_result_limits() -> tuple[int, int]:
+    """Return the configured response budget for one execute_sql request."""
+    return (
+        _positive_env_int("NAO_SQL_MAX_RESULT_ROWS", DEFAULT_SQL_MAX_RESULT_ROWS),
+        _positive_env_int("NAO_SQL_MAX_RESULT_BYTES", DEFAULT_SQL_MAX_RESULT_BYTES),
+    )
+
+
 def require_internal_secret(
     provided: Annotated[str | None, Header(alias="X-Nao-Internal-Secret")] = None,
 ):
     """Only the nao backend, which shares BETTER_AUTH_SECRET, may call internal routes."""
     expected = os.environ.get("BETTER_AUTH_SECRET")
     if not expected:
-        raise HTTPException(status_code=503, detail="BETTER_AUTH_SECRET is not configured")
+        raise HTTPException(
+            status_code=503, detail="BETTER_AUTH_SECRET is not configured"
+        )
     if provided is None or not secrets.compare_digest(provided, expected):
         raise HTTPException(status_code=401, detail="Invalid internal secret")
 
@@ -204,6 +231,7 @@ async def health_check():
 
 @app.post("/execute_sql", response_model=ExecuteSQLResponse, dependencies=internal_only)
 async def execute_sql(request: ExecuteSQLRequest):
+    original_working_directory = Path.cwd()
     try:
         project_path = Path(request.nao_project_folder)
         config = NaoConfig.try_load(
@@ -267,10 +295,28 @@ async def execute_sql(request: ExecuteSQLRequest):
         except ColumnAccessError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
-        if is_azure_entra_id:
-            df = db_config.execute_sql_with_token(validated_sql, request.azure_access_token)
-        else:
-            df = db_config.execute_sql(validated_sql)
+        max_rows, max_bytes = _sql_result_limits()
+        try:
+            if is_azure_entra_id:
+                df = db_config.execute_sql_with_token(
+                    validated_sql,
+                    request.azure_access_token,
+                    max_rows=max_rows,
+                    max_bytes=max_bytes,
+                )
+            else:
+                df = db_config.execute_sql(
+                    validated_sql,
+                    max_rows=max_rows,
+                    max_bytes=max_bytes,
+                )
+        except (
+            QueryResultTooLargeError,
+            QueryResultStreamingUnsupportedError,
+        ) as error:
+            raise HTTPException(
+                status_code=413, detail=RESULT_TOO_LARGE_MESSAGE
+            ) from error
 
         data = [
             {k: _convert_value(v) for k, v in row.items()}
@@ -289,6 +335,10 @@ async def execute_sql(request: ExecuteSQLRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # NaoConfig.try_load changes cwd so relative project paths resolve. Do
+        # not leave the worker pinned inside a request's temporary/project path.
+        os.chdir(original_working_directory)
 
 
 if __name__ == "__main__":

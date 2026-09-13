@@ -13,7 +13,13 @@ if TYPE_CHECKING:
     import pandas as pd
     from ibis import BaseBackend
 
-from .base import DatabaseConfig
+from .base import (
+    DatabaseConfig,
+    DEFAULT_SQL_MAX_RESULT_BYTES,
+    DEFAULT_SQL_MAX_RESULT_ROWS,
+    QueryResultStreamingUnsupportedError,
+    dataframe_from_cursor,
+)
 from .context import DatabaseContext
 
 
@@ -343,7 +349,13 @@ class RedshiftConfig(DatabaseConfig):
             **kwargs,
         )
 
-    def execute_sql(self, sql: str) -> pd.DataFrame:
+    def execute_sql(
+        self,
+        sql: str,
+        *,
+        max_rows: int | None = DEFAULT_SQL_MAX_RESULT_ROWS,
+        max_bytes: int | None = DEFAULT_SQL_MAX_RESULT_BYTES,
+    ) -> pd.DataFrame:
         """Execute SQL using user/password credentials.
 
         Forbidden when auth_mode=azure_entra_id: runtime queries must flow
@@ -355,9 +367,16 @@ class RedshiftConfig(DatabaseConfig):
                 "execute_sql is not allowed when auth_mode='azure_entra_id'. "
                 "Use execute_sql_with_token() with the end user's access token instead."
             )
-        return super().execute_sql(sql)
+        return super().execute_sql(sql, max_rows=max_rows, max_bytes=max_bytes)
 
-    def execute_sql_with_token(self, sql: str, access_token: str) -> pd.DataFrame:
+    def execute_sql_with_token(
+        self,
+        sql: str,
+        access_token: str,
+        *,
+        max_rows: int | None = DEFAULT_SQL_MAX_RESULT_ROWS,
+        max_bytes: int | None = DEFAULT_SQL_MAX_RESULT_BYTES,
+    ) -> pd.DataFrame:
         """Execute SQL using a JWT access token for Azure Entra ID native IdP federation."""
         import pandas as pd
 
@@ -388,9 +407,14 @@ class RedshiftConfig(DatabaseConfig):
             cursor.execute(sql)
             if cursor.description is None:
                 return pd.DataFrame()
-            columns = [desc[0] for desc in cursor.description]
-            rows = cursor.fetchall()
-            return pd.DataFrame(rows, columns=columns)  # type: ignore[arg-type]
+            streamed = dataframe_from_cursor(cursor, max_rows=max_rows, max_bytes=max_bytes)
+            if streamed is not None:
+                return streamed
+            if max_rows is not None or max_bytes is not None:
+                raise QueryResultStreamingUnsupportedError(
+                    f"{type(cursor).__name__} cannot stream query results while enforcing a result limit."
+                )
+            raise TypeError(f"Unsupported Redshift cursor type: {type(cursor).__name__}. Expected a streamable cursor.")
         finally:
             conn.close()
 

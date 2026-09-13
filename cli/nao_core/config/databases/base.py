@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import fnmatch
 import re
+import sys
 import warnings
 from abc import ABC, abstractmethod
+from collections.abc import Iterable, Mapping
 from enum import Enum
 from typing import TYPE_CHECKING, cast
 
@@ -13,6 +15,138 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 if TYPE_CHECKING:
     import pandas as pd
     from ibis import BaseBackend
+
+
+SQL_FETCH_BATCH_SIZE = 1_000
+DEFAULT_SQL_MAX_RESULT_ROWS = 10_000
+DEFAULT_SQL_MAX_RESULT_BYTES = 10 * 1024 * 1024
+
+
+class QueryResultTooLargeError(ValueError):
+    """Raised when an execute_sql result exceeds the configured response budget."""
+
+
+class QueryResultStreamingUnsupportedError(TypeError):
+    """Raised when a database driver cannot enforce an execute_sql result budget."""
+
+
+def _cursor_columns(cursor: object) -> list[str] | None:
+    """Return cursor column names for DB-API and BigQuery-style result objects."""
+    description = getattr(cursor, "description", None)
+    if description is not None:
+        return [str(column[0]) for column in description]
+
+    column_names = getattr(cursor, "column_names", None)
+    if column_names is not None:
+        return [str(column) for column in column_names]
+
+    schema = getattr(cursor, "schema", None)
+    if schema is not None:
+        return [str(field.name) for field in schema]
+
+    return None
+
+
+def _normalise_row(row: object, columns: list[str] | None) -> object:
+    """Convert driver rows into records pandas can consume without materialising all rows."""
+    if isinstance(row, Mapping):
+        return row
+
+    if columns is not None:
+        try:
+            return tuple(row[column] for column in columns)  # type: ignore[index]
+        except (IndexError, KeyError, TypeError):
+            try:
+                return tuple(row[index] for index in range(len(columns)))  # type: ignore[index]
+            except (IndexError, KeyError, TypeError):
+                pass
+
+    try:
+        return tuple(row)  # type: ignore[arg-type]
+    except TypeError:
+        return (row,)
+
+
+def _estimate_record_size(record: object) -> int:
+    """Estimate decoded Python payload size without retaining another result copy."""
+    values = record.values() if isinstance(record, Mapping) else record
+    try:
+        return sum(_estimate_value_size(value) for value in values)  # type: ignore[arg-type]
+    except TypeError:
+        return _estimate_value_size(record)
+
+
+def _estimate_value_size(value: object) -> int:
+    if isinstance(value, str):
+        return len(value.encode("utf-8"))
+    if isinstance(value, bytes):
+        return len(value)
+    return sys.getsizeof(value)
+
+
+def dataframe_from_cursor(
+    cursor: object,
+    *,
+    max_rows: int | None = None,
+    max_bytes: int | None = None,
+    columns: list[str] | None = None,
+) -> pd.DataFrame | None:
+    """Read a cursor in bounded batches while enforcing an output-size budget.
+
+    Returns ``None`` for result objects which cannot be streamed. Callers with a
+    budget must reject those objects rather than falling back to an unbounded
+    driver conversion such as ``fetchall`` or ``to_dataframe``.
+    """
+    import pandas as pd
+
+    fetchmany = getattr(cursor, "fetchmany", None)
+    if callable(fetchmany):
+
+        def batches() -> Iterable[Iterable[object]]:
+            while batch := fetchmany(SQL_FETCH_BATCH_SIZE):
+                yield batch
+
+    elif isinstance(cursor, Iterable):
+
+        def batches() -> Iterable[Iterable[object]]:
+            iterator = iter(cursor)
+            while True:
+                batch: list[object] = []
+                for _ in range(SQL_FETCH_BATCH_SIZE):
+                    try:
+                        batch.append(next(iterator))
+                    except StopIteration:
+                        break
+                if not batch:
+                    return
+                yield batch
+
+    else:
+        return None
+
+    columns = _cursor_columns(cursor) if columns is None else columns
+    frames: list[pd.DataFrame] = []
+    row_count = 0
+    byte_count = 0
+
+    for batch in batches():
+        records: list[object] = []
+        for row in batch:
+            record = _normalise_row(row, columns)
+            record_size = _estimate_record_size(record)
+            if max_rows is not None and row_count >= max_rows:
+                raise QueryResultTooLargeError("Query result exceeds the configured row limit.")
+            if max_bytes is not None and byte_count + record_size > max_bytes:
+                raise QueryResultTooLargeError("Query result exceeds the configured byte limit.")
+            records.append(record)
+            row_count += 1
+            byte_count += record_size
+        if records:
+            frames.append(pd.DataFrame.from_records(records, columns=columns))
+
+    if not frames:
+        return pd.DataFrame() if columns is None else pd.DataFrame(columns=pd.Index(columns))
+    return pd.concat(frames, ignore_index=True)
 
 
 class DatabaseType(str, Enum):
@@ -203,13 +337,45 @@ class DatabaseConfig(BaseModel, ABC):
         """Create an Ibis connection for this database."""
         ...
 
-    def execute_sql(self, sql: str) -> pd.DataFrame:
-        """Execute arbitrary SQL and return results as a DataFrame."""
-        import pandas as pd  # noqa: F811
+    def execute_sql(
+        self,
+        sql: str,
+        *,
+        max_rows: int | None = DEFAULT_SQL_MAX_RESULT_ROWS,
+        max_bytes: int | None = DEFAULT_SQL_MAX_RESULT_BYTES,
+    ) -> pd.DataFrame:
+        """Execute arbitrary SQL and return results as a DataFrame.
 
+        ``max_rows`` and ``max_bytes`` are enforced while fetching, before a
+        complete result can be materialised in the worker.
+        """
         conn = self.connect()
         try:
             cursor = conn.raw_sql(sql)  # type: ignore[union-attr]
+
+            streamed = dataframe_from_cursor(cursor, max_rows=max_rows, max_bytes=max_bytes)
+            if streamed is not None:
+                return streamed
+
+            # clickhouse_connect exposes rows only after its driver has read
+            # them, but converting those rows in batches still avoids a second
+            # full Python list during DataFrame construction.
+            if hasattr(cursor, "result_rows") and hasattr(cursor, "column_names"):
+                result_rows = cursor.result_rows
+                result_columns = [str(column) for column in cursor.column_names]
+                streamed_rows = dataframe_from_cursor(
+                    iter(result_rows),
+                    max_rows=max_rows,
+                    max_bytes=max_bytes,
+                    columns=result_columns,
+                )
+                assert streamed_rows is not None
+                return streamed_rows
+
+            if max_rows is not None or max_bytes is not None:
+                raise QueryResultStreamingUnsupportedError(
+                    f"{type(cursor).__name__} cannot stream query results while enforcing a result limit."
+                )
 
             if hasattr(cursor, "fetchdf"):
                 return cursor.fetchdf()
@@ -218,18 +384,9 @@ class DatabaseConfig(BaseModel, ABC):
             if hasattr(cursor, "to_pandas"):
                 return cursor.to_pandas()
 
-            # ClickHouse (clickhouse_connect) returns QueryResult with result_rows + column_names
-            if hasattr(cursor, "result_rows") and hasattr(cursor, "column_names"):
-                columns = list(cursor.column_names)
-                return pd.DataFrame(cursor.result_rows, columns=columns)  # type: ignore[arg-type]
-
-            if hasattr(cursor, "description") and cursor.description is not None and hasattr(cursor, "fetchall"):
-                columns = [desc[0] for desc in cursor.description]
-                return pd.DataFrame([tuple(row) for row in cursor.fetchall()], columns=columns)  # type: ignore[arg-type]
-
             raise TypeError(
                 f"Unsupported raw_sql result type: {type(cursor).__name__}. "
-                "Expected cursor with fetchdf, to_dataframe, to_pandas, result_rows/column_names, or description/fetchall."
+                "Expected a streamable cursor or a result with fetchdf, to_dataframe, to_pandas, or result_rows/column_names."
             )
         finally:
             conn.disconnect()
