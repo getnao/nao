@@ -167,7 +167,13 @@ describe('MCP transports in self-hosted mode', () => {
 
 		expect(service.getConfiguredServerNames().sort()).toEqual(Object.keys(MCP_SERVERS).sort());
 		await expect(
-			service.callTool({ projectId: 'project-1', userId: 'user-1', server: 'shell', tool: 'shell_tool', args: {} }),
+			service.callTool({
+				projectId: 'project-1',
+				userId: 'user-1',
+				server: 'shell',
+				tool: 'shell_tool',
+				args: {},
+			}),
 		).resolves.toEqual({ ok: true });
 		expect(registeredStdioServers().sort()).toEqual(STDIO_SERVERS.sort());
 	});
