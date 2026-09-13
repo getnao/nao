@@ -166,7 +166,13 @@ export const storyRoutes = {
 				? await backfillMissingQueryData(story.code, cache?.queryData ?? null, { chatId: story.chatId })
 				: (cache?.queryData ?? null);
 
-		return { ...story, queryData, cachedAt: liveData?.cachedAt ?? cache?.cachedAt ?? null, lastRefreshFailure };
+		return {
+			...story,
+			code: liveData?.code ?? story.code,
+			queryData,
+			cachedAt: liveData ? liveData.cachedAt : (cache?.cachedAt ?? null),
+			lastRefreshFailure,
+		};
 	}),
 
 	getLatest: chatStoryProcedure
@@ -176,7 +182,7 @@ export const storyRoutes = {
 			if (!version) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 			}
-			const { queryData, cachedAt } = await getStoryQueryData(
+			const { queryData, cachedAt, code } = await getStoryQueryData(
 				input.chatId,
 				input.storySlug,
 				version.code,
@@ -199,7 +205,7 @@ export const storyRoutes = {
 				});
 			}
 
-			return { ...version, queryData, cachedAt, lastRefreshFailure };
+			return { ...version, code, queryData, cachedAt, lastRefreshFailure };
 		}),
 
 	listVersions: chatStoryProcedure
@@ -531,7 +537,7 @@ export const storyRoutes = {
 			return buildDownloadResponse(
 				input.format,
 				story.title,
-				story.code,
+				liveData?.code ?? story.code,
 				liveData?.queryData ?? cache?.queryData ?? null,
 				displaySettings?.dateFormat,
 			);
@@ -554,7 +560,7 @@ export const storyRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 			}
 
-			const { queryData } = await getStoryQueryData(
+			const { queryData, code } = await getStoryQueryData(
 				input.chatId,
 				input.storySlug,
 				version.code,
@@ -583,13 +589,7 @@ export const storyRoutes = {
 
 			const displaySettings = projectId ? await projectQueries.getDisplaySettings(projectId) : null;
 
-			return buildDownloadResponse(
-				input.format,
-				version.title,
-				version.code,
-				queryData,
-				displaySettings?.dateFormat,
-			);
+			return buildDownloadResponse(input.format, version.title, code, queryData, displaySettings?.dateFormat);
 		}),
 };
 

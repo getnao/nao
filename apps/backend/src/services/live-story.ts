@@ -81,6 +81,7 @@ async function refreshStoryDataWithContext(
 	const executionContext = requiresStoryExecutionContext(version.code, sqlQueries)
 		? (existingExecutionContext ?? (await createStoryExecutionContext(chatId, principalUserId)))
 		: null;
+	const principalSpecific = hasPrincipalSpecificCredentials(executionContext);
 	if (executionContext?.toolContext.warehouseTableAccess.enforced) {
 		assertAllStoryQueriesResolved(version.code, sqlQueries);
 	}
@@ -123,12 +124,16 @@ async function refreshStoryDataWithContext(
 			queryData,
 		);
 		if (newCode) {
-			await storyQueries.updateLatestVersionCode(chatId, slug, newCode);
+			if (!principalSpecific) {
+				await storyQueries.updateLatestVersionCode(chatId, slug, newCode);
+			}
 			refreshedCode = newCode;
 		}
 	}
 
-	await storyQueries.upsertStoryDataCache(chatId, slug, queryData, buildQuerySources(sqlQueries));
+	if (!principalSpecific) {
+		await storyQueries.upsertStoryDataCache(chatId, slug, queryData, buildQuerySources(sqlQueries));
+	}
 
 	return { queryData, code: refreshedCode };
 }
@@ -155,7 +160,9 @@ export async function getStoryQueryData(
 	const executionContext = requiresStoryExecutionContext(code, sqlQueries)
 		? await createStoryExecutionContext(chatId, principalUserId)
 		: null;
-	const cache = await storyQueries.getStoryDataCacheByChatAndSlug(chatId, slug);
+	const principalSpecific = hasPrincipalSpecificCredentials(executionContext);
+	const loadedCache = principalSpecific ? null : await storyQueries.getStoryDataCacheByChatAndSlug(chatId, slug);
+	const cache = loadedCache && isCacheSafeToShare(code, loadedCache, sqlQueries) ? loadedCache : null;
 	const enforced = executionContext?.toolContext.warehouseTableAccess.enforced ?? false;
 	const allQueriesResolved = areAllStoryQueriesResolved(code, sqlQueries);
 	if (enforced && !allQueriesResolved) {
@@ -181,10 +188,13 @@ export async function getStoryQueryData(
 		);
 		return {
 			queryData: Object.keys(queryData).length > 0 ? queryData : null,
-			cachedAt: new Date(),
+			cachedAt: principalSpecific ? null : new Date(),
 			code: refreshedCode,
 		};
 	} catch (error) {
+		if (principalSpecific) {
+			throw error;
+		}
 		if (enforced && !cacheMatchesCurrentSources) {
 			throw error;
 		}
@@ -249,6 +259,7 @@ function buildQuerySources(sqlQueries: StorySqlQueries): StoryQuerySources {
 					fingerprint: createHash('sha256').update(canonicalSource).digest('hex'),
 					databaseId,
 					adminMode: query.adminMode,
+					credentialScope: 'shared' as const,
 				},
 			];
 		}),
@@ -281,6 +292,22 @@ function doesCacheMatchCurrentSources(
 	});
 }
 
+function isCacheSafeToShare(code: string, cache: DBStoryDataCache, currentSources: StorySqlQueries): boolean {
+	return [...extractQueryIds(code)].every((queryId) => {
+		const currentSource = currentSources[queryId];
+		if (!currentSource) {
+			return false;
+		}
+
+		const cachedSource = cache.querySources?.[queryId];
+		if (currentSource.adminMode && (!cachedSource || cachedSource.adminMode)) {
+			return true;
+		}
+
+		return cachedSource?.credentialScope === 'shared';
+	});
+}
+
 function selectCurrentQueryData(
 	code: string,
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
@@ -296,6 +323,10 @@ function selectCurrentQueryData(
 export interface StoryExecutionContext {
 	toolContext: McpToolContext;
 	enforceExcludedColumns: boolean;
+}
+
+function hasPrincipalSpecificCredentials(executionContext: StoryExecutionContext | null): boolean {
+	return Boolean(executionContext?.toolContext.azureAccessToken);
 }
 
 interface RawSqlExecutionOptions {

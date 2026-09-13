@@ -408,6 +408,68 @@ describe('UserGroupEditor', () => {
 		expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
 	});
 
+	it('preserves dirty drafts across same-group refetches and resets when switching groups', () => {
+		const initialGroup = {
+			...analysts,
+			createdAt: new Date('2026-09-01T00:00:00Z'),
+			updatedAt: new Date('2026-09-01T00:00:00Z'),
+		};
+		const { rerender } = renderEditor('features', vi.fn(), initialGroup);
+		const nameInput = screen.getByRole('textbox', { name: 'Group name' }) as HTMLInputElement;
+
+		fireEvent.change(nameInput, { target: { value: 'Draft analysts' } });
+		const refreshedGroup = {
+			...initialGroup,
+			createdAt: new Date(initialGroup.createdAt),
+			updatedAt: new Date(initialGroup.updatedAt),
+		};
+		rerender(
+			<UserGroupEditor
+				group={refreshedGroup}
+				activeTab='features'
+				onTabChange={vi.fn()}
+				onCancelNew={vi.fn()}
+				onCreated={vi.fn()}
+				onDeleted={vi.fn()}
+			/>,
+		);
+
+		expect(nameInput.value).toBe('Draft analysts');
+		expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
+
+		rerender(
+			<UserGroupEditor
+				group={{ ...analysts, id: 'finance', name: 'Finance' }}
+				activeTab='features'
+				onTabChange={vi.fn()}
+				onCancelNew={vi.fn()}
+				onCreated={vi.fn()}
+				onDeleted={vi.fn()}
+			/>,
+		);
+
+		expect(nameInput.value).toBe('Finance');
+		expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+	});
+
+	it('synchronizes same-group server updates while the form is clean', () => {
+		const { rerender } = renderEditor();
+
+		rerender(
+			<UserGroupEditor
+				group={{ ...analysts, name: 'Data Analysts' }}
+				activeTab='features'
+				onTabChange={vi.fn()}
+				onCancelNew={vi.fn()}
+				onCreated={vi.fn()}
+				onDeleted={vi.fn()}
+			/>,
+		);
+
+		expect((screen.getByRole('textbox', { name: 'Group name' }) as HTMLInputElement).value).toBe('Data Analysts');
+		expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+	});
+
 	it('restores dynamic patterns on cancel', () => {
 		renderEditor('context');
 

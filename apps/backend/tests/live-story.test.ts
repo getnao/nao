@@ -15,8 +15,18 @@ const mocks = vi.hoisted(() => ({
 	buildMcpToolContext: vi.fn(),
 	resolveExcludedColumnEnforcement: vi.fn(),
 	upsertStoryDataCache: vi.fn(),
+	updateLatestVersionCode: vi.fn(),
 	findMissingQueryIds: vi.fn(),
 	backfillMissingQueryData: vi.fn(),
+	generateText: vi.fn(),
+	getProjectModelProvider: vi.fn(),
+	resolveDefaultModelSelection: vi.fn(),
+	resolveProviderModel: vi.fn(),
+}));
+
+vi.mock('ai', async (importOriginal) => ({
+	...(await importOriginal<typeof import('ai')>()),
+	generateText: mocks.generateText,
 }));
 
 vi.mock('../src/agents/tools/query-app-db', () => ({
@@ -29,7 +39,7 @@ vi.mock('../src/queries/chat.queries', () => ({
 }));
 
 vi.mock('../src/queries/project-llm-config.queries', () => ({
-	getProjectModelProvider: vi.fn(),
+	getProjectModelProvider: mocks.getProjectModelProvider,
 }));
 
 vi.mock('../src/queries/story.queries', () => ({
@@ -38,6 +48,7 @@ vi.mock('../src/queries/story.queries', () => ({
 	getSqlQueryById: mocks.getSqlQueryById,
 	getStoryDataCacheByChatAndSlug: mocks.getStoryDataCacheByChatAndSlug,
 	upsertStoryDataCache: mocks.upsertStoryDataCache,
+	updateLatestVersionCode: mocks.updateLatestVersionCode,
 }));
 
 vi.mock('../src/queries/shared-story.queries', () => ({
@@ -55,8 +66,8 @@ vi.mock('../src/services/excluded-columns.service', () => ({
 
 vi.mock('../src/utils/llm', () => ({
 	getDefaultModelId: vi.fn(),
-	resolveDefaultModelSelection: vi.fn(),
-	resolveProviderModel: vi.fn(),
+	resolveDefaultModelSelection: mocks.resolveDefaultModelSelection,
+	resolveProviderModel: mocks.resolveProviderModel,
 }));
 
 vi.mock('../src/utils/schedule-task', () => ({
@@ -75,6 +86,7 @@ function querySource(sql: string, databaseId: string | null = null, adminMode = 
 		fingerprint: createHash('sha256').update(JSON.stringify({ sql, databaseId, adminMode })).digest('hex'),
 		databaseId,
 		adminMode,
+		credentialScope: 'shared' as const,
 	};
 }
 
@@ -104,6 +116,9 @@ describe('live story SQL execution', () => {
 		mocks.getStoryDataCacheByChatAndSlug.mockResolvedValue(null);
 		mocks.findMissingQueryIds.mockReturnValue([]);
 		mocks.upsertStoryDataCache.mockResolvedValue({});
+		mocks.updateLatestVersionCode.mockResolvedValue(undefined);
+		mocks.resolveDefaultModelSelection.mockResolvedValue(null);
+		mocks.getProjectModelProvider.mockResolvedValue(null);
 	});
 
 	afterEach(() => {
@@ -241,7 +256,7 @@ describe('live story SQL execution', () => {
 		).rejects.toThrow('main.users');
 	});
 
-	it('validates once and reuses a live cache for an allowed viewer', async () => {
+	it('validates once and reuses a shared live cache without Azure user credentials', async () => {
 		const cache = {
 			queryData: { query_warehouse: { columns: ['id'], data: [{ id: 1 }] } },
 			querySources: { query_warehouse: querySource('SELECT * FROM orders') },
@@ -256,7 +271,7 @@ describe('live story SQL execution', () => {
 			projectId: 'project-1',
 			userId: 'viewer-1',
 			envVars: {},
-			azureAccessToken: 'azure-token',
+			azureAccessToken: null,
 			agentSettings: null,
 			warehouseTableAccess: {
 				enforced: true,
@@ -288,7 +303,6 @@ describe('live story SQL execution', () => {
 		expect(fetchMock).toHaveBeenCalledOnce();
 		expect(fetchMock.mock.calls[0][0]).toContain('/validate_sql');
 		expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
-			azure_access_token: 'azure-token',
 			table_access: {
 				enforced: true,
 				tables: [
@@ -301,6 +315,185 @@ describe('live story SQL execution', () => {
 				],
 			},
 		});
+		expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty('azure_access_token');
+	});
+
+	it('replaces an unscoped warehouse cache before sharing it without Azure credentials', async () => {
+		const code = '<table query_id="query_warehouse" />';
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
+			code,
+			isLiveTextDynamic: false,
+		});
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_warehouse: { sqlQuery: 'SELECT * FROM orders', adminMode: false },
+		});
+		const source = querySource('SELECT * FROM orders');
+		mocks.getStoryDataCacheByChatAndSlug.mockResolvedValue({
+			queryData: { query_warehouse: { columns: ['owner'], data: [{ owner: 'alice' }] } },
+			querySources: {
+				query_warehouse: {
+					fingerprint: source.fingerprint,
+					databaseId: source.databaseId,
+					adminMode: source.adminMode,
+				},
+			},
+			cachedAt: new Date(),
+		});
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue({
+				ok: true,
+				json: vi.fn().mockResolvedValue({ columns: ['owner'], data: [{ owner: 'shared' }] }),
+			}),
+		);
+
+		await expect(getStoryQueryData('chat-1', 'orders', code, true, null, 'user-1')).resolves.toMatchObject({
+			queryData: { query_warehouse: { columns: ['owner'], data: [{ owner: 'shared' }] } },
+		});
+		expect(mocks.upsertStoryDataCache).toHaveBeenCalledWith(
+			'chat-1',
+			'orders',
+			{ query_warehouse: { columns: ['owner'], data: [{ owner: 'shared' }] } },
+			{ query_warehouse: querySource('SELECT * FROM orders') },
+		);
+	});
+
+	it('executes separately for Alice and Bob instead of sharing Azure-token results', async () => {
+		const code = '<table query_id="query_warehouse" />';
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
+			code,
+			isLiveTextDynamic: false,
+		});
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_warehouse: { sqlQuery: 'SELECT * FROM orders', adminMode: false },
+		});
+		mocks.getStoryDataCacheByChatAndSlug.mockResolvedValue({
+			queryData: { query_warehouse: { columns: ['owner'], data: [{ owner: 'alice' }] } },
+			querySources: { query_warehouse: querySource('SELECT * FROM orders') },
+			cachedAt: new Date(),
+		});
+		mocks.buildMcpToolContext.mockImplementation(async ({ userId }: { userId: string }) => ({
+			projectFolder: '/project',
+			projectId: 'project-1',
+			userId,
+			envVars: {},
+			azureAccessToken: `${userId}-token`,
+			agentSettings: null,
+			warehouseTableAccess: { enforced: false },
+		}));
+		const fetchMock = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
+			const body = JSON.parse(String(init.body));
+			const owner = body.azure_access_token === 'alice-token' ? 'alice' : 'bob';
+			return {
+				ok: true,
+				json: vi.fn().mockResolvedValue({ columns: ['owner'], data: [{ owner }] }),
+			};
+		});
+		vi.stubGlobal('fetch', fetchMock);
+
+		await expect(getStoryQueryData('chat-1', 'orders', code, true, null, 'alice')).resolves.toEqual({
+			queryData: { query_warehouse: { columns: ['owner'], data: [{ owner: 'alice' }] } },
+			cachedAt: null,
+			code,
+		});
+		await expect(getStoryQueryData('chat-1', 'orders', code, true, null, 'bob')).resolves.toEqual({
+			queryData: { query_warehouse: { columns: ['owner'], data: [{ owner: 'bob' }] } },
+			cachedAt: null,
+			code,
+		});
+
+		expect(mocks.getStoryDataCacheByChatAndSlug).not.toHaveBeenCalled();
+		expect(mocks.upsertStoryDataCache).not.toHaveBeenCalled();
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+
+	it('does not fall back to another principal cache when Azure execution fails', async () => {
+		const code = '<table query_id="query_warehouse" />';
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
+			code,
+			isLiveTextDynamic: false,
+		});
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_warehouse: { sqlQuery: 'SELECT * FROM orders', adminMode: false },
+		});
+		mocks.getStoryDataCacheByChatAndSlug.mockResolvedValue({
+			queryData: { query_warehouse: { columns: ['owner'], data: [{ owner: 'alice' }] } },
+			querySources: { query_warehouse: querySource('SELECT * FROM orders') },
+			cachedAt: new Date(0),
+		});
+		mocks.buildMcpToolContext.mockResolvedValue({
+			projectFolder: '/project',
+			projectId: 'project-1',
+			userId: 'bob',
+			envVars: {},
+			azureAccessToken: 'bob-token',
+			agentSettings: null,
+			warehouseTableAccess: { enforced: false },
+		});
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue({
+				ok: false,
+				status: 503,
+				statusText: 'Unavailable',
+				json: vi.fn().mockResolvedValue({ detail: 'Warehouse unavailable' }),
+			}),
+		);
+
+		await expect(getStoryQueryData('chat-1', 'orders', code, true, '* * * * *', 'bob')).rejects.toThrow(
+			'Warehouse unavailable',
+		);
+		expect(mocks.getStoryDataCacheByChatAndSlug).not.toHaveBeenCalled();
+		expect(mocks.getQueryDataFromCode).not.toHaveBeenCalled();
+	});
+
+	it('returns dynamic Azure results without globally writing cache or narrative', async () => {
+		const code = '# Orders\n<table query_id="query_warehouse" />\nOld narrative';
+		const refreshedCode = '# Orders\n<table query_id="query_warehouse" />\nAlice narrative';
+		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
+			title: 'Orders',
+			code,
+			isLiveTextDynamic: true,
+		});
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_warehouse: { sqlQuery: 'SELECT * FROM orders', adminMode: false },
+		});
+		mocks.buildMcpToolContext.mockResolvedValue({
+			projectFolder: '/project',
+			projectId: 'project-1',
+			userId: 'alice',
+			envVars: {},
+			azureAccessToken: 'alice-token',
+			agentSettings: null,
+			warehouseTableAccess: { enforced: false },
+		});
+		mocks.getProjectModelProvider.mockResolvedValue('openai');
+		mocks.resolveProviderModel.mockResolvedValue({ model: { modelId: 'model-1' } });
+		mocks.generateText.mockResolvedValue({
+			output: { code: refreshedCode },
+			usage: {
+				inputTokens: 1,
+				inputTokenDetails: { noCacheTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+				outputTokens: 1,
+				outputTokenDetails: { textTokens: 1, reasoningTokens: 0 },
+				totalTokens: 2,
+			},
+		});
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue({
+				ok: true,
+				json: vi.fn().mockResolvedValue({ columns: ['owner'], data: [{ owner: 'alice' }] }),
+			}),
+		);
+
+		await expect(getStoryQueryData('chat-1', 'orders', code, true, null, 'alice')).resolves.toEqual({
+			queryData: { query_warehouse: { columns: ['owner'], data: [{ owner: 'alice' }] } },
+			cachedAt: null,
+			code: refreshedCode,
+		});
+		expect(mocks.updateLatestVersionCode).not.toHaveBeenCalled();
+		expect(mocks.upsertStoryDataCache).not.toHaveBeenCalled();
 	});
 
 	it('re-executes when a reused query id has different SQL provenance', async () => {
@@ -448,7 +641,7 @@ describe('live story SQL execution', () => {
 	it('does not validate a valid cache when Context access is unenforced', async () => {
 		const cache = {
 			queryData: { query_warehouse: { columns: ['id'], data: [{ id: 1 }] } },
-			querySources: null,
+			querySources: { query_warehouse: querySource('SELECT * FROM orders') },
 			cachedAt: new Date(),
 		};
 		mocks.getSqlQueriesFromCode.mockResolvedValue({
