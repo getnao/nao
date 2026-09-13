@@ -94,16 +94,16 @@ export function UserGroupContextAccess({
 					}
 				}}
 				onSpecific={() => {
-					if (combinedMode === 'all') {
+					if (databaseAccess.mode === 'all') {
 						onDatabaseAccessChange({
 							mode: 'restricted',
 							strict: databaseAccess.strict,
 							grants: [],
 							patterns: [],
 						});
-						if (docsAccess !== undefined) {
-							onDocsAccessChange({ mode: 'restricted', grants: [] });
-						}
+					}
+					if (docsAccess?.mode === 'all') {
+						onDocsAccessChange({ mode: 'restricted', grants: [] });
 					}
 				}}
 			/>

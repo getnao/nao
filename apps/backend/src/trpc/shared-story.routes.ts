@@ -132,7 +132,7 @@ export const sharedStoryRoutes = {
 		const cacheScheduleDescription = storyRow?.cacheScheduleDescription ?? null;
 		const { canRefresh } = await getStoryRefreshAccess(shared.storyId, ctx.user.id, ctx.userRole);
 
-		const { queryData, cachedAt } = await getStoryQueryData(
+		const { queryData, cachedAt, code } = await getStoryQueryData(
 			shared.chatId!,
 			shared.slug,
 			shared.code,
@@ -156,6 +156,7 @@ export const sharedStoryRoutes = {
 
 		return {
 			...shared,
+			code,
 			storyId: shared.storyId,
 			queryData,
 			isLive,
@@ -369,7 +370,7 @@ export const sharedStoryRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story version not found.' });
 			}
 
-			const { queryData } = await getStoryQueryData(
+			const { queryData, code } = await getStoryQueryData(
 				shared.chatId!,
 				shared.slug,
 				version.code,
@@ -396,13 +397,7 @@ export const sharedStoryRoutes = {
 
 			const displaySettings = shared.projectId ? await projectQueries.getDisplaySettings(shared.projectId) : null;
 
-			return buildDownloadResponse(
-				input.format,
-				version.title,
-				version.code,
-				queryData,
-				displaySettings?.dateFormat,
-			);
+			return buildDownloadResponse(input.format, version.title, code, queryData, displaySettings?.dateFormat);
 		}),
 };
 

@@ -197,7 +197,7 @@ describe('user group context access selection', () => {
 		expect(screen.getByRole('button', { name: /Specific selection/ }).getAttribute('aria-pressed')).toBe('true');
 	});
 
-	it('changes both policies only through the combined mode control and preserves mixed state', () => {
+	it('narrows database access without clearing restricted docs grants', () => {
 		setCombinedCatalogs();
 		render(
 			<StatefulCombinedContextAccess
@@ -206,21 +206,47 @@ describe('user group context access selection', () => {
 			/>,
 		);
 
-		const everything = screen.getByRole('button', { name: /Everything/ });
 		const specific = screen.getByRole('button', { name: /Specific selection/ });
 		expect(specific.getAttribute('aria-pressed')).toBe('true');
-		fireEvent.click(specific);
 		expect(screen.getByText('2 tables · 1 doc')).toBeTruthy();
-
-		fireEvent.click(everything);
-		expect(everything.getAttribute('aria-pressed')).toBe('true');
-		expect(screen.queryByRole('textbox', { name: 'Search context' })).toBeNull();
-		expect(screen.getByRole('checkbox', { name: 'docs folder access' }).hasAttribute('disabled')).toBe(true);
+		expect(screen.getByRole('checkbox', { name: 'app/public schema access' }).hasAttribute('disabled')).toBe(true);
 
 		fireEvent.click(specific);
-		expect(specific.getAttribute('aria-pressed')).toBe('true');
-		expect(screen.getByText('0 tables · 0 docs')).toBeTruthy();
+		expect(screen.getByText('0 tables · 1 doc')).toBeTruthy();
+
+		const schemaAccess = screen.getByRole('checkbox', { name: 'app/public schema access' });
+		expect(schemaAccess.hasAttribute('disabled')).toBe(false);
+		fireEvent.click(schemaAccess);
+		expect(screen.getByText('2 tables · 1 doc')).toBeTruthy();
 		expect(screen.getByRole('switch', { name: 'Strict mode' }).getAttribute('aria-checked')).toBe('false');
+	});
+
+	it('narrows docs access without clearing restricted database settings', () => {
+		setCombinedCatalogs();
+		render(
+			<StatefulCombinedContextAccess
+				initialDatabaseAccess={{
+					mode: 'restricted',
+					strict: false,
+					grants: [users],
+					patterns: ['future.*'],
+				}}
+				initialDocsAccess={{ mode: 'all' }}
+			/>,
+		);
+
+		expect(screen.getByText('1 table · 2 docs')).toBeTruthy();
+		fireEvent.click(screen.getByRole('button', { name: /Specific selection/ }));
+
+		expect(screen.getByText('1 table · 0 docs')).toBeTruthy();
+		expect(screen.getByText('future.*')).toBeTruthy();
+		expect(screen.getByRole('switch', { name: 'Strict mode' }).getAttribute('aria-checked')).toBe('false');
+
+		fireEvent.click(screen.getByRole('button', { name: 'Expand docs folder' }));
+		const readmeAccess = screen.getByRole('checkbox', { name: 'readme.md file access' });
+		expect(readmeAccess.hasAttribute('disabled')).toBe(false);
+		fireEvent.click(readmeAccess);
+		expect(screen.getByText('1 table · 1 doc')).toBeTruthy();
 	});
 
 	it('keeps docs usable when the database catalog fails', () => {

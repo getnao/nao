@@ -7,7 +7,7 @@ import {
 	USER_GROUP_FEATURE_DEFINITIONS,
 } from '@nao/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DatabaseContextAccess, DocsContextAccess } from '@nao/shared';
 import type { ToolCallDensity } from '@nao/shared/types';
 import type { QueryClient } from '@tanstack/react-query';
@@ -81,6 +81,7 @@ export function UserGroupEditor({
 	);
 	const [formError, setFormError] = useState<string | null>(null);
 	const [confirmDelete, setConfirmDelete] = useState(false);
+	const previousGroupRef = useRef(existingGroup);
 	const createGroup = useMutation(trpc.userGroup.create.mutationOptions());
 	const updateGroup = useMutation(trpc.userGroup.update.mutationOptions());
 	const deleteGroup = useMutation(trpc.userGroup.delete.mutationOptions());
@@ -105,8 +106,23 @@ export function UserGroupEditor({
 	}, [existingGroup]);
 
 	useEffect(() => {
-		resetForm();
-	}, [resetForm]);
+		const previousGroup = previousGroupRef.current;
+		previousGroupRef.current = existingGroup;
+		const switchedGroups = previousGroup?.id !== existingGroup?.id;
+		const previousGroupWasClean =
+			previousGroup !== null &&
+			!hasUserGroupEditorChanges(previousGroup, {
+				name,
+				featureGrants,
+				toolCallDensityPolicy,
+				databaseAccess,
+				docsAccess,
+			});
+
+		if (switchedGroups || previousGroupWasClean) {
+			resetForm();
+		}
+	}, [databaseAccess, docsAccess, existingGroup, featureGrants, name, resetForm, toolCallDensityPolicy]);
 
 	const handleSave = async () => {
 		setFormError(null);

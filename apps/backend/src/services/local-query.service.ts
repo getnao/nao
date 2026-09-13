@@ -1,6 +1,6 @@
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import path from 'node:path';
 
 import { fileExtension } from '@nao/shared/attachments';
 import type { executeSql } from '@nao/shared/tools';
@@ -9,12 +9,15 @@ import type { QueryResult, ToolContext } from '../types/tools';
 import { referencedQueryIds, rewriteStorageLiterals, storagePathsIn } from '../utils/sql-file-paths';
 import {
 	isStoragePath,
+	resolveCanonicalProjectPath,
+	shouldExcludeEntry,
 	STORAGE_MOUNT,
 	toStorageRelativePath,
 	toStorageScope,
 	toStorageVirtualPath,
 } from '../utils/tools';
 import { runLocalQuery } from './duckdb.service';
+import { isProjectContextPathAllowed } from './project-context-path-access.service';
 import { getQueryResult } from './query-result.service';
 import { isStorageEnabled, relativePathFromKey, STORAGE_DISABLED_MESSAGE } from './storage';
 import { openStorageFiles } from './storage/file-access';
@@ -32,8 +35,8 @@ export interface LocalQueryOutcome {
  *
  * Two translations happen before DuckDB sees anything. Paths under `/home` become the real paths
  * the files live at, which differ per user and per storage backend, and every `query_…` the SQL
- * mentions is materialised as a table. DuckDB is then confined to just the directories those
- * translations produced.
+ * mentions is materialised as a table. DuckDB is then confined to authorized project files and
+ * the scoped directories those translations produced.
  */
 export async function runQueryOnLocalFiles(
 	sql: string,
@@ -48,7 +51,8 @@ export async function runQueryOnLocalFiles(
 		const result = await runLocalQuery({
 			sql: access.sql,
 			queryResults: await collectReferencedResults(sql, context),
-			allowedDirectories: [context.projectFolder, ...access.directories, ...(staging ? [staging.directory] : [])],
+			allowedPaths: await collectAllowedProjectFiles(context),
+			allowedDirectories: [...access.directories, ...(staging ? [staging.directory] : [])],
 			...(staging && { output: { filePath: staging.filePath, format: staging.format } }),
 		});
 
@@ -56,6 +60,56 @@ export async function runQueryOnLocalFiles(
 	} finally {
 		await access.release();
 		await staging?.release();
+	}
+}
+
+async function collectAllowedProjectFiles(context: ToolContext): Promise<string[]> {
+	const root = resolveCanonicalProjectPath('/', context.projectFolder);
+	const allowedPaths = new Set<string>();
+	const visitedDirectories = new Set<string>();
+
+	await walkAllowedProjectDirectory(root.realPath, '', context, allowedPaths, visitedDirectories);
+	return [...allowedPaths];
+}
+
+async function walkAllowedProjectDirectory(
+	directory: string,
+	relativeDirectory: string,
+	context: ToolContext,
+	allowedPaths: Set<string>,
+	visitedDirectories: Set<string>,
+): Promise<void> {
+	if (visitedDirectories.has(directory)) {
+		return;
+	}
+	visitedDirectories.add(directory);
+
+	for (const entry of await readdir(directory, { withFileTypes: true })) {
+		if (shouldExcludeEntry(entry.name, relativeDirectory, context.projectFolder) || entry.isSymbolicLink()) {
+			continue;
+		}
+
+		const relativePath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
+		const virtualPath = `/${relativePath}`;
+		const canonical = resolveCanonicalProjectPath(virtualPath, context.projectFolder);
+
+		if (entry.isDirectory()) {
+			if (isProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, 'directory')) {
+				await walkAllowedProjectDirectory(
+					canonical.realPath,
+					relativePath,
+					context,
+					allowedPaths,
+					visitedDirectories,
+				);
+			}
+			continue;
+		}
+
+		if (entry.isFile() && isProjectContextPathAllowed(context, virtualPath, canonical.virtualPath, 'file')) {
+			allowedPaths.add(canonical.realPath);
+			allowedPaths.add(path.resolve(context.projectFolder, relativePath));
+		}
 	}
 }
 
@@ -103,12 +157,12 @@ function resolveDestination({ path, format }: executeSql.SaveTo): Destination {
  * file that is not yet in storage.
  */
 async function stageOutputFile(destination: Destination): Promise<StagedOutput> {
-	const directory = await mkdtemp(join(tmpdir(), 'nao-local-query-out-'));
+	const directory = await mkdtemp(path.join(tmpdir(), 'nao-local-query-out-'));
 
 	return {
 		...destination,
 		directory,
-		filePath: join(directory, `result.${destination.format}`),
+		filePath: path.join(directory, `result.${destination.format}`),
 		release: () => rm(directory, { recursive: true, force: true }),
 	};
 }
