@@ -144,6 +144,27 @@ export interface StoryQueryDataResult {
 	code: string;
 }
 
+export async function getAuthorizedStoredStoryQueryData(
+	chatId: string,
+	code: string,
+	principalUserId: string,
+): Promise<Record<string, { data: unknown[]; columns: string[] }> | null> {
+	const sqlQueries = await storyQueries.getSqlQueriesFromCode(chatId, code);
+	const executionContext = requiresStoryExecutionContext(code, sqlQueries)
+		? await createStoryExecutionContext(chatId, principalUserId)
+		: null;
+
+	if (hasPrincipalSpecificCredentials(executionContext)) {
+		throw new Error('Stored Story data is unavailable with principal-specific credentials.');
+	}
+	if (executionContext?.toolContext.warehouseTableAccess.enforced) {
+		assertAllStoryQueriesResolved(code, sqlQueries);
+		await validateWarehouseSources(sqlQueries, executionContext);
+	}
+
+	return getQueryDataFromCode(chatId, code);
+}
+
 export async function getStoryQueryData(
 	chatId: string,
 	slug: string,
