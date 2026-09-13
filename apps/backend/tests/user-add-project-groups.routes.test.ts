@@ -39,6 +39,9 @@ vi.mock('../src/services/project-user-group-membership.service', () => ({
 	addProjectMemberWithUserGroups: mocks.addProjectMemberWithUserGroups,
 }));
 vi.mock('../src/services/team-member', () => ({ addTeamMember: mocks.addTeamMember }));
+vi.mock('../src/services/user-group-availability.service', () => ({
+	validateAssignableUserGroupIds: mocks.validateAssignableUserGroupIds,
+}));
 vi.mock('../src/services/sso-group-mapping.service', () => ({
 	isGroupRoleMappingActive: vi.fn(async () => false),
 }));

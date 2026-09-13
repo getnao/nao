@@ -4,8 +4,8 @@ const mocks = vi.hoisted(() => ({
 	resolveEffectiveUserGroupAccess: vi.fn(),
 }));
 
-vi.mock('../src/queries/user-group.queries', () => ({
-	resolveEffectiveUserGroupAccess: mocks.resolveEffectiveUserGroupAccess,
+vi.mock('../src/services/user-group-availability.service', () => ({
+	resolveAvailableUserGroupAccess: mocks.resolveEffectiveUserGroupAccess,
 }));
 import {
 	assertUserGroupFeature,

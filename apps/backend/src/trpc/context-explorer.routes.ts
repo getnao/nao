@@ -3,7 +3,6 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import * as userQueries from '../queries/user.queries';
-import * as userGroupQueries from '../queries/user-group.queries';
 import type { ContextExplorerFileAccess } from '../services/context-explorer.service';
 import {
 	getFileTree,
@@ -31,6 +30,7 @@ import {
 } from '../services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../services/context-explorer-pr.service';
 import { getRepoProviderDisplayName } from '../services/review-request-provider';
+import { listActiveUserGroups } from '../services/user-group-availability.service';
 import { resolveContextRepository, resolveContextSourceGitToken } from '../utils/context-repo';
 import { contextAdminProtectedProcedure } from './trpc';
 
@@ -84,7 +84,7 @@ export const contextExplorerRoutes = {
 	}),
 
 	getRulesPreviewGroups: contextAdminProtectedProcedure.query(async ({ ctx }) => {
-		const groups = await userGroupQueries.listUserGroups(ctx.project.id);
+		const groups = await listActiveUserGroups(ctx.project.id);
 		return {
 			enforced: true as const,
 			groups: groups.map(({ id, name, isDefault }) => ({ id, name, isDefault })),

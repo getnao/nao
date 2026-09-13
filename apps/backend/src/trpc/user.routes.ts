@@ -11,6 +11,7 @@ import * as userPreferenceQueries from '../queries/user-preference.queries';
 import { cleanupContextWorktree } from '../services/context-explorer-git.service';
 import { addProjectMemberWithUserGroups } from '../services/project-user-group-membership.service';
 import { addTeamMember } from '../services/team-member';
+import { validateAssignableUserGroupIds } from '../services/user-group-availability.service';
 import { buildUserAddedEmail } from '../utils/email-builders';
 import {
 	adminProtectedProcedure,
@@ -92,7 +93,7 @@ export const userRoutes = {
 			const projectId = ctx.project.id;
 			const groupIds = unique(input.groupIds);
 			if (groupIds.length > 0) {
-				await handleUserGroupQuery(() => userGroupQueries.validateAssignableUserGroupIds(projectId, groupIds));
+				await handleUserGroupQuery(() => validateAssignableUserGroupIds(projectId, groupIds));
 			}
 
 			return addTeamMember({

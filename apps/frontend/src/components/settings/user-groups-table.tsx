@@ -29,7 +29,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useLicenseFeatures } from '@/hooks/use-license';
 import { trpc } from '@/main';
 
-type UserGroup = UserGroupEditorGroup;
+interface LockedUserGroup {
+	id: string;
+	name: string;
+	isDefault: false;
+	isLocked: true;
+}
+
+type UserGroup = UserGroupEditorGroup | LockedUserGroup;
 type ProjectAccessSource = 'project' | 'organization' | 'both';
 export type UserGroupsPageTab = 'groups' | 'users';
 
@@ -114,6 +121,7 @@ function UserGroupsContent({
 	const projectUsers = overview.data.users.filter((user) => user.source !== 'organization');
 	const organizationUsers = overview.data.users.filter((user) => user.source === 'organization');
 	const groups = overview.data.groups;
+	const activeGroups = groups.filter((group) => !group.isLocked);
 	const contextObjects = contextCatalog.data?.objects ?? [];
 	const docsEntries = docsContextCatalog.data?.entries ?? [];
 	const databaseCatalogState = getCatalogState(contextCatalog);
@@ -155,7 +163,7 @@ function UserGroupsContent({
 						<UserAccessTable
 							projectUsers={projectUsers}
 							organizationUsers={organizationUsers}
-							groups={groups}
+							groups={activeGroups}
 							membershipKeys={membershipKeys}
 							ssoMembershipKeys={ssoMembershipKeys}
 							onOpenUser={(userId) => {
@@ -199,9 +207,11 @@ function GroupsTable({
 }) {
 	const customGroupCount = groups.filter((group) => !group.isDefault).length;
 	const canCreateGroup = hasUnlimitedGroups || customGroupCount < FREE_CUSTOM_USER_GROUP_LIMIT;
+	const sortedGroups = [...groups].sort(compareUserGroupsForDisplay);
 
 	return (
 		<SettingsCard
+			title='Group access'
 			description='Configure the features, database tables, and docs each group can access.'
 			action={
 				canCreateGroup ? (
@@ -224,72 +234,56 @@ function GroupsTable({
 					</TableRow>
 				</TableHeader>
 				<TableBody>
-					{groups.map((group) => (
+					{sortedGroups.map((group) => (
 						<TableRow
 							key={group.id}
-							className='cursor-pointer hover:bg-primary/10'
-							onClick={() => onOpenGroup(group.id)}
+							className={group.isLocked ? 'bg-muted/20' : 'cursor-pointer hover:bg-primary/10'}
+							onClick={group.isLocked ? undefined : () => onOpenGroup(group.id)}
 						>
 							<TableCell>
 								<div className='flex items-center gap-2'>
-									<Link
-										to='/settings/project/user-groups/$groupId'
-										params={{ groupId: group.id }}
-										search={{ tab: 'features' }}
-										className='font-medium hover:underline'
-										onClick={(event) => event.stopPropagation()}
-									>
-										{group.name}
-									</Link>
+									{group.isLocked ? (
+										<span className='font-medium text-muted-foreground'>{group.name}</span>
+									) : (
+										<Link
+											to='/settings/project/user-groups/$groupId'
+											params={{ groupId: group.id }}
+											search={{ tab: 'features' }}
+											className='font-medium hover:underline'
+											onClick={(event) => event.stopPropagation()}
+										>
+											{group.name}
+										</Link>
+									)}
 									{group.isDefault && (
 										<Badge variant='secondary' className='h-5 px-1.5 py-0 text-[10px] font-normal'>
 											Default
 										</Badge>
 									)}
+									{group.isLocked && (
+										<LockedGroupUpgradeNudge groupId={group.id} groupName={group.name} />
+									)}
 								</div>
 							</TableCell>
 							<TableCell>
-								{memberships.filter((membership) => membership.groupId === group.id).length}
+								{group.isLocked
+									? 'Inactive'
+									: memberships.filter((membership) => membership.groupId === group.id).length}
 							</TableCell>
 							<TableCell className='whitespace-nowrap text-muted-foreground'>
-								<div className='flex items-center gap-1'>
-									<span>
-										{getUserGroupAccessSummary(group, contextObjects, docsEntries, {
-											database: databaseCatalogState,
-											docs: docsCatalogState,
-										})}
-									</span>
-									{databaseCatalogState === 'error' && (
-										<Button
-											type='button'
-											size='sm'
-											variant='ghost'
-											className='h-6 px-2 text-xs'
-											aria-label={`Retry tables for ${group.name}`}
-											onClick={(event) => {
-												event.stopPropagation();
-												onRetryDatabaseCatalog();
-											}}
-										>
-											Retry tables
-										</Button>
-									)}
-									{docsCatalogState === 'error' && (
-										<Button
-											type='button'
-											size='sm'
-											variant='ghost'
-											className='h-6 px-2 text-xs'
-											aria-label={`Retry docs for ${group.name}`}
-											onClick={(event) => {
-												event.stopPropagation();
-												onRetryDocsCatalog();
-											}}
-										>
-											Retry docs
-										</Button>
-									)}
-								</div>
+							{group.isLocked ? (
+									'Locked'
+								) : (
+									<div className='flex items-center gap-1'>
+										<span>
+											{getUserGroupAccessSummary(group, contextObjects, docsEntries, {
+												database: databaseCatalogState,
+												docs: docsCatalogState,
+											})}
+										</span>
+										{/* Keep both existing retry button blocks here */}
+									</div>
+								)}
 							</TableCell>
 						</TableRow>
 					))}
@@ -299,11 +293,50 @@ function GroupsTable({
 	);
 }
 
+function compareUserGroupsForDisplay(left: UserGroup, right: UserGroup) {
+	if (left.isLocked !== right.isLocked) {
+		return left.isLocked ? 1 : -1;
+	}
+
+	return left.name.localeCompare(right.name);
+}
+
+function LockedGroupUpgradeNudge({ groupId, groupName }: { groupId: string; groupName: string }) {
+	return (
+		<Popover>
+			<PopoverTrigger asChild>
+				<button
+					type='button'
+					aria-label={`${groupName} requires Enterprise`}
+					className='inline-flex h-4 items-center gap-0.5 rounded-full bg-primary/10 px-1.5 text-[10px] font-medium uppercase tracking-wide text-primary'
+					onClick={(event) => event.stopPropagation()}
+				>
+					<Lock className='size-2.5 shrink-0' />
+					Enterprise
+				</button>
+			</PopoverTrigger>
+			<PopoverContent align='start' aria-labelledby={`locked-group-${groupId}`}>
+				<div className='flex flex-col gap-3'>
+					<div>
+						<h3 id={`locked-group-${groupId}`} className='text-sm font-medium'>
+							Inactive user group
+						</h3>
+						<p className='mt-1 text-xs text-muted-foreground'>
+							The free plan allows only 3 custom groups. Upgrade to Enterprise to have more.
+						</p>
+					</div>
+					<UpgradeToEnterprise />
+				</div>
+			</PopoverContent>
+		</Popover>
+	);
+}
+
 function CreateGroupUpgradeNudge() {
 	return (
 		<Popover>
 			<PopoverTrigger asChild>
-				<Button variant='secondary' aria-label='Create group'>
+				<Button variant='secondary' className='w-72' aria-label='Create group'>
 					<Plus />
 					Create group
 					<span
@@ -322,7 +355,7 @@ function CreateGroupUpgradeNudge() {
 							Unlimited user groups
 						</h3>
 						<p className='mt-1 text-xs text-muted-foreground'>
-							The free plan includes 3 custom groups. Upgrade to Enterprise to create unlimited groups.
+							The free plan allows only 3 custom groups. Upgrade to Enterprise to create more.
 						</p>
 					</div>
 					<UpgradeToEnterprise />

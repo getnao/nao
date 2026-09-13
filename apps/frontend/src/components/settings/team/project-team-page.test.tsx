@@ -76,6 +76,7 @@ const userGroupOverview = {
 	groups: [
 		{ id: 'all-users', name: 'All Users', isDefault: true },
 		{ id: 'analysts', name: 'Analysts', isDefault: false },
+		{ id: 'archived', name: 'Archived', isDefault: false, isLocked: true },
 	],
 };
 
@@ -146,5 +147,10 @@ describe('ProjectTeamTabPage group onboarding', () => {
 			expect.objectContaining({ queryKey: ['user-group-overview'], enabled: true }),
 		);
 		expect(screen.getByRole('button', { name: /Select user groups.*All Users/ })).toBeTruthy();
+		fireEvent.pointerDown(screen.getByRole('button', { name: /Select user groups/ }), {
+			button: 0,
+			ctrlKey: false,
+		});
+		expect(screen.queryByRole('menuitemcheckbox', { name: 'Archived' })).toBeNull();
 	});
 });

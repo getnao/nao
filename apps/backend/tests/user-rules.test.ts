@@ -40,13 +40,13 @@ describe('getUserRules', () => {
 		expect(mockReadFileSync).not.toHaveBeenCalled();
 	});
 
-	it('reads and renders only the project-root RULES.md for effective groups', () => {
+	it('reads and renders only the project-root RULES.md for effective groups case-insensitively', () => {
 		mockExistsSync.mockReturnValue(true);
 		mockReadFileSync.mockReturnValue(
 			'Public\n{% if group("finance") %}\nFinance\n{% endif %}\n{% if group("sales") %}\nSales\n{% endif %}\n',
 		);
 
-		expect(getUserRules('/project', { enforced: true, groupNames: ['finance'] })).toBe('Public\nFinance\n');
+		expect(getUserRules('/project', { enforced: true, groupNames: ['Finance'] })).toBe('Public\nFinance\n');
 		expect(mockReadFileSync).toHaveBeenCalledWith(join('/project', 'RULES.md'), 'utf-8');
 	});
 

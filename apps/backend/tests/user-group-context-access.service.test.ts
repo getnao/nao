@@ -4,8 +4,8 @@ vi.mock('../src/services/license.service', () => ({
 	hasFeature: vi.fn(),
 	LICENSE_FEATURES: { userGroups: 'user-groups' },
 }));
-vi.mock('../src/queries/user-group.queries', () => ({
-	resolveEffectiveUserGroupAccess: vi.fn(),
+vi.mock('../src/services/user-group-availability.service', () => ({
+	resolveAvailableUserGroupAccess: vi.fn(),
 }));
 vi.mock('../src/queries/project.queries', () => ({
 	getUserRoleInProject: vi.fn(),
@@ -16,8 +16,8 @@ vi.mock('../src/agents/user-rules', () => ({
 
 import { getDatabaseContextCatalog } from '../src/agents/user-rules';
 import { getUserRoleInProject } from '../src/queries/project.queries';
-import { resolveEffectiveUserGroupAccess } from '../src/queries/user-group.queries';
 import { hasFeature } from '../src/services/license.service';
+import { resolveAvailableUserGroupAccess as resolveEffectiveUserGroupAccess } from '../src/services/user-group-availability.service';
 import {
 	expandDatabaseAccess,
 	isDatabaseObjectAllowed,

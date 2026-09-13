@@ -150,7 +150,7 @@ export function ProjectTeamTabPage() {
 				onOpenChange={setIsAddOpen}
 				title='Add User to Project'
 				onSubmit={handleAdd}
-				groupOptions={userGroups.data?.groups ?? []}
+				groupOptions={userGroups.data?.groups.filter((group) => !group.isLocked) ?? []}
 				groupsLoading={userGroups.isLoading}
 			/>
 

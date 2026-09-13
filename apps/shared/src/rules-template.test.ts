@@ -13,16 +13,17 @@ describe('renderConditionalGroupBlocks', () => {
 	it('includes a matching group and removes directive lines', () => {
 		const source = ['Always', '{% if group("finance") %}', 'Finance only', '{% endif %}', 'Done'].join('\n');
 
-		expect(renderConditionalGroupBlocks(source, licensed(['finance']))).toBe(
+		expect(renderConditionalGroupBlocks(source, licensed(['Finance']))).toBe(
 			['Always', 'Finance only', 'Done'].join('\n'),
 		);
 	});
 
-	it('matches any name in a multi-group condition using exact names', () => {
-		const source = '{% if group("Finance Team", "marketing") %}\nShared rule\n{% endif %}\n';
+	it('matches any name in a multi-group condition without regard to capitalization', () => {
+		const source = '{% if group("finance", "marketing") %}\nShared rule\n{% endif %}\n';
 
-		expect(renderConditionalGroupBlocks(source, licensed(['marketing']))).toBe('Shared rule\n');
-		expect(renderConditionalGroupBlocks(source, licensed(['finance team']))).toBe('');
+		expect(renderConditionalGroupBlocks(source, licensed(['Finance']))).toBe('Shared rule\n');
+		expect(renderConditionalGroupBlocks(source, licensed(['MARKETING']))).toBe('Shared rule\n');
+		expect(renderConditionalGroupBlocks(source, licensed(['Sales']))).toBe('');
 	});
 
 	it('omits blocks for unknown or unmatched groups', () => {
@@ -90,7 +91,7 @@ describe('renderConditionalGroupBlocks', () => {
 	it('maps rendered lines back to source lines', () => {
 		const source = 'Before\n{% if group("finance") %}\nFinance\n{% endif %}\nAfter\n';
 
-		expect(renderConditionalGroupBlocksWithSourceLines(source, licensed(['finance']))).toEqual({
+		expect(renderConditionalGroupBlocksWithSourceLines(source, licensed(['Finance']))).toEqual({
 			content: 'Before\nFinance\nAfter\n',
 			lines: [
 				{ content: 'Before', sourceLineNumber: 1 },

@@ -88,10 +88,10 @@ describe('FileViewer RULES preview', () => {
 	it('defaults to All Users and previews the union of selected groups from raw source', async () => {
 		const content = [
 			'Public',
-			'{% if group("Finance") %}',
+			'{% if group("finance") %}',
 			'Finance instructions that use enough characters to change the token estimate.',
 			'{% endif %}',
-			'{% if group("Marketing") %}',
+			'{% if group("marketing") %}',
 			'Marketing instructions',
 			'{% endif %}',
 		].join('\n');

@@ -3,9 +3,9 @@ import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
 
 import { getDatabaseContextCatalog } from '../agents/user-rules';
 import { getUserRoleInProject } from '../queries/project.queries';
-import { resolveEffectiveUserGroupAccess } from '../queries/user-group.queries';
 import { HandlerError } from '../utils/error';
 import { expandDatabaseAccess, type WarehouseTableAccess } from './context-access';
+import { resolveAvailableUserGroupAccess } from './user-group-availability.service';
 
 export * from './context-access';
 
@@ -26,7 +26,7 @@ export async function resolveProjectContextAccess(
 	}
 
 	const [effectiveAccess, catalog] = await Promise.all([
-		resolveEffectiveUserGroupAccess(projectId, userId),
+		resolveAvailableUserGroupAccess(projectId, userId),
 		Promise.resolve().then(() => getDatabaseContextCatalog(projectFolder)),
 	]);
 	return {

@@ -28,6 +28,9 @@ export function renderConditionalGroupBlocksWithSourceLines(
 	const renderedLines: string[] = [];
 	const sourceLines: RenderedConditionalGroupBlocks['lines'] = [];
 	const conditionalStack: ConditionalFrame[] = [];
+	const accessibleGroupNames = access.enforced
+		? new Set(access.groupNames.map((groupName) => groupName.toLowerCase()))
+		: undefined;
 	let fence: Fence | undefined;
 
 	for (const [lineIndex, line] of splitLines(source).entries()) {
@@ -72,7 +75,8 @@ export function renderConditionalGroupBlocksWithSourceLines(
 
 		conditionalStack.push({
 			include:
-				!access.enforced || directive.groupNames.some((groupName) => access.groupNames.includes(groupName)),
+				accessibleGroupNames === undefined ||
+				directive.groupNames.some((groupName) => accessibleGroupNames.has(groupName.toLowerCase())),
 		});
 	}
 
