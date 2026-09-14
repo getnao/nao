@@ -1,5 +1,5 @@
 import { displayChart, executeSql } from '@nao/shared/tools';
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNull, like, lt } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -9,16 +9,52 @@ import { selectLatestDisplayChartTableFormats } from './chart-image.utils';
 import { getLatestExecuteSqlByQueryId } from './execute-sql.queries';
 
 const DISPLAY_CHART_TOOL_TYPE = 'tool-display_chart';
+const CLIPBOARD_CHART_PREFIX = 'clipboard:';
+const CLIPBOARD_CHART_TTL_MS = 24 * 60 * 60 * 1000;
 
-export const getChartById = async (id: string): Promise<string> => {
-	const result = await takeFirstOrThrow(
+export const getChartById = async (id: string): Promise<{ data: string; expiresAt: Date | null } | undefined> => {
+	const [row] = await db
+		.select({
+			data: s.message_part_chart_image.data,
+			toolCallId: s.message_part_chart_image.toolCallId,
+			createdAt: s.message_part_chart_image.createdAt,
+		})
+		.from(s.message_part_chart_image)
+		.where(eq(s.message_part_chart_image.id, id))
+		.execute();
+	if (!row) {
+		return undefined;
+	}
+	if (!row.toolCallId.startsWith(CLIPBOARD_CHART_PREFIX)) {
+		return { data: row.data, expiresAt: null };
+	}
+
+	const expiresAt = new Date(row.createdAt.getTime() + CLIPBOARD_CHART_TTL_MS);
+	return expiresAt > new Date() ? { data: row.data, expiresAt } : undefined;
+};
+
+export const saveClipboardChart = async (data: string): Promise<string> => {
+	const row = await takeFirstOrThrow(
 		db
-			.select({ data: s.message_part_chart_image.data })
-			.from(s.message_part_chart_image)
-			.where(eq(s.message_part_chart_image.id, id))
+			.insert(s.message_part_chart_image)
+			.values({ toolCallId: `${CLIPBOARD_CHART_PREFIX}${crypto.randomUUID()}`, data })
+			.returning({ id: s.message_part_chart_image.id })
 			.execute(),
 	);
-	return result.data;
+	return row.id;
+};
+
+export const deleteExpiredClipboardCharts = async (): Promise<void> => {
+	const cutoff = new Date(Date.now() - CLIPBOARD_CHART_TTL_MS);
+	await db
+		.delete(s.message_part_chart_image)
+		.where(
+			and(
+				like(s.message_part_chart_image.toolCallId, `${CLIPBOARD_CHART_PREFIX}%`),
+				lt(s.message_part_chart_image.createdAt, cutoff),
+			),
+		)
+		.execute();
 };
 
 export const getDisplayConfigByToolCallId = async (toolCallId: string): Promise<displayChart.Input> => {

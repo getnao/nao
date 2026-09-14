@@ -14,6 +14,11 @@ import { fileURLToPath } from 'url';
 import { env, isCloud } from './env';
 import { AUTOMATION_JOB_NAME, automationHandler } from './handlers/automation.handler';
 import {
+	CLIPBOARD_CHART_CLEANUP_JOB_NAME,
+	clipboardChartCleanupHandler,
+	runClipboardChartCleanup,
+} from './handlers/clipboard-chart-cleanup.handler';
+import {
 	CONTEXT_BRANCH_CLEANUP_JOB_NAME,
 	contextBranchCleanupHandler,
 } from './handlers/context-branch-cleanup.handler';
@@ -377,6 +382,11 @@ export const startServer = async (opts: { port: number; host: string }) => {
 			source: 'system',
 		});
 	});
+	void runClipboardChartCleanup().catch((err) => {
+		logger.error(`Clipboard chart cleanup failed: ${err instanceof Error ? err.message : String(err)}`, {
+			source: 'system',
+		});
+	});
 
 	registerJob(LOG_CLEANUP_JOB_NAME, logCleanupHandler);
 	await ensureRecurring({ name: LOG_CLEANUP_JOB_NAME, cron: '0 3 * * *', uniqueKey: LOG_CLEANUP_JOB_NAME });
@@ -396,6 +406,13 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		name: MCP_QUERY_DATA_CLEANUP_JOB_NAME,
 		cron: '0 4 * * *',
 		uniqueKey: MCP_QUERY_DATA_CLEANUP_JOB_NAME,
+	});
+
+	registerJob(CLIPBOARD_CHART_CLEANUP_JOB_NAME, clipboardChartCleanupHandler);
+	await ensureRecurring({
+		name: CLIPBOARD_CHART_CLEANUP_JOB_NAME,
+		cron: '0 * * * *',
+		uniqueKey: CLIPBOARD_CHART_CLEANUP_JOB_NAME,
 	});
 
 	registerJob(CONTEXT_BRANCH_CLEANUP_JOB_NAME, contextBranchCleanupHandler);

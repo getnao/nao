@@ -128,7 +128,7 @@ export const embedRoutes = router({
 	}),
 
 	downloadStory: publicProcedure
-		.input(tokenInput.extend({ storyId: z.string(), format: z.enum(['pdf', 'html']) }))
+		.input(tokenInput.extend({ storyId: z.string(), format: z.enum(['pdf', 'html', 'markdown']) }))
 		.mutation(async ({ input }) => {
 			const story = await loadEmbedStoryContent(input.storyId, input.token);
 			logAnalyticsEvent({

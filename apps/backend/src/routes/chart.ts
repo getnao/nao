@@ -18,7 +18,13 @@ export const chartRoutes = async (app: App) => {
 			throw new HandlerError('NOT_FOUND', 'Chart image not found');
 		}
 
-		const buffer = Buffer.from(imageData, 'base64');
+		reply.header('Content-Disposition', 'inline').header('X-Content-Type-Options', 'nosniff');
+		if (imageData.expiresAt) {
+			const maxAge = Math.max(0, Math.floor((imageData.expiresAt.getTime() - Date.now()) / 1000));
+			reply.header('Cache-Control', `public, max-age=${maxAge}`);
+		}
+
+		const buffer = Buffer.from(imageData.data, 'base64');
 		return reply.header('Content-Type', 'image/png').send(buffer);
 	});
 };

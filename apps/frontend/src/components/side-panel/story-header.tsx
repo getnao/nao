@@ -4,6 +4,7 @@ import {
 	ChevronLeft,
 	ChevronRight,
 	Code,
+	Copy,
 	Ellipsis,
 	Eye,
 	Globe,
@@ -26,6 +27,7 @@ import type { StoryRefreshFailure } from '@/components/story-page-header';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
 import { StoryDownload } from '@/components/story-download';
+import { useStoryCopy } from '@/hooks/use-story-copy';
 import { EditableStoryTitle } from '@/components/editable-story-title';
 import { Button } from '@/components/ui/button';
 import { trpc } from '@/main';
@@ -139,6 +141,19 @@ export const StoryHeader = memo(function StoryHeader({
 	const { data: persistedStories = [] } = useQuery({
 		...trpc.story.listStories.queryOptions({ chatId }),
 		enabled: !isReadonlyMode,
+	});
+	const {
+		canCopy,
+		copyStory,
+		isCopying,
+		error: copyError,
+	} = useStoryCopy({
+		chatId,
+		storySlug,
+		shareId: shareId ?? undefined,
+		shareType: shareType ?? undefined,
+		isOwner: !isReadonlyMode,
+		versionNumber,
 	});
 	const stories = useMemo(() => mergeStorySummaries(allStories, persistedStories), [allStories, persistedStories]);
 	const otherStories = useMemo(() => stories.filter((story) => story.id !== storySlug), [stories, storySlug]);
@@ -341,7 +356,7 @@ export const StoryHeader = memo(function StoryHeader({
 		</>
 	);
 
-	const actionButtons = !isReadonlyMode && (
+	const actionButtons = (!isReadonlyMode || canCopy) && (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
 				<Button variant='ghost' size='icon-sm' className='hover:rounded-full' aria-label='More actions'>
@@ -349,18 +364,37 @@ export const StoryHeader = memo(function StoryHeader({
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align='end' className='w-auto min-w-20'>
-				<DropdownMenuItem onSelect={onShare} disabled={isAgentRunning}>
-					{isShared ? <Globe className='text-primary' strokeWidth={2.25} /> : <Upload strokeWidth={2.25} />}
-					<span>Share</span>
-				</DropdownMenuItem>
-				<DropdownMenuItem onSelect={onOpenAnalytics}>
-					<ScanText className='size-3' />
-					<span>Analytics</span>
-				</DropdownMenuItem>
-				<DropdownMenuItem onSelect={onEnlarge}>
-					<Maximize2 strokeWidth={2.25} />
-					<span>Expand</span>
-				</DropdownMenuItem>
+				{!isReadonlyMode && (
+					<DropdownMenuItem onSelect={onShare} disabled={isAgentRunning}>
+						{isShared ? (
+							<Globe className='text-primary' strokeWidth={2.25} />
+						) : (
+							<Upload strokeWidth={2.25} />
+						)}
+						<span>Share</span>
+					</DropdownMenuItem>
+				)}
+				{canCopy && (
+					<DropdownMenuItem
+						onSelect={() => void copyStory()}
+						disabled={isAgentRunning || isSaving || isCopying}
+					>
+						<Copy strokeWidth={2.25} />
+						<span>Copy</span>
+					</DropdownMenuItem>
+				)}
+				{!isReadonlyMode && (
+					<DropdownMenuItem onSelect={onOpenAnalytics}>
+						<ScanText className='size-3' />
+						<span>Analytics</span>
+					</DropdownMenuItem>
+				)}
+				{!isReadonlyMode && (
+					<DropdownMenuItem onSelect={onEnlarge}>
+						<Maximize2 strokeWidth={2.25} />
+						<span>Expand</span>
+					</DropdownMenuItem>
+				)}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
@@ -414,6 +448,11 @@ export const StoryHeader = memo(function StoryHeader({
 				</div>
 			)}
 
+			{copyError && (
+				<p role='alert' className='border-b bg-destructive/10 px-4 py-2 text-xs text-destructive'>
+					{copyError}
+				</p>
+			)}
 			{lastRefreshFailure && <StoryRefreshFailureBanner failure={lastRefreshFailure} />}
 			{showSubHeader && (
 				<div className='flex items-center justify-between border-b bg-muted/40 px-4 py-2'>

@@ -4,6 +4,7 @@ import {
 	ChevronLeft,
 	ChevronRight,
 	Code,
+	Copy,
 	Ellipsis,
 	Eye,
 	Globe,
@@ -23,6 +24,7 @@ import type { StoryViewMode } from '@/components/side-panel/story-viewer.types';
 import { EditableStoryTitle } from '@/components/editable-story-title';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { StoryDownload } from '@/components/story-download';
+import { useStoryCopy } from '@/hooks/use-story-copy';
 import { Button } from '@/components/ui/button';
 import {
 	DropdownMenu,
@@ -121,6 +123,8 @@ export function StoryPageHeader({
 		'toggle-story-chat': onOpenChat && !isOpeningChat ? onOpenChat : undefined,
 	});
 
+	const { canCopy, copyStory, isCopying, error: copyError } = useStoryCopy(download ?? { isOwner: false });
+	const showCopy = !!download && canCopy;
 	return (
 		<div className='shrink-0'>
 			<header className='flex items-center gap-2 border-b bg-background px-4 py-2.5 md:px-6'>
@@ -175,7 +179,7 @@ export function StoryPageHeader({
 
 						{storyId && <FavoriteButton storyId={storyId} />}
 
-						{(onShare || onOpenAnalytics) && (
+						{(onShare || showCopy || onOpenAnalytics) && (
 							<DropdownMenu>
 								<DropdownMenuTrigger asChild>
 									<Button
@@ -198,6 +202,13 @@ export function StoryPageHeader({
 											<span>Share</span>
 										</DropdownMenuItem>
 									)}
+									{showCopy && (
+										<DropdownMenuItem onSelect={() => void copyStory()} disabled={isCopying}>
+											<Copy strokeWidth={2.25} />
+											<span>Copy</span>
+										</DropdownMenuItem>
+									)}
+
 									{onOpenAnalytics && (
 										<DropdownMenuItem onSelect={onOpenAnalytics}>
 											<ScanText className='size-3' />
@@ -211,6 +222,11 @@ export function StoryPageHeader({
 				</div>
 			</header>
 
+			{copyError && (
+				<p role='alert' className='border-b bg-destructive/10 px-4 py-2 text-xs text-destructive'>
+					{copyError}
+				</p>
+			)}
 			{live?.lastRefreshFailure && <StoryRefreshFailureBanner failure={live.lastRefreshFailure} />}
 			<StorySubHeader viewModeControls={viewModeControls} versionControls={versionControls} />
 		</div>

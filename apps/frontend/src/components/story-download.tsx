@@ -1,4 +1,4 @@
-import { Download, FileCode, FileText, Loader2 } from 'lucide-react';
+import { Download, FileCode, FileDown, FileText, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 
 import type { DownloadFormat } from '@nao/shared/types';
@@ -138,6 +138,9 @@ export function StoryDownload({ isAgentRunning, isSaving, iconOnly = false, ...d
 					</DropdownMenuItem>
 					<DropdownMenuItem onSelect={() => handleDownload('html')}>
 						<FileCode /> <span>HTML</span>
+					</DropdownMenuItem>
+					<DropdownMenuItem onSelect={() => handleDownload('markdown')}>
+						<FileDown /> <span>Markdown</span>
 					</DropdownMenuItem>
 				</DropdownMenuContent>
 			</DropdownMenu>

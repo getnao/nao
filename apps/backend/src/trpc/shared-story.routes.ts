@@ -352,6 +352,7 @@ export const sharedStoryRoutes = {
 				shareId: z.string(),
 				format: z.enum(DOWNLOAD_FORMATS),
 				versionNumber: z.number().int().positive().optional(),
+				clipboardChartUrls: z.boolean().optional(),
 			}),
 		)
 		.query(async ({ input, ctx }) => {
@@ -396,6 +397,7 @@ export const sharedStoryRoutes = {
 				version.code,
 				queryData,
 				displaySettings?.dateFormat,
+				{ clipboardChartUrls: input.clipboardChartUrls },
 			);
 		}),
 };
