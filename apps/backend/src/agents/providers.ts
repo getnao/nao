@@ -76,6 +76,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 							'execute_sandboxed_code',
 							'grep',
 							'list',
+							'parse_tableau_workbook',
 							'read',
 							'search',
 							'story',
