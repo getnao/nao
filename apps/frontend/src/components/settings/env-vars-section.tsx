@@ -68,7 +68,7 @@ export function EnvVarsSection({ isAdmin }: { isAdmin: boolean }) {
 	return (
 		<SettingsCard
 			title='Environment Variables'
-			description='Variables referenced in nao_config.yaml via {{ env("...") }}.'
+			description='Variables referenced in nao_config.yaml via {{ env("...") }} or in agent/mcps/mcp.json via ${...}.'
 			action={
 				isAdmin && hasChanges ? (
 					<Button size='sm' onClick={handleSave} disabled={updateMutation.isPending}>
