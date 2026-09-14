@@ -255,6 +255,10 @@ class RedshiftConfig(DatabaseConfig):
                 raise ValueError(
                     "aws_access_key_id and aws_secret_access_key must be provided together when auth_mode is 'iam'"
                 )
+            if self.aws_session_token and not self.aws_access_key_id:
+                raise ValueError(
+                    "aws_session_token requires aws_access_key_id and aws_secret_access_key to also be provided"
+                )
         return self
 
     @classmethod
