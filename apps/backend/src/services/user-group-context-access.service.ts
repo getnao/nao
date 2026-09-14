@@ -1,10 +1,17 @@
-import type { DocsContextAccess, UserGroupFeature } from '@nao/shared';
+import {
+	type DocsContextAccess,
+	resolveWarehouseRowSecurity,
+	type UserGroupFeature,
+	type WarehouseRowSecurity,
+} from '@nao/shared';
 import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
 
 import { getDatabaseContextCatalog } from '../agents/user-rules';
 import { getUserRoleInProject } from '../queries/project.queries';
+import { getProjectRowSecurity } from '../queries/user-group.queries';
 import { HandlerError } from '../utils/error';
 import { expandDatabaseAccess, type WarehouseTableAccess } from './context-access';
+import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { resolveAvailableUserGroupAccess } from './user-group-availability.service';
 
 export * from './context-access';
@@ -17,6 +24,7 @@ export async function resolveProjectContextAccess(
 	projectFolder: string,
 ): Promise<{
 	warehouseTableAccess: WarehouseTableAccess;
+	warehouseRowSecurity: WarehouseRowSecurity;
 	docsContextAccess: ResolvedDocsContextAccess;
 	userGroupFeatures: UserGroupFeature[];
 	userRulesGroupAccess: UserRulesGroupAccess;
@@ -25,12 +33,16 @@ export async function resolveProjectContextAccess(
 		throw new HandlerError('FORBIDDEN', 'You do not have access to this project.');
 	}
 
-	const [effectiveAccess, catalog] = await Promise.all([
+	const [effectiveAccess, catalog, rowSecurityLicensed] = await Promise.all([
 		resolveAvailableUserGroupAccess(projectId, userId),
 		Promise.resolve().then(() => getDatabaseContextCatalog(projectFolder)),
+		hasFeature(LICENSE_FEATURES.rowLevelSecurity),
 	]);
 	return {
 		warehouseTableAccess: expandDatabaseAccess(effectiveAccess.databaseAccess, catalog),
+		warehouseRowSecurity: rowSecurityLicensed
+			? resolveWarehouseRowSecurity(await getProjectRowSecurity(projectId), effectiveAccess.rowPolicies)
+			: { enforced: false },
 		docsContextAccess: { enforced: true, access: effectiveAccess.docsAccess },
 		userGroupFeatures: effectiveAccess.features,
 		userRulesGroupAccess: { enforced: true, groupNames: effectiveAccess.groupNames },

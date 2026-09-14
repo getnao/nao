@@ -8,6 +8,7 @@ import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { compactionService } from '../services/compaction';
+import { assertProjectStoredStoryDataAllowed, getAuthorizedStoredStoryQueryData } from '../services/live-story';
 import type { ForkMetadata, UIMessage, UIMessagePart } from '../types/chat';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { buildQueryDataParts, pinStoryMessageToChat } from '../utils/chat-message-story';
@@ -50,6 +51,7 @@ export const chatForkRoutes = {
 				return { chatId: story.chatId };
 			}
 
+			await assertProjectStoredStoryDataAllowed(ctx.project.id, ctx.user.id);
 			const cache = await storyQueries.getStoryDataCacheByStoryId(story.id);
 			const seedMessages = cache?.queryData
 				? buildQueryDataMessages(cache.queryData as Record<string, { data: unknown[]; columns: string[] }>)
@@ -99,6 +101,7 @@ async function forkSharedChat(
 	userId: string,
 ): Promise<{ chatId: string }> {
 	const share = await resolveSharedChat(shareId, userId);
+	await assertProjectStoredStoryDataAllowed(share.projectId, userId);
 
 	const forkMetadata: ForkMetadata = selection
 		? buildSelectionMetadata('chat_selection', shareId, share.title, share.authorName, selection)
@@ -143,7 +146,7 @@ async function forkSharedStoryItem(
 	if (selection) {
 		const [rawMessages, queryData] = await Promise.all([
 			chatQueries.getChatMessages(share.chatId!),
-			sharedStoryQueries.getQueryDataFromCode(share.chatId!, share.code),
+			getAuthorizedStoredStoryQueryData(share.chatId!, share.code, userId),
 		]);
 		const seededMessages = compactionService.useLastCompaction(rawMessages);
 		const messages = [
@@ -163,7 +166,7 @@ async function forkSharedStoryItem(
 	}
 
 	await assertUserGroupFeatureForTrpc(projectId, userId, 'story-creation');
-	const queryData = await sharedStoryQueries.getQueryDataFromCode(share.chatId!, share.code);
+	const queryData = await getAuthorizedStoredStoryQueryData(share.chatId!, share.code, userId);
 	const messages = buildQueryDataMessages(queryData);
 
 	const chat = await chatQueries.createForkedChat({ projectId, userId, title: share.title, forkMetadata }, messages);

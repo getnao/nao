@@ -229,6 +229,7 @@ async function _buildContextBase(opts: {
 		agentSettings,
 		envVars,
 		warehouseTableAccess: contextAccess.warehouseTableAccess,
+		warehouseRowSecurity: contextAccess.warehouseRowSecurity,
 		docsContextAccess: contextAccess.docsContextAccess,
 		userGroupFeatures: contextAccess.userGroupFeatures,
 		userRulesGroupAccess: contextAccess.userRulesGroupAccess,

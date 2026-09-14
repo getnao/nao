@@ -9,7 +9,12 @@ import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { logActivity } from '../services/activity';
-import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
+import {
+	executeLiveQuery,
+	getAuthorizedStoredStoryQueryData,
+	getStoryQueryData,
+	refreshStoryData,
+} from '../services/live-story';
 import {
 	assertStoryFiltersEnabled,
 	getFilteredStoryQueryData,
@@ -183,7 +188,7 @@ export const sharedStoryRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story version not found.' });
 			}
 
-			const queryData = await sharedStoryQueries.getQueryDataFromCode(shared.chatId, version.code);
+			const queryData = await getAuthorizedStoredStoryQueryData(shared.chatId, version.code, ctx.user.id);
 			return { queryData };
 		}),
 

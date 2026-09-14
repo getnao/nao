@@ -82,7 +82,10 @@ async function refreshStoryDataWithContext(
 		? (existingExecutionContext ?? (await createStoryExecutionContext(chatId, principalUserId)))
 		: null;
 	const principalSpecific = hasPrincipalSpecificCredentials(executionContext);
-	if (executionContext?.toolContext.warehouseTableAccess.enforced) {
+	if (
+		executionContext?.toolContext.warehouseTableAccess.enforced ||
+		executionContext?.toolContext.warehouseRowSecurity?.enforced
+	) {
 		assertAllStoryQueriesResolved(version.code, sqlQueries);
 	}
 	if (Object.keys(sqlQueries).length === 0) {
@@ -142,6 +145,7 @@ export interface StoryQueryDataResult {
 	queryData: Record<string, { data: unknown[]; columns: string[] }> | null;
 	cachedAt: Date | null;
 	code: string;
+	allowsPersistedFallback?: boolean;
 }
 
 export async function getAuthorizedStoredStoryQueryData(
@@ -155,9 +159,15 @@ export async function getAuthorizedStoredStoryQueryData(
 		: null;
 
 	if (hasPrincipalSpecificCredentials(executionContext)) {
+		if (executionContext?.toolContext.warehouseRowSecurity?.enforced) {
+			return executePrincipalStoryQueries(code, sqlQueries, executionContext);
+		}
 		throw new Error('Stored Story data is unavailable with principal-specific credentials.');
 	}
-	if (executionContext?.toolContext.warehouseTableAccess.enforced) {
+	if (
+		executionContext?.toolContext.warehouseTableAccess.enforced ||
+		executionContext?.toolContext.warehouseRowSecurity?.enforced
+	) {
 		assertAllStoryQueriesResolved(code, sqlQueries);
 		await validateWarehouseSources(sqlQueries, executionContext);
 	}
@@ -173,18 +183,35 @@ export async function getStoryQueryData(
 	cacheSchedule: string | null,
 	principalUserId: string,
 ): Promise<StoryQueryDataResult> {
-	if (!isLive) {
-		return { queryData: await getQueryDataFromCode(chatId, code), cachedAt: null, code };
-	}
-
 	const sqlQueries = await storyQueries.getSqlQueriesFromCode(chatId, code);
 	const executionContext = requiresStoryExecutionContext(code, sqlQueries)
 		? await createStoryExecutionContext(chatId, principalUserId)
 		: null;
 	const principalSpecific = hasPrincipalSpecificCredentials(executionContext);
+	if (!isLive) {
+		if (executionContext?.toolContext.warehouseRowSecurity?.enforced) {
+			return {
+				queryData: await executePrincipalStoryQueries(code, sqlQueries, executionContext),
+				cachedAt: null,
+				code,
+			};
+		}
+		if (principalSpecific) {
+			throw new Error('Stored Story data is unavailable with principal-specific credentials.');
+		}
+		return {
+			queryData: await getQueryDataFromCode(chatId, code),
+			cachedAt: null,
+			code,
+			allowsPersistedFallback: true,
+		};
+	}
 	const loadedCache = principalSpecific ? null : await storyQueries.getStoryDataCacheByChatAndSlug(chatId, slug);
 	const cache = loadedCache && isCacheSafeToShare(code, loadedCache, sqlQueries) ? loadedCache : null;
-	const enforced = executionContext?.toolContext.warehouseTableAccess.enforced ?? false;
+	const enforced =
+		(executionContext?.toolContext.warehouseTableAccess.enforced ||
+			executionContext?.toolContext.warehouseRowSecurity?.enforced) ??
+		false;
 	const allQueriesResolved = areAllStoryQueriesResolved(code, sqlQueries);
 	if (enforced && !allQueriesResolved) {
 		throw new Error('Live Story query sources could not be resolved.');
@@ -228,7 +255,11 @@ export async function getStoryQueryData(
 		if (enforced) {
 			throw error;
 		}
-		return { queryData: await getQueryDataFromCode(chatId, code), cachedAt: null, code };
+		return {
+			queryData: await getQueryDataFromCode(chatId, code),
+			cachedAt: null,
+			code,
+		};
 	}
 }
 
@@ -346,8 +377,47 @@ export interface StoryExecutionContext {
 	enforceExcludedColumns: boolean;
 }
 
+export async function assertProjectStoredStoryDataAllowed(projectId: string, principalUserId: string): Promise<void> {
+	const context = await buildMcpToolContext({ projectId, userId: principalUserId });
+	if (context.warehouseRowSecurity?.enforced || context.azureAccessToken) {
+		throw new Error('Stored Story data cannot be safely resolved for this principal.');
+	}
+}
+
 function hasPrincipalSpecificCredentials(executionContext: StoryExecutionContext | null): boolean {
-	return Boolean(executionContext?.toolContext.azureAccessToken);
+	return Boolean(
+		executionContext?.toolContext.azureAccessToken || executionContext?.toolContext.warehouseRowSecurity?.enforced,
+	);
+}
+
+async function executePrincipalStoryQueries(
+	code: string,
+	sqlQueries: StorySqlQueries,
+	executionContext: StoryExecutionContext,
+): Promise<Record<string, { data: unknown[]; columns: string[] }> | null> {
+	assertAllStoryQueriesResolved(code, sqlQueries);
+	const queryData: Record<string, { data: unknown[]; columns: string[] }> = {};
+	await Promise.all(
+		Object.entries(sqlQueries).map(async ([queryId, query]) => {
+			if (query.adminMode) {
+				queryData[queryId] = await executeAppDatabaseSql(
+					executionContext.toolContext.projectId,
+					stripSqlFilterBlocks(query.sqlQuery),
+				);
+				return;
+			}
+			if (query.databaseId === LOCAL_DATABASE_ID) {
+				throw new Error(
+					'Stored Story data using local query results cannot be safely resolved with row-level security.',
+				);
+			}
+			queryData[queryId] = await executeRawSql(stripSqlFilterBlocks(query.sqlQuery), {
+				executionContext,
+				databaseId: query.databaseId,
+			});
+		}),
+	);
+	return selectCurrentQueryData(code, queryData);
 }
 
 interface RawSqlExecutionOptions {
@@ -367,6 +437,7 @@ export async function executeRawSql(
 		azureAccessToken: context.azureAccessToken,
 		enforceExcludedColumns: options.executionContext.enforceExcludedColumns,
 		tableAccess: context.warehouseTableAccess,
+		rowSecurity: context.warehouseRowSecurity ?? { enforced: false },
 	});
 	return { data: data.data, columns: data.columns };
 }
@@ -399,6 +470,7 @@ async function validateWarehouseSources(
 					azureAccessToken: context.azureAccessToken,
 					enforceExcludedColumns: executionContext.enforceExcludedColumns,
 					tableAccess: context.warehouseTableAccess,
+					rowSecurity: context.warehouseRowSecurity ?? { enforced: false },
 				}),
 			),
 	);

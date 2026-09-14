@@ -42,6 +42,7 @@ export interface DatabaseContextObject {
 	database: string;
 	schema: string;
 	table: string;
+	columns?: string[];
 }
 
 interface UserGroupContextAccessProps {
@@ -373,7 +374,7 @@ function DatabaseContextTree({
 	);
 }
 
-interface GroupedDatabase {
+export interface GroupedDatabase {
 	kind: 'database';
 	key: string;
 	databaseType: string;
@@ -381,7 +382,7 @@ interface GroupedDatabase {
 	schemas: GroupedSchema[];
 }
 
-interface GroupedSchema {
+export interface GroupedSchema {
 	kind: 'schema';
 	key: string;
 	databaseType: string;
@@ -804,7 +805,7 @@ function hasDatabaseContextGrant(access: DatabaseContextAccess, grantToFind: Dat
 	);
 }
 
-function groupDatabaseContextObjects(objects: DatabaseContextObject[]) {
+export function groupDatabaseContextObjects(objects: DatabaseContextObject[]): GroupedDatabase[] {
 	const databases = new Map<
 		string,
 		{

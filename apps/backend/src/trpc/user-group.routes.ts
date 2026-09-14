@@ -7,9 +7,12 @@ import {
 	normalizeDatabaseContextAccess,
 	normalizeDocsContextAccess,
 	normalizeDocsContextPath,
+	normalizeProjectRowSecurity,
+	normalizeUserGroupRowPolicies,
 	normalizeUserGroupSsoMappings,
 	TOOL_CALL_DENSITIES,
 	USER_GROUP_FEATURES,
+	type UserGroupRowPolicies,
 } from '@nao/shared';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
@@ -21,6 +24,7 @@ import { getDocsContextCatalog } from '../services/docs-context-catalog.service'
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { assertUserGroupManageable, getAvailableUserGroupOverview } from '../services/user-group-availability.service';
 import { getEffectiveUserGroupAccess } from '../services/user-group-feature-access.service';
+import { validateWarehouseRowPredicate } from '../services/warehouse-sql.service';
 import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
 
 const groupNameSchema = z.string().trim().min(1, 'Group name is required.').max(80, 'Group name is too long.');
@@ -89,6 +93,39 @@ const ssoMappingsSchema = z
 			.strict(),
 	})
 	.strict();
+const rowTableIdentitySchema = z.object({
+	databaseType: contextNameSchema,
+	database: contextNameSchema,
+	schema: contextNameSchema,
+	table: contextNameSchema,
+});
+const projectRowSecuritySchema = z
+	.object({
+		version: z.literal(1),
+		tables: z
+			.array(
+				rowTableIdentitySchema
+					.extend({ constraintColumns: z.array(contextNameSchema).min(1).max(500) })
+					.strict(),
+			)
+			.max(10_000),
+	})
+	.strict();
+const userGroupRowPoliciesSchema = z
+	.object({
+		version: z.literal(1),
+		policies: z
+			.array(
+				z.discriminatedUnion('access', [
+					rowTableIdentitySchema.extend({ access: z.literal('full') }).strict(),
+					rowTableIdentitySchema
+						.extend({ access: z.literal('predicate'), predicate: z.string().trim().min(1).max(10_000) })
+						.strict(),
+				]),
+			)
+			.max(10_000),
+	})
+	.strict();
 
 export const userGroupRoutes = {
 	effectiveAccess: projectProtectedProcedure.query(async ({ ctx }) => {
@@ -118,6 +155,17 @@ export const userGroupRoutes = {
 		return getDatabaseContextCatalog(ctx.project.path);
 	}),
 
+	rowSecurity: adminProtectedProcedure.query(async ({ ctx }) => {
+		return handleQuery(() => userGroupQueries.getProjectRowSecurity(ctx.project.id));
+	}),
+
+	updateRowSecurity: adminProtectedProcedure.input(projectRowSecuritySchema).mutation(async ({ ctx, input }) => {
+		await assertRowSecurityLicensed();
+		const rowSecurity = normalizeProjectRowSecurity(input);
+		await validateProjectRowSecurityCatalog(requireProjectPath(ctx.project.path), rowSecurity);
+		return handleQuery(() => userGroupQueries.updateProjectRowSecurity(ctx.project.id, rowSecurity));
+	}),
+
 	docsContextCatalog: adminProtectedProcedure.query(async ({ ctx }) => {
 		return getDocsContextCatalog(requireProjectPath(ctx.project.path));
 	}),
@@ -131,12 +179,21 @@ export const userGroupRoutes = {
 				databaseAccess: databaseAccessSchema.default(EMPTY_DATABASE_CONTEXT_ACCESS),
 				docsAccess: docsAccessSchema.default(EMPTY_DOCS_CONTEXT_ACCESS),
 				ssoMappings: ssoMappingsSchema.optional(),
+				rowPolicies: userGroupRowPoliciesSchema.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
 			await assertCanCreateCustomUserGroup(ctx.project.id);
 			const databaseAccess = normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess = normalizeDocsContextAccess(input.docsAccess);
+			let rowPolicies: UserGroupRowPolicies | undefined;
+			if (input.rowPolicies !== undefined) {
+				await assertRowSecurityLicensed();
+				rowPolicies = await validateGroupRowPolicies(
+					ctx.project.id,
+					normalizeUserGroupRowPolicies(input.rowPolicies),
+				);
+			}
 			return handleQuery(() => {
 				const values = [
 					ctx.project.id,
@@ -146,6 +203,13 @@ export const userGroupRoutes = {
 					databaseAccess,
 					docsAccess,
 				] as const;
+				if (rowPolicies !== undefined) {
+					return userGroupQueries.createUserGroup(
+						...values,
+						input.ssoMappings === undefined ? undefined : normalizeUserGroupSsoMappings(input.ssoMappings),
+						rowPolicies,
+					);
+				}
 				return input.ssoMappings === undefined
 					? userGroupQueries.createUserGroup(...values)
 					: userGroupQueries.createUserGroup(...values, normalizeUserGroupSsoMappings(input.ssoMappings));
@@ -162,6 +226,7 @@ export const userGroupRoutes = {
 				databaseAccess: databaseAccessSchema.optional(),
 				docsAccess: docsAccessSchema.optional(),
 				ssoMappings: ssoMappingsSchema.optional(),
+				rowPolicies: userGroupRowPoliciesSchema.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -170,6 +235,14 @@ export const userGroupRoutes = {
 				input.databaseAccess === undefined ? undefined : normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess =
 				input.docsAccess === undefined ? undefined : normalizeDocsContextAccess(input.docsAccess);
+			let rowPolicies: UserGroupRowPolicies | undefined;
+			if (input.rowPolicies !== undefined) {
+				await assertRowSecurityLicensed();
+				rowPolicies = await validateGroupRowPolicies(
+					ctx.project.id,
+					normalizeUserGroupRowPolicies(input.rowPolicies),
+				);
+			}
 			return handleQuery(() =>
 				userGroupQueries.updateUserGroup(ctx.project.id, input.groupId, {
 					name: input.name,
@@ -180,6 +253,7 @@ export const userGroupRoutes = {
 					...(input.ssoMappings === undefined
 						? {}
 						: { ssoMappings: normalizeUserGroupSsoMappings(input.ssoMappings) }),
+					...(rowPolicies === undefined ? {} : { rowPolicies }),
 				}),
 			);
 		}),
@@ -215,6 +289,83 @@ async function assertCanCreateCustomUserGroup(projectId: string): Promise<void> 
 			message: `Free projects can create up to ${FREE_CUSTOM_USER_GROUP_LIMIT} custom user groups. Enterprise enables unlimited groups.`,
 		});
 	}
+}
+
+async function assertRowSecurityLicensed(): Promise<void> {
+	if (!(await hasFeature(LICENSE_FEATURES.rowLevelSecurity))) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Row-level security requires an Enterprise license.' });
+	}
+}
+
+async function validateProjectRowSecurityCatalog(
+	projectPath: string,
+	rowSecurity: ReturnType<typeof normalizeProjectRowSecurity>,
+): Promise<void> {
+	const catalog = getDatabaseContextCatalog(projectPath);
+	for (const table of rowSecurity.tables) {
+		const catalogTable = catalog.objects.find(
+			(candidate) =>
+				candidate.databaseType === table.databaseType &&
+				candidate.database === table.database &&
+				candidate.schema === table.schema &&
+				candidate.table === table.table,
+		);
+		if (catalogTable && table.constraintColumns.some((column) => !catalogTable.columns.includes(column))) {
+			throw new TRPCError({
+				code: 'BAD_REQUEST',
+				message: `Invalid constraint column for ${table.schema}.${table.table}.`,
+			});
+		}
+	}
+}
+
+async function validateGroupRowPolicies(
+	projectId: string,
+	rowPolicies: ReturnType<typeof normalizeUserGroupRowPolicies>,
+): Promise<ReturnType<typeof normalizeUserGroupRowPolicies>> {
+	const registry = await userGroupQueries.getProjectRowSecurity(projectId);
+	const registered = new Map(
+		registry.tables.map((table) => [
+			[table.databaseType, table.database, table.schema, table.table].join('\0'),
+			table,
+		]),
+	);
+	if (
+		rowPolicies.policies.some(
+			(policy) => !registered.has([policy.databaseType, policy.database, policy.schema, policy.table].join('\0')),
+		)
+	) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: 'A row policy references a table outside the project registry.',
+		});
+	}
+	const policies = await Promise.all(
+		rowPolicies.policies.map(async (policy) => {
+			if (policy.access === 'full') {
+				return policy;
+			}
+			const table = registered.get(
+				[policy.databaseType, policy.database, policy.schema, policy.table].join('\0'),
+			)!;
+			try {
+				return {
+					...policy,
+					predicate: await validateWarehouseRowPredicate(
+						policy.predicate,
+						table.constraintColumns,
+						table.databaseType,
+					),
+				};
+			} catch (error) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: error instanceof Error ? error.message : 'Invalid row predicate.',
+				});
+			}
+		}),
+	);
+	return normalizeUserGroupRowPolicies({ version: 1, policies });
 }
 
 async function handleQuery<T>(operation: () => Promise<T>): Promise<T> {

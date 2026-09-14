@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
 	getChatMessages: vi.fn(),
 	getStoryByIdForUser: vi.fn(),
 	getQueryDataFromCode: vi.fn(),
+	getAuthorizedStoredStoryQueryData: vi.fn(),
 	getSharedStory: vi.fn(),
 	resolveEffectiveUserGroupAccess: vi.fn(),
 }));
@@ -31,6 +32,10 @@ vi.mock('../src/queries/story.queries', () => ({
 vi.mock('../src/queries/story-folder.queries', () => ({}));
 vi.mock('../src/services/compaction', () => ({
 	compactionService: { useLastCompaction: (messages: unknown[]) => messages },
+}));
+vi.mock('../src/services/live-story', () => ({
+	assertProjectStoredStoryDataAllowed: vi.fn(),
+	getAuthorizedStoredStoryQueryData: mocks.getAuthorizedStoredStoryQueryData,
 }));
 vi.mock('../src/services/user-group-availability.service', () => ({
 	resolveAvailableUserGroupAccess: mocks.resolveEffectiveUserGroupAccess,
@@ -69,6 +74,7 @@ describe('chat fork Story creation permission', () => {
 		});
 		mocks.getChatMessages.mockResolvedValue([]);
 		mocks.getQueryDataFromCode.mockResolvedValue({});
+		mocks.getAuthorizedStoredStoryQueryData.mockResolvedValue({});
 		mocks.createForkedChat.mockResolvedValue({ id: 'fork-chat-id' });
 		mocks.getStoryByIdForUser.mockResolvedValue({
 			id: 'story-id',

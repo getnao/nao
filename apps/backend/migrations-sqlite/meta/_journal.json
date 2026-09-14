@@ -477,6 +477,13 @@
       "when": 1788964021061,
       "tag": "0067_user_group_sso_mapping",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "6",
+      "when": 1789382724129,
+      "tag": "0068_row_level_security",
+      "breakpoints": true
     }
   ]
 }

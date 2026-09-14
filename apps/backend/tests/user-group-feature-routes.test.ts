@@ -98,6 +98,7 @@ vi.mock('../src/queries/story-folder.queries', () => ({
 vi.mock('../src/services/activity', () => ({ logActivity: mocks.logActivity }));
 vi.mock('../src/services/agent', () => ({ agentService: { get: vi.fn() } }));
 vi.mock('../src/services/live-story', () => ({
+	assertProjectStoredStoryDataAllowed: vi.fn(),
 	executeLiveQuery: vi.fn(),
 	getAuthorizedStoredStoryQueryData: mocks.getAuthorizedStoredStoryQueryData,
 	getStoryQueryData: mocks.getStoryQueryData,

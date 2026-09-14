@@ -8,8 +8,10 @@ import {
 	type StoredDatabaseContextAccess,
 	type StoredLegacyDatabaseContextAccessV1,
 	type StoredLegacyDatabaseContextAccessV2,
+	type StoredProjectRowSecurity,
 	type StoredUserGroupConfig,
 	type StoredUserGroupContextAccess,
+	type StoredUserGroupRowPolicies,
 	type StoredUserGroupSsoMappings,
 } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
@@ -226,6 +228,7 @@ export const project = pgTable(
 		displaySettings: jsonb('display_settings').$type<DisplaySettings>(),
 		mapSettings: jsonb('map_settings').$type<MapSettings>(),
 		defaultModels: jsonb('default_models').$type<BackgroundModelSettings>(),
+		rowSecurity: jsonb('row_security').$type<StoredProjectRowSecurity>(),
 
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
@@ -450,6 +453,7 @@ export const userGroup = pgTable(
 			| StoredUserGroupContextAccess
 		>(),
 		ssoMappings: jsonb('sso_mappings').$type<StoredUserGroupSsoMappings>(),
+		rowPolicies: jsonb('row_policies').$type<StoredUserGroupRowPolicies>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()

@@ -4,17 +4,24 @@ import {
 	type DocsContextAccess,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
+	EMPTY_USER_GROUP_ROW_POLICIES,
+	parseStoredProjectRowSecurity,
 	parseStoredUserGroupConfig,
 	parseStoredUserGroupContextAccess,
+	parseStoredUserGroupRowPolicies,
 	parseStoredUserGroupSsoMappings,
+	type ProjectRowSecurity,
+	serializeProjectRowSecurity,
 	serializeUserGroupConfig,
 	serializeUserGroupContextAccess,
+	serializeUserGroupRowPolicies,
 	serializeUserGroupSsoMappings,
 	type ToolCallDensityPolicy,
 	unionDatabaseContextAccess,
 	unionDocsContextAccess,
 	USER_GROUP_FEATURES,
 	type UserGroupFeature,
+	type UserGroupRowPolicies,
 	type UserGroupSsoMappings,
 } from '@nao/shared';
 import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
@@ -22,6 +29,7 @@ import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
 import type { DBUserGroup } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
+import dbConfig, { Dialect } from '../db/dbConfig';
 import {
 	listUsersWithProjectAccess,
 	listUsersWithProjectAccessDetails,
@@ -31,12 +39,16 @@ import {
 const USER_GROUP_NAME_CONFLICT_MESSAGE = 'A user group with this name already exists.';
 const USER_GROUP_NAME_UNIQUE_CONSTRAINT = 'user_group_project_name_unique';
 
-export interface UserGroup extends Omit<DBUserGroup, 'contextGrants' | 'featureGrants' | 'ssoMappings'> {
+export interface UserGroup extends Omit<
+	DBUserGroup,
+	'contextGrants' | 'featureGrants' | 'rowPolicies' | 'ssoMappings'
+> {
 	featureGrants: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
 	ssoMappings: UserGroupSsoMappings;
+	rowPolicies: UserGroupRowPolicies;
 }
 
 export interface UserGroupOverview {
@@ -52,6 +64,7 @@ export interface EffectiveUserGroupAccess {
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
+	rowPolicies: UserGroupRowPolicies[];
 }
 
 export class UserGroupQueryError extends Error {
@@ -153,7 +166,34 @@ export const resolveEffectiveUserGroupAccess = async (
 		},
 		databaseAccess: unionDatabaseContextAccess(applicableGroups.map((group) => group.contextAccess.databaseAccess)),
 		docsAccess: unionDocsContextAccess(applicableGroups.map((group) => group.contextAccess.docsAccess)),
+		rowPolicies: applicableGroups.map((group) => parseStoredUserGroupRowPolicies(group.rowPolicies)),
 	};
+};
+
+export const getProjectRowSecurity = async (projectId: string): Promise<ProjectRowSecurity> => {
+	const [project] = await db
+		.select({ rowSecurity: s.project.rowSecurity })
+		.from(s.project)
+		.where(eq(s.project.id, projectId))
+		.limit(1)
+		.execute();
+	if (!project) {
+		throw new UserGroupQueryError('NOT_FOUND', 'Project not found.');
+	}
+	return parseStoredProjectRowSecurity(project.rowSecurity);
+};
+
+export const updateProjectRowSecurity = async (
+	projectId: string,
+	rowSecurity: ProjectRowSecurity,
+): Promise<ProjectRowSecurity> => {
+	const normalized = serializeProjectRowSecurity(rowSecurity);
+	if (dbConfig.dialect === Dialect.Postgres) {
+		await db.transaction((transaction) => updatePostgresProjectRowSecurity(transaction, projectId, normalized));
+	} else {
+		db.transaction((transaction) => updateSqliteProjectRowSecurity(transaction, projectId, normalized));
+	}
+	return normalized;
 };
 
 export const listUserGroups = async (projectId: string): Promise<UserGroup[]> =>
@@ -182,6 +222,7 @@ export const createUserGroup = async (
 	databaseAccess: DatabaseContextAccess = EMPTY_DATABASE_CONTEXT_ACCESS,
 	docsAccess: DocsContextAccess = EMPTY_DOCS_CONTEXT_ACCESS,
 	ssoMappings?: UserGroupSsoMappings,
+	rowPolicies: UserGroupRowPolicies = EMPTY_USER_GROUP_ROW_POLICIES,
 ): Promise<UserGroup> => {
 	await assertNameAvailable(projectId, name);
 	const [group] = await executeUserGroupNameMutation(() =>
@@ -193,6 +234,7 @@ export const createUserGroup = async (
 				featureGrants: serializeUserGroupConfig(featureGrants, toolCallDensityPolicy),
 				contextGrants: serializeUserGroupContextAccess(databaseAccess, docsAccess),
 				ssoMappings: serializeUserGroupSsoMappings(ssoMappings),
+				rowPolicies: serializeUserGroupRowPolicies(rowPolicies),
 				isDefault: false,
 			})
 			.returning()
@@ -211,6 +253,7 @@ export const updateUserGroup = async (
 		databaseAccess?: DatabaseContextAccess;
 		docsAccess?: DocsContextAccess;
 		ssoMappings?: UserGroupSsoMappings;
+		rowPolicies?: UserGroupRowPolicies;
 	},
 ): Promise<UserGroup> => {
 	const group = await getUserGroup(projectId, groupId);
@@ -251,6 +294,9 @@ export const updateUserGroup = async (
 				...(data.ssoMappings === undefined
 					? {}
 					: { ssoMappings: serializeUserGroupSsoMappings(data.ssoMappings) }),
+				...(data.rowPolicies === undefined
+					? {}
+					: { rowPolicies: serializeUserGroupRowPolicies(data.rowPolicies) }),
 				updatedAt: new Date(),
 			})
 			.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
@@ -409,7 +455,7 @@ function isUserGroupNameUniqueViolation(error: unknown): boolean {
 }
 
 function normalizeUserGroup(group: DBUserGroup): UserGroup {
-	const { contextGrants, featureGrants, ...storedGroup } = group;
+	const { contextGrants, featureGrants, rowPolicies, ...storedGroup } = group;
 	const config = parseStoredUserGroupConfig(featureGrants);
 	const contextAccess = parseStoredUserGroupContextAccess(contextGrants, group.isDefault);
 	return {
@@ -419,7 +465,98 @@ function normalizeUserGroup(group: DBUserGroup): UserGroup {
 		databaseAccess: contextAccess.databaseAccess,
 		docsAccess: contextAccess.docsAccess,
 		ssoMappings: parseStoredUserGroupSsoMappings(group.ssoMappings),
+		rowPolicies: parseStoredUserGroupRowPolicies(rowPolicies),
 	};
+}
+
+function rowSecurityIdentityKey(identity: {
+	databaseType: string;
+	database: string;
+	schema: string;
+	table: string;
+}): string {
+	return [identity.databaseType, identity.database, identity.schema, identity.table].join('\0');
+}
+
+async function updatePostgresProjectRowSecurity(
+	transaction: DBExecutor,
+	projectId: string,
+	rowSecurity: ProjectRowSecurity,
+): Promise<void> {
+	const [project] = await transaction
+		.select({ id: s.project.id })
+		.from(s.project)
+		.where(eq(s.project.id, projectId))
+		.limit(1)
+		.execute();
+	assertProjectExists(project);
+	const registeredTableKeys = new Set(rowSecurity.tables.map(rowSecurityIdentityKey));
+	const groups = await transaction
+		.select({ id: s.userGroup.id, rowPolicies: s.userGroup.rowPolicies })
+		.from(s.userGroup)
+		.where(eq(s.userGroup.projectId, projectId))
+		.execute();
+	for (const group of groups) {
+		const rowPolicies = pruneRemovedTablePolicies(group.rowPolicies, registeredTableKeys);
+		if (rowPolicies) {
+			await transaction
+				.update(s.userGroup)
+				.set({ rowPolicies, updatedAt: new Date() })
+				.where(eq(s.userGroup.id, group.id))
+				.execute();
+		}
+	}
+	await transaction
+		.update(s.project)
+		.set({ rowSecurity, updatedAt: new Date() })
+		.where(eq(s.project.id, projectId))
+		.execute();
+}
+
+function updateSqliteProjectRowSecurity(
+	transaction: DBExecutor,
+	projectId: string,
+	rowSecurity: ProjectRowSecurity,
+): void {
+	const [project] = transaction
+		.select({ id: s.project.id })
+		.from(s.project)
+		.where(eq(s.project.id, projectId))
+		.limit(1)
+		.all();
+	assertProjectExists(project);
+	const registeredTableKeys = new Set(rowSecurity.tables.map(rowSecurityIdentityKey));
+	const groups = transaction
+		.select({ id: s.userGroup.id, rowPolicies: s.userGroup.rowPolicies })
+		.from(s.userGroup)
+		.where(eq(s.userGroup.projectId, projectId))
+		.all();
+	for (const group of groups) {
+		const rowPolicies = pruneRemovedTablePolicies(group.rowPolicies, registeredTableKeys);
+		if (rowPolicies) {
+			transaction
+				.update(s.userGroup)
+				.set({ rowPolicies, updatedAt: new Date() })
+				.where(eq(s.userGroup.id, group.id))
+				.run();
+		}
+	}
+	transaction.update(s.project).set({ rowSecurity, updatedAt: new Date() }).where(eq(s.project.id, projectId)).run();
+}
+
+function pruneRemovedTablePolicies(
+	storedPolicies: DBUserGroup['rowPolicies'],
+	registeredTableKeys: ReadonlySet<string>,
+): UserGroupRowPolicies | null {
+	const current = parseStoredUserGroupRowPolicies(storedPolicies);
+	const policies = current.policies.filter((policy) => registeredTableKeys.has(rowSecurityIdentityKey(policy)));
+	return policies.length === current.policies.length ? null : serializeUserGroupRowPolicies({ version: 1, policies });
+}
+
+function assertProjectExists(project: { id: string } | undefined): asserts project is { id: string } {
+	if (!project) {
+		throw new UserGroupQueryError('NOT_FOUND', 'Project not found.');
+	}
 }
 
 function deduplicateMemberships(

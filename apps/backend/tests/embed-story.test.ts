@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
 	getStoryOwnerId: vi.fn(),
 	getDisplaySettings: vi.fn(),
 	getStoryQueryData: vi.fn(),
+	assertProjectStoredStoryDataAllowed: vi.fn(),
 	backfillMissingQueryDataForSandbox: vi.fn(),
 }));
 
@@ -25,6 +26,7 @@ vi.mock('../src/queries/project.queries', () => ({
 }));
 vi.mock('../src/services/live-story', () => ({
 	getStoryQueryData: mocks.getStoryQueryData,
+	assertProjectStoredStoryDataAllowed: mocks.assertProjectStoredStoryDataAllowed,
 }));
 vi.mock('../src/utils/story-query-data', () => ({
 	backfillMissingQueryDataForSandbox: mocks.backfillMissingQueryDataForSandbox,
@@ -44,7 +46,7 @@ describe('embedded Story query data', () => {
 		mocks.getDisplaySettings.mockResolvedValue({ dateFormat: null });
 	});
 
-	it('keeps static embeds on persisted query data', async () => {
+	it('resolves static embeds as the Story owner', async () => {
 		mocks.getLatestVersionByStoryId.mockResolvedValue({
 			storyId: 'story-1',
 			chatId: 'chat-1',
@@ -53,15 +55,25 @@ describe('embedded Story query data', () => {
 			code: '<table query_id="query_orders" />',
 			isLive: false,
 		});
-		mocks.backfillMissingQueryDataForSandbox.mockResolvedValue({
-			query_orders: { columns: ['id'], data: [{ id: 1 }] },
+		mocks.getStoryOwnerId.mockResolvedValue('owner-1');
+		mocks.getStoryQueryData.mockResolvedValue({
+			queryData: { query_orders: { columns: ['id'], data: [{ id: 1 }] } },
+			cachedAt: null,
+			code: '<table query_id="query_orders" />',
 		});
 
 		await expect(loadEmbedStoryContent('story-1', 'token')).resolves.toMatchObject({
 			queryData: { query_orders: { columns: ['id'], data: [{ id: 1 }] } },
 		});
-		expect(mocks.getStoryOwnerId).not.toHaveBeenCalled();
-		expect(mocks.getStoryQueryData).not.toHaveBeenCalled();
+		expect(mocks.getStoryQueryData).toHaveBeenCalledWith(
+			'chat-1',
+			'orders',
+			'<table query_id="query_orders" />',
+			false,
+			undefined,
+			'owner-1',
+		);
+		expect(mocks.backfillMissingQueryDataForSandbox).not.toHaveBeenCalled();
 	});
 
 	it('executes live embeds as the Story owner', async () => {

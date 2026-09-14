@@ -1,4 +1,4 @@
-import type { UserGroupFeature } from '@nao/shared';
+import type { UserGroupFeature, WarehouseRowSecurity } from '@nao/shared';
 import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
 import type { displayChart, displayMap } from '@nao/shared/tools';
 
@@ -27,6 +27,7 @@ export interface ToolContext {
 	agentSettings: AgentSettings | null;
 	envVars: Record<string, string>;
 	warehouseTableAccess: WarehouseTableAccess;
+	warehouseRowSecurity: WarehouseRowSecurity;
 	docsContextAccess: ResolvedDocsContextAccess;
 	userGroupFeatures: UserGroupFeature[];
 	userRulesGroupAccess: UserRulesGroupAccess;
