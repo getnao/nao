@@ -104,12 +104,12 @@ describe('license.service', () => {
 	it('only exposes known features from the license payload', async () => {
 		const { licensePath, publicKeyPem } = await createSignedLicenseFile({
 			...DEFAULT_CLAIMS,
-			features: ['sso', 'unknown-future-feature'],
+			features: [LICENSE_FEATURES.sso, LICENSE_FEATURES.excludeColumns, 'unknown-future-feature'],
 		});
 		setLicenseEnv({ licensePath, publicKeyPem });
 
 		const license = await getLicense();
-		expect(license?.features).toEqual(['sso']);
+		expect(license?.features).toEqual([LICENSE_FEATURES.sso, LICENSE_FEATURES.excludeColumns]);
 	});
 
 	it('updates cached features from signed online validation', async () => {

@@ -25,6 +25,11 @@ export const getErrorMessage = (error: unknown): string | null => {
 	return String(error);
 };
 
+export const formatErrorMessageForUI = (error: unknown): string => {
+	const message = error instanceof Error ? getErrorMessage(error)?.trim() : null;
+	return message || 'An error occurred.';
+};
+
 /** GitHub and GitLab usernames are case-insensitive, so entries are normalized to lowercase. */
 export const buildUsernameAllowlist = (allowedUsers?: string): Set<string> => {
 	const allowed = new Set<string>();
@@ -110,14 +115,17 @@ export const isEmailDomainAllowed = (userEmail: string, authDomains?: string) =>
  * Resolve the auth provider ID from the better-auth callback context.
  * Social providers use `params.id`, the genericOAuth plugin (OIDC) uses `params.providerId`.
  */
-export function resolveProviderId(ctx?: { params?: Record<string, string> } | null): string | undefined {
+export function resolveProviderId(ctx?: { params?: Record<string, string | undefined> } | null): string | undefined {
 	return ctx?.params?.id ?? ctx?.params?.providerId;
 }
 
 export const regexPassword = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[#?!@$%^&*-]).{8,}$/;
 
-export const replaceEnvVars = (fileContent: string) => {
+export const replaceEnvVars = (fileContent: string, extraEnv: Record<string, string> = {}) => {
 	const replaced = fileContent.replace(/\$\{(\w+)\}/g, (match, varName) => {
+		if (Object.hasOwn(extraEnv, varName)) {
+			return extraEnv[varName];
+		}
 		return process.env[varName] || match;
 	});
 	return replaced;

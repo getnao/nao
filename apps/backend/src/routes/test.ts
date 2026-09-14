@@ -40,6 +40,7 @@ export const testRoutes = async (app: App) => {
 					prompt: z.string(),
 					model: llmSelectedModelSchema,
 					sql: z.string(),
+					databaseId: z.string().optional(),
 					meta: z
 						.object({
 							costs: customModelCostSchema,
@@ -51,7 +52,7 @@ export const testRoutes = async (app: App) => {
 		async (request, reply) => {
 			const projectId = request.project?.id;
 			const userId = request.user.id;
-			const { prompt, model, sql, meta } = request.body;
+			const { prompt, model, sql, databaseId, meta } = request.body;
 
 			const costs = meta?.costs;
 
@@ -67,7 +68,7 @@ export const testRoutes = async (app: App) => {
 				let verification;
 				if (sql) {
 					const { data: expectedData, columns: expectedColumns } = await executeQuery(
-						{ sql_query: sql },
+						{ sql_query: sql, database_id: databaseId },
 						{
 							projectFolder: project.path!,
 							chatId: '',

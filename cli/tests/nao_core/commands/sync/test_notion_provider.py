@@ -12,6 +12,7 @@ from nao_core.commands.sync.providers.notion.database import DatabaseExportError
 from nao_core.commands.sync.providers.notion.provider import (
     NotionSyncProvider,
     extract_notion_id,
+    extract_page_title,
     extract_view_id,
     markdown_filename,
     render_document,
@@ -73,6 +74,7 @@ def test_sync_keeps_existing_pages_when_one_failed(mock_get_page, tmp_path: Path
     assert result.items_synced == 1
     assert result.details is not None
     assert result.details["removed"] == 0
+    assert result.error == "Failed to sync 1 Notion page"
 
 
 def api_error(code: APIErrorCode, status: int) -> APIResponseError:
@@ -111,6 +113,23 @@ def test_extract_notion_id_prefers_the_object_over_the_view():
     url = "https://notion.so/ws/marts-35e5f0e8a00080c69a81ef456a2b174b?v=" + "a" * 32
 
     assert extract_notion_id(url) == "35e5f0e8a00080c69a81ef456a2b174b"
+
+
+def test_extract_page_title_reads_a_custom_named_title_property():
+    page = {
+        "properties": {
+            "Owner": {"type": "people", "people": []},
+            "Topic": {"type": "title", "title": [{"plain_text": "Basic "}, {"plain_text": "Knowledge"}]},
+        }
+    }
+
+    assert extract_page_title(page, "35e5f0e8a00080c69a81ef456a2b174b") == "Basic Knowledge"
+
+
+def test_extract_page_title_falls_back_to_the_id_when_the_title_is_empty():
+    page = {"properties": {"Topic": {"type": "title", "title": []}}}
+
+    assert extract_page_title(page, "35e5f0e8a00080c69a81ef456a2b174b") == "35e5f0e8a00080c69a81ef456a2b174b"
 
 
 @pytest.mark.parametrize(
@@ -179,6 +198,7 @@ def test_sync_survives_an_error_that_looks_like_console_markup(mock_get_page, tm
     result = provider.sync([NotionConfig(api_key="secret", pages=["page-a"])], tmp_path)
 
     assert result.items_synced == 0
+    assert result.error == "Failed to sync 1 Notion page"
 
 
 def test_extract_ids_accept_dashed_uuids():

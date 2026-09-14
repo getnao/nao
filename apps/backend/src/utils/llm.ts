@@ -1,5 +1,5 @@
 import { type BackgroundModelCategory, selectBackgroundModel } from '@nao/shared';
-import type { LlmProvider, LlmSelectedModel } from '@nao/shared/types';
+import { type LlmProvider, type LlmSelectedModel, providerKind } from '@nao/shared/types';
 
 import {
 	createProviderModel,
@@ -8,6 +8,7 @@ import {
 	LLM_PROVIDERS,
 	type ProviderModelResult,
 } from '../agents/providers';
+import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as projectLlmConfigQueries from '../queries/project-llm-config.queries';
 import type { CustomModelMetadata, ProviderSettings } from '../types/llm';
@@ -26,8 +27,16 @@ export function getEnvBaseUrl(provider: LlmProvider): string | undefined {
 	return baseUrlEnvVar ? process.env[baseUrlEnvVar] : undefined;
 }
 
+/** Whether DISABLED_PROVIDERS opts this provider out, by its own id or by its kind. */
+export function isProviderDisabled(provider: LlmProvider): boolean {
+	return env.DISABLED_PROVIDERS.includes(provider) || env.DISABLED_PROVIDERS.includes(providerKind(provider));
+}
+
 /** Check if a provider has authentication configured via environment */
 export function hasEnvApiKey(provider: LlmProvider): boolean {
+	if (isProviderDisabled(provider)) {
+		return false;
+	}
 	if (getEnvApiKey(provider)) {
 		return true;
 	}
@@ -90,6 +99,9 @@ export async function resolveProviderSettings(
 	projectId: string,
 	provider: LlmProvider,
 ): Promise<ProviderSettings | null> {
+	if (isProviderDisabled(provider)) {
+		return null;
+	}
 	const config = await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
 	if (config) {
 		return {
@@ -128,6 +140,9 @@ export async function resolveProviderModel(
 	modelId: string,
 	applyUserSettings = true,
 ): Promise<ProviderModelResult | null> {
+	if (isProviderDisabled(provider)) {
+		return null;
+	}
 	const config = await projectLlmConfigQueries.getProjectLlmConfigByProvider(projectId, provider);
 	if (config) {
 		return createProviderModel(
@@ -346,7 +361,7 @@ async function getProjectModelSources(projectId: string): Promise<ProviderModelS
 		}
 	}
 
-	return sources;
+	return sources.filter((source) => !isProviderDisabled(source.provider));
 }
 
 const getModelName = (provider: LlmProvider, modelId: string): string =>

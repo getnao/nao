@@ -18,6 +18,8 @@ const chat: ProjectChatListItem = {
 	source: 'web',
 	numberOfMessages: 2,
 	totalTokens: 10,
+	cacheReadTokens: 0,
+	totalCost: 0,
 	feedbackText: '',
 	downvotes: 0,
 	upvotes: 0,
@@ -49,6 +51,7 @@ function TestTable({ onRowClick }: { onRowClick: (chat: ProjectChatListItem) => 
 		data: [chat],
 		columns,
 		getCoreRowModel: getCoreRowModel(),
+		initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
 	});
 
 	return <ChatsReplayTable table={table} onRowClick={onRowClick} />;

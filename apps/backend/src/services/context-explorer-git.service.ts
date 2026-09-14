@@ -166,6 +166,18 @@ export async function resolveContextExplorerGit(
 	}
 }
 
+export async function resolveContextExplorerGitSafely(
+	context: ContextExplorerGitContext,
+): Promise<ContextExplorerGitResolution> {
+	try {
+		return await resolveContextExplorerGit(context);
+	} catch (error) {
+		const message = `Failed to resolve context explorer git for user ${context.userId} in project ${context.projectId}`;
+		await logGitFailure(message, error);
+		return unavailable('git-unavailable', null);
+	}
+}
+
 export async function requireContextExplorerGit(
 	context: ContextExplorerGitContext,
 ): Promise<{ repo: ResolvedContextRepo; context: ContextExplorerGitContext & { token: string } }> {
@@ -666,13 +678,7 @@ export async function cleanupContextWorktree(projectId: string, projectFolder: s
 		invalidateContextProjectPrefix(worktreeRoot);
 	} catch (error) {
 		const message = `Failed to clean up context worktree for user ${userId} in project ${projectId}`;
-		const detail = error instanceof Error ? error.message : String(error);
-		try {
-			const { logger } = await import('../utils/logger');
-			logger.warn(message, { source: 'system', context: { error: detail } });
-		} catch {
-			console.warn(message, detail);
-		}
+		await logGitFailure(message, error);
 	}
 }
 
@@ -690,6 +696,15 @@ export function assertSafeDestructiveWorktreeCommand(worktreeRoot: string, cwd: 
 			(subcommand === 'prune' && args.length === 2));
 	if (!allowed) {
 		throw new Error('Refusing destructive Git operation from outside the context worktree.');
+	}
+}
+
+async function logGitFailure(message: string, error: unknown): Promise<void> {
+	try {
+		const { logger, serializeError } = await import('../utils/logger');
+		logger.warn(message, { source: 'system', context: { error: serializeError(error) } });
+	} catch {
+		console.warn(message);
 	}
 }
 

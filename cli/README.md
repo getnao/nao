@@ -195,15 +195,15 @@ Optional `ai_summary` generation:
 
 ```yaml
 databases:
-  - type: duckdb
-    name: analytics
-    path: analytics.duckdb
-    templates: [columns, preview, profiling, ai_summary]
-    profiling:
-      refresh_policy: once
-    ai_summary:
-      refresh_policy: interval
-      interval_days: 7
+    - type: duckdb
+      name: analytics
+      path: analytics.duckdb
+      templates: [columns, preview, profiling, ai_summary]
+      profiling:
+          refresh_policy: once
+      ai_summary:
+          refresh_policy: interval
+          interval_days: 7
 ```
 
 ### Run tests
@@ -233,14 +233,14 @@ Defaults for every run live in the `test` block of `nao_config.yaml`, and the `-
 
 ```yaml
 test:
-  models:
-    - openai:gpt-4.1
-    - anthropic:claude-sonnet-4-5
-  threads: 4
-  comparison:
-    rtol: 0.00001
-    atol: 0.00000001
-    decimals: 2
+    models:
+        - openai:gpt-4.1
+        - anthropic:claude-sonnet-4-5
+    threads: 4
+    comparison:
+        rtol: 0.00001
+        atol: 0.00000001
+        decimals: 2
 ```
 
 ### Explore test results
@@ -292,6 +292,7 @@ Build and package nao-core CLI.
 ```
 
 This will:
+
 1. Build the frontend with Vite
 2. Compile the backend with Bun into a standalone binary
 3. Bundle everything into a Python wheel in `dist/`

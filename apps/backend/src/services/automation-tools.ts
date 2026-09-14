@@ -11,6 +11,7 @@ import * as storyQueries from '../queries/story.queries';
 import type { AutomationIntegrationConfig } from '../types/automation';
 import type { EmailAttachment } from '../types/email';
 import type { ToolContext } from '../types/tools';
+import { logger } from '../utils/logger';
 import { buildDownloadResponse, type QueryDataMap } from '../utils/story-download';
 import { createTool } from '../utils/tools';
 import { emailService } from './email';
@@ -207,11 +208,27 @@ function createSlackTools(
 				const attachments = (await buildGeneratedArtifactAttachments(projectId, context)).filter(
 					(attachment) => !uploadedArtifacts.has(attachment.filename),
 				);
-				await slackService.uploadFiles(projectId, result.threadId, attachments.map(toSlackFileUpload));
-				for (const attachment of attachments) {
-					uploadedArtifacts.add(attachment.filename);
+				const uploadedAttachments: string[] = [];
+				for (const [index, attachment] of attachments.entries()) {
+					try {
+						await slackService.uploadFiles(projectId, result.threadId, [toSlackFileUpload(attachment)]);
+						uploadedArtifacts.add(attachment.filename);
+						uploadedAttachments.push(attachment.filename);
+					} catch (error) {
+						const errorMessage = getErrorMessage(error);
+						const attachmentError = `Files could not be uploaded: ${errorMessage}`;
+						logger.warn(`Slack automation attachment upload failed: ${errorMessage}`, {
+							source: 'system',
+							projectId,
+							context: {
+								threadId: result.threadId,
+								attachments: attachments.slice(index).map((attachment) => attachment.filename),
+							},
+						});
+						return { ok: true, ...result, attachments: uploadedAttachments, attachmentError };
+					}
 				}
-				return { ok: true, ...result, attachments: attachments.map((attachment) => attachment.filename) };
+				return { ok: true, ...result, attachments: uploadedAttachments };
 			},
 		}),
 	};
@@ -449,4 +466,8 @@ function escapeHtml(value: string): string {
 		.replaceAll('>', '&gt;')
 		.replaceAll('"', '&quot;')
 		.replaceAll("'", '&#039;');
+}
+
+function getErrorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }

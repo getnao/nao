@@ -1,6 +1,6 @@
 import { EmailButton } from './email-button';
 import { EmailLayout } from './email-layout';
-import { WarningBox } from './warning-box';
+import { EmailCode, EmailParagraph } from './email-text';
 
 interface ResetPasswordProps {
 	userName: string;
@@ -11,31 +11,23 @@ interface ResetPasswordProps {
 
 export function ResetPassword({ userName, temporaryPassword, loginUrl, projectName }: ResetPasswordProps) {
 	return (
-		<EmailLayout>
-			<p>Hi {userName},</p>
+		<EmailLayout title='Your password has been reset on nao'>
+			<EmailParagraph>Hi {userName},</EmailParagraph>
 
-			<p>
+			<EmailParagraph>
 				Your password on the project <strong>{projectName}</strong> has been reset on nao.
-			</p>
+			</EmailParagraph>
 
-			<div className='credentials'>
-				<p>
-					<strong>Your new temporary password:</strong>
-				</p>
-				<p className='password'>{temporaryPassword}</p>
-			</div>
+			<EmailParagraph>
+				Your new temporary password is <EmailCode>{temporaryPassword}</EmailCode>. You will be asked to choose a
+				new password the next time you log in.
+			</EmailParagraph>
 
-			<WarningBox>
-				You will be required to change this password on your next login for security reasons.
-			</WarningBox>
+			<EmailButton href={loginUrl}>Log in to nao</EmailButton>
 
-			<EmailButton href={loginUrl}>Login to nao</EmailButton>
-
-			<p>If you did not request this password reset, please contact your project administrator immediately.</p>
-
-			<div className='footer'>
-				<p>This is an automated message from nao.</p>
-			</div>
+			<EmailParagraph>
+				If you did not request this password reset, please contact your project administrator immediately.
+			</EmailParagraph>
 		</EmailLayout>
 	);
 }
