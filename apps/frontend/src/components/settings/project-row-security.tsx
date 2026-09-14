@@ -1,7 +1,7 @@
 import { EMPTY_PROJECT_ROW_SECURITY, normalizeProjectRowSecurity, rowSecurityTableKey } from '@nao/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { ChevronRight, Pencil, Plus, Trash2 } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import type { ProjectRowSecurity, SensitiveTableDefinition } from '@nao/shared';
 
 import type {
@@ -15,6 +15,15 @@ import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { useLicenseFeatures } from '@/hooks/use-license';
@@ -46,109 +55,345 @@ export function ProjectRowSecurity({
 			},
 		}),
 	);
-	const [draft, setDraft] = useState<ProjectRowSecurity>(EMPTY_PROJECT_ROW_SECURITY);
+	const [isDialogOpen, setIsDialogOpen] = useState(false);
+	const [dialogDraft, setDialogDraft] = useState<ProjectRowSecurity>(EMPTY_PROJECT_ROW_SECURITY);
 	const [search, setSearch] = useState('');
+	const [removeTarget, setRemoveTarget] = useState<SensitiveTableDefinition | null>(null);
 	const isLicensed = license.data?.['row-level-security'] === true;
-	const storedRowSecurity = JSON.stringify(rowSecurity.data);
-
-	useEffect(() => {
-		if (storedRowSecurity) {
-			setDraft(JSON.parse(storedRowSecurity) as ProjectRowSecurity);
-		}
-	}, [storedRowSecurity]);
-
+	const registry = normalizeProjectRowSecurity(rowSecurity.data ?? EMPTY_PROJECT_ROW_SECURITY);
 	const visibleObjects = useMemo(() => filterRowSecurityObjects(objects, search), [objects, search]);
 	const unavailable =
 		rowSecurity.isLoading || rowSecurity.isError || catalogState !== 'ready'
 			? []
-			: getUnavailableDefinitions(draft, objects);
-	const columnCount = draft.tables.reduce((total, table) => total + table.constraintColumns.length, 0);
-	const changed =
-		rowSecurity.data !== undefined &&
-		JSON.stringify(normalizeProjectRowSecurity(draft)) !==
-			JSON.stringify(normalizeProjectRowSecurity(rowSecurity.data));
+			: getUnavailableDefinitions(registry, objects);
+	const unavailableByTable = new Map(unavailable.map((definition) => [rowSecurityTableKey(definition), definition]));
+	const columnCount = registry.tables.reduce((total, table) => total + table.constraintColumns.length, 0);
+	const draftColumnCount = dialogDraft.tables.reduce((total, table) => total + table.constraintColumns.length, 0);
+	const dialogUnavailable = catalogState === 'ready' ? getUnavailableDefinitions(dialogDraft, objects) : [];
+
+	const openDialog = () => {
+		setDialogDraft(cloneRowSecurity(registry));
+		setSearch('');
+		setIsDialogOpen(true);
+	};
+
+	const saveDialog = () => {
+		update.mutate(normalizeProjectRowSecurity(dialogDraft), {
+			onSuccess: () => {
+				setIsDialogOpen(false);
+			},
+		});
+	};
+
+	const removeTable = () => {
+		if (!removeTarget) {
+			return;
+		}
+		const nextRegistry = updateDefinition(registry, removeTarget);
+		update.mutate(nextRegistry, {
+			onSuccess: () => {
+				setRemoveTarget(null);
+			},
+		});
+	};
 
 	return (
-		<SettingsCard
-			title='Row-level security'
-			description='Choose constraint columns for sensitive tables. Group policies can only use these columns.'
-			action={!isLicensed ? <UpgradeToEnterprise /> : undefined}
-		>
-			<div className={cn('flex flex-col gap-4', !isLicensed && 'opacity-60')}>
-				<div className='flex items-center gap-2'>
-					<Input
-						value={search}
-						onChange={(event) => setSearch(event.target.value)}
-						placeholder='Search databases, schemas, tables, and columns'
-						aria-label='Search row-level security tables'
-						disabled={!isLicensed}
-					/>
+		<>
+			<SettingsCard
+				title='Row-level security'
+				description='Protect tables by choosing the columns that group policies should use.'
+				action={!isLicensed ? <UpgradeToEnterprise /> : undefined}
+				unstyled
+			>
+				<div className='flex items-center justify-between gap-3'>
 					<Badge variant='secondary' className='shrink-0'>
-						{draft.tables.length} {draft.tables.length === 1 ? 'table' : 'tables'} · {columnCount}{' '}
+						{registry.tables.length} {registry.tables.length === 1 ? 'table' : 'tables'} · {columnCount}{' '}
 						{columnCount === 1 ? 'column' : 'columns'}
 					</Badge>
+					<Button
+						type='button'
+						disabled={!isLicensed || rowSecurity.isLoading || rowSecurity.isError}
+						onClick={openDialog}
+					>
+						<Plus />
+						Add protected table
+					</Button>
 				</div>
-				<div className='max-h-[28rem] overflow-auto rounded-lg border'>
-					{rowSecurity.isLoading || catalogState === 'loading' ? (
-						<TreeStatusRow status='Loading security settings...' />
+				<div className='overflow-hidden rounded-lg border' role='region' aria-label='Protected tables'>
+					{rowSecurity.isLoading ? (
+						<StatusRow status='Loading security settings...' />
 					) : rowSecurity.isError ? (
-						<TreeStatusRow
+						<StatusRow
 							status='Failed to load security settings'
 							onRetry={() => void rowSecurity.refetch()}
 						/>
-					) : catalogState === 'error' ? (
-						<TreeStatusRow status='Failed to load synced tables' onRetry={onRetryCatalog} />
-					) : visibleObjects.length === 0 ? (
-						<TreeStatusRow status={search ? 'No matching tables or columns.' : 'No synced tables.'} />
+					) : registry.tables.length === 0 ? (
+						<div className='flex flex-col items-center gap-2 px-4 py-8 text-center'>
+							<p className='text-sm font-medium'>No protected tables</p>
+							<p className='max-w-md text-xs text-muted-foreground'>
+								Add a table and choose its constraint columns to make row-level policies available to
+								user groups.
+							</p>
+							<Button
+								type='button'
+								size='sm'
+								variant='outline'
+								className='rounded-full'
+								disabled={!isLicensed}
+								onClick={openDialog}
+							>
+								Add protected table
+							</Button>
+						</div>
 					) : (
-						<RowSecurityTree
-							objects={visibleObjects}
-							draft={draft}
-							disabled={!isLicensed}
-							isSearching={search.trim().length > 0}
-							onChange={setDraft}
-						/>
+						<div className='divide-y'>
+							{registry.tables.map((definition) => (
+								<ProtectedTableSummary
+									key={rowSecurityTableKey(definition)}
+									definition={definition}
+									object={objects.find(
+										(object) => rowSecurityTableKey(object) === rowSecurityTableKey(definition),
+									)}
+									unavailable={unavailableByTable.get(rowSecurityTableKey(definition))}
+									disabled={!isLicensed}
+									onEdit={openDialog}
+									onRemove={() => setRemoveTarget(definition)}
+								/>
+							))}
+						</div>
 					)}
 				</div>
-				{unavailable.length > 0 && (
-					<div className='rounded-lg border border-dashed p-3'>
-						<p className='text-sm font-medium'>Unavailable saved selections</p>
-						<p className='mb-2 text-xs text-muted-foreground'>
-							These tables or columns were not found in the latest sync.
-						</p>
-						{unavailable.map((definition) => (
-							<div key={rowSecurityTableKey(definition)} className='flex items-center gap-2 py-1 text-xs'>
-								<span className='min-w-0 flex-1 truncate'>
-									{definition.database}/{definition.schema}/{definition.table}:{' '}
-									{definition.constraintColumns.join(', ')}
-								</span>
-								<Button
-									type='button'
-									size='icon'
-									variant='ghost'
-									aria-label={`Remove unavailable ${definition.table}`}
-									disabled={!isLicensed}
-									onClick={() => setDraft(removeUnavailableSelection(draft, definition))}
-								>
-									<X />
-								</Button>
-							</div>
-						))}
+				{catalogState === 'loading' && !rowSecurity.isLoading && (
+					<p className='text-xs text-muted-foreground'>Loading synced tables...</p>
+				)}
+				{catalogState === 'error' && !rowSecurity.isLoading && (
+					<div className='flex items-center justify-between gap-2 text-xs text-destructive'>
+						<span>Failed to load synced tables</span>
+						{onRetryCatalog && (
+							<Button
+								type='button'
+								size='sm'
+								variant='ghost'
+								className='rounded-full'
+								onClick={onRetryCatalog}
+							>
+								Retry
+							</Button>
+						)}
 					</div>
 				)}
-				{update.error && <p className='text-sm text-destructive'>{update.error.message}</p>}
-				{changed && isLicensed && (
-					<div className='flex justify-end gap-2'>
-						<Button type='button' variant='ghost' onClick={() => setDraft(rowSecurity.data)}>
-							Cancel
-						</Button>
-						<Button type='button' onClick={() => update.mutate(draft)} isLoading={update.isPending}>
-							Save security
-						</Button>
+			</SettingsCard>
+
+			<Dialog
+				open={isDialogOpen}
+				onOpenChange={(open) => {
+					if (!open && !update.isPending) {
+						setIsDialogOpen(false);
+					}
+				}}
+			>
+				<DialogContent className='grid h-[min(46rem,calc(100vh-2rem))] grid-rows-[auto_auto_minmax(0,1fr)_auto] sm:max-w-3xl'>
+					<DialogHeader>
+						<DialogTitle>Configure protected tables</DialogTitle>
+						<DialogDescription>
+							Expand a table and select the columns that group policies should use.
+						</DialogDescription>
+					</DialogHeader>
+					<div className='flex items-center gap-2'>
+						<Input
+							value={search}
+							onChange={(event) => setSearch(event.target.value)}
+							placeholder='Search databases, schemas, tables, and columns'
+							aria-label='Search row-level security tables'
+							autoFocus
+						/>
+						<Badge variant='secondary' className='shrink-0'>
+							{dialogDraft.tables.length} {dialogDraft.tables.length === 1 ? 'table' : 'tables'} ·{' '}
+							{draftColumnCount} {draftColumnCount === 1 ? 'column' : 'columns'}
+						</Badge>
 					</div>
+					<div className='min-h-0 overflow-auto rounded-lg border'>
+						{catalogState === 'loading' ? (
+							<StatusRow status='Loading synced tables...' />
+						) : catalogState === 'error' ? (
+							<StatusRow status='Failed to load synced tables' onRetry={onRetryCatalog} />
+						) : (
+							<>
+								{visibleObjects.length === 0 ? (
+									<StatusRow
+										status={search ? 'No matching tables or columns.' : 'No synced tables.'}
+									/>
+								) : (
+									<RowSecurityTree
+										objects={visibleObjects}
+										draft={dialogDraft}
+										isSearching={search.trim().length > 0}
+										onChange={setDialogDraft}
+									/>
+								)}
+								{search.trim() === '' && dialogUnavailable.length > 0 && (
+									<UnavailableDraftSelections
+										definitions={dialogUnavailable}
+										onRemove={(definition) =>
+											setDialogDraft((current) => removeUnavailableSelection(current, definition))
+										}
+									/>
+								)}
+							</>
+						)}
+					</div>
+					<div>
+						{update.error && <p className='mb-2 text-sm text-destructive'>{update.error.message}</p>}
+						<DialogFooter>
+							<Button
+								type='button'
+								variant='ghost'
+								className='rounded-full border'
+								disabled={update.isPending}
+								onClick={() => setIsDialogOpen(false)}
+							>
+								Cancel
+							</Button>
+							<Button
+								type='button'
+								variant='primary-gradient'
+								className='rounded-full'
+								isLoading={update.isPending}
+								onClick={saveDialog}
+							>
+								Save
+							</Button>
+						</DialogFooter>
+					</div>
+				</DialogContent>
+			</Dialog>
+
+			<ConfirmationDialog
+				open={removeTarget !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setRemoveTarget(null);
+					}
+				}}
+				title='Remove protected table?'
+				description={
+					removeTarget
+						? `${removeTarget.database}/${removeTarget.schema}/${removeTarget.table} will no longer be available for row-level group policies.`
+						: ''
+				}
+				confirmLabel='Remove'
+				onConfirm={removeTable}
+				isPending={update.isPending}
+				error={update.error?.message}
+				preventCloseWhilePending
+			/>
+		</>
+	);
+}
+
+function ProtectedTableSummary({
+	definition,
+	object,
+	unavailable,
+	disabled,
+	onEdit,
+	onRemove,
+}: {
+	definition: SensitiveTableDefinition;
+	object?: DatabaseContextObject;
+	unavailable?: SensitiveTableDefinition;
+	disabled: boolean;
+	onEdit: () => void;
+	onRemove: () => void;
+}) {
+	const missingColumns = new Set(unavailable?.constraintColumns ?? []);
+	const isTableUnavailable = object === undefined;
+	return (
+		<div className='flex items-start gap-3 p-3'>
+			<FileExplorerIcon name={definition.table} type='table' />
+			<div className='min-w-0 flex-1'>
+				<div className='flex flex-wrap items-center gap-2'>
+					<p className='truncate text-sm font-medium'>
+						{definition.database}/{definition.schema}/{definition.table}
+					</p>
+					{isTableUnavailable && <Badge variant='destructive'>Unavailable</Badge>}
+				</div>
+				<div className='mt-1.5 flex flex-wrap gap-1.5'>
+					{definition.constraintColumns.map((column) => (
+						<Badge
+							key={column}
+							variant={missingColumns.has(column) ? 'outline' : 'secondary'}
+							className={cn(missingColumns.has(column) && 'border-destructive/40 text-destructive')}
+						>
+							{column}
+							{missingColumns.has(column) && <span className='sr-only'> unavailable</span>}
+						</Badge>
+					))}
+				</div>
+				{unavailable && !isTableUnavailable && (
+					<p className='mt-1.5 text-xs text-destructive'>Some saved columns are unavailable after sync.</p>
 				)}
 			</div>
-		</SettingsCard>
+			<div className='flex shrink-0 items-center gap-1'>
+				<Button
+					type='button'
+					size='icon-sm'
+					variant='ghost'
+					className='rounded-full'
+					aria-label={`Edit ${definition.table}`}
+					disabled={disabled}
+					onClick={onEdit}
+				>
+					<Pencil />
+				</Button>
+				<Button
+					type='button'
+					size='icon-sm'
+					variant='ghost'
+					className='rounded-full'
+					aria-label={`Remove ${definition.table}`}
+					disabled={disabled}
+					onClick={onRemove}
+				>
+					<Trash2 />
+				</Button>
+			</div>
+		</div>
+	);
+}
+
+function UnavailableDraftSelections({
+	definitions,
+	onRemove,
+}: {
+	definitions: SensitiveTableDefinition[];
+	onRemove: (definition: SensitiveTableDefinition) => void;
+}) {
+	return (
+		<div className='border-t p-3'>
+			<p className='text-sm font-medium'>Unavailable saved selections</p>
+			<p className='mb-2 text-xs text-muted-foreground'>
+				These tables or columns were not found in the latest sync.
+			</p>
+			{definitions.map((definition) => (
+				<div key={rowSecurityTableKey(definition)} className='flex items-center gap-2 py-1 text-xs'>
+					<span className='min-w-0 flex-1 truncate'>
+						{definition.database}/{definition.schema}/{definition.table}:{' '}
+						{definition.constraintColumns.join(', ')}
+					</span>
+					<Button
+						type='button'
+						size='icon-sm'
+						variant='ghost'
+						className='rounded-full'
+						aria-label={`Remove unavailable selections from ${definition.table}`}
+						onClick={() => onRemove(definition)}
+					>
+						<Trash2 />
+					</Button>
+				</div>
+			))}
+		</div>
 	);
 }
 
@@ -162,18 +407,16 @@ const ROW_SECURITY_EXPANSION_ADAPTER = {
 function RowSecurityTree({
 	objects,
 	draft,
-	disabled,
 	isSearching,
 	onChange,
 }: {
 	objects: DatabaseContextObject[];
 	draft: ProjectRowSecurity;
-	disabled: boolean;
 	isSearching: boolean;
 	onChange: (rowSecurity: ProjectRowSecurity) => void;
 }) {
 	const databases = useMemo(() => groupDatabaseContextObjects(objects), [objects]);
-	const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+	const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => getConfiguredExpansionKeys(objects, draft));
 
 	const toggleFolder = (folder: GroupedDatabase | GroupedSchema) => {
 		setExpandedKeys((current) => {
@@ -209,7 +452,6 @@ function RowSecurityTree({
 					key={database.key}
 					database={database}
 					draft={draft}
-					disabled={disabled}
 					expandedKeys={expandedKeys}
 					isSearching={isSearching}
 					onToggleFolder={toggleFolder}
@@ -224,7 +466,6 @@ function RowSecurityTree({
 function RowSecurityDatabaseNode({
 	database,
 	draft,
-	disabled,
 	expandedKeys,
 	isSearching,
 	onToggleFolder,
@@ -233,7 +474,6 @@ function RowSecurityDatabaseNode({
 }: {
 	database: GroupedDatabase;
 	draft: ProjectRowSecurity;
-	disabled: boolean;
 	expandedKeys: Set<string>;
 	isSearching: boolean;
 	onToggleFolder: (folder: GroupedDatabase | GroupedSchema) => void;
@@ -251,7 +491,6 @@ function RowSecurityDatabaseNode({
 				depth={0}
 				open={isSearching || expandedKeys.has(compactSchema.key)}
 				draft={draft}
-				disabled={disabled}
 				isSearching={isSearching}
 				expandedKeys={expandedKeys}
 				onToggle={() => onToggleFolder(compactSchema)}
@@ -263,6 +502,7 @@ function RowSecurityDatabaseNode({
 
 	const open = isSearching || expandedKeys.has(database.key);
 	const panelId = `row-security-database-${toDomId(database.key)}`;
+	const configuredCount = getConfiguredDatabaseTableCount(draft, database);
 	return (
 		<li>
 			<button
@@ -279,6 +519,11 @@ function RowSecurityDatabaseNode({
 				/>
 				<FileExplorerIcon name={database.database} type='directory' />
 				<span className='min-w-0 flex-1 truncate font-medium'>{database.database}</span>
+				{configuredCount > 0 && (
+					<Badge variant='secondary' className='h-5 px-1.5 text-[10px] font-normal'>
+						{configuredCount} configured
+					</Badge>
+				)}
 				<Badge variant='secondary' className='h-5 px-1.5 text-[10px] font-normal'>
 					{database.databaseType}
 				</Badge>
@@ -293,7 +538,6 @@ function RowSecurityDatabaseNode({
 							depth={1}
 							open={isSearching || expandedKeys.has(schema.key)}
 							draft={draft}
-							disabled={disabled}
 							isSearching={isSearching}
 							expandedKeys={expandedKeys}
 							onToggle={() => onToggleFolder(schema)}
@@ -314,7 +558,6 @@ function RowSecuritySchemaNode({
 	depth,
 	open,
 	draft,
-	disabled,
 	isSearching,
 	expandedKeys,
 	onToggle,
@@ -327,7 +570,6 @@ function RowSecuritySchemaNode({
 	depth: number;
 	open: boolean;
 	draft: ProjectRowSecurity;
-	disabled: boolean;
 	isSearching: boolean;
 	expandedKeys: Set<string>;
 	onToggle: () => void;
@@ -335,6 +577,7 @@ function RowSecuritySchemaNode({
 	onChange: (rowSecurity: ProjectRowSecurity) => void;
 }) {
 	const panelId = `row-security-schema-${toDomId(schema.key)}`;
+	const configuredCount = getConfiguredTableCount(draft, schema);
 	return (
 		<li>
 			<button
@@ -351,6 +594,11 @@ function RowSecuritySchemaNode({
 				/>
 				<FileExplorerIcon name={schema.schema} type='directory' />
 				<span className='min-w-0 flex-1 truncate'>{label}</span>
+				{configuredCount > 0 && (
+					<Badge variant='secondary' className='h-5 px-1.5 text-[10px] font-normal'>
+						{configuredCount} configured
+					</Badge>
+				)}
 				{databaseType && (
 					<Badge variant='secondary' className='h-5 px-1.5 text-[10px] font-normal'>
 						{databaseType}
@@ -368,7 +616,6 @@ function RowSecuritySchemaNode({
 							definition={draft.tables.find(
 								(table) => rowSecurityTableKey(table) === rowSecurityTableKey(object),
 							)}
-							disabled={disabled}
 							onToggle={() => onToggleTable(object)}
 							onChange={(definition) => onChange(updateDefinition(draft, object, definition))}
 						/>
@@ -384,7 +631,6 @@ function SensitiveTableRow({
 	depth,
 	open,
 	definition,
-	disabled,
 	onToggle,
 	onChange,
 }: {
@@ -392,7 +638,6 @@ function SensitiveTableRow({
 	depth: number;
 	open: boolean;
 	definition?: SensitiveTableDefinition;
-	disabled: boolean;
 	onToggle: () => void;
 	onChange: (definition?: SensitiveTableDefinition) => void;
 }) {
@@ -437,7 +682,6 @@ function SensitiveTableRow({
 								>
 									<Checkbox
 										checked={selected.has(column)}
-										disabled={disabled}
 										aria-label={`${column} constraint column for ${object.table}`}
 										onCheckedChange={(checked) => {
 											const columns = checked
@@ -467,12 +711,12 @@ function SensitiveTableRow({
 	);
 }
 
-function TreeStatusRow({ status, onRetry }: { status: string; onRetry?: () => void }) {
+function StatusRow({ status, onRetry }: { status: string; onRetry?: () => void }) {
 	return (
 		<div className='flex min-h-10 items-center gap-2 p-3 text-sm text-muted-foreground'>
 			<span className='min-w-0 flex-1'>{status}</span>
 			{onRetry && (
-				<Button type='button' size='sm' variant='ghost' onClick={onRetry}>
+				<Button type='button' size='sm' variant='ghost' className='rounded-full' onClick={onRetry}>
 					Retry
 				</Button>
 			)}
@@ -501,7 +745,7 @@ export function filterRowSecurityObjects(
 
 function updateDefinition(
 	rowSecurity: ProjectRowSecurity,
-	object: DatabaseContextObject,
+	object: DatabaseContextObject | SensitiveTableDefinition,
 	definition?: SensitiveTableDefinition,
 ): ProjectRowSecurity {
 	const key = rowSecurityTableKey(object);
@@ -512,6 +756,45 @@ function updateDefinition(
 			...(definition ? [definition] : []),
 		],
 	});
+}
+function cloneRowSecurity(rowSecurity: ProjectRowSecurity): ProjectRowSecurity {
+	return {
+		version: 1,
+		tables: rowSecurity.tables.map((table) => ({
+			...table,
+			constraintColumns: [...table.constraintColumns],
+		})),
+	};
+}
+
+function getConfiguredExpansionKeys(objects: DatabaseContextObject[], rowSecurity: ProjectRowSecurity): Set<string> {
+	const configuredKeys = new Set(rowSecurity.tables.map(rowSecurityTableKey));
+	return new Set(
+		objects.flatMap((object) =>
+			configuredKeys.has(rowSecurityTableKey(object))
+				? [
+						[object.databaseType, object.database].join('\0'),
+						[object.databaseType, object.database, object.schema].join('\0'),
+						rowSecurityTableKey(object),
+					]
+				: [],
+		),
+	);
+}
+
+function getConfiguredTableCount(rowSecurity: ProjectRowSecurity, schema: GroupedSchema): number {
+	return rowSecurity.tables.filter(
+		(table) =>
+			table.databaseType === schema.databaseType &&
+			table.database === schema.database &&
+			table.schema === schema.schema,
+	).length;
+}
+
+function getConfiguredDatabaseTableCount(rowSecurity: ProjectRowSecurity, database: GroupedDatabase): number {
+	return rowSecurity.tables.filter(
+		(table) => table.databaseType === database.databaseType && table.database === database.database,
+	).length;
 }
 
 function getUnavailableDefinitions(
@@ -539,8 +822,8 @@ function removeUnavailableSelection(
 	if (!table) {
 		return rowSecurity;
 	}
-	const missing = new Set(unavailable.constraintColumns);
-	const remainingColumns = table.constraintColumns.filter((column) => !missing.has(column));
+	const missingColumns = new Set(unavailable.constraintColumns);
+	const remainingColumns = table.constraintColumns.filter((column) => !missingColumns.has(column));
 	return normalizeProjectRowSecurity({
 		version: 1,
 		tables: [
