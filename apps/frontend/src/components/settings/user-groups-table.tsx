@@ -1,18 +1,18 @@
 import { FREE_CUSTOM_USER_GROUP_LIMIT } from '@nao/shared';
-import type { MemberStatus, UserRole } from '@nao/shared/types';
 import { USER_ROLE_LABELS } from '@nao/shared/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { ChevronDown, Lock, Plus } from 'lucide-react';
 import { useMemo } from 'react';
+import type { MemberStatus, UserRole } from '@nao/shared/types';
 
-import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import type { UserGroupCatalogState } from '@/components/settings/user-group-access-summary';
-import { getUserGroupAccessSummary } from '@/components/settings/user-group-access-summary';
-import { ResponsiveGroupChips } from '@/components/settings/user-group-chips';
 import type { DatabaseContextObject } from '@/components/settings/user-group-context-access';
 import type { DocsContextCatalogEntry } from '@/components/settings/user-group-docs-context-access';
 import type { UserGroupEditorGroup } from '@/components/settings/user-group-editor';
+import { getUserGroupAccessSummary } from '@/components/settings/user-group-access-summary';
+import { ResponsiveGroupChips } from '@/components/settings/user-group-chips';
+import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { invalidateUserGroupQueries } from '@/components/settings/user-group-editor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -271,7 +271,7 @@ function GroupsTable({
 									: memberships.filter((membership) => membership.groupId === group.id).length}
 							</TableCell>
 							<TableCell className='whitespace-nowrap text-muted-foreground'>
-							{group.isLocked ? (
+								{group.isLocked ? (
 									'Locked'
 								) : (
 									<div className='flex items-center gap-1'>
@@ -281,7 +281,36 @@ function GroupsTable({
 												docs: docsCatalogState,
 											})}
 										</span>
-										{/* Keep both existing retry button blocks here */}
+										{databaseCatalogState === 'error' && (
+											<Button
+												type='button'
+												size='sm'
+												variant='ghost'
+												className='h-6 px-2 text-xs'
+												aria-label={`Retry tables for ${group.name}`}
+												onClick={(event) => {
+													event.stopPropagation();
+													onRetryDatabaseCatalog();
+												}}
+											>
+												Retry tables
+											</Button>
+										)}
+										{docsCatalogState === 'error' && (
+											<Button
+												type='button'
+												size='sm'
+												variant='ghost'
+												className='h-6 px-2 text-xs'
+												aria-label={`Retry docs for ${group.name}`}
+												onClick={(event) => {
+													event.stopPropagation();
+													onRetryDocsCatalog();
+												}}
+											>
+												Retry docs
+											</Button>
+										)}
 									</div>
 								)}
 							</TableCell>
