@@ -21,7 +21,7 @@ export function NotificationEmail({
 	unsubscribeUrl,
 }: NotificationEmailProps) {
 	return (
-		<EmailLayout title={title}>
+		<EmailLayout title={`${title} — nao`}>
 			<p>Hi {userName},</p>
 
 			<p>
