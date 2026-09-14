@@ -1,20 +1,13 @@
 {
   "mcpServers": {
     "metabase": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@getnao/metabase-mcp-server@latest"
-      ],
-      "env": {
-        "METABASE_URL": "${METABASE_URL}",
-        "METABASE_API_KEY": "${METABASE_API_KEY}"
-      }
+      "transport": "streamable-http",
+      "url": "${METABASE_URL}/api/metabase-mcp"
     },
     "notion": {
-			"transport": "streamable-http",
-			"url": "https://mcp.notion.com/mcp"
-		},
+      "transport": "streamable-http",
+      "url": "https://mcp.notion.com/mcp"
+    },
     "linear": {
       "transport": "streamable-http",
       "url": "https://mcp.linear.app/mcp"

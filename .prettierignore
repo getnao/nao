@@ -21,4 +21,3 @@ helm/
 sandbox/
 .heal/
 apps/frontend/.playwright-cli/
-docker/metabase/context/agent/mcps/*/

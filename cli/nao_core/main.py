@@ -14,17 +14,14 @@ from nao_core.commands import (  # noqa: E402
     deploy,
     docs,
     init,
-    metabase,
     migrate,
     reset_password,
     skills,
-    stories,
     sync,
     test,
     upgrade,
 )
-from nao_core.commands.migration_client import MigrationError  # noqa: E402
-from nao_core.ui import UI, console  # noqa: E402
+from nao_core.ui import console  # noqa: E402
 from nao_core.version import check_for_updates  # noqa: E402
 
 app = App(version=__version__)
@@ -34,11 +31,9 @@ app.command(debug)
 app.command(deploy)
 app.command(docs)
 app.command(init)
-app.command(metabase)
 app.command(migrate)
 app.command(reset_password)
 app.command(skills)
-app.command(stories)
 app.command(sync)
 app.command(test)
 app.command(upgrade)
@@ -49,14 +44,7 @@ def main():
         banner(console, __version__)
     if "--json" not in sys.argv:
         check_for_updates()
-    try:
-        app()
-    except MigrationError as error:
-        if "--json" in sys.argv:
-            print(str(error), file=sys.stderr)
-        else:
-            UI.error(str(error))
-        raise SystemExit(1) from None
+    app()
 
 
 if __name__ == "__main__":

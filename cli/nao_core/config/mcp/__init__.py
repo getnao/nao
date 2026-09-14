@@ -37,7 +37,7 @@ class McpConfig(BaseModel):
             absolute_path.parent.mkdir(parents=True, exist_ok=True)
 
             if ask_confirm(
-                "Create file with Metabase MCP config example?",
+                "Create file with official Metabase MCP config example?",
                 default=True,
             ):
                 # Generate and write template with Metabase example
@@ -45,9 +45,7 @@ class McpConfig(BaseModel):
                 absolute_path.write_text(json.dumps(template, indent=2) + "\n")
 
                 UI.success(f"Created MCP config file: {absolute_path}")
-                UI.info("Remember to set these environment variables:")
-                UI.info("  - METABASE_URL")
-                UI.info("  - METABASE_API_KEY")
+                UI.info("Set METABASE_URL, then connect the server through Metabase OAuth.")
             else:
                 # Create default MCP configuration
                 template = generate_default_template()

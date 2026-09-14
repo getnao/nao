@@ -322,12 +322,7 @@ export async function moveStoryToFolder(
 	storyId: string,
 	folderId: string | null,
 	options: { storyOwnerId: string; projectId: string },
-	executor?: DBExecutor,
 ): Promise<void> {
-	if (executor) {
-		await moveStoryToFolderWithExecutor(storyId, folderId, options, executor);
-		return;
-	}
 	await db.transaction((tx) => moveStoryToFolderWithExecutor(storyId, folderId, options, tx));
 }
 
@@ -338,6 +333,7 @@ async function moveStoryToFolderWithExecutor(
 	executor: DBExecutor,
 ): Promise<void> {
 	await executor.delete(s.storyFolderItem).where(eq(s.storyFolderItem.storyId, storyId)).execute();
+
 	if (folderId) {
 		await executor.insert(s.storyFolderItem).values({ storyId, folderId }).execute();
 	}
