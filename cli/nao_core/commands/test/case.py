@@ -18,6 +18,7 @@ class TestCase:
     prompt: str
     file_path: Path
     sql: str | None = None
+    database: str | None = None
     assertions: list[Assertion] = field(default_factory=list)
 
     @classmethod
@@ -30,6 +31,7 @@ class TestCase:
             name=data.get("name", file_path.stem),
             prompt=data["prompt"],
             sql=data.get("sql"),
+            database=data.get("database"),
             file_path=file_path,
             assertions=parse_assertions(data.get("assertions")),
         )

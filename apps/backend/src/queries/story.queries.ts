@@ -43,6 +43,10 @@ export async function getStoryById(storyId: string): Promise<DBStory | null> {
 	return row ?? null;
 }
 
+export async function renameStory(storyId: string, title: string): Promise<void> {
+	await db.update(s.story).set({ title }).where(eq(s.story.id, storyId)).execute();
+}
+
 export async function getStoryProjectId(storyId: string): Promise<string | null> {
 	const [row] = await db
 		.select({
@@ -210,10 +214,6 @@ export async function createStoryVersion(
 ): Promise<DBStoryVersion & { title: string }> {
 	const story = await getOrCreateStory({ chatId: data.chatId, slug: data.slug, title: data.title }, executor);
 
-	if (story.title !== data.title) {
-		await executor.update(s.story).set({ title: data.title }).where(eq(s.story.id, story.id)).execute();
-	}
-
 	const nextVersion = executor
 		.select({ v: sql<number>`coalesce(max(${s.storyVersion.version}), 0) + 1` })
 		.from(s.storyVersion)
@@ -231,7 +231,7 @@ export async function createStoryVersion(
 		.returning()
 		.execute();
 
-	return { ...created, title: data.title };
+	return { ...created, title: story.title };
 }
 
 export async function createStandaloneVersion(data: {
@@ -250,10 +250,6 @@ export async function createStandaloneVersion(data: {
 		title: data.title,
 	});
 
-	if (story.title !== data.title) {
-		await db.update(s.story).set({ title: data.title }).where(eq(s.story.id, story.id)).execute();
-	}
-
 	const nextVersion = db
 		.select({ v: sql<number>`coalesce(max(${s.storyVersion.version}), 0) + 1` })
 		.from(s.storyVersion)
@@ -271,7 +267,7 @@ export async function createStandaloneVersion(data: {
 		.returning()
 		.execute();
 
-	return { ...created, title: data.title };
+	return { ...created, title: story.title };
 }
 
 export async function createStandaloneStory(data: {
@@ -558,7 +554,7 @@ export async function upsertStoryDataCacheByStoryId(
 export async function getSqlQueriesFromCode(
 	chatId: string,
 	code: string,
-): Promise<Record<string, { sqlQuery: string; databaseId?: string }>> {
+): Promise<Record<string, { sqlQuery: string; databaseId?: string; adminMode: boolean }>> {
 	const queryIds = extractQueryIds(code);
 	if (queryIds.size === 0) {
 		return {};
@@ -570,7 +566,7 @@ export async function getSqlQueriesFromCode(
 export async function getSqlQueryById(
 	chatId: string,
 	queryId: string,
-): Promise<{ sqlQuery: string; databaseId?: string } | null> {
+): Promise<{ sqlQuery: string; databaseId?: string; adminMode: boolean } | null> {
 	const part = await executeSqlQueries.getExecuteSqlPartByQueryIdInChat(chatId, queryId);
 	if (!part) {
 		return null;
@@ -578,6 +574,7 @@ export async function getSqlQueryById(
 	return {
 		sqlQuery: part.toolInput.sql_query,
 		...(part.toolInput.database_id && { databaseId: part.toolInput.database_id }),
+		adminMode: part.adminMode,
 	};
 }
 

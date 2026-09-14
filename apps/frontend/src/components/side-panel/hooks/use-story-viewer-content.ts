@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { StoryDraft } from '@/lib/story.utils';
 import type { QueryDataMap } from '@/components/story-embeds';
+import type { StoryDraft } from '@/lib/story.utils';
+import { useThrottledValue } from '@/hooks/use-throttled-value';
 import { trpc } from '@/main';
+
+const STORY_STREAM_THROTTLE_INTERVAL_MS = 120;
 
 interface UseStoryViewerContentParams {
 	storySlug: string;
@@ -11,6 +14,8 @@ interface UseStoryViewerContentParams {
 	draftStory: StoryDraft | null;
 	currentVersion: { code: string } | undefined;
 	storedTitle: string | undefined;
+	isViewingLatest: boolean;
+	isStoryInterrupted: boolean;
 	isReadonlyMode?: boolean;
 }
 
@@ -21,54 +26,76 @@ export const useStoryViewerContent = ({
 	draftStory,
 	currentVersion,
 	storedTitle,
+	isViewingLatest,
+	isStoryInterrupted,
 	isReadonlyMode,
 }: UseStoryViewerContentParams) => {
 	const [isBridgingDraft, setIsBridgingDraft] = useState(false);
-	const wasStoryStreamingRef = useRef(Boolean(draftStory?.isStreaming));
+	const isStoryStreaming = Boolean(draftStory?.isStreaming);
+	const wasStoryStreamingRef = useRef(isStoryStreaming);
+	const bridgeBaselineCodeRef = useRef<string | undefined>(undefined);
+	const committedCodeRef = useRef(currentVersion?.code);
 	const viewedStorySlugRef = useRef(storySlug);
+	const throttledDraftCode = useThrottledValue(draftStory?.code, STORY_STREAM_THROTTLE_INTERVAL_MS, isStoryStreaming);
 
 	if (viewedStorySlugRef.current !== storySlug) {
 		viewedStorySlugRef.current = storySlug;
-		wasStoryStreamingRef.current = Boolean(draftStory?.isStreaming);
+		wasStoryStreamingRef.current = isStoryStreaming;
+		bridgeBaselineCodeRef.current = undefined;
+		committedCodeRef.current = currentVersion?.code;
 		if (isBridgingDraft) {
 			setIsBridgingDraft(false);
 		}
 	}
 
 	useEffect(() => {
-		const isStoryStreaming = Boolean(draftStory?.isStreaming);
 		if (wasStoryStreamingRef.current && !isStoryStreaming) {
-			setIsBridgingDraft(true);
+			if (isViewingLatest && !isStoryInterrupted) {
+				bridgeBaselineCodeRef.current = committedCodeRef.current;
+				setIsBridgingDraft(true);
+			} else {
+				bridgeBaselineCodeRef.current = undefined;
+				setIsBridgingDraft(false);
+			}
 		}
 		wasStoryStreamingRef.current = isStoryStreaming;
-	}, [draftStory?.isStreaming]);
+		committedCodeRef.current = currentVersion?.code;
+	}, [isStoryStreaming, isStoryInterrupted, isViewingLatest, currentVersion?.code]);
 
 	useEffect(() => {
 		if (!isBridgingDraft) {
 			return;
 		}
 		const committedCaughtUp = Boolean(currentVersion && draftStory && currentVersion.code === draftStory.code);
-		if (!draftStory || committedCaughtUp) {
+		const committedChanged = Boolean(currentVersion && currentVersion.code !== bridgeBaselineCodeRef.current);
+		if (!draftStory || !isViewingLatest || isStoryInterrupted || committedCaughtUp || committedChanged) {
+			bridgeBaselineCodeRef.current = undefined;
 			setIsBridgingDraft(false);
 		}
-	}, [isBridgingDraft, draftStory, currentVersion]);
+	}, [isBridgingDraft, draftStory, currentVersion, isStoryInterrupted, isViewingLatest]);
 
-	const shouldUseDraftStory = Boolean(draftStory && (draftStory.isStreaming || isBridgingDraft || !currentVersion));
+	const shouldUseDraftStory = Boolean(
+		isViewingLatest &&
+		!isStoryInterrupted &&
+		draftStory &&
+		(draftStory.isStreaming || isBridgingDraft || !currentVersion),
+	);
+	const canUseDraftFallback = isViewingLatest && !isStoryInterrupted && !currentVersion;
 
 	const storyTitle = useMemo(
 		() =>
 			shouldUseDraftStory
 				? (draftStory?.title ?? storedTitle ?? storySlug)
-				: (storedTitle ?? draftStory?.title ?? storySlug),
-		[shouldUseDraftStory, draftStory?.title, storedTitle, storySlug],
+				: (storedTitle ?? (canUseDraftFallback ? draftStory?.title : undefined) ?? storySlug),
+		[shouldUseDraftStory, draftStory?.title, storedTitle, storySlug, canUseDraftFallback],
 	);
 
 	const storyCode = useMemo(
 		() =>
 			shouldUseDraftStory
-				? (draftStory?.code ?? currentVersion?.code)
-				: (currentVersion?.code ?? draftStory?.code),
-		[shouldUseDraftStory, draftStory?.code, currentVersion?.code],
+				? (throttledDraftCode ?? currentVersion?.code)
+				: (currentVersion?.code ?? (canUseDraftFallback ? draftStory?.code : undefined)),
+		[shouldUseDraftStory, throttledDraftCode, currentVersion?.code, canUseDraftFallback, draftStory?.code],
 	);
 
 	const latestStoryQuery = useQuery({

@@ -1,5 +1,5 @@
 import { Loader2 } from 'lucide-react';
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { displayChart } from '@nao/shared/tools';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
@@ -10,9 +10,12 @@ import { StoryTableEditControls } from '@/components/side-panel/story-table-embe
 import { StoryMapRender } from '@/components/story-map-embed';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
 import { DataTableCard } from '@/components/data-table-card';
+import { useSourceQuery } from '@/hooks/use-source-query';
+import { sortByDateKey } from '@/lib/charts.utils';
 import { cn } from '@/lib/utils';
 
 export type QueryDataMap = Record<string, { data: Record<string, unknown>[]; columns: string[] }>;
+type EmbedData = QueryDataMap[string];
 
 interface LiveQueryConfig {
 	queryOptions: (input: { chatId: string; queryId: string }) => object;
@@ -27,12 +30,12 @@ function EmbedPlaceholder({ children }: { children: React.ReactNode }) {
 	);
 }
 
-function EmbedLoading() {
+function EmbedLoading({ label = 'Loading live data...' }: { label?: string }) {
 	return (
 		<EmbedPlaceholder>
 			<span className='flex items-center justify-center'>
 				<Loader2 className='size-4 animate-spin mr-2' />
-				Loading live data...
+				{label}
 			</span>
 		</EmbedPlaceholder>
 	);
@@ -61,34 +64,62 @@ function useLiveQueryData(queryId: string, liveQuery?: LiveQueryConfig) {
 	});
 }
 
+function useResolvedEmbedData(
+	queryId: string,
+	{ queryData, liveQuery }: { queryData?: QueryDataMap | null; liveQuery?: LiveQueryConfig },
+) {
+	const liveQueryData = useLiveQueryData(queryId, liveQuery);
+	const savedData = liveQuery ? undefined : queryData?.[queryId];
+	const { sourceData } = useSourceQuery(!liveQuery && !savedData ? queryId : undefined);
+	const fallbackData = sourceData
+		? ({ data: sourceData.data, columns: sourceData.columns ?? [] } satisfies EmbedData)
+		: undefined;
+
+	return {
+		data: liveQuery ? (liveQueryData.data as EmbedData | undefined) : (savedData ?? fallbackData),
+		isLoading: Boolean(liveQuery && liveQueryData.isLoading),
+		isFetching: Boolean(liveQuery && liveQueryData.isFetching),
+	};
+}
+
 export const StoryChartEmbed = memo(function StoryChartEmbed({
 	chart,
 	queryData,
 	liveQuery,
 	hasActiveFilters = false,
 	isRefreshing = false,
+	isStreaming = false,
+	isDataPending = false,
 }: {
 	chart: ParsedChartBlock;
 	queryData?: QueryDataMap | null;
 	liveQuery?: LiveQueryConfig;
 	hasActiveFilters?: boolean;
 	isRefreshing?: boolean;
+	isStreaming?: boolean;
+	isDataPending?: boolean;
 }) {
-	const noCacheFetch = useLiveQueryData(chart.queryId, liveQuery);
-
-	const resolved = liveQuery
-		? (noCacheFetch.data as { data: Record<string, unknown>[]; columns: string[] } | undefined)
-		: queryData?.[chart.queryId];
-	const displayData = resolved?.data ?? [];
+	const resolvedData = useResolvedEmbedData(chart.queryId, { queryData, liveQuery });
+	const resolved = resolvedData.data;
+	const displayData = useMemo(
+		() =>
+			resolved?.data && chart.xAxisType === 'date'
+				? sortByDateKey(resolved.data, chart.xAxisKey)
+				: (resolved?.data ?? []),
+		[resolved?.data, chart.xAxisKey, chart.xAxisType],
+	);
 	const resolvedColumns = resolved?.columns ?? [];
-	const showRefreshing = isRefreshing || Boolean(liveQuery && noCacheFetch.isFetching);
+	const showRefreshing = isRefreshing || resolvedData.isFetching;
 
-	if (liveQuery && noCacheFetch.isLoading) {
+	if (resolvedData.isLoading) {
 		return <EmbedLoading />;
 	}
 
 	if (!resolved) {
-		return <EmbedPlaceholder>Chart data unavailable</EmbedPlaceholder>;
+		if (isStreaming || isDataPending) {
+			return <EmbedLoading label='Loading data...' />;
+		}
+		return <EmbedPlaceholder>Chart data unavailable (query: {chart.queryId})</EmbedPlaceholder>;
 	}
 
 	if (displayData.length === 0) {
@@ -104,7 +135,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 	}
 
 	return (
-		<StoryChartEmbedShell chart={chart} availableColumns={resolvedColumns} data={displayData}>
+		<StoryChartEmbedShell chart={chart} availableColumns={resolvedColumns} data={resolved.data}>
 			<EmbedRefreshing isRefreshing={showRefreshing}>
 				<ChartDisplay
 					data={displayData}
@@ -137,6 +168,8 @@ export const StoryMapEmbed = memo(function StoryMapEmbed({
 	liveQuery,
 	hasActiveFilters = false,
 	isRefreshing = false,
+	isStreaming = false,
+	isDataPending = false,
 	allowExpand,
 }: {
 	map: ParsedMapBlock;
@@ -144,22 +177,24 @@ export const StoryMapEmbed = memo(function StoryMapEmbed({
 	liveQuery?: LiveQueryConfig;
 	hasActiveFilters?: boolean;
 	isRefreshing?: boolean;
+	isStreaming?: boolean;
+	isDataPending?: boolean;
 	allowExpand?: boolean;
 }) {
-	const noCacheFetch = useLiveQueryData(map.queryId, liveQuery);
-
-	const resolved = liveQuery
-		? (noCacheFetch.data as { data: Record<string, unknown>[]; columns: string[] } | undefined)
-		: queryData?.[map.queryId];
+	const resolvedData = useResolvedEmbedData(map.queryId, { queryData, liveQuery });
+	const resolved = resolvedData.data;
 	const displayData = resolved?.data ?? [];
-	const showRefreshing = isRefreshing || Boolean(liveQuery && noCacheFetch.isFetching);
+	const showRefreshing = isRefreshing || resolvedData.isFetching;
 
-	if (liveQuery && noCacheFetch.isLoading) {
+	if (resolvedData.isLoading) {
 		return <EmbedLoading />;
 	}
 
 	if (!resolved) {
-		return <EmbedPlaceholder>Map data unavailable</EmbedPlaceholder>;
+		if (isStreaming || isDataPending) {
+			return <EmbedLoading label='Loading data...' />;
+		}
+		return <EmbedPlaceholder>Map data unavailable (query: {map.queryId})</EmbedPlaceholder>;
 	}
 
 	if (displayData.length === 0) {
@@ -185,26 +220,30 @@ export const StoryTableEmbed = memo(function StoryTableEmbed({
 	liveQuery,
 	hasActiveFilters = false,
 	isRefreshing = false,
+	isStreaming = false,
+	isDataPending = false,
 }: {
 	table: ParsedTableBlock;
 	queryData?: QueryDataMap | null;
 	liveQuery?: LiveQueryConfig;
 	hasActiveFilters?: boolean;
 	isRefreshing?: boolean;
+	isStreaming?: boolean;
+	isDataPending?: boolean;
 }) {
-	const noCacheFetch = useLiveQueryData(table.queryId, liveQuery);
+	const resolvedData = useResolvedEmbedData(table.queryId, { queryData, liveQuery });
+	const resolvedResult = resolvedData.data;
+	const showRefreshing = isRefreshing || resolvedData.isFetching;
 
-	const resolvedResult = liveQuery
-		? (noCacheFetch.data as { data: Record<string, unknown>[]; columns: string[] } | undefined)
-		: queryData?.[table.queryId];
-	const showRefreshing = isRefreshing || Boolean(liveQuery && noCacheFetch.isFetching);
-
-	if (liveQuery && noCacheFetch.isLoading) {
+	if (resolvedData.isLoading) {
 		return <EmbedLoading />;
 	}
 
 	if (!resolvedResult) {
-		return <EmbedPlaceholder>Table data unavailable</EmbedPlaceholder>;
+		if (isStreaming || isDataPending) {
+			return <EmbedLoading label='Loading data...' />;
+		}
+		return <EmbedPlaceholder>Table data unavailable (query: {table.queryId})</EmbedPlaceholder>;
 	}
 
 	if (!resolvedResult.data || resolvedResult.data.length === 0) {

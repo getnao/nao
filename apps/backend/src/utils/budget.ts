@@ -1,15 +1,23 @@
 import { getNextPeriodStart } from '@nao/shared/date';
-import { type LlmProvider, providerLabel, WARNING_BUDGET_THRESHOLD } from '@nao/shared/types';
+import {
+	type LlmProvider,
+	type LlmProviderKind,
+	providerKind,
+	providerLabel,
+	WARNING_BUDGET_THRESHOLD,
+} from '@nao/shared/types';
 
+import { PROVIDER_META } from '../agents/provider-meta';
 import type { DBProjectProviderBudget } from '../db/abstractSchema';
 import * as budgetQueries from '../queries/budget.queries';
 import * as projectQueries from '../queries/project.queries';
 import { emailService } from '../services/email';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import type { BudgetPeriod } from '../types/budget';
+import type { CustomModelMetadata } from '../types/llm';
 import { buildBudgetLimitReachedEmail } from './email-builders';
 import { BudgetExceededError } from './error';
-import { getProjectConfigLlm } from './llm';
+import { getProjectConfigLlm, getProjectDeclaredModels } from './llm';
 import { logger } from './logger';
 import type { ConfigProviderBudget } from './nao-config-llm';
 
@@ -51,6 +59,20 @@ export async function getEffectiveProviderBudgets(projectId: string): Promise<Ef
 	}
 
 	return [...byProvider.values()];
+}
+
+/**
+ * Whether spend can be computed for each provider of a project: either nao ships prices for the
+ * provider's models, or an admin declared token costs on at least one of its models.
+ */
+export async function getProvidersCostSupport(projectId: string): Promise<Record<LlmProvider, boolean>> {
+	const sources = await getProjectDeclaredModels(projectId);
+	return Object.fromEntries(
+		sources.map(({ provider, models }) => [
+			provider,
+			hasBuiltInCosts(providerKind(provider)) || models.some(hasDeclaredCosts),
+		]),
+	) as Record<LlmProvider, boolean>;
 }
 
 export async function checkBudgetStatus(
@@ -108,6 +130,14 @@ type BudgetUsage = {
 	scope: 'project' | 'user';
 	dbBudget: DBProjectProviderBudget | null;
 };
+
+function hasBuiltInCosts(kind: LlmProviderKind): boolean {
+	return PROVIDER_META[kind].models.some((model) => model.costPerM !== undefined);
+}
+
+function hasDeclaredCosts(model: CustomModelMetadata): boolean {
+	return Object.values(model.costPerM ?? {}).some((cost) => cost !== undefined);
+}
 
 function buildBudgetMessage(ratio: number, label: string, resetLabel: string, scope: 'project' | 'user'): string {
 	const percent = Math.min(Math.round(ratio * 100), 100);

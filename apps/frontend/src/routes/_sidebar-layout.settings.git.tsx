@@ -268,369 +268,377 @@ function GitSettingsPage() {
 
 	return (
 		<SettingsPageWrapper>
-			<SettingsCard
-				title='Git'
-				titleSize='lg'
-				description='Manage the repository and accounts used to edit context files and open review requests.'
-				unstyled
-				className='gap-10 px-4'
-			>
-				{isLoading ? (
-					<div className='flex items-center justify-center py-10'>
-						<Spinner />
-					</div>
-				) : loadError ? (
-					<div className='flex flex-col items-start gap-2'>
-						<ErrorMessage message={loadError.message} />
-						<Button
-							size='sm'
-							variant='outline'
-							onClick={() => {
-								void repositoryStatus.refetch();
-								void githubAvailable.refetch();
-								void gitlabAvailable.refetch();
-								if (instanceReady) {
-									void selectedAccountStatus.refetch();
-								}
-							}}
-						>
-							Retry
-						</Button>
-					</div>
-				) : (
-					<>
-						{showDeploymentPanel && (
-							<DeploymentManagedGitSettings
-								contextSource={status.contextSource}
-								recommendedSetupVisible={showRecommendedSetup}
-								onToggleRecommendedSetup={() => {
-									setShowRecommendedSetup((visible) => !visible);
-								}}
-							/>
-						)}
-						{(!showDeploymentPanel || showRecommendedSetup) && (
-							<div id='recommended-git-setup' className='contents'>
-								<NumberedSetupSection
-									number={1}
-									title={`${provider.label} server keys`}
-									ownership='Done by the admin who deploys nao, once for everyone.'
-									isDone={instanceReady}
-									persistentContent={
-										<ProviderSelector
-											selectedProvider={selectedProvider}
-											switchBlockedReason={
-												repositoryReady ? repositoryDisconnectBlockedReason : null
-											}
-											onSelect={handleProviderSelect}
-										/>
-									}
+			<div className='flex flex-col gap-5'>
+				<div>
+					<h1 className='text-lg font-semibold text-foreground'>Git</h1>
+					<p className='text-sm text-muted-foreground'>
+						Manage the repository and accounts used to edit context files and open review requests.
+					</p>
+				</div>
+				<div className='flex flex-col gap-12'>
+					<SettingsCard unstyled className='gap-10'>
+						{isLoading ? (
+							<div className='flex items-center justify-center py-10'>
+								<Spinner />
+							</div>
+						) : loadError ? (
+							<div className='flex flex-col items-start gap-2'>
+								<ErrorMessage message={loadError.message} />
+								<Button
+									size='sm'
+									variant='outline'
+									onClick={() => {
+										void repositoryStatus.refetch();
+										void githubAvailable.refetch();
+										void gitlabAvailable.refetch();
+										if (instanceReady) {
+											void selectedAccountStatus.refetch();
+										}
+									}}
 								>
-									{!instanceReady && (
-										<div className='space-y-2 text-sm text-muted-foreground'>
-											<p>
-												Create a {provider.oauthAppName} in {provider.oauthAppLocation}, then
-												set{' '}
-												<code className='rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground'>
-													{provider.clientIdEnvVar}
-												</code>{' '}
-												and{' '}
-												<code className='rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground'>
-													{provider.clientSecretEnvVar}
-												</code>{' '}
-												on the server. If you run this instance, you can set them now. Otherwise
-												ask your admin.
-											</p>
-											<p>
-												After setting the server keys, redeploy or restart nao for them to take
-												effect.
-											</p>
-											<p>Documentation link coming soon.</p>
-										</div>
-									)}
-								</NumberedSetupSection>
-
-								<NumberedSetupSection
-									number={2}
-									title='Connect your context files repository'
-									ownership='Done by any context admin, once for everyone.'
-									isDone={repositoryReady}
-									completedContent={
-										<ConnectedRepositorySummary
-											repositoryName={status?.repo?.repoFullName}
-											providerLabel={
-												connectedRepositoryProvider
-													? PROVIDER_CONFIGS[connectedRepositoryProvider].label
-													: undefined
-											}
-											disconnectBlockedReason={repositoryDisconnectBlockedReason}
-											onDisconnect={() => {
-												disconnectRepository.reset();
-												setIsDisconnectingRepository(true);
-											}}
-										/>
-									}
-								>
-									<p className='text-sm text-muted-foreground'>
-										Connect the repository that stores context files for this project.
-									</p>
-
-									{!accountReady ? (
-										<div className='flex flex-col items-start gap-2'>
-											<p className='text-sm text-muted-foreground'>
-												Connect the {provider.label} account that has access to the context
-												files repository. nao uses this account to find and connect that
-												repository.
-											</p>
-											{instanceReady ? (
-												<Button size='sm' variant='secondary' asChild>
-													<a href={provider.connectHref}>
-														<ProviderIcon className='size-3.5' />
-														Connect {provider.label} account
-													</a>
-												</Button>
-											) : (
-												<DisabledAction
-													label={`Connect ${provider.label} account`}
-													reason={`The nao admin must set the ${provider.label} server keys and redeploy or restart nao first.`}
-													icon={provider.icon}
+									Retry
+								</Button>
+							</div>
+						) : (
+							<>
+								{showDeploymentPanel && (
+									<DeploymentManagedGitSettings
+										contextSource={status.contextSource}
+										recommendedSetupVisible={showRecommendedSetup}
+										onToggleRecommendedSetup={() => {
+											setShowRecommendedSetup((visible) => !visible);
+										}}
+									/>
+								)}
+								{(!showDeploymentPanel || showRecommendedSetup) && (
+									<div id='recommended-git-setup' className='contents'>
+										<NumberedSetupSection
+											number={1}
+											title={`${provider.label} server keys`}
+											ownership='Done by the admin who deploys nao, once for everyone.'
+											isDone={instanceReady}
+											persistentContent={
+												<ProviderSelector
+													selectedProvider={selectedProvider}
+													switchBlockedReason={
+														repositoryReady ? repositoryDisconnectBlockedReason : null
+													}
+													onSelect={handleProviderSelect}
 												/>
+											}
+										>
+											{!instanceReady && (
+												<div className='space-y-2 text-sm text-muted-foreground'>
+													<p>
+														Create a {provider.oauthAppName} in {provider.oauthAppLocation},
+														then set{' '}
+														<code className='rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground'>
+															{provider.clientIdEnvVar}
+														</code>{' '}
+														and{' '}
+														<code className='rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground'>
+															{provider.clientSecretEnvVar}
+														</code>{' '}
+														on the server. If you run this instance, you can set them now.
+														Otherwise ask your admin.
+													</p>
+													<p>
+														After setting the server keys, redeploy or restart nao for them
+														to take effect.
+													</p>
+													<p>Documentation link coming soon.</p>
+												</div>
 											)}
-										</div>
-									) : (
-										<div className='flex min-w-0 flex-col gap-6'>
-											<div className='space-y-2'>
-												<ProviderConnectionCard
-													providerLabel={provider.label}
-													icon={provider.icon}
-													connectHref={provider.connectHref}
-													description='This account is used to find repositories.'
-													connected
-													username={provider.account?.username}
-													avatarUrl={provider.account?.avatarUrl}
-													onDisconnect={provider.disconnect}
-													disconnectPending={provider.disconnectPending}
+										</NumberedSetupSection>
+
+										<NumberedSetupSection
+											number={2}
+											title='Connect your context files repository'
+											ownership='Done by any context admin, once for everyone.'
+											isDone={repositoryReady}
+											completedContent={
+												<ConnectedRepositorySummary
+													repositoryName={status?.repo?.repoFullName}
+													providerLabel={
+														connectedRepositoryProvider
+															? PROVIDER_CONFIGS[connectedRepositoryProvider].label
+															: undefined
+													}
+													disconnectBlockedReason={repositoryDisconnectBlockedReason}
+													onDisconnect={() => {
+														disconnectRepository.reset();
+														setIsDisconnectingRepository(true);
+													}}
 												/>
-												{provider.disconnectError && (
-													<ErrorMessage message={provider.disconnectError.message} />
-												)}
-											</div>
-											{canConnectRepository ? (
-												<div className='flex min-w-0 flex-col gap-2'>
-													<RepositoryList
-														selected={selectedRepository}
-														onSelect={(fullName) => {
-															setSelectedRepository(
-																fullName === selectedRepository ? null : fullName,
-															);
-														}}
-													/>
-													<Button
-														size='sm'
-														disabled={!selectedRepository}
-														onClick={() => {
-															connectRepository.reset();
-															setIsConfirmingRepository(true);
-														}}
-													>
-														Review connection
-													</Button>
-													{!selectedRepository && (
-														<p className='text-xs text-muted-foreground'>
-															Choose a repository to continue.
-														</p>
+											}
+										>
+											<p className='text-sm text-muted-foreground'>
+												Connect the repository that stores context files for this project.
+											</p>
+
+											{!accountReady ? (
+												<div className='flex flex-col items-start gap-2'>
+													<p className='text-sm text-muted-foreground'>
+														Connect the {provider.label} account that has access to the
+														context files repository. nao uses this account to find and
+														connect that repository.
+													</p>
+													{instanceReady ? (
+														<Button size='sm' variant='secondary' asChild>
+															<a href={provider.connectHref}>
+																<ProviderIcon className='size-3.5' />
+																Connect {provider.label} account
+															</a>
+														</Button>
+													) : (
+														<DisabledAction
+															label={`Connect ${provider.label} account`}
+															reason={`The nao admin must set the ${provider.label} server keys and redeploy or restart nao first.`}
+															icon={provider.icon}
+														/>
 													)}
 												</div>
 											) : (
-												<DisabledAction
-													label='Connect repository'
-													reason={getRepositoryConnectBlockedReason(
-														instanceReady,
-														accountReady,
-														provider.label,
+												<div className='flex min-w-0 flex-col gap-6'>
+													<div className='space-y-2'>
+														<ProviderConnectionCard
+															providerLabel={provider.label}
+															icon={provider.icon}
+															connectHref={provider.connectHref}
+															description='This account is used to find repositories.'
+															connected
+															username={provider.account?.username}
+															avatarUrl={provider.account?.avatarUrl}
+															onDisconnect={provider.disconnect}
+															disconnectPending={provider.disconnectPending}
+														/>
+														{provider.disconnectError && (
+															<ErrorMessage message={provider.disconnectError.message} />
+														)}
+													</div>
+													{canConnectRepository ? (
+														<div className='flex min-w-0 flex-col gap-2'>
+															<RepositoryList
+																selected={selectedRepository}
+																onSelect={(fullName) => {
+																	setSelectedRepository(
+																		fullName === selectedRepository
+																			? null
+																			: fullName,
+																	);
+																}}
+															/>
+															<Button
+																size='sm'
+																disabled={!selectedRepository}
+																onClick={() => {
+																	connectRepository.reset();
+																	setIsConfirmingRepository(true);
+																}}
+															>
+																Review connection
+															</Button>
+															{!selectedRepository && (
+																<p className='text-xs text-muted-foreground'>
+																	Choose a repository to continue.
+																</p>
+															)}
+														</div>
+													) : (
+														<DisabledAction
+															label='Connect repository'
+															reason={getRepositoryConnectBlockedReason(
+																instanceReady,
+																accountReady,
+																provider.label,
+															)}
+														/>
 													)}
-												/>
+												</div>
 											)}
-										</div>
-									)}
 
-									{status?.gitUnavailableMessage &&
-										status.gitUnavailableReason !== 'github-unavailable' &&
-										status.gitUnavailableReason !== 'no-token' &&
-										status.gitUnavailableReason !== 'no-repo' && (
-											<p className='text-xs text-muted-foreground'>
-												{status.gitUnavailableMessage}
-											</p>
-										)}
-								</NumberedSetupSection>
-
-								<NumberedSetupSection
-									number={3}
-									title={`Connect your personal ${provider.label} account`}
-									ownership='Done by every context admin, for themselves.'
-									isDone={accountReady}
-									completedContent={
-										repositoryReady ? (
-											<div className='space-y-2'>
-												<ConnectedProviderAccount
-													username={provider.account?.username}
-													avatarUrl={provider.account?.avatarUrl}
-													onDisconnect={provider.disconnect}
-													disconnectPending={provider.disconnectPending}
-												/>
-												{provider.disconnectError && (
-													<ErrorMessage message={provider.disconnectError.message} />
+											{status?.gitUnavailableMessage &&
+												status.gitUnavailableReason !== 'github-unavailable' &&
+												status.gitUnavailableReason !== 'no-token' &&
+												status.gitUnavailableReason !== 'no-repo' && (
+													<p className='text-xs text-muted-foreground'>
+														{status.gitUnavailableMessage}
+													</p>
 												)}
-											</div>
-										) : undefined
-									}
-								>
-									{repositoryReady ? (
-										<>
-											<p className='text-sm text-muted-foreground'>
-												Connect your own {provider.label} account because{' '}
-												{provider.reviewRequestNamePlural} are opened as you. Your connection
-												does not connect anyone else.
-											</p>
-											<ProviderConnectionCard
-												providerLabel={provider.label}
-												icon={provider.icon}
-												connectHref={provider.connectHref}
-												description={`This account is used to open ${provider.reviewRequestNamePlural} as you.`}
-												connected={false}
-												onDisconnect={provider.disconnect}
-												disconnectPending={provider.disconnectPending}
-												connectDisabledReason={
-													instanceReady
-														? undefined
-														: `The nao admin must set the ${provider.label} server keys and redeploy or restart nao first.`
-												}
-											/>
-										</>
-									) : (
-										<p className='text-sm text-muted-foreground'>
-											Connect the context files repository in step 2 before each person can
-											connect their own account.
-										</p>
-									)}
-								</NumberedSetupSection>
-							</div>
+										</NumberedSetupSection>
+
+										<NumberedSetupSection
+											number={3}
+											title={`Connect your personal ${provider.label} account`}
+											ownership='Done by every context admin, for themselves.'
+											isDone={accountReady}
+											completedContent={
+												repositoryReady ? (
+													<div className='space-y-2'>
+														<ConnectedProviderAccount
+															username={provider.account?.username}
+															avatarUrl={provider.account?.avatarUrl}
+															onDisconnect={provider.disconnect}
+															disconnectPending={provider.disconnectPending}
+														/>
+														{provider.disconnectError && (
+															<ErrorMessage message={provider.disconnectError.message} />
+														)}
+													</div>
+												) : undefined
+											}
+										>
+											{repositoryReady ? (
+												<>
+													<p className='text-sm text-muted-foreground'>
+														Connect your own {provider.label} account because{' '}
+														{provider.reviewRequestNamePlural} are opened as you. Your
+														connection does not connect anyone else.
+													</p>
+													<ProviderConnectionCard
+														providerLabel={provider.label}
+														icon={provider.icon}
+														connectHref={provider.connectHref}
+														description={`This account is used to open ${provider.reviewRequestNamePlural} as you.`}
+														connected={false}
+														onDisconnect={provider.disconnect}
+														disconnectPending={provider.disconnectPending}
+														connectDisabledReason={
+															instanceReady
+																? undefined
+																: `The nao admin must set the ${provider.label} server keys and redeploy or restart nao first.`
+														}
+													/>
+												</>
+											) : (
+												<p className='text-sm text-muted-foreground'>
+													Connect the context files repository in step 2 before each person
+													can connect their own account.
+												</p>
+											)}
+										</NumberedSetupSection>
+									</div>
+								)}
+							</>
 						)}
-					</>
-				)}
-			</SettingsCard>
+					</SettingsCard>
 
-			<AlertDialog
-				open={providerSwitchRequest !== null}
-				onOpenChange={(open) => {
-					if (!open && !isSwitchingProvider) {
-						setProviderSwitchRequest(null);
-					}
-				}}
-			>
-				<AlertDialogContent>
-					<AlertDialogHeader>
-						<AlertDialogTitle>
-							Switch to{' '}
-							{providerSwitchRequest
-								? PROVIDER_CONFIGS[providerSwitchRequest.targetProvider].label
-								: 'another provider'}
-							?
-						</AlertDialogTitle>
-						<AlertDialogDescription>
-							{providerSwitchRequest
-								? getProviderSwitchDescription(providerSwitchRequest)
-								: 'This will disconnect the current Git setup.'}
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					{providerSwitchError && <ErrorMessage message={providerSwitchError.message} />}
-					<AlertDialogFooter>
-						<AlertDialogCancel disabled={isSwitchingProvider}>Cancel</AlertDialogCancel>
-						<AlertDialogAction
-							variant='destructive'
-							isLoading={isSwitchingProvider}
-							disabled={!providerSwitchRequest || isSwitchingProvider}
-							onClick={(event) => {
-								event.preventDefault();
-								void handleConfirmProviderSwitch();
-							}}
-						>
-							Switch provider
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
+					<AlertDialog
+						open={providerSwitchRequest !== null}
+						onOpenChange={(open) => {
+							if (!open && !isSwitchingProvider) {
+								setProviderSwitchRequest(null);
+							}
+						}}
+					>
+						<AlertDialogContent>
+							<AlertDialogHeader>
+								<AlertDialogTitle>
+									Switch to{' '}
+									{providerSwitchRequest
+										? PROVIDER_CONFIGS[providerSwitchRequest.targetProvider].label
+										: 'another provider'}
+									?
+								</AlertDialogTitle>
+								<AlertDialogDescription>
+									{providerSwitchRequest
+										? getProviderSwitchDescription(providerSwitchRequest)
+										: 'This will disconnect the current Git setup.'}
+								</AlertDialogDescription>
+							</AlertDialogHeader>
+							{providerSwitchError && <ErrorMessage message={providerSwitchError.message} />}
+							<AlertDialogFooter>
+								<AlertDialogCancel disabled={isSwitchingProvider}>Cancel</AlertDialogCancel>
+								<AlertDialogAction
+									variant='destructive'
+									isLoading={isSwitchingProvider}
+									disabled={!providerSwitchRequest || isSwitchingProvider}
+									onClick={(event) => {
+										event.preventDefault();
+										void handleConfirmProviderSwitch();
+									}}
+								>
+									Switch provider
+								</AlertDialogAction>
+							</AlertDialogFooter>
+						</AlertDialogContent>
+					</AlertDialog>
 
-			<AlertDialog
-				open={isConfirmingRepository}
-				onOpenChange={(open) => {
-					if (!connectRepository.isPending) {
-						setIsConfirmingRepository(open);
-					}
-				}}
-			>
-				<AlertDialogContent>
-					<AlertDialogHeader>
-						<AlertDialogTitle>Connect {selectedRepository}?</AlertDialogTitle>
-						<AlertDialogDescription>
-							Connecting this repository will not overwrite or replace files in the live project. Context
-							edits will be made in the shared review workspace.
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					{connectRepository.error && <ErrorMessage message={connectRepository.error.message} />}
-					<AlertDialogFooter>
-						<AlertDialogCancel disabled={connectRepository.isPending}>Cancel</AlertDialogCancel>
-						<AlertDialogAction
-							isLoading={connectRepository.isPending}
-							disabled={!selectedRepository || connectRepository.isPending}
-							onClick={(event) => {
-								event.preventDefault();
-								if (selectedRepository) {
-									connectRepository.mutate({
-										provider: selectedProvider,
-										repoFullName: selectedRepository,
-									});
-								}
-							}}
-						>
-							Connect repository
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
+					<AlertDialog
+						open={isConfirmingRepository}
+						onOpenChange={(open) => {
+							if (!connectRepository.isPending) {
+								setIsConfirmingRepository(open);
+							}
+						}}
+					>
+						<AlertDialogContent>
+							<AlertDialogHeader>
+								<AlertDialogTitle>Connect {selectedRepository}?</AlertDialogTitle>
+								<AlertDialogDescription>
+									Connecting this repository will not overwrite or replace files in the live project.
+									Context edits will be made in the shared review workspace.
+								</AlertDialogDescription>
+							</AlertDialogHeader>
+							{connectRepository.error && <ErrorMessage message={connectRepository.error.message} />}
+							<AlertDialogFooter>
+								<AlertDialogCancel disabled={connectRepository.isPending}>Cancel</AlertDialogCancel>
+								<AlertDialogAction
+									isLoading={connectRepository.isPending}
+									disabled={!selectedRepository || connectRepository.isPending}
+									onClick={(event) => {
+										event.preventDefault();
+										if (selectedRepository) {
+											connectRepository.mutate({
+												provider: selectedProvider,
+												repoFullName: selectedRepository,
+											});
+										}
+									}}
+								>
+									Connect repository
+								</AlertDialogAction>
+							</AlertDialogFooter>
+						</AlertDialogContent>
+					</AlertDialog>
 
-			<AlertDialog
-				open={isDisconnectingRepository}
-				onOpenChange={(open) => {
-					if (!disconnectRepository.isPending) {
-						setIsDisconnectingRepository(open);
-					}
-				}}
-			>
-				<AlertDialogContent>
-					<AlertDialogHeader>
-						<AlertDialogTitle>Disconnect {status?.repo?.repoFullName}?</AlertDialogTitle>
-						<AlertDialogDescription>
-							This removes the context repository connection from this project. It does not delete the
-							repository or its files.
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					{disconnectRepository.error && <ErrorMessage message={disconnectRepository.error.message} />}
-					<AlertDialogFooter>
-						<AlertDialogCancel disabled={disconnectRepository.isPending}>Cancel</AlertDialogCancel>
-						<AlertDialogAction
-							variant='destructive'
-							isLoading={disconnectRepository.isPending}
-							disabled={disconnectRepository.isPending}
-							onClick={(event) => {
-								event.preventDefault();
-								disconnectRepository.mutate();
-							}}
-						>
-							Disconnect repository
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
+					<AlertDialog
+						open={isDisconnectingRepository}
+						onOpenChange={(open) => {
+							if (!disconnectRepository.isPending) {
+								setIsDisconnectingRepository(open);
+							}
+						}}
+					>
+						<AlertDialogContent>
+							<AlertDialogHeader>
+								<AlertDialogTitle>Disconnect {status?.repo?.repoFullName}?</AlertDialogTitle>
+								<AlertDialogDescription>
+									This removes the context repository connection from this project. It does not delete
+									the repository or its files.
+								</AlertDialogDescription>
+							</AlertDialogHeader>
+							{disconnectRepository.error && (
+								<ErrorMessage message={disconnectRepository.error.message} />
+							)}
+							<AlertDialogFooter>
+								<AlertDialogCancel disabled={disconnectRepository.isPending}>Cancel</AlertDialogCancel>
+								<AlertDialogAction
+									variant='destructive'
+									isLoading={disconnectRepository.isPending}
+									disabled={disconnectRepository.isPending}
+									onClick={(event) => {
+										event.preventDefault();
+										disconnectRepository.mutate();
+									}}
+								>
+									Disconnect repository
+								</AlertDialogAction>
+							</AlertDialogFooter>
+						</AlertDialogContent>
+					</AlertDialog>
+				</div>
+			</div>
 		</SettingsPageWrapper>
 	);
 }

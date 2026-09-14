@@ -1,11 +1,18 @@
-import { Fragment, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { Plus, X } from 'lucide-react';
+import { getStoryBlockDragOrigin, hasStoryBlockDrag, STORY_TAB_DRAG_TYPE } from './story-editor-drag-context';
+import type { DragOrigin } from './story-block-selection';
 import type { DragEvent, KeyboardEvent } from 'react';
 
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+
+export interface StoryTabsExternalDrop {
+	onDrop: (origin: DragOrigin, destinationTabIndex: number) => void;
+	onTargetActivate: () => void;
+}
 
 interface StoryTabsBarProps {
 	tabs: Array<{ title: string }>;
@@ -17,16 +24,47 @@ interface StoryTabsBarProps {
 		onMove: (fromIndex: number, toIndex: number) => void;
 		onAdd: () => void;
 	};
+	externalDrop?: StoryTabsExternalDrop;
 	contentClassName?: string;
 }
 
-export function StoryTabsBar({ tabs, activeIndex, onSelect, editable, contentClassName }: StoryTabsBarProps) {
+export function StoryTabsBar({
+	tabs,
+	activeIndex,
+	onSelect,
+	editable,
+	externalDrop,
+	contentClassName,
+}: StoryTabsBarProps) {
 	const [editingIndex, setEditingIndex] = useState<number | null>(null);
 	const [editingTitle, setEditingTitle] = useState('');
 	const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
 	const [dropSlot, setDropSlot] = useState<number | null>(null);
+	const [externalDropIndex, setExternalDropIndex] = useState<number | null>(null);
 	const dragIndexRef = useRef<number | null>(null);
 	const dropSlotRef = useRef<number | null>(null);
+
+	const clearDragState = useCallback(() => {
+		dragIndexRef.current = null;
+		dropSlotRef.current = null;
+		setDraggingIndex(null);
+		setDropSlot(null);
+		setExternalDropIndex(null);
+	}, []);
+	const clearExternalDropState = useCallback(() => {
+		setExternalDropIndex(null);
+	}, []);
+
+	useEffect(() => {
+		document.addEventListener('dragend', clearDragState, true);
+		document.addEventListener('drop', clearExternalDropState, true);
+		document.addEventListener('drop', clearDragState);
+		return () => {
+			document.removeEventListener('dragend', clearDragState, true);
+			document.removeEventListener('drop', clearExternalDropState, true);
+			document.removeEventListener('drop', clearDragState);
+		};
+	}, [clearDragState, clearExternalDropState]);
 
 	const startRenaming = (index: number) => {
 		setEditingIndex(index);
@@ -58,23 +96,40 @@ export function StoryTabsBar({ tabs, activeIndex, onSelect, editable, contentCla
 		dragIndexRef.current = index;
 		setDraggingIndex(index);
 		event.dataTransfer.effectAllowed = 'move';
+		event.dataTransfer.setData(STORY_TAB_DRAG_TYPE, String(index));
 		event.dataTransfer.setData('text/plain', String(index));
 	};
 
 	const handleDragOver = (event: DragEvent<HTMLDivElement>, index: number) => {
-		if (!editable || dragIndexRef.current === null) {
+		if (event.dataTransfer.types.includes(STORY_TAB_DRAG_TYPE)) {
+			if (!editable || dragIndexRef.current === null) {
+				return;
+			}
+
+			event.preventDefault();
+			event.dataTransfer.dropEffect = 'move';
+			setExternalDropIndex(null);
+			const bounds = event.currentTarget.getBoundingClientRect();
+			const slot = event.clientX < bounds.left + bounds.width / 2 ? index : index + 1;
+			dropSlotRef.current = slot;
+			setDropSlot(slot);
 			return;
 		}
 
+		if (!externalDrop || index === activeIndex || !hasStoryBlockDrag(event.dataTransfer)) {
+			return;
+		}
 		event.preventDefault();
+		event.stopPropagation();
 		event.dataTransfer.dropEffect = 'move';
-		const bounds = event.currentTarget.getBoundingClientRect();
-		const slot = event.clientX < bounds.left + bounds.width / 2 ? index : index + 1;
-		dropSlotRef.current = slot;
-		setDropSlot(slot);
+		externalDrop.onTargetActivate();
+		setExternalDropIndex(index);
 	};
 
 	const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+		if (!event.dataTransfer.types.includes(STORY_TAB_DRAG_TYPE)) {
+			return;
+		}
 		event.preventDefault();
 		const fromIndex = dragIndexRef.current;
 		const slot = dropSlotRef.current;
@@ -87,11 +142,18 @@ export function StoryTabsBar({ tabs, activeIndex, onSelect, editable, contentCla
 		clearDragState();
 	};
 
-	const clearDragState = () => {
-		dragIndexRef.current = null;
-		dropSlotRef.current = null;
-		setDraggingIndex(null);
-		setDropSlot(null);
+	const handleExternalDrop = (event: DragEvent<HTMLDivElement>, index: number) => {
+		if (!externalDrop || index === activeIndex || !hasStoryBlockDrag(event.dataTransfer)) {
+			return;
+		}
+
+		event.preventDefault();
+		externalDrop.onTargetActivate();
+		const origin = getStoryBlockDragOrigin(event.dataTransfer);
+		if (origin) {
+			externalDrop.onDrop(origin, index);
+		}
+		clearDragState();
 	};
 
 	return (
@@ -121,12 +183,21 @@ export function StoryTabsBar({ tabs, activeIndex, onSelect, editable, contentCla
 							onDragStart={(event) => handleDragStart(event, index)}
 							onDragEnd={clearDragState}
 							onDragOver={(event) => handleDragOver(event, index)}
+							onDrop={(event) => handleExternalDrop(event, index)}
+							onDragLeave={(event) => {
+								if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+									setExternalDropIndex((current) => (current === index ? null : current));
+								}
+							}}
+							data-story-block-drop-target={externalDropIndex === index ? '' : undefined}
 							className={cn(
 								'group/tab flex h-9 shrink-0 cursor-pointer items-center rounded-t-md border border-transparent transition-[color,background-color,transform,opacity]',
 								index === activeIndex
 									? 'relative z-10 border-border border-b-0 bg-background text-foreground'
 									: 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
 								draggingIndex === index && 'scale-95 opacity-40',
+								externalDropIndex === index &&
+									'border-primary bg-primary/10 text-foreground ring-2 ring-primary/30',
 							)}
 						>
 							{editingIndex === index ? (

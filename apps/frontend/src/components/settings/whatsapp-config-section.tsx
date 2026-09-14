@@ -11,9 +11,10 @@ import { trpc } from '@/main';
 
 interface WhatsappConfigSectionProps {
 	isAdmin: boolean;
+	onCancelSetup: () => void;
 }
 
-export function WhatsappConfigSection({ isAdmin }: WhatsappConfigSectionProps) {
+export function WhatsappConfigSection({ isAdmin, onCancelSetup }: WhatsappConfigSectionProps) {
 	const queryClient = useQueryClient();
 	const whatsappConfig = useQuery(trpc.project.getWhatsappConfig.queryOptions());
 	const { data: availableModels } = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
@@ -58,6 +59,14 @@ export function WhatsappConfigSection({ isAdmin }: WhatsappConfigSectionProps) {
 	const handleDelete = async () => {
 		await deleteWhatsappConfig.mutateAsync();
 		queryClient.removeQueries(trpc.project.getWhatsappConfig.queryOptions());
+	};
+
+	const handleCancel = () => {
+		if (projectConfig) {
+			setIsEditing(false);
+			return;
+		}
+		onCancelSetup();
 	};
 
 	const handleStartEditing = () => {
@@ -109,7 +118,7 @@ export function WhatsappConfigSection({ isAdmin }: WhatsappConfigSectionProps) {
 			<WhatsappForm
 				hasProjectConfig={!!projectConfig}
 				onSubmit={handleSubmit}
-				onCancel={() => setIsEditing(false)}
+				onCancel={handleCancel}
 				isPending={upsertWhatsappConfig.isPending}
 			/>
 		);

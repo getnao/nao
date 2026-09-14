@@ -22,6 +22,7 @@ sql: |
     );
 
 # Optional fields:
+# database: <database name from nao_config.yaml — required when several databases are configured>
 # category: revenue | activity | conversion | churn | retention | ...
 # difficulty: easy | medium | hard
 # notes: why this test matters / what failure mode it catches

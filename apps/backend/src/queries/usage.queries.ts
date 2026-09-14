@@ -6,7 +6,14 @@ import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import type { ModelCosts } from '../types/llm';
-import type { Granularity, TotalUsageRecord, UsageFilter, UsageRecord, UsageSource } from '../types/usage';
+import {
+	type Granularity,
+	resolveUsageChartGranularity,
+	type TotalUsageRecord,
+	type UsageFilter,
+	type UsageRecord,
+	type UsageSource,
+} from '../types/usage';
 import { fillMissingDates, getLookbackTimestamp } from '../utils/date';
 import { getProjectDeclaredModels } from '../utils/llm';
 
@@ -108,10 +115,11 @@ const INFERENCE_USAGE_SOURCE_EXPR = sql<UsageSource | null>`(
 )`;
 
 export const getMessagesUsage = async (projectId: string, filter: UsageFilter): Promise<UsageRecord[]> => {
-	const { granularity, provider } = filter;
+	const { period, provider } = filter;
+	const granularity = filter.granularity ?? resolveUsageChartGranularity(period);
 	const messageDateExpr = getDateExpr(s.chatMessage.createdAt, granularity);
 	const inferenceDateExpr = getDateExpr(s.llmInference.createdAt, granularity);
-	const lookbackTs = getLookbackTimestamp(granularity);
+	const lookbackTs = getLookbackTimestamp(period);
 	const messageLookbackFilter =
 		dbConfig.dialect === Dialect.Postgres
 			? sql`${s.chatMessage.createdAt} >= ${new Date(lookbackTs).toISOString()}`
@@ -157,6 +165,10 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'telegram' then ${s.chatMessage.id} end)`.as(
 						'telegram_message_count',
 					),
+				mattermostMessageCount:
+					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'mattermost' then ${s.chatMessage.id} end)`.as(
+						'mattermost_message_count',
+					),
 				whatsappMessageCount:
 					sql<number>`count(distinct case when ${s.chatMessage.role} = 'user' and ${s.chatMessage.source} = 'whatsapp' then ${s.chatMessage.id} end)`.as(
 						'whatsapp_message_count',
@@ -199,6 +211,7 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 				slackMessageCount: sql<number>`0`.as('slack_message_count'),
 				teamsMessageCount: sql<number>`0`.as('teams_message_count'),
 				telegramMessageCount: sql<number>`0`.as('telegram_message_count'),
+				mattermostMessageCount: sql<number>`0`.as('mattermost_message_count'),
 				whatsappMessageCount: sql<number>`0`.as('whatsapp_message_count'),
 				adminMessageCount: sql<number>`0`.as('admin_message_count'),
 				mcpMessageCount: sql<number>`0`.as('mcp_message_count'),
@@ -236,6 +249,7 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 			slackMessageCount: sum(combinedUsage.slackMessageCount),
 			teamsMessageCount: sum(combinedUsage.teamsMessageCount),
 			telegramMessageCount: sum(combinedUsage.telegramMessageCount),
+			mattermostMessageCount: sum(combinedUsage.mattermostMessageCount),
 			whatsappMessageCount: sum(combinedUsage.whatsappMessageCount),
 			adminMessageCount: sum(combinedUsage.adminMessageCount),
 			mcpMessageCount: sum(combinedUsage.mcpMessageCount),
@@ -253,12 +267,12 @@ export const getMessagesUsage = async (projectId: string, filter: UsageFilter): 
 		.from(combinedUsage)
 		.groupBy(({ date }) => date);
 
-	return fillMissingDates(rows.map(normalizeMessageUsageRow), granularity);
+	return fillMissingDates(rows.map(normalizeMessageUsageRow), period, granularity);
 };
 
 export const getTotalUsage = async (projectId: string, filter: UsageFilter): Promise<TotalUsageRecord> => {
-	const { granularity, provider } = filter;
-	const lookbackTs = getLookbackTimestamp(granularity);
+	const { period, provider } = filter;
+	const lookbackTs = getLookbackTimestamp(period);
 	const lookbackFilter =
 		dbConfig.dialect === Dialect.Postgres
 			? sql`${s.chatMessage.createdAt} >= ${new Date(lookbackTs).toISOString()}`
@@ -318,6 +332,7 @@ function normalizeMessageUsageRow(row: {
 	slackMessageCount: unknown;
 	teamsMessageCount: unknown;
 	telegramMessageCount: unknown;
+	mattermostMessageCount: unknown;
 	whatsappMessageCount: unknown;
 	adminMessageCount: unknown;
 	mcpMessageCount: unknown;
@@ -344,6 +359,7 @@ function normalizeMessageUsageRow(row: {
 		slackMessageCount: Number(row.slackMessageCount ?? 0),
 		teamsMessageCount: Number(row.teamsMessageCount ?? 0),
 		telegramMessageCount: Number(row.telegramMessageCount ?? 0),
+		mattermostMessageCount: Number(row.mattermostMessageCount ?? 0),
 		whatsappMessageCount: Number(row.whatsappMessageCount ?? 0),
 		adminMessageCount: Number(row.adminMessageCount ?? 0),
 		mcpMessageCount: Number(row.mcpMessageCount ?? 0),

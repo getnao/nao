@@ -1,17 +1,59 @@
 import { findUnreferencedStoryFilters, validateSqlFilterTemplate } from '@nao/shared/sql-template';
-import { getStoryFiltersFromCode } from '@nao/shared/story-segments';
+import { extractQueryIds, getStoryFiltersFromCode } from '@nao/shared/story-segments';
+import { QueryIdSchema } from '@nao/shared/tools';
 
 import { env } from '../env';
-import * as storyQueries from '../queries/story.queries';
+import * as executeSqlQueries from '../queries/execute-sql.queries';
+
+type SqlQueryMap = Record<string, { sqlQuery: string; databaseId?: string }>;
 
 export async function getStoryTemplateWarnings(chatId: string, code: string): Promise<string[]> {
-	if (!env.BETA_STORY_FILTERS_ENABLED) {
-		return [];
+	const warnings: string[] = [];
+	const { wellFormedIds, malformedWarnings } = partitionReferencedQueryIds(code);
+	warnings.push(...malformedWarnings);
+
+	const sqlQueries =
+		wellFormedIds.size > 0 ? await executeSqlQueries.getLatestSqlQueriesByIds(chatId, wellFormedIds) : {};
+
+	warnings.push(...getMissingQueryWarnings(wellFormedIds, sqlQueries));
+
+	if (env.BETA_STORY_FILTERS_ENABLED) {
+		warnings.push(...getFilterWarnings(code, sqlQueries));
 	}
 
+	return warnings;
+}
+
+function partitionReferencedQueryIds(code: string): { wellFormedIds: Set<string>; malformedWarnings: string[] } {
+	const wellFormedIds = new Set<string>();
+	const malformedWarnings: string[] = [];
+	for (const queryId of extractQueryIds(code)) {
+		if (QueryIdSchema.safeParse(queryId).success) {
+			wellFormedIds.add(queryId);
+		} else {
+			malformedWarnings.push(
+				`Story references query_id "${queryId}", which is not a valid query id. Use the exact id returned in an execute_sql tool output (the "id" field, which looks like "query_..."); a chart/table/map block with an invalid query_id renders empty.`,
+			);
+		}
+	}
+	return { wellFormedIds, malformedWarnings };
+}
+
+function getMissingQueryWarnings(wellFormedIds: Set<string>, sqlQueries: SqlQueryMap): string[] {
+	const warnings: string[] = [];
+	for (const queryId of wellFormedIds) {
+		if (!sqlQueries[queryId]) {
+			warnings.push(
+				`Story references query_id "${queryId}", which was not produced by any execute_sql call in this chat. Run execute_sql first and use the exact id returned in its output (the "id" field); a chart/table/map block with an unknown query_id renders empty.`,
+			);
+		}
+	}
+	return warnings;
+}
+
+function getFilterWarnings(code: string, sqlQueries: SqlQueryMap): string[] {
 	const filters = getStoryFiltersFromCode(code);
 	const knownFilterIds = filters.map((filter) => filter.id);
-	const sqlQueries = await storyQueries.getSqlQueriesFromCode(chatId, code);
 	const warnings: string[] = [];
 
 	for (const duplicateId of findDuplicateFilterIds(knownFilterIds)) {

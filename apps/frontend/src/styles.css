@@ -184,6 +184,12 @@ code.dollar:before {
 	--color-chart-3: var(--chart-3);
 	--color-chart-4: var(--chart-4);
 	--color-chart-5: var(--chart-5);
+	--color-chart-6: var(--chart-6);
+	--color-chart-7: var(--chart-7);
+	--color-chart-8: var(--chart-8);
+	--color-chart-9: var(--chart-9);
+	--color-chart-10: var(--chart-10);
+	--color-chart-11: var(--chart-11);
 	--color-sidebar: var(--sidebar);
 	--color-sidebar-foreground: var(--sidebar-foreground);
 	--color-sidebar-primary: var(--sidebar-primary);
@@ -237,7 +243,11 @@ code.dollar:before {
 	--chart-4: oklch(0.828 0.189 84.429);
 	--chart-5: oklch(0.769 0.188 70.08);
 	--chart-6: oklch(0.704 0.191 22.216);
-	--chart-7: oklch(0.646 0.222 41.116);
+	--chart-7: oklch(0.58 0.22 295);
+	--chart-8: oklch(0.52 0.18 265);
+	--chart-9: oklch(0.62 0.18 145);
+	--chart-10: oklch(0.65 0.19 335);
+	--chart-11: oklch(0.68 0.15 210);
 
 	--sidebar: oklch(0.99 0 0);
 	--sidebar-foreground: oklch(0.129 0.042 264.695);
@@ -286,7 +296,11 @@ code.dollar:before {
 	--chart-4: oklch(0.88 0.18 84.429);
 	--chart-5: oklch(0.82 0.18 70.08);
 	--chart-6: oklch(0.76 0.19 22.216);
-	--chart-7: oklch(0.704 0.191 22.216);
+	--chart-7: oklch(0.72 0.22 295);
+	--chart-8: oklch(0.68 0.18 265);
+	--chart-9: oklch(0.72 0.18 145);
+	--chart-10: oklch(0.74 0.18 335);
+	--chart-11: oklch(0.78 0.14 210);
 }
 
 @layer base {
@@ -534,7 +548,7 @@ code.dollar:before {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	padding-right: 1rem;
+	transform: translateX(-1rem);
 	cursor: grab;
 }
 
@@ -542,10 +556,11 @@ code.dollar:before {
 	cursor: grabbing;
 }
 
-.story-editor .drag-handle-button {
+.story-editor .drag-handle > .drag-handle-button {
 	display: flex;
 	align-items: center;
 	justify-content: center;
+	flex: 0 0 1.5rem;
 	width: 1.5rem;
 	height: 1.5rem;
 	border-radius: 0.25rem;
@@ -555,7 +570,7 @@ code.dollar:before {
 		color 0.1s ease;
 }
 
-.story-editor .drag-handle:hover .drag-handle-button {
+.story-editor .drag-handle:hover > .drag-handle-button {
 	@apply bg-muted text-muted-foreground;
 }
 
@@ -896,4 +911,11 @@ code.dollar:before {
 		stroke-dasharray: none;
 		stroke-dashoffset: 0;
 	}
+}
+
+.sql-query-display code {
+	background: transparent;
+	border-radius: 0;
+	font-family: inherit;
+	padding: 0;
 }
