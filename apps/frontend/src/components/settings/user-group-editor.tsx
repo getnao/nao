@@ -1,4 +1,3 @@
-import type { DatabaseContextAccess, DocsContextAccess, UserGroupSsoMappings } from '@nao/shared';
 import {
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
@@ -9,13 +8,14 @@ import {
 	normalizeUserGroupSsoMappings,
 	USER_GROUP_FEATURE_DEFINITIONS,
 } from '@nao/shared';
-import type { ToolCallDensity } from '@nao/shared/types';
-import type { QueryClient } from '@tanstack/react-query';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Copy, FolderOpen } from 'lucide-react';
-import type { ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { DatabaseContextAccess, DocsContextAccess, UserGroupSsoMappings } from '@nao/shared';
+import type { ToolCallDensity } from '@nao/shared/types';
+import type { QueryClient } from '@tanstack/react-query';
 
+import type { TabBarItem } from '@/components/ui/tab-bar';
 import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-slider';
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { UserGroupContextAccess } from '@/components/settings/user-group-context-access';
@@ -25,7 +25,6 @@ import { UserGroupSwitchRow } from '@/components/settings/user-group-switch-row'
 import { Button } from '@/components/ui/button';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Input } from '@/components/ui/input';
-import type { TabBarItem } from '@/components/ui/tab-bar';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useLicenseFeatures } from '@/hooks/use-license';

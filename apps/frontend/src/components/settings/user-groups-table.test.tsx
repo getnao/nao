@@ -297,6 +297,8 @@ describe('UserGroupsTable', () => {
 		expect(screen.getByText('Project User')).toBeTruthy();
 		expect(screen.getByText('Organisation User')).toBeTruthy();
 		expect(screen.queryByText(/unavailable/i)).toBeNull();
+	});
+
 	it('orders active groups by name before locked groups without mutating query data', () => {
 		const groups = [
 			{ id: 'aardvark', name: 'Aardvark', isDefault: false, isLocked: true as const },
