@@ -251,6 +251,10 @@ class RedshiftConfig(DatabaseConfig):
                 raise ValueError("user is required when auth_mode is 'iam'")
             if not self.region_name:
                 raise ValueError("region_name is required when auth_mode is 'iam'")
+            if bool(self.aws_access_key_id) != bool(self.aws_secret_access_key):
+                raise ValueError(
+                    "aws_access_key_id and aws_secret_access_key must be provided together when auth_mode is 'iam'"
+                )
         return self
 
     def _get_iam_credentials(self) -> tuple[str, str]:
