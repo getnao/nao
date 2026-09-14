@@ -9,50 +9,44 @@ const inputSchema = z.object({
 
 const settingsSchema = z.record(z.string(), z.unknown());
 
-const tabSchema = z.object({
+const tabSchema = z.looseObject({
 	id: z.number(),
 	name: z.string(),
 	position: z.number(),
 });
 
-const rawCardSchema = z
-	.object({
-		id: z.number().optional(),
-		name: z.string().optional(),
-		description: z.string().nullable().optional(),
-		display: z.string().optional(),
-		type: z.string().nullable().optional(),
-		database_id: z.number().nullable().optional(),
-		visualization_settings: settingsSchema.nullable().optional(),
-		dataset_query: z.unknown().optional(),
-	})
-	.passthrough();
+const rawCardSchema = z.looseObject({
+	id: z.number().optional(),
+	name: z.string().optional(),
+	description: z.string().nullable().optional(),
+	display: z.string().optional(),
+	type: z.string().nullable().optional(),
+	database_id: z.number().nullable().optional(),
+	visualization_settings: settingsSchema.nullable().optional(),
+	dataset_query: z.unknown().optional(),
+});
 
-const rawDashcardSchema = z
-	.object({
-		id: z.number(),
-		card_id: z.number().nullable().optional(),
-		dashboard_tab_id: z.number().nullable().optional(),
-		row: z.number().optional(),
-		col: z.number().optional(),
-		size_x: z.number().optional(),
-		size_y: z.number().optional(),
-		visualization_settings: settingsSchema.nullable().optional(),
-		parameter_mappings: z.array(z.unknown()).optional(),
-		card: rawCardSchema.nullable().optional(),
-	})
-	.passthrough();
+const rawDashcardSchema = z.looseObject({
+	id: z.number(),
+	card_id: z.number().nullable().optional(),
+	dashboard_tab_id: z.number().nullable().optional(),
+	row: z.number().optional(),
+	col: z.number().optional(),
+	size_x: z.number().optional(),
+	size_y: z.number().optional(),
+	visualization_settings: settingsSchema.nullable().optional(),
+	parameter_mappings: z.array(z.unknown()).optional(),
+	card: rawCardSchema.nullable().optional(),
+});
 
-const rawDashboardSchema = z
-	.object({
-		id: z.number(),
-		name: z.string(),
-		description: z.string().nullable().optional(),
-		tabs: z.array(tabSchema.passthrough()).optional(),
-		parameters: z.array(z.unknown()).optional(),
-		dashcards: z.array(rawDashcardSchema),
-	})
-	.passthrough();
+const rawDashboardSchema = z.looseObject({
+	id: z.number(),
+	name: z.string(),
+	description: z.string().nullable().optional(),
+	tabs: z.array(tabSchema).optional(),
+	parameters: z.array(z.unknown()).optional(),
+	dashcards: z.array(rawDashcardSchema),
+});
 
 const questionSchema = z.object({
 	id: z.number(),
