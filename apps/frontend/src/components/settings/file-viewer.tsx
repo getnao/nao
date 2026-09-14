@@ -310,6 +310,7 @@ function EditableFileViewer({
 	);
 
 	const fileName = getFileName(filePath);
+	const showRulesPreviewToolbar = isRootRules && rulesPreviewGroups?.enforced;
 
 	return (
 		<div className='flex flex-col h-full'>
@@ -320,14 +321,6 @@ function EditableFileViewer({
 						<div className='flex min-w-0 items-center gap-2'>
 							<span className='min-w-0 truncate font-mono leading-4'>{fileName}</span>
 							<TokenEstimate count={estimatedTokenCount} />
-							{isRootRules && rulesPreviewGroups?.enforced && (
-								<UserGroupPicker
-									groups={rulesPreviewGroups.groups}
-									selectedGroupIds={selectedGroupIds}
-									compact
-									onSelectedGroupIdsChange={setSelectedGroupIds}
-								/>
-							)}
 						</div>
 						<span className='block truncate text-xs leading-4 opacity-60'>{filePath}</span>
 					</div>
@@ -364,6 +357,13 @@ function EditableFileViewer({
 					</div>
 				)}
 			</div>
+			{showRulesPreviewToolbar && (
+				<RulesPreviewToolbar
+					groups={rulesPreviewGroups.groups}
+					selectedGroupIds={selectedGroupIds}
+					onSelectedGroupIdsChange={setSelectedGroupIds}
+				/>
+			)}
 			{!isEditable && editabilityGuidance && (
 				<ReadOnlyNote guidance={editabilityGuidance} onOpenPath={onOpenGuidancePath} />
 			)}
@@ -502,16 +502,44 @@ function MarkdownPreview({
 	usePreviewHighlights({ containerRef, content: parsedMarkdown.body, filePath, searchQuery });
 
 	return (
-		<div ref={containerRef} className='h-full overflow-auto'>
-			<div className='max-w-3xl mx-auto px-8 py-6'>
-				{error ? (
-					<ErrorMessage message={error} />
-				) : (
-					<Streamdown mode='static' controls={false} plugins={markdownPlugins}>
-						{parsedMarkdown.body}
-					</Streamdown>
-				)}
+		<section aria-label='Markdown preview' className='flex h-full min-h-0 flex-col'>
+			<div ref={containerRef} className='min-h-0 flex-1 overflow-auto'>
+				<div className='max-w-3xl mx-auto px-8 py-6'>
+					{error ? (
+						<ErrorMessage message={error} />
+					) : (
+						<Streamdown mode='static' controls={false} plugins={markdownPlugins}>
+							{parsedMarkdown.body}
+						</Streamdown>
+					)}
+				</div>
 			</div>
+		</section>
+	);
+}
+
+function RulesPreviewToolbar({
+	groups,
+	selectedGroupIds,
+	onSelectedGroupIdsChange,
+}: {
+	groups: UserGroupPickerOption[];
+	selectedGroupIds: string[];
+	onSelectedGroupIdsChange: (groupIds: string[]) => void;
+}) {
+	return (
+		<div
+			role='toolbar'
+			aria-label='Rules preview options'
+			className='flex w-full shrink-0 items-center gap-2 border-b border-border bg-muted/20 px-4 py-1'
+		>
+			<span className='shrink-0 text-xs font-medium text-muted-foreground'>Preview as</span>
+			<UserGroupPicker
+				groups={groups}
+				selectedGroupIds={selectedGroupIds}
+				compact
+				onSelectedGroupIdsChange={onSelectedGroupIdsChange}
+			/>
 		</div>
 	);
 }

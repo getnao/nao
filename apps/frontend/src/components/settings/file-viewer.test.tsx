@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FileViewer, isRootRulesPath } from './file-viewer';
@@ -97,7 +97,17 @@ describe('FileViewer RULES preview', () => {
 		].join('\n');
 		renderViewer({ filePath: '/RULES.md', content });
 
-		expect(screen.getByRole('button', { name: 'Select user groups. Current groups: All Users' })).toBeTruthy();
+		const preview = screen.getByRole('region', { name: 'Markdown preview' });
+		const toolbar = screen.getByRole('toolbar', { name: 'Rules preview options' });
+		const fileHeader = toolbar.previousElementSibling;
+		expect(fileHeader?.textContent).toContain('/RULES.md');
+		expect(fileHeader?.nextElementSibling).toBe(toolbar);
+		expect(fileHeader?.contains(toolbar)).toBe(false);
+		expect(preview.contains(toolbar)).toBe(false);
+		expect(within(toolbar).getByText('Preview as')).toBeTruthy();
+		expect(
+			within(toolbar).getByRole('button', { name: 'Select user groups. Current groups: All Users' }),
+		).toBeTruthy();
 		expect(screen.getByTestId('markdown-preview').textContent).toBe('Public\n');
 		const initialTokens = screen.getByText(/tokens$/).textContent;
 
@@ -116,7 +126,11 @@ describe('FileViewer RULES preview', () => {
 
 		fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
 		fireEvent.click(screen.getByRole('button', { name: 'Show markdown source' }));
-		expect((screen.getByLabelText('File source') as HTMLTextAreaElement).value).toBe(content);
+		const source = screen.getByLabelText('File source') as HTMLTextAreaElement;
+		expect(source.value).toBe(content);
+		const splitPreview = screen.getByRole('region', { name: 'Markdown preview' });
+		expect(splitPreview.contains(toolbar)).toBe(false);
+		expect(splitPreview.contains(source)).toBe(false);
 	});
 
 	it('fails closed for a malformed draft while keeping raw source editable', () => {
@@ -133,6 +147,7 @@ describe('FileViewer RULES preview', () => {
 		const content = '{% if group("Finance") %}\nNested content\n{% endif %}';
 		renderViewer({ filePath: '/docs/RULES.md', content });
 
+		expect(screen.queryByRole('toolbar', { name: 'Rules preview options' })).toBeNull();
 		expect(screen.queryByRole('button', { name: /Select user groups/ })).toBeNull();
 		expect(screen.getByTestId('markdown-preview').textContent).toBe(content);
 	});
@@ -141,6 +156,7 @@ describe('FileViewer RULES preview', () => {
 		const content = '{% if group("Finance") %}\nFinance content\n{% endif %}';
 		renderViewer({ filePath: '/RULES.md', content, rulesPreviewGroups: { enforced: false, groups: [] } });
 
+		expect(screen.queryByRole('toolbar', { name: 'Rules preview options' })).toBeNull();
 		expect(screen.queryByRole('button', { name: /Select user groups/ })).toBeNull();
 		expect(screen.getByTestId('markdown-preview').textContent).toBe('Finance content\n');
 	});
