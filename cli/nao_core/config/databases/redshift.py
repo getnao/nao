@@ -378,11 +378,12 @@ class RedshiftConfig(DatabaseConfig):
         )
 
     def connect(self) -> BaseBackend:
-        """Create an Ibis Redshift connection for nao sync to gather context.
+        """Create an Ibis Redshift connection using user/password credentials.
 
-        In iam mode, credentials are exchanged via boto3 get_cluster_credentials().
-        In password and azure_entra_id modes, user/password are used directly; in
-        azure_entra_id mode those credentials are sync-only and must never be
+        Used by nao sync to gather context (metadata, previews, query history).
+        Works for both auth modes whenever user/password are provided; in iam
+        mode credentials are exchanged via boto3 get_cluster_credentials() instead.
+        In azure_entra_id mode the credentials are sync-only and must never be
         used to serve runtime queries from /execute_sql.
         """
         if self.auth_mode == RedshiftAuthMode.IAM:
