@@ -51,13 +51,13 @@ export function UserGroupPicker({
 					size={compact ? 'sm' : 'default'}
 					className={cn(
 						'min-w-0 justify-between overflow-hidden bg-background font-normal',
-						compact ? 'h-8 w-44 gap-1.5 px-2 py-1' : 'w-full',
+						compact ? 'h-7 w-56 gap-1 px-1.5 py-0 text-xs' : 'w-full',
 					)}
 					aria-label={`Select user groups. Current groups: ${chipNames.join(', ')}`}
 					disabled={loading}
 				>
-					<ResponsiveGroupChips names={chipNames} />
-					<ChevronDown className='shrink-0' />
+					<ResponsiveGroupChips names={chipNames} size={compact ? 'compact' : 'default'} />
+					<ChevronDown className={cn('shrink-0', compact && 'size-3')} />
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align='start' className='max-h-64 min-w-56'>
@@ -86,7 +86,7 @@ export function UserGroupPicker({
 		<div className='flex flex-col gap-2'>
 			<label className='text-sm font-medium'>Groups</label>
 			{picker}
-			<p className='text-xs text-muted-foreground'>
+			<p className='px-4 text-xs text-muted-foreground'>
 				{loading ? 'Loading groups...' : `${defaultGroup?.name ?? 'All Users'} is added automatically.`}
 			</p>
 		</div>
