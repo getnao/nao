@@ -131,7 +131,7 @@ describe('user group routes', () => {
 					schema: orders.schema,
 					table: orders.table,
 					access: 'predicate' as const,
-					predicate: 'tenant_id = 7',
+					conditions: [{ column: 'tenant_id', operator: 'equals' as const, value: '7' }],
 				},
 				customersPolicy,
 			],
@@ -200,7 +200,7 @@ describe('user group routes', () => {
 		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
 	});
 
-	it('validates predicate columns in the SQL guard before saving', async () => {
+	it('validates compiled conditions in the SQL guard before saving', async () => {
 		mocks.getProjectRowSecurity.mockResolvedValue({
 			version: 1,
 			tables: [
@@ -227,22 +227,61 @@ describe('user group routes', () => {
 						schema: 'main',
 						table: 'orders',
 						access: 'predicate',
-						predicate: 'tenant_id = 7',
+						conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
 					},
 				],
 			},
 		});
 
-		expect(mocks.validateWarehouseRowPredicate).toHaveBeenCalledWith('tenant_id = 7', ['tenant_id'], 'duckdb');
+		expect(mocks.validateWarehouseRowPredicate).toHaveBeenCalledWith('("tenant_id" = 7)', ['tenant_id'], 'duckdb');
 		expect(mocks.updateUserGroup).toHaveBeenCalledWith(
 			'project-id',
 			'group-id',
 			expect.objectContaining({
 				rowPolicies: expect.objectContaining({
-					policies: [expect.objectContaining({ predicate: 'tenant_id = 7' })],
+					policies: [
+						expect.objectContaining({
+							conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
+						}),
+					],
 				}),
 			}),
 		);
+	});
+
+	it('rejects condition columns outside the table registry', async () => {
+		mocks.getProjectRowSecurity.mockResolvedValue({
+			version: 1,
+			tables: [
+				{
+					databaseType: 'duckdb',
+					database: 'sales',
+					schema: 'main',
+					table: 'orders',
+					constraintColumns: ['tenant_id'],
+				},
+			],
+		});
+
+		await expect(
+			updateWithConditions([{ column: 'region', operator: 'equals', value: 'west' }]),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST', message: 'Invalid constraint column for main.orders.' });
+		expect(mocks.validateWarehouseRowPredicate).not.toHaveBeenCalled();
+		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
+	});
+
+	it('rejects empty and malformed condition values', async () => {
+		await expect(updateWithConditions([])).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		await expect(
+			updateWithConditions([{ column: 'tenant_id', operator: 'equals', value: ' ' }]),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		await expect(
+			updateWithConditions([{ column: 'tenant_id', operator: 'is-one-of', value: '1, ,2' }]),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		await expect(
+			updateWithConditions([{ column: 'tenant_id', operator: 'is-null', value: '1' }]),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
 	});
 
 	it('returns the overview without an unlimited-groups license', async () => {
@@ -738,5 +777,26 @@ function createCaller() {
 			},
 		},
 		selectedProjectId: 'project-id',
+	} as never);
+}
+
+function updateWithConditions(conditions: Array<{ column: string; operator: string; value?: string }>) {
+	return createCaller().update({
+		groupId: 'group-id',
+		featureGrants: [],
+		toolCallDensityPolicy: { defaultDensity: 'compact', canChange: false },
+		rowPolicies: {
+			version: 1,
+			policies: [
+				{
+					databaseType: 'duckdb',
+					database: 'sales',
+					schema: 'main',
+					table: 'orders',
+					access: 'predicate',
+					conditions,
+				},
+			],
+		},
 	} as never);
 }

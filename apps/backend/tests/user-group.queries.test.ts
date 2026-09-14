@@ -155,6 +155,35 @@ describe('user group queries', () => {
 		});
 	});
 
+	it('loads the overview with legacy raw predicate policies as no policy', async () => {
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
+		await db
+			.update(userGroup)
+			.set({
+				rowPolicies: {
+					version: 1,
+					policies: [
+						{
+							databaseType: 'duckdb',
+							database: 'sales',
+							schema: 'main',
+							table: 'orders',
+							access: 'predicate',
+							predicate: 'tenant_id = 7',
+						},
+					],
+				},
+			})
+			.where(eq(userGroup.id, analysts.id));
+
+		const overview = await getUserGroupOverview(PROJECT_ID);
+
+		expect(overview.groups.find((group) => group.id === analysts.id)?.rowPolicies).toEqual({
+			version: 1,
+			policies: [],
+		});
+	});
+
 	it('prunes removed-table row policies and preserves policies for registered tables', async () => {
 		const orders = {
 			databaseType: 'duckdb',
@@ -184,7 +213,7 @@ describe('user group queries', () => {
 						schema: orders.schema,
 						table: orders.table,
 						access: 'predicate',
-						predicate: 'tenant_id = 7',
+						conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
 					},
 					{
 						databaseType: customers.databaseType,
@@ -227,7 +256,7 @@ describe('user group queries', () => {
 					schema: 'main',
 					table: 'orders',
 					access: 'predicate',
-					predicate: 'tenant_id = 7',
+					conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
 				},
 			],
 		});
@@ -240,7 +269,7 @@ describe('user group queries', () => {
 		).resolves.toMatchObject({ featureGrants: ['story-creation'] });
 	});
 
-	it('preserves predicates when registered constraint columns change', async () => {
+	it('preserves conditions when registered constraint columns change', async () => {
 		const table = {
 			databaseType: 'duckdb',
 			database: 'sales',
@@ -261,7 +290,7 @@ describe('user group queries', () => {
 						schema: table.schema,
 						table: table.table,
 						access: 'predicate',
-						predicate: "region = 'west'",
+						conditions: [{ column: 'region', operator: 'equals', value: 'west' }],
 					},
 				],
 			},
@@ -274,7 +303,9 @@ describe('user group queries', () => {
 
 		const groups = await getUserGroupOverview(PROJECT_ID);
 		expect(groups.groups.find((group) => group.id === analysts.id)?.rowPolicies.policies).toEqual([
-			expect.objectContaining({ predicate: "region = 'west'" }),
+			expect.objectContaining({
+				conditions: [{ column: 'region', operator: 'equals', value: 'west' }],
+			}),
 		]);
 	});
 

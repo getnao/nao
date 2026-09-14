@@ -374,23 +374,27 @@ describe('UserGroupsTable', () => {
 		}));
 
 		render(<UserGroupsTable tab='security' onTabChange={vi.fn()} />);
+		fireEvent.click(screen.getAllByRole('button', { name: 'Add protected table' })[0]);
 		fireEvent.click(screen.getByRole('button', { name: 'Expand sales/main schema' }));
 		fireEvent.click(screen.getByRole('button', { name: 'Expand orders table columns' }));
 		fireEvent.click(screen.getByRole('checkbox', { name: 'tenant_id constraint column for orders' }));
-		fireEvent.click(screen.getByRole('button', { name: 'Save security' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-		expect(mocks.mutate).toHaveBeenCalledWith({
-			version: 1,
-			tables: [
-				{
-					databaseType: 'duckdb',
-					database: 'sales',
-					schema: 'main',
-					table: 'orders',
-					constraintColumns: ['tenant_id'],
-				},
-			],
-		});
+		expect(mocks.mutate).toHaveBeenCalledWith(
+			{
+				version: 1,
+				tables: [
+					{
+						databaseType: 'duckdb',
+						database: 'sales',
+						schema: 'main',
+						table: 'orders',
+						constraintColumns: ['tenant_id'],
+					},
+				],
+			},
+			expect.objectContaining({ onSuccess: expect.any(Function) }),
+		);
 	});
 
 	it('shows catalog states in group summaries and retries errors', () => {

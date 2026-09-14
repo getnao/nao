@@ -14,9 +14,33 @@ export interface ProjectRowSecurity {
 	tables: SensitiveTableDefinition[];
 }
 
+export const ROW_SECURITY_OPERATORS = [
+	'equals',
+	'does-not-equal',
+	'greater-than',
+	'greater-than-or-equal',
+	'less-than',
+	'less-than-or-equal',
+	'is-one-of',
+	'is-not-one-of',
+	'is-null',
+	'is-not-null',
+] as const;
+
+export type RowSecurityOperator = (typeof ROW_SECURITY_OPERATORS)[number];
+
+export interface RowSecurityCondition {
+	column: string;
+	operator: RowSecurityOperator;
+	value?: string;
+}
+
+export const ROW_SECURITY_MAX_CONDITIONS = 100;
+export const ROW_SECURITY_MAX_VALUE_LENGTH = 10_000;
+
 export type UserGroupTablePolicy =
 	| (RowSecurityTableIdentity & { access: 'full' })
-	| (RowSecurityTableIdentity & { access: 'predicate'; predicate: string });
+	| (RowSecurityTableIdentity & { access: 'predicate'; conditions: RowSecurityCondition[] });
 
 export interface UserGroupRowPolicies {
 	version: 1;
@@ -86,7 +110,10 @@ export function parseStoredUserGroupRowPolicies(value: unknown): UserGroupRowPol
 	) {
 		throw new Error('Stored user group row policies are malformed.');
 	}
-	return normalizeUserGroupRowPolicies({ version: 1, policies: parsed.policies as UserGroupTablePolicy[] });
+	return normalizeUserGroupRowPolicies({
+		version: 1,
+		policies: parsed.policies.filter((policy) => !isLegacyRawPredicatePolicy(policy)) as UserGroupTablePolicy[],
+	});
 }
 
 export function serializeProjectRowSecurity(value: ProjectRowSecurity): ProjectRowSecurity {
@@ -95,6 +122,17 @@ export function serializeProjectRowSecurity(value: ProjectRowSecurity): ProjectR
 
 export function serializeUserGroupRowPolicies(value: UserGroupRowPolicies): UserGroupRowPolicies {
 	return normalizeUserGroupRowPolicies(value);
+}
+
+export function compileRowSecurityConditions(
+	conditions: readonly RowSecurityCondition[],
+	databaseType: string,
+): string {
+	const normalized = normalizeConditions(conditions);
+	if (normalized === null) {
+		throw new Error('Invalid row security conditions.');
+	}
+	return `(${normalized.map((condition) => compileCondition(condition, databaseType)).join(' AND ')})`;
 }
 
 export function resolveWarehouseRowSecurity(
@@ -117,14 +155,13 @@ export function resolveWarehouseRowSecurity(
 					(policy): policy is Extract<UserGroupTablePolicy, { access: 'predicate' }> =>
 						policy.access === 'predicate',
 				)
-				.map((policy) => policy.predicate.trim())
-				.filter(Boolean);
+				.map((policy) => compileRowSecurityConditions(policy.conditions, policy.databaseType));
 			return predicates.length === 0
 				? { ...table, access: 'none' as const }
 				: {
 						...table,
 						access: 'predicate' as const,
-						predicate: predicates.map((predicate) => `(${predicate})`).join(' OR '),
+						predicate: predicates.join(' OR '),
 					};
 		}),
 	};
@@ -157,13 +194,24 @@ function normalizeTablePolicy(value: unknown): UserGroupTablePolicy | null {
 			? { ...normalizeIdentity(value), access: 'full' }
 			: null;
 	}
-	if (!hasOnlyKeys(value, [...IDENTITY_KEYS, 'access', 'predicate']) || typeof value.predicate !== 'string') {
+	if (!hasOnlyKeys(value, [...IDENTITY_KEYS, 'access', 'conditions']) || !Array.isArray(value.conditions)) {
 		return null;
 	}
+	const conditions = normalizeConditions(value.conditions);
+	return conditions === null ? null : { ...normalizeIdentity(value), access: 'predicate', conditions };
+}
+
+function isLegacyRawPredicatePolicy(value: unknown): boolean {
+	if (
+		!hasIdentity(value) ||
+		value.access !== 'predicate' ||
+		!hasOnlyKeys(value, [...IDENTITY_KEYS, 'access', 'predicate']) ||
+		typeof value.predicate !== 'string'
+	) {
+		return false;
+	}
 	const predicate = value.predicate.trim();
-	return predicate && predicate.length <= 10_000
-		? { ...normalizeIdentity(value), access: 'predicate', predicate }
-		: null;
+	return predicate.length > 0 && predicate.length <= ROW_SECURITY_MAX_VALUE_LENGTH;
 }
 
 const IDENTITY_KEYS = ['databaseType', 'database', 'schema', 'table'] as const;
@@ -193,6 +241,113 @@ function normalizeNames(value: unknown[]): string[] {
 		return [];
 	}
 	return [...new Set((value as string[]).map((item) => item.trim()))].sort();
+}
+
+function normalizeConditions(values: readonly unknown[]): RowSecurityCondition[] | null {
+	if (values.length === 0 || values.length > ROW_SECURITY_MAX_CONDITIONS) {
+		return null;
+	}
+	const conditions = values.map(normalizeCondition);
+	return conditions.some((condition) => condition === null) ? null : (conditions as RowSecurityCondition[]);
+}
+
+function normalizeCondition(value: unknown): RowSecurityCondition | null {
+	if (
+		!isRecord(value) ||
+		!hasOnlyKeys(value, ['column', 'operator', 'value']) ||
+		typeof value.column !== 'string' ||
+		!value.column.trim() ||
+		value.column.length > 255 ||
+		typeof value.operator !== 'string' ||
+		!isRowSecurityOperator(value.operator)
+	) {
+		return null;
+	}
+	const column = value.column.trim();
+	if (operatorNeedsValue(value.operator)) {
+		if (
+			typeof value.value !== 'string' ||
+			!value.value.trim() ||
+			value.value.length > ROW_SECURITY_MAX_VALUE_LENGTH ||
+			(isListOperator(value.operator) && value.value.split(',').some((item) => !item.trim()))
+		) {
+			return null;
+		}
+		return { column, operator: value.operator, value: value.value.trim() };
+	}
+	return 'value' in value ? null : { column, operator: value.operator };
+}
+
+function compileCondition(condition: RowSecurityCondition, databaseType: string): string {
+	const column = quoteIdentifier(condition.column, databaseType);
+	switch (condition.operator) {
+		case 'equals':
+			return `${column} = ${compileValue(condition.value!)}`;
+		case 'does-not-equal':
+			return `${column} <> ${compileValue(condition.value!)}`;
+		case 'greater-than':
+			return `${column} > ${compileValue(condition.value!)}`;
+		case 'greater-than-or-equal':
+			return `${column} >= ${compileValue(condition.value!)}`;
+		case 'less-than':
+			return `${column} < ${compileValue(condition.value!)}`;
+		case 'less-than-or-equal':
+			return `${column} <= ${compileValue(condition.value!)}`;
+		case 'is-one-of':
+			return `${column} IN (${compileList(condition.value!)})`;
+		case 'is-not-one-of':
+			return `${column} NOT IN (${compileList(condition.value!)})`;
+		case 'is-null':
+			return `${column} IS NULL`;
+		case 'is-not-null':
+			return `${column} IS NOT NULL`;
+	}
+}
+
+function compileList(value: string): string {
+	return value
+		.split(',')
+		.map((item) => compileValue(item))
+		.join(', ');
+}
+
+function compileValue(value: string): string {
+	const normalized = value.trim();
+	const number = Number(normalized);
+	if (Number.isFinite(number)) {
+		return String(number);
+	}
+	if (normalized.toLowerCase() === 'true' || normalized.toLowerCase() === 'false') {
+		return normalized.toUpperCase();
+	}
+	return `'${normalized.replaceAll("'", "''")}'`;
+}
+
+function quoteIdentifier(value: string, databaseType: string): string {
+	switch (databaseType.toLowerCase()) {
+		case 'bigquery':
+		case 'databricks':
+		case 'mysql':
+		case 'starrocks':
+			return `\`${value.replaceAll('`', '``')}\``;
+		case 'fabric':
+		case 'mssql':
+			return `[${value.replaceAll(']', ']]')}]`;
+		default:
+			return `"${value.replaceAll('"', '""')}"`;
+	}
+}
+
+function operatorNeedsValue(operator: RowSecurityOperator): boolean {
+	return operator !== 'is-null' && operator !== 'is-not-null';
+}
+
+function isListOperator(operator: RowSecurityOperator): boolean {
+	return operator === 'is-one-of' || operator === 'is-not-one-of';
+}
+
+function isRowSecurityOperator(value: string): value is RowSecurityOperator {
+	return (ROW_SECURITY_OPERATORS as readonly string[]).includes(value);
 }
 
 function deduplicate<T>(values: T[], key: (value: T) => string): T[] {

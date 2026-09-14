@@ -1,4 +1,5 @@
 import {
+	compileRowSecurityConditions,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
@@ -10,6 +11,9 @@ import {
 	normalizeProjectRowSecurity,
 	normalizeUserGroupRowPolicies,
 	normalizeUserGroupSsoMappings,
+	ROW_SECURITY_MAX_CONDITIONS,
+	ROW_SECURITY_MAX_VALUE_LENGTH,
+	ROW_SECURITY_OPERATORS,
 	TOOL_CALL_DENSITIES,
 	USER_GROUP_FEATURES,
 	type UserGroupRowPolicies,
@@ -111,6 +115,32 @@ const projectRowSecuritySchema = z
 			.max(10_000),
 	})
 	.strict();
+const rowSecurityConditionSchema = z
+	.object({
+		column: contextNameSchema,
+		operator: z.enum(ROW_SECURITY_OPERATORS),
+		value: z.string().max(ROW_SECURITY_MAX_VALUE_LENGTH).optional(),
+	})
+	.strict()
+	.superRefine((condition, context) => {
+		const needsValue = condition.operator !== 'is-null' && condition.operator !== 'is-not-null';
+		if (needsValue && !condition.value?.trim()) {
+			context.addIssue({ code: 'custom', path: ['value'], message: 'A condition value is required.' });
+		}
+		if (!needsValue && condition.value !== undefined) {
+			context.addIssue({ code: 'custom', path: ['value'], message: 'This operator does not accept a value.' });
+		}
+		if (
+			(condition.operator === 'is-one-of' || condition.operator === 'is-not-one-of') &&
+			condition.value?.split(',').some((item) => !item.trim())
+		) {
+			context.addIssue({
+				code: 'custom',
+				path: ['value'],
+				message: 'Condition lists cannot contain empty values.',
+			});
+		}
+	});
 const userGroupRowPoliciesSchema = z
 	.object({
 		version: z.literal(1),
@@ -119,7 +149,10 @@ const userGroupRowPoliciesSchema = z
 				z.discriminatedUnion('access', [
 					rowTableIdentitySchema.extend({ access: z.literal('full') }).strict(),
 					rowTableIdentitySchema
-						.extend({ access: z.literal('predicate'), predicate: z.string().trim().min(1).max(10_000) })
+						.extend({
+							access: z.literal('predicate'),
+							conditions: z.array(rowSecurityConditionSchema).min(1).max(ROW_SECURITY_MAX_CONDITIONS),
+						})
 						.strict(),
 				]),
 			)
@@ -338,15 +371,19 @@ async function validateGroupRowPolicies(
 			const table = registered.get(
 				[policy.databaseType, policy.database, policy.schema, policy.table].join('\0'),
 			)!;
+			if (policy.conditions.some((condition) => !table.constraintColumns.includes(condition.column))) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message: `Invalid constraint column for ${table.schema}.${table.table}.`,
+				});
+			}
 			try {
-				return {
-					...policy,
-					predicate: await validateWarehouseRowPredicate(
-						policy.predicate,
-						table.constraintColumns,
-						table.databaseType,
-					),
-				};
+				await validateWarehouseRowPredicate(
+					compileRowSecurityConditions(policy.conditions, table.databaseType),
+					table.constraintColumns,
+					table.databaseType,
+				);
+				return policy;
 			} catch (error) {
 				throw new TRPCError({
 					code: 'BAD_REQUEST',
