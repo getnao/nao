@@ -209,17 +209,19 @@ class RedshiftConfig(DatabaseConfig):
     user: str | None = Field(
         default=None,
         description=(
-            "Username. Required for password auth. In azure_entra_id mode it is optional "
-            "but recommended: nao sync uses it to read metadata (columns, previews, query history). "
-            "It is never used at runtime from /execute_sql."
+            "Username. Required for password auth. In iam mode it is the db user requested via "
+            "get_cluster_credentials, not the IAM-prefixed username used to connect. In azure_entra_id "
+            "mode it is optional but recommended: nao sync uses it to read metadata (columns, previews, "
+            "query history). It is never used at runtime from /execute_sql."
         ),
     )
     password: str | None = Field(
         default=None,
         description=(
-            "Password. Required for password auth. In azure_entra_id mode it is optional "
-            "but recommended: nao sync uses it to read metadata (columns, previews, query history). "
-            "It is never used at runtime from /execute_sql."
+            "Password. Required for password auth; ignored in iam mode, where a temporary password is "
+            "fetched via get_cluster_credentials instead. In azure_entra_id mode it is optional but "
+            "recommended: nao sync uses it to read metadata (columns, previews, query history). It is "
+            "never used at runtime from /execute_sql."
         ),
     )
     schema_name: str | None = Field(default=None, description="Default schema (optional, uses 'public' if not set)")
@@ -230,7 +232,10 @@ class RedshiftConfig(DatabaseConfig):
         default=None,
         description="Cluster identifier for get_cluster_credentials. Defaults to first segment of host when not set.",
     )
-    region_name: str | None = Field(default=None, description="AWS region for IAM authentication (e.g. 'us-east-1'). Required when auth_mode is 'iam'.")
+    region_name: str | None = Field(
+        default=None,
+        description="AWS region for IAM authentication (e.g. 'us-east-1'). Required when auth_mode is 'iam'.",
+    )
     aws_access_key_id: str | None = Field(default=None, description="AWS access key ID")
     aws_secret_access_key: str | None = Field(default=None, description="AWS secret access key")
     aws_session_token: str | None = Field(default=None, description="AWS session token")
@@ -373,11 +378,11 @@ class RedshiftConfig(DatabaseConfig):
         )
 
     def connect(self) -> BaseBackend:
-        """Create an Ibis Redshift connection using user/password credentials.
+        """Create an Ibis Redshift connection for nao sync to gather context.
 
-        Used by nao sync to gather context (metadata, previews, query history).
-        Works for both auth modes whenever user/password are provided; in
-        azure_entra_id mode the credentials are sync-only and must never be
+        In iam mode, credentials are exchanged via boto3 get_cluster_credentials().
+        In password and azure_entra_id modes, user/password are used directly; in
+        azure_entra_id mode those credentials are sync-only and must never be
         used to serve runtime queries from /execute_sql.
         """
         if self.auth_mode == RedshiftAuthMode.IAM:
