@@ -28,16 +28,32 @@ describe('Metabase dashboard metadata tool', () => {
 						id: 42,
 						name: 'Revenue',
 						tabs: [{ id: 3, name: 'Overview', position: 0, dashboard_id: 42 }],
-						parameters: [{ id: 'period', type: 'date/range' }],
+						parameters: [
+							{ id: 'period', type: 'date/range' },
+							{ id: 'category', type: 'string/=' },
+						],
 						creator: { id: 1, email: 'irrelevant@example.com' },
 						dashcards: [
 							{
 								id: 7,
 								card_id: 9,
+								dashboard_tab_id: 3,
 								row: 0,
 								col: 0,
 								size_x: 12,
 								size_y: 6,
+								parameter_mappings: [
+									{
+										parameter_id: 'period',
+										card_id: 9,
+										target: ['dimension', ['template-tag', 'period']],
+									},
+									{
+										parameter_id: 'category',
+										card_id: 9,
+										target: ['variable', ['template-tag', 'category']],
+									},
+								],
 								visualization_settings: { 'graph.show_values': true },
 								card: {
 									id: 9,
@@ -60,6 +76,35 @@ describe('Metabase dashboard metadata tool', () => {
 								},
 							},
 							{
+								id: 10,
+								card_id: 11,
+								dashboard_tab_id: 3,
+								row: 0,
+								col: 12,
+								size_x: 12,
+								size_y: 6,
+								parameter_mappings: [
+									{
+										parameter_id: 'period',
+										card_id: 11,
+										target: ['dimension', ['template-tag', 'period']],
+									},
+								],
+								card: {
+									id: 11,
+									name: 'Monthly revenue',
+									display: 'line',
+									database_id: 2,
+									dataset_query: {
+										type: 'native',
+										native: {
+											query: 'SELECT month, revenue FROM monthly_revenue',
+											'template-tags': { period: { name: 'period', type: 'dimension' } },
+										},
+									},
+								},
+							},
+							{
 								id: 8,
 								card_id: null,
 								row: 6,
@@ -79,7 +124,7 @@ describe('Metabase dashboard metadata tool', () => {
 		const output = await runTool(42);
 		expect(output).toMatchObject({
 			id: 42,
-			filters: [{ id: 'period' }],
+			filters: [{ id: 'period' }, { id: 'category' }],
 		});
 		expect(output).not.toHaveProperty('creator');
 		expect(output).not.toHaveProperty('dashcards');
@@ -89,7 +134,21 @@ describe('Metabase dashboard metadata tool', () => {
 		expect(output.tabs).toEqual([{ id: 3, name: 'Overview', position: 0 }]);
 		expect(output.cards[0]).toMatchObject({
 			questionId: 9,
+			tabId: 3,
 			width: 12,
+			parameterMappings: [
+				{
+					parameterId: 'period',
+					questionId: 9,
+					target: ['dimension', ['template-tag', 'period']],
+				},
+				{
+					parameterId: 'category',
+					questionId: 9,
+					target: ['variable', ['template-tag', 'category']],
+				},
+			],
+			effectiveFilterIds: ['period', 'category'],
 			question: {
 				display: 'line',
 				queryType: 'mbql.stage/native',
@@ -100,6 +159,11 @@ describe('Metabase dashboard metadata tool', () => {
 		expect(output.cards[0].question).not.toHaveProperty('dataset_query');
 		expect(output.cards[0].question).not.toHaveProperty('result_metadata');
 		expect(output.cards[1]).toMatchObject({
+			parameterMappings: [{ parameterId: 'period' }],
+			effectiveFilterIds: ['period', 'category'],
+		});
+		expect(output.cards[2]).toMatchObject({
+			effectiveFilterIds: [],
 			question: null,
 			visualizationSettings: { virtual_card: { text: '## Details' } },
 		});

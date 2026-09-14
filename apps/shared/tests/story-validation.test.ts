@@ -298,12 +298,19 @@ describe('validateStoryCode', () => {
 			expect(errors.some((error) => error.message.includes('Invalid filter id "order-status"'))).toBe(true);
 		});
 
-		it('flags duplicate filter ids', () => {
+		it('accepts identical filter definitions repeated across tabs', () => {
+			const filter = '<filter id="country" column="country" label="Country" type="select" table="orders" />';
+			const code = [`<tab title="Overview">${filter}</tab>`, `<tab title="Details">${filter}</tab>`].join('\n');
+
+			expect(validateStoryCode(code)).toEqual([]);
+		});
+
+		it('flags conflicting definitions for the same filter id', () => {
 			const code = [
 				'<filter id="country" column="country" type="select" table="orders" />',
 				'<filter id="country" column="region" type="select" table="orders" />',
 			].join('\n');
-			expect(validateStoryCode(code).some((e) => /must be unique/.test(e.message))).toBe(true);
+			expect(validateStoryCode(code).some((e) => /conflicting definitions/.test(e.message))).toBe(true);
 		});
 	});
 

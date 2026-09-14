@@ -78,6 +78,7 @@ export async function executeQuery(
 	const id = query_id ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
 
 	context.queryResults.set(id, { columns: data.columns, data: data.data });
+	rememberQueryDefinition(context, id, sql_query, database_id);
 
 	const appliedLimit = detectQueryRowLimit(effectiveSql);
 
@@ -105,6 +106,7 @@ async function executeLocalQuery(
 	} = await runQueryOnLocalFiles(sqlQuery, context, saveTo);
 	const id = queryId ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
 	context.queryResults.set(id, { columns, data });
+	rememberQueryDefinition(context, id, sqlQuery, LOCAL_DATABASE_ID);
 	const appliedLimit = detectQueryRowLimit(sqlQuery);
 
 	return {
@@ -127,6 +129,7 @@ async function executeAppDbQuery(
 	const { columns, rows } = await queryAppDb(context.projectId, sqlQuery);
 	const id = queryId ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
 	context.queryResults.set(id, { columns, data: rows });
+	rememberQueryDefinition(context, id, sqlQuery);
 	const appliedLimit = detectQueryRowLimit(sqlQuery);
 	return {
 		_version: '1',
@@ -136,6 +139,11 @@ async function executeAppDbQuery(
 		id,
 		...(appliedLimit !== null && { applied_limit: appliedLimit }),
 	};
+}
+
+function rememberQueryDefinition(context: ToolContext, queryId: string, sqlQuery: string, databaseId?: string): void {
+	context.queryDefinitions ??= new Map();
+	context.queryDefinitions.set(queryId, { sqlQuery, ...(databaseId && { databaseId }) });
 }
 
 function withTemplateWarnings(output: executeSql.Output, templateWarnings: string[]): executeSql.Output {

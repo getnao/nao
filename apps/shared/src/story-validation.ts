@@ -1,5 +1,7 @@
 import { STORY_FILTER_ID_REGEX, STORY_FILTER_TYPES } from './sql-template';
 import {
+	findConflictingStoryFilterIds,
+	getStoryFiltersFromCode,
 	parseChartAttributes,
 	parseGridColumns,
 	parseSeriesJsonArray,
@@ -285,6 +287,7 @@ function validateFilterBlocks(code: string): StoryValidationError[] {
 	const errors: StoryValidationError[] = [];
 	const filterRegex = new RegExp(String.raw`<filter\b(${TAG_ATTRS})(\/?)>`, 'g');
 	const filterIds = new Set<string>();
+	const conflictingIds = new Set(findConflictingStoryFilterIds(getStoryFiltersFromCode(code)));
 	let match: RegExpExecArray | null;
 
 	while ((match = filterRegex.exec(code)) !== null) {
@@ -354,9 +357,9 @@ function validateFilterBlocks(code: string): StoryValidationError[] {
 			}
 		}
 
-		if (attrs.id && filterIds.has(attrs.id)) {
+		if (attrs.id && filterIds.has(attrs.id) && conflictingIds.has(attrs.id)) {
 			errors.push({
-				message: `Filter id "${attrs.id}" must be unique within the story.`,
+				message: `Filter id "${attrs.id}" has conflicting definitions; repeated declarations must be identical.`,
 				line: position.line,
 				column: position.column,
 				length: fullMatch.length,

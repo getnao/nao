@@ -79,13 +79,21 @@ describe('the Metabase dashboard skill', () => {
 		expect(body).toContain('execute_question');
 		expect(body).toContain('get_metabase_dashboard_metadata');
 		expect(body).toContain('stacked_bar_100');
-		expect(body).toMatch(/Process each unique question once/);
+		expect(body).toMatch(/process each unique combination once/i);
 		expect(body).toMatch(/do not call `read_resource` or `execute_question`/);
 		expect(body).toMatch(/Sort tabs by position/);
 		expect(body).toMatch(/reusable Metabase object/);
 		expect(body).toMatch(/current selection, never its complete option list/);
-		expect(body).toMatch(/options come from distinct live values/);
 		expect(body).toMatch(/Do not create or update a story until you have successfully read/);
+	});
+
+	it('uses the effective Metabase filter set without filtering unwired cards', () => {
+		const body = bodyOf('metabase-dashboard', false);
+
+		expect(body).toMatch(/apply the filters listed in each card's `effectiveFilterIds`/i);
+		expect(body).toMatch(/cards whose list is empty completely unfiltered/);
+		expect(body).toMatch(/default to a nao `multi_select`/);
+		expect(body).toMatch(/column IN \(\{\{ filters\.tag\.sql \}\}\)/);
 	});
 });
 

@@ -9,6 +9,12 @@ const inputSchema = z.object({
 
 const settingsSchema = z.record(z.string(), z.unknown());
 
+const parameterMappingSchema = z.looseObject({
+	parameter_id: z.string(),
+	card_id: z.number().nullable().optional(),
+	target: z.unknown().optional(),
+});
+
 const tabSchema = z.looseObject({
 	id: z.number(),
 	name: z.string(),
@@ -35,7 +41,7 @@ const rawDashcardSchema = z.looseObject({
 	size_x: z.number().optional(),
 	size_y: z.number().optional(),
 	visualization_settings: settingsSchema.nullable().optional(),
-	parameter_mappings: z.array(z.unknown()).optional(),
+	parameter_mappings: z.array(parameterMappingSchema).optional(),
 	card: rawCardSchema.nullable().optional(),
 });
 
@@ -77,7 +83,14 @@ const outputSchema = z.object({
 			column: z.number(),
 			width: z.number(),
 			height: z.number(),
-			parameterMappings: z.array(z.unknown()),
+			parameterMappings: z.array(
+				z.object({
+					parameterId: z.string(),
+					questionId: z.number().nullable(),
+					target: z.unknown().optional(),
+				}),
+			),
+			effectiveFilterIds: z.array(z.string()),
 			visualizationSettings: settingsSchema,
 			question: questionSchema.nullable(),
 		}),
@@ -112,6 +125,16 @@ export default createTool<Input, Output>({
 });
 
 function compactDashboard(dashboard: z.infer<typeof rawDashboardSchema>): Output {
+	const filterIdsByTab = new Map<number | null, Set<string>>();
+	for (const placement of dashboard.dashcards) {
+		const tabId = placement.dashboard_tab_id ?? null;
+		const filterIds = filterIdsByTab.get(tabId) ?? new Set<string>();
+		for (const mapping of placement.parameter_mappings ?? []) {
+			filterIds.add(mapping.parameter_id);
+		}
+		filterIdsByTab.set(tabId, filterIds);
+	}
+
 	return {
 		id: dashboard.id,
 		name: dashboard.name,
@@ -128,7 +151,15 @@ function compactDashboard(dashboard: z.infer<typeof rawDashboardSchema>): Output
 			column: placement.col ?? 0,
 			width: placement.size_x ?? 1,
 			height: placement.size_y ?? 1,
-			parameterMappings: placement.parameter_mappings ?? [],
+			parameterMappings:
+				placement.parameter_mappings?.map((mapping) => ({
+					parameterId: mapping.parameter_id,
+					questionId: mapping.card_id ?? null,
+					target: mapping.target,
+				})) ?? [],
+			effectiveFilterIds: placement.parameter_mappings?.length
+				? [...(filterIdsByTab.get(placement.dashboard_tab_id ?? null) ?? [])]
+				: [],
 			visualizationSettings: placement.visualization_settings ?? {},
 			question: compactQuestion(placement.card),
 		})),

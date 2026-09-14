@@ -1,5 +1,5 @@
 import { findUnreferencedStoryFilters, validateSqlFilterTemplate } from '@nao/shared/sql-template';
-import { extractQueryIds, getStoryFiltersFromCode } from '@nao/shared/story-segments';
+import { extractQueryIds, findConflictingStoryFilterIds, getStoryFiltersFromCode } from '@nao/shared/story-segments';
 import { QueryIdSchema } from '@nao/shared/tools';
 
 import { env } from '../env';
@@ -7,13 +7,24 @@ import * as executeSqlQueries from '../queries/execute-sql.queries';
 
 type SqlQueryMap = Record<string, { sqlQuery: string; databaseId?: string }>;
 
-export async function getStoryTemplateWarnings(chatId: string, code: string): Promise<string[]> {
+export async function getStoryTemplateWarnings(
+	chatId: string,
+	code: string,
+	currentSqlQueries: SqlQueryMap = {},
+): Promise<string[]> {
 	const warnings: string[] = [];
 	const { wellFormedIds, malformedWarnings } = partitionReferencedQueryIds(code);
 	warnings.push(...malformedWarnings);
 
-	const sqlQueries =
-		wellFormedIds.size > 0 ? await executeSqlQueries.getLatestSqlQueriesByIds(chatId, wellFormedIds) : {};
+	const currentReferencedQueries = Object.fromEntries(
+		[...wellFormedIds].flatMap((queryId) =>
+			currentSqlQueries[queryId] ? [[queryId, currentSqlQueries[queryId]]] : [],
+		),
+	);
+	const persistedIds = new Set([...wellFormedIds].filter((queryId) => !currentReferencedQueries[queryId]));
+	const persistedQueries =
+		persistedIds.size > 0 ? await executeSqlQueries.getLatestSqlQueriesByIds(chatId, persistedIds) : {};
+	const sqlQueries = { ...persistedQueries, ...currentReferencedQueries };
 
 	warnings.push(...getMissingQueryWarnings(wellFormedIds, sqlQueries));
 
@@ -53,12 +64,12 @@ function getMissingQueryWarnings(wellFormedIds: Set<string>, sqlQueries: SqlQuer
 
 function getFilterWarnings(code: string, sqlQueries: SqlQueryMap): string[] {
 	const filters = getStoryFiltersFromCode(code);
-	const knownFilterIds = filters.map((filter) => filter.id);
+	const knownFilterIds = [...new Set(filters.map((filter) => filter.id))];
 	const warnings: string[] = [];
 
-	for (const duplicateId of findDuplicateFilterIds(knownFilterIds)) {
+	for (const filterId of findConflictingStoryFilterIds(filters)) {
 		warnings.push(
-			`Story declares multiple <filter> tags with id "${duplicateId}". Filter ids must be unique — rename or remove the duplicates so selections and SQL rendering use the same definition.`,
+			`Story declares conflicting <filter> definitions with id "${filterId}". Repeated declarations must be identical so selections and SQL rendering use the same definition.`,
 		);
 	}
 
@@ -78,16 +89,4 @@ function getFilterWarnings(code: string, sqlQueries: SqlQueryMap): string[] {
 	}
 
 	return warnings;
-}
-
-function findDuplicateFilterIds(filterIds: string[]): string[] {
-	const seen = new Set<string>();
-	const duplicates = new Set<string>();
-	for (const filterId of filterIds) {
-		if (seen.has(filterId)) {
-			duplicates.add(filterId);
-		}
-		seen.add(filterId);
-	}
-	return [...duplicates];
 }

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { parseStoryTabs, stripStoryTabsMarkup } from '@nao/shared/story-tabs';
-import { splitCodeIntoSegments } from '@nao/shared/story-segments';
+import { getStoryFiltersFromCode, splitCodeIntoSegments } from '@nao/shared/story-segments';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
 import type { QueryDataMap } from '@/components/story-embeds';
@@ -43,6 +43,10 @@ export function StoryTabbedContent({
 	const activeTabIndex = tabs?.length ? Math.min(activeIndex, tabs.length - 1) : 0;
 	const activeCode = isTabbed && tabs ? tabs[activeTabIndex].innerCode : stripStoryTabsMarkup(code);
 	const segments = useMemo(() => splitCodeIntoSegments(activeCode), [activeCode]);
+	const activeFilterIds = useMemo(
+		() => new Set(getStoryFiltersFromCode(activeCode).map((filter) => filter.id)),
+		[activeCode],
+	);
 	const storyFilters = useStoryFilters({
 		code,
 		baselineQueryData,
@@ -74,7 +78,7 @@ export function StoryTabbedContent({
 				<div className='flex-1 overflow-auto'>
 					<div className={contentClassName}>
 						<StoryFilterBar
-							filters={storyFilters.filters}
+							filters={storyFilters.filters.filter((filter) => activeFilterIds.has(filter.id))}
 							selections={storyFilters.selections}
 							onSelectionChange={storyFilters.setSelection}
 							onClear={storyFilters.clearSelections}

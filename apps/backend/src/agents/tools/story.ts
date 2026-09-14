@@ -98,7 +98,7 @@ export default createTool<story.Input, story.Output>({
 				version: version.version,
 				code: version.code,
 				title: version.title,
-				...(await storyTemplateWarnings(chatId, version.code)),
+				...(await storyTemplateWarnings(context, version.code)),
 			};
 		}
 
@@ -137,7 +137,7 @@ export default createTool<story.Input, story.Output>({
 				version: version.version,
 				code: version.code,
 				title: version.title,
-				...(await storyTemplateWarnings(chatId, version.code)),
+				...(await storyTemplateWarnings(context, version.code)),
 			};
 		}
 
@@ -164,7 +164,7 @@ export default createTool<story.Input, story.Output>({
 			version: version.version,
 			code: version.code,
 			title: version.title,
-			...(await storyTemplateWarnings(chatId, version.code)),
+			...(await storyTemplateWarnings(context, version.code)),
 		};
 	},
 
@@ -177,9 +177,13 @@ async function carryOverTableFormatting(code: string, chatId: string): Promise<s
 }
 
 /** The story version is already committed at this point, so a warning failure must not fail the tool. */
-async function storyTemplateWarnings(chatId: string, code: string): Promise<{ template_warnings?: string[] }> {
+async function storyTemplateWarnings(context: ToolContext, code: string): Promise<{ template_warnings?: string[] }> {
 	try {
-		const warnings = await getStoryTemplateWarnings(chatId, code);
+		const warnings = await getStoryTemplateWarnings(
+			context.chatId,
+			code,
+			Object.fromEntries(context.queryDefinitions ?? []),
+		);
 		return warnings.length > 0 ? { template_warnings: warnings } : {};
 	} catch (error) {
 		console.error('Failed to compute story template warnings', error);

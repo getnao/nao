@@ -1,5 +1,5 @@
 import { NO_CACHE_SCHEDULE } from '@nao/shared';
-import { splitCodeIntoSegments } from '@nao/shared/story-segments';
+import { getStoryFiltersFromCode, splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { memo, useCallback, useMemo, useRef } from 'react';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
@@ -57,6 +57,7 @@ export const StoryPreview = memo(function StoryPreview({
 		api: filterApi,
 		enabled: filtersEnabled,
 	});
+	const visibleFilterIds = useMemo(() => new Set(getStoryFiltersFromCode(code).map((filter) => filter.id)), [code]);
 
 	const noCacheQuery = useMemo(
 		() => (isNoCacheMode ? { queryOptions: trpc.story.getLiveQueryData.queryOptions, chatId } : undefined),
@@ -150,7 +151,7 @@ export const StoryPreview = memo(function StoryPreview({
 		<StoryQuerySqlProvider value={querySqlSource}>
 			<div data-story-content className='p-6 flex flex-col gap-4'>
 				<StoryFilterBar
-					filters={storyFilters.filters}
+					filters={storyFilters.filters.filter((filter) => visibleFilterIds.has(filter.id))}
 					selections={storyFilters.selections}
 					onSelectionChange={storyFilters.setSelection}
 					onClear={storyFilters.clearSelections}

@@ -11,6 +11,19 @@ databases:
   exclude: []
   type: duckdb
   path: ./jaffle_shop.duckdb
+- name: ecommerce-analytics
+  templates:
+  - columns
+  - preview
+  include: []
+  exclude: []
+  type: postgres
+  host: "{{ env('METABASE_ANALYTICS_HOST') }}"
+  port: "{{ env('METABASE_ANALYTICS_PORT') }}"
+  database: "{{ env('METABASE_ANALYTICS_DATABASE') }}"
+  user: "{{ env('METABASE_ANALYTICS_USER') }}"
+  password: "{{ env('METABASE_ANALYTICS_PASSWORD') }}"
+  schema_name: public
 repos:
 - name: dbt
   url: https://github.com/dbt-labs/jaffle_shop_duckdb.git
