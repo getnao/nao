@@ -257,36 +257,6 @@ class RedshiftConfig(DatabaseConfig):
                 )
         return self
 
-    def _get_iam_credentials(self) -> tuple[str, str]:
-        """Call boto3 redshift.get_cluster_credentials() and return (db_user, db_password)."""
-        from nao_core.deps import require_dependency
-
-        require_dependency("boto3", "redshift", "for Redshift IAM authentication")
-        import boto3
-
-        cluster_id = self.cluster_id or self.host.split(".")[0]
-
-        if self.profile_name:
-            session = boto3.Session(profile_name=self.profile_name, region_name=self.region_name)
-        elif self.aws_access_key_id and self.aws_secret_access_key:
-            session = boto3.Session(
-                aws_access_key_id=self.aws_access_key_id,
-                aws_secret_access_key=self.aws_secret_access_key,
-                aws_session_token=self.aws_session_token,
-                region_name=self.region_name,
-            )
-        else:
-            session = boto3.Session(region_name=self.region_name)
-
-        client = session.client("redshift")
-        response = client.get_cluster_credentials(
-            DbUser=self.user,
-            DbName=self.database,
-            ClusterIdentifier=cluster_id,
-            AutoCreate=False,
-        )
-        return response["DbUser"], response["DbPassword"]
-
     @classmethod
     def promptConfig(cls) -> "RedshiftConfig":
         """Interactively prompt the user for Redshift configuration."""
@@ -446,6 +416,35 @@ class RedshiftConfig(DatabaseConfig):
         return ibis.postgres.connect(
             **kwargs,
         )
+
+    def _get_iam_credentials(self) -> tuple[str, str]:
+        from nao_core.deps import require_dependency
+
+        require_dependency("boto3", "redshift", "for Redshift IAM authentication")
+        import boto3
+
+        cluster_id = self.cluster_id or self.host.split(".")[0]
+
+        if self.profile_name:
+            session = boto3.Session(profile_name=self.profile_name, region_name=self.region_name)
+        elif self.aws_access_key_id and self.aws_secret_access_key:
+            session = boto3.Session(
+                aws_access_key_id=self.aws_access_key_id,
+                aws_secret_access_key=self.aws_secret_access_key,
+                aws_session_token=self.aws_session_token,
+                region_name=self.region_name,
+            )
+        else:
+            session = boto3.Session(region_name=self.region_name)
+
+        client = session.client("redshift")
+        response = client.get_cluster_credentials(
+            DbUser=self.user,
+            DbName=self.database,
+            ClusterIdentifier=cluster_id,
+            AutoCreate=False,
+        )
+        return response["DbUser"], response["DbPassword"]
 
     def execute_sql(self, sql: str) -> pd.DataFrame:
         """Execute SQL using user/password credentials.
