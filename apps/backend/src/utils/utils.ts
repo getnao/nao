@@ -33,7 +33,7 @@ export const formatErrorMessageForUI = (error: unknown): string => {
 			const requestId = getProviderRequestId(payload);
 			return JSON.stringify({
 				error: {
-					message: `The model provider returned an error${code ? ` (${code})` : ''}. Retry.`,
+					message: `The model provider returned an error${code ? ` (${code})` : ''}. Please retry.`,
 					...(requestId && { requestId }),
 				},
 			});

@@ -47,7 +47,7 @@ describe('formatErrorMessageForUI', () => {
 
 		expect(JSON.parse(message)).toEqual({
 			error: {
-				message: 'The model provider returned an error (500). Retry.',
+				message: 'The model provider returned an error (500). Please retry.',
 				requestId,
 			},
 		});
