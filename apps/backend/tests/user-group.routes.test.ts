@@ -8,12 +8,15 @@ const mocks = vi.hoisted(() => ({
 	getUserGroupOverview: vi.fn(),
 	getDatabaseContextCatalog: vi.fn(),
 	getDocsContextCatalog: vi.fn(),
+	getProjectRowSecurity: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	hasFeature: vi.fn(),
 	resolveEffectiveUserGroupAccess: vi.fn(),
 	role: 'admin' as 'admin' | 'user' | 'viewer',
 	setUserGroupMembership: vi.fn(),
 	updateUserGroup: vi.fn(),
+	updateProjectRowSecurity: vi.fn(),
+	validateWarehouseRowPredicate: vi.fn(),
 	UserGroupQueryError: class UserGroupQueryError extends Error {
 		constructor(
 			public readonly code: 'NOT_FOUND' | 'BAD_REQUEST' | 'CONFLICT' | 'FORBIDDEN',
@@ -38,13 +41,15 @@ vi.mock('../src/queries/user-group.queries', () => ({
 	createUserGroupWithinLimit: mocks.createUserGroupWithinLimit,
 	deleteUserGroup: mocks.deleteUserGroup,
 	getUserGroupOverview: mocks.getUserGroupOverview,
+	getProjectRowSecurity: mocks.getProjectRowSecurity,
 	resolveEffectiveUserGroupAccess: mocks.resolveEffectiveUserGroupAccess,
 	setUserGroupMembership: mocks.setUserGroupMembership,
 	updateUserGroup: mocks.updateUserGroup,
+	updateProjectRowSecurity: mocks.updateProjectRowSecurity,
 }));
 vi.mock('../src/services/license.service', () => ({
 	hasFeature: mocks.hasFeature,
-	LICENSE_FEATURES: { userGroups: 'user-groups' },
+	LICENSE_FEATURES: { rowLevelSecurity: 'row-level-security', userGroups: 'user-groups' },
 }));
 vi.mock('../src/services/user-group-availability.service', () => ({
 	assertUserGroupManageable: mocks.assertUserGroupManageable,
@@ -56,6 +61,9 @@ vi.mock('../src/services/docs-context-catalog.service', () => ({
 }));
 vi.mock('../src/services/sso-group-mapping.service', () => ({
 	isGroupRoleMappingActive: vi.fn(async () => false),
+}));
+vi.mock('../src/services/warehouse-sql.service', () => ({
+	validateWarehouseRowPredicate: mocks.validateWarehouseRowPredicate,
 }));
 
 import { router } from '../src/trpc/trpc';
@@ -74,6 +82,9 @@ describe('user group routes', () => {
 		mocks.getUserGroupOverview.mockResolvedValue({ users: [], groups: [], memberships: [] });
 		mocks.getDatabaseContextCatalog.mockReturnValue({ syncState: 'ready', objects: [] });
 		mocks.getDocsContextCatalog.mockReturnValue({ syncState: 'ready', entries: [] });
+		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [] });
+		mocks.updateProjectRowSecurity.mockImplementation(async (_projectId, value) => value);
+		mocks.validateWarehouseRowPredicate.mockImplementation(async (predicate) => predicate);
 		mocks.resolveEffectiveUserGroupAccess.mockResolvedValue({
 			features: ['story-creation'],
 			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
@@ -85,6 +96,153 @@ describe('user group routes', () => {
 		});
 		mocks.createUserGroup.mockResolvedValue({ id: 'group-id', name: 'Analysts' });
 		mocks.createUserGroupWithinLimit.mockResolvedValue({ id: 'group-id', name: 'Analysts' });
+	});
+
+	it('requires the RLS entitlement for project security mutations', async () => {
+		mocks.hasFeature.mockResolvedValue(false);
+
+		await expect(createCaller().updateRowSecurity({ version: 1, tables: [] })).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		expect(mocks.updateProjectRowSecurity).not.toHaveBeenCalled();
+	});
+
+	it('allows group edits after a registry update prunes removed-table policies', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+			constraintColumns: ['tenant_id'],
+		};
+		const customersPolicy = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'customers',
+			access: 'full' as const,
+		};
+		let storedPolicies = {
+			version: 1 as const,
+			policies: [
+				{
+					databaseType: orders.databaseType,
+					database: orders.database,
+					schema: orders.schema,
+					table: orders.table,
+					access: 'predicate' as const,
+					predicate: 'tenant_id = 7',
+				},
+				customersPolicy,
+			],
+		};
+		mocks.getDatabaseContextCatalog.mockReturnValue({
+			syncState: 'ready',
+			objects: [{ ...orders, columns: orders.constraintColumns }],
+		});
+		mocks.updateProjectRowSecurity.mockImplementation(async (_projectId, registry) => {
+			storedPolicies = {
+				version: 1,
+				policies: storedPolicies.policies.filter((policy) =>
+					registry.tables.some(
+						(table) =>
+							table.databaseType === policy.databaseType &&
+							table.database === policy.database &&
+							table.schema === policy.schema &&
+							table.table === policy.table,
+					),
+				),
+			};
+			mocks.getProjectRowSecurity.mockResolvedValue(registry);
+			return registry;
+		});
+
+		await createCaller().updateRowSecurity({ version: 1, tables: [orders] });
+		await createCaller().update({
+			groupId: 'group-id',
+			featureGrants: ['story-creation'],
+			toolCallDensityPolicy: { defaultDensity: 'compact', canChange: false },
+			rowPolicies: storedPolicies,
+		});
+
+		expect(storedPolicies.policies).toHaveLength(1);
+		expect(storedPolicies.policies[0]).toMatchObject({ table: 'orders' });
+		expect(mocks.updateUserGroup).toHaveBeenCalledWith(
+			'project-id',
+			'group-id',
+			expect.objectContaining({
+				featureGrants: ['story-creation'],
+				rowPolicies: storedPolicies,
+			}),
+		);
+	});
+
+	it('rejects group row policies for tables outside the project registry', async () => {
+		await expect(
+			createCaller().update({
+				groupId: 'group-id',
+				featureGrants: [],
+				toolCallDensityPolicy: { defaultDensity: 'compact', canChange: false },
+				rowPolicies: {
+					version: 1,
+					policies: [
+						{
+							databaseType: 'duckdb',
+							database: 'sales',
+							schema: 'main',
+							table: 'orders',
+							access: 'full',
+						},
+					],
+				},
+			}),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
+	});
+
+	it('validates predicate columns in the SQL guard before saving', async () => {
+		mocks.getProjectRowSecurity.mockResolvedValue({
+			version: 1,
+			tables: [
+				{
+					databaseType: 'duckdb',
+					database: 'sales',
+					schema: 'main',
+					table: 'orders',
+					constraintColumns: ['tenant_id'],
+				},
+			],
+		});
+
+		await createCaller().update({
+			groupId: 'group-id',
+			featureGrants: [],
+			toolCallDensityPolicy: { defaultDensity: 'compact', canChange: false },
+			rowPolicies: {
+				version: 1,
+				policies: [
+					{
+						databaseType: 'duckdb',
+						database: 'sales',
+						schema: 'main',
+						table: 'orders',
+						access: 'predicate',
+						predicate: 'tenant_id = 7',
+					},
+				],
+			},
+		});
+
+		expect(mocks.validateWarehouseRowPredicate).toHaveBeenCalledWith('tenant_id = 7', ['tenant_id'], 'duckdb');
+		expect(mocks.updateUserGroup).toHaveBeenCalledWith(
+			'project-id',
+			'group-id',
+			expect.objectContaining({
+				rowPolicies: expect.objectContaining({
+					policies: [expect.objectContaining({ predicate: 'tenant_id = 7' })],
+				}),
+			}),
+		);
 	});
 
 	it('returns the overview without an unlimited-groups license', async () => {

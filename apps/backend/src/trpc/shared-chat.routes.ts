@@ -7,7 +7,7 @@ import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as storyQueries from '../queries/story.queries';
 import { logActivity } from '../services/activity';
-import { getStoryQueryData } from '../services/live-story';
+import { assertProjectStoredStoryDataAllowed, getStoryQueryData } from '../services/live-story';
 import { type UIChat } from '../types/chat';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { notifySharedItemRecipients } from '../utils/email';
@@ -94,6 +94,7 @@ export const sharedChatRoutes = {
 			chat: UIChat;
 			userRole: UserRole | null;
 		}> => {
+			await assertProjectStoredStoryDataAllowed(ctx.resource.projectId, ctx.user.id);
 			const [chat] = await chatQueries.getChat(ctx.resource.chatId, { includeFeedback: true });
 			if (!chat) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });

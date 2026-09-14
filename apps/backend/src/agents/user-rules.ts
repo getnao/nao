@@ -69,6 +69,7 @@ export type DatabaseContextCatalog = {
 		database: string;
 		schema: string;
 		table: string;
+		columns: string[];
 	}>;
 };
 
@@ -96,6 +97,7 @@ export function getDatabaseContextCatalog(projectFolder: string): DatabaseContex
 				database,
 				schema,
 				table,
+				columns: readDatabaseObjectColumns(projectFolder, { type, database, schema, table }),
 			}))
 			.sort(
 				(left, right) =>
@@ -105,6 +107,31 @@ export function getDatabaseContextCatalog(projectFolder: string): DatabaseContex
 					left.table.localeCompare(right.table),
 			),
 	};
+}
+
+function readDatabaseObjectColumns(
+	projectFolder: string,
+	object: Pick<DatabaseObject, 'type' | 'database' | 'schema' | 'table'>,
+): string[] {
+	const path = join(
+		projectFolder,
+		'databases',
+		`type=${object.type}`,
+		`database=${object.database}`,
+		`schema=${object.schema}`,
+		`table=${object.table}`,
+		'columns.md',
+	);
+	try {
+		return readFileSync(path, 'utf-8')
+			.split(/\r?\n/)
+			.flatMap((line) => {
+				const match = /^-\s+(.+?)\s+\(/.exec(line);
+				return match?.[1] ? [match[1].replace(/^`|`$/g, '')] : [];
+			});
+	} catch {
+		return [];
+	}
 }
 
 function readDirEntries(dir: string, prefix: string): { name: string; path: string }[] {

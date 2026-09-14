@@ -206,6 +206,7 @@ describe('live story SQL execution', () => {
 			env_vars: { TOKEN: 'secret' },
 			enforce_excluded_columns: false,
 			table_access: { enforced: false },
+			row_security: { enforced: false },
 		});
 	});
 
@@ -304,6 +305,99 @@ describe('live story SQL execution', () => {
 		expect(mocks.getLatestVersionByChatAndSlug).not.toHaveBeenCalled();
 		expect(mocks.updateLatestVersionCode).not.toHaveBeenCalled();
 		expect(mocks.upsertStoryDataCache).not.toHaveBeenCalled();
+	});
+
+	it('re-executes static Story data separately for each row-security principal', async () => {
+		const code = '<table query_id="query_warehouse" />';
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_warehouse: { sqlQuery: 'SELECT * FROM orders', databaseId: 'analytics', adminMode: false },
+		});
+		mocks.buildMcpToolContext.mockImplementation(async ({ userId }: { userId: string }) => ({
+			projectFolder: '/project',
+			projectId: 'project-1',
+			userId,
+			envVars: {},
+			azureAccessToken: null,
+			agentSettings: null,
+			warehouseTableAccess: { enforced: false },
+			warehouseRowSecurity: {
+				enforced: true,
+				tables: [
+					{
+						databaseType: 'duckdb',
+						database: 'analytics',
+						schema: 'main',
+						table: 'orders',
+						constraintColumns: ['region'],
+						access: 'predicate',
+						predicate: `region = '${userId}'`,
+					},
+				],
+			},
+		}));
+		const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+			const body = JSON.parse(String(init.body));
+			const predicate = body.row_security.tables[0].predicate as string;
+			return {
+				ok: true,
+				json: async () => ({
+					columns: ['region'],
+					data: [{ region: predicate.includes('alice') ? 'alice' : 'bob' }],
+				}),
+			};
+		});
+		vi.stubGlobal('fetch', fetchMock);
+
+		const alice = await getStoryQueryData('chat-1', 'orders', code, false, null, 'alice');
+		const bob = await getStoryQueryData('chat-1', 'orders', code, false, null, 'bob');
+
+		expect(alice.queryData?.query_warehouse.data).toEqual([{ region: 'alice' }]);
+		expect(bob.queryData?.query_warehouse.data).toEqual([{ region: 'bob' }]);
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+		expect(mocks.getQueryDataFromCode).not.toHaveBeenCalled();
+		expect(mocks.getStoryDataCacheByChatAndSlug).not.toHaveBeenCalled();
+	});
+
+	it('re-executes historical Story data when row security is enforced', async () => {
+		const code = '<table query_id="query_warehouse" />';
+		mocks.getSqlQueriesFromCode.mockResolvedValue({
+			query_warehouse: { sqlQuery: 'SELECT * FROM orders', databaseId: 'analytics', adminMode: false },
+		});
+		mocks.buildMcpToolContext.mockResolvedValue({
+			projectFolder: '/project',
+			projectId: 'project-1',
+			userId: 'viewer-1',
+			envVars: {},
+			azureAccessToken: null,
+			agentSettings: null,
+			warehouseTableAccess: { enforced: false },
+			warehouseRowSecurity: {
+				enforced: true,
+				tables: [
+					{
+						databaseType: 'duckdb',
+						database: 'analytics',
+						schema: 'main',
+						table: 'orders',
+						constraintColumns: ['region'],
+						access: 'predicate',
+						predicate: "region = 'west'",
+					},
+				],
+			},
+		});
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue({
+				ok: true,
+				json: vi.fn().mockResolvedValue({ columns: ['region'], data: [{ region: 'west' }] }),
+			}),
+		);
+
+		await expect(getAuthorizedStoredStoryQueryData('chat-1', code, 'viewer-1')).resolves.toEqual({
+			query_warehouse: { columns: ['region'], data: [{ region: 'west' }] },
+		});
+		expect(mocks.getQueryDataFromCode).not.toHaveBeenCalled();
 	});
 
 	it('rejects stored Story data when a warehouse source is denied', async () => {

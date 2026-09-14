@@ -7,12 +7,28 @@ import duckdb
 import main
 import pytest
 import yaml
-from fastapi.testclient import TestClient
+from fastapi.testclient import TestClient as FastApiTestClient
 from main import app
 
 INTERNAL_SECRET = "test-internal-secret-at-least-20-characters"
 INTERNAL_HEADERS = {"X-Nao-Internal-Secret": INTERNAL_SECRET}
 UNENFORCED_TABLE_ACCESS = {"enforced": False}
+UNENFORCED_ROW_SECURITY = {"enforced": False}
+
+
+class TestClient(FastApiTestClient):
+    def request(self, method, url, **kwargs):
+        request_json = kwargs.get("json")
+        if (
+            url in {"/execute_sql", "/validate_sql"}
+            and isinstance(request_json, dict)
+            and "row_security" not in request_json
+        ):
+            kwargs["json"] = {
+                **request_json,
+                "row_security": UNENFORCED_ROW_SECURITY,
+            }
+        return super().request(method, url, **kwargs)
 
 
 @pytest.fixture(autouse=True)
@@ -20,9 +36,7 @@ def internal_secret(monkeypatch):
     monkeypatch.setenv("BETTER_AUTH_SECRET", INTERNAL_SECRET)
 
 
-def assert_sql_result(
-    data: dict, *, row_count: int, columns: list[str], expected_data: list[dict]
-):
+def assert_sql_result(data: dict, *, row_count: int, columns: list[str], expected_data: list[dict]):
     """Assert that SQL response data matches expected values."""
     assert data["row_count"] == row_count
     assert data["columns"] == columns
@@ -73,14 +87,7 @@ def duckdb_project_with_excluded_columns():
         config_path = Path(tmpdir) / "nao_config.yaml"
         with config_path.open("w") as f:
             yaml.dump(config, f)
-        catalog_path = (
-            Path(tmpdir)
-            / ".meta"
-            / "databases"
-            / "type=duckdb"
-            / "database=test"
-            / "columns.json"
-        )
+        catalog_path = Path(tmpdir) / ".meta" / "databases" / "type=duckdb" / "database=test" / "columns.json"
         catalog_path.parent.mkdir(parents=True)
         catalog_path.write_text(
             json.dumps(
@@ -128,14 +135,9 @@ def duckdb_project_with_listed_tables_only():
         with config_path.open("w") as f:
             yaml.dump(config, f)
 
-        (
-            project_path
-            / "databases"
-            / "type=duckdb"
-            / "database=test"
-            / "schema=main"
-            / "table=orders"
-        ).mkdir(parents=True)
+        (project_path / "databases" / "type=duckdb" / "database=test" / "schema=main" / "table=orders").mkdir(
+            parents=True
+        )
         yield tmpdir
 
 
@@ -215,11 +217,145 @@ def test_sql_endpoint_rejects_missing_null_or_malformed_table_access(
     if table_access != "missing":
         request["table_access"] = table_access
 
-    response = TestClient(app, headers=INTERNAL_HEADERS).post(
-        endpoint, json=request
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(endpoint, json=request)
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "row_security",
+    [
+        "missing",
+        None,
+        {},
+        {"enforced": 0},
+        {"enforced": "false"},
+        {"enforced": True},
+        {"enforced": False, "tables": []},
+    ],
+)
+@pytest.mark.parametrize("endpoint", ["/execute_sql", "/validate_sql"])
+def test_sql_endpoint_rejects_missing_null_or_malformed_row_security(
+    duckdb_project_folder,
+    row_security,
+    endpoint,
+):
+    request = {
+        "sql": "SELECT 1",
+        "nao_project_folder": duckdb_project_folder,
+        "table_access": UNENFORCED_TABLE_ACCESS,
+    }
+    if row_security != "missing":
+        request["row_security"] = row_security
+
+    response = FastApiTestClient(app, headers=INTERNAL_HEADERS).post(endpoint, json=request)
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "table",
+    [
+        {
+            "database_type": " ",
+            "database": "test",
+            "schema": "main",
+            "table": "users",
+            "constraint_columns": ["id"],
+            "access": "none",
+        },
+        {
+            "database_type": "duckdb",
+            "database": "x" * 256,
+            "schema": "main",
+            "table": "users",
+            "constraint_columns": ["id"],
+            "access": "none",
+        },
+        {
+            "database_type": "duckdb",
+            "database": "test",
+            "schema": "main",
+            "table": "users",
+            "constraint_columns": [" "],
+            "access": "none",
+        },
+        {
+            "database_type": "duckdb",
+            "database": "test",
+            "schema": "main",
+            "table": "users",
+            "constraint_columns": ["id", "id"],
+            "access": "none",
+        },
+        {
+            "database_type": "duckdb",
+            "database": "test",
+            "schema": "main",
+            "table": "users",
+            "constraint_columns": [f"column_{index}" for index in range(257)],
+            "access": "none",
+        },
+        {
+            "database_type": "duckdb",
+            "database": "test",
+            "schema": "main",
+            "table": "users",
+            "constraint_columns": ["id"],
+            "access": "none",
+            "unexpected": True,
+        },
+    ],
+)
+@pytest.mark.parametrize("endpoint", ["/execute_sql", "/validate_sql"])
+def test_sql_endpoint_rejects_malformed_row_security_tables(
+    duckdb_project_folder,
+    table,
+    endpoint,
+):
+    response = FastApiTestClient(app, headers=INTERNAL_HEADERS).post(
+        endpoint,
+        json={
+            "sql": "SELECT 1",
+            "nao_project_folder": duckdb_project_folder,
+            "table_access": UNENFORCED_TABLE_ACCESS,
+            "row_security": {"enforced": True, "tables": [table]},
+        },
     )
 
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize("endpoint", ["/execute_sql", "/validate_sql"])
+def test_sql_endpoint_allows_empty_enforced_row_security_tables(
+    duckdb_project_folder,
+    endpoint,
+):
+    response = FastApiTestClient(app, headers=INTERNAL_HEADERS).post(
+        endpoint,
+        json={
+            "sql": "SELECT 1",
+            "nao_project_folder": duckdb_project_folder,
+            "table_access": UNENFORCED_TABLE_ACCESS,
+            "row_security": {"enforced": True, "tables": []},
+        },
+    )
+
+    assert response.status_code == 200
+
+
+def test_validate_row_predicate_rejects_non_constraint_column():
+    response = FastApiTestClient(app, headers=INTERNAL_HEADERS).post(
+        "/validate_row_predicate",
+        json={
+            "predicate": "other_id = 1",
+            "constraint_columns": ["tenant_id"],
+            "database_type": "duckdb",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "not a configured constraint column" in response.json()["detail"]
 
 
 def test_execute_sql_rejects_extra_table_access_fields(duckdb_project_folder):
@@ -389,6 +525,39 @@ def test_table_access_is_filtered_to_active_database_folder(
     assert allowed.status_code == 200
 
 
+@pytest.mark.parametrize("endpoint", ["/execute_sql", "/validate_sql"])
+def test_row_security_filters_active_database_for_execute_and_validate(
+    duckdb_project_with_excluded_columns,
+    endpoint,
+):
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        endpoint,
+        json={
+            "sql": "SELECT id, name FROM users",
+            "nao_project_folder": duckdb_project_with_excluded_columns,
+            "table_access": UNENFORCED_TABLE_ACCESS,
+            "row_security": {
+                "enforced": True,
+                "tables": [
+                    {
+                        "database_type": "duckdb",
+                        "database": "test",
+                        "schema": "main",
+                        "table": "users",
+                        "constraint_columns": ["id"],
+                        "access": "predicate",
+                        "predicate": "id = 1",
+                    }
+                ],
+            },
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    if endpoint == "/execute_sql":
+        assert response.json()["data"] == [{"id": 1, "name": "Alice"}]
+
+
 def test_validate_sql_reuses_guards_without_executing(
     duckdb_project_with_excluded_columns,
 ):
@@ -430,19 +599,14 @@ def test_motherduck_excluded_columns_apply_to_execute_and_validate(
         def get_database_name(self) -> str:
             return "local"
 
-        def column_matches_pattern(
-            self, schema: str, table: str, column: str
-        ) -> bool:
+        def column_matches_pattern(self, schema: str, table: str, column: str) -> bool:
             return column != "email"
 
         def execute_sql(self, sql: str):
             assert sql == "SELECT 1 AS value"
             return main.pd.DataFrame([{"value": 1}])
 
-    catalog_path = (
-        tmp_path
-        / ".meta/databases/type=motherduck/database=local/columns.json"
-    )
+    catalog_path = tmp_path / ".meta/databases/type=motherduck/database=local/columns.json"
     catalog_path.parent.mkdir(parents=True)
     catalog_path.write_text(
         json.dumps(
@@ -549,9 +713,7 @@ def test_execute_sql_blocks_explicit_excluded_column(
     assert "main.users.email" in response.json()["detail"]
 
 
-@pytest.mark.parametrize(
-    "enforce_excluded_columns", [False, None], ids=["disabled", "omitted"]
-)
+@pytest.mark.parametrize("enforce_excluded_columns", [False, None], ids=["disabled", "omitted"])
 def test_execute_sql_allows_excluded_column_without_enforcement(
     duckdb_project_with_excluded_columns,
     enforce_excluded_columns,

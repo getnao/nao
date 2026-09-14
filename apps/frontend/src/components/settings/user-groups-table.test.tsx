@@ -66,8 +66,13 @@ vi.mock('@/main', () => ({
 		},
 		userGroup: {
 			overview: { queryOptions: vi.fn(), queryKey: vi.fn(() => ['overview']) },
-			contextCatalog: { queryOptions: vi.fn() },
-			docsContextCatalog: { queryOptions: vi.fn() },
+			contextCatalog: { queryOptions: vi.fn(() => ({ queryKey: ['context-catalog'] })) },
+			docsContextCatalog: { queryOptions: vi.fn(() => ({ queryKey: ['docs-context-catalog'] })) },
+			rowSecurity: {
+				queryOptions: vi.fn(() => ({ queryKey: ['row-security'] })),
+				queryKey: vi.fn(() => ['row-security']),
+			},
+			updateRowSecurity: { mutationOptions: vi.fn() },
 			effectiveAccess: { queryKey: vi.fn(() => ['effective-access']) },
 			effectiveAccessForUser: { queryKey: vi.fn(() => ['effective-access-for-user']) },
 			setMembership: { mutationOptions: vi.fn() },
@@ -129,6 +134,56 @@ vi.mock('@/components/settings/user-group-context-access', () => ({
 			)}
 		</div>
 	),
+	groupDatabaseContextObjects: (
+		objects: Array<{ databaseType: string; database: string; schema: string; table: string; columns?: string[] }>,
+	) => {
+		const databases = new Map<
+			string,
+			{
+				kind: 'database';
+				key: string;
+				databaseType: string;
+				database: string;
+				schemas: Map<
+					string,
+					{
+						kind: 'schema';
+						key: string;
+						databaseType: string;
+						database: string;
+						schema: string;
+						tables: typeof objects;
+					}
+				>;
+			}
+		>();
+		for (const object of objects) {
+			const databaseKey = `${object.databaseType}\0${object.database}`;
+			const database = databases.get(databaseKey) ?? {
+				kind: 'database' as const,
+				key: databaseKey,
+				databaseType: object.databaseType,
+				database: object.database,
+				schemas: new Map(),
+			};
+			const schemaKey = `${databaseKey}\0${object.schema}`;
+			const schema = database.schemas.get(schemaKey) ?? {
+				kind: 'schema' as const,
+				key: schemaKey,
+				databaseType: object.databaseType,
+				database: object.database,
+				schema: object.schema,
+				tables: [],
+			};
+			schema.tables.push(object);
+			database.schemas.set(schemaKey, schema);
+			databases.set(databaseKey, database);
+		}
+		return [...databases.values()].map((database) => ({
+			...database,
+			schemas: [...database.schemas.values()],
+		}));
+	},
 	getDatabaseContextTableSelectionSummary: () => '0 tables',
 }));
 const allUsers = {
@@ -194,7 +249,13 @@ beforeEach(() => {
 				? null
 				: options?.queryKey?.[0] === 'microsoft-config'
 					? false
-					: overview,
+					: options?.queryKey?.[0] === 'row-security'
+						? { version: 1, tables: [] }
+						: options?.queryKey?.[0] === 'context-catalog'
+							? { syncState: 'ready', objects: [] }
+							: options?.queryKey?.[0] === 'docs-context-catalog'
+								? { syncState: 'ready', entries: [] }
+								: overview,
 	}));
 	mocks.useMutation.mockReturnValue({
 		mutate: mocks.mutate,
@@ -280,6 +341,56 @@ describe('UserGroupsTable', () => {
 		expect(screen.getByText('No features · All tables · Strict · All docs')).toBeTruthy();
 		expect(screen.getByText('No features · No tables · Not strict · No docs')).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Create group' })).toBeTruthy();
+	});
+
+	it('configures project constraint columns when RLS is licensed', () => {
+		mocks.useLicenseFeatures.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: { 'user-groups': true, 'row-level-security': true },
+		});
+		mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => ({
+			isLoading: false,
+			isError: false,
+			data:
+				options?.queryKey?.[0] === 'context-catalog'
+					? {
+							syncState: 'ready',
+							objects: [
+								{
+									databaseType: 'duckdb',
+									database: 'sales',
+									schema: 'main',
+									table: 'orders',
+									columns: ['tenant_id', 'total'],
+								},
+							],
+						}
+					: options?.queryKey?.[0] === 'docs-context-catalog'
+						? { syncState: 'ready', entries: [] }
+						: options?.queryKey?.[0] === 'row-security'
+							? { version: 1, tables: [] }
+							: overview,
+		}));
+
+		render(<UserGroupsTable tab='security' onTabChange={vi.fn()} />);
+		fireEvent.click(screen.getByRole('button', { name: 'Expand sales/main schema' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Expand orders table columns' }));
+		fireEvent.click(screen.getByRole('checkbox', { name: 'tenant_id constraint column for orders' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Save security' }));
+
+		expect(mocks.mutate).toHaveBeenCalledWith({
+			version: 1,
+			tables: [
+				{
+					databaseType: 'duckdb',
+					database: 'sales',
+					schema: 'main',
+					table: 'orders',
+					constraintColumns: ['tenant_id'],
+				},
+			],
+		});
 	});
 
 	it('shows catalog states in group summaries and retries errors', () => {
@@ -470,7 +581,11 @@ describe('UserGroupsTable', () => {
 	it('shows the existing users table', () => {
 		render(<UserGroupsTable tab='users' onTabChange={vi.fn()} />);
 
-		expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Users', 'Manage Groups']);
+		expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+			'Users',
+			'Manage Groups',
+			'Security',
+		]);
 		expect(screen.getByRole('tab', { name: 'Users' }).getAttribute('aria-selected')).toBe('true');
 		expect(screen.getByRole('columnheader', { name: 'User' })).toBeTruthy();
 		expect(screen.getByText('Project Team')).toBeTruthy();
@@ -602,6 +717,7 @@ describe('UserGroupsTable', () => {
 		expect(resolveUserGroupsPageTab(undefined)).toBe('users');
 		expect(resolveUserGroupsPageTab('invalid')).toBe('users');
 		expect(resolveUserGroupsPageTab('groups')).toBe('groups');
+		expect(resolveUserGroupsPageTab('security')).toBe('security');
 	});
 });
 
@@ -636,7 +752,7 @@ describe('UserGroupEditor', () => {
 		expect(onTabChange).toHaveBeenCalledWith('context');
 	});
 
-	it('shows Conditional RULES in Context and the Enterprise RLS placeholder in Security', () => {
+	it('shows Conditional RULES in Context and locked RLS controls in Security', () => {
 		const { rerender } = renderEditor('context');
 		expect(screen.getByText('Context permissions')).toBeTruthy();
 		expect(screen.getByRole('heading', { name: 'Conditional RULES' })).toBeTruthy();
@@ -653,7 +769,7 @@ describe('UserGroupEditor', () => {
 		);
 		expect(screen.queryByRole('heading', { name: 'Conditional RULES' })).toBeNull();
 		expect(screen.getByRole('heading', { name: 'Row-level security' })).toBeTruthy();
-		expect(screen.getByText('Restricting which rows each group can access is not available yet.')).toBeTruthy();
+		expect(screen.getByText('No sensitive tables are configured in the project Security tab.')).toBeTruthy();
 		expect(screen.getByRole('link', { name: 'Upgrade to Enterprise' })).toBeTruthy();
 		expect(screen.queryByRole('heading', { name: /SSO group mapping/ })).toBeNull();
 	});
@@ -664,10 +780,34 @@ describe('UserGroupEditor', () => {
 			isError: false,
 			data: { 'user-groups': true, 'row-level-security': true },
 		});
+		mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => ({
+			isLoading: false,
+			isError: false,
+			data:
+				options?.queryKey?.[0] === 'row-security'
+					? {
+							version: 1,
+							tables: [
+								{
+									databaseType: 'duckdb',
+									database: 'sales',
+									schema: 'main',
+									table: 'orders',
+									constraintColumns: ['tenant_id'],
+								},
+							],
+						}
+					: options?.queryKey?.[0] === 'oidc-config'
+						? null
+						: options?.queryKey?.[0] === 'microsoft-config'
+							? false
+							: overview,
+		}));
 		renderEditor('security');
 
 		expect(screen.getByRole('heading', { name: 'Row-level security' })).toBeTruthy();
-		expect(screen.getByText('Restricting which rows each group can access is not available yet.')).toBeTruthy();
+		expect(screen.getByText('Constraint columns: tenant_id')).toBeTruthy();
+		expect(screen.getByRole('combobox', { name: 'Row access for orders' })).toBeTruthy();
 		expect(screen.queryByRole('link', { name: 'Upgrade to Enterprise' })).toBeNull();
 	});
 
