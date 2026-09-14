@@ -450,6 +450,17 @@ def build_server(project_root: Path, output_dir: Path) -> None:
         shutil.rmtree(output_public)
     shutil.copytree(backend_public, output_public)
 
+    # Chart PNG rendering needs the bundled fonts: resvg draws no text without them
+    backend_assets = backend_dir / "assets"
+    output_assets = output_dir / "assets"
+    if output_assets.exists():
+        shutil.rmtree(output_assets)
+    if backend_assets.exists():
+        shutil.copytree(backend_assets, output_assets)
+        print(f"   Assets: {output_assets}")
+    else:
+        print("   ⚠️  No backend assets folder found")
+
     # Step 7: Copy migrations next to the binary (both SQLite and PostgreSQL)
     print("\n📦 Bundling migrations with binary...")
 

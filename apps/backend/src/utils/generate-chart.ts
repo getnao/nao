@@ -1,5 +1,8 @@
+import { CHART_EMBEDDED_FONT_FAMILY, CHART_FONT_STACK } from '@nao/shared';
 import { Resvg } from '@resvg/resvg-js';
 import * as cheerio from 'cheerio';
+
+import { chartFontFiles } from './chart-fonts';
 
 function extractSvgFromHTML(html: string): string {
 	const $ = cheerio.load(html, { xmlMode: true });
@@ -95,7 +98,7 @@ function buildLegend(entries: LegendEntry[], width: number, centerY: number): st
 				'dominant-baseline': 'middle',
 				'font-size': '12',
 				'font-weight': '300',
-				'font-family': 'system-ui, sans-serif',
+				'font-family': CHART_FONT_STACK,
 				fill: '#6b7280',
 			})
 			.text(entry.label)
@@ -130,7 +133,7 @@ function buildVerticalLegend(entries: LegendEntry[], xOffset: number, rightEdge:
 				'dominant-baseline': 'middle',
 				'font-size': '12',
 				'font-weight': '300',
-				'font-family': 'system-ui, sans-serif',
+				'font-family': CHART_FONT_STACK,
 				fill: '#6b7280',
 			})
 			.text(truncateLabel(entry.label, maxChars))
@@ -159,9 +162,24 @@ export function truncateLabel(label: string, maxChars: number): string {
 }
 
 export function svgToPng(svg: string, zoom = 2): Buffer {
-	const resvg = new Resvg(svg, {
+	const resvg = new Resvg(resolveCssVariables(svg), {
 		fitTo: { mode: 'zoom' as const, value: zoom },
-		font: { loadSystemFonts: true },
+		font: {
+			fontFiles: chartFontFiles,
+			defaultFontFamily: CHART_EMBEDDED_FONT_FAMILY,
+			sansSerifFamily: CHART_EMBEDDED_FONT_FAMILY,
+			loadSystemFonts: true,
+		},
 	});
 	return Buffer.from(resvg.render().asPng());
+}
+
+/**
+ * resvg resolves no CSS custom property, so `var(--x, #111)` reaches the
+ * renderer verbatim and silently degrades to the SVG default fill. Only the
+ * PNG path needs this: the same markup keeps its variables when embedded in
+ * story HTML, where the browser resolves them against the active theme.
+ */
+export function resolveCssVariables(svg: string): string {
+	return svg.replace(/var\(\s*--[\w-]+\s*,\s*([^()]*?)\s*\)/g, '$1');
 }

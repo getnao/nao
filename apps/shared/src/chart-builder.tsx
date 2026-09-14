@@ -39,6 +39,7 @@ import {
 	sumStackValue,
 } from './chart-data-labels';
 import { collectAxisValues, collectStackedAxisValues, resolveBarYAxisDomain, resolveYAxisDomain } from './chart-domain';
+import { CHART_FONT_STACK } from './chart-fonts';
 import {
 	attachValueAffixes,
 	formatChartValue,
@@ -66,7 +67,7 @@ export const DEFAULT_COLORS = [
 ];
 
 const CHART_LABEL_FONT_SIZE = 12;
-const AXIS_TICK = { fontSize: CHART_LABEL_FONT_SIZE };
+const AXIS_TICK = { fontSize: CHART_LABEL_FONT_SIZE, fontFamily: CHART_FONT_STACK };
 const CATEGORY_XAXIS_HEIGHT = 56;
 const X_AXIS_LABEL_HEIGHT = 22;
 
@@ -1314,6 +1315,7 @@ function renderComboSeries(
 const AXIS_LABEL_STYLE = {
 	textAnchor: 'middle' as const,
 	fontSize: CHART_LABEL_FONT_SIZE,
+	fontFamily: CHART_FONT_STACK,
 	fill: MUTED_FOREGROUND,
 };
 
@@ -1510,7 +1512,7 @@ function renderChartTitle(title: string) {
 					dominantBaseline='middle'
 					fontSize={14}
 					fontWeight='600'
-					fontFamily='system-ui, sans-serif'
+					fontFamily={CHART_FONT_STACK}
 					fill='var(--foreground, #111827)'
 				>
 					{title}
