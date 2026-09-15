@@ -157,8 +157,7 @@ export function UserGroupEditor({
 	const hasStoredOidcMappings = ssoMappings.providers.oidc.length > 0;
 	const hasStoredMicrosoftMappings = ssoMappings.providers.microsoft.length > 0;
 	const hasStoredSsoMappings = hasStoredOidcMappings || hasStoredMicrosoftMappings;
-	const hasConfiguredSsoProvider =
-		oidcConfigurationState === 'ready' || microsoftConfigurationState === 'ready';
+	const hasConfiguredSsoProvider = oidcConfigurationState === 'ready' || microsoftConfigurationState === 'ready';
 	const isSsoConfigLoading =
 		ssoLicenseState === 'loading' ||
 		oidcConfigurationState === 'loading' ||
@@ -364,13 +363,12 @@ export function UserGroupEditor({
 									/>
 								) : (
 									<>
-										{ssoLicenseState !== 'ready' &&
-											!hasStoredSsoMappings && (
-												<SsoAvailabilityStatus
-													state={ssoLicenseState}
-													onRetry={() => void licenseFeatures.refetch()}
-												/>
-											)}
+										{ssoLicenseState !== 'ready' && !hasStoredSsoMappings && (
+											<SsoAvailabilityStatus
+												state={ssoLicenseState}
+												onRetry={() => void licenseFeatures.refetch()}
+											/>
+										)}
 										{(hasStoredOidcMappings ||
 											(ssoLicenseState === 'ready' &&
 												oidcConfigurationState !== 'unavailable')) && (
