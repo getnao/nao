@@ -10,6 +10,15 @@ if TYPE_CHECKING:
     from ibis import BaseBackend
 
 
+def quote_sql_literal(value: str) -> str:
+    """Escape a value for use inside a single-quoted SQL literal.
+
+    `schema` and `table_name` come from nao_config.yaml and are interpolated into the metadata
+    queries the backends run during sync, so an unescaped quote in them changes those queries.
+    """
+    return value.replace("'", "''")
+
+
 class DatabaseContext:
     """Context object passed to Jinja2 templates during database sync.
 
@@ -309,7 +318,10 @@ class DatabaseContext:
     # ─── SQL primitives ───────────────────────────────────────────────────────
 
     def _quote(self, name: str) -> str:
-        return f'"{name}"'
+        # Doubling the quote is the SQL-standard escape; without it a name from nao_config.yaml
+        # can close the identifier and continue the statement.
+        escaped = name.replace('"', '""')
+        return f'"{escaped}"'
 
     def _cast_float(self, expr: str) -> str:
         return f"CAST({expr} AS DOUBLE)"

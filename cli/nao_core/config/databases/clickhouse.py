@@ -730,7 +730,7 @@ class ClickHouseDatabaseContext(DatabaseContext):
 
         # AggregateFunction tables are skipped above; plain column selection is sufficient here.
         select_parts = [f"`{name}`" for name in schema]
-        quoted_table = f"`{self._schema}`.`{self._table_name}`"
+        quoted_table = f"{_quote_identifier(self._schema)}.{_quote_identifier(self._table_name)}"
         sql = f"SELECT {', '.join(select_parts)} FROM {quoted_table} LIMIT {limit}"
 
         try:
