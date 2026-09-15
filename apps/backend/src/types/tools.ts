@@ -1,5 +1,8 @@
+import type { UserGroupFeature } from '@nao/shared';
 import type { displayChart, displayMap } from '@nao/shared/tools';
 
+import type { WarehouseTableAccess } from '../services/context-access';
+import type { ResolvedDocsContextAccess } from '../services/user-group-context-access.service';
 import { AgentSettings } from './agent-settings';
 
 export interface QueryResult {
@@ -22,6 +25,9 @@ export interface ToolContext {
 	supportsCustomCharts: boolean;
 	agentSettings: AgentSettings | null;
 	envVars: Record<string, string>;
+	warehouseTableAccess: WarehouseTableAccess;
+	docsContextAccess: ResolvedDocsContextAccess;
+	userGroupFeatures: UserGroupFeature[];
 	/**
 	 * Database federation access token. Populated by the EE Microsoft/Azure AD
 	 * integration when the user signs in via Microsoft; always null in the

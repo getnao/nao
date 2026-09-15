@@ -13,7 +13,12 @@ import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { naturalLanguageToCron } from '../services/cron-nlp';
-import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
+import {
+	executeLiveQuery,
+	getAuthorizedStoredStoryQueryData,
+	getStoryQueryData,
+	refreshStoryData,
+} from '../services/live-story';
 import { nextCronTick } from '../services/scheduler.service';
 import {
 	assertStoryFiltersEnabled,
@@ -156,11 +161,23 @@ export const storyRoutes = {
 			});
 		}
 
-		const queryData = story.chatId
-			? await backfillMissingQueryData(story.code, cache?.queryData ?? null, { chatId: story.chatId })
-			: (cache?.queryData ?? null);
+		const liveData =
+			story.chatId && story.isLive
+				? await getStoryQueryData(story.chatId, story.slug, story.code, true, story.cacheSchedule, ctx.user.id)
+				: null;
+		const queryData = liveData
+			? liveData.queryData
+			: story.chatId
+				? await backfillMissingQueryData(story.code, cache?.queryData ?? null, { chatId: story.chatId })
+				: (cache?.queryData ?? null);
 
-		return { ...story, queryData, cachedAt: cache?.cachedAt ?? null, lastRefreshFailure };
+		return {
+			...story,
+			code: liveData?.code ?? story.code,
+			queryData,
+			cachedAt: liveData ? liveData.cachedAt : (cache?.cachedAt ?? null),
+			lastRefreshFailure,
+		};
 	}),
 
 	getLatest: chatStoryProcedure
@@ -170,12 +187,13 @@ export const storyRoutes = {
 			if (!version) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 			}
-			const { queryData, cachedAt } = await getStoryQueryData(
+			const { queryData, cachedAt, code } = await getStoryQueryData(
 				input.chatId,
 				input.storySlug,
 				version.code,
 				version.isLive,
 				version.cacheSchedule,
+				ctx.user.id,
 			);
 			const lastRefreshFailure = await activityQueries.getLatestStoryRefreshFailure(version.storyId);
 
@@ -192,7 +210,7 @@ export const storyRoutes = {
 				});
 			}
 
-			return { ...version, queryData, cachedAt, lastRefreshFailure };
+			return { ...version, code, queryData, cachedAt, lastRefreshFailure };
 		}),
 
 	listVersions: chatStoryProcedure
@@ -333,7 +351,7 @@ export const storyRoutes = {
 				trigger: 'manual',
 			});
 			try {
-				const { queryData } = await refreshStoryData(input.chatId, input.storySlug);
+				const { queryData } = await refreshStoryData(input.chatId, input.storySlug, ctx.user.id);
 				await activityQueries.completeActivity(activity.id, {
 					queriesRefreshed: Object.keys(queryData).length,
 				});
@@ -356,15 +374,15 @@ export const storyRoutes = {
 
 	getLiveQueryData: chatStoryProcedure
 		.input(z.object({ chatId: z.string(), queryId: z.string() }))
-		.query(async ({ input }) => {
-			return executeLiveQuery(input.chatId, input.queryId);
+		.query(async ({ input, ctx }) => {
+			return executeLiveQuery(input.chatId, input.queryId, ctx.user.id);
 		}),
 
 	getFilterOptions: chatStoryProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string(), filterId: z.string() }))
-		.query(async ({ input }) => {
+		.query(async ({ input, ctx }) => {
 			assertStoryFiltersEnabled();
-			return getStoryFilterOptions(input.chatId, input.storySlug, input.filterId);
+			return getStoryFilterOptions(input.chatId, input.storySlug, input.filterId, ctx.user.id);
 		}),
 
 	getFilteredQueryData: chatStoryProcedure
@@ -375,9 +393,9 @@ export const storyRoutes = {
 				selections: z.record(z.string(), z.union([z.string(), z.array(z.string())])),
 			}),
 		)
-		.query(async ({ input }) => {
+		.query(async ({ input, ctx }) => {
 			assertStoryFiltersEnabled();
-			return getFilteredStoryQueryData(input.chatId, input.storySlug, input.selections);
+			return getFilteredStoryQueryData(input.chatId, input.storySlug, input.selections, ctx.user.id);
 		}),
 
 	getQuerySql: chatStoryProcedure
@@ -509,12 +527,23 @@ export const storyRoutes = {
 				});
 			}
 
+			const liveData =
+				story.chatId && story.isLive
+					? await getStoryQueryData(
+							story.chatId,
+							story.slug,
+							story.code,
+							true,
+							story.cacheSchedule,
+							ctx.user.id,
+						)
+					: null;
 			const displaySettings = story.projectId ? await projectQueries.getDisplaySettings(story.projectId) : null;
 			return buildDownloadResponse(
 				input.format,
 				story.title,
-				story.code,
-				cache?.queryData ?? null,
+				liveData?.code ?? story.code,
+				liveData?.queryData ?? cache?.queryData ?? null,
 				displaySettings?.dateFormat,
 			);
 		}),
@@ -529,20 +558,28 @@ export const storyRoutes = {
 			}),
 		)
 		.query(async ({ input, ctx }) => {
+			const latestVersion = await storyQueries.getLatestVersionByChatAndSlug(input.chatId, input.storySlug);
 			const version = input.versionNumber
 				? await storyQueries.getVersionByNumber(input.chatId, input.storySlug, input.versionNumber)
-				: await storyQueries.getLatestVersionByChatAndSlug(input.chatId, input.storySlug);
+				: latestVersion;
 			if (!version) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 			}
 
-			const { queryData } = await getStoryQueryData(
-				input.chatId,
-				input.storySlug,
-				version.code,
-				version.isLive,
-				version.cacheSchedule,
-			);
+			const isHistoricalVersion = input.versionNumber !== undefined && version.version !== latestVersion?.version;
+			const { queryData, code } = isHistoricalVersion
+				? {
+						queryData: await getAuthorizedStoredStoryQueryData(input.chatId, version.code, ctx.user.id),
+						code: version.code,
+					}
+				: await getStoryQueryData(
+						input.chatId,
+						input.storySlug,
+						version.code,
+						version.isLive,
+						version.cacheSchedule,
+						ctx.user.id,
+					);
 
 			const projectId = await chatQueries.getChatProjectId(input.chatId);
 			if (projectId) {
@@ -564,13 +601,7 @@ export const storyRoutes = {
 
 			const displaySettings = projectId ? await projectQueries.getDisplaySettings(projectId) : null;
 
-			return buildDownloadResponse(
-				input.format,
-				version.title,
-				version.code,
-				queryData,
-				displaySettings?.dateFormat,
-			);
+			return buildDownloadResponse(input.format, version.title, code, queryData, displaySettings?.dateFormat);
 		}),
 };
 

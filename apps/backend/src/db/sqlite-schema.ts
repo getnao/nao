@@ -4,7 +4,11 @@ import {
 	type MapSettings,
 	type McpChartEmbedStoredConfig,
 	type McpMapEmbedStoredConfig,
+	type StoredDatabaseContextAccess,
+	type StoredLegacyDatabaseContextAccessV1,
+	type StoredLegacyDatabaseContextAccessV2,
 	type StoredUserGroupConfig,
+	type StoredUserGroupContextAccess,
 } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
 import type {
@@ -66,6 +70,7 @@ import {
 	WhatsappSettings,
 } from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
+import type { StoryQuerySources } from '../types/story-cache';
 
 export const user = sqliteTable('user', {
 	id: text('id').primaryKey(),
@@ -461,7 +466,12 @@ export const userGroup = sqliteTable(
 			.$type<StoredUserGroupConfig>()
 			.notNull()
 			.default(DEFAULT_USER_GROUP_CONFIG),
-		contextGrants: text('context_grants', { mode: 'json' }),
+		contextGrants: text('context_grants', { mode: 'json' }).$type<
+			| StoredLegacyDatabaseContextAccessV1
+			| StoredLegacyDatabaseContextAccessV2
+			| StoredDatabaseContextAccess
+			| StoredUserGroupContextAccess
+		>(),
 		ssoMappings: text('sso_mappings', { mode: 'json' }),
 		rowPolicies: text('row_policies', { mode: 'json' }),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -1034,7 +1044,7 @@ export const storyDataCache = sqliteTable('story_data_cache', {
 	queryData: text('query_data', { mode: 'json' })
 		.$type<Record<string, { data: unknown[]; columns: string[] }>>()
 		.notNull(),
-	querySources: text('query_sources', { mode: 'json' }),
+	querySources: text('query_sources', { mode: 'json' }).$type<StoryQuerySources>(),
 	analysisResults: text('analysis_results', { mode: 'json' }).$type<Record<string, string>>(),
 	cachedAt: integer('cached_at', { mode: 'timestamp_ms' })
 		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)

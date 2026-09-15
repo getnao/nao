@@ -152,6 +152,26 @@ def test_star_exclude_excluded_column_is_allowed(
     assert validate_column_access(sql, config, tmp_path) == sql
 
 
+def test_motherduck_uses_duckdb_excluded_column_rules(
+    tmp_path: Path,
+    schemas: dict[str, dict[str, list[str]]],
+):
+    config = FakeDatabaseConfig(["*.email"], database_type="motherduck")
+    write_catalog(tmp_path, config, schemas)
+
+    assert validate_column_access("SELECT 1", config, tmp_path) == "SELECT 1"
+    assert (
+        validate_column_access(
+            "SELECT * EXCLUDE (email) FROM users",
+            config,
+            tmp_path,
+        )
+        == "SELECT * EXCLUDE (email) FROM users"
+    )
+    with pytest.raises(ColumnAccessError, match=r"main\.users\.email"):
+        validate_column_access("SELECT * FROM users", config, tmp_path)
+
+
 def test_star_exclusion_missing_excluded_column_names_only_uncovered_column(
     tmp_path: Path,
     schemas: dict[str, dict[str, list[str]]],
