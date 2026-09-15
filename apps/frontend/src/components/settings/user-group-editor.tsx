@@ -156,13 +156,12 @@ export function UserGroupEditor({
 	);
 	const hasStoredOidcMappings = ssoMappings.providers.oidc.length > 0;
 	const hasStoredMicrosoftMappings = ssoMappings.providers.microsoft.length > 0;
-	const hasStoredSsoMappings = hasStoredOidcMappings || hasStoredMicrosoftMappings;
 	const hasConfiguredSsoProvider = oidcConfigurationState === 'ready' || microsoftConfigurationState === 'ready';
 	const isSsoConfigLoading =
 		ssoLicenseState === 'loading' ||
 		oidcConfigurationState === 'loading' ||
 		microsoftConfigurationState === 'loading';
-	const hasSsoTab = hasConfiguredSsoProvider || hasStoredSsoMappings;
+	const hasSsoTab = hasConfiguredSsoProvider;
 	const tabs = hasSsoTab ? [...defaultTabs, { id: 'sso' as const, label: 'SSO' }] : defaultTabs;
 	const hasUnsavedChanges =
 		editorGroup === null ||
@@ -363,51 +362,65 @@ export function UserGroupEditor({
 									/>
 								) : (
 									<>
-										{ssoLicenseState !== 'ready' && !hasStoredSsoMappings && (
+										{ssoLicenseState !== 'ready' && (
 											<SsoAvailabilityStatus
 												state={ssoLicenseState}
 												onRetry={() => void licenseFeatures.refetch()}
 											/>
 										)}
-										{(hasStoredOidcMappings ||
-											(ssoLicenseState === 'ready' &&
-												oidcConfigurationState !== 'unavailable')) && (
-											<UserGroupSsoMapping
-												key={`${existingGroup?.id ?? 'new'}:oidc`}
-												identifiers={ssoMappings.providers.oidc}
-												provider='oidc'
-												providerName={oidcConfig.data?.providerName ?? 'OIDC'}
-												configurationState={oidcConfigurationState}
-												onRetryConfiguration={() => retrySsoConfiguration(oidcConfig)}
-												onChange={(oidc) =>
-													setSsoMappings(
-														normalizeUserGroupSsoMappings({
-															...ssoMappings,
-															providers: { ...ssoMappings.providers, oidc },
-														}),
-													)
-												}
-											/>
-										)}
-										{(hasStoredMicrosoftMappings ||
-											(ssoLicenseState === 'ready' &&
-												microsoftConfigurationState !== 'unavailable')) && (
-											<UserGroupSsoMapping
-												key={`${existingGroup?.id ?? 'new'}:microsoft`}
-												identifiers={ssoMappings.providers.microsoft}
-												provider='microsoft'
-												providerName='Microsoft Entra'
-												configurationState={microsoftConfigurationState}
-												onRetryConfiguration={() => retrySsoConfiguration(microsoftConfig)}
-												onChange={(microsoft) =>
-													setSsoMappings(
-														normalizeUserGroupSsoMappings({
-															...ssoMappings,
-															providers: { ...ssoMappings.providers, microsoft },
-														}),
-													)
-												}
-											/>
+										{ssoLicenseState === 'ready' &&
+											!hasConfiguredSsoProvider &&
+											isSsoConfigLoading && (
+												<p className='text-sm text-muted-foreground'>
+													Loading SSO configuration...
+												</p>
+											)}
+										{hasConfiguredSsoProvider && (
+											<>
+												{(hasStoredOidcMappings ||
+													oidcConfigurationState !== 'unavailable') && (
+													<UserGroupSsoMapping
+														key={`${existingGroup?.id ?? 'new'}:oidc`}
+														identifiers={ssoMappings.providers.oidc}
+														provider='oidc'
+														providerName={oidcConfig.data?.providerName ?? 'OIDC'}
+														configurationState={oidcConfigurationState}
+														onRetryConfiguration={() => retrySsoConfiguration(oidcConfig)}
+														onChange={(oidc) =>
+															setSsoMappings(
+																normalizeUserGroupSsoMappings({
+																	...ssoMappings,
+																	providers: { ...ssoMappings.providers, oidc },
+																}),
+															)
+														}
+													/>
+												)}
+												{(hasStoredMicrosoftMappings ||
+													microsoftConfigurationState !== 'unavailable') && (
+													<UserGroupSsoMapping
+														key={`${existingGroup?.id ?? 'new'}:microsoft`}
+														identifiers={ssoMappings.providers.microsoft}
+														provider='microsoft'
+														providerName='Microsoft Entra'
+														configurationState={microsoftConfigurationState}
+														onRetryConfiguration={() =>
+															retrySsoConfiguration(microsoftConfig)
+														}
+														onChange={(microsoft) =>
+															setSsoMappings(
+																normalizeUserGroupSsoMappings({
+																	...ssoMappings,
+																	providers: {
+																		...ssoMappings.providers,
+																		microsoft,
+																	},
+																}),
+															)
+														}
+													/>
+												)}
+											</>
 										)}
 									</>
 								)}

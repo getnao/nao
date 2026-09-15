@@ -1047,7 +1047,7 @@ describe('UserGroupEditor', () => {
 		);
 	});
 
-	it('edits normalized OIDC mappings and includes them in the save payload', () => {
+	it('shows SSO for configured OIDC without stored mappings and saves edits', () => {
 		mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => ({
 			isLoading: false,
 			isError: false,
@@ -1091,7 +1091,7 @@ describe('UserGroupEditor', () => {
 		);
 	});
 
-	it('validates and saves Microsoft Entra group object IDs', () => {
+	it('shows SSO for configured Microsoft Entra without stored mappings and saves edits', () => {
 		mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => ({
 			isLoading: false,
 			isError: false,
@@ -1147,26 +1147,18 @@ describe('UserGroupEditor', () => {
 		expect(screen.getByRole('textbox', { name: 'Microsoft Entra group object ID' })).toBeTruthy();
 	});
 
-	it.each([
-		{
-			queryState: { isLoading: true, isError: false, data: undefined },
-			message: 'Loading OIDC configuration...',
-		},
-		{
-			queryState: { isLoading: false, isError: true, data: undefined },
-			message: 'Failed to load OIDC configuration.',
-		},
-	])('keeps stored OIDC mappings visible when configuration is unresolved', ({ queryState, message }) => {
+	it('does not expose stale OIDC mappings when provider configuration fails to resolve', () => {
 		mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => {
 			if (options?.queryKey?.[0] === 'oidc-config') {
-				return queryState;
+				return { isLoading: false, isError: true, data: undefined };
 			}
 			if (options?.queryKey?.[0] === 'microsoft-config') {
 				return { isLoading: false, isError: false, data: false };
 			}
 			return { isLoading: false, isError: false, data: overview };
 		});
-		renderEditor('sso', vi.fn(), {
+		const onTabChange = vi.fn();
+		renderEditor('sso', onTabChange, {
 			...analysts,
 			ssoMappings: {
 				version: 1,
@@ -1174,49 +1166,44 @@ describe('UserGroupEditor', () => {
 			},
 		});
 
-		expect(screen.getByRole('heading', { name: 'SSO group mapping — OIDC' })).toBeTruthy();
-		expect(screen.getByText('finance-team')).toBeTruthy();
-		expect(screen.getByText(message)).toBeTruthy();
+		expect(screen.queryByRole('tab', { name: 'SSO' })).toBeNull();
+		expect(screen.queryByRole('heading', { name: 'SSO group mapping — OIDC' })).toBeNull();
+		expect(screen.queryByText('finance-team')).toBeNull();
 		expect(screen.queryByRole('textbox', { name: 'OIDC group name' })).toBeNull();
-		expect(screen.getByRole('button', { name: 'Remove OIDC group finance-team' })).toBeTruthy();
+		expect(screen.queryByRole('button', { name: 'Remove OIDC group finance-team' })).toBeNull();
+		expect(onTabChange).toHaveBeenCalledWith('features');
 	});
 
-	it('retries license loading before disabled SSO configuration queries', () => {
-		const licenseRefetch = vi.fn();
-		const oidcRefetch = vi.fn();
-		const microsoftRefetch = vi.fn();
+	it('does not expose stale SSO mappings when the license query fails', () => {
 		mocks.useLicenseFeatures.mockReturnValue({
 			isLoading: false,
 			isError: true,
 			data: undefined,
-			refetch: licenseRefetch,
 		});
 		mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => ({
 			isLoading: false,
 			isError: false,
 			data: undefined,
-			refetch: options?.queryKey?.[0] === 'oidc-config' ? oidcRefetch : microsoftRefetch,
 		}));
 
-		renderEditor('sso', vi.fn(), {
+		const onTabChange = vi.fn();
+		renderEditor('sso', onTabChange, {
 			...analysts,
 			ssoMappings: {
 				version: 1,
 				providers: { oidc: ['finance-team'], microsoft: [] },
 			},
 		});
-		fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-		cleanup();
-		renderEditor('security', vi.fn(), allUsers);
 
 		expect(screen.queryByRole('tab', { name: 'SSO' })).toBeNull();
-		expect(licenseRefetch).toHaveBeenCalledTimes(1);
-		expect(oidcRefetch).not.toHaveBeenCalled();
-		expect(microsoftRefetch).not.toHaveBeenCalled();
+		expect(screen.queryByText('finance-team')).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Remove OIDC group finance-team' })).toBeNull();
+		expect(onTabChange).toHaveBeenCalledWith('features');
 	});
 
-	it('allows removing stored mappings after the provider is deconfigured', () => {
-		renderEditor('sso', vi.fn(), {
+	it('hides stale stored OIDC mappings when no SSO provider is configured', () => {
+		const onTabChange = vi.fn();
+		renderEditor('sso', onTabChange, {
 			...analysts,
 			ssoMappings: {
 				version: 1,
@@ -1224,12 +1211,12 @@ describe('UserGroupEditor', () => {
 			},
 		});
 
-		expect(screen.getByText('OIDC is not configured. Existing mappings can still be removed.')).toBeTruthy();
-		expect(screen.queryByRole('textbox', { name: 'OIDC group name' })).toBeNull();
-		fireEvent.click(screen.getByRole('button', { name: 'Remove OIDC group former-provider-group' }));
-
+		expect(screen.queryByRole('tab', { name: 'SSO' })).toBeNull();
+		expect(screen.queryByRole('heading', { name: 'SSO group mapping — OIDC' })).toBeNull();
 		expect(screen.queryByText('former-provider-group')).toBeNull();
-		expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
+		expect(screen.queryByRole('textbox', { name: 'OIDC group name' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Remove OIDC group former-provider-group' })).toBeNull();
+		expect(onTabChange).toHaveBeenCalledWith('features');
 	});
 
 	it('resets an unsaved mapping draft when switching groups', () => {
@@ -1280,6 +1267,13 @@ describe('UserGroupEditor', () => {
 
 	it('falls back from SSO after provider queries finish without a configured provider', () => {
 		let configsLoading = true;
+		const groupWithStaleMapping = {
+			...analysts,
+			ssoMappings: {
+				version: 1 as const,
+				providers: { oidc: ['finance-team'], microsoft: [] },
+			},
+		};
 		mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => {
 			const queryKey = options?.queryKey?.[0];
 			const isConfigQuery = queryKey === 'oidc-config' || queryKey === 'microsoft-config';
@@ -1297,13 +1291,17 @@ describe('UserGroupEditor', () => {
 			};
 		});
 		const onTabChange = vi.fn();
-		const { rerender } = renderEditor('sso', onTabChange);
+		const { rerender } = renderEditor('sso', onTabChange, groupWithStaleMapping);
 
+		expect(screen.queryByRole('tab', { name: 'SSO' })).toBeNull();
+		expect(screen.getByText('Loading SSO configuration...')).toBeTruthy();
+		expect(screen.queryByText('finance-team')).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Remove OIDC group finance-team' })).toBeNull();
 		expect(onTabChange).not.toHaveBeenCalled();
 		configsLoading = false;
 		rerender(
 			<UserGroupEditor
-				group={analysts}
+				group={groupWithStaleMapping}
 				activeTab='sso'
 				onTabChange={onTabChange}
 				onCancelNew={vi.fn()}
@@ -1312,6 +1310,8 @@ describe('UserGroupEditor', () => {
 			/>,
 		);
 
+		expect(screen.queryByText('Loading SSO configuration...')).toBeNull();
+		expect(screen.queryByText('finance-team')).toBeNull();
 		expect(onTabChange).toHaveBeenCalledWith('features');
 	});
 
