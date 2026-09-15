@@ -1180,7 +1180,7 @@ describe('UserGroupEditor', () => {
 			isError: true,
 			data: undefined,
 		});
-		mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => ({
+		mocks.useQuery.mockImplementation(() => ({
 			isLoading: false,
 			isError: false,
 			data: undefined,
