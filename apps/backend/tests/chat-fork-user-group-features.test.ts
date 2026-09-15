@@ -118,8 +118,23 @@ describe('chat fork Story creation permission', () => {
 		expect(mocks.getAuthorizedStoredStoryQueryData).toHaveBeenCalledWith('source-chat-id', '# Story', 'user-id');
 	});
 
-	it('removes owner SQL results from a Story selection fork while keeping authorized data and text', async () => {
+	it('removes owner stored data from a Story selection fork while keeping authorized data and text', async () => {
 		mocks.getChatMessages.mockResolvedValue([
+			{
+				id: 'message-before-compaction',
+				role: 'assistant',
+				parts: [{ type: 'text', text: 'OWNER_TEXT_SECRET' }],
+			},
+			{
+				id: 'message-compaction',
+				role: 'assistant',
+				parts: [
+					{
+						type: 'data-compaction',
+						data: { summary: 'OWNER_COMPACTION_SECRET query_owner_compaction' },
+					},
+				],
+			},
 			{
 				id: 'message-1',
 				role: 'assistant',
@@ -145,8 +160,25 @@ describe('chat fork Story creation permission', () => {
 						input: { query_id: 'query_owner' },
 						output: { data: [{ secret: 'OWNER_PAGED_SECRET' }] },
 					},
+					{
+						type: 'tool-display_chart',
+						toolName: 'display_chart',
+						toolCallId: 'owner-chart',
+						state: 'output-available',
+						input: { query_id: 'query_owner_chart' },
+						output: { title: 'OWNER_CHART_SECRET' },
+					},
+					{
+						type: 'tool-display_map',
+						toolName: 'display_map',
+						toolCallId: 'owner-map',
+						state: 'output-available',
+						input: { query_id: 'query_owner_map' },
+						output: { title: 'OWNER_MAP_SECRET' },
+					},
 				],
 			},
+			{ id: 'message-2', role: 'user', parts: [{ type: 'text', text: 'Recent question' }] },
 		]);
 		mocks.getAuthorizedStoredStoryQueryData.mockResolvedValue({
 			query_authorized: { columns: ['allowed'], data: [{ allowed: 'AUTHORIZED_VALUE' }] },
@@ -161,8 +193,16 @@ describe('chat fork Story creation permission', () => {
 		const seededMessages = mocks.createForkedChat.mock.calls[0][1];
 		expect(JSON.stringify(seededMessages)).not.toContain('OWNER_SECRET');
 		expect(JSON.stringify(seededMessages)).not.toContain('OWNER_PAGED_SECRET');
+		expect(JSON.stringify(seededMessages)).not.toContain('OWNER_CHART_SECRET');
+		expect(JSON.stringify(seededMessages)).not.toContain('query_owner_chart');
+		expect(JSON.stringify(seededMessages)).not.toContain('OWNER_MAP_SECRET');
+		expect(JSON.stringify(seededMessages)).not.toContain('query_owner_map');
+		expect(JSON.stringify(seededMessages)).not.toContain('OWNER_COMPACTION_SECRET');
+		expect(JSON.stringify(seededMessages)).not.toContain('query_owner_compaction');
+		expect(JSON.stringify(seededMessages)).not.toContain('OWNER_TEXT_SECRET');
 		expect(JSON.stringify(seededMessages)).toContain('AUTHORIZED_VALUE');
 		expect(JSON.stringify(seededMessages)).toContain('Useful explanation');
+		expect(JSON.stringify(seededMessages)).toContain('Recent question');
 	});
 
 	it('propagates denied Story selection data authorization without creating a fork', async () => {

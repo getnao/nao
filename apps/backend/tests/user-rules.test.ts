@@ -247,6 +247,35 @@ describe('getDatabaseContextCatalog', () => {
 		]);
 	});
 
+	it('ignores quoted parentheses in generated column defaults and descriptions', () => {
+		const root = '/project-catalog-quoted-metadata';
+		setupDirStructure(root, {
+			[join(root, 'databases')]: ['type=clickhouse'],
+			[join(root, 'databases', 'type=clickhouse')]: ['database=app'],
+			[join(root, 'databases', 'type=clickhouse', 'database=app')]: ['schema=public'],
+			[join(root, 'databases', 'type=clickhouse', 'database=app', 'schema=public')]: ['table=events'],
+		});
+		mockReadFileSync.mockReturnValue(
+			[
+				"- single_default (String, DEFAULT 'prefix (')",
+				'- double_default (String, DEFAULT "suffix )")',
+				'- backtick_default (String, DEFAULT `prefix (`)',
+				String.raw`- escaped_quote (String, DEFAULT 'can\'t )')`,
+				"- doubled_quote (String, DEFAULT 'can''t )')",
+				'- described (String, "value ""with quote"" (")',
+			].join('\n'),
+		);
+
+		expect(getDatabaseContextCatalog(root).objects[0].columns).toEqual([
+			'single_default',
+			'double_default',
+			'backtick_default',
+			'escaped_quote',
+			'doubled_quote',
+			'described',
+		]);
+	});
+
 	it('surfaces filesystem scan failures', () => {
 		mockExistsSync.mockReturnValue(true);
 		mockReaddirSync.mockImplementation(() => {

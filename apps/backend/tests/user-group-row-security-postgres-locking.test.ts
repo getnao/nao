@@ -30,19 +30,16 @@ describe('PostgreSQL project row security updates', () => {
 	it('locks the project before reading or changing user groups', async () => {
 		await updateProjectRowSecurity('project-1', { version: 1, tables: [] });
 
-		expect(mocks.events).toEqual(['lock-project', 'select-groups', 'update-project']);
+		expect(mocks.events).toEqual(['lock-project:update', 'lock-project', 'select-groups', 'update-project']);
 	});
 });
 
 function transaction() {
-	let selectCount = 0;
 	return {
-		select: () => {
-			selectCount += 1;
-			return selectCount === 1
+		select: (selection: Record<string, unknown>) =>
+			'rowSecurity' in selection
 				? lockingQuery([{ id: 'project-1', rowSecurity: { version: 1, tables: [] } }], 'lock-project')
-				: eventQuery([], 'select-groups');
-		},
+				: eventQuery([], 'select-groups'),
 		update: () => mutation('update-project'),
 	};
 }
@@ -60,7 +57,8 @@ function query(rows: unknown[]) {
 
 function lockingQuery(rows: unknown[], event: string) {
 	const builder = query(rows);
-	builder.for = () => {
+	builder.for = (strength: string) => {
+		mocks.events.push(`${event}:${strength}`);
 		builder.execute = vi.fn(async () => {
 			mocks.events.push(event);
 			return rows;

@@ -11,6 +11,7 @@ import {
 	normalizeProjectRowSecurity,
 	normalizeUserGroupRowPolicies,
 	normalizeUserGroupSsoMappings,
+	type ProjectRowSecurity,
 	ROW_SECURITY_COMBINATORS,
 	ROW_SECURITY_MAX_CONDITIONS,
 	ROW_SECURITY_MAX_VALUE_LENGTH,
@@ -250,10 +251,11 @@ export const userGroupRoutes = {
 			let rowPolicies: UserGroupRowPolicies | undefined;
 			if (input.rowPolicies !== undefined) {
 				await assertRowSecurityLicensed();
-				rowPolicies = await validateGroupRowPolicies(
+				const validation = await validateGroupRowPolicies(
 					ctx.project.id,
 					normalizeUserGroupRowPolicies(input.rowPolicies),
 				);
+				rowPolicies = validation.rowPolicies;
 			}
 			const createUserGroup = (await hasFeature(LICENSE_FEATURES.userGroups))
 				? userGroupQueries.createUserGroup
@@ -300,12 +302,15 @@ export const userGroupRoutes = {
 			const docsAccess =
 				input.docsAccess === undefined ? undefined : normalizeDocsContextAccess(input.docsAccess);
 			let rowPolicies: UserGroupRowPolicies | undefined;
+			let rowPoliciesRegistry: ProjectRowSecurity | undefined;
 			if (input.rowPolicies !== undefined) {
 				await assertRowSecurityLicensed();
-				rowPolicies = await validateGroupRowPolicies(
+				const validation = await validateGroupRowPolicies(
 					ctx.project.id,
 					normalizeUserGroupRowPolicies(input.rowPolicies),
 				);
+				rowPolicies = validation.rowPolicies;
+				rowPoliciesRegistry = validation.registry;
 			}
 			return handleQuery(() =>
 				userGroupQueries.updateUserGroup(ctx.project.id, input.groupId, {
@@ -317,7 +322,7 @@ export const userGroupRoutes = {
 					...(input.ssoMappings === undefined
 						? {}
 						: { ssoMappings: normalizeUserGroupSsoMappings(input.ssoMappings) }),
-					...(rowPolicies === undefined ? {} : { rowPolicies }),
+					...(rowPolicies === undefined ? {} : { rowPolicies, rowPoliciesRegistry }),
 				}),
 			);
 		}),
@@ -374,7 +379,7 @@ async function validateProjectRowSecurityCatalog(
 async function validateGroupRowPolicies(
 	projectId: string,
 	rowPolicies: ReturnType<typeof normalizeUserGroupRowPolicies>,
-): Promise<ReturnType<typeof normalizeUserGroupRowPolicies>> {
+): Promise<{ rowPolicies: ReturnType<typeof normalizeUserGroupRowPolicies>; registry: ProjectRowSecurity }> {
 	const registry = await userGroupQueries.getProjectRowSecurity(projectId);
 	const registered = new Map(
 		registry.tables.map((table) => [
@@ -428,7 +433,10 @@ async function validateGroupRowPolicies(
 			}
 		}),
 	);
-	return normalizeUserGroupRowPolicies({ version: 1, policies });
+	return {
+		rowPolicies: normalizeUserGroupRowPolicies({ version: 1, policies }),
+		registry,
+	};
 }
 
 async function handleQuery<T>(operation: () => Promise<T>): Promise<T> {

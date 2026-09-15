@@ -11,6 +11,7 @@ import * as storyFolderQueries from '../queries/story-folder.queries';
 import { compactionService } from '../services/compaction';
 import { assertProjectStoredStoryDataAllowed, getAuthorizedStoredStoryQueryData } from '../services/live-story';
 import type { ForkMetadata, UIMessage, UIMessagePart } from '../types/chat';
+import { findLastCompactionPart } from '../utils/ai';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { buildQueryDataParts, pinStoryMessageToChat } from '../utils/chat-message-story';
 import { canSendProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
@@ -149,7 +150,10 @@ async function forkSharedStoryItem(
 			chatQueries.getChatMessages(share.chatId!),
 			getAuthorizedStoredStoryQueryData(share.chatId!, share.code, userId),
 		]);
-		const seededMessages = removeStoredDataToolParts(compactionService.useLastCompaction(rawMessages));
+		const [, compactionMessageIndex] = findLastCompactionPart(rawMessages);
+		const recentMessages =
+			compactionMessageIndex === undefined ? rawMessages : rawMessages.slice(compactionMessageIndex + 1);
+		const seededMessages = removeStoredDataToolParts(recentMessages);
 		const messages = [
 			...buildQueryDataMessages(queryData),
 			buildStoryContextMessage(share.slug, share.title, share.code),
@@ -272,9 +276,11 @@ function buildQueryDataMessages(
 }
 
 function removeStoredDataToolParts(messages: Array<Omit<UIMessage, 'id'>>): Array<Omit<UIMessage, 'id'>> {
-	const dataToolNames = new Set(['execute_sql', 'read_query_result']);
+	const dataToolNames = new Set(['execute_sql', 'read_query_result', 'display_chart', 'display_map']);
 	return messages.flatMap((message) => {
-		const parts = message.parts.filter((part) => !isToolUIPart(part) || !dataToolNames.has(getToolName(part)));
+		const parts = message.parts.filter(
+			(part) => part.type !== 'data-compaction' && (!isToolUIPart(part) || !dataToolNames.has(getToolName(part))),
+		);
 		return parts.length > 0 ? [{ ...message, parts }] : [];
 	});
 }

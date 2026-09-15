@@ -328,9 +328,14 @@ export const updateUserGroup = async (
 		docsAccess?: DocsContextAccess;
 		ssoMappings?: UserGroupSsoMappings;
 		rowPolicies?: UserGroupRowPolicies;
+		rowPoliciesRegistry?: ProjectRowSecurity;
 	},
 ): Promise<UserGroup> => {
 	const group = await getUserGroup(projectId, groupId);
+	const rowPoliciesRegistry =
+		dbConfig.dialect === Dialect.Postgres && data.rowPolicies !== undefined
+			? (data.rowPoliciesRegistry ?? (await getProjectRowSecurity(projectId)))
+			: undefined;
 	const currentConfig = parseStoredUserGroupConfig(group.featureGrants);
 	const currentContext = parseStoredUserGroupContextAccess(group.contextGrants, group.isDefault);
 	const resultingDatabaseAccess = data.databaseAccess ?? currentContext.databaseAccess;
@@ -393,17 +398,34 @@ export const updateUserGroup = async (
 		}
 
 		return db.transaction(async (transaction) => {
-			await lockProjectForUserGroupMutation(transaction, projectId);
-			if (data.name !== undefined && data.name !== group.name) {
+			const currentRegistry = await lockProjectRowSecurityForUserGroupUpdate(transaction, projectId);
+			if (rowPoliciesRegistry !== undefined) {
+				assertRowPoliciesRegistryCurrent(rowPoliciesRegistry, currentRegistry);
+			}
+			const lockedGroup = await getUserGroup(projectId, groupId, transaction);
+			const lockedContext = parseStoredUserGroupContextAccess(lockedGroup.contextGrants, lockedGroup.isDefault);
+			const lockedDatabaseAccess = data.databaseAccess ?? lockedContext.databaseAccess;
+			const lockedRowPolicies = filterUserGroupRowPoliciesByDatabaseContext(
+				data.rowPolicies ?? parseStoredUserGroupRowPolicies(lockedGroup.rowPolicies),
+				lockedDatabaseAccess,
+			);
+			if (data.name !== undefined && data.name !== lockedGroup.name) {
 				await assertNameAvailable(transaction, projectId, data.name, groupId);
 			}
 			const [stored] = await transaction
 				.update(s.userGroup)
-				.set(updateValues)
+				.set({
+					...updateValues,
+					rowPolicies: serializeUserGroupRowPolicies(lockedRowPolicies),
+				})
 				.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
 				.returning()
 				.execute();
-			await deleteChangedSsoMembershipsPostgres(transaction, groupId, changedProviders);
+			const lockedChangedProviders =
+				serializedSsoMappings === undefined
+					? []
+					: getChangedSsoProviders(lockedGroup.ssoMappings, serializedSsoMappings);
+			await deleteChangedSsoMembershipsPostgres(transaction, groupId, lockedChangedProviders);
 			return stored;
 		});
 	});
@@ -508,8 +530,8 @@ export const setUserGroupMembership = async (
 		.execute();
 };
 
-const getUserGroup = async (projectId: string, groupId: string): Promise<DBUserGroup> => {
-	const [group] = await db
+const getUserGroup = async (projectId: string, groupId: string, executor: DBExecutor = db): Promise<DBUserGroup> => {
+	const [group] = await executor
 		.select()
 		.from(s.userGroup)
 		.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
@@ -594,6 +616,29 @@ function assertCustomUserGroupLimit(existingCount: number, limit: number): void 
 async function lockProjectForUserGroupMutation(transaction: DBTransaction, projectId: string): Promise<void> {
 	const query = transaction.select({ id: s.project.id }).from(s.project).where(eq(s.project.id, projectId));
 	await (query as typeof query & { for(strength: 'update'): typeof query }).for('update').execute();
+}
+
+async function lockProjectRowSecurityForUserGroupUpdate(
+	transaction: DBTransaction,
+	projectId: string,
+): Promise<ProjectRowSecurity> {
+	const query = transaction
+		.select({ id: s.project.id, rowSecurity: s.project.rowSecurity })
+		.from(s.project)
+		.where(eq(s.project.id, projectId))
+		.limit(1);
+	const [project] = await (query as typeof query & { for(strength: 'update'): typeof query }).for('update').execute();
+	assertProjectExists(project);
+	return parseStoredProjectRowSecurity(project.rowSecurity);
+}
+
+function assertRowPoliciesRegistryCurrent(expected: ProjectRowSecurity, current: ProjectRowSecurity): void {
+	if (JSON.stringify(serializeProjectRowSecurity(expected)) !== JSON.stringify(current)) {
+		throw new UserGroupQueryError(
+			'CONFLICT',
+			'Project row security changed while this user group was being updated. Review the current registry and try again.',
+		);
+	}
 }
 
 function getChangedSsoProviders(

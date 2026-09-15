@@ -226,6 +226,7 @@ describe('user group routes', () => {
 			expect.objectContaining({
 				featureGrants: ['story-creation'],
 				rowPolicies: storedPolicies,
+				rowPoliciesRegistry: { version: 1, tables: [orders] },
 			}),
 		);
 	});

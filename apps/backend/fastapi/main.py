@@ -306,7 +306,6 @@ def _execute_sql_with_guards(
             row_security_policies=row_security_policies,
             database_folder=database_folder,
         )
-        print(validated_sql)
         return db_config.execute_sql(validated_sql, conn=conn)
     finally:
         conn.disconnect()

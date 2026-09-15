@@ -1,3 +1,4 @@
+import duckdb
 import pytest
 import sqlglot
 from sqlglot import exp
@@ -97,6 +98,37 @@ def test_preserves_left_join_rows_by_filtering_the_nullable_side_in_on():
     assert "WHERE o.active = TRUE" in sql
 
 
+def test_preserves_outer_join_using_by_prefiltering_the_nullable_side():
+    left_sql = enforce_row_security(
+        "SELECT o.id, u.region FROM orders o LEFT JOIN users u USING (user_id) ORDER BY o.id",
+        FakeDatabaseConfig(),
+        {
+            ("main", "users"): {
+                "access": "predicate",
+                "constraint_columns": ["region"],
+                "predicate": "region = 'eu'",
+            }
+        },
+    )
+    right_sql = enforce_row_security(
+        "SELECT o.id, u.region FROM orders o RIGHT JOIN users u USING (user_id) ORDER BY u.user_id",
+        FakeDatabaseConfig(),
+        policy(),
+    )
+
+    assert "LEFT JOIN (SELECT * FROM users AS u WHERE u.region = 'eu') AS u USING (user_id)" in left_sql
+    assert (
+        "FROM (SELECT * FROM orders AS o WHERE o.tenant_id = 7) AS o RIGHT JOIN users AS u USING (user_id)" in right_sql
+    )
+    with duckdb.connect() as conn:
+        conn.execute("CREATE TABLE orders (id INTEGER, user_id INTEGER, tenant_id INTEGER)")
+        conn.execute("INSERT INTO orders VALUES (1, 10, 8), (2, 20, 7)")
+        conn.execute("CREATE TABLE users (user_id INTEGER, region VARCHAR)")
+        conn.execute("INSERT INTO users VALUES (10, 'us'), (20, 'eu')")
+        assert conn.execute(left_sql).fetchall() == [(1, None), (2, "eu")]
+        assert conn.execute(right_sql).fetchall() == [(None, "us"), (2, "eu")]
+
+
 def test_preserves_right_join_rows_by_filtering_the_nullable_side_in_on():
     sql = enforce_row_security(
         "SELECT * FROM orders o RIGHT JOIN users u ON o.user_id = u.id",
@@ -110,7 +142,7 @@ def test_preserves_right_join_rows_by_filtering_the_nullable_side_in_on():
 
 def test_preserves_full_join_rows_by_prefiltering_each_protected_source():
     sql = enforce_row_security(
-        'SELECT * FROM orders AS "Order Source" FULL OUTER JOIN users AS "User Source" '
+        'SELECT * FROM main.orders AS "Order Source" FULL OUTER JOIN main.users AS "User Source" '
         'ON "Order Source".user_id = "User Source".id',
         FakeDatabaseConfig(),
         {
@@ -123,8 +155,17 @@ def test_preserves_full_join_rows_by_prefiltering_each_protected_source():
         },
     )
 
-    assert '(SELECT * FROM orders AS "Order Source" WHERE "Order Source".tenant_id = 7) AS "Order Source"' in sql
-    assert '(SELECT * FROM users AS "User Source" WHERE "User Source".region = \'eu\') AS "User Source"' in sql
+    assert '(SELECT * FROM main.orders AS "Order Source" WHERE "Order Source".tenant_id = 7) AS "Order Source"' in sql
+    assert '(SELECT * FROM main.users AS "User Source" WHERE "User Source".region = \'eu\') AS "User Source"' in sql
+
+
+def test_rejects_qualified_full_join_table_without_explicit_alias():
+    with pytest.raises(RowSecurityGuardError, match="require an explicit alias"):
+        enforce_row_security(
+            "SELECT * FROM main.orders FULL OUTER JOIN users ON main.orders.user_id = users.id",
+            FakeDatabaseConfig(),
+            policy(),
+        )
 
 
 def test_filters_nested_query_and_cte_base_table():

@@ -421,7 +421,7 @@ describe('ProjectRowSecurity', () => {
 		expect(within(dialog).queryByRole('button', { name: /Expand|Collapse/ })).toBeNull();
 	});
 
-	it('saves an edited table while preserving unrelated tables', () => {
+	it('saves an edited table while preserving unrelated tables', async () => {
 		mocks.rowSecurity = configuredRegistryWithTwoTables();
 		render(<ProjectRowSecurity objects={objects} />);
 
@@ -451,6 +451,10 @@ describe('ProjectRowSecurity', () => {
 			},
 			expect.objectContaining({ onSuccess: expect.any(Function) }),
 		);
+		await waitFor(() => {
+			expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['row-security'] });
+			expect(screen.queryByRole('dialog', { name: 'Edit protected table' })).toBeNull();
+		});
 	});
 
 	it('discards Edit changes on cancel', () => {
@@ -547,7 +551,7 @@ describe('ProjectRowSecurity', () => {
 		expect(screen.queryByTestId('project-row-security-tree')).toBeNull();
 	});
 
-	it('lets Edit remove unavailable saved columns', () => {
+	it('lets Edit remove unavailable saved columns', async () => {
 		mocks.rowSecurity = {
 			version: 1,
 			tables: [
@@ -605,6 +609,10 @@ describe('ProjectRowSecurity', () => {
 			},
 			expect.objectContaining({ onSuccess: expect.any(Function) }),
 		);
+		await waitFor(() => {
+			expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['row-security'] });
+			expect(screen.queryByRole('dialog', { name: 'Edit protected table' })).toBeNull();
+		});
 	});
 
 	it('shows a clear unavailable state when editing a missing table', () => {

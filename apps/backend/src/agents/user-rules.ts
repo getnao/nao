@@ -150,10 +150,24 @@ function parseGeneratedColumnName(line: string): string | null {
 
 function isCompleteParenthesizedSuffix(value: string): boolean {
 	let depth = 0;
+	let quote: "'" | '"' | '`' | undefined;
 	for (let index = 0; index < value.length; index += 1) {
-		if (value[index] === '(') {
+		const character = value[index];
+		if (quote) {
+			if (character === '\\') {
+				index += 1;
+			} else if (character === quote) {
+				if (value[index + 1] === quote) {
+					index += 1;
+				} else {
+					quote = undefined;
+				}
+			}
+		} else if (character === "'" || character === '"' || character === '`') {
+			quote = character;
+		} else if (character === '(') {
 			depth += 1;
-		} else if (value[index] === ')') {
+		} else if (character === ')') {
 			depth -= 1;
 			if (depth === 0 && index !== value.length - 1) {
 				return false;
@@ -163,7 +177,7 @@ function isCompleteParenthesizedSuffix(value: string): boolean {
 			return false;
 		}
 	}
-	return depth === 0;
+	return depth === 0 && quote === undefined;
 }
 
 function unquoteGeneratedIdentifier(value: string): string {

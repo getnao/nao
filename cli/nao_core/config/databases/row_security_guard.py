@@ -231,6 +231,10 @@ def _inject_policy_condition(
 ) -> None:
     joins = select.args.get("joins") or []
     if any(join.side.upper() == "FULL" for join in joins):
+        if not isinstance(table_expression.args.get("alias"), exp.TableAlias) and (
+            table_expression.args.get("db") or table_expression.args.get("catalog")
+        ):
+            raise _blocked("qualified tables in FULL JOIN queries require an explicit alias")
         _prefilter_table(table_expression, condition)
         return
 
@@ -239,12 +243,18 @@ def _inject_policy_condition(
         None,
     )
     if table_join_index is not None and joins[table_join_index].side.upper() == "LEFT":
+        if joins[table_join_index].args.get("using"):
+            _prefilter_table(table_expression, condition)
+            return
         _append_join_condition(joins[table_join_index], condition)
         return
 
     start = 0 if table_join_index is None else table_join_index + 1
     right_join = next((join for join in joins[start:] if join.side.upper() == "RIGHT"), None)
     if right_join is not None:
+        if right_join.args.get("using"):
+            _prefilter_table(table_expression, condition)
+            return
         _append_join_condition(right_join, condition)
         return
 

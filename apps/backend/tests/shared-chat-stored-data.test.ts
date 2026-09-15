@@ -40,6 +40,15 @@ import { sharedChatRoutes } from '../src/trpc/shared-chat.routes';
 import { router } from '../src/trpc/trpc';
 
 const testRouter = router({ sharedChat: sharedChatRoutes });
+const chat = {
+	id: 'chat-1',
+	projectId: 'project-1',
+	title: 'Shared chat',
+	isStarred: false,
+	createdAt: 1,
+	updatedAt: 1,
+	messages: [],
+};
 
 describe('shared chat stored data authorization', () => {
 	beforeEach(() => {
@@ -54,6 +63,17 @@ describe('shared chat stored data authorization', () => {
 			authorName: 'Owner',
 		});
 		mocks.getUserRoleInProject.mockResolvedValue('user');
+		mocks.getChat.mockResolvedValue([chat, 'owner-1']);
+	});
+
+	it('returns the shared chat when stored data is allowed', async () => {
+		await expect(createCaller().sharedChat.getSharedChat({ shareId: 'share-1' })).resolves.toEqual({
+			share: expect.objectContaining({ id: 'share-1', chatId: 'chat-1' }),
+			chat,
+			userRole: 'user',
+		});
+		expect(mocks.assertProjectStoredStoryDataAllowed).toHaveBeenCalledWith('project-1', 'viewer-1');
+		expect(mocks.getChat).toHaveBeenCalledWith('chat-1', { includeFeedback: true });
 	});
 
 	it('returns FORBIDDEN and does not load chat data when stored data is denied', async () => {
