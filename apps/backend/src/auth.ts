@@ -8,7 +8,6 @@ import type { BetterAuthPlugin, Session } from 'better-auth';
 import { APIError, betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { createAuthMiddleware } from 'better-auth/api';
-import { verifyAccessToken } from 'better-auth/oauth2';
 import { jwt } from 'better-auth/plugins';
 import { bearer } from 'better-auth/plugins/bearer';
 import type { JWTPayload } from 'jose';
@@ -16,6 +15,7 @@ import type { JWTPayload } from 'jose';
 import { db } from './db/db';
 import dbConfig, { Dialect } from './db/dbConfig';
 import { env, isCloud, MCP_VALID_AUDIENCES } from './env';
+import { verifyJwtWithLocalJwks } from './mcp/verify-jwt';
 import * as orgQueries from './queries/organization.queries';
 import * as projectQueries from './queries/project.queries';
 import * as userQueries from './queries/user.queries';
@@ -72,11 +72,17 @@ export function updateAuth() {
 }
 
 export async function verifyOAuthAccessToken(token: string, audience: string[]): Promise<JWTPayload> {
-	const { issuer, jwksUrl } = await getAuthServerEndpoints();
-	return verifyAccessToken(token, {
-		verifyOptions: { audience, issuer },
-		jwksUrl,
-	});
+	const auth = await getAuth();
+	const { issuer } = await getAuthServerEndpoints();
+	// Verify against the LOCAL JWKS. nao is the token issuer, so it already holds
+	// its own signing keys. better-auth's verifyAccessToken instead fetches them
+	// over the external issuer URL (BETTER_AUTH_URL/jwks); in self-hosted
+	// split-horizon deployments that host is not resolvable from the server's own
+	// network, so the fetch throws, better-auth swallows it, and every MCP token
+	// is rejected with "no token payload". Using the in-process key set avoids the
+	// self-referential round-trip entirely.
+	const { keys } = await auth.api.getJwks();
+	return verifyJwtWithLocalJwks(token, { audience, issuer, keys });
 }
 
 export async function buildProtectedResourceMetadata(
@@ -389,9 +395,8 @@ async function refreshAuthAfterInitialSelfHostedSignup(): Promise<void> {
 	}
 }
 
-async function getAuthServerEndpoints(): Promise<{ issuer: string; jwksUrl: string }> {
+async function getAuthServerEndpoints(): Promise<{ issuer: string }> {
 	const auth = await getAuth();
 	const context = await auth.$context;
-	const issuer = context.baseURL;
-	return { issuer, jwksUrl: `${issuer}/jwks` };
+	return { issuer: context.baseURL };
 }

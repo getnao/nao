@@ -46,6 +46,7 @@ export const LLM_PROVIDERS = [
 	'google',
 	'mistral',
 	'openrouter',
+	'requesty',
 	'ollama',
 	'bedrock',
 	'vertex',
@@ -62,6 +63,7 @@ export const providerLabels: Record<LlmProviderKind, string> = {
 	google: 'Google',
 	mistral: 'Mistral',
 	openrouter: 'OpenRouter',
+	requesty: 'Requesty',
 	ollama: 'Ollama',
 	bedrock: 'Amazon Bedrock',
 	vertex: 'Vertex AI',
@@ -156,6 +158,7 @@ export type FileTreeEntry = {
 export type ContextGitUnavailableReason =
 	| 'github-unavailable'
 	| 'git-unavailable'
+	| 'repository-mismatch'
 	| 'no-token'
 	| 'no-repo'
 	| 'unsupported-provider'

@@ -259,6 +259,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'minimax',
 			'moonshot',
 			'kimi',
+			'requesty',
 			'llm',
 			'model',
 			'provider',
@@ -501,6 +502,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		],
 		adminOrContextAdmin: true,
 	},
+	{
+		page: '/settings/git',
+		pageLabel: 'Git',
+		title: 'Update context files',
+		description: 'Pull the configured deployment branch into this nao instance.',
+		keywords: ['git pull', 'pull latest', 'refresh context', 'deployment branch', 'update context'],
+		adminOrContextAdmin: true,
+	},
 
 	// ── Project > Integrations & MCP > nao MCP ──────────────
 	{
@@ -542,6 +551,18 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'nao-mcp',
 			'mcp endpoint',
 		],
+	},
+	{
+		page: '/settings/project/integrations',
+		pageLabel: 'Integrations & MCP',
+		search: { tab: 'nao-mcp' },
+		section: 'nao MCP',
+		title: 'Connected apps',
+		description: 'Create and manage the OAuth clients external MCP tools use to connect (client id + secret).',
+		keywords: ['oauth', 'client', 'client id', 'client secret', 'connected apps', 'dust', 'static oauth', 'mcp'],
+		// Admin-only card, self-hosted only (OAuth clients are deployment-wide).
+		adminOrContextAdmin: true,
+		cloudHidden: true,
 	},
 	{
 		page: '/settings/project/integrations',
