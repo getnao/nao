@@ -23,6 +23,7 @@ const scope = { projectId: 'proj-1', userId: 'user-1' };
 let storageRoot: string;
 let projectFolder: string;
 let outsideDir: string;
+let scratchDir: string;
 let originalEnv: typeof process.env;
 
 beforeEach(async () => {
@@ -30,6 +31,7 @@ beforeEach(async () => {
 	storageRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'nao-local-query-storage-'));
 	projectFolder = await fs.mkdtemp(path.join(os.tmpdir(), 'nao-local-query-project-'));
 	outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), 'nao-local-query-secret-'));
+	scratchDir = await fs.mkdtemp(path.join(os.tmpdir(), 'nao-local-query-scratch-'));
 
 	await fs.writeFile(path.join(outsideDir, 'secrets.csv'), 'token\nsk-live-42\n');
 
@@ -44,7 +46,7 @@ afterEach(async () => {
 	__reloadEnvForTesting();
 	__resetStorageForTesting();
 	await Promise.all(
-		[storageRoot, projectFolder, outsideDir].map((dir) => fs.rm(dir, { recursive: true, force: true })),
+		[storageRoot, projectFolder, outsideDir, scratchDir].map((dir) => fs.rm(dir, { recursive: true, force: true })),
 	);
 });
 
@@ -84,6 +86,26 @@ describe('querying saved files', () => {
 		const result = await run(`SELECT target FROM read_csv('${path.join(projectFolder, 'targets.csv')}')`);
 
 		expect(result.data).toEqual([{ target: 100 }]);
+	});
+});
+
+describe('the MCP scratch directory', () => {
+	it('reads a file from the configured scratch directory by its absolute path', async () => {
+		process.env.NAO_MCP_SCRATCH_DIR = scratchDir;
+		__reloadEnvForTesting();
+		await fs.writeFile(path.join(scratchDir, 'mcp-out.json'), JSON.stringify([{ id: 1, name: 'EU' }]));
+
+		const result = await run(`SELECT id, name FROM read_json_auto('${path.join(scratchDir, 'mcp-out.json')}')`);
+
+		expect(result.data).toEqual([{ id: 1, name: 'EU' }]);
+	});
+
+	it('refuses the scratch directory when it is not configured', async () => {
+		await fs.writeFile(path.join(scratchDir, 'mcp-out.json'), JSON.stringify([{ id: 1 }]));
+
+		await expect(run(`SELECT * FROM read_json_auto('${path.join(scratchDir, 'mcp-out.json')}')`)).rejects.toThrow(
+			/file system operations are disabled|Permission Error/,
+		);
 	});
 });
 
