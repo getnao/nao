@@ -41,6 +41,7 @@ import { authErrorRedirectRoutes } from './routes/auth-error-redirect';
 import { automationWebhookRoutes } from './routes/automation-webhook';
 import { brandingRoutes } from './routes/branding';
 import { chartRoutes } from './routes/chart';
+import { dbtChartsFontsRoutes } from './routes/dbt-charts-fonts';
 import { deployRoutes } from './routes/deploy';
 import { embedStoryDownloadRoutes } from './routes/embed-story-download';
 import { githubRoutes } from './routes/github';
@@ -188,6 +189,10 @@ app.register(chartRoutes, {
 
 app.register(mapBoundariesRoutes, {
 	prefix: '/api/map-boundaries',
+});
+
+app.register(dbtChartsFontsRoutes, {
+	prefix: '/api/dbt-charts/fonts',
 });
 
 app.register(imageRoutes, {

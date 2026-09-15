@@ -786,6 +786,9 @@ export const story = pgTable(
 		userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
 		slug: text('slug').notNull(),
 		title: text('title').notNull(),
+		format: text('format', { enum: ['markdown', 'dbt_charts'] })
+			.default('markdown')
+			.notNull(),
 		isLive: boolean('is_live').default(false).notNull(),
 		isLiveTextDynamic: boolean('is_live_text_dynamic').default(true).notNull(),
 		cacheSchedule: text('cache_schedule'),

@@ -1,3 +1,4 @@
+import type { StoryFormat } from '@nao/shared/dbt-charts';
 import { extractQueryIds } from '@nao/shared/story-segments';
 import { type StorySharingInfo } from '@nao/shared/types';
 import { and, asc, desc, eq, inArray, isNull, max, or, type SQL, sql } from 'drizzle-orm';
@@ -14,6 +15,7 @@ export type UserStoryRow = Pick<
 	| 'userId'
 	| 'slug'
 	| 'title'
+	| 'format'
 	| 'isLive'
 	| 'isLiveTextDynamic'
 	| 'cacheSchedule'
@@ -90,6 +92,7 @@ export async function getStoryByIdForUser(storyId: string, userId: string): Prom
 			userId: s.story.userId,
 			slug: s.story.slug,
 			title: s.story.title,
+			format: s.story.format,
 			isLive: s.story.isLive,
 			isLiveTextDynamic: s.story.isLiveTextDynamic,
 			cacheSchedule: s.story.cacheSchedule,
@@ -209,10 +212,15 @@ export async function createStoryVersion(
 		code: string;
 		action: 'create' | 'update' | 'replace';
 		source: 'assistant' | 'user';
+		format?: StoryFormat;
 	},
 	executor: DBExecutor = db,
-): Promise<DBStoryVersion & { title: string }> {
-	const story = await getOrCreateStory({ chatId: data.chatId, slug: data.slug, title: data.title }, executor);
+): Promise<DBStoryVersion & { title: string; format: StoryFormat }> {
+	const story = await getOrCreateStory(
+		{ chatId: data.chatId, slug: data.slug, title: data.title, format: data.format },
+		executor,
+	);
+	await syncStoryFormat(story, data.format, executor);
 
 	const nextVersion = executor
 		.select({ v: sql<number>`coalesce(max(${s.storyVersion.version}), 0) + 1` })
@@ -231,7 +239,7 @@ export async function createStoryVersion(
 		.returning()
 		.execute();
 
-	return { ...created, title: story.title };
+	return { ...created, title: story.title, format: data.format ?? story.format };
 }
 
 export async function createStandaloneVersion(data: {
@@ -242,13 +250,16 @@ export async function createStandaloneVersion(data: {
 	code: string;
 	action: 'create' | 'update' | 'replace';
 	source: 'assistant' | 'user';
-}): Promise<DBStoryVersion & { title: string }> {
+	format?: StoryFormat;
+}): Promise<DBStoryVersion & { title: string; format: StoryFormat }> {
 	const story = await getOrCreateStandaloneStory({
 		userId: data.userId,
 		projectId: data.projectId,
 		slug: data.slug,
 		title: data.title,
+		format: data.format,
 	});
+	await syncStoryFormat(story, data.format);
 
 	const nextVersion = db
 		.select({ v: sql<number>`coalesce(max(${s.storyVersion.version}), 0) + 1` })
@@ -267,7 +278,7 @@ export async function createStandaloneVersion(data: {
 		.returning()
 		.execute();
 
-	return { ...created, title: story.title };
+	return { ...created, title: story.title, format: data.format ?? story.format };
 }
 
 export async function createStandaloneStory(data: {
@@ -277,7 +288,8 @@ export async function createStandaloneStory(data: {
 	title: string;
 	code: string;
 	source: 'assistant' | 'user';
-}): Promise<{ id: string; slug: string; title: string; createdAt: Date; version: number } | null> {
+	format?: StoryFormat;
+}): Promise<{ id: string; slug: string; title: string; format: StoryFormat; createdAt: Date; version: number } | null> {
 	return db.transaction(async (tx) => {
 		const [story] = await tx
 			.insert(s.story)
@@ -286,6 +298,7 @@ export async function createStandaloneStory(data: {
 				userId: data.userId,
 				slug: data.slug,
 				title: data.title,
+				format: data.format ?? 'markdown',
 			})
 			.onConflictDoNothing()
 			.returning()
@@ -311,6 +324,7 @@ export async function createStandaloneStory(data: {
 			id: story.id,
 			slug: story.slug,
 			title: story.title,
+			format: story.format,
 			createdAt: story.createdAt,
 			version: version.version,
 		};
@@ -426,18 +440,11 @@ export async function updateStoryLiveSettings(
 		.execute();
 }
 
-type StoryVersionWithStory = DBStoryVersion &
+export type StoryVersionWithStory = DBStoryVersion &
 	Pick<
 		DBStory,
 		| 'title'
-		| 'slug'
-		| 'chatId'
-		| 'isLive'
-		| 'isLiveTextDynamic'
-		| 'cacheSchedule'
-		| 'cacheScheduleDescription'
-		| 'archivedAt'
-		| 'title'
+		| 'format'
 		| 'slug'
 		| 'chatId'
 		| 'isLive'
@@ -592,6 +599,7 @@ async function queryStoriesWithLatestVersion(
 			userId: s.story.userId,
 			slug: s.story.slug,
 			title: s.story.title,
+			format: s.story.format,
 			isLive: s.story.isLive,
 			isLiveTextDynamic: s.story.isLiveTextDynamic,
 			cacheSchedule: s.story.cacheSchedule,
@@ -619,7 +627,7 @@ async function queryStoriesWithLatestVersion(
 }
 
 async function getOrCreateStory(
-	data: { chatId: string; slug: string; title: string },
+	data: { chatId: string; slug: string; title: string; format?: StoryFormat },
 	executor: DBExecutor = db,
 ): Promise<DBStory> {
 	const existing = await getStoryByChatAndSlug(data.chatId, data.slug, executor);
@@ -629,7 +637,7 @@ async function getOrCreateStory(
 
 	await executor
 		.insert(s.story)
-		.values({ chatId: data.chatId, slug: data.slug, title: data.title })
+		.values({ chatId: data.chatId, slug: data.slug, title: data.title, format: data.format ?? 'markdown' })
 		.onConflictDoNothing({ target: [s.story.chatId, s.story.slug] })
 		.execute();
 
@@ -645,6 +653,7 @@ async function getOrCreateStandaloneStory(data: {
 	projectId: string;
 	slug: string;
 	title: string;
+	format?: StoryFormat;
 }): Promise<DBStory> {
 	const existing = await getStandaloneStoryByUserAndSlug(data.userId, data.projectId, data.slug);
 	if (existing) {
@@ -653,7 +662,13 @@ async function getOrCreateStandaloneStory(data: {
 
 	await db
 		.insert(s.story)
-		.values({ projectId: data.projectId, userId: data.userId, slug: data.slug, title: data.title })
+		.values({
+			projectId: data.projectId,
+			userId: data.userId,
+			slug: data.slug,
+			title: data.title,
+			format: data.format ?? 'markdown',
+		})
 		.onConflictDoNothing()
 		.execute();
 
@@ -662,6 +677,18 @@ async function getOrCreateStandaloneStory(data: {
 		throw new Error(`Failed to create or retrieve standalone story: ${data.userId}/${data.projectId}/${data.slug}`);
 	}
 	return row;
+}
+
+/** A `replace` may switch a story between markdown and dbt Charts; keep the story row in sync. */
+async function syncStoryFormat(
+	story: DBStory,
+	format: StoryFormat | undefined,
+	executor: DBExecutor = db,
+): Promise<void> {
+	if (format === undefined || format === story.format) {
+		return;
+	}
+	await executor.update(s.story).set({ format }).where(eq(s.story.id, story.id)).execute();
 }
 
 async function getStoryVersion(
@@ -678,6 +705,7 @@ async function getStoryVersion(
 			source: s.storyVersion.source,
 			createdAt: s.storyVersion.createdAt,
 			title: s.story.title,
+			format: s.story.format,
 			slug: s.story.slug,
 			chatId: s.story.chatId,
 			isLive: s.story.isLive,

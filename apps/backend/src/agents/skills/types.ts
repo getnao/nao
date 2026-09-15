@@ -11,6 +11,8 @@ export interface InternalSkill {
 	name: string;
 	/** Shown in the system prompt catalog, so it has to say when the skill is worth loading. */
 	description: string;
+	/** Left out of the catalog when it returns false, for skills about a feature the deployment may not have. */
+	isAvailable?: () => boolean;
 	/**
 	 * Written for the run that loads it: a playbook that sends the agent to a tool the
 	 * deployment does not have is worse than no playbook, because it looks like a way out.

@@ -130,6 +130,10 @@ function StoriesPage() {
 		enabled: !!activeProjectId,
 	});
 	const favorites = useQuery({ ...trpc.favorite.list.queryOptions(), enabled: !!activeProjectId });
+	const projectBoards = useQuery({
+		...trpc.dbtCharts.listProjectBoards.queryOptions(),
+		enabled: !!activeProjectId,
+	});
 	const archivedStories = useQuery({
 		...trpc.story.listArchived.queryOptions({ projectId: activeProjectId }),
 		enabled: showArchived,
@@ -176,6 +180,7 @@ function StoriesPage() {
 			userStories: userStories.data ?? [],
 			standaloneStories: standaloneStories.data,
 			sharedStories: sharedStories.data ?? [],
+			projectBoards: projectBoards.data,
 			currentUserName,
 			favoriteStoryIds: favorites.data?.storyIds,
 			folderItemMap,
@@ -186,6 +191,7 @@ function StoriesPage() {
 		userStories.data,
 		standaloneStories.data,
 		sharedStories.data,
+		projectBoards.data,
 		archivedStories.data,
 		archivedStandaloneStories.data,
 		archivedSharedStories.data,

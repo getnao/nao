@@ -22,6 +22,7 @@ import { memo, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { StorySummary } from '@/lib/story.utils';
 import type { StoryViewMode } from './story-viewer.types';
+import type { StoryFormat } from '@nao/shared/dbt-charts';
 import type { StoryRefreshFailure } from '@/components/story-page-header';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
@@ -45,6 +46,7 @@ export interface StoryHeaderProps {
 	chatId: string;
 	storySlug: string;
 	storyId?: string | null;
+	storyFormat?: StoryFormat;
 	shareId?: string | null;
 	shareType?: 'chat' | 'story' | null;
 	allStories: StorySummary[];
@@ -99,6 +101,7 @@ export const StoryHeader = memo(function StoryHeader({
 	chatId,
 	storySlug,
 	storyId,
+	storyFormat = 'markdown',
 	shareId,
 	shareType,
 	allStories,
@@ -147,6 +150,7 @@ export const StoryHeader = memo(function StoryHeader({
 	const hasMultiple = otherStories.length > 0;
 	const isEditingCode = viewMode === 'code' && isCodeDirty && !isReadonlyMode;
 	const showSubHeader = viewMode === 'edit' || isEditingCode || !isViewingLatest;
+	const isDbtChartsBoard = storyFormat === 'dbt_charts';
 
 	const titleElement = hasMultiple ? (
 		<div className='flex min-w-0 flex-1 items-center gap-1'>
@@ -230,7 +234,7 @@ export const StoryHeader = memo(function StoryHeader({
 			>
 				<Eye className='size-3' strokeWidth={2.25} />
 			</Button>
-			{!isReadonlyMode && (
+			{!isReadonlyMode && !isDbtChartsBoard && (
 				<Button
 					variant='ghost'
 					className={cn(viewMode === 'edit' && 'bg-accent rounded-full', 'hover:rounded-full')}
@@ -253,7 +257,13 @@ export const StoryHeader = memo(function StoryHeader({
 		</div>
 	);
 
-	const downloadButton = (
+	const formatBadge = isDbtChartsBoard && (
+		<span className='shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium text-muted-foreground'>
+			dbt Charts
+		</span>
+	);
+
+	const downloadButton = !isDbtChartsBoard && (
 		<StoryDownload
 			iconOnly
 			chatId={chatId}
@@ -288,7 +298,7 @@ export const StoryHeader = memo(function StoryHeader({
 		</Tooltip>
 	);
 
-	const liveControls = (!isReadonlyMode || isReplay) && (
+	const liveControls = (!isReadonlyMode || isReplay) && !isDbtChartsBoard && (
 		<>
 			<Tooltip>
 				<TooltipTrigger asChild>
@@ -409,6 +419,7 @@ export const StoryHeader = memo(function StoryHeader({
 							<X className='size-4' strokeWidth={2.25} />
 						</Button>
 						<div className='flex-1' />
+						{formatBadge}
 						{viewModeToggle}
 						{liveControls}
 						{downloadButton}
@@ -436,6 +447,7 @@ export const StoryHeader = memo(function StoryHeader({
 					{titleElement}
 					{updatingIndicator}
 					{versionNav}
+					{formatBadge}
 					{viewModeToggle}
 					{liveControls}
 					{downloadButton}

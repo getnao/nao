@@ -1,4 +1,5 @@
 import type { UIMessage } from '@nao/backend/chat';
+import type { StoryFormat } from '@nao/shared/dbt-charts';
 
 export interface StorySummary {
 	id: string;
@@ -9,6 +10,8 @@ export interface StoryDraft {
 	id: string;
 	title: string;
 	code: string;
+	/** Undefined while the format is still unknown (e.g. "update" on an existing story). */
+	format?: StoryFormat;
 	isStreaming: boolean;
 }
 
@@ -88,6 +91,7 @@ export function findStoryDraft(messages: UIMessage[], storyId: string): StoryDra
 				id,
 				title: output?.title ?? input?.title ?? id,
 				code,
+				format: output?.format ?? input?.format,
 				isStreaming: part.state === 'input-streaming',
 			};
 

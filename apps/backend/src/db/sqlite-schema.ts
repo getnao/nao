@@ -843,6 +843,9 @@ export const story = sqliteTable(
 		userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
 		slug: text('slug').notNull(),
 		title: text('title').notNull(),
+		format: text('format', { enum: ['markdown', 'dbt_charts'] })
+			.default('markdown')
+			.notNull(),
 		isLive: integer('is_live', { mode: 'boolean' }).default(false).notNull(),
 		isLiveTextDynamic: integer('is_live_text_dynamic', { mode: 'boolean' }).default(true).notNull(),
 		cacheSchedule: text('cache_schedule'),

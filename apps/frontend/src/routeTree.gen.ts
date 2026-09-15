@@ -46,6 +46,7 @@ import { Route as SidebarLayoutSettingsProjectIndexRouteImport } from './routes/
 import { Route as SidebarLayoutSettingsOrganizationIndexRouteImport } from './routes/_sidebar-layout.settings.organization.index'
 import { Route as SidebarLayoutStoriesStandaloneStoryIdRouteImport } from './routes/_sidebar-layout.stories.standalone.$storyId'
 import { Route as SidebarLayoutStoriesSharedShareIdRouteImport } from './routes/_sidebar-layout.stories.shared.$shareId'
+import { Route as SidebarLayoutStoriesDbtChartsBoardPathRouteImport } from './routes/_sidebar-layout.stories.dbt-charts.$boardPath'
 import { Route as SidebarLayoutSettingsProjectWhatsappRouteImport } from './routes/_sidebar-layout.settings.project.whatsapp'
 import { Route as SidebarLayoutSettingsProjectTelegramRouteImport } from './routes/_sidebar-layout.settings.project.telegram'
 import { Route as SidebarLayoutSettingsProjectTeamsRouteImport } from './routes/_sidebar-layout.settings.project.teams'
@@ -272,6 +273,12 @@ const SidebarLayoutStoriesSharedShareIdRoute =
     path: '/stories/shared/$shareId',
     getParentRoute: () => SidebarLayoutRoute,
   } as any)
+const SidebarLayoutStoriesDbtChartsBoardPathRoute =
+  SidebarLayoutStoriesDbtChartsBoardPathRouteImport.update({
+    id: '/stories/dbt-charts/$boardPath',
+    path: '/stories/dbt-charts/$boardPath',
+    getParentRoute: () => SidebarLayoutRoute,
+  } as any)
 const SidebarLayoutSettingsProjectWhatsappRoute =
   SidebarLayoutSettingsProjectWhatsappRouteImport.update({
     id: '/whatsapp',
@@ -427,6 +434,7 @@ export interface FileRoutesByFullPath {
   '/settings/project/teams': typeof SidebarLayoutSettingsProjectTeamsRoute
   '/settings/project/telegram': typeof SidebarLayoutSettingsProjectTelegramRoute
   '/settings/project/whatsapp': typeof SidebarLayoutSettingsProjectWhatsappRoute
+  '/stories/dbt-charts/$boardPath': typeof SidebarLayoutStoriesDbtChartsBoardPathRoute
   '/stories/shared/$shareId': typeof SidebarLayoutStoriesSharedShareIdRoute
   '/stories/standalone/$storyId': typeof SidebarLayoutStoriesStandaloneStoryIdRoute
   '/settings/organization/': typeof SidebarLayoutSettingsOrganizationIndexRoute
@@ -478,6 +486,7 @@ export interface FileRoutesByTo {
   '/settings/project/teams': typeof SidebarLayoutSettingsProjectTeamsRoute
   '/settings/project/telegram': typeof SidebarLayoutSettingsProjectTelegramRoute
   '/settings/project/whatsapp': typeof SidebarLayoutSettingsProjectWhatsappRoute
+  '/stories/dbt-charts/$boardPath': typeof SidebarLayoutStoriesDbtChartsBoardPathRoute
   '/stories/shared/$shareId': typeof SidebarLayoutStoriesSharedShareIdRoute
   '/stories/standalone/$storyId': typeof SidebarLayoutStoriesStandaloneStoryIdRoute
   '/settings/organization': typeof SidebarLayoutSettingsOrganizationIndexRoute
@@ -536,6 +545,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/project/teams': typeof SidebarLayoutSettingsProjectTeamsRoute
   '/_sidebar-layout/settings/project/telegram': typeof SidebarLayoutSettingsProjectTelegramRoute
   '/_sidebar-layout/settings/project/whatsapp': typeof SidebarLayoutSettingsProjectWhatsappRoute
+  '/_sidebar-layout/stories/dbt-charts/$boardPath': typeof SidebarLayoutStoriesDbtChartsBoardPathRoute
   '/_sidebar-layout/stories/shared/$shareId': typeof SidebarLayoutStoriesSharedShareIdRoute
   '/_sidebar-layout/stories/standalone/$storyId': typeof SidebarLayoutStoriesStandaloneStoryIdRoute
   '/_sidebar-layout/settings/organization/': typeof SidebarLayoutSettingsOrganizationIndexRoute
@@ -593,6 +603,7 @@ export interface FileRouteTypes {
     | '/settings/project/teams'
     | '/settings/project/telegram'
     | '/settings/project/whatsapp'
+    | '/stories/dbt-charts/$boardPath'
     | '/stories/shared/$shareId'
     | '/stories/standalone/$storyId'
     | '/settings/organization/'
@@ -644,6 +655,7 @@ export interface FileRouteTypes {
     | '/settings/project/teams'
     | '/settings/project/telegram'
     | '/settings/project/whatsapp'
+    | '/stories/dbt-charts/$boardPath'
     | '/stories/shared/$shareId'
     | '/stories/standalone/$storyId'
     | '/settings/organization'
@@ -701,6 +713,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/project/teams'
     | '/_sidebar-layout/settings/project/telegram'
     | '/_sidebar-layout/settings/project/whatsapp'
+    | '/_sidebar-layout/stories/dbt-charts/$boardPath'
     | '/_sidebar-layout/stories/shared/$shareId'
     | '/_sidebar-layout/stories/standalone/$storyId'
     | '/_sidebar-layout/settings/organization/'
@@ -980,6 +993,13 @@ declare module '@tanstack/react-router' {
       path: '/stories/shared/$shareId'
       fullPath: '/stories/shared/$shareId'
       preLoaderRoute: typeof SidebarLayoutStoriesSharedShareIdRouteImport
+      parentRoute: typeof SidebarLayoutRoute
+    }
+    '/_sidebar-layout/stories/dbt-charts/$boardPath': {
+      id: '/_sidebar-layout/stories/dbt-charts/$boardPath'
+      path: '/stories/dbt-charts/$boardPath'
+      fullPath: '/stories/dbt-charts/$boardPath'
+      preLoaderRoute: typeof SidebarLayoutStoriesDbtChartsBoardPathRouteImport
       parentRoute: typeof SidebarLayoutRoute
     }
     '/_sidebar-layout/settings/project/whatsapp': {
@@ -1283,6 +1303,7 @@ interface SidebarLayoutRouteChildren {
   SidebarLayoutSharedChatShareIdRoute: typeof SidebarLayoutSharedChatShareIdRoute
   SidebarLayoutFeedIndexRoute: typeof SidebarLayoutFeedIndexRoute
   SidebarLayoutStoriesIndexRoute: typeof SidebarLayoutStoriesIndexRoute
+  SidebarLayoutStoriesDbtChartsBoardPathRoute: typeof SidebarLayoutStoriesDbtChartsBoardPathRoute
   SidebarLayoutStoriesSharedShareIdRoute: typeof SidebarLayoutStoriesSharedShareIdRoute
   SidebarLayoutStoriesStandaloneStoryIdRoute: typeof SidebarLayoutStoriesStandaloneStoryIdRoute
   SidebarLayoutStoriesPreviewChatIdStorySlugRoute: typeof SidebarLayoutStoriesPreviewChatIdStorySlugRoute
@@ -1296,6 +1317,8 @@ const SidebarLayoutRouteChildren: SidebarLayoutRouteChildren = {
   SidebarLayoutSharedChatShareIdRoute: SidebarLayoutSharedChatShareIdRoute,
   SidebarLayoutFeedIndexRoute: SidebarLayoutFeedIndexRoute,
   SidebarLayoutStoriesIndexRoute: SidebarLayoutStoriesIndexRoute,
+  SidebarLayoutStoriesDbtChartsBoardPathRoute:
+    SidebarLayoutStoriesDbtChartsBoardPathRoute,
   SidebarLayoutStoriesSharedShareIdRoute:
     SidebarLayoutStoriesSharedShareIdRoute,
   SidebarLayoutStoriesStandaloneStoryIdRoute:

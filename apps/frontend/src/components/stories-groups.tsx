@@ -10,6 +10,7 @@ import type { StoryPanelDisplayMode } from '@nao/shared/types';
 import type { StoryItem } from '@/lib/stories-page';
 import {
 	AuthorDateLabel,
+	DbtChartsBadge,
 	GRID_CARD_CLASS,
 	GRID_THUMBNAIL_CLASS,
 	GridCardFooter,
@@ -76,7 +77,8 @@ export function StoryCard({
 
 	const draggableId = `drag-story-${dragIdPrefix ? `${dragIdPrefix}-` : ''}${item.storyId}`;
 	const isOwnedByUser = item.kind === 'own' || item.kind === 'own-standalone';
-	const canMove = isOwnedByUser || isAdmin;
+	const isProjectBoard = item.kind === 'project-board';
+	const canMove = !isProjectBoard && (isOwnedByUser || isAdmin);
 	const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
 		id: draggableId,
 		disabled: isViewer || selectionActive || !canMove,
@@ -367,6 +369,7 @@ function StoryQuickActions({ item, onRequestPinShare }: { item: StoryItem; onReq
 	const canTogglePin = isAdmin && !!item.sharedStoryId;
 	const canInteractWithPin = canTogglePin || canOpenPinShareDialog;
 	const showPinSlot = canInteractWithPin || item.isPinned;
+	const canFavorite = item.kind !== 'project-board';
 
 	function handleFavorite(e: MouseEvent<HTMLButtonElement>) {
 		e.preventDefault();
@@ -407,7 +410,7 @@ function StoryQuickActions({ item, onRequestPinShare }: { item: StoryItem; onReq
 			)}
 			<QuickActionButton
 				active={item.isFavorited}
-				interactive
+				interactive={canFavorite}
 				pending={favorite.isPending}
 				onClick={handleFavorite}
 				tooltip={item.isFavorited ? 'Remove from favorites' : 'Add to favorites'}
@@ -557,17 +560,19 @@ function StoryArchiveButton({ item, showArchived }: { item: StoryItem; showArchi
 
 function StoryBadges({ item, mode }: { item: StoryItem; mode: 'grid' | 'lines' }) {
 	const live = item.isLive ? <LiveBadge /> : null;
+	const board = item.format === 'dbt_charts' ? <DbtChartsBadge /> : null;
 	const sharing = item.sharing ? (
 		<SharingBadge visibility={item.sharing.visibility} sharedWithCount={item.sharing.sharedWithCount} />
 	) : null;
 
 	if (mode === 'grid') {
 		const showPrivate = item.isInPrivateContext && item.sharing?.visibility !== 'specific';
-		if (!live && !sharing && !showPrivate) {
+		if (!live && !board && !sharing && !showPrivate) {
 			return null;
 		}
 		return (
 			<div className='flex items-center gap-2 shrink-0'>
+				{board}
 				{live}
 				{showPrivate && <PrivateBadge />}
 				{sharing}
@@ -578,6 +583,7 @@ function StoryBadges({ item, mode }: { item: StoryItem; mode: 'grid' | 'lines' }
 	return (
 		<>
 			{item.isInPrivateContext && <PrivateBadge />}
+			{board}
 			{live}
 			{sharing}
 		</>
