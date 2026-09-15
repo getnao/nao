@@ -202,6 +202,20 @@ describe('rasterised chart PNG', () => {
 
 		expect(countInkPixels(png, LEGEND_REGION)).toBeGreaterThan(200);
 	});
+
+	/**
+	 * Map legends inherit `ui-monospace` from a parent `<g>`, another keyword
+	 * resvg cannot match. `defaultFontFamily` is what keeps those glyphs, so
+	 * pin that rather than rewriting the stacks in generate-map.
+	 */
+	it('falls back to the embedded family for a keyword it cannot match', () => {
+		const monospaceLegend = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="50"><rect width="200" height="50" fill="white"/><g font-family="ui-monospace, SFMono-Regular, Menlo, monospace"><text x="10" y="30" font-size="11" fill="#0a0a0a">1 234</text></g></svg>`;
+		const blank = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="50"><rect width="200" height="50" fill="white"/></svg>`;
+		const wholeImage = { fromWidthRatio: 0, fromHeightRatio: 0 };
+
+		expect(countInkPixels(renderWithoutSystemFonts(blank), wholeImage)).toBe(0);
+		expect(countInkPixels(renderWithoutSystemFonts(monospaceLegend), wholeImage)).toBeGreaterThan(50);
+	});
 });
 
 describe('resolveCssVariables', () => {
