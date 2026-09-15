@@ -112,6 +112,31 @@ export const isEmailDomainAllowed = (userEmail: string, authDomains?: string) =>
 };
 
 /**
+ * Builds the emails equivalent to `email` under the given domain aliases: same local part, every other alias domain.
+ * Returns nothing when the email's domain is not itself one of the aliases.
+ */
+export const buildEmailDomainAliases = (email: string, aliasDomains: string[]): string[] => {
+	const atIndex = email.indexOf('@');
+	if (atIndex <= 0 || atIndex !== email.lastIndexOf('@') || atIndex === email.length - 1) {
+		return [];
+	}
+	const localPart = email.slice(0, atIndex).toLowerCase();
+	const domain = email.slice(atIndex + 1).toLowerCase();
+	if (!localPart || !domain) {
+		return [];
+	}
+
+	const normalizedDomains = aliasDomains.map((aliasDomain) => aliasDomain.trim().toLowerCase());
+	if (!normalizedDomains.includes(domain)) {
+		return [];
+	}
+
+	return normalizedDomains
+		.filter((aliasDomain) => aliasDomain && aliasDomain !== domain)
+		.map((aliasDomain) => `${localPart}@${aliasDomain}`);
+};
+
+/**
  * Resolve the auth provider ID from the better-auth callback context.
  * Social providers use `params.id`, the genericOAuth plugin (OIDC) uses `params.providerId`.
  */

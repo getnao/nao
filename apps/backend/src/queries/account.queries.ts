@@ -1,7 +1,8 @@
 import { and, eq } from 'drizzle-orm';
 
-import s from '../db/abstractSchema';
+import s, { User } from '../db/abstractSchema';
 import { db } from '../db/db';
+import { takeFirstOrThrow } from '../utils/queries';
 
 const CREDENTIAL_PROVIDER_ID = 'credential';
 
@@ -35,6 +36,93 @@ export const hasAccountForProvider = async (userId: string, providerId: string):
 		.execute();
 
 	return !!account;
+};
+
+export const getUserIdByProviderAccount = async (providerId: string, accountId: string): Promise<string | null> => {
+	const [account] = await db
+		.select({ userId: s.account.userId })
+		.from(s.account)
+		.where(and(eq(s.account.providerId, providerId), eq(s.account.accountId, accountId)))
+		.limit(1)
+		.execute();
+
+	return account?.userId ?? null;
+};
+
+export const linkProviderAccount = async (data: {
+	providerId: string;
+	accountId: string;
+	userId: string;
+}): Promise<void> => {
+	const linkedUserId = await getUserIdByProviderAccount(data.providerId, data.accountId);
+	if (linkedUserId) {
+		return;
+	}
+
+	await db
+		.insert(s.account)
+		.values({ id: crypto.randomUUID(), ...data })
+		.execute();
+};
+
+export const claimSlackLinkedUser = async (data: {
+	userId: string;
+	email: string;
+	name: string;
+	hashedPassword: string;
+}): Promise<User> => {
+	return db.transaction(async (tx) => {
+		await takeFirstOrThrow(
+			tx
+				.select({ id: s.account.id })
+				.from(s.account)
+				.where(and(eq(s.account.userId, data.userId), eq(s.account.providerId, 'slack')))
+				.limit(1)
+				.execute(),
+			`Slack account not found for user ${data.userId}`,
+		);
+
+		const [credentialAccount] = await tx
+			.select({ id: s.account.id })
+			.from(s.account)
+			.where(and(eq(s.account.userId, data.userId), eq(s.account.providerId, CREDENTIAL_PROVIDER_ID)))
+			.limit(1)
+			.execute();
+
+		if (credentialAccount) {
+			await tx
+				.update(s.account)
+				.set({ password: data.hashedPassword })
+				.where(eq(s.account.id, credentialAccount.id))
+				.execute();
+		} else {
+			await tx
+				.insert(s.account)
+				.values({
+					id: crypto.randomUUID(),
+					accountId: data.userId,
+					providerId: CREDENTIAL_PROVIDER_ID,
+					userId: data.userId,
+					password: data.hashedPassword,
+				})
+				.execute();
+		}
+
+		return takeFirstOrThrow(
+			tx
+				.update(s.user)
+				.set({
+					email: data.email,
+					name: data.name,
+					emailVerified: false,
+					requiresPasswordReset: false,
+				})
+				.where(eq(s.user.id, data.userId))
+				.returning()
+				.execute(),
+			`User not found: ${data.userId}`,
+		);
+	});
 };
 
 export const updateAccountPassword = async (

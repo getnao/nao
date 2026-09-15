@@ -1,0 +1,1 @@
+ALTER TABLE `user` ADD `email_domains` text DEFAULT '[]' NOT NULL;

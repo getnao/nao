@@ -456,6 +456,27 @@
       "when": 1787660347486,
       "tag": "0064_add_mattermost",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1788363370802,
+      "tag": "0065_add_user_email_domains",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1788437742005,
+      "tag": "0066_add_user_email_variations",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1788517781930,
+      "tag": "0067_remove_user_email_variations",
+      "breakpoints": true
     }
   ]
 }

@@ -314,6 +314,7 @@ export const projectRoutes = {
 					modelSelection: config.modelSelection,
 					autoCreateUsersEnabled: config.autoCreateUsersEnabled,
 					autoCreateUsersDomains: config.autoCreateUsersDomains,
+					autoMergeUsersEnabled: config.autoMergeUsersEnabled,
 					replyMode: config.replyMode,
 				}
 			: null;
@@ -409,6 +410,7 @@ export const projectRoutes = {
 			z.object({
 				enabled: z.boolean(),
 				domains: z.array(z.string().trim().toLowerCase()).default([]),
+				mergeUsersEnabled: z.boolean().optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -419,7 +421,12 @@ export const projectRoutes = {
 					message: 'At least one allowed domain is required to auto-create users from Slack.',
 				});
 			}
-			await slackConfigQueries.updateProjectSlackAutoCreateUsers(ctx.project.id, input.enabled, cleanedDomains);
+			await slackConfigQueries.updateProjectSlackAutoCreateUsers(
+				ctx.project.id,
+				input.enabled,
+				cleanedDomains,
+				input.mergeUsersEnabled,
+			);
 			const refreshedConfig = await slackConfigQueries.getProjectSlackConfig(ctx.project.id);
 			await slackService.syncProjectSocketMode(refreshedConfig, ctx.project.id);
 			return { enabled: input.enabled, domains: cleanedDomains };

@@ -1,0 +1,1 @@
+ALTER TABLE "user" ADD COLUMN "email_domains" jsonb DEFAULT '[]'::jsonb NOT NULL;
