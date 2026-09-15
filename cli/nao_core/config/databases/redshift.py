@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from nao_core.config.exceptions import InitError
-from nao_core.ui import ask_confirm, ask_text
+from nao_core.ui import ask_confirm, ask_select, ask_text
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -19,6 +19,7 @@ from .context import DatabaseContext
 
 class RedshiftAuthMode(str, Enum):
     PASSWORD = "password"
+    IAM = "iam"
     AZURE_ENTRA_ID = "azure_entra_id"
 
 
@@ -208,28 +209,56 @@ class RedshiftConfig(DatabaseConfig):
     user: str | None = Field(
         default=None,
         description=(
-            "Username. Required for password auth. In azure_entra_id mode it is optional "
-            "but recommended: nao sync uses it to read metadata (columns, previews, query history). "
-            "It is never used at runtime from /execute_sql."
+            "Username. Required for password auth. In iam mode it is the db user requested via "
+            "get_cluster_credentials, not the IAM-prefixed username used to connect. In azure_entra_id "
+            "mode it is optional but recommended: nao sync uses it to read metadata (columns, previews, "
+            "query history). It is never used at runtime from /execute_sql."
         ),
     )
     password: str | None = Field(
         default=None,
         description=(
-            "Password. Required for password auth. In azure_entra_id mode it is optional "
-            "but recommended: nao sync uses it to read metadata (columns, previews, query history). "
-            "It is never used at runtime from /execute_sql."
+            "Password. Required for password auth; ignored in iam mode, where a temporary password is "
+            "fetched via get_cluster_credentials instead. In azure_entra_id mode it is optional but "
+            "recommended: nao sync uses it to read metadata (columns, previews, query history). It is "
+            "never used at runtime from /execute_sql."
         ),
     )
     schema_name: str | None = Field(default=None, description="Default schema (optional, uses 'public' if not set)")
     sslmode: str = Field(default="require", description="SSL mode for the connection")
     ssh_tunnel: RedshiftSSHTunnelConfig | None = Field(default=None, description="SSH tunnel configuration (optional)")
 
+    cluster_id: str | None = Field(
+        default=None,
+        description="Cluster identifier for get_cluster_credentials. Defaults to first segment of host when not set.",
+    )
+    region_name: str | None = Field(
+        default=None,
+        description="AWS region for IAM authentication (e.g. 'us-east-1'). Required when auth_mode is 'iam'.",
+    )
+    aws_access_key_id: str | None = Field(default=None, description="AWS access key ID")
+    aws_secret_access_key: str | None = Field(default=None, description="AWS secret access key")
+    aws_session_token: str | None = Field(default=None, description="AWS session token")
+    profile_name: str | None = Field(default=None, description="AWS profile name")
+
     @model_validator(mode="after")
     def validate_credentials(self) -> "RedshiftConfig":
         if self.auth_mode == RedshiftAuthMode.PASSWORD:
             if not self.user or not self.password:
                 raise ValueError("user and password are required when auth_mode is 'password'")
+        elif self.auth_mode == RedshiftAuthMode.IAM:
+            if not self.user:
+                raise ValueError("user is required when auth_mode is 'iam'")
+            if not self.region_name:
+                raise ValueError("region_name is required when auth_mode is 'iam'")
+            if bool(self.aws_access_key_id) != bool(self.aws_secret_access_key):
+                raise ValueError(
+                    "aws_access_key_id and aws_secret_access_key must be provided together when auth_mode is 'iam'"
+                )
+            if self.aws_session_token and not self.aws_access_key_id:
+                raise ValueError(
+                    "aws_session_token requires aws_access_key_id and aws_secret_access_key to also be provided"
+                )
         return self
 
     @classmethod
@@ -244,9 +273,46 @@ class RedshiftConfig(DatabaseConfig):
 
         database = ask_text("Database name:", required_field=True)
         user = ask_text("Username:", required_field=True)
-        password = ask_text("Password:", password=True, required_field=True)
         sslmode = ask_text("SSL mode:", default="require") or "require"
         schema_name = ask_text("Default schema (uses 'public' if empty):")
+
+        auth_method = ask_select(
+            "Authentication method:",
+            choices=["Username / Password", "IAM (temporary credentials via AWS)", "Azure Entra ID"],
+        )
+
+        password: str | None = None
+        auth_mode = RedshiftAuthMode.PASSWORD
+        cluster_id: str | None = None
+        region_name: str | None = None
+        aws_access_key_id: str | None = None
+        aws_secret_access_key: str | None = None
+        aws_session_token: str | None = None
+        profile_name: str | None = None
+
+        if auth_method == "Username / Password":
+            password = ask_text("Password:", password=True, required_field=True)
+        elif auth_method == "IAM (temporary credentials via AWS)":
+            auth_mode = RedshiftAuthMode.IAM
+            cluster_id = ask_text("Cluster identifier (leave empty to derive from endpoint):") or None
+            region_name = ask_text("AWS region (e.g., us-east-1):", required_field=True) or ""
+
+            iam_source = ask_select(
+                "IAM credential source:",
+                choices=[
+                    "AWS Profile",
+                    "Access Keys",
+                    "Default credential chain (env vars / instance role)",
+                ],
+            )
+            if iam_source == "AWS Profile":
+                profile_name = ask_text("AWS Profile Name:", default="default")
+            elif iam_source == "Access Keys":
+                aws_access_key_id = ask_text("AWS Access Key ID:", required_field=True)
+                aws_secret_access_key = ask_text("AWS Secret Access Key:", password=True, required_field=True)
+                aws_session_token = ask_text("AWS Session Token (optional):", password=True) or None
+        else:
+            auth_mode = RedshiftAuthMode.AZURE_ENTRA_ID
 
         use_ssh = ask_confirm("Use SSH tunnel?", default=False)
         ssh_tunnel = None
@@ -275,22 +341,34 @@ class RedshiftConfig(DatabaseConfig):
             host=host or "",
             port=int(port_str),
             database=database or "",
+            auth_mode=auth_mode,
             user=user or "",
-            password=password or "",
+            password=password,
             schema_name=schema_name,
             sslmode=sslmode,
             ssh_tunnel=ssh_tunnel,
+            cluster_id=cluster_id,
+            region_name=region_name,
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            aws_session_token=aws_session_token,
+            profile_name=profile_name,
         )
 
     def connect(self) -> BaseBackend:
         """Create an Ibis Redshift connection using user/password credentials.
 
         Used by nao sync to gather context (metadata, previews, query history).
-        Works for both auth modes whenever user/password are provided; in
-        azure_entra_id mode the credentials are sync-only and must never be
+        Works for both auth modes whenever user/password are provided; in iam
+        mode credentials are exchanged via boto3 get_cluster_credentials() instead.
+        In azure_entra_id mode the credentials are sync-only and must never be
         used to serve runtime queries from /execute_sql.
         """
-        if not self.user or not self.password:
+        if self.auth_mode == RedshiftAuthMode.IAM:
+            db_user, db_password = self._get_iam_credentials()
+        elif self.user and self.password:
+            db_user, db_password = self.user, self.password
+        else:
             raise RuntimeError(
                 f"Redshift connect() requires user and password. "
                 f"When auth_mode='{self.auth_mode.value}', provide them so nao sync "
@@ -330,8 +408,8 @@ class RedshiftConfig(DatabaseConfig):
             "host": connect_host,
             "port": connect_port,
             "database": self.database,
-            "user": self.user,
-            "password": self.password,
+            "user": db_user,
+            "password": db_password,
             "client_encoding": "utf8",
             "sslmode": self.sslmode,
         }
@@ -342,6 +420,35 @@ class RedshiftConfig(DatabaseConfig):
         return ibis.postgres.connect(
             **kwargs,
         )
+
+    def _get_iam_credentials(self) -> tuple[str, str]:
+        from nao_core.deps import require_dependency
+
+        require_dependency("boto3", "redshift", "for Redshift IAM authentication")
+        import boto3
+
+        cluster_id = self.cluster_id or self.host.split(".")[0]
+
+        if self.profile_name:
+            session = boto3.Session(profile_name=self.profile_name, region_name=self.region_name)
+        elif self.aws_access_key_id and self.aws_secret_access_key:
+            session = boto3.Session(
+                aws_access_key_id=self.aws_access_key_id,
+                aws_secret_access_key=self.aws_secret_access_key,
+                aws_session_token=self.aws_session_token,
+                region_name=self.region_name,
+            )
+        else:
+            session = boto3.Session(region_name=self.region_name)
+
+        client = session.client("redshift")
+        response = client.get_cluster_credentials(
+            DbUser=self.user,
+            DbName=self.database,
+            ClusterIdentifier=cluster_id,
+            AutoCreate=False,
+        )
+        return response["DbUser"], response["DbPassword"]
 
     def execute_sql(self, sql: str, conn: BaseBackend | None = None) -> pd.DataFrame:
         """Execute SQL using user/password credentials.
