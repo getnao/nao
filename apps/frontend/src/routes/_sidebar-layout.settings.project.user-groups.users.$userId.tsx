@@ -1,15 +1,16 @@
+import { EMPTY_PROJECT_ROW_SECURITY, normalizeProjectRowSecurity } from '@nao/shared';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { ChevronLeft } from 'lucide-react';
 import { useEffect } from 'react';
 
-import type { UserGroupEditorTab } from '@/components/settings/user-group-editor';
+import type { UserGroupUserDetailTab } from '@/components/settings/user-group-user-detail';
 import { UserGroupUserDetail } from '@/components/settings/user-group-user-detail';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/user-groups/users/$userId')({
-	validateSearch: (search: Record<string, unknown>): { tab: UserGroupEditorTab } => ({
-		tab: isUserGroupEditorTab(search.tab) ? search.tab : 'features',
+	validateSearch: (search: Record<string, unknown>): { tab: UserGroupUserDetailTab } => ({
+		tab: isUserGroupUserDetailTab(search.tab) ? search.tab : 'features',
 	}),
 	component: UserGroupUserDetailPage,
 });
@@ -22,6 +23,7 @@ function UserGroupUserDetailPage() {
 	const effectiveAccess = useQuery(trpc.userGroup.effectiveAccessForUser.queryOptions({ userId }));
 	const contextCatalog = useQuery(trpc.userGroup.contextCatalog.queryOptions());
 	const docsContextCatalog = useQuery(trpc.userGroup.docsContextCatalog.queryOptions());
+	const rowSecurity = useQuery(trpc.userGroup.rowSecurity.queryOptions());
 	const overviewData = overview.data;
 	const user = overviewData?.users.find((candidate) => candidate.id === userId);
 	const targetUserMissing = effectiveAccess.error?.data?.code === 'NOT_FOUND';
@@ -71,6 +73,9 @@ function UserGroupUserDetailPage() {
 				}
 				onRetryDatabaseCatalog={() => void contextCatalog.refetch()}
 				onRetryDocsCatalog={() => void docsContextCatalog.refetch()}
+				projectRowSecurity={normalizeProjectRowSecurity(rowSecurity.data ?? EMPTY_PROJECT_ROW_SECURITY)}
+				securityState={rowSecurity.isLoading ? 'loading' : rowSecurity.isError ? 'error' : 'ready'}
+				onRetrySecurity={() => void rowSecurity.refetch()}
 				activeTab={tab}
 				onTabChange={(nextTab) => {
 					void navigate({
@@ -83,6 +88,6 @@ function UserGroupUserDetailPage() {
 	);
 }
 
-function isUserGroupEditorTab(value: unknown): value is UserGroupEditorTab {
+function isUserGroupUserDetailTab(value: unknown): value is UserGroupUserDetailTab {
 	return value === 'features' || value === 'context' || value === 'security';
 }

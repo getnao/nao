@@ -182,6 +182,46 @@ describe('user group queries', () => {
 		});
 	});
 
+	it('loads the overview with legacy guided policies migrated to AND', async () => {
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
+		await db
+			.update(userGroup)
+			.set({
+				rowPolicies: {
+					version: 1,
+					policies: [
+						{
+							databaseType: 'duckdb',
+							database: 'sales',
+							schema: 'main',
+							table: 'orders',
+							access: 'predicate',
+							conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
+						},
+					],
+				},
+			})
+			.where(eq(userGroup.id, analysts.id));
+
+		const overview = await getUserGroupOverview(PROJECT_ID);
+
+		expect(overview.groups.find((group) => group.id === analysts.id)?.rowPolicies).toEqual({
+			version: 1,
+			policies: [
+				{
+					databaseType: 'duckdb',
+					database: 'sales',
+					schema: 'main',
+					table: 'orders',
+					access: 'predicate',
+					mode: 'guided',
+					combinator: 'and',
+					conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
+				},
+			],
+		});
+	});
+
 	it('prunes removed-table row policies and preserves policies for registered tables', async () => {
 		const orders = {
 			databaseType: 'duckdb',
@@ -211,6 +251,8 @@ describe('user group queries', () => {
 						schema: orders.schema,
 						table: orders.table,
 						access: 'predicate',
+						mode: 'guided',
+						combinator: 'and',
 						conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
 					},
 					{
@@ -254,6 +296,8 @@ describe('user group queries', () => {
 					schema: 'main',
 					table: 'orders',
 					access: 'predicate',
+					mode: 'guided',
+					combinator: 'and',
 					conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
 				},
 			],
@@ -288,6 +332,8 @@ describe('user group queries', () => {
 						schema: table.schema,
 						table: table.table,
 						access: 'predicate',
+						mode: 'guided',
+						combinator: 'and',
 						conditions: [{ column: 'region', operator: 'equals', value: 'west' }],
 					},
 				],

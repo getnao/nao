@@ -22,7 +22,7 @@ import type { TabBarItem } from '@/components/ui/tab-bar';
 import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-slider';
 import { UserGroupContextAccess } from '@/components/settings/user-group-context-access';
 import { UserGroupFeatureCard } from '@/components/settings/user-group-feature-card';
-import { UserGroupRowSecurity } from '@/components/settings/user-group-row-security';
+import { areUserGroupRowPolicyDraftsValid, UserGroupRowSecurity } from '@/components/settings/user-group-row-security';
 import { UserGroupSsoMapping } from '@/components/settings/user-group-sso-mapping';
 import { UserGroupSwitchRow } from '@/components/settings/user-group-switch-row';
 import { Button } from '@/components/ui/button';
@@ -53,7 +53,7 @@ export interface UserGroupEditorGroup {
 	rowPolicies?: UserGroupRowPolicies;
 }
 
-export type UserGroupEditorTab = 'features' | 'context' | 'security';
+export type UserGroupEditorTab = 'features' | 'context' | 'security' | 'sso';
 
 interface UserGroupEditorProps {
 	group: UserGroupEditorGroup | 'new';
@@ -64,7 +64,7 @@ interface UserGroupEditorProps {
 	onDeleted: (groupId: string) => void;
 }
 
-const tabs: TabBarItem<UserGroupEditorTab>[] = [
+const defaultTabs: TabBarItem<UserGroupEditorTab>[] = [
 	{ id: 'features', label: 'Features' },
 	{ id: 'context', label: 'Context' },
 	{ id: 'security', label: 'Security' },
@@ -98,6 +98,7 @@ export function UserGroupEditor({
 		existingGroup?.rowPolicies ?? EMPTY_USER_GROUP_ROW_POLICIES,
 	);
 	const [formError, setFormError] = useState<string | null>(null);
+	const [showRowPolicyValidationErrors, setShowRowPolicyValidationErrors] = useState(false);
 	const [confirmDelete, setConfirmDelete] = useState(false);
 	const previousGroupRef = useRef(existingGroup);
 	const createGroup = useMutation(trpc.userGroup.create.mutationOptions());
@@ -107,6 +108,8 @@ export function UserGroupEditor({
 	const hasSso = licenseFeatures.data?.sso === true;
 	const hasRowLevelSecurity = licenseFeatures.data?.['row-level-security'] === true;
 	const rowSecurity = useQuery(trpc.userGroup.rowSecurity.queryOptions());
+	const rowSecurityRegistry =
+		rowSecurity.data && Array.isArray(rowSecurity.data.tables) ? rowSecurity.data : EMPTY_PROJECT_ROW_SECURITY;
 	const oidcConfig = useQuery({
 		...trpc.authConfig.oidc.getConfig.queryOptions(),
 		enabled: hasSso,
@@ -115,6 +118,12 @@ export function UserGroupEditor({
 		...trpc.authConfig.microsoft.isSetup.queryOptions(),
 		enabled: hasSso,
 	});
+	const hasOidc = hasSso && Boolean(oidcConfig.data);
+	const hasMicrosoft = hasSso && microsoftConfig.data === true;
+	const hasConfiguredSsoProvider = hasOidc || hasMicrosoft;
+	const isSsoConfigLoading =
+		licenseFeatures.isLoading || (hasSso && (oidcConfig.isLoading || microsoftConfig.isLoading));
+	const tabs = hasConfiguredSsoProvider ? [...defaultTabs, { id: 'sso' as const, label: 'SSO' }] : defaultTabs;
 	const hasUnsavedChanges =
 		existingGroup === null ||
 		hasUserGroupEditorChanges(existingGroup, {
@@ -136,6 +145,7 @@ export function UserGroupEditor({
 		setSsoMappings(existingGroup?.ssoMappings ?? EMPTY_USER_GROUP_SSO_MAPPINGS);
 		setRowPolicies(existingGroup?.rowPolicies ?? EMPTY_USER_GROUP_ROW_POLICIES);
 		setFormError(null);
+		setShowRowPolicyValidationErrors(false);
 		setConfirmDelete(false);
 	}, [existingGroup]);
 
@@ -170,8 +180,19 @@ export function UserGroupEditor({
 		toolCallDensityPolicy,
 	]);
 
+	useEffect(() => {
+		if (activeTab === 'sso' && !isSsoConfigLoading && !hasConfiguredSsoProvider) {
+			onTabChange('features');
+		}
+	}, [activeTab, hasConfiguredSsoProvider, isSsoConfigLoading, onTabChange]);
+
 	const handleSave = async () => {
 		setFormError(null);
+		if (hasRowLevelSecurity && !areUserGroupRowPolicyDraftsValid(rowSecurityRegistry, rowPolicies)) {
+			setShowRowPolicyValidationErrors(true);
+			onTabChange('security');
+			return;
+		}
 		try {
 			if (existingGroup) {
 				await updateGroup.mutateAsync({
@@ -198,6 +219,7 @@ export function UserGroupEditor({
 				await invalidateUserGroupQueries(queryClient);
 				onCreated(createdGroup);
 			}
+			setShowRowPolicyValidationErrors(false);
 		} catch (error) {
 			setFormError(error instanceof Error ? error.message : 'Failed to save the group.');
 		}
@@ -220,6 +242,7 @@ export function UserGroupEditor({
 
 	const handleCancel = () => {
 		if (group === 'new') {
+			setShowRowPolicyValidationErrors(false);
 			onCancelNew();
 			return;
 		}
@@ -271,14 +294,23 @@ export function UserGroupEditor({
 							</div>
 						)}
 						{activeTab === 'security' && (
+							<UserGroupRowSecurity
+								registry={rowSecurityRegistry}
+								policies={rowPolicies}
+								isLicensed={hasRowLevelSecurity}
+								showValidationErrors={showRowPolicyValidationErrors}
+								onChange={setRowPolicies}
+							/>
+						)}
+						{activeTab === 'sso' && hasConfiguredSsoProvider && (
 							<div className='flex flex-col gap-5'>
-								{existingGroup?.isDefault && (oidcConfig.data || microsoftConfig.data) ? (
+								{existingGroup?.isDefault ? (
 									<p className='rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground'>
 										All Users already includes everyone with project access and cannot be mapped.
 									</p>
 								) : (
 									<>
-										{oidcConfig.data && (
+										{hasOidc && oidcConfig.data && (
 											<UserGroupSsoMapping
 												identifiers={ssoMappings.providers.oidc}
 												provider='oidc'
@@ -293,7 +325,7 @@ export function UserGroupEditor({
 												}
 											/>
 										)}
-										{microsoftConfig.data && (
+										{hasMicrosoft && (
 											<UserGroupSsoMapping
 												identifiers={ssoMappings.providers.microsoft}
 												provider='microsoft'
@@ -310,16 +342,6 @@ export function UserGroupEditor({
 										)}
 									</>
 								)}
-								<UserGroupRowSecurity
-									registry={
-										rowSecurity.data && Array.isArray(rowSecurity.data.tables)
-											? rowSecurity.data
-											: EMPTY_PROJECT_ROW_SECURITY
-									}
-									policies={rowPolicies}
-									isLicensed={hasRowLevelSecurity}
-									onChange={setRowPolicies}
-								/>
 							</div>
 						)}
 					</TabPanel>

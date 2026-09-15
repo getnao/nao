@@ -11,9 +11,11 @@ import {
 	normalizeProjectRowSecurity,
 	normalizeUserGroupRowPolicies,
 	normalizeUserGroupSsoMappings,
+	ROW_SECURITY_COMBINATORS,
 	ROW_SECURITY_MAX_CONDITIONS,
 	ROW_SECURITY_MAX_VALUE_LENGTH,
 	ROW_SECURITY_OPERATORS,
+	stripRowSecurityWhereClause,
 	TOOL_CALL_DENSITIES,
 	USER_GROUP_FEATURES,
 	type UserGroupRowPolicies,
@@ -27,7 +29,10 @@ import * as userGroupQueries from '../queries/user-group.queries';
 import { getDocsContextCatalog } from '../services/docs-context-catalog.service';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { assertUserGroupManageable, getAvailableUserGroupOverview } from '../services/user-group-availability.service';
-import { getEffectiveUserGroupAccess } from '../services/user-group-feature-access.service';
+import {
+	getEffectiveUserGroupAccess,
+	getEffectiveUserGroupAccessForUserDetail,
+} from '../services/user-group-feature-access.service';
 import { validateWarehouseRowPredicate } from '../services/warehouse-sql.service';
 import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
 
@@ -141,17 +146,41 @@ const rowSecurityConditionSchema = z
 			});
 		}
 	});
+const rowSecuritySqlPredicateSchema = z
+	.string()
+	.trim()
+	.min(1, 'Enter a WHERE clause.')
+	.max(ROW_SECURITY_MAX_VALUE_LENGTH)
+	.superRefine((value, context) => {
+		if (!value) {
+			return;
+		}
+		if (!/^where\b/i.test(value)) {
+			context.addIssue({ code: 'custom', message: 'Start with WHERE.' });
+		} else if (stripRowSecurityWhereClause(value) === null) {
+			context.addIssue({ code: 'custom', message: 'Enter an expression after WHERE.' });
+		}
+	});
 const userGroupRowPoliciesSchema = z
 	.object({
 		version: z.literal(1),
 		policies: z
 			.array(
-				z.discriminatedUnion('access', [
+				z.union([
 					rowTableIdentitySchema.extend({ access: z.literal('full') }).strict(),
 					rowTableIdentitySchema
 						.extend({
 							access: z.literal('predicate'),
+							mode: z.literal('guided'),
+							combinator: z.enum(ROW_SECURITY_COMBINATORS),
 							conditions: z.array(rowSecurityConditionSchema).min(1).max(ROW_SECURITY_MAX_CONDITIONS),
+						})
+						.strict(),
+					rowTableIdentitySchema
+						.extend({
+							access: z.literal('predicate'),
+							mode: z.literal('sql'),
+							predicate: rowSecuritySqlPredicateSchema,
 						})
 						.strict(),
 				]),
@@ -174,7 +203,7 @@ export const userGroupRoutes = {
 					message: 'This user does not have access to the project.',
 				});
 			}
-			return getEffectiveUserGroupAccess(ctx.project.id, input.userId);
+			return getEffectiveUserGroupAccessForUserDetail(ctx.project.id, input.userId);
 		}),
 
 	overview: adminProtectedProcedure.query(async ({ ctx }) => {
@@ -381,19 +410,26 @@ async function validateGroupRowPolicies(
 			const table = registered.get(
 				[policy.databaseType, policy.database, policy.schema, policy.table].join('\0'),
 			)!;
-			if (policy.conditions.some((condition) => !table.constraintColumns.includes(condition.column))) {
+			if (
+				policy.mode === 'guided' &&
+				policy.conditions.some((condition) => !table.constraintColumns.includes(condition.column))
+			) {
 				throw new TRPCError({
 					code: 'BAD_REQUEST',
 					message: `Invalid constraint column for ${table.schema}.${table.table}.`,
 				});
 			}
 			try {
-				await validateWarehouseRowPredicate(
-					compileRowSecurityConditions(policy.conditions, table.databaseType),
+				const predicate =
+					policy.mode === 'guided'
+						? compileRowSecurityConditions(policy.conditions, table.databaseType, policy.combinator)
+						: stripRowSecurityWhereClause(policy.predicate)!;
+				const normalizedPredicate = await validateWarehouseRowPredicate(
+					predicate,
 					table.constraintColumns,
 					table.databaseType,
 				);
-				return policy;
+				return policy.mode === 'sql' ? { ...policy, predicate: `WHERE ${normalizedPredicate}` } : policy;
 			} catch (error) {
 				throw new TRPCError({
 					code: 'BAD_REQUEST',

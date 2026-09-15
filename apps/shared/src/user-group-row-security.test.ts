@@ -5,6 +5,8 @@ import {
 	parseStoredProjectRowSecurity,
 	parseStoredUserGroupRowPolicies,
 	resolveWarehouseRowSecurity,
+	serializeUserGroupRowPolicies,
+	stripRowSecurityWhereClause,
 } from './user-group-row-security';
 
 const table = {
@@ -45,9 +47,36 @@ describe('user group row security', () => {
 		).toEqual({ version: 1, policies: [] });
 	});
 
-	it('preserves full and structured policies while dropping legacy raw predicates', () => {
+	it('migrates legacy guided policies to explicit guided AND policies', () => {
+		expect(
+			parseStoredUserGroupRowPolicies({
+				version: 1,
+				policies: [
+					{
+						...table,
+						access: 'predicate',
+						conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
+					},
+				],
+			}),
+		).toEqual({
+			version: 1,
+			policies: [
+				{
+					...table,
+					access: 'predicate',
+					mode: 'guided',
+					combinator: 'and',
+					conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
+				},
+			],
+		});
+	});
+
+	it('preserves full and new policies while dropping legacy raw predicates', () => {
 		const customers = { ...table, table: 'customers' };
 		const invoices = { ...table, table: 'invoices' };
+		const refunds = { ...table, table: 'refunds' };
 
 		expect(
 			parseStoredUserGroupRowPolicies({
@@ -58,8 +87,11 @@ describe('user group row security', () => {
 					{
 						...invoices,
 						access: 'predicate',
+						mode: 'guided',
+						combinator: 'or',
 						conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
 					},
+					{ ...refunds, access: 'predicate', mode: 'sql', predicate: ' where tenant_id = 9 ' },
 				],
 			}),
 		).toEqual({
@@ -69,10 +101,85 @@ describe('user group row security', () => {
 				{
 					...invoices,
 					access: 'predicate',
+					mode: 'guided',
+					combinator: 'or',
 					conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
 				},
+				{ ...refunds, access: 'predicate', mode: 'sql', predicate: 'WHERE tenant_id = 9' },
 			],
 		});
+	});
+
+	it('migrates persisted explicit SQL predicates without WHERE', () => {
+		expect(
+			parseStoredUserGroupRowPolicies({
+				version: 1,
+				policies: [{ ...table, access: 'predicate', mode: 'sql', predicate: 'tenant_id = 7' }],
+			}),
+		).toEqual({
+			version: 1,
+			policies: [{ ...table, access: 'predicate', mode: 'sql', predicate: 'WHERE tenant_id = 7' }],
+		});
+	});
+
+	it('requires explicit canonical predicate modes and rejects unknown keys', () => {
+		expect(() =>
+			parseStoredUserGroupRowPolicies({
+				version: 1,
+				policies: [
+					{
+						...table,
+						access: 'predicate',
+						mode: 'guided',
+						conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
+					},
+				],
+			}),
+		).toThrow();
+		expect(() =>
+			parseStoredUserGroupRowPolicies({
+				version: 1,
+				policies: [
+					{
+						...table,
+						access: 'predicate',
+						mode: 'guided',
+						combinator: 'xor',
+						conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
+					},
+				],
+			}),
+		).toThrow();
+		expect(() =>
+			parseStoredUserGroupRowPolicies({
+				version: 1,
+				policies: [{ ...table, access: 'predicate', mode: 'sql', predicate: 'tenant_id = 7', extra: true }],
+			}),
+		).toThrow();
+		expect(() =>
+			parseStoredUserGroupRowPolicies({
+				version: 1,
+				policies: [{ ...table, access: 'predicate', mode: 'sql', predicate: ' ' }],
+			}),
+		).toThrow();
+		expect(() =>
+			parseStoredUserGroupRowPolicies({
+				version: 1,
+				policies: [{ ...table, access: 'predicate', mode: 'sql', predicate: 'x'.repeat(10_001) }],
+			}),
+		).toThrow();
+		expect(() =>
+			serializeUserGroupRowPolicies({
+				version: 1,
+				policies: [{ ...table, access: 'predicate', mode: 'sql', predicate: 'tenant_id = 7' }],
+			}),
+		).toThrow();
+		expect(() =>
+			serializeUserGroupRowPolicies({
+				version: 1,
+				policies: [{ ...table, access: 'predicate', mode: 'sql', predicate: 'WHERE   ' }],
+			}),
+		).toThrow();
 	});
 
 	it('rejects malformed policies that resemble legacy raw predicates', () => {
@@ -90,7 +197,7 @@ describe('user group row security', () => {
 		).toThrow();
 	});
 
-	it('compiles a group policy with AND and safely typed literals', () => {
+	it('compiles conditions with AND by default and safely typed literals', () => {
 		expect(
 			compileRowSecurityConditions(
 				[
@@ -104,6 +211,26 @@ describe('user group row security', () => {
 		expect(compileRowSecurityConditions([{ column: 'tenant`id', operator: 'equals', value: '7' }], 'mysql')).toBe(
 			'(`tenant``id` = 7)',
 		);
+	});
+
+	it('compiles conditions with an explicit OR combinator', () => {
+		expect(
+			compileRowSecurityConditions(
+				[
+					{ column: 'tenant_id', operator: 'equals', value: '7' },
+					{ column: 'region', operator: 'equals', value: 'west' },
+				],
+				'duckdb',
+				'or',
+			),
+		).toBe(`("tenant_id" = 7 OR "region" = 'west')`);
+	});
+
+	it('strips only a leading WHERE clause', () => {
+		expect(stripRowSecurityWhereClause(" \nwhere region = 'EU' ")).toBe("region = 'EU'");
+		expect(stripRowSecurityWhereClause('WHERE')).toBeNull();
+		expect(stripRowSecurityWhereClause("region = 'EU'")).toBeNull();
+		expect(stripRowSecurityWhereClause("SELECT * FROM orders WHERE region = 'EU'")).toBeNull();
 	});
 
 	it('compiles comparison, list, and null operators', () => {
@@ -151,6 +278,8 @@ describe('user group row security', () => {
 						{
 							...table,
 							access: 'predicate',
+							mode: 'guided',
+							combinator: 'and',
 							conditions: [{ column: 'tenant_id', operator: 'equals', value: '1' }],
 						},
 					],
@@ -165,7 +294,7 @@ describe('user group row security', () => {
 		});
 	});
 
-	it('ORs predicates and denies a sensitive table with no policy', () => {
+	it('ORs group policies independently of each guided combinator and denies missing policies', () => {
 		const secondTable = { ...table, table: 'customers' };
 		const resolved = resolveWarehouseRowSecurity(
 			{
@@ -182,7 +311,12 @@ describe('user group row security', () => {
 						{
 							...table,
 							access: 'predicate',
-							conditions: [{ column: 'tenant_id', operator: 'equals', value: '1' }],
+							mode: 'guided',
+							combinator: 'or',
+							conditions: [
+								{ column: 'tenant_id', operator: 'equals', value: '1' },
+								{ column: 'tenant_id', operator: 'equals', value: '2' },
+							],
 						},
 					],
 				},
@@ -192,7 +326,9 @@ describe('user group row security', () => {
 						{
 							...table,
 							access: 'predicate',
-							conditions: [{ column: 'tenant_id', operator: 'equals', value: '2' }],
+							mode: 'guided',
+							combinator: 'and',
+							conditions: [{ column: 'tenant_id', operator: 'greater-than', value: '10' }],
 						},
 					],
 				},
@@ -206,9 +342,44 @@ describe('user group row security', () => {
 					...table,
 					constraintColumns: ['tenant_id'],
 					access: 'predicate',
-					predicate: '("tenant_id" = 1) OR ("tenant_id" = 2)',
+					predicate: '("tenant_id" = 1 OR "tenant_id" = 2) OR ("tenant_id" > 10)',
 				},
 				{ ...secondTable, constraintColumns: ['region'], access: 'none' },
+			],
+		});
+	});
+
+	it('wraps manual SQL predicates and ORs them across groups', () => {
+		const resolved = resolveWarehouseRowSecurity(
+			{ version: 1, tables: [{ ...table, constraintColumns: ['tenant_id'] }] },
+			[
+				{
+					version: 1,
+					policies: [
+						{
+							...table,
+							access: 'predicate',
+							mode: 'sql',
+							predicate: 'WHERE tenant_id = 1 OR tenant_id = 2',
+						},
+					],
+				},
+				{
+					version: 1,
+					policies: [{ ...table, access: 'predicate', mode: 'sql', predicate: 'WHERE tenant_id > 10' }],
+				},
+			],
+		);
+
+		expect(resolved).toEqual({
+			enforced: true,
+			tables: [
+				{
+					...table,
+					constraintColumns: ['tenant_id'],
+					access: 'predicate',
+					predicate: '(tenant_id = 1 OR tenant_id = 2) OR (tenant_id > 10)',
+				},
 			],
 		});
 	});

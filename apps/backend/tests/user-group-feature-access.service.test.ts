@@ -10,6 +10,7 @@ vi.mock('../src/services/user-group-availability.service', () => ({
 import {
 	assertUserGroupFeature,
 	getEffectiveUserGroupAccess,
+	getEffectiveUserGroupAccessForUserDetail,
 	getEffectiveUserGroupFeatureFlags,
 	hasUserGroupFeature,
 } from '../src/services/user-group-feature-access.service';
@@ -21,6 +22,7 @@ describe('user group feature access service', () => {
 			features: ['story-creation'],
 			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
+			rowPolicies: [{ version: 1, policies: [] }],
 			toolCallDensityPolicy: {
 				defaultDensity: 'compact',
 				canChange: false,
@@ -56,6 +58,12 @@ describe('user group feature access service', () => {
 				defaultDensity: 'compact',
 				canChange: false,
 			},
+		});
+	});
+
+	it('returns row policies for the admin user detail', async () => {
+		await expect(getEffectiveUserGroupAccessForUserDetail('project-id', 'user-id')).resolves.toMatchObject({
+			rowPolicies: [{ version: 1, policies: [] }],
 		});
 	});
 
