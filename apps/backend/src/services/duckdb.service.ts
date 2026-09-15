@@ -7,7 +7,6 @@ import type { executeSql } from '@nao/shared/tools';
 
 import { env } from '../env';
 import type { QueryResult } from '../types/tools';
-import { validateReadOnlyAllowlistedSql } from '../utils/sql-allowlist';
 import { isReadOnlySqlQuery } from '../utils/sql-filter';
 
 type DuckDBModule = typeof import('@duckdb/node-api');
@@ -178,14 +177,14 @@ export async function runSqlOverQueryResults(
 	queryResults: Map<string, QueryResult>,
 	sql: string,
 ): Promise<QueryResult> {
-	await assertSafeQueryResultsSql(sql, [...queryResults.keys()]);
-
 	const duckdb = await loadDuckDB();
 	const workspace = await mkdtemp(join(tmpdir(), 'nao-query-results-'));
 	const instance = await duckdb.DuckDBInstance.create(':memory:');
 	const connection = await instance.connect();
 
 	try {
+		await assertSafeQueryResultsSql(connection, sql, [...queryResults.keys()]);
+
 		for (const [queryId, queryResult] of queryResults) {
 			await createQueryResultTable(connection, workspace, queryId, queryResult);
 		}
@@ -268,14 +267,95 @@ async function loadDuckDB(): Promise<DuckDBModule> {
 	}
 }
 
-async function assertSafeQueryResultsSql(sql: string, allowedTables: string[]): Promise<void> {
-	const verdict = await validateReadOnlyAllowlistedSql(sql, {
-		allowedTables,
-		parserDialect: 'postgresql',
-		dialectName: 'DuckDB',
-	});
-	if (!verdict.ok) {
-		throw new Error(verdict.reason);
+/**
+ * Enforces the read-only, table-allowlisted policy on the untrusted SQL. The query is parsed with
+ * DuckDB's own parser (json_serialize_sql) so the dialect checked is exactly the dialect it will
+ * run under — an external parser would reject valid DuckDB syntax like TRY_CAST or QUALIFY.
+ */
+async function assertSafeQueryResultsSql(
+	connection: DuckDBConnection,
+	sql: string,
+	allowedTables: string[],
+): Promise<void> {
+	if (!(await isReadOnlySqlQuery(sql))) {
+		throw new Error('Only read-only SELECT/WITH queries are allowed.');
+	}
+
+	const referenced = await referencedBaseTables(connection, sql);
+	const allowed = new Set(allowedTables);
+	const disallowed = [...new Set(referenced)].filter((name) => !allowed.has(name));
+	if (disallowed.length > 0) {
+		throw new Error(
+			`Query references objects outside the allowlist: ${disallowed.join(', ')}. Allowed: ${allowedTables.join(', ') || '(none)'}.`,
+		);
+	}
+}
+
+async function referencedBaseTables(connection: DuckDBConnection, sql: string): Promise<string[]> {
+	const reader = await connection.runAndReadAll('SELECT json_serialize_sql(?::VARCHAR) AS ast', [sql]);
+	const ast = JSON.parse(reader.getRowObjectsJson()[0]!.ast as string) as SerializedSqlAst;
+
+	if (ast.error) {
+		throw new Error(
+			`Could not parse the query as DuckDB; rejected for safety. Rewrite it in DuckDB syntax. ${ast.error_message ?? ''}`.trim(),
+		);
+	}
+
+	const scan = scanSerializedAst(ast.statements);
+	return scan.tables.filter((name) => !scan.cteNames.has(name));
+}
+
+interface SerializedSqlAst {
+	error: boolean;
+	error_message?: string;
+	statements?: unknown[];
+}
+
+interface AstScan {
+	tables: string[];
+	cteNames: Set<string>;
+}
+
+/** Walks the serialized AST collecting referenced base tables and declared CTE names. */
+function scanSerializedAst(node: unknown, scan: AstScan = { tables: [], cteNames: new Set() }): AstScan {
+	if (Array.isArray(node)) {
+		for (const child of node) {
+			scanSerializedAst(child, scan);
+		}
+		return scan;
+	}
+
+	if (!node || typeof node !== 'object') {
+		return scan;
+	}
+
+	const record = node as Record<string, unknown>;
+	if (record.type === 'BASE_TABLE' && typeof record.table_name === 'string') {
+		scan.tables.push(record.table_name);
+	}
+
+	for (const [key, value] of Object.entries(record)) {
+		if (key === 'cte_map') {
+			collectCteNames(value, scan.cteNames);
+		}
+		scanSerializedAst(value, scan);
+	}
+
+	return scan;
+}
+
+/** A cte_map is serialized as `{ map: [{ key: <cte name>, value: <definition> }] }`. */
+function collectCteNames(cteMap: unknown, names: Set<string>): void {
+	const entries = (cteMap as { map?: unknown[] } | null)?.map;
+	if (!Array.isArray(entries)) {
+		return;
+	}
+
+	for (const entry of entries) {
+		const name = (entry as { key?: unknown } | null)?.key;
+		if (typeof name === 'string') {
+			names.add(name);
+		}
 	}
 }
 

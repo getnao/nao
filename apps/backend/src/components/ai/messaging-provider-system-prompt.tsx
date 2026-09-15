@@ -15,7 +15,13 @@ export function MessagingProviderSystemPrompt({
 	return (
 		<Block>
 			{basePrompt}
-			{provider === 'whatsapp' ? <WhatsAppSystemPrompt /> : <DefaultSystemPrompt provider={provider} />}
+			{provider === 'whatsapp' ? (
+				<WhatsAppSystemPrompt />
+			) : provider === 'mattermost' ? (
+				<MattermostSystemPrompt />
+			) : (
+				<DefaultSystemPrompt provider={provider} />
+			)}
 
 			{chatUrl && (
 				<Block>
@@ -27,6 +33,19 @@ export function MessagingProviderSystemPrompt({
 				</Block>
 			)}
 		</Block>
+	);
+}
+
+function MattermostSystemPrompt() {
+	return (
+		<>
+			<DefaultSystemPrompt provider='Mattermost' />
+			<Title level={2}>Mattermost Formatting</Title>
+			<Span>
+				Mattermost supports standard Markdown, including tables, fenced code blocks, bold text, and links. Use
+				these formats when they make the response clearer.
+			</Span>
+		</>
 	);
 }
 

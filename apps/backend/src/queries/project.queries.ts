@@ -11,6 +11,7 @@ import { env, isCloud } from '../env';
 import type { ListProjectChatsResponse, ProjectChatsFacetKey, UserWithRole } from '../types/project';
 import { HandlerError } from '../utils/error';
 import { createCostLookup, TOTAL_COST_EXPR } from './usage.queries';
+import { userMemberStatus } from './user.queries';
 
 export interface UserProjectWithRole {
 	project: DBProject;
@@ -106,7 +107,7 @@ export const listUserProjectsWithRoles = async (userId: string): Promise<UserPro
 	const results = await db
 		.select({
 			project: s.project,
-			userRole: sql<UserRole>`coalesce(${s.projectMember.role}, 'viewer')`,
+			userRole: sql<UserRole>`coalesce(${s.projectMember.role}, ${s.orgMember.role}, 'viewer')`,
 		})
 		.from(s.project)
 		.leftJoin(s.projectMember, and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, userId)))
@@ -150,7 +151,7 @@ export const listProjectMembersWithRoles = async (projectId: string): Promise<Us
 			name: s.user.name,
 			email: s.user.email,
 			role: s.projectMember.role,
-			messagingProviderCode: s.user.messagingProviderCode,
+			status: userMemberStatus,
 		})
 		.from(s.user)
 		.innerJoin(s.projectMember, eq(s.projectMember.userId, s.user.id))
@@ -168,7 +169,7 @@ export const listUsersWithProjectAccess = async (projectId: string): Promise<Use
 			name: s.user.name,
 			email: s.user.email,
 			role: sql<UserRole>`coalesce(${s.projectMember.role}, ${s.orgMember.role})`,
-			messagingProviderCode: s.user.messagingProviderCode,
+			status: userMemberStatus,
 		})
 		.from(s.user)
 		.leftJoin(s.projectMember, and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)))
@@ -209,8 +210,8 @@ export const getProjectByUserId = async (
 		return null;
 	}
 
-	const membership = await getProjectMember(project.id, userId);
-	return membership ? project : null;
+	const role = await getUserRoleInProject(project.id, userId);
+	return role ? project : null;
 };
 
 export const checkProjectHasMoreThanOneAdmin = async (projectId: string): Promise<boolean> => {

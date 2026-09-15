@@ -11,6 +11,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn
 
 from nao_core.config.base import NaoConfig
 from nao_core.config.confluence import ConfluenceConfig
+from nao_core.ui import UI
 
 from ..base import SyncProvider, SyncResult
 from .client import ConfluenceClient, ConfluencePage, extract_page_id
@@ -223,7 +224,7 @@ def fetch_pages(client: ConfluenceClient, page_ids: list[str], threads: int) -> 
             except Exception as error:  # noqa: BLE001 - one unreadable page must not stop the rest
                 with lock:
                     failed += 1
-                console.print(f"[bold red]✗[/bold red] Failed to sync page {escape(page_id)}: {escape(str(error))}")
+                UI.print(f"[bold red]✗[/bold red] Failed to sync page {escape(page_id)}: {escape(str(error))}")
                 progress.update(task, advance=1)
                 return
 
@@ -254,7 +255,7 @@ def write_documents(pages: list[ConfluencePage], output_path: Path) -> tuple[set
             target.write_text(render_document(page), encoding="utf-8")
         except (OSError, UnicodeError) as error:
             failed += 1
-            console.print(f"[bold red]✗[/bold red] Failed to write {escape(str(relative))}: {escape(str(error))}")
+            UI.print(f"[bold red]✗[/bold red] Failed to write {escape(str(relative))}: {escape(str(error))}")
             continue
         written.add(target.resolve())
 
@@ -272,7 +273,7 @@ def cleanup_stale_pages(kept: set[Path], output_path: Path, verbose: bool = Fals
             file_path.unlink()
             removed_count += 1
             if verbose:
-                console.print(f"  [dim red]removing stale page:[/dim red] {file_path.relative_to(output_path)}")
+                UI.print(f"  [dim red]removing stale page:[/dim red] {file_path.relative_to(output_path)}")
 
     prune_empty_dirs(output_path)
     return removed_count
@@ -292,7 +293,7 @@ def cleanup_if_fully_synced(failed_pages: int, kept: set[Path], output_path: Pat
     delete markdown that is still good, losing content to what is often a transient error.
     """
     if failed_pages:
-        console.print(
+        UI.print(
             f"[yellow]⚠[/yellow]  Keeping existing files: {failed_pages} page(s) failed, so stale ones were "
             "left in place and will remain until a run succeeds in full"
         )
@@ -340,8 +341,8 @@ class ConfluenceSyncProvider(SyncProvider):
         config = items[0]
         output_path.mkdir(parents=True, exist_ok=True)
 
-        console.print(f"\n[bold cyan]{self.emoji}  Syncing {self.name}[/bold cyan]")
-        console.print(f"[dim]Location:[/dim] {output_path.absolute()}\n")
+        UI.print(f"\n[bold cyan]{self.emoji}  Syncing {self.name}[/bold cyan]")
+        UI.print(f"[dim]Location:[/dim] {output_path.absolute()}\n")
 
         with ConfluenceClient(config) as client:
             refs = gather_page_refs(client, config)
@@ -362,12 +363,15 @@ class ConfluenceSyncProvider(SyncProvider):
             summary += f", {len(reused)} unchanged"
         if removed_count:
             summary += f", {removed_count} stale removed"
+        page_label = "page" if failed_pages == 1 else "pages"
+        error = f"Failed to sync {failed_pages} Confluence {page_label}" if failed_pages else None
 
         return SyncResult(
             provider_name=self.name,
             items_synced=pages_synced,
             details={"synced": len(written), "unchanged": len(reused), "removed": removed_count},
             summary=summary,
+            error=error,
         )
 
     @staticmethod

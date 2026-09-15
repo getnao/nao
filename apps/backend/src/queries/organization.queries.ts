@@ -1,4 +1,4 @@
-import type { UserRole } from '@nao/shared/types';
+import type { MemberStatus, UserRole } from '@nao/shared/types';
 import { and, asc, count, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 
 import s, { DBOrganization, DBOrgMember, NewOrganization, NewOrgMember } from '../db/abstractSchema';
@@ -116,6 +116,10 @@ export const findOrganizationByEmailDomain = async (email: string): Promise<DBOr
 		.execute();
 
 	return orgs.find((org) => parseEmailDomains(org.googleAuthDomains).includes(domain)) ?? null;
+};
+
+export const updateOrganizationName = async (orgId: string, name: string): Promise<void> => {
+	await db.update(s.organization).set({ name }).where(eq(s.organization.id, orgId)).execute();
 };
 
 export const updateOrganizationEmailDomains = async (orgId: string, domains: string | null): Promise<void> => {
@@ -344,11 +348,13 @@ export interface OrgMemberWithUser {
 	name: string;
 	email: string;
 	role: OrgRole;
+	status: MemberStatus;
 }
 
 export interface OrgProjectWithAccess {
 	id: string;
 	name: string;
+	path: string | null;
 	role: UserRole;
 	createdAt: Date;
 	updatedAt: Date;
@@ -361,6 +367,7 @@ export const listOrgMembersWithUsers = async (orgId: string): Promise<OrgMemberW
 			name: s.user.name,
 			email: s.user.email,
 			role: s.orgMember.role,
+			status: userQueries.userMemberStatus,
 		})
 		.from(s.orgMember)
 		.innerJoin(s.user, eq(s.orgMember.userId, s.user.id))
@@ -374,12 +381,14 @@ export const listOrgProjectsWithAccess = async (orgId: string, userId: string): 
 		.select({
 			id: s.project.id,
 			name: s.project.name,
-			role: sql<UserRole>`coalesce(${s.projectMember.role}, 'viewer')`,
+			path: s.project.path,
+			role: sql<UserRole>`coalesce(${s.projectMember.role}, ${s.orgMember.role}, 'viewer')`,
 			createdAt: s.project.createdAt,
 			updatedAt: s.project.updatedAt,
 		})
 		.from(s.project)
 		.leftJoin(s.projectMember, and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, userId)))
+		.leftJoin(s.orgMember, and(eq(s.orgMember.orgId, s.project.orgId), eq(s.orgMember.userId, userId)))
 		.where(eq(s.project.orgId, orgId))
 		.orderBy(asc(s.project.name))
 		.execute();
@@ -452,20 +461,10 @@ const ensureDefaultProject = async (org: DBOrganization): Promise<void> => {
 	}
 
 	const projectName = projectPath.split('/').pop() || 'Default Project';
-	const project = await projectQueries.createProject({
+	await projectQueries.createProject({
 		name: projectName,
 		type: 'local',
 		path: projectPath,
 		orgId: org.id,
 	});
-
-	// Add all org members to the new project
-	const orgMembers = await db.select().from(s.orgMember).where(eq(s.orgMember.orgId, org.id)).execute();
-	for (const member of orgMembers) {
-		await projectQueries.addProjectMember({
-			projectId: project.id,
-			userId: member.userId,
-			role: member.role,
-		});
-	}
 };

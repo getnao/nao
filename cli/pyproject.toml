@@ -31,12 +31,14 @@ dependencies = [
     "uvicorn>=0.40.0",
     "cryptography>=46.0.3",
     "dotenv>=0.9.9",
-    "pytest>=9.0.2",
     "python-dotenv>=1.2.1",
     "jinja2>=3.1.0",
     "apscheduler>=3.10.0",
     "questionary>=2.1.0",
-    "posthog>=7.8.0",
+    # Loose floor on purpose: tracking.py degrades to no-op telemetry when the
+    # resolver lands on an old posthog (dbt toolchains commonly pin posthog<3,
+    # e.g. elementary-data), instead of making nao-core uninstallable there.
+    "posthog>=2.0.0",
     "pyngrok>=7.0.0",
     "python-dateutil>=2.8.0",
     "numpy>=1.26.0",
@@ -87,7 +89,7 @@ all-databases = [
 ]
 all-llms = ["nao-core[openai,anthropic,mistral,gemini,ollama]"]
 all = ["nao-core[all-databases,all-llms,notion,confluence,aws-secrets,k8s-secrets]"]
-dev = ["pytest-cov", "pytest-timeout>=2.3.0"]
+dev = ["pytest>=9.0.2", "pytest-cov", "pytest-timeout>=2.3.0"]
 
 [project.scripts]
 nao = "nao_core.main:main"
@@ -97,7 +99,7 @@ Homepage = "https://getnao.io"
 Repository = "https://github.com/naolabs/chat"
 
 [dependency-groups]
-dev = ["ruff>=0.8.0", "ty>=0.0.9", "nao-core[all]"]
+dev = ["pytest>=9.0.2", "ruff>=0.8.0", "ty>=0.0.9", "nao-core[all]"]
 
 [build-system]
 requires = ["hatchling"]

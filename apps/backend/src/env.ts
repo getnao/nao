@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 
+import { isLlmProvider, LLM_PROVIDERS, NAMED_PROVIDER_KIND } from '@nao/shared/types';
 import dotenv from 'dotenv';
 import { z } from 'zod/v4';
 
@@ -9,7 +10,7 @@ dotenv.config({
 	path: path.join(process.cwd(), '..', '..', '.env'),
 });
 
-const envSchema = z.object({
+const baseEnvSchema = z.object({
 	MODE: z.enum(['dev', 'prod', 'test']).default('dev'),
 
 	DB_URI: z.string().default('sqlite:./db.sqlite'),
@@ -166,12 +167,78 @@ const envSchema = z.object({
 		.optional()
 		.transform((val) => val?.trim() || undefined),
 
+	/**
+	 * Default for the MCP endpoint toggle (Settings > MCP Endpoint) while a project has no stored
+	 * settings — lets a deployment come up with the endpoint already enabled. Once an admin saves
+	 * the settings, the stored value wins and this is ignored.
+	 */
+	MCP_ENDPOINT_ENABLED: z
+		.enum(['true', 'false'])
+		.optional()
+		.transform((val) => (val === undefined ? undefined : val === 'true')),
+
+	/**
+	 * Public base URL external MCP clients connect to, when it differs from BETTER_AUTH_URL — e.g.
+	 * a deployment that serves the MCP endpoint on an internet-facing host while the UI stays on a
+	 * private/VPN-only host. Its `/mcp` URL is added to the OAuth token audiences, and the
+	 * protected-resource metadata + WWW-Authenticate header advertise whichever host the client
+	 * used. Leave unset for single-host deployments.
+	 */
+	MCP_PUBLIC_URL: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined)
+		.pipe(z.url({ message: 'MCP_PUBLIC_URL must be a valid URL' }).optional()),
+
+	/**
+	 * Whether unauthenticated OAuth dynamic client registration (POST /api/auth/oauth2/register) is
+	 * allowed. MCP clients that self-register (Claude, Cursor, …) rely on it, so it defaults to true.
+	 * Self-hosted deployments that connect only via manually-created confidential clients can set it
+	 * to "false" to shrink the attack surface.
+	 */
+	ALLOW_UNAUTHENTICATED_DCR: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('true')
+		.transform((val) => val === 'true'),
+
+	/**
+	 * Lifetime (in seconds) of OAuth access tokens issued to MCP clients. Access tokens are
+	 * bearer credentials, so a shorter lifetime limits how long a leaked token stays usable
+	 * (refresh tokens cover renewal). Defaults to 24h to preserve prior behavior.
+	 */
+	MCP_ACCESS_TOKEN_TTL: z.coerce.number().int().positive().default(86400),
+
+	/**
+	 * Lifetime (in seconds) of OAuth refresh tokens issued to MCP clients. Defaults to 7d.
+	 */
+	MCP_REFRESH_TOKEN_TTL: z.coerce.number().int().positive().default(604800),
+
 	POSTHOG_KEY: z.string().optional(),
 	POSTHOG_HOST: z.url({ message: 'POSTHOG_HOST must be a valid URL' }).optional(),
 	POSTHOG_DISABLED: z
 		.enum(['true', 'false'])
 		.optional()
 		.transform((val) => val === 'true'),
+
+	/**
+	 * Comma-separated providers to keep out of the deployment entirely, regardless of where their
+	 * credentials come from. Ambient credentials otherwise auto-register providers — e.g. EKS IRSA
+	 * sets AWS_WEB_IDENTITY_TOKEN_FILE on every pod, which surfaces Bedrock even when the role has
+	 * no Bedrock permissions. Accepts provider kinds and named instances (openaiCompatible/name).
+	 */
+	DISABLED_PROVIDERS: z
+		.string()
+		.optional()
+		.transform((val) =>
+			(val ?? '')
+				.split(',')
+				.map((entry) => entry.trim())
+				.filter(Boolean),
+		)
+		.refine((providers) => providers.every(isLlmProvider), {
+			message: `DISABLED_PROVIDERS must be a comma-separated list of provider kinds (${LLM_PROVIDERS.join(', ')}) or named instances (${NAMED_PROVIDER_KIND}/<name>)`,
+		}),
 
 	LANGFUSE_PUBLIC_KEY: z
 		.string()
@@ -202,8 +269,15 @@ const envSchema = z.object({
 	BETA_STORY_FILTERS_ENABLED: z
 		.enum(['true', 'false'])
 		.optional()
-		.default('false')
+		.default('true')
 		.transform((val) => val === 'true'),
+});
+
+// Refresh tokens must outlive access tokens, otherwise a client can hold a valid
+// access token it can no longer renew once the refresh token has expired.
+const envSchema = baseEnvSchema.refine((e) => e.MCP_REFRESH_TOKEN_TTL > e.MCP_ACCESS_TOKEN_TTL, {
+	message: 'MCP_REFRESH_TOKEN_TTL must be greater than MCP_ACCESS_TOKEN_TTL so refresh tokens outlive access tokens',
+	path: ['MCP_REFRESH_TOKEN_TTL'],
 });
 
 const result = envSchema.safeParse(process.env);
@@ -258,6 +332,33 @@ export const isSelfHosted = env.NAO_MODE === 'self-hosted';
 
 const normalizedBaseUrl = env.BETTER_AUTH_URL.replace(/\/+$/, '');
 export const MCP_SERVER_URL = `${normalizedBaseUrl}/mcp`;
+
+const normalizedMcpPublicUrl = env.MCP_PUBLIC_URL?.replace(/\/+$/, '');
+/** The `/mcp` URL on the public host, when MCP_PUBLIC_URL is set. */
+export const MCP_PUBLIC_SERVER_URL = normalizedMcpPublicUrl ? `${normalizedMcpPublicUrl}/mcp` : undefined;
+/** OAuth resource identifiers the token endpoint accepts (RFC 8707 audiences). */
+export const MCP_VALID_AUDIENCES = [
+	env.BETTER_AUTH_URL,
+	MCP_SERVER_URL,
+	...(MCP_PUBLIC_SERVER_URL ? [MCP_PUBLIC_SERVER_URL] : []),
+];
+/** Audiences a bearer token may carry to call /mcp — the MCP resource URLs, on either host. */
+export const MCP_TOKEN_AUDIENCES = [MCP_SERVER_URL, ...(MCP_PUBLIC_SERVER_URL ? [MCP_PUBLIC_SERVER_URL] : [])];
+
+// URL normalizes host to lowercase; compare request hosts case-insensitively to match.
+const mcpPublicHost = normalizedMcpPublicUrl ? new URL(normalizedMcpPublicUrl).host : undefined;
+
+/**
+ * The origin a client is talking to, so the protected-resource metadata and WWW-Authenticate
+ * header advertise the host actually in use. Returns the public MCP origin when the request came in
+ * on it, else BETTER_AUTH_URL — never an arbitrary Host header, so only known origins are advertised.
+ */
+export function resolveMcpFacingOrigin(requestHost: string | undefined): string {
+	if (normalizedMcpPublicUrl && requestHost && requestHost.toLowerCase() === mcpPublicHost) {
+		return normalizedMcpPublicUrl;
+	}
+	return normalizedBaseUrl;
+}
 
 export function noProjectMessage(): string {
 	return isCloud

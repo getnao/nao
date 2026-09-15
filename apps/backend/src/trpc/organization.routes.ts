@@ -37,6 +37,12 @@ export const organizationRoutes = {
 		role: ctx.orgRole,
 	})),
 
+	rename: orgAdminOnlyProcedure
+		.input(z.object({ name: z.string().trim().min(1).max(100) }))
+		.mutation(async ({ input, ctx }) => {
+			await orgQueries.updateOrganizationName(ctx.org.id, input.name);
+		}),
+
 	getProjects: orgAdminProcedure.query(async ({ ctx }) => {
 		return orgQueries.listOrgProjectsWithAccess(ctx.org.id, ctx.user.id);
 	}),
@@ -102,7 +108,8 @@ export const organizationRoutes = {
 				addMember: async (userId) => {
 					await orgQueries.addOrgMember({ orgId, userId, role: env.DEFAULT_USER_ROLE });
 				},
-				buildEmail: (user, password) => buildUserAddedEmail(user, ctx.org.name, 'organization', password),
+				buildEmail: (user, password) =>
+					buildUserAddedEmail(user, ctx.org.name, 'organization', password, ctx.user.email),
 			});
 		}),
 
@@ -151,6 +158,10 @@ export const organizationRoutes = {
 	resetMemberPassword: orgAdminOnlyProcedure
 		.input(z.object({ userId: z.string() }))
 		.mutation(async ({ input, ctx }) => {
+			if (isCloud) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'Admin password resets are disabled in nao cloud.' });
+			}
+
 			const memberRole = await orgQueries.getUserRoleInOrg(ctx.org.id, input.userId);
 			if (!memberRole) {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'User is not a member of this organization.' });

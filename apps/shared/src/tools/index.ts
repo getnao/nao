@@ -10,6 +10,7 @@ export * as list from './list';
 export * as loadSkill from './load-skill';
 export * as mcpCall from './mcp-call';
 export * as mcpConnect from './mcp-connect';
+export { QueryIdSchema } from './query-id';
 export * as readFile from './read';
 export * as readQueryResult from './read-query-result';
 export * as searchFiles from './search';

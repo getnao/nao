@@ -25,5 +25,11 @@ apps/backend/storage/
 
 .cursor/
 .nao/
+.meta/
 
 example/tests/outputs/
+
+# heal.dev related stuff
+.heal/
+apps/frontend/.playwright*
+sandbox/

@@ -7,7 +7,6 @@ import yaml from 'js-yaml';
 import type { DBProject } from '../db/abstractSchema';
 import { env } from '../env';
 import { ensureContextRecommendationsScheduleForNewProject } from '../handlers/context-recommendations.handler';
-import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
 
 export function createTempProjectDir(prefix: string): string {
@@ -90,14 +89,6 @@ export async function createNewProject({
 		orgId,
 	});
 
-	const orgMembers = await orgQueries.listOrgMembersWithUsers(orgId);
-	for (const member of orgMembers) {
-		await projectQueries.addProjectMember({
-			projectId: project.id,
-			userId: member.id,
-			role: member.role,
-		});
-	}
 	await ensureContextRecommendationsScheduleForNewProject(project.id);
 
 	return { projectId: project.id, projectName, status: 'created' as const };

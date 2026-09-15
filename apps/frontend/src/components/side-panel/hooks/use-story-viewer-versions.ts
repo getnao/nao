@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useDebouncedCallback } from '@/hooks/use-debounced-callback';
 import { trpc } from '@/main';
+
+const STORY_REFRESH_DEBOUNCE_MS = 400;
 
 interface UseStoryViewerVersionsParams {
 	chatId: string;
 	storySlug: string;
 	isAgentRunning: boolean;
+	latestStoryOutputVersion?: number | null;
 	isReadonlyMode?: boolean;
 }
 
@@ -19,6 +23,7 @@ export const useStoryViewerVersions = ({
 	chatId,
 	storySlug,
 	isAgentRunning,
+	latestStoryOutputVersion = null,
 	isReadonlyMode,
 }: UseStoryViewerVersionsParams) => {
 	const queryClient = useQueryClient();
@@ -34,18 +39,37 @@ export const useStoryViewerVersions = ({
 		null,
 	);
 	const previousRunningRef = useRef(isAgentRunning);
+	const latestStoryOutputRef = useRef({ storySlug, version: latestStoryOutputVersion });
+	const refreshStoryData = useCallback(() => {
+		void refetch();
+		void queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
+		void queryClient.invalidateQueries({
+			queryKey: trpc.story.getLatest.queryKey({ chatId, storySlug }),
+		});
+	}, [chatId, queryClient, refetch, storySlug]);
+	const debouncedRefreshStoryData = useDebouncedCallback(refreshStoryData, STORY_REFRESH_DEBOUNCE_MS);
 
 	useEffect(() => {
 		if (previousRunningRef.current && !isAgentRunning) {
-			void refetch();
-			void queryClient.invalidateQueries({ queryKey: trpc.story.listAll.queryKey() });
-			void queryClient.invalidateQueries({
-				queryKey: trpc.story.getLatest.queryKey({ chatId, storySlug }),
-			});
+			refreshStoryData();
 		}
 
 		previousRunningRef.current = isAgentRunning;
-	}, [isAgentRunning, queryClient, refetch, chatId, storySlug]);
+	}, [isAgentRunning, refreshStoryData]);
+
+	useEffect(() => {
+		if (latestStoryOutputRef.current.storySlug !== storySlug) {
+			latestStoryOutputRef.current = { storySlug, version: latestStoryOutputVersion };
+			return;
+		}
+
+		if (latestStoryOutputVersion === null || latestStoryOutputRef.current.version === latestStoryOutputVersion) {
+			return;
+		}
+
+		latestStoryOutputRef.current.version = latestStoryOutputVersion;
+		debouncedRefreshStoryData();
+	}, [debouncedRefreshStoryData, latestStoryOutputVersion, storySlug]);
 
 	useEffect(() => {
 		setHistoricalVersionSelection((selection) => {
@@ -67,6 +91,7 @@ export const useStoryViewerVersions = ({
 	const currentVersionIndex = selectedVersionIndex ?? versions.length - 1;
 	const currentVersion = versions[currentVersionIndex];
 	const currentVersionNumber = currentVersionIndex + 1;
+	const storedVersionNumber = currentVersion?.version ?? 0;
 	const isViewingLatest = selectedVersionIndex === null;
 
 	const goToPreviousVersion = useCallback(() => {
@@ -92,6 +117,10 @@ export const useStoryViewerVersions = ({
 		);
 	}, [chatId, selectedVersionIndex, storySlug, versions.length]);
 
+	const goToLatestVersion = useCallback(() => {
+		setHistoricalVersionSelection(null);
+	}, []);
+
 	return {
 		versions,
 		storyId,
@@ -99,9 +128,11 @@ export const useStoryViewerVersions = ({
 		archivedAt,
 		currentVersion,
 		currentVersionNumber,
+		storedVersionNumber,
 		isViewingLatest,
 		goToPreviousVersion,
 		goToNextVersion,
+		goToLatestVersion,
 	};
 };
 

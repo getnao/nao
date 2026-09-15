@@ -9,6 +9,7 @@ import { agentService, defaultAgentToolsExcluding } from '../../services/agent';
 import { mcpService } from '../../services/mcp';
 import { skillService } from '../../services/skill';
 import type { UIMessage, UIMessagePart } from '../../types/chat';
+import { CHART_DATA_MODE_ASK_NAO_ADDENDUM, CHART_DATA_MODE_RESULT_NUDGE } from '../chart-data-mode';
 import type { McpContext, ToolResult } from '../logging';
 import { chatUrl } from '../urls';
 import { type AskNaoClarification, type AskNaoResult, askNaoRuns } from './ask-nao-runs';
@@ -42,6 +43,8 @@ const ASK_NAO_DESCRIPTION =
 	"CLARIFICATIONS: if the question is ambiguous, this returns `status: 'needs_clarification'` " +
 	'with a `clarification.question` (and optional `clarification.options`). Relay the question to the user, ' +
 	'then call `ask_nao` again with the SAME `chatId` and their answer as `question`.';
+
+const ASK_NAO_DATA_MODE_DESCRIPTION = ASK_NAO_DESCRIPTION + CHART_DATA_MODE_ASK_NAO_ADDENDUM;
 
 const GET_NAO_ANSWER_DESCRIPTION =
 	'Fetch the result of an `ask_nao` run that is still in progress. ' +
@@ -81,7 +84,7 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 	registerMcpTool(server, ctx, {
 		name: 'ask_nao',
 		title: 'Ask Nao',
-		description: ASK_NAO_DESCRIPTION,
+		description: ctx.chartDataMode ? ASK_NAO_DATA_MODE_DESCRIPTION : ASK_NAO_DESCRIPTION,
 		inputSchema: {
 			question: z
 				.string()
@@ -141,7 +144,7 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 				throw new Error(outcome.error);
 			}
 			if (outcome.kind === 'complete') {
-				return answerCompletePayload(outcome.result);
+				return answerCompletePayload(outcome.result, ctx);
 			}
 			return runningPayload(chat.id, naoChatUrl);
 		},
@@ -167,7 +170,7 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 		errorMessage: () => 'Failed to fetch the nao answer.',
 		handler: async ({ chatId }) => {
 			await assertChatAccess(ctx, chatId);
-			return resolveAnswerPayload(chatId);
+			return resolveAnswerPayload(chatId, ctx);
 		},
 	});
 }
@@ -222,13 +225,13 @@ async function waitForResultOrBudget(runPromise: Promise<AskNaoResult>, budgetMs
 	}
 }
 
-async function resolveAnswerPayload(chatId: string): Promise<ToolResult> {
+async function resolveAnswerPayload(chatId: string, ctx: McpContext): Promise<ToolResult> {
 	const state = askNaoRuns.get(chatId);
 	if (!state) {
-		return reconstructAnswerFromDb(chatId);
+		return reconstructAnswerFromDb(chatId, ctx);
 	}
 	if (state.status === 'complete') {
-		return answerCompletePayload(state.result);
+		return answerCompletePayload(state.result, ctx);
 	}
 	if (state.status === 'error') {
 		return answerErrorPayload(chatId, state.error);
@@ -241,16 +244,19 @@ async function resolveAnswerPayload(chatId: string): Promise<ToolResult> {
  * restart): rebuild the final answer from the persisted chat. Query/story metadata is
  * not reconstructed since it only lives on the in-memory run.
  */
-async function reconstructAnswerFromDb(chatId: string): Promise<ToolResult> {
+async function reconstructAnswerFromDb(chatId: string, ctx: McpContext): Promise<ToolResult> {
 	const answer = await extractAnswerFromChat(chatId);
-	return answerCompletePayload({
-		chatId,
-		chatUrl: chatUrl(chatId),
-		text: answer.text,
-		...(answer.clarification ? { clarification: answer.clarification } : {}),
-		queries: [],
-		story_ids: [],
-	});
+	return answerCompletePayload(
+		{
+			chatId,
+			chatUrl: chatUrl(chatId),
+			text: answer.text,
+			...(answer.clarification ? { clarification: answer.clarification } : {}),
+			queries: [],
+			story_ids: [],
+		},
+		ctx,
+	);
 }
 
 async function extractAnswerFromChat(chatId: string): Promise<AskNaoAnswer> {
@@ -282,19 +288,24 @@ function runningPayload(chatId: string, naoChatUrl: string): ToolResult {
 	};
 }
 
-function answerCompletePayload(result: AskNaoResult): ToolResult {
+function answerCompletePayload(result: AskNaoResult, ctx: McpContext): ToolResult {
 	if (result.clarification) {
 		return clarificationPayload(result, result.clarification);
 	}
 
+	const content: ToolResult['content'] = [
+		{
+			type: 'text' as const,
+			text: `${result.text}\n\n[chatId: ${result.chatId}]\n[chatUrl: ${result.chatUrl}]`,
+		},
+		{ type: 'text' as const, text: JSON.stringify({ queries: result.queries, story_ids: result.story_ids }) },
+	];
+	if (ctx.chartDataMode && result.queries.length > 0 && result.story_ids.length === 0) {
+		content.push({ type: 'text' as const, text: CHART_DATA_MODE_RESULT_NUDGE });
+	}
+
 	return {
-		content: [
-			{
-				type: 'text' as const,
-				text: `${result.text}\n\n[chatId: ${result.chatId}]\n[chatUrl: ${result.chatUrl}]`,
-			},
-			{ type: 'text' as const, text: JSON.stringify({ queries: result.queries, story_ids: result.story_ids }) },
-		],
+		content,
 		structuredContent: { status: 'complete', ...result },
 	};
 }

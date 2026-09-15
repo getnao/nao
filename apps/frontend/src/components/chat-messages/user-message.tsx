@@ -23,6 +23,7 @@ import { editedMessageIdStore } from '@/stores/chat-edited-message';
 import { trpc } from '@/main';
 import { STORY_MENTION_ID } from '@/components/chat-input-prompt';
 import StoryIcon from '@/components/ui/story-icon';
+import MattermostIcon from '@/components/icons/mattermost.svg';
 import SlackIcon from '@/components/icons/slack.svg';
 import TeamsIcon from '@/components/icons/microsoft-teams.svg';
 import McpIcon from '@/components/icons/model-context-protocol.svg';
@@ -53,6 +54,7 @@ const MESSAGE_SOURCES = {
 	slack: { icon: <SlackIcon className='size-3.5' />, label: 'sent in Slack' },
 	teams: { icon: <TeamsIcon className='size-4' />, label: 'sent in Teams' },
 	telegram: { icon: <TelegramIcon className='size-4' />, label: 'sent in Telegram' },
+	mattermost: { icon: <MattermostIcon className='size-4' />, label: 'sent in Mattermost' },
 	whatsapp: { icon: <WhatsAppIcon className='size-4' />, label: 'sent in WhatsApp' },
 	mcp: { icon: <McpIcon className='size-4' />, label: 'sent via MCP' },
 } as const;
