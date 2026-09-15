@@ -481,6 +481,15 @@ class AgentManager {
 	): ReadableStream<InferUIMessageChunk<UIMessage>> {
 		let error: unknown = undefined;
 		let result: StreamTextResult<AgentTools, never> | undefined;
+		const handleError = (err: unknown): string => {
+			error = err;
+			logger.error(`Agent stream error: ${String(err)}`, {
+				source: 'agent',
+				projectId: this.chat.projectId,
+				context: { chatId: this.chat.id, modelId: this._modelSelection.modelId },
+			});
+			return formatErrorMessageForUI(err);
+		};
 
 		return createUIMessageStream<UIMessage>({
 			generateId: () => crypto.randomUUID(),
@@ -525,19 +534,11 @@ class AgentManager {
 				writer.merge(
 					result.toUIMessageStream({
 						sendStart: false,
-						onError: formatErrorMessageForUI,
+						onError: handleError,
 					}),
 				);
 			},
-			onError: (err) => {
-				error = err;
-				logger.error(`Agent stream error: ${String(err)}`, {
-					source: 'agent',
-					projectId: this.chat.projectId,
-					context: { chatId: this.chat.id, modelId: this._modelSelection.modelId },
-				});
-				return String(err);
-			},
+			onError: handleError,
 			onFinish: async (e) => {
 				try {
 					const stopReason = e.isAborted ? 'interrupted' : e.finishReason;
