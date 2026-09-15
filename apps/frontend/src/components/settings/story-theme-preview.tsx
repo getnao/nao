@@ -143,9 +143,7 @@ export function StoryThemePreviewPanel() {
 				</Button>
 				<div className='flex min-w-0 flex-col'>
 					<span className='text-sm font-medium'>Live preview</span>
-					<span className='truncate text-xs text-muted-foreground'>
-						Follows your edits before you save.
-					</span>
+					<span className='truncate text-xs text-muted-foreground'>Follows your edits before you save.</span>
 				</div>
 			</div>
 			<div className='min-h-0 flex-1 overflow-auto'>

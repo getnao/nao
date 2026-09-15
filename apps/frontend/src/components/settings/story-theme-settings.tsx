@@ -375,11 +375,7 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 					</div>
 					<div className='flex items-center gap-2'>
 						{isDirty && (
-							<Button
-								variant='ghost'
-								size='sm'
-								onClick={() => setTheme(saved ?? DEFAULT_STORY_THEME)}
-							>
+							<Button variant='ghost' size='sm' onClick={() => setTheme(saved ?? DEFAULT_STORY_THEME)}>
 								Revert
 							</Button>
 						)}
