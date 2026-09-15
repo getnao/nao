@@ -86,7 +86,7 @@ export async function getStoryByIdForUser(storyId: string, userId: string): Prom
 		.select({
 			id: s.story.id,
 			chatId: s.story.chatId,
-			projectId: s.story.projectId,
+			projectId: sql<string>`coalesce(${s.story.projectId}, ${s.chat.projectId})`,
 			userId: s.story.userId,
 			slug: s.story.slug,
 			title: s.story.title,
@@ -588,7 +588,7 @@ async function queryStoriesWithLatestVersion(
 		.select({
 			id: s.story.id,
 			chatId: s.story.chatId,
-			projectId: s.story.projectId,
+			projectId: sql<string>`coalesce(${s.story.projectId}, ${s.chat.projectId})`,
 			userId: s.story.userId,
 			slug: s.story.slug,
 			title: s.story.title,
@@ -701,6 +701,7 @@ async function getStoryDataCache(whereCondition: SQL): Promise<DBStoryDataCache 
 		.select({
 			storyId: s.storyDataCache.storyId,
 			queryData: s.storyDataCache.queryData,
+			querySources: s.storyDataCache.querySources,
 			analysisResults: s.storyDataCache.analysisResults,
 			cachedAt: s.storyDataCache.cachedAt,
 		})

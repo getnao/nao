@@ -18,6 +18,7 @@ import {
 	ShieldCheck,
 	TriangleAlert,
 	UserCheck,
+	UsersRound,
 } from 'lucide-react';
 import type { LicenseStatus } from '@nao/backend/license-types';
 
@@ -248,6 +249,12 @@ const ENTERPRISE_FEATURES = [
 		label: 'Spend limits per user',
 		description: 'Cap how much each person can spend on the AI models.',
 		icon: CircleDollarSign,
+	},
+	{
+		key: 'user-groups',
+		label: 'User groups',
+		description: 'Control which product features different project groups can use.',
+		icon: UsersRound,
 	},
 	{
 		key: 'multi-project',
