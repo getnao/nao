@@ -5,6 +5,7 @@ export * from './chart-block';
 export * from './chart-builder';
 export * from './chart-data-labels';
 export * from './chart-domain';
+export * from './chart-fonts';
 export * from './chart-plugin';
 export * from './chart-values';
 export * from './citation';

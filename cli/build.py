@@ -450,6 +450,17 @@ def build_server(project_root: Path, output_dir: Path) -> None:
         shutil.rmtree(output_public)
     shutil.copytree(backend_public, output_public)
 
+    # Chart PNG rendering needs the bundled fonts: resvg draws no text without them
+    backend_assets = backend_dir / "assets"
+    output_assets = output_dir / "assets"
+    if output_assets.exists():
+        shutil.rmtree(output_assets)
+    if backend_assets.exists():
+        shutil.copytree(backend_assets, output_assets)
+        print(f"   Assets: {output_assets}")
+    else:
+        print("   ⚠️  No backend assets folder found")
+
     # Step 7: Copy migrations next to the binary (both SQLite and PostgreSQL)
     print("\n📦 Bundling migrations with binary...")
 
@@ -596,6 +607,7 @@ def build(
     sqlite_migrations_dir = output_dir / "migrations-sqlite"
     postgres_migrations_dir = output_dir / "migrations-postgres"
     fastapi_dir = output_dir / "fastapi"
+    assets_dir = output_dir / "assets"
     rg_binary_name = "rg.exe" if sys.platform == "win32" else "rg"
     rg_path = output_dir / rg_binary_name
 
@@ -613,6 +625,7 @@ def build(
         force
         or not binary_path.exists()
         or not public_dir.exists()
+        or not assets_dir.exists()
         or not sqlite_migrations_dir.exists()
         or not postgres_migrations_dir.exists()
         or not fastapi_dir.exists()
@@ -621,7 +634,8 @@ def build(
     )
 
     if skip_server:
-        if not binary_path.exists() or not public_dir.exists() or not fastapi_dir.exists():
+        required = [binary_path, public_dir, assets_dir, fastapi_dir]
+        if not all(path.exists() for path in required):
             print("❌ Server binary or assets not found. Run without --skip-server first.")
             sys.exit(1)
         print("✓ Skipping server build (--skip-server)")
