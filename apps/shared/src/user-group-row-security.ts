@@ -1,3 +1,9 @@
+import {
+	type DatabaseContextAccess,
+	isDatabaseContextTableGranted,
+	normalizeDatabaseContextAccess,
+} from './user-group-context';
+
 export interface RowSecurityTableIdentity {
 	databaseType: string;
 	database: string;
@@ -88,6 +94,33 @@ export function normalizeUserGroupRowPolicies(value: UserGroupRowPolicies): User
 	return {
 		version: 1,
 		policies: deduplicate(policies as UserGroupTablePolicy[], tableKey).sort(compareTables),
+	};
+}
+
+export function filterUserGroupRowPoliciesByDatabaseContext(
+	value: UserGroupRowPolicies,
+	access: DatabaseContextAccess,
+): UserGroupRowPolicies {
+	const normalizedAccess = normalizeDatabaseContextAccess(access);
+	const policies = deduplicate(
+		value.policies.map((policy) => normalizeTablePolicy(policy) ?? policy),
+		tableKey,
+	).sort(compareTables);
+	return {
+		version: 1,
+		policies: policies.filter((policy) => isDatabaseContextTableGranted(normalizedAccess, policy)),
+	};
+}
+
+export function filterProjectRowSecurityByDatabaseContext(
+	value: ProjectRowSecurity,
+	access: DatabaseContextAccess,
+): ProjectRowSecurity {
+	const normalized = normalizeProjectRowSecurity(value);
+	const normalizedAccess = normalizeDatabaseContextAccess(access);
+	return {
+		version: 1,
+		tables: normalized.tables.filter((table) => isDatabaseContextTableGranted(normalizedAccess, table)),
 	};
 }
 

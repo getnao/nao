@@ -1,4 +1,9 @@
-import { EMPTY_PROJECT_ROW_SECURITY, resolveWarehouseRowSecurity, USER_GROUP_FEATURE_DEFINITIONS } from '@nao/shared';
+import {
+	EMPTY_PROJECT_ROW_SECURITY,
+	filterProjectRowSecurityByDatabaseContext,
+	resolveWarehouseRowSecurity,
+	USER_GROUP_FEATURE_DEFINITIONS,
+} from '@nao/shared';
 import { USER_ROLE_LABELS } from '@nao/shared/types';
 import type { MemberStatus, UserRole } from '@nao/shared/types';
 import type {
@@ -155,6 +160,7 @@ export function UserGroupUserDetail({
 					{activeTab === 'security' && (
 						<EffectiveRowSecurity
 							projectRowSecurity={projectRowSecurity}
+							databaseAccess={effectiveAccess.databaseAccess}
 							groupPolicies={effectiveAccess.rowPolicies}
 							state={securityState}
 							onRetry={onRetrySecurity}
@@ -219,20 +225,23 @@ function getDensityLabel(density: ToolCallDensityPolicy['defaultDensity']): stri
 
 function EffectiveRowSecurity({
 	projectRowSecurity,
+	databaseAccess,
 	groupPolicies,
 	state,
 	onRetry,
 }: {
 	projectRowSecurity: ProjectRowSecurity;
+	databaseAccess: DatabaseContextAccess;
 	groupPolicies: UserGroupRowPolicies[];
 	state: 'loading' | 'error' | 'ready';
 	onRetry?: () => void;
 }) {
 	const license = useLicenseFeatures();
 	const isLicensed = license.data?.['row-level-security'] === true;
+	const accessibleProjectRowSecurity = filterProjectRowSecurityByDatabaseContext(projectRowSecurity, databaseAccess);
 
 	return (
-		<div className='flex min-w-0 flex-col gap-3'>
+		<div className='flex min-w-0 flex-col gap-4'>
 			<div>
 				<h4 className='text-sm font-medium'>Effective row-level security</h4>
 				<p className='text-xs text-muted-foreground'>
@@ -255,8 +264,12 @@ function EffectiveRowSecurity({
 				<SecurityStatus message='Loading row-level security...' />
 			) : state === 'error' ? (
 				<SecurityStatus message='Failed to load row-level security' onRetry={onRetry} />
+			) : projectRowSecurity.tables.length > 0 && accessibleProjectRowSecurity.tables.length === 0 ? (
+				<RowSecurityEmptyState message="No protected tables are available through this user's Context permissions." />
 			) : (
-				<ResolvedRowSecurity security={resolveWarehouseRowSecurity(projectRowSecurity, groupPolicies)} />
+				<ResolvedRowSecurity
+					security={resolveWarehouseRowSecurity(accessibleProjectRowSecurity, groupPolicies)}
+				/>
 			)}
 		</div>
 	);
@@ -277,11 +290,7 @@ function SecurityStatus({ message, onRetry }: { message: string; onRetry?: () =>
 
 function ResolvedRowSecurity({ security }: { security: WarehouseRowSecurity }) {
 	if (!security.enforced) {
-		return (
-			<div className='rounded-lg border px-3 py-3 text-sm text-muted-foreground'>
-				No protected tables configured.
-			</div>
-		);
+		return <RowSecurityEmptyState message='No protected tables configured.' />;
 	}
 
 	return (
@@ -306,6 +315,10 @@ function ResolvedRowSecurity({ security }: { security: WarehouseRowSecurity }) {
 			))}
 		</div>
 	);
+}
+
+function RowSecurityEmptyState({ message }: { message: string }) {
+	return <div className='rounded-lg border px-3 py-3 text-sm text-muted-foreground'>{message}</div>;
 }
 
 function RowSecurityStatusBadge({

@@ -1,4 +1,3 @@
-import type { DatabaseContextAccess, DocsContextAccess, UserGroupRowPolicies, UserGroupSsoMappings } from '@nao/shared';
 import {
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
@@ -6,18 +5,23 @@ import {
 	EMPTY_PROJECT_ROW_SECURITY,
 	EMPTY_USER_GROUP_ROW_POLICIES,
 	EMPTY_USER_GROUP_SSO_MAPPINGS,
+	extractConditionalGroupContent,
+	filterProjectRowSecurityByDatabaseContext,
+	filterUserGroupRowPoliciesByDatabaseContext,
 	normalizeDatabaseContextAccess,
 	normalizeDocsContextAccess,
 	normalizeUserGroupRowPolicies,
 	normalizeUserGroupSsoMappings,
 	USER_GROUP_FEATURE_DEFINITIONS,
 } from '@nao/shared';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Check, Copy } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { DatabaseContextAccess, DocsContextAccess, UserGroupRowPolicies, UserGroupSsoMappings } from '@nao/shared';
 import type { ToolCallDensity } from '@nao/shared/types';
 import type { QueryClient } from '@tanstack/react-query';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Copy, FolderOpen } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
 
+import type { TabBarItem } from '@/components/ui/tab-bar';
 import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-slider';
 import { UserGroupContextAccess } from '@/components/settings/user-group-context-access';
 import { UserGroupFeatureCard } from '@/components/settings/user-group-feature-card';
@@ -27,7 +31,6 @@ import { UserGroupSwitchRow } from '@/components/settings/user-group-switch-row'
 import { Button } from '@/components/ui/button';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Input } from '@/components/ui/input';
-import type { TabBarItem } from '@/components/ui/tab-bar';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useLicenseFeatures } from '@/hooks/use-license';
@@ -80,6 +83,20 @@ export function UserGroupEditor({
 }: UserGroupEditorProps) {
 	const queryClient = useQueryClient();
 	const existingGroup = group === 'new' ? null : group;
+	const existingRowPolicies = useMemo(
+		() =>
+			existingGroup
+				? filterUserGroupRowPoliciesByDatabaseContext(
+						existingGroup.rowPolicies ?? EMPTY_USER_GROUP_ROW_POLICIES,
+						existingGroup.databaseAccess,
+					)
+				: EMPTY_USER_GROUP_ROW_POLICIES,
+		[existingGroup],
+	);
+	const editorGroup = useMemo(
+		() => (existingGroup ? { ...existingGroup, rowPolicies: existingRowPolicies } : null),
+		[existingGroup, existingRowPolicies],
+	);
 	const [name, setName] = useState(existingGroup?.name ?? '');
 	const [featureGrants, setFeatureGrants] = useState<UserGroupFeature[]>(existingGroup?.featureGrants ?? []);
 	const [toolCallDensityPolicy, setToolCallDensityPolicy] = useState<ToolCallDensityPolicy>(
@@ -94,13 +111,11 @@ export function UserGroupEditor({
 	const [ssoMappings, setSsoMappings] = useState<UserGroupSsoMappings>(
 		existingGroup?.ssoMappings ?? EMPTY_USER_GROUP_SSO_MAPPINGS,
 	);
-	const [rowPolicies, setRowPolicies] = useState<UserGroupRowPolicies>(
-		existingGroup?.rowPolicies ?? EMPTY_USER_GROUP_ROW_POLICIES,
-	);
+	const [rowPolicies, setRowPolicies] = useState<UserGroupRowPolicies>(existingRowPolicies);
 	const [formError, setFormError] = useState<string | null>(null);
 	const [showRowPolicyValidationErrors, setShowRowPolicyValidationErrors] = useState(false);
 	const [confirmDelete, setConfirmDelete] = useState(false);
-	const previousGroupRef = useRef(existingGroup);
+	const previousGroupRef = useRef(editorGroup);
 	const createGroup = useMutation(trpc.userGroup.create.mutationOptions());
 	const updateGroup = useMutation(trpc.userGroup.update.mutationOptions());
 	const deleteGroup = useMutation(trpc.userGroup.delete.mutationOptions());
@@ -110,6 +125,10 @@ export function UserGroupEditor({
 	const rowSecurity = useQuery(trpc.userGroup.rowSecurity.queryOptions());
 	const rowSecurityRegistry =
 		rowSecurity.data && Array.isArray(rowSecurity.data.tables) ? rowSecurity.data : EMPTY_PROJECT_ROW_SECURITY;
+	const accessibleRowSecurityRegistry = filterProjectRowSecurityByDatabaseContext(
+		rowSecurityRegistry,
+		databaseAccess,
+	);
 	const oidcConfig = useQuery({
 		...trpc.authConfig.oidc.getConfig.queryOptions(),
 		enabled: hasSso,
@@ -147,8 +166,8 @@ export function UserGroupEditor({
 	const hasSsoTab = hasConfiguredSsoProvider || hasStoredSsoMappings;
 	const tabs = hasSsoTab ? [...defaultTabs, { id: 'sso' as const, label: 'SSO' }] : defaultTabs;
 	const hasUnsavedChanges =
-		existingGroup === null ||
-		hasUserGroupEditorChanges(existingGroup, {
+		editorGroup === null ||
+		hasUserGroupEditorChanges(editorGroup, {
 			name,
 			featureGrants,
 			toolCallDensityPolicy,
@@ -165,16 +184,16 @@ export function UserGroupEditor({
 		setDatabaseAccess(existingGroup?.databaseAccess ?? EMPTY_DATABASE_CONTEXT_ACCESS);
 		setDocsAccess(existingGroup?.docsAccess ?? EMPTY_DOCS_CONTEXT_ACCESS);
 		setSsoMappings(existingGroup?.ssoMappings ?? EMPTY_USER_GROUP_SSO_MAPPINGS);
-		setRowPolicies(existingGroup?.rowPolicies ?? EMPTY_USER_GROUP_ROW_POLICIES);
+		setRowPolicies(existingRowPolicies);
 		setFormError(null);
 		setShowRowPolicyValidationErrors(false);
 		setConfirmDelete(false);
-	}, [existingGroup]);
+	}, [existingGroup, existingRowPolicies]);
 
 	useEffect(() => {
 		const previousGroup = previousGroupRef.current;
-		previousGroupRef.current = existingGroup;
-		const switchedGroups = previousGroup?.id !== existingGroup?.id;
+		previousGroupRef.current = editorGroup;
+		const switchedGroups = previousGroup?.id !== editorGroup?.id;
 		const previousGroupWasClean =
 			previousGroup !== null &&
 			!hasUserGroupEditorChanges(previousGroup, {
@@ -193,7 +212,7 @@ export function UserGroupEditor({
 	}, [
 		databaseAccess,
 		docsAccess,
-		existingGroup,
+		editorGroup,
 		featureGrants,
 		name,
 		resetForm,
@@ -208,9 +227,15 @@ export function UserGroupEditor({
 		}
 	}, [activeTab, hasSsoTab, isSsoConfigLoading, onTabChange]);
 
+	const handleDatabaseAccessChange = (nextAccess: DatabaseContextAccess) => {
+		const normalizedAccess = normalizeDatabaseContextAccess(nextAccess);
+		setDatabaseAccess(normalizedAccess);
+		setRowPolicies((current) => filterUserGroupRowPoliciesByDatabaseContext(current, normalizedAccess));
+	};
+
 	const handleSave = async () => {
 		setFormError(null);
-		if (hasRowLevelSecurity && !areUserGroupRowPolicyDraftsValid(rowSecurityRegistry, rowPolicies)) {
+		if (hasRowLevelSecurity && !areUserGroupRowPolicyDraftsValid(accessibleRowSecurityRegistry, rowPolicies)) {
 			setShowRowPolicyValidationErrors(true);
 			onTabChange('security');
 			return;
@@ -311,7 +336,7 @@ export function UserGroupEditor({
 								<UserGroupContextAccess
 									databaseAccess={databaseAccess}
 									docsAccess={docsAccess}
-									onDatabaseAccessChange={setDatabaseAccess}
+									onDatabaseAccessChange={handleDatabaseAccessChange}
 									onDocsAccessChange={setDocsAccess}
 								/>
 								<ConditionalRulesHelp groupName={name} />
@@ -320,6 +345,7 @@ export function UserGroupEditor({
 						{activeTab === 'security' && (
 							<UserGroupRowSecurity
 								registry={rowSecurityRegistry}
+								databaseAccess={databaseAccess}
 								policies={rowPolicies}
 								isLicensed={hasRowLevelSecurity}
 								showValidationErrors={showRowPolicyValidationErrors}
@@ -529,21 +555,41 @@ function DefaultGroupSsoStatus({
 export function ConditionalRulesHelp({ groupName }: { groupName: string }) {
 	const { isCopied, copy } = useCopyToClipboard();
 	const normalizedName = groupName.trim();
-	const snippet = normalizedName
+	const rulesFile = useQuery(trpc.contextExplorer.readFile.queryOptions({ path: 'RULES.md' }));
+	const groupSpecificRules = useMemo(() => {
+		if (!normalizedName || !rulesFile.data?.content) {
+			return '';
+		}
+		try {
+			return extractConditionalGroupContent(rulesFile.data.content, normalizedName);
+		} catch {
+			return '';
+		}
+	}, [normalizedName, rulesFile.data?.content]);
+	const exampleSnippet = normalizedName
 		? `{% if group(${JSON.stringify(normalizedName)}) %}\nGroup-specific instructions...\n{% endif %}`
 		: null;
+	const snippet = groupSpecificRules || exampleSnippet;
 
 	return (
-		<section className='flex flex-col gap-3 rounded-lg border p-4'>
+		<section className='flex min-w-0 flex-col gap-3 border-t pt-5'>
 			<div>
-				<h3 className='text-sm font-medium'>Conditional RULES</h3>
-				<p className='text-xs text-muted-foreground'>
-					In the project-root RULES.md, this block is included for members of any named group.
-				</p>
+				<h3 className='text-sm font-medium'>Conditional Rules</h3>
+				{normalizedName && !rulesFile.isLoading && (
+					<p className='text-xs text-muted-foreground'>
+						{groupSpecificRules
+							? 'This group has specific rules in RULES.md.'
+							: 'Add a conditional block to RULES.md to give this group specific rules.'}
+					</p>
+				)}
 			</div>
-			{snippet ? (
-				<div className='relative rounded-md bg-muted p-3 pr-12'>
-					<pre className='overflow-x-auto text-xs'>
+			{!normalizedName ? (
+				<p className='text-xs text-muted-foreground'>Enter a group name to generate a snippet.</p>
+			) : rulesFile.isLoading ? (
+				<p className='text-xs text-muted-foreground'>Loading RULES.md...</p>
+			) : snippet ? (
+				<div className='relative min-w-0 rounded-md bg-muted p-3 pr-12'>
+					<pre className='whitespace-pre-wrap break-words text-xs [overflow-wrap:anywhere]'>
 						<code>{snippet}</code>
 					</pre>
 					<Button
@@ -551,21 +597,13 @@ export function ConditionalRulesHelp({ groupName }: { groupName: string }) {
 						variant='ghost'
 						size='icon-sm'
 						className='absolute right-2 top-2'
-						aria-label='Copy conditional RULES snippet'
+						aria-label='Copy conditional rules snippet'
 						onClick={() => void copy(snippet)}
 					>
 						{isCopied ? <Check className='size-3.5' /> : <Copy className='size-3.5' />}
 					</Button>
 				</div>
-			) : (
-				<p className='text-xs text-muted-foreground'>Enter a group name to generate a snippet.</p>
-			)}
-			<Button asChild type='button' variant='outline' size='sm' className='w-fit'>
-				<a href='/settings/context-explorer'>
-					<FolderOpen className='size-3.5' />
-					Open File Explorer
-				</a>
-			</Button>
+			) : null}
 		</section>
 	);
 }

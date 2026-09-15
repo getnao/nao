@@ -444,7 +444,10 @@ function EditTableSelector({
 					{columns.map((column) => {
 						const unavailable = unavailableColumns.has(column);
 						return (
-							<label key={column} className='flex h-9 items-center gap-2 px-3 text-sm hover:bg-muted/50'>
+							<label
+								key={column}
+								className='flex h-9 cursor-pointer items-center gap-2 px-3 text-sm hover:bg-muted/50'
+							>
 								<Checkbox
 									checked={selected.has(column)}
 									aria-label={`${column} constraint column for ${definition.table}`}
@@ -635,7 +638,7 @@ function RowSecurityDatabaseNode({
 		<li>
 			<button
 				type='button'
-				className='flex h-8 w-full items-center gap-1.5 pr-2 text-left text-sm hover:bg-muted/50'
+				className='flex h-8 w-full cursor-pointer items-center gap-1.5 pr-2 text-left text-sm hover:bg-muted/50'
 				style={{ paddingLeft: `${getTreeNodePadding(0)}px` }}
 				aria-label={`${open ? 'Collapse' : 'Expand'} ${database.database} database`}
 				aria-expanded={open}
@@ -705,7 +708,7 @@ function RowSecuritySchemaNode({
 		<li>
 			<button
 				type='button'
-				className='flex h-8 w-full items-center gap-1.5 pr-2 text-left text-sm hover:bg-muted/50'
+				className='flex h-8 w-full cursor-pointer items-center gap-1.5 pr-2 text-left text-sm hover:bg-muted/50'
 				style={{ paddingLeft: `${getTreeNodePadding(depth)}px` }}
 				aria-label={`${open ? 'Collapse' : 'Expand'} ${label} schema`}
 				aria-expanded={open}
@@ -766,7 +769,7 @@ function SensitiveTableRow({
 			<button
 				type='button'
 				className={cn(
-					'flex h-8 w-full items-center gap-1.5 pr-2 text-left text-sm hover:bg-muted/50',
+					'flex h-8 w-full cursor-pointer items-center gap-1.5 pr-2 text-left text-sm hover:bg-muted/50',
 					definition && 'bg-primary/10',
 				)}
 				style={{ paddingLeft: `${getTreeNodePadding(depth)}px` }}
@@ -795,7 +798,7 @@ function SensitiveTableRow({
 						(object.columns ?? []).map((column) => (
 							<li key={column}>
 								<label
-									className='flex h-8 items-center gap-2 pr-2 text-sm hover:bg-muted/50'
+									className='flex h-8 cursor-pointer items-center gap-2 pr-2 text-sm hover:bg-muted/50'
 									style={{ paddingLeft: `${getTreeNodePadding(depth + 1) + 22}px` }}
 								>
 									<Checkbox

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	compileRowSecurityConditions,
+	filterProjectRowSecurityByDatabaseContext,
+	filterUserGroupRowPoliciesByDatabaseContext,
 	parseStoredProjectRowSecurity,
 	parseStoredUserGroupRowPolicies,
 	resolveWarehouseRowSecurity,
@@ -17,6 +19,84 @@ const table = {
 };
 
 describe('user group row security', () => {
+	it('filters and normalizes policies for all and explicit Context grants', () => {
+		const customers = { ...table, table: 'customers' };
+		const policies = {
+			version: 1 as const,
+			policies: [
+				{ ...customers, databaseType: ' DUCKDB ', access: 'full' as const },
+				{ ...table, access: 'full' as const },
+			],
+		};
+
+		expect(filterUserGroupRowPoliciesByDatabaseContext(policies, { mode: 'all', strict: true })).toEqual({
+			version: 1,
+			policies: [
+				{ ...customers, access: 'full' },
+				{ ...table, access: 'full' },
+			],
+		});
+		expect(
+			filterUserGroupRowPoliciesByDatabaseContext(policies, {
+				mode: 'restricted',
+				strict: true,
+				grants: [{ kind: 'table', ...table }],
+				patterns: [],
+			}),
+		).toEqual({ version: 1, policies: [{ ...table, access: 'full' }] });
+		expect(
+			filterUserGroupRowPoliciesByDatabaseContext(policies, {
+				mode: 'restricted',
+				strict: true,
+				grants: [
+					{
+						kind: 'schema',
+						databaseType: customers.databaseType,
+						database: customers.database,
+						schema: customers.schema,
+					},
+				],
+				patterns: [],
+			}),
+		).toEqual({
+			version: 1,
+			policies: [
+				{ ...customers, access: 'full' },
+				{ ...table, access: 'full' },
+			],
+		});
+		expect(
+			filterUserGroupRowPoliciesByDatabaseContext(
+				{
+					version: 1,
+					policies: [{ ...table, access: 'predicate', mode: 'sql', predicate: '' }],
+				},
+				{ mode: 'restricted', strict: true, grants: [], patterns: [] },
+			),
+		).toEqual({ version: 1, policies: [] });
+	});
+
+	it('filters and normalizes protected tables for dynamic Context patterns', () => {
+		const customers = { ...table, table: 'customers', constraintColumns: ['tenant_id', ' region '] };
+		const orders = { ...table, constraintColumns: ['tenant_id'] };
+
+		expect(
+			filterProjectRowSecurityByDatabaseContext(
+				{ version: 1, tables: [orders, customers] },
+				{ mode: 'restricted', strict: true, grants: [], patterns: ['main.cust*'] },
+			),
+		).toEqual({
+			version: 1,
+			tables: [{ ...customers, constraintColumns: ['region', 'tenant_id'] }],
+		});
+		expect(
+			filterProjectRowSecurityByDatabaseContext(
+				{ version: 1, tables: [orders] },
+				{ mode: 'restricted', strict: true, grants: [], patterns: ['private.*'] },
+			),
+		).toEqual({ version: 1, tables: [] });
+	});
+
 	it('fails closed for malformed persisted security data', () => {
 		expect(() =>
 			parseStoredProjectRowSecurity({ version: 1, tables: [{ ...table, constraintColumns: [] }] }),

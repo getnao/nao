@@ -352,7 +352,7 @@ function LockedGroupUpgradeNudge({ groupId, groupName }: { groupId: string; grou
 				<button
 					type='button'
 					aria-label={`${groupName} requires Enterprise`}
-					className='inline-flex h-4 items-center gap-0.5 rounded-full bg-primary/10 px-1.5 text-[10px] font-medium uppercase tracking-wide text-primary'
+					className='inline-flex h-4 cursor-pointer items-center gap-0.5 rounded-full bg-primary/10 px-1.5 text-[10px] font-medium uppercase tracking-wide text-primary'
 					onClick={(event) => event.stopPropagation()}
 				>
 					<Lock className='size-2.5 shrink-0' />

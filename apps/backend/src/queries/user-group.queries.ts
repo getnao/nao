@@ -5,6 +5,7 @@ import {
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
 	EMPTY_USER_GROUP_ROW_POLICIES,
+	filterUserGroupRowPoliciesByDatabaseContext,
 	parseStoredProjectRowSecurity,
 	parseStoredUserGroupConfig,
 	parseStoredUserGroupContextAccess,
@@ -167,7 +168,12 @@ export const resolveEffectiveUserGroupAccess = async (
 		},
 		databaseAccess: unionDatabaseContextAccess(applicableGroups.map((group) => group.contextAccess.databaseAccess)),
 		docsAccess: unionDocsContextAccess(applicableGroups.map((group) => group.contextAccess.docsAccess)),
-		rowPolicies: applicableGroups.map((group) => parseStoredUserGroupRowPolicies(group.rowPolicies)),
+		rowPolicies: applicableGroups.map((group) =>
+			filterUserGroupRowPoliciesByDatabaseContext(
+				parseStoredUserGroupRowPolicies(group.rowPolicies),
+				group.contextAccess.databaseAccess,
+			),
+		),
 	};
 };
 
@@ -326,6 +332,11 @@ export const updateUserGroup = async (
 	const group = await getUserGroup(projectId, groupId);
 	const currentConfig = parseStoredUserGroupConfig(group.featureGrants);
 	const currentContext = parseStoredUserGroupContextAccess(group.contextGrants, group.isDefault);
+	const resultingDatabaseAccess = data.databaseAccess ?? currentContext.databaseAccess;
+	const resultingRowPolicies = filterUserGroupRowPoliciesByDatabaseContext(
+		data.rowPolicies ?? parseStoredUserGroupRowPolicies(group.rowPolicies),
+		resultingDatabaseAccess,
+	);
 	if (group.isDefault && data.name !== undefined && data.name !== group.name) {
 		throw new UserGroupQueryError('BAD_REQUEST', 'The All Users group cannot be renamed.');
 	}
@@ -357,9 +368,7 @@ export const updateUserGroup = async (
 					),
 				}),
 		...(serializedSsoMappings === undefined ? {} : { ssoMappings: serializedSsoMappings }),
-		...(data.rowPolicies === undefined
-			? {}
-			: { rowPolicies: serializeUserGroupRowPolicies(data.rowPolicies) }),
+		rowPolicies: serializeUserGroupRowPolicies(resultingRowPolicies),
 		updatedAt: new Date(),
 	};
 	const updated = await executeUserGroupNameMutation(() => {
@@ -560,13 +569,14 @@ function createUserGroupValues(
 	ssoMappings?: UserGroupSsoMappings,
 	rowPolicies: UserGroupRowPolicies = EMPTY_USER_GROUP_ROW_POLICIES,
 ): NewUserGroup {
+	const filteredRowPolicies = filterUserGroupRowPoliciesByDatabaseContext(rowPolicies, databaseAccess);
 	return {
 		projectId,
 		name,
 		featureGrants: serializeUserGroupConfig(featureGrants, toolCallDensityPolicy),
 		contextGrants: serializeUserGroupContextAccess(databaseAccess, docsAccess),
 		ssoMappings: serializeUserGroupSsoMappings(ssoMappings),
-		rowPolicies: serializeUserGroupRowPolicies(rowPolicies),
+		rowPolicies: serializeUserGroupRowPolicies(filteredRowPolicies),
 		isDefault: false,
 	};
 }

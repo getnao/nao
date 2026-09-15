@@ -75,7 +75,7 @@ export function DocsContextTreeRoot({
 			>
 				<button
 					type='button'
-					className='flex size-4 shrink-0 items-center justify-center'
+					className='flex size-4 shrink-0 cursor-pointer items-center justify-center'
 					aria-label={`${open ? 'Collapse' : 'Expand'} docs folder`}
 					aria-expanded={open}
 					onClick={() => setRootExpanded((current) => !current)}
@@ -93,7 +93,7 @@ export function DocsContextTreeRoot({
 				/>
 				<button
 					type='button'
-					className='flex min-w-0 flex-1 items-center gap-1 text-left'
+					className='flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-left'
 					onClick={() => setRootExpanded((current) => !current)}
 				>
 					<FileExplorerIcon name='docs' type='directory' className={cn(selected && 'text-primary')} />
@@ -229,7 +229,7 @@ function DocsNode({
 			>
 				<button
 					type='button'
-					className='flex size-4 shrink-0 items-center justify-center'
+					className='flex size-4 shrink-0 cursor-pointer items-center justify-center'
 					aria-label={`${open ? 'Collapse' : 'Expand'} ${displayed.label} folder`}
 					aria-expanded={open}
 					onClick={() => onToggle(displayed.path)}
@@ -254,7 +254,7 @@ function DocsNode({
 				/>
 				<button
 					type='button'
-					className='flex min-w-0 flex-1 items-center gap-1 text-left'
+					className='flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-left'
 					onClick={() => onToggle(displayed.path)}
 				>
 					<FileExplorerIcon

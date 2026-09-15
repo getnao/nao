@@ -473,7 +473,7 @@ function FolderButton({
 	return (
 		<button
 			type='button'
-			className='flex h-8 w-full items-center gap-1 pr-2 text-left text-sm transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
+			className='flex h-8 w-full cursor-pointer items-center gap-1 pr-2 text-left text-sm transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
 			style={{ paddingLeft: `${getTreeNodePadding(depth)}px` }}
 			aria-label={`${open ? 'Collapse' : 'Expand'} ${label} folder`}
 			aria-expanded={open}

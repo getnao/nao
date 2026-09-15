@@ -19,6 +19,7 @@ vi.mock('../src/agents/user-rules', () => ({
 
 import { getDatabaseContextCatalog } from '../src/agents/user-rules';
 import { getUserRoleInProject } from '../src/queries/project.queries';
+import { getProjectRowSecurity } from '../src/queries/user-group.queries';
 import { hasFeature } from '../src/services/license.service';
 import { resolveAvailableUserGroupAccess as resolveEffectiveUserGroupAccess } from '../src/services/user-group-availability.service';
 import {
@@ -89,6 +90,75 @@ describe('warehouse Context access', () => {
 			userRulesGroupAccess: { enforced: true, groupNames: ['All Users', 'Finance'] },
 		});
 		expect(hasFeature).toHaveBeenCalledWith('row-level-security');
+	});
+
+	it('does not widen rows with policies excluded by same-group Context filtering', async () => {
+		const orders = {
+			databaseType: 'postgres',
+			database: 'analytics',
+			schema: 'public',
+			table: 'orders',
+		};
+		vi.mocked(getProjectRowSecurity).mockResolvedValue({
+			version: 1,
+			tables: [{ ...orders, constraintColumns: ['tenant_id'] }],
+		});
+		vi.mocked(resolveEffectiveUserGroupAccess).mockResolvedValue({
+			groupNames: ['Context group', 'Non-Context group'],
+			features: [],
+			toolCallDensityPolicy: { defaultDensity: 'medium', canChange: false },
+			databaseAccess: {
+				mode: 'restricted',
+				strict: true,
+				grants: [{ kind: 'table', ...orders }],
+				patterns: [],
+			},
+			docsAccess: { mode: 'restricted', grants: [] },
+			rowPolicies: [
+				{
+					version: 1,
+					policies: [
+						{
+							...orders,
+							access: 'predicate',
+							mode: 'sql',
+							predicate: 'WHERE tenant_id = 7',
+						},
+					],
+				},
+				{ version: 1, policies: [] },
+			],
+		});
+
+		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toMatchObject({
+			warehouseRowSecurity: {
+				enforced: true,
+				tables: [{ ...orders, access: 'predicate', predicate: '(tenant_id = 7)' }],
+			},
+		});
+
+		vi.mocked(resolveEffectiveUserGroupAccess).mockResolvedValue({
+			groupNames: ['Context group', 'Non-Context group'],
+			features: [],
+			toolCallDensityPolicy: { defaultDensity: 'medium', canChange: false },
+			databaseAccess: {
+				mode: 'restricted',
+				strict: true,
+				grants: [{ kind: 'table', ...orders }],
+				patterns: [],
+			},
+			docsAccess: { mode: 'restricted', grants: [] },
+			rowPolicies: [
+				{ version: 1, policies: [] },
+				{ version: 1, policies: [] },
+			],
+		});
+		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toMatchObject({
+			warehouseRowSecurity: {
+				enforced: true,
+				tables: [{ ...orders, access: 'none' }],
+			},
+		});
 	});
 
 	it('denies all warehouse tables for restricted access without grants', () => {

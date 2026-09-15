@@ -141,18 +141,19 @@ describe('ProjectRowSecurity', () => {
 		expect(screen.getByRole('textbox', { name: 'Search row-level security tables' })).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Cancel' }).classList.contains('rounded-full')).toBe(true);
 		expect(screen.getByRole('button', { name: 'Save' }).classList.contains('rounded-full')).toBe(true);
-		expect(screen.getByRole('button', { name: 'Expand analytics database' }).getAttribute('aria-expanded')).toBe(
-			'false',
-		);
+		const databaseButton = screen.getByRole('button', { name: 'Expand analytics database' });
+		expect(databaseButton.getAttribute('aria-expanded')).toBe('false');
+		expect(databaseButton.className).toContain('cursor-pointer');
 		expect(screen.queryByText('main')).toBeNull();
 		expect(screen.queryByText('orders')).toBeNull();
 		expect(screen.queryByRole('checkbox')).toBeNull();
 		expect(screen.getByText('1 configured')).toBeTruthy();
 
 		expandToOrders();
-		expect(
-			screen.getByRole('checkbox', { name: 'tenant_id constraint column for orders' }).getAttribute('data-state'),
-		).toBe('checked');
+		const tenantCheckbox = screen.getByRole('checkbox', { name: 'tenant_id constraint column for orders' });
+		expect(tenantCheckbox.getAttribute('data-state')).toBe('checked');
+		expect(tenantCheckbox.className).toContain('cursor-pointer');
+		expect(tenantCheckbox.parentElement?.className).toContain('cursor-pointer');
 		expect(screen.getAllByText('1 configured')).toHaveLength(2);
 	});
 

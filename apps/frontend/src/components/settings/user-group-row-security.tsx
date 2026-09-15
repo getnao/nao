@@ -1,5 +1,6 @@
 import {
 	compileRowSecurityConditions,
+	filterProjectRowSecurityByDatabaseContext,
 	ROW_SECURITY_MAX_CONDITIONS,
 	ROW_SECURITY_MAX_VALUE_LENGTH,
 	ROW_SECURITY_OPERATORS,
@@ -8,6 +9,7 @@ import {
 } from '@nao/shared';
 import { Plus, X } from 'lucide-react';
 import type {
+	DatabaseContextAccess,
 	ProjectRowSecurity,
 	RowSecurityCombinator,
 	RowSecurityCondition,
@@ -39,19 +41,22 @@ const OPERATOR_LABELS: Record<RowSecurityOperator, string> = {
 
 export function UserGroupRowSecurity({
 	registry,
+	databaseAccess,
 	policies,
 	isLicensed,
 	showValidationErrors = false,
 	onChange,
 }: {
 	registry: ProjectRowSecurity;
+	databaseAccess: DatabaseContextAccess;
 	policies: UserGroupRowPolicies;
 	isLicensed: boolean;
 	showValidationErrors?: boolean;
 	onChange: (policies: UserGroupRowPolicies) => void;
 }) {
+	const accessibleRegistry = filterProjectRowSecurityByDatabaseContext(registry, databaseAccess);
 	return (
-		<section className='flex flex-col gap-3'>
+		<section className='flex flex-col gap-4'>
 			<div className='flex items-start justify-between gap-3'>
 				<div>
 					<h3 className='text-sm font-medium'>Row-level security</h3>
@@ -65,9 +70,13 @@ export function UserGroupRowSecurity({
 				<p className='rounded-md bg-muted/40 p-3 text-sm text-muted-foreground'>
 					No sensitive tables are configured in the project Security tab.
 				</p>
+			) : accessibleRegistry.tables.length === 0 ? (
+				<p className='rounded-md bg-muted/40 p-3 text-sm text-muted-foreground'>
+					No protected tables are available through this group&apos;s Context permissions.
+				</p>
 			) : (
 				<div className='flex flex-col divide-y rounded-lg border' role='region' aria-label='Table row policies'>
-					{registry.tables.map((table) => (
+					{accessibleRegistry.tables.map((table) => (
 						<TablePolicyEditor
 							key={rowSecurityTableKey(table)}
 							table={table}
@@ -388,7 +397,7 @@ function SegmentButton({
 			disabled={disabled}
 			onClick={onClick}
 			className={cn(
-				'rounded px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors',
+				'cursor-pointer rounded px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors',
 				'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
 				selected && 'bg-background text-foreground shadow-xs',
 			)}
