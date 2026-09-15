@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from nao_core.config.base import LLM_OVERRIDE_NOTICE, NaoConfig, annotate_llm_override, annotate_optional_templates
-from nao_core.config.databases.base import DatabaseTemplate, ProfilingRefreshPolicy
+from nao_core.config.databases.base import DatabaseTemplate, ProfilingRefreshPolicy, TableColumnSelection
 from nao_core.config.databases.duckdb import DuckDBConfig
 from nao_core.config.llm import LLMConfig, LLMProvider, ProviderConfig
 from nao_core.config.secrets import process_secrets
@@ -481,3 +481,119 @@ def test_query_history_fields_loaded_from_yaml_dict():
     assert db.query_history_days == 7
     assert db.query_history_exclude_patterns == [r"SYSTEM\$", r"CURRENT_SESSION"]
     assert db.get_query_history_sql(7) == "SELECT q AS query_text FROM log WHERE ts > now() - interval '7 days'"
+
+
+def test_column_selection_default_is_empty():
+    db = DuckDBConfig(name="test-db", path=":memory:")
+    assert db.column_selection == {}
+    assert db.column_selection_for("analytics", "users") == ([], [])
+
+
+def test_column_selection_loaded_from_yaml_dict():
+    db = DuckDBConfig.model_validate(
+        {
+            "type": "duckdb",
+            "name": "test-db",
+            "path": ":memory:",
+            "column_selection": {
+                "analytics.events": {"exclude": ["*_pii", "secret"]},
+                "users": {"include": ["id", "email"]},
+            },
+        }
+    )
+    assert db.column_selection["analytics.events"].exclude == ["*_pii", "secret"]
+    assert db.column_selection["users"].include == ["id", "email"]
+
+
+def test_column_selection_accepts_single_pattern_string():
+    db = DuckDBConfig.model_validate(
+        {
+            "type": "duckdb",
+            "name": "test-db",
+            "path": ":memory:",
+            "column_selection": {"events": {"exclude": "prefix_*"}},
+        }
+    )
+    assert db.column_selection["events"].exclude == ["prefix_*"]
+
+
+def test_column_selection_exact_full_key_wins_over_glob():
+    db = DuckDBConfig(
+        name="test-db",
+        path=":memory:",
+        column_selection={
+            "analytics.*": TableColumnSelection(exclude=["glob_col"]),
+            "analytics.users": TableColumnSelection(exclude=["exact_col"]),
+        },
+    )
+    assert db.column_selection_for("analytics", "users") == ([], ["exact_col"])
+
+
+def test_column_selection_exact_table_key_wins_over_glob():
+    db = DuckDBConfig(
+        name="test-db",
+        path=":memory:",
+        column_selection={
+            "analytics.*": TableColumnSelection(exclude=["glob_col"]),
+            "users": TableColumnSelection(include=["id"]),
+        },
+    )
+    assert db.column_selection_for("analytics", "users") == (["id"], [])
+
+
+def test_column_selection_glob_keys_are_merged():
+    db = DuckDBConfig(
+        name="test-db",
+        path=":memory:",
+        column_selection={
+            "analytics.*": TableColumnSelection(exclude=["a_*"]),
+            "*.users": TableColumnSelection(include=["id"]),
+        },
+    )
+    assert db.column_selection_for("analytics", "users") == (["id"], ["a_*"])
+    assert db.column_selection_for("analytics", "orders") == ([], ["a_*"])
+
+
+def test_column_selection_include_allowlists_columns():
+    db = DuckDBConfig(
+        name="test-db",
+        path=":memory:",
+        column_selection={"users": TableColumnSelection(include=["id", "email"])},
+    )
+    assert db.column_matches_pattern("analytics", "users", "id") is True
+    assert db.column_matches_pattern("analytics", "users", "ssn") is False
+    assert db.column_matches_pattern("analytics", "orders", "ssn") is True
+
+
+def test_column_selection_exclude_supports_glob_on_column_name():
+    db = DuckDBConfig(
+        name="test-db",
+        path=":memory:",
+        column_selection={"users": TableColumnSelection(exclude=["*_pii"])},
+    )
+    assert db.column_matches_pattern("analytics", "users", "email_pii") is False
+    assert db.column_matches_pattern("analytics", "users", "email") is True
+
+
+def test_column_selection_include_applied_before_exclude():
+    db = DuckDBConfig(
+        name="test-db",
+        path=":memory:",
+        column_selection={"users": TableColumnSelection(include=["id", "*_id"], exclude=["user_id"])},
+    )
+    assert db.column_matches_pattern("analytics", "users", "id") is True
+    assert db.column_matches_pattern("analytics", "users", "order_id") is True
+    assert db.column_matches_pattern("analytics", "users", "user_id") is False
+    assert db.column_matches_pattern("analytics", "users", "name") is False
+
+
+def test_column_selection_combines_with_legacy_exclude_columns():
+    db = DuckDBConfig(
+        name="test-db",
+        path=":memory:",
+        exclude_columns=["*.version"],
+        column_selection={"users": TableColumnSelection(include=["id", "version"])},
+    )
+    assert db.column_matches_pattern("analytics", "users", "id") is True
+    assert db.column_matches_pattern("analytics", "users", "version") is False
+    assert db.column_matches_pattern("analytics", "users", "name") is False
