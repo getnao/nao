@@ -311,7 +311,7 @@ class RedshiftConfig(DatabaseConfig):
                 aws_access_key_id = ask_text("AWS Access Key ID:", required_field=True)
                 aws_secret_access_key = ask_text("AWS Secret Access Key:", password=True, required_field=True)
                 aws_session_token = ask_text("AWS Session Token (optional):", password=True) or None
-        else:
+        elif auth_method == "Azure Entra ID":
             auth_mode = RedshiftAuthMode.AZURE_ENTRA_ID
 
         use_ssh = ask_confirm("Use SSH tunnel?", default=False)
