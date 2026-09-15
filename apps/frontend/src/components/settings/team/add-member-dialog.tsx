@@ -1,25 +1,47 @@
 import { useState } from 'react';
 import { useForm } from '@tanstack/react-form';
 
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+import type { UserGroupPickerOption } from '@/components/settings/user-group-picker';
+import { UserGroupPicker } from '@/components/settings/user-group-picker';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+
+export type AddMemberGroupOption = UserGroupPickerOption;
 
 interface AddMemberDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	title?: string;
-	onSubmit: (data: { email: string; name?: string }) => Promise<{ needsName?: boolean }>;
+	groupOptions?: AddMemberGroupOption[];
+	groupsLoading?: boolean;
+	groupsError?: boolean;
+	onRetryGroups?: () => void;
+	onSubmit: (data: { email: string; name?: string; groupIds?: string[] }) => Promise<{ needsName?: boolean }>;
 }
 
-export function AddMemberDialog({ open, onOpenChange, title = 'Add Member', onSubmit }: AddMemberDialogProps) {
+export function AddMemberDialog({
+	open,
+	onOpenChange,
+	title = 'Add Member',
+	groupOptions,
+	groupsLoading = false,
+	groupsError = false,
+	onRetryGroups,
+	onSubmit,
+}: AddMemberDialogProps) {
 	const [error, setError] = useState('');
 	const [needsName, setNeedsName] = useState(false);
+	const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
+	const groupsUnavailable = groupOptions !== undefined && (groupsLoading || groupsError);
 
 	const form = useForm({
 		defaultValues: { email: '', name: '' },
 		onSubmit: async ({ value }) => {
 			setError('');
+			if (groupsUnavailable) {
+				return;
+			}
 			if (needsName && !value.name.trim()) {
 				setError('Name is required to create a new user.');
 				return;
@@ -28,6 +50,7 @@ export function AddMemberDialog({ open, onOpenChange, title = 'Add Member', onSu
 				const result = await onSubmit({
 					email: value.email,
 					name: needsName ? value.name : undefined,
+					...(groupOptions ? { groupIds: selectedGroupIds } : {}),
 				});
 				if (result.needsName) {
 					setNeedsName(true);
@@ -44,6 +67,7 @@ export function AddMemberDialog({ open, onOpenChange, title = 'Add Member', onSu
 		onOpenChange(false);
 		setError('');
 		setNeedsName(false);
+		setSelectedGroupIds([]);
 		form.reset();
 	};
 
@@ -52,6 +76,7 @@ export function AddMemberDialog({ open, onOpenChange, title = 'Add Member', onSu
 			<DialogContent>
 				<DialogHeader>
 					<DialogTitle>{title}</DialogTitle>
+					<DialogDescription>Enter the member's email to add them.</DialogDescription>
 				</DialogHeader>
 				<form
 					onSubmit={(e) => {
@@ -77,6 +102,25 @@ export function AddMemberDialog({ open, onOpenChange, title = 'Add Member', onSu
 							</div>
 						)}
 					</form.Field>
+
+					{groupOptions && !groupsError && (
+						<UserGroupPicker
+							groups={groupOptions}
+							selectedGroupIds={selectedGroupIds}
+							loading={groupsLoading}
+							onSelectedGroupIdsChange={setSelectedGroupIds}
+						/>
+					)}
+					{groupOptions && groupsError && (
+						<div className='flex items-center justify-between gap-3 rounded-lg border p-3'>
+							<p className='text-sm text-destructive'>Failed to load groups.</p>
+							{onRetryGroups && (
+								<Button type='button' variant='outline' size='sm' onClick={onRetryGroups}>
+									Retry
+								</Button>
+							)}
+						</div>
+					)}
 
 					{needsName && (
 						<>
@@ -104,7 +148,7 @@ export function AddMemberDialog({ open, onOpenChange, title = 'Add Member', onSu
 
 					{error && <p className='text-red-500 text-center text-sm'>{error}</p>}
 					<div className='flex justify-end'>
-						<Button type='submit' variant='primary-gradient'>
+						<Button type='submit' variant='primary-gradient' disabled={groupsUnavailable}>
 							Add member
 						</Button>
 					</div>

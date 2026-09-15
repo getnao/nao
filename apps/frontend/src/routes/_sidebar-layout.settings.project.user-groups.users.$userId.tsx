@@ -58,7 +58,7 @@ function UserGroupUserDetailPage() {
 			</Link>
 			<UserGroupUserDetail
 				user={user}
-				groups={overviewData.groups}
+				groups={overviewData.groups.filter((group) => !group.isLocked)}
 				memberships={overviewData.memberships}
 				effectiveAccess={effectiveAccess.data}
 				contextObjects={contextCatalog.data?.objects ?? []}

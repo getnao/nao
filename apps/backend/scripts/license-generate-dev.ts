@@ -22,12 +22,14 @@ import path from 'node:path';
 
 import { exportPKCS8, exportSPKI, generateKeyPair, importPKCS8, SignJWT } from 'jose';
 
+import { LICENSE_FEATURES } from '../src/types/license';
+
 const ALG = 'EdDSA';
 
 async function main() {
 	const args = parseArgs(process.argv.slice(2));
 	const company = args.get('company') ?? 'Dev Corp';
-	const features = (args.get('features') ?? 'sso,multi-project,user-groups')
+	const features = (args.get('features') ?? Object.values(LICENSE_FEATURES).join(','))
 		.split(',')
 		.map((s) => s.trim())
 		.filter(Boolean);

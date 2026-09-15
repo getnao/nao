@@ -77,6 +77,32 @@ export function extractGroups(claims: Record<string, unknown>, claimName: string
 	return [];
 }
 
+export type GroupsClaimResult = { status: 'missing' } | { status: 'malformed' } | { status: 'valid'; groups: string[] };
+
+export function readGroupsClaim(claims: Record<string, unknown>, claimName: string): GroupsClaimResult {
+	if (!(claimName in claims)) {
+		return { status: 'missing' };
+	}
+
+	const value = claims[claimName];
+	if (typeof value === 'string') {
+		return {
+			status: 'valid',
+			groups: value
+				.split(',')
+				.map((group) => group.trim())
+				.filter(Boolean),
+		};
+	}
+	if (Array.isArray(value)) {
+		if (!value.every((group) => typeof group === 'string')) {
+			return { status: 'malformed' };
+		}
+		return { status: 'valid', groups: value };
+	}
+	return { status: 'malformed' };
+}
+
 function isUserRole(value: string): value is UserRole {
 	return (USER_ROLES as readonly string[]).includes(value);
 }

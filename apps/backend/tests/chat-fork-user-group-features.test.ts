@@ -6,7 +6,6 @@ const mocks = vi.hoisted(() => ({
 	getStoryByIdForUser: vi.fn(),
 	getQueryDataFromCode: vi.fn(),
 	getSharedStory: vi.fn(),
-	hasLicenseFeature: vi.fn(),
 	resolveEffectiveUserGroupAccess: vi.fn(),
 }));
 
@@ -33,12 +32,8 @@ vi.mock('../src/queries/story-folder.queries', () => ({}));
 vi.mock('../src/services/compaction', () => ({
 	compactionService: { useLastCompaction: (messages: unknown[]) => messages },
 }));
-vi.mock('../src/services/license.service', () => ({
-	hasFeature: mocks.hasLicenseFeature,
-	LICENSE_FEATURES: { userGroups: 'user-groups' },
-}));
-vi.mock('../src/queries/user-group.queries', () => ({
-	resolveEffectiveUserGroupAccess: mocks.resolveEffectiveUserGroupAccess,
+vi.mock('../src/services/user-group-availability.service', () => ({
+	resolveAvailableUserGroupAccess: mocks.resolveEffectiveUserGroupAccess,
 }));
 vi.mock('../src/services/sso-group-mapping.service', () => ({
 	isGroupRoleMappingActive: vi.fn(async () => false),
@@ -52,7 +47,6 @@ const testRouter = router({ chatFork: chatForkRoutes });
 describe('chat fork Story creation permission', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mocks.hasLicenseFeature.mockResolvedValue(true);
 		mocks.resolveEffectiveUserGroupAccess.mockResolvedValue({
 			features: [],
 			toolCallDensityPolicy: {
