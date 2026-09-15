@@ -14,6 +14,7 @@ import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { naturalLanguageToCron } from '../services/cron-nlp';
 import {
+	assertProjectStoredStoryDataAllowed,
 	executeLiveQuery,
 	getAuthorizedStoredStoryQueryData,
 	getStoryQueryData,
@@ -161,21 +162,31 @@ export const storyRoutes = {
 			});
 		}
 
-		const liveData =
-			story.chatId && story.isLive
-				? await getStoryQueryData(story.chatId, story.slug, story.code, true, story.cacheSchedule, ctx.user.id)
-				: null;
-		const queryData = liveData
-			? liveData.queryData
-			: story.chatId
+		const storyData = story.chatId
+			? await getStoryQueryData(
+					story.chatId,
+					story.slug,
+					story.code,
+					story.isLive,
+					story.cacheSchedule,
+					ctx.user.id,
+				)
+			: null;
+		if (!story.chatId && story.projectId) {
+			await assertProjectStoredStoryDataAllowed(story.projectId, ctx.user.id);
+		}
+		const queryData =
+			storyData?.allowsPersistedFallback && story.chatId
 				? await backfillMissingQueryData(story.code, cache?.queryData ?? null, { chatId: story.chatId })
-				: (cache?.queryData ?? null);
+				: storyData
+					? storyData.queryData
+					: (cache?.queryData ?? null);
 
 		return {
 			...story,
-			code: liveData?.code ?? story.code,
+			code: storyData?.code ?? story.code,
 			queryData,
-			cachedAt: liveData ? liveData.cachedAt : (cache?.cachedAt ?? null),
+			cachedAt: storyData ? storyData.cachedAt : (cache?.cachedAt ?? null),
 			lastRefreshFailure,
 		};
 	}),
@@ -251,13 +262,13 @@ export const storyRoutes = {
 				versionNumber: z.number().int().positive(),
 			}),
 		)
-		.query(async ({ input }) => {
+		.query(async ({ input, ctx }) => {
 			const version = await storyQueries.getVersionByNumber(input.chatId, input.storySlug, input.versionNumber);
 			if (!version) {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story version not found.' });
 			}
 
-			const queryData = await sharedStoryQueries.getQueryDataFromCode(input.chatId, version.code);
+			const queryData = await getAuthorizedStoredStoryQueryData(input.chatId, version.code, ctx.user.id);
 			return { queryData };
 		}),
 
@@ -527,23 +538,31 @@ export const storyRoutes = {
 				});
 			}
 
-			const liveData =
-				story.chatId && story.isLive
-					? await getStoryQueryData(
-							story.chatId,
-							story.slug,
-							story.code,
-							true,
-							story.cacheSchedule,
-							ctx.user.id,
-						)
-					: null;
+			const storyData = story.chatId
+				? await getStoryQueryData(
+						story.chatId,
+						story.slug,
+						story.code,
+						story.isLive,
+						story.cacheSchedule,
+						ctx.user.id,
+					)
+				: null;
+			if (!story.chatId && story.projectId) {
+				await assertProjectStoredStoryDataAllowed(story.projectId, ctx.user.id);
+			}
 			const displaySettings = story.projectId ? await projectQueries.getDisplaySettings(story.projectId) : null;
+			const queryData =
+				storyData?.allowsPersistedFallback && story.chatId
+					? await backfillMissingQueryData(story.code, cache?.queryData ?? null, { chatId: story.chatId })
+					: storyData
+						? storyData.queryData
+						: (cache?.queryData ?? null);
 			return buildDownloadResponse(
 				input.format,
 				story.title,
-				liveData?.code ?? story.code,
-				liveData?.queryData ?? cache?.queryData ?? null,
+				storyData?.code ?? story.code,
+				queryData,
 				displaySettings?.dateFormat,
 			);
 		}),

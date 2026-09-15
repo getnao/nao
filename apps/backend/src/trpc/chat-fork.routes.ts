@@ -1,4 +1,5 @@
 import { TRPCError } from '@trpc/server';
+import { getToolName, isToolUIPart } from 'ai';
 import { z } from 'zod/v4';
 
 import * as chatQueries from '../queries/chat.queries';
@@ -8,7 +9,9 @@ import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { compactionService } from '../services/compaction';
+import { assertProjectStoredStoryDataAllowed, getAuthorizedStoredStoryQueryData } from '../services/live-story';
 import type { ForkMetadata, UIMessage, UIMessagePart } from '../types/chat';
+import { findLastCompactionPart } from '../utils/ai';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { buildQueryDataParts, pinStoryMessageToChat } from '../utils/chat-message-story';
 import { canSendProcedure, projectProtectedProcedure, protectedProcedure } from './trpc';
@@ -50,6 +53,7 @@ export const chatForkRoutes = {
 				return { chatId: story.chatId };
 			}
 
+			await assertProjectStoredStoryDataAllowed(ctx.project.id, ctx.user.id);
 			const cache = await storyQueries.getStoryDataCacheByStoryId(story.id);
 			const seedMessages = cache?.queryData
 				? buildQueryDataMessages(cache.queryData as Record<string, { data: unknown[]; columns: string[] }>)
@@ -99,6 +103,7 @@ async function forkSharedChat(
 	userId: string,
 ): Promise<{ chatId: string }> {
 	const share = await resolveSharedChat(shareId, userId);
+	await assertProjectStoredStoryDataAllowed(share.projectId, userId);
 
 	const forkMetadata: ForkMetadata = selection
 		? buildSelectionMetadata('chat_selection', shareId, share.title, share.authorName, selection)
@@ -143,9 +148,12 @@ async function forkSharedStoryItem(
 	if (selection) {
 		const [rawMessages, queryData] = await Promise.all([
 			chatQueries.getChatMessages(share.chatId!),
-			sharedStoryQueries.getQueryDataFromCode(share.chatId!, share.code),
+			getAuthorizedStoredStoryQueryData(share.chatId!, share.code, userId),
 		]);
-		const seededMessages = compactionService.useLastCompaction(rawMessages);
+		const [, compactionMessageIndex] = findLastCompactionPart(rawMessages);
+		const recentMessages =
+			compactionMessageIndex === undefined ? rawMessages : rawMessages.slice(compactionMessageIndex + 1);
+		const seededMessages = removeStoredDataToolParts(recentMessages);
 		const messages = [
 			...buildQueryDataMessages(queryData),
 			buildStoryContextMessage(share.slug, share.title, share.code),
@@ -163,7 +171,7 @@ async function forkSharedStoryItem(
 	}
 
 	await assertUserGroupFeatureForTrpc(projectId, userId, 'story-creation');
-	const queryData = await sharedStoryQueries.getQueryDataFromCode(share.chatId!, share.code);
+	const queryData = await getAuthorizedStoredStoryQueryData(share.chatId!, share.code, userId);
 	const messages = buildQueryDataMessages(queryData);
 
 	const chat = await chatQueries.createForkedChat({ projectId, userId, title: share.title, forkMetadata }, messages);
@@ -265,6 +273,16 @@ function buildQueryDataMessages(
 		return [];
 	}
 	return [{ role: 'assistant', isForked: true, parts }];
+}
+
+function removeStoredDataToolParts(messages: Array<Omit<UIMessage, 'id'>>): Array<Omit<UIMessage, 'id'>> {
+	const dataToolNames = new Set(['execute_sql', 'read_query_result', 'display_chart', 'display_map']);
+	return messages.flatMap((message) => {
+		const parts = message.parts.filter(
+			(part) => part.type !== 'data-compaction' && (!isToolUIPart(part) || !dataToolNames.has(getToolName(part))),
+		);
+		return parts.length > 0 ? [{ ...message, parts }] : [];
+	});
 }
 
 async function createStoryInFork(

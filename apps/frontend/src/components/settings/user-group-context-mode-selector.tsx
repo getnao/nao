@@ -48,7 +48,7 @@ function ModeButton({
 			aria-pressed={selected}
 			onClick={onClick}
 			className={cn(
-				'min-h-16 rounded-lg border p-3 text-left transition-colors hover:bg-muted/50',
+				'min-h-16 cursor-pointer rounded-lg border p-3 text-left transition-colors hover:bg-muted/50',
 				'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
 				selected && 'border-primary/30 bg-primary/10 text-primary hover:bg-primary/15',
 			)}

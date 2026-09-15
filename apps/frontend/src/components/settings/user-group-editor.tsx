@@ -2,24 +2,30 @@ import {
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
+	EMPTY_PROJECT_ROW_SECURITY,
+	EMPTY_USER_GROUP_ROW_POLICIES,
 	EMPTY_USER_GROUP_SSO_MAPPINGS,
+	extractConditionalGroupContent,
+	filterProjectRowSecurityByDatabaseContext,
+	filterUserGroupRowPoliciesByDatabaseContext,
 	normalizeDatabaseContextAccess,
 	normalizeDocsContextAccess,
+	normalizeUserGroupRowPolicies,
 	normalizeUserGroupSsoMappings,
 	USER_GROUP_FEATURE_DEFINITIONS,
 } from '@nao/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Copy, FolderOpen } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { DatabaseContextAccess, DocsContextAccess, UserGroupSsoMappings } from '@nao/shared';
+import { Check, Copy } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { DatabaseContextAccess, DocsContextAccess, UserGroupRowPolicies, UserGroupSsoMappings } from '@nao/shared';
 import type { ToolCallDensity } from '@nao/shared/types';
 import type { QueryClient } from '@tanstack/react-query';
 
 import type { TabBarItem } from '@/components/ui/tab-bar';
 import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-slider';
-import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { UserGroupContextAccess } from '@/components/settings/user-group-context-access';
 import { UserGroupFeatureCard } from '@/components/settings/user-group-feature-card';
+import { areUserGroupRowPolicyDraftsValid, UserGroupRowSecurity } from '@/components/settings/user-group-row-security';
 import { UserGroupSsoMapping } from '@/components/settings/user-group-sso-mapping';
 import { UserGroupSwitchRow } from '@/components/settings/user-group-switch-row';
 import { Button } from '@/components/ui/button';
@@ -47,9 +53,10 @@ export interface UserGroupEditorGroup {
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
 	ssoMappings: UserGroupSsoMappings;
+	rowPolicies?: UserGroupRowPolicies;
 }
 
-export type UserGroupEditorTab = 'features' | 'context' | 'security';
+export type UserGroupEditorTab = 'features' | 'context' | 'security' | 'sso';
 
 interface UserGroupEditorProps {
 	group: UserGroupEditorGroup | 'new';
@@ -60,7 +67,7 @@ interface UserGroupEditorProps {
 	onDeleted: (groupId: string) => void;
 }
 
-const tabs: TabBarItem<UserGroupEditorTab>[] = [
+const defaultTabs: TabBarItem<UserGroupEditorTab>[] = [
 	{ id: 'features', label: 'Features' },
 	{ id: 'context', label: 'Context' },
 	{ id: 'security', label: 'Security' },
@@ -76,6 +83,20 @@ export function UserGroupEditor({
 }: UserGroupEditorProps) {
 	const queryClient = useQueryClient();
 	const existingGroup = group === 'new' ? null : group;
+	const existingRowPolicies = useMemo(
+		() =>
+			existingGroup
+				? filterUserGroupRowPoliciesByDatabaseContext(
+						existingGroup.rowPolicies ?? EMPTY_USER_GROUP_ROW_POLICIES,
+						existingGroup.databaseAccess,
+					)
+				: EMPTY_USER_GROUP_ROW_POLICIES,
+		[existingGroup],
+	);
+	const editorGroup = useMemo(
+		() => (existingGroup ? { ...existingGroup, rowPolicies: existingRowPolicies } : null),
+		[existingGroup, existingRowPolicies],
+	);
 	const [name, setName] = useState(existingGroup?.name ?? '');
 	const [featureGrants, setFeatureGrants] = useState<UserGroupFeature[]>(existingGroup?.featureGrants ?? []);
 	const [toolCallDensityPolicy, setToolCallDensityPolicy] = useState<ToolCallDensityPolicy>(
@@ -90,15 +111,27 @@ export function UserGroupEditor({
 	const [ssoMappings, setSsoMappings] = useState<UserGroupSsoMappings>(
 		existingGroup?.ssoMappings ?? EMPTY_USER_GROUP_SSO_MAPPINGS,
 	);
+	const [rowPolicies, setRowPolicies] = useState<UserGroupRowPolicies>(existingRowPolicies);
 	const [formError, setFormError] = useState<string | null>(null);
+	const [showRowPolicyValidationErrors, setShowRowPolicyValidationErrors] = useState(false);
 	const [confirmDelete, setConfirmDelete] = useState(false);
-	const previousGroupRef = useRef(existingGroup);
+	const previousGroupRef = useRef(editorGroup);
 	const createGroup = useMutation(trpc.userGroup.create.mutationOptions());
 	const updateGroup = useMutation(trpc.userGroup.update.mutationOptions());
 	const deleteGroup = useMutation(trpc.userGroup.delete.mutationOptions());
 	const licenseFeatures = useLicenseFeatures();
 	const hasSso = licenseFeatures.data?.sso === true;
 	const hasRowLevelSecurity = licenseFeatures.data?.['row-level-security'] === true;
+	const rowSecurity = useQuery(trpc.userGroup.rowSecurity.queryOptions());
+	const rowSecurityState = rowSecurity.isLoading ? 'loading' : rowSecurity.isError ? 'error' : 'ready';
+	const rowSecurityRegistry =
+		rowSecurity.data && Array.isArray(rowSecurity.data.tables) ? rowSecurity.data : EMPTY_PROJECT_ROW_SECURITY;
+	const accessibleRowSecurityRegistry = filterProjectRowSecurityByDatabaseContext(
+		rowSecurityRegistry,
+		databaseAccess,
+	);
+	const needsRowSecurityMetadata =
+		hasRowLevelSecurity && rowPolicies.policies.some((policy) => policy.access === 'predicate');
 	const oidcConfig = useQuery({
 		...trpc.authConfig.oidc.getConfig.queryOptions(),
 		enabled: hasSso,
@@ -124,15 +157,25 @@ export function UserGroupEditor({
 		microsoftConfig,
 		microsoftConfig.data === true,
 	);
+	const hasStoredOidcMappings = ssoMappings.providers.oidc.length > 0;
+	const hasStoredMicrosoftMappings = ssoMappings.providers.microsoft.length > 0;
+	const hasConfiguredSsoProvider = oidcConfigurationState === 'ready' || microsoftConfigurationState === 'ready';
+	const isSsoConfigLoading =
+		ssoLicenseState === 'loading' ||
+		oidcConfigurationState === 'loading' ||
+		microsoftConfigurationState === 'loading';
+	const hasSsoTab = hasConfiguredSsoProvider;
+	const tabs = hasSsoTab ? [...defaultTabs, { id: 'sso' as const, label: 'SSO' }] : defaultTabs;
 	const hasUnsavedChanges =
-		existingGroup === null ||
-		hasUserGroupEditorChanges(existingGroup, {
+		editorGroup === null ||
+		hasUserGroupEditorChanges(editorGroup, {
 			name,
 			featureGrants,
 			toolCallDensityPolicy,
 			databaseAccess,
 			docsAccess,
 			ssoMappings,
+			rowPolicies,
 		});
 
 	const resetForm = useCallback(() => {
@@ -142,14 +185,16 @@ export function UserGroupEditor({
 		setDatabaseAccess(existingGroup?.databaseAccess ?? EMPTY_DATABASE_CONTEXT_ACCESS);
 		setDocsAccess(existingGroup?.docsAccess ?? EMPTY_DOCS_CONTEXT_ACCESS);
 		setSsoMappings(existingGroup?.ssoMappings ?? EMPTY_USER_GROUP_SSO_MAPPINGS);
+		setRowPolicies(existingRowPolicies);
 		setFormError(null);
+		setShowRowPolicyValidationErrors(false);
 		setConfirmDelete(false);
-	}, [existingGroup]);
+	}, [existingGroup, existingRowPolicies]);
 
 	useEffect(() => {
 		const previousGroup = previousGroupRef.current;
-		previousGroupRef.current = existingGroup;
-		const switchedGroups = previousGroup?.id !== existingGroup?.id;
+		previousGroupRef.current = editorGroup;
+		const switchedGroups = previousGroup?.id !== editorGroup?.id;
 		const previousGroupWasClean =
 			previousGroup !== null &&
 			!hasUserGroupEditorChanges(previousGroup, {
@@ -159,15 +204,47 @@ export function UserGroupEditor({
 				databaseAccess,
 				docsAccess,
 				ssoMappings,
+				rowPolicies,
 			});
 
 		if (switchedGroups || previousGroupWasClean) {
 			resetForm();
 		}
-	}, [databaseAccess, docsAccess, existingGroup, featureGrants, name, resetForm, ssoMappings, toolCallDensityPolicy]);
+	}, [
+		databaseAccess,
+		docsAccess,
+		editorGroup,
+		featureGrants,
+		name,
+		resetForm,
+		rowPolicies,
+		ssoMappings,
+		toolCallDensityPolicy,
+	]);
+
+	useEffect(() => {
+		if (activeTab === 'sso' && !isSsoConfigLoading && !hasSsoTab) {
+			onTabChange('features');
+		}
+	}, [activeTab, hasSsoTab, isSsoConfigLoading, onTabChange]);
+
+	const handleDatabaseAccessChange = (nextAccess: DatabaseContextAccess) => {
+		const normalizedAccess = normalizeDatabaseContextAccess(nextAccess);
+		setDatabaseAccess(normalizedAccess);
+		setRowPolicies((current) => filterUserGroupRowPoliciesByDatabaseContext(current, normalizedAccess));
+	};
 
 	const handleSave = async () => {
 		setFormError(null);
+		if (needsRowSecurityMetadata && rowSecurityState !== 'ready') {
+			onTabChange('security');
+			return;
+		}
+		if (hasRowLevelSecurity && !areUserGroupRowPolicyDraftsValid(accessibleRowSecurityRegistry, rowPolicies)) {
+			setShowRowPolicyValidationErrors(true);
+			onTabChange('security');
+			return;
+		}
 		try {
 			if (existingGroup) {
 				await updateGroup.mutateAsync({
@@ -178,6 +255,7 @@ export function UserGroupEditor({
 					databaseAccess,
 					docsAccess,
 					ssoMappings,
+					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 				});
 				await invalidateUserGroupQueries(queryClient);
 			} else {
@@ -188,10 +266,12 @@ export function UserGroupEditor({
 					databaseAccess,
 					docsAccess,
 					ssoMappings,
+					...(hasRowLevelSecurity ? { rowPolicies } : {}),
 				});
 				await invalidateUserGroupQueries(queryClient);
 				onCreated(createdGroup);
 			}
+			setShowRowPolicyValidationErrors(false);
 		} catch (error) {
 			setFormError(error instanceof Error ? error.message : 'Failed to save the group.');
 		}
@@ -214,6 +294,7 @@ export function UserGroupEditor({
 
 	const handleCancel = () => {
 		if (group === 'new') {
+			setShowRowPolicyValidationErrors(false);
 			onCancelNew();
 			return;
 		}
@@ -260,13 +341,34 @@ export function UserGroupEditor({
 								<UserGroupContextAccess
 									databaseAccess={databaseAccess}
 									docsAccess={docsAccess}
-									onDatabaseAccessChange={setDatabaseAccess}
+									onDatabaseAccessChange={handleDatabaseAccessChange}
 									onDocsAccessChange={setDocsAccess}
 								/>
 								<ConditionalRulesHelp groupName={name} />
 							</div>
 						)}
 						{activeTab === 'security' && (
+							<>
+								{hasRowLevelSecurity && rowSecurityState === 'loading' ? (
+									<RowSecurityStatus message='Loading row-level security...' />
+								) : hasRowLevelSecurity && rowSecurityState === 'error' ? (
+									<RowSecurityStatus
+										message='Failed to load row-level security'
+										onRetry={() => void rowSecurity.refetch()}
+									/>
+								) : (
+									<UserGroupRowSecurity
+										registry={rowSecurityRegistry}
+										databaseAccess={databaseAccess}
+										policies={rowPolicies}
+										isLicensed={hasRowLevelSecurity}
+										showValidationErrors={showRowPolicyValidationErrors}
+										onChange={setRowPolicies}
+									/>
+								)}
+							</>
+						)}
+						{activeTab === 'sso' && (hasSsoTab || isSsoConfigLoading) && (
 							<div className='flex flex-col gap-5'>
 								{existingGroup?.isDefault ? (
 									<DefaultGroupSsoStatus
@@ -278,57 +380,68 @@ export function UserGroupEditor({
 									/>
 								) : (
 									<>
-										{ssoLicenseState !== 'ready' &&
-											ssoMappings.providers.oidc.length === 0 &&
-											ssoMappings.providers.microsoft.length === 0 && (
-												<SsoAvailabilityStatus
-													state={ssoLicenseState}
-													onRetry={() => void licenseFeatures.refetch()}
-												/>
-											)}
-										{(ssoMappings.providers.oidc.length > 0 ||
-											(ssoLicenseState === 'ready' &&
-												oidcConfigurationState !== 'unavailable')) && (
-											<UserGroupSsoMapping
-												key={`${existingGroup?.id ?? 'new'}:oidc`}
-												identifiers={ssoMappings.providers.oidc}
-												provider='oidc'
-												providerName={oidcConfig.data?.providerName ?? 'OIDC'}
-												configurationState={oidcConfigurationState}
-												onRetryConfiguration={() => retrySsoConfiguration(oidcConfig)}
-												onChange={(oidc) =>
-													setSsoMappings(
-														normalizeUserGroupSsoMappings({
-															...ssoMappings,
-															providers: { ...ssoMappings.providers, oidc },
-														}),
-													)
-												}
+										{ssoLicenseState !== 'ready' && (
+											<SsoAvailabilityStatus
+												state={ssoLicenseState}
+												onRetry={() => void licenseFeatures.refetch()}
 											/>
 										)}
-										{(ssoMappings.providers.microsoft.length > 0 ||
-											(ssoLicenseState === 'ready' &&
-												microsoftConfigurationState !== 'unavailable')) && (
-											<UserGroupSsoMapping
-												key={`${existingGroup?.id ?? 'new'}:microsoft`}
-												identifiers={ssoMappings.providers.microsoft}
-												provider='microsoft'
-												providerName='Microsoft Entra'
-												configurationState={microsoftConfigurationState}
-												onRetryConfiguration={() => retrySsoConfiguration(microsoftConfig)}
-												onChange={(microsoft) =>
-													setSsoMappings(
-														normalizeUserGroupSsoMappings({
-															...ssoMappings,
-															providers: { ...ssoMappings.providers, microsoft },
-														}),
-													)
-												}
-											/>
+										{ssoLicenseState === 'ready' &&
+											!hasConfiguredSsoProvider &&
+											isSsoConfigLoading && (
+												<p className='text-sm text-muted-foreground'>
+													Loading SSO configuration...
+												</p>
+											)}
+										{hasConfiguredSsoProvider && (
+											<>
+												{(hasStoredOidcMappings ||
+													oidcConfigurationState !== 'unavailable') && (
+													<UserGroupSsoMapping
+														key={`${existingGroup?.id ?? 'new'}:oidc`}
+														identifiers={ssoMappings.providers.oidc}
+														provider='oidc'
+														providerName={oidcConfig.data?.providerName ?? 'OIDC'}
+														configurationState={oidcConfigurationState}
+														onRetryConfiguration={() => retrySsoConfiguration(oidcConfig)}
+														onChange={(oidc) =>
+															setSsoMappings(
+																normalizeUserGroupSsoMappings({
+																	...ssoMappings,
+																	providers: { ...ssoMappings.providers, oidc },
+																}),
+															)
+														}
+													/>
+												)}
+												{(hasStoredMicrosoftMappings ||
+													microsoftConfigurationState !== 'unavailable') && (
+													<UserGroupSsoMapping
+														key={`${existingGroup?.id ?? 'new'}:microsoft`}
+														identifiers={ssoMappings.providers.microsoft}
+														provider='microsoft'
+														providerName='Microsoft Entra'
+														configurationState={microsoftConfigurationState}
+														onRetryConfiguration={() =>
+															retrySsoConfiguration(microsoftConfig)
+														}
+														onChange={(microsoft) =>
+															setSsoMappings(
+																normalizeUserGroupSsoMappings({
+																	...ssoMappings,
+																	providers: {
+																		...ssoMappings.providers,
+																		microsoft,
+																	},
+																}),
+															)
+														}
+													/>
+												)}
+											</>
 										)}
 									</>
 								)}
-								<RowLevelSecurityPlaceholder isLicensed={hasRowLevelSecurity} />
 							</div>
 						)}
 					</TabPanel>
@@ -372,6 +485,19 @@ export function UserGroupEditor({
 				preventCloseWhilePending
 			/>
 		</>
+	);
+}
+
+function RowSecurityStatus({ message, onRetry }: { message: string; onRetry?: () => void }) {
+	return (
+		<div className='flex min-h-11 items-center justify-between gap-3 rounded-lg border px-3 py-2'>
+			<p className='text-sm text-muted-foreground'>{message}</p>
+			{onRetry && (
+				<Button type='button' size='sm' variant='outline' className='rounded-full' onClick={onRetry}>
+					Retry
+				</Button>
+			)}
+		</div>
 	);
 }
 
@@ -471,21 +597,41 @@ function DefaultGroupSsoStatus({
 export function ConditionalRulesHelp({ groupName }: { groupName: string }) {
 	const { isCopied, copy } = useCopyToClipboard();
 	const normalizedName = groupName.trim();
-	const snippet = normalizedName
+	const rulesFile = useQuery(trpc.contextExplorer.readFile.queryOptions({ path: 'RULES.md' }));
+	const groupSpecificRules = useMemo(() => {
+		if (!normalizedName || !rulesFile.data?.content) {
+			return '';
+		}
+		try {
+			return extractConditionalGroupContent(rulesFile.data.content, normalizedName);
+		} catch {
+			return '';
+		}
+	}, [normalizedName, rulesFile.data?.content]);
+	const exampleSnippet = normalizedName
 		? `{% if group(${JSON.stringify(normalizedName)}) %}\nGroup-specific instructions...\n{% endif %}`
 		: null;
+	const snippet = groupSpecificRules || exampleSnippet;
 
 	return (
-		<section className='flex flex-col gap-3 rounded-lg border p-4'>
+		<section className='flex min-w-0 flex-col gap-3 border-t pt-5'>
 			<div>
-				<h3 className='text-sm font-medium'>Conditional RULES</h3>
-				<p className='text-xs text-muted-foreground'>
-					In the project-root RULES.md, this block is included for members of any named group.
-				</p>
+				<h3 className='text-sm font-medium'>Conditional Rules</h3>
+				{normalizedName && !rulesFile.isLoading && (
+					<p className='text-xs text-muted-foreground'>
+						{groupSpecificRules
+							? 'This group has specific rules in RULES.md.'
+							: 'Add a conditional block to RULES.md to give this group specific rules.'}
+					</p>
+				)}
 			</div>
-			{snippet ? (
-				<div className='relative rounded-md bg-muted p-3 pr-12'>
-					<pre className='overflow-x-auto text-xs'>
+			{!normalizedName ? (
+				<p className='text-xs text-muted-foreground'>Enter a group name to generate a snippet.</p>
+			) : rulesFile.isLoading ? (
+				<p className='text-xs text-muted-foreground'>Loading RULES.md...</p>
+			) : snippet ? (
+				<div className='relative min-w-0 rounded-md bg-muted p-3 pr-12'>
+					<pre className='whitespace-pre-wrap break-words text-xs [overflow-wrap:anywhere]'>
 						<code>{snippet}</code>
 					</pre>
 					<Button
@@ -493,21 +639,13 @@ export function ConditionalRulesHelp({ groupName }: { groupName: string }) {
 						variant='ghost'
 						size='icon-sm'
 						className='absolute right-2 top-2'
-						aria-label='Copy conditional RULES snippet'
+						aria-label='Copy conditional rules snippet'
 						onClick={() => void copy(snippet)}
 					>
 						{isCopied ? <Check className='size-3.5' /> : <Copy className='size-3.5' />}
 					</Button>
 				</div>
-			) : (
-				<p className='text-xs text-muted-foreground'>Enter a group name to generate a snippet.</p>
-			)}
-			<Button asChild type='button' variant='outline' size='sm' className='w-fit'>
-				<a href='/settings/context-explorer'>
-					<FolderOpen className='size-3.5' />
-					Open File Explorer
-				</a>
-			</Button>
+			) : null}
 		</section>
 	);
 }
@@ -521,6 +659,7 @@ export function hasUserGroupEditorChanges(
 		databaseAccess: DatabaseContextAccess;
 		docsAccess?: DocsContextAccess;
 		ssoMappings?: UserGroupSsoMappings;
+		rowPolicies?: UserGroupRowPolicies;
 	},
 ): boolean {
 	return (
@@ -530,7 +669,11 @@ export function hasUserGroupEditorChanges(
 		values.toolCallDensityPolicy.canChange !== group.toolCallDensityPolicy.canChange ||
 		!haveSameDatabaseAccess(values.databaseAccess, group.databaseAccess) ||
 		!haveSameDocsAccess(values.docsAccess ?? group.docsAccess, group.docsAccess) ||
-		!haveSameSsoMappings(values.ssoMappings ?? group.ssoMappings, group.ssoMappings)
+		!haveSameSsoMappings(values.ssoMappings ?? group.ssoMappings, group.ssoMappings) ||
+		!haveSameRowPolicies(
+			values.rowPolicies ?? group.rowPolicies ?? EMPTY_USER_GROUP_ROW_POLICIES,
+			group.rowPolicies ?? EMPTY_USER_GROUP_ROW_POLICIES,
+		)
 	);
 }
 
@@ -634,18 +777,12 @@ function haveSameSsoMappings(left: UserGroupSsoMappings, right: UserGroupSsoMapp
 	return JSON.stringify(normalizeUserGroupSsoMappings(left)) === JSON.stringify(normalizeUserGroupSsoMappings(right));
 }
 
-function RowLevelSecurityPlaceholder({ isLicensed }: { isLicensed: boolean }) {
-	return (
-		<section className='flex flex-col gap-3 rounded-lg border border-dashed p-4'>
-			<div className='flex items-start justify-between gap-3'>
-				<div>
-					<h3 className='text-sm font-medium'>Row-level security</h3>
-					<p className='mt-1 text-xs text-muted-foreground'>
-						Restricting which rows each group can access is not available yet.
-					</p>
-				</div>
-				{!isLicensed && <UpgradeToEnterprise />}
-			</div>
-		</section>
-	);
+function haveSameRowPolicies(left: UserGroupRowPolicies, right: UserGroupRowPolicies): boolean {
+	try {
+		return (
+			JSON.stringify(normalizeUserGroupRowPolicies(left)) === JSON.stringify(normalizeUserGroupRowPolicies(right))
+		);
+	} catch {
+		return false;
+	}
 }

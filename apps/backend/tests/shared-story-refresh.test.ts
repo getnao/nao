@@ -41,6 +41,7 @@ vi.mock('../src/queries/story-folder.queries', () => ({}));
 vi.mock('../src/services/activity', () => ({ logActivity: vi.fn() }));
 vi.mock('../src/services/live-story', () => ({
 	executeLiveQuery: vi.fn(),
+	getAuthorizedStoredStoryQueryData: vi.fn(),
 	getStoryQueryData: mocks.getStoryQueryData,
 	refreshStoryData: mocks.refreshStoryData,
 }));

@@ -122,10 +122,14 @@ describe('user group context access selection', () => {
 		const search = screen.getByRole('textbox', { name: 'Search context' });
 		expect(everything.getAttribute('type')).toBe('button');
 		expect(specific.getAttribute('type')).toBe('button');
+		expect(everything.className).toContain('cursor-pointer');
+		expect(specific.className).toContain('cursor-pointer');
 		expect(everything.getAttribute('aria-pressed')).toBe('false');
 		expect(specific.getAttribute('aria-pressed')).toBe('true');
 		fireEvent.change(search, { target: { value: 'users' } });
-		expect(screen.getByRole('checkbox', { name: 'users table access' })).toBeTruthy();
+		const enabledUsersAccess = screen.getByRole('checkbox', { name: 'users table access' });
+		expect(enabledUsersAccess.className).toContain('cursor-pointer');
+		expect(enabledUsersAccess.className).toContain('disabled:cursor-default');
 		expect(screen.queryByRole('checkbox', { name: 'orders table access' })).toBeNull();
 
 		fireEvent.click(everything);
@@ -135,7 +139,9 @@ describe('user group context access selection', () => {
 		expect(screen.getByText('app/public')).toBeTruthy();
 		expect(screen.getByText('2 tables')).toBeTruthy();
 
-		fireEvent.click(screen.getByRole('button', { name: 'Expand app/public folder' }));
+		const folderButton = screen.getByRole('button', { name: 'Expand app/public folder' });
+		expect(folderButton.className).toContain('cursor-pointer');
+		fireEvent.click(folderButton);
 		const schemaAccess = screen.getByRole('checkbox', { name: 'app/public schema access' });
 		const usersAccess = screen.getByRole('checkbox', { name: 'users table access' });
 		const ordersAccess = screen.getByRole('checkbox', { name: 'orders table access' });
@@ -145,6 +151,9 @@ describe('user group context access selection', () => {
 		expect(schemaAccess.hasAttribute('disabled')).toBe(true);
 		expect(usersAccess.hasAttribute('disabled')).toBe(true);
 		expect(ordersAccess.hasAttribute('disabled')).toBe(true);
+		expect(usersAccess.className).toContain('disabled:cursor-default');
+		expect(screen.getAllByText('Inherited')).toHaveLength(3);
+		expect(screen.queryByText('Pattern')).toBeNull();
 
 		fireEvent.click(specific);
 		expect(everything.getAttribute('aria-pressed')).toBe('false');
@@ -431,7 +440,7 @@ describe('user group context access selection', () => {
 	it('shows descendants inherited from a schema as selected and locked', () => {
 		render(
 			<StatefulContextAccess
-				initialAccess={{ mode: 'restricted', strict: true, grants: [schema], patterns: [] }}
+				initialAccess={{ mode: 'restricted', strict: true, grants: [schema], patterns: ['public.*'] }}
 			/>,
 		);
 		fireEvent.click(screen.getByRole('button', { name: 'Expand app/public folder' }));
@@ -487,6 +496,8 @@ describe('user group context access selection', () => {
 		expect(usersAccess.getAttribute('data-state')).toBe('checked');
 		expect(usersAccess.hasAttribute('disabled')).toBe(true);
 		expect(usersAccess.getAttribute('title')).toContain('Remove the pattern');
+		expect(usersAccess.parentElement?.textContent).toContain('Pattern');
+		expect(usersAccess.parentElement?.textContent).not.toContain('Inherited');
 	});
 
 	it('adds and removes unmatched patterns without dropping them', () => {
@@ -515,6 +526,8 @@ describe('user group context access selection', () => {
 
 		expect(screen.getByRole('checkbox', { name: 'users table access' }).hasAttribute('disabled')).toBe(true);
 		expect(screen.getByRole('checkbox', { name: 'orders table access' }).hasAttribute('disabled')).toBe(true);
+		expect(screen.getAllByText('Pattern')).toHaveLength(2);
+		expect(screen.queryByText('Inherited')).toBeNull();
 		expect(screen.getAllByText('2 tables')).toHaveLength(2);
 
 		unmount();

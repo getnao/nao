@@ -69,6 +69,7 @@ export type DatabaseContextCatalog = {
 		database: string;
 		schema: string;
 		table: string;
+		columns: string[];
 	}>;
 };
 
@@ -96,6 +97,7 @@ export function getDatabaseContextCatalog(projectFolder: string): DatabaseContex
 				database,
 				schema,
 				table,
+				columns: readDatabaseObjectColumns(projectFolder, { type, database, schema, table }),
 			}))
 			.sort(
 				(left, right) =>
@@ -105,6 +107,87 @@ export function getDatabaseContextCatalog(projectFolder: string): DatabaseContex
 					left.table.localeCompare(right.table),
 			),
 	};
+}
+
+function readDatabaseObjectColumns(
+	projectFolder: string,
+	object: Pick<DatabaseObject, 'type' | 'database' | 'schema' | 'table'>,
+): string[] {
+	const path = join(
+		projectFolder,
+		'databases',
+		`type=${object.type}`,
+		`database=${object.database}`,
+		`schema=${object.schema}`,
+		`table=${object.table}`,
+		'columns.md',
+	);
+	try {
+		return readFileSync(path, 'utf-8')
+			.split(/\r?\n/)
+			.flatMap((line) => {
+				const name = parseGeneratedColumnName(line);
+				return name ? [name] : [];
+			});
+	} catch {
+		return [];
+	}
+}
+
+function parseGeneratedColumnName(line: string): string | null {
+	if (!line.startsWith('- ')) {
+		return null;
+	}
+	for (let index = 2; index < line.length - 2; index += 1) {
+		if (line[index] !== ' ' || line[index + 1] !== '(' || !isCompleteParenthesizedSuffix(line.slice(index + 1))) {
+			continue;
+		}
+		const name = line.slice(2, index).trim();
+		return name ? unquoteGeneratedIdentifier(name) : null;
+	}
+	return null;
+}
+
+function isCompleteParenthesizedSuffix(value: string): boolean {
+	let depth = 0;
+	let quote: "'" | '"' | '`' | undefined;
+	for (let index = 0; index < value.length; index += 1) {
+		const character = value[index];
+		if (quote) {
+			if (character === '\\') {
+				index += 1;
+			} else if (character === quote) {
+				if (value[index + 1] === quote) {
+					index += 1;
+				} else {
+					quote = undefined;
+				}
+			}
+		} else if (character === "'" || character === '"' || character === '`') {
+			quote = character;
+		} else if (character === '(') {
+			depth += 1;
+		} else if (character === ')') {
+			depth -= 1;
+			if (depth === 0 && index !== value.length - 1) {
+				return false;
+			}
+		}
+		if (depth < 0) {
+			return false;
+		}
+	}
+	return depth === 0 && quote === undefined;
+}
+
+function unquoteGeneratedIdentifier(value: string): string {
+	if (value.startsWith('`') && value.endsWith('`')) {
+		return value.slice(1, -1).replaceAll('``', '`');
+	}
+	if (value.startsWith('"') && value.endsWith('"')) {
+		return value.slice(1, -1).replaceAll('""', '"');
+	}
+	return value;
 }
 
 function readDirEntries(dir: string, prefix: string): { name: string; path: string }[] {
