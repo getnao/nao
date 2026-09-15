@@ -9,4 +9,5 @@ CREATE TABLE "user_group_sso_member" (
 ALTER TABLE "user_group" ADD COLUMN "sso_mappings" jsonb;--> statement-breakpoint
 ALTER TABLE "user_group_sso_member" ADD CONSTRAINT "user_group_sso_member_group_id_user_group_id_fk" FOREIGN KEY ("group_id") REFERENCES "public"."user_group"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_group_sso_member" ADD CONSTRAINT "user_group_sso_member_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "user_group_sso_member_user_provider_idx" ON "user_group_sso_member" USING btree ("user_id","provider");
+CREATE INDEX "user_group_sso_member_user_provider_idx" ON "user_group_sso_member" USING btree ("user_id","provider");--> statement-breakpoint
+CREATE UNIQUE INDEX "user_group_project_name_ci_unique" ON "user_group" USING btree ("project_id",lower("name"));

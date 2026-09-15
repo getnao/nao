@@ -152,6 +152,8 @@ export function ProjectTeamTabPage() {
 				onSubmit={handleAdd}
 				groupOptions={userGroups.data?.groups.filter((group) => !group.isLocked) ?? []}
 				groupsLoading={userGroups.isLoading}
+				groupsError={userGroups.isError}
+				onRetryGroups={() => void userGroups.refetch()}
 			/>
 
 			<EditMemberDialog

@@ -7034,6 +7034,27 @@
           "method": "btree",
           "with": {}
         },
+        "user_group_project_name_ci_unique": {
+          "name": "user_group_project_name_ci_unique",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"name\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "user_group_project_default_unique": {
           "name": "user_group_project_default_unique",
           "columns": [

@@ -7,6 +7,7 @@ type ConditionalFrame = {
 type Fence = {
 	character: '`' | '~';
 	length: number;
+	containers: MarkdownContainer[];
 };
 
 export type RenderedConditionalGroupBlocks = {
@@ -35,7 +36,8 @@ export function renderConditionalGroupBlocksWithSourceLines(
 
 	for (const [lineIndex, line] of splitLines(source).entries()) {
 		const lineBody = removeLineEnding(line);
-		const fenceMarker = parseFenceMarker(lineBody);
+		const containerLine = parseMarkdownContainerLine(lineBody);
+		const fenceMarker = parseFenceMarker(containerLine);
 
 		if (fence) {
 			if (isClosingFence(lineBody, fence)) {
@@ -57,7 +59,7 @@ export function renderConditionalGroupBlocksWithSourceLines(
 			continue;
 		}
 
-		const directive = parseDirective(lineBody);
+		const directive = parseDirective(containerLine.content);
 		if (!directive) {
 			if (shouldInclude(conditionalStack)) {
 				renderedLines.push(line);
@@ -97,17 +99,27 @@ export function isRootRulesPath(filePath: string): boolean {
 
 function parseDirective(line: string): { type: 'if'; groupNames: string[] } | { type: 'endif' } | undefined {
 	const trimmed = line.trim();
-	if (/^\{%\s*endif\s*%\}$/.test(trimmed)) {
-		return { type: 'endif' };
-	}
-	if (/^\{%\s*endif\b/.test(trimmed)) {
-		throw new Error('RULES.md contains a malformed endif directive.');
-	}
-	if (!/^\{%\s*if\b/.test(trimmed)) {
+	if (!trimmed.startsWith('{%')) {
 		return undefined;
 	}
 
-	const match = trimmed.match(/^\{%\s*if\s+group\((.*)\)\s*%\}$/);
+	const tag = trimmed.match(/^\{%-?\s*(.*?)\s*-?%\}$/);
+	if (!tag) {
+		throw new Error('RULES.md contains an unsupported or malformed conditional directive.');
+	}
+
+	const body = tag[1].trim();
+	if (body === 'endif') {
+		return { type: 'endif' };
+	}
+	if (/^endif\b/.test(body)) {
+		throw new Error('RULES.md contains a malformed endif directive.');
+	}
+	if (!/^if\b/.test(body)) {
+		throw new Error('RULES.md contains an unsupported or malformed conditional directive.');
+	}
+
+	const match = body.match(/^if\s+group\((.*)\)$/);
 	if (!match) {
 		throw new Error('RULES.md contains an unsupported or malformed conditional directive.');
 	}
@@ -195,18 +207,91 @@ function removeLineEnding(line: string): string {
 	return line.replace(/(?:\r\n|\n|\r)$/, '');
 }
 
-function parseFenceMarker(line: string): Fence | undefined {
-	const match = line.match(/^\s*(`{3,}|~{3,})/);
+type MarkdownContainerLine = {
+	content: string;
+	containers: MarkdownContainer[];
+};
+
+type MarkdownContainer = { type: 'blockquote' } | { type: 'list'; continuationIndent: number };
+
+function parseMarkdownContainerLine(line: string): MarkdownContainerLine {
+	let content = expandMarkdownTabs(line);
+	const containers: MarkdownContainer[] = [];
+
+	while (true) {
+		const blockquote = content.match(/^ {0,3}> ?/);
+		if (blockquote) {
+			content = content.slice(blockquote[0].length);
+			containers.push({ type: 'blockquote' });
+			continue;
+		}
+
+		const listItem = content.match(/^ {0,3}(?:[*+-]|\d{1,9}[.)]) {1,4}/);
+		if (listItem) {
+			content = content.slice(listItem[0].length);
+			containers.push({ type: 'list', continuationIndent: listItem[0].length });
+			continue;
+		}
+		break;
+	}
+
+	return { content, containers };
+}
+
+function parseFenceMarker(line: MarkdownContainerLine): Fence | undefined {
+	const match = line.content.match(/^ {0,3}(`{3,}|~{3,})/);
 	if (!match) {
 		return undefined;
 	}
 	return {
 		character: match[1][0] as Fence['character'],
 		length: match[1].length,
+		containers: line.containers,
 	};
 }
 
 function isClosingFence(line: string, fence: Fence): boolean {
+	const content = stripMarkdownContainers(line, fence.containers);
+	if (content === undefined) {
+		return false;
+	}
 	const marker = fence.character.repeat(fence.length);
-	return new RegExp(`^\\s*${marker}${fence.character}*\\s*$`).test(line);
+	return new RegExp(`^ {0,3}${marker}${fence.character}* *$`).test(content);
+}
+
+function stripMarkdownContainers(line: string, containers: MarkdownContainer[]): string | undefined {
+	let content = expandMarkdownTabs(line);
+	for (const container of containers) {
+		if (container.type === 'blockquote') {
+			const blockquote = content.match(/^ {0,3}> ?/);
+			if (!blockquote) {
+				return undefined;
+			}
+			content = content.slice(blockquote[0].length);
+			continue;
+		}
+
+		const indentation = ' '.repeat(container.continuationIndent);
+		if (!content.startsWith(indentation)) {
+			return undefined;
+		}
+		content = content.slice(indentation.length);
+	}
+	return content;
+}
+
+function expandMarkdownTabs(line: string): string {
+	let expanded = '';
+	let column = 0;
+	for (const character of line) {
+		if (character === '\t') {
+			const spaces = 4 - (column % 4);
+			expanded += ' '.repeat(spaces);
+			column += spaces;
+			continue;
+		}
+		expanded += character;
+		column += 1;
+	}
+	return expanded;
 }

@@ -28,7 +28,7 @@ describe('user group feature access service', () => {
 		});
 	});
 
-	it('resolves group policies without an unlimited-groups entitlement', async () => {
+	it('formats resolved group policies as effective access', async () => {
 		await expect(getEffectiveUserGroupAccess('project-id', 'user-id')).resolves.toEqual({
 			features: {
 				'story-creation': true,

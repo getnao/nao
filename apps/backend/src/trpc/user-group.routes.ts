@@ -134,9 +134,11 @@ export const userGroupRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			await assertCanCreateCustomUserGroup(ctx.project.id);
 			const databaseAccess = normalizeDatabaseContextAccess(input.databaseAccess);
 			const docsAccess = normalizeDocsContextAccess(input.docsAccess);
+			const createUserGroup = (await hasFeature(LICENSE_FEATURES.userGroups))
+				? userGroupQueries.createUserGroup
+				: userGroupQueries.createUserGroupWithinLimit.bind(null, FREE_CUSTOM_USER_GROUP_LIMIT);
 			return handleQuery(() => {
 				const values = [
 					ctx.project.id,
@@ -147,8 +149,8 @@ export const userGroupRoutes = {
 					docsAccess,
 				] as const;
 				return input.ssoMappings === undefined
-					? userGroupQueries.createUserGroup(...values)
-					: userGroupQueries.createUserGroup(...values, normalizeUserGroupSsoMappings(input.ssoMappings));
+					? createUserGroup(...values)
+					: createUserGroup(...values, normalizeUserGroupSsoMappings(input.ssoMappings));
 			});
 		}),
 
@@ -204,18 +206,6 @@ export const userGroupRoutes = {
 			);
 		}),
 };
-
-async function assertCanCreateCustomUserGroup(projectId: string): Promise<void> {
-	if (await hasFeature(LICENSE_FEATURES.userGroups)) {
-		return;
-	}
-	if ((await userGroupQueries.countCustomUserGroups(projectId)) >= FREE_CUSTOM_USER_GROUP_LIMIT) {
-		throw new TRPCError({
-			code: 'FORBIDDEN',
-			message: `Free projects can create up to ${FREE_CUSTOM_USER_GROUP_LIMIT} custom user groups. Enterprise enables unlimited groups.`,
-		});
-	}
-}
 
 async function handleQuery<T>(operation: () => Promise<T>): Promise<T> {
 	try {

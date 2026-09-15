@@ -31,8 +31,13 @@ interface RipgrepMatch {
 	path: string;
 	line_number: number;
 	line_content: string;
-	context_before?: string[];
-	context_after?: string[];
+	context_before?: RipgrepContextLine[];
+	context_after?: RipgrepContextLine[];
+}
+
+interface RipgrepContextLine {
+	line_number: number;
+	line_content: string;
 }
 
 /** A directory ripgrep walks, and how its absolute paths map back to the file tree. */
@@ -365,11 +370,17 @@ function addContextToMatches(matches: RipgrepMatch[], contextLines: number, targ
 
 				// Get context before
 				const beforeStart = Math.max(0, lineIndex - contextLines);
-				match.context_before = lines.slice(beforeStart, lineIndex);
+				match.context_before = lines.slice(beforeStart, lineIndex).map((line, index) => ({
+					line_number: beforeStart + index + 1,
+					line_content: line,
+				}));
 
 				// Get context after
 				const afterEnd = Math.min(lines.length, lineIndex + 1 + contextLines);
-				match.context_after = lines.slice(lineIndex + 1, afterEnd);
+				match.context_after = lines.slice(lineIndex + 1, afterEnd).map((line, index) => ({
+					line_number: lineIndex + index + 2,
+					line_content: line,
+				}));
 			}
 		} catch {
 			// Skip files that can't be read
@@ -384,8 +395,14 @@ function addRulesContextToMatches(matches: RipgrepMatch[], contextLines: number,
 			continue;
 		}
 		const beforeStart = Math.max(0, lineIndex - contextLines);
-		match.context_before = rulesView.lines.slice(beforeStart, lineIndex).map((line) => line.content);
+		match.context_before = rulesView.lines.slice(beforeStart, lineIndex).map((line) => ({
+			line_number: line.sourceLineNumber,
+			line_content: line.content,
+		}));
 		const afterEnd = Math.min(rulesView.lines.length, lineIndex + 1 + contextLines);
-		match.context_after = rulesView.lines.slice(lineIndex + 1, afterEnd).map((line) => line.content);
+		match.context_after = rulesView.lines.slice(lineIndex + 1, afterEnd).map((line) => ({
+			line_number: line.sourceLineNumber,
+			line_content: line.content,
+		}));
 	}
 }

@@ -51,6 +51,7 @@ vi.mock('@/main', () => ({
 }));
 
 const groups = {
+	status: 'ready' as const,
 	enforced: true,
 	groups: [
 		{ id: 'all', name: 'All Users', isDefault: true },
@@ -154,11 +155,28 @@ describe('FileViewer RULES preview', () => {
 
 	it('uses unenforced rendering and hides the selector when groups are unlicensed', () => {
 		const content = '{% if group("Finance") %}\nFinance content\n{% endif %}';
-		renderViewer({ filePath: '/RULES.md', content, rulesPreviewGroups: { enforced: false, groups: [] } });
+		renderViewer({
+			filePath: '/RULES.md',
+			content,
+			rulesPreviewGroups: { status: 'ready', enforced: false, groups: [] },
+		});
 
 		expect(screen.queryByRole('toolbar', { name: 'Rules preview options' })).toBeNull();
 		expect(screen.queryByRole('button', { name: /Select user groups/ })).toBeNull();
 		expect(screen.getByTestId('markdown-preview').textContent).toBe('Finance content\n');
+	});
+
+	it.each([
+		{ state: { status: 'loading' as const }, message: 'Loading RULES.md preview access...' },
+		{ state: { status: 'error' as const }, message: 'Failed to load RULES.md preview access.' },
+	])('does not render conditional rules while preview access is $state.status', ({ state, message }) => {
+		const content = '{% if group("Finance") %}\nProtected instructions\n{% endif %}';
+		renderViewer({ filePath: '/RULES.md', content, rulesPreviewGroups: state });
+
+		expect(screen.getByText(message)).toBeTruthy();
+		expect(screen.queryByTestId('markdown-preview')).toBeNull();
+		expect(screen.queryByText('Protected instructions')).toBeNull();
+		expect(screen.queryByRole('toolbar', { name: 'Rules preview options' })).toBeNull();
 	});
 });
 
@@ -169,7 +187,11 @@ function renderViewer({
 }: {
 	filePath: string;
 	content: string;
-	rulesPreviewGroups?: typeof groups | { enforced: false; groups: [] };
+	rulesPreviewGroups?:
+		| typeof groups
+		| { status: 'ready'; enforced: false; groups: [] }
+		| { status: 'loading' }
+		| { status: 'error' };
 }) {
 	render(
 		<FileViewer

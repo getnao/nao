@@ -30,7 +30,7 @@ vi.mock('../src/services/microsoft-auth.service', () => ({
 	isMicrosoftConfigured: () => true,
 }));
 vi.mock('../src/services/sso-token.service', () => ({
-	decodeIdTokenClaims: mocks.decodeClaims,
+	verifyMicrosoftIdTokenClaims: mocks.decodeClaims,
 }));
 vi.mock('../src/utils/logger', () => ({
 	logger: mocks.logger,
@@ -65,7 +65,10 @@ beforeEach(() => {
 
 describe('syncUserGroupsFromMicrosoft', () => {
 	it('uses a standard groups claim directly and normalizes GUIDs', async () => {
-		mocks.decodeClaims.mockReturnValue({ status: 'decoded', claims: { groups: [GROUP_1, GROUP_1.toLowerCase()] } });
+		mocks.decodeClaims.mockReturnValue({
+			status: 'verified',
+			claims: { groups: [GROUP_1, GROUP_1.toLowerCase()] },
+		});
 
 		await syncUserGroupsFromMicrosoft('user-1');
 
@@ -76,16 +79,17 @@ describe('syncUserGroupsFromMicrosoft', () => {
 	});
 
 	it('treats a valid empty groups claim as authoritative', async () => {
-		mocks.decodeClaims.mockReturnValue({ status: 'decoded', claims: { groups: [] } });
+		mocks.decodeClaims.mockReturnValue({ status: 'verified', claims: { groups: [] } });
 		await syncUserGroupsFromMicrosoft('user-1');
 		expect(mocks.reconcile).toHaveBeenCalledWith('user-1', 'microsoft', []);
 	});
 
 	it.each([
-		['missing', { status: 'decoded', claims: {} }],
-		['malformed type', { status: 'decoded', claims: { groups: 42 } }],
-		['malformed GUID', { status: 'decoded', claims: { groups: ['not-a-guid'] } }],
-		['undecodable', { status: 'undecodable' }],
+		['missing', { status: 'verified', claims: {} }],
+		['malformed type', { status: 'verified', claims: { groups: 42 } }],
+		['malformed GUID', { status: 'verified', claims: { groups: ['not-a-guid'] } }],
+		['invalid token', { status: 'invalid' }],
+		['verification unavailable', { status: 'unavailable' }],
 		['unavailable', { status: 'no-token' }],
 	])('preserves memberships for %s Microsoft membership data', async (_name, token) => {
 		mocks.decodeClaims.mockReturnValue(token);
@@ -97,7 +101,7 @@ describe('syncUserGroupsFromMicrosoft', () => {
 	it.each([{ _claim_names: { groups: 'src1' } }, { hasgroups: true }])(
 		'resolves overage claims with Microsoft Graph',
 		async (claims) => {
-			mocks.decodeClaims.mockReturnValue({ status: 'decoded', claims });
+			mocks.decodeClaims.mockReturnValue({ status: 'verified', claims });
 			mocks.fetch.mockResolvedValue(graphResponse([GROUP_2]));
 
 			await syncUserGroupsFromMicrosoft('user-1');
@@ -107,7 +111,7 @@ describe('syncUserGroupsFromMicrosoft', () => {
 	);
 
 	it('clears stale rows without Graph when overage has no configured candidates', async () => {
-		mocks.decodeClaims.mockReturnValue({ status: 'decoded', claims: { hasgroups: true } });
+		mocks.decodeClaims.mockReturnValue({ status: 'verified', claims: { hasgroups: true } });
 		mocks.listIdentifiers.mockResolvedValue([]);
 
 		await syncUserGroupsFromMicrosoft('user-1');
@@ -117,7 +121,7 @@ describe('syncUserGroupsFromMicrosoft', () => {
 	});
 
 	it('preserves rows when the Microsoft access token is unavailable or expired', async () => {
-		mocks.decodeClaims.mockReturnValue({ status: 'decoded', claims: { hasgroups: true } });
+		mocks.decodeClaims.mockReturnValue({ status: 'verified', claims: { hasgroups: true } });
 		mocks.getLoginTokens.mockResolvedValue({
 			idToken: 'id-token',
 			accessToken: 'expired',
@@ -131,7 +135,7 @@ describe('syncUserGroupsFromMicrosoft', () => {
 	});
 
 	it('preserves rows when any Graph batch fails', async () => {
-		mocks.decodeClaims.mockReturnValue({ status: 'decoded', claims: { hasgroups: true } });
+		mocks.decodeClaims.mockReturnValue({ status: 'verified', claims: { hasgroups: true } });
 		mocks.listIdentifiers.mockResolvedValue(createGroupIds(21));
 		mocks.fetch.mockResolvedValueOnce(graphResponse([])).mockResolvedValueOnce(graphResponse([], 403));
 
@@ -151,7 +155,7 @@ describe('syncUserGroupsFromMicrosoft', () => {
 		mocks.hasFeature
 			.mockReset()
 			.mockImplementation((feature: string) => Promise.resolve(feature !== 'user-groups'));
-		mocks.decodeClaims.mockReturnValue({ status: 'decoded', claims: { groups: [GROUP_1] } });
+		mocks.decodeClaims.mockReturnValue({ status: 'verified', claims: { groups: [GROUP_1] } });
 		await syncUserGroupsFromMicrosoft('user-1');
 		expect(mocks.hasFeature).toHaveBeenCalledOnce();
 		expect(mocks.hasFeature).toHaveBeenCalledWith('sso');

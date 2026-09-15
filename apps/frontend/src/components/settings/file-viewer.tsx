@@ -43,6 +43,15 @@ interface FileContents {
 	hash: string;
 }
 
+export type RulesPreviewGroupsState =
+	| { status: 'loading' }
+	| { status: 'error' }
+	| {
+			status: 'ready';
+			enforced: boolean;
+			groups: UserGroupPickerOption[];
+	  };
+
 interface FileViewerProps {
 	filePath: string | null;
 	content: string | undefined;
@@ -56,10 +65,7 @@ interface FileViewerProps {
 	onDirtyChange: (isDirty: boolean) => void;
 	onOpenGuidancePath: (path: string, kind: 'file' | 'route') => void;
 	onReload: () => Promise<FileContents | undefined>;
-	rulesPreviewGroups?: {
-		enforced: boolean;
-		groups: UserGroupPickerOption[];
-	};
+	rulesPreviewGroups: RulesPreviewGroupsState;
 }
 
 interface FileSaveError {
@@ -310,7 +316,9 @@ function EditableFileViewer({
 	);
 
 	const fileName = getFileName(filePath);
-	const showRulesPreviewToolbar = isRootRules && rulesPreviewGroups?.enforced;
+	const showRulesPreviewToolbar = isRootRules && rulesPreviewGroups.status === 'ready' && rulesPreviewGroups.enforced;
+	const rulesPreviewStatus =
+		isRootRules && rulesPreviewGroups.status !== 'ready' ? rulesPreviewGroups.status : undefined;
 
 	return (
 		<div className='flex flex-col h-full'>
@@ -393,6 +401,7 @@ function EditableFileViewer({
 									filePath={filePath}
 									searchQuery={searchQuery}
 									error={preview.error}
+									status={rulesPreviewStatus}
 								/>
 							</ResizablePanel>
 							<ResizableSeparator withHandle />
@@ -414,6 +423,7 @@ function EditableFileViewer({
 							filePath={filePath}
 							searchQuery={searchQuery}
 							error={preview.error}
+							status={rulesPreviewStatus}
 						/>
 					)
 				) : (
@@ -491,11 +501,13 @@ function MarkdownPreview({
 	filePath,
 	searchQuery,
 	error,
+	status,
 }: {
 	content: string;
 	filePath: string;
 	searchQuery: string;
 	error?: string;
+	status?: 'loading' | 'error';
 }) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const parsedMarkdown = useMemo(() => parseMarkdownFrontmatter(content), [content]);
@@ -505,7 +517,11 @@ function MarkdownPreview({
 		<section aria-label='Markdown preview' className='flex h-full min-h-0 flex-col'>
 			<div ref={containerRef} className='min-h-0 flex-1 overflow-auto'>
 				<div className='max-w-3xl mx-auto px-8 py-6'>
-					{error ? (
+					{status === 'loading' ? (
+						<p className='text-sm text-muted-foreground'>Loading RULES.md preview access...</p>
+					) : status === 'error' ? (
+						<ErrorMessage message='Failed to load RULES.md preview access.' />
+					) : error ? (
 						<ErrorMessage message={error} />
 					) : (
 						<Streamdown mode='static' controls={false} plugins={markdownPlugins}>
@@ -582,8 +598,14 @@ function getRulesGroupAccess(
 	isRootRules: boolean,
 	rulesPreviewGroups: FileViewerProps['rulesPreviewGroups'],
 	selectedGroupIds: string[],
-): UserRulesGroupAccess {
-	if (!isRootRules || !rulesPreviewGroups?.enforced) {
+): UserRulesGroupAccess | null {
+	if (!isRootRules) {
+		return { enforced: false };
+	}
+	if (rulesPreviewGroups.status !== 'ready') {
+		return null;
+	}
+	if (!rulesPreviewGroups.enforced) {
 		return { enforced: false };
 	}
 	return {
@@ -597,10 +619,13 @@ function getRulesGroupAccess(
 function renderRulesPreview(
 	content: string,
 	isRootRules: boolean,
-	groupAccess: UserRulesGroupAccess,
+	groupAccess: UserRulesGroupAccess | null,
 ): { content: string; error?: string } {
 	if (!isRootRules) {
 		return { content };
+	}
+	if (!groupAccess) {
+		return { content: '' };
 	}
 	try {
 		return { content: renderConditionalGroupBlocks(content, groupAccess) };

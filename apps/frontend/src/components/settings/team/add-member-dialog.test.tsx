@@ -118,6 +118,30 @@ describe('AddMemberDialog groups', () => {
 			}),
 		);
 	});
+
+	it('blocks project submission and retries when groups fail to load', () => {
+		const onSubmit = vi.fn().mockResolvedValue({});
+		const onRetryGroups = vi.fn();
+		render(
+			<AddMemberDialog
+				open
+				onOpenChange={vi.fn()}
+				groupOptions={[]}
+				groupsError
+				onRetryGroups={onRetryGroups}
+				onSubmit={onSubmit}
+			/>,
+		);
+
+		expect(screen.getByText('Failed to load groups.')).toBeTruthy();
+		const submit = screen.getByRole('button', { name: 'Add member' }) as HTMLButtonElement;
+		expect(submit.disabled).toBe(true);
+		fireEvent.click(submit);
+		expect(onSubmit).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+		expect(onRetryGroups).toHaveBeenCalledOnce();
+	});
 });
 
 function DialogHarness({ onSubmit }: { onSubmit: () => Promise<Record<string, never>> }) {

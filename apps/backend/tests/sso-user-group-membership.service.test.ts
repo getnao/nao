@@ -29,7 +29,7 @@ vi.mock('../src/services/sso-group-mapping.service', () => ({
 	DEFAULT_GROUPS_CLAIM: 'groups',
 }));
 vi.mock('../src/services/sso-token.service', () => ({
-	readClaimsFromIdToken: mocks.readClaims,
+	readVerifiedOidcIdTokenClaims: mocks.readClaims,
 }));
 vi.mock('../src/utils/logger', () => ({
 	logger: mocks.logger,
@@ -50,20 +50,21 @@ beforeEach(() => {
 
 describe('syncUserGroupsFromOidc', () => {
 	it('reconciles valid groups case-insensitively and treats an empty claim as authoritative', async () => {
-		mocks.readClaims.mockResolvedValueOnce({ status: 'decoded', claims: { groups: ['Finance'] } });
+		mocks.readClaims.mockResolvedValueOnce({ status: 'verified', claims: { groups: ['Finance'] } });
 		await syncUserGroupsFromOidc('user-1');
-		expect(mocks.readClaims).toHaveBeenLastCalledWith('user-1', 'okta');
+		expect(mocks.readClaims).toHaveBeenLastCalledWith('user-1');
 		expect(mocks.reconcile).toHaveBeenLastCalledWith('user-1', 'oidc', ['Finance']);
 
-		mocks.readClaims.mockResolvedValueOnce({ status: 'decoded', claims: { groups: [] } });
+		mocks.readClaims.mockResolvedValueOnce({ status: 'verified', claims: { groups: [] } });
 		await syncUserGroupsFromOidc('user-1');
 		expect(mocks.reconcile).toHaveBeenLastCalledWith('user-1', 'oidc', []);
 	});
 
 	it.each([
-		['missing', { status: 'decoded', claims: {} }],
-		['malformed', { status: 'decoded', claims: { groups: 42 } }],
-		['undecodable', { status: 'undecodable' }],
+		['missing', { status: 'verified', claims: {} }],
+		['malformed', { status: 'verified', claims: { groups: 42 } }],
+		['invalid token', { status: 'invalid' }],
+		['verification unavailable', { status: 'unavailable' }],
 		['no token', { status: 'no-token' }],
 	])('preserves memberships when the claim is %s', async (_name, token) => {
 		mocks.readClaims.mockResolvedValue(token);
@@ -81,7 +82,7 @@ describe('syncUserGroupsFromOidc', () => {
 		mocks.hasFeature
 			.mockReset()
 			.mockImplementation((feature: string) => Promise.resolve(feature !== 'user-groups'));
-		mocks.readClaims.mockResolvedValue({ status: 'decoded', claims: { groups: ['Finance'] } });
+		mocks.readClaims.mockResolvedValue({ status: 'verified', claims: { groups: ['Finance'] } });
 		await syncUserGroupsFromOidc('user-1');
 		expect(mocks.hasFeature).toHaveBeenCalledOnce();
 		expect(mocks.hasFeature).toHaveBeenCalledWith('sso');

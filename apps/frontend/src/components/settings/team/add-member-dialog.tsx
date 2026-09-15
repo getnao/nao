@@ -15,6 +15,8 @@ interface AddMemberDialogProps {
 	title?: string;
 	groupOptions?: AddMemberGroupOption[];
 	groupsLoading?: boolean;
+	groupsError?: boolean;
+	onRetryGroups?: () => void;
 	onSubmit: (data: { email: string; name?: string; groupIds?: string[] }) => Promise<{ needsName?: boolean }>;
 }
 
@@ -24,16 +26,22 @@ export function AddMemberDialog({
 	title = 'Add Member',
 	groupOptions,
 	groupsLoading = false,
+	groupsError = false,
+	onRetryGroups,
 	onSubmit,
 }: AddMemberDialogProps) {
 	const [error, setError] = useState('');
 	const [needsName, setNeedsName] = useState(false);
 	const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
+	const groupsUnavailable = groupOptions !== undefined && (groupsLoading || groupsError);
 
 	const form = useForm({
 		defaultValues: { email: '', name: '' },
 		onSubmit: async ({ value }) => {
 			setError('');
+			if (groupsUnavailable) {
+				return;
+			}
 			if (needsName && !value.name.trim()) {
 				setError('Name is required to create a new user.');
 				return;
@@ -95,13 +103,23 @@ export function AddMemberDialog({
 						)}
 					</form.Field>
 
-					{groupOptions && (
+					{groupOptions && !groupsError && (
 						<UserGroupPicker
 							groups={groupOptions}
 							selectedGroupIds={selectedGroupIds}
 							loading={groupsLoading}
 							onSelectedGroupIdsChange={setSelectedGroupIds}
 						/>
+					)}
+					{groupOptions && groupsError && (
+						<div className='flex items-center justify-between gap-3 rounded-lg border p-3'>
+							<p className='text-sm text-destructive'>Failed to load groups.</p>
+							{onRetryGroups && (
+								<Button type='button' variant='outline' size='sm' onClick={onRetryGroups}>
+									Retry
+								</Button>
+							)}
+						</div>
 					)}
 
 					{needsName && (
@@ -130,7 +148,7 @@ export function AddMemberDialog({
 
 					{error && <p className='text-red-500 text-center text-sm'>{error}</p>}
 					<div className='flex justify-end'>
-						<Button type='submit' variant='primary-gradient'>
+						<Button type='submit' variant='primary-gradient' disabled={groupsUnavailable}>
 							Add member
 						</Button>
 					</div>

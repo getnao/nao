@@ -15,7 +15,7 @@ import {
 } from '../utils/sso-group-mapping';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { getOidcProviderId, isOidcConfigured } from './oidc-auth.service';
-import { readClaimsFromIdToken } from './sso-token.service';
+import { readDecodedIdTokenClaims, readVerifiedOidcIdTokenClaims } from './sso-token.service';
 
 export const DEFAULT_GROUPS_CLAIM = 'groups';
 
@@ -38,15 +38,15 @@ export async function syncRolesFromSsoGroups(userId: string): Promise<void> {
 			return;
 		}
 
-		const token = await readClaimsFromIdToken(userId, getOidcProviderId());
+		const token = await readVerifiedOidcIdTokenClaims(userId);
 		if (token.status === 'no-token') {
 			return;
 		}
 
-		if (token.status === 'undecodable') {
-			logger.warn('Could not decode the SSO ID token, leaving roles untouched', {
+		if (token.status !== 'verified') {
+			logger.warn('Could not verify the SSO ID token, leaving roles untouched', {
 				source: 'system',
-				context: { userId },
+				context: { userId, problem: token.status },
 			});
 			return;
 		}
@@ -111,7 +111,7 @@ export async function inspectSsoToken(userId: string): Promise<SsoTokenInspectio
 		resolvedRole: null,
 	};
 
-	const token = await readClaimsFromIdToken(userId, getOidcProviderId());
+	const token = await readDecodedIdTokenClaims(userId, getOidcProviderId());
 	if (token.status === 'no-token') {
 		return { ...base, problem: 'no-token' };
 	}

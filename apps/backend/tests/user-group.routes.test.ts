@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	assertUserGroupManageable: vi.fn(),
-	countCustomUserGroups: vi.fn(),
 	createUserGroup: vi.fn(),
+	createUserGroupWithinLimit: vi.fn(),
 	deleteUserGroup: vi.fn(),
 	getUserGroupOverview: vi.fn(),
 	getDatabaseContextCatalog: vi.fn(),
@@ -34,8 +34,8 @@ vi.mock('../src/queries/project.queries', () => ({
 }));
 vi.mock('../src/queries/user-group.queries', () => ({
 	UserGroupQueryError: mocks.UserGroupQueryError,
-	countCustomUserGroups: mocks.countCustomUserGroups,
 	createUserGroup: mocks.createUserGroup,
+	createUserGroupWithinLimit: mocks.createUserGroupWithinLimit,
 	deleteUserGroup: mocks.deleteUserGroup,
 	getUserGroupOverview: mocks.getUserGroupOverview,
 	resolveEffectiveUserGroupAccess: mocks.resolveEffectiveUserGroupAccess,
@@ -71,7 +71,6 @@ describe('user group routes', () => {
 			userId === 'target-user-id' ? 'viewer' : mocks.role,
 		);
 		mocks.hasFeature.mockResolvedValue(true);
-		mocks.countCustomUserGroups.mockResolvedValue(0);
 		mocks.getUserGroupOverview.mockResolvedValue({ users: [], groups: [], memberships: [] });
 		mocks.getDatabaseContextCatalog.mockReturnValue({ syncState: 'ready', objects: [] });
 		mocks.getDocsContextCatalog.mockReturnValue({ syncState: 'ready', entries: [] });
@@ -85,6 +84,7 @@ describe('user group routes', () => {
 			},
 		});
 		mocks.createUserGroup.mockResolvedValue({ id: 'group-id', name: 'Analysts' });
+		mocks.createUserGroupWithinLimit.mockResolvedValue({ id: 'group-id', name: 'Analysts' });
 	});
 
 	it('returns the overview without an unlimited-groups license', async () => {
@@ -117,7 +117,7 @@ describe('user group routes', () => {
 		});
 
 		expect(mocks.hasFeature).toHaveBeenCalledWith('user-groups');
-		expect(mocks.countCustomUserGroups).not.toHaveBeenCalled();
+		expect(mocks.createUserGroupWithinLimit).not.toHaveBeenCalled();
 		expect(mocks.createUserGroup).toHaveBeenCalledWith(
 			'project-id',
 			'Analysts',
@@ -131,34 +131,45 @@ describe('user group routes', () => {
 		);
 	});
 
-	it.each([0, 1, 2])('allows free custom group %s through the free limit', async (customGroupCount) => {
+	it('creates free custom groups through the atomic limit query', async () => {
 		mocks.hasFeature.mockResolvedValue(false);
-		mocks.countCustomUserGroups.mockResolvedValue(customGroupCount);
 
-		await expect(createCaller().create({ name: `Group ${customGroupCount + 1}` })).resolves.toEqual({
+		await expect(createCaller().create({ name: 'Group' })).resolves.toEqual({
 			id: 'group-id',
 			name: 'Analysts',
 		});
-		expect(mocks.countCustomUserGroups).toHaveBeenCalledWith('project-id');
-		expect(mocks.createUserGroup).toHaveBeenCalledOnce();
+		expect(mocks.createUserGroupWithinLimit).toHaveBeenCalledWith(
+			3,
+			'project-id',
+			'Group',
+			[],
+			{ defaultDensity: 'detailed', canChange: true },
+			{ mode: 'restricted', strict: true, grants: [], patterns: [] },
+			{ mode: 'restricted', grants: [] },
+		);
+		expect(mocks.createUserGroup).not.toHaveBeenCalled();
 	});
 
 	it('blocks a forged fourth custom group without unlimited entitlement', async () => {
 		mocks.hasFeature.mockResolvedValue(false);
-		mocks.countCustomUserGroups.mockResolvedValue(3);
+		mocks.createUserGroupWithinLimit.mockRejectedValue(
+			new mocks.UserGroupQueryError(
+				'FORBIDDEN',
+				'Free projects can create up to 3 custom user groups. Enterprise enables unlimited groups.',
+			),
+		);
 
 		await expect(createCaller().create({ name: 'Fourth group' })).rejects.toMatchObject({
 			code: 'FORBIDDEN',
 			message: 'Free projects can create up to 3 custom user groups. Enterprise enables unlimited groups.',
 		});
 		expect(mocks.createUserGroup).not.toHaveBeenCalled();
+		expect(mocks.createUserGroupWithinLimit).toHaveBeenCalledOnce();
 	});
 
 	it('allows a fourth custom group with unlimited entitlement', async () => {
-		mocks.countCustomUserGroups.mockResolvedValue(3);
-
 		await expect(createCaller().create({ name: 'Fourth group' })).resolves.toBeDefined();
-		expect(mocks.countCustomUserGroups).not.toHaveBeenCalled();
+		expect(mocks.createUserGroupWithinLimit).not.toHaveBeenCalled();
 		expect(mocks.createUserGroup).toHaveBeenCalledOnce();
 	});
 

@@ -107,6 +107,23 @@ export function UserGroupEditor({
 		...trpc.authConfig.microsoft.isSetup.queryOptions(),
 		enabled: hasSso,
 	});
+	const ssoLicenseState = licenseFeatures.isLoading
+		? 'loading'
+		: licenseFeatures.isError
+			? 'error'
+			: hasSso
+				? 'ready'
+				: 'unavailable';
+	const oidcConfigurationState = resolveSsoConfigurationState(
+		ssoLicenseState,
+		oidcConfig,
+		oidcConfig.data !== null && oidcConfig.data !== undefined,
+	);
+	const microsoftConfigurationState = resolveSsoConfigurationState(
+		ssoLicenseState,
+		microsoftConfig,
+		microsoftConfig.data === true,
+	);
 	const hasUnsavedChanges =
 		existingGroup === null ||
 		hasUserGroupEditorChanges(existingGroup, {
@@ -249,17 +266,34 @@ export function UserGroupEditor({
 						)}
 						{activeTab === 'security' && (
 							<div className='flex flex-col gap-5'>
-								{existingGroup?.isDefault && (oidcConfig.data || microsoftConfig.data) ? (
-									<p className='rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground'>
-										All Users already includes everyone with project access and cannot be mapped.
-									</p>
+								{existingGroup?.isDefault ? (
+									<DefaultGroupSsoStatus
+										licenseState={ssoLicenseState}
+										oidcState={oidcConfigurationState}
+										microsoftState={microsoftConfigurationState}
+										onRetryOidc={() => void oidcConfig.refetch()}
+										onRetryMicrosoft={() => void microsoftConfig.refetch()}
+									/>
 								) : (
 									<>
-										{oidcConfig.data && (
+										{ssoLicenseState !== 'ready' &&
+											ssoMappings.providers.oidc.length === 0 &&
+											ssoMappings.providers.microsoft.length === 0 && (
+												<SsoAvailabilityStatus
+													state={ssoLicenseState}
+													onRetry={() => void licenseFeatures.refetch()}
+												/>
+											)}
+										{(ssoMappings.providers.oidc.length > 0 ||
+											(ssoLicenseState === 'ready' &&
+												oidcConfigurationState !== 'unavailable')) && (
 											<UserGroupSsoMapping
+												key={`${existingGroup?.id ?? 'new'}:oidc`}
 												identifiers={ssoMappings.providers.oidc}
 												provider='oidc'
-												providerName={oidcConfig.data.providerName}
+												providerName={oidcConfig.data?.providerName ?? 'OIDC'}
+												configurationState={oidcConfigurationState}
+												onRetryConfiguration={() => void oidcConfig.refetch()}
 												onChange={(oidc) =>
 													setSsoMappings(
 														normalizeUserGroupSsoMappings({
@@ -270,11 +304,16 @@ export function UserGroupEditor({
 												}
 											/>
 										)}
-										{microsoftConfig.data && (
+										{(ssoMappings.providers.microsoft.length > 0 ||
+											(ssoLicenseState === 'ready' &&
+												microsoftConfigurationState !== 'unavailable')) && (
 											<UserGroupSsoMapping
+												key={`${existingGroup?.id ?? 'new'}:microsoft`}
 												identifiers={ssoMappings.providers.microsoft}
 												provider='microsoft'
 												providerName='Microsoft Entra'
+												configurationState={microsoftConfigurationState}
+												onRetryConfiguration={() => void microsoftConfig.refetch()}
 												onChange={(microsoft) =>
 													setSsoMappings(
 														normalizeUserGroupSsoMappings({
@@ -331,6 +370,98 @@ export function UserGroupEditor({
 				preventCloseWhilePending
 			/>
 		</>
+	);
+}
+
+type SsoConfigurationState = 'ready' | 'loading' | 'error' | 'unavailable';
+
+function resolveSsoConfigurationState(
+	licenseState: SsoConfigurationState,
+	query: { isLoading: boolean; isError: boolean },
+	isConfigured: boolean,
+): SsoConfigurationState {
+	if (licenseState !== 'ready') {
+		return licenseState;
+	}
+	if (query.isLoading) {
+		return 'loading';
+	}
+	if (query.isError) {
+		return 'error';
+	}
+	return isConfigured ? 'ready' : 'unavailable';
+}
+
+function SsoAvailabilityStatus({
+	state,
+	onRetry,
+}: {
+	state: Exclude<SsoConfigurationState, 'ready'>;
+	onRetry: () => void;
+}) {
+	if (state === 'unavailable') {
+		return null;
+	}
+	return (
+		<div className='flex items-center justify-between gap-3 rounded-lg border p-3'>
+			<p className={state === 'error' ? 'text-sm text-destructive' : 'text-sm text-muted-foreground'}>
+				{state === 'loading' ? 'Loading SSO availability...' : 'Failed to load SSO availability.'}
+			</p>
+			{state === 'error' && (
+				<Button type='button' variant='outline' size='sm' onClick={onRetry}>
+					Retry
+				</Button>
+			)}
+		</div>
+	);
+}
+
+function DefaultGroupSsoStatus({
+	licenseState,
+	oidcState,
+	microsoftState,
+	onRetryOidc,
+	onRetryMicrosoft,
+}: {
+	licenseState: SsoConfigurationState;
+	oidcState: SsoConfigurationState;
+	microsoftState: SsoConfigurationState;
+	onRetryOidc: () => void;
+	onRetryMicrosoft: () => void;
+}) {
+	if (licenseState === 'loading') {
+		return <p className='text-sm text-muted-foreground'>Loading SSO availability...</p>;
+	}
+	if (licenseState === 'error') {
+		return <p className='text-sm text-destructive'>Failed to load SSO availability.</p>;
+	}
+	if (oidcState === 'loading' || microsoftState === 'loading') {
+		return <p className='text-sm text-muted-foreground'>Loading SSO configuration...</p>;
+	}
+	if (oidcState === 'error' || microsoftState === 'error') {
+		return (
+			<div className='flex flex-wrap items-center gap-2 rounded-lg border p-3'>
+				<p className='mr-auto text-sm text-destructive'>Failed to load SSO configuration.</p>
+				{oidcState === 'error' && (
+					<Button type='button' variant='outline' size='sm' onClick={onRetryOidc}>
+						Retry OIDC
+					</Button>
+				)}
+				{microsoftState === 'error' && (
+					<Button type='button' variant='outline' size='sm' onClick={onRetryMicrosoft}>
+						Retry Microsoft Entra
+					</Button>
+				)}
+			</div>
+		);
+	}
+	if (oidcState !== 'ready' && microsoftState !== 'ready') {
+		return null;
+	}
+	return (
+		<p className='rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground'>
+			All Users already includes everyone with project access and cannot be mapped.
+		</p>
 	);
 }
 

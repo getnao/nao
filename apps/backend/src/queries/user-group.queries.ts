@@ -10,6 +10,7 @@ import {
 	serializeUserGroupConfig,
 	serializeUserGroupContextAccess,
 	serializeUserGroupSsoMappings,
+	type SsoGroupProvider,
 	type ToolCallDensityPolicy,
 	unionDatabaseContextAccess,
 	unionDocsContextAccess,
@@ -19,9 +20,10 @@ import {
 } from '@nao/shared';
 import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
 
-import type { DBUserGroup } from '../db/abstractSchema';
+import type { DBUserGroup, NewUserGroup } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
-import { db, type DBExecutor } from '../db/db';
+import { db, type DBExecutor, type DBTransaction } from '../db/db';
+import dbConfig, { Dialect } from '../db/dbConfig';
 import {
 	listUsersWithProjectAccess,
 	listUsersWithProjectAccessDetails,
@@ -29,7 +31,10 @@ import {
 } from './project.queries';
 
 const USER_GROUP_NAME_CONFLICT_MESSAGE = 'A user group with this name already exists.';
-const USER_GROUP_NAME_UNIQUE_CONSTRAINT = 'user_group_project_name_unique';
+const USER_GROUP_NAME_UNIQUE_CONSTRAINTS = new Set([
+	'user_group_project_name_unique',
+	'user_group_project_name_ci_unique',
+]);
 
 export interface UserGroup extends Omit<
 	DBUserGroup,
@@ -186,21 +191,81 @@ export const createUserGroup = async (
 	docsAccess: DocsContextAccess = EMPTY_DOCS_CONTEXT_ACCESS,
 	ssoMappings?: UserGroupSsoMappings,
 ): Promise<UserGroup> => {
-	await assertNameAvailable(projectId, name);
-	const [group] = await executeUserGroupNameMutation(() =>
-		db
-			.insert(s.userGroup)
-			.values({
-				projectId,
-				name,
-				featureGrants: serializeUserGroupConfig(featureGrants, toolCallDensityPolicy),
-				contextGrants: serializeUserGroupContextAccess(databaseAccess, docsAccess),
-				ssoMappings: serializeUserGroupSsoMappings(ssoMappings),
-				isDefault: false,
-			})
-			.returning()
-			.execute(),
+	const values = createUserGroupValues(
+		projectId,
+		name,
+		featureGrants,
+		toolCallDensityPolicy,
+		databaseAccess,
+		docsAccess,
+		ssoMappings,
 	);
+	const group = await executeUserGroupNameMutation(async () => {
+		if (dbConfig.dialect === Dialect.Sqlite) {
+			return db.transaction(
+				(transaction) => {
+					assertNameAvailableSqlite(transaction, projectId, name);
+					return transaction.insert(s.userGroup).values(values).returning().get();
+				},
+				{ behavior: 'immediate' },
+			);
+		}
+
+		await assertNameAvailable(projectId, name);
+		const [created] = await db.insert(s.userGroup).values(values).returning().execute();
+		return created;
+	});
+	return normalizeUserGroup(group);
+};
+
+export const createUserGroupWithinLimit = async (
+	limit: number,
+	projectId: string,
+	name: string,
+	featureGrants: UserGroupFeature[] = [],
+	toolCallDensityPolicy: ToolCallDensityPolicy = DEFAULT_TOOL_CALL_DENSITY_POLICY,
+	databaseAccess: DatabaseContextAccess = EMPTY_DATABASE_CONTEXT_ACCESS,
+	docsAccess: DocsContextAccess = EMPTY_DOCS_CONTEXT_ACCESS,
+	ssoMappings?: UserGroupSsoMappings,
+): Promise<UserGroup> => {
+	const values = createUserGroupValues(
+		projectId,
+		name,
+		featureGrants,
+		toolCallDensityPolicy,
+		databaseAccess,
+		docsAccess,
+		ssoMappings,
+	);
+	const group = await executeUserGroupNameMutation(() => {
+		if (dbConfig.dialect === Dialect.Sqlite) {
+			return db.transaction(
+				(transaction) => {
+					assertNameAvailableSqlite(transaction, projectId, name);
+					const [{ count: existingCount }] = transaction
+						.select({ count: count() })
+						.from(s.userGroup)
+						.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroup.isDefault, false)))
+						.all();
+					assertCustomUserGroupLimit(existingCount, limit);
+					return transaction.insert(s.userGroup).values(values).returning().get();
+				},
+				{ behavior: 'immediate' },
+			);
+		}
+
+		return db.transaction(async (transaction) => {
+			await lockProjectForUserGroupMutation(transaction, projectId);
+			const [{ count: existingCount }] = await transaction
+				.select({ count: count() })
+				.from(s.userGroup)
+				.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroup.isDefault, false)))
+				.execute();
+			assertCustomUserGroupLimit(existingCount, limit);
+			const [created] = await transaction.insert(s.userGroup).values(values).returning().execute();
+			return created;
+		});
+	});
 	return normalizeUserGroup(group);
 };
 
@@ -231,35 +296,62 @@ export const updateUserGroup = async (
 	) {
 		throw new UserGroupQueryError('BAD_REQUEST', 'The All Users group cannot be mapped to SSO groups.');
 	}
-	if (data.name !== undefined && data.name !== group.name) {
+	if (data.name !== undefined && data.name !== group.name && dbConfig.dialect === Dialect.Postgres) {
 		await assertNameAvailable(projectId, data.name, groupId);
 	}
-	const [updated] = await executeUserGroupNameMutation(() =>
-		db
-			.update(s.userGroup)
-			.set({
-				...(data.name === undefined ? {} : { name: data.name }),
-				featureGrants: serializeUserGroupConfig(
-					data.featureGrants,
-					data.toolCallDensityPolicy ?? currentConfig.toolCallDensity,
-				),
-				...(data.databaseAccess === undefined && data.docsAccess === undefined
-					? {}
-					: {
-							contextGrants: serializeUserGroupContextAccess(
-								data.databaseAccess ?? currentContext.databaseAccess,
-								data.docsAccess ?? currentContext.docsAccess,
-							),
-						}),
-				...(data.ssoMappings === undefined
-					? {}
-					: { ssoMappings: serializeUserGroupSsoMappings(data.ssoMappings) }),
-				updatedAt: new Date(),
-			})
-			.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
-			.returning()
-			.execute(),
-	);
+	const serializedSsoMappings =
+		data.ssoMappings === undefined ? undefined : serializeUserGroupSsoMappings(data.ssoMappings);
+	const changedProviders =
+		serializedSsoMappings === undefined ? [] : getChangedSsoProviders(group.ssoMappings, serializedSsoMappings);
+	const updateValues = {
+		...(data.name === undefined ? {} : { name: data.name }),
+		featureGrants: serializeUserGroupConfig(
+			data.featureGrants,
+			data.toolCallDensityPolicy ?? currentConfig.toolCallDensity,
+		),
+		...(data.databaseAccess === undefined && data.docsAccess === undefined
+			? {}
+			: {
+					contextGrants: serializeUserGroupContextAccess(
+						data.databaseAccess ?? currentContext.databaseAccess,
+						data.docsAccess ?? currentContext.docsAccess,
+					),
+				}),
+		...(serializedSsoMappings === undefined ? {} : { ssoMappings: serializedSsoMappings }),
+		updatedAt: new Date(),
+	};
+	const updated = await executeUserGroupNameMutation(() => {
+		if (dbConfig.dialect === Dialect.Sqlite) {
+			return db.transaction(
+				(transaction) => {
+					if (data.name !== undefined && data.name !== group.name) {
+						assertNameAvailableSqlite(transaction, projectId, data.name, groupId);
+					}
+					const stored = transaction
+						.update(s.userGroup)
+						.set(updateValues)
+						.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
+						.returning()
+						.get();
+					deleteChangedSsoMembershipsSqlite(transaction, groupId, changedProviders);
+					return stored;
+				},
+				{ behavior: 'immediate' },
+			);
+		}
+
+		return db.transaction(async (transaction) => {
+			await lockProjectForUserGroupMutation(transaction, projectId);
+			const [stored] = await transaction
+				.update(s.userGroup)
+				.set(updateValues)
+				.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
+				.returning()
+				.execute();
+			await deleteChangedSsoMembershipsPostgres(transaction, groupId, changedProviders);
+			return stored;
+		});
+	});
 	return normalizeUserGroup(updated);
 };
 
@@ -380,13 +472,106 @@ const assertNameAvailable = async (projectId: string, name: string, excludedGrou
 		.from(s.userGroup)
 		.where(eq(s.userGroup.projectId, projectId))
 		.execute();
+	assertNameAvailableInGroups(groups, name, excludedGroupId);
+};
+
+function assertNameAvailableSqlite(
+	transaction: DBTransaction,
+	projectId: string,
+	name: string,
+	excludedGroupId?: string,
+): void {
+	const groups = transaction
+		.select({ id: s.userGroup.id, name: s.userGroup.name })
+		.from(s.userGroup)
+		.where(eq(s.userGroup.projectId, projectId))
+		.all();
+	assertNameAvailableInGroups(groups, name, excludedGroupId);
+}
+
+function assertNameAvailableInGroups(
+	groups: Array<{ id: string; name: string }>,
+	name: string,
+	excludedGroupId?: string,
+): void {
 	const normalizedName = name.toLowerCase();
 	if (groups.some((group) => group.id !== excludedGroupId && group.name.toLowerCase() === normalizedName)) {
 		throw new UserGroupQueryError('CONFLICT', USER_GROUP_NAME_CONFLICT_MESSAGE);
 	}
-};
+}
 
-const executeUserGroupNameMutation = async <T>(operation: () => Promise<T>): Promise<T> => {
+function createUserGroupValues(
+	projectId: string,
+	name: string,
+	featureGrants: UserGroupFeature[],
+	toolCallDensityPolicy: ToolCallDensityPolicy,
+	databaseAccess: DatabaseContextAccess,
+	docsAccess: DocsContextAccess,
+	ssoMappings?: UserGroupSsoMappings,
+): NewUserGroup {
+	return {
+		projectId,
+		name,
+		featureGrants: serializeUserGroupConfig(featureGrants, toolCallDensityPolicy),
+		contextGrants: serializeUserGroupContextAccess(databaseAccess, docsAccess),
+		ssoMappings: serializeUserGroupSsoMappings(ssoMappings),
+		isDefault: false,
+	};
+}
+
+function assertCustomUserGroupLimit(existingCount: number, limit: number): void {
+	if (existingCount >= limit) {
+		throw new UserGroupQueryError(
+			'FORBIDDEN',
+			`Free projects can create up to ${limit} custom user groups. Enterprise enables unlimited groups.`,
+		);
+	}
+}
+
+async function lockProjectForUserGroupMutation(transaction: DBTransaction, projectId: string): Promise<void> {
+	const query = transaction.select({ id: s.project.id }).from(s.project).where(eq(s.project.id, projectId));
+	await (query as typeof query & { for(strength: 'update'): typeof query }).for('update').execute();
+}
+
+function getChangedSsoProviders(
+	currentMappings: DBUserGroup['ssoMappings'],
+	nextMappings: ReturnType<typeof serializeUserGroupSsoMappings>,
+): SsoGroupProvider[] {
+	const current = parseStoredUserGroupSsoMappings(currentMappings).providers;
+	return (['oidc', 'microsoft'] as const).filter(
+		(provider) => JSON.stringify(current[provider]) !== JSON.stringify(nextMappings.providers[provider]),
+	);
+}
+
+function deleteChangedSsoMembershipsSqlite(
+	transaction: DBTransaction,
+	groupId: string,
+	providers: SsoGroupProvider[],
+): void {
+	if (providers.length === 0) {
+		return;
+	}
+	transaction
+		.delete(s.userGroupSsoMember)
+		.where(and(eq(s.userGroupSsoMember.groupId, groupId), inArray(s.userGroupSsoMember.provider, providers)))
+		.run();
+}
+
+async function deleteChangedSsoMembershipsPostgres(
+	transaction: DBTransaction,
+	groupId: string,
+	providers: SsoGroupProvider[],
+): Promise<void> {
+	if (providers.length === 0) {
+		return;
+	}
+	await transaction
+		.delete(s.userGroupSsoMember)
+		.where(and(eq(s.userGroupSsoMember.groupId, groupId), inArray(s.userGroupSsoMember.provider, providers)))
+		.execute();
+}
+
+const executeUserGroupNameMutation = async <T>(operation: () => Promise<T> | T): Promise<T> => {
 	try {
 		return await operation();
 	} catch (error) {
@@ -404,10 +589,13 @@ function isUserGroupNameUniqueViolation(error: unknown): boolean {
 	}
 	const { code, constraint_name: constraintName, errno, message } = databaseError as Record<string, unknown>;
 	return (
-		(code === '23505' && constraintName === USER_GROUP_NAME_UNIQUE_CONSTRAINT) ||
+		(code === '23505' &&
+			typeof constraintName === 'string' &&
+			USER_GROUP_NAME_UNIQUE_CONSTRAINTS.has(constraintName)) ||
 		((code === 'SQLITE_CONSTRAINT_UNIQUE' || errno === 2067) &&
 			typeof message === 'string' &&
-			message.includes('UNIQUE constraint failed: user_group.project_id, user_group.name'))
+			(message.includes('UNIQUE constraint failed: user_group.project_id, user_group.name') ||
+				message.includes("UNIQUE constraint failed: index 'user_group_project_name_ci_unique'")))
 	);
 }
 

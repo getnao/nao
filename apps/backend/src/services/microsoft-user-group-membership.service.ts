@@ -12,7 +12,7 @@ import { logger, serializeError } from '../utils/logger';
 import { readGroupsClaim } from '../utils/sso-group-mapping';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { isMicrosoftConfigured } from './microsoft-auth.service';
-import { decodeIdTokenClaims } from './sso-token.service';
+import { verifyMicrosoftIdTokenClaims } from './sso-token.service';
 
 const MICROSOFT_PROVIDER_ID = 'microsoft';
 const MICROSOFT_GROUPS_CLAIM = 'groups';
@@ -27,8 +27,8 @@ export async function syncUserGroupsFromMicrosoft(userId: string): Promise<void>
 		}
 
 		const tokens = await accountQueries.getLoginTokens(userId, MICROSOFT_PROVIDER_ID);
-		const token = decodeIdTokenClaims(tokens?.idToken ?? null);
-		if (token.status !== 'decoded') {
+		const token = await verifyMicrosoftIdTokenClaims(tokens?.idToken ?? null);
+		if (token.status !== 'verified') {
 			logger.warn('Could not read the Microsoft ID token, leaving User Group memberships untouched', {
 				source: 'system',
 				context: { userId, problem: token.status },

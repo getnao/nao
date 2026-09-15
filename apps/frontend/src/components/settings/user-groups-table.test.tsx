@@ -219,14 +219,31 @@ afterEach(() => {
 
 describe('UserGroupsTable', () => {
 	it.each([
-		{ isLoading: true, isError: false },
-		{ isLoading: false, isError: true },
-	])('keeps User Groups visible while license resolution is unavailable', (licenseState) => {
+		{ isLoading: true, isError: false, actionName: 'Loading group access...' },
+		{ isLoading: false, isError: true, actionName: 'Create group unavailable' },
+	])('keeps groups visible but blocks creation while license resolution is unavailable', (licenseState) => {
 		mocks.useLicenseFeatures.mockReturnValue({ ...licenseState, data: undefined });
+		mocks.useQuery.mockReturnValue({
+			isLoading: false,
+			isError: false,
+			data: {
+				...overview,
+				groups: [
+					allUsers,
+					analysts,
+					{ ...analysts, id: 'finance', name: 'Finance' },
+					{ ...analysts, id: 'operations', name: 'Operations' },
+				],
+			},
+		});
 		render(<UserGroupsTable tab='groups' onTabChange={vi.fn()} />);
 
 		expect(screen.getByRole('row', { name: /All Users/ })).toBeTruthy();
 		expect(screen.getByRole('row', { name: /Analysts/ })).toBeTruthy();
+		expect((screen.getByRole('button', { name: licenseState.actionName }) as HTMLButtonElement).disabled).toBe(
+			true,
+		);
+		expect(screen.queryByText('Enterprise')).toBeNull();
 	});
 
 	it('renders free User Groups and keeps existing groups manageable', () => {
@@ -737,6 +754,87 @@ describe('UserGroupEditor', () => {
 		expect(screen.getByRole('heading', { name: 'SSO group mapping — Microsoft Entra' })).toBeTruthy();
 		expect(screen.getByRole('textbox', { name: 'Okta group name' })).toBeTruthy();
 		expect(screen.getByRole('textbox', { name: 'Microsoft Entra group object ID' })).toBeTruthy();
+	});
+
+	it.each([
+		{
+			queryState: { isLoading: true, isError: false, data: undefined },
+			message: 'Loading OIDC configuration...',
+		},
+		{
+			queryState: { isLoading: false, isError: true, data: undefined },
+			message: 'Failed to load OIDC configuration.',
+		},
+	])('keeps stored OIDC mappings visible when configuration is unresolved', ({ queryState, message }) => {
+		mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => {
+			if (options?.queryKey?.[0] === 'oidc-config') {
+				return queryState;
+			}
+			if (options?.queryKey?.[0] === 'microsoft-config') {
+				return { isLoading: false, isError: false, data: false };
+			}
+			return { isLoading: false, isError: false, data: overview };
+		});
+		renderEditor('security', vi.fn(), {
+			...analysts,
+			ssoMappings: {
+				version: 1,
+				providers: { oidc: ['finance-team'], microsoft: [] },
+			},
+		});
+
+		expect(screen.getByRole('heading', { name: 'SSO group mapping — OIDC' })).toBeTruthy();
+		expect(screen.getByText('finance-team')).toBeTruthy();
+		expect(screen.getByText(message)).toBeTruthy();
+		expect(screen.queryByRole('textbox', { name: 'OIDC group name' })).toBeNull();
+		expect(screen.getByRole('button', { name: 'Remove OIDC group finance-team' })).toBeTruthy();
+	});
+
+	it('allows removing stored mappings after the provider is deconfigured', () => {
+		renderEditor('security', vi.fn(), {
+			...analysts,
+			ssoMappings: {
+				version: 1,
+				providers: { oidc: ['former-provider-group'], microsoft: [] },
+			},
+		});
+
+		expect(screen.getByText('OIDC is not configured. Existing mappings can still be removed.')).toBeTruthy();
+		expect(screen.queryByRole('textbox', { name: 'OIDC group name' })).toBeNull();
+		fireEvent.click(screen.getByRole('button', { name: 'Remove OIDC group former-provider-group' }));
+
+		expect(screen.queryByText('former-provider-group')).toBeNull();
+		expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
+	});
+
+	it('resets an unsaved mapping draft when switching groups', () => {
+		mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => ({
+			isLoading: false,
+			isError: false,
+			data:
+				options?.queryKey?.[0] === 'oidc-config'
+					? { providerId: 'okta', providerName: 'Okta', rolesManagedByIdp: false }
+					: options?.queryKey?.[0] === 'microsoft-config'
+						? false
+						: overview,
+		}));
+		const { rerender } = renderEditor('security');
+		fireEvent.change(screen.getByRole('textbox', { name: 'Okta group name' }), {
+			target: { value: 'analysts-draft' },
+		});
+
+		rerender(
+			<UserGroupEditor
+				group={{ ...analysts, id: 'finance', name: 'Finance' }}
+				activeTab='security'
+				onTabChange={vi.fn()}
+				onCancelNew={vi.fn()}
+				onCreated={vi.fn()}
+				onDeleted={vi.fn()}
+			/>,
+		);
+
+		expect((screen.getByRole('textbox', { name: 'Okta group name' }) as HTMLInputElement).value).toBe('');
 	});
 
 	it('explains why All Users cannot be mapped', () => {

@@ -31,9 +31,11 @@ import {
 	addUserGroupMemberships,
 	countCustomUserGroups,
 	createUserGroup,
+	createUserGroupWithinLimit,
 	deleteUserGroup,
 	getUserGroupOverview,
 	listUserGroupMemberships,
+	listUserGroupSsoMemberships,
 	resolveEffectiveUserGroupAccess,
 	setUserGroupMembership,
 	updateUserGroup,
@@ -312,6 +314,52 @@ describe('user group queries', () => {
 		});
 	});
 
+	it('translates concurrent case-only create name conflicts', async () => {
+		const results = await Promise.allSettled([
+			createUserGroup(PROJECT_ID, 'Finance'),
+			createUserGroup(PROJECT_ID, 'finance'),
+		]);
+
+		expect(results.filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
+		expect(results.find(({ status }) => status === 'rejected')).toMatchObject({
+			reason: {
+				code: 'CONFLICT',
+				message: 'A user group with this name already exists.',
+			},
+		});
+	});
+
+	it('serializes concurrent Unicode case-only unlimited creates', async () => {
+		const results = await Promise.allSettled([
+			createUserGroup(PROJECT_ID, 'Équipe'),
+			createUserGroup(PROJECT_ID, 'équipe'),
+		]);
+
+		expect(results.filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
+		expect(results.find(({ status }) => status === 'rejected')).toMatchObject({
+			reason: {
+				code: 'CONFLICT',
+				message: 'A user group with this name already exists.',
+			},
+		});
+	});
+
+	it('serializes concurrent Unicode case-only free-limit creates', async () => {
+		const results = await Promise.allSettled([
+			createUserGroupWithinLimit(3, PROJECT_ID, 'Équipe'),
+			createUserGroupWithinLimit(3, PROJECT_ID, 'équipe'),
+		]);
+
+		expect(results.filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
+		expect(results.find(({ status }) => status === 'rejected')).toMatchObject({
+			reason: {
+				code: 'CONFLICT',
+				message: 'A user group with this name already exists.',
+			},
+		});
+		expect(await countCustomUserGroups(PROJECT_ID)).toBe(1);
+	});
+
 	it('rejects sequential exact and case-only create name conflicts', async () => {
 		await createUserGroup(PROJECT_ID, 'Finance');
 
@@ -331,6 +379,40 @@ describe('user group queries', () => {
 		const results = await Promise.allSettled([
 			updateUserGroup(PROJECT_ID, firstGroup.id, { name: 'Analysts', featureGrants: [] }),
 			updateUserGroup(PROJECT_ID, secondGroup.id, { name: 'Analysts', featureGrants: [] }),
+		]);
+
+		expect(results.filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
+		expect(results.find(({ status }) => status === 'rejected')).toMatchObject({
+			reason: {
+				code: 'CONFLICT',
+				message: 'A user group with this name already exists.',
+			},
+		});
+	});
+
+	it('translates concurrent case-only rename name conflicts', async () => {
+		const firstGroup = await createUserGroup(PROJECT_ID, 'First');
+		const secondGroup = await createUserGroup(PROJECT_ID, 'Second');
+		const results = await Promise.allSettled([
+			updateUserGroup(PROJECT_ID, firstGroup.id, { name: 'Analysts', featureGrants: [] }),
+			updateUserGroup(PROJECT_ID, secondGroup.id, { name: 'analysts', featureGrants: [] }),
+		]);
+
+		expect(results.filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
+		expect(results.find(({ status }) => status === 'rejected')).toMatchObject({
+			reason: {
+				code: 'CONFLICT',
+				message: 'A user group with this name already exists.',
+			},
+		});
+	});
+
+	it('serializes concurrent Unicode case-only renames', async () => {
+		const firstGroup = await createUserGroup(PROJECT_ID, 'First');
+		const secondGroup = await createUserGroup(PROJECT_ID, 'Second');
+		const results = await Promise.allSettled([
+			updateUserGroup(PROJECT_ID, firstGroup.id, { name: 'Équipe', featureGrants: [] }),
+			updateUserGroup(PROJECT_ID, secondGroup.id, { name: 'équipe', featureGrants: [] }),
 		]);
 
 		expect(results.filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
@@ -410,6 +492,25 @@ describe('user group queries', () => {
 		} finally {
 			db.$client.exec('DROP TRIGGER IF EXISTS fail_user_group_membership_insert');
 		}
+	});
+
+	it('allows only one concurrent free-group creation at the limit', async () => {
+		await createUserGroup(PROJECT_ID, 'First');
+		await createUserGroup(PROJECT_ID, 'Second');
+
+		const results = await Promise.allSettled([
+			createUserGroupWithinLimit(3, PROJECT_ID, 'Third'),
+			createUserGroupWithinLimit(3, PROJECT_ID, 'Fourth'),
+		]);
+
+		expect(results.filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
+		expect(results.find(({ status }) => status === 'rejected')).toMatchObject({
+			reason: {
+				code: 'FORBIDDEN',
+				message: 'Free projects can create up to 3 custom user groups. Enterprise enables unlimited groups.',
+			},
+		});
+		expect(await countCustomUserGroups(PROJECT_ID)).toBe(3);
 	});
 
 	it('resolves every feature for an untouched project', async () => {
@@ -970,8 +1071,91 @@ describe('user group queries', () => {
 			featureGrants: [],
 			ssoMappings: ssoMappings([]),
 		});
-		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['finance']);
 		expect(await listSsoGroupIds(DIRECT_USER_ID)).toEqual([]);
+	});
+
+	it('does not reinsert access when mapping removal races reconciliation', async () => {
+		const group = await createUserGroup(
+			PROJECT_ID,
+			'Finance',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			ssoMappings(['finance']),
+		);
+
+		const update = updateUserGroup(PROJECT_ID, group.id, {
+			featureGrants: [],
+			ssoMappings: ssoMappings([]),
+		});
+		const reconciliation = reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['finance']);
+		await Promise.all([update, reconciliation]);
+
+		expect(await listSsoGroupIds(DIRECT_USER_ID)).toEqual([]);
+	});
+
+	it('invalidates only memberships for changed SSO providers', async () => {
+		const group = await createUserGroup(PROJECT_ID, 'Mapped', [], DEFAULT_DENSITY, undefined, undefined, {
+			version: 1,
+			providers: {
+				oidc: ['finance'],
+				microsoft: ['a0b1c2d3-e4f5-6789-abcd-ef0123456789'],
+			},
+		});
+		await db.insert(userGroupSsoMember).values([
+			{ groupId: group.id, userId: DIRECT_USER_ID, provider: 'oidc' },
+			{ groupId: group.id, userId: DIRECT_USER_ID, provider: 'microsoft' },
+		]);
+
+		await updateUserGroup(PROJECT_ID, group.id, {
+			featureGrants: [],
+			ssoMappings: {
+				version: 1,
+				providers: {
+					oidc: [],
+					microsoft: ['a0b1c2d3-e4f5-6789-abcd-ef0123456789'],
+				},
+			},
+		});
+
+		await expect(listUserGroupSsoMemberships(PROJECT_ID)).resolves.toEqual([
+			{ groupId: group.id, userId: DIRECT_USER_ID, provider: 'microsoft' },
+		]);
+	});
+
+	it('rolls back an SSO mapping update when membership invalidation fails', async () => {
+		const group = await createUserGroup(
+			PROJECT_ID,
+			'Mapped',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			ssoMappings(['finance']),
+		);
+		await db.insert(userGroupSsoMember).values({ groupId: group.id, userId: DIRECT_USER_ID, provider: 'oidc' });
+		db.$client.exec(`
+			CREATE TRIGGER fail_sso_membership_delete
+			BEFORE DELETE ON user_group_sso_member
+			BEGIN
+				SELECT RAISE(ABORT, 'blocked delete');
+			END;
+		`);
+
+		try {
+			await expect(
+				updateUserGroup(PROJECT_ID, group.id, {
+					featureGrants: [],
+					ssoMappings: ssoMappings([]),
+				}),
+			).rejects.toThrow('blocked delete');
+			const [storedGroup] = await db.select().from(userGroup).where(eq(userGroup.id, group.id));
+			expect(storedGroup.ssoMappings).toEqual(ssoMappings(['finance']));
+			expect(await listSsoGroupIds(DIRECT_USER_ID)).toEqual([group.id]);
+		} finally {
+			db.$client.exec('DROP TRIGGER IF EXISTS fail_sso_membership_delete');
+		}
 	});
 
 	it('maps organization-inherited access and cleans inaccessible project rows', async () => {
@@ -1055,6 +1239,7 @@ describe('user group queries', () => {
 
 async function cleanup() {
 	db.$client.exec('DROP TRIGGER IF EXISTS fail_sso_membership_insert');
+	db.$client.exec('DROP TRIGGER IF EXISTS fail_sso_membership_delete');
 	await db.delete(userGroupMember).where(eq(userGroupMember.userId, INHERITED_USER_ID));
 	await db.delete(userGroup).where(eq(userGroup.projectId, PROJECT_ID));
 	await db.delete(userGroup).where(eq(userGroup.projectId, FOREIGN_PROJECT_ID));

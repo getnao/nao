@@ -98,7 +98,7 @@ describe('grep RULES.md', () => {
 
 		const output = await run(grepTool, { pattern: 'Done', path: '/', context_lines: 10 }, context(['support']));
 		expect(output.matches).toHaveLength(1);
-		expect(output.matches[0].context_before).toEqual(['Public']);
+		expect(output.matches[0].context_before).toEqual([{ line_number: 1, line_content: 'Public' }]);
 		expect(JSON.stringify(output.matches[0])).not.toContain('secret');
 		expect(JSON.stringify(output.matches[0])).not.toContain('{%');
 	});

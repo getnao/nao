@@ -153,4 +153,26 @@ describe('ProjectTeamTabPage group onboarding', () => {
 		});
 		expect(screen.queryByRole('menuitemcheckbox', { name: 'Archived' })).toBeNull();
 	});
+
+	it('surfaces group loading failures and blocks project-member submission', () => {
+		const refetchGroups = vi.fn();
+		mocks.useQuery.mockImplementation(({ queryKey }) => {
+			if (queryKey[0] === 'project-members') {
+				return { data: [], isLoading: false };
+			}
+			if (queryKey[0] === 'system-config') {
+				return { data: { naoMode: 'self-hosted' } };
+			}
+			return { data: undefined, isLoading: false, isError: true, refetch: refetchGroups };
+		});
+		render(<ProjectTeamTabPage />);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Add Member' }));
+		expect(screen.getByText('Failed to load groups.')).toBeTruthy();
+		expect((screen.getByRole('button', { name: 'Add member' }) as HTMLButtonElement).disabled).toBe(true);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+		expect(refetchGroups).toHaveBeenCalledOnce();
+		expect(mocks.addUser).not.toHaveBeenCalled();
+	});
 });

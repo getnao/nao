@@ -39,6 +39,7 @@ interface LockedUserGroup {
 type UserGroup = UserGroupEditorGroup | LockedUserGroup;
 type ProjectAccessSource = 'project' | 'organization' | 'both';
 export type UserGroupsPageTab = 'groups' | 'users';
+type UserGroupsEntitlement = 'loading' | 'error' | 'free' | 'unlimited';
 
 interface UserWithProjectAccess {
 	id: string;
@@ -61,14 +62,15 @@ interface UserGroupsTableProps {
 
 export function UserGroupsTable({ tab, onTabChange }: UserGroupsTableProps) {
 	const licenseFeatures = useLicenseFeatures();
+	const entitlement: UserGroupsEntitlement = licenseFeatures.isLoading
+		? 'loading'
+		: licenseFeatures.isError || !licenseFeatures.data
+			? 'error'
+			: licenseFeatures.data['user-groups']
+				? 'unlimited'
+				: 'free';
 
-	return (
-		<UserGroupsContent
-			tab={tab}
-			onTabChange={onTabChange}
-			hasUnlimitedGroups={licenseFeatures.data?.['user-groups'] === true}
-		/>
-	);
+	return <UserGroupsContent tab={tab} onTabChange={onTabChange} entitlement={entitlement} />;
 }
 
 export function resolveUserGroupsPageTab(value: unknown): UserGroupsPageTab {
@@ -78,8 +80,8 @@ export function resolveUserGroupsPageTab(value: unknown): UserGroupsPageTab {
 function UserGroupsContent({
 	tab,
 	onTabChange,
-	hasUnlimitedGroups,
-}: UserGroupsTableProps & { hasUnlimitedGroups: boolean }) {
+	entitlement,
+}: UserGroupsTableProps & { entitlement: UserGroupsEntitlement }) {
 	const overview = useQuery(trpc.userGroup.overview.queryOptions());
 	const contextCatalog = useQuery(trpc.userGroup.contextCatalog.queryOptions());
 	const docsContextCatalog = useQuery(trpc.userGroup.docsContextCatalog.queryOptions());
@@ -141,7 +143,7 @@ function UserGroupsContent({
 						docsCatalogState={docsCatalogState}
 						onRetryDatabaseCatalog={() => void contextCatalog.refetch()}
 						onRetryDocsCatalog={() => void docsContextCatalog.refetch()}
-						hasUnlimitedGroups={hasUnlimitedGroups}
+						entitlement={entitlement}
 						onOpenGroup={(groupId) => {
 							void navigate({
 								to: '/settings/project/user-groups/$groupId',
@@ -189,7 +191,7 @@ function GroupsTable({
 	docsCatalogState,
 	onRetryDatabaseCatalog,
 	onRetryDocsCatalog,
-	hasUnlimitedGroups,
+	entitlement,
 	onOpenGroup,
 	onCreateGroup,
 }: {
@@ -201,12 +203,12 @@ function GroupsTable({
 	docsCatalogState: UserGroupCatalogState;
 	onRetryDatabaseCatalog: () => void;
 	onRetryDocsCatalog: () => void;
-	hasUnlimitedGroups: boolean;
+	entitlement: UserGroupsEntitlement;
 	onOpenGroup: (groupId: string) => void;
 	onCreateGroup: () => void;
 }) {
 	const customGroupCount = groups.filter((group) => !group.isDefault).length;
-	const canCreateGroup = hasUnlimitedGroups || customGroupCount < FREE_CUSTOM_USER_GROUP_LIMIT;
+	const canCreateGroup = entitlement === 'unlimited' || customGroupCount < FREE_CUSTOM_USER_GROUP_LIMIT;
 	const sortedGroups = [...groups].sort(compareUserGroupsForDisplay);
 
 	return (
@@ -214,7 +216,11 @@ function GroupsTable({
 			title='Group access'
 			description='Configure the features, database tables, and docs each group can access.'
 			action={
-				canCreateGroup ? (
+				entitlement === 'loading' ? (
+					<Button disabled>Loading group access...</Button>
+				) : entitlement === 'error' ? (
+					<Button disabled>Create group unavailable</Button>
+				) : canCreateGroup ? (
 					<Button onClick={onCreateGroup}>
 						<Plus />
 						Create group

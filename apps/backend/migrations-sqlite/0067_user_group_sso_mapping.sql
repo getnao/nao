@@ -9,4 +9,5 @@ CREATE TABLE `user_group_sso_member` (
 );
 --> statement-breakpoint
 CREATE INDEX `user_group_sso_member_user_provider_idx` ON `user_group_sso_member` (`user_id`,`provider`);--> statement-breakpoint
-ALTER TABLE `user_group` ADD `sso_mappings` text;
+ALTER TABLE `user_group` ADD `sso_mappings` text;--> statement-breakpoint
+CREATE UNIQUE INDEX `user_group_project_name_ci_unique` ON `user_group` (`project_id`, lower(`name`));

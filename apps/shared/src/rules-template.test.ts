@@ -75,6 +75,84 @@ describe('renderConditionalGroupBlocks', () => {
 		expect(renderConditionalGroupBlocks(source, licensed([]))).toBe(source);
 	});
 
+	it.each([
+		[
+			'list item',
+			['- ```jinja', '  {% if group("finance") %}', '  Example content', '  {% endif %}', '  ```', ''].join('\n'),
+		],
+		[
+			'blockquote',
+			['> ~~~jinja', '> {% if group("finance") %}', '> Example content', '> {% endif %}', '> ~~~', ''].join('\n'),
+		],
+		[
+			'nested container',
+			[
+				'> - ````jinja',
+				'>   {% if group("finance") %}',
+				'>   Example content',
+				'>   {% endif %}',
+				'>   ````',
+				'',
+			].join('\n'),
+		],
+	])('preserves conditional-looking text in a %s fence', (_name, source) => {
+		expect(renderConditionalGroupBlocks(source, licensed([]))).toBe(source);
+	});
+
+	it.each([
+		[
+			'long ordered list',
+			[
+				'10. ```jinja',
+				'    {% if group("finance") %}',
+				'        ```',
+				'    Example content',
+				'    {% endif %}',
+				'    ```',
+			],
+		],
+		[
+			'nested lists',
+			[
+				'- 10. ```jinja',
+				'      {% if group("finance") %}',
+				'      Example content',
+				'      {% endif %}',
+				'      ```',
+			],
+		],
+		[
+			'list and blockquote',
+			[
+				'10. > ```jinja',
+				'    > {% if group("finance") %}',
+				'    > Example content',
+				'    > {% endif %}',
+				'    > ```',
+			],
+		],
+	])('closes a fenced example in a %s before filtering later rules', (_name, fencedExample) => {
+		const source = [
+			...fencedExample,
+			'{% if group("finance") %}',
+			'Restricted content',
+			'{% endif %}',
+			'Public content',
+			'',
+		].join('\n');
+
+		expect(renderConditionalGroupBlocks(source, licensed([]))).toBe(
+			[...fencedExample, 'Public content', ''].join('\n'),
+		);
+	});
+
+	it('supports whitespace-control delimiters', () => {
+		const source = 'Before\n{%- if group("finance") -%}\nFinance\n{%- endif -%}\nAfter\n';
+
+		expect(renderConditionalGroupBlocks(source, licensed(['finance']))).toBe('Before\nFinance\nAfter\n');
+		expect(renderConditionalGroupBlocks(source, licensed([]))).toBe('Before\nAfter\n');
+	});
+
 	it('preserves ordinary line endings while removing complete directive and guarded lines', () => {
 		const source = 'Before\r\n  {% if group("finance") %}  \r\nInside\r\n{% endif %}\r\nAfter';
 
@@ -108,6 +186,9 @@ describe('renderConditionalGroupBlocks', () => {
 		['empty argument set', 'Public\n{% if group() %}\nGuarded\n{% endif %}'],
 		['empty group name', 'Public\n{% if group("") %}\nGuarded\n{% endif %}'],
 		['unsupported conditional', 'Public\n{% if user.is_admin %}\nGuarded\n{% endif %}'],
+		['unsupported else', 'Public\n{% if group("finance") %}\nGuarded\n{% else %}\nExposed\n{% endif %}'],
+		['unsupported tag', 'Public\n{% include "private.md" %}\nGuarded'],
+		['malformed whitespace control', 'Public\n{%- if user.is_admin -%}\nGuarded\n{%- endif -%}'],
 	])('fails closed for %s', (_name, source) => {
 		expect(() => renderConditionalGroupBlocks(source, licensed(['finance']))).toThrow();
 		expect(() => renderConditionalGroupBlocks(source, unlicensed)).toThrow();

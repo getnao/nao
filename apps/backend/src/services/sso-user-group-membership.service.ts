@@ -8,9 +8,9 @@ import {
 import { logger, serializeError } from '../utils/logger';
 import { readGroupsClaim } from '../utils/sso-group-mapping';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
-import { getOidcProviderId, isOidcConfigured } from './oidc-auth.service';
+import { isOidcConfigured } from './oidc-auth.service';
 import { DEFAULT_GROUPS_CLAIM } from './sso-group-mapping.service';
-import { readClaimsFromIdToken } from './sso-token.service';
+import { readVerifiedOidcIdTokenClaims } from './sso-token.service';
 
 export async function syncUserGroupsFromOidc(userId: string): Promise<void> {
 	try {
@@ -18,8 +18,8 @@ export async function syncUserGroupsFromOidc(userId: string): Promise<void> {
 			return;
 		}
 
-		const token = await readClaimsFromIdToken(userId, getOidcProviderId());
-		if (token.status !== 'decoded') {
+		const token = await readVerifiedOidcIdTokenClaims(userId);
+		if (token.status !== 'verified') {
 			logger.warn('Could not read the OIDC groups claim, leaving User Group memberships untouched', {
 				source: 'system',
 				context: { userId, problem: token.status },
