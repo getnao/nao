@@ -219,6 +219,7 @@ export const project = pgTable(
 		displaySettings: jsonb('display_settings').$type<DisplaySettings>(),
 		mapSettings: jsonb('map_settings').$type<MapSettings>(),
 		defaultModels: jsonb('default_models').$type<BackgroundModelSettings>(),
+		rowSecurity: jsonb('row_security'),
 
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
@@ -436,6 +437,9 @@ export const userGroup = pgTable(
 			.$type<StoredUserGroupConfig>()
 			.notNull()
 			.default(DEFAULT_USER_GROUP_CONFIG),
+		contextGrants: jsonb('context_grants'),
+		ssoMappings: jsonb('sso_mappings'),
+		rowPolicies: jsonb('row_policies'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -463,6 +467,24 @@ export const userGroupMember = pgTable(
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [primaryKey({ columns: [t.groupId, t.userId] }), index('user_group_member_userId_idx').on(t.userId)],
+);
+
+export const userGroupSsoMember = pgTable(
+	'user_group_sso_member',
+	{
+		groupId: text('group_id')
+			.notNull()
+			.references(() => userGroup.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		provider: text('provider').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.groupId, t.userId, t.provider] }),
+		index('user_group_sso_member_user_provider_idx').on(t.userId, t.provider),
+	],
 );
 
 export const projectLlmConfig = pgTable(
@@ -940,6 +962,7 @@ export const storyDataCache = pgTable('story_data_cache', {
 		.references(() => story.id, { onDelete: 'cascade' })
 		.primaryKey(),
 	queryData: jsonb('query_data').$type<Record<string, { data: unknown[]; columns: string[] }>>().notNull(),
+	querySources: jsonb('query_sources'),
 	analysisResults: jsonb('analysis_results').$type<Record<string, string>>(),
 	cachedAt: timestamp('cached_at').defaultNow().notNull(),
 });

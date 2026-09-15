@@ -234,6 +234,7 @@ export const project = sqliteTable(
 		displaySettings: text('display_settings', { mode: 'json' }).$type<DisplaySettings>(),
 		mapSettings: text('map_settings', { mode: 'json' }).$type<MapSettings>(),
 		defaultModels: text('default_models', { mode: 'json' }).$type<BackgroundModelSettings>(),
+		rowSecurity: text('row_security', { mode: 'json' }),
 
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -460,6 +461,9 @@ export const userGroup = sqliteTable(
 			.$type<StoredUserGroupConfig>()
 			.notNull()
 			.default(DEFAULT_USER_GROUP_CONFIG),
+		contextGrants: text('context_grants', { mode: 'json' }),
+		ssoMappings: text('sso_mappings', { mode: 'json' }),
+		rowPolicies: text('row_policies', { mode: 'json' }),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
@@ -491,6 +495,26 @@ export const userGroupMember = sqliteTable(
 			.notNull(),
 	},
 	(t) => [primaryKey({ columns: [t.groupId, t.userId] }), index('user_group_member_userId_idx').on(t.userId)],
+);
+
+export const userGroupSsoMember = sqliteTable(
+	'user_group_sso_member',
+	{
+		groupId: text('group_id')
+			.notNull()
+			.references(() => userGroup.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		provider: text('provider').notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.groupId, t.userId, t.provider] }),
+		index('user_group_sso_member_user_provider_idx').on(t.userId, t.provider),
+	],
 );
 
 export const projectLlmConfig = sqliteTable(
@@ -1010,6 +1034,7 @@ export const storyDataCache = sqliteTable('story_data_cache', {
 	queryData: text('query_data', { mode: 'json' })
 		.$type<Record<string, { data: unknown[]; columns: string[] }>>()
 		.notNull(),
+	querySources: text('query_sources', { mode: 'json' }),
 	analysisResults: text('analysis_results', { mode: 'json' }).$type<Record<string, string>>(),
 	cachedAt: integer('cached_at', { mode: 'timestamp_ms' })
 		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)

@@ -701,6 +701,7 @@ async function getStoryDataCache(whereCondition: SQL): Promise<DBStoryDataCache 
 		.select({
 			storyId: s.storyDataCache.storyId,
 			queryData: s.storyDataCache.queryData,
+			querySources: s.storyDataCache.querySources,
 			analysisResults: s.storyDataCache.analysisResults,
 			cachedAt: s.storyDataCache.cachedAt,
 		})

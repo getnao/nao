@@ -20,7 +20,10 @@ import {
 const USER_GROUP_NAME_CONFLICT_MESSAGE = 'A user group with this name already exists.';
 const USER_GROUP_NAME_UNIQUE_CONSTRAINT = 'user_group_project_name_unique';
 
-export interface UserGroup extends Omit<DBUserGroup, 'featureGrants'> {
+export interface UserGroup extends Omit<
+	DBUserGroup,
+	'contextGrants' | 'featureGrants' | 'rowPolicies' | 'ssoMappings'
+> {
 	featureGrants: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 }
@@ -284,7 +287,12 @@ function isUserGroupNameUniqueViolation(error: unknown): boolean {
 function normalizeUserGroup(group: DBUserGroup): UserGroup {
 	const config = parseStoredUserGroupConfig(group.featureGrants);
 	return {
-		...group,
+		id: group.id,
+		projectId: group.projectId,
+		name: group.name,
+		isDefault: group.isDefault,
+		createdAt: group.createdAt,
+		updatedAt: group.updatedAt,
 		featureGrants: config.features,
 		toolCallDensityPolicy: config.toolCallDensity,
 	};
