@@ -31,10 +31,7 @@ import {
 } from './project.queries';
 
 const USER_GROUP_NAME_CONFLICT_MESSAGE = 'A user group with this name already exists.';
-const USER_GROUP_NAME_UNIQUE_CONSTRAINTS = new Set([
-	'user_group_project_name_unique',
-	'user_group_project_name_ci_unique',
-]);
+const USER_GROUP_NAME_UNIQUE_CONSTRAINT = 'user_group_project_name_unique';
 
 export interface UserGroup extends Omit<
 	DBUserGroup,
@@ -211,9 +208,12 @@ export const createUserGroup = async (
 			);
 		}
 
-		await assertNameAvailable(projectId, name);
-		const [created] = await db.insert(s.userGroup).values(values).returning().execute();
-		return created;
+		return db.transaction(async (transaction) => {
+			await lockProjectForUserGroupMutation(transaction, projectId);
+			await assertNameAvailable(transaction, projectId, name);
+			const [created] = await transaction.insert(s.userGroup).values(values).returning().execute();
+			return created;
+		});
 	});
 	return normalizeUserGroup(group);
 };
@@ -256,6 +256,7 @@ export const createUserGroupWithinLimit = async (
 
 		return db.transaction(async (transaction) => {
 			await lockProjectForUserGroupMutation(transaction, projectId);
+			await assertNameAvailable(transaction, projectId, name);
 			const [{ count: existingCount }] = await transaction
 				.select({ count: count() })
 				.from(s.userGroup)
@@ -295,9 +296,6 @@ export const updateUserGroup = async (
 		)
 	) {
 		throw new UserGroupQueryError('BAD_REQUEST', 'The All Users group cannot be mapped to SSO groups.');
-	}
-	if (data.name !== undefined && data.name !== group.name && dbConfig.dialect === Dialect.Postgres) {
-		await assertNameAvailable(projectId, data.name, groupId);
 	}
 	const serializedSsoMappings =
 		data.ssoMappings === undefined ? undefined : serializeUserGroupSsoMappings(data.ssoMappings);
@@ -342,6 +340,9 @@ export const updateUserGroup = async (
 
 		return db.transaction(async (transaction) => {
 			await lockProjectForUserGroupMutation(transaction, projectId);
+			if (data.name !== undefined && data.name !== group.name) {
+				await assertNameAvailable(transaction, projectId, data.name, groupId);
+			}
 			const [stored] = await transaction
 				.update(s.userGroup)
 				.set(updateValues)
@@ -466,8 +467,13 @@ const getUserGroup = async (projectId: string, groupId: string): Promise<DBUserG
 	return group;
 };
 
-const assertNameAvailable = async (projectId: string, name: string, excludedGroupId?: string): Promise<void> => {
-	const groups = await db
+const assertNameAvailable = async (
+	executor: DBExecutor,
+	projectId: string,
+	name: string,
+	excludedGroupId?: string,
+): Promise<void> => {
+	const groups = await executor
 		.select({ id: s.userGroup.id, name: s.userGroup.name })
 		.from(s.userGroup)
 		.where(eq(s.userGroup.projectId, projectId))
@@ -539,8 +545,12 @@ function getChangedSsoProviders(
 ): SsoGroupProvider[] {
 	const current = parseStoredUserGroupSsoMappings(currentMappings).providers;
 	return (['oidc', 'microsoft'] as const).filter(
-		(provider) => JSON.stringify(current[provider]) !== JSON.stringify(nextMappings.providers[provider]),
+		(provider) => !haveSameIdentifiers(current[provider], nextMappings.providers[provider]),
 	);
+}
+
+function haveSameIdentifiers(left: string[], right: string[]): boolean {
+	return left.length === right.length && left.every((identifier) => right.includes(identifier));
 }
 
 function deleteChangedSsoMembershipsSqlite(
@@ -591,11 +601,10 @@ function isUserGroupNameUniqueViolation(error: unknown): boolean {
 	return (
 		(code === '23505' &&
 			typeof constraintName === 'string' &&
-			USER_GROUP_NAME_UNIQUE_CONSTRAINTS.has(constraintName)) ||
+			constraintName === USER_GROUP_NAME_UNIQUE_CONSTRAINT) ||
 		((code === 'SQLITE_CONSTRAINT_UNIQUE' || errno === 2067) &&
 			typeof message === 'string' &&
-			(message.includes('UNIQUE constraint failed: user_group.project_id, user_group.name') ||
-				message.includes("UNIQUE constraint failed: index 'user_group_project_name_ci_unique'")))
+			message.includes('UNIQUE constraint failed: user_group.project_id, user_group.name'))
 	);
 }
 

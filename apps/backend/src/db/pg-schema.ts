@@ -461,7 +461,6 @@ export const userGroup = pgTable(
 	(t) => [
 		index('user_group_projectId_idx').on(t.projectId),
 		unique('user_group_project_name_unique').on(t.projectId, t.name),
-		uniqueIndex('user_group_project_name_ci_unique').on(t.projectId, sql`lower(${t.name})`),
 		uniqueIndex('user_group_project_default_unique')
 			.on(t.projectId)
 			.where(sql`${t.isDefault} = true`),

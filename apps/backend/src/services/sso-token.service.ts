@@ -22,7 +22,8 @@ interface OidcDiscoveryMetadata {
 }
 
 const DISCOVERY_TIMEOUT_MS = 10_000;
-const discoveryCache = new Map<string, Promise<OidcDiscoveryMetadata>>();
+const DISCOVERY_CACHE_TTL_MS = 5 * 60_000;
+const discoveryCache = new Map<string, { expiresAt: number; request: Promise<OidcDiscoveryMetadata> }>();
 const jwksCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
 export async function readVerifiedOidcIdTokenClaims(userId: string): Promise<VerifiedIdTokenClaims> {
@@ -89,6 +90,9 @@ async function verifyIdTokenClaims(
 			...options,
 			issuer: options.issuer ?? metadata.issuer,
 		});
+		if (!Number.isFinite(payload.exp) || !Number.isFinite(payload.iat)) {
+			return { status: 'invalid' };
+		}
 		return { status: 'verified', claims: payload };
 	} catch (error) {
 		return { status: isVerificationUnavailable(error) ? 'unavailable' : 'invalid' };
@@ -97,15 +101,20 @@ async function verifyIdTokenClaims(
 
 async function getDiscoveryMetadata(discoveryUrl: string): Promise<OidcDiscoveryMetadata> {
 	const cached = discoveryCache.get(discoveryUrl);
-	if (cached) {
-		return cached;
+	if (cached && cached.expiresAt > Date.now()) {
+		return cached.request;
 	}
 
 	const request = fetchDiscoveryMetadata(discoveryUrl).catch((error) => {
-		discoveryCache.delete(discoveryUrl);
+		if (discoveryCache.get(discoveryUrl)?.request === request) {
+			discoveryCache.delete(discoveryUrl);
+		}
 		throw error;
 	});
-	discoveryCache.set(discoveryUrl, request);
+	discoveryCache.set(discoveryUrl, {
+		expiresAt: Date.now() + DISCOVERY_CACHE_TTL_MS,
+		request,
+	});
 	return request;
 }
 

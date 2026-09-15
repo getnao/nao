@@ -219,6 +219,8 @@ export function UserGroupEditor({
 		}
 		resetForm();
 	};
+	const retrySsoConfiguration = (configuration: { refetch: () => unknown }) =>
+		void (ssoLicenseState === 'error' ? licenseFeatures.refetch() : configuration.refetch());
 
 	return (
 		<>
@@ -271,8 +273,8 @@ export function UserGroupEditor({
 										licenseState={ssoLicenseState}
 										oidcState={oidcConfigurationState}
 										microsoftState={microsoftConfigurationState}
-										onRetryOidc={() => void oidcConfig.refetch()}
-										onRetryMicrosoft={() => void microsoftConfig.refetch()}
+										onRetryOidc={() => retrySsoConfiguration(oidcConfig)}
+										onRetryMicrosoft={() => retrySsoConfiguration(microsoftConfig)}
 									/>
 								) : (
 									<>
@@ -293,7 +295,7 @@ export function UserGroupEditor({
 												provider='oidc'
 												providerName={oidcConfig.data?.providerName ?? 'OIDC'}
 												configurationState={oidcConfigurationState}
-												onRetryConfiguration={() => void oidcConfig.refetch()}
+												onRetryConfiguration={() => retrySsoConfiguration(oidcConfig)}
 												onChange={(oidc) =>
 													setSsoMappings(
 														normalizeUserGroupSsoMappings({
@@ -313,7 +315,7 @@ export function UserGroupEditor({
 												provider='microsoft'
 												providerName='Microsoft Entra'
 												configurationState={microsoftConfigurationState}
-												onRetryConfiguration={() => void microsoftConfig.refetch()}
+												onRetryConfiguration={() => retrySsoConfiguration(microsoftConfig)}
 												onChange={(microsoft) =>
 													setSsoMappings(
 														normalizeUserGroupSsoMappings({
@@ -432,16 +434,17 @@ function DefaultGroupSsoStatus({
 	if (licenseState === 'loading') {
 		return <p className='text-sm text-muted-foreground'>Loading SSO availability...</p>;
 	}
-	if (licenseState === 'error') {
-		return <p className='text-sm text-destructive'>Failed to load SSO availability.</p>;
-	}
 	if (oidcState === 'loading' || microsoftState === 'loading') {
 		return <p className='text-sm text-muted-foreground'>Loading SSO configuration...</p>;
 	}
 	if (oidcState === 'error' || microsoftState === 'error') {
 		return (
 			<div className='flex flex-wrap items-center gap-2 rounded-lg border p-3'>
-				<p className='mr-auto text-sm text-destructive'>Failed to load SSO configuration.</p>
+				<p className='mr-auto text-sm text-destructive'>
+					{licenseState === 'error'
+						? 'Failed to load SSO availability.'
+						: 'Failed to load SSO configuration.'}
+				</p>
 				{oidcState === 'error' && (
 					<Button type='button' variant='outline' size='sm' onClick={onRetryOidc}>
 						Retry OIDC

@@ -790,6 +790,40 @@ describe('UserGroupEditor', () => {
 		expect(screen.getByRole('button', { name: 'Remove OIDC group finance-team' })).toBeTruthy();
 	});
 
+	it('retries license loading before disabled SSO configuration queries', () => {
+		const licenseRefetch = vi.fn();
+		const oidcRefetch = vi.fn();
+		const microsoftRefetch = vi.fn();
+		mocks.useLicenseFeatures.mockReturnValue({
+			isLoading: false,
+			isError: true,
+			data: undefined,
+			refetch: licenseRefetch,
+		});
+		mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => ({
+			isLoading: false,
+			isError: false,
+			data: undefined,
+			refetch: options?.queryKey?.[0] === 'oidc-config' ? oidcRefetch : microsoftRefetch,
+		}));
+
+		renderEditor('security', vi.fn(), {
+			...analysts,
+			ssoMappings: {
+				version: 1,
+				providers: { oidc: ['finance-team'], microsoft: [] },
+			},
+		});
+		fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+		cleanup();
+		renderEditor('security', vi.fn(), allUsers);
+		fireEvent.click(screen.getByRole('button', { name: 'Retry OIDC' }));
+
+		expect(licenseRefetch).toHaveBeenCalledTimes(2);
+		expect(oidcRefetch).not.toHaveBeenCalled();
+		expect(microsoftRefetch).not.toHaveBeenCalled();
+	});
+
 	it('allows removing stored mappings after the provider is deconfigured', () => {
 		renderEditor('security', vi.fn(), {
 			...analysts,

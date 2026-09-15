@@ -1124,6 +1124,26 @@ describe('user group queries', () => {
 		]);
 	});
 
+	it('keeps memberships when SSO mappings are reordered', async () => {
+		const group = await createUserGroup(
+			PROJECT_ID,
+			'Mapped',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			ssoMappings(['finance', 'sales']),
+		);
+		await db.insert(userGroupSsoMember).values({ groupId: group.id, userId: DIRECT_USER_ID, provider: 'oidc' });
+
+		await updateUserGroup(PROJECT_ID, group.id, {
+			featureGrants: [],
+			ssoMappings: ssoMappings(['sales', 'finance']),
+		});
+
+		await expect(listSsoGroupIds(DIRECT_USER_ID)).resolves.toEqual([group.id]);
+	});
+
 	it('rolls back an SSO mapping update when membership invalidation fails', async () => {
 		const group = await createUserGroup(
 			PROJECT_ID,

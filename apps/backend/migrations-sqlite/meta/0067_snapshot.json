@@ -6574,14 +6574,6 @@
           ],
           "isUnique": false
         },
-        "user_group_project_name_ci_unique": {
-          "name": "user_group_project_name_ci_unique",
-          "columns": [
-            "project_id",
-            "lower(\"name\")"
-          ],
-          "isUnique": true
-        },
         "user_group_project_default_unique": {
           "name": "user_group_project_default_unique",
           "columns": [
@@ -6903,14 +6895,6 @@
     "columns": {}
   },
   "internal": {
-    "indexes": {
-      "user_group_project_name_ci_unique": {
-        "columns": {
-          "lower(\"name\")": {
-            "isExpression": true
-          }
-        }
-      }
-    }
+    "indexes": {}
   }
 }

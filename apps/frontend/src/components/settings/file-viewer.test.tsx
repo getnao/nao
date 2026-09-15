@@ -177,6 +177,7 @@ describe('FileViewer RULES preview', () => {
 		expect(screen.queryByTestId('markdown-preview')).toBeNull();
 		expect(screen.queryByText('Protected instructions')).toBeNull();
 		expect(screen.queryByRole('toolbar', { name: 'Rules preview options' })).toBeNull();
+		expect(screen.queryByText(/tokens$/)).toBeNull();
 	});
 });
 

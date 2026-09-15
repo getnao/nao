@@ -21,7 +21,7 @@ vi.mock('../src/db/db', () => ({
 	},
 }));
 
-import { updateUserGroup } from '../src/queries/user-group.queries';
+import { createUserGroup, createUserGroupWithinLimit, updateUserGroup } from '../src/queries/user-group.queries';
 
 describe('PostgreSQL SSO mapping updates', () => {
 	beforeEach(() => {
@@ -36,11 +36,41 @@ describe('PostgreSQL SSO mapping updates', () => {
 
 		expect(mocks.events).toEqual(['lock-project', 'update-mapping', 'delete-memberships']);
 	});
+
+	it.each([
+		{
+			operation: 'unlimited create',
+			run: () => createUserGroup('project-1', 'Finance'),
+			events: ['lock-project', 'check-name', 'insert'],
+		},
+		{
+			operation: 'free-limit create',
+			run: () => createUserGroupWithinLimit(3, 'project-1', 'Finance'),
+			events: ['lock-project', 'check-name', 'count-groups', 'insert'],
+		},
+		{
+			operation: 'rename',
+			run: () => updateUserGroup('project-1', 'group-1', { name: 'Operations', featureGrants: [] }),
+			events: ['lock-project', 'check-name', 'update-mapping'],
+		},
+	])('locks before checking and writing during $operation', async ({ run, events }) => {
+		await run();
+
+		expect(mocks.events).toEqual(events);
+	});
 });
 
 function transaction() {
+	let selectCount = 0;
 	return {
-		select: () => lockingQuery([{ id: 'project-1' }], () => mocks.events.push('lock-project')),
+		select: () => {
+			selectCount += 1;
+			if (selectCount === 1) {
+				return lockingQuery([{ id: 'project-1' }], () => mocks.events.push('lock-project'));
+			}
+			return selectCount === 2 ? eventQuery([], 'check-name') : eventQuery([{ count: 0 }], 'count-groups');
+		},
+		insert: () => mutation([storedGroup()], () => mocks.events.push('insert')),
 		update: () => mutation([storedGroup(ssoMappings([]))], () => mocks.events.push('update-mapping')),
 		delete: () => mutation(undefined, () => mocks.events.push('delete-memberships')),
 	};
@@ -69,8 +99,18 @@ function lockingQuery(rows: unknown[], beforeExecute: () => void) {
 	return builder;
 }
 
+function eventQuery(rows: unknown[], event: string) {
+	const builder = query(rows);
+	builder.execute = vi.fn(async () => {
+		mocks.events.push(event);
+		return rows;
+	});
+	return builder;
+}
+
 function mutation(rows: unknown, beforeExecute: () => void) {
 	const builder = {
+		values: () => builder,
 		set: () => builder,
 		where: () => builder,
 		returning: () => builder,

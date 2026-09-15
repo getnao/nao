@@ -328,7 +328,7 @@ function EditableFileViewer({
 					<div className='min-w-0 flex-1'>
 						<div className='flex min-w-0 items-center gap-2'>
 							<span className='min-w-0 truncate font-mono leading-4'>{fileName}</span>
-							<TokenEstimate count={estimatedTokenCount} />
+							{rulesPreviewStatus === undefined && <TokenEstimate count={estimatedTokenCount} />}
 						</div>
 						<span className='block truncate text-xs leading-4 opacity-60'>{filePath}</span>
 					</div>

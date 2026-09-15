@@ -52,6 +52,42 @@ describe('generic OIDC ID token verification', () => {
 	});
 
 	it.each([
+		['missing exp', { iat: 1 }],
+		['missing iat', { exp: 4_102_444_800 }],
+		['malformed exp', { iat: 1, exp: 'later' }],
+		['malformed iat', { iat: 'now', exp: 4_102_444_800 }],
+	])('rejects a token with %s', async (_problem, claims) => {
+		const fixture = configureOidc();
+		mocks.getIdToken.mockResolvedValue(await signTokenClaims(fixture.issuer, 'client-id', claims));
+
+		await expect(readVerifiedOidcIdTokenClaims('user-1')).resolves.toEqual({ status: 'invalid' });
+	});
+
+	it('reuses discovery metadata before its TTL and refreshes it afterward', async () => {
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+			const fixture = configureOidc();
+			mocks.getIdToken.mockResolvedValue(await signToken(fixture.issuer, 'client-id', {}, '10m'));
+
+			await readVerifiedOidcIdTokenClaims('user-1');
+			vi.advanceTimersByTime(5 * 60_000 - 1);
+			await readVerifiedOidcIdTokenClaims('user-1');
+			expect(mocks.fetch.mock.calls.filter(([input]) => requestUrl(input) === fixture.discoveryUrl)).toHaveLength(
+				1,
+			);
+
+			vi.advanceTimersByTime(1);
+			await readVerifiedOidcIdTokenClaims('user-1');
+			expect(mocks.fetch.mock.calls.filter(([input]) => requestUrl(input) === fixture.discoveryUrl)).toHaveLength(
+				2,
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it.each([
 		['issuer', 'https://attacker.example', 'client-id'],
 		['audience', null, 'another-client'],
 	])('rejects a token with the wrong %s', async (_problem, issuerOverride, audience) => {
@@ -188,13 +224,26 @@ function requestUrl(input: string | URL | Request): string {
 	return typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
 }
 
-function signToken(issuer: string, audience: string, claims: Record<string, unknown>): Promise<string> {
+function signToken(
+	issuer: string,
+	audience: string,
+	claims: Record<string, unknown>,
+	expirationTime = '5m',
+): Promise<string> {
 	return new SignJWT(claims)
 		.setProtectedHeader({ alg: 'RS256', kid: 'test-key' })
 		.setIssuer(issuer)
 		.setAudience(audience)
 		.setIssuedAt()
-		.setExpirationTime('5m')
+		.setExpirationTime(expirationTime)
+		.sign(privateKey);
+}
+
+function signTokenClaims(issuer: string, audience: string, claims: Record<string, unknown>): Promise<string> {
+	return new SignJWT(claims)
+		.setProtectedHeader({ alg: 'RS256', kid: 'test-key' })
+		.setIssuer(issuer)
+		.setAudience(audience)
 		.sign(privateKey);
 }
 
