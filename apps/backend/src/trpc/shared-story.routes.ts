@@ -48,7 +48,7 @@ export const sharedStoryRoutes = {
 		return stories.map((story) => ({
 			...story,
 			storySlug: story.slug,
-			summary: extractStorySummary(story.code),
+			summary: extractStorySummary(story.code, story.format),
 			sharing: {
 				visibility: story.visibility,
 				sharedWithCount: story.sharedWithCount,

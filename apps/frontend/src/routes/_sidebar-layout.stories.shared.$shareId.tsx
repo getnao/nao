@@ -12,6 +12,7 @@ import { LiveStorySettingsDialog } from '@/components/side-panel/live-story-sett
 import { useStoryViewerLiveSettings } from '@/components/side-panel/hooks/use-story-viewer-live-settings';
 import { ShareStoryDialog } from '@/components/share-dialog.story';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
+import { DbtChartsBoard } from '@/components/dbt-charts/dbt-charts-board';
 import { StoryPageBody } from '@/components/story-page-body';
 import { StoryPageHeader } from '@/components/story-page-header';
 import { StoryRouteError } from '@/components/story-access-error';
@@ -97,6 +98,7 @@ function SharedStoryPage() {
 		);
 	}
 
+	const isDbtChartsBoard = story.format === 'dbt_charts';
 	const isEditing = isOwner && Boolean(story.chatId) && editor.viewMode !== 'preview';
 
 	const header =
@@ -110,6 +112,7 @@ function SharedStoryPage() {
 				shareId={shareId}
 				cachedAt={story.cachedAt}
 				lastRefreshFailure={story.lastRefreshFailure}
+				isDbtChartsBoard={isDbtChartsBoard}
 				onOpenChat={() =>
 					navigate({
 						to: '/$chatId',
@@ -120,7 +123,7 @@ function SharedStoryPage() {
 				viewModeControls={{
 					viewMode: editor.viewMode,
 					onViewModeChange: editor.setViewMode,
-					canEdit: true,
+					canEdit: !isDbtChartsBoard,
 					isCodeDirty: editor.isCodeDirty,
 					isCodeValid: editor.isCodeValid,
 					onSave: editor.handleSave,
@@ -144,7 +147,7 @@ function SharedStoryPage() {
 				onOpenChat={isViewer ? undefined : () => forkMutation.mutate({ shareId, type: 'story' })}
 				isOpeningChat={forkMutation.isPending}
 				live={
-					story.isLive
+					story.isLive && !isDbtChartsBoard
 						? {
 								isLive: true,
 								cachedAt: story.cachedAt,
@@ -154,7 +157,11 @@ function SharedStoryPage() {
 							}
 						: undefined
 				}
-				download={{ chatId: story.chatId!, storySlug: story.slug, shareId, isOwner: false }}
+				download={
+					isDbtChartsBoard
+						? undefined
+						: { chatId: story.chatId!, storySlug: story.slug, shareId, isOwner: false }
+				}
 			/>
 		);
 
@@ -183,19 +190,30 @@ function SharedStoryPage() {
 							<StoryPageBody
 								editor={editor}
 								queryData={queryData}
+								format={story.format}
 								preview={
-									<SharedStoryContent
-										code={editor.code}
-										queryData={queryData}
-										chatId={story.chatId!}
-										shareId={shareId}
-										cacheSchedule={story.cacheSchedule}
-										filtersEnabled={
-											!isOwner || (editor.versionNav.isViewingLatest && !editor.isCodeDirty)
-										}
-										isDataPending={isQueryDataPending}
-										isViewingLatest={editor.versionNav.isViewingLatest}
-									/>
+									isDbtChartsBoard ? (
+										<div className='flex-1 min-h-0 overflow-auto'>
+											<DbtChartsBoard
+												yaml={editor.code}
+												resetKey={`${shareId}:${editor.versionNav.storedVersionNumber}`}
+												className='mx-auto w-full max-w-6xl p-4 md:p-8'
+											/>
+										</div>
+									) : (
+										<SharedStoryContent
+											code={editor.code}
+											queryData={queryData}
+											chatId={story.chatId!}
+											shareId={shareId}
+											cacheSchedule={story.cacheSchedule}
+											filtersEnabled={
+												!isOwner || (editor.versionNav.isViewingLatest && !editor.isCodeDirty)
+											}
+											isDataPending={isQueryDataPending}
+											isViewingLatest={editor.versionNav.isViewingLatest}
+										/>
+									)
 								}
 							/>
 						</div>
@@ -226,6 +244,7 @@ interface SharedStoryOwnerHeaderProps {
 	shareId: string;
 	cachedAt?: string | Date | null;
 	lastRefreshFailure?: StoryRefreshFailure | null;
+	isDbtChartsBoard: boolean;
 	onOpenChat: () => void;
 	viewModeControls: StoryPageHeaderProps['viewModeControls'];
 	versionControls: StoryPageHeaderProps['versionControls'];
@@ -240,6 +259,7 @@ function SharedStoryOwnerHeader({
 	shareId,
 	cachedAt,
 	lastRefreshFailure,
+	isDbtChartsBoard,
 	onOpenChat,
 	viewModeControls,
 	versionControls,
@@ -265,16 +285,20 @@ function SharedStoryOwnerHeader({
 				title={title}
 				authorName={authorName}
 				onOpenChat={onOpenChat}
-				live={{
-					isLive,
-					cachedAt,
-					lastRefreshFailure,
-					isRefreshing,
-					isUpdating,
-					onRefresh: () => handleRefreshData(),
-					onOpenSettings: () => setIsLiveSettingsOpen(true),
-				}}
-				download={{ chatId, storySlug, isOwner: true }}
+				live={
+					isDbtChartsBoard
+						? undefined
+						: {
+								isLive,
+								cachedAt,
+								lastRefreshFailure,
+								isRefreshing,
+								isUpdating,
+								onRefresh: () => handleRefreshData(),
+								onOpenSettings: () => setIsLiveSettingsOpen(true),
+							}
+				}
+				download={isDbtChartsBoard ? undefined : { chatId, storySlug, isOwner: true }}
 				storyId={storyId}
 				canRename
 				isShared

@@ -1,3 +1,4 @@
+import { formatDbtChartsDiagnostic, type StoryFormat } from '@nao/shared/dbt-charts';
 import { injectTableFormatting } from '@nao/shared/story-segments';
 import { story } from '@nao/shared/tools';
 
@@ -7,6 +8,7 @@ import { env } from '../../env';
 import { getDisplayChartTableFormatsForChat } from '../../queries/chart-image';
 import * as storyQueries from '../../queries/story.queries';
 import * as storyFolderQueries from '../../queries/story-folder.queries';
+import * as dbtChartsService from '../../services/dbt-charts.service';
 import { getStoryTemplateWarnings } from '../../services/story-template-validation';
 import type { ToolContext } from '../../types/tools';
 import { createTool } from '../../utils/tools';
@@ -22,7 +24,16 @@ const STORY_FILTER_DESCRIPTION = [
 	'When adding filters to existing charts, prefer execute_sql with query_id set to the existing query so chart/table tags keep the same query_id.',
 ].join(' ');
 
-export function buildStoryToolDescription({ mapsEnabled = false }: { mapsEnabled?: boolean } = {}) {
+const DBT_CHARTS_DESCRIPTION = [
+	'A story can alternatively use format="dbt_charts": its code is then a dbt Charts YAML board (https://github.com/dbt-labs/dbt-charts) rendered server-side to SVG, with every query executed through the nao connection (only when the user asks for a dbt Charts board or dashboard, or when editing an existing one).',
+	'Load the built-in skill "dbt-charts" before writing or editing a board: it documents the YAML syntax the compiler accepts.',
+	'For format="dbt_charts", "update" and "replace" operate on the YAML text; compile diagnostics are returned in template_warnings — fix errors before finishing.',
+].join(' ');
+
+export function buildStoryToolDescription({
+	mapsEnabled = false,
+	dbtChartsEnabled = false,
+}: { mapsEnabled?: boolean; dbtChartsEnabled?: boolean } = {}) {
 	return [
 		'Create or modify a nao Story — an interactive document combining markdown text and chart visualizations.',
 		'Use "create" to initialize a new story, "update" to search-and-replace within it (producing a new version),',
@@ -41,6 +52,7 @@ export function buildStoryToolDescription({ mapsEnabled = false }: { mapsEnabled
 		'A story can also be refered as a "canva", an "artifact" or a "report".',
 		'Users may edit stories directly; the tool result always reflects the latest version, including user edits.',
 		'Unless explicitly stated, dont use the stories to display a chart, but the display_chart tool.',
+		...(dbtChartsEnabled ? [DBT_CHARTS_DESCRIPTION] : []),
 	].join(' ');
 }
 
@@ -52,7 +64,10 @@ export default createTool<story.Input, story.Output>({
 	execute: async (input, context) => {
 		const { chatId, userId, projectId } = context;
 
-		const fail = (error: string, existing?: { code: string; version: number; title: string }) =>
+		const fail = (
+			error: string,
+			existing?: { code: string; version: number; title: string; format: StoryFormat },
+		) =>
 			({
 				_version: '1' as const,
 				success: false,
@@ -60,8 +75,13 @@ export default createTool<story.Input, story.Output>({
 				version: existing?.version ?? 0,
 				code: existing?.code ?? '',
 				title: existing?.title ?? '',
+				format: existing?.format,
 				error,
 			}) satisfies story.Output;
+
+		if (input.format === 'dbt_charts' && !dbtChartsService.isDbtChartsAvailable()) {
+			return fail((await dbtChartsService.getDbtChartsStatus()).install_hint ?? 'dbt Charts is not available.');
+		}
 
 		if (input.action === 'create') {
 			if (!input.code || !input.title) {
@@ -73,7 +93,8 @@ export default createTool<story.Input, story.Output>({
 				return fail(`Story "${input.id}" already exists. Use "update" or "replace" instead.`);
 			}
 
-			const code = await carryOverTableFormatting(input.code, chatId);
+			const format = input.format ?? 'markdown';
+			const code = await prepareCode(input.code, format, chatId);
 			const version = await db.transaction(async (tx) => {
 				const created = await storyQueries.createStoryVersion(
 					{
@@ -83,6 +104,7 @@ export default createTool<story.Input, story.Output>({
 						code,
 						action: 'create',
 						source: 'assistant',
+						format,
 					},
 					tx,
 				);
@@ -98,7 +120,8 @@ export default createTool<story.Input, story.Output>({
 				version: version.version,
 				code: version.code,
 				title: version.title,
-				...(await storyTemplateWarnings(chatId, version.code)),
+				format: version.format,
+				...(await storyWarnings(context, version.format, version.code)),
 			};
 		}
 
@@ -119,7 +142,7 @@ export default createTool<story.Input, story.Output>({
 			const splicedCode = `${existing.code.slice(0, searchIndex)}${input.replace}${existing.code.slice(
 				searchIndex + input.search.length,
 			)}`;
-			const newCode = await carryOverTableFormatting(splicedCode, chatId);
+			const newCode = await prepareCode(splicedCode, existing.format, chatId);
 			const version = await storyQueries.createStoryVersion({
 				chatId,
 				slug: input.id,
@@ -137,7 +160,8 @@ export default createTool<story.Input, story.Output>({
 				version: version.version,
 				code: version.code,
 				title: version.title,
-				...(await storyTemplateWarnings(chatId, version.code)),
+				format: version.format,
+				...(await storyWarnings(context, version.format, version.code)),
 			};
 		}
 
@@ -146,7 +170,8 @@ export default createTool<story.Input, story.Output>({
 			return fail('"code" is required for the "replace" action.', existing);
 		}
 
-		const replacedCode = await carryOverTableFormatting(input.code, chatId);
+		const format = input.format ?? existing.format;
+		const replacedCode = await prepareCode(input.code, format, chatId);
 		const version = await storyQueries.createStoryVersion({
 			chatId,
 			slug: input.id,
@@ -154,6 +179,7 @@ export default createTool<story.Input, story.Output>({
 			code: replacedCode,
 			action: 'replace',
 			source: 'assistant',
+			format,
 		});
 		rememberStoryArtifact(context, input.id, version.title);
 
@@ -164,27 +190,46 @@ export default createTool<story.Input, story.Output>({
 			version: version.version,
 			code: version.code,
 			title: version.title,
-			...(await storyTemplateWarnings(chatId, version.code)),
+			format: version.format,
+			...(await storyWarnings(context, version.format, version.code)),
 		};
 	},
 
 	toModelOutput: ({ output }) => renderToModelOutput(StoryOutput({ output }), output),
 });
 
-async function carryOverTableFormatting(code: string, chatId: string): Promise<string> {
+async function prepareCode(code: string, format: StoryFormat, chatId: string): Promise<string> {
+	if (format === 'dbt_charts') {
+		return code;
+	}
 	const formatsByQueryId = await getDisplayChartTableFormatsForChat(chatId);
 	return injectTableFormatting(code, formatsByQueryId);
 }
 
 /** The story version is already committed at this point, so a warning failure must not fail the tool. */
-async function storyTemplateWarnings(chatId: string, code: string): Promise<{ template_warnings?: string[] }> {
+async function storyWarnings(
+	context: ToolContext,
+	format: StoryFormat,
+	code: string,
+): Promise<{ template_warnings?: string[] }> {
 	try {
-		const warnings = await getStoryTemplateWarnings(chatId, code);
+		const warnings =
+			format === 'dbt_charts'
+				? await dbtChartsBoardWarnings(context.projectId, code)
+				: await getStoryTemplateWarnings(context.chatId, code);
 		return warnings.length > 0 ? { template_warnings: warnings } : {};
 	} catch (error) {
-		console.error('Failed to compute story template warnings', error);
+		console.error('Failed to compute story warnings', error);
 		return {};
 	}
+}
+
+async function dbtChartsBoardWarnings(projectId: string, boardYaml: string): Promise<string[]> {
+	const validation = await dbtChartsService.validateBoard(projectId, boardYaml);
+	return [
+		...validation.errors.map((diagnostic) => `Error: ${formatDbtChartsDiagnostic(diagnostic)}`),
+		...validation.warnings.map((diagnostic) => `Warning: ${formatDbtChartsDiagnostic(diagnostic)}`),
+	];
 }
 
 function rememberStoryArtifact(context: ToolContext, id: string, title: string): void {

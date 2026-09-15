@@ -5,6 +5,7 @@ import type { CustomBoundarySet } from '@nao/shared';
 import type { SemanticLayerMode } from '@nao/shared/types';
 import type { Tool } from 'ai';
 
+import { isDbtChartsAvailable } from '../../services/dbt-charts-status';
 import { mcpService } from '../../services/mcp';
 import { isSemanticQueryToolEnabled, isWarehouseSqlEnabled } from '../../services/semantic-layer.service';
 import { isStorageEnabled } from '../../services/storage';
@@ -141,9 +142,10 @@ export const getTools = (
 
 	if ('story' in result) {
 		const mapsEnabled = 'display_map' in result;
+		const dbtChartsEnabled = isDbtChartsAvailable();
 		result = {
 			...result,
-			story: { ...result.story, description: buildStoryToolDescription({ mapsEnabled }) },
+			story: { ...result.story, description: buildStoryToolDescription({ mapsEnabled, dbtChartsEnabled }) },
 		};
 	}
 

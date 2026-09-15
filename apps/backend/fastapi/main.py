@@ -1,15 +1,11 @@
-import math
 import os
 import secrets
 import sys
 from contextlib import asynccontextmanager
-from datetime import date, datetime
-from decimal import Decimal
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
-import numpy as np
-import pandas as pd
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -22,15 +18,6 @@ cli_path = Path(__file__).resolve().parent.parent.parent.parent / "cli"
 sys.path.insert(0, str(cli_path))
 
 from nao_core.config import NaoConfig, NaoConfigError  # noqa: E402
-from nao_core.config.databases.allow_listed_only_guard import (  # noqa: E402
-    AllowListedOnlyGuardError,
-    enforce_allow_listed_only,
-    query_references_base_tables,
-)
-from nao_core.config.databases.column_access import (  # noqa: E402
-    ColumnAccessError,
-    validate_column_access,
-)
 from nao_core.context import get_context_provider  # noqa: E402
 from nao_core.semantic_layer import (  # noqa: E402
     MetricFlowSemanticLayer,
@@ -39,6 +26,14 @@ from nao_core.semantic_layer import (  # noqa: E402
     SemanticQuery,
     metricflow_dialect_for,
     runtime_manifest_path,
+)
+
+from dbt_charts_routes import router as dbt_charts_router  # noqa: E402
+from sql_execution import (  # noqa: E402
+    GuardError,
+    dataframe_to_records,
+    run_guarded_sql,
+    select_database,
 )
 
 port = int(os.environ.get("PORT", 8005))
@@ -151,81 +146,6 @@ class CompileSemanticQueryResponse(BaseModel):
     dialect: str
 
 
-def _validate_sql(
-    sql: str,
-    db_config,
-    project_path: Path,
-    enforce_excluded_columns: bool,
-    conn=None,
-) -> str:
-    validated_sql = enforce_allow_listed_only(sql, db_config, project_path, conn=conn)
-    if enforce_excluded_columns:
-        validated_sql = validate_column_access(validated_sql, db_config, project_path)
-    return validated_sql
-
-
-def _execute_sql_with_guards(
-    sql: str,
-    db_config,
-    project_path: Path,
-    enforce_excluded_columns: bool,
-) -> pd.DataFrame:
-    conn = db_config.connect()
-    try:
-        validated_sql = _validate_sql(
-            sql,
-            db_config,
-            project_path,
-            enforce_excluded_columns,
-            conn=conn,
-        )
-        return db_config.execute_sql(validated_sql, conn=conn)
-    finally:
-        conn.disconnect()
-
-
-def _convert_value(v: object):
-    """Convert a DataFrame cell to a JSON-serializable Python type."""
-    if v is None:
-        return None
-
-    # Handle float NaN / Infinity early (common in pandas output)
-    if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
-        return None
-
-    # Handle pandas NA / NaT sentinels
-    if v is pd.NA or v is pd.NaT:
-        return None
-
-    # Numpy scalar types
-    if isinstance(v, np.bool_):
-        return bool(v)
-    if isinstance(v, np.integer):
-        return int(v)
-    if isinstance(v, np.floating):
-        val = float(v)
-        return None if math.isnan(val) or math.isinf(val) else val
-    if isinstance(v, np.ndarray):
-        return v.tolist()
-
-    # Python / DB types that aren't JSON-serializable by default
-    if isinstance(v, Decimal):
-        if v.is_nan() or v.is_infinite():
-            return None
-        return float(v)
-    if isinstance(v, (datetime, date)):
-        return v.isoformat()
-    if isinstance(v, bytes):
-        return v.decode("utf-8", errors="replace")
-
-    # Catch-all for remaining numpy scalars (e.g. np.str_, np.bytes_)
-    item_method = getattr(v, "item", None)
-    if callable(item_method):
-        return item_method()
-
-    return v
-
-
 def require_internal_secret(
     provided: Annotated[str | None, Header(alias="X-Nao-Internal-Secret")] = None,
 ):
@@ -278,110 +198,24 @@ async def execute_sql(request: ExecuteSQLRequest):
             extra_env=request.env_vars,
         )
         assert config is not None
-
-        if len(config.databases) == 0:
-            raise HTTPException(
-                status_code=400,
-                detail="No databases configured in nao_config.yaml",
-            )
-
-        if len(config.databases) == 1:
-            db_config = config.databases[0]
-        elif request.database_id:
-            db_config = next(
-                (db for db in config.databases if db.name == request.database_id),
-                None,
-            )
-            if db_config is None:
-                available_databases = [db.name for db in config.databases]
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "message": f"Database '{request.database_id}' not found",
-                        "available_databases": available_databases,
-                    },
-                )
-        else:
-            available_databases = [db.name for db in config.databases]
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "message": "Multiple databases configured. Please specify database_id.",
-                    "available_databases": available_databases,
-                },
-            )
-
-        auth_mode_value = getattr(getattr(db_config, "auth_mode", None), "value", None)
-        is_azure_entra_id = auth_mode_value == "azure_entra_id"
-
-        if is_azure_entra_id and not request.azure_access_token:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "azure_access_token is required when the database auth_mode is "
-                    "'azure_entra_id'. Runtime queries must use the end user's access "
-                    "token; any configured user/password is only used by nao sync."
-                ),
-            )
+        db_config = select_database(config, request.database_id)
 
         try:
-            if is_azure_entra_id:
-                if db_config.allow_listed_only and query_references_base_tables(
-                    request.sql,
-                    db_config.type,
-                ):
-                    if not getattr(db_config, "user", None) or not getattr(
-                        db_config,
-                        "password",
-                        None,
-                    ):
-                        raise HTTPException(
-                            status_code=400,
-                            detail=(
-                                "Queries that reference tables require sync user and password "
-                                "when allow_listed_only validation is enabled with auth_mode "
-                                "'azure_entra_id'. These credentials are used only to validate "
-                                "the query against the live schema and context rules; the query "
-                                "still executes with the end user's access token."
-                            ),
-                        )
-                validated_sql = _validate_sql(
-                    request.sql,
-                    db_config,
-                    project_path,
-                    request.enforce_excluded_columns,
-                )
-                df = db_config.execute_sql_with_token(
-                    validated_sql,
-                    request.azure_access_token,
-                )
-            elif db_config.allow_listed_only:
-                df = _execute_sql_with_guards(
-                    request.sql,
-                    db_config,
-                    project_path,
-                    request.enforce_excluded_columns,
-                )
-            else:
-                validated_sql = _validate_sql(
-                    request.sql,
-                    db_config,
-                    project_path,
-                    request.enforce_excluded_columns,
-                )
-                df = db_config.execute_sql(validated_sql)
-        except (AllowListedOnlyGuardError, ColumnAccessError) as error:
+            df = run_guarded_sql(
+                request.sql,
+                db_config,
+                project_path,
+                request.enforce_excluded_columns,
+                request.azure_access_token,
+            )
+        except GuardError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
-        data = [
-            {k: _convert_value(v) for k, v in row.items()}
-            for row in df.to_dict(orient="records")
-        ]
-
+        columns, data = dataframe_to_records(df)
         return ExecuteSQLResponse(
             data=data,
             row_count=len(data),
-            columns=[str(c) for c in df.columns.tolist()],
+            columns=columns,
             dialect=db_config.type,
         )
     except HTTPException:
@@ -459,6 +293,9 @@ def _resolve_semantic_layer_database(config: NaoConfig, database_name: str | Non
         status_code=400,
         detail="semantic_layer.database must name the database that runs semantic queries when several are configured",
     )
+
+
+app.include_router(dbt_charts_router, dependencies=internal_only)
 
 
 if __name__ == "__main__":

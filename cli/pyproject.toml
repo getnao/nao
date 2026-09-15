@@ -88,12 +88,16 @@ semantic-layer = ["metricflow>=0.213.0,<0.214"]
 aws-secrets = ["boto3>=1.34.0", "glom>=23.0.0"]
 k8s-secrets = ["kubernetes>=29.0.0"]
 
+# Visualization
+# dbt Charts boards (charts/*.yml) rendered inside nao stories; queries run through nao connections.
+dbt-charts = ["dbt-charts>=0.7.1,<1"]
+
 # Convenience groups
 all-databases = [
     "nao-core[postgres,bigquery,snowflake,duckdb,clickhouse,databricks,mysql,mssql,athena,trino,redshift,fabric,starrocks]",
 ]
 all-llms = ["nao-core[openai,anthropic,mistral,gemini,ollama]"]
-all = ["nao-core[all-databases,all-llms,notion,confluence,semantic-layer,aws-secrets,k8s-secrets]"]
+all = ["nao-core[all-databases,all-llms,notion,confluence,semantic-layer,aws-secrets,k8s-secrets,dbt-charts]"]
 dev = ["pytest>=9.0.2", "pytest-cov", "pytest-timeout>=2.3.0"]
 
 [project.scripts]
