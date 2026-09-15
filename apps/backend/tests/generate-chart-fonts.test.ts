@@ -22,19 +22,29 @@ const CHART_INPUT = {
 	],
 };
 
-function textNodes(svg: string) {
+/**
+ * Recharts exposes the family as a `font-family` attribute on ticks, but folds
+ * an axis label's props into `style`. resvg honours both, so assert on either.
+ */
+function declaredFontFamilies(svg: string): string[] {
 	const $ = cheerio.load(svg, { xmlMode: true });
-	return $('text').toArray().map((node) => $(node));
+	return $('text')
+		.toArray()
+		.map((node) => $(node).attr('font-family') ?? $(node).attr('style') ?? '');
+}
+
+/** Non-ASCII glyphs reach the markup as XML entities, so compare decoded text. */
+function renderedText(svg: string): string {
+	const $ = cheerio.load(svg, { xmlMode: true });
+	return $('text').text();
 }
 
 describe('chart SVG fonts', () => {
 	it('gives every text node a font family resvg can resolve', () => {
-		const nodes = textNodes(renderChartToSvg(CHART_INPUT));
+		const families = declaredFontFamilies(renderChartToSvg(CHART_INPUT));
 
-		expect(nodes.length).toBeGreaterThan(0);
-		for (const node of nodes) {
-			const family = node.attr('font-family') ?? '';
-			expect(family).not.toBe('');
+		expect(families.length).toBeGreaterThan(0);
+		for (const family of families) {
 			expect(family).toContain('DejaVu Sans');
 		}
 	});
@@ -47,11 +57,11 @@ describe('chart SVG fonts', () => {
 	});
 
 	it('renders the title, the axis label and the category labels', () => {
-		const svg = renderChartToSvg(CHART_INPUT);
+		const text = renderedText(renderChartToSvg(CHART_INPUT));
 
-		expect(svg).toContain('Projection hebdomadaire');
-		expect(svg).toContain('Montant TTC (€)');
-		expect(svg).toContain('14/09/2026');
+		expect(text).toContain('Projection hebdomadaire');
+		expect(text).toContain('Montant TTC (€)');
+		expect(text).toContain('14/09/2026');
 	});
 });
 
