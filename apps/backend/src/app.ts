@@ -258,7 +258,7 @@ app.register(mcpServerRoutes, {
 	prefix: '/mcp',
 });
 
-app.get('/.well-known/oauth-protected-resource', async (request, reply) => {
+async function sendProtectedResourceMetadata(request: { host: string }, reply: FastifyReply) {
 	const { buildProtectedResourceMetadata } = await import('./auth');
 	const { resolveMcpFacingOrigin } = await import('./env');
 	const metadata = await buildProtectedResourceMetadata({
@@ -269,7 +269,12 @@ app.get('/.well-known/oauth-protected-resource', async (request, reply) => {
 		.header('Content-Type', 'application/json')
 		.header('Cache-Control', 'public, max-age=15, stale-while-revalidate=15, stale-if-error=86400')
 		.send(metadata);
-});
+}
+
+// RFC 9728 path-aware discovery for the bare and project-scoped MCP URLs, plus the root fallback.
+app.get('/.well-known/oauth-protected-resource', sendProtectedResourceMetadata);
+app.get('/.well-known/oauth-protected-resource/mcp', sendProtectedResourceMetadata);
+app.get('/.well-known/oauth-protected-resource/mcp/:projectId', sendProtectedResourceMetadata);
 
 async function relayWebResponse(
 	handler: (req: Request) => Promise<Response>,
