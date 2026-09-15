@@ -89,6 +89,7 @@ describe('user group routes', () => {
 			features: ['story-creation'],
 			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [] },
+			rowPolicies: [{ version: 1, policies: [] }],
 			toolCallDensityPolicy: {
 				defaultDensity: 'compact',
 				canChange: false,
@@ -131,6 +132,8 @@ describe('user group routes', () => {
 					schema: orders.schema,
 					table: orders.table,
 					access: 'predicate' as const,
+					mode: 'guided' as const,
+					combinator: 'and' as const,
 					conditions: [{ column: 'tenant_id', operator: 'equals' as const, value: '7' }],
 				},
 				customersPolicy,
@@ -200,7 +203,10 @@ describe('user group routes', () => {
 		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
 	});
 
-	it('validates compiled conditions in the SQL guard before saving', async () => {
+	it.each([
+		['and', '("tenant_id" = 7 AND "tenant_id" > 2)'],
+		['or', '("tenant_id" = 7 OR "tenant_id" > 2)'],
+	] as const)('validates guided %s conditions in the SQL guard before saving', async (combinator, compiled) => {
 		mocks.getProjectRowSecurity.mockResolvedValue({
 			version: 1,
 			tables: [
@@ -227,13 +233,18 @@ describe('user group routes', () => {
 						schema: 'main',
 						table: 'orders',
 						access: 'predicate',
-						conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
+						mode: 'guided',
+						combinator,
+						conditions: [
+							{ column: 'tenant_id', operator: 'equals', value: '7' },
+							{ column: 'tenant_id', operator: 'greater-than', value: '2' },
+						],
 					},
 				],
 			},
 		});
 
-		expect(mocks.validateWarehouseRowPredicate).toHaveBeenCalledWith('("tenant_id" = 7)', ['tenant_id'], 'duckdb');
+		expect(mocks.validateWarehouseRowPredicate).toHaveBeenCalledWith(compiled, ['tenant_id'], 'duckdb');
 		expect(mocks.updateUserGroup).toHaveBeenCalledWith(
 			'project-id',
 			'group-id',
@@ -241,12 +252,141 @@ describe('user group routes', () => {
 				rowPolicies: expect.objectContaining({
 					policies: [
 						expect.objectContaining({
-							conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
+							mode: 'guided',
+							combinator,
+							conditions: [
+								{ column: 'tenant_id', operator: 'equals', value: '7' },
+								{ column: 'tenant_id', operator: 'greater-than', value: '2' },
+							],
 						}),
 					],
 				}),
 			}),
 		);
+	});
+
+	it('validates and stores normalized manual SQL predicates', async () => {
+		mocks.getProjectRowSecurity.mockResolvedValue({
+			version: 1,
+			tables: [
+				{
+					databaseType: 'duckdb',
+					database: 'sales',
+					schema: 'main',
+					table: 'orders',
+					constraintColumns: ['tenant_id'],
+				},
+			],
+		});
+		mocks.validateWarehouseRowPredicate.mockResolvedValue('"tenant_id" = 7');
+
+		await updateWithSql('WHERE tenant_id=7');
+
+		expect(mocks.validateWarehouseRowPredicate).toHaveBeenCalledWith('tenant_id=7', ['tenant_id'], 'duckdb');
+		expect(mocks.updateUserGroup).toHaveBeenCalledWith(
+			'project-id',
+			'group-id',
+			expect.objectContaining({
+				rowPolicies: {
+					version: 1,
+					policies: [
+						expect.objectContaining({
+							access: 'predicate',
+							mode: 'sql',
+							predicate: 'WHERE "tenant_id" = 7',
+						}),
+					],
+				},
+			}),
+		);
+	});
+
+	it('rejects unsafe or unconfigured manual SQL predicates', async () => {
+		mocks.getProjectRowSecurity.mockResolvedValue({
+			version: 1,
+			tables: [
+				{
+					databaseType: 'duckdb',
+					database: 'sales',
+					schema: 'main',
+					table: 'orders',
+					constraintColumns: ['tenant_id'],
+				},
+			],
+		});
+		mocks.validateWarehouseRowPredicate.mockRejectedValue(new Error('Column "region" is not allowed.'));
+
+		await expect(updateWithSql("WHERE region = 'west'")).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+			message: 'Column "region" is not allowed.',
+		});
+		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
+	});
+
+	it('rejects bare manual SQL predicates before validation', async () => {
+		await expect(updateWithSql('tenant_id = 7')).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		expect(mocks.validateWarehouseRowPredicate).not.toHaveBeenCalled();
+		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
+	});
+
+	it.each([' ', 'WHERE', ' where   '])(
+		'rejects incomplete manual SQL predicate %j before validation',
+		async (predicate) => {
+			await expect(updateWithSql(predicate)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+			expect(mocks.validateWarehouseRowPredicate).not.toHaveBeenCalled();
+			expect(mocks.updateUserGroup).not.toHaveBeenCalled();
+		},
+	);
+
+	it('rejects full queries in manual SQL mode', async () => {
+		mocks.getProjectRowSecurity.mockResolvedValue({
+			version: 1,
+			tables: [
+				{
+					databaseType: 'duckdb',
+					database: 'sales',
+					schema: 'main',
+					table: 'orders',
+					constraintColumns: ['tenant_id'],
+				},
+			],
+		});
+		mocks.validateWarehouseRowPredicate.mockRejectedValue(new Error('Subqueries are not allowed.'));
+
+		await expect(updateWithSql('WHERE EXISTS (SELECT 1 FROM orders)')).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+			message: 'Subqueries are not allowed.',
+		});
+		expect(mocks.validateWarehouseRowPredicate).toHaveBeenCalledWith(
+			'EXISTS (SELECT 1 FROM orders)',
+			['tenant_id'],
+			'duckdb',
+		);
+		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
+	});
+
+	it('rejects mode-less predicate request shapes', async () => {
+		const identity = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+			access: 'predicate',
+		};
+		for (const policy of [
+			{ ...identity, conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }] },
+			{ ...identity, predicate: 'tenant_id = 7' },
+		]) {
+			await expect(
+				createCaller().update({
+					groupId: 'group-id',
+					featureGrants: [],
+					toolCallDensityPolicy: { defaultDensity: 'compact', canChange: false },
+					rowPolicies: { version: 1, policies: [policy] },
+				} as never),
+			).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		}
+		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
 	});
 
 	it('rejects condition columns outside the table registry', async () => {
@@ -717,6 +857,7 @@ describe('user group routes', () => {
 			},
 			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [] },
+			rowPolicies: [{ version: 1, policies: [] }],
 		});
 		expect(mocks.getUserRoleInProject).toHaveBeenCalledWith('project-id', 'target-user-id');
 		expect(mocks.resolveEffectiveUserGroupAccess).toHaveBeenCalledWith('project-id', 'target-user-id');
@@ -794,9 +935,33 @@ function updateWithConditions(conditions: Array<{ column: string; operator: stri
 					schema: 'main',
 					table: 'orders',
 					access: 'predicate',
+					mode: 'guided',
+					combinator: 'and',
 					conditions,
 				},
 			],
 		},
 	} as never);
+}
+
+function updateWithSql(predicate: string) {
+	return createCaller().update({
+		groupId: 'group-id',
+		featureGrants: [],
+		toolCallDensityPolicy: { defaultDensity: 'compact', canChange: false },
+		rowPolicies: {
+			version: 1,
+			policies: [
+				{
+					databaseType: 'duckdb',
+					database: 'sales',
+					schema: 'main',
+					table: 'orders',
+					access: 'predicate',
+					mode: 'sql',
+					predicate,
+				},
+			],
+		},
+	});
 }

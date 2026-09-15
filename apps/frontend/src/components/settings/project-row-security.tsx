@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { ProjectRowSecurity, SensitiveTableDefinition } from '@nao/shared';
+import type { Dispatch, SetStateAction } from 'react';
 
 import type {
 	DatabaseContextObject,
@@ -27,14 +28,11 @@ import {
 import { Input } from '@/components/ui/input';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { useLicenseFeatures } from '@/hooks/use-license';
-import {
-	getAutoExpandKeys,
-	getSingleChildFolderChain,
-	getTreeNodePadding,
-	removeExpandedSubtree,
-} from '@/lib/tree-expansion';
+import { getTreeNodePadding, removeExpandedSubtree } from '@/lib/tree-expansion';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
+
+type RowSecurityDialog = { mode: 'add' } | { mode: 'edit'; definition: SensitiveTableDefinition };
 
 export function ProjectRowSecurity({
 	objects,
@@ -55,9 +53,10 @@ export function ProjectRowSecurity({
 			},
 		}),
 	);
-	const [isDialogOpen, setIsDialogOpen] = useState(false);
+	const [dialog, setDialog] = useState<RowSecurityDialog | null>(null);
 	const [dialogDraft, setDialogDraft] = useState<ProjectRowSecurity>(EMPTY_PROJECT_ROW_SECURITY);
 	const [search, setSearch] = useState('');
+	const [manualExpandedKeys, setManualExpandedKeys] = useState<Set<string>>(() => new Set());
 	const [removeTarget, setRemoveTarget] = useState<SensitiveTableDefinition | null>(null);
 	const isLicensed = license.data?.['row-level-security'] === true;
 	const registry = normalizeProjectRowSecurity(rowSecurity.data ?? EMPTY_PROJECT_ROW_SECURITY);
@@ -71,16 +70,32 @@ export function ProjectRowSecurity({
 	const draftColumnCount = dialogDraft.tables.reduce((total, table) => total + table.constraintColumns.length, 0);
 	const dialogUnavailable = catalogState === 'ready' ? getUnavailableDefinitions(dialogDraft, objects) : [];
 
-	const openDialog = () => {
+	const openAddDialog = () => {
 		setDialogDraft(cloneRowSecurity(registry));
 		setSearch('');
-		setIsDialogOpen(true);
+		setManualExpandedKeys(new Set());
+		setDialog({ mode: 'add' });
+	};
+
+	const openEditDialog = (definition: SensitiveTableDefinition) => {
+		setDialogDraft(cloneRowSecurity(registry));
+		setDialog({
+			mode: 'edit',
+			definition: cloneSensitiveTableDefinition(definition),
+		});
 	};
 
 	const saveDialog = () => {
-		update.mutate(normalizeProjectRowSecurity(dialogDraft), {
+		if (!dialog) {
+			return;
+		}
+		const nextRegistry =
+			dialog.mode === 'add'
+				? normalizeProjectRowSecurity(dialogDraft)
+				: updateDefinition(dialogDraft, dialog.definition, dialog.definition);
+		update.mutate(nextRegistry, {
 			onSuccess: () => {
-				setIsDialogOpen(false);
+				setDialog(null);
 			},
 		});
 	};
@@ -113,7 +128,7 @@ export function ProjectRowSecurity({
 					<Button
 						type='button'
 						disabled={!isLicensed || rowSecurity.isLoading || rowSecurity.isError}
-						onClick={openDialog}
+						onClick={openAddDialog}
 					>
 						<Plus />
 						Add protected table
@@ -140,7 +155,7 @@ export function ProjectRowSecurity({
 								variant='outline'
 								className='rounded-full'
 								disabled={!isLicensed}
-								onClick={openDialog}
+								onClick={openAddDialog}
 							>
 								Add protected table
 							</Button>
@@ -156,7 +171,7 @@ export function ProjectRowSecurity({
 									)}
 									unavailable={unavailableByTable.get(rowSecurityTableKey(definition))}
 									disabled={!isLicensed}
-									onEdit={openDialog}
+									onEdit={() => openEditDialog(definition)}
 									onRemove={() => setRemoveTarget(definition)}
 								/>
 							))}
@@ -185,87 +200,110 @@ export function ProjectRowSecurity({
 			</SettingsCard>
 
 			<Dialog
-				open={isDialogOpen}
+				open={dialog !== null}
 				onOpenChange={(open) => {
 					if (!open && !update.isPending) {
-						setIsDialogOpen(false);
+						setDialog(null);
 					}
 				}}
 			>
-				<DialogContent className='grid h-[min(46rem,calc(100vh-2rem))] grid-rows-[auto_auto_minmax(0,1fr)_auto] sm:max-w-3xl'>
-					<DialogHeader>
-						<DialogTitle>Configure protected tables</DialogTitle>
-						<DialogDescription>
-							Expand a table and select the columns that group policies should use.
-						</DialogDescription>
-					</DialogHeader>
-					<div className='flex items-center gap-2'>
-						<Input
-							value={search}
-							onChange={(event) => setSearch(event.target.value)}
-							placeholder='Search databases, schemas, tables, and columns'
-							aria-label='Search row-level security tables'
-							autoFocus
+				{dialog?.mode === 'add' ? (
+					<DialogContent className='grid h-[min(46rem,calc(100vh-2rem))] grid-rows-[auto_auto_minmax(0,1fr)_auto] sm:max-w-3xl'>
+						<DialogHeader>
+							<DialogTitle>Add protected tables</DialogTitle>
+							<DialogDescription>
+								Expand a table and select the columns that group policies should use.
+							</DialogDescription>
+						</DialogHeader>
+						<div className='flex items-center gap-2'>
+							<Input
+								value={search}
+								onChange={(event) => setSearch(event.target.value)}
+								placeholder='Search databases, schemas, tables, and columns'
+								aria-label='Search row-level security tables'
+								autoFocus
+							/>
+							<Badge variant='secondary' className='shrink-0'>
+								{dialogDraft.tables.length} {dialogDraft.tables.length === 1 ? 'table' : 'tables'} ·{' '}
+								{draftColumnCount} {draftColumnCount === 1 ? 'column' : 'columns'}
+							</Badge>
+						</div>
+						<div className='min-h-0 overflow-auto rounded-lg border'>
+							{catalogState === 'loading' ? (
+								<StatusRow status='Loading synced tables...' />
+							) : catalogState === 'error' ? (
+								<StatusRow status='Failed to load synced tables' onRetry={onRetryCatalog} />
+							) : (
+								<>
+									{visibleObjects.length === 0 ? (
+										<StatusRow
+											status={search ? 'No matching tables or columns.' : 'No synced tables.'}
+										/>
+									) : (
+										<RowSecurityTree
+											objects={visibleObjects}
+											search={search}
+											draft={dialogDraft}
+											manualExpandedKeys={manualExpandedKeys}
+											onManualExpandedKeysChange={setManualExpandedKeys}
+											onChange={setDialogDraft}
+										/>
+									)}
+									{search.trim() === '' && dialogUnavailable.length > 0 && (
+										<UnavailableDraftSelections
+											definitions={dialogUnavailable}
+											onRemove={(definition) =>
+												setDialogDraft((current) =>
+													removeUnavailableSelection(current, definition),
+												)
+											}
+										/>
+									)}
+								</>
+							)}
+						</div>
+						<DialogActions
+							isPending={update.isPending}
+							error={update.error}
+							onCancel={() => setDialog(null)}
+							onSave={saveDialog}
 						/>
-						<Badge variant='secondary' className='shrink-0'>
-							{dialogDraft.tables.length} {dialogDraft.tables.length === 1 ? 'table' : 'tables'} ·{' '}
-							{draftColumnCount} {draftColumnCount === 1 ? 'column' : 'columns'}
-						</Badge>
-					</div>
-					<div className='min-h-0 overflow-auto rounded-lg border'>
-						{catalogState === 'loading' ? (
-							<StatusRow status='Loading synced tables...' />
-						) : catalogState === 'error' ? (
-							<StatusRow status='Failed to load synced tables' onRetry={onRetryCatalog} />
-						) : (
-							<>
-								{visibleObjects.length === 0 ? (
-									<StatusRow
-										status={search ? 'No matching tables or columns.' : 'No synced tables.'}
-									/>
-								) : (
-									<RowSecurityTree
-										objects={visibleObjects}
-										draft={dialogDraft}
-										isSearching={search.trim().length > 0}
-										onChange={setDialogDraft}
-									/>
-								)}
-								{search.trim() === '' && dialogUnavailable.length > 0 && (
-									<UnavailableDraftSelections
-										definitions={dialogUnavailable}
-										onRemove={(definition) =>
-											setDialogDraft((current) => removeUnavailableSelection(current, definition))
-										}
-									/>
-								)}
-							</>
+					</DialogContent>
+				) : dialog?.mode === 'edit' ? (
+					<DialogContent className='sm:max-w-xl'>
+						<DialogHeader>
+							<DialogTitle>Edit protected table</DialogTitle>
+							<DialogDescription>
+								Choose the columns that group policies should use for this table.
+							</DialogDescription>
+						</DialogHeader>
+						<EditTableSelector
+							definition={dialog.definition}
+							object={objects.find(
+								(object) => rowSecurityTableKey(object) === rowSecurityTableKey(dialog.definition),
+							)}
+							catalogState={catalogState}
+							onRetryCatalog={onRetryCatalog}
+							onChange={(definition) =>
+								setDialog((current) =>
+									current?.mode === 'edit' ? { ...current, definition } : current,
+								)
+							}
+						/>
+						{dialog.definition.constraintColumns.length === 0 && (
+							<p className='text-sm text-muted-foreground'>
+								Select at least one constraint column to save.
+							</p>
 						)}
-					</div>
-					<div>
-						{update.error && <p className='mb-2 text-sm text-destructive'>{update.error.message}</p>}
-						<DialogFooter>
-							<Button
-								type='button'
-								variant='ghost'
-								className='rounded-full border'
-								disabled={update.isPending}
-								onClick={() => setIsDialogOpen(false)}
-							>
-								Cancel
-							</Button>
-							<Button
-								type='button'
-								variant='primary-gradient'
-								className='rounded-full'
-								isLoading={update.isPending}
-								onClick={saveDialog}
-							>
-								Save
-							</Button>
-						</DialogFooter>
-					</div>
-				</DialogContent>
+						<DialogActions
+							isPending={update.isPending}
+							error={update.error}
+							saveDisabled={dialog.definition.constraintColumns.length === 0}
+							onCancel={() => setDialog(null)}
+							onSave={saveDialog}
+						/>
+					</DialogContent>
+				) : null}
 			</Dialog>
 
 			<ConfirmationDialog
@@ -362,6 +400,120 @@ function ProtectedTableSummary({
 	);
 }
 
+function EditTableSelector({
+	definition,
+	object,
+	catalogState,
+	onRetryCatalog,
+	onChange,
+}: {
+	definition: SensitiveTableDefinition;
+	object?: DatabaseContextObject;
+	catalogState: 'loading' | 'error' | 'ready';
+	onRetryCatalog?: () => void;
+	onChange: (definition: SensitiveTableDefinition) => void;
+}) {
+	const selected = new Set(definition.constraintColumns);
+	const syncedColumns = object?.columns ?? [];
+	const unavailableColumns = new Set(
+		catalogState === 'ready'
+			? definition.constraintColumns.filter((column) => !syncedColumns.includes(column))
+			: [],
+	);
+	const columns = [...new Set([...syncedColumns, ...definition.constraintColumns])];
+	const tablePath = `${definition.database}/${definition.schema}/${definition.table}`;
+
+	return (
+		<div className='overflow-hidden rounded-lg border'>
+			<div className='flex items-center gap-2 border-b px-3 py-2.5'>
+				<FileExplorerIcon name={definition.table} type='table' />
+				<span className='min-w-0 flex-1 truncate text-sm font-medium'>{tablePath}</span>
+				{catalogState === 'ready' && !object && <Badge variant='destructive'>Unavailable</Badge>}
+			</div>
+			{catalogState === 'loading' && <StatusRow status='Loading synced table...' />}
+			{catalogState === 'error' && <StatusRow status='Failed to load synced table.' onRetry={onRetryCatalog} />}
+			{catalogState === 'ready' && !object && (
+				<p className='border-b px-3 py-2 text-xs text-muted-foreground'>
+					This table was not found in the latest sync. Use Remove outside this dialog to stop protecting it.
+				</p>
+			)}
+			{columns.length === 0 ? (
+				catalogState === 'ready' && <StatusRow status='No synced columns available.' />
+			) : (
+				<div className='py-1'>
+					{columns.map((column) => {
+						const unavailable = unavailableColumns.has(column);
+						return (
+							<label key={column} className='flex h-9 items-center gap-2 px-3 text-sm hover:bg-muted/50'>
+								<Checkbox
+									checked={selected.has(column)}
+									aria-label={`${column} constraint column for ${definition.table}`}
+									onCheckedChange={(checked) => {
+										const constraintColumns = checked
+											? [...selected, column]
+											: [...selected].filter((selectedColumn) => selectedColumn !== column);
+										onChange({
+											...definition,
+											constraintColumns: constraintColumns.sort(),
+										});
+									}}
+								/>
+								<span className='min-w-0 flex-1 truncate'>{column}</span>
+								{unavailable && (
+									<Badge variant='outline' className='text-muted-foreground'>
+										Unavailable
+									</Badge>
+								)}
+							</label>
+						);
+					})}
+				</div>
+			)}
+		</div>
+	);
+}
+
+function DialogActions({
+	isPending,
+	error,
+	saveDisabled = false,
+	onCancel,
+	onSave,
+}: {
+	isPending: boolean;
+	error: { message: string } | null;
+	saveDisabled?: boolean;
+	onCancel: () => void;
+	onSave: () => void;
+}) {
+	return (
+		<div>
+			{error && <p className='mb-2 text-sm text-destructive'>{error.message}</p>}
+			<DialogFooter>
+				<Button
+					type='button'
+					variant='ghost'
+					className='rounded-full border'
+					disabled={isPending}
+					onClick={onCancel}
+				>
+					Cancel
+				</Button>
+				<Button
+					type='button'
+					variant='primary-gradient'
+					className='rounded-full'
+					disabled={saveDisabled}
+					isLoading={isPending}
+					onClick={onSave}
+				>
+					Save
+				</Button>
+			</DialogFooter>
+		</div>
+	);
+}
+
 function UnavailableDraftSelections({
 	definitions,
 	onRemove,
@@ -397,36 +549,35 @@ function UnavailableDraftSelections({
 	);
 }
 
-const ROW_SECURITY_EXPANSION_ADAPTER = {
-	getKey: (folder: GroupedDatabase | GroupedSchema) => folder.key,
-	getChildren: (folder: GroupedDatabase | GroupedSchema): GroupedSchema[] =>
-		folder.kind === 'database' ? folder.schemas : [],
-	isFolder: () => true,
-};
-
 function RowSecurityTree({
 	objects,
+	search,
 	draft,
-	isSearching,
+	manualExpandedKeys,
+	onManualExpandedKeysChange,
 	onChange,
 }: {
 	objects: DatabaseContextObject[];
+	search: string;
 	draft: ProjectRowSecurity;
-	isSearching: boolean;
+	manualExpandedKeys: Set<string>;
+	onManualExpandedKeysChange: Dispatch<SetStateAction<Set<string>>>;
 	onChange: (rowSecurity: ProjectRowSecurity) => void;
 }) {
 	const databases = useMemo(() => groupDatabaseContextObjects(objects), [objects]);
-	const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => getConfiguredExpansionKeys(objects, draft));
+	const autoExpandedKeys = useMemo(() => getRowSecuritySearchExpandedKeys(databases, search), [databases, search]);
+	const expandedKeys = useMemo(
+		() => new Set([...manualExpandedKeys, ...autoExpandedKeys]),
+		[manualExpandedKeys, autoExpandedKeys],
+	);
 
 	const toggleFolder = (folder: GroupedDatabase | GroupedSchema) => {
-		setExpandedKeys((current) => {
+		onManualExpandedKeysChange((current) => {
 			const next = new Set(current);
 			if (current.has(folder.key)) {
 				removeExpandedSubtree(next, folder.key, '\0');
 			} else {
-				for (const key of getAutoExpandKeys(folder, ROW_SECURITY_EXPANSION_ADAPTER)) {
-					next.add(key);
-				}
+				next.add(folder.key);
 			}
 			return next;
 		});
@@ -434,7 +585,7 @@ function RowSecurityTree({
 
 	const toggleTable = (object: DatabaseContextObject) => {
 		const key = rowSecurityTableKey(object);
-		setExpandedKeys((current) => {
+		onManualExpandedKeysChange((current) => {
 			const next = new Set(current);
 			if (next.has(key)) {
 				next.delete(key);
@@ -453,7 +604,6 @@ function RowSecurityTree({
 					database={database}
 					draft={draft}
 					expandedKeys={expandedKeys}
-					isSearching={isSearching}
 					onToggleFolder={toggleFolder}
 					onToggleTable={toggleTable}
 					onChange={onChange}
@@ -467,7 +617,6 @@ function RowSecurityDatabaseNode({
 	database,
 	draft,
 	expandedKeys,
-	isSearching,
 	onToggleFolder,
 	onToggleTable,
 	onChange,
@@ -475,32 +624,11 @@ function RowSecurityDatabaseNode({
 	database: GroupedDatabase;
 	draft: ProjectRowSecurity;
 	expandedKeys: Set<string>;
-	isSearching: boolean;
 	onToggleFolder: (folder: GroupedDatabase | GroupedSchema) => void;
 	onToggleTable: (object: DatabaseContextObject) => void;
 	onChange: (rowSecurity: ProjectRowSecurity) => void;
 }) {
-	const folderChain = getSingleChildFolderChain(database, ROW_SECURITY_EXPANSION_ADAPTER);
-	const compactSchema = folderChain.length === 2 ? folderChain[1] : undefined;
-	if (compactSchema?.kind === 'schema') {
-		return (
-			<RowSecuritySchemaNode
-				schema={compactSchema}
-				label={`${database.database}/${compactSchema.schema}`}
-				databaseType={database.databaseType}
-				depth={0}
-				open={isSearching || expandedKeys.has(compactSchema.key)}
-				draft={draft}
-				isSearching={isSearching}
-				expandedKeys={expandedKeys}
-				onToggle={() => onToggleFolder(compactSchema)}
-				onToggleTable={onToggleTable}
-				onChange={onChange}
-			/>
-		);
-	}
-
-	const open = isSearching || expandedKeys.has(database.key);
+	const open = expandedKeys.has(database.key);
 	const panelId = `row-security-database-${toDomId(database.key)}`;
 	const configuredCount = getConfiguredDatabaseTableCount(draft, database);
 	return (
@@ -536,9 +664,8 @@ function RowSecurityDatabaseNode({
 							schema={schema}
 							label={schema.schema}
 							depth={1}
-							open={isSearching || expandedKeys.has(schema.key)}
+							open={expandedKeys.has(schema.key)}
 							draft={draft}
-							isSearching={isSearching}
 							expandedKeys={expandedKeys}
 							onToggle={() => onToggleFolder(schema)}
 							onToggleTable={onToggleTable}
@@ -554,11 +681,9 @@ function RowSecurityDatabaseNode({
 function RowSecuritySchemaNode({
 	schema,
 	label,
-	databaseType,
 	depth,
 	open,
 	draft,
-	isSearching,
 	expandedKeys,
 	onToggle,
 	onToggleTable,
@@ -566,11 +691,9 @@ function RowSecuritySchemaNode({
 }: {
 	schema: GroupedSchema;
 	label: string;
-	databaseType?: string;
 	depth: number;
 	open: boolean;
 	draft: ProjectRowSecurity;
-	isSearching: boolean;
 	expandedKeys: Set<string>;
 	onToggle: () => void;
 	onToggleTable: (object: DatabaseContextObject) => void;
@@ -599,11 +722,6 @@ function RowSecuritySchemaNode({
 						{configuredCount} configured
 					</Badge>
 				)}
-				{databaseType && (
-					<Badge variant='secondary' className='h-5 px-1.5 text-[10px] font-normal'>
-						{databaseType}
-					</Badge>
-				)}
 			</button>
 			{open && (
 				<ul id={panelId}>
@@ -612,7 +730,7 @@ function RowSecuritySchemaNode({
 							key={rowSecurityTableKey(object)}
 							object={object}
 							depth={depth + 1}
-							open={isSearching || expandedKeys.has(rowSecurityTableKey(object))}
+							open={expandedKeys.has(rowSecurityTableKey(object))}
 							definition={draft.tables.find(
 								(table) => rowSecurityTableKey(table) === rowSecurityTableKey(object),
 							)}
@@ -732,15 +850,75 @@ export function filterRowSecurityObjects(
 	objects: readonly DatabaseContextObject[],
 	search: string,
 ): DatabaseContextObject[] {
-	const term = search.trim().toLowerCase();
+	const term = normalizeRowSecuritySearch(search);
 	if (!term) {
 		return [...objects];
 	}
 	return objects.filter((object) =>
 		[object.database, object.schema, object.table, ...(object.columns ?? [])].some((value) =>
-			value.toLowerCase().includes(term),
+			matchesRowSecuritySearch(value, term),
 		),
 	);
+}
+
+function getRowSecuritySearchExpandedKeys(databases: GroupedDatabase[], search: string): Set<string> {
+	const term = normalizeRowSecuritySearch(search);
+	if (!term) {
+		return new Set();
+	}
+
+	if (databases.some((database) => matchesRowSecuritySearch(database.database, term))) {
+		return new Set();
+	}
+
+	const schemaExpandedKeys = new Set<string>();
+	for (const database of databases) {
+		for (const schema of database.schemas) {
+			if (matchesRowSecuritySearch(schema.schema, term)) {
+				schemaExpandedKeys.add(database.key);
+			}
+		}
+	}
+	if (schemaExpandedKeys.size > 0) {
+		return schemaExpandedKeys;
+	}
+
+	const tableExpandedKeys = new Set<string>();
+	for (const database of databases) {
+		for (const schema of database.schemas) {
+			for (const object of schema.tables) {
+				if (matchesRowSecuritySearch(object.table, term)) {
+					tableExpandedKeys.add(database.key);
+					tableExpandedKeys.add(schema.key);
+				}
+			}
+		}
+	}
+	if (tableExpandedKeys.size > 0) {
+		return tableExpandedKeys;
+	}
+
+	const columnExpandedKeys = new Set<string>();
+	for (const database of databases) {
+		for (const schema of database.schemas) {
+			for (const object of schema.tables) {
+				if ((object.columns ?? []).some((column) => matchesRowSecuritySearch(column, term))) {
+					columnExpandedKeys.add(database.key);
+					columnExpandedKeys.add(schema.key);
+					columnExpandedKeys.add(rowSecurityTableKey(object));
+				}
+			}
+		}
+	}
+	return columnExpandedKeys;
+}
+
+function normalizeRowSecuritySearch(search: string): string {
+	return search.trim().toLowerCase();
+}
+
+function matchesRowSecuritySearch(value: string, term: string): boolean {
+	return value.toLowerCase().includes(term);
 }
 
 function updateDefinition(
@@ -760,26 +938,15 @@ function updateDefinition(
 function cloneRowSecurity(rowSecurity: ProjectRowSecurity): ProjectRowSecurity {
 	return {
 		version: 1,
-		tables: rowSecurity.tables.map((table) => ({
-			...table,
-			constraintColumns: [...table.constraintColumns],
-		})),
+		tables: rowSecurity.tables.map(cloneSensitiveTableDefinition),
 	};
 }
 
-function getConfiguredExpansionKeys(objects: DatabaseContextObject[], rowSecurity: ProjectRowSecurity): Set<string> {
-	const configuredKeys = new Set(rowSecurity.tables.map(rowSecurityTableKey));
-	return new Set(
-		objects.flatMap((object) =>
-			configuredKeys.has(rowSecurityTableKey(object))
-				? [
-						[object.databaseType, object.database].join('\0'),
-						[object.databaseType, object.database, object.schema].join('\0'),
-						rowSecurityTableKey(object),
-					]
-				: [],
-		),
-	);
+function cloneSensitiveTableDefinition(definition: SensitiveTableDefinition): SensitiveTableDefinition {
+	return {
+		...definition,
+		constraintColumns: [...definition.constraintColumns],
+	};
 }
 
 function getConfiguredTableCount(rowSecurity: ProjectRowSecurity, schema: GroupedSchema): number {

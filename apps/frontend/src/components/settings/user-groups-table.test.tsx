@@ -5,16 +5,19 @@ import {
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
+	EMPTY_PROJECT_ROW_SECURITY,
 	EMPTY_USER_GROUP_SSO_MAPPINGS,
 } from '@nao/shared';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { hasUserGroupEditorChanges, invalidateUserGroupQueries, UserGroupEditor } from './user-group-editor';
 import { UserGroupEffectiveContext } from './user-group-effective-context';
 import { UserGroupUserDetail } from './user-group-user-detail';
 import { resolveUserGroupsPageTab, UserGroupsTable } from './user-groups-table';
-import type { UserGroupEditorGroup } from './user-group-editor';
+import type { UserGroupEditorGroup, UserGroupEditorTab } from './user-group-editor';
+import type { UserGroupUserDetailTab } from './user-group-user-detail';
 import type { ComponentProps, MouseEventHandler, ReactNode } from 'react';
 
 const mocks = vi.hoisted(() => ({
@@ -204,6 +207,16 @@ const analysts = {
 	databaseAccess: { ...EMPTY_DATABASE_CONTEXT_ACCESS, strict: false },
 	docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
 };
+const rowSecurityIdentity = {
+	databaseType: 'duckdb',
+	database: 'sales',
+	schema: 'main',
+	table: 'orders',
+};
+const rowSecurityTable = {
+	...rowSecurityIdentity,
+	constraintColumns: ['tenant_id'],
+};
 const overview = {
 	groups: [allUsers, analysts],
 	users: [
@@ -375,7 +388,8 @@ describe('UserGroupsTable', () => {
 
 		render(<UserGroupsTable tab='security' onTabChange={vi.fn()} />);
 		fireEvent.click(screen.getAllByRole('button', { name: 'Add protected table' })[0]);
-		fireEvent.click(screen.getByRole('button', { name: 'Expand sales/main schema' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Expand sales database' }));
+		fireEvent.click(screen.getByRole('button', { name: 'Expand main schema' }));
 		fireEvent.click(screen.getByRole('button', { name: 'Expand orders table columns' }));
 		fireEvent.click(screen.getByRole('checkbox', { name: 'tenant_id constraint column for orders' }));
 		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -740,9 +754,8 @@ describe('UserGroupEditor', () => {
 	it('shows the active editor tab', () => {
 		renderEditor();
 
+		expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Features', 'Context', 'Security']);
 		expect(screen.getByRole('tab', { name: 'Features' }).getAttribute('aria-selected')).toBe('true');
-		expect(screen.getByRole('tab', { name: 'Context' })).toBeTruthy();
-		expect(screen.getByRole('tab', { name: 'Security' })).toBeTruthy();
 		expect(screen.getByRole('heading', { name: 'Allowed features' })).toBeTruthy();
 		expect(screen.queryByText('Context permissions')).toBeNull();
 		expect(screen.queryByRole('navigation', { name: 'User group sections' })).toBeNull();
@@ -779,40 +792,91 @@ describe('UserGroupEditor', () => {
 	});
 
 	it('removes the Enterprise RLS marker when row-level security is licensed', () => {
-		mocks.useLicenseFeatures.mockReturnValue({
-			isLoading: false,
-			isError: false,
-			data: { 'user-groups': true, 'row-level-security': true },
-		});
-		mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => ({
-			isLoading: false,
-			isError: false,
-			data:
-				options?.queryKey?.[0] === 'row-security'
-					? {
-							version: 1,
-							tables: [
-								{
-									databaseType: 'duckdb',
-									database: 'sales',
-									schema: 'main',
-									table: 'orders',
-									constraintColumns: ['tenant_id'],
-								},
-							],
-						}
-					: options?.queryKey?.[0] === 'oidc-config'
-						? null
-						: options?.queryKey?.[0] === 'microsoft-config'
-							? false
-							: overview,
-		}));
+		enableRowLevelSecurity();
 		renderEditor('security');
 
 		expect(screen.getByRole('heading', { name: 'Row-level security' })).toBeTruthy();
 		expect(screen.getByText('Constraint columns: tenant_id')).toBeTruthy();
 		expect(screen.getByRole('combobox', { name: 'Row access for orders' })).toBeTruthy();
 		expect(screen.queryByRole('link', { name: 'Upgrade to Enterprise' })).toBeNull();
+	});
+
+	it('blocks incomplete Guided policies, switches to Security, and clears errors on cancel', () => {
+		enableRowLevelSecurity();
+		const group: UserGroupEditorGroup = {
+			...analysts,
+			rowPolicies: {
+				version: 1,
+				policies: [
+					{
+						...rowSecurityIdentity,
+						access: 'predicate',
+						mode: 'guided',
+						combinator: 'and',
+						conditions: [{ column: 'tenant_id', operator: 'equals', value: '' }],
+					},
+				],
+			},
+		};
+		render(<StatefulEditorHarness group={group} initialTab='features' />);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		expect(mocks.mutateAsync).not.toHaveBeenCalled();
+		expect(screen.getByRole('tab', { name: 'Security' }).getAttribute('aria-selected')).toBe('true');
+		expect(screen.getByText('Enter a value.')).toBeTruthy();
+		fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+		expect(screen.queryByText('Enter a value.')).toBeNull();
+	});
+
+	it('blocks incomplete SQL policies and reveals the field error', () => {
+		enableRowLevelSecurity();
+		const group: UserGroupEditorGroup = {
+			...analysts,
+			rowPolicies: {
+				version: 1,
+				policies: [
+					{
+						...rowSecurityIdentity,
+						access: 'predicate',
+						mode: 'sql',
+						predicate: '',
+					},
+				],
+			},
+		};
+		renderEditor('security', vi.fn(), group);
+
+		expect(screen.queryByText('Enter a WHERE clause.')).toBeNull();
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		expect(mocks.mutateAsync).not.toHaveBeenCalled();
+		expect(screen.getByText('Enter a WHERE clause.')).toBeTruthy();
+	});
+
+	it('saves valid row policies', () => {
+		enableRowLevelSecurity();
+		const rowPolicies = {
+			version: 1 as const,
+			policies: [
+				{
+					...rowSecurityIdentity,
+					access: 'predicate' as const,
+					mode: 'guided' as const,
+					combinator: 'and' as const,
+					conditions: [{ column: 'tenant_id', operator: 'equals' as const, value: '7' }],
+				},
+			],
+		};
+		renderEditor('security', vi.fn(), { ...analysts, rowPolicies });
+		fireEvent.change(screen.getByRole('textbox', { name: 'Group name' }), {
+			target: { value: 'Updated analysts' },
+		});
+
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		expect(mocks.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ rowPolicies }));
+		expect(screen.queryByText('Enter a value.')).toBeNull();
 	});
 
 	it('edits normalized OIDC mappings and includes them in the save payload', () => {
@@ -826,7 +890,20 @@ describe('UserGroupEditor', () => {
 						? false
 						: overview,
 		}));
-		renderEditor('security');
+		const { rerender } = renderEditor('security');
+		expect(screen.getByRole('tab', { name: 'SSO' })).toBeTruthy();
+		expect(screen.queryByRole('heading', { name: 'SSO group mapping — Okta' })).toBeNull();
+		expect(screen.getByRole('heading', { name: 'Row-level security' })).toBeTruthy();
+		rerender(
+			<UserGroupEditor
+				group={analysts}
+				activeTab='sso'
+				onTabChange={vi.fn()}
+				onCancelNew={vi.fn()}
+				onCreated={vi.fn()}
+				onDeleted={vi.fn()}
+			/>,
+		);
 
 		fireEvent.change(screen.getByRole('textbox', { name: 'Okta group name' }), {
 			target: { value: ' Finance-Team ' },
@@ -857,7 +934,9 @@ describe('UserGroupEditor', () => {
 						? true
 						: overview,
 		}));
-		renderEditor('security');
+		renderEditor('sso');
+		expect(screen.getByRole('tab', { name: 'SSO' })).toBeTruthy();
+		expect(screen.queryByRole('heading', { name: 'SSO group mapping — Okta' })).toBeNull();
 
 		const input = screen.getByRole('textbox', { name: 'Microsoft Entra group object ID' });
 		fireEvent.change(input, { target: { value: 'not-a-guid' } });
@@ -892,7 +971,7 @@ describe('UserGroupEditor', () => {
 						? true
 						: overview,
 		}));
-		renderEditor('security');
+		renderEditor('sso');
 
 		expect(screen.getByRole('heading', { name: 'SSO group mapping — Okta' })).toBeTruthy();
 		expect(screen.getByRole('heading', { name: 'SSO group mapping — Microsoft Entra' })).toBeTruthy();
@@ -1026,9 +1105,46 @@ describe('UserGroupEditor', () => {
 						? false
 						: overview,
 		}));
-		renderEditor('security', vi.fn(), allUsers);
+		renderEditor('sso', vi.fn(), allUsers);
 		expect(screen.getByText(/All Users already includes everyone/)).toBeTruthy();
 		expect(screen.queryByRole('textbox', { name: 'Okta group name' })).toBeNull();
+	});
+
+	it('falls back from SSO after provider queries finish without a configured provider', () => {
+		let configsLoading = true;
+		mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => {
+			const queryKey = options?.queryKey?.[0];
+			const isConfigQuery = queryKey === 'oidc-config' || queryKey === 'microsoft-config';
+			return {
+				isLoading: isConfigQuery && configsLoading,
+				isError: false,
+				data:
+					queryKey === 'oidc-config'
+						? null
+						: queryKey === 'microsoft-config'
+							? false
+							: queryKey === 'row-security'
+								? { version: 1, tables: [] }
+								: overview,
+			};
+		});
+		const onTabChange = vi.fn();
+		const { rerender } = renderEditor('sso', onTabChange);
+
+		expect(onTabChange).not.toHaveBeenCalled();
+		configsLoading = false;
+		rerender(
+			<UserGroupEditor
+				group={analysts}
+				activeTab='sso'
+				onTabChange={onTabChange}
+				onCancelNew={vi.fn()}
+				onCreated={vi.fn()}
+				onDeleted={vi.fn()}
+			/>,
+		);
+
+		expect(onTabChange).toHaveBeenCalledWith('features');
 	});
 
 	it('hides actions for a clean existing group and keeps delete visible', () => {
@@ -1285,6 +1401,7 @@ describe('UserGroupUserDetail', () => {
 		const unrelatedGroup = { ...analysts, id: 'finance', name: 'Finance' };
 		renderUserDetail({ groups: [allUsers, analysts, unrelatedGroup] });
 
+		expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Features', 'Context', 'Security']);
 		expect(screen.getByRole('heading', { name: 'Project User' })).toBeTruthy();
 		expect(screen.getByText('project@example.com')).toBeTruthy();
 		expect(screen.getByText('Active')).toBeTruthy();
@@ -1334,6 +1451,7 @@ describe('UserGroupUserDetail', () => {
 				toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
 				databaseAccess: { mode: 'all', strict: false },
 				docsAccess: { mode: 'all' },
+				rowPolicies: [],
 			},
 		});
 
@@ -1385,6 +1503,7 @@ describe('UserGroupUserDetail', () => {
 					patterns: ['public.o*'],
 				},
 				docsAccess: { mode: 'restricted', grants: [{ kind: 'file', path: 'finance/kpis.md' }] },
+				rowPolicies: [],
 			},
 		});
 
@@ -1421,6 +1540,7 @@ describe('UserGroupUserDetail', () => {
 				toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
 				databaseAccess: { mode: 'all', strict: false },
 				docsAccess: { mode: 'all' },
+				rowPolicies: [],
 			},
 		});
 
@@ -1446,9 +1566,139 @@ describe('UserGroupUserDetail', () => {
 		expect(screen.getByText('Failed to load')).toBeTruthy();
 	});
 
-	it('keeps the security placeholder', () => {
+	it('shows OR-combined effective SQL from guided and SQL policies', () => {
+		enableRowLevelSecurity();
+		renderUserDetail({
+			activeTab: 'security',
+			projectRowSecurity: { version: 1, tables: [rowSecurityTable] },
+			effectiveAccess: createEffectiveAccess([
+				{
+					version: 1,
+					policies: [
+						{
+							...rowSecurityIdentity,
+							access: 'predicate',
+							mode: 'guided',
+							combinator: 'and',
+							conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
+						},
+					],
+				},
+				{
+					version: 1,
+					policies: [
+						{
+							...rowSecurityIdentity,
+							access: 'predicate',
+							mode: 'sql',
+							predicate: "WHERE region = 'emea'",
+						},
+					],
+				},
+			]),
+		});
+
+		expect(screen.getByText('sales/main/orders')).toBeTruthy();
+		expect(screen.getByText('Filtered')).toBeTruthy();
+		const sql = screen.getByText(/"tenant_id" = 7/).textContent ?? '';
+		expect(sql).toContain('WHERE');
+		expect(sql).toContain(' OR ');
+		expect(sql).toContain("(region = 'emea')");
+	});
+
+	it('shows full access when any applicable policy grants it', () => {
+		enableRowLevelSecurity();
+		renderUserDetail({
+			activeTab: 'security',
+			projectRowSecurity: { version: 1, tables: [rowSecurityTable] },
+			effectiveAccess: createEffectiveAccess([
+				{
+					version: 1,
+					policies: [
+						{
+							...rowSecurityIdentity,
+							access: 'predicate',
+							mode: 'sql',
+							predicate: 'WHERE tenant_id = 7',
+						},
+					],
+				},
+				{ version: 1, policies: [{ ...rowSecurityIdentity, access: 'full' }] },
+			]),
+		});
+
+		expect(screen.getByText('Full access')).toBeTruthy();
+		expect(screen.queryByText('No WHERE clause — full row access.')).toBeNull();
+		expect(screen.queryByText(/^WHERE/)).toBeNull();
+		expect(screen.queryByText(/tenant_id = 7/)).toBeNull();
+	});
+
+	it('shows no rows when no applicable policy matches', () => {
+		enableRowLevelSecurity();
+		renderUserDetail({
+			activeTab: 'security',
+			projectRowSecurity: { version: 1, tables: [rowSecurityTable] },
+			effectiveAccess: createEffectiveAccess([]),
+		});
+
+		const noRowsBadge = screen.getByText('No rows');
+		expect(noRowsBadge.classList.contains('bg-accent')).toBe(true);
+		expect(noRowsBadge.classList.contains('text-accent-foreground')).toBe(true);
+		expect(noRowsBadge.classList.contains('bg-destructive')).toBe(false);
+		expect(screen.queryByText('WHERE FALSE')).toBeNull();
+	});
+
+	it('shows an empty state when no protected tables are configured', () => {
+		enableRowLevelSecurity();
 		renderUserDetail({ activeTab: 'security' });
-		expect(screen.getByText('Row-level security is not available yet.')).toBeTruthy();
+
+		expect(screen.getByText('No protected tables configured.')).toBeTruthy();
+	});
+
+	it('does not show filters as active when row-level security is unlicensed', () => {
+		renderUserDetail({
+			activeTab: 'security',
+			projectRowSecurity: { version: 1, tables: [rowSecurityTable] },
+			effectiveAccess: createEffectiveAccess([
+				{
+					version: 1,
+					policies: [
+						{
+							...rowSecurityIdentity,
+							access: 'predicate',
+							mode: 'sql',
+							predicate: 'WHERE tenant_id = 7',
+						},
+					],
+				},
+			]),
+		});
+
+		expect(screen.getByText('Enterprise feature inactive')).toBeTruthy();
+		expect(screen.getByText('No row filters are currently enforced.')).toBeTruthy();
+		expect(screen.queryByText('Filtered')).toBeNull();
+		expect(screen.queryByText(/tenant_id = 7/)).toBeNull();
+	});
+
+	it('shows row-security loading and error states with retry', () => {
+		enableRowLevelSecurity();
+		const retry = vi.fn();
+		const { rerender } = renderUserDetail({
+			activeTab: 'security',
+			securityState: 'loading',
+			onRetrySecurity: retry,
+		});
+		expect(screen.getByText('Loading row-level security...')).toBeTruthy();
+
+		rerender(
+			createUserDetail('security', {
+				securityState: 'error',
+				onRetrySecurity: retry,
+			}),
+		);
+		expect(screen.getByText('Failed to load row-level security')).toBeTruthy();
+		fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+		expect(retry).toHaveBeenCalledOnce();
 	});
 
 	it('keeps non-context tabs available while catalogs load or fail', () => {
@@ -1482,8 +1732,42 @@ describe('UserGroupUserDetail', () => {
 	});
 });
 
+function enableRowLevelSecurity() {
+	mocks.useLicenseFeatures.mockReturnValue({
+		isLoading: false,
+		isError: false,
+		data: { 'user-groups': true, 'row-level-security': true },
+	});
+	mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => ({
+		isLoading: false,
+		isError: false,
+		data:
+			options?.queryKey?.[0] === 'row-security'
+				? { version: 1, tables: [rowSecurityTable] }
+				: options?.queryKey?.[0] === 'oidc-config'
+					? null
+					: options?.queryKey?.[0] === 'microsoft-config'
+						? false
+						: overview,
+	}));
+}
+
+function StatefulEditorHarness({ group, initialTab }: { group: UserGroupEditorGroup; initialTab: UserGroupEditorTab }) {
+	const [activeTab, setActiveTab] = useState(initialTab);
+	return (
+		<UserGroupEditor
+			group={group}
+			activeTab={activeTab}
+			onTabChange={setActiveTab}
+			onCancelNew={vi.fn()}
+			onCreated={vi.fn()}
+			onDeleted={vi.fn()}
+		/>
+	);
+}
+
 function renderEditor(
-	activeTab: 'features' | 'context' | 'security' = 'features',
+	activeTab: UserGroupEditorTab = 'features',
 	onTabChange = vi.fn(),
 	group: UserGroupEditorGroup | 'new' = analysts,
 ) {
@@ -1510,15 +1794,19 @@ function renderUserDetail({
 	docsCatalogState = 'ready',
 	onRetryDatabaseCatalog,
 	onRetryDocsCatalog,
+	projectRowSecurity = EMPTY_PROJECT_ROW_SECURITY,
+	securityState = 'ready',
+	onRetrySecurity,
 	effectiveAccess = {
 		features: { 'story-creation': true, 'automation-creation': false },
 		toolCallDensityPolicy: { defaultDensity: 'compact', canChange: true },
 		databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
 		docsAccess: { mode: 'restricted', grants: [] },
+		rowPolicies: [],
 	},
 }: {
 	groups?: UserGroupEditorGroup[];
-	activeTab?: 'features' | 'context' | 'security';
+	activeTab?: UserGroupUserDetailTab;
 	contextObjects?: Array<{ databaseType: string; database: string; schema: string; table: string }>;
 	docsEntries?: Array<{ kind: 'folder' | 'file'; path: string }>;
 	databaseSyncState?: 'missing' | 'ready';
@@ -1527,11 +1815,13 @@ function renderUserDetail({
 	docsCatalogState?: 'loading' | 'error' | 'ready';
 	onRetryDatabaseCatalog?: () => void;
 	onRetryDocsCatalog?: () => void;
+	projectRowSecurity?: ComponentProps<typeof UserGroupUserDetail>['projectRowSecurity'];
+	securityState?: ComponentProps<typeof UserGroupUserDetail>['securityState'];
+	onRetrySecurity?: () => void;
 	effectiveAccess?: ComponentProps<typeof UserGroupUserDetail>['effectiveAccess'];
 } = {}) {
 	return render(
-		createUserDetail(
-			activeTab,
+		createUserDetail(activeTab, {
 			groups,
 			contextObjects,
 			docsEntries,
@@ -1542,44 +1832,49 @@ function renderUserDetail({
 			docsCatalogState,
 			onRetryDatabaseCatalog,
 			onRetryDocsCatalog,
-		),
+			projectRowSecurity,
+			securityState,
+			onRetrySecurity,
+		}),
 	);
 }
 
 function createUserDetail(
-	activeTab: 'features' | 'context' | 'security',
-	groups: UserGroupEditorGroup[] = [allUsers, analysts],
-	contextObjects: Array<{ databaseType: string; database: string; schema: string; table: string }> = [],
-	docsEntries: Array<{ kind: 'folder' | 'file'; path: string }> = [],
-	effectiveAccess: ComponentProps<typeof UserGroupUserDetail>['effectiveAccess'] = {
-		features: { 'story-creation': true, 'automation-creation': false },
-		toolCallDensityPolicy: { defaultDensity: 'compact', canChange: true },
-		databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
-		docsAccess: { mode: 'restricted', grants: [] },
-	},
-	databaseSyncState: 'missing' | 'ready' = 'ready',
-	docsSyncState: 'missing' | 'ready' = 'ready',
-	databaseCatalogState: 'loading' | 'error' | 'ready' = 'ready',
-	docsCatalogState: 'loading' | 'error' | 'ready' = 'ready',
-	onRetryDatabaseCatalog?: () => void,
-	onRetryDocsCatalog?: () => void,
+	activeTab: UserGroupUserDetailTab,
+	props: Partial<ComponentProps<typeof UserGroupUserDetail>> = {},
 ) {
+	const effectiveAccess = props.effectiveAccess ?? createEffectiveAccess([]);
 	return (
 		<UserGroupUserDetail
 			user={{ ...overview.users[0], role: 'user', status: 'active' }}
-			groups={groups}
+			groups={props.groups ?? [allUsers, analysts]}
 			memberships={overview.memberships}
 			effectiveAccess={effectiveAccess}
-			contextObjects={contextObjects}
-			docsEntries={docsEntries}
-			databaseSyncState={databaseSyncState}
-			docsSyncState={docsSyncState}
-			databaseCatalogState={databaseCatalogState}
-			docsCatalogState={docsCatalogState}
-			onRetryDatabaseCatalog={onRetryDatabaseCatalog}
-			onRetryDocsCatalog={onRetryDocsCatalog}
+			contextObjects={props.contextObjects ?? []}
+			docsEntries={props.docsEntries ?? []}
+			databaseSyncState={props.databaseSyncState ?? 'ready'}
+			docsSyncState={props.docsSyncState ?? 'ready'}
+			databaseCatalogState={props.databaseCatalogState ?? 'ready'}
+			docsCatalogState={props.docsCatalogState ?? 'ready'}
+			onRetryDatabaseCatalog={props.onRetryDatabaseCatalog}
+			onRetryDocsCatalog={props.onRetryDocsCatalog}
+			projectRowSecurity={props.projectRowSecurity ?? EMPTY_PROJECT_ROW_SECURITY}
+			securityState={props.securityState ?? 'ready'}
+			onRetrySecurity={props.onRetrySecurity}
 			activeTab={activeTab}
 			onTabChange={vi.fn()}
 		/>
 	);
+}
+
+function createEffectiveAccess(
+	rowPolicies: ComponentProps<typeof UserGroupUserDetail>['effectiveAccess']['rowPolicies'],
+): ComponentProps<typeof UserGroupUserDetail>['effectiveAccess'] {
+	return {
+		features: { 'story-creation': true, 'automation-creation': false },
+		toolCallDensityPolicy: { defaultDensity: 'compact', canChange: true },
+		databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
+		docsAccess: { mode: 'restricted', grants: [] },
+		rowPolicies,
+	};
 }

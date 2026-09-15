@@ -4,6 +4,7 @@ import {
 	type ToolCallDensityPolicy,
 	USER_GROUP_FEATURES,
 	type UserGroupFeature,
+	type UserGroupRowPolicies,
 } from '@nao/shared';
 
 import { HandlerError } from '../utils/error';
@@ -18,6 +19,10 @@ export interface EffectiveUserGroupAccess {
 	docsAccess: DocsContextAccess;
 }
 
+export interface EffectiveUserGroupAccessForUserDetail extends EffectiveUserGroupAccess {
+	rowPolicies: UserGroupRowPolicies[];
+}
+
 export class UserGroupFeatureAccessError extends HandlerError {
 	constructor(feature: UserGroupFeature) {
 		super('FORBIDDEN', `${featureLabel(feature)} is not enabled for your user group.`);
@@ -30,11 +35,17 @@ export async function getEffectiveUserGroupAccess(
 	userId: string,
 ): Promise<EffectiveUserGroupAccess> {
 	const access = await resolveAvailableUserGroupAccess(projectId, userId);
+	return formatEffectiveUserGroupAccess(access);
+}
+
+export async function getEffectiveUserGroupAccessForUserDetail(
+	projectId: string,
+	userId: string,
+): Promise<EffectiveUserGroupAccessForUserDetail> {
+	const access = await resolveAvailableUserGroupAccess(projectId, userId);
 	return {
-		features: createUserGroupFeatureFlags(access.features),
-		toolCallDensityPolicy: access.toolCallDensityPolicy,
-		databaseAccess: access.databaseAccess,
-		docsAccess: access.docsAccess,
+		...formatEffectiveUserGroupAccess(access),
+		rowPolicies: access.rowPolicies,
 	};
 }
 
@@ -77,4 +88,15 @@ export function createUserGroupFeatureFlags(features: readonly UserGroupFeature[
 	return Object.fromEntries(
 		USER_GROUP_FEATURES.map((feature) => [feature, effectiveFeatures.has(feature)]),
 	) as UserGroupFeatureFlags;
+}
+
+function formatEffectiveUserGroupAccess(
+	access: Awaited<ReturnType<typeof resolveAvailableUserGroupAccess>>,
+): EffectiveUserGroupAccess {
+	return {
+		features: createUserGroupFeatureFlags(access.features),
+		toolCallDensityPolicy: access.toolCallDensityPolicy,
+		databaseAccess: access.databaseAccess,
+		docsAccess: access.docsAccess,
+	};
 }

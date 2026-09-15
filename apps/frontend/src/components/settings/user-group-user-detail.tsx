@@ -1,17 +1,28 @@
-import { USER_GROUP_FEATURE_DEFINITIONS } from '@nao/shared';
+import { EMPTY_PROJECT_ROW_SECURITY, resolveWarehouseRowSecurity, USER_GROUP_FEATURE_DEFINITIONS } from '@nao/shared';
 import { USER_ROLE_LABELS } from '@nao/shared/types';
 import type { MemberStatus, UserRole } from '@nao/shared/types';
-import type { DatabaseContextAccess, DocsContextAccess, ToolCallDensityPolicy, UserGroupFeature } from '@nao/shared';
+import type {
+	DatabaseContextAccess,
+	DocsContextAccess,
+	ProjectRowSecurity,
+	ToolCallDensityPolicy,
+	UserGroupFeature,
+	UserGroupRowPolicies,
+	WarehouseRowSecurity,
+} from '@nao/shared';
 
 import type { DatabaseContextObject } from '@/components/settings/user-group-context-access';
 import type { DocsContextCatalogEntry } from '@/components/settings/user-group-docs-context-access';
-import type { UserGroupEditorGroup, UserGroupEditorTab } from '@/components/settings/user-group-editor';
+import type { UserGroupEditorGroup } from '@/components/settings/user-group-editor';
 import { ResponsiveGroupChips } from '@/components/settings/user-group-chips';
 import { getEffectiveUserGroupAccessSummary } from '@/components/settings/user-group-access-summary';
 import { UserGroupEffectiveContext } from '@/components/settings/user-group-effective-context';
 import { UserGroupFeatureSummaryCard } from '@/components/settings/user-group-feature-card';
+import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
+import { useLicenseFeatures } from '@/hooks/use-license';
 
 interface UserGroupDetailUser {
 	id: string;
@@ -26,7 +37,10 @@ interface EffectiveUserGroupAccess {
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
+	rowPolicies: UserGroupRowPolicies[];
 }
+
+export type UserGroupUserDetailTab = 'features' | 'context' | 'security';
 
 interface UserGroupUserDetailProps {
 	user: UserGroupDetailUser;
@@ -41,15 +55,18 @@ interface UserGroupUserDetailProps {
 	docsCatalogState?: 'loading' | 'error' | 'ready';
 	onRetryDatabaseCatalog?: () => void;
 	onRetryDocsCatalog?: () => void;
-	activeTab: UserGroupEditorTab;
-	onTabChange: (tab: UserGroupEditorTab) => void;
+	projectRowSecurity?: ProjectRowSecurity;
+	securityState?: 'loading' | 'error' | 'ready';
+	onRetrySecurity?: () => void;
+	activeTab: UserGroupUserDetailTab;
+	onTabChange: (tab: UserGroupUserDetailTab) => void;
 }
 
 const tabs = [
 	{ id: 'features', label: 'Features' },
 	{ id: 'context', label: 'Context' },
 	{ id: 'security', label: 'Security' },
-] satisfies Array<{ id: UserGroupEditorTab; label: string }>;
+] satisfies Array<{ id: UserGroupUserDetailTab; label: string }>;
 
 export function UserGroupUserDetail({
 	user,
@@ -64,6 +81,9 @@ export function UserGroupUserDetail({
 	docsCatalogState = 'ready',
 	onRetryDatabaseCatalog,
 	onRetryDocsCatalog,
+	projectRowSecurity = EMPTY_PROJECT_ROW_SECURITY,
+	securityState = 'ready',
+	onRetrySecurity,
 	activeTab,
 	onTabChange,
 }: UserGroupUserDetailProps) {
@@ -133,9 +153,12 @@ export function UserGroupUserDetail({
 						/>
 					)}
 					{activeTab === 'security' && (
-						<div className='flex min-h-64 items-center justify-center rounded-lg border border-dashed p-6 text-sm text-muted-foreground'>
-							Row-level security is not available yet.
-						</div>
+						<EffectiveRowSecurity
+							projectRowSecurity={projectRowSecurity}
+							groupPolicies={effectiveAccess.rowPolicies}
+							state={securityState}
+							onRetry={onRetrySecurity}
+						/>
 					)}
 				</TabPanel>
 			</section>
@@ -192,4 +215,109 @@ function EffectiveFeatures({ access }: { access: EffectiveUserGroupAccess }) {
 
 function getDensityLabel(density: ToolCallDensityPolicy['defaultDensity']): string {
 	return density === 'compact' ? 'Compact' : 'Detailed';
+}
+
+function EffectiveRowSecurity({
+	projectRowSecurity,
+	groupPolicies,
+	state,
+	onRetry,
+}: {
+	projectRowSecurity: ProjectRowSecurity;
+	groupPolicies: UserGroupRowPolicies[];
+	state: 'loading' | 'error' | 'ready';
+	onRetry?: () => void;
+}) {
+	const license = useLicenseFeatures();
+	const isLicensed = license.data?.['row-level-security'] === true;
+
+	return (
+		<div className='flex min-w-0 flex-col gap-3'>
+			<div>
+				<h4 className='text-sm font-medium'>Effective row-level security</h4>
+				<p className='text-xs text-muted-foreground'>
+					Combined from all applicable groups. Group filters are joined with OR.
+				</p>
+			</div>
+			{license.isLoading ? (
+				<SecurityStatus message='Checking row-level security license...' />
+			) : license.isError || !license.data ? (
+				<SecurityStatus message='Unable to verify row-level security enforcement.' />
+			) : !isLicensed ? (
+				<div className='flex items-start justify-between gap-4 rounded-lg border px-3 py-3'>
+					<div className='min-w-0'>
+						<p className='text-sm font-medium'>Enterprise feature inactive</p>
+						<p className='text-xs text-muted-foreground'>No row filters are currently enforced.</p>
+					</div>
+					<UpgradeToEnterprise />
+				</div>
+			) : state === 'loading' ? (
+				<SecurityStatus message='Loading row-level security...' />
+			) : state === 'error' ? (
+				<SecurityStatus message='Failed to load row-level security' onRetry={onRetry} />
+			) : (
+				<ResolvedRowSecurity security={resolveWarehouseRowSecurity(projectRowSecurity, groupPolicies)} />
+			)}
+		</div>
+	);
+}
+
+function SecurityStatus({ message, onRetry }: { message: string; onRetry?: () => void }) {
+	return (
+		<div className='flex min-h-11 items-center justify-between gap-3 rounded-lg border px-3 py-2'>
+			<p className='text-sm text-muted-foreground'>{message}</p>
+			{onRetry && (
+				<Button type='button' size='sm' variant='outline' className='rounded-full' onClick={onRetry}>
+					Retry
+				</Button>
+			)}
+		</div>
+	);
+}
+
+function ResolvedRowSecurity({ security }: { security: WarehouseRowSecurity }) {
+	if (!security.enforced) {
+		return (
+			<div className='rounded-lg border px-3 py-3 text-sm text-muted-foreground'>
+				No protected tables configured.
+			</div>
+		);
+	}
+
+	return (
+		<div className='min-w-0 divide-y rounded-lg border'>
+			{security.tables.map((table) => (
+				<div
+					key={`${table.databaseType}/${table.database}/${table.schema}/${table.table}`}
+					className='flex min-w-0 flex-col gap-2 px-3 py-3'
+				>
+					<div className='flex min-w-0 items-center justify-between gap-3'>
+						<p className='min-w-0 truncate text-sm font-medium'>
+							{table.database}/{table.schema}/{table.table}
+						</p>
+						<RowSecurityStatusBadge access={table.access} />
+					</div>
+					{table.access === 'predicate' && (
+						<pre className='max-w-full overflow-x-auto whitespace-pre-wrap rounded-md bg-muted px-3 py-2 font-mono text-xs text-foreground'>
+							WHERE {table.predicate}
+						</pre>
+					)}
+				</div>
+			))}
+		</div>
+	);
+}
+
+function RowSecurityStatusBadge({
+	access,
+}: {
+	access: Extract<WarehouseRowSecurity, { enforced: true }>['tables'][number]['access'];
+}) {
+	if (access === 'predicate') {
+		return <Badge variant='success'>Filtered</Badge>;
+	}
+	if (access === 'full') {
+		return <Badge variant='secondary'>Full access</Badge>;
+	}
+	return <Badge className='bg-accent text-accent-foreground'>No rows</Badge>;
 }

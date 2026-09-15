@@ -35,12 +35,22 @@ export interface RowSecurityCondition {
 	value?: string;
 }
 
+export const ROW_SECURITY_COMBINATORS = ['and', 'or'] as const;
+
+export type RowSecurityCombinator = (typeof ROW_SECURITY_COMBINATORS)[number];
+
 export const ROW_SECURITY_MAX_CONDITIONS = 100;
 export const ROW_SECURITY_MAX_VALUE_LENGTH = 10_000;
 
 export type UserGroupTablePolicy =
 	| (RowSecurityTableIdentity & { access: 'full' })
-	| (RowSecurityTableIdentity & { access: 'predicate'; conditions: RowSecurityCondition[] });
+	| (RowSecurityTableIdentity & {
+			access: 'predicate';
+			mode: 'guided';
+			combinator: RowSecurityCombinator;
+			conditions: RowSecurityCondition[];
+	  })
+	| (RowSecurityTableIdentity & { access: 'predicate'; mode: 'sql'; predicate: string });
 
 export interface UserGroupRowPolicies {
 	version: 1;
@@ -112,7 +122,10 @@ export function parseStoredUserGroupRowPolicies(value: unknown): UserGroupRowPol
 	}
 	return normalizeUserGroupRowPolicies({
 		version: 1,
-		policies: parsed.policies.filter((policy) => !isLegacyRawPredicatePolicy(policy)) as UserGroupTablePolicy[],
+		policies: parsed.policies
+			.filter((policy) => !isLegacyRawPredicatePolicy(policy))
+			.map(migrateLegacyGuidedPolicy)
+			.map(migrateLegacySqlPolicy) as UserGroupTablePolicy[],
 	});
 }
 
@@ -124,15 +137,24 @@ export function serializeUserGroupRowPolicies(value: UserGroupRowPolicies): User
 	return normalizeUserGroupRowPolicies(value);
 }
 
+export function stripRowSecurityWhereClause(value: string): string | null {
+	const match = /^\s*where\b([\s\S]*)$/i.exec(value);
+	const predicate = match?.[1].trim();
+	return predicate ? predicate : null;
+}
+
 export function compileRowSecurityConditions(
 	conditions: readonly RowSecurityCondition[],
 	databaseType: string,
+	combinator: RowSecurityCombinator = 'and',
 ): string {
 	const normalized = normalizeConditions(conditions);
-	if (normalized === null) {
+	if (normalized === null || !isRowSecurityCombinator(combinator)) {
 		throw new Error('Invalid row security conditions.');
 	}
-	return `(${normalized.map((condition) => compileCondition(condition, databaseType)).join(' AND ')})`;
+	return `(${normalized
+		.map((condition) => compileCondition(condition, databaseType))
+		.join(` ${combinator.toUpperCase()} `)})`;
 }
 
 export function resolveWarehouseRowSecurity(
@@ -155,7 +177,16 @@ export function resolveWarehouseRowSecurity(
 					(policy): policy is Extract<UserGroupTablePolicy, { access: 'predicate' }> =>
 						policy.access === 'predicate',
 				)
-				.map((policy) => compileRowSecurityConditions(policy.conditions, policy.databaseType));
+				.map((policy) => {
+					if (policy.mode === 'guided') {
+						return compileRowSecurityConditions(policy.conditions, policy.databaseType, policy.combinator);
+					}
+					const predicate = stripRowSecurityWhereClause(policy.predicate);
+					if (predicate === null) {
+						throw new Error('Invalid SQL row policy.');
+					}
+					return `(${predicate})`;
+				});
 			return predicates.length === 0
 				? { ...table, access: 'none' as const }
 				: {
@@ -194,11 +225,66 @@ function normalizeTablePolicy(value: unknown): UserGroupTablePolicy | null {
 			? { ...normalizeIdentity(value), access: 'full' }
 			: null;
 	}
-	if (!hasOnlyKeys(value, [...IDENTITY_KEYS, 'access', 'conditions']) || !Array.isArray(value.conditions)) {
+	if (value.mode === 'guided') {
+		if (
+			!hasOnlyKeys(value, [...IDENTITY_KEYS, 'access', 'mode', 'combinator', 'conditions']) ||
+			typeof value.combinator !== 'string' ||
+			!isRowSecurityCombinator(value.combinator) ||
+			!Array.isArray(value.conditions)
+		) {
+			return null;
+		}
+		const conditions = normalizeConditions(value.conditions);
+		return conditions === null
+			? null
+			: {
+					...normalizeIdentity(value),
+					access: 'predicate',
+					mode: 'guided',
+					combinator: value.combinator,
+					conditions,
+				};
+	}
+	if (
+		value.mode !== 'sql' ||
+		!hasOnlyKeys(value, [...IDENTITY_KEYS, 'access', 'mode', 'predicate']) ||
+		typeof value.predicate !== 'string'
+	) {
 		return null;
 	}
-	const conditions = normalizeConditions(value.conditions);
-	return conditions === null ? null : { ...normalizeIdentity(value), access: 'predicate', conditions };
+	const predicate = value.predicate.trim();
+	const predicateBody = stripRowSecurityWhereClause(predicate);
+	return predicateBody === null || predicate.length > ROW_SECURITY_MAX_VALUE_LENGTH
+		? null
+		: { ...normalizeIdentity(value), access: 'predicate', mode: 'sql', predicate: `WHERE ${predicateBody}` };
+}
+
+function migrateLegacyGuidedPolicy(value: unknown): unknown {
+	if (
+		hasIdentity(value) &&
+		value.access === 'predicate' &&
+		hasOnlyKeys(value, [...IDENTITY_KEYS, 'access', 'conditions']) &&
+		Array.isArray(value.conditions)
+	) {
+		return { ...value, mode: 'guided', combinator: 'and' };
+	}
+	return value;
+}
+
+function migrateLegacySqlPolicy(value: unknown): unknown {
+	if (
+		hasIdentity(value) &&
+		value.access === 'predicate' &&
+		value.mode === 'sql' &&
+		hasOnlyKeys(value, [...IDENTITY_KEYS, 'access', 'mode', 'predicate']) &&
+		typeof value.predicate === 'string' &&
+		value.predicate.trim().length > 0 &&
+		value.predicate.length <= ROW_SECURITY_MAX_VALUE_LENGTH &&
+		!hasLeadingWhereKeyword(value.predicate)
+	) {
+		return { ...value, predicate: `WHERE ${value.predicate.trim()}` };
+	}
+	return value;
 }
 
 function isLegacyRawPredicatePolicy(value: unknown): boolean {
@@ -212,6 +298,10 @@ function isLegacyRawPredicatePolicy(value: unknown): boolean {
 	}
 	const predicate = value.predicate.trim();
 	return predicate.length > 0 && predicate.length <= ROW_SECURITY_MAX_VALUE_LENGTH;
+}
+
+function hasLeadingWhereKeyword(value: string): boolean {
+	return /^\s*where\b/i.test(value);
 }
 
 const IDENTITY_KEYS = ['databaseType', 'database', 'schema', 'table'] as const;
@@ -348,6 +438,10 @@ function isListOperator(operator: RowSecurityOperator): boolean {
 
 function isRowSecurityOperator(value: string): value is RowSecurityOperator {
 	return (ROW_SECURITY_OPERATORS as readonly string[]).includes(value);
+}
+
+function isRowSecurityCombinator(value: string): value is RowSecurityCombinator {
+	return (ROW_SECURITY_COMBINATORS as readonly string[]).includes(value);
 }
 
 function deduplicate<T>(values: T[], key: (value: T) => string): T[] {

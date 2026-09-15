@@ -1,3 +1,4 @@
+import type { DatabaseContextAccess, DocsContextAccess, UserGroupRowPolicies, UserGroupSsoMappings } from '@nao/shared';
 import {
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
@@ -11,23 +12,22 @@ import {
 	normalizeUserGroupSsoMappings,
 	USER_GROUP_FEATURE_DEFINITIONS,
 } from '@nao/shared';
+import type { ToolCallDensity } from '@nao/shared/types';
+import type { QueryClient } from '@tanstack/react-query';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Copy, FolderOpen } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { DatabaseContextAccess, DocsContextAccess, UserGroupRowPolicies, UserGroupSsoMappings } from '@nao/shared';
-import type { ToolCallDensity } from '@nao/shared/types';
-import type { QueryClient } from '@tanstack/react-query';
 
-import type { TabBarItem } from '@/components/ui/tab-bar';
 import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-slider';
 import { UserGroupContextAccess } from '@/components/settings/user-group-context-access';
 import { UserGroupFeatureCard } from '@/components/settings/user-group-feature-card';
-import { UserGroupRowSecurity } from '@/components/settings/user-group-row-security';
+import { areUserGroupRowPolicyDraftsValid, UserGroupRowSecurity } from '@/components/settings/user-group-row-security';
 import { UserGroupSsoMapping } from '@/components/settings/user-group-sso-mapping';
 import { UserGroupSwitchRow } from '@/components/settings/user-group-switch-row';
 import { Button } from '@/components/ui/button';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Input } from '@/components/ui/input';
+import type { TabBarItem } from '@/components/ui/tab-bar';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useLicenseFeatures } from '@/hooks/use-license';
@@ -53,7 +53,7 @@ export interface UserGroupEditorGroup {
 	rowPolicies?: UserGroupRowPolicies;
 }
 
-export type UserGroupEditorTab = 'features' | 'context' | 'security';
+export type UserGroupEditorTab = 'features' | 'context' | 'security' | 'sso';
 
 interface UserGroupEditorProps {
 	group: UserGroupEditorGroup | 'new';
@@ -64,7 +64,7 @@ interface UserGroupEditorProps {
 	onDeleted: (groupId: string) => void;
 }
 
-const tabs: TabBarItem<UserGroupEditorTab>[] = [
+const defaultTabs: TabBarItem<UserGroupEditorTab>[] = [
 	{ id: 'features', label: 'Features' },
 	{ id: 'context', label: 'Context' },
 	{ id: 'security', label: 'Security' },
@@ -98,6 +98,7 @@ export function UserGroupEditor({
 		existingGroup?.rowPolicies ?? EMPTY_USER_GROUP_ROW_POLICIES,
 	);
 	const [formError, setFormError] = useState<string | null>(null);
+	const [showRowPolicyValidationErrors, setShowRowPolicyValidationErrors] = useState(false);
 	const [confirmDelete, setConfirmDelete] = useState(false);
 	const previousGroupRef = useRef(existingGroup);
 	const createGroup = useMutation(trpc.userGroup.create.mutationOptions());
@@ -107,6 +108,8 @@ export function UserGroupEditor({
 	const hasSso = licenseFeatures.data?.sso === true;
 	const hasRowLevelSecurity = licenseFeatures.data?.['row-level-security'] === true;
 	const rowSecurity = useQuery(trpc.userGroup.rowSecurity.queryOptions());
+	const rowSecurityRegistry =
+		rowSecurity.data && Array.isArray(rowSecurity.data.tables) ? rowSecurity.data : EMPTY_PROJECT_ROW_SECURITY;
 	const oidcConfig = useQuery({
 		...trpc.authConfig.oidc.getConfig.queryOptions(),
 		enabled: hasSso,
@@ -132,6 +135,17 @@ export function UserGroupEditor({
 		microsoftConfig,
 		microsoftConfig.data === true,
 	);
+	const hasStoredOidcMappings = ssoMappings.providers.oidc.length > 0;
+	const hasStoredMicrosoftMappings = ssoMappings.providers.microsoft.length > 0;
+	const hasStoredSsoMappings = hasStoredOidcMappings || hasStoredMicrosoftMappings;
+	const hasConfiguredSsoProvider =
+		oidcConfigurationState === 'ready' || microsoftConfigurationState === 'ready';
+	const isSsoConfigLoading =
+		ssoLicenseState === 'loading' ||
+		oidcConfigurationState === 'loading' ||
+		microsoftConfigurationState === 'loading';
+	const hasSsoTab = hasConfiguredSsoProvider || hasStoredSsoMappings;
+	const tabs = hasSsoTab ? [...defaultTabs, { id: 'sso' as const, label: 'SSO' }] : defaultTabs;
 	const hasUnsavedChanges =
 		existingGroup === null ||
 		hasUserGroupEditorChanges(existingGroup, {
@@ -153,6 +167,7 @@ export function UserGroupEditor({
 		setSsoMappings(existingGroup?.ssoMappings ?? EMPTY_USER_GROUP_SSO_MAPPINGS);
 		setRowPolicies(existingGroup?.rowPolicies ?? EMPTY_USER_GROUP_ROW_POLICIES);
 		setFormError(null);
+		setShowRowPolicyValidationErrors(false);
 		setConfirmDelete(false);
 	}, [existingGroup]);
 
@@ -187,8 +202,19 @@ export function UserGroupEditor({
 		toolCallDensityPolicy,
 	]);
 
+	useEffect(() => {
+		if (activeTab === 'sso' && !isSsoConfigLoading && !hasSsoTab) {
+			onTabChange('features');
+		}
+	}, [activeTab, hasSsoTab, isSsoConfigLoading, onTabChange]);
+
 	const handleSave = async () => {
 		setFormError(null);
+		if (hasRowLevelSecurity && !areUserGroupRowPolicyDraftsValid(rowSecurityRegistry, rowPolicies)) {
+			setShowRowPolicyValidationErrors(true);
+			onTabChange('security');
+			return;
+		}
 		try {
 			if (existingGroup) {
 				await updateGroup.mutateAsync({
@@ -215,6 +241,7 @@ export function UserGroupEditor({
 				await invalidateUserGroupQueries(queryClient);
 				onCreated(createdGroup);
 			}
+			setShowRowPolicyValidationErrors(false);
 		} catch (error) {
 			setFormError(error instanceof Error ? error.message : 'Failed to save the group.');
 		}
@@ -237,6 +264,7 @@ export function UserGroupEditor({
 
 	const handleCancel = () => {
 		if (group === 'new') {
+			setShowRowPolicyValidationErrors(false);
 			onCancelNew();
 			return;
 		}
@@ -290,6 +318,15 @@ export function UserGroupEditor({
 							</div>
 						)}
 						{activeTab === 'security' && (
+							<UserGroupRowSecurity
+								registry={rowSecurityRegistry}
+								policies={rowPolicies}
+								isLicensed={hasRowLevelSecurity}
+								showValidationErrors={showRowPolicyValidationErrors}
+								onChange={setRowPolicies}
+							/>
+						)}
+						{activeTab === 'sso' && (hasSsoTab || isSsoConfigLoading) && (
 							<div className='flex flex-col gap-5'>
 								{existingGroup?.isDefault ? (
 									<DefaultGroupSsoStatus
@@ -302,14 +339,13 @@ export function UserGroupEditor({
 								) : (
 									<>
 										{ssoLicenseState !== 'ready' &&
-											ssoMappings.providers.oidc.length === 0 &&
-											ssoMappings.providers.microsoft.length === 0 && (
+											!hasStoredSsoMappings && (
 												<SsoAvailabilityStatus
 													state={ssoLicenseState}
 													onRetry={() => void licenseFeatures.refetch()}
 												/>
 											)}
-										{(ssoMappings.providers.oidc.length > 0 ||
+										{(hasStoredOidcMappings ||
 											(ssoLicenseState === 'ready' &&
 												oidcConfigurationState !== 'unavailable')) && (
 											<UserGroupSsoMapping
@@ -329,7 +365,7 @@ export function UserGroupEditor({
 												}
 											/>
 										)}
-										{(ssoMappings.providers.microsoft.length > 0 ||
+										{(hasStoredMicrosoftMappings ||
 											(ssoLicenseState === 'ready' &&
 												microsoftConfigurationState !== 'unavailable')) && (
 											<UserGroupSsoMapping
@@ -351,16 +387,6 @@ export function UserGroupEditor({
 										)}
 									</>
 								)}
-								<UserGroupRowSecurity
-									registry={
-										rowSecurity.data && Array.isArray(rowSecurity.data.tables)
-											? rowSecurity.data
-											: EMPTY_PROJECT_ROW_SECURITY
-									}
-									policies={rowPolicies}
-									isLicensed={hasRowLevelSecurity}
-									onChange={setRowPolicies}
-								/>
 							</div>
 						)}
 					</TabPanel>
