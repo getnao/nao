@@ -416,6 +416,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 					yAxisRightLabel={chartConfig.y_axis_right_label}
 					showDataLabels={chartConfig.show_data_labels}
 					comparisonMode={'comparison_mode' in chartConfig ? chartConfig.comparison_mode : undefined}
+					gaugeSegments={'gauge_segments' in chartConfig ? chartConfig.gauge_segments : undefined}
 					hideTotal={chartConfig.hide_total}
 				/>
 			)}
@@ -446,6 +447,7 @@ export interface ChartDisplayProps {
 	showDataLabels?: boolean;
 	animate?: boolean;
 	comparisonMode?: displayChart.ComparisonMode;
+	gaugeSegments?: displayChart.GaugeSegment[];
 	className?: string;
 	chartContainerClassName?: string;
 	chartContentClassName?: string;
@@ -478,6 +480,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 	showDataLabels,
 	animate = false,
 	comparisonMode,
+	gaugeSegments,
 	className,
 	chartContainerClassName,
 	chartContentClassName,
@@ -647,6 +650,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 				showDataLabels,
 				animate,
 				comparisonMode,
+				gaugeSegments,
 				gradientIdPrefix,
 				kpiLeadingSlot,
 				margin: { top: 0, right: 0, bottom: 0, left: 0 },
@@ -729,6 +733,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			showDataLabels,
 			animate,
 			comparisonMode,
+			gaugeSegments,
 			gradientIdPrefix,
 			kpiLeadingSlot,
 			hideTotal,

@@ -36,12 +36,14 @@ export function createSvg(
 
 	const $ = cheerio.load(extractSvgFromHTML(html), { xmlMode: true });
 	const $svg = $('svg');
+	const viewBox =
+		legend.length === 0 ? ($svg.attr('viewBox') ?? `0 0 ${width} ${totalHeight}`) : `0 0 ${width} ${totalHeight}`;
 
 	$svg.attr({
 		xmlns: 'http://www.w3.org/2000/svg',
 		width: String(width),
 		height: String(totalHeight),
-		viewBox: `0 0 ${width} ${totalHeight}`,
+		viewBox,
 	});
 	$svg.prepend(`<rect width="${width}" height="${totalHeight}" fill="white"/>`);
 

@@ -14,6 +14,7 @@ export const BUILTIN_CHART_TYPES = [
 	'pie',
 	'donut',
 	'kpi_card',
+	'gauge',
 	'scatter',
 	'radar',
 ] as const;
@@ -86,6 +87,17 @@ export const SeriesConfigSchema = z.object({
 		'Which Y-axis this series is plotted against ("left" or "right"). Only used when chart_type is "mixed"; defaults to "left". A right axis is drawn whenever any series uses "right" — use it to compare metrics with very different scales/units.',
 	).optional(),
 });
+
+export const GaugeSegmentSchema = z
+	.object({
+		min: z.number(),
+		max: z.number(),
+		color: z.string().min(1),
+		label: z.string().optional(),
+	})
+	.refine((segment) => segment.min < segment.max, {
+		message: 'Gauge segment minimum must be less than its maximum.',
+	});
 
 export const ColorScaleRuleSchema = z.object({
 	type: z.literal('color-scale'),
@@ -232,6 +244,14 @@ const KpiCardInputSchema = ChartInputObjectSchema.extend({
 	.refine(leftYAxisBoundsValid, LEFT_Y_AXIS_BOUNDS_MESSAGE)
 	.refine(rightYAxisBoundsValid, RIGHT_Y_AXIS_BOUNDS_MESSAGE);
 
+export const GaugeInputSchema = ChartInputObjectSchema.extend({
+	chart_type: z.literal('gauge'),
+	x_axis_key: z.string().optional(),
+	x_axis_type: XAxisTypeEnum.nullable().optional(),
+	series: z.array(SeriesConfigSchema).length(1, 'Gauge charts require exactly one series.'),
+	gauge_segments: z.array(GaugeSegmentSchema).min(1, 'Gauge charts require at least one segment.'),
+});
+
 export const TableInputSchema = z.object({
 	query_id: z.string().describe("The id of a previous `execute_sql` tool call's output to get data from."),
 	chart_type: z.literal('table').describe('Display the SQL result as a table.'),
@@ -241,8 +261,10 @@ export const TableInputSchema = z.object({
 
 export type ChartInput = z.infer<typeof ChartInputSchema>;
 export type KpiCardInput = z.infer<typeof KpiCardInputSchema>;
+export type GaugeInput = z.infer<typeof GaugeInputSchema>;
 export type TableInput = z.infer<typeof TableInputSchema>;
-export type Input = ChartInput | KpiCardInput | TableInput;
+export type Input = ChartInput | KpiCardInput | GaugeInput | TableInput;
+export type ChartVisualizationInput = Exclude<Input, TableInput>;
 
 const DisplayTypeSchema = z.union([ChartTypeSchema, z.literal('table')]);
 
@@ -264,6 +286,10 @@ const BaseInputSchema = z.object({
 		.describe('Columns to plot as data series. Required for charts and omitted for tables.')
 		.optional(),
 	comparison_mode: ComparisonModeEnum.describe(COMPARISON_MODE_DESCRIPTION).optional(),
+	gauge_segments: z
+		.array(GaugeSegmentSchema)
+		.describe('Gauge ranges in display order, each with numeric bounds, color, and optional label.')
+		.optional(),
 	y_axis_min: ChartInputObjectSchema.shape.y_axis_min,
 	y_axis_max: ChartInputObjectSchema.shape.y_axis_max,
 	y_axis_label: ChartInputObjectSchema.shape.y_axis_label,
@@ -289,7 +315,9 @@ export const InputSchema = BaseInputSchema.superRefine((input, context) => {
 			? TableInputSchema.safeParse(input)
 			: input.chart_type === 'kpi_card'
 				? KpiCardInputSchema.safeParse(input)
-				: ChartInputSchema.safeParse(input);
+				: input.chart_type === 'gauge'
+					? GaugeInputSchema.safeParse(input)
+					: ChartInputSchema.safeParse(input);
 	if (result.success) {
 		return;
 	}
@@ -310,6 +338,7 @@ export type ValueFormat = z.infer<typeof ValueFormatSchema>;
 export type SeriesType = z.infer<typeof SeriesTypeEnum>;
 export type YAxisSide = z.infer<typeof YAxisSideEnum>;
 export type SeriesConfig = z.infer<typeof SeriesConfigSchema>;
+export type GaugeSegment = z.infer<typeof GaugeSegmentSchema>;
 export type ColorScaleRule = z.infer<typeof ColorScaleRuleSchema>;
 export type ThresholdRule = z.infer<typeof ThresholdRuleSchema>;
 export type BooleanRule = z.infer<typeof BooleanRuleSchema>;
@@ -341,7 +370,10 @@ const X_AXIS_REQUIRED_CHART_TYPES = new Set<ChartType>([
 	'radar',
 ]);
 
-export type BuiltinChartInput = Omit<ChartInput, 'chart_type'> & { chart_type: ChartType };
+export type BuiltinChartInput =
+	| (Omit<ChartInput, 'chart_type'> & { chart_type: ChartType })
+	| KpiCardInput
+	| GaugeInput;
 
 export function isBuiltinChartType(type: string): type is ChartType {
 	return (BUILTIN_CHART_TYPES as readonly string[]).includes(type);
@@ -356,7 +388,7 @@ export function isTableInput(input: Input): input is TableInput {
 	return input.chart_type === 'table';
 }
 
-export function isChartInput(input: Input): input is ChartInput | KpiCardInput {
+export function isChartInput(input: Input): input is ChartVisualizationInput {
 	return !isTableInput(input);
 }
 
@@ -380,6 +412,7 @@ const AXIS_LABEL_UNSUPPORTED_CHART_TYPES = new Set<ChartType>([
 	'pie',
 	'donut',
 	'kpi_card',
+	'gauge',
 	'radar',
 	'horizontal_bar',
 	'horizontal_bar_100',

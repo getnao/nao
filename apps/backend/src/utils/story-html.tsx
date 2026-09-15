@@ -407,8 +407,9 @@ function ChartBlock({ chart: rawChart, queryData }: { chart: ParsedChartBlock; q
 	}
 
 	const isPie = chart.chartType === 'pie' || chart.chartType === 'donut';
+	const isGauge = chart.chartType === 'gauge';
 	const isHorizontalBar = chart.chartType === 'horizontal_bar' || chart.chartType === 'horizontal_bar_100';
-	const showLegend = !isPie && (!isHorizontalBar || chart.series.length >= 2);
+	const showLegend = !isPie && !isGauge && (!isHorizontalBar || chart.series.length >= 2);
 	const valueKey = chart.series[0]?.data_key ?? '';
 	const chartRows = isPie ? bucketPieData(rows, chart.xAxisKey, valueKey) : rows;
 
@@ -1253,6 +1254,7 @@ function toChartConfig(chart: ParsedChartBlock) {
 		y_axis_right_label: chart.yAxisRightLabel,
 		title: chart.title,
 		show_data_labels: chart.showDataLabels,
+		gauge_segments: chart.gaugeSegments,
 	};
 }
 

@@ -6,9 +6,10 @@ import {
 	parseGridColumns,
 	parseSeriesJsonArray,
 	parseStringArrayAttribute,
+	STORY_CHART_TYPES_WITHOUT_X_AXIS_KEY,
 	TAG_ATTRS,
 } from './story-segments';
-import { ChartTypeEnum, SeriesTypeEnum, XAxisTypeEnum, YAxisSideEnum } from './tools/display-chart';
+import { ChartTypeEnum, GaugeSegmentSchema, SeriesTypeEnum, XAxisTypeEnum, YAxisSideEnum } from './tools/display-chart';
 
 export interface StoryValidationError {
 	message: string;
@@ -18,7 +19,6 @@ export interface StoryValidationError {
 }
 
 const REQUIRED_CHART_ATTRS = ['query_id', 'chart_type', 'x_axis_key'] as const;
-const CHART_TYPES_WITHOUT_X_AXIS_KEY = new Set(['kpi_card']);
 const REQUIRED_TABLE_ATTRS = ['query_id'] as const;
 const REQUIRED_FILTER_ATTRS = ['id', 'type'] as const;
 
@@ -139,7 +139,8 @@ function validateChartBlocks(code: string): StoryValidationError[] {
 		}
 
 		const missing = REQUIRED_CHART_ATTRS.filter(
-			(attr) => !attrs[attr] && !(attr === 'x_axis_key' && CHART_TYPES_WITHOUT_X_AXIS_KEY.has(attrs.chart_type)),
+			(attr) =>
+				!attrs[attr] && !(attr === 'x_axis_key' && STORY_CHART_TYPES_WITHOUT_X_AXIS_KEY.has(attrs.chart_type)),
 		);
 		if (missing.length > 0) {
 			errors.push({
@@ -172,8 +173,39 @@ function validateChartBlocks(code: string): StoryValidationError[] {
 		if (seriesError) {
 			errors.push(seriesError);
 		}
+		if (attrs.chart_type === 'gauge') {
+			errors.push(...validateGaugeAttributes(attrs, position, fullMatch.length));
+		}
 	}
 
+	return errors;
+}
+
+function validateGaugeAttributes(
+	attrs: Record<string, string>,
+	position: { line: number; column: number },
+	length: number,
+): StoryValidationError[] {
+	const segments = attrs.gauge_segments ? parseSeriesJsonArray(attrs.gauge_segments) : null;
+	const series = attrs.series ? parseSeriesJsonArray(attrs.series) : null;
+	const errors: StoryValidationError[] = [];
+
+	if (!GaugeSegmentSchema.array().min(1).safeParse(segments).success) {
+		errors.push({
+			message: 'Gauge chart must define a valid non-empty `gauge_segments=[...]` array.',
+			line: position.line,
+			column: position.column,
+			length,
+		});
+	}
+	if (!series || series.length !== 1) {
+		errors.push({
+			message: 'Gauge chart must define exactly one series.',
+			line: position.line,
+			column: position.column,
+			length,
+		});
+	}
 	return errors;
 }
 

@@ -29,6 +29,7 @@ export function buildStoryToolDescription({ mapsEnabled = false }: { mapsEnabled
 		'or "replace" to overwrite the entire content (producing a new version).',
 		'Charts are embedded via <chart query_id="..." chart_type="..." x_axis_key="..." series=\'[...]\' title="..." />.',
 		'For kpi_card charts you may add comparison_mode="percentage|variation|absolute" to show a period-over-period change pill; this requires the query to return at least two time-ordered rows (one per period) for the metric, and kpi_card does not need x_axis_key.',
+		'Gauge charts use chart_type="gauge", exactly one series, and gauge_segments=\'[{"min":0,"max":50,"color":"#ed6e6e","label":"Low"},{"min":50,"max":100,"color":"#84bb4c","label":"High"}]\'; they do not need x_axis_key.',
 		'SQL result tables are embedded via <table query_id="..." title="..." />.',
 		...(mapsEnabled
 			? ['Maps are embedded via <map query_id="..." map_type="points|scatter_bubble|choropleth" title="..." />.']

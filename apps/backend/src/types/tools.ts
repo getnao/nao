@@ -13,7 +13,7 @@ export interface QueryDefinition {
 }
 
 export interface GeneratedArtifacts {
-	charts: (displayChart.BuiltinChartInput | displayChart.KpiCardInput)[];
+	charts: displayChart.BuiltinChartInput[];
 	maps: displayMap.Input[];
 	stories: { id: string; title: string }[];
 }

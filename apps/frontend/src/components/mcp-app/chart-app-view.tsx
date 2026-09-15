@@ -16,7 +16,7 @@ interface ChartAppViewProps {
 
 export const ChartAppView = memo(function ChartAppView({ config, data, naoUrl }: ChartAppViewProps) {
 	const chartData = useMemo(
-		() => (config.xAxisType === 'date' ? sortByDateKey(data, config.xAxisKey) : data),
+		() => (config.xAxisType === 'date' ? sortByDateKey(data, config.xAxisKey ?? '') : data),
 		[data, config.xAxisKey, config.xAxisType],
 	);
 
@@ -60,7 +60,7 @@ export const ChartAppView = memo(function ChartAppView({ config, data, naoUrl }:
 				<ChartDisplay
 					data={chartData}
 					chartType={config.chartType}
-					xAxisKey={config.xAxisKey}
+					xAxisKey={config.xAxisKey ?? ''}
 					xAxisType={xAxisType}
 					xAxisLabel={config.xAxisLabel}
 					series={series}
@@ -71,6 +71,7 @@ export const ChartAppView = memo(function ChartAppView({ config, data, naoUrl }:
 					yAxisRightMin={config.yAxisRightMin}
 					yAxisRightMax={config.yAxisRightMax}
 					yAxisRightLabel={config.yAxisRightLabel}
+					gaugeSegments={config.gaugeSegments}
 				/>
 			</div>
 		);

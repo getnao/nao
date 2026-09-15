@@ -39,17 +39,21 @@ export async function executeQuery(
 		);
 	}
 
-	if (context.adminMode) {
-		return withTemplateWarnings(await executeAppDbQuery(effectiveSql, context, query_id), templateWarnings);
-	}
+	const output = context.adminMode
+		? await executeAppDbQuery(effectiveSql, context, query_id)
+		: database_id === LOCAL_DATABASE_ID
+			? await executeLocalQuery(effectiveSql, context, query_id, save_to)
+			: await executeWarehouseQuery(effectiveSql, context, database_id, query_id);
+	rememberQueryDefinition(context, output.id, sql_query, context.adminMode ? undefined : database_id);
+	return withTemplateWarnings(output, templateWarnings);
+}
 
-	if (database_id === LOCAL_DATABASE_ID) {
-		return withTemplateWarnings(
-			await executeLocalQuery(effectiveSql, context, query_id, save_to),
-			templateWarnings,
-		);
-	}
-
+async function executeWarehouseQuery(
+	sqlQuery: string,
+	context: ToolContext,
+	databaseId?: string,
+	queryId?: `query_${string}`,
+): Promise<executeSql.Output> {
 	const enforceExcludedColumns = await resolveExcludedColumnEnforcement(context.agentSettings);
 	const naoProjectFolder = context.projectFolder;
 	const envVars = context.envVars;
@@ -60,10 +64,10 @@ export async function executeQuery(
 			'X-Nao-Internal-Secret': env.BETTER_AUTH_SECRET,
 		},
 		body: JSON.stringify({
-			sql: effectiveSql,
+			sql: sqlQuery,
 			nao_project_folder: naoProjectFolder,
 			enforce_excluded_columns: enforceExcludedColumns,
-			...(database_id && { database_id }),
+			...(databaseId && { database_id: databaseId }),
 			...(Object.keys(envVars).length > 0 && { env_vars: envVars }),
 			...(context.azureAccessToken && { azure_access_token: context.azureAccessToken }),
 		}),
@@ -75,22 +79,18 @@ export async function executeQuery(
 	}
 
 	const data = await response.json();
-	const id = query_id ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
+	const id = queryId ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
 
 	context.queryResults.set(id, { columns: data.columns, data: data.data });
-	rememberQueryDefinition(context, id, sql_query, database_id);
 
-	const appliedLimit = detectQueryRowLimit(effectiveSql);
+	const appliedLimit = detectQueryRowLimit(sqlQuery);
 
-	return withTemplateWarnings(
-		{
-			_version: '1',
-			...data,
-			id,
-			...(appliedLimit !== null && { applied_limit: appliedLimit }),
-		},
-		templateWarnings,
-	);
+	return {
+		_version: '1',
+		...data,
+		id,
+		...(appliedLimit !== null && { applied_limit: appliedLimit }),
+	};
 }
 
 /** Files and earlier results, in nao's own DuckDB. No warehouse is involved. */
@@ -106,7 +106,6 @@ async function executeLocalQuery(
 	} = await runQueryOnLocalFiles(sqlQuery, context, saveTo);
 	const id = queryId ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
 	context.queryResults.set(id, { columns, data });
-	rememberQueryDefinition(context, id, sqlQuery, LOCAL_DATABASE_ID);
 	const appliedLimit = detectQueryRowLimit(sqlQuery);
 
 	return {
@@ -129,7 +128,6 @@ async function executeAppDbQuery(
 	const { columns, rows } = await queryAppDb(context.projectId, sqlQuery);
 	const id = queryId ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
 	context.queryResults.set(id, { columns, data: rows });
-	rememberQueryDefinition(context, id, sqlQuery);
 	const appliedLimit = detectQueryRowLimit(sqlQuery);
 	return {
 		_version: '1',

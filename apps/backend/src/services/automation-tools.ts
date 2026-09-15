@@ -414,9 +414,7 @@ function appendInlineImages(html: string, attachments: GeneratedArtifactAttachme
 	return `${html}${section}`;
 }
 
-function uniqueCharts(
-	charts: (displayChart.ChartInput | displayChart.KpiCardInput)[],
-): (displayChart.ChartInput | displayChart.KpiCardInput)[] {
+function uniqueCharts(charts: displayChart.ChartVisualizationInput[]): displayChart.ChartVisualizationInput[] {
 	const seen = new Set<string>();
 	return charts.filter((chart) => {
 		const key = JSON.stringify(chart);

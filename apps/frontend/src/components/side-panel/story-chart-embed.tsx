@@ -90,6 +90,7 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 				yAxisRightLabel={chart.yAxisRightLabel}
 				showDataLabels={chart.showDataLabels}
 				comparisonMode={chart.comparisonMode}
+				gaugeSegments={chart.gaugeSegments}
 				normalSize
 				hideTotal={chart.hideTotal}
 				kpiLeadingSlot={kpiLeadingHandle}
@@ -153,6 +154,7 @@ export function StoryChartEmbedShell({
 			title: chart.title,
 			show_data_labels: chart.showDataLabels,
 			comparison_mode: chart.comparisonMode,
+			gauge_segments: chart.gaugeSegments,
 			hide_total: chart.hideTotal,
 		}),
 		[chart],

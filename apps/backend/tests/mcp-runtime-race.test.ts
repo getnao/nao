@@ -114,6 +114,22 @@ describe('MCP concurrent discovery (issue #1292)', () => {
 		expect(results.filter((result) => result.status === 'rejected')).toEqual([]);
 	});
 
+	it('rejects static MCP credentials when per-user OAuth is required', async () => {
+		const service = new McpService();
+		await service.initializeMcpState('project-1');
+
+		await expect(
+			service.callTool({
+				projectId: 'project-1',
+				userId: 'user-1',
+				server: 'alpha',
+				tool: 'alpha_tool',
+				args: {},
+				requireUserOAuth: true,
+			}),
+		).rejects.toThrow('must use per-user OAuth');
+	});
+
 	it('keeps every server callable when a reload lands mid-creation', async () => {
 		const service = new McpService();
 		await service.initializeMcpState('project-1');

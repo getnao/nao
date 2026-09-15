@@ -8,8 +8,8 @@ export const MCP_QUERY_DATA_RETENTION_MS = WEEK_MS;
 
 export type McpChartEmbedStoredConfig = {
 	chartType: displayChart.ChartInput['chart_type'];
-	xAxisKey: displayChart.ChartInput['x_axis_key'];
-	xAxisType: displayChart.ChartInput['x_axis_type'];
+	xAxisKey?: displayChart.ChartInput['x_axis_key'];
+	xAxisType?: displayChart.ChartInput['x_axis_type'];
 	xAxisLabel?: displayChart.ChartInput['x_axis_label'];
 	series: displayChart.ChartInput['series'];
 	yAxisMin?: displayChart.ChartInput['y_axis_min'];
@@ -18,6 +18,7 @@ export type McpChartEmbedStoredConfig = {
 	yAxisRightMin?: displayChart.ChartInput['y_axis_right_min'];
 	yAxisRightMax?: displayChart.ChartInput['y_axis_right_max'];
 	yAxisRightLabel?: displayChart.ChartInput['y_axis_right_label'];
+	gaugeSegments?: displayChart.GaugeSegment[];
 	title: string;
 };
 

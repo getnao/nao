@@ -1,4 +1,9 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const mcpMocks = vi.hoisted(() => ({
+	callTool: vi.fn(),
+	getServerUrl: vi.fn(),
+}));
 
 vi.mock('../src/env', () => ({
 	env: {
@@ -7,20 +12,44 @@ vi.mock('../src/env', () => ({
 	},
 }));
 
+vi.mock('../src/services/mcp', () => ({
+	mcpService: mcpMocks,
+}));
+
 import metabaseDashboardMetadata from '../src/agents/tools/metabase-dashboard-metadata';
 
 const runTool = (dashboardId: number) =>
 	metabaseDashboardMetadata.execute!(
 		{ dashboard_id: dashboardId },
-		{ experimental_context: {}, toolCallId: 'tool-call', messages: [] },
+		{
+			experimental_context: { projectId: 'project-1', userId: 'user-1' },
+			toolCallId: 'tool-call',
+			messages: [],
+		},
 	);
 
 describe('Metabase dashboard metadata tool', () => {
+	beforeEach(() => {
+		mcpMocks.callTool.mockReset();
+		mcpMocks.callTool.mockImplementation(async ({ args }: { args: { uris: string[] } }) => ({
+			content: [{ type: 'text', text: '{}' }],
+			structuredContent: {
+				resources: args.uris.map((uri) =>
+					uri.endsWith('/11')
+						? { uri: 'metabase://question/canonical-11', error: 'Not found' }
+						: { uri: uri.replace(/\/\d+$/, '/canonical-id'), content: {} },
+				),
+			},
+		}));
+		mcpMocks.getServerUrl.mockReset();
+		mcpMocks.getServerUrl.mockResolvedValue('https://metabase.example.com/api/metabase-mcp');
+	});
+
 	afterEach(() => {
 		vi.unstubAllGlobals();
 	});
 
-	it('reads dashboard layout and visualization metadata with the configured API key', async () => {
+	it('authorizes the dashboard and questions as the caller before returning metadata', async () => {
 		const fetchMock = vi.fn(
 			async (_url: URL, _request?: RequestInit) =>
 				new Response(
@@ -31,6 +60,7 @@ describe('Metabase dashboard metadata tool', () => {
 						parameters: [
 							{ id: 'period', type: 'date/range' },
 							{ id: 'category', type: 'string/=' },
+							{ id: 'forecast', type: 'string/=' },
 						],
 						creator: { id: 1, email: 'irrelevant@example.com' },
 						dashcards: [
@@ -53,6 +83,11 @@ describe('Metabase dashboard metadata tool', () => {
 										card_id: 9,
 										target: ['variable', ['template-tag', 'category']],
 									},
+									{
+										parameter_id: 'forecast',
+										card_id: 12,
+										target: ['variable', ['template-tag', 'forecast']],
+									},
 								],
 								visualization_settings: { 'graph.show_values': true },
 								card: {
@@ -74,6 +109,24 @@ describe('Metabase dashboard metadata tool', () => {
 									visualization_settings: { 'graph.dimensions': ['month'] },
 									result_metadata: [{ name: 'month' }, { name: 'revenue' }],
 								},
+								series: [
+									{
+										id: 12,
+										name: 'Revenue forecast',
+										display: 'line',
+										database_id: 2,
+										dataset_query: {
+											type: 'native',
+											native: {
+												query: 'SELECT month, forecast FROM revenue_forecast',
+												'template-tags': {
+													forecast: { name: 'forecast', type: 'text' },
+												},
+											},
+										},
+										visualization_settings: { 'graph.metrics': ['forecast'] },
+									},
+								],
 							},
 							{
 								id: 10,
@@ -124,7 +177,7 @@ describe('Metabase dashboard metadata tool', () => {
 		const output = await runTool(42);
 		expect(output).toMatchObject({
 			id: 42,
-			filters: [{ id: 'period' }, { id: 'category' }],
+			filters: [{ id: 'period' }, { id: 'category' }, { id: 'forecast' }],
 		});
 		expect(output).not.toHaveProperty('creator');
 		expect(output).not.toHaveProperty('dashcards');
@@ -158,9 +211,28 @@ describe('Metabase dashboard metadata tool', () => {
 		});
 		expect(output.cards[0].question).not.toHaveProperty('dataset_query');
 		expect(output.cards[0].question).not.toHaveProperty('result_metadata');
+		expect(output.cards[0].series).toEqual([
+			{
+				questionId: 12,
+				parameterMappings: [
+					{
+						parameterId: 'forecast',
+						questionId: 12,
+						target: ['variable', ['template-tag', 'forecast']],
+					},
+				],
+				effectiveFilterIds: ['forecast'],
+				question: expect.objectContaining({
+					id: 12,
+					name: 'Revenue forecast',
+					nativeSql: 'SELECT month, forecast FROM revenue_forecast',
+				}),
+			},
+		]);
 		expect(output.cards[1]).toMatchObject({
 			parameterMappings: [{ parameterId: 'period' }],
-			effectiveFilterIds: ['period', 'category'],
+			effectiveFilterIds: ['period'],
+			question: null,
 		});
 		expect(output.cards[2]).toMatchObject({
 			effectiveFilterIds: [],
@@ -170,6 +242,40 @@ describe('Metabase dashboard metadata tool', () => {
 		const [url, request] = fetchMock.mock.calls[0];
 		expect(String(url)).toBe('https://metabase.example.com/api/dashboard/42');
 		expect(new Headers(request?.headers).get('x-api-key')).toBe('test-key');
+		expect(mcpMocks.callTool).toHaveBeenNthCalledWith(1, {
+			projectId: 'project-1',
+			userId: 'user-1',
+			server: 'metabase',
+			tool: 'read_resource',
+			args: { uris: ['metabase://dashboard/42'] },
+			allowedServers: ['metabase'],
+			requireUserOAuth: true,
+		});
+		expect(mcpMocks.callTool).toHaveBeenNthCalledWith(2, {
+			projectId: 'project-1',
+			userId: 'user-1',
+			server: 'metabase',
+			tool: 'read_resource',
+			args: {
+				uris: ['metabase://question/9', 'metabase://question/12', 'metabase://question/11'],
+			},
+			allowedServers: ['metabase'],
+			requireUserOAuth: true,
+		});
+	});
+
+	it('does not fetch dashboard metadata when the caller cannot read the dashboard', async () => {
+		mcpMocks.callTool.mockResolvedValueOnce({
+			content: [{ type: 'text', text: '{}' }],
+			structuredContent: {
+				resources: [{ uri: 'metabase://dashboard/42', error: 'Not found' }],
+			},
+		});
+		const fetchMock = vi.fn();
+		vi.stubGlobal('fetch', fetchMock);
+
+		await expect(runTool(42)).rejects.toThrow('Metabase denied access to the requested dashboard');
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
 	it('reports Metabase API errors without returning partial metadata', async () => {
