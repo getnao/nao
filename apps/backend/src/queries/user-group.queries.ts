@@ -18,6 +18,7 @@ import {
 	serializeUserGroupRowPolicies,
 	serializeUserGroupSsoMappings,
 	type SsoGroupProvider,
+	type StoredProjectRowSecurity,
 	type ToolCallDensityPolicy,
 	unionDatabaseContextAccess,
 	unionDocsContextAccess,
@@ -693,25 +694,26 @@ function rowSecurityIdentityKey(identity: {
 }
 
 async function updatePostgresProjectRowSecurity(
-	transaction: DBExecutor,
+	transaction: DBTransaction,
 	projectId: string,
 	rowSecurity: ProjectRowSecurity,
 ): Promise<void> {
-	const [project] = await transaction
-		.select({ id: s.project.id })
+	const projectQuery = transaction
+		.select({ id: s.project.id, rowSecurity: s.project.rowSecurity })
 		.from(s.project)
 		.where(eq(s.project.id, projectId))
-		.limit(1)
+		.limit(1);
+	const [project] = await (projectQuery as typeof projectQuery & { for(strength: 'update'): typeof projectQuery })
+		.for('update')
 		.execute();
 	assertProjectExists(project);
-	const registeredTableKeys = new Set(rowSecurity.tables.map(rowSecurityIdentityKey));
 	const groups = await transaction
 		.select({ id: s.userGroup.id, rowPolicies: s.userGroup.rowPolicies })
 		.from(s.userGroup)
 		.where(eq(s.userGroup.projectId, projectId))
 		.execute();
 	for (const group of groups) {
-		const rowPolicies = pruneRemovedTablePolicies(group.rowPolicies, registeredTableKeys);
+		const rowPolicies = pruneInvalidRowPolicies(group.rowPolicies, project.rowSecurity, rowSecurity);
 		if (rowPolicies) {
 			await transaction
 				.update(s.userGroup)
@@ -733,20 +735,19 @@ function updateSqliteProjectRowSecurity(
 	rowSecurity: ProjectRowSecurity,
 ): void {
 	const [project] = transaction
-		.select({ id: s.project.id })
+		.select({ id: s.project.id, rowSecurity: s.project.rowSecurity })
 		.from(s.project)
 		.where(eq(s.project.id, projectId))
 		.limit(1)
 		.all();
 	assertProjectExists(project);
-	const registeredTableKeys = new Set(rowSecurity.tables.map(rowSecurityIdentityKey));
 	const groups = transaction
 		.select({ id: s.userGroup.id, rowPolicies: s.userGroup.rowPolicies })
 		.from(s.userGroup)
 		.where(eq(s.userGroup.projectId, projectId))
 		.all();
 	for (const group of groups) {
-		const rowPolicies = pruneRemovedTablePolicies(group.rowPolicies, registeredTableKeys);
+		const rowPolicies = pruneInvalidRowPolicies(group.rowPolicies, project.rowSecurity, rowSecurity);
 		if (rowPolicies) {
 			transaction
 				.update(s.userGroup)
@@ -758,12 +759,36 @@ function updateSqliteProjectRowSecurity(
 	transaction.update(s.project).set({ rowSecurity, updatedAt: new Date() }).where(eq(s.project.id, projectId)).run();
 }
 
-function pruneRemovedTablePolicies(
+function pruneInvalidRowPolicies(
 	storedPolicies: DBUserGroup['rowPolicies'],
-	registeredTableKeys: ReadonlySet<string>,
+	storedProjectRowSecurity: StoredProjectRowSecurity,
+	rowSecurity: ProjectRowSecurity,
 ): UserGroupRowPolicies | null {
 	const current = parseStoredUserGroupRowPolicies(storedPolicies);
-	const policies = current.policies.filter((policy) => registeredTableKeys.has(rowSecurityIdentityKey(policy)));
+	const previousTables = new Map(
+		parseStoredProjectRowSecurity(storedProjectRowSecurity).tables.map((table) => [
+			rowSecurityIdentityKey(table),
+			table.constraintColumns,
+		]),
+	);
+	const registeredTables = new Map(
+		rowSecurity.tables.map((table) => [rowSecurityIdentityKey(table), table.constraintColumns]),
+	);
+	const policies = current.policies.filter((policy) => {
+		const key = rowSecurityIdentityKey(policy);
+		const constraintColumns = registeredTables.get(key);
+		if (!constraintColumns) {
+			return false;
+		}
+		const previousConstraintColumns = previousTables.get(key);
+		const removedConstraintColumn =
+			previousConstraintColumns === undefined ||
+			previousConstraintColumns.some((column) => !constraintColumns.includes(column));
+		if (policy.access === 'full' || !removedConstraintColumn) {
+			return true;
+		}
+		return policy.mode === 'guided' && policy.conditions.every(({ column }) => constraintColumns.includes(column));
+	});
 	return policies.length === current.policies.length ? null : serializeUserGroupRowPolicies({ version: 1, policies });
 }
 

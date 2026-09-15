@@ -148,6 +148,8 @@ export interface StoryQueryDataResult {
 	allowsPersistedFallback?: boolean;
 }
 
+export class StoredStoryDataAccessDeniedError extends Error {}
+
 export async function getAuthorizedStoredStoryQueryData(
 	chatId: string,
 	code: string,
@@ -380,7 +382,7 @@ export interface StoryExecutionContext {
 export async function assertProjectStoredStoryDataAllowed(projectId: string, principalUserId: string): Promise<void> {
 	const context = await buildMcpToolContext({ projectId, userId: principalUserId });
 	if (context.warehouseRowSecurity?.enforced || context.azureAccessToken) {
-		throw new Error('Stored Story data cannot be safely resolved for this principal.');
+		throw new StoredStoryDataAccessDeniedError('Stored Story data cannot be safely resolved for this principal.');
 	}
 }
 

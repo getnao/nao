@@ -201,14 +201,50 @@ describe('getDatabaseContextCatalog', () => {
 			[join(root, 'databases', 'type=postgres', 'database=app')]: ['schema=public'],
 			[join(root, 'databases', 'type=postgres', 'database=app', 'schema=public')]: ['table=users'],
 		});
+		mockReadFileSync.mockImplementation((path) =>
+			(path as string).includes('table=users')
+				? '- id (INTEGER)\n- region (code) (VARCHAR)\n'
+				: '- `Event ID` (BIGINT)\n',
+		);
 
 		expect(getDatabaseContextCatalog(root)).toEqual({
 			syncState: 'ready',
 			objects: [
-				{ databaseType: 'postgres', database: 'app', schema: 'public', table: 'users' },
-				{ databaseType: 'snowflake', database: 'Warehouse', schema: 'Raw', table: 'Events' },
+				{
+					databaseType: 'postgres',
+					database: 'app',
+					schema: 'public',
+					table: 'users',
+					columns: ['id', 'region (code)'],
+				},
+				{
+					databaseType: 'snowflake',
+					database: 'Warehouse',
+					schema: 'Raw',
+					table: 'Events',
+					columns: ['Event ID'],
+				},
 			],
 		});
+	});
+
+	it('parses quoted column names and nested type parentheses', () => {
+		const root = '/project-catalog-identifiers';
+		setupDirStructure(root, {
+			[join(root, 'databases')]: ['type=postgres'],
+			[join(root, 'databases', 'type=postgres')]: ['database=app'],
+			[join(root, 'databases', 'type=postgres', 'database=app')]: ['schema=public'],
+			[join(root, 'databases', 'type=postgres', 'database=app', 'schema=public')]: ['table=regions'],
+		});
+		mockReadFileSync.mockReturnValue(
+			'- `region (code)` (VARCHAR(20))\n- "Case Sensitive" (DECIMAL(10, 2))\n- plain (TEXT)\n',
+		);
+
+		expect(getDatabaseContextCatalog(root).objects[0].columns).toEqual([
+			'region (code)',
+			'Case Sensitive',
+			'plain',
+		]);
 	});
 
 	it('surfaces filesystem scan failures', () => {

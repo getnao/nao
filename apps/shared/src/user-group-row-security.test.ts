@@ -293,6 +293,21 @@ describe('user group row security', () => {
 		);
 	});
 
+	it.each(['mysql', 'starrocks'])('escapes quote and backslash payloads for %s literals', (databaseType) => {
+		expect(
+			compileRowSecurityConditions(
+				[{ column: 'tenant_id', operator: 'equals', value: "north\\' OR 1 = 1 --" }],
+				databaseType,
+			),
+		).toBe("(`tenant_id` = 'north\\\\'' OR 1 = 1 --')");
+		expect(
+			compileRowSecurityConditions(
+				[{ column: 'region', operator: 'is-one-of', value: "west\\coast, o'hare" }],
+				databaseType,
+			),
+		).toBe("(`region` IN ('west\\\\coast', 'o''hare'))");
+	});
+
 	it('compiles conditions with an explicit OR combinator', () => {
 		expect(
 			compileRowSecurityConditions(
@@ -462,5 +477,28 @@ describe('user group row security', () => {
 				},
 			],
 		});
+	});
+
+	it('bounds predicates combined across groups', () => {
+		const policy = {
+			...table,
+			access: 'predicate' as const,
+			mode: 'sql' as const,
+			predicate: `WHERE tenant_id = '${'x'.repeat(9_870)}'`,
+		};
+		const project = { version: 1 as const, tables: [{ ...table, constraintColumns: ['tenant_id'] }] };
+
+		expect(() =>
+			resolveWarehouseRowSecurity(
+				project,
+				Array.from({ length: 101 }, () => ({ version: 1 as const, policies: [policy] })),
+			),
+		).not.toThrow();
+		expect(() =>
+			resolveWarehouseRowSecurity(
+				project,
+				Array.from({ length: 102 }, () => ({ version: 1 as const, policies: [policy] })),
+			),
+		).toThrow('Combined row security predicate is too long.');
 	});
 });

@@ -185,13 +185,16 @@ function TablePolicyEditor({
 							table={table}
 							mode={policy.mode}
 							disabled={disabled}
-							onChange={(mode) =>
+							onChange={(mode) => {
+								if (mode === policy.mode) {
+									return;
+								}
 								onChange(
 									mode === 'guided'
 										? createGuidedPolicy(table)
 										: createSqlPolicy(table, policy.mode === 'guided' ? policy : undefined),
-								)
-							}
+								);
+							}}
 						/>
 						{policy.mode === 'guided' && policy.conditions.length >= 2 && (
 							<ConditionCombinatorSelector

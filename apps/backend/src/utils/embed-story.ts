@@ -83,6 +83,7 @@ async function loadEmbedStoryData(
 				storyId: version.storyId,
 				chatId: version.chatId,
 				projectId,
+				userId: ownerId,
 			}),
 		};
 	}
@@ -94,5 +95,13 @@ async function loadEmbedStoryData(
 		version.cacheSchedule,
 		ownerId,
 	);
-	return { code: result.code, queryData: result.queryData };
+	const queryData = result.allowsPersistedFallback
+		? await backfillMissingQueryDataForSandbox(version.code, {
+				storyId: version.storyId,
+				chatId: version.chatId,
+				projectId,
+				userId: ownerId,
+			})
+		: result.queryData;
+	return { code: result.code, queryData };
 }

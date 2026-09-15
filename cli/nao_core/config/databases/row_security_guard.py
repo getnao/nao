@@ -74,7 +74,7 @@ def enforce_row_security(
 
         schemas = load_schemas(conn, db_config, _blocked)
         tables_by_schema: dict[str, list[str]] = {}
-        conditions_by_select: dict[int, tuple[exp.Select, list[exp.Expression]]] = {}
+        policy_conditions: list[tuple[exp.Table, exp.Select, exp.Expression]] = []
         parsed_policies: dict[TableIdentity, exp.Expression] = {}
 
         for table_expression in table_expressions:
@@ -107,23 +107,13 @@ def enforce_row_security(
                     )
                     parsed_policies[identity] = condition
                 condition = condition.copy()
-                qualifier = table_expression.alias_or_name
-                if not qualifier:
-                    raise _blocked("a protected table alias could not be resolved")
+                qualifier = _table_qualifier(table_expression)
                 _qualify_columns(condition, qualifier)
 
-            _, conditions = conditions_by_select.setdefault(id(select), (select, []))
-            conditions.append(condition)
+            policy_conditions.append((table_expression, select, condition))
 
-        for select, conditions in conditions_by_select.values():
-            combined = conditions[0]
-            for condition in conditions[1:]:
-                combined = exp.and_(combined, condition)
-            existing = select.args.get("where")
-            if existing is None:
-                select.set("where", exp.Where(this=combined))
-            else:
-                select.set("where", exp.Where(this=exp.and_(existing.this, combined)))
+        for table_expression, select, condition in policy_conditions:
+            _inject_policy_condition(table_expression, select, condition)
 
         return expression.sql(dialect=dialect)
     except RowSecurityGuardError:
@@ -203,12 +193,78 @@ def _parse_predicate(
             raise _blocked(f"row predicate column '{column.name}' is not a configured constraint column")
     if not any(expression.find_all(exp.Column)):
         raise _blocked("a row predicate must reference a constraint column")
+    if not _every_comparison_branch_is_grounded(expression):
+        raise _blocked("every row predicate comparison must reference a constraint column")
     return expression
 
 
-def _qualify_columns(expression: exp.Expression, qualifier: str) -> None:
+def _every_comparison_branch_is_grounded(expression: exp.Expression) -> bool:
+    if isinstance(expression, (exp.Paren, exp.Not)):
+        return _every_comparison_branch_is_grounded(expression.this)
+    if isinstance(expression, (exp.And, exp.Or)):
+        return _every_comparison_branch_is_grounded(expression.this) and _every_comparison_branch_is_grounded(
+            expression.expression
+        )
+    return isinstance(
+        expression,
+        (exp.EQ, exp.NEQ, exp.GT, exp.GTE, exp.LT, exp.LTE, exp.Is, exp.In, exp.Between),
+    ) and any(expression.find_all(exp.Column))
+
+
+def _table_qualifier(table_expression: exp.Table) -> exp.Identifier:
+    alias = table_expression.args.get("alias")
+    qualifier = alias.args.get("this") if isinstance(alias, exp.TableAlias) else table_expression.args.get("this")
+    if not isinstance(qualifier, exp.Identifier) or not qualifier.name:
+        raise _blocked("a protected table alias could not be resolved")
+    return qualifier.copy()
+
+
+def _qualify_columns(expression: exp.Expression, qualifier: exp.Identifier) -> None:
     for column in expression.find_all(exp.Column):
-        column.set("table", exp.to_identifier(qualifier))
+        column.set("table", qualifier.copy())
+
+
+def _inject_policy_condition(
+    table_expression: exp.Table,
+    select: exp.Select,
+    condition: exp.Expression,
+) -> None:
+    joins = select.args.get("joins") or []
+    if any(join.side.upper() == "FULL" for join in joins):
+        _prefilter_table(table_expression, condition)
+        return
+
+    table_join_index = next(
+        (index for index, join in enumerate(joins) if join.this is table_expression),
+        None,
+    )
+    if table_join_index is not None and joins[table_join_index].side.upper() == "LEFT":
+        _append_join_condition(joins[table_join_index], condition)
+        return
+
+    start = 0 if table_join_index is None else table_join_index + 1
+    right_join = next((join for join in joins[start:] if join.side.upper() == "RIGHT"), None)
+    if right_join is not None:
+        _append_join_condition(right_join, condition)
+        return
+
+    existing = select.args.get("where")
+    combined = condition if existing is None else exp.and_(existing.this, condition)
+    select.set("where", exp.Where(this=combined))
+
+
+def _append_join_condition(join: exp.Join, condition: exp.Expression) -> None:
+    existing = join.args.get("on")
+    join.set("on", condition if existing is None else exp.and_(existing, condition))
+
+
+def _prefilter_table(table_expression: exp.Table, condition: exp.Expression) -> None:
+    qualifier = _table_qualifier(table_expression)
+    outer_alias = table_expression.args.get("alias")
+    if not isinstance(outer_alias, exp.TableAlias):
+        outer_alias = exp.TableAlias(this=qualifier)
+    filtered = exp.select("*").from_(table_expression.copy()).where(condition)
+    table_expression.replace(exp.Subquery(this=filtered, alias=outer_alias.copy()))
 
 
 def _blocked(reason: str) -> RowSecurityGuardError:

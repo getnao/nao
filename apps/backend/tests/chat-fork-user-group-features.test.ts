@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
 	getStoryByIdForUser: vi.fn(),
 	getQueryDataFromCode: vi.fn(),
 	getAuthorizedStoredStoryQueryData: vi.fn(),
+	assertProjectStoredStoryDataAllowed: vi.fn(),
+	getSharedChatInfo: vi.fn(),
 	getSharedStory: vi.fn(),
 	resolveEffectiveUserGroupAccess: vi.fn(),
 }));
@@ -20,7 +22,10 @@ vi.mock('../src/queries/project.queries', () => ({
 	getProjectByUserId: vi.fn(async () => ({ id: 'project-id', name: 'Project' })),
 	getUserRoleInProject: vi.fn(async () => 'user'),
 }));
-vi.mock('../src/queries/shared-chat.queries', () => ({}));
+vi.mock('../src/queries/shared-chat.queries', () => ({
+	canUserAccessSharedChat: vi.fn(async () => true),
+	getSharedChatInfo: mocks.getSharedChatInfo,
+}));
 vi.mock('../src/queries/shared-story.queries', () => ({
 	canUserAccessSharedStory: vi.fn(async () => true),
 	getQueryDataFromCode: mocks.getQueryDataFromCode,
@@ -34,7 +39,7 @@ vi.mock('../src/services/compaction', () => ({
 	compactionService: { useLastCompaction: (messages: unknown[]) => messages },
 }));
 vi.mock('../src/services/live-story', () => ({
-	assertProjectStoredStoryDataAllowed: vi.fn(),
+	assertProjectStoredStoryDataAllowed: mocks.assertProjectStoredStoryDataAllowed,
 	getAuthorizedStoredStoryQueryData: mocks.getAuthorizedStoredStoryQueryData,
 }));
 vi.mock('../src/services/user-group-availability.service', () => ({
@@ -72,6 +77,15 @@ describe('chat fork Story creation permission', () => {
 			userId: 'owner-id',
 			authorName: 'Owner',
 		});
+		mocks.getSharedChatInfo.mockResolvedValue({
+			id: 'chat-share-id',
+			projectId: 'project-id',
+			chatId: 'source-chat-id',
+			title: 'Shared chat',
+			visibility: 'project',
+			userId: 'owner-id',
+			authorName: 'Owner',
+		});
 		mocks.getChatMessages.mockResolvedValue([]);
 		mocks.getQueryDataFromCode.mockResolvedValue({});
 		mocks.getAuthorizedStoredStoryQueryData.mockResolvedValue({});
@@ -89,6 +103,7 @@ describe('chat fork Story creation permission', () => {
 			message: 'Story creation is not enabled for your user group.',
 		});
 		expect(mocks.createForkedChat).not.toHaveBeenCalled();
+		expect(mocks.getAuthorizedStoredStoryQueryData).not.toHaveBeenCalled();
 	});
 
 	it('allows a shared Story selection fork without the creation grant', async () => {
@@ -100,6 +115,103 @@ describe('chat fork Story creation permission', () => {
 			}),
 		).resolves.toEqual({ chatId: 'fork-chat-id' });
 		expect(mocks.resolveEffectiveUserGroupAccess).not.toHaveBeenCalled();
+		expect(mocks.getAuthorizedStoredStoryQueryData).toHaveBeenCalledWith('source-chat-id', '# Story', 'user-id');
+	});
+
+	it('removes owner SQL results from a Story selection fork while keeping authorized data and text', async () => {
+		mocks.getChatMessages.mockResolvedValue([
+			{
+				id: 'message-1',
+				role: 'assistant',
+				parts: [
+					{ type: 'text', text: 'Useful explanation' },
+					{
+						type: 'tool-execute_sql',
+						toolName: 'execute_sql',
+						toolCallId: 'owner-query',
+						state: 'output-available',
+						input: { sql_query: 'select secret' },
+						output: {
+							id: 'query_owner',
+							columns: ['secret'],
+							data: [{ secret: 'OWNER_SECRET' }],
+						},
+					},
+					{
+						type: 'dynamic-tool',
+						toolName: 'read_query_result',
+						toolCallId: 'owner-query-page',
+						state: 'output-available',
+						input: { query_id: 'query_owner' },
+						output: { data: [{ secret: 'OWNER_PAGED_SECRET' }] },
+					},
+				],
+			},
+		]);
+		mocks.getAuthorizedStoredStoryQueryData.mockResolvedValue({
+			query_authorized: { columns: ['allowed'], data: [{ allowed: 'AUTHORIZED_VALUE' }] },
+		});
+
+		await createCaller().chatFork.fork({
+			shareId: 'share-id',
+			type: 'story',
+			selection: { start: 0, end: 5, text: 'Story' },
+		});
+
+		const seededMessages = mocks.createForkedChat.mock.calls[0][1];
+		expect(JSON.stringify(seededMessages)).not.toContain('OWNER_SECRET');
+		expect(JSON.stringify(seededMessages)).not.toContain('OWNER_PAGED_SECRET');
+		expect(JSON.stringify(seededMessages)).toContain('AUTHORIZED_VALUE');
+		expect(JSON.stringify(seededMessages)).toContain('Useful explanation');
+	});
+
+	it('propagates denied Story selection data authorization without creating a fork', async () => {
+		const denial = new Error('Stored Story data denied.');
+		mocks.getAuthorizedStoredStoryQueryData.mockRejectedValueOnce(denial);
+
+		await expect(
+			createCaller().chatFork.fork({
+				shareId: 'share-id',
+				type: 'story',
+				selection: { start: 0, end: 5, text: 'Story' },
+			}),
+		).rejects.toMatchObject({ message: denial.message });
+		expect(mocks.getAuthorizedStoredStoryQueryData).toHaveBeenCalledWith('source-chat-id', '# Story', 'user-id');
+		expect(mocks.createForkedChat).not.toHaveBeenCalled();
+	});
+
+	it('propagates denied full Story fork data authorization without creating a fork', async () => {
+		mocks.resolveEffectiveUserGroupAccess.mockResolvedValue({
+			features: ['story-creation'],
+			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
+		});
+		const denial = new Error('Stored Story data denied.');
+		mocks.getAuthorizedStoredStoryQueryData.mockRejectedValueOnce(denial);
+
+		await expect(createCaller().chatFork.fork({ shareId: 'share-id', type: 'story' })).rejects.toMatchObject({
+			message: denial.message,
+		});
+		expect(mocks.getAuthorizedStoredStoryQueryData).toHaveBeenCalledWith('source-chat-id', '# Story', 'user-id');
+		expect(mocks.createForkedChat).not.toHaveBeenCalled();
+	});
+
+	it('authorizes stored data before forking a shared chat', async () => {
+		await expect(createCaller().chatFork.fork({ shareId: 'chat-share-id', type: 'chat' })).resolves.toEqual({
+			chatId: 'fork-chat-id',
+		});
+		expect(mocks.assertProjectStoredStoryDataAllowed).toHaveBeenCalledWith('project-id', 'user-id');
+	});
+
+	it('propagates denied shared chat data authorization without creating a fork', async () => {
+		const denial = new Error('Stored Story data denied.');
+		mocks.assertProjectStoredStoryDataAllowed.mockRejectedValueOnce(denial);
+
+		await expect(createCaller().chatFork.fork({ shareId: 'chat-share-id', type: 'chat' })).rejects.toMatchObject({
+			message: denial.message,
+		});
+		expect(mocks.assertProjectStoredStoryDataAllowed).toHaveBeenCalledWith('project-id', 'user-id');
+		expect(mocks.getChatMessages).not.toHaveBeenCalled();
+		expect(mocks.createForkedChat).not.toHaveBeenCalled();
 	});
 
 	it('opens an existing standalone Story without the creation grant', async () => {
@@ -107,6 +219,23 @@ describe('chat fork Story creation permission', () => {
 			chatId: 'existing-chat-id',
 		});
 		expect(mocks.resolveEffectiveUserGroupAccess).not.toHaveBeenCalled();
+		expect(mocks.assertProjectStoredStoryDataAllowed).not.toHaveBeenCalled();
+	});
+
+	it('propagates denied standalone stored data authorization without creating a fork', async () => {
+		mocks.getStoryByIdForUser.mockResolvedValue({
+			id: 'story-id',
+			projectId: 'project-id',
+			chatId: null,
+		});
+		const denial = new Error('Stored Story data denied.');
+		mocks.assertProjectStoredStoryDataAllowed.mockRejectedValueOnce(denial);
+
+		await expect(createCaller().chatFork.openStandalone({ storyId: 'story-id' })).rejects.toMatchObject({
+			message: denial.message,
+		});
+		expect(mocks.assertProjectStoredStoryDataAllowed).toHaveBeenCalledWith('project-id', 'user-id');
+		expect(mocks.createForkedChat).not.toHaveBeenCalled();
 	});
 });
 

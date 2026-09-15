@@ -108,6 +108,56 @@ describe('user group routes', () => {
 		expect(mocks.updateProjectRowSecurity).not.toHaveBeenCalled();
 	});
 
+	it('limits project constraint columns to the FastAPI maximum', async () => {
+		await expect(
+			createCaller().updateRowSecurity({
+				version: 1,
+				tables: [
+					{
+						databaseType: 'duckdb',
+						database: 'sales',
+						schema: 'main',
+						table: 'orders',
+						constraintColumns: Array.from({ length: 257 }, (_, index) => `column_${index}`),
+					},
+				],
+			}),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		expect(mocks.updateProjectRowSecurity).not.toHaveBeenCalled();
+	});
+
+	it('rejects unlicensed group creates and updates with row policies before mutation', async () => {
+		mocks.hasFeature.mockResolvedValue(false);
+		const rowPolicies = {
+			version: 1 as const,
+			policies: [
+				{
+					databaseType: 'duckdb',
+					database: 'sales',
+					schema: 'main',
+					table: 'orders',
+					access: 'full' as const,
+				},
+			],
+		};
+
+		await expect(createCaller().create({ name: 'Analysts', rowPolicies })).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+		});
+		await expect(
+			createCaller().update({
+				groupId: 'group-id',
+				featureGrants: [],
+				toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
+				rowPolicies,
+			}),
+		).rejects.toMatchObject({ code: 'FORBIDDEN' });
+
+		expect(mocks.createUserGroup).not.toHaveBeenCalled();
+		expect(mocks.createUserGroupWithinLimit).not.toHaveBeenCalled();
+		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
+	});
+
 	it('allows group edits after a registry update prunes removed-table policies', async () => {
 		const orders = {
 			databaseType: 'duckdb',

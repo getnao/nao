@@ -119,6 +119,8 @@ ConstraintColumn = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=255),
 ]
+ROW_SECURITY_MAX_AGGREGATE_PREDICATE_LENGTH = 1_000_000
+ROW_SECURITY_MAX_TABLES = 10_000
 
 
 class TableAccessTable(StrictRequestModel):
@@ -168,7 +170,7 @@ class FullRowAccessTable(RowSecurityTableBase):
 
 class PredicateRowAccessTable(RowSecurityTableBase):
     access: Literal["predicate"]
-    predicate: str = Field(min_length=1, max_length=10_000)
+    predicate: str = Field(min_length=1, max_length=ROW_SECURITY_MAX_AGGREGATE_PREDICATE_LENGTH)
 
 
 RowSecurityTable = Annotated[
@@ -183,7 +185,7 @@ class UnenforcedRowSecurity(StrictRequestModel):
 
 class EnforcedRowSecurity(StrictRequestModel):
     enforced: Literal[True]
-    tables: list[RowSecurityTable] = Field(max_length=5_000)
+    tables: list[RowSecurityTable] = Field(max_length=ROW_SECURITY_MAX_TABLES)
 
 
 RowSecurity = Annotated[
@@ -304,6 +306,7 @@ def _execute_sql_with_guards(
             row_security_policies=row_security_policies,
             database_folder=database_folder,
         )
+        print(validated_sql)
         return db_config.execute_sql(validated_sql, conn=conn)
     finally:
         conn.disconnect()
@@ -612,7 +615,6 @@ async def execute_sql(request: ExecuteSQLRequest):
             RowSecurityGuardError,
         ) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
-
         data = [{k: _convert_value(v) for k, v in row.items()} for row in df.to_dict(orient="records")]
 
         return ExecuteSQLResponse(

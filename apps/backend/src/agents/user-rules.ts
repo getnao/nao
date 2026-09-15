@@ -126,12 +126,54 @@ function readDatabaseObjectColumns(
 		return readFileSync(path, 'utf-8')
 			.split(/\r?\n/)
 			.flatMap((line) => {
-				const match = /^-\s+(.+?)\s+\(/.exec(line);
-				return match?.[1] ? [match[1].replace(/^`|`$/g, '')] : [];
+				const name = parseGeneratedColumnName(line);
+				return name ? [name] : [];
 			});
 	} catch {
 		return [];
 	}
+}
+
+function parseGeneratedColumnName(line: string): string | null {
+	if (!line.startsWith('- ')) {
+		return null;
+	}
+	for (let index = 2; index < line.length - 2; index += 1) {
+		if (line[index] !== ' ' || line[index + 1] !== '(' || !isCompleteParenthesizedSuffix(line.slice(index + 1))) {
+			continue;
+		}
+		const name = line.slice(2, index).trim();
+		return name ? unquoteGeneratedIdentifier(name) : null;
+	}
+	return null;
+}
+
+function isCompleteParenthesizedSuffix(value: string): boolean {
+	let depth = 0;
+	for (let index = 0; index < value.length; index += 1) {
+		if (value[index] === '(') {
+			depth += 1;
+		} else if (value[index] === ')') {
+			depth -= 1;
+			if (depth === 0 && index !== value.length - 1) {
+				return false;
+			}
+		}
+		if (depth < 0) {
+			return false;
+		}
+	}
+	return depth === 0;
+}
+
+function unquoteGeneratedIdentifier(value: string): string {
+	if (value.startsWith('`') && value.endsWith('`')) {
+		return value.slice(1, -1).replaceAll('``', '`');
+	}
+	if (value.startsWith('"') && value.endsWith('"')) {
+		return value.slice(1, -1).replaceAll('""', '"');
+	}
+	return value;
 }
 
 function readDirEntries(dir: string, prefix: string): { name: string; path: string }[] {

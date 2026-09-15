@@ -123,12 +123,15 @@ export function UserGroupEditor({
 	const hasSso = licenseFeatures.data?.sso === true;
 	const hasRowLevelSecurity = licenseFeatures.data?.['row-level-security'] === true;
 	const rowSecurity = useQuery(trpc.userGroup.rowSecurity.queryOptions());
+	const rowSecurityState = rowSecurity.isLoading ? 'loading' : rowSecurity.isError ? 'error' : 'ready';
 	const rowSecurityRegistry =
 		rowSecurity.data && Array.isArray(rowSecurity.data.tables) ? rowSecurity.data : EMPTY_PROJECT_ROW_SECURITY;
 	const accessibleRowSecurityRegistry = filterProjectRowSecurityByDatabaseContext(
 		rowSecurityRegistry,
 		databaseAccess,
 	);
+	const needsRowSecurityMetadata =
+		hasRowLevelSecurity && rowPolicies.policies.some((policy) => policy.access === 'predicate');
 	const oidcConfig = useQuery({
 		...trpc.authConfig.oidc.getConfig.queryOptions(),
 		enabled: hasSso,
@@ -233,6 +236,10 @@ export function UserGroupEditor({
 
 	const handleSave = async () => {
 		setFormError(null);
+		if (needsRowSecurityMetadata && rowSecurityState !== 'ready') {
+			onTabChange('security');
+			return;
+		}
 		if (hasRowLevelSecurity && !areUserGroupRowPolicyDraftsValid(accessibleRowSecurityRegistry, rowPolicies)) {
 			setShowRowPolicyValidationErrors(true);
 			onTabChange('security');
@@ -341,14 +348,25 @@ export function UserGroupEditor({
 							</div>
 						)}
 						{activeTab === 'security' && (
-							<UserGroupRowSecurity
-								registry={rowSecurityRegistry}
-								databaseAccess={databaseAccess}
-								policies={rowPolicies}
-								isLicensed={hasRowLevelSecurity}
-								showValidationErrors={showRowPolicyValidationErrors}
-								onChange={setRowPolicies}
-							/>
+							<>
+								{hasRowLevelSecurity && rowSecurityState === 'loading' ? (
+									<RowSecurityStatus message='Loading row-level security...' />
+								) : hasRowLevelSecurity && rowSecurityState === 'error' ? (
+									<RowSecurityStatus
+										message='Failed to load row-level security'
+										onRetry={() => void rowSecurity.refetch()}
+									/>
+								) : (
+									<UserGroupRowSecurity
+										registry={rowSecurityRegistry}
+										databaseAccess={databaseAccess}
+										policies={rowPolicies}
+										isLicensed={hasRowLevelSecurity}
+										showValidationErrors={showRowPolicyValidationErrors}
+										onChange={setRowPolicies}
+									/>
+								)}
+							</>
 						)}
 						{activeTab === 'sso' && (hasSsoTab || isSsoConfigLoading) && (
 							<div className='flex flex-col gap-5'>
@@ -467,6 +485,19 @@ export function UserGroupEditor({
 				preventCloseWhilePending
 			/>
 		</>
+	);
+}
+
+function RowSecurityStatus({ message, onRetry }: { message: string; onRetry?: () => void }) {
+	return (
+		<div className='flex min-h-11 items-center justify-between gap-3 rounded-lg border px-3 py-2'>
+			<p className='text-sm text-muted-foreground'>{message}</p>
+			{onRetry && (
+				<Button type='button' size='sm' variant='outline' className='rounded-full' onClick={onRetry}>
+					Retry
+				</Button>
+			)}
+		</div>
 	);
 }
 

@@ -1,9 +1,12 @@
 import pytest
+import sqlglot
+from sqlglot import exp
 
 from nao_core.config.databases.row_security_guard import (
     RowSecurityGuardError,
     RowSecurityPolicy,
     enforce_row_security,
+    validate_row_security_predicate,
 )
 
 
@@ -77,6 +80,53 @@ def test_filters_each_sensitive_table_in_join():
     assert "u.region IN ('eu', 'us')" in sql
 
 
+def test_preserves_left_join_rows_by_filtering_the_nullable_side_in_on():
+    sql = enforce_row_security(
+        "SELECT * FROM orders o LEFT JOIN users u ON o.user_id = u.id WHERE o.active = TRUE",
+        FakeDatabaseConfig(),
+        {
+            ("main", "users"): {
+                "access": "predicate",
+                "constraint_columns": ["region"],
+                "predicate": "region = 'eu'",
+            }
+        },
+    )
+
+    assert "LEFT JOIN users AS u ON o.user_id = u.id AND u.region = 'eu'" in sql
+    assert "WHERE o.active = TRUE" in sql
+
+
+def test_preserves_right_join_rows_by_filtering_the_nullable_side_in_on():
+    sql = enforce_row_security(
+        "SELECT * FROM orders o RIGHT JOIN users u ON o.user_id = u.id",
+        FakeDatabaseConfig(),
+        policy(),
+    )
+
+    assert "RIGHT JOIN users AS u ON o.user_id = u.id AND o.tenant_id = 7" in sql
+    assert "WHERE o.tenant_id" not in sql
+
+
+def test_preserves_full_join_rows_by_prefiltering_each_protected_source():
+    sql = enforce_row_security(
+        'SELECT * FROM orders AS "Order Source" FULL OUTER JOIN users AS "User Source" '
+        'ON "Order Source".user_id = "User Source".id',
+        FakeDatabaseConfig(),
+        {
+            **policy(),
+            ("main", "users"): {
+                "access": "predicate",
+                "constraint_columns": ["region"],
+                "predicate": "region = 'eu'",
+            },
+        },
+    )
+
+    assert '(SELECT * FROM orders AS "Order Source" WHERE "Order Source".tenant_id = 7) AS "Order Source"' in sql
+    assert '(SELECT * FROM users AS "User Source" WHERE "User Source".region = \'eu\') AS "User Source"' in sql
+
+
 def test_filters_nested_query_and_cte_base_table():
     sql = enforce_row_security(
         "WITH scoped AS (SELECT * FROM orders o) SELECT * FROM scoped",
@@ -146,6 +196,55 @@ def test_rejects_unsafe_predicates(predicate: str):
             FakeDatabaseConfig(),
             policy(predicate),
         )
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        "tenant_id = 1 OR 1 = 1",
+        "tenant_id = 1 AND 2 <> 3",
+        "tenant_id = 1 OR TRUE",
+    ],
+)
+def test_rejects_comparison_branches_not_grounded_in_constraint_columns(predicate: str):
+    with pytest.raises(RowSecurityGuardError, match="every row predicate comparison"):
+        enforce_row_security(
+            "SELECT * FROM orders",
+            FakeDatabaseConfig(),
+            policy(predicate),
+        )
+
+
+def test_allows_each_and_or_branch_to_reference_constraint_columns():
+    sql = enforce_row_security(
+        "SELECT * FROM orders",
+        FakeDatabaseConfig(),
+        policy("tenant_id = 1 OR (region = 'eu' AND tenant_id > 10)"),
+    )
+
+    assert "tenant_id = 1 OR (orders.region = 'eu' AND orders.tenant_id > 10)" in sql
+
+
+def test_preserves_quoted_alias_metadata_when_qualifying_predicates():
+    sql = enforce_row_security(
+        'SELECT * FROM orders AS "Case Sensitive"',
+        FakeDatabaseConfig(),
+        policy(),
+    )
+
+    assert '"Case Sensitive".tenant_id = 7' in sql
+
+
+@pytest.mark.parametrize("database_type", ["mysql", "starrocks"])
+def test_mysql_like_compiled_payload_stays_one_literal(database_type: str):
+    predicate = r"`tenant_id` = 'north\\'' OR 1 = 1'"
+
+    normalized = validate_row_security_predicate(predicate, ["tenant_id"], database_type)
+    expression = sqlglot.parse_one(normalized, read="mysql", into=exp.Condition)
+
+    assert isinstance(expression, exp.EQ)
+    assert isinstance(expression.expression, exp.Literal)
+    assert expression.expression.this == r"north\' OR 1 = 1"
 
 
 def test_rejects_unsupported_dialect():

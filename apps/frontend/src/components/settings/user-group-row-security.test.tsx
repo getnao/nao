@@ -207,6 +207,51 @@ describe('UserGroupRowSecurity', () => {
 		expect(screen.queryByRole('textbox', { name: 'Value for orders condition 1' })).toBeNull();
 	});
 
+	it('preserves the Guided draft when Guided is already selected', () => {
+		const initialPolicies = {
+			version: 1 as const,
+			policies: [
+				{
+					databaseType: 'duckdb',
+					database: 'analytics',
+					schema: 'main',
+					table: 'orders',
+					access: 'predicate' as const,
+					mode: 'guided' as const,
+					combinator: 'or' as const,
+					conditions: [{ column: 'tenant_id', operator: 'equals' as const, value: '7' }],
+				},
+			],
+		};
+		render(<StatefulEditor initialPolicies={initialPolicies} />);
+
+		fireEvent.click(screen.getByRole('button', { name: 'Guided' }));
+
+		expect(readPolicyState()).toEqual(initialPolicies);
+	});
+
+	it('preserves the SQL draft when SQL is already selected', () => {
+		const initialPolicies = {
+			version: 1 as const,
+			policies: [
+				{
+					databaseType: 'duckdb',
+					database: 'analytics',
+					schema: 'main',
+					table: 'orders',
+					access: 'predicate' as const,
+					mode: 'sql' as const,
+					predicate: "WHERE tenant_id = 7 OR region = 'west'",
+				},
+			],
+		};
+		render(<StatefulEditor initialPolicies={initialPolicies} />);
+
+		fireEvent.click(screen.getByRole('button', { name: 'SQL' }));
+
+		expect(readPolicyState()).toEqual(initialPolicies);
+	});
+
 	it('reveals and retains the combinator when conditions are added and removed', () => {
 		render(<StatefulEditor />);
 		fireEvent.change(screen.getByRole('combobox', { name: 'Row access for orders' }), {

@@ -503,13 +503,89 @@ describe('user group queries', () => {
 		).resolves.toMatchObject({ featureGrants: ['story-creation'] });
 	});
 
-	it('preserves conditions when registered constraint columns change', async () => {
-		const table = {
+	it('prunes policies affected by constraint column changes and preserves unaffected guided policies', async () => {
+		const orders = {
 			databaseType: 'duckdb',
 			database: 'sales',
 			schema: 'main',
 			table: 'orders',
 			constraintColumns: ['tenant_id', 'region'],
+		};
+		const customers = { ...orders, table: 'customers' };
+		const invoices = { ...orders, table: 'invoices' };
+		await updateProjectRowSecurity(PROJECT_ID, { version: 1, tables: [orders, customers, invoices] });
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts', [], DEFAULT_DENSITY, {
+			mode: 'all',
+			strict: true,
+		});
+		await updateUserGroup(PROJECT_ID, analysts.id, {
+			featureGrants: [],
+			rowPolicies: {
+				version: 1,
+				policies: [
+					{
+						databaseType: orders.databaseType,
+						database: orders.database,
+						schema: orders.schema,
+						table: orders.table,
+						access: 'predicate',
+						mode: 'guided',
+						combinator: 'and',
+						conditions: [{ column: 'region', operator: 'equals', value: 'west' }],
+					},
+					{
+						databaseType: customers.databaseType,
+						database: customers.database,
+						schema: customers.schema,
+						table: customers.table,
+						access: 'predicate',
+						mode: 'guided',
+						combinator: 'and',
+						conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
+					},
+					{
+						databaseType: invoices.databaseType,
+						database: invoices.database,
+						schema: invoices.schema,
+						table: invoices.table,
+						access: 'predicate',
+						mode: 'sql',
+						predicate: 'WHERE tenant_id = 7',
+					},
+				],
+			},
+		});
+
+		await updateProjectRowSecurity(PROJECT_ID, {
+			version: 1,
+			tables: [orders, customers, invoices].map((table) => ({
+				...table,
+				constraintColumns: ['tenant_id'],
+			})),
+		});
+
+		const groups = await getUserGroupOverview(PROJECT_ID);
+		expect(groups.groups.find((group) => group.id === analysts.id)?.rowPolicies.policies).toEqual([
+			{
+				databaseType: 'duckdb',
+				database: 'sales',
+				schema: 'main',
+				table: 'customers',
+				access: 'predicate',
+				mode: 'guided',
+				combinator: 'and',
+				conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
+			},
+		]);
+	});
+
+	it('preserves manual SQL policies for additions and prunes them after a constraint column removal', async () => {
+		const table = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+			constraintColumns: ['tenant_id'],
 		};
 		await updateProjectRowSecurity(PROJECT_ID, { version: 1, tables: [table] });
 		const analysts = await createUserGroup(PROJECT_ID, 'Analysts', [], DEFAULT_DENSITY, {
@@ -527,9 +603,8 @@ describe('user group queries', () => {
 						schema: table.schema,
 						table: table.table,
 						access: 'predicate',
-						mode: 'guided',
-						combinator: 'and',
-						conditions: [{ column: 'region', operator: 'equals', value: 'west' }],
+						mode: 'sql',
+						predicate: 'WHERE tenant_id = 7',
 					},
 				],
 			},
@@ -537,15 +612,16 @@ describe('user group queries', () => {
 
 		await updateProjectRowSecurity(PROJECT_ID, {
 			version: 1,
-			tables: [{ ...table, constraintColumns: ['tenant_id'] }],
+			tables: [{ ...table, constraintColumns: ['tenant_id', 'region'] }],
 		});
-
-		const groups = await getUserGroupOverview(PROJECT_ID);
-		expect(groups.groups.find((group) => group.id === analysts.id)?.rowPolicies.policies).toEqual([
-			expect.objectContaining({
-				conditions: [{ column: 'region', operator: 'equals', value: 'west' }],
-			}),
+		let group = (await getUserGroupOverview(PROJECT_ID)).groups.find(({ id }) => id === analysts.id);
+		expect(group?.rowPolicies.policies).toEqual([
+			expect.objectContaining({ mode: 'sql', predicate: 'WHERE tenant_id = 7' }),
 		]);
+
+		await updateProjectRowSecurity(PROJECT_ID, { version: 1, tables: [table] });
+		group = (await getUserGroupOverview(PROJECT_ID)).groups.find(({ id }) => id === analysts.id);
+		expect(group?.rowPolicies.policies).toEqual([]);
 	});
 
 	it('does not write when reading a project without user groups', async () => {

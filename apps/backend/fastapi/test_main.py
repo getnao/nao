@@ -9,6 +9,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient as FastApiTestClient
 from main import app
+from pydantic import ValidationError
 
 INTERNAL_SECRET = "test-internal-secret-at-least-20-characters"
 INTERNAL_HEADERS = {"X-Nao-Internal-Secret": INTERNAL_SECRET}
@@ -342,6 +343,44 @@ def test_sql_endpoint_allows_empty_enforced_row_security_tables(
     )
 
     assert response.status_code == 200
+
+
+def test_row_security_request_model_accepts_project_table_limit():
+    table = {
+        "database_type": "duckdb",
+        "database": "test",
+        "schema": "main",
+        "table": "users",
+        "constraint_columns": ["id"],
+        "access": "none",
+    }
+
+    main.EnforcedRowSecurity.model_validate({"enforced": True, "tables": [table] * 10_000})
+    with pytest.raises(ValidationError):
+        main.EnforcedRowSecurity.model_validate({"enforced": True, "tables": [table] * 10_001})
+
+
+def test_row_security_request_model_accepts_bounded_aggregate_predicates():
+    table = {
+        "database_type": "duckdb",
+        "database": "test",
+        "schema": "main",
+        "table": "users",
+        "constraint_columns": ["id"],
+        "access": "predicate",
+    }
+
+    main.PredicateRowAccessTable.model_validate({**table, "predicate": "x" * 1_000_000})
+    with pytest.raises(ValidationError):
+        main.PredicateRowAccessTable.model_validate({**table, "predicate": "x" * 1_000_001})
+    with pytest.raises(ValidationError):
+        main.ValidateRowPredicateRequest.model_validate(
+            {
+                "predicate": "x" * 10_001,
+                "constraint_columns": ["id"],
+                "database_type": "duckdb",
+            }
+        )
 
 
 def test_validate_row_predicate_rejects_non_constraint_column():

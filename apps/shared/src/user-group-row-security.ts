@@ -47,6 +47,7 @@ export type RowSecurityCombinator = (typeof ROW_SECURITY_COMBINATORS)[number];
 
 export const ROW_SECURITY_MAX_CONDITIONS = 100;
 export const ROW_SECURITY_MAX_VALUE_LENGTH = 10_000;
+export const ROW_SECURITY_MAX_AGGREGATE_PREDICATE_LENGTH = 1_000_000;
 
 export type UserGroupTablePolicy =
 	| (RowSecurityTableIdentity & { access: 'full' })
@@ -220,12 +221,16 @@ export function resolveWarehouseRowSecurity(
 					}
 					return `(${predicate})`;
 				});
+			const predicate = predicates.join(' OR ');
+			if (predicate.length > ROW_SECURITY_MAX_AGGREGATE_PREDICATE_LENGTH) {
+				throw new Error('Combined row security predicate is too long.');
+			}
 			return predicates.length === 0
 				? { ...table, access: 'none' as const }
 				: {
 						...table,
 						access: 'predicate' as const,
-						predicate: predicates.join(' OR '),
+						predicate,
 					};
 		}),
 	};
@@ -405,21 +410,21 @@ function compileCondition(condition: RowSecurityCondition, databaseType: string)
 	const column = quoteIdentifier(condition.column, databaseType);
 	switch (condition.operator) {
 		case 'equals':
-			return `${column} = ${compileValue(condition.value!)}`;
+			return `${column} = ${compileValue(condition.value!, databaseType)}`;
 		case 'does-not-equal':
-			return `${column} <> ${compileValue(condition.value!)}`;
+			return `${column} <> ${compileValue(condition.value!, databaseType)}`;
 		case 'greater-than':
-			return `${column} > ${compileValue(condition.value!)}`;
+			return `${column} > ${compileValue(condition.value!, databaseType)}`;
 		case 'greater-than-or-equal':
-			return `${column} >= ${compileValue(condition.value!)}`;
+			return `${column} >= ${compileValue(condition.value!, databaseType)}`;
 		case 'less-than':
-			return `${column} < ${compileValue(condition.value!)}`;
+			return `${column} < ${compileValue(condition.value!, databaseType)}`;
 		case 'less-than-or-equal':
-			return `${column} <= ${compileValue(condition.value!)}`;
+			return `${column} <= ${compileValue(condition.value!, databaseType)}`;
 		case 'is-one-of':
-			return `${column} IN (${compileList(condition.value!)})`;
+			return `${column} IN (${compileList(condition.value!, databaseType)})`;
 		case 'is-not-one-of':
-			return `${column} NOT IN (${compileList(condition.value!)})`;
+			return `${column} NOT IN (${compileList(condition.value!, databaseType)})`;
 		case 'is-null':
 			return `${column} IS NULL`;
 		case 'is-not-null':
@@ -427,14 +432,14 @@ function compileCondition(condition: RowSecurityCondition, databaseType: string)
 	}
 }
 
-function compileList(value: string): string {
+function compileList(value: string, databaseType: string): string {
 	return value
 		.split(',')
-		.map((item) => compileValue(item))
+		.map((item) => compileValue(item, databaseType))
 		.join(', ');
 }
 
-function compileValue(value: string): string {
+function compileValue(value: string, databaseType: string): string {
 	const normalized = value.trim();
 	const number = Number(normalized);
 	if (Number.isFinite(number)) {
@@ -443,7 +448,14 @@ function compileValue(value: string): string {
 	if (normalized.toLowerCase() === 'true' || normalized.toLowerCase() === 'false') {
 		return normalized.toUpperCase();
 	}
-	return `'${normalized.replaceAll("'", "''")}'`;
+	const escaped = isMySqlLike(databaseType)
+		? normalized.replaceAll('\\', '\\\\').replaceAll("'", "''")
+		: normalized.replaceAll("'", "''");
+	return `'${escaped}'`;
+}
+
+function isMySqlLike(databaseType: string): boolean {
+	return databaseType.toLowerCase() === 'mysql' || databaseType.toLowerCase() === 'starrocks';
 }
 
 function quoteIdentifier(value: string, databaseType: string): string {

@@ -76,6 +76,76 @@ describe('embedded Story query data', () => {
 		expect(mocks.backfillMissingQueryDataForSandbox).not.toHaveBeenCalled();
 	});
 
+	it('backfills static chat-linked embeds when persisted fallback is allowed', async () => {
+		mocks.getLatestVersionByStoryId.mockResolvedValue({
+			storyId: 'story-1',
+			chatId: 'chat-1',
+			slug: 'orders',
+			title: 'Orders',
+			code: '<table query_id="query_orders" />',
+			isLive: false,
+		});
+		mocks.getStoryOwnerId.mockResolvedValue('owner-1');
+		mocks.getStoryQueryData.mockResolvedValue({
+			queryData: null,
+			cachedAt: null,
+			code: '<table query_id="query_orders" />',
+			allowsPersistedFallback: true,
+		});
+		const fallback = { query_orders: { columns: ['id'], data: [{ id: 2 }] } };
+		mocks.backfillMissingQueryDataForSandbox.mockResolvedValue(fallback);
+
+		await expect(loadEmbedStoryContent('story-1', 'token')).resolves.toMatchObject({ queryData: fallback });
+		expect(mocks.backfillMissingQueryDataForSandbox).toHaveBeenCalledWith('<table query_id="query_orders" />', {
+			storyId: 'story-1',
+			chatId: 'chat-1',
+			projectId: 'project-1',
+			userId: 'owner-1',
+		});
+	});
+
+	it('loads standalone stored data with the Story owner scope', async () => {
+		mocks.getLatestVersionByStoryId.mockResolvedValue({
+			storyId: 'story-1',
+			chatId: null,
+			slug: 'orders',
+			title: 'Orders',
+			code: '<table query_id="query_orders" />',
+			isLive: false,
+		});
+		mocks.getStoryOwnerId.mockResolvedValue('owner-1');
+		const queryData = { query_orders: { columns: ['id'], data: [{ id: 3 }] } };
+		mocks.backfillMissingQueryDataForSandbox.mockResolvedValue(queryData);
+
+		await expect(loadEmbedStoryContent('story-1', 'token')).resolves.toMatchObject({ queryData });
+		expect(mocks.assertProjectStoredStoryDataAllowed).toHaveBeenCalledWith('project-1', 'owner-1');
+		expect(mocks.backfillMissingQueryDataForSandbox).toHaveBeenCalledWith('<table query_id="query_orders" />', {
+			storyId: 'story-1',
+			chatId: null,
+			projectId: 'project-1',
+			userId: 'owner-1',
+		});
+		expect(mocks.getStoryQueryData).not.toHaveBeenCalled();
+	});
+
+	it('denies standalone stored data before loading any fallback', async () => {
+		mocks.getLatestVersionByStoryId.mockResolvedValue({
+			storyId: 'story-1',
+			chatId: null,
+			slug: 'orders',
+			title: 'Orders',
+			code: '<table query_id="query_orders" />',
+			isLive: false,
+		});
+		mocks.getStoryOwnerId.mockResolvedValue('owner-1');
+		mocks.assertProjectStoredStoryDataAllowed.mockRejectedValue(new Error('Stored Story data denied.'));
+
+		await expect(loadEmbedStoryContent('story-1', 'token')).rejects.toThrow('Stored Story data denied.');
+		expect(mocks.assertProjectStoredStoryDataAllowed).toHaveBeenCalledWith('project-1', 'owner-1');
+		expect(mocks.backfillMissingQueryDataForSandbox).not.toHaveBeenCalled();
+		expect(mocks.getStoryQueryData).not.toHaveBeenCalled();
+	});
+
 	it('executes live embeds as the Story owner', async () => {
 		mocks.getLatestVersionByStoryId.mockResolvedValue({
 			storyId: 'story-1',
@@ -164,6 +234,23 @@ describe('embedded Story query data', () => {
 		mocks.getStoryQueryData.mockRejectedValue(new Error('You do not have access to this project.'));
 
 		await expect(loadEmbedStoryContent('story-1', 'token')).rejects.toThrow('access to this project');
+		expect(mocks.backfillMissingQueryDataForSandbox).not.toHaveBeenCalled();
+	});
+
+	it('does not fall back when static principal access validation fails', async () => {
+		mocks.getLatestVersionByStoryId.mockResolvedValue({
+			storyId: 'story-1',
+			chatId: 'chat-1',
+			slug: 'orders',
+			title: 'Orders',
+			code: '<table query_id="query_orders" />',
+			isLive: false,
+			cacheSchedule: null,
+		});
+		mocks.getStoryOwnerId.mockResolvedValue('removed-owner');
+		mocks.getStoryQueryData.mockRejectedValue(new Error('Stored Story data is unavailable.'));
+
+		await expect(loadEmbedStoryContent('story-1', 'token')).rejects.toThrow('Stored Story data is unavailable.');
 		expect(mocks.backfillMissingQueryDataForSandbox).not.toHaveBeenCalled();
 	});
 });

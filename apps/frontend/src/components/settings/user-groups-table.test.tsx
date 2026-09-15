@@ -23,6 +23,7 @@ import { UserGroupUserDetail } from './user-group-user-detail';
 import { resolveUserGroupsPageTab, UserGroupsTable } from './user-groups-table';
 import type { UserGroupEditorGroup, UserGroupEditorTab } from './user-group-editor';
 import type { UserGroupUserDetailTab } from './user-group-user-detail';
+import type { ProjectRowSecurity } from '@nao/shared';
 import type { ComponentProps, MouseEventHandler, ReactNode } from 'react';
 
 const mocks = vi.hoisted(() => ({
@@ -925,6 +926,125 @@ describe('UserGroupEditor', () => {
 		expect(screen.getByText('Constraint columns: tenant_id')).toBeTruthy();
 		expect(screen.getByRole('combobox', { name: 'Row access for orders' })).toBeTruthy();
 		expect(screen.queryByRole('link', { name: 'Upgrade to Enterprise' })).toBeNull();
+	});
+
+	it('preserves policies while row-security metadata loads, then saves when ready', () => {
+		const rowPolicies = {
+			version: 1 as const,
+			policies: [
+				{
+					...rowSecurityIdentity,
+					access: 'predicate' as const,
+					mode: 'guided' as const,
+					combinator: 'and' as const,
+					conditions: [{ column: 'tenant_id', operator: 'equals' as const, value: '7' }],
+				},
+			],
+		};
+		const rowSecurityQuery: {
+			isLoading: boolean;
+			isError: boolean;
+			data?: ProjectRowSecurity;
+			refetch: ReturnType<typeof vi.fn>;
+		} = {
+			isLoading: true,
+			isError: false,
+			data: undefined,
+			refetch: vi.fn(),
+		};
+		enableRowLevelSecurity(rowSecurityQuery);
+		const { rerender } = renderEditor('security', vi.fn(), {
+			...analysts,
+			databaseAccess: orderDatabaseAccess,
+			rowPolicies,
+		});
+		fireEvent.change(screen.getByRole('textbox', { name: 'Group name' }), {
+			target: { value: 'Updated analysts' },
+		});
+
+		expect(screen.getByText('Loading row-level security...')).toBeTruthy();
+		expect(screen.queryByText('No sensitive tables are configured in the project Security tab.')).toBeNull();
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+		expect(mocks.mutateAsync).not.toHaveBeenCalled();
+
+		rowSecurityQuery.isLoading = false;
+		rowSecurityQuery.data = { version: 1, tables: [rowSecurityTable] };
+		rerender(
+			<UserGroupEditor
+				group={{ ...analysts, databaseAccess: orderDatabaseAccess, rowPolicies }}
+				activeTab='security'
+				onTabChange={vi.fn()}
+				onCancelNew={vi.fn()}
+				onCreated={vi.fn()}
+				onDeleted={vi.fn()}
+			/>,
+		);
+		expect(screen.getByRole('combobox', { name: 'Row access for orders' })).toBeTruthy();
+
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+		expect(mocks.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ rowPolicies }));
+	});
+
+	it('shows a retry state and blocks policy saves when row-security metadata fails', () => {
+		const retry = vi.fn();
+		enableRowLevelSecurity({
+			isLoading: false,
+			isError: true,
+			data: undefined,
+			refetch: retry,
+		});
+		renderEditor('security', vi.fn(), {
+			...analysts,
+			databaseAccess: orderDatabaseAccess,
+			rowPolicies: {
+				version: 1,
+				policies: [
+					{
+						...rowSecurityIdentity,
+						access: 'predicate',
+						mode: 'guided',
+						combinator: 'and',
+						conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
+					},
+				],
+			},
+		});
+		fireEvent.change(screen.getByRole('textbox', { name: 'Group name' }), {
+			target: { value: 'Updated analysts' },
+		});
+
+		expect(screen.getByText('Failed to load row-level security')).toBeTruthy();
+		fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+		expect(retry).toHaveBeenCalledOnce();
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+		expect(mocks.mutateAsync).not.toHaveBeenCalled();
+	});
+
+	it('allows unrelated saves while row-security metadata loads when policies need no metadata', () => {
+		const rowPolicies = {
+			version: 1 as const,
+			policies: [{ ...rowSecurityIdentity, access: 'full' as const }],
+		};
+		enableRowLevelSecurity({
+			isLoading: true,
+			isError: false,
+			data: undefined,
+			refetch: vi.fn(),
+		});
+		renderEditor('features', vi.fn(), {
+			...analysts,
+			databaseAccess: orderDatabaseAccess,
+			rowPolicies,
+		});
+		fireEvent.change(screen.getByRole('textbox', { name: 'Group name' }), {
+			target: { value: 'Updated analysts' },
+		});
+
+		fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		expect(mocks.mutateAsync).toHaveBeenCalledWith(
+			expect.objectContaining({ name: 'Updated analysts', rowPolicies }),
+		);
 	});
 
 	it('blocks incomplete Guided policies, switches to Security, and clears errors on cancel', () => {
@@ -1918,7 +2038,18 @@ describe('UserGroupUserDetail', () => {
 	});
 });
 
-function enableRowLevelSecurity() {
+function enableRowLevelSecurity(
+	rowSecurityQuery: {
+		isLoading: boolean;
+		isError: boolean;
+		data?: ProjectRowSecurity;
+		refetch?: () => unknown;
+	} = {
+		isLoading: false,
+		isError: false,
+		data: { version: 1, tables: [rowSecurityTable] },
+	},
+) {
 	mocks.useLicenseFeatures.mockReturnValue({
 		isLoading: false,
 		isError: false,
@@ -1929,12 +2060,13 @@ function enableRowLevelSecurity() {
 		isError: false,
 		data:
 			options?.queryKey?.[0] === 'row-security'
-				? { version: 1, tables: [rowSecurityTable] }
+				? rowSecurityQuery.data
 				: options?.queryKey?.[0] === 'oidc-config'
 					? null
 					: options?.queryKey?.[0] === 'microsoft-config'
 						? false
 						: overview,
+		...(options?.queryKey?.[0] === 'row-security' ? rowSecurityQuery : {}),
 	}));
 }
 

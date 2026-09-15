@@ -114,7 +114,7 @@ const projectRowSecuritySchema = z
 		tables: z
 			.array(
 				rowTableIdentitySchema
-					.extend({ constraintColumns: z.array(contextNameSchema).min(1).max(500) })
+					.extend({ constraintColumns: z.array(contextNameSchema).min(1).max(256) })
 					.strict(),
 			)
 			.max(10_000),

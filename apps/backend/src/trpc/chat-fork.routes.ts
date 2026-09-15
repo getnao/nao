@@ -1,4 +1,5 @@
 import { TRPCError } from '@trpc/server';
+import { getToolName, isToolUIPart } from 'ai';
 import { z } from 'zod/v4';
 
 import * as chatQueries from '../queries/chat.queries';
@@ -148,7 +149,7 @@ async function forkSharedStoryItem(
 			chatQueries.getChatMessages(share.chatId!),
 			getAuthorizedStoredStoryQueryData(share.chatId!, share.code, userId),
 		]);
-		const seededMessages = compactionService.useLastCompaction(rawMessages);
+		const seededMessages = removeStoredDataToolParts(compactionService.useLastCompaction(rawMessages));
 		const messages = [
 			...buildQueryDataMessages(queryData),
 			buildStoryContextMessage(share.slug, share.title, share.code),
@@ -268,6 +269,14 @@ function buildQueryDataMessages(
 		return [];
 	}
 	return [{ role: 'assistant', isForked: true, parts }];
+}
+
+function removeStoredDataToolParts(messages: Array<Omit<UIMessage, 'id'>>): Array<Omit<UIMessage, 'id'>> {
+	const dataToolNames = new Set(['execute_sql', 'read_query_result']);
+	return messages.flatMap((message) => {
+		const parts = message.parts.filter((part) => !isToolUIPart(part) || !dataToolNames.has(getToolName(part)));
+		return parts.length > 0 ? [{ ...message, parts }] : [];
+	});
 }
 
 async function createStoryInFork(

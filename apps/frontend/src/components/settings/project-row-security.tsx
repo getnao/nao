@@ -846,7 +846,10 @@ function StatusRow({ status, onRetry }: { status: string; onRetry?: () => void }
 }
 
 function toDomId(value: string): string {
-	return value.replaceAll(/[^a-zA-Z0-9_-]/g, '-');
+	return value
+		.split('')
+		.map((character) => character.charCodeAt(0).toString(16).padStart(4, '0'))
+		.join('');
 }
 
 export function filterRowSecurityObjects(

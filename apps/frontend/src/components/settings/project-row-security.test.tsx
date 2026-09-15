@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ProjectRowSecurity } from './project-row-security';
@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
 	mutationPending: false,
 	mutationError: null as Error | null,
 	mutate: vi.fn(),
+	mutationOptions: vi.fn(),
 	invalidateQueries: vi.fn(),
 	refetch: vi.fn(),
 }));
@@ -33,8 +34,25 @@ vi.mock('@tanstack/react-query', () => ({
 		isError: mocks.queryError,
 		refetch: mocks.refetch,
 	}),
-	useMutation: () => ({
-		mutate: mocks.mutate,
+	useMutation: (options?: {
+		onSuccess?: (...args: unknown[]) => unknown;
+		onSettled?: (...args: unknown[]) => unknown;
+	}) => ({
+		mutate: (
+			variables: unknown,
+			callOptions?: {
+				onSuccess?: (...args: unknown[]) => unknown;
+				onSettled?: (...args: unknown[]) => unknown;
+			},
+		) => {
+			mocks.mutate(variables, callOptions);
+			void (async () => {
+				await options?.onSuccess?.(undefined, variables, undefined, undefined);
+				await callOptions?.onSuccess?.(undefined, variables, undefined, undefined);
+				await options?.onSettled?.(undefined, null, variables, undefined, undefined);
+				await callOptions?.onSettled?.(undefined, null, variables, undefined, undefined);
+			})();
+		},
 		isPending: mocks.mutationPending,
 		error: mocks.mutationError,
 	}),
@@ -54,7 +72,7 @@ vi.mock('@/main', () => ({
 				queryOptions: vi.fn(),
 				queryKey: vi.fn(() => ['row-security']),
 			},
-			updateRowSecurity: { mutationOptions: vi.fn() },
+			updateRowSecurity: { mutationOptions: mocks.mutationOptions },
 		},
 	},
 }));
@@ -88,9 +106,8 @@ describe('ProjectRowSecurity', () => {
 		mocks.mutationPending = false;
 		mocks.mutationError = null;
 		mocks.mutate.mockReset();
-		mocks.mutate.mockImplementation((_registry: unknown, options?: { onSuccess?: () => void }) =>
-			options?.onSuccess?.(),
-		);
+		mocks.mutationOptions.mockReset().mockImplementation((options) => options);
+		mocks.invalidateQueries.mockReset().mockResolvedValue(undefined);
 		mocks.refetch.mockReset();
 		vi.stubGlobal(
 			'ResizeObserver',
@@ -155,6 +172,57 @@ describe('ProjectRowSecurity', () => {
 		expect(tenantCheckbox.className).toContain('cursor-pointer');
 		expect(tenantCheckbox.parentElement?.className).toContain('cursor-pointer');
 		expect(screen.getAllByText('1 configured')).toHaveLength(2);
+	});
+
+	it('keeps tree IDs unique for colliding punctuation and non-ASCII keys', () => {
+		render(
+			<ProjectRowSecurity
+				objects={[
+					{
+						databaseType: 'duckdb',
+						database: 'résumé',
+						schema: 'sales.eu',
+						table: 'orders.eu',
+						columns: ['tenant_id'],
+					},
+					{
+						databaseType: 'duckdb',
+						database: 'r-sum-',
+						schema: 'sales/eu',
+						table: 'orders/eu',
+						columns: ['tenant_id'],
+					},
+				]}
+			/>,
+		);
+		openConfiguration();
+
+		const databaseButtons = [
+			screen.getByRole('button', { name: 'Expand résumé database' }),
+			screen.getByRole('button', { name: 'Expand r-sum- database' }),
+		];
+		expect(databaseButtons[0].getAttribute('aria-controls')).not.toBe(
+			databaseButtons[1].getAttribute('aria-controls'),
+		);
+		databaseButtons.forEach((button) => fireEvent.click(button));
+
+		const schemaButtons = [
+			screen.getByRole('button', { name: 'Expand sales.eu schema' }),
+			screen.getByRole('button', { name: 'Expand sales/eu schema' }),
+		];
+		expect(schemaButtons[0].getAttribute('aria-controls')).not.toBe(schemaButtons[1].getAttribute('aria-controls'));
+		schemaButtons.forEach((button) => fireEvent.click(button));
+
+		const tableButtons = [
+			screen.getByRole('button', { name: 'Expand orders.eu table columns' }),
+			screen.getByRole('button', { name: 'Expand orders/eu table columns' }),
+		];
+		expect(tableButtons[0].getAttribute('aria-controls')).not.toBe(tableButtons[1].getAttribute('aria-controls'));
+		tableButtons.forEach((button) => fireEvent.click(button));
+
+		[...databaseButtons, ...schemaButtons, ...tableButtons].forEach((button) => {
+			expect(document.getElementById(button.getAttribute('aria-controls')!)).toBeTruthy();
+		});
 	});
 
 	it('keeps the tree collapsed when a database matches the search', () => {
@@ -294,7 +362,7 @@ describe('ProjectRowSecurity', () => {
 		expect(mocks.mutate).not.toHaveBeenCalled();
 	});
 
-	it('saves the complete registry and closes the dialog', () => {
+	it('saves the complete registry, invalidates the query, and closes the dialog', async () => {
 		mocks.rowSecurity = configuredRegistry();
 		render(<ProjectRowSecurity objects={objects} />);
 		openConfiguration();
@@ -326,7 +394,10 @@ describe('ProjectRowSecurity', () => {
 			},
 			expect.objectContaining({ onSuccess: expect.any(Function) }),
 		);
-		expect(screen.queryByRole('dialog')).toBeNull();
+		await waitFor(() => {
+			expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['row-security'] });
+			expect(screen.queryByRole('dialog')).toBeNull();
+		});
 	});
 
 	it('opens Edit with only the selected table and its columns', () => {
@@ -410,7 +481,7 @@ describe('ProjectRowSecurity', () => {
 		expect(mocks.mutate).not.toHaveBeenCalled();
 	});
 
-	it('keeps summary controls styled and confirms persisted removal', () => {
+	it('keeps summary controls styled and confirms persisted removal', async () => {
 		mocks.rowSecurity = configuredRegistry();
 		render(<ProjectRowSecurity objects={objects} />);
 
@@ -437,7 +508,10 @@ describe('ProjectRowSecurity', () => {
 			{ version: 1, tables: [] },
 			expect.objectContaining({ onSuccess: expect.any(Function) }),
 		);
-		expect(screen.queryByRole('dialog', { name: 'Remove protected table?' })).toBeNull();
+		await waitFor(() => {
+			expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['row-security'] });
+			expect(screen.queryByRole('dialog', { name: 'Remove protected table?' })).toBeNull();
+		});
 	});
 
 	it('shows removal errors and prevents closing while pending', () => {
