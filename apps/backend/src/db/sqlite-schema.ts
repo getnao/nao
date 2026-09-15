@@ -15,6 +15,7 @@ import {
 	type StoredUserGroupSsoMappings,
 } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
+import type { StoryTheme } from '@nao/shared/story-theme';
 import type {
 	AnalyticsEventMetadata,
 	CitationData,
@@ -1529,6 +1530,18 @@ export const oauthConsent = sqliteTable(
 	},
 	(t) => [index('oauth_consent_clientId_idx').on(t.clientId), index('oauth_consent_userId_idx').on(t.userId)],
 );
+
+export const projectStoryTheme = sqliteTable('project_story_theme', {
+	projectId: text('project_id')
+		.primaryKey()
+		.references(() => project.id, { onDelete: 'cascade' }),
+	theme: text('theme', { mode: 'json' }).$type<StoryTheme>(),
+	enabled: integer('enabled', { mode: 'boolean' }).default(false).notNull(),
+	updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		.$onUpdate(() => new Date())
+		.notNull(),
+});
 
 export const brandingConfig = sqliteTable('branding_config', {
 	id: text('id').primaryKey(),

@@ -137,6 +137,8 @@ config:
   betaAutomationsEnabled: true
   # -- Context recommendations in the project settings
   betaContextRecommendationsEnabled: false
+  # -- Custom story theming in Appearance settings
+  betaCustomStoriesEnabled: false
 
   # ---------------------------------------------------------------------------
   # Git sync — populates the `context` PVC via an initContainer git-clone.

@@ -1,4 +1,12 @@
-import { buildChart, bucketPieData, buildStoryChartBlock, DEFAULT_COLORS, labelize, resolveDataKey } from '@nao/shared';
+import {
+	buildChart,
+	bucketPieData,
+	buildStoryChartBlock,
+	DEFAULT_COLORS,
+	labelize,
+	resolveDataKey,
+	useChartStyle,
+} from '@nao/shared';
 import { appendBlockToStoryCode } from '@nao/shared/story-tabs';
 import { displayChart } from '@nao/shared/tools';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -633,10 +641,12 @@ export const ChartDisplay = memo(function ChartDisplay({
 	);
 
 	const isDualAxis = displayChart.isComboChart(chartType) && displayChart.hasRightAxisSeries(visibleSeries);
+	const chartStyle = useChartStyle();
 
 	const chartElement = useMemo(
 		() =>
 			buildChart({
+				chartStyle,
 				data: pieData,
 				chartType,
 				xAxisKey,
@@ -745,6 +755,7 @@ export const ChartDisplay = memo(function ChartDisplay({
 			showLegend,
 			useInlineHeader,
 			disableTooltip,
+			chartStyle,
 		],
 	);
 

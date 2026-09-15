@@ -268,6 +268,7 @@ describe('license.service', () => {
 		process.env.BETA_AUTOMATIONS_ENABLED = 'false';
 		process.env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED = 'true';
 		process.env.BETA_STORY_FILTERS_ENABLED = 'true';
+		process.env.BETA_CUSTOM_STORIES_ENABLED = 'true';
 		process.env.SMTP_HOST = 'smtp.example.com';
 		process.env.SMTP_MAIL_FROM = 'hello@example.com';
 		process.env.SMTP_PASSWORD = 'secret';
@@ -294,6 +295,7 @@ describe('license.service', () => {
 				betaAutomationsEnabled: false,
 				betaContextRecommendationsEnabled: true,
 				betaStoryFiltersEnabled: true,
+				betaCustomStoriesEnabled: true,
 				smtpConfigured: true,
 				loginModesConfigured: {
 					google: false,

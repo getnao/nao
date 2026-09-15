@@ -12,6 +12,7 @@ export const systemRoutes = {
 		betaContextRecommendationsEnabled: env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED,
 		betaStoryFiltersEnabled: env.BETA_STORY_FILTERS_ENABLED,
 		betaSubagentsEnabled: env.BETA_SUBAGENTS_ENABLED,
+		betaCustomStoriesEnabled: env.BETA_CUSTOM_STORIES_ENABLED,
 	})),
 
 	version: adminProtectedProcedure.query(() => ({

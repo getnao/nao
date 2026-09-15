@@ -7,6 +7,7 @@ export * from './chart-data-labels';
 export * from './chart-domain';
 export * from './chart-fonts';
 export * from './chart-plugin';
+export * from './chart-style';
 export * from './chart-values';
 export * from './citation';
 export * from './context-recommendation';

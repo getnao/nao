@@ -404,6 +404,12 @@ const baseRawEnvSchema = z.object({
 		.default('true')
 		.transform((val) => val === 'true'),
 
+	BETA_CUSTOM_STORIES_ENABLED: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('false')
+		.transform((val) => val === 'true'),
+
 	BETA_SUBAGENTS_ENABLED: z
 		.enum(['true', 'false'])
 		.optional()

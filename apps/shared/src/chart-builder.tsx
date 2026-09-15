@@ -40,6 +40,7 @@ import {
 } from './chart-data-labels';
 import { collectAxisValues, collectStackedAxisValues, resolveBarYAxisDomain, resolveYAxisDomain } from './chart-domain';
 import { CHART_FONT_STACK } from './chart-fonts';
+import { type ChartStyle, DEFAULT_CHART_STYLE } from './chart-style';
 import {
 	attachValueAffixes,
 	formatChartValue,
@@ -339,6 +340,8 @@ export interface BuildChartProps {
 	idPrefix?: string;
 	/** Optional node rendered inline to the left of the first KPI card's title (used for a per-column drag handle in the story editor). */
 	kpiLeadingSlot?: React.ReactNode;
+	/** Recharts-prop styling (bar radius); defaults to nao's look. Themed custom stories pass their own. */
+	chartStyle?: ChartStyle;
 }
 
 const CHART_ANIMATION_DURATION_MS = 400;
@@ -407,6 +410,7 @@ function buildResolved(props: BuildChartProps) {
 		colorFor,
 		labelFormatter,
 		backgroundColor: props.backgroundColor ?? DEFAULT_BACKGROUND,
+		chartStyle: props.chartStyle ?? DEFAULT_CHART_STYLE,
 		xAxisInterval,
 		margin: buildChartMargin(props, showTitle),
 		children: titleChild ? [titleChild, ...(props.children ?? [])] : props.children,
@@ -449,7 +453,7 @@ export function clampNegativeSeriesValues(
 }
 
 type ResolvedProps = BuildChartProps &
-	Required<Pick<BuildChartProps, 'colorFor' | 'labelFormatter' | 'backgroundColor'>> & {
+	Required<Pick<BuildChartProps, 'colorFor' | 'labelFormatter' | 'backgroundColor' | 'chartStyle'>> & {
 		xAxisInterval?: number;
 	};
 
@@ -945,8 +949,12 @@ function buildBarChart(props: ResolvedProps) {
 					dataKey={s.data_key}
 					fill={colorFor(s.data_key, i)}
 					stackId={isStacked ? 'stack' : undefined}
-					radius={isStacked ? undefined : [4, 4, 4, 4]}
-					shape={isStacked ? renderStackedBarShape(seriesKeys, s.data_key, separatorColor) : undefined}
+					radius={isStacked ? undefined : uniformRadius(props.chartStyle.barRadius)}
+					shape={
+						isStacked
+							? renderStackedBarShape(seriesKeys, s.data_key, separatorColor, props.chartStyle.barRadius)
+							: undefined
+					}
 					isAnimationActive={Boolean(props.animate)}
 					animationDuration={CHART_ANIMATION_DURATION_MS}
 				/>
@@ -1007,14 +1015,14 @@ function renderHorizontalStackedBarShape(seriesKeys: string[], currentKey: strin
  * segment in the background color so adjacent segments read as separated by a thin gap.
  * Recharts applies a single radius per `<Bar>` across all rows, so per-datum rounding needs a shape.
  */
-function renderStackedBarShape(seriesKeys: string[], currentKey: string, separatorColor: string) {
+function renderStackedBarShape(seriesKeys: string[], currentKey: string, separatorColor: string, barRadius: number) {
 	return function StackedBarSegment(shapeProps: unknown) {
 		const rectProps = shapeProps as RectangleProps & { payload?: Record<string, unknown> };
 		const rounded = isTopmostStackSegment(rectProps.payload ?? {}, seriesKeys, currentKey);
 		return (
 			<Rectangle
 				{...rectProps}
-				radius={rounded ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+				radius={rounded ? [barRadius, barRadius, 0, 0] : [0, 0, 0, 0]}
 				stroke={separatorColor}
 				strokeWidth={STACK_SEPARATOR_WIDTH}
 			/>
@@ -1230,7 +1238,7 @@ function buildComboChart(props: ResolvedProps) {
 				maxLabelChars: xAxisMaxLabelChars,
 			})}
 			{children}
-			{series.map((s, i) => renderComboSeries(s, i, chartType, colorFor, idPrefix))}
+			{series.map((s, i) => renderComboSeries(s, i, chartType, colorFor, idPrefix, props.chartStyle))}
 			{dataLabelsLayer && <Customized component={dataLabelsLayer} />}
 		</ComposedChart>
 	);
@@ -1268,6 +1276,7 @@ function renderComboSeries(
 	baseType: displayChart.ChartType,
 	colorFor: (key: string, index: number) => string,
 	idPrefix: string,
+	chartStyle: ChartStyle,
 ) {
 	const color = colorFor(series.data_key, index);
 	const yAxisId = comboAxisSide(series);
@@ -1306,10 +1315,14 @@ function renderComboSeries(
 			yAxisId={yAxisId}
 			dataKey={series.data_key}
 			fill={color}
-			radius={[4, 4, 4, 4]}
+			radius={uniformRadius(chartStyle.barRadius)}
 			isAnimationActive={false}
 		/>
 	);
+}
+
+function uniformRadius(radius: number): [number, number, number, number] {
+	return [radius, radius, radius, radius];
 }
 
 const AXIS_LABEL_STYLE = {

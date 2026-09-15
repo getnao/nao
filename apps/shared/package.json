@@ -14,6 +14,7 @@
 		"./story-segments": "./src/story-segments.ts",
 		"./story-table-utils": "./src/story-table-utils.ts",
 		"./story-tabs": "./src/story-tabs.ts",
+		"./story-theme": "./src/story-theme.ts",
 		"./story-validation": "./src/story-validation.ts",
 		"./rules-template": "./src/rules-template.ts",
 		"./sql-template": "./src/sql-template.ts",

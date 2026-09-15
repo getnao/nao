@@ -36,6 +36,7 @@ data:
   GITLAB_SSO: {{ eq (toString .Values.config.gitlabSso) "true" | quote }}
   BETA_AUTOMATIONS_ENABLED: {{ eq (toString .Values.config.betaAutomationsEnabled) "true" | quote }}
   BETA_CONTEXT_RECOMMENDATIONS_ENABLED: {{ eq (toString .Values.config.betaContextRecommendationsEnabled) "true" | quote }}
+  BETA_CUSTOM_STORIES_ENABLED: {{ eq (toString .Values.config.betaCustomStoriesEnabled) "true" | quote }}
   DEFAULT_USER_ROLE: {{ .Values.config.defaultUserRole | default "user" | quote }}
   {{- if .Values.config.gitlabBaseUrl }}
   GITLAB_BASE_URL: {{ .Values.config.gitlabBaseUrl | quote }}
