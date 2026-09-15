@@ -132,8 +132,17 @@ type Provider = {
 const TOKEN_PLACEHOLDER = '<token>';
 
 function ConnectionCard() {
-	const endpointUrl = `${window.location.origin}/mcp`;
+	const projectQuery = useQuery(trpc.project.getCurrent.queryOptions());
+	const project = projectQuery.data;
 
+	if (!project) {
+		return null;
+	}
+
+	return <ConnectionGuide projectName={project.name} endpointUrl={`${window.location.origin}/mcp/${project.id}`} />;
+}
+
+function ConnectionGuide({ projectName, endpointUrl }: { projectName: string; endpointUrl: string }) {
 	const cursorConfig = JSON.stringify({ mcpServers: { nao: { type: 'http', url: endpointUrl } } }, null, 2);
 
 	const claudeDesktopConfig = JSON.stringify(
@@ -319,7 +328,10 @@ function ConnectionCard() {
 	const goNext = () => setActive((i) => (i === providers.length - 1 ? 0 : i + 1));
 
 	return (
-		<SettingsCard title='Connection guide'>
+		<SettingsCard
+			title='Connection guide'
+			description={`The endpoint URL is scoped to ${projectName}. Switch project to get the URL of another one.`}
+		>
 			<div className='flex flex-col gap-4'>
 				<div className='flex gap-2 flex-wrap items-center'>
 					{providers.map((p, i) => (
