@@ -315,6 +315,7 @@ export const projectRoutes = {
 					autoCreateUsersEnabled: config.autoCreateUsersEnabled,
 					autoCreateUsersDomains: config.autoCreateUsersDomains,
 					replyMode: config.replyMode,
+					dmScopeMissing: config.dmScopeMissing,
 				}
 			: null;
 

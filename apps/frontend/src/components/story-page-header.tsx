@@ -45,8 +45,10 @@ interface LiveControls {
 	isRefreshing?: boolean;
 	isUpdating?: boolean;
 	onRefresh?: () => void;
-	/** When provided, the live state can be toggled (owner). Otherwise the badge is read-only. */
+	/** When provided, clicking the badge opens settings. Otherwise the badge is read-only. */
 	onOpenSettings?: () => void;
+	/** Overrides the tooltip shown on the clickable badge (e.g. for viewers managing notifications). */
+	isDialogNotifManager?: boolean;
 }
 
 export interface StoryRefreshFailure {
@@ -355,7 +357,15 @@ function StorySubHeader({
 }
 
 function LiveStoryControls({ live }: { live: LiveControls }) {
-	const { isLive, cachedAt, isRefreshing = false, isUpdating = false, onRefresh, onOpenSettings } = live;
+	const {
+		isLive,
+		cachedAt,
+		isRefreshing = false,
+		isUpdating = false,
+		onRefresh,
+		onOpenSettings,
+		isDialogNotifManager,
+	} = live;
 
 	if (!onOpenSettings) {
 		if (!isLive) {
@@ -406,7 +416,13 @@ function LiveStoryControls({ live }: { live: LiveControls }) {
 					</span>
 				</TooltipTrigger>
 				<TooltipContent>
-					{isUpdating ? 'Updating...' : isLive ? 'Live story settings' : 'Enable live mode'}
+					{isDialogNotifManager
+						? 'Manage notifications'
+						: isLive
+							? isUpdating
+								? 'Updating...'
+								: 'Live story settings'
+							: 'Enable live mode'}
 				</TooltipContent>
 			</Tooltip>
 			{isLive && cachedAt && <LiveStoryTimestamp cachedAt={cachedAt} />}
