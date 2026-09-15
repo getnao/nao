@@ -1,9 +1,11 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 
 from nao_core.ui import UI
+
+from .assertions import Assertion, parse_assertions
 
 TESTS_FOLDER = "tests/"
 
@@ -15,8 +17,9 @@ class TestCase:
     name: str
     prompt: str
     file_path: Path
-    sql: str
+    sql: str | None = None
     database: str | None = None
+    assertions: list[Assertion] = field(default_factory=list)
 
     @classmethod
     def from_yaml(cls, file_path: Path) -> "TestCase":
@@ -30,6 +33,7 @@ class TestCase:
             sql=data.get("sql"),
             database=data.get("database"),
             file_path=file_path,
+            assertions=parse_assertions(data.get("assertions")),
         )
 
 
