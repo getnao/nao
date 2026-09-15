@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { parseStoryTabs } from '@nao/shared/story-tabs';
 import type { ReactNode } from 'react';
+import type { StoryFormat } from '@nao/shared/dbt-charts';
 
 import type { QueryDataMap } from '@/components/story-embeds';
 import type { useStoryPageEditor } from '@/hooks/use-story-page-editor';
@@ -15,14 +16,15 @@ interface StoryPageBodyProps {
 	editor: ReturnType<typeof useStoryPageEditor>;
 	preview: ReactNode;
 	queryData?: QueryDataMap | null;
+	format?: StoryFormat;
 }
 
-export function StoryPageBody({ editor, preview, queryData }: StoryPageBodyProps) {
+export function StoryPageBody({ editor, preview, queryData, format = 'markdown' }: StoryPageBodyProps) {
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 	useDragAutoScroll(scrollContainerRef);
 	const unsavedChangesDialog = <StoryUnsavedChangesDialog {...editor.exitDialog} />;
 
-	if (editor.viewMode === 'edit') {
+	if (editor.viewMode === 'edit' && format === 'markdown') {
 		const editCode = editor.editCode;
 		const tabs = parseStoryTabs(editCode);
 		const isTabbed = Boolean(tabs?.length);
@@ -64,6 +66,7 @@ export function StoryPageBody({ editor, preview, queryData }: StoryPageBodyProps
 				<div className='flex-1 min-h-0'>
 					<StoryCodeView
 						code={codeDraft}
+						format={format}
 						codeRef={editor.codeViewRef}
 						onCodeChange={editor.onCodeChange}
 						onValidChange={editor.setIsCodeValid}

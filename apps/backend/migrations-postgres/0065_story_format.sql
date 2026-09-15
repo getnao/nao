@@ -1,0 +1,1 @@
+ALTER TABLE "story" ADD COLUMN "format" text DEFAULT 'markdown' NOT NULL;

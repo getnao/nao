@@ -1,4 +1,5 @@
 import { BULK_ITEMS_LIMIT, NO_CACHE_SCHEDULE } from '@nao/shared';
+import type { StoryFormat } from '@nao/shared/dbt-charts';
 import type { BulkStoryItem, UserRole } from '@nao/shared/types';
 import { DOWNLOAD_FORMATS } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
@@ -71,7 +72,7 @@ export const storyRoutes = {
 			return stories.map(({ code, ...rest }) => ({
 				...rest,
 				storySlug: rest.slug,
-				summary: extractStorySummary(code),
+				summary: extractStorySummary(code, rest.format),
 				sharing: sharingByStoryId.get(rest.id) ?? null,
 			}));
 		}),
@@ -87,7 +88,7 @@ export const storyRoutes = {
 			return stories.map(({ code, ...rest }) => ({
 				...rest,
 				storySlug: rest.slug,
-				summary: extractStorySummary(code),
+				summary: extractStorySummary(code, rest.format),
 				sharing: sharingByStoryId.get(rest.id) ?? null,
 			}));
 		}),
@@ -97,7 +98,7 @@ export const storyRoutes = {
 		return stories.map(({ code, ...rest }) => ({
 			...rest,
 			storySlug: rest.slug,
-			summary: extractStorySummary(code),
+			summary: extractStorySummary(code, rest.format),
 		}));
 	}),
 
@@ -106,7 +107,7 @@ export const storyRoutes = {
 		return stories.map(({ code, ...rest }) => ({
 			...rest,
 			storySlug: rest.slug,
-			summary: extractStorySummary(code),
+			summary: extractStorySummary(code, rest.format),
 		}));
 	}),
 
@@ -178,6 +179,7 @@ export const storyRoutes = {
 				return {
 					id: null as string | null,
 					title: input.storySlug,
+					format: null as StoryFormat | null,
 					isLive: false,
 					isLiveTextDynamic: false,
 					cacheSchedule: null as string | null,
@@ -191,6 +193,7 @@ export const storyRoutes = {
 			return {
 				id: story.id as string | null,
 				title: story.title,
+				format: story.format as StoryFormat | null,
 				isLive: story.isLive,
 				isLiveTextDynamic: story.isLiveTextDynamic,
 				cacheSchedule: story.cacheSchedule,
@@ -405,7 +408,7 @@ export const storyRoutes = {
 		return stories.map((story) => ({
 			...story,
 			storySlug: story.slug,
-			summary: extractStorySummary(story.code),
+			summary: extractStorySummary(story.code, story.format),
 			sharing: {
 				visibility: story.visibility,
 				sharedWithCount: story.sharedWithCount,

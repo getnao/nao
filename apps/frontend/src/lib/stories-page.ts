@@ -1,7 +1,9 @@
 import { FOLDER_SYSTEM_TYPE } from '@nao/shared/types';
+import { dbtChartsBoardPathToId } from '@nao/shared/dbt-charts';
 import type { inferRouterOutputs } from '@trpc/server';
 
 import type { TrpcRouter } from '@nao/backend/trpc';
+import type { StoryFormat } from '@nao/shared/dbt-charts';
 import type { StorySharingInfo, StorySummary, SummarySegment } from '@nao/shared/types';
 
 type RouterOutputs = inferRouterOutputs<TrpcRouter>;
@@ -40,10 +42,11 @@ export type StoryItem = {
 	createdAt: Date;
 	updatedAt: Date;
 	author: string;
-	kind: 'own' | 'own-standalone' | 'shared-with-me' | 'shared-project';
+	kind: 'own' | 'own-standalone' | 'shared-with-me' | 'shared-project' | 'project-board';
 	chatId?: string;
 	storySlug?: string;
 	summary: StorySummary;
+	format: StoryFormat;
 	isLive: boolean;
 	isPinned: boolean;
 	isFavorited: boolean;
@@ -55,7 +58,8 @@ export type StoryItem = {
 	link:
 		| { to: '/stories/preview/$chatId/$storySlug'; params: { chatId: string; storySlug: string } }
 		| { to: '/stories/shared/$shareId'; params: { shareId: string } }
-		| { to: '/stories/standalone/$storyId'; params: { storyId: string } };
+		| { to: '/stories/standalone/$storyId'; params: { storyId: string } }
+		| { to: '/stories/dbt-charts/$boardPath'; params: { boardPath: string } };
 };
 
 export type FolderItem = RouterOutputs['storyFolder']['listTree'][number];
@@ -69,6 +73,7 @@ export type FavoriteEntry =
 export type OwnStoryListItem = RouterOutputs['story']['listAll'][number];
 export type StandaloneStoryListItem = RouterOutputs['story']['listStandalone'][number];
 export type SharedStoryListItem = RouterOutputs['storyShare']['list'][number];
+export type ProjectBoardListItem = RouterOutputs['dbtCharts']['listProjectBoards'][number];
 
 export function getStoredSetting<T extends string>(key: string, allowed: T[], fallback: T): T {
 	const value = localStorage.getItem(key);
@@ -102,6 +107,7 @@ export function buildStoryItems({
 	userStories,
 	standaloneStories,
 	sharedStories,
+	projectBoards,
 	currentUserName,
 	favoriteStoryIds,
 	folderItemMap,
@@ -110,6 +116,7 @@ export function buildStoryItems({
 	userStories: OwnStoryListItem[];
 	standaloneStories?: StandaloneStoryListItem[];
 	sharedStories: SharedStoryListItem[];
+	projectBoards?: ProjectBoardListItem[];
 	currentUserName: string;
 	favoriteStoryIds?: string[];
 	folderItemMap: Map<string, string>;
@@ -144,6 +151,7 @@ export function buildStoryItems({
 			chatId,
 			storySlug: story.storySlug,
 			summary: story.summary,
+			format: story.format,
 			isLive: story.isLive,
 			isPinned: sharedEntry?.isPinned ?? false,
 			isFavorited,
@@ -174,6 +182,7 @@ export function buildStoryItems({
 			kind: 'own-standalone',
 			storySlug: story.storySlug,
 			summary: story.summary,
+			format: story.format,
 			isLive: story.isLive,
 			isPinned: false,
 			isFavorited,
@@ -198,6 +207,7 @@ export function buildStoryItems({
 				author: story.authorName,
 				kind: story.visibility === 'specific' ? 'shared-with-me' : ('shared-project' as const),
 				summary: story.summary,
+				format: story.format,
 				isLive: false,
 				isPinned: story.isPinned,
 				isFavorited,
@@ -209,7 +219,33 @@ export function buildStoryItems({
 			};
 		});
 
-	return [...ownItems, ...standaloneItems, ...sharedItems];
+	const boardItems: StoryItem[] = (projectBoards ?? []).map((board) => buildProjectBoardItem(board));
+
+	return [...ownItems, ...standaloneItems, ...sharedItems, ...boardItems];
+}
+
+/** dbt Charts boards found in the project's `charts/` folders; read-only, listed at the root level. */
+function buildProjectBoardItem(board: ProjectBoardListItem): StoryItem {
+	const storyId = dbtChartsBoardPathToId(board.path);
+	const updatedAt = new Date(board.updatedAt);
+	return {
+		id: storyId,
+		storyId,
+		title: board.title,
+		createdAt: updatedAt,
+		updatedAt,
+		author: 'Project',
+		kind: 'project-board',
+		summary: { segments: [] },
+		format: 'dbt_charts',
+		isLive: false,
+		isPinned: false,
+		isFavorited: false,
+		sharing: null,
+		folderId: null,
+		isInPrivateContext: false,
+		link: { to: '/stories/dbt-charts/$boardPath', params: { boardPath: board.path } },
+	};
 }
 
 export function filterStories(items: StoryItem[], query: string): StoryItem[] {

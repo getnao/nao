@@ -1,12 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useCallback, useState } from 'react';
+import type { StoryFormat } from '@nao/shared/dbt-charts';
 import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 
 import type { SelectionData } from '@/components/highlight-bubble';
 import type { QueryDataMap } from '@/components/story-embeds';
 import type { StoryRefreshFailure } from '@/components/story-page-header';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
+import { DbtChartsBoard } from '@/components/dbt-charts/dbt-charts-board';
 import { HighlightBubble } from '@/components/highlight-bubble';
 import { StoryAccessError } from '@/components/story-access-error';
 import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
@@ -83,11 +85,14 @@ function StandaloneStoryPage() {
 		return <StoryAccessError error={storyQuery.error} onRetry={() => storyQuery.refetch()} />;
 	}
 
+	const isDbtChartsBoard = story.format === 'dbt_charts';
+
 	if (story.chatId) {
 		return (
 			<StandaloneEditableStory
 				title={story.title}
 				code={story.code}
+				format={story.format}
 				storyId={storyId}
 				chatId={story.chatId}
 				storySlug={story.slug}
@@ -106,11 +111,11 @@ function StandaloneStoryPage() {
 				title={story.title}
 				onOpenChat={handleOpenChat}
 				isOpeningChat={openStandaloneMutation.isPending}
-				download={{ storyId, isOwner: true }}
+				download={isDbtChartsBoard ? undefined : { storyId, isOwner: true }}
 				storyId={storyId}
 				canRename
 				live={
-					story.isLive
+					story.isLive && !isDbtChartsBoard
 						? {
 								isLive: true,
 								cachedAt: story.cachedAt,
@@ -120,15 +125,19 @@ function StandaloneStoryPage() {
 				}
 				onOpenAnalytics={() => setIsAnalyticsOpen(true)}
 			/>
-			<SelectionProvider key={storyId}>
-				<HighlightBubble onAsk={handleSelectionAsk} disabled />
-				<StandaloneStoryContent
-					code={story.code}
-					queryData={story.queryData as QueryDataMap | null}
-					chatId={story.chatId}
-					storySlug={story.slug}
-				/>
-			</SelectionProvider>
+			{isDbtChartsBoard ? (
+				<StandaloneBoardContent yaml={story.code} resetKey={storyId} />
+			) : (
+				<SelectionProvider key={storyId}>
+					<HighlightBubble onAsk={handleSelectionAsk} disabled />
+					<StandaloneStoryContent
+						code={story.code}
+						queryData={story.queryData as QueryDataMap | null}
+						chatId={story.chatId}
+						storySlug={story.slug}
+					/>
+				</SelectionProvider>
+			)}
 
 			<AssetAnalyticsDialog
 				open={isAnalyticsOpen}
@@ -143,6 +152,7 @@ function StandaloneStoryPage() {
 interface StandaloneEditableStoryProps {
 	title: string;
 	code: string;
+	format: StoryFormat;
 	storyId: string;
 	chatId: string;
 	storySlug: string;
@@ -156,6 +166,7 @@ interface StandaloneEditableStoryProps {
 function StandaloneEditableStory({
 	title,
 	code,
+	format,
 	storyId,
 	chatId,
 	storySlug,
@@ -184,6 +195,7 @@ function StandaloneEditableStory({
 	const shareQuery = useQuery(trpc.storyShare.getSharedStoryInfo.queryOptions({ chatId, storySlug }));
 	const isShared = Boolean(shareQuery.data?.shareId);
 
+	const isDbtChartsBoard = format === 'dbt_charts';
 	const editor = useStoryPageEditor({ chatId, storySlug, storyTitle: title, latestCode: code });
 	const { queryData: versionQueryData, isPending: isQueryDataPending } = useStoryVersionQueryData({
 		chatId,
@@ -207,16 +219,20 @@ function StandaloneEditableStory({
 				title={title}
 				onOpenChat={onOpenChat}
 				isOpeningChat={isOpeningChat}
-				live={{
-					isLive,
-					cachedAt,
-					lastRefreshFailure,
-					isRefreshing,
-					isUpdating,
-					onRefresh: () => handleRefreshData(),
-					onOpenSettings: () => setIsLiveSettingsOpen(true),
-				}}
-				download={{ storyId, isOwner: true }}
+				live={
+					isDbtChartsBoard
+						? undefined
+						: {
+								isLive,
+								cachedAt,
+								lastRefreshFailure,
+								isRefreshing,
+								isUpdating,
+								onRefresh: () => handleRefreshData(),
+								onOpenSettings: () => setIsLiveSettingsOpen(true),
+							}
+				}
+				download={isDbtChartsBoard ? undefined : { storyId, isOwner: true }}
 				storyId={storyId}
 				canRename
 				isShared={isShared}
@@ -225,7 +241,7 @@ function StandaloneEditableStory({
 				viewModeControls={{
 					viewMode: editor.viewMode,
 					onViewModeChange: editor.setViewMode,
-					canEdit: true,
+					canEdit: !isDbtChartsBoard,
 					isCodeDirty: editor.isCodeDirty,
 					isCodeValid: editor.isCodeValid,
 					onSave: editor.handleSave,
@@ -245,18 +261,26 @@ function StandaloneEditableStory({
 			<StoryPageBody
 				editor={editor}
 				queryData={versionQueryData}
+				format={format}
 				preview={
-					<SelectionProvider key={storySlug}>
-						<HighlightBubble onAsk={handleSelectionAsk} disabled={false} />
-						<StandaloneStoryContent
-							code={editor.code}
-							queryData={versionQueryData}
-							chatId={chatId}
-							storySlug={storySlug}
-							filtersEnabled={editor.versionNav.isViewingLatest && !editor.isCodeDirty}
-							isDataPending={isQueryDataPending}
+					isDbtChartsBoard ? (
+						<StandaloneBoardContent
+							yaml={editor.code}
+							resetKey={`${storySlug}:${editor.versionNav.storedVersionNumber}`}
 						/>
-					</SelectionProvider>
+					) : (
+						<SelectionProvider key={storySlug}>
+							<HighlightBubble onAsk={handleSelectionAsk} disabled={false} />
+							<StandaloneStoryContent
+								code={editor.code}
+								queryData={versionQueryData}
+								chatId={chatId}
+								storySlug={storySlug}
+								filtersEnabled={editor.versionNav.isViewingLatest && !editor.isCodeDirty}
+								isDataPending={isQueryDataPending}
+							/>
+						</SelectionProvider>
+					)
 				}
 			/>
 
@@ -284,6 +308,14 @@ function StandaloneEditableStory({
 				assetType='story'
 				storyId={storyId}
 			/>
+		</div>
+	);
+}
+
+function StandaloneBoardContent({ yaml, resetKey }: { yaml: string; resetKey: string }) {
+	return (
+		<div className='flex-1 min-h-0 overflow-auto'>
+			<DbtChartsBoard yaml={yaml} resetKey={resetKey} className='mx-auto w-full max-w-6xl p-4 md:p-8' />
 		</div>
 	);
 }

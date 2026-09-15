@@ -10,6 +10,7 @@ export * from './chart-values';
 export * from './citation';
 export * from './context-recommendation';
 export * from './date';
+export * from './dbt-charts';
 export * from './execute-sql-parts';
 export * from './map';
 export * from './mcp';

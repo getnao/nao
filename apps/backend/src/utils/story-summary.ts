@@ -1,8 +1,19 @@
+import type { StoryFormat } from '@nao/shared/dbt-charts';
 import { resolveGridWidths, storyBlockRegex } from '@nao/shared/story-segments';
 import { parseStoryTabs } from '@nao/shared/story-tabs';
 import type { StorySummary, SummarySegment } from '@nao/shared/types';
+import yaml from 'js-yaml';
 
-export function extractStorySummary(code: string): StorySummary {
+const DBT_CHART_TYPE_TO_SILHOUETTE: Record<string, string> = {
+	donut: 'pie',
+	kpi: 'kpi_card',
+	histogram: 'bar',
+};
+
+export function extractStorySummary(code: string, format: StoryFormat = 'markdown'): StorySummary {
+	if (format === 'dbt_charts') {
+		return { segments: extractBoardSegments(code) };
+	}
 	const tabs = parseStoryTabs(code);
 	if (!tabs?.length) {
 		return { segments: extractSegments(code) };
@@ -16,6 +27,37 @@ export function extractStorySummary(code: string): StorySummary {
 		segments.push(...extractSegments(tab.innerCode));
 	}
 	return { segments };
+}
+
+/** A dbt Charts board summarises as one silhouette per chart, in `rows` order when present. */
+function extractBoardSegments(boardYaml: string): SummarySegment[] {
+	const charts = parseBoardCharts(boardYaml);
+	return Object.values(charts).flatMap((chart): SummarySegment[] => {
+		if (!chart || typeof chart !== 'object') {
+			return [];
+		}
+		const { type, title, label } = chart as { type?: unknown; title?: unknown; label?: unknown };
+		const chartTitle = typeof title === 'string' ? title : typeof label === 'string' ? label : '';
+		const dbtType = typeof type === 'string' ? type : 'bar';
+		if (dbtType === 'table') {
+			return [{ type: 'table', title: chartTitle }];
+		}
+		const chartType = DBT_CHART_TYPE_TO_SILHOUETTE[dbtType] ?? dbtType;
+		return [{ type: 'chart', chartType, title: chartTitle, ...(chartType === 'kpi_card' ? { kpiCount: 1 } : {}) }];
+	});
+}
+
+function parseBoardCharts(boardYaml: string): Record<string, unknown> {
+	try {
+		const parsed: unknown = yaml.load(boardYaml);
+		if (!parsed || typeof parsed !== 'object') {
+			return {};
+		}
+		const charts = (parsed as { charts?: unknown }).charts;
+		return charts && typeof charts === 'object' ? (charts as Record<string, unknown>) : {};
+	} catch {
+		return {};
+	}
 }
 
 function extractSegments(code: string): SummarySegment[] {
