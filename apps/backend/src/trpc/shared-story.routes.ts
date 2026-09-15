@@ -89,7 +89,6 @@ export const sharedStoryRoutes = {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can share this.' });
 			}
 
-
 			if (input.visibility === 'project') {
 				await storyFolderQueries.moveStoryToFolder(story.id, null, {
 					storyOwnerId,

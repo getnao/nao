@@ -19,8 +19,8 @@ import type {
 	AnalyticsEventMetadata,
 	CitationData,
 	LlmProvider,
-	RepoProvider,
 	NotificationChannel,
+	RepoProvider,
 } from '@nao/shared/types';
 import {
 	ANALYTICS_ASSET_TYPES,
