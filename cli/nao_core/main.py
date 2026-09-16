@@ -13,6 +13,7 @@ from nao_core.commands import (  # noqa: E402
     debug,
     deploy,
     docs,
+    import_app,
     init,
     migrate,
     reset_password,
@@ -30,6 +31,7 @@ app.command(chat)
 app.command(debug)
 app.command(deploy)
 app.command(docs)
+app.command(import_app)
 app.command(init)
 app.command(migrate)
 app.command(reset_password)
