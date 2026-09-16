@@ -62,6 +62,16 @@ const settingsNavGroups: NavGroup[] = [
 		],
 	},
 	{
+		label: 'Sandbox',
+		items: [
+			{
+				label: 'Secrets',
+				to: '/settings/sandbox',
+				visible: ({ isViewer }) => !isViewer,
+			},
+		],
+	},
+	{
 		label: 'Context',
 		items: [
 			{

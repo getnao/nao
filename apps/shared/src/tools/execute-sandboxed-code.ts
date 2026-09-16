@@ -48,6 +48,7 @@ export const description = [
 	'You can pre-install Python packages via `packages`, mount previous SQL query results as CSV files via `data_files`, and mount saved files from /home via `storage_files`.',
 	'Data files are written to the working directory `/root/` so code can read them directly by filename (e.g. `pd.read_csv("sales.csv")`).',
 	`A sandbox is thrown away, so anything worth keeping has to be written to \`${SANDBOX_OUTPUT_DIR}/\` and listed in \`save_files\`, which copies it to /home where it survives.`,
+	'Secrets the user defined in Settings → Sandbox are injected as environment variables (listed in the system prompt under "Sandbox Secrets"): read them with `os.environ["NAME"]`, never print them — their values are redacted from the output anyway.',
 	'Choose `image` based on the language/tools needed and `vm_size` based on workload intensity (default: "s").',
 	'To reuse a running sandbox (keeping installed packages, files, and state), pass the `sandbox_id` from a previous call. Sandboxes stay alive for 5 minutes after last use.',
 ].join(' ');

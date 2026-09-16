@@ -26,6 +26,12 @@ export const DEFAULT_PYTHON_EXECUTION_DURATION_SECS = 30;
 export const MIN_PYTHON_EXECUTION_DURATION_SECS = 1;
 export const MAX_PYTHON_EXECUTION_DURATION_SECS = 600;
 
+/** Sandbox secrets are exposed to code as environment variables, so their names must be valid POSIX identifiers. */
+export const SANDBOX_SECRET_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
+export const SANDBOX_SECRET_NAME_MAX_LENGTH = 64;
+export const SANDBOX_SECRET_VALUE_MAX_LENGTH = 8192;
+export const SANDBOX_SECRET_DESCRIPTION_MAX_LENGTH = 200;
+
 export interface UserPreferences {
 	toolCallDensity?: ToolCallDensity;
 }

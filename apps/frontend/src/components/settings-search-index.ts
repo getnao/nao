@@ -454,6 +454,28 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		],
 	},
 
+	// ── Sandbox ──────────────────────────────────────────────
+	{
+		page: '/settings/sandbox',
+		pageLabel: 'Sandbox',
+		title: 'Secrets',
+		description:
+			'API keys and other credentials the code running in a sandbox can read as environment variables, without exposing them to the model.',
+		keywords: [
+			'secret',
+			'secrets',
+			'api key',
+			'token',
+			'credential',
+			'env',
+			'environment variable',
+			'sandbox',
+			'boxlite',
+			'code execution',
+			'password',
+		],
+	},
+
 	// ── Git ──────────────────────────────────────────────────
 	{
 		page: '/settings/git',
