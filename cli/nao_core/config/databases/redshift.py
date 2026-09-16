@@ -4,6 +4,7 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+import questionary
 from pydantic import BaseModel, Field, model_validator
 
 from nao_core.config.exceptions import InitError
@@ -274,13 +275,16 @@ class RedshiftConfig(DatabaseConfig):
         sslmode = ask_text("SSL mode:", default="require") or "require"
         schema_name = ask_text("Default schema (uses 'public' if empty):")
 
-        auth_method = ask_select(
+        auth_mode = ask_select(
             "Authentication method:",
-            choices=["Username / Password", "IAM (temporary credentials via AWS)", "Azure Entra ID"],
+            choices=[
+                questionary.Choice("Username / Password", value=RedshiftAuthMode.PASSWORD),
+                questionary.Choice("IAM (temporary credentials via AWS)", value=RedshiftAuthMode.IAM),
+                questionary.Choice("Azure Entra ID", value=RedshiftAuthMode.AZURE_ENTRA_ID),
+            ],
         )
 
         password: str | None = None
-        auth_mode = RedshiftAuthMode.PASSWORD
         cluster_id: str | None = None
         region_name: str | None = None
         aws_access_key_id: str | None = None
@@ -288,29 +292,26 @@ class RedshiftConfig(DatabaseConfig):
         aws_session_token: str | None = None
         profile_name: str | None = None
 
-        if auth_method == "Username / Password":
+        if auth_mode == RedshiftAuthMode.PASSWORD:
             password = ask_text("Password:", password=True, required_field=True)
-        elif auth_method == "IAM (temporary credentials via AWS)":
-            auth_mode = RedshiftAuthMode.IAM
+        elif auth_mode == RedshiftAuthMode.IAM:
             cluster_id = ask_text("Cluster identifier (leave empty to derive from endpoint):") or None
             region_name = ask_text("AWS region (e.g., us-east-1):", required_field=True) or ""
 
             iam_source = ask_select(
                 "IAM credential source:",
                 choices=[
-                    "AWS Profile",
-                    "Access Keys",
-                    "Default credential chain (env vars / instance role)",
+                    questionary.Choice("AWS Profile", value="profile"),
+                    questionary.Choice("Access Keys", value="keys"),
+                    questionary.Choice("Default credential chain (env vars / instance role)", value="default"),
                 ],
             )
-            if iam_source == "AWS Profile":
+            if iam_source == "profile":
                 profile_name = ask_text("AWS Profile Name:", default="default")
-            elif iam_source == "Access Keys":
+            elif iam_source == "keys":
                 aws_access_key_id = ask_text("AWS Access Key ID:", required_field=True)
                 aws_secret_access_key = ask_text("AWS Secret Access Key:", password=True, required_field=True)
                 aws_session_token = ask_text("AWS Session Token (optional):", password=True) or None
-        elif auth_method == "Azure Entra ID":
-            auth_mode = RedshiftAuthMode.AZURE_ENTRA_ID
 
         use_ssh = ask_confirm("Use SSH tunnel?", default=False)
         ssh_tunnel = None
