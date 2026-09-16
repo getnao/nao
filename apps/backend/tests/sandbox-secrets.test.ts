@@ -6,7 +6,7 @@ import { redactSecretValues, toSandboxEnv } from '../src/utils/sandbox-secrets';
 
 const secrets = [
 	{ name: 'OPENWEATHER_API_KEY', value: 'sk-live-0123456789abcdef' },
-	{ name: 'SHORT', value: 'ab' },
+	{ name: 'REGEX_CHARS', value: 'a.b*c?(d)[e]$^' },
 ];
 
 describe('redactSecretValues', () => {
@@ -17,8 +17,17 @@ describe('redactSecretValues', () => {
 		);
 	});
 
-	it('leaves values that are too short to be safely masked untouched', () => {
-		expect(redactSecretValues('the table has ab rows', secrets)).toBe('the table has ab rows');
+	it('treats secret values literally, not as regular expressions', () => {
+		expect(redactSecretValues('token=a.b*c?(d)[e]$^ done', secrets)).toBe('token=[REDACTED:REGEX_CHARS] done');
+		expect(redactSecretValues('aXbYcZ', secrets)).toBe('aXbYcZ');
+	});
+
+	it('never scans a generated placeholder for another secret', () => {
+		const tricky = [
+			{ name: 'REDACTED_WORD', value: 'REDACTED' },
+			{ name: 'API_KEY', value: 'sk-live-0123456789abcdef' },
+		];
+		expect(redactSecretValues('key sk-live-0123456789abcdef', tricky)).toBe('key [REDACTED:API_KEY]');
 	});
 
 	it('masks the longer secret first when one value contains another', () => {
@@ -38,7 +47,10 @@ describe('redactSecretValues', () => {
 
 describe('toSandboxEnv', () => {
 	it('maps secrets to an environment record keyed by name', () => {
-		expect(toSandboxEnv(secrets)).toEqual({ OPENWEATHER_API_KEY: 'sk-live-0123456789abcdef', SHORT: 'ab' });
+		expect(toSandboxEnv(secrets)).toEqual({
+			OPENWEATHER_API_KEY: 'sk-live-0123456789abcdef',
+			REGEX_CHARS: 'a.b*c?(d)[e]$^',
+		});
 	});
 });
 
@@ -63,7 +75,7 @@ describe('system prompt sandbox secrets block', () => {
 		const markdown = renderToMarkdown(SystemPrompt({ toolNames: ['execute_sandboxed_code'] }));
 		expect(markdown).toContain('## Sandbox Secrets');
 		expect(markdown).toContain('has not defined any secret');
-		expect(markdown).toContain('Settings → Sandbox → Secrets');
+		expect(markdown).toContain('Settings → Agent → Capabilities → Sandbox secrets');
 	});
 
 	it('is omitted when the sandbox tool is not in the tool set', () => {

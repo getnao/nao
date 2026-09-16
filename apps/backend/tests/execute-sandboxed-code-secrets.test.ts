@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ToolContext } from '../src/types/tools';
 
@@ -42,16 +42,22 @@ const { default: executeSandboxedCode } = await import('../src/agents/tools/exec
 const SECRET_VALUE = 'sk-live-0123456789abcdef';
 const projectFolder = mkdtempSync(join(tmpdir(), 'nao-sandbox-secrets-'));
 
+beforeAll(() => {
+	vi.useFakeTimers();
+});
+
 afterAll(() => {
+	vi.runOnlyPendingTimers();
+	vi.useRealTimers();
 	rmSync(projectFolder, { recursive: true, force: true });
 });
 
-function contextFor(userId: string): ToolContext {
+function contextFor(userId: string, projectId = 'project-1'): ToolContext {
 	return {
 		projectFolder,
 		chatId: 'chat-1',
 		userId,
-		projectId: 'project-1',
+		projectId,
 		supportsCustomCharts: false,
 		agentSettings: null,
 		envVars: {},
@@ -134,15 +140,31 @@ describe('execute_sandboxed_code secrets', () => {
 		expect(result.stderr).toBe('boom [REDACTED:OPENWEATHER_API_KEY]');
 	});
 
-	it('does not reuse a pooled sandbox created for another user', async () => {
+	it('reuses a pooled sandbox only for the same user and project', async () => {
 		const first = await run({ code: 'print(1)', language: 'python' }, contextFor('user-1'));
 
-		const sameUser = await run({ sandbox_id: first.sandbox_id, code: 'print(2)' }, contextFor('user-1'));
-		expect(sameUser.sandbox_id).toBe(first.sandbox_id);
+		const sameOwner = await run({ sandbox_id: first.sandbox_id, code: 'print(2)' }, contextFor('user-1'));
+		expect(sameOwner.sandbox_id).toBe(first.sandbox_id);
 		expect(constructed).toHaveLength(1);
 
 		const otherUser = await run({ sandbox_id: first.sandbox_id, code: 'print(3)' }, contextFor('user-2'));
 		expect(otherUser.sandbox_id).not.toBe(first.sandbox_id);
 		expect(constructed).toHaveLength(2);
+
+		const otherProject = await run(
+			{ sandbox_id: first.sandbox_id, code: 'print(4)' },
+			contextFor('user-1', 'project-2'),
+		);
+		expect(otherProject.sandbox_id).not.toBe(first.sandbox_id);
+		expect(constructed).toHaveLength(3);
+	});
+
+	it('evicts pooled sandboxes once their idle timeout elapses', async () => {
+		const first = await run({ code: 'print(1)', language: 'python' }, contextFor('user-1'));
+		vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+
+		const afterExpiry = await run({ sandbox_id: first.sandbox_id, code: 'print(2)' }, contextFor('user-1'));
+		expect(afterExpiry.sandbox_id).not.toBe(first.sandbox_id);
+		expect(afterExpiry.stderr).toContain('expired');
 	});
 });

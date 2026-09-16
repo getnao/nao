@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "692da239-fd73-4587-a35e-0e9f3c262265",
+  "id": "03a6cc18-d74e-45fe-af16-1ab6cc4cc876",
   "prevId": "b38d7d4b-a555-43f6-b2f4-a012046466e9",
   "tables": {
     "account": {
@@ -5340,14 +5340,6 @@
             "name"
           ],
           "isUnique": true
-        },
-        "sandbox_secret_user_project_idx": {
-          "name": "sandbox_secret_user_project_idx",
-          "columns": [
-            "user_id",
-            "project_id"
-          ],
-          "isUnique": false
         }
       },
       "foreignKeys": {

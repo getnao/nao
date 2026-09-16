@@ -11,5 +11,4 @@ CREATE TABLE `sandbox_secret` (
 	FOREIGN KEY (`project_id`) REFERENCES `project`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `sandbox_secret_user_project_name_idx` ON `sandbox_secret` (`user_id`,`project_id`,`name`);--> statement-breakpoint
-CREATE INDEX `sandbox_secret_user_project_idx` ON `sandbox_secret` (`user_id`,`project_id`);
+CREATE UNIQUE INDEX `sandbox_secret_user_project_name_idx` ON `sandbox_secret` (`user_id`,`project_id`,`name`);

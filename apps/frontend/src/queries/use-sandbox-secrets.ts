@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { trpc } from '@/main';
 
@@ -6,37 +6,19 @@ export function useSandboxSecretsQuery() {
 	return useQuery(trpc.sandboxSecret.list.queryOptions());
 }
 
+/**
+ * Every mutation refetches the list instead of patching the cache: the list is scoped to the active
+ * project on the server, so a patch could land in another project's entry after a switch.
+ */
 export function useSandboxSecretMutations() {
-	const setMutation = useMutation(
-		trpc.sandboxSecret.set.mutationOptions({
-			onSuccess: (saved, _, __, ctx) => {
-				ctx.client.setQueryData(trpc.sandboxSecret.list.queryKey(), (prev = []) => {
-					const others = prev.filter((secret) => secret.id !== saved.id);
-					return [...others, saved].sort((a, b) => a.name.localeCompare(b.name));
-				});
-			},
-		}),
-	);
+	const queryClient = useQueryClient();
+	const invalidateList = () => queryClient.invalidateQueries({ queryKey: trpc.sandboxSecret.list.queryKey() });
 
+	const setMutation = useMutation(trpc.sandboxSecret.set.mutationOptions({ onSuccess: invalidateList }));
 	const updateDescriptionMutation = useMutation(
-		trpc.sandboxSecret.updateDescription.mutationOptions({
-			onSuccess: (updated, _, __, ctx) => {
-				ctx.client.setQueryData(trpc.sandboxSecret.list.queryKey(), (prev = []) =>
-					prev.map((secret) => (secret.id === updated.id ? updated : secret)),
-				);
-			},
-		}),
+		trpc.sandboxSecret.updateDescription.mutationOptions({ onSuccess: invalidateList }),
 	);
-
-	const deleteMutation = useMutation(
-		trpc.sandboxSecret.delete.mutationOptions({
-			onSuccess: (_, variables, __, ctx) => {
-				ctx.client.setQueryData(trpc.sandboxSecret.list.queryKey(), (prev = []) =>
-					prev.filter((secret) => secret.id !== variables.secretId),
-				);
-			},
-		}),
-	);
+	const deleteMutation = useMutation(trpc.sandboxSecret.delete.mutationOptions({ onSuccess: invalidateList }));
 
 	return { setMutation, updateDescriptionMutation, deleteMutation };
 }

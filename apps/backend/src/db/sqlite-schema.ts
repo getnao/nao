@@ -1531,8 +1531,5 @@ export const sandboxSecret = sqliteTable(
 			.$onUpdate(() => new Date())
 			.notNull(),
 	},
-	(t) => [
-		uniqueIndex('sandbox_secret_user_project_name_idx').on(t.userId, t.projectId, t.name),
-		index('sandbox_secret_user_project_idx').on(t.userId, t.projectId),
-	],
+	(t) => [uniqueIndex('sandbox_secret_user_project_name_idx').on(t.userId, t.projectId, t.name)],
 );

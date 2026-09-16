@@ -586,8 +586,8 @@ function SandboxSecretsBlock({ secrets }: { secrets: SandboxSecretDefinition[] }
 				<Span>
 					The user has not defined any secret for sandboxes. When code needs an API key or another credential,
 					do not ask the user to paste it in the chat: tell them to add it under{' '}
-					<Bold>Settings → Sandbox → Secrets</Bold>, after which it becomes an environment variable inside
-					execute_sandboxed_code.
+					<Bold>Settings → Agent → Capabilities → Sandbox secrets</Bold>, after which it becomes an
+					environment variable inside execute_sandboxed_code.
 				</Span>
 			) : (
 				<>
@@ -598,7 +598,7 @@ function SandboxSecretsBlock({ secrets }: { secrets: SandboxSecretDefinition[] }
 						values, and any value that appears in the sandbox output is replaced with{' '}
 						<Bold>{'[REDACTED:NAME]'}</Bold> before it reaches you, so do not print, log or write them to
 						files and never ask the user to paste a secret in the chat. If a credential is missing, tell the
-						user to add it under <Bold>Settings → Sandbox → Secrets</Bold>.
+						user to add it under <Bold>Settings → Agent → Capabilities → Sandbox secrets</Bold>.
 					</Span>
 					<List>
 						{secrets.map((secret) => (

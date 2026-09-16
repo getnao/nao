@@ -33,8 +33,8 @@ type CodeBox = InstanceType<NonNullable<typeof boxliteModule>['CodeBox']>;
 
 interface PooledSandbox {
 	box: CodeBox;
-	/** The user the sandbox was created for; secrets and files inside it must never reach anyone else. */
-	ownerId: string;
+	/** The user and project the sandbox was created for; its secrets and files must never reach another. */
+	ownerKey: string;
 	timeout: ReturnType<typeof setTimeout>;
 }
 
@@ -62,11 +62,15 @@ function resetSandboxTTL(id: string) {
 	entry.timeout = setTimeout(() => evictSandbox(id), SANDBOX_TTL_MS);
 }
 
-function registerSandbox(box: CodeBox, ownerId: string): string {
+function registerSandbox(box: CodeBox, ownerKey: string): string {
 	const id = `sbx_${crypto.randomBytes(6).toString('hex')}`;
 	const timeout = setTimeout(() => evictSandbox(id), SANDBOX_TTL_MS);
-	sandboxPool.set(id, { box, ownerId, timeout });
+	sandboxPool.set(id, { box, ownerKey, timeout });
 	return id;
+}
+
+function sandboxOwnerKey({ userId, projectId }: ToolContext): string {
+	return `${userId}:${projectId}`;
 }
 
 function queryResultToCsv({ columns, data }: QueryResult): string {
@@ -90,11 +94,11 @@ async function getOrCreateSandbox(
 	sandboxId: string | undefined,
 	image: string,
 	vmSize: schemas.VmSize,
-	ownerId: string,
+	ownerKey: string,
 ): Promise<{ id: string; box: CodeBox; reused: boolean }> {
 	if (sandboxId) {
 		const existing = sandboxPool.get(sandboxId);
-		if (existing && existing.ownerId === ownerId) {
+		if (existing && existing.ownerKey === ownerKey) {
 			resetSandboxTTL(sandboxId);
 			return { id: sandboxId, box: existing.box, reused: true };
 		}
@@ -114,7 +118,7 @@ async function getOrCreateSandbox(
 		},
 	});
 
-	const id = registerSandbox(box, ownerId);
+	const id = registerSandbox(box, ownerKey);
 	return { id, box, reused: false };
 }
 
@@ -331,7 +335,7 @@ async function executeSandboxedCode(
 		sandbox_id,
 		image ?? 'python:3.12-slim',
 		vm_size ?? 'xxs',
-		userId,
+		sandboxOwnerKey(context),
 	);
 
 	let tmpDir: string | undefined;

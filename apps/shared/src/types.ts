@@ -29,8 +29,35 @@ export const MAX_PYTHON_EXECUTION_DURATION_SECS = 600;
 /** Sandbox secrets are exposed to code as environment variables, so their names must be valid POSIX identifiers. */
 export const SANDBOX_SECRET_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 export const SANDBOX_SECRET_NAME_MAX_LENGTH = 64;
+/** Anything shorter is not a secret, and would be masked from sandbox output far too eagerly. */
+export const SANDBOX_SECRET_VALUE_MIN_LENGTH = 4;
 export const SANDBOX_SECRET_VALUE_MAX_LENGTH = 8192;
 export const SANDBOX_SECRET_DESCRIPTION_MAX_LENGTH = 200;
+
+/** Environment variables the guest runtime relies on; a secret shadowing one would break the sandbox. */
+export const SANDBOX_SECRET_RESERVED_NAMES = new Set([
+	'PATH',
+	'HOME',
+	'USER',
+	'SHELL',
+	'PWD',
+	'TERM',
+	'LANG',
+	'LC_ALL',
+	'TMPDIR',
+	'HOSTNAME',
+	'LD_PRELOAD',
+	'LD_LIBRARY_PATH',
+	'PYTHONPATH',
+	'PYTHONHOME',
+	'PYTHONSTARTUP',
+	'NODE_OPTIONS',
+	'NODE_PATH',
+]);
+
+export function isReservedSandboxSecretName(name: string): boolean {
+	return SANDBOX_SECRET_RESERVED_NAMES.has(name) || name.startsWith('LD_') || name.startsWith('LC_');
+}
 
 export interface UserPreferences {
 	toolCallDensity?: ToolCallDensity;

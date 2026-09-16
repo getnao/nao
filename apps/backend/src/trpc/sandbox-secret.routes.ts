@@ -1,8 +1,10 @@
 import {
+	isReservedSandboxSecretName,
 	SANDBOX_SECRET_DESCRIPTION_MAX_LENGTH,
 	SANDBOX_SECRET_NAME_MAX_LENGTH,
 	SANDBOX_SECRET_NAME_PATTERN,
 	SANDBOX_SECRET_VALUE_MAX_LENGTH,
+	SANDBOX_SECRET_VALUE_MIN_LENGTH,
 } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
@@ -18,7 +20,15 @@ const secretNameSchema = z
 	.regex(
 		SANDBOX_SECRET_NAME_PATTERN,
 		'Use an environment variable name: uppercase letters, digits and underscores, not starting with a digit.',
-	);
+	)
+	.refine((name) => !isReservedSandboxSecretName(name), {
+		message: 'This name is reserved by the sandbox runtime. Choose another one.',
+	});
+
+const secretValueSchema = z
+	.string()
+	.min(SANDBOX_SECRET_VALUE_MIN_LENGTH, `A secret must be at least ${SANDBOX_SECRET_VALUE_MIN_LENGTH} characters.`)
+	.max(SANDBOX_SECRET_VALUE_MAX_LENGTH);
 
 const secretDescriptionSchema = z.string().trim().max(SANDBOX_SECRET_DESCRIPTION_MAX_LENGTH).nullish();
 
@@ -28,13 +38,7 @@ export const sandboxSecretRoutes = {
 	}),
 
 	set: nonViewerProtectedProcedure
-		.input(
-			z.object({
-				name: secretNameSchema,
-				value: z.string().min(1).max(SANDBOX_SECRET_VALUE_MAX_LENGTH),
-				description: secretDescriptionSchema,
-			}),
-		)
+		.input(z.object({ name: secretNameSchema, value: secretValueSchema, description: secretDescriptionSchema }))
 		.mutation(async ({ ctx, input }) => {
 			return sandboxSecretService.set(ctx.user.id, ctx.project.id, input);
 		}),

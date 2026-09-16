@@ -1,5 +1,5 @@
 {
-  "id": "52b5e938-f237-4499-928e-1d98602bcb0b",
+  "id": "6bbed3b6-37c7-4147-9181-c7d206019247",
   "prevId": "52137fb7-5ea4-4296-9f37-f645508e8c69",
   "version": "7",
   "dialect": "postgresql",
@@ -5692,27 +5692,6 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "sandbox_secret_user_project_idx": {
-          "name": "sandbox_secret_user_project_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "project_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}
