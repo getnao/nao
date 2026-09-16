@@ -4,8 +4,13 @@ const mocks = vi.hoisted(() => ({
 	events: [] as string[],
 	mappingRows: [] as Array<{
 		groupId: string;
+		projectId: string;
+		groupName: string;
 		isDefault: boolean;
 		ssoMappings: ReturnType<typeof ssoMappings>;
+		createdAt: Date;
+		projectMemberUserId: string | null;
+		orgMemberUserId: string | null;
 	}>,
 	beforeProjectLock: vi.fn<() => void | Promise<void>>(),
 }));
@@ -26,7 +31,18 @@ import { reconcileSsoUserGroupMemberships } from '../src/queries/sso-user-group-
 describe('PostgreSQL SSO membership reconciliation', () => {
 	beforeEach(() => {
 		mocks.events.length = 0;
-		mocks.mappingRows = [{ groupId: 'group-a', isDefault: false, ssoMappings: ssoMappings(['claim-a']) }];
+		mocks.mappingRows = [
+			{
+				groupId: 'group-a',
+				projectId: 'project-1',
+				groupName: 'Group A',
+				isDefault: false,
+				ssoMappings: ssoMappings(['claim-a']),
+				createdAt: new Date('2025-01-01'),
+				projectMemberUserId: 'user-1',
+				orgMemberUserId: null,
+			},
+		];
 		mocks.beforeProjectLock.mockReset();
 	});
 

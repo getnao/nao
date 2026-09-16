@@ -33,11 +33,34 @@ describe('User Group SSO mappings', () => {
 		expect(parseStoredUserGroupSsoMappings('{"providers":{"oidc":["Team"]}}')).toEqual({
 			version: 1,
 			providers: { oidc: ['team'], microsoft: [] },
+			defaultProjectRole: null,
 		});
 		expect(parseStoredUserGroupSsoMappings({ oidc: ['Legacy'] })).toEqual({
 			version: 1,
 			providers: { oidc: ['legacy'], microsoft: [] },
+			defaultProjectRole: null,
 		});
+	});
+
+	it('normalizes default project roles while preserving legacy version-1 values', () => {
+		expect(
+			parseStoredUserGroupSsoMappings({
+				version: 1,
+				providers: { oidc: [], microsoft: [] },
+				defaultProjectRole: 'context_admin',
+			}),
+		).toEqual({
+			version: 1,
+			providers: { oidc: [], microsoft: [] },
+			defaultProjectRole: 'context_admin',
+		});
+		expect(
+			parseStoredUserGroupSsoMappings({
+				version: 1,
+				providers: { oidc: [], microsoft: [] },
+				defaultProjectRole: 'owner',
+			}).defaultProjectRole,
+		).toBeNull();
 	});
 
 	it('keeps identifiers provider-specific', () => {

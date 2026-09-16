@@ -2,6 +2,7 @@
 
 import { isMicrosoftEntraGroupId, normalizeSsoGroupIdentifiers } from '@nao/shared';
 
+import { env } from '../env';
 import * as accountQueries from '../queries/account.queries';
 import {
 	hasSsoUserGroupSyncState,
@@ -9,9 +10,15 @@ import {
 	reconcileSsoUserGroupMemberships,
 } from '../queries/sso-user-group-membership.queries';
 import { logger, serializeError } from '../utils/logger';
-import { readGroupsClaim } from '../utils/sso-group-mapping';
+import {
+	type EntraGroupNaoGroupMapping,
+	parseEntraGroupNaoGroupMapping,
+	parseEntraGroupOrganizationRoleMapping,
+	readGroupsClaim,
+} from '../utils/sso-group-mapping';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { isMicrosoftConfigured } from './microsoft-auth.service';
+import { syncOrganizationRoleFromMicrosoftGroups } from './sso-group-mapping.service';
 import { verifyMicrosoftIdTokenClaims } from './sso-token.service';
 
 const MICROSOFT_PROVIDER_ID = 'microsoft';
@@ -26,6 +33,18 @@ export async function syncUserGroupsFromMicrosoft(userId: string): Promise<void>
 			return;
 		}
 
+		const envMappings = parseEntraGroupNaoGroupMapping(env.AZURE_AD_GROUP_NAO_GROUP_MAPPING);
+		const roleMapping = parseEntraGroupOrganizationRoleMapping(env.AZURE_AD_GROUP_ROLE_MAPPING);
+		if (envMappings.status !== 'valid' || roleMapping.status !== 'valid') {
+			logger.error('Invalid Microsoft Entra group mapping, leaving access unchanged', {
+				source: 'system',
+				context: { userId },
+			});
+			return;
+		}
+		const hasUnlimitedUserGroups = await hasFeature(LICENSE_FEATURES.userGroups);
+		const hasUserGroupSyncState =
+			envMappings.mappings.length > 0 || (await hasSsoUserGroupSyncState(userId, MICROSOFT_PROVIDER_ID));
 		const tokens = await accountQueries.getLoginTokens(userId, MICROSOFT_PROVIDER_ID);
 		const token = await verifyMicrosoftIdTokenClaims(tokens?.idToken ?? null);
 		if (token.status !== 'verified') {
@@ -43,7 +62,13 @@ export async function syncUserGroupsFromMicrosoft(userId: string): Promise<void>
 				logUnavailableMemberships(userId, 'malformed-groups-claim');
 				return;
 			}
-			await reconcileSsoUserGroupMemberships(userId, MICROSOFT_PROVIDER_ID, groupIds);
+			await synchronizeMicrosoftMappings(
+				userId,
+				groupIds,
+				hasUserGroupSyncState,
+				hasUnlimitedUserGroups,
+				envMappings.mappings,
+			);
 			return;
 		}
 		if (directGroups.status === 'malformed') {
@@ -55,11 +80,22 @@ export async function syncUserGroupsFromMicrosoft(userId: string): Promise<void>
 			return;
 		}
 
-		const candidateIds = (await listConfiguredSsoGroupIdentifiers(userId, MICROSOFT_PROVIDER_ID)).filter(
-			isMicrosoftEntraGroupId,
-		);
+		const uiCandidateIds = hasUserGroupSyncState
+			? await listConfiguredSsoGroupIdentifiers(userId, MICROSOFT_PROVIDER_ID, hasUnlimitedUserGroups)
+			: [];
+		const candidateIds = normalizeSsoGroupIdentifiers('microsoft', [
+			...uiCandidateIds,
+			...envMappings.mappings.map((mapping) => mapping.entraGroupId),
+			...roleMapping.mapping.keys(),
+		]).filter(isMicrosoftEntraGroupId);
 		if (candidateIds.length === 0) {
-			await reconcileSsoUserGroupMemberships(userId, MICROSOFT_PROVIDER_ID, []);
+			await synchronizeMicrosoftMappings(
+				userId,
+				[],
+				hasUserGroupSyncState,
+				hasUnlimitedUserGroups,
+				envMappings.mappings,
+			);
 			return;
 		}
 		if (!hasFreshAccessToken(tokens)) {
@@ -68,13 +104,35 @@ export async function syncUserGroupsFromMicrosoft(userId: string): Promise<void>
 		}
 
 		const resolvedIds = await resolveMicrosoftGraphMemberships(tokens.accessToken, candidateIds);
-		await reconcileSsoUserGroupMemberships(userId, MICROSOFT_PROVIDER_ID, resolvedIds);
+		await synchronizeMicrosoftMappings(
+			userId,
+			resolvedIds,
+			hasUserGroupSyncState,
+			hasUnlimitedUserGroups,
+			envMappings.mappings,
+		);
 	} catch (error) {
 		logger.error('Failed to sync User Group memberships from Microsoft Entra', {
 			source: 'system',
 			context: { userId, error: serializeError(error) },
 		});
 	}
+}
+
+async function synchronizeMicrosoftMappings(
+	userId: string,
+	groupIds: string[],
+	hasUserGroupSyncState: boolean,
+	hasUnlimitedUserGroups: boolean,
+	envMappings: EntraGroupNaoGroupMapping[],
+): Promise<void> {
+	if (hasUserGroupSyncState) {
+		await reconcileSsoUserGroupMemberships(userId, MICROSOFT_PROVIDER_ID, groupIds, {
+			hasUnlimitedUserGroups,
+			entraMappings: envMappings,
+		});
+	}
+	await syncOrganizationRoleFromMicrosoftGroups(userId, groupIds);
 }
 
 export function hasMicrosoftGroupsOverage(claims: Record<string, unknown>): boolean {
@@ -126,6 +184,14 @@ async function canSyncMicrosoftUserGroups(userId: string): Promise<boolean> {
 	}
 	if (!(await hasFeature(LICENSE_FEATURES.sso))) {
 		return false;
+	}
+	const envMappings = parseEntraGroupNaoGroupMapping(env.AZURE_AD_GROUP_NAO_GROUP_MAPPING);
+	const roleMapping = parseEntraGroupOrganizationRoleMapping(env.AZURE_AD_GROUP_ROLE_MAPPING);
+	if (
+		(envMappings.status === 'valid' && envMappings.mappings.length > 0) ||
+		(roleMapping.status === 'valid' && roleMapping.mapping.size > 0)
+	) {
+		return true;
 	}
 	return hasSsoUserGroupSyncState(userId, MICROSOFT_PROVIDER_ID);
 }

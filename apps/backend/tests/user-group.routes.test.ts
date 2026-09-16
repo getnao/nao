@@ -8,9 +8,12 @@ const mocks = vi.hoisted(() => ({
 	getUserGroupOverview: vi.fn(),
 	getDatabaseContextCatalog: vi.fn(),
 	getDocsContextCatalog: vi.fn(),
+	listEffectiveEntraUserGroupMappings: vi.fn(),
+	listEffectiveOidcUserGroupMappings: vi.fn(),
 	getProjectRowSecurity: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	hasFeature: vi.fn(),
+	env: {} as Record<string, string | undefined>,
 	resolveEffectiveUserGroupAccess: vi.fn(),
 	role: 'admin' as 'admin' | 'user' | 'viewer',
 	setUserGroupMembership: vi.fn(),
@@ -28,6 +31,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));
+vi.mock('../src/env', () => ({ env: mocks.env }));
 vi.mock('../src/agents/user-rules', () => ({
 	getDatabaseContextCatalog: mocks.getDatabaseContextCatalog,
 }));
@@ -49,7 +53,13 @@ vi.mock('../src/queries/user-group.queries', () => ({
 }));
 vi.mock('../src/services/license.service', () => ({
 	hasFeature: mocks.hasFeature,
-	LICENSE_FEATURES: { rowLevelSecurity: 'row-level-security', userGroups: 'user-groups' },
+	LICENSE_FEATURES: { rowLevelSecurity: 'row-level-security', sso: 'sso', userGroups: 'user-groups' },
+}));
+vi.mock('../src/services/oidc-user-group-mapping.service', () => ({
+	listEffectiveOidcUserGroupMappings: mocks.listEffectiveOidcUserGroupMappings,
+}));
+vi.mock('../src/services/entra-user-group-mapping.service', () => ({
+	listEffectiveEntraUserGroupMappings: mocks.listEffectiveEntraUserGroupMappings,
 }));
 vi.mock('../src/services/user-group-availability.service', () => ({
 	assertUserGroupManageable: mocks.assertUserGroupManageable,
@@ -60,7 +70,7 @@ vi.mock('../src/services/docs-context-catalog.service', () => ({
 	getDocsContextCatalog: mocks.getDocsContextCatalog,
 }));
 vi.mock('../src/services/sso-group-mapping.service', () => ({
-	isGroupRoleMappingActive: vi.fn(async () => false),
+	isOrganizationRoleMappingActive: vi.fn(async () => false),
 }));
 vi.mock('../src/services/warehouse-sql.service', () => ({
 	validateWarehouseRowPredicate: mocks.validateWarehouseRowPredicate,
@@ -74,6 +84,8 @@ const testRouter = router(userGroupRoutes);
 describe('user group routes', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mocks.env.OIDC_GROUP_NAO_GROUP_MAPPING = undefined;
+		mocks.env.AZURE_AD_GROUP_NAO_GROUP_MAPPING = undefined;
 		mocks.role = 'admin';
 		mocks.getUserRoleInProject.mockImplementation(async (_projectId, userId) =>
 			userId === 'target-user-id' ? 'viewer' : mocks.role,
@@ -83,6 +95,8 @@ describe('user group routes', () => {
 		mocks.getDatabaseContextCatalog.mockReturnValue({ syncState: 'ready', objects: [] });
 		mocks.getDocsContextCatalog.mockReturnValue({ syncState: 'ready', entries: [] });
 		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [] });
+		mocks.listEffectiveOidcUserGroupMappings.mockResolvedValue([]);
+		mocks.listEffectiveEntraUserGroupMappings.mockResolvedValue([]);
 		mocks.updateProjectRowSecurity.mockImplementation(async (_projectId, value) => value);
 		mocks.validateWarehouseRowPredicate.mockImplementation(async (predicate) => predicate);
 		mocks.resolveEffectiveUserGroupAccess.mockResolvedValue({
@@ -490,6 +504,54 @@ describe('user group routes', () => {
 		expect(mocks.hasFeature).not.toHaveBeenCalled();
 	});
 
+	it('returns project-scoped effective OIDC env mappings to licensed admins', async () => {
+		mocks.env.OIDC_GROUP_NAO_GROUP_MAPPING = 'finance:*:Analysts';
+		mocks.listEffectiveOidcUserGroupMappings.mockResolvedValue([
+			{ identifier: 'finance', targetGroupId: 'analysts-id', targetGroupName: 'Analysts' },
+		]);
+
+		await expect(createCaller().effectiveOidcEnvMappings()).resolves.toEqual([
+			{ identifier: 'finance', targetGroupId: 'analysts-id', targetGroupName: 'Analysts' },
+		]);
+		expect(mocks.hasFeature).toHaveBeenCalledWith('sso');
+		expect(mocks.listEffectiveOidcUserGroupMappings).toHaveBeenCalledWith('project-id', [
+			{ oidcGroup: 'finance', projectScope: '*', naoUserGroup: 'analysts' },
+		]);
+	});
+
+	it('fails safely when OIDC env mapping visibility is unavailable', async () => {
+		mocks.hasFeature.mockResolvedValue(false);
+		await expect(createCaller().effectiveOidcEnvMappings()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(mocks.listEffectiveOidcUserGroupMappings).not.toHaveBeenCalled();
+
+		mocks.hasFeature.mockResolvedValue(true);
+		mocks.env.OIDC_GROUP_NAO_GROUP_MAPPING = 'invalid';
+		await expect(createCaller().effectiveOidcEnvMappings()).rejects.toMatchObject({
+			code: 'INTERNAL_SERVER_ERROR',
+		});
+		expect(mocks.listEffectiveOidcUserGroupMappings).not.toHaveBeenCalled();
+
+		mocks.role = 'user';
+		mocks.env.OIDC_GROUP_NAO_GROUP_MAPPING = undefined;
+		await expect(createCaller().effectiveOidcEnvMappings()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+		expect(mocks.hasFeature).toHaveBeenCalledTimes(2);
+	});
+
+	it('returns project-scoped effective Entra env mappings to licensed admins', async () => {
+		const groupId = 'a0b1c2d3-e4f5-6789-abcd-ef0123456789';
+		mocks.env.AZURE_AD_GROUP_NAO_GROUP_MAPPING = `${groupId}:*:Analysts`;
+		mocks.listEffectiveEntraUserGroupMappings.mockResolvedValue([
+			{ identifier: groupId, targetGroupId: 'analysts-id', targetGroupName: 'Analysts' },
+		]);
+
+		await expect(createCaller().effectiveMicrosoftEnvMappings()).resolves.toEqual([
+			{ identifier: groupId, targetGroupId: 'analysts-id', targetGroupName: 'Analysts' },
+		]);
+		expect(mocks.listEffectiveEntraUserGroupMappings).toHaveBeenCalledWith('project-id', [
+			{ entraGroupId: groupId, projectScope: '*', naoUserGroup: 'analysts' },
+		]);
+	});
+
 	it('validates feature keys and creates a group with unlimited entitlement', async () => {
 		await expect(
 			createCaller().create({ name: 'Analysts', featureGrants: ['unknown'] as never }),
@@ -570,6 +632,7 @@ describe('user group routes', () => {
 					oidc: [' Finance ', 'finance', 'DATA'],
 					microsoft: [' A0B1C2D3-E4F5-6789-ABCD-EF0123456789 ', 'a0b1c2d3-e4f5-6789-abcd-ef0123456789'],
 				},
+				defaultProjectRole: 'context_admin',
 			},
 		});
 
@@ -586,6 +649,7 @@ describe('user group routes', () => {
 					oidc: ['finance', 'data'],
 					microsoft: ['a0b1c2d3-e4f5-6789-abcd-ef0123456789'],
 				},
+				defaultProjectRole: 'context_admin',
 			},
 		);
 	});

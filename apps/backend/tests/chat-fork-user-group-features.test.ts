@@ -46,7 +46,7 @@ vi.mock('../src/services/user-group-availability.service', () => ({
 	resolveAvailableUserGroupAccess: mocks.resolveEffectiveUserGroupAccess,
 }));
 vi.mock('../src/services/sso-group-mapping.service', () => ({
-	isGroupRoleMappingActive: vi.fn(async () => false),
+	isOrganizationRoleMappingActive: vi.fn(async () => false),
 }));
 
 import { chatForkRoutes } from '../src/trpc/chat-fork.routes';

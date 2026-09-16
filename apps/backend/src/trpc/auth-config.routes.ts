@@ -11,10 +11,31 @@ import { isGitlabSsoEnabled } from '../services/gitlab';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
 import { isMicrosoftConfigured } from '../services/microsoft-auth.service';
 import { getOidcProviderId, isOidcConfigured } from '../services/oidc-auth.service';
-import { inspectSsoToken, isGroupRoleMappingActive } from '../services/sso-group-mapping.service';
+import {
+	inspectSsoToken,
+	isMicrosoftOrganizationRoleMappingActive,
+	isOidcOrganizationRoleMappingActive,
+	isOrganizationRoleMappingActive,
+} from '../services/sso-group-mapping.service';
 import { adminProtectedProcedure, publicProcedure } from './trpc';
 
 export const authConfigRoutes = {
+	sso: {
+		getStatus: publicProcedure.query(async () => {
+			const organizationRolesManagedByIdp = await isOrganizationRoleMappingActive();
+			if (!organizationRolesManagedByIdp) {
+				return { organizationRolesManagedByIdp, providerName: 'SSO' };
+			}
+			const [oidcManaged, microsoftManaged] = await Promise.all([
+				isOidcOrganizationRoleMappingActive(),
+				isMicrosoftOrganizationRoleMappingActive(),
+			]);
+			return {
+				organizationRolesManagedByIdp,
+				providerName: microsoftManaged && !oidcManaged ? 'Microsoft Entra' : (env.OIDC_PROVIDER_NAME ?? 'SSO'),
+			};
+		}),
+	},
 	google: {
 		isSetup: publicProcedure.query(async () => {
 			// Cloud uses a single deployment-level credential; org membership is then
@@ -88,7 +109,7 @@ export const authConfigRoutes = {
 			return {
 				providerId: getOidcProviderId(),
 				providerName: env.OIDC_PROVIDER_NAME ?? 'SSO',
-				rolesManagedByIdp: await isGroupRoleMappingActive(),
+				organizationRolesManagedByIdp: await isOidcOrganizationRoleMappingActive(),
 			};
 		}),
 		inspectToken: adminProtectedProcedure

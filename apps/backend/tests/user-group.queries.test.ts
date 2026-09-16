@@ -1,5 +1,6 @@
-import { resolveWarehouseRowSecurity } from '@nao/shared';
-import { eq } from 'drizzle-orm';
+import { resolveWarehouseRowSecurity, type SsoGroupProvider } from '@nao/shared';
+import type { UserRole } from '@nao/shared/types';
+import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -1515,6 +1516,294 @@ describe('user group queries', () => {
 		});
 	});
 
+	it('provisions first project access and never revokes or rewrites it later', async () => {
+		const group = await createUserGroup(
+			FOREIGN_PROJECT_ID,
+			'Analysts',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			ssoMappings(['finance'], 'user'),
+		);
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['finance']);
+		await db
+			.update(projectMember)
+			.set({ role: 'context_admin' })
+			.where(and(eq(projectMember.projectId, FOREIGN_PROJECT_ID), eq(projectMember.userId, DIRECT_USER_ID)));
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', []);
+
+		await expect(projectMembership(FOREIGN_PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
+			role: 'context_admin',
+		});
+		expect(await listSsoGroupIds(DIRECT_USER_ID)).not.toContain(group.id);
+	});
+
+	it('uses the strongest default role and adds every matching group', async () => {
+		const viewers = await createUserGroup(
+			FOREIGN_PROJECT_ID,
+			'Viewers',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			ssoMappings(['shared'], 'viewer'),
+		);
+		const admins = await createUserGroup(
+			FOREIGN_PROJECT_ID,
+			'Admins',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			ssoMappings(['shared'], 'admin'),
+		);
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['shared']);
+
+		await expect(projectMembership(FOREIGN_PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({ role: 'admin' });
+		expect(await listSsoGroupIds(DIRECT_USER_ID)).toEqual(expect.arrayContaining([viewers.id, admins.id]));
+	});
+
+	it('lets env mappings override the same claimed UI group while preserving other UI matches', async () => {
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
+		const uiFinance = await createUserGroup(
+			PROJECT_ID,
+			'UI Finance',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			ssoMappings(['finance']),
+		);
+		const sales = await createUserGroup(
+			PROJECT_ID,
+			'Sales',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			ssoMappings(['sales']),
+		);
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['FINANCE', 'sales'], {
+			oidcMappings: [
+				{ oidcGroup: 'finance', projectScope: '*', naoUserGroup: 'wildcard analysts' },
+				{ oidcGroup: 'finance', projectScope: PROJECT_ID, naoUserGroup: 'analysts' },
+			],
+		});
+
+		const groupIds = await listSsoGroupIds(DIRECT_USER_ID);
+		expect(groupIds).toEqual(expect.arrayContaining([analysts.id, sales.id]));
+		expect(groupIds).not.toContain(uiFinance.id);
+	});
+
+	it('suppresses an OIDC UI mapping when its env target is unavailable', async () => {
+		const uiFinance = await createUserGroup(
+			PROJECT_ID,
+			'UI Finance',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			ssoMappings(['finance']),
+		);
+		const sales = await createUserGroup(
+			PROJECT_ID,
+			'Sales',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			ssoMappings(['sales']),
+		);
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['finance', 'sales'], {
+			oidcMappings: [
+				{ oidcGroup: 'finance', projectScope: '*', naoUserGroup: 'ui finance' },
+				{ oidcGroup: 'finance', projectScope: PROJECT_ID, naoUserGroup: 'missing group' },
+			],
+		});
+
+		const groupIds = await listSsoGroupIds(DIRECT_USER_ID);
+		expect(groupIds).not.toContain(uiFinance.id);
+		expect(groupIds).toContain(sales.id);
+	});
+
+	it('does not provision locked excess groups', async () => {
+		const groups = await Promise.all(
+			['One', 'Two', 'Three', 'Locked'].map((name) =>
+				createUserGroup(
+					FOREIGN_PROJECT_ID,
+					name,
+					[],
+					DEFAULT_DENSITY,
+					undefined,
+					undefined,
+					ssoMappings([name], 'user'),
+				),
+			),
+		);
+		for (const [index, group] of groups.entries()) {
+			await db
+				.update(userGroup)
+				.set({ createdAt: new Date(`2025-01-0${index + 1}T00:00:00Z`) })
+				.where(eq(userGroup.id, group.id));
+		}
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['Locked'], {
+			hasUnlimitedUserGroups: false,
+		});
+
+		await expect(projectMembership(FOREIGN_PROJECT_ID, DIRECT_USER_ID)).resolves.toBeNull();
+		expect(await listSsoGroupIds(DIRECT_USER_ID)).not.toContain(groups[3].id);
+	});
+
+	it('suppresses UI fallback when env mappings target locked excess groups', async () => {
+		const groups = await Promise.all(
+			['Active UI', 'Two', 'Three', 'Locked'].map((name, index) =>
+				createUserGroup(
+					PROJECT_ID,
+					name,
+					[],
+					DEFAULT_DENSITY,
+					undefined,
+					undefined,
+					ssoMappings(index === 0 ? ['finance'] : []),
+				),
+			),
+		);
+		for (const [index, group] of groups.entries()) {
+			await db
+				.update(userGroup)
+				.set({ createdAt: new Date(`2025-01-0${index + 1}T00:00:00Z`) })
+				.where(eq(userGroup.id, group.id));
+		}
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['finance'], {
+			hasUnlimitedUserGroups: false,
+			oidcMappings: [{ oidcGroup: 'finance', projectScope: '*', naoUserGroup: 'locked' }],
+		});
+
+		expect(await listSsoGroupIds(DIRECT_USER_ID)).not.toContain(groups[0].id);
+		expect(await listSsoGroupIds(DIRECT_USER_ID)).not.toContain(groups[3].id);
+	});
+
+	it('provisions project access for Microsoft mappings', async () => {
+		const microsoftGroupId = 'a0b1c2d3-e4f5-6789-abcd-ef0123456789';
+		const group = await createUserGroup(
+			FOREIGN_PROJECT_ID,
+			'Microsoft Analysts',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			{
+				version: 1,
+				providers: { oidc: [], microsoft: [microsoftGroupId] },
+				defaultProjectRole: 'viewer',
+			},
+		);
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'microsoft', [microsoftGroupId]);
+
+		await expect(projectMembership(FOREIGN_PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({ role: 'viewer' });
+		expect(await listSsoGroupIds(DIRECT_USER_ID, 'microsoft')).toContain(group.id);
+	});
+
+	it('lets Entra env mappings override the same UI Object ID while preserving other UI matches', async () => {
+		const envGroupId = 'a0b1c2d3-e4f5-6789-abcd-ef0123456789';
+		const otherGroupId = '11111111-2222-3333-4444-555555555555';
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
+		const uiTarget = await createUserGroup(PROJECT_ID, 'UI target', [], DEFAULT_DENSITY, undefined, undefined, {
+			version: 1,
+			providers: { oidc: [], microsoft: [envGroupId] },
+		});
+		const otherTarget = await createUserGroup(
+			PROJECT_ID,
+			'Other target',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			{
+				version: 1,
+				providers: { oidc: [], microsoft: [otherGroupId] },
+			},
+		);
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'microsoft', [envGroupId, otherGroupId], {
+			entraMappings: [
+				{ entraGroupId: envGroupId, projectScope: '*', naoUserGroup: 'wrong wildcard' },
+				{ entraGroupId: envGroupId, projectScope: PROJECT_ID, naoUserGroup: 'ANALYSTS' },
+			],
+		});
+
+		const groupIds = await listSsoGroupIds(DIRECT_USER_ID, 'microsoft');
+		expect(groupIds).toEqual(expect.arrayContaining([analysts.id, otherTarget.id]));
+		expect(groupIds).not.toContain(uiTarget.id);
+	});
+
+	it('suppresses an Entra UI mapping when its env target is unavailable', async () => {
+		const envGroupId = 'a0b1c2d3-e4f5-6789-abcd-ef0123456789';
+		const otherGroupId = '11111111-2222-3333-4444-555555555555';
+		const overriddenTarget = await createUserGroup(
+			PROJECT_ID,
+			'Overridden target',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			{
+				version: 1,
+				providers: { oidc: [], microsoft: [envGroupId] },
+			},
+		);
+		const unrelatedTarget = await createUserGroup(
+			PROJECT_ID,
+			'Unrelated target',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			{
+				version: 1,
+				providers: { oidc: [], microsoft: [otherGroupId] },
+			},
+		);
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'microsoft', [envGroupId, otherGroupId], {
+			entraMappings: [
+				{ entraGroupId: envGroupId, projectScope: '*', naoUserGroup: 'overridden target' },
+				{ entraGroupId: envGroupId, projectScope: PROJECT_ID, naoUserGroup: 'missing group' },
+			],
+		});
+
+		const groupIds = await listSsoGroupIds(DIRECT_USER_ID, 'microsoft');
+		expect(groupIds).not.toContain(overriddenTarget.id);
+		expect(groupIds).toContain(unrelatedTarget.id);
+	});
+
+	it('never changes an existing explicit project role for an Entra default role', async () => {
+		const microsoftGroupId = 'a0b1c2d3-e4f5-6789-abcd-ef0123456789';
+		await db
+			.insert(projectMember)
+			.values({ projectId: FOREIGN_PROJECT_ID, userId: DIRECT_USER_ID, role: 'viewer' })
+			.onConflictDoNothing();
+		await createUserGroup(FOREIGN_PROJECT_ID, 'Microsoft Admins', [], DEFAULT_DENSITY, undefined, undefined, {
+			version: 1,
+			providers: { oidc: [], microsoft: [microsoftGroupId] },
+			defaultProjectRole: 'admin',
+		});
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'microsoft', [microsoftGroupId]);
+
+		await expect(projectMembership(FOREIGN_PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
+			role: 'viewer',
+		});
+	});
+
 	it('replaces OIDC memberships, clears no-matches, and removes deleted mappings', async () => {
 		const finance = await createUserGroup(
 			PROJECT_ID,
@@ -1730,6 +2019,15 @@ describe('user group queries', () => {
 			code: 'BAD_REQUEST',
 			message: 'The All Users group cannot be mapped to SSO groups.',
 		});
+		await expect(
+			updateUserGroup(PROJECT_ID, overview.groups[0].id, {
+				featureGrants: overview.groups[0].featureGrants,
+				ssoMappings: ssoMappings([], 'viewer'),
+			}),
+		).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+			message: 'The All Users group cannot be mapped to SSO groups.',
+		});
 	});
 });
 
@@ -1749,20 +2047,33 @@ async function cleanup() {
 	}
 }
 
-function ssoMappings(oidc: string[]) {
+function ssoMappings(oidc: string[], defaultProjectRole?: UserRole) {
 	return {
 		version: 1 as const,
 		providers: {
 			oidc,
 			microsoft: [],
 		},
+		...(defaultProjectRole ? { defaultProjectRole } : {}),
 	};
 }
 
-async function listSsoGroupIds(userId: string): Promise<string[]> {
+async function listSsoGroupIds(userId: string, provider?: SsoGroupProvider): Promise<string[]> {
 	return db
 		.select({ groupId: userGroupSsoMember.groupId })
 		.from(userGroupSsoMember)
-		.where(eq(userGroupSsoMember.userId, userId))
+		.where(
+			provider
+				? and(eq(userGroupSsoMember.userId, userId), eq(userGroupSsoMember.provider, provider))
+				: eq(userGroupSsoMember.userId, userId),
+		)
 		.then((memberships) => memberships.map((membership) => membership.groupId));
+}
+
+async function projectMembership(projectId: string, userId: string) {
+	const [membership] = await db
+		.select()
+		.from(projectMember)
+		.where(and(eq(projectMember.projectId, projectId), eq(projectMember.userId, userId)));
+	return membership ?? null;
 }

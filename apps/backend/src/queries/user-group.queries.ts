@@ -349,9 +349,7 @@ export const updateUserGroup = async (
 	if (
 		group.isDefault &&
 		data.ssoMappings !== undefined &&
-		Object.values(serializeUserGroupSsoMappings(data.ssoMappings).providers).some(
-			(identifiers) => identifiers.length > 0,
-		)
+		isSsoProvisioningConfigured(serializeUserGroupSsoMappings(data.ssoMappings))
 	) {
 		throw new UserGroupQueryError('BAD_REQUEST', 'The All Users group cannot be mapped to SSO groups.');
 	}
@@ -653,6 +651,13 @@ function getChangedSsoProviders(
 
 function haveSameIdentifiers(left: string[], right: string[]): boolean {
 	return left.length === right.length && left.every((identifier) => right.includes(identifier));
+}
+
+function isSsoProvisioningConfigured(mappings: ReturnType<typeof serializeUserGroupSsoMappings>): boolean {
+	return (
+		(mappings.defaultProjectRole !== null && mappings.defaultProjectRole !== undefined) ||
+		Object.values(mappings.providers).some((identifiers) => identifiers.length > 0)
+	);
 }
 
 function deleteChangedSsoMembershipsSqlite(

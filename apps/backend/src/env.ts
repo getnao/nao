@@ -5,6 +5,12 @@ import { isLlmProvider, LLM_PROVIDERS, NAMED_PROVIDER_KIND } from '@nao/shared/t
 import dotenv from 'dotenv';
 import { z } from 'zod/v4';
 
+import {
+	parseEntraGroupNaoGroupMapping,
+	parseEntraGroupOrganizationRoleMapping,
+	parseOidcGroupNaoGroupMapping,
+} from './utils/sso-group-mapping';
+
 // Loads .env file at the root of the repository
 dotenv.config({
 	path: path.join(process.cwd(), '..', '..', '.env'),
@@ -66,6 +72,19 @@ const envSchema = z.object({
 	AZURE_AD_CLIENT_SECRET: z.string().optional(),
 	AZURE_AD_TENANT_ID: z.string().optional(),
 	AZURE_AD_TOKEN_SCOPE: z.string().optional(),
+	AZURE_AD_GROUP_NAO_GROUP_MAPPING: z
+		.string()
+		.optional()
+		.refine((value) => parseEntraGroupNaoGroupMapping(value).status === 'valid', {
+			message:
+				'AZURE_AD_GROUP_NAO_GROUP_MAPPING must use Entra-group-object-id:project-scope:nao-user-group entries',
+		}),
+	AZURE_AD_GROUP_ROLE_MAPPING: z
+		.string()
+		.optional()
+		.refine((value) => parseEntraGroupOrganizationRoleMapping(value).status === 'valid', {
+			message: 'AZURE_AD_GROUP_ROLE_MAPPING must use Entra-group-object-id:organization-role entries',
+		}),
 
 	ENABLE_USER_LOGIN: z
 		.enum(['true', 'false'])
@@ -90,6 +109,13 @@ const envSchema = z.object({
 	OIDC_PKCE: z.string().optional(),
 	OIDC_GROUPS_CLAIM: z.string().optional(),
 	OIDC_GROUP_ROLE_MAPPING: z.string().optional(),
+	OIDC_GROUP_NAO_GROUP_MAPPING: z
+		.string()
+		.optional()
+		.refine((value) => parseOidcGroupNaoGroupMapping(value).status === 'valid', {
+			message:
+				'OIDC_GROUP_NAO_GROUP_MAPPING must be comma-separated oidc-group:project-scope:nao-user-group entries without commas or colons in values',
+		}),
 	SSO_SESSION_MAX_AGE: z.coerce.number().int().positive().optional(),
 
 	SMTP_PASSWORD: z.string().optional(),

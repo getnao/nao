@@ -88,6 +88,14 @@ vi.mock('@/main', () => ({
 			updateRowSecurity: { mutationOptions: vi.fn() },
 			effectiveAccess: { queryKey: vi.fn(() => ['effective-access']) },
 			effectiveAccessForUser: { queryKey: vi.fn(() => ['effective-access-for-user']) },
+			effectiveOidcEnvMappings: {
+				queryOptions: vi.fn(() => ({ queryKey: ['effective-oidc-env-mappings'] })),
+				queryKey: vi.fn(() => ['effective-oidc-env-mappings']),
+			},
+			effectiveMicrosoftEnvMappings: {
+				queryOptions: vi.fn(() => ({ queryKey: ['effective-microsoft-env-mappings'] })),
+				queryKey: vi.fn(() => ['effective-microsoft-env-mappings']),
+			},
 			setMembership: { mutationOptions: vi.fn() },
 			create: { mutationOptions: vi.fn() },
 			update: { mutationOptions: vi.fn() },
@@ -1173,14 +1181,14 @@ describe('UserGroupEditor', () => {
 			isError: false,
 			data:
 				options?.queryKey?.[0] === 'oidc-config'
-					? { providerId: 'okta', providerName: 'Okta', rolesManagedByIdp: false }
+					? { providerId: 'okta', providerName: 'Okta', organizationRolesManagedByIdp: false }
 					: options?.queryKey?.[0] === 'microsoft-config'
 						? false
 						: overview,
 		}));
 		const { rerender } = renderEditor('security');
 		expect(screen.getByRole('tab', { name: 'SSO' })).toBeTruthy();
-		expect(screen.queryByRole('heading', { name: 'SSO group mapping — Okta' })).toBeNull();
+		expect(screen.queryByRole('heading', { name: 'SSO group mapping: Okta' })).toBeNull();
 		expect(screen.getByRole('heading', { name: 'Row-level security' })).toBeTruthy();
 		rerender(
 			<UserGroupEditor
@@ -1205,6 +1213,7 @@ describe('UserGroupEditor', () => {
 			expect.objectContaining({
 				ssoMappings: {
 					version: 1,
+					defaultProjectRole: null,
 					providers: { oidc: ['finance-team'], microsoft: [] },
 				},
 			}),
@@ -1224,7 +1233,7 @@ describe('UserGroupEditor', () => {
 		}));
 		renderEditor('sso');
 		expect(screen.getByRole('tab', { name: 'SSO' })).toBeTruthy();
-		expect(screen.queryByRole('heading', { name: 'SSO group mapping — Okta' })).toBeNull();
+		expect(screen.queryByRole('heading', { name: 'SSO group mapping: Okta' })).toBeNull();
 
 		const input = screen.getByRole('textbox', { name: 'Microsoft Entra group object ID' });
 		fireEvent.change(input, { target: { value: 'not-a-guid' } });
@@ -1239,6 +1248,7 @@ describe('UserGroupEditor', () => {
 			expect.objectContaining({
 				ssoMappings: {
 					version: 1,
+					defaultProjectRole: null,
 					providers: {
 						oidc: [],
 						microsoft: ['a0b1c2d3-e4f5-6789-abcd-ef0123456789'],
@@ -1248,21 +1258,79 @@ describe('UserGroupEditor', () => {
 		);
 	});
 
+	it('hydrates a persisted Microsoft Entra mapping into the editor', () => {
+		mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => ({
+			isLoading: false,
+			isError: false,
+			data:
+				options?.queryKey?.[0] === 'oidc-config'
+					? null
+					: options?.queryKey?.[0] === 'microsoft-config'
+						? true
+						: overview,
+		}));
+		const identifier = 'a0b1c2d3-e4f5-6789-abcd-ef0123456789';
+
+		renderEditor('sso', vi.fn(), {
+			...analysts,
+			ssoMappings: {
+				version: 1,
+				providers: { oidc: [], microsoft: [identifier] },
+			},
+		});
+
+		expect(screen.getByRole('button', { name: `Remove Microsoft Entra group ${identifier}` })).toBeTruthy();
+	});
+
+	it('renders effective Entra env mappings in the Microsoft section', () => {
+		const identifier = 'a0b1c2d3-e4f5-6789-abcd-ef0123456789';
+		mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => {
+			const key = options?.queryKey?.[0];
+			if (key === 'oidc-config') {
+				return { isLoading: false, isError: false, data: null };
+			}
+			if (key === 'microsoft-config') {
+				return { isLoading: false, isError: false, data: true };
+			}
+			if (key === 'effective-microsoft-env-mappings') {
+				return {
+					isLoading: false,
+					isError: false,
+					isSuccess: true,
+					data: [{ identifier, targetGroupId: analysts.id, targetGroupName: analysts.name }],
+					refetch: vi.fn(),
+				};
+			}
+			return { isLoading: false, isError: false, data: overview };
+		});
+
+		renderEditor('sso');
+
+		expect(screen.getByText(identifier)).toBeTruthy();
+		expect(screen.getByLabelText('.env controlled mapping')).toBeTruthy();
+		expect(screen.queryByRole('button', { name: `Remove Microsoft Entra group ${identifier}` })).toBeNull();
+	});
+
 	it('shows distinct OIDC and Microsoft mapping sections together', () => {
 		mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => ({
 			isLoading: false,
 			isError: false,
 			data:
 				options?.queryKey?.[0] === 'oidc-config'
-					? { providerId: 'okta', providerName: 'Okta', rolesManagedByIdp: false }
+					? { providerId: 'okta', providerName: 'Okta', organizationRolesManagedByIdp: false }
 					: options?.queryKey?.[0] === 'microsoft-config'
 						? true
 						: overview,
 		}));
 		renderEditor('sso');
 
-		expect(screen.getByRole('heading', { name: 'SSO group mapping — Okta' })).toBeTruthy();
-		expect(screen.getByRole('heading', { name: 'SSO group mapping — Microsoft Entra' })).toBeTruthy();
+		const oidcMapping = screen.getByRole('heading', { name: 'SSO group mapping: Okta' });
+		const microsoftMapping = screen.getByRole('heading', { name: 'SSO group mapping: Microsoft Entra' });
+		const defaultProjectRole = screen.getByText('Default project role');
+		expect(oidcMapping.compareDocumentPosition(defaultProjectRole) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(
+			microsoftMapping.compareDocumentPosition(defaultProjectRole) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
 		expect(screen.getByRole('textbox', { name: 'Okta group name' })).toBeTruthy();
 		expect(screen.getByRole('textbox', { name: 'Microsoft Entra group object ID' })).toBeTruthy();
 	});
@@ -1287,7 +1355,7 @@ describe('UserGroupEditor', () => {
 		});
 
 		expect(screen.queryByRole('tab', { name: 'SSO' })).toBeNull();
-		expect(screen.queryByRole('heading', { name: 'SSO group mapping — OIDC' })).toBeNull();
+		expect(screen.queryByRole('heading', { name: 'SSO group mapping: OIDC' })).toBeNull();
 		expect(screen.queryByText('finance-team')).toBeNull();
 		expect(screen.queryByRole('textbox', { name: 'OIDC group name' })).toBeNull();
 		expect(screen.queryByRole('button', { name: 'Remove OIDC group finance-team' })).toBeNull();
@@ -1332,7 +1400,7 @@ describe('UserGroupEditor', () => {
 		});
 
 		expect(screen.queryByRole('tab', { name: 'SSO' })).toBeNull();
-		expect(screen.queryByRole('heading', { name: 'SSO group mapping — OIDC' })).toBeNull();
+		expect(screen.queryByRole('heading', { name: 'SSO group mapping: OIDC' })).toBeNull();
 		expect(screen.queryByText('former-provider-group')).toBeNull();
 		expect(screen.queryByRole('textbox', { name: 'OIDC group name' })).toBeNull();
 		expect(screen.queryByRole('button', { name: 'Remove OIDC group former-provider-group' })).toBeNull();
@@ -1345,7 +1413,7 @@ describe('UserGroupEditor', () => {
 			isError: false,
 			data:
 				options?.queryKey?.[0] === 'oidc-config'
-					? { providerId: 'okta', providerName: 'Okta', rolesManagedByIdp: false }
+					? { providerId: 'okta', providerName: 'Okta', organizationRolesManagedByIdp: false }
 					: options?.queryKey?.[0] === 'microsoft-config'
 						? false
 						: overview,
@@ -1375,7 +1443,7 @@ describe('UserGroupEditor', () => {
 			isError: false,
 			data:
 				options?.queryKey?.[0] === 'oidc-config'
-					? { providerId: 'okta', providerName: 'Okta', rolesManagedByIdp: false }
+					? { providerId: 'okta', providerName: 'Okta', organizationRolesManagedByIdp: false }
 					: options?.queryKey?.[0] === 'microsoft-config'
 						? false
 						: overview,

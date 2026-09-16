@@ -36,7 +36,7 @@ vi.mock('../src/services/user-group-availability.service', () => ({
 }));
 
 vi.mock('../src/services/sso-group-mapping.service', () => ({
-	isGroupRoleMappingActive: vi.fn(async () => false),
+	isOrganizationRoleMappingActive: vi.fn(async () => false),
 }));
 
 vi.mock('../src/services/context-explorer.service', () => ({

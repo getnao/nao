@@ -40,6 +40,7 @@ import { syncUserGroupsFromOidc } from '../src/services/sso-user-group-membershi
 
 beforeEach(() => {
 	mocks.env.OIDC_GROUPS_CLAIM = undefined;
+	mocks.env.OIDC_GROUP_NAO_GROUP_MAPPING = undefined;
 	mocks.hasFeature.mockReset().mockResolvedValue(true);
 	mocks.hasSyncState.mockReset().mockResolvedValue(true);
 	mocks.readClaims.mockReset();
@@ -53,11 +54,17 @@ describe('syncUserGroupsFromOidc', () => {
 		mocks.readClaims.mockResolvedValueOnce({ status: 'verified', claims: { groups: ['Finance'] } });
 		await syncUserGroupsFromOidc('user-1');
 		expect(mocks.readClaims).toHaveBeenLastCalledWith('user-1');
-		expect(mocks.reconcile).toHaveBeenLastCalledWith('user-1', 'oidc', ['Finance']);
+		expect(mocks.reconcile).toHaveBeenLastCalledWith('user-1', 'oidc', ['Finance'], {
+			hasUnlimitedUserGroups: true,
+			oidcMappings: [],
+		});
 
 		mocks.readClaims.mockResolvedValueOnce({ status: 'verified', claims: { groups: [] } });
 		await syncUserGroupsFromOidc('user-1');
-		expect(mocks.reconcile).toHaveBeenLastCalledWith('user-1', 'oidc', []);
+		expect(mocks.reconcile).toHaveBeenLastCalledWith('user-1', 'oidc', [], {
+			hasUnlimitedUserGroups: true,
+			oidcMappings: [],
+		});
 	});
 
 	it.each([
@@ -73,7 +80,7 @@ describe('syncUserGroupsFromOidc', () => {
 		expect(mocks.logger.warn).toHaveBeenCalledOnce();
 	});
 
-	it('requires SSO and does not query unlimited-groups entitlement', async () => {
+	it('requires SSO and passes the unlimited-groups entitlement to reconciliation', async () => {
 		mocks.hasFeature.mockImplementation((feature: string) => Promise.resolve(feature !== 'sso'));
 		await syncUserGroupsFromOidc('user-1');
 		expect(mocks.hasFeature).toHaveBeenCalledTimes(1);
@@ -84,9 +91,26 @@ describe('syncUserGroupsFromOidc', () => {
 			.mockImplementation((feature: string) => Promise.resolve(feature !== 'user-groups'));
 		mocks.readClaims.mockResolvedValue({ status: 'verified', claims: { groups: ['Finance'] } });
 		await syncUserGroupsFromOidc('user-1');
-		expect(mocks.hasFeature).toHaveBeenCalledOnce();
-		expect(mocks.hasFeature).toHaveBeenCalledWith('sso');
-		expect(mocks.reconcile).toHaveBeenCalledWith('user-1', 'oidc', ['Finance']);
+		expect(mocks.hasFeature).toHaveBeenCalledTimes(2);
+		expect(mocks.hasFeature).toHaveBeenNthCalledWith(1, 'sso');
+		expect(mocks.hasFeature).toHaveBeenNthCalledWith(2, 'user-groups');
+		expect(mocks.reconcile).toHaveBeenCalledWith('user-1', 'oidc', ['Finance'], {
+			hasUnlimitedUserGroups: false,
+			oidcMappings: [],
+		});
+	});
+
+	it('syncs env-only mappings and passes their normalized values', async () => {
+		mocks.env.OIDC_GROUP_NAO_GROUP_MAPPING = ' Finance : * : Analysts ';
+		mocks.hasSyncState.mockResolvedValue(false);
+		mocks.readClaims.mockResolvedValue({ status: 'verified', claims: { groups: ['FINANCE'] } });
+
+		await syncUserGroupsFromOidc('user-1');
+
+		expect(mocks.reconcile).toHaveBeenCalledWith('user-1', 'oidc', ['FINANCE'], {
+			hasUnlimitedUserGroups: true,
+			oidcMappings: [{ oidcGroup: 'finance', projectScope: '*', naoUserGroup: 'analysts' }],
+		});
 	});
 
 	it('skips when no mapping or stale membership exists', async () => {

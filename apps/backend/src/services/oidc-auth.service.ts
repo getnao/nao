@@ -5,8 +5,8 @@ import { APIError } from 'better-auth';
 import { genericOAuth } from 'better-auth/plugins/generic-oauth';
 
 import { env } from '../env';
-import { decideGroupRoleMapping, parseGroupRoleMapping } from '../utils/sso-group-mapping';
-import { isGroupRoleMappingActive } from './sso-group-mapping.service';
+import { decideGroupOrganizationRoleMapping, parseGroupOrganizationRoleMapping } from '../utils/sso-group-mapping';
+import { isOidcOrganizationRoleMappingActive } from './sso-group-mapping.service';
 
 export function getOidcProviderId(): string {
 	return env.OIDC_PROVIDER_ID ?? 'oidc';
@@ -33,14 +33,14 @@ export function augmentPluginsWithOidc(plugins: BetterAuthPlugin[]): void {
 					pkce: env.OIDC_PKCE !== 'false',
 					prompt: 'select_account',
 					mapProfileToUser: async (profile) => {
-						if (!(await isGroupRoleMappingActive())) {
+						if (!(await isOidcOrganizationRoleMappingActive())) {
 							return {};
 						}
 
-						const decision = decideGroupRoleMapping(
+						const decision = decideGroupOrganizationRoleMapping(
 							profile,
 							env.OIDC_GROUPS_CLAIM ?? DEFAULT_GROUPS_CLAIM,
-							parseGroupRoleMapping(env.OIDC_GROUP_ROLE_MAPPING),
+							parseGroupOrganizationRoleMapping(env.OIDC_GROUP_ROLE_MAPPING),
 						);
 						if (decision.action === 'deny') {
 							throw new APIError('FORBIDDEN', {

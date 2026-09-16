@@ -161,6 +161,7 @@ export function ProjectTeamTabPage() {
 				onOpenChange={(open) => !open && setEditMember(null)}
 				member={editMember}
 				isAdmin={isAdmin}
+				roleScope='project'
 				availableRoles={USER_ROLES}
 				onSubmit={handleEdit}
 			/>

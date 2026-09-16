@@ -1,14 +1,40 @@
-import { normalizeSsoGroupIdentifiers, parseStoredUserGroupSsoMappings, type SsoGroupProvider } from '@nao/shared';
-import { and, asc, eq, inArray, isNotNull, or } from 'drizzle-orm';
+import {
+	FREE_CUSTOM_USER_GROUP_LIMIT,
+	normalizeSsoGroupIdentifiers,
+	parseStoredUserGroupSsoMappings,
+	type SsoGroupProvider,
+} from '@nao/shared';
+import type { UserRole } from '@nao/shared/types';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 
 import type { DBUserGroup } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
 import { db, type DBExecutor, type DBTransaction } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
+import {
+	type EntraGroupNaoGroupMapping,
+	type OidcGroupNaoGroupMapping,
+	resolveEntraGroupNaoGroupMappings,
+	resolveEntraGroupNaoGroupMappingTargets,
+	resolveOidcGroupNaoGroupMappings,
+	resolveOidcGroupNaoGroupMappingTargets,
+	resolveStrongestUserRole,
+} from '../utils/sso-group-mapping';
 
 export interface SsoUserGroupMapping {
 	groupId: string;
+	projectId: string;
+	groupName: string;
 	identifiers: string[];
+	defaultProjectRole: UserRole | null;
+	hasProjectMembership: boolean;
+	hasProjectAccess: boolean;
+}
+
+export interface SsoUserGroupReconciliationOptions {
+	hasUnlimitedUserGroups?: boolean;
+	oidcMappings?: OidcGroupNaoGroupMapping[];
+	entraMappings?: EntraGroupNaoGroupMapping[];
 }
 
 export async function hasSsoUserGroupSyncState(userId: string, provider: SsoGroupProvider): Promise<boolean> {
@@ -28,6 +54,7 @@ export async function reconcileSsoUserGroupMemberships(
 	userId: string,
 	provider: SsoGroupProvider,
 	claimedIdentifiers: string[],
+	options: SsoUserGroupReconciliationOptions = {},
 ): Promise<void> {
 	const identifiers = new Set(normalizeSsoGroupIdentifiers(provider, claimedIdentifiers));
 
@@ -35,17 +62,25 @@ export async function reconcileSsoUserGroupMemberships(
 		db.transaction(
 			(transaction) => {
 				const mappings = normalizeSsoUserGroupMappings(
-					buildAccessibleSsoUserGroupMappingsQuery(transaction, userId).all(),
+					buildSsoUserGroupMappingsQuery(transaction, userId).all(),
 					provider,
+					options.hasUnlimitedUserGroups ?? true,
 				);
-				const desiredGroupIds = getDesiredGroupIds(mappings, identifiers);
+				const desired = getDesiredMemberships(
+					mappings,
+					identifiers,
+					provider,
+					options.oidcMappings ?? [],
+					options.entraMappings ?? [],
+				);
+				insertMissingProjectMembershipsSqlite(transaction, userId, desired.projectRoles);
 				const existingGroupIds = transaction
 					.select({ groupId: s.userGroupSsoMember.groupId })
 					.from(s.userGroupSsoMember)
 					.where(and(eq(s.userGroupSsoMember.userId, userId), eq(s.userGroupSsoMember.provider, provider)))
 					.all()
 					.map(({ groupId }) => groupId);
-				const changes = diffMemberships(existingGroupIds, desiredGroupIds);
+				const changes = diffMemberships(existingGroupIds, desired.groupIds);
 				if (changes.stale.length > 0) {
 					transaction
 						.delete(s.userGroupSsoMember)
@@ -73,20 +108,28 @@ export async function reconcileSsoUserGroupMemberships(
 
 	await db.transaction(async (transaction) => {
 		await lockUserForSsoReconciliation(transaction, userId);
-		const projectIds = await listAccessibleProjectIds(transaction, userId);
+		const projectIds = await listSsoCandidateProjectIds(transaction);
 		await lockProjectsForSsoReconciliation(transaction, projectIds);
 		const mappings = normalizeSsoUserGroupMappings(
-			await buildAccessibleSsoUserGroupMappingsQuery(transaction, userId).execute(),
+			await buildSsoUserGroupMappingsQuery(transaction, userId).execute(),
 			provider,
+			options.hasUnlimitedUserGroups ?? true,
 		);
-		const desiredGroupIds = getDesiredGroupIds(mappings, identifiers);
+		const desired = getDesiredMemberships(
+			mappings,
+			identifiers,
+			provider,
+			options.oidcMappings ?? [],
+			options.entraMappings ?? [],
+		);
+		await insertMissingProjectMembershipsPostgres(transaction, userId, desired.projectRoles);
 		const existingGroupIds = await transaction
 			.select({ groupId: s.userGroupSsoMember.groupId })
 			.from(s.userGroupSsoMember)
 			.where(and(eq(s.userGroupSsoMember.userId, userId), eq(s.userGroupSsoMember.provider, provider)))
 			.execute()
 			.then((memberships) => memberships.map(({ groupId }) => groupId));
-		const changes = diffMemberships(existingGroupIds, desiredGroupIds);
+		const changes = diffMemberships(existingGroupIds, desired.groupIds);
 		if (changes.stale.length > 0) {
 			await transaction
 				.delete(s.userGroupSsoMember)
@@ -112,46 +155,204 @@ export async function reconcileSsoUserGroupMemberships(
 export async function listAccessibleSsoUserGroupMappings(
 	userId: string,
 	provider: SsoGroupProvider,
+	hasUnlimitedUserGroups = true,
 ): Promise<SsoUserGroupMapping[]> {
-	const groups = await buildAccessibleSsoUserGroupMappingsQuery(db, userId).execute();
-	return normalizeSsoUserGroupMappings(groups, provider);
+	const groups = await buildSsoUserGroupMappingsQuery(db, userId).execute();
+	return normalizeSsoUserGroupMappings(groups, provider, hasUnlimitedUserGroups).filter(
+		(mapping) => mapping.hasProjectAccess || mapping.defaultProjectRole,
+	);
 }
 
-export async function listConfiguredSsoGroupIdentifiers(userId: string, provider: SsoGroupProvider): Promise<string[]> {
-	const mappings = await listAccessibleSsoUserGroupMappings(userId, provider);
+export async function listConfiguredSsoGroupIdentifiers(
+	userId: string,
+	provider: SsoGroupProvider,
+	hasUnlimitedUserGroups = true,
+): Promise<string[]> {
+	const mappings = await listAccessibleSsoUserGroupMappings(userId, provider, hasUnlimitedUserGroups);
 	return [...new Set(mappings.flatMap((mapping) => mapping.identifiers))];
 }
 
-function buildAccessibleSsoUserGroupMappingsQuery(executor: DBExecutor, userId: string) {
+function buildSsoUserGroupMappingsQuery(executor: DBExecutor, userId: string) {
 	return executor
 		.select({
 			groupId: s.userGroup.id,
+			projectId: s.userGroup.projectId,
+			groupName: s.userGroup.name,
 			isDefault: s.userGroup.isDefault,
 			ssoMappings: s.userGroup.ssoMappings,
+			createdAt: s.userGroup.createdAt,
+			projectMemberUserId: s.projectMember.userId,
+			orgMemberUserId: s.orgMember.userId,
 		})
 		.from(s.userGroup)
 		.innerJoin(s.project, eq(s.project.id, s.userGroup.projectId))
 		.leftJoin(s.projectMember, and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, userId)))
-		.leftJoin(s.orgMember, and(eq(s.orgMember.orgId, s.project.orgId), eq(s.orgMember.userId, userId)))
-		.where(or(isNotNull(s.projectMember.userId), isNotNull(s.orgMember.userId)));
+		.leftJoin(s.orgMember, and(eq(s.orgMember.orgId, s.project.orgId), eq(s.orgMember.userId, userId)));
 }
 
 function normalizeSsoUserGroupMappings(
-	groups: Array<{ groupId: string; isDefault: boolean; ssoMappings: DBUserGroup['ssoMappings'] }>,
+	groups: Array<{
+		groupId: string;
+		projectId: string;
+		groupName: string;
+		isDefault: boolean;
+		ssoMappings: DBUserGroup['ssoMappings'];
+		createdAt: Date;
+		projectMemberUserId: string | null;
+		orgMemberUserId: string | null;
+	}>,
 	provider: SsoGroupProvider,
+	hasUnlimitedUserGroups: boolean,
 ): SsoUserGroupMapping[] {
+	const activeGroupIds = getActiveCustomGroupIds(groups, hasUnlimitedUserGroups);
 	return groups.flatMap((group) => {
-		const identifiers = parseStoredUserGroupSsoMappings(group.ssoMappings).providers[provider];
-		return !group.isDefault && identifiers.length > 0 ? [{ groupId: group.groupId, identifiers }] : [];
+		if (group.isDefault || !activeGroupIds.has(group.groupId)) {
+			return [];
+		}
+		const mappings = parseStoredUserGroupSsoMappings(group.ssoMappings);
+		return [
+			{
+				groupId: group.groupId,
+				projectId: group.projectId,
+				groupName: group.groupName,
+				identifiers: mappings.providers[provider],
+				defaultProjectRole: mappings.defaultProjectRole ?? null,
+				hasProjectMembership: group.projectMemberUserId !== null,
+				hasProjectAccess: group.projectMemberUserId !== null || group.orgMemberUserId !== null,
+			},
+		];
 	});
 }
 
-function getDesiredGroupIds(mappings: SsoUserGroupMapping[], identifiers: Set<string>): Set<string> {
-	return new Set(
-		mappings
-			.filter((mapping) => mapping.identifiers.some((identifier) => identifiers.has(identifier)))
-			.map((mapping) => mapping.groupId),
+function getDesiredMemberships(
+	mappings: SsoUserGroupMapping[],
+	identifiers: Set<string>,
+	provider: SsoGroupProvider,
+	oidcMappings: OidcGroupNaoGroupMapping[],
+	entraMappings: EntraGroupNaoGroupMapping[],
+): { groupIds: Set<string>; projectRoles: Map<string, UserRole> } {
+	const matchedByProject = new Map<string, SsoUserGroupMapping[]>();
+	for (const mapping of mappings) {
+		if (!isMappingMatched(mapping, mappings, identifiers, provider, oidcMappings, entraMappings)) {
+			continue;
+		}
+		const projectMappings = matchedByProject.get(mapping.projectId) ?? [];
+		projectMappings.push(mapping);
+		matchedByProject.set(mapping.projectId, projectMappings);
+	}
+
+	const groupIds = new Set<string>();
+	const projectRoles = new Map<string, UserRole>();
+	for (const [projectId, projectMappings] of matchedByProject) {
+		const role = resolveStrongestUserRole(
+			projectMappings.flatMap((mapping) => (mapping.defaultProjectRole ? [mapping.defaultProjectRole] : [])),
+		);
+		const hasProjectMembership = projectMappings.some((mapping) => mapping.hasProjectMembership);
+		const hasProjectAccess = projectMappings.some((mapping) => mapping.hasProjectAccess);
+		if (!hasProjectAccess && !role) {
+			continue;
+		}
+		if (!hasProjectMembership && role) {
+			projectRoles.set(projectId, role);
+		}
+		for (const mapping of projectMappings) {
+			groupIds.add(mapping.groupId);
+		}
+	}
+	return { groupIds, projectRoles };
+}
+
+function isMappingMatched(
+	mapping: SsoUserGroupMapping,
+	availableMappings: SsoUserGroupMapping[],
+	identifiers: Set<string>,
+	provider: SsoGroupProvider,
+	oidcMappings: OidcGroupNaoGroupMapping[],
+	entraMappings: EntraGroupNaoGroupMapping[],
+): boolean {
+	const availableTargets = availableMappings
+		.filter((candidate) => candidate.projectId === mapping.projectId)
+		.map((candidate) => ({ id: candidate.groupId, name: candidate.groupName }));
+	const resolvedEnvMappings =
+		provider === 'oidc'
+			? resolveOidcGroupNaoGroupMappingTargets(
+					mapping.projectId,
+					oidcMappings.filter((envMapping) => identifiers.has(envMapping.oidcGroup)),
+					availableTargets,
+				)
+			: resolveEntraGroupNaoGroupMappingTargets(
+					mapping.projectId,
+					entraMappings.filter((envMapping) => identifiers.has(envMapping.entraGroupId)),
+					availableTargets,
+				);
+	const selectedEnvMappings =
+		provider === 'oidc'
+			? resolveOidcGroupNaoGroupMappings([...identifiers], mapping.projectId, oidcMappings)
+			: resolveEntraGroupNaoGroupMappings([...identifiers], mapping.projectId, entraMappings);
+	const matchesEnv = [...resolvedEnvMappings.values()].some((target) => target.id === mapping.groupId);
+	const matchesUi = mapping.identifiers.some(
+		(identifier) => identifiers.has(identifier) && !selectedEnvMappings.has(identifier),
 	);
+	return matchesEnv || matchesUi;
+}
+
+function getActiveCustomGroupIds(
+	groups: Array<{ groupId: string; projectId: string; isDefault: boolean; createdAt: Date }>,
+	hasUnlimitedUserGroups: boolean,
+): Set<string> {
+	const customGroups = groups.filter((group) => !group.isDefault);
+	if (hasUnlimitedUserGroups) {
+		return new Set(customGroups.map((group) => group.groupId));
+	}
+
+	const groupsByProject = new Map<string, typeof customGroups>();
+	for (const group of customGroups) {
+		const projectGroups = groupsByProject.get(group.projectId) ?? [];
+		projectGroups.push(group);
+		groupsByProject.set(group.projectId, projectGroups);
+	}
+	return new Set(
+		[...groupsByProject.values()].flatMap((projectGroups) =>
+			projectGroups
+				.sort(
+					(left, right) =>
+						left.createdAt.getTime() - right.createdAt.getTime() ||
+						left.groupId.localeCompare(right.groupId),
+				)
+				.slice(0, FREE_CUSTOM_USER_GROUP_LIMIT)
+				.map((group) => group.groupId),
+		),
+	);
+}
+
+function insertMissingProjectMembershipsSqlite(
+	transaction: DBTransaction,
+	userId: string,
+	projectRoles: Map<string, UserRole>,
+): void {
+	if (projectRoles.size === 0) {
+		return;
+	}
+	transaction
+		.insert(s.projectMember)
+		.values([...projectRoles].map(([projectId, role]) => ({ projectId, userId, role })))
+		.onConflictDoNothing()
+		.run();
+}
+
+async function insertMissingProjectMembershipsPostgres(
+	transaction: DBTransaction,
+	userId: string,
+	projectRoles: Map<string, UserRole>,
+): Promise<void> {
+	if (projectRoles.size === 0) {
+		return;
+	}
+	await transaction
+		.insert(s.projectMember)
+		.values([...projectRoles].map(([projectId, role]) => ({ projectId, userId, role })))
+		.onConflictDoNothing()
+		.execute();
 }
 
 async function lockUserForSsoReconciliation(transaction: DBTransaction, userId: string): Promise<void> {
@@ -159,13 +360,11 @@ async function lockUserForSsoReconciliation(transaction: DBTransaction, userId: 
 	await (query as typeof query & { for(strength: 'update'): typeof query }).for('update').execute();
 }
 
-async function listAccessibleProjectIds(transaction: DBTransaction, userId: string): Promise<string[]> {
+async function listSsoCandidateProjectIds(transaction: DBTransaction): Promise<string[]> {
 	const rows = await transaction
-		.select({ id: s.project.id })
-		.from(s.project)
-		.leftJoin(s.projectMember, and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, userId)))
-		.leftJoin(s.orgMember, and(eq(s.orgMember.orgId, s.project.orgId), eq(s.orgMember.userId, userId)))
-		.where(or(isNotNull(s.projectMember.userId), isNotNull(s.orgMember.userId)))
+		.select({ id: s.userGroup.projectId })
+		.from(s.userGroup)
+		.where(eq(s.userGroup.isDefault, false))
 		.execute();
 	return [...new Set(rows.map(({ id }) => id))].sort();
 }

@@ -14,11 +14,12 @@ import {
 	normalizeUserGroupSsoMappings,
 	USER_GROUP_FEATURE_DEFINITIONS,
 } from '@nao/shared';
+import { USER_ROLE_LABELS, USER_ROLES } from '@nao/shared/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Copy } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DatabaseContextAccess, DocsContextAccess, UserGroupRowPolicies, UserGroupSsoMappings } from '@nao/shared';
-import type { ToolCallDensity } from '@nao/shared/types';
+import type { ToolCallDensity, UserRole } from '@nao/shared/types';
 import type { QueryClient } from '@tanstack/react-query';
 
 import type { TabBarItem } from '@/components/ui/tab-bar';
@@ -31,6 +32,7 @@ import { UserGroupSwitchRow } from '@/components/settings/user-group-switch-row'
 import { Button } from '@/components/ui/button';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useLicenseFeatures } from '@/hooks/use-license';
@@ -72,6 +74,8 @@ const defaultTabs: TabBarItem<UserGroupEditorTab>[] = [
 	{ id: 'context', label: 'Context' },
 	{ id: 'security', label: 'Security' },
 ];
+
+const defaultProjectRoleOptions: readonly UserRole[] = [...USER_ROLES.filter((role) => role !== 'admin'), 'admin'];
 
 export function UserGroupEditor({
 	group,
@@ -140,6 +144,14 @@ export function UserGroupEditor({
 		...trpc.authConfig.microsoft.isSetup.queryOptions(),
 		enabled: hasSso,
 	});
+	const effectiveOidcEnvMappings = useQuery({
+		...trpc.userGroup.effectiveOidcEnvMappings.queryOptions(),
+		enabled: hasSso && existingGroup !== null,
+	});
+	const effectiveMicrosoftEnvMappings = useQuery({
+		...trpc.userGroup.effectiveMicrosoftEnvMappings.queryOptions(),
+		enabled: hasSso && existingGroup !== null,
+	});
 	const ssoLicenseState = licenseFeatures.isLoading
 		? 'loading'
 		: licenseFeatures.isError
@@ -159,6 +171,18 @@ export function UserGroupEditor({
 	);
 	const hasStoredOidcMappings = ssoMappings.providers.oidc.length > 0;
 	const hasStoredMicrosoftMappings = ssoMappings.providers.microsoft.length > 0;
+	const oidcEnvMappingsState =
+		existingGroup === null || effectiveOidcEnvMappings.isSuccess
+			? 'ready'
+			: effectiveOidcEnvMappings.isError
+				? 'error'
+				: 'loading';
+	const microsoftEnvMappingsState =
+		existingGroup === null || effectiveMicrosoftEnvMappings.isSuccess
+			? 'ready'
+			: effectiveMicrosoftEnvMappings.isError
+				? 'error'
+				: 'loading';
 	const hasConfiguredSsoProvider = oidcConfigurationState === 'ready' || microsoftConfigurationState === 'ready';
 	const isSsoConfigLoading =
 		ssoLicenseState === 'loading' ||
@@ -348,7 +372,7 @@ export function UserGroupEditor({
 							</div>
 						)}
 						{activeTab === 'security' && (
-							<>
+							<div className='min-h-64'>
 								{hasRowLevelSecurity && rowSecurityState === 'loading' ? (
 									<RowSecurityStatus message='Loading row-level security...' />
 								) : hasRowLevelSecurity && rowSecurityState === 'error' ? (
@@ -366,10 +390,10 @@ export function UserGroupEditor({
 										onChange={setRowPolicies}
 									/>
 								)}
-							</>
+							</div>
 						)}
 						{activeTab === 'sso' && (hasSsoTab || isSsoConfigLoading) && (
-							<div className='flex flex-col gap-5'>
+							<div className='flex min-h-64 flex-col gap-5'>
 								{existingGroup?.isDefault ? (
 									<DefaultGroupSsoStatus
 										licenseState={ssoLicenseState}
@@ -402,6 +426,16 @@ export function UserGroupEditor({
 														identifiers={ssoMappings.providers.oidc}
 														provider='oidc'
 														providerName={oidcConfig.data?.providerName ?? 'OIDC'}
+														currentGroupId={existingGroup?.id}
+														effectiveEnvMappings={
+															effectiveOidcEnvMappings.isSuccess
+																? effectiveOidcEnvMappings.data
+																: []
+														}
+														envMappingsState={oidcEnvMappingsState}
+														onRetryEnvMappings={() =>
+															void effectiveOidcEnvMappings.refetch()
+														}
 														configurationState={oidcConfigurationState}
 														onRetryConfiguration={() => retrySsoConfiguration(oidcConfig)}
 														onChange={(oidc) =>
@@ -421,6 +455,16 @@ export function UserGroupEditor({
 														identifiers={ssoMappings.providers.microsoft}
 														provider='microsoft'
 														providerName='Microsoft Entra'
+														currentGroupId={existingGroup?.id}
+														effectiveEnvMappings={
+															effectiveMicrosoftEnvMappings.isSuccess
+																? effectiveMicrosoftEnvMappings.data
+																: []
+														}
+														envMappingsState={microsoftEnvMappingsState}
+														onRetryEnvMappings={() =>
+															void effectiveMicrosoftEnvMappings.refetch()
+														}
 														configurationState={microsoftConfigurationState}
 														onRetryConfiguration={() =>
 															retrySsoConfiguration(microsoftConfig)
@@ -438,6 +482,17 @@ export function UserGroupEditor({
 														}
 													/>
 												)}
+												<DefaultProjectRole
+													value={ssoMappings.defaultProjectRole ?? null}
+													onChange={(defaultProjectRole) =>
+														setSsoMappings(
+															normalizeUserGroupSsoMappings({
+																...ssoMappings,
+																defaultProjectRole,
+															}),
+														)
+													}
+												/>
 											</>
 										)}
 									</>
@@ -518,6 +573,39 @@ function resolveSsoConfigurationState(
 		return 'error';
 	}
 	return isConfigured ? 'ready' : 'unavailable';
+}
+
+export function DefaultProjectRole({
+	value,
+	onChange,
+}: {
+	value: UserRole | null;
+	onChange: (role: UserRole | null) => void;
+}) {
+	return (
+		<div className='flex max-w-sm flex-col gap-2'>
+			<label htmlFor='user-group-default-project-role' className='text-sm font-medium'>
+				Default project role
+			</label>
+			<p className='text-xs text-muted-foreground'>Will assign this project role to users signing up with SSO</p>
+			<Select
+				value={value ?? 'none'}
+				onValueChange={(role) => onChange(role === 'none' ? null : (role as UserRole))}
+			>
+				<SelectTrigger id='user-group-default-project-role' className='w-56'>
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent>
+					<SelectItem value='none'>Use organization role</SelectItem>
+					{defaultProjectRoleOptions.map((role) => (
+						<SelectItem key={role} value={role}>
+							{USER_ROLE_LABELS[role]}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+		</div>
+	);
 }
 
 function SsoAvailabilityStatus({
@@ -682,6 +770,8 @@ export function invalidateUserGroupQueries(queryClient: QueryClient) {
 		queryClient.invalidateQueries({ queryKey: trpc.userGroup.overview.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.userGroup.effectiveAccess.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.userGroup.effectiveAccessForUser.queryKey() }),
+		queryClient.invalidateQueries({ queryKey: trpc.userGroup.effectiveOidcEnvMappings.queryKey() }),
+		queryClient.invalidateQueries({ queryKey: trpc.userGroup.effectiveMicrosoftEnvMappings.queryKey() }),
 		queryClient.invalidateQueries({ queryKey: trpc.project.getDatabaseObjects.queryKey() }),
 	]);
 }

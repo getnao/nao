@@ -2,15 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	env: {} as Record<string, string | undefined>,
+	readDecodedClaims: vi.fn(),
 	readVerifiedClaims: vi.fn(),
 	getUserOrgMembership: vi.fn(),
 	updateOrgMemberRole: vi.fn(),
 	countOrgAdmins: vi.fn(),
-	listProjectMembershipsForUser: vi.fn(),
 	updateProjectMemberRole: vi.fn(),
-	checkProjectHasMoreThanOneAdmin: vi.fn(),
-	hasFeature: vi.fn(),
 	cleanupContextWorktree: vi.fn(),
+	hasFeature: vi.fn(),
 	logger: {
 		error: vi.fn(),
 		warn: vi.fn(),
@@ -24,7 +23,7 @@ vi.mock('../src/env', () => ({
 }));
 
 vi.mock('../src/services/sso-token.service', () => ({
-	readDecodedIdTokenClaims: vi.fn(),
+	readDecodedIdTokenClaims: mocks.readDecodedClaims,
 	readVerifiedOidcIdTokenClaims: mocks.readVerifiedClaims,
 }));
 
@@ -35,14 +34,17 @@ vi.mock('../src/queries/organization.queries', () => ({
 }));
 
 vi.mock('../src/queries/project.queries', () => ({
-	listProjectMembershipsForUser: mocks.listProjectMembershipsForUser,
 	updateProjectMemberRole: mocks.updateProjectMemberRole,
-	checkProjectHasMoreThanOneAdmin: mocks.checkProjectHasMoreThanOneAdmin,
 }));
 
 vi.mock('../src/services/license.service', () => ({
 	hasFeature: mocks.hasFeature,
 	LICENSE_FEATURES: { sso: 'sso' },
+}));
+
+vi.mock('../src/services/microsoft-auth.service', () => ({
+	isMicrosoftConfigured: () =>
+		!!(mocks.env.AZURE_AD_CLIENT_ID && mocks.env.AZURE_AD_CLIENT_SECRET && mocks.env.AZURE_AD_TENANT_ID),
 }));
 
 vi.mock('../src/services/context-explorer-git.service', () => ({
@@ -56,12 +58,22 @@ vi.mock('../src/utils/logger', () => ({
 	}),
 }));
 
-import { isGroupRoleMappingActive, syncRolesFromSsoGroups } from '../src/services/sso-group-mapping.service';
 import {
-	decideGroupRoleMapping,
+	inspectSsoToken,
+	isOrganizationRoleMappingActive,
+	syncOrganizationRoleFromMicrosoftGroups,
+	syncOrganizationRoleFromSsoGroups,
+} from '../src/services/sso-group-mapping.service';
+import {
+	decideGroupOrganizationRoleMapping,
 	extractGroups,
-	parseGroupRoleMapping,
-	resolveRoleFromGroups,
+	parseEntraGroupNaoGroupMapping,
+	parseEntraGroupOrganizationRoleMapping,
+	parseGroupOrganizationRoleMapping,
+	parseOidcGroupNaoGroupMapping,
+	resolveEntraGroupNaoGroupMappingTargets,
+	resolveOidcGroupNaoGroupMappings,
+	resolveOrganizationRoleFromGroups,
 } from '../src/utils/sso-group-mapping';
 import { hasSsoSessionExceededMaxAge } from '../src/utils/sso-session';
 
@@ -77,201 +89,316 @@ beforeEach(() => {
 	});
 
 	mocks.readVerifiedClaims.mockReset();
+	mocks.readDecodedClaims.mockReset();
 	mocks.getUserOrgMembership.mockReset().mockResolvedValue({ orgId: 'org-1', role: 'viewer' });
 	mocks.updateOrgMemberRole.mockReset().mockResolvedValue(undefined);
 	mocks.countOrgAdmins.mockReset().mockResolvedValue(2);
-	mocks.listProjectMembershipsForUser.mockReset().mockResolvedValue([]);
 	mocks.updateProjectMemberRole.mockReset().mockResolvedValue(undefined);
-	mocks.checkProjectHasMoreThanOneAdmin.mockReset().mockResolvedValue(true);
-	mocks.hasFeature.mockReset().mockResolvedValue(true);
 	mocks.cleanupContextWorktree.mockReset().mockResolvedValue(undefined);
+	mocks.hasFeature.mockReset().mockResolvedValue(true);
 	for (const method of Object.values(mocks.logger)) {
 		method.mockReset();
 	}
 });
 
-describe('isGroupRoleMappingActive', () => {
+describe('inspectSsoToken', () => {
+	it('reports the resolved organization role with organization-scoped mapping fields', async () => {
+		mocks.env.OIDC_GROUP_ROLE_MAPPING = 'nao-admins:admin,nao-context:context_admin';
+		mocks.readDecodedClaims.mockResolvedValue({
+			status: 'decoded',
+			claims: { groups: ['nao-admins', 'nao-context'] },
+		});
+
+		await expect(inspectSsoToken('user-1')).resolves.toMatchObject({
+			resolvedOrganizationRole: 'admin',
+			mapping: [{ group: 'nao-admins', organizationRole: 'admin' }],
+		});
+	});
+});
+
+describe('isOrganizationRoleMappingActive', () => {
 	it('returns false when a mapping exists but OIDC is not configured', async () => {
 		delete mocks.env.OIDC_CLIENT_ID;
 		delete mocks.env.OIDC_CLIENT_SECRET;
 		delete mocks.env.OIDC_DISCOVERY_URL;
 
-		await expect(isGroupRoleMappingActive()).resolves.toBe(false);
+		await expect(isOrganizationRoleMappingActive()).resolves.toBe(false);
 		expect(mocks.hasFeature).not.toHaveBeenCalled();
 	});
 
 	it('returns true when OIDC, the mapping, and the SSO feature are configured', async () => {
-		await expect(isGroupRoleMappingActive()).resolves.toBe(true);
+		await expect(isOrganizationRoleMappingActive()).resolves.toBe(true);
+	});
+
+	it('returns false when every configured role is invalid for an organization', async () => {
+		mocks.env.OIDC_GROUP_ROLE_MAPPING = 'nao-context:context_admin,nao-other:superuser';
+
+		await expect(isOrganizationRoleMappingActive()).resolves.toBe(false);
+		expect(mocks.hasFeature).not.toHaveBeenCalled();
+	});
+
+	it('returns true for a licensed configured Microsoft Entra role mapping', async () => {
+		delete mocks.env.OIDC_GROUP_ROLE_MAPPING;
+		Object.assign(mocks.env, {
+			AZURE_AD_CLIENT_ID: 'client-id',
+			AZURE_AD_CLIENT_SECRET: 'client-secret',
+			AZURE_AD_TENANT_ID: 'tenant-id',
+			AZURE_AD_GROUP_ROLE_MAPPING: 'a0b1c2d3-e4f5-6789-abcd-ef0123456789:admin',
+		});
+
+		await expect(isOrganizationRoleMappingActive()).resolves.toBe(true);
 	});
 });
 
-describe('syncRolesFromSsoGroups', () => {
+describe('syncOrganizationRoleFromSsoGroups', () => {
 	it('does not apply roles from an invalid ID token', async () => {
 		mocks.readVerifiedClaims.mockResolvedValue({ status: 'invalid' });
 
-		await syncRolesFromSsoGroups('user-1');
+		await syncOrganizationRoleFromSsoGroups('user-1');
 
 		expect(mocks.updateOrgMemberRole).not.toHaveBeenCalled();
-		expect(mocks.updateProjectMemberRole).not.toHaveBeenCalled();
 		expect(mocks.logger.warn).toHaveBeenCalledWith('Could not verify the SSO ID token, leaving roles untouched', {
 			source: 'system',
 			context: { userId: 'user-1', problem: 'invalid' },
 		});
 	});
 
-	it('cleans up context worktrees after project admin demotions', async () => {
+	it('updates only the organization role', async () => {
+		mocks.getUserOrgMembership.mockResolvedValue({ orgId: 'org-1', role: 'user' });
 		mocks.readVerifiedClaims.mockResolvedValue({ status: 'verified', claims: { groups: ['nao-viewers'] } });
-		mocks.listProjectMembershipsForUser.mockResolvedValue([
-			{ projectId: 'project-admin', projectPath: '/projects/admin', role: 'admin' },
-			{ projectId: 'project-context-admin', projectPath: '/projects/context-admin', role: 'context_admin' },
-			{ projectId: 'project-user', projectPath: '/projects/user', role: 'user' },
-		]);
 
-		await syncRolesFromSsoGroups('user-1');
+		await syncOrganizationRoleFromSsoGroups('user-1');
 
-		expect(mocks.updateProjectMemberRole).toHaveBeenCalledTimes(3);
-		expect(mocks.cleanupContextWorktree).toHaveBeenCalledTimes(2);
-		expect(mocks.cleanupContextWorktree).toHaveBeenNthCalledWith(1, 'project-admin', '/projects/admin', 'user-1');
-		expect(mocks.cleanupContextWorktree).toHaveBeenNthCalledWith(
-			2,
-			'project-context-admin',
-			'/projects/context-admin',
-			'user-1',
-		);
+		expect(mocks.updateOrgMemberRole).toHaveBeenCalledWith('org-1', 'user-1', 'viewer');
+		expect(mocks.updateProjectMemberRole).not.toHaveBeenCalled();
+		expect(mocks.cleanupContextWorktree).not.toHaveBeenCalled();
 	});
 
-	it('continues updating projects when one worktree cleanup fails', async () => {
+	it('does nothing when the user has no organization membership', async () => {
+		mocks.getUserOrgMembership.mockResolvedValue(null);
 		mocks.readVerifiedClaims.mockResolvedValue({ status: 'verified', claims: { groups: ['nao-viewers'] } });
-		mocks.listProjectMembershipsForUser.mockResolvedValue([
-			{ projectId: 'project-1', projectPath: '/projects/one', role: 'admin' },
-			{ projectId: 'project-2', projectPath: '/projects/two', role: 'context_admin' },
-		]);
-		mocks.cleanupContextWorktree
-			.mockRejectedValueOnce(new Error('cleanup failed'))
-			.mockResolvedValueOnce(undefined);
 
-		await syncRolesFromSsoGroups('user-1');
+		await syncOrganizationRoleFromSsoGroups('user-1');
 
-		expect(mocks.updateProjectMemberRole).toHaveBeenNthCalledWith(1, 'project-1', 'user-1', 'viewer');
-		expect(mocks.updateProjectMemberRole).toHaveBeenNthCalledWith(2, 'project-2', 'user-1', 'viewer');
-		expect(mocks.cleanupContextWorktree).toHaveBeenCalledTimes(2);
-		expect(mocks.logger.warn).toHaveBeenCalledWith('Failed to clean up context worktree after SSO group demotion', {
+		expect(mocks.updateOrgMemberRole).not.toHaveBeenCalled();
+	});
+
+	it('does not demote the last organization admin', async () => {
+		mocks.getUserOrgMembership.mockResolvedValue({ orgId: 'org-1', role: 'admin' });
+		mocks.countOrgAdmins.mockResolvedValue(1);
+		mocks.readVerifiedClaims.mockResolvedValue({ status: 'verified', claims: { groups: ['nao-viewers'] } });
+
+		await syncOrganizationRoleFromSsoGroups('user-1');
+
+		expect(mocks.updateOrgMemberRole).not.toHaveBeenCalled();
+		expect(mocks.logger.warn).toHaveBeenCalledWith('Skipped SSO group demotion of the last organization admin', {
 			source: 'system',
-			context: {
-				projectId: 'project-1',
-				userId: 'user-1',
-				error: { message: 'cleanup failed' },
-			},
+			context: { orgId: 'org-1', nextRole: 'viewer' },
 		});
 	});
 });
 
-describe('parseGroupRoleMapping', () => {
+describe('syncOrganizationRoleFromMicrosoftGroups', () => {
+	beforeEach(() => {
+		Object.assign(mocks.env, {
+			AZURE_AD_CLIENT_ID: 'client-id',
+			AZURE_AD_CLIENT_SECRET: 'client-secret',
+			AZURE_AD_TENANT_ID: 'tenant-id',
+			AZURE_AD_GROUP_ROLE_MAPPING:
+				'a0b1c2d3-e4f5-6789-abcd-ef0123456789:viewer,11111111-2222-3333-4444-555555555555:admin',
+		});
+	});
+
+	it('applies the strongest direct Entra group role without changing project roles', async () => {
+		await syncOrganizationRoleFromMicrosoftGroups('user-1', [
+			'a0b1c2d3-e4f5-6789-abcd-ef0123456789',
+			'11111111-2222-3333-4444-555555555555',
+		]);
+
+		expect(mocks.updateOrgMemberRole).toHaveBeenCalledWith('org-1', 'user-1', 'admin');
+		expect(mocks.updateProjectMemberRole).not.toHaveBeenCalled();
+	});
+
+	it('leaves the organization role untouched when no mapped Object ID matches', async () => {
+		await syncOrganizationRoleFromMicrosoftGroups('user-1', ['22222222-3333-4444-5555-666666666666']);
+		expect(mocks.updateOrgMemberRole).not.toHaveBeenCalled();
+	});
+});
+
+describe('parseGroupOrganizationRoleMapping', () => {
 	it('parses a comma-separated list of group:role pairs', () => {
-		const mapping = parseGroupRoleMapping('nao-admins:admin,nao-viewers:viewer');
+		const mapping = parseGroupOrganizationRoleMapping('nao-admins:admin,nao-viewers:viewer');
 		expect(mapping.get('nao-admins')).toBe('admin');
 		expect(mapping.get('nao-viewers')).toBe('viewer');
 	});
 
 	it('lowercases group names so claim casing does not matter', () => {
-		expect(parseGroupRoleMapping('NAO-Admins:admin').get('nao-admins')).toBe('admin');
+		expect(parseGroupOrganizationRoleMapping('NAO-Admins:admin').get('nao-admins')).toBe('admin');
 	});
 
 	it('trims whitespace around entries', () => {
-		expect(parseGroupRoleMapping(' nao-admins : admin , nao-users : user ').get('nao-users')).toBe('user');
+		expect(parseGroupOrganizationRoleMapping(' nao-admins : admin , nao-users : user ').get('nao-users')).toBe(
+			'user',
+		);
 	});
 
-	it('supports context_admin', () => {
-		expect(parseGroupRoleMapping('nao-context:context_admin').get('nao-context')).toBe('context_admin');
+	it('drops context_admin because it is project-only', () => {
+		expect(parseGroupOrganizationRoleMapping('nao-context:context_admin').has('nao-context')).toBe(false);
 	});
 
 	it('keeps colons that belong to the group name', () => {
-		expect(parseGroupRoleMapping('okta:group:admins:admin').get('okta:group:admins')).toBe('admin');
+		expect(parseGroupOrganizationRoleMapping('okta:group:admins:admin').get('okta:group:admins')).toBe('admin');
 	});
 
 	it('drops entries with an unknown role rather than failing', () => {
-		const mapping = parseGroupRoleMapping('nao-admins:superuser,nao-users:user');
+		const mapping = parseGroupOrganizationRoleMapping('nao-admins:superuser,nao-users:user');
 		expect(mapping.has('nao-admins')).toBe(false);
 		expect(mapping.get('nao-users')).toBe('user');
 	});
 
 	it('drops entries without a separator', () => {
-		expect(parseGroupRoleMapping('nao-admins').size).toBe(0);
+		expect(parseGroupOrganizationRoleMapping('nao-admins').size).toBe(0);
 	});
 
 	it('returns an empty mapping when unset', () => {
-		expect(parseGroupRoleMapping(undefined).size).toBe(0);
-		expect(parseGroupRoleMapping('').size).toBe(0);
+		expect(parseGroupOrganizationRoleMapping(undefined).size).toBe(0);
+		expect(parseGroupOrganizationRoleMapping('').size).toBe(0);
 	});
 });
 
-describe('resolveRoleFromGroups', () => {
-	const mapping = parseGroupRoleMapping(
-		'nao-admins:admin,nao-context:context_admin,nao-users:user,nao-viewers:viewer',
-	);
+describe('OIDC to nao User Group mapping', () => {
+	it('normalizes names and resolves exact project scopes before wildcards', () => {
+		const parsed = parseOidcGroupNaoGroupMapping(
+			' Finance-Team : * : Analysts , finance-team : project-1 : Project Analysts ',
+		);
+		expect(parsed.status).toBe('valid');
+		if (parsed.status !== 'valid') {
+			return;
+		}
+
+		expect(resolveOidcGroupNaoGroupMappings([' FINANCE-TEAM '], 'project-1', parsed.mappings)).toEqual(
+			new Map([['finance-team', 'project analysts']]),
+		);
+		expect(resolveOidcGroupNaoGroupMappings(['finance-team'], 'project-2', parsed.mappings)).toEqual(
+			new Map([['finance-team', 'analysts']]),
+		);
+	});
+
+	it.each([
+		'finance-team',
+		'finance-team:*',
+		'finance-team:*:Analysts:Extra',
+		':*:Analysts',
+		'finance-team::Analysts',
+		'finance-team:*:',
+	])('rejects malformed entry %s', (raw) => {
+		expect(parseOidcGroupNaoGroupMapping(raw).status).toBe('invalid');
+	});
+
+	it('deduplicates identical entries and rejects conflicting repeats', () => {
+		expect(parseOidcGroupNaoGroupMapping('finance:*:Analysts,FINANCE:*:analysts')).toMatchObject({
+			status: 'valid',
+			mappings: [{ oidcGroup: 'finance', projectScope: '*', naoUserGroup: 'analysts' }],
+		});
+		expect(parseOidcGroupNaoGroupMapping('finance:*:Analysts,finance:*:Managers').status).toBe('invalid');
+	});
+});
+
+describe('Microsoft Entra environment mappings', () => {
+	const groupId = 'a0b1c2d3-e4f5-6789-abcd-ef0123456789';
+
+	it('normalizes Object IDs and gives exact projects precedence over wildcards', () => {
+		const parsed = parseEntraGroupNaoGroupMapping(
+			`${groupId.toUpperCase()}:*:Analysts,${groupId}:project-1:Managers`,
+		);
+		expect(parsed.status).toBe('valid');
+		if (parsed.status !== 'valid') {
+			return;
+		}
+		expect(
+			resolveEntraGroupNaoGroupMappingTargets('project-1', parsed.mappings, [
+				{ id: 'analysts', name: 'ANALYSTS' },
+				{ id: 'managers', name: 'Managers' },
+			]),
+		).toEqual(new Map([[groupId, { id: 'managers', name: 'Managers' }]]));
+	});
+
+	it('rejects malformed IDs and conflicting duplicate targets', () => {
+		expect(parseEntraGroupNaoGroupMapping('not-a-guid:*:Analysts').status).toBe('invalid');
+		expect(parseEntraGroupNaoGroupMapping(`${groupId}:*:Analysts,${groupId}:*:Managers`).status).toBe('invalid');
+	});
+
+	it('accepts organization roles only and resolves conflicting duplicates safely', () => {
+		expect(parseEntraGroupOrganizationRoleMapping(`${groupId}:admin`)).toMatchObject({
+			status: 'valid',
+			mapping: new Map([[groupId, 'admin']]),
+		});
+		expect(parseEntraGroupOrganizationRoleMapping(`${groupId}:context_admin`).status).toBe('invalid');
+		expect(parseEntraGroupOrganizationRoleMapping(`${groupId}:admin,${groupId}:viewer`).status).toBe('invalid');
+	});
+});
+
+describe('resolveOrganizationRoleFromGroups', () => {
+	const mapping = parseGroupOrganizationRoleMapping('nao-admins:admin,nao-users:user,nao-viewers:viewer');
 
 	it('resolves a single matching group', () => {
-		expect(resolveRoleFromGroups(['nao-users'], mapping)).toBe('user');
+		expect(resolveOrganizationRoleFromGroups(['nao-users'], mapping)).toBe('user');
 	});
 
 	it('picks the most privileged role when several groups match', () => {
-		expect(resolveRoleFromGroups(['nao-viewers', 'nao-admins', 'nao-users'], mapping)).toBe('admin');
-	});
-
-	it('ranks context_admin above user', () => {
-		expect(resolveRoleFromGroups(['nao-users', 'nao-context'], mapping)).toBe('context_admin');
+		expect(resolveOrganizationRoleFromGroups(['nao-viewers', 'nao-admins', 'nao-users'], mapping)).toBe('admin');
 	});
 
 	it('ignores groups that are not mapped', () => {
-		expect(resolveRoleFromGroups(['everyone', 'nao-viewers'], mapping)).toBe('viewer');
+		expect(resolveOrganizationRoleFromGroups(['everyone', 'nao-viewers'], mapping)).toBe('viewer');
 	});
 
 	it('is case-insensitive on group names', () => {
-		expect(resolveRoleFromGroups(['NAO-Admins'], mapping)).toBe('admin');
+		expect(resolveOrganizationRoleFromGroups(['NAO-Admins'], mapping)).toBe('admin');
 	});
 
 	it('returns null when no group matches', () => {
-		expect(resolveRoleFromGroups(['everyone'], mapping)).toBeNull();
-		expect(resolveRoleFromGroups([], mapping)).toBeNull();
+		expect(resolveOrganizationRoleFromGroups(['everyone'], mapping)).toBeNull();
+		expect(resolveOrganizationRoleFromGroups([], mapping)).toBeNull();
 	});
 });
 
-describe('decideGroupRoleMapping', () => {
-	const mapping = parseGroupRoleMapping('nao-admins:admin,nao-users:user');
+describe('decideGroupOrganizationRoleMapping', () => {
+	const mapping = parseGroupOrganizationRoleMapping('nao-admins:admin,nao-users:user');
 
 	it('allows access and returns the resolved role when a group matches', () => {
-		expect(decideGroupRoleMapping({ groups: ['nao-users'] }, 'groups', mapping)).toEqual({
+		expect(decideGroupOrganizationRoleMapping({ groups: ['nao-users'] }, 'groups', mapping)).toEqual({
 			action: 'allow',
-			role: 'user',
+			organizationRole: 'user',
 			claimPresent: true,
 		});
 	});
 
 	it('denies access when the claim is present but no group matches', () => {
-		expect(decideGroupRoleMapping({ groups: ['everyone'] }, 'groups', mapping)).toEqual({
+		expect(decideGroupOrganizationRoleMapping({ groups: ['everyone'] }, 'groups', mapping)).toEqual({
 			action: 'deny',
-			role: null,
+			organizationRole: null,
 			claimPresent: true,
 		});
-		expect(decideGroupRoleMapping({ groups: [] }, 'groups', mapping).action).toBe('deny');
+		expect(decideGroupOrganizationRoleMapping({ groups: [] }, 'groups', mapping).action).toBe('deny');
 	});
 
 	it('denies access when the claim is present in an unsupported format', () => {
-		expect(decideGroupRoleMapping({ groups: 42 }, 'groups', mapping).action).toBe('deny');
+		expect(decideGroupOrganizationRoleMapping({ groups: 42 }, 'groups', mapping).action).toBe('deny');
 	});
 
 	it('allows access without a role when the claim is missing', () => {
-		expect(decideGroupRoleMapping({}, 'groups', mapping)).toEqual({
+		expect(decideGroupOrganizationRoleMapping({}, 'groups', mapping)).toEqual({
 			action: 'allow',
-			role: null,
+			organizationRole: null,
 			claimPresent: false,
 		});
 	});
 
 	it('allows access without a role when claims could not be decoded', () => {
-		expect(decideGroupRoleMapping(null, 'groups', mapping)).toEqual({
+		expect(decideGroupOrganizationRoleMapping(null, 'groups', mapping)).toEqual({
 			action: 'allow',
-			role: null,
+			organizationRole: null,
 			claimPresent: false,
 		});
 	});

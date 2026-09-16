@@ -1,11 +1,13 @@
 /* @license Enterprise */
 
-import type { BetterAuthOptions } from 'better-auth';
+import { APIError, type BetterAuthOptions } from 'better-auth';
 import { and, eq } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
+import { decideGroupOrganizationRoleMapping, parseEntraGroupOrganizationRoleMapping } from '../utils/sso-group-mapping';
+import { hasFeature, LICENSE_FEATURES } from './license.service';
 
 export type SocialProviders = NonNullable<BetterAuthOptions['socialProviders']>;
 
@@ -25,6 +27,26 @@ export function augmentSocialProvidersWithMicrosoft(providers: SocialProviders):
 		clientId: config.clientId,
 		clientSecret: config.clientSecret,
 		tenantId: config.tenantId,
+		mapProfileToUser: async (profile) => {
+			const roleMapping = parseEntraGroupOrganizationRoleMapping(env.AZURE_AD_GROUP_ROLE_MAPPING);
+			if (
+				roleMapping.status !== 'valid' ||
+				roleMapping.mapping.size === 0 ||
+				!(await hasFeature(LICENSE_FEATURES.sso))
+			) {
+				return {};
+			}
+			if (hasMicrosoftGroupsOverage(profile) && !('groups' in profile)) {
+				return {};
+			}
+			const decision = decideGroupOrganizationRoleMapping(profile, 'groups', roleMapping.mapping);
+			if (decision.action === 'deny') {
+				throw new APIError('FORBIDDEN', {
+					message: 'Your account is not assigned to any nao access group.',
+				});
+			}
+			return {};
+		},
 	};
 }
 
@@ -99,4 +121,15 @@ function azureAdEnv(): AzureAdConfig | null {
 		tenantId: AZURE_AD_TENANT_ID,
 		tokenScope: AZURE_AD_TOKEN_SCOPE || `${AZURE_AD_CLIENT_ID}/.default`,
 	};
+}
+
+function hasMicrosoftGroupsOverage(claims: Record<string, unknown>): boolean {
+	const claimNames = claims._claim_names;
+	return (
+		(claimNames !== null &&
+			typeof claimNames === 'object' &&
+			!Array.isArray(claimNames) &&
+			typeof (claimNames as Record<string, unknown>).groups === 'string') ||
+		claims.hasgroups === true
+	);
 }

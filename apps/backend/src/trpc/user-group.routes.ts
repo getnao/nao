@@ -19,22 +19,27 @@ import {
 	stripRowSecurityWhereClause,
 	TOOL_CALL_DENSITIES,
 	USER_GROUP_FEATURES,
+	USER_ROLES,
 	type UserGroupRowPolicies,
 } from '@nao/shared';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { getDatabaseContextCatalog } from '../agents/user-rules';
+import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
 import { getDocsContextCatalog } from '../services/docs-context-catalog.service';
+import { listEffectiveEntraUserGroupMappings } from '../services/entra-user-group-mapping.service';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
+import { listEffectiveOidcUserGroupMappings } from '../services/oidc-user-group-mapping.service';
 import { assertUserGroupManageable, getAvailableUserGroupOverview } from '../services/user-group-availability.service';
 import {
 	getEffectiveUserGroupAccess,
 	getEffectiveUserGroupAccessForUserDetail,
 } from '../services/user-group-feature-access.service';
 import { validateWarehouseRowPredicate } from '../services/warehouse-sql.service';
+import { parseEntraGroupNaoGroupMapping, parseOidcGroupNaoGroupMapping } from '../utils/sso-group-mapping';
 import { adminProtectedProcedure, projectProtectedProcedure } from './trpc';
 
 const groupNameSchema = z.string().trim().min(1, 'Group name is required.').max(80, 'Group name is too long.');
@@ -101,6 +106,7 @@ const ssoMappingsSchema = z
 					.max(200),
 			})
 			.strict(),
+		defaultProjectRole: z.enum(USER_ROLES).nullable().optional(),
 	})
 	.strict();
 const rowTableIdentitySchema = z.object({
@@ -209,6 +215,31 @@ export const userGroupRoutes = {
 
 	overview: adminProtectedProcedure.query(async ({ ctx }) => {
 		return handleQuery(() => getAvailableUserGroupOverview(ctx.project.id));
+	}),
+
+	effectiveOidcEnvMappings: adminProtectedProcedure.query(async ({ ctx }) => {
+		if (!(await hasFeature(LICENSE_FEATURES.sso))) {
+			throw new TRPCError({ code: 'FORBIDDEN', message: 'SSO requires an Enterprise license.' });
+		}
+		const mappings = parseOidcGroupNaoGroupMapping(env.OIDC_GROUP_NAO_GROUP_MAPPING);
+		if (mappings.status === 'invalid') {
+			throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'The OIDC User Group mapping is invalid.' });
+		}
+		return listEffectiveOidcUserGroupMappings(ctx.project.id, mappings.mappings);
+	}),
+
+	effectiveMicrosoftEnvMappings: adminProtectedProcedure.query(async ({ ctx }) => {
+		if (!(await hasFeature(LICENSE_FEATURES.sso))) {
+			throw new TRPCError({ code: 'FORBIDDEN', message: 'SSO requires an Enterprise license.' });
+		}
+		const mappings = parseEntraGroupNaoGroupMapping(env.AZURE_AD_GROUP_NAO_GROUP_MAPPING);
+		if (mappings.status === 'invalid') {
+			throw new TRPCError({
+				code: 'INTERNAL_SERVER_ERROR',
+				message: 'The Microsoft Entra User Group mapping is invalid.',
+			});
+		}
+		return listEffectiveEntraUserGroupMappings(ctx.project.id, mappings.mappings);
 	}),
 
 	contextCatalog: adminProtectedProcedure.query(async ({ ctx }) => {

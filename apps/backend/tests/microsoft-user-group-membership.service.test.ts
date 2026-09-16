@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+	env: {} as Record<string, string | undefined>,
 	getLoginTokens: vi.fn(),
 	hasFeature: vi.fn(),
 	hasSyncState: vi.fn(),
 	listIdentifiers: vi.fn(),
 	reconcile: vi.fn(),
+	syncOrganizationRole: vi.fn(),
 	decodeClaims: vi.fn(),
 	fetch: vi.fn(),
 	logger: {
@@ -14,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 	},
 }));
 
+vi.mock('../src/env', () => ({ env: mocks.env }));
 vi.mock('../src/queries/account.queries', () => ({
 	getLoginTokens: mocks.getLoginTokens,
 }));
@@ -28,6 +31,9 @@ vi.mock('../src/services/license.service', () => ({
 }));
 vi.mock('../src/services/microsoft-auth.service', () => ({
 	isMicrosoftConfigured: () => true,
+}));
+vi.mock('../src/services/sso-group-mapping.service', () => ({
+	syncOrganizationRoleFromMicrosoftGroups: mocks.syncOrganizationRole,
 }));
 vi.mock('../src/services/sso-token.service', () => ({
 	verifyMicrosoftIdTokenClaims: mocks.decodeClaims,
@@ -47,6 +53,9 @@ const GROUP_1 = 'A0B1C2D3-E4F5-6789-ABCD-EF0123456789';
 const GROUP_2 = '11111111-2222-3333-4444-555555555555';
 
 beforeEach(() => {
+	for (const key of Object.keys(mocks.env)) {
+		delete mocks.env[key];
+	}
 	mocks.getLoginTokens.mockReset().mockResolvedValue({
 		idToken: 'id-token',
 		accessToken: 'access-token',
@@ -56,6 +65,7 @@ beforeEach(() => {
 	mocks.hasSyncState.mockReset().mockResolvedValue(true);
 	mocks.listIdentifiers.mockReset().mockResolvedValue([GROUP_1, GROUP_2]);
 	mocks.reconcile.mockReset().mockResolvedValue(undefined);
+	mocks.syncOrganizationRole.mockReset().mockResolvedValue(undefined);
 	mocks.decodeClaims.mockReset();
 	mocks.fetch.mockReset();
 	mocks.logger.error.mockReset();
@@ -73,7 +83,11 @@ describe('syncUserGroupsFromMicrosoft', () => {
 		await syncUserGroupsFromMicrosoft('user-1');
 
 		expect(mocks.decodeClaims).toHaveBeenCalledWith('id-token');
-		expect(mocks.reconcile).toHaveBeenCalledWith('user-1', 'microsoft', [GROUP_1.toLowerCase()]);
+		expect(mocks.reconcile).toHaveBeenCalledWith('user-1', 'microsoft', [GROUP_1.toLowerCase()], {
+			hasUnlimitedUserGroups: true,
+			entraMappings: [],
+		});
+		expect(mocks.syncOrganizationRole).toHaveBeenCalledWith('user-1', [GROUP_1.toLowerCase()]);
 		expect(mocks.listIdentifiers).not.toHaveBeenCalled();
 		expect(mocks.fetch).not.toHaveBeenCalled();
 	});
@@ -81,7 +95,10 @@ describe('syncUserGroupsFromMicrosoft', () => {
 	it('treats a valid empty groups claim as authoritative', async () => {
 		mocks.decodeClaims.mockReturnValue({ status: 'verified', claims: { groups: [] } });
 		await syncUserGroupsFromMicrosoft('user-1');
-		expect(mocks.reconcile).toHaveBeenCalledWith('user-1', 'microsoft', []);
+		expect(mocks.reconcile).toHaveBeenCalledWith('user-1', 'microsoft', [], {
+			hasUnlimitedUserGroups: true,
+			entraMappings: [],
+		});
 	});
 
 	it.each([
@@ -95,6 +112,7 @@ describe('syncUserGroupsFromMicrosoft', () => {
 		mocks.decodeClaims.mockReturnValue(token);
 		await expect(syncUserGroupsFromMicrosoft('user-1')).resolves.toBeUndefined();
 		expect(mocks.reconcile).not.toHaveBeenCalled();
+		expect(mocks.syncOrganizationRole).not.toHaveBeenCalled();
 		expect(mocks.logger.warn).toHaveBeenCalledOnce();
 	});
 
@@ -106,7 +124,11 @@ describe('syncUserGroupsFromMicrosoft', () => {
 
 			await syncUserGroupsFromMicrosoft('user-1');
 
-			expect(mocks.reconcile).toHaveBeenCalledWith('user-1', 'microsoft', [GROUP_2.toLowerCase()]);
+			expect(mocks.listIdentifiers).toHaveBeenCalledWith('user-1', 'microsoft', true);
+			expect(mocks.reconcile).toHaveBeenCalledWith('user-1', 'microsoft', [GROUP_2.toLowerCase()], {
+				hasUnlimitedUserGroups: true,
+				entraMappings: [],
+			});
 		},
 	);
 
@@ -117,7 +139,10 @@ describe('syncUserGroupsFromMicrosoft', () => {
 		await syncUserGroupsFromMicrosoft('user-1');
 
 		expect(mocks.fetch).not.toHaveBeenCalled();
-		expect(mocks.reconcile).toHaveBeenCalledWith('user-1', 'microsoft', []);
+		expect(mocks.reconcile).toHaveBeenCalledWith('user-1', 'microsoft', [], {
+			hasUnlimitedUserGroups: true,
+			entraMappings: [],
+		});
 	});
 
 	it('preserves rows when the Microsoft access token is unavailable or expired', async () => {
@@ -143,10 +168,11 @@ describe('syncUserGroupsFromMicrosoft', () => {
 
 		expect(mocks.fetch).toHaveBeenCalledTimes(2);
 		expect(mocks.reconcile).not.toHaveBeenCalled();
+		expect(mocks.syncOrganizationRole).not.toHaveBeenCalled();
 		expect(mocks.logger.error).toHaveBeenCalledOnce();
 	});
 
-	it('requires SSO and does not query unlimited-groups entitlement', async () => {
+	it('requires SSO and passes the unlimited-groups entitlement to reconciliation', async () => {
 		mocks.hasFeature.mockImplementation((feature: string) => Promise.resolve(feature !== 'sso'));
 		await syncUserGroupsFromMicrosoft('user-1');
 		expect(mocks.hasFeature).toHaveBeenCalledTimes(1);
@@ -157,15 +183,48 @@ describe('syncUserGroupsFromMicrosoft', () => {
 			.mockImplementation((feature: string) => Promise.resolve(feature !== 'user-groups'));
 		mocks.decodeClaims.mockReturnValue({ status: 'verified', claims: { groups: [GROUP_1] } });
 		await syncUserGroupsFromMicrosoft('user-1');
-		expect(mocks.hasFeature).toHaveBeenCalledOnce();
-		expect(mocks.hasFeature).toHaveBeenCalledWith('sso');
-		expect(mocks.reconcile).toHaveBeenCalledWith('user-1', 'microsoft', [GROUP_1.toLowerCase()]);
+		expect(mocks.hasFeature).toHaveBeenCalledTimes(2);
+		expect(mocks.hasFeature).toHaveBeenNthCalledWith(1, 'sso');
+		expect(mocks.hasFeature).toHaveBeenNthCalledWith(2, 'user-groups');
+		expect(mocks.reconcile).toHaveBeenCalledWith('user-1', 'microsoft', [GROUP_1.toLowerCase()], {
+			hasUnlimitedUserGroups: false,
+			entraMappings: [],
+		});
 	});
 
 	it('skips when no mapping or stale Microsoft membership exists', async () => {
 		mocks.hasSyncState.mockResolvedValue(false);
 		await syncUserGroupsFromMicrosoft('user-1');
 		expect(mocks.getLoginTokens).not.toHaveBeenCalled();
+	});
+
+	it('synchronizes an env-only User Group mapping without a saved UI mapping', async () => {
+		mocks.hasSyncState.mockResolvedValue(false);
+		mocks.env.AZURE_AD_GROUP_NAO_GROUP_MAPPING = `${GROUP_1}:*:Analysts`;
+		mocks.decodeClaims.mockReturnValue({ status: 'verified', claims: { groups: [GROUP_1] } });
+
+		await syncUserGroupsFromMicrosoft('user-1');
+
+		expect(mocks.reconcile).toHaveBeenCalledWith('user-1', 'microsoft', [GROUP_1.toLowerCase()], {
+			hasUnlimitedUserGroups: true,
+			entraMappings: [{ entraGroupId: GROUP_1.toLowerCase(), projectScope: '*', naoUserGroup: 'analysts' }],
+		});
+	});
+
+	it('unions UI, User Group env, and role env candidates for Graph overage', async () => {
+		mocks.env.AZURE_AD_GROUP_NAO_GROUP_MAPPING = `${GROUP_1}:*:Analysts`;
+		mocks.env.AZURE_AD_GROUP_ROLE_MAPPING = `${GROUP_2}:admin`;
+		const uiGroup = '22222222-3333-4444-5555-666666666666';
+		mocks.listIdentifiers.mockResolvedValue([uiGroup]);
+		mocks.decodeClaims.mockReturnValue({ status: 'verified', claims: { hasgroups: true } });
+		mocks.fetch.mockResolvedValue(graphResponse([GROUP_2]));
+
+		await syncUserGroupsFromMicrosoft('user-1');
+
+		expect(JSON.parse(String(mocks.fetch.mock.calls[0]?.[1]?.body))).toEqual({
+			ids: [uiGroup, GROUP_1.toLowerCase(), GROUP_2.toLowerCase()],
+		});
+		expect(mocks.syncOrganizationRole).toHaveBeenCalledWith('user-1', [GROUP_2.toLowerCase()]);
 	});
 });
 
