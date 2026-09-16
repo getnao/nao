@@ -276,6 +276,19 @@ describe('getDatabaseContextCatalog', () => {
 		]);
 	});
 
+	it('parses a generated description ending in a literal backslash', () => {
+		const root = '/project-catalog-trailing-backslash';
+		setupDirStructure(root, {
+			[join(root, 'databases')]: ['type=postgres'],
+			[join(root, 'databases', 'type=postgres')]: ['database=app'],
+			[join(root, 'databases', 'type=postgres', 'database=app')]: ['schema=public'],
+			[join(root, 'databases', 'type=postgres', 'database=app', 'schema=public')]: ['table=files'],
+		});
+		mockReadFileSync.mockReturnValue(String.raw`- path (TEXT, "ends with \")`);
+
+		expect(getDatabaseContextCatalog(root).objects[0].columns).toEqual(['path']);
+	});
+
 	it('surfaces filesystem scan failures', () => {
 		mockExistsSync.mockReturnValue(true);
 		mockReaddirSync.mockImplementation(() => {

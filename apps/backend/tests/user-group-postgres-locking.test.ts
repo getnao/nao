@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	events: [] as string[],
+	initialContextGrants: null as unknown,
 	initialRowPolicies: { version: 1 as const, policies: [] as unknown[] },
 	lockedRowPolicies: { version: 1 as const, policies: [] as unknown[] },
 	projectRowSecurity: { version: 1 as const, tables: [] as unknown[] },
+	selectedProjectRowSecurity: false,
 	updatedRowPolicies: undefined as unknown,
 }));
 
@@ -20,7 +22,8 @@ vi.mock('../src/queries/project.queries', () => ({
 
 vi.mock('../src/db/db', () => ({
 	db: {
-		select: () => query([storedGroup(ssoMappings(['finance']), mocks.initialRowPolicies)]),
+		select: () =>
+			query([storedGroup(ssoMappings(['finance']), mocks.initialRowPolicies, mocks.initialContextGrants)]),
 		transaction: async (operation: (transaction: unknown) => Promise<unknown>) => operation(transaction()),
 	},
 }));
@@ -30,9 +33,11 @@ import { createUserGroup, createUserGroupWithinLimit, updateUserGroup } from '..
 describe('PostgreSQL user group updates', () => {
 	beforeEach(() => {
 		mocks.events.length = 0;
+		mocks.initialContextGrants = null;
 		mocks.initialRowPolicies = { version: 1, policies: [] };
 		mocks.lockedRowPolicies = { version: 1, policies: [] };
 		mocks.projectRowSecurity = { version: 1, tables: [] };
+		mocks.selectedProjectRowSecurity = false;
 		mocks.updatedRowPolicies = undefined;
 	});
 
@@ -68,6 +73,11 @@ describe('PostgreSQL user group updates', () => {
 	});
 
 	it('re-reads pruned policies after acquiring the project lock', async () => {
+		mocks.initialContextGrants = {
+			version: 4,
+			databaseAccess: { mode: 'all', strict: true },
+			docsAccess: { mode: 'restricted', grants: [] },
+		};
 		mocks.initialRowPolicies = rowPolicies('tenant_id');
 		mocks.lockedRowPolicies = { version: 1, policies: [] };
 
@@ -94,6 +104,7 @@ describe('PostgreSQL user group updates', () => {
 		});
 
 		expect(mocks.events).toEqual(['lock-project']);
+		expect(mocks.selectedProjectRowSecurity).toBe(true);
 		expect(mocks.updatedRowPolicies).toBeUndefined();
 	});
 });
@@ -105,6 +116,7 @@ function transaction() {
 				return eventQuery([storedGroup(ssoMappings(['finance']), mocks.lockedRowPolicies)], 'refresh-group');
 			}
 			if ('rowSecurity' in selection) {
+				mocks.selectedProjectRowSecurity = true;
 				return lockingQuery([{ id: 'project-1', rowSecurity: mocks.projectRowSecurity }], () =>
 					mocks.events.push('lock-project'),
 				);
@@ -175,6 +187,7 @@ function mutation(rows: unknown, beforeExecute: () => void) {
 function storedGroup(
 	mappings = ssoMappings(['finance']),
 	rowPolicies: { version: 1; policies: unknown[] } = { version: 1, policies: [] },
+	contextGrants: unknown = null,
 ) {
 	return {
 		id: 'group-1',
@@ -186,7 +199,7 @@ function storedGroup(
 			features: [],
 			toolCallDensity: { defaultDensity: 'detailed', canChange: true },
 		},
-		contextGrants: null,
+		contextGrants,
 		ssoMappings: mappings,
 		rowPolicies,
 		createdAt: new Date('2026-01-01T00:00:00Z'),

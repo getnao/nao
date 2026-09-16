@@ -129,10 +129,12 @@ describe('chat fork Story creation permission', () => {
 				id: 'message-compaction',
 				role: 'assistant',
 				parts: [
+					{ type: 'text', text: 'SAME_MESSAGE_OWNER_SECRET' },
 					{
 						type: 'data-compaction',
 						data: { summary: 'OWNER_COMPACTION_SECRET query_owner_compaction' },
 					},
+					{ type: 'text', text: 'Safe explanation after compaction' },
 				],
 			},
 			{
@@ -200,7 +202,9 @@ describe('chat fork Story creation permission', () => {
 		expect(JSON.stringify(seededMessages)).not.toContain('OWNER_COMPACTION_SECRET');
 		expect(JSON.stringify(seededMessages)).not.toContain('query_owner_compaction');
 		expect(JSON.stringify(seededMessages)).not.toContain('OWNER_TEXT_SECRET');
+		expect(JSON.stringify(seededMessages)).not.toContain('SAME_MESSAGE_OWNER_SECRET');
 		expect(JSON.stringify(seededMessages)).toContain('AUTHORIZED_VALUE');
+		expect(JSON.stringify(seededMessages)).toContain('Safe explanation after compaction');
 		expect(JSON.stringify(seededMessages)).toContain('Useful explanation');
 		expect(JSON.stringify(seededMessages)).toContain('Recent question');
 	});

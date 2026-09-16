@@ -152,7 +152,19 @@ async function forkSharedStoryItem(
 		]);
 		const [, compactionMessageIndex] = findLastCompactionPart(rawMessages);
 		const recentMessages =
-			compactionMessageIndex === undefined ? rawMessages : rawMessages.slice(compactionMessageIndex + 1);
+			compactionMessageIndex === undefined
+				? rawMessages
+				: [
+						{
+							...rawMessages[compactionMessageIndex],
+							parts: rawMessages[compactionMessageIndex].parts.slice(
+								rawMessages[compactionMessageIndex].parts
+									.map((part) => part.type)
+									.lastIndexOf('data-compaction') + 1,
+							),
+						},
+						...rawMessages.slice(compactionMessageIndex + 1),
+					];
 		const seededMessages = removeStoredDataToolParts(recentMessages);
 		const messages = [
 			...buildQueryDataMessages(queryData),

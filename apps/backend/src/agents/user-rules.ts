@@ -154,7 +154,7 @@ function isCompleteParenthesizedSuffix(value: string): boolean {
 	for (let index = 0; index < value.length; index += 1) {
 		const character = value[index];
 		if (quote) {
-			if (character === '\\') {
+			if (character === '\\' && (quote !== '"' || index !== value.length - 3)) {
 				index += 1;
 			} else if (character === quote) {
 				if (value[index + 1] === quote) {
