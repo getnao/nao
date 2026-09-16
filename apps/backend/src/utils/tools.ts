@@ -275,14 +275,22 @@ export const isWithinProjectFolder = (filePath: string, projectFolder: string): 
 	return true;
 };
 
+type ToRealPathOptions = {
+	/** Set to false when the caller applies its own symlink policy (e.g. `assertNoSymlinkInWritePath`). */
+	resolveSymlinks?: boolean;
+};
+
 /**
  * Converts a virtual path (where / = project folder) to a real filesystem path.
  * - `/foo/bar` → `{projectFolder}/foo/bar`
  * - `foo/bar` → `{projectFolder}/foo/bar`
  * - `/` or empty → `{projectFolder}`
+ *
+ * The guards run on the lexical path and again on the symlink-resolved path, so a
+ * symlink inside the project cannot reach outside it or into a protected file.
  * @throws Error if the resolved path escapes the project folder or is ignored by .naoignore
  */
-export const toRealPath = (virtualPath: string, projectFolder: string): string => {
+export const toRealPath = (virtualPath: string, projectFolder: string, options: ToRealPathOptions = {}): string => {
 	const normalizedFolder = path.resolve(projectFolder);
 
 	if (isStoragePath(virtualPath)) {
@@ -294,37 +302,77 @@ export const toRealPath = (virtualPath: string, projectFolder: string): string =
 
 	// Resolve and normalize (this handles .. and .)
 	const resolvedPath = path.resolve(normalizedFolder, relativePath);
+	assertAllowedProjectPath(resolvedPath, normalizedFolder, virtualPath);
 
-	// Check if path is outside project folder
-	const withinFolder = resolvedPath === normalizedFolder || resolvedPath.startsWith(normalizedFolder + path.sep);
+	if (options.resolveSymlinks === false) {
+		return resolvedPath;
+	}
+
+	const realPath = resolveSymlinks(resolvedPath);
+	if (realPath !== resolvedPath) {
+		assertAllowedProjectPath(realPath, resolveSymlinks(normalizedFolder), virtualPath);
+	}
+
+	return resolvedPath;
+};
+
+const assertAllowedProjectPath = (absolutePath: string, projectFolder: string, virtualPath: string): void => {
+	const withinFolder = absolutePath === projectFolder || absolutePath.startsWith(projectFolder + path.sep);
 	if (!withinFolder) {
 		throw new Error(`Access denied: path '${virtualPath}' is outside the project folder`);
 	}
 
-	const normalizedRelativePath = path.relative(normalizedFolder, resolvedPath).replaceAll(path.sep, '/');
+	const normalizedRelativePath = path.relative(projectFolder, absolutePath).replaceAll(path.sep, '/');
 	if (isStoragePath(normalizedRelativePath)) {
 		throw new Error(`Path '${virtualPath}' is in permanent storage, not in the project folder`);
 	}
 
-	if (resolvedPath.split(path.sep).some((part) => part.toLowerCase() === '.git')) {
+	if (absolutePath.split(path.sep).some((part) => part.toLowerCase() === '.git')) {
 		throw new Error(`Access denied: path '${virtualPath}' targets protected .git metadata`);
 	}
 
-	if (resolvedPath.split(path.sep).some(isEnvironmentFileName)) {
+	if (absolutePath.split(path.sep).some(isEnvironmentFileName)) {
 		throw new Error(`Access denied: path '${virtualPath}' targets a protected environment file`);
 	}
 
-	// Check if path is in an excluded directory
-	if (isInExcludedDir(resolvedPath)) {
+	if (isInExcludedDir(absolutePath)) {
 		throw new Error(`Access denied: path '${virtualPath}' is in an excluded directory`);
 	}
 
-	// Check if path is ignored by .naoignore
-	if (isIgnoredPath(resolvedPath, normalizedFolder)) {
+	if (isIgnoredPath(absolutePath, projectFolder)) {
 		throw new Error(`Access denied: path '${virtualPath}' is ignored by .naoignore`);
 	}
+};
 
-	return resolvedPath;
+/**
+ * Resolves symlinks in `absolutePath`. Segments that do not exist yet are kept as-is,
+ * appended to the resolved path of their deepest existing ancestor.
+ */
+const resolveSymlinks = (absolutePath: string): string => {
+	const missingSegments: string[] = [];
+	let existingPath = absolutePath;
+
+	while (true) {
+		try {
+			return path.join(fs.realpathSync(existingPath), ...missingSegments);
+		} catch (error) {
+			if (!isMissingPathError(error)) {
+				throw error;
+			}
+		}
+
+		const parentPath = path.dirname(existingPath);
+		if (parentPath === existingPath) {
+			return absolutePath;
+		}
+		missingSegments.unshift(path.basename(existingPath));
+		existingPath = parentPath;
+	}
+};
+
+const isMissingPathError = (error: unknown): boolean => {
+	const code = (error as NodeJS.ErrnoException).code;
+	return code === 'ENOENT' || code === 'ENOTDIR';
 };
 
 /**

@@ -402,7 +402,7 @@ async function readDirectoryRecursive(dirPath: string, projectFolder: string): P
 export function resolveAndValidatePath(virtualPath: string, projectFolder: string): { realPath: string; root: string } {
 	try {
 		const root = canonicalizeWriteRoot(projectFolder);
-		const realPath = toRealPath(virtualPath, root);
+		const realPath = toRealPath(virtualPath, root, { resolveSymlinks: false });
 		assertNoSymlinkInWritePath(root, realPath, virtualPath);
 		return { realPath, root };
 	} catch (error) {
