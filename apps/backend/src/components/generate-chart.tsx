@@ -1,4 +1,4 @@
-import { bucketPieData, buildChart, defaultColorFor, labelize } from '@nao/shared';
+import { bucketPieData, buildChart, defaultColorFor, labelize, resolveDataKey } from '@nao/shared';
 import type { DateFormatSettings } from '@nao/shared/date';
 import { displayChart } from '@nao/shared/tools';
 import React from 'react';
@@ -53,11 +53,16 @@ export function renderChartToSvg(input: RenderChartInput): string {
 	const height = input.height ?? 500;
 	const margin = input.margin ?? { top: 10, right: 20, bottom: 5, left: 0 };
 	const includeLegend = input.includeLegend !== false;
-	const xAxisKey = config.x_axis_key ?? '';
+	// Query data may come from a re-execution whose column-name casing differs
+	// from the config (e.g. Snowflake uppercases unquoted identifiers, DuckDB
+	// preserves them as written), so resolve keys against the actual rows —
+	// mirroring what the frontend chart components do.
+	const xAxisKey = resolveDataKey(data, config.x_axis_key ?? undefined);
+	const series = config.series.map((s) => ({ ...s, data_key: resolveDataKey(data, s.data_key) }));
 
 	const colorFor = (key: string, index: number) => {
-		const series = config.series.find((s) => s.data_key === key);
-		return series?.color || defaultColorFor(key, index);
+		const matched = series.find((s) => s.data_key === key);
+		return matched?.color || defaultColorFor(key, index);
 	};
 
 	const labelFormatter = (value: string) => labelize(value, dateFormat);
@@ -65,13 +70,13 @@ export function renderChartToSvg(input: RenderChartInput): string {
 
 	const isPie = chartType === 'pie' || chartType === 'donut';
 
-	const chartData = isPie ? bucketPieData(data, xAxisKey, config.series[0]?.data_key ?? '') : data;
+	const chartData = isPie ? bucketPieData(data, xAxisKey, series[0]?.data_key ?? '') : data;
 
 	let legend: LegendEntry[] = [];
 	if (includeLegend) {
 		legend = isPie
 			? buildPieLegendEntries(chartData, xAxisKey, dateFormat)
-			: config.series.map((s, i) => ({
+			: series.map((s, i) => ({
 					label: s.label || labelize(s.data_key, dateFormat),
 					color: colorFor(s.data_key, i),
 				}));
@@ -88,7 +93,7 @@ export function renderChartToSvg(input: RenderChartInput): string {
 		xAxisKey,
 		xAxisType: config.x_axis_type === 'number' ? 'number' : 'category',
 		xAxisLabel: config.x_axis_label,
-		series: config.series,
+		series,
 		colorFor,
 		labelFormatter,
 		showGrid: true,

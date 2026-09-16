@@ -5,6 +5,7 @@ import { executeSql as schemas, LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import { ExecuteSqlOutput, renderToModelOutput } from '../../components/tool-outputs';
 import { env } from '../../env';
 import { getExecuteSqlPartByQueryIdInChat, updateExecuteSqlPart } from '../../queries/execute-sql.queries';
+import { resolveExcludedColumnEnforcement } from '../../services/excluded-columns.service';
 import { runQueryOnLocalFiles } from '../../services/local-query.service';
 import { ToolContext } from '../../types/tools';
 import { detectQueryRowLimit, isReadOnlySqlQuery } from '../../utils/sql-filter';
@@ -49,16 +50,19 @@ export async function executeQuery(
 		);
 	}
 
+	const enforceExcludedColumns = await resolveExcludedColumnEnforcement(context.agentSettings);
 	const naoProjectFolder = context.projectFolder;
 	const envVars = context.envVars;
 	const response = await fetch(`http://localhost:${env.FASTAPI_PORT}/execute_sql`, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
+			'X-Nao-Internal-Secret': env.BETTER_AUTH_SECRET,
 		},
 		body: JSON.stringify({
 			sql: effectiveSql,
 			nao_project_folder: naoProjectFolder,
+			enforce_excluded_columns: enforceExcludedColumns,
 			...(database_id && { database_id }),
 			...(Object.keys(envVars).length > 0 && { env_vars: envVars }),
 			...(context.azureAccessToken && { azure_access_token: context.azureAccessToken }),

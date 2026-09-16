@@ -1,13 +1,10 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { SlackConfigSection } from '@/components/settings/slack-config-section';
-import { usePermissions } from '@/hooks/use-permissions';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/slack')({
-	component: ProjectSlackTabPage,
+	beforeLoad: () => {
+		throw redirect({
+			to: '/settings/project/integrations/$integrationId',
+			params: { integrationId: 'slack' },
+		});
+	},
 });
-
-function ProjectSlackTabPage() {
-	const { isAdmin } = usePermissions();
-
-	return <SlackConfigSection isAdmin={isAdmin} />;
-}

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { TriangleAlert } from 'lucide-react';
+import { CircleArrowUp } from 'lucide-react';
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn, hideIf } from '@/lib/utils';
@@ -26,8 +26,8 @@ export function SidebarVersionNotice({ isCollapsed }: SidebarVersionNoticeProps)
 		return (
 			<Tooltip>
 				<TooltipTrigger asChild>
-					<div className='flex items-center justify-center p-2 mb-1 rounded-md text-amber-500'>
-						<TriangleAlert className='size-4' />
+					<div className='flex items-center justify-center p-2 mb-1 rounded-md text-green-500'>
+						<CircleArrowUp className='size-4' />
 					</div>
 				</TooltipTrigger>
 				<TooltipContent side='right'>{label}</TooltipContent>
@@ -40,9 +40,9 @@ export function SidebarVersionNotice({ isCollapsed }: SidebarVersionNoticeProps)
 			href={`https://github.com/getnao/nao/releases/tag/v${data.latestVersion}`}
 			target='_blank'
 			rel='noopener noreferrer'
-			className='flex items-center gap-2 px-3 py-2 mb-1 rounded-md text-xs text-amber-500 hover:bg-sidebar-accent transition-colors'
+			className='flex items-center gap-2 px-3 py-2 mb-1 rounded-md text-xs text-green-500 hover:bg-sidebar-accent transition-colors'
 		>
-			<TriangleAlert className='size-3.5 shrink-0' />
+			<CircleArrowUp className='size-3.5 shrink-0' />
 			<span className={cn('truncate transition-[opacity,visibility] duration-300', hideIf(isCollapsed))}>
 				{label}
 			</span>

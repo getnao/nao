@@ -3,6 +3,7 @@ import { desc, eq } from 'drizzle-orm';
 import type { NewMcpCallLog } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
+import { env } from '../env';
 import { DEFAULT_MCP_ENDPOINT_SETTINGS, type McpEndpointSettings } from '../types/mcp-endpoint';
 
 export async function getMcpEndpointSettings(projectId: string): Promise<McpEndpointSettings> {
@@ -13,7 +14,15 @@ export async function getMcpEndpointSettings(projectId: string): Promise<McpEndp
 		.limit(1)
 		.execute();
 
-	return row?.mcpEndpointSettings ?? DEFAULT_MCP_ENDPOINT_SETTINGS;
+	return row?.mcpEndpointSettings ?? defaultMcpEndpointSettings();
+}
+
+/** Built-in defaults, with MCP_ENDPOINT_ENABLED as the deployment's opinion on the toggle. */
+function defaultMcpEndpointSettings(): McpEndpointSettings {
+	if (env.MCP_ENDPOINT_ENABLED === undefined) {
+		return DEFAULT_MCP_ENDPOINT_SETTINGS;
+	}
+	return { ...DEFAULT_MCP_ENDPOINT_SETTINGS, enabled: env.MCP_ENDPOINT_ENABLED };
 }
 
 export async function updateMcpEndpointSettings(

@@ -83,6 +83,11 @@ export const sharedStoryRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found in this project.' });
 			}
 
+			const storyOwnerId = await storyQueries.getStoryOwnerId(story.id);
+			if (storyOwnerId !== ctx.user.id && ctx.userRole !== 'admin') {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can share this.' });
+			}
+
 			if (input.visibility === 'project') {
 				await storyFolderQueries.moveStoryToFolder(story.id, null, {
 					storyOwnerId: ctx.user.id,
@@ -168,6 +173,23 @@ export const sharedStoryRoutes = {
 		};
 	}),
 
+	getVersionQueryData: shareAccessProcedure
+		.input(z.object({ shareId: z.string(), versionNumber: z.number().int().positive() }))
+		.query(async ({ input, ctx }) => {
+			const shared = ctx.resource;
+			if (!shared.chatId) {
+				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
+			}
+
+			const version = await storyQueries.getVersionByNumber(shared.chatId, shared.slug, input.versionNumber);
+			if (!version) {
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story version not found.' });
+			}
+
+			const queryData = await sharedStoryQueries.getQueryDataFromCode(shared.chatId, version.code);
+			return { queryData };
+		}),
+
 	getLiveQueryData: chatProcedure
 		.input(z.object({ chatId: z.string(), queryId: z.string() }))
 		.query(async ({ input }) => {
@@ -210,7 +232,6 @@ export const sharedStoryRoutes = {
 			}),
 		)
 		.query(async ({ input, ctx }) => {
-			assertStoryFiltersEnabled();
 			const shared = ctx.resource;
 			if (!shared.chatId) {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });

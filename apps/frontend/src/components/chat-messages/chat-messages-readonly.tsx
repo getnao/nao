@@ -177,11 +177,9 @@ const AssistantMessageReadonly = memo(
 								<ThumbsDown className='size-3.5 text-red-500 dark:text-red-400' />
 							)}
 							<span>Feedback</span>
-							{message.feedback.vote === 'down' &&
-								message.feedback.explanation != null &&
-								message.feedback.explanation.trim() !== '' && (
-									<span className='text-xs font-semibold'> : {message.feedback.explanation}</span>
-								)}
+							{message.feedback.explanation != null && message.feedback.explanation.trim() !== '' && (
+								<span className='text-xs font-semibold'> : {message.feedback.explanation}</span>
+							)}
 							{message.feedback.vote === 'down' && linkedRecommendation && (
 								<Link
 									to='/settings/recommendations'

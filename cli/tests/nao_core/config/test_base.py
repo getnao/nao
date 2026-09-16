@@ -138,6 +138,7 @@ def test_fresh_prompt_flow_only_collects_database_llm_and_repos():
         DatabaseTemplate.AI_SUMMARY,
     ]
     assert config.slack is None
+    assert config.confluence is None
     assert config.notion is None
     assert config.mcp is None
     assert config.skills is None

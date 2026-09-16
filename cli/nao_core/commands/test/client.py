@@ -131,6 +131,9 @@ class AgentClient:
             "sql": test_case.sql,
         }
 
+        if test_case.database:
+            payload["databaseId"] = test_case.database
+
         cost_payload = serialize_model_costs(costs)
         if cost_payload is not None:
             payload["meta"] = {"costs": cost_payload}
