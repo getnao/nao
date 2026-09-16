@@ -1,0 +1,108 @@
+---
+name: import-metabase-dashboard
+description: Migrates Metabase dashboards, dashboard collections, and saved questions into nao charts or stories according to user intent. Use when importing, migrating, copying, or replicating Metabase analytics content.
+---
+
+# Metabase content to nao
+
+Prefer the nao CLI to export the Metabase source, then use nao MCP to execute SQL and produce the requested charts or stories. If the CLI cannot export an item, fall back to the available Metabase MCP using read-only operations.
+
+## Choose delivery
+
+Determine the output before processing:
+
+1. Follow explicit user intent:
+    - Requests to show, render, or recreate a chart or question use chart delivery.
+    - Requests for a dashboard, report, story, preserved layout, or shareable narrative use story delivery.
+2. Without an explicit output:
+    - One standalone question defaults to one chart.
+    - Multiple unrelated questions default to separate charts.
+    - A dashboard defaults to one story because its visualizations, layout, tabs, text, and filters belong together.
+    - A collection or multiple dashboards defaults to one story per dashboard.
+3. Ask whether to create separate charts or a consolidated story only when several questions could reasonably form one report.
+
+Never create a story solely to display one chart. Use a story when the prompt or source requires coordinated visualizations, narrative, layout, tabs, filters, or a durable shareable report.
+
+## Export the source
+
+Choose exactly one command from the user's source:
+
+- One or more explicit dashboards: `nao import metabase dashboard '<ID_OR_URL>' ['<ID_OR_URL>' ...] --json`
+- Dashboards directly in a collection: `nao import metabase collection '<ID_OR_URL>' --json`
+- Dashboards in a collection and its subcollections: `nao import metabase collection '<ID_OR_URL>' --recursive --json`
+- One or more saved questions: `nao import metabase question '<ID_OR_URL>' ['<ID_OR_URL>' ...] --json`
+
+Require numeric IDs or matching Metabase URLs. Name lookup is not supported.
+
+The CLI requires `METABASE_API_KEY` and, for numeric IDs, `METABASE_URL`. Never expose their values.
+
+If CLI export fails, use read-only Metabase MCP only when it clearly targets the same instance; otherwise ask the user. For partial batches, keep successful exports and apply fallback only to failed items.
+
+## Read manifests
+
+- A single explicit dashboard returns one dashboard manifest.
+- A single explicit question returns one question manifest.
+- Multiple dashboards, multiple questions, and collections return a batch manifest. Process each item independently according to the selected delivery.
+- Read dashboard batch items from `dashboards` and question batch items from `questions`.
+- Preserve batch `failures`, each item's `limitations`, and the final `summary` in the completion report.
+- Never replace unavailable source content with placeholders or guesses.
+- For dashboards, read every card and linked series before creating the story. A card with a `questionId` but a null `question` is inaccessible; skip and report it.
+- The manifest is the source of truth for query definitions, SQL, result metadata, visualization settings, and—where present—tabs, filters, text cards, repeated placements, linked series, and layout.
+
+## Prepare queries
+
+1. Within each dashboard, group questions by question ID and `effectiveFilterIds`. Process each unique combination once and reuse its nao query ID for repeated placements with the same filters.
+2. Use `question.sql` for execution. Keep `question.datasetQuery` and `question.mbql` only as source provenance; never ask the model to recreate SQL from MBQL.
+3. If `question.sql` is null, skip the question and report that Metabase could not compile it.
+4. If `question.sqlParameters` is non-empty, do not interpolate bindings by guessing. Skip and report it until the target execution path supports bound parameters.
+5. Execute SQL only when exactly one nao database is an unambiguous match for `question.databaseId`. Ask for a mapping when it is ambiguous.
+6. Call nao MCP `execute_sql`; every chart, table, or map must use the returned query ID. Never embed copied Metabase rows as chart data.
+
+## Render visualizations
+
+- For native SQL template tags, replace mapped Metabase optional clauses with nao filter blocks before execution. A direct `column = {{tag}}` clause can become `{% filter tag %} AND column = {{ filters.tag.sql }} {% endfilter %}`.
+- Treat a question whose type is `model` or `metric`, or whose MBQL references another card, as a reusable Metabase object. Preserve execution using only CLI-provided SQL, label its provenance, and never claim it was recreated as a reusable nao semantic object.
+- Derive axis and series keys from the nao query result, then call nao MCP `display_chart` before embedding each chart.
+- Translate Metabase displays to nao displays:
+    - `scalar` and `smartscalar` → `kpi_card`.
+    - `line` → `line`.
+    - `bar` → `bar`, `stacked_bar`, or `stacked_bar_100` according to `stackable.stack_type`.
+    - `row` → `horizontal_bar` or `horizontal_bar_100`.
+    - `area` → `area`, `stacked_area`, or `stacked_area_100`.
+    - `combo` → `mixed`, preserving explicit bar, line, or area series and left/right axes.
+    - `pie` → `pie` or `donut` according to its settings.
+    - `scatter` and `radar` → the matching nao chart when their required numeric columns exist.
+    - `gauge` → `gauge` with exactly one metric and the ordered numeric `gauge.segments` ranges, preserving each range's color and optional label.
+    - `table` → `table`.
+    - `map` → nao MCP `display_map` only when valid point or supported-region columns are explicit.
+- Preserve supported titles, labels, colors, value formats, axis bounds, data-label visibility, and KPI comparison settings. Report settings nao cannot represent.
+
+## Deliver the result
+
+For chart delivery:
+
+- Return each successful `display_chart` result directly in the chat.
+- Pass the current nao `chat_id` when one is available.
+- Report source limitations and skipped items alongside the charts.
+- Do not call `create_story`.
+
+For story delivery from a dashboard:
+
+- Use the dashboard name and description for the title and introduction.
+- Preserve virtual text cards as Markdown, repeated placements, and every linked series in source order.
+- Sort tabs by position and cards within each tab by row then column. Group cards sharing a source row into `<grid>` blocks and derive relative `widths` from `layout.width`.
+- Preserve each dashboard filter only when nao documents a matching filter type. Apply only the `effectiveFilterIds` listed on each card or linked series; leave an empty list unfiltered. Use `parameterMappings` for original targets and never infer wiring from another card.
+- A Metabase filter `default` is the current selection, never its complete option list. Do not turn a default into hardcoded options.
+- Call nao MCP `create_story` only after processing all accessible dashboard items.
+
+For story delivery from standalone questions:
+
+- Create a story only when the user requests one or the questions clearly form a coordinated report.
+- Use question names and descriptions as source material for titles and introductions.
+- Do not invent dashboard layout, tabs, or filter mappings that are absent from the manifests.
+
+End every story with a `Source limitations` section listing everything unavailable, skipped, approximated, or unsuccessful. After a batch, report charts or stories created, source failures, and skipped items.
+
+## Fidelity limits
+
+Nao does not support every Metabase visualization or interaction. Do not silently replace unsupported displays with a table: identify the source card and either use a named approximation accepted by the user or report it as skipped. Never claim pixel-perfect equivalence.
