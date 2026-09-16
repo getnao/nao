@@ -1,49 +1,5 @@
 version: 2
 
-models:
-  - name: orders
-    description: This table has basic information about orders, as well as some derived facts based on payments.
-    columns:
-      - name: order_id
-        description: This is a unique identifier for an order.
-        tests:
-          - unique
-          - not_null
-      - name: customer_id
-        description: Foreign key to the customers table.
-        tests:
-          - not_null
-          - relationships:
-              to: ref('customers')
-              field: customer_id
-      - name: order_date
-        description: Date (UTC) that the order was placed.
-      - name: status
-        description: Orders can be one of placed, shipped, completed, return_pending or returned.
-        tests:
-          - accepted_values:
-              values: ['placed', 'shipped', 'completed', 'return_pending', 'returned']
-      - name: amount
-        description: Total amount (AUD) of the order.
-        tests:
-          - not_null
-      - name: credit_card_amount
-        description: Amount of the order (AUD) paid for by credit card.
-        tests:
-          - not_null
-      - name: coupon_amount
-        description: Amount of the order (AUD) paid for by coupon.
-        tests:
-          - not_null
-      - name: bank_transfer_amount
-        description: Amount of the order (AUD) paid for by bank transfer.
-        tests:
-          - not_null
-      - name: gift_card_amount
-        description: Amount of the order (AUD) paid for by gift card.
-        tests:
-          - not_null
-
 semantic_models:
   - name: orders
     description: One row per order placed at the jaffle shop.

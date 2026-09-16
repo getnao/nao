@@ -17,7 +17,7 @@ repos:
   branch: null
 semantic_layer:
   type: metricflow
-  manifest_path: ./dbt/target/semantic_manifest.json
+  manifest_path: ./dbt/semantic_manifest.json
   database: duckdb-jaffle-shop
 notion: null
 llm: null

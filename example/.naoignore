@@ -1,6 +1,5 @@
 templates/
 *.j2
 tests/
-dbt/target/
-dbt/logs/
+dbt/semantic_manifest.json
 dbt/.venv/

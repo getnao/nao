@@ -1,6 +1,6 @@
 # Semantic layer
 
-Synced from the metricflow manifest at `./dbt/target/semantic_manifest.json` by `nao sync`. Do not edit generated files, they are rewritten on every sync.
+Synced from the metricflow manifest at `./dbt/semantic_manifest.json` by `nao sync`. Do not edit generated files, they are rewritten on every sync.
 
 - `metrics/<metric>.md` — one file per metric (14 metrics): definition, type and the dimensions it can be grouped or filtered by.
 - `dimensions.md` — index of every dimension (6 dimensions).
