@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router';
-import { PlusIcon, Settings } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { StoryItem } from '@/lib/stories-page';
+import { PlusIcon, Settings, Sparkles } from 'lucide-react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import type { HomeFeedGroup, HomeFeedItem } from '@/lib/home-feed';
 import { buildStoryItems } from '@/lib/stories-page';
 import { useSession } from '@/lib/auth-client';
 import { capitalize, cn } from '@/lib/utils';
@@ -20,6 +20,10 @@ import { MobileHeader } from '@/components/mobile-header';
 import { trpc } from '@/main';
 import { useTheme } from '@/contexts/theme.provider';
 import { StoryCard } from '@/components/stories-groups';
+import { HomeRecommendedChatCard } from '@/components/home-recommended-chat-card';
+import { HomeStoriesModeSelect } from '@/components/home-stories-mode-select';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useHomeFeed } from '@/hooks/use-home-feed';
 import { useResizeObserver } from '@/hooks/use-resize-observer';
 import { useMultiProject } from '@/hooks/use-multi-project';
 
@@ -75,14 +79,6 @@ function HomePage() {
 	});
 	const storiesGridRef = useRef<HTMLDivElement>(null);
 	const [storyCols, setStoryCols] = useState(STORY_CARD_MAX_COLS);
-	const hasStories = (stories.data?.length ?? 0) > 0;
-	useResizeObserver(
-		storiesGridRef,
-		(el) => {
-			setStoryCols(computeStoryCols(el.getBoundingClientRect().width));
-		},
-		[hasStories],
-	);
 	const folderItemMap = useMemo(() => {
 		const map = new Map<string, string>();
 		for (const item of folderItems.data ?? []) {
@@ -90,36 +86,36 @@ function HomePage() {
 		}
 		return map;
 	}, [folderItems.data]);
-	const latestStoryItems = useMemo(() => {
-		const items = buildStoryItems({
-			userStories: stories.data ?? [],
-			sharedStories: sharedStories.data ?? [],
-			currentUserName: session?.user?.name ?? username ?? '',
-			favoriteStoryIds: favorites.data?.storyIds,
+	const storyItems = useMemo(
+		() =>
+			buildStoryItems({
+				userStories: stories.data ?? [],
+				sharedStories: sharedStories.data ?? [],
+				currentUserName: session?.user?.name ?? username ?? '',
+				favoriteStoryIds: favorites.data?.storyIds,
+				folderItemMap,
+				folders: folderTree.data ?? [],
+			}),
+		[
+			stories.data,
+			sharedStories.data,
+			session?.user?.name,
+			username,
+			favorites.data,
 			folderItemMap,
-			folders: folderTree.data ?? [],
-		});
-		return [...items]
-			.sort((a, b) => {
-				const rankDiff = storyPriorityRank(a) - storyPriorityRank(b);
-				if (rankDiff !== 0) {
-					return rankDiff;
-				}
-				return b.createdAt.getTime() - a.createdAt.getTime();
-			})
-			.slice(0, storyCols);
-	}, [
-		stories.data,
-		sharedStories.data,
-		session?.user?.name,
-		storyCols,
-		username,
-		favorites.data,
-		folderItemMap,
-		folderTree.data,
-	]);
-	const storyGroups = useMemo(() => buildStoryGroups(latestStoryItems), [latestStoryItems]);
+			folderTree.data,
+		],
+	);
+	const feed = useHomeFeed({ storyItems, limit: storyCols, enabled: isEmptyState });
+	const showFeed = feed.items.length > 0 || feed.isLoading;
 	const hasMoreStories = (stories.data?.length ?? 0) > storyCols;
+	useResizeObserver(
+		storiesGridRef,
+		(el) => {
+			setStoryCols(computeStoryCols(el.getBoundingClientRect().width));
+		},
+		[showFeed],
+	);
 
 	const isDark =
 		theme.theme === 'dark' ||
@@ -152,7 +148,7 @@ function HomePage() {
 					<div
 						className={cn(
 							'relative flex flex-col items-center justify-center gap-4 p-4 w-full flex-1',
-							showProjectSetupCue ? '' : latestStoryItems.length > 0 ? 'mt-30' : '-mt-30',
+							showProjectSetupCue ? '' : showFeed ? 'mt-30' : '-mt-30',
 						)}
 					>
 						{showProjectSetupCue ? (
@@ -191,7 +187,7 @@ function HomePage() {
 									<ChatInput />
 									<SavedPromptSuggestions />
 								</div>
-								{latestStoryItems.length > 0 && (
+								{showFeed && (
 									<div className='flex flex-col gap-3 w-full px-4 py-6 max-w-3xl mx-auto'>
 										<div
 											ref={storiesGridRef}
@@ -200,12 +196,17 @@ function HomePage() {
 												gridTemplateColumns: `repeat(${storyCols}, minmax(0, 1fr))`,
 											}}
 										>
-											{renderStoryGroupHeaders(storyGroups)}
-											{latestStoryItems.map((item, index) => (
-												<div key={item.id} style={{ gridColumn: index + 1, gridRow: 2 }}>
-													<StoryCard item={item} displayMode='grid' showArchived={false} />
-												</div>
-											))}
+											{feed.isLoading
+												? renderFeedSkeleton(storyCols)
+												: renderFeedGroupHeaders(feed.groups)}
+											<div
+												className='flex items-center'
+												style={{ gridColumn: storyCols, gridRow: 1, justifySelf: 'end' }}
+											>
+												<HomeStoriesModeSelect value={feed.mode} onChange={feed.setMode} />
+											</div>
+											{!feed.isLoading &&
+												feed.items.map((item, index) => renderFeedItem(item, index))}
 										</div>
 										{hasMoreStories && (
 											<button
@@ -238,43 +239,16 @@ const STORY_CARD_MIN_WIDTH = 170;
 const STORY_CARD_GAP = 20;
 const STORY_CARD_MAX_COLS = 3;
 
-type StoryGroup = { key: 'favorites' | 'pinned' | 'latest'; label: string; items: StoryItem[] };
-
-function storyPriorityRank(item: StoryItem): number {
-	if (item.isFavorited) {
-		return 0;
-	}
-	if (isPinnedStory(item)) {
-		return 1;
-	}
-	return 2;
-}
-
-function buildStoryGroups(items: StoryItem[]): StoryGroup[] {
-	const favorites = items.filter((item) => item.isFavorited);
-	const pinned = items.filter((item) => !item.isFavorited && isPinnedStory(item));
-	const latest = items.filter((item) => !item.isFavorited && !isPinnedStory(item));
-	const groups: StoryGroup[] = [
-		{
-			key: 'favorites',
-			label: pluralize('Favorite story', 'Favorite stories', favorites.length),
-			items: favorites,
-		},
-		{ key: 'pinned', label: pluralize('Pinned story', 'Pinned stories', pinned.length), items: pinned },
-		{ key: 'latest', label: pluralize('Latest story', 'Latest stories', latest.length), items: latest },
-	];
-	return groups.filter((group) => group.items.length > 0);
-}
-
-function renderStoryGroupHeaders(groups: StoryGroup[]) {
+function renderFeedGroupHeaders(groups: HomeFeedGroup[]) {
 	let startColumn = 1;
-	return groups.map((group) => {
+	return groups.map((group, index) => {
 		const column = `${startColumn} / span ${group.items.length}`;
 		startColumn += group.items.length;
+		const isLast = index === groups.length - 1;
 		return (
 			<div
 				key={group.key}
-				className='text-md text-foreground font-medium'
+				className={cn('text-md text-foreground font-medium truncate self-center', isLast && 'pr-24')}
 				style={{ gridColumn: column, gridRow: 1 }}
 			>
 				{group.label}
@@ -283,15 +257,41 @@ function renderStoryGroupHeaders(groups: StoryGroup[]) {
 	});
 }
 
+function renderFeedItem(item: HomeFeedItem, index: number) {
+	return (
+		<Fragment key={item.key}>
+			<div style={{ gridColumn: index + 1, gridRow: 2 }}>
+				{item.kind === 'story' ? (
+					<StoryCard item={item.story} displayMode='grid' showArchived={false} />
+				) : (
+					<HomeRecommendedChatCard chat={item.chat} />
+				)}
+			</div>
+			{item.reason && (
+				<div
+					className='flex items-center gap-1.5 px-1 text-xs text-muted-foreground'
+					style={{ gridColumn: index + 1, gridRow: 3 }}
+				>
+					<Sparkles className='size-3 shrink-0' />
+					<span className='truncate'>{item.reason}</span>
+				</div>
+			)}
+		</Fragment>
+	);
+}
+
+function renderFeedSkeleton(columns: number) {
+	return (
+		<>
+			<Skeleton className='h-5 w-24 self-center' style={{ gridColumn: 1, gridRow: 1 }} />
+			{Array.from({ length: columns }, (_, index) => (
+				<Skeleton key={index} className='h-[150px]' style={{ gridColumn: index + 1, gridRow: 2 }} />
+			))}
+		</>
+	);
+}
+
 function computeStoryCols(containerWidth: number) {
 	const n = Math.floor((containerWidth + STORY_CARD_GAP) / (STORY_CARD_MIN_WIDTH + STORY_CARD_GAP));
 	return Math.max(1, Math.min(n, STORY_CARD_MAX_COLS));
-}
-
-function isPinnedStory(item: StoryItem): boolean {
-	return item.isPinned || (item.sharing?.isPinned ?? false);
-}
-
-function pluralize(singular: string, plural: string, count: number): string {
-	return count === 1 ? singular : plural;
 }
