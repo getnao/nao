@@ -39,6 +39,7 @@ import { attachmentRoutes } from './routes/attachment';
 import { authRoutes } from './routes/auth';
 import { authErrorRedirectRoutes } from './routes/auth-error-redirect';
 import { automationWebhookRoutes } from './routes/automation-webhook';
+import { backofficeRoutes } from './routes/backoffice';
 import { brandingRoutes } from './routes/branding';
 import { chartRoutes } from './routes/chart';
 import { deployRoutes } from './routes/deploy';
@@ -237,6 +238,13 @@ app.register(whatsappRoutes, {
 app.register(deployRoutes, {
 	prefix: '/api',
 });
+
+if (isCloud && env.NAO_BACKOFFICE_API_KEY) {
+	app.register(backofficeRoutes, {
+		prefix: '/api/backoffice',
+	});
+	logger.info('Cloud backoffice API enabled', { source: 'system' });
+}
 
 app.register(automationWebhookRoutes, {
 	prefix: '/api',

@@ -248,13 +248,16 @@ jobs:
                       docker pull getnao/nao:${{ needs.merge.outputs.image-tag }}
                       docker rm -f "${{ env.CLOUD_CONTAINER_NAME }}" 2>/dev/null || true
                       docker volume create nao-app-preview-projects 2>/dev/null || true
+                      docker network create nao-internal 2>/dev/null || true
                       docker run -d \
                           --name "${{ env.CLOUD_CONTAINER_NAME }}" \
-                          -p "${{ env.CLOUD_PORT }}:5005" \
+                          --network nao-internal \
+                          -p "127.0.0.1:${{ env.CLOUD_PORT }}:5005" \
                           -v nao-app-preview-projects:/app/projects \
                           -e "NAO_PROJECTS_DIR=/app/projects" \
                           -e "BETTER_AUTH_URL=https://${{ env.CLOUD_DOMAIN }}" \
                           -e "BETTER_AUTH_SECRET=${{ secrets.BETTER_AUTH_SECRET }}" \
+                          -e "NAO_BACKOFFICE_API_KEY=${{ secrets.NAO_BACKOFFICE_API_KEY }}" \
                           -e "DB_SSL=true" \
                           -e "DB_URI=postgres://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@${{ secrets.POSTGRES_HOST }}:${{ secrets.POSTGRES_PORT }}/app" \
                           -e "NAO_MODE=cloud" \
