@@ -54,7 +54,6 @@ export class TestAgentService extends AgentService {
 			messages: [userMessage],
 			userId: 'test',
 			projectId,
-			testMode: true,
 		};
 
 		const agent = await this.create(tempChat, modelSelection);
