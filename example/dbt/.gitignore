@@ -1,0 +1,6 @@
+.venv/
+target/*
+!target/semantic_manifest.json
+dbt_packages/
+logs/
+.user.yml

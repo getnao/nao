@@ -4,7 +4,11 @@ import { executeSql as schemas, LOCAL_DATABASE_ID } from '@nao/shared/tools';
 
 import { ExecuteSqlOutput, renderToModelOutput } from '../../components/tool-outputs';
 import { env } from '../../env';
-import { getExecuteSqlPartByQueryIdInChat, updateExecuteSqlPart } from '../../queries/execute-sql.queries';
+import {
+	EXECUTE_SEMANTIC_QUERY_TOOL_NAME,
+	getExecuteSqlPartByQueryIdInChat,
+	updateExecuteSqlPart,
+} from '../../queries/execute-sql.queries';
 import { resolveExcludedColumnEnforcement } from '../../services/excluded-columns.service';
 import { runQueryOnLocalFiles } from '../../services/local-query.service';
 import { ToolContext } from '../../types/tools';
@@ -153,6 +157,11 @@ async function updateExistingQuery(
 	if (!existing) {
 		throw new Error(
 			`Query ${input.query_id} not found in this chat. Use execute_sql without query_id to create a new query.`,
+		);
+	}
+	if (existing.toolName === EXECUTE_SEMANTIC_QUERY_TOOL_NAME) {
+		throw new Error(
+			`Query ${input.query_id} is a semantic query and cannot be edited as SQL. Call execute_semantic_query again with the adjusted metrics, group_by or where.`,
 		);
 	}
 

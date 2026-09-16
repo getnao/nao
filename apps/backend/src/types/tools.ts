@@ -1,4 +1,5 @@
 import type { displayChart, displayMap } from '@nao/shared/tools';
+import type { SemanticLayerMode } from '@nao/shared/types';
 
 import { AgentSettings } from './agent-settings';
 
@@ -20,6 +21,11 @@ export interface ToolContext {
 	projectId: string;
 	supportsCustomCharts: boolean;
 	agentSettings: AgentSettings | null;
+	/**
+	 * How the run may use the project's semantic layer, resolved once from nao_config.yaml
+	 * and the admin settings. Null (or absent) when the project declares no semantic layer.
+	 */
+	semanticLayerMode?: SemanticLayerMode | null;
 	envVars: Record<string, string>;
 	/**
 	 * Database federation access token. Populated by the EE Microsoft/Azure AD

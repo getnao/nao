@@ -3,6 +3,7 @@ export * as displayChart from './display-chart';
 export * as displayMap from './display-map';
 export * as executePython from './execute-python';
 export * as executeSandboxedCode from './execute-sandboxed-code';
+export * as executeSemanticQuery from './execute-semantic-query';
 export * as executeSql from './execute-sql';
 export { LOCAL_DATABASE_ID } from './execute-sql';
 export * as grep from './grep';

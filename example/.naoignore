@@ -1,3 +1,6 @@
 templates/
 *.j2
 tests/
+dbt/target/
+dbt/logs/
+dbt/.venv/

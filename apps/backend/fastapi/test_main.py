@@ -436,3 +436,87 @@ def test_execute_sql_with_cte_bigquery(bigquery_project_folder):
             {"id": 3, "name": "Charlie"},
         ],
     )
+
+
+SEMANTIC_MANIFEST_FIXTURE = (
+    Path(__file__).resolve().parent.parent.parent.parent
+    / "cli"
+    / "tests"
+    / "nao_core"
+    / "semantic_layer"
+    / "semantic_manifest.json"
+)
+
+
+@pytest.fixture
+def semantic_layer_project_folder():
+    """A DuckDB project with a MetricFlow semantic layer synced under semantics/."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project = Path(tmpdir)
+        manifest = project / ".meta" / "semantic_layer" / "semantic_manifest.json"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text(SEMANTIC_MANIFEST_FIXTURE.read_text())
+        config = {
+            "project_name": "test-project",
+            "databases": [
+                {"name": "warehouse", "type": "duckdb", "path": ":memory:"},
+                {"name": "other", "type": "duckdb", "path": ":memory:"},
+            ],
+            "semantic_layer": {
+                "type": "metricflow",
+                "manifest_path": "dbt/target/semantic_manifest.json",
+                "database": "warehouse",
+            },
+        }
+        with (project / "nao_config.yaml").open("w") as f:
+            yaml.dump(config, f)
+        yield tmpdir
+
+
+def test_compile_semantic_query(semantic_layer_project_folder):
+    client = TestClient(app, headers=INTERNAL_HEADERS)
+
+    response = client.post(
+        "/semantic_layer/compile",
+        json={
+            "nao_project_folder": semantic_layer_project_folder,
+            "metrics": ["revenue"],
+            "group_by": ["metric_time__month", "order__status"],
+            "where": ["{{ Dimension('order__status') }} = 'completed'"],
+            "order_by": ["-metric_time__month"],
+            "limit": 6,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["database_id"] == "warehouse"
+    assert body["dialect"] == "duckdb"
+    assert "SUM(revenue) AS revenue" in body["sql"]
+    assert "FROM main.orders" in body["sql"]
+    assert "order__status = 'completed'" in body["sql"]
+    assert "LIMIT 6" in body["sql"]
+
+
+def test_compile_semantic_query_reports_unknown_metric(semantic_layer_project_folder):
+    client = TestClient(app, headers=INTERNAL_HEADERS)
+
+    response = client.post(
+        "/semantic_layer/compile",
+        json={"nao_project_folder": semantic_layer_project_folder, "metrics": ["revenu"]},
+    )
+
+    assert response.status_code == 400
+    assert "revenue" in response.json()["detail"]
+
+
+def test_compile_semantic_query_without_semantic_layer(duckdb_project_folder):
+    client = TestClient(app, headers=INTERNAL_HEADERS)
+
+    response = client.post(
+        "/semantic_layer/compile",
+        json={"nao_project_folder": duckdb_project_folder, "metrics": ["revenue"]},
+    )
+
+    assert response.status_code == 400
+    assert "semantic_layer" in response.json()["detail"]

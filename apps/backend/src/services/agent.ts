@@ -76,6 +76,7 @@ import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { mcpService } from './mcp';
 import { memoryService } from './memory';
 import { getAzureAccessTokenForUser } from './microsoft-auth.service';
+import { resolveSemanticLayerMode } from './semantic-layer.service';
 import { skillService } from './skill';
 import { canGrepUserFiles } from './storage/user-files';
 import { getStoryTemplateWarnings } from './story-template-validation';
@@ -120,14 +121,29 @@ export interface AgentToolsContext {
 export type AgentToolsResolver = (context: AgentToolsContext) => AgentTools | Promise<AgentTools>;
 
 /** Default tool set for interactive runs: all built-ins, MCP tools and web search. */
-export const defaultAgentTools: AgentToolsResolver = ({ chat, agentSettings, webTools, customBoundaries }) =>
-	getTools(agentSettings, webTools ?? {}, { testMode: chat.testMode, customBoundaries });
+export const defaultAgentTools: AgentToolsResolver = ({
+	chat,
+	agentSettings,
+	toolContext,
+	webTools,
+	customBoundaries,
+}) =>
+	getTools(agentSettings, webTools ?? {}, {
+		testMode: chat.testMode,
+		customBoundaries,
+		semanticLayerMode: toolContext.semanticLayerMode,
+	});
 
 /** Default tool set minus the given built-ins — for runs whose surface cannot render them. */
 export const defaultAgentToolsExcluding =
 	(excludeBuiltinTools: string[]): AgentToolsResolver =>
-	({ chat, agentSettings, webTools, customBoundaries }) =>
-		getTools(agentSettings, webTools ?? {}, { testMode: chat.testMode, excludeBuiltinTools, customBoundaries });
+	({ chat, agentSettings, toolContext, webTools, customBoundaries }) =>
+		getTools(agentSettings, webTools ?? {}, {
+			testMode: chat.testMode,
+			excludeBuiltinTools,
+			customBoundaries,
+			semanticLayerMode: toolContext.semanticLayerMode,
+		});
 
 /**
  * Admin-mode tool set: the same `execute_sql` tool the chat already uses (it
@@ -194,6 +210,7 @@ async function _buildContextBase(opts: {
 		projectId: opts.projectId,
 		supportsCustomCharts: opts.supportsCustomCharts !== false,
 		agentSettings,
+		semanticLayerMode: resolveSemanticLayerMode(project.path, agentSettings),
 		envVars,
 		azureAccessToken,
 		queryResults: new Map(),
@@ -620,6 +637,7 @@ class AgentManager {
 				skills,
 				customCharts,
 				mcpServers,
+				semanticLayerMode: this._toolContext.semanticLayerMode,
 				timezone,
 				testMode: this.chat.testMode,
 				toolNames: Object.keys(this._agentTools),

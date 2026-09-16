@@ -1,0 +1,180 @@
+version: 2
+
+models:
+  - name: orders
+    description: This table has basic information about orders, as well as some derived facts based on payments.
+    columns:
+      - name: order_id
+        description: This is a unique identifier for an order.
+        tests:
+          - unique
+          - not_null
+      - name: customer_id
+        description: Foreign key to the customers table.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('customers')
+              field: customer_id
+      - name: order_date
+        description: Date (UTC) that the order was placed.
+      - name: status
+        description: Orders can be one of placed, shipped, completed, return_pending or returned.
+        tests:
+          - accepted_values:
+              values: ['placed', 'shipped', 'completed', 'return_pending', 'returned']
+      - name: amount
+        description: Total amount (AUD) of the order.
+        tests:
+          - not_null
+      - name: credit_card_amount
+        description: Amount of the order (AUD) paid for by credit card.
+        tests:
+          - not_null
+      - name: coupon_amount
+        description: Amount of the order (AUD) paid for by coupon.
+        tests:
+          - not_null
+      - name: bank_transfer_amount
+        description: Amount of the order (AUD) paid for by bank transfer.
+        tests:
+          - not_null
+      - name: gift_card_amount
+        description: Amount of the order (AUD) paid for by gift card.
+        tests:
+          - not_null
+
+semantic_models:
+  - name: orders
+    description: One row per order placed at the jaffle shop.
+    model: ref('orders')
+    defaults:
+      agg_time_dimension: order_date
+    entities:
+      - name: order
+        type: primary
+        expr: order_id
+      - name: customer
+        type: foreign
+        expr: customer_id
+    dimensions:
+      - name: order_date
+        type: time
+        type_params:
+          time_granularity: day
+      - name: status
+        type: categorical
+        description: Order status (placed, shipped, completed, return_pending, returned).
+    measures:
+      - name: order_total
+        description: Total amount paid for the order, all payment methods included.
+        agg: sum
+        expr: amount
+      - name: order_count
+        description: Number of orders.
+        agg: sum
+        expr: "1"
+      - name: credit_card_total
+        agg: sum
+        expr: credit_card_amount
+      - name: coupon_total
+        agg: sum
+        expr: coupon_amount
+      - name: bank_transfer_total
+        agg: sum
+        expr: bank_transfer_amount
+      - name: gift_card_total
+        agg: sum
+        expr: gift_card_amount
+      - name: largest_order
+        agg: max
+        expr: amount
+
+metrics:
+  - name: revenue
+    label: Revenue
+    description: Total order amount, all payment methods included.
+    type: simple
+    type_params:
+      measure: order_total
+
+  - name: orders
+    label: Orders
+    description: Number of orders placed.
+    type: simple
+    type_params:
+      measure: order_count
+
+  - name: completed_orders
+    label: Completed orders
+    description: Number of orders whose status is completed.
+    type: simple
+    type_params:
+      measure: order_count
+    filter: "{{ Dimension('order__status') }} = 'completed'"
+
+  - name: completed_revenue
+    label: Completed revenue
+    description: Revenue from orders whose status is completed.
+    type: simple
+    type_params:
+      measure: order_total
+    filter: "{{ Dimension('order__status') }} = 'completed'"
+
+  - name: average_order_value
+    label: Average order value
+    description: Revenue divided by the number of orders.
+    type: ratio
+    type_params:
+      numerator: revenue
+      denominator: orders
+
+  - name: completion_rate
+    label: Completion rate
+    description: Share of orders that reached the completed status.
+    type: ratio
+    type_params:
+      numerator: completed_orders
+      denominator: orders
+
+  - name: credit_card_revenue
+    label: Credit card revenue
+    description: Amount paid by credit card.
+    type: simple
+    type_params:
+      measure: credit_card_total
+
+  - name: coupon_revenue
+    label: Coupon revenue
+    description: Amount covered by coupons.
+    type: simple
+    type_params:
+      measure: coupon_total
+
+  - name: bank_transfer_revenue
+    label: Bank transfer revenue
+    description: Amount paid by bank transfer.
+    type: simple
+    type_params:
+      measure: bank_transfer_total
+
+  - name: gift_card_revenue
+    label: Gift card revenue
+    description: Amount paid with gift cards.
+    type: simple
+    type_params:
+      measure: gift_card_total
+
+  - name: largest_order
+    label: Largest order
+    description: Highest single order amount.
+    type: simple
+    type_params:
+      measure: largest_order
+
+  - name: cumulative_revenue
+    label: Cumulative revenue
+    description: Running total of revenue since the first order.
+    type: cumulative
+    type_params:
+      measure: order_total

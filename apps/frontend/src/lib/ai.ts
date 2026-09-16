@@ -79,6 +79,7 @@ const NON_COLLAPSIBLE_TOOLS_BY_DENSITY: Record<ToolCallDensity, (StaticToolName 
 	detailed: [
 		'story',
 		'execute_sql',
+		'execute_semantic_query',
 		'query_app_db',
 		'record_recommendation',
 		'display_chart',

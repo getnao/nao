@@ -1,5 +1,6 @@
 import type { ChartPluginManifestEntry } from '@nao/shared';
 import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
+import type { SemanticLayerMode } from '@nao/shared/types';
 
 import type { InternalSkill } from '../../agents/skills';
 import { listInternalSkills } from '../../agents/skills';
@@ -30,6 +31,8 @@ type SystemPromptProps = {
 	customCharts?: ChartPluginManifestEntry[];
 	/** Names of MCP servers the agent is allowed to call (tools discovered as on-disk specs). */
 	mcpServers?: string[];
+	/** How the run may use the project's semantic layer; null or undefined when the project has none. */
+	semanticLayerMode?: SemanticLayerMode | null;
 	timezone?: string;
 	testMode?: boolean;
 	/** Names of the tools in the run's tool set — rules for surface-dependent tools (e.g. display_map) are only emitted when the tool is present. Omit to include every rule. */
@@ -54,6 +57,7 @@ export function SystemPrompt({
 	internalSkills = listInternalSkills(),
 	customCharts = [],
 	mcpServers = [],
+	semanticLayerMode = null,
 	timezone,
 	testMode,
 	toolNames,
@@ -129,6 +133,9 @@ export function SystemPrompt({
 				/>
 			)}
 			{hasTool('execute_sql') && <LocalDatabaseBlock canSaveResults={hasTool('write')} />}
+			{semanticLayerMode && (
+				<SemanticLayerBlock mode={semanticLayerMode} canQuery={hasTool('execute_semantic_query')} />
+			)}
 			<Title level={2}>Chart{hasTool('display_map') ? ' & Map' : ''} Rules</Title>
 			<List>
 				<ListItem>
@@ -501,6 +508,70 @@ function LocalDatabaseBlock({ canSaveResults }: { canSaveResults: boolean }) {
 				already have.
 			</Span>
 		</Block>
+	);
+}
+
+function SemanticLayerBlock({ mode, canQuery }: { mode: SemanticLayerMode; canQuery: boolean }) {
+	return (
+		<Block>
+			<Title level={2}>Semantic layer</Title>
+			<Span>
+				This project has a semantic layer (dbt MetricFlow): governed metric definitions synced under{' '}
+				<Bold>semantics/</Bold>. <Bold>semantics/metrics/{'<metric>'}.md</Bold> describes each metric and the
+				dimensions it can be grouped or filtered by; <Bold>semantics/dimensions.md</Bold> lists every dimension.
+				Discover them with grep, search, read and list like any other context.
+			</Span>
+			<List>
+				{canQuery ? (
+					<SemanticLayerQueryRules exclusive={mode === 'exclusive'} />
+				) : (
+					<ListItem>
+						The definitions are context only: querying the layer is not available here. When a question is
+						about a metric the layer defines, read its file and reproduce the definition faithfully in the
+						SQL you write with execute_sql, and say that you followed the semantic layer definition.
+					</ListItem>
+				)}
+			</List>
+		</Block>
+	);
+}
+
+function SemanticLayerQueryRules({ exclusive }: { exclusive: boolean }) {
+	return (
+		<>
+			<ListItem>
+				For any question about a metric (revenue, orders, churn, conversion...), first look for a matching
+				metric in <Bold>semantics/</Bold>. When one exists, answer with <Bold>execute_semantic_query</Bold>{' '}
+				rather than recomputing the metric with hand-written SQL: the layer holds the official definition, and a
+				hand-written version silently drifts from it.
+			</ListItem>
+			{exclusive ? (
+				<ListItem>
+					Every data question <Bold>must</Bold> go through execute_semantic_query: raw SQL is not available in
+					this project, and you must not write it even when asked. If the layer cannot express the question
+					(missing metric, dimension or filter), say so plainly and offer what the layer can answer instead.
+					To look up the values a dimension takes, query a metric grouped by that dimension.
+				</ListItem>
+			) : (
+				<ListItem>
+					Fall back to execute_sql only when no metric or dimension covers the question, or when the user says
+					the semantic result does not answer it. Say so when you fall back.
+				</ListItem>
+			)}
+			<ListItem>
+				Name group_by items as <Bold>entity__dimension</Bold> exactly as documented (e.g.{' '}
+				<Bold>customer__region</Bold>); time dimensions take a granularity suffix (
+				<Bold>metric_time__month</Bold>, <Bold>order__ordered_at__week</Bold>) and every metric supports{' '}
+				<Bold>metric_time</Bold>. In <Bold>where</Bold>, reference dimensions through templates so the layer
+				resolves the joins: <Bold>{"{{ Dimension('customer__region') }} = 'EMEA'"}</Bold>,{' '}
+				<Bold>{"{{ TimeDimension('metric_time', 'day') }} >= '2024-01-01'"}</Bold>. Prefer start_time and
+				end_time for plain date ranges.
+			</ListItem>
+			<ListItem>
+				A semantic result is a normal query result: its query id works with display_chart, stories and
+				read_query_result. To change it, call execute_semantic_query again; its SQL is not editable.
+			</ListItem>
+		</>
 	);
 }
 
