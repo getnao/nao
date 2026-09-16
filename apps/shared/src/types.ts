@@ -244,6 +244,18 @@ export type BudgetPeriod = (typeof BUDGET_PERIODS)[number];
 export const SHARE_VISIBILITY = ['project', 'specific'] as const;
 export type Visibility = (typeof SHARE_VISIBILITY)[number];
 
+/**
+ * Link unfurlers (Slack, Teams...) fetch pages anonymously, so anything exposed here is
+ * readable by anyone holding the URL. Titles are therefore opt-in and off by default.
+ */
+export interface LinkPreviewSettings {
+	showSharedTitles: boolean;
+}
+
+export const DEFAULT_LINK_PREVIEW_SETTINGS: LinkPreviewSettings = {
+	showSharedTitles: false,
+};
+
 export type StorySharingInfo = {
 	visibility: Visibility;
 	sharedWithCount: number;
