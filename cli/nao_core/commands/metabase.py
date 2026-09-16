@@ -14,6 +14,7 @@ from nao_core.ui import UI
 
 metabase = App(name="metabase")
 HTTP_TIMEOUT = 30
+HTTP_RETRIES = 2
 PAGE_SIZE = 100
 
 
@@ -27,6 +28,13 @@ def dashboard(
     sources: Annotated[list[str], Parameter(help="Numeric Metabase dashboard IDs or URLs.")],
     /,
     *,
+    parameters: Annotated[
+        list[str] | None,
+        Parameter(
+            name="--parameter",
+            help='Set a dashboard filter as ID=JSON, for example period="2026-09-01".',
+        ),
+    ] = None,
     json_output: Annotated[
         bool,
         Parameter(name="--json", help="Print compact JSON for machine consumption."),
@@ -37,7 +45,7 @@ def dashboard(
     ] = None,
 ) -> None:
     """Export one or more Metabase dashboards as nao import manifests."""
-    _run_source_exports("dashboard", sources, export_dashboard, json_output, output)
+    _run_source_exports("dashboard", sources, export_dashboard, parameters, json_output, output)
 
 
 @metabase.command
@@ -46,6 +54,13 @@ def question(
     sources: Annotated[list[str], Parameter(help="Numeric Metabase question IDs or URLs.")],
     /,
     *,
+    parameters: Annotated[
+        list[str] | None,
+        Parameter(
+            name="--parameter",
+            help='Set a question parameter as ID=JSON, for example period="2026-09-01".',
+        ),
+    ] = None,
     json_output: Annotated[
         bool,
         Parameter(name="--json", help="Print compact JSON for machine consumption."),
@@ -56,7 +71,7 @@ def question(
     ] = None,
 ) -> None:
     """Export one or more Metabase questions as nao import manifests."""
-    _run_source_exports("question", sources, export_question, json_output, output)
+    _run_source_exports("question", sources, export_question, parameters, json_output, output)
 
 
 @metabase.command
@@ -68,6 +83,13 @@ def collection(
         bool,
         Parameter(help="Include dashboards from nested collections."),
     ] = False,
+    parameters: Annotated[
+        list[str] | None,
+        Parameter(
+            name="--parameter",
+            help='Set a dashboard filter as ID=JSON, for example period="2026-09-01".',
+        ),
+    ] = None,
     json_output: Annotated[
         bool,
         Parameter(name="--json", help="Print compact JSON for machine consumption."),
@@ -79,11 +101,12 @@ def collection(
 ) -> None:
     """Export dashboards from a Metabase collection."""
     try:
+        parameter_values = _parse_parameter_values(parameters)
         base_url, collection_id = _resolve_collection_source(source)
         dashboard_ids = _collection_dashboard_ids(base_url, collection_id, recursive)
         manifests, failures = _collect_exports(
             [str(dashboard_id) for dashboard_id in dashboard_ids],
-            lambda dashboard_id: _export_dashboard(base_url, int(dashboard_id)),
+            lambda dashboard_id: _export_dashboard(base_url, int(dashboard_id), parameter_values),
         )
         manifest = _build_batch_manifest(
             "dashboard",
@@ -102,7 +125,8 @@ def collection(
 def _run_source_exports(
     resource: str,
     sources: list[str],
-    exporter: Callable[[str], dict[str, Any]],
+    exporter: Callable[[str, dict[str, Any]], dict[str, Any]],
+    parameters: list[str] | None,
     json_output: bool,
     output: Path | None,
 ) -> None:
@@ -110,13 +134,9 @@ def _run_source_exports(
         UI.error(f"At least one Metabase {resource} ID or URL is required.")
         raise SystemExit(1)
 
-    failures: list[dict[str, str]] = []
     try:
-        if len(sources) == 1:
-            _emit_manifest(exporter(sources[0]), json_output, output)
-            return
-
-        manifests, failures = _collect_exports(sources, exporter)
+        parameter_values = _parse_parameter_values(parameters)
+        manifests, failures = _collect_exports(sources, lambda source: exporter(source, parameter_values))
         _emit_manifest(
             _build_batch_manifest(resource, manifests, failures, {"mode": "explicit", "sources": sources}),
             json_output,
@@ -127,6 +147,21 @@ def _run_source_exports(
         raise SystemExit(1)
     if failures:
         raise SystemExit(1)
+
+
+def _parse_parameter_values(parameters: list[str] | None) -> dict[str, Any]:
+    values: dict[str, Any] = {}
+    for parameter in parameters or []:
+        parameter_id, separator, raw_value = parameter.partition("=")
+        if not separator or not parameter_id:
+            raise MetabaseImportError("Parameters must use ID=JSON format.")
+        if parameter_id in values:
+            raise MetabaseImportError(f"Parameter was provided more than once: {parameter_id}")
+        try:
+            values[parameter_id] = json.loads(raw_value)
+        except json.JSONDecodeError as error:
+            raise MetabaseImportError(f"Parameter {parameter_id} must contain a valid JSON value.") from error
+    return values
 
 
 def _collect_exports(
@@ -179,25 +214,39 @@ def _emit_manifest(manifest: dict[str, Any], json_output: bool, output: Path | N
         _write_manifest(output, serialized)
 
 
-def export_dashboard(source: str) -> dict[str, Any]:
+def export_dashboard(source: str, parameter_values: dict[str, Any] | None = None) -> dict[str, Any]:
     base_url, dashboard_id = _resolve_dashboard_source(source)
-    return _export_dashboard(base_url, dashboard_id)
+    return _export_dashboard(base_url, dashboard_id, parameter_values)
 
 
-def _export_dashboard(base_url: str, dashboard_id: int) -> dict[str, Any]:
+def _export_dashboard(
+    base_url: str,
+    dashboard_id: int,
+    parameter_values: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     dashboard_data = _fetch_dashboard(base_url, dashboard_id)
-    compiled_queries, limitations = _compile_mbql_queries(base_url, dashboard_id, dashboard_data)
+    compiled_queries, limitations = _compile_mbql_queries(
+        base_url,
+        dashboard_id,
+        dashboard_data,
+        parameter_values,
+    )
     return _build_manifest(base_url, dashboard_data, compiled_queries, limitations)
 
 
-def export_question(source: str) -> dict[str, Any]:
+def export_question(source: str, parameter_values: dict[str, Any] | None = None) -> dict[str, Any]:
     base_url, question_id = _resolve_question_source(source)
     question_data = _fetch_question(base_url, question_id)
     compiled_queries: dict[int, dict[str, Any]] = {}
     limitations: list[dict[str, Any]] = []
     if not _extract_native_sql(question_data.get("dataset_query")):
         try:
-            compiled_queries[question_id] = _compile_question(base_url, None, question_id)
+            compiled_queries[question_id] = _compile_question(
+                base_url,
+                None,
+                question_id,
+                _question_query_parameters(question_data, parameter_values or {}),
+            )
         except MetabaseImportError as error:
             limitations.append(
                 {
@@ -266,10 +315,9 @@ def _fetch_metabase_object(url: str, resource: str) -> dict[str, Any]:
         raise MetabaseImportError(f"METABASE_API_KEY is required to read a Metabase {resource}.")
 
     try:
-        response = httpx.get(
+        response = _metabase_get(
             url,
-            headers={"x-api-key": api_key},
-            timeout=HTTP_TIMEOUT,
+            api_key,
         )
         response.raise_for_status()
     except httpx.HTTPStatusError as error:
@@ -321,11 +369,10 @@ def _fetch_collection_items(base_url: str, collection_id: int) -> list[dict[str,
     offset = 0
     while True:
         try:
-            response = httpx.get(
+            response = _metabase_get(
                 f"{base_url}/api/collection/{collection_id}/items",
-                headers={"x-api-key": api_key},
+                api_key,
                 params={"limit": PAGE_SIZE, "offset": offset},
-                timeout=HTTP_TIMEOUT,
             )
             response.raise_for_status()
         except httpx.HTTPStatusError as error:
@@ -342,12 +389,14 @@ def _fetch_collection_items(base_url: str, collection_id: int) -> list[dict[str,
             raise MetabaseImportError("Metabase returned invalid JSON.") from error
         if not isinstance(page, dict) or not isinstance(page.get("data"), list):
             raise MetabaseImportError("Metabase returned an unexpected collection response.")
+        total = page.get("total")
+        if not isinstance(total, int) or isinstance(total, bool) or total < 0:
+            raise MetabaseImportError("Metabase returned collection pagination without a valid total.")
 
         page_items = [item for item in page["data"] if isinstance(item, dict)]
         items.extend(page_items)
         offset += len(page["data"])
-        total = page.get("total")
-        if not page["data"] or not isinstance(total, int) or offset >= total:
+        if not page["data"] or offset >= total:
             return items
 
 
@@ -355,11 +404,12 @@ def _compile_mbql_queries(
     base_url: str,
     dashboard_id: int,
     dashboard: dict[str, Any],
+    parameter_values: dict[str, Any] | None = None,
 ) -> tuple[dict[int, dict[str, Any]], list[dict[str, Any]]]:
     compiled_queries: dict[int, dict[str, Any]] = {}
     limitations: list[dict[str, Any]] = []
     attempted_question_ids: set[int] = set()
-    for question in _dashboard_questions(dashboard):
+    for question, parameter_mappings in _dashboard_question_contexts(dashboard):
         question_id = question.get("id")
         if (
             not isinstance(question_id, int)
@@ -369,7 +419,16 @@ def _compile_mbql_queries(
             continue
         attempted_question_ids.add(question_id)
         try:
-            compiled_queries[question_id] = _compile_question(base_url, dashboard_id, question_id)
+            compiled_queries[question_id] = _compile_question(
+                base_url,
+                dashboard_id,
+                question_id,
+                _mapped_query_parameters(
+                    dashboard.get("parameters"),
+                    parameter_mappings,
+                    parameter_values or {},
+                ),
+            )
         except MetabaseImportError as error:
             limitations.append(
                 {
@@ -381,23 +440,35 @@ def _compile_mbql_queries(
     return compiled_queries, limitations
 
 
-def _dashboard_questions(dashboard: dict[str, Any]) -> list[dict[str, Any]]:
-    questions: list[dict[str, Any]] = []
+def _dashboard_question_contexts(
+    dashboard: dict[str, Any],
+) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
+    contexts: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
     for card in dashboard.get("dashcards") or []:
         if not isinstance(card, dict):
             continue
         if isinstance(card.get("card"), dict):
-            questions.append(card["card"])
-        questions.extend(series for series in (card.get("series") or []) if isinstance(series, dict))
-    return questions
+            question = card["card"]
+            contexts.append((question, _parameter_mappings_for_question(card, question.get("id"))))
+        contexts.extend(
+            (series, _parameter_mappings_for_question(card, series.get("id")))
+            for series in (card.get("series") or [])
+            if isinstance(series, dict)
+        )
+    return contexts
 
 
-def _compile_question(base_url: str, dashboard_id: int | None, question_id: int) -> dict[str, Any]:
+def _compile_question(
+    base_url: str,
+    dashboard_id: int | None,
+    question_id: int,
+    parameters: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     api_key = os.getenv("METABASE_API_KEY")
     if not api_key:
         raise MetabaseImportError("METABASE_API_KEY is required to compile a Metabase question.")
 
-    body: dict[str, Any] = {"parameters": []}
+    body: dict[str, Any] = {"parameters": parameters or []}
     if dashboard_id is not None:
         body["dashboard_id"] = dashboard_id
 
@@ -423,6 +494,70 @@ def _compile_question(base_url: str, dashboard_id: int | None, question_id: int)
     if compiled_query is None:
         raise MetabaseImportError("Metabase did not return compiled SQL for this question.")
     return compiled_query
+
+
+def _question_query_parameters(question: dict[str, Any], values: dict[str, Any]) -> list[dict[str, Any]]:
+    definitions = question.get("parameters")
+    if not isinstance(definitions, list):
+        return []
+    mappings = [
+        {"parameter_id": definition.get("id"), "target": definition.get("target")}
+        for definition in definitions
+        if isinstance(definition, dict)
+    ]
+    return _mapped_query_parameters(definitions, mappings, values)
+
+
+def _mapped_query_parameters(
+    definitions: Any,
+    mappings: list[dict[str, Any]],
+    values: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if not isinstance(definitions, list):
+        return []
+    definitions_by_id = {
+        definition["id"]: definition
+        for definition in definitions
+        if isinstance(definition, dict) and isinstance(definition.get("id"), str)
+    }
+    parameters: list[dict[str, Any]] = []
+    for mapping in mappings:
+        parameter_id = mapping.get("parameter_id")
+        definition = definitions_by_id.get(parameter_id)
+        if definition is None or not isinstance(definition.get("type"), str) or mapping.get("target") is None:
+            continue
+        if parameter_id in values:
+            value = values[parameter_id]
+        elif definition.get("default") is not None:
+            value = definition["default"]
+        else:
+            continue
+        parameters.append(
+            {
+                "id": parameter_id,
+                "type": definition["type"],
+                "target": mapping["target"],
+                "value": value,
+            }
+        )
+    return parameters
+
+
+def _parameter_mappings_for_question(card: dict[str, Any], question_id: Any) -> list[dict[str, Any]]:
+    mappings = card.get("parameter_mappings")
+    if not isinstance(mappings, list):
+        return []
+    return [mapping for mapping in mappings if isinstance(mapping, dict) and mapping.get("card_id") == question_id]
+
+
+def _metabase_get(url: str, api_key: str, **kwargs: Any) -> httpx.Response:
+    transport = httpx.HTTPTransport(retries=HTTP_RETRIES)
+    with httpx.Client(
+        headers={"x-api-key": api_key},
+        timeout=HTTP_TIMEOUT,
+        transport=transport,
+    ) as client:
+        return client.get(url, **kwargs)
 
 
 def _extract_compiled_query(result: Any) -> dict[str, Any] | None:

@@ -33,6 +33,7 @@ Choose exactly one command from the user's source:
 - One or more saved questions: `nao import metabase question '<ID_OR_URL>' ['<ID_OR_URL>' ...] --json`
 
 Require numeric IDs or matching Metabase URLs. Name lookup is not supported.
+When the user supplies filter values, pass each one as `--parameter 'ID=<JSON_VALUE>'`. Otherwise the CLI uses explicit Metabase defaults and reports questions that still cannot compile under `limitations`.
 
 The CLI requires `METABASE_API_KEY` and, for numeric IDs, `METABASE_URL`. Never expose their values.
 
@@ -40,9 +41,7 @@ If CLI export fails, use read-only Metabase MCP only when it clearly targets the
 
 ## Read manifests
 
-- A single explicit dashboard returns one dashboard manifest.
-- A single explicit question returns one question manifest.
-- Multiple dashboards, multiple questions, and collections return a batch manifest. Process each item independently according to the selected delivery.
+- Every command returns a batch manifest, including requests for one dashboard or question. Process each item independently according to the selected delivery.
 - Read dashboard batch items from `dashboards` and question batch items from `questions`.
 - Preserve batch `failures`, each item's `limitations`, and the final `summary` in the completion report.
 - Never replace unavailable source content with placeholders or guesses.
