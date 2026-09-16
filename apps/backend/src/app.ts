@@ -22,6 +22,11 @@ import {
 	contextRecommendationsHandler,
 	ensureContextRecommendationsSchedules,
 } from './handlers/context-recommendations.handler';
+import {
+	INVITATION_CLEANUP_JOB_NAME,
+	invitationCleanupHandler,
+	runInvitationCleanup,
+} from './handlers/invitation-cleanup.handler';
 import { LOG_CLEANUP_JOB_NAME, logCleanupHandler, runLogCleanup } from './handlers/log-cleanup.handler';
 import { MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler } from './handlers/mcp-query-data-cleanup.handler';
 import { STORY_REFRESH_JOB_NAME, storyRefreshHandler } from './handlers/story-refresh.handler';
@@ -42,6 +47,7 @@ import { githubRoutes } from './routes/github';
 import { gitlabRoutes } from './routes/gitlab';
 import { imageRoutes } from './routes/image';
 import { mapBoundariesRoutes } from './routes/map-boundaries';
+import { mattermostRoutes } from './routes/mattermost';
 import { mcpOAuthRoutes } from './routes/mcp-oauth';
 import { slackRoutes } from './routes/slack';
 import { ssoRoutes } from './routes/sso';
@@ -51,6 +57,7 @@ import { testRoutes } from './routes/test';
 import { whatsappRoutes } from './routes/whatsapp';
 import { startLicenseHeartbeat } from './services/license.service';
 import { logLicenseStatus } from './services/license-startup';
+import { mattermostService } from './services/mattermost';
 import { pingLicensesServer } from './services/ping';
 import { posthog, PostHogEvent } from './services/posthog';
 import { ensureRecurring, registerJob, startScheduler } from './services/scheduler.service';
@@ -219,6 +226,10 @@ app.register(telegramRoutes, {
 	prefix: '/api/webhooks/telegram',
 });
 
+app.register(mattermostRoutes, {
+	prefix: '/api/webhooks/mattermost',
+});
+
 app.register(whatsappRoutes, {
 	prefix: '/api/webhooks/whatsapp',
 });
@@ -247,10 +258,12 @@ app.register(mcpServerRoutes, {
 	prefix: '/mcp',
 });
 
-app.get('/.well-known/oauth-protected-resource', async (_request, reply) => {
+app.get('/.well-known/oauth-protected-resource', async (request, reply) => {
 	const { buildProtectedResourceMetadata } = await import('./auth');
-	const { MCP_SERVER_URL } = await import('./env');
-	const metadata = await buildProtectedResourceMetadata({ resource: MCP_SERVER_URL });
+	const { resolveMcpFacingOrigin } = await import('./env');
+	const metadata = await buildProtectedResourceMetadata({
+		resource: `${resolveMcpFacingOrigin(request.host)}/mcp`,
+	});
 	reply
 		.status(200)
 		.header('Content-Type', 'application/json')
@@ -359,9 +372,21 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	void runLogCleanup().catch((err) => {
 		logger.error(`Log cleanup failed: ${err instanceof Error ? err.message : String(err)}`, { source: 'system' });
 	});
+	void runInvitationCleanup().catch((err) => {
+		logger.error(`Invitation cleanup failed: ${err instanceof Error ? err.message : String(err)}`, {
+			source: 'system',
+		});
+	});
 
 	registerJob(LOG_CLEANUP_JOB_NAME, logCleanupHandler);
 	await ensureRecurring({ name: LOG_CLEANUP_JOB_NAME, cron: '0 3 * * *', uniqueKey: LOG_CLEANUP_JOB_NAME });
+
+	registerJob(INVITATION_CLEANUP_JOB_NAME, invitationCleanupHandler);
+	await ensureRecurring({
+		name: INVITATION_CLEANUP_JOB_NAME,
+		cron: '0 3 * * *',
+		uniqueKey: INVITATION_CLEANUP_JOB_NAME,
+	});
 
 	registerJob(AUTOMATION_JOB_NAME, automationHandler);
 	registerJob(STORY_REFRESH_JOB_NAME, storyRefreshHandler);
@@ -400,6 +425,7 @@ export const startServer = async (opts: { port: number; host: string }) => {
 
 	void pingLicensesServer();
 	void slackService.startSocketModeForAllProjects();
+	void mattermostService.startForAllProjects();
 
 	posthog.capture(undefined, PostHogEvent.ServerStarted, { ...opts, address });
 

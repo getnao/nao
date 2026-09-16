@@ -5,7 +5,7 @@ import shutil
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from rich.console import Console
 
@@ -28,13 +28,16 @@ class DatabaseSyncState:
     synced_tables: dict[str, set[str]] = field(default_factory=dict)
     """Dict mapping schema names to sets of table names that were synced"""
 
+    synced_columns: dict[str, dict[str, list[dict[str, Any]]]] = field(default_factory=dict)
+    """Column metadata keyed by schema and table"""
+
     schemas_synced: int = 0
     """Count of schemas synced"""
 
     tables_synced: int = 0
     """Count of tables synced"""
 
-    def add_table(self, schema: str, table: str) -> None:
+    def add_table(self, schema: str, table: str, columns: list[dict[str, Any]] | None = None) -> None:
         """Record that a table was synced.
 
         Args:
@@ -45,6 +48,8 @@ class DatabaseSyncState:
         if schema not in self.synced_tables:
             self.synced_tables[schema] = set()
         self.synced_tables[schema].add(table)
+        if columns is not None:
+            self.synced_columns.setdefault(schema, {})[table] = columns
         self.tables_synced += 1
 
     def add_schema(self, schema: str) -> None:

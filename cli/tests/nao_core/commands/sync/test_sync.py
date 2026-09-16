@@ -21,6 +21,7 @@ def _make_provider(
     items_synced=0,
     output_dir="test-output",
     sync_error=None,
+    result_error=None,
     emoji=None,
 ):
     provider = MagicMock(spec=SyncProvider)
@@ -36,6 +37,7 @@ def _make_provider(
         provider.sync.return_value = SyncResult(
             provider_name=name,
             items_synced=items_synced,
+            error=result_error,
         )
     return ProviderSelection(provider)
 
@@ -170,6 +172,16 @@ class TestSyncCommand:
         # Verify both providers were attempted
         failing.provider.sync.assert_called_once()
         working.provider.sync.assert_called_once()
+
+    def test_sync_exits_when_provider_returns_failed_result(self, create_config):
+        create_config()
+        failing = _make_provider(items=["item1"], result_error="Failed to sync 1 item")
+
+        with patch("nao_core.commands.sync.console"):
+            with pytest.raises(SystemExit) as exc_info:
+                sync(_providers=[failing], render_templates=False)
+
+        assert exc_info.value.code == 1
 
     def test_sync_shows_partial_success_when_some_providers_fail(self, create_config):
         """Test that sync shows partial success status when some providers fail."""

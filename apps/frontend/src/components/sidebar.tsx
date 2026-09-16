@@ -10,6 +10,7 @@ import {
 	X,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { ProjectSwitcher } from './project-selector';
 import { ChatFilterMenu } from './sidebar-chat-filter-menu';
 import { ChatListItem } from './sidebar-chat-list-item';
 import { SidebarCommunity } from './sidebar-community';
@@ -28,6 +29,8 @@ import { useCommandMenuCallback } from '@/contexts/command-menu-callback';
 import { useSidebar } from '@/contexts/sidebar';
 import { brandingAssetUrl, useBranding } from '@/hooks/use-branding';
 import { useChatViewPreferences } from '@/hooks/use-chat-view-preferences';
+import { useIsCloud } from '@/hooks/use-nao-mode';
+import { useProjectSwitch } from '@/hooks/use-project-switch';
 import { useSidebarSectionOpen } from '@/hooks/use-sidebar-section-open';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { getActiveProjectId, setActiveProjectId } from '@/lib/active-project';
@@ -46,18 +49,18 @@ export function Sidebar() {
 	const { fire: openCommandMenu } = useCommandMenuCallback();
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
+	const switchProject = useProjectSwitch(project.data?.id);
 	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
-	const license = useQuery(trpc.license.getStatus.queryOptions());
 	const branding = useBranding();
 	const customColor = branding.enabled ? branding.brandColor : null;
 	const { isAdmin, isContextAdmin, isViewer } = usePermissions();
-	const isCloud = config.data?.naoMode === 'cloud';
+	const isCloud = useIsCloud();
 	const betaAutomationsEnabled = config.data?.betaAutomationsEnabled === true;
 	const { groupBy, filters, setGroupBy, toggleFilter } = useChatViewPreferences();
-	const hasLicense = license.data?.tokenProvided === true;
 
 	const locationPath = useRouterState({ select: (s) => s.location.pathname });
-	const isInSettings = matchRoute({ to: '/settings', fuzzy: true });
+	const isSettingsRoute = matchRoute({ to: '/settings', fuzzy: true });
+	const isInSettings = !!isSettingsRoute && !isViewer;
 	const effectiveIsCollapsed = isMobile ? false : isCollapsed;
 
 	useEffect(() => {
@@ -111,17 +114,12 @@ export function Sidebar() {
 
 	const handleProjectChange = useCallback(
 		async (projectId: string) => {
-			if (!project.data || projectId === project.data.id) {
-				return;
-			}
-
-			setActiveProjectId(projectId);
-			await queryClient.invalidateQueries();
-			if (isMobile) {
+			const didSwitch = await switchProject(projectId);
+			if (didSwitch && isMobile) {
 				closeMobile();
 			}
 		},
-		[closeMobile, isMobile, project.data, queryClient],
+		[closeMobile, isMobile, switchProject],
 	);
 
 	const sidebarContent = (
@@ -201,6 +199,19 @@ export function Sidebar() {
 						</Tooltip>
 					)}
 				</div>
+				{isInSettings && (
+					<ProjectSwitcher
+						projects={projects.data ?? []}
+						currentProjectId={project.data?.id}
+						onChange={handleProjectChange}
+						variant='sidebar'
+						className={cn(
+							'overflow-hidden transition-[height,margin,opacity,visibility] duration-300',
+							effectiveIsCollapsed ? 'h-0 mt-0' : 'h-[30px] mt-2',
+							hideIf(effectiveIsCollapsed),
+						)}
+					/>
+				)}
 				{!isInSettings && (
 					<>
 						<div className='py-4'>
@@ -248,10 +259,6 @@ export function Sidebar() {
 					isContextAdmin={isContextAdmin}
 					isViewer={isViewer}
 					isCloud={isCloud}
-					hasLicense={hasLicense}
-					projects={projects.data ?? []}
-					currentProjectId={project.data?.id}
-					onProjectChange={handleProjectChange}
 				/>
 			) : (
 				<>

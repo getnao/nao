@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import Field
 
@@ -15,6 +15,42 @@ from .context import DatabaseContext
 
 
 class DuckDBDatabaseContext(DatabaseContext):
+    """DuckDB context with table/column comment discovery via duckdb metadata functions."""
+
+    def description(self) -> str | None:
+        try:
+            query = (
+                "SELECT comment FROM duckdb_tables() "
+                f"WHERE schema_name = '{self._schema}' AND table_name = '{self._table_name}'"
+            )
+            row = self._fetchone(self._conn.raw_sql(query))  # type: ignore[union-attr]
+            if row and row[0] is not None:
+                text = str(row[0]).strip()
+                if text:
+                    return text
+        except Exception:
+            pass
+        return None
+
+    def columns(self) -> list[dict[str, Any]]:
+        cols = super().columns()
+        try:
+            col_descs = self._fetch_column_descriptions()
+            for col in cols:
+                if desc := col_descs.get(col["name"]):
+                    col["description"] = desc
+        except Exception:
+            pass
+        return cols
+
+    def _fetch_column_descriptions(self) -> dict[str, str]:
+        query = (
+            "SELECT column_name, comment FROM duckdb_columns() "
+            f"WHERE schema_name = '{self._schema}' AND table_name = '{self._table_name}'"
+        )
+        rows = self._fetchall(self._conn.raw_sql(query))  # type: ignore[union-attr]
+        return {row[0]: str(row[1]) for row in rows if row[1] is not None}
+
     def _cast_complex_to_string(self, col_sql: str) -> str:
         return f"CAST({col_sql} AS VARCHAR)"
 

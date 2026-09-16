@@ -75,17 +75,20 @@ const loggerMocks = vi.hoisted(() => ({
 
 vi.mock('../src/queries/context-branch-ownership.queries', () => branchOwnershipMocks);
 vi.mock('../src/queries/context-recommendation.queries', () => contextConfigMocks);
-vi.mock('../src/utils/logger', () => ({
-	logger: {
-		warn: loggerMocks.warn,
-	},
-	serializeError: (error: unknown) => ({
-		message: error instanceof Error ? error.message : String(error),
-	}),
-}));
+vi.mock('../src/utils/logger', () => {
+	const redactCredentialedUrls = (value: string) => value.replace(/:\/\/[^/\s@]+@/g, '://***@');
+	return {
+		logger: {
+			warn: loggerMocks.warn,
+		},
+		serializeError: (error: unknown) => ({
+			message: redactCredentialedUrls(error instanceof Error ? error.message : String(error)),
+		}),
+	};
+});
 
 import { __reloadEnvForTesting } from '../src/env';
-import { getFileTreeResponse, readFileContent, writeFileContent } from '../src/services/context-explorer.service';
+import { getFileTree, readFileContent, writeFileContent } from '../src/services/context-explorer.service';
 import {
 	assertSafeDestructiveWorktreeCommand,
 	assertSafeDestructiveWorktreeTarget,
@@ -105,6 +108,7 @@ import {
 	getDeploymentContextSource,
 	normalizeRemote,
 	resolveContextExplorerGit,
+	resolveContextExplorerGitSafely,
 	sanitizeContextSourceRepositoryUrl,
 	switchContextBranch,
 } from '../src/services/context-explorer-git.service';
@@ -609,12 +613,12 @@ describe('context explorer worktrees', () => {
 
 		const access = await fileAccess(fixture.context);
 		const status = await getContextRepositoryStatus(fixture.context);
-		const tree = await getFileTreeResponse(access);
+		const tree = await getFileTree(fixture.live);
 		const file = await readFileContent('/context.md', access);
 
 		expect(access.git).toMatchObject({ status: 'unavailable', reason: 'no-repo', repo: null });
 		expect(status).toMatchObject({ repo: null, gitUnavailableReason: 'no-repo', isGitRepository: false });
-		expect(tree.entries.map((entry) => entry.name)).toContain('context.md');
+		expect(tree.map((entry) => entry.name)).toContain('context.md');
 		expect(file).toMatchObject({
 			content: 'repository content\n',
 			isEditable: false,
@@ -973,6 +977,69 @@ describe('context explorer worktrees', () => {
 		expectLiveUnchanged(fixture.live, before);
 	});
 
+	it('reads source content as read-only when Git resolution throws', async () => {
+		const fixture = createFixture(temporaryRoots);
+		await ensureContextWorktree(fixture.context);
+		const originalPath = process.env.PATH;
+
+		try {
+			process.env.PATH = '';
+			const git = await resolveContextExplorerGitSafely(fixture.context);
+			const file = await readFileContent('/context.md', {
+				projectFolder: fixture.live,
+				git,
+			});
+
+			expect(git).toMatchObject({
+				status: 'unavailable',
+				reason: 'git-unavailable',
+				message: 'Repository status is temporarily unavailable.',
+			});
+			expect(loggerMocks.warn).toHaveBeenCalledWith(
+				'Failed to resolve context explorer git for user user-1 in project project-id',
+				{
+					source: 'system',
+					context: { error: expect.objectContaining({ message: expect.any(String) }) },
+				},
+			);
+			expect(file).toMatchObject({
+				content: 'live content\n',
+				isEditable: false,
+				reason: 'git-unavailable',
+			});
+		} finally {
+			process.env.PATH = originalPath;
+		}
+	});
+
+	it('redacts credentialed URLs from Git resolution errors', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const provider = fixture.context.providerOverride;
+		if (!provider) {
+			throw new Error('Expected a local provider.');
+		}
+		vi.spyOn(provider, 'authenticatedRepoUrl').mockImplementation(() => {
+			throw new Error('Clone failed for https://oauth2:SECRET@example.com/repo.git');
+		});
+
+		await expect(resolveContextExplorerGitSafely(fixture.context)).resolves.toMatchObject({
+			status: 'unavailable',
+			reason: 'git-unavailable',
+		});
+		expect(loggerMocks.warn).toHaveBeenCalledWith(
+			'Failed to resolve context explorer git for user user-1 in project project-id',
+			{
+				source: 'system',
+				context: {
+					error: expect.objectContaining({
+						message: 'Clone failed for https://***@example.com/repo.git',
+					}),
+				},
+			},
+		);
+		expect(JSON.stringify(loggerMocks.warn.mock.calls.at(-1)?.[1])).not.toContain('SECRET');
+	});
+
 	it('reports line changes for tracked, untracked, and binary files without changing the live folder', async () => {
 		const fixture = createFixture(temporaryRoots, {
 			'nao_config.yaml': 'name: test\n',
@@ -1302,11 +1369,11 @@ describe('context explorer worktrees', () => {
 			const fixture = createFixture(temporaryRoots, files);
 			const before = snapshot(fixture.live);
 			const access = await fileAccess(fixture.context);
-			const tree = await getFileTreeResponse(access);
+			const tree = await getFileTree(fixture.live);
 			const file = await readFileContent('/context.md', access);
 
 			expect(access.git.status).toBe('unavailable');
-			expect(tree.entries.some((entry) => entry.name === 'context.md')).toBe(true);
+			expect(tree.some((entry) => entry.name === 'context.md')).toBe(true);
 			expect(file.isEditable).toBe(false);
 			expectLiveUnchanged(fixture.live, before);
 		}

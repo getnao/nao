@@ -1,0 +1,51 @@
+{{- if .Values.ingress.enabled -}}
+{{- if not .Values.ingress.hosts }}
+{{- fail "ingress.enabled=true requires at least one entry in ingress.hosts" }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "nao.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nao.labels" . | nindent 4 }}
+  {{- $ann := dict }}
+  {{- with include "nao.annotations" . }}
+    {{- with . }}
+      {{- $ann = merge $ann (fromYaml .) }}
+    {{- end }}
+  {{- end }}
+  {{- with .Values.ingress.annotations }}
+    {{- $ann = merge . $ann }}
+  {{- end }}
+  {{- with $ann }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range .Values.ingress.hosts }}
+    {{- if not .paths }}
+    {{- fail (printf "ingress host %q needs at least one entry in paths" .host) }}
+    {{- end }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ include "nao.fullname" $ }}
+                port:
+                  number: {{ $.Values.service.port }}
+          {{- end }}
+    {{- end }}
+{{- end }}

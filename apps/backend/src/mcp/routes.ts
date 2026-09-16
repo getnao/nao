@@ -3,7 +3,7 @@ import type { UserRole } from '@nao/shared/types';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import type { App } from '../app';
-import { env } from '../env';
+import { resolveMcpFacingOrigin } from '../env';
 import { getMcpEndpointSettings } from '../queries/mcp-endpoint.queries';
 import { getUserRoleInProject } from '../queries/project.queries';
 import { resolveUserId } from './auth';
@@ -39,7 +39,7 @@ export const mcpServerRoutes = async (app: App) => {
 async function requireAuthenticatedMcpUser(request: FastifyRequest, reply: FastifyReply): Promise<void> {
 	const userId = await resolveUserId(request);
 	if (!userId) {
-		replyUnauthorized(reply);
+		replyUnauthorized(request, reply);
 		return;
 	}
 	const projectId = await resolveProjectId(userId);
@@ -61,7 +61,12 @@ async function handleMcpRequest(request: FastifyRequest, reply: FastifyReply): P
 		return;
 	}
 
-	const server = await createMcpServer(request.mcpUserId, request.mcpProjectId, settings);
+	const server = await createMcpServer(
+		request.mcpUserId,
+		request.mcpProjectId,
+		settings,
+		isChartDataModeRequest(request),
+	);
 	const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 
 	reply.raw.on('close', () => {
@@ -72,6 +77,11 @@ async function handleMcpRequest(request: FastifyRequest, reply: FastifyReply): P
 	await server.connect(transport);
 	await transport.handleRequest(request.raw, reply.raw, request.body as Record<string, unknown>);
 	reply.hijack();
+}
+
+function isChartDataModeRequest(request: FastifyRequest): boolean {
+	const { chart_output } = request.query as { chart_output?: string };
+	return chart_output?.toLowerCase() === 'data';
 }
 
 function replyMethodNotAllowed(reply: FastifyReply) {
@@ -85,8 +95,8 @@ function replyMethodNotAllowed(reply: FastifyReply) {
 		});
 }
 
-function replyUnauthorized(reply: FastifyReply) {
-	const origin = env.BETTER_AUTH_URL.replace(/\/+$/, '');
+function replyUnauthorized(request: FastifyRequest, reply: FastifyReply) {
+	const origin = resolveMcpFacingOrigin(request.host);
 	const wwwAuth = `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"`;
 	return reply
 		.status(401)

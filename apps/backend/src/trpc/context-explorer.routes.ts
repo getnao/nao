@@ -5,7 +5,7 @@ import { z } from 'zod';
 import * as userQueries from '../queries/user.queries';
 import type { ContextExplorerFileAccess } from '../services/context-explorer.service';
 import {
-	getFileTreeResponse,
+	getFileTree,
 	MAX_CONTEXT_FILE_SIZE,
 	readFileContent,
 	searchFileContents,
@@ -24,6 +24,7 @@ import {
 	getContextFileDiff,
 	getContextRepositoryStatus,
 	resolveContextExplorerGit,
+	resolveContextExplorerGitSafely,
 	suggestContextBranchName,
 	switchContextBranch,
 } from '../services/context-explorer-git.service';
@@ -77,12 +78,12 @@ export const contextExplorerRoutes = {
 	}),
 
 	getFileTree: contextAdminProtectedProcedure.query(async ({ ctx }) => {
-		const access = await createFileAccess(ctx.project.id, ctx.project.path, ctx.user);
-		return getFileTreeResponse(access);
+		const entries = await getFileTree(requireProjectPath(ctx.project.path));
+		return { entries };
 	}),
 
 	readFile: contextAdminProtectedProcedure.input(z.object({ path: z.string() })).query(async ({ ctx, input }) => {
-		const access = await createFileAccess(ctx.project.id, ctx.project.path, ctx.user);
+		const access = await createSafeFileAccess(ctx.project.id, ctx.project.path, ctx.user);
 		return readFileContent(input.path, access);
 	}),
 
@@ -95,7 +96,7 @@ export const contextExplorerRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			const access = await createFileAccess(ctx.project.id, ctx.project.path, ctx.user);
+			const access = await createStrictFileAccess(ctx.project.id, ctx.project.path, ctx.user);
 			return writeFileContent(input.path, input.content, input.expectedHash, access);
 		}),
 
@@ -172,7 +173,19 @@ export const contextExplorerRoutes = {
 	}),
 };
 
-async function createFileAccess(
+async function createSafeFileAccess(
+	projectId: string,
+	projectPath: string | null,
+	user: { id: string; name: string; email: string },
+): Promise<ContextExplorerFileAccess> {
+	const context = await createGitContext(projectId, projectPath, user);
+	return {
+		projectFolder: context.projectFolder,
+		git: await resolveContextExplorerGitSafely(context),
+	};
+}
+
+async function createStrictFileAccess(
 	projectId: string,
 	projectPath: string | null,
 	user: { id: string; name: string; email: string },

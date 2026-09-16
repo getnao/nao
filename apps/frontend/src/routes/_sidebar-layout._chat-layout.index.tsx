@@ -1,26 +1,27 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router';
 import { PlusIcon, Settings } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { StoryItem } from '@/lib/stories-page';
 import { buildStoryItems } from '@/lib/stories-page';
 import { useSession } from '@/lib/auth-client';
 import { capitalize, cn } from '@/lib/utils';
-import { setActiveProjectId } from '@/lib/active-project';
 import { ChatMessages } from '@/components/chat-messages/chat-messages';
+import { ProjectSwitcher } from '@/components/project-selector';
 import { ViewerHome } from '@/components/viewer-home';
 import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useProjectSwitch } from '@/hooks/use-project-switch';
 import { SavedPromptSuggestions } from '@/components/chat-saved-prompt-suggestions';
 import { ChatInput } from '@/components/chat-input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { MobileHeader } from '@/components/mobile-header';
-import { ProjectSelector } from '@/components/project-selector';
 import { trpc } from '@/main';
 import { useTheme } from '@/contexts/theme.provider';
 import { StoryCard } from '@/components/stories-groups';
 import { useResizeObserver } from '@/hooks/use-resize-observer';
+import { useMultiProject } from '@/hooks/use-multi-project';
 
 export const Route = createFileRoute('/_sidebar-layout/_chat-layout/')({
 	validateSearch: (search: Record<string, unknown>): { admin?: boolean } => ({
@@ -44,7 +45,6 @@ function HomePage() {
 	const messages = useAgentMessages();
 	const { canChatWithNaoData } = usePermissions();
 	const { admin: adminSearch } = Route.useSearch();
-	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 
 	useEffect(() => {
@@ -56,7 +56,8 @@ function HomePage() {
 
 	const project = useQuery(trpc.project.getCurrent.queryOptions());
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
-	const isInMultipleProjects = (projects.data?.length ?? 0) > 1;
+	const switchProject = useProjectSwitch(project.data?.id);
+	const multiProjectMode = useMultiProject();
 	const showProjectSetupCue = project.isSuccess && project.data === null;
 	const stateTitle = `${username ? capitalize(username) : ''}, what do you want to analyze?`;
 	const theme = useTheme();
@@ -120,17 +121,6 @@ function HomePage() {
 	const storyGroups = useMemo(() => buildStoryGroups(latestStoryItems), [latestStoryItems]);
 	const hasMoreStories = (stories.data?.length ?? 0) > storyCols;
 
-	const handleProjectChange = useCallback(
-		async (projectId: string) => {
-			if (!project.data || projectId === project.data.id) {
-				return;
-			}
-			setActiveProjectId(projectId);
-			await queryClient.invalidateQueries();
-		},
-		[project.data, queryClient],
-	);
-
 	const isDark =
 		theme.theme === 'dark' ||
 		(theme.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
@@ -139,16 +129,19 @@ function HomePage() {
 	return (
 		<div className='relative flex flex-col h-full flex-1 min-w-72 overflow-hidden justify-center'>
 			<MobileHeader />
-			{project.data && isInMultipleProjects && (
-				<div className='-ml-2 px-4 pt-3 md:px-8 md:pt-4 max-md:hidden'>
-					<ProjectSelector
-						projects={projects.data ?? []}
-						currentProjectId={project.data.id}
-						onChange={handleProjectChange}
-						triggerVariant='ghost'
-					/>
-				</div>
-			)}
+			{messages.length === 0 &&
+				multiProjectMode === 'switch' &&
+				project.data &&
+				(projects.data?.length ?? 0) > 1 && (
+					<div className='absolute top-0 left-0 z-10 -ml-2 px-4 pt-3 md:px-8 md:pt-4 max-md:hidden'>
+						<ProjectSwitcher
+							projects={projects.data ?? []}
+							currentProjectId={project.data.id}
+							onChange={switchProject}
+							variant='inline'
+						/>
+					</div>
+				)}
 			{messages.length ? (
 				<>
 					<ChatMessages />

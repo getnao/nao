@@ -8,22 +8,46 @@ import { escapeRegExp, gitlabBaseUrl } from '../services/gitlab';
 import type { LinkedContextRepo } from '../types/context-recommendation';
 import { logger } from './logger';
 
-const ENV_PATTERN = /\$?\{\{\s*env\(['"]([^'"]+)['"]\)\s*\}\}/g;
+const NAO_CONFIG_ENV_PATTERN = /\$?\{\{\s*env\(['"]([^'"]+)['"]\)\s*\}\}/g;
+const MCP_CONFIG_ENV_PATTERN = /\$\{(\w+)\}/g;
+const DATABASE_IDENTIFYING_FIELDS = ['database', 'project_id', 'dataset_id', 'catalog'] as const;
+
+type DatabaseIdentifyingField = (typeof DATABASE_IDENTIFYING_FIELDS)[number];
+
+export type ConfiguredDatabase = {
+	id: string;
+	type?: string;
+} & Partial<Record<DatabaseIdentifyingField, string>>;
 
 export function extractRequiredEnvVars(projectFolder: string): string[] {
 	const configPath = path.join(projectFolder, 'nao_config.yaml');
-	if (!fs.existsSync(configPath)) {
-		return [];
-	}
-
-	const content = fs.readFileSync(configPath, 'utf-8');
+	const mcpConfigPath = path.join(projectFolder, 'agent', 'mcps', 'mcp.json');
 	const vars = new Set<string>();
 
-	for (const match of content.matchAll(ENV_PATTERN)) {
-		vars.add(match[1]);
-	}
+	addEnvVarsFromFile(configPath, NAO_CONFIG_ENV_PATTERN, vars);
+	addEnvVarsFromFile(mcpConfigPath, MCP_CONFIG_ENV_PATTERN, vars);
 
 	return [...vars];
+}
+
+function addEnvVarsFromFile(filePath: string, pattern: RegExp, vars: Set<string>) {
+	if (!fs.existsSync(filePath)) {
+		return;
+	}
+
+	let content: string;
+	try {
+		content = fs.readFileSync(filePath, 'utf-8');
+	} catch (err) {
+		logger.warn(`Failed to read ${filePath}: ${err instanceof Error ? err.message : String(err)}`, {
+			source: 'system',
+		});
+		return;
+	}
+
+	for (const match of content.matchAll(pattern)) {
+		vars.add(match[1]);
+	}
 }
 
 export function extractConfiguredRepos(projectFolder: string): LinkedContextRepo[] {
@@ -60,6 +84,75 @@ export function extractConfiguredRepos(projectFolder: string): LinkedContextRepo
 			},
 		];
 	});
+}
+
+export function extractConfiguredDatabases(projectFolder: string): ConfiguredDatabase[] {
+	const configPath = path.join(projectFolder, 'nao_config.yaml');
+	if (!fs.existsSync(configPath)) {
+		return [];
+	}
+
+	const config = loadConfig(configPath);
+	if (!isRecord(config) || !Array.isArray(config.databases)) {
+		return [];
+	}
+
+	return config.databases.flatMap((database) => {
+		if (!isRecord(database) || typeof database.name !== 'string' || database.name.trim() === '') {
+			return [];
+		}
+
+		const configuredDatabase: ConfiguredDatabase = { id: database.name.trim() };
+		const type = normalizeString(database.type);
+		if (type) {
+			configuredDatabase.type = type;
+		}
+
+		for (const field of DATABASE_IDENTIFYING_FIELDS) {
+			const value = normalizeIdentifyingValue(database[field]);
+			if (value) {
+				configuredDatabase[field] = value;
+			}
+		}
+
+		const databasePath = normalizeString(database.path);
+		if (!configuredDatabase.database && databasePath) {
+			const databaseName = deriveDatabaseNameFromPath(databasePath);
+			if (databaseName) {
+				configuredDatabase.database = databaseName;
+			}
+		}
+
+		return [configuredDatabase];
+	});
+}
+
+function deriveDatabaseNameFromPath(databasePath: string): string {
+	const trimmedPath = databasePath.trim();
+	if (trimmedPath === ':memory:') {
+		return 'memory';
+	}
+	const pathWithoutQuery = stripQueryString(trimmedPath);
+	if (/^(?:md|motherduck):/i.test(pathWithoutQuery)) {
+		const remainder = pathWithoutQuery.slice(pathWithoutQuery.indexOf(':') + 1);
+		return remainder.trim() || 'motherduck';
+	}
+	return path.parse(pathWithoutQuery).name;
+}
+
+function stripQueryString(databasePath: string): string {
+	return databasePath.split('?', 1)[0];
+}
+
+function normalizeString(value: unknown): string | null {
+	return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
+}
+
+function normalizeIdentifyingValue(value: unknown): string | null {
+	if (typeof value === 'number' && Number.isFinite(value)) {
+		return String(value);
+	}
+	return normalizeString(value);
 }
 
 function loadConfig(configPath: string): unknown {
