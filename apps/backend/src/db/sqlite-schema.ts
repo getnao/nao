@@ -5,13 +5,7 @@ import type {
 	McpMapEmbedStoredConfig,
 } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
-import type {
-	AnalyticsEventMetadata,
-	CitationData,
-	LlmProvider,
-	RepoProvider,
-	UserPreferences,
-} from '@nao/shared/types';
+import type { AnalyticsEventMetadata, CitationData, LlmProvider, RepoProvider } from '@nao/shared/types';
 import {
 	ANALYTICS_ASSET_TYPES,
 	ANALYTICS_EVENT_TYPES,
@@ -64,6 +58,7 @@ import {
 	WhatsappSettings,
 } from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
+import type { StoredUserPreferences } from '../types/usage';
 
 export const user = sqliteTable('user', {
 	id: text('id').primaryKey(),
@@ -89,7 +84,7 @@ export const userPreference = sqliteTable('user_preference', {
 	userId: text('user_id')
 		.primaryKey()
 		.references(() => user.id, { onDelete: 'cascade' }),
-	preferences: text('preferences', { mode: 'json' }).$type<UserPreferences>().notNull().default({}),
+	preferences: text('preferences', { mode: 'json' }).$type<StoredUserPreferences>().notNull().default({}),
 	createdAt: integer('created_at', { mode: 'timestamp_ms' })
 		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 		.notNull(),
@@ -967,6 +962,7 @@ export const storyDataCache = sqliteTable('story_data_cache', {
 });
 
 export const ACTIVITY_TYPES = [
+	'context.pulled',
 	'story.refreshed',
 	'story.shared',
 	'story.pinned',

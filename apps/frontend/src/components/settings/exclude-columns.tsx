@@ -1,4 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { LockedFieldset } from '@/components/settings/locked-fieldset';
+import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { SettingsControlRow } from '@/components/ui/settings-toggle-row';
 import { Switch } from '@/components/ui/switch';
@@ -37,26 +39,29 @@ export function SettingsExcludeColumns({ isAdmin }: SettingsExcludeColumnsProps)
 		<SettingsCard
 			title='Exclude columns'
 			description='Enabling this prevents the agent from querying columns listed in exclude_columns.'
+			action={!isLicensed ? <UpgradeToEnterprise /> : undefined}
 		>
-			<SettingsControlRow
-				id='enforce-excluded-columns'
-				label='Enforce excluded columns'
-				description='Block SQL queries that access configured excluded columns.'
-				control={
-					<Switch
-						id='enforce-excluded-columns'
-						checked={enforceExcludedColumns}
-						onCheckedChange={handleEnforcementChange}
-						disabled={
-							!isAdmin ||
-							!isLicensed ||
-							features.isPending ||
-							agentSettings.isPending ||
-							updateAgentSettings.isPending
-						}
-					/>
-				}
-			/>
+			<LockedFieldset disabled={!isLicensed}>
+				<SettingsControlRow
+					id='enforce-excluded-columns'
+					label='Enforce excluded columns'
+					description='Block SQL queries that access configured excluded columns.'
+					control={
+						<Switch
+							id='enforce-excluded-columns'
+							checked={enforceExcludedColumns}
+							onCheckedChange={handleEnforcementChange}
+							disabled={
+								!isAdmin ||
+								!isLicensed ||
+								features.isPending ||
+								agentSettings.isPending ||
+								updateAgentSettings.isPending
+							}
+						/>
+					}
+				/>
+			</LockedFieldset>
 		</SettingsCard>
 	);
 }

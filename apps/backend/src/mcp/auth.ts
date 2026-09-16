@@ -5,7 +5,7 @@ import { and, eq, gt } from 'drizzle-orm';
 import { getSession, verifyOAuthAccessToken } from '../auth';
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
-import { MCP_SERVER_URL } from '../env';
+import { MCP_TOKEN_AUDIENCES } from '../env';
 import { logger, serializeError } from '../utils/logger';
 import { convertHeaders } from '../utils/utils';
 
@@ -41,11 +41,11 @@ async function verifyBearerToken(authorization: string | null): Promise<string |
 
 async function verifyAsJwt(token: string): Promise<string | null> {
 	try {
-		const payload = await verifyOAuthAccessToken(token, MCP_SERVER_URL);
+		const payload = await verifyOAuthAccessToken(token, MCP_TOKEN_AUDIENCES);
 		return typeof payload.sub === 'string' ? payload.sub : null;
 	} catch (error) {
 		const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-		logger.warn(`MCP JWT verification failed (audience=${MCP_SERVER_URL}): ${message}`, {
+		logger.warn(`MCP JWT verification failed (audience=${MCP_TOKEN_AUDIENCES.join(',')}): ${message}`, {
 			source: 'http',
 			context: { error: serializeError(error) },
 		});

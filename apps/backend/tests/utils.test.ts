@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { UIMessage, UIMessagePart } from '../src/types/chat';
 import { settleInterruptedToolParts } from '../src/utils/ai';
-import { buildUsernameAllowlist, formatErrorMessageForUI, truncateMiddle } from '../src/utils/utils';
+import { buildUsernameAllowlist, formatErrorMessageForUI, replaceEnvVars, truncateMiddle } from '../src/utils/utils';
 
 describe('buildUsernameAllowlist', () => {
 	it('returns an empty set when unset', () => {
@@ -52,6 +52,40 @@ describe('truncateMiddle', () => {
 
 	it('uses a custom ellipsis string', () => {
 		expect(truncateMiddle('abcdefghij', 8, '--')).toBe('abc--hij');
+	});
+});
+
+describe('replaceEnvVars', () => {
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	it('replaces placeholders from extra env before process env', () => {
+		vi.stubEnv('DBT_TOKEN', 'from-process');
+
+		expect(replaceEnvVars('${DBT_TOKEN}', { DBT_TOKEN: 'from-project' })).toBe('from-project');
+	});
+
+	it('falls back to process env when extra env has no value', () => {
+		vi.stubEnv('DBT_TOKEN', 'from-process');
+
+		expect(replaceEnvVars('${DBT_TOKEN}')).toBe('from-process');
+	});
+
+	it('keeps the placeholder when process env contains an empty value', () => {
+		vi.stubEnv('DBT_TOKEN', '');
+
+		expect(replaceEnvVars('${DBT_TOKEN}')).toBe('${DBT_TOKEN}');
+	});
+
+	it('does not fall back to process env when extra env contains an empty value', () => {
+		vi.stubEnv('DBT_TOKEN', 'from-process');
+
+		expect(replaceEnvVars('${DBT_TOKEN}', { DBT_TOKEN: '' })).toBe('');
+	});
+
+	it('keeps the placeholder when no value exists', () => {
+		expect(replaceEnvVars('${MISSING_TOKEN}')).toBe('${MISSING_TOKEN}');
 	});
 });
 

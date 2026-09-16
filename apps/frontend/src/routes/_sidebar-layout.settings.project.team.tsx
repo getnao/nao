@@ -22,6 +22,9 @@ import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/team')({
+	staticData: {
+		title: 'Team',
+	},
 	component: ProjectTeamTabPage,
 });
 
@@ -29,7 +32,9 @@ function ProjectTeamTabPage() {
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
 	const usersWithRoles = useQuery(trpc.project.listAllUsersWithRoles.queryOptions());
+	const systemConfig = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const { isAdmin } = usePermissions();
+	const isCloud = systemConfig.data?.naoMode === 'cloud';
 
 	const [isAddOpen, setIsAddOpen] = useState(false);
 	const [editMember, setEditMember] = useState<TeamMember | null>(null);
@@ -43,6 +48,7 @@ function ProjectTeamTabPage() {
 			name: u.name,
 			email: u.email,
 			role: u.role,
+			status: u.status,
 		})) ?? [];
 
 	const addUser = useMutation(trpc.user.addUserToProject.mutationOptions());
@@ -101,9 +107,9 @@ function ProjectTeamTabPage() {
 	return (
 		<>
 			<SettingsCard
-				title='Team Members'
-				description='Manage the members of your project.'
-				divide
+				title='Members'
+				description='These are people who belong to this project.'
+				flush
 				action={
 					isAdmin ? (
 						<Button variant='secondary' size='sm' onClick={() => setIsAddOpen(true)}>
@@ -114,7 +120,7 @@ function ProjectTeamTabPage() {
 				}
 			>
 				{usersWithRoles.isLoading ? (
-					<div className='text-sm text-muted-foreground'>Loading users...</div>
+					<div className='p-4 text-sm text-muted-foreground'>Loading users...</div>
 				) : (
 					<TeamMembersList
 						members={members}
@@ -122,9 +128,11 @@ function ProjectTeamTabPage() {
 						isAdmin={isAdmin}
 						onEdit={setEditMember}
 						onRemove={setRemoveMember}
-						extraActions={(member) => (
-							<ResetPasswordAction onClick={() => setResetPasswordMember(member)} />
-						)}
+						extraActions={
+							isCloud
+								? undefined
+								: (member) => <ResetPasswordAction onClick={() => setResetPasswordMember(member)} />
+						}
 					/>
 				)}
 			</SettingsCard>

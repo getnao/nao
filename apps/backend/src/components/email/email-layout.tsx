@@ -1,28 +1,105 @@
 import type { ReactNode } from 'react';
 
-const emailStyles = `
-body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-.container { max-width: 600px; margin: 0 auto; padding: 20px; }
-.content { background-color: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px; }
-.credentials { background-color: #fff; padding: 20px; margin: 20px 0; border-left: 4px solid #4F46E5; border-radius: 4px; }
-.info-box { background-color: #fff; padding: 20px; margin: 20px 0; border-left: 4px solid #6B7280; border-radius: 4px; }
-.password { font-family: monospace; font-size: 18px; font-weight: bold; color: #4F46E5; letter-spacing: 2px; }
-.button { display: inline-block; padding: 12px 30px; background-color: #4F46E5; color: white !important; text-decoration: none; border-radius: 6px; margin: 20px 0; }
-.warning { background-color: #FEF3C7; padding: 15px; margin: 20px 0; border-left: 4px solid #F59E0B; border-radius: 4px; }
-.footer { text-align: center; margin-top: 30px; color: #6B7280; font-size: 14px; }
-`;
+import { EMAIL_LOGO_CID, emailLogoAttachment } from '../../utils/email-logo';
+import { emailColors, emailFonts, emailFontsUrl, emailText } from './email-theme';
 
-export function EmailLayout({ children }: { children: ReactNode }) {
+interface EmailLayoutProps {
+	title: string;
+	children: ReactNode;
+}
+
+export function EmailLayout({ title, children }: EmailLayoutProps) {
 	return (
-		<html>
+		<html lang='en'>
 			<head>
-				<style>{emailStyles}</style>
+				<meta charSet='utf-8' />
+				<meta name='viewport' content='width=device-width, initial-scale=1' />
+				<meta name='color-scheme' content='light' />
+				<meta name='supported-color-schemes' content='light' />
+				<title>{title}</title>
+				<link href={emailFontsUrl} rel='stylesheet' />
 			</head>
-			<body>
-				<div className='container'>
-					<div className='content'>{children}</div>
-				</div>
+			<body style={{ margin: 0, padding: 0, backgroundColor: '#ffffff', fontFamily: emailFonts.sans }}>
+				<table role='presentation' width='100%' cellPadding={0} cellSpacing={0}>
+					<tbody>
+						<tr>
+							<td align='center' style={{ padding: '40px 24px' }}>
+								<table
+									role='presentation'
+									width='100%'
+									cellPadding={0}
+									cellSpacing={0}
+									style={{ maxWidth: '560px' }}
+								>
+									<tbody>
+										<tr>
+											<td style={{ paddingBottom: '36px' }}>
+												<EmailBrand />
+											</td>
+										</tr>
+										<tr>
+											<td>{children}</td>
+										</tr>
+										<tr>
+											<td style={{ paddingTop: '28px' }}>
+												<EmailFooter />
+											</td>
+										</tr>
+									</tbody>
+								</table>
+							</td>
+						</tr>
+					</tbody>
+				</table>
 			</body>
 		</html>
+	);
+}
+
+function EmailBrand() {
+	return (
+		<table role='presentation' cellPadding={0} cellSpacing={0}>
+			<tbody>
+				<tr>
+					{emailLogoAttachment && (
+						<td style={{ paddingRight: '10px', verticalAlign: 'middle' }}>
+							<img
+								src={`cid:${EMAIL_LOGO_CID}`}
+								alt=''
+								width={32}
+								height={32}
+								style={{ display: 'block', width: '32px', height: '32px', borderRadius: '8px' }}
+							/>
+						</td>
+					)}
+					<td style={{ verticalAlign: 'middle' }}>
+						<span
+							style={{
+								fontFamily: emailFonts.sans,
+								fontSize: '22px',
+								lineHeight: '32px',
+								fontWeight: 600,
+								letterSpacing: '-0.02em',
+								color: emailColors.foreground,
+							}}
+						>
+							nao
+						</span>
+					</td>
+				</tr>
+			</tbody>
+		</table>
+	);
+}
+
+function EmailFooter() {
+	return (
+		<p style={{ ...emailText.muted, margin: 0 }}>
+			This is an automated message from{' '}
+			<a href='https://getnao.io' style={{ color: emailColors.muted }}>
+				nao
+			</a>
+			, the open-source analytics agent.
+		</p>
 	);
 }

@@ -111,6 +111,7 @@ function StoryPreviewPage() {
 					cachedAt: story.cachedAt,
 					lastRefreshFailure: story.lastRefreshFailure,
 					isRefreshing,
+					isUpdating,
 					onRefresh: () => handleRefreshData(),
 					onOpenSettings: () => setIsLiveSettingsOpen(true),
 				}}
@@ -128,6 +129,8 @@ function StoryPreviewPage() {
 					isCodeDirty: editor.isCodeDirty,
 					isCodeValid: editor.isCodeValid,
 					onSave: editor.handleSave,
+					onCancel: editor.handleCancel,
+					isSaving: editor.isSaving,
 				}}
 				versionControls={{
 					currentVersion: editor.versionNav.currentVersion,
@@ -156,7 +159,6 @@ function StoryPreviewPage() {
 			)}
 
 			<StoryPageBody
-				code={editor.code}
 				editor={editor}
 				queryData={queryData}
 				preview={

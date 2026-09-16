@@ -65,7 +65,7 @@ import {
 } from '../utils/llm';
 import { logger } from '../utils/logger';
 import { extractConfiguredDatabases } from '../utils/nao-config';
-import { addPromptCache } from '../utils/prompt-cache';
+import { addPromptCache, cachedSystemInstructions } from '../utils/prompt-cache';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt, titleGenerationUserMessage } from '../utils/title';
 import { isStoragePath } from '../utils/tools';
@@ -365,6 +365,7 @@ class AgentManager {
 	private readonly _finished: Promise<void>;
 	private _resolveFinished: (() => void) | undefined;
 	private _streamWriter?: UIMessageStreamWriter<UIMessage>;
+	private _systemPrompt = '';
 
 	constructor(
 		readonly chat: AgentChat,
@@ -392,6 +393,10 @@ class AgentManager {
 			...(callSettings.temperature !== undefined && { temperature: callSettings.temperature }),
 			...(callSettings.topP !== undefined && { topP: callSettings.topP }),
 			...(callSettings.topK !== undefined && { topK: callSettings.topK }),
+			prepareCall: async (args) => ({
+				...args,
+				instructions: cachedSystemInstructions(this._systemPrompt, this._modelSelection),
+			}),
 			prepareStep: async ({ messages }) => this._prepareStep(messages),
 			stopWhen,
 			experimental_context: this._toolContext,
@@ -416,11 +421,15 @@ class AgentManager {
 	}
 
 	private async _prepareStep(messages: ModelMessage[]): Promise<{ messages: ModelMessage[] }> {
+		const workingMessages: ModelMessage[] =
+			this._systemPrompt && messages[0]?.role !== 'system'
+				? [{ role: 'system', content: this._systemPrompt }, ...messages]
+				: messages;
 		await compactionService.compactConversationIfNeeded({
 			chat: this.chat,
 			provider: this._modelSelection.provider,
 			modelId: this._modelSelection.modelId,
-			messages,
+			messages: workingMessages,
 			tools: this._agentTools,
 			maxOutputTokens: this._maxOutputTokens,
 			contextWindow: this._modelConfig.contextWindow,
@@ -438,7 +447,8 @@ class AgentManager {
 			},
 		});
 
-		return { messages: this._addCache(this._pruneMessages(messages)) };
+		const conversationMessages = workingMessages[0]?.role === 'system' ? workingMessages.slice(1) : workingMessages;
+		return { messages: this._addCache(this._pruneMessages(conversationMessages)) };
 	}
 
 	get generatedArtifacts(): ToolContext['generatedArtifacts'] {
@@ -571,18 +581,12 @@ class AgentManager {
 		const uiMessagesWithResolvedAttachments = await resolveAttachments(uiMessagesWithCompaction);
 
 		const systemPrompt = this._systemPromptOverride ?? (await this._buildSystemPrompt(provider, timezone, chatUrl));
+		this._systemPrompt = systemPrompt;
+		const conversationMessages = uiMessagesWithResolvedAttachments.filter((message) => message.role !== 'system');
 
-		const systemMessage: Omit<UIMessage, 'id'> = {
-			role: 'system',
-			parts: [{ type: 'text', text: systemPrompt }],
-		};
-
-		const modelMessages = await convertToModelMessages<UIMessage>(
-			[systemMessage, ...uiMessagesWithResolvedAttachments],
-			{
-				tools: this._agentTools,
-			},
-		);
+		const modelMessages = await convertToModelMessages<UIMessage>(conversationMessages, {
+			tools: this._agentTools,
+		});
 
 		return modelMessages;
 	}
@@ -980,10 +984,7 @@ class AgentManager {
 	/**
 	 * Add Anthropic cache breakpoints to messages.
 	 * Applies to direct Anthropic, Vertex Claude, and Bedrock Anthropic models.
-	 *
-	 * Cache strategy:
-	 * - System message: 1h TTL (instructions rarely change)
-	 * - Last message: 5m TTL (current step's leaf for agentic caching)
+	 * The one-hour system breakpoint is applied separately to instructions.
 	 */
 	private _addCache(messages: ModelMessage[]): ModelMessage[] {
 		return addPromptCache(messages, this._modelSelection);

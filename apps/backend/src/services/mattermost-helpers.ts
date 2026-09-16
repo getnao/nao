@@ -30,6 +30,13 @@ export type MattermostFeedbackMetadataValidation =
 	| { valid: true; assistantMessageId: string }
 	| { valid: false; reason: 'missing' | 'malformed' | 'invalid_signature' };
 
+export class MattermostConnectionError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = 'MattermostConnectionError';
+	}
+}
+
 export type MattermostStopAttachment = {
 	color: '#522bff';
 	actions: [
@@ -272,21 +279,94 @@ export async function patchMattermostAnswerPost(input: {
 	baseProps: Record<string, unknown>;
 	attachments: MattermostStopAttachment[];
 	fetchImpl?: typeof fetch;
+	sleep?: (ms: number) => Promise<void>;
 }): Promise<void> {
 	const fetchImpl = input.fetchImpl ?? fetch;
+	const sleep = input.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
 	const url = createMattermostPostPatchUrl(input.baseUrl, input.postId);
 	const headers = {
 		Accept: 'application/json',
 		Authorization: `Bearer ${input.botToken}`,
 		'Content-Type': 'application/json',
 	};
-	const response = await fetchImpl(url, {
-		method: 'PUT',
-		headers,
-		body: JSON.stringify(buildMattermostAnswerPatchBody(input.message, input.baseProps, input.attachments)),
-	});
+	const body = JSON.stringify(buildMattermostAnswerPatchBody(input.message, input.baseProps, input.attachments));
+
+	for (let retryCount = 0; ; retryCount += 1) {
+		const response = await fetchImpl(url, {
+			method: 'PUT',
+			headers,
+			body,
+		});
+		if (response.ok) {
+			return;
+		}
+		if (response.status !== 429 || retryCount === MATTERMOST_PATCH_MAX_RETRIES) {
+			throw new Error(`Mattermost post patch failed with status ${response.status}`);
+		}
+		await sleep(getMattermostPatchRetryDelayMs(response.headers));
+	}
+}
+
+function getMattermostPatchRetryDelayMs(headers: Headers): number {
+	const resetSeconds = parseNonNegativeNumber(headers.get('X-Ratelimit-Reset'));
+	if (resetSeconds !== null) {
+		return Math.min(resetSeconds * 1000, MATTERMOST_PATCH_MAX_RETRY_DELAY_MS);
+	}
+	const retryAfterSeconds = parseNonNegativeInteger(headers.get('Retry-After'));
+	if (retryAfterSeconds !== null) {
+		return Math.min(retryAfterSeconds * 1000, MATTERMOST_PATCH_MAX_RETRY_DELAY_MS);
+	}
+	return MATTERMOST_PATCH_DEFAULT_RETRY_DELAY_MS;
+}
+
+function parseNonNegativeNumber(value: string | null): number | null {
+	if (value === null || value.trim() === '') {
+		return null;
+	}
+	const number = Number(value);
+	return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+function parseNonNegativeInteger(value: string | null): number | null {
+	return value !== null && /^\d+$/.test(value.trim()) ? Number(value) : null;
+}
+
+export async function validateMattermostConnection(input: {
+	baseUrl: string;
+	botToken: string;
+	fetchImpl?: typeof fetch;
+}): Promise<void> {
+	let response: Response;
+	try {
+		const url = createMattermostApiUrl(input.baseUrl, 'users/me');
+		response = await (input.fetchImpl ?? fetch)(url, {
+			headers: {
+				Accept: 'application/json',
+				Authorization: `Bearer ${input.botToken}`,
+			},
+		});
+	} catch {
+		throw new MattermostConnectionError('Could not reach the Mattermost server. Check the server URL.');
+	}
+
+	if (response.status === 401 || response.status === 403) {
+		throw new MattermostConnectionError('Mattermost rejected the bot token. Check the token and try again.');
+	}
+	if (response.status === 404) {
+		throw new MattermostConnectionError('No Mattermost API was found at this server URL.');
+	}
 	if (!response.ok) {
-		throw new Error(`Mattermost post patch failed with status ${response.status}`);
+		throw new MattermostConnectionError(`Mattermost connection failed (HTTP ${response.status}).`);
+	}
+
+	let user: unknown;
+	try {
+		user = await response.json();
+	} catch {
+		throw new MattermostConnectionError('Mattermost returned an unexpected response.');
+	}
+	if (!isMattermostUser(user)) {
+		throw new MattermostConnectionError('Mattermost returned an unexpected response.');
 	}
 }
 
@@ -454,6 +534,9 @@ const MATTERMOST_TABLE_COLUMN_LIMIT = 20;
 const MATTERMOST_TABLE_CELL_LIMIT = 160;
 const MATTERMOST_TABLE_MAX_LENGTH = 12_000;
 const MISSING_EMAIL_CACHE_TTL_MS = 5 * 60 * 1000;
+const MATTERMOST_PATCH_MAX_RETRIES = 3;
+const MATTERMOST_PATCH_MAX_RETRY_DELAY_MS = 2_000;
+const MATTERMOST_PATCH_DEFAULT_RETRY_DELAY_MS = 500;
 
 function extractMentionTokens(value: unknown): string[] {
 	if (Array.isArray(value)) {
@@ -490,10 +573,24 @@ function createMattermostPostPatchUrl(baseUrl: string, postId: string): URL {
 }
 
 function createMattermostPostUrl(baseUrl: string, postId: string): URL {
+	return createMattermostApiUrl(baseUrl, `posts/${encodeURIComponent(postId)}`);
+}
+
+function createMattermostApiUrl(baseUrl: string, path: string): URL {
 	const url = new URL(baseUrl);
 	const basePath = url.pathname.replace(/\/$/, '');
-	url.pathname = `${basePath}/api/v4/posts/${encodeURIComponent(postId)}`;
+	url.pathname = `${basePath}/api/v4/${path}`;
 	return url;
+}
+
+function isMattermostUser(value: unknown): value is { id: string } {
+	return (
+		Boolean(value) &&
+		typeof value === 'object' &&
+		!Array.isArray(value) &&
+		typeof (value as { id?: unknown }).id === 'string' &&
+		Boolean((value as { id: string }).id.trim())
+	);
 }
 
 function createMattermostFeedbackSignature(projectId: string, postId: string, assistantMessageId: string): string {

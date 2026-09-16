@@ -22,6 +22,11 @@ import {
 	contextRecommendationsHandler,
 	ensureContextRecommendationsSchedules,
 } from './handlers/context-recommendations.handler';
+import {
+	INVITATION_CLEANUP_JOB_NAME,
+	invitationCleanupHandler,
+	runInvitationCleanup,
+} from './handlers/invitation-cleanup.handler';
 import { LOG_CLEANUP_JOB_NAME, logCleanupHandler, runLogCleanup } from './handlers/log-cleanup.handler';
 import { MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler } from './handlers/mcp-query-data-cleanup.handler';
 import { STORY_REFRESH_JOB_NAME, storyRefreshHandler } from './handlers/story-refresh.handler';
@@ -254,16 +259,23 @@ app.register(mcpServerRoutes, {
 	prefix: '/mcp',
 });
 
-app.get('/.well-known/oauth-protected-resource', async (_request, reply) => {
+async function sendProtectedResourceMetadata(request: { host: string }, reply: FastifyReply) {
 	const { buildProtectedResourceMetadata } = await import('./auth');
-	const { MCP_SERVER_URL } = await import('./env');
-	const metadata = await buildProtectedResourceMetadata({ resource: MCP_SERVER_URL });
+	const { resolveMcpFacingOrigin } = await import('./env');
+	const metadata = await buildProtectedResourceMetadata({
+		resource: `${resolveMcpFacingOrigin(request.host)}/mcp`,
+	});
 	reply
 		.status(200)
 		.header('Content-Type', 'application/json')
 		.header('Cache-Control', 'public, max-age=15, stale-while-revalidate=15, stale-if-error=86400')
 		.send(metadata);
-});
+}
+
+// RFC 9728 path-aware discovery for the bare and project-scoped MCP URLs, plus the root fallback.
+app.get('/.well-known/oauth-protected-resource', sendProtectedResourceMetadata);
+app.get('/.well-known/oauth-protected-resource/mcp', sendProtectedResourceMetadata);
+app.get('/.well-known/oauth-protected-resource/mcp/:projectId', sendProtectedResourceMetadata);
 
 async function relayWebResponse(
 	handler: (req: Request) => Promise<Response>,
@@ -366,9 +378,21 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	void runLogCleanup().catch((err) => {
 		logger.error(`Log cleanup failed: ${err instanceof Error ? err.message : String(err)}`, { source: 'system' });
 	});
+	void runInvitationCleanup().catch((err) => {
+		logger.error(`Invitation cleanup failed: ${err instanceof Error ? err.message : String(err)}`, {
+			source: 'system',
+		});
+	});
 
 	registerJob(LOG_CLEANUP_JOB_NAME, logCleanupHandler);
 	await ensureRecurring({ name: LOG_CLEANUP_JOB_NAME, cron: '0 3 * * *', uniqueKey: LOG_CLEANUP_JOB_NAME });
+
+	registerJob(INVITATION_CLEANUP_JOB_NAME, invitationCleanupHandler);
+	await ensureRecurring({
+		name: INVITATION_CLEANUP_JOB_NAME,
+		cron: '0 3 * * *',
+		uniqueKey: INVITATION_CLEANUP_JOB_NAME,
+	});
 
 	registerJob(AUTOMATION_JOB_NAME, automationHandler);
 	registerJob(STORY_REFRESH_JOB_NAME, storyRefreshHandler);

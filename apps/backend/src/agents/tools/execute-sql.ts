@@ -57,6 +57,7 @@ export async function executeQuery(
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
+			'X-Nao-Internal-Secret': env.BETTER_AUTH_SECRET,
 		},
 		body: JSON.stringify({
 			sql: effectiveSql,
