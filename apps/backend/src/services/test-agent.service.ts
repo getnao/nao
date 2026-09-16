@@ -81,13 +81,7 @@ export class TestAgentService extends AgentService {
 		const resolvedSelectedModel = await this._getResolvedLlmSelectedModel(projectId, modelSelection);
 		const modelConfig = await this._getModelConfig(projectId, resolvedSelectedModel);
 
-		const messages = buildVerificationMessages(
-			modelConfig.messageFormat,
-			prompt,
-			agentResult.responseMessages,
-			expectedColumns,
-			queryResults,
-		);
+		const messages = buildVerificationMessages(prompt, agentResult.responseMessages, expectedColumns, queryResults);
 
 		let sql: string | null = null;
 		let error: string | null = null;

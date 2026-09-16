@@ -1,17 +1,15 @@
 import type { ModelMessage } from 'ai';
 
-import type { ModelMessageFormat } from '../types/llm';
 import type { QueryResult } from '../types/tools';
 
 export function buildVerificationMessages(
-	messageFormat: ModelMessageFormat,
 	prompt: string,
 	responseMessages: ModelMessage[],
 	expectedColumns: string[],
 	queryResults: Map<string, QueryResult>,
 ): ModelMessage[] {
 	return [
-		...(messageFormat === 'google' ? [{ role: 'user' as const, content: prompt }] : []),
+		{ role: 'user', content: prompt },
 		...responseMessages,
 		{ role: 'user', content: buildVerificationPrompt(expectedColumns, queryResults) },
 	];
