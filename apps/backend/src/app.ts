@@ -57,6 +57,7 @@ import { testRoutes } from './routes/test';
 import { whatsappRoutes } from './routes/whatsapp';
 import { startLicenseHeartbeat } from './services/license.service';
 import { logLicenseStatus } from './services/license-startup';
+import { resolveLinkPreview } from './services/link-preview.service';
 import { mattermostService } from './services/mattermost';
 import { pingLicensesServer } from './services/ping';
 import { posthog, PostHogEvent } from './services/posthog';
@@ -351,11 +352,12 @@ if (staticRoot) {
 
 // SPA fallback: serve index.html for all non-API routes (including `/`, since static `index` is off).
 // In dev mode without a built frontend, redirect to the Vite dev server.
-app.setNotFoundHandler((request, reply) => {
+app.setNotFoundHandler(async (request, reply) => {
 	if (isReservedBackendPath(request.url)) {
 		reply.status(404).send({ error: 'Not found' });
 	} else if (staticRoot) {
-		reply.type('text/html; charset=utf-8').send(getSpaIndexHtml(staticRoot));
+		const linkPreview = await resolveLinkPreview(request.url);
+		reply.type('text/html; charset=utf-8').send(getSpaIndexHtml(staticRoot, linkPreview));
 	} else if (isDev) {
 		reply.redirect(`http://localhost:3000${request.url}`);
 	} else {
