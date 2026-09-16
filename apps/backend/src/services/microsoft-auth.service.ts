@@ -28,7 +28,7 @@ export function augmentSocialProvidersWithMicrosoft(providers: SocialProviders):
 		clientSecret: config.clientSecret,
 		tenantId: config.tenantId,
 		mapProfileToUser: async (profile) => {
-			const roleMapping = parseEntraGroupOrganizationRoleMapping(env.AZURE_AD_GROUP_ROLE_MAPPING);
+			const roleMapping = parseEntraGroupOrganizationRoleMapping(env.AZURE_AD_GROUP_NAO_ROLE_MAPPING);
 			if (
 				roleMapping.status !== 'valid' ||
 				roleMapping.mapping.size === 0 ||

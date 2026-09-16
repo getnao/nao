@@ -34,7 +34,7 @@ export async function syncUserGroupsFromMicrosoft(userId: string): Promise<void>
 		}
 
 		const envMappings = parseEntraGroupNaoGroupMapping(env.AZURE_AD_GROUP_NAO_GROUP_MAPPING);
-		const roleMapping = parseEntraGroupOrganizationRoleMapping(env.AZURE_AD_GROUP_ROLE_MAPPING);
+		const roleMapping = parseEntraGroupOrganizationRoleMapping(env.AZURE_AD_GROUP_NAO_ROLE_MAPPING);
 		if (envMappings.status !== 'valid' || roleMapping.status !== 'valid') {
 			logger.error('Invalid Microsoft Entra group mapping, leaving access unchanged', {
 				source: 'system',
@@ -186,7 +186,7 @@ async function canSyncMicrosoftUserGroups(userId: string): Promise<boolean> {
 		return false;
 	}
 	const envMappings = parseEntraGroupNaoGroupMapping(env.AZURE_AD_GROUP_NAO_GROUP_MAPPING);
-	const roleMapping = parseEntraGroupOrganizationRoleMapping(env.AZURE_AD_GROUP_ROLE_MAPPING);
+	const roleMapping = parseEntraGroupOrganizationRoleMapping(env.AZURE_AD_GROUP_NAO_ROLE_MAPPING);
 	if (
 		(envMappings.status === 'valid' && envMappings.mappings.length > 0) ||
 		(roleMapping.status === 'valid' && roleMapping.mapping.size > 0)

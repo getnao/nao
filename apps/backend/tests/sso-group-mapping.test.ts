@@ -85,7 +85,7 @@ beforeEach(() => {
 		OIDC_CLIENT_ID: 'client-id',
 		OIDC_CLIENT_SECRET: 'client-secret',
 		OIDC_DISCOVERY_URL: 'https://example.com/.well-known/openid-configuration',
-		OIDC_GROUP_ROLE_MAPPING: 'nao-viewers:viewer',
+		OIDC_GROUP_NAO_ROLE_MAPPING: 'nao-viewers:viewer',
 	});
 
 	mocks.readVerifiedClaims.mockReset();
@@ -103,7 +103,7 @@ beforeEach(() => {
 
 describe('inspectSsoToken', () => {
 	it('reports the resolved organization role with organization-scoped mapping fields', async () => {
-		mocks.env.OIDC_GROUP_ROLE_MAPPING = 'nao-admins:admin,nao-context:context_admin';
+		mocks.env.OIDC_GROUP_NAO_ROLE_MAPPING = 'nao-admins:admin,nao-context:context_admin';
 		mocks.readDecodedClaims.mockResolvedValue({
 			status: 'decoded',
 			claims: { groups: ['nao-admins', 'nao-context'] },
@@ -131,19 +131,19 @@ describe('isOrganizationRoleMappingActive', () => {
 	});
 
 	it('returns false when every configured role is invalid for an organization', async () => {
-		mocks.env.OIDC_GROUP_ROLE_MAPPING = 'nao-context:context_admin,nao-other:superuser';
+		mocks.env.OIDC_GROUP_NAO_ROLE_MAPPING = 'nao-context:context_admin,nao-other:superuser';
 
 		await expect(isOrganizationRoleMappingActive()).resolves.toBe(false);
 		expect(mocks.hasFeature).not.toHaveBeenCalled();
 	});
 
 	it('returns true for a licensed configured Microsoft Entra role mapping', async () => {
-		delete mocks.env.OIDC_GROUP_ROLE_MAPPING;
+		delete mocks.env.OIDC_GROUP_NAO_ROLE_MAPPING;
 		Object.assign(mocks.env, {
 			AZURE_AD_CLIENT_ID: 'client-id',
 			AZURE_AD_CLIENT_SECRET: 'client-secret',
 			AZURE_AD_TENANT_ID: 'tenant-id',
-			AZURE_AD_GROUP_ROLE_MAPPING: 'a0b1c2d3-e4f5-6789-abcd-ef0123456789:admin',
+			AZURE_AD_GROUP_NAO_ROLE_MAPPING: 'a0b1c2d3-e4f5-6789-abcd-ef0123456789:admin',
 		});
 
 		await expect(isOrganizationRoleMappingActive()).resolves.toBe(true);
@@ -204,7 +204,7 @@ describe('syncOrganizationRoleFromMicrosoftGroups', () => {
 			AZURE_AD_CLIENT_ID: 'client-id',
 			AZURE_AD_CLIENT_SECRET: 'client-secret',
 			AZURE_AD_TENANT_ID: 'tenant-id',
-			AZURE_AD_GROUP_ROLE_MAPPING:
+			AZURE_AD_GROUP_NAO_ROLE_MAPPING:
 				'a0b1c2d3-e4f5-6789-abcd-ef0123456789:viewer,11111111-2222-3333-4444-555555555555:admin',
 		});
 	});

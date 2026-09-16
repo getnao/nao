@@ -40,7 +40,7 @@ export function augmentPluginsWithOidc(plugins: BetterAuthPlugin[]): void {
 						const decision = decideGroupOrganizationRoleMapping(
 							profile,
 							env.OIDC_GROUPS_CLAIM ?? DEFAULT_GROUPS_CLAIM,
-							parseGroupOrganizationRoleMapping(env.OIDC_GROUP_ROLE_MAPPING),
+							parseGroupOrganizationRoleMapping(env.OIDC_GROUP_NAO_ROLE_MAPPING),
 						);
 						if (decision.action === 'deny') {
 							throw new APIError('FORBIDDEN', {

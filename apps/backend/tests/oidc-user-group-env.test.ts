@@ -44,13 +44,13 @@ describe('Microsoft Entra group environment mappings', () => {
 	it('accepts wildcard, project-specific, and organization-role mappings', () => {
 		process.env.AZURE_AD_GROUP_NAO_GROUP_MAPPING =
 			'A0B1C2D3-E4F5-6789-ABCD-EF0123456789:*:Analysts,11111111-2222-3333-4444-555555555555:project-1:Managers';
-		process.env.AZURE_AD_GROUP_ROLE_MAPPING =
+		process.env.AZURE_AD_GROUP_NAO_ROLE_MAPPING =
 			'A0B1C2D3-E4F5-6789-ABCD-EF0123456789:admin,11111111-2222-3333-4444-555555555555:viewer';
 
 		__reloadEnvForTesting();
 
 		expect(env.AZURE_AD_GROUP_NAO_GROUP_MAPPING).toContain('*:Analysts');
-		expect(env.AZURE_AD_GROUP_ROLE_MAPPING).toContain(':admin');
+		expect(env.AZURE_AD_GROUP_NAO_ROLE_MAPPING).toContain(':admin');
 	});
 
 	it.each([
@@ -69,7 +69,7 @@ describe('Microsoft Entra group environment mappings', () => {
 		'a0b1c2d3-e4f5-6789-abcd-ef0123456789',
 		'a0b1c2d3-e4f5-6789-abcd-ef0123456789:admin,a0b1c2d3-e4f5-6789-abcd-ef0123456789:viewer',
 	])('rejects invalid organization-role mapping %s', (value) => {
-		process.env.AZURE_AD_GROUP_ROLE_MAPPING = value;
-		expect(() => __reloadEnvForTesting()).toThrow(/AZURE_AD_GROUP_ROLE_MAPPING/);
+		process.env.AZURE_AD_GROUP_NAO_ROLE_MAPPING = value;
+		expect(() => __reloadEnvForTesting()).toThrow(/AZURE_AD_GROUP_NAO_ROLE_MAPPING/);
 	});
 });

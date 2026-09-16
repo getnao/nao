@@ -213,7 +213,7 @@ describe('syncUserGroupsFromMicrosoft', () => {
 
 	it('unions UI, User Group env, and role env candidates for Graph overage', async () => {
 		mocks.env.AZURE_AD_GROUP_NAO_GROUP_MAPPING = `${GROUP_1}:*:Analysts`;
-		mocks.env.AZURE_AD_GROUP_ROLE_MAPPING = `${GROUP_2}:admin`;
+		mocks.env.AZURE_AD_GROUP_NAO_ROLE_MAPPING = `${GROUP_2}:admin`;
 		const uiGroup = '22222222-3333-4444-5555-666666666666';
 		mocks.listIdentifiers.mockResolvedValue([uiGroup]);
 		mocks.decodeClaims.mockReturnValue({ status: 'verified', claims: { hasgroups: true } });

@@ -38,7 +38,7 @@ No individual endpoint configuration is needed.
 | `OIDC_AUTH_DOMAINS`            | No       | —                      | Comma-separated email domain allowlist                                                |
 | `OIDC_PKCE`                    | No       | `true`                 | Enable PKCE (Proof Key for Code Exchange)                                             |
 | `OIDC_GROUPS_CLAIM`            | No       | `groups`               | Name of the ID token claim holding the user's groups                                  |
-| `OIDC_GROUP_ROLE_MAPPING`      | No       | —                      | Maps IdP groups to organization roles — see [Group role mapping](#group-role-mapping) |
+| `OIDC_GROUP_NAO_ROLE_MAPPING`  | No       | —                      | Maps IdP groups to organization roles — see [Group role mapping](#group-role-mapping) |
 | `OIDC_GROUP_NAO_GROUP_MAPPING` | No       | —                      | Maps OIDC groups to nao User Groups by stable project ID                              |
 | `SSO_SESSION_MAX_AGE`          | No       | —                      | Maximum OIDC session age in seconds, measured from when the session was created       |
 
@@ -156,11 +156,13 @@ OIDC_SCOPES=openid,profile,email,groups
 
 ## Group role mapping
 
-By default every user who signs in through OIDC gets `DEFAULT_USER_ROLE`, and an admin adjusts roles by hand in nao. Set `OIDC_GROUP_ROLE_MAPPING` to derive the organization role from the identity provider's groups instead:
+By default every user who signs in through OIDC gets `DEFAULT_USER_ROLE`, and an admin adjusts roles by hand in nao. Set `OIDC_GROUP_NAO_ROLE_MAPPING` to derive the organization role from the identity provider's groups instead:
 
 ```env
-OIDC_GROUP_ROLE_MAPPING=nao-admins:admin,nao-analysts:user,nao-viewers:viewer
+OIDC_GROUP_NAO_ROLE_MAPPING=nao-admins:admin,nao-analysts:user,nao-viewers:viewer
 ```
+
+Existing deployments may temporarily keep the deprecated `OIDC_GROUP_ROLE_MAPPING` name, but should rename it. If both names are set, `OIDC_GROUP_NAO_ROLE_MAPPING` wins and the old value is ignored.
 
 Each entry is `group:role`. Group names are matched case-insensitively. The valid organization roles are `admin`, `user` and `viewer`; entries naming anything else are ignored. `context_admin` is project-only, so it is not valid here. A configuration containing only invalid roles does not activate role mapping.
 
@@ -196,7 +198,7 @@ Prefer a prefix filter over `.*`. Okta truncates the groups claim once a user is
 
 ### Checking what the provider actually sent
 
-**Settings** → **Enterprise** → **Single sign-on token** decodes the ID token stored at a user's last sign-in. It shows the claim nao read, the groups it found, which of them matched your mapping, the organization role that resulted, and the full raw claims. Use it to discover the right claim name before writing `OIDC_GROUP_ROLE_MAPPING`, and to answer "why does this person have this organization role" afterwards. Admins can inspect any project member; the page is admin-only and hidden on cloud.
+**Settings** → **Enterprise** → **Single sign-on token** decodes the ID token stored at a user's last sign-in. It shows the claim nao read, the groups it found, which of them matched your mapping, the organization role that resulted, and the full raw claims. Use it to discover the right claim name before writing `OIDC_GROUP_NAO_ROLE_MAPPING`, and to answer "why does this person have this organization role" afterwards. Admins can inspect any project member; the page is admin-only and hidden on cloud.
 
 **Other generic OIDC providers:** Keycloak needs a _Group Membership_ mapper on the client with **Add to ID token** enabled. Auth0 needs an Action adding a namespaced claim, which you then point at with `OIDC_GROUPS_CLAIM=https://your-namespace/groups`.
 
@@ -214,7 +216,7 @@ Each entry is exactly `oidc-group:project-scope:nao-user-group`. The project sco
 
 A project-specific entry wins over a wildcard entry. The environment entry also replaces any UI target for that same claimed OIDC group in that project; UI mappings for the user's other claimed groups still apply. Conflicting repeated entries make the environment configuration invalid so they cannot broaden access.
 
-If several matched User Groups grant access to a new project, nao uses the strongest configured default role: `admin` > `context_admin` > `user` > `viewer`. `OIDC_GROUP_ROLE_MAPPING` then updates only the organization role, so the new explicit project role survives the same login and later logins.
+If several matched User Groups grant access to a new project, nao uses the strongest configured default role: `admin` > `context_admin` > `user` > `viewer`. `OIDC_GROUP_NAO_ROLE_MAPPING` then updates only the organization role, so the new explicit project role survives the same login and later logins.
 
 ## Microsoft Entra group mapping
 
@@ -222,12 +224,14 @@ Microsoft Entra uses group **Object IDs** for both environment mappings:
 
 ```env
 AZURE_AD_GROUP_NAO_GROUP_MAPPING=a0b1c2d3-e4f5-6789-abcd-ef0123456789:*:Analysts
-AZURE_AD_GROUP_ROLE_MAPPING=a0b1c2d3-e4f5-6789-abcd-ef0123456789:admin
+AZURE_AD_GROUP_NAO_ROLE_MAPPING=a0b1c2d3-e4f5-6789-abcd-ef0123456789:admin
 ```
 
 `AZURE_AD_GROUP_NAO_GROUP_MAPPING` has the same project scope, precedence, case-insensitive target-name matching, and conflict protection as `OIDC_GROUP_NAO_GROUP_MAPPING`. A User Group's default project role creates an explicit project membership only when one is missing; it never changes an existing project role.
 
-`AZURE_AD_GROUP_ROLE_MAPPING` controls organization roles only. Valid roles are `admin`, `user`, and `viewer`; `context_admin` is not accepted. The strongest matched role wins, the last-organization-admin guard still applies, and explicit project roles remain editable.
+`AZURE_AD_GROUP_NAO_ROLE_MAPPING` controls organization roles only. Valid roles are `admin`, `user`, and `viewer`; `context_admin` is not accepted. The strongest matched role wins, the last-organization-admin guard still applies, and explicit project roles remain editable.
+
+Existing deployments may temporarily keep the deprecated `AZURE_AD_GROUP_ROLE_MAPPING` name, but should rename it. If both names are set, `AZURE_AD_GROUP_NAO_ROLE_MAPPING` wins and the old value is ignored.
 
 Entra group overage is resolved with Microsoft Graph's `/me/checkMemberObjects` using saved UI mappings and both Entra environment mappings as candidates. Invalid tokens, missing or expired access tokens, and Graph failures leave User Group memberships and organization roles unchanged. A normal verified `groups` claim with no mapped organization-role group denies sign-in. Overage cannot be checked safely until Better Auth stores the access token, so authentication fails open and nao resolves the role immediately after login; if that resolution fails, existing access remains unchanged.
 
@@ -252,8 +256,8 @@ The limit is measured from the session's creation time and is not extended by ac
 | "redirect_uri_mismatch" error                      | The redirect URI registered in your IdP does not match `https://<host>/api/auth/oauth2/callback/{OIDC_PROVIDER_ID}` exactly                      |
 | "invalid_scope" error                              | Your provider doesn't support one of the requested scopes — check `OIDC_SCOPES`                                                                  |
 | "This email domain is not authorized"              | The user's email domain is not in `OIDC_AUTH_DOMAINS`                                                                                            |
-| "not assigned to any nao access group"             | The groups claim is present, but none of the user's groups appear in `OIDC_GROUP_ROLE_MAPPING`                                                   |
+| "not assigned to any nao access group"             | The groups claim is present, but none of the user's groups appear in `OIDC_GROUP_NAO_ROLE_MAPPING`                                               |
 | App tile lands on the login page                   | Initiate login URI is not set to `https://<host>/api/sso/start`                                                                                  |
 | Login succeeds but user can't see projects         | Expected — an admin needs to add the user to a project after their first login                                                                   |
 | Login succeeds but organization role never changes | The groups claim is missing from the ID token, or its name differs from `OIDC_GROUPS_CLAIM` — check Settings → Enterprise → Single sign-on token |
-| Organization role reverts after a user signs in    | Expected — `OIDC_GROUP_ROLE_MAPPING` makes the identity provider the source of truth for organization roles                                      |
+| Organization role reverts after a user signs in    | Expected — `OIDC_GROUP_NAO_ROLE_MAPPING` makes the identity provider the source of truth for organization roles                                  |

@@ -27,14 +27,14 @@ export async function isOrganizationRoleMappingActive(): Promise<boolean> {
 }
 
 export async function isOidcOrganizationRoleMappingActive(): Promise<boolean> {
-	if (!isOidcConfigured() || parseGroupOrganizationRoleMapping(env.OIDC_GROUP_ROLE_MAPPING).size === 0) {
+	if (!isOidcConfigured() || parseGroupOrganizationRoleMapping(env.OIDC_GROUP_NAO_ROLE_MAPPING).size === 0) {
 		return false;
 	}
 	return hasFeature(LICENSE_FEATURES.sso);
 }
 
 export async function isMicrosoftOrganizationRoleMappingActive(): Promise<boolean> {
-	const parsed = parseEntraGroupOrganizationRoleMapping(env.AZURE_AD_GROUP_ROLE_MAPPING);
+	const parsed = parseEntraGroupOrganizationRoleMapping(env.AZURE_AD_GROUP_NAO_ROLE_MAPPING);
 	if (!isMicrosoftConfigured() || parsed.status !== 'valid' || parsed.mapping.size === 0) {
 		return false;
 	}
@@ -69,7 +69,7 @@ export async function syncOrganizationRoleFromSsoGroups(userId: string): Promise
 		const decision = decideGroupOrganizationRoleMapping(
 			token.claims,
 			claimName,
-			parseGroupOrganizationRoleMapping(env.OIDC_GROUP_ROLE_MAPPING),
+			parseGroupOrganizationRoleMapping(env.OIDC_GROUP_NAO_ROLE_MAPPING),
 		);
 		if (!decision.claimPresent) {
 			logger.warn('The SSO groups claim is missing from the ID token, leaving roles untouched', {
@@ -95,7 +95,7 @@ export async function syncOrganizationRoleFromMicrosoftGroups(userId: string, gr
 		if (!(await isMicrosoftOrganizationRoleMappingActive())) {
 			return;
 		}
-		const parsed = parseEntraGroupOrganizationRoleMapping(env.AZURE_AD_GROUP_ROLE_MAPPING);
+		const parsed = parseEntraGroupOrganizationRoleMapping(env.AZURE_AD_GROUP_NAO_ROLE_MAPPING);
 		if (parsed.status !== 'valid') {
 			return;
 		}
@@ -132,7 +132,7 @@ export type SsoTokenProblem = 'no-token' | 'undecodable' | 'claim-missing' | 'no
  */
 export async function inspectSsoToken(userId: string): Promise<SsoTokenInspection> {
 	const claimName = env.OIDC_GROUPS_CLAIM ?? DEFAULT_GROUPS_CLAIM;
-	const roleMapping = parseGroupOrganizationRoleMapping(env.OIDC_GROUP_ROLE_MAPPING);
+	const roleMapping = parseGroupOrganizationRoleMapping(env.OIDC_GROUP_NAO_ROLE_MAPPING);
 	const mapping = [...roleMapping].map(([group, organizationRole]) => ({ group, organizationRole }));
 	const base = {
 		providerId: getOidcProviderId(),
@@ -196,10 +196,10 @@ async function applyOrganizationRole(userId: string, role: OrgRole): Promise<voi
 }
 
 function hasConfiguredOrganizationRoleMapping(): boolean {
-	if (isOidcConfigured() && parseGroupOrganizationRoleMapping(env.OIDC_GROUP_ROLE_MAPPING).size > 0) {
+	if (isOidcConfigured() && parseGroupOrganizationRoleMapping(env.OIDC_GROUP_NAO_ROLE_MAPPING).size > 0) {
 		return true;
 	}
-	const entraMapping = parseEntraGroupOrganizationRoleMapping(env.AZURE_AD_GROUP_ROLE_MAPPING);
+	const entraMapping = parseEntraGroupOrganizationRoleMapping(env.AZURE_AD_GROUP_NAO_ROLE_MAPPING);
 	return isMicrosoftConfigured() && entraMapping.status === 'valid' && entraMapping.mapping.size > 0;
 }
 

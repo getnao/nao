@@ -16,7 +16,84 @@ dotenv.config({
 	path: path.join(process.cwd(), '..', '..', '.env'),
 });
 
-const envSchema = z.object({
+const emittedDeprecationWarnings = new Set<string>();
+
+function resolveOidcGroupNaoRoleMapping(
+	canonicalMapping: string | undefined,
+	deprecatedMapping: string | undefined,
+): string | undefined {
+	return resolveDeprecatedEnvAlias(
+		canonicalMapping,
+		deprecatedMapping,
+		'OIDC_GROUP_NAO_ROLE_MAPPING',
+		'OIDC_GROUP_ROLE_MAPPING',
+	);
+}
+
+function resolveAzureAdGroupNaoRoleMapping(
+	canonicalMapping: string | undefined,
+	deprecatedMapping: string | undefined,
+): string | undefined {
+	return resolveDeprecatedEnvAlias(
+		canonicalMapping,
+		deprecatedMapping,
+		'AZURE_AD_GROUP_NAO_ROLE_MAPPING',
+		'AZURE_AD_GROUP_ROLE_MAPPING',
+	);
+}
+
+function resolveDeprecatedEnvAlias(
+	canonicalValue: string | undefined,
+	deprecatedValue: string | undefined,
+	canonicalName: string,
+	deprecatedName: string,
+): string | undefined {
+	if (deprecatedValue !== undefined && !emittedDeprecationWarnings.has(deprecatedName)) {
+		const ignoredSuffix =
+			canonicalValue !== undefined ? ` ${deprecatedName} is ignored because ${canonicalName} is set.` : '';
+		console.warn(
+			`${deprecatedName} is deprecated; use ${canonicalName} instead. Support for the old name will be removed in a future release.${ignoredSuffix}`,
+		);
+		emittedDeprecationWarnings.add(deprecatedName);
+	}
+
+	return canonicalValue ?? deprecatedValue;
+}
+
+function resolveDeprecatedEnvAliases(value: unknown): unknown {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) {
+		return value;
+	}
+
+	const resolved = { ...(value as Record<string, unknown>) };
+	setResolvedEnvValue(
+		resolved,
+		'AZURE_AD_GROUP_NAO_ROLE_MAPPING',
+		resolveAzureAdGroupNaoRoleMapping(
+			resolved.AZURE_AD_GROUP_NAO_ROLE_MAPPING as string | undefined,
+			resolved.AZURE_AD_GROUP_ROLE_MAPPING as string | undefined,
+		),
+	);
+	setResolvedEnvValue(
+		resolved,
+		'OIDC_GROUP_NAO_ROLE_MAPPING',
+		resolveOidcGroupNaoRoleMapping(
+			resolved.OIDC_GROUP_NAO_ROLE_MAPPING as string | undefined,
+			resolved.OIDC_GROUP_ROLE_MAPPING as string | undefined,
+		),
+	);
+	return resolved;
+}
+
+function setResolvedEnvValue(resolved: Record<string, unknown>, name: string, value: string | undefined): void {
+	if (value === undefined) {
+		delete resolved[name];
+		return;
+	}
+	resolved[name] = value;
+}
+
+const baseRawEnvSchema = z.object({
 	MODE: z.enum(['dev', 'prod', 'test']).default('dev'),
 
 	DB_URI: z.string().default('sqlite:./db.sqlite'),
@@ -79,12 +156,13 @@ const envSchema = z.object({
 			message:
 				'AZURE_AD_GROUP_NAO_GROUP_MAPPING must use Entra-group-object-id:project-scope:nao-user-group entries',
 		}),
-	AZURE_AD_GROUP_ROLE_MAPPING: z
+	AZURE_AD_GROUP_NAO_ROLE_MAPPING: z
 		.string()
 		.optional()
 		.refine((value) => parseEntraGroupOrganizationRoleMapping(value).status === 'valid', {
-			message: 'AZURE_AD_GROUP_ROLE_MAPPING must use Entra-group-object-id:organization-role entries',
+			message: 'AZURE_AD_GROUP_NAO_ROLE_MAPPING must use Entra-group-object-id:organization-role entries',
 		}),
+	AZURE_AD_GROUP_ROLE_MAPPING: z.string().optional(),
 
 	ENABLE_USER_LOGIN: z
 		.enum(['true', 'false'])
@@ -108,6 +186,7 @@ const envSchema = z.object({
 	OIDC_AUTH_DOMAINS: z.string().optional(),
 	OIDC_PKCE: z.string().optional(),
 	OIDC_GROUPS_CLAIM: z.string().optional(),
+	OIDC_GROUP_NAO_ROLE_MAPPING: z.string().optional(),
 	OIDC_GROUP_ROLE_MAPPING: z.string().optional(),
 	OIDC_GROUP_NAO_GROUP_MAPPING: z
 		.string()
@@ -274,6 +353,9 @@ const envSchema = z.object({
 		.default('false')
 		.transform((val) => val === 'true'),
 });
+
+const rawEnvSchema = z.preprocess(resolveDeprecatedEnvAliases, baseRawEnvSchema);
+const envSchema = rawEnvSchema;
 
 const result = envSchema.safeParse(process.env);
 

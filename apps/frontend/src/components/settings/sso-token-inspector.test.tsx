@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SsoTokenInspector } from './sso-token-inspector';
 
+let mockProblem: string | null = null;
+
 vi.mock('@/lib/auth-client', () => ({
 	useSession: () => ({ data: { user: { id: 'user-1' } } }),
 }));
@@ -41,7 +43,7 @@ vi.mock('@tanstack/react-query', () => ({
 				groups: ['nao-admins'],
 				matchedGroups: ['nao-admins'],
 				resolvedOrganizationRole: 'admin',
-				problem: null,
+				problem: mockProblem,
 				claims: { groups: ['nao-admins'] },
 				issuedAt: null,
 			},
@@ -51,7 +53,10 @@ vi.mock('@tanstack/react-query', () => ({
 	},
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+	cleanup();
+	mockProblem = null;
+});
 
 describe('SsoTokenInspector', () => {
 	it('labels the mapped result as an organization role', () => {
@@ -61,5 +66,14 @@ describe('SsoTokenInspector', () => {
 		expect(screen.getByText('Organization role')).toBeTruthy();
 		expect(screen.getByText('Admin')).toBeTruthy();
 		expect(screen.queryByText('Resolved role')).toBeNull();
+	});
+
+	it('names the canonical organization-role mapping variable in troubleshooting text', () => {
+		mockProblem = 'no-group-matched';
+
+		render(<SsoTokenInspector />);
+
+		expect(screen.getByText(/OIDC_GROUP_NAO_ROLE_MAPPING/)).toBeTruthy();
+		expect(screen.queryByText(/OIDC_GROUP_ROLE_MAPPING/)).toBeNull();
 	});
 });
