@@ -209,19 +209,17 @@ class RedshiftConfig(DatabaseConfig):
     user: str | None = Field(
         default=None,
         description=(
-            "Username. Required for password auth. In iam mode it is the db user requested via "
-            "get_cluster_credentials, not the IAM-prefixed username used to connect. In azure_entra_id "
-            "mode it is optional but recommended: nao sync uses it to read metadata (columns, previews, "
-            "query history). It is never used at runtime from /execute_sql."
+            "Username. Required for password auth. In azure_entra_id mode it is optional "
+            "but recommended: nao sync uses it to read metadata (columns, previews, query history). "
+            "It is never used at runtime from /execute_sql."
         ),
     )
     password: str | None = Field(
         default=None,
         description=(
-            "Password. Required for password auth; ignored in iam mode, where a temporary password is "
-            "fetched via get_cluster_credentials instead. In azure_entra_id mode it is optional but "
-            "recommended: nao sync uses it to read metadata (columns, previews, query history). It is "
-            "never used at runtime from /execute_sql."
+            "Password. Required for password auth. In azure_entra_id mode it is optional "
+            "but recommended: nao sync uses it to read metadata (columns, previews, query history). "
+            "It is never used at runtime from /execute_sql."
         ),
     )
     schema_name: str | None = Field(default=None, description="Default schema (optional, uses 'public' if not set)")
