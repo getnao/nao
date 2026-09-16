@@ -745,7 +745,7 @@ function UserGroupFeatures({
 				</div>
 				<UserGroupSwitchRow
 					id='user-group-density-can-change'
-					label='Let members choose'
+					label='Let users choose'
 					description='Members can override the default in their account settings.'
 					checked={toolCallDensityPolicy.canChange}
 					onCheckedChange={(canChange) =>
