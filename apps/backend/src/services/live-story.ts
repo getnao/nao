@@ -20,6 +20,7 @@ import { getDefaultModelId, resolveDefaultModelSelection, resolveProviderModel }
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { backfillMissingQueryData, findMissingQueryIds } from '../utils/story-query-data';
 import { MAX_OUTPUT_TOKENS } from './agent';
+import { resolveExcludedColumnEnforcementForProject } from './excluded-columns.service';
 const MAX_RENDERED_ROWS = 60;
 
 interface StoryRefreshTarget {
@@ -53,7 +54,12 @@ export async function executeLiveQuery(
 	}
 
 	const envVars = await projectQueries.getEnvVars(projectId);
-	return executeRawSql(sqlQuery, project.path, query.databaseId, envVars);
+	return executeRawSql(sqlQuery, {
+		projectFolder: project.path,
+		projectId,
+		databaseId: query.databaseId,
+		envVars,
+	});
 }
 
 export interface RefreshResult {
@@ -93,7 +99,12 @@ export async function refreshStoryData(chatId: string, slug: string): Promise<Re
 			}
 
 			const projectEnvVars = await projectQueries.getEnvVars(chat.projectId);
-			const result = await executeRawSql(effectiveSql, project!.path!, databaseId, projectEnvVars);
+			const result = await executeRawSql(effectiveSql, {
+				projectFolder: project!.path!,
+				projectId: chat.projectId,
+				databaseId,
+				envVars: projectEnvVars,
+			});
 			queryData[queryId] = result;
 		}),
 	);
@@ -158,20 +169,30 @@ async function resolveFromCache(chatId: string, code: string, cache: DBStoryData
 	return { queryData, cachedAt: cache.cachedAt };
 }
 
+interface RawSqlExecutionOptions {
+	projectFolder: string;
+	projectId: string;
+	databaseId?: string;
+	envVars?: Record<string, string>;
+}
+
 export async function executeRawSql(
 	sqlQuery: string,
-	projectFolder: string,
-	databaseId?: string,
-	envVars?: Record<string, string>,
+	options: RawSqlExecutionOptions,
 ): Promise<{ data: unknown[]; columns: string[] }> {
+	const enforceExcludedColumns = await resolveExcludedColumnEnforcementForProject(options.projectId);
 	const response = await fetch(`http://localhost:${env.FASTAPI_PORT}/execute_sql`, {
 		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
+		headers: {
+			'Content-Type': 'application/json',
+			'X-Nao-Internal-Secret': env.BETTER_AUTH_SECRET,
+		},
 		body: JSON.stringify({
 			sql: sqlQuery,
-			nao_project_folder: projectFolder,
-			...(databaseId && { database_id: databaseId }),
-			...(envVars && Object.keys(envVars).length > 0 && { env_vars: envVars }),
+			nao_project_folder: options.projectFolder,
+			enforce_excluded_columns: enforceExcludedColumns,
+			...(options.databaseId && { database_id: options.databaseId }),
+			...(options.envVars && Object.keys(options.envVars).length > 0 && { env_vars: options.envVars }),
 		}),
 	});
 

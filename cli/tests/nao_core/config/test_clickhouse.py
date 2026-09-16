@@ -11,6 +11,7 @@ import pytest
 
 from nao_core.config.databases.clickhouse import (
     ClickHouseConfig,
+    ClickHouseDatabaseContext,
     _column_metadata,
     _columns_from_describe,
     _is_server_settings_probe,
@@ -29,6 +30,31 @@ def _base_config(**overrides: Any) -> ClickHouseConfig:
     }
     base.update(overrides)
     return ClickHouseConfig(**base)
+
+
+def test_columns_retries_after_failed_load() -> None:
+    context = ClickHouseDatabaseContext(MagicMock(), "default", "events")
+    columns = [{"name": "id", "type": "UInt64"}]
+
+    with patch.object(context, "_load_columns", side_effect=[None, columns]) as load_columns:
+        assert context.columns() == []
+        assert context._columns_cache is None
+        assert context._columns_load_failed is True
+        assert context.columns() == columns
+
+    assert load_columns.call_count == 2
+
+
+def test_columns_caches_successful_empty_load() -> None:
+    context = ClickHouseDatabaseContext(MagicMock(), "default", "events")
+
+    with patch.object(context, "_load_columns", return_value=[]) as load_columns:
+        assert context.columns() == []
+        assert context.columns() == []
+
+    assert context._columns_cache == []
+    assert context._columns_load_failed is False
+    load_columns.assert_called_once()
 
 
 class TestProtocolField:

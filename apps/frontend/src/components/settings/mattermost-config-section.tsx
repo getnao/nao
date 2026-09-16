@@ -11,9 +11,10 @@ import { trpc } from '@/main';
 
 interface MattermostConfigSectionProps {
 	isAdmin: boolean;
+	onCancelSetup: () => void;
 }
 
-export function MattermostConfigSection({ isAdmin }: MattermostConfigSectionProps) {
+export function MattermostConfigSection({ isAdmin, onCancelSetup }: MattermostConfigSectionProps) {
 	const queryClient = useQueryClient();
 	const mattermostConfig = useQuery(trpc.project.getMattermostConfig.queryOptions());
 	const { data: availableModels } = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
@@ -54,6 +55,14 @@ export function MattermostConfigSection({ isAdmin }: MattermostConfigSectionProp
 	const handleDelete = async () => {
 		await deleteMattermostConfig.mutateAsync();
 		queryClient.removeQueries(trpc.project.getMattermostConfig.queryOptions());
+	};
+
+	const handleCancel = () => {
+		if (projectConfig) {
+			setIsEditing(false);
+			return;
+		}
+		onCancelSetup();
 	};
 
 	const handleStartEditing = () => {
@@ -103,7 +112,7 @@ export function MattermostConfigSection({ isAdmin }: MattermostConfigSectionProp
 				initialInteractiveButtonsEnabled={projectConfig?.interactiveButtonsEnabled ?? false}
 				initialCallbackUrl={projectConfig?.callbackUrl ?? ''}
 				onSubmit={handleSubmit}
-				onCancel={() => setIsEditing(false)}
+				onCancel={handleCancel}
 				isPending={upsertMattermostConfig.isPending}
 			/>
 		);

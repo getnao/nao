@@ -20,3 +20,4 @@ routeTree.gen.ts
 helm/
 sandbox/
 .heal/
+apps/frontend/.playwright-cli/

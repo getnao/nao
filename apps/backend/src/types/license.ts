@@ -6,9 +6,11 @@
  * license wire format and cannot change without re-issuing every license.
  */
 export const LICENSE_FEATURES = {
+	excludeColumns: 'exclude-columns',
 	sso: 'sso',
 	whiteLabel: 'white-label',
 	userBudget: 'user-budget',
+	multiProject: 'multi-project',
 } as const;
 
 export type LicenseFeature = (typeof LICENSE_FEATURES)[keyof typeof LICENSE_FEATURES];

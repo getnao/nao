@@ -25,6 +25,8 @@ import * as projectWhatsappLinkQueries from '../queries/project-whatsapp-link.qu
 import * as userQueries from '../queries/user.queries';
 import { cleanupContextWorktree } from '../services/context-explorer-git.service';
 import { mattermostService } from '../services/mattermost';
+import { MattermostConnectionError, validateMattermostConnection } from '../services/mattermost-helpers';
+import { mcpService } from '../services/mcp';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { slackService } from '../services/slack';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
@@ -116,7 +118,7 @@ export const projectRoutes = {
 			return null;
 		}
 		const userRole = await projectQueries.getUserRoleInProject(project.id, ctx.user.id);
-		return { ...project, userRole };
+		return { id: project.id, name: project.name, path: project.path, userRole };
 	}),
 
 	getDatabaseObjects: projectProtectedProcedure
@@ -580,7 +582,7 @@ export const projectRoutes = {
 
 	getMattermostConfig: projectProtectedProcedure.query(async ({ ctx }) => {
 		if (!ctx.project) {
-			return { projectConfig: null, projectId: '' };
+			return { projectConfig: null, projectId: '', connected: false };
 		}
 
 		const config = await mattermostConfigQueries.getProjectMattermostConfig(ctx.project.id);
@@ -597,6 +599,7 @@ export const projectRoutes = {
 		return {
 			projectConfig,
 			projectId: ctx.project.id,
+			connected: mattermostService.getAdapter(ctx.project.id) !== null,
 		};
 	}),
 
@@ -612,6 +615,21 @@ export const projectRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
+			try {
+				await validateMattermostConnection({
+					baseUrl: input.baseUrl,
+					botToken: input.botToken,
+				});
+			} catch (error) {
+				throw new TRPCError({
+					code: 'BAD_REQUEST',
+					message:
+						error instanceof MattermostConnectionError
+							? error.message
+							: 'Could not verify the Mattermost connection. Try again.',
+				});
+			}
+
 			const config = await mattermostConfigQueries.upsertProjectMattermostConfig({
 				projectId: ctx.project.id,
 				baseUrl: input.baseUrl,
@@ -621,7 +639,14 @@ export const projectRoutes = {
 				interactiveButtonsEnabled: input.interactiveButtonsEnabled,
 				callbackUrl: input.callbackUrl,
 			});
-			await mattermostService.syncProject(config, ctx.project.id);
+			try {
+				await mattermostService.syncProject(config, ctx.project.id);
+			} catch {
+				throw new TRPCError({
+					code: 'INTERNAL_SERVER_ERROR',
+					message: 'Mattermost connected, but the bot could not start. Try again.',
+				});
+			}
 
 			posthog.capture(ctx.user.id, PostHogEvent.MattermostConfigured, {
 				project_id: ctx.project.id,
@@ -927,7 +952,12 @@ export const projectRoutes = {
 						modelId: z.string().optional(),
 					})
 					.optional(),
-				sql: z.object({ dangerouslyWritePermEnabled: z.boolean().optional() }).optional(),
+				sql: z
+					.object({
+						dangerouslyWritePermEnabled: z.boolean().optional(),
+						enforceExcludedColumns: z.boolean().optional(),
+					})
+					.optional(),
 				pythonExecution: z
 					.object({
 						maxDurationSecs: z
@@ -964,6 +994,7 @@ export const projectRoutes = {
 				transcribe_provider: merged.transcribe?.provider,
 				transcribe_model_id: merged.transcribe?.modelId,
 				sql_dangerously_write_perm_enabled: merged.sql?.dangerouslyWritePermEnabled,
+				sql_enforce_excluded_columns: merged.sql?.enforceExcludedColumns,
 				python_execution_max_duration_secs: merged.pythonExecution?.maxDurationSecs,
 				python_sandboxing_enabled: merged.experimental?.pythonSandboxing,
 				map_enabled: merged.mapEnabled,
@@ -1128,6 +1159,7 @@ export const projectRoutes = {
 		.input(z.object({ envVars: z.record(z.string(), z.string()) }))
 		.mutation(async ({ ctx, input }) => {
 			await projectQueries.updateEnvVars(ctx.project.id, input.envVars);
+			void mcpService.refreshProjectConfig(ctx.project.id);
 		}),
 
 	getMapBoundaries: projectProtectedProcedure.query(async ({ ctx }) => {

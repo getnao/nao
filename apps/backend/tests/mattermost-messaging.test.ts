@@ -26,6 +26,7 @@ import {
 	resolveMattermostThreadId,
 	shouldHandleMattermostMessage,
 	truncateMattermostMarkdown,
+	validateMattermostConnection,
 	verifyMattermostActionSecret,
 	verifyMattermostFeedbackMetadata,
 } from '../src/services/mattermost-helpers';
@@ -44,6 +45,78 @@ vi.mock('../src/utils/logger', () => ({
 		debug: vi.fn(),
 	},
 }));
+
+describe('validateMattermostConnection', () => {
+	it('accepts a valid Mattermost user response', async () => {
+		const fetchImpl = vi.fn(async () => Response.json({ id: 'bot-user-id', username: 'nao' }));
+
+		await expect(
+			validateMattermostConnection({
+				baseUrl: 'https://mattermost.example/base/',
+				botToken: 'test-token',
+				fetchImpl,
+			}),
+		).resolves.toBeUndefined();
+
+		expect(fetchImpl).toHaveBeenCalledWith(
+			new URL('https://mattermost.example/base/api/v4/users/me'),
+			expect.objectContaining({
+				headers: expect.objectContaining({
+					Accept: 'application/json',
+					Authorization: expect.any(String),
+				}),
+			}),
+		);
+	});
+
+	it.each([401, 403])('reports rejected bot tokens for HTTP %s', async (status) => {
+		const fetchImpl = vi.fn(async () => new Response(null, { status }));
+
+		await expect(
+			validateMattermostConnection({
+				baseUrl: 'https://mattermost.example',
+				botToken: 'test-token',
+				fetchImpl,
+			}),
+		).rejects.toThrow('Mattermost rejected the bot token. Check the token and try again.');
+	});
+
+	it('reports when the server URL has no Mattermost API', async () => {
+		const fetchImpl = vi.fn(async () => new Response(null, { status: 404 }));
+
+		await expect(
+			validateMattermostConnection({
+				baseUrl: 'https://mattermost.example',
+				botToken: 'test-token',
+				fetchImpl,
+			}),
+		).rejects.toThrow('No Mattermost API was found at this server URL.');
+	});
+
+	it('reports network failures without exposing provider details', async () => {
+		const fetchImpl = vi.fn<typeof fetch>().mockRejectedValue(new Error('connect ECONNREFUSED secret-host'));
+
+		await expect(
+			validateMattermostConnection({
+				baseUrl: 'https://mattermost.example',
+				botToken: 'test-token',
+				fetchImpl,
+			}),
+		).rejects.toThrow('Could not reach the Mattermost server. Check the server URL.');
+	});
+
+	it.each([{}, { id: '' }, { id: 42 }])('rejects malformed successful responses', async (body) => {
+		const fetchImpl = vi.fn(async () => Response.json(body));
+
+		await expect(
+			validateMattermostConnection({
+				baseUrl: 'https://mattermost.example',
+				botToken: 'test-token',
+				fetchImpl,
+			}),
+		).rejects.toThrow('Mattermost returned an unexpected response.');
+	});
+});
 
 describe('parseMattermostLoginCommand', () => {
 	it('parses a bare login command', () => {
@@ -408,6 +481,89 @@ describe('Mattermost answer rendering', () => {
 				body: expect.stringContaining('"integration":{"url":"https://nao.example/callback"'),
 			}),
 		);
+	});
+
+	it('retries a rate-limited post patch', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(new Response(null, { status: 429 }))
+			.mockResolvedValueOnce(new Response(null, { status: 200 }));
+		const sleep = vi.fn(async () => undefined);
+
+		await patchMattermostAnswerPost({
+			baseUrl: 'https://mattermost.example/base/',
+			botToken: 'token',
+			postId: 'post-1',
+			message: 'Streaming answer',
+			baseProps: {},
+			attachments: [],
+			fetchImpl,
+			sleep,
+		});
+
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+		expect(sleep).toHaveBeenCalledOnce();
+	});
+
+	it('uses the Mattermost rate-limit reset delay', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(new Response(null, { status: 429, headers: { 'X-Ratelimit-Reset': '1' } }))
+			.mockResolvedValueOnce(new Response(null, { status: 200 }));
+		const sleep = vi.fn(async () => undefined);
+
+		await patchMattermostAnswerPost({
+			baseUrl: 'https://mattermost.example/base/',
+			botToken: 'token',
+			postId: 'post-1',
+			message: 'Streaming answer',
+			baseProps: {},
+			attachments: [],
+			fetchImpl,
+			sleep,
+		});
+
+		expect(sleep).toHaveBeenCalledWith(1000);
+	});
+
+	it('throws after exhausting post patch rate-limit retries', async () => {
+		const fetchImpl = vi.fn(async () => new Response(null, { status: 429 }));
+		const sleep = vi.fn(async () => undefined);
+
+		await expect(
+			patchMattermostAnswerPost({
+				baseUrl: 'https://mattermost.example/base/',
+				botToken: 'token',
+				postId: 'post-1',
+				message: 'Streaming answer',
+				baseProps: {},
+				attachments: [],
+				fetchImpl,
+				sleep,
+			}),
+		).rejects.toThrow('Mattermost post patch failed with status 429');
+		expect(fetchImpl).toHaveBeenCalledTimes(4);
+		expect(sleep).toHaveBeenCalledTimes(3);
+	});
+
+	it('does not retry other post patch failures', async () => {
+		const fetchImpl = vi.fn(async () => new Response(null, { status: 500 }));
+		const sleep = vi.fn(async () => undefined);
+
+		await expect(
+			patchMattermostAnswerPost({
+				baseUrl: 'https://mattermost.example/base/',
+				botToken: 'token',
+				postId: 'post-1',
+				message: 'Streaming answer',
+				baseProps: {},
+				attachments: [],
+				fetchImpl,
+				sleep,
+			}),
+		).rejects.toThrow('Mattermost post patch failed with status 500');
+		expect(fetchImpl).toHaveBeenCalledOnce();
+		expect(sleep).not.toHaveBeenCalled();
 	});
 
 	it('keeps the answer and link in markdown without a card', () => {

@@ -1,0 +1,88 @@
+name: Deploy Caddy config
+
+on:
+    pull_request:
+        paths:
+            - 'caddy/Caddyfile'
+            - '.github/workflows/caddy.yml'
+    push:
+        branches:
+            - main
+        paths:
+            - 'caddy/Caddyfile'
+            - '.github/workflows/caddy.yml'
+
+env:
+    CADDY_IMAGE: caddy:2.11
+
+jobs:
+    validate:
+        name: Validate Caddyfile
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Check out the repo
+              uses: actions/checkout@v4
+
+            - name: Validate
+              run: |
+                  docker run --rm \
+                    -v "$PWD/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+                    ${{ env.CADDY_IMAGE }} caddy validate --config /etc/caddy/Caddyfile
+
+            - name: Check formatting
+              run: |
+                  docker run --rm \
+                    -v "$PWD/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+                    ${{ env.CADDY_IMAGE }} caddy fmt --diff /etc/caddy/Caddyfile
+
+    deploy:
+        name: Deploy to GCP instance
+        runs-on: ubuntu-latest
+        needs: validate
+        if: github.event_name == 'push'
+
+        steps:
+            - name: Check out the repo
+              uses: actions/checkout@v4
+
+            - name: Copy Caddyfile
+              uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1.0.0
+              with:
+                  host: ${{ secrets.VM_HOST }}
+                  username: github-actions-demo
+                  key: ${{ secrets.PRIVATE_KEY }}
+                  source: caddy/Caddyfile
+                  target: /home/github-actions-demo/
+
+            - name: Reload Caddy
+              uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+              with:
+                  host: ${{ secrets.VM_HOST }}
+                  username: github-actions-demo
+                  key: ${{ secrets.PRIVATE_KEY }}
+                  script: |
+                      set -e
+                      CADDY_DIR=/home/github-actions-demo/caddy
+
+                      docker pull ${{ env.CADDY_IMAGE }}
+                      docker run --rm -v "$CADDY_DIR:/etc/caddy:ro" \
+                        ${{ env.CADDY_IMAGE }} caddy validate --config /etc/caddy/Caddyfile
+
+                      # Caddy replaces the legacy nginx container as the only process on :80/:443.
+                      docker rm -f nginx 2>/dev/null || true
+
+                      if [ -n "$(docker ps -q -f name=^caddy$)" ]; then
+                        docker exec caddy caddy reload --config /etc/caddy/Caddyfile
+                      else
+                        docker rm -f caddy 2>/dev/null || true
+                        # /data holds the ACME account and certificates: it must survive restarts.
+                        docker run -d --name caddy --restart unless-stopped --net=host \
+                          -v "$CADDY_DIR:/etc/caddy:ro" \
+                          -v caddy_data:/data \
+                          -v caddy_config:/config \
+                          ${{ env.CADDY_IMAGE }}
+                      fi
+
+                      sleep 3
+                      docker logs --tail 30 caddy

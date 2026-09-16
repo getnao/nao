@@ -57,8 +57,8 @@ import {
 } from './mattermost-helpers';
 import { posthog, PostHogEvent } from './posthog';
 
-/** Mattermost throttles frequent post edits and the adapter has no rate-limit backoff. */
-const UPDATE_INTERVAL_MS = 1000;
+/** Matches Slack's 200ms cadence; 429s are retried because Mattermost's server bucket is shared. */
+const UPDATE_INTERVAL_MS = 200;
 
 type MattermostConversationContext = Omit<ConversationContext, 'blocks' | 'textBlockIndex'> & {
 	answerTextPartIndex: number;
@@ -432,7 +432,7 @@ class ProjectMattermostBot {
 			const { lastMessage } = await this._readStreamAndUpdateMessage(stream, ctx);
 
 			const chatUrl = new URL(ctx.chatId, this._config.redirectUrl).toString();
-			await this._editAnswerMessage(ctx, chatUrl);
+			await this._editAnswerMessageFailSoft(ctx, chatUrl);
 			if (answerPostId) {
 				await this._setStopAttachment(answerPostId, false);
 			}
@@ -532,6 +532,19 @@ class ProjectMattermostBot {
 		});
 	}
 
+	private async _editAnswerMessageFailSoft(ctx: MattermostConversationContext, chatUrl?: string): Promise<boolean> {
+		try {
+			await this._editAnswerMessage(ctx, chatUrl);
+			return true;
+		} catch (error) {
+			logger.warn(`Failed to update Mattermost answer post: ${String(error)}`, {
+				source: 'system',
+				projectId: this._config.projectId,
+			});
+			return false;
+		}
+	}
+
 	private _handleClarificationPart(
 		part: Extract<UIMessagePart, { type: 'tool-clarification' }>,
 		state: StreamState,
@@ -553,8 +566,9 @@ class ProjectMattermostBot {
 		if (Date.now() - state.lastUpdateAt < UPDATE_INTERVAL_MS || !part.text) {
 			return;
 		}
-		await this._editAnswerMessage(ctx);
-		state.lastUpdateAt = Date.now();
+		if (await this._editAnswerMessageFailSoft(ctx)) {
+			state.lastUpdateAt = Date.now();
+		}
 	}
 
 	private _handleSqlPart(part: Extract<UIMessagePart, { type: 'tool-execute_sql' }>, state: StreamState): void {
@@ -614,7 +628,7 @@ class ProjectMattermostBot {
 			state.renderedToolCallIds.add(part.toolCallId);
 			ctx.answerTextPartIndex = -1;
 			ctx.bodyParts.push(table);
-			await this._editAnswerMessage(ctx);
+			await this._editAnswerMessageFailSoft(ctx);
 			return;
 		}
 		try {
@@ -728,8 +742,9 @@ class ProjectMattermostBot {
 		}
 
 		if (Date.now() - state.lastUpdateAt >= UPDATE_INTERVAL_MS) {
-			await this._editAnswerMessage(ctx);
-			state.lastUpdateAt = Date.now();
+			if (await this._editAnswerMessageFailSoft(ctx)) {
+				state.lastUpdateAt = Date.now();
+			}
 		}
 	}
 
@@ -746,7 +761,7 @@ class ProjectMattermostBot {
 		if (ctx.answerTextPartIndex === -1 || !ctx.convMessage) {
 			return;
 		}
-		await this._editAnswerMessage(ctx);
+		await this._editAnswerMessageFailSoft(ctx);
 	}
 
 	private _updateTextBlock(text: string, ctx: MattermostConversationContext): void {

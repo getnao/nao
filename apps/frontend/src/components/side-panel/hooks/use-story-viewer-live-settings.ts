@@ -35,14 +35,16 @@ export const useStoryViewerLiveSettings = ({
 
 	const updateLiveSettingsMutation = useMutation(
 		trpc.story.updateLiveSettings.mutationOptions({
-			onSuccess: () => {
-				void queryClient.invalidateQueries({
-					queryKey: trpc.story.listVersions.queryKey({ chatId, storySlug }),
-				});
-				void queryClient.invalidateQueries({
-					queryKey: trpc.story.getLatest.queryKey({ chatId, storySlug }),
-				});
-				invalidateSharedStory();
+			onSuccess: async () => {
+				await Promise.all([
+					queryClient.invalidateQueries({
+						queryKey: trpc.story.listVersions.queryKey({ chatId, storySlug }),
+					}),
+					queryClient.invalidateQueries({
+						queryKey: trpc.story.getLatest.queryKey({ chatId, storySlug }),
+					}),
+					invalidateSharedStory(),
+				]);
 			},
 		}),
 	);
