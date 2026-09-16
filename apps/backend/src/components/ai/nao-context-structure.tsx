@@ -24,11 +24,9 @@ export function NaoContextStructure({
 			<Title level={2}>How nao Works</Title>
 			<List>
 				{[
-					isPresent('rules') && (
-						<ListItem key='rules'>
-							<Code>RULES.md</Code> — project-wide rules; read it for project conventions.
-						</ListItem>
-					),
+					<ListItem key='rules'>
+						<Code>RULES.md</Code> — project-wide rules; read it for project conventions.
+					</ListItem>,
 					isPresent('semantics') && (
 						<ListItem key='semantics'>
 							<Code>semantics/</Code> — metric and business definitions; read them before calculating or

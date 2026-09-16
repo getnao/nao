@@ -172,7 +172,7 @@ describe('SystemPrompt context structure', () => {
 		expect(neitherVisible).toContain('use for orientation, but do not treat it as ground truth.');
 	});
 
-	it('shows only context reported as present', () => {
+	it('always shows rules and only optional context reported as present', () => {
 		const absent = renderToMarkdown(
 			SystemPrompt({
 				contextPresence: {
@@ -210,10 +210,12 @@ describe('SystemPrompt context structure', () => {
 			}),
 		);
 
-		for (const contextPath of ['RULES.md', 'semantics/', 'docs/', 'docs/notion/', 'databases/']) {
+		expect(absent).toContain('\n- `RULES.md`');
+		for (const contextPath of ['semantics/', 'docs/', 'docs/notion/', 'databases/']) {
 			expect(absent).not.toContain(`\n- \`${contextPath}\``);
 			expect(present).toContain(`\`${contextPath}\``);
 		}
+		expect(present).toContain('`RULES.md`');
 		expect(docsWithoutNotion).toContain('`docs/` —');
 		expect(docsWithoutNotion).not.toContain('`docs/notion/`');
 	});
