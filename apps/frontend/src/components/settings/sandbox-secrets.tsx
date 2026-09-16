@@ -1,9 +1,12 @@
 import {
+	isReservedSandboxSecretName,
 	SANDBOX_SECRET_DESCRIPTION_MAX_LENGTH,
 	SANDBOX_SECRET_NAME_MAX_LENGTH,
 	SANDBOX_SECRET_NAME_PATTERN,
 	SANDBOX_SECRET_VALUE_MAX_LENGTH,
+	SANDBOX_SECRET_VALUE_MIN_LENGTH,
 } from '@nao/shared/types';
+import { useQuery } from '@tanstack/react-query';
 import { KeyRound, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -24,38 +27,65 @@ import { SettingsCard } from '@/components/ui/settings-card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getTimeAgo } from '@/lib/time-ago';
 import { cn } from '@/lib/utils';
+import { trpc } from '@/main';
 import { useSandboxSecretMutations, useSandboxSecretsQuery } from '@/queries/use-sandbox-secrets';
 
 type SandboxSecret = NonNullable<ReturnType<typeof useSandboxSecretsQuery>['data']>[number];
 
 type DialogState = { mode: 'create' } | { mode: 'edit'; secret: SandboxSecret } | null;
 
-export function SandboxSecrets() {
+export function SettingsSandboxSecrets() {
 	const secrets = useSandboxSecretsQuery();
+	const agentSettings = useQuery(trpc.project.getAgentSettings.queryOptions());
 	const { setMutation, updateDescriptionMutation, deleteMutation } = useSandboxSecretMutations();
 	const [dialog, setDialog] = useState<DialogState>(null);
 	const [secretToDelete, setSecretToDelete] = useState<SandboxSecret | null>(null);
 
-	const handleConfirmDelete = async () => {
+	const sandboxesDisabled = agentSettings.isSuccess && !(agentSettings.data?.experimental?.sandboxes ?? false);
+
+	const openDialog = (state: DialogState) => {
+		setMutation.reset();
+		updateDescriptionMutation.reset();
+		setDialog(state);
+	};
+
+	const closeDialog = () => {
+		setDialog(null);
+		setMutation.reset();
+		updateDescriptionMutation.reset();
+	};
+
+	const openDeleteDialog = (secret: SandboxSecret) => {
+		deleteMutation.reset();
+		setSecretToDelete(secret);
+	};
+
+	const handleConfirmDelete = () => {
 		if (!secretToDelete) {
 			return;
 		}
-		await deleteMutation.mutateAsync({ secretId: secretToDelete.id });
-		setSecretToDelete(null);
+		deleteMutation.mutate({ secretId: secretToDelete.id }, { onSuccess: () => setSecretToDelete(null) });
 	};
 
 	return (
 		<SettingsCard
-			title='Secrets'
-			description='API keys and other credentials the code running in a sandbox can read as environment variables. Values are encrypted, never shown again, and never sent to the model.'
+			title='Sandbox secrets'
+			description='API keys and other credentials the code running in a sandbox can read as environment variables. They are yours alone: encrypted, never shown again, and never sent to the model.'
 			action={
-				<Button size='sm' onClick={() => setDialog({ mode: 'create' })}>
+				<Button size='sm' onClick={() => openDialog({ mode: 'create' })}>
 					<Plus />
 					Add secret
 				</Button>
 			}
 			divide
 		>
+			{sandboxesDisabled && (
+				<p className='text-xs text-muted-foreground'>
+					Sandboxes are off for this project, so these secrets are not used yet. Turn on{' '}
+					<span className='font-medium text-foreground'>Sandboxes</span> in Experimental above to let the
+					agent run code that reads them.
+				</p>
+			)}
 			{secrets.isLoading ? (
 				<div className='flex flex-col divide-y'>
 					<SandboxSecretSkeleton className='pt-0' />
@@ -72,8 +102,8 @@ export function SandboxSecrets() {
 							key={secret.id}
 							secret={secret}
 							className='first:pt-0 last:pb-0'
-							onEdit={() => setDialog({ mode: 'edit', secret })}
-							onDelete={() => setSecretToDelete(secret)}
+							onEdit={() => openDialog({ mode: 'edit', secret })}
+							onDelete={() => openDeleteDialog(secret)}
 						/>
 					))}
 				</div>
@@ -81,7 +111,7 @@ export function SandboxSecrets() {
 
 			<SandboxSecretDialog
 				state={dialog}
-				onClose={() => setDialog(null)}
+				onClose={closeDialog}
 				isPending={setMutation.isPending || updateDescriptionMutation.isPending}
 				error={setMutation.error?.message ?? updateDescriptionMutation.error?.message}
 				onSubmit={async ({ name, value, description }) => {
@@ -90,7 +120,7 @@ export function SandboxSecrets() {
 					} else {
 						await setMutation.mutateAsync({ name, value, description });
 					}
-					setDialog(null);
+					closeDialog();
 				}}
 			/>
 
@@ -220,7 +250,8 @@ function SandboxSecretForm({
 	const [values, setValues] = useState(initialValues);
 	const normalizedName = values.name.trim().toUpperCase();
 	const nameError = getNameError(normalizedName);
-	const canSubmit = !nameError && (isEdit || values.value.length > 0) && !isPending;
+	const valueError = getValueError(values.value, isEdit);
+	const canSubmit = !nameError && !valueError && !isPending;
 
 	const handleSubmit = (event: React.FormEvent) => {
 		event.preventDefault();
@@ -287,6 +318,7 @@ function SandboxSecretForm({
 						value={values.value}
 						onChange={(event) => setValues((prev) => ({ ...prev, value: event.target.value }))}
 					/>
+					{valueError && values.value && <p className='text-xs text-destructive'>{valueError}</p>}
 				</div>
 
 				<div className='grid gap-1.5'>
@@ -330,6 +362,19 @@ function getNameError(name: string): string | null {
 	}
 	if (!SANDBOX_SECRET_NAME_PATTERN.test(name)) {
 		return 'Use only uppercase letters, digits and underscores, and do not start with a digit.';
+	}
+	if (isReservedSandboxSecretName(name)) {
+		return 'This name is reserved by the sandbox runtime. Choose another one.';
+	}
+	return null;
+}
+
+function getValueError(value: string, isEdit: boolean): string | null {
+	if (value.length === 0) {
+		return isEdit ? null : 'Value is required.';
+	}
+	if (value.length < SANDBOX_SECRET_VALUE_MIN_LENGTH) {
+		return `A secret must be at least ${SANDBOX_SECRET_VALUE_MIN_LENGTH} characters.`;
 	}
 	return null;
 }

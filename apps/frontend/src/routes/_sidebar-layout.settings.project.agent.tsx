@@ -7,6 +7,7 @@ import { SettingsExcludeColumns } from '@/components/settings/exclude-columns';
 import { SettingsExperimental } from '@/components/settings/experimental';
 import { LlmProvidersSection } from '@/components/settings/llm-providers-section';
 import { SavedPrompts } from '@/components/settings/saved-prompts';
+import { SettingsSandboxSecrets } from '@/components/settings/sandbox-secrets';
 import { SettingsDisplayMap } from '@/components/settings/display-map';
 import { SettingsProjectMemory } from '@/components/settings/project-memory';
 import { SettingsTranscribe } from '@/components/settings/settings-transcribe';
@@ -86,6 +87,7 @@ function ToolsSettings({ isAdmin }: { isAdmin: boolean }) {
 			{isAdmin && <SettingsProjectMemory />}
 			<SettingsDisplayMap isAdmin={isAdmin} />
 			<SettingsExperimental isAdmin={isAdmin} />
+			<SettingsSandboxSecrets />
 			<SettingsExcludeColumns isAdmin={isAdmin} />
 		</>
 	);
