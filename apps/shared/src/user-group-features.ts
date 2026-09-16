@@ -28,6 +28,7 @@ export const DEFAULT_TOOL_CALL_DENSITY_POLICY: ToolCallDensityPolicy = {
 };
 
 export const DEFAULT_USER_GROUP_NAME = 'All Users';
+export const FREE_CUSTOM_USER_GROUP_LIMIT = 3;
 
 export const DEFAULT_USER_GROUP_CONFIG: StoredUserGroupConfig = {
 	version: 2,
