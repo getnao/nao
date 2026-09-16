@@ -156,4 +156,7 @@ export type NewMcpOAuthClient = typeof sqliteSchema.mcpOAuthClient.$inferInsert;
 export type DBMcpUserToken = typeof sqliteSchema.mcpUserToken.$inferSelect;
 export type NewMcpUserToken = typeof sqliteSchema.mcpUserToken.$inferInsert;
 
+export type DBSandboxSecret = typeof sqliteSchema.sandboxSecret.$inferSelect;
+export type NewSandboxSecret = typeof sqliteSchema.sandboxSecret.$inferInsert;
+
 export default allSchema as typeof sqliteSchema;

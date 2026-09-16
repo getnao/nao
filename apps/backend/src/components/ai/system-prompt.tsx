@@ -4,6 +4,7 @@ import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import type { InternalSkill } from '../../agents/skills';
 import { listInternalSkills } from '../../agents/skills';
 import { Block, Bold, Br, CodeBlock, Link, List, ListItem, Location, Span, Title } from '../../lib/markdown';
+import type { SandboxSecretDefinition } from '../../services/sandbox-secret.service';
 import type { Skill } from '../../services/skill';
 import { tokenCounter } from '../../services/token-counter';
 import type { UserMemory } from '../../types/memory';
@@ -30,6 +31,8 @@ type SystemPromptProps = {
 	customCharts?: ChartPluginManifestEntry[];
 	/** Names of MCP servers the agent is allowed to call (tools discovered as on-disk specs). */
 	mcpServers?: string[];
+	/** Secrets the user made available to sandboxes as environment variables — names and purposes only, never values. */
+	sandboxSecrets?: SandboxSecretDefinition[];
 	timezone?: string;
 	testMode?: boolean;
 	/** Names of the tools in the run's tool set — rules for surface-dependent tools (e.g. display_map) are only emitted when the tool is present. Omit to include every rule. */
@@ -54,6 +57,7 @@ export function SystemPrompt({
 	internalSkills = listInternalSkills(),
 	customCharts = [],
 	mcpServers = [],
+	sandboxSecrets = [],
 	timezone,
 	testMode,
 	toolNames,
@@ -294,6 +298,8 @@ export function SystemPrompt({
 				{customCharts.length > 0 && <CustomChartsBlock charts={customCharts} />}
 
 				{mcpServers.length > 0 && <McpServersBlock servers={mcpServers} />}
+
+				{hasTool('execute_sandboxed_code') && <SandboxSecretsBlock secrets={sandboxSecrets} />}
 
 				{visibleMemories.length > 0 && <MemoryBlock memories={visibleMemories} />}
 			</Block>
@@ -568,6 +574,42 @@ function McpServersBlock({ servers }: { servers: string[] }) {
 					<ListItem key={server}>{server}</ListItem>
 				))}
 			</List>
+		</Block>
+	);
+}
+
+function SandboxSecretsBlock({ secrets }: { secrets: SandboxSecretDefinition[] }) {
+	return (
+		<Block>
+			<Title level={2}>Sandbox Secrets</Title>
+			{secrets.length === 0 ? (
+				<Span>
+					The user has not defined any secret for sandboxes. When code needs an API key or another credential,
+					do not ask the user to paste it in the chat: tell them to add it under{' '}
+					<Bold>Settings → Agent → Capabilities → Sandbox secrets</Bold>, after which it becomes an
+					environment variable inside execute_sandboxed_code.
+				</Span>
+			) : (
+				<>
+					<Span>
+						The user has defined the secrets below. Each one is set as an environment variable of the same
+						name inside <Bold>execute_sandboxed_code</Bold>, and only there: read it with{' '}
+						<Bold>os.environ["NAME"]</Bold> in Python or <Bold>$NAME</Bold> in a shell. You never see their
+						values, and any value that appears in the sandbox output is replaced with{' '}
+						<Bold>{'[REDACTED:NAME]'}</Bold> before it reaches you, so do not print, log or write them to
+						files and never ask the user to paste a secret in the chat. If a credential is missing, tell the
+						user to add it under <Bold>Settings → Agent → Capabilities → Sandbox secrets</Bold>.
+					</Span>
+					<List>
+						{secrets.map((secret) => (
+							<ListItem key={secret.name}>
+								<Bold>{secret.name}</Bold>
+								{secret.description ? ` — ${secret.description}` : ''}
+							</ListItem>
+						))}
+					</List>
+				</>
+			)}
 		</Block>
 	);
 }

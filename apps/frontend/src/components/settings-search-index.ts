@@ -405,6 +405,28 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 	{
 		page: '/settings/project/agent',
 		pageLabel: 'Agent',
+		section: 'Capabilities',
+		search: { tab: 'tools' },
+		title: 'Sandbox secrets',
+		description:
+			'API keys and other credentials the code running in a sandbox can read as environment variables, without exposing them to the model.',
+		keywords: [
+			'secret',
+			'secrets',
+			'api key',
+			'token',
+			'credential',
+			'env',
+			'environment variable',
+			'sandbox',
+			'boxlite',
+			'code execution',
+			'password',
+		],
+	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
 		section: 'Experimental',
 		search: { tab: 'tools' },
 		title: 'Display map',
