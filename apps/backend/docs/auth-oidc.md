@@ -126,7 +126,7 @@ When set, only users with email addresses matching one of the listed domains wil
 
 ## Identity-provider-initiated sign-in
 
-OIDC only defines app-initiated flows: when a user clicks an app tile in their identity provider (Okta's **My Apps**, Auth0's dashboard, …), the provider does not send tokens. It just redirects to the app with an `iss` query param and expects the app to start the flow.
+When a user clicks an app tile in their identity provider (Okta's **My Apps**, Auth0's dashboard, …), the provider redirects to nao and expects nao to start the authorization flow.
 
 nao exposes `GET /api/sso/start` for this. It starts the authorization request server-side and redirects the browser to the provider, so the user never sees the nao login page. Register it as the provider's initiate-login URI:
 
@@ -258,7 +258,7 @@ Find a group's Object ID in the Microsoft Entra admin center:
 2. Select the group
 3. Copy **Object ID** from **Overview**
 
-nao supports direct `groups` claims and Microsoft Graph overage claims (`_claim_names.groups` or `hasgroups`). For overage, nao checks only Object IDs referenced by UI mappings or Entra environment mappings through Microsoft Graph's `/me/checkMemberObjects`.
+nao supports direct `groups` claims and Microsoft Graph overage claims (`_claim_names.groups` or `hasgroups`). For overage, nao checks only Object IDs referenced by UI mappings, User Group environment mappings, or organization-role environment mappings through Microsoft Graph's `/me/checkMemberObjects`.
 
 ### Licensing and free-tier limits
 
