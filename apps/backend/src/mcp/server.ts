@@ -1,7 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-import { getCustomBoundaries } from '../queries/project.queries';
+import { getCustomBoundaries, getProjectById } from '../queries/project.queries';
 import type { McpEndpointSettings } from '../types/mcp-endpoint';
+import { extractConfiguredDatabases } from '../utils/nao-config';
 import { CHART_DATA_MODE_SERVER_INSTRUCTIONS } from './chart-data-mode';
 import { registerNaoMcpApps } from './embed/ui-resources';
 import { registerAssetTools } from './tools/asset-tools';
@@ -27,7 +28,9 @@ export async function createMcpServer(
 		registerSubAgentTools(server, ctx);
 	}
 	if (settings.contextLayerModeEnabled) {
-		registerContextLayerTools(server, ctx);
+		const project = await getProjectById(projectId);
+		const configuredDatabases = project?.path ? extractConfiguredDatabases(project.path) : [];
+		registerContextLayerTools(server, ctx, configuredDatabases);
 	}
 
 	if (settings.subAgentModeEnabled || settings.contextLayerModeEnabled) {
