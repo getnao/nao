@@ -23,7 +23,7 @@ vi.mock('../src/db/dbConfig', () => ({
 vi.mock('../src/db/db', () => ({
 	db: {
 		select: (selection: Record<string, unknown>) =>
-			Object.keys(selection).length === 1 ? query([]) : query(mocks.mappingRows),
+			'projectMemberUserId' in selection ? query(mocks.mappingRows) : query([]),
 		transaction: async (operation: (transaction: unknown) => Promise<void>) => operation(transaction()),
 	},
 }));
