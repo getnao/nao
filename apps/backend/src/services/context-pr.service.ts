@@ -18,6 +18,7 @@ import {
 	resolveWritePath,
 	writeFileAtomically,
 } from '../utils/safe-file-write';
+import { ContextGitActionError, toContextGitActionError } from './context-git-action-error';
 import {
 	checkoutNewBranch,
 	commitAll,
@@ -39,6 +40,8 @@ export class ContextPullRequestInputError extends Error {}
 
 /** Raised when the Git provider account is not connected, so the caller must authenticate. */
 export class ProviderNotConnectedError extends Error {}
+
+export { ContextGitActionError as ContextPullRequestCreationError };
 
 export interface CreatePullRequestResult {
 	url: string;
@@ -213,6 +216,8 @@ export async function createRecommendationPullRequest(
 		const prCreatedAt = new Date();
 		await crQueries.setRecommendationPr(rec.id, { prUrl: url, prBranch: branch, prCreatedAt });
 		return { url, branch };
+	} catch (error) {
+		throw toContextPullRequestCreationError(error, repo);
 	} finally {
 		try {
 			fs.rmSync(workdir, { recursive: true, force: true });
@@ -280,6 +285,8 @@ export async function createBatchRecommendationPullRequest(
 			),
 		);
 		return { url, branch };
+	} catch (error) {
+		throw toContextPullRequestCreationError(error, repo);
 	} finally {
 		try {
 			fs.rmSync(workdir, { recursive: true, force: true });
@@ -423,6 +430,16 @@ async function createBatchReviewRequest(args: {
 		throw new Error(`Branch ${branch} was pushed successfully, but no pull request link was returned.`);
 	}
 	return { url: reviewRequest.url, committedRecIds };
+}
+
+function toContextPullRequestCreationError(
+	error: unknown,
+	repo: RecommendationRepo,
+): ContextPullRequestInputError | ProviderNotConnectedError | ContextGitActionError {
+	if (error instanceof ContextPullRequestInputError || error instanceof ProviderNotConnectedError) {
+		return error;
+	}
+	return toContextGitActionError(error, repo, 'create-pull-request');
 }
 
 /**

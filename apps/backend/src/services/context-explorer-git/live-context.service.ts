@@ -12,7 +12,7 @@ import {
 	detectGitPlatform,
 	getContextWorktreePath,
 	resolveContextRepo,
-	resolveContextSourceGitToken,
+	resolveContextSourceGitAuthMethod,
 	resolveTrackedContextProjectPrefix,
 	sanitizeContextSourceRepositoryUrl,
 	toContextRepoState,
@@ -117,7 +117,7 @@ export function getDeploymentContextSource(): DeploymentContextSource | null {
 		platform: env.NAO_CONTEXT_GIT_PLATFORM ?? detectGitPlatform(env.NAO_CONTEXT_GIT_URL),
 		branch: env.NAO_CONTEXT_GIT_BRANCH || 'main',
 		subpath: env.NAO_CONTEXT_GIT_SUBPATH || null,
-		authMethod: resolveContextSourceAuthMethod(),
+		authMethod: resolveContextSourceGitAuthMethod(),
 	};
 }
 
@@ -415,9 +415,13 @@ function updateLiveRepository(
 	const oldCommit = runGit(repository.repositoryRoot, ['rev-parse', 'HEAD']).toString().trim();
 	try {
 		fetch(repository.repositoryRoot, configuredBranch);
+	} catch (error) {
+		throw sanitizeLiveContextError(error, secrets, 'fetch');
+	}
+	try {
 		runGit(repository.repositoryRoot, ['merge', '--ff-only', 'FETCH_HEAD'], GIT_OPERATION_TIMEOUT_MS);
 	} catch (error) {
-		throw sanitizeLiveContextError(error, secrets);
+		throw sanitizeLiveContextError(error, secrets, 'pull');
 	}
 	const newCommit = runGit(repository.repositoryRoot, ['rev-parse', 'HEAD']).toString().trim();
 	return createLivePullResult(repository, configuredBranch, oldCommit, newCommit);
@@ -485,7 +489,7 @@ function convertLiveProjectToOAuthRepository(
 		promoteStagedLiveRepository(context, stagingRoot, stagedRepository, projectPrefix);
 		return result;
 	} catch (error) {
-		throw sanitizeLiveContextError(error, token);
+		throw sanitizeLiveContextError(error, token, 'clone');
 	} finally {
 		fs.rmSync(stagingRoot, { recursive: true, force: true });
 	}
@@ -670,17 +674,4 @@ function fromLiveRepoPath(repoPath: string, projectPrefix: string): string | nul
 	}
 	const prefix = `${projectPrefix}/`;
 	return repoPath.startsWith(prefix) ? repoPath.slice(prefix.length) : null;
-}
-
-function resolveContextSourceAuthMethod(): DeploymentContextSource['authMethod'] {
-	if (env.NAO_CONTEXT_GIT_SSH_KEY) {
-		return 'ssh-key';
-	}
-	if (env.NAO_CONTEXT_GIT_TOKEN) {
-		return 'token';
-	}
-	if (resolveContextSourceGitToken() !== null) {
-		return 'token';
-	}
-	return 'public';
 }

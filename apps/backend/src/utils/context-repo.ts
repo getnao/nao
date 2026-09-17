@@ -232,6 +232,13 @@ export function resolveContextSourceGitToken(): string | null {
 	return env.NAO_CONTEXT_GIT_SSH_KEY || hasEmbeddedRepositoryCredentials(env.NAO_CONTEXT_GIT_URL) ? '' : null;
 }
 
+export function resolveContextSourceGitAuthMethod(): 'token' | 'ssh-key' | 'public' {
+	if (env.NAO_CONTEXT_GIT_SSH_KEY) {
+		return 'ssh-key';
+	}
+	return resolveContextSourceGitToken() !== null ? 'token' : 'public';
+}
+
 export function hasEmbeddedRepositoryCredentials(repositoryUrl: string | undefined): boolean {
 	if (!repositoryUrl || !/^https?:\/\//i.test(repositoryUrl)) {
 		return false;

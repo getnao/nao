@@ -2,6 +2,19 @@ import { execFileSync } from 'node:child_process';
 
 const GIT_TIMEOUT_MS = 5_000;
 
+export type GitOperation = 'git' | 'clone' | 'fetch' | 'pull' | 'push';
+
+export class GitOperationError extends Error {
+	constructor(
+		message: string,
+		public readonly operation: GitOperation,
+		public readonly details: string,
+	) {
+		super(message);
+		this.name = 'GitOperationError';
+	}
+}
+
 export function runGit(cwd: string, args: string[], timeout = GIT_TIMEOUT_MS, maxBuffer?: number): Buffer {
 	try {
 		return execFileSync('git', args, {
@@ -23,19 +36,20 @@ export function tryRunGit(cwd: string, args: string[]): Buffer | null {
 	}
 }
 
-export function toGitError(error: unknown): Error {
+export function toGitError(error: unknown, operation: GitOperation = 'git'): GitOperationError {
 	const processError = error as NodeJS.ErrnoException & { stderr?: Buffer | string; killed?: boolean };
+	const stderr = processError.stderr?.toString().trim() ?? '';
+	const details = stderr || processError.message || 'Git operation failed.';
 	if (processError.code === 'ENOENT') {
-		return new Error('Git is not installed or is unavailable.');
+		return new GitOperationError('Git is not installed or is unavailable.', operation, details);
 	}
 	if (processError.killed || processError.code === 'ETIMEDOUT') {
-		return new Error('Git did not respond before the operation timed out.');
+		return new GitOperationError('Git did not respond before the operation timed out.', operation, details);
 	}
 	if (processError.code === 'ENOBUFS') {
-		return new Error('Git output exceeded the allowed size.');
+		return new GitOperationError('Git output exceeded the allowed size.', operation, details);
 	}
 
-	const stderr = processError.stderr?.toString().trim() ?? '';
 	if (
 		stderr.includes('does not have any commits yet') ||
 		stderr.includes('ambiguous argument') ||
@@ -43,11 +57,11 @@ export function toGitError(error: unknown): Error {
 		stderr.includes('Not a valid object name HEAD') ||
 		stderr.includes('unknown revision')
 	) {
-		return new Error('The context repository has no commits yet.');
+		return new GitOperationError('The context repository has no commits yet.', operation, details);
 	}
 	if (stderr.includes('not a git repository')) {
-		return new Error('The project folder is not inside a Git repository.');
+		return new GitOperationError('The project folder is not inside a Git repository.', operation, details);
 	}
 
-	return new Error(stderr || processError.message || 'Git operation failed.');
+	return new GitOperationError(details, operation, details);
 }

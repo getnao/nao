@@ -10,12 +10,14 @@ vi.hoisted(() => {
 });
 
 import {
+	ContextPullRequestCreationError,
 	createRecommendationPullRequest,
 	createReviewRequest,
 	resolveRecommendationRepo,
 } from '../src/services/context-pr.service';
 import { GENERIC_GIT_PROVIDER } from '../src/services/generic-git';
 import type { ProposedEdit } from '../src/types/context-recommendation';
+import { GitOperationError } from '../src/utils/git-repo';
 
 const mocks = vi.hoisted(() => ({
 	cloneRepo: vi.fn(),
@@ -75,6 +77,7 @@ vi.mock('../src/services/github', () => ({
 	findContextConfigSubPath: mocks.findContextConfigSubPath,
 	getGitInfo: mocks.getGitInfo,
 	getUserGitIdentity: mocks.getUserGitIdentity,
+	publicRepoUrl: (repoFullName: string) => `https://github.com/${repoFullName}.git`,
 	pushBranch: vi.fn(),
 }));
 
@@ -111,6 +114,34 @@ describe('createRecommendationPullRequest', () => {
 			prBranch: expect.stringMatching(/^nao\/context-rec-1234/),
 			prCreatedAt: expect.any(Date),
 			prUrl: 'https://github.com/nao/context/pull/1',
+		});
+	});
+
+	it('attaches repository context and the Git operation to clone failures', async () => {
+		const gitError = new GitOperationError(
+			'Unauthorized',
+			'clone',
+			'Unauthorized\nfatal: Could not read from remote repository.',
+		);
+		mocks.getRecommendationById.mockResolvedValue(recommendation());
+		mocks.cloneRepo.mockImplementation(() => {
+			throw gitError;
+		});
+
+		const error = await createRecommendationPullRequest('project-1', 'rec-123456789', 'user-1').catch(
+			(caught) => caught,
+		);
+
+		expect(error).toBeInstanceOf(ContextPullRequestCreationError);
+		expect(error).toMatchObject({
+			details: {
+				authMethod: 'oauth-token',
+				operation: 'clone',
+				platform: 'github',
+				provider: 'github',
+				repositoryUrl: 'https://github.com/nao/context.git',
+			},
+			originalError: gitError,
 		});
 	});
 

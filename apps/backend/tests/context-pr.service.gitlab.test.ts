@@ -75,6 +75,7 @@ vi.mock('../src/services/gitlab', () => ({
 	getGitInfo: mocks.getGitInfo,
 	getUserGitIdentity: mocks.getUserGitIdentity,
 	gitlabBaseUrl: () => 'https://gitlab.com',
+	publicRepoUrl: (repoFullName: string) => `https://gitlab.com/${repoFullName}.git`,
 	pushBranch: vi.fn(),
 }));
 

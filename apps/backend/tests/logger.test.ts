@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { serializeError } from '../src/utils/logger';
+import { logger, sanitizeLogText, serializeError } from '../src/utils/logger';
 
 vi.mock('../src/db/db', () => ({ db: {} }));
+vi.mock('../src/queries/log.queries', () => ({ insertLog: vi.fn(async () => undefined) }));
 
 describe('serializeError', () => {
 	it('redacts credentials embedded in a URL within the error message', () => {
@@ -35,5 +36,25 @@ describe('serializeError', () => {
 	it('redacts non-Error values that stringify to a credentialed URL', () => {
 		const serialized = serializeError('failed at https://user:pw@example.com/path');
 		expect(serialized.value).toBe('failed at https://***@example.com/path');
+	});
+
+	it('redacts authorization values and private keys', () => {
+		const value =
+			'Authorization: Bearer token-value\n-----BEGIN PRIVATE KEY-----\nprivate-key\n-----END PRIVATE KEY-----';
+
+		expect(sanitizeLogText(value)).toBe('Authorization: [REDACTED]\n[REDACTED PRIVATE KEY]');
+	});
+
+	it('sanitizes logger messages before writing to stdout', () => {
+		const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+		logger.error('Clone failed at https://oauth2:secret-token@gitlab.com/nao/context.git', {
+			source: 'agent',
+		});
+
+		expect(consoleError).toHaveBeenCalledWith(
+			'[ERROR] [agent] Clone failed at https://***@gitlab.com/nao/context.git',
+		);
+		consoleError.mockRestore();
 	});
 });

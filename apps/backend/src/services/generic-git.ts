@@ -81,15 +81,19 @@ function authenticatedRepoUrl(token: string, repositoryUrl: string): string {
 }
 
 function cloneRepo(token: string, repositoryUrl: string, targetDir: string): void {
-	execFileSync('git', ['clone', authenticatedRepoUrl(token, repositoryUrl), targetDir], {
-		timeout: 120_000,
-		stdio: 'pipe',
-	});
-	execFileSync('git', ['remote', 'set-url', 'origin', sanitizeContextSourceRepositoryUrl(repositoryUrl)], {
-		cwd: targetDir,
-		timeout: 5_000,
-		stdio: 'pipe',
-	});
+	try {
+		execFileSync('git', ['clone', authenticatedRepoUrl(token, repositoryUrl), targetDir], {
+			timeout: 120_000,
+			stdio: 'pipe',
+		});
+		execFileSync('git', ['remote', 'set-url', 'origin', sanitizeContextSourceRepositoryUrl(repositoryUrl)], {
+			cwd: targetDir,
+			timeout: 5_000,
+			stdio: 'pipe',
+		});
+	} catch (error) {
+		throw toGitError(error, 'clone');
+	}
 }
 
 function getGitInfo(dir: string): { branch: string | null } {
@@ -144,12 +148,15 @@ function pushBranch(args: { token: string; repoFullName: string; dir: string; br
 	);
 	if (result.error || result.status !== 0) {
 		const spawnError = result.error as NodeJS.ErrnoException | undefined;
-		throw toGitError({
-			message: spawnError?.message ?? 'Git push failed.',
-			code: spawnError?.code,
-			stderr: result.stderr,
-			killed: result.signal !== null,
-		});
+		throw toGitError(
+			{
+				message: spawnError?.message ?? 'Git push failed.',
+				code: spawnError?.code,
+				stderr: result.stderr,
+				killed: result.signal !== null,
+			},
+			'push',
+		);
 	}
 	return `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
 }

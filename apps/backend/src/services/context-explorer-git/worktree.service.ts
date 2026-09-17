@@ -211,7 +211,7 @@ export async function ensureContextWorktree(
 			}
 		} catch (error) {
 			removeWorktreeDirectory(unresolved.worktreeRoot, context.projectFolder);
-			throw sanitizeGitError(error, context.token);
+			throw sanitizeGitError(error, context.token, matchingClone ? 'git' : 'clone');
 		}
 		invalidateContextProjectPrefix(unresolved.worktreeRoot);
 		provisioned = true;
@@ -496,7 +496,7 @@ export function fetchContextRepository(
 			]);
 		}
 	} catch (error) {
-		throw sanitizeGitError(error, token);
+		throw sanitizeGitError(error, token, 'fetch');
 	}
 }
 

@@ -10,7 +10,7 @@ import type { ResolvedContextRepo } from '../../utils/context-repo';
 import { normalizeProjectPath } from '../../utils/context-repo';
 import type { GitIdentity } from '../../utils/git-identity';
 import { getGitOAuthCredential, runGitWithOAuth } from '../../utils/git-oauth';
-import { runGit, toGitError, tryRunGit } from '../../utils/git-repo';
+import { type GitOperation, GitOperationError, runGit, toGitError, tryRunGit } from '../../utils/git-repo';
 import { GIT_OPERATION_TIMEOUT_MS, REPO_FULL_NAME_PATTERN } from './types';
 
 export function refreshDefaultBranch(repo: ResolvedContextRepo, provider: RepoProvider, token: string): void {
@@ -22,7 +22,7 @@ export function refreshDefaultBranch(repo: ResolvedContextRepo, provider: RepoPr
 			GIT_OPERATION_TIMEOUT_MS,
 		);
 	} catch (error) {
-		throw sanitizeGitError(error, token);
+		throw sanitizeGitError(error, token, 'fetch');
 	}
 }
 
@@ -281,32 +281,55 @@ export function resolveLiveProjectPrefix(repositoryRoot: string, projectFolder: 
 	return relative.split(path.sep).join('/');
 }
 
-export function sanitizeLiveContextError(error: unknown, credentials?: string | string[] | null): Error {
+export function sanitizeLiveContextError(
+	error: unknown,
+	credentials?: string | string[] | null,
+	fallbackOperation?: GitOperation,
+): Error {
 	let message = error instanceof Error ? error.message : 'Git pull failed.';
+	let details = error instanceof GitOperationError ? error.details : message;
 	const providedCredentials = Array.isArray(credentials) ? credentials : [credentials];
 	for (const secret of [env.NAO_CONTEXT_GIT_TOKEN, env.NAO_CONTEXT_GIT_SSH_KEY, ...providedCredentials]) {
 		if (secret) {
 			message = message.replaceAll(secret, '[redacted]');
+			details = details.replaceAll(secret, '[redacted]');
 		}
 	}
 	message = message.replace(/(https?:\/\/)[^/\s@]+@/gi, '$1[redacted]@');
+	details = details.replace(/(https?:\/\/)[^/\s@]+@/gi, '$1[redacted]@');
+	let translatedMessage: string | null = null;
 	if (/Not possible to fast-forward|divergent branches|non-fast-forward/i.test(message)) {
-		return new Error('The live context branch has diverged and cannot be updated with a fast-forward pull.');
+		translatedMessage = 'The live context branch has diverged and cannot be updated with a fast-forward pull.';
 	}
 	if (/local changes.*would be overwritten|would be overwritten by merge/i.test(message)) {
-		return new Error('The live context has local changes that would be overwritten by this update.');
+		translatedMessage = 'The live context has local changes that would be overwritten by this update.';
 	}
-	return new Error(translateGitErrorMessage(message) ?? message);
+	const safeMessage = translatedMessage ?? translateGitErrorMessage(message) ?? message;
+	const operation =
+		error instanceof GitOperationError && error.operation !== 'git'
+			? error.operation
+			: (fallbackOperation ?? (error instanceof GitOperationError ? error.operation : undefined));
+	return operation ? new GitOperationError(safeMessage, operation, details) : new Error(safeMessage);
 }
 
 export function readOptionalGitValue(cwd: string, args: string[]): string | null {
 	return tryRunGit(cwd, args)?.toString().trim() || null;
 }
 
-export function sanitizeGitError(error: unknown, token: string): Error {
+export function sanitizeGitError(error: unknown, token: string, fallbackOperation?: GitOperation): Error {
 	const message = error instanceof Error ? error.message : 'Git operation failed.';
 	const redactedMessage = token ? message.replaceAll(token, '[redacted]') : message;
-	return new Error(translateGitErrorMessage(redactedMessage) ?? redactedMessage);
+	const translatedMessage = translateGitErrorMessage(redactedMessage) ?? redactedMessage;
+	const operation =
+		error instanceof GitOperationError && error.operation !== 'git'
+			? error.operation
+			: (fallbackOperation ?? (error instanceof GitOperationError ? error.operation : undefined));
+	if (!operation) {
+		return new Error(translatedMessage);
+	}
+	const details = error instanceof GitOperationError ? error.details : message;
+	const redactedDetails = token ? details.replaceAll(token, '[redacted]') : details;
+	return new GitOperationError(translatedMessage, operation, redactedDetails);
 }
 
 function translateGitErrorMessage(message: string): string | null {

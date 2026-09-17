@@ -174,7 +174,7 @@ export function pushContextBranch(
 		]);
 		return { branch, defaultBranch, pushOutput };
 	} catch (error) {
-		throw sanitizeGitError(error, token);
+		throw sanitizeGitError(error, token, 'push');
 	}
 }
 

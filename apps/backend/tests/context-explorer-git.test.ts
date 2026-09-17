@@ -125,6 +125,7 @@ import {
 	updateContextWorktree,
 } from '../src/services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../src/services/context-explorer-pr.service';
+import { ContextGitActionError } from '../src/services/context-git-action-error';
 import { GENERIC_GIT_PROVIDER, parseGenericRepositoryUrl, parseReviewRequestLink } from '../src/services/generic-git';
 import {
 	getContextWorktreePath,
@@ -2408,7 +2409,19 @@ describe('context explorer worktrees', () => {
 			throw new Error(error);
 		});
 
-		await expect(pushContextExplorerBranch(fixture.context)).rejects.toThrow(expected);
+		const failure = await pushContextExplorerBranch(fixture.context).catch((error) => error);
+
+		expect(failure).toBeInstanceOf(ContextGitActionError);
+		expect(failure).toMatchObject({
+			details: {
+				authMethod: 'oauth-token',
+				operation: 'push',
+				platform: 'github',
+				provider: 'github',
+				repositoryUrl: 'https://github.com/nao/context.git',
+			},
+			message: expected,
+		});
 	});
 
 	it('switches clean existing branches and discards one or all changed paths', async () => {

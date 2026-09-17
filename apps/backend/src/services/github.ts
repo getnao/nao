@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 
 import { env } from '../env';
 import { GitIdentity, NAO_CO_AUTHOR, withCoAuthors } from '../utils/git-identity';
+import { toGitError } from '../utils/git-repo';
 import {
 	configDir,
 	isContextConfigFile,
@@ -197,15 +198,19 @@ export function publicRepoUrl(repoFullName: string): string {
 export function cloneRepo(token: string, fullName: string, targetDir: string, branch?: string): void {
 	const cloneUrl = authenticatedRepoUrl(token, fullName);
 	const cleanUrl = publicRepoUrl(fullName);
-	execFileSync('git', ['clone', '--depth', '1', ...(branch ? ['--branch', branch] : []), cloneUrl, targetDir], {
-		timeout: 120_000,
-		stdio: 'pipe',
-	});
-	execFileSync('git', ['remote', 'set-url', 'origin', cleanUrl], {
-		cwd: targetDir,
-		timeout: 5_000,
-		stdio: 'pipe',
-	});
+	try {
+		execFileSync('git', ['clone', '--depth', '1', ...(branch ? ['--branch', branch] : []), cloneUrl, targetDir], {
+			timeout: 120_000,
+			stdio: 'pipe',
+		});
+		execFileSync('git', ['remote', 'set-url', 'origin', cleanUrl], {
+			cwd: targetDir,
+			timeout: 5_000,
+			stdio: 'pipe',
+		});
+	} catch (error) {
+		throw toGitError(error, 'clone');
+	}
 }
 
 export interface GitInfo {
@@ -314,15 +319,19 @@ export function commitAllAndPushBranch(args: {
 }
 
 export function pushBranch(args: { token: string; repoFullName: string; dir: string; branch: string }): string {
-	return execFileSync(
-		'git',
-		['push', authenticatedRepoUrl(args.token, args.repoFullName), `HEAD:refs/heads/${args.branch}`],
-		{
-			cwd: args.dir,
-			stdio: 'pipe',
-			timeout: 120_000,
-		},
-	).toString();
+	try {
+		return execFileSync(
+			'git',
+			['push', authenticatedRepoUrl(args.token, args.repoFullName), `HEAD:refs/heads/${args.branch}`],
+			{
+				cwd: args.dir,
+				stdio: 'pipe',
+				timeout: 120_000,
+			},
+		).toString();
+	} catch (error) {
+		throw toGitError(error, 'push');
+	}
 }
 
 const GITHUB_API_TIMEOUT_MS = 20_000;

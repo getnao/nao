@@ -34,6 +34,12 @@ import {
 	updateContextWorktree,
 } from '../services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../services/context-explorer-pr.service';
+import {
+	ContextGitActionError,
+	type ContextGitActionOperation,
+	logContextGitActionFailure,
+	toContextGitActionError,
+} from '../services/context-git-action-error';
 import { getRepoProviderDisplayName } from '../services/review-request-provider';
 import {
 	ContextProjectResolutionError,
@@ -47,6 +53,11 @@ const branchSchema = z.string().trim().min(1).max(200);
 const pathsSchema = z.array(z.string()).min(1).max(100);
 const commitSchema = z.string().regex(/^[a-f0-9]{40,64}$/i);
 const MAX_PULL_HISTORY_FILES = 1_000;
+const CONTEXT_PULL_FAILURE_MESSAGE = 'Failed to pull context changes. Ask an administrator to check Server logs.';
+const CONTEXT_PUSH_FAILURE_MESSAGE = 'Failed to push context changes. Ask an administrator to check Server logs.';
+const CONTEXT_CONNECT_FAILURE_MESSAGE =
+	'Failed to connect context repository. Ask an administrator to check Server logs.';
+const CONTEXT_GIT_ACTION_FAILURE_MESSAGE = 'Failed to complete Git action. Ask an administrator to check Server logs.';
 const fileDiffInputSchema = z
 	.object({
 		path: z.string(),
@@ -115,8 +126,10 @@ export const contextExplorerRoutes = {
 			return result;
 		} catch (error) {
 			const sanitizedError = sanitizeLiveContextError(error, token);
+			const isDomainError = error instanceof TRPCError || error instanceof ContextProjectResolutionError;
+			const clientMessage = isDomainError ? sanitizedError.message : CONTEXT_PULL_FAILURE_MESSAGE;
 			try {
-				await activityQueries.failActivity(activity.id, sanitizedError.message);
+				await activityQueries.failActivity(activity.id, clientMessage);
 			} catch (persistenceError) {
 				logPullHistoryFailure(
 					'Context pull failed, but its history could not be updated.',
@@ -125,6 +138,14 @@ export const contextExplorerRoutes = {
 					persistenceError,
 				);
 			}
+			if (!isDomainError) {
+				const detailedError = await attachContextGitActionDetails(sanitizedError, ctx.project.id, 'pull');
+				logContextGitActionFailure(detailedError, {
+					message: 'Context explorer pull failed',
+					projectId: ctx.project.id,
+					context: { action: 'pullLiveContext' },
+				});
+			}
 			throw new TRPCError({
 				code:
 					error instanceof TRPCError
@@ -132,7 +153,7 @@ export const contextExplorerRoutes = {
 						: error instanceof ContextProjectResolutionError
 							? 'BAD_REQUEST'
 							: 'INTERNAL_SERVER_ERROR',
-				message: sanitizedError.message,
+				message: clientMessage,
 			});
 		}
 	}),
@@ -162,7 +183,20 @@ export const contextExplorerRoutes = {
 					message: `Connect your ${getRepoProviderDisplayName(input.provider)} account first.`,
 				});
 			}
-			return connectContextRepository({ ...context, token: context.token, ...input });
+			try {
+				return await connectContextRepository({ ...context, token: context.token, ...input });
+			} catch (error) {
+				if (error instanceof TRPCError) {
+					throw error;
+				}
+				const detailedError = await attachContextGitActionDetails(error, ctx.project.id, 'clone', input);
+				logContextGitActionFailure(detailedError, {
+					message: 'Context explorer repository connection failed',
+					projectId: ctx.project.id,
+					context: { action: 'connectRepository' },
+				});
+				throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: CONTEXT_CONNECT_FAILURE_MESSAGE });
+			}
 		}),
 
 	disconnectRepository: contextAdminProtectedProcedure.mutation(async ({ ctx }) => {
@@ -192,8 +226,10 @@ export const contextExplorerRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			const access = await createStrictFileAccess(ctx.project.id, ctx.project.path, ctx.user);
-			return writeFileContent(input.path, input.content, input.expectedHash, access);
+			return executeContextExplorerGitAction(ctx.project.id, 'writeFile', 'git', async () => {
+				const access = await createStrictFileAccess(ctx.project.id, ctx.project.path, ctx.user);
+				return writeFileContent(input.path, input.content, input.expectedHash, access);
+			});
 		}),
 
 	searchContent: contextAdminProtectedProcedure
@@ -225,27 +261,27 @@ export const contextExplorerRoutes = {
 	updateWorktree: contextAdminProtectedProcedure
 		.input(z.object({ requiredCommits: z.array(commitSchema).max(2).default([]) }))
 		.mutation(async ({ ctx, input }) => {
-			return updateContextWorktree(
-				await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
-				input.requiredCommits,
+			return executeContextExplorerGitAction(ctx.project.id, 'updateWorktree', 'fetch', async () =>
+				updateContextWorktree(
+					await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
+					input.requiredCommits,
+				),
 			);
 		}),
 
 	switchBranch: contextAdminProtectedProcedure
 		.input(z.object({ branch: branchSchema }))
 		.mutation(async ({ ctx, input }) => {
-			return switchContextBranch(
-				await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
-				input.branch,
+			return executeContextExplorerGitAction(ctx.project.id, 'switchBranch', 'git', async () =>
+				switchContextBranch(await createGitContext(ctx.project.id, ctx.project.path, ctx.user), input.branch),
 			);
 		}),
 
 	createBranch: contextAdminProtectedProcedure
 		.input(z.object({ branch: branchSchema }))
 		.mutation(async ({ ctx, input }) => {
-			return createContextBranch(
-				await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
-				input.branch,
+			return executeContextExplorerGitAction(ctx.project.id, 'createBranch', 'fetch', async () =>
+				createContextBranch(await createGitContext(ctx.project.id, ctx.project.path, ctx.user), input.branch),
 			);
 		}),
 
@@ -262,35 +298,92 @@ export const contextExplorerRoutes = {
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			return createContextBranchAndCommit(
-				await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
-				input,
+			return executeContextExplorerGitAction(ctx.project.id, 'createBranchAndCommit', 'fetch', async () =>
+				createContextBranchAndCommit(await createGitContext(ctx.project.id, ctx.project.path, ctx.user), input),
 			);
 		}),
 
 	commitChanges: contextAdminProtectedProcedure
 		.input(z.object({ paths: pathsSchema, message: z.string().trim().min(1).max(500) }))
 		.mutation(async ({ ctx, input }) => {
-			return commitContextChanges(await createGitContext(ctx.project.id, ctx.project.path, ctx.user), input);
+			return executeContextExplorerGitAction(ctx.project.id, 'commitChanges', 'git', async () =>
+				commitContextChanges(await createGitContext(ctx.project.id, ctx.project.path, ctx.user), input),
+			);
 		}),
 
 	discardLocalChange: contextAdminProtectedProcedure
 		.input(z.object({ path: z.string() }))
 		.mutation(async ({ ctx, input }) => {
-			return discardContextFileChange(
-				await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
-				input.path,
+			return executeContextExplorerGitAction(ctx.project.id, 'discardLocalChange', 'git', async () =>
+				discardContextFileChange(
+					await createGitContext(ctx.project.id, ctx.project.path, ctx.user),
+					input.path,
+				),
 			);
 		}),
 
 	discardAllChanges: contextAdminProtectedProcedure.mutation(async ({ ctx }) => {
-		return discardAllContextChanges(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
+		return executeContextExplorerGitAction(ctx.project.id, 'discardAllChanges', 'git', async () =>
+			discardAllContextChanges(await createGitContext(ctx.project.id, ctx.project.path, ctx.user)),
+		);
 	}),
 
 	pushBranch: contextAdminProtectedProcedure.mutation(async ({ ctx }) => {
-		return pushContextExplorerBranch(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
+		try {
+			return await pushContextExplorerBranch(await createGitContext(ctx.project.id, ctx.project.path, ctx.user));
+		} catch (error) {
+			if (error instanceof TRPCError) {
+				throw error;
+			}
+			const detailedError = await attachContextGitActionDetails(error, ctx.project.id, 'push');
+			logContextGitActionFailure(detailedError, {
+				message: 'Context explorer push failed',
+				projectId: ctx.project.id,
+				context: { action: 'pushBranch' },
+			});
+			throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: CONTEXT_PUSH_FAILURE_MESSAGE });
+		}
 	}),
 };
+
+async function executeContextExplorerGitAction<T>(
+	projectId: string,
+	action: string,
+	fallbackOperation: ContextGitActionOperation,
+	execute: () => T | Promise<T>,
+): Promise<T> {
+	try {
+		return await execute();
+	} catch (error) {
+		if (error instanceof TRPCError || error instanceof ContextProjectResolutionError) {
+			throw error;
+		}
+		const detailedError = await attachContextGitActionDetails(error, projectId, fallbackOperation);
+		logContextGitActionFailure(detailedError, {
+			message: 'Context explorer Git action failed',
+			projectId,
+			context: { action },
+		});
+		throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: CONTEXT_GIT_ACTION_FAILURE_MESSAGE });
+	}
+}
+
+async function attachContextGitActionDetails(
+	error: unknown,
+	projectId: string,
+	fallbackOperation: ContextGitActionOperation,
+	repositoryOverride?: { provider: RepoProvider; repoFullName: string },
+): Promise<unknown> {
+	if (error instanceof ContextGitActionError) {
+		return error;
+	}
+	try {
+		const repository = repositoryOverride ?? (await resolveContextRepository(projectId));
+		return repository ? toContextGitActionError(error, repository, fallbackOperation) : error;
+	} catch {
+		return error;
+	}
+}
 
 function toContextPullHistoryEntry(activity: activityQueries.ContextPullActivityRow) {
 	const payload = parsePullPayload(activity.payload);
