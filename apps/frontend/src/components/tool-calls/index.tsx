@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { StoryToolCall } from './story';
+import { CallSubagentToolCall } from './call-subagent';
 import { ClarificationToolCall } from './clarification';
 import { DefaultToolCall } from './default';
 import { DisplayChartToolCall } from './display-chart';
@@ -32,6 +33,7 @@ const toolComponents: Partial<{
 	[TToolName in StaticToolName]: React.ComponentType<ToolCallComponentProps<TToolName>>;
 }> = {
 	story: StoryToolCall,
+	call_subagent: CallSubagentToolCall,
 	clarification: ClarificationToolCall,
 	display_chart: DisplayChartToolCall,
 	display_map: DisplayMapToolCall,

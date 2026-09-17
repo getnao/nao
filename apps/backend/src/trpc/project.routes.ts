@@ -38,6 +38,7 @@ import {
 	customModelMetadataSchema,
 	llmConfigSchema,
 	llmProviderSchema,
+	llmSelectedModelSchema,
 	modelSettingsMapSchema,
 } from '../types/llm';
 import { getChatContextUsage } from '../utils/chat-context-usage';
@@ -982,6 +983,11 @@ export const projectRoutes = {
 						mode: z.enum(SEMANTIC_LAYER_MODES).optional(),
 					})
 					.optional(),
+				subagent: z
+					.object({
+						model: llmSelectedModelSchema.nullable().optional(),
+					})
+					.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -995,6 +1001,7 @@ export const projectRoutes = {
 				pythonExecution: { ...existing.pythonExecution, ...input.pythonExecution },
 				webSearch: { ...existing.webSearch, ...input.webSearch },
 				semanticLayer: { ...existing.semanticLayer, ...input.semanticLayer },
+				subagent: { ...existing.subagent, ...input.subagent },
 			};
 			posthog.capture(ctx.user.id, PostHogEvent.ProjectAgentSettingsUpdated, {
 				project_id: ctx.project.id,

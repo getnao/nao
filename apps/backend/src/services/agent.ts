@@ -174,9 +174,15 @@ export async function buildToolContext(opts: {
 	agentSettings?: AgentSettings | null;
 	adminMode?: boolean;
 	supportsCustomCharts?: boolean;
+	modelSelection?: LlmSelectedModel;
 }): Promise<ToolContext> {
 	const base = await _buildContextBase(opts);
-	return { ...base, chatId: opts.chatId, adminMode: opts.adminMode ?? false };
+	return {
+		...base,
+		chatId: opts.chatId,
+		adminMode: opts.adminMode ?? false,
+		...(opts.modelSelection && { modelSelection: opts.modelSelection }),
+	};
 }
 
 export async function buildMcpToolContext(opts: {
@@ -278,14 +284,15 @@ export class AgentService {
 			projectQueries.getAgentSettings(chat.projectId),
 			projectQueries.getCustomBoundaries(chat.projectId),
 		]);
-		const toolContext = await this._getToolContext(
-			chat.projectId,
-			chat.id,
-			chat.userId,
+		const toolContext = await this._getToolContext({
+			projectId: chat.projectId,
+			chatId: chat.id,
+			userId: chat.userId,
 			agentSettings,
-			options.adminMode,
-			options.supportsCustomCharts,
-		);
+			adminMode: options.adminMode,
+			supportsCustomCharts: options.supportsCustomCharts,
+			modelSelection: resolvedLlmSelectedModel,
+		});
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
 		const resolveTools = options.tools ?? defaultAgentTools;
 		const agentTools = await resolveTools({ chat, agentSettings, toolContext, webTools, customBoundaries });
@@ -327,15 +334,8 @@ export class AgentService {
 		throw new HandlerError('BAD_REQUEST', 'No model config found');
 	}
 
-	private async _getToolContext(
-		projectId: string,
-		chatId: string,
-		userId: string,
-		agentSettings: AgentSettings | null,
-		adminMode?: boolean,
-		supportsCustomCharts?: boolean,
-	): Promise<ToolContext> {
-		return buildToolContext({ projectId, userId, chatId, agentSettings, adminMode, supportsCustomCharts });
+	private async _getToolContext(opts: Parameters<typeof buildToolContext>[0]): Promise<ToolContext> {
+		return buildToolContext(opts);
 	}
 
 	private _disposeAgent(chatId: string): void {

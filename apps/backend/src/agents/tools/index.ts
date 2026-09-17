@@ -5,10 +5,12 @@ import type { CustomBoundarySet } from '@nao/shared';
 import type { SemanticLayerMode } from '@nao/shared/types';
 import type { Tool } from 'ai';
 
+import { env } from '../../env';
 import { mcpService } from '../../services/mcp';
 import { isSemanticQueryToolEnabled, isWarehouseSqlEnabled } from '../../services/semantic-layer.service';
 import { isStorageEnabled } from '../../services/storage';
 import { AgentSettings } from '../../types/agent-settings';
+import callSubagent from './call-subagent';
 import clarification from './clarification';
 import displayChart from './display-chart';
 import { createDisplayMapTool } from './display-map';
@@ -37,6 +39,7 @@ export const MCP_SUB_AGENT_EXCLUDED_TOOLS = ['display_map'];
 
 export const tools = {
 	story,
+	call_subagent: callSubagent,
 	clarification,
 	display_chart: displayChart,
 	...(executePython && { execute_python: executePython }),
@@ -100,6 +103,7 @@ export const getTools = (
 		: {};
 
 	const {
+		call_subagent,
 		execute_python,
 		execute_sandboxed_code,
 		execute_semantic_query,
@@ -111,6 +115,7 @@ export const getTools = (
 	} = tools;
 	const baseTools = {
 		...rest,
+		...(env.BETA_SUBAGENTS_ENABLED && { call_subagent }),
 		execute_sql: isWarehouseSqlEnabled(options.semanticLayerMode) ? execute_sql : localOnlyExecuteSql,
 		...(isSemanticQueryToolEnabled(options.semanticLayerMode) && { execute_semantic_query }),
 		...(isStorageEnabled() && { write: writeTool }),

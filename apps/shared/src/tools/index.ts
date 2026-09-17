@@ -1,3 +1,4 @@
+export * as callSubagent from './call-subagent';
 export * as clarification from './clarification';
 export * as displayChart from './display-chart';
 export * as displayMap from './display-map';

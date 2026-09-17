@@ -119,6 +119,17 @@ export function SystemPrompt({
 						Be efficient with tool calls and prefer calling multiple tools in parallel, especially when
 						researching.
 					</ListItem>,
+					hasTool('call_subagent') && (
+						<ListItem>
+							When a data question needs context you do not have yet (which tables, columns, joins or
+							definitions apply), delegate the discovery to the <Bold>search</Bold> subagent with{' '}
+							<Bold>call_subagent</Bold> instead of exploring the files yourself: give it a self-contained
+							prompt naming the business terms, entities and time frame, then work from its report and
+							read only what you must verify. Explore directly when you already know where to look or a
+							single file answers it. Pass <Bold>model_id</Bold> only when the user explicitly asks for a
+							specific model to run the subagent.
+						</ListItem>
+					),
 					hasTool('execute_sql') && semanticLayerMode !== 'exclusive' && (
 						<ListItem>
 							{hasTool('execute_semantic_query')

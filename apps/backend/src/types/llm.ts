@@ -290,5 +290,6 @@ export const LLM_INFERENCE_TYPES = [
 	'compaction',
 	'title_generation',
 	'live_story_refresh',
+	'subagent',
 ] as const;
 export type LlmInferenceType = (typeof LLM_INFERENCE_TYPES)[number];

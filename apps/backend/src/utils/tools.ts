@@ -1,4 +1,4 @@
-import { asSchema, type JSONSchema7, Tool, tool } from 'ai';
+import { asSchema, type JSONSchema7, Tool, tool, type ToolCallOptions } from 'ai';
 import fs from 'fs';
 import { minimatch } from 'minimatch';
 import path from 'path';
@@ -18,16 +18,23 @@ export const STORAGE_MOUNT = 'home';
 /** Shorthand the model is likely to reach for, accepted on input but never emitted. */
 const STORAGE_MOUNT_ALIAS = '~';
 
-/** Creates a tool with a typed execution `context` */
+/**
+ * Creates a tool with a typed execution `context`. An async-generator `execute` streams
+ * preliminary outputs to the client (progress), its last yield being the final output.
+ */
 export const createTool = <TInput, TOutput>(
 	opts: Omit<Tool<TInput, TOutput>, 'execute'> & {
-		execute: (input: TInput, context: ToolContext) => Promise<TOutput>;
+		execute: (
+			input: TInput,
+			context: ToolContext,
+			options: ToolCallOptions,
+		) => Promise<TOutput> | AsyncIterable<TOutput>;
 	},
 ): Tool<TInput, TOutput> => {
 	return tool<TInput, TOutput>({
 		...opts,
-		execute: (input, { experimental_context }) => {
-			return opts.execute(input, experimental_context as ToolContext);
+		execute: (input, options) => {
+			return opts.execute(input, options.experimental_context as ToolContext, options);
 		},
 	} as Tool<TInput, TOutput>);
 };
