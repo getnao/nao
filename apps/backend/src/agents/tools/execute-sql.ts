@@ -17,10 +17,19 @@ import { detectQueryRowLimit, isReadOnlySqlQuery } from '../../utils/sql-filter'
 import { createTool } from '../../utils/tools';
 import { queryAppDb } from './query-app-db';
 
+type ExecuteQueryOptions = {
+	/** SQL compiled by the semantic layer may reach the warehouse even when hand-written SQL may not. */
+	compiledBySemanticLayer?: boolean;
+};
+
 export async function executeQuery(
 	{ sql_query, database_id, query_id, save_to }: executeSql.Input,
 	context: ToolContext,
+	options: ExecuteQueryOptions = {},
 ): Promise<executeSql.Output> {
+	if (!options.compiledBySemanticLayer) {
+		assertWarehouseSqlAllowed(database_id, context);
+	}
 	const templateWarnings = env.BETA_STORY_FILTERS_ENABLED ? validateSqlFilterTemplate(sql_query) : [];
 	const effectiveSql = stripSqlFilterBlocks(sql_query);
 	if (templateWarnings.length > 0 && sqlIncludesFilterTemplate(effectiveSql)) {
@@ -173,7 +182,6 @@ async function updateExistingQuery(
 		name: input.name ?? existing.toolInput.name,
 		...(saveTo && { save_to: saveTo }),
 	};
-	assertWarehouseSqlAllowed(nextInput.database_id, context);
 
 	const output = await executeQuery({ ...nextInput, query_id: input.query_id }, context);
 	await updateExecuteSqlPart(existing.toolCallId, nextInput, output);
@@ -220,7 +228,6 @@ const executeSqlTool = createTool<executeSql.Input, executeSql.Output>({
 		if (input.query_id) {
 			return updateExistingQuery({ ...input, query_id: input.query_id }, context);
 		}
-		assertWarehouseSqlAllowed(input.database_id, context);
 		return executeQuery(input, context);
 	},
 	toModelOutput: ({ output }) => renderToModelOutput(ExecuteSqlOutput({ output }), output),

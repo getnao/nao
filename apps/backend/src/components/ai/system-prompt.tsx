@@ -114,7 +114,11 @@ export function SystemPrompt({
 						researching.
 					</ListItem>,
 					hasTool('execute_sql') && semanticLayerMode !== 'exclusive' && (
-						<ListItem>If you can execute a SQL query, use the execute_sql tool for it.</ListItem>
+						<ListItem>
+							{hasTool('execute_semantic_query')
+								? 'If you can execute a SQL query and no semantic metric or dimension covers the question, use the execute_sql tool for it.'
+								: 'If you can execute a SQL query, use the execute_sql tool for it.'}
+						</ListItem>
 					),
 					!testMode && (
 						<ListItem>

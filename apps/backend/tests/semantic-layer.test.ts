@@ -112,25 +112,22 @@ describe('execute_semantic_query exposure', () => {
 	});
 
 	it('refuses warehouse SQL in semantics-only mode but keeps the local database', async () => {
-		const { default: executeSql } = await import('../src/agents/tools/execute-sql');
-		const run = (databaseId?: string) =>
-			executeSql.execute!(
-				{ sql_query: 'SELECT 1', database_id: databaseId },
-				{
-					toolCallId: 'call',
-					messages: [],
-					experimental_context: {
-						semanticLayerMode: 'exclusive',
-						projectFolder: writeProject(['project_name: demo']),
-						queryResults: new Map(),
-						envVars: {},
-					},
-				},
-			);
+		const { executeQuery } = await import('../src/agents/tools/execute-sql');
+		const context = {
+			semanticLayerMode: 'exclusive',
+			projectFolder: writeProject(['project_name: demo']),
+			queryResults: new Map(),
+			envVars: {},
+		} as unknown as import('../src/types/tools').ToolContext;
+		const run = (databaseId?: string) => executeQuery({ sql_query: 'SELECT 1', database_id: databaseId }, context);
 
 		await expect(run('warehouse')).rejects.toThrow('query metrics with execute_semantic_query');
 		await expect(run()).rejects.toThrow('query metrics with execute_semantic_query');
 		await expect(run('duckdb_local')).resolves.toMatchObject({ columns: ['1'], row_count: 1 });
+		const compiledError = await executeQuery({ sql_query: 'SELECT 1', database_id: 'warehouse' }, context, {
+			compiledBySemanticLayer: true,
+		}).catch((error: Error) => error.message);
+		expect(compiledError).not.toContain('query metrics with execute_semantic_query');
 	});
 });
 
@@ -147,6 +144,7 @@ describe('SystemPrompt semantic layer block', () => {
 		expect(markdown).toContain('## Semantic layer');
 		expect(markdown).toContain('answer with **execute_semantic_query**');
 		expect(markdown).toContain('Fall back to execute_sql only when');
+		expect(markdown).toContain('no semantic metric or dimension covers the question, use the execute_sql tool');
 		expect(markdown).not.toContain('**must** go through');
 	});
 

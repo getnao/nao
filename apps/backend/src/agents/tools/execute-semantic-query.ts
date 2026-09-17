@@ -21,6 +21,7 @@ export default createTool<executeSemanticQuery.Input, executeSemanticQuery.Outpu
 		const output = await executeQuery(
 			{ sql_query: compiled.sql, database_id: compiled.database_id, name },
 			context,
+			{ compiledBySemanticLayer: true },
 		);
 		return { ...output, compiled_sql: compiled.sql, database_id: compiled.database_id };
 	},
