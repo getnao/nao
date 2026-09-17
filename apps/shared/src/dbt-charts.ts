@@ -4,6 +4,24 @@ export const STORY_FORMATS = ['markdown', 'dbt_charts'] as const;
 export type StoryFormat = (typeof STORY_FORMATS)[number];
 export const StoryFormatSchema = z.enum(STORY_FORMATS);
 
+export const STORY_STYLES = ['markdown', 'dbt_charts', 'both'] as const;
+
+/**
+ * Which formats the agent writes new stories in, chosen by the project admin.
+ * Stories of every format stay readable whatever the style; the style only drives what gets created.
+ */
+export type StoryStyle = (typeof STORY_STYLES)[number];
+
+export const DEFAULT_STORY_STYLE: StoryStyle = 'markdown';
+
+export function storyStyleAllowsFormat(style: StoryStyle, format: StoryFormat): boolean {
+	return style === 'both' || style === format;
+}
+
+export function defaultStoryFormatForStyle(style: StoryStyle): StoryFormat {
+	return style === 'dbt_charts' ? 'dbt_charts' : 'markdown';
+}
+
 export const DBT_CHARTS_BOARD_PREFIX = 'dbt-charts:';
 
 export const DbtChartsDiagnosticSchema = z.object({

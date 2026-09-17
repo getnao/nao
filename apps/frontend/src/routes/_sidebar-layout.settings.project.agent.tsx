@@ -11,6 +11,7 @@ import { SettingsDisplayMap } from '@/components/settings/display-map';
 import { SettingsProjectMemory } from '@/components/settings/project-memory';
 import { SettingsSemanticLayer } from '@/components/settings/semantic-layer';
 import { SettingsTranscribe } from '@/components/settings/settings-transcribe';
+import { SettingsStoryStyle } from '@/components/settings/story-style';
 import { SettingsWebSearch } from '@/components/settings/web-search';
 import { SettingsCard } from '@/components/ui/settings-card';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
@@ -86,6 +87,7 @@ function ToolsSettings({ isAdmin }: { isAdmin: boolean }) {
 			<SavedPrompts isAdmin={isAdmin} />
 			{isAdmin && <SettingsProjectMemory />}
 			<SettingsDisplayMap isAdmin={isAdmin} />
+			<SettingsStoryStyle isAdmin={isAdmin} />
 			<SettingsSemanticLayer isAdmin={isAdmin} />
 			<SettingsExperimental isAdmin={isAdmin} />
 			<SettingsExcludeColumns isAdmin={isAdmin} />

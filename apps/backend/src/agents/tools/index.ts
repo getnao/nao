@@ -5,10 +5,10 @@ import type { CustomBoundarySet } from '@nao/shared';
 import type { SemanticLayerMode } from '@nao/shared/types';
 import type { Tool } from 'ai';
 
-import { isDbtChartsAvailable } from '../../services/dbt-charts-status';
 import { mcpService } from '../../services/mcp';
 import { isSemanticQueryToolEnabled, isWarehouseSqlEnabled } from '../../services/semantic-layer.service';
 import { isStorageEnabled } from '../../services/storage';
+import { resolveStoryStyle } from '../../services/story-style';
 import { AgentSettings } from '../../types/agent-settings';
 import clarification from './clarification';
 import displayChart from './display-chart';
@@ -142,10 +142,10 @@ export const getTools = (
 
 	if ('story' in result) {
 		const mapsEnabled = 'display_map' in result;
-		const dbtChartsEnabled = isDbtChartsAvailable();
+		const storyStyle = resolveStoryStyle(agentSettings);
 		result = {
 			...result,
-			story: { ...result.story, description: buildStoryToolDescription({ mapsEnabled, dbtChartsEnabled }) },
+			story: { ...result.story, description: buildStoryToolDescription({ mapsEnabled, storyStyle }) },
 		};
 	}
 

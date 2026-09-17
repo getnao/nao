@@ -69,6 +69,10 @@ RUN if [ -n "$NAO_CLI_VERSION" ]; then \
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system '.[all]'
 
+# The dbt Charts renderer (dbt-charts + the vl-convert SVG engine and its vendored fonts)
+# ships with the image so chart stories render without any runtime install.
+RUN python -c "import dbt_charts, vl_convert; from dbt_charts.core.fonts import get_fonts_dir; assert get_fonts_dir().is_dir()"
+
 # =============================================================================
 # STAGE 5: Runtime image
 # =============================================================================

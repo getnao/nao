@@ -1,12 +1,12 @@
 import { Block, Bold, Code, CodeBlock, List, ListItem, renderToMarkdown, Span, Title } from '../../lib/markdown';
-import { isDbtChartsAvailable } from '../../services/dbt-charts-status';
+import { resolveStoryStyle } from '../../services/story-style';
 import type { InternalSkill } from './types';
 
 export const dbtChartsSkill: InternalSkill = {
 	name: 'dbt-charts',
 	description:
 		'The dbt Charts YAML board syntax nao renders for stories with format="dbt_charts": board skeleton, queries and Jinja variables, the chart types and their fields, layout, and the mistakes the compiler rejects. Load this before creating or editing a dbt Charts board or dashboard.',
-	isAvailable: isDbtChartsAvailable,
+	isAvailable: ({ agentSettings }) => resolveStoryStyle(agentSettings) !== 'markdown',
 	body: () =>
 		renderToMarkdown(
 			<Block>

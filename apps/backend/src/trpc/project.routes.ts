@@ -1,5 +1,6 @@
 import { BACKGROUND_MODEL_CATEGORIES, type CustomBoundarySet } from '@nao/shared';
 import { DATE_FORMAT_PRESETS } from '@nao/shared/date';
+import { STORY_STYLES } from '@nao/shared/dbt-charts';
 import {
 	type LlmProvider,
 	MAX_PYTHON_EXECUTION_DURATION_SECS,
@@ -25,6 +26,7 @@ import * as whatsappConfigQueries from '../queries/project-whatsapp-config.queri
 import * as projectWhatsappLinkQueries from '../queries/project-whatsapp-link.queries';
 import * as userQueries from '../queries/user.queries';
 import { cleanupContextWorktree } from '../services/context-explorer-git.service';
+import { getDbtChartsStatus } from '../services/dbt-charts-status';
 import { mattermostService } from '../services/mattermost';
 import { MattermostConnectionError, validateMattermostConnection } from '../services/mattermost-helpers';
 import { mcpService } from '../services/mcp';
@@ -925,7 +927,10 @@ export const projectRoutes = {
 		}
 
 		const { isPythonAvailable, isSandboxAvailable } = await import('../agents/tools');
-		const settings = await projectQueries.getAgentSettings(ctx.project.id);
+		const [settings, dbtChartsStatus] = await Promise.all([
+			projectQueries.getAgentSettings(ctx.project.id),
+			getDbtChartsStatus(),
+		]);
 
 		return {
 			...settings,
@@ -933,6 +938,7 @@ export const projectRoutes = {
 				pythonSandbox: isPythonAvailable,
 				sandbox: isSandboxAvailable,
 				semanticLayer: ctx.project.path ? extractConfiguredSemanticLayer(ctx.project.path) !== null : false,
+				dbtCharts: dbtChartsStatus.available,
 			},
 		};
 	}),
@@ -982,6 +988,11 @@ export const projectRoutes = {
 						mode: z.enum(SEMANTIC_LAYER_MODES).optional(),
 					})
 					.optional(),
+				stories: z
+					.object({
+						style: z.enum(STORY_STYLES).optional(),
+					})
+					.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -989,6 +1000,7 @@ export const projectRoutes = {
 			const merged: AgentSettings = {
 				memoryEnabled: input.memoryEnabled ?? existing.memoryEnabled,
 				mapEnabled: input.mapEnabled ?? existing.mapEnabled,
+				stories: { ...existing.stories, ...input.stories },
 				experimental: { ...existing.experimental, ...input.experimental },
 				transcribe: { ...existing.transcribe, ...input.transcribe },
 				sql: { ...existing.sql, ...input.sql },
@@ -1010,6 +1022,7 @@ export const projectRoutes = {
 				web_search_enabled: merged.webSearch?.enabled,
 				web_search_mode: merged.webSearch?.mode,
 				semantic_layer_mode: merged.semanticLayer?.mode,
+				stories_style: merged.stories?.style,
 			});
 			return projectQueries.updateAgentSettings(ctx.project.id, merged);
 		}),

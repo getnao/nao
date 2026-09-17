@@ -18,7 +18,7 @@ export const InputSchema = z.object({
 		),
 	title: z.string().optional().describe('A concise, descriptive title for the story. Required for "create".'),
 	format: StoryFormatSchema.optional().describe(
-		'Content format: "markdown" (default) for nao markdown with <chart>/<table> blocks, or "dbt_charts" for a dbt Charts YAML board whose SQL runs through the nao connection. Set on "create"; "replace" may switch it.',
+		'Content format: "markdown" for nao markdown with <chart>/<table> blocks, or "dbt_charts" for a dbt Charts YAML board whose SQL runs through the nao connection. Defaults to the format the project settings select for new stories. Set on "create"; "replace" may switch it.',
 	),
 	code: z
 		.string()

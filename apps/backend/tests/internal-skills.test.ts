@@ -14,8 +14,10 @@ beforeEach(() => {
 	dbtChartsInstalled.value = true;
 });
 
+const withDbtChartsStories = { agentSettings: { stories: { style: 'both' as const } } };
+
 const bodyOf = (name: string, canRunSandbox: boolean): string => {
-	return findInternalSkill(name)!.body({ canRunSandbox });
+	return findInternalSkill(name, withDbtChartsStories)!.body({ canRunSandbox });
 };
 
 const runLoadSkill = async (name: string): Promise<{ name: string; body: string }> => {
@@ -32,7 +34,7 @@ describe('internal skill registry', () => {
 	});
 
 	it('gives every skill a name, a description saying when to load it, and a body either way', () => {
-		for (const skill of listInternalSkills()) {
+		for (const skill of listInternalSkills(withDbtChartsStories)) {
 			expect(skill.name).toMatch(/^[a-z0-9-]+$/);
 			expect(skill.description.length).toBeGreaterThan(20);
 			expect(skill.body({ canRunSandbox: true }).length).toBeGreaterThan(100);
@@ -41,7 +43,7 @@ describe('internal skill registry', () => {
 	});
 
 	it('never mentions the sandbox in a run that has none', () => {
-		for (const skill of listInternalSkills()) {
+		for (const skill of listInternalSkills(withDbtChartsStories)) {
 			expect(skill.body({ canRunSandbox: false })).not.toMatch(/sandbox|storage_files|save_files/i);
 		}
 	});
@@ -59,12 +61,18 @@ describe('internal skill registry', () => {
 	});
 
 	it('only catalogs the dbt charts skill when dbt charts is installed', () => {
-		expect(internalSkillNames()).toContain('dbt-charts');
+		expect(internalSkillNames(withDbtChartsStories)).toContain('dbt-charts');
 
 		dbtChartsInstalled.value = false;
 
+		expect(internalSkillNames(withDbtChartsStories)).not.toContain('dbt-charts');
+		expect(findInternalSkill('dbt-charts', withDbtChartsStories)).toBeUndefined();
+	});
+
+	it('hides the dbt charts skill when the project only writes markdown stories', () => {
 		expect(internalSkillNames()).not.toContain('dbt-charts');
-		expect(findInternalSkill('dbt-charts')).toBeUndefined();
+		expect(internalSkillNames({ agentSettings: { stories: { style: 'markdown' } } })).not.toContain('dbt-charts');
+		expect(internalSkillNames({ agentSettings: { stories: { style: 'dbt_charts' } } })).toContain('dbt-charts');
 	});
 });
 

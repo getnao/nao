@@ -21,6 +21,7 @@ import {
 } from 'ai';
 
 import { disableModelReasoning, fitThinkingBudget, getProviderMeta, ProviderModelResult } from '../agents/providers';
+import { listInternalSkills } from '../agents/skills';
 import { getSystemPromptOverride, hasNaoPromptPlaceholder, injectNaoPrompt } from '../agents/system-prompts';
 import { llmTelemetry } from '../agents/telemetry';
 import { getTools } from '../agents/tools';
@@ -637,6 +638,7 @@ class AgentManager {
 				connections,
 				configuredDatabases,
 				skills,
+				internalSkills: listInternalSkills({ agentSettings: this._toolContext.agentSettings }),
 				customCharts,
 				mcpServers,
 				semanticLayerMode: this._toolContext.semanticLayerMode,
