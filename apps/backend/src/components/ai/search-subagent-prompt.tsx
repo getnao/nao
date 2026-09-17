@@ -6,11 +6,18 @@ type SearchSubagentPromptProps = {
 	templates?: string[];
 	repoNames?: string[];
 	contextPresence?: ContextPresence;
+	hasSemanticSearch?: boolean;
 	userRules?: string;
 };
 
 /** Light system prompt of the context-search subagent: the project layout and how to report. */
-export function SearchSubagentPrompt({ templates, repoNames, contextPresence, userRules }: SearchSubagentPromptProps) {
+export function SearchSubagentPrompt({
+	templates,
+	repoNames,
+	contextPresence,
+	hasSemanticSearch = false,
+	userRules,
+}: SearchSubagentPromptProps) {
 	return (
 		<Block>
 			<Title>Instructions</Title>
@@ -22,9 +29,18 @@ export function SearchSubagentPrompt({ templates, repoNames, contextPresence, us
 			<NaoContextStructure templates={templates} repoNames={repoNames} contextPresence={contextPresence} />
 			<Title level={2}>How to search</Title>
 			<List>
+				{hasSemanticSearch && (
+					<ListItem>
+						Start with <Bold>semantic_search</Bold>: one call per business term of the task, scoped to{' '}
+						<Code>/databases</Code>, <Code>/semantics</Code> or <Code>/docs</Code>, ranks every file and
+						table folder by relevance. Trust a low coverage score: it means the folder does not cover the
+						term, so look elsewhere instead of grepping for it.
+					</ListItem>
+				)}
 				<ListItem>
-					Start broad with <Bold>list</Bold>, <Bold>search</Bold> and <Bold>grep</Bold> to locate candidate
-					files, then <Bold>read</Bold> only the ones that matter. Call several tools in parallel.
+					{hasSemanticSearch ? 'Fall back to' : 'Start broad with'} <Bold>list</Bold>, <Bold>search</Bold> and{' '}
+					<Bold>grep</Bold> to locate candidate files, then <Bold>read</Bold> only the ones that matter. Call
+					several tools in parallel.
 				</ListItem>
 				<ListItem>
 					Look for tables and columns in <Code>databases/</Code>, business definitions in{' '}

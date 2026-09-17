@@ -12,6 +12,7 @@ export { ListOutput } from './list';
 export { ReadOutput } from './read';
 export { ReadQueryResultOutput } from './read-query-result';
 export { SearchOutput } from './search';
+export { SemanticSearchOutput } from './semantic-search';
 export { StoryOutput } from './story';
 export { WriteOutput } from './write';
 

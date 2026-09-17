@@ -4,7 +4,7 @@ import type { SemanticLayerMode } from '@nao/shared/types';
 
 import type { InternalSkill } from '../../agents/skills';
 import { listInternalSkills } from '../../agents/skills';
-import { Block, Bold, Br, CodeBlock, Link, List, ListItem, Location, Span, Title } from '../../lib/markdown';
+import { Block, Bold, Br, Code, CodeBlock, Link, List, ListItem, Location, Span, Title } from '../../lib/markdown';
 import type { Skill } from '../../services/skill';
 import { tokenCounter } from '../../services/token-counter';
 import type { UserMemory } from '../../types/memory';
@@ -119,6 +119,15 @@ export function SystemPrompt({
 						Be efficient with tool calls and prefer calling multiple tools in parallel, especially when
 						researching.
 					</ListItem>,
+					hasTool('semantic_search') && (
+						<ListItem>
+							To find which files cover a table, metric or business term, call{' '}
+							<Bold>semantic_search</Bold> with the term and the folder to look in (
+							<Code>/databases</Code>, <Code>/semantics</Code>, <Code>/docs</Code>) instead of guessing
+							paths or grepping several spellings, then read only the top results. A low coverage score
+							means the folder does not cover the term.
+						</ListItem>
+					),
 					hasTool('call_subagent') && (
 						<ListItem>
 							When a data question needs context you do not have yet (which tables, columns, joins or

@@ -9,6 +9,7 @@ import { env } from '../../env';
 import { mcpService } from '../../services/mcp';
 import { isSemanticQueryToolEnabled, isWarehouseSqlEnabled } from '../../services/semantic-layer.service';
 import { isStorageEnabled } from '../../services/storage';
+import { isTypesafeConfigured } from '../../services/typesafe';
 import { AgentSettings } from '../../types/agent-settings';
 import callSubagent from './call-subagent';
 import clarification from './clarification';
@@ -26,6 +27,7 @@ import { createMcpConnectTool } from './mcp-connect';
 import read from './read';
 import readQueryResult from './read-query-result';
 import search from './search';
+import semanticSearch from './semantic-search';
 import story, { buildStoryToolDescription } from './story';
 import suggestFollowUps from './suggest-follow-ups';
 import write from './write';
@@ -52,6 +54,7 @@ export const tools = {
 	load_skill: loadSkill,
 	read,
 	search,
+	semantic_search: semanticSearch,
 	write,
 	suggest_follow_ups: suggestFollowUps,
 };
@@ -109,6 +112,7 @@ export const getTools = (
 		execute_semantic_query,
 		execute_sql,
 		clarification: clarificationTool,
+		semantic_search,
 		suggest_follow_ups,
 		write: writeTool,
 		...rest
@@ -116,6 +120,7 @@ export const getTools = (
 	const baseTools = {
 		...rest,
 		...(env.BETA_SUBAGENTS_ENABLED && { call_subagent }),
+		...(isTypesafeConfigured() && { semantic_search }),
 		execute_sql: isWarehouseSqlEnabled(options.semanticLayerMode) ? execute_sql : localOnlyExecuteSql,
 		...(isSemanticQueryToolEnabled(options.semanticLayerMode) && { execute_semantic_query }),
 		...(isStorageEnabled() && { write: writeTool }),
