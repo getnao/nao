@@ -1,9 +1,31 @@
 import json
-from unittest.mock import MagicMock, Mock
+from unittest.mock import MagicMock, Mock, call
 
 import pytest
 
 import nao_core.commands.metabase as metabase_commands
+
+
+def test_configure_masks_api_key_input_and_saves_credentials_to_project_env(monkeypatch, tmp_path):
+    env_path = tmp_path / ".env"
+    ask_text = Mock(side_effect=["https://metabase.example.com/", "secret-key"])
+    set_key = Mock()
+    monkeypatch.delenv("METABASE_URL", raising=False)
+    monkeypatch.setattr(metabase_commands, "ask_text", ask_text)
+    monkeypatch.setattr(metabase_commands, "find_dotenv", Mock(return_value=str(env_path)))
+    monkeypatch.setattr(metabase_commands, "set_key", set_key)
+    monkeypatch.setattr(metabase_commands.UI, "success", Mock())
+
+    metabase_commands.configure()
+
+    assert ask_text.call_args_list == [
+        call("Metabase URL:", default="", required_field=True),
+        call("Metabase API key:", password=True, required_field=True),
+    ]
+    assert set_key.call_args_list == [
+        call(env_path, "METABASE_URL", "https://metabase.example.com", quote_mode="always"),
+        call(env_path, "METABASE_API_KEY", "secret-key", quote_mode="always"),
+    ]
 
 
 def test_metabase_sources_accept_ids_or_urls(monkeypatch):
@@ -13,22 +35,35 @@ def test_metabase_sources_accept_ids_or_urls(monkeypatch):
         "https://configured.example.com/metabase",
         42,
     )
-    assert metabase_commands._resolve_dashboard_source("https://source.example.com/metabase/dashboard/7-sales") == (
-        "https://source.example.com/metabase",
+    assert metabase_commands._resolve_dashboard_source(
+        "https://configured.example.com:443/metabase/dashboard/7-sales"
+    ) == (
+        "https://configured.example.com/metabase",
         7,
     )
 
-    with pytest.raises(metabase_commands.MetabaseImportError):
+    with pytest.raises(metabase_commands.MetabaseCliError):
         metabase_commands._resolve_dashboard_source("dashboard-42")
 
-    assert metabase_commands._resolve_question_source("https://source.example.com/metabase/question/8-orders") == (
-        "https://source.example.com/metabase",
+    assert metabase_commands._resolve_question_source("https://configured.example.com/metabase/question/8-orders") == (
+        "https://configured.example.com/metabase",
         8,
     )
-    assert metabase_commands._resolve_collection_source("https://source.example.com/metabase/collection/3-finance") == (
-        "https://source.example.com/metabase",
+    assert metabase_commands._resolve_collection_source(
+        "https://configured.example.com/metabase/collection/3-finance"
+    ) == (
+        "https://configured.example.com/metabase",
         3,
     )
+
+
+def test_metabase_source_url_rejects_unconfigured_origin(monkeypatch):
+    monkeypatch.setenv("METABASE_URL", "https://configured.example.com/metabase")
+
+    with pytest.raises(metabase_commands.MetabaseCliError, match="configured by METABASE_URL"):
+        metabase_commands._resolve_dashboard_source("https://attacker.example.com/dashboard/7")
+    with pytest.raises(metabase_commands.MetabaseCliError, match="configured by METABASE_URL"):
+        metabase_commands._resolve_dashboard_source("http://configured.example.com/dashboard/7")
 
 
 def test_manifest_preserves_layout_visualization_and_query():
@@ -101,11 +136,13 @@ def test_manifest_preserves_layout_visualization_and_query():
                 },
             ],
         },
-        {11: {"sql": "SELECT category, count(*) FROM orders GROUP BY category", "parameters": []}},
+        {(8, 11): {"sql": "SELECT category, count(*) FROM orders GROUP BY category", "parameters": []}},
+        databases=[{"id": 2, "name": "Analytics", "engine": "postgres"}],
     )
 
     card = manifest["dashboard"]["cards"][0]
     mbql_question = manifest["dashboard"]["cards"][1]["question"]
+    assert manifest["databases"] == [{"id": 2, "name": "Analytics", "engine": "postgres"}]
     assert card["layout"] == {"row": 1, "column": 2, "width": 12, "height": 6}
     assert card["visualizationSettings"] == {"graph.show_values": True}
     assert card["effectiveFilterIds"] == ["period"]
@@ -165,8 +202,8 @@ def test_compile_question_requests_sql_from_metabase(monkeypatch, dashboard_id, 
     )
 
 
-def test_failed_mbql_compilation_is_reported_once(monkeypatch):
-    compile_question = Mock(side_effect=metabase_commands.MetabaseImportError("Compilation failed"))
+def test_failed_mbql_compilation_identifies_the_placement(monkeypatch):
+    compile_question = Mock(side_effect=metabase_commands.MetabaseCliError("Compilation failed"))
     monkeypatch.setattr(metabase_commands, "_compile_question", compile_question)
     question = {
         "id": 11,
@@ -177,17 +214,29 @@ def test_failed_mbql_compilation_is_reported_once(monkeypatch):
     compiled, limitations = metabase_commands._compile_mbql_queries(
         "https://metabase.example.com",
         42,
-        {"dashcards": [{"card": question}, {"card": question}]},
+        {"dashcards": [{"id": 7, "card": question}]},
     )
 
     assert compiled == {}
-    assert limitations == [{"questionId": 11, "questionName": "Orders", "reason": "Compilation failed"}]
+    assert limitations == [
+        {"placementId": 7, "questionId": 11, "questionName": "Orders", "reason": "Compilation failed"}
+    ]
     compile_question.assert_called_once_with("https://metabase.example.com", 42, 11, [])
 
 
-def test_dashboard_compilation_uses_parameter_overrides_and_defaults(monkeypatch):
-    compile_question = Mock(return_value={"sql": "SELECT * FROM orders", "parameters": []})
+def test_dashboard_compilation_preserves_each_placement_parameter_context(monkeypatch):
+    compile_question = Mock(
+        side_effect=[
+            {"sql": "SELECT * FROM orders WHERE period = ?", "parameters": ["2026-09-01"]},
+            {"sql": "SELECT * FROM orders WHERE region = ?", "parameters": ["France"]},
+        ]
+    )
     monkeypatch.setattr(metabase_commands, "_compile_question", compile_question)
+    question = {
+        "id": 11,
+        "name": "Orders",
+        "dataset_query": {"type": "query", "query": {"source-table": 3}},
+    }
     dashboard = {
         "parameters": [
             {"id": "period", "type": "date/single", "default": "2026-01-01"},
@@ -195,45 +244,75 @@ def test_dashboard_compilation_uses_parameter_overrides_and_defaults(monkeypatch
         ],
         "dashcards": [
             {
-                "card": {
-                    "id": 11,
-                    "name": "Orders",
-                    "dataset_query": {"type": "query", "query": {"source-table": 3}},
-                },
+                "id": 7,
+                "card_id": 11,
+                "card": question,
                 "parameter_mappings": [
                     {"parameter_id": "period", "card_id": 11, "target": ["dimension", ["field", 1, None]]},
+                ],
+            },
+            {
+                "id": 8,
+                "card_id": 11,
+                "card": question,
+                "parameter_mappings": [
                     {"parameter_id": "region", "card_id": 11, "target": ["dimension", ["field", 2, None]]},
                 ],
-            }
+            },
         ],
     }
 
-    metabase_commands._compile_mbql_queries(
+    compiled, limitations = metabase_commands._compile_mbql_queries(
         "https://metabase.example.com",
         42,
         dashboard,
         {"period": "2026-09-01"},
     )
 
-    compile_question.assert_called_once_with(
+    assert limitations == []
+    assert compile_question.call_args_list == [
+        call(
+            "https://metabase.example.com",
+            42,
+            11,
+            [
+                {
+                    "id": "period",
+                    "type": "date/single",
+                    "target": ["dimension", ["field", 1, None]],
+                    "value": "2026-09-01",
+                }
+            ],
+        ),
+        call(
+            "https://metabase.example.com",
+            42,
+            11,
+            [
+                {
+                    "id": "region",
+                    "type": "category",
+                    "target": ["dimension", ["field", 2, None]],
+                    "value": ["France"],
+                }
+            ],
+        ),
+    ]
+    manifest = metabase_commands._build_manifest(
         "https://metabase.example.com",
-        42,
-        11,
-        [
-            {
-                "id": "period",
-                "type": "date/single",
-                "target": ["dimension", ["field", 1, None]],
-                "value": "2026-09-01",
-            },
-            {
-                "id": "region",
-                "type": "category",
-                "target": ["dimension", ["field", 2, None]],
-                "value": ["France"],
-            },
-        ],
+        dashboard,
+        compiled,
     )
+    assert manifest["dashboard"]["cards"][0]["question"]["sqlParameters"] == ["2026-09-01"]
+    assert manifest["dashboard"]["cards"][1]["question"]["sqlParameters"] == ["France"]
+
+    with pytest.raises(metabase_commands.MetabaseCliError, match="Unknown or unused.*typo"):
+        metabase_commands._compile_mbql_queries(
+            "https://metabase.example.com",
+            42,
+            dashboard,
+            {"typo": "2026-09-01"},
+        )
 
 
 def test_parameter_values_require_unique_ids_and_json():
@@ -242,9 +321,9 @@ def test_parameter_values_require_unique_ids_and_json():
         "regions": ["France", "Germany"],
     }
 
-    with pytest.raises(metabase_commands.MetabaseImportError):
+    with pytest.raises(metabase_commands.MetabaseCliError):
         metabase_commands._parse_parameter_values(["period=September"])
-    with pytest.raises(metabase_commands.MetabaseImportError):
+    with pytest.raises(metabase_commands.MetabaseCliError):
         metabase_commands._parse_parameter_values(["period=1", "period=2"])
 
 
@@ -281,7 +360,7 @@ def test_dashboard_writes_manifest_to_output(monkeypatch, tmp_path):
 def test_dashboard_exports_multiple_sources_and_reports_failures(monkeypatch, capsys):
     def export(source, _parameters):
         if source == "8":
-            raise metabase_commands.MetabaseImportError("Dashboard is inaccessible")
+            raise metabase_commands.MetabaseCliError("Dashboard is inaccessible")
         return {"schemaVersion": 1, "dashboard": {"id": int(source)}}
 
     monkeypatch.setattr(metabase_commands, "export_dashboard", export)
@@ -297,7 +376,7 @@ def test_dashboard_exports_multiple_sources_and_reports_failures(monkeypatch, ca
 
 def test_dashboard_single_failure_returns_batch_manifest(monkeypatch, capsys):
     def export(_source, _parameters):
-        raise metabase_commands.MetabaseImportError("Dashboard is inaccessible")
+        raise metabase_commands.MetabaseCliError("Dashboard is inaccessible")
 
     monkeypatch.setattr(metabase_commands, "export_dashboard", export)
 
@@ -337,8 +416,36 @@ def test_collection_pagination_requires_total(monkeypatch):
     monkeypatch.setenv("METABASE_API_KEY", "test-key")
     monkeypatch.setattr(metabase_commands, "_metabase_get", Mock(return_value=response))
 
-    with pytest.raises(metabase_commands.MetabaseImportError, match="pagination"):
+    with pytest.raises(metabase_commands.MetabaseCliError, match="pagination"):
         metabase_commands._fetch_collection_items("https://metabase.example.com", 3)
+
+
+def test_collection_pagination_rejects_an_early_empty_page(monkeypatch):
+    responses = [Mock(), Mock()]
+    responses[0].json.return_value = {"data": [{"model": "dashboard", "id": 7}], "total": 2}
+    responses[1].json.return_value = {"data": [], "total": 2}
+    monkeypatch.setenv("METABASE_API_KEY", "test-key")
+    monkeypatch.setattr(metabase_commands, "_metabase_get", Mock(side_effect=responses))
+
+    with pytest.raises(metabase_commands.MetabaseCliError, match="ended before"):
+        metabase_commands._fetch_collection_items("https://metabase.example.com", 3)
+
+
+def test_collection_discovery_failure_returns_batch_manifest(monkeypatch, capsys):
+    monkeypatch.setattr(
+        metabase_commands,
+        "_resolve_collection_source",
+        Mock(side_effect=metabase_commands.MetabaseCliError("Collection is inaccessible")),
+    )
+
+    with pytest.raises(SystemExit):
+        metabase_commands.collection("3", recursive=True, json_output=True)
+
+    manifest = json.loads(capsys.readouterr().out)
+    assert manifest["selection"] == {"mode": "collection", "source": "3", "recursive": True}
+    assert manifest["dashboards"] == []
+    assert manifest["failures"] == [{"source": "3", "reason": "Collection is inaccessible"}]
+    assert manifest["summary"] == {"selected": 1, "exported": 0, "failed": 1}
 
 
 def test_metabase_get_enables_connection_retries(monkeypatch):
@@ -360,6 +467,33 @@ def test_metabase_get_enables_connection_retries(monkeypatch):
         transport=transport,
     )
     client.get.assert_called_once_with("https://metabase.example.com/api/card/11")
+
+
+def test_database_metadata_preserves_accessible_databases_and_failures(monkeypatch):
+    fetch = Mock(
+        side_effect=[
+            {"id": 2, "name": "Analytics", "engine": "postgres"},
+            metabase_commands.MetabaseCliError("Metabase database request failed (403): forbidden"),
+        ]
+    )
+    monkeypatch.setattr(metabase_commands, "_fetch_metabase_object", fetch)
+
+    databases, limitations = metabase_commands._fetch_database_metadata(
+        "https://metabase.example.com",
+        [2, 3],
+    )
+
+    assert databases == [{"id": 2, "name": "Analytics", "engine": "postgres"}]
+    assert limitations == [
+        {
+            "databaseId": 3,
+            "reason": "Metabase database request failed (403): forbidden",
+        }
+    ]
+    assert fetch.call_args_list == [
+        call("https://metabase.example.com/api/database/2", "database"),
+        call("https://metabase.example.com/api/database/3", "database"),
+    ]
 
 
 def test_question_export_preserves_compiled_sql(monkeypatch):
@@ -390,12 +524,16 @@ def test_question_export_preserves_compiled_sql(monkeypatch):
         return_value={"sql": "SELECT category, count(*) FROM orders GROUP BY category", "parameters": []}
     )
     monkeypatch.setattr(metabase_commands, "_compile_question", compile_question)
+    fetch_database_metadata = Mock(return_value=([{"id": 2, "name": "Analytics", "engine": "postgres"}], []))
+    monkeypatch.setattr(metabase_commands, "_fetch_database_metadata", fetch_database_metadata)
 
     manifest = metabase_commands.export_question("11", {"period": "2026-09-01"})
 
     assert manifest["source"]["questionId"] == 11
+    assert manifest["databases"] == [{"id": 2, "name": "Analytics", "engine": "postgres"}]
     assert manifest["question"]["sql"] == "SELECT category, count(*) FROM orders GROUP BY category"
     assert manifest["limitations"] == []
+    fetch_database_metadata.assert_called_once_with("https://metabase.example.com", [2])
     compile_question.assert_called_once_with(
         "https://metabase.example.com",
         None,
@@ -409,3 +547,73 @@ def test_question_export_preserves_compiled_sql(monkeypatch):
             }
         ],
     )
+
+
+def test_native_question_parameter_overrides_are_compiled(monkeypatch):
+    monkeypatch.setattr(
+        metabase_commands,
+        "_resolve_question_source",
+        lambda _source: ("https://metabase.example.com", 11),
+    )
+    monkeypatch.setattr(
+        metabase_commands,
+        "_fetch_question",
+        lambda _base_url, _question_id: {
+            "id": 11,
+            "dataset_query": {
+                "type": "native",
+                "native": {"query": "SELECT * FROM orders WHERE created_at >= {{period}}"},
+            },
+            "parameters": [
+                {
+                    "id": "period",
+                    "type": "date/single",
+                    "target": ["variable", ["template-tag", "period"]],
+                }
+            ],
+        },
+    )
+    compile_question = Mock(
+        return_value={
+            "sql": "SELECT * FROM orders WHERE created_at >= ?",
+            "parameters": ["2026-09-01"],
+        }
+    )
+    monkeypatch.setattr(metabase_commands, "_compile_question", compile_question)
+
+    manifest = metabase_commands.export_question("11", {"period": "2026-09-01"})
+
+    assert manifest["question"]["sql"] == "SELECT * FROM orders WHERE created_at >= ?"
+    assert manifest["question"]["sqlParameters"] == ["2026-09-01"]
+    compile_question.assert_called_once_with(
+        "https://metabase.example.com",
+        None,
+        11,
+        [
+            {
+                "id": "period",
+                "type": "date/single",
+                "target": ["variable", ["template-tag", "period"]],
+                "value": "2026-09-01",
+            }
+        ],
+    )
+
+
+def test_unmatched_parameter_override_is_rejected(monkeypatch):
+    monkeypatch.setattr(
+        metabase_commands,
+        "_resolve_question_source",
+        lambda _source: ("https://metabase.example.com", 11),
+    )
+    monkeypatch.setattr(
+        metabase_commands,
+        "_fetch_question",
+        lambda _base_url, _question_id: {
+            "id": 11,
+            "dataset_query": {"type": "native", "native": {"query": "SELECT * FROM orders"}},
+        },
+    )
+
+    with pytest.raises(metabase_commands.MetabaseCliError, match="Unknown or unused.*typo"):
+        metabase_commands.export_question("11", {"typo": "2026-09-01"})
