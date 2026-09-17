@@ -10,7 +10,7 @@ import { tokenCounter } from '../../services/token-counter';
 import type { UserMemory } from '../../types/memory';
 import { MEMORY_CATEGORIES, MemoryCategory } from '../../types/memory';
 import { formatCurrentDate } from '../../utils/date';
-import type { ConfiguredDatabase } from '../../utils/nao-config';
+import type { ConfiguredDatabase, ContextPresence } from '../../utils/nao-config';
 import { groupBy } from '../../utils/utils';
 import { getDialectSqlQueryRules, getDialectToolCallRules } from './dialect-rules';
 import { NaoContextStructure } from './nao-context-structure';
@@ -33,6 +33,9 @@ type SystemPromptProps = {
 	mcpServers?: string[];
 	/** How the run may use the project's semantic layer; null or undefined when the project has none. */
 	semanticLayerMode?: SemanticLayerMode | null;
+	templates?: string[];
+	repoNames?: string[];
+	contextPresence?: ContextPresence;
 	timezone?: string;
 	testMode?: boolean;
 	/** Names of the tools in the run's tool set — rules for surface-dependent tools (e.g. display_map) are only emitted when the tool is present. Omit to include every rule. */
@@ -58,6 +61,9 @@ export function SystemPrompt({
 	customCharts = [],
 	mcpServers = [],
 	semanticLayerMode = null,
+	templates,
+	repoNames = [],
+	contextPresence,
 	timezone,
 	testMode,
 	toolNames,
@@ -90,7 +96,7 @@ export function SystemPrompt({
 				<Br />
 				Skills can be mentioned using the / trigger.
 			</Span>
-			<NaoContextStructure />
+			<NaoContextStructure templates={templates} repoNames={repoNames} contextPresence={contextPresence} />
 			<Title level={2}>Persona</Title>
 			<List>
 				<ListItem>

@@ -64,7 +64,7 @@ import {
 	resolveProviderSettings,
 } from '../utils/llm';
 import { logger } from '../utils/logger';
-import { extractConfiguredDatabases } from '../utils/nao-config';
+import { extractConfiguredDatabases, readProjectContext } from '../utils/nao-config';
 import { addPromptCache, cachedSystemInstructions } from '../utils/prompt-cache';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt, titleGenerationUserMessage } from '../utils/title';
@@ -623,6 +623,8 @@ class AgentManager {
 		const userRules = getUserRules(this._toolContext.projectFolder);
 		const connections = getConnections(this._toolContext.projectFolder);
 		const configuredDatabases = extractConfiguredDatabases(this._toolContext.projectFolder);
+		const { repos, templates, presence: contextPresence } = readProjectContext(this._toolContext.projectFolder);
+		const repoNames = repos.map((repo) => repo.name);
 		const skills = skillService.getSkills(this.chat.projectId);
 		const customCharts = this._toolContext.supportsCustomCharts
 			? listChartPlugins(this._toolContext.projectFolder)
@@ -638,6 +640,9 @@ class AgentManager {
 				customCharts,
 				mcpServers,
 				semanticLayerMode: this._toolContext.semanticLayerMode,
+				templates,
+				repoNames,
+				contextPresence,
 				timezone,
 				testMode: this.chat.testMode,
 				toolNames: Object.keys(this._agentTools),
