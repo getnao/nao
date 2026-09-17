@@ -24,5 +24,5 @@ Over time:
 
 Broken down, filtered and ranked (see `../README.md` for every parameter):
 ```json
-{"metrics": ["total_lifetime_value"], "group_by": ["customer__first_name"], "where": ["{{ Dimension('customer__first_name') }} IS NOT NULL"], "order_by": ["-total_lifetime_value"], "limit": 10, "start_time": "2024-01-01", "end_time": "2024-12-31"}
+{"metrics": ["total_lifetime_value"], "group_by": ["customer__first_name"], "where": ["{{ Dimension('customer__first_name') }} IS NOT NULL"], "order_by": ["-total_lifetime_value"], "limit": 10}
 ```

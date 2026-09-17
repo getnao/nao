@@ -37,6 +37,9 @@ pip install 'nao-core[ollama]'
 
 # Integrations
 pip install 'nao-core[notion]'
+
+# Semantic layer (dbt MetricFlow)
+pip install 'nao-core[semantic-layer]'
 ```
 
 Combine multiple extras in a single install:

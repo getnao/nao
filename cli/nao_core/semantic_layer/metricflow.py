@@ -121,7 +121,7 @@ class MetricFlowSemanticLayer:
         key = (resolved, resolved.stat().st_mtime_ns, dialect)
         engine = _ENGINES.get(key)
         if engine is None:
-            _ENGINES.clear()
+            _evict_stale_engines(resolved, dialect)
             engine = cls(resolved, dialect)
             _ENGINES[key] = engine
         return engine
@@ -157,6 +157,12 @@ class MetricFlowSemanticLayer:
         except Exception as error:
             raise SemanticLayerError(str(error)) from error
         return explained.sql_statement.without_descriptions.sql.strip()
+
+
+def _evict_stale_engines(manifest_path: Path, dialect: str) -> None:
+    """Drop the engines built from older versions of this manifest for this dialect, keeping other projects cached."""
+    for key in [key for key in _ENGINES if key[0] == manifest_path and key[2] == dialect]:
+        del _ENGINES[key]
 
 
 def _build_engine(manifest_path: Path, dialect: str) -> "MetricFlowEngine":

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Code, Copy, Download, Layers, Palette, PanelRight, Table as TableIcon } from 'lucide-react';
 import { ToolCallWrapper } from './tool-call-wrapper';
+import { ToolOutputFallback } from './tool-output-fallback';
 import { TableFormatEditDialog } from './display-table-edit-dialog';
 import { SqlQueryDisplay } from './sql-query-display';
 import { SqlResultDisplay } from './sql-result-display';
@@ -115,7 +116,7 @@ export const ExecuteSemanticQueryToolCall = ({
 	return (
 		<ToolCallWrapper
 			defaultExpanded={false}
-			overrideError={viewMode !== 'results'}
+			overrideError={viewMode === 'definition'}
 			title={
 				<span className='flex items-baseline gap-2.5'>
 					<span className='text-foreground'>Semantic query</span>
@@ -145,7 +146,7 @@ export const ExecuteSemanticQueryToolCall = ({
 					/>
 				</>
 			) : (
-				<div className='p-4 text-center text-foreground/50 text-sm'>Compiling and executing query...</div>
+				<ToolOutputFallback runningLabel='Compiling and executing query...' />
 			)}
 		</ToolCallWrapper>
 	);

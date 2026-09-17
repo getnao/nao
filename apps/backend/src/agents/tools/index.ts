@@ -6,7 +6,7 @@ import type { SemanticLayerMode } from '@nao/shared/types';
 import type { Tool } from 'ai';
 
 import { mcpService } from '../../services/mcp';
-import { isSemanticQueryToolEnabled, isSqlToolEnabled } from '../../services/semantic-layer.service';
+import { isSemanticQueryToolEnabled, isWarehouseSqlEnabled } from '../../services/semantic-layer.service';
 import { isStorageEnabled } from '../../services/storage';
 import { AgentSettings } from '../../types/agent-settings';
 import clarification from './clarification';
@@ -15,7 +15,7 @@ import { createDisplayMapTool } from './display-map';
 import executePython from './execute-python';
 import executeSandboxedCode from './execute-sandboxed-code';
 import executeSemanticQuery from './execute-semantic-query';
-import executeSql from './execute-sql';
+import executeSql, { localOnlyExecuteSql } from './execute-sql';
 import grep from './grep';
 import list from './list';
 import loadSkill from './load-skill';
@@ -80,8 +80,8 @@ export const getTools = (
 		customBoundaries?: CustomBoundarySet[];
 		/**
 		 * Semantic layer mode of the run (`ToolContext.semanticLayerMode`). `execute_semantic_query`
-		 * is only exposed for the querying modes, and `exclusive` drops `execute_sql` altogether;
-		 * omit when the project has no semantic layer.
+		 * is only exposed for the querying modes, and `exclusive` restricts `execute_sql` to the
+		 * local database; omit when the project has no semantic layer.
 		 */
 		semanticLayerMode?: SemanticLayerMode | null;
 	} = {},
@@ -111,7 +111,7 @@ export const getTools = (
 	} = tools;
 	const baseTools = {
 		...rest,
-		...(isSqlToolEnabled(options.semanticLayerMode) && { execute_sql }),
+		execute_sql: isWarehouseSqlEnabled(options.semanticLayerMode) ? execute_sql : localOnlyExecuteSql,
 		...(isSemanticQueryToolEnabled(options.semanticLayerMode) && { execute_semantic_query }),
 		...(isStorageEnabled() && { write: writeTool }),
 		...(!options.excludeFollowUps && { suggest_follow_ups }),

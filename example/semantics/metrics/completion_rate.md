@@ -27,5 +27,5 @@ Over time:
 
 Broken down, filtered and ranked (see `../README.md` for every parameter):
 ```json
-{"metrics": ["completion_rate"], "group_by": ["customer__first_name"], "where": ["{{ Dimension('customer__first_name') }} IS NOT NULL"], "order_by": ["-completion_rate"], "limit": 10, "start_time": "2024-01-01", "end_time": "2024-12-31"}
+{"metrics": ["completion_rate"], "group_by": ["customer__first_name"], "where": ["{{ Dimension('customer__first_name') }} IS NOT NULL"], "order_by": ["-completion_rate"], "limit": 10}
 ```

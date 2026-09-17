@@ -10,6 +10,8 @@ interface SettingsSemanticLayerProps {
 	isAdmin: boolean;
 }
 
+const MODE_SELECT_ID = 'semantic-layer-mode';
+
 const MODE_LABELS: Record<SemanticLayerMode, { label: string; description: string }> = {
 	prioritized: {
 		label: 'Semantics first',
@@ -18,7 +20,8 @@ const MODE_LABELS: Record<SemanticLayerMode, { label: string; description: strin
 	},
 	exclusive: {
 		label: 'Semantics only',
-		description: 'Every question goes through the semantic layer; the agent cannot run raw SQL at all.',
+		description:
+			"Every warehouse question goes through the semantic layer; SQL is limited to nao's local DuckDB to reshape results and read files.",
 	},
 	disabled: {
 		label: "Don't use semantics",
@@ -53,6 +56,7 @@ export function SettingsSemanticLayer({ isAdmin }: SettingsSemanticLayerProps) {
 			description='Decide how the agent uses the dbt MetricFlow semantic layer declared in nao_config.yaml.'
 		>
 			<SettingsControlRow
+				id={MODE_SELECT_ID}
 				label='Mode'
 				description={
 					isConfigured ? (
@@ -70,7 +74,7 @@ export function SettingsSemanticLayer({ isAdmin }: SettingsSemanticLayerProps) {
 						onValueChange={handleModeChange}
 						disabled={!isAdmin || !isConfigured || updateAgentSettings.isPending}
 					>
-						<SelectTrigger className='w-48'>
+						<SelectTrigger id={MODE_SELECT_ID} className='w-48'>
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>

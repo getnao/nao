@@ -21,7 +21,7 @@ export type ConfiguredDatabase = {
 
 export type ConfiguredSemanticLayer = {
 	type: string;
-	manifestPath: string | null;
+	manifestPath: string;
 	database: string | null;
 };
 
@@ -146,9 +146,13 @@ export function extractConfiguredSemanticLayer(projectFolder: string): Configure
 	}
 
 	const semanticLayer = config.semantic_layer;
+	const manifestPath = normalizeString(semanticLayer.manifest_path);
+	if (!manifestPath) {
+		return null;
+	}
 	return {
 		type: normalizeString(semanticLayer.type) ?? 'metricflow',
-		manifestPath: normalizeString(semanticLayer.manifest_path),
+		manifestPath,
 		database: normalizeString(semanticLayer.database),
 	};
 }

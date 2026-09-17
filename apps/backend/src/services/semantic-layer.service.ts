@@ -35,8 +35,11 @@ export function isSemanticQueryToolEnabled(mode: SemanticLayerMode | null | unde
 	return mode === 'prioritized' || mode === 'exclusive';
 }
 
-/** In semantics-only mode the agent has no raw SQL at all: every question goes through the layer. */
-export function isSqlToolEnabled(mode: SemanticLayerMode | null | undefined): boolean {
+/**
+ * In semantics-only mode the warehouse is only reachable through the layer: `execute_sql` stays
+ * available but is restricted to nao's local DuckDB (files and earlier results).
+ */
+export function isWarehouseSqlEnabled(mode: SemanticLayerMode | null | undefined): boolean {
 	return mode !== 'exclusive';
 }
 

@@ -382,7 +382,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		search: { tab: 'tools' },
 		title: 'Semantic layer',
 		description: 'Choose whether the agent queries metrics through the dbt MetricFlow semantic layer.',
-		keywords: ['semantic', 'metricflow', 'dbt', 'metrics', 'dimensions', 'semantics first', 'semantics only'],
+		keywords: [
+			'semantic',
+			'metricflow',
+			'dbt',
+			'metrics',
+			'dimensions',
+			'semantics first',
+			'semantics only',
+			"don't use semantics",
+		],
 		adminOnly: true,
 	},
 	{

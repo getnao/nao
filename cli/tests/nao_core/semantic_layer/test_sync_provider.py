@@ -52,7 +52,7 @@ def test_sync_writes_manifest_copy_and_docs(tmp_path: Path) -> None:
     assert "- `order__status`" in revenue_doc
     assert '{"metrics": ["revenue"], "group_by": ["metric_time__month"]' in revenue_doc
     assert "{{ Dimension('order__ordered_at') }} IS NOT NULL" in revenue_doc
-    assert '"order_by": ["-revenue"], "limit": 10, "start_time": "2024-01-01"' in revenue_doc
+    assert '"order_by": ["-revenue"], "limit": 10}' in revenue_doc
 
     ratio_doc = (output / "metrics" / "average_order_value.md").read_text()
     assert "**Type:** ratio" in ratio_doc
@@ -66,6 +66,19 @@ def test_sync_writes_manifest_copy_and_docs(tmp_path: Path) -> None:
     assert "3 metrics" in readme
     for parameter in ("`metrics`", "`group_by`", "`where`", "`order_by`", "`limit`", "`start_time`, `end_time`"):
         assert f"| {parameter} |" in readme
+
+
+def test_sync_keeps_last_good_manifest_when_source_is_broken(tmp_path: Path) -> None:
+    project = _project_with_manifest(tmp_path)
+    semantic_layer = SemanticLayerConfig(manifest_path="dbt/target/semantic_manifest.json")
+    output = project / "semantics"
+    SemanticLayerSyncProvider().sync([semantic_layer], output, project_path=project)
+    (project / "dbt" / "target" / "semantic_manifest.json").write_text("{ not json")
+
+    result = SemanticLayerSyncProvider().sync([semantic_layer], output, project_path=project)
+
+    assert not result.success
+    assert (project / ".meta" / "semantic_layer" / "semantic_manifest.json").read_text() == FIXTURE_MANIFEST.read_text()
 
 
 def test_sync_reports_missing_manifest(tmp_path: Path) -> None:

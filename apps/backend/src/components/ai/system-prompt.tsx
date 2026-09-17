@@ -65,6 +65,7 @@ export function SystemPrompt({
 }: SystemPromptProps) {
 	const { canGrepSavedFiles = true } = options;
 	const hasTool = (name: string) => !toolNames || toolNames.includes(name);
+	const queryToolLabel = hasTool('execute_semantic_query') ? 'execute_sql or execute_semantic_query' : 'execute_sql';
 	const visibleMemories = getMemoriesInTokenRange(memories, MEMORY_TOKEN_LIMIT);
 	const dialectToolCallRules = getDialectToolCallRules(connections);
 	const dialectSqlQueryRules = getDialectSqlQueryRules(connections);
@@ -112,7 +113,9 @@ export function SystemPrompt({
 						Be efficient with tool calls and prefer calling multiple tools in parallel, especially when
 						researching.
 					</ListItem>,
-					<ListItem>If you can execute a SQL query, use the execute_sql tool for it.</ListItem>,
+					hasTool('execute_sql') && semanticLayerMode !== 'exclusive' && (
+						<ListItem>If you can execute a SQL query, use the execute_sql tool for it.</ListItem>
+					),
 					!testMode && (
 						<ListItem>
 							Use the <Bold>clarification</Bold> tool when the user's request is genuinely ambiguous and
@@ -132,7 +135,13 @@ export function SystemPrompt({
 					canExecuteSql={hasTool('execute_sql')}
 				/>
 			)}
-			{hasTool('execute_sql') && <LocalDatabaseBlock canSaveResults={hasTool('write')} />}
+			{hasTool('execute_sql') && (
+				<LocalDatabaseBlock
+					canSaveResults={hasTool('write')}
+					hasSemanticResults={hasTool('execute_semantic_query')}
+					warehouseSqlEnabled={semanticLayerMode !== 'exclusive'}
+				/>
+			)}
 			{semanticLayerMode && (
 				<SemanticLayerBlock mode={semanticLayerMode} canQuery={hasTool('execute_semantic_query')} />
 			)}
@@ -245,7 +254,9 @@ export function SystemPrompt({
 				<ListItem>
 					The column_name must match the column in the SELECT output that produced the number.
 				</ListItem>
-				<ListItem>The Query ID is shown in the execute_sql tool output (e.g., Query ID: query_a1b2).</ListItem>
+				<ListItem>
+					The Query ID is shown in the {queryToolLabel} tool output (e.g., Query ID: query_a1b2).
+				</ListItem>
 			</List>
 			<Title level={2}>Formatting Rules</Title>
 			<List>
@@ -276,7 +287,9 @@ export function SystemPrompt({
 					</Block>
 				)}
 
-				{configuredDatabases.length >= 2 && <ConfiguredDatabasesBlock databases={configuredDatabases} />}
+				{configuredDatabases.length >= 2 && semanticLayerMode !== 'exclusive' && (
+					<ConfiguredDatabasesBlock databases={configuredDatabases} />
+				)}
 
 				{skills.length > 0 && (
 					<Block>
@@ -452,14 +465,24 @@ function PermanentStorageBlock({
 	);
 }
 
-function LocalDatabaseBlock({ canSaveResults }: { canSaveResults: boolean }) {
+function LocalDatabaseBlock({
+	canSaveResults,
+	hasSemanticResults,
+	warehouseSqlEnabled,
+}: {
+	canSaveResults: boolean;
+	hasSemanticResults: boolean;
+	warehouseSqlEnabled: boolean;
+}) {
 	return (
 		<Block>
 			<Title level={2}>The local database</Title>
 			<Span>
 				Passing <Bold>{LOCAL_DATABASE_ID}</Bold> as execute_sql's <Bold>database_id</Bold> runs the query in
-				nao's own DuckDB instead of a warehouse. It is always available, and it can do two things no warehouse
-				can.
+				nao's own DuckDB instead of a warehouse.{' '}
+				{warehouseSqlEnabled
+					? 'It is always available, and it can do two things no warehouse can.'
+					: 'It is the only database_id execute_sql accepts in this project, and it can do two things the semantic layer cannot.'}
 			</Span>
 			<List>
 				<ListItem>
@@ -472,9 +495,11 @@ function LocalDatabaseBlock({ canSaveResults }: { canSaveResults: boolean }) {
 					<Bold>{"sheet = 'Name'"}</Bold>, and <Bold>read</Bold> on the file lists the names to pass.
 				</ListItem>
 				<ListItem>
-					<Bold>Query an earlier result by its id.</Bold> Every execute_sql result in this chat is a table
-					named after its query id, so <Bold>{'SELECT * FROM query_ab12cd34'}</Bold> reshapes rows you already
-					have without hitting the warehouse again.
+					<Bold>Query an earlier result by its id.</Bold> Every{' '}
+					{hasSemanticResults ? 'execute_sql and execute_semantic_query' : 'execute_sql'} result in this chat
+					is a table named after its query id, so <Bold>{'SELECT * FROM query_ab12cd34'}</Bold> reshapes rows
+					you already have without hitting the warehouse again
+					{hasSemanticResults ? ': join two metrics, pivot a breakdown, compute shares or deltas.' : '.'}
 				</ListItem>
 				<ListItem>
 					<Bold>Join the two.</Bold> A file joined to a query result is the point of this database: an
@@ -503,9 +528,10 @@ function LocalDatabaseBlock({ canSaveResults }: { canSaveResults: boolean }) {
 			<Span>
 				It is DuckDB, so write DuckDB SQL. The query itself only reads: writing a file is what{' '}
 				{canSaveResults ? <Bold>save_to</Bold> : 'the write tool'} is for, and a <Bold>COPY … TO</Bold> in the
-				SQL is rejected. It sees only the user's own saved files and the project folder. For questions a
-				warehouse can answer on its own, keep using the warehouse — this is for files and for results you
-				already have.
+				SQL is rejected. It sees only the user's own saved files and the project folder.{' '}
+				{warehouseSqlEnabled
+					? 'For questions a warehouse can answer on its own, keep using the warehouse — this is for files and for results you already have.'
+					: 'It holds no warehouse data of its own: get the numbers from execute_semantic_query first, then reshape them here.'}
 			</Span>
 		</Block>
 	);
@@ -547,8 +573,10 @@ function SemanticLayerQueryRules({ exclusive }: { exclusive: boolean }) {
 			</ListItem>
 			{exclusive ? (
 				<ListItem>
-					Every data question <Bold>must</Bold> go through execute_semantic_query: raw SQL is not available in
-					this project, and you must not write it even when asked. If the layer cannot express the question
+					Every warehouse question <Bold>must</Bold> go through execute_semantic_query: raw SQL against the
+					warehouse is not available in this project, and you must not write it even when asked. execute_sql
+					only accepts <Bold>{LOCAL_DATABASE_ID}</Bold>, to post-process semantic results (
+					<Bold>{'SELECT * FROM <query_id>'}</Bold>) or read files. If the layer cannot express the question
 					(missing metric, dimension or filter), say so plainly and offer what the layer can answer instead.
 					To look up the values a dimension takes, query a metric grouped by that dimension.
 				</ListItem>

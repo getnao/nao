@@ -26,5 +26,5 @@ Over time:
 
 Broken down, filtered and ranked (see `../README.md` for every parameter):
 ```json
-{"metrics": ["cumulative_revenue"], "group_by": ["customer__first_name"], "where": ["{{ Dimension('customer__first_name') }} IS NOT NULL"], "order_by": ["-cumulative_revenue"], "limit": 10, "start_time": "2024-01-01", "end_time": "2024-12-31"}
+{"metrics": ["cumulative_revenue"], "group_by": ["customer__first_name"], "where": ["{{ Dimension('customer__first_name') }} IS NOT NULL"], "order_by": ["-cumulative_revenue"], "limit": 10}
 ```

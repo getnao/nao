@@ -87,15 +87,15 @@ def sync_semantic_layer(
             f"Semantic manifest not found at {source_manifest}. Run `dbt parse` and check `semantic_layer.manifest_path`."
         )
 
+    engine = MetricFlowSemanticLayer.load(source_manifest, _docs_dialect(semantic_layer))
+    metrics = engine.list_metrics()
+    dimensions = engine.list_dimensions()
+
     output_path.mkdir(parents=True, exist_ok=True)
     manifest_copy = project_path / SYNCED_MANIFEST_RELATIVE_PATH
     manifest_copy.parent.mkdir(parents=True, exist_ok=True)
     if source_manifest.resolve() != manifest_copy.resolve():
         shutil.copy2(source_manifest, manifest_copy)
-
-    engine = MetricFlowSemanticLayer.load(manifest_copy, _docs_dialect(semantic_layer))
-    metrics = engine.list_metrics()
-    dimensions = engine.list_dimensions()
 
     _write_metric_docs(output_path / METRICS_DIR, metrics)
     (output_path / DIMENSIONS_FILENAME).write_text(render_dimensions_index(dimensions))
@@ -160,7 +160,7 @@ def _filtered_query_example(metric: MetricInfo) -> dict[str, Any]:
     if dimension is None:
         return {
             "metrics": [metric.name],
-            "where": ["{{ TimeDimension('metric_time', 'day') }} >= '2024-01-01'"],
+            "group_by": ["metric_time__year"],
             "order_by": [f"-{metric.name}"],
             "limit": 10,
         }
@@ -170,8 +170,6 @@ def _filtered_query_example(metric: MetricInfo) -> dict[str, Any]:
         "where": [f"{{{{ Dimension('{dimension}') }}}} IS NOT NULL"],
         "order_by": [f"-{metric.name}"],
         "limit": 10,
-        "start_time": "2024-01-01",
-        "end_time": "2024-12-31",
     }
 
 
@@ -217,6 +215,9 @@ def render_readme(semantic_layer: SemanticLayerConfig, metric_count: int, dimens
         "MetricFlow and runs it on the configured database.\n"
         "\n"
         "## Query parameters\n"
+        "\n"
+        f"The examples below use illustrative names; the metrics and dimensions of this project are the ones "
+        f"listed in `{METRICS_DIR}/` and `{DIMENSIONS_FILENAME}`.\n"
         "\n"
         "| Parameter | Meaning | Example |\n"
         "| --- | --- | --- |\n"
