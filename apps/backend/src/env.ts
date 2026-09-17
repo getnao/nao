@@ -254,6 +254,12 @@ const baseEnvSchema = z.object({
 		.transform((val) => val?.trim() || undefined)
 		.pipe(z.url({ message: 'LANGFUSE_BASE_URL must be a valid URL' }).optional()),
 
+	/** TypeSafe API key; when set, the agent gets `semantic_search`, ranking context files with Jev. */
+	TYPESAFE_API_KEY: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+
 	BETA_AUTOMATIONS_ENABLED: z
 		.enum(['true', 'false'])
 		.optional()

@@ -4,6 +4,7 @@ export const TOOL_LABELS: Record<string, string> = {
 	'tool-read': 'file',
 	'tool-search': 'search',
 	'tool-grep': 'search',
+	'tool-semantic_search': 'search',
 	'tool-list': 'folder',
 	'tool-execute_sql': 'query',
 	'tool-execute_semantic_query': 'query',
