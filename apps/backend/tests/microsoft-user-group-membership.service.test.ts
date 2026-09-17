@@ -92,6 +92,16 @@ describe('syncUserGroupsFromMicrosoft', () => {
 		expect(mocks.fetch).not.toHaveBeenCalled();
 	});
 
+	it('syncs the organization role when User Group reconciliation rejects', async () => {
+		mocks.decodeClaims.mockReturnValue({ status: 'verified', claims: { groups: [GROUP_1] } });
+		mocks.reconcile.mockRejectedValue(new Error('reconciliation failed'));
+
+		await syncUserGroupsFromMicrosoft('user-1');
+
+		expect(mocks.syncOrganizationRole).toHaveBeenCalledWith('user-1', [GROUP_1.toLowerCase()]);
+		expect(mocks.logger.error).toHaveBeenCalledOnce();
+	});
+
 	it('treats a valid empty groups claim as authoritative', async () => {
 		mocks.decodeClaims.mockReturnValue({ status: 'verified', claims: { groups: [] } });
 		await syncUserGroupsFromMicrosoft('user-1');

@@ -22,11 +22,16 @@ vi.mock('../src/db/dbConfig', () => ({
 
 vi.mock('../src/db/db', () => ({
 	db: {
+		select: (selection: Record<string, unknown>) =>
+			Object.keys(selection).length === 1 ? query([]) : query(mocks.mappingRows),
 		transaction: async (operation: (transaction: unknown) => Promise<void>) => operation(transaction()),
 	},
 }));
 
-import { reconcileSsoUserGroupMemberships } from '../src/queries/sso-user-group-membership.queries';
+import {
+	hasSsoUserGroupSyncState,
+	reconcileSsoUserGroupMemberships,
+} from '../src/queries/sso-user-group-membership.queries';
 
 describe('PostgreSQL SSO membership reconciliation', () => {
 	beforeEach(() => {
@@ -57,6 +62,12 @@ describe('PostgreSQL SSO membership reconciliation', () => {
 			'read-memberships',
 			'insert-membership',
 		]);
+	});
+
+	it('does not treat an accessible unmapped group as SSO sync state', async () => {
+		mocks.mappingRows[0]!.ssoMappings = ssoMappings([]);
+
+		await expect(hasSsoUserGroupSyncState('user-1', 'oidc')).resolves.toBe(false);
 	});
 
 	it('reads the new mapping when an admin update owns the project lock first', async () => {
@@ -126,6 +137,7 @@ function query(rows: unknown[], beforeExecute?: () => void) {
 		leftJoin: () => builder,
 		where: () => builder,
 		orderBy: () => builder,
+		limit: () => builder,
 		for: (_strength: string) => builder,
 		execute: vi.fn(async () => {
 			beforeExecute?.();

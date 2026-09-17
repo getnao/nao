@@ -30,9 +30,11 @@ import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as userGroupQueries from '../queries/user-group.queries';
 import { getDocsContextCatalog } from '../services/docs-context-catalog.service';
-import { listEffectiveEntraUserGroupMappings } from '../services/entra-user-group-mapping.service';
 import { hasFeature, LICENSE_FEATURES } from '../services/license.service';
-import { listEffectiveOidcUserGroupMappings } from '../services/oidc-user-group-mapping.service';
+import {
+	listEffectiveEntraUserGroupMappings,
+	listEffectiveOidcUserGroupMappings,
+} from '../services/sso-user-group-mapping.service';
 import { assertUserGroupManageable, getAvailableUserGroupOverview } from '../services/user-group-availability.service';
 import {
 	getEffectiveUserGroupAccess,

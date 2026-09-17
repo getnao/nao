@@ -55,10 +55,8 @@ vi.mock('../src/services/license.service', () => ({
 	hasFeature: mocks.hasFeature,
 	LICENSE_FEATURES: { rowLevelSecurity: 'row-level-security', sso: 'sso', userGroups: 'user-groups' },
 }));
-vi.mock('../src/services/oidc-user-group-mapping.service', () => ({
+vi.mock('../src/services/sso-user-group-mapping.service', () => ({
 	listEffectiveOidcUserGroupMappings: mocks.listEffectiveOidcUserGroupMappings,
-}));
-vi.mock('../src/services/entra-user-group-mapping.service', () => ({
 	listEffectiveEntraUserGroupMappings: mocks.listEffectiveEntraUserGroupMappings,
 }));
 vi.mock('../src/services/user-group-availability.service', () => ({

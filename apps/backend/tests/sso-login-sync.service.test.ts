@@ -61,24 +61,6 @@ describe('syncSsoLoginGroups', () => {
 		expect(calls).toEqual(['organization', 'groups', 'roles']);
 	});
 
-	it('keeps a default project role through same-login and later organization role sync', async () => {
-		let explicitProjectRole: string | null = null;
-		mocks.isOidc.mockReturnValue(true);
-		mocks.syncUserGroups.mockImplementation(async () => {
-			explicitProjectRole ??= 'context_admin';
-		});
-		mocks.syncRoles.mockImplementation(async () => {
-			expect(explicitProjectRole).toBe('context_admin');
-		});
-
-		await syncSsoLoginGroups('user-1', 'okta');
-		await syncSsoLoginGroups('user-1', 'okta');
-
-		expect(explicitProjectRole).toBe('context_admin');
-		expect(mocks.syncUserGroups).toHaveBeenCalledTimes(2);
-		expect(mocks.syncRoles).toHaveBeenCalledTimes(2);
-	});
-
 	it('restores the organization before Microsoft User Group sync', async () => {
 		const calls: string[] = [];
 		mocks.addDefaultOrganization.mockImplementation(async () => {

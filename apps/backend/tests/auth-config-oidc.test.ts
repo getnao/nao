@@ -160,6 +160,25 @@ describe('authConfigRoutes.sso.getStatus', () => {
 		await expect(callSsoStatus()).resolves.toMatchObject({ organizationRolesManagedByIdp: false });
 	});
 
+	it('uses a neutral provider name when OIDC and Entra role mappings are active', async () => {
+		Object.assign(mockEnv, {
+			OIDC_CLIENT_ID: 'client-id',
+			OIDC_CLIENT_SECRET: 'secret',
+			OIDC_DISCOVERY_URL: 'https://example.com/.well-known/openid-configuration',
+			OIDC_PROVIDER_NAME: 'Okta',
+			OIDC_GROUP_NAO_ROLE_MAPPING: 'nao-admins:admin',
+			AZURE_AD_CLIENT_ID: 'client-id',
+			AZURE_AD_CLIENT_SECRET: 'secret',
+			AZURE_AD_TENANT_ID: 'tenant-id',
+			AZURE_AD_GROUP_NAO_ROLE_MAPPING: 'a0b1c2d3-e4f5-6789-abcd-ef0123456789:admin',
+		});
+
+		await expect(callSsoStatus()).resolves.toEqual({
+			organizationRolesManagedByIdp: true,
+			providerName: 'SSO',
+		});
+	});
+
 	it('does not activate Entra role mapping without the Microsoft provider', async () => {
 		mockEnv.AZURE_AD_GROUP_NAO_ROLE_MAPPING = 'a0b1c2d3-e4f5-6789-abcd-ef0123456789:admin';
 		await expect(callSsoStatus()).resolves.toMatchObject({ organizationRolesManagedByIdp: false });

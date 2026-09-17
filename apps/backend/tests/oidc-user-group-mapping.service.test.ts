@@ -8,8 +8,10 @@ vi.mock('../src/services/user-group-availability.service', () => ({
 	listActiveUserGroups: mocks.listActiveUserGroups,
 }));
 
-import { listEffectiveEntraUserGroupMappings } from '../src/services/entra-user-group-mapping.service';
-import { listEffectiveOidcUserGroupMappings } from '../src/services/oidc-user-group-mapping.service';
+import {
+	listEffectiveEntraUserGroupMappings,
+	listEffectiveOidcUserGroupMappings,
+} from '../src/services/sso-user-group-mapping.service';
 
 beforeEach(() => {
 	vi.clearAllMocks();

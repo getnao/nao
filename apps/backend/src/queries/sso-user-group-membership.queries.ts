@@ -159,7 +159,7 @@ export async function listAccessibleSsoUserGroupMappings(
 ): Promise<SsoUserGroupMapping[]> {
 	const groups = await buildSsoUserGroupMappingsQuery(db, userId).execute();
 	return normalizeSsoUserGroupMappings(groups, provider, hasUnlimitedUserGroups).filter(
-		(mapping) => mapping.hasProjectAccess || mapping.defaultProjectRole,
+		(mapping) => mapping.identifiers.length > 0 && (mapping.hasProjectAccess || mapping.defaultProjectRole),
 	);
 }
 

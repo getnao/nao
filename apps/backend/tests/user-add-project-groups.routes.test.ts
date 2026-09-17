@@ -85,7 +85,7 @@ describe('add user to project groups', () => {
 		expect(mocks.updateProjectMemberRole).toHaveBeenCalledWith('project-id', 'member-id', 'viewer');
 	});
 
-	it('blocks organization role changes while organization roles are managed by the identity provider', async () => {
+	it('rejects organization role changes through the editability helper when managed by the identity provider', async () => {
 		mocks.organizationRoleMappingActive = true;
 		const { assertOrganizationRolesAreEditable } = await import('../src/trpc/trpc');
 

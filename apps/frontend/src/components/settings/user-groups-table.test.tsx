@@ -295,24 +295,30 @@ beforeEach(() => {
 		isError: false,
 		data: { sso: true, 'user-groups': true, 'row-level-security': false },
 	});
-	mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => ({
-		isLoading: false,
-		isError: false,
-		data:
-			options?.queryKey?.[0] === 'oidc-config'
-				? null
-				: options?.queryKey?.[0] === 'microsoft-config'
-					? false
-					: options?.queryKey?.[0] === 'row-security'
-						? { version: 1, tables: [] }
-						: options?.queryKey?.[0] === 'rules-file'
-							? { content: '', hash: 'rules-hash' }
-							: options?.queryKey?.[0] === 'context-catalog'
-								? { syncState: 'ready', objects: [] }
-								: options?.queryKey?.[0] === 'docs-context-catalog'
-									? { syncState: 'ready', entries: [] }
-									: overview,
-	}));
+	mocks.useQuery.mockImplementation((options?: { queryKey?: string[] }) => {
+		const queryKey = options?.queryKey?.[0];
+		if (queryKey === 'effective-oidc-env-mappings' || queryKey === 'effective-microsoft-env-mappings') {
+			return { isLoading: false, isError: false, isSuccess: true, data: [], refetch: vi.fn() };
+		}
+		return {
+			isLoading: false,
+			isError: false,
+			data:
+				queryKey === 'oidc-config'
+					? null
+					: queryKey === 'microsoft-config'
+						? false
+						: queryKey === 'row-security'
+							? { version: 1, tables: [] }
+							: queryKey === 'rules-file'
+								? { content: '', hash: 'rules-hash' }
+								: queryKey === 'context-catalog'
+									? { syncState: 'ready', objects: [] }
+									: queryKey === 'docs-context-catalog'
+										? { syncState: 'ready', entries: [] }
+										: overview,
+		};
+	});
 	mocks.useMutation.mockReturnValue({
 		mutate: mocks.mutate,
 		mutateAsync: mocks.mutateAsync,

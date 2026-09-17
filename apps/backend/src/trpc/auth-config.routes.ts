@@ -32,7 +32,11 @@ export const authConfigRoutes = {
 			]);
 			return {
 				organizationRolesManagedByIdp,
-				providerName: microsoftManaged && !oidcManaged ? 'Microsoft Entra' : (env.OIDC_PROVIDER_NAME ?? 'SSO'),
+				providerName: microsoftManaged
+					? oidcManaged
+						? 'SSO'
+						: 'Microsoft Entra'
+					: (env.OIDC_PROVIDER_NAME ?? 'SSO'),
 			};
 		}),
 	},

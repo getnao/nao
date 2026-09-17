@@ -126,13 +126,16 @@ async function synchronizeMicrosoftMappings(
 	hasUnlimitedUserGroups: boolean,
 	envMappings: EntraGroupNaoGroupMapping[],
 ): Promise<void> {
-	if (hasUserGroupSyncState) {
-		await reconcileSsoUserGroupMemberships(userId, MICROSOFT_PROVIDER_ID, groupIds, {
-			hasUnlimitedUserGroups,
-			entraMappings: envMappings,
-		});
+	try {
+		if (hasUserGroupSyncState) {
+			await reconcileSsoUserGroupMemberships(userId, MICROSOFT_PROVIDER_ID, groupIds, {
+				hasUnlimitedUserGroups,
+				entraMappings: envMappings,
+			});
+		}
+	} finally {
+		await syncOrganizationRoleFromMicrosoftGroups(userId, groupIds);
 	}
-	await syncOrganizationRoleFromMicrosoftGroups(userId, groupIds);
 }
 
 export function hasMicrosoftGroupsOverage(claims: Record<string, unknown>): boolean {
