@@ -18,19 +18,6 @@
     "linear": {
       "transport": "streamable-http",
       "url": "https://mcp.linear.app/mcp"
-    },
-    "tableau": {
-        "command": "npx",
-        "args": ["-y", "@tableau/mcp-server@latest"],
-        "env": {
-          "AUTH": "pat",
-          "SERVER": "${TABLEAU_SERVER}",
-          "SITE_NAME": "${TABLEAU_SITE_NAME}",
-          "PAT_NAME": "${TABLEAU_PAT_NAME}",
-          "PAT_VALUE": "${TABLEAU_PAT_VALUE}",
-          "ENABLE_MCP_SITE_SETTINGS": "false","FEATURE_GATE_PROVIDER": "custom",
-          "FEATURE_GATE_PROVIDER_CONFIG": "{\"module\":\"/Users/leoshiina/nao/nao/example/agent/mcps/tableau-feature-gate.cjs\"}"
-        }
-      }
+    }
     }
   }

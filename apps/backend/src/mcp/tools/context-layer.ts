@@ -1,13 +1,11 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { executeSql, grep, list, parseTableauFilters, parseTableauWorkbook, readFile } from '@nao/shared/tools';
+import { executeSql, grep, list, readFile } from '@nao/shared/tools';
 import { z } from 'zod';
 import zodV3 from 'zod/v3';
 
 import executeSqlTool from '../../agents/tools/execute-sql';
 import grepTool from '../../agents/tools/grep';
 import listTool from '../../agents/tools/list';
-import parseTableauFiltersTool from '../../agents/tools/parse-tableau-filters';
-import parseTableauWorkbookTool from '../../agents/tools/parse-tableau-workbook';
 import readTool from '../../agents/tools/read';
 import * as chatQueries from '../../queries/chat.queries';
 import { upsertMcpQueryData } from '../../queries/mcp-query-data.queries';
@@ -81,8 +79,6 @@ const EXECUTE_SQL_INPUT_SCHEMA = executeSql.InputSchema.extend({
 
 export function registerContextLayerTools(server: McpServer, ctx: McpContext): void {
 	registerFileTools(server, ctx);
-	registerTableauTools(server, ctx);
-	registerTableauFiltersTools(server, ctx);
 	registerExecuteSql(server, ctx);
 	registerContextStoryTools(server, ctx);
 }
@@ -113,28 +109,6 @@ function registerFileTools(server: McpServer, ctx: McpContext): void {
 		description: READ_DESCRIPTION,
 		inputSchema: readFile.InputSchema,
 		outputSchema: readFile.OutputSchema.shape,
-	});
-}
-
-function registerTableauTools(server: McpServer, ctx: McpContext): void {
-	registerAgentToolAsMcp(server, ctx, {
-		name: 'parse_tableau_workbook',
-		agentTool: parseTableauWorkbookTool,
-		title: 'Parse Tableau Workbook',
-		description: parseTableauWorkbook.description,
-		inputSchema: parseTableauWorkbook.InputSchema,
-		outputSchema: parseTableauWorkbook.OutputSchema.shape,
-	});
-}
-
-function registerTableauFiltersTools(server: McpServer, ctx: McpContext): void {
-	registerAgentToolAsMcp(server, ctx, {
-		name: 'parse_tableau_filters',
-		agentTool: parseTableauFiltersTool,
-		title: 'Parse Tableau Filters',
-		description: parseTableauFilters.description,
-		inputSchema: parseTableauFilters.InputSchema,
-		outputSchema: parseTableauFilters.OutputSchema.shape,
 	});
 }
 

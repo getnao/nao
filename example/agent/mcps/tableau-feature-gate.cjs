@@ -1,6 +1,6 @@
 class FeatureGateProvider {
 	async isFeatureEnabled(featureName) {
-		return featureName === 'authoring-tools';
+		return ['authoring-tools', 'download-workbook'].includes(featureName);
 	}
 }
 

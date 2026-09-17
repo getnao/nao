@@ -34,7 +34,6 @@ export const TOOL_MODE_MAP: Record<string, (keyof McpEndpointSettings)[]> = {
 	execute_sql: ['contextLayerModeEnabled'],
 	grep: ['contextLayerModeEnabled'],
 	ls: ['contextLayerModeEnabled'],
-	parse_tableau_workbook: ['contextLayerModeEnabled'],
 	create_story: ['contextLayerModeEnabled'],
 	update_story: ['contextLayerModeEnabled'],
 	display_chart: ['subAgentModeEnabled', 'contextLayerModeEnabled'],
