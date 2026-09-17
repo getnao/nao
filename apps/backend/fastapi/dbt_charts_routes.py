@@ -128,8 +128,10 @@ def _default_database_name(config: NaoConfig, database_id: str | None) -> str | 
 
 
 def _repo_dirs(config: NaoConfig, project_path: Path) -> list[Path]:
+    """Synced repositories live under `repos/`; the bare name is kept for projects that vendor them at the root."""
     dirs: list[Path] = []
     for repo in config.repos:
+        dirs.append(project_path / "repos" / repo.name)
         dirs.append(project_path / repo.name)
         if repo.local_path:
             dirs.append(

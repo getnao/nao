@@ -22,7 +22,7 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 	const input = toolPart.input;
 	const isStreaming = toolPart.state === 'input-streaming';
 	const output = toolPart.output;
-	const summary = extractStorySummary(output?.code ?? '');
+	const summary = extractStorySummary(output?.code ?? '', output?.format ?? input?.format);
 	const hasAutoOpenedRef = useRef(false);
 
 	const finalStorySlug = output?.id ?? input?.id;

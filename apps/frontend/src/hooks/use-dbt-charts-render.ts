@@ -15,12 +15,13 @@ interface UseDbtChartsRenderParams {
 /** Renders a board through the backend; the YAML is debounced so streaming or typing does not flood the warehouse. */
 export function useDbtChartsRender({ yaml, variables, databaseId, enabled = true }: UseDbtChartsRenderParams) {
 	const debouncedYaml = useDebouncedValue(yaml, RENDER_DEBOUNCE_MS);
+	const hasYaml = debouncedYaml.trim().length > 0;
 
 	return useQuery<DbtChartsRender>({
 		queryKey: ['dbtCharts', 'render', debouncedYaml, variables, databaseId ?? null],
 		queryFn: () => trpcClient.dbtCharts.render.mutate({ yaml: debouncedYaml, variables, databaseId }),
-		enabled: enabled && debouncedYaml.trim().length > 0,
-		placeholderData: keepPreviousData,
+		enabled: enabled && hasYaml,
+		placeholderData: hasYaml ? keepPreviousData : undefined,
 		staleTime: 5 * 60 * 1000,
 		retry: false,
 	});

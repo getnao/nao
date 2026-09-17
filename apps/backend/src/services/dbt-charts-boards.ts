@@ -32,7 +32,7 @@ export function listProjectBoards(projectFolder: string): ProjectBoard[] {
 
 export function readProjectBoard(projectFolder: string, boardPath: string): ProjectBoardContent | null {
 	const projectRoot = resolveProjectRoot(projectFolder);
-	if (!projectRoot || !BOARD_FILE_PATTERN.test(boardPath)) {
+	if (!projectRoot || !isBoardPath(boardPath)) {
 		return null;
 	}
 	const filePath = join(projectRoot, ...boardPath.split('/'));
@@ -111,10 +111,23 @@ function walkBoardFiles(folder: string): string[] {
 	return entries.flatMap((entry) => {
 		const entryPath = join(folder, entry.name);
 		if (entry.isDirectory()) {
-			return entry.name === PARTIALS_FOLDER || entry.name.startsWith('.') ? [] : walkBoardFiles(entryPath);
+			return isSkippedBoardFolder(entry.name) ? [] : walkBoardFiles(entryPath);
 		}
 		return entry.isFile() && BOARD_FILE_PATTERN.test(entry.name) ? [entryPath] : [];
 	});
+}
+
+function isSkippedBoardFolder(name: string): boolean {
+	return name === PARTIALS_FOLDER || name.startsWith('.') || SKIPPED_FOLDERS.has(name);
+}
+
+/** Only YAML files inside a `charts/` folder are boards; this keeps `nao_config.yaml` and the like unreadable. */
+function isBoardPath(boardPath: string): boolean {
+	if (!BOARD_FILE_PATTERN.test(boardPath)) {
+		return false;
+	}
+	const folders = boardPath.split('/').slice(0, -1);
+	return folders.includes(CHARTS_FOLDER) && !folders.some(isSkippedBoardFolder);
 }
 
 function readContainedFile(folder: string, filePath: string): string | null {

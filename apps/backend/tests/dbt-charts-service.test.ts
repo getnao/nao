@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -46,8 +46,10 @@ describe('dbt charts project boards', () => {
 			yaml: 'title: Revenue\n',
 		});
 		expect(readProjectBoard(project, 'charts/link.yml')).toBeNull();
-		expect(readProjectBoard(project, '../secret.yml')).toBeNull();
+		expect(readProjectBoard(project, `charts/../${relative(project, join(outside, 'secret.yml'))}`)).toBeNull();
 		expect(readProjectBoard(project, 'charts/revenue.txt')).toBeNull();
+		expect(readProjectBoard(project, 'nao_config.yaml')).toBeNull();
+		expect(readProjectBoard(project, 'dbt/target/charts/compiled.yml')).toBeNull();
 	});
 
 	it('falls back to a title derived from the file name', () => {

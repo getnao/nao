@@ -105,9 +105,10 @@ rows:
 				<Span>
 					Board properties sit at the YAML root: a top-level <Code>board:</Code> key is rejected. Top-level
 					keys are <Code>title</Code>, <Code>notes</Code>, <Code>tags</Code>, <Code>source</Code>,{' '}
-					<Code>variables</Code>, <Code>queries</Code>, <Code>charts</Code>, exactly one layout key (
-					<Code>rows</Code>, <Code>cols</Code>, <Code>grid</Code> or <Code>tabs</Code>), and optionally{' '}
-					<Code>theme</Code> (<Code>clarity</Code>, <Code>paper</Code>, <Code>neon</Code>).
+					<Code>variables</Code>, <Code>queries</Code>, <Code>charts</Code>, at most one layout key (
+					<Code>rows</Code>, <Code>cols</Code>, <Code>grid</Code> or <Code>tabs</Code>; charts stack in
+					declaration order without one), and optionally <Code>theme</Code> (<Code>clarity</Code>,{' '}
+					<Code>paper</Code>, <Code>neon</Code>).
 				</Span>
 
 				<Title level={2}>Queries</Title>

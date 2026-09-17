@@ -73,6 +73,7 @@ import { isStoragePath } from '../utils/tools';
 import { formatErrorMessageForUI, truncateMiddle } from '../utils/utils';
 import { listChartPlugins } from './chart-plugin';
 import { compactionService } from './compaction';
+import { getDbtChartsStatus } from './dbt-charts-status';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { mcpService } from './mcp';
 import { memoryService } from './memory';
@@ -204,6 +205,7 @@ async function _buildContextBase(opts: {
 	const [envVars, azureAccessToken] = await Promise.all([
 		projectQueries.getEnvVars(opts.projectId),
 		hasFeature(LICENSE_FEATURES.sso).then((has) => (has ? getAzureAccessTokenForUser(opts.userId) : null)),
+		getDbtChartsStatus(),
 	]);
 	return {
 		projectFolder: project.path,

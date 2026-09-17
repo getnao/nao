@@ -29,6 +29,7 @@ SqlRunner = Callable[[str, str], tuple[list[str], list[dict[str, Any]]]]
 
 _NAO_TYPE_TO_DIALECT = {
     "fabric": "mssql",
+    "motherduck": "duckdb",
     "starrocks": "mysql",
     "clickhouse": "postgres",
 }

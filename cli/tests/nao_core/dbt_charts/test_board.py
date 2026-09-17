@@ -129,7 +129,10 @@ def test_render_board_routes_rendered_sql_through_runner(tmp_path: Path, dbt_pro
 @requires_dbt_charts
 def test_render_board_rejects_unknown_source():
     runner = RecordingRunner()
-    board = BOARD.replace("queries:\n  by_month: |", "queries:\n  by_month:\n    source: nope\n    sql: |\n  ")
+    board = BOARD.replace(
+        "  by_month: |\n    SELECT",
+        "  by_month:\n    source: nope\n    sql: SELECT",
+    )
     result = render_board(board, databases={"warehouse": "duckdb"}, default_database="warehouse", run_sql=runner)
     assert runner.calls == []
     assert result.board_error is not None or result.chart_errors
@@ -153,6 +156,8 @@ def test_render_board_turns_runner_failures_into_chart_errors():
 
 @requires_dbt_charts
 def test_font_file_path_only_serves_bundled_fonts():
+    bundled = font_file_path("DBTSansTabular-Regular.woff2")
+    assert bundled is not None and bundled.is_file()
     assert font_file_path("../pyproject.toml") is None
     assert font_file_path("missing.woff2") is None
 
