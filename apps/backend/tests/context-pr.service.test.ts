@@ -10,15 +10,20 @@ vi.hoisted(() => {
 });
 
 import {
+	ContextPullRequestCreationError,
+	createBatchRecommendationPullRequest,
 	createRecommendationPullRequest,
 	createReviewRequest,
 	resolveRecommendationRepo,
 } from '../src/services/context-pr.service';
 import { GENERIC_GIT_PROVIDER } from '../src/services/generic-git';
 import type { ProposedEdit } from '../src/types/context-recommendation';
+import { GitOperationError } from '../src/utils/git-repo';
 
 const mocks = vi.hoisted(() => ({
 	cloneRepo: vi.fn(),
+	checkoutNewBranch: vi.fn(),
+	commitAll: vi.fn(),
 	commitAllAndPushBranch: vi.fn(),
 	createPullRequest: vi.fn(),
 	findContextConfigSubPath: vi.fn().mockResolvedValue(''),
@@ -31,6 +36,7 @@ const mocks = vi.hoisted(() => ({
 	getRepoSubPath: vi.fn().mockReturnValue(''),
 	getUserGitIdentity: vi.fn(),
 	setRecommendationPr: vi.fn(),
+	pushBranch: vi.fn(),
 }));
 
 vi.mock('../src/queries/context-recommendation.queries', () => ({
@@ -64,6 +70,8 @@ vi.mock('../src/utils/logger', () => ({
 
 vi.mock('../src/services/git-repo', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../src/services/git-repo')>()),
+	checkoutNewBranch: mocks.checkoutNewBranch,
+	commitAll: mocks.commitAll,
 	getRepoSubPath: mocks.getRepoSubPath,
 }));
 
@@ -75,7 +83,8 @@ vi.mock('../src/services/github', () => ({
 	findContextConfigSubPath: mocks.findContextConfigSubPath,
 	getGitInfo: mocks.getGitInfo,
 	getUserGitIdentity: mocks.getUserGitIdentity,
-	pushBranch: vi.fn(),
+	publicRepoUrl: (repoFullName: string) => `https://github.com/${repoFullName}.git`,
+	pushBranch: mocks.pushBranch,
 }));
 
 describe('createRecommendationPullRequest', () => {
@@ -88,6 +97,8 @@ describe('createRecommendationPullRequest', () => {
 		mocks.getGitInfo.mockReturnValue({ branch: 'main', isGithub: true, repoFullName: 'nao/context' });
 		mocks.getRepoSubPath.mockReturnValue('');
 		mocks.getUserGitIdentity.mockResolvedValue({ email: 'user@example.com', name: 'User' });
+		mocks.commitAll.mockReturnValue(true);
+		mocks.pushBranch.mockReturnValue('');
 		mocks.createPullRequest.mockResolvedValue({ html_url: 'https://github.com/nao/context/pull/1' });
 		mocks.findContextConfigSubPath.mockResolvedValue('');
 	});
@@ -112,6 +123,93 @@ describe('createRecommendationPullRequest', () => {
 			prCreatedAt: expect.any(Date),
 			prUrl: 'https://github.com/nao/context/pull/1',
 		});
+	});
+
+	it('attaches repository context and the Git operation to clone failures', async () => {
+		const gitError = new GitOperationError(
+			'Unauthorized',
+			'clone',
+			'Unauthorized\nfatal: Could not read from remote repository.',
+		);
+		mocks.getRecommendationById.mockResolvedValue(recommendation());
+		mocks.cloneRepo.mockImplementation(() => {
+			throw gitError;
+		});
+
+		const error = await createRecommendationPullRequest('project-1', 'rec-123456789', 'user-1').catch(
+			(caught) => caught,
+		);
+
+		expect(error).toBeInstanceOf(ContextPullRequestCreationError);
+		expect(error).toMatchObject({
+			details: {
+				authMethod: 'oauth-token',
+				operation: 'clone',
+				platform: 'github',
+				provider: 'github',
+				repositoryUrl: 'https://github.com/nao/context.git',
+			},
+			originalError: gitError,
+		});
+	});
+
+	it('uses the action fallback when a Git error only has the sentinel operation', async () => {
+		const gitError = new GitOperationError('Git failed', 'git', 'raw Git failure');
+		mocks.getRecommendationById.mockResolvedValue(recommendation());
+		mocks.cloneRepo.mockImplementation(() => {
+			throw gitError;
+		});
+
+		const error = await createRecommendationPullRequest('project-1', 'rec-123456789', 'user-1').catch(
+			(caught) => caught,
+		);
+
+		expect(error).toBeInstanceOf(ContextPullRequestCreationError);
+		expect(error).toMatchObject({
+			details: { operation: 'create-pull-request' },
+			originalError: gitError,
+		});
+	});
+
+	it('preserves concrete checkout failures in the single recommendation flow', async () => {
+		const gitError = new GitOperationError('Checkout failed', 'checkout', 'checkout failed');
+		mocks.getRecommendationById.mockResolvedValue(recommendation());
+		mocks.cloneRepo.mockImplementation((_token: string, _repoFullName: string, dir: string) => {
+			fs.writeFileSync(path.join(dir, 'RULES.md'), 'old');
+		});
+		mocks.commitAllAndPushBranch.mockImplementation(() => {
+			throw gitError;
+		});
+
+		const error = await createRecommendationPullRequest('project-1', 'rec-123456789', 'user-1').catch(
+			(caught) => caught,
+		);
+
+		expect(error).toBeInstanceOf(ContextPullRequestCreationError);
+		expect(error).toMatchObject({ details: { operation: 'checkout' }, originalError: gitError });
+	});
+
+	it('preserves concrete checkout failures in the batch recommendation flow', async () => {
+		mocks.getRecommendationById.mockImplementation(async (_projectId: string, id: string) => ({
+			...(recommendation() as Record<string, unknown>),
+			id,
+		}));
+		mocks.cloneRepo.mockImplementation((_token: string, _repoFullName: string, dir: string) => {
+			fs.writeFileSync(path.join(dir, 'RULES.md'), 'old');
+		});
+		const gitError = new GitOperationError('Checkout failed', 'checkout', 'checkout failed');
+		mocks.checkoutNewBranch.mockImplementation(() => {
+			throw gitError;
+		});
+
+		const error = await createBatchRecommendationPullRequest(
+			'project-1',
+			['rec-123456789', 'rec-987654321'],
+			'user-1',
+		).catch((caught) => caught);
+
+		expect(error).toBeInstanceOf(ContextPullRequestCreationError);
+		expect(error).toMatchObject({ details: { operation: 'checkout' }, originalError: gitError });
 	});
 
 	it('does not resolve or open context pull requests from the project folder remote', async () => {

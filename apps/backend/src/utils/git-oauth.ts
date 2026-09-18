@@ -4,7 +4,12 @@ import os from 'node:os';
 import path from 'node:path';
 
 import type { GitPlatform } from './context-repo';
-import { detectGitPlatform, sanitizeContextSourceRepositoryUrl } from './context-repo';
+import {
+	detectGitPlatform,
+	isHttpRepositoryUrl,
+	isSshRepositoryUrl,
+	sanitizeContextSourceRepositoryUrl,
+} from './context-repo';
 import { toGitError } from './git-repo';
 
 const ASKPASS_SCRIPT = `#!/bin/sh
@@ -50,10 +55,10 @@ export function runGitFetchWithCredentials(
 ): Buffer {
 	const sanitizedUrl = sanitizeContextSourceRepositoryUrl(repositoryUrl);
 	const args = ['fetch', '--no-tags', sanitizedUrl, branch];
-	if (options.sshKey) {
+	if (options.sshKey && isSshRepositoryUrl(repositoryUrl)) {
 		return runGitWithSshKey(cwd, args, options.sshKey, timeout);
 	}
-	if (options.token) {
+	if (options.token && isHttpRepositoryUrl(repositoryUrl)) {
 		const platform = options.platform ?? detectGitPlatform(repositoryUrl);
 		return runGitWithAskpass(cwd, args, { token: options.token, username: getTokenUsername(platform) }, timeout);
 	}

@@ -13,8 +13,10 @@ const mocks = vi.hoisted(() => ({
 	getContextRepositoryStatus: vi.fn(),
 	getUserRoleInProject: vi.fn(),
 	listContextPullActivities: vi.fn(),
+	loggerError: vi.fn(),
 	loggerWarn: vi.fn(),
 	pullLiveContext: vi.fn(),
+	pushContextExplorerBranch: vi.fn(),
 	readFileContent: vi.fn(),
 	resolveContextExplorerGit: vi.fn(),
 	resolveContextExplorerGitSafely: vi.fn(),
@@ -30,8 +32,15 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));
 vi.mock('../src/services/sso-group-mapping.service', () => ({ isGroupRoleMappingActive: vi.fn(async () => false) }));
 vi.mock('../src/utils/logger', () => ({
-	logger: { warn: mocks.loggerWarn },
-	serializeError: (error: unknown) => ({ message: error instanceof Error ? error.message : String(error) }),
+	logger: { error: mocks.loggerError, warn: mocks.loggerWarn },
+	sanitizeLogText: (value: string) =>
+		value.replace(/:\/\/[^/\s@]+@/g, '://***@').replace(/(\bbearer\s+)[A-Za-z0-9._~+/-]+=*/gi, '$1[REDACTED]'),
+	serializeError: (error: unknown) => ({
+		message: (error instanceof Error ? error.message : String(error)).replace(
+			/(\bbearer\s+)[A-Za-z0-9._~+/-]+=*/gi,
+			'$1[REDACTED]',
+		),
+	}),
 }));
 vi.mock('../src/queries/activity.queries', () => ({
 	completeActivity: mocks.completeActivity,
@@ -85,18 +94,23 @@ vi.mock('../src/services/context-explorer-git.service', () => ({
 }));
 
 vi.mock('../src/services/context-explorer-pr.service', () => ({
-	pushContextExplorerBranch: vi.fn(),
+	pushContextExplorerBranch: mocks.pushContextExplorerBranch,
 }));
 
 vi.mock('../src/utils/context-repo', () => ({
 	ContextProjectResolutionError: mocks.ContextProjectResolutionError,
+	detectGitPlatform: vi.fn(() => 'bitbucket'),
 	resolveContextRepository: mocks.resolveContextRepository,
+	resolveContextSourceGitAuthMethod: vi.fn(() => 'ssh-key'),
 	resolveContextSourceGitToken: vi.fn(() => null),
-	sanitizeContextSourceRepositoryUrl: vi.fn((url: string) => url),
+	sanitizeContextSourceRepositoryUrl: vi.fn((url: string) => url.replace(/:\/\/[^/\s@]+@/g, '://')),
 }));
+
+import { TRPCError } from '@trpc/server';
 
 import { contextExplorerRoutes } from '../src/trpc/context-explorer.routes';
 import { router } from '../src/trpc/trpc';
+import { GitOperationError } from '../src/utils/git-repo';
 
 const testRouter = router(contextExplorerRoutes);
 
@@ -169,7 +183,7 @@ describe('context explorer file access', () => {
 		vi.resetAllMocks();
 		mocks.getUserRoleInProject.mockResolvedValue('admin');
 		mocks.getGithubToken.mockResolvedValue('github-token');
-		mocks.resolveContextRepository.mockResolvedValue({ provider: 'github' });
+		mocks.resolveContextRepository.mockResolvedValue({ provider: 'github', repoFullName: 'nao/context' });
 	});
 
 	it('returns the source file tree without resolving Git', async () => {
@@ -295,7 +309,7 @@ describe('live context update access', () => {
 		vi.resetAllMocks();
 		mocks.getUserRoleInProject.mockResolvedValue('admin');
 		mocks.getGithubToken.mockResolvedValue('github-token');
-		mocks.resolveContextRepository.mockResolvedValue({ provider: 'github' });
+		mocks.resolveContextRepository.mockResolvedValue({ provider: 'github', repoFullName: 'nao/context' });
 		mocks.getHistoricalContextDiffActions.mockImplementation(async (_context, ranges: unknown[]) =>
 			ranges.map(() => 'update'),
 		);
@@ -487,12 +501,25 @@ describe('live context update access', () => {
 
 	it('records sanitized pull failures', async () => {
 		mocks.pullLiveContext.mockImplementation(() => {
-			throw new Error('safe pull failure');
+			throw new GitOperationError(
+				'Unauthorized',
+				'fetch',
+				'Command failed: git fetch https://oauth2:secret-token@github.com/nao/context.git',
+			);
 		});
 
-		await expect(createCaller().pullLiveContext()).rejects.toThrow('safe pull failure');
+		await expect(createCaller().pullLiveContext()).rejects.toThrow(
+			'Failed to pull context changes. Ask an administrator to check Server logs.',
+		);
 
-		expect(mocks.failActivity).toHaveBeenCalledWith('activity-id', 'safe pull failure');
+		expect(mocks.failActivity).toHaveBeenCalledWith(
+			'activity-id',
+			'Failed to pull context changes. Ask an administrator to check Server logs.',
+		);
+		const message = mocks.loggerError.mock.calls[0][0] as string;
+		expect(message).toContain('"operation":"fetch"');
+		expect(message).toContain('"provider":"github"');
+		expect(message).not.toContain('secret-token');
 	});
 
 	it('maps context project resolution failures to bad requests', async () => {
@@ -513,10 +540,13 @@ describe('live context update access', () => {
 
 		await expect(createCaller().pullLiveContext()).rejects.toMatchObject({
 			code: 'INTERNAL_SERVER_ERROR',
-			message: 'repository setup failed',
+			message: 'Failed to pull context changes. Ask an administrator to check Server logs.',
 		});
 		expect(mocks.sanitizeLiveContextError).toHaveBeenCalledWith(setupError, undefined);
-		expect(mocks.failActivity).toHaveBeenCalledWith('activity-id', 'repository setup failed');
+		expect(mocks.failActivity).toHaveBeenCalledWith(
+			'activity-id',
+			'Failed to pull context changes. Ask an administrator to check Server logs.',
+		);
 		expect(mocks.pullLiveContext).not.toHaveBeenCalled();
 	});
 
@@ -600,6 +630,54 @@ describe('live context update access', () => {
 			}),
 		]);
 		expect(history[0]).not.toHaveProperty('actorName');
+	});
+});
+
+describe('context explorer push errors', () => {
+	beforeEach(() => {
+		vi.resetAllMocks();
+		mocks.getUserRoleInProject.mockResolvedValue('admin');
+		mocks.resolveContextRepository.mockResolvedValue({
+			provider: 'generic',
+			repoFullName: 'https://access-key:secret-token@bitbucket.org/nao/context.git',
+		});
+	});
+
+	it('logs a sanitized operation-aware failure and returns a generic error', async () => {
+		mocks.pushContextExplorerBranch.mockRejectedValue(
+			new GitOperationError(
+				'Unauthorized\nfatal: Could not read from remote repository.',
+				'push',
+				'Command failed: git push https://access-key:secret-token@bitbucket.org/nao/context.git\nUnauthorized',
+			),
+		);
+
+		await expect(createCaller().pushBranch()).rejects.toMatchObject({
+			code: 'INTERNAL_SERVER_ERROR',
+			message: 'Failed to push context changes. Ask an administrator to check Server logs.',
+		});
+
+		const [message, options] = mocks.loggerError.mock.calls[0];
+		expect(message).toContain('"operation":"push"');
+		expect(message).toContain('"provider":"generic"');
+		expect(message).toContain('"platform":"bitbucket"');
+		expect(message).toContain('"authMethod":"ssh-key"');
+		expect(message).toContain('"repositoryUrl":"https://bitbucket.org/nao/context.git"');
+		expect(message).toContain('Unauthorized');
+		expect(message).not.toContain('secret-token');
+		expect(options).toMatchObject({ projectId: 'project-id', source: 'agent' });
+	});
+
+	it('keeps safe validation errors specific', async () => {
+		mocks.pushContextExplorerBranch.mockRejectedValue(
+			new TRPCError({ code: 'BAD_REQUEST', message: 'This branch has nothing to push yet.' }),
+		);
+
+		await expect(createCaller().pushBranch()).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+			message: 'This branch has nothing to push yet.',
+		});
+		expect(mocks.loggerError).not.toHaveBeenCalled();
 	});
 });
 

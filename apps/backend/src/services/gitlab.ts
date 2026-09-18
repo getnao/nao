@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 
 import { env } from '../env';
 import { GitIdentity, NAO_CO_AUTHOR, withCoAuthors } from '../utils/git-identity';
+import { execGitOperation, toGitError } from '../utils/git-repo';
 import { configDir, getRepoSubPath, isContextConfigFile, shallowestSubPath } from './git-repo';
 
 export { NAO_CO_AUTHOR };
@@ -185,15 +186,23 @@ export async function listProjects(
 export function cloneRepo(token: string, fullName: string, targetDir: string, branch?: string): void {
 	const cloneUrl = authenticatedRepoUrl(token, fullName);
 	const cleanUrl = publicRepoUrl(fullName);
-	execFileSync('git', ['clone', '--depth', '1', ...(branch ? ['--branch', branch] : []), cloneUrl, targetDir], {
-		timeout: 120_000,
-		stdio: 'pipe',
-	});
-	execFileSync('git', ['remote', 'set-url', 'origin', cleanUrl], {
-		cwd: targetDir,
-		timeout: 5_000,
-		stdio: 'pipe',
-	});
+	execGitOperation(
+		['clone', '--depth', '1', ...(branch ? ['--branch', branch] : []), cloneUrl, targetDir],
+		{
+			timeout: 120_000,
+			stdio: 'pipe',
+		},
+		'clone',
+	);
+	execGitOperation(
+		['remote', 'set-url', 'origin', cleanUrl],
+		{
+			cwd: targetDir,
+			timeout: 5_000,
+			stdio: 'pipe',
+		},
+		'configure-remote',
+	);
 }
 
 export function removeOriginRemote(projectDir: string): void {
@@ -285,26 +294,34 @@ export function commitAllAndPushBranch(args: {
 		GIT_COMMITTER_EMAIL: author.email,
 	};
 
-	execFileSync('git', ['checkout', '-b', branch], opts);
-	execFileSync('git', ['add', '-A'], opts);
-	execFileSync('git', ['commit', '-m', withCoAuthors(message, coAuthors)], {
-		...opts,
-		env: { ...process.env, ...identity },
-	});
+	execGitOperation(['checkout', '-b', branch], opts, 'checkout');
+	execGitOperation(['add', '-A'], opts, 'add');
+	execGitOperation(
+		['commit', '-m', withCoAuthors(message, coAuthors)],
+		{
+			...opts,
+			env: { ...process.env, ...identity },
+		},
+		'commit',
+	);
 
 	return pushBranch({ token, repoFullName, dir, branch });
 }
 
 export function pushBranch(args: { token: string; repoFullName: string; dir: string; branch: string }): string {
-	return execFileSync(
-		'git',
-		['push', authenticatedRepoUrl(args.token, args.repoFullName), `HEAD:refs/heads/${args.branch}`],
-		{
-			cwd: args.dir,
-			stdio: 'pipe',
-			timeout: 120_000,
-		},
-	).toString();
+	try {
+		return execFileSync(
+			'git',
+			['push', authenticatedRepoUrl(args.token, args.repoFullName), `HEAD:refs/heads/${args.branch}`],
+			{
+				cwd: args.dir,
+				stdio: 'pipe',
+				timeout: 120_000,
+			},
+		).toString();
+	} catch (error) {
+		throw toGitError(error, 'push');
+	}
 }
 
 export interface CreateMergeRequestInput {

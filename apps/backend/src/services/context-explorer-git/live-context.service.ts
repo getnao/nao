@@ -12,7 +12,7 @@ import {
 	detectGitPlatform,
 	getContextWorktreePath,
 	resolveContextRepo,
-	resolveContextSourceGitToken,
+	resolveContextSourceGitAuthMethod,
 	resolveTrackedContextProjectPrefix,
 	sanitizeContextSourceRepositoryUrl,
 	toContextRepoState,
@@ -117,7 +117,7 @@ export function getDeploymentContextSource(): DeploymentContextSource | null {
 		platform: env.NAO_CONTEXT_GIT_PLATFORM ?? detectGitPlatform(env.NAO_CONTEXT_GIT_URL),
 		branch: env.NAO_CONTEXT_GIT_BRANCH || 'main',
 		subpath: env.NAO_CONTEXT_GIT_SUBPATH || null,
-		authMethod: resolveContextSourceAuthMethod(),
+		authMethod: resolveContextSourceGitAuthMethod(),
 	};
 }
 
@@ -415,9 +415,13 @@ function updateLiveRepository(
 	const oldCommit = runGit(repository.repositoryRoot, ['rev-parse', 'HEAD']).toString().trim();
 	try {
 		fetch(repository.repositoryRoot, configuredBranch);
+	} catch (error) {
+		throw sanitizeLiveContextError(error, secrets, 'fetch');
+	}
+	try {
 		runGit(repository.repositoryRoot, ['merge', '--ff-only', 'FETCH_HEAD'], GIT_OPERATION_TIMEOUT_MS);
 	} catch (error) {
-		throw sanitizeLiveContextError(error, secrets);
+		throw sanitizeLiveContextError(error, secrets, 'pull');
 	}
 	const newCommit = runGit(repository.repositoryRoot, ['rev-parse', 'HEAD']).toString().trim();
 	return createLivePullResult(repository, configuredBranch, oldCommit, newCommit);
@@ -455,37 +459,56 @@ function convertLiveProjectToOAuthRepository(
 	assertSafeLiveReplacementTarget(context);
 	const projectFolder = path.resolve(context.projectFolder);
 	const managedParent = getManagedLiveRepositoriesParent(projectFolder);
-	fs.mkdirSync(managedParent, { recursive: true });
 	const stagingRoot = path.join(managedParent, `.staging-${context.projectId}-${randomUUID()}`);
 	const stagedRepository = path.join(stagingRoot, 'repository');
 	try {
-		fs.mkdirSync(stagingRoot);
-		runGitWithOAuth(
-			managedParent,
-			[
-				'clone',
-				'--branch',
+		try {
+			fs.mkdirSync(managedParent, { recursive: true });
+			fs.mkdirSync(stagingRoot);
+		} catch (error) {
+			throw sanitizeLiveContextError(error, token, 'setup-worktree');
+		}
+		try {
+			runGitWithOAuth(
+				managedParent,
+				[
+					'clone',
+					'--branch',
+					configuredBranch,
+					'--single-branch',
+					provider.publicRepoUrl(repoFullName),
+					stagedRepository,
+				],
+				getGitOAuthCredential(providerName, token),
+				GIT_OPERATION_TIMEOUT_MS,
+			);
+		} catch (error) {
+			throw sanitizeLiveContextError(error, token, 'clone');
+		}
+		let projectPrefix: string;
+		let result: LiveContextPullResult;
+		try {
+			projectPrefix = resolveTrackedContextProjectPrefix(stagedRepository);
+			validateLiveProjectAtHead(stagedRepository, projectPrefix);
+			const newCommit = runGit(stagedRepository, ['rev-parse', 'HEAD']).toString().trim();
+			result = createLivePullResult(
+				{ repositoryRoot: stagedRepository, projectPrefix },
 				configuredBranch,
-				'--single-branch',
-				provider.publicRepoUrl(repoFullName),
-				stagedRepository,
-			],
-			getGitOAuthCredential(providerName, token),
-			GIT_OPERATION_TIMEOUT_MS,
-		);
-		const projectPrefix = resolveTrackedContextProjectPrefix(stagedRepository);
-		validateLiveProjectAtHead(stagedRepository, projectPrefix);
-		const newCommit = runGit(stagedRepository, ['rev-parse', 'HEAD']).toString().trim();
-		const result = createLivePullResult(
-			{ repositoryRoot: stagedRepository, projectPrefix },
-			configuredBranch,
-			null,
-			newCommit,
-		);
-		promoteStagedLiveRepository(context, stagingRoot, stagedRepository, projectPrefix);
+				null,
+				newCommit,
+			);
+		} catch (error) {
+			if (error instanceof ContextProjectResolutionError) {
+				throw error;
+			}
+			throw sanitizeLiveContextError(error, token, 'validate-repository');
+		}
+		try {
+			promoteStagedLiveRepository(context, stagingRoot, stagedRepository, projectPrefix);
+		} catch (error) {
+			throw sanitizeLiveContextError(error, token, 'promote-repository');
+		}
 		return result;
-	} catch (error) {
-		throw sanitizeLiveContextError(error, token);
 	} finally {
 		fs.rmSync(stagingRoot, { recursive: true, force: true });
 	}
@@ -670,17 +693,4 @@ function fromLiveRepoPath(repoPath: string, projectPrefix: string): string | nul
 	}
 	const prefix = `${projectPrefix}/`;
 	return repoPath.startsWith(prefix) ? repoPath.slice(prefix.length) : null;
-}
-
-function resolveContextSourceAuthMethod(): DeploymentContextSource['authMethod'] {
-	if (env.NAO_CONTEXT_GIT_SSH_KEY) {
-		return 'ssh-key';
-	}
-	if (env.NAO_CONTEXT_GIT_TOKEN) {
-		return 'token';
-	}
-	if (resolveContextSourceGitToken() !== null) {
-		return 'token';
-	}
-	return 'public';
 }

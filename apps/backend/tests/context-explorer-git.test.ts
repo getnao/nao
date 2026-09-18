@@ -82,6 +82,7 @@ vi.mock('../src/utils/logger', () => {
 		logger: {
 			warn: loggerMocks.warn,
 		},
+		sanitizeLogText: redactCredentialedUrls,
 		serializeError: (error: unknown) => ({
 			message: redactCredentialedUrls(error instanceof Error ? error.message : String(error)),
 		}),
@@ -125,6 +126,8 @@ import {
 	updateContextWorktree,
 } from '../src/services/context-explorer-git.service';
 import { pushContextExplorerBranch } from '../src/services/context-explorer-pr.service';
+import { sanitizeGitError } from '../src/services/context-explorer-git/git-guards';
+import { ContextGitActionError } from '../src/services/context-git-action-error';
 import { GENERIC_GIT_PROVIDER, parseGenericRepositoryUrl, parseReviewRequestLink } from '../src/services/generic-git';
 import {
 	getContextWorktreePath,
@@ -132,6 +135,7 @@ import {
 	validateDeploymentContextSubpath,
 } from '../src/utils/context-repo';
 import { getGitOAuthCredential, runGitFetchWithCredentials, runGitWithOAuth } from '../src/utils/git-oauth';
+import { GitOperationError } from '../src/utils/git-repo';
 
 describe('OAuth Git credentials', () => {
 	const temporaryRoots: string[] = [];
@@ -290,6 +294,44 @@ printf '%s|%s|%s' "$*" "$GIT_ASKPASS" "$GIT_SSH_COMMAND"
 		expect(fs.existsSync(keyPath ?? '')).toBe(false);
 	});
 
+	it('selects credentials by repository URL when token and SSH key are both configured', () => {
+		const root = temporaryRoot(temporaryRoots);
+		const bin = path.join(root, 'bin');
+		const fakeGit = path.join(bin, 'git');
+		fs.mkdirSync(bin);
+		fs.writeFileSync(
+			fakeGit,
+			`#!/bin/sh
+printf '%s|%s|%s' "$*" "$GIT_ASKPASS" "$GIT_SSH_COMMAND"
+`,
+			{ mode: 0o700 },
+		);
+		process.env.PATH = `${bin}:${originalPath ?? ''}`;
+
+		const [, httpsAskpass, httpsSshCommand] = runGitFetchWithCredentials(
+			root,
+			'https://example.com/nao/context.git',
+			'main',
+			{ token: 'deployment-token', sshKey: 'private-key' },
+		)
+			.toString()
+			.split('|');
+		const [, sshAskpass, sshCommand] = runGitFetchWithCredentials(root, 'git@example.com:nao/context.git', 'main', {
+			token: 'deployment-token',
+			sshKey: 'private-key',
+		})
+			.toString()
+			.split('|');
+		const keyPath = sshCommand.match(/-i '([^']+)'/)?.[1];
+
+		expect(httpsAskpass).not.toBe('');
+		expect(httpsSshCommand).not.toContain('IdentitiesOnly=yes');
+		expect(sshAskpass).toBe('');
+		expect(sshCommand).toContain('IdentitiesOnly=yes');
+		expect(keyPath).toBeTruthy();
+		expect(fs.existsSync(keyPath ?? '')).toBe(false);
+	});
+
 	it('redacts OAuth credentials from live Git errors', () => {
 		const token = 'oauth-secret';
 		const error = sanitizeLiveContextError(
@@ -310,6 +352,24 @@ printf '%s|%s|%s' "$*" "$GIT_ASKPASS" "$GIT_SSH_COMMAND"
 		expect(error.message).toBe('fatal: failed https://[redacted]@example.com/nao/context.git');
 		expect(error.message).not.toContain('unknown-user');
 		expect(error.message).not.toContain('unknown-pass');
+	});
+
+	it('redacts embedded URL credentials when no separate token is provided', () => {
+		const original = new GitOperationError(
+			'failed https://deploy-user:deploy-secret@example.com/nao/context.git',
+			'git',
+			'Command failed for https://deploy-user:deploy-secret@example.com/nao/context.git',
+		);
+		const error = sanitizeGitError(original, '', 'fetch');
+
+		expect(error).toBeInstanceOf(GitOperationError);
+		expect(error).toMatchObject({
+			operation: 'fetch',
+			message: 'failed https://***@example.com/nao/context.git',
+			details: 'Command failed for https://***@example.com/nao/context.git',
+		});
+		expect(JSON.stringify(error)).not.toContain('deploy-user');
+		expect(JSON.stringify(error)).not.toContain('deploy-secret');
 	});
 });
 
@@ -338,10 +398,13 @@ describe('deployment context source', () => {
 	});
 
 	it.each([
-		['ssh-key', { token: 'secret-token', sshKey: 'private-key' }],
-		['token', { token: 'secret-token' }],
-		['public', {}],
-	] as const)('resolves %s authentication', (authMethod, credentials) => {
+		['token', { url: 'https://github.com/nao/context.git', token: 'secret-token', sshKey: 'private-key' }],
+		['public', { url: 'https://github.com/nao/context.git', sshKey: 'private-key' }],
+		['token', { url: 'https://user:password@github.com/nao/context.git', sshKey: 'private-key' }],
+		['ssh-key', { url: 'git@github.com:nao/context.git', token: 'secret-token', sshKey: 'private-key' }],
+		['public', { url: 'git@github.com:nao/context.git', token: 'secret-token' }],
+		['public', { url: 'https://github.com/nao/context.git' }],
+	] as const)('resolves %s authentication for $credentials.url', (authMethod, credentials) => {
 		setContextSourceEnv(credentials);
 
 		expect(getDeploymentContextSource()?.authMethod).toBe(authMethod);
@@ -390,7 +453,7 @@ describe('deployment context source', () => {
 
 	it.each([
 		[{ token: 'secret-token' }, 'secret-token'],
-		[{ sshKey: 'private-key' }, ''],
+		[{ url: 'git@github.com:nao/context.git', sshKey: 'private-key' }, ''],
 	] as const)('enables generic Git with deployment credentials', async (credentials, expectedToken) => {
 		setContextSourceEnv(credentials);
 
@@ -1091,12 +1154,35 @@ describe('OAuth live context updates', () => {
 		fixture.context.providerOverride = localProvider(fixture.bare, fixture.bare);
 		const before = snapshot(fixture.live);
 
-		await expect(pullLiveContext(fixture.context)).rejects.toThrow(
-			'No tracked nao_config.yaml was found in the connected repository.',
-		);
+		const error = await pullLiveContext(fixture.context).catch((caught) => caught);
 
+		expect(error).not.toBeInstanceOf(GitOperationError);
+		expect(error).toHaveProperty('message', 'No tracked nao_config.yaml was found in the connected repository.');
 		expect(snapshot(fixture.live)).toEqual(before);
 		expect(fs.existsSync(path.join(fixture.live, '.git'))).toBe(false);
+	});
+
+	it('labels filesystem promotion failures separately from clone', async () => {
+		const fixture = createFixture(temporaryRoots);
+		fixture.context.providerOverride = localProvider(fixture.bare, fixture.bare);
+		const before = snapshot(fixture.live);
+		const rename = vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
+			throw new Error('promotion failed');
+		});
+
+		try {
+			const error = await pullLiveContext(fixture.context).catch((caught) => caught);
+
+			expect(error).toBeInstanceOf(GitOperationError);
+			expect(error).toMatchObject({
+				operation: 'promote-repository',
+				message: 'promotion failed',
+				details: 'promotion failed',
+			});
+			expect(snapshot(fixture.live)).toEqual(before);
+		} finally {
+			rename.mockRestore();
+		}
 	});
 
 	it('rejects unsafe non-Git targets before cloning', async () => {
@@ -1964,6 +2050,27 @@ describe('context explorer worktrees', () => {
 		expect(JSON.stringify(loggerMocks.warn.mock.calls.at(-1)?.[1])).not.toContain('SECRET');
 	});
 
+	it('does not label post-clone worktree setup failures as clone', async () => {
+		const fixture = createFixture(temporaryRoots);
+		const provider = fixture.context.providerOverride;
+		if (!provider) {
+			throw new Error('Expected a local provider.');
+		}
+		vi.spyOn(provider, 'publicRepoUrl').mockImplementation(() => {
+			throw new Error('remote setup failed');
+		});
+
+		const error = await ensureContextWorktree(fixture.context).catch((caught) => caught);
+
+		expect(error).toBeInstanceOf(GitOperationError);
+		expect(error).toMatchObject({
+			operation: 'configure-remote',
+			message: 'remote setup failed',
+			details: 'remote setup failed',
+		});
+		expect(fs.existsSync(getContextWorktreePath('project-id', fixture.live, 'user-1'))).toBe(false);
+	});
+
 	it('reports line changes for tracked, untracked, and binary files without changing the live folder', async () => {
 		const fixture = createFixture(temporaryRoots, {
 			'nao_config.yaml': 'name: test\n',
@@ -2408,7 +2515,19 @@ describe('context explorer worktrees', () => {
 			throw new Error(error);
 		});
 
-		await expect(pushContextExplorerBranch(fixture.context)).rejects.toThrow(expected);
+		const failure = await pushContextExplorerBranch(fixture.context).catch((error) => error);
+
+		expect(failure).toBeInstanceOf(ContextGitActionError);
+		expect(failure).toMatchObject({
+			details: {
+				authMethod: 'oauth-token',
+				operation: 'push',
+				platform: 'github',
+				provider: 'github',
+				repositoryUrl: 'https://github.com/nao/context.git',
+			},
+			message: expected,
+		});
 	});
 
 	it('switches clean existing branches and discards one or all changed paths', async () => {

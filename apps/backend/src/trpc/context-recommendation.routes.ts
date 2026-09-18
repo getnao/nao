@@ -10,6 +10,7 @@ import * as crQueries from '../queries/context-recommendation.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import { agentService } from '../services/agent';
+import { logContextGitActionFailure } from '../services/context-git-action-error';
 import {
 	ContextPullRequestInputError,
 	createBatchRecommendationPullRequest,
@@ -37,6 +38,7 @@ import { extractConfiguredRepos } from '../utils/nao-config';
 import { contextAdminProtectedProcedure } from './trpc';
 
 const MAX_CUSTOM_SYSTEM_PROMPT_INSTRUCTIONS_LENGTH = 4000;
+const PULL_REQUEST_FAILURE_MESSAGE = 'Failed to create pull request. Ask an administrator to check Server logs.';
 
 const recommendationsProcedure = contextAdminProtectedProcedure.use(async ({ next }) => {
 	if (!env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED) {
@@ -54,7 +56,24 @@ function toPullRequestTrpcError(err: unknown): TRPCError {
 	}
 	return new TRPCError({
 		code: 'INTERNAL_SERVER_ERROR',
-		message: err instanceof Error ? err.message : 'Failed to create pull request',
+		message: PULL_REQUEST_FAILURE_MESSAGE,
+	});
+}
+
+function logPullRequestFailure(
+	error: unknown,
+	args: { projectId: string; recommendationIds: string[]; mode: 'single' | 'batch' },
+): void {
+	if (error instanceof ContextPullRequestInputError || error instanceof ProviderNotConnectedError) {
+		return;
+	}
+	logContextGitActionFailure(error, {
+		message: 'Context recommendation pull request creation failed',
+		projectId: args.projectId,
+		context: {
+			mode: args.mode,
+			recommendationIds: args.recommendationIds,
+		},
 	});
 }
 
@@ -245,6 +264,11 @@ export const contextRecommendationRoutes = {
 		try {
 			return await createRecommendationPullRequest(ctx.project.id, input.id, ctx.user.id);
 		} catch (err) {
+			logPullRequestFailure(err, {
+				projectId: ctx.project.id,
+				recommendationIds: [input.id],
+				mode: 'single',
+			});
 			throw toPullRequestTrpcError(err);
 		}
 	}),
@@ -255,6 +279,11 @@ export const contextRecommendationRoutes = {
 			try {
 				return await createBatchRecommendationPullRequest(ctx.project.id, input.ids, ctx.user.id);
 			} catch (err) {
+				logPullRequestFailure(err, {
+					projectId: ctx.project.id,
+					recommendationIds: input.ids,
+					mode: 'batch',
+				});
 				throw toPullRequestTrpcError(err);
 			}
 		}),

@@ -8,7 +8,7 @@ import {
 	sanitizeContextSourceRepositoryUrl,
 } from '../utils/context-repo';
 import { GitIdentity, NAO_CO_AUTHOR, withCoAuthors } from '../utils/git-identity';
-import { toGitError } from '../utils/git-repo';
+import { execGitOperation, toGitError } from '../utils/git-repo';
 import * as github from './github';
 import * as gitlab from './gitlab';
 import type { OpenReviewRequestResult, ReviewRequestProvider } from './review-request-provider';
@@ -81,15 +81,23 @@ function authenticatedRepoUrl(token: string, repositoryUrl: string): string {
 }
 
 function cloneRepo(token: string, repositoryUrl: string, targetDir: string): void {
-	execFileSync('git', ['clone', authenticatedRepoUrl(token, repositoryUrl), targetDir], {
-		timeout: 120_000,
-		stdio: 'pipe',
-	});
-	execFileSync('git', ['remote', 'set-url', 'origin', sanitizeContextSourceRepositoryUrl(repositoryUrl)], {
-		cwd: targetDir,
-		timeout: 5_000,
-		stdio: 'pipe',
-	});
+	execGitOperation(
+		['clone', authenticatedRepoUrl(token, repositoryUrl), targetDir],
+		{
+			timeout: 120_000,
+			stdio: 'pipe',
+		},
+		'clone',
+	);
+	execGitOperation(
+		['remote', 'set-url', 'origin', sanitizeContextSourceRepositoryUrl(repositoryUrl)],
+		{
+			cwd: targetDir,
+			timeout: 5_000,
+			stdio: 'pipe',
+		},
+		'configure-remote',
+	);
 }
 
 function getGitInfo(dir: string): { branch: string | null } {
@@ -123,12 +131,16 @@ function commitAllAndPushBranch(args: {
 		GIT_COMMITTER_NAME: args.author.name,
 		GIT_COMMITTER_EMAIL: args.author.email,
 	};
-	execFileSync('git', ['checkout', '-b', args.branch], options);
-	execFileSync('git', ['add', '-A'], options);
-	execFileSync('git', ['commit', '-m', withCoAuthors(args.message, args.coAuthors ?? [])], {
-		...options,
-		env: { ...process.env, ...identity },
-	});
+	execGitOperation(['checkout', '-b', args.branch], options, 'checkout');
+	execGitOperation(['add', '-A'], options, 'add');
+	execGitOperation(
+		['commit', '-m', withCoAuthors(args.message, args.coAuthors ?? [])],
+		{
+			...options,
+			env: { ...process.env, ...identity },
+		},
+		'commit',
+	);
 	return pushBranch(args);
 }
 
@@ -144,12 +156,15 @@ function pushBranch(args: { token: string; repoFullName: string; dir: string; br
 	);
 	if (result.error || result.status !== 0) {
 		const spawnError = result.error as NodeJS.ErrnoException | undefined;
-		throw toGitError({
-			message: spawnError?.message ?? 'Git push failed.',
-			code: spawnError?.code,
-			stderr: result.stderr,
-			killed: result.signal !== null,
-		});
+		throw toGitError(
+			{
+				message: spawnError?.message ?? 'Git push failed.',
+				code: spawnError?.code,
+				stderr: result.stderr,
+				killed: result.signal !== null,
+			},
+			'push',
+		);
 	}
 	return `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
 }
