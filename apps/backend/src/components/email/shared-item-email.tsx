@@ -1,6 +1,7 @@
 import { EmailButton } from './email-button';
 import { EmailLayout } from './email-layout';
 import { EmailParagraph } from './email-text';
+import { emailColors } from './email-theme';
 
 interface SharedItemEmailProps {
 	userName: string;
@@ -29,14 +30,13 @@ export function SharedItemEmail({
 
 			<EmailButton href={itemUrl}>View {itemLabel}</EmailButton>
 
-			<div className='footer'>
-				<p>This is an automated message from nao.</p>
-				{unsubscribeUrl && (
-					<p>
-						<a href={unsubscribeUrl}>Unsubscribe from these emails</a>
-					</p>
-				)}
-			</div>
+			{unsubscribeUrl && (
+				<EmailParagraph muted>
+					<a href={unsubscribeUrl} style={{ color: emailColors.muted }}>
+						Unsubscribe from these emails
+					</a>
+				</EmailParagraph>
+			)}
 		</EmailLayout>
 	);
 }

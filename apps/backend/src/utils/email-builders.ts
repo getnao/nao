@@ -71,11 +71,11 @@ export function buildNotificationEmail(
 	unsubscribeUrl?: string,
 	bodyHtml?: string,
 ): CreatedEmail {
-	const subject = `${title} — nao`;
-	const html = renderToString(
+	return createEmail(
+		`${title} — nao`,
 		NotificationEmail({ userName: user.name, title, body, bodyHtml, linkUrl, ctaLabel, unsubscribeUrl }),
+		attachments ?? [],
 	);
-	return { subject, html, ...(attachments && attachments.length > 0 ? { attachments } : {}) };
 }
 
 export function buildBudgetLimitReachedEmail(
@@ -101,7 +101,8 @@ export function buildBudgetLimitReachedEmail(
 	);
 }
 
-function createEmail(subject: string, element: ReactElement): CreatedEmail {
+function createEmail(subject: string, element: ReactElement, extraAttachments: EmailAttachment[] = []): CreatedEmail {
 	const html = `<!DOCTYPE html>${renderToString(element)}`;
-	return emailLogoAttachment ? { subject, html, attachments: [emailLogoAttachment] } : { subject, html };
+	const attachments = [...(emailLogoAttachment ? [emailLogoAttachment] : []), ...extraAttachments];
+	return attachments.length > 0 ? { subject, html, attachments } : { subject, html };
 }
