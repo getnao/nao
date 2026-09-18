@@ -74,6 +74,13 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 
 	// ── Organization ─────────────────────────────────────────
 	{
+		page: '/settings/organization',
+		pageLabel: 'Organization Settings',
+		title: 'Switch organization',
+		description: 'Choose which organization to manage.',
+		keywords: ['change organization', 'organization selector', 'workspace'],
+	},
+	{
 		page: '/settings/organization/members',
 		pageLabel: 'Members',
 		title: 'Members',

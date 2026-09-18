@@ -15,7 +15,7 @@ import { isPublicEmailDomain, normalizeEmailDomains } from '../utils/utils';
 import { assertRolesAreEditable, protectedProcedure } from './trpc';
 
 const orgAdminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
-	const membership = await orgQueries.getUserOrgMembership(ctx.user.id);
+	const membership = await orgQueries.getUserOrgMembership(ctx.user.id, ctx.selectedOrganizationId);
 	if (!membership) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: 'You are not a member of any organization' });
 	}
@@ -31,6 +31,10 @@ const orgAdminOnlyProcedure = orgAdminProcedure.use(async ({ ctx, next }) => {
 });
 
 export const organizationRoutes = {
+	listForCurrentUser: protectedProcedure.query(async ({ ctx }) => {
+		return orgQueries.listUserOrgMemberships(ctx.user.id);
+	}),
+
 	get: orgAdminProcedure.query(async ({ ctx }) => ({
 		id: ctx.org.id,
 		name: ctx.org.name,
