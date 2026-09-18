@@ -5,6 +5,7 @@ import { refreshStoryData } from '../services/live-story';
 import { notifyStoryRefreshed, notifyStoryRefreshFailed } from '../services/notification.service';
 import { enqueueOnce } from '../services/scheduler.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
+import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
 import { deliverStoryOnRefresh, STORY_DELIVERY_JOB_NAME } from './story-delivery.handler';
 
@@ -27,6 +28,12 @@ export async function storyRefreshHandler(payload: StoryRefreshJobPayload, _job?
  * `activity` row so it surfaces in the activity feed.
  */
 export async function runScheduledStoryRefresh(storyId: string): Promise<void> {
+	await withKeyedLock(`story:${storyId}`, async () => {
+		await runLockedScheduledStoryRefresh(storyId);
+	});
+}
+
+async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 	const story = await storyQueries.getStoryById(storyId);
 	if (!story) {
 		throw new Error(`Story not found: ${storyId}`);

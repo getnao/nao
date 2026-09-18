@@ -34,6 +34,7 @@ import {
 	getStoryQuerySql,
 } from '../services/story-filters';
 import { logAnalyticsEvent } from '../utils/analytics-event';
+import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
 import { buildDownloadResponse } from '../utils/story-download';
 import { backfillMissingQueryData } from '../utils/story-query-data';
@@ -448,40 +449,46 @@ export const storyRoutes = {
 				trigger: 'manual',
 			});
 			try {
-				const { queryData } = await refreshStoryData(input.chatId, input.storySlug);
-				const queriesRefreshed = Object.keys(queryData).length;
-				await activityQueries.completeActivity(activity.id, { queriesRefreshed });
-				await notifyStoryRefreshed({
-					projectId,
-					ownerId: story.userId ?? ctx.user.id,
-					storyId: story.id,
-					storyTitle: story.title,
-					queriesRefreshed,
-					trigger: 'manual',
-				}).catch((notifyError) => {
-					logger.error(`Failed to notify story refresh: ${String(notifyError)}`, {
-						source: 'system',
+				return await withKeyedLock(`story:${story.id}`, async () => {
+					const { queryData } = await refreshStoryData(input.chatId, input.storySlug);
+					const queriesRefreshed = Object.keys(queryData).length;
+					await activityQueries.completeActivity(activity.id, { queriesRefreshed });
+					await notifyStoryRefreshed({
 						projectId,
-						context: { storyId: story.id },
+						ownerId: story.userId ?? ctx.user.id,
+						storyId: story.id,
+						storyTitle: story.title,
+						queriesRefreshed,
+						trigger: 'manual',
+					}).catch((notifyError) => {
+						logger.error(`Failed to notify story refresh: ${String(notifyError)}`, {
+							source: 'system',
+							projectId,
+							context: { storyId: story.id },
+						});
 					});
-				});
-				logAnalyticsEvent({
-					projectId,
-					type: 'refresh',
-					assetType: 'story',
-					actorUserId: ctx.user.id,
-					storyId: story.id,
-					chatId: story.chatId,
-					metadata: { type: 'refresh', trigger: 'manual', queriesRefreshed: Object.keys(queryData).length },
-				});
-				await deliverStoryOnRefresh(story.id, story.cacheSchedule ?? null, queryData).catch((error) => {
-					logger.error(`Story delivery after manual refresh failed: ${String(error)}`, {
-						source: 'system',
+					logAnalyticsEvent({
 						projectId,
-						context: { storyId: story.id },
+						type: 'refresh',
+						assetType: 'story',
+						actorUserId: ctx.user.id,
+						storyId: story.id,
+						chatId: story.chatId,
+						metadata: {
+							type: 'refresh',
+							trigger: 'manual',
+							queriesRefreshed: Object.keys(queryData).length,
+						},
 					});
+					await deliverStoryOnRefresh(story.id, story.cacheSchedule ?? null, queryData).catch((error) => {
+						logger.error(`Story delivery after manual refresh failed: ${String(error)}`, {
+							source: 'system',
+							projectId,
+							context: { storyId: story.id },
+						});
+					});
+					return { queryData, cachedAt: new Date() };
 				});
-				return { queryData, cachedAt: new Date() };
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
 				await activityQueries.failActivity(activity.id, message);

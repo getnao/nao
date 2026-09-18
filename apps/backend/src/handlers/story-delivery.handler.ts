@@ -8,6 +8,7 @@ import * as userQueries from '../queries/user.queries';
 import { refreshStoryData } from '../services/live-story';
 import { notifyUsers } from '../services/notification.service';
 import { resolveDeliveryRecipientUserIds } from '../services/story-recipients';
+import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
 import { buildStoryEmailHtml, buildStoryPdfAttachment } from '../utils/story-email';
 import { sharedStoryPath, standaloneStoryPath } from '../utils/story-links';
@@ -35,12 +36,14 @@ export async function storyDeliveryHandler(payload: StoryDeliveryJobPayload, _jo
 }
 
 export async function runScheduledStoryDelivery(storyId: string): Promise<void> {
-	const context = await loadDeliveryContext(storyId);
-	if (!context) {
-		return;
-	}
-	const { queryData } = await refreshStoryData(context.story.chatId!, context.story.slug);
-	await deliver(context, queryData);
+	await withKeyedLock(`story:${storyId}`, async () => {
+		const context = await loadDeliveryContext(storyId);
+		if (!context) {
+			return;
+		}
+		const { queryData } = await refreshStoryData(context.story.chatId!, context.story.slug);
+		await deliver(context, queryData);
+	});
 }
 
 export async function deliverStoryOnRefresh(

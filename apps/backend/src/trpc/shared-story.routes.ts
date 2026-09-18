@@ -19,6 +19,7 @@ import {
 	getStoryQuerySql,
 } from '../services/story-filters';
 import { logAnalyticsEvent } from '../utils/analytics-event';
+import { withKeyedLock } from '../utils/keyed-lock';
 import { buildDownloadResponse } from '../utils/story-download';
 import { extractStorySummary } from '../utils/story-summary';
 import {
@@ -259,25 +260,32 @@ export const sharedStoryRoutes = {
 					})
 				: null;
 		try {
-			const { queryData } = await refreshStoryData(shared.chatId!, shared.slug);
-			if (activity) {
-				await activityQueries.completeActivity(activity.id, {
-					queriesRefreshed: Object.keys(queryData).length,
-				});
-			}
-			if (story?.id) {
-				logAnalyticsEvent({
-					projectId: shared.projectId,
-					type: 'refresh',
-					assetType: 'story',
-					actorUserId: ctx.user.id,
-					storyId: story.id,
-					chatId: shared.chatId,
-					sharedStoryId: shared.id,
-					metadata: { type: 'refresh', trigger: 'manual', queriesRefreshed: Object.keys(queryData).length },
-				});
-			}
-			return { queryData, cachedAt: new Date() };
+			const refresh = async () => {
+				const { queryData } = await refreshStoryData(shared.chatId!, shared.slug);
+				if (activity) {
+					await activityQueries.completeActivity(activity.id, {
+						queriesRefreshed: Object.keys(queryData).length,
+					});
+				}
+				if (story?.id) {
+					logAnalyticsEvent({
+						projectId: shared.projectId,
+						type: 'refresh',
+						assetType: 'story',
+						actorUserId: ctx.user.id,
+						storyId: story.id,
+						chatId: shared.chatId,
+						sharedStoryId: shared.id,
+						metadata: {
+							type: 'refresh',
+							trigger: 'manual',
+							queriesRefreshed: Object.keys(queryData).length,
+						},
+					});
+				}
+				return { queryData, cachedAt: new Date() };
+			};
+			return story?.id ? await withKeyedLock(`story:${story.id}`, refresh) : await refresh();
 		} catch (err) {
 			if (activity) {
 				await activityQueries.failActivity(activity.id, err instanceof Error ? err.message : String(err));
