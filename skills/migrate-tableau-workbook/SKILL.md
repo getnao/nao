@@ -32,7 +32,7 @@ Use the supplied published workbook name. Use `--project` when the user supplied
 
 - A Tableau migration must use the exact requested Tableau workbook. Never substitute an unrelated local CSV, database, example dataset, workbook, or similarly named file.
 - Local `.twb` and `.twbx` files cannot provide the required rendered worksheet CSV and image assets. If the user supplies a local path, ask them to publish that workbook to Tableau Cloud and provide its workbook name.
-- Pass the requested workbook name to `nao migrate-tableau` so the CLI resolves and downloads it from Tableau Cloud.
+- Pass the requested workbook name to `nao migrate-tableau` so the CLI resolves and downloads it from Tableau Cloud or Server.
 - If the workbook exists only as a local file or the CLI reports that local migration is unsupported, stop and tell the user:
 
 > This workbook cannot be migrated because it is unpublished. Publish it to Tableau Cloud or Tableau Server, then retry with its workbook name.
@@ -101,7 +101,7 @@ Prepare the requested worksheet for chart delivery, or each unique worksheet sel
 - Preserve explicit Tableau palette assignments from `worksheet_visualizations[].colors` whenever nao supports per-series colors. Never replace a readable Tableau color with black merely because a color could not be resolved.
 - Build each query and chart from the recorded Tableau presentation, not from an inference based on the exported data. Preserve a Tableau chart as a chart; use a table only when the verified source worksheet is a text table/crosstab or the user explicitly requested a table.
 
-Before delivery, compare each unfiltered database query with the corresponding Tableau CSV. If tables, joins, columns, totals, or dimensions cannot be matched, skip the affected worksheet or control and report the mismatch instead of substituting unrelated project data.
+Before delivery, compare each database query with the corresponding Tableau CSV using the same fixed and default filter state. If tables, joins, columns, totals, or dimensions cannot be matched, skip the affected worksheet or control and report the mismatch instead of substituting unrelated project data.
 
 Until richer Tableau definition extractors exist, do not claim that calculated fields, context filters, LOD expressions, sets, groups, bins, marks, or formatting were reproduced from XML. Claim a parameter was reproduced only when its extracted definition, allowed values, target worksheets, and query behavior are all preserved. Preserve what can be verified from exported data and images, and list the rest as unsupported or approximated.
 
