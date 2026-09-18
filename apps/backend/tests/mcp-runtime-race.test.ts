@@ -70,9 +70,9 @@ vi.mock('../src/queries/mcp-oauth.queries', () => ({
 	hasMcpUserToken: async () => false,
 }));
 
+import { withLogging } from '../src/mcp/logging';
 import { McpService } from '../src/services/mcp';
 import * as mcpOAuthService from '../src/services/mcp-oauth';
-import { withLogging } from '../src/mcp/logging';
 
 const SERVERS = ['alpha', 'beta', 'gamma'];
 
