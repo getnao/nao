@@ -44,6 +44,8 @@ _EXTRAS: dict[str, list[str]] = {
     "confluence": ["markdownify"],
     # Semantic layer engines
     "semantic-layer": ["metricflow"],
+    # Visualization
+    "dbt-charts": ["dbt_charts", "vl_convert"],
     # Secret resolution backends
     "aws-secrets": ["boto3", "glom"],
     "k8s-secrets": ["kubernetes"],

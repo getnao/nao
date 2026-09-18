@@ -7,15 +7,24 @@
  * nobody should have to know they exist for the agent to do the right thing. Only the name
  * and the description sit in the system prompt; the body is loaded on demand.
  */
+import type { AgentSettings } from '../../types/agent-settings';
+
 export interface InternalSkill {
 	name: string;
 	/** Shown in the system prompt catalog, so it has to say when the skill is worth loading. */
 	description: string;
+	/** Left out of the catalog when it returns false, for skills about a feature the deployment or project may not have. */
+	isAvailable?: (context: SkillAvailabilityContext) => boolean;
 	/**
 	 * Written for the run that loads it: a playbook that sends the agent to a tool the
 	 * deployment does not have is worse than no playbook, because it looks like a way out.
 	 */
 	body: (capabilities: SkillCapabilities) => string;
+}
+
+/** The project settings of the run, for skills about a feature the admin may have switched off. */
+export interface SkillAvailabilityContext {
+	agentSettings: AgentSettings | null;
 }
 
 /** What the run loading a skill can do, for the parts of a playbook that depend on it. */

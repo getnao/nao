@@ -34,6 +34,7 @@ export const useStoryViewerVersions = ({
 	const versions = useMemo(() => data?.versions ?? [], [data?.versions]);
 	const storyId = data?.id ?? null;
 	const storyTitle = data?.title;
+	const storyFormat = data?.format ?? undefined;
 	const archivedAt = data?.archivedAt;
 	const [historicalVersionSelection, setHistoricalVersionSelection] = useState<HistoricalVersionSelection | null>(
 		null,
@@ -125,6 +126,7 @@ export const useStoryViewerVersions = ({
 		versions,
 		storyId,
 		storyTitle,
+		storyFormat,
 		archivedAt,
 		currentVersion,
 		currentVersionNumber,

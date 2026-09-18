@@ -11,10 +11,11 @@ export default createTool<loadSkill.Input, loadSkill.Output>({
 	inputSchema: loadSkill.InputSchema,
 	outputSchema: loadSkill.OutputSchema,
 	execute: async ({ name }, context) => {
-		const skill = findInternalSkill(name);
+		const availability = { agentSettings: context?.agentSettings ?? null };
+		const skill = findInternalSkill(name, availability);
 		if (!skill) {
 			throw new Error(
-				`There is no built-in skill called '${name}'. Available: ${internalSkillNames().join(', ')}.`,
+				`There is no built-in skill called '${name}'. Available: ${internalSkillNames(availability).join(', ')}.`,
 			);
 		}
 

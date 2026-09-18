@@ -21,6 +21,7 @@ import {
 } from 'ai';
 
 import { disableModelReasoning, fitThinkingBudget, getProviderMeta, ProviderModelResult } from '../agents/providers';
+import { listInternalSkills } from '../agents/skills';
 import { getSystemPromptOverride, hasNaoPromptPlaceholder, injectNaoPrompt } from '../agents/system-prompts';
 import { llmTelemetry } from '../agents/telemetry';
 import { getTools } from '../agents/tools';
@@ -72,6 +73,7 @@ import { isStoragePath } from '../utils/tools';
 import { formatErrorMessageForUI, truncateMiddle } from '../utils/utils';
 import { listChartPlugins } from './chart-plugin';
 import { compactionService } from './compaction';
+import { getDbtChartsStatus } from './dbt-charts-status';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { mcpService } from './mcp';
 import { memoryService } from './memory';
@@ -203,6 +205,7 @@ async function _buildContextBase(opts: {
 	const [envVars, azureAccessToken] = await Promise.all([
 		projectQueries.getEnvVars(opts.projectId),
 		hasFeature(LICENSE_FEATURES.sso).then((has) => (has ? getAzureAccessTokenForUser(opts.userId) : null)),
+		getDbtChartsStatus(),
 	]);
 	return {
 		projectFolder: project.path,
@@ -638,6 +641,7 @@ class AgentManager {
 				connections,
 				configuredDatabases,
 				skills,
+				internalSkills: listInternalSkills({ agentSettings: this._toolContext.agentSettings }),
 				customCharts,
 				mcpServers,
 				semanticLayerMode: this._toolContext.semanticLayerMode,

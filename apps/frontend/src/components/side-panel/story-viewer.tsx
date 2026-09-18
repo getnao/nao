@@ -23,8 +23,10 @@ import { useStoryViewerVersionActions } from './hooks/use-story-viewer-version-a
 import { useStoryViewerVersions } from './hooks/use-story-viewer-versions';
 import { useStoryViewerViewMode } from './hooks/use-story-viewer-view-mode';
 import type { Editor as TiptapEditor } from '@tiptap/react';
+import type { StoryFormat } from '@nao/shared/dbt-charts';
 import type { StoryCodeViewHandle } from './story-code-view';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
+import { DbtChartsBoard } from '@/components/dbt-charts/dbt-charts-board';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useDragAutoScroll } from '@/hooks/use-drag-auto-scroll';
 import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
@@ -94,6 +96,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		versions,
 		storyId,
 		storyTitle: storedTitle,
+		storyFormat: storedFormat,
 		archivedAt,
 		currentVersion,
 		currentVersionNumber,
@@ -134,7 +137,12 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		isViewingLatest,
 		latestQueryData: queryData ?? null,
 	});
-	const tabs = useMemo(() => parseStoryTabs(storyCode ?? ''), [storyCode]);
+	const storyFormat: StoryFormat = draftStory?.format ?? storedFormat ?? 'markdown';
+	const isDbtChartsBoard = storyFormat === 'dbt_charts';
+	const tabs = useMemo(
+		() => (isDbtChartsBoard ? null : parseStoryTabs(storyCode ?? '')),
+		[isDbtChartsBoard, storyCode],
+	);
 	const isTabbedStory = Boolean(tabs?.length);
 	const activeTab = tabs?.length ? Math.min(activeTabIndex, tabs.length - 1) : 0;
 	const storyBuffer = useStoryEditBuffer(storyCode ?? '');
@@ -240,6 +248,12 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 	}, [viewMode]);
 
 	useEffect(() => {
+		if (isDbtChartsBoard && viewMode === 'edit') {
+			setViewMode('code');
+		}
+	}, [isDbtChartsBoard, setViewMode, viewMode]);
+
+	useEffect(() => {
 		if (prevSlugRef.current !== resolvedStorySlug) {
 			prevSlugRef.current = resolvedStorySlug;
 			setActiveTabIndex(0);
@@ -283,7 +297,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 		isDirty: storyBuffer.isDirty,
 		isSaving,
 	});
-	const editTabs = parseStoryTabs(editCode);
+	const editTabs = isDbtChartsBoard ? null : parseStoryTabs(editCode);
 	const isEditTabbedStory = Boolean(editTabs?.length);
 	const codeDraft = selectStoryEditorCode({
 		persistedCode: storyCode,
@@ -298,6 +312,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 				chatId={chatId}
 				storySlug={resolvedStorySlug}
 				storyId={storyId}
+				storyFormat={storyFormat}
 				shareId={shareId}
 				shareType={shareType}
 				allStories={allStories}
@@ -347,14 +362,26 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 
 			<div ref={scrollContainerRef} className='flex-1 min-h-0 overflow-auto'>
 				{renderWithEditProvider(
-					!isReadonlyMode && isViewingLatest && !archivedAt && !isAgentRunning && viewMode !== 'edit',
+					!isDbtChartsBoard &&
+						!isReadonlyMode &&
+						isViewingLatest &&
+						!archivedAt &&
+						!isAgentRunning &&
+						viewMode !== 'edit',
 					{
 						chatId,
 						storySlug: resolvedStorySlug,
 						storyTitle,
 						storyCode,
 					},
-					viewMode === 'preview' ? (
+					viewMode === 'preview' && isDbtChartsBoard ? (
+						<DbtChartsBoard
+							yaml={storyCode}
+							resetKey={`${resolvedStorySlug}:${currentVersionNumber}`}
+							isStreaming={isStoryStreaming}
+							className='p-6'
+						/>
+					) : viewMode === 'preview' ? (
 						isContentLoading ? (
 							<StoryContentLoading />
 						) : (
@@ -398,6 +425,7 @@ export function StoryViewer({ chatId, storySlug, isReadonlyMode: readonlyProp, i
 					) : (
 						<StoryCodeView
 							code={codeDraft}
+							format={storyFormat}
 							readOnly={isReadonlyMode}
 							codeRef={codeViewRef}
 							onCodeChange={storyBuffer.handleCodeChange}

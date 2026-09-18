@@ -35,8 +35,9 @@ export function StoryOutput({ output }: { output: StoryModelOutput }) {
 			{templateWarnings.length > 0 && (
 				<Block>
 					<Span>
-						Story filter template warnings — fix the referenced SQL with execute_sql (prefer query_id)
-						and/or the story filter tags before considering this story complete:
+						{output.format === 'dbt_charts'
+							? 'dbt Charts compile diagnostics — fix the board YAML (errors first) before considering this story complete:'
+							: 'Story filter template warnings — fix the referenced SQL with execute_sql (prefer query_id) and/or the story filter tags before considering this story complete:'}
 					</Span>
 					<List>
 						{templateWarnings.map((warning) => (

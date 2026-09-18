@@ -380,6 +380,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		pageLabel: 'Agent',
 		section: 'Capabilities',
 		search: { tab: 'tools' },
+		title: 'Stories',
+		description: 'Choose whether the agent writes stories as nao markdown, dbt Charts boards, or both.',
+		keywords: ['story format', 'story style', 'dbt charts', 'board', 'dashboard', 'markdown', 'report'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'Capabilities',
+		search: { tab: 'tools' },
 		title: 'Semantic layer',
 		description: 'Choose whether the agent queries metrics through the dbt MetricFlow semantic layer.',
 		keywords: [

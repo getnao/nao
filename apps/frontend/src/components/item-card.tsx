@@ -1,4 +1,4 @@
-import { Activity, Dot, Globe, Lock, Users } from 'lucide-react';
+import { Activity, Dot, Globe, LayoutDashboard, Lock, Users } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { StoryPanelDisplayMode, Visibility } from '@nao/shared/types';
 import { SimpleTooltip } from '@/components/ui/tooltip';
@@ -84,6 +84,17 @@ export function LiveBadge() {
 			<span className='inline-flex items-center text-primary gap-1'>
 				<Activity className='size-3' />
 				<span className='text-[11px] font-medium truncate'>Live</span>
+			</span>
+		</SimpleTooltip>
+	);
+}
+
+export function DbtChartsBadge() {
+	return (
+		<SimpleTooltip content='dbt Charts board'>
+			<span className='inline-flex items-center gap-1 text-muted-foreground'>
+				<LayoutDashboard className='size-3' />
+				<span className='text-[11px] font-medium truncate'>dbt Charts</span>
 			</span>
 		</SimpleTooltip>
 	);

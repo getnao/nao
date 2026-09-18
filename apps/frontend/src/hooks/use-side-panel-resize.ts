@@ -2,6 +2,13 @@ import { useEffect, useRef } from 'react';
 import { useResizeObserver } from './use-resize-observer';
 import { loadPersistedWidthRatio, SIDE_PANEL_MIN_WIDTH, SIDE_PANEL_WIDTH_STORAGE_KEY } from '@/lib/side-panel';
 
+/** An iframe under the cursor swallows the drag's mouse events, so none may receive them while resizing. */
+function setIframesInert(inert: boolean) {
+	for (const iframe of document.querySelectorAll('iframe')) {
+		iframe.style.pointerEvents = inert ? 'none' : '';
+	}
+}
+
 function persistRatio(ratio: number) {
 	try {
 		localStorage.setItem(SIDE_PANEL_WIDTH_STORAGE_KEY, String(ratio));
@@ -49,6 +56,7 @@ export const useSidePanelResize = (
 			document.removeEventListener('mousemove', handleMouseMove);
 			document.removeEventListener('mouseup', handleMouseUp);
 			document.body.style.cursor = 'default';
+			setIframesInert(false);
 
 			const container = containerRef.current;
 			if (container) {
@@ -65,6 +73,7 @@ export const useSidePanelResize = (
 			startX = e.clientX;
 			startWidth = sidePanel.getBoundingClientRect().width || 0;
 			document.body.style.cursor = 'ew-resize';
+			setIframesInert(true);
 			document.addEventListener('mousemove', handleMouseMove);
 			document.addEventListener('mouseup', handleMouseUp);
 		};
@@ -75,6 +84,7 @@ export const useSidePanelResize = (
 			document.removeEventListener('mousemove', handleMouseMove);
 			document.removeEventListener('mouseup', handleMouseUp);
 			cancelAnimationFrame(rafRef.current);
+			setIframesInert(false);
 		};
 	}, [enabled, sidePanelRef, containerRef, resizeHandleRef]);
 

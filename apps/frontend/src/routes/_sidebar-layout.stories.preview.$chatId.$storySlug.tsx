@@ -10,6 +10,7 @@ import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/st
 import { HighlightBubble } from '@/components/highlight-bubble';
 import { StoryTabbedContent } from '@/components/story-tabbed-content';
 import { AssetAnalyticsDialog } from '@/components/asset-analytics-dialog';
+import { DbtChartsBoard } from '@/components/dbt-charts/dbt-charts-board';
 import { Button } from '@/components/ui/button';
 import { trpc } from '@/main';
 import { StoryContentLoading } from '@/components/side-panel/story-content-loading';
@@ -99,23 +100,28 @@ function StoryPreviewPage() {
 		}),
 	);
 
-	const canEditCharts = !story.archivedAt;
+	const isDbtChartsBoard = story.format === 'dbt_charts';
+	const canEditCharts = !story.archivedAt && !isDbtChartsBoard;
 
 	return (
 		<div className='flex flex-col flex-1 h-full overflow-hidden bg-background min-w-0'>
 			<StoryPageHeader
 				title={story.title}
 				onOpenChat={handleOpenChat}
-				live={{
-					isLive,
-					cachedAt: story.cachedAt,
-					lastRefreshFailure: story.lastRefreshFailure,
-					isRefreshing,
-					isUpdating,
-					onRefresh: () => handleRefreshData(),
-					onOpenSettings: () => setIsLiveSettingsOpen(true),
-				}}
-				download={{ chatId, storySlug, isOwner: true }}
+				live={
+					isDbtChartsBoard
+						? undefined
+						: {
+								isLive,
+								cachedAt: story.cachedAt,
+								lastRefreshFailure: story.lastRefreshFailure,
+								isRefreshing,
+								isUpdating,
+								onRefresh: () => handleRefreshData(),
+								onOpenSettings: () => setIsLiveSettingsOpen(true),
+							}
+				}
+				download={isDbtChartsBoard ? undefined : { chatId, storySlug, isOwner: true }}
 				storyId={storyId}
 				canRename
 				isShared={isShared}
@@ -161,24 +167,35 @@ function StoryPreviewPage() {
 			<StoryPageBody
 				editor={editor}
 				queryData={queryData}
+				format={story.format}
 				preview={
-					<SelectionProvider key={storySlug}>
-						<HighlightBubble onAsk={handleSelectionAsk} disabled={isChatRunning} />
-						{renderWithChartEditProvider(
-							canEditCharts && editor.versionNav.isViewingLatest && !isChatRunning,
-							{ chatId, storySlug, storyTitle: story.title, storyCode: editor.code },
-							<PreviewContent
-								code={editor.code}
-								queryData={queryData}
-								chatId={chatId}
-								storySlug={storySlug}
-								cacheSchedule={story.cacheSchedule}
-								filtersEnabled={editor.versionNav.isViewingLatest && !editor.isCodeDirty}
-								isDataPending={isQueryDataPending}
-								isViewingLatest={editor.versionNav.isViewingLatest}
-							/>,
-						)}
-					</SelectionProvider>
+					isDbtChartsBoard ? (
+						<div className='flex-1 min-h-0 overflow-auto'>
+							<DbtChartsBoard
+								yaml={editor.code}
+								resetKey={`${storySlug}:${editor.versionNav.storedVersionNumber}`}
+								className='mx-auto w-full max-w-6xl p-4 md:p-8'
+							/>
+						</div>
+					) : (
+						<SelectionProvider key={storySlug}>
+							<HighlightBubble onAsk={handleSelectionAsk} disabled={isChatRunning} />
+							{renderWithChartEditProvider(
+								canEditCharts && editor.versionNav.isViewingLatest && !isChatRunning,
+								{ chatId, storySlug, storyTitle: story.title, storyCode: editor.code },
+								<PreviewContent
+									code={editor.code}
+									queryData={queryData}
+									chatId={chatId}
+									storySlug={storySlug}
+									cacheSchedule={story.cacheSchedule}
+									filtersEnabled={editor.versionNav.isViewingLatest && !editor.isCodeDirty}
+									isDataPending={isQueryDataPending}
+									isViewingLatest={editor.versionNav.isViewingLatest}
+								/>,
+							)}
+						</SelectionProvider>
+					)
 				}
 			/>
 

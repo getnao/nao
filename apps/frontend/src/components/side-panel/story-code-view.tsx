@@ -2,6 +2,7 @@ import { Editor } from '@monaco-editor/react';
 import { validateStoryCode } from '@nao/shared/story-validation';
 import { AlertTriangle } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { StoryFormat } from '@nao/shared/dbt-charts';
 import type { StoryValidationError } from '@nao/shared/story-validation';
 import type { Monaco } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
@@ -26,6 +27,7 @@ export interface StoryCodeViewHandle {
 
 interface StoryCodeViewProps {
 	code: string;
+	format?: StoryFormat;
 	readOnly?: boolean;
 	codeRef?: React.MutableRefObject<StoryCodeViewHandle | null>;
 	onDirtyChange?: (dirty: boolean) => void;
@@ -36,8 +38,16 @@ interface StoryCodeViewProps {
 
 const MARKER_OWNER = 'nao-story-validation';
 
+const LANGUAGE_BY_FORMAT: Record<StoryFormat, string> = { markdown: 'markdown', dbt_charts: 'yaml' };
+
+/** dbt Charts boards are validated by the dbt Charts compiler, not by the markdown story validator. */
+function validateCode(code: string, format: StoryFormat, readOnly: boolean): StoryValidationError[] {
+	return readOnly || format === 'dbt_charts' ? [] : validateStoryCode(code);
+}
+
 export const StoryCodeView = memo(function StoryCodeView({
 	code,
+	format = 'markdown',
 	readOnly = false,
 	codeRef,
 	onDirtyChange,
@@ -47,7 +57,7 @@ export const StoryCodeView = memo(function StoryCodeView({
 }: StoryCodeViewProps) {
 	const editorTheme = useEditorTheme();
 	const [draft, setDraft] = useState(code);
-	const [errors, setErrors] = useState<StoryValidationError[]>(() => (readOnly ? [] : validateStoryCode(code)));
+	const [errors, setErrors] = useState<StoryValidationError[]>(() => validateCode(code, format, readOnly));
 	const draftRef = useRef(draft);
 	const errorsRef = useRef(errors);
 	const editorInstanceRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -56,12 +66,12 @@ export const StoryCodeView = memo(function StoryCodeView({
 	onSaveRef.current = onSave;
 
 	useEffect(() => {
-		const nextErrors = readOnly ? [] : validateStoryCode(code);
+		const nextErrors = validateCode(code, format, readOnly);
 		draftRef.current = code;
 		errorsRef.current = nextErrors;
 		setDraft(code);
 		setErrors(nextErrors);
-	}, [code, readOnly]);
+	}, [code, format, readOnly]);
 
 	useEffect(() => {
 		onDirtyChange?.(draft !== code);
@@ -130,14 +140,14 @@ export const StoryCodeView = memo(function StoryCodeView({
 	const handleChange = useCallback(
 		(value: string | undefined) => {
 			const next = value ?? '';
-			const nextErrors = readOnly ? [] : validateStoryCode(next);
+			const nextErrors = validateCode(next, format, readOnly);
 			draftRef.current = next;
 			errorsRef.current = nextErrors;
 			setDraft(next);
 			setErrors(nextErrors);
 			onCodeChange?.(next);
 		},
-		[onCodeChange, readOnly],
+		[format, onCodeChange, readOnly],
 	);
 
 	const options = useMemo(
@@ -154,7 +164,7 @@ export const StoryCodeView = memo(function StoryCodeView({
 			<div className='flex-1 min-h-0'>
 				<Editor
 					value={draft}
-					language='markdown'
+					language={LANGUAGE_BY_FORMAT[format]}
 					theme={editorTheme}
 					options={options}
 					onMount={handleMount}

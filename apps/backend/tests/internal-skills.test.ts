@@ -1,11 +1,23 @@
 import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { findInternalSkill, internalSkillNames, listInternalSkills } from '../src/agents/skills';
 import loadSkillTool from '../src/agents/tools/load-skill';
 
+const dbtChartsInstalled = vi.hoisted(() => ({ value: true }));
+
+vi.mock('../src/services/dbt-charts-status', () => ({
+	isDbtChartsAvailable: () => dbtChartsInstalled.value,
+}));
+
+beforeEach(() => {
+	dbtChartsInstalled.value = true;
+});
+
+const withDbtChartsStories = { agentSettings: { stories: { style: 'both' as const } } };
+
 const bodyOf = (name: string, canRunSandbox: boolean): string => {
-	return findInternalSkill(name)!.body({ canRunSandbox });
+	return findInternalSkill(name, withDbtChartsStories)!.body({ canRunSandbox });
 };
 
 const runLoadSkill = async (name: string): Promise<{ name: string; body: string }> => {
@@ -22,7 +34,7 @@ describe('internal skill registry', () => {
 	});
 
 	it('gives every skill a name, a description saying when to load it, and a body either way', () => {
-		for (const skill of listInternalSkills()) {
+		for (const skill of listInternalSkills(withDbtChartsStories)) {
 			expect(skill.name).toMatch(/^[a-z0-9-]+$/);
 			expect(skill.description.length).toBeGreaterThan(20);
 			expect(skill.body({ canRunSandbox: true }).length).toBeGreaterThan(100);
@@ -31,7 +43,7 @@ describe('internal skill registry', () => {
 	});
 
 	it('never mentions the sandbox in a run that has none', () => {
-		for (const skill of listInternalSkills()) {
+		for (const skill of listInternalSkills(withDbtChartsStories)) {
 			expect(skill.body({ canRunSandbox: false })).not.toMatch(/sandbox|storage_files|save_files/i);
 		}
 	});
@@ -46,6 +58,21 @@ describe('internal skill registry', () => {
 
 	it('does not resolve an unknown name', () => {
 		expect(findInternalSkill('spreadsheets')).toBeUndefined();
+	});
+
+	it('only catalogs the dbt charts skill when dbt charts is installed', () => {
+		expect(internalSkillNames(withDbtChartsStories)).toContain('dbt-charts');
+
+		dbtChartsInstalled.value = false;
+
+		expect(internalSkillNames(withDbtChartsStories)).not.toContain('dbt-charts');
+		expect(findInternalSkill('dbt-charts', withDbtChartsStories)).toBeUndefined();
+	});
+
+	it('hides the dbt charts skill when the project only writes markdown stories', () => {
+		expect(internalSkillNames()).not.toContain('dbt-charts');
+		expect(internalSkillNames({ agentSettings: { stories: { style: 'markdown' } } })).not.toContain('dbt-charts');
+		expect(internalSkillNames({ agentSettings: { stories: { style: 'dbt_charts' } } })).toContain('dbt-charts');
 	});
 });
 
@@ -151,5 +178,51 @@ describe('the excel skill', () => {
 	it('names what to ask for when the file is the older .xls format', () => {
 		expect(bodyOf('excel-handling', false)).toMatch(/pre-2007 format/);
 		expect(bodyOf('excel-handling', true)).toContain('xlrd');
+	});
+});
+
+describe('the dbt charts skill', () => {
+	it('ties the board to the story tool format and its diagnostics', () => {
+		const body = bodyOf('dbt-charts', false);
+
+		expect(body).toContain('format="dbt_charts"');
+		expect(body).toContain('template_warnings');
+	});
+
+	it('explains that source names a nao database and connections never go in a board', () => {
+		const body = bodyOf('dbt-charts', false);
+
+		expect(body).toMatch(/`source:` is the name of a nao database/);
+		expect(body).toMatch(/connection details never go in a board/);
+	});
+
+	it('teaches the filter macros and warns against the tojson IN-list', () => {
+		const body = bodyOf('dbt-charts', false);
+
+		expect(body).toContain("{{ filter('region', region) }}");
+		expect(body).toContain("{{ filter_date_range('column', period) }}");
+		expect(body).toMatch(/never build `IN` lists with `tojson`/i);
+	});
+
+	it('names the option shapes the compiler rejects', () => {
+		const body = bodyOf('dbt-charts', false);
+
+		expect(body).toContain('options: [a, b]');
+		expect(body).toContain('options.static');
+	});
+
+	it('covers the kpi traps: one row and label instead of title', () => {
+		const body = bodyOf('dbt-charts', false);
+
+		expect(body).toMatch(/exactly one row/);
+		expect(body).toMatch(/uses label, not title/);
+	});
+
+	it('lists the shapes dbt charts cannot draw so the agent does not guess a type', () => {
+		expect(bodyOf('dbt-charts', false)).toMatch(/Not drawable: funnel, gauge, sankey/);
+	});
+
+	it('reads the same with or without a sandbox', () => {
+		expect(bodyOf('dbt-charts', true)).toBe(bodyOf('dbt-charts', false));
 	});
 });

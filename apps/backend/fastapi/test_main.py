@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import duckdb
 import main
+import pandas as pd
 import pytest
 import yaml
 from fastapi.testclient import TestClient
@@ -311,7 +312,7 @@ def test_azure_entra_tableless_query_does_not_require_sync_credentials(
         def execute_sql_with_token(self, sql: str, access_token: str):
             assert sql == "SELECT 1 AS value"
             assert access_token == "token"
-            return main.pd.DataFrame([{"value": 1}])
+            return pd.DataFrame([{"value": 1}])
 
     config = SimpleNamespace(databases=[AzureDatabaseConfig()])
     monkeypatch.setattr(
