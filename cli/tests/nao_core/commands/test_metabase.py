@@ -276,8 +276,20 @@ def test_manifest_preserves_layout_visualization_and_query():
 def test_dashboard_preserves_inaccessible_card_as_limitation(monkeypatch):
     dashboard = {
         "id": 42,
+        "parameters": [{"id": "period", "type": "date/single"}],
         "dashcards": [
-            {"id": 7, "card_id": 9, "card": None},
+            {
+                "id": 7,
+                "card_id": 9,
+                "card": None,
+                "parameter_mappings": [
+                    {
+                        "parameter_id": "period",
+                        "card_id": 9,
+                        "target": ["dimension", ["field", 1, None]],
+                    }
+                ],
+            },
             {
                 "id": 8,
                 "card_id": 10,
@@ -289,13 +301,20 @@ def test_dashboard_preserves_inaccessible_card_as_limitation(monkeypatch):
             },
         ],
     }
+    compile_question = Mock()
     monkeypatch.setattr(metabase_commands, "_fetch_metabase_object", lambda _url, _resource: dashboard)
+    monkeypatch.setattr(metabase_commands, "_compile_question", compile_question)
 
-    manifest = metabase_commands._export_dashboard("https://metabase.example.com", 42)
+    manifest = metabase_commands._export_dashboard(
+        "https://metabase.example.com",
+        42,
+        {"period": "2026-09-01"},
+    )
 
     assert [card["questionId"] for card in manifest["dashboard"]["cards"]] == [9, 10]
     assert manifest["dashboard"]["cards"][0]["question"] is None
     assert manifest["dashboard"]["cards"][1]["question"]["name"] == "Orders"
+    compile_question.assert_not_called()
     assert manifest["limitations"] == [
         {
             "placementId": 7,

@@ -785,6 +785,7 @@ def _compile_mbql_queries(
         )
         contexts.append((placement_id, question, query_parameters))
         consumed_parameter_ids.update(consumed_ids)
+    consumed_parameter_ids.update(_inaccessible_card_consumed_parameter_ids(dashboard, values))
     if batch_consumed_parameter_ids is None:
         _reject_unmatched_parameter_values(values, consumed_parameter_ids)
     else:
@@ -862,6 +863,20 @@ def _dashboard_question_contexts(
             if isinstance(series, dict)
         )
     return contexts
+
+
+def _inaccessible_card_consumed_parameter_ids(dashboard: dict[str, Any], values: dict[str, Any]) -> set[str]:
+    consumed_parameter_ids: set[str] = set()
+    for card in dashboard.get("dashcards") or []:
+        if not isinstance(card, dict) or card.get("card") is not None or not isinstance(card.get("card_id"), int):
+            continue
+        _, consumed_ids = _mapped_query_parameters(
+            dashboard.get("parameters"),
+            _parameter_mappings_for_question(card, card["card_id"]),
+            values,
+        )
+        consumed_parameter_ids.update(consumed_ids)
+    return consumed_parameter_ids
 
 
 def _compile_question(

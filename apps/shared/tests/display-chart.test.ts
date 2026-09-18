@@ -74,7 +74,9 @@ describe('display chart MCP input', () => {
 		const kpiSchema = schema.oneOf.find((option) => option.properties.chart_type.const === 'kpi_card');
 		const chartSchema = schema.oneOf.find((option) => option !== kpiSchema);
 
-		expect(kpiSchema?.required).not.toContain('x_axis_key');
-		expect(chartSchema?.required).toContain('x_axis_key');
+		for (const field of ['x_axis_key', 'x_axis_type']) {
+			expect(kpiSchema?.required).not.toContain(field);
+			expect(chartSchema?.required).toContain(field);
+		}
 	});
 });

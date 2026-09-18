@@ -2,6 +2,7 @@ import path from 'node:path';
 
 import { validateStoryCode } from '@nao/shared/story-validation';
 import { hashPassword } from 'better-auth/crypto';
+import { and, eq } from 'drizzle-orm';
 
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
@@ -9,6 +10,7 @@ import { db } from '../src/db/db';
 const PASSWORD = 'password';
 const EXAMPLE_PROJECT_PATH = path.resolve(import.meta.dirname, '../../../example');
 const EXAMPLE_PROJECT_NAME = 'Jaffle Shop';
+const ANALYTICS_SHOWCASE_SLUG = 'jaffle-shop-analytics';
 
 const USERS = [
 	{ email: 'admin@company1.com', name: 'Admin Company1' },
@@ -24,6 +26,7 @@ async function seed() {
 
 	const hashedPassword = await hashPassword(PASSWORD);
 	const userIds: Record<string, string> = {};
+	let seededConversationCount = 0;
 
 	await db.transaction(async (tx) => {
 		for (const u of USERS) {
@@ -74,7 +77,7 @@ async function seed() {
 		await ensureOrgMember(tx, personalOrg.id, admin2Id, 'admin');
 		await ensureOrgMember(tx, personalOrg.id, freelancerId, 'user');
 
-		await seedConversations(tx, userIds['admin@company1.com'], project.id);
+		seededConversationCount = await seedConversations(tx, userIds['admin@company1.com'], project.id);
 	});
 
 	console.log('Done.');
@@ -85,7 +88,11 @@ async function seed() {
 	console.log('');
 	console.log(`  Org: ${COMPANY1_ORG.name} (admin@company1.com + user@company1.com)`);
 	console.log(`  Project: ${EXAMPLE_PROJECT_NAME} → ${EXAMPLE_PROJECT_PATH}`);
-	console.log(`  Conversations: 3 (admin@company1.com)`);
+	console.log(
+		seededConversationCount > 0
+			? `  Conversations added: ${seededConversationCount} (admin@company1.com)`
+			: '  Conversations: already seeded (admin@company1.com)',
+	);
 }
 
 // ---------------------------------------------------------------------------
@@ -94,13 +101,14 @@ async function seed() {
 
 async function seedConversations(tx: Tx, userId: string, projectId: string) {
 	const existing = await tx.query.chat.findFirst({ where: (c, { eq }) => eq(c.userId, userId) });
-	await seedAnalyticsShowcaseConversation(tx, userId, projectId);
+	const showcaseAdded = await seedAnalyticsShowcaseConversation(tx, userId, projectId);
 	if (existing) {
-		return;
+		return Number(showcaseAdded);
 	}
 
 	await seedCustomerConversation(tx, userId, projectId);
 	await seedOrdersConversation(tx, userId, projectId);
+	return Number(showcaseAdded) + 2;
 }
 
 /**
@@ -108,12 +116,17 @@ async function seedConversations(tx: Tx, userId: string, projectId: string) {
  * and a story showcasing the available chart cards.
  */
 async function seedAnalyticsShowcaseConversation(tx: Tx, userId: string, projectId: string) {
-	const existing = await tx.query.chat.findFirst({
-		where: (chat, { and, eq }) =>
-			and(eq(chat.userId, userId), eq(chat.projectId, projectId), eq(chat.title, 'Jaffle Shop Analytics')),
-	});
+	const [existing] = await tx
+		.select({ id: s.story.id })
+		.from(s.story)
+		.innerJoin(s.chat, eq(s.story.chatId, s.chat.id))
+		.where(
+			and(eq(s.story.slug, ANALYTICS_SHOWCASE_SLUG), eq(s.chat.userId, userId), eq(s.chat.projectId, projectId)),
+		)
+		.limit(1)
+		.execute();
 	if (existing) {
-		return;
+		return false;
 	}
 
 	const chatId = crypto.randomUUID();
@@ -183,7 +196,7 @@ async function seedAnalyticsShowcaseConversation(tx: Tx, userId: string, project
 		{ type: 'text', text: 'Great, turn that into a dashboard with several kinds of cards.' },
 	]);
 
-	const storySlug = 'jaffle-shop-analytics';
+	const storySlug = ANALYTICS_SHOWCASE_SLUG;
 	const storyCode = [
 		'# Jaffle Shop Analytics',
 		'',
@@ -243,6 +256,7 @@ async function seedAnalyticsShowcaseConversation(tx: Tx, userId: string, project
 		.insert(s.storyVersion)
 		.values({ storyId, version: 1, code: storyCode, action: 'create', source: 'assistant' })
 		.execute();
+	return true;
 }
 
 /** Conversation 2 — customer overview with SQL results. */

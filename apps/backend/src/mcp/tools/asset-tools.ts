@@ -90,18 +90,16 @@ function registerDisplayChart(server: McpServer, ctx: McpContext): void {
 		agentTool: displayChartTool,
 		title: 'Display Chart',
 		description: ctx.chartDataMode ? DISPLAY_CHART_DATA_MODE_DESCRIPTION : DISPLAY_CHART_DESCRIPTION,
-		inputSchema: displayChart.DisplayChartMcpInputShapeSchema.and(
-			z.object({
-				chat_id: z
-					.string()
-					.optional()
-					.describe(
-						'Optional chat UUID (e.g. `chatId` from `ask_nao`) to anchor the embed to a chat. ' +
-							"Used for the embed's `Open in nao` link and to track the source chat; " +
-							'nao resolves the rows automatically across the project even without it.',
-					),
-			}),
-		),
+		inputSchema: displayChart.createDisplayChartMcpInputSchema({
+			chat_id: z
+				.string()
+				.optional()
+				.describe(
+					'Optional chat UUID (e.g. `chatId` from `ask_nao`) to anchor the embed to a chat. ' +
+						"Used for the embed's `Open in nao` link and to track the source chat; " +
+						'nao resolves the rows automatically across the project even without it.',
+				),
+		}),
 		outputSchema: {
 			queryId: z
 				.string()

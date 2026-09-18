@@ -290,20 +290,30 @@ const DisplayChartMcpBaseInputSchema = BaseInputSchema.extend({
 	title: ChartInputObjectSchema.shape.title,
 });
 
-export const DisplayChartMcpInputShapeSchema = z
-	.discriminatedUnion('chart_type', [
-		DisplayChartMcpBaseInputSchema.extend({
-			chart_type: z.literal('kpi_card'),
-		}),
-		DisplayChartMcpBaseInputSchema.extend({
-			chart_type: ChartTypeEnum.exclude(['kpi_card']),
-			x_axis_key: ChartInputObjectSchema.shape.x_axis_key,
-			x_axis_type: ChartInputObjectSchema.shape.x_axis_type,
-		}),
-	])
-	.superRefine((input, context) => {
-		addInputIssues(input.chart_type === 'kpi_card' ? KpiCardInputSchema : GenericChartInputSchema, input, context);
-	});
+const DISPLAY_CHART_MCP_JSON_SCHEMA = {
+	oneOf: [
+		{ properties: { chart_type: { const: 'kpi_card' } }, required: ['chart_type'] },
+		{
+			properties: { chart_type: { enum: BUILTIN_CHART_TYPES.filter((type) => type !== 'kpi_card') } },
+			required: ['chart_type', 'x_axis_key', 'x_axis_type'],
+		},
+	],
+};
+
+export function createDisplayChartMcpInputSchema<T extends z.ZodRawShape>(extension: T) {
+	return DisplayChartMcpBaseInputSchema.extend(extension)
+		.superRefine((input, context) => {
+			const chartInput = input as z.infer<typeof DisplayChartMcpBaseInputSchema>;
+			addInputIssues(
+				chartInput.chart_type === 'kpi_card' ? KpiCardInputSchema : GenericChartInputSchema,
+				chartInput,
+				context,
+			);
+		})
+		.meta(DISPLAY_CHART_MCP_JSON_SCHEMA);
+}
+
+export const DisplayChartMcpInputShapeSchema = createDisplayChartMcpInputSchema({});
 
 export const InputSchema = BaseInputSchema.superRefine((input, context) => {
 	addInputIssues(
