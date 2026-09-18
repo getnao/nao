@@ -87,6 +87,18 @@ export type NewStory = typeof sqliteSchema.story.$inferInsert;
 export type DBStoryVersion = typeof sqliteSchema.storyVersion.$inferSelect;
 export type NewStoryVersion = typeof sqliteSchema.storyVersion.$inferInsert;
 
+export type DBStoryFileBlob = typeof sqliteSchema.storyFileBlob.$inferSelect;
+export type NewStoryFileBlob = typeof sqliteSchema.storyFileBlob.$inferInsert;
+
+export type DBStoryFile = typeof sqliteSchema.storyFile.$inferSelect;
+export type NewStoryFile = typeof sqliteSchema.storyFile.$inferInsert;
+
+export type DBStoryDraftFile = typeof sqliteSchema.storyDraftFile.$inferSelect;
+export type NewStoryDraftFile = typeof sqliteSchema.storyDraftFile.$inferInsert;
+
+export type DBStoryBundle = typeof sqliteSchema.storyBundle.$inferSelect;
+export type NewStoryBundle = typeof sqliteSchema.storyBundle.$inferInsert;
+
 export type DBStoryDataCache = typeof sqliteSchema.storyDataCache.$inferSelect;
 export type NewStoryDataCache = typeof sqliteSchema.storyDataCache.$inferInsert;
 

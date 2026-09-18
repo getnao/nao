@@ -31,6 +31,9 @@ import {
 	FOLDER_VISIBILITY,
 	NOTIFICATION_CATEGORIES,
 	SHARE_VISIBILITY,
+	STORY_ACTIONS,
+	STORY_FORMATS,
+	STORY_SOURCES,
 	USER_ROLES,
 } from '@nao/shared/types';
 import { type ProviderMetadata } from 'ai';
@@ -887,9 +890,6 @@ export const contextRecommendationLinkedFeedback = pgTable(
 	],
 );
 
-export const STORY_ACTIONS = ['create', 'update', 'replace'] as const;
-export const STORY_SOURCES = ['assistant', 'user'] as const;
-
 export const story = pgTable(
 	'story',
 	{
@@ -901,6 +901,7 @@ export const story = pgTable(
 		userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
 		slug: text('slug').notNull(),
 		title: text('title').notNull(),
+		format: text('format', { enum: STORY_FORMATS }).default('classic').notNull(),
 		isLive: boolean('is_live').default(false).notNull(),
 		isLiveTextDynamic: boolean('is_live_text_dynamic').default(true).notNull(),
 		cacheSchedule: text('cache_schedule'),
@@ -949,6 +950,65 @@ export const storyVersion = pgTable(
 	(t) => [
 		index('story_version_storyId_idx').on(t.storyId),
 		unique('story_version_story_version_unique').on(t.storyId, t.version),
+	],
+);
+
+export const storyBundle = pgTable('story_bundle', {
+	storyVersionId: text('story_version_id')
+		.primaryKey()
+		.references(() => storyVersion.id, { onDelete: 'cascade' }),
+	bundle: text('bundle'),
+	bundleError: text('bundle_error'),
+	builtAt: timestamp('built_at').defaultNow().notNull(),
+});
+
+export const storyFileBlob = pgTable('story_file_blob', {
+	contentHash: text('content_hash').primaryKey(),
+	content: text('content').notNull(),
+	size: integer('size').notNull(),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const storyFile = pgTable(
+	'story_file',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		storyVersionId: text('story_version_id')
+			.notNull()
+			.references(() => storyVersion.id, { onDelete: 'cascade' }),
+		path: text('path').notNull(),
+		contentHash: text('content_hash')
+			.notNull()
+			.references(() => storyFileBlob.contentHash),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [
+		index('story_file_storyVersionId_idx').on(t.storyVersionId),
+		unique('story_file_version_path_unique').on(t.storyVersionId, t.path),
+	],
+);
+
+export const storyDraftFile = pgTable(
+	'story_draft_file',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		storyId: text('story_id')
+			.notNull()
+			.references(() => story.id, { onDelete: 'cascade' }),
+		path: text('path').notNull(),
+		content: text('content').notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		index('story_draft_file_storyId_idx').on(t.storyId),
+		unique('story_draft_file_story_path_unique').on(t.storyId, t.path),
 	],
 );
 

@@ -361,6 +361,15 @@ export type FolderVisibility = (typeof FOLDER_VISIBILITY)[number];
 export const FOLDER_SYSTEM_TYPE = ['private_folder', 'shared_with_me'] as const;
 export type FolderSystemType = (typeof FOLDER_SYSTEM_TYPE)[number];
 
+export const STORY_ACTIONS = ['create', 'update', 'replace'] as const;
+export type StoryAction = (typeof STORY_ACTIONS)[number];
+
+export const STORY_SOURCES = ['assistant', 'user'] as const;
+export type StorySource = (typeof STORY_SOURCES)[number];
+
+export const STORY_FORMATS = ['classic', 'custom'] as const;
+export type StoryFormat = (typeof STORY_FORMATS)[number];
+
 export type ProjectChatReplayFacets<R extends string = string> = {
 	userNames: string[];
 	userNameCounts: Record<string, number>;
