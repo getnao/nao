@@ -2701,6 +2701,12 @@
           "primaryKey": true,
           "notNull": true
         },
+        "owner": {
+          "name": "owner",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
         "expires_at": {
           "name": "expires_at",
           "type": "timestamp",

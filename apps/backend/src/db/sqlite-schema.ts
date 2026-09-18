@@ -1280,6 +1280,7 @@ export const scheduledJob = sqliteTable(
 
 export const keyedLock = sqliteTable('keyed_lock', {
 	key: text('key').primaryKey(),
+	owner: text('owner').notNull(),
 	expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
 });
 

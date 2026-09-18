@@ -23,6 +23,7 @@ WHERE ppb.`notified_at` IS NOT NULL
 	AND ppb.`notified_at` >= ppb.`current_period_start`;--> statement-breakpoint
 CREATE TABLE `keyed_lock` (
 	`key` text PRIMARY KEY NOT NULL,
+	`owner` text NOT NULL,
 	`expires_at` integer NOT NULL
 );
 --> statement-breakpoint

@@ -1188,6 +1188,7 @@ export const scheduledJob = pgTable(
 
 export const keyedLock = pgTable('keyed_lock', {
 	key: text('key').primaryKey(),
+	owner: text('owner').notNull(),
 	expiresAt: timestamp('expires_at').notNull(),
 });
 
