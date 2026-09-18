@@ -4,7 +4,6 @@ import { DOWNLOAD_FORMATS, NOTIFICATION_CHANNELS } from '@nao/shared/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
-import { deliverStoryOnRefresh } from '../handlers/story-delivery.handler';
 import { STORY_REFRESH_JOB_NAME } from '../handlers/story-refresh.handler';
 import * as activityQueries from '../queries/activity.queries';
 import * as chatQueries from '../queries/chat.queries';
@@ -524,13 +523,6 @@ export const storyRoutes = {
 							trigger: 'manual',
 							queriesRefreshed: Object.keys(queryData).length,
 						},
-					});
-					await deliverStoryOnRefresh(story.id, story.cacheSchedule ?? null, queryData).catch((error) => {
-						logger.error(`Story delivery after manual refresh failed: ${String(error)}`, {
-							source: 'system',
-							projectId,
-							context: { storyId: story.id },
-						});
 					});
 					return { queryData, cachedAt: new Date() };
 				});
