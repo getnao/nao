@@ -22,6 +22,8 @@ function buildVerificationPrompt(columns: string[], queryResults: Map<string, Qu
 
 	return `Based on your previous analysis, write a DuckDB query returning the final answer to the original question.
 
+For context, the messages above include the original user prompt followed by your analysis and answer.
+
 Every query you ran is loaded in DuckDB as a table named after its query id:
 ${tables}
 

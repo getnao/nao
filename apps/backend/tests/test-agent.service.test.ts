@@ -47,7 +47,9 @@ describe('buildVerificationMessages', () => {
 		expect(messages.slice(0, -1)).toEqual([{ role: 'user', content: 'What is the revenue?' }, ...responseMessages]);
 		expect(messages.at(-1)).toMatchObject({
 			role: 'user',
-			content: expect.stringContaining('Return exactly these columns, with these names: revenue'),
+			content: expect.stringMatching(
+				/For context, the messages above include the original user prompt followed by your analysis and answer.*Return exactly these columns, with these names: revenue/s,
+			),
 		});
 	});
 });
