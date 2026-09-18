@@ -1,30 +1,50 @@
 import { Link } from '@tanstack/react-router';
 import {
+	Bell,
+	BellPlus,
 	ChevronLeft,
 	ChevronRight,
-	ExternalLink,
 	Github,
 	Loader2,
 	Mail,
 	MessageSquare,
 	RefreshCw,
 	Share2,
+	ThumbsDown,
+	ThumbsUp,
 	Timer,
+	Wallet,
 	X,
 } from 'lucide-react';
-import { Fragment, useLayoutEffect, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Fragment, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Streamdown } from 'streamdown';
 import { stripAssistantTags } from '@nao/shared';
+import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { displayChart } from '@nao/shared/tools';
-import type { ReactNode } from 'react';
+import { NOTIFICATION_CATEGORY_LABELS } from '@nao/shared/types';
+import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
+import type {
+	FeedbackNotificationPayload,
+	NotificationCategory,
+	SharedItemLabel,
+	SharedNotificationPayload,
+	StoryRefreshNotificationPayload,
+	StorySubscriptionNotificationPayload,
+} from '@nao/shared/types';
+import type { ComponentType, ReactNode } from 'react';
 
+import type { QueryDataMap } from '@/components/story-embeds';
 import SlackIcon from '@/components/icons/slack.svg';
+import { SegmentList } from '@/components/story-rendering';
+import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { ChartDisplay } from '@/components/tool-calls/display-chart';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { cn } from '@/lib/utils';
+import { trpc } from '@/main';
 
 export type AutomationFeedRunStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 
@@ -55,6 +75,7 @@ export type AutomationFeedAutomationItem = {
 		errorMessage?: string | null;
 		chatId: string | null;
 		integrationResults: AutomationFeedIntegrationResult[];
+		readAt: string | Date | null;
 	};
 	automation: {
 		id: string;
@@ -68,72 +89,24 @@ export type AutomationFeedAutomationItem = {
 	};
 };
 
-export type ActivityTrigger = 'schedule' | 'manual' | 'system';
-
 export type ShareVisibility = 'project' | 'specific';
 
-type ActivityBaseFields = {
-	id: string;
-	status: AutomationFeedRunStatus;
-	trigger: ActivityTrigger;
-	startedAt: string | Date;
-	completedAt: string | Date | null;
-	errorMessage?: string | null;
-};
-
-export type StoryOpenLink =
-	| { to: '/stories/preview/$chatId/$storySlug'; params: { chatId: string; storySlug: string } }
-	| { to: '/stories/shared/$shareId'; params: { shareId: string } }
-	| { to: '/stories/standalone/$storyId'; params: { storyId: string } };
-
-export type ActivityFeedStoryRefreshItem = {
-	kind: 'activity';
+export type NotificationFeedItem = {
+	kind: 'notification';
 	id: string;
 	startedAt: string | Date;
-	activity: ActivityBaseFields & {
-		type: 'story.refreshed';
-		queriesRefreshed: number;
-	};
-	story: {
+	notification: {
 		id: string;
-		slug: string;
+		category: NotificationCategory;
 		title: string;
-		chatId: string | null;
-		cacheSchedule: string | null;
-		cacheScheduleDescription: string | null;
+		body: string | null;
+		linkUrl: string | null;
+		payload: Record<string, unknown> | null;
+		readAt: string | Date | null;
 	};
-	link: StoryOpenLink | null;
 };
 
-export type ActivityFeedStorySharedItem = {
-	kind: 'activity';
-	id: string;
-	startedAt: string | Date;
-	activity: ActivityBaseFields & { type: 'story.shared' };
-	story: {
-		id: string;
-		slug: string;
-		title: string;
-		chatId: string | null;
-	};
-	share: { id: string; visibility: ShareVisibility };
-	link: StoryOpenLink | null;
-	actorName: string | null;
-};
-
-export type ActivityFeedChatSharedItem = {
-	kind: 'activity';
-	id: string;
-	startedAt: string | Date;
-	activity: ActivityBaseFields & { type: 'chat.shared' };
-	chat: { id: string; title: string };
-	share: { id: string; visibility: ShareVisibility };
-	actorName: string | null;
-};
-
-export type ActivityFeedItem = ActivityFeedStoryRefreshItem | ActivityFeedStorySharedItem | ActivityFeedChatSharedItem;
-
-export type AutomationFeedItem = AutomationFeedAutomationItem | ActivityFeedItem;
+export type AutomationFeedItem = AutomationFeedAutomationItem | NotificationFeedItem;
 
 const TEXT_CLAMP_LINES = 8;
 
@@ -144,6 +117,8 @@ export function AutomationsFeed({
 	lastSeenAt = 0,
 	onCancelRun,
 	cancellingRunId,
+	onOpenNotification,
+	onOpenAutomation,
 }: {
 	items: AutomationFeedItem[];
 	isLoading: boolean;
@@ -151,6 +126,8 @@ export function AutomationsFeed({
 	lastSeenAt?: number;
 	onCancelRun?: (runId: string) => void;
 	cancellingRunId?: string | null;
+	onOpenNotification?: (notificationId: string, linkUrl: string | null) => void;
+	onOpenAutomation?: (runId: string) => void;
 }) {
 	if (isLoading && items.length === 0) {
 		return <FeedSkeleton />;
@@ -175,6 +152,8 @@ export function AutomationsFeed({
 						isNew={lastSeenAt > 0 && index < separatorIndex}
 						onCancelRun={onCancelRun}
 						isCancelling={item.kind === 'automation' && cancellingRunId === item.run.id}
+						onOpenNotification={onOpenNotification}
+						onOpenAutomation={onOpenAutomation}
 					/>
 				</Fragment>
 			))}
@@ -187,9 +166,11 @@ function FeedCard(props: {
 	isNew?: boolean;
 	onCancelRun?: (runId: string) => void;
 	isCancelling?: boolean;
+	onOpenNotification?: (notificationId: string, linkUrl: string | null) => void;
+	onOpenAutomation?: (runId: string) => void;
 }) {
-	if (props.item.kind === 'activity') {
-		return <ActivityCard item={props.item} isNew={props.isNew} />;
+	if (props.item.kind === 'notification') {
+		return <NotificationFeedCard item={props.item} isNew={props.isNew} onOpen={props.onOpenNotification} />;
 	}
 	return (
 		<AutomationRunCard
@@ -197,21 +178,202 @@ function FeedCard(props: {
 			isNew={props.isNew}
 			onCancelRun={props.onCancelRun}
 			isCancelling={props.isCancelling}
+			onOpen={props.onOpenAutomation}
 		/>
 	);
 }
 
-function ActivityCard({ item, isNew }: { item: ActivityFeedItem; isNew?: boolean }) {
-	switch (item.activity.type) {
-		case 'story.refreshed':
-			return <StoryRefreshCard item={item as ActivityFeedStoryRefreshItem} isNew={isNew} />;
-		case 'story.shared':
-			return <StorySharedCard item={item as ActivityFeedStorySharedItem} isNew={isNew} />;
-		case 'chat.shared':
-			return <ChatSharedCard item={item as ActivityFeedChatSharedItem} isNew={isNew} />;
-		default:
-			return null;
+function NotificationFeedCard({
+	item,
+	isNew = false,
+	onOpen,
+}: {
+	item: NotificationFeedItem;
+	isNew?: boolean;
+	onOpen?: (notificationId: string, linkUrl: string | null) => void;
+}) {
+	const { notification } = item;
+	const startedAt = new Date(item.startedAt);
+	const timeAgo = useTimeAgo(startedAt.getTime());
+	const isUnread = !notification.readAt;
+	const categoryLabel = NOTIFICATION_CATEGORY_LABELS[notification.category] ?? 'Notification';
+	const sharedItemLabel = getSharedItemLabel(notification);
+	const feedbackVote = getFeedbackVote(notification);
+	const { Icon, title, description, preview } = getNotificationPresentation(notification, () =>
+		onOpen?.(notification.id, notification.linkUrl),
+	);
+
+	return (
+		<article
+			className={cn(
+				'relative rounded-xl border bg-background/60 shadow-xs transition-colors',
+				(isNew || isUnread) && 'border-primary/30 bg-primary/[0.02]',
+			)}
+		>
+			{(isNew || isUnread) && (
+				<span aria-hidden className='absolute -left-1.5 top-4 h-6 w-1 rounded-full bg-primary' />
+			)}
+			<header
+				className={cn('flex items-center justify-between gap-3 px-4 pt-4', !description && !preview && 'pb-4')}
+			>
+				<div className='flex min-w-0 items-center gap-2'>
+					<Icon className='size-3.5 shrink-0 text-muted-foreground' aria-hidden />
+					{notification.linkUrl ? (
+						<button
+							type='button'
+							onClick={() => onOpen?.(notification.id, notification.linkUrl)}
+							className='truncate text-left text-sm font-semibold hover:underline cursor-pointer'
+						>
+							{title}
+						</button>
+					) : (
+						<span className='truncate text-sm font-semibold'>{title}</span>
+					)}
+					<span className='text-muted-foreground/60 shrink-0 text-xs' title={startedAt.toLocaleString()}>
+						· {timeAgo.humanReadable}
+					</span>
+				</div>
+				{sharedItemLabel ? (
+					<SharedObjectBadge itemLabel={sharedItemLabel} />
+				) : feedbackVote ? (
+					<Badge variant='secondary' className='shrink-0'>
+						Feedback {feedbackVote === 'up' ? 'positive' : 'negative'}
+					</Badge>
+				) : (
+					<Badge variant='secondary' className='shrink-0'>
+						{categoryLabel}
+					</Badge>
+				)}
+			</header>
+
+			{description && (
+				<div className={cn('px-4 pt-1 text-sm text-foreground/90', !preview && 'pb-4')}>{description}</div>
+			)}
+			{preview}
+		</article>
+	);
+}
+
+type NotificationPresentation = {
+	Icon: ComponentType<{ className?: string }>;
+	title: string;
+	description: ReactNode;
+	preview?: ReactNode;
+};
+
+const NOTIFICATION_CATEGORY_ICONS: Record<NotificationCategory, ComponentType<{ className?: string }>> = {
+	budget: Wallet,
+	feedback: ThumbsDown,
+	story_refresh: RefreshCw,
+	shared: Share2,
+	subscription: BellPlus,
+};
+
+function getNotificationPresentation(
+	notification: NotificationFeedItem['notification'],
+	onOpen?: () => void,
+): NotificationPresentation {
+	const Icon = NOTIFICATION_CATEGORY_ICONS[notification.category] ?? Bell;
+
+	if (notification.category === 'feedback') {
+		const payload = notification.payload as FeedbackNotificationPayload | null;
+		if (payload?.kind === 'feedback') {
+			const isPositive = payload.vote === 'up';
+			return {
+				Icon: isPositive ? ThumbsUp : ThumbsDown,
+				title: payload.chatTitle ?? notification.title,
+				description: (
+					<p>
+						<span className='font-semibold'>{payload.submitterName}</span> left{' '}
+						{isPositive ? 'positive' : 'negative'} feedback
+						{payload.explanation ? <>: “{payload.explanation}”</> : '.'}
+					</p>
+				),
+			};
+		}
 	}
+
+	if (notification.category === 'story_refresh') {
+		const payload = notification.payload as StoryRefreshNotificationPayload | null;
+		if (payload?.kind === 'story_refresh' && payload.status === 'failed') {
+			return {
+				Icon,
+				title: notification.title,
+				description: <p className='text-destructive'>{notification.body ?? 'Refresh failed.'}</p>,
+			};
+		}
+		if (payload?.kind === 'story_refresh' && payload.status === 'refreshed') {
+			return {
+				Icon,
+				title: payload.storyTitle ?? notification.title,
+				description: payload.ownerName ? (
+					<p>
+						<span className='font-semibold'>{payload.ownerName}</span> · {notification.body}
+					</p>
+				) : (
+					notification.body
+				),
+			};
+		}
+	}
+
+	if (notification.category === 'subscription') {
+		const payload = notification.payload as StorySubscriptionNotificationPayload | null;
+		if (payload?.kind === 'story_subscription') {
+			return {
+				Icon,
+				title: payload.storyTitle,
+				description: (
+					<p>
+						<span className='font-semibold'>{payload.ownerName}</span> subscribed you to the scheduled
+						delivery for this story.
+					</p>
+				),
+				preview: <StoryPreview shareId={payload.shareId} onOpen={notification.linkUrl ? onOpen : undefined} />,
+			};
+		}
+	}
+
+	if (notification.category === 'shared') {
+		const payload = notification.payload as SharedNotificationPayload | null;
+		if (payload?.kind === 'shared') {
+			return {
+				Icon,
+				title: payload.itemTitle,
+				description: (
+					<ShareSentence
+						subjectLabel={payload.itemLabel}
+						actorName={payload.sharerName}
+						visibility={payload.visibility}
+					/>
+				),
+			};
+		}
+	}
+
+	return {
+		Icon,
+		title: notification.title,
+		description: notification.body,
+	};
+}
+
+function getSharedItemLabel(notification: NotificationFeedItem['notification']): SharedItemLabel | null {
+	if (notification.category !== 'shared') {
+		return null;
+	}
+	const payload = notification.payload as SharedNotificationPayload | null;
+	return payload?.kind === 'shared' ? payload.itemLabel : null;
+}
+
+function getFeedbackVote(
+	notification: NotificationFeedItem['notification'],
+): FeedbackNotificationPayload['vote'] | null {
+	if (notification.category !== 'feedback') {
+		return null;
+	}
+	const payload = notification.payload as FeedbackNotificationPayload | null;
+	return payload?.kind === 'feedback' ? payload.vote : null;
 }
 
 function findFirstSeenIndex(items: AutomationFeedItem[], lastSeenAt: number): number {
@@ -243,31 +405,37 @@ function AutomationRunCard({
 	isNew = false,
 	onCancelRun,
 	isCancelling = false,
+	onOpen,
 }: {
 	item: AutomationFeedAutomationItem;
 	isNew?: boolean;
 	onCancelRun?: (runId: string) => void;
 	isCancelling?: boolean;
+	onOpen?: (runId: string) => void;
 }) {
 	const { run, automation, output } = item;
 	const startedAt = new Date(run.startedAt);
 	const timeAgo = useTimeAgo(startedAt.getTime());
 	const isRunning = run.status === 'running';
+	const isUnread = !run.readAt;
 
 	return (
 		<article
 			className={cn(
 				'relative rounded-xl border bg-background/60 shadow-xs transition-colors',
-				isNew && 'border-primary/30 bg-primary/[0.02]',
+				(isNew || isUnread) && 'border-primary/30 bg-primary/[0.02]',
 			)}
 		>
-			{isNew && <span aria-hidden className='absolute -left-1.5 top-4 h-6 w-1 rounded-full bg-primary' />}
+			{(isNew || isUnread) && (
+				<span aria-hidden className='absolute -left-1.5 top-4 h-6 w-1 rounded-full bg-primary' />
+			)}
 			<header className='flex items-center justify-between gap-3 px-4 pt-4'>
 				<div className='flex min-w-0 items-center gap-2'>
 					<Link
 						to='/automations/$automationId'
 						params={{ automationId: automation.id }}
 						className='truncate text-sm font-semibold hover:underline'
+						onClick={() => onOpen?.(run.id)}
 					>
 						{automation.title}
 					</Link>
@@ -275,263 +443,151 @@ function AutomationRunCard({
 						· {timeAgo.humanReadable}
 					</span>
 				</div>
-				<RunStatusBadge status={run.status} integrationResults={run.integrationResults} />
+				<div className='flex shrink-0 items-center gap-1.5'>
+					<IntegrationResultIcons results={run.integrationResults} />
+					{isRunning && onCancelRun && (
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Button
+									variant='ghost'
+									size='icon'
+									className='size-7 text-muted-foreground hover:text-destructive rounded-full'
+									disabled={isCancelling}
+									onClick={() => onCancelRun(run.id)}
+								>
+									{isCancelling ? (
+										<Loader2 className='size-3.5 animate-spin' />
+									) : (
+										<X className='size-3.5' />
+									)}
+								</Button>
+							</TooltipTrigger>
+							<TooltipContent>{isCancelling ? 'Cancelling…' : 'Cancel'}</TooltipContent>
+						</Tooltip>
+					)}
+					{run.chatId && (
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Button
+									variant='ghost'
+									size='icon'
+									className='size-7 text-muted-foreground rounded-full'
+									asChild
+								>
+									<Link
+										to='/$chatId'
+										params={{ chatId: run.chatId }}
+										onClick={() => onOpen?.(run.id)}
+									>
+										<MessageSquare className='size-3.5' />
+									</Link>
+								</Button>
+							</TooltipTrigger>
+							<TooltipContent>Open chat</TooltipContent>
+						</Tooltip>
+					)}
+					<RunStatusBadge status={run.status} integrationResults={run.integrationResults} />
+				</div>
 			</header>
 
 			{automation.scheduleDescription && (
 				<div className='px-4 pt-1 text-xs text-muted-foreground'>{automation.scheduleDescription}</div>
 			)}
 
-			<div className='px-4 py-3'>
+			<div className='px-4 py-4'>
 				<RunBody output={output} isRunning={isRunning} errorMessage={run.errorMessage} />
 			</div>
-
-			<footer className='flex items-center justify-between gap-2 border-t px-4 py-2.5'>
-				<IntegrationResultIcons results={run.integrationResults} />
-				<div className='flex items-center gap-1'>
-					{isRunning && onCancelRun && (
-						<Button
-							variant='ghost'
-							size='sm'
-							className='gap-1.5 text-muted-foreground hover:text-destructive'
-							disabled={isCancelling}
-							onClick={() => onCancelRun(run.id)}
-						>
-							{isCancelling ? <Loader2 className='size-3.5 animate-spin' /> : <X className='size-3.5' />}
-							<span className='text-xs'>{isCancelling ? 'Cancelling…' : 'Cancel'}</span>
-						</Button>
-					)}
-					{run.chatId && (
-						<Button variant='ghost' size='sm' asChild>
-							<Link to='/$chatId' params={{ chatId: run.chatId }} className='gap-1.5'>
-								<MessageSquare className='size-3.5' />
-								<span className='text-xs'>Open chat</span>
-							</Link>
-						</Button>
-					)}
-				</div>
-			</footer>
 		</article>
 	);
 }
 
-function StoryRefreshCard({ item, isNew = false }: { item: ActivityFeedStoryRefreshItem; isNew?: boolean }) {
-	const { activity, story, link } = item;
-	const startedAt = new Date(activity.startedAt);
-	const timeAgo = useTimeAgo(startedAt.getTime());
-	const isRunning = activity.status === 'running';
+function StoryPreview({ shareId, onOpen }: { shareId: string | null; onOpen?: () => void }) {
+	const [tooltipOpen, setTooltipOpen] = useState(false);
+	const [cursor, setCursor] = useState({ x: 0, y: 0 });
+	const { data, isLoading } = useQuery({
+		...trpc.storyShare.get.queryOptions({ shareId: shareId ?? '' }),
+		enabled: Boolean(shareId),
+	});
 
-	const cadenceLabel = story.cacheScheduleDescription || formatCadenceFromCron(story.cacheSchedule);
-	const triggerLabel = activity.trigger === 'manual' ? 'Manual refresh' : 'Scheduled refresh';
+	const segments = useMemo(() => (data ? splitCodeIntoSegments(data.code) : []), [data]);
+	const queryData = (data?.queryData ?? null) as QueryDataMap | null;
 
-	return (
-		<article
-			className={cn(
-				'relative rounded-xl border bg-background/60 shadow-xs transition-colors',
-				isNew && 'border-primary/30 bg-primary/[0.02]',
-			)}
-		>
-			{isNew && <span aria-hidden className='absolute -left-1.5 top-4 h-6 w-1 rounded-full bg-primary' />}
-			<header className='flex items-center justify-between gap-3 px-4 pt-4'>
-				<div className='flex min-w-0 items-center gap-2'>
-					<RefreshCw
-						className={cn('size-3.5 shrink-0 text-muted-foreground', isRunning && 'animate-spin')}
-						aria-hidden
-					/>
-					{link ? (
-						<Link {...link} className='truncate text-sm font-semibold hover:underline'>
-							{story.title}
-						</Link>
-					) : (
-						<span className='truncate text-sm font-semibold'>{story.title}</span>
-					)}
-					<span className='text-muted-foreground/60 text-xs' title={startedAt.toLocaleString()}>
-						· {timeAgo.humanReadable}
-					</span>
+	const renderChart = useCallback(
+		(chart: ParsedChartBlock) => <StoryChartEmbed chart={chart} queryData={queryData} />,
+		[queryData],
+	);
+	const renderTable = useCallback(
+		(table: ParsedTableBlock) => <StoryTableEmbed table={table} queryData={queryData} />,
+		[queryData],
+	);
+	const renderMap = useCallback(
+		(map: ParsedMapBlock) => <StoryMapEmbed map={map} queryData={queryData} />,
+		[queryData],
+	);
+
+	if (!shareId) {
+		return null;
+	}
+
+	if (isLoading) {
+		return (
+			<div className='p-4'>
+				<div className='flex h-24 items-center justify-center rounded-lg border bg-background text-muted-foreground'>
+					<Loader2 className='size-4 animate-spin' />
 				</div>
-				<StoryRefreshStatusBadge status={activity.status} />
-			</header>
-
-			<div className='flex flex-wrap items-center gap-x-3 gap-y-1 px-4 pt-1 text-xs text-muted-foreground'>
-				<span className='inline-flex items-center gap-1'>
-					<span>{triggerLabel}</span>
-					{cadenceLabel && activity.trigger === 'schedule' && <span>· {cadenceLabel}</span>}
-				</span>
 			</div>
-
-			<div className='px-4 py-3'>
-				<StoryRefreshBody
-					status={activity.status}
-					queriesRefreshed={activity.queriesRefreshed}
-					errorMessage={activity.errorMessage}
-				/>
-			</div>
-
-			<footer className='flex items-center justify-between gap-2 border-t px-4 py-2.5'>
-				<span className='text-xs text-muted-foreground'>Live story</span>
-				{link && (
-					<Button variant='ghost' size='sm' asChild>
-						<Link {...link} className='gap-1.5'>
-							<ExternalLink className='size-3.5' />
-							<span className='text-xs'>Open story</span>
-						</Link>
-					</Button>
-				)}
-			</footer>
-		</article>
-	);
-}
-
-function StoryRefreshStatusBadge({ status }: { status: AutomationFeedRunStatus }) {
-	if (status === 'failed') {
-		return (
-			<Badge variant='destructive' className='shrink-0'>
-				Refresh failed
-			</Badge>
 		);
 	}
-	if (status === 'cancelled') {
-		return (
-			<Badge variant='outline' className='shrink-0 text-muted-foreground'>
-				Cancelled
-			</Badge>
-		);
+
+	if (!data || segments.length === 0) {
+		return null;
 	}
-	if (status === 'running') {
-		return (
-			<Badge variant='secondary' className='shrink-0 animate-pulse'>
-				Refreshing
-			</Badge>
-		);
-	}
-	return (
-		<Badge
-			variant='secondary'
-			className='shrink-0 border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-		>
-			Refreshed
-		</Badge>
+
+	const inner = (
+		<>
+			<SegmentList
+				segments={segments}
+				renderChart={renderChart}
+				renderTable={renderTable}
+				renderMap={renderMap}
+			/>
+			<div className='absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-background to-transparent' />
+		</>
 	);
-}
-
-function StoryRefreshBody({
-	status,
-	queriesRefreshed,
-	errorMessage,
-}: {
-	status: AutomationFeedRunStatus;
-	queriesRefreshed: number;
-	errorMessage?: string | null;
-}) {
-	if (status === 'running') {
-		return <p className='text-sm text-muted-foreground italic'>Refreshing data…</p>;
-	}
-	if (status === 'failed') {
-		return (
-			<p className='rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive'>
-				{errorMessage || 'Refresh failed.'}
-			</p>
-		);
-	}
-	if (queriesRefreshed === 0) {
-		return <p className='text-sm text-muted-foreground italic'>No queries to refresh.</p>;
-	}
-	return (
-		<p className='text-sm text-foreground/90'>
-			Re-ran <span className='font-semibold'>{queriesRefreshed}</span>{' '}
-			{queriesRefreshed === 1 ? 'query' : 'queries'} against the latest data.
-		</p>
-	);
-}
-
-function StorySharedCard({ item, isNew = false }: { item: ActivityFeedStorySharedItem; isNew?: boolean }) {
-	const { activity, story, share, actorName, link } = item;
-	const startedAt = new Date(activity.startedAt);
-	const timeAgo = useTimeAgo(startedAt.getTime());
-	const openLink = link ?? { to: '/stories/shared/$shareId', params: { shareId: share.id } };
 
 	return (
-		<article
-			className={cn(
-				'relative rounded-xl border bg-background/60 shadow-xs transition-colors',
-				isNew && 'border-primary/30 bg-primary/[0.02]',
-			)}
-		>
-			{isNew && <span aria-hidden className='absolute -left-1.5 top-4 h-6 w-1 rounded-full bg-primary' />}
-			<header className='flex items-center justify-between gap-3 px-4 pt-4'>
-				<div className='flex min-w-0 items-center gap-2'>
-					<Share2 className='size-3.5 shrink-0 text-muted-foreground' aria-hidden />
-					<Link {...openLink} className='truncate text-sm font-semibold hover:underline'>
-						{story.title}
-					</Link>
-					<span className='text-muted-foreground/60 text-xs' title={startedAt.toLocaleString()}>
-						· {timeAgo.humanReadable}
-					</span>
-				</div>
-				<ShareScopeBadge visibility={share.visibility} />
-			</header>
-
-			<div className='px-4 pt-1 pb-3 text-sm text-foreground/90'>
-				<ShareSentence subjectLabel='story' actorName={actorName} visibility={share.visibility} />
-			</div>
-
-			<footer className='flex items-center justify-between gap-2 border-t px-4 py-2.5'>
-				<span className='text-xs text-muted-foreground'>Shared story</span>
-				<Button variant='ghost' size='sm' asChild>
-					<Link {...openLink} className='gap-1.5'>
-						<ExternalLink className='size-3.5' />
-						<span className='text-xs'>Open story</span>
-					</Link>
-				</Button>
-			</footer>
-		</article>
-	);
-}
-
-function ChatSharedCard({ item, isNew = false }: { item: ActivityFeedChatSharedItem; isNew?: boolean }) {
-	const { activity, chat, share, actorName } = item;
-	const startedAt = new Date(activity.startedAt);
-	const timeAgo = useTimeAgo(startedAt.getTime());
-
-	return (
-		<article
-			className={cn(
-				'relative rounded-xl border bg-background/60 shadow-xs transition-colors',
-				isNew && 'border-primary/30 bg-primary/[0.02]',
-			)}
-		>
-			{isNew && <span aria-hidden className='absolute -left-1.5 top-4 h-6 w-1 rounded-full bg-primary' />}
-			<header className='flex items-center justify-between gap-3 px-4 pt-4'>
-				<div className='flex min-w-0 items-center gap-2'>
-					<Share2 className='size-3.5 shrink-0 text-muted-foreground' aria-hidden />
-					<Link
-						to='/$chatId'
-						params={{ chatId: chat.id }}
-						className='truncate text-sm font-semibold hover:underline'
+		<div className='p-4'>
+			{onOpen ? (
+				<>
+					<button
+						type='button'
+						onClick={onOpen}
+						onMouseEnter={(e) => {
+							setCursor({ x: e.clientX, y: e.clientY });
+							setTooltipOpen(true);
+						}}
+						onMouseMove={(e) => setCursor({ x: e.clientX, y: e.clientY })}
+						onMouseLeave={() => setTooltipOpen(false)}
+						className='relative block w-full max-h-60 cursor-pointer overflow-hidden rounded-lg border bg-background px-3 py-2 text-left text-sm transition-colors hover:bg-accent/50'
 					>
-						{chat.title || 'Untitled chat'}
-					</Link>
-					<span className='text-muted-foreground/60 text-xs' title={startedAt.toLocaleString()}>
-						· {timeAgo.humanReadable}
-					</span>
+						<div className='pointer-events-none'>{inner}</div>
+					</button>
+					{tooltipOpen && (
+						<div
+							role='tooltip'
+							className='pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-full rounded-lg border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-lg'
+							style={{ left: cursor.x, top: cursor.y - 12 }}
+						>
+							Open story
+						</div>
+					)}
+				</>
+			) : (
+				<div className='pointer-events-none relative max-h-60 overflow-hidden rounded-lg border bg-background px-3 py-2 text-sm'>
+					{inner}
 				</div>
-				<ShareScopeBadge visibility={share.visibility} />
-			</header>
-
-			<div className='px-4 pt-1 pb-3 text-sm text-foreground/90'>
-				<ShareSentence subjectLabel='chat' actorName={actorName} visibility={share.visibility} />
-			</div>
-
-			<footer className='flex items-center justify-between gap-2 border-t px-4 py-2.5'>
-				<span className='text-xs text-muted-foreground'>Shared chat</span>
-				<Button variant='ghost' size='sm' asChild>
-					<Link to='/$chatId' params={{ chatId: chat.id }} className='gap-1.5'>
-						<MessageSquare className='size-3.5' />
-						<span className='text-xs'>Open chat</span>
-					</Link>
-				</Button>
-			</footer>
-		</article>
+			)}
+		</div>
 	);
 }
 
@@ -548,32 +604,18 @@ function ShareSentence({
 	const target = visibility === 'project' ? 'the project' : 'you';
 	return (
 		<p>
-			<span className='font-medium'>{actor}</span> shared this {subjectLabel} with{' '}
-			<span className='font-medium'>{target}</span>.
+			<span className='font-semibold'>{actor}</span> shared this {subjectLabel} with{' '}
+			<span className='font-semibold'>{target}</span>.
 		</p>
 	);
 }
 
-function ShareScopeBadge({ visibility }: { visibility: ShareVisibility }) {
+function SharedObjectBadge({ itemLabel }: { itemLabel: SharedItemLabel }) {
 	return (
 		<Badge variant='secondary' className='shrink-0'>
-			{visibility === 'project' ? 'Project' : 'Direct'}
+			{itemLabel === 'story' ? 'Story shared' : 'Chat shared'}
 		</Badge>
 	);
-}
-
-function formatCadenceFromCron(cron: string | null): string | null {
-	if (!cron) {
-		return null;
-	}
-	const known: Record<string, string> = {
-		'*/5 * * * *': 'Every 5 minutes',
-		'0 * * * *': 'Every hour',
-		'0 0 * * *': 'Every 24 hours',
-		'0 0 * * 1': 'Weekly (Monday)',
-		'0 0 1 * *': 'Monthly (1st)',
-	};
-	return known[cron] ?? cron;
 }
 
 function RunStatusBadge({
@@ -793,7 +835,7 @@ function SlideNavButton({ direction, onClick }: { direction: 'prev' | 'next'; on
 function IntegrationResultIcons({ results }: { results: AutomationFeedIntegrationResult[] }) {
 	const distinct = getDistinctIntegrationResults(results);
 	if (distinct.length === 0) {
-		return <div />;
+		return null;
 	}
 	return (
 		<div className='flex flex-wrap gap-1.5'>

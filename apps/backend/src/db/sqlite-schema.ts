@@ -5,13 +5,20 @@ import type {
 	McpMapEmbedStoredConfig,
 } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
-import type { AnalyticsEventMetadata, CitationData, LlmProvider, RepoProvider } from '@nao/shared/types';
+import type {
+	AnalyticsEventMetadata,
+	CitationData,
+	LlmProvider,
+	NotificationChannel,
+	RepoProvider,
+} from '@nao/shared/types';
 import {
 	ANALYTICS_ASSET_TYPES,
 	ANALYTICS_EVENT_TYPES,
 	BUDGET_PERIODS,
 	FOLDER_SYSTEM_TYPE,
 	FOLDER_VISIBILITY,
+	NOTIFICATION_CATEGORIES,
 	SHARE_VISIBILITY,
 	USER_ROLES,
 } from '@nao/shared/types';
@@ -514,6 +521,28 @@ export const projectProviderBudget = sqliteTable(
 	],
 );
 
+export const budgetNotification = sqliteTable(
+	'budget_notification',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		provider: text('provider').$type<LlmProvider>().notNull(),
+		scope: text('scope').notNull(),
+		periodStart: integer('period_start', { mode: 'timestamp_ms' }).notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [
+		index('budget_notification_projectId_idx').on(t.projectId),
+		unique('budget_notification_project_provider_scope_period').on(t.projectId, t.provider, t.scope, t.periodStart),
+	],
+);
+
 export const sharedChat = sqliteTable(
 	'shared_chat',
 	{
@@ -661,6 +690,7 @@ export const automationRun = sqliteTable(
 			.notNull(),
 		completedAt: integer('completed_at', { mode: 'timestamp_ms' }),
 		errorMessage: text('error_message'),
+		readAt: integer('read_at', { mode: 'timestamp_ms' }),
 		integrationResults: text('integration_results', { mode: 'json' })
 			.$type<AutomationIntegrationResult[]>()
 			.notNull()
@@ -1010,6 +1040,81 @@ export const activity = sqliteTable(
 	],
 );
 
+export const notification = sqliteTable(
+	'notification',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		category: text('category', { enum: NOTIFICATION_CATEGORIES }).notNull(),
+		title: text('title').notNull(),
+		body: text('body'),
+		linkUrl: text('link_url'),
+		payload: text('payload', { mode: 'json' }).$type<Record<string, unknown>>(),
+		readAt: integer('read_at', { mode: 'timestamp_ms' }),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [
+		index('notification_user_read_idx').on(t.userId, t.readAt),
+		index('notification_user_project_read_idx').on(t.userId, t.projectId, t.readAt),
+		index('notification_createdAt_idx').on(t.createdAt),
+	],
+);
+
+export const notificationUnsubscribe = sqliteTable(
+	'notification_unsubscribe',
+	{
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		scope: text('scope').notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.userId, t.scope] }),
+		index('notification_unsubscribe_userId_idx').on(t.userId),
+		index('notification_unsubscribe_scope_idx').on(t.scope),
+	],
+);
+
+export const storyDelivery = sqliteTable('story_delivery', {
+	id: text('id')
+		.$defaultFn(() => crypto.randomUUID())
+		.primaryKey(),
+	storyId: text('story_id')
+		.notNull()
+		.references(() => story.id, { onDelete: 'cascade' })
+		.unique(),
+	projectId: text('project_id').references(() => project.id, { onDelete: 'cascade' }),
+	enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
+	cron: text('cron'),
+	scheduleDescription: text('schedule_description'),
+	channels: text('channels', { mode: 'json' }).$type<NotificationChannel[]>().notNull(),
+	recipientMode: text('recipient_mode', { enum: ['all', 'specific'] })
+		.notNull()
+		.default('specific'),
+	recipientUserIds: text('recipient_user_ids', { mode: 'json' }).$type<string[]>().notNull(),
+	scheduledJobId: text('scheduled_job_id').references(() => scheduledJob.id, { onDelete: 'set null' }),
+	createdBy: text('created_by').references(() => user.id, { onDelete: 'set null' }),
+	createdAt: integer('created_at', { mode: 'timestamp_ms' })
+		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		.notNull(),
+	updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		.$onUpdate(() => new Date())
+		.notNull(),
+});
+
 export const memories = sqliteTable(
 	'memories',
 	{
@@ -1172,6 +1277,12 @@ export const scheduledJob = sqliteTable(
 	},
 	(t) => [index('scheduled_job_status_runAt_idx').on(t.status, t.runAt), index('scheduled_job_name_idx').on(t.name)],
 );
+
+export const keyedLock = sqliteTable('keyed_lock', {
+	key: text('key').primaryKey(),
+	owner: text('owner').notNull(),
+	expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+});
 
 export const mcpCallLog = sqliteTable(
 	'mcp_call_log',
