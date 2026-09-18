@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/services/license.service', () => ({
 	hasFeature: vi.fn(),
-	LICENSE_FEATURES: { userGroups: 'user-groups' },
+	LICENSE_FEATURES: { rowLevelSecurity: 'row-level-security', userGroups: 'user-groups' },
 }));
 vi.mock('../src/services/user-group-availability.service', () => ({
 	resolveAvailableUserGroupAccess: vi.fn(),
@@ -10,14 +10,18 @@ vi.mock('../src/services/user-group-availability.service', () => ({
 vi.mock('../src/queries/project.queries', () => ({
 	getUserRoleInProject: vi.fn(),
 }));
+vi.mock('../src/queries/user-group.queries', () => ({
+	getProjectRowSecurity: vi.fn(async () => ({ version: 1, tables: [] })),
+}));
 vi.mock('../src/agents/user-rules', () => ({
 	getDatabaseContextCatalog: vi.fn(),
 }));
 
 import { getDatabaseContextCatalog } from '../src/agents/user-rules';
 import { getUserRoleInProject } from '../src/queries/project.queries';
+import { getProjectRowSecurity } from '../src/queries/user-group.queries';
 import { hasFeature } from '../src/services/license.service';
-import { resolveAvailableUserGroupAccess as resolveEffectiveUserGroupAccess } from '../src/services/user-group-availability.service';
+import { resolveAvailableUserGroupAccess as resolveUserGroupAccess } from '../src/services/user-group-availability.service';
 import {
 	expandDatabaseAccess,
 	isDatabaseObjectAllowed,
@@ -40,12 +44,14 @@ describe('warehouse Context access', () => {
 		vi.mocked(hasFeature).mockResolvedValue(true);
 		vi.mocked(getUserRoleInProject).mockResolvedValue('user');
 		vi.mocked(getDatabaseContextCatalog).mockReturnValue(catalog);
-		vi.mocked(resolveEffectiveUserGroupAccess).mockResolvedValue({
+		vi.mocked(getProjectRowSecurity).mockResolvedValue({ version: 1, tables: [] });
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue({
 			groupNames: ['All Users', 'Finance'],
 			features: [],
 			toolCallDensityPolicy: { defaultDensity: 'medium', canChange: false },
 			databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
+			rowPolicies: [],
 		});
 	});
 
@@ -57,9 +63,9 @@ describe('warehouse Context access', () => {
 			strict: true,
 			tables: [],
 		});
-		expect(resolveEffectiveUserGroupAccess).toHaveBeenCalledWith('project-1', 'user-1');
+		expect(resolveUserGroupAccess).toHaveBeenCalledWith('project-1', 'user-1');
 		expect(getDatabaseContextCatalog).toHaveBeenCalledWith('/project');
-		expect(hasFeature).not.toHaveBeenCalled();
+		expect(hasFeature).toHaveBeenCalledWith('row-level-security');
 	});
 
 	it('rejects revoked principals before resolving group access', async () => {
@@ -69,13 +75,14 @@ describe('warehouse Context access', () => {
 			codeMessage: 'FORBIDDEN',
 		});
 		expect(hasFeature).not.toHaveBeenCalled();
-		expect(resolveEffectiveUserGroupAccess).not.toHaveBeenCalled();
+		expect(resolveUserGroupAccess).not.toHaveBeenCalled();
 	});
 
 	it('enforces docs, features, and RULES groups without unlimited entitlement', async () => {
 		vi.mocked(hasFeature).mockResolvedValue(false);
 		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toEqual({
 			warehouseTableAccess: { enforced: true, strict: true, tables: [] },
+			warehouseRowSecurity: { enforced: false },
 			docsContextAccess: {
 				enforced: true,
 				access: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
@@ -83,7 +90,136 @@ describe('warehouse Context access', () => {
 			userGroupFeatures: [],
 			userRulesGroupAccess: { enforced: true, groupNames: ['All Users', 'Finance'] },
 		});
-		expect(hasFeature).not.toHaveBeenCalled();
+		expect(hasFeature).toHaveBeenCalledWith('row-level-security');
+	});
+
+	it('blocks every protected table when the row-security license is inactive', async () => {
+		const tables = [
+			{
+				databaseType: 'postgres',
+				database: 'analytics',
+				schema: 'public',
+				table: 'orders',
+				constraintColumns: ['tenant_id'],
+			},
+			{
+				databaseType: 'postgres',
+				database: 'analytics',
+				schema: 'public',
+				table: 'users',
+				constraintColumns: ['organization_id'],
+			},
+		];
+		vi.mocked(hasFeature).mockResolvedValue(false);
+		vi.mocked(getProjectRowSecurity).mockResolvedValue({ version: 1, tables });
+
+		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toMatchObject({
+			warehouseRowSecurity: {
+				enforced: true,
+				tables: tables.map((table) => ({
+					...table,
+					access: 'blocked',
+					reason: 'Row-level security is configured for this table but the Enterprise license is inactive. Ask an admin to restore the license or remove the table from Row-level security.',
+				})),
+			},
+		});
+	});
+
+	it('keeps licensed row-security policy resolution unchanged', async () => {
+		const orders = {
+			databaseType: 'postgres',
+			database: 'analytics',
+			schema: 'public',
+			table: 'orders',
+		};
+		vi.mocked(getProjectRowSecurity).mockResolvedValue({
+			version: 1,
+			tables: [{ ...orders, constraintColumns: ['tenant_id'] }],
+		});
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue({
+			groupNames: ['Finance'],
+			features: [],
+			toolCallDensityPolicy: { defaultDensity: 'medium', canChange: false },
+			databaseAccess: { mode: 'all', strict: true },
+			docsAccess: { mode: 'all' },
+			rowPolicies: [{ version: 1, policies: [{ ...orders, access: 'full' }] }],
+		});
+
+		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toMatchObject({
+			warehouseRowSecurity: {
+				enforced: true,
+				tables: [{ ...orders, constraintColumns: ['tenant_id'], access: 'full' }],
+			},
+		});
+	});
+
+	it('does not widen rows with policies excluded by same-group Context filtering', async () => {
+		const orders = {
+			databaseType: 'postgres',
+			database: 'analytics',
+			schema: 'public',
+			table: 'orders',
+		};
+		vi.mocked(getProjectRowSecurity).mockResolvedValue({
+			version: 1,
+			tables: [{ ...orders, constraintColumns: ['tenant_id'] }],
+		});
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue({
+			groupNames: ['Context group', 'Non-Context group'],
+			features: [],
+			toolCallDensityPolicy: { defaultDensity: 'medium', canChange: false },
+			databaseAccess: {
+				mode: 'restricted',
+				strict: true,
+				grants: [{ kind: 'table', ...orders }],
+				patterns: [],
+			},
+			docsAccess: { mode: 'restricted', grants: [] },
+			rowPolicies: [
+				{
+					version: 1,
+					policies: [
+						{
+							...orders,
+							access: 'predicate',
+							mode: 'sql',
+							predicate: 'WHERE tenant_id = 7',
+						},
+					],
+				},
+				{ version: 1, policies: [] },
+			],
+		});
+
+		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toMatchObject({
+			warehouseRowSecurity: {
+				enforced: true,
+				tables: [{ ...orders, access: 'predicate', predicate: '(tenant_id = 7)' }],
+			},
+		});
+
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue({
+			groupNames: ['Context group', 'Non-Context group'],
+			features: [],
+			toolCallDensityPolicy: { defaultDensity: 'medium', canChange: false },
+			databaseAccess: {
+				mode: 'restricted',
+				strict: true,
+				grants: [{ kind: 'table', ...orders }],
+				patterns: [],
+			},
+			docsAccess: { mode: 'restricted', grants: [] },
+			rowPolicies: [
+				{ version: 1, policies: [] },
+				{ version: 1, policies: [] },
+			],
+		});
+		await expect(resolveProjectContextAccess('project-1', 'user-1', '/project')).resolves.toMatchObject({
+			warehouseRowSecurity: {
+				enforced: true,
+				tables: [{ ...orders, access: 'none' }],
+			},
+		});
 	});
 
 	it('denies all warehouse tables for restricted access without grants', () => {
@@ -223,12 +359,13 @@ describe('warehouse Context access', () => {
 	});
 
 	it('surfaces catalog filesystem errors instead of bypassing enforcement', async () => {
-		vi.mocked(resolveEffectiveUserGroupAccess).mockResolvedValue({
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue({
 			groupNames: ['All Users'],
 			features: [],
 			toolCallDensityPolicy: { defaultDensity: 'medium', canChange: false },
 			databaseAccess: { mode: 'all', strict: true },
 			docsAccess: { mode: 'all' },
+			rowPolicies: [],
 		});
 		vi.mocked(getDatabaseContextCatalog).mockImplementation(() => {
 			throw new Error('permission denied');

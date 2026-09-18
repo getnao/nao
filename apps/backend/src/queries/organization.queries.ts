@@ -239,6 +239,24 @@ export const initializeDefaultOrganizationForFirstUser = async (userId: string):
 	});
 };
 
+export const addUserToDefaultOrganizationIfExists = async (userId: string): Promise<void> => {
+	const existingMembership = await getUserOrgMembership(userId);
+	if (existingMembership) {
+		return;
+	}
+
+	const org = await getFirstOrganization();
+	if (!org) {
+		return;
+	}
+
+	await addOrgMemberIfMissing({
+		orgId: org.id,
+		userId,
+		role: env.DEFAULT_USER_ROLE,
+	});
+};
+
 /**
  * Add a user to the default organization and project if they don't already exist.
  * Called when a new user signs up.

@@ -15,7 +15,9 @@ export async function addProjectMemberWithUserGroups(
 			const [createdMember] = transaction.insert(s.projectMember).values(member).returning().all();
 			transaction
 				.insert(s.userGroupMember)
-				.values(uniqueGroupIds.map((groupId) => ({ groupId, userId: member.userId })))
+				.values(
+					uniqueGroupIds.map((groupId) => ({ groupId, userId: member.userId, provider: 'manual' as const })),
+				)
 				.onConflictDoNothing()
 				.run();
 			return createdMember;

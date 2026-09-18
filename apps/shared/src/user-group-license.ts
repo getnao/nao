@@ -1,1 +1,0 @@
-export const FREE_CUSTOM_USER_GROUP_LIMIT = 3;

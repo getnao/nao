@@ -4,21 +4,30 @@ import {
 	type DocsContextAccess,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
+	EMPTY_USER_GROUP_ROW_POLICIES,
+	filterUserGroupRowPoliciesByDatabaseContext,
+	parseStoredProjectRowSecurity,
 	parseStoredUserGroupConfig,
 	parseStoredUserGroupContextAccess,
+	parseStoredUserGroupRowPolicies,
 	parseStoredUserGroupSsoMappings,
+	type ProjectRowSecurity,
+	serializeProjectRowSecurity,
 	serializeUserGroupConfig,
 	serializeUserGroupContextAccess,
+	serializeUserGroupRowPolicies,
 	serializeUserGroupSsoMappings,
 	type SsoGroupProvider,
+	type StoredProjectRowSecurity,
 	type ToolCallDensityPolicy,
 	unionDatabaseContextAccess,
 	unionDocsContextAccess,
 	USER_GROUP_FEATURES,
 	type UserGroupFeature,
+	type UserGroupRowPolicies,
 	type UserGroupSsoMappings,
 } from '@nao/shared';
-import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, ne } from 'drizzle-orm';
 
 import type { DBUserGroup, NewUserGroup } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
@@ -42,6 +51,7 @@ export interface UserGroup extends Omit<
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
 	ssoMappings: UserGroupSsoMappings;
+	rowPolicies: UserGroupRowPolicies;
 }
 
 export interface UserGroupOverview {
@@ -57,6 +67,7 @@ export interface EffectiveUserGroupAccess {
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
+	rowPolicies: UserGroupRowPolicies[];
 }
 
 export class UserGroupQueryError extends Error {
@@ -92,12 +103,12 @@ export const getUserGroupOverview = async (projectId: string): Promise<UserGroup
 	};
 };
 
-export const resolveEffectiveUserGroupAccess = async (
+export const resolveUserGroupAccess = async (
 	projectId: string,
 	userId: string,
 	activeGroupIds?: ReadonlySet<string>,
 ): Promise<EffectiveUserGroupAccess> => {
-	const [groups, manualMemberships, ssoMemberships] = await Promise.all([
+	const [groups, memberships] = await Promise.all([
 		db.select().from(s.userGroup).where(eq(s.userGroup.projectId, projectId)).execute(),
 		db
 			.select({ groupId: s.userGroupMember.groupId, createdAt: s.userGroupMember.createdAt })
@@ -105,15 +116,9 @@ export const resolveEffectiveUserGroupAccess = async (
 			.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
 			.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroupMember.userId, userId)))
 			.execute(),
-		db
-			.select({ groupId: s.userGroupSsoMember.groupId, createdAt: s.userGroupSsoMember.createdAt })
-			.from(s.userGroupSsoMember)
-			.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupSsoMember.groupId))
-			.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroupSsoMember.userId, userId)))
-			.execute(),
 	]);
 	const membershipDates = new Map<string, Date>();
-	for (const membership of [...manualMemberships, ...ssoMemberships]) {
+	for (const membership of memberships) {
 		const current = membershipDates.get(membership.groupId);
 		if (!current || membership.createdAt > current) {
 			membershipDates.set(membership.groupId, membership.createdAt);
@@ -158,7 +163,39 @@ export const resolveEffectiveUserGroupAccess = async (
 		},
 		databaseAccess: unionDatabaseContextAccess(applicableGroups.map((group) => group.contextAccess.databaseAccess)),
 		docsAccess: unionDocsContextAccess(applicableGroups.map((group) => group.contextAccess.docsAccess)),
+		rowPolicies: applicableGroups.map((group) =>
+			filterUserGroupRowPoliciesByDatabaseContext(
+				parseStoredUserGroupRowPolicies(group.rowPolicies),
+				group.contextAccess.databaseAccess,
+			),
+		),
 	};
+};
+
+export const getProjectRowSecurity = async (projectId: string): Promise<ProjectRowSecurity> => {
+	const [project] = await db
+		.select({ rowSecurity: s.project.rowSecurity })
+		.from(s.project)
+		.where(eq(s.project.id, projectId))
+		.limit(1)
+		.execute();
+	if (!project) {
+		throw new UserGroupQueryError('NOT_FOUND', 'Project not found.');
+	}
+	return parseStoredProjectRowSecurity(project.rowSecurity);
+};
+
+export const updateProjectRowSecurity = async (
+	projectId: string,
+	rowSecurity: ProjectRowSecurity,
+): Promise<ProjectRowSecurity> => {
+	const normalized = serializeProjectRowSecurity(rowSecurity);
+	if (dbConfig.dialect === Dialect.Postgres) {
+		await db.transaction((transaction) => updatePostgresProjectRowSecurity(transaction, projectId, normalized));
+	} else {
+		db.transaction((transaction) => updateSqliteProjectRowSecurity(transaction, projectId, normalized));
+	}
+	return normalized;
 };
 
 export const listUserGroups = async (projectId: string): Promise<UserGroup[]> =>
@@ -187,6 +224,7 @@ export const createUserGroup = async (
 	databaseAccess: DatabaseContextAccess = EMPTY_DATABASE_CONTEXT_ACCESS,
 	docsAccess: DocsContextAccess = EMPTY_DOCS_CONTEXT_ACCESS,
 	ssoMappings?: UserGroupSsoMappings,
+	rowPolicies: UserGroupRowPolicies = EMPTY_USER_GROUP_ROW_POLICIES,
 ): Promise<UserGroup> => {
 	const values = createUserGroupValues(
 		projectId,
@@ -196,6 +234,7 @@ export const createUserGroup = async (
 		databaseAccess,
 		docsAccess,
 		ssoMappings,
+		rowPolicies,
 	);
 	const group = await executeUserGroupNameMutation(async () => {
 		if (dbConfig.dialect === Dialect.Sqlite) {
@@ -227,6 +266,7 @@ export const createUserGroupWithinLimit = async (
 	databaseAccess: DatabaseContextAccess = EMPTY_DATABASE_CONTEXT_ACCESS,
 	docsAccess: DocsContextAccess = EMPTY_DOCS_CONTEXT_ACCESS,
 	ssoMappings?: UserGroupSsoMappings,
+	rowPolicies: UserGroupRowPolicies = EMPTY_USER_GROUP_ROW_POLICIES,
 ): Promise<UserGroup> => {
 	const values = createUserGroupValues(
 		projectId,
@@ -236,6 +276,7 @@ export const createUserGroupWithinLimit = async (
 		databaseAccess,
 		docsAccess,
 		ssoMappings,
+		rowPolicies,
 	);
 	const group = await executeUserGroupNameMutation(() => {
 		if (dbConfig.dialect === Dialect.Sqlite) {
@@ -280,20 +321,29 @@ export const updateUserGroup = async (
 		databaseAccess?: DatabaseContextAccess;
 		docsAccess?: DocsContextAccess;
 		ssoMappings?: UserGroupSsoMappings;
+		rowPolicies?: UserGroupRowPolicies;
+		rowPoliciesRegistry?: ProjectRowSecurity;
 	},
 ): Promise<UserGroup> => {
 	const group = await getUserGroup(projectId, groupId);
+	const rowPoliciesRegistry =
+		dbConfig.dialect === Dialect.Postgres && data.rowPolicies !== undefined
+			? (data.rowPoliciesRegistry ?? (await getProjectRowSecurity(projectId)))
+			: undefined;
 	const currentConfig = parseStoredUserGroupConfig(group.featureGrants);
 	const currentContext = parseStoredUserGroupContextAccess(group.contextGrants, group.isDefault);
+	const resultingDatabaseAccess = data.databaseAccess ?? currentContext.databaseAccess;
+	const resultingRowPolicies = filterUserGroupRowPoliciesByDatabaseContext(
+		data.rowPolicies ?? parseStoredUserGroupRowPolicies(group.rowPolicies),
+		resultingDatabaseAccess,
+	);
 	if (group.isDefault && data.name !== undefined && data.name !== group.name) {
 		throw new UserGroupQueryError('BAD_REQUEST', 'The All Users group cannot be renamed.');
 	}
 	if (
 		group.isDefault &&
 		data.ssoMappings !== undefined &&
-		Object.values(serializeUserGroupSsoMappings(data.ssoMappings).providers).some(
-			(identifiers) => identifiers.length > 0,
-		)
+		isSsoProvisioningConfigured(serializeUserGroupSsoMappings(data.ssoMappings))
 	) {
 		throw new UserGroupQueryError('BAD_REQUEST', 'The All Users group cannot be mapped to SSO groups.');
 	}
@@ -316,6 +366,7 @@ export const updateUserGroup = async (
 					),
 				}),
 		...(serializedSsoMappings === undefined ? {} : { ssoMappings: serializedSsoMappings }),
+		rowPolicies: serializeUserGroupRowPolicies(resultingRowPolicies),
 		updatedAt: new Date(),
 	};
 	const updated = await executeUserGroupNameMutation(() => {
@@ -339,17 +390,34 @@ export const updateUserGroup = async (
 		}
 
 		return db.transaction(async (transaction) => {
-			await lockProjectForUserGroupMutation(transaction, projectId);
-			if (data.name !== undefined && data.name !== group.name) {
+			const currentRegistry = await lockProjectRowSecurityForUserGroupUpdate(transaction, projectId);
+			if (rowPoliciesRegistry !== undefined) {
+				assertRowPoliciesRegistryCurrent(rowPoliciesRegistry, currentRegistry);
+			}
+			const lockedGroup = await getUserGroup(projectId, groupId, transaction);
+			const lockedContext = parseStoredUserGroupContextAccess(lockedGroup.contextGrants, lockedGroup.isDefault);
+			const lockedDatabaseAccess = data.databaseAccess ?? lockedContext.databaseAccess;
+			const lockedRowPolicies = filterUserGroupRowPoliciesByDatabaseContext(
+				data.rowPolicies ?? parseStoredUserGroupRowPolicies(lockedGroup.rowPolicies),
+				lockedDatabaseAccess,
+			);
+			if (data.name !== undefined && data.name !== lockedGroup.name) {
 				await assertNameAvailable(transaction, projectId, data.name, groupId);
 			}
 			const [stored] = await transaction
 				.update(s.userGroup)
-				.set(updateValues)
+				.set({
+					...updateValues,
+					rowPolicies: serializeUserGroupRowPolicies(lockedRowPolicies),
+				})
 				.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
 				.returning()
 				.execute();
-			await deleteChangedSsoMembershipsPostgres(transaction, groupId, changedProviders);
+			const lockedChangedProviders =
+				serializedSsoMappings === undefined
+					? []
+					: getChangedSsoProviders(lockedGroup.ssoMappings, serializedSsoMappings);
+			await deleteChangedSsoMembershipsPostgres(transaction, groupId, lockedChangedProviders);
 			return stored;
 		});
 	});
@@ -377,7 +445,7 @@ export const listUserGroupMemberships = async (
 		})
 		.from(s.userGroupMember)
 		.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
-		.where(eq(s.userGroup.projectId, projectId))
+		.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroupMember.provider, 'manual')))
 		.execute();
 
 export const listUserGroupSsoMemberships = async (
@@ -385,13 +453,13 @@ export const listUserGroupSsoMemberships = async (
 ): Promise<Array<{ groupId: string; userId: string; provider: string }>> =>
 	db
 		.select({
-			groupId: s.userGroupSsoMember.groupId,
-			userId: s.userGroupSsoMember.userId,
-			provider: s.userGroupSsoMember.provider,
+			groupId: s.userGroupMember.groupId,
+			userId: s.userGroupMember.userId,
+			provider: s.userGroupMember.provider,
 		})
-		.from(s.userGroupSsoMember)
-		.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupSsoMember.groupId))
-		.where(eq(s.userGroup.projectId, projectId))
+		.from(s.userGroupMember)
+		.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
+		.where(and(eq(s.userGroup.projectId, projectId), ne(s.userGroupMember.provider, 'manual')))
 		.execute();
 
 export const validateAssignableUserGroupIds = async (projectId: string, groupIds: string[]): Promise<string[]> => {
@@ -424,7 +492,7 @@ export const addUserGroupMemberships = async (
 	}
 	await executor
 		.insert(s.userGroupMember)
-		.values(uniqueGroupIds.map((groupId) => ({ groupId, userId })))
+		.values(uniqueGroupIds.map((groupId) => ({ groupId, userId, provider: 'manual' as const })))
 		.onConflictDoNothing()
 		.execute();
 };
@@ -445,17 +513,27 @@ export const setUserGroupMembership = async (
 	}
 
 	if (isMember) {
-		await db.insert(s.userGroupMember).values({ groupId, userId }).onConflictDoNothing().execute();
+		await db
+			.insert(s.userGroupMember)
+			.values({ groupId, userId, provider: 'manual' })
+			.onConflictDoNothing()
+			.execute();
 		return;
 	}
 	await db
 		.delete(s.userGroupMember)
-		.where(and(eq(s.userGroupMember.groupId, groupId), eq(s.userGroupMember.userId, userId)))
+		.where(
+			and(
+				eq(s.userGroupMember.groupId, groupId),
+				eq(s.userGroupMember.userId, userId),
+				eq(s.userGroupMember.provider, 'manual'),
+			),
+		)
 		.execute();
 };
 
-const getUserGroup = async (projectId: string, groupId: string): Promise<DBUserGroup> => {
-	const [group] = await db
+const getUserGroup = async (projectId: string, groupId: string, executor: DBExecutor = db): Promise<DBUserGroup> => {
+	const [group] = await executor
 		.select()
 		.from(s.userGroup)
 		.where(and(eq(s.userGroup.id, groupId), eq(s.userGroup.projectId, projectId)))
@@ -514,13 +592,16 @@ function createUserGroupValues(
 	databaseAccess: DatabaseContextAccess,
 	docsAccess: DocsContextAccess,
 	ssoMappings?: UserGroupSsoMappings,
+	rowPolicies: UserGroupRowPolicies = EMPTY_USER_GROUP_ROW_POLICIES,
 ): NewUserGroup {
+	const filteredRowPolicies = filterUserGroupRowPoliciesByDatabaseContext(rowPolicies, databaseAccess);
 	return {
 		projectId,
 		name,
 		featureGrants: serializeUserGroupConfig(featureGrants, toolCallDensityPolicy),
 		contextGrants: serializeUserGroupContextAccess(databaseAccess, docsAccess),
 		ssoMappings: serializeUserGroupSsoMappings(ssoMappings),
+		rowPolicies: serializeUserGroupRowPolicies(filteredRowPolicies),
 		isDefault: false,
 	};
 }
@@ -539,6 +620,29 @@ async function lockProjectForUserGroupMutation(transaction: DBTransaction, proje
 	await (query as typeof query & { for(strength: 'update'): typeof query }).for('update').execute();
 }
 
+async function lockProjectRowSecurityForUserGroupUpdate(
+	transaction: DBTransaction,
+	projectId: string,
+): Promise<ProjectRowSecurity> {
+	const query = transaction
+		.select({ id: s.project.id, rowSecurity: s.project.rowSecurity })
+		.from(s.project)
+		.where(eq(s.project.id, projectId))
+		.limit(1);
+	const [project] = await (query as typeof query & { for(strength: 'update'): typeof query }).for('update').execute();
+	assertProjectExists(project);
+	return parseStoredProjectRowSecurity(project.rowSecurity);
+}
+
+function assertRowPoliciesRegistryCurrent(expected: ProjectRowSecurity, current: ProjectRowSecurity): void {
+	if (JSON.stringify(serializeProjectRowSecurity(expected)) !== JSON.stringify(current)) {
+		throw new UserGroupQueryError(
+			'CONFLICT',
+			'Project row security changed while this user group was being updated. Review the current registry and try again.',
+		);
+	}
+}
+
 function getChangedSsoProviders(
 	currentMappings: DBUserGroup['ssoMappings'],
 	nextMappings: ReturnType<typeof serializeUserGroupSsoMappings>,
@@ -553,6 +657,13 @@ function haveSameIdentifiers(left: string[], right: string[]): boolean {
 	return left.length === right.length && left.every((identifier) => right.includes(identifier));
 }
 
+function isSsoProvisioningConfigured(mappings: ReturnType<typeof serializeUserGroupSsoMappings>): boolean {
+	return (
+		(mappings.defaultProjectRole !== null && mappings.defaultProjectRole !== undefined) ||
+		Object.values(mappings.providers).some((identifiers) => identifiers.length > 0)
+	);
+}
+
 function deleteChangedSsoMembershipsSqlite(
 	transaction: DBTransaction,
 	groupId: string,
@@ -562,8 +673,8 @@ function deleteChangedSsoMembershipsSqlite(
 		return;
 	}
 	transaction
-		.delete(s.userGroupSsoMember)
-		.where(and(eq(s.userGroupSsoMember.groupId, groupId), inArray(s.userGroupSsoMember.provider, providers)))
+		.delete(s.userGroupMember)
+		.where(and(eq(s.userGroupMember.groupId, groupId), inArray(s.userGroupMember.provider, providers)))
 		.run();
 }
 
@@ -576,8 +687,8 @@ async function deleteChangedSsoMembershipsPostgres(
 		return;
 	}
 	await transaction
-		.delete(s.userGroupSsoMember)
-		.where(and(eq(s.userGroupSsoMember.groupId, groupId), inArray(s.userGroupSsoMember.provider, providers)))
+		.delete(s.userGroupMember)
+		.where(and(eq(s.userGroupMember.groupId, groupId), inArray(s.userGroupMember.provider, providers)))
 		.execute();
 }
 
@@ -623,7 +734,122 @@ function normalizeUserGroup(group: DBUserGroup): UserGroup {
 		databaseAccess: contextAccess.databaseAccess,
 		docsAccess: contextAccess.docsAccess,
 		ssoMappings: parseStoredUserGroupSsoMappings(group.ssoMappings),
+		rowPolicies: parseStoredUserGroupRowPolicies(group.rowPolicies),
 	};
+}
+
+function rowSecurityIdentityKey(identity: {
+	databaseType: string;
+	database: string;
+	schema: string;
+	table: string;
+}): string {
+	return [identity.databaseType, identity.database, identity.schema, identity.table].join('\0');
+}
+
+async function updatePostgresProjectRowSecurity(
+	transaction: DBTransaction,
+	projectId: string,
+	rowSecurity: ProjectRowSecurity,
+): Promise<void> {
+	const projectQuery = transaction
+		.select({ id: s.project.id, rowSecurity: s.project.rowSecurity })
+		.from(s.project)
+		.where(eq(s.project.id, projectId))
+		.limit(1);
+	const [project] = await (projectQuery as typeof projectQuery & { for(strength: 'update'): typeof projectQuery })
+		.for('update')
+		.execute();
+	assertProjectExists(project);
+	const groups = await transaction
+		.select({ id: s.userGroup.id, rowPolicies: s.userGroup.rowPolicies })
+		.from(s.userGroup)
+		.where(eq(s.userGroup.projectId, projectId))
+		.execute();
+	for (const group of groups) {
+		const rowPolicies = pruneInvalidRowPolicies(group.rowPolicies, project.rowSecurity, rowSecurity);
+		if (rowPolicies) {
+			await transaction
+				.update(s.userGroup)
+				.set({ rowPolicies, updatedAt: new Date() })
+				.where(eq(s.userGroup.id, group.id))
+				.execute();
+		}
+	}
+	await transaction
+		.update(s.project)
+		.set({ rowSecurity, updatedAt: new Date() })
+		.where(eq(s.project.id, projectId))
+		.execute();
+}
+
+function updateSqliteProjectRowSecurity(
+	transaction: DBExecutor,
+	projectId: string,
+	rowSecurity: ProjectRowSecurity,
+): void {
+	const [project] = transaction
+		.select({ id: s.project.id, rowSecurity: s.project.rowSecurity })
+		.from(s.project)
+		.where(eq(s.project.id, projectId))
+		.limit(1)
+		.all();
+	assertProjectExists(project);
+	const groups = transaction
+		.select({ id: s.userGroup.id, rowPolicies: s.userGroup.rowPolicies })
+		.from(s.userGroup)
+		.where(eq(s.userGroup.projectId, projectId))
+		.all();
+	for (const group of groups) {
+		const rowPolicies = pruneInvalidRowPolicies(group.rowPolicies, project.rowSecurity, rowSecurity);
+		if (rowPolicies) {
+			transaction
+				.update(s.userGroup)
+				.set({ rowPolicies, updatedAt: new Date() })
+				.where(eq(s.userGroup.id, group.id))
+				.run();
+		}
+	}
+	transaction.update(s.project).set({ rowSecurity, updatedAt: new Date() }).where(eq(s.project.id, projectId)).run();
+}
+
+function pruneInvalidRowPolicies(
+	storedPolicies: DBUserGroup['rowPolicies'],
+	storedProjectRowSecurity: StoredProjectRowSecurity,
+	rowSecurity: ProjectRowSecurity,
+): UserGroupRowPolicies | null {
+	const current = parseStoredUserGroupRowPolicies(storedPolicies);
+	const previousTables = new Map(
+		parseStoredProjectRowSecurity(storedProjectRowSecurity).tables.map((table) => [
+			rowSecurityIdentityKey(table),
+			table.constraintColumns,
+		]),
+	);
+	const registeredTables = new Map(
+		rowSecurity.tables.map((table) => [rowSecurityIdentityKey(table), table.constraintColumns]),
+	);
+	const policies = current.policies.filter((policy) => {
+		const key = rowSecurityIdentityKey(policy);
+		const constraintColumns = registeredTables.get(key);
+		if (!constraintColumns) {
+			return false;
+		}
+		const previousConstraintColumns = previousTables.get(key);
+		const removedConstraintColumn =
+			previousConstraintColumns === undefined ||
+			previousConstraintColumns.some((column) => !constraintColumns.includes(column));
+		if (policy.access === 'full' || !removedConstraintColumn) {
+			return true;
+		}
+		return policy.mode === 'guided' && policy.conditions.every(({ column }) => constraintColumns.includes(column));
+	});
+	return policies.length === current.policies.length ? null : serializeUserGroupRowPolicies({ version: 1, policies });
+}
+
+function assertProjectExists(project: { id: string } | undefined): asserts project is { id: string } {
+	if (!project) {
+		throw new UserGroupQueryError('NOT_FOUND', 'Project not found.');
+	}
 }
 
 function deduplicateMemberships(

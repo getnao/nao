@@ -2,8 +2,6 @@ import { createHash } from 'node:crypto';
 
 import { stripSqlFilterBlocks } from '@nao/shared/sql-template';
 import { TAG_ATTRS } from '@nao/shared/story-segments';
-import { extractQueryIds } from '@nao/shared/story-segments';
-import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import { generateText, Output } from 'ai';
 import { CronExpressionParser } from 'cron-parser';
 import { z } from 'zod';
@@ -25,7 +23,7 @@ import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { backfillMissingQueryData, findMissingQueryIds } from '../utils/story-query-data';
 import { buildMcpToolContext, MAX_OUTPUT_TOKENS } from './agent';
 import { resolveExcludedColumnEnforcement } from './excluded-columns.service';
-import { executeWarehouseSql, validateWarehouseSql } from './warehouse-sql.service';
+import { executeWarehouseSql } from './warehouse-sql.service';
 const MAX_RENDERED_ROWS = 60;
 
 interface StoryRefreshTarget {
@@ -37,7 +35,6 @@ interface StoryRefreshTarget {
 export async function executeLiveQuery(
 	chatId: string,
 	queryId: string,
-	principalUserId: string,
 ): Promise<{ data: unknown[]; columns: string[] }> {
 	const query = await storyQueries.getSqlQueryById(chatId, queryId);
 	if (!query) {
@@ -50,7 +47,7 @@ export async function executeLiveQuery(
 		return executeAppDatabaseSql(projectId, sqlQuery);
 	}
 
-	const executionContext = await createStoryExecutionContext(chatId, principalUserId);
+	const executionContext = await createStoryExecutionContext(chatId);
 	return executeRawSql(sqlQuery, {
 		executionContext,
 		databaseId: query.databaseId,
@@ -61,15 +58,14 @@ export interface RefreshResult {
 	queryData: Record<string, { data: unknown[]; columns: string[] }>;
 }
 
-export async function refreshStoryData(chatId: string, slug: string, principalUserId: string): Promise<RefreshResult> {
-	const { queryData } = await refreshStoryDataWithContext(chatId, slug, principalUserId);
+export async function refreshStoryData(chatId: string, slug: string): Promise<RefreshResult> {
+	const { queryData } = await refreshStoryDataWithContext(chatId, slug);
 	return { queryData };
 }
 
 async function refreshStoryDataWithContext(
 	chatId: string,
 	slug: string,
-	principalUserId: string,
 	existingExecutionContext?: StoryExecutionContext,
 ): Promise<RefreshResult & { code: string }> {
 	const version = await storyQueries.getLatestVersionByChatAndSlug(chatId, slug);
@@ -78,13 +74,9 @@ async function refreshStoryDataWithContext(
 	}
 
 	const sqlQueries = await storyQueries.getSqlQueriesFromCode(chatId, version.code);
-	const executionContext = requiresStoryExecutionContext(version.code, sqlQueries)
-		? (existingExecutionContext ?? (await createStoryExecutionContext(chatId, principalUserId)))
+	const executionContext = Object.values(sqlQueries).some((query) => !query.adminMode)
+		? (existingExecutionContext ?? (await createStoryExecutionContext(chatId)))
 		: null;
-	const principalSpecific = hasPrincipalSpecificCredentials(executionContext);
-	if (executionContext?.toolContext.warehouseTableAccess.enforced) {
-		assertAllStoryQueriesResolved(version.code, sqlQueries);
-	}
 	if (Object.keys(sqlQueries).length === 0) {
 		return { queryData: {}, code: version.code };
 	}
@@ -124,16 +116,12 @@ async function refreshStoryDataWithContext(
 			queryData,
 		);
 		if (newCode) {
-			if (!principalSpecific) {
-				await storyQueries.updateLatestVersionCode(chatId, slug, newCode);
-			}
+			await storyQueries.updateLatestVersionCode(chatId, slug, newCode);
 			refreshedCode = newCode;
 		}
 	}
 
-	if (!principalSpecific) {
-		await storyQueries.upsertStoryDataCache(chatId, slug, queryData, buildQuerySources(sqlQueries));
-	}
+	await storyQueries.upsertStoryDataCache(chatId, slug, queryData, buildQuerySources(sqlQueries));
 
 	return { queryData, code: refreshedCode };
 }
@@ -142,27 +130,7 @@ export interface StoryQueryDataResult {
 	queryData: Record<string, { data: unknown[]; columns: string[] }> | null;
 	cachedAt: Date | null;
 	code: string;
-}
-
-export async function getAuthorizedStoredStoryQueryData(
-	chatId: string,
-	code: string,
-	principalUserId: string,
-): Promise<Record<string, { data: unknown[]; columns: string[] }> | null> {
-	const sqlQueries = await storyQueries.getSqlQueriesFromCode(chatId, code);
-	const executionContext = requiresStoryExecutionContext(code, sqlQueries)
-		? await createStoryExecutionContext(chatId, principalUserId)
-		: null;
-
-	if (hasPrincipalSpecificCredentials(executionContext)) {
-		throw new Error('Stored Story data is unavailable with principal-specific credentials.');
-	}
-	if (executionContext?.toolContext.warehouseTableAccess.enforced) {
-		assertAllStoryQueriesResolved(code, sqlQueries);
-		await validateWarehouseSources(sqlQueries, executionContext);
-	}
-
-	return getQueryDataFromCode(chatId, code);
+	allowsPersistedFallback?: boolean;
 }
 
 export async function getStoryQueryData(
@@ -171,70 +139,38 @@ export async function getStoryQueryData(
 	code: string,
 	isLive: boolean,
 	cacheSchedule: string | null,
-	principalUserId: string,
 ): Promise<StoryQueryDataResult> {
 	if (!isLive) {
-		return { queryData: await getQueryDataFromCode(chatId, code), cachedAt: null, code };
+		return {
+			queryData: await getQueryDataFromCode(chatId, code),
+			cachedAt: null,
+			code,
+			allowsPersistedFallback: true,
+		};
 	}
+	const cache = await storyQueries.getStoryDataCacheByChatAndSlug(chatId, slug);
 
-	const sqlQueries = await storyQueries.getSqlQueriesFromCode(chatId, code);
-	const executionContext = requiresStoryExecutionContext(code, sqlQueries)
-		? await createStoryExecutionContext(chatId, principalUserId)
-		: null;
-	const principalSpecific = hasPrincipalSpecificCredentials(executionContext);
-	const loadedCache = principalSpecific ? null : await storyQueries.getStoryDataCacheByChatAndSlug(chatId, slug);
-	const cache = loadedCache && isCacheSafeToShare(code, loadedCache, sqlQueries) ? loadedCache : null;
-	const enforced = executionContext?.toolContext.warehouseTableAccess.enforced ?? false;
-	const allQueriesResolved = areAllStoryQueriesResolved(code, sqlQueries);
-	if (enforced && !allQueriesResolved) {
-		throw new Error('Live Story query sources could not be resolved.');
-	}
-	const querySources = buildQuerySources(sqlQueries);
-	const cacheMatchesCurrentSources =
-		cache !== null && allQueriesResolved && doesCacheMatchCurrentSources(code, cache, querySources);
-
-	if (cache && !isCacheExpired(cache.cachedAt, cacheSchedule) && (!enforced || cacheMatchesCurrentSources)) {
-		if (enforced && executionContext) {
-			await validateWarehouseSources(sqlQueries, executionContext);
-		}
-		return enforced ? resolveValidatedCache(code, cache) : resolveLegacyCache(chatId, code, cache);
+	if (cache && !isCacheExpired(cache.cachedAt, cacheSchedule)) {
+		return resolveLegacyCache(chatId, code, cache);
 	}
 
 	try {
-		const { queryData, code: refreshedCode } = await refreshStoryDataWithContext(
-			chatId,
-			slug,
-			principalUserId,
-			executionContext ?? undefined,
-		);
+		const { queryData, code: refreshedCode } = await refreshStoryDataWithContext(chatId, slug);
 		return {
 			queryData: Object.keys(queryData).length > 0 ? queryData : null,
-			cachedAt: principalSpecific ? null : new Date(),
+			cachedAt: new Date(),
 			code: refreshedCode,
 		};
-	} catch (error) {
-		if (principalSpecific) {
-			throw error;
-		}
-		if (enforced && !cacheMatchesCurrentSources) {
-			throw error;
-		}
-		if (enforced && executionContext) {
-			await validateWarehouseSources(sqlQueries, executionContext);
-		}
+	} catch {
 		if (cache) {
-			return enforced ? resolveValidatedCache(code, cache) : resolveLegacyCache(chatId, code, cache);
+			return resolveLegacyCache(chatId, code, cache);
 		}
-		if (enforced) {
-			throw error;
-		}
-		return { queryData: await getQueryDataFromCode(chatId, code), cachedAt: null, code };
+		return {
+			queryData: await getQueryDataFromCode(chatId, code),
+			cachedAt: null,
+			code,
+		};
 	}
-}
-
-function resolveValidatedCache(code: string, cache: DBStoryDataCache): StoryQueryDataResult {
-	const queryData = selectCurrentQueryData(code, cache.queryData);
-	return { queryData, cachedAt: cache.cachedAt, code };
 }
 
 async function resolveLegacyCache(
@@ -249,20 +185,6 @@ async function resolveLegacyCache(
 }
 
 type StorySqlQueries = Awaited<ReturnType<typeof storyQueries.getSqlQueriesFromCode>>;
-
-function assertAllStoryQueriesResolved(code: string, sqlQueries: StorySqlQueries): void {
-	if (!areAllStoryQueriesResolved(code, sqlQueries)) {
-		throw new Error('Live Story query sources could not be resolved.');
-	}
-}
-
-function areAllStoryQueriesResolved(code: string, sqlQueries: StorySqlQueries): boolean {
-	return [...extractQueryIds(code)].every((queryId) => Object.hasOwn(sqlQueries, queryId));
-}
-
-function requiresStoryExecutionContext(code: string, sqlQueries: StorySqlQueries): boolean {
-	return !areAllStoryQueriesResolved(code, sqlQueries) || Object.values(sqlQueries).some((query) => !query.adminMode);
-}
 
 function buildQuerySources(sqlQueries: StorySqlQueries): StoryQuerySources {
 	return Object.fromEntries(
@@ -280,7 +202,6 @@ function buildQuerySources(sqlQueries: StorySqlQueries): StoryQuerySources {
 					fingerprint: createHash('sha256').update(canonicalSource).digest('hex'),
 					databaseId,
 					adminMode: query.adminMode,
-					credentialScope: 'shared' as const,
 				},
 			];
 		}),
@@ -291,63 +212,9 @@ function normalizeEffectiveSql(sql: string): string {
 	return stripSqlFilterBlocks(sql).replaceAll('\r\n', '\n').trim();
 }
 
-function doesCacheMatchCurrentSources(
-	code: string,
-	cache: DBStoryDataCache,
-	currentSources: StoryQuerySources,
-): boolean {
-	if (!cache.querySources) {
-		return false;
-	}
-	return [...extractQueryIds(code)].every((queryId) => {
-		const cachedSource = cache.querySources?.[queryId];
-		const currentSource = currentSources[queryId];
-		return (
-			cache.queryData[queryId] !== undefined &&
-			cachedSource !== undefined &&
-			currentSource !== undefined &&
-			cachedSource.fingerprint === currentSource.fingerprint &&
-			cachedSource.databaseId === currentSource.databaseId &&
-			cachedSource.adminMode === currentSource.adminMode
-		);
-	});
-}
-
-function isCacheSafeToShare(code: string, cache: DBStoryDataCache, currentSources: StorySqlQueries): boolean {
-	return [...extractQueryIds(code)].every((queryId) => {
-		const currentSource = currentSources[queryId];
-		if (!currentSource) {
-			return false;
-		}
-
-		const cachedSource = cache.querySources?.[queryId];
-		if (currentSource.adminMode && (!cachedSource || cachedSource.adminMode)) {
-			return true;
-		}
-
-		return cachedSource?.credentialScope === 'shared';
-	});
-}
-
-function selectCurrentQueryData(
-	code: string,
-	queryData: Record<string, { data: unknown[]; columns: string[] }>,
-): Record<string, { data: unknown[]; columns: string[] }> | null {
-	const selected = Object.fromEntries(
-		[...extractQueryIds(code)].flatMap((queryId) =>
-			queryData[queryId] === undefined ? [] : [[queryId, queryData[queryId]]],
-		),
-	);
-	return Object.keys(selected).length > 0 ? selected : null;
-}
-
 export interface StoryExecutionContext {
 	toolContext: McpToolContext;
 	enforceExcludedColumns: boolean;
-}
-
-function hasPrincipalSpecificCredentials(executionContext: StoryExecutionContext | null): boolean {
-	return Boolean(executionContext?.toolContext.azureAccessToken);
 }
 
 interface RawSqlExecutionOptions {
@@ -367,41 +234,21 @@ export async function executeRawSql(
 		azureAccessToken: context.azureAccessToken,
 		enforceExcludedColumns: options.executionContext.enforceExcludedColumns,
 		tableAccess: context.warehouseTableAccess,
+		rowSecurity: context.warehouseRowSecurity ?? { enforced: false },
 	});
 	return { data: data.data, columns: data.columns };
 }
 
-export async function createStoryExecutionContext(
-	chatId: string,
-	principalUserId: string,
-): Promise<StoryExecutionContext> {
-	const projectId = await requireChatProjectId(chatId);
-	const toolContext = await buildMcpToolContext({ projectId, userId: principalUserId });
+export async function createStoryExecutionContext(chatId: string): Promise<StoryExecutionContext> {
+	const [projectId, ownerId] = await Promise.all([requireChatProjectId(chatId), chatQueries.getChatOwnerId(chatId)]);
+	if (!ownerId) {
+		throw new Error('Chat owner not found');
+	}
+	const toolContext = await buildMcpToolContext({ projectId, userId: ownerId });
 	return {
 		toolContext,
 		enforceExcludedColumns: await resolveExcludedColumnEnforcement(toolContext.agentSettings),
 	};
-}
-
-async function validateWarehouseSources(
-	sqlQueries: Awaited<ReturnType<typeof storyQueries.getSqlQueriesFromCode>>,
-	executionContext: StoryExecutionContext,
-): Promise<void> {
-	const context = executionContext.toolContext;
-	await Promise.all(
-		Object.values(sqlQueries)
-			.filter((query) => !query.adminMode && query.databaseId !== LOCAL_DATABASE_ID)
-			.map((query) =>
-				validateWarehouseSql(stripSqlFilterBlocks(query.sqlQuery), {
-					projectFolder: context.projectFolder,
-					databaseId: query.databaseId,
-					envVars: context.envVars,
-					azureAccessToken: context.azureAccessToken,
-					enforceExcludedColumns: executionContext.enforceExcludedColumns,
-					tableAccess: context.warehouseTableAccess,
-				}),
-			),
-	);
 }
 
 async function requireChatProjectId(chatId: string): Promise<string> {

@@ -1,6 +1,6 @@
 import type { ToolCallDensity } from './types';
 
-export const USER_GROUP_FEATURES = ['story-creation', 'automation-creation'] as const;
+export const USER_GROUP_FEATURES = ['storyCreation', 'automationCreation'] as const;
 
 export type UserGroupFeature = (typeof USER_GROUP_FEATURES)[number];
 
@@ -28,6 +28,7 @@ export const DEFAULT_TOOL_CALL_DENSITY_POLICY: ToolCallDensityPolicy = {
 };
 
 export const DEFAULT_USER_GROUP_NAME = 'All Users';
+export const FREE_CUSTOM_USER_GROUP_LIMIT = 3;
 
 export const DEFAULT_USER_GROUP_CONFIG: StoredUserGroupConfig = {
 	version: 2,
@@ -41,12 +42,12 @@ export const USER_GROUP_FEATURE_DEFINITIONS: ReadonlyArray<{
 	description: string;
 }> = [
 	{
-		key: 'story-creation',
+		key: 'storyCreation',
 		label: 'Stories',
 		description: 'Allow the user to create new stories',
 	},
 	{
-		key: 'automation-creation',
+		key: 'automationCreation',
 		label: 'Automations',
 		description: 'Allow the user to create new automations',
 	},
@@ -57,11 +58,11 @@ export function normalizeUserGroupFeatures(features: readonly string[]): UserGro
 		...new Set(
 			features
 				.map((feature) => {
-					if (feature === 'stories') {
-						return 'story-creation';
+					if (feature === 'stories' || feature === 'story-creation') {
+						return 'storyCreation';
 					}
-					if (feature === 'automations') {
-						return 'automation-creation';
+					if (feature === 'automations' || feature === 'automation-creation') {
+						return 'automationCreation';
 					}
 					return feature;
 				})

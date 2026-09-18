@@ -35,9 +35,7 @@ describe('canonical project paths', () => {
 		fs.mkdirSync(outside);
 		fs.symlinkSync(outside, path.join(project, 'escape'), directoryLinkType());
 
-		expect(() => resolveCanonicalProjectPath('/escape/missing.md', project)).toThrow(
-			'resolves outside the project folder',
-		);
+		expect(() => resolveCanonicalProjectPath('/escape/missing.md', project)).toThrow('outside the project folder');
 	});
 });
 

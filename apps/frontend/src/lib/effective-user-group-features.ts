@@ -9,8 +9,8 @@ export interface EffectiveUserGroupAccess {
 }
 
 const DENIED_FEATURES: EffectiveUserGroupFeatures = {
-	'story-creation': false,
-	'automation-creation': false,
+	storyCreation: false,
+	automationCreation: false,
 };
 
 const LOADING_ACCESS: EffectiveUserGroupAccess = {

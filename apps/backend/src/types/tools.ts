@@ -1,4 +1,4 @@
-import type { UserGroupFeature } from '@nao/shared';
+import type { UserGroupFeature, WarehouseRowSecurity } from '@nao/shared';
 import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
 import type { displayChart, displayMap } from '@nao/shared/tools';
 import type { LlmSelectedModel, SemanticLayerMode } from '@nao/shared/types';
@@ -23,7 +23,6 @@ export interface ToolContext {
 	chatId: string;
 	userId: string;
 	projectId: string;
-	storyCreationEnabled?: boolean;
 	supportsCustomCharts: boolean;
 	agentSettings: AgentSettings | null;
 	/** The model the run itself uses; subagents inherit it unless the project pins another one. */
@@ -35,6 +34,7 @@ export interface ToolContext {
 	semanticLayerMode?: SemanticLayerMode | null;
 	envVars: Record<string, string>;
 	warehouseTableAccess: WarehouseTableAccess;
+	warehouseRowSecurity: WarehouseRowSecurity;
 	docsContextAccess: ResolvedDocsContextAccess;
 	userGroupFeatures: UserGroupFeature[];
 	userRulesGroupAccess: UserRulesGroupAccess;
@@ -59,4 +59,7 @@ export interface ToolContext {
 	adminMode?: boolean;
 }
 
-export type McpToolContext = Omit<ToolContext, 'chatId'> & { chatId: null };
+export type McpToolContext = Omit<ToolContext, 'chatId'> & {
+	chatId: null;
+	storyCreationEnabled?: boolean;
+};

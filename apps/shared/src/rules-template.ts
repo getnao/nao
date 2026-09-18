@@ -26,6 +26,22 @@ export function renderConditionalGroupBlocksWithSourceLines(
 	source: string,
 	access: UserRulesGroupAccess,
 ): RenderedConditionalGroupBlocks {
+	return renderRulesTemplate(source, access, (conditionalStack) => shouldInclude(conditionalStack));
+}
+
+export function extractConditionalGroupContent(source: string, groupName: string): string {
+	return renderRulesTemplate(
+		source,
+		{ enforced: true, groupNames: [groupName] },
+		(conditionalStack) => conditionalStack.length > 0 && shouldInclude(conditionalStack),
+	).content;
+}
+
+function renderRulesTemplate(
+	source: string,
+	access: UserRulesGroupAccess,
+	includeLine: (conditionalStack: ConditionalFrame[]) => boolean,
+): RenderedConditionalGroupBlocks {
 	const renderedLines: string[] = [];
 	const sourceLines: RenderedConditionalGroupBlocks['lines'] = [];
 	const conditionalStack: ConditionalFrame[] = [];
@@ -43,7 +59,7 @@ export function renderConditionalGroupBlocksWithSourceLines(
 			if (isClosingFence(lineBody, fence)) {
 				fence = undefined;
 			}
-			if (shouldInclude(conditionalStack)) {
+			if (includeLine(conditionalStack)) {
 				renderedLines.push(line);
 				sourceLines.push({ content: lineBody, sourceLineNumber: lineIndex + 1 });
 			}
@@ -52,7 +68,7 @@ export function renderConditionalGroupBlocksWithSourceLines(
 
 		if (fenceMarker) {
 			fence = fenceMarker;
-			if (shouldInclude(conditionalStack)) {
+			if (includeLine(conditionalStack)) {
 				renderedLines.push(line);
 				sourceLines.push({ content: lineBody, sourceLineNumber: lineIndex + 1 });
 			}
@@ -61,7 +77,7 @@ export function renderConditionalGroupBlocksWithSourceLines(
 
 		const directive = parseDirective(containerLine.content);
 		if (!directive) {
-			if (shouldInclude(conditionalStack)) {
+			if (includeLine(conditionalStack)) {
 				renderedLines.push(line);
 				sourceLines.push({ content: lineBody, sourceLineNumber: lineIndex + 1 });
 			}

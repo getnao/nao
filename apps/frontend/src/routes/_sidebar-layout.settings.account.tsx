@@ -92,6 +92,7 @@ function GeneralPage() {
 						onOpenChange={setEditOpen}
 						member={editMember}
 						isAdmin={isAdmin}
+						roleScope='project'
 						onSubmit={handleEdit}
 					/>
 

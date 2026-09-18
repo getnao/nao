@@ -1,6 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 
+import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
 import type { Tool } from 'ai';
 import fs from 'fs/promises';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -21,6 +22,7 @@ let projectFolder: string;
 let originalEnv: typeof process.env;
 let warehouseTableAccess: WarehouseTableAccess;
 let docsContextAccess: ResolvedDocsContextAccess;
+const userRulesGroupAccess: UserRulesGroupAccess = { enforced: false };
 
 const context = () =>
 	({
@@ -28,7 +30,10 @@ const context = () =>
 		projectId: 'proj-1',
 		userId: 'user-1',
 		warehouseTableAccess,
+		warehouseRowSecurity: { enforced: false },
 		docsContextAccess,
+		userGroupFeatures: [],
+		userRulesGroupAccess,
 	}) as unknown as ToolContext;
 
 beforeEach(async () => {

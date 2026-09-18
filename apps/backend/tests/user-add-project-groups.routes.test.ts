@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
 	addProjectMemberWithUserGroups: vi.fn(),
 	addTeamMember: vi.fn(),
 	hasFeature: vi.fn(),
+	organizationRoleMappingActive: false,
+	updateProjectMemberRole: vi.fn(),
 	UserGroupQueryError: class UserGroupQueryError extends Error {
 		constructor(
 			public readonly code: 'NOT_FOUND' | 'BAD_REQUEST' | 'CONFLICT',
@@ -23,8 +25,13 @@ vi.mock('../src/queries/project.queries', () => ({
 	getProjectByUserId: vi.fn(async () => ({ id: 'project-id', name: 'Project', path: '/project' })),
 	getProjectMember: vi.fn(),
 	getUserRoleInProject: vi.fn(async () => 'admin'),
+	checkProjectHasMoreThanOneAdmin: vi.fn(async () => true),
+	updateProjectMemberRole: mocks.updateProjectMemberRole,
 }));
-vi.mock('../src/queries/user.queries', () => ({}));
+vi.mock('../src/queries/user.queries', () => ({
+	getUserName: vi.fn(async () => 'Existing User'),
+	updateUser: vi.fn(),
+}));
 vi.mock('../src/queries/user-group.queries', () => ({
 	UserGroupQueryError: mocks.UserGroupQueryError,
 	validateAssignableUserGroupIds: mocks.validateAssignableUserGroupIds,
@@ -43,7 +50,7 @@ vi.mock('../src/services/user-group-availability.service', () => ({
 	validateAssignableUserGroupIds: mocks.validateAssignableUserGroupIds,
 }));
 vi.mock('../src/services/sso-group-mapping.service', () => ({
-	isGroupRoleMappingActive: vi.fn(async () => false),
+	isOrganizationRoleMappingActive: vi.fn(async () => mocks.organizationRoleMappingActive),
 }));
 vi.mock('../src/utils/email-builders', () => ({ buildUserAddedEmail: vi.fn() }));
 
@@ -55,6 +62,7 @@ const testRouter = router(userRoutes);
 describe('add user to project groups', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mocks.organizationRoleMappingActive = false;
 		mocks.hasFeature.mockResolvedValue(true);
 		mocks.validateAssignableUserGroupIds.mockImplementation(async (_projectId, groupIds) => groupIds);
 		mocks.addTeamMember.mockImplementation(async ({ addMember }) => {
@@ -67,6 +75,23 @@ describe('add user to project groups', () => {
 					role: 'user',
 				},
 			};
+		});
+	});
+
+	it('allows project role changes while organization roles are managed by the identity provider', async () => {
+		mocks.organizationRoleMappingActive = true;
+
+		await expect(createCaller().modify({ userId: 'member-id', newRole: 'viewer' })).resolves.toBeUndefined();
+		expect(mocks.updateProjectMemberRole).toHaveBeenCalledWith('project-id', 'member-id', 'viewer');
+	});
+
+	it('rejects organization role changes through the editability helper when managed by the identity provider', async () => {
+		mocks.organizationRoleMappingActive = true;
+		const { assertOrganizationRolesAreEditable } = await import('../src/trpc/trpc');
+
+		await expect(assertOrganizationRolesAreEditable()).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+			message: 'Organization roles are managed by your identity provider and cannot be changed here.',
 		});
 	});
 

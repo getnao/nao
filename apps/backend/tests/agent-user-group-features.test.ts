@@ -1,16 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-	getEffectiveUserGroupFeatureFlags: vi.fn(),
 	getStoryByChatAndSlug: vi.fn(),
 	getLatestVersionByChatAndSlug: vi.fn(),
 	createStoryVersion: vi.fn(),
 }));
 
 vi.mock('../src/db/db', () => ({ db: {} }));
-vi.mock('../src/services/user-group-feature-access.service', () => ({
-	getEffectiveUserGroupFeatureFlags: mocks.getEffectiveUserGroupFeatureFlags,
-}));
 vi.mock('../src/queries/story.queries', () => ({
 	getStoryByChatAndSlug: mocks.getStoryByChatAndSlug,
 	getLatestVersionByChatAndSlug: mocks.getLatestVersionByChatAndSlug,
@@ -27,7 +23,8 @@ vi.mock('../src/services/story-template-validation', () => ({
 }));
 
 import storyTool from '../src/agents/tools/story';
-import { appendUserGroupRestrictions, isStoryCreationRestricted, shouldAddStoryMode } from '../src/services/agent';
+import { shouldAddStoryMode } from '../src/services/agent';
+import { resolveAgentUserGroupAccess } from '../src/services/user-group-feature-access.service';
 import type { ToolContext } from '../src/types/tools';
 
 describe('agent user group feature tools', () => {
@@ -35,51 +32,13 @@ describe('agent user group feature tools', () => {
 		vi.clearAllMocks();
 	});
 
-	it('keeps Story available after resolving tools when creation is denied', () => {
-		const tools = { story: { custom: true }, execute_sql: {}, custom: {} };
-
-		expect(isStoryCreationRestricted(tools as never, false)).toBe(true);
-		expect(tools.story).toEqual({ custom: true });
-	});
-
-	it('adds Story and Automation restrictions under one heading', () => {
-		const tools = { story: {}, execute_sql: {} };
-		const prompt = appendUserGroupRestrictions('Custom project prompt', {
-			storyCreation: isStoryCreationRestricted(tools as never, false),
-			automationCreation: true,
-		});
-
-		expect(prompt).toContain('Custom project prompt');
-		expect(prompt).toContain('## User group permissions');
-		expect(prompt).toContain('Do not attempt or offer to create a new Story');
-		expect(prompt).toContain('You may update or replace existing Stories');
-		expect(prompt).toContain('Automation creation is unavailable');
-		expect(prompt).toContain('user can still view and manage existing Automations');
-		expect(prompt.match(/## User group permissions/g)).toHaveLength(1);
-		expect(isStoryCreationRestricted({ execute_sql: {} } as never, false)).toBe(false);
-	});
-
-	it('omits restrictions that are allowed or unavailable in the candidate tools', () => {
-		expect(
-			appendUserGroupRestrictions('Allowed prompt', {
-				storyCreation: false,
-				automationCreation: false,
-			}),
-		).toBe('Allowed prompt');
-
-		const automationOnly = appendUserGroupRestrictions('Prompt', {
-			storyCreation: isStoryCreationRestricted({ execute_sql: {} } as never, false),
-			automationCreation: true,
-		});
-		expect(automationOnly).not.toContain('Story creation through the agent is unavailable');
-		expect(automationOnly).toContain('Automation creation is unavailable');
-	});
-
 	it('suppresses stale Story-mode mentions while restricted', () => {
 		const mentions = [{ id: '__story__', label: 'Story mode', trigger: '#' }];
+		const restrictedAccess = resolveAgentUserGroupAccess([], { story: {} });
+		const allowedAccess = resolveAgentUserGroupAccess(['storyCreation'], { story: {} });
 
-		expect(shouldAddStoryMode(mentions, false)).toBe(false);
-		expect(shouldAddStoryMode(mentions, true)).toBe(true);
+		expect(shouldAddStoryMode(mentions, restrictedAccess)).toBe(false);
+		expect(shouldAddStoryMode(mentions, allowedAccess)).toBe(true);
 	});
 
 	it('rejects restricted Story creation before accessing persistence', async () => {
@@ -133,7 +92,7 @@ async function executeStory(
 		chatId: 'chat-id',
 		userId: 'user-id',
 		projectId: 'project-id',
-		storyCreationEnabled,
+		userGroupFeatures: storyCreationEnabled ? ['storyCreation'] : [],
 		generatedArtifacts: { charts: [], maps: [], stories: [] },
 	} as unknown as ToolContext;
 

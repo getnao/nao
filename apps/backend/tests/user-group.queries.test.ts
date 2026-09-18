@@ -1,4 +1,6 @@
-import { eq } from 'drizzle-orm';
+import { resolveWarehouseRowSecurity, type SsoGroupProvider } from '@nao/shared';
+import type { UserRole } from '@nao/shared/types';
+import { and, eq, inArray } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -23,7 +25,6 @@ import {
 	user,
 	userGroup,
 	userGroupMember,
-	userGroupSsoMember,
 } from '../src/db/sqlite-schema';
 import { createProject } from '../src/queries/project.queries';
 import { reconcileSsoUserGroupMemberships } from '../src/queries/sso-user-group-membership.queries';
@@ -36,8 +37,9 @@ import {
 	getUserGroupOverview,
 	listUserGroupMemberships,
 	listUserGroupSsoMemberships,
-	resolveEffectiveUserGroupAccess,
+	resolveUserGroupAccess,
 	setUserGroupMembership,
+	updateProjectRowSecurity,
 	updateUserGroup,
 	validateAssignableUserGroupIds,
 } from '../src/queries/user-group.queries';
@@ -101,7 +103,7 @@ describe('user group queries', () => {
 			isDefault: true,
 			featureGrants: {
 				version: 2,
-				features: ['story-creation', 'automation-creation'],
+				features: ['storyCreation', 'automationCreation'],
 				toolCallDensity: {
 					defaultDensity: 'detailed',
 					canChange: true,
@@ -109,7 +111,7 @@ describe('user group queries', () => {
 			},
 			contextGrants: {
 				version: 4,
-				databaseAccess: { mode: 'all', strict: true },
+				databaseAccess: { mode: 'all', strict: false },
 				docsAccess: { mode: 'all' },
 			},
 		});
@@ -119,8 +121,8 @@ describe('user group queries', () => {
 
 		expect(defaultGroup).toMatchObject({
 			name: 'All Users',
-			featureGrants: ['story-creation', 'automation-creation'],
-			databaseAccess: { mode: 'all', strict: true },
+			featureGrants: ['storyCreation', 'automationCreation'],
+			databaseAccess: { mode: 'all', strict: false },
 			docsAccess: { mode: 'all' },
 			toolCallDensityPolicy: {
 				defaultDensity: 'detailed',
@@ -148,17 +150,485 @@ describe('user group queries', () => {
 			groups: [expect.objectContaining({ isDefault: true })],
 		});
 		await expect(
-			updateUserGroup(PROJECT_ID, defaultGroup?.id ?? '', { featureGrants: ['automation-creation'] }),
+			updateUserGroup(PROJECT_ID, defaultGroup?.id ?? '', { featureGrants: ['automationCreation'] }),
 		).resolves.toMatchObject({
-			featureGrants: ['automation-creation'],
+			featureGrants: ['automationCreation'],
 		});
+	});
+
+	it('loads the overview with legacy raw predicate policies as no policy', async () => {
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
+		await db
+			.update(userGroup)
+			.set({
+				rowPolicies: {
+					version: 1,
+					policies: [
+						{
+							databaseType: 'duckdb',
+							database: 'sales',
+							schema: 'main',
+							table: 'orders',
+							access: 'predicate',
+							predicate: 'tenant_id = 7',
+						},
+					],
+				},
+			})
+			.where(eq(userGroup.id, analysts.id));
+
+		const overview = await getUserGroupOverview(PROJECT_ID);
+
+		expect(overview.groups.find((group) => group.id === analysts.id)?.rowPolicies).toEqual({
+			version: 1,
+			policies: [],
+		});
+	});
+
+	it('loads the overview with legacy guided policies migrated to AND', async () => {
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
+		await db
+			.update(userGroup)
+			.set({
+				rowPolicies: {
+					version: 1,
+					policies: [
+						{
+							databaseType: 'duckdb',
+							database: 'sales',
+							schema: 'main',
+							table: 'orders',
+							access: 'predicate',
+							conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
+						},
+					],
+				},
+			})
+			.where(eq(userGroup.id, analysts.id));
+
+		const overview = await getUserGroupOverview(PROJECT_ID);
+
+		expect(overview.groups.find((group) => group.id === analysts.id)?.rowPolicies).toEqual({
+			version: 1,
+			policies: [
+				{
+					databaseType: 'duckdb',
+					database: 'sales',
+					schema: 'main',
+					table: 'orders',
+					access: 'predicate',
+					mode: 'guided',
+					combinator: 'and',
+					conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
+				},
+			],
+		});
+	});
+
+	it('prunes row policies outside Context when creating a group', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+		};
+		const customers = { ...orders, table: 'customers' };
+
+		const group = await createUserGroup(
+			PROJECT_ID,
+			'Analysts',
+			[],
+			DEFAULT_DENSITY,
+			{
+				mode: 'restricted',
+				strict: true,
+				grants: [{ kind: 'table', ...orders }],
+				patterns: [],
+			},
+			undefined,
+			undefined,
+			{
+				version: 1,
+				policies: [
+					{ ...customers, access: 'full' },
+					{ ...orders, access: 'full' },
+				],
+			},
+		);
+
+		expect(group.rowPolicies).toEqual({ version: 1, policies: [{ ...orders, access: 'full' }] });
+		const [stored] = await db
+			.select({ rowPolicies: userGroup.rowPolicies })
+			.from(userGroup)
+			.where(eq(userGroup.id, group.id));
+		expect(stored.rowPolicies).toEqual({ version: 1, policies: [{ ...orders, access: 'full' }] });
+	});
+
+	it('prunes persisted row policies when Context access is narrowed', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+		};
+		const customers = { ...orders, table: 'customers' };
+		const group = await createUserGroup(
+			PROJECT_ID,
+			'Analysts',
+			[],
+			DEFAULT_DENSITY,
+			{ mode: 'all', strict: true },
+			undefined,
+			undefined,
+			{
+				version: 1,
+				policies: [
+					{ ...customers, access: 'full' },
+					{ ...orders, access: 'full' },
+				],
+			},
+		);
+
+		const updated = await updateUserGroup(PROJECT_ID, group.id, {
+			featureGrants: [],
+			databaseAccess: {
+				mode: 'restricted',
+				strict: true,
+				grants: [{ kind: 'table', ...orders }],
+				patterns: [],
+			},
+		});
+
+		expect(updated.rowPolicies).toEqual({ version: 1, policies: [{ ...orders, access: 'full' }] });
+		const [stored] = await db
+			.select({ rowPolicies: userGroup.rowPolicies })
+			.from(userGroup)
+			.where(eq(userGroup.id, group.id));
+		expect(stored.rowPolicies).toEqual({ version: 1, policies: [{ ...orders, access: 'full' }] });
+	});
+
+	it('keeps row policies granted by a dynamic Context pattern', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+		};
+		const group = await createUserGroup(
+			PROJECT_ID,
+			'Analysts',
+			[],
+			DEFAULT_DENSITY,
+			{ mode: 'restricted', strict: true, grants: [], patterns: ['main.ord*'] },
+			undefined,
+			undefined,
+			{ version: 1, policies: [{ ...orders, access: 'full' }] },
+		);
+
+		expect(group.rowPolicies).toEqual({ version: 1, policies: [{ ...orders, access: 'full' }] });
+	});
+
+	it('filters each group row policy against that same group Context access', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+		};
+		const overview = await getUserGroupOverview(PROJECT_ID);
+		await updateUserGroup(PROJECT_ID, overview.groups[0].id, {
+			featureGrants: overview.groups[0].featureGrants,
+			databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
+		});
+		const contextGroup = await createUserGroup(
+			PROJECT_ID,
+			'Context group',
+			[],
+			DEFAULT_DENSITY,
+			{
+				mode: 'restricted',
+				strict: true,
+				grants: [{ kind: 'table', ...orders }],
+				patterns: [],
+			},
+			undefined,
+			undefined,
+			{
+				version: 1,
+				policies: [
+					{
+						...orders,
+						access: 'predicate',
+						mode: 'sql',
+						predicate: 'WHERE tenant_id = 7',
+					},
+				],
+			},
+		);
+		const nonContextGroup = await createUserGroup(PROJECT_ID, 'Non-Context group');
+		await db
+			.update(userGroup)
+			.set({ rowPolicies: { version: 1, policies: [{ ...orders, access: 'full' }] } })
+			.where(eq(userGroup.id, nonContextGroup.id));
+		await setUserGroupMembership(PROJECT_ID, contextGroup.id, DIRECT_USER_ID, true);
+		await setUserGroupMembership(PROJECT_ID, nonContextGroup.id, DIRECT_USER_ID, true);
+
+		let access = await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID);
+		expect(access.databaseAccess).toMatchObject({ mode: 'restricted', grants: [{ kind: 'table', ...orders }] });
+		expect(
+			resolveWarehouseRowSecurity(
+				{ version: 1, tables: [{ ...orders, constraintColumns: ['tenant_id'] }] },
+				access.rowPolicies,
+			),
+		).toEqual({
+			enforced: true,
+			tables: [
+				{
+					...orders,
+					constraintColumns: ['tenant_id'],
+					access: 'predicate',
+					predicate: '(tenant_id = 7)',
+				},
+			],
+		});
+
+		await updateUserGroup(PROJECT_ID, contextGroup.id, {
+			featureGrants: [],
+			rowPolicies: { version: 1, policies: [] },
+		});
+		access = await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID);
+		expect(
+			resolveWarehouseRowSecurity(
+				{ version: 1, tables: [{ ...orders, constraintColumns: ['tenant_id'] }] },
+				access.rowPolicies,
+			),
+		).toEqual({
+			enforced: true,
+			tables: [{ ...orders, constraintColumns: ['tenant_id'], access: 'none' }],
+		});
+	});
+
+	it('prunes removed-table row policies and preserves policies for registered tables', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+			constraintColumns: ['tenant_id'],
+		};
+		const customers = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'customers',
+			constraintColumns: ['region'],
+		};
+		await updateProjectRowSecurity(PROJECT_ID, { version: 1, tables: [orders, customers] });
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts', [], DEFAULT_DENSITY, {
+			mode: 'all',
+			strict: true,
+		});
+		const support = await createUserGroup(PROJECT_ID, 'Support', [], DEFAULT_DENSITY, {
+			mode: 'all',
+			strict: true,
+		});
+		await updateUserGroup(PROJECT_ID, analysts.id, {
+			featureGrants: [],
+			rowPolicies: {
+				version: 1,
+				policies: [
+					{
+						databaseType: orders.databaseType,
+						database: orders.database,
+						schema: orders.schema,
+						table: orders.table,
+						access: 'predicate',
+						mode: 'guided',
+						combinator: 'and',
+						conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
+					},
+					{
+						databaseType: customers.databaseType,
+						database: customers.database,
+						schema: customers.schema,
+						table: customers.table,
+						access: 'full',
+					},
+				],
+			},
+		});
+		await updateUserGroup(PROJECT_ID, support.id, {
+			featureGrants: [],
+			rowPolicies: {
+				version: 1,
+				policies: [
+					{
+						databaseType: customers.databaseType,
+						database: customers.database,
+						schema: customers.schema,
+						table: customers.table,
+						access: 'full',
+					},
+				],
+			},
+		});
+
+		await updateProjectRowSecurity(PROJECT_ID, { version: 1, tables: [orders] });
+
+		const groups = await getUserGroupOverview(PROJECT_ID);
+		const updatedAnalysts = groups.groups.find((group) => group.id === analysts.id);
+		const updatedSupport = groups.groups.find((group) => group.id === support.id);
+		expect(updatedAnalysts).toBeDefined();
+		expect(updatedAnalysts?.rowPolicies).toEqual({
+			version: 1,
+			policies: [
+				{
+					databaseType: 'duckdb',
+					database: 'sales',
+					schema: 'main',
+					table: 'orders',
+					access: 'predicate',
+					mode: 'guided',
+					combinator: 'and',
+					conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
+				},
+			],
+		});
+		expect(updatedSupport?.rowPolicies).toEqual({ version: 1, policies: [] });
+		await expect(
+			updateUserGroup(PROJECT_ID, analysts.id, {
+				featureGrants: ['storyCreation'],
+				rowPolicies: updatedAnalysts!.rowPolicies,
+			}),
+		).resolves.toMatchObject({ featureGrants: ['storyCreation'] });
+	});
+
+	it('prunes policies affected by constraint column changes and preserves unaffected guided policies', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+			constraintColumns: ['tenant_id', 'region'],
+		};
+		const customers = { ...orders, table: 'customers' };
+		const invoices = { ...orders, table: 'invoices' };
+		await updateProjectRowSecurity(PROJECT_ID, { version: 1, tables: [orders, customers, invoices] });
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts', [], DEFAULT_DENSITY, {
+			mode: 'all',
+			strict: true,
+		});
+		await updateUserGroup(PROJECT_ID, analysts.id, {
+			featureGrants: [],
+			rowPolicies: {
+				version: 1,
+				policies: [
+					{
+						databaseType: orders.databaseType,
+						database: orders.database,
+						schema: orders.schema,
+						table: orders.table,
+						access: 'predicate',
+						mode: 'guided',
+						combinator: 'and',
+						conditions: [{ column: 'region', operator: 'equals', value: 'west' }],
+					},
+					{
+						databaseType: customers.databaseType,
+						database: customers.database,
+						schema: customers.schema,
+						table: customers.table,
+						access: 'predicate',
+						mode: 'guided',
+						combinator: 'and',
+						conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
+					},
+					{
+						databaseType: invoices.databaseType,
+						database: invoices.database,
+						schema: invoices.schema,
+						table: invoices.table,
+						access: 'predicate',
+						mode: 'sql',
+						predicate: 'WHERE tenant_id = 7',
+					},
+				],
+			},
+		});
+
+		await updateProjectRowSecurity(PROJECT_ID, {
+			version: 1,
+			tables: [orders, customers, invoices].map((table) => ({
+				...table,
+				constraintColumns: ['tenant_id'],
+			})),
+		});
+
+		const groups = await getUserGroupOverview(PROJECT_ID);
+		expect(groups.groups.find((group) => group.id === analysts.id)?.rowPolicies.policies).toEqual([
+			{
+				databaseType: 'duckdb',
+				database: 'sales',
+				schema: 'main',
+				table: 'customers',
+				access: 'predicate',
+				mode: 'guided',
+				combinator: 'and',
+				conditions: [{ column: 'tenant_id', operator: 'equals', value: '7' }],
+			},
+		]);
+	});
+
+	it('preserves manual SQL policies for additions and prunes them after a constraint column removal', async () => {
+		const table = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+			constraintColumns: ['tenant_id'],
+		};
+		await updateProjectRowSecurity(PROJECT_ID, { version: 1, tables: [table] });
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts', [], DEFAULT_DENSITY, {
+			mode: 'all',
+			strict: true,
+		});
+		await updateUserGroup(PROJECT_ID, analysts.id, {
+			featureGrants: [],
+			rowPolicies: {
+				version: 1,
+				policies: [
+					{
+						databaseType: table.databaseType,
+						database: table.database,
+						schema: table.schema,
+						table: table.table,
+						access: 'predicate',
+						mode: 'sql',
+						predicate: 'WHERE tenant_id = 7',
+					},
+				],
+			},
+		});
+
+		await updateProjectRowSecurity(PROJECT_ID, {
+			version: 1,
+			tables: [{ ...table, constraintColumns: ['tenant_id', 'region'] }],
+		});
+		let group = (await getUserGroupOverview(PROJECT_ID)).groups.find(({ id }) => id === analysts.id);
+		expect(group?.rowPolicies.policies).toEqual([
+			expect.objectContaining({ mode: 'sql', predicate: 'WHERE tenant_id = 7' }),
+		]);
+
+		await updateProjectRowSecurity(PROJECT_ID, { version: 1, tables: [table] });
+		group = (await getUserGroupOverview(PROJECT_ID)).groups.find(({ id }) => id === analysts.id);
+		expect(group?.rowPolicies.policies).toEqual([]);
 	});
 
 	it('does not write when reading a project without user groups', async () => {
 		await db.delete(userGroup).where(eq(userGroup.projectId, PROJECT_ID));
 
 		await expect(getUserGroupOverview(PROJECT_ID)).resolves.toMatchObject({ groups: [] });
-		expect((await resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).features).toEqual([]);
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).features).toEqual([]);
 		await expect(db.select().from(userGroup).where(eq(userGroup.projectId, PROJECT_ID))).resolves.toHaveLength(0);
 	});
 
@@ -179,7 +649,7 @@ describe('user group queries', () => {
 		const group = await createUserGroup(PROJECT_ID, 'Analysts');
 
 		expect(group.featureGrants).toEqual([]);
-		expect(group.databaseAccess).toEqual({ mode: 'restricted', strict: true, grants: [], patterns: [] });
+		expect(group.databaseAccess).toEqual({ mode: 'restricted', strict: false, grants: [], patterns: [] });
 		expect(group.docsAccess).toEqual({ mode: 'restricted', grants: [] });
 		expect(group.toolCallDensityPolicy).toEqual({
 			defaultDensity: 'detailed',
@@ -193,7 +663,7 @@ describe('user group queries', () => {
 
 		const updated = await updateUserGroup(PROJECT_ID, group.id, {
 			name: 'Data Analysts',
-			featureGrants: ['story-creation'],
+			featureGrants: ['storyCreation'],
 			databaseAccess: {
 				mode: 'restricted',
 				strict: false,
@@ -215,7 +685,7 @@ describe('user group queries', () => {
 		});
 		expect(updated).toMatchObject({
 			name: 'Data Analysts',
-			featureGrants: ['story-creation'],
+			featureGrants: ['storyCreation'],
 			toolCallDensityPolicy: {
 				defaultDensity: 'compact',
 				canChange: false,
@@ -241,7 +711,7 @@ describe('user group queries', () => {
 			.where(eq(userGroup.id, group.id));
 		expect(storedUpdated.featureGrants).toEqual({
 			version: 2,
-			features: ['story-creation'],
+			features: ['storyCreation'],
 			toolCallDensity: {
 				defaultDensity: 'compact',
 				canChange: false,
@@ -294,7 +764,7 @@ describe('user group queries', () => {
 			code: 'BAD_REQUEST',
 		});
 
-		await updateUserGroup(PROJECT_ID, defaultGroup.id, { featureGrants: ['automation-creation'] });
+		await updateUserGroup(PROJECT_ID, defaultGroup.id, { featureGrants: ['automationCreation'] });
 		await deleteUserGroup(PROJECT_ID, group.id);
 		expect((await getUserGroupOverview(PROJECT_ID)).groups).toHaveLength(1);
 	});
@@ -514,21 +984,21 @@ describe('user group queries', () => {
 	});
 
 	it('resolves every feature for an untouched project', async () => {
-		expect((await resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).features).toEqual([
-			'story-creation',
-			'automation-creation',
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).features).toEqual([
+			'storyCreation',
+			'automationCreation',
 		]);
 	});
 
 	it('unions grants from the default and explicit groups', async () => {
 		const overview = await getUserGroupOverview(PROJECT_ID);
-		await updateUserGroup(PROJECT_ID, overview.groups[0].id, { featureGrants: ['story-creation'] });
-		const analysts = await createUserGroup(PROJECT_ID, 'Analysts', ['automation-creation']);
+		await updateUserGroup(PROJECT_ID, overview.groups[0].id, { featureGrants: ['storyCreation'] });
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts', ['automationCreation']);
 		await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, true);
 
-		expect((await resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).features).toEqual([
-			'story-creation',
-			'automation-creation',
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).features).toEqual([
+			'storyCreation',
+			'automationCreation',
 		]);
 	});
 
@@ -549,7 +1019,7 @@ describe('user group queries', () => {
 		const suspendedGroup = await createUserGroup(
 			PROJECT_ID,
 			'Suspended',
-			['automation-creation'],
+			['automationCreation'],
 			{ defaultDensity: 'compact', canChange: true },
 			{ mode: 'all', strict: false },
 			{ mode: 'all' },
@@ -559,21 +1029,27 @@ describe('user group queries', () => {
 		}
 
 		const activeGroupIds = new Set([defaultGroup.id, ...activeGroups.map((group) => group.id)]);
-		await expect(resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID, activeGroupIds)).resolves.toEqual({
+		await expect(resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID, activeGroupIds)).resolves.toEqual({
 			groupNames: ['All Users', 'First', 'Second', 'Third'],
 			features: [],
 			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: false },
 			databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [] },
+			rowPolicies: [
+				{ version: 1, policies: [] },
+				{ version: 1, policies: [] },
+				{ version: 1, policies: [] },
+				{ version: 1, policies: [] },
+			],
 		});
 
 		expect(await listUserGroupMemberships(PROJECT_ID)).toContainEqual({
 			groupId: suspendedGroup.id,
 			userId: DIRECT_USER_ID,
 		});
-		await expect(resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
+		await expect(resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
 			groupNames: expect.arrayContaining(['Suspended']),
-			features: ['automation-creation'],
+			features: ['automationCreation'],
 			toolCallDensityPolicy: { canChange: true },
 			databaseAccess: { mode: 'all' },
 			docsAccess: { mode: 'all' },
@@ -606,7 +1082,7 @@ describe('user group queries', () => {
 		);
 		await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, true);
 
-		await expect(resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
+		await expect(resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
 			databaseAccess: {
 				mode: 'restricted',
 				strict: true,
@@ -630,7 +1106,7 @@ describe('user group queries', () => {
 			databaseAccess: { mode: 'all', strict: false },
 			docsAccess: { mode: 'all' },
 		});
-		await expect(resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
+		await expect(resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
 			databaseAccess: { mode: 'all', strict: true },
 			docsAccess: { mode: 'all' },
 		});
@@ -646,12 +1122,12 @@ describe('user group queries', () => {
 		let groups = (await getUserGroupOverview(PROJECT_ID)).groups;
 		expect(groups.find(({ id }) => id === defaultGroup.id)?.databaseAccess).toEqual({
 			mode: 'all',
-			strict: true,
+			strict: false,
 		});
 		expect(groups.find(({ id }) => id === defaultGroup.id)?.docsAccess).toEqual({ mode: 'all' });
 		expect(groups.find(({ id }) => id === customGroup.id)?.databaseAccess).toEqual({
 			mode: 'restricted',
-			strict: true,
+			strict: false,
 			grants: [],
 			patterns: [],
 		});
@@ -691,11 +1167,11 @@ describe('user group queries', () => {
 		const normalizedCustomGroup = groups.find(({ id }) => id === customGroup.id);
 
 		expect(normalizedDefaultGroup).toMatchObject({
-			databaseAccess: { mode: 'all', strict: true },
+			databaseAccess: { mode: 'all', strict: false },
 			docsAccess: { mode: 'all' },
 		});
 		expect(normalizedCustomGroup).toMatchObject({
-			databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
+			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [] },
 		});
 		expect(normalizedDefaultGroup).not.toHaveProperty('contextGrants');
@@ -705,23 +1181,21 @@ describe('user group queries', () => {
 	it('uses a custom group when the default has no grants', async () => {
 		const overview = await getUserGroupOverview(PROJECT_ID);
 		await updateUserGroup(PROJECT_ID, overview.groups[0].id, { featureGrants: [] });
-		const analysts = await createUserGroup(PROJECT_ID, 'Analysts', ['story-creation']);
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts', ['storyCreation']);
 		await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, true);
 
-		expect((await resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).features).toEqual([
-			'story-creation',
-		]);
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).features).toEqual(['storyCreation']);
 	});
 
 	it('deduplicates grants shared by multiple groups', async () => {
 		const overview = await getUserGroupOverview(PROJECT_ID);
-		await updateUserGroup(PROJECT_ID, overview.groups[0].id, { featureGrants: ['story-creation'] });
-		const analysts = await createUserGroup(PROJECT_ID, 'Analysts', ['story-creation', 'automation-creation']);
+		await updateUserGroup(PROJECT_ID, overview.groups[0].id, { featureGrants: ['storyCreation'] });
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts', ['storyCreation', 'automationCreation']);
 		await setUserGroupMembership(PROJECT_ID, analysts.id, DIRECT_USER_ID, true);
 
-		expect((await resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).features).toEqual([
-			'story-creation',
-			'automation-creation',
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).features).toEqual([
+			'storyCreation',
+			'automationCreation',
 		]);
 	});
 
@@ -733,23 +1207,23 @@ describe('user group queries', () => {
 			.set({
 				featureGrants: [
 					'stories',
-					'story-creation',
+					'storyCreation',
 					'stories',
 					'automations',
-					'automation-creation',
+					'automationCreation',
 					'automations',
 				] as never,
 			})
 			.where(eq(userGroup.id, defaultGroup.id));
 
-		expect((await resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).features).toEqual([
-			'story-creation',
-			'automation-creation',
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).features).toEqual([
+			'storyCreation',
+			'automationCreation',
 		]);
 		await expect(getUserGroupOverview(PROJECT_ID)).resolves.toMatchObject({
 			groups: [
 				expect.objectContaining({
-					featureGrants: ['story-creation', 'automation-creation'],
+					featureGrants: ['storyCreation', 'automationCreation'],
 					toolCallDensityPolicy: {
 						defaultDensity: 'detailed',
 						canChange: false,
@@ -761,12 +1235,10 @@ describe('user group queries', () => {
 
 	it('only uses the default group without explicit memberships', async () => {
 		const overview = await getUserGroupOverview(PROJECT_ID);
-		await updateUserGroup(PROJECT_ID, overview.groups[0].id, { featureGrants: ['automation-creation'] });
-		await createUserGroup(PROJECT_ID, 'Analysts', ['story-creation']);
+		await updateUserGroup(PROJECT_ID, overview.groups[0].id, { featureGrants: ['automationCreation'] });
+		await createUserGroup(PROJECT_ID, 'Analysts', ['storyCreation']);
 
-		expect((await resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).features).toEqual([
-			'automation-creation',
-		]);
+		expect((await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).features).toEqual(['automationCreation']);
 	});
 
 	it('resolves effective names from All Users, manual, and SSO memberships within the project', async () => {
@@ -774,12 +1246,12 @@ describe('user group queries', () => {
 		const marketing = await createUserGroup(PROJECT_ID, 'Marketing');
 		const foreign = await createUserGroup(FOREIGN_PROJECT_ID, 'Foreign');
 		await setUserGroupMembership(PROJECT_ID, finance.id, DIRECT_USER_ID, true);
-		await db.insert(userGroupSsoMember).values([
+		await db.insert(userGroupMember).values([
 			{ groupId: marketing.id, userId: DIRECT_USER_ID, provider: 'oidc' },
 			{ groupId: foreign.id, userId: DIRECT_USER_ID, provider: 'oidc' },
 		]);
 
-		const access = await resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID);
+		const access = await resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID);
 
 		expect(access.groupNames).toHaveLength(3);
 		expect(access.groupNames).toEqual(expect.arrayContaining(['All Users', 'Finance', 'Marketing']));
@@ -796,7 +1268,7 @@ describe('user group queries', () => {
 			},
 		});
 
-		await expect(resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
+		await expect(resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
 			toolCallDensityPolicy: {
 				defaultDensity: 'compact',
 				canChange: false,
@@ -826,7 +1298,7 @@ describe('user group queries', () => {
 			{ groupId: newerGroup.id, userId: DIRECT_USER_ID, createdAt: new Date('2025-01-02T00:00:00Z') },
 		]);
 
-		await expect(resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
+		await expect(resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
 			toolCallDensityPolicy: {
 				defaultDensity: 'compact',
 				canChange: false,
@@ -860,7 +1332,7 @@ describe('user group queries', () => {
 			{ groupId: secondGroup.id, userId: DIRECT_USER_ID, createdAt },
 		]);
 
-		await expect(resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
+		await expect(resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
 			toolCallDensityPolicy: {
 				defaultDensity: 'compact',
 			},
@@ -881,7 +1353,7 @@ describe('user group queries', () => {
 			canChange: false,
 		});
 		await setUserGroupMembership(PROJECT_ID, lockedGroup.id, DIRECT_USER_ID, true);
-		await expect(resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
+		await expect(resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
 			toolCallDensityPolicy: {
 				canChange: false,
 			},
@@ -892,7 +1364,7 @@ describe('user group queries', () => {
 			canChange: true,
 		});
 		await setUserGroupMembership(PROJECT_ID, unlockedGroup.id, DIRECT_USER_ID, true);
-		await expect(resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
+		await expect(resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
 			toolCallDensityPolicy: {
 				canChange: true,
 			},
@@ -906,7 +1378,7 @@ describe('user group queries', () => {
 		});
 		await setUserGroupMembership(PROJECT_ID, lockedGroup.id, DIRECT_USER_ID, true);
 
-		await expect(resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
+		await expect(resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
 			toolCallDensityPolicy: {
 				canChange: true,
 			},
@@ -936,7 +1408,7 @@ describe('user group queries', () => {
 			.set({ createdAt: new Date('2025-01-01T00:00:00Z') })
 			.where(eq(userGroupMember.groupId, compactGroup.id));
 		await setUserGroupMembership(PROJECT_ID, detailedGroup.id, DIRECT_USER_ID, true);
-		await expect(resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
+		await expect(resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
 			toolCallDensityPolicy: {
 				defaultDensity: 'detailed',
 			},
@@ -945,7 +1417,7 @@ describe('user group queries', () => {
 		await setUserGroupMembership(PROJECT_ID, compactGroup.id, DIRECT_USER_ID, false);
 		await new Promise((resolve) => setTimeout(resolve, 5));
 		await setUserGroupMembership(PROJECT_ID, compactGroup.id, DIRECT_USER_ID, true);
-		await expect(resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
+		await expect(resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
 			toolCallDensityPolicy: {
 				defaultDensity: 'compact',
 			},
@@ -969,26 +1441,26 @@ describe('user group queries', () => {
 		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['compact-sso']);
 		const originalSsoCreatedAt = new Date('2025-01-01T00:00:00Z');
 		await db
-			.update(userGroupSsoMember)
+			.update(userGroupMember)
 			.set({ createdAt: originalSsoCreatedAt })
-			.where(eq(userGroupSsoMember.groupId, compactSsoGroup.id));
+			.where(and(eq(userGroupMember.groupId, compactSsoGroup.id), eq(userGroupMember.provider, 'oidc')));
 		await setUserGroupMembership(PROJECT_ID, newerManualGroup.id, DIRECT_USER_ID, true);
 		await db
 			.update(userGroupMember)
 			.set({ createdAt: new Date('2025-02-01T00:00:00Z') })
 			.where(eq(userGroupMember.groupId, newerManualGroup.id));
 
-		await expect(resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
+		await expect(resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
 			toolCallDensityPolicy: { defaultDensity: 'detailed' },
 		});
 		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['compact-sso']);
 
 		const [unchangedMembership] = await db
-			.select({ createdAt: userGroupSsoMember.createdAt })
-			.from(userGroupSsoMember)
-			.where(eq(userGroupSsoMember.groupId, compactSsoGroup.id));
+			.select({ createdAt: userGroupMember.createdAt })
+			.from(userGroupMember)
+			.where(and(eq(userGroupMember.groupId, compactSsoGroup.id), eq(userGroupMember.provider, 'oidc')));
 		expect(unchangedMembership.createdAt).toEqual(originalSsoCreatedAt);
-		await expect(resolveEffectiveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
+		await expect(resolveUserGroupAccess(PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
 			toolCallDensityPolicy: { defaultDensity: 'detailed' },
 		});
 	});
@@ -997,7 +1469,7 @@ describe('user group queries', () => {
 		const group = await createUserGroup(
 			PROJECT_ID,
 			'Finance',
-			['story-creation'],
+			['storyCreation'],
 			DEFAULT_DENSITY,
 			undefined,
 			undefined,
@@ -1005,9 +1477,7 @@ describe('user group queries', () => {
 		);
 		await setUserGroupMembership(PROJECT_ID, group.id, DIRECT_USER_ID, true);
 		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', [' FINANCE-TEAM ']);
-		await db
-			.insert(userGroupSsoMember)
-			.values({ groupId: group.id, userId: DIRECT_USER_ID, provider: 'microsoft' });
+		await db.insert(userGroupMember).values({ groupId: group.id, userId: DIRECT_USER_ID, provider: 'microsoft' });
 		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'microsoft', []);
 
 		const overview = await getUserGroupOverview(PROJECT_ID);
@@ -1036,6 +1506,294 @@ describe('user group queries', () => {
 		expect((await getUserGroupOverview(PROJECT_ID)).memberships).toContainEqual({
 			groupId: group.id,
 			userId: DIRECT_USER_ID,
+		});
+	});
+
+	it('provisions first project access and never revokes or rewrites it later', async () => {
+		const group = await createUserGroup(
+			FOREIGN_PROJECT_ID,
+			'Analysts',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			ssoMappings(['finance'], 'user'),
+		);
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['finance']);
+		await db
+			.update(projectMember)
+			.set({ role: 'context_admin' })
+			.where(and(eq(projectMember.projectId, FOREIGN_PROJECT_ID), eq(projectMember.userId, DIRECT_USER_ID)));
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', []);
+
+		await expect(projectMembership(FOREIGN_PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
+			role: 'context_admin',
+		});
+		expect(await listSsoGroupIds(DIRECT_USER_ID)).not.toContain(group.id);
+	});
+
+	it('uses the strongest default role and adds every matching group', async () => {
+		const viewers = await createUserGroup(
+			FOREIGN_PROJECT_ID,
+			'Viewers',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			ssoMappings(['shared'], 'viewer'),
+		);
+		const admins = await createUserGroup(
+			FOREIGN_PROJECT_ID,
+			'Admins',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			ssoMappings(['shared'], 'admin'),
+		);
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['shared']);
+
+		await expect(projectMembership(FOREIGN_PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({ role: 'admin' });
+		expect(await listSsoGroupIds(DIRECT_USER_ID)).toEqual(expect.arrayContaining([viewers.id, admins.id]));
+	});
+
+	it('lets env mappings override the same claimed UI group while preserving other UI matches', async () => {
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
+		const uiFinance = await createUserGroup(
+			PROJECT_ID,
+			'UI Finance',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			ssoMappings(['finance']),
+		);
+		const sales = await createUserGroup(
+			PROJECT_ID,
+			'Sales',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			ssoMappings(['sales']),
+		);
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['FINANCE', 'sales'], {
+			oidcMappings: [
+				{ oidcGroup: 'finance', projectScope: '*', naoUserGroup: 'wildcard analysts' },
+				{ oidcGroup: 'finance', projectScope: PROJECT_ID, naoUserGroup: 'analysts' },
+			],
+		});
+
+		const groupIds = await listSsoGroupIds(DIRECT_USER_ID);
+		expect(groupIds).toEqual(expect.arrayContaining([analysts.id, sales.id]));
+		expect(groupIds).not.toContain(uiFinance.id);
+	});
+
+	it('suppresses an OIDC UI mapping when its env target is unavailable', async () => {
+		const uiFinance = await createUserGroup(
+			PROJECT_ID,
+			'UI Finance',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			ssoMappings(['finance']),
+		);
+		const sales = await createUserGroup(
+			PROJECT_ID,
+			'Sales',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			ssoMappings(['sales']),
+		);
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['finance', 'sales'], {
+			oidcMappings: [
+				{ oidcGroup: 'finance', projectScope: '*', naoUserGroup: 'ui finance' },
+				{ oidcGroup: 'finance', projectScope: PROJECT_ID, naoUserGroup: 'missing group' },
+			],
+		});
+
+		const groupIds = await listSsoGroupIds(DIRECT_USER_ID);
+		expect(groupIds).not.toContain(uiFinance.id);
+		expect(groupIds).toContain(sales.id);
+	});
+
+	it('does not provision locked excess groups', async () => {
+		const groups = await Promise.all(
+			['One', 'Two', 'Three', 'Locked'].map((name) =>
+				createUserGroup(
+					FOREIGN_PROJECT_ID,
+					name,
+					[],
+					DEFAULT_DENSITY,
+					undefined,
+					undefined,
+					ssoMappings([name], 'user'),
+				),
+			),
+		);
+		for (const [index, group] of groups.entries()) {
+			await db
+				.update(userGroup)
+				.set({ createdAt: new Date(`2025-01-0${index + 1}T00:00:00Z`) })
+				.where(eq(userGroup.id, group.id));
+		}
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['Locked'], {
+			hasUnlimitedUserGroups: false,
+		});
+
+		await expect(projectMembership(FOREIGN_PROJECT_ID, DIRECT_USER_ID)).resolves.toBeNull();
+		expect(await listSsoGroupIds(DIRECT_USER_ID)).not.toContain(groups[3].id);
+	});
+
+	it('suppresses UI fallback when env mappings target locked excess groups', async () => {
+		const groups = await Promise.all(
+			['Active UI', 'Two', 'Three', 'Locked'].map((name, index) =>
+				createUserGroup(
+					PROJECT_ID,
+					name,
+					[],
+					DEFAULT_DENSITY,
+					undefined,
+					undefined,
+					ssoMappings(index === 0 ? ['finance'] : []),
+				),
+			),
+		);
+		for (const [index, group] of groups.entries()) {
+			await db
+				.update(userGroup)
+				.set({ createdAt: new Date(`2025-01-0${index + 1}T00:00:00Z`) })
+				.where(eq(userGroup.id, group.id));
+		}
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['finance'], {
+			hasUnlimitedUserGroups: false,
+			oidcMappings: [{ oidcGroup: 'finance', projectScope: '*', naoUserGroup: 'locked' }],
+		});
+
+		expect(await listSsoGroupIds(DIRECT_USER_ID)).not.toContain(groups[0].id);
+		expect(await listSsoGroupIds(DIRECT_USER_ID)).not.toContain(groups[3].id);
+	});
+
+	it('provisions project access for Microsoft mappings', async () => {
+		const microsoftGroupId = 'a0b1c2d3-e4f5-6789-abcd-ef0123456789';
+		const group = await createUserGroup(
+			FOREIGN_PROJECT_ID,
+			'Microsoft Analysts',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			{
+				version: 1,
+				providers: { oidc: [], microsoft: [microsoftGroupId] },
+				defaultProjectRole: 'viewer',
+			},
+		);
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'microsoft', [microsoftGroupId]);
+
+		await expect(projectMembership(FOREIGN_PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({ role: 'viewer' });
+		expect(await listSsoGroupIds(DIRECT_USER_ID, 'microsoft')).toContain(group.id);
+	});
+
+	it('lets Entra env mappings override the same UI Object ID while preserving other UI matches', async () => {
+		const envGroupId = 'a0b1c2d3-e4f5-6789-abcd-ef0123456789';
+		const otherGroupId = '11111111-2222-3333-4444-555555555555';
+		const analysts = await createUserGroup(PROJECT_ID, 'Analysts');
+		const uiTarget = await createUserGroup(PROJECT_ID, 'UI target', [], DEFAULT_DENSITY, undefined, undefined, {
+			version: 1,
+			providers: { oidc: [], microsoft: [envGroupId] },
+		});
+		const otherTarget = await createUserGroup(
+			PROJECT_ID,
+			'Other target',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			{
+				version: 1,
+				providers: { oidc: [], microsoft: [otherGroupId] },
+			},
+		);
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'microsoft', [envGroupId, otherGroupId], {
+			entraMappings: [
+				{ entraGroupId: envGroupId, projectScope: '*', naoUserGroup: 'wrong wildcard' },
+				{ entraGroupId: envGroupId, projectScope: PROJECT_ID, naoUserGroup: 'ANALYSTS' },
+			],
+		});
+
+		const groupIds = await listSsoGroupIds(DIRECT_USER_ID, 'microsoft');
+		expect(groupIds).toEqual(expect.arrayContaining([analysts.id, otherTarget.id]));
+		expect(groupIds).not.toContain(uiTarget.id);
+	});
+
+	it('suppresses an Entra UI mapping when its env target is unavailable', async () => {
+		const envGroupId = 'a0b1c2d3-e4f5-6789-abcd-ef0123456789';
+		const otherGroupId = '11111111-2222-3333-4444-555555555555';
+		const overriddenTarget = await createUserGroup(
+			PROJECT_ID,
+			'Overridden target',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			{
+				version: 1,
+				providers: { oidc: [], microsoft: [envGroupId] },
+			},
+		);
+		const unrelatedTarget = await createUserGroup(
+			PROJECT_ID,
+			'Unrelated target',
+			[],
+			DEFAULT_DENSITY,
+			undefined,
+			undefined,
+			{
+				version: 1,
+				providers: { oidc: [], microsoft: [otherGroupId] },
+			},
+		);
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'microsoft', [envGroupId, otherGroupId], {
+			entraMappings: [
+				{ entraGroupId: envGroupId, projectScope: '*', naoUserGroup: 'overridden target' },
+				{ entraGroupId: envGroupId, projectScope: PROJECT_ID, naoUserGroup: 'missing group' },
+			],
+		});
+
+		const groupIds = await listSsoGroupIds(DIRECT_USER_ID, 'microsoft');
+		expect(groupIds).not.toContain(overriddenTarget.id);
+		expect(groupIds).toContain(unrelatedTarget.id);
+	});
+
+	it('never changes an existing explicit project role for an Entra default role', async () => {
+		const microsoftGroupId = 'a0b1c2d3-e4f5-6789-abcd-ef0123456789';
+		await db
+			.insert(projectMember)
+			.values({ projectId: FOREIGN_PROJECT_ID, userId: DIRECT_USER_ID, role: 'viewer' })
+			.onConflictDoNothing();
+		await createUserGroup(FOREIGN_PROJECT_ID, 'Microsoft Admins', [], DEFAULT_DENSITY, undefined, undefined, {
+			version: 1,
+			providers: { oidc: [], microsoft: [microsoftGroupId] },
+			defaultProjectRole: 'admin',
+		});
+
+		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'microsoft', [microsoftGroupId]);
+
+		await expect(projectMembership(FOREIGN_PROJECT_ID, DIRECT_USER_ID)).resolves.toMatchObject({
+			role: 'viewer',
 		});
 	});
 
@@ -1103,7 +1861,7 @@ describe('user group queries', () => {
 				microsoft: ['a0b1c2d3-e4f5-6789-abcd-ef0123456789'],
 			},
 		});
-		await db.insert(userGroupSsoMember).values([
+		await db.insert(userGroupMember).values([
 			{ groupId: group.id, userId: DIRECT_USER_ID, provider: 'oidc' },
 			{ groupId: group.id, userId: DIRECT_USER_ID, provider: 'microsoft' },
 		]);
@@ -1134,7 +1892,7 @@ describe('user group queries', () => {
 			undefined,
 			ssoMappings(['finance', 'sales']),
 		);
-		await db.insert(userGroupSsoMember).values({ groupId: group.id, userId: DIRECT_USER_ID, provider: 'oidc' });
+		await db.insert(userGroupMember).values({ groupId: group.id, userId: DIRECT_USER_ID, provider: 'oidc' });
 
 		await updateUserGroup(PROJECT_ID, group.id, {
 			featureGrants: [],
@@ -1154,10 +1912,11 @@ describe('user group queries', () => {
 			undefined,
 			ssoMappings(['finance']),
 		);
-		await db.insert(userGroupSsoMember).values({ groupId: group.id, userId: DIRECT_USER_ID, provider: 'oidc' });
+		await db.insert(userGroupMember).values({ groupId: group.id, userId: DIRECT_USER_ID, provider: 'oidc' });
 		db.$client.exec(`
 			CREATE TRIGGER fail_sso_membership_delete
-			BEFORE DELETE ON user_group_sso_member
+			BEFORE DELETE ON user_group_member
+			WHEN OLD.provider != 'manual'
 			BEGIN
 				SELECT RAISE(ABORT, 'blocked delete');
 			END;
@@ -1197,9 +1956,7 @@ describe('user group queries', () => {
 			undefined,
 			ssoMappings(['shared']),
 		);
-		await db
-			.insert(userGroupSsoMember)
-			.values({ groupId: foreignGroup.id, userId: DIRECT_USER_ID, provider: 'oidc' });
+		await db.insert(userGroupMember).values({ groupId: foreignGroup.id, userId: DIRECT_USER_ID, provider: 'oidc' });
 
 		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['shared']);
 		expect(await listSsoGroupIds(DIRECT_USER_ID)).toEqual([inheritedGroup.id]);
@@ -1230,8 +1987,8 @@ describe('user group queries', () => {
 		await reconcileSsoUserGroupMemberships(DIRECT_USER_ID, 'oidc', ['current']);
 		db.$client.exec(`
 			CREATE TRIGGER fail_sso_membership_insert
-			BEFORE INSERT ON user_group_sso_member
-			WHEN NEW.group_id = '${blocked.id}'
+			BEFORE INSERT ON user_group_member
+			WHEN NEW.group_id = '${blocked.id}' AND NEW.provider != 'manual'
 			BEGIN
 				SELECT RAISE(ABORT, 'blocked insert');
 			END;
@@ -1249,6 +2006,15 @@ describe('user group queries', () => {
 			updateUserGroup(PROJECT_ID, overview.groups[0].id, {
 				featureGrants: overview.groups[0].featureGrants,
 				ssoMappings: ssoMappings(['everyone']),
+			}),
+		).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+			message: 'The All Users group cannot be mapped to SSO groups.',
+		});
+		await expect(
+			updateUserGroup(PROJECT_ID, overview.groups[0].id, {
+				featureGrants: overview.groups[0].featureGrants,
+				ssoMappings: ssoMappings([], 'viewer'),
 			}),
 		).rejects.toMatchObject({
 			code: 'BAD_REQUEST',
@@ -1273,20 +2039,33 @@ async function cleanup() {
 	}
 }
 
-function ssoMappings(oidc: string[]) {
+function ssoMappings(oidc: string[], defaultProjectRole?: UserRole) {
 	return {
 		version: 1 as const,
 		providers: {
 			oidc,
 			microsoft: [],
 		},
+		...(defaultProjectRole ? { defaultProjectRole } : {}),
 	};
 }
 
-async function listSsoGroupIds(userId: string): Promise<string[]> {
+async function listSsoGroupIds(userId: string, provider?: SsoGroupProvider): Promise<string[]> {
 	return db
-		.select({ groupId: userGroupSsoMember.groupId })
-		.from(userGroupSsoMember)
-		.where(eq(userGroupSsoMember.userId, userId))
+		.select({ groupId: userGroupMember.groupId })
+		.from(userGroupMember)
+		.where(
+			provider
+				? and(eq(userGroupMember.userId, userId), eq(userGroupMember.provider, provider))
+				: and(eq(userGroupMember.userId, userId), inArray(userGroupMember.provider, ['oidc', 'microsoft'])),
+		)
 		.then((memberships) => memberships.map((membership) => membership.groupId));
+}
+
+async function projectMembership(projectId: string, userId: string) {
+	const [membership] = await db
+		.select()
+		.from(projectMember)
+		.where(and(eq(projectMember.projectId, projectId), eq(projectMember.userId, userId)));
+	return membership ?? null;
 }

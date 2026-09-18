@@ -79,7 +79,7 @@ function UserGroupFeatureCardContent({ feature, status }: { feature: UserGroupFe
 	return (
 		<>
 			<div className='pointer-events-none absolute inset-x-1 top-1 bottom-12 overflow-hidden rounded-md bg-sidebar/70 dark:bg-sidebar/35'>
-				{feature.key === 'story-creation' ? <StoryCreationPreview /> : <AutomationCreationPreview />}
+				{feature.key === 'storyCreation' ? <StoryCreationPreview /> : <AutomationCreationPreview />}
 			</div>
 			{status}
 			<div className='absolute inset-x-0 bottom-0 flex h-12 min-w-0 flex-col justify-center px-3'>

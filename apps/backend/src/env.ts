@@ -5,12 +5,95 @@ import { isLlmProvider, LLM_PROVIDERS, NAMED_PROVIDER_KIND } from '@nao/shared/t
 import dotenv from 'dotenv';
 import { z } from 'zod/v4';
 
+import {
+	parseEntraGroupNaoGroupMapping,
+	parseEntraGroupOrganizationRoleMapping,
+	parseOidcGroupNaoGroupMapping,
+} from './utils/sso-group-mapping';
+
 // Loads .env file at the root of the repository
 dotenv.config({
 	path: path.join(process.cwd(), '..', '..', '.env'),
 });
 
-const baseEnvSchema = z.object({
+const emittedDeprecationWarnings = new Set<string>();
+
+function resolveOidcGroupNaoRoleMapping(
+	canonicalMapping: string | undefined,
+	deprecatedMapping: string | undefined,
+): string | undefined {
+	return resolveDeprecatedEnvAlias(
+		canonicalMapping,
+		deprecatedMapping,
+		'OIDC_GROUP_NAO_ROLE_MAPPING',
+		'OIDC_GROUP_ROLE_MAPPING',
+	);
+}
+
+function resolveAzureAdGroupNaoRoleMapping(
+	canonicalMapping: string | undefined,
+	deprecatedMapping: string | undefined,
+): string | undefined {
+	return resolveDeprecatedEnvAlias(
+		canonicalMapping,
+		deprecatedMapping,
+		'AZURE_AD_GROUP_NAO_ROLE_MAPPING',
+		'AZURE_AD_GROUP_ROLE_MAPPING',
+	);
+}
+
+function resolveDeprecatedEnvAlias(
+	canonicalValue: string | undefined,
+	deprecatedValue: string | undefined,
+	canonicalName: string,
+	deprecatedName: string,
+): string | undefined {
+	if (deprecatedValue !== undefined && !emittedDeprecationWarnings.has(deprecatedName)) {
+		const ignoredSuffix =
+			canonicalValue !== undefined ? ` ${deprecatedName} is ignored because ${canonicalName} is set.` : '';
+		console.warn(
+			`${deprecatedName} is deprecated; use ${canonicalName} instead. Support for the old name will be removed in a future release.${ignoredSuffix}`,
+		);
+		emittedDeprecationWarnings.add(deprecatedName);
+	}
+
+	return canonicalValue ?? deprecatedValue;
+}
+
+function resolveDeprecatedEnvAliases(value: unknown): unknown {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) {
+		return value;
+	}
+
+	const resolved = { ...(value as Record<string, unknown>) };
+	setResolvedEnvValue(
+		resolved,
+		'AZURE_AD_GROUP_NAO_ROLE_MAPPING',
+		resolveAzureAdGroupNaoRoleMapping(
+			resolved.AZURE_AD_GROUP_NAO_ROLE_MAPPING as string | undefined,
+			resolved.AZURE_AD_GROUP_ROLE_MAPPING as string | undefined,
+		),
+	);
+	setResolvedEnvValue(
+		resolved,
+		'OIDC_GROUP_NAO_ROLE_MAPPING',
+		resolveOidcGroupNaoRoleMapping(
+			resolved.OIDC_GROUP_NAO_ROLE_MAPPING as string | undefined,
+			resolved.OIDC_GROUP_ROLE_MAPPING as string | undefined,
+		),
+	);
+	return resolved;
+}
+
+function setResolvedEnvValue(resolved: Record<string, unknown>, name: string, value: string | undefined): void {
+	if (value === undefined) {
+		delete resolved[name];
+		return;
+	}
+	resolved[name] = value;
+}
+
+const baseRawEnvSchema = z.object({
 	MODE: z.enum(['dev', 'prod', 'test']).default('dev'),
 
 	DB_URI: z.string().default('sqlite:./db.sqlite'),
@@ -66,6 +149,20 @@ const baseEnvSchema = z.object({
 	AZURE_AD_CLIENT_SECRET: z.string().optional(),
 	AZURE_AD_TENANT_ID: z.string().optional(),
 	AZURE_AD_TOKEN_SCOPE: z.string().optional(),
+	AZURE_AD_GROUP_NAO_GROUP_MAPPING: z
+		.string()
+		.optional()
+		.refine((value) => parseEntraGroupNaoGroupMapping(value).status === 'valid', {
+			message:
+				'AZURE_AD_GROUP_NAO_GROUP_MAPPING must use Entra-group-object-id:project-scope:nao-user-group entries',
+		}),
+	AZURE_AD_GROUP_NAO_ROLE_MAPPING: z
+		.string()
+		.optional()
+		.refine((value) => parseEntraGroupOrganizationRoleMapping(value).status === 'valid', {
+			message: 'AZURE_AD_GROUP_NAO_ROLE_MAPPING must use Entra-group-object-id:organization-role entries',
+		}),
+	AZURE_AD_GROUP_ROLE_MAPPING: z.string().optional(),
 
 	ENABLE_USER_LOGIN: z
 		.enum(['true', 'false'])
@@ -89,7 +186,15 @@ const baseEnvSchema = z.object({
 	OIDC_AUTH_DOMAINS: z.string().optional(),
 	OIDC_PKCE: z.string().optional(),
 	OIDC_GROUPS_CLAIM: z.string().optional(),
+	OIDC_GROUP_NAO_ROLE_MAPPING: z.string().optional(),
 	OIDC_GROUP_ROLE_MAPPING: z.string().optional(),
+	OIDC_GROUP_NAO_GROUP_MAPPING: z
+		.string()
+		.optional()
+		.refine((value) => parseOidcGroupNaoGroupMapping(value).status === 'valid', {
+			message:
+				'OIDC_GROUP_NAO_GROUP_MAPPING must be comma-separated oidc-group:project-scope:nao-user-group entries without commas or colons in values',
+		}),
 	SSO_SESSION_MAX_AGE: z.coerce.number().int().positive().optional(),
 
 	SMTP_PASSWORD: z.string().optional(),
@@ -298,7 +403,8 @@ const baseEnvSchema = z.object({
 		.transform((val) => val === 'true'),
 });
 
-const envSchema = baseEnvSchema
+const rawEnvSchema = z.preprocess(resolveDeprecatedEnvAliases, baseRawEnvSchema);
+const envSchema = rawEnvSchema
 	.superRefine((data, ctx) => {
 		if (!data.SLACK_BOT_TOKEN) {
 			if (data.SLACK_SIGNING_SECRET || data.SLACK_APP_TOKEN || data.SLACK_TRANSPORT_MODE) {

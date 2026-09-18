@@ -29,7 +29,6 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));
-vi.mock('../src/services/sso-group-mapping.service', () => ({ isGroupRoleMappingActive: vi.fn(async () => false) }));
 vi.mock('../src/utils/logger', () => ({
 	logger: { warn: mocks.loggerWarn },
 	serializeError: (error: unknown) => ({ message: error instanceof Error ? error.message : String(error) }),
@@ -58,6 +57,10 @@ vi.mock('../src/queries/user.queries', () => ({
 
 vi.mock('../src/services/user-group-availability.service', () => ({
 	listActiveUserGroups: mocks.listUserGroups,
+}));
+
+vi.mock('../src/services/sso-group-mapping.service', () => ({
+	isOrganizationRoleMappingActive: vi.fn(async () => false),
 }));
 
 vi.mock('../src/services/context-explorer.service', () => ({
@@ -621,7 +624,7 @@ describe('context explorer RULES preview groups', () => {
 				id: 'default-id',
 				name: 'All Users',
 				isDefault: true,
-				featureGrants: ['stories'],
+				featureGrants: ['storyCreation'],
 				contextGrants: { mode: 'all' },
 			},
 			{

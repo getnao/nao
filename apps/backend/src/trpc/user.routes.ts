@@ -13,13 +13,7 @@ import { addProjectMemberWithUserGroups } from '../services/project-user-group-m
 import { addTeamMember } from '../services/team-member';
 import { validateAssignableUserGroupIds } from '../services/user-group-availability.service';
 import { buildUserAddedEmail } from '../utils/email-builders';
-import {
-	adminProtectedProcedure,
-	assertRolesAreEditable,
-	projectProtectedProcedure,
-	protectedProcedure,
-	publicProcedure,
-} from './trpc';
+import { adminProtectedProcedure, projectProtectedProcedure, protectedProcedure, publicProcedure } from './trpc';
 
 export const userRoutes = {
 	hasUsers: publicProcedure.query(async () => {
@@ -47,10 +41,6 @@ export const userRoutes = {
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
-			if (input.newRole) {
-				await assertRolesAreEditable();
-			}
-
 			const previousRole = await projectQueries.getUserRoleInProject(ctx.project.id, input.userId);
 
 			if (previousRole === 'admin' && input.newRole && input.newRole !== 'admin') {

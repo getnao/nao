@@ -16,6 +16,7 @@ import {
 	getStoryFilterOptions,
 	getStoryQuerySql,
 } from '../services/story-filters';
+import { hasUserGroupFeature } from '../services/user-group-feature-access.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { notifySharedItemRecipients } from '../utils/email';
 import { buildDownloadResponse } from '../utils/story-download';
@@ -137,6 +138,7 @@ export const sharedStoryRoutes = {
 		const cacheSchedule = storyRow?.cacheSchedule ?? null;
 		const cacheScheduleDescription = storyRow?.cacheScheduleDescription ?? null;
 		const { canRefresh } = await getStoryRefreshAccess(shared.storyId, ctx.user.id, ctx.userRole);
+		const canFork = await getStoryForkAccess(shared, ctx.user.id, ctx.userRole);
 
 		const { queryData, cachedAt, code } = await getStoryQueryData(
 			shared.chatId!,
@@ -144,7 +146,6 @@ export const sharedStoryRoutes = {
 			shared.code,
 			isLive,
 			cacheSchedule,
-			ctx.user.id,
 		);
 		const lastRefreshFailure = await activityQueries.getLatestStoryRefreshFailure(shared.storyId);
 
@@ -173,6 +174,7 @@ export const sharedStoryRoutes = {
 			lastRefreshFailure,
 			userRole: ctx.userRole,
 			canRefresh,
+			canFork,
 		};
 	}),
 
@@ -195,8 +197,8 @@ export const sharedStoryRoutes = {
 
 	getLiveQueryData: chatProcedure
 		.input(z.object({ chatId: z.string(), queryId: z.string() }))
-		.query(async ({ input, ctx }) => {
-			return executeLiveQuery(input.chatId, input.queryId, ctx.user.id);
+		.query(async ({ input }) => {
+			return executeLiveQuery(input.chatId, input.queryId);
 		}),
 
 	getFilterOptions: shareAccessProcedure
@@ -207,7 +209,7 @@ export const sharedStoryRoutes = {
 			if (!shared.chatId) {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
 			}
-			return getStoryFilterOptions(shared.chatId, shared.slug, input.filterId, ctx.user.id);
+			return getStoryFilterOptions(shared.chatId, shared.slug, input.filterId);
 		}),
 
 	getFilteredQueryData: shareAccessProcedure
@@ -223,7 +225,7 @@ export const sharedStoryRoutes = {
 			if (!shared.chatId) {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
 			}
-			return getFilteredStoryQueryData(shared.chatId, shared.slug, input.selections, ctx.user.id);
+			return getFilteredStoryQueryData(shared.chatId, shared.slug, input.selections);
 		}),
 
 	getQuerySql: shareAccessProcedure
@@ -266,7 +268,7 @@ export const sharedStoryRoutes = {
 			trigger: 'manual',
 		});
 		try {
-			const { queryData } = await refreshStoryData(shared.chatId, shared.slug, storyOwnerId);
+			const { queryData } = await refreshStoryData(shared.chatId, shared.slug);
 			await activityQueries.completeActivity(activity.id, {
 				queriesRefreshed: Object.keys(queryData).length,
 			});
@@ -382,7 +384,6 @@ export const sharedStoryRoutes = {
 				version.code,
 				version.isLive,
 				version.cacheSchedule,
-				ctx.user.id,
 			);
 
 			logAnalyticsEvent({
@@ -417,4 +418,18 @@ async function getStoryRefreshAccess(
 		storyOwnerId,
 		canRefresh: Boolean(storyOwnerId && (userId === storyOwnerId || userRole === 'admin')),
 	};
+}
+
+async function getStoryForkAccess(
+	shared: { projectId: string; userId: string },
+	userId: string,
+	userRole: UserRole | null,
+): Promise<boolean> {
+	if (userRole === 'viewer') {
+		return false;
+	}
+	if (shared.userId === userId) {
+		return true;
+	}
+	return hasUserGroupFeature(shared.projectId, userId, 'storyCreation');
 }

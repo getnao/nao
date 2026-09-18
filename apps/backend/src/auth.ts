@@ -19,6 +19,7 @@ import { verifyJwtWithLocalJwks } from './mcp/verify-jwt';
 import * as orgQueries from './queries/organization.queries';
 import * as projectQueries from './queries/project.queries';
 import * as userQueries from './queries/user.queries';
+import { initializeSelfHostedUserAfterCreation } from './services/auth-user-onboarding.service';
 import { emailService } from './services/email';
 import { githubOAuthConfig } from './services/github';
 import * as gitlabService from './services/gitlab';
@@ -26,14 +27,8 @@ import { hasFeature, LICENSE_FEATURES } from './services/license.service';
 import {
 	augmentSocialProvidersWithMicrosoft,
 	getTrustedProvidersForMicrosoft,
-	isSocialProviderMicrosoft,
 } from './services/microsoft-auth.service';
-import {
-	augmentPluginsWithOidc,
-	getOidcProviderId,
-	getTrustedProvidersForOidc,
-	isSocialProviderOidc,
-} from './services/oidc-auth.service';
+import { augmentPluginsWithOidc, getOidcProviderId, getTrustedProvidersForOidc } from './services/oidc-auth.service';
 import { syncSsoLoginGroups } from './services/sso-login-sync.service';
 import { shouldExpireSsoSession } from './services/sso-session.service';
 import { buildForgotPasswordEmail } from './utils/email-builders';
@@ -295,11 +290,6 @@ async function createAuthInstance(baseURL: string) {
 					},
 					async after(user, ctx) {
 						const providerId = resolveProviderId(ctx);
-						const isSocial =
-							providerId === 'google' ||
-							providerId === 'github' ||
-							providerId === 'gitlab' ||
-							(ssoEnabled && (isSocialProviderMicrosoft(providerId) || isSocialProviderOidc(providerId)));
 
 						try {
 							if (isCloud) {
@@ -317,10 +307,7 @@ async function createAuthInstance(baseURL: string) {
 									await orgQueries.initializePersonalOrganization(user.id);
 								}
 							} else {
-								await orgQueries.initializeDefaultOrganizationForFirstUser(user.id);
-								if (isSocial) {
-									await orgQueries.addUserToDefaultProjectIfExists(user.id);
-								}
+								await initializeSelfHostedUserAfterCreation(user.id, providerId, ssoEnabled);
 							}
 							await refreshAuthAfterInitialSelfHostedSignup();
 						} catch (err) {

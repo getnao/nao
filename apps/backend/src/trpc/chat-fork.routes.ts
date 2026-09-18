@@ -135,6 +135,9 @@ async function forkSharedStoryItem(
 ): Promise<{ chatId: string }> {
 	const share = await resolveSharedStory(shareId, userId);
 	const projectId = share.projectId;
+	if (userId !== share.userId) {
+		await assertUserGroupFeatureForTrpc(projectId, userId, 'storyCreation');
+	}
 
 	const forkMetadata: ForkMetadata = selection
 		? buildSelectionMetadata('story_selection', shareId, share.title, share.authorName, selection)
@@ -162,7 +165,6 @@ async function forkSharedStoryItem(
 		return { chatId: chat.id };
 	}
 
-	await assertUserGroupFeatureForTrpc(projectId, userId, 'story-creation');
 	const queryData = await sharedStoryQueries.getQueryDataFromCode(share.chatId!, share.code);
 	const messages = buildQueryDataMessages(queryData);
 

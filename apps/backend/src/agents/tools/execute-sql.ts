@@ -73,6 +73,7 @@ export async function executeQuery(
 		azureAccessToken: context.azureAccessToken,
 		enforceExcludedColumns,
 		tableAccess: context.warehouseTableAccess,
+		rowSecurity: context.warehouseRowSecurity ?? { enforced: false },
 	});
 	const id = query_id ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
 

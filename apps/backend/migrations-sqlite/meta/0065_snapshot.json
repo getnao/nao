@@ -5210,6 +5210,14 @@
           "notNull": true,
           "autoincrement": false
         },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'manual'"
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -6641,6 +6649,14 @@
           "notNull": true,
           "autoincrement": false
         },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'manual'"
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -6651,10 +6667,11 @@
         }
       },
       "indexes": {
-        "user_group_member_userId_idx": {
-          "name": "user_group_member_userId_idx",
+        "user_group_member_user_provider_idx": {
+          "name": "user_group_member_user_provider_idx",
           "columns": [
-            "user_id"
+            "user_id",
+            "provider"
           ],
           "isUnique": false
         }
@@ -6688,96 +6705,13 @@
         }
       },
       "compositePrimaryKeys": {
-        "user_group_member_group_id_user_id_pk": {
-          "columns": [
-            "group_id",
-            "user_id"
-          ],
-          "name": "user_group_member_group_id_user_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "user_group_sso_member": {
-      "name": "user_group_sso_member",
-      "columns": {
-        "group_id": {
-          "name": "group_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "provider": {
-          "name": "provider",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        }
-      },
-      "indexes": {
-        "user_group_sso_member_user_provider_idx": {
-          "name": "user_group_sso_member_user_provider_idx",
-          "columns": [
-            "user_id",
-            "provider"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "user_group_sso_member_group_id_user_group_id_fk": {
-          "name": "user_group_sso_member_group_id_user_group_id_fk",
-          "tableFrom": "user_group_sso_member",
-          "tableTo": "user_group",
-          "columnsFrom": [
-            "group_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "user_group_sso_member_user_id_user_id_fk": {
-          "name": "user_group_sso_member_user_id_user_id_fk",
-          "tableFrom": "user_group_sso_member",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "user_group_sso_member_group_id_user_id_provider_pk": {
+        "user_group_member_group_id_user_id_provider_pk": {
           "columns": [
             "group_id",
             "user_id",
             "provider"
           ],
-          "name": "user_group_sso_member_group_id_user_id_provider_pk"
+          "name": "user_group_member_group_id_user_id_provider_pk"
         }
       },
       "uniqueConstraints": {},

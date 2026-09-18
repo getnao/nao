@@ -10,9 +10,10 @@ import type { UserGroupCatalogState } from '@/components/settings/user-group-acc
 import type { DatabaseContextObject } from '@/components/settings/user-group-context-access';
 import type { DocsContextCatalogEntry } from '@/components/settings/user-group-docs-context-access';
 import type { UserGroupEditorGroup } from '@/components/settings/user-group-editor';
-import { getUserGroupAccessSummary } from '@/components/settings/user-group-access-summary';
 import { ResponsiveGroupChips } from '@/components/settings/user-group-chips';
+import { getUserGroupAccessSummary } from '@/components/settings/user-group-access-summary';
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
+import { ProjectRowSecurity } from '@/components/settings/project-row-security';
 import { invalidateUserGroupQueries } from '@/components/settings/user-group-editor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -38,8 +39,8 @@ interface LockedUserGroup {
 
 type UserGroup = UserGroupEditorGroup | LockedUserGroup;
 type ProjectAccessSource = 'project' | 'organization' | 'both';
-export type UserGroupsPageTab = 'groups' | 'users';
 type UserGroupsEntitlement = 'loading' | 'error' | 'free' | 'unlimited';
+export type UserGroupsPageTab = 'groups' | 'security' | 'users';
 
 interface UserWithProjectAccess {
 	id: string;
@@ -53,6 +54,7 @@ interface UserWithProjectAccess {
 const USER_GROUPS_PAGE_TABS: Array<{ id: UserGroupsPageTab; label: string }> = [
 	{ id: 'users', label: 'Users' },
 	{ id: 'groups', label: 'Manage Groups' },
+	{ id: 'security', label: 'Security' },
 ];
 
 interface UserGroupsTableProps {
@@ -74,7 +76,7 @@ export function UserGroupsTable({ tab, onTabChange }: UserGroupsTableProps) {
 }
 
 export function resolveUserGroupsPageTab(value: unknown): UserGroupsPageTab {
-	return value === 'groups' || value === 'users' ? value : 'users';
+	return value === 'groups' || value === 'security' || value === 'users' ? value : 'users';
 }
 
 function UserGroupsContent({
@@ -177,6 +179,13 @@ function UserGroupsContent({
 							}}
 						/>
 					</SettingsCard>
+				)}
+				{tab === 'security' && (
+					<ProjectRowSecurity
+						objects={contextObjects}
+						catalogState={databaseCatalogState}
+						onRetryCatalog={() => void contextCatalog.refetch()}
+					/>
 				)}
 			</TabPanel>
 		</>
@@ -343,7 +352,7 @@ function LockedGroupUpgradeNudge({ groupId, groupName }: { groupId: string; grou
 				<button
 					type='button'
 					aria-label={`${groupName} requires Enterprise`}
-					className='inline-flex h-4 items-center gap-0.5 rounded-full bg-primary/10 px-1.5 text-[10px] font-medium uppercase tracking-wide text-primary'
+					className='inline-flex h-4 cursor-pointer items-center gap-0.5 rounded-full bg-primary/10 px-1.5 text-[10px] font-medium uppercase tracking-wide text-primary'
 					onClick={(event) => event.stopPropagation()}
 				>
 					<Lock className='size-2.5 shrink-0' />

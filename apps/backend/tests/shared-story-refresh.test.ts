@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { EffectiveUserGroupAccess } from '../src/queries/user-group.queries';
+
 const mocks = vi.hoisted(() => ({
 	getSharedStory: vi.fn(),
 	canUserAccessSharedStory: vi.fn(),
@@ -13,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 	getStoryQueryData: vi.fn(),
 	refreshStoryData: vi.fn(),
 	logAnalyticsEvent: vi.fn(),
+	resolveUserGroupAccess: vi.fn(),
 }));
 
 vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));
@@ -49,6 +52,9 @@ vi.mock('../src/services/story-filters', () => ({
 	getFilteredStoryQueryData: vi.fn(),
 	getStoryFilterOptions: vi.fn(),
 	getStoryQuerySql: vi.fn(),
+}));
+vi.mock('../src/services/user-group-availability.service', () => ({
+	resolveAvailableUserGroupAccess: mocks.resolveUserGroupAccess,
 }));
 vi.mock('../src/utils/analytics-event', () => ({
 	logAnalyticsEvent: mocks.logAnalyticsEvent,
@@ -89,11 +95,12 @@ describe('shared Story manual refresh', () => {
 		mocks.refreshStoryData.mockResolvedValue({
 			queryData: { query_orders: { columns: ['id'], data: [{ id: 1 }] } },
 		});
+		mocks.resolveUserGroupAccess.mockResolvedValue(createEffectiveUserGroupAccess());
 		mocks.getUserRoleInProject.mockImplementation(async (_projectId: string, userId: string) => {
 			if (userId === 'admin-1') {
 				return 'admin';
 			}
-			if (userId === 'owner-1' || userId === 'member-1') {
+			if (userId === 'owner-1' || userId === 'sharer-1' || userId === 'member-1') {
 				return 'user';
 			}
 			return 'viewer';
@@ -110,6 +117,31 @@ describe('shared Story manual refresh', () => {
 		expect(story.canRefresh).toBe(expected);
 	});
 
+	it('resolves fork permission against the shared Story project', async () => {
+		mocks.resolveUserGroupAccess.mockResolvedValue(createEffectiveUserGroupAccess(['storyCreation']));
+
+		const story = await createCaller('member-1', 'selected-project').storyShare.get({ shareId: 'share-1' });
+
+		expect(story.canFork).toBe(true);
+		expect(mocks.resolveUserGroupAccess).toHaveBeenCalledWith('project-1', 'member-1');
+	});
+
+	it('allows the owner to fork without checking the creation grant', async () => {
+		const story = await createCaller('sharer-1', 'selected-project').storyShare.get({ shareId: 'share-1' });
+
+		expect(story.canFork).toBe(true);
+		expect(mocks.resolveUserGroupAccess).not.toHaveBeenCalled();
+	});
+
+	it('blocks viewers from forking even with the creation grant', async () => {
+		mocks.resolveUserGroupAccess.mockResolvedValue(createEffectiveUserGroupAccess(['storyCreation']));
+
+		const story = await createCaller('viewer-1', 'selected-project').storyShare.get({ shareId: 'share-1' });
+
+		expect(story.canFork).toBe(false);
+		expect(mocks.resolveUserGroupAccess).not.toHaveBeenCalled();
+	});
+
 	it('rejects a viewer before refreshing the shared cache', async () => {
 		await expect(createCaller('viewer-1').storyShare.refreshData({ shareId: 'share-1' })).rejects.toMatchObject({
 			code: 'FORBIDDEN',
@@ -122,7 +154,7 @@ describe('shared Story manual refresh', () => {
 	it('lets the owner refresh using the owner execution principal', async () => {
 		await createCaller('owner-1').storyShare.refreshData({ shareId: 'share-1' });
 
-		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders', 'owner-1');
+		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders');
 		expect(mocks.startStoryRefreshActivity).toHaveBeenCalledWith({
 			projectId: 'project-1',
 			userId: 'owner-1',
@@ -137,7 +169,7 @@ describe('shared Story manual refresh', () => {
 	it('lets an admin trigger an owner-scoped refresh while recording the admin actor', async () => {
 		await createCaller('admin-1').storyShare.refreshData({ shareId: 'share-1' });
 
-		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders', 'owner-1');
+		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders');
 		expect(mocks.startStoryRefreshActivity).toHaveBeenCalledWith(expect.objectContaining({ userId: 'owner-1' }));
 		expect(mocks.completeActivity).toHaveBeenCalledWith('activity-1', { queriesRefreshed: 1 });
 		expect(mocks.logAnalyticsEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 'admin-1' }));
@@ -158,9 +190,23 @@ describe('shared Story manual refresh', () => {
 	});
 });
 
-function createCaller(userId: string) {
+function createCaller(userId: string, selectedProjectId = 'project-1') {
 	return testRouter.createCaller({
 		session: { user: { id: userId, name: 'Test User', email: `${userId}@example.com` } },
-		selectedProjectId: 'project-1',
+		selectedProjectId,
 	} as never);
+}
+
+function createEffectiveUserGroupAccess(features: EffectiveUserGroupAccess['features'] = []): EffectiveUserGroupAccess {
+	return {
+		groupNames: ['All Users'],
+		features,
+		toolCallDensityPolicy: {
+			defaultDensity: 'detailed',
+			canChange: true,
+		},
+		databaseAccess: { mode: 'all', strict: false },
+		docsAccess: { mode: 'all' },
+		rowPolicies: [],
+	};
 }

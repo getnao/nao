@@ -13,12 +13,7 @@ import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { naturalLanguageToCron } from '../services/cron-nlp';
-import {
-	executeLiveQuery,
-	getAuthorizedStoredStoryQueryData,
-	getStoryQueryData,
-	refreshStoryData,
-} from '../services/live-story';
+import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import { nextCronTick } from '../services/scheduler.service';
 import {
 	assertStoryFiltersEnabled,
@@ -161,21 +156,21 @@ export const storyRoutes = {
 			});
 		}
 
-		const liveData =
-			story.chatId && story.isLive
-				? await getStoryQueryData(story.chatId, story.slug, story.code, true, story.cacheSchedule, ctx.user.id)
-				: null;
-		const queryData = liveData
-			? liveData.queryData
-			: story.chatId
+		const storyData = story.chatId
+			? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule)
+			: null;
+		const queryData =
+			storyData?.allowsPersistedFallback && story.chatId
 				? await backfillMissingQueryData(story.code, cache?.queryData ?? null, { chatId: story.chatId })
-				: (cache?.queryData ?? null);
+				: storyData
+					? storyData.queryData
+					: (cache?.queryData ?? null);
 
 		return {
 			...story,
-			code: liveData?.code ?? story.code,
+			code: storyData?.code ?? story.code,
 			queryData,
-			cachedAt: liveData ? liveData.cachedAt : (cache?.cachedAt ?? null),
+			cachedAt: storyData ? storyData.cachedAt : (cache?.cachedAt ?? null),
 			lastRefreshFailure,
 		};
 	}),
@@ -193,7 +188,6 @@ export const storyRoutes = {
 				version.code,
 				version.isLive,
 				version.cacheSchedule,
-				ctx.user.id,
 			);
 			const lastRefreshFailure = await activityQueries.getLatestStoryRefreshFailure(version.storyId);
 
@@ -289,7 +283,7 @@ export const storyRoutes = {
 				if (!projectId) {
 					throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
 				}
-				await assertUserGroupFeatureForTrpc(projectId, ctx.user.id, 'story-creation');
+				await assertUserGroupFeatureForTrpc(projectId, ctx.user.id, 'storyCreation');
 			}
 			const version = await storyQueries.createStoryVersion({
 				chatId: input.chatId,
@@ -351,7 +345,7 @@ export const storyRoutes = {
 				trigger: 'manual',
 			});
 			try {
-				const { queryData } = await refreshStoryData(input.chatId, input.storySlug, ctx.user.id);
+				const { queryData } = await refreshStoryData(input.chatId, input.storySlug);
 				await activityQueries.completeActivity(activity.id, {
 					queriesRefreshed: Object.keys(queryData).length,
 				});
@@ -374,15 +368,15 @@ export const storyRoutes = {
 
 	getLiveQueryData: chatStoryProcedure
 		.input(z.object({ chatId: z.string(), queryId: z.string() }))
-		.query(async ({ input, ctx }) => {
-			return executeLiveQuery(input.chatId, input.queryId, ctx.user.id);
+		.query(async ({ input }) => {
+			return executeLiveQuery(input.chatId, input.queryId);
 		}),
 
 	getFilterOptions: chatStoryProcedure
 		.input(z.object({ chatId: z.string(), storySlug: z.string(), filterId: z.string() }))
-		.query(async ({ input, ctx }) => {
+		.query(async ({ input }) => {
 			assertStoryFiltersEnabled();
-			return getStoryFilterOptions(input.chatId, input.storySlug, input.filterId, ctx.user.id);
+			return getStoryFilterOptions(input.chatId, input.storySlug, input.filterId);
 		}),
 
 	getFilteredQueryData: chatStoryProcedure
@@ -393,9 +387,9 @@ export const storyRoutes = {
 				selections: z.record(z.string(), z.union([z.string(), z.array(z.string())])),
 			}),
 		)
-		.query(async ({ input, ctx }) => {
+		.query(async ({ input }) => {
 			assertStoryFiltersEnabled();
-			return getFilteredStoryQueryData(input.chatId, input.storySlug, input.selections, ctx.user.id);
+			return getFilteredStoryQueryData(input.chatId, input.storySlug, input.selections);
 		}),
 
 	getQuerySql: chatStoryProcedure
@@ -527,23 +521,21 @@ export const storyRoutes = {
 				});
 			}
 
-			const liveData =
-				story.chatId && story.isLive
-					? await getStoryQueryData(
-							story.chatId,
-							story.slug,
-							story.code,
-							true,
-							story.cacheSchedule,
-							ctx.user.id,
-						)
-					: null;
+			const storyData = story.chatId
+				? await getStoryQueryData(story.chatId, story.slug, story.code, story.isLive, story.cacheSchedule)
+				: null;
 			const displaySettings = story.projectId ? await projectQueries.getDisplaySettings(story.projectId) : null;
+			const queryData =
+				storyData?.allowsPersistedFallback && story.chatId
+					? await backfillMissingQueryData(story.code, cache?.queryData ?? null, { chatId: story.chatId })
+					: storyData
+						? storyData.queryData
+						: (cache?.queryData ?? null);
 			return buildDownloadResponse(
 				input.format,
 				story.title,
-				liveData?.code ?? story.code,
-				liveData?.queryData ?? cache?.queryData ?? null,
+				storyData?.code ?? story.code,
+				queryData,
 				displaySettings?.dateFormat,
 			);
 		}),
@@ -569,7 +561,7 @@ export const storyRoutes = {
 			const isHistoricalVersion = input.versionNumber !== undefined && version.version !== latestVersion?.version;
 			const { queryData, code } = isHistoricalVersion
 				? {
-						queryData: await getAuthorizedStoredStoryQueryData(input.chatId, version.code, ctx.user.id),
+						queryData: await sharedStoryQueries.getQueryDataFromCode(input.chatId, version.code),
 						code: version.code,
 					}
 				: await getStoryQueryData(
@@ -578,7 +570,6 @@ export const storyRoutes = {
 						version.code,
 						version.isLive,
 						version.cacheSchedule,
-						ctx.user.id,
 					);
 
 			const projectId = await chatQueries.getChatProjectId(input.chatId);

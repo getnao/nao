@@ -839,6 +839,16 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		keywords: ['groups', 'permissions', 'features', 'context', 'schemas', 'tables', 'docs'],
 		adminOnly: true,
 	},
+	{
+		page: '/settings/project/user-groups',
+		pageLabel: 'User Groups',
+		section: 'Security',
+		search: { tab: 'security' },
+		title: 'Row-level security',
+		description: 'Mark sensitive tables and choose the constraint columns group row policies may use.',
+		keywords: ['security', 'rows', 'rls', 'predicates', 'where', 'constraint columns', 'sensitive tables'],
+		adminOnly: true,
+	},
 
 	// ── Usage & Costs ────────────────────────────────────────
 	{

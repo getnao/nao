@@ -6,15 +6,30 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 import numpy as np
 import pandas as pd
 import uvicorn
+from api_models import (
+    BlockedRowAccessTable,
+    EnforcedRowSecurity,
+    ExecuteSQLRequest,
+    ExecuteSQLResponse,
+    HealthResponse,
+    PredicateRowAccessTable,
+    RowSecurity,
+    TableAccess,
+    ValidateRowPredicateRequest,
+    ValidateRowPredicateResponse,
+    ValidateSQLResponse,
+)
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel
+
+__all__ = ["BlockedRowAccessTable", "EnforcedRowSecurity", "PredicateRowAccessTable"]
 
 load_dotenv()
 
@@ -31,6 +46,12 @@ from nao_core.config.databases.allow_listed_only_guard import (  # noqa: E402
 from nao_core.config.databases.column_access import (  # noqa: E402
     ColumnAccessError,
     validate_column_access,
+)
+from nao_core.config.databases.row_security_guard import (  # noqa: E402
+    RowSecurityGuardError,
+    RowSecurityPolicy,
+    enforce_row_security,
+    validate_row_security_predicate,
 )
 from nao_core.context import get_context_provider  # noqa: E402
 from nao_core.semantic_layer import (  # noqa: E402
@@ -89,9 +110,7 @@ async def _refresh_context_task():
         if updated:
             print(f"[Scheduler] Context refreshed at {datetime.now().isoformat()}")
         else:
-            print(
-                f"[Scheduler] Context already up-to-date at {datetime.now().isoformat()}"
-            )
+            print(f"[Scheduler] Context already up-to-date at {datetime.now().isoformat()}")
     except Exception as e:
         print(f"[Scheduler] Failed to refresh context: {e}")
 
@@ -104,75 +123,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-# =============================================================================
-# Request/Response Models
-# =============================================================================
-
-
-class StrictRequestModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-
-class TableAccessTable(StrictRequestModel):
-    database_type: str = Field(min_length=1)
-    database: str = Field(min_length=1)
-    schema_name: str = Field(alias="schema", min_length=1)
-    table: str = Field(min_length=1)
-
-
-class UnenforcedTableAccess(StrictRequestModel):
-    enforced: Literal[False]
-
-
-class EnforcedTableAccess(StrictRequestModel):
-    enforced: Literal[True]
-    tables: list[TableAccessTable]
-
-
-TableAccess = Annotated[
-    UnenforcedTableAccess | EnforcedTableAccess,
-    Field(discriminator="enforced"),
-]
-
-
-class ExecuteSQLRequest(StrictRequestModel):
-    sql: str
-    nao_project_folder: str
-    table_access: TableAccess
-    database_id: str | None = None
-    env_vars: dict[str, str] | None = None
-    azure_access_token: str | None = None
-    enforce_excluded_columns: bool = False
-
-    @field_validator("table_access", mode="before")
-    @classmethod
-    def validate_table_access_discriminant(cls, value):
-        if not isinstance(value, dict) or not isinstance(
-            value.get("enforced"), bool
-        ):
-            raise ValueError("table_access.enforced must be a boolean")
-        return value
-
-
-class ExecuteSQLResponse(BaseModel):
-    data: list[dict]
-    row_count: int
-    columns: list[str]
-    dialect: str | None = None
-
-
-class ValidateSQLResponse(BaseModel):
-    valid: Literal[True]
-    dialect: str
-
-
-class HealthResponse(BaseModel):
-    status: str
-    context_source: str
-    context_initialized: bool
-    refresh_schedule: str | None
 
 
 class CompileSemanticQueryRequest(BaseModel):
@@ -200,6 +150,7 @@ def _validate_sql(
     enforce_excluded_columns: bool,
     conn=None,
     group_allowed_tables: set[tuple[str, str]] | None = None,
+    row_security_policies: dict[tuple[str, str], RowSecurityPolicy] | None = None,
     database_folder: str | None = None,
 ) -> str:
     validated_sql = enforce_allow_listed_only(
@@ -212,6 +163,12 @@ def _validate_sql(
     )
     if enforce_excluded_columns:
         validated_sql = validate_column_access(validated_sql, db_config, project_path)
+    validated_sql = enforce_row_security(
+        validated_sql,
+        db_config,
+        row_security_policies,
+        conn=conn,
+    )
     return validated_sql
 
 
@@ -221,6 +178,7 @@ def _execute_sql_with_guards(
     project_path: Path,
     enforce_excluded_columns: bool,
     group_allowed_tables: set[tuple[str, str]] | None,
+    row_security_policies: dict[tuple[str, str], RowSecurityPolicy] | None,
     database_folder: str,
 ) -> pd.DataFrame:
     conn = db_config.connect()
@@ -232,6 +190,7 @@ def _execute_sql_with_guards(
             enforce_excluded_columns,
             conn=conn,
             group_allowed_tables=group_allowed_tables,
+            row_security_policies=row_security_policies,
             database_folder=database_folder,
         )
         return db_config.execute_sql(validated_sql, conn=conn)
@@ -305,7 +264,11 @@ def _load_database(request: ExecuteSQLRequest) -> tuple[Path, Any, str]:
         extra_env=request.env_vars,
     )
     assert config is not None
+    db_config, database_folder = _resolve_database(config, request.database_id)
+    return project_path, db_config, database_folder
 
+
+def _resolve_database(config: Any, database_id: str | None) -> tuple[Any, str]:
     if len(config.databases) == 0:
         raise HTTPException(
             status_code=400,
@@ -313,34 +276,25 @@ def _load_database(request: ExecuteSQLRequest) -> tuple[Path, Any, str]:
         )
 
     names = [db.name for db in config.databases]
-    duplicate_names = sorted(
-        {name for name in names if names.count(name) > 1}
-    )
+    duplicate_names = sorted({name for name in names if names.count(name) > 1})
     if duplicate_names:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Database connection names must be unique. Duplicate name(s): "
-                + ", ".join(duplicate_names)
-            ),
+            detail=("Database connection names must be unique. Duplicate name(s): " + ", ".join(duplicate_names)),
         )
 
     if len(config.databases) == 1:
         selected_index = 0
-    elif request.database_id:
+    elif database_id:
         selected_index = next(
-            (
-                index
-                for index, db in enumerate(config.databases)
-                if db.name == request.database_id
-            ),
+            (index for index, db in enumerate(config.databases) if db.name == database_id),
             None,
         )
         if selected_index is None:
             raise HTTPException(
                 status_code=400,
                 detail={
-                    "message": f"Database '{request.database_id}' not found",
+                    "message": f"Database '{database_id}' not found",
                     "available_databases": [db.name for db in config.databases],
                 },
             )
@@ -359,11 +313,8 @@ def _load_database(request: ExecuteSQLRequest) -> tuple[Path, Any, str]:
     authorization_identity = (str(db_config.type).lower(), database_folder)
     matching_identities = [
         index
-        for index, (candidate, candidate_folder) in enumerate(
-            zip(config.databases, database_folders, strict=True)
-        )
-        if (str(candidate.type).lower(), candidate_folder)
-        == authorization_identity
+        for index, (candidate, candidate_folder) in enumerate(zip(config.databases, database_folders, strict=True))
+        if (str(candidate.type).lower(), candidate_folder) == authorization_identity
     ]
     if len(matching_identities) != 1:
         raise HTTPException(
@@ -374,7 +325,7 @@ def _load_database(request: ExecuteSQLRequest) -> tuple[Path, Any, str]:
             ),
         )
 
-    return project_path, db_config, database_folder
+    return db_config, database_folder
 
 
 def _active_group_allowed_tables(
@@ -390,21 +341,54 @@ def _active_group_allowed_tables(
     return {
         (entry.schema_name, entry.table)
         for entry in table_access.tables
-        if entry.database_type.lower() == database_type
-        and entry.database == database_folder_name
+        if entry.database_type.lower() == database_type and entry.database == database_folder_name
     }
 
 
+def _active_row_security_policies(
+    row_security: RowSecurity,
+    db_config: Any,
+    database_folder: str,
+) -> dict[tuple[str, str], RowSecurityPolicy] | None:
+    if not row_security.enforced:
+        return None
+
+    database_folder_name = database_folder.removeprefix("database=")
+    database_type = str(db_config.type).lower()
+    policies: dict[tuple[str, str], RowSecurityPolicy] = {}
+    for entry in row_security.tables:
+        if entry.database_type.lower() != database_type or entry.database != database_folder_name:
+            continue
+        identity = (entry.schema_name, entry.table)
+        if identity in policies:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Duplicate row security policy for {entry.schema_name}.{entry.table}.",
+            )
+        if entry.access == "blocked":
+            policies[identity] = {
+                "access": "blocked",
+                "constraint_columns": entry.constraint_columns,
+                "reason": entry.reason,
+            }
+        else:
+            policies[identity] = {
+                "access": entry.access,
+                "constraint_columns": entry.constraint_columns,
+                "predicate": getattr(entry, "predicate", None),
+            }
+    return policies
+
+
 def _is_azure_entra_id(db_config: Any) -> bool:
-    return getattr(getattr(db_config, "auth_mode", None), "value", None) == (
-        "azure_entra_id"
-    )
+    return getattr(getattr(db_config, "auth_mode", None), "value", None) == ("azure_entra_id")
 
 
 def _assert_azure_request_can_validate(
     request: ExecuteSQLRequest,
     db_config: Any,
     group_allowed_tables: set[tuple[str, str]] | None,
+    row_security_policies: dict[tuple[str, str], RowSecurityPolicy] | None,
 ) -> None:
     if not _is_azure_entra_id(db_config):
         return
@@ -419,15 +403,12 @@ def _assert_azure_request_can_validate(
         )
 
     table_validation_enabled = (
-        db_config.allow_listed_only or group_allowed_tables is not None
+        db_config.allow_listed_only or group_allowed_tables is not None or row_security_policies is not None
     )
     if (
         table_validation_enabled
         and query_references_base_tables(request.sql, db_config.type)
-        and (
-            not getattr(db_config, "user", None)
-            or not getattr(db_config, "password", None)
-        )
+        and (not getattr(db_config, "user", None) or not getattr(db_config, "password", None))
     ):
         raise HTTPException(
             status_code=400,
@@ -446,15 +427,17 @@ def _validate_request(
     db_config: Any,
     project_path: Path,
     group_allowed_tables: set[tuple[str, str]] | None,
+    row_security_policies: dict[tuple[str, str], RowSecurityPolicy] | None,
     database_folder: str,
 ) -> str:
-    _assert_azure_request_can_validate(request, db_config, group_allowed_tables)
+    _assert_azure_request_can_validate(request, db_config, group_allowed_tables, row_security_policies)
     return _validate_sql(
         request.sql,
         db_config,
         project_path,
         request.enforce_excluded_columns,
         group_allowed_tables=group_allowed_tables,
+        row_security_policies=row_security_policies,
         database_folder=database_folder,
     )
 
@@ -489,9 +472,8 @@ async def health_check():
 async def execute_sql(request: ExecuteSQLRequest):
     try:
         project_path, db_config, database_folder = _load_database(request)
-        group_allowed_tables = _active_group_allowed_tables(
-            request.table_access, db_config, database_folder
-        )
+        group_allowed_tables = _active_group_allowed_tables(request.table_access, db_config, database_folder)
+        row_security_policies = _active_row_security_policies(request.row_security, db_config, database_folder)
         try:
             if _is_azure_entra_id(db_config):
                 validated_sql = _validate_request(
@@ -499,19 +481,21 @@ async def execute_sql(request: ExecuteSQLRequest):
                     db_config,
                     project_path,
                     group_allowed_tables,
+                    row_security_policies,
                     database_folder,
                 )
                 df = db_config.execute_sql_with_token(
                     validated_sql,
                     request.azure_access_token,
                 )
-            elif db_config.allow_listed_only or group_allowed_tables is not None:
+            elif db_config.allow_listed_only or group_allowed_tables is not None or row_security_policies is not None:
                 df = _execute_sql_with_guards(
                     request.sql,
                     db_config,
                     project_path,
                     request.enforce_excluded_columns,
                     group_allowed_tables,
+                    row_security_policies,
                     database_folder,
                 )
             else:
@@ -520,16 +504,17 @@ async def execute_sql(request: ExecuteSQLRequest):
                     db_config,
                     project_path,
                     group_allowed_tables,
+                    row_security_policies,
                     database_folder,
                 )
                 df = db_config.execute_sql(validated_sql)
-        except (AllowListedOnlyGuardError, ColumnAccessError) as error:
+        except (
+            AllowListedOnlyGuardError,
+            ColumnAccessError,
+            RowSecurityGuardError,
+        ) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
-
-        data = [
-            {k: _convert_value(v) for k, v in row.items()}
-            for row in df.to_dict(orient="records")
-        ]
+        data = [{k: _convert_value(v) for k, v in row.items()} for row in df.to_dict(orient="records")]
 
         return ExecuteSQLResponse(
             data=data,
@@ -553,18 +538,22 @@ async def execute_sql(request: ExecuteSQLRequest):
 async def validate_sql(request: ExecuteSQLRequest):
     try:
         project_path, db_config, database_folder = _load_database(request)
-        group_allowed_tables = _active_group_allowed_tables(
-            request.table_access, db_config, database_folder
-        )
+        group_allowed_tables = _active_group_allowed_tables(request.table_access, db_config, database_folder)
+        row_security_policies = _active_row_security_policies(request.row_security, db_config, database_folder)
         try:
             _validate_request(
                 request,
                 db_config,
                 project_path,
                 group_allowed_tables,
+                row_security_policies,
                 database_folder,
             )
-        except (AllowListedOnlyGuardError, ColumnAccessError) as error:
+        except (
+            AllowListedOnlyGuardError,
+            ColumnAccessError,
+            RowSecurityGuardError,
+        ) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         return ValidateSQLResponse(valid=True, dialect=db_config.type)
     except HTTPException:
@@ -573,6 +562,26 @@ async def validate_sql(request: ExecuteSQLRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(
+    "/validate_row_predicate",
+    response_model=ValidateRowPredicateResponse,
+    dependencies=internal_only,
+)
+async def validate_row_predicate(request: ValidateRowPredicateRequest):
+    try:
+        normalized = validate_row_security_predicate(
+            request.predicate,
+            request.constraint_columns,
+            request.database_type.lower(),
+        )
+        return ValidateRowPredicateResponse(
+            valid=True,
+            normalized_predicate=normalized,
+        )
+    except RowSecurityGuardError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.post(

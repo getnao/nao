@@ -6,6 +6,7 @@ import {
 	type DatabaseContextAccess,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
+	FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
 	isDatabaseContextTableGranted,
 	isDocsContextFileGranted,
 	matchesDatabaseContextPattern,
@@ -68,6 +69,23 @@ describe('user group database context access', () => {
 		expect(parseStoredDatabaseContextAccess(storedAccess)).toEqual(storedAccess.access);
 	});
 
+	it('preserves explicit strict mode in current stored versions', () => {
+		expect(parseStoredDatabaseContextAccess({ version: 3, access: { mode: 'all', strict: true } })).toEqual({
+			mode: 'all',
+			strict: true,
+		});
+		expect(
+			parseStoredUserGroupContextAccess(
+				{
+					version: 4,
+					databaseAccess: { mode: 'all', strict: true },
+					docsAccess: { mode: 'all' },
+				},
+				false,
+			).databaseAccess,
+		).toEqual({ mode: 'all', strict: true });
+	});
+
 	it('parses version 1 restricted access with empty patterns', () => {
 		expect(
 			parseStoredDatabaseContextAccess({
@@ -79,13 +97,13 @@ describe('user group database context access', () => {
 			}),
 		).toEqual({
 			mode: 'restricted',
-			strict: true,
+			strict: false,
 			grants: [{ kind: 'schema', databaseType: 'postgres', database: 'app', schema: 'public' }],
 			patterns: [],
 		});
 	});
 
-	it('migrates version 2 access with strict mode enabled', () => {
+	it('migrates version 2 access with strict mode disabled', () => {
 		const storedAllAccess: StoredLegacyDatabaseContextAccessV2 = {
 			version: 2,
 			access: { mode: 'all' },
@@ -100,22 +118,22 @@ describe('user group database context access', () => {
 
 		expectTypeOf(allAccess).toEqualTypeOf<DatabaseContextAccess>();
 		expectTypeOf(restrictedAccess).toEqualTypeOf<DatabaseContextAccess>();
-		expect(allAccess).toEqual({ mode: 'all', strict: true });
+		expect(allAccess).toEqual({ mode: 'all', strict: false });
 		expect(restrictedAccess).toEqual({
 			mode: 'restricted',
-			strict: true,
+			strict: false,
 			grants: [],
 			patterns: ['sales.*'],
 		});
 	});
 
 	it('fails closed for malformed documents and grants', () => {
-		expect(parseStoredDatabaseContextAccess(null)).toEqual(EMPTY_DATABASE_CONTEXT_ACCESS);
+		expect(parseStoredDatabaseContextAccess(null)).toEqual(FAIL_CLOSED_DATABASE_CONTEXT_ACCESS);
 		expect(parseStoredDatabaseContextAccess({ version: 3, access: { mode: 'all' } })).toEqual(
-			EMPTY_DATABASE_CONTEXT_ACCESS,
+			FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
 		);
 		expect(parseStoredDatabaseContextAccess({ version: 3, access: { mode: 'all', strict: 'yes' } })).toEqual(
-			EMPTY_DATABASE_CONTEXT_ACCESS,
+			FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
 		);
 		expect(
 			parseStoredDatabaseContextAccess({
@@ -126,13 +144,13 @@ describe('user group database context access', () => {
 					patterns: [],
 				},
 			}),
-		).toEqual(EMPTY_DATABASE_CONTEXT_ACCESS);
+		).toEqual(FAIL_CLOSED_DATABASE_CONTEXT_ACCESS);
 		expect(
 			parseStoredDatabaseContextAccess({
 				version: 2,
 				access: { mode: 'restricted', grants: [], patterns: [42] },
 			}),
-		).toEqual(EMPTY_DATABASE_CONTEXT_ACCESS);
+		).toEqual(FAIL_CLOSED_DATABASE_CONTEXT_ACCESS);
 	});
 
 	it('lets all access dominate unions while strict mode uses OR semantics', () => {
@@ -141,7 +159,7 @@ describe('user group database context access', () => {
 				{ mode: 'restricted', strict: true, grants: [], patterns: [] },
 				{ mode: 'all', strict: false },
 			]),
-		).toEqual(ALL_DATABASE_CONTEXT_ACCESS);
+		).toEqual({ mode: 'all', strict: true });
 
 		expect(
 			unionDatabaseContextAccess([
@@ -269,8 +287,12 @@ describe('user group docs context access', () => {
 	});
 
 	it('fails malformed v4 sections closed independently', () => {
+		expect(parseStoredUserGroupContextAccess('invalid', true)).toEqual({
+			databaseAccess: FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
+			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
+		});
 		expect(parseStoredUserGroupContextAccess({ version: 99 }, true)).toEqual({
-			databaseAccess: EMPTY_DATABASE_CONTEXT_ACCESS,
+			databaseAccess: FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
 			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
 		});
 		expect(
@@ -296,7 +318,7 @@ describe('user group docs context access', () => {
 				false,
 			),
 		).toEqual({
-			databaseAccess: EMPTY_DATABASE_CONTEXT_ACCESS,
+			databaseAccess: FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
 			docsAccess: ALL_DOCS_CONTEXT_ACCESS,
 		});
 	});

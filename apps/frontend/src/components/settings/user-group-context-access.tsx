@@ -42,6 +42,7 @@ export interface DatabaseContextObject {
 	database: string;
 	schema: string;
 	table: string;
+	columns?: string[];
 }
 
 interface UserGroupContextAccessProps {
@@ -373,7 +374,7 @@ function DatabaseContextTree({
 	);
 }
 
-interface GroupedDatabase {
+export interface GroupedDatabase {
 	kind: 'database';
 	key: string;
 	databaseType: string;
@@ -381,7 +382,7 @@ interface GroupedDatabase {
 	schemas: GroupedSchema[];
 }
 
-interface GroupedSchema {
+export interface GroupedSchema {
 	kind: 'schema';
 	key: string;
 	databaseType: string;
@@ -458,7 +459,7 @@ function DatabaseNode({
 			<button
 				type='button'
 				className={cn(
-					'flex h-8 w-full items-center gap-1.5 pr-2 text-left text-sm transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+					'flex h-8 w-full cursor-pointer items-center gap-1.5 pr-2 text-left text-sm transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
 					inherited && 'bg-primary/10 text-primary hover:bg-primary/15',
 				)}
 				style={{ paddingLeft: `${getTreeNodePadding(0)}px` }}
@@ -552,7 +553,7 @@ function SchemaRow({
 			>
 				<button
 					type='button'
-					className='flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
+					className='flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
 					aria-label={`${open ? 'Collapse' : 'Expand'} ${label} folder`}
 					aria-expanded={open}
 					aria-controls={panelId}
@@ -574,7 +575,7 @@ function SchemaRow({
 					aria-expanded={open}
 					aria-controls={panelId}
 					onClick={onToggle}
-					className='flex min-w-0 flex-1 items-center gap-1 rounded-sm text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
+					className='flex min-w-0 flex-1 cursor-pointer items-center gap-1 rounded-sm text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
 				>
 					<FileExplorerIcon
 						name={schema.schema}
@@ -628,10 +629,11 @@ function TableRow({
 	draftPattern: string;
 }) {
 	const grant: DatabaseTableGrant = { kind: 'table', ...object };
-	const patternInherited =
+	const patternDerived =
 		databaseAccess.mode === 'restricted' &&
+		!parentSchemaExplicit &&
 		databaseAccess.patterns.some((pattern) => matchesDatabaseContextPattern(pattern, object));
-	const inherited = databaseAccess.mode === 'all' || parentSchemaExplicit || patternInherited;
+	const inherited = databaseAccess.mode === 'all' || parentSchemaExplicit || patternDerived;
 	const selected = inherited || hasDatabaseContextGrant(databaseAccess, grant);
 	const previewed = draftPattern.trim().length > 0 && matchesDatabaseContextPattern(draftPattern, object);
 
@@ -651,7 +653,7 @@ function TableRow({
 					aria-label={`${object.table} table access`}
 					disabled={inherited}
 					title={
-						patternInherited
+						patternDerived
 							? 'Allowed by a dynamic pattern. Remove the pattern to revoke access.'
 							: undefined
 					}
@@ -664,7 +666,11 @@ function TableRow({
 				<span className='min-w-0 flex-1 truncate' title={object.table}>
 					{object.table}
 				</span>
-				{inherited && <span className='shrink-0 text-[10px] text-primary/80'>Inherited</span>}
+				{inherited && (
+					<span className='shrink-0 text-[10px] text-primary/80'>
+						{patternDerived ? 'Pattern' : 'Inherited'}
+					</span>
+				)}
 			</div>
 		</li>
 	);
@@ -804,7 +810,7 @@ function hasDatabaseContextGrant(access: DatabaseContextAccess, grantToFind: Dat
 	);
 }
 
-function groupDatabaseContextObjects(objects: DatabaseContextObject[]) {
+export function groupDatabaseContextObjects(objects: DatabaseContextObject[]): GroupedDatabase[] {
 	const databases = new Map<
 		string,
 		{

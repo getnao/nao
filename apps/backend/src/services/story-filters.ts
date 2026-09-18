@@ -24,9 +24,8 @@ export async function getStoryFilterOptions(
 	chatId: string,
 	storySlug: string,
 	filterId: string,
-	principalUserId: string,
 ): Promise<{ options: string[] }> {
-	const { code, executionContext, databaseId } = await loadStoryExecutionContext(chatId, storySlug, principalUserId);
+	const { code, executionContext, databaseId } = await loadStoryExecutionContext(chatId, storySlug);
 	const filter = getStoryFiltersFromCode(code).find((candidate) => candidate.id === filterId);
 	if (!filter) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: `Filter "${filterId}" not found in story.` });
@@ -67,9 +66,8 @@ export async function getFilteredStoryQueryData(
 	chatId: string,
 	storySlug: string,
 	selections: StoryFilterSelections,
-	principalUserId: string,
 ): Promise<Record<string, { data: unknown[]; columns: string[] }>> {
-	const { code, executionContext, sqlQueries } = await loadStoryExecutionContext(chatId, storySlug, principalUserId);
+	const { code, executionContext, sqlQueries } = await loadStoryExecutionContext(chatId, storySlug);
 	const types = filterTypesFromCode(code);
 	const queryData: Record<string, { data: unknown[]; columns: string[] }> = {};
 
@@ -114,10 +112,10 @@ function renderStorySql(sqlQuery: string, selections: StoryFilterSelections, typ
 		: renderSqlTemplate(sqlQuery, selections, types);
 }
 
-async function loadStoryExecutionContext(chatId: string, storySlug: string, principalUserId: string) {
+async function loadStoryExecutionContext(chatId: string, storySlug: string) {
 	const [{ code, sqlQueries }, executionContext] = await Promise.all([
 		loadStoryCodeAndQueries(chatId, storySlug),
-		createStoryExecutionContext(chatId, principalUserId),
+		createStoryExecutionContext(chatId),
 	]);
 	const databaseId = Object.values(sqlQueries).find((query) => query.databaseId)?.databaseId;
 

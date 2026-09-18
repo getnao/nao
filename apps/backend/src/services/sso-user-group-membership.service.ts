@@ -6,7 +6,7 @@ import {
 	reconcileSsoUserGroupMemberships,
 } from '../queries/sso-user-group-membership.queries';
 import { logger, serializeError } from '../utils/logger';
-import { readGroupsClaim } from '../utils/sso-group-mapping';
+import { parseOidcGroupNaoGroupMapping, readGroupsClaim } from '../utils/sso-group-mapping';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { isOidcConfigured } from './oidc-auth.service';
 import { DEFAULT_GROUPS_CLAIM } from './sso-group-mapping.service';
@@ -37,7 +37,18 @@ export async function syncUserGroupsFromOidc(userId: string): Promise<void> {
 			return;
 		}
 
-		await reconcileSsoUserGroupMemberships(userId, 'oidc', claim.groups);
+		const envMappings = parseOidcGroupNaoGroupMapping(env.OIDC_GROUP_NAO_GROUP_MAPPING);
+		if (envMappings.status === 'invalid') {
+			logger.error('Invalid OIDC User Group mapping, leaving memberships untouched', {
+				source: 'system',
+				context: { problem: envMappings.problem },
+			});
+			return;
+		}
+		await reconcileSsoUserGroupMemberships(userId, 'oidc', claim.groups, {
+			hasUnlimitedUserGroups: await hasFeature(LICENSE_FEATURES.userGroups),
+			oidcMappings: envMappings.mappings,
+		});
 	} catch (error) {
 		logger.error('Failed to sync User Group memberships from OIDC', {
 			source: 'system',
@@ -52,6 +63,10 @@ async function canSyncOidcUserGroups(userId: string): Promise<boolean> {
 	}
 	if (!(await hasFeature(LICENSE_FEATURES.sso))) {
 		return false;
+	}
+	const envMappings = parseOidcGroupNaoGroupMapping(env.OIDC_GROUP_NAO_GROUP_MAPPING);
+	if (envMappings.status === 'valid' && envMappings.mappings.length > 0) {
+		return true;
 	}
 	return hasSsoUserGroupSyncState(userId, 'oidc');
 }

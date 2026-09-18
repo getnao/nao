@@ -44,7 +44,7 @@ describe('embedded Story query data', () => {
 		mocks.getDisplaySettings.mockResolvedValue({ dateFormat: null });
 	});
 
-	it('keeps static embeds on persisted query data', async () => {
+	it('resolves static embeds as the Story owner', async () => {
 		mocks.getLatestVersionByStoryId.mockResolvedValue({
 			storyId: 'story-1',
 			chatId: 'chat-1',
@@ -53,14 +53,74 @@ describe('embedded Story query data', () => {
 			code: '<table query_id="query_orders" />',
 			isLive: false,
 		});
-		mocks.backfillMissingQueryDataForSandbox.mockResolvedValue({
-			query_orders: { columns: ['id'], data: [{ id: 1 }] },
+		mocks.getStoryOwnerId.mockResolvedValue('owner-1');
+		mocks.getStoryQueryData.mockResolvedValue({
+			queryData: { query_orders: { columns: ['id'], data: [{ id: 1 }] } },
+			cachedAt: null,
+			code: '<table query_id="query_orders" />',
 		});
 
 		await expect(loadEmbedStoryContent('story-1', 'token')).resolves.toMatchObject({
 			queryData: { query_orders: { columns: ['id'], data: [{ id: 1 }] } },
 		});
-		expect(mocks.getStoryOwnerId).not.toHaveBeenCalled();
+		expect(mocks.getStoryQueryData).toHaveBeenCalledWith(
+			'chat-1',
+			'orders',
+			'<table query_id="query_orders" />',
+			false,
+			undefined,
+		);
+		expect(mocks.backfillMissingQueryDataForSandbox).not.toHaveBeenCalled();
+	});
+
+	it('backfills static chat-linked embeds when persisted fallback is allowed', async () => {
+		mocks.getLatestVersionByStoryId.mockResolvedValue({
+			storyId: 'story-1',
+			chatId: 'chat-1',
+			slug: 'orders',
+			title: 'Orders',
+			code: '<table query_id="query_orders" />',
+			isLive: false,
+		});
+		mocks.getStoryOwnerId.mockResolvedValue('owner-1');
+		mocks.getStoryQueryData.mockResolvedValue({
+			queryData: null,
+			cachedAt: null,
+			code: '<table query_id="query_orders" />',
+			allowsPersistedFallback: true,
+		});
+		const fallback = { query_orders: { columns: ['id'], data: [{ id: 2 }] } };
+		mocks.backfillMissingQueryDataForSandbox.mockResolvedValue(fallback);
+
+		await expect(loadEmbedStoryContent('story-1', 'token')).resolves.toMatchObject({ queryData: fallback });
+		expect(mocks.backfillMissingQueryDataForSandbox).toHaveBeenCalledWith('<table query_id="query_orders" />', {
+			storyId: 'story-1',
+			chatId: 'chat-1',
+			projectId: 'project-1',
+			userId: 'owner-1',
+		});
+	});
+
+	it('loads standalone stored data with the Story owner scope', async () => {
+		mocks.getLatestVersionByStoryId.mockResolvedValue({
+			storyId: 'story-1',
+			chatId: null,
+			slug: 'orders',
+			title: 'Orders',
+			code: '<table query_id="query_orders" />',
+			isLive: false,
+		});
+		mocks.getStoryOwnerId.mockResolvedValue('owner-1');
+		const queryData = { query_orders: { columns: ['id'], data: [{ id: 3 }] } };
+		mocks.backfillMissingQueryDataForSandbox.mockResolvedValue(queryData);
+
+		await expect(loadEmbedStoryContent('story-1', 'token')).resolves.toMatchObject({ queryData });
+		expect(mocks.backfillMissingQueryDataForSandbox).toHaveBeenCalledWith('<table query_id="query_orders" />', {
+			storyId: 'story-1',
+			chatId: null,
+			projectId: 'project-1',
+			userId: 'owner-1',
+		});
 		expect(mocks.getStoryQueryData).not.toHaveBeenCalled();
 	});
 
@@ -89,7 +149,6 @@ describe('embedded Story query data', () => {
 			'<table query_id="query_orders" />',
 			true,
 			'0 * * * *',
-			'owner-1',
 		);
 		expect(mocks.backfillMissingQueryDataForSandbox).not.toHaveBeenCalled();
 	});
@@ -135,23 +194,6 @@ describe('embedded Story query data', () => {
 			codeMessage: 'FORBIDDEN',
 		});
 		expect(mocks.getStoryQueryData).not.toHaveBeenCalled();
-		expect(mocks.backfillMissingQueryDataForSandbox).not.toHaveBeenCalled();
-	});
-
-	it('does not fall back when live owner access validation fails', async () => {
-		mocks.getLatestVersionByStoryId.mockResolvedValue({
-			storyId: 'story-1',
-			chatId: 'chat-1',
-			slug: 'orders',
-			title: 'Orders',
-			code: '<table query_id="query_orders" />',
-			isLive: true,
-			cacheSchedule: null,
-		});
-		mocks.getStoryOwnerId.mockResolvedValue('removed-owner');
-		mocks.getStoryQueryData.mockRejectedValue(new Error('You do not have access to this project.'));
-
-		await expect(loadEmbedStoryContent('story-1', 'token')).rejects.toThrow('access to this project');
 		expect(mocks.backfillMissingQueryDataForSandbox).not.toHaveBeenCalled();
 	});
 });

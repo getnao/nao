@@ -102,7 +102,7 @@ export const automationRoutes = {
 	}),
 
 	create: automationProcedure.input(createAutomationSchema).mutation(async ({ ctx, input }) => {
-		await assertUserGroupFeatureForTrpc(ctx.project.id, ctx.user.id, 'automation-creation');
+		await assertUserGroupFeatureForTrpc(ctx.project.id, ctx.user.id, 'automationCreation');
 		assertTriggers(input.cron, input.webhookEnabled);
 		const { cron, enabled, title, ...promptInput } = input;
 		const modelSelection =

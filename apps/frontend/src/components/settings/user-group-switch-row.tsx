@@ -12,7 +12,7 @@ export function UserGroupSwitchRow({ id, label, description, checked, onCheckedC
 	return (
 		<div className='flex items-start justify-between gap-4 rounded-lg border p-3'>
 			<div>
-				<label htmlFor={id} className='text-sm font-medium'>
+				<label htmlFor={id} className='cursor-pointer text-sm font-medium'>
 					{label}
 				</label>
 				<p className='text-xs text-muted-foreground'>{description}</p>
