@@ -273,6 +273,39 @@ def test_manifest_preserves_layout_visualization_and_query():
     assert mbql_question["sql"] == "SELECT category, count(*) FROM orders GROUP BY category"
 
 
+def test_dashboard_preserves_inaccessible_card_as_limitation(monkeypatch):
+    dashboard = {
+        "id": 42,
+        "dashcards": [
+            {"id": 7, "card_id": 9, "card": None},
+            {
+                "id": 8,
+                "card_id": 10,
+                "card": {
+                    "id": 10,
+                    "name": "Orders",
+                    "dataset_query": {"type": "native", "native": {"query": "SELECT * FROM orders"}},
+                },
+            },
+        ],
+    }
+    monkeypatch.setattr(metabase_commands, "_fetch_metabase_object", lambda _url, _resource: dashboard)
+
+    manifest = metabase_commands._export_dashboard("https://metabase.example.com", 42)
+
+    assert [card["questionId"] for card in manifest["dashboard"]["cards"]] == [9, 10]
+    assert manifest["dashboard"]["cards"][0]["question"] is None
+    assert manifest["dashboard"]["cards"][1]["question"]["name"] == "Orders"
+    assert manifest["limitations"] == [
+        {
+            "placementId": 7,
+            "questionId": 9,
+            "questionName": None,
+            "reason": metabase_commands.INACCESSIBLE_CARD_LIMITATION,
+        }
+    ]
+
+
 def test_compiled_query_extracts_sql_and_parameters():
     assert metabase_commands._extract_compiled_query(
         {
@@ -537,6 +570,29 @@ def test_dashboard_writes_manifest_to_output(monkeypatch, tmp_path):
     assert json.loads(destination.read_text())["dashboards"] == [manifest]
 
 
+def test_dashboard_json_output_write_failure_returns_json(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(
+        metabase_commands,
+        "export_dashboard",
+        lambda _source, _parameters, _consumed_parameter_ids, _allow_query_execution: {
+            "schemaVersion": 1,
+            "dashboard": {"id": 42},
+        },
+    )
+    monkeypatch.setattr(
+        metabase_commands,
+        "_write_manifest",
+        Mock(side_effect=metabase_commands.MetabaseCliError("Could not write output file")),
+    )
+
+    with pytest.raises(SystemExit):
+        metabase_commands.dashboard(["42"], json_output=True, output=tmp_path / "dashboard.json")
+
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == {"success": False, "error": "Could not write output file"}
+    assert captured.err == ""
+
+
 def test_manifest_output_parent_errors_use_cli_error(tmp_path):
     parent = tmp_path / "not-a-directory"
     parent.write_text("file")
@@ -617,6 +673,25 @@ def test_dashboard_batch_applies_parameter_overrides_only_where_consumed(monkeyp
     manifest = json.loads(capsys.readouterr().out)
     assert [item["dashboard"]["id"] for item in manifest["dashboards"]] == [7, 8]
     assert manifest["failures"] == []
+
+
+def test_dashboard_batch_preserves_exports_when_parameter_override_is_unused(monkeypatch, capsys):
+    monkeypatch.setattr(
+        metabase_commands,
+        "export_dashboard",
+        lambda source, _parameters, _consumed_parameter_ids, _allow_query_execution: {
+            "schemaVersion": 1,
+            "dashboard": {"id": int(source)},
+        },
+    )
+
+    with pytest.raises(SystemExit):
+        metabase_commands.dashboard(["7", "8"], parameters=["typo=true"], json_output=True)
+
+    manifest = json.loads(capsys.readouterr().out)
+    assert [item["dashboard"]["id"] for item in manifest["dashboards"]] == [7, 8]
+    assert manifest["failures"][0]["source"] == "parameters"
+    assert "typo" in manifest["failures"][0]["reason"]
 
 
 def test_dashboard_single_failure_returns_batch_manifest(monkeypatch, capsys):
@@ -718,6 +793,22 @@ def test_collection_discovery_failure_returns_batch_manifest(monkeypatch, capsys
     assert manifest["dashboards"] == []
     assert manifest["failures"] == [{"source": "3", "reason": "Collection is inaccessible"}]
     assert manifest["summary"] == {"selected": 1, "exported": 0, "failed": 1}
+
+
+def test_collection_discovery_failure_is_human_readable(monkeypatch, capsys):
+    error = Mock()
+    monkeypatch.setattr(
+        metabase_commands,
+        "_resolve_collection_source",
+        Mock(side_effect=metabase_commands.MetabaseCliError("Collection is inaccessible")),
+    )
+    monkeypatch.setattr(metabase_commands.UI, "error", error)
+
+    with pytest.raises(SystemExit):
+        metabase_commands.collection("3")
+
+    assert capsys.readouterr().out == ""
+    error.assert_called_once_with("Collection is inaccessible")
 
 
 def test_metabase_get_enables_connection_retries(monkeypatch):
@@ -888,7 +979,23 @@ def test_native_question_parameter_overrides_are_compiled(monkeypatch):
     )
 
 
-def test_unresolved_native_question_template_is_not_executable(monkeypatch):
+@pytest.mark.parametrize(
+    ("native_sql", "parameters"),
+    [
+        (
+            "SELECT * FROM orders WHERE status = {{status}}",
+            [
+                {
+                    "id": "status",
+                    "type": "category",
+                    "target": ["variable", ["template-tag", "status"]],
+                }
+            ],
+        ),
+        ("SELECT * FROM orders\n[[WHERE status = 'active']]", []),
+    ],
+)
+def test_unresolved_native_question_template_syntax_is_not_executable(monkeypatch, native_sql, parameters):
     monkeypatch.setattr(
         metabase_commands,
         "_resolve_question_source",
@@ -902,15 +1009,9 @@ def test_unresolved_native_question_template_is_not_executable(monkeypatch):
             "name": "Orders",
             "dataset_query": {
                 "type": "native",
-                "native": {"query": "SELECT * FROM orders WHERE status = {{status}}"},
+                "native": {"query": native_sql},
             },
-            "parameters": [
-                {
-                    "id": "status",
-                    "type": "category",
-                    "target": ["variable", ["template-tag", "status"]],
-                }
-            ],
+            "parameters": parameters,
         },
     )
     compile_question = Mock(side_effect=metabase_commands.MetabaseCliError("Required parameter is missing"))
@@ -919,7 +1020,7 @@ def test_unresolved_native_question_template_is_not_executable(monkeypatch):
 
     manifest = metabase_commands.export_question("11", allow_query_execution=True)
 
-    assert manifest["question"]["nativeSql"] == "SELECT * FROM orders WHERE status = {{status}}"
+    assert manifest["question"]["nativeSql"] == native_sql
     assert manifest["question"]["sql"] is None
     assert manifest["question"]["sqlParameters"] == []
     assert manifest["limitations"] == [

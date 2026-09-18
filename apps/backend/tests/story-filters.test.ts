@@ -1,6 +1,7 @@
 import { renderSqlTemplate, stripSqlFilterBlocks } from '@nao/shared/sql-template';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { __reloadEnvForTesting } from '../src/env';
 import { getFilteredStoryQueryData } from '../src/services/story-filters';
 import { getStoryTemplateWarnings } from '../src/services/story-template-validation';
 import { assertSafeSqlIdentifier } from '../src/utils/sql-identifiers';
@@ -43,6 +44,16 @@ vi.mock('../src/services/live-story', () => ({
 }));
 
 describe('story filter SQL templates', () => {
+	beforeEach(() => {
+		vi.stubEnv('BETA_STORY_FILTERS_ENABLED', 'true');
+		__reloadEnvForTesting();
+	});
+
+	afterEach(() => {
+		vi.unstubAllEnvs();
+		__reloadEnvForTesting();
+	});
+
 	it('strips filter blocks for chat / live baseline execution', () => {
 		const sql = `
 SELECT SUM(revenue) AS revenue
@@ -69,7 +80,7 @@ WHERE 1 = 1
 		);
 	});
 
-	it('validates query definitions created in the current agent run', async () => {
+	it('reports invalid query definitions created in the current agent run', async () => {
 		const filter = `<filter id="country" label="Country" type="multi_select" options='["US","FR"]' />`;
 		const code = `
 <tab title="Overview">
@@ -83,11 +94,16 @@ ${filter}
 		const warnings = await getStoryTemplateWarnings('chat-not-persisted', code, {
 			query_current: {
 				sqlQuery:
-					'SELECT country, SUM(revenue) AS revenue FROM orders WHERE 1 = 1 {% filter country %} AND country IN ({{ filters.country.sql }}) {% endfilter %} GROUP BY country',
+					'SELECT country, SUM(revenue) AS revenue FROM orders WHERE 1 = 1 {% filter region %} AND region IN ({{ filters.region.sql }}) {% endfilter %} GROUP BY country',
 			},
 		});
 
-		expect(warnings).toEqual([]);
+		expect(warnings).toEqual(
+			expect.arrayContaining([
+				expect.stringMatching(/\[query_current\].*undeclared filter "region"/),
+				expect.stringMatching(/Story filter "country" is declared but not referenced/),
+			]),
+		);
 	});
 
 	it('executes only queries referenced by active filters', async () => {

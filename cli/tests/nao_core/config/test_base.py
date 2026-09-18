@@ -70,16 +70,7 @@ def test_threads_can_be_loaded_from_config(tmp_path):
     assert config.threads == 4
 
 
-def test_default_example_config_loads_without_metabase_credentials(monkeypatch):
-    for name in (
-        "METABASE_ANALYTICS_HOST",
-        "METABASE_ANALYTICS_PORT",
-        "METABASE_ANALYTICS_DATABASE",
-        "METABASE_ANALYTICS_USER",
-        "METABASE_ANALYTICS_PASSWORD",
-    ):
-        monkeypatch.delenv(name, raising=False)
-
+def test_default_example_config_only_contains_duckdb():
     config = NaoConfig.load(Path(__file__).parents[4] / "example")
 
     assert [database.name for database in config.databases] == ["duckdb-jaffle-shop"]

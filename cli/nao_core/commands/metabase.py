@@ -21,13 +21,14 @@ metabase = App(name="metabase")
 HTTP_TIMEOUT = 30
 HTTP_RETRIES = 2
 PAGE_SIZE = 100
-METABASE_TEMPLATE_TAG_PATTERN = re.compile(r"\{\{[^{}]+\}\}")
+METABASE_TEMPLATE_SYNTAX_PATTERN = re.compile(r"\{\{[^{}]+\}\}|\[\[.*?\]\]", re.DOTALL)
 BOUND_SQL_PARAMETERS_LIMITATION = (
     "Nao execute_sql does not support bound SQL parameters; translate supported native filters or skip this question."
 )
 QUERY_EXECUTION_REQUIRED_LIMITATION = (
     "Compiled SQL requires running this Metabase question; rerun with --allow-query-execution to allow it."
 )
+INACCESSIBLE_CARD_LIMITATION = "Metabase did not return this card; it may be inaccessible or deleted."
 
 
 class MetabaseCliError(RuntimeError):
@@ -185,6 +186,8 @@ def collection(
 ) -> None:
     """Export dashboards from a Metabase collection."""
     selection = {"mode": "collection", "source": source, "recursive": recursive}
+    manifests: list[dict[str, Any]] = []
+    failures: list[dict[str, str]] = []
     try:
         parameter_values = _parse_parameter_values(parameters)
         base_url, collection_id = _resolve_collection_source(source)
@@ -200,10 +203,19 @@ def collection(
                 allow_query_execution,
             ),
         )
-        _reject_unmatched_parameter_values(parameter_values, consumed_parameter_ids)
     except MetabaseCliError as error:
-        manifests = []
+        if not json_output and output is None:
+            UI.error(str(error))
+            raise SystemExit(1)
         failures = [{"source": source, "reason": str(error)}]
+    else:
+        try:
+            _reject_unmatched_parameter_values(parameter_values, consumed_parameter_ids)
+        except MetabaseCliError as error:
+            if not json_output and output is None:
+                UI.error(str(error))
+                raise SystemExit(1)
+            failures.append({"source": "parameters", "reason": str(error)})
 
     try:
         _emit_manifest(
@@ -212,7 +224,16 @@ def collection(
             output,
         )
     except MetabaseCliError as error:
-        UI.error(str(error))
+        if json_output:
+            print(
+                json.dumps(
+                    {"success": False, "error": str(error)},
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+            )
+        else:
+            UI.error(str(error))
         raise SystemExit(1)
     if failures:
         raise SystemExit(1)
@@ -232,6 +253,8 @@ def _run_source_exports(
         raise SystemExit(1)
 
     unique_sources = list(dict.fromkeys(sources))
+    manifests: list[dict[str, Any]] = []
+    failures: list[dict[str, str]] = []
     try:
         parameter_values = _parse_parameter_values(parameters)
         consumed_parameter_ids: set[str] = set()
@@ -239,13 +262,19 @@ def _run_source_exports(
             sources,
             lambda source: exporter(source, parameter_values, consumed_parameter_ids, allow_query_execution),
         )
-        _reject_unmatched_parameter_values(parameter_values, consumed_parameter_ids)
     except MetabaseCliError as error:
         if not json_output and output is None:
             UI.error(str(error))
             raise SystemExit(1)
-        manifests = []
         failures = [{"source": source, "reason": str(error)} for source in unique_sources]
+    else:
+        try:
+            _reject_unmatched_parameter_values(parameter_values, consumed_parameter_ids)
+        except MetabaseCliError as error:
+            if not json_output and output is None:
+                UI.error(str(error))
+                raise SystemExit(1)
+            failures.append({"source": "parameters", "reason": str(error)})
 
     try:
         _emit_manifest(
@@ -254,7 +283,16 @@ def _run_source_exports(
             output,
         )
     except MetabaseCliError as error:
-        UI.error(str(error))
+        if json_output:
+            print(
+                json.dumps(
+                    {"success": False, "error": str(error)},
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+            )
+        else:
+            UI.error(str(error))
         raise SystemExit(1)
     if failures:
         raise SystemExit(1)
@@ -395,6 +433,7 @@ def _export_dashboard(
         batch_consumed_parameter_ids,
         allow_query_execution,
     )
+    limitations = _inaccessible_card_limitations(dashboard_data) + limitations
     databases, database_limitations = _fetch_database_metadata(
         base_url,
         _dashboard_database_ids(dashboard_data),
@@ -578,9 +617,13 @@ def _validate_dashboard_response(dashboard: dict[str, Any], dashboard_id: int) -
         card_id = card.get("card_id")
         if card_id is None:
             continue
-        if not _is_positive_int(card_id) or not isinstance(card.get("card"), dict):
+        if not _is_positive_int(card_id) or "card" not in card:
             raise MetabaseCliError("Metabase returned an unexpected dashboard response.")
-        _validate_question_response(card["card"], card_id, "dashboard")
+        question = card["card"]
+        if question is not None:
+            if not isinstance(question, dict):
+                raise MetabaseCliError("Metabase returned an unexpected dashboard response.")
+            _validate_question_response(question, card_id, "dashboard")
         series = card.get("series")
         if series is not None:
             if not isinstance(series, list) or not all(isinstance(item, dict) for item in series):
@@ -782,6 +825,19 @@ def _question_limitation(
         "questionName": question.get("name"),
         "reason": reason,
     }
+
+
+def _inaccessible_card_limitations(dashboard: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "placementId": card.get("id"),
+            "questionId": card["card_id"],
+            "questionName": None,
+            "reason": INACCESSIBLE_CARD_LIMITATION,
+        }
+        for card in dashboard["dashcards"]
+        if card.get("card_id") is not None and card.get("card") is None
+    ]
 
 
 def _requires_question_compilation(question: dict[str, Any], query_parameters: list[dict[str, Any]]) -> bool:
@@ -1161,7 +1217,7 @@ def _extract_native_sql(dataset_query: Any) -> str | None:
 
 
 def _contains_metabase_template_syntax(sql: Any) -> bool:
-    return isinstance(sql, str) and METABASE_TEMPLATE_TAG_PATTERN.search(sql) is not None
+    return isinstance(sql, str) and METABASE_TEMPLATE_SYNTAX_PATTERN.search(sql) is not None
 
 
 def _write_manifest(output: Path, serialized: str) -> None:

@@ -46,6 +46,7 @@ export async function getMcpQueryDefinitions(
 			and(
 				inArray(s.mcpQueryData.queryId, [...queryIds]),
 				eq(s.mcpQueryData.projectId, projectId),
+				gt(s.mcpQueryData.expiresAt, new Date()),
 				eq(s.mcpCallLog.userId, userId),
 				eq(s.mcpCallLog.toolName, 'execute_sql'),
 			),

@@ -1,4 +1,4 @@
-import z from 'zod/v3';
+import { z } from 'zod';
 
 export const BUILTIN_CHART_TYPES = [
 	'bar',
@@ -284,26 +284,48 @@ const BaseInputSchema = z.object({
 	).optional(),
 });
 
-export const DisplayChartMcpInputShapeSchema = BaseInputSchema.extend({
+const DisplayChartMcpBaseInputSchema = BaseInputSchema.extend({
 	chart_type: ChartTypeEnum.describe('Built-in chart type to display.'),
 	series: ChartInputObjectSchema.shape.series,
 	title: ChartInputObjectSchema.shape.title,
 });
 
+export const DisplayChartMcpInputShapeSchema = z
+	.discriminatedUnion('chart_type', [
+		DisplayChartMcpBaseInputSchema.extend({
+			chart_type: z.literal('kpi_card'),
+		}),
+		DisplayChartMcpBaseInputSchema.extend({
+			chart_type: ChartTypeEnum.exclude(['kpi_card']),
+			x_axis_key: ChartInputObjectSchema.shape.x_axis_key,
+			x_axis_type: ChartInputObjectSchema.shape.x_axis_type,
+		}),
+	])
+	.superRefine((input, context) => {
+		addInputIssues(input.chart_type === 'kpi_card' ? KpiCardInputSchema : GenericChartInputSchema, input, context);
+	});
+
 export const InputSchema = BaseInputSchema.superRefine((input, context) => {
-	const result =
+	addInputIssues(
 		input.chart_type === 'table'
-			? TableInputSchema.safeParse(input)
+			? TableInputSchema
 			: input.chart_type === 'kpi_card'
-				? KpiCardInputSchema.safeParse(input)
-				: GenericChartInputSchema.safeParse(input);
+				? KpiCardInputSchema
+				: GenericChartInputSchema,
+		input,
+		context,
+	);
+}) as z.ZodType<Input>;
+
+function addInputIssues(schema: z.ZodType, input: unknown, context: z.core.$RefinementCtx<unknown>): void {
+	const result = schema.safeParse(input);
 	if (result.success) {
 		return;
 	}
 	for (const issue of result.error.issues) {
-		context.addIssue(issue);
+		context.addIssue({ code: 'custom', message: issue.message, path: issue.path });
 	}
-}) as z.ZodType<Input>;
+}
 
 export const OutputSchema = z.object({
 	_version: z.literal('1').optional(),

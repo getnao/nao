@@ -30,5 +30,5 @@ def test_parser_errors_use_json_when_requested(monkeypatch, capsys):
     captured = capsys.readouterr()
     error = json.loads(captured.out)
     assert error["success"] is False
-    assert "requires an argument" in error["error"]
+    assert "sources" in error["error"].lower()
     assert captured.err == ""

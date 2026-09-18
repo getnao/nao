@@ -162,6 +162,29 @@ describe('MCP auth-required tool output', () => {
 		expect(output.value).not.toContain('AUTH_REQUIRED');
 		expect(output.value).toContain('"mcpAuthRequired":true');
 	});
+
+	it('forwards the per-user OAuth requirement to MCP calls', async () => {
+		const callTool = vi.spyOn(mcpService, 'callTool').mockResolvedValue({ ok: true });
+		const tool = createMcpCallTool(null, true) as unknown as {
+			execute: (
+				input: { server: string; tool: string; arguments: Record<string, unknown> },
+				options: unknown,
+			) => Promise<unknown>;
+		};
+
+		await tool.execute(
+			{ server: 'metabase', tool: 'search', arguments: {} },
+			{ experimental_context: { projectId: 'project-1', userId: 'user-1' } },
+		);
+
+		expect(callTool).toHaveBeenCalledWith(
+			expect.objectContaining({
+				projectId: 'project-1',
+				userId: 'user-1',
+				requireUserOAuth: true,
+			}),
+		);
+	});
 });
 
 describe('MCP connect tool', () => {

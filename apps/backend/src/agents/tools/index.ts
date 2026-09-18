@@ -58,6 +58,7 @@ export const getTools = (
 		testMode?: boolean;
 		mcpEnabled?: boolean;
 		mcpServers?: string[] | null;
+		requireMcpUserOAuth?: boolean;
 		excludeFollowUps?: boolean;
 		/**
 		 * Restricts the built-in tools to this allowlist (by tool name). MCP, python,
@@ -84,7 +85,7 @@ export const getTools = (
 			: options.mcpServers.some((server) => configuredServers.has(server)));
 	const mcpTools: Record<string, Tool> = includeMcp
 		? {
-				mcp_call: createMcpCallTool(options.mcpServers ?? null),
+				mcp_call: createMcpCallTool(options.mcpServers ?? null, options.requireMcpUserOAuth),
 				mcp_connect: createMcpConnectTool(options.mcpServers ?? null),
 			}
 		: {};

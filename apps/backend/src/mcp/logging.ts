@@ -70,7 +70,7 @@ export function withLogging<T>(toolName: string, ctx: McpContext, handler: Logge
 			thrownError = error;
 			throw error;
 		} finally {
-			insertMcpCallLog({
+			await insertMcpCallLog({
 				id: callLogId,
 				projectId: ctx.projectId,
 				userId: ctx.userId,

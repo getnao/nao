@@ -768,6 +768,7 @@ function ChartSlide({ chart }: { chart: AutomationFeedChart }) {
 				yAxisRightMin={chart.config.y_axis_right_min}
 				yAxisRightMax={chart.config.y_axis_right_max}
 				yAxisRightLabel={chart.config.y_axis_right_label}
+				comparisonMode={'comparison_mode' in chart.config ? chart.config.comparison_mode : undefined}
 			/>
 		</div>
 	);

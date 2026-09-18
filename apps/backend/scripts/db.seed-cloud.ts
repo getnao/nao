@@ -94,11 +94,11 @@ async function seed() {
 
 async function seedConversations(tx: Tx, userId: string, projectId: string) {
 	const existing = await tx.query.chat.findFirst({ where: (c, { eq }) => eq(c.userId, userId) });
+	await seedAnalyticsShowcaseConversation(tx, userId, projectId);
 	if (existing) {
 		return;
 	}
 
-	await seedAnalyticsShowcaseConversation(tx, userId, projectId);
 	await seedCustomerConversation(tx, userId, projectId);
 	await seedOrdersConversation(tx, userId, projectId);
 }
@@ -108,6 +108,14 @@ async function seedConversations(tx: Tx, userId: string, projectId: string) {
  * and a story showcasing the available chart cards.
  */
 async function seedAnalyticsShowcaseConversation(tx: Tx, userId: string, projectId: string) {
+	const existing = await tx.query.chat.findFirst({
+		where: (chat, { and, eq }) =>
+			and(eq(chat.userId, userId), eq(chat.projectId, projectId), eq(chat.title, 'Jaffle Shop Analytics')),
+	});
+	if (existing) {
+		return;
+	}
+
 	const chatId = crypto.randomUUID();
 	const sqlCallId = `call-${crypto.randomUUID()}`;
 	const chartCallId = `call-${crypto.randomUUID()}`;
@@ -225,7 +233,7 @@ async function seedAnalyticsShowcaseConversation(tx: Tx, userId: string, project
 		},
 		{
 			type: 'text',
-			text: "I've created a Jaffle Shop Analytics dashboard with eight cards. You can find it in your stories.",
+			text: "I've created a Jaffle Shop Analytics dashboard with seven cards. You can find it in your stories.",
 		},
 	]);
 

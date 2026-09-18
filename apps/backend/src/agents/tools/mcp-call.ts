@@ -93,7 +93,7 @@ const extractText = (output: unknown): string => {
 };
 
 /** Single generic tool to invoke any discovered MCP tool, optionally restricted to `allowedServers`. */
-export const createMcpCallTool = (allowedServers: string[] | null) =>
+export const createMcpCallTool = (allowedServers: string[] | null, requireUserOAuth = false) =>
 	createTool<mcpCall.Input, unknown>({
 		description: DESCRIPTION,
 		inputSchema: mcpCall.InputSchema,
@@ -106,6 +106,7 @@ export const createMcpCallTool = (allowedServers: string[] | null) =>
 					tool,
 					args: args ?? {},
 					allowedServers,
+					requireUserOAuth,
 				});
 			} catch (error) {
 				if (error instanceof McpAuthRequiredError) {
