@@ -68,7 +68,7 @@ const UPDATE_STORY_DESCRIPTION =
 
 type ExecuteSqlMcpInput = executeSql.Input & { chat_id?: string };
 
-const EXECUTE_SQL_BASE_INPUT_SCHEMA = executeSql.InputSchema.omit({ database_id: true }).extend({
+const EXECUTE_SQL_BASE_INPUT_SCHEMA = executeSql.InputSchema.extend({
 	chat_id: zodV3
 		.string()
 		.optional()
@@ -119,13 +119,12 @@ function registerFileTools(server: McpServer, ctx: McpContext): void {
 
 function registerExecuteSql(server: McpServer, ctx: McpContext, configuredDatabases: ConfiguredDatabase[]): void {
 	const warehouseDatabaseIds = getWarehouseDatabaseIds(configuredDatabases);
-	const validDatabaseIds = [...warehouseDatabaseIds, LOCAL_DATABASE_ID];
 	registerAgentToolAsMcp<executeSql.Input, executeSql.Output, ExecuteSqlMcpInput>(server, ctx, {
 		name: 'execute_sql',
 		agentTool: executeSqlTool,
 		title: 'Execute SQL',
 		description: buildExecuteSqlDescription(warehouseDatabaseIds),
-		inputSchema: buildExecuteSqlInputSchema(warehouseDatabaseIds, validDatabaseIds),
+		inputSchema: buildExecuteSqlInputSchema(warehouseDatabaseIds),
 		outputSchema: executeSql.OutputSchema.extend({
 			query_id: zodV3
 				.string()
@@ -161,32 +160,28 @@ function getWarehouseDatabaseIds(configuredDatabases: ConfiguredDatabase[]): str
 }
 
 function buildExecuteSqlDescription(warehouseDatabaseIds: string[]): string {
-	const validDatabaseIds = [...warehouseDatabaseIds, LOCAL_DATABASE_ID];
-	let databaseSelection: string;
-	if (warehouseDatabaseIds.length > 1) {
-		databaseSelection =
-			'Database selection: `database_id` is required because multiple warehouse databases are configured.';
-	} else if (warehouseDatabaseIds.length === 1) {
-		databaseSelection = `Database selection: omit \`database_id\` to use "${warehouseDatabaseIds[0]}" automatically.`;
-	} else {
-		databaseSelection = 'Database selection: no warehouse database is configured.';
+	if (warehouseDatabaseIds.length < 2) {
+		return EXECUTE_SQL_BASE_DESCRIPTION;
 	}
 
-	return `${EXECUTE_SQL_BASE_DESCRIPTION}\n\n${databaseSelection} Valid database IDs: ${formatDatabaseIds(validDatabaseIds)}.`;
+	const validDatabaseIds = [...warehouseDatabaseIds, LOCAL_DATABASE_ID];
+	return `${EXECUTE_SQL_BASE_DESCRIPTION}\n\nDatabase selection: \`database_id\` is required because multiple warehouse databases are configured. Valid database IDs: ${formatDatabaseIds(validDatabaseIds)}.`;
 }
 
-function buildExecuteSqlInputSchema(warehouseDatabaseIds: string[], validDatabaseIds: string[]) {
-	const multipleWarehouses = warehouseDatabaseIds.length > 1;
+function buildExecuteSqlInputSchema(warehouseDatabaseIds: string[]) {
+	if (warehouseDatabaseIds.length < 2) {
+		return EXECUTE_SQL_BASE_INPUT_SCHEMA;
+	}
+
+	const validDatabaseIds = [...warehouseDatabaseIds, LOCAL_DATABASE_ID];
 	const missingDatabaseIdMessage = `database_id is required when multiple warehouse databases are configured. Valid database IDs: ${formatDatabaseIds(validDatabaseIds)}.`;
 	const unknownDatabaseIdMessage = `Unknown database_id. Valid database IDs: ${formatDatabaseIds(validDatabaseIds)}.`;
-	const description = multipleWarehouses
-		? `Required because multiple warehouse databases are configured. Valid database IDs: ${formatDatabaseIds(validDatabaseIds)}.`
-		: `Optional. Valid database IDs: ${formatDatabaseIds(validDatabaseIds)}.`;
+	const description = `Required because multiple warehouse databases are configured. Valid database IDs: ${formatDatabaseIds(validDatabaseIds)}.`;
 	const databaseIdSchema = zodV3
 		.enum(validDatabaseIds as [string, ...string[]], {
 			errorMap: (issue) => ({
 				message:
-					multipleWarehouses && issue.code === 'invalid_type' && issue.received === 'undefined'
+					issue.code === 'invalid_type' && issue.received === 'undefined'
 						? missingDatabaseIdMessage
 						: unknownDatabaseIdMessage,
 			}),
@@ -194,7 +189,7 @@ function buildExecuteSqlInputSchema(warehouseDatabaseIds: string[], validDatabas
 		.describe(description);
 
 	return EXECUTE_SQL_BASE_INPUT_SCHEMA.extend({
-		database_id: multipleWarehouses ? databaseIdSchema : databaseIdSchema.optional().describe(description),
+		database_id: databaseIdSchema,
 	});
 }
 
