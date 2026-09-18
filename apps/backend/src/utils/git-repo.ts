@@ -14,7 +14,8 @@ export type GitOperation =
 	| 'push'
 	| 'checkout'
 	| 'add'
-	| 'commit';
+	| 'commit'
+	| 'status';
 
 export class GitOperationError extends Error {
 	constructor(
@@ -24,6 +25,18 @@ export class GitOperationError extends Error {
 	) {
 		super(message);
 		this.name = 'GitOperationError';
+	}
+}
+
+export function execGitOperation(
+	args: string[],
+	options: { cwd?: string; stdio: 'pipe'; timeout: number; env?: NodeJS.ProcessEnv },
+	operation: GitOperation,
+): Buffer {
+	try {
+		return execFileSync('git', args, options);
+	} catch (error) {
+		throw toGitError(error, operation);
 	}
 }
 

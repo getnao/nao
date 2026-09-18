@@ -48,6 +48,7 @@ describe('serializeError', () => {
 			'Authorization: Bearer token-value\n-----BEGIN PRIVATE KEY-----\nprivate-key\n-----END PRIVATE KEY-----';
 
 		expect(sanitizeLogText(value)).toBe('Authorization: [REDACTED]\n[REDACTED PRIVATE KEY]');
+		expect(sanitizeLogText('Authorization: Token short-credential')).toBe('Authorization: [REDACTED]');
 	});
 
 	it.each([
@@ -121,5 +122,6 @@ describe('serializeError', () => {
 				},
 			});
 		});
+		consoleError.mockRestore();
 	});
 });

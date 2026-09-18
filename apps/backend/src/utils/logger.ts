@@ -10,7 +10,8 @@ interface LogOptions {
 
 /** Matches credentials embedded in a URL, e.g. `https://oauth2:TOKEN@host/...` (git clone/push errors). */
 const CREDENTIALED_URL_PATTERN = /:\/\/[^/\s@]+@/g;
-const AUTHORIZATION_PATTERN = /(\bauthorization\b\s*["']?\s*[:=]\s*["']?\s*)(?:(?:bearer|basic)\s+)?[^\s"',;}]+/gi;
+const AUTHORIZATION_PATTERN =
+	/(\bauthorization\b\s*["']?\s*[:=]\s*["']?\s*)(?:(?:bearer|basic|token)\s+)?[^\s"',;}]+/gi;
 const BEARER_TOKEN_PATTERN =
 	/(\bbearer\s+)(?:[A-Za-z0-9]{20,}|(?=[A-Za-z0-9._~+/-]{10,}=*(?![A-Za-z0-9._~+/-]))(?=[A-Za-z0-9._~+/-]*[0-9._~+/-])[A-Za-z0-9._~+/-]+=*)/gi;
 const PRIVATE_KEY_PATTERN = /-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g;

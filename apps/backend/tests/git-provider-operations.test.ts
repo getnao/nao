@@ -31,6 +31,13 @@ describe('Git provider operation errors', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.execFileSync.mockReturnValue(Buffer.from(''));
+		mocks.spawnSync.mockReturnValue({
+			error: undefined,
+			status: 0,
+			signal: null,
+			stdout: '',
+			stderr: '',
+		});
 	});
 
 	it.each(providers)('labels %s clone failures as clone', (_name, provider, repository) => {
@@ -99,6 +106,7 @@ describe('Git provider operation errors', () => {
 
 	it.each([
 		['add', 0],
+		['status', 1],
 		['commit', 2],
 	] as const)('labels batch %s failures accurately', (operation, failureIndex) => {
 		mocks.execFileSync.mockReset();
@@ -116,6 +124,31 @@ describe('Git provider operation errors', () => {
 				author: { name: 'User', email: 'user@example.com' },
 			}),
 		).toThrowError(expect.objectContaining({ operation }));
+	});
+
+	it('labels generic push failures as push', () => {
+		mocks.spawnSync.mockReturnValueOnce({
+			error: undefined,
+			status: 1,
+			signal: null,
+			stdout: '',
+			stderr: 'push failed',
+		});
+
+		let error: unknown;
+		try {
+			GENERIC_GIT_PROVIDER.pushBranch({
+				token: 'token',
+				repoFullName: 'https://example.com/nao/context.git',
+				dir: '/tmp/context',
+				branch: 'nao/change',
+			});
+		} catch (caught) {
+			error = caught;
+		}
+
+		expect(error).toBeInstanceOf(GitOperationError);
+		expect(error).toMatchObject({ operation: 'push' });
 	});
 });
 

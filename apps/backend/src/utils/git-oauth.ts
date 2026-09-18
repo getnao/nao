@@ -4,7 +4,12 @@ import os from 'node:os';
 import path from 'node:path';
 
 import type { GitPlatform } from './context-repo';
-import { detectGitPlatform, sanitizeContextSourceRepositoryUrl } from './context-repo';
+import {
+	detectGitPlatform,
+	isHttpRepositoryUrl,
+	isSshRepositoryUrl,
+	sanitizeContextSourceRepositoryUrl,
+} from './context-repo';
 import { toGitError } from './git-repo';
 
 const ASKPASS_SCRIPT = `#!/bin/sh
@@ -158,17 +163,6 @@ function getTokenUsername(platform: GitPlatform | null | undefined): string {
 			: platform === 'bitbucket'
 				? 'x-token-auth'
 				: 'git';
-}
-
-function isHttpRepositoryUrl(repositoryUrl: string): boolean {
-	return /^https?:\/\//i.test(repositoryUrl);
-}
-
-function isSshRepositoryUrl(repositoryUrl: string): boolean {
-	return (
-		/^ssh:\/\//i.test(repositoryUrl) ||
-		(!repositoryUrl.includes('://') && /^(?:[^@/\s]+@)?[^:/\s]+:.+/.test(repositoryUrl))
-	);
 }
 
 function quoteShellArgument(value: string): string {

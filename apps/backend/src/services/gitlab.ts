@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 
 import { env } from '../env';
 import { GitIdentity, NAO_CO_AUTHOR, withCoAuthors } from '../utils/git-identity';
-import { type GitOperation, toGitError } from '../utils/git-repo';
+import { execGitOperation, toGitError } from '../utils/git-repo';
 import { configDir, getRepoSubPath, isContextConfigFile, shallowestSubPath } from './git-repo';
 
 export { NAO_CO_AUTHOR };
@@ -321,18 +321,6 @@ export function pushBranch(args: { token: string; repoFullName: string; dir: str
 		).toString();
 	} catch (error) {
 		throw toGitError(error, 'push');
-	}
-}
-
-function execGitOperation(
-	args: string[],
-	options: { cwd?: string; stdio: 'pipe'; timeout: number; env?: NodeJS.ProcessEnv },
-	operation: GitOperation,
-): Buffer {
-	try {
-		return execFileSync('git', args, options);
-	} catch (error) {
-		throw toGitError(error, operation);
 	}
 }
 

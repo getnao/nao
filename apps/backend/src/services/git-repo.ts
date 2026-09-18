@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { CONTEXT_CONFIG_FILENAME } from '@nao/shared';
 
 import { GitIdentity, withCoAuthors } from '../utils/git-identity';
-import { type GitOperation, toGitError } from '../utils/git-repo';
+import { execGitOperation } from '../utils/git-repo';
 
 /** Directories skipped when scanning a repository for `nao_config.yaml`. Shared so every scan path stays in sync. */
 export const SUBPATH_SCAN_IGNORED_DIRS = new Set([
@@ -46,7 +46,7 @@ export function commitAll(
 ): boolean {
 	const opts = { cwd: dir, stdio: 'pipe' as const, timeout: 120_000 };
 	execGitOperation(['add', '-A'], opts, 'add');
-	const status = execGitOperation(['status', '--porcelain'], opts, 'commit').toString().trim();
+	const status = execGitOperation(['status', '--porcelain'], opts, 'status').toString().trim();
 	if (!status) {
 		return false;
 	}
@@ -88,16 +88,4 @@ export function shallowestSubPath(dirs: string[]): string {
 function basename(repoPath: string): string {
 	const idx = repoPath.lastIndexOf('/');
 	return idx === -1 ? repoPath : repoPath.slice(idx + 1);
-}
-
-function execGitOperation(
-	args: string[],
-	options: { cwd?: string; stdio: 'pipe'; timeout: number; env?: NodeJS.ProcessEnv },
-	operation: GitOperation,
-): Buffer {
-	try {
-		return execFileSync('git', args, options);
-	} catch (error) {
-		throw toGitError(error, operation);
-	}
 }

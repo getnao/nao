@@ -254,11 +254,11 @@ export function hasEmbeddedRepositoryCredentials(repositoryUrl: string | undefin
 	}
 }
 
-function isHttpRepositoryUrl(repositoryUrl: string | undefined): boolean {
+export function isHttpRepositoryUrl(repositoryUrl: string | undefined): boolean {
 	return !!repositoryUrl && /^https?:\/\//i.test(repositoryUrl);
 }
 
-function isSshRepositoryUrl(repositoryUrl: string | undefined): boolean {
+export function isSshRepositoryUrl(repositoryUrl: string | undefined): boolean {
 	return (
 		!!repositoryUrl &&
 		(/^ssh:\/\//i.test(repositoryUrl) ||
