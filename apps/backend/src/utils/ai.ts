@@ -123,7 +123,7 @@ export function settleInterruptedToolParts(messages: UIMessage[]): UIMessage[] {
 		}
 		let changed = false;
 		const newParts = message.parts.map((part) => {
-			if (!isToolUIPart(part) || SETTLED_TOOL_STATES.has(part.state)) {
+			if (!isToolUIPart(part) || isToolPartSettled(part)) {
 				return part;
 			}
 			changed = true;
@@ -136,6 +136,12 @@ export function settleInterruptedToolParts(messages: UIMessage[]): UIMessage[] {
 		});
 		return changed ? { ...message, parts: newParts } : message;
 	});
+}
+
+/** A preliminary output is progress a still-running tool streamed, not a settled result. */
+function isToolPartSettled(part: Extract<UIMessagePart, { state: string }>): boolean {
+	const isPreliminary = 'preliminary' in part && part.preliminary === true;
+	return SETTLED_TOOL_STATES.has(part.state) && !isPreliminary;
 }
 
 export function findFirstNonSystemMessageIndex(messages: ModelMessage[]): number {

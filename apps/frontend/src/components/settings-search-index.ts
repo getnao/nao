@@ -12,6 +12,7 @@ export interface SettingsSearchEntry {
 	adminOrContextAdmin?: boolean;
 	cloudHidden?: boolean;
 	cloudOnly?: boolean;
+	betaSubagentsOnly?: boolean;
 }
 
 export const settingsSearchIndex: SettingsSearchEntry[] = [
@@ -259,6 +260,7 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'minimax',
 			'moonshot',
 			'kimi',
+			'requesty',
 			'llm',
 			'model',
 			'provider',
@@ -320,6 +322,17 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		pageLabel: 'Agent',
 		section: 'Models',
 		search: { tab: 'models' },
+		title: 'Subagent model',
+		description: 'Choose which model subagents such as the context search run on.',
+		keywords: ['subagent', 'sub-agent', 'search agent', 'context search', 'delegate', 'cheaper model', 'cost'],
+		adminOnly: true,
+		betaSubagentsOnly: true,
+	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'Models',
+		search: { tab: 'models' },
 		title: 'Transcription',
 		description: 'Configure speech-to-text transcription provider and model.',
 		keywords: ['voice', 'speech', 'microphone', 'whisper', 'stt'],
@@ -372,6 +385,25 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'GeoJSON Boundary Library',
 		description: 'Add custom GeoJSON boundary sets the agent can use for choropleth maps.',
 		keywords: ['geojson', 'boundaries', 'choropleth', 'map', 'regions', 'custom', 'polygon'],
+		adminOnly: true,
+	},
+	{
+		page: '/settings/project/agent',
+		pageLabel: 'Agent',
+		section: 'Capabilities',
+		search: { tab: 'tools' },
+		title: 'Semantic layer',
+		description: 'Choose whether the agent queries metrics through the dbt MetricFlow semantic layer.',
+		keywords: [
+			'semantic',
+			'metricflow',
+			'dbt',
+			'metrics',
+			'dimensions',
+			'semantics first',
+			'semantics only',
+			"don't use semantics",
+		],
 		adminOnly: true,
 	},
 	{
@@ -501,6 +533,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		],
 		adminOrContextAdmin: true,
 	},
+	{
+		page: '/settings/git',
+		pageLabel: 'Git',
+		title: 'Update context files',
+		description: 'Pull the configured deployment branch into this nao instance.',
+		keywords: ['git pull', 'pull latest', 'refresh context', 'deployment branch', 'update context'],
+		adminOrContextAdmin: true,
+	},
 
 	// ── Project > Integrations & MCP > nao MCP ──────────────
 	{
@@ -542,6 +582,18 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 			'nao-mcp',
 			'mcp endpoint',
 		],
+	},
+	{
+		page: '/settings/project/integrations',
+		pageLabel: 'Integrations & MCP',
+		search: { tab: 'nao-mcp' },
+		section: 'nao MCP',
+		title: 'Connected apps',
+		description: 'Create and manage the OAuth clients external MCP tools use to connect (client id + secret).',
+		keywords: ['oauth', 'client', 'client id', 'client secret', 'connected apps', 'dust', 'static oauth', 'mcp'],
+		// Admin-only card, self-hosted only (OAuth clients are deployment-wide).
+		adminOrContextAdmin: true,
+		cloudHidden: true,
 	},
 	{
 		page: '/settings/project/integrations',

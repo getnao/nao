@@ -23,7 +23,7 @@ function SelectTrigger({
 	children,
 	...props
 }: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
-	size?: 'sm' | 'default';
+	size?: 'sm' | 'default' | 'input';
 	variant?: 'default' | 'ghost';
 }) {
 	return (
@@ -35,7 +35,7 @@ function SelectTrigger({
 				// Layout
 				'flex w-fit items-center justify-between gap-1',
 				// Sizing
-				'px-2.5 py-1 data-[size=default]:h-8 data-[size=sm]:h-6',
+				'px-2.5 py-1 data-[size=default]:h-8 data-[size=sm]:h-6 data-[size=input]:h-9 data-[size=input]:w-full data-[size=input]:rounded-md data-[size=input]:px-3',
 				// Typography
 				'text-sm whitespace-nowrap',
 				// Border & background variants

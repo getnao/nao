@@ -270,6 +270,7 @@ function SharedStoryOwnerHeader({
 					cachedAt,
 					lastRefreshFailure,
 					isRefreshing,
+					isUpdating,
 					onRefresh: () => handleRefreshData(),
 					onOpenSettings: () => setIsLiveSettingsOpen(true),
 				}}

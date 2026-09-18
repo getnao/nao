@@ -26,6 +26,18 @@ export const DEFAULT_PYTHON_EXECUTION_DURATION_SECS = 30;
 export const MIN_PYTHON_EXECUTION_DURATION_SECS = 1;
 export const MAX_PYTHON_EXECUTION_DURATION_SECS = 600;
 
+export const SEMANTIC_LAYER_MODES = ['exclusive', 'prioritized', 'disabled'] as const;
+
+/**
+ * How the agent routes metric questions when the project declares a semantic layer.
+ * - `exclusive`: every question goes through the layer; raw SQL is not exposed at all.
+ * - `prioritized` (default): try the layer first, fall back to SQL when it cannot answer.
+ * - `disabled`: definitions stay readable as context, but the semantic tool is not exposed.
+ */
+export type SemanticLayerMode = (typeof SEMANTIC_LAYER_MODES)[number];
+
+export const DEFAULT_SEMANTIC_LAYER_MODE: SemanticLayerMode = 'prioritized';
+
 export interface UserPreferences {
 	toolCallDensity?: ToolCallDensity;
 }
@@ -46,6 +58,7 @@ export const LLM_PROVIDERS = [
 	'google',
 	'mistral',
 	'openrouter',
+	'requesty',
 	'ollama',
 	'bedrock',
 	'vertex',
@@ -62,6 +75,7 @@ export const providerLabels: Record<LlmProviderKind, string> = {
 	google: 'Google',
 	mistral: 'Mistral',
 	openrouter: 'OpenRouter',
+	requesty: 'Requesty',
 	ollama: 'Ollama',
 	bedrock: 'Amazon Bedrock',
 	vertex: 'Vertex AI',
@@ -156,6 +170,7 @@ export type FileTreeEntry = {
 export type ContextGitUnavailableReason =
 	| 'github-unavailable'
 	| 'git-unavailable'
+	| 'repository-mismatch'
 	| 'no-token'
 	| 'no-repo'
 	| 'unsupported-provider'

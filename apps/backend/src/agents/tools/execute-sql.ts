@@ -4,18 +4,32 @@ import { executeSql as schemas, LOCAL_DATABASE_ID } from '@nao/shared/tools';
 
 import { ExecuteSqlOutput, renderToModelOutput } from '../../components/tool-outputs';
 import { env } from '../../env';
-import { getExecuteSqlPartByQueryIdInChat, updateExecuteSqlPart } from '../../queries/execute-sql.queries';
+import {
+	EXECUTE_SEMANTIC_QUERY_TOOL_NAME,
+	getExecuteSqlPartByQueryIdInChat,
+	updateExecuteSqlPart,
+} from '../../queries/execute-sql.queries';
 import { resolveExcludedColumnEnforcement } from '../../services/excluded-columns.service';
 import { runQueryOnLocalFiles } from '../../services/local-query.service';
+import { isWarehouseSqlEnabled } from '../../services/semantic-layer.service';
 import { ToolContext } from '../../types/tools';
 import { detectQueryRowLimit, isReadOnlySqlQuery } from '../../utils/sql-filter';
 import { createTool } from '../../utils/tools';
 import { queryAppDb } from './query-app-db';
 
+type ExecuteQueryOptions = {
+	/** SQL compiled by the semantic layer may reach the warehouse even when hand-written SQL may not. */
+	compiledBySemanticLayer?: boolean;
+};
+
 export async function executeQuery(
 	{ sql_query, database_id, query_id, save_to }: executeSql.Input,
 	context: ToolContext,
+	options: ExecuteQueryOptions = {},
 ): Promise<executeSql.Output> {
+	if (!options.compiledBySemanticLayer) {
+		assertWarehouseSqlAllowed(database_id, context);
+	}
 	const templateWarnings = env.BETA_STORY_FILTERS_ENABLED ? validateSqlFilterTemplate(sql_query) : [];
 	const effectiveSql = stripSqlFilterBlocks(sql_query);
 	if (templateWarnings.length > 0 && sqlIncludesFilterTemplate(effectiveSql)) {
@@ -155,6 +169,11 @@ async function updateExistingQuery(
 			`Query ${input.query_id} not found in this chat. Use execute_sql without query_id to create a new query.`,
 		);
 	}
+	if (existing.toolName === EXECUTE_SEMANTIC_QUERY_TOOL_NAME) {
+		throw new Error(
+			`Query ${input.query_id} is a semantic query and cannot be edited as SQL. Call execute_semantic_query again with the adjusted metrics, group_by or where.`,
+		);
+	}
 
 	const saveTo = input.save_to ?? existing.toolInput.save_to;
 	const nextInput: executeSql.Input = {
@@ -168,6 +187,22 @@ async function updateExistingQuery(
 	await updateExecuteSqlPart(existing.toolCallId, nextInput, output);
 	return output;
 }
+
+/** Semantics-only mode: the warehouse is reached through the layer, raw SQL stays for the local database. */
+function assertWarehouseSqlAllowed(databaseId: string | undefined, context: ToolContext): void {
+	if (context.adminMode || isWarehouseSqlEnabled(context.semanticLayerMode) || databaseId === LOCAL_DATABASE_ID) {
+		return;
+	}
+	throw new Error(
+		`Raw SQL on the warehouse is disabled in this project: query metrics with execute_semantic_query. execute_sql only accepts database_id "${LOCAL_DATABASE_ID}", to reshape earlier results (SELECT * FROM <query_id>) or read files.`,
+	);
+}
+
+const LOCAL_ONLY_DESCRIPTION = [
+	`Run DuckDB SQL in nao's local database ("${LOCAL_DATABASE_ID}", the only accepted database_id): the warehouse is only reachable through execute_semantic_query in this project.`,
+	'Every earlier query result, including semantic ones, is a table named after its query id, so post-process them here: joins, pivots, shares, deltas. It also reads CSV, JSON, Parquet and Excel files by their path.',
+	'To edit a previous local query in-place (keep the same query_id for charts/stories), pass query_id from an earlier execute_sql result.',
+].join(' ');
 
 function buildExecuteSqlToolDescription() {
 	return [
@@ -185,7 +220,7 @@ function buildExecuteSqlToolDescription() {
 	].join(' ');
 }
 
-export default createTool<executeSql.Input, executeSql.Output>({
+const executeSqlTool = createTool<executeSql.Input, executeSql.Output>({
 	description: buildExecuteSqlToolDescription(),
 	inputSchema: schemas.InputSchema,
 	outputSchema: schemas.OutputSchema,
@@ -197,3 +232,7 @@ export default createTool<executeSql.Input, executeSql.Output>({
 	},
 	toModelOutput: ({ output }) => renderToModelOutput(ExecuteSqlOutput({ output }), output),
 });
+
+export const localOnlyExecuteSql = { ...executeSqlTool, description: LOCAL_ONLY_DESCRIPTION };
+
+export default executeSqlTool;

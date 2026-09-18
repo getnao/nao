@@ -9,12 +9,14 @@ import {
 	BlockSelection,
 	blockSelectionPluginKey,
 	buildBlockMoveTransaction,
+	buildDragUnitTransfer,
 	buildSelectionMoveTransaction,
 	emptySelection,
 	getSelectedBlockPositions,
 	getSelectedGridColumns,
 	isDropInsideSelection,
 	rangeBetween,
+	resolveActionSelection,
 	resolveDragSelection,
 	selectBlockFromHandle,
 	selectColumnFromHandle,
@@ -266,6 +268,21 @@ describe('story block selection', () => {
 			handle.remove();
 		});
 
+		it('keeps the selection while using a portaled block action menu', () => {
+			const [first, second] = topLevelBlockPositions(editor.state.doc);
+			selectBlocks(editor, [first, second], first);
+			const menu = document.createElement('div');
+			menu.setAttribute('data-story-block-action-menu', '');
+			const item = document.createElement('button');
+			menu.appendChild(item);
+			document.body.appendChild(menu);
+
+			dispatchEditorMouseDown(item);
+
+			expect(getSelectedBlockPositions(editor.state)).toEqual([first, second]);
+			menu.remove();
+		});
+
 		it('clears the selection on a plain editor mousedown', () => {
 			const [first, second] = topLevelBlockPositions(editor.state.doc);
 			selectBlocks(editor, [first, second], first);
@@ -417,6 +434,35 @@ describe('story block selection', () => {
 			expect(resolveDragSelection(editor.state, { kind: 'block', pos: third })).toEqual([
 				{ kind: 'block', pos: first },
 				{ kind: 'gridColumns', gridPos: second, indices: [0, 2] },
+				{ kind: 'block', pos: third },
+			]);
+		});
+	});
+
+	describe('resolveActionSelection', () => {
+		it('uses only an unselected handle origin', () => {
+			const [first, second] = topLevelBlockPositions(editor.state.doc);
+			selectBlocks(editor, [first], first);
+
+			expect(resolveActionSelection(editor.state, { kind: 'block', pos: second })).toEqual([
+				{ kind: 'block', pos: second },
+			]);
+		});
+
+		it('preserves a mixed multi-selection from a selected handle', () => {
+			const [first, second, third] = topLevelBlockPositions(editor.state.doc);
+			selectMixed(
+				editor,
+				[first, third],
+				[
+					{ gridPos: second, index: 1 },
+					{ gridPos: second, index: 0 },
+				],
+			);
+
+			expect(resolveActionSelection(editor.state, { kind: 'gridColumn', gridPos: second, index: 1 })).toEqual([
+				{ kind: 'block', pos: first },
+				{ kind: 'gridColumns', gridPos: second, indices: [0, 1] },
 				{ kind: 'block', pos: third },
 			]);
 		});
@@ -883,6 +929,37 @@ describe('story block selection', () => {
 					second,
 				),
 			).toBeNull();
+		});
+	});
+
+	describe('buildDragUnitTransfer', () => {
+		it('extracts mixed units in order and removes them with grid collapse', () => {
+			const transferEditor = createDocumentEditor([
+				{ type: 'paragraph', content: [{ type: 'text', text: 'First' }] },
+				{ type: 'gridBlock', attrs: { rawContent: FIRST_THREE_COLUMN_GRID } },
+				{ type: 'chartBlock', attrs: { rawTag: '<chart query_id="last" />' } },
+				{ type: 'paragraph', content: [{ type: 'text', text: 'Keep' }] },
+			]);
+			const [firstPos, gridPos, chartPos] = topLevelBlockPositions(transferEditor.state.doc);
+			const transfer = buildDragUnitTransfer(transferEditor.state, [
+				{ kind: 'block', pos: firstPos },
+				{ kind: 'gridColumns', gridPos, indices: [0, 2] },
+				{ kind: 'block', pos: chartPos },
+			]);
+
+			expect(transfer?.nodes.map((node) => node.type.name)).toEqual(['paragraph', 'gridBlock', 'chartBlock']);
+			expect(transfer?.nodes[0].textContent).toBe('First');
+			expect(splitGridColumnsRaw(transfer?.nodes[1].attrs.rawContent as string).columns).toHaveLength(2);
+			expect(transfer?.nodes[2].attrs.rawTag).toBe('<chart query_id="last" />');
+			if (transfer) {
+				transferEditor.view.dispatch(transfer.transaction);
+			}
+			expect(transferEditor.state.doc.childCount).toBe(2);
+			expect(transferEditor.state.doc.child(0).type.name).toBe('chartBlock');
+			expect(transferEditor.state.doc.child(0).attrs.rawTag).toContain('query_id="q2"');
+			expect(transferEditor.state.doc.child(1).textContent).toBe('Keep');
+			expect(blockSelectionPluginKey.getState(transferEditor.state)).toEqual(emptySelection());
+			transferEditor.destroy();
 		});
 	});
 

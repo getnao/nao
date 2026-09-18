@@ -230,6 +230,7 @@ function StoriesPage() {
 				sort,
 				currentUserName,
 				favoriteFolderIds: favorites.data?.folderIds,
+				searchQuery,
 			});
 			return { pinned: [], favorites: [], entries: archivedEntries.entries };
 		}
@@ -240,8 +241,9 @@ function StoriesPage() {
 			sort,
 			currentUserName,
 			favoriteFolderIds: favorites.data?.folderIds,
+			searchQuery,
 		});
-	}, [filteredItems, folders, currentFolderId, sort, currentUserName, showArchived, favorites.data]);
+	}, [filteredItems, folders, currentFolderId, sort, currentUserName, showArchived, favorites.data, searchQuery]);
 
 	const breadcrumbPath = useMemo((): BreadcrumbNode[] => {
 		const root: BreadcrumbNode = { id: null, name: showArchived ? 'Archived' : 'Root' };

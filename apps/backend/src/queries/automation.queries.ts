@@ -1,3 +1,4 @@
+import { isQueryResultPartType } from '@nao/shared/execute-sql-parts';
 import { displayChart, executeSql } from '@nao/shared/tools';
 import { and, asc, desc, eq, inArray, isNull, lte, ne } from 'drizzle-orm';
 
@@ -674,7 +675,7 @@ function collectChartsFromParts(parts: DBMessagePart[]): AutomationFeedChart[] {
 function indexSqlOutputsByQueryId(parts: DBMessagePart[]): Map<string, executeSql.Output> {
 	const outputs = new Map<string, executeSql.Output>();
 	for (const part of parts) {
-		if (part.type !== 'tool-execute_sql' || part.toolState !== 'output-available' || !part.toolOutput) {
+		if (!isQueryResultPartType(part.type) || part.toolState !== 'output-available' || !part.toolOutput) {
 			continue;
 		}
 		const parsed = executeSql.OutputSchema.safeParse(part.toolOutput);

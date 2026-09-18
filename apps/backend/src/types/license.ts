@@ -17,6 +17,14 @@ export const LICENSE_FEATURES = {
 export type LicenseFeature = (typeof LICENSE_FEATURES)[keyof typeof LICENSE_FEATURES];
 
 /**
+ * Wildcard entitlement. A license whose `features` claim contains `"*"` is
+ * granted every entry of `LICENSE_FEATURES`, including features added after
+ * the license was issued — the wildcard is expanded against the running
+ * build's feature list at verification time, not when the license is signed.
+ */
+export const LICENSE_ALL_FEATURES = '*';
+
+/**
  * Result states surfaced by `license.getStatus`. Shared across backend and
  * frontend so the status-derived UI stays in sync with what the verifier can
  * emit.

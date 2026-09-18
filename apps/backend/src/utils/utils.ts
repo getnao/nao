@@ -26,9 +26,64 @@ export const getErrorMessage = (error: unknown): string | null => {
 };
 
 export const formatErrorMessageForUI = (error: unknown): string => {
-	const message = error instanceof Error ? getErrorMessage(error)?.trim() : null;
+	if (isTypeValidationError(error)) {
+		const payload = error.value;
+		if (isProviderErrorPayload(payload)) {
+			const code = payload.error.code;
+			const requestId = getProviderRequestId(payload);
+			return JSON.stringify({
+				error: {
+					message: `The model provider returned an error${code ? ` (${code})` : ''}. Please retry.`,
+					...(requestId && { requestId }),
+				},
+			});
+		}
+		return 'The model provider returned an error. Please retry.';
+	}
+	const message = error instanceof Error ? error.message.trim() : '';
 	return message || 'An error occurred.';
 };
+
+function isTypeValidationError(error: unknown): error is Error & { value: unknown } {
+	return error instanceof Error && error.name === 'AI_TypeValidationError' && 'value' in error;
+}
+
+function isProviderErrorPayload(
+	value: unknown,
+): value is { error: { message: string; code?: string | number | null } } {
+	if (!value || typeof value !== 'object' || !('error' in value)) {
+		return false;
+	}
+	const nestedError = value.error;
+	return (
+		!!nestedError &&
+		typeof nestedError === 'object' &&
+		'message' in nestedError &&
+		typeof nestedError.message === 'string'
+	);
+}
+
+function getProviderRequestId(payload: { error: { message: string } }): string | undefined {
+	const explicitRequestId =
+		readStringProperty(payload, 'request_id') ??
+		readStringProperty(payload, 'requestId') ??
+		readStringProperty(payload.error, 'request_id') ??
+		readStringProperty(payload.error, 'request ID') ??
+		readStringProperty(payload.error, 'requestId');
+	if (explicitRequestId) {
+		return explicitRequestId;
+	}
+
+	return payload.error.message.match(/\brequest\s+id\s+([a-z0-9][a-z0-9._:-]{5,127})\b/i)?.[1];
+}
+
+function readStringProperty(value: object, property: string): string | undefined {
+	if (!(property in value)) {
+		return undefined;
+	}
+	const result = (value as Record<string, unknown>)[property];
+	return typeof result === 'string' && result.trim() ? result.trim() : undefined;
+}
 
 /** GitHub and GitLab usernames are case-insensitive, so entries are normalized to lowercase. */
 export const buildUsernameAllowlist = (allowedUsers?: string): Set<string> => {
@@ -115,14 +170,17 @@ export const isEmailDomainAllowed = (userEmail: string, authDomains?: string) =>
  * Resolve the auth provider ID from the better-auth callback context.
  * Social providers use `params.id`, the genericOAuth plugin (OIDC) uses `params.providerId`.
  */
-export function resolveProviderId(ctx?: { params?: Record<string, string> } | null): string | undefined {
+export function resolveProviderId(ctx?: { params?: Record<string, string | undefined> } | null): string | undefined {
 	return ctx?.params?.id ?? ctx?.params?.providerId;
 }
 
 export const regexPassword = /^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[#?!@$%^&*-]).{8,}$/;
 
-export const replaceEnvVars = (fileContent: string) => {
+export const replaceEnvVars = (fileContent: string, extraEnv: Record<string, string> = {}) => {
 	const replaced = fileContent.replace(/\$\{(\w+)\}/g, (match, varName) => {
+		if (Object.hasOwn(extraEnv, varName)) {
+			return extraEnv[varName];
+		}
 		return process.env[varName] || match;
 	});
 	return replaced;

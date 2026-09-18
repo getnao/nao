@@ -9,6 +9,7 @@ import { __reloadEnvForTesting } from '../src/env';
 import {
 	getLicense,
 	hasFeature,
+	LICENSE_ALL_FEATURES,
 	LICENSE_FEATURES,
 	refreshLicenseOnline,
 	resetLicenseCache,
@@ -110,6 +111,51 @@ describe('license.service', () => {
 
 		const license = await getLicense();
 		expect(license?.features).toEqual([LICENSE_FEATURES.sso, LICENSE_FEATURES.excludeColumns]);
+	});
+
+	it('grants every known feature when the license carries the "*" wildcard', async () => {
+		const { licensePath, publicKeyPem } = await createSignedLicenseFile({
+			...DEFAULT_CLAIMS,
+			features: [LICENSE_ALL_FEATURES],
+		});
+		setLicenseEnv({ licensePath, publicKeyPem });
+
+		const allFeatures = Object.values(LICENSE_FEATURES);
+		expect((await getLicense())?.features).toEqual(allFeatures);
+		for (const feature of allFeatures) {
+			expect(await hasFeature(feature)).toBe(true);
+		}
+	});
+
+	it('expands the "*" wildcard even when listed alongside explicit or unknown features', async () => {
+		const { licensePath, publicKeyPem } = await createSignedLicenseFile({
+			...DEFAULT_CLAIMS,
+			features: [LICENSE_FEATURES.sso, 'unknown-future-feature', LICENSE_ALL_FEATURES],
+		});
+		setLicenseEnv({ licensePath, publicKeyPem });
+
+		expect((await getLicense())?.features).toEqual(Object.values(LICENSE_FEATURES));
+	});
+
+	it('expands the "*" wildcard from a signed online verdict', async () => {
+		const { licensePath, privateKey, publicKeyPem } = await createSignedLicenseFile({
+			...DEFAULT_CLAIMS,
+			features: [],
+		});
+		setLicenseEnv({ licensePath, publicKeyPem });
+		stubValidateResponse(privateKey, {
+			subscriptionId: DEFAULT_CLAIMS.subscriptionId,
+			valid: true,
+			isActive: true,
+			features: [LICENSE_ALL_FEATURES],
+		});
+
+		expect(await hasFeature(LICENSE_FEATURES.userBudget)).toBe(false);
+
+		await refreshLicenseOnline();
+
+		expect((await getLicense())?.features).toEqual(Object.values(LICENSE_FEATURES));
+		expect(await hasFeature(LICENSE_FEATURES.userBudget)).toBe(true);
 	});
 
 	it('updates cached features from signed online validation', async () => {
