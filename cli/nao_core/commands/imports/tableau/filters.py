@@ -20,12 +20,7 @@ TRUE_VALUES = {"1", "true", "yes"}
 
 def parse_filters(
     workbook: Path | bytes,
-    worksheet_name: str | None = None,
-    dashboard_name: str | None = None,
 ) -> dict[str, object]:
-    if worksheet_name and dashboard_name:
-        raise ValueError("Provide only one of worksheet or dashboard.")
-
     data = workbook.read_bytes() if isinstance(workbook, Path) else workbook
     xml_bytes = read_workbook_xml(data)
     if len(xml_bytes) > MAX_DEFINITION_BYTES:
@@ -49,34 +44,13 @@ def parse_filters(
         "worksheet",
     )
     warnings: list[str] = []
-    selected_worksheets = select_worksheet_names(
-        worksheet_elements,
-        xml_bytes,
-        worksheet_name,
-        dashboard_name,
-    )
     filters = [
         filter_definition
         for worksheet in worksheet_elements
-        if attribute(worksheet, "name") in selected_worksheets
         for filter_definition in extract_categorical_filters(worksheet, warnings)
     ]
-    parameters = extract_parameters(
-        root,
-        worksheet_elements,
-        selected_worksheets,
-    )
-    controls = (
-        []
-        if worksheet_name
-        else extract_controls(
-            xml_bytes,
-            dashboard_name,
-            filters,
-            parameters,
-            warnings,
-        )
-    )
+    parameters = extract_parameters(root, worksheet_elements)
+    controls = extract_controls(xml_bytes, filters, parameters, warnings)
     worksheet_mappings = extract_worksheet_mappings(controls)
 
     return {
@@ -86,36 +60,6 @@ def parse_filters(
         "worksheet_mappings": worksheet_mappings,
         "warnings": unique(warnings),
     }
-
-
-def select_worksheet_names(
-    worksheets: list[ElementTree.Element],
-    xml_bytes: bytes,
-    requested_worksheet: str | None,
-    requested_dashboard: str | None,
-) -> set[str]:
-    names = [name for worksheet in worksheets if (name := attribute(worksheet, "name"))]
-
-    if requested_worksheet:
-        match = next(
-            (name for name in names if normalize(name) == normalize(requested_worksheet)),
-            None,
-        )
-        if not match:
-            available = ", ".join(names) or "none"
-            raise ValueError(
-                f'No worksheet named "{requested_worksheet}" was found. Available worksheets: {available}.'
-            )
-        return {match}
-
-    if requested_dashboard:
-        composition = parse_workbook(xml_bytes, requested_dashboard)
-        dashboards = cast(list[dict[str, object]], composition["dashboards"])
-        if not dashboards:
-            return set()
-        return set(cast(list[str], dashboards[0]["worksheets"]))
-
-    return set(names)
 
 
 def extract_categorical_filters(
@@ -177,10 +121,8 @@ def extract_categorical_filters(
 
 def extract_parameters(
     root: ElementTree.Element,
-    all_worksheets: list[ElementTree.Element],
-    selected_worksheets: set[str],
+    worksheets: list[ElementTree.Element],
 ) -> list[dict[str, object]]:
-    worksheets = [worksheet for worksheet in all_worksheets if attribute(worksheet, "name") in selected_worksheets]
     parameters: dict[str, dict[str, object]] = {}
 
     for column in elements_named(root, "column"):
@@ -235,12 +177,11 @@ def extract_parameters(
 
 def extract_controls(
     xml_bytes: bytes,
-    dashboard_name: str | None,
     filters: list[dict[str, object]],
     parameters: list[dict[str, object]],
     warnings: list[str],
 ) -> list[dict[str, object]]:
-    composition = parse_workbook(xml_bytes, dashboard_name)
+    composition = parse_workbook(xml_bytes)
     dashboards = cast(list[dict[str, object]], composition["dashboards"])
     definitions: list[dict[str, object]] = []
     seen_ids: set[str] = set()

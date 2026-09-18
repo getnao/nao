@@ -91,17 +91,14 @@ Prepare the requested worksheet for chart delivery, or each unique worksheet sel
 - Treat a categorical `channel: "color"` field as a per-mark grouping dimension. Preserve its original values and colors. For scatter plots, keep Detail, Color, X, and Y fields in long-form rows; do not pivot the Color values into separate measure columns when that would discard the Detail field or remove Color from each point.
 - For a scatter plot with a Detail field, set `tooltip_label_key` to that field's chart-ready SQL alias. Put the Color field and additional Tableau tooltip fields in `tooltip_keys`. Both attributes must reference columns returned by the query.
 - If nao's supported chart configuration cannot expose a parsed Detail, Color, or tooltip field, keep the field in the query output and report that precise tooltip or encoding limitation. Do not silently drop the field or claim that the interaction matches Tableau.
-- After completing the visual preflight, read each worksheet's exported CSV from `data_path` and require non-empty data.
-- Save each CSV unchanged under `/home/tableau/<workbook-name>/<worksheet-name>.csv` using filesystem-safe lowercase names. If nao storage or the `write` tool is unavailable, stop and report that the exported data cannot be queried.
-- Use `execute_sql` with `database_id: "duckdb_local"` only for temporary validation and direct static chart delivery. Final interactive story queries must be executed inside the persisted `ask_nao` handoff described below.
-- For an interactive story backed only by exported CSV, inline the minimum required CSV rows into each final SQL template as a `WITH ... AS (SELECT ... UNION ALL ...)` relation. Include only columns required by the chart, fixed constraints, and interactive filters. Do not leave `read_csv_auto(...)` in a final interactive query.
-- Inline data only when the reduced input has at most 500 rows, produces at most 200 KB of SQL, and contains no secrets, credentials, direct personal identifiers, or unnecessary row-level sensitive fields. Escape single quotes by doubling them; emit missing values as `NULL`, finite numbers without quotes, and strings as quoted literals. Preserve types explicitly when inference would change comparisons or ordering.
-- Execute inline-data SQL against one configured normal nao database as a compute engine; it does not read tables from that database. Never use `database_id: "duckdb_local"` for the final inline query. If no normal database is configured, or the bounded inline query cannot be represented safely, omit interactive controls and report the limitation.
+- After completing the visual preflight, read each worksheet's exported CSV from `data_path` and require non-empty data. Use it as the Tableau result to match when validating database queries.
+- For direct static chart delivery only, save the selected CSV under `/home/tableau/<workbook-name>/<worksheet-name>.csv` and query it with `database_id: "duckdb_local"`.
+- For story delivery, require a configured nao database that contains the same source data Tableau used. Query that database directly with its real `database_id`; do not upload or query the CSV as the story's data source.
 - Alias every chart-ready SQL output column to a machine-safe lowercase snake-case identifier. Use human-readable labels in chart configuration instead of spaces or punctuation in `data_key`; unsafe keys can break series colors.
 - Preserve explicit Tableau palette assignments from `worksheet_visualizations[].colors` whenever nao supports per-series colors. Never replace a readable Tableau color with black merely because a color could not be resolved.
 - Build each query and chart from the recorded Tableau presentation, not from an inference based on the exported data. Preserve a Tableau chart as a chart; use a table only when the verified source worksheet is a text table/crosstab or the user explicitly requested a table.
 
-Use each worksheet's exported CSV as its query source. Preserve every field needed for chart encodings and supported filters before aggregation. If a required filter field is absent from the export, skip that interactive control and report it instead of requesting an unrelated nao database.
+Before story creation, compare each unfiltered database query with the corresponding Tableau CSV. If tables, joins, columns, totals, or dimensions cannot be matched, skip the affected worksheet or control and report the mismatch instead of substituting unrelated project data.
 
 Until richer Tableau definition extractors exist, do not claim that calculated fields, context filters, LOD expressions, sets, groups, bins, marks, or formatting were reproduced from XML. Claim a parameter was reproduced only when its extracted definition, allowed values, target worksheets, and query behavior are all preserved. Preserve what can be verified from exported data and images, and list the rest as unsupported or approximated.
 
@@ -113,37 +110,23 @@ Automatically preserve every verified fixed worksheet filter in SQL. A chart dis
 
 After validating the chart, delete the CLI migration JSON and its `temporary_directory`.
 
-### 6. Translate Tableau controls into nao SQL
+### 6. Recreate Tableau controls against the shared database
 
-Do this for every dashboard story migration, even when the user did not explicitly request filters. The goal is not to recover or copy Tableau-generated SQL: a workbook usually stores filter semantics while Tableau generates its database queries at runtime. Reconstruct the equivalent behavior in the final nao SQL for each targeted worksheet.
+Do this for every dashboard story migration:
 
-#### Establish the exact control mapping
+1. Treat `definition.controls` as the complete allowlist of visible controls. Use each control's `dashboard`, `id`, `mode`, and `mappings`; never infer additional controls from images, CSV columns, names, or common dashboard patterns.
+2. Resolve every mapping's `source_field` to an exact column in the configured source database. Verify its table and required joins through nao context. Apply the control only to the mapping's worksheet.
+3. Build and validate each worksheet's source query against the shared database. Compare its unfiltered result with the Tableau CSV before adding filters.
+4. Obtain categorical options with `SELECT DISTINCT` from the mapped database column. Parser values may represent only Tableau's current selection, not the complete domain.
+5. Add the control and its template predicate during initial story creation. If any mapping or result is ambiguous, skip that control and report why.
 
-For each dashboard:
-
-1. Use only entries in `definition.controls` whose `dashboard` exactly matches that dashboard as the allowlist of visible controls. The parser assigns each one a stable `id` and includes only controls matched to a filter or parameter definition. `definition.filters` and `definition.parameters` alone do not prove that a control was visible.
-2. For each worksheet placement, use the matching `definition.worksheet_mappings` entry as the source of truth. Its `effective_filter_ids` are the only controls allowed to affect that worksheet, and each `parameter_mappings` entry gives the control ID and Tableau source field. An empty or absent mapping means the worksheet is not controlled.
-3. Use the control's `mode`, `target_worksheets`, and `mappings` directly. Do not broaden a mapping to another worksheet merely because it has a similarly named field.
-4. Resolve each mapping's `source_field` to an exact exported CSV column. Do not map by a merely similar caption, common name, or guessed business meaning.
-5. Confirm that the mapped field exists at the row level used by every targeted query. A pre-aggregated export containing only `Product, Sales` cannot implement a `Region` filter. Use a sufficiently detailed export or verified warehouse source; otherwise skip the control.
-
-Never infer controls from screenshots, CSV columns, worksheet names, common dashboard patterns, or another dashboard. Standalone worksheet tabs have no dashboard control allowlist: preserve verified fixed worksheet constraints in SQL, but create no interactive controls for those tabs.
-
-#### Build the final query semantics
-
-Construct each chart's final SQL template before handing the story to `ask_nao`. Do not first create an unfiltered query and rely on a later story update to make it filterable. Plain nao MCP `execute_sql` calls may be used for temporary validation, but their query IDs must not be embedded in the final interactive story because plain MCP calls do not persist their SQL in a nao chat.
-
-Start from the worksheet's verified row-level source, apply filters in the same semantic stage as Tableau, and aggregate afterward. For the bounded CSV fallback, embed the required data in the persisted query:
+Apply filters before aggregation:
 
 ```sql
-WITH tableau_source(product, region, sales) AS (
-    SELECT 'Desk', 'West', 100.0 UNION ALL
-    SELECT 'Chair', 'East', 175.0
-)
 SELECT
     product,
     SUM(sales) AS sales
-FROM tableau_source
+FROM analytics.orders
 WHERE 1 = 1
 {% filter region %}
     AND region IN ({{ filters.region.sql }})
@@ -151,54 +134,42 @@ WHERE 1 = 1
 GROUP BY product
 ```
 
-Translate only behavior that can be reproduced exactly:
-
 - Tableau categorical include filter → `IN ({{ filters.<id>.sql }})`
 - Tableau categorical exclude filter → `NOT IN ({{ filters.<id>.sql }})`
-- Tableau date range → `BETWEEN {{ filters.<id>.sql }}` only when the source field, date granularity, and boundaries are verified
-- Tableau search behavior → `LIKE {{ filters.<id>.sql }}` only when Tableau used equivalent substring matching
 - Fixed or hidden worksheet filter → an ordinary always-on SQL predicate, never an interactive story control
-- Context filter → unsupported unless its ordering relative to calculations and aggregation can be reproduced and verified
+- Date, search, context, and parameter controls → migrate only when their exact database expression and Tableau behavior can be verified
 
-Place each `{% filter %}` block only in queries for that control's `target_worksheets`. Put row-level predicates inside the source CTE or `WHERE` clause before `GROUP BY`, window calculations, ranking, and `LIMIT`. Do not filter an already aggregated result when Tableau filtered source rows before aggregation.
-
-Keep the final SQL valid when no value is selected because nao removes the entire `{% filter %}...{% endfilter %}` block. Use one unique lowercase snake-case filter ID across the story; if dashboard tabs collide, prefix the ID with a filesystem-safe dashboard name and use that ID consistently in the story and SQL.
-
-#### Create controls and option domains
-
-For a supported categorical control:
-
-1. Use `type="multi_select"` because the parser does not currently distinguish Tableau single-value and multiple-value controls.
-2. Obtain the complete option domain with `SELECT DISTINCT` from the exact mapped CSV column. `definition.filters[].values` may describe selected members and must not be treated as the complete domain.
-3. Add the control inside its dashboard tab:
+Use `type="multi_select"` for categorical controls because the parser does not distinguish single-value and multiple-value Tableau controls. Keep SQL valid without a selection because nao removes the whole filter block. Use unique lowercase snake-case filter IDs.
 
 ```html
 <filter id="region" label="Region" type="multi_select" options='["East","West"]' />
 ```
 
-For a parameter control, reconstruct the calculation rather than translating it to a dimension predicate automatically. Migrate it only when its allowed values and exact effect on every target query are known and the SQL remains valid with no active selection. Metric selectors, thresholds, and calculation switches require their corresponding `CASE`, comparison, or expression semantics. If those semantics cannot be established, report the parameter as unsupported instead of creating a decorative control.
-
-The final filtered queries must be executed by the nao agent through `ask_nao`, not by plain nao MCP `execute_sql`. This persists each complete SQL template, normal `database_id`, result, and query ID in the chat that owns the story. For bounded inline data, send the complete `WITH ... SELECT` query and never send only copied result rows through `query_data`.
-
-If the user later asks to add or repair filters, rerun `nao migrate-tableau` for the same workbook and repeat this mapping process. A filter request is not permission to invent controls or mappings.
+When at least one interactive control is migrated, have the nao agent generate and execute the final SQL templates inside `ask_nao` so the owning chat persists the SQL and query IDs required by filter refresh and “See query.” Provide exact SQL only for calculations or query behavior that cannot be described unambiguously.
 
 ### 7. Create the story
 
-For an interactive story, prepare one complete handoff and call `ask_nao`. Do not call plain MCP `execute_sql`, `display_chart`, or `create_story` for the final artifact. `ask_nao` creates the owning chat and persists the internal `execute_sql` calls needed by “See query” and filter refresh.
+Choose the creation path from the controls that will actually appear in the final story, not merely from controls present in Tableau.
 
-The handoff must tell the nao agent to execute the supplied SQL exactly with the selected normal compute `database_id`, create the charts from the supplied verified configurations, and create the story in that same chat. Include:
+#### Story with interactive controls
 
-- Story title, tabs, text, grids, and migration notes.
-- Every final nao SQL template, its worksheet name, and selected normal compute `database_id`.
-- Every filter declaration, complete options or live option source, and target query names.
-- Every verified chart type, axis, series, color, tooltip, and formatting configuration.
-- An instruction to use the exact query IDs returned by its own `execute_sql` calls and to resolve all `template_warnings` before creating the story.
+Call `ask_nao` once with a compact migration brief. Do not call plain MCP `execute_sql`, `display_chart`, or `create_story` for the final artifact. Include only:
 
-Do not ask the nao agent to rediscover Tableau, infer SQL, substitute project data, or reinterpret the supplied mapping. It owns final query execution and persistence; the external migration agent owns Tableau parsing and translation.
+- The story title and tab/worksheet placement.
+- The verified source `database_id`, tables, joins, fields, aggregations, and any exact calculated expressions.
+- Each chart's type, axes, series, colors, and tooltip fields.
+- Each control's ID, label, type, options, mapped database column, and target worksheets.
+- Actual migration limitations that need a `Migration notes` tab.
 
-If `ask_nao` returns `status: "running"`, poll `get_nao_answer` with its `chatId` until completion. If it requests clarification, relay the question and continue the same chat. Require exactly one returned story ID and use `get_story` to confirm that every embedded query ID appears in `queries` from the same `ask_nao` run.
+Tell the nao agent to build and execute the filtered queries, create the charts from their returned query IDs, and create exactly one story in the same chat. Do not paste raw migration JSON, CSV rows, validation evidence, repeated warnings, response-format instructions, or full SQL that the nao agent can derive safely from the brief.
 
-Apply these story requirements in the handoff:
+If `ask_nao` returns `status: "running"`, poll `get_nao_answer` with its `chatId` until completion. If it requests clarification, relay the question and continue the same chat. Use `get_story` to confirm that every embedded query belongs to that chat.
+
+#### Story without interactive controls
+
+Do not call `ask_nao`. Execute the verified source queries with plain MCP `execute_sql`, create each chart with `display_chart`, and call `create_story` once with the completed content. This intentionally creates a standalone static story and avoids spending tokens on a nao chat. Include no `<filter>` blocks. Report any skipped Tableau controls in `Migration notes`.
+
+Apply these story requirements in either path:
 
 - For a whole workbook, create exactly one story.
 - Add dashboard tabs first, in parser order. Each dashboard tab contains only the worksheets from that dashboard's parser result.
@@ -215,7 +186,7 @@ Apply these story requirements in the handoff:
 - Carry every valid `<filter>` block into each full-content replacement. Do not drop, rename, or add filters while troubleshooting unrelated story content.
 - Carry the `Migration notes` tab into each full-content replacement and update it when a limitation is resolved or discovered.
 
-Use the same `ask_nao` handoff for stories without interactive controls so every story remains chat-linked and its queries remain inspectable. Never use plain MCP `create_story` for Tableau migration.
+Create exactly one story through the selected path. Do not create a chat-linked and standalone copy of the same migration.
 
 ### 8. Validate and iterate
 
