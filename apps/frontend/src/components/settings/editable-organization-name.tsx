@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Pencil } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import type { KeyboardEvent } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,16 +10,22 @@ import { trpc } from '@/main';
 interface EditableOrganizationNameProps {
 	name: string;
 	canEdit: boolean;
+	children?: ReactNode;
 }
 
-export function EditableOrganizationName({ name, canEdit }: EditableOrganizationNameProps) {
+export function EditableOrganizationName({ name, canEdit, children }: EditableOrganizationNameProps) {
 	const queryClient = useQueryClient();
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [isEditing, setIsEditing] = useState(false);
 	const [draft, setDraft] = useState(name);
 	const rename = useMutation(
 		trpc.organization.rename.mutationOptions({
-			onSuccess: () => queryClient.invalidateQueries({ queryKey: trpc.organization.get.queryKey() }),
+			onSuccess: async () => {
+				await Promise.all([
+					queryClient.invalidateQueries({ queryKey: trpc.organization.get.queryKey() }),
+					queryClient.invalidateQueries({ queryKey: trpc.organization.listForCurrentUser.queryKey() }),
+				]);
+			},
 		}),
 	);
 
@@ -71,7 +77,7 @@ export function EditableOrganizationName({ name, canEdit }: EditableOrganization
 
 	return (
 		<div className='flex items-center gap-2'>
-			<h1 className='text-lg font-semibold text-foreground'>{name}</h1>
+			{children ?? <h1 className='text-lg font-semibold text-foreground'>{name}</h1>}
 			{canEdit && (
 				<Button
 					variant='ghost'

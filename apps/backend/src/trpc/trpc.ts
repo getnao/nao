@@ -18,6 +18,7 @@ export const createContext = async (opts: CreateFastifyContextOptions) => {
 	return {
 		session,
 		selectedProjectId: headers.get('x-nao-project-id'),
+		selectedOrganizationId: headers.get('x-nao-organization-id'),
 	};
 };
 
