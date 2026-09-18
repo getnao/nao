@@ -24,7 +24,9 @@ const ALLOWED_TAGS = {
 	'saved-file': ['path'],
 };
 const LITERAL_TAG_CONTENT = ['citation-number', 'saved-file'];
-const BACKTICKED_SAVED_FILE_PATTERN = /(?<![\\`])`(<saved-file path="[^"\r\n]+">[^`\r\n]*?<\/saved-file>)`(?!`)/g;
+const INLINE_CODE_PATTERN = /(?<![\\`])`([^`\r\n]+)`(?!`)/g;
+const SAVED_FILE_ELEMENT_PATTERN =
+	/^<saved-file\s+path\s*=\s*(?:"[^"\r\n]+"|'[^'\r\n]+')\s*>[^`\r\n]*?<\/saved-file\s*>$/;
 const SAVED_FILE_TAG_START = '<saved-file';
 
 export const AssistantTextWithCitation = memo(({ text, isStreaming }: { text: string; isStreaming: boolean }) => {
@@ -45,13 +47,13 @@ export const AssistantTextWithCitation = memo(({ text, isStreaming }: { text: st
 });
 
 function unwrapBacktickedSavedFiles(markdown: string): string {
-	return transformMarkdownOutsideCodeBlocks(markdown, (line) => line.replace(BACKTICKED_SAVED_FILE_PATTERN, '$1'));
+	return transformMarkdownOutsideCodeBlocks(markdown, (line) =>
+		line.replace(INLINE_CODE_PATTERN, (match, value: string) => (isSavedFileElement(value) ? value : match)),
+	);
 }
 
 function prepareStreamingMarkdown(markdown: string): string {
-	return transformMarkdownOutsideCodeBlocks(markdown, (line) =>
-		stripAssistantTags(suppressBacktickedSavedFiles(line)),
-	);
+	return transformMarkdownOutsideCodeBlocks(markdown, suppressBacktickedSavedFiles);
 }
 
 function suppressBacktickedSavedFiles(line: string): string {
@@ -61,27 +63,34 @@ function suppressBacktickedSavedFiles(line: string): string {
 	while (offset < line.length) {
 		const backtickOffset = line.indexOf('`', offset);
 		if (backtickOffset === -1) {
-			return result + line.slice(offset);
+			return result + stripAssistantTags(line.slice(offset));
 		}
 
-		if (
-			!isSingleUnescapedBacktick(line, backtickOffset) ||
-			!couldStartSavedFileTag(line.slice(backtickOffset + 1))
-		) {
-			result += line.slice(offset, backtickOffset + 1);
+		if (!isSingleUnescapedBacktick(line, backtickOffset)) {
+			result += stripAssistantTags(line.slice(offset, backtickOffset + 1));
 			offset = backtickOffset + 1;
 			continue;
 		}
 
-		result += line.slice(offset, backtickOffset);
+		result += stripAssistantTags(line.slice(offset, backtickOffset));
 		const closingBacktickOffset = findClosingBacktick(line, backtickOffset + 1);
 		if (closingBacktickOffset === -1) {
-			return result;
+			return couldStartSavedFileTag(line.slice(backtickOffset + 1))
+				? result
+				: result + stripAssistantTags(line.slice(backtickOffset));
+		}
+		const value = line.slice(backtickOffset + 1, closingBacktickOffset);
+		if (!isSavedFileElement(value)) {
+			result += line.slice(backtickOffset, closingBacktickOffset + 1);
 		}
 		offset = closingBacktickOffset + 1;
 	}
 
 	return result;
+}
+
+function isSavedFileElement(value: string): boolean {
+	return SAVED_FILE_ELEMENT_PATTERN.test(value);
 }
 
 function couldStartSavedFileTag(value: string): boolean {
@@ -148,7 +157,7 @@ function transformMarkdownOutsideCodeBlocks(markdown: string, transformLine: (li
 }
 
 function getFenceMarker(line: string): { marker: string; length: number; isClosing: boolean } | undefined {
-	const match = /^ {0,3}(`{3,}|~{3,})(.*)\r?$/.exec(line);
+	const match = /^(?:(?: {0,3}>[ \t]?)|(?: {0,3}(?:[-+*]|\d{1,9}[.)])[ \t]+))* {0,3}(`{3,}|~{3,})(.*)\r?$/.exec(line);
 	if (!match) {
 		return undefined;
 	}

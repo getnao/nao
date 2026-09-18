@@ -51,6 +51,13 @@ describe('AssistantTextWithCitation', () => {
 		expect(container.querySelector('code')?.textContent).toBe('npm run lint');
 	});
 
+	it('preserves a closed incomplete saved-file example while streaming', () => {
+		const markup = '<saved-file path="/home/exports/report.md">';
+		const { container } = renderAnswer(`The opening tag is \`${markup}\`.`, true);
+
+		expect(container.querySelector('code')?.textContent).toBe(markup);
+	});
+
 	it('preserves saved-file examples in fenced and indented code while streaming', () => {
 		const markup = '<saved-file path="/home/exports/report.md">report.md</saved-file>';
 		const fenced = renderAnswer(`\`\`\`xml\n${markup}\n\`\`\``, true);
@@ -59,6 +66,20 @@ describe('AssistantTextWithCitation', () => {
 
 		const indented = renderAnswer(`    ${markup}`, true);
 		expect(indented.container.querySelector('code')?.textContent).toContain(markup);
+	});
+
+	it('preserves saved-file examples in container-prefixed fences', () => {
+		const markup = '<saved-file path="/home/exports/report.md">report.md</saved-file>';
+		const examples = [`> \`\`\`xml\n> ${markup}\n> \`\`\``, `- \`\`\`xml\n  ${markup}\n  \`\`\``];
+
+		for (const isStreaming of [false, true]) {
+			for (const example of examples) {
+				const view = renderAnswer(example, isStreaming);
+				expect(view.container.querySelector('code')?.textContent).toContain(markup);
+				expect(screen.queryByLabelText('Download report.md')).toBeNull();
+				view.unmount();
+			}
+		}
 	});
 
 	it('keeps raw saved-file and citation labels while streaming', () => {
@@ -86,6 +107,19 @@ describe('AssistantTextWithCitation', () => {
 
 		expect(screen.getByRole('button', { name: 'report.md' })).toBeDefined();
 		expect(screen.getByLabelText('Download report.md')).toBeDefined();
+	});
+
+	it('turns backticked saved files with alternate attribute syntax into chips', () => {
+		const examples = [
+			"<saved-file path='/home/exports/report.md'>report.md</saved-file>",
+			'<saved-file   path = "/home/exports/report.md" >report.md</saved-file>',
+		];
+
+		for (const markup of examples) {
+			const view = renderAnswer(`File: \`${markup}\``);
+			expect(screen.getByLabelText('Download report.md')).toBeDefined();
+			view.unmount();
+		}
 	});
 
 	it('preserves ordinary inline code', () => {
