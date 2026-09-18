@@ -99,11 +99,11 @@ export function resolveAgentUserGroupAccess(
 	features: readonly UserGroupFeature[],
 	agentTools: Readonly<Record<string, unknown>>,
 ): AgentUserGroupAccess {
-	const featureFlags = createUserGroupFeatureFlags(features);
+	const userGroupFeatureFlags = createUserGroupFeatureFlags(features);
 	return {
-		features: featureFlags,
+		features: userGroupFeatureFlags,
 		restrictedFeatures: USER_GROUP_FEATURES.filter(
-			(feature) => !featureFlags[feature] && isAgentFeaturePolicyRelevant(feature, agentTools),
+			(feature) => !userGroupFeatureFlags[feature] && isAgentFeaturePolicyRelevant(feature, agentTools),
 		),
 	};
 }
