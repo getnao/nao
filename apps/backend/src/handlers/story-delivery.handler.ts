@@ -1,4 +1,8 @@
-import type { StoryRefreshNotificationPayload } from '@nao/shared/types';
+import {
+	NOTIFICATION_CHANNELS,
+	type NotificationChannel,
+	type StoryRefreshNotificationPayload,
+} from '@nao/shared/types';
 
 import type { DBScheduledJob, DBStory, DBStoryDelivery } from '../db/abstractSchema';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
@@ -8,6 +12,7 @@ import * as userQueries from '../queries/user.queries';
 import { refreshStoryData } from '../services/live-story';
 import { notifyUsers } from '../services/notification.service';
 import { resolveDeliveryRecipientUserIds } from '../services/story-recipients';
+import type { ChannelDeliveryAttempt } from '../types/notification';
 import { withKeyedLock } from '../utils/keyed-lock';
 import { logger } from '../utils/logger';
 import { buildStoryEmailHtml, buildStoryPdfAttachment } from '../utils/story-email';
@@ -19,6 +24,7 @@ type StoryQueryData = Record<string, { data: unknown[]; columns: string[] }>;
 
 type StoryDeliveryJobPayload = {
 	storyId?: string;
+	skipDeliveries?: ChannelDeliveryAttempt[];
 };
 
 type DeliveryContext = {
@@ -32,17 +38,20 @@ export async function storyDeliveryHandler(payload: StoryDeliveryJobPayload, _jo
 	if (!payload.storyId) {
 		throw new Error('storyId is required.');
 	}
-	await runScheduledStoryDelivery(payload.storyId);
+	await runScheduledStoryDelivery(payload.storyId, parseSkipDeliveries(payload.skipDeliveries));
 }
 
-export async function runScheduledStoryDelivery(storyId: string): Promise<void> {
+export async function runScheduledStoryDelivery(
+	storyId: string,
+	skipDeliveries: ChannelDeliveryAttempt[] = [],
+): Promise<void> {
 	await withKeyedLock(`story:${storyId}`, async () => {
 		const context = await loadDeliveryContext(storyId);
 		if (!context) {
 			return;
 		}
 		const { queryData } = await refreshStoryData(context.story.chatId!, context.story.slug);
-		await deliver(context, queryData);
+		await deliver(context, queryData, skipDeliveries);
 	});
 }
 
@@ -93,7 +102,11 @@ async function loadDeliveryContext(storyId: string): Promise<DeliveryContext | n
 	return { delivery, story, projectId, recipientUserIds };
 }
 
-async function deliver(context: DeliveryContext, queryData: StoryQueryData): Promise<void> {
+async function deliver(
+	context: DeliveryContext,
+	queryData: StoryQueryData,
+	skipDeliveries: ChannelDeliveryAttempt[] = [],
+): Promise<void> {
 	const { delivery, story, projectId, recipientUserIds } = context;
 
 	const version = await storyQueries.getLatestVersionByChatAndSlug(story.chatId!, story.slug);
@@ -133,7 +146,7 @@ async function deliver(context: DeliveryContext, queryData: StoryQueryData): Pro
 			emailBodyHtml: storyEmail?.html,
 			payload,
 		},
-		{ throwOnChannelError: true },
+		{ throwOnChannelError: true, skipDeliveries },
 	);
 
 	logger.info(`Delivered story ${story.id} to ${recipientUserIds.length} recipient(s).`, {
@@ -176,4 +189,15 @@ async function grantShareAccessToRecipients(
 		return;
 	}
 	await sharedStoryQueries.updateSharedStoryAllowedUsers(access.shareId, [...access.allowedUserIds, ...missing]);
+}
+
+function parseSkipDeliveries(skipDeliveries: ChannelDeliveryAttempt[] | undefined): ChannelDeliveryAttempt[] {
+	if (!Array.isArray(skipDeliveries)) {
+		return [];
+	}
+	const channels = new Set<NotificationChannel>(NOTIFICATION_CHANNELS);
+	return skipDeliveries.filter(
+		(entry): entry is ChannelDeliveryAttempt =>
+			!!entry && typeof entry === 'object' && typeof entry.userId === 'string' && channels.has(entry.channel),
+	);
 }

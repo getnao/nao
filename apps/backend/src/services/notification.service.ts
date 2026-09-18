@@ -11,7 +11,7 @@ import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as userQueries from '../queries/user.queries';
-import type { NotificationRecipient, NotifyInput } from '../types/notification';
+import type { ChannelDeliveryAttempt, NotificationRecipient, NotifyInput } from '../types/notification';
 import { buildSharedItemEmail } from '../utils/email-builders';
 import { logger } from '../utils/logger';
 import { sharedStoryPath, standaloneStoryPath, storyPath } from '../utils/story-links';
@@ -155,6 +155,22 @@ export async function notifyStoryRefreshFailed(params: {
 	});
 }
 
+export class NotificationChannelDeliveryError extends Error {
+	readonly succeeded: ChannelDeliveryAttempt[];
+	readonly failed: ChannelDeliveryAttempt[];
+
+	constructor(succeeded: ChannelDeliveryAttempt[], failed: ChannelDeliveryAttempt[]) {
+		super(
+			`Failed to deliver notification on ${failed.length} channel(s): ${failed
+				.map((attempt) => `${attempt.userId}:${attempt.channel}`)
+				.join('; ')}`,
+		);
+		this.name = 'NotificationChannelDeliveryError';
+		this.succeeded = succeeded;
+		this.failed = failed;
+	}
+}
+
 export async function notifyUsers(
 	userIds: string[],
 	input: Omit<NotifyInput, 'userId'>,
@@ -164,9 +180,20 @@ export async function notifyUsers(
 		return;
 	}
 	const recipients = await userQueries.getUsersByIds(userIds);
+	const succeeded: ChannelDeliveryAttempt[] = [];
+	const failed: ChannelDeliveryAttempt[] = [];
+
 	await Promise.all(
-		recipients.map((recipient) => deliverToRecipient(recipient, { ...input, userId: recipient.id }, options)),
+		recipients.map(async (recipient) => {
+			const report = await deliverToRecipient(recipient, { ...input, userId: recipient.id }, options);
+			succeeded.push(...report.succeeded);
+			failed.push(...report.failed);
+		}),
 	);
+
+	if (options.throwOnChannelError && failed.length > 0) {
+		throw new NotificationChannelDeliveryError(succeeded, failed);
+	}
 }
 
 export async function notifySharedItem(params: {
@@ -264,14 +291,28 @@ function toAbsoluteShareUrl(linkUrl: string): string {
 
 type DeliveryOptions = {
 	throwOnChannelError?: boolean;
+	skipDeliveries?: ChannelDeliveryAttempt[];
+};
+
+type RecipientDeliveryReport = {
+	succeeded: ChannelDeliveryAttempt[];
+	failed: ChannelDeliveryAttempt[];
 };
 
 async function deliverToRecipient(
 	recipient: NotificationRecipient,
 	input: NotifyInput,
 	options: DeliveryOptions = {},
-): Promise<void> {
+): Promise<RecipientDeliveryReport> {
+	const skip = new Set(
+		(options.skipDeliveries ?? [])
+			.filter((attempt) => attempt.userId === recipient.id)
+			.map((attempt) => attempt.channel),
+	);
 	const targets = notificationChannels.filter((channel) => {
+		if (skip.has(channel.id)) {
+			return false;
+		}
 		if (input.channels && !input.channels.includes(channel.id)) {
 			return false;
 		}
@@ -299,27 +340,25 @@ async function deliverToRecipient(
 		),
 	);
 
-	const failures: unknown[] = [];
+	const succeeded: ChannelDeliveryAttempt[] = [];
+	const failed: ChannelDeliveryAttempt[] = [];
 	results.forEach((result, index) => {
-		if (result.status === 'rejected') {
-			failures.push(result.reason);
-			logger.error(
-				`Failed to deliver ${input.category} notification via ${targets[index].id}: ${String(result.reason)}`,
-				{
-					source: 'system',
-					context: { userId: recipient.id, channel: targets[index].id },
-				},
-			);
+		const attempt = { userId: recipient.id, channel: targets[index].id };
+		if (result.status === 'fulfilled') {
+			succeeded.push(attempt);
+			return;
 		}
+		failed.push(attempt);
+		logger.error(
+			`Failed to deliver ${input.category} notification via ${targets[index].id}: ${String(result.reason)}`,
+			{
+				source: 'system',
+				context: { userId: recipient.id, channel: targets[index].id },
+			},
+		);
 	});
 
-	if (options.throwOnChannelError && failures.length > 0) {
-		throw new Error(
-			`Failed to deliver ${input.category} notification on ${failures.length} channel(s): ${failures
-				.map((failure) => String(failure))
-				.join('; ')}`,
-		);
-	}
+	return { succeeded, failed };
 }
 
 async function resolveRecipient(userId: string): Promise<NotificationRecipient | null> {
