@@ -2,7 +2,10 @@
 
 import duckdb
 import pytest
+from rich.progress import Progress
 
+from nao_core.commands.sync.providers.databases.provider import sync_database
+from nao_core.config.databases.base import TableColumnSelection
 from nao_core.config.databases.duckdb import DuckDBConfig
 
 from .base import BaseSyncIntegrationTests, SyncTestSpec
@@ -171,3 +174,28 @@ def spec():
 
 class TestDuckDBSyncIntegration(BaseSyncIntegrationTests):
     """Verify the sync pipeline produces correct output against a local DuckDB database."""
+
+    def test_column_selection_include_allowlist(self, tmp_path_factory, db_config, spec):
+        """An include allowlist keeps only the listed columns in synced output."""
+        table_key = f"{spec.primary_schema}.{spec.users_table}"
+        config = db_config.model_copy(
+            update={
+                "column_selection": {table_key: TableColumnSelection(include=["id", "name", "active"])},
+            }
+        )
+
+        output = tmp_path_factory.mktemp("duckdb_column_selection_include")
+        with Progress(transient=True) as progress:
+            sync_database(config, output, progress)
+
+        users_columns = self._read_table_file(output, config, spec, spec.users_table, "columns.md")
+        assert "- email (" not in users_columns
+        assert "## Columns (3)" in users_columns
+
+        preview_content = self._read_table_file(output, config, spec, spec.users_table, "preview.md")
+        for row in self._parse_preview_rows(preview_content):
+            assert "email" not in row
+
+        profiling_content = self._read_table_file(output, config, spec, spec.users_table, "profiling.md")
+        for row in self._parse_preview_rows(profiling_content):
+            assert row.get("column") != "email"

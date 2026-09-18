@@ -16,10 +16,12 @@ class FakeDatabaseConfig:
         exclude_columns: list[str],
         database_name: str = "local",
         database_type: str = "duckdb",
+        column_selection: dict | None = None,
     ):
         self.exclude_columns = exclude_columns
         self.database_name = database_name
         self.type = database_type
+        self.column_selection = column_selection or {}
 
     def connect(self):
         raise AssertionError("column validation must not connect")
@@ -28,8 +30,28 @@ class FakeDatabaseConfig:
         return self.database_name
 
     def column_matches_pattern(self, schema: str, table: str, column: str) -> bool:
-        name = f"{schema}.{table}.{column}"
-        return not any(fnmatch.fnmatch(name, pattern) for pattern in self.exclude_columns)
+        full_name = f"{schema}.{table}.{column}"
+        if any(fnmatch.fnmatch(full_name, pattern) for pattern in self.exclude_columns):
+            return False
+        include_patterns, exclude_patterns = self._column_selection_for(schema, table)
+        if include_patterns and not any(fnmatch.fnmatch(column, pattern) for pattern in include_patterns):
+            return False
+        return not any(fnmatch.fnmatch(column, pattern) for pattern in exclude_patterns)
+
+    def _column_selection_for(self, schema: str, table: str) -> tuple[list[str], list[str]]:
+        if not self.column_selection:
+            return [], []
+        full_name = f"{schema}.{table}"
+        entry = self.column_selection.get(full_name) or self.column_selection.get(table)
+        if entry is not None:
+            return list(entry.get("include") or []), list(entry.get("exclude") or [])
+        include: list[str] = []
+        exclude: list[str] = []
+        for key, matched in self.column_selection.items():
+            if fnmatch.fnmatch(full_name, key) or fnmatch.fnmatch(table, key):
+                include.extend(matched.get("include") or [])
+                exclude.extend(matched.get("exclude") or [])
+        return include, exclude
 
 
 @pytest.fixture
@@ -442,3 +464,55 @@ def test_unqualified_join_column_checks_every_missing_catalog_table(tmp_path: Pa
             config,
             tmp_path,
         )
+
+
+def test_column_selection_include_blocks_explicit_reference(project_path: Path):
+    config = FakeDatabaseConfig([], column_selection={"main.users": {"include": ["id", "name"]}})
+
+    with pytest.raises(ColumnAccessError, match=r"main\.users\.email"):
+        validate_column_access("SELECT email FROM users", config, project_path)
+
+
+def test_column_selection_include_allows_listed_columns(project_path: Path):
+    config = FakeDatabaseConfig([], column_selection={"main.users": {"include": ["id", "name"]}})
+    sql = "SELECT id, name FROM users"
+
+    assert validate_column_access(sql, config, project_path) == sql
+
+
+def test_column_selection_include_blocks_select_star(project_path: Path):
+    config = FakeDatabaseConfig([], column_selection={"main.users": {"include": ["id", "name"]}})
+
+    with pytest.raises(ColumnAccessError, match=r"SELECT \* would include excluded column\(s\)"):
+        validate_column_access("SELECT * FROM users", config, project_path)
+
+
+def test_column_selection_exclude_blocks_explicit_reference(project_path: Path):
+    config = FakeDatabaseConfig([], column_selection={"users": {"exclude": ["ssn"]}})
+
+    with pytest.raises(ColumnAccessError, match=r"main\.users\.ssn"):
+        validate_column_access("SELECT ssn FROM users", config, project_path)
+
+
+def test_column_selection_exclude_glob_blocks_matching_columns(project_path: Path):
+    config = FakeDatabaseConfig([], column_selection={"users": {"exclude": ["_*"]}})
+
+    with pytest.raises(ColumnAccessError, match=r"main\.users\._peerdb_version"):
+        validate_column_access("SELECT _peerdb_version FROM users", config, project_path)
+
+
+def test_column_selection_does_not_affect_other_tables(project_path: Path):
+    config = FakeDatabaseConfig([], column_selection={"users": {"include": ["id"]}})
+    sql = "SELECT user_id, total FROM orders"
+
+    assert validate_column_access(sql, config, project_path) == sql
+
+
+def test_column_selection_combines_with_exclude_columns(project_path: Path):
+    config = FakeDatabaseConfig(["*.email"], column_selection={"users": {"exclude": ["ssn"]}})
+
+    with pytest.raises(ColumnAccessError, match=r"main\.users\.email"):
+        validate_column_access("SELECT email FROM users", config, project_path)
+
+    with pytest.raises(ColumnAccessError, match=r"main\.users\.ssn"):
+        validate_column_access("SELECT ssn FROM users", config, project_path)
