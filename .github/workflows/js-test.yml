@@ -28,6 +28,9 @@ jobs:
                   node-version-file: '.nvmrc'
                   cache: 'npm'
 
+            - name: Setup Bun
+              uses: oven-sh/setup-bun@v2
+
             - name: Use the pinned npm
               run: ./scripts/use-pinned-npm.sh
 
@@ -38,6 +41,9 @@ jobs:
 
             - name: Test shared
               run: npm run -w @nao/shared test
+
+            - name: Prepare SQLite test database
+              run: npm run -w @nao/backend db:migrate
 
             - name: Test backend
               run: npm run -w @nao/backend test
