@@ -77,11 +77,13 @@ def parse_filters(
             warnings,
         )
     )
+    worksheet_mappings = extract_worksheet_mappings(controls)
 
     return {
         "filters": filters,
         "parameters": parameters,
         "controls": controls,
+        "worksheet_mappings": worksheet_mappings,
         "warnings": unique(warnings),
     }
 
@@ -241,6 +243,7 @@ def extract_controls(
     composition = parse_workbook(xml_bytes, dashboard_name)
     dashboards = cast(list[dict[str, object]], composition["dashboards"])
     definitions: list[dict[str, object]] = []
+    seen_ids: set[str] = set()
 
     for dashboard in dashboards:
         name = str(dashboard["name"])
@@ -254,21 +257,16 @@ def extract_controls(
             source_worksheet = source if isinstance(source, str) else None
 
             if control_type == "parameter":
-                parameter = next(
-                    (
-                        candidate
-                        for candidate in parameters
-                        if field
-                        and normalize(display_field_name(str(candidate["field"])))
-                        == normalize(display_field_name(field))
-                    ),
-                    None,
-                )
-                if not parameter:
+                matches = [
+                    candidate for candidate in parameters if field and fields_match(field, str(candidate["field"]))
+                ]
+                if len(matches) != 1:
                     warnings.append(
-                        f"{name} parameter control {field or '(unknown field)'} has no matching parameter definition."
+                        f"{name} parameter control {field or '(unknown field)'} does not match exactly one "
+                        "parameter definition."
                     )
                     continue
+                parameter = matches[0]
 
                 target_worksheets = [
                     worksheet
@@ -284,27 +282,47 @@ def extract_controls(
                         "has no matching worksheet dependencies."
                     )
 
+                identifier = control_identifier(
+                    name,
+                    str(parameter.get("caption") or parameter["field"]),
+                )
+                if identifier in seen_ids:
+                    continue
+                seen_ids.add(identifier)
                 definitions.append(
                     compact(
                         {
+                            "id": identifier,
                             "type": "parameter",
                             "dashboard": name,
+                            "caption": parameter.get("caption"),
                             "field": field or str(parameter["field"]),
                             "source_worksheet": source_worksheet,
                             "target_worksheets": target_worksheets,
+                            "current_value": parameter.get("current_value"),
+                            "allowed_values": parameter.get("allowed_values"),
+                            "mappings": [
+                                compact(
+                                    {
+                                        "worksheet": worksheet,
+                                        "source_field": str(parameter["field"]),
+                                        "data_source": field_data_source(str(parameter["field"])),
+                                    }
+                                )
+                                for worksheet in target_worksheets
+                            ],
                         }
                     )
                 )
                 continue
 
+            if not field:
+                warnings.append(f"{name} contains a filter control without a field reference.")
+                continue
             matches = [
                 filter_definition
                 for filter_definition in filters
-                if (
-                    not field
-                    or normalize(display_field_name(str(filter_definition["field"])))
-                    == normalize(display_field_name(field))
-                )
+                if fields_match(field, str(filter_definition["field"]))
                 and any(
                     worksheet in dashboard_worksheets
                     for worksheet in cast(
@@ -319,28 +337,110 @@ def extract_controls(
                 )
                 continue
 
+            modes = {str(match["mode"]) for match in matches}
+            if len(modes) != 1:
+                warnings.append(f"{name} filter control {field} has conflicting include and exclude behavior.")
+                continue
+
+            identifier = control_identifier(name, display_field_name(field))
+            if identifier in seen_ids:
+                continue
+            seen_ids.add(identifier)
+            mappings = [
+                compact(
+                    {
+                        "worksheet": worksheet,
+                        "source_field": str(match["field"]),
+                        "data_source": match.get("data_source"),
+                        "mode": match["mode"],
+                        "context": match["context"],
+                    }
+                )
+                for match in matches
+                for worksheet in cast(
+                    list[str],
+                    match["target_worksheets"],
+                )
+                if worksheet in dashboard_worksheets
+            ]
             definitions.append(
                 compact(
                     {
+                        "id": identifier,
                         "type": "filter",
                         "dashboard": name,
+                        "caption": display_field_name(field),
                         "field": field,
                         "source_worksheet": source_worksheet,
-                        "target_worksheets": unique(
-                            [
-                                worksheet
-                                for match in matches
-                                for worksheet in cast(
-                                    list[str],
-                                    match["target_worksheets"],
-                                )
-                            ]
-                        ),
+                        "mode": next(iter(modes)),
+                        "values": unique([value for match in matches for value in cast(list[str], match["values"])]),
+                        "target_worksheets": unique([str(mapping["worksheet"]) for mapping in mappings]),
+                        "mappings": mappings,
                     }
                 )
             )
 
     return definitions
+
+
+def extract_worksheet_mappings(
+    controls: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    contexts: dict[tuple[str, str], dict[str, object]] = {}
+
+    for control in controls:
+        dashboard = str(control["dashboard"])
+        control_id = str(control["id"])
+        control_type = str(control["type"])
+        for mapping in cast(list[dict[str, object]], control.get("mappings", [])):
+            worksheet = str(mapping["worksheet"])
+            context = contexts.setdefault(
+                (dashboard, worksheet),
+                {
+                    "dashboard": dashboard,
+                    "worksheet": worksheet,
+                    "effective_filter_ids": [],
+                    "parameter_mappings": [],
+                },
+            )
+            cast(list[str], context["effective_filter_ids"]).append(control_id)
+            cast(list[dict[str, object]], context["parameter_mappings"]).append(
+                {
+                    "filter_id": control_id,
+                    "type": control_type,
+                    **mapping,
+                }
+            )
+
+    return [
+        {
+            **context,
+            "effective_filter_ids": unique(cast(list[str], context["effective_filter_ids"])),
+        }
+        for context in contexts.values()
+    ]
+
+
+def fields_match(left: str, right: str) -> bool:
+    left_source = field_data_source(left)
+    right_source = field_data_source(right)
+    return normalize(display_field_name(left)) == normalize(display_field_name(right)) and (
+        not left_source or not right_source or normalize(left_source) == normalize(right_source)
+    )
+
+
+def field_data_source(field: str) -> str | None:
+    parts = bracketed_parts(field)
+    return parts[0] if len(parts) > 1 else None
+
+
+def control_identifier(dashboard: str, field: str) -> str:
+    identifier = re.sub(
+        r"[^a-z0-9]+",
+        "_",
+        f"{dashboard}_{display_field_name(field)}".lower(),
+    ).strip("_")
+    return identifier if identifier and not identifier[0].isdigit() else f"filter_{identifier}"
 
 
 def elements_named(
