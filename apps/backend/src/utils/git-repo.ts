@@ -2,7 +2,19 @@ import { execFileSync } from 'node:child_process';
 
 const GIT_TIMEOUT_MS = 5_000;
 
-export type GitOperation = 'git' | 'clone' | 'fetch' | 'pull' | 'push';
+export type GitOperation =
+	| 'git'
+	| 'clone'
+	| 'configure-remote'
+	| 'setup-worktree'
+	| 'validate-repository'
+	| 'promote-repository'
+	| 'fetch'
+	| 'pull'
+	| 'push'
+	| 'checkout'
+	| 'add'
+	| 'commit';
 
 export class GitOperationError extends Error {
 	constructor(
@@ -37,6 +49,11 @@ export function tryRunGit(cwd: string, args: string[]): Buffer | null {
 }
 
 export function toGitError(error: unknown, operation: GitOperation = 'git'): GitOperationError {
+	if (error instanceof GitOperationError) {
+		return error.operation !== 'git' || operation === 'git'
+			? error
+			: new GitOperationError(error.message, operation, error.details);
+	}
 	const processError = error as NodeJS.ErrnoException & { stderr?: Buffer | string; killed?: boolean };
 	const stderr = processError.stderr?.toString().trim() ?? '';
 	const details = stderr || processError.message || 'Git operation failed.';

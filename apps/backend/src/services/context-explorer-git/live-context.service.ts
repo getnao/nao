@@ -459,37 +459,56 @@ function convertLiveProjectToOAuthRepository(
 	assertSafeLiveReplacementTarget(context);
 	const projectFolder = path.resolve(context.projectFolder);
 	const managedParent = getManagedLiveRepositoriesParent(projectFolder);
-	fs.mkdirSync(managedParent, { recursive: true });
 	const stagingRoot = path.join(managedParent, `.staging-${context.projectId}-${randomUUID()}`);
 	const stagedRepository = path.join(stagingRoot, 'repository');
 	try {
-		fs.mkdirSync(stagingRoot);
-		runGitWithOAuth(
-			managedParent,
-			[
-				'clone',
-				'--branch',
+		try {
+			fs.mkdirSync(managedParent, { recursive: true });
+			fs.mkdirSync(stagingRoot);
+		} catch (error) {
+			throw sanitizeLiveContextError(error, token, 'setup-worktree');
+		}
+		try {
+			runGitWithOAuth(
+				managedParent,
+				[
+					'clone',
+					'--branch',
+					configuredBranch,
+					'--single-branch',
+					provider.publicRepoUrl(repoFullName),
+					stagedRepository,
+				],
+				getGitOAuthCredential(providerName, token),
+				GIT_OPERATION_TIMEOUT_MS,
+			);
+		} catch (error) {
+			throw sanitizeLiveContextError(error, token, 'clone');
+		}
+		let projectPrefix: string;
+		let result: LiveContextPullResult;
+		try {
+			projectPrefix = resolveTrackedContextProjectPrefix(stagedRepository);
+			validateLiveProjectAtHead(stagedRepository, projectPrefix);
+			const newCommit = runGit(stagedRepository, ['rev-parse', 'HEAD']).toString().trim();
+			result = createLivePullResult(
+				{ repositoryRoot: stagedRepository, projectPrefix },
 				configuredBranch,
-				'--single-branch',
-				provider.publicRepoUrl(repoFullName),
-				stagedRepository,
-			],
-			getGitOAuthCredential(providerName, token),
-			GIT_OPERATION_TIMEOUT_MS,
-		);
-		const projectPrefix = resolveTrackedContextProjectPrefix(stagedRepository);
-		validateLiveProjectAtHead(stagedRepository, projectPrefix);
-		const newCommit = runGit(stagedRepository, ['rev-parse', 'HEAD']).toString().trim();
-		const result = createLivePullResult(
-			{ repositoryRoot: stagedRepository, projectPrefix },
-			configuredBranch,
-			null,
-			newCommit,
-		);
-		promoteStagedLiveRepository(context, stagingRoot, stagedRepository, projectPrefix);
+				null,
+				newCommit,
+			);
+		} catch (error) {
+			if (error instanceof ContextProjectResolutionError) {
+				throw error;
+			}
+			throw sanitizeLiveContextError(error, token, 'validate-repository');
+		}
+		try {
+			promoteStagedLiveRepository(context, stagingRoot, stagedRepository, projectPrefix);
+		} catch (error) {
+			throw sanitizeLiveContextError(error, token, 'promote-repository');
+		}
 		return result;
-	} catch (error) {
-		throw sanitizeLiveContextError(error, token, 'clone');
 	} finally {
 		fs.rmSync(stagingRoot, { recursive: true, force: true });
 	}

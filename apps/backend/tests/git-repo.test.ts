@@ -30,4 +30,16 @@ describe('toGitError', () => {
 		expect(error.message).toBe('Git did not respond before the operation timed out.');
 		expect(error.details).toContain('secret-token');
 	});
+
+	it('replaces the sentinel operation with a concrete boundary operation', () => {
+		const original = new GitOperationError('failed', 'git', 'raw details');
+		const error = toGitError(original, 'configure-remote');
+
+		expect(error).not.toBe(original);
+		expect(error).toMatchObject({
+			message: 'failed',
+			operation: 'configure-remote',
+			details: 'raw details',
+		});
+	});
 });

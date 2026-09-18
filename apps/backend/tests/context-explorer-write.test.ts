@@ -12,6 +12,14 @@ vi.hoisted(() => {
 	process.env.NAO_CONTEXT_SOURCE = 'local';
 });
 
+vi.mock('../src/utils/logger', () => ({
+	logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+	sanitizeLogText: (value: string) => value.replace(/:\/\/[^/\s@]+@/g, '://***@'),
+	serializeError: (error: unknown) => ({
+		message: error instanceof Error ? error.message : String(error),
+	}),
+}));
+
 import type { ContextExplorerFileAccess } from '../src/services/context-explorer.service';
 import {
 	getFileTree,

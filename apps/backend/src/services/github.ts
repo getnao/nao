@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 
 import { env } from '../env';
 import { GitIdentity, NAO_CO_AUTHOR, withCoAuthors } from '../utils/git-identity';
-import { toGitError } from '../utils/git-repo';
+import { type GitOperation, toGitError } from '../utils/git-repo';
 import {
 	configDir,
 	isContextConfigFile,
@@ -198,19 +198,23 @@ export function publicRepoUrl(repoFullName: string): string {
 export function cloneRepo(token: string, fullName: string, targetDir: string, branch?: string): void {
 	const cloneUrl = authenticatedRepoUrl(token, fullName);
 	const cleanUrl = publicRepoUrl(fullName);
-	try {
-		execFileSync('git', ['clone', '--depth', '1', ...(branch ? ['--branch', branch] : []), cloneUrl, targetDir], {
+	execGitOperation(
+		['clone', '--depth', '1', ...(branch ? ['--branch', branch] : []), cloneUrl, targetDir],
+		{
 			timeout: 120_000,
 			stdio: 'pipe',
-		});
-		execFileSync('git', ['remote', 'set-url', 'origin', cleanUrl], {
+		},
+		'clone',
+	);
+	execGitOperation(
+		['remote', 'set-url', 'origin', cleanUrl],
+		{
 			cwd: targetDir,
 			timeout: 5_000,
 			stdio: 'pipe',
-		});
-	} catch (error) {
-		throw toGitError(error, 'clone');
-	}
+		},
+		'configure-remote',
+	);
 }
 
 export interface GitInfo {
@@ -308,12 +312,16 @@ export function commitAllAndPushBranch(args: {
 		GIT_COMMITTER_EMAIL: author.email,
 	};
 
-	execFileSync('git', ['checkout', '-b', branch], opts);
-	execFileSync('git', ['add', '-A'], opts);
-	execFileSync('git', ['commit', '-m', withCoAuthors(message, coAuthors)], {
-		...opts,
-		env: { ...process.env, ...identity },
-	});
+	execGitOperation(['checkout', '-b', branch], opts, 'checkout');
+	execGitOperation(['add', '-A'], opts, 'add');
+	execGitOperation(
+		['commit', '-m', withCoAuthors(message, coAuthors)],
+		{
+			...opts,
+			env: { ...process.env, ...identity },
+		},
+		'commit',
+	);
 
 	return pushBranch({ token, repoFullName, dir, branch });
 }
@@ -331,6 +339,18 @@ export function pushBranch(args: { token: string; repoFullName: string; dir: str
 		).toString();
 	} catch (error) {
 		throw toGitError(error, 'push');
+	}
+}
+
+function execGitOperation(
+	args: string[],
+	options: { cwd?: string; stdio: 'pipe'; timeout: number; env?: NodeJS.ProcessEnv },
+	operation: GitOperation,
+): Buffer {
+	try {
+		return execFileSync('git', args, options);
+	} catch (error) {
+		throw toGitError(error, operation);
 	}
 }
 

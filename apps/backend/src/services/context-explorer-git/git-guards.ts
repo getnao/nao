@@ -11,6 +11,7 @@ import { normalizeProjectPath } from '../../utils/context-repo';
 import type { GitIdentity } from '../../utils/git-identity';
 import { getGitOAuthCredential, runGitWithOAuth } from '../../utils/git-oauth';
 import { type GitOperation, GitOperationError, runGit, toGitError, tryRunGit } from '../../utils/git-repo';
+import { sanitizeLogText } from '../../utils/logger';
 import { GIT_OPERATION_TIMEOUT_MS, REPO_FULL_NAME_PATTERN } from './types';
 
 export function refreshDefaultBranch(repo: ResolvedContextRepo, provider: RepoProvider, token: string): void {
@@ -318,7 +319,7 @@ export function readOptionalGitValue(cwd: string, args: string[]): string | null
 
 export function sanitizeGitError(error: unknown, token: string, fallbackOperation?: GitOperation): Error {
 	const message = error instanceof Error ? error.message : 'Git operation failed.';
-	const redactedMessage = token ? message.replaceAll(token, '[redacted]') : message;
+	const redactedMessage = sanitizeLogText(token ? message.replaceAll(token, '[redacted]') : message);
 	const translatedMessage = translateGitErrorMessage(redactedMessage) ?? redactedMessage;
 	const operation =
 		error instanceof GitOperationError && error.operation !== 'git'
@@ -328,7 +329,7 @@ export function sanitizeGitError(error: unknown, token: string, fallbackOperatio
 		return new Error(translatedMessage);
 	}
 	const details = error instanceof GitOperationError ? error.details : message;
-	const redactedDetails = token ? details.replaceAll(token, '[redacted]') : details;
+	const redactedDetails = sanitizeLogText(token ? details.replaceAll(token, '[redacted]') : details);
 	return new GitOperationError(translatedMessage, operation, redactedDetails);
 }
 

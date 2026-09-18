@@ -50,10 +50,10 @@ export function runGitFetchWithCredentials(
 ): Buffer {
 	const sanitizedUrl = sanitizeContextSourceRepositoryUrl(repositoryUrl);
 	const args = ['fetch', '--no-tags', sanitizedUrl, branch];
-	if (options.sshKey) {
+	if (options.sshKey && isSshRepositoryUrl(repositoryUrl)) {
 		return runGitWithSshKey(cwd, args, options.sshKey, timeout);
 	}
-	if (options.token) {
+	if (options.token && isHttpRepositoryUrl(repositoryUrl)) {
 		const platform = options.platform ?? detectGitPlatform(repositoryUrl);
 		return runGitWithAskpass(cwd, args, { token: options.token, username: getTokenUsername(platform) }, timeout);
 	}
@@ -158,6 +158,17 @@ function getTokenUsername(platform: GitPlatform | null | undefined): string {
 			: platform === 'bitbucket'
 				? 'x-token-auth'
 				: 'git';
+}
+
+function isHttpRepositoryUrl(repositoryUrl: string): boolean {
+	return /^https?:\/\//i.test(repositoryUrl);
+}
+
+function isSshRepositoryUrl(repositoryUrl: string): boolean {
+	return (
+		/^ssh:\/\//i.test(repositoryUrl) ||
+		(!repositoryUrl.includes('://') && /^(?:[^@/\s]+@)?[^:/\s]+:.+/.test(repositoryUrl))
+	);
 }
 
 function quoteShellArgument(value: string): string {

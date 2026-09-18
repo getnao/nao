@@ -226,14 +226,17 @@ export function detectGitPlatform(repositoryUrl: string | undefined): GitPlatfor
 }
 
 export function resolveContextSourceGitToken(): string | null {
-	if (env.NAO_CONTEXT_GIT_TOKEN) {
-		return env.NAO_CONTEXT_GIT_TOKEN;
+	if (isHttpRepositoryUrl(env.NAO_CONTEXT_GIT_URL)) {
+		if (env.NAO_CONTEXT_GIT_TOKEN) {
+			return env.NAO_CONTEXT_GIT_TOKEN;
+		}
+		return hasEmbeddedRepositoryCredentials(env.NAO_CONTEXT_GIT_URL) ? '' : null;
 	}
-	return env.NAO_CONTEXT_GIT_SSH_KEY || hasEmbeddedRepositoryCredentials(env.NAO_CONTEXT_GIT_URL) ? '' : null;
+	return isSshRepositoryUrl(env.NAO_CONTEXT_GIT_URL) && env.NAO_CONTEXT_GIT_SSH_KEY ? '' : null;
 }
 
 export function resolveContextSourceGitAuthMethod(): 'token' | 'ssh-key' | 'public' {
-	if (env.NAO_CONTEXT_GIT_SSH_KEY) {
+	if (isSshRepositoryUrl(env.NAO_CONTEXT_GIT_URL) && env.NAO_CONTEXT_GIT_SSH_KEY) {
 		return 'ssh-key';
 	}
 	return resolveContextSourceGitToken() !== null ? 'token' : 'public';
@@ -249,6 +252,18 @@ export function hasEmbeddedRepositoryCredentials(repositoryUrl: string | undefin
 	} catch {
 		return false;
 	}
+}
+
+function isHttpRepositoryUrl(repositoryUrl: string | undefined): boolean {
+	return !!repositoryUrl && /^https?:\/\//i.test(repositoryUrl);
+}
+
+function isSshRepositoryUrl(repositoryUrl: string | undefined): boolean {
+	return (
+		!!repositoryUrl &&
+		(/^ssh:\/\//i.test(repositoryUrl) ||
+			(!repositoryUrl.includes('://') && /^(?:[^@/\s]+@)?[^:/\s]+:.+/.test(repositoryUrl)))
+	);
 }
 
 export function getWorktreeProjectRoot(repo: ResolvedContextRepo): string {

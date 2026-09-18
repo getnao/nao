@@ -10,11 +10,14 @@ interface LogOptions {
 
 /** Matches credentials embedded in a URL, e.g. `https://oauth2:TOKEN@host/...` (git clone/push errors). */
 const CREDENTIALED_URL_PATTERN = /:\/\/[^/\s@]+@/g;
-const AUTHORIZATION_PATTERN = /(\bauthorization\b\s*[:=]\s*)(?:bearer|basic)?\s*[^\s"',;}]+/gi;
-const BEARER_TOKEN_PATTERN = /(\bbearer\s+)[A-Za-z0-9._~+/-]+=*/gi;
+const AUTHORIZATION_PATTERN = /(\bauthorization\b\s*["']?\s*[:=]\s*["']?\s*)(?:(?:bearer|basic)\s+)?[^\s"',;}]+/gi;
+const BEARER_TOKEN_PATTERN =
+	/(\bbearer\s+)(?:[A-Za-z0-9]{20,}|(?=[A-Za-z0-9._~+/-]{10,}=*(?![A-Za-z0-9._~+/-]))(?=[A-Za-z0-9._~+/-]*[0-9._~+/-])[A-Za-z0-9._~+/-]+=*)/gi;
 const PRIVATE_KEY_PATTERN = /-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g;
-const SECRET_QUERY_PATTERN = /([?&](?:access_token|api_key|apikey|password|secret|token)=)[^&\s]+/gi;
-const KNOWN_TOKEN_PATTERN = /\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{10,})\b/g;
+const SECRET_QUERY_PATTERN =
+	/([?&](?:access[-_]?token|api[-_]?key|client[-_]?secret|refresh[-_]?token|auth[-_]?token|password|secret|token)=)[^&\s]+/gi;
+const KNOWN_TOKEN_PATTERN =
+	/\b(?:github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{10,})\b/g;
 
 export function sanitizeLogText(value: string): string {
 	return value
@@ -43,6 +46,12 @@ const SENSITIVE_KEYS = new Set([
 	'token',
 	'access_token',
 	'accesstoken',
+	'refresh_token',
+	'refreshtoken',
+	'auth_token',
+	'authtoken',
+	'client_secret',
+	'clientsecret',
 	'secret',
 	'authorization',
 	'cookie',
@@ -54,27 +63,41 @@ const SENSITIVE_KEYS = new Set([
 	'privatekey',
 ]);
 
-function redactContext(ctx: Record<string, unknown>): Record<string, unknown> {
+function redactContext(ctx: Record<string, unknown>, visited = new WeakSet<object>()): Record<string, unknown> {
+	if (visited.has(ctx)) {
+		return { circular: '[Circular]' };
+	}
+	visited.add(ctx);
 	const redacted: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(ctx)) {
 		if (SENSITIVE_KEYS.has(key.toLowerCase())) {
 			redacted[key] = '[REDACTED]';
 		} else {
-			redacted[key] = redactContextValue(value);
+			redacted[key] = redactContextValue(value, visited);
 		}
 	}
+	visited.delete(ctx);
 	return redacted;
 }
 
-function redactContextValue(value: unknown): unknown {
+function redactContextValue(value: unknown, visited: WeakSet<object>): unknown {
 	if (typeof value === 'string') {
 		return sanitizeLogText(value);
 	}
 	if (Array.isArray(value)) {
-		return value.map(redactContextValue);
+		if (visited.has(value)) {
+			return '[Circular]';
+		}
+		visited.add(value);
+		const redacted = value.map((entry) => redactContextValue(entry, visited));
+		visited.delete(value);
+		return redacted;
 	}
 	if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
-		return redactContext(value as Record<string, unknown>);
+		if (visited.has(value)) {
+			return '[Circular]';
+		}
+		return redactContext(value as Record<string, unknown>, visited);
 	}
 	return value;
 }

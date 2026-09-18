@@ -44,7 +44,8 @@ export function toContextGitActionError(
 			? (env.NAO_CONTEXT_GIT_PLATFORM ?? detectGitPlatform(repo.repoFullName))
 			: repo.provider;
 	return new ContextGitActionError(error, {
-		operation: error instanceof GitOperationError ? error.operation : fallbackOperation,
+		operation:
+			error instanceof GitOperationError && error.operation !== 'git' ? error.operation : fallbackOperation,
 		provider: repo.provider,
 		platform,
 		authMethod: repo.provider === 'generic' ? resolveContextSourceGitAuthMethod() : 'oauth-token',

@@ -15,7 +15,7 @@ import {
 	toContextRepoState,
 } from '../../utils/context-repo';
 import { getGitOAuthCredential, runGitWithOAuth } from '../../utils/git-oauth';
-import { runGit, tryRunGit } from '../../utils/git-repo';
+import { runGit, toGitError, tryRunGit } from '../../utils/git-repo';
 import { getRepoProviderDisplayName, REVIEW_REQUEST_PROVIDERS } from '../review-request-provider';
 import {
 	assertEntireWorktreeClean,
@@ -211,7 +211,7 @@ export async function ensureContextWorktree(
 			}
 		} catch (error) {
 			removeWorktreeDirectory(unresolved.worktreeRoot, context.projectFolder);
-			throw sanitizeGitError(error, context.token, matchingClone ? 'git' : 'clone');
+			throw sanitizeGitError(error, context.token, 'setup-worktree');
 		}
 		invalidateContextProjectPrefix(unresolved.worktreeRoot);
 		provisioned = true;
@@ -407,21 +407,25 @@ export function synchronizeDefaultContextWorktree(
 }
 
 function provisionFromLocalClone(repo: UnresolvedContextRepo, projectFolder: string, sourceRoot: string): void {
-	const defaultBranch = readDefaultBranchFromRefs(sourceRoot) ?? readCurrentBranchFromPath(sourceRoot);
-	if (!defaultBranch) {
-		throw new Error('Unable to determine the repository default branch.');
+	try {
+		const defaultBranch = readDefaultBranchFromRefs(sourceRoot) ?? readCurrentBranchFromPath(sourceRoot);
+		if (!defaultBranch) {
+			throw new Error('Unable to determine the repository default branch.');
+		}
+		const ref = hasRefAt(sourceRoot, `refs/remotes/origin/${defaultBranch}`)
+			? `origin/${defaultBranch}`
+			: defaultBranch;
+		runWorktreeGitMutation(repo.worktreeRoot, projectFolder, sourceRoot, [
+			'worktree',
+			'add',
+			'--force',
+			'--detach',
+			repo.worktreeRoot,
+			ref,
+		]);
+	} catch (error) {
+		throw toGitError(error, 'setup-worktree');
 	}
-	const ref = hasRefAt(sourceRoot, `refs/remotes/origin/${defaultBranch}`)
-		? `origin/${defaultBranch}`
-		: defaultBranch;
-	runWorktreeGitMutation(repo.worktreeRoot, projectFolder, sourceRoot, [
-		'worktree',
-		'add',
-		'--force',
-		'--detach',
-		repo.worktreeRoot,
-		ref,
-	]);
 }
 
 function provisionByClone(
@@ -431,46 +435,58 @@ function provisionByClone(
 	token: string,
 ): void {
 	assertSafeDestructiveWorktreeTarget(repo.worktreeRoot, projectFolder);
-	if (isFirstPartyOAuthProvider(repo.provider, provider)) {
-		runGitWithOAuth(
-			path.dirname(repo.worktreeRoot),
-			['clone', provider.publicRepoUrl(repo.repoFullName), repo.worktreeRoot],
-			getGitOAuthCredential(repo.provider, token),
-			GIT_OPERATION_TIMEOUT_MS,
-		);
-	} else {
-		runGit(
-			path.dirname(repo.worktreeRoot),
-			['clone', provider.authenticatedRepoUrl(token, repo.repoFullName), repo.worktreeRoot],
-			GIT_OPERATION_TIMEOUT_MS,
-		);
+	try {
+		if (isFirstPartyOAuthProvider(repo.provider, provider)) {
+			runGitWithOAuth(
+				path.dirname(repo.worktreeRoot),
+				['clone', provider.publicRepoUrl(repo.repoFullName), repo.worktreeRoot],
+				getGitOAuthCredential(repo.provider, token),
+				GIT_OPERATION_TIMEOUT_MS,
+			);
+		} else {
+			runGit(
+				path.dirname(repo.worktreeRoot),
+				['clone', provider.authenticatedRepoUrl(token, repo.repoFullName), repo.worktreeRoot],
+				GIT_OPERATION_TIMEOUT_MS,
+			);
+		}
+	} catch (error) {
+		throw toGitError(error, 'clone');
 	}
-	runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
-		'remote',
-		'set-url',
-		'origin',
-		provider.publicRepoUrl(repo.repoFullName),
-	]);
-	const defaultBranch =
-		repo.provider === 'generic'
-			? env.NAO_CONTEXT_GIT_BRANCH || 'main'
-			: (readDefaultBranchFromRefs(repo.worktreeRoot) ?? readCurrentBranchFromPath(repo.worktreeRoot));
-	if (!defaultBranch) {
-		throw new Error('Unable to determine the repository default branch.');
+	try {
+		try {
+			runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
+				'remote',
+				'set-url',
+				'origin',
+				provider.publicRepoUrl(repo.repoFullName),
+			]);
+		} catch (error) {
+			throw toGitError(error, 'configure-remote');
+		}
+		const defaultBranch =
+			repo.provider === 'generic'
+				? env.NAO_CONTEXT_GIT_BRANCH || 'main'
+				: (readDefaultBranchFromRefs(repo.worktreeRoot) ?? readCurrentBranchFromPath(repo.worktreeRoot));
+		if (!defaultBranch) {
+			throw new Error('Unable to determine the repository default branch.');
+		}
+		if (!hasRefAt(repo.worktreeRoot, `refs/remotes/origin/${defaultBranch}`)) {
+			throw new Error(`Configured context branch not found: ${defaultBranch}`);
+		}
+		runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
+			'symbolic-ref',
+			'refs/remotes/origin/HEAD',
+			`refs/remotes/origin/${defaultBranch}`,
+		]);
+		runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
+			'switch',
+			'--detach',
+			`origin/${defaultBranch}`,
+		]);
+	} catch (error) {
+		throw toGitError(error, 'setup-worktree');
 	}
-	if (!hasRefAt(repo.worktreeRoot, `refs/remotes/origin/${defaultBranch}`)) {
-		throw new Error(`Configured context branch not found: ${defaultBranch}`);
-	}
-	runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
-		'symbolic-ref',
-		'refs/remotes/origin/HEAD',
-		`refs/remotes/origin/${defaultBranch}`,
-	]);
-	runWorktreeGitMutation(repo.worktreeRoot, projectFolder, repo.worktreeRoot, [
-		'switch',
-		'--detach',
-		`origin/${defaultBranch}`,
-	]);
 }
 
 export function fetchContextRepository(

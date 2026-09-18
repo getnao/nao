@@ -8,7 +8,7 @@ import {
 	sanitizeContextSourceRepositoryUrl,
 } from '../utils/context-repo';
 import { GitIdentity, NAO_CO_AUTHOR, withCoAuthors } from '../utils/git-identity';
-import { toGitError } from '../utils/git-repo';
+import { type GitOperation, toGitError } from '../utils/git-repo';
 import * as github from './github';
 import * as gitlab from './gitlab';
 import type { OpenReviewRequestResult, ReviewRequestProvider } from './review-request-provider';
@@ -81,19 +81,23 @@ function authenticatedRepoUrl(token: string, repositoryUrl: string): string {
 }
 
 function cloneRepo(token: string, repositoryUrl: string, targetDir: string): void {
-	try {
-		execFileSync('git', ['clone', authenticatedRepoUrl(token, repositoryUrl), targetDir], {
+	execGitOperation(
+		['clone', authenticatedRepoUrl(token, repositoryUrl), targetDir],
+		{
 			timeout: 120_000,
 			stdio: 'pipe',
-		});
-		execFileSync('git', ['remote', 'set-url', 'origin', sanitizeContextSourceRepositoryUrl(repositoryUrl)], {
+		},
+		'clone',
+	);
+	execGitOperation(
+		['remote', 'set-url', 'origin', sanitizeContextSourceRepositoryUrl(repositoryUrl)],
+		{
 			cwd: targetDir,
 			timeout: 5_000,
 			stdio: 'pipe',
-		});
-	} catch (error) {
-		throw toGitError(error, 'clone');
-	}
+		},
+		'configure-remote',
+	);
 }
 
 function getGitInfo(dir: string): { branch: string | null } {
@@ -127,12 +131,16 @@ function commitAllAndPushBranch(args: {
 		GIT_COMMITTER_NAME: args.author.name,
 		GIT_COMMITTER_EMAIL: args.author.email,
 	};
-	execFileSync('git', ['checkout', '-b', args.branch], options);
-	execFileSync('git', ['add', '-A'], options);
-	execFileSync('git', ['commit', '-m', withCoAuthors(args.message, args.coAuthors ?? [])], {
-		...options,
-		env: { ...process.env, ...identity },
-	});
+	execGitOperation(['checkout', '-b', args.branch], options, 'checkout');
+	execGitOperation(['add', '-A'], options, 'add');
+	execGitOperation(
+		['commit', '-m', withCoAuthors(args.message, args.coAuthors ?? [])],
+		{
+			...options,
+			env: { ...process.env, ...identity },
+		},
+		'commit',
+	);
 	return pushBranch(args);
 }
 
@@ -159,6 +167,18 @@ function pushBranch(args: { token: string; repoFullName: string; dir: string; br
 		);
 	}
 	return `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
+}
+
+function execGitOperation(
+	args: string[],
+	options: { cwd?: string; stdio: 'pipe'; timeout: number; env?: NodeJS.ProcessEnv },
+	operation: GitOperation,
+): Buffer {
+	try {
+		return execFileSync('git', args, options);
+	} catch (error) {
+		throw toGitError(error, operation);
+	}
 }
 
 async function findOpenReviewRequest(args: {
