@@ -1,5 +1,5 @@
 {
-  "id": "d19f3763-74fc-4102-bcd8-9bf9f0a5356f",
+  "id": "20db8917-2e7f-4f5a-986b-4067c655b343",
   "prevId": "3b18c28d-2543-4f60-8452-df1fdce14fb6",
   "version": "7",
   "dialect": "postgresql",
@@ -2681,6 +2681,31 @@
           "type": "timestamp",
           "primaryKey": false,
           "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.keyed_lock": {
+      "name": "keyed_lock",
+      "schema": "",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
         }
       },
       "indexes": {},

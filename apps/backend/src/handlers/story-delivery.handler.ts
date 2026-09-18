@@ -5,12 +5,13 @@ import {
 } from '@nao/shared/types';
 
 import type { DBScheduledJob, DBStory, DBStoryDelivery } from '../db/abstractSchema';
+import * as scheduledJobQueries from '../queries/scheduled-job.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyDeliveryQueries from '../queries/story-delivery.queries';
 import * as userQueries from '../queries/user.queries';
 import { refreshStoryData } from '../services/live-story';
-import { notifyUsers } from '../services/notification.service';
+import { NotificationChannelDeliveryError, notifyUsers } from '../services/notification.service';
 import { resolveDeliveryRecipientUserIds } from '../services/story-recipients';
 import type { ChannelDeliveryAttempt } from '../types/notification';
 import { withKeyedLock } from '../utils/keyed-lock';
@@ -34,11 +35,23 @@ type DeliveryContext = {
 	recipientUserIds: string[];
 };
 
-export async function storyDeliveryHandler(payload: StoryDeliveryJobPayload, _job?: DBScheduledJob): Promise<void> {
+export async function storyDeliveryHandler(payload: StoryDeliveryJobPayload, job?: DBScheduledJob): Promise<void> {
 	if (!payload.storyId) {
 		throw new Error('storyId is required.');
 	}
-	await runScheduledStoryDelivery(payload.storyId, parseSkipDeliveries(payload.skipDeliveries));
+	const storyId = payload.storyId;
+	const previousSkips = parseSkipDeliveries(payload.skipDeliveries);
+	try {
+		await runScheduledStoryDelivery(storyId, previousSkips);
+	} catch (error) {
+		if (job && error instanceof NotificationChannelDeliveryError) {
+			await scheduledJobQueries.updateJobPayload(job.id, {
+				storyId,
+				skipDeliveries: mergeSkipDeliveries(previousSkips, error.succeeded),
+			});
+		}
+		throw error;
+	}
 }
 
 export async function runScheduledStoryDelivery(
@@ -200,4 +213,16 @@ function parseSkipDeliveries(skipDeliveries: ChannelDeliveryAttempt[] | undefine
 		(entry): entry is ChannelDeliveryAttempt =>
 			!!entry && typeof entry === 'object' && typeof entry.userId === 'string' && channels.has(entry.channel),
 	);
+}
+
+function mergeSkipDeliveries(
+	previous: ChannelDeliveryAttempt[],
+	newlySucceeded: ChannelDeliveryAttempt[],
+): ChannelDeliveryAttempt[] {
+	const key = (attempt: ChannelDeliveryAttempt): string => `${attempt.userId}:${attempt.channel}`;
+	const merged = new Map<string, ChannelDeliveryAttempt>();
+	for (const attempt of [...previous, ...newlySucceeded]) {
+		merged.set(key(attempt), attempt);
+	}
+	return [...merged.values()];
 }

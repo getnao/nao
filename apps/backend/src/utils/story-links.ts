@@ -6,6 +6,16 @@ export function standaloneStoryPath(storyId: string): string {
 	return `/stories/standalone/${storyId}`;
 }
 
-export function storyPath(share: { id: string } | null, storyId: string): string {
-	return share ? sharedStoryPath(share.id) : standaloneStoryPath(storyId);
+export function storyPreviewPath(chatId: string, slug: string): string {
+	return `/stories/preview/${chatId}/${slug}`;
+}
+
+export function storyPath(
+	share: { id: string } | null,
+	story: { id: string; chatId: string | null; slug: string },
+): string {
+	if (share) {
+		return sharedStoryPath(share.id);
+	}
+	return story.chatId ? storyPreviewPath(story.chatId, story.slug) : standaloneStoryPath(story.id);
 }

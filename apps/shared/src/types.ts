@@ -81,8 +81,6 @@ export type StorySubscriptionNotificationPayload = {
 	shareId: string | null;
 };
 
-export type NotificationChannelPreference = { emailEnabled: boolean; inAppEnabled: boolean; slackEnabled: boolean };
-
 export const DEFAULT_PYTHON_EXECUTION_DURATION_SECS = 30;
 export const MIN_PYTHON_EXECUTION_DURATION_SECS = 1;
 export const MAX_PYTHON_EXECUTION_DURATION_SECS = 600;

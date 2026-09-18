@@ -342,9 +342,6 @@ export const storyRoutes = {
 			const delivery = story ? await storyDeliveryQueries.getByStoryId(story.id) : null;
 			if (story && delivery) {
 				const deliveryEnabled = input.isLive && delivery.enabled;
-				if (deliveryEnabled !== delivery.enabled) {
-					await storyDeliveryQueries.setEnabled(story.id, deliveryEnabled);
-				}
 				await syncStoryDeliveryJob(story.id, deliveryEnabled, delivery.cron);
 			}
 		}),

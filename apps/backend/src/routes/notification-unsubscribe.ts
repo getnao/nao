@@ -3,6 +3,7 @@ import { z } from 'zod/v4';
 
 import type { App } from '../app';
 import * as notificationUnsubscribeQueries from '../queries/notification-unsubscribe.queries';
+import * as userQueries from '../queries/user.queries';
 import { getActiveBranding } from '../services/branding.service';
 import { verifyUnsubscribeSignature } from '../services/notification-unsubscribe';
 
@@ -60,7 +61,9 @@ export const notificationUnsubscribeRoutes = async (app: App) => {
 				.send(renderResultPage(branding, 'This unsubscribe link is invalid or has expired.', false));
 		}
 
-		await notificationUnsubscribeQueries.addUnsubscribe(userId, scope);
+		if (await userQueries.getUser({ id: userId })) {
+			await notificationUnsubscribeQueries.addUnsubscribe(userId, scope);
+		}
 		return reply
 			.type('text/html')
 			.send(renderResultPage(branding, 'You have been unsubscribed from these notifications.', true));

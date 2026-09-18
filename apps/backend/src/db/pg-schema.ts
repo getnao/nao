@@ -1255,6 +1255,11 @@ export const scheduledJob = pgTable(
 	(t) => [index('scheduled_job_status_runAt_idx').on(t.status, t.runAt), index('scheduled_job_name_idx').on(t.name)],
 );
 
+export const keyedLock = pgTable('keyed_lock', {
+	key: text('key').primaryKey(),
+	expiresAt: timestamp('expires_at').notNull(),
+});
+
 export const mcpCallLog = pgTable(
 	'mcp_call_log',
 	{

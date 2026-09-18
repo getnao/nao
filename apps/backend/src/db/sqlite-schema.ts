@@ -1351,6 +1351,11 @@ export const scheduledJob = sqliteTable(
 	(t) => [index('scheduled_job_status_runAt_idx').on(t.status, t.runAt), index('scheduled_job_name_idx').on(t.name)],
 );
 
+export const keyedLock = sqliteTable('keyed_lock', {
+	key: text('key').primaryKey(),
+	expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+});
+
 export const mcpCallLog = sqliteTable(
 	'mcp_call_log',
 	{

@@ -204,3 +204,7 @@ export const markJobFailed = async (id: string, error: string, nextRunAt: Date |
 		.where(eq(s.scheduledJob.id, id))
 		.execute();
 };
+
+export const updateJobPayload = async (id: string, payload: Record<string, unknown>): Promise<void> => {
+	await db.update(s.scheduledJob).set({ payload }).where(eq(s.scheduledJob.id, id)).execute();
+};

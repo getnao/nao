@@ -10,6 +10,22 @@ CREATE TABLE `budget_notification` (
 --> statement-breakpoint
 CREATE INDEX `budget_notification_projectId_idx` ON `budget_notification` (`project_id`);--> statement-breakpoint
 CREATE UNIQUE INDEX `budget_notification_project_provider_scope_period` ON `budget_notification` (`project_id`,`provider`,`scope`,`period_start`);--> statement-breakpoint
+INSERT OR IGNORE INTO `budget_notification` (`id`, `project_id`, `provider`, `scope`, `period_start`, `created_at`)
+SELECT
+	'budget-' || ppb.`id`,
+	ppb.`project_id`,
+	ppb.`provider`,
+	'project',
+	ppb.`current_period_start`,
+	cast(unixepoch('subsecond') * 1000 as integer)
+FROM `project_provider_budget` ppb
+WHERE ppb.`notified_at` IS NOT NULL
+	AND ppb.`notified_at` >= ppb.`current_period_start`;--> statement-breakpoint
+CREATE TABLE `keyed_lock` (
+	`key` text PRIMARY KEY NOT NULL,
+	`expires_at` integer NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE `notification` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
@@ -161,7 +177,10 @@ SELECT
 	'story_refresh',
 	st.`title`,
 	'Re-ran ' || COALESCE(json_extract(a.`payload`, '$.queriesRefreshed'), 0) || ' ' || CASE WHEN COALESCE(json_extract(a.`payload`, '$.queriesRefreshed'), 0) = 1 THEN 'query' ELSE 'queries' END || ' against the latest data.',
-	COALESCE('/stories/shared/' || ss.`id`, '/stories/standalone/' || st.`id`),
+	COALESCE(
+		'/stories/shared/' || ss.`id`,
+		CASE WHEN st.`chat_id` IS NOT NULL THEN '/stories/preview/' || st.`chat_id` || '/' || st.`slug` ELSE '/stories/standalone/' || st.`id` END
+	),
 	json_object('kind', 'story_refresh', 'storyId', st.`id`, 'status', 'refreshed', 'queriesRefreshed', COALESCE(json_extract(a.`payload`, '$.queriesRefreshed'), 0), 'trigger', CASE WHEN a.`trigger` = 'manual' THEN 'manual' ELSE 'schedule' END),
 	a.`started_at`,
 	a.`started_at`
