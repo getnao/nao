@@ -14,8 +14,14 @@ licenses.getnao.io {
 }
 
 app.getnao.io {
-	reverse_proxy localhost:5050 {
-		flush_interval -1
+	@backoffice path /api/backoffice/*
+	handle @backoffice {
+		respond 404
+	}
+	handle {
+		reverse_proxy localhost:5050 {
+			flush_interval -1
+		}
 	}
 }
 
