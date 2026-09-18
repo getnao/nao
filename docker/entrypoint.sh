@@ -56,7 +56,12 @@ bitbucket.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIazEu89wgQZ4bqs3d63QSMzYVa0Mu
 bitbucket.org ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBPIQmuzMBuKdWeF4+a2sjSSpBK0iqitSQ+5BM9KhpexuGt20JpTVM7u5BDZngncgrqDMbWdxMWWOGtZ9UgbqgZE=
 bitbucket.org ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDQeJzhupRu0u0cdegZIa8e86EG2qOCsIsD1Xw0xSeiPDlCr7kq97NLmMbpKTX6Esc30NuoqEEHCuc7yWtwp8dI76EEEB1VqY9QJq6vk+aySyboD5QF61I/1WeTwu+deCbgKMGbUijeXhtfbxSxm6JwGrXrhBdofTsbKRUsrN1WoNgUa8uqN1Vx6WAJw1JHPhglEGGHea6QICwJOAr/6mrui/oB7pkaWKHj3z7d1IC4KWLtY47elvjbaTlkN04Kc/5LFEirorGYVbt15kAUlqGM65pk6ZBxtaO3+30LVlORZkxOh+LKL/BvbZ/iRNhItLqNyieoQj/uh/7Iv4uyH/cV/0b4WDSd3DptigWq84lJubb9t/DnZlrJazxyDCulTmKdOR7vs9gMTo+uoIrPSb8ScTtvw65+odKAlBj59dhnVp9zd7QUojOpXlL62Aw56U4oO+FALuevvMjiWeavKhJqlR7i5n9srYcrNV7ttmDw7kf/97P5zauIhxcjX+xHv4M=
 EOF
-            chmod 644 "$KNOWN_HOSTS_FILE"
+            chown root:nao "$SSH_DIR"
+            chown nao:nao "$SSH_KEY_FILE"
+            chown root:nao "$KNOWN_HOSTS_FILE"
+            chmod 750 "$SSH_DIR"
+            chmod 600 "$SSH_KEY_FILE"
+            chmod 640 "$KNOWN_HOSTS_FILE"
             
             export GIT_SSH_COMMAND="ssh -i $SSH_KEY_FILE -o IdentitiesOnly=yes -o UserKnownHostsFile=$KNOWN_HOSTS_FILE -o StrictHostKeyChecking=yes"
             echo "Using SSH deploy key authentication"
@@ -192,6 +197,23 @@ fi
 # Export the path for child processes
 if [ "$NAO_MODE" != "cloud" ]; then
     export NAO_DEFAULT_PROJECT_PATH
+fi
+
+# Seed demo data once the server is up (used by PR previews, where there is no
+# way to `docker exec` into the running container)
+if [ "$SEED_ON_START" = "true" ]; then
+    (
+        SERVER_URL="http://127.0.0.1:${SERVER_PORT:-5005}"
+        for _ in $(seq 1 60); do
+            if curl -sf -o /dev/null "$SERVER_URL"; then
+                echo "=== Seeding database ==="
+                su nao -s /bin/bash -c "cd /app && bun run apps/backend/scripts/db.seed.ts" || echo "⚠ Seeding failed"
+                exit 0
+            fi
+            sleep 2
+        done
+        echo "⚠ Server did not become ready in time; skipping seed"
+    ) &
 fi
 
 # Start supervisord (which manages FastAPI and Chat Server)

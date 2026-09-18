@@ -1026,7 +1026,7 @@ export const getQueryResultByQueryIdInProject = async (
 				eq(s.chat.projectId, projectId),
 				eq(s.chat.userId, userId),
 				isNull(s.chatMessage.supersededAt),
-				eq(s.messagePart.toolName, executeSqlQueries.EXECUTE_SQL_TOOL_NAME),
+				executeSqlQueries.isQueryToolPart(),
 				executeSqlQueries.messagePartToolOutputIdEquals(queryId),
 			),
 		)

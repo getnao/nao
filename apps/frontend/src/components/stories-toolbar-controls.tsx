@@ -103,8 +103,8 @@ function SearchInput({ value, onChange }: { value: string; onChange: (value: str
 				value={value}
 				onChange={(event) => onChange(event.target.value)}
 				onKeyDown={handleKeyDown}
-				placeholder='Search stories...'
-				className='bg-transparent text-xs outline-none placeholder:text-muted-foreground w-40'
+				placeholder='Search stories or paste an ID...'
+				className='bg-transparent text-xs outline-none placeholder:text-muted-foreground w-44'
 			/>
 			<button type='button' onClick={handleClose} className='text-muted-foreground hover:text-foreground'>
 				<X className='size-4' />

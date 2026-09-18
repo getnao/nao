@@ -107,6 +107,42 @@ export const upsertProjectSlackConfig = async (data: {
 	};
 };
 
+/** Overwrite only the credential and transport fields, keeping the UI-managed ones. */
+export const applySlackTransportSettings = async (data: {
+	projectId: string;
+	botToken: string;
+	signingSecret: string;
+	transportMode: SlackTransportMode;
+	appToken: string;
+}): Promise<void> => {
+	await db.transaction(async (tx) => {
+		const project = await takeFirstOrThrow(
+			tx.select().from(s.project).where(eq(s.project.id, data.projectId)).execute(),
+			`Project not found: ${data.projectId}`,
+		);
+		const existing = project.slackSettings;
+
+		await tx
+			.update(s.project)
+			.set({
+				slackSettings: {
+					slackBotToken: data.botToken,
+					slackSigningSecret: data.signingSecret,
+					slackTransportMode: data.transportMode,
+					slackAppToken: data.appToken,
+					slackSettingsSource: 'env',
+					slackllmProvider: existing?.slackllmProvider ?? '',
+					slackllmModelId: existing?.slackllmModelId ?? '',
+					autoCreateUsersEnabled: existing?.autoCreateUsersEnabled ?? false,
+					autoCreateUsersDomains: existing?.autoCreateUsersDomains ?? [],
+					slackReplyMode: toSlackReplyMode(existing?.slackReplyMode),
+				},
+			})
+			.where(eq(s.project.id, data.projectId))
+			.execute();
+	});
+};
+
 export const updateProjectSlackModel = async (
 	projectId: string,
 	modelProvider: LlmProvider | null,
@@ -132,6 +168,8 @@ export const updateProjectSlackModel = async (
 					slackTransportMode: existing?.slackTransportMode ?? 'webhook',
 					slackAppToken: existing?.slackAppToken ?? '',
 					slackReplyMode: toSlackReplyMode(existing?.slackReplyMode),
+					// A model change edits a UI-managed field; credential ownership is untouched.
+					slackSettingsSource: existing?.slackSettingsSource,
 				},
 			})
 			.where(eq(s.project.id, projectId))

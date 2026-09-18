@@ -13,13 +13,7 @@ import {
 	type StoredUserGroupSsoMappings,
 } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
-import type {
-	AnalyticsEventMetadata,
-	CitationData,
-	LlmProvider,
-	RepoProvider,
-	UserPreferences,
-} from '@nao/shared/types';
+import type { AnalyticsEventMetadata, CitationData, LlmProvider, RepoProvider } from '@nao/shared/types';
 import {
 	ANALYTICS_ASSET_TYPES,
 	ANALYTICS_EVENT_TYPES,
@@ -76,6 +70,7 @@ import {
 } from '../types/messaging-provider';
 import { ORG_ROLES } from '../types/organization';
 import type { StoryQuerySources } from '../types/story-cache';
+import type { StoredUserPreferences } from '../types/usage';
 
 export const user = pgTable('user', {
 	id: text('id').primaryKey(),
@@ -99,7 +94,7 @@ export const userPreference = pgTable('user_preference', {
 	userId: text('user_id')
 		.primaryKey()
 		.references(() => user.id, { onDelete: 'cascade' }),
-	preferences: jsonb('preferences').$type<UserPreferences>().notNull().default({}),
+	preferences: jsonb('preferences').$type<StoredUserPreferences>().notNull().default({}),
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at')
 		.defaultNow()
@@ -980,6 +975,7 @@ export const storyDataCache = pgTable('story_data_cache', {
 });
 
 export const ACTIVITY_TYPES = [
+	'context.pulled',
 	'story.refreshed',
 	'story.shared',
 	'story.pinned',

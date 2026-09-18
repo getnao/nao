@@ -1,4 +1,5 @@
-import { count } from 'drizzle-orm';
+import { count, eq, type SQL, sql } from 'drizzle-orm';
+import type { AnySQLiteColumn, AnySQLiteTable } from 'drizzle-orm/sqlite-core';
 
 import { getConnections } from '../agents/user-rules';
 import { env } from '../env';
@@ -41,9 +42,13 @@ export async function pingLicensesServer(): Promise<void> {
 
 interface StartupAdditionalInfo {
 	userCount: number | null;
+	messageCount: number | null;
+	storyCount: number | null;
+	tokenCounts: TokenCounts | null;
 	betaAutomationsEnabled: boolean;
 	betaContextRecommendationsEnabled: boolean;
 	betaStoryFiltersEnabled: boolean;
+	betaSubagentsEnabled: boolean;
 	smtpConfigured: boolean;
 	loginModesConfigured: {
 		google: boolean;
@@ -54,18 +59,32 @@ interface StartupAdditionalInfo {
 	databaseTypes: string[];
 }
 
+interface TokenCounts {
+	input: number;
+	cacheRead: number;
+	cacheWrite: number;
+	output: number;
+}
+
 async function startupAdditionalInfo(): Promise<StartupAdditionalInfo> {
-	const [userCount, googleConfigured, databaseTypes] = await Promise.all([
+	const [userCount, messageCount, storyCount, tokenCounts, googleConfigured, databaseTypes] = await Promise.all([
 		getUserCount(),
+		getMessageCount(),
+		getStoryCount(),
+		getTokenCounts(),
 		isGoogleConfigured(),
 		getDatabaseTypes(),
 	]);
 
 	return {
 		userCount,
+		messageCount,
+		storyCount,
+		tokenCounts,
 		betaAutomationsEnabled: env.BETA_AUTOMATIONS_ENABLED,
 		betaContextRecommendationsEnabled: env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED,
 		betaStoryFiltersEnabled: env.BETA_STORY_FILTERS_ENABLED,
+		betaSubagentsEnabled: env.BETA_SUBAGENTS_ENABLED,
 		smtpConfigured: isSmtpConfigured(),
 		loginModesConfigured: {
 			google: googleConfigured,
@@ -96,10 +115,53 @@ async function getDatabaseTypes(): Promise<string[]> {
 	}
 }
 
-async function getUserCount(): Promise<number | null> {
+function getUserCount(): Promise<number | null> {
+	return countRows((s) => s.user);
+}
+
+function getStoryCount(): Promise<number | null> {
+	return countRows((s) => s.story);
+}
+
+function getMessageCount(): Promise<number | null> {
+	return countRows(
+		(s) => s.chatMessage,
+		(s) => eq(s.chatMessage.role, 'user'),
+	);
+}
+
+async function getTokenCounts(): Promise<TokenCounts | null> {
 	try {
 		const [{ db }, { default: s }] = await Promise.all([import('../db/db'), import('../db/abstractSchema')]);
-		const rows = await db.select({ count: count() }).from(s.user);
+		const m = s.chatMessage;
+		const [row] = await db
+			.select({
+				input: sumColumn(m.inputNoCacheTokens),
+				cacheRead: sumColumn(m.inputCacheReadTokens),
+				cacheWrite: sumColumn(m.inputCacheWriteTokens),
+				output: sumColumn(m.outputTotalTokens),
+			})
+			.from(m);
+		return row ?? { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
+	} catch {
+		return null;
+	}
+}
+
+function sumColumn(column: AnySQLiteColumn): SQL<number> {
+	return sql<number>`coalesce(sum(${column}), 0)`.mapWith(Number);
+}
+
+type Schema = typeof import('../db/abstractSchema').default;
+
+async function countRows(
+	selectTable: (s: Schema) => AnySQLiteTable,
+	buildWhere?: (s: Schema) => SQL,
+): Promise<number | null> {
+	try {
+		const [{ db }, { default: s }] = await Promise.all([import('../db/db'), import('../db/abstractSchema')]);
+		const query = db.select({ count: count() }).from(selectTable(s));
+		const rows = buildWhere ? await query.where(buildWhere(s)) : await query;
 		return rows[0]?.count ?? 0;
 	} catch {
 		return null;

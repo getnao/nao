@@ -21,18 +21,26 @@ load_dotenv()
 cli_path = Path(__file__).resolve().parent.parent.parent.parent / "cli"
 sys.path.insert(0, str(cli_path))
 
-from nao_core.commands.sync.cleanup import get_database_folder_names
-from nao_core.config import NaoConfig, NaoConfigError
-from nao_core.config.databases.allow_listed_only_guard import (
+from nao_core.commands.sync.cleanup import get_database_folder_names  # noqa: E402
+from nao_core.config import NaoConfig, NaoConfigError  # noqa: E402
+from nao_core.config.databases.allow_listed_only_guard import (  # noqa: E402
     AllowListedOnlyGuardError,
     enforce_allow_listed_only,
     query_references_base_tables,
 )
-from nao_core.config.databases.column_access import (
+from nao_core.config.databases.column_access import (  # noqa: E402
     ColumnAccessError,
     validate_column_access,
 )
-from nao_core.context import get_context_provider
+from nao_core.context import get_context_provider  # noqa: E402
+from nao_core.semantic_layer import (  # noqa: E402
+    MetricFlowSemanticLayer,
+    SemanticLayerError,
+    SemanticLayerUnavailableError,
+    SemanticQuery,
+    metricflow_dialect_for,
+    runtime_manifest_path,
+)
 
 port = int(os.environ.get("PORT", 8005))
 
@@ -167,6 +175,24 @@ class HealthResponse(BaseModel):
     refresh_schedule: str | None
 
 
+class CompileSemanticQueryRequest(BaseModel):
+    nao_project_folder: str
+    metrics: list[str]
+    group_by: list[str] = []
+    where: list[str] = []
+    order_by: list[str] = []
+    limit: int | None = None
+    start_time: str | None = None
+    end_time: str | None = None
+    env_vars: dict[str, str] | None = None
+
+
+class CompileSemanticQueryResponse(BaseModel):
+    sql: str
+    database_id: str
+    dialect: str
+
+
 def _validate_sql(
     sql: str,
     db_config,
@@ -261,7 +287,9 @@ def require_internal_secret(
     """Only the nao backend, which shares BETTER_AUTH_SECRET, may call internal routes."""
     expected = os.environ.get("BETTER_AUTH_SECRET")
     if not expected:
-        raise HTTPException(status_code=503, detail="BETTER_AUTH_SECRET is not configured")
+        raise HTTPException(
+            status_code=503, detail="BETTER_AUTH_SECRET is not configured"
+        )
     if provided is None or not secrets.compare_digest(provided, expected):
         raise HTTPException(status_code=401, detail="Invalid internal secret")
 
@@ -545,6 +573,75 @@ async def validate_sql(request: ExecuteSQLRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(
+    "/semantic_layer/compile",
+    response_model=CompileSemanticQueryResponse,
+    dependencies=internal_only,
+)
+async def compile_semantic_query(request: CompileSemanticQueryRequest):
+    """Compile a metric query to SQL with the project's semantic layer. Execution stays with /execute_sql."""
+    try:
+        project_path = Path(request.nao_project_folder)
+        config = NaoConfig.try_load(
+            project_path, raise_on_error=True, extra_env=request.env_vars
+        )
+        assert config is not None
+
+        semantic_layer = config.semantic_layer
+        if semantic_layer is None:
+            raise HTTPException(
+                status_code=400,
+                detail="No semantic_layer configured in nao_config.yaml",
+            )
+
+        db_config = _resolve_semantic_layer_database(config, semantic_layer.database)
+        dialect = metricflow_dialect_for(db_config.type)
+        engine = MetricFlowSemanticLayer.load(
+            runtime_manifest_path(semantic_layer, project_path), dialect
+        )
+        sql = engine.compile(
+            SemanticQuery(
+                metrics=request.metrics,
+                group_by=request.group_by,
+                where=request.where,
+                order_by=request.order_by,
+                limit=request.limit,
+                start_time=request.start_time,
+                end_time=request.end_time,
+            )
+        )
+        return CompileSemanticQueryResponse(
+            sql=sql, database_id=db_config.name, dialect=db_config.type
+        )
+    except HTTPException:
+        raise
+    except SemanticLayerUnavailableError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except (NaoConfigError, SemanticLayerError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _resolve_semantic_layer_database(config: NaoConfig, database_name: str | None):
+    if database_name is not None:
+        db_config = next(
+            (db for db in config.databases if db.name == database_name), None
+        )
+        if db_config is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"semantic_layer.database '{database_name}' is not a configured database",
+            )
+        return db_config
+    if len(config.databases) == 1:
+        return config.databases[0]
+    raise HTTPException(
+        status_code=400,
+        detail="semantic_layer.database must name the database that runs semantic queries when several are configured",
+    )
 
 
 if __name__ == "__main__":
