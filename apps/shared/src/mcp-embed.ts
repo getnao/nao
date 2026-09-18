@@ -18,6 +18,7 @@ export type McpChartEmbedStoredConfig = {
 	yAxisRightMin?: displayChart.GenericChartInput['y_axis_right_min'];
 	yAxisRightMax?: displayChart.GenericChartInput['y_axis_right_max'];
 	yAxisRightLabel?: displayChart.GenericChartInput['y_axis_right_label'];
+	comparisonMode?: displayChart.ComparisonMode;
 	title: string;
 };
 

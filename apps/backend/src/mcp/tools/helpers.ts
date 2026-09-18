@@ -154,6 +154,7 @@ export async function buildChartEmbedFromArtifact(
 		y_axis_right_label,
 		title,
 	} = artifact;
+	const comparisonMode = 'comparison_mode' in artifact ? artifact.comparison_mode : undefined;
 	const block = buildStoryChartBlock({
 		query_id,
 		chart_type,
@@ -167,6 +168,7 @@ export async function buildChartEmbedFromArtifact(
 		y_axis_right_min,
 		y_axis_right_max,
 		y_axis_right_label,
+		comparison_mode: comparisonMode,
 		title,
 	});
 
@@ -209,6 +211,7 @@ export async function buildChartEmbedFromArtifact(
 				yAxisRightMin: y_axis_right_min,
 				yAxisRightMax: y_axis_right_max,
 				yAxisRightLabel: y_axis_right_label,
+				comparisonMode,
 				title,
 			},
 			sourceChatId: effectiveChatId,

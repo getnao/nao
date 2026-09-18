@@ -1,10 +1,20 @@
+import json
 import sys
 
-from dotenv import find_dotenv, load_dotenv
+from dotenv import load_dotenv
 
-load_dotenv(find_dotenv(usecwd=True))
+from nao_core.project import find_nao_project_root
 
-from cyclopts import App  # noqa: E402
+
+def _load_project_dotenv() -> None:
+    project_root = find_nao_project_root()
+    if project_root is not None:
+        load_dotenv(project_root / ".env")
+
+
+_load_project_dotenv()
+
+from cyclopts import App, CycloptsError  # noqa: E402
 
 from nao_core import __version__  # noqa: E402
 from nao_core.branding import banner, should_show_banner  # noqa: E402
@@ -46,7 +56,13 @@ def main():
         banner(console, __version__)
     if "--json" not in sys.argv:
         check_for_updates()
-    app()
+        app()
+        return
+    try:
+        app(sys.argv[1:], exit_on_error=False, print_error=False)
+    except CycloptsError as error:
+        print(json.dumps({"success": False, "error": str(error)}, ensure_ascii=False, separators=(",", ":")))
+        raise SystemExit(1) from error
 
 
 if __name__ == "__main__":

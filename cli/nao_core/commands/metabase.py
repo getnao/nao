@@ -1,16 +1,19 @@
 import json
 import os
 import re
+import subprocess
 from collections import deque
 from ipaddress import ip_address
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Annotated, Any, Callable
 from urllib.parse import ParseResult, urlparse, urlunparse
 
 import httpx
 from cyclopts import App, Parameter
-from dotenv import find_dotenv, set_key
+from dotenv import set_key
 
+from nao_core.project import find_nao_project_root
 from nao_core.tracking import track_command
 from nao_core.ui import UI, ask_text
 
@@ -18,6 +21,13 @@ metabase = App(name="metabase")
 HTTP_TIMEOUT = 30
 HTTP_RETRIES = 2
 PAGE_SIZE = 100
+METABASE_TEMPLATE_TAG_PATTERN = re.compile(r"\{\{[^{}]+\}\}")
+BOUND_SQL_PARAMETERS_LIMITATION = (
+    "Nao execute_sql does not support bound SQL parameters; translate supported native filters or skip this question."
+)
+QUERY_EXECUTION_REQUIRED_LIMITATION = (
+    "Compiled SQL requires running this Metabase question; rerun with --allow-query-execution to allow it."
+)
 
 
 class MetabaseCliError(RuntimeError):
@@ -27,6 +37,18 @@ class MetabaseCliError(RuntimeError):
 @metabase.command
 def configure() -> None:
     """Save Metabase import credentials in the project .env file."""
+    try:
+        project_path = _resolve_nao_project_root()
+        env_path = project_path / ".env"
+        if _is_git_tracked(env_path):
+            raise MetabaseCliError(
+                f"Refusing to write Metabase credentials to tracked file {env_path}. "
+                "Remove it from Git tracking before configuring Metabase."
+            )
+    except (MetabaseCliError, OSError) as error:
+        UI.error(str(error))
+        raise SystemExit(1)
+
     metabase_url = ask_text(
         "Metabase URL:",
         default=os.getenv("METABASE_URL", ""),
@@ -37,7 +59,7 @@ def configure() -> None:
 
     try:
         metabase_url = _normalize_metabase_url(metabase_url)
-        env_path = Path(find_dotenv(usecwd=True) or Path.cwd() / ".env")
+        _ensure_project_env_is_ignored(project_path)
         set_key(env_path, "METABASE_URL", metabase_url, quote_mode="always")
         set_key(env_path, "METABASE_API_KEY", api_key, quote_mode="always")
     except (MetabaseCliError, OSError) as error:
@@ -60,6 +82,13 @@ def dashboard(
             help='Set a dashboard filter as ID=JSON, for example period="2026-09-01".',
         ),
     ] = None,
+    allow_query_execution: Annotated[
+        bool,
+        Parameter(
+            name="--allow-query-execution",
+            help="Allow Metabase to run saved questions when compiled SQL is required.",
+        ),
+    ] = False,
     json_output: Annotated[
         bool,
         Parameter(name="--json", help="Print compact JSON for machine consumption."),
@@ -70,7 +99,15 @@ def dashboard(
     ] = None,
 ) -> None:
     """Export one or more Metabase dashboards as nao import manifests."""
-    _run_source_exports("dashboard", sources, export_dashboard, parameters, json_output, output)
+    _run_source_exports(
+        "dashboard",
+        sources,
+        export_dashboard,
+        parameters,
+        allow_query_execution,
+        json_output,
+        output,
+    )
 
 
 @metabase.command
@@ -86,6 +123,13 @@ def question(
             help='Set a question parameter as ID=JSON, for example period="2026-09-01".',
         ),
     ] = None,
+    allow_query_execution: Annotated[
+        bool,
+        Parameter(
+            name="--allow-query-execution",
+            help="Allow Metabase to run saved questions when compiled SQL is required.",
+        ),
+    ] = False,
     json_output: Annotated[
         bool,
         Parameter(name="--json", help="Print compact JSON for machine consumption."),
@@ -96,7 +140,15 @@ def question(
     ] = None,
 ) -> None:
     """Export one or more Metabase questions as nao import manifests."""
-    _run_source_exports("question", sources, export_question, parameters, json_output, output)
+    _run_source_exports(
+        "question",
+        sources,
+        export_question,
+        parameters,
+        allow_query_execution,
+        json_output,
+        output,
+    )
 
 
 @metabase.command
@@ -115,6 +167,13 @@ def collection(
             help='Set a dashboard filter as ID=JSON, for example period="2026-09-01".',
         ),
     ] = None,
+    allow_query_execution: Annotated[
+        bool,
+        Parameter(
+            name="--allow-query-execution",
+            help="Allow Metabase to run saved questions when compiled SQL is required.",
+        ),
+    ] = False,
     json_output: Annotated[
         bool,
         Parameter(name="--json", help="Print compact JSON for machine consumption."),
@@ -138,6 +197,7 @@ def collection(
                 int(dashboard_id),
                 parameter_values,
                 consumed_parameter_ids,
+                allow_query_execution,
             ),
         )
         _reject_unmatched_parameter_values(parameter_values, consumed_parameter_ids)
@@ -161,8 +221,9 @@ def collection(
 def _run_source_exports(
     resource: str,
     sources: list[str],
-    exporter: Callable[[str, dict[str, Any], set[str] | None], dict[str, Any]],
+    exporter: Callable[[str, dict[str, Any], set[str] | None, bool], dict[str, Any]],
     parameters: list[str] | None,
+    allow_query_execution: bool,
     json_output: bool,
     output: Path | None,
 ) -> None:
@@ -170,14 +231,23 @@ def _run_source_exports(
         UI.error(f"At least one Metabase {resource} ID or URL is required.")
         raise SystemExit(1)
 
+    unique_sources = list(dict.fromkeys(sources))
     try:
         parameter_values = _parse_parameter_values(parameters)
         consumed_parameter_ids: set[str] = set()
         manifests, failures = _collect_exports(
             sources,
-            lambda source: exporter(source, parameter_values, consumed_parameter_ids),
+            lambda source: exporter(source, parameter_values, consumed_parameter_ids, allow_query_execution),
         )
         _reject_unmatched_parameter_values(parameter_values, consumed_parameter_ids)
+    except MetabaseCliError as error:
+        if not json_output and output is None:
+            UI.error(str(error))
+            raise SystemExit(1)
+        manifests = []
+        failures = [{"source": source, "reason": str(error)} for source in unique_sources]
+
+    try:
         _emit_manifest(
             _build_batch_manifest(resource, manifests, failures, {"mode": "explicit", "sources": sources}),
             json_output,
@@ -188,6 +258,44 @@ def _run_source_exports(
         raise SystemExit(1)
     if failures:
         raise SystemExit(1)
+
+
+def _resolve_nao_project_root() -> Path:
+    project_root = find_nao_project_root()
+    if project_root is None:
+        raise MetabaseCliError(
+            "No nao_config.yaml found. Run 'nao import metabase configure' from inside a nao project."
+        )
+    return project_root
+
+
+def _ensure_project_env_is_ignored(project_path: Path) -> None:
+    gitignore_path = project_path / ".gitignore"
+    lines = gitignore_path.read_text().splitlines() if gitignore_path.exists() else []
+    if lines and lines[-1] == ".env":
+        return
+    gitignore_path.write_text("\n".join([line for line in lines if line != ".env"] + [".env"]) + "\n")
+
+
+def _is_git_tracked(path: Path) -> bool:
+    try:
+        repository = subprocess.run(
+            ["git", "-C", str(path.parent), "rev-parse", "--is-inside-work-tree"],
+            capture_output=True,
+            check=False,
+        )
+        if repository.returncode != 0:
+            return False
+        result = subprocess.run(
+            ["git", "-C", str(path.parent), "ls-files", "--error-unmatch", "--", path.name],
+            capture_output=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return False
+    if result.returncode not in {0, 1}:
+        raise MetabaseCliError(f"Could not determine whether {path} is tracked by Git.")
+    return result.returncode == 0
 
 
 def _parse_parameter_values(parameters: list[str] | None) -> dict[str, Any]:
@@ -259,9 +367,16 @@ def export_dashboard(
     source: str,
     parameter_values: dict[str, Any] | None = None,
     batch_consumed_parameter_ids: set[str] | None = None,
+    allow_query_execution: bool = False,
 ) -> dict[str, Any]:
     base_url, dashboard_id = _resolve_dashboard_source(source)
-    return _export_dashboard(base_url, dashboard_id, parameter_values, batch_consumed_parameter_ids)
+    return _export_dashboard(
+        base_url,
+        dashboard_id,
+        parameter_values,
+        batch_consumed_parameter_ids,
+        allow_query_execution,
+    )
 
 
 def _export_dashboard(
@@ -269,6 +384,7 @@ def _export_dashboard(
     dashboard_id: int,
     parameter_values: dict[str, Any] | None = None,
     batch_consumed_parameter_ids: set[str] | None = None,
+    allow_query_execution: bool = False,
 ) -> dict[str, Any]:
     dashboard_data = _fetch_dashboard(base_url, dashboard_id)
     compiled_queries, limitations = _compile_mbql_queries(
@@ -277,6 +393,7 @@ def _export_dashboard(
         dashboard_data,
         parameter_values,
         batch_consumed_parameter_ids,
+        allow_query_execution,
     )
     databases, database_limitations = _fetch_database_metadata(
         base_url,
@@ -295,6 +412,7 @@ def export_question(
     source: str,
     parameter_values: dict[str, Any] | None = None,
     batch_consumed_parameter_ids: set[str] | None = None,
+    allow_query_execution: bool = False,
 ) -> dict[str, Any]:
     base_url, question_id = _resolve_question_source(source)
     question_data = _fetch_question(base_url, question_id)
@@ -306,22 +424,21 @@ def export_question(
         batch_consumed_parameter_ids.update(consumed_parameter_ids)
     compiled_query: dict[str, Any] | None = None
     limitations: list[dict[str, Any]] = []
-    if query_parameters or not _extract_native_sql(question_data.get("dataset_query")):
-        try:
-            compiled_query = _compile_question(
-                base_url,
-                None,
-                question_id,
-                query_parameters,
-            )
-        except MetabaseCliError as error:
-            limitations.append(
-                {
-                    "questionId": question_id,
-                    "questionName": question_data.get("name"),
-                    "reason": str(error),
-                }
-            )
+    if _requires_question_compilation(question_data, query_parameters):
+        if not allow_query_execution:
+            limitations.append(_question_limitation(question_data, QUERY_EXECUTION_REQUIRED_LIMITATION))
+        else:
+            try:
+                compiled_query = _compile_question(
+                    base_url,
+                    None,
+                    question_id,
+                    query_parameters,
+                )
+                if compiled_query["parameters"]:
+                    limitations.append(_question_limitation(question_data, BOUND_SQL_PARAMETERS_LIMITATION))
+            except MetabaseCliError as error:
+                limitations.append(_question_limitation(question_data, str(error)))
     databases, database_limitations = _fetch_database_metadata(
         base_url,
         _question_database_ids([question_data]),
@@ -358,14 +475,22 @@ def _resolve_metabase_source(source: str, resource: str) -> tuple[str, int]:
     name = resource.capitalize()
     if resource_url is None:
         raise MetabaseCliError(f"{name} must be a positive numeric ID or a Metabase {resource} URL.")
-    match = re.search(rf"/{resource}/([1-9]\d*)(?:[-/]|$)", resource_url.path)
     resource_origin = _url_origin(resource_url)
-    if resource_origin is None or not match:
+    if resource_origin is None:
         raise MetabaseCliError(f"{name} must be a positive numeric ID or a Metabase {resource} URL.")
+    if resource_url.username is not None or resource_url.password is not None:
+        raise MetabaseCliError(f"{name} URL must not include user information.")
+    if resource_url.query or resource_url.fragment:
+        raise MetabaseCliError(f"{name} URL must not include a query string or fragment.")
 
     base_url = _configured_metabase_url(resource)
-    if resource_origin != _url_origin(urlparse(base_url)):
+    configured_url = urlparse(base_url)
+    if resource_origin != _url_origin(configured_url):
         raise MetabaseCliError(f"{name} URL must use the server configured by METABASE_URL.")
+    resource_prefix = f"{configured_url.path.rstrip('/')}/{resource}"
+    match = re.match(rf"^{re.escape(resource_prefix)}/([1-9]\d*)(?:[-/]|$)", resource_url.path)
+    if not match:
+        raise MetabaseCliError(f"{name} URL must use the base path configured by METABASE_URL.")
     return base_url, int(match.group(1))
 
 
@@ -423,17 +548,65 @@ def _url_origin(url: ParseResult) -> tuple[str, str, int] | None:
 
 
 def _fetch_dashboard(base_url: str, dashboard_id: int) -> dict[str, Any]:
-    return _fetch_metabase_object(
+    dashboard = _fetch_metabase_object(
         f"{base_url}/api/dashboard/{dashboard_id}",
         "dashboard",
     )
+    _validate_dashboard_response(dashboard, dashboard_id)
+    return dashboard
 
 
 def _fetch_question(base_url: str, question_id: int) -> dict[str, Any]:
-    return _fetch_metabase_object(
+    question = _fetch_metabase_object(
         f"{base_url}/api/card/{question_id}",
         "question",
     )
+    _validate_question_response(question, question_id, "question")
+    return question
+
+
+def _validate_dashboard_response(dashboard: dict[str, Any], dashboard_id: int) -> None:
+    if not _is_positive_int(dashboard.get("id")) or dashboard.get("id") != dashboard_id:
+        raise MetabaseCliError("Metabase returned an unexpected dashboard response.")
+    for field in ("dashcards", "tabs", "parameters"):
+        value = dashboard.get(field)
+        if (field == "dashcards" and not isinstance(value, list)) or (
+            value is not None and (not isinstance(value, list) or not all(isinstance(item, dict) for item in value))
+        ):
+            raise MetabaseCliError("Metabase returned an unexpected dashboard response.")
+    for card in dashboard["dashcards"]:
+        card_id = card.get("card_id")
+        if card_id is None:
+            continue
+        if not _is_positive_int(card_id) or not isinstance(card.get("card"), dict):
+            raise MetabaseCliError("Metabase returned an unexpected dashboard response.")
+        _validate_question_response(card["card"], card_id, "dashboard")
+        series = card.get("series")
+        if series is not None:
+            if not isinstance(series, list) or not all(isinstance(item, dict) for item in series):
+                raise MetabaseCliError("Metabase returned an unexpected dashboard response.")
+            for question in series:
+                _validate_question_response(question, question.get("id"), "dashboard")
+
+
+def _validate_question_response(question: dict[str, Any], question_id: Any, resource: str) -> None:
+    if (
+        not _is_positive_int(question_id)
+        or not _is_positive_int(question.get("id"))
+        or question.get("id") != question_id
+    ):
+        raise MetabaseCliError(f"Metabase returned an unexpected {resource} response.")
+    if not isinstance(question.get("dataset_query"), dict):
+        raise MetabaseCliError(f"Metabase returned an unexpected {resource} response.")
+    expected_fields = {"visualization_settings": dict, "result_metadata": list}
+    for field, expected_type in expected_fields.items():
+        value = question.get(field)
+        if value is not None and not isinstance(value, expected_type):
+            raise MetabaseCliError(f"Metabase returned an unexpected {resource} response.")
+
+
+def _is_positive_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
 def _fetch_database_metadata(
@@ -556,6 +729,7 @@ def _compile_mbql_queries(
     dashboard: dict[str, Any],
     parameter_values: dict[str, Any] | None = None,
     batch_consumed_parameter_ids: set[str] | None = None,
+    allow_query_execution: bool = False,
 ) -> tuple[dict[tuple[int, int], dict[str, Any]], list[dict[str, Any]]]:
     values = parameter_values or {}
     contexts: list[tuple[int, dict[str, Any], list[dict[str, Any]]]] = []
@@ -577,27 +751,42 @@ def _compile_mbql_queries(
     limitations: list[dict[str, Any]] = []
     for placement_id, question, query_parameters in contexts:
         question_id = question.get("id")
-        if not isinstance(question_id, int) or (
-            not query_parameters and _extract_native_sql(question.get("dataset_query"))
-        ):
+        if not isinstance(question_id, int) or not _requires_question_compilation(question, query_parameters):
+            continue
+        if not allow_query_execution:
+            limitations.append(_question_limitation(question, QUERY_EXECUTION_REQUIRED_LIMITATION, placement_id))
             continue
         try:
-            compiled_queries[(placement_id, question_id)] = _compile_question(
+            compiled_query = _compile_question(
                 base_url,
                 dashboard_id,
                 question_id,
                 query_parameters,
             )
+            compiled_queries[(placement_id, question_id)] = compiled_query
+            if compiled_query["parameters"]:
+                limitations.append(_question_limitation(question, BOUND_SQL_PARAMETERS_LIMITATION, placement_id))
         except MetabaseCliError as error:
-            limitations.append(
-                {
-                    "placementId": placement_id,
-                    "questionId": question_id,
-                    "questionName": question.get("name"),
-                    "reason": str(error),
-                }
-            )
+            limitations.append(_question_limitation(question, str(error), placement_id))
     return compiled_queries, limitations
+
+
+def _question_limitation(
+    question: dict[str, Any],
+    reason: str,
+    placement_id: int | None = None,
+) -> dict[str, Any]:
+    return {
+        **({"placementId": placement_id} if placement_id is not None else {}),
+        "questionId": question.get("id"),
+        "questionName": question.get("name"),
+        "reason": reason,
+    }
+
+
+def _requires_question_compilation(question: dict[str, Any], query_parameters: list[dict[str, Any]]) -> bool:
+    native_sql = _extract_native_sql(question.get("dataset_query"))
+    return bool(query_parameters) or native_sql is None or _contains_metabase_template_syntax(native_sql)
 
 
 def _dashboard_question_contexts(
@@ -650,8 +839,8 @@ def _compile_question(
     except ValueError as error:
         raise MetabaseCliError("Metabase returned invalid JSON while compiling the question.") from error
     compiled_query = _extract_compiled_query(result)
-    if compiled_query is None:
-        raise MetabaseCliError("Metabase did not return compiled SQL for this question.")
+    if compiled_query is None or _contains_metabase_template_syntax(compiled_query["sql"]):
+        raise MetabaseCliError("Metabase did not return executable compiled SQL for this question.")
     return compiled_query
 
 
@@ -931,7 +1120,12 @@ def _compact_question(
 
     dataset_query = question.get("dataset_query")
     native_sql = _extract_native_sql(dataset_query)
-    compiled_query = compiled_query or {}
+    sql_parameters = (compiled_query.get("parameters") or []) if compiled_query else []
+    executable_sql = native_sql if compiled_query is None else compiled_query.get("sql")
+    if sql_parameters:
+        executable_sql = None
+    if _contains_metabase_template_syntax(executable_sql):
+        executable_sql = None
     return {
         "id": question.get("id"),
         "name": question.get("name"),
@@ -942,8 +1136,8 @@ def _compact_question(
         "datasetQuery": dataset_query,
         "mbql": dataset_query if native_sql is None else None,
         "nativeSql": native_sql,
-        "sql": compiled_query.get("sql") or native_sql,
-        "sqlParameters": compiled_query.get("parameters") or [],
+        "sql": executable_sql,
+        "sqlParameters": sql_parameters,
         "visualizationSettings": question.get("visualization_settings") or {},
         "resultMetadata": question.get("result_metadata") or [],
     }
@@ -966,16 +1160,37 @@ def _extract_native_sql(dataset_query: Any) -> str | None:
     return None
 
 
+def _contains_metabase_template_syntax(sql: Any) -> bool:
+    return isinstance(sql, str) and METABASE_TEMPLATE_TAG_PATTERN.search(sql) is not None
+
+
 def _write_manifest(output: Path, serialized: str) -> None:
     destination = output.expanduser()
     if destination.suffix.lower() != ".json":
         raise MetabaseCliError("Output file must use the .json extension.")
-    destination.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with destination.open("x") as file:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        raise MetabaseCliError(f"Could not write output file {destination}: {error}") from error
+    temporary_path: Path | None = None
+    try:
+        with NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=destination.parent,
+            prefix=f".{destination.name}.",
+            delete=False,
+        ) as file:
+            temporary_path = Path(file.name)
             file.write(serialized)
+            file.flush()
+            os.fsync(file.fileno())
+        os.link(temporary_path, destination)
     except FileExistsError as error:
         raise MetabaseCliError(f"Output file already exists: {destination}") from error
     except OSError as error:
         raise MetabaseCliError(f"Could not write output file {destination}: {error}") from error
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
     UI.success(f"Created Metabase import manifest: {destination}")

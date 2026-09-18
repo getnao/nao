@@ -35,7 +35,8 @@ Choose exactly one command from the user's source:
 For a collection or a large multi-source batch, replace `--json` with `--output '<UNIQUE_TEMP_PATH>.json'`, then read the manifest from that file. Do not print a large manifest into agent context where tool output may be truncated.
 
 Require numeric IDs or matching Metabase URLs. Name lookup is not supported.
-When the user supplies filter values, pass each one as `--parameter 'ID=<JSON_VALUE>'`. Otherwise the CLI uses explicit Metabase defaults and reports questions that still cannot compile under `limitations`.
+When the user supplies filter values, pass each one as `--parameter 'ID=<JSON_VALUE>'`. Otherwise the CLI uses explicit Metabase defaults and reports questions that cannot be executed safely under `limitations`.
+The CLI does not run saved Metabase questions by default. If a manifest reports that compiled SQL requires query execution, explain that continuing will run the affected saved questions in Metabase and ask for confirmation. After confirmation, rerun the same export once with `--allow-query-execution`; use a new output path when `--output` was used.
 
 The CLI requires both `METABASE_URL` and `METABASE_API_KEY`. Run the chosen export once, then inspect
 its exit status and every entry in batch `failures`. For a missing or invalid variable, or a `401` or `403`
@@ -63,8 +64,8 @@ For other CLI export failures, keep successful items from partial batches, repor
 
 1. Process each placement with its own `question.sql` and `question.sqlParameters`. Reuse a nao query ID only when the question ID and complete `parameterMappings` are identical.
 2. Use `question.sql` unchanged for execution unless original native SQL qualifies for the exact story-filter translation below. Keep `question.datasetQuery` and `question.mbql` only as source provenance; never edit SQL compiled from MBQL or ask the model to recreate SQL from MBQL.
-3. If `question.sql` is null, skip the question and report that Metabase could not compile it.
-4. Never execute `question.sql` when `question.sqlParameters` is non-empty, and never interpolate its bindings. Continue only when original native SQL can be translated completely into nao story filters as specified below; otherwise skip and report it.
+3. If `question.sql` is null, continue only when original native SQL can be translated completely into nao story filters as specified below; otherwise skip the question and report its limitation.
+4. Never execute `question.sql` when `question.sqlParameters` is non-empty, and never interpolate its bindings. Bound parameters are an explicit unsupported limitation, not permission to reconstruct SQL.
 5. Resolve `question.databaseId` to the corresponding manifest `databases` entry, then use its name and engine to identify exactly one compatible nao database. Metabase and nao numeric IDs are unrelated and must never be matched directly. If metadata is missing or several nao databases remain plausible, ask the user to map the named Metabase database to a nao database and reuse that confirmed mapping for the same source ID.
 6. Execute only one read-only query that returns rows. Reject multiple statements, data changes, DDL, transaction or session commands, stored procedure calls, `SELECT INTO`, and data-changing CTEs. Do not sanitize unsafe SQL or execute only part of it; skip the question and report the reason.
 7. Call nao MCP `execute_sql`; every chart, table, or map must use the returned query ID. Never embed copied Metabase rows as chart data.
@@ -100,11 +101,12 @@ For story delivery from a dashboard:
 - Use the dashboard name and description for the title and introduction.
 - Preserve virtual text cards as Markdown, repeated placements, and every linked series in source order.
 - Sort tabs by position and cards within each tab by row then column. Group cards sharing a source row into `<grid>` blocks and derive relative `widths` from `layout.width`.
+- Translate dashboard filters only when a current nao `chat_id` is available and the user confirms that `BETA_STORY_FILTERS_ENABLED=true` on the nao instance. If either condition is missing, emit no nao filter markup, report the filters as unsupported, and follow the existing unchanged-SQL fallback or skip rules.
 - Preserve each dashboard filter only when nao documents a matching filter type. Apply only the `effectiveFilterIds` listed on each card or linked series; leave an empty list unfiltered. Use `parameterMappings` for original targets and never infer wiring from another card.
 - Story-filter translation is the only exception to executing `question.sql` unchanged. Translate only `question.nativeSql`, never SQL compiled from MBQL, and only when every Metabase `{{tag}}` and `[[...]]` construct belongs to an `effectiveFilterId` with an explicit `parameterMappings` target. Replace complete, structurally clear predicates with documented nao filter blocks; never guess a column, operator, or clause boundary. The translated SQL must contain no Metabase template syntax.
-- Run the complete translated query with `execute_sql` and fix any template warning before creating the story. If exact translation fails, leave the filter inactive and execute the unchanged `question.sql` only when `question.sqlParameters` is empty; otherwise skip and report the question.
+- Run the complete translated query with `execute_sql` and fix any template warning before creating the story. If exact translation fails, leave the filter inactive and execute the unchanged `question.sql` only when it is non-null and `question.sqlParameters` is empty; otherwise skip and report the question.
 - A Metabase filter `default` is the current selection, never its complete option list. Do not turn a default into hardcoded options.
-- Call nao MCP `create_story` only after processing all accessible dashboard items.
+- Call nao MCP `create_story` only after processing all accessible dashboard items. Pass the required current nao `chat_id` whenever the story contains translated filters; never create a standalone story with filters.
 
 For story delivery from standalone questions:
 

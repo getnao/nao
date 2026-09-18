@@ -72,6 +72,7 @@ export const ChartAppView = memo(function ChartAppView({ config, data, naoUrl }:
 					yAxisRightMin={config.yAxisRightMin}
 					yAxisRightMax={config.yAxisRightMax}
 					yAxisRightLabel={config.yAxisRightLabel}
+					comparisonMode={config.comparisonMode}
 				/>
 			</div>
 		);
