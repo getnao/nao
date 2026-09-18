@@ -24,22 +24,34 @@ export async function resolveDeliveryRecipientUserIds(
 	projectId: string,
 	ownerId: string | null,
 ): Promise<string[]> {
+	const accessibleIds = await currentProjectAccessIds(projectId);
+
 	if (delivery.recipientMode !== 'all') {
-		return dedupe(delivery.recipientUserIds);
+		return dedupe(delivery.recipientUserIds.filter((id) => accessibleIds.has(id)));
 	}
 
 	const access = await sharedStoryQueries.getStoryShareAccess(storyId, projectId);
 	if (!access) {
-		const members = await projectQueries.listProjectMembersWithRoles(projectId);
-		return dedupe(members.map((member) => member.id).filter((id) => id !== ownerId));
+		return excludeOwner([...accessibleIds], ownerId);
 	}
 
 	if (access.visibility === 'specific') {
-		return dedupe(access.allowedUserIds);
+		return excludeOwner(
+			access.allowedUserIds.filter((id) => accessibleIds.has(id)),
+			ownerId,
+		);
 	}
 
+	return excludeOwner([...accessibleIds], ownerId);
+}
+
+async function currentProjectAccessIds(projectId: string): Promise<Set<string>> {
 	const members = await projectQueries.listUsersWithProjectAccess(projectId);
-	return dedupe(members.map((member) => member.id).filter((id) => id !== ownerId));
+	return new Set(members.map((member) => member.id));
+}
+
+function excludeOwner(ids: string[], ownerId: string | null): string[] {
+	return dedupe(ids.filter((id) => id !== ownerId));
 }
 
 function dedupe(ids: string[]): string[] {
