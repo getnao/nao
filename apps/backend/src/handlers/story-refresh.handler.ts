@@ -2,7 +2,11 @@ import type { DBScheduledJob } from '../db/abstractSchema';
 import * as activityQueries from '../queries/activity.queries';
 import * as storyQueries from '../queries/story.queries';
 import { refreshStoryData } from '../services/live-story';
-import { notifyStoryRefreshed, notifyStoryRefreshFailed } from '../services/notification.service';
+import {
+	NotificationChannelDeliveryError,
+	notifyStoryRefreshed,
+	notifyStoryRefreshFailed,
+} from '../services/notification.service';
 import { enqueueOnce } from '../services/scheduler.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { withKeyedLock } from '../utils/keyed-lock';
@@ -94,7 +98,10 @@ async function runLockedScheduledStoryRefresh(storyId: string): Promise<void> {
 			});
 			await enqueueOnce({
 				name: STORY_DELIVERY_JOB_NAME,
-				payload: { storyId },
+				payload: {
+					storyId,
+					skipDeliveries: error instanceof NotificationChannelDeliveryError ? error.succeeded : [],
+				},
 				uniqueKey: `story-delivery-retry:${activity.id}`,
 			});
 		});

@@ -22,3 +22,8 @@ export interface NotificationRecipient {
 	name: string;
 	email: string;
 }
+
+export type ChannelDeliveryAttempt = {
+	userId: string;
+	channel: NotificationChannel;
+};
