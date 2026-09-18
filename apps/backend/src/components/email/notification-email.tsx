@@ -1,5 +1,7 @@
 import { EmailButton } from './email-button';
 import { EmailLayout } from './email-layout';
+import { EmailParagraph } from './email-text';
+import { emailColors } from './email-theme';
 
 interface NotificationEmailProps {
 	userName: string;
@@ -22,30 +24,29 @@ export function NotificationEmail({
 }: NotificationEmailProps) {
 	return (
 		<EmailLayout title={`${title} — nao`}>
-			<p>Hi {userName},</p>
+			<EmailParagraph>Hi {userName},</EmailParagraph>
 
-			<p>
+			<EmailParagraph>
 				<strong>{title}</strong>
-			</p>
+			</EmailParagraph>
 
-			{body && <p>{body}</p>}
+			{body && <EmailParagraph>{body}</EmailParagraph>}
 
 			{linkUrl && <EmailButton href={linkUrl}>{ctaLabel ?? 'Open in nao'}</EmailButton>}
 
-			<div className='footer'>
-				<p>This is an automated message from nao.</p>
-				{unsubscribeUrl && (
-					<p>
-						<a href={unsubscribeUrl}>Unsubscribe from these emails</a>
-					</p>
-				)}
-			</div>
-
 			{bodyHtml && (
 				<div
-					style={{ marginTop: 24, paddingTop: 24, borderTop: '1px solid #e5e7eb' }}
+					style={{ margin: '8px 0 24px', paddingTop: 24, borderTop: '1px solid #e5e7eb' }}
 					dangerouslySetInnerHTML={{ __html: bodyHtml }}
 				/>
+			)}
+
+			{unsubscribeUrl && (
+				<EmailParagraph muted>
+					<a href={unsubscribeUrl} style={{ color: emailColors.muted }}>
+						Unsubscribe from these emails
+					</a>
+				</EmailParagraph>
 			)}
 		</EmailLayout>
 	);
