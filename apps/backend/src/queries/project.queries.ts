@@ -1,6 +1,6 @@
 import type { BackgroundModelSettings, CustomBoundarySet, MapSettings } from '@nao/shared';
 import { DEFAULT_DATE_FORMAT_SETTINGS, type DisplaySettings } from '@nao/shared/date';
-import type { UpdatedAtFilter, UserRole } from '@nao/shared/types';
+import { DEFAULT_LINK_PREVIEW_SETTINGS, type UpdatedAtFilter, type UserRole } from '@nao/shared/types';
 import { and, asc, desc, eq, gt, gte, isNotNull, lte, or, type SQL, sql } from 'drizzle-orm';
 
 import type { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
@@ -294,6 +294,7 @@ export const getDisplaySettings = async (projectId: string): Promise<DisplaySett
 	const stored = project?.displaySettings ?? {};
 	return {
 		dateFormat: stored.dateFormat ?? { ...DEFAULT_DATE_FORMAT_SETTINGS },
+		linkPreviews: stored.linkPreviews ?? { ...DEFAULT_LINK_PREVIEW_SETTINGS },
 	};
 };
 
@@ -303,6 +304,7 @@ export const updateDisplaySettings = async (projectId: string, settings: Display
 		...current,
 		...settings,
 		dateFormat: settings.dateFormat ?? current.dateFormat,
+		linkPreviews: settings.linkPreviews ?? current.linkPreviews,
 	};
 	await db.update(s.project).set({ displaySettings: next }).where(eq(s.project.id, projectId)).execute();
 	return next;

@@ -57,6 +57,7 @@ import { testRoutes } from './routes/test';
 import { whatsappRoutes } from './routes/whatsapp';
 import { startLicenseHeartbeat } from './services/license.service';
 import { logLicenseStatus } from './services/license-startup';
+import { resolveLinkPreview } from './services/link-preview.service';
 import { mattermostService } from './services/mattermost';
 import { pingLicensesServer } from './services/ping';
 import { posthog, PostHogEvent } from './services/posthog';
@@ -67,6 +68,7 @@ import { createContext } from './trpc/trpc';
 import { BudgetExceededError, HandlerError } from './utils/error';
 import { closeBrowser } from './utils/headless-browser';
 import { logger } from './utils/logger';
+import { getSpaIndexHtml } from './utils/spa-index-html';
 
 // Get the directory of the current module (works in both dev and compiled)
 const __filename = fileURLToPath(import.meta.url);
@@ -349,16 +351,18 @@ if (staticRoot) {
 		root: staticRoot,
 		prefix: '/',
 		wildcard: false,
+		index: false,
 	});
 }
 
-// SPA fallback: serve index.html for all non-API routes.
+// SPA fallback: serve index.html for all non-API routes (including `/`, since static `index` is off).
 // In dev mode without a built frontend, redirect to the Vite dev server.
-app.setNotFoundHandler((request, reply) => {
+app.setNotFoundHandler(async (request, reply) => {
 	if (isReservedBackendPath(request.url)) {
 		reply.status(404).send({ error: 'Not found' });
 	} else if (staticRoot) {
-		reply.sendFile('index.html');
+		const linkPreview = await resolveLinkPreview(request.url);
+		reply.type('text/html; charset=utf-8').send(getSpaIndexHtml(staticRoot, linkPreview));
 	} else if (isDev) {
 		reply.redirect(`http://localhost:3000${request.url}`);
 	} else {
