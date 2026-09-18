@@ -31,7 +31,7 @@ Report the CLI's sanitized error if Tableau rejects authentication.
 Use the supplied published workbook name. Use `--project` when the user supplied a Tableau project or the CLI reports duplicate workbook names.
 
 - A Tableau migration must use the exact requested Tableau workbook. Never substitute an unrelated local CSV, database, example dataset, workbook, or similarly named file.
-- Local `.twb` and `.twbx` files cannot provide the required rendered worksheet CSV and image assets. If the user supplies a local path, ask them to publish that workbook to Tableau Cloud and provide its workbook name.
+- Local `.twb` and `.twbx` files cannot provide the required rendered worksheet CSV and image assets. If the user supplies a local path, ask them to publish that workbook to Tableau Cloud or Server and provide its workbook name.
 - Pass the requested workbook name to `nao migrate-tableau` so the CLI resolves and downloads it from Tableau Cloud or Server.
 - If the workbook exists only as a local file or the CLI reports that local migration is unsupported, stop and tell the user:
 

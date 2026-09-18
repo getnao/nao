@@ -31,8 +31,8 @@ Report the CLI's sanitized error if Tableau rejects authentication.
 Use the supplied published workbook name. Use `--project` when the user supplied a Tableau project or the CLI reports duplicate workbook names.
 
 - A Tableau migration must use the exact requested Tableau workbook. Never substitute an unrelated local CSV, database, example dataset, workbook, or similarly named file.
-- Local `.twb` and `.twbx` files cannot provide the required rendered worksheet CSV and image assets. If the user supplies a local path, ask them to publish that workbook to Tableau Cloud and provide its workbook name.
-- Pass the requested workbook name to `nao migrate-tableau` so the CLI resolves and downloads it from Tableau Cloud.
+- Local `.twb` and `.twbx` files cannot provide the required rendered worksheet CSV and image assets. If the user supplies a local path, ask them to publish that workbook to Tableau Cloud or Server and provide its workbook name.
+- Pass the requested workbook name to `nao migrate-tableau` so the CLI resolves and downloads it from Tableau Cloud or Server.
 - If the workbook exists only as a local file or the CLI reports that local migration is unsupported, stop and tell the user:
 
 > This workbook cannot be migrated because it is unpublished. Publish it to Tableau Cloud or Tableau Server, then retry with its workbook name.
@@ -65,21 +65,21 @@ nao migrate-tableau "<workbook-name>" --project "<project-name>" --output "<temp
 4. Require each migrated worksheet asset to have `success: true`, `data_path`, and `image_path`. Skip a failed worksheet and report its exact `data_error`, `image_error`, or `error`; do not fall back to Tableau MCP or guessed metadata.
 5. Keep the migration JSON and `temporary_directory` until validation is complete, then delete both. They are temporary derived artifacts, not user deliverables.
 
-| Tableau                           | nao                                                       |
-| --------------------------------- | --------------------------------------------------------- |
-| Workbook                          | One story                                                 |
-| Dashboard                         | Story tab                                                 |
-| Worksheet not used by a dashboard | Story tab                                                 |
-| One requested worksheet or view   | Matching chart directly in chat                           |
-| Worksheet inside a story          | Matching chart; table only for a source text table/crosstab |
-| Published or embedded data source | Query against the verified shared database                |
-| Visible dashboard filter control  | Story filter when supported by the parser                 |
-| Hidden worksheet filter           | Query constraint only; never a story control              |
+| Tableau                           | nao                                                           |
+| --------------------------------- | ------------------------------------------------------------- |
+| Workbook                          | One story                                                     |
+| Dashboard                         | Story tab                                                     |
+| Worksheet not used by a dashboard | Story tab                                                     |
+| One requested worksheet or view   | Matching chart directly in chat                               |
+| Worksheet inside a story          | Matching chart; table only for a source text table/crosstab   |
+| Published or embedded data source | Query against the verified shared database                    |
+| Visible dashboard filter control  | Story filter when supported by the parser                     |
+| Hidden worksheet filter           | Query constraint only; never a story control                  |
 | Parameter with allowed values     | Single-select control when its query behavior is reproducible |
-| Free-form or range parameter      | Unsupported without a matching native story control       |
-| Calculated field                  | SQL expression or documented metric                       |
-| Marks card                        | Chart type and series encoding                            |
-| Set, group, or bin                | SQL expression or lookup                                  |
+| Free-form or range parameter      | Unsupported without a matching native story control           |
+| Calculated field                  | SQL expression or documented metric                           |
+| Marks card                        | Chart type and series encoding                                |
+| Set, group, or bin                | SQL expression or lookup                                      |
 
 Use only the `dashboards[].worksheets` lists the composition parser returns for dashboard membership. During a whole-workbook migration, treat `skipped_worksheets` as standalone worksheet tabs; when there are no dashboards, this includes every worksheet. Do not put those worksheets inside a dashboard tab. If an unplaced worksheet has no successful `worksheet_assets` entry, skip it and report the exact asset error instead of guessing or substituting another view. For a request scoped to one dashboard, ignore `skipped_worksheets`. The parser extracts explicit categorical filters and parameter definitions, but a control is reproducible only when the available data can implement its Tableau behavior.
 
@@ -101,7 +101,7 @@ Prepare the requested worksheet for chart delivery, or each unique worksheet sel
 - Preserve explicit Tableau palette assignments from `worksheet_visualizations[].colors` whenever nao supports per-series colors. Never replace a readable Tableau color with black merely because a color could not be resolved.
 - Build each query and chart from the recorded Tableau presentation, not from an inference based on the exported data. Preserve a Tableau chart as a chart; use a table only when the verified source worksheet is a text table/crosstab or the user explicitly requested a table.
 
-Before delivery, compare each unfiltered database query with the corresponding Tableau CSV. If tables, joins, columns, totals, or dimensions cannot be matched, skip the affected worksheet or control and report the mismatch instead of substituting unrelated project data.
+Before delivery, compare each database query with the corresponding Tableau CSV using the same fixed and default filter state. If tables, joins, columns, totals, or dimensions cannot be matched, skip the affected worksheet or control and report the mismatch instead of substituting unrelated project data.
 
 Until richer Tableau definition extractors exist, do not claim that calculated fields, context filters, LOD expressions, sets, groups, bins, marks, or formatting were reproduced from XML. Claim a parameter was reproduced only when its extracted definition, allowed values, target worksheets, and query behavior are all preserved. Preserve what can be verified from exported data and images, and list the rest as unsupported or approximated.
 
