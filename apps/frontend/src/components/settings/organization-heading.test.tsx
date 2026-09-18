@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { OrganizationHeading } from './organization-heading';
@@ -69,5 +69,27 @@ describe('OrganizationHeading', () => {
 		expect(localStorage.getItem('nao.active-organization-id')).toBe('"current"');
 		expect(mocks.invalidateQueries).not.toHaveBeenCalled();
 		expect(mocks.invalidateRouter).not.toHaveBeenCalled();
+	});
+
+	it('persists and invalidates after switching organizations', async () => {
+		render(
+			<OrganizationHeading
+				organization={{ id: 'current', name: 'Current', role: 'admin' }}
+				organizations={[
+					{ id: 'current', name: 'Current', role: 'admin' },
+					{ id: 'other', name: 'Other', role: 'user' },
+				]}
+				canEdit={false}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole('button', { name: /Switch organization/ }));
+		fireEvent.click(await screen.findByRole('option', { name: /Other/ }));
+
+		await waitFor(() => {
+			expect(localStorage.getItem('nao.active-organization-id')).toBe('"other"');
+			expect(mocks.invalidateQueries).toHaveBeenCalledTimes(1);
+			expect(mocks.invalidateRouter).toHaveBeenCalledTimes(1);
+		});
 	});
 });
