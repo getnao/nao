@@ -14,6 +14,7 @@ import type { AutomationFeedItem } from '@/components/automations-feed';
 import { Button } from '@/components/ui/button';
 import {
 	DropdownMenu,
+	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuLabel,
@@ -301,19 +302,15 @@ function ToolbarOption({
 	children: ReactNode;
 }) {
 	return (
-		<DropdownMenuItem
-			onSelect={(event) => {
-				event.preventDefault();
-				onSelect();
-			}}
+		<DropdownMenuCheckboxItem
+			checked={selected}
+			onSelect={(event) => event.preventDefault()}
+			onCheckedChange={() => onSelect()}
 			className='justify-between gap-4 pr-2'
 		>
-			<span>
-				{children}
-				{count !== undefined && <span className='ml-3 text-muted-foreground'>{count}</span>}
-			</span>
-			<span className={cn('size-1.5 shrink-0 rounded-full bg-primary', !selected && 'invisible')} aria-hidden />
-		</DropdownMenuItem>
+			<span>{children}</span>
+			{count !== undefined && <span className='text-muted-foreground'>{count}</span>}
+		</DropdownMenuCheckboxItem>
 	);
 }
 

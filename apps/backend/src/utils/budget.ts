@@ -88,10 +88,6 @@ export async function checkBudgetStatus(
 		return { level: 'ok', message: null };
 	}
 
-	void notifyOnExceededBudgets(projectId, resolved, userId).catch((error) =>
-		logger.error(`Failed to send budget limit notification: ${String(error)}`, { source: 'system' }),
-	);
-
 	const { usages } = resolved;
 	if (usages.length === 0 || usages.every((u) => u.ratio < WARNING_BUDGET_THRESHOLD)) {
 		return { level: 'ok', message: null };

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "7e6d4c09-fc72-43bf-9e70-9406e661e8d8",
+  "id": "3560f59d-e7a2-4c3d-a5e5-23380b304a82",
   "prevId": "b38d7d4b-a555-43f6-b2f4-a012046466e9",
   "tables": {
     "account": {
@@ -2464,6 +2464,30 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "keyed_lock": {
+      "name": "keyed_lock",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
           "autoincrement": false
         }
       },

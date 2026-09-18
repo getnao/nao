@@ -10,6 +10,7 @@ import { env } from '../env';
 import * as projectQueries from '../queries/project.queries';
 import * as sharedChatQueries from '../queries/shared-chat.queries';
 import * as sharedStoryQueries from '../queries/shared-story.queries';
+import * as storyQueries from '../queries/story.queries';
 import * as userQueries from '../queries/user.queries';
 import type { ChannelDeliveryAttempt, NotificationRecipient, NotifyInput } from '../types/notification';
 import { buildSharedItemEmail } from '../utils/email-builders';
@@ -102,8 +103,15 @@ export async function notifyStorySubscriptionAdded(params: {
 	if (params.addedUserIds.length === 0) {
 		return;
 	}
-	const access = await sharedStoryQueries.getStoryShareAccess(params.storyId, params.projectId);
-	const linkUrl = storyPath(access ? { id: access.shareId } : null, params.storyId);
+	const [access, story] = await Promise.all([
+		sharedStoryQueries.getStoryShareAccess(params.storyId, params.projectId),
+		storyQueries.getStoryById(params.storyId),
+	]);
+	const linkUrl = storyPath(access ? { id: access.shareId } : null, {
+		id: params.storyId,
+		chatId: story?.chatId ?? null,
+		slug: story?.slug ?? '',
+	});
 
 	const payload: StorySubscriptionNotificationPayload = {
 		kind: 'story_subscription',
@@ -231,7 +239,7 @@ export async function notifySharedItem(params: {
 		ctaLabel: `Open ${params.itemLabel}`,
 		projectId: params.projectId,
 		payload,
-		channels: params.deliverExternally === false ? ['in_app'] : undefined,
+		channels: params.deliverExternally === false ? ['in_app'] : ['in_app', 'email'],
 		emailOverride: (recipient, unsubscribeUrl) =>
 			buildSharedItemEmail(
 				recipient,
@@ -245,8 +253,15 @@ export async function notifySharedItem(params: {
 }
 
 async function resolveStoryLink(storyId: string, projectId: string): Promise<string> {
-	const access = await sharedStoryQueries.getStoryShareAccess(storyId, projectId);
-	return storyPath(access ? { id: access.shareId } : null, storyId);
+	const [access, story] = await Promise.all([
+		sharedStoryQueries.getStoryShareAccess(storyId, projectId),
+		storyQueries.getStoryById(storyId),
+	]);
+	return storyPath(access ? { id: access.shareId } : null, {
+		id: storyId,
+		chatId: story?.chatId ?? null,
+		slug: story?.slug ?? '',
+	});
 }
 
 async function resolveOwnerName(ownerId: string): Promise<string | undefined> {

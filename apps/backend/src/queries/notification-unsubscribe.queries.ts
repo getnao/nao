@@ -27,10 +27,6 @@ export const removeUnsubscribe = async (userId: string, scope: string): Promise<
 		.execute();
 };
 
-export const removeUnsubscribesForScope = async (scope: string): Promise<void> => {
-	await db.delete(s.notificationUnsubscribe).where(eq(s.notificationUnsubscribe.scope, scope)).execute();
-};
-
 export const removeUnsubscribesForStory = async (storyId: string): Promise<void> => {
 	await db
 		.delete(s.notificationUnsubscribe)

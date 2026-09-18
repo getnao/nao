@@ -147,6 +147,9 @@ export type DBScheduledJob = typeof sqliteSchema.scheduledJob.$inferSelect;
 export type NewScheduledJob = typeof sqliteSchema.scheduledJob.$inferInsert;
 export type ScheduledJobStatus = DBScheduledJob['status'];
 
+export type DBKeyedLock = typeof sqliteSchema.keyedLock.$inferSelect;
+export type NewKeyedLock = typeof sqliteSchema.keyedLock.$inferInsert;
+
 export type DBBrandingConfig = typeof sqliteSchema.brandingConfig.$inferSelect;
 export type NewBrandingConfig = typeof sqliteSchema.brandingConfig.$inferInsert;
 
