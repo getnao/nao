@@ -7,11 +7,6 @@ export interface QueryResult {
 	data: Record<string, unknown>[];
 }
 
-export interface QueryDefinition {
-	sqlQuery: string;
-	databaseId?: string;
-}
-
 export interface GeneratedArtifacts {
 	charts: (displayChart.BuiltinChartInput | displayChart.KpiCardInput)[];
 	maps: displayMap.Input[];
@@ -39,7 +34,6 @@ export interface ToolContext {
 	 * to message history and caches the result back into this map.
 	 */
 	queryResults: Map<string, QueryResult>;
-	queryDefinitions?: Map<string, QueryDefinition>;
 	generatedArtifacts: GeneratedArtifacts;
 	/**
 	 * Admin mode: when true, `execute_sql` runs read-only SQL over nao's own

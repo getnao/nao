@@ -39,21 +39,17 @@ export async function executeQuery(
 		);
 	}
 
-	const output = context.adminMode
-		? await executeAppDbQuery(effectiveSql, context, query_id)
-		: database_id === LOCAL_DATABASE_ID
-			? await executeLocalQuery(effectiveSql, context, query_id, save_to)
-			: await executeWarehouseQuery(effectiveSql, context, database_id, query_id);
-	rememberQueryDefinition(context, output.id, sql_query, context.adminMode ? undefined : database_id);
-	return withTemplateWarnings(output, templateWarnings);
-}
+	if (context.adminMode) {
+		return withTemplateWarnings(await executeAppDbQuery(effectiveSql, context, query_id), templateWarnings);
+	}
 
-async function executeWarehouseQuery(
-	sqlQuery: string,
-	context: ToolContext,
-	databaseId?: string,
-	queryId?: `query_${string}`,
-): Promise<executeSql.Output> {
+	if (database_id === LOCAL_DATABASE_ID) {
+		return withTemplateWarnings(
+			await executeLocalQuery(effectiveSql, context, query_id, save_to),
+			templateWarnings,
+		);
+	}
+
 	const enforceExcludedColumns = await resolveExcludedColumnEnforcement(context.agentSettings);
 	const naoProjectFolder = context.projectFolder;
 	const envVars = context.envVars;
@@ -64,10 +60,10 @@ async function executeWarehouseQuery(
 			'X-Nao-Internal-Secret': env.BETTER_AUTH_SECRET,
 		},
 		body: JSON.stringify({
-			sql: sqlQuery,
+			sql: effectiveSql,
 			nao_project_folder: naoProjectFolder,
 			enforce_excluded_columns: enforceExcludedColumns,
-			...(databaseId && { database_id: databaseId }),
+			...(database_id && { database_id }),
 			...(Object.keys(envVars).length > 0 && { env_vars: envVars }),
 			...(context.azureAccessToken && { azure_access_token: context.azureAccessToken }),
 		}),
@@ -79,18 +75,21 @@ async function executeWarehouseQuery(
 	}
 
 	const data = await response.json();
-	const id = queryId ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
+	const id = query_id ?? (`query_${crypto.randomUUID().slice(0, 8)}` as const);
 
 	context.queryResults.set(id, { columns: data.columns, data: data.data });
 
-	const appliedLimit = detectQueryRowLimit(sqlQuery);
+	const appliedLimit = detectQueryRowLimit(effectiveSql);
 
-	return {
-		_version: '1',
-		...data,
-		id,
-		...(appliedLimit !== null && { applied_limit: appliedLimit }),
-	};
+	return withTemplateWarnings(
+		{
+			_version: '1',
+			...data,
+			id,
+			...(appliedLimit !== null && { applied_limit: appliedLimit }),
+		},
+		templateWarnings,
+	);
 }
 
 /** Files and earlier results, in nao's own DuckDB. No warehouse is involved. */
@@ -137,11 +136,6 @@ async function executeAppDbQuery(
 		id,
 		...(appliedLimit !== null && { applied_limit: appliedLimit }),
 	};
-}
-
-function rememberQueryDefinition(context: ToolContext, queryId: string, sqlQuery: string, databaseId?: string): void {
-	context.queryDefinitions ??= new Map();
-	context.queryDefinitions.set(queryId, { sqlQuery, ...(databaseId && { databaseId }) });
 }
 
 function withTemplateWarnings(output: executeSql.Output, templateWarnings: string[]): executeSql.Output {

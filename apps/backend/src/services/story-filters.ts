@@ -1,5 +1,4 @@
 import {
-	findUnreferencedStoryFilters,
 	renderSqlTemplate,
 	type StoryFilterSelections,
 	type StoryFilterTypeById,
@@ -75,13 +74,9 @@ export async function getFilteredStoryQueryData(
 	const { code, projectId, projectPath, envVars, sqlQueries } = await loadStoryExecutionContext(chatId, storySlug);
 	const types = filterTypesFromCode(code);
 	const queryData: Record<string, { data: unknown[]; columns: string[] }> = {};
-	const activeFilterIds = Object.keys(selections);
-	const filteredQueries = Object.entries(sqlQueries).filter(
-		([, { sqlQuery }]) => findUnreferencedStoryFilters(activeFilterIds, [sqlQuery]).length < activeFilterIds.length,
-	);
 
 	await Promise.all(
-		filteredQueries.map(async ([queryId, { sqlQuery, databaseId }]) => {
+		Object.entries(sqlQueries).map(async ([queryId, { sqlQuery, databaseId }]) => {
 			const renderedSql = renderStorySql(sqlQuery, selections, types);
 			queryData[queryId] = await executeRawSql(renderedSql, {
 				projectFolder: projectPath,

@@ -286,28 +286,6 @@ export function getStoryFiltersFromCode(code: string): ParsedFilterBlock[] {
 	return filters;
 }
 
-export function findConflictingStoryFilterIds(filters: ParsedFilterBlock[]): string[] {
-	const definitions = new Map<string, string>();
-	const conflicts = new Set<string>();
-	for (const filter of filters) {
-		const definition = JSON.stringify([
-			filter.column,
-			filter.label,
-			filter.filterType,
-			filter.table,
-			filter.databaseId,
-			filter.options,
-		]);
-		const existing = definitions.get(filter.id);
-		if (existing !== undefined && existing !== definition) {
-			conflicts.add(filter.id);
-		} else {
-			definitions.set(filter.id, definition);
-		}
-	}
-	return [...conflicts];
-}
-
 function parseConditionalFormats(value: string | undefined): ColumnConditionalFormats | undefined {
 	if (!value) {
 		return undefined;

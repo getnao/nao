@@ -106,9 +106,6 @@ export function useStoryFilters({
 	const isFetching = api?.kind === 'shared' ? sharedQuery.isFetching : ownedQuery.isFetching;
 	const isSelectionsPending = !areSelectionsEqual(activeSelections, debouncedSelections);
 	const isFiltering = isSelectionsPending || isFetching;
-	const queryData = debouncedHasActive
-		? { ...(baselineQueryData ?? {}), ...(filteredQueryData ?? {}) }
-		: (baselineQueryData ?? null);
 
 	return {
 		filtersEnabled,
@@ -120,7 +117,7 @@ export function useStoryFilters({
 		clearSelections,
 		hasActiveFilters,
 		isFiltering,
-		queryData,
+		queryData: debouncedHasActive ? (filteredQueryData ?? baselineQueryData ?? null) : (baselineQueryData ?? null),
 	};
 }
 

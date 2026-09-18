@@ -5,7 +5,6 @@ import { and, asc, desc, eq, inArray, isNull, max, or, type SQL, sql } from 'dri
 import s, { type DBStory, type DBStoryDataCache, type DBStoryVersion } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
 import * as executeSqlQueries from './execute-sql.queries';
-import { getMcpQueryDefinitions } from './mcp-query-data.queries';
 
 export type UserStoryRow = Pick<
 	DBStory,
@@ -561,29 +560,7 @@ export async function getSqlQueriesFromCode(
 		return {};
 	}
 
-	const chatQueries = await executeSqlQueries.getLatestSqlQueriesByIds(chatId, queryIds);
-	const missingQueryIds = new Set([...queryIds].filter((queryId) => !chatQueries[queryId]));
-	if (missingQueryIds.size === 0) {
-		return chatQueries;
-	}
-
-	const [chat] = await db
-		.select({ projectId: s.chat.projectId, userId: s.chat.userId })
-		.from(s.chat)
-		.where(eq(s.chat.id, chatId))
-		.limit(1)
-		.execute();
-	if (!chat) {
-		return chatQueries;
-	}
-
-	const mcpQueries = await getMcpQueryDefinitions(missingQueryIds, chat.projectId, chat.userId);
-	return {
-		...Object.fromEntries(
-			Object.entries(mcpQueries).map(([queryId, definition]) => [queryId, { ...definition, adminMode: false }]),
-		),
-		...chatQueries,
-	};
+	return executeSqlQueries.getLatestSqlQueriesByIds(chatId, queryIds);
 }
 
 export async function getSqlQueryById(
