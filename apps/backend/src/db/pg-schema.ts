@@ -1,8 +1,10 @@
-import type {
-	BackgroundModelSettings,
-	MapSettings,
-	McpChartEmbedStoredConfig,
-	McpMapEmbedStoredConfig,
+import {
+	type BackgroundModelSettings,
+	DEFAULT_USER_GROUP_CONFIG,
+	type MapSettings,
+	type McpChartEmbedStoredConfig,
+	type McpMapEmbedStoredConfig,
+	type StoredUserGroupConfig,
 } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
 import type { AnalyticsEventMetadata, CitationData, LlmProvider, RepoProvider } from '@nao/shared/types';
@@ -212,6 +214,7 @@ export const project = pgTable(
 		displaySettings: jsonb('display_settings').$type<DisplaySettings>(),
 		mapSettings: jsonb('map_settings').$type<MapSettings>(),
 		defaultModels: jsonb('default_models').$type<BackgroundModelSettings>(),
+		rowSecurity: jsonb('row_security'),
 
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
@@ -412,6 +415,71 @@ export const projectMember = pgTable(
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [primaryKey({ columns: [t.projectId, t.userId] }), index('project_member_userId_idx').on(t.userId)],
+);
+
+export const userGroup = pgTable(
+	'user_group',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
+		isDefault: boolean('is_default').default(false).notNull(),
+		featureGrants: jsonb('feature_grants')
+			.$type<StoredUserGroupConfig>()
+			.notNull()
+			.default(DEFAULT_USER_GROUP_CONFIG),
+		contextGrants: jsonb('context_grants'),
+		ssoMappings: jsonb('sso_mappings'),
+		rowPolicies: jsonb('row_policies'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		index('user_group_projectId_idx').on(t.projectId),
+		unique('user_group_project_name_unique').on(t.projectId, t.name),
+		uniqueIndex('user_group_project_default_unique')
+			.on(t.projectId)
+			.where(sql`${t.isDefault} = true`),
+	],
+);
+
+export const userGroupMember = pgTable(
+	'user_group_member',
+	{
+		groupId: text('group_id')
+			.notNull()
+			.references(() => userGroup.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.groupId, t.userId] }), index('user_group_member_userId_idx').on(t.userId)],
+);
+
+export const userGroupSsoMember = pgTable(
+	'user_group_sso_member',
+	{
+		groupId: text('group_id')
+			.notNull()
+			.references(() => userGroup.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		provider: text('provider').notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.groupId, t.userId, t.provider] }),
+		index('user_group_sso_member_user_provider_idx').on(t.userId, t.provider),
+	],
 );
 
 export const projectLlmConfig = pgTable(
@@ -889,6 +957,7 @@ export const storyDataCache = pgTable('story_data_cache', {
 		.references(() => story.id, { onDelete: 'cascade' })
 		.primaryKey(),
 	queryData: jsonb('query_data').$type<Record<string, { data: unknown[]; columns: string[] }>>().notNull(),
+	querySources: jsonb('query_sources'),
 	analysisResults: jsonb('analysis_results').$type<Record<string, string>>(),
 	cachedAt: timestamp('cached_at').defaultNow().notNull(),
 });

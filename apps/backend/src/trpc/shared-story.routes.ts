@@ -39,7 +39,6 @@ const shareAccessProcedure = resourceProjectProcedure(
 		item.userId === userId ||
 		sharedStoryQueries.canUserAccessSharedStory(item.id, userId),
 );
-
 export const sharedStoryRoutes = {
 	list: protectedProcedure.input(z.object({ projectId: z.string() })).query(async ({ input, ctx }) => {
 		const projects = await projectQueries.listUserProjects(ctx.user.id);
@@ -288,7 +287,10 @@ export const sharedStoryRoutes = {
 			if (!story) {
 				return { shareId: null, visibility: null, allowedUserIds: [] };
 			}
-
+			const storyProjectId = story.projectId ?? (await storyQueries.getStoryProjectId(story.id));
+			if (storyProjectId !== ctx.project.id) {
+				return { shareId: null, visibility: null, allowedUserIds: [] };
+			}
 			const share = await sharedStoryQueries.getSharedStoryInfo(story.id, ctx.project.id);
 			if (!share) {
 				return { shareId: null, visibility: null, allowedUserIds: [] };
@@ -308,7 +310,6 @@ export const sharedStoryRoutes = {
 			if (shared.userId !== ctx.user.id && ctx.userRole !== 'admin') {
 				throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can update this.' });
 			}
-
 			const previousAllowedUserIds = await sharedStoryQueries.getSharedStoryAllowedUserIds(input.shareId);
 			await sharedStoryQueries.updateSharedStoryAllowedUsers(input.shareId, input.allowedUserIds);
 
@@ -347,7 +348,6 @@ export const sharedStoryRoutes = {
 		if (ctx.resource.userId !== ctx.user.id && ctx.userRole !== 'admin') {
 			throw new TRPCError({ code: 'FORBIDDEN', message: 'Only the creator or an admin can delete this.' });
 		}
-
 		await sharedStoryQueries.deleteSharedStory(input.shareId);
 	}),
 

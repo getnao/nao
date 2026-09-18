@@ -19,6 +19,7 @@ export interface ToolContext {
 	chatId: string;
 	userId: string;
 	projectId: string;
+	storyCreationEnabled?: boolean;
 	supportsCustomCharts: boolean;
 	agentSettings: AgentSettings | null;
 	/** The model the run itself uses; subagents inherit it unless the project pins another one. */

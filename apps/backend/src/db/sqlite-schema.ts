@@ -1,8 +1,10 @@
-import type {
-	BackgroundModelSettings,
-	MapSettings,
-	McpChartEmbedStoredConfig,
-	McpMapEmbedStoredConfig,
+import {
+	type BackgroundModelSettings,
+	DEFAULT_USER_GROUP_CONFIG,
+	type MapSettings,
+	type McpChartEmbedStoredConfig,
+	type McpMapEmbedStoredConfig,
+	type StoredUserGroupConfig,
 } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
 import type { AnalyticsEventMetadata, CitationData, LlmProvider, RepoProvider } from '@nao/shared/types';
@@ -227,6 +229,7 @@ export const project = sqliteTable(
 		displaySettings: text('display_settings', { mode: 'json' }).$type<DisplaySettings>(),
 		mapSettings: text('map_settings', { mode: 'json' }).$type<MapSettings>(),
 		defaultModels: text('default_models', { mode: 'json' }).$type<BackgroundModelSettings>(),
+		rowSecurity: text('row_security', { mode: 'json' }),
 
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -436,6 +439,77 @@ export const projectMember = sqliteTable(
 			.notNull(),
 	},
 	(t) => [primaryKey({ columns: [t.projectId, t.userId] }), index('project_member_userId_idx').on(t.userId)],
+);
+
+export const userGroup = sqliteTable(
+	'user_group',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		name: text('name').notNull(),
+		isDefault: integer('is_default', { mode: 'boolean' }).default(false).notNull(),
+		featureGrants: text('feature_grants', { mode: 'json' })
+			.$type<StoredUserGroupConfig>()
+			.notNull()
+			.default(DEFAULT_USER_GROUP_CONFIG),
+		contextGrants: text('context_grants', { mode: 'json' }),
+		ssoMappings: text('sso_mappings', { mode: 'json' }),
+		rowPolicies: text('row_policies', { mode: 'json' }),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	(t) => [
+		index('user_group_projectId_idx').on(t.projectId),
+		unique('user_group_project_name_unique').on(t.projectId, t.name),
+		uniqueIndex('user_group_project_default_unique')
+			.on(t.projectId)
+			.where(sql`${t.isDefault} = 1`),
+	],
+);
+
+export const userGroupMember = sqliteTable(
+	'user_group_member',
+	{
+		groupId: text('group_id')
+			.notNull()
+			.references(() => userGroup.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.groupId, t.userId] }), index('user_group_member_userId_idx').on(t.userId)],
+);
+
+export const userGroupSsoMember = sqliteTable(
+	'user_group_sso_member',
+	{
+		groupId: text('group_id')
+			.notNull()
+			.references(() => userGroup.id, { onDelete: 'cascade' }),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		provider: text('provider').notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.groupId, t.userId, t.provider] }),
+		index('user_group_sso_member_user_provider_idx').on(t.userId, t.provider),
+	],
 );
 
 export const projectLlmConfig = sqliteTable(
@@ -955,6 +1029,7 @@ export const storyDataCache = sqliteTable('story_data_cache', {
 	queryData: text('query_data', { mode: 'json' })
 		.$type<Record<string, { data: unknown[]; columns: string[] }>>()
 		.notNull(),
+	querySources: text('query_sources', { mode: 'json' }),
 	analysisResults: text('analysis_results', { mode: 'json' }).$type<Record<string, string>>(),
 	cachedAt: integer('cached_at', { mode: 'timestamp_ms' })
 		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
