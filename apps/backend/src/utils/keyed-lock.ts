@@ -35,7 +35,18 @@ async function withDatabaseLock<T>(key: string, fn: () => Promise<T>): Promise<T
 		return await fn();
 	} finally {
 		stopRenewingLease();
+		await releaseLockSafely(key, owner);
+	}
+}
+
+async function releaseLockSafely(key: string, owner: string): Promise<void> {
+	try {
 		await keyedLockQueries.releaseLock(key, owner);
+	} catch (error) {
+		logger.warn(`Failed to release lock "${key}"; it will expire when its lease ends.`, {
+			source: 'system',
+			context: serializeError(error),
+		});
 	}
 }
 

@@ -7,7 +7,7 @@ export function standaloneStoryPath(storyId: string): string {
 }
 
 export function storyPreviewPath(chatId: string, slug: string): string {
-	return `/stories/preview/${chatId}/${slug}`;
+	return `/stories/preview/${chatId}/${encodeURIComponent(slug)}`;
 }
 
 export function storyPath(
