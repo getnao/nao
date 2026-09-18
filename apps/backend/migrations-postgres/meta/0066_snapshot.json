@@ -1,5 +1,5 @@
 {
-  "id": "20db8917-2e7f-4f5a-986b-4067c655b343",
+  "id": "eadfe509-cc99-4f91-ba4e-b8380c1ce613",
   "prevId": "3b18c28d-2543-4f60-8452-df1fdce14fb6",
   "version": "7",
   "dialect": "postgresql",
@@ -2699,6 +2699,12 @@
           "name": "key",
           "type": "text",
           "primaryKey": true,
+          "notNull": true
+        },
+        "owner": {
+          "name": "owner",
+          "type": "text",
+          "primaryKey": false,
           "notNull": true
         },
         "expires_at": {

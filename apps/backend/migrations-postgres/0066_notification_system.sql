@@ -10,6 +10,7 @@ CREATE TABLE "budget_notification" (
 --> statement-breakpoint
 CREATE TABLE "keyed_lock" (
 	"key" text PRIMARY KEY NOT NULL,
+	"owner" text NOT NULL,
 	"expires_at" timestamp NOT NULL
 );
 --> statement-breakpoint
