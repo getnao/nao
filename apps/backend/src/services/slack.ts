@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { cardToBlockKit, createSlackAdapter } from '@chat-adapter/slack';
 import { createMemoryState } from '@chat-adapter/state-memory';
 import { stripAssistantTags } from '@nao/shared';
+import { isQueryResultPart, type QueryResultPartType } from '@nao/shared/execute-sql-parts';
 import { displayChart } from '@nao/shared/tools';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import {
@@ -1185,7 +1186,7 @@ class ProjectSlackBot {
 					.map((messagePart) => messagePart.text)
 					.join('\n\n');
 				await this._handleTextPart(allText, state, ctx);
-			} else if (part.type === 'tool-execute_sql') {
+			} else if (isQueryResultPart(part)) {
 				this._handleSqlPart(part, state);
 			} else if (part.type === 'tool-display_chart') {
 				await this._handleChartPart(part, state, ctx);
@@ -1221,7 +1222,7 @@ class ProjectSlackBot {
 		state.lastUpdateAt = Date.now();
 	}
 
-	private _handleSqlPart(part: Extract<UIMessagePart, { type: 'tool-execute_sql' }>, state: StreamState): void {
+	private _handleSqlPart(part: Extract<UIMessagePart, { type: QueryResultPartType }>, state: StreamState): void {
 		if (part.state !== 'output-available') {
 			return;
 		}
@@ -1432,6 +1433,7 @@ class ProjectSlackBot {
 				blockIndex: run.blockIndex,
 				blockCount: run.blockCount,
 				blocks: createTextBlocks(streamState.latestSourceText.slice(run.sourceStart, run.sourceEnd), {
+					balanceIncompleteCodeFence: activeStream.stopRequested,
 					truncation: { kind: 'link', url: chatUrl },
 					tableState,
 				}),
@@ -1447,6 +1449,7 @@ class ProjectSlackBot {
 				blockIndex: ctx.textBlockIndex === -1 ? emptyRunBlockIndex : ctx.textBlockIndex,
 				blockCount: ctx.textBlockIndex === -1 ? 0 : ctx.textBlockCount,
 				blocks: createTextBlocks(openRunText, {
+					balanceIncompleteCodeFence: activeStream.stopRequested,
 					truncation: { kind: 'link', url: chatUrl },
 					tableState,
 				}),
@@ -1479,7 +1482,11 @@ class ProjectSlackBot {
 		streamState.latestSourceText = stripAssistantTags(text);
 		const visibleText = streamState.latestSourceText.slice(streamState.textRunStart);
 		const tableState = { ...streamState.tableStateAtRunStart };
-		const blocks = createTextBlocks(visibleText, { ...options, tableState });
+		const blocks = createTextBlocks(visibleText, {
+			...options,
+			balanceIncompleteCodeFence: true,
+			tableState,
+		});
 		streamState.tableStateAtRunEnd = tableState;
 		if (blocks.length === 0) {
 			if (visibleText.trim() && streamState.emptyRunBlockIndex === -1) {

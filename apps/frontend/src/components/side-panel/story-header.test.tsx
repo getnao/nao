@@ -98,6 +98,7 @@ function renderHeader(overrides: Partial<StoryHeaderProps>) {
 		isReadonlyMode: false,
 		isLive: false,
 		isRefreshing: false,
+		isLiveUpdating: false,
 		onRefreshData: vi.fn(),
 		onOpenLiveSettings: vi.fn(),
 		onClose: vi.fn(),

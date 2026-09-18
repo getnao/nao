@@ -49,7 +49,7 @@ export class ContextProjectResolutionError extends Error {
 	}
 }
 
-const prefixCache = new Map<string, { commit: string; prefix: string }>();
+const prefixCache = new Map<string, { commit: string; resolutionKey: string; prefix: string }>();
 
 export async function resolveContextRepo(
 	projectId: string,
@@ -101,19 +101,55 @@ export function resolveContextProject(
 	matchingCloneRoot: string | null,
 ): ResolvedContextRepo {
 	const commit = runGit(repo.worktreeRoot, ['rev-parse', 'HEAD']).toString().trim();
+	const resolutionKey =
+		repo.provider === 'generic'
+			? `subpath:${env.NAO_CONTEXT_GIT_SUBPATH ?? ''}`
+			: `clone:${matchingCloneRoot ?? ''}`;
 	const cached = prefixCache.get(repo.worktreeRoot);
-	if (cached?.commit === commit) {
+	if (cached?.commit === commit && cached.resolutionKey === resolutionKey) {
 		return { ...repo, branch: readCurrentBranch(repo.worktreeRoot), projectPrefix: cached.prefix };
 	}
 
 	const prefix =
-		repo.provider === 'generic' && env.NAO_CONTEXT_GIT_SUBPATH !== undefined
-			? normalizeProjectPath(env.NAO_CONTEXT_GIT_SUBPATH).replace(/\/+$/, '')
+		repo.provider === 'generic'
+			? validateDeploymentContextSubpath(repo.worktreeRoot, env.NAO_CONTEXT_GIT_SUBPATH)
 			: matchingCloneRoot
 				? resolvePrefixFromClone(matchingCloneRoot, projectFolder)
-				: resolvePrefixFromTrackedConfigs(repo.worktreeRoot);
-	prefixCache.set(repo.worktreeRoot, { commit, prefix });
+				: resolveTrackedContextProjectPrefix(repo.worktreeRoot);
+	prefixCache.set(repo.worktreeRoot, { commit, resolutionKey, prefix });
 	return { ...repo, branch: readCurrentBranch(repo.worktreeRoot), projectPrefix: prefix };
+}
+
+export function validateDeploymentContextSubpath(
+	repositoryRoot: string,
+	configuredSubpath: string | undefined,
+): string {
+	const prefix = normalizeConfiguredSubpath(configuredSubpath);
+	if (prefix) {
+		const type = tryRunGit(repositoryRoot, ['cat-file', '-t', `HEAD:${prefix}`])
+			?.toString()
+			.trim();
+		if (type !== 'tree') {
+			throw new ContextProjectResolutionError(
+				'project-not-found',
+				`The configured context subfolder "${prefix}" was not found in the repository.`,
+			);
+		}
+	}
+	const configPath = prefix ? `${prefix}/nao_config.yaml` : 'nao_config.yaml';
+	if (
+		tryRunGit(repositoryRoot, ['cat-file', '-t', `HEAD:${configPath}`])
+			?.toString()
+			.trim() !== 'blob'
+	) {
+		throw new ContextProjectResolutionError(
+			'project-not-found',
+			prefix
+				? `No tracked nao_config.yaml was found in the configured context subfolder "${prefix}".`
+				: 'No tracked nao_config.yaml was found at the repository root.',
+		);
+	}
+	return prefix;
 }
 
 export function invalidateContextProjectPrefix(worktreeRoot: string): void {
@@ -149,7 +185,19 @@ export function toContextRepoState(repo: ContextRepo | null): ContextRepoState |
 }
 
 export function sanitizeContextSourceRepositoryUrl(repositoryUrl: string): string {
-	return repositoryUrl.replace(/^(https?:\/\/)[^/]*@/i, '$1');
+	if (!/^https?:\/\//i.test(repositoryUrl)) {
+		return repositoryUrl;
+	}
+	try {
+		const url = new URL(repositoryUrl);
+		url.username = '';
+		url.password = '';
+		url.search = '';
+		url.hash = '';
+		return url.toString();
+	} catch {
+		return repositoryUrl.replace(/^(https?:\/\/)[^/]*@/i, '$1');
+	}
 }
 
 export function detectGitPlatform(repositoryUrl: string | undefined): GitPlatform | null {
@@ -218,7 +266,16 @@ export function getCommittedProjectPaths(repo: ResolvedContextRepo): Set<string>
 }
 
 export function readCommittedFile(repo: ResolvedContextRepo, projectPath: string, maxSize = 10 * 1024 * 1024): Buffer {
-	const object = `HEAD:${toRepoPath(repo, projectPath)}`;
+	return readFileAtCommit(repo, 'HEAD', projectPath, maxSize);
+}
+
+export function readFileAtCommit(
+	repo: ResolvedContextRepo,
+	commit: string,
+	projectPath: string,
+	maxSize = 10 * 1024 * 1024,
+): Buffer {
+	const object = `${commit}:${toRepoPath(repo, projectPath)}`;
 	const size = Number(runGit(repo.worktreeRoot, ['cat-file', '-s', object]).toString().trim());
 	if (!Number.isFinite(size)) {
 		throw new Error(`Unable to determine the committed size of ${projectPath}.`);
@@ -247,6 +304,20 @@ export function normalizeProjectPath(projectPath: string): string {
 	return projectPath.replaceAll('\\', '/').replace(/^\/+/, '');
 }
 
+function normalizeConfiguredSubpath(configuredSubpath: string | undefined): string {
+	const normalized = normalizeProjectPath(configuredSubpath ?? '').replace(/\/+$/, '');
+	if (!normalized || normalized === '.') {
+		return '';
+	}
+	if (normalized.split('/').some((segment) => segment === '..')) {
+		throw new ContextProjectResolutionError(
+			'project-not-found',
+			`The configured context subfolder "${normalized}" was not found in the repository.`,
+		);
+	}
+	return normalized.replace(/^\.\//, '');
+}
+
 function resolvePrefixFromClone(cloneRoot: string, projectFolder: string): string {
 	const relative = path.relative(fs.realpathSync(cloneRoot), fs.realpathSync(projectFolder));
 	if (relative.startsWith('..') || path.isAbsolute(relative)) {
@@ -265,7 +336,7 @@ function resolveContextRepoPlatform(repo: ContextRepo): GitPlatform | null {
 	return env.NAO_CONTEXT_GIT_PLATFORM ?? detectGitPlatform(repo.repoFullName);
 }
 
-function resolvePrefixFromTrackedConfigs(worktreeRoot: string): string {
+export function resolveTrackedContextProjectPrefix(worktreeRoot: string): string {
 	const output = runGit(worktreeRoot, ['ls-files', '-z', '--', 'nao_config.yaml', ':(glob)**/nao_config.yaml']);
 	const candidates = parseNullDelimited(output);
 	if (candidates.length === 0) {

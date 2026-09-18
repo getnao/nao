@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import Fuse from 'fuse.js';
 
@@ -6,6 +7,7 @@ import type { SettingsSearchEntry } from '@/components/settings-search-index';
 import { settingsSearchIndex } from '@/components/settings-search-index';
 import { useIsCloud } from '@/hooks/use-nao-mode';
 import { usePermissions } from '@/hooks/use-permissions';
+import { trpc } from '@/main';
 
 export function useSettingsSearch(query: string): SettingsSearchEntry[] {
 	const visibleEntries = useVisibleSettingsEntries();
@@ -51,6 +53,8 @@ export function useSettingsSuggestions(): SettingsSearchEntry[] {
 function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 	const { isAdmin, isContextAdmin, isOrgAdmin, isViewer } = usePermissions();
 	const isCloud = useIsCloud();
+	const config = useQuery(trpc.system.getPublicConfig.queryOptions());
+	const betaSubagentsEnabled = config.data?.betaSubagentsEnabled === true;
 
 	return useMemo(
 		() =>
@@ -61,10 +65,11 @@ function useVisibleSettingsEntries(): SettingsSearchEntry[] {
 						(!entry.orgAdminOnly || isOrgAdmin) &&
 						(!entry.adminOrContextAdmin || isAdmin || isContextAdmin) &&
 						(!entry.cloudHidden || !isCloud) &&
-						(!entry.cloudOnly || isCloud),
+						(!entry.cloudOnly || isCloud) &&
+						(!entry.betaSubagentsOnly || betaSubagentsEnabled),
 				)
 				.filter((entry) => !isViewer || viewerVisiblePages.includes(entry.page)),
-		[isAdmin, isCloud, isContextAdmin, isOrgAdmin, isViewer],
+		[betaSubagentsEnabled, isAdmin, isCloud, isContextAdmin, isOrgAdmin, isViewer],
 	);
 }
 

@@ -7,6 +7,7 @@ export type ShortcutId =
 	| 'toggle-theme'
 	| 'new-chat'
 	| 'go-to-stories'
+	| 'toggle-story-chat'
 	| 'keyboard-help'
 	| 'stop-generation'
 	| 'cycle-model';
@@ -27,6 +28,12 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
 		label: 'Toggle sidebar',
 		group: 'General',
 		shortcut: { mod: true, key: 'b' },
+	},
+	{
+		id: 'toggle-story-chat',
+		label: 'Toggle story side panel',
+		group: 'General',
+		shortcut: { mod: true, shift: true, key: 'b' },
 	},
 	{
 		id: 'command-menu',

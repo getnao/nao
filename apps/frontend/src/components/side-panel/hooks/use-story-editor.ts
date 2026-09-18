@@ -12,10 +12,9 @@ import {
 	getSelectedBlockPositions,
 	getSelectedGridColumns,
 	resolveDragSelection,
-	selectBlockFromHandle,
 } from '../story-block-selection';
 import { EDITOR_EXTENSIONS } from '../story-editor-extensions';
-import { GRID_COLUMN_DRAG_TYPE, STORY_BLOCK_DRAG_TYPE } from '../story-editor-drag-context';
+import { GRID_COLUMN_DRAG_TYPE, setStoryBlockDragOrigin, STORY_BLOCK_DRAG_TYPE } from '../story-editor-drag-context';
 import {
 	cloneElementWithStyles,
 	createBlockNode,
@@ -24,7 +23,7 @@ import {
 	removeCardFromOrigin,
 } from '../story-editor-utils';
 import { shouldSyncStoryEditorContent } from './story-editor-content-sync';
-import type { GridDragSource, StoryBlockDragSource } from '../story-editor-drag-context';
+import type { GridDragSource, StoryBlockDragSource, StoryEditorDragControls } from '../story-editor-drag-context';
 import type { DragUnit, GridColumnRef } from '../story-block-selection';
 import type { Node as PMNode } from '@tiptap/pm/model';
 import type { EditorState } from '@tiptap/pm/state';
@@ -35,6 +34,7 @@ interface UseStoryEditorParams {
 	code: string;
 	editorRef: MutableRefObject<Editor | null>;
 	onSave?: () => void;
+	onDragControlsChange?: (controls: StoryEditorDragControls | null) => void;
 	onChange?: (code: string) => void;
 }
 
@@ -43,9 +43,10 @@ interface UseStoryEditorParams {
  * block extensions, the save shortcut, and the drag-and-drop handlers that move
  * story blocks and grid columns around the document.
  */
-export function useStoryEditor({ code, editorRef, onSave, onChange }: UseStoryEditorParams) {
+export function useStoryEditor({ code, editorRef, onSave, onDragControlsChange, onChange }: UseStoryEditorParams) {
 	const processedContent = useMemo(() => preprocessForEditor(code), [code]);
 	const onSaveRef = useRef(onSave);
+	const onDragControlsChangeRef = useRef(onDragControlsChange);
 	const onChangeRef = useRef(onChange);
 	const lastEmittedMarkdownRef = useRef<string | null>(null);
 	const gridDragSourceRef = useRef<GridDragSource | null>(null);
@@ -55,8 +56,11 @@ export function useStoryEditor({ code, editorRef, onSave, onChange }: UseStoryEd
 	const dragPreviewElementsRef = useRef<HTMLElement[] | null>(null);
 	const pendingDropRef = useRef<(() => void) | null>(null);
 	const storyEditorRef = useRef<HTMLDivElement>(null);
+	const handleTooltipDragActiveRef = useRef(false);
 	const [isBlockDragging, setIsBlockDragging] = useState(false);
+	const [isHandleTooltipSuppressed, setIsHandleTooltipSuppressed] = useState(false);
 	const [activeDropZone, setActiveDropZone] = useState<string | null>(null);
+	const [isDropTargetSuppressed, setIsDropTargetSuppressed] = useState(false);
 	const [handleNodeType, setHandleNodeType] = useState<string | null>(null);
 	const [selectedGridColumns, setSelectedGridColumns] = useState<GridColumnRef[]>([]);
 	const [selectedBlocks, setSelectedBlocks] = useState<number[]>([]);
@@ -67,6 +71,7 @@ export function useStoryEditor({ code, editorRef, onSave, onChange }: UseStoryEd
 		dragPreviewElementsRef.current = null;
 		pendingDropRef.current = null;
 		setIsBlockDragging(false);
+		setIsDropTargetSuppressed(false);
 		setActiveDropZone((current) => (current === null ? current : null));
 	}, []);
 	const buildStoryDragSlice = useCallback((state: EditorState): Slice | null => {
@@ -92,7 +97,17 @@ export function useStoryEditor({ code, editorRef, onSave, onChange }: UseStoryEd
 		setHandleNodeType(node?.type.name ?? null);
 		handleNodePosRef.current = node ? pos : null;
 	}, []);
+	const suppressHandleTooltips = useCallback(() => {
+		handleTooltipDragActiveRef.current = true;
+		setIsHandleTooltipSuppressed(true);
+	}, []);
+	const releaseHandleTooltipSuppression = useCallback(() => {
+		if (!handleTooltipDragActiveRef.current) {
+			setIsHandleTooltipSuppressed(false);
+		}
+	}, []);
 	onSaveRef.current = onSave;
+	onDragControlsChangeRef.current = onDragControlsChange;
 	onChangeRef.current = onChange;
 
 	const extensions = useMemo(
@@ -125,6 +140,7 @@ export function useStoryEditor({ code, editorRef, onSave, onChange }: UseStoryEd
 						event.dataTransfer?.types.includes(STORY_BLOCK_DRAG_TYPE)
 					) {
 						event.preventDefault();
+						setIsDropTargetSuppressed(false);
 						setActiveDropZone((current) => (current === null ? current : null));
 						pendingDropRef.current = null;
 						if (!view.dragging) {
@@ -217,12 +233,12 @@ export function useStoryEditor({ code, editorRef, onSave, onChange }: UseStoryEd
 				}
 
 				if (dataTransfer?.types.includes(STORY_BLOCK_DRAG_TYPE)) {
-					try {
-						const source = storyBlockSourceRef.current;
-						if (!source) {
-							return true;
-						}
+					const source = storyBlockSourceRef.current;
+					if (!source) {
+						return false;
+					}
 
+					try {
 						const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
 						if (!coords) {
 							return true;
@@ -261,6 +277,24 @@ export function useStoryEditor({ code, editorRef, onSave, onChange }: UseStoryEd
 			},
 		},
 	});
+
+	const deactivateDropTargets = useCallback(() => {
+		pendingDropRef.current = null;
+		setIsDropTargetSuppressed(true);
+		setActiveDropZone((current) => (current === null ? current : null));
+		if (editor) {
+			editor.view.dom.dispatchEvent(new DragEvent('dragleave'));
+		}
+	}, [editor]);
+
+	useEffect(() => {
+		const handleDragControlsChange = onDragControlsChangeRef.current;
+		if (!handleDragControlsChange) {
+			return;
+		}
+		handleDragControlsChange({ deactivateDropTargets });
+		return () => handleDragControlsChange(null);
+	}, [deactivateDropTargets, onDragControlsChange]);
 
 	useEffect(() => {
 		const container = storyEditorRef.current;
@@ -310,6 +344,15 @@ export function useStoryEditor({ code, editorRef, onSave, onChange }: UseStoryEd
 		};
 
 		const onDragStart = (event: DragEvent) => {
+			suppressHandleTooltips();
+			const hoveredPosition = handleNodePosRef.current;
+			if (
+				event.dataTransfer &&
+				hoveredPosition != null &&
+				!event.dataTransfer.types.includes(STORY_BLOCK_DRAG_TYPE)
+			) {
+				setStoryBlockDragOrigin(event.dataTransfer, { kind: 'block', pos: hoveredPosition });
+			}
 			const elements = dragPreviewElementsRef.current;
 			if (!elements || elements.length === 0) {
 				return;
@@ -328,8 +371,10 @@ export function useStoryEditor({ code, editorRef, onSave, onChange }: UseStoryEd
 
 		const resetBlockDragState = () => {
 			setIsBlockDragging(false);
+			setIsDropTargetSuppressed(false);
 			setActiveDropZone((current) => (current === null ? current : null));
 			pendingDropRef.current = null;
+			gridDragSourceRef.current = null;
 			storyBlockSourceRef.current = null;
 			multiSelectionDragRef.current = null;
 			dragPreviewElementsRef.current = null;
@@ -338,6 +383,26 @@ export function useStoryEditor({ code, editorRef, onSave, onChange }: UseStoryEd
 
 		const deferredResetBlockDragState = () => {
 			requestAnimationFrame(resetBlockDragState);
+		};
+
+		const finishHandleTooltipDrag = (event: DragEvent) => {
+			if (!handleTooltipDragActiveRef.current) {
+				return;
+			}
+			handleTooltipDragActiveRef.current = false;
+			const { clientX, clientY } = event;
+			requestAnimationFrame(() => {
+				if (handleTooltipDragActiveRef.current) {
+					return;
+				}
+				const endsOverHandle =
+					document
+						.elementsFromPoint?.(clientX, clientY)
+						.some((element) => element.closest('[data-block-drag-grip]')) ?? false;
+				if (!endsOverHandle) {
+					setIsHandleTooltipSuppressed(false);
+				}
+			});
 		};
 
 		const onDocumentDrop = (event: DragEvent) => {
@@ -362,6 +427,8 @@ export function useStoryEditor({ code, editorRef, onSave, onChange }: UseStoryEd
 		document.addEventListener('drop', clearDropCursor, true);
 		document.addEventListener('dragend', resetBlockDragState, true);
 		document.addEventListener('drop', deferredResetBlockDragState, true);
+		document.addEventListener('dragend', finishHandleTooltipDrag, true);
+		document.addEventListener('drop', finishHandleTooltipDrag, true);
 		return () => {
 			container.removeEventListener('dragstart', onDragStart);
 			editor.view.dom.removeEventListener('dragover', onDragOver);
@@ -370,8 +437,10 @@ export function useStoryEditor({ code, editorRef, onSave, onChange }: UseStoryEd
 			document.removeEventListener('drop', clearDropCursor, true);
 			document.removeEventListener('dragend', resetBlockDragState, true);
 			document.removeEventListener('drop', deferredResetBlockDragState, true);
+			document.removeEventListener('dragend', finishHandleTooltipDrag, true);
+			document.removeEventListener('drop', finishHandleTooltipDrag, true);
 		};
-	}, [editor]);
+	}, [editor, suppressHandleTooltips]);
 
 	useEffect(() => {
 		if (!editor) {
@@ -454,6 +523,9 @@ export function useStoryEditor({ code, editorRef, onSave, onChange }: UseStoryEd
 				return;
 			}
 			const selection = blockSelectionPluginKey.getState(editor.state);
+			if (hoveredPosition != null && event.dataTransfer) {
+				setStoryBlockDragOrigin(event.dataTransfer, { kind: 'block', pos: hoveredPosition });
+			}
 			const units =
 				hoveredPosition == null
 					? null
@@ -498,35 +570,47 @@ export function useStoryEditor({ code, editorRef, onSave, onChange }: UseStoryEd
 			sourceRef: storyBlockSourceRef,
 			isDragging: isBlockDragging,
 			setDragging: setIsBlockDragging,
+			isHandleTooltipSuppressed,
+			suppressHandleTooltips,
+			releaseHandleTooltipSuppression,
 			activeDropZone,
 			setActiveDropZone,
+			isDropTargetSuppressed,
 			pendingDropRef,
 			beginMultiSelectionDrag,
 			endMultiSelectionDrag,
 		}),
-		[activeDropZone, beginMultiSelectionDrag, endMultiSelectionDrag, isBlockDragging],
+		[
+			activeDropZone,
+			beginMultiSelectionDrag,
+			endMultiSelectionDrag,
+			isBlockDragging,
+			isDropTargetSuppressed,
+			isHandleTooltipSuppressed,
+			releaseHandleTooltipSuppression,
+			suppressHandleTooltips,
+		],
 	);
 	const onElementDragEnd = endMultiSelectionDrag;
-	const onDragHandleClick = useCallback(() => {
+	const getDragHandleOrigin = useCallback(() => {
 		if (!editor) {
-			return;
+			return null;
 		}
 		const pos = handleNodePosRef.current;
 		if (pos == null) {
-			return;
+			return null;
 		}
 		const node = editor.state.doc.nodeAt(pos);
 		if (
 			node != null &&
-			(node.type.name === 'gridBlock' || node.type.name === 'chartBlock' || node.type.name === 'tableBlock')
+			(node.type.name === 'gridBlock' ||
+				node.type.name === 'chartBlock' ||
+				node.type.name === 'tableBlock' ||
+				node.type.name === 'mapBlock')
 		) {
-			return;
+			return null;
 		}
-		const next = selectBlockFromHandle(editor.state, pos);
-		if (!next) {
-			return;
-		}
-		editor.view.dispatch(editor.state.tr.setMeta(blockSelectionPluginKey, next));
+		return { kind: 'block' as const, pos };
 	}, [editor]);
 
 	return {
@@ -540,7 +624,7 @@ export function useStoryEditor({ code, editorRef, onSave, onChange }: UseStoryEd
 		storyEditorRef,
 		onElementDragStart,
 		onElementDragEnd,
-		onDragHandleClick,
+		getDragHandleOrigin,
 	};
 }
 

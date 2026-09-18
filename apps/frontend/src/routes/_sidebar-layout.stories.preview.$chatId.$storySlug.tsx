@@ -111,6 +111,7 @@ function StoryPreviewPage() {
 					cachedAt: story.cachedAt,
 					lastRefreshFailure: story.lastRefreshFailure,
 					isRefreshing,
+					isUpdating,
 					onRefresh: () => handleRefreshData(),
 					onOpenSettings: () => setIsLiveSettingsOpen(true),
 				}}

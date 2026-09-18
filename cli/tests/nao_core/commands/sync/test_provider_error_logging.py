@@ -51,7 +51,7 @@ def create_mock_engine(templates, render_behavior):
 
 def run_sync_with_mocks(db_config, engine, tmp_path, progress):
     """Run sync_database with patched console and engine, return state and console mock."""
-    with patch("nao_core.commands.sync.providers.databases.provider.console") as mock_console:
+    with patch("nao_core.commands.sync.providers.databases.provider.UI._console") as mock_console:
         with patch(
             "nao_core.commands.sync.providers.databases.provider.get_template_engine",
             return_value=engine,

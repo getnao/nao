@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { MessageSquare, X, ThumbsDown, ThumbsUp, Check, Plug } from 'lucide-react';
-import { NegativeFeedbackDialog } from './chat-messages/assistant-message-actions';
+import { FeedbackDialog } from './chat-messages/assistant-message-actions';
 import { Button } from './ui/button';
 import StoryIcon from './ui/story-icon';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
+import type { FeedbackVote } from './chat-messages/assistant-message-actions';
 import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 import { useChatId } from '@/hooks/use-chat-id';
 import { useInactivityTrigger } from '@/hooks/use-inactivity-trigger';
@@ -168,7 +169,7 @@ function renderSuggestion({
 						variant='ghost'
 						size='icon-sm'
 						className='hover:rounded-full'
-						onClick={() => feedback.vote('up')}
+						onClick={() => feedback.openFeedbackDialog('up')}
 						disabled={feedback.isPending}
 						aria-label='Good conversation'
 					>
@@ -178,7 +179,7 @@ function renderSuggestion({
 						variant='ghost'
 						size='icon-sm'
 						className='hover:rounded-full'
-						onClick={() => feedback.setFeedbackDialogOpen(true)}
+						onClick={() => feedback.openFeedbackDialog('down')}
 						disabled={feedback.isPending}
 						aria-label='Bad conversation'
 					>
@@ -194,11 +195,12 @@ function renderSuggestion({
 						<X className='size-4' />
 					</Button>
 				</SuggestionCard>
-				<NegativeFeedbackDialog
+				<FeedbackDialog
 					open={feedback.feedbackDialogOpen}
 					onOpenChange={feedback.setFeedbackDialogOpen}
-					onSubmit={(explanation) => feedback.vote('down', explanation)}
+					onSubmit={(explanation) => feedback.vote(feedback.feedbackDialogVote, explanation)}
 					isPending={feedback.isPending}
+					vote={feedback.feedbackDialogVote}
 				/>
 			</>
 		);
@@ -332,9 +334,11 @@ interface ConversationFeedback {
 	isVisible: boolean;
 	showThanks: boolean;
 	isPending: boolean;
-	vote: (vote: 'up' | 'down', explanation?: string) => void;
+	vote: (vote: FeedbackVote, explanation?: string) => void;
 	dismiss: () => void;
+	feedbackDialogVote: FeedbackVote;
 	feedbackDialogOpen: boolean;
+	openFeedbackDialog: (vote: FeedbackVote) => void;
 	setFeedbackDialogOpen: (open: boolean) => void;
 }
 
@@ -345,6 +349,7 @@ function useConversationFeedback(): ConversationFeedback {
 
 	const [dismissedChats, setDismissedChats] = useState<ReadonlySet<string>>(() => new Set());
 	const [thanksForChat, setThanksForChat] = useState<string | null>(null);
+	const [feedbackDialogVote, setFeedbackDialogVote] = useState<FeedbackVote>('down');
 	const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
 
 	const submitFeedback = useMutation(
@@ -360,6 +365,12 @@ function useConversationFeedback(): ConversationFeedback {
 							}
 						: prev,
 				);
+				void ctx.client.invalidateQueries({
+					queryKey: trpc.project.getChatReplay.queryKey({ chatId: variables.chatId }),
+				});
+				void ctx.client.invalidateQueries({
+					queryKey: trpc.project.getProjectChats.queryKey(),
+				});
 			},
 		}),
 	);
@@ -393,7 +404,7 @@ function useConversationFeedback(): ConversationFeedback {
 	}, [showThanks, chatId]);
 
 	const vote = useCallback(
-		(value: 'up' | 'down', explanation?: string) => {
+		(value: FeedbackVote, explanation?: string) => {
 			if (!chatId || !lastAssistantMessage) {
 				return;
 			}
@@ -403,6 +414,11 @@ function useConversationFeedback(): ConversationFeedback {
 		},
 		[chatId, lastAssistantMessage, submitFeedback],
 	);
+
+	const openFeedbackDialog = useCallback((value: FeedbackVote) => {
+		setFeedbackDialogVote(value);
+		setFeedbackDialogOpen(true);
+	}, []);
 
 	const dismiss = useCallback(() => {
 		if (chatId) {
@@ -416,7 +432,9 @@ function useConversationFeedback(): ConversationFeedback {
 		isPending: submitFeedback.isPending,
 		vote,
 		dismiss,
+		feedbackDialogVote,
 		feedbackDialogOpen,
+		openFeedbackDialog,
 		setFeedbackDialogOpen,
 	};
 }

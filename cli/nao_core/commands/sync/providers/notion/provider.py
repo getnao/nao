@@ -11,6 +11,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn
 
 from nao_core.config.base import NaoConfig
 from nao_core.config.notion import NotionConfig
+from nao_core.ui import UI
 
 from ..base import SyncProvider, SyncResult
 from .database import get_database_as_markdown, inject_child_databases
@@ -54,7 +55,7 @@ def cleanup_stale_pages(synced_files: set[str], output_path: Path, verbose: bool
                 file_path.unlink()
                 removed_count += 1
                 if verbose:
-                    console.print(f"  [dim red]removing stale page:[/dim red] {file_path.name}")
+                    UI.print(f"  [dim red]removing stale page:[/dim red] {file_path.name}")
 
     return removed_count
 
@@ -113,7 +114,7 @@ def cleanup_if_fully_synced(failed_pages: int, synced_files: set[str], output_pa
     Files no longer in Notion therefore survive until every page syncs again.
     """
     if failed_pages:
-        console.print(
+        UI.print(
             f"[yellow]⚠[/yellow]  Keeping existing files: {failed_pages} page(s) failed, so stale ones were "
             "left in place and will remain until a run succeeds in full"
         )
@@ -154,7 +155,7 @@ def fetch_documents(page_urls: list[str], api_key: str, threads: int) -> tuple[l
                 progress.update(task, advance=1, description=f"Synced: {escape(title)}")
             except Exception as error:  # noqa: BLE001 - one unreadable item must not stop the rest
                 failed += 1
-                console.print(f"[bold red]✗[/bold red] Failed to sync page {escape(page_url)}: {escape(str(error))}")
+                UI.print(f"[bold red]✗[/bold red] Failed to sync page {escape(page_url)}: {escape(str(error))}")
                 progress.update(task, advance=1)
 
         if threads <= 1 or len(page_urls) == 1:
@@ -186,7 +187,7 @@ def write_documents(documents: list[tuple[str, str, str]], output_path: Path) ->
             (output_path / filename).write_text(markdown, encoding="utf-8")
         except (OSError, UnicodeError) as error:
             failed += 1
-            console.print(f"[bold red]✗[/bold red] Failed to write {escape(filename)}: {escape(str(error))}")
+            UI.print(f"[bold red]✗[/bold red] Failed to write {escape(filename)}: {escape(str(error))}")
             continue
 
         written.add(filename)
@@ -367,16 +368,16 @@ class NotionSyncProvider(SyncProvider):
             SyncResult with statistics about what was synced.
         """
         if not items:
-            console.print("\n[dim]No Notion pages configured[/dim]")
+            UI.print("\n[dim]No Notion pages configured[/dim]")
             return SyncResult(provider_name=self.name, items_synced=0, summary="No Notion configurations configured")
 
         notion_config = items[0]
         output_path.mkdir(parents=True, exist_ok=True)
 
-        console.print(f"\n[bold cyan]{self.emoji}  Syncing {self.name}[/bold cyan]")
-        console.print(f"[dim]Location:[/dim] {output_path.absolute()}\n")
+        UI.print(f"\n[bold cyan]{self.emoji}  Syncing {self.name}[/bold cyan]")
+        UI.print(f"[dim]Location:[/dim] {output_path.absolute()}\n")
         if threads > 1 and len(notion_config.pages) > 1:
-            console.print(f"[dim]Threads:[/dim] {threads}\n")
+            UI.print(f"[dim]Threads:[/dim] {threads}\n")
 
         api_key = notion_config.api_key
 
@@ -390,10 +391,13 @@ class NotionSyncProvider(SyncProvider):
         summary = f"{pages_synced} pages synced as markdown"
         if removed_count > 0:
             summary += f", {removed_count} stale removed"
+        page_label = "page" if failed_pages == 1 else "pages"
+        error = f"Failed to sync {failed_pages} Notion {page_label}" if failed_pages else None
 
         return SyncResult(
             provider_name=self.name,
             items_synced=pages_synced,
             details={"pages": synced_pages, "removed": removed_count},
             summary=summary,
+            error=error,
         )

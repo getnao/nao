@@ -280,6 +280,7 @@ def test_sync_keeps_existing_files_when_a_page_failed(tmp_path: Path):
 
     assert (stale / "stale-999.md").read_text() == "outdated"
     assert result.details is not None and result.details["removed"] == 0
+    assert result.error == "Failed to sync 1 Confluence page"
 
 
 def test_sync_places_a_blogpost_under_blog(tmp_path: Path):

@@ -4,7 +4,7 @@
  *
  *   bun scripts/license-generate-dev.ts \
  *     --company "Acme Corp" \
- *     --features sso \
+ *     --features sso,multi-project \   # or "*" to grant every feature
  *     --days 30 \
  *     [--offline] \
  *     [--subscription-id sub_abc] \

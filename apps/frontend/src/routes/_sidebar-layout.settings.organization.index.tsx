@@ -106,11 +106,7 @@ function OrganizationSettingsPage() {
 										<TableRow key={project.id}>
 											<TableCell>
 												<div className='font-medium'>{project.name}</div>
-												{project.path && (
-													<div className='font-mono text-xs text-muted-foreground'>
-														{project.path}
-													</div>
-												)}
+												<ProjectIdentifier project={project} isCloud={isCloud} />
 											</TableCell>
 											<TableCell>
 												<Badge variant={project.role}>{USER_ROLE_LABELS[project.role]}</Badge>
@@ -144,4 +140,12 @@ function OrganizationSettingsPage() {
 			<GitLabRepoPicker open={gitlabPickerOpen} onOpenChange={setGitlabPickerOpen} />
 		</SettingsPageWrapper>
 	);
+}
+
+function ProjectIdentifier({ project, isCloud }: { project: { id: string; path: string | null }; isCloud: boolean }) {
+	const identifier = isCloud ? project.id : project.path;
+	if (!identifier) {
+		return null;
+	}
+	return <div className='font-mono text-xs text-muted-foreground'>{identifier}</div>;
 }

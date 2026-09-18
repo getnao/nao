@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Folder, GitFork, Globe, ScanText, TimerIcon, Upload } from 'lucide-react';
-import type { ForkMetadata } from '@nao/backend/chat';
+import { Folder, GitFork, Globe, Info, TimerIcon, Upload } from 'lucide-react';
+import type { ForkMetadata, UIMessage } from '@nao/backend/chat';
 import type { SelectionData } from '@/components/highlight-bubble';
 import { NEW_CHAT_ID } from '@/lib/ai';
+import { ChatStoryShortcut } from '@/components/chat-story-shortcut';
 import { StoryOpenButton } from '@/components/story-open-button';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
 import { DEFAULT_USAGE_SEARCH } from '@/components/settings/usage-route-search';
@@ -17,7 +18,7 @@ import { MobileHeader } from '@/components/mobile-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
-import { useAgentContext } from '@/contexts/agent.provider';
+import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { EditableChatTitle } from '@/components/editable-chat-title';
@@ -32,7 +33,8 @@ import { chatPendingCitationStore } from '@/stores/chat-pending-citation';
 import { useSetChatInputCallback } from '@/contexts/set-chat-input-callback';
 import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { getTextOffset } from '@/lib/selection-dom.utils';
-import { isForbiddenError } from '@/lib/trpc-error';
+import { findStories } from '@/lib/story.utils';
+import { isForbiddenError, shouldShowChatAccessError } from '@/lib/trpc-error';
 
 export const Route = createFileRoute('/_sidebar-layout/_chat-layout/$chatId')({
 	component: RouteComponent,
@@ -67,6 +69,7 @@ function ChatPage() {
 	const title = chat.data?.title;
 
 	const isForbidden = chat.isError && isForbiddenError(chat.error);
+	const shouldShowChatError = shouldShowChatAccessError(chat);
 	const shouldRedirectToReplay = isForbidden && canViewChatReplay;
 	const isResolvingReplayRedirect = isForbidden && role === undefined;
 
@@ -83,7 +86,7 @@ function ChatPage() {
 
 	const shareQuery = useQuery({
 		...trpc.sharedChat.getShareOptionsByChatId.queryOptions({ chatId }),
-		enabled: chat.isSuccess,
+		enabled: !!chat.data && !shouldShowChatError,
 	});
 	const isShared = !!shareQuery.data?.shareId;
 	const projects = useQuery(trpc.project.listForCurrentUser.queryOptions());
@@ -96,6 +99,7 @@ function ChatPage() {
 	const inputAreaHeight = useHeight(inputAreaRef);
 
 	const sidePanel = useSidePanel({ containerRef, sidePanelRef });
+	const latestStorySlug = useAgentMessagesSelector(findLatestStorySlug);
 	const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
 	const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
 	const chatInputCallback = useSetChatInputCallback();
@@ -120,7 +124,7 @@ function ChatPage() {
 
 	useEffect(() => {
 		const openStorySlug = router.state.location.state.openStorySlug;
-		if (chat.isError || !openStorySlug || isLoadingMessages) {
+		if (shouldShowChatError || !openStorySlug || isLoadingMessages) {
 			return;
 		}
 
@@ -133,9 +137,9 @@ function ChatPage() {
 			});
 		});
 		return () => clearTimeout(timer);
-	}, [chat.isError, isLoadingMessages]); // eslint-disable-line react-hooks/exhaustive-deps
+	}, [shouldShowChatError, isLoadingMessages]); // eslint-disable-line react-hooks/exhaustive-deps
 
-	if (chat.isError) {
+	if (shouldShowChatError) {
 		if (shouldRedirectToReplay || isResolvingReplayRedirect) {
 			return null;
 		}
@@ -153,6 +157,7 @@ function ChatPage() {
 			open={sidePanel.open}
 			close={sidePanel.close}
 		>
+			<ChatStoryShortcut chatId={chatId} latestStorySlug={latestStorySlug} />
 			<SelectionProvider resetKey={chatId}>
 				<div className='flex-1 flex min-w-0 bg-background' ref={containerRef}>
 					<div
@@ -221,7 +226,7 @@ function ChatPage() {
 									disabled={isRunning}
 									aria-label='Analytics'
 								>
-									<ScanText className='size-3' />
+									<Info className='size-3.5' />
 								</Button>
 								<Button
 									variant='outline'
@@ -293,6 +298,10 @@ function ChatPage() {
 			/>
 		</SidePanelProvider>
 	);
+}
+
+function findLatestStorySlug(messages: UIMessage[]): string | undefined {
+	return findStories(messages).at(-1)?.id;
 }
 
 function resolveStoryCitationMeta(
