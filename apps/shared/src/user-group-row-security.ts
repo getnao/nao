@@ -70,7 +70,12 @@ export type WarehouseRowSecurity =
 			enforced: true;
 			tables: Array<
 				SensitiveTableDefinition &
-					({ access: 'full' } | { access: 'predicate'; predicate: string } | { access: 'none' })
+					(
+						| { access: 'full' }
+						| { access: 'predicate'; predicate: string }
+						| { access: 'none' }
+						| { access: 'blocked'; reason: string }
+					)
 			>;
 	  };
 

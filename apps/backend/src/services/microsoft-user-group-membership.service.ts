@@ -12,6 +12,7 @@ import {
 import { logger, serializeError } from '../utils/logger';
 import {
 	type EntraGroupNaoGroupMapping,
+	hasMicrosoftGroupsOverage,
 	parseEntraGroupNaoGroupMapping,
 	parseEntraGroupOrganizationRoleMapping,
 	readGroupsClaim,
@@ -136,16 +137,6 @@ async function synchronizeMicrosoftMappings(
 	} finally {
 		await syncOrganizationRoleFromMicrosoftGroups(userId, groupIds);
 	}
-}
-
-export function hasMicrosoftGroupsOverage(claims: Record<string, unknown>): boolean {
-	const claimNames = claims._claim_names;
-	const hasClaimName =
-		claimNames !== null &&
-		typeof claimNames === 'object' &&
-		!Array.isArray(claimNames) &&
-		typeof (claimNames as Record<string, unknown>).groups === 'string';
-	return hasClaimName || claims.hasgroups === true;
 }
 
 export async function resolveMicrosoftGraphMemberships(

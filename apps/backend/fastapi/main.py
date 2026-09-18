@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import uvicorn
 from api_models import (
+    BlockedRowAccessTable,
     EnforcedRowSecurity,
     ExecuteSQLRequest,
     ExecuteSQLResponse,
@@ -27,7 +28,7 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-__all__ = ["EnforcedRowSecurity", "PredicateRowAccessTable"]
+__all__ = ["BlockedRowAccessTable", "EnforcedRowSecurity", "PredicateRowAccessTable"]
 
 load_dotenv()
 
@@ -335,11 +336,18 @@ def _active_row_security_policies(
                 status_code=400,
                 detail=f"Duplicate row security policy for {entry.schema_name}.{entry.table}.",
             )
-        policies[identity] = {
-            "access": entry.access,
-            "constraint_columns": entry.constraint_columns,
-            "predicate": getattr(entry, "predicate", None),
-        }
+        if entry.access == "blocked":
+            policies[identity] = {
+                "access": "blocked",
+                "constraint_columns": entry.constraint_columns,
+                "reason": entry.reason,
+            }
+        else:
+            policies[identity] = {
+                "access": entry.access,
+                "constraint_columns": entry.constraint_columns,
+                "predicate": getattr(entry, "predicate", None),
+            }
     return policies
 
 

@@ -75,6 +75,7 @@ export type DatabaseContextCatalog = {
 
 const DATABASE_OBJECTS_TTL_MS = 5 * 60 * 1000;
 const databaseObjectsCache = new Map<string, { objects: DatabaseObject[]; expiresAt: number }>();
+const databaseContextCatalogCache = new Map<string, { catalog: DatabaseContextCatalog; expiresAt: number }>();
 
 export function getDatabaseObjects(projectFolder: string): DatabaseObject[] {
 	const cached = databaseObjectsCache.get(projectFolder);
@@ -87,7 +88,24 @@ export function getDatabaseObjects(projectFolder: string): DatabaseObject[] {
 	return objects;
 }
 
-export function getDatabaseContextCatalog(projectFolder: string): DatabaseContextCatalog {
+export function getDatabaseContextCatalog(
+	projectFolder: string,
+	options: { fresh?: boolean } = {},
+): DatabaseContextCatalog {
+	const cached = databaseContextCatalogCache.get(projectFolder);
+	if (!options.fresh && cached && Date.now() < cached.expiresAt) {
+		return cached.catalog;
+	}
+
+	const catalog = readDatabaseContextCatalogFromDisk(projectFolder);
+	databaseContextCatalogCache.set(projectFolder, {
+		catalog,
+		expiresAt: Date.now() + DATABASE_OBJECTS_TTL_MS,
+	});
+	return catalog;
+}
+
+function readDatabaseContextCatalogFromDisk(projectFolder: string): DatabaseContextCatalog {
 	const scan = scanDatabaseObjects(projectFolder);
 	return {
 		syncState: scan.syncState,

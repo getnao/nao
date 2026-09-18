@@ -12,6 +12,9 @@ const mocks = vi.hoisted(() => ({
 		projectMemberUserId: string | null;
 		orgMemberUserId: string | null;
 	}>,
+	existingProviderProjectRows: [] as Array<{ projectId: string }>,
+	existingGroupRows: [] as Array<{ groupId: string }>,
+	lockedProjectIds: [] as string[],
 	beforeProjectLock: vi.fn<() => void | Promise<void>>(),
 }));
 
@@ -39,7 +42,7 @@ describe('PostgreSQL SSO membership reconciliation', () => {
 		mocks.mappingRows = [
 			{
 				groupId: 'group-a',
-				projectId: 'project-1',
+				projectId: 'project-a',
 				groupName: 'Group A',
 				isDefault: false,
 				ssoMappings: ssoMappings(['claim-a']),
@@ -47,16 +50,31 @@ describe('PostgreSQL SSO membership reconciliation', () => {
 				projectMemberUserId: 'user-1',
 				orgMemberUserId: null,
 			},
+			{
+				groupId: 'group-c',
+				projectId: 'project-c',
+				groupName: 'Group C',
+				isDefault: false,
+				ssoMappings: ssoMappings(['claim-c']),
+				createdAt: new Date('2025-01-01'),
+				projectMemberUserId: 'user-1',
+				orgMemberUserId: null,
+			},
 		];
+		mocks.existingProviderProjectRows = [{ projectId: 'project-b' }];
+		mocks.existingGroupRows = [];
+		mocks.lockedProjectIds = [];
 		mocks.beforeProjectLock.mockReset();
 	});
 
-	it('locks the user and projects before reading mappings and replacing memberships', async () => {
+	it('locks only matched and existing membership projects before replacing memberships', async () => {
 		await reconcileSsoUserGroupMemberships('user-1', 'oidc', ['claim-a']);
 
+		expect(mocks.lockedProjectIds).toEqual(['project-a', 'project-b']);
 		expect(mocks.events).toEqual([
 			'lock-user',
-			'list-projects',
+			'read-mappings',
+			'read-existing-projects',
 			'lock-projects',
 			'read-mappings',
 			'read-memberships',
@@ -64,8 +82,43 @@ describe('PostgreSQL SSO membership reconciliation', () => {
 		]);
 	});
 
+	it('locks a matched project even when the user lacks project access', async () => {
+		mocks.mappingRows = [mocks.mappingRows[0]!];
+		mocks.mappingRows[0]!.projectMemberUserId = null;
+		mocks.existingProviderProjectRows = [];
+
+		await reconcileSsoUserGroupMemberships('user-1', 'oidc', ['claim-a']);
+
+		expect(mocks.lockedProjectIds).toEqual(['project-a']);
+		expect(mocks.events).toEqual([
+			'lock-user',
+			'read-mappings',
+			'read-existing-projects',
+			'lock-projects',
+			'read-mappings',
+			'read-memberships',
+		]);
+	});
+
+	it('does not lock projects when there are no matches or existing memberships', async () => {
+		mocks.existingProviderProjectRows = [];
+
+		await reconcileSsoUserGroupMemberships('user-1', 'oidc', ['claim-missing']);
+
+		expect(mocks.lockedProjectIds).toEqual([]);
+		expect(mocks.events).toEqual([
+			'lock-user',
+			'read-mappings',
+			'read-existing-projects',
+			'read-mappings',
+			'read-memberships',
+		]);
+	});
+
 	it('does not treat an accessible unmapped group as SSO sync state', async () => {
-		mocks.mappingRows[0]!.ssoMappings = ssoMappings([]);
+		for (const mapping of mocks.mappingRows) {
+			mapping.ssoMappings = ssoMappings([]);
+		}
 
 		await expect(hasSsoUserGroupSyncState('user-1', 'oidc')).resolves.toBe(false);
 	});
@@ -80,7 +133,8 @@ describe('PostgreSQL SSO membership reconciliation', () => {
 
 		expect(mocks.events).toEqual([
 			'lock-user',
-			'list-projects',
+			'read-mappings',
+			'read-existing-projects',
 			'admin-update',
 			'lock-projects',
 			'read-mappings',
@@ -90,32 +144,41 @@ describe('PostgreSQL SSO membership reconciliation', () => {
 });
 
 function transaction() {
-	let selectCount = 0;
+	let lockSelectionCount = 0;
 	return {
-		select: () => {
-			selectCount += 1;
-			if (selectCount === 1) {
+		select: (selection: Record<string, unknown>) => {
+			if ('projectMemberUserId' in selection) {
+				return query(mocks.mappingRows, () => mocks.events.push('read-mappings'));
+			}
+			if ('projectId' in selection) {
+				return query(mocks.existingProviderProjectRows, () => mocks.events.push('read-existing-projects'));
+			}
+			if ('groupId' in selection) {
+				return query(mocks.existingGroupRows, () => mocks.events.push('read-memberships'));
+			}
+			lockSelectionCount += 1;
+			if (lockSelectionCount === 1) {
 				return lockingQuery([{ id: 'user-1' }], async () => {
 					mocks.events.push('lock-user');
 				});
 			}
-			if (selectCount === 2) {
-				return query([{ id: 'project-1' }], () => mocks.events.push('list-projects'));
-			}
-			if (selectCount === 3) {
-				return lockingQuery([{ id: 'project-1' }], async () => {
-					await mocks.beforeProjectLock();
-					mocks.events.push('lock-projects');
-				});
-			}
-			if (selectCount === 4) {
-				return query(mocks.mappingRows, () => mocks.events.push('read-mappings'));
-			}
-			return query([], () => mocks.events.push('read-memberships'));
+			return lockingProjectQuery(async () => {
+				await mocks.beforeProjectLock();
+				mocks.events.push('lock-projects');
+			});
 		},
 		delete: () => mutation(),
 		insert: () => mutation(() => mocks.events.push('insert-membership')),
 	};
+}
+
+function lockingProjectQuery(beforeExecute: () => Promise<void>) {
+	const builder = lockingQuery([], beforeExecute);
+	builder.where = (condition: unknown) => {
+		mocks.lockedProjectIds = getInArrayValues(condition);
+		return builder;
+	};
+	return builder;
 }
 
 function lockingQuery(rows: unknown[], beforeExecute: () => Promise<void>) {
@@ -128,6 +191,12 @@ function lockingQuery(rows: unknown[], beforeExecute: () => Promise<void>) {
 		return builder;
 	};
 	return builder;
+}
+
+function getInArrayValues(condition: unknown): string[] {
+	const chunks = (condition as { queryChunks?: unknown[] }).queryChunks ?? [];
+	const parameters = chunks.find((chunk): chunk is Array<{ value?: unknown }> => Array.isArray(chunk)) ?? [];
+	return parameters.flatMap((parameter) => (typeof parameter.value === 'string' ? [parameter.value] : []));
 }
 
 function query(rows: unknown[], beforeExecute?: () => void) {

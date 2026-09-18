@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-	buildToolContext: vi.fn(),
 	executeQuery: vi.fn(),
 	extractToolCalls: vi.fn(() => []),
+	resolveProjectContextAccess: vi.fn(),
+	retrieveProjectById: vi.fn(),
 	runTest: vi.fn(),
 	runVerification: vi.fn(),
 }));
@@ -14,8 +15,11 @@ vi.mock('../src/agents/tools/execute-sql', () => ({
 vi.mock('../src/middleware/auth', () => ({
 	authMiddleware: vi.fn(),
 }));
-vi.mock('../src/services/agent', () => ({
-	buildToolContext: mocks.buildToolContext,
+vi.mock('../src/queries/project.queries', () => ({
+	retrieveProjectById: mocks.retrieveProjectById,
+}));
+vi.mock('../src/services/user-group-context-access.service', () => ({
+	resolveProjectContextAccess: mocks.resolveProjectContextAccess,
 }));
 vi.mock('../src/services/test-agent.service', () => ({
 	TestAgentService: class TestAgentService {
@@ -30,9 +34,17 @@ vi.mock('../src/services/test-agent.service', () => ({
 import { testRoutes } from '../src/routes/test';
 
 describe('test routes', () => {
-	it('forces expected-query verification to use read-only agent settings', async () => {
-		const toolContext = { agentSettings: null };
-		mocks.buildToolContext.mockResolvedValue(toolContext);
+	it('uses explicit settings and resolved context access for expected-query verification', async () => {
+		const warehouseTableAccess = { enforced: true };
+		const warehouseRowSecurity = { enforced: false };
+		mocks.retrieveProjectById.mockResolvedValue({ path: '/project' });
+		mocks.resolveProjectContextAccess.mockResolvedValue({
+			warehouseTableAccess,
+			warehouseRowSecurity,
+			docsContextAccess: { enforced: false },
+			userGroupFeatures: [],
+			userRulesGroupAccess: { enforced: true, groupNames: ['analysts'] },
+		});
 		mocks.executeQuery.mockResolvedValue({ data: [], columns: [] });
 		mocks.runTest.mockResolvedValue({
 			text: 'answer',
@@ -66,16 +78,23 @@ describe('test routes', () => {
 			reply,
 		);
 
-		expect(mocks.buildToolContext).toHaveBeenCalledWith({
-			projectId: 'project-id',
-			userId: 'user-id',
-			chatId: '',
-			agentSettings: null,
-			supportsCustomCharts: false,
-		});
+		expect(mocks.retrieveProjectById).toHaveBeenCalledWith('project-id');
+		expect(mocks.resolveProjectContextAccess).toHaveBeenCalledWith('project-id', 'user-id', '/project');
 		expect(mocks.executeQuery).toHaveBeenCalledWith(
 			{ sql_query: 'SELECT 1', database_id: 'warehouse' },
-			toolContext,
+			expect.objectContaining({
+				projectFolder: '/project',
+				chatId: '',
+				userId: 'user-id',
+				projectId: 'project-id',
+				supportsCustomCharts: false,
+				agentSettings: null,
+				adminMode: false,
+				envVars: {},
+				azureAccessToken: null,
+				warehouseTableAccess,
+				warehouseRowSecurity,
+			}),
 		);
 		expect(reply.status).not.toHaveBeenCalled();
 	});

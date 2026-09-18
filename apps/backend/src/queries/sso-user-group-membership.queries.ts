@@ -108,10 +108,11 @@ export async function reconcileSsoUserGroupMemberships(
 
 	await db.transaction(async (transaction) => {
 		await lockUserForSsoReconciliation(transaction, userId);
-		const projectIds = await listSsoCandidateProjectIds(transaction);
+		const projectIds = await resolveProjectIdsToLock(transaction, userId, provider, identifiers, options);
 		await lockProjectsForSsoReconciliation(transaction, projectIds);
-		const mappings = normalizeSsoUserGroupMappings(
-			await buildSsoUserGroupMappingsQuery(transaction, userId).execute(),
+		const mappings = await listSsoUserGroupMappings(
+			transaction,
+			userId,
 			provider,
 			options.hasUnlimitedUserGroups ?? true,
 		);
@@ -224,6 +225,65 @@ function normalizeSsoUserGroupMappings(
 	});
 }
 
+async function resolveProjectIdsToLock(
+	transaction: DBTransaction,
+	userId: string,
+	provider: SsoGroupProvider,
+	identifiers: Set<string>,
+	options: SsoUserGroupReconciliationOptions,
+): Promise<string[]> {
+	const mappings = await listSsoUserGroupMappings(
+		transaction,
+		userId,
+		provider,
+		options.hasUnlimitedUserGroups ?? true,
+	);
+	const desired = getDesiredMemberships(
+		mappings,
+		identifiers,
+		provider,
+		options.oidcMappings ?? [],
+		options.entraMappings ?? [],
+	);
+	const projectIds = getMatchedProjectIds(
+		mappings,
+		identifiers,
+		provider,
+		options.oidcMappings ?? [],
+		options.entraMappings ?? [],
+	);
+	for (const mapping of mappings) {
+		if (desired.groupIds.has(mapping.groupId)) {
+			projectIds.add(mapping.projectId);
+		}
+	}
+	const existingMemberships = await transaction
+		.select({ projectId: s.userGroup.projectId })
+		.from(s.userGroupMember)
+		.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
+		.where(and(eq(s.userGroupMember.userId, userId), eq(s.userGroupMember.provider, provider)))
+		.execute();
+	for (const { projectId } of existingMemberships) {
+		projectIds.add(projectId);
+	}
+	return [...projectIds].sort();
+}
+
+async function listSsoUserGroupMappings(
+	transaction: DBTransaction,
+	userId: string,
+	provider: SsoGroupProvider,
+	hasUnlimitedUserGroups: boolean,
+): Promise<SsoUserGroupMapping[]> {
+	const groups = await buildSsoUserGroupMappingsQuery(transaction, userId).execute();
+	return normalizeSsoUserGroupMappings(groups, provider, hasUnlimitedUserGroups);
+}
+
+/**
+ * Group memberships are fully reconciled with the IdP, but project memberships are only granted.
+ * An SSO-provisioned project role is never removed or downgraded when its IdP group disappears.
+ * This is deliberate: admins revoke project access manually.
+ */
 function getDesiredMemberships(
 	mappings: SsoUserGroupMapping[],
 	identifiers: Set<string>,
@@ -260,6 +320,22 @@ function getDesiredMemberships(
 		}
 	}
 	return { groupIds, projectRoles };
+}
+
+function getMatchedProjectIds(
+	mappings: SsoUserGroupMapping[],
+	identifiers: Set<string>,
+	provider: SsoGroupProvider,
+	oidcMappings: OidcGroupNaoGroupMapping[],
+	entraMappings: EntraGroupNaoGroupMapping[],
+): Set<string> {
+	return new Set(
+		mappings
+			.filter((mapping) =>
+				isMappingMatched(mapping, mappings, identifiers, provider, oidcMappings, entraMappings),
+			)
+			.map((mapping) => mapping.projectId),
+	);
 }
 
 function isMappingMatched(
@@ -358,15 +434,6 @@ async function insertMissingProjectMembershipsPostgres(
 async function lockUserForSsoReconciliation(transaction: DBTransaction, userId: string): Promise<void> {
 	const query = transaction.select({ id: s.user.id }).from(s.user).where(eq(s.user.id, userId));
 	await (query as typeof query & { for(strength: 'update'): typeof query }).for('update').execute();
-}
-
-async function listSsoCandidateProjectIds(transaction: DBTransaction): Promise<string[]> {
-	const rows = await transaction
-		.select({ id: s.userGroup.projectId })
-		.from(s.userGroup)
-		.where(eq(s.userGroup.isDefault, false))
-		.execute();
-	return [...new Set(rows.map(({ id }) => id))].sort();
 }
 
 async function lockProjectsForSsoReconciliation(transaction: DBTransaction, projectIds: string[]): Promise<void> {

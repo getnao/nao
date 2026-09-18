@@ -44,10 +44,10 @@ vi.mock('../src/utils/logger', () => ({
 }));
 
 import {
-	hasMicrosoftGroupsOverage,
 	resolveMicrosoftGraphMemberships,
 	syncUserGroupsFromMicrosoft,
 } from '../src/services/microsoft-user-group-membership.service';
+import { hasMicrosoftGroupsOverage } from '../src/utils/sso-group-mapping';
 
 const GROUP_1 = 'A0B1C2D3-E4F5-6789-ABCD-EF0123456789';
 const GROUP_2 = '11111111-2222-3333-4444-555555555555';

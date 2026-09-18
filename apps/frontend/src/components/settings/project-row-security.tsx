@@ -120,6 +120,12 @@ export function ProjectRowSecurity({
 				action={!isLicensed ? <UpgradeToEnterprise /> : undefined}
 				unstyled
 			>
+				{!isLicensed && registry.tables.length > 0 && (
+					<p className='text-xs text-muted-foreground'>
+						Queries on protected tables are blocked until the license is restored. Remove tables to unblock
+						them.
+					</p>
+				)}
 				<div className='flex items-center justify-between gap-3'>
 					<Badge variant='secondary' className='shrink-0'>
 						{registry.tables.length} {registry.tables.length === 1 ? 'table' : 'tables'} · {columnCount}{' '}
@@ -170,7 +176,7 @@ export function ProjectRowSecurity({
 										(object) => rowSecurityTableKey(object) === rowSecurityTableKey(definition),
 									)}
 									unavailable={unavailableByTable.get(rowSecurityTableKey(definition))}
-									disabled={!isLicensed}
+									editDisabled={!isLicensed}
 									onEdit={() => openEditDialog(definition)}
 									onRemove={() => setRemoveTarget(definition)}
 								/>
@@ -212,7 +218,8 @@ export function ProjectRowSecurity({
 						<DialogHeader>
 							<DialogTitle>Add protected tables</DialogTitle>
 							<DialogDescription>
-								Expand a table and select the columns that group policies should use.
+								Expand a table and select the columns that group policies should use. Until a group gets
+								a policy for a protected table, its members see no rows from it, admins included.
 							</DialogDescription>
 						</DialogHeader>
 						<div className='flex items-center gap-2'>
@@ -333,14 +340,14 @@ function ProtectedTableSummary({
 	definition,
 	object,
 	unavailable,
-	disabled,
+	editDisabled,
 	onEdit,
 	onRemove,
 }: {
 	definition: SensitiveTableDefinition;
 	object?: DatabaseContextObject;
 	unavailable?: SensitiveTableDefinition;
-	disabled: boolean;
+	editDisabled: boolean;
 	onEdit: () => void;
 	onRemove: () => void;
 }) {
@@ -379,7 +386,7 @@ function ProtectedTableSummary({
 					variant='ghost'
 					className='rounded-full'
 					aria-label={`Edit ${definition.table}`}
-					disabled={disabled}
+					disabled={editDisabled}
 					onClick={onEdit}
 				>
 					<Pencil />
@@ -390,7 +397,6 @@ function ProtectedTableSummary({
 					variant='ghost'
 					className='rounded-full'
 					aria-label={`Remove ${definition.table}`}
-					disabled={disabled}
 					onClick={onRemove}
 				>
 					<Trash2 />

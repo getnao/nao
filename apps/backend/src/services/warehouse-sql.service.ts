@@ -114,6 +114,7 @@ function serializeRowSecurity(rowSecurity: WarehouseRowSecurity) {
 			constraint_columns: table.constraintColumns,
 			access: table.access,
 			...(table.access === 'predicate' ? { predicate: table.predicate } : {}),
+			...(table.access === 'blocked' ? { reason: table.reason } : {}),
 		})),
 	};
 }

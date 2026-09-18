@@ -16,6 +16,7 @@ import {
 	ROW_SECURITY_MAX_CONDITIONS,
 	ROW_SECURITY_MAX_VALUE_LENGTH,
 	ROW_SECURITY_OPERATORS,
+	rowSecurityTableKey,
 	stripRowSecurityWhereClause,
 	TOOL_CALL_DENSITIES,
 	USER_GROUP_FEATURES,
@@ -248,7 +249,7 @@ export const userGroupRoutes = {
 		if (!ctx.project.path) {
 			throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'The project path is not configured.' });
 		}
-		return getDatabaseContextCatalog(ctx.project.path);
+		return getDatabaseContextCatalog(ctx.project.path, { fresh: true });
 	}),
 
 	rowSecurity: adminProtectedProcedure.query(async ({ ctx }) => {
@@ -256,8 +257,8 @@ export const userGroupRoutes = {
 	}),
 
 	updateRowSecurity: adminProtectedProcedure.input(projectRowSecuritySchema).mutation(async ({ ctx, input }) => {
-		await assertRowSecurityLicensed();
 		const rowSecurity = normalizeProjectRowSecurity(input);
+		await assertRowSecurityChangeAllowed(ctx.project.id, rowSecurity);
 		await validateProjectRowSecurityCatalog(requireProjectPath(ctx.project.path), rowSecurity);
 		return handleQuery(() => userGroupQueries.updateProjectRowSecurity(ctx.project.id, rowSecurity));
 	}),
@@ -387,11 +388,30 @@ async function assertRowSecurityLicensed(): Promise<void> {
 	}
 }
 
+async function assertRowSecurityChangeAllowed(projectId: string, rowSecurity: ProjectRowSecurity): Promise<void> {
+	if (await hasFeature(LICENSE_FEATURES.rowLevelSecurity)) {
+		return;
+	}
+	const current = normalizeProjectRowSecurity(await userGroupQueries.getProjectRowSecurity(projectId));
+	const currentTables = new Map(current.tables.map((table) => [rowSecurityTableKey(table), table.constraintColumns]));
+	const onlyRemovesTables = rowSecurity.tables.every((table) => {
+		const currentColumns = currentTables.get(rowSecurityTableKey(table));
+		return (
+			currentColumns !== undefined &&
+			currentColumns.length === table.constraintColumns.length &&
+			currentColumns.every((column, index) => column === table.constraintColumns[index])
+		);
+	});
+	if (!onlyRemovesTables) {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Row-level security requires an Enterprise license.' });
+	}
+}
+
 async function validateProjectRowSecurityCatalog(
 	projectPath: string,
 	rowSecurity: ReturnType<typeof normalizeProjectRowSecurity>,
 ): Promise<void> {
-	const catalog = getDatabaseContextCatalog(projectPath);
+	const catalog = getDatabaseContextCatalog(projectPath, { fresh: true });
 	for (const table of rowSecurity.tables) {
 		const catalogTable = catalog.objects.find(
 			(candidate) =>
@@ -400,7 +420,13 @@ async function validateProjectRowSecurityCatalog(
 				candidate.schema === table.schema &&
 				candidate.table === table.table,
 		);
-		if (catalogTable && table.constraintColumns.some((column) => !catalogTable.columns.includes(column))) {
+		if (!catalogTable) {
+			throw new TRPCError({
+				code: 'BAD_REQUEST',
+				message: `Table ${table.schema}.${table.table} is not in the synced catalog.`,
+			});
+		}
+		if (table.constraintColumns.some((column) => !catalogTable.columns.includes(column))) {
 			throw new TRPCError({
 				code: 'BAD_REQUEST',
 				message: `Invalid constraint column for ${table.schema}.${table.table}.`,

@@ -6,9 +6,11 @@ import { executeQuery } from '../agents/tools/execute-sql';
 import type { App } from '../app';
 import { noProjectMessage } from '../env';
 import { authMiddleware } from '../middleware/auth';
-import { buildToolContext } from '../services/agent';
+import { retrieveProjectById } from '../queries/project.queries';
 import { TestAgentService, testAgentService } from '../services/test-agent.service';
+import { resolveProjectContextAccess } from '../services/user-group-context-access.service';
 import { customModelCostSchema, llmSelectedModelSchema } from '../types/llm';
+import type { ToolContext } from '../types/tools';
 import { truncateMiddle } from '../utils/utils';
 
 const describeRunError = (err: unknown): string => {
@@ -66,13 +68,7 @@ export const testRoutes = async (app: App) => {
 
 				let verification;
 				if (sql) {
-					const toolContext = await buildToolContext({
-						projectId,
-						userId,
-						chatId: '',
-						agentSettings: null,
-						supportsCustomCharts: false,
-					});
+					const toolContext = await buildVerificationToolContext(projectId, userId);
 					const { data: expectedData, columns: expectedColumns } = await executeQuery(
 						{ sql_query: sql, database_id: databaseId },
 						toolContext,
@@ -101,3 +97,30 @@ export const testRoutes = async (app: App) => {
 		},
 	);
 };
+
+async function buildVerificationToolContext(projectId: string, userId: string): Promise<ToolContext> {
+	const project = await retrieveProjectById(projectId);
+	const projectFolder = project.path;
+	if (!projectFolder) {
+		throw new Error('Project path does not exist.');
+	}
+	const contextAccess = await resolveProjectContextAccess(projectId, userId, projectFolder);
+	return {
+		projectFolder,
+		chatId: '',
+		userId,
+		projectId,
+		supportsCustomCharts: false,
+		agentSettings: null,
+		adminMode: false,
+		envVars: {},
+		azureAccessToken: null,
+		warehouseTableAccess: contextAccess.warehouseTableAccess,
+		warehouseRowSecurity: contextAccess.warehouseRowSecurity,
+		docsContextAccess: contextAccess.docsContextAccess,
+		userGroupFeatures: contextAccess.userGroupFeatures,
+		userRulesGroupAccess: contextAccess.userRulesGroupAccess,
+		queryResults: new Map(),
+		generatedArtifacts: { charts: [], maps: [], stories: [] },
+	};
+}

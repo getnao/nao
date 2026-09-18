@@ -228,6 +228,65 @@ describe('getDatabaseContextCatalog', () => {
 		});
 	});
 
+	it('does not re-read the catalog within the cache TTL', () => {
+		const root = '/project-catalog-cached';
+		setupDirStructure(root, {
+			[join(root, 'databases')]: ['type=postgres'],
+			[join(root, 'databases', 'type=postgres')]: ['database=app'],
+			[join(root, 'databases', 'type=postgres', 'database=app')]: ['schema=public'],
+			[join(root, 'databases', 'type=postgres', 'database=app', 'schema=public')]: ['table=users'],
+		});
+		mockReadFileSync.mockReturnValue('- id (INTEGER)\n');
+
+		getDatabaseContextCatalog(root);
+		getDatabaseContextCatalog(root);
+
+		expect(mockReaddirSync).toHaveBeenCalledTimes(4);
+		expect(mockReadFileSync).toHaveBeenCalledTimes(1);
+	});
+
+	it('bypasses and updates the cache for a fresh read', () => {
+		const root = '/project-catalog-fresh';
+		setupDirStructure(root, {
+			[join(root, 'databases')]: ['type=postgres'],
+			[join(root, 'databases', 'type=postgres')]: ['database=app'],
+			[join(root, 'databases', 'type=postgres', 'database=app')]: ['schema=public'],
+			[join(root, 'databases', 'type=postgres', 'database=app', 'schema=public')]: ['table=users'],
+		});
+		mockReadFileSync.mockReturnValue('- old_column (INTEGER)\n');
+		expect(getDatabaseContextCatalog(root).objects[0].columns).toEqual(['old_column']);
+
+		mockReadFileSync.mockReturnValue('- new_column (INTEGER)\n');
+		expect(getDatabaseContextCatalog(root, { fresh: true }).objects[0].columns).toEqual(['new_column']);
+		expect(getDatabaseContextCatalog(root).objects[0].columns).toEqual(['new_column']);
+
+		expect(mockReaddirSync).toHaveBeenCalledTimes(8);
+		expect(mockReadFileSync).toHaveBeenCalledTimes(2);
+	});
+
+	it('keys cached catalogs by project folder', () => {
+		const firstRoot = '/project-catalog-keyed/first';
+		const secondRoot = '/project-catalog-keyed/second';
+		setupDirStructure('/project-catalog-keyed', {
+			[join(firstRoot, 'databases')]: ['type=postgres'],
+			[join(firstRoot, 'databases', 'type=postgres')]: ['database=first'],
+			[join(firstRoot, 'databases', 'type=postgres', 'database=first')]: ['schema=public'],
+			[join(firstRoot, 'databases', 'type=postgres', 'database=first', 'schema=public')]: ['table=users'],
+			[join(secondRoot, 'databases')]: ['type=postgres'],
+			[join(secondRoot, 'databases', 'type=postgres')]: ['database=second'],
+			[join(secondRoot, 'databases', 'type=postgres', 'database=second')]: ['schema=public'],
+			[join(secondRoot, 'databases', 'type=postgres', 'database=second', 'schema=public')]: ['table=users'],
+		});
+		mockReadFileSync.mockReturnValue('- id (INTEGER)\n');
+
+		expect(getDatabaseContextCatalog(firstRoot).objects[0].database).toBe('first');
+		expect(getDatabaseContextCatalog(secondRoot).objects[0].database).toBe('second');
+		expect(getDatabaseContextCatalog(firstRoot).objects[0].database).toBe('first');
+
+		expect(mockReaddirSync).toHaveBeenCalledTimes(8);
+		expect(mockReadFileSync).toHaveBeenCalledTimes(2);
+	});
+
 	it('parses quoted column names and nested type parentheses', () => {
 		const root = '/project-catalog-identifiers';
 		setupDirStructure(root, {

@@ -9,12 +9,7 @@ import * as sharedStoryQueries from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 import * as storyFolderQueries from '../queries/story-folder.queries';
 import { logActivity } from '../services/activity';
-import {
-	executeLiveQuery,
-	getAuthorizedStoredStoryQueryData,
-	getStoryQueryData,
-	refreshStoryData,
-} from '../services/live-story';
+import { executeLiveQuery, getStoryQueryData, refreshStoryData } from '../services/live-story';
 import {
 	assertStoryFiltersEnabled,
 	getFilteredStoryQueryData,
@@ -143,7 +138,6 @@ export const sharedStoryRoutes = {
 			shared.code,
 			isLive,
 			cacheSchedule,
-			ctx.user.id,
 		);
 		const lastRefreshFailure = await activityQueries.getLatestStoryRefreshFailure(shared.storyId);
 
@@ -188,14 +182,14 @@ export const sharedStoryRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story version not found.' });
 			}
 
-			const queryData = await getAuthorizedStoredStoryQueryData(shared.chatId, version.code, ctx.user.id);
+			const queryData = await sharedStoryQueries.getQueryDataFromCode(shared.chatId, version.code);
 			return { queryData };
 		}),
 
 	getLiveQueryData: chatProcedure
 		.input(z.object({ chatId: z.string(), queryId: z.string() }))
-		.query(async ({ input, ctx }) => {
-			return executeLiveQuery(input.chatId, input.queryId, ctx.user.id);
+		.query(async ({ input }) => {
+			return executeLiveQuery(input.chatId, input.queryId);
 		}),
 
 	getFilterOptions: shareAccessProcedure
@@ -206,7 +200,7 @@ export const sharedStoryRoutes = {
 			if (!shared.chatId) {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
 			}
-			return getStoryFilterOptions(shared.chatId, shared.slug, input.filterId, ctx.user.id);
+			return getStoryFilterOptions(shared.chatId, shared.slug, input.filterId);
 		}),
 
 	getFilteredQueryData: shareAccessProcedure
@@ -222,7 +216,7 @@ export const sharedStoryRoutes = {
 			if (!shared.chatId) {
 				throw new TRPCError({ code: 'BAD_REQUEST', message: 'Shared story has no chat.' });
 			}
-			return getFilteredStoryQueryData(shared.chatId, shared.slug, input.selections, ctx.user.id);
+			return getFilteredStoryQueryData(shared.chatId, shared.slug, input.selections);
 		}),
 
 	getQuerySql: shareAccessProcedure
@@ -265,7 +259,7 @@ export const sharedStoryRoutes = {
 			trigger: 'manual',
 		});
 		try {
-			const { queryData } = await refreshStoryData(shared.chatId, shared.slug, storyOwnerId);
+			const { queryData } = await refreshStoryData(shared.chatId, shared.slug);
 			await activityQueries.completeActivity(activity.id, {
 				queriesRefreshed: Object.keys(queryData).length,
 			});
@@ -381,7 +375,6 @@ export const sharedStoryRoutes = {
 				version.code,
 				version.isLive,
 				version.cacheSchedule,
-				ctx.user.id,
 			);
 
 			logAnalyticsEvent({

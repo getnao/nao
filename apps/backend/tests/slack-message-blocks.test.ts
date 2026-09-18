@@ -584,8 +584,8 @@ describe('buildSlackTableBlocks', () => {
 		const blocks = buildSlackTableBlocks(text) as AnyBlock[] | null;
 		expect(blocks).not.toBeNull();
 
-		const tableBlock = blocks!.find((block) => block.type === 'table') as
-			| { type: 'table'; rows: { type: string; text: string }[][] }
+		const tableBlock = blocks!.find((block) => block.type === 'data_table') as
+			| { type: 'data_table'; rows: { type: string; text: string }[][] }
 			| undefined;
 		expect(tableBlock).toBeDefined();
 		expect(tableBlock!.rows).toEqual([
@@ -609,7 +609,7 @@ describe('buildSlackTableBlocks', () => {
 		const text = ['| Name | Description |', '|------|-------------|', ...bigRows].join('\n');
 
 		const blocks = buildSlackTableBlocks(text) as AnyBlock[] | null;
-		const tableBlock = blocks?.find((block) => block.type === 'table') as
+		const tableBlock = blocks?.find((block) => block.type === 'data_table') as
 			| { rows: { type: string; text: string }[][] }
 			| undefined;
 		expect(tableBlock).toBeDefined();
@@ -627,7 +627,7 @@ describe('buildSlackTableBlocks', () => {
 		const text = [...firstTable, '', '| Second | Description |', '|---|---|', ...secondRows].join('\n');
 
 		const blocks = buildSlackTableBlocks(text) as AnyBlock[] | null;
-		const tableBlocks = blocks?.filter((block) => block.type === 'table') ?? [];
+		const tableBlocks = blocks?.filter((block) => block.type === 'data_table') ?? [];
 		const sectionBlocks = (blocks?.filter((block) => block.type === 'section') ?? []) as {
 			type: 'section';
 			text?: { text: string };

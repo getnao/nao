@@ -20,6 +20,7 @@ import { StoryTabbedContent } from '@/components/story-tabbed-content';
 import { Spinner } from '@/components/ui/spinner';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { SelectionProvider } from '@/contexts/text-selection';
+import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
 import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
@@ -37,6 +38,7 @@ function SharedStoryPage() {
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
+	const { storyCreationEnabled } = useEffectiveUserGroupFeatures();
 
 	const { data: story, isLoading } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ shareId }));
 	const isViewer = story?.userRole === 'viewer';
@@ -64,6 +66,7 @@ function SharedStoryPage() {
 	);
 
 	const isOwner = Boolean(session?.user?.id) && session?.user?.id === story?.userId;
+	const canFork = !isViewer && (isOwner || storyCreationEnabled);
 
 	useTrackViewDuration({
 		assetType: 'story',
@@ -141,7 +144,7 @@ function SharedStoryPage() {
 				title={story.title}
 				authorName={story.authorName}
 				openChatLabel='Discuss story'
-				onOpenChat={isViewer ? undefined : () => forkMutation.mutate({ shareId, type: 'story' })}
+				onOpenChat={canFork ? () => forkMutation.mutate({ shareId, type: 'story' }) : undefined}
 				isOpeningChat={forkMutation.isPending}
 				live={
 					story.isLive
@@ -177,8 +180,8 @@ function SharedStoryPage() {
 				{header}
 
 				<SelectionProvider key={shareId} persistenceConfig={{ shareId, contentType: 'story' }}>
-					{!isViewer && !isEditing && <ForkBubble shareId={shareId} contentType='story' />}
-					{!isViewer && !isEditing && <SelectionChatPanel contentAreaRef={contentAreaRef} />}
+					{canFork && !isEditing && <ForkBubble shareId={shareId} contentType='story' />}
+					{canFork && !isEditing && <SelectionChatPanel contentAreaRef={contentAreaRef} />}
 					<div className='flex flex-1 min-h-0 min-w-0'>
 						<div ref={contentAreaRef} className='flex flex-col flex-1 min-w-0 min-h-0'>
 							<StoryPageBody

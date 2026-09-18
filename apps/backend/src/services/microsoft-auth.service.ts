@@ -1,12 +1,19 @@
 /* @license Enterprise */
 
 import { APIError, type BetterAuthOptions } from 'better-auth';
+import { microsoft } from 'better-auth/social-providers';
 import { and, eq } from 'drizzle-orm';
+import { decodeJwt } from 'jose';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
 import { env } from '../env';
-import { decideGroupOrganizationRoleMapping, parseEntraGroupOrganizationRoleMapping } from '../utils/sso-group-mapping';
+import { logger, serializeError } from '../utils/logger';
+import {
+	decideGroupOrganizationRoleMapping,
+	hasMicrosoftGroupsOverage,
+	parseEntraGroupOrganizationRoleMapping,
+} from '../utils/sso-group-mapping';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 
 export type SocialProviders = NonNullable<BetterAuthOptions['socialProviders']>;
@@ -23,31 +30,76 @@ export function augmentSocialProvidersWithMicrosoft(providers: SocialProviders):
 	if (!config) {
 		return;
 	}
+	const stockProvider = microsoft({
+		clientId: config.clientId,
+		clientSecret: config.clientSecret,
+		tenantId: config.tenantId,
+	});
 	providers.microsoft = {
 		clientId: config.clientId,
 		clientSecret: config.clientSecret,
 		tenantId: config.tenantId,
-		mapProfileToUser: async (profile) => {
-			const roleMapping = parseEntraGroupOrganizationRoleMapping(env.AZURE_AD_GROUP_NAO_ROLE_MAPPING);
-			if (
-				roleMapping.status !== 'valid' ||
-				roleMapping.mapping.size === 0 ||
-				!(await hasFeature(LICENSE_FEATURES.sso))
-			) {
-				return {};
-			}
-			if (hasMicrosoftGroupsOverage(profile) && !('groups' in profile)) {
-				return {};
-			}
-			const decision = decideGroupOrganizationRoleMapping(profile, 'groups', roleMapping.mapping);
-			if (decision.action === 'deny') {
-				throw new APIError('FORBIDDEN', {
-					message: 'Your account is not assigned to any nao access group.',
-				});
-			}
-			return {};
+		getUserInfo: async (token) => {
+			await assertMicrosoftGroupAccess(token);
+			return stockProvider.getUserInfo(token);
 		},
 	};
+}
+
+async function assertMicrosoftGroupAccess(token: { idToken?: string; accessToken?: string }): Promise<void> {
+	const roleMapping = parseEntraGroupOrganizationRoleMapping(env.AZURE_AD_GROUP_NAO_ROLE_MAPPING);
+	if (roleMapping.status !== 'valid' || roleMapping.mapping.size === 0 || !(await hasFeature(LICENSE_FEATURES.sso))) {
+		return;
+	}
+	if (!token.idToken) {
+		throw new APIError('FORBIDDEN', {
+			message: 'Microsoft sign-in did not return an ID token.',
+		});
+	}
+
+	const claims = decodeJwt(token.idToken) as Record<string, unknown>;
+	if ('groups' in claims) {
+		assertMicrosoftGroupDecision(claims, roleMapping.mapping);
+		return;
+	}
+	if (!hasMicrosoftGroupsOverage(claims)) {
+		assertMicrosoftGroupDecision(claims, roleMapping.mapping);
+		return;
+	}
+	if (!token.accessToken) {
+		throwMicrosoftMembershipUnavailable();
+	}
+
+	let resolvedIds: string[];
+	try {
+		const { resolveMicrosoftGraphMemberships } = await import('./microsoft-user-group-membership.service');
+		resolvedIds = await resolveMicrosoftGraphMemberships(token.accessToken, [...roleMapping.mapping.keys()]);
+	} catch (error) {
+		logger.warn('Could not verify Microsoft Entra group membership during sign-in', {
+			source: 'system',
+			context: { error: serializeError(error) },
+		});
+		throwMicrosoftMembershipUnavailable();
+	}
+	assertMicrosoftGroupDecision({ ...claims, groups: resolvedIds }, roleMapping.mapping);
+}
+
+function assertMicrosoftGroupDecision(
+	claims: Record<string, unknown>,
+	mapping: Map<string, 'admin' | 'user' | 'viewer'>,
+): void {
+	const decision = decideGroupOrganizationRoleMapping(claims, 'groups', mapping);
+	if (decision.action === 'deny') {
+		throw new APIError('FORBIDDEN', {
+			message: 'Your account is not assigned to any nao access group.',
+		});
+	}
+}
+
+function throwMicrosoftMembershipUnavailable(): never {
+	throw new APIError('FORBIDDEN', {
+		message: 'Microsoft group membership could not be verified.',
+	});
 }
 
 export function getTrustedProvidersForMicrosoft(): string[] {
@@ -121,15 +173,4 @@ function azureAdEnv(): AzureAdConfig | null {
 		tenantId: AZURE_AD_TENANT_ID,
 		tokenScope: AZURE_AD_TOKEN_SCOPE || `${AZURE_AD_CLIENT_ID}/.default`,
 	};
-}
-
-function hasMicrosoftGroupsOverage(claims: Record<string, unknown>): boolean {
-	const claimNames = claims._claim_names;
-	return (
-		(claimNames !== null &&
-			typeof claimNames === 'object' &&
-			!Array.isArray(claimNames) &&
-			typeof (claimNames as Record<string, unknown>).groups === 'string') ||
-		claims.hasgroups === true
-	);
 }

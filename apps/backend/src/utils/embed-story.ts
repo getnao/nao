@@ -2,7 +2,7 @@ import type { DateFormatSettings } from '@nao/shared/date';
 
 import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
-import { assertProjectStoredStoryDataAllowed, getStoryQueryData } from '../services/live-story';
+import { getStoryQueryData } from '../services/live-story';
 import { assertProjectMcpEnabled, verifyEmbedToken } from './embed-token';
 import { HandlerError } from './error';
 import { backfillMissingQueryDataForSandbox, type StoryQueryDataMap } from './story-query-data';
@@ -76,7 +76,6 @@ async function loadEmbedStoryData(
 		throw new HandlerError('NOT_FOUND', 'Story not found.');
 	}
 	if (!version.chatId) {
-		await assertProjectStoredStoryDataAllowed(projectId, ownerId);
 		return {
 			code: version.code,
 			queryData: await backfillMissingQueryDataForSandbox(version.code, {
@@ -93,7 +92,6 @@ async function loadEmbedStoryData(
 		version.code,
 		version.isLive,
 		version.cacheSchedule,
-		ownerId,
 	);
 	const queryData = result.allowsPersistedFallback
 		? await backfillMissingQueryDataForSandbox(version.code, {

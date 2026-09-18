@@ -273,6 +273,16 @@ export function decideGroupOrganizationRoleMapping(
 		: { action: 'deny', organizationRole: null, claimPresent: true };
 }
 
+export function hasMicrosoftGroupsOverage(claims: Record<string, unknown>): boolean {
+	const claimNames = claims._claim_names;
+	const hasClaimName =
+		claimNames !== null &&
+		typeof claimNames === 'object' &&
+		!Array.isArray(claimNames) &&
+		typeof (claimNames as Record<string, unknown>).groups === 'string';
+	return hasClaimName || claims.hasgroups === true;
+}
+
 export function extractGroups(claims: Record<string, unknown>, claimName: string): string[] {
 	const value = claims[claimName];
 	if (typeof value === 'string') {

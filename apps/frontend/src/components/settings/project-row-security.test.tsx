@@ -679,15 +679,20 @@ describe('ProjectRowSecurity', () => {
 		expect(onRetryCatalog).toHaveBeenCalledOnce();
 	});
 
-	it('shows the configured summary but disables editing without a license', () => {
+	it('allows removal but disables additions and edits without a license', () => {
 		mocks.rowSecurity = configuredRegistry();
 		mocks.licensed = false;
 		render(<ProjectRowSecurity objects={objects} />);
 
 		expect(screen.getByText('Upgrade to Enterprise')).toBeTruthy();
 		expect(screen.getByText('analytics/main/orders')).toBeTruthy();
+		expect(
+			screen.getByText(
+				'Queries on protected tables are blocked until the license is restored. Remove tables to unblock them.',
+			),
+		).toBeTruthy();
 		expect((screen.getByRole('button', { name: 'Edit orders' }) as HTMLButtonElement).disabled).toBe(true);
-		expect((screen.getByRole('button', { name: 'Remove orders' }) as HTMLButtonElement).disabled).toBe(true);
+		expect((screen.getByRole('button', { name: 'Remove orders' }) as HTMLButtonElement).disabled).toBe(false);
 		expect((screen.getByRole('button', { name: 'Add protected table' }) as HTMLButtonElement).disabled).toBe(true);
 		expect(screen.queryByRole('dialog')).toBeNull();
 	});

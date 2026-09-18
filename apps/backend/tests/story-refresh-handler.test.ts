@@ -51,7 +51,7 @@ describe('scheduled Story refresh principal', () => {
 	it('executes warehouse queries as the Story owner', async () => {
 		await runScheduledStoryRefresh('story-1');
 
-		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders', 'owner-1');
+		expect(mocks.refreshStoryData).toHaveBeenCalledWith('chat-1', 'orders');
 	});
 
 	it('fails the scheduled refresh when the owner has lost project access', async () => {

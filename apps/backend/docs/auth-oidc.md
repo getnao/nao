@@ -233,7 +233,9 @@ AZURE_AD_GROUP_NAO_ROLE_MAPPING=a0b1c2d3-e4f5-6789-abcd-ef0123456789:admin
 
 Existing deployments may temporarily keep the deprecated `AZURE_AD_GROUP_ROLE_MAPPING` name, but should rename it. If both names are set, `AZURE_AD_GROUP_NAO_ROLE_MAPPING` wins and the old value is ignored.
 
-Entra group overage is resolved with Microsoft Graph's `/me/checkMemberObjects` using saved UI mappings and both Entra environment mappings as candidates. Invalid tokens, missing or expired access tokens, and Graph failures leave User Group memberships and organization roles unchanged. A normal verified `groups` claim with no mapped organization-role group denies sign-in. Overage cannot be checked safely until Better Auth stores the access token, so authentication fails open and nao resolves the role immediately after login; if that resolution fails, existing access remains unchanged.
+When organization role mapping is enabled, nao verifies group overage against Microsoft Graph during sign-in. If Graph cannot be reached or the access token is unavailable, sign-in is denied. Configure the app registration to emit only groups assigned to the application to avoid overage.
+
+After sign-in, Entra group overage for User Group synchronization is resolved with Microsoft Graph's `/me/checkMemberObjects` using saved UI mappings and both Entra environment mappings as candidates. Invalid tokens, missing or expired access tokens, and Graph failures leave existing User Group memberships and organization roles unchanged.
 
 Generic OIDC variables affect only generic OIDC logins, and `AZURE_AD_*` mappings affect only Microsoft logins.
 

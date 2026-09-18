@@ -1,0 +1,46 @@
+name: JS Tests
+
+on:
+    push:
+        paths:
+            - 'apps/**'
+            - 'package.json'
+            - 'package-lock.json'
+            - '.npmrc'
+    pull_request:
+        paths:
+            - 'apps/**'
+            - 'package.json'
+            - 'package-lock.json'
+            - '.npmrc'
+
+jobs:
+    test:
+        name: Vitest
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: '.nvmrc'
+                  cache: 'npm'
+
+            - name: Use the pinned npm
+              run: ./scripts/use-pinned-npm.sh
+
+            - name: Install dependencies
+              run: npm ci
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Test shared
+              run: npm run -w @nao/shared test
+
+            - name: Test backend
+              run: npm run -w @nao/backend test
+
+            - name: Test frontend
+              run: npm run -w @nao/frontend test

@@ -16,6 +16,7 @@ ConstraintColumn = Annotated[
     StringConstraints(strip_whitespace=True, min_length=1, max_length=255),
 ]
 ROW_SECURITY_MAX_AGGREGATE_PREDICATE_LENGTH = 1_000_000
+ROW_SECURITY_MAX_REASON_LENGTH = 10_000
 ROW_SECURITY_MAX_TABLES = 10_000
 
 
@@ -69,8 +70,13 @@ class PredicateRowAccessTable(RowSecurityTableBase):
     predicate: str = Field(min_length=1, max_length=ROW_SECURITY_MAX_AGGREGATE_PREDICATE_LENGTH)
 
 
+class BlockedRowAccessTable(RowSecurityTableBase):
+    access: Literal["blocked"]
+    reason: str = Field(min_length=1, max_length=ROW_SECURITY_MAX_REASON_LENGTH)
+
+
 RowSecurityTable = Annotated[
-    NoRowAccessTable | FullRowAccessTable | PredicateRowAccessTable,
+    NoRowAccessTable | FullRowAccessTable | PredicateRowAccessTable | BlockedRowAccessTable,
     Field(discriminator="access"),
 ]
 

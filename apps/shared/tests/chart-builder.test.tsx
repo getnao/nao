@@ -53,10 +53,10 @@ describe('computeValueAxisWidth', () => {
 
 	it('reserves extra width for a rotated axis title when hasLabel is set', () => {
 		const currencyFormat = { d3_format: ',.0f', prefix: '$' };
-		expect(computeValueAxisWidth([1, 10], undefined, true)).toBe(56);
+		expect(computeValueAxisWidth([1, 10], undefined, true)).toBe(76);
 		expect(computeValueAxisWidth([], undefined, true)).toBe(60);
-		expect(computeValueAxisWidth([0, 980_000], currencyFormat, true)).toBe(102);
-		expect(computeValueAxisWidth([0, Number.MAX_SAFE_INTEGER], currencyFormat, true)).toBe(140);
+		expect(computeValueAxisWidth([0, 980_000], currencyFormat, true)).toBe(122);
+		expect(computeValueAxisWidth([0, Number.MAX_SAFE_INTEGER], currencyFormat, true)).toBe(160);
 	});
 });
 

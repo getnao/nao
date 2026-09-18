@@ -1,15 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => {
-	class StoredStoryDataAccessDeniedError extends Error {}
-	return {
-		assertProjectStoredStoryDataAllowed: vi.fn(),
-		getChat: vi.fn(),
-		getSharedChatInfo: vi.fn(),
-		getUserRoleInProject: vi.fn(),
-		StoredStoryDataAccessDeniedError,
-	};
-});
+const mocks = vi.hoisted(() => ({
+	getChat: vi.fn(),
+	getSharedChatInfo: vi.fn(),
+	getUserRoleInProject: vi.fn(),
+}));
 
 vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));
 vi.mock('../src/db/db', () => ({ db: {} }));
@@ -28,9 +23,7 @@ vi.mock('../src/queries/shared-chat.queries', () => ({
 vi.mock('../src/queries/story.queries', () => ({}));
 vi.mock('../src/services/activity', () => ({ logActivity: vi.fn() }));
 vi.mock('../src/services/live-story', () => ({
-	assertProjectStoredStoryDataAllowed: mocks.assertProjectStoredStoryDataAllowed,
 	getStoryQueryData: vi.fn(),
-	StoredStoryDataAccessDeniedError: mocks.StoredStoryDataAccessDeniedError,
 }));
 vi.mock('../src/utils/analytics-event', () => ({ logAnalyticsEvent: vi.fn() }));
 vi.mock('../src/utils/email', () => ({ notifySharedItemRecipients: vi.fn() }));
@@ -50,7 +43,7 @@ const chat = {
 	messages: [],
 };
 
-describe('shared chat stored data authorization', () => {
+describe('shared chat stored data', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.getSharedChatInfo.mockResolvedValue({
@@ -66,29 +59,13 @@ describe('shared chat stored data authorization', () => {
 		mocks.getChat.mockResolvedValue([chat, 'owner-1']);
 	});
 
-	it('returns the shared chat when stored data is allowed', async () => {
+	it('returns the shared chat', async () => {
 		await expect(createCaller().sharedChat.getSharedChat({ shareId: 'share-1' })).resolves.toEqual({
 			share: expect.objectContaining({ id: 'share-1', chatId: 'chat-1' }),
 			chat,
 			userRole: 'user',
 		});
-		expect(mocks.assertProjectStoredStoryDataAllowed).toHaveBeenCalledWith('project-1', 'viewer-1');
 		expect(mocks.getChat).toHaveBeenCalledWith('chat-1', { includeFeedback: true });
-	});
-
-	it('returns FORBIDDEN and does not load chat data when stored data is denied', async () => {
-		mocks.assertProjectStoredStoryDataAllowed.mockRejectedValue(
-			new mocks.StoredStoryDataAccessDeniedError(
-				'Stored Story data cannot be safely resolved for this principal.',
-			),
-		);
-
-		await expect(createCaller().sharedChat.getSharedChat({ shareId: 'share-1' })).rejects.toMatchObject({
-			code: 'FORBIDDEN',
-			message: 'Stored Story data cannot be safely resolved for this principal.',
-		});
-		expect(mocks.assertProjectStoredStoryDataAllowed).toHaveBeenCalledWith('project-1', 'viewer-1');
-		expect(mocks.getChat).not.toHaveBeenCalled();
 	});
 });
 

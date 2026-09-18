@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal, Protocol, TypedDict
+from typing import Any, Literal, Protocol, TypedDict, cast
 
 import sqlglot
 from sqlglot import exp
@@ -30,10 +30,19 @@ class RowSecurityGuardError(ValueError):
     pass
 
 
-class RowSecurityPolicy(TypedDict):
+class ActiveRowSecurityPolicy(TypedDict):
     access: Literal["none", "full", "predicate"]
     constraint_columns: list[str]
     predicate: str | None
+
+
+class BlockedRowSecurityPolicy(TypedDict):
+    access: Literal["blocked"]
+    constraint_columns: list[str]
+    reason: str
+
+
+RowSecurityPolicy = ActiveRowSecurityPolicy | BlockedRowSecurityPolicy
 
 
 TableIdentity = tuple[str, str]
@@ -87,7 +96,9 @@ def enforce_row_security(
                 dialect,
                 _blocked,
             )
-            policy = policies.get(identity)
+            policy = _lookup_policy(policies, identity)
+            if policy is not None and policy["access"] == "blocked":
+                raise _blocked(cast(BlockedRowSecurityPolicy, policy)["reason"])
             if policy is None or policy["access"] == "full":
                 continue
 
@@ -123,6 +134,23 @@ def enforce_row_security(
     finally:
         if owns_connection and conn is not None:
             conn.disconnect()
+
+
+def _lookup_policy(
+    policies: dict[TableIdentity, RowSecurityPolicy],
+    identity: TableIdentity,
+) -> RowSecurityPolicy | None:
+    exact_policy = policies.get(identity)
+    if exact_policy is not None:
+        return exact_policy
+
+    schema, table = identity
+    matches = [
+        policy
+        for (policy_schema, policy_table), policy in policies.items()
+        if policy_schema.casefold() == schema.casefold() and policy_table.casefold() == table.casefold()
+    ]
+    return matches[0] if len(matches) == 1 else None
 
 
 def _parse_predicate(

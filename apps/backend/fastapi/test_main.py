@@ -360,6 +360,23 @@ def test_row_security_request_model_accepts_project_table_limit():
         main.EnforcedRowSecurity.model_validate({"enforced": True, "tables": [table] * 10_001})
 
 
+def test_row_security_request_model_accepts_blocked_table():
+    table = main.BlockedRowAccessTable.model_validate(
+        {
+            "database_type": "duckdb",
+            "database": "test",
+            "schema": "main",
+            "table": "users",
+            "constraint_columns": ["id"],
+            "access": "blocked",
+            "reason": "Enterprise license is inactive.",
+        }
+    )
+
+    assert table.access == "blocked"
+    assert table.reason == "Enterprise license is inactive."
+
+
 def test_row_security_request_model_accepts_bounded_aggregate_predicates():
     table = {
         "database_type": "duckdb",

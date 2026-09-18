@@ -111,12 +111,68 @@ describe('user group routes', () => {
 		mocks.createUserGroupWithinLimit.mockResolvedValue({ id: 'group-id', name: 'Analysts' });
 	});
 
-	it('requires the RLS entitlement for project security mutations', async () => {
+	it('allows unlicensed row-security table removals', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+			constraintColumns: ['tenant_id'],
+		};
+		const customers = { ...orders, table: 'customers' };
+		mocks.hasFeature.mockResolvedValue(false);
+		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [orders, customers] });
+		mocks.getDatabaseContextCatalog.mockReturnValue({
+			syncState: 'ready',
+			objects: [{ ...orders, columns: orders.constraintColumns }],
+		});
+
+		await expect(createCaller().updateRowSecurity({ version: 1, tables: [orders] })).resolves.toEqual({
+			version: 1,
+			tables: [orders],
+		});
+		expect(mocks.updateProjectRowSecurity).toHaveBeenCalledWith('project-id', { version: 1, tables: [orders] });
+	});
+
+	it('rejects unlicensed row-security table additions', async () => {
 		mocks.hasFeature.mockResolvedValue(false);
 
-		await expect(createCaller().updateRowSecurity({ version: 1, tables: [] })).rejects.toMatchObject({
+		await expect(
+			createCaller().updateRowSecurity({
+				version: 1,
+				tables: [
+					{
+						databaseType: 'duckdb',
+						database: 'sales',
+						schema: 'main',
+						table: 'orders',
+						constraintColumns: ['tenant_id'],
+					},
+				],
+			}),
+		).rejects.toMatchObject({
 			code: 'FORBIDDEN',
 		});
+		expect(mocks.updateProjectRowSecurity).not.toHaveBeenCalled();
+	});
+
+	it('rejects unlicensed row-security constraint column changes', async () => {
+		const orders = {
+			databaseType: 'duckdb',
+			database: 'sales',
+			schema: 'main',
+			table: 'orders',
+			constraintColumns: ['tenant_id'],
+		};
+		mocks.hasFeature.mockResolvedValue(false);
+		mocks.getProjectRowSecurity.mockResolvedValue({ version: 1, tables: [orders] });
+
+		await expect(
+			createCaller().updateRowSecurity({
+				version: 1,
+				tables: [{ ...orders, constraintColumns: ['region'] }],
+			}),
+		).rejects.toMatchObject({ code: 'FORBIDDEN' });
 		expect(mocks.updateProjectRowSecurity).not.toHaveBeenCalled();
 	});
 
@@ -135,6 +191,27 @@ describe('user group routes', () => {
 				],
 			}),
 		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		expect(mocks.updateProjectRowSecurity).not.toHaveBeenCalled();
+	});
+
+	it('rejects project row security tables outside the synced catalog', async () => {
+		await expect(
+			createCaller().updateRowSecurity({
+				version: 1,
+				tables: [
+					{
+						databaseType: 'duckdb',
+						database: 'sales',
+						schema: 'main',
+						table: 'orders',
+						constraintColumns: ['tenant_id'],
+					},
+				],
+			}),
+		).rejects.toMatchObject({
+			code: 'BAD_REQUEST',
+			message: 'Table main.orders is not in the synced catalog.',
+		});
 		expect(mocks.updateProjectRowSecurity).not.toHaveBeenCalled();
 	});
 
@@ -921,7 +998,7 @@ describe('user group routes', () => {
 			syncState: 'ready',
 			objects: [{ databaseType: 'postgres', database: 'app', schema: 'public', table: 'users' }],
 		});
-		expect(mocks.getDatabaseContextCatalog).toHaveBeenCalledWith('/project');
+		expect(mocks.getDatabaseContextCatalog).toHaveBeenCalledWith('/project', { fresh: true });
 		expect(mocks.hasFeature).not.toHaveBeenCalled();
 	});
 

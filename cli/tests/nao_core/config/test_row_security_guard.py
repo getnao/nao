@@ -197,6 +197,20 @@ def test_no_policy_state_denies_all_rows():
     assert "WHERE FALSE" in sql
 
 
+def test_blocked_policy_raises_with_reason():
+    reason = "Enterprise license is inactive."
+    policies: dict[tuple[str, str], RowSecurityPolicy] = {
+        ("main", "orders"): {
+            "access": "blocked",
+            "constraint_columns": ["tenant_id"],
+            "reason": reason,
+        }
+    }
+
+    with pytest.raises(RowSecurityGuardError, match=reason):
+        enforce_row_security("SELECT * FROM orders", FakeDatabaseConfig(), policies)
+
+
 def test_full_access_does_not_add_filter():
     policies: dict[tuple[str, str], RowSecurityPolicy] = {
         ("main", "orders"): {
@@ -214,6 +228,43 @@ def test_full_access_does_not_add_filter():
         )
         == "SELECT * FROM orders"
     )
+
+
+def test_applies_unique_case_insensitive_policy_match():
+    config = FakeDatabaseConfig()
+    config.connection.schemas = {"public": ["orders"]}
+    policies: dict[tuple[str, str], RowSecurityPolicy] = {
+        ("Public", "Orders"): {
+            "access": "predicate",
+            "constraint_columns": ["tenant_id"],
+            "predicate": "tenant_id = 7",
+        }
+    }
+
+    sql = enforce_row_security("SELECT * FROM public.orders", config, policies)
+
+    assert "WHERE orders.tenant_id = 7" in sql
+
+
+def test_ignores_ambiguous_case_insensitive_policy_matches():
+    config = FakeDatabaseConfig()
+    config.connection.schemas = {"public": ["orders"]}
+    policies: dict[tuple[str, str], RowSecurityPolicy] = {
+        ("Public", "Orders"): {
+            "access": "predicate",
+            "constraint_columns": ["tenant_id"],
+            "predicate": "tenant_id = 7",
+        },
+        ("PUBLIC", "ORDERS"): {
+            "access": "none",
+            "constraint_columns": ["tenant_id"],
+            "predicate": None,
+        },
+    }
+
+    sql = enforce_row_security("SELECT * FROM public.orders", config, policies)
+
+    assert sql == "SELECT * FROM public.orders"
 
 
 @pytest.mark.parametrize(
