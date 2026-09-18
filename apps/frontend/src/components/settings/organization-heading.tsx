@@ -37,11 +37,11 @@ export function OrganizationHeading({ organization, organizations, canEdit }: Or
 
 	const switchOrganization = async (organizationId: string) => {
 		setOpen(false);
+		setActiveOrganizationId(organizationId);
 		if (organizationId === organization.id) {
 			return;
 		}
 
-		setActiveOrganizationId(organizationId);
 		await queryClient.invalidateQueries();
 		await router.invalidate();
 	};
