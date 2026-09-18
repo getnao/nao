@@ -1,8 +1,18 @@
 from unittest.mock import patch
 
 import httpx
+import pytest
 
 from nao_core.commands.imports.tableau.client import TableauClient, TableauConfig
+
+
+def test_config_allows_empty_default_site(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TABLEAU_SERVER", "https://tableau.example.com")
+    monkeypatch.delenv("TABLEAU_SITE_NAME", raising=False)
+    monkeypatch.setenv("TABLEAU_PAT_NAME", "name")
+    monkeypatch.setenv("TABLEAU_PAT_VALUE", "value")
+
+    assert TableauConfig.from_environment().site_name == ""
 
 
 def test_list_views_reads_every_page() -> None:

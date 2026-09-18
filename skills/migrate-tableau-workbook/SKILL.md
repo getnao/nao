@@ -22,7 +22,7 @@ Do not search for or call Tableau MCP tools. The nao CLI owns Tableau authentica
 
 Do not read, print, or return `.env` contents. If the CLI reports missing Tableau environment variables, stop and tell the user:
 
-> Tableau Cloud access is not configured. Please make sure `TABLEAU_SERVER`, `TABLEAU_SITE_NAME`, `TABLEAU_PAT_NAME`, and `TABLEAU_PAT_VALUE` are set in your `.env` file, then retry. `TABLEAU_API_VERSION` is optional. Do not paste credential values into chat.
+> Tableau access is not configured. Please make sure `TABLEAU_SERVER`, `TABLEAU_PAT_NAME`, and `TABLEAU_PAT_VALUE` are set in your `.env` file, then retry. Set `TABLEAU_SITE_NAME` for a named site; leave it unset or empty for Tableau Server's Default site. `TABLEAU_API_VERSION` is optional. Do not paste credential values into chat.
 
 Report the CLI's sanitized error if Tableau rejects authentication.
 

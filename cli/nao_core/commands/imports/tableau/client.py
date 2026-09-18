@@ -18,7 +18,7 @@ class TableauConfig:
     def from_environment(cls) -> "TableauConfig":
         return cls(
             server=required_environment("TABLEAU_SERVER").rstrip("/"),
-            site_name=required_environment("TABLEAU_SITE_NAME"),
+            site_name=os.environ.get("TABLEAU_SITE_NAME", "").strip(),
             pat_name=required_environment("TABLEAU_PAT_NAME"),
             pat_value=required_environment("TABLEAU_PAT_VALUE"),
             api_version=os.environ.get("TABLEAU_API_VERSION", "3.21"),
