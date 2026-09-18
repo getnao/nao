@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
-const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+import { isDarkSurface } from './story-theme-contrast';
+
+export const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 const hexColor = z.string().regex(HEX_COLOR, 'Expected a 6-digit hex colour such as #522bff.');
 
 const fontStack = z
@@ -27,7 +29,14 @@ export function isAllowedFontStylesheet(raw: string): boolean {
 	}
 }
 
+export const MIN_CHART_SERIES_COLORS = 3;
 export const MAX_CHART_SERIES_COLORS = 11;
+export const MAX_FONT_STYLESHEETS = 4;
+export const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
+export const MAX_ZIP_BYTES = 10 * 1024 * 1024;
+export const MAX_SOURCE_IMAGES = 4;
+export const IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
+export type ImageMediaType = (typeof IMAGE_MEDIA_TYPES)[number];
 
 const DEFAULT_SURFACES = { page: '#ffffff', sunken: '#f8f8f8' };
 const DEFAULT_ACCENT = { color: '#522bff', ink: '#ffffff' };
@@ -85,7 +94,7 @@ export const storyTextSchema = z.object({
 	/** Stylesheets to load so the named faces actually resolve. */
 	fontStylesheets: z
 		.array(z.string().refine(isAllowedFontStylesheet, 'Font stylesheet host is not allowed.'))
-		.max(4)
+		.max(MAX_FONT_STYLESHEETS)
 		.default(DEFAULT_TEXT.fontStylesheets),
 	/** Multiplier on heading sizes. */
 	headingScale: z.number().min(0.8).max(1.4).default(DEFAULT_TEXT.headingScale),
@@ -122,7 +131,7 @@ export const storyTableSchema = z.object({
 
 export const storyChartsSchema = z.object({
 	/** Categorical series colours, assigned in order. */
-	series: z.array(hexColor).min(3).max(MAX_CHART_SERIES_COLORS).default(DEFAULT_CHARTS.series),
+	series: z.array(hexColor).min(MIN_CHART_SERIES_COLORS).max(MAX_CHART_SERIES_COLORS).default(DEFAULT_CHARTS.series),
 	/** Grid lines behind every chart. */
 	grid: hexColor.default(DEFAULT_CHARTS.grid),
 	/** Corner radius on bars, in px. */
@@ -141,13 +150,8 @@ export const storyThemeSchema = z.object({
 export type StoryTheme = z.infer<typeof storyThemeSchema>;
 export type StoryThemeInput = z.input<typeof storyThemeSchema>;
 
-/** nao's own look expressed in the contract; the fallback when a project has no saved theme. */
 export const DEFAULT_STORY_THEME: StoryTheme = storyThemeSchema.parse({});
 
-/**
- * Parses a stored theme leniently: missing slots fall back to their defaults,
- * anything unparseable yields null so the caller falls back to the nao look.
- */
 export function parseStoredStoryTheme(raw: unknown): StoryTheme | null {
 	const value = typeof raw === 'string' ? safeJsonParse(raw) : raw;
 	if (value === null || typeof value !== 'object') {
@@ -155,6 +159,10 @@ export function parseStoredStoryTheme(raw: unknown): StoryTheme | null {
 	}
 	const result = storyThemeSchema.safeParse(value);
 	return result.success ? result.data : null;
+}
+
+export function sameTheme(a: StoryTheme, b: StoryTheme): boolean {
+	return JSON.stringify(a) === JSON.stringify(b);
 }
 
 /**
@@ -204,7 +212,7 @@ export function storyThemeToCssVars(theme: StoryTheme): Record<string, string> {
 
 		'--chart-grid': theme.charts.grid,
 
-		'color-scheme': isDarkHex(theme.surfaces.page) ? 'dark' : 'light',
+		'color-scheme': isDarkSurface(theme.surfaces.page) ? 'dark' : 'light',
 	};
 
 	for (let index = 0; index < MAX_CHART_SERIES_COLORS; index++) {
@@ -213,10 +221,6 @@ export function storyThemeToCssVars(theme: StoryTheme): Record<string, string> {
 	return vars;
 }
 
-/**
- * Tailwind resolves --radius-lg (and friends) on :root as var(--radius), so
- * overriding --radius alone does not move rounded-lg. Emit the scale as px.
- */
 function radiusScale(radius: number): Record<string, string> {
 	return {
 		'--radius': `${radius}px`,
@@ -229,15 +233,6 @@ function radiusScale(radius: number): Record<string, string> {
 		'--radius-4xl': `${radius + 16}px`,
 		'--story-block-radius': `${radius}px`,
 	};
-}
-
-/** Relative luminance below 0.2 reads as a dark ground. */
-function isDarkHex(hex: string): boolean {
-	const channel = (index: number) => {
-		const value = parseInt(hex.slice(1 + index * 2, 3 + index * 2), 16) / 255;
-		return value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
-	};
-	return 0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2) < 0.2;
 }
 
 function safeJsonParse(raw: string): unknown {

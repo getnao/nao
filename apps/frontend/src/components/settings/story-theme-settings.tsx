@@ -1,22 +1,21 @@
-import { DEFAULT_STORY_THEME, MAX_CHART_SERIES_COLORS, storyThemeSchema } from '@nao/shared/story-theme';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+	DEFAULT_STORY_THEME,
+	HEX_COLOR,
+	MAX_CHART_SERIES_COLORS,
+	MIN_CHART_SERIES_COLORS,
+	sameTheme,
+	storyThemeSchema,
+} from '@nao/shared/story-theme';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Eye, Plus, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { StoryTheme } from '@nao/shared/story-theme';
 
+import type { InspirationOutcome } from '@/components/settings/story-theme-inspiration';
 import { LockedFieldset } from '@/components/settings/locked-fieldset';
-import { useStoryThemeEditor } from '@/components/settings/story-theme-editor-context';
+import { useInvalidateStoryTheme, useStoryThemeEditor } from '@/components/settings/story-theme-editor-context';
+import { StoryThemeInspiration } from '@/components/settings/story-theme-inspiration';
 import { StoryThemePreviewPanel } from '@/components/settings/story-theme-preview';
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Empty } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
@@ -28,8 +27,6 @@ import { Switch } from '@/components/ui/switch';
 import { useSidePanel } from '@/contexts/side-panel';
 import { trpc } from '@/main';
 
-const HEX_RE = /^#[0-9a-fA-F]{6}$/;
-const MIN_CHART_SERIES_COLORS = 3;
 const BORDER_WIDTHS = [0, 1, 2, 3, 4];
 
 interface StoryThemeSettingsProps {
@@ -62,15 +59,16 @@ export function StoryThemeSettings({ isAdmin }: StoryThemeSettingsProps) {
 }
 
 function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
-	const queryClient = useQueryClient();
 	const state = useQuery(trpc.storyTheme.getState.queryOptions());
 	const { theme, setTheme } = useStoryThemeEditor();
 	const [error, setError] = useState<string | null>(null);
-	const [confirmReset, setConfirmReset] = useState(false);
+	const [inspiration, setInspiration] = useState<InspirationOutcome | null>(null);
 	const openPreview = usePreviewPanel();
+	const invalidate = useInvalidateStoryTheme();
 
 	const saved = state.data?.theme ?? null;
 	const enabled = state.data?.enabled ?? false;
+	const baseline = saved ?? DEFAULT_STORY_THEME;
 
 	useEffect(() => {
 		if (state.data && theme === null) {
@@ -78,24 +76,21 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 		}
 	}, [state.data, theme, setTheme]);
 
-	const invalidate = async () => {
-		await Promise.all([
-			queryClient.invalidateQueries({ queryKey: trpc.storyTheme.getState.queryKey() }),
-			queryClient.invalidateQueries({ queryKey: trpc.storyTheme.getActive.queryKey() }),
-		]);
-	};
 	const onError = (mutationError: { message: string }) => setError(mutationError.message);
+	const revertPending = () => {
+		setTheme(baseline);
+		setInspiration(null);
+	};
 
-	const save = useMutation({ ...trpc.storyTheme.save.mutationOptions(), onSuccess: invalidate, onError });
-	const setEnabled = useMutation({ ...trpc.storyTheme.setEnabled.mutationOptions(), onSuccess: invalidate, onError });
-	const reset = useMutation({
-		...trpc.storyTheme.reset.mutationOptions(),
+	const save = useMutation({
+		...trpc.storyTheme.save.mutationOptions(),
 		onSuccess: async () => {
-			setTheme(DEFAULT_STORY_THEME);
+			setInspiration(null);
 			await invalidate();
 		},
 		onError,
 	});
+	const setEnabled = useMutation({ ...trpc.storyTheme.setEnabled.mutationOptions(), onSuccess: invalidate, onError });
 
 	if (!theme) {
 		return (
@@ -106,8 +101,9 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 	}
 
 	const isReadOnly = !isAdmin;
-	const isPending = save.isPending || setEnabled.isPending || reset.isPending;
-	const isDirty = !sameTheme(theme, saved ?? DEFAULT_STORY_THEME);
+	const isPending = save.isPending || setEnabled.isPending;
+	const isDirty = !sameTheme(theme, baseline);
+	const isDefault = sameTheme(theme, DEFAULT_STORY_THEME);
 	const controlsDisabled = isReadOnly || isPending;
 
 	const validate = (): StoryTheme | null => {
@@ -130,7 +126,7 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 				description={
 					isReadOnly
 						? 'Colours, fonts, blocks, tables and charts applied to every custom story in this project. Only admins can change this.'
-						: 'Colours, fonts, blocks, tables and charts applied to every custom story in this project. Classic stories are not affected. Without a saved theme, custom stories use the classic nao look.'
+						: 'Colours, fonts, blocks, tables and charts applied to every custom story in this project.'
 				}
 				action={openPreview.button}
 			>
@@ -152,6 +148,19 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 					}
 				/>
 			</SettingsCard>
+
+			{isAdmin && (
+				<StoryThemeInspiration
+					disabled={controlsDisabled}
+					outcome={inspiration}
+					onGenerated={(label, result) => {
+						setInspiration({ label });
+						setTheme(result.theme);
+						openPreview.show();
+					}}
+					onDismiss={() => setInspiration(null)}
+				/>
+			)}
 
 			<LockedFieldset disabled={controlsDisabled}>
 				<SettingsCard title='Colours' description='Page, text and accent.' divide>
@@ -363,11 +372,13 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 				<div className='sticky bottom-0 -mx-4 -mb-6 flex flex-wrap items-center justify-between gap-2 border-t bg-background/95 px-4 py-3 backdrop-blur md:-mx-8 md:-mb-8 md:px-8'>
 					<div className='flex items-center gap-2'>
 						<Button
-							variant='ghost'
-							size='sm'
-							className='text-destructive hover:text-destructive'
-							onClick={() => setConfirmReset(true)}
-							disabled={!saved}
+							variant='outline'
+							className='rounded-full text-destructive hover:text-destructive'
+							onClick={() => {
+								setTheme(DEFAULT_STORY_THEME);
+								setInspiration(null);
+							}}
+							disabled={isPending || isDefault}
 						>
 							Reset to nao defaults
 						</Button>
@@ -375,12 +386,13 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 					</div>
 					<div className='flex items-center gap-2'>
 						{isDirty && (
-							<Button variant='ghost' size='sm' onClick={() => setTheme(saved ?? DEFAULT_STORY_THEME)}>
+							<Button variant='outline' className='rounded-full' onClick={revertPending}>
 								Revert
 							</Button>
 						)}
 						<Button
-							size='sm'
+							variant='primary-gradient'
+							className='rounded-full'
 							onClick={() => {
 								const valid = validate();
 								if (valid) {
@@ -394,26 +406,6 @@ function StoryThemeEditor({ isAdmin }: { isAdmin: boolean }) {
 					</div>
 				</div>
 			)}
-
-			<AlertDialog open={confirmReset} onOpenChange={setConfirmReset}>
-				<AlertDialogContent>
-					<AlertDialogHeader>
-						<AlertDialogTitle>Reset custom story theme</AlertDialogTitle>
-						<AlertDialogDescription>
-							This removes the saved theme. Custom stories in this project will use the classic nao look.
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogCancel>Cancel</AlertDialogCancel>
-						<AlertDialogAction
-							className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
-							onClick={() => reset.mutate()}
-						>
-							Reset
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
 		</>
 	);
 }
@@ -429,18 +421,15 @@ function usePreviewPanel() {
 		return () => sidePanelRef.current.close();
 	}, []);
 
+	const show = () => open(<StoryThemePreviewPanel />);
 	const button = isVisible ? null : (
-		<Button variant='outline' size='sm' onClick={() => open(<StoryThemePreviewPanel />)}>
+		<Button variant='primary-gradient' className='rounded-full' onClick={show}>
 			<Eye className='size-4' />
 			Show preview
 		</Button>
 	);
 
-	return { button };
-}
-
-function sameTheme(a: StoryTheme, b: StoryTheme): boolean {
-	return JSON.stringify(a) === JSON.stringify(b);
+	return { button, show };
 }
 
 interface RowProps<Value> {
@@ -459,7 +448,7 @@ function ColorRow({ label, description, value, onChange }: RowProps<string>) {
 
 	const commit = (raw: string) => {
 		setDraft(raw);
-		if (HEX_RE.test(raw.trim())) {
+		if (HEX_COLOR.test(raw.trim())) {
 			onChange(raw.trim().toLowerCase());
 		}
 	};

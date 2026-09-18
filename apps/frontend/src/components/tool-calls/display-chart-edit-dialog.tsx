@@ -13,8 +13,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import type { LucideIcon } from 'lucide-react';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
 import { trpc } from '@/main';
-import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 import { cn } from '@/lib/utils';
+import { resolveCssVariableColorHex } from '@/lib/css-color';
+import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 
 const CHART_TYPE_OPTIONS: { value: displayChart.ChartType; label: string }[] = [
 	{ value: 'bar', label: 'Bar' },
@@ -1132,30 +1133,7 @@ function normalizeHexColor(color: string | undefined, fallback: string): string 
 }
 
 function resolveChartPaletteHexes(): string[] {
-	if (typeof document === 'undefined') {
-		return DEFAULT_COLORS;
-	}
-	const context = document.createElement('canvas').getContext('2d');
-	const rootStyle = getComputedStyle(document.documentElement);
-	return DEFAULT_COLORS.map((fallback, index) => {
-		const value = rootStyle.getPropertyValue(`--chart-${index + 1}`).trim();
-		if (!value || !context) {
-			return fallback;
-		}
-		return cssColorToHex(context, value) ?? fallback;
-	});
-}
-
-function cssColorToHex(context: CanvasRenderingContext2D, color: string): string | null {
-	const sentinel = '#010203';
-	context.fillStyle = sentinel;
-	context.fillStyle = color;
-	if (context.fillStyle === sentinel && color.toLowerCase() !== sentinel) {
-		return null;
-	}
-	context.fillRect(0, 0, 1, 1);
-	const [r, g, b] = context.getImageData(0, 0, 1, 1).data;
-	return `#${[r, g, b].map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
+	return DEFAULT_COLORS.map((fallback, index) => resolveCssVariableColorHex(`--chart-${index + 1}`, fallback));
 }
 
 function applyChartConfigToMessages(

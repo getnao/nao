@@ -1425,17 +1425,25 @@ export const oauthConsent = pgTable(
 	(t) => [index('oauth_consent_clientId_idx').on(t.clientId), index('oauth_consent_userId_idx').on(t.userId)],
 );
 
-export const projectStoryTheme = pgTable('project_story_theme', {
-	projectId: text('project_id')
-		.primaryKey()
-		.references(() => project.id, { onDelete: 'cascade' }),
-	theme: jsonb('theme').$type<StoryTheme>(),
-	enabled: boolean('enabled').default(false).notNull(),
-	updatedAt: timestamp('updated_at')
-		.defaultNow()
-		.$onUpdate(() => new Date())
-		.notNull(),
-});
+export const projectStoryTheme = pgTable(
+	'project_story_theme',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		version: integer('version').notNull(),
+		theme: jsonb('theme').$type<StoryTheme>(),
+		enabled: boolean('enabled').default(false).notNull(),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	(t) => [
+		index('project_story_theme_projectId_idx').on(t.projectId),
+		unique('project_story_theme_project_version_unique').on(t.projectId, t.version),
+	],
+);
 
 export const brandingConfig = pgTable('branding_config', {
 	id: text('id').primaryKey(),

@@ -1531,17 +1531,27 @@ export const oauthConsent = sqliteTable(
 	(t) => [index('oauth_consent_clientId_idx').on(t.clientId), index('oauth_consent_userId_idx').on(t.userId)],
 );
 
-export const projectStoryTheme = sqliteTable('project_story_theme', {
-	projectId: text('project_id')
-		.primaryKey()
-		.references(() => project.id, { onDelete: 'cascade' }),
-	theme: text('theme', { mode: 'json' }).$type<StoryTheme>(),
-	enabled: integer('enabled', { mode: 'boolean' }).default(false).notNull(),
-	updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
-		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-		.$onUpdate(() => new Date())
-		.notNull(),
-});
+export const projectStoryTheme = sqliteTable(
+	'project_story_theme',
+	{
+		id: text('id')
+			.$defaultFn(() => crypto.randomUUID())
+			.primaryKey(),
+		projectId: text('project_id')
+			.notNull()
+			.references(() => project.id, { onDelete: 'cascade' }),
+		version: integer('version').notNull(),
+		theme: text('theme', { mode: 'json' }).$type<StoryTheme>(),
+		enabled: integer('enabled', { mode: 'boolean' }).default(false).notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+	},
+	(t) => [
+		index('project_story_theme_projectId_idx').on(t.projectId),
+		unique('project_story_theme_project_version_unique').on(t.projectId, t.version),
+	],
+);
 
 export const brandingConfig = sqliteTable('branding_config', {
 	id: text('id').primaryKey(),

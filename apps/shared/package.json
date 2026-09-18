@@ -5,6 +5,7 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./attachments": "./src/attachments.ts",
+		"./color": "./src/color.ts",
 		"./context-recommendation": "./src/context-recommendation.ts",
 		"./date": "./src/date.ts",
 		"./types": "./src/types.ts",
@@ -15,6 +16,7 @@
 		"./story-table-utils": "./src/story-table-utils.ts",
 		"./story-tabs": "./src/story-tabs.ts",
 		"./story-theme": "./src/story-theme.ts",
+		"./story-theme-contrast": "./src/story-theme-contrast.ts",
 		"./story-validation": "./src/story-validation.ts",
 		"./rules-template": "./src/rules-template.ts",
 		"./sql-template": "./src/sql-template.ts",
@@ -28,10 +30,12 @@
 		"format": "prettier --write ."
 	},
 	"dependencies": {
+		"culori": "^4.0.2",
 		"d3-format": "^3.1.0",
 		"zod": "^4.2.1"
 	},
 	"devDependencies": {
+		"@types/culori": "^4.0.1",
 		"@types/d3-format": "^3.0.4",
 		"vitest": "^4.0.18"
 	}

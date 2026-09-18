@@ -1,10 +1,12 @@
 import { splitCodeIntoSegments } from '@nao/shared/story-segments';
-import { X } from 'lucide-react';
-import { useMemo } from 'react';
+import { DEFAULT_STORY_THEME, sameTheme } from '@nao/shared/story-theme';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { ChevronLeft, ChevronRight, RotateCcw, X } from 'lucide-react';
+import { useEffect, useMemo } from 'react';
 import type { StoryTheme } from '@nao/shared/story-theme';
 
 import type { QueryDataMap } from '@/components/story-embeds';
-import { useStoryThemeEditor } from '@/components/settings/story-theme-editor-context';
+import { useInvalidateStoryTheme, useStoryThemeEditor } from '@/components/settings/story-theme-editor-context';
 import { StoryBlock, StoryTableFrame } from '@/components/story-block';
 import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
 import { SegmentList } from '@/components/story-rendering';
@@ -12,6 +14,8 @@ import { StoryThemeProvider } from '@/components/story-theme-provider';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { useSidePanel } from '@/contexts/side-panel';
+import { usePermissions } from '@/hooks/use-permissions';
+import { trpc } from '@/main';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
 const REGIONS = [
@@ -126,8 +130,53 @@ export function StoryThemePreview({ theme }: { theme: StoryTheme }) {
 }
 
 export function StoryThemePreviewPanel() {
-	const { theme } = useStoryThemeEditor();
+	const { theme, setTheme, viewingVersionIndex, setViewingVersionIndex } = useStoryThemeEditor();
 	const { close } = useSidePanel();
+	const { isAdmin } = usePermissions();
+	const invalidateStoryTheme = useInvalidateStoryTheme();
+	const versionsQuery = useQuery(trpc.storyTheme.listVersions.queryOptions());
+	const versions = useMemo(() => versionsQuery.data?.versions ?? [], [versionsQuery.data?.versions]);
+	const slots = useMemo(() => buildPreviewSlots(versions, theme), [versions, theme]);
+	const totalVersions = slots.length;
+	const latestIndex = totalVersions - 1;
+	const currentIndex = Math.min(viewingVersionIndex ?? latestIndex, latestIndex);
+	const current = slots[currentIndex];
+	const isViewingLatest = currentIndex === latestIndex;
+	const previewTheme = theme ? current.theme : null;
+	const currentVersion = currentIndex + 1;
+
+	useEffect(() => {
+		if (viewingVersionIndex !== null && viewingVersionIndex >= latestIndex) {
+			setViewingVersionIndex(null);
+		}
+	}, [latestIndex, setViewingVersionIndex, viewingVersionIndex]);
+
+	const restore = useMutation({
+		...trpc.storyTheme.restoreVersion.mutationOptions(),
+		onSuccess: async (result) => {
+			setTheme(result.theme);
+			await invalidateStoryTheme();
+		},
+	});
+
+	const goToPreviousVersion = () => {
+		if (currentIndex > 0) {
+			setViewingVersionIndex(currentIndex - 1);
+		}
+	};
+
+	const goToNextVersion = () => {
+		const next = currentIndex + 1;
+		setViewingVersionIndex(next >= latestIndex ? null : next);
+	};
+
+	const restoreCurrent = () => {
+		if (current.kind === 'saved') {
+			restore.mutate({ version: current.version });
+			return;
+		}
+		setTheme(current.theme);
+	};
 
 	return (
 		<div className='flex h-full flex-col'>
@@ -139,16 +188,57 @@ export function StoryThemePreviewPanel() {
 					onClick={close}
 					aria-label='Close preview'
 				>
-					<X className='size-4' strokeWidth={2.25} />
+					<X className='size-3.5' strokeWidth={2.25} />
 				</Button>
-				<div className='flex min-w-0 flex-col'>
-					<span className='text-sm font-medium'>Live preview</span>
-					<span className='truncate text-xs text-muted-foreground'>Follows your edits before you save.</span>
+				<div className='min-w-0 flex-1'>
+					<span className='truncate text-sm font-medium'>{slotLabel(current, currentVersion)}</span>
+				</div>
+				<div className='flex shrink-0 items-center gap-1'>
+					<Button
+						variant='ghost-muted'
+						size='icon-xs'
+						className='hover:rounded-full'
+						onClick={goToPreviousVersion}
+						disabled={currentIndex <= 0}
+					>
+						<ChevronLeft className='size-3' strokeWidth={2.25} />
+					</Button>
+					<span className='min-w-6 text-center text-xs tabular-nums text-muted-foreground'>
+						{currentVersion}/{totalVersions}
+					</span>
+					<Button
+						variant='ghost-muted'
+						size='icon-xs'
+						className='hover:rounded-full'
+						onClick={goToNextVersion}
+						disabled={isViewingLatest}
+					>
+						<ChevronRight className='size-3' strokeWidth={2.25} />
+					</Button>
 				</div>
 			</div>
+			{!isViewingLatest && (
+				<div className='flex items-center justify-between border-b bg-muted/40 px-4 py-2'>
+					<span className='text-xs text-muted-foreground'>
+						Viewing v{currentVersion} of {totalVersions}
+					</span>
+					{isAdmin && (
+						<Button
+							variant='outline'
+							size='sm'
+							onClick={restoreCurrent}
+							disabled={restore.isPending}
+							className='gap-1.5'
+						>
+							<RotateCcw className='size-3' strokeWidth={2.25} />
+							<span>{restore.isPending ? 'Restoring…' : 'Restore'}</span>
+						</Button>
+					)}
+				</div>
+			)}
 			<div className='min-h-0 flex-1 overflow-auto'>
-				{theme ? (
-					<StoryThemePreview theme={theme} />
+				{previewTheme ? (
+					<StoryThemePreview theme={previewTheme} />
 				) : (
 					<div className='flex h-full items-center justify-center'>
 						<Spinner className='size-5' />
@@ -157,4 +247,35 @@ export function StoryThemePreviewPanel() {
 			</div>
 		</div>
 	);
+}
+
+type PreviewSlot =
+	| { kind: 'default'; theme: StoryTheme }
+	| { kind: 'saved'; theme: StoryTheme; version: number }
+	| { kind: 'pending'; theme: StoryTheme };
+
+function buildPreviewSlots(
+	versions: { version: number; theme: StoryTheme }[],
+	draft: StoryTheme | null,
+): PreviewSlot[] {
+	const saved: PreviewSlot[] =
+		versions.length > 0
+			? versions.map((entry) => ({ kind: 'saved', theme: entry.theme, version: entry.version }))
+			: [{ kind: 'default', theme: DEFAULT_STORY_THEME }];
+	const baseline = saved[saved.length - 1].theme;
+	if (draft && !sameTheme(draft, baseline)) {
+		return [...saved, { kind: 'pending', theme: draft }];
+	}
+	return saved;
+}
+
+function slotLabel(slot: PreviewSlot, position: number): string {
+	switch (slot.kind) {
+		case 'pending':
+			return `Pending v${position} · unsaved`;
+		case 'saved':
+			return `Theme ${position}`;
+		case 'default':
+			return 'Default theme';
+	}
 }

@@ -8,6 +8,7 @@ import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Input } from '../ui/input';
 import type { BoundarySource } from '@nao/shared';
+import { resolveCssVariableColorHex } from '@/lib/css-color';
 
 interface MapConfigEditDialogProps {
 	open: boolean;
@@ -217,25 +218,6 @@ function MarkerPreview({ color, radius }: { color: string; radius: number }) {
 	);
 }
 
-const HEX_RE = /^#[0-9a-fA-F]{6}$/;
-
 function resolvePrimaryHex(): string {
-	if (typeof document === 'undefined') {
-		return DEFAULT_MARKER_COLOR;
-	}
-	const context = document.createElement('canvas').getContext('2d');
-	const value = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim();
-	if (!value || !context) {
-		return DEFAULT_MARKER_COLOR;
-	}
-	const sentinel = '#010203';
-	context.fillStyle = sentinel;
-	context.fillStyle = value;
-	if (context.fillStyle === sentinel && value.toLowerCase() !== sentinel) {
-		return DEFAULT_MARKER_COLOR;
-	}
-	context.fillRect(0, 0, 1, 1);
-	const [r, g, b] = context.getImageData(0, 0, 1, 1).data;
-	const hex = `#${[r, g, b].map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
-	return HEX_RE.test(hex) ? hex : DEFAULT_MARKER_COLOR;
+	return resolveCssVariableColorHex('--primary', DEFAULT_MARKER_COLOR);
 }
