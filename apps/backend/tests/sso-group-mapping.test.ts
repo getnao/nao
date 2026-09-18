@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
 	env: {} as Record<string, string | undefined>,
-	getIdToken: vi.fn(),
+	readVerifiedClaims: vi.fn(),
 	getUserOrgMembership: vi.fn(),
 	updateOrgMemberRole: vi.fn(),
 	countOrgAdmins: vi.fn(),
@@ -23,8 +23,9 @@ vi.mock('../src/env', () => ({
 	env: mocks.env,
 }));
 
-vi.mock('../src/queries/account.queries', () => ({
-	getIdToken: mocks.getIdToken,
+vi.mock('../src/services/sso-token.service', () => ({
+	readDecodedIdTokenClaims: vi.fn(),
+	readVerifiedOidcIdTokenClaims: mocks.readVerifiedClaims,
 }));
 
 vi.mock('../src/queries/organization.queries', () => ({
@@ -75,7 +76,7 @@ beforeEach(() => {
 		OIDC_GROUP_ROLE_MAPPING: 'nao-viewers:viewer',
 	});
 
-	mocks.getIdToken.mockReset();
+	mocks.readVerifiedClaims.mockReset();
 	mocks.getUserOrgMembership.mockReset().mockResolvedValue({ orgId: 'org-1', role: 'viewer' });
 	mocks.updateOrgMemberRole.mockReset().mockResolvedValue(undefined);
 	mocks.countOrgAdmins.mockReset().mockResolvedValue(2);
@@ -105,8 +106,21 @@ describe('isGroupRoleMappingActive', () => {
 });
 
 describe('syncRolesFromSsoGroups', () => {
+	it('does not apply roles from an invalid ID token', async () => {
+		mocks.readVerifiedClaims.mockResolvedValue({ status: 'invalid' });
+
+		await syncRolesFromSsoGroups('user-1');
+
+		expect(mocks.updateOrgMemberRole).not.toHaveBeenCalled();
+		expect(mocks.updateProjectMemberRole).not.toHaveBeenCalled();
+		expect(mocks.logger.warn).toHaveBeenCalledWith('Could not verify the SSO ID token, leaving roles untouched', {
+			source: 'system',
+			context: { userId: 'user-1', problem: 'invalid' },
+		});
+	});
+
 	it('cleans up context worktrees after project admin demotions', async () => {
-		mocks.getIdToken.mockResolvedValue(createIdToken({ groups: ['nao-viewers'] }));
+		mocks.readVerifiedClaims.mockResolvedValue({ status: 'verified', claims: { groups: ['nao-viewers'] } });
 		mocks.listProjectMembershipsForUser.mockResolvedValue([
 			{ projectId: 'project-admin', projectPath: '/projects/admin', role: 'admin' },
 			{ projectId: 'project-context-admin', projectPath: '/projects/context-admin', role: 'context_admin' },
@@ -127,7 +141,7 @@ describe('syncRolesFromSsoGroups', () => {
 	});
 
 	it('continues updating projects when one worktree cleanup fails', async () => {
-		mocks.getIdToken.mockResolvedValue(createIdToken({ groups: ['nao-viewers'] }));
+		mocks.readVerifiedClaims.mockResolvedValue({ status: 'verified', claims: { groups: ['nao-viewers'] } });
 		mocks.listProjectMembershipsForUser.mockResolvedValue([
 			{ projectId: 'project-1', projectPath: '/projects/one', role: 'admin' },
 			{ projectId: 'project-2', projectPath: '/projects/two', role: 'context_admin' },
@@ -301,9 +315,3 @@ describe('hasSsoSessionExceededMaxAge', () => {
 		expect(hasSsoSessionExceededMaxAge(createdAt, 3600, new Date('2026-08-12T12:00:00.000Z'))).toBe(true);
 	});
 });
-
-function createIdToken(claims: Record<string, unknown>): string {
-	const header = Buffer.from(JSON.stringify({ alg: 'none' })).toString('base64url');
-	const payload = Buffer.from(JSON.stringify(claims)).toString('base64url');
-	return `${header}.${payload}.`;
-}

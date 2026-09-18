@@ -2,26 +2,32 @@ import {
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
 	EMPTY_DATABASE_CONTEXT_ACCESS,
 	EMPTY_DOCS_CONTEXT_ACCESS,
+	EMPTY_USER_GROUP_SSO_MAPPINGS,
 	normalizeDatabaseContextAccess,
 	normalizeDocsContextAccess,
+	normalizeUserGroupSsoMappings,
 	USER_GROUP_FEATURE_DEFINITIONS,
 } from '@nao/shared';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Check, Copy, FolderOpen } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { DatabaseContextAccess, DocsContextAccess } from '@nao/shared';
+import type { DatabaseContextAccess, DocsContextAccess, UserGroupSsoMappings } from '@nao/shared';
 import type { ToolCallDensity } from '@nao/shared/types';
 import type { QueryClient } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
 
 import type { TabBarItem } from '@/components/ui/tab-bar';
 import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-slider';
+import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
 import { UserGroupContextAccess } from '@/components/settings/user-group-context-access';
 import { UserGroupFeatureCard } from '@/components/settings/user-group-feature-card';
+import { UserGroupSsoMapping } from '@/components/settings/user-group-sso-mapping';
 import { UserGroupSwitchRow } from '@/components/settings/user-group-switch-row';
 import { Button } from '@/components/ui/button';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Input } from '@/components/ui/input';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
+import { useLicenseFeatures } from '@/hooks/use-license';
 import { trpc } from '@/main';
 
 type UserGroupFeature = (typeof USER_GROUP_FEATURE_DEFINITIONS)[number]['key'];
@@ -35,10 +41,12 @@ export interface UserGroupEditorGroup {
 	id: string;
 	name: string;
 	isDefault: boolean;
+	isLocked?: false;
 	featureGrants: UserGroupFeature[];
 	toolCallDensityPolicy: ToolCallDensityPolicy;
 	databaseAccess: DatabaseContextAccess;
 	docsAccess: DocsContextAccess;
+	ssoMappings: UserGroupSsoMappings;
 }
 
 export type UserGroupEditorTab = 'features' | 'context' | 'security';
@@ -79,12 +87,43 @@ export function UserGroupEditor({
 	const [docsAccess, setDocsAccess] = useState<DocsContextAccess>(
 		existingGroup?.docsAccess ?? EMPTY_DOCS_CONTEXT_ACCESS,
 	);
+	const [ssoMappings, setSsoMappings] = useState<UserGroupSsoMappings>(
+		existingGroup?.ssoMappings ?? EMPTY_USER_GROUP_SSO_MAPPINGS,
+	);
 	const [formError, setFormError] = useState<string | null>(null);
 	const [confirmDelete, setConfirmDelete] = useState(false);
 	const previousGroupRef = useRef(existingGroup);
 	const createGroup = useMutation(trpc.userGroup.create.mutationOptions());
 	const updateGroup = useMutation(trpc.userGroup.update.mutationOptions());
 	const deleteGroup = useMutation(trpc.userGroup.delete.mutationOptions());
+	const licenseFeatures = useLicenseFeatures();
+	const hasSso = licenseFeatures.data?.sso === true;
+	const hasRowLevelSecurity = licenseFeatures.data?.['row-level-security'] === true;
+	const oidcConfig = useQuery({
+		...trpc.authConfig.oidc.getConfig.queryOptions(),
+		enabled: hasSso,
+	});
+	const microsoftConfig = useQuery({
+		...trpc.authConfig.microsoft.isSetup.queryOptions(),
+		enabled: hasSso,
+	});
+	const ssoLicenseState = licenseFeatures.isLoading
+		? 'loading'
+		: licenseFeatures.isError
+			? 'error'
+			: hasSso
+				? 'ready'
+				: 'unavailable';
+	const oidcConfigurationState = resolveSsoConfigurationState(
+		ssoLicenseState,
+		oidcConfig,
+		oidcConfig.data !== null && oidcConfig.data !== undefined,
+	);
+	const microsoftConfigurationState = resolveSsoConfigurationState(
+		ssoLicenseState,
+		microsoftConfig,
+		microsoftConfig.data === true,
+	);
 	const hasUnsavedChanges =
 		existingGroup === null ||
 		hasUserGroupEditorChanges(existingGroup, {
@@ -93,6 +132,7 @@ export function UserGroupEditor({
 			toolCallDensityPolicy,
 			databaseAccess,
 			docsAccess,
+			ssoMappings,
 		});
 
 	const resetForm = useCallback(() => {
@@ -101,6 +141,7 @@ export function UserGroupEditor({
 		setToolCallDensityPolicy(existingGroup?.toolCallDensityPolicy ?? DEFAULT_TOOL_CALL_DENSITY_POLICY);
 		setDatabaseAccess(existingGroup?.databaseAccess ?? EMPTY_DATABASE_CONTEXT_ACCESS);
 		setDocsAccess(existingGroup?.docsAccess ?? EMPTY_DOCS_CONTEXT_ACCESS);
+		setSsoMappings(existingGroup?.ssoMappings ?? EMPTY_USER_GROUP_SSO_MAPPINGS);
 		setFormError(null);
 		setConfirmDelete(false);
 	}, [existingGroup]);
@@ -117,12 +158,13 @@ export function UserGroupEditor({
 				toolCallDensityPolicy,
 				databaseAccess,
 				docsAccess,
+				ssoMappings,
 			});
 
 		if (switchedGroups || previousGroupWasClean) {
 			resetForm();
 		}
-	}, [databaseAccess, docsAccess, existingGroup, featureGrants, name, resetForm, toolCallDensityPolicy]);
+	}, [databaseAccess, docsAccess, existingGroup, featureGrants, name, resetForm, ssoMappings, toolCallDensityPolicy]);
 
 	const handleSave = async () => {
 		setFormError(null);
@@ -135,6 +177,7 @@ export function UserGroupEditor({
 					toolCallDensityPolicy,
 					databaseAccess,
 					docsAccess,
+					ssoMappings,
 				});
 				await invalidateUserGroupQueries(queryClient);
 			} else {
@@ -144,6 +187,7 @@ export function UserGroupEditor({
 					toolCallDensityPolicy,
 					databaseAccess,
 					docsAccess,
+					ssoMappings,
 				});
 				await invalidateUserGroupQueries(queryClient);
 				onCreated(createdGroup);
@@ -175,6 +219,8 @@ export function UserGroupEditor({
 		}
 		resetForm();
 	};
+	const retrySsoConfiguration = (configuration: { refetch: () => unknown }) =>
+		void (ssoLicenseState === 'error' ? licenseFeatures.refetch() : configuration.refetch());
 
 	return (
 		<>
@@ -210,15 +256,80 @@ export function UserGroupEditor({
 							/>
 						)}
 						{activeTab === 'context' && (
-							<UserGroupContextAccess
-								databaseAccess={databaseAccess}
-								docsAccess={docsAccess}
-								onDatabaseAccessChange={setDatabaseAccess}
-								onDocsAccessChange={setDocsAccess}
-							/>
+							<div className='flex flex-col gap-5'>
+								<UserGroupContextAccess
+									databaseAccess={databaseAccess}
+									docsAccess={docsAccess}
+									onDatabaseAccessChange={setDatabaseAccess}
+									onDocsAccessChange={setDocsAccess}
+								/>
+								<ConditionalRulesHelp groupName={name} />
+							</div>
 						)}
 						{activeTab === 'security' && (
-							<UserGroupPlaceholder>Row-level security will be configured here.</UserGroupPlaceholder>
+							<div className='flex flex-col gap-5'>
+								{existingGroup?.isDefault ? (
+									<DefaultGroupSsoStatus
+										licenseState={ssoLicenseState}
+										oidcState={oidcConfigurationState}
+										microsoftState={microsoftConfigurationState}
+										onRetryOidc={() => retrySsoConfiguration(oidcConfig)}
+										onRetryMicrosoft={() => retrySsoConfiguration(microsoftConfig)}
+									/>
+								) : (
+									<>
+										{ssoLicenseState !== 'ready' &&
+											ssoMappings.providers.oidc.length === 0 &&
+											ssoMappings.providers.microsoft.length === 0 && (
+												<SsoAvailabilityStatus
+													state={ssoLicenseState}
+													onRetry={() => void licenseFeatures.refetch()}
+												/>
+											)}
+										{(ssoMappings.providers.oidc.length > 0 ||
+											(ssoLicenseState === 'ready' &&
+												oidcConfigurationState !== 'unavailable')) && (
+											<UserGroupSsoMapping
+												key={`${existingGroup?.id ?? 'new'}:oidc`}
+												identifiers={ssoMappings.providers.oidc}
+												provider='oidc'
+												providerName={oidcConfig.data?.providerName ?? 'OIDC'}
+												configurationState={oidcConfigurationState}
+												onRetryConfiguration={() => retrySsoConfiguration(oidcConfig)}
+												onChange={(oidc) =>
+													setSsoMappings(
+														normalizeUserGroupSsoMappings({
+															...ssoMappings,
+															providers: { ...ssoMappings.providers, oidc },
+														}),
+													)
+												}
+											/>
+										)}
+										{(ssoMappings.providers.microsoft.length > 0 ||
+											(ssoLicenseState === 'ready' &&
+												microsoftConfigurationState !== 'unavailable')) && (
+											<UserGroupSsoMapping
+												key={`${existingGroup?.id ?? 'new'}:microsoft`}
+												identifiers={ssoMappings.providers.microsoft}
+												provider='microsoft'
+												providerName='Microsoft Entra'
+												configurationState={microsoftConfigurationState}
+												onRetryConfiguration={() => retrySsoConfiguration(microsoftConfig)}
+												onChange={(microsoft) =>
+													setSsoMappings(
+														normalizeUserGroupSsoMappings({
+															...ssoMappings,
+															providers: { ...ssoMappings.providers, microsoft },
+														}),
+													)
+												}
+											/>
+										)}
+									</>
+								)}
+								<RowLevelSecurityPlaceholder isLicensed={hasRowLevelSecurity} />
+							</div>
 						)}
 					</TabPanel>
 				</div>
@@ -264,6 +375,143 @@ export function UserGroupEditor({
 	);
 }
 
+type SsoConfigurationState = 'ready' | 'loading' | 'error' | 'unavailable';
+
+function resolveSsoConfigurationState(
+	licenseState: SsoConfigurationState,
+	query: { isLoading: boolean; isError: boolean },
+	isConfigured: boolean,
+): SsoConfigurationState {
+	if (licenseState !== 'ready') {
+		return licenseState;
+	}
+	if (query.isLoading) {
+		return 'loading';
+	}
+	if (query.isError) {
+		return 'error';
+	}
+	return isConfigured ? 'ready' : 'unavailable';
+}
+
+function SsoAvailabilityStatus({
+	state,
+	onRetry,
+}: {
+	state: Exclude<SsoConfigurationState, 'ready'>;
+	onRetry: () => void;
+}) {
+	if (state === 'unavailable') {
+		return null;
+	}
+	return (
+		<div className='flex items-center justify-between gap-3 rounded-lg border p-3'>
+			<p className={state === 'error' ? 'text-sm text-destructive' : 'text-sm text-muted-foreground'}>
+				{state === 'loading' ? 'Loading SSO availability...' : 'Failed to load SSO availability.'}
+			</p>
+			{state === 'error' && (
+				<Button type='button' variant='outline' size='sm' onClick={onRetry}>
+					Retry
+				</Button>
+			)}
+		</div>
+	);
+}
+
+function DefaultGroupSsoStatus({
+	licenseState,
+	oidcState,
+	microsoftState,
+	onRetryOidc,
+	onRetryMicrosoft,
+}: {
+	licenseState: SsoConfigurationState;
+	oidcState: SsoConfigurationState;
+	microsoftState: SsoConfigurationState;
+	onRetryOidc: () => void;
+	onRetryMicrosoft: () => void;
+}) {
+	if (licenseState === 'loading') {
+		return <p className='text-sm text-muted-foreground'>Loading SSO availability...</p>;
+	}
+	if (oidcState === 'loading' || microsoftState === 'loading') {
+		return <p className='text-sm text-muted-foreground'>Loading SSO configuration...</p>;
+	}
+	if (oidcState === 'error' || microsoftState === 'error') {
+		return (
+			<div className='flex flex-wrap items-center gap-2 rounded-lg border p-3'>
+				<p className='mr-auto text-sm text-destructive'>
+					{licenseState === 'error'
+						? 'Failed to load SSO availability.'
+						: 'Failed to load SSO configuration.'}
+				</p>
+				{oidcState === 'error' && (
+					<Button type='button' variant='outline' size='sm' onClick={onRetryOidc}>
+						Retry OIDC
+					</Button>
+				)}
+				{microsoftState === 'error' && (
+					<Button type='button' variant='outline' size='sm' onClick={onRetryMicrosoft}>
+						Retry Microsoft Entra
+					</Button>
+				)}
+			</div>
+		);
+	}
+	if (oidcState !== 'ready' && microsoftState !== 'ready') {
+		return null;
+	}
+	return (
+		<p className='rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground'>
+			All Users already includes everyone with project access and cannot be mapped.
+		</p>
+	);
+}
+
+export function ConditionalRulesHelp({ groupName }: { groupName: string }) {
+	const { isCopied, copy } = useCopyToClipboard();
+	const normalizedName = groupName.trim();
+	const snippet = normalizedName
+		? `{% if group(${JSON.stringify(normalizedName)}) %}\nGroup-specific instructions...\n{% endif %}`
+		: null;
+
+	return (
+		<section className='flex flex-col gap-3 rounded-lg border p-4'>
+			<div>
+				<h3 className='text-sm font-medium'>Conditional RULES</h3>
+				<p className='text-xs text-muted-foreground'>
+					In the project-root RULES.md, this block is included for members of any named group.
+				</p>
+			</div>
+			{snippet ? (
+				<div className='relative rounded-md bg-muted p-3 pr-12'>
+					<pre className='overflow-x-auto text-xs'>
+						<code>{snippet}</code>
+					</pre>
+					<Button
+						type='button'
+						variant='ghost'
+						size='icon-sm'
+						className='absolute right-2 top-2'
+						aria-label='Copy conditional RULES snippet'
+						onClick={() => void copy(snippet)}
+					>
+						{isCopied ? <Check className='size-3.5' /> : <Copy className='size-3.5' />}
+					</Button>
+				</div>
+			) : (
+				<p className='text-xs text-muted-foreground'>Enter a group name to generate a snippet.</p>
+			)}
+			<Button asChild type='button' variant='outline' size='sm' className='w-fit'>
+				<a href='/settings/context-explorer'>
+					<FolderOpen className='size-3.5' />
+					Open File Explorer
+				</a>
+			</Button>
+		</section>
+	);
+}
+
 export function hasUserGroupEditorChanges(
 	group: UserGroupEditorGroup,
 	values: {
@@ -272,6 +520,7 @@ export function hasUserGroupEditorChanges(
 		toolCallDensityPolicy: ToolCallDensityPolicy;
 		databaseAccess: DatabaseContextAccess;
 		docsAccess?: DocsContextAccess;
+		ssoMappings?: UserGroupSsoMappings;
 	},
 ): boolean {
 	return (
@@ -280,7 +529,8 @@ export function hasUserGroupEditorChanges(
 		values.toolCallDensityPolicy.defaultDensity !== group.toolCallDensityPolicy.defaultDensity ||
 		values.toolCallDensityPolicy.canChange !== group.toolCallDensityPolicy.canChange ||
 		!haveSameDatabaseAccess(values.databaseAccess, group.databaseAccess) ||
-		!haveSameDocsAccess(values.docsAccess ?? group.docsAccess, group.docsAccess)
+		!haveSameDocsAccess(values.docsAccess ?? group.docsAccess, group.docsAccess) ||
+		!haveSameSsoMappings(values.ssoMappings ?? group.ssoMappings, group.ssoMappings)
 	);
 }
 
@@ -380,10 +630,22 @@ function haveSameDocsAccess(left: DocsContextAccess, right: DocsContextAccess): 
 	return JSON.stringify(normalizeDocsContextAccess(left)) === JSON.stringify(normalizeDocsContextAccess(right));
 }
 
-function UserGroupPlaceholder({ children }: { children: ReactNode }) {
+function haveSameSsoMappings(left: UserGroupSsoMappings, right: UserGroupSsoMappings): boolean {
+	return JSON.stringify(normalizeUserGroupSsoMappings(left)) === JSON.stringify(normalizeUserGroupSsoMappings(right));
+}
+
+function RowLevelSecurityPlaceholder({ isLicensed }: { isLicensed: boolean }) {
 	return (
-		<div className='flex min-h-64 items-center justify-center rounded-lg border border-dashed p-6 text-sm text-muted-foreground'>
-			{children}
-		</div>
+		<section className='flex flex-col gap-3 rounded-lg border border-dashed p-4'>
+			<div className='flex items-start justify-between gap-3'>
+				<div>
+					<h3 className='text-sm font-medium'>Row-level security</h3>
+					<p className='mt-1 text-xs text-muted-foreground'>
+						Restricting which rows each group can access is not available yet.
+					</p>
+				</div>
+				{!isLicensed && <UpgradeToEnterprise />}
+			</div>
+		</section>
 	);
 }

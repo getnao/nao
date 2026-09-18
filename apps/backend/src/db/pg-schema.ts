@@ -4,11 +4,13 @@ import {
 	type MapSettings,
 	type McpChartEmbedStoredConfig,
 	type McpMapEmbedStoredConfig,
+	type SsoGroupProvider,
 	type StoredDatabaseContextAccess,
 	type StoredLegacyDatabaseContextAccessV1,
 	type StoredLegacyDatabaseContextAccessV2,
 	type StoredUserGroupConfig,
 	type StoredUserGroupContextAccess,
+	type StoredUserGroupSsoMappings,
 } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
 import type { AnalyticsEventMetadata, CitationData, LlmProvider, RepoProvider } from '@nao/shared/types';
@@ -443,7 +445,7 @@ export const userGroup = pgTable(
 			| StoredDatabaseContextAccess
 			| StoredUserGroupContextAccess
 		>(),
-		ssoMappings: jsonb('sso_mappings'),
+		ssoMappings: jsonb('sso_mappings').$type<StoredUserGroupSsoMappings>(),
 		rowPolicies: jsonb('row_policies'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
@@ -483,7 +485,7 @@ export const userGroupSsoMember = pgTable(
 		userId: text('user_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
-		provider: text('provider').notNull(),
+		provider: text('provider').$type<SsoGroupProvider>().notNull(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	(t) => [

@@ -1,9 +1,14 @@
+import type { RenderedConditionalGroupBlocks } from '@nao/shared/rules-template';
 import { grep } from '@nao/shared/tools';
 import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
 import { GrepOutput, renderToModelOutput } from '../../components/tool-outputs';
+import {
+	getAgentVisibleRulesView,
+	isAgentVisibleRootRulesPath,
+} from '../../services/agent-visible-project-file.service';
 import {
 	assertProjectContextPathAllowed,
 	isProjectContextPathAllowed,
@@ -26,8 +31,13 @@ interface RipgrepMatch {
 	path: string;
 	line_number: number;
 	line_content: string;
-	context_before?: string[];
-	context_after?: string[];
+	context_before?: RipgrepContextLine[];
+	context_after?: RipgrepContextLine[];
+}
+
+interface RipgrepContextLine {
+	line_number: number;
+	line_content: string;
 }
 
 /** A directory ripgrep walks, and how its absolute paths map back to the file tree. */
@@ -40,11 +50,17 @@ interface SearchTarget {
 	toDisplayPath: (absolutePath: string) => string | null;
 	toAbsolutePath: (displayPath: string) => string;
 	isAllowedDisplayPath: (displayPath: string) => boolean;
+	getRulesView: (displayPath: string) => SearchRulesView | null | undefined;
 }
 
 interface TargetResult {
 	matches: RipgrepMatch[];
 	totalMatches: number;
+}
+
+interface SearchRulesView {
+	lines: RenderedConditionalGroupBlocks['lines'];
+	renderedLineIndexBySourceLine: Map<number, number>;
 }
 
 export default createTool<grep.Input, grep.Output>({
@@ -92,6 +108,8 @@ const projectTarget = (searchPath: string | undefined, context: ToolContext): Se
 	const root = searchPath
 		? resolveCanonicalProjectPath(searchPath, projectFolder)
 		: { realPath: canonicalRoot, virtualPath: '/' };
+	let cachedRulesView: SearchRulesView | null | undefined;
+	let rulesViewLoaded = false;
 	if (searchPath && fs.existsSync(root.realPath)) {
 		const kind = fs.statSync(root.realPath).isDirectory() ? 'directory' : 'file';
 		assertProjectContextPathAllowed(context, searchPath, root.virtualPath, kind);
@@ -111,6 +129,26 @@ const projectTarget = (searchPath: string | undefined, context: ToolContext): Se
 		},
 		toAbsolutePath: (displayPath) => resolveCanonicalProjectPath(displayPath, projectFolder).realPath,
 		isAllowedDisplayPath: () => true,
+		getRulesView: (displayPath) => {
+			if (!isAgentVisibleRootRulesPath(displayPath)) {
+				return undefined;
+			}
+			if (!rulesViewLoaded) {
+				rulesViewLoaded = true;
+				try {
+					const canonical = resolveCanonicalProjectPath(displayPath, projectFolder);
+					const rendered = getAgentVisibleRulesView(
+						canonical.virtualPath,
+						fs.readFileSync(canonical.realPath, 'utf-8'),
+						context,
+					);
+					cachedRulesView = rendered ? toSearchRulesView(rendered) : null;
+				} catch {
+					cachedRulesView = null;
+				}
+			}
+			return cachedRulesView;
+		},
 	};
 };
 
@@ -148,8 +186,16 @@ const storageTarget = (searchPath: string, context: ToolContext): SearchTarget =
 		},
 		toAbsolutePath: (displayPath) => grepRootForUser(scope, toStorageRelativePath(displayPath)),
 		isAllowedDisplayPath: () => true,
+		getRulesView: () => undefined,
 	};
 };
+
+function toSearchRulesView(rendered: RenderedConditionalGroupBlocks): SearchRulesView {
+	return {
+		lines: rendered.lines,
+		renderedLineIndexBySourceLine: new Map(rendered.lines.map((line, index) => [line.sourceLineNumber, index])),
+	};
+}
 
 function searchTarget(
 	rgPath: string,
@@ -237,6 +283,15 @@ function searchTarget(
 					if (!displayPath || !target.isAllowedDisplayPath(displayPath)) {
 						continue;
 					}
+					const visibleLine = getVisibleMatchLine(
+						target,
+						displayPath,
+						data.line_number,
+						data.lines.text.replace(/\n$/, ''),
+					);
+					if (visibleLine === null) {
+						continue;
+					}
 
 					for (const _submatch of data.submatches) {
 						totalMatches++;
@@ -245,7 +300,7 @@ function searchTarget(
 							matches.push({
 								path: displayPath,
 								line_number: data.line_number,
-								line_content: data.lines.text.replace(/\n$/, ''),
+								line_content: visibleLine,
 							});
 						}
 					}
@@ -268,6 +323,23 @@ function searchTarget(
 	});
 }
 
+function getVisibleMatchLine(
+	target: SearchTarget,
+	displayPath: string,
+	sourceLineNumber: number,
+	sourceContent: string,
+): string | null {
+	const rulesView = target.getRulesView(displayPath);
+	if (rulesView === undefined) {
+		return sourceContent;
+	}
+	if (rulesView === null) {
+		return null;
+	}
+	const lineIndex = rulesView.renderedLineIndexBySourceLine.get(sourceLineNumber);
+	return lineIndex === undefined ? null : rulesView.lines[lineIndex].content;
+}
+
 /**
  * Add context lines to matches by reading the files.
  */
@@ -282,6 +354,14 @@ function addContextToMatches(matches: RipgrepMatch[], contextLines: number, targ
 
 	for (const [displayPath, fileMatches] of matchesByFile) {
 		try {
+			const rulesView = target.getRulesView(displayPath);
+			if (rulesView === null) {
+				continue;
+			}
+			if (rulesView) {
+				addRulesContextToMatches(fileMatches, contextLines, rulesView);
+				continue;
+			}
 			const content = fs.readFileSync(target.toAbsolutePath(displayPath), 'utf-8');
 			const lines = content.split('\n');
 
@@ -290,14 +370,39 @@ function addContextToMatches(matches: RipgrepMatch[], contextLines: number, targ
 
 				// Get context before
 				const beforeStart = Math.max(0, lineIndex - contextLines);
-				match.context_before = lines.slice(beforeStart, lineIndex);
+				match.context_before = lines.slice(beforeStart, lineIndex).map((line, index) => ({
+					line_number: beforeStart + index + 1,
+					line_content: line,
+				}));
 
 				// Get context after
 				const afterEnd = Math.min(lines.length, lineIndex + 1 + contextLines);
-				match.context_after = lines.slice(lineIndex + 1, afterEnd);
+				match.context_after = lines.slice(lineIndex + 1, afterEnd).map((line, index) => ({
+					line_number: lineIndex + index + 2,
+					line_content: line,
+				}));
 			}
 		} catch {
 			// Skip files that can't be read
 		}
+	}
+}
+
+function addRulesContextToMatches(matches: RipgrepMatch[], contextLines: number, rulesView: SearchRulesView): void {
+	for (const match of matches) {
+		const lineIndex = rulesView.renderedLineIndexBySourceLine.get(match.line_number);
+		if (lineIndex === undefined) {
+			continue;
+		}
+		const beforeStart = Math.max(0, lineIndex - contextLines);
+		match.context_before = rulesView.lines.slice(beforeStart, lineIndex).map((line) => ({
+			line_number: line.sourceLineNumber,
+			line_content: line.content,
+		}));
+		const afterEnd = Math.min(rulesView.lines.length, lineIndex + 1 + contextLines);
+		match.context_after = rulesView.lines.slice(lineIndex + 1, afterEnd).map((line) => ({
+			line_number: line.sourceLineNumber,
+			line_content: line.content,
+		}));
 	}
 }

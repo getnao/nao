@@ -105,12 +105,21 @@ describe('license.service', () => {
 	it('only exposes known features from the license payload', async () => {
 		const { licensePath, publicKeyPem } = await createSignedLicenseFile({
 			...DEFAULT_CLAIMS,
-			features: [LICENSE_FEATURES.sso, LICENSE_FEATURES.excludeColumns, 'unknown-future-feature'],
+			features: [
+				LICENSE_FEATURES.sso,
+				LICENSE_FEATURES.excludeColumns,
+				LICENSE_FEATURES.rowLevelSecurity,
+				'unknown-future-feature',
+			],
 		});
 		setLicenseEnv({ licensePath, publicKeyPem });
 
 		const license = await getLicense();
-		expect(license?.features).toEqual([LICENSE_FEATURES.sso, LICENSE_FEATURES.excludeColumns]);
+		expect(license?.features).toEqual([
+			LICENSE_FEATURES.sso,
+			LICENSE_FEATURES.excludeColumns,
+			LICENSE_FEATURES.rowLevelSecurity,
+		]);
 	});
 
 	it('grants every known feature when the license carries the "*" wildcard', async () => {

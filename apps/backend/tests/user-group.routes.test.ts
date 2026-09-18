@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+	assertUserGroupManageable: vi.fn(),
 	createUserGroup: vi.fn(),
+	createUserGroupWithinLimit: vi.fn(),
+	deleteUserGroup: vi.fn(),
 	getUserGroupOverview: vi.fn(),
 	getDatabaseContextCatalog: vi.fn(),
 	getDocsContextCatalog: vi.fn(),
@@ -9,7 +12,16 @@ const mocks = vi.hoisted(() => ({
 	hasFeature: vi.fn(),
 	resolveEffectiveUserGroupAccess: vi.fn(),
 	role: 'admin' as 'admin' | 'user' | 'viewer',
+	setUserGroupMembership: vi.fn(),
 	updateUserGroup: vi.fn(),
+	UserGroupQueryError: class UserGroupQueryError extends Error {
+		constructor(
+			public readonly code: 'NOT_FOUND' | 'BAD_REQUEST' | 'CONFLICT' | 'FORBIDDEN',
+			message: string,
+		) {
+			super(message);
+		}
+	},
 }));
 
 vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));
@@ -21,17 +33,23 @@ vi.mock('../src/queries/project.queries', () => ({
 	getUserRoleInProject: mocks.getUserRoleInProject,
 }));
 vi.mock('../src/queries/user-group.queries', () => ({
-	UserGroupQueryError: class UserGroupQueryError extends Error {},
+	UserGroupQueryError: mocks.UserGroupQueryError,
 	createUserGroup: mocks.createUserGroup,
-	deleteUserGroup: vi.fn(),
+	createUserGroupWithinLimit: mocks.createUserGroupWithinLimit,
+	deleteUserGroup: mocks.deleteUserGroup,
 	getUserGroupOverview: mocks.getUserGroupOverview,
 	resolveEffectiveUserGroupAccess: mocks.resolveEffectiveUserGroupAccess,
-	setUserGroupMembership: vi.fn(),
+	setUserGroupMembership: mocks.setUserGroupMembership,
 	updateUserGroup: mocks.updateUserGroup,
 }));
 vi.mock('../src/services/license.service', () => ({
 	hasFeature: mocks.hasFeature,
 	LICENSE_FEATURES: { userGroups: 'user-groups' },
+}));
+vi.mock('../src/services/user-group-availability.service', () => ({
+	assertUserGroupManageable: mocks.assertUserGroupManageable,
+	getAvailableUserGroupOverview: mocks.getUserGroupOverview,
+	resolveAvailableUserGroupAccess: mocks.resolveEffectiveUserGroupAccess,
 }));
 vi.mock('../src/services/docs-context-catalog.service', () => ({
 	getDocsContextCatalog: mocks.getDocsContextCatalog,
@@ -66,16 +84,15 @@ describe('user group routes', () => {
 			},
 		});
 		mocks.createUserGroup.mockResolvedValue({ id: 'group-id', name: 'Analysts' });
+		mocks.createUserGroupWithinLimit.mockResolvedValue({ id: 'group-id', name: 'Analysts' });
 	});
 
-	it('rejects unlicensed requests without querying user groups', async () => {
+	it('returns the overview without an unlimited-groups license', async () => {
 		mocks.hasFeature.mockResolvedValue(false);
 
-		await expect(createCaller().overview()).rejects.toMatchObject({
-			code: 'FORBIDDEN',
-			message: 'User Groups requires the Enterprise user-groups feature.',
-		});
-		expect(mocks.getUserGroupOverview).not.toHaveBeenCalled();
+		await expect(createCaller().overview()).resolves.toEqual({ users: [], groups: [], memberships: [] });
+		expect(mocks.getUserGroupOverview).toHaveBeenCalledWith('project-id');
+		expect(mocks.hasFeature).not.toHaveBeenCalled();
 	});
 
 	it('requires a project admin', async () => {
@@ -85,7 +102,7 @@ describe('user group routes', () => {
 		expect(mocks.hasFeature).not.toHaveBeenCalled();
 	});
 
-	it('validates feature keys and creates a licensed group', async () => {
+	it('validates feature keys and creates a group with unlimited entitlement', async () => {
 		await expect(
 			createCaller().create({ name: 'Analysts', featureGrants: ['unknown'] as never }),
 		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
@@ -100,6 +117,7 @@ describe('user group routes', () => {
 		});
 
 		expect(mocks.hasFeature).toHaveBeenCalledWith('user-groups');
+		expect(mocks.createUserGroupWithinLimit).not.toHaveBeenCalled();
 		expect(mocks.createUserGroup).toHaveBeenCalledWith(
 			'project-id',
 			'Analysts',
@@ -111,6 +129,90 @@ describe('user group routes', () => {
 			{ mode: 'restricted', strict: true, grants: [], patterns: [] },
 			{ mode: 'restricted', grants: [] },
 		);
+	});
+
+	it('creates free custom groups through the atomic limit query', async () => {
+		mocks.hasFeature.mockResolvedValue(false);
+
+		await expect(createCaller().create({ name: 'Group' })).resolves.toEqual({
+			id: 'group-id',
+			name: 'Analysts',
+		});
+		expect(mocks.createUserGroupWithinLimit).toHaveBeenCalledWith(
+			3,
+			'project-id',
+			'Group',
+			[],
+			{ defaultDensity: 'detailed', canChange: true },
+			{ mode: 'restricted', strict: true, grants: [], patterns: [] },
+			{ mode: 'restricted', grants: [] },
+		);
+		expect(mocks.createUserGroup).not.toHaveBeenCalled();
+	});
+
+	it('blocks a forged fourth custom group without unlimited entitlement', async () => {
+		mocks.hasFeature.mockResolvedValue(false);
+		mocks.createUserGroupWithinLimit.mockRejectedValue(
+			new mocks.UserGroupQueryError(
+				'FORBIDDEN',
+				'Free projects can create up to 3 custom user groups. Enterprise enables unlimited groups.',
+			),
+		);
+
+		await expect(createCaller().create({ name: 'Fourth group' })).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+			message: 'Free projects can create up to 3 custom user groups. Enterprise enables unlimited groups.',
+		});
+		expect(mocks.createUserGroup).not.toHaveBeenCalled();
+		expect(mocks.createUserGroupWithinLimit).toHaveBeenCalledOnce();
+	});
+
+	it('allows a fourth custom group with unlimited entitlement', async () => {
+		await expect(createCaller().create({ name: 'Fourth group' })).resolves.toBeDefined();
+		expect(mocks.createUserGroupWithinLimit).not.toHaveBeenCalled();
+		expect(mocks.createUserGroup).toHaveBeenCalledOnce();
+	});
+
+	it('normalizes provider-specific SSO mappings on create', async () => {
+		await createCaller().create({
+			name: 'Analysts',
+			ssoMappings: {
+				version: 1,
+				providers: {
+					oidc: [' Finance ', 'finance', 'DATA'],
+					microsoft: [' A0B1C2D3-E4F5-6789-ABCD-EF0123456789 ', 'a0b1c2d3-e4f5-6789-abcd-ef0123456789'],
+				},
+			},
+		});
+
+		expect(mocks.createUserGroup).toHaveBeenCalledWith(
+			'project-id',
+			'Analysts',
+			[],
+			{ defaultDensity: 'detailed', canChange: true },
+			{ mode: 'restricted', strict: true, grants: [], patterns: [] },
+			{ mode: 'restricted', grants: [] },
+			{
+				version: 1,
+				providers: {
+					oidc: ['finance', 'data'],
+					microsoft: ['a0b1c2d3-e4f5-6789-abcd-ef0123456789'],
+				},
+			},
+		);
+	});
+
+	it('rejects invalid Microsoft Entra group object IDs', async () => {
+		await expect(
+			createCaller().create({
+				name: 'Analysts',
+				ssoMappings: {
+					version: 1,
+					providers: { oidc: [], microsoft: ['not-a-guid'] },
+				},
+			}),
+		).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+		expect(mocks.createUserGroup).not.toHaveBeenCalled();
 	});
 
 	it('normalizes database access on create', async () => {
@@ -268,6 +370,7 @@ describe('user group routes', () => {
 	});
 
 	it('updates feature grants and density policy together', async () => {
+		mocks.hasFeature.mockResolvedValue(false);
 		await createCaller().update({
 			groupId: 'group-id',
 			name: 'Analysts',
@@ -286,6 +389,55 @@ describe('user group routes', () => {
 				canChange: true,
 			},
 		});
+		expect(mocks.hasFeature).not.toHaveBeenCalled();
+	});
+
+	it('deletes groups and changes memberships without unlimited entitlement', async () => {
+		mocks.hasFeature.mockResolvedValue(false);
+
+		await createCaller().delete({ groupId: 'group-id' });
+		await createCaller().setMembership({ groupId: 'group-id', userId: 'target-user-id', isMember: true });
+
+		expect(mocks.deleteUserGroup).toHaveBeenCalledWith('project-id', 'group-id');
+		expect(mocks.setUserGroupMembership).toHaveBeenCalledWith('project-id', 'group-id', 'target-user-id', true);
+		expect(mocks.hasFeature).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		[
+			'update',
+			() =>
+				createCaller().update({
+					groupId: 'locked-id',
+					featureGrants: [],
+					toolCallDensityPolicy: {
+						defaultDensity: 'detailed',
+						canChange: true,
+					},
+				}),
+		],
+		['delete', () => createCaller().delete({ groupId: 'locked-id' })],
+		[
+			'setMembership',
+			() =>
+				createCaller().setMembership({
+					groupId: 'locked-id',
+					userId: 'target-user-id',
+					isMember: true,
+				}),
+		],
+	])('rejects %s for a suspended group', async (_operation, call) => {
+		mocks.assertUserGroupManageable.mockRejectedValueOnce(
+			new mocks.UserGroupQueryError('FORBIDDEN', 'Upgrade to Enterprise to reactivate this saved group.'),
+		);
+
+		await expect(call()).rejects.toMatchObject({
+			code: 'FORBIDDEN',
+			message: 'Upgrade to Enterprise to reactivate this saved group.',
+		});
+		expect(mocks.updateUserGroup).not.toHaveBeenCalled();
+		expect(mocks.deleteUserGroup).not.toHaveBeenCalled();
+		expect(mocks.setUserGroupMembership).not.toHaveBeenCalled();
 	});
 
 	it('preserves database access when update omits it', async () => {
@@ -309,6 +461,7 @@ describe('user group routes', () => {
 	});
 
 	it('returns a fresh admin context catalog', async () => {
+		mocks.hasFeature.mockResolvedValue(false);
 		mocks.getDatabaseContextCatalog.mockReturnValue({
 			syncState: 'ready',
 			objects: [{ databaseType: 'postgres', database: 'app', schema: 'public', table: 'users' }],
@@ -319,9 +472,11 @@ describe('user group routes', () => {
 			objects: [{ databaseType: 'postgres', database: 'app', schema: 'public', table: 'users' }],
 		});
 		expect(mocks.getDatabaseContextCatalog).toHaveBeenCalledWith('/project');
+		expect(mocks.hasFeature).not.toHaveBeenCalled();
 	});
 
 	it('returns an independent admin docs catalog', async () => {
+		mocks.hasFeature.mockResolvedValue(false);
 		mocks.getDocsContextCatalog.mockReturnValue({
 			syncState: 'ready',
 			entries: [{ kind: 'file', path: 'finance/kpis.md' }],
@@ -332,6 +487,7 @@ describe('user group routes', () => {
 			entries: [{ kind: 'file', path: 'finance/kpis.md' }],
 		});
 		expect(mocks.getDocsContextCatalog).toHaveBeenCalledWith('/project');
+		expect(mocks.hasFeature).not.toHaveBeenCalled();
 	});
 
 	it('returns effective access to viewers', async () => {
@@ -381,7 +537,7 @@ describe('user group routes', () => {
 		expect(mocks.resolveEffectiveUserGroupAccess).not.toHaveBeenCalled();
 	});
 
-	it('requires an admin and a license for arbitrary-user effective access', async () => {
+	it('requires an admin for arbitrary-user effective access', async () => {
 		mocks.role = 'user';
 		await expect(createCaller().effectiveAccessForUser({ userId: 'target-user-id' })).rejects.toMatchObject({
 			code: 'FORBIDDEN',
@@ -389,29 +545,28 @@ describe('user group routes', () => {
 
 		mocks.role = 'admin';
 		mocks.hasFeature.mockResolvedValue(false);
-		await expect(createCaller().effectiveAccessForUser({ userId: 'target-user-id' })).rejects.toMatchObject({
-			code: 'FORBIDDEN',
-			message: 'User Groups requires the Enterprise user-groups feature.',
-		});
+		await expect(createCaller().effectiveAccessForUser({ userId: 'target-user-id' })).resolves.toBeDefined();
+		expect(mocks.hasFeature).not.toHaveBeenCalled();
 	});
 
-	it('returns all effective features without a user-groups license', async () => {
+	it('returns enforced effective access without unlimited entitlement', async () => {
 		mocks.role = 'viewer';
 		mocks.hasFeature.mockResolvedValue(false);
 
 		await expect(createCaller().effectiveAccess()).resolves.toEqual({
 			features: {
 				'story-creation': true,
-				'automation-creation': true,
+				'automation-creation': false,
 			},
 			toolCallDensityPolicy: {
-				defaultDensity: 'detailed',
-				canChange: true,
+				defaultDensity: 'compact',
+				canChange: false,
 			},
-			databaseAccess: { mode: 'all', strict: true },
-			docsAccess: { mode: 'all' },
+			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
+			docsAccess: { mode: 'restricted', grants: [] },
 		});
-		expect(mocks.resolveEffectiveUserGroupAccess).not.toHaveBeenCalled();
+		expect(mocks.resolveEffectiveUserGroupAccess).toHaveBeenCalledWith('project-id', 'user-id');
+		expect(mocks.hasFeature).not.toHaveBeenCalled();
 	});
 });
 

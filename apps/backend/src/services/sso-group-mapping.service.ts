@@ -1,10 +1,8 @@
 /* @license Enterprise */
 
 import type { UserRole } from '@nao/shared/types';
-import { decodeJwt } from 'jose';
 
 import { env } from '../env';
-import * as accountQueries from '../queries/account.queries';
 import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
 import type { OrgRole } from '../types/organization';
@@ -17,8 +15,9 @@ import {
 } from '../utils/sso-group-mapping';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { getOidcProviderId, isOidcConfigured } from './oidc-auth.service';
+import { readDecodedIdTokenClaims, readVerifiedOidcIdTokenClaims } from './sso-token.service';
 
-const DEFAULT_GROUPS_CLAIM = 'groups';
+export const DEFAULT_GROUPS_CLAIM = 'groups';
 
 /** When active the identity provider owns roles, so nao must not let them be edited by hand. */
 export async function isGroupRoleMappingActive(): Promise<boolean> {
@@ -34,20 +33,20 @@ export async function isGroupRoleMappingActive(): Promise<boolean> {
  * Never throws: a mapping failure must not stop someone from signing in.
  */
 export async function syncRolesFromSsoGroups(userId: string): Promise<void> {
-	if (!(await isGroupRoleMappingActive())) {
-		return;
-	}
-
 	try {
-		const token = await readClaimsFromIdToken(userId);
+		if (!(await isGroupRoleMappingActive())) {
+			return;
+		}
+
+		const token = await readVerifiedOidcIdTokenClaims(userId);
 		if (token.status === 'no-token') {
 			return;
 		}
 
-		if (token.status === 'undecodable') {
-			logger.warn('Could not decode the SSO ID token, leaving roles untouched', {
+		if (token.status !== 'verified') {
+			logger.warn('Could not verify the SSO ID token, leaving roles untouched', {
 				source: 'system',
-				context: { userId },
+				context: { userId, problem: token.status },
 			});
 			return;
 		}
@@ -112,17 +111,14 @@ export async function inspectSsoToken(userId: string): Promise<SsoTokenInspectio
 		resolvedRole: null,
 	};
 
-	const idToken = await accountQueries.getIdToken(userId, getOidcProviderId());
-	if (!idToken) {
+	const token = await readDecodedIdTokenClaims(userId, getOidcProviderId());
+	if (token.status === 'no-token') {
 		return { ...base, problem: 'no-token' };
 	}
-
-	let claims: Record<string, unknown>;
-	try {
-		claims = decodeJwt(idToken);
-	} catch {
+	if (token.status === 'undecodable') {
 		return { ...base, problem: 'undecodable' };
 	}
+	const claims = token.claims;
 
 	const groups = extractGroups(claims, claimName);
 	const matchedGroups = groups.filter((group) => roleMapping.has(group.trim().toLowerCase()));
@@ -151,24 +147,6 @@ function diagnose(claims: Record<string, unknown>, claimName: string, matchedGro
 
 function toDate(seconds: unknown): Date | null {
 	return typeof seconds === 'number' ? new Date(seconds * 1000) : null;
-}
-
-type IdTokenClaims =
-	| { status: 'no-token' }
-	| { status: 'undecodable' }
-	| { status: 'decoded'; claims: Record<string, unknown> };
-
-async function readClaimsFromIdToken(userId: string): Promise<IdTokenClaims> {
-	const idToken = await accountQueries.getIdToken(userId, getOidcProviderId());
-	if (!idToken) {
-		return { status: 'no-token' };
-	}
-
-	try {
-		return { status: 'decoded', claims: decodeJwt(idToken) };
-	} catch {
-		return { status: 'undecodable' };
-	}
 }
 
 /**

@@ -4,11 +4,13 @@ import {
 	type MapSettings,
 	type McpChartEmbedStoredConfig,
 	type McpMapEmbedStoredConfig,
+	type SsoGroupProvider,
 	type StoredDatabaseContextAccess,
 	type StoredLegacyDatabaseContextAccessV1,
 	type StoredLegacyDatabaseContextAccessV2,
 	type StoredUserGroupConfig,
 	type StoredUserGroupContextAccess,
+	type StoredUserGroupSsoMappings,
 } from '@nao/shared';
 import type { DisplaySettings } from '@nao/shared/date';
 import type { AnalyticsEventMetadata, CitationData, LlmProvider, RepoProvider } from '@nao/shared/types';
@@ -467,7 +469,7 @@ export const userGroup = sqliteTable(
 			| StoredDatabaseContextAccess
 			| StoredUserGroupContextAccess
 		>(),
-		ssoMappings: text('sso_mappings', { mode: 'json' }),
+		ssoMappings: text('sso_mappings', { mode: 'json' }).$type<StoredUserGroupSsoMappings>(),
 		rowPolicies: text('row_policies', { mode: 'json' }),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -511,7 +513,7 @@ export const userGroupSsoMember = sqliteTable(
 		userId: text('user_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
-		provider: text('provider').notNull(),
+		provider: text('provider').$type<SsoGroupProvider>().notNull(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),

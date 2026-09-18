@@ -8,6 +8,7 @@ import path from 'path';
 import { promisify } from 'util';
 
 import { ReadOutput, renderToModelOutput } from '../../components/tool-outputs';
+import { renderProjectTextForAgent } from '../../services/agent-visible-project-file.service';
 import { toReadableText } from '../../services/file-text';
 import { assertProjectContextPathAllowed } from '../../services/project-context-path-access.service';
 import { readUserFile } from '../../services/storage/user-files';
@@ -40,17 +41,25 @@ const readProjectFile = async (filePath: string, context: ToolContext): Promise<
 
 	try {
 		const openedStats = await handle.stat({ bigint: true });
-		const validatedPath = await validateOpenedProjectFile(handle, openedStats, filePath, context, allowedFile);
+		const validatedFile = await validateOpenedProjectFile(handle, openedStats, filePath, context, allowedFile);
 		const bytes = await handle.readFile();
 		await assertHandleUnchanged(handle, openedStats, filePath);
 
-		return isBinaryDocument(validatedPath) ? toReadableText(validatedPath, bytes) : bytes.toString('utf-8');
+		if (isBinaryDocument(validatedFile.realPath)) {
+			return toReadableText(validatedFile.realPath, bytes);
+		}
+		const content = renderProjectTextForAgent(validatedFile.virtualPath, bytes.toString('utf-8'), context);
+		if (content === null) {
+			throw new Error('RULES.md could not be rendered safely.');
+		}
+		return content;
 	} finally {
 		await handle.close();
 	}
 };
 
 type AllowedProjectPath = { projectRoot: string; realPath: string };
+type ValidatedProjectPath = { realPath: string; virtualPath: string };
 
 function resolveAllowedProjectPath(filePath: string, context: ToolContext): AllowedProjectPath {
 	const projectRoot = realpathSync.native(path.resolve(context.projectFolder));
@@ -68,7 +77,7 @@ async function validateOpenedProjectFile(
 	filePath: string,
 	context: ToolContext,
 	allowedFile: AllowedProjectPath,
-): Promise<string> {
+): Promise<ValidatedProjectPath> {
 	await assertHandleUnchanged(handle, openedStats, filePath);
 	const descriptorPath = await resolveDescriptorPath(handle, filePath);
 	return authorizeDescriptorPath(descriptorPath, filePath, context, allowedFile.projectRoot);
@@ -141,7 +150,7 @@ function authorizeDescriptorPath(
 	filePath: string,
 	context: ToolContext,
 	projectRoot: string,
-): string {
+): ValidatedProjectPath {
 	if (!path.isAbsolute(descriptorPath)) {
 		throw new Error(`Access denied: unable to verify opened file '${filePath}'`);
 	}
@@ -153,7 +162,7 @@ function authorizeDescriptorPath(
 	const relativePath = path.relative(projectRoot, descriptorPath);
 	const virtualPath = relativePath ? `/${relativePath.replaceAll(path.sep, '/')}` : '/';
 	assertProjectContextPathAllowed(context, filePath, virtualPath, 'file');
-	return descriptorPath;
+	return { realPath: descriptorPath, virtualPath };
 }
 
 function isWithinPath(candidatePath: string, rootPath: string): boolean {

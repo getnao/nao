@@ -22,7 +22,7 @@ function UserGroupDetailPage() {
 	const group = groupId === 'new' ? 'new' : overview.data?.groups.find((candidate) => candidate.id === groupId);
 
 	useEffect(() => {
-		if (groupId !== 'new' && overview.data && !group) {
+		if (groupId !== 'new' && overview.data && (!group || (group !== 'new' && group.isLocked))) {
 			void navigate({
 				to: '/settings/project/user-groups',
 				search: { tab: 'groups' },
@@ -37,7 +37,7 @@ function UserGroupDetailPage() {
 	if (overview.isError) {
 		return <div className='text-sm text-destructive'>Failed to load User Groups.</div>;
 	}
-	if (!group) {
+	if (!group || (group !== 'new' && group.isLocked)) {
 		return null;
 	}
 
