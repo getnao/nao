@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from ibis import BaseBackend
 
 from .base import DatabaseConfig
-from .context import DatabaseContext
+from .context import DatabaseContext, quote_sql_literal
 
 
 class PostgresDatabaseContext(DatabaseContext):
@@ -24,7 +24,7 @@ class PostgresDatabaseContext(DatabaseContext):
                 FROM pg_catalog.pg_description d
                 JOIN pg_catalog.pg_class c ON c.oid = d.objoid
                 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-                WHERE n.nspname = '{self._schema}' AND c.relname = '{self._table_name}' AND d.objsubid = 0
+                WHERE n.nspname = '{quote_sql_literal(self._schema)}' AND c.relname = '{quote_sql_literal(self._table_name)}' AND d.objsubid = 0
             """
             row = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
             if row and row[0]:
@@ -51,7 +51,7 @@ class PostgresDatabaseContext(DatabaseContext):
             JOIN pg_catalog.pg_class c ON c.oid = d.objoid
             JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum = d.objsubid
             JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = '{self._schema}' AND c.relname = '{self._table_name}' AND d.objsubid > 0
+            WHERE n.nspname = '{quote_sql_literal(self._schema)}' AND c.relname = '{quote_sql_literal(self._table_name)}' AND d.objsubid > 0
         """
         rows = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
         return {row[0]: str(row[1]) for row in rows if row[1]}
