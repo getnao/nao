@@ -402,7 +402,7 @@ function ChatInputBase({
 				<InputGroup
 					htmlFor='chat-input'
 					className={cn(
-						'bg-background dark:bg-background shadow-xs border-none',
+						'bg-background dark:bg-background shadow-xs border-none max-md:rounded-4xl',
 						isDragging && 'ring-2 ring-primary/50 border-primary',
 						isAdminMode && 'ring-4 ring-amber-500/60',
 					)}
@@ -499,13 +499,12 @@ async function dataUrlToFile(url: string, mediaType: string, name: string): Prom
 	return new File([blob], name, { type: mediaType });
 }
 
-const CHAT_INPUT_BORDER_RADIUS = 18;
 const CHAT_INPUT_BORDER_STROKE = 1;
 
 function ChatInputAnimatedBorder() {
 	const containerRef = useRef<HTMLSpanElement>(null);
 	const gradientId = useId();
-	const [{ width, height }, setSize] = useState({ width: 0, height: 0 });
+	const [{ width, height, radius }, setGeometry] = useState({ width: 0, height: 0, radius: 0 });
 	const [isFocused, setIsFocused] = useState(false);
 
 	useLayoutEffect(() => {
@@ -513,9 +512,15 @@ function ChatInputAnimatedBorder() {
 		if (!element) {
 			return;
 		}
-		const updateSize = () => setSize({ width: element.clientWidth, height: element.clientHeight });
-		updateSize();
-		const observer = new ResizeObserver(updateSize);
+		const updateGeometry = () => {
+			setGeometry({
+				width: element.clientWidth,
+				height: element.clientHeight,
+				radius: readBorderRadius(element.parentElement),
+			});
+		};
+		updateGeometry();
+		const observer = new ResizeObserver(updateGeometry);
 		observer.observe(element);
 		return () => observer.disconnect();
 	}, []);
@@ -544,6 +549,7 @@ function ChatInputAnimatedBorder() {
 
 	const hasSize = width > 0 && height > 0;
 	const inset = CHAT_INPUT_BORDER_STROKE / 2;
+	const strokeRadius = Math.max(radius - inset, 0);
 	const strokeColor = isFocused ? 'var(--primary)' : 'var(--muted-foreground)';
 
 	return (
@@ -570,8 +576,8 @@ function ChatInputAnimatedBorder() {
 						y={inset}
 						width={width - CHAT_INPUT_BORDER_STROKE}
 						height={height - CHAT_INPUT_BORDER_STROKE}
-						rx={CHAT_INPUT_BORDER_RADIUS}
-						ry={CHAT_INPUT_BORDER_RADIUS}
+						rx={strokeRadius}
+						ry={strokeRadius}
 						pathLength={100}
 						stroke={`url(#${gradientId})`}
 						strokeWidth={CHAT_INPUT_BORDER_STROKE}
@@ -581,6 +587,14 @@ function ChatInputAnimatedBorder() {
 			)}
 		</span>
 	);
+}
+
+function readBorderRadius(element: HTMLElement | null): number {
+	if (!element) {
+		return 0;
+	}
+	const radius = parseFloat(getComputedStyle(element).borderTopLeftRadius);
+	return Number.isFinite(radius) ? radius : 0;
 }
 
 function ChatInputAdminBadge() {
