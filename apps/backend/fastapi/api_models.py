@@ -33,7 +33,7 @@ class UnenforcedTableAccess(StrictRequestModel):
 
 class EnforcedTableAccess(StrictRequestModel):
     enforced: Literal[True]
-    tables: list[TableAccessTable]
+    tables: list[TableAccessTable] = Field(max_length=ROW_SECURITY_MAX_TABLES)
 
 
 TableAccess = Annotated[

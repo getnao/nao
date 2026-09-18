@@ -6649,6 +6649,14 @@
           "notNull": true,
           "autoincrement": false
         },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'manual'"
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",

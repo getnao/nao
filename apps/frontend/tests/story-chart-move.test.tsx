@@ -521,7 +521,7 @@ describe('edit-mode chart actions', () => {
 
 		fireEvent.click(screen.getByRole('button', { name: 'Snapshot' }));
 		const tabs = parseStoryTabs(screen.getByRole('status').textContent ?? '');
-		expect(tabs?.[0].innerCode.trim().replace(/\n{3,}/g, '\n\n')).toBe('Before\n\nAfter');
+		expect(tabs?.[0].innerCode.trim()).toBe('Before\n\nAfter');
 		expect(tabs?.[1].innerCode.trim()).toBe(`Existing\n\n${rawTag}`);
 	});
 
@@ -713,9 +713,7 @@ describe('edit-mode chart actions', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Snapshot' }));
 		const tabs = parseStoryTabs(screen.getByRole('status').textContent ?? '');
 		expect(tabs?.[0].innerCode.trim()).toBe('');
-		expect(tabs?.[1].innerCode.trim().replace(/\n{3,}/g, '\n\n')).toBe(
-			['Existing', '', 'Before', '', rawTag, '', 'After'].join('\n'),
-		);
+		expect(tabs?.[1].innerCode.trim()).toBe(['Existing', '', 'Before', '', rawTag, '', 'After'].join('\n'));
 	});
 
 	it('moves a generic text block when its floating handle is dropped on an inactive tab', async () => {
@@ -820,7 +818,7 @@ describe('edit-mode chart actions', () => {
 		fireEvent.click(screen.getByRole('button', { name: 'Snapshot' }));
 		const tabs = parseStoryTabs(screen.getByRole('status').textContent ?? '');
 		expect(tabs?.[0].innerCode.trim()).toBe('');
-		expect(tabs?.[1].innerCode.trim().replace(/\n{3,}/g, '\n\n')).toBe(
+		expect(tabs?.[1].innerCode.trim()).toBe(
 			['Existing', '', 'Repeated text', '', rawTag, '', 'Repeated text', '', secondChart].join('\n'),
 		);
 	});
@@ -836,12 +834,7 @@ describe('edit-mode chart actions', () => {
 
 		await waitFor(() => expect(screen.queryByText('Chart q1')).toBeNull());
 		fireEvent.click(screen.getByRole('button', { name: 'Snapshot' }));
-		expect(
-			screen
-				.getByRole('status')
-				.textContent?.trim()
-				.replace(/\n{3,}/g, '\n\n'),
-		).toBe('Before\n\nAfter');
+		expect(screen.getByRole('status').textContent?.trim()).toBe('Before\n\nAfter');
 	});
 
 	it('preserves a multi-selection when deleting from one selected handle', async () => {

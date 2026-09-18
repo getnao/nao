@@ -7,12 +7,18 @@ on:
             - 'package.json'
             - 'package-lock.json'
             - '.npmrc'
+            - '.nvmrc'
+            - 'scripts/use-pinned-npm.sh'
+            - '.github/workflows/js-test.yml'
     pull_request:
         paths:
             - 'apps/**'
             - 'package.json'
             - 'package-lock.json'
             - '.npmrc'
+            - '.nvmrc'
+            - 'scripts/use-pinned-npm.sh'
+            - '.github/workflows/js-test.yml'
 
 jobs:
     test:

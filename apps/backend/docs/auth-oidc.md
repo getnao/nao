@@ -235,7 +235,7 @@ Existing deployments may temporarily keep the deprecated `AZURE_AD_GROUP_ROLE_MA
 
 When organization role mapping is enabled, nao verifies group overage against Microsoft Graph during sign-in. If Graph cannot be reached or the access token is unavailable, sign-in is denied. Configure the app registration to emit only groups assigned to the application to avoid overage.
 
-After sign-in, Entra group overage for User Group synchronization is resolved with Microsoft Graph's `/me/checkMemberObjects` using saved UI mappings and both Entra environment mappings as candidates. Invalid tokens, missing or expired access tokens, and Graph failures leave existing User Group memberships and organization roles unchanged.
+After sign-in, Entra group overage for User Group synchronization is resolved with Microsoft Graph's `/me/checkMemberObjects` using saved UI mappings and both Entra environment mappings as candidates. Invalid ID tokens leave existing User Group memberships and organization roles unchanged. When configured candidate groups require verification, missing or expired access tokens and Graph failures also preserve that state. If no candidate group IDs are configured, nao clears stale mapped state without calling Graph.
 
 Generic OIDC variables affect only generic OIDC logins, and `AZURE_AD_*` mappings affect only Microsoft logins.
 

@@ -282,14 +282,18 @@ export function StoryTabbedEditor({
 }
 
 function serializeMovedNodes(editor: TiptapEditor, nodes: readonly PMNode[]): string {
-	return (
-		editor.markdown
-			?.serialize({
-				type: 'doc',
-				content: nodes.map((node) => node.toJSON()),
-			})
-			.trim() ?? ''
-	);
+	return nodes
+		.map(
+			(node) =>
+				editor.markdown
+					?.serialize({
+						type: 'doc',
+						content: [node.toJSON()],
+					})
+					.trim() ?? '',
+		)
+		.join('\n\n')
+		.trim();
 }
 
 function getMarkdownBlockCount(editor: TiptapEditor, markdown: string): number {

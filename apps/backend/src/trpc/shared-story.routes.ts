@@ -16,6 +16,7 @@ import {
 	getStoryFilterOptions,
 	getStoryQuerySql,
 } from '../services/story-filters';
+import { hasUserGroupFeature } from '../services/user-group-feature-access.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
 import { notifySharedItemRecipients } from '../utils/email';
 import { buildDownloadResponse } from '../utils/story-download';
@@ -137,6 +138,7 @@ export const sharedStoryRoutes = {
 		const cacheSchedule = storyRow?.cacheSchedule ?? null;
 		const cacheScheduleDescription = storyRow?.cacheScheduleDescription ?? null;
 		const { canRefresh } = await getStoryRefreshAccess(shared.storyId, ctx.user.id, ctx.userRole);
+		const canFork = await getStoryForkAccess(shared, ctx.user.id, ctx.userRole);
 
 		const { queryData, cachedAt, code } = await getStoryQueryData(
 			shared.chatId!,
@@ -172,6 +174,7 @@ export const sharedStoryRoutes = {
 			lastRefreshFailure,
 			userRole: ctx.userRole,
 			canRefresh,
+			canFork,
 		};
 	}),
 
@@ -415,4 +418,18 @@ async function getStoryRefreshAccess(
 		storyOwnerId,
 		canRefresh: Boolean(storyOwnerId && (userId === storyOwnerId || userRole === 'admin')),
 	};
+}
+
+async function getStoryForkAccess(
+	shared: { projectId: string; userId: string },
+	userId: string,
+	userRole: UserRole | null,
+): Promise<boolean> {
+	if (userRole === 'viewer') {
+		return false;
+	}
+	if (shared.userId === userId) {
+		return true;
+	}
+	return hasUserGroupFeature(shared.projectId, userId, 'storyCreation');
 }

@@ -1,3 +1,5 @@
+import re
+
 import duckdb
 import pytest
 import sqlglot
@@ -207,7 +209,7 @@ def test_blocked_policy_raises_with_reason():
         }
     }
 
-    with pytest.raises(RowSecurityGuardError, match=reason):
+    with pytest.raises(RowSecurityGuardError, match=re.escape(reason)):
         enforce_row_security("SELECT * FROM orders", FakeDatabaseConfig(), policies)
 
 
@@ -246,7 +248,7 @@ def test_applies_unique_case_insensitive_policy_match():
     assert "WHERE orders.tenant_id = 7" in sql
 
 
-def test_ignores_ambiguous_case_insensitive_policy_matches():
+def test_rejects_ambiguous_case_insensitive_policy_matches():
     config = FakeDatabaseConfig()
     config.connection.schemas = {"public": ["orders"]}
     policies: dict[tuple[str, str], RowSecurityPolicy] = {
@@ -262,9 +264,12 @@ def test_ignores_ambiguous_case_insensitive_policy_matches():
         },
     }
 
-    sql = enforce_row_security("SELECT * FROM public.orders", config, policies)
-
-    assert sql == "SELECT * FROM public.orders"
+    reason = (
+        "Query blocked because row-level security could not be safely enforced: "
+        "multiple row-security policies match 'public.orders' case-insensitively"
+    )
+    with pytest.raises(RowSecurityGuardError, match=re.escape(reason)):
+        enforce_row_security("SELECT * FROM public.orders", config, policies)
 
 
 @pytest.mark.parametrize(

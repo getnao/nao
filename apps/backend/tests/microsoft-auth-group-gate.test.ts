@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 	microsoft: vi.fn(),
 	resolveMicrosoftGraphMemberships: vi.fn(),
 	stockGetUserInfo: vi.fn(),
+	verifyMicrosoftIdTokenClaims: vi.fn(),
 }));
 
 vi.mock('../src/env', () => ({ env: mocks.env }));
@@ -23,6 +24,9 @@ vi.mock('../src/services/license.service', () => ({
 }));
 vi.mock('../src/services/microsoft-user-group-membership.service', () => ({
 	resolveMicrosoftGraphMemberships: mocks.resolveMicrosoftGraphMemberships,
+}));
+vi.mock('../src/services/sso-token.service', () => ({
+	verifyMicrosoftIdTokenClaims: mocks.verifyMicrosoftIdTokenClaims,
 }));
 vi.mock('../src/utils/logger', () => ({
 	logger: mocks.logger,
@@ -53,6 +57,10 @@ beforeEach(() => {
 	mocks.logger.warn.mockReset();
 	mocks.resolveMicrosoftGraphMemberships.mockReset();
 	mocks.stockGetUserInfo.mockReset().mockResolvedValue(STOCK_USER_INFO);
+	mocks.verifyMicrosoftIdTokenClaims.mockReset().mockResolvedValue({
+		status: 'verified',
+		claims: { groups: [MAPPED_GROUP] },
+	});
 	mocks.microsoft.mockReset().mockReturnValue({
 		getUserInfo: mocks.stockGetUserInfo,
 	});
@@ -61,9 +69,10 @@ beforeEach(() => {
 describe('Microsoft Entra group access gate', () => {
 	it('allows a direct mapped groups claim before loading stock user info', async () => {
 		const getUserInfo = createGetUserInfo();
-		const token = { idToken: createIdToken({ groups: [MAPPED_GROUP] }), accessToken: 'access-token' };
+		const token = { idToken: 'id-token', accessToken: 'access-token' };
 
 		await expect(getUserInfo(token)).resolves.toEqual(STOCK_USER_INFO);
+		expect(mocks.verifyMicrosoftIdTokenClaims).toHaveBeenCalledWith('id-token');
 		expect(mocks.microsoft).toHaveBeenCalledWith({
 			clientId: 'client-id',
 			clientSecret: 'client-secret',
@@ -74,9 +83,14 @@ describe('Microsoft Entra group access gate', () => {
 	});
 
 	it('denies a direct unmapped groups claim before loading stock user info', async () => {
+		mocks.verifyMicrosoftIdTokenClaims.mockResolvedValue({
+			status: 'verified',
+			claims: { groups: [UNMAPPED_GROUP] },
+		});
+
 		await expect(
 			createGetUserInfo()({
-				idToken: createIdToken({ groups: [UNMAPPED_GROUP] }),
+				idToken: 'id-token',
 				accessToken: 'access-token',
 			}),
 		).rejects.toMatchObject({
@@ -87,9 +101,13 @@ describe('Microsoft Entra group access gate', () => {
 	});
 
 	it('allows an overage claim when Graph resolves a mapped group', async () => {
+		mocks.verifyMicrosoftIdTokenClaims.mockResolvedValue({
+			status: 'verified',
+			claims: { hasgroups: true },
+		});
 		mocks.resolveMicrosoftGraphMemberships.mockResolvedValue([MAPPED_GROUP]);
 		const getUserInfo = createGetUserInfo();
-		const token = { idToken: createIdToken({ hasgroups: true }), accessToken: 'access-token' };
+		const token = { idToken: 'id-token', accessToken: 'access-token' };
 
 		await expect(getUserInfo(token)).resolves.toEqual(STOCK_USER_INFO);
 		expect(mocks.resolveMicrosoftGraphMemberships).toHaveBeenCalledWith('access-token', [MAPPED_GROUP]);
@@ -97,11 +115,15 @@ describe('Microsoft Entra group access gate', () => {
 	});
 
 	it('denies an overage claim when Graph resolves no mapped group', async () => {
+		mocks.verifyMicrosoftIdTokenClaims.mockResolvedValue({
+			status: 'verified',
+			claims: { _claim_names: { groups: 'src1' } },
+		});
 		mocks.resolveMicrosoftGraphMemberships.mockResolvedValue([]);
 
 		await expect(
 			createGetUserInfo()({
-				idToken: createIdToken({ _claim_names: { groups: 'src1' } }),
+				idToken: 'id-token',
 				accessToken: 'access-token',
 			}),
 		).rejects.toMatchObject({
@@ -111,11 +133,15 @@ describe('Microsoft Entra group access gate', () => {
 	});
 
 	it('denies an overage claim when Graph fails', async () => {
+		mocks.verifyMicrosoftIdTokenClaims.mockResolvedValue({
+			status: 'verified',
+			claims: { hasgroups: true },
+		});
 		mocks.resolveMicrosoftGraphMemberships.mockRejectedValue(new Error('Graph unavailable'));
 
 		await expect(
 			createGetUserInfo()({
-				idToken: createIdToken({ hasgroups: true }),
+				idToken: 'id-token',
 				accessToken: 'access-token',
 			}),
 		).rejects.toMatchObject({
@@ -127,9 +153,30 @@ describe('Microsoft Entra group access gate', () => {
 	});
 
 	it('denies an overage claim without an access token', async () => {
+		mocks.verifyMicrosoftIdTokenClaims.mockResolvedValue({
+			status: 'verified',
+			claims: { hasgroups: true },
+		});
+
 		await expect(
 			createGetUserInfo()({
-				idToken: createIdToken({ hasgroups: true }),
+				idToken: 'id-token',
+			}),
+		).rejects.toMatchObject({
+			status: 'FORBIDDEN',
+			message: 'Microsoft group membership could not be verified.',
+		});
+		expect(mocks.resolveMicrosoftGraphMemberships).not.toHaveBeenCalled();
+		expect(mocks.stockGetUserInfo).not.toHaveBeenCalled();
+	});
+
+	it.each(['invalid', 'unavailable'] as const)('denies sign-in when ID token verification is %s', async (status) => {
+		mocks.verifyMicrosoftIdTokenClaims.mockResolvedValue({ status });
+
+		await expect(
+			createGetUserInfo()({
+				idToken: 'id-token',
+				accessToken: 'access-token',
 			}),
 		).rejects.toMatchObject({
 			status: 'FORBIDDEN',
@@ -145,6 +192,7 @@ describe('Microsoft Entra group access gate', () => {
 
 		await expect(getUserInfo({ accessToken: 'access-token' })).resolves.toEqual(STOCK_USER_INFO);
 		expect(mocks.hasFeature).not.toHaveBeenCalled();
+		expect(mocks.verifyMicrosoftIdTokenClaims).not.toHaveBeenCalled();
 		expect(mocks.resolveMicrosoftGraphMemberships).not.toHaveBeenCalled();
 	});
 
@@ -153,6 +201,7 @@ describe('Microsoft Entra group access gate', () => {
 		const getUserInfo = createGetUserInfo();
 
 		await expect(getUserInfo({ accessToken: 'access-token' })).resolves.toEqual(STOCK_USER_INFO);
+		expect(mocks.verifyMicrosoftIdTokenClaims).not.toHaveBeenCalled();
 		expect(mocks.resolveMicrosoftGraphMemberships).not.toHaveBeenCalled();
 	});
 
@@ -172,9 +221,4 @@ function createGetUserInfo(): (token: { idToken?: string; accessToken?: string }
 		getUserInfo: (token: { idToken?: string; accessToken?: string }) => Promise<unknown>;
 	};
 	return microsoft.getUserInfo;
-}
-
-function createIdToken(payload: Record<string, unknown>): string {
-	const encode = (value: Record<string, unknown>) => Buffer.from(JSON.stringify(value)).toString('base64url');
-	return `${encode({ alg: 'none' })}.${encode(payload)}.`;
 }

@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 	getStoryQueryData: vi.fn(),
 	refreshStoryData: vi.fn(),
 	logAnalyticsEvent: vi.fn(),
+	resolveUserGroupAccess: vi.fn(),
 }));
 
 vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));
@@ -49,6 +50,9 @@ vi.mock('../src/services/story-filters', () => ({
 	getFilteredStoryQueryData: vi.fn(),
 	getStoryFilterOptions: vi.fn(),
 	getStoryQuerySql: vi.fn(),
+}));
+vi.mock('../src/services/user-group-availability.service', () => ({
+	resolveAvailableUserGroupAccess: mocks.resolveUserGroupAccess,
 }));
 vi.mock('../src/utils/analytics-event', () => ({
 	logAnalyticsEvent: mocks.logAnalyticsEvent,
@@ -89,11 +93,18 @@ describe('shared Story manual refresh', () => {
 		mocks.refreshStoryData.mockResolvedValue({
 			queryData: { query_orders: { columns: ['id'], data: [{ id: 1 }] } },
 		});
+		mocks.resolveUserGroupAccess.mockResolvedValue({
+			features: [],
+			toolCallDensityPolicy: {
+				defaultDensity: 'detailed',
+				canChange: true,
+			},
+		});
 		mocks.getUserRoleInProject.mockImplementation(async (_projectId: string, userId: string) => {
 			if (userId === 'admin-1') {
 				return 'admin';
 			}
-			if (userId === 'owner-1' || userId === 'member-1') {
+			if (userId === 'owner-1' || userId === 'sharer-1' || userId === 'member-1') {
 				return 'user';
 			}
 			return 'viewer';
@@ -108,6 +119,43 @@ describe('shared Story manual refresh', () => {
 		const story = await createCaller(userId).storyShare.get({ shareId: 'share-1' });
 
 		expect(story.canRefresh).toBe(expected);
+	});
+
+	it('resolves fork permission against the shared Story project', async () => {
+		mocks.resolveUserGroupAccess.mockResolvedValue({
+			features: ['storyCreation'],
+			toolCallDensityPolicy: {
+				defaultDensity: 'detailed',
+				canChange: true,
+			},
+		});
+
+		const story = await createCaller('member-1', 'selected-project').storyShare.get({ shareId: 'share-1' });
+
+		expect(story.canFork).toBe(true);
+		expect(mocks.resolveUserGroupAccess).toHaveBeenCalledWith('project-1', 'member-1');
+	});
+
+	it('allows the owner to fork without checking the creation grant', async () => {
+		const story = await createCaller('sharer-1', 'selected-project').storyShare.get({ shareId: 'share-1' });
+
+		expect(story.canFork).toBe(true);
+		expect(mocks.resolveUserGroupAccess).not.toHaveBeenCalled();
+	});
+
+	it('blocks viewers from forking even with the creation grant', async () => {
+		mocks.resolveUserGroupAccess.mockResolvedValue({
+			features: ['storyCreation'],
+			toolCallDensityPolicy: {
+				defaultDensity: 'detailed',
+				canChange: true,
+			},
+		});
+
+		const story = await createCaller('viewer-1', 'selected-project').storyShare.get({ shareId: 'share-1' });
+
+		expect(story.canFork).toBe(false);
+		expect(mocks.resolveUserGroupAccess).not.toHaveBeenCalled();
 	});
 
 	it('rejects a viewer before refreshing the shared cache', async () => {
@@ -158,9 +206,9 @@ describe('shared Story manual refresh', () => {
 	});
 });
 
-function createCaller(userId: string) {
+function createCaller(userId: string, selectedProjectId = 'project-1') {
 	return testRouter.createCaller({
 		session: { user: { id: userId, name: 'Test User', email: `${userId}@example.com` } },
-		selectedProjectId: 'project-1',
+		selectedProjectId,
 	} as never);
 }

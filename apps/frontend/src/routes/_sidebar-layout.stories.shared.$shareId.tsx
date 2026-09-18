@@ -20,7 +20,6 @@ import { StoryTabbedContent } from '@/components/story-tabbed-content';
 import { Spinner } from '@/components/ui/spinner';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { SelectionProvider } from '@/contexts/text-selection';
-import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { useStoryPageEditor } from '@/hooks/use-story-page-editor';
 import { useStoryVersionQueryData } from '@/hooks/use-story-version-query-data';
@@ -33,15 +32,13 @@ export const Route = createFileRoute('/_sidebar-layout/stories/shared/$shareId')
 	errorComponent: StoryRouteError,
 });
 
-function SharedStoryPage() {
+export function SharedStoryPage() {
 	const { shareId } = Route.useParams();
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
-	const { storyCreationEnabled } = useEffectiveUserGroupFeatures();
 
 	const { data: story, isLoading } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ shareId }));
-	const isViewer = story?.userRole === 'viewer';
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
@@ -66,7 +63,7 @@ function SharedStoryPage() {
 	);
 
 	const isOwner = Boolean(session?.user?.id) && session?.user?.id === story?.userId;
-	const canFork = !isViewer && (isOwner || storyCreationEnabled);
+	const canFork = story?.canFork === true;
 
 	useTrackViewDuration({
 		assetType: 'story',

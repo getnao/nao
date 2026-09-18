@@ -1,6 +1,6 @@
-import { type Dirent, existsSync, readdirSync, readFileSync } from 'fs';
+import { type Dirent, existsSync, readdirSync, readFileSync, type Stats, statSync } from 'fs';
 import { join } from 'path';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('fs');
 
@@ -9,12 +9,24 @@ import {
 	getDatabaseObjects,
 	getTableColumnsContent,
 	getUserRules,
+	resetDatabaseContextCachesForTesting,
 } from '../src/agents/user-rules';
 
 const mockExistsSync = vi.mocked(existsSync);
 const mockReaddirSync = vi.mocked(readdirSync);
 const mockReadFileSync = vi.mocked(readFileSync);
+const mockStatSync = vi.mocked(statSync);
 const unrestrictedAccess = { enforced: false } as const;
+
+beforeEach(() => {
+	vi.resetAllMocks();
+	resetDatabaseContextCachesForTesting();
+	mockStatSync.mockReturnValue({ ino: 1, mtimeMs: 1, ctimeMs: 1, size: 1 } as Stats);
+});
+
+afterEach(() => {
+	vi.useRealTimers();
+});
 
 function makeDirent(name: string, isDirectory = true): Dirent {
 	return { name, isDirectory: () => isDirectory } as unknown as Dirent;
@@ -25,14 +37,13 @@ function setupDirStructure(root: string, structure: Record<string, string[]>) {
 		const entries = structure[dir as string] ?? [];
 		return entries.map((name) => makeDirent(name)) as unknown as ReturnType<typeof readdirSync>;
 	});
-	mockExistsSync.mockImplementation((path) => (path as string).startsWith(root));
+	mockExistsSync.mockImplementation((path) => {
+		const filePath = path as string;
+		return filePath === join(root, 'databases') || Object.hasOwn(structure, filePath);
+	});
 }
 
 describe('getUserRules', () => {
-	beforeEach(() => {
-		vi.clearAllMocks();
-	});
-
 	it('returns undefined without a project-root RULES.md', () => {
 		mockExistsSync.mockReturnValue(false);
 
@@ -69,10 +80,6 @@ describe('getUserRules', () => {
 });
 
 describe('getDatabaseObjects', () => {
-	beforeEach(() => {
-		vi.clearAllMocks();
-	});
-
 	it('returns empty array when the databases folder does not exist', () => {
 		mockExistsSync.mockReturnValue(false);
 		const result = getDatabaseObjects('/project-no-db');
@@ -164,18 +171,60 @@ describe('getDatabaseObjects', () => {
 			[join(root, 'databases', 'type=postgres', 'database=db1', 'schema=s1')]: ['table=t1'],
 		});
 
-		getDatabaseObjects(root);
-		getDatabaseObjects(root);
+		const first = getDatabaseObjects(root);
+		vi.clearAllMocks();
+		const second = getDatabaseObjects(root);
 
-		expect(mockReaddirSync).toHaveBeenCalledTimes(4);
+		expect(second).toBe(first);
+		expect(mockReaddirSync).toHaveBeenCalledTimes(2);
+		expect(mockReaddirSync).toHaveBeenNthCalledWith(1, join(root, 'databases'), { withFileTypes: true });
+		expect(mockReaddirSync).toHaveBeenNthCalledWith(2, join(root, 'databases', 'type=postgres'), {
+			withFileTypes: true,
+		});
+		expect(mockStatSync).not.toHaveBeenCalled();
+	});
+
+	it('expires cached project entries', () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(0);
+		const root = '/project-expired';
+		setupDirStructure(root, {
+			[join(root, 'databases')]: ['type=postgres'],
+			[join(root, 'databases', 'type=postgres')]: ['database=db1'],
+			[join(root, 'databases', 'type=postgres', 'database=db1')]: ['schema=s1'],
+			[join(root, 'databases', 'type=postgres', 'database=db1', 'schema=s1')]: ['table=t1'],
+		});
+
+		const first = getDatabaseObjects(root);
+		vi.setSystemTime(5 * 60 * 1000);
+
+		expect(getDatabaseObjects(root)).not.toBe(first);
+	});
+
+	it('bounds cached project entries with deterministic FIFO eviction', () => {
+		const structure: Record<string, string[]> = {};
+		for (let index = 0; index <= 100; index += 1) {
+			const root = `/project-bounded-${index}`;
+			structure[join(root, 'databases')] = ['type=postgres'];
+			structure[join(root, 'databases', 'type=postgres')] = ['database=db'];
+			structure[join(root, 'databases', 'type=postgres', 'database=db')] = ['schema=public'];
+			structure[join(root, 'databases', 'type=postgres', 'database=db', 'schema=public')] = ['table=users'];
+		}
+		setupDirStructure('/project-bounded-', structure);
+
+		const first = getDatabaseObjects('/project-bounded-0');
+		for (let index = 1; index < 100; index += 1) {
+			getDatabaseObjects(`/project-bounded-${index}`);
+		}
+		expect(getDatabaseObjects('/project-bounded-0')).toBe(first);
+
+		getDatabaseObjects('/project-bounded-100');
+
+		expect(getDatabaseObjects('/project-bounded-0')).not.toBe(first);
 	});
 });
 
 describe('getDatabaseContextCatalog', () => {
-	beforeEach(() => {
-		vi.clearAllMocks();
-	});
-
 	it('distinguishes a missing databases tree from a successful empty scan', () => {
 		mockExistsSync.mockReturnValue(false);
 		expect(getDatabaseContextCatalog('/project-catalog-missing')).toEqual({
@@ -235,14 +284,67 @@ describe('getDatabaseContextCatalog', () => {
 			[join(root, 'databases', 'type=postgres')]: ['database=app'],
 			[join(root, 'databases', 'type=postgres', 'database=app')]: ['schema=public'],
 			[join(root, 'databases', 'type=postgres', 'database=app', 'schema=public')]: ['table=users'],
+			[join(root, '.meta', 'databases')]: ['type=postgres'],
+			[join(root, '.meta', 'databases', 'type=postgres')]: ['database=app'],
 		});
 		mockReadFileSync.mockReturnValue('- id (INTEGER)\n');
 
 		getDatabaseContextCatalog(root);
+		vi.clearAllMocks();
 		getDatabaseContextCatalog(root);
 
 		expect(mockReaddirSync).toHaveBeenCalledTimes(4);
-		expect(mockReadFileSync).toHaveBeenCalledTimes(1);
+		expect(mockReaddirSync).toHaveBeenNthCalledWith(1, join(root, 'databases'), { withFileTypes: true });
+		expect(mockReaddirSync).toHaveBeenNthCalledWith(2, join(root, 'databases', 'type=postgres'), {
+			withFileTypes: true,
+		});
+		expect(mockReaddirSync).toHaveBeenNthCalledWith(3, join(root, '.meta', 'databases'), {
+			withFileTypes: true,
+		});
+		expect(mockReaddirSync).toHaveBeenNthCalledWith(4, join(root, '.meta', 'databases', 'type=postgres'), {
+			withFileTypes: true,
+		});
+		expect(mockStatSync).toHaveBeenCalledOnce();
+		expect(mockStatSync).toHaveBeenCalledWith(
+			join(root, '.meta', 'databases', 'type=postgres', 'database=app', 'columns.json'),
+		);
+		expect(mockReadFileSync).not.toHaveBeenCalled();
+	});
+
+	it('refreshes a same-root catalog when sync replaces database metadata', () => {
+		const root = '/project-catalog-resynced';
+		const tableDirectory = join(root, 'databases', 'type=postgres', 'database=app', 'schema=public');
+		const metadataFile = join(root, '.meta', 'databases', 'type=postgres', 'database=app', 'columns.json');
+		const structure = {
+			[join(root, 'databases')]: ['type=postgres'],
+			[join(root, 'databases', 'type=postgres')]: ['database=app'],
+			[join(root, 'databases', 'type=postgres', 'database=app')]: ['schema=public'],
+			[tableDirectory]: ['table=users'],
+			[join(root, '.meta', 'databases')]: ['type=postgres'],
+			[join(root, '.meta', 'databases', 'type=postgres')]: ['database=app'],
+		};
+		setupDirStructure(root, structure);
+		mockStatSync.mockImplementation((path) => {
+			expect(path).toBe(metadataFile);
+			return { ino: 1, mtimeMs: 1, ctimeMs: 1, size: 17 } as Stats;
+		});
+		mockReadFileSync.mockReturnValue('- old_name (TEXT)\n');
+		expect(getDatabaseContextCatalog(root).objects[0].columns).toEqual(['old_name']);
+
+		structure[tableDirectory] = ['table=orders'];
+		mockStatSync.mockReturnValue({ ino: 2, mtimeMs: 2, ctimeMs: 2, size: 18 } as Stats);
+		mockReadFileSync.mockReturnValue('- new_name (TEXT)\n');
+
+		expect(getDatabaseContextCatalog(root).objects).toEqual([
+			{
+				databaseType: 'postgres',
+				database: 'app',
+				schema: 'public',
+				table: 'orders',
+				columns: ['new_name'],
+			},
+		]);
+		expect(mockReadFileSync).toHaveBeenCalledTimes(2);
 	});
 
 	it('bypasses and updates the cache for a fresh read', () => {
@@ -260,7 +362,7 @@ describe('getDatabaseContextCatalog', () => {
 		expect(getDatabaseContextCatalog(root, { fresh: true }).objects[0].columns).toEqual(['new_column']);
 		expect(getDatabaseContextCatalog(root).objects[0].columns).toEqual(['new_column']);
 
-		expect(mockReaddirSync).toHaveBeenCalledTimes(8);
+		expect(mockReaddirSync).toHaveBeenCalledTimes(14);
 		expect(mockReadFileSync).toHaveBeenCalledTimes(2);
 	});
 
@@ -283,8 +385,68 @@ describe('getDatabaseContextCatalog', () => {
 		expect(getDatabaseContextCatalog(secondRoot).objects[0].database).toBe('second');
 		expect(getDatabaseContextCatalog(firstRoot).objects[0].database).toBe('first');
 
-		expect(mockReaddirSync).toHaveBeenCalledTimes(8);
+		expect(mockReaddirSync).toHaveBeenCalledTimes(14);
 		expect(mockReadFileSync).toHaveBeenCalledTimes(2);
+	});
+
+	it('expires cached catalog entries', () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(0);
+		const root = '/project-catalog-expired';
+		setupDirStructure(root, {
+			[join(root, 'databases')]: ['type=postgres'],
+			[join(root, 'databases', 'type=postgres')]: ['database=app'],
+			[join(root, 'databases', 'type=postgres', 'database=app')]: ['schema=public'],
+			[join(root, 'databases', 'type=postgres', 'database=app', 'schema=public')]: ['table=users'],
+		});
+		mockReadFileSync.mockReturnValue('- id (INTEGER)\n');
+
+		const first = getDatabaseContextCatalog(root);
+		vi.setSystemTime(5 * 60 * 1000);
+
+		expect(getDatabaseContextCatalog(root)).not.toBe(first);
+		expect(mockReadFileSync).toHaveBeenCalledTimes(2);
+	});
+
+	it('bounds cached catalog entries with deterministic FIFO eviction', () => {
+		const structure: Record<string, string[]> = {};
+		for (let index = 0; index <= 100; index += 1) {
+			const root = `/project-catalog-bounded-${index}`;
+			structure[join(root, 'databases')] = ['type=postgres'];
+			structure[join(root, 'databases', 'type=postgres')] = ['database=db'];
+			structure[join(root, 'databases', 'type=postgres', 'database=db')] = ['schema=public'];
+			structure[join(root, 'databases', 'type=postgres', 'database=db', 'schema=public')] = ['table=users'];
+		}
+		setupDirStructure('/project-catalog-bounded-', structure);
+		mockReadFileSync.mockReturnValue('- id (INTEGER)\n');
+
+		const first = getDatabaseContextCatalog('/project-catalog-bounded-0');
+		for (let index = 1; index < 100; index += 1) {
+			getDatabaseContextCatalog(`/project-catalog-bounded-${index}`);
+		}
+		expect(getDatabaseContextCatalog('/project-catalog-bounded-0')).toBe(first);
+
+		getDatabaseContextCatalog('/project-catalog-bounded-100');
+
+		expect(getDatabaseContextCatalog('/project-catalog-bounded-0')).not.toBe(first);
+		expect(mockReadFileSync).toHaveBeenCalledTimes(102);
+	});
+
+	it('resets same-root cached content for test isolation', () => {
+		const root = '/project-catalog-isolated';
+		setupDirStructure(root, {
+			[join(root, 'databases')]: ['type=postgres'],
+			[join(root, 'databases', 'type=postgres')]: ['database=app'],
+			[join(root, 'databases', 'type=postgres', 'database=app')]: ['schema=public'],
+			[join(root, 'databases', 'type=postgres', 'database=app', 'schema=public')]: ['table=users'],
+		});
+		mockReadFileSync.mockReturnValue('- first_name (TEXT)\n');
+		expect(getDatabaseContextCatalog(root).objects[0].columns).toEqual(['first_name']);
+
+		mockReadFileSync.mockReturnValue('- second_name (TEXT)\n');
+		resetDatabaseContextCachesForTesting();
+
+		expect(getDatabaseContextCatalog(root).objects[0].columns).toEqual(['second_name']);
 	});
 
 	it('parses quoted column names and nested type parentheses', () => {
@@ -359,10 +521,6 @@ describe('getDatabaseContextCatalog', () => {
 });
 
 describe('getTableColumnsContent', () => {
-	beforeEach(() => {
-		vi.clearAllMocks();
-	});
-
 	it('returns undefined when the fqdn does not match any database object', () => {
 		mockExistsSync.mockReturnValue(false);
 		const result = getTableColumnsContent('/project-x', 'db.schema.unknown', unrestrictedAccess);

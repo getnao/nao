@@ -3,7 +3,6 @@
 import { APIError, type BetterAuthOptions } from 'better-auth';
 import { microsoft } from 'better-auth/social-providers';
 import { and, eq } from 'drizzle-orm';
-import { decodeJwt } from 'jose';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -15,6 +14,7 @@ import {
 	parseEntraGroupOrganizationRoleMapping,
 } from '../utils/sso-group-mapping';
 import { hasFeature, LICENSE_FEATURES } from './license.service';
+import { verifyMicrosoftIdTokenClaims } from './sso-token.service';
 
 export type SocialProviders = NonNullable<BetterAuthOptions['socialProviders']>;
 
@@ -57,7 +57,11 @@ async function assertMicrosoftGroupAccess(token: { idToken?: string; accessToken
 		});
 	}
 
-	const claims = decodeJwt(token.idToken) as Record<string, unknown>;
+	const verifiedToken = await verifyMicrosoftIdTokenClaims(token.idToken);
+	if (verifiedToken.status !== 'verified') {
+		throwMicrosoftMembershipUnavailable();
+	}
+	const claims = verifiedToken.claims;
 	if ('groups' in claims) {
 		assertMicrosoftGroupDecision(claims, roleMapping.mapping);
 		return;

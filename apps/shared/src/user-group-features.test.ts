@@ -75,21 +75,27 @@ describe('user group configuration', () => {
 		});
 	});
 
-	it('normalizes legacy aliases and removes unknown features', () => {
-		expect(
-			parseStoredUserGroupConfig([
-				'stories',
-				'automations',
-				'story-creation',
-				'automation-creation',
-				'unknown',
-				'compact-mode',
-			]),
-		).toEqual({
-			features: ['storyCreation', 'automationCreation'],
+	it.each([
+		['stories', 'storyCreation'],
+		['story-creation', 'storyCreation'],
+		['automations', 'automationCreation'],
+		['automation-creation', 'automationCreation'],
+	])('normalizes the legacy %s alias', (alias, feature) => {
+		expect(parseStoredUserGroupConfig([alias])).toEqual({
+			features: [feature],
 			toolCallDensity: {
 				defaultDensity: 'detailed',
-				canChange: true,
+				canChange: false,
+			},
+		});
+	});
+
+	it('removes unknown legacy features', () => {
+		expect(parseStoredUserGroupConfig(['unknown'])).toEqual({
+			features: [],
+			toolCallDensity: {
+				defaultDensity: 'detailed',
+				canChange: false,
 			},
 		});
 	});

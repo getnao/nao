@@ -1,5 +1,6 @@
 import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
-import { existsSync, readdirSync, readFileSync } from 'fs';
+import { createHash } from 'crypto';
+import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
 
 import { renderRootRulesForAgent } from '../services/agent-visible-project-file.service';
@@ -74,39 +75,62 @@ export type DatabaseContextCatalog = {
 };
 
 const DATABASE_OBJECTS_TTL_MS = 5 * 60 * 1000;
-const databaseObjectsCache = new Map<string, { objects: DatabaseObject[]; expiresAt: number }>();
-const databaseContextCatalogCache = new Map<string, { catalog: DatabaseContextCatalog; expiresAt: number }>();
+const DATABASE_CACHE_MAX_ENTRIES = 100;
+const databaseObjectsCache = new Map<
+	string,
+	{ objects: DatabaseObject[]; freshnessSignature: string | undefined; expiresAt: number }
+>();
+const databaseContextCatalogCache = new Map<
+	string,
+	{ catalog: DatabaseContextCatalog; freshnessSignature: string | undefined; expiresAt: number }
+>();
 
 export function getDatabaseObjects(projectFolder: string): DatabaseObject[] {
+	const now = Date.now();
+	evictExpiredEntries(databaseObjectsCache, now);
+	const freshnessSignature = getDatabaseFreshnessSignature(projectFolder);
 	const cached = databaseObjectsCache.get(projectFolder);
-	if (cached && Date.now() < cached.expiresAt) {
+	if (freshnessSignature !== undefined && cached?.freshnessSignature === freshnessSignature) {
 		return cached.objects;
 	}
 
-	const objects = readDatabaseObjectsFromDisk(projectFolder);
-	databaseObjectsCache.set(projectFolder, { objects, expiresAt: Date.now() + DATABASE_OBJECTS_TTL_MS });
-	return objects;
+	const scan = scanDatabaseObjectsSafely(projectFolder);
+	setBoundedCacheEntry(databaseObjectsCache, projectFolder, {
+		objects: scan.objects,
+		freshnessSignature,
+		expiresAt: now + DATABASE_OBJECTS_TTL_MS,
+	});
+	return scan.objects;
 }
 
 export function getDatabaseContextCatalog(
 	projectFolder: string,
 	options: { fresh?: boolean } = {},
 ): DatabaseContextCatalog {
+	const now = Date.now();
+	evictExpiredEntries(databaseContextCatalogCache, now);
+	const freshnessSignature = getDatabaseFreshnessSignature(projectFolder);
 	const cached = databaseContextCatalogCache.get(projectFolder);
-	if (!options.fresh && cached && Date.now() < cached.expiresAt) {
+	if (!options.fresh && freshnessSignature !== undefined && cached?.freshnessSignature === freshnessSignature) {
 		return cached.catalog;
 	}
 
-	const catalog = readDatabaseContextCatalogFromDisk(projectFolder);
-	databaseContextCatalogCache.set(projectFolder, {
+	const scan = scanDatabaseObjects(projectFolder);
+	const catalog = readDatabaseContextCatalogFromDisk(projectFolder, scan);
+	setBoundedCacheEntry(databaseContextCatalogCache, projectFolder, {
 		catalog,
-		expiresAt: Date.now() + DATABASE_OBJECTS_TTL_MS,
+		freshnessSignature,
+		expiresAt: now + DATABASE_OBJECTS_TTL_MS,
 	});
 	return catalog;
 }
 
-function readDatabaseContextCatalogFromDisk(projectFolder: string): DatabaseContextCatalog {
-	const scan = scanDatabaseObjects(projectFolder);
+export function resetDatabaseContextCachesForTesting(): void {
+	databaseObjectsCache.clear();
+	databaseContextCatalogCache.clear();
+}
+
+function readDatabaseContextCatalogFromDisk(projectFolder: string, scan: DatabaseObjectScan): DatabaseContextCatalog {
 	return {
 		syncState: scan.syncState,
 		objects: scan.objects
@@ -212,43 +236,122 @@ function readDirEntries(dir: string, prefix: string): { name: string; path: stri
 	return readdirSync(dir, { withFileTypes: true })
 		.filter((e) => e.isDirectory() && e.name.startsWith(prefix))
 		.map((e) => ({ name: e.name.slice(prefix.length), path: join(dir, e.name) }))
-		.filter((e) => e.name);
+		.filter((e) => e.name)
+		.sort((left, right) => left.name.localeCompare(right.name));
 }
 
-function readDatabaseObjectsFromDisk(folder: string): DatabaseObject[] {
+function scanDatabaseObjectsSafely(folder: string): DatabaseObjectScan {
 	try {
-		return scanDatabaseObjects(folder).objects;
+		return scanDatabaseObjects(folder);
 	} catch (error) {
 		console.error('Error reading database objects:', error);
-		return [];
+		return { syncState: 'missing', objects: [] };
 	}
 }
 
-function scanDatabaseObjects(folder: string): {
+type DatabaseObjectScan = {
 	syncState: 'missing' | 'ready';
 	objects: DatabaseObject[];
-} {
+};
+
+function scanDatabaseObjects(folder: string): DatabaseObjectScan {
 	const databasesPath = join(folder, 'databases');
 	if (!existsSync(databasesPath)) {
 		return { syncState: 'missing', objects: [] };
 	}
 
-	return {
-		syncState: 'ready',
-		objects: readDirEntries(databasesPath, 'type=').flatMap(({ name: type, path: typePath }) =>
-			readDirEntries(typePath, 'database=').flatMap(({ name: database, path: dbPath }) =>
-				readDirEntries(dbPath, 'schema=').flatMap(({ name: schema, path: schemaPath }) =>
-					readDirEntries(schemaPath, 'table=').map(({ name: table }) => ({
+	const objects = readDirEntries(databasesPath, 'type=').flatMap(({ name: type, path: typePath }) => {
+		return readDirEntries(typePath, 'database=').flatMap(({ name: database, path: dbPath }) => {
+			return readDirEntries(dbPath, 'schema=').flatMap(({ name: schema, path: schemaPath }) => {
+				return readDirEntries(schemaPath, 'table=').map(({ name: table }) => {
+					return {
 						type,
 						database,
 						schema,
 						table,
 						fqdn: `${database}.${schema}.${table}`,
-					})),
-				),
-			),
-		),
+					};
+				});
+			});
+		});
+	});
+
+	return {
+		syncState: 'ready',
+		objects,
 	};
+}
+
+function getDatabaseFreshnessSignature(projectFolder: string): string | undefined {
+	try {
+		const hash = createHash('sha256');
+		appendGeneratedDatabaseLayout(hash, projectFolder);
+		appendColumnCatalogMetadata(hash, projectFolder);
+		return hash.digest('hex');
+	} catch {
+		return undefined;
+	}
+}
+
+function appendGeneratedDatabaseLayout(hash: ReturnType<typeof createHash>, projectFolder: string): void {
+	const databasesPath = join(projectFolder, 'databases');
+	if (!existsSync(databasesPath)) {
+		hash.update('databases:missing\n');
+		return;
+	}
+
+	hash.update('databases:ready\n');
+	for (const { name: type, path: typePath } of readDirEntries(databasesPath, 'type=')) {
+		hash.update(`type=${type}\n`);
+		for (const { name: database } of readDirEntries(typePath, 'database=')) {
+			hash.update(`database=${database}\n`);
+		}
+	}
+}
+
+function appendColumnCatalogMetadata(hash: ReturnType<typeof createHash>, projectFolder: string): void {
+	const metadataPath = join(projectFolder, '.meta', 'databases');
+	if (!existsSync(metadataPath)) {
+		hash.update('metadata:missing\n');
+		return;
+	}
+
+	hash.update('metadata:ready\n');
+	for (const { name: type, path: typePath } of readDirEntries(metadataPath, 'type=')) {
+		hash.update(`type=${type}\n`);
+		for (const { name: database, path: databasePath } of readDirEntries(typePath, 'database=')) {
+			hash.update(`database=${database}\n${getFileFreshnessSignature(join(databasePath, 'columns.json'))}\n`);
+		}
+	}
+}
+
+function getFileFreshnessSignature(filePath: string): string {
+	try {
+		const stats = statSync(filePath);
+		return `${stats.ino}:${stats.mtimeMs}:${stats.ctimeMs}:${stats.size}`;
+	} catch {
+		return 'missing';
+	}
+}
+
+function evictExpiredEntries<T extends { expiresAt: number }>(cache: Map<string, T>, now: number): void {
+	for (const [key, value] of cache) {
+		if (value.expiresAt <= now) {
+			cache.delete(key);
+		}
+	}
+}
+
+function setBoundedCacheEntry<T>(cache: Map<string, T>, key: string, value: T): void {
+	cache.delete(key);
+	while (cache.size >= DATABASE_CACHE_MAX_ENTRIES) {
+		const oldestKey = cache.keys().next().value;
+		if (oldestKey === undefined) {
+			break;
+		}
+		cache.delete(oldestKey);
+	}
+	cache.set(key, value);
 }
 
 export function getTableColumnsContent(

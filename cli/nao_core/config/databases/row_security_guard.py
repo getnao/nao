@@ -150,7 +150,9 @@ def _lookup_policy(
         for (policy_schema, policy_table), policy in policies.items()
         if policy_schema.casefold() == schema.casefold() and policy_table.casefold() == table.casefold()
     ]
-    return matches[0] if len(matches) == 1 else None
+    if len(matches) > 1:
+        raise _blocked(f"multiple row-security policies match '{schema}.{table}' case-insensitively")
+    return matches[0] if matches else None
 
 
 def _parse_predicate(

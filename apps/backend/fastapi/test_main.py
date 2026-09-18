@@ -7,6 +7,7 @@ import duckdb
 import main
 import pytest
 import yaml
+from api_models import EnforcedTableAccess
 from fastapi.testclient import TestClient as FastApiTestClient
 from main import app
 from pydantic import ValidationError
@@ -360,19 +361,41 @@ def test_row_security_request_model_accepts_project_table_limit():
         main.EnforcedRowSecurity.model_validate({"enforced": True, "tables": [table] * 10_001})
 
 
+def test_table_access_request_model_accepts_project_table_limit():
+    table = {
+        "database_type": "duckdb",
+        "database": "test",
+        "schema": "main",
+        "table": "users",
+    }
+
+    EnforcedTableAccess.model_validate({"enforced": True, "tables": [table] * 10_000})
+    with pytest.raises(ValidationError):
+        EnforcedTableAccess.model_validate(
+            {"enforced": True, "tables": [table] * 10_001}
+        )
+
+
 def test_row_security_request_model_accepts_blocked_table():
-    table = main.BlockedRowAccessTable.model_validate(
+    row_security = main.EnforcedRowSecurity.model_validate(
         {
-            "database_type": "duckdb",
-            "database": "test",
-            "schema": "main",
-            "table": "users",
-            "constraint_columns": ["id"],
-            "access": "blocked",
-            "reason": "Enterprise license is inactive.",
+            "enforced": True,
+            "tables": [
+                {
+                    "database_type": "duckdb",
+                    "database": "test",
+                    "schema": "main",
+                    "table": "users",
+                    "constraint_columns": ["id"],
+                    "access": "blocked",
+                    "reason": "Enterprise license is inactive.",
+                }
+            ],
         }
     )
+    table = row_security.tables[0]
 
+    assert isinstance(table, main.BlockedRowAccessTable)
     assert table.access == "blocked"
     assert table.reason == "Enterprise license is inactive."
 
