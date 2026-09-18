@@ -17,7 +17,7 @@ import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/st
 import { StoryPageBody } from '@/components/story-page-body';
 import { StoryPageHeader } from '@/components/story-page-header';
 import { StoryTabbedContent } from '@/components/story-tabbed-content';
-import { Spinner } from '@/components/ui/spinner';
+import { StoryContentLoading } from '@/components/side-panel/story-content-loading';
 import { SidePanelProvider } from '@/contexts/side-panel';
 import { SelectionProvider } from '@/contexts/text-selection';
 import { useSidePanel } from '@/hooks/use-side-panel';
@@ -29,6 +29,7 @@ import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/stories/shared/$shareId')({
 	component: SharedStoryPage,
+	pendingComponent: StoryContentLoading,
 	errorComponent: StoryRouteError,
 });
 
@@ -38,7 +39,7 @@ export function SharedStoryPage() {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 
-	const { data: story, isLoading } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ shareId }));
+	const { data: story } = useSuspenseQuery(trpc.storyShare.get.queryOptions({ shareId }));
 
 	const containerRef = useRef<HTMLDivElement>(null);
 	const sidePanelRef = useRef<HTMLDivElement>(null);
@@ -88,14 +89,6 @@ export function SharedStoryPage() {
 		latestQueryData: (story?.queryData as QueryDataMap | null | undefined) ?? null,
 		shareId,
 	});
-
-	if (isLoading) {
-		return (
-			<div className='flex flex-1 items-center justify-center'>
-				<Spinner />
-			</div>
-		);
-	}
 
 	const isEditing = isOwner && Boolean(story.chatId) && editor.viewMode !== 'preview';
 

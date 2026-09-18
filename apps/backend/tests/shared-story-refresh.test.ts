@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { EffectiveUserGroupAccess } from '../src/queries/user-group.queries';
+
 const mocks = vi.hoisted(() => ({
 	getSharedStory: vi.fn(),
 	canUserAccessSharedStory: vi.fn(),
@@ -93,13 +95,7 @@ describe('shared Story manual refresh', () => {
 		mocks.refreshStoryData.mockResolvedValue({
 			queryData: { query_orders: { columns: ['id'], data: [{ id: 1 }] } },
 		});
-		mocks.resolveUserGroupAccess.mockResolvedValue({
-			features: [],
-			toolCallDensityPolicy: {
-				defaultDensity: 'detailed',
-				canChange: true,
-			},
-		});
+		mocks.resolveUserGroupAccess.mockResolvedValue(createEffectiveUserGroupAccess());
 		mocks.getUserRoleInProject.mockImplementation(async (_projectId: string, userId: string) => {
 			if (userId === 'admin-1') {
 				return 'admin';
@@ -122,13 +118,7 @@ describe('shared Story manual refresh', () => {
 	});
 
 	it('resolves fork permission against the shared Story project', async () => {
-		mocks.resolveUserGroupAccess.mockResolvedValue({
-			features: ['storyCreation'],
-			toolCallDensityPolicy: {
-				defaultDensity: 'detailed',
-				canChange: true,
-			},
-		});
+		mocks.resolveUserGroupAccess.mockResolvedValue(createEffectiveUserGroupAccess(['storyCreation']));
 
 		const story = await createCaller('member-1', 'selected-project').storyShare.get({ shareId: 'share-1' });
 
@@ -144,13 +134,7 @@ describe('shared Story manual refresh', () => {
 	});
 
 	it('blocks viewers from forking even with the creation grant', async () => {
-		mocks.resolveUserGroupAccess.mockResolvedValue({
-			features: ['storyCreation'],
-			toolCallDensityPolicy: {
-				defaultDensity: 'detailed',
-				canChange: true,
-			},
-		});
+		mocks.resolveUserGroupAccess.mockResolvedValue(createEffectiveUserGroupAccess(['storyCreation']));
 
 		const story = await createCaller('viewer-1', 'selected-project').storyShare.get({ shareId: 'share-1' });
 
@@ -211,4 +195,18 @@ function createCaller(userId: string, selectedProjectId = 'project-1') {
 		session: { user: { id: userId, name: 'Test User', email: `${userId}@example.com` } },
 		selectedProjectId,
 	} as never);
+}
+
+function createEffectiveUserGroupAccess(features: EffectiveUserGroupAccess['features'] = []): EffectiveUserGroupAccess {
+	return {
+		groupNames: ['All Users'],
+		features,
+		toolCallDensityPolicy: {
+			defaultDensity: 'detailed',
+			canChange: true,
+		},
+		databaseAccess: { mode: 'all', strict: false },
+		docsAccess: { mode: 'all' },
+		rowPolicies: [],
+	};
 }

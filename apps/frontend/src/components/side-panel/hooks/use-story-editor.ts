@@ -19,6 +19,7 @@ import {
 	cloneElementWithStyles,
 	createBlockNode,
 	dispatchDropWithScroll,
+	getStoryEditorMarkdown,
 	preprocessForEditor,
 	removeCardFromOrigin,
 } from '../story-editor-utils';
@@ -478,7 +479,7 @@ export function useStoryEditor({ code, editorRef, onSave, onDragControlsChange, 
 			return;
 		}
 		const handleUpdate = () => {
-			const markdown = editor.getMarkdown();
+			const markdown = getStoryEditorMarkdown(editor);
 			lastEmittedMarkdownRef.current = markdown;
 			onChangeRef.current?.(markdown);
 		};
@@ -494,7 +495,7 @@ export function useStoryEditor({ code, editorRef, onSave, onDragControlsChange, 
 		}
 		if (
 			!shouldSyncStoryEditorContent({
-				editorMarkdown: editor.getMarkdown(),
+				editorMarkdown: getStoryEditorMarkdown(editor),
 				incomingCode: code,
 				lastEmittedMarkdown: lastEmittedMarkdownRef.current,
 			})

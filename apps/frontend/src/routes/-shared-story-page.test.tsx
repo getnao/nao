@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, render, screen } from '@testing-library/react';
+import { Suspense } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SharedStoryPage } from './_sidebar-layout.stories.shared.$shareId';
@@ -8,14 +9,20 @@ import { SharedStoryPage } from './_sidebar-layout.stories.shared.$shareId';
 const mocks = vi.hoisted(() => ({
 	queryResult: {
 		data: undefined as SharedStory | undefined,
-		isLoading: true,
 	},
+	pendingQuery: new Promise<never>(() => {}),
 }));
 
 vi.mock('@tanstack/react-query', () => ({
 	useMutation: () => ({ mutate: vi.fn(), isPending: false }),
 	useQueryClient: () => ({ invalidateQueries: vi.fn() }),
-	useSuspenseQuery: () => mocks.queryResult,
+	useSuspenseQuery: () => {
+		if (!mocks.queryResult.data) {
+			throw mocks.pendingQuery;
+		}
+
+		return mocks.queryResult;
+	},
 }));
 
 vi.mock('@tanstack/react-router', () => ({
@@ -123,13 +130,16 @@ vi.mock('@/main', () => ({
 describe('shared Story fork controls', () => {
 	beforeEach(() => {
 		mocks.queryResult.data = undefined;
-		mocks.queryResult.isLoading = true;
 	});
 
 	afterEach(cleanup);
 
 	it('keeps fork controls hidden while the Story is loading', () => {
-		render(<SharedStoryPage />);
+		render(
+			<Suspense fallback={<div>Loading story</div>}>
+				<SharedStoryPage />
+			</Suspense>,
+		);
 
 		expect(screen.getByText('Loading story')).toBeTruthy();
 		expect(screen.queryByRole('button', { name: 'Discuss story' })).toBeNull();
@@ -138,7 +148,6 @@ describe('shared Story fork controls', () => {
 
 	it('uses the fork capability returned with the shared Story', () => {
 		mocks.queryResult.data = createStory({ canFork: true });
-		mocks.queryResult.isLoading = false;
 
 		render(<SharedStoryPage />);
 
@@ -148,7 +157,6 @@ describe('shared Story fork controls', () => {
 
 	it('hides fork controls when the shared Story denies forking', () => {
 		mocks.queryResult.data = createStory({ canFork: false });
-		mocks.queryResult.isLoading = false;
 
 		render(<SharedStoryPage />);
 

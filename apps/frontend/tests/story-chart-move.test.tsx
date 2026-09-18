@@ -837,6 +837,18 @@ describe('edit-mode chart actions', () => {
 		expect(screen.getByRole('status').textContent?.trim()).toBe('Before\n\nAfter');
 	});
 
+	it('preserves blank lines inside fenced code when deleting a block', async () => {
+		const codeBlock = ['```sql', 'select 1;', '', 'select 2;', '```'].join('\n');
+		render(<EditorHarness code={`${codeBlock}\n\n${rawTag}\n\nAfter`} />);
+
+		await openChartMenu();
+		fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+
+		await waitFor(() => expect(screen.queryByText('Chart q1')).toBeNull());
+		fireEvent.click(screen.getByRole('button', { name: 'Snapshot' }));
+		expect(screen.getByRole('status').textContent?.trim()).toBe(`${codeBlock}\n\nAfter`);
+	});
+
 	it('preserves a multi-selection when deleting from one selected handle', async () => {
 		render(<EditorHarness code={`Before\n\n${rawTag}\n\nAfter`} />);
 
