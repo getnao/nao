@@ -768,7 +768,6 @@ function ChartSlide({ chart }: { chart: AutomationFeedChart }) {
 				yAxisRightMin={chart.config.y_axis_right_min}
 				yAxisRightMax={chart.config.y_axis_right_max}
 				yAxisRightLabel={chart.config.y_axis_right_label}
-				gaugeSegments={'gauge_segments' in chart.config ? chart.config.gauge_segments : undefined}
 			/>
 		</div>
 	);

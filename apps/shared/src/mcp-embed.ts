@@ -7,18 +7,17 @@ export const MCP_EMBED_TOKEN_TTL_MS = WEEK_MS;
 export const MCP_QUERY_DATA_RETENTION_MS = WEEK_MS;
 
 export type McpChartEmbedStoredConfig = {
-	chartType: displayChart.ChartInput['chart_type'];
-	xAxisKey?: displayChart.ChartInput['x_axis_key'];
-	xAxisType?: displayChart.ChartInput['x_axis_type'];
-	xAxisLabel?: displayChart.ChartInput['x_axis_label'];
-	series: displayChart.ChartInput['series'];
-	yAxisMin?: displayChart.ChartInput['y_axis_min'];
-	yAxisMax?: displayChart.ChartInput['y_axis_max'];
-	yAxisLabel?: displayChart.ChartInput['y_axis_label'];
-	yAxisRightMin?: displayChart.ChartInput['y_axis_right_min'];
-	yAxisRightMax?: displayChart.ChartInput['y_axis_right_max'];
-	yAxisRightLabel?: displayChart.ChartInput['y_axis_right_label'];
-	gaugeSegments?: displayChart.GaugeSegment[];
+	chartType: displayChart.ChartType;
+	xAxisKey?: displayChart.GenericChartInput['x_axis_key'];
+	xAxisType?: displayChart.GenericChartInput['x_axis_type'];
+	xAxisLabel?: displayChart.GenericChartInput['x_axis_label'];
+	series: displayChart.GenericChartInput['series'];
+	yAxisMin?: displayChart.GenericChartInput['y_axis_min'];
+	yAxisMax?: displayChart.GenericChartInput['y_axis_max'];
+	yAxisLabel?: displayChart.GenericChartInput['y_axis_label'];
+	yAxisRightMin?: displayChart.GenericChartInput['y_axis_right_min'];
+	yAxisRightMax?: displayChart.GenericChartInput['y_axis_right_max'];
+	yAxisRightLabel?: displayChart.GenericChartInput['y_axis_right_label'];
 	title: string;
 };
 

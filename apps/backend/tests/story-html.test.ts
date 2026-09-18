@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('../src/db/db', () => ({ db: {} }));
 
 import { generateStoryHtml } from '../src/utils/story-html';
 
@@ -28,5 +30,28 @@ describe('generateStoryHtml grid flattening', () => {
 		expect(html).not.toContain('grid-template-columns');
 		expect(html).toContain('Revenue');
 		expect(html).toContain('Orders');
+	});
+});
+
+describe('generateStoryHtml markdown safety', () => {
+	it('keeps safe links while removing unsafe links and images', async () => {
+		const html = await generateStoryHtml(
+			{
+				title: 'Story',
+				code: [
+					'[Safe](https://example.com)',
+					'[Unsafe](javascript:alert(1))',
+					'![Remote image](https://internal.example.com/tracker.png)',
+				].join('\n\n'),
+			},
+			null,
+		);
+
+		expect(html).toContain('<a href="https://example.com">Safe</a>');
+		expect(html).toContain('Unsafe');
+		expect(html).toContain('Remote image');
+		expect(html).not.toContain('javascript:');
+		expect(html).not.toContain('internal.example.com');
+		expect(html).not.toContain('<img');
 	});
 });

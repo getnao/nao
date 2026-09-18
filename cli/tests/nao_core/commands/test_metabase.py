@@ -28,6 +28,33 @@ def test_configure_masks_api_key_input_and_saves_credentials_to_project_env(monk
     ]
 
 
+@pytest.mark.parametrize(
+    ("url", "normalized_url"),
+    [
+        ("https://METABASE.example.com:443/metabase/", "https://metabase.example.com:443/metabase"),
+        ("http://localhost:3000/", "http://localhost:3000"),
+        ("http://127.0.0.1:3000/", "http://127.0.0.1:3000"),
+        ("http://[::1]:3000/", "http://[::1]:3000"),
+    ],
+)
+def test_metabase_url_normalization_accepts_https_and_loopback_http(url, normalized_url):
+    assert metabase_commands._normalize_metabase_url(url) == normalized_url
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://metabase.example.com",
+        "https://user:password@metabase.example.com",
+        "https://metabase.example.com?foo=bar",
+        "https://metabase.example.com#fragment",
+    ],
+)
+def test_metabase_url_normalization_rejects_unsafe_components(url):
+    with pytest.raises(metabase_commands.MetabaseCliError):
+        metabase_commands._normalize_metabase_url(url)
+
+
 def test_metabase_sources_accept_ids_or_urls(monkeypatch):
     monkeypatch.setenv("METABASE_URL", "https://configured.example.com/metabase/")
 
@@ -329,7 +356,11 @@ def test_parameter_values_require_unique_ids_and_json():
 
 def test_dashboard_prints_compact_json(monkeypatch, capsys):
     manifest = {"schemaVersion": 1, "dashboard": {"id": 42}}
-    monkeypatch.setattr(metabase_commands, "export_dashboard", lambda _source, _parameters: manifest)
+    monkeypatch.setattr(
+        metabase_commands,
+        "export_dashboard",
+        lambda _source, _parameters, _consumed_parameter_ids: manifest,
+    )
 
     metabase_commands.dashboard(["42"], json_output=True)
 
@@ -349,7 +380,11 @@ def test_dashboard_prints_compact_json(monkeypatch, capsys):
 def test_dashboard_writes_manifest_to_output(monkeypatch, tmp_path):
     manifest = {"schemaVersion": 1, "dashboard": {"id": 42}}
     destination = tmp_path / "exports" / "dashboard.json"
-    monkeypatch.setattr(metabase_commands, "export_dashboard", lambda _source, _parameters: manifest)
+    monkeypatch.setattr(
+        metabase_commands,
+        "export_dashboard",
+        lambda _source, _parameters, _consumed_parameter_ids: manifest,
+    )
     monkeypatch.setattr(metabase_commands.UI, "success", lambda _message: None)
 
     metabase_commands.dashboard(["42"], output=destination)
@@ -358,7 +393,7 @@ def test_dashboard_writes_manifest_to_output(monkeypatch, tmp_path):
 
 
 def test_dashboard_exports_multiple_sources_and_reports_failures(monkeypatch, capsys):
-    def export(source, _parameters):
+    def export(source, _parameters, _consumed_parameter_ids):
         if source == "8":
             raise metabase_commands.MetabaseCliError("Dashboard is inaccessible")
         return {"schemaVersion": 1, "dashboard": {"id": int(source)}}
@@ -374,8 +409,50 @@ def test_dashboard_exports_multiple_sources_and_reports_failures(monkeypatch, ca
     assert manifest["summary"] == {"selected": 2, "exported": 1, "failed": 1}
 
 
+def test_dashboard_batch_applies_parameter_overrides_only_where_consumed(monkeypatch, capsys):
+    def fetch_dashboard(_base_url, dashboard_id):
+        parameter_id = "period" if dashboard_id == 7 else "region"
+        question_id = dashboard_id + 10
+        return {
+            "id": dashboard_id,
+            "parameters": [{"id": parameter_id, "type": "category"}],
+            "dashcards": [
+                {
+                    "id": dashboard_id,
+                    "card_id": question_id,
+                    "card": {
+                        "id": question_id,
+                        "dataset_query": {"type": "query", "query": {"source-table": 3}},
+                    },
+                    "parameter_mappings": [
+                        {
+                            "parameter_id": parameter_id,
+                            "card_id": question_id,
+                            "target": ["dimension", ["field", 1, None]],
+                        }
+                    ],
+                }
+            ],
+        }
+
+    monkeypatch.setenv("METABASE_URL", "https://metabase.example.com")
+    monkeypatch.setattr(metabase_commands, "_fetch_dashboard", fetch_dashboard)
+    monkeypatch.setattr(
+        metabase_commands,
+        "_compile_question",
+        Mock(return_value={"sql": "SELECT 1", "parameters": []}),
+    )
+    monkeypatch.setattr(metabase_commands, "_fetch_database_metadata", Mock(return_value=([], [])))
+
+    metabase_commands.dashboard(["7", "8"], parameters=['period="2026-09-01"'], json_output=True)
+
+    manifest = json.loads(capsys.readouterr().out)
+    assert [item["dashboard"]["id"] for item in manifest["dashboards"]] == [7, 8]
+    assert manifest["failures"] == []
+
+
 def test_dashboard_single_failure_returns_batch_manifest(monkeypatch, capsys):
-    def export(_source, _parameters):
+    def export(_source, _parameters, _consumed_parameter_ids):
         raise metabase_commands.MetabaseCliError("Dashboard is inaccessible")
 
     monkeypatch.setattr(metabase_commands, "export_dashboard", export)
@@ -408,6 +485,27 @@ def test_collection_recursively_discovers_dashboards(monkeypatch):
 
     assert metabase_commands._collection_dashboard_ids("https://metabase.example.com", 3, recursive=False) == [7]
     assert metabase_commands._collection_dashboard_ids("https://metabase.example.com", 3, recursive=True) == [7, 8]
+
+
+def test_collection_accepts_override_consumed_by_only_one_dashboard(monkeypatch, capsys):
+    def export_dashboard(_base_url, dashboard_id, _parameter_values, consumed_parameter_ids):
+        if dashboard_id == 7:
+            consumed_parameter_ids.add("period")
+        return {"schemaVersion": 1, "dashboard": {"id": dashboard_id}}
+
+    monkeypatch.setattr(
+        metabase_commands,
+        "_resolve_collection_source",
+        Mock(return_value=("https://metabase.example.com", 3)),
+    )
+    monkeypatch.setattr(metabase_commands, "_collection_dashboard_ids", Mock(return_value=[7, 8]))
+    monkeypatch.setattr(metabase_commands, "_export_dashboard", export_dashboard)
+
+    metabase_commands.collection("3", parameters=['period="2026-09-01"'], json_output=True)
+
+    manifest = json.loads(capsys.readouterr().out)
+    assert [item["dashboard"]["id"] for item in manifest["dashboards"]] == [7, 8]
+    assert manifest["failures"] == []
 
 
 def test_collection_pagination_requires_total(monkeypatch):

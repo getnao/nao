@@ -30,7 +30,6 @@ const CHART_TYPE_OPTIONS: { value: displayChart.ChartType; label: string }[] = [
 	{ value: 'scatter', label: 'Scatter' },
 	{ value: 'radar', label: 'Radar' },
 ];
-const GAUGE_CHART_TYPE_OPTION = { value: 'gauge', label: 'Gauge' } as const;
 
 const X_AXIS_TYPE_OPTIONS: { value: NonNullable<displayChart.XAxisType> | 'auto'; label: string }[] = [
 	{ value: 'auto', label: 'Auto' },
@@ -55,7 +54,6 @@ const SERIES_TYPE_OPTIONS: { value: displayChart.SeriesType; label: string; icon
 const Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES = new Set<displayChart.ChartType>([
 	'pie',
 	'kpi_card',
-	'gauge',
 	'radar',
 	'horizontal_bar',
 	'horizontal_bar_100',
@@ -65,7 +63,6 @@ type UnitPlacement = 'prefix' | 'suffix';
 
 type ChartConfigDraft = Omit<displayChart.KpiCardInput, 'chart_type'> & {
 	chart_type: displayChart.ChartType;
-	gauge_segments?: displayChart.GaugeSegment[];
 };
 
 /** Maps a 100% stacked type back to its absolute-stacked counterpart, so the type dropdown stays clean. */
@@ -142,9 +139,6 @@ export function ChartConfigEditDialog({
 	const [paletteHexes, setPaletteHexes] = useState<string[]>(DEFAULT_COLORS);
 	const supportsYAxisRange = !Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES.has(draft.chart_type);
 	const supportsAxisLabels = displayChart.chartTypeSupportsAxisLabels(draft.chart_type);
-	const isGauge = draft.chart_type === 'gauge';
-	const chartTypeOptions =
-		config.chart_type === 'gauge' ? [...CHART_TYPE_OPTIONS, GAUGE_CHART_TYPE_OPTION] : CHART_TYPE_OPTIONS;
 	const isPercentNormalized = displayChart.isPercentStackedChartType(draft.chart_type);
 	const isHorizontalBar = baseChartType(draft.chart_type) === 'horizontal_bar';
 	const showNormalizeToggle =
@@ -153,12 +147,10 @@ export function ChartConfigEditDialog({
 	const canEnableNormalize = !isHorizontalBar || draft.series.length >= 2;
 	const unsupportedNumberFormat = useMemo(
 		() =>
-			isGauge
-				? undefined
-				: draft.series
-						.map((series) => series.value_format?.d3_format)
-						.find((format) => Boolean(format) && !isExportSafeNumberFormat(format as string)),
-		[draft.series, isGauge],
+			draft.series
+				.map((series) => series.value_format?.d3_format)
+				.find((format) => Boolean(format) && !isExportSafeNumberFormat(format as string)),
+		[draft.series],
 	);
 	const canShowComparisonPill = useMemo(
 		() => draft.chart_type === 'kpi_card' && hasRenderableKpiComparison(data, draft.x_axis_key, draft.series),
@@ -344,8 +336,6 @@ export function ChartConfigEditDialog({
 									return {
 										...prev,
 										chart_type: chartType,
-										series: chartType === 'gauge' ? prev.series.slice(0, 1) : prev.series,
-										gauge_segments: chartType === 'gauge' ? config.gauge_segments : undefined,
 									};
 								})
 							}
@@ -354,7 +344,7 @@ export function ChartConfigEditDialog({
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent className='border-none bg-panel [&_svg]:text-foreground! [&_svg]:opacity-100!'>
-								{chartTypeOptions.map((option) => (
+								{CHART_TYPE_OPTIONS.map((option) => (
 									<SelectItem key={option.value} value={option.value}>
 										{option.label}
 									</SelectItem>
@@ -389,7 +379,7 @@ export function ChartConfigEditDialog({
 						</div>
 					)}
 
-					{draft.chart_type !== 'kpi_card' && !isGauge && (
+					{draft.chart_type !== 'kpi_card' && (
 						<div className='grid gap-3 py-2'>
 							<span className='text-sm font-semibold text-foreground'>X-axis</span>
 							<div
@@ -449,20 +439,16 @@ export function ChartConfigEditDialog({
 
 					<div className='grid gap-2'>
 						<div className='flex items-center justify-between py-2'>
-							<span className='text-sm font-semibold text-foreground'>
-								{isGauge ? 'Metric' : 'Series'}
-							</span>
-							{!isGauge && (
-								<Button
-									type='button'
-									size='sm'
-									variant='outline'
-									className='rounded-full text-xs'
-									onClick={addSeries}
-								>
-									<Plus className='size-3.5' /> Add series
-								</Button>
-							)}
+							<span className='text-sm font-semibold text-foreground'>Series</span>
+							<Button
+								type='button'
+								size='sm'
+								variant='outline'
+								className='rounded-full text-xs'
+								onClick={addSeries}
+							>
+								<Plus className='size-3.5' /> Add series
+							</Button>
 						</div>
 						<div className='flex flex-col gap-3'>
 							{draft.series.map((series, index) => {
@@ -471,15 +457,13 @@ export function ChartConfigEditDialog({
 									placement === 'prefix'
 										? (series.value_format?.prefix ?? '')
 										: (series.value_format?.suffix ?? '');
-								const isOpen = !isGauge && openValueFormatIndexes.has(index);
+								const isOpen = openValueFormatIndexes.has(index);
 								const row = (
 									<div
 										className={`grid ${
 											isCombo
 												? 'grid-cols-[1fr_1fr_auto_auto_auto_auto]'
-												: isGauge
-													? 'grid-cols-[1fr_1fr_auto_auto]'
-													: 'grid-cols-[1fr_1fr_auto_auto_auto]'
+												: 'grid-cols-[1fr_1fr_auto_auto_auto]'
 										} gap-2 items-center`}
 									>
 										<ColumnSelect
@@ -501,13 +485,11 @@ export function ChartConfigEditDialog({
 												onChange={(value) => updateSeriesAt(index, { y_axis: value })}
 											/>
 										)}
-										{!isGauge && (
-											<ValueFormatToggle
-												unit={unit}
-												open={isOpen}
-												onClick={() => toggleValueFormat(index)}
-											/>
-										)}
+										<ValueFormatToggle
+											unit={unit}
+											open={isOpen}
+											onClick={() => toggleValueFormat(index)}
+										/>
 										<input
 											type='color'
 											aria-label='Series color'
@@ -1109,7 +1091,7 @@ function getSelectableColumns(columns: string[]): string[] {
 function hasRenderableKpiComparison(
 	data: Record<string, unknown>[] | undefined,
 	xAxisKey: string | undefined,
-	series: displayChart.ChartInput['series'],
+	series: displayChart.GenericChartInput['series'],
 ): boolean {
 	if (!data || data.length < 2 || !series) {
 		return false;

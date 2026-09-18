@@ -1,7 +1,7 @@
 import { buildStoryTableBlock } from './chart-block';
 import { type ColumnConditionalFormats, sanitizeConditionalFormats } from './conditional-formatting';
 import { STORY_FILTER_ID_REGEX, STORY_FILTER_TYPES, type StoryFilterType } from './sql-template';
-import type { GaugeSegment, SeriesConfig } from './tools/display-chart';
+import type { SeriesConfig } from './tools/display-chart';
 import type * as displayMap from './tools/display-map';
 import type { MapType, RegionBoundaries } from './tools/display-map';
 import { MapTypeEnum } from './tools/display-map';
@@ -27,7 +27,6 @@ export interface ParsedChartBlock {
 	title: string;
 	showDataLabels?: boolean;
 	comparisonMode?: 'percentage' | 'variation' | 'absolute' | 'none';
-	gaugeSegments?: GaugeSegment[];
 	hideTotal?: boolean;
 	/** The original `<chart ... />` tag this block was parsed from, when available. */
 	rawTag?: string;
@@ -85,7 +84,7 @@ export type Segment =
 	| { type: 'grid'; cols: number; widths: number[] | null; children: Segment[] };
 
 export const TAG_ATTRS = String.raw`(?:[^>"']|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')*?`;
-export const STORY_CHART_TYPES_WITHOUT_X_AXIS_KEY = new Set(['kpi_card', 'gauge']);
+export const STORY_CHART_TYPES_WITHOUT_X_AXIS_KEY = new Set(['kpi_card']);
 
 export function chartTagRegex(flags = ''): RegExp {
 	return new RegExp(String.raw`<chart\s+(${TAG_ATTRS})\/?>`, flags);
@@ -162,9 +161,6 @@ export function parseChartBlock(attrString: string): ParsedChartBlock | null {
 		title: attrs.title || '',
 		showDataLabels: attrs.show_data_labels === 'true',
 		comparisonMode: (attrs.comparison_mode as ParsedChartBlock['comparisonMode']) || undefined,
-		gaugeSegments: attrs.gauge_segments
-			? ((parseSeriesJsonArray(attrs.gauge_segments) as GaugeSegment[] | null) ?? undefined)
-			: undefined,
 		hideTotal: attrs.hide_total === 'true',
 	};
 }

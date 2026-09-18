@@ -9,7 +9,7 @@ import listTool from '../../agents/tools/list';
 import readTool from '../../agents/tools/read';
 import { db } from '../../db/db';
 import * as chatQueries from '../../queries/chat.queries';
-import { upsertMcpQueryData } from '../../queries/mcp-query-data.queries';
+import { getMcpQueryDefinitions, upsertMcpQueryData } from '../../queries/mcp-query-data.queries';
 import * as storyQueries from '../../queries/story.queries';
 import * as storyFolderQueries from '../../queries/story-folder.queries';
 import { pinQueryDataToChat, pinStoryMessageToChat } from '../../utils/chat-message-story';
@@ -287,9 +287,14 @@ async function cacheStoryQueryData(
 	if (!resolvedQueryData) {
 		return;
 	}
+	const queryDefinitions = await getMcpQueryDefinitions(
+		new Set(Object.keys(resolvedQueryData)),
+		ctx.projectId,
+		ctx.userId,
+	);
 	await storyQueries.upsertStoryDataCacheByStoryId(storyId, resolvedQueryData);
 	if (chatId) {
-		await pinQueryDataToChat(chatId, resolvedQueryData);
+		await pinQueryDataToChat(chatId, resolvedQueryData, queryDefinitions);
 	}
 }
 

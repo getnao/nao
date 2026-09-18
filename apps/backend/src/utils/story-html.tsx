@@ -46,7 +46,7 @@ import { mapBlockToInput, splitCodeIntoSegments } from '@nao/shared/story-segmen
 import { formatCellValue, isNumericColumn } from '@nao/shared/story-table-utils';
 import { flattenStoryTabs } from '@nao/shared/story-tabs';
 import type { displayChart, displayMap } from '@nao/shared/tools';
-import { marked, Renderer } from 'marked';
+import { marked, Renderer, type Tokens } from 'marked';
 import React, { createContext, useContext } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
@@ -354,12 +354,37 @@ function StorySegment({ segment, queryData }: { segment: Segment; queryData: Que
 	}
 }
 
-const safeRenderer = new Renderer();
-safeRenderer.html = () => '';
+class SafeMarkdownRenderer extends Renderer {
+	override html(): string {
+		return '';
+	}
+
+	override link(token: Tokens.Link): string {
+		return isSafeMarkdownLink(token.href) ? super.link(token) : this.parser.parseInline(token.tokens);
+	}
+
+	override image(token: Tokens.Image): string {
+		return escapeHtmlText(token.text);
+	}
+}
+
+const safeRenderer = new SafeMarkdownRenderer();
 
 function MarkdownBlock({ content }: { content: string }) {
 	const html = marked.parse(content, { async: false, renderer: safeRenderer }) as string;
 	return <div className='nao-md' dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+function isSafeMarkdownLink(href: string): boolean {
+	try {
+		return ['http:', 'https:', 'mailto:', 'tel:'].includes(new URL(href, 'https://story.invalid').protocol);
+	} catch {
+		return false;
+	}
+}
+
+function escapeHtmlText(value: string): string {
+	return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
 
 function GridBlock({
@@ -407,9 +432,8 @@ function ChartBlock({ chart: rawChart, queryData }: { chart: ParsedChartBlock; q
 	}
 
 	const isPie = chart.chartType === 'pie' || chart.chartType === 'donut';
-	const isGauge = chart.chartType === 'gauge';
 	const isHorizontalBar = chart.chartType === 'horizontal_bar' || chart.chartType === 'horizontal_bar_100';
-	const showLegend = !isPie && !isGauge && (!isHorizontalBar || chart.series.length >= 2);
+	const showLegend = !isPie && (!isHorizontalBar || chart.series.length >= 2);
 	const valueKey = chart.series[0]?.data_key ?? '';
 	const chartRows = isPie ? bucketPieData(rows, chart.xAxisKey, valueKey) : rows;
 
@@ -1254,7 +1278,6 @@ function toChartConfig(chart: ParsedChartBlock) {
 		y_axis_right_label: chart.yAxisRightLabel,
 		title: chart.title,
 		show_data_labels: chart.showDataLabels,
-		gauge_segments: chart.gaugeSegments,
 	};
 }
 

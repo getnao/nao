@@ -1,9 +1,5 @@
 {
   "mcpServers": {
-    "metabase": {
-      "transport": "streamable-http",
-      "url": "${METABASE_URL}/api/metabase-mcp"
-    },
     "notion": {
       "transport": "streamable-http",
       "url": "https://mcp.notion.com/mcp"

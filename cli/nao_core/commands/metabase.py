@@ -2,9 +2,10 @@ import json
 import os
 import re
 from collections import deque
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Annotated, Any, Callable
-from urllib.parse import ParseResult, urlparse
+from urllib.parse import ParseResult, urlparse, urlunparse
 
 import httpx
 from cyclopts import App, Parameter
@@ -129,10 +130,17 @@ def collection(
         parameter_values = _parse_parameter_values(parameters)
         base_url, collection_id = _resolve_collection_source(source)
         dashboard_ids = _collection_dashboard_ids(base_url, collection_id, recursive)
+        consumed_parameter_ids: set[str] = set()
         manifests, failures = _collect_exports(
             [str(dashboard_id) for dashboard_id in dashboard_ids],
-            lambda dashboard_id: _export_dashboard(base_url, int(dashboard_id), parameter_values),
+            lambda dashboard_id: _export_dashboard(
+                base_url,
+                int(dashboard_id),
+                parameter_values,
+                consumed_parameter_ids,
+            ),
         )
+        _reject_unmatched_parameter_values(parameter_values, consumed_parameter_ids)
     except MetabaseCliError as error:
         manifests = []
         failures = [{"source": source, "reason": str(error)}]
@@ -153,7 +161,7 @@ def collection(
 def _run_source_exports(
     resource: str,
     sources: list[str],
-    exporter: Callable[[str, dict[str, Any]], dict[str, Any]],
+    exporter: Callable[[str, dict[str, Any], set[str] | None], dict[str, Any]],
     parameters: list[str] | None,
     json_output: bool,
     output: Path | None,
@@ -164,7 +172,12 @@ def _run_source_exports(
 
     try:
         parameter_values = _parse_parameter_values(parameters)
-        manifests, failures = _collect_exports(sources, lambda source: exporter(source, parameter_values))
+        consumed_parameter_ids: set[str] = set()
+        manifests, failures = _collect_exports(
+            sources,
+            lambda source: exporter(source, parameter_values, consumed_parameter_ids),
+        )
+        _reject_unmatched_parameter_values(parameter_values, consumed_parameter_ids)
         _emit_manifest(
             _build_batch_manifest(resource, manifests, failures, {"mode": "explicit", "sources": sources}),
             json_output,
@@ -242,15 +255,20 @@ def _emit_manifest(manifest: dict[str, Any], json_output: bool, output: Path | N
         _write_manifest(output, serialized)
 
 
-def export_dashboard(source: str, parameter_values: dict[str, Any] | None = None) -> dict[str, Any]:
+def export_dashboard(
+    source: str,
+    parameter_values: dict[str, Any] | None = None,
+    batch_consumed_parameter_ids: set[str] | None = None,
+) -> dict[str, Any]:
     base_url, dashboard_id = _resolve_dashboard_source(source)
-    return _export_dashboard(base_url, dashboard_id, parameter_values)
+    return _export_dashboard(base_url, dashboard_id, parameter_values, batch_consumed_parameter_ids)
 
 
 def _export_dashboard(
     base_url: str,
     dashboard_id: int,
     parameter_values: dict[str, Any] | None = None,
+    batch_consumed_parameter_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     dashboard_data = _fetch_dashboard(base_url, dashboard_id)
     compiled_queries, limitations = _compile_mbql_queries(
@@ -258,6 +276,7 @@ def _export_dashboard(
         dashboard_id,
         dashboard_data,
         parameter_values,
+        batch_consumed_parameter_ids,
     )
     databases, database_limitations = _fetch_database_metadata(
         base_url,
@@ -272,12 +291,19 @@ def _export_dashboard(
     )
 
 
-def export_question(source: str, parameter_values: dict[str, Any] | None = None) -> dict[str, Any]:
+def export_question(
+    source: str,
+    parameter_values: dict[str, Any] | None = None,
+    batch_consumed_parameter_ids: set[str] | None = None,
+) -> dict[str, Any]:
     base_url, question_id = _resolve_question_source(source)
     question_data = _fetch_question(base_url, question_id)
     values = parameter_values or {}
     query_parameters, consumed_parameter_ids = _question_query_parameters(question_data, values)
-    _reject_unmatched_parameter_values(values, consumed_parameter_ids)
+    if batch_consumed_parameter_ids is None:
+        _reject_unmatched_parameter_values(values, consumed_parameter_ids)
+    else:
+        batch_consumed_parameter_ids.update(consumed_parameter_ids)
     compiled_query: dict[str, Any] | None = None
     limitations: list[dict[str, Any]] = []
     if query_parameters or not _extract_native_sql(question_data.get("dataset_query")):
@@ -354,16 +380,36 @@ def _configured_metabase_url(resource: str = "resource") -> str:
 
 
 def _normalize_metabase_url(base_url: str) -> str:
-    base_url = base_url.rstrip("/")
     try:
         url = urlparse(base_url)
     except ValueError:
         url = None
-    if url is None:
+    if url is None or _url_origin(url) is None:
         raise MetabaseCliError("METABASE_URL must be a valid HTTP(S) URL.")
-    if _url_origin(url) is None:
-        raise MetabaseCliError("METABASE_URL must be a valid HTTP(S) URL.")
-    return base_url
+    if url.username is not None or url.password is not None:
+        raise MetabaseCliError("METABASE_URL must not include user information.")
+    if url.query or url.fragment:
+        raise MetabaseCliError("METABASE_URL must not include a query string or fragment.")
+
+    hostname = url.hostname
+    assert hostname is not None
+    if url.scheme == "http" and not _is_loopback_hostname(hostname):
+        raise MetabaseCliError("METABASE_URL must use HTTPS unless it targets a loopback address.")
+
+    normalized_hostname = f"[{hostname.lower()}]" if ":" in hostname else hostname.lower()
+    netloc = normalized_hostname
+    if url.port is not None:
+        netloc += f":{url.port}"
+    return urlunparse((url.scheme, netloc, url.path.rstrip("/"), "", "", ""))
+
+
+def _is_loopback_hostname(hostname: str) -> bool:
+    if hostname.lower() == "localhost":
+        return True
+    try:
+        return ip_address(hostname).is_loopback
+    except ValueError:
+        return False
 
 
 def _url_origin(url: ParseResult) -> tuple[str, str, int] | None:
@@ -509,6 +555,7 @@ def _compile_mbql_queries(
     dashboard_id: int,
     dashboard: dict[str, Any],
     parameter_values: dict[str, Any] | None = None,
+    batch_consumed_parameter_ids: set[str] | None = None,
 ) -> tuple[dict[tuple[int, int], dict[str, Any]], list[dict[str, Any]]]:
     values = parameter_values or {}
     contexts: list[tuple[int, dict[str, Any], list[dict[str, Any]]]] = []
@@ -521,7 +568,10 @@ def _compile_mbql_queries(
         )
         contexts.append((placement_id, question, query_parameters))
         consumed_parameter_ids.update(consumed_ids)
-    _reject_unmatched_parameter_values(values, consumed_parameter_ids)
+    if batch_consumed_parameter_ids is None:
+        _reject_unmatched_parameter_values(values, consumed_parameter_ids)
+    else:
+        batch_consumed_parameter_ids.update(consumed_parameter_ids)
 
     compiled_queries: dict[tuple[int, int], dict[str, Any]] = {}
     limitations: list[dict[str, Any]] = []

@@ -3,11 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { buildStoryChartBlock } from '../src/chart-block';
 import { parseChartBlock } from '../src/story-segments';
 import { validateStoryCode } from '../src/story-validation';
-import { ChartInputSchema } from '../src/tools/display-chart';
+import { GenericChartInputSchema } from '../src/tools/display-chart';
 
 describe('combo chart input schema', () => {
 	it('accepts a mixed-series dual-axis chart', () => {
-		const result = ChartInputSchema.safeParse({
+		const result = GenericChartInputSchema.safeParse({
 			query_id: 'q1',
 			chart_type: 'mixed',
 			x_axis_key: 'month',
@@ -26,7 +26,7 @@ describe('combo chart input schema', () => {
 	});
 
 	it('rejects an inverted right-axis range', () => {
-		const result = ChartInputSchema.safeParse({
+		const result = GenericChartInputSchema.safeParse({
 			query_id: 'q1',
 			chart_type: 'bar',
 			x_axis_key: 'month',

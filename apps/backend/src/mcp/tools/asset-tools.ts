@@ -68,7 +68,7 @@ const STORY_ID_INPUT = z
 	.string()
 	.describe('Story UUID (from `list_stories.id` or `ask_nao.stories[].id`). Not the slug.');
 
-type DisplayChartMcpInput = displayChart.ChartInput & { chat_id?: string };
+type DisplayChartMcpInput = displayChart.BuiltinChartInput & { chat_id?: string };
 
 const DISPLAY_MAP_DESCRIPTION =
 	'Render an interactive map embed from a previously executed query.\n\n' +
@@ -90,7 +90,7 @@ function registerDisplayChart(server: McpServer, ctx: McpContext): void {
 		agentTool: displayChartTool,
 		title: 'Display Chart',
 		description: ctx.chartDataMode ? DISPLAY_CHART_DATA_MODE_DESCRIPTION : DISPLAY_CHART_DESCRIPTION,
-		inputSchema: displayChart.ChartInputObjectSchema.extend({
+		inputSchema: displayChart.DisplayChartMcpInputShapeSchema.extend({
 			chat_id: zodV3
 				.string()
 				.optional()
@@ -130,6 +130,12 @@ function registerDisplayChart(server: McpServer, ctx: McpContext): void {
 			if (!output.success) {
 				return {
 					content: [{ type: 'text' as const, text: output.error ?? 'Chart config is invalid.' }],
+					isError: true,
+				};
+			}
+			if (!displayChart.isBuiltinChartInput(artifact)) {
+				return {
+					content: [{ type: 'text' as const, text: 'Chart config is not a supported built-in chart.' }],
 					isError: true,
 				};
 			}

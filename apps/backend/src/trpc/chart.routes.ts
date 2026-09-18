@@ -89,5 +89,11 @@ async function readDownloadableChartConfig(toolCallId: string): Promise<displayC
 			message: 'Custom charts can only be viewed in the interactive web chat.',
 		});
 	}
-	return { ...config, chart_type: config.chart_type };
+	if (!displayChart.isBuiltinChartInput(config)) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: 'The chart configuration is invalid.',
+		});
+	}
+	return config;
 }

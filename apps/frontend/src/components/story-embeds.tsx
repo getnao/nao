@@ -153,7 +153,6 @@ export const StoryChartEmbed = memo(function StoryChartEmbed({
 					yAxisRightLabel={chart.yAxisRightLabel}
 					showDataLabels={chart.showDataLabels}
 					comparisonMode={chart.comparisonMode}
-					gaugeSegments={chart.gaugeSegments}
 					animate
 					normalSize
 					hideTotal={chart.hideTotal}

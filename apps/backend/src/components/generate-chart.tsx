@@ -29,7 +29,7 @@ export interface RenderChartInput {
 		| 'title'
 		| 'show_data_labels'
 		| 'comparison_mode'
-	> & { gauge_segments?: displayChart.GaugeSegment[] };
+	>;
 	data: Record<string, unknown>[];
 	width?: number;
 	height?: number;
@@ -73,7 +73,7 @@ export function renderChartToSvg(input: RenderChartInput): string {
 	const chartData = isPie ? bucketPieData(data, xAxisKey, series[0]?.data_key ?? '') : data;
 
 	let legend: LegendEntry[] = [];
-	if (includeLegend && chartType !== 'gauge') {
+	if (includeLegend) {
 		legend = isPie
 			? buildPieLegendEntries(chartData, xAxisKey, dateFormat)
 			: series.map((s, i) => ({
@@ -105,7 +105,6 @@ export function renderChartToSvg(input: RenderChartInput): string {
 		yAxisMin: config.y_axis_min,
 		yAxisMax: config.y_axis_max,
 		comparisonMode: config.comparison_mode,
-		gaugeSegments: config.gauge_segments,
 		yAxisLabel: config.y_axis_label,
 		yAxisRightMin: config.y_axis_right_min,
 		yAxisRightMax: config.y_axis_right_max,

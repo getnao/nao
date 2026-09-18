@@ -31,7 +31,6 @@ export type StoryChartBlockInput = Pick<
 > & {
 	title?: displayChart.KpiCardInput['title'];
 	x_axis_key?: displayChart.KpiCardInput['x_axis_key'];
-	gauge_segments?: displayChart.GaugeInput['gauge_segments'];
 };
 
 export function buildStoryChartBlock(input: StoryChartBlockInput): string {
@@ -55,11 +54,8 @@ export function buildStoryChartBlock(input: StoryChartBlockInput): string {
 		input.comparison_mode && input.comparison_mode !== 'none'
 			? ` comparison_mode="${escapeDoubleQuotedStoryAttr(input.comparison_mode)}"`
 			: '';
-	const gaugeSegmentsAttr = input.gauge_segments
-		? ` gauge_segments='${escapeSingleQuotedStoryAttr(JSON.stringify(input.gauge_segments))}'`
-		: '';
 	const hideTotalAttr = input.hide_total ? ' hide_total="true"' : '';
-	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}"${xAxisKeyAttr}${xAxisTypeAttr}${xLabelAttr}${yMinAttr}${yMaxAttr}${yLabelAttr}${yRightMinAttr}${yRightMaxAttr}${yRightLabelAttr} series='${seriesJson}'${titleAttr}${dataLabelsAttr}${comparisonModeAttr}${gaugeSegmentsAttr}${hideTotalAttr} />`;
+	return `<chart query_id="${escapeDoubleQuotedStoryAttr(input.query_id)}" chart_type="${escapeDoubleQuotedStoryAttr(input.chart_type)}"${xAxisKeyAttr}${xAxisTypeAttr}${xLabelAttr}${yMinAttr}${yMaxAttr}${yLabelAttr}${yRightMinAttr}${yRightMaxAttr}${yRightLabelAttr} series='${seriesJson}'${titleAttr}${dataLabelsAttr}${comparisonModeAttr}${hideTotalAttr} />`;
 }
 
 export type StoryTableBlockInput = Pick<displayChart.TableInput, 'query_id' | 'title' | 'conditional_formats'>;

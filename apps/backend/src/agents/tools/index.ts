@@ -18,7 +18,6 @@ import list from './list';
 import loadSkill from './load-skill';
 import { createMcpCallTool } from './mcp-call';
 import { createMcpConnectTool } from './mcp-connect';
-import metabaseDashboardMetadata from './metabase-dashboard-metadata';
 import read from './read';
 import readQueryResult from './read-query-result';
 import search from './search';
@@ -44,7 +43,6 @@ export const tools = {
 	grep,
 	list,
 	load_skill: loadSkill,
-	get_metabase_dashboard_metadata: metabaseDashboardMetadata,
 	read,
 	search,
 	write,

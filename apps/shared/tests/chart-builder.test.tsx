@@ -1,5 +1,4 @@
 import type { ReactElement } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import { buildChart, computeKpiComparison, computeValueAxisWidth, describePreviousPeriod } from '../src/chart-builder';
@@ -214,56 +213,6 @@ describe('buildChart', () => {
 		);
 
 		expect(xAxis?.props.tickFormatter('A very long category')).toBe('A ver…');
-	});
-});
-
-describe('gauge chart', () => {
-	it('renders ranges, labels, a plain numeric value, and a triangle indicator', () => {
-		const html = renderToStaticMarkup(
-			buildChart({
-				data: [{ score: 72.25 }],
-				chartType: 'gauge',
-				xAxisKey: '',
-				xAxisType: 'category',
-				series: [{ data_key: 'score', value_format: { d3_format: ',.2f', prefix: '$' } }],
-				gaugeSegments: [
-					{ min: 0, max: 50.5, color: '#ed6e6e', label: 'Needs attention' },
-					{ min: 50.5, max: 100.5, color: '#84bb4c', label: 'Great' },
-				],
-				title: 'Health score',
-			}),
-		);
-
-		expect(html).toContain('#ed6e6e');
-		expect(html).toContain('#84bb4c');
-		expect(html).toContain('Needs attention');
-		expect(html).toContain('Great');
-		expect(html).toContain('>72.25</text>');
-		expect(html).not.toContain('$72.25');
-		expect(html).toContain('>50.5</text>');
-		expect(html.match(/<polygon/g)).toHaveLength(2);
-		expect(html).toContain('text-anchor="end"');
-		expect(html).toContain('text-anchor="start"');
-	});
-
-	it('uses the lowest segment minimum regardless of segment order', () => {
-		const renderNeedle = (gaugeSegments: Array<{ min: number; max: number; color: string }>) => {
-			const html = renderToStaticMarkup(
-				buildChart({
-					data: [{ score: 50 }],
-					chartType: 'gauge',
-					xAxisKey: '',
-					xAxisType: 'category',
-					series: [{ data_key: 'score' }],
-					gaugeSegments,
-				}),
-			);
-			return html.match(/<polygon[^>]+>/g);
-		};
-		const low = { min: 0, max: 50, color: '#ed6e6e' };
-		const high = { min: 50, max: 100, color: '#84bb4c' };
-
-		expect(renderNeedle([high, low])).toEqual(renderNeedle([low, high]));
 	});
 });
 

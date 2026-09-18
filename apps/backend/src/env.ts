@@ -23,16 +23,6 @@ const baseEnvSchema = z.object({
 		.optional()
 		.transform((val) => val === 'true'),
 
-	METABASE_URL: z
-		.string()
-		.optional()
-		.transform((val) => val?.trim() || undefined)
-		.pipe(z.url({ message: 'METABASE_URL must be a valid URL' }).optional()),
-	METABASE_API_KEY: z
-		.string()
-		.optional()
-		.transform((val) => val?.trim() || undefined),
-
 	BETTER_AUTH_URL: z.url({ message: 'BETTER_AUTH_URL must be a valid URL' }).default('http://localhost:5005/'),
 	BETTER_AUTH_SECRET: z.string().min(20).default(crypto.randomBytes(32).toString('hex')),
 	REDIS_URL: z

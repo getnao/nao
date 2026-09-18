@@ -184,7 +184,6 @@ async function seedAnalyticsShowcaseConversation(tx: Tx, userId: string, project
 		'<grid>',
 		`<chart query_id="${queryId}" chart_type="kpi_card" x_axis_key="month" series='[{"data_key":"revenue","label":"Latest revenue","color":"#6366f1"}]' comparison_mode="percentage" />`,
 		`<chart query_id="${queryId}" chart_type="kpi_card" x_axis_key="month" series='[{"data_key":"orders","label":"Latest orders","color":"#0ea5e9"}]' comparison_mode="variation" />`,
-		`<chart query_id="${queryId}" chart_type="gauge" series='[{"data_key":"revenue","label":"January revenue","color":"#6366f1"}]' gauge_segments='[{"min":0,"max":300,"color":"#ef4444","label":"Low"},{"min":300,"max":500,"color":"#f59e0b","label":"On track"},{"min":500,"max":700,"color":"#22c55e","label":"Strong"}]' title="January Revenue" />`,
 		`<chart query_id="${queryId}" chart_type="donut" x_axis_key="month" series='[{"data_key":"revenue","label":"Revenue","color":"#8b5cf6"}]' title="Revenue Mix" />`,
 		'</grid>',
 		'',
