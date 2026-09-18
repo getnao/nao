@@ -234,14 +234,19 @@ describe('MCP tool registration', () => {
 			const schema = result.tools.find((tool) => tool.name === 'display_chart')?.inputSchema as {
 				type?: string;
 				properties?: Record<string, unknown>;
-				oneOf?: { properties?: { chart_type?: { const?: string } }; required?: string[] }[];
+				oneOf?: {
+					properties?: { chart_type?: { const?: string; enum?: string[] } };
+					required?: string[];
+				}[];
 			};
 			const kpiSchema = schema.oneOf?.find((option) => option.properties?.chart_type?.const === 'kpi_card');
-			const chartSchema = schema.oneOf?.find((option) => option !== kpiSchema);
+			const chartSchema = schema.oneOf?.find((option) => option.properties?.chart_type?.enum?.includes('bar'));
 
 			expect(schema.type).toBe('object');
 			expect(schema.properties).toHaveProperty('query_id');
 			expect(schema.properties).toHaveProperty('chat_id');
+			expect(kpiSchema).toBeDefined();
+			expect(chartSchema).toBeDefined();
 			expect(kpiSchema?.required).not.toEqual(expect.arrayContaining(['x_axis_key', 'x_axis_type']));
 			expect(chartSchema?.required).toEqual(expect.arrayContaining(['x_axis_key', 'x_axis_type']));
 		} finally {
