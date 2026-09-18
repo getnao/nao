@@ -28,6 +28,7 @@ vi.mock('@/lib/ai', () => ({
 	NEW_CHAT_ID: 'new',
 }));
 vi.mock('@/components/chat-messages/assistant-message-actions', () => ({
+	FeedbackDialog: () => null,
 	NegativeFeedbackDialog: () => null,
 }));
 vi.mock('@tanstack/react-query', () => ({
