@@ -1,7 +1,7 @@
-import { callSubagent } from '@nao/shared/tools';
-import { Link } from '@tanstack/react-router';
+import { task } from '@nao/shared/tools';
 import { ArrowUpRight } from 'lucide-react';
 import type { ToolCallComponentProps } from '.';
+import { SubagentLink } from '@/components/subagent/subagent-link';
 import { useSubagentDuration } from '@/components/subagent/use-subagent-duration';
 import { Spinner } from '@/components/ui/spinner';
 import { useToolCallContext } from '@/contexts/tool-call';
@@ -10,17 +10,18 @@ import { useChatId } from '@/hooks/use-chat-id';
 import { useToolCallDensity } from '@/hooks/use-tool-call-density';
 import { cn } from '@/lib/utils';
 
-/** A subagent run summarised in the conversation; clicking it opens the run as its own conversation. */
-export const CallSubagentToolCall = ({
+/** A subagent task summarised in the conversation; clicking it opens the run as its own conversation. */
+export const TaskToolCall = ({
 	toolPart: { input, output, errorText, toolCallId },
-}: ToolCallComponentProps<'call_subagent'>) => {
+}: ToolCallComponentProps<'task'>) => {
 	const { isSettled } = useToolCallContext();
 	const isInToolGroup = useIsInToolGroup();
 	const [density] = useToolCallDensity();
 	const chatId = useChatId();
 	const duration = useSubagentDuration(output, isSettled);
 	const summary: RunSummary = {
-		label: subagentLabel(input?.subagent),
+		title: taskTitle(input),
+		label: subagentLabel(input?.subagent_type),
 		prompt: input?.prompt,
 		report: output?.report,
 		errorText,
@@ -34,9 +35,9 @@ export const CallSubagentToolCall = ({
 	return (
 		<div className={cn(!isCompact && '-mx-3')} data-replay-target-id={toolCallId}>
 			{chatId ? (
-				<Link to='/$chatId/subagent/$toolCallId' params={{ chatId, toolCallId }} className='block'>
+				<SubagentLink chatId={chatId} toolCallId={toolCallId} className='block'>
 					{content}
-				</Link>
+				</SubagentLink>
 			) : (
 				content
 			)}
@@ -45,6 +46,7 @@ export const CallSubagentToolCall = ({
 };
 
 interface RunSummary {
+	title: string;
 	label: string;
 	prompt: string | undefined;
 	report: string | undefined;
@@ -66,34 +68,29 @@ const Card = ({ summary }: { summary: RunSummary }) => {
 			<div className='flex items-center gap-2 min-w-0'>
 				<StatusIcon summary={summary} />
 				<span className={cn('font-medium truncate', !summary.isSettled && 'text-shimmer')}>
-					{summary.label} subagent
+					{summary.title}
 				</span>
 				<span className='ml-auto shrink-0 text-xs text-muted-foreground'>{summary.work}</span>
 				{summary.canOpen && <ArrowUpRight className='size-3.5 shrink-0 text-muted-foreground' />}
 			</div>
 			{summary.prompt && <p className='text-foreground/70 italic line-clamp-2'>{summary.prompt}</p>}
-			{hasError ? (
-				<p className='text-xs text-red-500 line-clamp-2'>{summary.errorText}</p>
-			) : (
-				summary.isSettled &&
-				summary.report && (
-					<p className='text-xs text-muted-foreground line-clamp-3'>{toPlainText(summary.report)}</p>
-				)
-			)}
+			{hasError ? <p className='text-xs text-red-500 line-clamp-2'>{summary.errorText}</p> : null}
 		</div>
 	);
 };
 
 const CompactRow = ({ summary }: { summary: RunSummary }) => {
 	return (
-		<div className={cn('flex items-center gap-2 min-w-0 px-2 text-sm', summary.canOpen && 'cursor-pointer')}>
+		<div className={cn('flex items-center gap-2 min-w-0 text-sm', summary.canOpen && 'cursor-pointer')}>
 			<div className='size-3 flex items-center justify-center shrink-0'>
 				<LeadingIcon summary={summary} />
 			</div>
-			<span className={cn('shrink-0 font-medium', !summary.isSettled && 'text-shimmer')}>
-				{summary.label} subagent
+			<span className='flex items-baseline gap-2.5 min-w-0'>
+				<span className={cn('shrink-0 text-foreground', !summary.isSettled && 'text-shimmer')}>
+					{summary.label}
+				</span>
+				<span className='truncate text-xs text-muted-foreground'>{summary.title}</span>
 			</span>
-			{summary.prompt && <span className='truncate text-muted-foreground'>{summary.prompt}</span>}
 		</div>
 	);
 };
@@ -116,8 +113,13 @@ const LeadingIcon = ({ summary }: { summary: RunSummary }) => {
 	return summary.canOpen ? <ArrowUpRight size={12} strokeWidth={2.5} /> : null;
 };
 
-export function subagentLabel(name: callSubagent.SubagentName | undefined): string {
-	return name ? callSubagent.SUBAGENT_LABELS[name] : 'Subagent';
+export function subagentLabel(type: task.SubagentType | undefined): string {
+	return type ? task.SUBAGENT_LABELS[type] : 'Subagent';
+}
+
+/** The task description names the run; before it streams in, fall back to the subagent type. */
+export function taskTitle(input: Partial<task.Input> | undefined): string {
+	return input?.description || `${subagentLabel(input?.subagent_type)} subagent`;
 }
 
 /** Strips markdown markers so a report excerpt reads as plain text. */

@@ -1,4 +1,4 @@
-import type { callSubagent } from '@nao/shared/tools';
+import type { task } from '@nao/shared/tools';
 import { type ModelMessage, stepCountIs, streamText } from 'ai';
 
 import type { TokenUsage } from '../../types/chat';
@@ -29,7 +29,7 @@ export interface SubagentRunOptions {
 export async function* runSubagent(
 	definition: SubagentDefinition,
 	{ prompt, context, model, abortSignal }: SubagentRunOptions,
-): AsyncGenerator<callSubagent.Output> {
+): AsyncGenerator<task.Output> {
 	const progress = new SubagentProgress(model.selection.modelId);
 	const callSettings = model.config.callSettings ?? {};
 	const maxOutputTokens = callSettings.maxOutputTokens ?? SUBAGENT_MAX_OUTPUT_TOKENS;
@@ -38,7 +38,7 @@ export async function* runSubagent(
 		model: model.config.model,
 		providerOptions: fitThinkingBudget(model.config.providerOptions, maxOutputTokens),
 		messages: buildMessages(definition.systemPrompt(context), prompt, model),
-		tools: definition.tools(context),
+		tools: definition.tools,
 		stopWhen: stepCountIs(definition.maxSteps),
 		maxOutputTokens,
 		temperature: callSettings.temperature,
@@ -46,7 +46,7 @@ export async function* runSubagent(
 		topK: callSettings.topK,
 		abortSignal,
 		experimental_context: context,
-		experimental_telemetry: llmTelemetry(`nao-subagent-${definition.name}`, {
+		experimental_telemetry: llmTelemetry(`nao-subagent-${definition.type}`, {
 			sessionId: context.chatId,
 			userId: context.userId,
 			projectId: context.projectId,
@@ -82,7 +82,7 @@ export async function* runSubagent(
 }
 
 class SubagentProgress {
-	private readonly _steps = new Map<string, callSubagent.Step>();
+	private readonly _steps = new Map<string, task.Step>();
 	private readonly _startedAt = Date.now();
 
 	constructor(private readonly _modelId: string) {}
@@ -98,15 +98,15 @@ class SubagentProgress {
 		}
 	}
 
-	snapshot(): callSubagent.Output {
+	snapshot(): task.Output {
 		return this._output('running', '');
 	}
 
-	complete(report: string): callSubagent.Output {
+	complete(report: string): task.Output {
 		return { ...this._output('completed', report), durationMs: Date.now() - this._startedAt };
 	}
 
-	private _output(status: callSubagent.Output['status'], report: string): callSubagent.Output {
+	private _output(status: task.Output['status'], report: string): task.Output {
 		return {
 			_version: '1',
 			status,
@@ -135,7 +135,7 @@ function summarizeToolInput(input: unknown): string {
 }
 
 function noReportFallback(definition: SubagentDefinition): string {
-	return `The ${definition.name} subagent stopped after ${definition.maxSteps} steps without writing a report. Narrow the task and try again.`;
+	return `The ${definition.type} subagent stopped after ${definition.maxSteps} steps without writing a report. Narrow the task and try again.`;
 }
 
 function trackInference(context: ToolContext, model: SubagentModel, usage: TokenUsage): void {

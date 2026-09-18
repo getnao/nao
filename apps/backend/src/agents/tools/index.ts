@@ -10,7 +10,6 @@ import { mcpService } from '../../services/mcp';
 import { isSemanticQueryToolEnabled, isWarehouseSqlEnabled } from '../../services/semantic-layer.service';
 import { isStorageEnabled } from '../../services/storage';
 import { AgentSettings } from '../../types/agent-settings';
-import callSubagent from './call-subagent';
 import clarification from './clarification';
 import displayChart from './display-chart';
 import { createDisplayMapTool } from './display-map';
@@ -28,6 +27,7 @@ import readQueryResult from './read-query-result';
 import search from './search';
 import story, { buildStoryToolDescription } from './story';
 import suggestFollowUps from './suggest-follow-ups';
+import task from './task';
 import write from './write';
 
 /**
@@ -39,7 +39,6 @@ export const MCP_SUB_AGENT_EXCLUDED_TOOLS = ['display_map'];
 
 export const tools = {
 	story,
-	call_subagent: callSubagent,
 	clarification,
 	display_chart: displayChart,
 	...(executePython && { execute_python: executePython }),
@@ -52,6 +51,7 @@ export const tools = {
 	load_skill: loadSkill,
 	read,
 	search,
+	task,
 	write,
 	suggest_follow_ups: suggestFollowUps,
 };
@@ -103,19 +103,19 @@ export const getTools = (
 		: {};
 
 	const {
-		call_subagent,
 		execute_python,
 		execute_sandboxed_code,
 		execute_semantic_query,
 		execute_sql,
 		clarification: clarificationTool,
 		suggest_follow_ups,
+		task: taskTool,
 		write: writeTool,
 		...rest
 	} = tools;
 	const baseTools = {
 		...rest,
-		...(env.BETA_SUBAGENTS_ENABLED && { call_subagent }),
+		...(env.BETA_SUBAGENTS_ENABLED && { task: taskTool }),
 		execute_sql: isWarehouseSqlEnabled(options.semanticLayerMode) ? execute_sql : localOnlyExecuteSql,
 		...(isSemanticQueryToolEnabled(options.semanticLayerMode) && { execute_semantic_query }),
 		...(isStorageEnabled() && { write: writeTool }),

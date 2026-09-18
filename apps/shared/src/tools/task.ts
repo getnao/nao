@@ -1,20 +1,23 @@
 import z from 'zod/v3';
 
-export const SUBAGENT_NAMES = ['search'] as const;
+export const SUBAGENT_TYPES = ['explore'] as const;
 
-export type SubagentName = (typeof SUBAGENT_NAMES)[number];
+export type SubagentType = (typeof SUBAGENT_TYPES)[number];
 
-export const SUBAGENT_LABELS: Record<SubagentName, string> = {
-	search: 'Context search',
+export const SUBAGENT_LABELS: Record<SubagentType, string> = {
+	explore: 'Explore',
 };
 
 export const InputSchema = z.object({
-	subagent: z.enum(SUBAGENT_NAMES).describe('The subagent to delegate the task to.'),
+	description: z
+		.string()
+		.describe('A short title for the task, 3 to 5 words, shown to the user while the subagent works.'),
 	prompt: z
 		.string()
 		.describe(
-			'The task, written to be self-contained: the subagent sees none of this conversation, so restate every name, filter and constraint it needs.',
+			'The task, written to be self-contained: the subagent sees none of this conversation, so restate every name, filter and constraint it needs, and include what the chosen subagent type requires.',
 		),
+	subagent_type: z.enum(SUBAGENT_TYPES).describe('The type of subagent to delegate the task to.'),
 	model_id: z
 		.string()
 		.optional()

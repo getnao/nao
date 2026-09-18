@@ -1,4 +1,3 @@
-export * as callSubagent from './call-subagent';
 export * as clarification from './clarification';
 export * as displayChart from './display-chart';
 export * as displayMap from './display-map';
@@ -18,4 +17,5 @@ export * as readQueryResult from './read-query-result';
 export * as searchFiles from './search';
 export * as story from './story';
 export * as suggestFollowUps from './suggest-follow-ups';
+export * as task from './task';
 export * as writeFile from './write';

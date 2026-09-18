@@ -3,7 +3,8 @@ import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 
-type ExpandableVariant = 'inline' | 'bordered' | 'plain';
+/** `grouped` reads like `inline` but keeps a header row so trailing actions can sit beside the title. */
+type ExpandableVariant = 'inline' | 'bordered' | 'plain' | 'grouped';
 
 interface ExpandableProps {
 	title: ReactNode;
@@ -38,7 +39,9 @@ export const Expandable = ({
 	const isBordered = variant === 'bordered';
 	const isPlain = variant === 'plain';
 	const isInline = variant === 'inline';
-	const hasHeaderRow = variant !== 'inline';
+	const isGrouped = variant === 'grouped';
+	const hasHeaderRow = !isInline;
+	const hasHeaderEmphasis = isBordered || isPlain;
 
 	const handleValueChange = () => {
 		if (canExpand) {
@@ -92,7 +95,7 @@ export const Expandable = ({
 								<span
 									className={cn(
 										'flex-1 truncate min-w-0',
-										hasHeaderRow ? 'font-medium' : 'text-sm',
+										hasHeaderEmphasis ? 'font-medium' : 'text-sm font-normal',
 										isLoading && 'text-shimmer',
 									)}
 								>
@@ -129,7 +132,7 @@ export const Expandable = ({
 				<AccordionContent className={cn('pb-0', isInline && 'pt-1.5')}>
 					{isBordered ? (
 						<div className='border-t border-border'>{children}</div>
-					) : isPlain ? (
+					) : isPlain || isGrouped ? (
 						<div>{children}</div>
 					) : (
 						<div className='pl-5 bg-backgroundSecondary relative'>

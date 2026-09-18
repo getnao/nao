@@ -1,12 +1,12 @@
-import { Check, X } from 'lucide-react';
+import { Check, Minus, X } from 'lucide-react';
 import { useState } from 'react';
-import type { callSubagent } from '@nao/shared/tools';
+import type { task } from '@nao/shared/tools';
 import { Expandable } from '@/components/ui/expandable';
 import { Spinner } from '@/components/ui/spinner';
 import { useSubagentDuration } from '@/components/subagent/use-subagent-duration';
 
 /** The tool calls a subagent made, folded behind a one-line "Worked for …" summary. */
-export function SubagentWork({ output, isSettled }: { output: callSubagent.Output | undefined; isSettled: boolean }) {
+export function SubagentWork({ output, isSettled }: { output: task.Output | undefined; isSettled: boolean }) {
 	const [isExpanded, setIsExpanded] = useState(false);
 	const duration = useSubagentDuration(output, isSettled);
 	const steps = output?.steps ?? [];
@@ -24,7 +24,7 @@ export function SubagentWork({ output, isSettled }: { output: callSubagent.Outpu
 			<ol className='flex flex-col gap-1 py-1'>
 				{steps.map((step, index) => (
 					<li key={index} className='flex items-center gap-2 min-w-0 text-xs'>
-						<StepStatusIcon status={step.status} />
+						<StepStatusIcon status={stepDisplayStatus(step, isSettled)} />
 						<span className='font-mono text-foreground/60 shrink-0'>{step.tool}</span>
 						<span className='text-foreground/80 truncate'>{step.summary}</span>
 					</li>
@@ -34,10 +34,19 @@ export function SubagentWork({ output, isSettled }: { output: callSubagent.Outpu
 	);
 }
 
-const StepStatusIcon = ({ status }: { status: callSubagent.Step['status'] }) => {
+type StepDisplayStatus = task.Step['status'] | 'interrupted';
+
+/** A step still marked running once the run has settled never finished: the run failed or was stopped mid-call. */
+function stepDisplayStatus(step: task.Step, isSettled: boolean): StepDisplayStatus {
+	return isSettled && step.status === 'running' ? 'interrupted' : step.status;
+}
+
+const StepStatusIcon = ({ status }: { status: StepDisplayStatus }) => {
 	switch (status) {
 		case 'running':
 			return <Spinner className='size-3 shrink-0' />;
+		case 'interrupted':
+			return <Minus size={12} className='shrink-0 text-foreground/40' />;
 		case 'done':
 			return <Check size={12} className='shrink-0 text-foreground/40' />;
 		case 'error':

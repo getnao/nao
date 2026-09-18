@@ -85,7 +85,7 @@ const NON_COLLAPSIBLE_TOOLS_BY_DENSITY: Record<ToolCallDensity, (StaticToolName 
 	compact: ['story', 'display_chart', 'display_map', 'suggest_follow_ups', 'clarification'],
 	detailed: [
 		'story',
-		'call_subagent',
+		'task',
 		'execute_sql',
 		'execute_semantic_query',
 		'query_app_db',

@@ -2,7 +2,7 @@ import { Link } from '@tanstack/react-router';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
 import { useMemo } from 'react';
 import type { UIMessage, UIToolPart } from '@nao/backend/chat';
-import { subagentLabel } from '@/components/tool-calls/call-subagent';
+import { taskTitle } from '@/components/tool-calls/task';
 import { UserMessageBubble } from '@/components/chat-messages/user-message';
 import { SubagentReport } from '@/components/subagent/subagent-report';
 import { SubagentWork } from '@/components/subagent/subagent-work';
@@ -14,19 +14,19 @@ import { useAgentContext, useAgentMessagesSelector } from '@/contexts/agent.prov
 import { isToolSettled } from '@/lib/ai';
 import { useChatQuery } from '@/queries/use-chat-query';
 
-type SubagentPart = UIToolPart<'call_subagent'>;
+export type SubagentPart = UIToolPart<'task'>;
 
 /** A subagent run shown as its own conversation: the prompt it received, its work and its report. */
 export function SubagentConversation({ chatId, toolCallId }: { chatId: string; toolCallId: string }) {
 	const chat = useChatQuery({ chatId });
 	const { isLoadingMessages, isRunning } = useAgentContext();
 	const part = useAgentMessagesSelector((messages) => findSubagentPart(messages, toolCallId));
-	const label = subagentLabel(part?.input?.subagent);
+	const title = taskTitle(part?.input);
 	const isSettled = !!part && (isToolSettled(part) || !isRunning);
 
 	return (
 		<div className='flex flex-col h-full flex-1 min-w-0 overflow-hidden bg-background'>
-			<Header chatId={chatId} chatTitle={chat.data?.title} label={label} />
+			<Header chatId={chatId} chatTitle={chat.data?.title} title={title} />
 			{isLoadingMessages ? (
 				<div className='flex flex-1 items-center justify-center'>
 					<Spinner />
@@ -34,13 +34,13 @@ export function SubagentConversation({ chatId, toolCallId }: { chatId: string; t
 			) : !part ? (
 				<NotFound chatId={chatId} />
 			) : (
-				<Body part={part} isSettled={isSettled} />
+				<SubagentConversationBody part={part} isSettled={isSettled} />
 			)}
 		</div>
 	);
 }
 
-function Header({ chatId, chatTitle, label }: { chatId: string; chatTitle: string | undefined; label: string }) {
+function Header({ chatId, chatTitle, title }: { chatId: string; chatTitle: string | undefined; title: string }) {
 	return (
 		<div className='flex items-center justify-between gap-4 px-4 py-3 border-b'>
 			<nav aria-label='Conversation navigation' className='flex items-center gap-1 min-w-0 text-sm'>
@@ -52,7 +52,7 @@ function Header({ chatId, chatTitle, label }: { chatId: string; chatTitle: strin
 					{chatTitle ?? 'Conversation'}
 				</Link>
 				<ChevronRight className='size-4 text-muted-foreground/50 shrink-0' />
-				<span className='shrink-0 text-foreground'>{label} subagent</span>
+				<span className='truncate text-foreground'>{title}</span>
 			</nav>
 			<Button variant='ghost' size='sm' asChild>
 				<Link to='/$chatId' params={{ chatId }}>
@@ -64,12 +64,12 @@ function Header({ chatId, chatTitle, label }: { chatId: string; chatTitle: strin
 	);
 }
 
-function Body({ part, isSettled }: { part: SubagentPart; isSettled: boolean }) {
+export function SubagentConversationBody({ part, isSettled }: { part: SubagentPart; isSettled: boolean }) {
 	const promptMessage = useMemo(() => toPromptMessage(part), [part]);
 	const report = part.output?.report;
 
 	return (
-		<Conversation>
+		<Conversation initial={false}>
 			<ConversationContent className='max-w-3xl mx-auto w-full gap-6 pb-12' data-selection-container>
 				<div className='flex flex-col items-end w-full'>
 					<UserMessageBubble message={promptMessage} />
@@ -106,10 +106,10 @@ function NotFound({ chatId }: { chatId: string }) {
 	);
 }
 
-function findSubagentPart(messages: UIMessage[], toolCallId: string): SubagentPart | undefined {
+export function findSubagentPart(messages: UIMessage[], toolCallId: string): SubagentPart | undefined {
 	for (const message of messages) {
 		for (const part of message.parts) {
-			if (part.type === 'tool-call_subagent' && part.toolCallId === toolCallId) {
+			if (part.type === 'tool-task' && part.toolCallId === toolCallId) {
 				return part;
 			}
 		}

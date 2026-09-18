@@ -65,6 +65,7 @@ import { Route as SidebarLayoutStoriesPreviewChatIdStorySlugRouteImport } from '
 import { Route as SidebarLayoutSettingsUsageReplayChatIdRouteImport } from './routes/_sidebar-layout.settings.usage.replay.$chatId'
 import { Route as SidebarLayoutSettingsProjectIntegrationsIntegrationIdRouteImport } from './routes/_sidebar-layout.settings.project.integrations.$integrationId'
 import { Route as SidebarLayoutChatLayoutChatIdSubagentToolCallIdRouteImport } from './routes/_sidebar-layout._chat-layout.$chatId_.subagent.$toolCallId'
+import { Route as SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRouteImport } from './routes/_sidebar-layout.settings.usage.replay.$chatId_.subagent.$toolCallId'
 
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
@@ -387,6 +388,12 @@ const SidebarLayoutChatLayoutChatIdSubagentToolCallIdRoute =
     path: '/$chatId/subagent/$toolCallId',
     getParentRoute: () => SidebarLayoutChatLayoutRoute,
   } as any)
+const SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRoute =
+  SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRouteImport.update({
+    id: '/replay/$chatId_/subagent/$toolCallId',
+    path: '/replay/$chatId/subagent/$toolCallId',
+    getParentRoute: () => SidebarLayoutSettingsUsageRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof SidebarLayoutChatLayoutIndexRoute
@@ -443,6 +450,7 @@ export interface FileRoutesByFullPath {
   '/settings/usage/replay/$chatId': typeof SidebarLayoutSettingsUsageReplayChatIdRoute
   '/stories/preview/$chatId/$storySlug': typeof SidebarLayoutStoriesPreviewChatIdStorySlugRoute
   '/settings/project/integrations/': typeof SidebarLayoutSettingsProjectIntegrationsIndexRoute
+  '/settings/usage/replay/$chatId/subagent/$toolCallId': typeof SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof SidebarLayoutChatLayoutIndexRoute
@@ -495,6 +503,7 @@ export interface FileRoutesByTo {
   '/settings/usage/replay/$chatId': typeof SidebarLayoutSettingsUsageReplayChatIdRoute
   '/stories/preview/$chatId/$storySlug': typeof SidebarLayoutStoriesPreviewChatIdStorySlugRoute
   '/settings/project/integrations': typeof SidebarLayoutSettingsProjectIntegrationsIndexRoute
+  '/settings/usage/replay/$chatId/subagent/$toolCallId': typeof SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -554,6 +563,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/usage/replay/$chatId': typeof SidebarLayoutSettingsUsageReplayChatIdRoute
   '/_sidebar-layout/stories/preview/$chatId/$storySlug': typeof SidebarLayoutStoriesPreviewChatIdStorySlugRoute
   '/_sidebar-layout/settings/project/integrations/': typeof SidebarLayoutSettingsProjectIntegrationsIndexRoute
+  '/_sidebar-layout/settings/usage/replay/$chatId_/subagent/$toolCallId': typeof SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -612,6 +622,7 @@ export interface FileRouteTypes {
     | '/settings/usage/replay/$chatId'
     | '/stories/preview/$chatId/$storySlug'
     | '/settings/project/integrations/'
+    | '/settings/usage/replay/$chatId/subagent/$toolCallId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -664,6 +675,7 @@ export interface FileRouteTypes {
     | '/settings/usage/replay/$chatId'
     | '/stories/preview/$chatId/$storySlug'
     | '/settings/project/integrations'
+    | '/settings/usage/replay/$chatId/subagent/$toolCallId'
   id:
     | '__root__'
     | '/_sidebar-layout'
@@ -722,6 +734,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/usage/replay/$chatId'
     | '/_sidebar-layout/stories/preview/$chatId/$storySlug'
     | '/_sidebar-layout/settings/project/integrations/'
+    | '/_sidebar-layout/settings/usage/replay/$chatId_/subagent/$toolCallId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -1128,6 +1141,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutChatLayoutChatIdSubagentToolCallIdRouteImport
       parentRoute: typeof SidebarLayoutChatLayoutRoute
     }
+    '/_sidebar-layout/settings/usage/replay/$chatId_/subagent/$toolCallId': {
+      id: '/_sidebar-layout/settings/usage/replay/$chatId_/subagent/$toolCallId'
+      path: '/replay/$chatId/subagent/$toolCallId'
+      fullPath: '/settings/usage/replay/$chatId/subagent/$toolCallId'
+      preLoaderRoute: typeof SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRouteImport
+      parentRoute: typeof SidebarLayoutSettingsUsageRoute
+    }
   }
 }
 
@@ -1241,12 +1261,15 @@ const SidebarLayoutSettingsProjectRouteWithChildren =
 
 interface SidebarLayoutSettingsUsageRouteChildren {
   SidebarLayoutSettingsUsageReplayChatIdRoute: typeof SidebarLayoutSettingsUsageReplayChatIdRoute
+  SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRoute: typeof SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRoute
 }
 
 const SidebarLayoutSettingsUsageRouteChildren: SidebarLayoutSettingsUsageRouteChildren =
   {
     SidebarLayoutSettingsUsageReplayChatIdRoute:
       SidebarLayoutSettingsUsageReplayChatIdRoute,
+    SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRoute:
+      SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRoute,
   }
 
 const SidebarLayoutSettingsUsageRouteWithChildren =

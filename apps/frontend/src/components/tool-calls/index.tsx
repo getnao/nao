@@ -1,6 +1,5 @@
 import { memo } from 'react';
 import { StoryToolCall } from './story';
-import { CallSubagentToolCall } from './call-subagent';
 import { ClarificationToolCall } from './clarification';
 import { DefaultToolCall } from './default';
 import { DisplayChartToolCall } from './display-chart';
@@ -17,6 +16,7 @@ import { ReadToolCall } from './read';
 import { ReadQueryResultToolCall } from './read-query-result';
 import { RecordRecommendationToolCall } from './record-recommendation';
 import { SearchToolCall } from './search';
+import { TaskToolCall } from './task';
 import { WebFetchToolCall } from './web-fetch';
 import { WebSearchToolCall } from './web-search';
 import { WriteToolCall } from './write';
@@ -33,7 +33,6 @@ const toolComponents: Partial<{
 	[TToolName in StaticToolName]: React.ComponentType<ToolCallComponentProps<TToolName>>;
 }> = {
 	story: StoryToolCall,
-	call_subagent: CallSubagentToolCall,
 	clarification: ClarificationToolCall,
 	display_chart: DisplayChartToolCall,
 	display_map: DisplayMapToolCall,
@@ -46,6 +45,7 @@ const toolComponents: Partial<{
 	read: ReadToolCall,
 	read_query_result: ReadQueryResultToolCall,
 	search: SearchToolCall,
+	task: TaskToolCall,
 	write: WriteToolCall,
 };
 

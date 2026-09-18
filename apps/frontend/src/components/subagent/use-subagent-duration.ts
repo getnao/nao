@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import type { callSubagent } from '@nao/shared/tools';
+import type { task } from '@nao/shared/tools';
 
 /** How long the subagent has worked, ticking every second while it is still running. */
-export function useSubagentDuration(output: callSubagent.Output | undefined, isSettled: boolean): string | null {
+export function useSubagentDuration(output: task.Output | undefined, isSettled: boolean): string | null {
 	const startedAt = output?.startedAt;
 	const durationMs = output?.durationMs;
 	const isTicking = !isSettled && startedAt !== undefined && durationMs === undefined;
