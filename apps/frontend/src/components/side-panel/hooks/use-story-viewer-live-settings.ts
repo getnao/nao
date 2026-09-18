@@ -6,11 +6,17 @@ interface UseStoryViewerLiveSettingsParams {
 	chatId: string;
 	storySlug: string;
 	shareId?: string;
+	enabled?: boolean;
 }
 
-export const useStoryViewerLiveSettings = ({ chatId, storySlug, shareId }: UseStoryViewerLiveSettingsParams) => {
+export const useStoryViewerLiveSettings = ({
+	chatId,
+	storySlug,
+	shareId,
+	enabled = true,
+}: UseStoryViewerLiveSettingsParams) => {
 	const queryClient = useQueryClient();
-	const { data } = useQuery(trpc.story.listVersions.queryOptions({ chatId, storySlug }));
+	const { data } = useQuery({ ...trpc.story.listVersions.queryOptions({ chatId, storySlug }), enabled });
 
 	const storyId = data?.id ?? null;
 	const isLive = data?.isLive ?? false;

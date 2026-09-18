@@ -24,6 +24,7 @@ interface LiveStorySettingsDialogProps {
 	cacheSchedule: string | null;
 	cacheScheduleDescription: string | null;
 	isUpdating: boolean;
+	proposeLive?: boolean;
 	onSaveSettings: (settings: {
 		isLive: boolean;
 		isLiveTextDynamic: boolean;
@@ -43,9 +44,11 @@ const SCHEDULE_PRESETS = [
 	{ value: 'custom', label: 'Custom schedule...', cron: null },
 ] as const;
 
-function resolvePresetValue(cacheSchedule: string | null): string {
+const PROPOSED_SCHEDULE_PRESET = '0 0 * * *';
+
+function resolvePresetValue(cacheSchedule: string | null, fallbackPreset: string): string {
 	if (!cacheSchedule) {
-		return 'manual';
+		return fallbackPreset;
 	}
 	const match = SCHEDULE_PRESETS.find((p) => p.cron === cacheSchedule);
 	return match ? match.value : 'custom';
@@ -59,10 +62,12 @@ export function LiveStorySettingsDialog({
 	cacheSchedule,
 	cacheScheduleDescription,
 	isUpdating,
+	proposeLive = false,
 	onSaveSettings,
 }: LiveStorySettingsDialogProps) {
-	const [localIsLive, setLocalIsLive] = useState(isLive);
-	const [localPreset, setLocalPreset] = useState(() => resolvePresetValue(cacheSchedule));
+	const fallbackPreset = proposeLive ? PROPOSED_SCHEDULE_PRESET : 'manual';
+	const [localIsLive, setLocalIsLive] = useState(proposeLive || isLive);
+	const [localPreset, setLocalPreset] = useState(() => resolvePresetValue(cacheSchedule, fallbackPreset));
 	const [localCustomCron, setLocalCustomCron] = useState(localPreset === 'custom' ? (cacheSchedule ?? '') : '');
 	const [localTextBlocksDynamic, setLocalTextBlocksDynamic] = useState(isLiveTextDynamic);
 	const [nlInput, setNlInput] = useState(cacheScheduleDescription ?? '');
@@ -70,15 +75,15 @@ export function LiveStorySettingsDialog({
 
 	useEffect(() => {
 		if (open) {
-			setLocalIsLive(isLive);
+			setLocalIsLive(proposeLive || isLive);
 			setLocalTextBlocksDynamic(isLiveTextDynamic);
-			const preset = resolvePresetValue(cacheSchedule);
+			const preset = resolvePresetValue(cacheSchedule, fallbackPreset);
 			setLocalPreset(preset);
 			setLocalCustomCron(preset === 'custom' ? (cacheSchedule ?? '') : '');
 			setNlInput(preset === 'custom' ? (cacheScheduleDescription ?? '') : '');
 			setSavedNlInput(preset === 'custom' ? (cacheScheduleDescription ?? '') : '');
 		}
-	}, [open, isLive, isLiveTextDynamic, cacheSchedule, cacheScheduleDescription]);
+	}, [open, isLive, isLiveTextDynamic, cacheSchedule, cacheScheduleDescription, proposeLive, fallbackPreset]);
 
 	const resolvedCron =
 		localPreset === 'manual' ? null : localPreset === 'custom' ? localCustomCron || null : localPreset;
