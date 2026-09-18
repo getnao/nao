@@ -170,7 +170,15 @@ function buildExecuteSqlDescription(warehouseDatabaseIds: string[]): string {
 
 function buildExecuteSqlInputSchema(warehouseDatabaseIds: string[]) {
 	if (warehouseDatabaseIds.length < 2) {
-		return EXECUTE_SQL_BASE_INPUT_SCHEMA;
+		const validDatabaseIds = new Set([...warehouseDatabaseIds, LOCAL_DATABASE_ID]);
+		const databaseIdSchema = EXECUTE_SQL_BASE_INPUT_SCHEMA.shape.database_id.refine(
+			(databaseId) => databaseId === undefined || validDatabaseIds.has(databaseId),
+			{ message: 'Unknown database_id.' },
+		);
+
+		return EXECUTE_SQL_BASE_INPUT_SCHEMA.extend({
+			database_id: databaseIdSchema,
+		});
 	}
 
 	const validDatabaseIds = [...warehouseDatabaseIds, LOCAL_DATABASE_ID];

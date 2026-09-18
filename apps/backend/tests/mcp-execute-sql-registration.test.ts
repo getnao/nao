@@ -92,7 +92,7 @@ describe('MCP execute_sql database selection', () => {
 		expect(testState.inputs).toEqual([]);
 	});
 
-	it('allows database_id to be omitted or explicitly supplied for one warehouse', async () => {
+	it('allows only the configured warehouse and duckdb_local when one warehouse exists', async () => {
 		const client = await connect([{ id: 'analytics' }]);
 		const executeSql = (await client.listTools()).tools.find((tool) => tool.name === 'execute_sql');
 
@@ -104,19 +104,33 @@ describe('MCP execute_sql database selection', () => {
 			name: 'execute_sql',
 			arguments: { sql_query: 'select 2', database_id: 'analytics' },
 		});
+		const localResult = await client.callTool({
+			name: 'execute_sql',
+			arguments: { sql_query: 'select 3', database_id: 'duckdb_local' },
+		});
+		const typoResult = await client.callTool({
+			name: 'execute_sql',
+			arguments: { sql_query: 'select 4', database_id: 'analytcis' },
+		});
 
 		expect(executeSql?.description).not.toContain('analytics');
+		expect(JSON.stringify(executeSql?.inputSchema)).not.toContain('analytics');
 		expect(executeSql?.inputSchema.properties?.database_id).not.toHaveProperty('enum');
 		expect(executeSql?.inputSchema.required ?? []).not.toContain('database_id');
 		expect(omittedResult.isError).not.toBe(true);
 		expect(explicitResult.isError).not.toBe(true);
+		expect(localResult.isError).not.toBe(true);
+		expect(typoResult.isError).toBe(true);
+		expect(resultText(typoResult)).toContain('Unknown database_id');
+		expect(resultText(typoResult)).not.toContain('analytics');
 		expect(testState.inputs).toEqual([
 			{ sql_query: 'select 1' },
 			{ sql_query: 'select 2', database_id: 'analytics' },
+			{ sql_query: 'select 3', database_id: 'duckdb_local' },
 		]);
 	});
 
-	it('keeps the base tool definition when no warehouse is configured', async () => {
+	it('allows only omission and duckdb_local when no warehouse is configured', async () => {
 		const noWarehouseClient = await connect([]);
 		const oneWarehouseClient = await connect([{ id: 'analytics' }]);
 
@@ -124,11 +138,31 @@ describe('MCP execute_sql database selection', () => {
 		const oneWarehouseTool = (await oneWarehouseClient.listTools()).tools.find(
 			(tool) => tool.name === 'execute_sql',
 		);
+		const omittedResult = await noWarehouseClient.callTool({
+			name: 'execute_sql',
+			arguments: { sql_query: 'select 1' },
+		});
+		const localResult = await noWarehouseClient.callTool({
+			name: 'execute_sql',
+			arguments: { sql_query: 'select 2', database_id: 'duckdb_local' },
+		});
+		const arbitraryResult = await noWarehouseClient.callTool({
+			name: 'execute_sql',
+			arguments: { sql_query: 'select 3', database_id: 'analytics' },
+		});
 
 		expect(noWarehouseTool?.description).toBe(oneWarehouseTool?.description);
 		expect(noWarehouseTool?.description).not.toContain('Database selection');
 		expect(noWarehouseTool?.inputSchema.properties?.database_id).not.toHaveProperty('enum');
 		expect(noWarehouseTool?.inputSchema.required ?? []).not.toContain('database_id');
+		expect(omittedResult.isError).not.toBe(true);
+		expect(localResult.isError).not.toBe(true);
+		expect(arbitraryResult.isError).toBe(true);
+		expect(resultText(arbitraryResult)).toContain('Unknown database_id');
+		expect(testState.inputs).toEqual([
+			{ sql_query: 'select 1' },
+			{ sql_query: 'select 2', database_id: 'duckdb_local' },
+		]);
 	});
 
 	it('accepts duckdb_local as an explicit database ID', async () => {
