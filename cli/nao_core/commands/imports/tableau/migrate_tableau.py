@@ -22,7 +22,12 @@ def workbook_output(
     try:
         path = Path(workbook)
         if path.exists():
-            return local_workbook_output(path)
+            if path.suffix.lower() not in {".twb", ".twbx"}:
+                raise ValueError(f"Workbook {path} is not a valid Tableau workbook")
+            raise ValueError(
+                "Local Tableau workbook migration is unsupported because worksheet CSV and image assets "
+                "require a published Tableau workbook. Pass its Tableau Cloud workbook name instead."
+            )
         if path.suffix.lower() in {".twb", ".twbx"}:
             raise ValueError(f"Workbook {path} does not exist")
         return tableau_workbook_output(str(workbook), project)
@@ -32,22 +37,6 @@ def workbook_output(
             "success": False,
             "error": str(error),
         }
-
-
-def local_workbook_output(workbook: Path) -> dict[str, object]:
-    if workbook.suffix.lower() not in {".twb", ".twbx"}:
-        raise ValueError(f"Workbook {workbook} is not a valid Tableau workbook")
-    return {
-        "_version": "2",
-        "success": True,
-        "source": {
-            "type": "local",
-            "path": str(workbook.resolve()),
-        },
-        "workbook": parse_workbook(workbook),
-        "definition": parse_filters(workbook),
-        "worksheet_assets": [],
-    }
 
 
 def tableau_workbook_output(
@@ -98,7 +87,9 @@ def export_worksheet_assets(
     assets: list[dict[str, object]] = []
 
     for worksheet_name in worksheet_names:
-        matches = [view for view in views if normalize(view["name"]) == normalize(worksheet_name)]
+        matches = [view for view in views if view["name"] == worksheet_name]
+        if not matches:
+            matches = [view for view in views if normalize(view["name"]) == normalize(worksheet_name)]
         if len(matches) != 1:
             reason = (
                 "No published Tableau view matched this worksheet."
@@ -120,7 +111,7 @@ def export_worksheet_assets(
             "view_id": view["id"],
             "success": True,
         }
-        filename = safe_filename(worksheet_name)
+        filename = f"{safe_filename(worksheet_name)}-{safe_filename(view['id'])}"
         export_asset(
             asset,
             "data_path",

@@ -1,4 +1,5 @@
 import os
+import re
 from dataclasses import dataclass
 from xml.etree import ElementTree
 
@@ -42,6 +43,8 @@ class TableauClient:
     def __exit__(self, *_: object) -> None:
         try:
             self.sign_out()
+        except Exception:
+            pass
         finally:
             self._client.close()
 
@@ -139,22 +142,32 @@ class TableauClient:
             page_number += 1
 
     def list_views(self, workbook_id: str) -> list[dict[str, str]]:
-        response = self._client.get(
-            self._site_path(f"workbooks/{workbook_id}/views"),
-            params={"pageSize": 1000},
-            headers=self._headers(),
-        )
-        raise_for_tableau_status(response)
-        root = parse_xml_response(response)
-        return [
-            {
-                "id": view.attrib.get("id", ""),
-                "name": view.attrib.get("name", ""),
-                "content_url": view.attrib.get("contentUrl", ""),
-            }
-            for view in elements_named(root, "view")
-            if view.attrib.get("id") and view.attrib.get("name")
-        ]
+        views: list[dict[str, str]] = []
+        page_number = 1
+
+        while True:
+            response = self._client.get(
+                self._site_path(f"workbooks/{workbook_id}/views"),
+                params={"pageNumber": page_number, "pageSize": 1000},
+                headers=self._headers(),
+            )
+            raise_for_tableau_status(response)
+            root = parse_xml_response(response)
+            views.extend(
+                {
+                    "id": view.attrib["id"],
+                    "name": view.attrib["name"],
+                    "content_url": view.attrib.get("contentUrl", ""),
+                }
+                for view in elements_named(root, "view")
+                if view.attrib.get("id") and view.attrib.get("name")
+            )
+            pagination = first_named(root, "pagination")
+            total = integer_attribute(pagination, "totalAvailable")
+            page_size = integer_attribute(pagination, "pageSize") or 1000
+            if total is None or page_number * page_size >= total:
+                return views
+            page_number += 1
 
     def download_workbook(
         self,
@@ -280,4 +293,4 @@ def integer_attribute(
 
 
 def normalize(value: str) -> str:
-    return " ".join(value.lower().split())
+    return re.sub(r"[\s_-]+", "", value.lower())

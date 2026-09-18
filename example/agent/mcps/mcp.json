@@ -19,5 +19,5 @@
       "transport": "streamable-http",
       "url": "https://mcp.linear.app/mcp"
     }
-    }
   }
+}

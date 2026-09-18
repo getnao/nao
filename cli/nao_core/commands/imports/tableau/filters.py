@@ -7,6 +7,7 @@ from nao_core.commands.imports.tableau.workbook import (
     MAX_DEFINITION_BYTES,
     attribute,
     compact,
+    field_display_name,
     local_name,
     normalize,
     parse_workbook,
@@ -98,7 +99,7 @@ def extract_categorical_filters(
             compact(
                 {
                     "field": field,
-                    "caption": display_field_name(field),
+                    "caption": field_display_name(field),
                     "data_source": parts[0] if parts else None,
                     "filter_type": filter_type,
                     "context": any(
@@ -134,7 +135,7 @@ def extract_parameters(
             continue
 
         calculation = next(iter(elements_named(column, "calculation")), None)
-        caption = attribute(column, "caption") or display_field_name(field)
+        caption = attribute(column, "caption") or field_display_name(field)
         data_type = attribute(column, "datatype")
         current_value = clean_value(attribute(column, "value") or attribute(calculation, "formula"))
         allowed_values = [
@@ -225,7 +226,7 @@ def extract_controls(
 
                 identifier = control_identifier(
                     name,
-                    str(parameter.get("caption") or parameter["field"]),
+                    str(parameter["field"]),
                 )
                 if identifier in seen_ids:
                     continue
@@ -283,7 +284,7 @@ def extract_controls(
                 warnings.append(f"{name} filter control {field} has conflicting include and exclude behavior.")
                 continue
 
-            identifier = control_identifier(name, display_field_name(field))
+            identifier = control_identifier(name, field)
             if identifier in seen_ids:
                 continue
             seen_ids.add(identifier)
@@ -310,7 +311,7 @@ def extract_controls(
                         "id": identifier,
                         "type": "filter",
                         "dashboard": name,
-                        "caption": display_field_name(field),
+                        "caption": field_display_name(field),
                         "field": field,
                         "source_worksheet": source_worksheet,
                         "mode": next(iter(modes)),
@@ -344,7 +345,8 @@ def extract_worksheet_mappings(
                     "parameter_mappings": [],
                 },
             )
-            cast(list[str], context["effective_filter_ids"]).append(control_id)
+            if control_type == "filter":
+                cast(list[str], context["effective_filter_ids"]).append(control_id)
             cast(list[dict[str, object]], context["parameter_mappings"]).append(
                 {
                     "filter_id": control_id,
@@ -365,7 +367,7 @@ def extract_worksheet_mappings(
 def fields_match(left: str, right: str) -> bool:
     left_source = field_data_source(left)
     right_source = field_data_source(right)
-    return normalize(display_field_name(left)) == normalize(display_field_name(right)) and (
+    return normalize(field_display_name(left)) == normalize(field_display_name(right)) and (
         not left_source or not right_source or normalize(left_source) == normalize(right_source)
     )
 
@@ -376,10 +378,11 @@ def field_data_source(field: str) -> str | None:
 
 
 def control_identifier(dashboard: str, field: str) -> str:
+    data_source = field_data_source(field)
     identifier = re.sub(
         r"[^a-z0-9]+",
         "_",
-        f"{dashboard}_{display_field_name(field)}".lower(),
+        "_".join(part for part in (dashboard, data_source, field_display_name(field)) if part).lower(),
     ).strip("_")
     return identifier if identifier and not identifier[0].isdigit() else f"filter_{identifier}"
 
@@ -393,13 +396,6 @@ def elements_named(
 
 def bracketed_parts(value: str) -> list[str]:
     return [match for match in re.findall(r"\[([^\]]+)\]", value) if match]
-
-
-def display_field_name(value: str) -> str:
-    parts = bracketed_parts(value)
-    raw = parts[-1] if parts else value
-    segments = raw.split(":")
-    return (":".join(segments[1:-1]) if len(segments) >= 3 else raw).strip()
 
 
 def clean_value(value: str) -> str:

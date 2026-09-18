@@ -181,8 +181,12 @@ def parse_encodings(worksheet: ElementTree.Element) -> list[dict[str, object]]:
 
     for container in descendants_named(worksheet, "encodings"):
         for encoding in container:
-            channel = local_name(encoding)
-            field = attribute(encoding, "column") or attribute(encoding, "field")
+            channel = attribute(encoding, "attr")
+            field = (
+                attribute(encoding, "column")
+                or attribute(encoding, "field")
+                or element_text(next(iter(encoding), None))
+            )
             key = (channel, field)
             if not field or key in seen:
                 continue
@@ -269,12 +273,13 @@ def parse_field_reference(value: str) -> dict[str, object]:
     parts = re.findall(r"\[([^\]]+)\]", value)
     encoded = parts[-1] if parts else value
     segments = encoded.split(":")
+    outer_function = re.match(r"\s*([a-z][a-z0-9_]*)\s*\(", value, re.IGNORECASE)
     return compact(
         {
             "field": value,
             "caption": field_display_name(value),
             "data_source": parts[0] if len(parts) > 1 else None,
-            "aggregation": segments[0] if len(segments) >= 3 else None,
+            "aggregation": outer_function.group(1) if outer_function else segments[0] if len(segments) >= 3 else None,
             "type": segments[-1] if len(segments) >= 3 else None,
         }
     )

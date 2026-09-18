@@ -28,11 +28,16 @@ Report the CLI's sanitized error if Tableau rejects authentication.
 
 ### 2. Resolve the migration scope
 
-Use the supplied workbook name or local `.twb`/`.twbx` path. Use `--project` when the user supplied a Tableau project or the CLI reports duplicate workbook names.
+Use the supplied published workbook name. Use `--project` when the user supplied a Tableau project or the CLI reports duplicate workbook names.
 
 - A Tableau migration must use the exact requested Tableau workbook. Never substitute an unrelated local CSV, database, example dataset, workbook, or similarly named file.
-- If the user supplied a local path and that exact file exists, use it. If the requested workbook is not available locally, pass its name to `nao migrate-tableau` so the CLI resolves and downloads it from Tableau Cloud. Do not ask the user to choose an unrelated local workbook first.
-- If the exact workbook cannot be resolved locally or through Tableau Cloud, stop and report that failure. Do not create a guessed or placeholder nao artifact.
+- Local `.twb` and `.twbx` files cannot provide the required rendered worksheet CSV and image assets. If the user supplies a local path, ask them to publish that workbook to Tableau Cloud and provide its workbook name.
+- Pass the requested workbook name to `nao migrate-tableau` so the CLI resolves and downloads it from Tableau Cloud.
+- If the workbook exists only as a local file or the CLI reports that local migration is unsupported, stop and tell the user:
+
+> This workbook cannot be migrated because it is unpublished. Publish it to Tableau Cloud or Tableau Server, then retry with its workbook name.
+
+- If the exact workbook cannot be resolved through the configured Tableau Cloud or Server, stop and report that failure. Do not create a guessed or placeholder nao artifact.
 - For one worksheet or view, require its workbook name because worksheet names are not globally unique. Select only its exact `worksheet_assets` entry. If the requested name resolves to a dashboard, ask for the underlying worksheet instead of assuming which sheet to export.
 - If the user named one dashboard, migrate only that dashboard. Do not add other dashboards or unplaced worksheets.
 - If the user asked for the workbook, create one nao story containing every dashboard and every worksheet not used by a dashboard.
@@ -47,7 +52,7 @@ The CLI returns workbook composition, worksheet visualization metadata, filter d
 1. Choose a unique temporary JSON path and run:
 
 ```sh
-nao migrate-tableau "<workbook-name-or-local-path>" --output "<temporary-migration-json-path>"
+nao migrate-tableau "<workbook-name>" --output "<temporary-migration-json-path>"
 ```
 
 2. If the CLI reports duplicate workbook names, rerun it with the exact Tableau project:
@@ -67,7 +72,7 @@ nao migrate-tableau "<workbook-name>" --project "<project-name>" --output "<temp
 | Worksheet not used by a dashboard | Story tab                                                     |
 | One requested worksheet or view   | Matching chart directly in chat                               |
 | Worksheet inside a story          | Matching chart; table only for a source text table/crosstab   |
-| Published or embedded data source | Warehouse query when mapped; otherwise imported view data     |
+| Published or embedded data source | Query against the verified shared database                    |
 | Visible dashboard filter control  | Story filter when supported by the parser                     |
 | Hidden worksheet filter           | Query constraint only; never a story control                  |
 | Parameter with allowed values     | Single-select control when its query behavior is reproducible |
@@ -89,16 +94,14 @@ Prepare the requested worksheet for chart delivery, or each unique worksheet sel
 - Match that record against the worksheet's `worksheet_visualizations` entry. Use its mark type, rows, columns, encoding channels, stacking mode, explicit color assignments, and formatting as machine-readable evidence; if the XML metadata and image disagree, treat the image as authoritative and report the discrepancy.
 - Treat an encoding with `channel: "lod"` as Tableau Detail: it identifies individual marks even when it is not drawn on an axis. Preserve every Detail field in the chart-ready query and use it as the point identity or tooltip label when nao supports that encoding. Never replace a Detail value with the numeric X-axis value.
 - Treat a categorical `channel: "color"` field as a per-mark grouping dimension. Preserve its original values and colors. For scatter plots, keep Detail, Color, X, and Y fields in long-form rows; do not pivot the Color values into separate measure columns when that would discard the Detail field or remove Color from each point.
-- For a scatter plot with a Detail field, set `tooltip_label_key` to that field's chart-ready SQL alias. Put the Color field and additional Tableau tooltip fields in `tooltip_keys`. Both attributes must reference columns returned by the query.
-- If nao's supported chart configuration cannot expose a parsed Detail, Color, or tooltip field, keep the field in the query output and report that precise tooltip or encoding limitation. Do not silently drop the field or claim that the interaction matches Tableau.
+- `display_chart` does not currently accept chart `tooltip_label_key` or `tooltip_keys` inputs. Keep Tableau Detail, Color, and tooltip fields in the query output, but report that they cannot be exposed in the scatter tooltip. Do not pass unsupported attributes or claim that the interaction matches Tableau.
 - After completing the visual preflight, read each worksheet's exported CSV from `data_path` and require non-empty data. Use it as the Tableau result to match when validating database queries.
-- For direct static chart delivery only, save the selected CSV under `/home/tableau/<workbook-name>/<worksheet-name>.csv` and query it with `database_id: "duckdb_local"`.
-- For story delivery, require a configured nao database that contains the same source data Tableau used. Query that database directly with its real `database_id`; do not upload or query the CSV as the story's data source.
+- Require a configured nao database that contains the same source data Tableau used. Query that database directly with its real `database_id` for both chart and story delivery. A CLI temporary file is not available in nao storage merely by assigning it a `/home` path.
 - Alias every chart-ready SQL output column to a machine-safe lowercase snake-case identifier. Use human-readable labels in chart configuration instead of spaces or punctuation in `data_key`; unsafe keys can break series colors.
 - Preserve explicit Tableau palette assignments from `worksheet_visualizations[].colors` whenever nao supports per-series colors. Never replace a readable Tableau color with black merely because a color could not be resolved.
 - Build each query and chart from the recorded Tableau presentation, not from an inference based on the exported data. Preserve a Tableau chart as a chart; use a table only when the verified source worksheet is a text table/crosstab or the user explicitly requested a table.
 
-Before story creation, compare each unfiltered database query with the corresponding Tableau CSV. If tables, joins, columns, totals, or dimensions cannot be matched, skip the affected worksheet or control and report the mismatch instead of substituting unrelated project data.
+Before delivery, compare each unfiltered database query with the corresponding Tableau CSV. If tables, joins, columns, totals, or dimensions cannot be matched, skip the affected worksheet or control and report the mismatch instead of substituting unrelated project data.
 
 Until richer Tableau definition extractors exist, do not claim that calculated fields, context filters, LOD expressions, sets, groups, bins, marks, or formatting were reproduced from XML. Claim a parameter was reproduced only when its extracted definition, allowed values, target worksheets, and query behavior are all preserved. Preserve what can be verified from exported data and images, and list the rest as unsupported or approximated.
 

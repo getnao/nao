@@ -44,7 +44,7 @@ def test_parse_filters_builds_effective_worksheet_mappings() -> None:
 
     assert controls == [
         {
-            "id": "overview_region",
+            "id": "overview_sales_region",
             "type": "filter",
             "dashboard": "Overview",
             "caption": "Region",
@@ -72,6 +72,42 @@ def test_parse_filters_builds_effective_worksheet_mappings() -> None:
         }
     ]
     assert [mapping["effective_filter_ids"] for mapping in mappings] == [
-        ["overview_region"],
-        ["overview_region"],
+        ["overview_sales_region"],
+        ["overview_sales_region"],
+    ]
+
+
+def test_parse_filters_keeps_same_caption_controls_from_different_data_sources() -> None:
+    workbook = b"""
+    <workbook>
+      <worksheets>
+        <worksheet name="Sales">
+          <filter class="categorical" column="[sales].[none:Region:nk]">
+            <groupfilter function="member" member="&quot;East&quot;" />
+          </filter>
+        </worksheet>
+        <worksheet name="Returns">
+          <filter class="categorical" column="[returns].[none:Region:nk]">
+            <groupfilter function="member" member="&quot;West&quot;" />
+          </filter>
+        </worksheet>
+      </worksheets>
+      <dashboards>
+        <dashboard name="Overview">
+          <zones>
+            <zone type-v2="worksheet" name="Sales" />
+            <zone type-v2="worksheet" name="Returns" />
+            <zone type-v2="filter" name="Sales" param="[sales].[none:Region:nk]" />
+            <zone type-v2="filter" name="Returns" param="[returns].[none:Region:nk]" />
+          </zones>
+        </dashboard>
+      </dashboards>
+    </workbook>
+    """
+
+    controls = cast(list[dict[str, object]], parse_filters(workbook)["controls"])
+
+    assert [control["id"] for control in controls] == [
+        "overview_sales_region",
+        "overview_returns_region",
     ]
