@@ -20,6 +20,7 @@ import {
 } from '../services/story-filters';
 import { hasUserGroupFeature } from '../services/user-group-feature-access.service';
 import { logAnalyticsEvent } from '../utils/analytics-event';
+import { withKeyedLock } from '../utils/keyed-lock';
 import { buildDownloadResponse } from '../utils/story-download';
 import { extractStorySummary } from '../utils/story-summary';
 import {
@@ -273,21 +274,23 @@ export const sharedStoryRoutes = {
 			trigger: 'manual',
 		});
 		try {
-			const { queryData } = await refreshStoryData(shared.chatId, shared.slug);
-			await activityQueries.completeActivity(activity.id, {
-				queriesRefreshed: Object.keys(queryData).length,
+			return await withKeyedLock(`story:${story.id}`, async () => {
+				const { queryData } = await refreshStoryData(shared.chatId!, shared.slug);
+				await activityQueries.completeActivity(activity.id, {
+					queriesRefreshed: Object.keys(queryData).length,
+				});
+				logAnalyticsEvent({
+					projectId: shared.projectId,
+					type: 'refresh',
+					assetType: 'story',
+					actorUserId: ctx.user.id,
+					storyId: story.id,
+					chatId: shared.chatId,
+					sharedStoryId: shared.id,
+					metadata: { type: 'refresh', trigger: 'manual', queriesRefreshed: Object.keys(queryData).length },
+				});
+				return { queryData, cachedAt: new Date() };
 			});
-			logAnalyticsEvent({
-				projectId: shared.projectId,
-				type: 'refresh',
-				assetType: 'story',
-				actorUserId: ctx.user.id,
-				storyId: story.id,
-				chatId: shared.chatId,
-				sharedStoryId: shared.id,
-				metadata: { type: 'refresh', trigger: 'manual', queriesRefreshed: Object.keys(queryData).length },
-			});
-			return { queryData, cachedAt: new Date() };
 		} catch (err) {
 			await activityQueries.failActivity(activity.id, err instanceof Error ? err.message : String(err));
 			throw err;
