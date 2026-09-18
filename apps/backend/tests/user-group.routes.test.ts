@@ -574,7 +574,7 @@ describe('user group routes', () => {
 				defaultDensity: 'compact',
 				canChange: false,
 			},
-			{ mode: 'restricted', strict: true, grants: [], patterns: [] },
+			{ mode: 'restricted', strict: false, grants: [], patterns: [] },
 			{ mode: 'restricted', grants: [] },
 		);
 	});
@@ -592,7 +592,7 @@ describe('user group routes', () => {
 			'Group',
 			[],
 			{ defaultDensity: 'detailed', canChange: true },
-			{ mode: 'restricted', strict: true, grants: [], patterns: [] },
+			{ mode: 'restricted', strict: false, grants: [], patterns: [] },
 			{ mode: 'restricted', grants: [] },
 		);
 		expect(mocks.createUserGroup).not.toHaveBeenCalled();
@@ -639,7 +639,7 @@ describe('user group routes', () => {
 			'Analysts',
 			[],
 			{ defaultDensity: 'detailed', canChange: true },
-			{ mode: 'restricted', strict: true, grants: [], patterns: [] },
+			{ mode: 'restricted', strict: false, grants: [], patterns: [] },
 			{ mode: 'restricted', grants: [] },
 			{
 				version: 1,

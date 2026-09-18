@@ -147,7 +147,10 @@ vi.mock('@/components/settings/user-group-context-access', () => ({
 			>
 				Remove Context permissions
 			</button>
-			<button onClick={() => onDatabaseAccessChange({ ...databaseAccess, strict: !databaseAccess.strict })}>
+			<button
+				aria-pressed={databaseAccess.strict}
+				onClick={() => onDatabaseAccessChange({ ...databaseAccess, strict: !databaseAccess.strict })}
+			>
 				Strict mode
 			</button>
 			{databaseAccess.mode === 'restricted' && (
@@ -225,7 +228,7 @@ const allUsers = {
 	isDefault: true,
 	featureGrants: [],
 	toolCallDensityPolicy: DEFAULT_TOOL_CALL_DENSITY_POLICY,
-	databaseAccess: { mode: 'all' as const, strict: true },
+	databaseAccess: { mode: 'all' as const, strict: false },
 	docsAccess: ALL_DOCS_CONTEXT_ACCESS,
 	ssoMappings: EMPTY_USER_GROUP_SSO_MAPPINGS,
 };
@@ -404,7 +407,7 @@ describe('UserGroupsTable', () => {
 		expect(
 			screen.getByText('Configure the features, database tables, and docs each group can access.'),
 		).toBeTruthy();
-		expect(screen.getByText('No features · All tables · Strict · All docs')).toBeTruthy();
+		expect(screen.getByText('No features · All tables · Not strict · All docs')).toBeTruthy();
 		expect(screen.getByText('No features · No tables · Not strict · No docs')).toBeTruthy();
 		expect(screen.getByRole('button', { name: 'Create group' })).toBeTruthy();
 	});
@@ -1175,7 +1178,7 @@ describe('UserGroupEditor', () => {
 
 		expect(mocks.mutateAsync).toHaveBeenCalledWith(
 			expect.objectContaining({
-				databaseAccess: EMPTY_DATABASE_CONTEXT_ACCESS,
+				databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
 				rowPolicies: { version: 1, policies: [] },
 			}),
 		);
@@ -1641,6 +1644,12 @@ describe('UserGroupEditor', () => {
 
 		expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
 		expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+	});
+
+	it('defaults new groups to non-strict Context access', () => {
+		renderEditor('context', vi.fn(), 'new');
+
+		expect(screen.getByRole('button', { name: 'Strict mode' }).getAttribute('aria-pressed')).toBe('false');
 	});
 
 	it('hides actions after refreshed group data matches the draft', () => {

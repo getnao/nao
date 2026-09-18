@@ -111,7 +111,7 @@ describe('user group queries', () => {
 			},
 			contextGrants: {
 				version: 4,
-				databaseAccess: { mode: 'all', strict: true },
+				databaseAccess: { mode: 'all', strict: false },
 				docsAccess: { mode: 'all' },
 			},
 		});
@@ -122,7 +122,7 @@ describe('user group queries', () => {
 		expect(defaultGroup).toMatchObject({
 			name: 'All Users',
 			featureGrants: ['storyCreation', 'automationCreation'],
-			databaseAccess: { mode: 'all', strict: true },
+			databaseAccess: { mode: 'all', strict: false },
 			docsAccess: { mode: 'all' },
 			toolCallDensityPolicy: {
 				defaultDensity: 'detailed',
@@ -649,7 +649,7 @@ describe('user group queries', () => {
 		const group = await createUserGroup(PROJECT_ID, 'Analysts');
 
 		expect(group.featureGrants).toEqual([]);
-		expect(group.databaseAccess).toEqual({ mode: 'restricted', strict: true, grants: [], patterns: [] });
+		expect(group.databaseAccess).toEqual({ mode: 'restricted', strict: false, grants: [], patterns: [] });
 		expect(group.docsAccess).toEqual({ mode: 'restricted', grants: [] });
 		expect(group.toolCallDensityPolicy).toEqual({
 			defaultDensity: 'detailed',
@@ -1122,12 +1122,12 @@ describe('user group queries', () => {
 		let groups = (await getUserGroupOverview(PROJECT_ID)).groups;
 		expect(groups.find(({ id }) => id === defaultGroup.id)?.databaseAccess).toEqual({
 			mode: 'all',
-			strict: true,
+			strict: false,
 		});
 		expect(groups.find(({ id }) => id === defaultGroup.id)?.docsAccess).toEqual({ mode: 'all' });
 		expect(groups.find(({ id }) => id === customGroup.id)?.databaseAccess).toEqual({
 			mode: 'restricted',
-			strict: true,
+			strict: false,
 			grants: [],
 			patterns: [],
 		});
@@ -1167,11 +1167,11 @@ describe('user group queries', () => {
 		const normalizedCustomGroup = groups.find(({ id }) => id === customGroup.id);
 
 		expect(normalizedDefaultGroup).toMatchObject({
-			databaseAccess: { mode: 'all', strict: true },
+			databaseAccess: { mode: 'all', strict: false },
 			docsAccess: { mode: 'all' },
 		});
 		expect(normalizedCustomGroup).toMatchObject({
-			databaseAccess: { mode: 'restricted', strict: true, grants: [], patterns: [] },
+			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [] },
 		});
 		expect(normalizedDefaultGroup).not.toHaveProperty('contextGrants');

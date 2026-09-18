@@ -51,8 +51,14 @@ export interface StoredUserGroupContextAccess {
 	docsAccess: DocsContextAccess;
 }
 
-export const ALL_DATABASE_CONTEXT_ACCESS: DatabaseContextAccess = { mode: 'all', strict: true };
+export const ALL_DATABASE_CONTEXT_ACCESS: DatabaseContextAccess = { mode: 'all', strict: false };
 export const EMPTY_DATABASE_CONTEXT_ACCESS: DatabaseContextAccess = {
+	mode: 'restricted',
+	strict: false,
+	grants: [],
+	patterns: [],
+};
+export const FAIL_CLOSED_DATABASE_CONTEXT_ACCESS: DatabaseContextAccess = {
 	mode: 'restricted',
 	strict: true,
 	grants: [],
@@ -84,25 +90,25 @@ export function parseStoredDatabaseContextAccess(value: unknown): DatabaseContex
 		(value.version !== 1 && value.version !== 2 && value.version !== 3) ||
 		!isRecord(value.access)
 	) {
-		return EMPTY_DATABASE_CONTEXT_ACCESS;
+		return FAIL_CLOSED_DATABASE_CONTEXT_ACCESS;
 	}
-	const strict = value.version === 3 ? value.access.strict : true;
+	const strict = value.version === 3 ? value.access.strict : false;
 	if (typeof strict !== 'boolean') {
-		return EMPTY_DATABASE_CONTEXT_ACCESS;
+		return FAIL_CLOSED_DATABASE_CONTEXT_ACCESS;
 	}
 	if (value.access.mode === 'all') {
 		return { mode: 'all', strict };
 	}
 	if (value.access.mode !== 'restricted' || !Array.isArray(value.access.grants)) {
-		return EMPTY_DATABASE_CONTEXT_ACCESS;
+		return FAIL_CLOSED_DATABASE_CONTEXT_ACCESS;
 	}
 	const grants = value.access.grants.map(parseGrant);
 	if (grants.some((grant) => grant === null)) {
-		return EMPTY_DATABASE_CONTEXT_ACCESS;
+		return FAIL_CLOSED_DATABASE_CONTEXT_ACCESS;
 	}
 	const patterns = value.version === 1 ? [] : value.access.patterns;
 	if (!Array.isArray(patterns) || patterns.some((pattern) => typeof pattern !== 'string')) {
-		return EMPTY_DATABASE_CONTEXT_ACCESS;
+		return FAIL_CLOSED_DATABASE_CONTEXT_ACCESS;
 	}
 
 	return normalizeDatabaseContextAccess({
@@ -127,8 +133,14 @@ export function parseStoredUserGroupContextAccess(
 	const legacyDatabaseAccess = isDefault ? ALL_DATABASE_CONTEXT_ACCESS : EMPTY_DATABASE_CONTEXT_ACCESS;
 	const legacyDocsAccess = isDefault ? ALL_DOCS_CONTEXT_ACCESS : EMPTY_DOCS_CONTEXT_ACCESS;
 
-	if (!isRecord(value)) {
+	if (value === null || value === undefined) {
 		return { databaseAccess: legacyDatabaseAccess, docsAccess: legacyDocsAccess };
+	}
+	if (!isRecord(value)) {
+		return {
+			databaseAccess: FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
+			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
+		};
 	}
 	if (value.version === 1 || value.version === 2 || value.version === 3) {
 		return {
@@ -138,7 +150,7 @@ export function parseStoredUserGroupContextAccess(
 	}
 	if (value.version !== 4) {
 		return {
-			databaseAccess: EMPTY_DATABASE_CONTEXT_ACCESS,
+			databaseAccess: FAIL_CLOSED_DATABASE_CONTEXT_ACCESS,
 			docsAccess: EMPTY_DOCS_CONTEXT_ACCESS,
 		};
 	}
@@ -356,12 +368,12 @@ function parseGrant(value: unknown): DatabaseContextGrant | null {
 
 function parseDatabaseContextAccess(value: unknown): DatabaseContextAccess {
 	if (!isRecord(value) || typeof value.strict !== 'boolean') {
-		return EMPTY_DATABASE_CONTEXT_ACCESS;
+		return FAIL_CLOSED_DATABASE_CONTEXT_ACCESS;
 	}
 	if (value.mode === 'all') {
 		return hasOnlyKeys(value, ['mode', 'strict'])
 			? { mode: 'all', strict: value.strict }
-			: EMPTY_DATABASE_CONTEXT_ACCESS;
+			: FAIL_CLOSED_DATABASE_CONTEXT_ACCESS;
 	}
 	if (
 		value.mode !== 'restricted' ||
@@ -370,11 +382,11 @@ function parseDatabaseContextAccess(value: unknown): DatabaseContextAccess {
 		!Array.isArray(value.patterns) ||
 		value.patterns.some((pattern) => typeof pattern !== 'string')
 	) {
-		return EMPTY_DATABASE_CONTEXT_ACCESS;
+		return FAIL_CLOSED_DATABASE_CONTEXT_ACCESS;
 	}
 	const grants = value.grants.map(parseGrant);
 	if (grants.some((grant) => grant === null)) {
-		return EMPTY_DATABASE_CONTEXT_ACCESS;
+		return FAIL_CLOSED_DATABASE_CONTEXT_ACCESS;
 	}
 	return normalizeDatabaseContextAccess({
 		mode: 'restricted',

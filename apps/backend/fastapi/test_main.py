@@ -410,6 +410,109 @@ def test_execute_sql_rejects_extra_table_access_fields(duckdb_project_folder):
     assert response.status_code == 422
 
 
+def database_config(
+    name: str,
+    *,
+    database_name: str | None = None,
+    database_type: str = "duckdb",
+):
+    return SimpleNamespace(
+        name=name,
+        type=database_type,
+        get_database_name=lambda: database_name or name,
+    )
+
+
+def test_resolve_database_rejects_no_databases():
+    with pytest.raises(main.HTTPException) as error:
+        main._resolve_database(SimpleNamespace(databases=[]), None)
+
+    assert error.value.status_code == 400
+    assert error.value.detail == "No databases configured in nao_config.yaml"
+
+
+def test_resolve_database_rejects_duplicate_connection_names():
+    config = SimpleNamespace(
+        databases=[
+            database_config("duplicate", database_name="first"),
+            database_config("duplicate", database_name="second"),
+        ]
+    )
+
+    with pytest.raises(main.HTTPException) as error:
+        main._resolve_database(config, None)
+
+    assert error.value.status_code == 400
+    assert error.value.detail == "Database connection names must be unique. Duplicate name(s): duplicate"
+
+
+@pytest.mark.parametrize(
+    ("database_id", "message"),
+    [
+        (None, "Multiple databases configured. Please specify database_id."),
+        ("missing", "Database 'missing' not found"),
+    ],
+)
+def test_resolve_database_requires_known_id_for_multiple_databases(
+    database_id: str | None,
+    message: str,
+):
+    config = SimpleNamespace(
+        databases=[
+            database_config("first"),
+            database_config("second"),
+        ]
+    )
+
+    with pytest.raises(main.HTTPException) as error:
+        main._resolve_database(config, database_id)
+
+    assert error.value.status_code == 400
+    assert error.value.detail == {
+        "message": message,
+        "available_databases": ["first", "second"],
+    }
+
+
+@pytest.mark.parametrize(
+    ("database_id", "expected_name", "expected_folder"),
+    [
+        (None, "only", "database=only"),
+        ("second", "second", "database=second"),
+    ],
+)
+def test_resolve_database_selects_database(
+    database_id: str | None,
+    expected_name: str,
+    expected_folder: str,
+):
+    databases = [database_config("only")]
+    if database_id is not None:
+        databases = [database_config("first"), database_config("second")]
+
+    selected, folder = main._resolve_database(SimpleNamespace(databases=databases), database_id)
+
+    assert selected.name == expected_name
+    assert folder == expected_folder
+
+
+def test_resolve_database_rejects_ambiguous_authorization_identity():
+    config = SimpleNamespace(
+        databases=[
+            database_config("first", database_name="shared"),
+            database_config("second", database_name="shared"),
+        ]
+    )
+
+    with pytest.raises(main.HTTPException) as error:
+        main._resolve_database(config, "first")
+
+    assert error.value.status_code == 400
+    assert error.value.detail == (
+        "Database authorization identity is ambiguous for connection 'first' (duckdb, database=shared)."
+    )
+
+
 @pytest.mark.parametrize("endpoint", ["/execute_sql", "/validate_sql"])
 def test_database_authorization_identity_collision_is_rejected(
     monkeypatch: pytest.MonkeyPatch,
