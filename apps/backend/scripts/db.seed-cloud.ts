@@ -1,8 +1,6 @@
 import path from 'node:path';
 
-import { validateStoryCode } from '@nao/shared/story-validation';
 import { hashPassword } from 'better-auth/crypto';
-import { and, eq } from 'drizzle-orm';
 
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
@@ -10,7 +8,6 @@ import { db } from '../src/db/db';
 const PASSWORD = 'password';
 const EXAMPLE_PROJECT_PATH = path.resolve(import.meta.dirname, '../../../example');
 const EXAMPLE_PROJECT_NAME = 'Jaffle Shop';
-const ANALYTICS_SHOWCASE_SLUG = 'jaffle-shop-analytics';
 
 const USERS = [
 	{ email: 'admin@company1.com', name: 'Admin Company1' },
@@ -26,7 +23,6 @@ async function seed() {
 
 	const hashedPassword = await hashPassword(PASSWORD);
 	const userIds: Record<string, string> = {};
-	let seededConversationCount = 0;
 
 	await db.transaction(async (tx) => {
 		for (const u of USERS) {
@@ -77,7 +73,7 @@ async function seed() {
 		await ensureOrgMember(tx, personalOrg.id, admin2Id, 'admin');
 		await ensureOrgMember(tx, personalOrg.id, freelancerId, 'user');
 
-		seededConversationCount = await seedConversations(tx, userIds['admin@company1.com'], project.id);
+		await seedConversations(tx, userIds['admin@company1.com'], project.id);
 	});
 
 	console.log('Done.');
@@ -88,11 +84,7 @@ async function seed() {
 	console.log('');
 	console.log(`  Org: ${COMPANY1_ORG.name} (admin@company1.com + user@company1.com)`);
 	console.log(`  Project: ${EXAMPLE_PROJECT_NAME} → ${EXAMPLE_PROJECT_PATH}`);
-	console.log(
-		seededConversationCount > 0
-			? `  Conversations added: ${seededConversationCount} (admin@company1.com)`
-			: '  Conversations: already seeded (admin@company1.com)',
-	);
+	console.log(`  Conversations: 3 (admin@company1.com)`);
 }
 
 // ---------------------------------------------------------------------------
@@ -101,34 +93,20 @@ async function seed() {
 
 async function seedConversations(tx: Tx, userId: string, projectId: string) {
 	const existing = await tx.query.chat.findFirst({ where: (c, { eq }) => eq(c.userId, userId) });
-	const showcaseAdded = await seedAnalyticsShowcaseConversation(tx, userId, projectId);
 	if (existing) {
-		return Number(showcaseAdded);
+		return;
 	}
 
+	await seedRevenueConversation(tx, userId, projectId);
 	await seedCustomerConversation(tx, userId, projectId);
 	await seedOrdersConversation(tx, userId, projectId);
-	return Number(showcaseAdded) + 2;
 }
 
 /**
  * Conversation 1 — starred, with an execute_sql + display_chart in the chat
- * and a story showcasing the available chart cards.
+ * and a story containing an embedded chart.
  */
-async function seedAnalyticsShowcaseConversation(tx: Tx, userId: string, projectId: string) {
-	const [existing] = await tx
-		.select({ id: s.story.id })
-		.from(s.story)
-		.innerJoin(s.chat, eq(s.story.chatId, s.chat.id))
-		.where(
-			and(eq(s.story.slug, ANALYTICS_SHOWCASE_SLUG), eq(s.chat.userId, userId), eq(s.chat.projectId, projectId)),
-		)
-		.limit(1)
-		.execute();
-	if (existing) {
-		return false;
-	}
-
+async function seedRevenueConversation(tx: Tx, userId: string, projectId: string) {
 	const chatId = crypto.randomUUID();
 	const sqlCallId = `call-${crypto.randomUUID()}`;
 	const chartCallId = `call-${crypto.randomUUID()}`;
@@ -137,36 +115,40 @@ async function seedAnalyticsShowcaseConversation(tx: Tx, userId: string, project
 
 	await tx
 		.insert(s.chat)
-		.values({ id: chatId, userId, projectId, title: 'Jaffle Shop Analytics', isStarred: true })
+		.values({ id: chatId, userId, projectId, title: 'Monthly Revenue Analysis', isStarred: true })
 		.execute();
 
 	const revenueData = [
-		{ month: '2018-01', revenue: 496, orders: 29 },
-		{ month: '2018-02', revenue: 415, orders: 27 },
-		{ month: '2018-03', revenue: 622, orders: 35 },
-		{ month: '2018-04', revenue: 139, orders: 8 },
+		{ month: '2024-07', revenue: 4250 },
+		{ month: '2024-08', revenue: 4780 },
+		{ month: '2024-09', revenue: 5120 },
+		{ month: '2024-10', revenue: 5890 },
+		{ month: '2024-11', revenue: 6340 },
+		{ month: '2024-12', revenue: 7100 },
 	];
 
+	// User: asks about revenue
 	await insertMessage(tx, chatId, 'user', [
-		{ type: 'text', text: 'Build me an analytics dashboard for the Jaffle Shop example.' },
+		{ type: 'text', text: "What's our monthly revenue trend over the past 6 months?" },
 	]);
 
+	// Assistant: SQL query → chart → summary
 	await insertMessage(tx, chatId, 'assistant', [
-		{ type: 'text', text: "I'll analyze monthly revenue and order volume from the DuckDB orders data." },
+		{ type: 'text', text: "I'll analyze the monthly revenue from the orders data." },
 		{
 			type: 'tool-execute_sql',
 			toolCallId: sqlCallId,
 			toolName: 'execute_sql',
 			toolState: 'output-available',
 			toolInput: {
-				sql_query: `SELECT strftime(order_date, '%Y-%m') AS month, SUM(amount) AS revenue, COUNT(*) AS orders FROM orders GROUP BY month ORDER BY month`,
-				name: 'Monthly revenue and orders',
+				sql_query: `SELECT strftime(order_date, '%Y-%m') AS month, SUM(amount) AS revenue FROM orders WHERE order_date >= '2024-07-01' GROUP BY month ORDER BY month`,
+				name: 'Monthly revenue (last 6 months)',
 			},
 			toolOutput: {
 				_version: '1',
 				data: revenueData,
-				row_count: 4,
-				columns: ['month', 'revenue', 'orders'],
+				row_count: 6,
+				columns: ['month', 'revenue'],
 				id: queryId,
 				dialect: 'duckdb',
 			},
@@ -178,7 +160,7 @@ async function seedAnalyticsShowcaseConversation(tx: Tx, userId: string, project
 			toolState: 'output-available',
 			toolInput: {
 				query_id: queryId,
-				chart_type: 'line',
+				chart_type: 'bar',
 				x_axis_key: 'month',
 				x_axis_type: 'category',
 				series: [{ data_key: 'revenue', label: 'Revenue ($)', color: '#6366f1' }],
@@ -188,45 +170,37 @@ async function seedAnalyticsShowcaseConversation(tx: Tx, userId: string, project
 		},
 		{
 			type: 'text',
-			text: 'The Jaffle Shop generated $1,672 from 99 orders. March was the strongest month with $622 in revenue from 35 orders.',
+			text: 'Revenue has been growing steadily over the past 6 months, increasing from $4,250 in July to $7,100 in December — a 67% increase. The strongest month-over-month growth was between September and October (+15%).',
 		},
 	]);
 
-	await insertMessage(tx, chatId, 'user', [
-		{ type: 'text', text: 'Great, turn that into a dashboard with several kinds of cards.' },
-	]);
+	// User: asks for a report
+	await insertMessage(tx, chatId, 'user', [{ type: 'text', text: 'Great, can you put this into a report?' }]);
 
-	const storySlug = ANALYTICS_SHOWCASE_SLUG;
+	// Assistant: creates a story
+	const storySlug = 'revenue-analysis';
 	const storyCode = [
-		'# Jaffle Shop Analytics',
+		'# Monthly Revenue Analysis',
 		'',
-		'## Overview',
+		'## Revenue Trend',
 		'',
-		'<grid>',
-		`<chart query_id="${queryId}" chart_type="kpi_card" x_axis_key="month" series='[{"data_key":"revenue","label":"Latest revenue","color":"#6366f1"}]' comparison_mode="percentage" />`,
-		`<chart query_id="${queryId}" chart_type="kpi_card" x_axis_key="month" series='[{"data_key":"orders","label":"Latest orders","color":"#0ea5e9"}]' comparison_mode="variation" />`,
-		`<chart query_id="${queryId}" chart_type="donut" x_axis_key="month" series='[{"data_key":"revenue","label":"Revenue","color":"#8b5cf6"}]' title="Revenue Mix" />`,
-		'</grid>',
+		'Our monthly revenue has shown consistent growth over the past 6 months.',
 		'',
-		'## Monthly Performance',
+		`<chart query_id="${queryId}" chart_type="bar" x_axis_key="month" series='[{"data_key":"revenue","label":"Revenue ($)","color":"#6366f1"}]' title="Monthly Revenue Trend" />`,
 		'',
-		'<grid widths="2,1">',
-		`<chart query_id="${queryId}" chart_type="line" x_axis_key="month" series='[{"data_key":"revenue","label":"Revenue ($)","color":"#6366f1"}]' title="Revenue Trend" show_data_labels="true" />`,
-		`<chart query_id="${queryId}" chart_type="bar" x_axis_key="month" series='[{"data_key":"orders","label":"Orders","color":"#0ea5e9"}]' title="Order Volume" show_data_labels="true" />`,
-		'</grid>',
+		'## Key Insights',
 		'',
-		`<chart query_id="${queryId}" chart_type="mixed" x_axis_key="month" series='[{"data_key":"revenue","label":"Revenue ($)","color":"#6366f1","series_type":"bar","y_axis":"left"},{"data_key":"orders","label":"Orders","color":"#f97316","series_type":"line","y_axis":"right"}]' y_axis_label="Revenue ($)" y_axis_right_label="Orders" title="Revenue and Orders" />`,
+		'- **Total revenue** over the 6-month period: **$34,480**',
+		'- **Average monthly revenue**: $5,747',
+		'- **Growth rate**: 67% from July to December',
+		'- **Strongest growth**: October saw a 15% month-over-month increase',
 		'',
-		'## Monthly Detail',
+		'## Recommendations',
 		'',
-		`<table query_id="${queryId}" title="Revenue and Orders by Month" />`,
-		'',
-		'March led the period with **$622** in revenue and **35 orders**. April is a partial month in this dataset.',
+		'1. Investigate the drivers behind the October acceleration',
+		'2. Set a target of $8,000/month for Q1 2025',
+		'3. Monitor whether the growth trend sustains into the new year',
 	].join('\n');
-	const storyErrors = validateStoryCode(storyCode);
-	if (storyErrors.length > 0) {
-		throw new Error(`Invalid seeded story: ${storyErrors.map((error) => error.message).join('; ')}`);
-	}
 
 	await insertMessage(tx, chatId, 'assistant', [
 		{
@@ -234,29 +208,32 @@ async function seedAnalyticsShowcaseConversation(tx: Tx, userId: string, project
 			toolCallId: storyCallId,
 			toolName: 'story',
 			toolState: 'output-available',
-			toolInput: { action: 'create', id: storySlug, title: 'Jaffle Shop Analytics', code: storyCode },
+			toolInput: { action: 'create', id: storySlug, title: 'Monthly Revenue Analysis', code: storyCode },
 			toolOutput: {
 				_version: '1',
 				success: true,
 				id: storySlug,
 				version: 1,
 				code: storyCode,
-				title: 'Jaffle Shop Analytics',
+				title: 'Monthly Revenue Analysis',
 			},
 		},
 		{
 			type: 'text',
-			text: "I've created a Jaffle Shop Analytics dashboard with seven cards. You can find it in your stories.",
+			text: "I've created a Revenue Analysis report with the chart and key insights. You can find it in your stories.",
 		},
 	]);
 
+	// Story + version records
 	const storyId = crypto.randomUUID();
-	await tx.insert(s.story).values({ id: storyId, chatId, slug: storySlug, title: 'Jaffle Shop Analytics' }).execute();
+	await tx
+		.insert(s.story)
+		.values({ id: storyId, chatId, slug: storySlug, title: 'Monthly Revenue Analysis' })
+		.execute();
 	await tx
 		.insert(s.storyVersion)
 		.values({ storyId, version: 1, code: storyCode, action: 'create', source: 'assistant' })
 		.execute();
-	return true;
 }
 
 /** Conversation 2 — customer overview with SQL results. */

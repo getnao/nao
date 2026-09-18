@@ -20,10 +20,10 @@
 	},
 	"scripts": {
 		"dev": "bun --watch src/index.ts",
-		"fastapi": "cd ../.. && uv run --project cli apps/backend/fastapi/main.py",
-		"build": "tsup src/index.ts --format esm --target node20 --minify --external bun:sqlite --external @boxlite-ai/boxlite",
+		"fastapi": "cd ../../cli && uv run ../apps/backend/fastapi/main.py",
+		"build": "tsup src/index.ts --format esm --target node20 --minify",
 		"build:standalone": "bun build src/cli.ts --compile --outfile nao-chat-server --external playwright-core --external puppeteer-core --external @boxlite-ai/boxlite --external @pydantic/monty --external @duckdb/node-bindings --compile-autoload-package-json",
-		"start": "bun dist/index.js",
+		"start": "node dist/index.js",
 		"test": "vitest run",
 		"lint": "tsc --noEmit && eslint",
 		"lint:fix": "eslint --fix",

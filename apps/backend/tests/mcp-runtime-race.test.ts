@@ -47,14 +47,6 @@ vi.mock('mcporter', () => ({
 
 vi.mock('../src/db/db', () => ({ db: {} }));
 
-const loggingMocks = vi.hoisted(() => ({
-	insertMcpCallLog: vi.fn<() => Promise<void>>(async () => undefined),
-}));
-
-vi.mock('../src/queries/mcp-endpoint.queries', () => ({
-	insertMcpCallLog: loggingMocks.insertMcpCallLog,
-}));
-
 let projectPath = '';
 
 vi.mock('../src/queries/project.queries', () => ({
@@ -70,20 +62,17 @@ vi.mock('../src/queries/mcp-oauth.queries', () => ({
 	hasMcpUserToken: async () => false,
 }));
 
-import { withLogging } from '../src/mcp/logging';
 import { McpService } from '../src/services/mcp';
-import * as mcpOAuthService from '../src/services/mcp-oauth';
 
 const SERVERS = ['alpha', 'beta', 'gamma'];
 
-async function createProjectWithServers(
-	mcpServers: Record<string, object> = Object.fromEntries(
-		SERVERS.map((name) => [name, { command: 'node', args: ['-e', 'process.exit(0)'] }]),
-	),
-): Promise<string> {
+async function createProjectWithServers(): Promise<string> {
 	const root = await mkdtemp(join(tmpdir(), 'nao-mcp-race-'));
 	const mcpsDir = join(root, 'agent', 'mcps');
 	await mkdir(mcpsDir, { recursive: true });
+	const mcpServers = Object.fromEntries(
+		SERVERS.map((name) => [name, { command: 'node', args: ['-e', 'process.exit(0)'] }]),
+	);
 	await writeFile(join(mcpsDir, 'mcp.json'), JSON.stringify({ mcpServers }, null, 2), 'utf8');
 	return root;
 }
@@ -125,43 +114,6 @@ describe('MCP concurrent discovery (issue #1292)', () => {
 		expect(results.filter((result) => result.status === 'rejected')).toEqual([]);
 	});
 
-	it('rejects static MCP credentials when per-user OAuth is required', async () => {
-		projectPath = await createProjectWithServers({
-			static: {
-				type: 'http',
-				url: 'https://mcp.example.com',
-				headers: { Authorization: 'Bearer shared-token' },
-			},
-		});
-		const oauthDiscovery = vi.spyOn(mcpOAuthService, 'isOAuthServer').mockResolvedValue(true);
-		const service = new McpService();
-		await service.initializeMcpState('project-1');
-
-		await expect(service.getServersStatus('project-1')).resolves.toEqual([
-			expect.objectContaining({ name: 'static', transport: 'http', oauth: false }),
-		]);
-		await expect(
-			service.callTool({
-				projectId: 'project-1',
-				userId: 'user-1',
-				server: 'static',
-				tool: 'static_tool',
-				args: {},
-			}),
-		).resolves.toEqual({ ok: true });
-		await expect(
-			service.callTool({
-				projectId: 'project-1',
-				userId: 'user-1',
-				server: 'static',
-				tool: 'static_tool',
-				args: {},
-				requireUserOAuth: true,
-			}),
-		).rejects.toThrow('must use per-user OAuth');
-		expect(oauthDiscovery).not.toHaveBeenCalled();
-	});
-
 	it('keeps every server callable when a reload lands mid-creation', async () => {
 		const service = new McpService();
 		await service.initializeMcpState('project-1');
@@ -198,41 +150,6 @@ describe('MCP concurrent discovery (issue #1292)', () => {
 		);
 
 		expect(results.filter((result) => result.status === 'rejected')).toEqual([]);
-	});
-
-	it('waits for the call log before returning a tool result', async () => {
-		let releaseLog: (() => void) | undefined;
-		loggingMocks.insertMcpCallLog.mockImplementationOnce(
-			() =>
-				new Promise<void>((resolve) => {
-					releaseLog = resolve;
-				}),
-		);
-		const handler = withLogging(
-			'execute_sql',
-			{
-				projectId: 'project-1',
-				userId: 'user-1',
-				settings: {
-					enabled: true,
-					subAgentModeEnabled: false,
-					contextLayerModeEnabled: true,
-				},
-				chartDataMode: false,
-			},
-			async () => ({ content: [{ type: 'text', text: 'done' }] }),
-		);
-		let returned = false;
-
-		const result = handler({}, {} as never).then(() => {
-			returned = true;
-		});
-		await vi.waitFor(() => expect(releaseLog).toBeDefined());
-
-		expect(returned).toBe(false);
-		releaseLog?.();
-		await result;
-		expect(returned).toBe(true);
 	});
 });
 

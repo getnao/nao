@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
 	getChatInfo: vi.fn(),
 	getChatProjectId: vi.fn(),
-	getAgentSettings: vi.fn(),
 	getEnvVars: vi.fn(),
 	getLatestVersionByChatAndSlug: vi.fn(),
 	getSqlQueriesFromCode: vi.fn(),
@@ -23,7 +22,6 @@ vi.mock('../src/queries/chat.queries', () => ({
 }));
 
 vi.mock('../src/queries/project.queries', () => ({
-	getAgentSettings: mocks.getAgentSettings,
 	getEnvVars: mocks.getEnvVars,
 	retrieveProjectById: mocks.retrieveProjectById,
 }));
@@ -45,10 +43,6 @@ vi.mock('../src/queries/shared-story.queries', () => ({
 
 vi.mock('../src/services/agent', () => ({
 	MAX_OUTPUT_TOKENS: 4096,
-}));
-
-vi.mock('../src/services/excluded-columns.service', () => ({
-	resolveExcludedColumnEnforcementForProject: vi.fn(async () => false),
 }));
 
 vi.mock('../src/utils/llm', () => ({
@@ -77,7 +71,6 @@ describe('live story SQL execution', () => {
 			title: 'Chat',
 		});
 		mocks.getChatProjectId.mockResolvedValue('project-1');
-		mocks.getAgentSettings.mockResolvedValue(null);
 		mocks.getLatestVersionByChatAndSlug.mockResolvedValue({
 			code: '<table query="query_admin" />',
 			isLiveTextDynamic: false,
@@ -156,7 +149,6 @@ describe('live story SQL execution', () => {
 		expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
 			sql: 'SELECT * FROM orders',
 			nao_project_folder: '/project',
-			enforce_excluded_columns: false,
 			database_id: 'analytics',
 			env_vars: { TOKEN: 'secret' },
 		});

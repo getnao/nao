@@ -193,7 +193,7 @@ describe('displayChart.InputSchema table variant', () => {
 			comparison_mode: 'percentage' as const,
 		};
 
-		const chartResult = displayChart.GenericChartInputSchema.safeParse(input);
+		const chartResult = displayChart.ChartInputSchema.safeParse(input);
 		expect(chartResult.success).toBe(true);
 		if (chartResult.success) {
 			expect(chartResult.data).not.toHaveProperty('comparison_mode');

@@ -125,14 +125,9 @@ export const defaultAgentTools: AgentToolsResolver = ({ chat, agentSettings, web
 
 /** Default tool set minus the given built-ins — for runs whose surface cannot render them. */
 export const defaultAgentToolsExcluding =
-	(excludeBuiltinTools: string[], options?: { requireMcpUserOAuth?: boolean }): AgentToolsResolver =>
+	(excludeBuiltinTools: string[]): AgentToolsResolver =>
 	({ chat, agentSettings, webTools, customBoundaries }) =>
-		getTools(agentSettings, webTools ?? {}, {
-			testMode: chat.testMode,
-			excludeBuiltinTools,
-			customBoundaries,
-			requireMcpUserOAuth: options?.requireMcpUserOAuth,
-		});
+		getTools(agentSettings, webTools ?? {}, { testMode: chat.testMode, excludeBuiltinTools, customBoundaries });
 
 /**
  * Admin-mode tool set: the same `execute_sql` tool the chat already uses (it

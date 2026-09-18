@@ -322,7 +322,7 @@ function mapAutomationWithSchedule(
 
 export type AutomationFeedChart = {
 	toolCallId: string;
-	config: displayChart.ChartVisualizationInput;
+	config: displayChart.ChartInput;
 	data: unknown[];
 };
 
@@ -692,8 +692,8 @@ function parseChartPart(
 	if (part.type !== 'tool-display_chart' || part.toolState !== 'output-available' || !part.toolCallId) {
 		return null;
 	}
-	const config = displayChart.InputSchema.safeParse(part.toolInput);
-	if (!config.success || displayChart.isTableInput(config.data)) {
+	const config = displayChart.ChartInputSchema.safeParse(part.toolInput);
+	if (!config.success) {
 		return null;
 	}
 	const sqlOutput = sqlOutputsByQueryId.get(config.data.query_id);

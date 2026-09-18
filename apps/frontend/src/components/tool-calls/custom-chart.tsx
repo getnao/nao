@@ -15,7 +15,7 @@ export const CustomChart = React.memo(function CustomChart({
 	config,
 	data,
 }: {
-	config: displayChart.GenericChartInput;
+	config: displayChart.ChartInput;
 	data: Record<string, unknown>[];
 }) {
 	const containerRef = React.useRef<HTMLDivElement>(null);

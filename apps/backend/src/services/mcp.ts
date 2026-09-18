@@ -269,9 +269,8 @@ export class McpService {
 		tool: string;
 		args: Record<string, unknown>;
 		allowedServers?: string[] | null;
-		requireUserOAuth?: boolean;
 	}): Promise<unknown> {
-		const { projectId, userId, server, tool, args, allowedServers, requireUserOAuth } = opts;
+		const { projectId, userId, server, tool, args, allowedServers } = opts;
 		await this.initializeMcpState(projectId);
 
 		const config = this._mcpServers[server];
@@ -293,11 +292,7 @@ export class McpService {
 		await this._validateArgs(server, tool, args);
 
 		try {
-			const oauth = await this._ensureOAuthFlag(server, config);
-			if (requireUserOAuth && !oauth) {
-				throw new Error(`MCP server "${server}" must use per-user OAuth in this context.`);
-			}
-			if (oauth) {
+			if (await this._ensureOAuthFlag(server, config)) {
 				return await this._callToolOAuth({ projectId, userId, server, tool, args, config });
 			}
 			return await this._callToolMcporter(server, tool, args);

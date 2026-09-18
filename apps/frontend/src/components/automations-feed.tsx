@@ -38,7 +38,7 @@ export type AutomationFeedIntegrationResult = {
 
 export type AutomationFeedChart = {
 	toolCallId: string;
-	config: displayChart.ChartVisualizationInput;
+	config: displayChart.ChartInput;
 	data: unknown[];
 };
 
@@ -757,7 +757,7 @@ function ChartSlide({ chart }: { chart: AutomationFeedChart }) {
 			<ChartDisplay
 				data={data}
 				chartType={chart.config.chart_type}
-				xAxisKey={chart.config.x_axis_key ?? ''}
+				xAxisKey={chart.config.x_axis_key}
 				xAxisType={xAxisType}
 				xAxisLabel={chart.config.x_axis_label}
 				series={chart.config.series}
@@ -768,7 +768,6 @@ function ChartSlide({ chart }: { chart: AutomationFeedChart }) {
 				yAxisRightMin={chart.config.y_axis_right_min}
 				yAxisRightMax={chart.config.y_axis_right_max}
 				yAxisRightLabel={chart.config.y_axis_right_label}
-				comparisonMode={'comparison_mode' in chart.config ? chart.config.comparison_mode : undefined}
 			/>
 		</div>
 	);

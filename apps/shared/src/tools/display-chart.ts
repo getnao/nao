@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import z from 'zod/v3';
 
 export const BUILTIN_CHART_TYPES = [
 	'bar',
@@ -213,12 +213,11 @@ const rightYAxisBoundsValid = (input: { y_axis_right_min?: number; y_axis_right_
 	input.y_axis_right_min < input.y_axis_right_max;
 const LEFT_Y_AXIS_BOUNDS_MESSAGE = { message: 'The left Y-axis minimum must be less than the maximum.' };
 const RIGHT_Y_AXIS_BOUNDS_MESSAGE = { message: 'The right Y-axis minimum must be less than the maximum.' };
-export type GenericChartInput = z.infer<typeof ChartInputObjectSchema>;
 
-export const GenericChartInputSchema = ChartInputObjectSchema.refine(
-	leftYAxisBoundsValid,
-	LEFT_Y_AXIS_BOUNDS_MESSAGE,
-).refine(rightYAxisBoundsValid, RIGHT_Y_AXIS_BOUNDS_MESSAGE) as z.ZodType<GenericChartInput>;
+export const ChartInputSchema = ChartInputObjectSchema.refine(leftYAxisBoundsValid, LEFT_Y_AXIS_BOUNDS_MESSAGE).refine(
+	rightYAxisBoundsValid,
+	RIGHT_Y_AXIS_BOUNDS_MESSAGE,
+);
 
 /** KPI cards render a single headline number and have no axes, so they may omit the x-axis fields. */
 const KpiCardInputSchema = ChartInputObjectSchema.extend({
@@ -240,10 +239,10 @@ export const TableInputSchema = z.object({
 	conditional_formats: ColumnConditionalFormatsSchema.optional(),
 });
 
+export type ChartInput = z.infer<typeof ChartInputSchema>;
 export type KpiCardInput = z.infer<typeof KpiCardInputSchema>;
 export type TableInput = z.infer<typeof TableInputSchema>;
-export type Input = GenericChartInput | KpiCardInput | TableInput;
-export type ChartVisualizationInput = Exclude<Input, TableInput>;
+export type Input = ChartInput | KpiCardInput | TableInput;
 
 const DisplayTypeSchema = z.union([ChartTypeSchema, z.literal('table')]);
 
@@ -284,58 +283,20 @@ const BaseInputSchema = z.object({
 	).optional(),
 });
 
-const DisplayChartMcpBaseInputSchema = BaseInputSchema.extend({
-	chart_type: ChartTypeEnum.describe('Built-in chart type to display.'),
-	series: ChartInputObjectSchema.shape.series,
-	title: ChartInputObjectSchema.shape.title,
-});
-
-const DISPLAY_CHART_MCP_JSON_SCHEMA = {
-	oneOf: [
-		{ properties: { chart_type: { const: 'kpi_card' } }, required: ['chart_type'] },
-		{
-			properties: { chart_type: { enum: BUILTIN_CHART_TYPES.filter((type) => type !== 'kpi_card') } },
-			required: ['chart_type', 'x_axis_key', 'x_axis_type'],
-		},
-	],
-};
-
-export function createDisplayChartMcpInputSchema<T extends z.ZodRawShape>(extension: T) {
-	return DisplayChartMcpBaseInputSchema.extend(extension)
-		.superRefine((input, context) => {
-			const chartInput = input as z.infer<typeof DisplayChartMcpBaseInputSchema>;
-			addInputIssues(
-				chartInput.chart_type === 'kpi_card' ? KpiCardInputSchema : GenericChartInputSchema,
-				chartInput,
-				context,
-			);
-		})
-		.meta(DISPLAY_CHART_MCP_JSON_SCHEMA);
-}
-
-export const DisplayChartMcpInputShapeSchema = createDisplayChartMcpInputSchema({});
-
 export const InputSchema = BaseInputSchema.superRefine((input, context) => {
-	addInputIssues(
+	const result =
 		input.chart_type === 'table'
-			? TableInputSchema
+			? TableInputSchema.safeParse(input)
 			: input.chart_type === 'kpi_card'
-				? KpiCardInputSchema
-				: GenericChartInputSchema,
-		input,
-		context,
-	);
-}) as z.ZodType<Input>;
-
-function addInputIssues(schema: z.ZodType, input: unknown, context: z.core.$RefinementCtx<unknown>): void {
-	const result = schema.safeParse(input);
+				? KpiCardInputSchema.safeParse(input)
+				: ChartInputSchema.safeParse(input);
 	if (result.success) {
 		return;
 	}
 	for (const issue of result.error.issues) {
-		context.addIssue({ code: 'custom', message: issue.message, path: issue.path });
+		context.addIssue(issue);
 	}
-}
+}) as z.ZodType<Input>;
 
 export const OutputSchema = z.object({
 	_version: z.literal('1').optional(),
@@ -380,16 +341,10 @@ const X_AXIS_REQUIRED_CHART_TYPES = new Set<ChartType>([
 	'radar',
 ]);
 
-export type BuiltinChartInput =
-	| (Omit<GenericChartInput, 'chart_type'> & { chart_type: ChartType })
-	| (KpiCardInput & { chart_type: 'kpi_card' });
+export type BuiltinChartInput = Omit<ChartInput, 'chart_type'> & { chart_type: ChartType };
 
 export function isBuiltinChartType(type: string): type is ChartType {
 	return (BUILTIN_CHART_TYPES as readonly string[]).includes(type);
-}
-
-export function isBuiltinChartInput(input: ChartVisualizationInput): input is BuiltinChartInput {
-	return isBuiltinChartType(input.chart_type);
 }
 
 /** Display types nao renders natively (as opposed to project-defined custom charts): builtins plus `table`. */
@@ -401,7 +356,7 @@ export function isTableInput(input: Input): input is TableInput {
 	return input.chart_type === 'table';
 }
 
-export function isChartInput(input: Input): input is ChartVisualizationInput {
+export function isChartInput(input: Input): input is ChartInput | KpiCardInput {
 	return !isTableInput(input);
 }
 

@@ -17,7 +17,7 @@ const runLoadSkill = async (name: string): Promise<{ name: string; body: string 
 };
 
 describe('internal skill registry', () => {
-	it('ships the expected built-in skills', () => {
+	it('ships a skill for each file format the tools cannot simply read', () => {
 		expect(internalSkillNames()).toEqual(expect.arrayContaining(['excel-handling', 'pdf-handling']));
 	});
 

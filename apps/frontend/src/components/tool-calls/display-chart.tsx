@@ -157,10 +157,6 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 				: undefined,
 		[chartConfig],
 	);
-	const genericChartConfig = useMemo(() => {
-		const parsed = displayChart.GenericChartInputSchema.safeParse(customChartConfig);
-		return parsed.success ? parsed.data : undefined;
-	}, [customChartConfig]);
 
 	if (isTableVariant) {
 		return <DisplayChartTable config={tableConfig} outputError={output?.error} toolCallId={toolCallId} />;
@@ -402,9 +398,7 @@ export const DisplayChartToolCall = ({ toolPart }: ToolCallComponentProps<'displ
 			) : viewMode === 'query' && sqlQuery ? (
 				<SqlQueryDisplay query={sqlQuery} />
 			) : !displayChart.isBuiltinChartType(chartConfig.chart_type) ? (
-				genericChartConfig ? (
-					<CustomChart config={genericChartConfig} data={filteredData} />
-				) : null
+				<CustomChart config={customChartConfig} data={filteredData} />
 			) : (
 				<ChartDisplay
 					data={filteredData}

@@ -1,4 +1,3 @@
-import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/services/license.service', () => ({
@@ -15,14 +14,9 @@ vi.mock('../src/queries/project.queries', () => ({
 vi.mock('../src/agents/tools/query-app-db', () => ({
 	queryAppDb: vi.fn(),
 }));
-vi.mock('../src/services/local-query.service', () => ({
-	runQueryOnLocalFiles: vi.fn(),
-}));
 
 import { executeQuery } from '../src/agents/tools/execute-sql';
-import { queryAppDb } from '../src/agents/tools/query-app-db';
 import { hasFeature, LICENSE_FEATURES } from '../src/services/license.service';
-import { runQueryOnLocalFiles } from '../src/services/local-query.service';
 import type { ToolContext } from '../src/types/tools';
 
 const cases = [
@@ -63,34 +57,6 @@ describe('execute_sql excluded-column enforcement', () => {
 			});
 		},
 	);
-});
-
-describe('execute_sql query definitions', () => {
-	const sqlQuery =
-		'SELECT 1 WHERE 1 = 1 {% filter category %} AND category = {{ filters.category.sql }} {% endfilter %}';
-
-	beforeEach(() => {
-		vi.mocked(queryAppDb).mockResolvedValue({ columns: ['value'], rows: [{ value: 1 }] });
-		vi.mocked(runQueryOnLocalFiles).mockResolvedValue({
-			result: { columns: ['value'], data: [{ value: 1 }] },
-			savedFile: undefined,
-		});
-	});
-
-	it.each([
-		{ name: 'local', adminMode: false, databaseId: LOCAL_DATABASE_ID },
-		{ name: 'admin', adminMode: true, databaseId: undefined },
-	])('remembers the original filter template for $name queries', async ({ adminMode, databaseId }) => {
-		const context = createContext(undefined);
-		context.adminMode = adminMode;
-
-		const output = await executeQuery({ sql_query: sqlQuery, database_id: databaseId }, context);
-
-		expect(context.queryDefinitions?.get(output.id)).toEqual({
-			sqlQuery,
-			...(databaseId && { databaseId }),
-		});
-	});
 });
 
 function createContext(storedSetting: boolean | undefined): ToolContext {

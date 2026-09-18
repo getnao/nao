@@ -38,7 +38,7 @@ const RENDER_INSTRUCTIONS = [
 ].join('\n');
 
 export function buildAgentRenderedChartText(args: {
-	config: displayChart.ChartVisualizationInput;
+	config: displayChart.ChartInput;
 	columns: string[];
 	rows: Record<string, unknown>[];
 }): string | null {

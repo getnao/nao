@@ -61,9 +61,7 @@ const Y_AXIS_RANGE_UNSUPPORTED_CHART_TYPES = new Set<displayChart.ChartType>([
 
 type UnitPlacement = 'prefix' | 'suffix';
 
-type ChartConfigDraft = Omit<displayChart.KpiCardInput, 'chart_type'> & {
-	chart_type: displayChart.ChartType;
-};
+type EditableChartInput = Omit<displayChart.KpiCardInput, 'chart_type'> & { chart_type: displayChart.ChartType };
 
 /** Maps a 100% stacked type back to its absolute-stacked counterpart, so the type dropdown stays clean. */
 function baseChartType(type: displayChart.ChartType): displayChart.ChartType {
@@ -108,9 +106,9 @@ function remapOpenIndexesAfterRemoval(openIndexes: Set<number>, removedIndex: nu
 interface ChartConfigEditDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	config: ChartConfigDraft;
+	config: EditableChartInput;
 	availableColumns: string[];
-	onSave: (next: ChartConfigDraft) => Promise<void>;
+	onSave: (next: EditableChartInput) => Promise<void>;
 	isSaving?: boolean;
 	description?: string;
 	data?: Record<string, unknown>[];
@@ -127,7 +125,7 @@ export function ChartConfigEditDialog({
 	description = 'Tweak the chart parameters.',
 	data,
 }: ChartConfigEditDialogProps) {
-	const [draft, setDraft] = useState<ChartConfigDraft>(config);
+	const [draft, setDraft] = useState<EditableChartInput>(config);
 	const [yAxisMinText, setYAxisMinText] = useState(toRangeString(config.y_axis_min));
 	const [yAxisMaxText, setYAxisMaxText] = useState(toRangeString(config.y_axis_max));
 	const [yAxisRightMinText, setYAxisRightMinText] = useState(toRangeString(config.y_axis_right_min));
@@ -187,7 +185,7 @@ export function ChartConfigEditDialog({
 			return;
 		}
 
-		const normalized: ChartConfigDraft =
+		const normalized: EditableChartInput =
 			draft.chart_type === 'kpi_card'
 				? { ...draft, x_axis_key: draft.x_axis_key || '', x_axis_type: draft.x_axis_type ?? null }
 				: draft;
@@ -332,10 +330,9 @@ export function ChartConfigEditDialog({
 									const keepPercent =
 										displayChart.isPercentStackedChartType(prev.chart_type) &&
 										displayChart.isStackedChartType(nextBase);
-									const chartType = keepPercent ? percentChartType(nextBase) : nextBase;
 									return {
 										...prev,
-										chart_type: chartType,
+										chart_type: keepPercent ? percentChartType(nextBase) : nextBase,
 									};
 								})
 							}
@@ -460,11 +457,7 @@ export function ChartConfigEditDialog({
 								const isOpen = openValueFormatIndexes.has(index);
 								const row = (
 									<div
-										className={`grid ${
-											isCombo
-												? 'grid-cols-[1fr_1fr_auto_auto_auto_auto]'
-												: 'grid-cols-[1fr_1fr_auto_auto_auto]'
-										} gap-2 items-center`}
+										className={`grid ${isCombo ? 'grid-cols-[1fr_1fr_auto_auto_auto_auto]' : 'grid-cols-[1fr_1fr_auto_auto_auto]'} gap-2 items-center`}
 									>
 										<ColumnSelect
 											value={series.data_key}
@@ -720,7 +713,7 @@ interface DisplayChartEditDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	toolCallId: string;
-	config: ChartConfigDraft;
+	config: EditableChartInput;
 	availableColumns: string[];
 	data?: Record<string, unknown>[];
 }
@@ -746,7 +739,7 @@ export function DisplayChartEditDialog({
 		}),
 	);
 
-	const handleSave = async (next: ChartConfigDraft) => {
+	const handleSave = async (next: EditableChartInput) => {
 		const previousMessages = messages;
 		setMessages(applyChartConfigToMessages(previousMessages, toolCallId, next));
 		try {
@@ -1091,7 +1084,7 @@ function getSelectableColumns(columns: string[]): string[] {
 function hasRenderableKpiComparison(
 	data: Record<string, unknown>[] | undefined,
 	xAxisKey: string | undefined,
-	series: displayChart.GenericChartInput['series'],
+	series: displayChart.ChartInput['series'],
 ): boolean {
 	if (!data || data.length < 2 || !series) {
 		return false;
@@ -1165,7 +1158,11 @@ function cssColorToHex(context: CanvasRenderingContext2D, color: string): string
 	return `#${[r, g, b].map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
 }
 
-function applyChartConfigToMessages(messages: UIMessage[], toolCallId: string, config: ChartConfigDraft): UIMessage[] {
+function applyChartConfigToMessages(
+	messages: UIMessage[],
+	toolCallId: string,
+	config: EditableChartInput,
+): UIMessage[] {
 	return messages.map((message) => {
 		let changed = false;
 		const parts = message.parts.map((part) => {

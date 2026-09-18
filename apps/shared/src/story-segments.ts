@@ -84,7 +84,6 @@ export type Segment =
 	| { type: 'grid'; cols: number; widths: number[] | null; children: Segment[] };
 
 export const TAG_ATTRS = String.raw`(?:[^>"']|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')*?`;
-export const STORY_CHART_TYPES_WITHOUT_X_AXIS_KEY = new Set(['kpi_card']);
 
 export function chartTagRegex(flags = ''): RegExp {
 	return new RegExp(String.raw`<chart\s+(${TAG_ATTRS})\/?>`, flags);
@@ -121,7 +120,7 @@ export function parseChartAttributes(attrString: string): Record<string, string>
 
 export function parseChartBlock(attrString: string): ParsedChartBlock | null {
 	const attrs = parseChartAttributes(attrString);
-	const requiresXAxisKey = !STORY_CHART_TYPES_WITHOUT_X_AXIS_KEY.has(attrs.chart_type);
+	const requiresXAxisKey = attrs.chart_type !== 'kpi_card';
 	if (!attrs.query_id || !attrs.chart_type || (requiresXAxisKey && !attrs.x_axis_key)) {
 		return null;
 	}

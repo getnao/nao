@@ -134,7 +134,7 @@ export function registerSubAgentTools(server: McpServer, ctx: McpContext): void 
 			const naoChatUrl = chatUrl(chat.id);
 
 			const agent = await agentService.create(chat, undefined, {
-				tools: defaultAgentToolsExcluding(MCP_SUB_AGENT_EXCLUDED_TOOLS, { requireMcpUserOAuth: true }),
+				tools: defaultAgentToolsExcluding(MCP_SUB_AGENT_EXCLUDED_TOOLS),
 			});
 			askNaoRuns.start(chat.id);
 			const runPromise = runAskNaoInBackground(agent, uiMessages, chat.id, naoChatUrl);

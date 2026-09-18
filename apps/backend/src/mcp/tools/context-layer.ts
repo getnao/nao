@@ -7,7 +7,6 @@ import executeSqlTool from '../../agents/tools/execute-sql';
 import grepTool from '../../agents/tools/grep';
 import listTool from '../../agents/tools/list';
 import readTool from '../../agents/tools/read';
-import { db } from '../../db/db';
 import * as chatQueries from '../../queries/chat.queries';
 import { getMcpQueryDefinitions, upsertMcpQueryData } from '../../queries/mcp-query-data.queries';
 import * as storyQueries from '../../queries/story.queries';
@@ -316,27 +315,13 @@ async function createStandaloneStory(args: {
 	code: string;
 	ctx: McpContext;
 }): Promise<CreateStoryResult> {
-	const story = await db.transaction(async (transaction) => {
-		const created = await storyQueries.createStandaloneStory(
-			{
-				userId: args.ctx.userId,
-				projectId: args.ctx.projectId,
-				slug: args.slug,
-				title: args.title,
-				code: args.code,
-				source: 'user',
-			},
-			transaction,
-		);
-		if (created) {
-			await storyFolderQueries.saveStoryInPrivateRoot(
-				args.ctx.userId,
-				args.ctx.projectId,
-				created.id,
-				transaction,
-			);
-		}
-		return created;
+	const story = await storyQueries.createStandaloneStory({
+		userId: args.ctx.userId,
+		projectId: args.ctx.projectId,
+		slug: args.slug,
+		title: args.title,
+		code: args.code,
+		source: 'user',
 	});
 
 	if (!story) {
@@ -345,6 +330,7 @@ async function createStandaloneStory(args: {
 		};
 	}
 
+	await storyFolderQueries.saveStoryInPrivateRoot(args.ctx.userId, args.ctx.projectId, story.id);
 	return { ...story, chatId: null };
 }
 

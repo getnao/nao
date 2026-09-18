@@ -3,7 +3,7 @@ import { buildStoryChartBlock } from '@nao/shared';
 import { useStoryBlockEdit } from './use-story-block-edit';
 import type { displayChart } from '@nao/shared/tools';
 
-type EditableChartInput = displayChart.ChartVisualizationInput;
+type EditableChartInput = displayChart.ChartInput | displayChart.KpiCardInput;
 
 export interface StoryChartEditHandlers {
 	/**

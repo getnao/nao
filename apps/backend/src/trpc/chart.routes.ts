@@ -75,7 +75,9 @@ export const chartRoutes = {
 		}),
 };
 
-async function readDownloadableChartConfig(toolCallId: string): Promise<displayChart.BuiltinChartInput> {
+async function readDownloadableChartConfig(
+	toolCallId: string,
+): Promise<displayChart.BuiltinChartInput | displayChart.KpiCardInput> {
 	const config = await getDisplayConfigByToolCallId(toolCallId);
 	if (displayChart.isTableInput(config)) {
 		throw new TRPCError({
@@ -89,11 +91,5 @@ async function readDownloadableChartConfig(toolCallId: string): Promise<displayC
 			message: 'Custom charts can only be viewed in the interactive web chat.',
 		});
 	}
-	if (!displayChart.isBuiltinChartInput(config)) {
-		throw new TRPCError({
-			code: 'BAD_REQUEST',
-			message: 'The chart configuration is invalid.',
-		});
-	}
-	return config;
+	return { ...config, chart_type: config.chart_type };
 }

@@ -1,8 +1,5 @@
 import { resolve } from 'node:path';
 
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/db/db', () => ({ db: {} }));
@@ -10,7 +7,6 @@ vi.mock('../src/db/db', () => ({ db: {} }));
 import { getTools } from '../src/agents/tools';
 import { authRequiredOutput, createMcpCallTool } from '../src/agents/tools/mcp-call';
 import { createMcpConnectTool } from '../src/agents/tools/mcp-connect';
-import { registerAssetTools } from '../src/mcp/tools/asset-tools';
 import * as mcpOAuthQueries from '../src/queries/mcp-oauth.queries';
 import { normalizeReturnTo, resultPage } from '../src/routes/mcp-oauth';
 import { McpArgsValidationError, McpService, mcpService } from '../src/services/mcp';
@@ -166,29 +162,6 @@ describe('MCP auth-required tool output', () => {
 		expect(output.value).not.toContain('AUTH_REQUIRED');
 		expect(output.value).toContain('"mcpAuthRequired":true');
 	});
-
-	it('forwards the per-user OAuth requirement to MCP calls', async () => {
-		const callTool = vi.spyOn(mcpService, 'callTool').mockResolvedValue({ ok: true });
-		const tool = createMcpCallTool(null, true) as unknown as {
-			execute: (
-				input: { server: string; tool: string; arguments: Record<string, unknown> },
-				options: unknown,
-			) => Promise<unknown>;
-		};
-
-		await tool.execute(
-			{ server: 'metabase', tool: 'search', arguments: {} },
-			{ experimental_context: { projectId: 'project-1', userId: 'user-1' } },
-		);
-
-		expect(callTool).toHaveBeenCalledWith(
-			expect.objectContaining({
-				projectId: 'project-1',
-				userId: 'user-1',
-				requireUserOAuth: true,
-			}),
-		);
-	});
 });
 
 describe('MCP connect tool', () => {
@@ -213,48 +186,6 @@ describe('MCP connect tool', () => {
 });
 
 describe('MCP tool registration', () => {
-	it('advertises the conditional display-chart schema through the MCP SDK', async () => {
-		const server = new McpServer({ name: 'test-server', version: '1.0.0' });
-		registerAssetTools(server, {
-			projectId: 'project-1',
-			userId: 'user-1',
-			settings: {
-				enabled: true,
-				subAgentModeEnabled: true,
-				contextLayerModeEnabled: true,
-			},
-			chartDataMode: false,
-		});
-		const client = new Client({ name: 'test-client', version: '1.0.0' });
-		const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-		await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
-
-		try {
-			const result = await client.listTools();
-			const schema = result.tools.find((tool) => tool.name === 'display_chart')?.inputSchema as {
-				type?: string;
-				properties?: Record<string, unknown>;
-				oneOf?: {
-					properties?: { chart_type?: { const?: string; enum?: string[] } };
-					required?: string[];
-				}[];
-			};
-			const kpiSchema = schema.oneOf?.find((option) => option.properties?.chart_type?.const === 'kpi_card');
-			const chartSchema = schema.oneOf?.find((option) => option.properties?.chart_type?.enum?.includes('bar'));
-
-			expect(schema.type).toBe('object');
-			expect(schema.properties).toHaveProperty('query_id');
-			expect(schema.properties).toHaveProperty('chat_id');
-			expect(kpiSchema).toBeDefined();
-			expect(chartSchema).toBeDefined();
-			expect(kpiSchema?.required).not.toEqual(expect.arrayContaining(['x_axis_key', 'x_axis_type']));
-			expect(chartSchema?.required).toEqual(expect.arrayContaining(['x_axis_key', 'x_axis_type']));
-		} finally {
-			await client.close();
-			await server.close();
-		}
-	});
-
 	it('omits the MCP tools when the requested allowlist is empty or unavailable', () => {
 		vi.spyOn(mcpService, 'getConfiguredServerNames').mockReturnValue(['configured']);
 

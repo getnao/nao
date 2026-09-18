@@ -43,9 +43,6 @@ export default createTool<displayChart.Input, displayChart.Output>({
 			}
 			return { _version: '1', success: true };
 		}
-		if (!displayChart.isBuiltinChartInput(input)) {
-			return { _version: '1', success: false, error: 'Invalid built-in chart configuration.' };
-		}
 
 		// Validate xAxisKey is provided for cartesian and polar charts
 		if (displayChart.chartTypeRequiresXAxisKey(chartType) && !xAxisKey) {
@@ -77,7 +74,7 @@ export default createTool<displayChart.Input, displayChart.Output>({
 
 		// TODO: check that the chart is displayable and that the data is valid
 
-		context.generatedArtifacts.charts.push(input);
+		context.generatedArtifacts.charts.push({ ...input, chart_type: chartType });
 		return { _version: '1', success: true };
 	},
 

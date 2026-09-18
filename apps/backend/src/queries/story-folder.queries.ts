@@ -323,23 +323,14 @@ export async function moveStoryToFolder(
 	folderId: string | null,
 	options: { storyOwnerId: string; projectId: string },
 ): Promise<void> {
-	await db.transaction((tx) => moveStoryToFolderWithExecutor(storyId, folderId, options, tx));
-}
-
-async function moveStoryToFolderWithExecutor(
-	storyId: string,
-	folderId: string | null,
-	options: { storyOwnerId: string; projectId: string },
-	executor: DBExecutor,
-): Promise<void> {
-	await executor.delete(s.storyFolderItem).where(eq(s.storyFolderItem.storyId, storyId)).execute();
+	await db.delete(s.storyFolderItem).where(eq(s.storyFolderItem.storyId, storyId)).execute();
 
 	if (folderId) {
-		await executor.insert(s.storyFolderItem).values({ storyId, folderId }).execute();
+		await db.insert(s.storyFolderItem).values({ storyId, folderId }).execute();
 	}
 
-	const newVisibility = await resolveFolderVisibility(folderId, executor);
-	await propagateShareChange([storyId], options.projectId, options.storyOwnerId, newVisibility, executor);
+	const newVisibility = await resolveFolderVisibility(folderId);
+	await propagateShareChange([storyId], options.projectId, options.storyOwnerId, newVisibility);
 }
 
 async function propagateShareChange(
