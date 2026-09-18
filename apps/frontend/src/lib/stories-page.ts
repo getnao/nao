@@ -220,10 +220,19 @@ export function filterStories(items: StoryItem[], query: string): StoryItem[] {
 	const lowerQuery = query.toLowerCase();
 	return items.filter(
 		(item) =>
+			matchesStoryId(item, query) ||
 			item.title.toLowerCase().includes(lowerQuery) ||
 			item.author.toLowerCase().includes(lowerQuery) ||
 			extractSummaryText(item.summary).toLowerCase().includes(lowerQuery),
 	);
+}
+
+export function matchesStoryId(item: StoryItem, query: string): boolean {
+	const normalizedQuery = query.trim().toLowerCase();
+	if (!normalizedQuery) {
+		return false;
+	}
+	return [item.storyId, item.sharedStoryId, item.chatId].some((id) => id?.toLowerCase() === normalizedQuery);
 }
 
 export function buildCurrentLevelEntries({
@@ -233,6 +242,7 @@ export function buildCurrentLevelEntries({
 	sort,
 	currentUserName,
 	favoriteFolderIds,
+	searchQuery = '',
 }: {
 	items: StoryItem[];
 	folders: FolderItem[];
@@ -240,6 +250,7 @@ export function buildCurrentLevelEntries({
 	sort: SortState;
 	currentUserName: string;
 	favoriteFolderIds?: string[];
+	searchQuery?: string;
 }): { pinned: StoryItem[]; favorites: FavoriteEntry[]; entries: ExplorerEntry[] } {
 	const favoriteFolderSet = new Set<string>(favoriteFolderIds ?? []);
 
@@ -260,9 +271,7 @@ export function buildCurrentLevelEntries({
 	const inSharedWithMe = currentFolderId === '__shared_with_me__';
 	const subfolders = inSharedWithMe ? [] : folders.filter((f) => f.parentId === currentFolderId);
 
-	const rest = inSharedWithMe
-		? items.filter((i) => i.kind === 'shared-with-me')
-		: items.filter((i) => i.folderId === currentFolderId && i.kind !== 'shared-with-me');
+	const rest = items.filter((item) => isAtCurrentLevel(item, currentFolderId) || matchesStoryId(item, searchQuery));
 
 	const systemFolders = subfolders.filter(isSystemFolder).sort((a, b) => systemFolderRank(a) - systemFolderRank(b));
 	const regularFolders = subfolders.filter((f) => !isSystemFolder(f));
@@ -279,6 +288,13 @@ export function buildCurrentLevelEntries({
 	];
 
 	return { pinned, favorites, entries };
+}
+
+function isAtCurrentLevel(item: StoryItem, currentFolderId: string | null): boolean {
+	if (currentFolderId === '__shared_with_me__') {
+		return item.kind === 'shared-with-me';
+	}
+	return item.folderId === currentFolderId && item.kind !== 'shared-with-me';
 }
 
 function systemFolderRank(folder: FolderItem): number {

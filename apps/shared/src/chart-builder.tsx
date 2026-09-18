@@ -51,7 +51,19 @@ import {
 import { type DateFormatSettings, formatDateValue, isIsoDateLike } from './date';
 import * as displayChart from './tools/display-chart';
 
-export const DEFAULT_COLORS = ['#104e64', '#f54900', '#009689', '#ffb900', '#fe9a00'];
+export const DEFAULT_COLORS = [
+	'#104e64',
+	'#f54900',
+	'#009689',
+	'#ffb900',
+	'#fe9a00',
+	'#ff6467',
+	'#8851eb',
+	'#345fcf',
+	'#23a136',
+	'#d259bc',
+	'#00afcb',
+];
 
 const CHART_LABEL_FONT_SIZE = 12;
 const AXIS_TICK = { fontSize: CHART_LABEL_FONT_SIZE };
@@ -59,7 +71,7 @@ const CATEGORY_XAXIS_HEIGHT = 56;
 const X_AXIS_LABEL_HEIGHT = 22;
 
 /** Beyond this many slices, pie/donut charts bucket the smallest into a single "Other" slice. */
-const MAX_PIE_SLICES = 10;
+const MAX_PIE_SLICES = DEFAULT_COLORS.length - 1;
 
 const DONUT_INNER_RADIUS = '45%';
 

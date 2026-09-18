@@ -9,6 +9,7 @@ import { LlmProvidersSection } from '@/components/settings/llm-providers-section
 import { SavedPrompts } from '@/components/settings/saved-prompts';
 import { SettingsDisplayMap } from '@/components/settings/display-map';
 import { SettingsProjectMemory } from '@/components/settings/project-memory';
+import { SettingsSemanticLayer } from '@/components/settings/semantic-layer';
 import { SettingsTranscribe } from '@/components/settings/settings-transcribe';
 import { SettingsWebSearch } from '@/components/settings/web-search';
 import { SettingsCard } from '@/components/ui/settings-card';
@@ -85,6 +86,7 @@ function ToolsSettings({ isAdmin }: { isAdmin: boolean }) {
 			<SavedPrompts isAdmin={isAdmin} />
 			{isAdmin && <SettingsProjectMemory />}
 			<SettingsDisplayMap isAdmin={isAdmin} />
+			<SettingsSemanticLayer isAdmin={isAdmin} />
 			<SettingsExperimental isAdmin={isAdmin} />
 			<SettingsExcludeColumns isAdmin={isAdmin} />
 		</>

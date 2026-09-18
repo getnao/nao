@@ -1,3 +1,5 @@
+import type { SemanticLayerMode } from '@nao/shared/types';
+
 export type WebSearchMode = 'provider';
 
 export interface AgentSettings {
@@ -22,5 +24,8 @@ export interface AgentSettings {
 	webSearch?: {
 		enabled?: boolean;
 		mode?: WebSearchMode;
+	};
+	semanticLayer?: {
+		mode?: SemanticLayerMode;
 	};
 }

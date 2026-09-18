@@ -2,9 +2,11 @@ export { isPythonAvailable } from './execute-python';
 export { isSandboxAvailable } from './execute-sandboxed-code';
 
 import type { CustomBoundarySet } from '@nao/shared';
+import type { SemanticLayerMode } from '@nao/shared/types';
 import type { Tool } from 'ai';
 
 import { mcpService } from '../../services/mcp';
+import { isSemanticQueryToolEnabled, isWarehouseSqlEnabled } from '../../services/semantic-layer.service';
 import { isStorageEnabled } from '../../services/storage';
 import { AgentSettings } from '../../types/agent-settings';
 import clarification from './clarification';
@@ -12,7 +14,8 @@ import displayChart from './display-chart';
 import { createDisplayMapTool } from './display-map';
 import executePython from './execute-python';
 import executeSandboxedCode from './execute-sandboxed-code';
-import executeSql from './execute-sql';
+import executeSemanticQuery from './execute-semantic-query';
+import executeSql, { localOnlyExecuteSql } from './execute-sql';
 import grep from './grep';
 import list from './list';
 import loadSkill from './load-skill';
@@ -39,6 +42,7 @@ export const tools = {
 	...(executePython && { execute_python: executePython }),
 	...(executeSandboxedCode && { execute_sandboxed_code: executeSandboxedCode }),
 	execute_sql: executeSql,
+	execute_semantic_query: executeSemanticQuery,
 	read_query_result: readQueryResult,
 	grep,
 	list,
@@ -74,6 +78,12 @@ export const getTools = (
 		excludeBuiltinTools?: string[];
 		/** Custom GeoJSON boundary sets defined by the project admin. */
 		customBoundaries?: CustomBoundarySet[];
+		/**
+		 * Semantic layer mode of the run (`ToolContext.semanticLayerMode`). `execute_semantic_query`
+		 * is only exposed for the querying modes, and `exclusive` restricts `execute_sql` to the
+		 * local database; omit when the project has no semantic layer.
+		 */
+		semanticLayerMode?: SemanticLayerMode | null;
 	} = {},
 ) => {
 	const configuredServers = new Set(mcpService.getConfiguredServerNames());
@@ -92,6 +102,8 @@ export const getTools = (
 	const {
 		execute_python,
 		execute_sandboxed_code,
+		execute_semantic_query,
+		execute_sql,
 		clarification: clarificationTool,
 		suggest_follow_ups,
 		write: writeTool,
@@ -99,6 +111,8 @@ export const getTools = (
 	} = tools;
 	const baseTools = {
 		...rest,
+		execute_sql: isWarehouseSqlEnabled(options.semanticLayerMode) ? execute_sql : localOnlyExecuteSql,
+		...(isSemanticQueryToolEnabled(options.semanticLayerMode) && { execute_semantic_query }),
 		...(isStorageEnabled() && { write: writeTool }),
 		...(!options.excludeFollowUps && { suggest_follow_ups }),
 	};

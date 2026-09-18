@@ -99,6 +99,25 @@ const baseEnvSchema = z.object({
 	SMTP_MAIL_FROM: z.string().optional(),
 	SMTP_SSL: z.enum(['true', 'false']).optional(),
 
+	/**
+	 * Declarative Slack setup: when SLACK_BOT_TOKEN is set, these seed the default project's Slack
+	 * settings on boot (see seedSlackConfigFromEnv), replacing the manual Settings > Slack form.
+	 * SLACK_TRANSPORT_MODE defaults to socket when SLACK_APP_TOKEN is present, webhook otherwise.
+	 */
+	SLACK_BOT_TOKEN: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	SLACK_SIGNING_SECRET: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	SLACK_APP_TOKEN: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	SLACK_TRANSPORT_MODE: z.enum(['webhook', 'socket']).optional(),
+
 	FASTAPI_PORT: z.coerce.number().default(8005),
 	APP_VERSION: z.string().default('dev'),
 	APP_COMMIT: z.string().default('unknown'),
@@ -269,16 +288,45 @@ const baseEnvSchema = z.object({
 	BETA_STORY_FILTERS_ENABLED: z
 		.enum(['true', 'false'])
 		.optional()
-		.default('false')
+		.default('true')
 		.transform((val) => val === 'true'),
 });
 
-// Refresh tokens must outlive access tokens, otherwise a client can hold a valid
-// access token it can no longer renew once the refresh token has expired.
-const envSchema = baseEnvSchema.refine((e) => e.MCP_REFRESH_TOKEN_TTL > e.MCP_ACCESS_TOKEN_TTL, {
-	message: 'MCP_REFRESH_TOKEN_TTL must be greater than MCP_ACCESS_TOKEN_TTL so refresh tokens outlive access tokens',
-	path: ['MCP_REFRESH_TOKEN_TTL'],
-});
+const envSchema = baseEnvSchema
+	.superRefine((data, ctx) => {
+		if (!data.SLACK_BOT_TOKEN) {
+			if (data.SLACK_SIGNING_SECRET || data.SLACK_APP_TOKEN || data.SLACK_TRANSPORT_MODE) {
+				ctx.addIssue({
+					code: 'custom',
+					path: ['SLACK_BOT_TOKEN'],
+					message: 'SLACK_BOT_TOKEN is required when other SLACK_* variables are set',
+				});
+			}
+			return;
+		}
+		const transport = data.SLACK_TRANSPORT_MODE ?? (data.SLACK_APP_TOKEN ? 'socket' : 'webhook');
+		if (transport === 'socket' && !data.SLACK_APP_TOKEN) {
+			ctx.addIssue({
+				code: 'custom',
+				path: ['SLACK_APP_TOKEN'],
+				message: 'SLACK_APP_TOKEN (xapp-...) is required when SLACK_TRANSPORT_MODE=socket',
+			});
+		}
+		if (transport === 'webhook' && !data.SLACK_SIGNING_SECRET) {
+			ctx.addIssue({
+				code: 'custom',
+				path: ['SLACK_SIGNING_SECRET'],
+				message: 'SLACK_SIGNING_SECRET is required when Slack runs in webhook mode',
+			});
+		}
+	})
+	// Refresh tokens must outlive access tokens, otherwise a client can hold a valid
+	// access token it can no longer renew once the refresh token has expired.
+	.refine((e) => e.MCP_REFRESH_TOKEN_TTL > e.MCP_ACCESS_TOKEN_TTL, {
+		message:
+			'MCP_REFRESH_TOKEN_TTL must be greater than MCP_ACCESS_TOKEN_TTL so refresh tokens outlive access tokens',
+		path: ['MCP_REFRESH_TOKEN_TTL'],
+	});
 
 const result = envSchema.safeParse(process.env);
 
@@ -292,6 +340,11 @@ if (!result.success) {
 
 if (result.data.NAO_DEFAULT_PROJECT_PATH && result.data.NAO_MODE === 'cloud') {
 	console.error('NAO_DEFAULT_PROJECT_PATH and NAO_MODE=cloud cannot be set at the same time.');
+	process.exit(1);
+}
+
+if (result.data.NAO_CONTEXT_SOURCE === 'git' && result.data.NAO_MODE === 'cloud') {
+	console.error('NAO_CONTEXT_SOURCE=git cannot be set when NAO_MODE=cloud.');
 	process.exit(1);
 }
 

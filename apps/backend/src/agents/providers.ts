@@ -72,6 +72,7 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 						excludeTools: [
 							'display_chart',
 							'execute_python',
+							'execute_semantic_query',
 							'execute_sql',
 							'execute_sandboxed_code',
 							'grep',
@@ -189,6 +190,10 @@ export const LLM_PROVIDERS: LlmProvidersType = {
 		...PROVIDER_META.moonshot,
 		create: (settings, modelId) => createCompatibleModel('moonshot', settings, modelId),
 	},
+	requesty: {
+		...PROVIDER_META.requesty,
+		create: (settings, modelId) => createCompatibleModel('requesty', settings, modelId),
+	},
 	openaiCompatible: {
 		...PROVIDER_META.openaiCompatible,
 		create: (settings, modelId) => createCompatibleModel('openaiCompatible', settings, modelId),
@@ -261,6 +266,7 @@ export function disableModelReasoning(provider: LlmProvider, modelResult: Provid
 	switch (providerKind(provider)) {
 		case 'openai':
 		case 'azure':
+		case 'requesty':
 		case 'openaiCompatible':
 			options.reasoningEffort = 'none';
 			break;
@@ -482,6 +488,7 @@ function resolveThinking(
 			return resolveEffortThinking(effort, (e) => ({ reasoningEffort: e }));
 		case 'qwen':
 			return resolveQwenThinking(capabilities, settings);
+		case 'requesty':
 		case 'openaiCompatible':
 			// The SDK turns this into the `reasoning_effort` field of the OpenAI chat API.
 			return resolveEffortThinking(effort, (e) => ({ reasoningEffort: EFFORT_TO_OPENAI[e] }));

@@ -962,6 +962,7 @@ export const storyDataCache = sqliteTable('story_data_cache', {
 });
 
 export const ACTIVITY_TYPES = [
+	'context.pulled',
 	'story.refreshed',
 	'story.shared',
 	'story.pinned',

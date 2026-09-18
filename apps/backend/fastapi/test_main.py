@@ -1,8 +1,10 @@
 import json
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import duckdb
+import main
 import pytest
 import yaml
 from fastapi.testclient import TestClient
@@ -70,7 +72,14 @@ def duckdb_project_with_excluded_columns():
         config_path = Path(tmpdir) / "nao_config.yaml"
         with config_path.open("w") as f:
             yaml.dump(config, f)
-        catalog_path = Path(tmpdir) / ".meta" / "databases" / "type=duckdb" / "database=test" / "columns.json"
+        catalog_path = (
+            Path(tmpdir)
+            / ".meta"
+            / "databases"
+            / "type=duckdb"
+            / "database=test"
+            / "columns.json"
+        )
         catalog_path.parent.mkdir(parents=True)
         catalog_path.write_text(
             json.dumps(
@@ -91,6 +100,44 @@ def duckdb_project_with_excluded_columns():
         yield tmpdir
 
 
+@pytest.fixture
+def duckdb_project_with_listed_tables_only():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project_path = Path(tmpdir)
+        database_path = project_path / "test.duckdb"
+        conn = duckdb.connect(str(database_path))
+        conn.execute("CREATE TABLE orders (id INTEGER, total INTEGER)")
+        conn.execute("INSERT INTO orders VALUES (1, 25)")
+        conn.execute("CREATE TABLE users (id INTEGER, name VARCHAR)")
+        conn.execute("INSERT INTO users VALUES (1, 'Alice')")
+        conn.close()
+
+        config = {
+            "project_name": "test-project",
+            "databases": [
+                {
+                    "name": "test-duckdb",
+                    "type": "duckdb",
+                    "path": str(database_path),
+                    "allow_listed_only": True,
+                }
+            ],
+        }
+        config_path = project_path / "nao_config.yaml"
+        with config_path.open("w") as f:
+            yaml.dump(config, f)
+
+        (
+            project_path
+            / "databases"
+            / "type=duckdb"
+            / "database=test"
+            / "schema=main"
+            / "table=orders"
+        ).mkdir(parents=True)
+        yield tmpdir
+
+
 def test_health_does_not_require_internal_secret():
     response = TestClient(app).get("/health")
 
@@ -99,7 +146,10 @@ def test_health_does_not_require_internal_secret():
 
 @pytest.mark.parametrize("headers", [{}, {"X-Nao-Internal-Secret": "wrong-secret"}])
 def test_internal_routes_reject_missing_or_wrong_secret(headers):
-    response = TestClient(app).post(
+    client = TestClient(app, headers=INTERNAL_HEADERS)
+    client.headers.pop("X-Nao-Internal-Secret")
+
+    response = client.post(
         "/execute_sql",
         headers=headers,
         json={"sql": "SELECT 1", "nao_project_folder": "/tmp"},
@@ -204,6 +254,90 @@ def test_execute_sql_allows_excluded_column_without_enforcement(
     )
 
 
+def test_execute_sql_allows_table_present_in_synced_context(
+    duckdb_project_with_listed_tables_only,
+):
+    client = TestClient(app, headers=INTERNAL_HEADERS)
+
+    response = client.post(
+        "/execute_sql",
+        json={
+            "sql": "SELECT * FROM orders",
+            "nao_project_folder": duckdb_project_with_listed_tables_only,
+        },
+    )
+
+    assert response.status_code == 200
+    assert_sql_result(
+        response.json(),
+        row_count=1,
+        columns=["id", "total"],
+        expected_data=[{"id": 1, "total": 25}],
+    )
+
+
+def test_execute_sql_blocks_table_missing_from_synced_context(
+    duckdb_project_with_listed_tables_only,
+):
+    client = TestClient(app, headers=INTERNAL_HEADERS)
+
+    response = client.post(
+        "/execute_sql",
+        json={
+            "sql": "SELECT * FROM users",
+            "nao_project_folder": duckdb_project_with_listed_tables_only,
+        },
+    )
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "allow_listed_only is enabled" in detail
+    assert "Unlisted table(s): main.users" in detail
+    assert "Only synced context tables are allowed - list/read context to see them." in detail
+
+
+def test_azure_entra_tableless_query_does_not_require_sync_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    class AzureDatabaseConfig:
+        name = "test-redshift"
+        type = "redshift"
+        auth_mode = SimpleNamespace(value="azure_entra_id")
+        user = None
+        password = None
+        allow_listed_only = True
+        exclude_columns = ["*.secret"]
+
+        def execute_sql_with_token(self, sql: str, access_token: str):
+            assert sql == "SELECT 1 AS value"
+            assert access_token == "token"
+            return main.pd.DataFrame([{"value": 1}])
+
+    config = SimpleNamespace(databases=[AzureDatabaseConfig()])
+    monkeypatch.setattr(
+        main.NaoConfig,
+        "try_load",
+        staticmethod(lambda *args, **kwargs: config),
+    )
+
+    response = TestClient(app, headers=INTERNAL_HEADERS).post(
+        "/execute_sql",
+        json={
+            "sql": "SELECT 1 AS value",
+            "nao_project_folder": "/unused",
+            "azure_access_token": "token",
+        },
+    )
+
+    assert response.status_code == 200
+    assert_sql_result(
+        response.json(),
+        row_count=1,
+        columns=["value"],
+        expected_data=[{"value": 1}],
+    )
+
+
 def test_execute_sql_with_cte_duckdb(duckdb_project_folder):
     """Test execute_sql endpoint with a DuckDB in-memory database."""
     client = TestClient(app, headers=INTERNAL_HEADERS)
@@ -302,3 +436,87 @@ def test_execute_sql_with_cte_bigquery(bigquery_project_folder):
             {"id": 3, "name": "Charlie"},
         ],
     )
+
+
+SEMANTIC_MANIFEST_FIXTURE = (
+    Path(__file__).resolve().parent.parent.parent.parent
+    / "cli"
+    / "tests"
+    / "nao_core"
+    / "semantic_layer"
+    / "semantic_manifest.json"
+)
+
+
+@pytest.fixture
+def semantic_layer_project_folder():
+    """A DuckDB project with a MetricFlow semantic layer synced under semantics/."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        project = Path(tmpdir)
+        manifest = project / ".meta" / "semantic_layer" / "semantic_manifest.json"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text(SEMANTIC_MANIFEST_FIXTURE.read_text())
+        config = {
+            "project_name": "test-project",
+            "databases": [
+                {"name": "warehouse", "type": "duckdb", "path": ":memory:"},
+                {"name": "other", "type": "duckdb", "path": ":memory:"},
+            ],
+            "semantic_layer": {
+                "type": "metricflow",
+                "manifest_path": "dbt/target/semantic_manifest.json",
+                "database": "warehouse",
+            },
+        }
+        with (project / "nao_config.yaml").open("w") as f:
+            yaml.dump(config, f)
+        yield tmpdir
+
+
+def test_compile_semantic_query(semantic_layer_project_folder):
+    client = TestClient(app, headers=INTERNAL_HEADERS)
+
+    response = client.post(
+        "/semantic_layer/compile",
+        json={
+            "nao_project_folder": semantic_layer_project_folder,
+            "metrics": ["revenue"],
+            "group_by": ["metric_time__month", "order__status"],
+            "where": ["{{ Dimension('order__status') }} = 'completed'"],
+            "order_by": ["-metric_time__month"],
+            "limit": 6,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["database_id"] == "warehouse"
+    assert body["dialect"] == "duckdb"
+    assert "SUM(revenue) AS revenue" in body["sql"]
+    assert "FROM main.orders" in body["sql"]
+    assert "order__status = 'completed'" in body["sql"]
+    assert "LIMIT 6" in body["sql"]
+
+
+def test_compile_semantic_query_reports_unknown_metric(semantic_layer_project_folder):
+    client = TestClient(app, headers=INTERNAL_HEADERS)
+
+    response = client.post(
+        "/semantic_layer/compile",
+        json={"nao_project_folder": semantic_layer_project_folder, "metrics": ["revenu"]},
+    )
+
+    assert response.status_code == 400
+    assert "revenue" in response.json()["detail"]
+
+
+def test_compile_semantic_query_without_semantic_layer(duckdb_project_folder):
+    client = TestClient(app, headers=INTERNAL_HEADERS)
+
+    response = client.post(
+        "/semantic_layer/compile",
+        json={"nao_project_folder": duckdb_project_folder, "metrics": ["revenue"]},
+    )
+
+    assert response.status_code == 400
+    assert "semantic_layer" in response.json()["detail"]

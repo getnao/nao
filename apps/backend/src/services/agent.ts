@@ -64,7 +64,7 @@ import {
 	resolveProviderSettings,
 } from '../utils/llm';
 import { logger } from '../utils/logger';
-import { extractConfiguredDatabases } from '../utils/nao-config';
+import { extractConfiguredDatabases, readProjectContext } from '../utils/nao-config';
 import { addPromptCache, cachedSystemInstructions } from '../utils/prompt-cache';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt, titleGenerationUserMessage } from '../utils/title';
@@ -76,6 +76,7 @@ import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { mcpService } from './mcp';
 import { memoryService } from './memory';
 import { getAzureAccessTokenForUser } from './microsoft-auth.service';
+import { resolveSemanticLayerMode } from './semantic-layer.service';
 import { skillService } from './skill';
 import { canGrepUserFiles } from './storage/user-files';
 import { getStoryTemplateWarnings } from './story-template-validation';
@@ -120,14 +121,29 @@ export interface AgentToolsContext {
 export type AgentToolsResolver = (context: AgentToolsContext) => AgentTools | Promise<AgentTools>;
 
 /** Default tool set for interactive runs: all built-ins, MCP tools and web search. */
-export const defaultAgentTools: AgentToolsResolver = ({ chat, agentSettings, webTools, customBoundaries }) =>
-	getTools(agentSettings, webTools ?? {}, { testMode: chat.testMode, customBoundaries });
+export const defaultAgentTools: AgentToolsResolver = ({
+	chat,
+	agentSettings,
+	toolContext,
+	webTools,
+	customBoundaries,
+}) =>
+	getTools(agentSettings, webTools ?? {}, {
+		testMode: chat.testMode,
+		customBoundaries,
+		semanticLayerMode: toolContext.semanticLayerMode,
+	});
 
 /** Default tool set minus the given built-ins — for runs whose surface cannot render them. */
 export const defaultAgentToolsExcluding =
 	(excludeBuiltinTools: string[]): AgentToolsResolver =>
-	({ chat, agentSettings, webTools, customBoundaries }) =>
-		getTools(agentSettings, webTools ?? {}, { testMode: chat.testMode, excludeBuiltinTools, customBoundaries });
+	({ chat, agentSettings, toolContext, webTools, customBoundaries }) =>
+		getTools(agentSettings, webTools ?? {}, {
+			testMode: chat.testMode,
+			excludeBuiltinTools,
+			customBoundaries,
+			semanticLayerMode: toolContext.semanticLayerMode,
+		});
 
 /**
  * Admin-mode tool set: the same `execute_sql` tool the chat already uses (it
@@ -194,6 +210,7 @@ async function _buildContextBase(opts: {
 		projectId: opts.projectId,
 		supportsCustomCharts: opts.supportsCustomCharts !== false,
 		agentSettings,
+		semanticLayerMode: resolveSemanticLayerMode(project.path, agentSettings),
 		envVars,
 		azureAccessToken,
 		queryResults: new Map(),
@@ -481,6 +498,15 @@ class AgentManager {
 	): ReadableStream<InferUIMessageChunk<UIMessage>> {
 		let error: unknown = undefined;
 		let result: StreamTextResult<AgentTools, never> | undefined;
+		const handleError = (err: unknown): string => {
+			error = err;
+			logger.error(`Agent stream error: ${String(err)}`, {
+				source: 'agent',
+				projectId: this.chat.projectId,
+				context: { chatId: this.chat.id, modelId: this._modelSelection.modelId },
+			});
+			return formatErrorMessageForUI(err);
+		};
 
 		return createUIMessageStream<UIMessage>({
 			generateId: () => crypto.randomUUID(),
@@ -525,19 +551,11 @@ class AgentManager {
 				writer.merge(
 					result.toUIMessageStream({
 						sendStart: false,
-						onError: formatErrorMessageForUI,
+						onError: handleError,
 					}),
 				);
 			},
-			onError: (err) => {
-				error = err;
-				logger.error(`Agent stream error: ${String(err)}`, {
-					source: 'agent',
-					projectId: this.chat.projectId,
-					context: { chatId: this.chat.id, modelId: this._modelSelection.modelId },
-				});
-				return String(err);
-			},
+			onError: handleError,
 			onFinish: async (e) => {
 				try {
 					const stopReason = e.isAborted ? 'interrupted' : e.finishReason;
@@ -606,6 +624,8 @@ class AgentManager {
 		const userRules = getUserRules(this._toolContext.projectFolder);
 		const connections = getConnections(this._toolContext.projectFolder);
 		const configuredDatabases = extractConfiguredDatabases(this._toolContext.projectFolder);
+		const { repos, templates, presence: contextPresence } = readProjectContext(this._toolContext.projectFolder);
+		const repoNames = repos.map((repo) => repo.name);
 		const skills = skillService.getSkills(this.chat.projectId);
 		const customCharts = this._toolContext.supportsCustomCharts
 			? listChartPlugins(this._toolContext.projectFolder)
@@ -620,6 +640,10 @@ class AgentManager {
 				skills,
 				customCharts,
 				mcpServers,
+				semanticLayerMode: this._toolContext.semanticLayerMode,
+				templates,
+				repoNames,
+				contextPresence,
 				timezone,
 				testMode: this.chat.testMode,
 				toolNames: Object.keys(this._agentTools),
