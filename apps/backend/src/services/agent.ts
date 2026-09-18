@@ -80,7 +80,8 @@ import { resolveSemanticLayerMode } from './semantic-layer.service';
 import { skillService } from './skill';
 import { canGrepUserFiles } from './storage/user-files';
 import { getStoryTemplateWarnings } from './story-template-validation';
-import { getEffectiveUserGroupFeatureFlags } from './user-group-feature-access.service';
+import { resolveProjectContextAccess } from './user-group-context-access.service';
+import { createUserGroupFeatureFlags } from './user-group-feature-access.service';
 
 export interface AgentRunResult {
 	text: string;
@@ -204,7 +205,6 @@ export async function buildToolContext(opts: {
 	agentSettings?: AgentSettings | null;
 	adminMode?: boolean;
 	supportsCustomCharts?: boolean;
-	storyCreationEnabled?: boolean;
 	modelSelection?: LlmSelectedModel;
 }): Promise<ToolContext> {
 	const base = await _buildContextBase(opts);
@@ -230,7 +230,6 @@ async function _buildContextBase(opts: {
 	userId: string;
 	agentSettings?: AgentSettings | null;
 	supportsCustomCharts?: boolean;
-	storyCreationEnabled?: boolean;
 }): Promise<Omit<ToolContext, 'chatId'>> {
 	const project = await projectQueries.retrieveProjectById(opts.projectId);
 	if (!project.path) {
@@ -238,19 +237,23 @@ async function _buildContextBase(opts: {
 	}
 	const agentSettings =
 		opts.agentSettings !== undefined ? opts.agentSettings : await projectQueries.getAgentSettings(opts.projectId);
-	const [envVars, azureAccessToken] = await Promise.all([
+	const [envVars, azureAccessToken, contextAccess] = await Promise.all([
 		projectQueries.getEnvVars(opts.projectId),
 		hasFeature(LICENSE_FEATURES.sso).then((has) => (has ? getAzureAccessTokenForUser(opts.userId) : null)),
+		resolveProjectContextAccess(opts.projectId, opts.userId, project.path),
 	]);
 	return {
 		projectFolder: project.path,
 		userId: opts.userId,
 		projectId: opts.projectId,
-		storyCreationEnabled: opts.storyCreationEnabled ?? true,
+		storyCreationEnabled: contextAccess.userGroupFeatures.includes('story-creation'),
 		supportsCustomCharts: opts.supportsCustomCharts !== false,
 		agentSettings,
 		semanticLayerMode: resolveSemanticLayerMode(project.path, agentSettings),
 		envVars,
+		warehouseTableAccess: contextAccess.warehouseTableAccess,
+		docsContextAccess: contextAccess.docsContextAccess,
+		userGroupFeatures: contextAccess.userGroupFeatures,
 		azureAccessToken,
 		queryResults: new Map(),
 		generatedArtifacts: { charts: [], maps: [], stories: [] },
@@ -313,10 +316,9 @@ export class AgentService {
 		const resolvedLlmSelectedModel = await this._getResolvedLlmSelectedModel(chat.projectId, modelSelection);
 		await assertBudgetNotExceeded(chat.projectId, resolvedLlmSelectedModel.provider, chat.userId);
 		const modelConfig = await this._getModelConfig(chat.projectId, resolvedLlmSelectedModel);
-		const [agentSettings, customBoundaries, featureFlags] = await Promise.all([
+		const [agentSettings, customBoundaries] = await Promise.all([
 			projectQueries.getAgentSettings(chat.projectId),
 			projectQueries.getCustomBoundaries(chat.projectId),
-			getEffectiveUserGroupFeatureFlags(chat.projectId, chat.userId),
 		]);
 		const toolContext = await this._getToolContext({
 			projectId: chat.projectId,
@@ -325,12 +327,12 @@ export class AgentService {
 			agentSettings,
 			adminMode: options.adminMode,
 			supportsCustomCharts: options.supportsCustomCharts,
-			storyCreationEnabled: featureFlags['story-creation'],
 			modelSelection: resolvedLlmSelectedModel,
 		});
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
 		const resolveTools = options.tools ?? defaultAgentTools;
 		const resolvedTools = await resolveTools({ chat, agentSettings, toolContext, webTools, customBoundaries });
+		const featureFlags = createUserGroupFeatureFlags(toolContext.userGroupFeatures);
 		const storyCreationEnabled = featureFlags['story-creation'];
 		const storyCreationRestricted = isStoryCreationRestricted(resolvedTools, storyCreationEnabled);
 		const agentTools = resolvedTools;
@@ -1016,7 +1018,11 @@ class AgentManager {
 
 		const contextParts: string[] = [];
 		for (const mention of dbMentions) {
-			const content = getTableColumnsContent(this._toolContext.projectFolder, mention.id);
+			const content = getTableColumnsContent(
+				this._toolContext.projectFolder,
+				mention.id,
+				this._toolContext.warehouseTableAccess,
+			);
 			if (content) {
 				contextParts.push(`[Table: ${mention.id}]\n${content}`);
 			}

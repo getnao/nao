@@ -382,6 +382,47 @@ const isMissingPathError = (error: unknown): boolean => {
 	return code === 'ENOENT' || code === 'ENOTDIR';
 };
 
+export const resolveCanonicalProjectPath = (
+	virtualPath: string,
+	projectFolder: string,
+): { realPath: string; virtualPath: string } => {
+	const projectRoot = path.resolve(projectFolder);
+	const canonicalProjectRoot = fs.realpathSync.native(projectRoot);
+	const candidatePath = toRealPath(virtualPath, projectFolder);
+	const realPath = resolveExistingAncestor(candidatePath);
+
+	if (!isWithinProjectFolder(realPath, canonicalProjectRoot)) {
+		throw new Error(`Access denied: path '${virtualPath}' resolves outside the project folder`);
+	}
+
+	const relativePath = path.relative(canonicalProjectRoot, realPath).replaceAll(path.sep, '/');
+	return {
+		realPath,
+		virtualPath: relativePath ? `/${relativePath}` : '/',
+	};
+};
+
+function resolveExistingAncestor(candidatePath: string): string {
+	const missingSegments: string[] = [];
+	let existingPath = candidatePath;
+
+	while (true) {
+		try {
+			return path.resolve(fs.realpathSync.native(existingPath), ...missingSegments);
+		} catch (error) {
+			if (!isMissingPathError(error)) {
+				throw error;
+			}
+			const parentPath = path.dirname(existingPath);
+			if (parentPath === existingPath) {
+				throw error;
+			}
+			missingSegments.unshift(path.basename(existingPath));
+			existingPath = parentPath;
+		}
+	}
+}
+
 /**
  * Converts a real filesystem path to a virtual path (where / = project folder).
  * - `{projectFolder}/foo/bar` → `/foo/bar`

@@ -31,6 +31,7 @@ import { mcpService } from '../services/mcp';
 import { posthog, PostHogEvent } from '../services/posthog';
 import { slackService } from '../services/slack';
 import { listAvailableTranscribeModels as getAvailableTranscribeModels } from '../services/transcribe.service';
+import { isDatabaseObjectAllowed, resolveWarehouseTableAccess } from '../services/user-group-context-access.service';
 import { AgentSettings } from '../types/agent-settings';
 import type { ContextUsage } from '../types/chat';
 import {
@@ -135,11 +136,12 @@ export const projectRoutes = {
 				}),
 			),
 		)
-		.query(({ ctx }) => {
+		.query(async ({ ctx }) => {
 			if (!ctx.project?.path) {
 				return [];
 			}
-			return getDatabaseObjects(ctx.project.path);
+			const access = await resolveWarehouseTableAccess(ctx.project.id, ctx.user.id, ctx.project.path);
+			return getDatabaseObjects(ctx.project.path).filter((object) => isDatabaseObjectAllowed(access, object));
 		}),
 
 	getLlmConfigs: projectProtectedProcedure

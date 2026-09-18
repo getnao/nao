@@ -1,8 +1,9 @@
+import { useQuery } from '@tanstack/react-query';
 import {
 	Activity,
-	CircleAlert,
 	ChevronLeft,
 	ChevronRight,
+	CircleAlert,
 	Code,
 	Ellipsis,
 	Eye,
@@ -17,11 +18,9 @@ import {
 	Star,
 	Upload,
 } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
 
 import type { StoryViewMode } from '@/components/side-panel/story-viewer.types';
 import { EditableStoryTitle } from '@/components/editable-story-title';
-import { useTimeAgo } from '@/hooks/use-time-ago';
 import { StoryDownload } from '@/components/story-download';
 import { Button } from '@/components/ui/button';
 import {
@@ -33,6 +32,7 @@ import {
 import { SwitchIndicator } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
+import { useTimeAgo } from '@/hooks/use-time-ago';
 import { useToggleFavorite } from '@/hooks/use-toggle-favorite';
 import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
 import { cn } from '@/lib/utils';
@@ -43,6 +43,7 @@ interface LiveControls {
 	cachedAt?: string | Date | null;
 	lastRefreshFailure?: StoryRefreshFailure | null;
 	isRefreshing?: boolean;
+	canRefresh?: boolean;
 	isUpdating?: boolean;
 	onRefresh?: () => void;
 	/** When provided, the live state can be toggled (owner). Otherwise the badge is read-only. */
@@ -355,7 +356,15 @@ function StorySubHeader({
 }
 
 function LiveStoryControls({ live }: { live: LiveControls }) {
-	const { isLive, cachedAt, isRefreshing = false, isUpdating = false, onRefresh, onOpenSettings } = live;
+	const {
+		isLive,
+		cachedAt,
+		isRefreshing = false,
+		canRefresh = Boolean(live.onRefresh),
+		isUpdating = false,
+		onRefresh,
+		onOpenSettings,
+	} = live;
 
 	if (!onOpenSettings) {
 		if (!isLive) {
@@ -374,7 +383,7 @@ function LiveStoryControls({ live }: { live: LiveControls }) {
 					<TooltipContent>Live story</TooltipContent>
 				</Tooltip>
 				{cachedAt && <LiveStoryTimestamp cachedAt={cachedAt} />}
-				{onRefresh && <RefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
+				{canRefresh && onRefresh && <RefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
 			</>
 		);
 	}
@@ -410,7 +419,7 @@ function LiveStoryControls({ live }: { live: LiveControls }) {
 				</TooltipContent>
 			</Tooltip>
 			{isLive && cachedAt && <LiveStoryTimestamp cachedAt={cachedAt} />}
-			{isLive && onRefresh && <RefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
+			{isLive && canRefresh && onRefresh && <RefreshButton isRefreshing={isRefreshing} onRefresh={onRefresh} />}
 		</>
 	);
 }

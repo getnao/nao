@@ -1,52 +1,35 @@
-import { DEFAULT_TOOL_CALL_DENSITY_POLICY, USER_GROUP_FEATURE_DEFINITIONS } from '@nao/shared';
 import { USER_ROLE_LABELS } from '@nao/shared/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, Pencil, Plus } from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { MemberStatus, ToolCallDensity, UserRole } from '@nao/shared/types';
-import type { QueryClient } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
+import { Link, useNavigate } from '@tanstack/react-router';
+import { ChevronDown, Plus } from 'lucide-react';
+import { useMemo } from 'react';
+import type { MemberStatus, UserRole } from '@nao/shared/types';
 
-import { ToolCallDensitySlider } from '@/components/settings/tool-call-density-slider';
+import type { UserGroupCatalogState } from '@/components/settings/user-group-access-summary';
+import type { DatabaseContextObject } from '@/components/settings/user-group-context-access';
+import type { DocsContextCatalogEntry } from '@/components/settings/user-group-docs-context-access';
+import type { UserGroupEditorGroup } from '@/components/settings/user-group-editor';
+import { ResponsiveGroupChips } from '@/components/settings/user-group-chips';
+import { getUserGroupAccessSummary } from '@/components/settings/user-group-access-summary';
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
-import { UserGroupFeatureCard } from '@/components/settings/user-group-feature-card';
+import { invalidateUserGroupQueries } from '@/components/settings/user-group-editor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
 	DropdownMenu,
 	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
-	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
 import { SettingsCard } from '@/components/ui/settings-card';
-import { Switch } from '@/components/ui/switch';
 import { TabBar, TabPanel } from '@/components/ui/tab-bar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useLicenseFeatures } from '@/hooks/use-license';
-import { calculateVisibleGroupChipCount } from '@/lib/user-group-chip-overflow';
 import { trpc } from '@/main';
 
-type UserGroupFeature = (typeof USER_GROUP_FEATURE_DEFINITIONS)[number]['key'];
-
-interface ToolCallDensityPolicy {
-	defaultDensity: ToolCallDensity;
-	canChange: boolean;
-}
-
-interface UserGroup {
-	id: string;
-	name: string;
-	isDefault: boolean;
-	featureGrants: UserGroupFeature[];
-	toolCallDensityPolicy: ToolCallDensityPolicy;
-}
-
+type UserGroup = UserGroupEditorGroup;
 type ProjectAccessSource = 'project' | 'organization' | 'both';
-type UserGroupDialogTab = 'features' | 'context' | 'security';
+export type UserGroupsPageTab = 'groups' | 'users';
 
 interface UserWithProjectAccess {
 	id: string;
@@ -57,20 +40,17 @@ interface UserWithProjectAccess {
 	source: ProjectAccessSource;
 }
 
-const USER_GROUP_DIALOG_TABS: Array<{ id: UserGroupDialogTab; label: string }> = [
-	{ id: 'features', label: 'Features' },
-	{ id: 'context', label: 'Context' },
-	{ id: 'security', label: 'Security' },
+const USER_GROUPS_PAGE_TABS: Array<{ id: UserGroupsPageTab; label: string }> = [
+	{ id: 'users', label: 'Users' },
+	{ id: 'groups', label: 'Manage Groups' },
 ];
 
-function invalidateUserGroupQueries(queryClient: QueryClient) {
-	return Promise.all([
-		queryClient.invalidateQueries({ queryKey: trpc.userGroup.overview.queryKey() }),
-		queryClient.invalidateQueries({ queryKey: trpc.userGroup.effectiveAccess.queryKey() }),
-	]);
+interface UserGroupsTableProps {
+	tab: UserGroupsPageTab;
+	onTabChange: (tab: UserGroupsPageTab) => void;
 }
 
-export function UserGroupsTable() {
+export function UserGroupsTable({ tab, onTabChange }: UserGroupsTableProps) {
 	const licenseFeatures = useLicenseFeatures();
 
 	if (licenseFeatures.isLoading) {
@@ -90,81 +70,222 @@ export function UserGroupsTable() {
 		);
 	}
 
-	return <LicensedUserGroupsTable />;
+	return <LicensedUserGroupsTable tab={tab} onTabChange={onTabChange} />;
 }
 
-function LicensedUserGroupsTable() {
+export function resolveUserGroupsPageTab(value: unknown): UserGroupsPageTab {
+	return value === 'groups' || value === 'users' ? value : 'users';
+}
+
+function LicensedUserGroupsTable({ tab, onTabChange }: UserGroupsTableProps) {
 	const overview = useQuery(trpc.userGroup.overview.queryOptions());
-	const [editingGroup, setEditingGroup] = useState<UserGroup | 'new' | null>(null);
+	const contextCatalog = useQuery(trpc.userGroup.contextCatalog.queryOptions());
+	const docsContextCatalog = useQuery(trpc.userGroup.docsContextCatalog.queryOptions());
+	const navigate = useNavigate();
 	const membershipKeys = useMemo(
 		() => new Set(overview.data?.memberships.map(({ groupId, userId }) => `${groupId}:${userId}`)),
 		[overview.data?.memberships],
 	);
 
-	if (overview.isLoading) {
-		return <div className='text-sm text-muted-foreground'>Loading groups...</div>;
-	}
-	if (overview.isError) {
-		return <div className='text-sm text-destructive'>Failed to load User Groups.</div>;
-	}
-	if (!overview.data) {
-		return null;
+	const tabs = (
+		<TabBar
+			tabs={USER_GROUPS_PAGE_TABS}
+			activeTab={tab}
+			onTabChange={onTabChange}
+			idBase='user-groups-page'
+			className='border-b'
+		/>
+	);
+
+	if (overview.isLoading || overview.isError || !overview.data) {
+		return (
+			<>
+				{tabs}
+				<TabPanel idBase='user-groups-page' tabId={tab} className='pt-5'>
+					{overview.isLoading ? (
+						<div className='text-sm text-muted-foreground'>Loading groups...</div>
+					) : overview.isError ? (
+						<div className='text-sm text-destructive'>Failed to load User Groups.</div>
+					) : null}
+				</TabPanel>
+			</>
+		);
 	}
 
 	const projectUsers = overview.data.users.filter((user) => user.source !== 'organization');
 	const organizationUsers = overview.data.users.filter((user) => user.source === 'organization');
+	const groups = overview.data.groups;
+	const contextObjects = contextCatalog.data?.objects ?? [];
+	const docsEntries = docsContextCatalog.data?.entries ?? [];
+	const databaseCatalogState = getCatalogState(contextCatalog);
+	const docsCatalogState = getCatalogState(docsContextCatalog);
 
 	return (
 		<>
-			<SettingsCard
-				description='Assign project users to groups and configure the features each group allows.'
-				action={<UserGroupActions groups={overview.data.groups} onEdit={setEditingGroup} />}
-				flush
-			>
-				<UserAccessTable
-					projectUsers={projectUsers}
-					organizationUsers={organizationUsers}
-					groups={overview.data.groups}
-					membershipKeys={membershipKeys}
-				/>
-			</SettingsCard>
-
-			<UserGroupDialog
-				group={editingGroup}
-				onOpenChange={(open) => {
-					if (!open) {
-						setEditingGroup(null);
-					}
-				}}
-			/>
+			{tabs}
+			<TabPanel idBase='user-groups-page' tabId={tab} className='pt-5'>
+				{tab === 'groups' && (
+					<GroupsTable
+						groups={groups}
+						memberships={overview.data.memberships}
+						contextObjects={contextObjects}
+						docsEntries={docsEntries}
+						databaseCatalogState={databaseCatalogState}
+						docsCatalogState={docsCatalogState}
+						onRetryDatabaseCatalog={() => void contextCatalog.refetch()}
+						onRetryDocsCatalog={() => void docsContextCatalog.refetch()}
+						onOpenGroup={(groupId) => {
+							void navigate({
+								to: '/settings/project/user-groups/$groupId',
+								params: { groupId },
+								search: { tab: 'features' },
+							});
+						}}
+						onCreateGroup={() => {
+							void navigate({
+								to: '/settings/project/user-groups/$groupId',
+								params: { groupId: 'new' },
+								search: { tab: 'features' },
+							});
+						}}
+					/>
+				)}
+				{tab === 'users' && (
+					<SettingsCard description='Assign project users to groups.' flush>
+						<UserAccessTable
+							projectUsers={projectUsers}
+							organizationUsers={organizationUsers}
+							groups={groups}
+							membershipKeys={membershipKeys}
+							onOpenUser={(userId) => {
+								void navigate({
+									to: '/settings/project/user-groups/users/$userId',
+									params: { userId },
+									search: { tab: 'features' },
+								});
+							}}
+						/>
+					</SettingsCard>
+				)}
+			</TabPanel>
 		</>
 	);
 }
-
-function UserGroupActions({ groups, onEdit }: { groups: UserGroup[]; onEdit: (group: UserGroup | 'new') => void }) {
+function GroupsTable({
+	groups,
+	memberships,
+	contextObjects,
+	docsEntries,
+	databaseCatalogState,
+	docsCatalogState,
+	onRetryDatabaseCatalog,
+	onRetryDocsCatalog,
+	onOpenGroup,
+	onCreateGroup,
+}: {
+	groups: UserGroup[];
+	memberships: Array<{ groupId: string; userId: string }>;
+	contextObjects: DatabaseContextObject[];
+	docsEntries: DocsContextCatalogEntry[];
+	databaseCatalogState: UserGroupCatalogState;
+	docsCatalogState: UserGroupCatalogState;
+	onRetryDatabaseCatalog: () => void;
+	onRetryDocsCatalog: () => void;
+	onOpenGroup: (groupId: string) => void;
+	onCreateGroup: () => void;
+}) {
 	return (
-		<div className='flex items-center gap-2'>
-			<DropdownMenu>
-				<DropdownMenuTrigger asChild>
-					<Button size='sm' variant='outline'>
-						Manage groups
-						<ChevronDown />
-					</Button>
-				</DropdownMenuTrigger>
-				<DropdownMenuContent align='end' className='max-h-64 min-w-52'>
+		<SettingsCard
+			description='Configure the features, database tables, and docs each group can access.'
+			action={
+				<Button onClick={onCreateGroup}>
+					<Plus />
+					Create group
+				</Button>
+			}
+			flush
+		>
+			<Table>
+				<TableHeader>
+					<TableRow className='[&_th]:h-12'>
+						<TableHead>Group</TableHead>
+						<TableHead>Members</TableHead>
+						<TableHead>Access</TableHead>
+					</TableRow>
+				</TableHeader>
+				<TableBody>
 					{groups.map((group) => (
-						<DropdownMenuItem key={group.id} onSelect={() => onEdit(group)}>
-							<Pencil />
-							{group.name}
-						</DropdownMenuItem>
+						<TableRow
+							key={group.id}
+							className='cursor-pointer hover:bg-primary/10'
+							onClick={() => onOpenGroup(group.id)}
+						>
+							<TableCell>
+								<div className='flex items-center gap-2'>
+									<Link
+										to='/settings/project/user-groups/$groupId'
+										params={{ groupId: group.id }}
+										search={{ tab: 'features' }}
+										className='font-medium hover:underline'
+										onClick={(event) => event.stopPropagation()}
+									>
+										{group.name}
+									</Link>
+									{group.isDefault && (
+										<Badge variant='secondary' className='h-5 px-1.5 py-0 text-[10px] font-normal'>
+											Default
+										</Badge>
+									)}
+								</div>
+							</TableCell>
+							<TableCell>
+								{memberships.filter((membership) => membership.groupId === group.id).length}
+							</TableCell>
+							<TableCell className='whitespace-nowrap text-muted-foreground'>
+								<div className='flex items-center gap-1'>
+									<span>
+										{getUserGroupAccessSummary(group, contextObjects, docsEntries, {
+											database: databaseCatalogState,
+											docs: docsCatalogState,
+										})}
+									</span>
+									{databaseCatalogState === 'error' && (
+										<Button
+											type='button'
+											size='sm'
+											variant='ghost'
+											className='h-6 px-2 text-xs'
+											aria-label={`Retry tables for ${group.name}`}
+											onClick={(event) => {
+												event.stopPropagation();
+												onRetryDatabaseCatalog();
+											}}
+										>
+											Retry tables
+										</Button>
+									)}
+									{docsCatalogState === 'error' && (
+										<Button
+											type='button'
+											size='sm'
+											variant='ghost'
+											className='h-6 px-2 text-xs'
+											aria-label={`Retry docs for ${group.name}`}
+											onClick={(event) => {
+												event.stopPropagation();
+												onRetryDocsCatalog();
+											}}
+										>
+											Retry docs
+										</Button>
+									)}
+								</div>
+							</TableCell>
+						</TableRow>
 					))}
-				</DropdownMenuContent>
-			</DropdownMenu>
-			<Button size='sm' onClick={() => onEdit('new')}>
-				<Plus />
-				Create group
-			</Button>
-		</div>
+				</TableBody>
+			</Table>
+		</SettingsCard>
 	);
 }
 
@@ -173,22 +294,24 @@ function UserAccessTable({
 	organizationUsers,
 	groups,
 	membershipKeys,
+	onOpenUser,
 }: {
 	projectUsers: UserWithProjectAccess[];
 	organizationUsers: UserWithProjectAccess[];
 	groups: UserGroup[];
 	membershipKeys: Set<string>;
+	onOpenUser: (userId: string) => void;
 }) {
 	const hasUsers = projectUsers.length > 0 || organizationUsers.length > 0;
 
 	return (
 		<div className='overflow-x-auto'>
-			<Table className='min-w-3xl'>
+			<Table className='min-w-3xl table-fixed'>
 				<TableHeader>
 					<TableRow className='[&_th]:h-12'>
-						<TableHead className='min-w-64'>User</TableHead>
-						<TableHead className='min-w-36'>Role</TableHead>
-						<TableHead className='min-w-52'>Groups</TableHead>
+						<TableHead className='w-[38%]'>User</TableHead>
+						<TableHead className='w-1/5'>Role</TableHead>
+						<TableHead className='w-[42%]'>Groups</TableHead>
 					</TableRow>
 				</TableHeader>
 				<TableBody>
@@ -205,6 +328,7 @@ function UserAccessTable({
 							users={projectUsers}
 							groups={groups}
 							membershipKeys={membershipKeys}
+							onOpenUser={onOpenUser}
 						/>
 					)}
 					{organizationUsers.length > 0 && (
@@ -213,6 +337,7 @@ function UserAccessTable({
 							users={organizationUsers}
 							groups={groups}
 							membershipKeys={membershipKeys}
+							onOpenUser={onOpenUser}
 						/>
 					)}
 				</TableBody>
@@ -226,11 +351,13 @@ function UserAccessSection({
 	users,
 	groups,
 	membershipKeys,
+	onOpenUser,
 }: {
 	label: string;
 	users: UserWithProjectAccess[];
 	groups: UserGroup[];
 	membershipKeys: Set<string>;
+	onOpenUser: (userId: string) => void;
 }) {
 	return (
 		<>
@@ -240,20 +367,33 @@ function UserAccessSection({
 				</TableCell>
 			</TableRow>
 			{users.map((user) => (
-				<TableRow key={user.id}>
-					<TableCell>
-						<div className='flex flex-col'>
-							<span className='font-medium'>{user.name}</span>
-							<span className='text-xs text-muted-foreground'>
+				<TableRow
+					key={user.id}
+					className='cursor-pointer hover:bg-primary/10'
+					onClick={() => onOpenUser(user.id)}
+				>
+					<TableCell className='min-w-0 overflow-hidden'>
+						<div className='flex min-w-0 flex-col'>
+							<Link
+								to='/settings/project/user-groups/users/$userId'
+								params={{ userId: user.id }}
+								search={{ tab: 'features' }}
+								className='truncate font-medium hover:underline'
+								title={user.name}
+								onClick={(event) => event.stopPropagation()}
+							>
+								{user.name}
+							</Link>
+							<span className='truncate text-xs text-muted-foreground' title={user.email}>
 								{user.email}
 								{user.status ? ` · ${user.status}` : ''}
 							</span>
 						</div>
 					</TableCell>
-					<TableCell>
+					<TableCell className='min-w-0 overflow-hidden'>
 						<Badge variant={user.role}>{USER_ROLE_LABELS[user.role]}</Badge>
 					</TableCell>
-					<TableCell>
+					<TableCell className='min-w-0 overflow-hidden'>
 						<UserGroupsCell user={user} groups={groups} membershipKeys={membershipKeys} />
 					</TableCell>
 				</TableRow>
@@ -295,12 +435,17 @@ function UserGroupsCell({
 					className='h-8 w-full min-w-0 justify-between overflow-hidden bg-background font-normal'
 					aria-label={`Manage groups for ${user.name}. Current groups: ${selectedGroupLabel}`}
 					title={selectedGroupLabel}
+					onClick={(event) => event.stopPropagation()}
 				>
 					<ResponsiveGroupChips names={selectedGroupNames} />
 					<ChevronDown className='shrink-0' />
 				</Button>
 			</DropdownMenuTrigger>
-			<DropdownMenuContent align='start' className='max-h-64 min-w-56'>
+			<DropdownMenuContent
+				align='start'
+				className='max-h-64 min-w-56'
+				onClick={(event) => event.stopPropagation()}
+			>
 				{groups.map((group) => (
 					<DropdownMenuCheckboxItem
 						key={group.id}
@@ -323,362 +468,12 @@ function UserGroupsCell({
 	);
 }
 
-function ResponsiveGroupChips({ names }: { names: string[] }) {
-	const labelAreaRef = useRef<HTMLSpanElement>(null);
-	const measurementRef = useRef<HTMLSpanElement>(null);
-	const [visibleCount, setVisibleCount] = useState(0);
-
-	const measure = useCallback(() => {
-		const labelArea = labelAreaRef.current;
-		const measurement = measurementRef.current;
-		if (!labelArea || !measurement) {
-			return;
-		}
-
-		const groupChipWidths = Array.from(
-			measurement.querySelectorAll<HTMLElement>('[data-measure-group]'),
-			(element) => element.getBoundingClientRect().width,
-		);
-		const overflowChipWidths = Array<number>(names.length + 1);
-		for (const element of measurement.querySelectorAll<HTMLElement>('[data-measure-overflow]')) {
-			overflowChipWidths[Number(element.dataset.measureOverflow)] = element.getBoundingClientRect().width;
-		}
-		const gap = Number.parseFloat(getComputedStyle(measurement).columnGap) || 0;
-		setVisibleCount(
-			calculateVisibleGroupChipCount({
-				availableWidth: labelArea.getBoundingClientRect().width,
-				groupChipWidths,
-				overflowChipWidths,
-				gap,
-			}),
-		);
-	}, [names]);
-
-	useLayoutEffect(() => {
-		measure();
-		const labelArea = labelAreaRef.current;
-		const measurement = measurementRef.current;
-		if (!labelArea || !measurement) {
-			return;
-		}
-
-		const observer = new ResizeObserver(measure);
-		observer.observe(labelArea);
-		observer.observe(measurement);
-		return () => observer.disconnect();
-	}, [measure]);
-
-	const safeVisibleCount = Math.min(visibleCount, names.length);
-	const hiddenCount = names.length - safeVisibleCount;
-
-	return (
-		<span ref={labelAreaRef} className='relative flex min-w-0 flex-1 items-center gap-1 overflow-hidden'>
-			{names.length === 0 ? (
-				<GroupNameChip name='No groups' />
-			) : (
-				<>
-					{names.slice(0, safeVisibleCount).map((name, index) => (
-						<GroupNameChip key={`${name}-${index}`} name={name} />
-					))}
-					{hiddenCount > 0 && <GroupNameChip name={`+${hiddenCount}`} />}
-				</>
-			)}
-			<span
-				ref={measurementRef}
-				aria-hidden
-				className='invisible absolute left-0 top-0 flex w-max items-center gap-1 pointer-events-none'
-			>
-				{names.map((name, index) => (
-					<GroupNameChip key={`measure-${name}-${index}`} name={name} measure='group' />
-				))}
-				{names.map((_, index) => {
-					const hidden = index + 1;
-					return <GroupNameChip key={`measure-overflow-${hidden}`} name={`+${hidden}`} measure={hidden} />;
-				})}
-			</span>
-		</span>
-	);
-}
-
-function GroupNameChip({ name, measure }: { name: string; measure?: 'group' | number }) {
-	return (
-		<Badge
-			variant='secondary'
-			className='h-5 px-1.5 py-0 text-[10px] font-normal'
-			data-measure-group={measure === 'group' ? '' : undefined}
-			data-measure-overflow={typeof measure === 'number' ? measure : undefined}
-		>
-			{name}
-		</Badge>
-	);
-}
-
-function UserGroupDialog({
-	group,
-	onOpenChange,
-}: {
-	group: UserGroup | 'new' | null;
-	onOpenChange: (open: boolean) => void;
-}) {
-	const queryClient = useQueryClient();
-	const existingGroup = group === 'new' ? null : group;
-	const [name, setName] = useState('');
-	const [featureGrants, setFeatureGrants] = useState<UserGroupFeature[]>([]);
-	const [toolCallDensityPolicy, setToolCallDensityPolicy] = useState<ToolCallDensityPolicy>(
-		DEFAULT_TOOL_CALL_DENSITY_POLICY,
-	);
-	const [formError, setFormError] = useState<string | null>(null);
-	const [confirmDelete, setConfirmDelete] = useState(false);
-	const [activeTab, setActiveTab] = useState<UserGroupDialogTab>('features');
-	const createGroup = useMutation(trpc.userGroup.create.mutationOptions());
-	const updateGroup = useMutation(trpc.userGroup.update.mutationOptions());
-	const deleteGroup = useMutation(trpc.userGroup.delete.mutationOptions());
-
-	useEffect(() => {
-		setName(existingGroup?.name ?? '');
-		setFeatureGrants(existingGroup?.featureGrants ?? []);
-		setToolCallDensityPolicy(existingGroup?.toolCallDensityPolicy ?? DEFAULT_TOOL_CALL_DENSITY_POLICY);
-		setFormError(null);
-		setConfirmDelete(false);
-		setActiveTab('features');
-	}, [existingGroup, group]);
-
-	const handleSave = async () => {
-		setFormError(null);
-		try {
-			if (existingGroup) {
-				await updateGroup.mutateAsync({
-					groupId: existingGroup.id,
-					...(existingGroup.isDefault ? {} : { name }),
-					featureGrants,
-					toolCallDensityPolicy,
-				});
-			} else {
-				await createGroup.mutateAsync({ name, featureGrants, toolCallDensityPolicy });
-			}
-			await invalidateUserGroupQueries(queryClient);
-			onOpenChange(false);
-		} catch (error) {
-			setFormError(error instanceof Error ? error.message : 'Failed to save the group.');
-		}
-	};
-
-	const handleDelete = async () => {
-		if (!existingGroup || existingGroup.isDefault) {
-			return;
-		}
-		try {
-			await deleteGroup.mutateAsync({ groupId: existingGroup.id });
-			await invalidateUserGroupQueries(queryClient);
-			setConfirmDelete(false);
-			onOpenChange(false);
-		} catch (error) {
-			setConfirmDelete(false);
-			setFormError(error instanceof Error ? error.message : 'Failed to delete the group.');
-		}
-	};
-
-	return (
-		<>
-			<Dialog open={group !== null} onOpenChange={onOpenChange}>
-				<DialogContent className='sm:max-w-3xl'>
-					<DialogHeader>
-						<DialogTitle>{existingGroup ? `Edit ${existingGroup.name}` : 'Create group'}</DialogTitle>
-					</DialogHeader>
-					<div className='flex flex-col gap-6'>
-						<div className='flex flex-col gap-2'>
-							<label htmlFor='user-group-name' className='text-sm font-medium'>
-								Group name
-							</label>
-							<Input
-								id='user-group-name'
-								value={name}
-								onChange={(event) => setName(event.target.value)}
-								disabled={existingGroup?.isDefault}
-								required
-								maxLength={80}
-							/>
-						</div>
-						<div>
-							<TabBar
-								tabs={USER_GROUP_DIALOG_TABS}
-								activeTab={activeTab}
-								onTabChange={setActiveTab}
-								idBase='user-group-dialog'
-								className='border-b'
-							/>
-							<TabPanel idBase='user-group-dialog' tabId={activeTab} className='min-h-80 pt-5'>
-								{activeTab === 'features' && (
-									<UserGroupFeatures
-										featureGrants={featureGrants}
-										onFeatureGrantsChange={setFeatureGrants}
-										toolCallDensityPolicy={toolCallDensityPolicy}
-										onToolCallDensityPolicyChange={setToolCallDensityPolicy}
-									/>
-								)}
-								{activeTab === 'context' && (
-									<UserGroupPlaceholder>
-										Table and file access will be configured here.
-									</UserGroupPlaceholder>
-								)}
-								{activeTab === 'security' && (
-									<UserGroupPlaceholder>
-										Row-level security will be configured here.
-									</UserGroupPlaceholder>
-								)}
-							</TabPanel>
-						</div>
-						{formError && <p className='text-sm text-destructive'>{formError}</p>}
-						<div className='flex justify-between gap-2'>
-							{existingGroup && !existingGroup.isDefault ? (
-								<Button
-									variant='destructive'
-									className='rounded-full'
-									onClick={() => setConfirmDelete(true)}
-								>
-									Delete group
-								</Button>
-							) : (
-								<span />
-							)}
-							<div className='flex gap-2'>
-								<Button
-									variant='ghost'
-									className='rounded-full border'
-									onClick={() => onOpenChange(false)}
-								>
-									Cancel
-								</Button>
-								<Button
-									variant='primary-gradient'
-									className='rounded-full'
-									onClick={handleSave}
-									disabled={!existingGroup?.isDefault && name.trim().length === 0}
-									isLoading={createGroup.isPending || updateGroup.isPending}
-								>
-									Save
-								</Button>
-							</div>
-						</div>
-					</div>
-				</DialogContent>
-			</Dialog>
-
-			<ConfirmationDialog
-				open={confirmDelete}
-				onOpenChange={setConfirmDelete}
-				title={`Delete ${existingGroup?.name}?`}
-				description='This removes the group and all of its user memberships.'
-				confirmLabel='Delete'
-				onConfirm={handleDelete}
-				isPending={deleteGroup.isPending}
-				preventCloseWhilePending
-			/>
-		</>
-	);
-}
-
-function UserGroupFeatures({
-	featureGrants,
-	onFeatureGrantsChange,
-	toolCallDensityPolicy,
-	onToolCallDensityPolicyChange,
-}: {
-	featureGrants: UserGroupFeature[];
-	onFeatureGrantsChange: (featureGrants: UserGroupFeature[]) => void;
-	toolCallDensityPolicy: ToolCallDensityPolicy;
-	onToolCallDensityPolicyChange: (policy: ToolCallDensityPolicy) => void;
-}) {
-	return (
-		<div className='flex flex-col gap-6'>
-			<div className='flex flex-col gap-3'>
-				<div>
-					<h3 className='text-sm font-medium'>Allowed features</h3>
-					<p className='text-xs text-muted-foreground'>Choose which product features this group can use.</p>
-				</div>
-				<div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
-					{USER_GROUP_FEATURE_DEFINITIONS.map((feature) => (
-						<UserGroupFeatureCard
-							key={feature.key}
-							feature={feature}
-							selected={featureGrants.includes(feature.key)}
-							onSelectedChange={(selected) =>
-								onFeatureGrantsChange(
-									selected
-										? [...featureGrants, feature.key]
-										: featureGrants.filter((key) => key !== feature.key),
-								)
-							}
-						/>
-					))}
-				</div>
-			</div>
-
-			<div className='flex flex-col gap-3 border-t pt-5'>
-				<div>
-					<h3 className='text-sm font-medium'>Tool call density</h3>
-					<p className='text-xs text-muted-foreground'>Set how tool calls appear for this group.</p>
-				</div>
-				<div className='flex items-center justify-between gap-4 rounded-lg border p-3'>
-					<div>
-						<p className='text-sm font-medium'>Default density</p>
-						<p className='text-xs text-muted-foreground'>
-							{toolCallDensityPolicy.canChange
-								? 'Members start with this setting.'
-								: 'Members always use this setting.'}
-						</p>
-					</div>
-					<ToolCallDensitySlider
-						value={toolCallDensityPolicy.defaultDensity}
-						onValueChange={(defaultDensity) =>
-							onToolCallDensityPolicyChange({ ...toolCallDensityPolicy, defaultDensity })
-						}
-					/>
-				</div>
-				<UserGroupSwitchRow
-					id='user-group-density-can-change'
-					label='Let members choose'
-					description='Members can override the default in their account settings.'
-					checked={toolCallDensityPolicy.canChange}
-					onCheckedChange={(canChange) =>
-						onToolCallDensityPolicyChange({ ...toolCallDensityPolicy, canChange })
-					}
-				/>
-			</div>
-		</div>
-	);
-}
-
-function UserGroupSwitchRow({
-	id,
-	label,
-	description,
-	checked,
-	onCheckedChange,
-}: {
-	id: string;
-	label: string;
-	description: string;
-	checked: boolean;
-	onCheckedChange: (checked: boolean) => void;
-}) {
-	return (
-		<div className='flex items-start justify-between gap-4 rounded-lg border p-3'>
-			<div>
-				<label htmlFor={id} className='text-sm font-medium'>
-					{label}
-				</label>
-				<p className='text-xs text-muted-foreground'>{description}</p>
-			</div>
-			<Switch id={id} checked={checked} onCheckedChange={onCheckedChange} />
-		</div>
-	);
-}
-
-function UserGroupPlaceholder({ children }: { children: ReactNode }) {
-	return (
-		<div className='flex min-h-64 items-center justify-center rounded-lg border border-dashed p-6 text-sm text-muted-foreground'>
-			{children}
-		</div>
-	);
+function getCatalogState(query: { isLoading: boolean; isError: boolean }): UserGroupCatalogState {
+	if (query.isLoading) {
+		return 'loading';
+	}
+	if (query.isError) {
+		return 'error';
+	}
+	return 'ready';
 }

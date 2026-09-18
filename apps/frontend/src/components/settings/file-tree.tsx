@@ -5,6 +5,7 @@ import { FileExplorerIcon } from '@/components/settings/file-explorer-icon';
 import { Spinner } from '@/components/ui/spinner';
 import { SimpleTooltip } from '@/components/ui/tooltip';
 import { matchesOrderedTerms } from '@/lib/path-search';
+import { getAutoExpandKeys, getTreeNodePadding, removeExpandedSubtree } from '@/lib/tree-expansion';
 import { cn } from '@/lib/utils';
 
 type ContentMatch = {
@@ -68,9 +69,9 @@ export function FileTree({
 			const nextPaths = new Set(currentPaths);
 
 			if (currentPaths.has(entry.path)) {
-				removeExpandedSubtree(nextPaths, entry.path);
+				removeExpandedSubtree(nextPaths, entry.path, '/');
 			} else {
-				for (const path of getAutoExpandPaths(entry)) {
+				for (const path of getAutoExpandKeys(entry, FILE_TREE_EXPANSION_ADAPTER)) {
 					nextPaths.add(path);
 				}
 			}
@@ -149,15 +150,11 @@ export function FileTree({
 	);
 }
 
-function removeExpandedSubtree(paths: Set<string>, rootPath: string): void {
-	const descendantPrefix = `${rootPath}/`;
-
-	for (const path of paths) {
-		if (path === rootPath || path.startsWith(descendantPrefix)) {
-			paths.delete(path);
-		}
-	}
-}
+const FILE_TREE_EXPANSION_ADAPTER = {
+	getKey: (entry: FileTreeEntry) => entry.path,
+	getChildren: (entry: FileTreeEntry) => entry.children ?? [],
+	isFolder: (entry: FileTreeEntry) => entry.type === 'directory',
+};
 
 function TreeEmptyState({
 	contentSearchFailed,
@@ -229,7 +226,7 @@ function FileTreeNode({
 					'hover:bg-muted/50 rounded-sm transition-colors text-left',
 					isSelected && 'bg-muted text-foreground font-medium',
 				)}
-				style={{ paddingLeft: `${depth * 16 + 8}px` }}
+				style={{ paddingLeft: `${getTreeNodePadding(depth)}px` }}
 			>
 				{isDirectory ? (
 					<>
@@ -273,22 +270,6 @@ function FileTreeNode({
 			)}
 		</div>
 	);
-}
-
-function getAutoExpandPaths(entry: FileTreeEntry): string[] {
-	const paths: string[] = [];
-	let current: FileTreeEntry | undefined = entry;
-
-	while (current?.type === 'directory') {
-		paths.push(current.path);
-		const children: FileTreeEntry[] = current.children ?? [];
-		if (children.length !== 1 || children[0].type !== 'directory') {
-			break;
-		}
-		current = children[0];
-	}
-
-	return paths;
 }
 
 function getDirectoryPaths(entries: FileTreeEntry[]): string[] {

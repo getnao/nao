@@ -183,12 +183,13 @@ export const sharedChatRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'Story version not found.' });
 			}
 
-			const { queryData } = await getStoryQueryData(
+			const { queryData, code } = await getStoryQueryData(
 				share.chatId,
 				input.storySlug,
 				version.code,
 				version.isLive,
 				version.cacheSchedule,
+				ctx.user.id,
 			);
 
 			logAnalyticsEvent({
@@ -209,12 +210,6 @@ export const sharedChatRoutes = {
 
 			const displaySettings = await projectQueries.getDisplaySettings(share.projectId);
 
-			return buildDownloadResponse(
-				input.format,
-				version.title,
-				version.code,
-				queryData,
-				displaySettings.dateFormat,
-			);
+			return buildDownloadResponse(input.format, version.title, code, queryData, displaySettings.dateFormat);
 		}),
 };

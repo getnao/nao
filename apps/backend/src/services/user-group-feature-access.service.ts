@@ -1,5 +1,9 @@
 import {
+	ALL_DATABASE_CONTEXT_ACCESS,
+	ALL_DOCS_CONTEXT_ACCESS,
+	type DatabaseContextAccess,
 	DEFAULT_TOOL_CALL_DENSITY_POLICY,
+	type DocsContextAccess,
 	type ToolCallDensityPolicy,
 	USER_GROUP_FEATURES,
 	type UserGroupFeature,
@@ -14,6 +18,8 @@ export type UserGroupFeatureFlags = Record<UserGroupFeature, boolean>;
 export interface EffectiveUserGroupAccess {
 	features: UserGroupFeatureFlags;
 	toolCallDensityPolicy: ToolCallDensityPolicy;
+	databaseAccess: DatabaseContextAccess;
+	docsAccess: DocsContextAccess;
 }
 
 export class UserGroupFeatureAccessError extends HandlerError {
@@ -29,14 +35,18 @@ export async function getEffectiveUserGroupAccess(
 ): Promise<EffectiveUserGroupAccess> {
 	if (!(await hasFeature(LICENSE_FEATURES.userGroups))) {
 		return {
-			features: createFeatureFlags(USER_GROUP_FEATURES),
+			features: createUserGroupFeatureFlags(USER_GROUP_FEATURES),
 			toolCallDensityPolicy: DEFAULT_TOOL_CALL_DENSITY_POLICY,
+			databaseAccess: ALL_DATABASE_CONTEXT_ACCESS,
+			docsAccess: ALL_DOCS_CONTEXT_ACCESS,
 		};
 	}
 	const access = await resolveEffectiveUserGroupAccess(projectId, userId);
 	return {
-		features: createFeatureFlags(access.features),
+		features: createUserGroupFeatureFlags(access.features),
 		toolCallDensityPolicy: access.toolCallDensityPolicy,
+		databaseAccess: access.databaseAccess,
+		docsAccess: access.docsAccess,
 	};
 }
 
@@ -74,7 +84,7 @@ function featureLabel(feature: UserGroupFeature): string {
 	}
 }
 
-function createFeatureFlags(features: readonly UserGroupFeature[]): UserGroupFeatureFlags {
+export function createUserGroupFeatureFlags(features: readonly UserGroupFeature[]): UserGroupFeatureFlags {
 	const effectiveFeatures = new Set(features);
 	return Object.fromEntries(
 		USER_GROUP_FEATURES.map((feature) => [feature, effectiveFeatures.has(feature)]),

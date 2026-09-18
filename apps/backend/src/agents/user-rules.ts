@@ -1,6 +1,8 @@
 import { existsSync, readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 
+import { isDatabaseObjectAllowed, type WarehouseTableAccess } from '../services/context-access';
+
 /**
  * Reads user-defined rules from RULES.md in the project folder if it exists
  */
@@ -51,6 +53,16 @@ export type DatabaseObject = {
 	fqdn: string;
 };
 
+export type DatabaseContextCatalog = {
+	syncState: 'missing' | 'ready';
+	objects: Array<{
+		databaseType: string;
+		database: string;
+		schema: string;
+		table: string;
+	}>;
+};
+
 const DATABASE_OBJECTS_TTL_MS = 5 * 60 * 1000;
 const databaseObjectsCache = new Map<string, { objects: DatabaseObject[]; expiresAt: number }>();
 
@@ -65,6 +77,27 @@ export function getDatabaseObjects(projectFolder: string): DatabaseObject[] {
 	return objects;
 }
 
+export function getDatabaseContextCatalog(projectFolder: string): DatabaseContextCatalog {
+	const scan = scanDatabaseObjects(projectFolder);
+	return {
+		syncState: scan.syncState,
+		objects: scan.objects
+			.map(({ type, database, schema, table }) => ({
+				databaseType: type.toLowerCase(),
+				database,
+				schema,
+				table,
+			}))
+			.sort(
+				(left, right) =>
+					left.databaseType.localeCompare(right.databaseType) ||
+					left.database.localeCompare(right.database) ||
+					left.schema.localeCompare(right.schema) ||
+					left.table.localeCompare(right.table),
+			),
+	};
+}
+
 function readDirEntries(dir: string, prefix: string): { name: string; path: string }[] {
 	return readdirSync(dir, { withFileTypes: true })
 		.filter((e) => e.isDirectory() && e.name.startsWith(prefix))
@@ -73,13 +106,26 @@ function readDirEntries(dir: string, prefix: string): { name: string; path: stri
 }
 
 function readDatabaseObjectsFromDisk(folder: string): DatabaseObject[] {
-	const databasesPath = join(folder, 'databases');
-	if (!existsSync(databasesPath)) {
+	try {
+		return scanDatabaseObjects(folder).objects;
+	} catch (error) {
+		console.error('Error reading database objects:', error);
 		return [];
 	}
+}
 
-	try {
-		return readDirEntries(databasesPath, 'type=').flatMap(({ name: type, path: typePath }) =>
+function scanDatabaseObjects(folder: string): {
+	syncState: 'missing' | 'ready';
+	objects: DatabaseObject[];
+} {
+	const databasesPath = join(folder, 'databases');
+	if (!existsSync(databasesPath)) {
+		return { syncState: 'missing', objects: [] };
+	}
+
+	return {
+		syncState: 'ready',
+		objects: readDirEntries(databasesPath, 'type=').flatMap(({ name: type, path: typePath }) =>
 			readDirEntries(typePath, 'database=').flatMap(({ name: database, path: dbPath }) =>
 				readDirEntries(dbPath, 'schema=').flatMap(({ name: schema, path: schemaPath }) =>
 					readDirEntries(schemaPath, 'table=').map(({ name: table }) => ({
@@ -91,15 +137,18 @@ function readDatabaseObjectsFromDisk(folder: string): DatabaseObject[] {
 					})),
 				),
 			),
-		);
-	} catch (error) {
-		console.error('Error reading database objects:', error);
-		return [];
-	}
+		),
+	};
 }
 
-export function getTableColumnsContent(projectFolder: string, fqdn: string): string | undefined {
-	const obj = getDatabaseObjects(projectFolder).find((o) => o.fqdn === fqdn);
+export function getTableColumnsContent(
+	projectFolder: string,
+	fqdn: string,
+	warehouseTableAccess: WarehouseTableAccess,
+): string | undefined {
+	const obj = getDatabaseObjects(projectFolder).find(
+		(object) => object.fqdn === fqdn && isDatabaseObjectAllowed(warehouseTableAccess, object),
+	);
 	if (!obj) {
 		return undefined;
 	}
