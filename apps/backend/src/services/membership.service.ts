@@ -40,13 +40,10 @@ export async function removeOrganizationMember(
 ): Promise<void> {
 	await requireOrganization(orgId);
 	const membership = await orgQueries.getOrgMember(orgId, userId);
-	if (!membership) {
-		if (options.ignoreMissing) {
-			return;
-		}
+	if (!membership && !options.ignoreMissing) {
 		throw new HandlerError('NOT_FOUND', 'Organization membership not found');
 	}
-	if (membership.role === 'admin' && (await orgQueries.countOrgAdmins(orgId)) <= 1) {
+	if (membership?.role === 'admin' && (await orgQueries.countOrgAdmins(orgId)) <= 1) {
 		throw new HandlerError('BAD_REQUEST', 'Cannot remove the last admin from the organization.');
 	}
 	await orgQueries.removeOrgMemberFromProjects(orgId, userId);
@@ -60,13 +57,21 @@ export async function putProjectMember(projectId: string, userId: string, role: 
 		throw new HandlerError('BAD_REQUEST', "User is not a member of the project's organization");
 	}
 	const existing = await projectQueries.getProjectMember(projectId, userId);
+	if (
+		existing?.role === 'admin' &&
+		role !== 'admin' &&
+		!(await projectQueries.checkProjectHasMoreThanOneAdmin(projectId))
+	) {
+		throw new HandlerError('BAD_REQUEST', 'The project must have at least one admin user.');
+	}
+	const previousRole = existing?.role ?? (await projectQueries.getUserRoleInProject(projectId, userId));
 	if (existing) {
 		await projectQueries.updateProjectMemberRole(projectId, userId, role);
-		if (project.path && isContextRole(existing.role) && !isContextRole(role)) {
-			await cleanupContextWorktree(projectId, project.path, userId);
-		}
 	} else {
 		await projectQueries.addProjectMember({ projectId, userId, role });
+	}
+	if (project.path && isContextRole(previousRole) && !isContextRole(role)) {
+		await cleanupContextWorktree(projectId, project.path, userId);
 	}
 	return { userId, role };
 }

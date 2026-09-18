@@ -159,7 +159,12 @@ export async function updateUserForBackoffice(userId: string, values: { name?: s
 }
 
 export async function getUserByEmail(email: string) {
-	const [user] = await db.select({ id: s.user.id }).from(s.user).where(eq(s.user.email, email)).limit(1).execute();
+	const [user] = await db
+		.select({ id: s.user.id })
+		.from(s.user)
+		.where(sql`lower(${s.user.email}) = ${email.toLowerCase()}`)
+		.limit(1)
+		.execute();
 	return user ?? null;
 }
 

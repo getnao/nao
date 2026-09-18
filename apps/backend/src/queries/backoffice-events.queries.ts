@@ -40,7 +40,7 @@ export async function listProjectMessages(
 			.innerJoin(s.chat, eq(s.chat.id, s.chatMessage.chatId))
 			.innerJoin(s.user, eq(s.user.id, s.chat.userId))
 			.where(where)
-			.orderBy(desc(s.chatMessage.createdAt))
+			.orderBy(desc(s.chatMessage.createdAt), desc(s.chatMessage.id))
 			.limit(input.limit)
 			.offset(input.offset)
 			.execute(),
@@ -69,7 +69,7 @@ export async function listProjectLogs(projectId: string, input: LogPaginationInp
 			})
 			.from(s.log)
 			.where(where)
-			.orderBy(desc(s.log.createdAt))
+			.orderBy(desc(s.log.createdAt), desc(s.log.id))
 			.limit(input.limit)
 			.offset(input.offset)
 			.execute(),

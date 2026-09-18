@@ -174,7 +174,7 @@ export const backofficeRoutes = async (app: App) => {
 			z
 				.object({
 					name: z.string().trim().min(1).max(100).optional(),
-					email: z.email().optional(),
+					email: z.string().trim().toLowerCase().pipe(z.email()).optional(),
 				})
 				.strict(),
 			request.body,

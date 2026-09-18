@@ -28,10 +28,14 @@ vi.mock('../src/services/context-explorer-git.service', () => ({
 	cleanupContextWorktree: vi.fn(),
 }));
 
+import { and, eq } from 'drizzle-orm';
+
 import s from '../src/db/abstractSchema';
 import { db } from '../src/db/db';
 import { __reloadEnvForTesting } from '../src/env';
 import { backofficeRoutes } from '../src/routes/backoffice';
+import { cleanupContextWorktree } from '../src/services/context-explorer-git.service';
+import { removeOrganizationMember } from '../src/services/membership.service';
 
 const API_KEY = 'backoffice-test-key-at-least-32-characters';
 const AUTHORIZATION = { authorization: `Bearer ${API_KEY}` };
@@ -68,6 +72,7 @@ describe('cloud backoffice routes', () => {
 	});
 
 	beforeEach(async () => {
+		vi.mocked(cleanupContextWorktree).mockClear();
 		await clearData();
 		await seedData(projectPath);
 	});
@@ -250,9 +255,43 @@ describe('cloud backoffice routes', () => {
 		expect(projectRemoval.statusCode).toBe(409);
 		expect(projectRemoval.json()).toEqual({ error: 'Cannot remove an admin from the project.' });
 
-		const emailConflict = await request('PATCH', `/users/${MEMBER_ID}`, { email: 'admin@example.com' });
+		const emailConflict = await request('PATCH', `/users/${MEMBER_ID}`, { email: 'Admin@Example.com' });
 		expect(emailConflict.statusCode).toBe(409);
 		expect(emailConflict.json()).toEqual({ error: 'Email is already in use' });
+
+		await db.insert(s.projectMember).values({ projectId: PROJECT_ID, userId: ADMIN_ID, role: 'admin' });
+		const projectDemotion = await request('PUT', `/projects/${PROJECT_ID}/members/${ADMIN_ID}`, { role: 'user' });
+		expect(projectDemotion.statusCode).toBe(400);
+		expect(projectDemotion.json()).toEqual({ error: 'The project must have at least one admin user.' });
+	});
+
+	it('normalizes emails and tolerates empty user patches', async () => {
+		const normalized = await request('PATCH', `/users/${MEMBER_ID}`, { email: '  Renamed@Example.com ' });
+		expect(normalized.statusCode).toBe(200);
+		expect(normalized.json().email).toBe('renamed@example.com');
+
+		const untouched = await request('PATCH', `/users/${MEMBER_ID}`, {});
+		expect(untouched.statusCode).toBe(200);
+		expect(untouched.json()).toMatchObject({ id: MEMBER_ID, email: 'renamed@example.com' });
+	});
+
+	it('cleans up the context worktree when a direct role removes inherited context access', async () => {
+		const added = await request('PUT', `/projects/${PROJECT_ID}/members/${ADMIN_ID}`, { role: 'viewer' });
+		expect(added.statusCode).toBe(200);
+		expect(cleanupContextWorktree).toHaveBeenCalledWith(PROJECT_ID, projectPath, ADMIN_ID);
+	});
+
+	it('removes lingering project memberships when the organization membership is already gone', async () => {
+		await db.delete(s.orgMember).where(and(eq(s.orgMember.orgId, ORG_ID), eq(s.orgMember.userId, MEMBER_ID)));
+
+		await removeOrganizationMember(ORG_ID, MEMBER_ID, { ignoreMissing: true });
+
+		const remaining = await db
+			.select()
+			.from(s.projectMember)
+			.where(and(eq(s.projectMember.projectId, PROJECT_ID), eq(s.projectMember.userId, MEMBER_ID)));
+		expect(remaining).toEqual([]);
+		expect(cleanupContextWorktree).toHaveBeenCalledWith(PROJECT_ID, projectPath, MEMBER_ID);
 	});
 
 	async function get(url: string) {

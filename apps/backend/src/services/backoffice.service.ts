@@ -108,12 +108,15 @@ export async function getUserDetail(userId: string) {
 }
 
 export async function updateUser(userId: string, values: { name?: string; email?: string }) {
-	await requireUser(userId);
+	const user = await requireUser(userId);
 	if (values.email !== undefined) {
 		const owner = await userQueries.getUserByEmail(values.email);
 		if (owner && owner.id !== userId) {
 			throw new HandlerError('CONFLICT', 'Email is already in use');
 		}
+	}
+	if (Object.keys(values).length === 0) {
+		return toUserSummary(user);
 	}
 	const updated = await userQueries.updateUserForBackoffice(userId, values);
 	return toUserSummary(updated!);
