@@ -224,7 +224,7 @@ describe('context explorer RULES preview groups', () => {
 				id: 'default-id',
 				name: 'All Users',
 				isDefault: true,
-				featureGrants: ['stories'],
+				featureGrants: ['storyCreation'],
 				contextGrants: { mode: 'all' },
 			},
 			{

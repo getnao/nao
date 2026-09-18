@@ -397,7 +397,12 @@ function ChatInputBase({
 			<ChatInputMessageQueue onEditMessage={handleEditQueuedMessage} onSubmitNow={submitQueuedMessageWithGuard} />
 			<SelectionCitationBanner />
 			<BudgetBanner />
-			{allowQueueing && !isAdminMode && <ChatInputSuggestions isHidden={inputText.trim().length > 0} />}
+			{allowQueueing && !isAdminMode && (
+				<ChatInputSuggestions
+					storyCreationEnabled={storyCreationEnabled}
+					isHidden={inputText.trim().length > 0}
+				/>
+			)}
 			{isAdminMode && <ChatInputAdminBadge />}
 
 			<form onSubmit={handleSubmitMessage} onKeyDown={handleKeyDown} className='mx-auto relative'>

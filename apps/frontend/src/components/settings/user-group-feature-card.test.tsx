@@ -8,8 +8,8 @@ import { UserGroupFeatureCard } from './user-group-feature-card';
 
 afterEach(cleanup);
 
-const storyFeature = USER_GROUP_FEATURE_DEFINITIONS.find((feature) => feature.key === 'story-creation')!;
-const automationFeature = USER_GROUP_FEATURE_DEFINITIONS.find((feature) => feature.key === 'automation-creation')!;
+const storyFeature = USER_GROUP_FEATURE_DEFINITIONS.find((feature) => feature.key === 'storyCreation')!;
+const automationFeature = USER_GROUP_FEATURE_DEFINITIONS.find((feature) => feature.key === 'automationCreation')!;
 
 describe('UserGroupFeatureCard', () => {
 	it('renders selected and unselected states with button semantics', () => {

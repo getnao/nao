@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
 	assertProjectStoredStoryDataAllowed: vi.fn(),
 	getSharedChatInfo: vi.fn(),
 	getSharedStory: vi.fn(),
-	resolveEffectiveUserGroupAccess: vi.fn(),
+	resolveUserGroupAccess: vi.fn(),
 }));
 
 vi.mock('../src/auth', () => ({ getAuth: vi.fn() }));
@@ -43,7 +43,7 @@ vi.mock('../src/services/live-story', () => ({
 	getAuthorizedStoredStoryQueryData: mocks.getAuthorizedStoredStoryQueryData,
 }));
 vi.mock('../src/services/user-group-availability.service', () => ({
-	resolveAvailableUserGroupAccess: mocks.resolveEffectiveUserGroupAccess,
+	resolveAvailableUserGroupAccess: mocks.resolveUserGroupAccess,
 }));
 vi.mock('../src/services/sso-group-mapping.service', () => ({
 	isOrganizationRoleMappingActive: vi.fn(async () => false),
@@ -57,7 +57,7 @@ const testRouter = router({ chatFork: chatForkRoutes });
 describe('chat fork Story creation permission', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mocks.resolveEffectiveUserGroupAccess.mockResolvedValue({
+		mocks.resolveUserGroupAccess.mockResolvedValue({
 			features: [],
 			toolCallDensityPolicy: {
 				defaultDensity: 'detailed',
@@ -114,7 +114,7 @@ describe('chat fork Story creation permission', () => {
 				selection: { start: 0, end: 5, text: 'Story' },
 			}),
 		).resolves.toEqual({ chatId: 'fork-chat-id' });
-		expect(mocks.resolveEffectiveUserGroupAccess).not.toHaveBeenCalled();
+		expect(mocks.resolveUserGroupAccess).not.toHaveBeenCalled();
 		expect(mocks.getAuthorizedStoredStoryQueryData).toHaveBeenCalledWith('source-chat-id', '# Story', 'user-id');
 	});
 
@@ -225,8 +225,8 @@ describe('chat fork Story creation permission', () => {
 	});
 
 	it('propagates denied full Story fork data authorization without creating a fork', async () => {
-		mocks.resolveEffectiveUserGroupAccess.mockResolvedValue({
-			features: ['story-creation'],
+		mocks.resolveUserGroupAccess.mockResolvedValue({
+			features: ['storyCreation'],
 			toolCallDensityPolicy: { defaultDensity: 'detailed', canChange: true },
 		});
 		const denial = new Error('Stored Story data denied.');
@@ -262,7 +262,7 @@ describe('chat fork Story creation permission', () => {
 		await expect(createCaller().chatFork.openStandalone({ storyId: 'story-id' })).resolves.toEqual({
 			chatId: 'existing-chat-id',
 		});
-		expect(mocks.resolveEffectiveUserGroupAccess).not.toHaveBeenCalled();
+		expect(mocks.resolveUserGroupAccess).not.toHaveBeenCalled();
 		expect(mocks.assertProjectStoredStoryDataAllowed).not.toHaveBeenCalled();
 	});
 

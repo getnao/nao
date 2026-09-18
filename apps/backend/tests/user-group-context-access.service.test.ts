@@ -21,7 +21,7 @@ import { getDatabaseContextCatalog } from '../src/agents/user-rules';
 import { getUserRoleInProject } from '../src/queries/project.queries';
 import { getProjectRowSecurity } from '../src/queries/user-group.queries';
 import { hasFeature } from '../src/services/license.service';
-import { resolveAvailableUserGroupAccess as resolveEffectiveUserGroupAccess } from '../src/services/user-group-availability.service';
+import { resolveAvailableUserGroupAccess as resolveUserGroupAccess } from '../src/services/user-group-availability.service';
 import {
 	expandDatabaseAccess,
 	isDatabaseObjectAllowed,
@@ -44,7 +44,7 @@ describe('warehouse Context access', () => {
 		vi.mocked(hasFeature).mockResolvedValue(true);
 		vi.mocked(getUserRoleInProject).mockResolvedValue('user');
 		vi.mocked(getDatabaseContextCatalog).mockReturnValue(catalog);
-		vi.mocked(resolveEffectiveUserGroupAccess).mockResolvedValue({
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue({
 			groupNames: ['All Users', 'Finance'],
 			features: [],
 			toolCallDensityPolicy: { defaultDensity: 'medium', canChange: false },
@@ -62,7 +62,7 @@ describe('warehouse Context access', () => {
 			strict: true,
 			tables: [],
 		});
-		expect(resolveEffectiveUserGroupAccess).toHaveBeenCalledWith('project-1', 'user-1');
+		expect(resolveUserGroupAccess).toHaveBeenCalledWith('project-1', 'user-1');
 		expect(getDatabaseContextCatalog).toHaveBeenCalledWith('/project');
 		expect(hasFeature).toHaveBeenCalledWith('row-level-security');
 	});
@@ -74,7 +74,7 @@ describe('warehouse Context access', () => {
 			codeMessage: 'FORBIDDEN',
 		});
 		expect(hasFeature).not.toHaveBeenCalled();
-		expect(resolveEffectiveUserGroupAccess).not.toHaveBeenCalled();
+		expect(resolveUserGroupAccess).not.toHaveBeenCalled();
 	});
 
 	it('enforces docs, features, and RULES groups without unlimited entitlement', async () => {
@@ -103,7 +103,7 @@ describe('warehouse Context access', () => {
 			version: 1,
 			tables: [{ ...orders, constraintColumns: ['tenant_id'] }],
 		});
-		vi.mocked(resolveEffectiveUserGroupAccess).mockResolvedValue({
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue({
 			groupNames: ['Context group', 'Non-Context group'],
 			features: [],
 			toolCallDensityPolicy: { defaultDensity: 'medium', canChange: false },
@@ -137,7 +137,7 @@ describe('warehouse Context access', () => {
 			},
 		});
 
-		vi.mocked(resolveEffectiveUserGroupAccess).mockResolvedValue({
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue({
 			groupNames: ['Context group', 'Non-Context group'],
 			features: [],
 			toolCallDensityPolicy: { defaultDensity: 'medium', canChange: false },
@@ -298,7 +298,7 @@ describe('warehouse Context access', () => {
 	});
 
 	it('surfaces catalog filesystem errors instead of bypassing enforcement', async () => {
-		vi.mocked(resolveEffectiveUserGroupAccess).mockResolvedValue({
+		vi.mocked(resolveUserGroupAccess).mockResolvedValue({
 			groupNames: ['All Users'],
 			features: [],
 			toolCallDensityPolicy: { defaultDensity: 'medium', canChange: false },

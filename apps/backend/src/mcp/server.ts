@@ -35,7 +35,7 @@ export async function createMcpServer(
 			instructions: chartDataMode ? DATA_MODE_SERVER_INSTRUCTIONS : BASE_SERVER_INSTRUCTIONS,
 		},
 	);
-	const storyCreationEnabled = await hasUserGroupFeature(projectId, userId, 'story-creation');
+	const storyCreationEnabled = await hasUserGroupFeature(projectId, userId, 'storyCreation');
 	const ctx = { userId, projectId, settings, chartDataMode, storyCreationEnabled };
 
 	if (settings.subAgentModeEnabled) {

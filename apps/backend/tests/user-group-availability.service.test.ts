@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({
 	getUserGroupOverview: vi.fn(),
 	hasFeature: vi.fn(),
 	listUserGroups: vi.fn(),
-	resolveEffectiveUserGroupAccess: vi.fn(),
+	resolveUserGroupAccess: vi.fn(),
 	validateAssignableUserGroupIds: vi.fn(),
 }));
 
@@ -24,7 +24,7 @@ vi.mock('../src/queries/user-group.queries', () => ({
 	},
 	getUserGroupOverview: mocks.getUserGroupOverview,
 	listUserGroups: mocks.listUserGroups,
-	resolveEffectiveUserGroupAccess: mocks.resolveEffectiveUserGroupAccess,
+	resolveUserGroupAccess: mocks.resolveUserGroupAccess,
 	validateAssignableUserGroupIds: mocks.validateAssignableUserGroupIds,
 }));
 
@@ -41,7 +41,7 @@ const createdAt = new Date('2025-01-01T00:00:00Z');
 const updatedAt = new Date('2025-01-02T00:00:00Z');
 const baseGroup = {
 	projectId: 'project-id',
-	featureGrants: ['story-creation'] as const,
+	featureGrants: ['storyCreation'] as const,
 	toolCallDensityPolicy: { defaultDensity: 'compact' as const, canChange: true },
 	databaseAccess: { mode: 'all' as const, strict: true },
 	docsAccess: { mode: 'all' as const },
@@ -105,7 +105,7 @@ describe('user group availability service', () => {
 		const licensed = await getAvailableUserGroupOverview('project-id');
 		expect(licensed.groups.find((group) => group.id === 'group-d')).toMatchObject({
 			isLocked: false,
-			featureGrants: ['story-creation'],
+			featureGrants: ['storyCreation'],
 			ssoMappings: baseGroup.ssoMappings,
 		});
 		expect(licensed.memberships).toHaveLength(2);
@@ -115,7 +115,7 @@ describe('user group availability service', () => {
 	it('uses only active groups for effective access', async () => {
 		await resolveAvailableUserGroupAccess('project-id', 'user-id');
 
-		expect(mocks.resolveEffectiveUserGroupAccess).toHaveBeenCalledWith(
+		expect(mocks.resolveUserGroupAccess).toHaveBeenCalledWith(
 			'project-id',
 			'user-id',
 			new Set(['default', 'group-a', 'group-b', 'group-c']),

@@ -48,7 +48,7 @@ export async function resolveAvailableUserGroupAccess(
 	userId: string,
 ): Promise<userGroupQueries.EffectiveUserGroupAccess> {
 	const activeGroupIds = getActiveUserGroupIds(await listUserGroupsWithAvailability(projectId));
-	return userGroupQueries.resolveEffectiveUserGroupAccess(projectId, userId, activeGroupIds);
+	return userGroupQueries.resolveUserGroupAccess(projectId, userId, activeGroupIds);
 }
 
 export async function assertUserGroupManageable(projectId: string, groupId: string): Promise<void> {

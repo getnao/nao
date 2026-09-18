@@ -27,7 +27,7 @@ import {
 	type UserGroupRowPolicies,
 	type UserGroupSsoMappings,
 } from '@nao/shared';
-import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, ne } from 'drizzle-orm';
 
 import type { DBUserGroup, NewUserGroup } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
@@ -103,12 +103,12 @@ export const getUserGroupOverview = async (projectId: string): Promise<UserGroup
 	};
 };
 
-export const resolveEffectiveUserGroupAccess = async (
+export const resolveUserGroupAccess = async (
 	projectId: string,
 	userId: string,
 	activeGroupIds?: ReadonlySet<string>,
 ): Promise<EffectiveUserGroupAccess> => {
-	const [groups, manualMemberships, ssoMemberships] = await Promise.all([
+	const [groups, memberships] = await Promise.all([
 		db.select().from(s.userGroup).where(eq(s.userGroup.projectId, projectId)).execute(),
 		db
 			.select({ groupId: s.userGroupMember.groupId, createdAt: s.userGroupMember.createdAt })
@@ -116,15 +116,9 @@ export const resolveEffectiveUserGroupAccess = async (
 			.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
 			.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroupMember.userId, userId)))
 			.execute(),
-		db
-			.select({ groupId: s.userGroupSsoMember.groupId, createdAt: s.userGroupSsoMember.createdAt })
-			.from(s.userGroupSsoMember)
-			.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupSsoMember.groupId))
-			.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroupSsoMember.userId, userId)))
-			.execute(),
 	]);
 	const membershipDates = new Map<string, Date>();
-	for (const membership of [...manualMemberships, ...ssoMemberships]) {
+	for (const membership of memberships) {
 		const current = membershipDates.get(membership.groupId);
 		if (!current || membership.createdAt > current) {
 			membershipDates.set(membership.groupId, membership.createdAt);
@@ -451,7 +445,7 @@ export const listUserGroupMemberships = async (
 		})
 		.from(s.userGroupMember)
 		.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
-		.where(eq(s.userGroup.projectId, projectId))
+		.where(and(eq(s.userGroup.projectId, projectId), eq(s.userGroupMember.provider, 'manual')))
 		.execute();
 
 export const listUserGroupSsoMemberships = async (
@@ -459,13 +453,13 @@ export const listUserGroupSsoMemberships = async (
 ): Promise<Array<{ groupId: string; userId: string; provider: string }>> =>
 	db
 		.select({
-			groupId: s.userGroupSsoMember.groupId,
-			userId: s.userGroupSsoMember.userId,
-			provider: s.userGroupSsoMember.provider,
+			groupId: s.userGroupMember.groupId,
+			userId: s.userGroupMember.userId,
+			provider: s.userGroupMember.provider,
 		})
-		.from(s.userGroupSsoMember)
-		.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupSsoMember.groupId))
-		.where(eq(s.userGroup.projectId, projectId))
+		.from(s.userGroupMember)
+		.innerJoin(s.userGroup, eq(s.userGroup.id, s.userGroupMember.groupId))
+		.where(and(eq(s.userGroup.projectId, projectId), ne(s.userGroupMember.provider, 'manual')))
 		.execute();
 
 export const validateAssignableUserGroupIds = async (projectId: string, groupIds: string[]): Promise<string[]> => {
@@ -498,7 +492,7 @@ export const addUserGroupMemberships = async (
 	}
 	await executor
 		.insert(s.userGroupMember)
-		.values(uniqueGroupIds.map((groupId) => ({ groupId, userId })))
+		.values(uniqueGroupIds.map((groupId) => ({ groupId, userId, provider: 'manual' as const })))
 		.onConflictDoNothing()
 		.execute();
 };
@@ -519,12 +513,22 @@ export const setUserGroupMembership = async (
 	}
 
 	if (isMember) {
-		await db.insert(s.userGroupMember).values({ groupId, userId }).onConflictDoNothing().execute();
+		await db
+			.insert(s.userGroupMember)
+			.values({ groupId, userId, provider: 'manual' })
+			.onConflictDoNothing()
+			.execute();
 		return;
 	}
 	await db
 		.delete(s.userGroupMember)
-		.where(and(eq(s.userGroupMember.groupId, groupId), eq(s.userGroupMember.userId, userId)))
+		.where(
+			and(
+				eq(s.userGroupMember.groupId, groupId),
+				eq(s.userGroupMember.userId, userId),
+				eq(s.userGroupMember.provider, 'manual'),
+			),
+		)
 		.execute();
 };
 
@@ -669,8 +673,8 @@ function deleteChangedSsoMembershipsSqlite(
 		return;
 	}
 	transaction
-		.delete(s.userGroupSsoMember)
-		.where(and(eq(s.userGroupSsoMember.groupId, groupId), inArray(s.userGroupSsoMember.provider, providers)))
+		.delete(s.userGroupMember)
+		.where(and(eq(s.userGroupMember.groupId, groupId), inArray(s.userGroupMember.provider, providers)))
 		.run();
 }
 
@@ -683,8 +687,8 @@ async function deleteChangedSsoMembershipsPostgres(
 		return;
 	}
 	await transaction
-		.delete(s.userGroupSsoMember)
-		.where(and(eq(s.userGroupSsoMember.groupId, groupId), inArray(s.userGroupSsoMember.provider, providers)))
+		.delete(s.userGroupMember)
+		.where(and(eq(s.userGroupMember.groupId, groupId), inArray(s.userGroupMember.provider, providers)))
 		.execute();
 }
 

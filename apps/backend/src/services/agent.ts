@@ -80,7 +80,11 @@ import { skillService } from './skill';
 import { canGrepUserFiles } from './storage/user-files';
 import { getStoryTemplateWarnings } from './story-template-validation';
 import { resolveProjectContextAccess } from './user-group-context-access.service';
-import { createUserGroupFeatureFlags } from './user-group-feature-access.service';
+import {
+	type AgentUserGroupAccess,
+	appendAgentUserGroupRestrictions,
+	resolveAgentUserGroupAccess,
+} from './user-group-feature-access.service';
 
 export interface AgentRunResult {
 	text: string;
@@ -121,33 +125,8 @@ export interface AgentToolsContext {
 /** Builds the tool set a run should expose. Callers pass one to `create` to customise tools. */
 export type AgentToolsResolver = (context: AgentToolsContext) => AgentTools | Promise<AgentTools>;
 
-export function appendUserGroupRestrictions(
-	systemPrompt: string,
-	restrictions: { storyCreation: boolean; automationCreation: boolean },
-): string {
-	const messages: string[] = [];
-	if (restrictions.storyCreation) {
-		messages.push(
-			'Story creation through the agent is unavailable for this user in this project. Do not attempt or offer to create a new Story, and do not suggest Story mode. You may update or replace existing Stories with the Story tool. If asked, explain that their group does not grant Story creation.',
-		);
-	}
-	if (restrictions.automationCreation) {
-		messages.push(
-			'Automation creation is unavailable for this user in this project. Do not attempt, offer, or suggest creating an Automation. The user can still view and manage existing Automations in the app. If asked, explain that their group does not grant Automation creation.',
-		);
-	}
-	if (messages.length === 0) {
-		return systemPrompt;
-	}
-	return `${systemPrompt}\n\n## User group permissions\n\n${messages.join('\n\n')}`;
-}
-
-export function isStoryCreationRestricted(agentTools: AgentTools, storyCreationEnabled: boolean): boolean {
-	return 'story' in agentTools && !storyCreationEnabled;
-}
-
-export function shouldAddStoryMode(mentions: Mention[] | undefined, storyCreationEnabled: boolean): boolean {
-	return storyCreationEnabled && Boolean(mentions?.some((mention) => mention.id === story.MENTION_ID));
+export function shouldAddStoryMode(mentions: Mention[] | undefined, access: AgentUserGroupAccess): boolean {
+	return access.features.storyCreation && Boolean(mentions?.some((mention) => mention.id === story.MENTION_ID));
 }
 
 /** Default tool set for interactive runs: all built-ins, MCP tools and web search. */
@@ -200,7 +179,11 @@ export async function buildMcpToolContext(opts: {
 	agentSettings?: AgentSettings | null;
 }): Promise<McpToolContext> {
 	const base = await _buildContextBase({ ...opts, supportsCustomCharts: false });
-	return { ...base, chatId: null };
+	return {
+		...base,
+		chatId: null,
+		storyCreationEnabled: base.userGroupFeatures.includes('storyCreation'),
+	};
 }
 
 async function _buildContextBase(opts: {
@@ -224,7 +207,6 @@ async function _buildContextBase(opts: {
 		projectFolder: project.path,
 		userId: opts.userId,
 		projectId: opts.projectId,
-		storyCreationEnabled: contextAccess.userGroupFeatures.includes('story-creation'),
 		supportsCustomCharts: opts.supportsCustomCharts !== false,
 		agentSettings,
 		envVars,
@@ -310,9 +292,7 @@ export class AgentService {
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
 		const resolveTools = options.tools ?? defaultAgentTools;
 		const resolvedTools = await resolveTools({ chat, agentSettings, toolContext, webTools, customBoundaries });
-		const featureFlags = createUserGroupFeatureFlags(toolContext.userGroupFeatures);
-		const storyCreationEnabled = featureFlags['story-creation'];
-		const storyCreationRestricted = isStoryCreationRestricted(resolvedTools, storyCreationEnabled);
+		const userGroupAccess = resolveAgentUserGroupAccess(toolContext.userGroupFeatures, resolvedTools);
 		const agentTools = resolvedTools;
 		const stopWhen: StopCondition<AgentTools>[] = options.excludeFollowUps
 			? [stepCountIs(options.maxSteps ?? 20)]
@@ -327,13 +307,9 @@ export class AgentService {
 			new AbortController(),
 			agentTools,
 			toolContext,
+			userGroupAccess,
 			stopWhen,
 			options.systemPrompt,
-			storyCreationEnabled,
-			{
-				storyCreation: storyCreationRestricted,
-				automationCreation: !featureFlags['automation-creation'],
-			},
 		);
 		this._agents.set(chat.id, agent);
 		return agent;
@@ -428,10 +404,9 @@ class AgentManager {
 		private readonly _abortController: AbortController,
 		private readonly _agentTools: AgentTools,
 		private readonly _toolContext: ToolContext,
+		private readonly _userGroupAccess: AgentUserGroupAccess,
 		stopWhen: StopCondition<AgentTools>[] = [hasToolCall('suggest_follow_ups'), hasToolCall('clarification')],
 		private readonly _systemPromptOverride?: string,
-		private readonly _storyCreationEnabled = true,
-		private readonly _userGroupRestrictions = { storyCreation: false, automationCreation: false },
 	) {
 		this._finished = new Promise((resolve) => {
 			this._resolveFinished = resolve;
@@ -628,7 +603,7 @@ class AgentManager {
 
 		const selectedSystemPrompt =
 			this._systemPromptOverride ?? (await this._buildSystemPrompt(provider, timezone, chatUrl));
-		const systemPrompt = appendUserGroupRestrictions(selectedSystemPrompt, this._userGroupRestrictions);
+		const systemPrompt = appendAgentUserGroupRestrictions(selectedSystemPrompt, this._userGroupAccess);
 
 		const systemMessage: Omit<UIMessage, 'id'> = {
 			role: 'system',
@@ -958,7 +933,7 @@ class AgentManager {
 	}
 
 	private _addStoryMode(messages: UIMessage[], mentions?: Mention[]): UIMessage[] {
-		if (!shouldAddStoryMode(mentions, this._storyCreationEnabled)) {
+		if (!shouldAddStoryMode(mentions, this._userGroupAccess)) {
 			return messages;
 		}
 

@@ -300,7 +300,7 @@ export const storyRoutes = {
 				if (!projectId) {
 					throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat not found.' });
 				}
-				await assertUserGroupFeatureForTrpc(projectId, ctx.user.id, 'story-creation');
+				await assertUserGroupFeatureForTrpc(projectId, ctx.user.id, 'storyCreation');
 			}
 			const version = await storyQueries.createStoryVersion({
 				chatId: input.chatId,

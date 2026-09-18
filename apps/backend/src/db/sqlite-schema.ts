@@ -504,30 +504,14 @@ export const userGroupMember = sqliteTable(
 		userId: text('user_id')
 			.notNull()
 			.references(() => user.id, { onDelete: 'cascade' }),
-		createdAt: integer('created_at', { mode: 'timestamp_ms' })
-			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-			.notNull(),
-	},
-	(t) => [primaryKey({ columns: [t.groupId, t.userId] }), index('user_group_member_userId_idx').on(t.userId)],
-);
-
-export const userGroupSsoMember = sqliteTable(
-	'user_group_sso_member',
-	{
-		groupId: text('group_id')
-			.notNull()
-			.references(() => userGroup.id, { onDelete: 'cascade' }),
-		userId: text('user_id')
-			.notNull()
-			.references(() => user.id, { onDelete: 'cascade' }),
-		provider: text('provider').$type<SsoGroupProvider>().notNull(),
+		provider: text('provider').$type<'manual' | SsoGroupProvider>().default('manual').notNull(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
 	},
 	(t) => [
 		primaryKey({ columns: [t.groupId, t.userId, t.provider] }),
-		index('user_group_sso_member_user_provider_idx').on(t.userId, t.provider),
+		index('user_group_member_user_provider_idx').on(t.userId, t.provider),
 	],
 );
 

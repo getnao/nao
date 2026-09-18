@@ -64,7 +64,7 @@ export default createTool<story.Input, story.Output>({
 			}) satisfies story.Output;
 
 		if (input.action === 'create') {
-			if (context.storyCreationEnabled === false) {
+			if (!context.userGroupFeatures.includes('storyCreation')) {
 				return fail('Story creation is unavailable for this user in this project.');
 			}
 			if (!input.code || !input.title) {

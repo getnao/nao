@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
 	getUserRoleInProject: vi.fn(),
 	hasFeature: vi.fn(),
 	env: {} as Record<string, string | undefined>,
-	resolveEffectiveUserGroupAccess: vi.fn(),
+	resolveUserGroupAccess: vi.fn(),
 	role: 'admin' as 'admin' | 'user' | 'viewer',
 	setUserGroupMembership: vi.fn(),
 	updateUserGroup: vi.fn(),
@@ -46,7 +46,7 @@ vi.mock('../src/queries/user-group.queries', () => ({
 	deleteUserGroup: mocks.deleteUserGroup,
 	getUserGroupOverview: mocks.getUserGroupOverview,
 	getProjectRowSecurity: mocks.getProjectRowSecurity,
-	resolveEffectiveUserGroupAccess: mocks.resolveEffectiveUserGroupAccess,
+	resolveUserGroupAccess: mocks.resolveUserGroupAccess,
 	setUserGroupMembership: mocks.setUserGroupMembership,
 	updateUserGroup: mocks.updateUserGroup,
 	updateProjectRowSecurity: mocks.updateProjectRowSecurity,
@@ -62,7 +62,7 @@ vi.mock('../src/services/sso-user-group-mapping.service', () => ({
 vi.mock('../src/services/user-group-availability.service', () => ({
 	assertUserGroupManageable: mocks.assertUserGroupManageable,
 	getAvailableUserGroupOverview: mocks.getUserGroupOverview,
-	resolveAvailableUserGroupAccess: mocks.resolveEffectiveUserGroupAccess,
+	resolveAvailableUserGroupAccess: mocks.resolveUserGroupAccess,
 }));
 vi.mock('../src/services/docs-context-catalog.service', () => ({
 	getDocsContextCatalog: mocks.getDocsContextCatalog,
@@ -97,8 +97,8 @@ describe('user group routes', () => {
 		mocks.listEffectiveEntraUserGroupMappings.mockResolvedValue([]);
 		mocks.updateProjectRowSecurity.mockImplementation(async (_projectId, value) => value);
 		mocks.validateWarehouseRowPredicate.mockImplementation(async (predicate) => predicate);
-		mocks.resolveEffectiveUserGroupAccess.mockResolvedValue({
-			features: ['story-creation'],
+		mocks.resolveUserGroupAccess.mockResolvedValue({
+			features: ['storyCreation'],
 			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [] },
 			rowPolicies: [{ version: 1, policies: [] }],
@@ -225,7 +225,7 @@ describe('user group routes', () => {
 		await createCaller().updateRowSecurity({ version: 1, tables: [orders] });
 		await createCaller().update({
 			groupId: 'group-id',
-			featureGrants: ['story-creation'],
+			featureGrants: ['storyCreation'],
 			toolCallDensityPolicy: { defaultDensity: 'compact', canChange: false },
 			rowPolicies: storedPolicies,
 		});
@@ -236,7 +236,7 @@ describe('user group routes', () => {
 			'project-id',
 			'group-id',
 			expect.objectContaining({
-				featureGrants: ['story-creation'],
+				featureGrants: ['storyCreation'],
 				rowPolicies: storedPolicies,
 				rowPoliciesRegistry: { version: 1, tables: [orders] },
 			}),
@@ -557,7 +557,7 @@ describe('user group routes', () => {
 
 		await createCaller().create({
 			name: ' Analysts ',
-			featureGrants: ['story-creation', 'story-creation'],
+			featureGrants: ['storyCreation', 'storyCreation'],
 			toolCallDensityPolicy: {
 				defaultDensity: 'compact',
 				canChange: false,
@@ -569,7 +569,7 @@ describe('user group routes', () => {
 		expect(mocks.createUserGroup).toHaveBeenCalledWith(
 			'project-id',
 			'Analysts',
-			['story-creation'],
+			['storyCreation'],
 			{
 				defaultDensity: 'compact',
 				canChange: false,
@@ -824,7 +824,7 @@ describe('user group routes', () => {
 		await createCaller().update({
 			groupId: 'group-id',
 			name: 'Analysts',
-			featureGrants: ['automation-creation'],
+			featureGrants: ['automationCreation'],
 			toolCallDensityPolicy: {
 				defaultDensity: 'detailed',
 				canChange: true,
@@ -833,7 +833,7 @@ describe('user group routes', () => {
 
 		expect(mocks.updateUserGroup).toHaveBeenCalledWith('project-id', 'group-id', {
 			name: 'Analysts',
-			featureGrants: ['automation-creation'],
+			featureGrants: ['automationCreation'],
 			toolCallDensityPolicy: {
 				defaultDensity: 'detailed',
 				canChange: true,
@@ -945,8 +945,8 @@ describe('user group routes', () => {
 
 		await expect(createCaller().effectiveAccess()).resolves.toEqual({
 			features: {
-				'story-creation': true,
-				'automation-creation': false,
+				storyCreation: true,
+				automationCreation: false,
 			},
 			toolCallDensityPolicy: {
 				defaultDensity: 'compact',
@@ -955,14 +955,14 @@ describe('user group routes', () => {
 			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [] },
 		});
-		expect(mocks.resolveEffectiveUserGroupAccess).toHaveBeenCalledWith('project-id', 'user-id');
+		expect(mocks.resolveUserGroupAccess).toHaveBeenCalledWith('project-id', 'user-id');
 	});
 
 	it('returns effective access for a project user to admins', async () => {
 		await expect(createCaller().effectiveAccessForUser({ userId: 'target-user-id' })).resolves.toEqual({
 			features: {
-				'story-creation': true,
-				'automation-creation': false,
+				storyCreation: true,
+				automationCreation: false,
 			},
 			toolCallDensityPolicy: {
 				defaultDensity: 'compact',
@@ -973,7 +973,7 @@ describe('user group routes', () => {
 			rowPolicies: [{ version: 1, policies: [] }],
 		});
 		expect(mocks.getUserRoleInProject).toHaveBeenCalledWith('project-id', 'target-user-id');
-		expect(mocks.resolveEffectiveUserGroupAccess).toHaveBeenCalledWith('project-id', 'target-user-id');
+		expect(mocks.resolveUserGroupAccess).toHaveBeenCalledWith('project-id', 'target-user-id');
 	});
 
 	it('rejects effective access for a user outside the project', async () => {
@@ -985,7 +985,7 @@ describe('user group routes', () => {
 			code: 'NOT_FOUND',
 			message: 'This user does not have access to the project.',
 		});
-		expect(mocks.resolveEffectiveUserGroupAccess).not.toHaveBeenCalled();
+		expect(mocks.resolveUserGroupAccess).not.toHaveBeenCalled();
 	});
 
 	it('requires an admin for arbitrary-user effective access', async () => {
@@ -1006,8 +1006,8 @@ describe('user group routes', () => {
 
 		await expect(createCaller().effectiveAccess()).resolves.toEqual({
 			features: {
-				'story-creation': true,
-				'automation-creation': false,
+				storyCreation: true,
+				automationCreation: false,
 			},
 			toolCallDensityPolicy: {
 				defaultDensity: 'compact',
@@ -1016,7 +1016,7 @@ describe('user group routes', () => {
 			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [] },
 		});
-		expect(mocks.resolveEffectiveUserGroupAccess).toHaveBeenCalledWith('project-id', 'user-id');
+		expect(mocks.resolveUserGroupAccess).toHaveBeenCalledWith('project-id', 'user-id');
 		expect(mocks.hasFeature).not.toHaveBeenCalled();
 	});
 });

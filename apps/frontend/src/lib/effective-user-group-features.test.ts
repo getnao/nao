@@ -4,8 +4,8 @@ import { getEffectiveToolCallDensity, getRenderableUserGroupAccess } from './eff
 
 const effectiveAccess = {
 	features: {
-		'story-creation': true,
-		'automation-creation': false,
+		storyCreation: true,
+		automationCreation: false,
 	},
 	toolCallDensityPolicy: {
 		defaultDensity: 'compact' as const,
@@ -21,8 +21,8 @@ describe('getRenderableUserGroupAccess', () => {
 	it('denies features and locks density while loading or after an error', () => {
 		expect(getRenderableUserGroupAccess(effectiveAccess, false)).toEqual({
 			features: {
-				'story-creation': false,
-				'automation-creation': false,
+				storyCreation: false,
+				automationCreation: false,
 			},
 			toolCallDensityPolicy: {
 				defaultDensity: 'detailed',
@@ -34,8 +34,8 @@ describe('getRenderableUserGroupAccess', () => {
 	it('uses loading-safe access when no project result exists', () => {
 		expect(getRenderableUserGroupAccess(undefined, true)).toEqual({
 			features: {
-				'story-creation': false,
-				'automation-creation': false,
+				storyCreation: false,
+				automationCreation: false,
 			},
 			toolCallDensityPolicy: {
 				defaultDensity: 'detailed',

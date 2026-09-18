@@ -21,33 +21,33 @@ describe('user group configuration', () => {
 
 	it('serializes canonical v2 configuration without compact-mode', () => {
 		expect(
-			serializeUserGroupConfig(['story-creation', 'automation-creation', 'compact-mode'], {
+			serializeUserGroupConfig(['storyCreation', 'automationCreation', 'compact-mode'], {
 				defaultDensity: 'compact',
 				canChange: false,
 			}),
 		).toEqual({
 			version: 2,
-			features: ['story-creation', 'automation-creation'],
+			features: ['storyCreation', 'automationCreation'],
 			toolCallDensity: {
 				defaultDensity: 'compact',
 				canChange: false,
 			},
 		});
-		expect(USER_GROUP_FEATURES).toEqual(['story-creation', 'automation-creation']);
+		expect(USER_GROUP_FEATURES).toEqual(['storyCreation', 'automationCreation']);
 	});
 
 	it('reads canonical v2 configuration', () => {
 		expect(
 			parseStoredUserGroupConfig({
 				version: 2,
-				features: ['story-creation', 'automation-creation'],
+				features: ['storyCreation', 'automationCreation'],
 				toolCallDensity: {
 					defaultDensity: 'compact',
 					canChange: true,
 				},
 			}),
 		).toEqual({
-			features: ['story-creation', 'automation-creation'],
+			features: ['storyCreation', 'automationCreation'],
 			toolCallDensity: {
 				defaultDensity: 'compact',
 				canChange: true,
@@ -57,7 +57,7 @@ describe('user group configuration', () => {
 
 	it('maps legacy compact-mode to an unlocked detailed policy', () => {
 		expect(parseStoredUserGroupConfig(['story-creation', 'compact-mode'])).toEqual({
-			features: ['story-creation'],
+			features: ['storyCreation'],
 			toolCallDensity: {
 				defaultDensity: 'detailed',
 				canChange: true,
@@ -67,7 +67,7 @@ describe('user group configuration', () => {
 
 	it('maps legacy configuration without compact-mode to a locked detailed policy', () => {
 		expect(parseStoredUserGroupConfig(['story-creation'])).toEqual({
-			features: ['story-creation'],
+			features: ['storyCreation'],
 			toolCallDensity: {
 				defaultDensity: 'detailed',
 				canChange: false,
@@ -76,8 +76,17 @@ describe('user group configuration', () => {
 	});
 
 	it('normalizes legacy aliases and removes unknown features', () => {
-		expect(parseStoredUserGroupConfig(['stories', 'automations', 'unknown', 'compact-mode'])).toEqual({
-			features: ['story-creation', 'automation-creation'],
+		expect(
+			parseStoredUserGroupConfig([
+				'stories',
+				'automations',
+				'story-creation',
+				'automation-creation',
+				'unknown',
+				'compact-mode',
+			]),
+		).toEqual({
+			features: ['storyCreation', 'automationCreation'],
 			toolCallDensity: {
 				defaultDensity: 'detailed',
 				canChange: true,

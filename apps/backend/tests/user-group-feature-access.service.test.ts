@@ -1,25 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-	resolveEffectiveUserGroupAccess: vi.fn(),
+	resolveUserGroupAccess: vi.fn(),
 }));
 
 vi.mock('../src/services/user-group-availability.service', () => ({
-	resolveAvailableUserGroupAccess: mocks.resolveEffectiveUserGroupAccess,
+	resolveAvailableUserGroupAccess: mocks.resolveUserGroupAccess,
 }));
 import {
+	appendAgentUserGroupRestrictions,
 	assertUserGroupFeature,
 	getEffectiveUserGroupAccess,
 	getEffectiveUserGroupAccessForUserDetail,
 	getEffectiveUserGroupFeatureFlags,
 	hasUserGroupFeature,
+	resolveAgentUserGroupAccess,
 } from '../src/services/user-group-feature-access.service';
 
 describe('user group feature access service', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		mocks.resolveEffectiveUserGroupAccess.mockResolvedValue({
-			features: ['story-creation'],
+		mocks.resolveUserGroupAccess.mockResolvedValue({
+			features: ['storyCreation'],
 			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
 			rowPolicies: [{ version: 1, policies: [] }],
@@ -33,8 +35,8 @@ describe('user group feature access service', () => {
 	it('formats resolved group policies as effective access', async () => {
 		await expect(getEffectiveUserGroupAccess('project-id', 'user-id')).resolves.toEqual({
 			features: {
-				'story-creation': true,
-				'automation-creation': false,
+				storyCreation: true,
+				automationCreation: false,
 			},
 			toolCallDensityPolicy: {
 				defaultDensity: 'compact',
@@ -43,13 +45,13 @@ describe('user group feature access service', () => {
 			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
 			docsAccess: { mode: 'restricted', grants: [{ kind: 'folder', path: 'finance' }] },
 		});
-		expect(mocks.resolveEffectiveUserGroupAccess).toHaveBeenCalledWith('project-id', 'user-id');
+		expect(mocks.resolveUserGroupAccess).toHaveBeenCalledWith('project-id', 'user-id');
 	});
 
 	it('returns typed flags for effective grants', async () => {
 		await expect(getEffectiveUserGroupFeatureFlags('project-id', 'user-id')).resolves.toEqual({
-			'story-creation': true,
-			'automation-creation': false,
+			storyCreation: true,
+			automationCreation: false,
 		});
 		await expect(getEffectiveUserGroupAccess('project-id', 'user-id')).resolves.toMatchObject({
 			databaseAccess: { mode: 'restricted', strict: false, grants: [], patterns: [] },
@@ -68,10 +70,50 @@ describe('user group feature access service', () => {
 	});
 
 	it('allows and denies feature checks', async () => {
-		await expect(hasUserGroupFeature('project-id', 'user-id', 'story-creation')).resolves.toBe(true);
-		await expect(assertUserGroupFeature('project-id', 'user-id', 'automation-creation')).rejects.toMatchObject({
+		await expect(hasUserGroupFeature('project-id', 'user-id', 'storyCreation')).resolves.toBe(true);
+		await expect(assertUserGroupFeature('project-id', 'user-id', 'automationCreation')).rejects.toMatchObject({
 			codeMessage: 'FORBIDDEN',
 			message: 'Automation creation is not enabled for your user group.',
 		});
+	});
+
+	it('prepares tool-aware agent restrictions from canonical feature flags', () => {
+		expect(resolveAgentUserGroupAccess([], { story: {}, execute_sql: {} })).toEqual({
+			features: {
+				storyCreation: false,
+				automationCreation: false,
+			},
+			restrictedFeatures: ['storyCreation', 'automationCreation'],
+		});
+		expect(resolveAgentUserGroupAccess([], { execute_sql: {}, custom: {} })).toEqual({
+			features: {
+				storyCreation: false,
+				automationCreation: false,
+			},
+			restrictedFeatures: ['automationCreation'],
+		});
+	});
+
+	it('adds all relevant agent restrictions under one heading', () => {
+		const access = resolveAgentUserGroupAccess([], { story: {}, execute_sql: {} });
+		const prompt = appendAgentUserGroupRestrictions('Custom project prompt', access);
+
+		expect(prompt).toContain('Custom project prompt');
+		expect(prompt).toContain('## User group permissions');
+		expect(prompt).toContain('Do not attempt or offer to create a new Story');
+		expect(prompt).toContain('You may update or replace existing Stories');
+		expect(prompt).toContain('Automation creation is unavailable');
+		expect(prompt).toContain('user can still view and manage existing Automations');
+		expect(prompt.match(/## User group permissions/g)).toHaveLength(1);
+	});
+
+	it('omits allowed and tool-irrelevant agent restrictions', () => {
+		const allowed = resolveAgentUserGroupAccess(['storyCreation', 'automationCreation'], { story: {} });
+		expect(appendAgentUserGroupRestrictions('Allowed prompt', allowed)).toBe('Allowed prompt');
+
+		const automationOnly = resolveAgentUserGroupAccess([], { execute_sql: {} });
+		const prompt = appendAgentUserGroupRestrictions('Prompt', automationOnly);
+		expect(prompt).not.toContain('Story creation through the agent is unavailable');
+		expect(prompt).toContain('Automation creation is unavailable');
 	});
 });

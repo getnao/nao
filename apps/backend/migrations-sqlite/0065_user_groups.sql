@@ -18,24 +18,14 @@ CREATE UNIQUE INDEX `user_group_project_name_unique` ON `user_group` (`project_i
 CREATE TABLE `user_group_member` (
 	`group_id` text NOT NULL,
 	`user_id` text NOT NULL,
-	`created_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
-	PRIMARY KEY(`group_id`, `user_id`),
-	FOREIGN KEY (`group_id`) REFERENCES `user_group`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
-);
---> statement-breakpoint
-CREATE INDEX `user_group_member_userId_idx` ON `user_group_member` (`user_id`);--> statement-breakpoint
-CREATE TABLE `user_group_sso_member` (
-	`group_id` text NOT NULL,
-	`user_id` text NOT NULL,
-	`provider` text NOT NULL,
+	`provider` text DEFAULT 'manual' NOT NULL,
 	`created_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
 	PRIMARY KEY(`group_id`, `user_id`, `provider`),
 	FOREIGN KEY (`group_id`) REFERENCES `user_group`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE INDEX `user_group_sso_member_user_provider_idx` ON `user_group_sso_member` (`user_id`,`provider`);--> statement-breakpoint
+CREATE INDEX `user_group_member_user_provider_idx` ON `user_group_member` (`user_id`,`provider`);--> statement-breakpoint
 ALTER TABLE `project` ADD `row_security` text;--> statement-breakpoint
 ALTER TABLE `story_data_cache` ADD `query_sources` text;--> statement-breakpoint
 INSERT INTO `user_group` (`id`, `project_id`, `name`, `is_default`, `feature_grants`, `context_grants`)
@@ -44,6 +34,6 @@ SELECT
 	`id`,
 	'All Users',
 	1,
-	'{"version":2,"features":["story-creation","automation-creation"],"toolCallDensity":{"defaultDensity":"detailed","canChange":true}}',
+	'{"version":2,"features":["storyCreation","automationCreation"],"toolCallDensity":{"defaultDensity":"detailed","canChange":true}}',
 	'{"version":1,"access":{"mode":"all"}}'
 FROM `project`;

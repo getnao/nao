@@ -182,7 +182,7 @@ async function forkSharedStoryItem(
 		return { chatId: chat.id };
 	}
 
-	await assertUserGroupFeatureForTrpc(projectId, userId, 'story-creation');
+	await assertUserGroupFeatureForTrpc(projectId, userId, 'storyCreation');
 	const queryData = await getAuthorizedStoredStoryQueryData(share.chatId!, share.code, userId);
 	const messages = buildQueryDataMessages(queryData);
 

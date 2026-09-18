@@ -22,7 +22,6 @@ export interface ToolContext {
 	chatId: string;
 	userId: string;
 	projectId: string;
-	storyCreationEnabled?: boolean;
 	supportsCustomCharts: boolean;
 	agentSettings: AgentSettings | null;
 	envVars: Record<string, string>;
@@ -52,4 +51,7 @@ export interface ToolContext {
 	adminMode?: boolean;
 }
 
-export type McpToolContext = Omit<ToolContext, 'chatId'> & { chatId: null };
+export type McpToolContext = Omit<ToolContext, 'chatId'> & {
+	chatId: null;
+	storyCreationEnabled?: boolean;
+};

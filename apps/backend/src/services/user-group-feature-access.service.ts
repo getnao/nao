@@ -12,6 +12,11 @@ import { resolveAvailableUserGroupAccess } from './user-group-availability.servi
 
 export type UserGroupFeatureFlags = Record<UserGroupFeature, boolean>;
 
+export interface AgentUserGroupAccess {
+	features: UserGroupFeatureFlags;
+	restrictedFeatures: UserGroupFeature[];
+}
+
 export interface EffectiveUserGroupAccess {
 	features: UserGroupFeatureFlags;
 	toolCallDensityPolicy: ToolCallDensityPolicy;
@@ -76,9 +81,9 @@ export async function assertUserGroupFeature(
 
 function featureLabel(feature: UserGroupFeature): string {
 	switch (feature) {
-		case 'story-creation':
+		case 'storyCreation':
 			return 'Story creation';
-		case 'automation-creation':
+		case 'automationCreation':
 			return 'Automation creation';
 	}
 }
@@ -90,6 +95,27 @@ export function createUserGroupFeatureFlags(features: readonly UserGroupFeature[
 	) as UserGroupFeatureFlags;
 }
 
+export function resolveAgentUserGroupAccess(
+	features: readonly UserGroupFeature[],
+	agentTools: Readonly<Record<string, unknown>>,
+): AgentUserGroupAccess {
+	const featureFlags = createUserGroupFeatureFlags(features);
+	return {
+		features: featureFlags,
+		restrictedFeatures: USER_GROUP_FEATURES.filter(
+			(feature) => !featureFlags[feature] && isAgentFeaturePolicyRelevant(feature, agentTools),
+		),
+	};
+}
+
+export function appendAgentUserGroupRestrictions(systemPrompt: string, access: AgentUserGroupAccess): string {
+	const messages = access.restrictedFeatures.map((feature) => AGENT_FEATURE_POLICIES[feature].restrictionMessage);
+	if (messages.length === 0) {
+		return systemPrompt;
+	}
+	return `${systemPrompt}\n\n## User group permissions\n\n${messages.join('\n\n')}`;
+}
+
 function formatEffectiveUserGroupAccess(
 	access: Awaited<ReturnType<typeof resolveAvailableUserGroupAccess>>,
 ): EffectiveUserGroupAccess {
@@ -99,4 +125,29 @@ function formatEffectiveUserGroupAccess(
 		databaseAccess: access.databaseAccess,
 		docsAccess: access.docsAccess,
 	};
+}
+
+interface AgentFeaturePolicy {
+	requiredTool?: string;
+	restrictionMessage: string;
+}
+
+const AGENT_FEATURE_POLICIES: Record<UserGroupFeature, AgentFeaturePolicy> = {
+	storyCreation: {
+		requiredTool: 'story',
+		restrictionMessage:
+			'Story creation through the agent is unavailable for this user in this project. Do not attempt or offer to create a new Story, and do not suggest Story mode. You may update or replace existing Stories with the Story tool. If asked, explain that their group does not grant Story creation.',
+	},
+	automationCreation: {
+		restrictionMessage:
+			'Automation creation is unavailable for this user in this project. Do not attempt, offer, or suggest creating an Automation. The user can still view and manage existing Automations in the app. If asked, explain that their group does not grant Automation creation.',
+	},
+};
+
+function isAgentFeaturePolicyRelevant(
+	feature: UserGroupFeature,
+	agentTools: Readonly<Record<string, unknown>>,
+): boolean {
+	const requiredTool = AGENT_FEATURE_POLICIES[feature].requiredTool;
+	return requiredTool === undefined || requiredTool in agentTools;
 }
