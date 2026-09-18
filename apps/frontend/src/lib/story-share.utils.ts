@@ -1,3 +1,4 @@
+import { isQueryResultPart } from '@nao/shared/execute-sql-parts';
 import { extractQueryIds } from '@nao/shared/story-segments';
 
 import type { UIMessage } from '@nao/backend/chat';
@@ -19,7 +20,7 @@ export function getQueryDataFromCodeFromMessages(
 	const data: Record<string, unknown[]> = {};
 	for (const message of messages) {
 		for (const part of message.parts) {
-			if (part.type === 'tool-execute_sql' && part.output?.id && queryIds.has(part.output.id)) {
+			if (isQueryResultPart(part) && part.output?.id && queryIds.has(part.output.id)) {
 				data[part.output.id] = part.output.data;
 			}
 		}

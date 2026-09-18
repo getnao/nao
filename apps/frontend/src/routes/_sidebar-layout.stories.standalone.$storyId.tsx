@@ -212,6 +212,7 @@ function StandaloneEditableStory({
 					cachedAt,
 					lastRefreshFailure,
 					isRefreshing,
+					isUpdating,
 					onRefresh: () => handleRefreshData(),
 					onOpenSettings: () => setIsLiveSettingsOpen(true),
 				}}

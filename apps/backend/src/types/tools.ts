@@ -1,5 +1,6 @@
 import type { UserGroupFeature } from '@nao/shared';
 import type { displayChart, displayMap } from '@nao/shared/tools';
+import type { LlmSelectedModel, SemanticLayerMode } from '@nao/shared/types';
 
 import type { WarehouseTableAccess } from '../services/context-access';
 import type { ResolvedDocsContextAccess } from '../services/user-group-context-access.service';
@@ -24,6 +25,13 @@ export interface ToolContext {
 	storyCreationEnabled?: boolean;
 	supportsCustomCharts: boolean;
 	agentSettings: AgentSettings | null;
+	/** The model the run itself uses; subagents inherit it unless the project pins another one. */
+	modelSelection?: LlmSelectedModel;
+	/**
+	 * How the run may use the project's semantic layer, resolved once from nao_config.yaml
+	 * and the admin settings. Null (or absent) when the project declares no semantic layer.
+	 */
+	semanticLayerMode?: SemanticLayerMode | null;
 	envVars: Record<string, string>;
 	warehouseTableAccess: WarehouseTableAccess;
 	docsContextAccess: ResolvedDocsContextAccess;

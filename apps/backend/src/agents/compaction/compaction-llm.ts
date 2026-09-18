@@ -29,6 +29,7 @@ export class CompactionLLM implements ICompactionLLM {
 
 		const { text, usage } = await generateText({
 			...this._model,
+			system: COMPACTION_SYSTEM_PROMPT,
 			messages: modelMessages,
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
 			experimental_telemetry: llmTelemetry('nao-compaction'),
@@ -63,10 +64,6 @@ export class CompactionLLM implements ICompactionLLM {
 	}
 
 	private _composeMessages(selectedMessages: ModelMessage[]): ModelMessage[] {
-		return [
-			{ role: 'system', content: COMPACTION_SYSTEM_PROMPT },
-			...selectedMessages,
-			{ role: 'user', content: COMPACTION_USER_PROMPT },
-		];
+		return [...selectedMessages, { role: 'user', content: COMPACTION_USER_PROMPT }];
 	}
 }

@@ -483,6 +483,89 @@ describe('Mattermost answer rendering', () => {
 		);
 	});
 
+	it('retries a rate-limited post patch', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(new Response(null, { status: 429 }))
+			.mockResolvedValueOnce(new Response(null, { status: 200 }));
+		const sleep = vi.fn(async () => undefined);
+
+		await patchMattermostAnswerPost({
+			baseUrl: 'https://mattermost.example/base/',
+			botToken: 'token',
+			postId: 'post-1',
+			message: 'Streaming answer',
+			baseProps: {},
+			attachments: [],
+			fetchImpl,
+			sleep,
+		});
+
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+		expect(sleep).toHaveBeenCalledOnce();
+	});
+
+	it('uses the Mattermost rate-limit reset delay', async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(new Response(null, { status: 429, headers: { 'X-Ratelimit-Reset': '1' } }))
+			.mockResolvedValueOnce(new Response(null, { status: 200 }));
+		const sleep = vi.fn(async () => undefined);
+
+		await patchMattermostAnswerPost({
+			baseUrl: 'https://mattermost.example/base/',
+			botToken: 'token',
+			postId: 'post-1',
+			message: 'Streaming answer',
+			baseProps: {},
+			attachments: [],
+			fetchImpl,
+			sleep,
+		});
+
+		expect(sleep).toHaveBeenCalledWith(1000);
+	});
+
+	it('throws after exhausting post patch rate-limit retries', async () => {
+		const fetchImpl = vi.fn(async () => new Response(null, { status: 429 }));
+		const sleep = vi.fn(async () => undefined);
+
+		await expect(
+			patchMattermostAnswerPost({
+				baseUrl: 'https://mattermost.example/base/',
+				botToken: 'token',
+				postId: 'post-1',
+				message: 'Streaming answer',
+				baseProps: {},
+				attachments: [],
+				fetchImpl,
+				sleep,
+			}),
+		).rejects.toThrow('Mattermost post patch failed with status 429');
+		expect(fetchImpl).toHaveBeenCalledTimes(4);
+		expect(sleep).toHaveBeenCalledTimes(3);
+	});
+
+	it('does not retry other post patch failures', async () => {
+		const fetchImpl = vi.fn(async () => new Response(null, { status: 500 }));
+		const sleep = vi.fn(async () => undefined);
+
+		await expect(
+			patchMattermostAnswerPost({
+				baseUrl: 'https://mattermost.example/base/',
+				botToken: 'token',
+				postId: 'post-1',
+				message: 'Streaming answer',
+				baseProps: {},
+				attachments: [],
+				fetchImpl,
+				sleep,
+			}),
+		).rejects.toThrow('Mattermost post patch failed with status 500');
+		expect(fetchImpl).toHaveBeenCalledOnce();
+		expect(sleep).not.toHaveBeenCalled();
+	});
+
 	it('keeps the answer and link in markdown without a card', () => {
 		const message = createMattermostAnswerMessage('Answer text', 'https://nao.example/chat-1');
 

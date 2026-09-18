@@ -279,22 +279,56 @@ export async function patchMattermostAnswerPost(input: {
 	baseProps: Record<string, unknown>;
 	attachments: MattermostStopAttachment[];
 	fetchImpl?: typeof fetch;
+	sleep?: (ms: number) => Promise<void>;
 }): Promise<void> {
 	const fetchImpl = input.fetchImpl ?? fetch;
+	const sleep = input.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
 	const url = createMattermostPostPatchUrl(input.baseUrl, input.postId);
 	const headers = {
 		Accept: 'application/json',
 		Authorization: `Bearer ${input.botToken}`,
 		'Content-Type': 'application/json',
 	};
-	const response = await fetchImpl(url, {
-		method: 'PUT',
-		headers,
-		body: JSON.stringify(buildMattermostAnswerPatchBody(input.message, input.baseProps, input.attachments)),
-	});
-	if (!response.ok) {
-		throw new Error(`Mattermost post patch failed with status ${response.status}`);
+	const body = JSON.stringify(buildMattermostAnswerPatchBody(input.message, input.baseProps, input.attachments));
+
+	for (let retryCount = 0; ; retryCount += 1) {
+		const response = await fetchImpl(url, {
+			method: 'PUT',
+			headers,
+			body,
+		});
+		if (response.ok) {
+			return;
+		}
+		if (response.status !== 429 || retryCount === MATTERMOST_PATCH_MAX_RETRIES) {
+			throw new Error(`Mattermost post patch failed with status ${response.status}`);
+		}
+		await sleep(getMattermostPatchRetryDelayMs(response.headers));
 	}
+}
+
+function getMattermostPatchRetryDelayMs(headers: Headers): number {
+	const resetSeconds = parseNonNegativeNumber(headers.get('X-Ratelimit-Reset'));
+	if (resetSeconds !== null) {
+		return Math.min(resetSeconds * 1000, MATTERMOST_PATCH_MAX_RETRY_DELAY_MS);
+	}
+	const retryAfterSeconds = parseNonNegativeInteger(headers.get('Retry-After'));
+	if (retryAfterSeconds !== null) {
+		return Math.min(retryAfterSeconds * 1000, MATTERMOST_PATCH_MAX_RETRY_DELAY_MS);
+	}
+	return MATTERMOST_PATCH_DEFAULT_RETRY_DELAY_MS;
+}
+
+function parseNonNegativeNumber(value: string | null): number | null {
+	if (value === null || value.trim() === '') {
+		return null;
+	}
+	const number = Number(value);
+	return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+function parseNonNegativeInteger(value: string | null): number | null {
+	return value !== null && /^\d+$/.test(value.trim()) ? Number(value) : null;
 }
 
 export async function validateMattermostConnection(input: {
@@ -500,6 +534,9 @@ const MATTERMOST_TABLE_COLUMN_LIMIT = 20;
 const MATTERMOST_TABLE_CELL_LIMIT = 160;
 const MATTERMOST_TABLE_MAX_LENGTH = 12_000;
 const MISSING_EMAIL_CACHE_TTL_MS = 5 * 60 * 1000;
+const MATTERMOST_PATCH_MAX_RETRIES = 3;
+const MATTERMOST_PATCH_MAX_RETRY_DELAY_MS = 2_000;
+const MATTERMOST_PATCH_DEFAULT_RETRY_DELAY_MS = 500;
 
 function extractMentionTokens(value: unknown): string[] {
 	if (Array.isArray(value)) {

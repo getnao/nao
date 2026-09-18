@@ -64,8 +64,8 @@ import {
 	resolveProviderSettings,
 } from '../utils/llm';
 import { logger } from '../utils/logger';
-import { extractConfiguredDatabases } from '../utils/nao-config';
-import { addPromptCache } from '../utils/prompt-cache';
+import { extractConfiguredDatabases, readProjectContext } from '../utils/nao-config';
+import { addPromptCache, cachedSystemInstructions } from '../utils/prompt-cache';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { sanitizeTitle, TITLE_MAX_OUTPUT_TOKENS, titleFromPrompt, titleGenerationUserMessage } from '../utils/title';
 import { isStoragePath } from '../utils/tools';
@@ -76,6 +76,7 @@ import { hasFeature, LICENSE_FEATURES } from './license.service';
 import { mcpService } from './mcp';
 import { memoryService } from './memory';
 import { getAzureAccessTokenForUser } from './microsoft-auth.service';
+import { resolveSemanticLayerMode } from './semantic-layer.service';
 import { skillService } from './skill';
 import { canGrepUserFiles } from './storage/user-files';
 import { getStoryTemplateWarnings } from './story-template-validation';
@@ -151,14 +152,29 @@ export function shouldAddStoryMode(mentions: Mention[] | undefined, storyCreatio
 }
 
 /** Default tool set for interactive runs: all built-ins, MCP tools and web search. */
-export const defaultAgentTools: AgentToolsResolver = ({ chat, agentSettings, webTools, customBoundaries }) =>
-	getTools(agentSettings, webTools ?? {}, { testMode: chat.testMode, customBoundaries });
+export const defaultAgentTools: AgentToolsResolver = ({
+	chat,
+	agentSettings,
+	toolContext,
+	webTools,
+	customBoundaries,
+}) =>
+	getTools(agentSettings, webTools ?? {}, {
+		testMode: chat.testMode,
+		customBoundaries,
+		semanticLayerMode: toolContext.semanticLayerMode,
+	});
 
 /** Default tool set minus the given built-ins — for runs whose surface cannot render them. */
 export const defaultAgentToolsExcluding =
 	(excludeBuiltinTools: string[]): AgentToolsResolver =>
-	({ chat, agentSettings, webTools, customBoundaries }) =>
-		getTools(agentSettings, webTools ?? {}, { testMode: chat.testMode, excludeBuiltinTools, customBoundaries });
+	({ chat, agentSettings, toolContext, webTools, customBoundaries }) =>
+		getTools(agentSettings, webTools ?? {}, {
+			testMode: chat.testMode,
+			excludeBuiltinTools,
+			customBoundaries,
+			semanticLayerMode: toolContext.semanticLayerMode,
+		});
 
 /**
  * Admin-mode tool set: the same `execute_sql` tool the chat already uses (it
@@ -189,9 +205,15 @@ export async function buildToolContext(opts: {
 	agentSettings?: AgentSettings | null;
 	adminMode?: boolean;
 	supportsCustomCharts?: boolean;
+	modelSelection?: LlmSelectedModel;
 }): Promise<ToolContext> {
 	const base = await _buildContextBase(opts);
-	return { ...base, chatId: opts.chatId, adminMode: opts.adminMode ?? false };
+	return {
+		...base,
+		chatId: opts.chatId,
+		adminMode: opts.adminMode ?? false,
+		...(opts.modelSelection && { modelSelection: opts.modelSelection }),
+	};
 }
 
 export async function buildMcpToolContext(opts: {
@@ -227,6 +249,7 @@ async function _buildContextBase(opts: {
 		storyCreationEnabled: contextAccess.userGroupFeatures.includes('story-creation'),
 		supportsCustomCharts: opts.supportsCustomCharts !== false,
 		agentSettings,
+		semanticLayerMode: resolveSemanticLayerMode(project.path, agentSettings),
 		envVars,
 		warehouseTableAccess: contextAccess.warehouseTableAccess,
 		docsContextAccess: contextAccess.docsContextAccess,
@@ -297,14 +320,15 @@ export class AgentService {
 			projectQueries.getAgentSettings(chat.projectId),
 			projectQueries.getCustomBoundaries(chat.projectId),
 		]);
-		const toolContext = await this._getToolContext(
-			chat.projectId,
-			chat.id,
-			chat.userId,
+		const toolContext = await this._getToolContext({
+			projectId: chat.projectId,
+			chatId: chat.id,
+			userId: chat.userId,
 			agentSettings,
-			options.adminMode,
-			options.supportsCustomCharts,
-		);
+			adminMode: options.adminMode,
+			supportsCustomCharts: options.supportsCustomCharts,
+			modelSelection: resolvedLlmSelectedModel,
+		});
 		const webTools = await this._resolveWebTools(chat.projectId, resolvedLlmSelectedModel.provider, agentSettings);
 		const resolveTools = options.tools ?? defaultAgentTools;
 		const resolvedTools = await resolveTools({ chat, agentSettings, toolContext, webTools, customBoundaries });
@@ -355,22 +379,8 @@ export class AgentService {
 		throw new HandlerError('BAD_REQUEST', 'No model config found');
 	}
 
-	private async _getToolContext(
-		projectId: string,
-		chatId: string,
-		userId: string,
-		agentSettings: AgentSettings | null,
-		adminMode?: boolean,
-		supportsCustomCharts?: boolean,
-	): Promise<ToolContext> {
-		return buildToolContext({
-			projectId,
-			userId,
-			chatId,
-			agentSettings,
-			adminMode,
-			supportsCustomCharts,
-		});
+	private async _getToolContext(opts: Parameters<typeof buildToolContext>[0]): Promise<ToolContext> {
+		return buildToolContext(opts);
 	}
 
 	private _disposeAgent(chatId: string): void {
@@ -417,6 +427,7 @@ class AgentManager {
 	private readonly _finished: Promise<void>;
 	private _resolveFinished: (() => void) | undefined;
 	private _streamWriter?: UIMessageStreamWriter<UIMessage>;
+	private _systemPrompt = '';
 
 	constructor(
 		readonly chat: AgentChat,
@@ -446,6 +457,10 @@ class AgentManager {
 			...(callSettings.temperature !== undefined && { temperature: callSettings.temperature }),
 			...(callSettings.topP !== undefined && { topP: callSettings.topP }),
 			...(callSettings.topK !== undefined && { topK: callSettings.topK }),
+			prepareCall: async (args) => ({
+				...args,
+				instructions: cachedSystemInstructions(this._systemPrompt, this._modelSelection),
+			}),
 			prepareStep: async ({ messages }) => this._prepareStep(messages),
 			stopWhen,
 			experimental_context: this._toolContext,
@@ -470,11 +485,15 @@ class AgentManager {
 	}
 
 	private async _prepareStep(messages: ModelMessage[]): Promise<{ messages: ModelMessage[] }> {
+		const workingMessages: ModelMessage[] =
+			this._systemPrompt && messages[0]?.role !== 'system'
+				? [{ role: 'system', content: this._systemPrompt }, ...messages]
+				: messages;
 		await compactionService.compactConversationIfNeeded({
 			chat: this.chat,
 			provider: this._modelSelection.provider,
 			modelId: this._modelSelection.modelId,
-			messages,
+			messages: workingMessages,
 			tools: this._agentTools,
 			maxOutputTokens: this._maxOutputTokens,
 			contextWindow: this._modelConfig.contextWindow,
@@ -492,7 +511,8 @@ class AgentManager {
 			},
 		});
 
-		return { messages: this._addCache(this._pruneMessages(messages)) };
+		const conversationMessages = workingMessages[0]?.role === 'system' ? workingMessages.slice(1) : workingMessages;
+		return { messages: this._addCache(this._pruneMessages(conversationMessages)) };
 	}
 
 	get generatedArtifacts(): ToolContext['generatedArtifacts'] {
@@ -525,6 +545,15 @@ class AgentManager {
 	): ReadableStream<InferUIMessageChunk<UIMessage>> {
 		let error: unknown = undefined;
 		let result: StreamTextResult<AgentTools, never> | undefined;
+		const handleError = (err: unknown): string => {
+			error = err;
+			logger.error(`Agent stream error: ${String(err)}`, {
+				source: 'agent',
+				projectId: this.chat.projectId,
+				context: { chatId: this.chat.id, modelId: this._modelSelection.modelId },
+			});
+			return formatErrorMessageForUI(err);
+		};
 
 		return createUIMessageStream<UIMessage>({
 			generateId: () => crypto.randomUUID(),
@@ -569,19 +598,11 @@ class AgentManager {
 				writer.merge(
 					result.toUIMessageStream({
 						sendStart: false,
-						onError: formatErrorMessageForUI,
+						onError: handleError,
 					}),
 				);
 			},
-			onError: (err) => {
-				error = err;
-				logger.error(`Agent stream error: ${String(err)}`, {
-					source: 'agent',
-					projectId: this.chat.projectId,
-					context: { chatId: this.chat.id, modelId: this._modelSelection.modelId },
-				});
-				return String(err);
-			},
+			onError: handleError,
 			onFinish: async (e) => {
 				try {
 					const stopReason = e.isAborted ? 'interrupted' : e.finishReason;
@@ -627,18 +648,12 @@ class AgentManager {
 		const selectedSystemPrompt =
 			this._systemPromptOverride ?? (await this._buildSystemPrompt(provider, timezone, chatUrl));
 		const systemPrompt = appendUserGroupRestrictions(selectedSystemPrompt, this._userGroupRestrictions);
+		this._systemPrompt = systemPrompt;
+		const conversationMessages = uiMessagesWithResolvedAttachments.filter((message) => message.role !== 'system');
 
-		const systemMessage: Omit<UIMessage, 'id'> = {
-			role: 'system',
-			parts: [{ type: 'text', text: systemPrompt }],
-		};
-
-		const modelMessages = await convertToModelMessages<UIMessage>(
-			[systemMessage, ...uiMessagesWithResolvedAttachments],
-			{
-				tools: this._agentTools,
-			},
-		);
+		const modelMessages = await convertToModelMessages<UIMessage>(conversationMessages, {
+			tools: this._agentTools,
+		});
 
 		return modelMessages;
 	}
@@ -658,6 +673,8 @@ class AgentManager {
 		const userRules = getUserRules(this._toolContext.projectFolder);
 		const connections = getConnections(this._toolContext.projectFolder);
 		const configuredDatabases = extractConfiguredDatabases(this._toolContext.projectFolder);
+		const { repos, templates, presence: contextPresence } = readProjectContext(this._toolContext.projectFolder);
+		const repoNames = repos.map((repo) => repo.name);
 		const skills = skillService.getSkills(this.chat.projectId);
 		const customCharts = this._toolContext.supportsCustomCharts
 			? listChartPlugins(this._toolContext.projectFolder)
@@ -672,6 +689,10 @@ class AgentManager {
 				skills,
 				customCharts,
 				mcpServers,
+				semanticLayerMode: this._toolContext.semanticLayerMode,
+				templates,
+				repoNames,
+				contextPresence,
 				timezone,
 				testMode: this.chat.testMode,
 				toolNames: Object.keys(this._agentTools),
@@ -1040,10 +1061,7 @@ class AgentManager {
 	/**
 	 * Add Anthropic cache breakpoints to messages.
 	 * Applies to direct Anthropic, Vertex Claude, and Bedrock Anthropic models.
-	 *
-	 * Cache strategy:
-	 * - System message: 1h TTL (instructions rarely change)
-	 * - Last message: 5m TTL (current step's leaf for agentic caching)
+	 * The one-hour system breakpoint is applied separately to instructions.
 	 */
 	private _addCache(messages: ModelMessage[]): ModelMessage[] {
 		return addPromptCache(messages, this._modelSelection);

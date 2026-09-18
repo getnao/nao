@@ -2,6 +2,7 @@ import { createMemoryState } from '@chat-adapter/state-memory';
 import { createRedisState } from '@chat-adapter/state-redis';
 import { createWhatsAppAdapter } from '@chat-adapter/whatsapp';
 import { stripAssistantTags } from '@nao/shared';
+import { isQueryResultPart, type QueryResultPartType } from '@nao/shared/execute-sql-parts';
 import { displayChart } from '@nao/shared/tools';
 import type { LlmSelectedModel } from '@nao/shared/types';
 import { InferUIMessageChunk, readUIMessageStream } from 'ai';
@@ -506,7 +507,7 @@ class WhatsappService {
 			if (part.type.startsWith('tool-') && !EXCLUDED_TOOLS.includes(part.type)) {
 				this._trackToolCall(part as Extract<UIMessagePart, { toolCallId: string }>, state);
 			}
-			if (part.type === 'tool-execute_sql') {
+			if (isQueryResultPart(part)) {
 				this._handleSqlPart(part, state);
 			} else if (part.type === 'tool-display_chart') {
 				const url = await this._handleChartPart(part, state, ctx);
@@ -657,7 +658,7 @@ class WhatsappService {
 		state.toolGroup.set(part.toolCallId, entry);
 	}
 
-	private _handleSqlPart(part: Extract<UIMessagePart, { type: 'tool-execute_sql' }>, state: StreamState): void {
+	private _handleSqlPart(part: Extract<UIMessagePart, { type: QueryResultPartType }>, state: StreamState): void {
 		if (part.state !== 'output-available') {
 			return;
 		}

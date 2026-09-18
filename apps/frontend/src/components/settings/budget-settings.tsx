@@ -1,14 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { ChevronDown, ChevronUp, TriangleAlert } from 'lucide-react';
 import { getNextPeriodStart } from '@nao/shared/date';
-import {
-	BUDGET_PERIODS,
-	MAX_BUDGET_LIMIT_USD,
-	providerKind,
-	providerLabel,
-	WARNING_BUDGET_THRESHOLD,
-} from '@nao/shared/types';
+import { BUDGET_PERIODS, MAX_BUDGET_LIMIT_USD, providerLabel, WARNING_BUDGET_THRESHOLD } from '@nao/shared/types';
 import type { BudgetPeriod } from '@nao/shared/types';
 
 import { UpgradeToEnterprise } from '@/components/settings/upgrade-to-enterprise';
@@ -159,7 +154,7 @@ export function BudgetSettings() {
 				if (configManagedProviders.has(provider)) {
 					return false;
 				}
-				const hasCost = costSupport.data?.[providerKind(provider)] ?? false;
+				const hasCost = costSupport.data?.[provider] ?? false;
 				const budget = budgets[provider] ?? 0;
 				const perUserBudget = perUserBudgets[provider] ?? 0;
 				const period = periods[provider] ?? 'none';
@@ -196,17 +191,27 @@ export function BudgetSettings() {
 					</TableHeader>
 					<TableBody>
 						{allConfiguredProviders.map((provider) => {
-							const hasCost = costSupport.data?.[providerKind(provider)] ?? false;
+							const hasCost = costSupport.data?.[provider] ?? false;
 
 							if (!hasCost) {
 								return (
-									<TableRow key={provider} className='h-12 opacity-50'>
-										<TableCell>{providerLabel(provider)}</TableCell>
+									<TableRow key={provider} className='h-12'>
+										<TableCell className='opacity-50'>{providerLabel(provider)}</TableCell>
 										<TableCell colSpan={5}>
 											<span className='flex items-center gap-1.5 text-muted-foreground text-sm'>
-												<TriangleAlert className='size-4' />
-												Cost data unavailable for this provider — budget tracking is not
-												supported.
+												<TriangleAlert className='size-4 shrink-0' />
+												<span>
+													No token prices known for this provider. Set the costs of its models
+													in{' '}
+													<Link
+														to='/settings/project/agent'
+														search={{ tab: 'models' }}
+														className='underline underline-offset-2 hover:text-foreground'
+													>
+														Models
+													</Link>{' '}
+													to enable budget tracking.
+												</span>
 											</span>
 										</TableCell>
 									</TableRow>

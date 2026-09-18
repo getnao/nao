@@ -1,0 +1,28 @@
+# Edge proxy for the GCP VM hosting moon, licenses, app and labs.
+# Caddy issues and renews the TLS certificate of every site block automatically
+# (HTTP-01 / TLS-ALPN-01), so adding a site only needs a DNS record and a block here.
+# Deployed by .github/workflows/caddy.yml.
+
+moon.getnao.io {
+	reverse_proxy localhost:5005 {
+		flush_interval -1
+	}
+}
+
+licenses.getnao.io {
+	reverse_proxy localhost:8585
+}
+
+app.getnao.io {
+	reverse_proxy localhost:5050 {
+		flush_interval -1
+	}
+}
+
+labs.getnao.io {
+	reverse_proxy localhost:5015
+}
+
+app.preview.getnao.io {
+	redir https://app.getnao.io{uri} permanent
+}

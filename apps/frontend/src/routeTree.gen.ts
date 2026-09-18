@@ -68,6 +68,8 @@ import { Route as SidebarLayoutSettingsUsageReplayChatIdRouteImport } from './ro
 import { Route as SidebarLayoutSettingsProjectUserGroupsGroupIdRouteImport } from './routes/_sidebar-layout.settings.project.user-groups.$groupId'
 import { Route as SidebarLayoutSettingsProjectIntegrationsIntegrationIdRouteImport } from './routes/_sidebar-layout.settings.project.integrations.$integrationId'
 import { Route as SidebarLayoutSettingsProjectUserGroupsUsersUserIdRouteImport } from './routes/_sidebar-layout.settings.project.user-groups.users.$userId'
+import { Route as SidebarLayoutChatLayoutChatIdSubagentToolCallIdRouteImport } from './routes/_sidebar-layout._chat-layout.$chatId_.subagent.$toolCallId'
+import { Route as SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRouteImport } from './routes/_sidebar-layout.settings.usage.replay.$chatId_.subagent.$toolCallId'
 
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
@@ -408,6 +410,18 @@ const SidebarLayoutSettingsProjectUserGroupsUsersUserIdRoute =
     path: '/users/$userId',
     getParentRoute: () => SidebarLayoutSettingsProjectUserGroupsRoute,
   } as any)
+const SidebarLayoutChatLayoutChatIdSubagentToolCallIdRoute =
+  SidebarLayoutChatLayoutChatIdSubagentToolCallIdRouteImport.update({
+    id: '/$chatId_/subagent/$toolCallId',
+    path: '/$chatId/subagent/$toolCallId',
+    getParentRoute: () => SidebarLayoutChatLayoutRoute,
+  } as any)
+const SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRoute =
+  SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRouteImport.update({
+    id: '/replay/$chatId_/subagent/$toolCallId',
+    path: '/replay/$chatId/subagent/$toolCallId',
+    getParentRoute: () => SidebarLayoutSettingsUsageRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof SidebarLayoutChatLayoutIndexRoute
@@ -460,6 +474,7 @@ export interface FileRoutesByFullPath {
   '/stories/standalone/$storyId': typeof SidebarLayoutStoriesStandaloneStoryIdRoute
   '/settings/organization/': typeof SidebarLayoutSettingsOrganizationIndexRoute
   '/settings/project/': typeof SidebarLayoutSettingsProjectIndexRoute
+  '/$chatId/subagent/$toolCallId': typeof SidebarLayoutChatLayoutChatIdSubagentToolCallIdRoute
   '/settings/project/integrations/$integrationId': typeof SidebarLayoutSettingsProjectIntegrationsIntegrationIdRoute
   '/settings/project/user-groups/$groupId': typeof SidebarLayoutSettingsProjectUserGroupsGroupIdRoute
   '/settings/usage/replay/$chatId': typeof SidebarLayoutSettingsUsageReplayChatIdRoute
@@ -467,6 +482,7 @@ export interface FileRoutesByFullPath {
   '/settings/project/integrations/': typeof SidebarLayoutSettingsProjectIntegrationsIndexRoute
   '/settings/project/user-groups/': typeof SidebarLayoutSettingsProjectUserGroupsIndexRoute
   '/settings/project/user-groups/users/$userId': typeof SidebarLayoutSettingsProjectUserGroupsUsersUserIdRoute
+  '/settings/usage/replay/$chatId/subagent/$toolCallId': typeof SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof SidebarLayoutChatLayoutIndexRoute
@@ -514,6 +530,7 @@ export interface FileRoutesByTo {
   '/stories/standalone/$storyId': typeof SidebarLayoutStoriesStandaloneStoryIdRoute
   '/settings/organization': typeof SidebarLayoutSettingsOrganizationIndexRoute
   '/settings/project': typeof SidebarLayoutSettingsProjectIndexRoute
+  '/$chatId/subagent/$toolCallId': typeof SidebarLayoutChatLayoutChatIdSubagentToolCallIdRoute
   '/settings/project/integrations/$integrationId': typeof SidebarLayoutSettingsProjectIntegrationsIntegrationIdRoute
   '/settings/project/user-groups/$groupId': typeof SidebarLayoutSettingsProjectUserGroupsGroupIdRoute
   '/settings/usage/replay/$chatId': typeof SidebarLayoutSettingsUsageReplayChatIdRoute
@@ -521,6 +538,7 @@ export interface FileRoutesByTo {
   '/settings/project/integrations': typeof SidebarLayoutSettingsProjectIntegrationsIndexRoute
   '/settings/project/user-groups': typeof SidebarLayoutSettingsProjectUserGroupsIndexRoute
   '/settings/project/user-groups/users/$userId': typeof SidebarLayoutSettingsProjectUserGroupsUsersUserIdRoute
+  '/settings/usage/replay/$chatId/subagent/$toolCallId': typeof SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -576,6 +594,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/stories/standalone/$storyId': typeof SidebarLayoutStoriesStandaloneStoryIdRoute
   '/_sidebar-layout/settings/organization/': typeof SidebarLayoutSettingsOrganizationIndexRoute
   '/_sidebar-layout/settings/project/': typeof SidebarLayoutSettingsProjectIndexRoute
+  '/_sidebar-layout/_chat-layout/$chatId_/subagent/$toolCallId': typeof SidebarLayoutChatLayoutChatIdSubagentToolCallIdRoute
   '/_sidebar-layout/settings/project/integrations/$integrationId': typeof SidebarLayoutSettingsProjectIntegrationsIntegrationIdRoute
   '/_sidebar-layout/settings/project/user-groups/$groupId': typeof SidebarLayoutSettingsProjectUserGroupsGroupIdRoute
   '/_sidebar-layout/settings/usage/replay/$chatId': typeof SidebarLayoutSettingsUsageReplayChatIdRoute
@@ -583,6 +602,7 @@ export interface FileRoutesById {
   '/_sidebar-layout/settings/project/integrations/': typeof SidebarLayoutSettingsProjectIntegrationsIndexRoute
   '/_sidebar-layout/settings/project/user-groups/': typeof SidebarLayoutSettingsProjectUserGroupsIndexRoute
   '/_sidebar-layout/settings/project/user-groups/users/$userId': typeof SidebarLayoutSettingsProjectUserGroupsUsersUserIdRoute
+  '/_sidebar-layout/settings/usage/replay/$chatId_/subagent/$toolCallId': typeof SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -637,6 +657,7 @@ export interface FileRouteTypes {
     | '/stories/standalone/$storyId'
     | '/settings/organization/'
     | '/settings/project/'
+    | '/$chatId/subagent/$toolCallId'
     | '/settings/project/integrations/$integrationId'
     | '/settings/project/user-groups/$groupId'
     | '/settings/usage/replay/$chatId'
@@ -644,6 +665,7 @@ export interface FileRouteTypes {
     | '/settings/project/integrations/'
     | '/settings/project/user-groups/'
     | '/settings/project/user-groups/users/$userId'
+    | '/settings/usage/replay/$chatId/subagent/$toolCallId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -691,6 +713,7 @@ export interface FileRouteTypes {
     | '/stories/standalone/$storyId'
     | '/settings/organization'
     | '/settings/project'
+    | '/$chatId/subagent/$toolCallId'
     | '/settings/project/integrations/$integrationId'
     | '/settings/project/user-groups/$groupId'
     | '/settings/usage/replay/$chatId'
@@ -698,6 +721,7 @@ export interface FileRouteTypes {
     | '/settings/project/integrations'
     | '/settings/project/user-groups'
     | '/settings/project/user-groups/users/$userId'
+    | '/settings/usage/replay/$chatId/subagent/$toolCallId'
   id:
     | '__root__'
     | '/_sidebar-layout'
@@ -752,6 +776,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/stories/standalone/$storyId'
     | '/_sidebar-layout/settings/organization/'
     | '/_sidebar-layout/settings/project/'
+    | '/_sidebar-layout/_chat-layout/$chatId_/subagent/$toolCallId'
     | '/_sidebar-layout/settings/project/integrations/$integrationId'
     | '/_sidebar-layout/settings/project/user-groups/$groupId'
     | '/_sidebar-layout/settings/usage/replay/$chatId'
@@ -759,6 +784,7 @@ export interface FileRouteTypes {
     | '/_sidebar-layout/settings/project/integrations/'
     | '/_sidebar-layout/settings/project/user-groups/'
     | '/_sidebar-layout/settings/project/user-groups/users/$userId'
+    | '/_sidebar-layout/settings/usage/replay/$chatId_/subagent/$toolCallId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -1186,18 +1212,35 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutSettingsProjectUserGroupsUsersUserIdRouteImport
       parentRoute: typeof SidebarLayoutSettingsProjectUserGroupsRoute
     }
+    '/_sidebar-layout/_chat-layout/$chatId_/subagent/$toolCallId': {
+      id: '/_sidebar-layout/_chat-layout/$chatId_/subagent/$toolCallId'
+      path: '/$chatId/subagent/$toolCallId'
+      fullPath: '/$chatId/subagent/$toolCallId'
+      preLoaderRoute: typeof SidebarLayoutChatLayoutChatIdSubagentToolCallIdRouteImport
+      parentRoute: typeof SidebarLayoutChatLayoutRoute
+    }
+    '/_sidebar-layout/settings/usage/replay/$chatId_/subagent/$toolCallId': {
+      id: '/_sidebar-layout/settings/usage/replay/$chatId_/subagent/$toolCallId'
+      path: '/replay/$chatId/subagent/$toolCallId'
+      fullPath: '/settings/usage/replay/$chatId/subagent/$toolCallId'
+      preLoaderRoute: typeof SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRouteImport
+      parentRoute: typeof SidebarLayoutSettingsUsageRoute
+    }
   }
 }
 
 interface SidebarLayoutChatLayoutRouteChildren {
   SidebarLayoutChatLayoutChatIdRoute: typeof SidebarLayoutChatLayoutChatIdRoute
   SidebarLayoutChatLayoutIndexRoute: typeof SidebarLayoutChatLayoutIndexRoute
+  SidebarLayoutChatLayoutChatIdSubagentToolCallIdRoute: typeof SidebarLayoutChatLayoutChatIdSubagentToolCallIdRoute
 }
 
 const SidebarLayoutChatLayoutRouteChildren: SidebarLayoutChatLayoutRouteChildren =
   {
     SidebarLayoutChatLayoutChatIdRoute: SidebarLayoutChatLayoutChatIdRoute,
     SidebarLayoutChatLayoutIndexRoute: SidebarLayoutChatLayoutIndexRoute,
+    SidebarLayoutChatLayoutChatIdSubagentToolCallIdRoute:
+      SidebarLayoutChatLayoutChatIdSubagentToolCallIdRoute,
   }
 
 const SidebarLayoutChatLayoutRouteWithChildren =
@@ -1320,12 +1363,15 @@ const SidebarLayoutSettingsProjectRouteWithChildren =
 
 interface SidebarLayoutSettingsUsageRouteChildren {
   SidebarLayoutSettingsUsageReplayChatIdRoute: typeof SidebarLayoutSettingsUsageReplayChatIdRoute
+  SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRoute: typeof SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRoute
 }
 
 const SidebarLayoutSettingsUsageRouteChildren: SidebarLayoutSettingsUsageRouteChildren =
   {
     SidebarLayoutSettingsUsageReplayChatIdRoute:
       SidebarLayoutSettingsUsageReplayChatIdRoute,
+    SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRoute:
+      SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRoute,
   }
 
 const SidebarLayoutSettingsUsageRouteWithChildren =
