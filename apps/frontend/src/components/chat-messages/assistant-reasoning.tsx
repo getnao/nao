@@ -23,6 +23,10 @@ export const AssistantReasoning = memo(({ text, isStreaming }: AssistantReasonin
 		wasStreamingRef.current = isStreaming;
 	}, [isStreaming]);
 
+	if (!isStreaming && text.trim() === '') {
+		return null;
+	}
+
 	return (
 		<Expandable
 			title={isStreaming ? 'Thinking' : 'Thought'}

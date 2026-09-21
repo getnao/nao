@@ -81,7 +81,7 @@ def enforce_exclude_columns(
     try:
         if conn is None:
             conn = db_config.connect()
-        table_infos = _load_table_infos(expression, conn, db_config)
+        table_infos = _load_table_infos(expression, conn, db_config, dialect)
         qualified = _qualify_query(expression, dialect, table_infos)
         analyzer = _ExcludeColumnsAnalyzer(qualified, table_infos, db_config)
         analyzer.validate_star_locations()
@@ -114,6 +114,7 @@ def _load_table_infos(
     expression: exp.Query,
     conn: BaseBackend,
     db_config: _DatabaseConfigLike,
+    dialect: str,
 ) -> dict[tuple[str, str, str], _TableInfo]:
     schemas = load_schemas(conn, db_config, _blocked)
     tables_by_schema: dict[str, list[str]] = {}
@@ -126,7 +127,15 @@ def _load_table_infos(
             key = _table_key(source)
             if key in infos:
                 continue
-            schema, table = resolve_table(source, conn, schemas, tables_by_schema, db_config, _blocked)
+            schema, table = resolve_table(
+                source,
+                conn,
+                schemas,
+                tables_by_schema,
+                db_config,
+                dialect,
+                _blocked,
+            )
             try:
                 ibis_schema = conn.table(table, database=schema).schema()
             except Exception as error:

@@ -5,6 +5,7 @@ import { renderToMarkdown } from '../../lib/markdown/render-to-markdown';
 
 export { DisplayChartOutput } from './display-chart';
 export { DisplayMapOutput } from './display-map';
+export { ExecuteSemanticQueryOutput } from './execute-semantic-query';
 export { ExecuteSqlOutput } from './execute-sql';
 export { GrepOutput } from './grep';
 export { ListOutput } from './list';

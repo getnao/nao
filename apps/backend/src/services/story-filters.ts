@@ -8,11 +8,9 @@ import { getStoryFiltersFromCode } from '@nao/shared/story-segments';
 import { TRPCError } from '@trpc/server';
 
 import { env } from '../env';
-import * as chatQueries from '../queries/chat.queries';
-import * as projectQueries from '../queries/project.queries';
 import * as storyQueries from '../queries/story.queries';
 import { assertSafeSqlIdentifier } from '../utils/sql-identifiers';
-import { executeRawSql } from './live-story';
+import { createStoryExecutionContext, executeRawSql } from './live-story';
 
 const FILTER_OPTIONS_LIMIT = 100;
 
@@ -27,7 +25,7 @@ export async function getStoryFilterOptions(
 	storySlug: string,
 	filterId: string,
 ): Promise<{ options: string[] }> {
-	const { code, projectId, projectPath, envVars, databaseId } = await loadStoryExecutionContext(chatId, storySlug);
+	const { code, executionContext, databaseId } = await loadStoryExecutionContext(chatId, storySlug);
 	const filter = getStoryFiltersFromCode(code).find((candidate) => candidate.id === filterId);
 	if (!filter) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: `Filter "${filterId}" not found in story.` });
@@ -48,10 +46,8 @@ export async function getStoryFilterOptions(
 	const column = assertSafeSqlIdentifier(filter.column, 'column');
 	const sql = `SELECT DISTINCT ${column} AS value FROM ${table} WHERE ${column} IS NOT NULL ORDER BY ${column} LIMIT ${FILTER_OPTIONS_LIMIT}`;
 	const result = await executeRawSql(sql, {
-		projectFolder: projectPath,
-		projectId,
+		executionContext,
 		databaseId: filter.databaseId ?? databaseId,
-		envVars,
 	});
 	const options = result.data
 		.map((row) => {
@@ -71,7 +67,7 @@ export async function getFilteredStoryQueryData(
 	storySlug: string,
 	selections: StoryFilterSelections,
 ): Promise<Record<string, { data: unknown[]; columns: string[] }>> {
-	const { code, projectId, projectPath, envVars, sqlQueries } = await loadStoryExecutionContext(chatId, storySlug);
+	const { code, executionContext, sqlQueries } = await loadStoryExecutionContext(chatId, storySlug);
 	const types = filterTypesFromCode(code);
 	const queryData: Record<string, { data: unknown[]; columns: string[] }> = {};
 
@@ -79,10 +75,8 @@ export async function getFilteredStoryQueryData(
 		Object.entries(sqlQueries).map(async ([queryId, { sqlQuery, databaseId }]) => {
 			const renderedSql = renderStorySql(sqlQuery, selections, types);
 			queryData[queryId] = await executeRawSql(renderedSql, {
-				projectFolder: projectPath,
-				projectId,
+				executionContext,
 				databaseId,
-				envVars,
 			});
 		}),
 	);
@@ -96,7 +90,7 @@ export async function getStoryQuerySql(
 	queryId: string,
 	selections: StoryFilterSelections = {},
 ): Promise<{ sqlQuery: string; renderedSql: string }> {
-	const { code, sqlQueries } = await loadStoryExecutionContext(chatId, storySlug);
+	const { code, sqlQueries } = await loadStoryCodeAndQueries(chatId, storySlug);
 	const query = sqlQueries[queryId];
 	if (!query) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: `Query "${queryId}" not found.` });
@@ -119,33 +113,29 @@ function renderStorySql(sqlQuery: string, selections: StoryFilterSelections, typ
 }
 
 async function loadStoryExecutionContext(chatId: string, storySlug: string) {
+	const [{ code, sqlQueries }, executionContext] = await Promise.all([
+		loadStoryCodeAndQueries(chatId, storySlug),
+		createStoryExecutionContext(chatId),
+	]);
+	const databaseId = Object.values(sqlQueries).find((query) => query.databaseId)?.databaseId;
+
+	return {
+		code,
+		executionContext,
+		databaseId,
+		sqlQueries,
+	};
+}
+
+async function loadStoryCodeAndQueries(chatId: string, storySlug: string) {
 	const version = await storyQueries.getLatestVersionByChatAndSlug(chatId, storySlug);
 	if (!version) {
 		throw new TRPCError({ code: 'NOT_FOUND', message: 'Story not found.' });
 	}
 
-	const projectId = await chatQueries.getChatProjectId(chatId);
-	if (!projectId) {
-		throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Chat project not found.' });
-	}
-
-	const project = await projectQueries.retrieveProjectById(projectId);
-	if (!project.path) {
-		throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Project path not configured.' });
-	}
-
-	const [envVars, sqlQueries] = await Promise.all([
-		projectQueries.getEnvVars(projectId),
-		storyQueries.getSqlQueriesFromCode(chatId, version.code),
-	]);
-	const databaseId = Object.values(sqlQueries).find((query) => query.databaseId)?.databaseId;
-
+	const sqlQueries = await storyQueries.getSqlQueriesFromCode(chatId, version.code);
 	return {
 		code: version.code,
-		projectId,
-		projectPath: project.path,
-		envVars,
-		databaseId,
 		sqlQueries,
 	};
 }

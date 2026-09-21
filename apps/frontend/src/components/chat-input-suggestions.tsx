@@ -38,14 +38,20 @@ const liveStoryProposalDismissedStorage = createLocalStorage<string[]>('nao-live
  * When `isHidden` is set (e.g. the user starts typing) the panel smoothly
  * collapses and fades out instead of abruptly unmounting.
  */
-export function ChatInputSuggestions({ isHidden = false }: { isHidden?: boolean }) {
+export function ChatInputSuggestions({
+	storyCreationEnabled,
+	isHidden = false,
+}: {
+	storyCreationEnabled: boolean;
+	isHidden?: boolean;
+}) {
 	const { isReadonly } = useAgentContext();
 	const mcpAuth = useMcpAuthSuggestion();
 	const story = useStorySuggestion();
 	const liveStory = useLiveStorySuggestion();
 	const feedback = useConversationFeedback();
 
-	const content = renderSuggestion({ isReadonly, mcpAuth, story, liveStory, feedback });
+	const content = renderSuggestion({ isReadonly, storyCreationEnabled, mcpAuth, story, liveStory, feedback });
 	const isCollapsed = isHidden || !content;
 	const { ref, height } = useMeasuredHeight();
 
@@ -86,12 +92,14 @@ function useMeasuredHeight() {
 
 function renderSuggestion({
 	isReadonly,
+	storyCreationEnabled,
 	mcpAuth,
 	story,
 	liveStory,
 	feedback,
 }: {
 	isReadonly: boolean | undefined;
+	storyCreationEnabled: boolean;
 	mcpAuth: McpAuthSuggestion;
 	story: StorySuggestion;
 	liveStory: LiveStorySuggestion;
@@ -128,7 +136,7 @@ function renderSuggestion({
 		);
 	}
 
-	if (story.isVisible) {
+	if (storyCreationEnabled && story.isVisible) {
 		return (
 			<SuggestionCard
 				icon={<StoryIcon className='size-5 text-primary' />}

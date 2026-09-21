@@ -39,6 +39,7 @@ import { transcribeRoutes } from './transcribe.routes';
 import { router } from './trpc';
 import { usageRoutes } from './usage.routes';
 import { userRoutes } from './user.routes';
+import { userGroupRoutes } from './user-group.routes';
 
 export const trpcRouter = router({
 	analyticsEvent: analyticsEventRoutes,
@@ -70,6 +71,7 @@ export const trpcRouter = router({
 	storyFolder: storyFolderRoutes,
 	usage: usageRoutes,
 	user: userRoutes,
+	userGroup: userGroupRoutes,
 	memory: memoryRoutes,
 	organization: organizationRoutes,
 	authConfig: authConfigRoutes,
