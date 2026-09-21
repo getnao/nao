@@ -76,18 +76,26 @@ export async function deleteDraftFile(storyId: string, path: string, executor: D
 }
 
 export async function replaceDraftFiles(storyId: string, files: StoryFileInput[]): Promise<DBStoryDraftFile[]> {
-	const normalized = normalizeFileSet(files);
 	return db.transaction(async (tx) => {
 		await tx.delete(s.storyDraftFile).where(eq(s.storyDraftFile.storyId, storyId)).execute();
-		if (normalized.length === 0) {
-			return [];
-		}
-		return tx
-			.insert(s.storyDraftFile)
-			.values(normalized.map((file) => ({ storyId, ...file })))
-			.returning()
-			.execute();
+		return seedDraftFiles(storyId, files, tx);
 	});
+}
+
+export async function seedDraftFiles(
+	storyId: string,
+	files: StoryFileInput[],
+	executor: DBExecutor = db,
+): Promise<DBStoryDraftFile[]> {
+	const normalized = normalizeFileSet(files);
+	if (normalized.length === 0) {
+		return [];
+	}
+	return executor
+		.insert(s.storyDraftFile)
+		.values(normalized.map((file) => ({ storyId, ...file })))
+		.returning()
+		.execute();
 }
 
 export function listVersionFiles(storyVersionId: string, executor: DBExecutor = db): Promise<StoryFileWithContent[]> {

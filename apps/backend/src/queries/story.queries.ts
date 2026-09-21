@@ -43,6 +43,27 @@ export async function getStoryByChatAndSlug(
 	return row ?? null;
 }
 
+export function listCustomStoriesInChat(chatId: string, executor: DBExecutor = db): Promise<DBStory[]> {
+	return executor
+		.select()
+		.from(s.story)
+		.where(and(eq(s.story.chatId, chatId), eq(s.story.format, 'custom')))
+		.orderBy(asc(s.story.slug))
+		.execute();
+}
+
+export async function createCustomStory(
+	data: { chatId: string; slug: string; title: string },
+	executor: DBExecutor = db,
+): Promise<DBStory> {
+	const [row] = await executor
+		.insert(s.story)
+		.values({ ...data, format: 'custom' })
+		.returning()
+		.execute();
+	return row;
+}
+
 export async function getStoryById(storyId: string): Promise<DBStory | null> {
 	const [row] = await db.select().from(s.story).where(eq(s.story.id, storyId)).limit(1).execute();
 	return row ?? null;

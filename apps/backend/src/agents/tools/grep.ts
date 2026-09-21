@@ -15,8 +15,10 @@ import {
 } from '../../services/project-context-path-access.service';
 import { isStorageEnabled } from '../../services/storage';
 import { canGrepUserFiles, grepRootForUser } from '../../services/storage/user-files';
+import { grepStoryMount, isCustomStoriesEnabled } from '../../services/story-mount';
 import type { ToolContext } from '../../types/tools';
 import { getRipgrepPath } from '../../utils/ripgrep';
+import { isStoriesPath } from '../../utils/story-mount';
 import {
 	isStoragePath,
 	isWithinProjectFolder,
@@ -71,9 +73,10 @@ export default createTool<grep.Input, grep.Output>({
 		const rgPath = await getRipgrepPath();
 		const targets = resolveTargets(options.path, context);
 
-		const results = await Promise.all(
-			targets.map((target) => searchTarget(rgPath, target, { ...options, max_results })),
-		);
+		const results = await Promise.all([
+			...targets.map((target) => searchTarget(rgPath, target, { ...options, max_results })),
+			searchStories({ ...options, max_results }, context),
+		]);
 
 		const totalMatches = results.reduce((total, result) => total + result.totalMatches, 0);
 		const matches = results.flatMap((result) => result.matches).slice(0, max_results);
@@ -89,8 +92,11 @@ export default createTool<grep.Input, grep.Output>({
 	toModelOutput: ({ output }) => renderToModelOutput(GrepOutput({ output }), output),
 });
 
-/** A search without a path covers the whole tree, permanent storage included. */
+/** Disk targets ripgrep walks; a search without a path covers the whole tree, permanent storage included. */
 const resolveTargets = (searchPath: string | undefined, context: ToolContext): SearchTarget[] => {
+	if (isStoriesPath(searchPath)) {
+		return [];
+	}
 	if (isStoragePath(searchPath)) {
 		return [storageTarget(searchPath!, context)];
 	}
@@ -167,6 +173,31 @@ function canonicalAllowedDisplayPath(absolutePath: string, canonicalRoot: string
 		return null;
 	}
 }
+
+/** Custom story drafts live in the database, so they are searched in memory rather than by ripgrep. */
+const searchStories = (
+	{
+		path: searchPath,
+		pattern,
+		glob,
+		case_insensitive,
+		context_lines,
+		max_results,
+	}: grep.Input & { max_results: number },
+	context: ToolContext,
+): Promise<TargetResult> => {
+	const covered = isStoriesPath(searchPath) || searchPath === undefined;
+	if (!covered || !isCustomStoriesEnabled()) {
+		return Promise.resolve({ matches: [], totalMatches: 0 });
+	}
+	return grepStoryMount(context.chatId, searchPath, {
+		pattern,
+		glob,
+		caseInsensitive: case_insensitive,
+		contextLines: context_lines,
+		maxResults: max_results,
+	});
+};
 
 const storageTarget = (searchPath: string, context: ToolContext): SearchTarget => {
 	const scope = toStorageScope(context);

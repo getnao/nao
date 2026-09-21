@@ -21,6 +21,10 @@ export function StoryOutput({ output }: { output: StoryModelOutput }) {
 		);
 	}
 
+	if (output.format === 'custom') {
+		return <CustomStoryOutput output={output} />;
+	}
+
 	const templateWarnings = output.template_warnings ?? [];
 
 	return (
@@ -46,6 +50,26 @@ export function StoryOutput({ output }: { output: StoryModelOutput }) {
 				</Block>
 			)}
 			<Block>{output.code}</Block>
+		</Block>
+	);
+}
+
+function CustomStoryOutput({ output }: { output: StoryModelOutput }) {
+	const files = output.files ?? [];
+	const state = output.version > 0 ? `published v${output.version}` : 'draft, not published yet';
+
+	return (
+		<Block>
+			Custom story "{output.title}" ({output.id}) — {state}. Files under /stories/{output.id}/:
+			{files.length === 0 ? (
+				<Block>(no files yet — add them with the write tool, then "publish")</Block>
+			) : (
+				<List>
+					{files.map((file) => (
+						<ListItem key={file}>{file}</ListItem>
+					))}
+				</List>
+			)}
 		</Block>
 	);
 }

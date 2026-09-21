@@ -15,6 +15,13 @@ import { useSidePanel } from '@/contexts/side-panel';
 import { useChatId } from '@/hooks/use-chat-id';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 
+const STORY_ACTION_LABELS = {
+	create: { pending: 'Creating...', done: 'Created' },
+	update: { pending: 'Updating...', done: 'Updated' },
+	replace: { pending: 'Replacing...', done: 'Replaced' },
+	publish: { pending: 'Publishing...', done: 'Published' },
+} as const;
+
 export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => {
 	const { open: openSidePanel, isVisible, currentStorySlug, chatId: sidePanelChatId } = useSidePanel();
 	const contextOrUrlChatId = useChatId();
@@ -27,7 +34,7 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 
 	const finalStorySlug = output?.id ?? input?.id;
 	const canOpen = Boolean(chatId && finalStorySlug);
-	const isCreateAction = input?.action === 'create';
+	const isCreateAction = input?.action === 'create' && input.format !== 'custom';
 
 	const isInInteractiveContext = Boolean(contextOrUrlChatId);
 
@@ -94,14 +101,10 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 	}
 
 	const title = latestStory?.title ?? output?.title ?? input.title ?? input.id;
-	const actionLabel = input.action === 'create' ? 'Created' : input.action === 'update' ? 'Updated' : 'Replaced';
+	const labels = STORY_ACTION_LABELS[input.action ?? 'create'];
 	const statusLabel = isStreaming
-		? input.action === 'create'
-			? 'Creating...'
-			: input.action === 'update'
-				? 'Updating...'
-				: 'Replacing...'
-		: `${actionLabel}${output?.version ? ` · v${output.version}` : ''}`;
+		? labels.pending
+		: `${labels.done}${output?.version ? ` · v${output.version}` : ''}`;
 
 	const handleOpen = () => {
 		if (!canOpen || !chatId || !finalStorySlug) {

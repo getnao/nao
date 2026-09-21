@@ -9,6 +9,7 @@ import { env } from '../../env';
 import { mcpService } from '../../services/mcp';
 import { isSemanticQueryToolEnabled, isWarehouseSqlEnabled } from '../../services/semantic-layer.service';
 import { isStorageEnabled } from '../../services/storage';
+import { isCustomStoriesEnabled } from '../../services/story-mount';
 import { AgentSettings } from '../../types/agent-settings';
 import clarification from './clarification';
 import displayChart from './display-chart';
@@ -28,7 +29,7 @@ import search from './search';
 import story, { buildStoryToolDescription } from './story';
 import suggestFollowUps from './suggest-follow-ups';
 import task from './task';
-import write from './write';
+import write, { buildWriteToolDescription } from './write';
 
 /**
  * Tools excluded from the MCP sub-agent (`ask_nao`): it returns a text summary to the calling client,
@@ -116,7 +117,9 @@ export const getTools = (
 		...(env.BETA_SUBAGENTS_ENABLED && { task: taskTool }),
 		execute_sql: isWarehouseSqlEnabled(options.semanticLayerMode) ? execute_sql : localOnlyExecuteSql,
 		...(isSemanticQueryToolEnabled(options.semanticLayerMode) && { execute_semantic_query }),
-		...(isStorageEnabled() && { write: writeTool }),
+		...((isStorageEnabled() || isCustomStoriesEnabled()) && {
+			write: { ...writeTool, description: buildWriteToolDescription() },
+		}),
 		...(!options.excludeFollowUps && { suggest_follow_ups }),
 	};
 
@@ -145,7 +148,10 @@ export const getTools = (
 		const mapsEnabled = 'display_map' in result;
 		result = {
 			...result,
-			story: { ...result.story, description: buildStoryToolDescription({ mapsEnabled }) },
+			story: {
+				...result.story,
+				description: buildStoryToolDescription({ mapsEnabled, customStories: isCustomStoriesEnabled() }),
+			},
 		};
 	}
 

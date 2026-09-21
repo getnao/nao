@@ -80,7 +80,9 @@ import { getAzureAccessTokenForUser } from './microsoft-auth.service';
 import { sandboxSecretService } from './sandbox-secret.service';
 import { resolveSemanticLayerMode } from './semantic-layer.service';
 import { skillService } from './skill';
+import { isStorageEnabled } from './storage';
 import { canGrepUserFiles } from './storage/user-files';
+import { isCustomStoriesEnabled } from './story-mount';
 import { getStoryTemplateWarnings } from './story-template-validation';
 import { resolveProjectContextAccess } from './user-group-context-access.service';
 import {
@@ -670,7 +672,11 @@ class AgentManager {
 				contextPresence,
 				timezone,
 				toolNames,
-				options: { canGrepSavedFiles: canGrepUserFiles() },
+				options: {
+					savedFilesEnabled: isStorageEnabled(),
+					canGrepSavedFiles: canGrepUserFiles(),
+					customStoriesEnabled: isCustomStoriesEnabled(),
+				},
 			}),
 		);
 		const renderedPrompt = provider

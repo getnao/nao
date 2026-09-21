@@ -154,7 +154,13 @@ export const StoryHeader = memo(function StoryHeader({
 			/>
 			<DropdownMenu>
 				<DropdownMenuTrigger asChild>
-					<Button type='button' variant='ghost-muted' size='icon-sm' aria-label='Switch story'>
+					<Button
+						type='button'
+						variant='ghost-muted'
+						className='hover:rounded-full'
+						size='icon-sm'
+						aria-label='Switch story'
+					>
 						<ChevronDown className='size-3.5' strokeWidth={2.25} />
 					</Button>
 				</DropdownMenuTrigger>

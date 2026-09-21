@@ -3,11 +3,16 @@ import z from 'zod/v3';
 export const MENTION_ID = '__story__';
 export const MENTION_TRIGGER = '#';
 
+export const FileSchema = z.object({
+	path: z.string().describe('Path relative to the story root, e.g. "app.jsx" or "components/kpi.jsx".'),
+	content: z.string(),
+});
+
 export const InputSchema = z.object({
 	action: z
-		.enum(['create', 'update', 'replace'])
+		.enum(['create', 'update', 'replace', 'publish'])
 		.describe(
-			'The operation: "create" initializes a new story, "update" does a search-and-replace (new version), "replace" overwrites the entire content (new version).',
+			'The operation: "create" initializes a new story, "update" does a search-and-replace (new version), "replace" overwrites the entire content (new version). "publish" (custom stories only) snapshots the draft files under /stories/<id>/ into a new version.',
 		),
 	id: z
 		.string()
@@ -15,6 +20,18 @@ export const InputSchema = z.object({
 			'Unique identifier for this story. Use a short, descriptive kebab-case slug (e.g. "revenue-dashboard").',
 		),
 	title: z.string().optional().describe('A concise, descriptive title for the story. Required for "create".'),
+	format: z
+		.enum(['classic', 'custom'])
+		.optional()
+		.describe(
+			'Only for "create". "classic" (default) is a markdown story edited through this tool. "custom" is a source-based app whose files live under /stories/<id>/ and are edited with the write tool, then snapshotted with "publish".',
+		),
+	files: z
+		.array(FileSchema)
+		.optional()
+		.describe(
+			'Only for "create" with format "custom": the initial draft files. Omit to start from an empty draft.',
+		),
 	code: z
 		.string()
 		.optional()
@@ -32,9 +49,12 @@ export const OutputSchema = z.object({
 	version: z.number(),
 	code: z.string().describe('The full story code after the operation.'),
 	title: z.string(),
+	format: z.enum(['classic', 'custom']).optional(),
+	files: z.array(z.string()).optional().describe('Paths of the draft files of a custom story.'),
 	error: z.string().optional(),
 	template_warnings: z.array(z.string()).optional(),
 });
 
 export type Input = z.infer<typeof InputSchema>;
 export type Output = z.infer<typeof OutputSchema>;
+export type File = z.infer<typeof FileSchema>;

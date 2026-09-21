@@ -10,7 +10,9 @@ import {
 } from '../../services/project-context-path-access.service';
 import { isStorageEnabled } from '../../services/storage';
 import { listUserDirectory } from '../../services/storage/user-files';
+import { isCustomStoriesEnabled, listStoryMount } from '../../services/story-mount';
 import type { ToolContext } from '../../types/tools';
+import { isStoriesPath, STORIES_MOUNT, toStoriesVirtualPath } from '../../utils/story-mount';
 import {
 	isStoragePath,
 	resolveCanonicalProjectPath,
@@ -27,15 +29,21 @@ export default createTool<list.Input, list.Output>({
 	inputSchema: list.InputSchema,
 	outputSchema: list.OutputSchema,
 	execute: async ({ path: filePath }, context) => {
-		const entries = isStoragePath(filePath)
-			? await listStorage(filePath, context)
-			: await listProjectFolder(filePath, context);
-
-		return { _version: '1' as const, entries };
+		return { _version: '1' as const, entries: await listAnywhere(filePath, context) };
 	},
 
 	toModelOutput: ({ output }) => renderToModelOutput(ListOutput({ output }), output),
 });
+
+const listAnywhere = (virtualPath: string, context: ToolContext): Promise<list.Entry[]> => {
+	if (isStoriesPath(virtualPath)) {
+		return listStoryMount(context.chatId, virtualPath);
+	}
+	if (isStoragePath(virtualPath)) {
+		return listStorage(virtualPath, context);
+	}
+	return listProjectFolder(virtualPath, context);
+};
 
 const listStorage = async (virtualPath: string, context: ToolContext): Promise<list.Entry[]> => {
 	const entries = await listUserDirectory(toStorageScope(context), toStorageRelativePath(virtualPath));
@@ -112,7 +120,7 @@ const listProjectFolder = async (virtualPath: string, context: ToolContext): Pro
 	);
 
 	const isRoot = parentRelativePath === '';
-	return isRoot && isStorageEnabled() ? [...entries, storageMountEntry()] : entries;
+	return isRoot ? [...entries, ...mountEntries()] : entries;
 };
 
 function isAllowedProjectEntry(virtualPath: string, context: ToolContext, kind: 'file' | 'directory'): boolean {
@@ -124,11 +132,14 @@ function isAllowedProjectEntry(virtualPath: string, context: ToolContext, kind: 
 	}
 }
 
-/** Permanent storage shows up as an ordinary folder at the root of the tree. */
-const storageMountEntry = (): list.Entry => {
-	return {
-		path: toStorageVirtualPath(''),
-		name: STORAGE_MOUNT,
-		type: 'directory' as const,
-	};
+/** Permanent storage and custom stories show up as ordinary folders at the root of the tree. */
+const mountEntries = (): list.Entry[] => {
+	return [
+		...(isStorageEnabled()
+			? [{ path: toStorageVirtualPath(''), name: STORAGE_MOUNT, type: 'directory' as const }]
+			: []),
+		...(isCustomStoriesEnabled()
+			? [{ path: toStoriesVirtualPath(), name: STORIES_MOUNT, type: 'directory' as const }]
+			: []),
+	];
 };

@@ -361,7 +361,7 @@ export type FolderVisibility = (typeof FOLDER_VISIBILITY)[number];
 export const FOLDER_SYSTEM_TYPE = ['private_folder', 'shared_with_me'] as const;
 export type FolderSystemType = (typeof FOLDER_SYSTEM_TYPE)[number];
 
-export const STORY_ACTIONS = ['create', 'update', 'replace'] as const;
+export const STORY_ACTIONS = ['create', 'update', 'replace', 'publish'] as const;
 export type StoryAction = (typeof STORY_ACTIONS)[number];
 
 export const STORY_SOURCES = ['assistant', 'user'] as const;

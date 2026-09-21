@@ -12,7 +12,9 @@ import { renderProjectTextForAgent } from '../../services/agent-visible-project-
 import { toReadableText } from '../../services/file-text';
 import { assertProjectContextPathAllowed } from '../../services/project-context-path-access.service';
 import { readUserFile } from '../../services/storage/user-files';
+import { readStoryMountFile } from '../../services/story-mount';
 import type { ToolContext } from '../../types/tools';
+import { isStoriesPath } from '../../utils/story-mount';
 import { isStoragePath, resolveCanonicalProjectPath, toStorageRelativePath, toStorageScope } from '../../utils/tools';
 import { createTool } from '../../utils/tools';
 
@@ -21,9 +23,7 @@ export default createTool<readFile.Input, readFile.Output>({
 	inputSchema: readFile.InputSchema,
 	outputSchema: readFile.OutputSchema,
 	execute: async ({ file_path }, context) => {
-		const content = isStoragePath(file_path)
-			? await readUserFile(toStorageScope(context), toStorageRelativePath(file_path))
-			: await readProjectFile(file_path, context);
+		const content = await readAnywhere(file_path, context);
 
 		return {
 			_version: '1' as const,
@@ -34,6 +34,16 @@ export default createTool<readFile.Input, readFile.Output>({
 
 	toModelOutput: ({ output }) => renderToModelOutput(ReadOutput({ output }), output),
 });
+
+const readAnywhere = (filePath: string, context: ToolContext): Promise<string> => {
+	if (isStoriesPath(filePath)) {
+		return readStoryMountFile(context.chatId, filePath);
+	}
+	if (isStoragePath(filePath)) {
+		return readUserFile(toStorageScope(context), toStorageRelativePath(filePath));
+	}
+	return readProjectFile(filePath, context);
+};
 
 const readProjectFile = async (filePath: string, context: ToolContext): Promise<string> => {
 	const allowedFile = resolveAllowedProjectPath(filePath, context);

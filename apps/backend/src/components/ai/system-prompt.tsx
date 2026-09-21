@@ -47,8 +47,12 @@ type SystemPromptProps = {
 
 /** What the instance the run executes on can do, when a rule depends on it. */
 type SystemPromptOptions = {
+	/** False when permanent storage is turned off, so `/home` does not exist even though `write` may. */
+	savedFilesEnabled?: boolean;
 	/** False when the storage backend has no real filesystem (`s3`), so grep cannot look inside saved files. */
 	canGrepSavedFiles?: boolean;
+	/** True when the instance exposes source-based custom stories under `/stories`. */
+	customStoriesEnabled?: boolean;
 };
 
 export const MEMORY_TOKEN_LIMIT = 1000;
@@ -71,7 +75,7 @@ export function SystemPrompt({
 	toolNames,
 	options = {},
 }: SystemPromptProps) {
-	const { canGrepSavedFiles = true } = options;
+	const { canGrepSavedFiles = true, savedFilesEnabled = true, customStoriesEnabled = false } = options;
 	const hasTool = (name: string) => !toolNames || toolNames.includes(name);
 	const queryToolLabel = hasTool('execute_semantic_query') ? 'execute_sql or execute_semantic_query' : 'execute_sql';
 	const visibleMemories = getMemoriesInTokenRange(memories, MEMORY_TOKEN_LIMIT);
@@ -154,13 +158,14 @@ export function SystemPrompt({
 					...dialectToolCallRules,
 				]}
 			</List>
-			{hasTool('write') && (
+			{hasTool('write') && savedFilesEnabled && (
 				<PermanentStorageBlock
 					canGrepSavedFiles={canGrepSavedFiles}
 					canRunSandbox={hasTool('execute_sandboxed_code')}
 					canExecuteSql={hasTool('execute_sql')}
 				/>
 			)}
+			{customStoriesEnabled && hasTool('story') && hasTool('write') && <CustomStoriesBlock />}
 			{hasTool('execute_sql') && (
 				<LocalDatabaseBlock
 					canSaveResults={hasTool('write')}
@@ -487,6 +492,40 @@ function PermanentStorageBlock({
 				<ListItem>
 					Never give the full path in plain text, users might get confused about it as it's not clickable
 					directly in the chat.
+				</ListItem>
+			</List>
+		</Block>
+	);
+}
+
+function CustomStoriesBlock() {
+	return (
+		<Block>
+			<Title level={2}>Custom Stories</Title>
+			<Span>
+				Besides markdown stories, the <Bold>story</Bold> tool can create a <Bold>custom</Bold> story: a small
+				source-based app whose files live under <Bold>/stories/&lt;id&gt;/</Bold> in the same file tree, so{' '}
+				<Bold>list</Bold>, <Bold>read</Bold>, <Bold>search</Bold> and <Bold>grep</Bold> work there like anywhere
+				else. Only the custom stories of this chat are mounted.
+			</Span>
+			<List>
+				<ListItem>
+					Use a custom story only when the user explicitly asks for a bespoke app, layout or interaction that
+					a markdown story cannot express. Default to a classic story otherwise.
+				</ListItem>
+				<ListItem>
+					Workflow: call <Bold>story</Bold> with action "create" and format "custom" (optionally with the
+					initial files), edit the draft with <Bold>write</Bold> on{' '}
+					<Bold>/stories/&lt;id&gt;/&lt;file&gt;</Bold>, then call <Bold>story</Bold> with action "publish" to
+					snapshot the draft into a version the user can open. Nothing is visible to the user until it is
+					published.
+				</ListItem>
+				<ListItem>
+					File paths are relative to the story root, at most six levels deep, with these extensions only: .js
+					.jsx .ts .tsx .css .json .md. Keep the app small — a story holds at most 60 files of 512 KB each.
+				</ListItem>
+				<ListItem>
+					"update" and "replace" do not apply to custom stories; edit the files and publish again instead.
 				</ListItem>
 			</List>
 		</Block>
