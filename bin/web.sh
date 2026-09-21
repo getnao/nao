@@ -92,7 +92,10 @@ if [ -z "${BETTER_AUTH_SECRET:-}" ]; then
 fi
 
 # --- Sidecar FastAPI en arrière-plan (127.0.0.1:$FASTAPI_PORT) — le backend l'appelle en localhost. ---
-python -m uvicorn apps.backend.fastapi.main:app --host 127.0.0.1 --port "$FASTAPI_PORT" &
+# PYTHONPATH : main.py importe son voisin `api_models` comme module de premier niveau (amont c74cb43),
+# ce qui ne se résout pas quand il est chargé sous le nom apps.backend.fastapi.main.
+PYTHONPATH="$PWD/apps/backend/fastapi${PYTHONPATH:+:$PYTHONPATH}" \
+  python -m uvicorn apps.backend.fastapi.main:app --host 127.0.0.1 --port "$FASTAPI_PORT" &
 FASTAPI_PID=$!
 trap 'kill "$FASTAPI_PID" 2>/dev/null || true' EXIT
 # Si le sidecar meurt, on fait tomber tout le conteneur pour que Scalingo le redémarre proprement.
