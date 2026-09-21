@@ -1,3 +1,4 @@
+import { STORY_APP_ALLOWED_IMPORTS, STORY_APP_ENTRY_CANDIDATES, STORY_APP_MANIFEST_PATH } from '@nao/shared/story-app';
 import { injectTableFormatting } from '@nao/shared/story-segments';
 import { story } from '@nao/shared/tools';
 
@@ -9,6 +10,7 @@ import { getDisplayChartTableFormatsForChat } from '../../queries/chart-image';
 import * as storyQueries from '../../queries/story.queries';
 import * as storyFileQueries from '../../queries/story-file.queries';
 import * as storyFolderQueries from '../../queries/story-folder.queries';
+import { buildStoryApp } from '../../services/story-app-build';
 import { isCustomStoriesEnabled } from '../../services/story-mount';
 import { getStoryTemplateWarnings } from '../../services/story-template-validation';
 import type { ToolContext } from '../../types/tools';
@@ -27,7 +29,8 @@ const STORY_FILTER_DESCRIPTION = [
 ].join(' ');
 
 const CUSTOM_STORY_DESCRIPTION = [
-	`A story can also be a custom app: pass format="custom" to "create" (with optional initial "files"), edit its source files under /${STORIES_MOUNT}/<id>/ with the write tool, then call "publish" to snapshot the draft into a new version.`,
+	`A story can also be a custom app: pass format="custom" to "create" (with optional initial "files"), edit its source files under /${STORIES_MOUNT}/<id>/ with the write tool, then call "publish" to build the draft and snapshot it into a new version.`,
+	`The entry file (${STORY_APP_ENTRY_CANDIDATES.join(', ')}, or "entry" in ${STORY_APP_MANIFEST_PATH}) must default-export the root React component. Only these packages can be imported: ${STORY_APP_ALLOWED_IMPORTS.join(', ')}; everything else must be a relative import of a file in the story. A failed build returns build_errors and publishes nothing.`,
 	'Only build a custom story when the user explicitly asks for a bespoke app or layout that the markdown story cannot express; "update" and "replace" do not apply to custom stories.',
 ].join(' ');
 
@@ -231,13 +234,39 @@ async function createCustomStory(input: story.Input, context: ToolContext): Prom
 	}
 }
 
+/** The draft is built before any version is cut, so a published version always carries a working bundle. */
 async function publishCustomStory(existingStory: DBStory, context: ToolContext): Promise<story.Output> {
+	const unpublished = { code: '', version: 0, title: existingStory.title };
 	try {
+		const draft = await storyFileQueries.listDraftFiles(existingStory.id);
+		if (draft.length === 0) {
+			return fail(
+				existingStory.slug,
+				`Story "${existingStory.slug}" has no files yet. Write them under /${STORIES_MOUNT}/${existingStory.slug}/ first.`,
+				unpublished,
+			);
+		}
+
+		const build = await buildStoryApp(draft.map((file) => ({ path: file.path, content: file.content })));
+		if (!build.ok) {
+			return {
+				...fail(
+					existingStory.slug,
+					`Story "${existingStory.slug}" does not build. Fix the files below and publish again.`,
+					unpublished,
+				),
+				format: 'custom',
+				files: draft.map((file) => file.path),
+				build_errors: build.errors,
+			};
+		}
+
 		const { version, files } = await storyFileQueries.cutVersionFromDraft({
 			storyId: existingStory.id,
 			action: 'publish',
 			source: 'assistant',
 		});
+		await storyFileQueries.setVersionBundle(version.id, { bundle: build.bundle, bundleError: null });
 		rememberStoryArtifact(context, existingStory.slug, existingStory.title);
 		return customResult(
 			existingStory.slug,
@@ -248,11 +277,7 @@ async function publishCustomStory(existingStory: DBStory, context: ToolContext):
 		return fail(
 			existingStory.slug,
 			`Could not publish story "${existingStory.slug}": ${(error as Error).message}`,
-			{
-				code: '',
-				version: 0,
-				title: existingStory.title,
-			},
+			unpublished,
 		);
 	}
 }

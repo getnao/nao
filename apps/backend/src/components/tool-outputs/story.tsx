@@ -9,7 +9,23 @@ export type StoryModelOutput = story.Output & {
 
 export function StoryOutput({ output }: { output: StoryModelOutput }) {
 	if (output.error) {
-		return <Block>Story error: {output.error}</Block>;
+		return (
+			<Block>
+				Story error: {output.error}
+				{output.build_errors && output.build_errors.length > 0 && (
+					<Block>
+						<Span>
+							Build errors (fix these in /stories/{output.id}/ with the write tool, then publish again):
+						</Span>
+						<List>
+							{output.build_errors.map((buildError) => (
+								<ListItem key={buildError}>{buildError}</ListItem>
+							))}
+						</List>
+					</Block>
+				)}
+			</Block>
+		);
 	}
 
 	if (output._stale) {

@@ -12,7 +12,7 @@ export const InputSchema = z.object({
 	action: z
 		.enum(['create', 'update', 'replace', 'publish'])
 		.describe(
-			'The operation: "create" initializes a new story, "update" does a search-and-replace (new version), "replace" overwrites the entire content (new version). "publish" (custom stories only) snapshots the draft files under /stories/<id>/ into a new version.',
+			'The operation: "create" initializes a new story, "update" does a search-and-replace (new version), "replace" overwrites the entire content (new version). "publish" (custom stories only) builds the draft files under /stories/<id>/ and, if they compile, snapshots them into a new version; build errors come back in build_errors and nothing is published.',
 		),
 	id: z
 		.string()
@@ -53,6 +53,7 @@ export const OutputSchema = z.object({
 	files: z.array(z.string()).optional().describe('Paths of the draft files of a custom story.'),
 	error: z.string().optional(),
 	template_warnings: z.array(z.string()).optional(),
+	build_errors: z.array(z.string()).optional().describe('Why a custom story failed to build; nothing was published.'),
 });
 
 export type Input = z.infer<typeof InputSchema>;

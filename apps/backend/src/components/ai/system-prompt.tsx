@@ -1,4 +1,5 @@
 import type { ChartPluginManifestEntry } from '@nao/shared';
+import { STORY_APP_ALLOWED_IMPORTS, STORY_APP_ENTRY_CANDIDATES, STORY_APP_MANIFEST_PATH } from '@nao/shared/story-app';
 import { LOCAL_DATABASE_ID } from '@nao/shared/tools';
 import type { SemanticLayerMode } from '@nao/shared/types';
 
@@ -523,6 +524,17 @@ function CustomStoriesBlock() {
 				<ListItem>
 					File paths are relative to the story root, at most six levels deep, with these extensions only: .js
 					.jsx .ts .tsx .css .json .md. Keep the app small — a story holds at most 60 files of 512 KB each.
+				</ListItem>
+				<ListItem>
+					The app is bundled server-side on publish. The entry file (
+					{STORY_APP_ENTRY_CANDIDATES.map((path) => `"${path}"`).join(', ')}, or "entry" in{' '}
+					{STORY_APP_MANIFEST_PATH}) must default-export the root React component. Imports are limited to{' '}
+					{STORY_APP_ALLOWED_IMPORTS.join(', ')} and relative paths inside the story — nothing is installed,
+					so any other package fails the build. Styles go in .css files anywhere in the story; every one of
+					them is loaded with the app, so importing a stylesheet from JavaScript is unnecessary (and ignored).
+				</ListItem>
+				<ListItem>
+					When publish returns build_errors, nothing was published: fix the named files and publish again.
 				</ListItem>
 				<ListItem>
 					"update" and "replace" do not apply to custom stories; edit the files and publish again instead.
