@@ -33,6 +33,11 @@ rm -rf \
   apps/frontend/.vite \
   cli/tests \
   2>/dev/null || true
+# Cache global de bun : le buildpack pose BUN_INSTALL=.heroku, donc il vit dans le slug, et
+# node_modules n'en est qu'un jeu de liens physiques. Sans cette purge, rien de ce qui est
+# retiré de node_modules (étape 3) ne libère d'espace.
+bun pm cache rm || echo "ℹ purge du cache bun échouée (non bloquant)"
 du -sh node_modules 2>/dev/null | sed 's/^/[build] node_modules: /' || true
+du -sh . 2>/dev/null | sed 's/^/[build] slug total: /' || true
 
 echo "=== [build] terminé ==="
