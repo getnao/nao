@@ -23,6 +23,13 @@ vi.mock('../src/queries/activity.queries', () => ({
 vi.mock('../src/services/live-story', () => ({
 	refreshStoryData: mocks.refreshStoryData,
 }));
+vi.mock('../src/handlers/story-delivery.handler', () => ({
+	deliverStoryOnRefresh: vi.fn(async () => undefined),
+	STORY_DELIVERY_JOB_NAME: 'story-delivery',
+}));
+vi.mock('../src/services/scheduler.service', () => ({
+	enqueueOnce: vi.fn(),
+}));
 vi.mock('../src/utils/analytics-event', () => ({
 	logAnalyticsEvent: vi.fn(),
 }));

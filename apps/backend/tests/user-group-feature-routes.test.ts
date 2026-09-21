@@ -91,6 +91,7 @@ vi.mock('../src/queries/story.queries', () => ({
 	renameStory: mocks.renameStory,
 }));
 vi.mock('../src/queries/story-folder.queries', () => ({
+	ensureStoryPrivate: vi.fn(),
 	moveStoryToFolder: mocks.moveStoryToFolder,
 	saveStoryInPrivateRoot: mocks.saveStoryInPrivateRoot,
 }));
@@ -103,6 +104,11 @@ vi.mock('../src/services/live-story', () => ({
 }));
 vi.mock('../src/services/sso-group-mapping.service', () => ({
 	isOrganizationRoleMappingActive: vi.fn(async () => false),
+}));
+vi.mock('../src/services/story-delivery.service', () => ({
+	assertValidDeliverySchedule: vi.fn(),
+	disableStoryDelivery: vi.fn(),
+	syncStoryDeliveryJob: vi.fn(),
 }));
 vi.mock('../src/utils/analytics-event', () => ({ logAnalyticsEvent: vi.fn() }));
 vi.mock('../src/utils/story-download', () => ({ buildDownloadResponse: mocks.buildDownloadResponse }));
