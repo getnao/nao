@@ -1,24 +1,61 @@
 import { displayChart } from '@nao/shared/tools';
 
 import { DisplayChartOutput, renderToModelOutput } from '../../components/tool-outputs';
+import { hasChartPlugin } from '../../services/chart-plugin';
+import { getQueryResult } from '../../services/query-result.service';
 import { createTool } from '../../utils/tools';
 
 export default createTool<displayChart.Input, displayChart.Output>({
-	description: 'Display a chart visualization of the data from a previous `execute_sql` tool call.',
+	description:
+		'Display a chart visualization or formatted table of the data from a previous `execute_sql` tool call.',
 	inputSchema: displayChart.InputSchema,
 	outputSchema: displayChart.OutputSchema,
 
 	execute: async (input, context) => {
+		if (displayChart.isTableInput(input)) {
+			const queryResult = await getQueryResult(context, input.query_id);
+			if (!queryResult) {
+				return {
+					_version: '1',
+					success: false,
+					error: `No query result found for query_id "${input.query_id}". Run execute_sql first and reference its Query ID.`,
+				};
+			}
+
+			return { _version: '1', success: true };
+		}
+
 		const { chart_type: chartType, x_axis_key: xAxisKey, series } = input;
+		if (!displayChart.isBuiltinChartType(chartType)) {
+			if (!context.supportsCustomCharts) {
+				return {
+					_version: '1',
+					success: false,
+					error: 'Custom charts are only available in interactive web chats.',
+				};
+			}
+			if (!hasChartPlugin(context.projectFolder, chartType)) {
+				return {
+					_version: '1',
+					success: false,
+					error: `Custom chart "${chartType}" is not available in this project.`,
+				};
+			}
+			return { _version: '1', success: true };
+		}
 
 		// Validate xAxisKey is provided for cartesian and polar charts
-		if (['bar', 'line', 'area', 'stacked_area', 'scatter', 'radar'].includes(chartType) && !xAxisKey) {
+		if (displayChart.chartTypeRequiresXAxisKey(chartType) && !xAxisKey) {
 			return { _version: '1', success: false, error: `xAxisKey is required for ${chartType} charts.` };
 		}
 
-		// Validate pie charts have exactly one series
-		if (chartType === 'pie' && series.length !== 1) {
-			return { _version: '1', success: false, error: 'Pie charts require exactly one series.' };
+		// Validate pie and donut charts have exactly one series
+		if (displayChart.isPieChart(chartType) && series.length !== 1) {
+			return {
+				_version: '1',
+				success: false,
+				error: `${chartType === 'donut' ? 'Donut' : 'Pie'} charts require exactly one series.`,
+			};
 		}
 
 		// Validate series is not empty
@@ -27,17 +64,17 @@ export default createTool<displayChart.Input, displayChart.Output>({
 		}
 
 		// Stacked charts require at least two series
-		if ((chartType === 'stacked_bar' || chartType === 'stacked_area') && series.length < 2) {
+		if (displayChart.isStackedChartType(chartType) && chartType !== 'horizontal_bar' && series.length < 2) {
 			return {
 				_version: '1',
 				success: false,
-				error: `Stacked ${chartType === 'stacked_bar' ? 'bar' : 'area'} chart requires at least two series. You may need to pivot the data to create a series for each stack.`,
+				error: `Stacked ${chartType.includes('bar') ? 'bar' : 'area'} chart requires at least two series. You may need to pivot the data to create a series for each stack.`,
 			};
 		}
 
 		// TODO: check that the chart is displayable and that the data is valid
 
-		context.generatedArtifacts.charts.push(input);
+		context.generatedArtifacts.charts.push({ ...input, chart_type: chartType });
 		return { _version: '1', success: true };
 	},
 

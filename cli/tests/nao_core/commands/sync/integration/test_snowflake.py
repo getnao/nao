@@ -219,7 +219,7 @@ def spec():
         users_profiling_rows=[
             {
                 "column": "ID",
-                "type": "int32",
+                "type": "int64",
                 "total_count": 3,
                 "null_count": 0,
                 "null_percentage": 0.0,
@@ -267,7 +267,7 @@ def spec():
         orders_profiling_rows=[
             {
                 "column": "ID",
-                "type": "int32",
+                "type": "int64",
                 "total_count": 2,
                 "null_count": 0,
                 "null_percentage": 0.0,
@@ -279,7 +279,7 @@ def spec():
             },
             {
                 "column": "USER_ID",
-                "type": "int32",
+                "type": "int64",
                 "total_count": 2,
                 "null_count": 0,
                 "null_percentage": 0.0,

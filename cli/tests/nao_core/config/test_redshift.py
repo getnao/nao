@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from nao_core.config.databases.redshift import RedshiftConfig
+from nao_core.config.databases.redshift import RedshiftConfig, RedshiftDatabaseContext
 
 
 def test_get_schemas_uses_datashare_visible_catalog_view():
@@ -42,3 +42,51 @@ def test_get_schemas_returns_configured_schema_without_querying():
 
     assert schemas == ["marts"]
     conn.raw_sql.assert_not_called()
+
+
+class TestRedshiftClusteringColumns:
+    def _make_context(self) -> tuple[RedshiftDatabaseContext, MagicMock]:
+        conn = MagicMock()
+        ctx = RedshiftDatabaseContext(conn, "public", "orders")
+        return ctx, conn
+
+    def test_returns_sortkey_columns_in_order(self):
+        ctx, conn = self._make_context()
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [("customer_id",), ("created_at",)]
+        conn.raw_sql.return_value = cursor
+
+        cols = ctx.clustering_columns()
+
+        assert cols == ["customer_id", "created_at"]
+        sql = conn.raw_sql.call_args[0][0]
+        assert "attsortkeyord" in sql
+        assert "public" in sql
+        assert "orders" in sql
+
+    def test_returns_empty_when_no_sortkeys(self):
+        ctx, conn = self._make_context()
+        cursor = MagicMock()
+        cursor.fetchall.return_value = []
+        conn.raw_sql.return_value = cursor
+
+        assert ctx.clustering_columns() == []
+
+    def test_returns_empty_on_query_failure(self):
+        ctx, conn = self._make_context()
+        conn.raw_sql.side_effect = Exception("permission denied")
+
+        assert ctx.clustering_columns() == []
+
+    def test_escapes_single_quotes_in_identifiers(self):
+        conn = MagicMock()
+        ctx = RedshiftDatabaseContext(conn, "pub'lic", "or'ders")
+        cursor = MagicMock()
+        cursor.fetchall.return_value = []
+        conn.raw_sql.return_value = cursor
+
+        ctx.clustering_columns()
+
+        sql = conn.raw_sql.call_args[0][0]
+        assert "'pub''lic'" in sql
+        assert "'or''ders'" in sql

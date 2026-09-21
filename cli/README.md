@@ -37,6 +37,9 @@ pip install 'nao-core[ollama]'
 
 # Integrations
 pip install 'nao-core[notion]'
+
+# Semantic layer (dbt MetricFlow)
+pip install 'nao-core[semantic-layer]'
 ```
 
 Combine multiple extras in a single install:
@@ -84,9 +87,9 @@ nao init
 
 This will create a new nao project in the current directory. It will prompt you for a project name and ask you to configure:
 
-- **Database connections** (BigQuery, DuckDB, Databricks, Snowflake, PostgreSQL, Redshift, MSSQL, Trino, StarRocks)
+- **Database connections** (BigQuery, DuckDB, MotherDuck, Databricks, Snowflake, PostgreSQL, Redshift, MSSQL, Trino, StarRocks)
 - **Git repositories** to sync
-- **LLM provider** (OpenAI, Anthropic, Mistral, Gemini, OpenRouter, Ollama)
+- **LLM provider** (OpenAI, Anthropic, Mistral, Gemini, OpenRouter, Requesty, Ollama)
 - **`ai_summary` template + model** (prompted only when you enable `ai_summary` for databases)
 - **Slack integration**
 - **Notion integration**
@@ -135,6 +138,17 @@ databases:
     path: ":memory:"
 YAML
 nao init --yes
+
+# MotherDuck (DuckDB-compatible cloud) — token via env recommended
+cat > nao_config.yaml <<'YAML'
+project_name: my-project
+databases:
+  - type: motherduck
+    name: md-analytics
+    database: my_db
+    token: "{{ env('MOTHERDUCK_TOKEN') }}"
+YAML
+nao init --yes
 ```
 
 In non-interactive mode, `nao init` never asks for input. Configure databases, LLM provider, and integrations by editing `nao_config.yaml` directly (or by pre-writing it before `nao init`).
@@ -146,6 +160,11 @@ nao chat
 ```
 
 This will start the nao chat UI. It will open the chat interface in your browser at `http://localhost:5005`.
+
+To let the agent run code in a micro-VM, download the sandbox runtime once with `nao chat --sandbox`, then enable
+Sandboxes in Settings → Experimental. The runtime and the DuckDB engine used by `nao test` are ~100 MB each, so they
+are not shipped in the package: nao fetches them on first use and caches them in `~/.nao/native`. Set
+`NAO_NATIVE_REGISTRY` to download them from an npm mirror instead of `registry.npmjs.org`.
 
 ### Test connectivity
 
@@ -163,17 +182,32 @@ nao sync
 
 Syncs configured resources to local files:
 
-- **Databases** - generates markdown docs (`columns.md`, `preview.md`, `description.md`) for each table into `databases/`
+- **Databases** - generates configured markdown docs for each table into `databases/` (`columns.md` and `preview.md` by default; optional `profiling.md`, `query_history.md`, and `ai_summary.md`)
 - **Git repositories** — clones or pulls repos into `repos/`
-- **Notion pages** — exports pages as markdown into `docs/notion/`
+- **Notion pages** — exports pages as markdown into `docs/notion/`. Databases are exported as markdown tables, whether configured directly or embedded inline in a page. A database embedded in a page is exported through one of its views — Notion exposes no way to tell which view a page renders, so the first one listed is used — applying that view's filters, sorts and visible columns rather than dumping the whole data source. A database configured by URL exports every row and column, unless the URL carries `?v=<view_id>`, in which case that view applies. When a database cannot be exported, its page fails to sync and the previously synced markdown is left untouched, rather than being rewritten without its table.
 
 After syncing, any Jinja templates (`*.j2` files) in the project directory are rendered with the nao context.
 
 Optional `ai_summary` generation:
 
 - Add `ai_summary` to a database connection `templates` list to render `ai_summary.md`.
+- AI summaries use profiling statistics for data-quality and distribution observations. The row preview is a tiny, non-representative shape sample.
 - Use `prompt("...")` inside Jinja templates to generate `ai_summary` content.
-- `prompt(...)` requires `llm.provider`, `llm.annotation_model`, and `llm.api_key` (except for ollama).
+- `prompt(...)` requires an `llm.providers` entry with an `api_key` (except for ollama), plus `llm.annotation_model`.
+- Configure `profiling` and `ai_summary` refreshes independently with `refresh_policy: always`, `once`, or `interval`. Interval policies also accept `interval_days` (default: `7`):
+
+```yaml
+databases:
+    - type: duckdb
+      name: analytics
+      path: analytics.duckdb
+      templates: [columns, preview, profiling, ai_summary]
+      profiling:
+          refresh_policy: once
+      ai_summary:
+          refresh_policy: interval
+          interval_days: 7
+```
 
 ### Run tests
 
@@ -187,6 +221,8 @@ Options:
 
 - `--model` / `-m`: Models to test against (default: `openai:gpt-4.1`). Can be specified multiple times.
 - `--threads` / `-t`: Number of parallel threads (default: `1`)
+- `--select` / `-s`: Run only selected tests by name, yaml stem, or subfolder. Comma-separated.
+- `--username` / `-u`, `--password`: Credentials for the nao backend. Fall back to `NAO_USERNAME` / `NAO_PASSWORD`.
 
 Examples:
 
@@ -194,6 +230,20 @@ Examples:
 nao test -m openai:gpt-4.1
 nao test -m openai:gpt-4.1 -m anthropic:claude-sonnet-4-20250514
 nao test --threads 4
+```
+
+Defaults for every run live in the `test` block of `nao_config.yaml`, and the `--model` / `--threads` flags override them:
+
+```yaml
+test:
+    models:
+        - openai:gpt-4.1
+        - anthropic:claude-sonnet-4-5
+    threads: 4
+    comparison:
+        rtol: 0.00001
+        atol: 0.00000001
+        decimals: 2
 ```
 
 ### Explore test results
@@ -245,6 +295,7 @@ Build and package nao-core CLI.
 ```
 
 This will:
+
 1. Build the frontend with Vite
 2. Compile the backend with Bun into a standalone binary
 3. Bundle everything into a Python wheel in `dist/`

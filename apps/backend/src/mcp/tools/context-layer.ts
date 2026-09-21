@@ -12,7 +12,7 @@ import { upsertMcpQueryData } from '../../queries/mcp-query-data.queries';
 import * as storyQueries from '../../queries/story.queries';
 import * as storyFolderQueries from '../../queries/story-folder.queries';
 import { pinQueryDataToChat, pinStoryMessageToChat } from '../../utils/chat-message-story';
-import { resolveStoryQueryData, type StoryQueryDataMap } from '../../utils/story-query-data';
+import { backfillMissingQueryData, type StoryQueryDataMap } from '../../utils/story-query-data';
 import { STORY_OUTPUT_SCHEMA, type StoryMcpToolPayload } from '../embed/embed-tool-result';
 import { STORY_APP_URI, uiToolMeta } from '../embed/ui-resources';
 import type { McpContext } from '../logging';
@@ -48,8 +48,9 @@ const READ_DESCRIPTION =
 	'SKIP WHEN: matching lines are enough → use `grep`. You want to browse a folder → use `ls`.';
 
 const CREATE_STORY_DESCRIPTION =
-	'Create a new analytics story — a markdown document with embedded `<chart>` / `<table>` / `<grid>` ' +
+	'Create a new analytics story — a markdown document with embedded `<chart>` / `<table>` / `<grid>` / `<tab>` ' +
 	'blocks rendered by nao (think dashboard or report).\n\n' +
+	'Default to a single flowing story. Use consecutive `<tab title="...">...</tab>` blocks only when requested or when clearly distinct sections are better separated than stacked; avoid tabs for short or single-topic stories. A tabbed story must contain only `<tab>` blocks, with no content outside a tab.\n\n' +
 	'Typical flow: `execute_sql` → `display_chart` → paste the returned `<chart>` block into `content`. ' +
 	'Pass `chat_id` to attach the story to a chat (e.g. from `ask_nao`); omit it for a standalone ' +
 	'project-level story. The chat must belong to the calling user.\n\n' +
@@ -60,6 +61,7 @@ const CREATE_STORY_DESCRIPTION =
 const UPDATE_STORY_DESCRIPTION =
 	"Update a story's title and/or full content. Creates a new version; omit a field to keep its " +
 	'current value.\n\n' +
+	'Preserve existing `<tab>` blocks unless the requested change makes tabs relevant or unnecessary; when using tabs, keep all content inside `<tab title="...">...</tab>` blocks.\n\n' +
 	'When swapping charts, regenerate the `<chart>` block via `display_chart` first so the embed ' +
 	'stays valid.';
 
@@ -144,63 +146,65 @@ function registerExecuteSql(server: McpServer, ctx: McpContext): void {
 }
 
 function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
-	registerMcpTool(server, ctx, {
-		name: 'create_story',
-		title: 'Create Story',
-		description: CREATE_STORY_DESCRIPTION,
-		inputSchema: {
-			title: z.string().describe('Story title.'),
-			content: z
-				.string()
-				.optional()
-				.describe(
-					'Full nao story markdown (with `<chart>`, `<table>`, `<grid>` blocks). Omit to start from a title-only stub.',
-				),
-			query_data: z
-				.record(
-					z.string(),
-					z.object({ columns: z.array(z.string()), data: z.array(z.record(z.string(), z.unknown())) }),
-				)
-				.optional()
-				.describe(
-					"Pre-fetched rows keyed by `query_id`, used to seed the story's embedded `<chart>` / `<table>` blocks. " +
-						'Provide entries for `query_id`s coming from `ask_nao`; `query_id`s from MCP `execute_sql` are already cached.',
-				),
-			chat_id: z
-				.string()
-				.optional()
-				.describe(
-					'Attach the story to a chat (e.g. `chatId` from `ask_nao`). Omit for a standalone story. The chat must belong to the calling user.',
-				),
-		},
-		outputSchema: STORY_OUTPUT_SCHEMA,
-		_meta: uiToolMeta(STORY_APP_URI),
-		handler: async ({ title, content, query_data, chat_id }) => {
-			const slug = generateSlug(title);
-			const code = content ?? `# ${title}\n`;
-			const story = chat_id
-				? await createChatLinkedStory({ chatId: chat_id, slug, title, code, ctx })
-				: await createStandaloneStory({ slug, title, code, ctx });
+	if (ctx.storyCreationEnabled) {
+		registerMcpTool(server, ctx, {
+			name: 'create_story',
+			title: 'Create Story',
+			description: CREATE_STORY_DESCRIPTION,
+			inputSchema: {
+				title: z.string().describe('Story title.'),
+				content: z
+					.string()
+					.optional()
+					.describe(
+						'Full nao story markdown (with `<chart>`, `<table>`, `<grid>`, `<tab>` blocks). Omit to start from a title-only stub.',
+					),
+				query_data: z
+					.record(
+						z.string(),
+						z.object({ columns: z.array(z.string()), data: z.array(z.record(z.string(), z.unknown())) }),
+					)
+					.optional()
+					.describe(
+						"Pre-fetched rows keyed by `query_id`, used to seed the story's embedded `<chart>` / `<table>` blocks. " +
+							'Provide entries for `query_id`s coming from `ask_nao`; `query_id`s from MCP `execute_sql` are already cached.',
+					),
+				chat_id: z
+					.string()
+					.optional()
+					.describe(
+						'Attach the story to a chat (e.g. `chatId` from `ask_nao`). Omit for a standalone story. The chat must belong to the calling user.',
+					),
+			},
+			outputSchema: STORY_OUTPUT_SCHEMA,
+			_meta: uiToolMeta(STORY_APP_URI),
+			handler: async ({ title, content, query_data, chat_id }) => {
+				const slug = generateSlug(title);
+				const code = content ?? `# ${title}\n`;
+				const story = chat_id
+					? await createChatLinkedStory({ chatId: chat_id, slug, title, code, ctx })
+					: await createStandaloneStory({ slug, title, code, ctx });
 
-			if ('error' in story) {
-				return { content: [{ type: 'text' as const, text: `Error: ${story.error}` }], isError: true };
-			}
+				if ('error' in story) {
+					return { content: [{ type: 'text' as const, text: `Error: ${story.error}` }], isError: true };
+				}
 
-			await cacheStoryQueryData(story.id, code, query_data, chat_id, ctx);
+				await cacheStoryQueryData(story.id, code, query_data, chat_id, ctx);
 
-			const storyForUrl = { id: story.id, slug: story.slug, chatId: story.chatId };
-			const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
-			const output: StoryMcpToolPayload = {
-				embedUrl,
-				id: story.id,
-				title: story.title,
-				createdAt: story.createdAt,
-				url: storyUrl(storyForUrl),
-				chatUrl: storyChatUrl(storyForUrl),
-			};
-			return buildStoryMcpResultWithSandbox(output, ctx, code, story.chatId);
-		},
-	});
+				const storyForUrl = { id: story.id, slug: story.slug, chatId: story.chatId };
+				const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
+				const output: StoryMcpToolPayload = {
+					embedUrl,
+					id: story.id,
+					title: story.title,
+					createdAt: story.createdAt,
+					url: storyUrl(storyForUrl),
+					chatUrl: storyChatUrl(storyForUrl),
+				};
+				return buildStoryMcpResultWithSandbox(output, ctx, code, story.chatId);
+			},
+		});
+	}
 
 	registerMcpTool(server, ctx, {
 		name: 'update_story',
@@ -212,12 +216,12 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 				.describe(
 					'Story UUID (from `list_stories.id`, `ask_nao.stories[].id`, or a prior `create_story`). Not the slug.',
 				),
-			title: z.string().optional().describe('New title. Omit to keep current.'),
+			title: z.string().trim().min(1).max(255).optional().describe('New title. Omit to keep current.'),
 			content: z
 				.string()
 				.optional()
 				.describe(
-					'Full markdown replacement (with `<chart>`, `<table>`, `<grid>` blocks). ' +
+					'Full markdown replacement (with `<chart>`, `<table>`, `<grid>`, `<tab>` blocks). ' +
 						'Omit to keep the current content — partial diffs are not supported.',
 				),
 			query_data: z
@@ -245,6 +249,9 @@ function registerContextStoryTools(server: McpServer, ctx: McpContext): void {
 			const latestVersion = await fetchLatestStoryVersion(story);
 			const newTitle = title ?? story.title;
 			const newCode = content ?? latestVersion?.code ?? `# ${newTitle}\n`;
+			if (title !== undefined && title !== story.title) {
+				await storyQueries.renameStory(story.id, title);
+			}
 			const updated = await saveNewVersion(story, ctx, newTitle, newCode);
 			const embedUrl = storyEmbedUrl(story.id, ctx.projectId);
 			const validatedChatId = await resolveChartChatId(chat_id, ctx);
@@ -273,11 +280,10 @@ async function cacheStoryQueryData(
 		...((existingCache?.queryData as StoryQueryDataMap | null) ?? {}),
 		...(queryData ?? {}),
 	};
-	const resolvedQueryData = await resolveStoryQueryData(
+	const resolvedQueryData = await backfillMissingQueryData(
 		code,
 		Object.keys(seededQueryData).length > 0 ? seededQueryData : null,
-		ctx.projectId,
-		ctx.userId,
+		{ projectId: ctx.projectId, userId: ctx.userId },
 	);
 	if (!resolvedQueryData) {
 		return;

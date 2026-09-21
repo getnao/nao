@@ -47,14 +47,14 @@ export const ChatInputMessageQueue = ({ onEditMessage, onSubmitNow }: ChatInputM
 	};
 
 	return (
-		<div className='relative flex flex-col w-full mx-auto border border-input/50 rounded-2xl rounded-b-none -mb-4 pb-4 bg-muted/50 overflow-hidden'>
+		<div className='relative flex flex-col w-full mx-auto border border-input/50 rounded-2xl rounded-b-none -mb-4 pb-4 bg-panel/50 overflow-hidden'>
 			<button
 				type='button'
 				onClick={() => setIsExpanded(!isExpanded)}
 				className='flex items-center gap-1.5 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer select-none'
 			>
 				<ChevronDown className={cn('size-3 transition-transform duration-200', !isExpanded && '-rotate-90')} />
-				<span>{queuedMessages.length} Queued</span>
+				<span>{queuedMessages.length} queued</span>
 			</button>
 
 			{isExpanded && (
@@ -125,7 +125,7 @@ function SortableQueuedMessageRow({
 					{...attributes}
 					{...listeners}
 				>
-					<GripVertical className='size-3.5' />
+					<GripVertical className={cn('size-3.5', isFirst && 'text-primary')} />
 				</button>
 			)}
 
@@ -140,12 +140,19 @@ function SortableQueuedMessageRow({
 				)}
 
 				<div className='hidden group-hover:flex items-center'>
-					<Button variant='ghost-muted' size='icon-xs' type='button' onClick={() => onSubmitNow?.(messageId)}>
+					<Button
+						variant='ghost-muted'
+						size='icon-xs'
+						className='rounded-full'
+						type='button'
+						onClick={() => onSubmitNow?.(messageId)}
+					>
 						<CornerDownLeft className='size-3' />
 					</Button>
 					<Button
 						variant='ghost-muted'
 						size='icon-xs'
+						className='rounded-full'
 						type='button'
 						onClick={() => {
 							messageQueueStore.remove(chatId, messageId);
@@ -157,8 +164,8 @@ function SortableQueuedMessageRow({
 					<Button
 						variant='ghost-muted'
 						size='icon-xs'
+						className='hover:text-destructive rounded-full'
 						type='button'
-						className='hover:text-destructive'
 						onClick={() => messageQueueStore.remove(chatId, messageId)}
 					>
 						<Trash2 className='size-3' />

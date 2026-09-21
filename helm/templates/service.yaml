@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nao.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nao.labels" . | nindent 4 }}
+  {{- $ann := dict }}
+  {{- with include "nao.annotations" . }}
+    {{- with . }}
+      {{- $ann = merge $ann (fromYaml .) }}
+    {{- end }}
+  {{- end }}
+  {{- with .Values.service.annotations }}
+    {{- $ann = merge . $ann }}
+  {{- end }}
+  {{- with $ann }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "nao.selectorLabels" . | nindent 4 }}

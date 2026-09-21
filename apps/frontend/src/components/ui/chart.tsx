@@ -1,8 +1,9 @@
+import { CHART_NUMBER_LOCALE, formatChartValue, formatPercentShare, sumPercentStackBase } from '@nao/shared';
 import * as React from 'react';
 import * as RechartsPrimitive from 'recharts';
-import { formatCompactNumber } from '@nao/shared';
-
 import type { Payload } from 'recharts/types/component/DefaultLegendContent';
+import type { displayChart } from '@nao/shared/tools';
+
 import { cn } from '@/lib/utils';
 
 // Format: { THEME_NAME: CSS_SELECTOR }
@@ -12,6 +13,8 @@ export type ChartConfig = {
 	[k in string]: {
 		label?: React.ReactNode;
 		icon?: React.ComponentType;
+		isTotal?: boolean;
+		valueFormat?: displayChart.ValueFormat;
 	} & ({ color?: string; theme?: never } | { color?: never; theme: Record<keyof typeof THEMES, string> });
 };
 
@@ -34,11 +37,15 @@ function useChart() {
 function ChartContainer({
 	id,
 	className,
+	contentClassName,
+	header,
 	children,
 	config,
 	...props
 }: React.ComponentProps<'div'> & {
 	config: ChartConfig;
+	contentClassName?: string;
+	header?: React.ReactNode;
 	children: React.ComponentProps<typeof RechartsPrimitive.ResponsiveContainer>['children'];
 }) {
 	const uniqueId = React.useId();
@@ -46,17 +53,17 @@ function ChartContainer({
 
 	return (
 		<ChartContext.Provider value={{ config }}>
-			<div
-				data-slot='chart'
-				data-chart={chartId}
-				className={cn(
-					"[&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border flex aspect-video justify-center text-xs [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-sector]:outline-hidden [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-surface]:outline-hidden",
-					className,
-				)}
-				{...props}
-			>
-				<ChartStyle id={chartId} config={config} />
-				<RechartsPrimitive.ResponsiveContainer>{children}</RechartsPrimitive.ResponsiveContainer>
+			<div data-slot='chart' data-chart={chartId} className={cn('flex w-full flex-col', className)} {...props}>
+				{header}
+				<div
+					className={cn(
+						"[&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border flex aspect-video min-h-0 justify-center text-xs [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-sector]:outline-hidden [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-surface]:outline-hidden",
+						contentClassName,
+					)}
+				>
+					<ChartStyle id={chartId} config={config} />
+					<RechartsPrimitive.ResponsiveContainer>{children}</RechartsPrimitive.ResponsiveContainer>
+				</div>
 			</div>
 		</ChartContext.Provider>
 	);
@@ -107,6 +114,10 @@ function ChartTooltipContent({
 	color,
 	nameKey,
 	labelKey,
+	percent = false,
+	valueFormatter,
+	isDualAxis = false,
+	hideTotal = false,
 }: React.ComponentProps<typeof RechartsPrimitive.Tooltip> &
 	React.ComponentProps<'div'> & {
 		hideLabel?: boolean;
@@ -114,6 +125,10 @@ function ChartTooltipContent({
 		indicator?: 'line' | 'dot' | 'dashed';
 		nameKey?: string;
 		labelKey?: string;
+		percent?: boolean;
+		valueFormatter?: (value: number) => string;
+		isDualAxis?: boolean;
+		hideTotal?: boolean;
 	}) {
 	const { config } = useChart();
 
@@ -125,13 +140,14 @@ function ChartTooltipContent({
 		const [item] = payload;
 		const key = `${labelKey || item?.dataKey || item?.name || 'value'}`;
 		const itemConfig = getPayloadConfigFromPayload(config, item, key);
-		const value = !labelKey && typeof label === 'string' ? config[label]?.label || label : itemConfig?.label;
+		const isAxisValue = !labelKey && (typeof label === 'string' || typeof label === 'number');
+		const value = isAxisValue ? config[String(label)]?.label || label : itemConfig?.label;
 
 		if (labelFormatter) {
 			return <div className={cn('font-medium', labelClassName)}>{labelFormatter(value, payload)}</div>;
 		}
 
-		if (!value) {
+		if (value === undefined || value === null || value === '') {
 			return null;
 		}
 
@@ -144,11 +160,26 @@ function ChartTooltipContent({
 
 	const nestLabel = payload.length === 1 && indicator !== 'dot';
 
-	// Calculate total if there are multiple numeric values that can be summed
+	// Calculate total if there are multiple numeric values that can be summed and no total column.
 	const visiblePayload = payload.filter((item) => item.type !== 'none');
+	const isTotalItem = (item: (typeof visiblePayload)[number]) => {
+		const key = `${nameKey || item.name || item.dataKey || 'value'}`;
+		return getPayloadConfigFromPayload(config, item, key)?.isTotal === true;
+	};
 	const numericValues = visiblePayload.map((item) => item.value).filter((v): v is number => typeof v === 'number');
-	const showTotal = numericValues.length > 1;
-	const total = showTotal ? numericValues.reduce((sum, v) => sum + v, 0) : 0;
+	const hasTotalSeries = visiblePayload.some(isTotalItem);
+	const seriesTotal = numericValues.reduce((sum, v) => sum + v, 0);
+	// 100% shares are relative to the stacked (non-total) series only, so each category sums to 100%.
+	const shareBase = sumPercentStackBase(
+		visiblePayload
+			.filter((item) => typeof item.value === 'number')
+			.map((item) => ({ value: item.value as number, isTotal: isTotalItem(item) })),
+	);
+	// In 100% stacked mode every category totals 100%, so ignore already-aggregated total series.
+	const showTotal = !isDualAxis && numericValues.length > 1 && (percent || (!hasTotalSeries && !hideTotal));
+	const firstItem = visiblePayload[0];
+	const firstItemKey = `${nameKey || firstItem?.name || firstItem?.dataKey || 'value'}`;
+	const firstItemFormat = getPayloadConfigFromPayload(config, firstItem, firstItemKey)?.valueFormat;
 
 	return (
 		<div
@@ -212,11 +243,17 @@ function ChartTooltipContent({
 												{itemConfig?.label || item.name}
 											</span>
 										</div>
-										{item.value && (
+										{item.value !== undefined && item.value !== null && (
 											<span className='text-foreground font-mono font-medium tabular-nums'>
 												{typeof item.value === 'number'
-													? formatCompactNumber(item.value)
-													: item.value.toLocaleString()}
+													? percent
+														? formatPercentShare(item.value, shareBase)
+														: valueFormatter
+															? valueFormatter(item.value)
+															: formatChartValue(item.value, itemConfig?.valueFormat, {
+																	compact: true,
+																})
+													: item.value.toLocaleString(CHART_NUMBER_LOCALE)}
 											</span>
 										)}
 									</div>
@@ -230,7 +267,11 @@ function ChartTooltipContent({
 						<div className='flex flex-1 justify-between leading-none gap-2 items-center'>
 							<span className='text-muted-foreground font-medium'>Total</span>
 							<span className='text-foreground font-mono font-medium tabular-nums'>
-								{formatCompactNumber(total)}
+								{percent
+									? '100%'
+									: valueFormatter
+										? valueFormatter(seriesTotal)
+										: formatChartValue(seriesTotal, firstItemFormat, { compact: true })}
 							</span>
 						</div>
 					</div>
@@ -247,10 +288,12 @@ function ChartLegendContent({
 	hideIcon = false,
 	payload,
 	verticalAlign = 'bottom',
+	layout = 'horizontal',
+	align = 'center',
 	nameKey,
 	onItemClick,
 }: React.ComponentProps<'div'> &
-	Pick<RechartsPrimitive.LegendProps, 'verticalAlign'> & {
+	Pick<RechartsPrimitive.LegendProps, 'verticalAlign' | 'layout' | 'align'> & {
 		hideIcon?: boolean;
 		nameKey?: string;
 		onItemClick?: (dataKey: string) => void;
@@ -262,11 +305,19 @@ function ChartLegendContent({
 		return null;
 	}
 
+	const isVertical = layout === 'vertical';
+
 	return (
 		<div
 			className={cn(
-				'flex items-center justify-center gap-4',
-				verticalAlign === 'top' ? 'pb-3' : 'pt-3',
+				'flex gap-4',
+				isVertical
+					? 'flex-col items-start justify-center gap-2 pl-4'
+					: cn(
+							'w-full items-center',
+							align === 'right' ? 'justify-end' : align === 'left' ? 'justify-start' : 'justify-center',
+							verticalAlign === 'top' ? 'pb-3' : 'pt-3',
+						),
 				className,
 			)}
 		>
@@ -281,7 +332,7 @@ function ChartLegendContent({
 						<div
 							key={item.value}
 							className={cn(
-								'[&>svg]:text-muted-foreground flex items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3 text-muted-foreground select-none',
+								'[&>svg]:text-muted-foreground flex shrink-0 items-center gap-1.5 whitespace-nowrap [&>svg]:h-3 [&>svg]:w-3 text-muted-foreground select-none',
 								onItemClick && 'cursor-pointer hover:text-foreground',
 								item.isHidden && 'opacity-40',
 							)}
@@ -331,4 +382,4 @@ function getPayloadConfigFromPayload(config: ChartConfig, payload: unknown, key:
 	return configLabelKey in config ? config[configLabelKey] : config[key];
 }
 
-export { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, ChartStyle };
+export { ChartContainer, ChartLegend, ChartLegendContent, ChartStyle, ChartTooltip, ChartTooltipContent };

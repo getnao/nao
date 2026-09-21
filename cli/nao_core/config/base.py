@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -14,6 +15,7 @@ if TYPE_CHECKING:
 
 from nao_core.ui import UI, ask_confirm, ask_select
 
+from .confluence import ConfluenceConfig
 from .databases import DATABASE_CONFIG_CLASSES, AnyDatabaseConfig, DatabaseTemplate, DatabaseType, parse_database_config
 from .error_handler import format_all_validation_errors
 from .llm import LLMConfig
@@ -21,8 +23,10 @@ from .mcp import McpConfig
 from .notion import NotionConfig
 from .repos import RepoConfig
 from .secrets import process_secrets
+from .semantic_layer import SemanticLayerConfig
 from .skills import SkillsConfig
 from .slack import SlackConfig
+from .test import TestConfig
 
 
 class NaoConfigError(Exception):
@@ -31,17 +35,30 @@ class NaoConfigError(Exception):
     pass
 
 
+# Integration blocks a command can run without. Commands that only read part of the
+# config (e.g. `nao sync` with the databases provider) can load with
+# drop_invalid_optional_sections=True so an unresolvable block here — typically an
+# unset env('...') secret — is ignored with a warning instead of failing the run.
+OPTIONAL_SECTIONS = ("llm", "slack", "notion", "confluence", "mcp", "skills", "test", "semantic_layer")
+
+
 class NaoConfig(BaseModel):
     """nao project configuration."""
 
     project_name: str = Field(description="The name of the nao project")
+    threads: int | None = Field(default=None, ge=1, description="Default worker threads to use for sync")
     databases: list[AnyDatabaseConfig] = Field(default_factory=list, description="The databases to use")
     repos: list[RepoConfig] = Field(default_factory=list, description="The repositories to use")
     notion: NotionConfig | None = Field(default=None, description="The Notion configurations")
+    confluence: ConfluenceConfig | None = Field(default=None, description="The Confluence configuration")
     llm: LLMConfig | None = Field(default=None, description="The LLM configuration")
     slack: SlackConfig | None = Field(default=None, description="The Slack configuration")
     mcp: McpConfig | None = Field(default=None, description="The MCP configuration")
     skills: SkillsConfig | None = Field(default=None, description="The Skills configuration")
+    test: TestConfig | None = Field(default=None, description="The defaults used by `nao test`")
+    semantic_layer: SemanticLayerConfig | None = Field(
+        default=None, description="The semantic layer (dbt MetricFlow) the agent can query"
+    )
 
     _missing_secrets: dict[str, None] = {}
 
@@ -63,20 +80,15 @@ class NaoConfig(BaseModel):
             return cls._prompt_extend(existing)
 
         databases = cls._prompt_databases()
-        enable_profiling = cls._prompt_enable_profiling(databases)
-        databases = cls._configure_profiling_templates(databases, enable_profiling)
-        llm, enable_ai_summary = cls._prompt_llm(databases=databases)
-        databases = cls._configure_ai_summary_templates(databases, llm, enable_ai_summary)
+        llm = cls._prompt_llm()
+        cls._apply_default_templates(databases, llm)
+        repos = cls._prompt_repos()
 
         return cls(
             project_name=project_name,
             databases=databases,
-            repos=cls._prompt_repos(),
+            repos=repos,
             llm=llm,
-            slack=cls._prompt_slack(),
-            notion=cls._prompt_notion(),
-            mcp=cls._prompt_mcp(project_name),
-            skills=cls._prompt_skills(project_name),
         )
 
     @classmethod
@@ -85,66 +97,40 @@ class NaoConfig(BaseModel):
         databases = list(existing.databases)
         repos = list(existing.repos)
         llm = existing.llm
-        slack = existing.slack
-        notion = existing.notion
-        mcp = existing.mcp
-        skills = existing.skills
 
-        # Show current config summary
         UI.title("Current Configuration")
         if databases:
             UI.print(f"  Databases: {', '.join(db.name for db in databases)}")
         if repos:
             UI.print(f"  Repos: {', '.join(r.name for r in repos)}")
         if llm:
-            UI.print(f"  LLM: {llm.provider}")
-        if slack:
+            UI.print(f"  LLM: {', '.join(p.id for p in llm.providers)}")
+        if existing.slack:
             UI.print("  Slack: configured")
-        if notion:
+        if existing.notion:
             UI.print("  Notion: configured")
-        if mcp:
+        if existing.confluence:
+            UI.print("  Confluence: configured")
+        if existing.mcp:
             UI.print("  MCP: configured")
-        if skills:
+        if existing.skills:
             UI.print("  Skills: configured")
+        if existing.test:
+            UI.print("  Test: configured")
+        if existing.semantic_layer:
+            UI.print("  Semantic layer: configured")
         UI.print()
 
-        # Prompt for additions
         new_databases = cls._prompt_databases(has_existing=bool(existing.databases))
-        if new_databases:
-            enable_profiling = cls._prompt_enable_profiling(new_databases)
-            new_databases = cls._configure_profiling_templates(new_databases, enable_profiling)
-        databases.extend(new_databases)
         repos.extend(cls._prompt_repos(has_existing=bool(existing.repos)))
 
-        if llm:
-            enable_ai_summary = cls._prompt_enable_ai_summary_templates(databases)
-        else:
-            llm, enable_ai_summary = cls._prompt_llm(databases=databases)
+        if not llm:
+            llm = cls._prompt_llm()
 
-        if not slack:
-            slack = cls._prompt_slack()
+        cls._apply_default_templates(new_databases, llm)
+        databases.extend(new_databases)
 
-        if not notion:
-            notion = cls._prompt_notion()
-
-        if not mcp:
-            mcp = cls._prompt_mcp(existing.project_name)
-
-        if not skills:
-            skills = cls._prompt_skills(existing.project_name)
-
-        databases = cls._configure_ai_summary_templates(databases, llm, enable_ai_summary)
-
-        return cls(
-            project_name=existing.project_name,
-            databases=databases,
-            repos=repos,
-            llm=llm,
-            slack=slack,
-            notion=notion,
-            mcp=mcp,
-            skills=skills,
-        )
+        return existing.model_copy(update={"databases": databases, "repos": repos, "llm": llm})
 
     @staticmethod
     def _prompt_databases(has_existing: bool = False) -> list[AnyDatabaseConfig]:
@@ -155,19 +141,14 @@ class NaoConfig(BaseModel):
         if not ask_confirm(prompt, default=not has_existing):
             return databases
 
-        while True:
-            UI.title("Database Configuration")
+        UI.title("Database Configuration")
 
-            db_type = ask_select("Select database type:", choices=DatabaseType.choices())
+        db_type = ask_select("Select database type:", choices=DatabaseType.choices())
 
-            config_class = cast(Any, DATABASE_CONFIG_CLASSES[DatabaseType(db_type)])
-            db_config = cast(AnyDatabaseConfig, config_class.promptConfig())
-            databases.append(db_config)
-
-            UI.success(f"Added database: {db_config.name}")
-
-            if not ask_confirm("Add another database?", default=False):
-                break
+        config_class = cast(Any, DATABASE_CONFIG_CLASSES[DatabaseType(db_type)])
+        db_config = cast(AnyDatabaseConfig, config_class.promptConfig())
+        databases.append(db_config)
+        UI.success(f"Added database: {db_config.name}")
 
         return databases
 
@@ -180,101 +161,26 @@ class NaoConfig(BaseModel):
         if not ask_confirm(prompt, default=not has_existing):
             return repos
 
-        while True:
-            repo_config = RepoConfig.promptConfig()
-            repos.append(repo_config)
-            UI.success(f"Added repository: {repo_config.name}")
-
-            if not ask_confirm("Add another repository?", default=False):
-                break
+        repo_config = RepoConfig.promptConfig()
+        repos.append(repo_config)
+        UI.success(f"Added repository: {repo_config.name}")
 
         return repos
 
     @staticmethod
-    def _prompt_llm(databases: list[AnyDatabaseConfig] | None = None) -> tuple[LLMConfig | None, bool]:
-        """Prompt for LLM configuration and optional ai_summary settings."""
+    def _prompt_llm() -> LLMConfig | None:
+        """Prompt for LLM configuration."""
         if ask_confirm("Set up LLM configuration?", default=True):
-            enable_ai_summary = NaoConfig._prompt_enable_ai_summary_templates(databases or [])
-            return LLMConfig.promptConfig(prompt_annotation_model=enable_ai_summary), enable_ai_summary
-        return None, False
+            return LLMConfig.promptConfig(prompt_annotation_model=False)
+        return None
 
     @staticmethod
-    def _prompt_enable_ai_summary_templates(databases: list[AnyDatabaseConfig]) -> bool:
-        """Prompt whether ai_summary should be enabled for configured databases."""
-        if not databases:
-            return False
-
-        return ask_confirm("Enable `ai_summary` template for all configured databases?", default=True)
-
-    @staticmethod
-    def _configure_ai_summary_templates(
-        databases: list[AnyDatabaseConfig],
-        llm: LLMConfig | None,
-        enable_ai_summary: bool,
-    ) -> list[AnyDatabaseConfig]:
-        """Enable ai_summary template for configured databases when requested."""
-        if not databases or llm is None or not enable_ai_summary:
-            return databases
-
+    def _apply_default_templates(databases: list[AnyDatabaseConfig], llm: LLMConfig | None) -> None:
+        """Apply the templates selected by interactive initialization."""
         for db in databases:
-            if DatabaseTemplate.AI_SUMMARY not in db.templates:
+            db.templates = [DatabaseTemplate.COLUMNS, DatabaseTemplate.PREVIEW]
+            if llm is not None:
                 db.templates.append(DatabaseTemplate.AI_SUMMARY)
-
-        return databases
-
-    @staticmethod
-    def _prompt_enable_profiling(databases: list[AnyDatabaseConfig]) -> bool:
-        """Prompt whether column profiling should be enabled for configured databases."""
-        if not databases:
-            return False
-
-        return ask_confirm(
-            "Enable `profiling` template for all configured databases? (can be costly on large datasets)",
-            default=False,
-        )
-
-    @staticmethod
-    def _configure_profiling_templates(
-        databases: list[AnyDatabaseConfig],
-        enable_profiling: bool,
-    ) -> list[AnyDatabaseConfig]:
-        """Enable profiling template for configured databases when requested."""
-        if not databases or not enable_profiling:
-            return databases
-
-        for db in databases:
-            if DatabaseTemplate.PROFILING not in db.templates:
-                db.templates.append(DatabaseTemplate.PROFILING)
-
-        return databases
-
-    @staticmethod
-    def _prompt_slack() -> SlackConfig | None:
-        """Prompt for Slack configuration using questionary."""
-        if ask_confirm("Set up Slack integration?", default=False):
-            return SlackConfig.promptConfig()
-        return None
-
-    @staticmethod
-    def _prompt_notion() -> NotionConfig | None:
-        """Prompt for Notion configuration using questionary."""
-        if ask_confirm("Set up Notion integration?", default=False):
-            return NotionConfig.promptConfig()
-        return None
-
-    @staticmethod
-    def _prompt_mcp(project_name: str) -> McpConfig | None:
-        """Prompt for MCP configuration using questionary."""
-        if ask_confirm("Set up MCP servers?", default=False):
-            McpConfig.promptConfig(project_name)
-        return None
-
-    @staticmethod
-    def _prompt_skills(project_name: str) -> SkillsConfig | None:
-        """Prompt for Skills configuration using questionary."""
-        if ask_confirm("Set up Skills folder?", default=False):
-            SkillsConfig.promptConfig(project_name)
-        return None
 
     def save(self, path: Path) -> None:
         """Save the configuration to a YAML file."""
@@ -297,14 +203,61 @@ class NaoConfig(BaseModel):
         cls,
         path: Path,
         extra_env: dict[str, str] | None = None,
+        drop_invalid_optional_sections: bool = False,
     ) -> "NaoConfig":
-        """Load the configuration from a YAML file."""
+        """Load the configuration from a YAML file.
+
+        With drop_invalid_optional_sections=True, a section from OPTIONAL_SECTIONS that
+        fails validation is replaced by None and reported as a warning, so commands that
+        do not use it can still run. Errors anywhere else fail the load as usual.
+        """
         config_file = path / "nao_config.yaml"
         content = config_file.read_text()
         processed_content, missing = process_secrets(content, extra_env=extra_env)
         cls._missing_secrets = {k: None for k, v in missing.items() if v is None}
         data = yaml.safe_load(processed_content)
-        return cls.model_validate(data)
+        cls._warn_on_legacy_llm(data)
+        if not drop_invalid_optional_sections:
+            return cls.model_validate(data)
+        return cls._validate_dropping_optional_sections(data)
+
+    @classmethod
+    def _validate_dropping_optional_sections(cls, data: Any) -> "NaoConfig":
+        try:
+            return cls.model_validate(data)
+        except ValidationError as e:
+            if not isinstance(data, dict):
+                raise
+
+            dropped: dict[str, str] = {}
+            for error in e.errors():
+                section = error["loc"][0] if error["loc"] else None
+                if not isinstance(section, str) or section not in OPTIONAL_SECTIONS:
+                    raise
+                dropped.setdefault(section, str(error["msg"]))
+
+            config = cls.model_validate({**data, **{section: None for section in dropped}})
+            for section, reason in dropped.items():
+                hint = ""
+                if cls._missing_secrets:
+                    hint = f" (unset environment variables: {', '.join(cls._missing_secrets)})"
+                UI.warn(
+                    f"Ignoring invalid `{section}` config for this command: {reason}{hint}. "
+                    f"Commands that use `{section}` will keep failing until it validates."
+                )
+            return config
+
+    @staticmethod
+    def _warn_on_legacy_llm(data: Any) -> None:
+        """Warn when the `llm` block still declares a single inline provider."""
+        if not isinstance(data, dict) or not LLMConfig.uses_legacy_shape(data.get("llm")):
+            return
+
+        UI.warn(
+            "nao_config.yaml declares a single inline `llm` provider, which is deprecated. Move it "
+            "under `llm.providers` to configure several providers, the models each one exposes and "
+            "their costs. Run `nao migrate` to rewrite it automatically."
+        )
 
     def get_connection(self, name: str) -> BaseBackend:
         """Get an Ibis connection by database name."""
@@ -325,6 +278,7 @@ class NaoConfig(BaseModel):
         exit_on_error: bool = False,
         raise_on_error: bool = False,
         extra_env: dict[str, str] | None = None,
+        drop_invalid_optional_sections: bool = False,
     ) -> "NaoConfig | None":
         """Try to load config from path.
 
@@ -333,6 +287,8 @@ class NaoConfig(BaseModel):
             exit_on_error: If True, prints error message and calls sys.exit(1) on failure.
             raise_on_error: If True, raises NaoConfigError on failure.
             extra_env: Optional env vars that take precedence over os.environ during template resolution.
+            drop_invalid_optional_sections: If True, an invalid OPTIONAL_SECTIONS block is
+                nulled with a warning instead of failing the load (see `load`).
         Returns:
             NaoConfig if loaded successfully, None if failed and both flags are False.
         """
@@ -353,7 +309,11 @@ class NaoConfig(BaseModel):
 
         try:
             os.chdir(path)
-            return cls.load(path, extra_env=extra_env)
+            return cls.load(
+                path,
+                extra_env=extra_env,
+                drop_invalid_optional_sections=drop_invalid_optional_sections,
+            )
         except yaml.YAMLError as e:
             handle_error(f"Failed to load nao_config.yaml: Invalid YAML syntax: {e}")
             return None
@@ -379,6 +339,71 @@ class NaoConfig(BaseModel):
     def json_schema(cls) -> dict:
         """Generate JSON schema for the configuration."""
         return cls.model_json_schema()
+
+
+LLM_OVERRIDE_NOTICE = (
+    "# An LLM provider edited in the app (Settings > Project > Models) is stored in the app",
+    "# database and takes precedence over this block until it is deleted there.",
+)
+
+
+def annotate_llm_override(config_path: Path) -> None:
+    """Note, above the saved `llm` block, that editing a provider in the app overrides it."""
+    content = config_path.read_text()
+    lines = content.splitlines()
+    index = next((i for i, line in enumerate(lines) if line.rstrip() == "llm:"), None)
+    if index is None:
+        return
+
+    lines[index:index] = LLM_OVERRIDE_NOTICE
+    trailing_newline = "\n" if content.endswith("\n") else ""
+    config_path.write_text("\n".join(lines) + trailing_newline)
+
+
+def annotate_optional_templates(config_path: Path) -> None:
+    """Add commented optional templates to each saved database configuration."""
+    content = config_path.read_text()
+    lines = content.splitlines()
+    index = 0
+    changed = False
+
+    while index < len(lines):
+        templates_match = re.match(r"^(\s*)templates:\s*$", lines[index])
+        if not templates_match:
+            index += 1
+            continue
+
+        templates_indent = len(templates_match.group(1))
+        item_index = index + 1
+        selected_templates: set[str] = set()
+        item_prefix: str | None = None
+
+        while item_index < len(lines):
+            item_match = re.match(r"^(\s*)- (\S+)", lines[item_index])
+            if not item_match or len(item_match.group(1)) < templates_indent:
+                break
+            item_prefix = item_match.group(1)
+            selected_templates.add(item_match.group(2))
+            item_index += 1
+
+        if item_prefix is None:
+            index += 1
+            continue
+
+        optional_templates = [
+            ("profiling", "# - profiling  -- Adds profiling of your data in agent context"),
+            ("query_history", "# - query_history  -- Pulls most frequent queries / joins on each table"),
+        ]
+        comments = [
+            f"{item_prefix}{comment}" for template, comment in optional_templates if template not in selected_templates
+        ]
+        lines[item_index:item_index] = comments
+        changed = changed or bool(comments)
+        index = item_index + len(comments)
+
+    if changed:
+        trailing_newline = "\n" if content.endswith("\n") else ""
+        config_path.write_text("\n".join(lines) + trailing_newline)
 
 
 def resolve_project_path() -> Path:

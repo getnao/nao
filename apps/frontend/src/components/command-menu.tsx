@@ -1,7 +1,18 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { MessageSquareIcon, MessageSquarePlusIcon, MoonIcon, SunIcon, UserIcon } from 'lucide-react';
+import {
+	BookOpenIcon,
+	KeyboardIcon,
+	MessageSquareIcon,
+	MessageSquarePlusIcon,
+	MoonIcon,
+	SettingsIcon,
+	SunIcon,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+
+import type { SettingsSearchEntry } from '@/components/settings-search-index';
 
 import {
 	CommandDialog,
@@ -17,34 +28,46 @@ import { useRegisterCommandMenuCallback } from '@/contexts/command-menu-callback
 import { useSearchChatsQuery } from '@/queries/use-search-chats-query';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useSettingsSearch, useSettingsSuggestions } from '@/hooks/use-settings-search';
 import { TextShimmer } from '@/components/ui/text-shimmer';
+import { getShortcutLabel } from '@/lib/keyboard-shortcuts';
+import { invalidateStoriesCaches } from '@/lib/stories-cache';
 
 type CommandConfig = {
 	id: string;
 	label: string;
+	keywords?: string[];
 	icon: LucideIcon;
 	action: () => void;
 	shortcut?: string;
 	group: string;
 	visible?: boolean;
+	keepOpen?: boolean;
 };
 
-export function CommandMenu() {
+export function CommandMenu({ onOpenKeyboardShortcuts }: { onOpenKeyboardShortcuts: () => void }) {
 	const [open, setOpen] = useState(false);
 	const [searchValue, setSearchValue] = useState('');
 	const debouncedSearch = useDebouncedValue(searchValue, 300);
 	const navigate = useNavigate();
+	const queryClient = useQueryClient();
 	const { theme, setTheme } = useTheme();
 	const { canStartNewChat } = usePermissions();
+	const isSettingsMode = searchValue.startsWith('/');
+	const settingsQuery = searchValue.slice(1);
+	const settingsResults = useSettingsSearch(isSettingsMode ? settingsQuery : '');
+	const settingsSuggestions = useSettingsSuggestions();
+	const showSettingsSuggestions = isSettingsMode && settingsQuery.length < 2;
+	const displayedSettingsEntries = showSettingsSuggestions ? settingsSuggestions : settingsResults;
 
 	const toggleOpen = useCallback(() => setOpen((prev) => !prev), []);
 	useRegisterCommandMenuCallback(toggleOpen, [toggleOpen]);
 
 	const { data: searchResults, isFetching: isSearching } = useSearchChatsQuery(debouncedSearch, {
-		enabled: open && debouncedSearch.length >= 2,
+		enabled: open && !isSettingsMode && !debouncedSearch.startsWith('/') && debouncedSearch.length >= 2,
 	});
 
-	const isSearchMode = searchValue.length >= 2;
+	const isSearchMode = !isSettingsMode && searchValue.length >= 2;
 	const hasSearchResults = isSearchMode && searchResults && searchResults.length > 0;
 	const isPendingSearch = isSearchMode && (searchValue !== debouncedSearch || isSearching);
 
@@ -53,49 +76,71 @@ export function CommandMenu() {
 			{
 				id: 'new-chat',
 				label: 'New Chat',
+				keywords: ['start chat', 'new conversation'],
 				icon: MessageSquarePlusIcon,
 				action: () => navigate({ to: '/' }),
-				shortcut: '⇧⌘O',
+				shortcut: getShortcutLabel('new-chat'),
 				group: 'Jump to',
 				visible: canStartNewChat,
 			},
 			{
-				id: 'open-settings',
-				label: 'Open Account Settings',
-				icon: UserIcon,
-				action: () => navigate({ to: '/settings/account' }),
+				id: 'go-to-stories',
+				label: 'Go to Stories',
+				keywords: ['stories'],
+				icon: BookOpenIcon,
+				action: () => {
+					invalidateStoriesCaches(queryClient);
+					navigate({ to: '/stories', search: { folderId: null } });
+				},
+				shortcut: getShortcutLabel('go-to-stories'),
 				group: 'Jump to',
+			},
+			{
+				id: 'search-settings',
+				label: 'Search settings',
+				keywords: ['settings', 'preferences'],
+				icon: SettingsIcon,
+				action: () => setSearchValue('/'),
+				shortcut: '/',
+				group: 'Actions',
+				visible: searchValue.length === 0,
+				keepOpen: true,
+			},
+			{
+				id: 'keyboard-help',
+				label: 'Keyboard shortcuts',
+				keywords: ['hotkeys', 'key bindings'],
+				icon: KeyboardIcon,
+				action: onOpenKeyboardShortcuts,
+				shortcut: getShortcutLabel('keyboard-help'),
+				group: 'Actions',
 			},
 			{
 				id: 'switch-mode',
 				label: `Switch ${theme === 'light' ? 'Dark' : 'Light'} Mode`,
+				keywords: ['switch light mode', 'switch dark mode', 'light mode', 'dark mode', 'theme', 'appearance'],
 				icon: theme === 'light' ? MoonIcon : SunIcon,
 				action: () => {
 					setTheme(theme === 'light' ? 'dark' : 'light');
 				},
+				shortcut: getShortcutLabel('toggle-theme'),
 				group: 'Actions',
 			},
 		],
-		[navigate, theme, setTheme, canStartNewChat],
+		[navigate, queryClient, theme, setTheme, canStartNewChat, onOpenKeyboardShortcuts, searchValue],
 	);
 
-	const jumpToCommands = useMemo(
-		() => commands.filter((cmd) => cmd.group === 'Jump to' && (cmd.visible ?? true)),
-		[commands],
-	);
-	const actionCommands = useMemo(() => commands.filter((cmd) => cmd.group === 'Actions'), [commands]);
+	const visibleCommands = useMemo(() => commands.filter((cmd) => cmd.visible ?? true), [commands]);
+	const filteredCommands = useMemo(() => {
+		if (isSettingsMode) {
+			return [];
+		}
 
-	useEffect(() => {
-		const handleKeyDown = (e: KeyboardEvent) => {
-			if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
-				e.preventDefault();
-				setOpen((prev) => !prev);
-			}
-		};
-
-		document.addEventListener('keydown', handleKeyDown);
-		return () => document.removeEventListener('keydown', handleKeyDown);
-	}, []);
+		return visibleCommands.filter((cmd) => matchesCommand(cmd, searchValue));
+	}, [isSettingsMode, searchValue, visibleCommands]);
+	const displayedCommands = isSettingsMode ? [] : isSearchMode ? filteredCommands : visibleCommands;
+	const jumpToCommands = displayedCommands.filter((cmd) => cmd.group === 'Jump to');
+	const actionCommands = displayedCommands.filter((cmd) => cmd.group === 'Actions');
 
 	const handleOpenChange = useCallback((isOpen: boolean) => {
 		setOpen(isOpen);
@@ -117,20 +162,46 @@ export function CommandMenu() {
 		[navigate],
 	);
 
-	const visibleActions = actionCommands.filter((cmd) => cmd.visible ?? true);
-	const showNoResults = !hasSearchResults && !isPendingSearch && isSearchMode;
+	const showNoResults =
+		!hasSearchResults &&
+		actionCommands.length === 0 &&
+		jumpToCommands.length === 0 &&
+		!isPendingSearch &&
+		isSearchMode;
+	const showNoSettingsResults = isSettingsMode && settingsQuery.length >= 2 && settingsResults.length === 0;
 
 	return (
 		<CommandDialog open={open} onOpenChange={handleOpenChange} shouldFilter={false} loop>
 			<CommandInput
-				placeholder='Type a command or search conversations...'
+				placeholder={isSettingsMode ? 'Search settings...' : 'Type a command or search conversations...'}
 				value={searchValue}
 				onValueChange={setSearchValue}
 			/>
 			<CommandList>
 				{showNoResults && <CommandEmpty>No results found.</CommandEmpty>}
+				{showNoSettingsResults && <CommandEmpty>No results found.</CommandEmpty>}
 
-				{jumpToCommands.length > 0 && (
+				{isSettingsMode && displayedSettingsEntries.length > 0 && (
+					<CommandGroup heading='Settings'>
+						{displayedSettingsEntries.map((entry) => (
+							<SettingsCommandItem
+								key={`${entry.page}-${entry.section ?? ''}`}
+								entry={entry}
+								isSuggestion={showSettingsSuggestions}
+								onSelect={() =>
+									runCommand(() =>
+										navigate({
+											to: entry.page,
+											search: entry.search,
+										}),
+									)
+								}
+							/>
+						))}
+					</CommandGroup>
+				)}
+
+				{!isSettingsMode && jumpToCommands.length > 0 && (
 					<CommandGroup heading='Jump to'>
 						{jumpToCommands.map((command) => (
 							<CommandItem
@@ -139,12 +210,7 @@ export function CommandMenu() {
 								onSelect={() => runCommand(command.action)}
 							>
 								<command.icon />
-								<span>
-									{command.label}
-									{isSearchMode && (
-										<span className='text-muted-foreground'> &ldquo;{searchValue}&rdquo;</span>
-									)}
-								</span>
+								<span>{command.label}</span>
 								{command.shortcut && <CommandShortcut>{command.shortcut}</CommandShortcut>}
 							</CommandItem>
 						))}
@@ -182,13 +248,13 @@ export function CommandMenu() {
 					</div>
 				) : null}
 
-				{!isSearchMode && visibleActions.length > 0 && (
+				{!isSettingsMode && actionCommands.length > 0 && (
 					<CommandGroup heading='Actions'>
-						{visibleActions.map((command) => (
+						{actionCommands.map((command) => (
 							<CommandItem
 								key={command.id}
 								value={command.id}
-								onSelect={() => runCommand(command.action)}
+								onSelect={() => (command.keepOpen ? command.action() : runCommand(command.action))}
 							>
 								<command.icon />
 								<span>{command.label}</span>
@@ -200,6 +266,40 @@ export function CommandMenu() {
 			</CommandList>
 		</CommandDialog>
 	);
+}
+
+function SettingsCommandItem({
+	entry,
+	isSuggestion,
+	onSelect,
+}: {
+	entry: SettingsSearchEntry;
+	isSuggestion: boolean;
+	onSelect: () => void;
+}) {
+	return (
+		<CommandItem value={`settings-${entry.page}-${entry.section ?? ''}`} onSelect={onSelect}>
+			<SettingsIcon />
+			<div className='flex flex-col gap-0.5 overflow-hidden'>
+				<span className='truncate'>{isSuggestion ? entry.pageLabel : entry.title}</span>
+				{!isSuggestion && (
+					<span className='text-muted-foreground truncate text-xs'>
+						{entry.pageLabel}
+						{entry.section ? ` · ${entry.section}` : ''}
+					</span>
+				)}
+			</div>
+		</CommandItem>
+	);
+}
+
+function matchesCommand(command: CommandConfig, query: string): boolean {
+	const normalizedQuery = query.trim().toLowerCase();
+	if (!normalizedQuery) {
+		return true;
+	}
+	const searchableText = [command.label, command.id, ...(command.keywords ?? [])].join(' ').toLowerCase();
+	return searchableText.includes(normalizedQuery);
 }
 
 function highlightMatch(text: string, query: string) {

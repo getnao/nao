@@ -9,6 +9,24 @@ export interface AppDbQueryResult {
 	rows: Record<string, unknown>[];
 }
 
+const DATE_OID = 1082;
+const TIMESTAMP_OID = 1114;
+
+/**
+ * The app tables store `timestamp without time zone`. Parsing those into JS Dates
+ * reinterprets them in the server's local zone, which shifts a `date_trunc('day', ...)`
+ * bucket onto the previous day once it is serialised back to UTC. Keep them as the
+ * strings Postgres returned.
+ */
+const NAIVE_DATE_TYPES = {
+	naiveDate: {
+		to: TIMESTAMP_OID,
+		from: [DATE_OID, TIMESTAMP_OID],
+		serialize: (value: string) => value,
+		parse: (value: string) => value,
+	},
+};
+
 export async function runScopedAppDbQuery(projectId: string, sql: string): Promise<AppDbQueryResult> {
 	if (dbConfig.dialect === Dialect.Postgres) {
 		return runPostgres(projectId, sql);
@@ -55,7 +73,7 @@ async function runSqlite(projectId: string, sql: string): Promise<AppDbQueryResu
 
 async function runPostgres(projectId: string, sql: string): Promise<AppDbQueryResult> {
 	const ssl = env.DB_SSL ? 'require' : undefined;
-	const client = postgres(dbConfig.dbUrl, { ssl, max: 1 });
+	const client = postgres(dbConfig.dbUrl, { ssl, max: 1, types: NAIVE_DATE_TYPES });
 	try {
 		// Build the project-scoped sandbox in a read-write setup transaction. The temp
 		// objects are session-scoped (no ON COMMIT DROP) so they survive into the

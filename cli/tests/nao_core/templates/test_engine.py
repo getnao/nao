@@ -7,12 +7,33 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from nao_core.config.llm import LLMConfig, LLMProvider
+from nao_core.config.llm import LLMConfig, LLMProvider, ProviderConfig
 from nao_core.templates.engine import (
     DEFAULT_TEMPLATES_DIR,
     TemplateEngine,
     get_template_engine,
 )
+
+
+def _openai_llm(*, api_key: str, annotation_model: str) -> LLMConfig:
+    return LLMConfig(
+        providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key=api_key)],
+        annotation_model=annotation_model,
+    )
+
+
+def _bedrock_llm(*, aws_region: str) -> LLMConfig:
+    return LLMConfig(
+        providers=[
+            ProviderConfig(
+                provider=LLMProvider.BEDROCK,
+                access_key="AKIA_TEST",
+                secret_key="SECRET_TEST",
+                aws_region=aws_region,
+            )
+        ],
+        annotation_model="anthropic.claude-3-5-sonnet-20241022-v2:0",
+    )
 
 
 class TestTemplateEngine:
@@ -52,8 +73,7 @@ class TestTemplateEngine:
         expected_templates = [
             "databases/columns.md.j2",
             "databases/preview.md.j2",
-            "databases/description.md.j2",
-            "databases/how_to_use.md.j2",
+            "databases/query_history.md.j2",
             "databases/ai_summary.md.j2",
         ]
 
@@ -89,6 +109,11 @@ class TestTemplateEngine:
             {"name": "id", "type": "int64", "nullable": False, "description": None},
             {"name": "email", "type": "string", "nullable": True, "description": "User email"},
         ]
+        mock_db.description.return_value = None
+        mock_db.row_count.return_value = 2
+        mock_db.partition_columns.return_value = []
+        mock_db.clustering_columns.return_value = []
+        mock_db.indexes.return_value = None
 
         result = engine.render(
             "databases/columns.md.j2",
@@ -125,6 +150,98 @@ class TestTemplateEngine:
         assert "## Rows (2)" in result
         assert '"id": 1' in result
         assert '"amount": 100.5' in result
+
+    def test_ai_summary_uses_profiling_and_non_representative_preview(self):
+        llm_config = LLMConfig(
+            providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")],
+            annotation_model="gpt-4.1-mini",
+        )
+        engine = TemplateEngine(llm_config=llm_config)
+        mock_db = MagicMock()
+        mock_db.columns.return_value = [{"name": "id", "type": "int64", "description": None}]
+        mock_db.description.return_value = "Customer records"
+        mock_db.preview.return_value = [{"id": 1}]
+        profiling = {
+            "computed_at": "2026-07-15T12:00:00+00:00",
+            "clustering_columns": [],
+            "columns": [{"name": "id", "null_count": 0, "distinct_count": 100}],
+        }
+
+        with patch.object(engine, "_generate_openai_compatible", return_value="Generated summary") as mock_generate:
+            result = engine.render(
+                "databases/ai_summary.md.j2",
+                table_name="customers",
+                dataset="main",
+                db=mock_db,
+                profiling=profiling,
+                computed_at="2026-07-15T13:00:00+00:00",
+            )
+
+        instruction = mock_generate.call_args.args[1]
+        assert "tiny, non-representative sample of up to 10 rows" in instruction
+        assert "do NOT infer data quality" in instruction
+        assert "Profiling statistics (JSON)" in instruction
+        assert '"distinct_count": 100' in instruction
+        assert "**Computed at:** `2026-07-15T13:00:00+00:00`" in result
+        mock_db.preview.assert_called_once_with(limit=10)
+        mock_db.profiling.assert_not_called()
+
+    def test_ai_summary_skips_quality_claims_without_profiling(self):
+        llm_config = LLMConfig(
+            providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")],
+            annotation_model="gpt-4.1-mini",
+        )
+        engine = TemplateEngine(llm_config=llm_config)
+        mock_db = MagicMock()
+        mock_db.columns.return_value = []
+        mock_db.description.return_value = None
+        mock_db.preview.return_value = []
+
+        with patch.object(engine, "_generate_openai_compatible", return_value="Generated summary") as mock_generate:
+            result = engine.render(
+                "databases/ai_summary.md.j2",
+                table_name="customers",
+                dataset="main",
+                db=mock_db,
+                profiling=None,
+            )
+
+        instruction = mock_generate.call_args.args[1]
+        assert "Skip data-quality and distribution claims entirely" in instruction
+        assert "Profiling statistics (JSON)" not in instruction
+        assert "# customers - AI Summary" in result
+        mock_db.profiling.assert_not_called()
+
+    def test_ai_summary_skips_quality_claims_with_empty_profiling_columns(self):
+        llm_config = LLMConfig(
+            providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")],
+            annotation_model="gpt-4.1-mini",
+        )
+        engine = TemplateEngine(llm_config=llm_config)
+        mock_db = MagicMock()
+        mock_db.columns.return_value = []
+        mock_db.description.return_value = None
+        mock_db.preview.return_value = []
+        profiling = {
+            "computed_at": "2026-07-15T12:00:00+00:00",
+            "clustering_columns": [],
+            "columns": [],
+        }
+
+        with patch.object(engine, "_generate_openai_compatible", return_value="Generated summary") as mock_generate:
+            result = engine.render(
+                "databases/ai_summary.md.j2",
+                table_name="customers",
+                dataset="main",
+                db=mock_db,
+                profiling=profiling,
+            )
+
+        instruction = mock_generate.call_args.args[1]
+        assert "Skip data-quality and distribution claims entirely" in instruction
+        assert "Profiling statistics (JSON)" not in instruction
+        assert "# customers - AI Summary" in result
+        mock_db.profiling.assert_not_called()
 
     def test_user_override_takes_precedence(self, tmp_path: Path):
         """User templates override default templates."""
@@ -180,8 +297,7 @@ class TestTemplateEngine:
         (templates_dir / "test.j2").write_text("{{ prompt('hello world') }}")
 
         llm_config = LLMConfig(
-            provider=LLMProvider.OPENAI,
-            api_key="sk-test",
+            providers=[ProviderConfig(provider=LLMProvider.OPENAI, api_key="sk-test")],
             annotation_model="gpt-4.1-mini",
         )
         engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
@@ -199,11 +315,15 @@ class TestTemplateEngine:
         (templates_dir / "test.j2").write_text("{{ prompt('summarize this') }}")
 
         llm_config = LLMConfig(
-            provider=LLMProvider.BEDROCK,
-            api_key=None,
-            access_key="AKIA_TEST",
-            secret_key="SECRET_TEST",
-            aws_region="us-east-1",
+            providers=[
+                ProviderConfig(
+                    provider=LLMProvider.BEDROCK,
+                    api_key=None,
+                    access_key="AKIA_TEST",
+                    secret_key="SECRET_TEST",
+                    aws_region="us-east-1",
+                )
+            ],
             annotation_model="anthropic.claude-3-5-sonnet-20241022-v2:0",
         )
         engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
@@ -217,11 +337,15 @@ class TestTemplateEngine:
     def test_generate_bedrock_uses_explicit_aws_credentials(self, tmp_path: Path, monkeypatch):
         """Bedrock client should use configured credentials and region when provided."""
         llm_config = LLMConfig(
-            provider=LLMProvider.BEDROCK,
-            api_key=None,
-            access_key="AKIA_TEST",
-            secret_key="SECRET_TEST",
-            aws_region="us-west-2",
+            providers=[
+                ProviderConfig(
+                    provider=LLMProvider.BEDROCK,
+                    api_key=None,
+                    access_key="AKIA_TEST",
+                    secret_key="SECRET_TEST",
+                    aws_region="us-west-2",
+                )
+            ],
             annotation_model="anthropic.claude-3-5-sonnet-20241022-v2:0",
         )
         engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
@@ -250,10 +374,14 @@ class TestTemplateEngine:
     def test_generate_bedrock_rejects_partial_static_credentials(self, tmp_path: Path):
         """Providing only one of access_key/secret_key should fail with a clear error."""
         llm_config = LLMConfig(
-            provider=LLMProvider.BEDROCK,
-            api_key=None,
-            access_key="AKIA_TEST",
-            secret_key=None,
+            providers=[
+                ProviderConfig(
+                    provider=LLMProvider.BEDROCK,
+                    api_key=None,
+                    access_key="AKIA_TEST",
+                    secret_key=None,
+                )
+            ],
             annotation_model="anthropic.claude-3-5-sonnet-20241022-v2:0",
         )
         engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
@@ -264,9 +392,13 @@ class TestTemplateEngine:
     def test_generate_anthropic_forwards_base_url(self, tmp_path: Path, monkeypatch):
         """Anthropic client should receive base_url when configured."""
         llm_config = LLMConfig(
-            provider=LLMProvider.ANTHROPIC,
-            api_key="sk-ant-test",
-            base_url="https://custom-endpoint.example.com/anthropic/v1",
+            providers=[
+                ProviderConfig(
+                    provider=LLMProvider.ANTHROPIC,
+                    api_key="sk-ant-test",
+                    base_url="https://custom-endpoint.example.com/anthropic/v1",
+                )
+            ],
             annotation_model="claude-3-5-sonnet-latest",
         )
         engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
@@ -290,8 +422,7 @@ class TestTemplateEngine:
     def test_generate_anthropic_no_base_url(self, tmp_path: Path, monkeypatch):
         """Anthropic client should use default base_url when not configured."""
         llm_config = LLMConfig(
-            provider=LLMProvider.ANTHROPIC,
-            api_key="sk-ant-test",
+            providers=[ProviderConfig(provider=LLMProvider.ANTHROPIC, api_key="sk-ant-test")],
             annotation_model="claude-3-5-sonnet-latest",
         )
         engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
@@ -318,9 +449,13 @@ class TestTemplateEngine:
         (templates_dir / "test.j2").write_text("{{ prompt('hello world') }}")
 
         llm_config = LLMConfig(
-            provider=LLMProvider.ANTHROPIC,
-            api_key="sk-ant-test",
-            base_url="https://custom-endpoint.example.com/v1",
+            providers=[
+                ProviderConfig(
+                    provider=LLMProvider.ANTHROPIC,
+                    api_key="sk-ant-test",
+                    base_url="https://custom-endpoint.example.com/v1",
+                )
+            ],
             annotation_model="claude-3-5-sonnet-latest",
         )
         engine = TemplateEngine(project_path=tmp_path, llm_config=llm_config)
@@ -495,8 +630,8 @@ class TestGetTemplateEngine:
         engine_module._engine = None
         engine_module._engine_signature = None
 
-        llm1 = LLMConfig(provider=LLMProvider.OPENAI, api_key="k1", annotation_model="gpt-4.1-mini")
-        llm2 = LLMConfig(provider=LLMProvider.OPENAI, api_key="k1", annotation_model="gpt-4.1")
+        llm1 = _openai_llm(api_key="k1", annotation_model="gpt-4.1-mini")
+        llm2 = _openai_llm(api_key="k1", annotation_model="gpt-4.1")
 
         engine1 = get_template_engine(llm_config=llm1)
         engine2 = get_template_engine(llm_config=llm2)
@@ -510,8 +645,8 @@ class TestGetTemplateEngine:
         engine_module._engine = None
         engine_module._engine_signature = None
 
-        llm1 = LLMConfig(provider=LLMProvider.OPENAI, api_key="k1", annotation_model="gpt-4.1-mini")
-        llm2 = LLMConfig(provider=LLMProvider.OPENAI, api_key="k2", annotation_model="gpt-4.1-mini")
+        llm1 = _openai_llm(api_key="k1", annotation_model="gpt-4.1-mini")
+        llm2 = _openai_llm(api_key="k2", annotation_model="gpt-4.1-mini")
 
         engine1 = get_template_engine(llm_config=llm1)
         engine2 = get_template_engine(llm_config=llm2)
@@ -525,8 +660,8 @@ class TestGetTemplateEngine:
         engine_module._engine = None
         engine_module._engine_signature = None
 
-        llm1 = LLMConfig(provider=LLMProvider.OPENAI, api_key="k1", annotation_model="gpt-4.1-mini")
-        llm2 = LLMConfig(provider=LLMProvider.OPENAI, api_key="k1", annotation_model="gpt-4.1-mini")
+        llm1 = _openai_llm(api_key="k1", annotation_model="gpt-4.1-mini")
+        llm2 = _openai_llm(api_key="k1", annotation_model="gpt-4.1-mini")
 
         engine1 = get_template_engine(llm_config=llm1)
         engine2 = get_template_engine(llm_config=llm2)
@@ -540,20 +675,8 @@ class TestGetTemplateEngine:
         engine_module._engine = None
         engine_module._engine_signature = None
 
-        llm1 = LLMConfig(
-            provider=LLMProvider.BEDROCK,
-            annotation_model="anthropic.claude-3-5-sonnet-20241022-v2:0",
-            access_key="AKIA_TEST",
-            secret_key="SECRET_TEST",
-            aws_region="us-east-1",
-        )
-        llm2 = LLMConfig(
-            provider=LLMProvider.BEDROCK,
-            annotation_model="anthropic.claude-3-5-sonnet-20241022-v2:0",
-            access_key="AKIA_TEST",
-            secret_key="SECRET_TEST",
-            aws_region="eu-west-1",
-        )
+        llm1 = _bedrock_llm(aws_region="us-east-1")
+        llm2 = _bedrock_llm(aws_region="eu-west-1")
 
         engine1 = get_template_engine(llm_config=llm1)
         engine2 = get_template_engine(llm_config=llm2)
@@ -582,7 +705,7 @@ class TestDefaultTemplatesDir:
         expected_files = [
             "columns.md.j2",
             "preview.md.j2",
-            "description.md.j2",
+            "query_history.md.j2",
             "ai_summary.md.j2",
         ]
 

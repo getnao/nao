@@ -6,9 +6,7 @@ import { Button } from '@/components/ui/button';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
-	DropdownMenuGroup,
 	DropdownMenuItem,
-	DropdownMenuLabel,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { trpcClient } from '@/main';
@@ -18,6 +16,7 @@ interface StoryDownloadOptions {
 	chatId?: string;
 	storySlug?: string;
 	shareId?: string;
+	shareType?: 'chat' | 'story';
 	isOwner?: boolean;
 	versionNumber?: number;
 }
@@ -27,6 +26,7 @@ function useStoryDownload({
 	chatId,
 	storySlug,
 	shareId,
+	shareType = 'story',
 	isOwner = true,
 	versionNumber,
 }: StoryDownloadOptions) {
@@ -47,6 +47,13 @@ function useStoryDownload({
 			} else if (isOwner) {
 				result = await trpcClient.story.download.query({
 					chatId: chatId!,
+					storySlug: storySlug!,
+					format,
+					versionNumber,
+				});
+			} else if (shareType === 'chat') {
+				result = await trpcClient.sharedChat.downloadStory.query({
+					shareId: shareId!,
 					storySlug: storySlug!,
 					format,
 					versionNumber,
@@ -76,43 +83,62 @@ function useStoryDownload({
 
 interface StoryDownloadProps extends StoryDownloadOptions {
 	isAgentRunning?: boolean;
+	isSaving?: boolean;
+	iconOnly?: boolean;
 }
 
-export function StoryDownload({ isAgentRunning, ...downloadOptions }: StoryDownloadProps) {
+export function StoryDownload({ isAgentRunning, isSaving, iconOnly = false, ...downloadOptions }: StoryDownloadProps) {
 	const { isDownloading, error, canDownload, handleDownload } = useStoryDownload(downloadOptions);
 
 	if (!canDownload) {
 		return null;
 	}
 
+	const isDisabled = isAgentRunning || isDownloading || isSaving;
+
 	return (
 		<>
 			<DropdownMenu>
 				<DropdownMenuTrigger asChild>
-					<Button
-						variant='outline'
-						size='sm'
-						disabled={isAgentRunning || isDownloading}
-						title='Download story'
-					>
-						{isDownloading ? (
-							<Loader2 className='size-3.5 animate-spin' />
-						) : (
-							<Download className='size-3.5' />
-						)}
-						<span>Download</span>
-					</Button>
+					{iconOnly ? (
+						<Button
+							variant='ghost'
+							size='icon-sm'
+							className='hover:rounded-full'
+							disabled={isDisabled}
+							aria-label='Download story'
+							title='Download story'
+						>
+							{isDownloading ? (
+								<Loader2 className='size-3.5 animate-spin' strokeWidth={2.25} />
+							) : (
+								<Download className='size-3.5' strokeWidth={2.25} />
+							)}
+						</Button>
+					) : (
+						<Button
+							variant='outline'
+							size='sm'
+							disabled={isDisabled}
+							aria-label='Download story'
+							title='Download story'
+						>
+							{isDownloading ? (
+								<Loader2 className='size-3.5 animate-spin' />
+							) : (
+								<Download className='size-3.5' />
+							)}
+							<span>Download</span>
+						</Button>
+					)}
 				</DropdownMenuTrigger>
-				<DropdownMenuContent align='end'>
-					<DropdownMenuLabel className='text-xs text-muted-foreground'>Download as</DropdownMenuLabel>
-					<DropdownMenuGroup>
-						<DropdownMenuItem onSelect={() => handleDownload('pdf')}>
-							<FileText /> <span className='text-xs'>PDF</span>
-						</DropdownMenuItem>
-						<DropdownMenuItem onSelect={() => handleDownload('html')}>
-							<FileCode /> <span className='text-xs'>HTML</span>
-						</DropdownMenuItem>
-					</DropdownMenuGroup>
+				<DropdownMenuContent align='end' className='w-auto min-w-20'>
+					<DropdownMenuItem onSelect={() => handleDownload('pdf')}>
+						<FileText /> <span>PDF</span>
+					</DropdownMenuItem>
+					<DropdownMenuItem onSelect={() => handleDownload('html')}>
+						<FileCode /> <span>HTML</span>
+					</DropdownMenuItem>
 				</DropdownMenuContent>
 			</DropdownMenu>
 			{error && (
@@ -120,31 +146,6 @@ export function StoryDownload({ isAgentRunning, ...downloadOptions }: StoryDownl
 					{error}
 				</p>
 			)}
-		</>
-	);
-}
-
-interface StoryDownloadSubMenuProps extends StoryDownloadOptions {
-	isAgentRunning?: boolean;
-}
-
-export function StoryDownloadSubMenu({ isAgentRunning, ...downloadOptions }: StoryDownloadSubMenuProps) {
-	const { isDownloading, canDownload, handleDownload } = useStoryDownload(downloadOptions);
-
-	if (!canDownload) {
-		return null;
-	}
-
-	return (
-		<>
-			<DropdownMenuLabel className='text-xs text-muted-foreground'>Download as</DropdownMenuLabel>
-			<DropdownMenuItem onSelect={() => handleDownload('pdf')} disabled={isDownloading || isAgentRunning}>
-				<FileText className='size-3' />
-				PDF
-			</DropdownMenuItem>
-			<DropdownMenuItem onSelect={() => handleDownload('html')} disabled={isDownloading || isAgentRunning}>
-				<FileCode className='size-3' /> HTML
-			</DropdownMenuItem>
 		</>
 	);
 }

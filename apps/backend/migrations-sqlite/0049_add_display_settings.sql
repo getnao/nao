@@ -1,0 +1,1 @@
+ALTER TABLE `project` ADD `display_settings` text;

@@ -1,10 +1,15 @@
-export const CONTEXT_RECOMMENDATION_RUN_STATUSES = ['running', 'completed', 'failed'] as const;
+import type { RepoProvider } from '@nao/shared/types';
+
+export type { ContextRecommendationCategory } from '@nao/shared/context-recommendation';
+export { CONTEXT_RECOMMENDATION_CATEGORIES } from '@nao/shared/context-recommendation';
+
+export const CONTEXT_RECOMMENDATION_RUN_STATUSES = ['running', 'completed', 'failed', 'cancelled'] as const;
 export type ContextRecommendationRunStatus = (typeof CONTEXT_RECOMMENDATION_RUN_STATUSES)[number];
 
 export const CONTEXT_RECOMMENDATION_RUN_TRIGGERS = ['schedule', 'manual'] as const;
 export type ContextRecommendationRunTrigger = (typeof CONTEXT_RECOMMENDATION_RUN_TRIGGERS)[number];
 
-export const CONTEXT_RECOMMENDATION_STATUSES = ['open', 'acknowledged', 'snoozed', 'applied', 'dismissed'] as const;
+export const CONTEXT_RECOMMENDATION_STATUSES = ['open', 'applied', 'dismissed'] as const;
 export type ContextRecommendationStatus = (typeof CONTEXT_RECOMMENDATION_STATUSES)[number];
 
 export const CONTEXT_RECOMMENDATION_FREQUENCIES = ['daily', 'weekly', 'monthly'] as const;
@@ -27,9 +32,6 @@ export const CONTEXT_RECOMMENDATION_FREQUENCY_CRON: Record<ContextRecommendation
 	monthly: '0 3 1 * *',
 };
 
-export const CONTEXT_RECOMMENDATION_SEVERITIES = ['high', 'medium', 'low'] as const;
-export type ContextRecommendationSeverity = (typeof CONTEXT_RECOMMENDATION_SEVERITIES)[number];
-
 export const CONTEXT_RECOMMENDATION_SIGNAL_TYPES = [
 	'tool_error',
 	'repeated_correction',
@@ -39,11 +41,16 @@ export const CONTEXT_RECOMMENDATION_SIGNAL_TYPES = [
 ] as const;
 export type ContextRecommendationSignalType = (typeof CONTEXT_RECOMMENDATION_SIGNAL_TYPES)[number];
 
+export interface TriggerRef {
+	chatId: string;
+	targetId?: string;
+}
+
 export interface RecommendationInsight {
 	signalType: ContextRecommendationSignalType;
 	metric: string;
 	count: number;
-	exampleChatIds?: string[];
+	triggerRefs?: TriggerRef[];
 	snippet?: string;
 }
 
@@ -52,14 +59,25 @@ export interface RecommendationImpact {
 	failureShare: number;
 }
 
+export const CONTEXT_RECOMMENDATION_ROOT_CAUSE_KINDS = [
+	'context_missing',
+	'context_wrong',
+	'context_not_retrieved',
+] as const;
+export type ContextRecommendationRootCauseKind = (typeof CONTEXT_RECOMMENDATION_ROOT_CAUSE_KINDS)[number];
+
+export const CONTEXT_RECOMMENDATION_FIX_TARGETS = ['rules', 'data_model', 'doc', 'skill', 'metric'] as const;
+export type ContextRecommendationFixTarget = (typeof CONTEXT_RECOMMENDATION_FIX_TARGETS)[number];
+
 export const CONTEXT_RECOMMENDATION_FIX_KINDS = ['patch', 'manual'] as const;
 export type ContextRecommendationFixKind = (typeof CONTEXT_RECOMMENDATION_FIX_KINDS)[number];
 
-/** Set when an edit targets a linked GitHub repo instead of the context repo. */
+/** Set when an edit targets a linked GitHub or GitLab repo instead of the context repo. */
 export interface ProposedEditTargetRepo {
 	repoFullName: string;
 	branch: string | null;
 	path: string;
+	provider: RepoProvider;
 }
 
 export interface ProposedEdit {
@@ -76,6 +94,15 @@ export interface WindowTotals {
 	regenerations: number;
 }
 
+export interface ContextFileReadCost {
+	filePath: string;
+	readCount: number;
+	totalTokens: number;
+	avgTokens: number;
+	maxTokens: number;
+	truncated: boolean;
+}
+
 export interface LinkedContextRepo {
 	name: string;
 	contextPath: string;
@@ -83,4 +110,6 @@ export interface LinkedContextRepo {
 	branch: string | null;
 	localPath: string | null;
 	repoFullName: string | null;
+	/** Only set when `repoFullName` is resolved from a recognized GitHub or GitLab URL. */
+	provider: RepoProvider | null;
 }

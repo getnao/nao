@@ -1,15 +1,10 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { McpEndpointSettings } from '@/components/settings/mcp-endpoint';
-import { usePermissions } from '@/hooks/use-permissions';
-import { requireNonViewer } from '@/lib/require-admin';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/mcp-endpoint')({
-	beforeLoad: requireNonViewer,
-	component: ProjectMcpEndpointPage,
+	beforeLoad: () => {
+		throw redirect({
+			to: '/settings/project/integrations',
+			search: { tab: 'nao-mcp' },
+		});
+	},
 });
-
-function ProjectMcpEndpointPage() {
-	const { isAdmin } = usePermissions();
-
-	return <McpEndpointSettings isAdmin={isAdmin} />;
-}

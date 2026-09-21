@@ -899,6 +899,198 @@ class TestClusteringColumns:
         assert ctx.clustering_columns() == ["user_id", "event_type"]
 
     def test_context_clustering_columns_empty_when_no_metadata(self):
-        ctx, _ = _make_context(partition_metadata=None)
+        ctx, mock_conn = _make_context(partition_metadata=None)
+        mock_conn.raw_sql.return_value = []
 
         assert ctx.clustering_columns() == []
+
+
+class TestColumnsNativeTypes:
+    """columns() must overlay native BigQuery types from INFORMATION_SCHEMA over ibis types."""
+
+    @staticmethod
+    def _dtype(rendered: str, nullable: bool = True) -> MagicMock:
+        return MagicMock(__str__=lambda s, r=rendered: r, nullable=nullable)
+
+    def _make_context_with_schema(
+        self, schema_items: list[tuple[str, MagicMock]]
+    ) -> tuple[BigQueryDatabaseContext, MagicMock]:
+        mock_conn = MagicMock()
+        mock_table = MagicMock()
+        mock_schema = MagicMock()
+        mock_schema.items.return_value = schema_items
+        mock_schema.keys.return_value = [name for name, _ in schema_items]
+        mock_table.schema.return_value = mock_schema
+        mock_conn.table.return_value = mock_table
+        ctx = BigQueryDatabaseContext(mock_conn, "my_dataset", "events", project_id="my-project")
+        return ctx, mock_conn
+
+    def test_native_types_replace_ibis_normalized_types(self):
+        """BQ DATETIME and TIMESTAMP are both rendered as timestamp variants by ibis."""
+        ctx, mock_conn = self._make_context_with_schema(
+            [
+                ("created_at", self._dtype("timestamp")),
+                ("server_received_at", self._dtype("timestamp('UTC')")),
+            ]
+        )
+        mock_conn.raw_sql.return_value = [
+            ("created_at", "created_at", "DATETIME", None),
+            ("server_received_at", "server_received_at", "TIMESTAMP", None),
+        ]
+
+        cols = {col["name"]: col for col in ctx.columns()}
+
+        assert cols["created_at"]["type"] == "DATETIME"
+        assert cols["server_received_at"]["type"] == "TIMESTAMP"
+
+    def test_not_null_suffix_is_preserved(self):
+        ctx, mock_conn = self._make_context_with_schema([("id", self._dtype("!int64", nullable=False))])
+        mock_conn.raw_sql.return_value = [("id", "id", "INT64", None)]
+
+        cols = ctx.columns()
+
+        assert cols[0]["type"] == "INT64 NOT NULL"
+
+    def test_descriptions_applied_with_a_single_query(self):
+        ctx, mock_conn = self._make_context_with_schema([("created_at", self._dtype("timestamp"))])
+        mock_conn.raw_sql.return_value = [("created_at", "created_at", "DATETIME", "Creation time")]
+
+        cols = ctx.columns()
+
+        assert cols[0]["type"] == "DATETIME"
+        assert cols[0]["description"] == "Creation time"
+        mock_conn.raw_sql.assert_called_once()
+
+    def test_information_schema_failure_keeps_ibis_types(self):
+        ctx, mock_conn = self._make_context_with_schema(
+            [
+                ("id", self._dtype("!int64", nullable=False)),
+                ("server_received_at", self._dtype("timestamp('UTC')")),
+            ]
+        )
+        mock_conn.raw_sql.side_effect = Exception("permission denied")
+
+        cols = {col["name"]: col for col in ctx.columns()}
+
+        assert cols["id"]["type"] == "int64 NOT NULL"
+        assert cols["server_received_at"]["type"] == "timestamp('UTC')"
+
+    def test_excluded_columns_are_still_filtered(self):
+        ctx, mock_conn = self._make_context_with_schema(
+            [
+                ("id", self._dtype("!int64", nullable=False)),
+                ("secret_token", self._dtype("string")),
+            ]
+        )
+        mock_conn.raw_sql.return_value = [
+            ("id", "id", "INT64", None),
+            ("secret_token", "secret_token", "STRING", None),
+        ]
+        ctx.set_exclude_columns(["my_dataset.events.secret_*"])
+
+        names = [col["name"] for col in ctx.columns()]
+
+        assert names == ["id"]
+
+    def test_nested_field_paths_are_ignored(self):
+        ctx, mock_conn = self._make_context_with_schema([("payload", self._dtype("struct<name: string>"))])
+        mock_conn.raw_sql.return_value = [
+            ("payload", "payload", "STRUCT<name STRING>", None),
+            ("payload", "payload.name", "STRING", "Nested name"),
+        ]
+
+        cols = ctx.columns()
+
+        assert cols[0]["type"] == "STRUCT<name STRING>"
+        assert cols[0]["description"] is None
+        query = mock_conn.raw_sql.call_args[0][0]
+        assert "field_path = column_name" in query
+
+    def test_struct_column_keeps_its_own_description(self):
+        ctx, mock_conn = self._make_context_with_schema([("payload", self._dtype("struct<name: string>"))])
+        mock_conn.raw_sql.return_value = [
+            ("payload", "payload", "STRUCT<name STRING>", "Event payload"),
+            ("payload", "payload.name", "STRING", "Nested name"),
+        ]
+
+        cols = ctx.columns()
+
+        assert cols[0]["description"] == "Event payload"
+
+
+class TestClusteredOnlyTable:
+    """Regression tests for tables that are clustered but not partitioned."""
+
+    def test_partition_columns_empty_for_clustered_only_table(self):
+        meta = TablePartitionMetadata(
+            partition_column=None,
+            partition_column_type=None,
+            last_partition_id=None,
+            total_rows=None,
+            clustering_columns=["user_id", "event_type"],
+        )
+        ctx, mock_conn = _make_context(partition_metadata=meta)
+        mock_conn.raw_sql.return_value = []
+
+        cols = ctx.partition_columns()
+
+        assert cols == []
+        sql = mock_conn.raw_sql.call_args[0][0]
+        assert "is_partitioning_column" in sql
+        assert "clustering_ordinal_position" not in sql
+
+    def test_partition_columns_fallback_recovers_partition_on_partial_metadata(self):
+        meta = TablePartitionMetadata(
+            partition_column=None,
+            partition_column_type=None,
+            last_partition_id=None,
+            total_rows=None,
+            clustering_columns=["user_id"],
+        )
+        ctx, mock_conn = _make_context(partition_metadata=meta)
+        mock_conn.raw_sql.return_value = [("event_date",)]
+
+        cols = ctx.partition_columns()
+
+        assert cols == ["event_date"]
+        sql = mock_conn.raw_sql.call_args[0][0]
+        assert "is_partitioning_column" in sql
+
+    def test_partition_filter_empty_for_clustered_only_table(self):
+        meta = TablePartitionMetadata(
+            partition_column=None,
+            partition_column_type=None,
+            last_partition_id=None,
+            total_rows=None,
+            clustering_columns=["user_id"],
+        )
+        ctx, mock_conn = _make_context(partition_metadata=meta)
+        mock_conn.raw_sql.return_value = []
+
+        assert ctx._partition_filter() == ""
+
+    def test_clustering_columns_from_metadata_on_clustered_only_table(self):
+        meta = TablePartitionMetadata(
+            partition_column=None,
+            partition_column_type=None,
+            last_partition_id=None,
+            total_rows=None,
+            clustering_columns=["user_id", "event_type"],
+        )
+        ctx, mock_conn = _make_context(partition_metadata=meta)
+
+        cols = ctx.clustering_columns()
+
+        assert cols == ["user_id", "event_type"]
+        mock_conn.raw_sql.assert_not_called()
+
+    def test_clustering_columns_fallback_query_when_no_metadata(self):
+        ctx, mock_conn = _make_context(partition_metadata=None)
+        mock_conn.raw_sql.return_value = [("user_id",), ("created_at",)]
+
+        cols = ctx.clustering_columns()
+
+        assert cols == ["user_id", "created_at"]
+        sql = mock_conn.raw_sql.call_args[0][0]
+        assert "clustering_ordinal_position" in sql
+        assert "IS NOT NULL" in sql

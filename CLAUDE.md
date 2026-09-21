@@ -29,7 +29,8 @@ Write simple, clean, self-explanatory, easy to read and intelligent code.
 - Place **high-level functions first** in each file, then private/helper functions below
 - Write **small, focused functions** — each does one thing; extract early rather than inline
 - Use **descriptive names** — code should read like prose; avoid abbreviations
-- **Minimize comments** — only comment complex or ambiguous logic with short JSDocs or python docstring; never describe function inputs/outputs
+- **Minimize comments** — only comment complex or ambiguous logic with short JSDocs or python docstring; never describe function inputs/outputs.
+- Important: don't use comments to describe the code inline.
 - Avoid inline function declarations without braces
 
 ### Backend Migrations (`apps/backend/`)

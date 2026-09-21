@@ -143,7 +143,7 @@ export function ChatListItem({ chat }: Props) {
 								</Button>
 							</DropdownMenuTrigger>
 
-							<DropdownMenuContent onClick={(e) => e.stopPropagation()}>
+							<DropdownMenuContent className='w-auto min-w-0' onClick={(e) => e.stopPropagation()}>
 								<DropdownMenuGroup>
 									<DropdownMenuItem onSelect={handleStarSelect}>
 										{chat.isStarred ? <StarOffIcon /> : <StarIcon />}

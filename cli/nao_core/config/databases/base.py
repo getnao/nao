@@ -22,6 +22,7 @@ class DatabaseType(str, Enum):
     BIGQUERY = "bigquery"
     CLICKHOUSE = "clickhouse"
     DUCKDB = "duckdb"
+    MOTHERDUCK = "motherduck"
     DATABRICKS = "databricks"
     FABRIC = "fabric"
     SNOWFLAKE = "snowflake"
@@ -33,9 +34,21 @@ class DatabaseType(str, Enum):
     TRINO = "trino"
 
     @classmethod
+    def _label(cls, db_type: "DatabaseType") -> str:
+        """Human-readable label for interactive prompts."""
+        labels = {
+            cls.BIGQUERY: "BigQuery",
+            cls.DUCKDB: "DuckDB",
+            cls.MOTHERDUCK: "MotherDuck",
+            cls.MSSQL: "MSSQL",
+            cls.STARROCKS: "StarRocks",
+        }
+        return labels.get(db_type, db_type.value.capitalize())
+
+    @classmethod
     def choices(cls) -> list[questionary.Choice]:
         """Get questionary choices for all database types."""
-        return [questionary.Choice(db.value.capitalize(), value=db.value) for db in cls]
+        return [questionary.Choice(cls._label(db), value=db.value) for db in cls]
 
 
 class DatabaseTemplate(str, Enum):
@@ -45,7 +58,13 @@ class DatabaseTemplate(str, Enum):
     PREVIEW = "preview"
     PROFILING = "profiling"
     AI_SUMMARY = "ai_summary"
-    HOW_TO_USE = "how_to_use"
+    QUERY_HISTORY = "query_history"
+
+
+DEFAULT_DATABASE_TEMPLATES = [
+    DatabaseTemplate.COLUMNS,
+    DatabaseTemplate.PREVIEW,
+]
 
 
 # Backward-compatible alias
@@ -58,18 +77,22 @@ class ProfilingRefreshPolicy(str, Enum):
     ONCE = "once"
 
 
-class ProfilingConfig(BaseModel):
-    """Configuration for profiling refresh policy."""
+class RefreshConfig(BaseModel):
+    """Configuration for template refresh policy."""
 
     refresh_policy: ProfilingRefreshPolicy = Field(
         default=ProfilingRefreshPolicy.ALWAYS,
-        description="When to recompute profiling: always, interval, or once",
+        description="When to refresh the template: always, interval, or once",
     )
     interval_days: int = Field(
         default=7,
-        ge=1,  # strictly positive
-        description="Number of days between profiling runs (only used when refresh_policy=interval)",
+        ge=1,
+        description="Number of days between refreshes (only used when refresh_policy=interval)",
     )
+
+
+class ProfilingConfig(RefreshConfig):
+    """Configuration for profiling refresh policy."""
 
 
 class DatabaseConfig(BaseModel, ABC):
@@ -88,21 +111,29 @@ class DatabaseConfig(BaseModel, ABC):
         default_factory=list,
         description="Glob patterns for schemas/tables to exclude (e.g., 'temp_*.*', '*.backup_*')",
     )
+    allow_listed_only: bool = Field(
+        default=False,
+        description="When enabled, SQL may only query tables present in synced context for this database.",
+    )
+    exclude_columns: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Glob patterns for columns to exclude. Patterns are matched against the "
+            "fully-qualified 'schema.table.column' name (e.g., '*.version', '*._peerdb_*', "
+            "'analytics.events.*_id'). Empty means no columns are excluded."
+        ),
+    )
     templates: list[DatabaseTemplate] = Field(
-        default_factory=lambda: [
-            DatabaseTemplate.COLUMNS,
-            DatabaseTemplate.HOW_TO_USE,
-            DatabaseTemplate.PREVIEW,
-        ],
+        default_factory=lambda: list(DEFAULT_DATABASE_TEMPLATES),
         description=(
             "Which default templates to render per table "
-            "(e.g., ['columns', 'how_to_use', 'profiling', 'ai_summary']). "
-            "Defaults to ['columns', 'how_to_use', 'preview']."
+            "(e.g., ['columns', 'preview', 'profiling', 'query_history', 'ai_summary']). "
+            "Defaults to ['columns', 'preview']; an empty list uses this default."
         ),
     )
     query_history_days: int | None = Field(
         default=None,
-        description="Number of days to look back for query history (used by how_to_use template).",
+        description="Number of days to look back for query history (used by query_history template).",
     )
     query_history_sql: str | None = Field(
         default=None,
@@ -116,7 +147,7 @@ class DatabaseConfig(BaseModel, ABC):
         default_factory=list,
         description=(
             "Regex patterns (case-insensitive) used to drop noisy queries fetched from query history. "
-            "Any query whose text matches at least one pattern is excluded from the how_to_use analysis. "
+            "Any query whose text matches at least one pattern is excluded from the query_history analysis. "
             "Useful to filter out warehouse system queries (e.g. 'SYSTEM\\$', 'CURRENT_SESSION\\(\\)')."
         ),
     )
@@ -124,22 +155,49 @@ class DatabaseConfig(BaseModel, ABC):
     @model_validator(mode="before")
     @classmethod
     def _migrate_accessors_to_templates(cls, data: dict) -> dict:
-        """Accept legacy 'accessors' key as an alias for 'templates', and strip removed values."""
+        """Accept legacy configuration names and map them to current equivalents."""
         if isinstance(data, dict) and "accessors" in data and "templates" not in data:
             warnings.warn(
                 "The 'accessors' config key is deprecated and will be removed in a future version. "
-                "Please rename it to 'templates' in your nao.yaml.",
+                "Please rename it to 'templates' in your nao_config.yaml.",
                 FutureWarning,
                 stacklevel=2,
             )
             data["templates"] = data.pop("accessors")
         if isinstance(data, dict) and "templates" in data:
-            data["templates"] = [t for t in data["templates"] if t != "description"]
+            templates = data["templates"]
+            if "description" in templates:
+                warnings.warn(
+                    "The 'description' database template is deprecated and will be removed in a future version. "
+                    "The table description now lives in 'columns.md'. Please remove 'description' from "
+                    "'templates' in your nao_config.yaml.",
+                    FutureWarning,
+                    stacklevel=2,
+                )
+            if "how_to_use" in templates:
+                warnings.warn(
+                    "The 'how_to_use' database template is deprecated and will be removed in a future version. "
+                    "Please rename it to 'query_history' in your nao_config.yaml.",
+                    FutureWarning,
+                    stacklevel=2,
+                )
+            migrated_templates = [
+                "query_history" if template == "how_to_use" else template
+                for template in templates
+                if template != "description"
+            ]
+            data["templates"] = list(dict.fromkeys(migrated_templates))
+            if not data["templates"]:
+                data["templates"] = list(DEFAULT_DATABASE_TEMPLATES)
         return data
 
     profiling: ProfilingConfig = Field(
         default_factory=ProfilingConfig,
         description="Profiling refresh policy configuration",
+    )
+    ai_summary: RefreshConfig = Field(
+        default_factory=RefreshConfig,
+        description="AI summary refresh policy configuration",
     )
 
     @classmethod
@@ -153,11 +211,13 @@ class DatabaseConfig(BaseModel, ABC):
         """Create an Ibis connection for this database."""
         ...
 
-    def execute_sql(self, sql: str) -> pd.DataFrame:
+    def execute_sql(self, sql: str, conn: BaseBackend | None = None) -> pd.DataFrame:
         """Execute arbitrary SQL and return results as a DataFrame."""
         import pandas as pd  # noqa: F811
 
-        conn = self.connect()
+        owns_connection = conn is None
+        if conn is None:
+            conn = self.connect()
         try:
             cursor = conn.raw_sql(sql)  # type: ignore[union-attr]
 
@@ -182,7 +242,8 @@ class DatabaseConfig(BaseModel, ABC):
                 "Expected cursor with fetchdf, to_dataframe, to_pandas, result_rows/column_names, or description/fetchall."
             )
         finally:
-            conn.disconnect()
+            if owns_connection:
+                conn.disconnect()
 
     def matches_pattern(self, schema: str, table: str) -> bool:
         """Check if a schema.table matches the include/exclude patterns.
@@ -209,6 +270,18 @@ class DatabaseConfig(BaseModel, ABC):
                 return False
 
         return True
+
+    def column_matches_pattern(self, schema: str, table: str, column: str) -> bool:
+        """Check if a column should be included given the exclude_columns patterns.
+
+        Patterns are matched against the fully-qualified ``schema.table.column``
+        name using shell-style globs (``fnmatch``). Returns ``True`` when the
+        column should be kept, ``False`` when it should be excluded.
+        """
+        if not self.exclude_columns:
+            return True
+        full_name = f"{schema}.{table}.{column}"
+        return not any(fnmatch.fnmatch(full_name, pattern) for pattern in self.exclude_columns)
 
     @abstractmethod
     def get_database_name(self) -> str:
@@ -239,7 +312,7 @@ class DatabaseConfig(BaseModel, ABC):
         """Create a DatabaseContext for this table. Override in subclasses for custom metadata."""
         from nao_core.config.databases.context import DatabaseContext
 
-        return DatabaseContext(conn, schema, table_name)
+        return DatabaseContext(conn, schema, table_name, exclude_columns=self.exclude_columns)
 
     def get_semantic_views(self, conn: "BaseBackend", schema: str) -> list[dict[str, str]]:
         """Fetch semantic views for a schema. Override in subclasses that support semantic views."""

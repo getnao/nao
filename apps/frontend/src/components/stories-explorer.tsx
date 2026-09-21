@@ -1,6 +1,8 @@
+import { Fragment } from 'react';
 import { FolderPlus } from 'lucide-react';
 import type { StoryPanelDisplayMode } from '@nao/shared/types';
 import type { ExplorerEntry, FolderItem, StoryItem } from '@/lib/stories-page';
+import { isSystemFolder } from '@/lib/stories-page';
 import { FolderCard } from '@/components/stories-folder-card';
 import { StoryCard, StoriesEmptyState, StoriesNoResults } from '@/components/stories-groups';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -22,6 +24,11 @@ export function StoriesExplorer({
 	onArchiveFolder,
 	onRestoreFolder,
 	onNewFolder,
+	selectedStoryIds,
+	selectedFolderIds,
+	onToggleStory,
+	onToggleFolder,
+	selectionMode = false,
 }: {
 	entries: ExplorerEntry[];
 	displayMode: StoryPanelDisplayMode;
@@ -36,11 +43,17 @@ export function StoriesExplorer({
 	onArchiveFolder: (folder: FolderItem) => void;
 	onRestoreFolder: (folder: FolderItem) => void;
 	onNewFolder: () => void;
+	selectedStoryIds: Set<string>;
+	selectedFolderIds: Set<string>;
+	onToggleStory: (storyId: string) => void;
+	onToggleFolder: (folderId: string) => void;
+	selectionMode?: boolean;
 }) {
 	const { isViewer } = usePermissions();
 	const isInSharedWithMe = currentFolderId === '__shared_with_me__';
 	const canCreateFolder = !showArchived && !isViewer && !isInSharedWithMe;
 	const moveToFolderHandler = isViewer || isInSharedWithMe ? undefined : onMoveToFolder;
+	const selectionActive = selectionMode || selectedStoryIds.size + selectedFolderIds.size > 0;
 
 	if (entries.length === 0) {
 		if (searchQuery.trim()) {
@@ -63,35 +76,52 @@ export function StoriesExplorer({
 	const stories = entries.filter((e) => e.kind === 'story');
 
 	if (displayMode === 'lines') {
+		const lastSystemFolderIndex = entries.reduce(
+			(acc, entry, index) => (entry.kind === 'folder' && isSystemFolder(entry.folder) ? index : acc),
+			-1,
+		);
 		return (
 			<div className='flex flex-col gap-1'>
-				{entries.map((entry) => {
+				{canCreateFolder && lastSystemFolderIndex === -1 && <NewFolderRow onClick={onNewFolder} />}
+				{entries.map((entry, index) => {
+					const newFolderRow = canCreateFolder && index === lastSystemFolderIndex && (
+						<NewFolderRow onClick={onNewFolder} />
+					);
 					if (entry.kind === 'folder') {
 						return (
-							<FolderCard
-								key={`f-${entry.folder.id}`}
-								folder={entry.folder}
-								displayMode='lines'
-								currentUserName={currentUserName}
-								onModify={onModifyFolder}
-								onMove={onMoveFolder}
-								onDelete={onDeleteFolder}
-								onArchive={onArchiveFolder}
-								onRestore={onRestoreFolder}
-							/>
+							<Fragment key={`f-${entry.folder.id}`}>
+								<FolderCard
+									folder={entry.folder}
+									displayMode='lines'
+									currentUserName={currentUserName}
+									onModify={onModifyFolder}
+									onMove={onMoveFolder}
+									onDelete={onDeleteFolder}
+									onArchive={onArchiveFolder}
+									onRestore={onRestoreFolder}
+									selected={selectedFolderIds.has(entry.folder.id)}
+									selectionActive={selectionActive}
+									onToggleSelect={onToggleFolder}
+								/>
+								{newFolderRow}
+							</Fragment>
 						);
 					}
 					return (
-						<StoryCard
-							key={`s-${entry.story.id}`}
-							item={entry.story}
-							displayMode='lines'
-							showArchived={showArchived}
-							onMoveToFolder={moveToFolderHandler}
-						/>
+						<Fragment key={`s-${entry.story.id}`}>
+							<StoryCard
+								item={entry.story}
+								displayMode='lines'
+								showArchived={showArchived}
+								onMoveToFolder={moveToFolderHandler}
+								selected={selectedStoryIds.has(entry.story.storyId)}
+								selectionActive={selectionActive}
+								onToggleSelect={onToggleStory}
+							/>
+							{newFolderRow}
+						</Fragment>
 					);
 				})}
-				{canCreateFolder && <NewFolderRow onClick={onNewFolder} />}
 			</div>
 		);
 	}
@@ -110,6 +140,9 @@ export function StoriesExplorer({
 						onDelete={onDeleteFolder}
 						onArchive={onArchiveFolder}
 						onRestore={onRestoreFolder}
+						selected={selectedFolderIds.has(entry.folder.id)}
+						selectionActive={selectionActive}
+						onToggleSelect={onToggleFolder}
 					/>
 				))}
 				{canCreateFolder && <NewFolderCard onClick={onNewFolder} />}
@@ -123,6 +156,9 @@ export function StoriesExplorer({
 							displayMode='grid'
 							showArchived={showArchived}
 							onMoveToFolder={moveToFolderHandler}
+							selected={selectedStoryIds.has(entry.story.storyId)}
+							selectionActive={selectionActive}
+							onToggleSelect={onToggleStory}
 						/>
 					))}
 				</div>

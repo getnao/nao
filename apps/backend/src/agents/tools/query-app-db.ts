@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { runScopedAppDbQuery } from '../../db/readonly-app-db';
 import { ALLOWED_APP_DB_VIEWS, validateAppDbQuery } from '../../utils/app-db-allowlist';
+import { explainAppDbError } from '../../utils/app-db-errors';
 import { createTool } from '../../utils/tools';
 
 const InputSchema = z.object({
@@ -21,8 +22,12 @@ export async function queryAppDb(projectId: string, sql: string): Promise<QueryA
 	if (!verdict.ok) {
 		throw new Error(verdict.reason ?? 'Query rejected.');
 	}
-	const { columns, rows } = await runScopedAppDbQuery(projectId, sql);
-	return { _version: '1', columns, rows, rowCount: rows.length };
+	try {
+		const { columns, rows } = await runScopedAppDbQuery(projectId, sql);
+		return { _version: '1', columns, rows, rowCount: rows.length };
+	} catch (error) {
+		throw new Error(explainAppDbError(error), { cause: error });
+	}
 }
 
 export function createQueryAppDbTool(projectId: string) {

@@ -1,0 +1,1 @@
+ALTER TABLE `project_provider_budget` ADD `per_user_limit_usd` integer;

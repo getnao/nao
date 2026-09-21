@@ -22,14 +22,24 @@ class DatabricksDatabaseContext(DatabaseContext):
     """Databricks context with partition and description discovery."""
 
     def _quote_ident(self, name: object) -> str:
-        escaped = str(name).replace("`", "``")
-        return f"`{escaped}`"
+        return _quote_ident(name)
 
     def partition_columns(self) -> list[str]:
         try:
-            return _get_databricks_partition_columns(self._conn, self._schema, self._table_name)
+            return self._filter_excluded_names(
+                _get_databricks_partition_columns(self._conn, self._schema, self._table_name)
+            )
         except Exception:
             logger.debug("Failed to fetch partition columns for %s.%s", self._schema, self._table_name)
+            return []
+
+    def clustering_columns(self) -> list[str]:
+        try:
+            return self._filter_excluded_names(
+                _get_databricks_liquid_clustering_columns(self._conn, self._schema, self._table_name)
+            )
+        except Exception:
+            logger.debug("Failed to fetch liquid clustering columns for %s.%s", self._schema, self._table_name)
             return []
 
     def description(self) -> str | None:
@@ -94,6 +104,36 @@ def _get_databricks_partition_columns(conn: BaseBackend, schema: str, table: str
     return [row[0] for row in result]
 
 
+def _quote_ident(name: object) -> str:
+    """Escape and backtick-quote an identifier for safe use in Databricks SQL."""
+    escaped = str(name).replace("`", "``")
+    return f"`{escaped}`"
+
+
+def _get_databricks_liquid_clustering_columns(conn: BaseBackend, schema: str, table: str) -> list[str]:
+    """Return liquid clustering columns from DESCRIBE DETAIL, if any."""
+    query = f"DESCRIBE DETAIL {_quote_ident(schema)}.{_quote_ident(table)}"
+    cursor = conn.raw_sql(query)  # type: ignore[union-attr]
+    try:
+        idx = next(
+            (i for i, d in enumerate(cursor.description) if d[0].lower() == "clusteringcolumns"),
+            None,
+        )
+    except Exception:
+        idx = None
+    if idx is None:
+        return []
+    row = cursor.fetchone()
+    if not row:
+        return []
+    value = row[idx]
+    if not value:
+        return []
+    if isinstance(value, list):
+        return [str(c) for c in value]
+    return []
+
+
 def _ensure_ssl_cert_env() -> None:
     """Ensure Python uses certifi's CA bundle for SSL verification."""
     try:
@@ -117,6 +157,10 @@ class DatabricksConfig(DatabaseConfig):
         default=None,
         description="Default schema (optional)",
     )
+    temp_schema: str | None = Field(
+        default=None,
+        description="A schema you have write access to, used for temporary storage during queries (optional)",
+    )
 
     @classmethod
     def promptConfig(cls) -> "DatabricksConfig":
@@ -127,6 +171,9 @@ class DatabricksConfig(DatabaseConfig):
         access_token = ask_text("Access token:", password=True, required_field=True)
         catalog = ask_text("Unity Catalog name (optional):")
         schema = ask_text("Default schema (optional):")
+        temp_schema = ask_text(
+            "Schema with write access for temporary storage (optional, needed if your default schema is read-only):"
+        )
 
         return DatabricksConfig(
             name=name,
@@ -135,6 +182,7 @@ class DatabricksConfig(DatabaseConfig):
             access_token=access_token,  # type: ignore
             catalog=catalog,
             schema_name=schema,
+            temp_schema=temp_schema,
         )
 
     def connect(self) -> BaseBackend:
@@ -153,6 +201,11 @@ class DatabricksConfig(DatabaseConfig):
 
         if self.catalog:
             kwargs["catalog"] = self.catalog
+
+        if self.temp_schema:
+            kwargs["schema"] = self.temp_schema
+        elif self.schema_name:
+            kwargs["schema"] = self.schema_name
 
         # Ibis names its temporary UC memtable volume after the OS username, which
         # breaks when the username contains dots (interpreted as UC path separators).

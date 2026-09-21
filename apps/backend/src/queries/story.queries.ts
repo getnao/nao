@@ -1,8 +1,11 @@
+import { extractQueryIds } from '@nao/shared/story-segments';
 import { type StorySharingInfo } from '@nao/shared/types';
 import { and, asc, desc, eq, inArray, isNull, max, or, type SQL, sql } from 'drizzle-orm';
 
 import s, { type DBStory, type DBStoryDataCache, type DBStoryVersion } from '../db/abstractSchema';
 import { db, type DBExecutor } from '../db/db';
+import type { StoryQuerySources } from '../types/story-cache';
+import * as executeSqlQueries from './execute-sql.queries';
 
 export type UserStoryRow = Pick<
 	DBStory,
@@ -19,7 +22,7 @@ export type UserStoryRow = Pick<
 	| 'archivedAt'
 	| 'createdAt'
 	| 'updatedAt'
-> & { code: string };
+> & { code: string; version: number };
 
 export async function getStoryByChatAndSlug(
 	chatId: string,
@@ -39,6 +42,10 @@ export async function getStoryByChatAndSlug(
 export async function getStoryById(storyId: string): Promise<DBStory | null> {
 	const [row] = await db.select().from(s.story).where(eq(s.story.id, storyId)).limit(1).execute();
 	return row ?? null;
+}
+
+export async function renameStory(storyId: string, title: string): Promise<void> {
+	await db.update(s.story).set({ title }).where(eq(s.story.id, storyId)).execute();
 }
 
 export async function getStoryProjectId(storyId: string): Promise<string | null> {
@@ -80,7 +87,7 @@ export async function getStoryByIdForUser(storyId: string, userId: string): Prom
 		.select({
 			id: s.story.id,
 			chatId: s.story.chatId,
-			projectId: s.story.projectId,
+			projectId: sql<string>`coalesce(${s.story.projectId}, ${s.chat.projectId})`,
 			userId: s.story.userId,
 			slug: s.story.slug,
 			title: s.story.title,
@@ -92,6 +99,7 @@ export async function getStoryByIdForUser(storyId: string, userId: string): Prom
 			createdAt: s.story.createdAt,
 			updatedAt: s.story.updatedAt,
 			code: s.storyVersion.code,
+			version: s.storyVersion.version,
 		})
 		.from(s.story)
 		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
@@ -207,10 +215,6 @@ export async function createStoryVersion(
 ): Promise<DBStoryVersion & { title: string }> {
 	const story = await getOrCreateStory({ chatId: data.chatId, slug: data.slug, title: data.title }, executor);
 
-	if (story.title !== data.title) {
-		await executor.update(s.story).set({ title: data.title }).where(eq(s.story.id, story.id)).execute();
-	}
-
 	const nextVersion = executor
 		.select({ v: sql<number>`coalesce(max(${s.storyVersion.version}), 0) + 1` })
 		.from(s.storyVersion)
@@ -228,7 +232,7 @@ export async function createStoryVersion(
 		.returning()
 		.execute();
 
-	return { ...created, title: data.title };
+	return { ...created, title: story.title };
 }
 
 export async function createStandaloneVersion(data: {
@@ -247,10 +251,6 @@ export async function createStandaloneVersion(data: {
 		title: data.title,
 	});
 
-	if (story.title !== data.title) {
-		await db.update(s.story).set({ title: data.title }).where(eq(s.story.id, story.id)).execute();
-	}
-
 	const nextVersion = db
 		.select({ v: sql<number>`coalesce(max(${s.storyVersion.version}), 0) + 1` })
 		.from(s.storyVersion)
@@ -268,7 +268,7 @@ export async function createStandaloneVersion(data: {
 		.returning()
 		.execute();
 
-	return { ...created, title: data.title };
+	return { ...created, title: story.title };
 }
 
 export async function createStandaloneStory(data: {
@@ -328,19 +328,6 @@ export async function assignChatToStory(storyId: string, chatId: string): Promis
 
 export async function archiveStory(chatId: string, slug: string): Promise<void> {
 	const matcher = and(eq(s.story.chatId, chatId), eq(s.story.slug, slug));
-	await db.update(s.story).set({ archivedAt: new Date() }).where(matcher).execute();
-	const ids = await db.select({ id: s.story.id }).from(s.story).where(matcher).execute();
-	await detachStoriesFromFolders(ids.map((row) => row.id));
-}
-
-export async function archiveManyStories(stories: { chatId: string; slug: string }[]): Promise<void> {
-	if (stories.length === 0) {
-		return;
-	}
-
-	const conditions = stories.map(({ chatId, slug }) => and(eq(s.story.chatId, chatId), eq(s.story.slug, slug)));
-	const matcher = or(...conditions);
-
 	await db.update(s.story).set({ archivedAt: new Date() }).where(matcher).execute();
 	const ids = await db.select({ id: s.story.id }).from(s.story).where(matcher).execute();
 	await detachStoriesFromFolders(ids.map((row) => row.id));
@@ -522,6 +509,7 @@ export async function upsertStoryDataCache(
 	chatId: string,
 	slug: string,
 	queryData: Record<string, { data: unknown[]; columns: string[] }>,
+	querySources: StoryQuerySources,
 	analysisResults?: Record<string, string> | null,
 ): Promise<DBStoryDataCache> {
 	const story = await getStoryByChatAndSlug(chatId, slug);
@@ -534,6 +522,7 @@ export async function upsertStoryDataCache(
 		.values({
 			storyId: story.id,
 			queryData,
+			querySources,
 			analysisResults: analysisResults ?? null,
 			cachedAt: new Date(),
 		})
@@ -541,6 +530,7 @@ export async function upsertStoryDataCache(
 			target: s.storyDataCache.storyId,
 			set: {
 				queryData,
+				querySources,
 				analysisResults: analysisResults ?? null,
 				cachedAt: new Date(),
 			},
@@ -557,10 +547,10 @@ export async function upsertStoryDataCacheByStoryId(
 ): Promise<void> {
 	await db
 		.insert(s.storyDataCache)
-		.values({ storyId, queryData, cachedAt: new Date() })
+		.values({ storyId, queryData, querySources: null, cachedAt: new Date() })
 		.onConflictDoUpdate({
 			target: s.storyDataCache.storyId,
-			set: { queryData, cachedAt: new Date() },
+			set: { queryData, querySources: null, cachedAt: new Date() },
 		})
 		.execute();
 }
@@ -568,27 +558,28 @@ export async function upsertStoryDataCacheByStoryId(
 export async function getSqlQueriesFromCode(
 	chatId: string,
 	code: string,
-): Promise<Record<string, { sqlQuery: string; databaseId?: string }>> {
-	const chartRegex = /<(?:chart|table)\s+[^>]*query_id="([^"]*)"[^>]*\/?>/g;
-	const queryIds = new Set<string>();
-	let match;
-	while ((match = chartRegex.exec(code)) !== null) {
-		queryIds.add(match[1]);
-	}
-
+): Promise<Record<string, { sqlQuery: string; databaseId?: string; adminMode: boolean }>> {
+	const queryIds = extractQueryIds(code);
 	if (queryIds.size === 0) {
 		return {};
 	}
 
-	return getSqlQueriesByIds(chatId, queryIds);
+	return executeSqlQueries.getLatestSqlQueriesByIds(chatId, queryIds);
 }
 
 export async function getSqlQueryById(
 	chatId: string,
 	queryId: string,
-): Promise<{ sqlQuery: string; databaseId?: string } | null> {
-	const result = await getSqlQueriesByIds(chatId, new Set([queryId]));
-	return result[queryId] ?? null;
+): Promise<{ sqlQuery: string; databaseId?: string; adminMode: boolean } | null> {
+	const part = await executeSqlQueries.getExecuteSqlPartByQueryIdInChat(chatId, queryId);
+	if (!part) {
+		return null;
+	}
+	return {
+		sqlQuery: part.toolInput.sql_query,
+		...(part.toolInput.database_id && { databaseId: part.toolInput.database_id }),
+		adminMode: part.adminMode,
+	};
 }
 
 async function queryStoriesWithLatestVersion(
@@ -601,7 +592,7 @@ async function queryStoriesWithLatestVersion(
 		.select({
 			id: s.story.id,
 			chatId: s.story.chatId,
-			projectId: s.story.projectId,
+			projectId: sql<string>`coalesce(${s.story.projectId}, ${s.chat.projectId})`,
 			userId: s.story.userId,
 			slug: s.story.slug,
 			title: s.story.title,
@@ -613,6 +604,7 @@ async function queryStoriesWithLatestVersion(
 			createdAt: s.story.createdAt,
 			updatedAt: s.story.updatedAt,
 			code: s.storyVersion.code,
+			version: s.storyVersion.version,
 		})
 		.from(s.story)
 		.leftJoin(s.chat, eq(s.story.chatId, s.chat.id))
@@ -676,32 +668,6 @@ async function getOrCreateStandaloneStory(data: {
 	return row;
 }
 
-async function getSqlQueriesByIds(
-	chatId: string,
-	queryIds: Set<string>,
-): Promise<Record<string, { sqlQuery: string; databaseId?: string }>> {
-	const parts = await db
-		.select({ toolInput: s.messagePart.toolInput, toolOutput: s.messagePart.toolOutput })
-		.from(s.messagePart)
-		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
-		.where(and(eq(s.chatMessage.chatId, chatId), eq(s.messagePart.toolName, 'execute_sql')))
-		.execute();
-
-	const queries: Record<string, { sqlQuery: string; databaseId?: string }> = {};
-	for (const part of parts) {
-		const output = part.toolOutput as { id?: string } | null;
-		const input = part.toolInput as { sql_query?: string; database_id?: string } | null;
-		if (output?.id && queryIds.has(output.id) && input?.sql_query) {
-			queries[output.id] = {
-				sqlQuery: input.sql_query,
-				...(input.database_id && { databaseId: input.database_id }),
-			};
-		}
-	}
-
-	return queries;
-}
-
 async function getStoryVersion(
 	whereCondition: SQL,
 	options?: { latest?: boolean },
@@ -739,6 +705,7 @@ async function getStoryDataCache(whereCondition: SQL): Promise<DBStoryDataCache 
 		.select({
 			storyId: s.storyDataCache.storyId,
 			queryData: s.storyDataCache.queryData,
+			querySources: s.storyDataCache.querySources,
 			analysisResults: s.storyDataCache.analysisResults,
 			cachedAt: s.storyDataCache.cachedAt,
 		})

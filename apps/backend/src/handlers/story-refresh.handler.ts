@@ -2,6 +2,7 @@ import type { DBScheduledJob } from '../db/abstractSchema';
 import * as activityQueries from '../queries/activity.queries';
 import * as storyQueries from '../queries/story.queries';
 import { refreshStoryData } from '../services/live-story';
+import { logAnalyticsEvent } from '../utils/analytics-event';
 import { logger } from '../utils/logger';
 
 export const STORY_REFRESH_JOB_NAME = 'story.refresh';
@@ -51,6 +52,15 @@ export async function runScheduledStoryRefresh(storyId: string): Promise<void> {
 	try {
 		const { queryData } = await refreshStoryData(story.chatId, story.slug);
 		await activityQueries.completeActivity(activity.id, { queriesRefreshed: Object.keys(queryData).length });
+		logAnalyticsEvent({
+			projectId,
+			type: 'refresh',
+			assetType: 'story',
+			actorUserId: userId,
+			storyId,
+			chatId: story.chatId,
+			metadata: { type: 'refresh', trigger: 'scheduled', queriesRefreshed: Object.keys(queryData).length },
+		});
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		logger.error(`Story refresh failed: ${message}`, {

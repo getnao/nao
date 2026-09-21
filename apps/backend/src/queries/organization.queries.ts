@@ -1,4 +1,5 @@
-import { and, asc, count, eq, isNull, sql } from 'drizzle-orm';
+import type { MemberStatus, UserRole } from '@nao/shared/types';
+import { and, asc, count, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 
 import s, { DBOrganization, DBOrgMember, NewOrganization, NewOrgMember } from '../db/abstractSchema';
 import { db } from '../db/db';
@@ -9,6 +10,11 @@ import * as userQueries from './user.queries';
 
 export const getOrganizationById = async (id: string): Promise<DBOrganization | null> => {
 	const [org] = await db.select().from(s.organization).where(eq(s.organization.id, id)).execute();
+	return org ?? null;
+};
+
+export const getOrganizationBySlug = async (slug: string): Promise<DBOrganization | null> => {
+	const [org] = await db.select().from(s.organization).where(eq(s.organization.slug, slug)).execute();
 	return org ?? null;
 };
 
@@ -34,6 +40,10 @@ export const getOrgMember = async (orgId: string, userId: string): Promise<DBOrg
 export const addOrgMember = async (member: NewOrgMember): Promise<DBOrgMember> => {
 	const [created] = await db.insert(s.orgMember).values(member).returning().execute();
 	return created;
+};
+
+export const addOrgMemberIfMissing = async (member: NewOrgMember): Promise<void> => {
+	await db.insert(s.orgMember).values(member).onConflictDoNothing().execute();
 };
 
 export const getUserOrgMembership = async (
@@ -79,13 +89,95 @@ export const updateGoogleSettings = async (
 
 export const getGoogleConfig = async () => {
 	const org = await getFirstOrganization();
+	return buildGoogleConfig(org, true);
+};
+
+export const getGoogleConfigForOrganization = async (orgId: string, includeEnvFallback = false) => {
+	const org = await getOrganizationById(orgId);
+	return buildGoogleConfig(org, includeEnvFallback);
+};
+
+/**
+ * Cloud mode: find the organization that claims a user's email domain.
+ * Domains are stored per-organization as a comma-separated list in `googleAuthDomains`.
+ * The first organization whose list contains the domain wins.
+ */
+export const findOrganizationByEmailDomain = async (email: string): Promise<DBOrganization | null> => {
+	const domain = email.split('@').at(1)?.trim().toLowerCase();
+	if (!domain) {
+		return null;
+	}
+
+	const orgs = await db
+		.select()
+		.from(s.organization)
+		.where(isNotNull(s.organization.googleAuthDomains))
+		.orderBy(asc(s.organization.createdAt))
+		.execute();
+
+	return orgs.find((org) => parseEmailDomains(org.googleAuthDomains).includes(domain)) ?? null;
+};
+
+export const updateOrganizationName = async (orgId: string, name: string): Promise<void> => {
+	await db.update(s.organization).set({ name }).where(eq(s.organization.id, orgId)).execute();
+};
+
+export const updateOrganizationEmailDomains = async (orgId: string, domains: string | null): Promise<void> => {
+	await db.update(s.organization).set({ googleAuthDomains: domains }).where(eq(s.organization.id, orgId)).execute();
+};
+
+/**
+ * Cloud mode: the set of email domains the organization can prove it owns,
+ * derived from its members that have a verified email address.
+ */
+export const getVerifiedMemberEmailDomains = async (orgId: string): Promise<Set<string>> => {
+	const rows = await db
+		.select({ email: s.user.email })
+		.from(s.orgMember)
+		.innerJoin(s.user, eq(s.orgMember.userId, s.user.id))
+		.where(and(eq(s.orgMember.orgId, orgId), eq(s.user.emailVerified, true)))
+		.execute();
+
+	const domains = new Set<string>();
+	for (const { email } of rows) {
+		const domain = email.split('@').at(1)?.trim().toLowerCase();
+		if (domain) {
+			domains.add(domain);
+		}
+	}
+	return domains;
+};
+
+/** Cloud mode: whether another organization has already claimed the given email domain. */
+export const isEmailDomainClaimedByAnotherOrg = async (domain: string, orgId: string): Promise<boolean> => {
+	const normalized = domain.trim().toLowerCase();
+	const orgs = await db.select().from(s.organization).where(isNotNull(s.organization.googleAuthDomains)).execute();
+	return orgs.some((org) => org.id !== orgId && parseEmailDomains(org.googleAuthDomains).includes(normalized));
+};
+
+function parseEmailDomains(domains: string | null): string[] {
+	if (!domains) {
+		return [];
+	}
+	return domains
+		.split(',')
+		.map((domain) => domain.trim().toLowerCase())
+		.filter(Boolean);
+}
+
+function buildGoogleConfig(org: DBOrganization | null, includeEnvFallback: boolean) {
+	const envClientId = includeEnvFallback ? env.GOOGLE_CLIENT_ID : undefined;
+	const envClientSecret = includeEnvFallback ? env.GOOGLE_CLIENT_SECRET : undefined;
+	const envAuthDomains = includeEnvFallback ? env.GOOGLE_AUTH_DOMAINS : undefined;
+
 	return {
-		clientId: org?.googleClientId || env.GOOGLE_CLIENT_ID || '',
-		clientSecret: org?.googleClientSecret || env.GOOGLE_CLIENT_SECRET || '',
-		authDomains: org?.googleAuthDomains || env.GOOGLE_AUTH_DOMAINS || '',
+		orgId: org?.id,
+		clientId: org?.googleClientId || envClientId || '',
+		clientSecret: org?.googleClientSecret || envClientSecret || '',
+		authDomains: org?.googleAuthDomains || envAuthDomains || '',
 		usingDbOverride: !!(org?.googleClientId && org?.googleClientSecret),
 	};
-};
+}
 
 export const getOrCreateDefaultOrganization = async (): Promise<DBOrganization> => {
 	const existing = await getFirstOrganization();
@@ -136,15 +228,32 @@ export const initializeDefaultOrganizationForFirstUser = async (userId: string):
 
 			if (!existingProject) {
 				const projectName = projectPath.split('/').pop() || 'Default Project';
-				const [project] = await tx
-					.insert(s.project)
-					.values({ name: projectName, type: 'local', path: projectPath, orgId: org.id })
-					.returning()
-					.execute();
+				const project = await projectQueries.createProject(
+					{ name: projectName, type: 'local', path: projectPath, orgId: org.id },
+					tx,
+				);
 
 				await tx.insert(s.projectMember).values({ projectId: project.id, userId, role: 'admin' }).execute();
 			}
 		}
+	});
+};
+
+export const addUserToDefaultOrganizationIfExists = async (userId: string): Promise<void> => {
+	const existingMembership = await getUserOrgMembership(userId);
+	if (existingMembership) {
+		return;
+	}
+
+	const org = await getFirstOrganization();
+	if (!org) {
+		return;
+	}
+
+	await addOrgMemberIfMissing({
+		orgId: org.id,
+		userId,
+		role: env.DEFAULT_USER_ROLE,
 	});
 };
 
@@ -256,12 +365,14 @@ export interface OrgMemberWithUser {
 	name: string;
 	email: string;
 	role: OrgRole;
+	status: MemberStatus;
 }
 
 export interface OrgProjectWithAccess {
 	id: string;
 	name: string;
-	role: OrgRole;
+	path: string | null;
+	role: UserRole;
 	createdAt: Date;
 	updatedAt: Date;
 }
@@ -273,6 +384,7 @@ export const listOrgMembersWithUsers = async (orgId: string): Promise<OrgMemberW
 			name: s.user.name,
 			email: s.user.email,
 			role: s.orgMember.role,
+			status: userQueries.userMemberStatus,
 		})
 		.from(s.orgMember)
 		.innerJoin(s.user, eq(s.orgMember.userId, s.user.id))
@@ -286,17 +398,36 @@ export const listOrgProjectsWithAccess = async (orgId: string, userId: string): 
 		.select({
 			id: s.project.id,
 			name: s.project.name,
-			role: sql<OrgRole>`coalesce(${s.projectMember.role}, 'viewer')`,
+			path: s.project.path,
+			role: sql<UserRole>`coalesce(${s.projectMember.role}, ${s.orgMember.role}, 'viewer')`,
 			createdAt: s.project.createdAt,
 			updatedAt: s.project.updatedAt,
 		})
 		.from(s.project)
 		.leftJoin(s.projectMember, and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, userId)))
+		.leftJoin(s.orgMember, and(eq(s.orgMember.orgId, s.project.orgId), eq(s.orgMember.userId, userId)))
 		.where(eq(s.project.orgId, orgId))
 		.orderBy(asc(s.project.name))
 		.execute();
 
 	return rows;
+};
+
+export const listOrgProjectsForContextCleanup = async (
+	orgId: string,
+	userId: string,
+): Promise<Array<{ id: string; path: string | null; role: UserRole | null }>> => {
+	return db
+		.select({
+			id: s.project.id,
+			path: s.project.path,
+			role: sql<UserRole | null>`coalesce(${s.projectMember.role}, ${s.orgMember.role})`,
+		})
+		.from(s.project)
+		.leftJoin(s.projectMember, and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, userId)))
+		.leftJoin(s.orgMember, and(eq(s.orgMember.orgId, s.project.orgId), eq(s.orgMember.userId, userId)))
+		.where(eq(s.project.orgId, orgId))
+		.execute();
 };
 
 export const updateOrgMemberRole = async (orgId: string, userId: string, role: OrgRole): Promise<void> => {
@@ -347,20 +478,10 @@ const ensureDefaultProject = async (org: DBOrganization): Promise<void> => {
 	}
 
 	const projectName = projectPath.split('/').pop() || 'Default Project';
-	const project = await projectQueries.createProject({
+	await projectQueries.createProject({
 		name: projectName,
 		type: 'local',
 		path: projectPath,
 		orgId: org.id,
 	});
-
-	// Add all org members to the new project
-	const orgMembers = await db.select().from(s.orgMember).where(eq(s.orgMember.orgId, org.id)).execute();
-	for (const member of orgMembers) {
-		await projectQueries.addProjectMember({
-			projectId: project.id,
-			userId: member.userId,
-			role: member.role,
-		});
-	}
 };

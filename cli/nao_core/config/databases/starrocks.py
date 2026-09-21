@@ -173,16 +173,26 @@ class StarRocksDatabaseContext(DatabaseContext):
         ]
 
     def columns(self) -> list[dict[str, Any]]:
+        if self._columns_cache is None:
+            self._columns_load_failed = False
+            columns = self._load_columns()
+            if columns is None:
+                self._columns_load_failed = True
+                return []
+            self._columns_cache = columns
+        return self._filter_excluded_columns(self._columns_cache)
+
+    def _load_columns(self) -> list[dict[str, Any]] | None:
         try:
             columns = self._columns_from_information_schema()
-            if columns:
-                return columns
         except Exception:
-            pass
+            columns = []
+        if columns:
+            return columns
         try:
             return self._columns_from_show_full_columns()
         except Exception:
-            return []
+            return None
 
     def row_count(self) -> int:
         try:
@@ -202,7 +212,7 @@ class StarRocksDatabaseContext(DatabaseContext):
             for key, value in record.items():
                 if value is not None and not isinstance(value, (str, int, float, bool, list, dict)):
                     record[key] = str(value)
-            out.append(record)
+            out.append(self._filter_excluded_row(record))
         return out
 
     def _build_profiling_query(self, col: dict) -> str:

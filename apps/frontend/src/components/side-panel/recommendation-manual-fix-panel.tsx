@@ -1,5 +1,6 @@
 import { Check, Copy } from 'lucide-react';
 
+import { SidePanelHeader } from './side-panel-header';
 import { Button } from '@/components/ui/button';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 
@@ -14,12 +15,7 @@ export function RecommendationManualFixPanel({ title, guidance, prompt }: Recomm
 
 	return (
 		<div className='flex h-full min-h-0 flex-col bg-background'>
-			<div className='shrink-0 border-b px-4 py-3'>
-				<div className='text-xs font-medium text-muted-foreground'>How to fix</div>
-				<div className='truncate text-sm font-semibold' title={title}>
-					{title}
-				</div>
-			</div>
+			<SidePanelHeader label='How to fix' title={title} />
 
 			<div className='min-h-0 flex-1 overflow-auto p-4'>
 				<div className='flex flex-col gap-4'>

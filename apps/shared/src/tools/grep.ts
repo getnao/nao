@@ -22,8 +22,12 @@ export const OutputSchema = z.object({
 			path: z.string(),
 			line_number: z.number(),
 			line_content: z.string(),
-			context_before: z.array(z.string()).optional(),
-			context_after: z.array(z.string()).optional(),
+			context_before: z
+				.array(z.union([z.string(), z.object({ line_number: z.number(), line_content: z.string() })]))
+				.optional(),
+			context_after: z
+				.array(z.union([z.string(), z.object({ line_number: z.number(), line_content: z.string() })]))
+				.optional(),
 		}),
 	),
 	total_matches: z.number(),

@@ -1,7 +1,6 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v4';
 
-import { closeProjectSessions } from '../mcp/server';
 import * as mcpEndpointQueries from '../queries/mcp-endpoint.queries';
 import { adminProtectedProcedure, projectProtectedProcedure, protectedProcedure, router } from './trpc';
 
@@ -19,9 +18,7 @@ export const mcpEndpointRoutes = router({
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
-			const updated = await mcpEndpointQueries.updateMcpEndpointSettings(ctx.project.id, input);
-			await closeProjectSessions(ctx.project.id);
-			return updated;
+			return mcpEndpointQueries.updateMcpEndpointSettings(ctx.project.id, input);
 		}),
 
 	getCallLogs: adminProtectedProcedure.query(async ({ ctx }) => {

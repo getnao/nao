@@ -1,7 +1,9 @@
 import {
 	buildMcpEmbedMarkdownLinks,
 	chartAppPayloadFrom,
+	mapAppPayloadFrom,
 	type McpChartAppPayload,
+	type McpMapAppPayload,
 	storyAppPayloadFrom,
 } from '@nao/shared';
 import type { McpEmbedKind } from '@nao/shared/types';
@@ -14,6 +16,8 @@ import { attachSandboxToAppPayload } from './embed-payload';
 export type StoryMcpToolPayload = Record<string, unknown> & { embedUrl: string };
 
 export type ChartToolPayload = McpChartAppPayload & Record<string, unknown>;
+
+export type MapToolPayload = McpMapAppPayload & Record<string, unknown>;
 
 export const STORY_OUTPUT_SCHEMA = {
 	id: z.string().describe('Story UUID.'),
@@ -73,6 +77,28 @@ export function buildChartToolResult(
 		missingQueryMessage:
 			embedUrl === null
 				? `_Query data for \`${output.queryId}\` not found — re-run \`execute_sql\` then \`display_chart\`. The JSON payload includes the \`<chart>\` block._`
+				: undefined,
+	});
+}
+
+export function buildMapToolResult(output: MapToolPayload, options: { sandboxMapHtml?: string | null }): ToolResult {
+	const title = typeof output.title === 'string' ? output.title : 'Map';
+	const embedUrl = typeof output.embedUrl === 'string' && output.embedUrl.length > 0 ? output.embedUrl : null;
+	const chatId = typeof output.chatId === 'string' ? output.chatId : null;
+	const naoUrl = chatId ? chatUrl(chatId) : null;
+	const slimPayload = mapAppPayloadFrom(output);
+
+	return buildEmbedToolResult({
+		kind: 'map',
+		title,
+		embedUrl,
+		naoUrl,
+		jsonPayload: slimPayload,
+		structuredBase: slimPayload,
+		sandboxHtml: options.sandboxMapHtml,
+		missingQueryMessage:
+			embedUrl === null
+				? `_Query data for \`${output.queryId}\` not found — re-run \`execute_sql\` then \`display_map\`. The JSON payload includes the \`<map>\` block._`
 				: undefined,
 	});
 }

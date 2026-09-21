@@ -10,6 +10,7 @@
 
 import './env';
 
+import { hashPassword } from 'better-auth/crypto';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -17,6 +18,8 @@ import path from 'path';
 import { startServer } from './app';
 import dbConfig, { Dialect } from './db/dbConfig';
 import { runMigrations } from './db/migrate';
+import * as accountQueries from './queries/account.queries';
+import * as userQueries from './queries/user.queries';
 
 const SECRET_FILE_NAME = '.nao-secret';
 
@@ -115,8 +118,9 @@ USAGE:
     nao-chat-server <command> [options]
 
 COMMANDS:
-    serve       Run migrations and start the chat server (default)
-    migrate     Run database migrations only
+    serve           Run migrations and start the chat server (default)
+    migrate         Run database migrations only
+    reset-password  Reset a user's password directly in the local database
 
 OPTIONS:
     -h, --help  Show this help message
@@ -124,6 +128,9 @@ OPTIONS:
 SERVE OPTIONS:
     --port <port>   Port to listen on (default: 5005)
     --host <host>   Host to bind to (default: 0.0.0.0)
+
+RESET-PASSWORD OPTIONS:
+    --email <email>   Email of the user whose password should be reset
 
 ENVIRONMENT VARIABLES:
     DB_URI              Database connection URI
@@ -166,7 +173,7 @@ function parseArgs(args: string[]): { command: string; options: Record<string, s
 			}
 		} else if (!arg.startsWith('-')) {
 			// First non-flag argument is the command
-			if (command === 'serve' && (arg === 'migrate' || arg === 'serve')) {
+			if (command === 'serve' && (arg === 'migrate' || arg === 'serve' || arg === 'reset-password')) {
 				command = arg;
 			}
 			i++;
@@ -217,6 +224,35 @@ async function runServe(options: Record<string, string>): Promise<void> {
 	}
 }
 
+async function runResetPassword(options: Record<string, string>): Promise<void> {
+	const email = options['email']?.trim();
+	if (!email) {
+		console.error('❌ Missing required option: --email <email>');
+		process.exit(1);
+	}
+
+	const user = (await userQueries.getUser({ email })) ?? (await userQueries.getUser({ email: email.toLowerCase() }));
+	if (!user) {
+		console.error(`❌ No user found with email "${email}"`);
+		process.exit(1);
+	}
+
+	const account = await accountQueries.getAccountById(user.id);
+	if (!account?.password) {
+		console.error(`❌ ${user.email} signs in via SSO/OAuth and has no password to reset.`);
+		process.exit(1);
+	}
+
+	const temporaryPassword = crypto.randomBytes(12).toString('base64url');
+	const hashedPassword = await hashPassword(temporaryPassword);
+	await accountQueries.updateAccountPassword(account.id, hashedPassword, user.id);
+
+	console.log(`\n✓ Password reset for ${user.email}`);
+	console.log(`   Temporary password: ${temporaryPassword}`);
+	console.log(`   You'll be prompted to choose a new password after logging in.\n`);
+	process.exit(0);
+}
+
 async function runMigrateCommand(): Promise<void> {
 	const migrationsPath = getMigrationsPath(dbConfig.dialect);
 
@@ -246,6 +282,9 @@ async function main(): Promise<void> {
 	switch (command) {
 		case 'migrate':
 			await runMigrateCommand();
+			break;
+		case 'reset-password':
+			await runResetPassword(options);
 			break;
 		case 'serve':
 			await runServe(options);

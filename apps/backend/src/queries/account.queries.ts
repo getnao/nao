@@ -1,16 +1,61 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import s from '../db/abstractSchema';
 import { db } from '../db/db';
+
+const CREDENTIAL_PROVIDER_ID = 'credential';
 
 export const getAccountById = async (userId: string): Promise<{ id: string; password: string | null } | null> => {
 	const [account] = await db
 		.select({ id: s.account.id, password: s.account.password })
 		.from(s.account)
-		.where(eq(s.account.userId, userId))
+		.where(and(eq(s.account.userId, userId), eq(s.account.providerId, CREDENTIAL_PROVIDER_ID)))
 		.execute();
 
 	return account ?? null;
+};
+
+export const getIdToken = async (userId: string, providerId: string): Promise<string | null> => {
+	const [account] = await db
+		.select({ idToken: s.account.idToken })
+		.from(s.account)
+		.where(and(eq(s.account.userId, userId), eq(s.account.providerId, providerId)))
+		.limit(1)
+		.execute();
+
+	return account?.idToken ?? null;
+};
+
+export interface LoginTokens {
+	idToken: string | null;
+	accessToken: string | null;
+	accessTokenExpiresAt: Date | null;
+}
+
+export const getLoginTokens = async (userId: string, providerId: string): Promise<LoginTokens | null> => {
+	const [account] = await db
+		.select({
+			idToken: s.account.idToken,
+			accessToken: s.account.accessToken,
+			accessTokenExpiresAt: s.account.accessTokenExpiresAt,
+		})
+		.from(s.account)
+		.where(and(eq(s.account.userId, userId), eq(s.account.providerId, providerId)))
+		.limit(1)
+		.execute();
+
+	return account ?? null;
+};
+
+export const hasAccountForProvider = async (userId: string, providerId: string): Promise<boolean> => {
+	const [account] = await db
+		.select({ id: s.account.id })
+		.from(s.account)
+		.where(and(eq(s.account.userId, userId), eq(s.account.providerId, providerId)))
+		.limit(1)
+		.execute();
+
+	return !!account;
 };
 
 export const updateAccountPassword = async (

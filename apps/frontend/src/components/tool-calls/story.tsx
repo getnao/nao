@@ -1,13 +1,19 @@
+import { useQuery } from '@tanstack/react-query';
+import { ArrowUpRight, Clock } from 'lucide-react';
 import { useEffect, useRef } from 'react';
-import { ArrowUpRight } from 'lucide-react';
-import { TextShimmer } from '../ui/text-shimmer';
+
+import { extractStorySummary } from '../../../../backend/src/utils/story-summary';
+import { StoryThumbnail } from '../story-thumbnail';
 import { Skeleton } from '../ui/skeleton';
+import { TextShimmer } from '../ui/text-shimmer';
 import { Button } from '../ui/button';
-import StoryIcon from '../ui/story-icon';
 import type { ToolCallComponentProps } from '.';
+import { trpc } from '@/main';
 import { StoryViewer } from '@/components/side-panel/story-viewer';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidePanel } from '@/contexts/side-panel';
 import { useChatId } from '@/hooks/use-chat-id';
+import { useTimeAgo } from '@/hooks/use-time-ago';
 
 export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => {
 	const { open: openSidePanel, isVisible, currentStorySlug, chatId: sidePanelChatId } = useSidePanel();
@@ -16,6 +22,7 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 	const input = toolPart.input;
 	const isStreaming = toolPart.state === 'input-streaming';
 	const output = toolPart.output;
+	const summary = extractStorySummary(output?.code ?? '');
 	const hasAutoOpenedRef = useRef(false);
 
 	const finalStorySlug = output?.id ?? input?.id;
@@ -23,6 +30,14 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 	const isCreateAction = input?.action === 'create';
 
 	const isInInteractiveContext = Boolean(contextOrUrlChatId);
+
+	const { data: latestStory } = useQuery({
+		...trpc.story.getLatest.queryOptions({
+			chatId: chatId ?? '',
+			storySlug: finalStorySlug ?? '',
+		}),
+		enabled: !isStreaming && canOpen,
+	});
 
 	useEffect(() => {
 		if (hasAutoOpenedRef.current || !isCreateAction || !isStreaming || !canOpen || !chatId || !finalStorySlug) {
@@ -78,7 +93,7 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 		);
 	}
 
-	const title = output?.title ?? input.title ?? input.id;
+	const title = latestStory?.title ?? output?.title ?? input.title ?? input.id;
 	const actionLabel = input.action === 'create' ? 'Created' : input.action === 'update' ? 'Updated' : 'Replaced';
 	const statusLabel = isStreaming
 		? input.action === 'create'
@@ -107,19 +122,24 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 			type='button'
 			onClick={handleOpen}
 			disabled={!canOpen}
-			className='group my-2 -mx-3 flex items-center gap-3 rounded-xl border bg-background py-4 pl-4 pr-3 text-left transition-colors hover:bg-accent/50 disabled:opacity-50 disabled:cursor-default cursor-pointer overflow-hidden'
+			className='group my-2 -mx-3 flex items-center gap-3 pr-3 rounded-lg border bg-background text-left transition-colors hover:bg-accent/50 disabled:opacity-50 disabled:cursor-default cursor-pointer overflow-hidden'
 		>
-			<div className='relative -mt-4 -mb-12 mr-1 flex h-16 w-14 shrink-0 items-center justify-center rounded-lg border border-border bg-gradient-to-b from-muted/40 to-white/80 dark:from-panel/40 dark:to-black/80 rotate-[-4deg] transition-transform duration-200 ease-out group-hover:-translate-y-0.5 group-hover:rotate-[-2.5deg]'>
-				<StoryIcon className='size-5 text-muted-foreground' strokeWidth={1} />
+			<div className='items-end relative h-16 w-30 shrink-0'>
+				<StoryThumbnail summary={summary} className='rounded-lg overflow-visible right-6' isToolPart={true} />
 			</div>
 
-			<div className='flex flex-col gap-0.5 min-w-0 flex-1'>
+			<div className='flex flex-col gap-1 min-w-0 flex-1 pl-5 py-3'>
 				<span className='text-sm font-medium truncate'>{title}</span>
-				<span className='text-xs text-muted-foreground'>{statusLabel}</span>
+				<div className='flex items-center gap-2'>
+					<span className='text-xs text-muted-foreground'>{statusLabel}</span>
+					{latestStory?.isLive && latestStory?.cachedAt && (
+						<LiveStoryTimestamp cachedAt={latestStory.cachedAt} />
+					)}
+				</div>
 			</div>
 
 			{canOpen && (
-				<Button variant='ghost-muted' size='icon-xs' asChild>
+				<Button variant='ghost-muted' size='icon-xs' className='hover:bg-transparent' asChild>
 					<span>
 						<ArrowUpRight className='size-3.5' />
 					</span>
@@ -128,3 +148,20 @@ export const StoryToolCall = ({ toolPart }: ToolCallComponentProps<'story'>) => 
 		</button>
 	);
 };
+
+function LiveStoryTimestamp({ cachedAt }: { cachedAt: string | Date }) {
+	const timestampMs = new Date(cachedAt).getTime();
+	const timeAgo = useTimeAgo(timestampMs);
+
+	return (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<div className='flex items-center gap-1 rounded-full bg-secondary/50 px-1.5 py-0.5 text-[10px] text-muted-foreground'>
+					<Clock className='size-3' />
+					<span>Updated {timeAgo.humanReadable.toLowerCase()}</span>
+				</div>
+			</TooltipTrigger>
+			<TooltipContent>Updated {new Date(cachedAt).toLocaleString()}</TooltipContent>
+		</Tooltip>
+	);
+}

@@ -14,7 +14,7 @@
 </h3>
 
 <p align="center">
-  🌐 <a href="https://getnao.io">Website</a> · 📚 <a href="https://docs.getnao.io">Documentation</a> · 💬 <a href="https://join.slack.com/t/naolabs/shared_invite/zt-3cgdql4up-Az9FxGkTb8Qr34z2Dxp9TQ">Slack</a>
+  🌐 <a href="https://getnao.io">Website</a> · 📚 <a href="https://docs.getnao.io">Documentation</a> · 💬 <a href="https://join.slack.com/t/naolabs/shared_invite/zt-4080jlm79-nm52x5nZhG2N1ben8zwpiQ">Slack</a>
 </p>
 
 <br/>
@@ -195,6 +195,45 @@ Docs on nao skills: https://docs.getnao.io/nao-agent/context-engineering/skills
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, commands, and guidelines.
 
+### Start nao locally
+
+Prerequisites:
+
+- nvm
+- bun
+- uv
+
+Run the following commands:
+
+```
+npm run npm:pin
+npm install
+npm run db:migrate -w apps/backend
+```
+
+Create a .env file at the root of the repository and input environment variables
+
+Minimum variables necessary are:
+
+```
+BETTER_AUTH_SECRET=#run `openssl rand -base64 32` to generate
+# Public URL of your app (used for authentication, trusted origins, and Slack redirects)
+BETTER_AUTH_URL=http://localhost:3000
+
+# LLM providers
+OPENAI_API_KEY=12345678
+
+NAO_DEFAULT_PROJECT_PATH=#path to example folder
+```
+
+Run the following command:
+
+```
+npm run dev
+```
+
+Go to http://localhost:3000 on your browser
+
 ## 📒 Stack
 
 ### Backend
@@ -214,7 +253,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, commands, and guid
 - Star the repo
 - Subscribe to releases (Watch → Custom → Releases)
 - Follow us on [LinkedIn](https://www.linkedin.com/company/getnao)
-- Join our [Slack](https://join.slack.com/t/naolabs/shared_invite/zt-3cgdql4up-Az9FxGkTb8Qr34z2Dxp9TQ)
+- Join our [Slack](https://join.slack.com/t/naolabs/shared_invite/zt-4080jlm79-nm52x5nZhG2N1ben8zwpiQ)
 - Contribute to the repo!
 
 ## 🫰🏻 Partners

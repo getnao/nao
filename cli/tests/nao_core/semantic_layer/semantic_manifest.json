@@ -1,0 +1,162 @@
+{
+  "semantic_models": [
+    {
+      "name": "orders",
+      "defaults": {
+        "agg_time_dimension": "ordered_at"
+      },
+      "description": "One row per order",
+      "node_relation": {
+        "alias": "orders",
+        "schema_name": "main",
+        "relation_name": "main.orders"
+      },
+      "entities": [
+        {
+          "name": "order",
+          "type": "primary",
+          "expr": "order_id"
+        },
+        {
+          "name": "customer",
+          "type": "foreign",
+          "expr": "customer_id"
+        }
+      ],
+      "measures": [
+        {
+          "name": "order_total",
+          "agg": "sum",
+          "description": "Sum of order amounts",
+          "expr": "amount"
+        },
+        {
+          "name": "order_count",
+          "agg": "sum",
+          "expr": "1"
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "ordered_at",
+          "type": "time",
+          "is_partition": false,
+          "type_params": {
+            "time_granularity": "day"
+          }
+        },
+        {
+          "name": "status",
+          "description": "Order status",
+          "type": "categorical",
+          "is_partition": false
+        }
+      ]
+    }
+  ],
+  "metrics": [
+    {
+      "name": "revenue",
+      "description": "Total revenue from orders",
+      "type": "simple",
+      "type_params": {
+        "measure": {
+          "name": "order_total",
+          "join_to_timespine": false
+        },
+        "expr": "amount",
+        "input_measures": [
+          {
+            "name": "order_total",
+            "join_to_timespine": false
+          }
+        ],
+        "metric_aggregation_params": {
+          "semantic_model": "orders",
+          "agg": "sum"
+        },
+        "join_to_timespine": false,
+        "is_private": false
+      },
+      "label": "Revenue"
+    },
+    {
+      "name": "orders",
+      "description": "Number of orders",
+      "type": "simple",
+      "type_params": {
+        "measure": {
+          "name": "order_count",
+          "join_to_timespine": false
+        },
+        "expr": "1",
+        "input_measures": [
+          {
+            "name": "order_count",
+            "join_to_timespine": false
+          }
+        ],
+        "metric_aggregation_params": {
+          "semantic_model": "orders",
+          "agg": "sum"
+        },
+        "join_to_timespine": false,
+        "is_private": false
+      }
+    },
+    {
+      "name": "average_order_value",
+      "description": "Revenue divided by orders",
+      "type": "ratio",
+      "type_params": {
+        "numerator": {
+          "name": "revenue"
+        },
+        "denominator": {
+          "name": "orders"
+        },
+        "input_measures": [
+          {
+            "name": "order_count",
+            "join_to_timespine": false
+          },
+          {
+            "name": "order_total",
+            "join_to_timespine": false
+          }
+        ],
+        "join_to_timespine": false,
+        "is_private": false
+      }
+    }
+  ],
+  "project_configuration": {
+    "time_spine_table_configurations": [
+      {
+        "location": "main.metricflow_time_spine",
+        "column_name": "date_day",
+        "grain": "day"
+      }
+    ],
+    "dsi_package_version": {
+      "major_version": "0",
+      "minor_version": "213",
+      "patch_version": "0"
+    },
+    "time_spines": [
+      {
+        "node_relation": {
+          "alias": "metricflow_time_spine",
+          "schema_name": "main",
+          "relation_name": "main.metricflow_time_spine"
+        },
+        "primary_column": {
+          "name": "date_day",
+          "time_granularity": "day"
+        },
+        "custom_granularities": []
+      }
+    ]
+  },
+  "saved_queries": []
+}

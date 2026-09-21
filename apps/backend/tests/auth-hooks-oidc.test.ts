@@ -15,11 +15,11 @@ describe('OIDC domain allowlist via isEmailDomainAllowed', () => {
 		expect(isEmailDomainAllowed('user@blocked.com', 'allowed.com,other.com')).toBe(false);
 	});
 
-	it('allows any domain when allowlist is empty string', () => {
+	it('allows any domain when no allowlist is configured (empty string)', () => {
 		expect(isEmailDomainAllowed('user@anything.com', '')).toBe(true);
 	});
 
-	it('allows any domain when allowlist is undefined', () => {
+	it('allows any domain when no allowlist is configured (undefined)', () => {
 		expect(isEmailDomainAllowed('user@anything.com', undefined)).toBe(true);
 	});
 

@@ -12,6 +12,7 @@ from nao_core.config import NaoConfig, resolve_project_path
 from nao_core.ui import UI
 
 from .case import TESTS_FOLDER
+from .summary import with_model_summaries
 
 # Default port for the server
 DEFAULT_PORT = 8765
@@ -55,6 +56,22 @@ def get_html_template() -> str:
         .status.pass { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
         .status.fail { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
         .model-badge { display: inline-block; padding: 0.125rem 0.5rem; background: #333; border-radius: 4px; font-size: 0.75rem; color: #aaa; font-family: monospace; }
+        .model-badge.active { background: #3f3f3f; color: #fff; }
+        .section { margin-bottom: 2rem; }
+        .section-title { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem; }
+        .rate { display: flex; align-items: center; gap: 0.625rem; }
+        .rate-value { font-family: monospace; font-size: 0.875rem; min-width: 3.25rem; }
+        .rate-bar { flex: 1; min-width: 60px; height: 6px; background: #333; border-radius: 3px; overflow: hidden; }
+        .rate-fill { height: 100%; background: #22c55e; }
+        .rate-fill.warn { background: #eab308; }
+        .rate-fill.error { background: #ef4444; }
+        .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 1rem; }
+        .chip { padding: 0.375rem 0.75rem; background: #1a1a1a; border: 1px solid #333; border-radius: 999px; color: #aaa; font-family: monospace; font-size: 0.8125rem; cursor: pointer; }
+        .chip:hover { border-color: #555; }
+        .chip.active { background: #333; color: #fff; border-color: #666; }
+        .matrix th, .matrix td { text-align: center; }
+        .matrix th:first-child, .matrix td:first-child { text-align: left; }
+        .cell-status { cursor: pointer; }
         .mono { font-family: monospace; font-size: 0.875rem; }
         .text-muted { color: #888; }
         .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.8); z-index: 1000; display: flex; align-items: center; justify-content: center; }
@@ -163,7 +180,17 @@ def get_html_template() -> str:
 
         function Results({ data, onSelect }) {
             const { summary, results, timestamp } = data;
+            const byModel = data.by_model || [];
+            const models = byModel.map(m => m.model);
+            const multiModel = models.length > 1;
+            const [modelFilter, setModelFilter] = useState('all');
+
+            useEffect(() => {
+                setModelFilter('all');
+            }, [timestamp]);
+
             const passRate = summary.total > 0 ? Math.round((summary.passed / summary.total) * 100) : 0;
+            const visibleResults = modelFilter === 'all' ? results : results.filter(r => r.model === modelFilter);
 
             return (
                 <>
@@ -171,46 +198,164 @@ def get_html_template() -> str:
                         <Card label="Pass Rate" value={passRate + '%'} className={passRate === 100 ? 'success' : passRate < 50 ? 'error' : ''} />
                         <Card label="Passed" value={summary.passed} className="success" />
                         <Card label="Failed" value={summary.failed} className={summary.failed > 0 ? 'error' : ''} />
-                        <Card label="Total Tests" value={summary.total} />
+                        <Card label={multiModel ? 'Total Runs' : 'Total Tests'} value={summary.total} />
+                        {multiModel && <Card label="Models" value={models.length} />}
                         <Card label="Total Tokens" value={summary.total_tokens.toLocaleString()} />
                         <Card label="Total Cost" value={'$' + summary.total_cost.toFixed(4)} />
                         <Card label="Duration" value={summary.total_duration_s + 's'} />
                         <Card label="Tool Calls" value={summary.total_tool_calls} />
                     </div>
 
-                    <p className="text-muted" style={{ marginBottom: '1rem', fontSize: '0.875rem' }}>
+                    <p className="text-muted" style={{ marginBottom: '2rem', fontSize: '0.875rem' }}>
                         Run at: {new Date(timestamp).toLocaleString()} &bull; Avg duration: {summary.avg_duration_ms}ms &bull; Avg tool calls: {summary.avg_tool_calls}
                     </p>
 
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Status</th>
-                                <th>Test Name</th>
-                                <th>Model</th>
-                                <th>Message</th>
-                                <th>Tokens</th>
-                                <th>Cost</th>
-                                <th>Duration</th>
-                                <th>Tools</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {results.map((r, i) => (
-                                <tr key={i} className="clickable" onClick={() => onSelect(r)}>
-                                    <td><span className={'status ' + (r.passed ? 'pass' : 'fail')}>{r.passed ? '✓ Pass' : '✗ Fail'}</span></td>
-                                    <td><strong>{r.name}</strong></td>
-                                    <td><span className="model-badge">{r.model}</span></td>
-                                    <td className="text-muted">{r.message}</td>
-                                    <td className="mono">{(r.tokens || 0).toLocaleString()}</td>
-                                    <td className="mono">${(r.cost || 0).toFixed(4)}</td>
-                                    <td className="mono">{((r.duration_ms || 0) / 1000).toFixed(1)}s</td>
-                                    <td className="mono">{r.tool_call_count || 0}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                    {multiModel && (
+                        <>
+                            <div className="section">
+                                <h2 className="section-title">Performance by Model</h2>
+                                <ModelTable byModel={byModel} activeModel={modelFilter} onSelectModel={setModelFilter} />
+                            </div>
+
+                            <div className="section">
+                                <h2 className="section-title">Pass / Fail by Test and Model</h2>
+                                <ModelMatrix results={results} models={models} onSelect={onSelect} />
+                            </div>
+                        </>
+                    )}
+
+                    <div className="section">
+                        <h2 className="section-title">{multiModel ? 'Runs' : 'Tests'}</h2>
+                        {multiModel && <ModelFilter models={models} active={modelFilter} onChange={setModelFilter} />}
+                        <RunTable results={visibleResults} onSelect={onSelect} />
+                    </div>
                 </>
+            );
+        }
+
+        function ModelTable({ byModel, activeModel, onSelectModel }) {
+            return (
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Model</th>
+                            <th>Pass Rate</th>
+                            <th>Passed</th>
+                            <th>Failed</th>
+                            <th>Tokens</th>
+                            <th>Cost</th>
+                            <th>Avg Duration</th>
+                            <th>Avg Tools</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {byModel.map(m => (
+                            <tr key={m.model} className="clickable" onClick={() => onSelectModel(activeModel === m.model ? 'all' : m.model)}>
+                                <td><span className={'model-badge' + (activeModel === m.model ? ' active' : '')}>{m.model}</span></td>
+                                <td><PassRate rate={m.pass_rate} /></td>
+                                <td className="mono">{m.passed}/{m.total}</td>
+                                <td className="mono">{m.failed}</td>
+                                <td className="mono">{m.total_tokens.toLocaleString()}</td>
+                                <td className="mono">${m.total_cost.toFixed(4)}</td>
+                                <td className="mono">{(m.avg_duration_ms / 1000).toFixed(1)}s</td>
+                                <td className="mono">{m.avg_tool_calls}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            );
+        }
+
+        function PassRate({ rate }) {
+            const tone = rate === 100 ? '' : rate < 50 ? ' error' : ' warn';
+            return (
+                <div className="rate">
+                    <span className="rate-value">{rate}%</span>
+                    <div className="rate-bar"><div className={'rate-fill' + tone} style={{ width: rate + '%' }} /></div>
+                </div>
+            );
+        }
+
+        function ModelMatrix({ results, models, onSelect }) {
+            const testNames = [...new Set(results.map(r => r.name))];
+            const runs = {};
+            results.forEach(r => { runs[r.name + '\\u0000' + r.model] = r; });
+
+            return (
+                <table className="matrix">
+                    <thead>
+                        <tr>
+                            <th>Test</th>
+                            {models.map(m => <th key={m}>{m}</th>)}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {testNames.map(name => (
+                            <tr key={name}>
+                                <td><strong>{name}</strong></td>
+                                {models.map(m => {
+                                    const run = runs[name + '\\u0000' + m];
+                                    if (!run) return <td key={m} className="text-muted">&mdash;</td>;
+                                    return (
+                                        <td key={m}>
+                                            <span
+                                                className={'status cell-status ' + (run.passed ? 'pass' : 'fail')}
+                                                title={run.message}
+                                                onClick={() => onSelect(run)}
+                                            >
+                                                {run.passed ? '✓' : '✗'} {((run.duration_ms || 0) / 1000).toFixed(1)}s
+                                            </span>
+                                        </td>
+                                    );
+                                })}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            );
+        }
+
+        function ModelFilter({ models, active, onChange }) {
+            return (
+                <div className="filters">
+                    <button className={'chip' + (active === 'all' ? ' active' : '')} onClick={() => onChange('all')}>All models</button>
+                    {models.map(m => (
+                        <button key={m} className={'chip' + (active === m ? ' active' : '')} onClick={() => onChange(m)}>{m}</button>
+                    ))}
+                </div>
+            );
+        }
+
+        function RunTable({ results, onSelect }) {
+            return (
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Status</th>
+                            <th>Test Name</th>
+                            <th>Model</th>
+                            <th>Message</th>
+                            <th>Tokens</th>
+                            <th>Cost</th>
+                            <th>Duration</th>
+                            <th>Tools</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {results.map((r, i) => (
+                            <tr key={i} className="clickable" onClick={() => onSelect(r)}>
+                                <td><span className={'status ' + (r.passed ? 'pass' : 'fail')}>{r.passed ? '✓ Pass' : '✗ Fail'}</span></td>
+                                <td><strong>{r.name}</strong></td>
+                                <td><span className="model-badge">{r.model}</span></td>
+                                <td className="text-muted">{r.message}</td>
+                                <td className="mono">{(r.tokens || 0).toLocaleString()}</td>
+                                <td className="mono">${(r.cost || 0).toFixed(4)}</td>
+                                <td className="mono">{((r.duration_ms || 0) / 1000).toFixed(1)}s</td>
+                                <td className="mono">{r.tool_call_count || 0}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
             );
         }
 
@@ -271,6 +416,13 @@ def get_html_template() -> str:
                                 <div className="detail-section">
                                     <h3>Tool Calls ({details.tool_calls.length})</h3>
                                     <ToolCallsList toolCalls={details.tool_calls} />
+                                </div>
+                            )}
+
+                            {details.reference_sql && (
+                                <div className="detail-section">
+                                    <h3>Reference SQL</h3>
+                                    <pre>{details.reference_sql}</pre>
                                 </div>
                             )}
 
@@ -337,10 +489,7 @@ def get_html_template() -> str:
                             </div>
                             {expanded[i] && (
                                 <div className="tool-call-details">
-                                    <div className="tool-call-section">
-                                        <div className="tool-call-label">Arguments</div>
-                                        <pre>{JSON.stringify(tc.args, null, 2)}</pre>
-                                    </div>
+                                    <ToolCallArgs toolCall={tc} />
                                     {tc.result !== undefined && (
                                         <div className="tool-call-section">
                                             <div className="tool-call-label">Result</div>
@@ -351,6 +500,35 @@ def get_html_template() -> str:
                             )}
                         </div>
                     ))}
+                </div>
+            );
+        }
+
+        function ToolCallArgs({ toolCall }) {
+            const { toolName, args } = toolCall;
+
+            if (toolName === 'execute_sql' && args && typeof args.sql_query === 'string') {
+                const { sql_query, ...otherArgs } = args;
+                return (
+                    <>
+                        <div className="tool-call-section">
+                            <div className="tool-call-label">SQL Query</div>
+                            <pre>{sql_query}</pre>
+                        </div>
+                        {Object.keys(otherArgs).length > 0 && (
+                            <div className="tool-call-section">
+                                <div className="tool-call-label">Other Arguments</div>
+                                <pre>{JSON.stringify(otherArgs, null, 2)}</pre>
+                            </div>
+                        )}
+                    </>
+                );
+            }
+
+            return (
+                <div className="tool-call-section">
+                    <div className="tool-call-label">Arguments</div>
+                    <pre>{JSON.stringify(args, null, 2)}</pre>
                 </div>
             );
         }
@@ -405,7 +583,7 @@ class TestResultsHandler(http.server.BaseHTTPRequestHandler):
 
         try:
             data = json.loads(filepath.read_text())
-            self.send_json_response(data)
+            self.send_json_response(with_model_summaries(data))
         except Exception as e:
             self.send_error(500, str(e))
 

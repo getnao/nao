@@ -16,6 +16,7 @@ class TestCase:
     prompt: str
     file_path: Path
     sql: str
+    database: str | None = None
 
     @classmethod
     def from_yaml(cls, file_path: Path) -> "TestCase":
@@ -27,6 +28,7 @@ class TestCase:
             name=data.get("name", file_path.stem),
             prompt=data["prompt"],
             sql=data.get("sql"),
+            database=data.get("database"),
             file_path=file_path,
         )
 
@@ -39,7 +41,11 @@ def discover_tests(project_path: Path) -> list[TestCase]:
         UI.warn(f"Tests folder not found: {tests_dir}")
         return []
 
-    test_files = list(tests_dir.glob("*.yml")) + list(tests_dir.glob("*.yaml"))
+    test_files = [
+        p
+        for p in (*tests_dir.rglob("*.yml"), *tests_dir.rglob("*.yaml"))
+        if "outputs" not in p.relative_to(tests_dir).parts
+    ]
 
     if not test_files:
         UI.warn(f"No test files found in {tests_dir}")

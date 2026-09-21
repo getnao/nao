@@ -27,6 +27,7 @@ export enum PostHogEvent {
 	SavedPromptDeleted = 'saved_prompt_deleted',
 
 	ProjectAgentSettingsUpdated = 'project_agent_settings_updated',
+	ProjectDisplaySettingsUpdated = 'project_display_settings_updated',
 
 	AgentStopped = 'agent_stopped',
 	AgentMemoryUpdated = 'agent_memory_updated',
@@ -37,6 +38,7 @@ export enum PostHogEvent {
 	SlackConfigured = 'slack_configured',
 	TeamsConfigured = 'teams_configured',
 	TelegramConfigured = 'telegram_configured',
+	MattermostConfigured = 'mattermost_configured',
 	WhatsappConfigured = 'whatsapp_configured',
 }
 

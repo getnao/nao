@@ -19,7 +19,7 @@ export const InputSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			'The markdown content. Required for "create" (initial content) and "replace" (new content). Can include charts via <chart query_id="..." /> blocks and SQL tables via <table query_id="..." /> blocks. Use <grid cols="2">...</grid> to lay out charts side by side in a responsive grid.',
+			'The markdown content. Required for "create" (initial content) and "replace" (new content). Can include charts via <chart query_id="..." /> blocks and SQL tables via <table query_id="..." /> blocks. Use <grid>...</grid> to lay out 2–4 charts/tables side by side, optionally with widths="2,1" (comma-separated positive integers, one per column) for unequal column widths. Use <tab title="...">...</tab> blocks for a tabbed layout.',
 		),
 	search: z.string().optional().describe('The exact text to find in the current story code. Required for "update".'),
 	replace: z.string().optional().describe('The replacement text. Required for "update".'),
@@ -33,6 +33,7 @@ export const OutputSchema = z.object({
 	code: z.string().describe('The full story code after the operation.'),
 	title: z.string(),
 	error: z.string().optional(),
+	template_warnings: z.array(z.string()).optional(),
 });
 
 export type Input = z.infer<typeof InputSchema>;

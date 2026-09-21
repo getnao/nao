@@ -68,7 +68,7 @@ export function NewCredentialsDialog({ open, onOpenChange, credentials }: NewCre
 					</div>
 
 					<div className='flex justify-end gap-2 pt-2'>
-						<Button variant='default' onClick={() => onOpenChange(false)}>
+						<Button variant='primary-gradient' onClick={() => onOpenChange(false)}>
 							Done
 						</Button>
 					</div>

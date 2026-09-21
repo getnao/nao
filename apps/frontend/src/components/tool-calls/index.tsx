@@ -3,8 +3,10 @@ import { StoryToolCall } from './story';
 import { ClarificationToolCall } from './clarification';
 import { DefaultToolCall } from './default';
 import { DisplayChartToolCall } from './display-chart';
+import { DisplayMapToolCall } from './display-map';
 import { ExecutePythonToolCall } from './execute-python';
 import { ExecuteSandboxedCodeToolCall } from './execute-sandboxed-code';
+import { ExecuteSemanticQueryToolCall } from './execute-semantic-query';
 import { ExecuteSqlToolCall } from './execute-sql';
 import { GrepToolCall } from './grep';
 import { ListToolCall } from './list';
@@ -14,13 +16,14 @@ import { ReadToolCall } from './read';
 import { ReadQueryResultToolCall } from './read-query-result';
 import { RecordRecommendationToolCall } from './record-recommendation';
 import { SearchToolCall } from './search';
+import { TaskToolCall } from './task';
 import { WebFetchToolCall } from './web-fetch';
 import { WebSearchToolCall } from './web-search';
+import { WriteToolCall } from './write';
 import type { StaticToolName, UIToolPart } from '@nao/backend/chat';
 import { getToolName, isToolSettled } from '@/lib/ai';
 import { ToolCallProvider } from '@/contexts/tool-call';
 import { useAssistantMessage } from '@/contexts/assistant-message';
-import { useMcpContext } from '@/contexts/mcp';
 
 export type ToolCallComponentProps<TToolName extends StaticToolName | undefined = undefined> = {
 	toolPart: UIToolPart<TToolName>;
@@ -32,14 +35,18 @@ const toolComponents: Partial<{
 	story: StoryToolCall,
 	clarification: ClarificationToolCall,
 	display_chart: DisplayChartToolCall,
+	display_map: DisplayMapToolCall,
 	execute_python: ExecutePythonToolCall,
 	execute_sandboxed_code: ExecuteSandboxedCodeToolCall,
 	execute_sql: ExecuteSqlToolCall,
+	execute_semantic_query: ExecuteSemanticQueryToolCall,
 	grep: GrepToolCall,
 	list: ListToolCall,
 	read: ReadToolCall,
 	read_query_result: ReadQueryResultToolCall,
 	search: SearchToolCall,
+	task: TaskToolCall,
+	write: WriteToolCall,
 };
 
 export const dynamicToolComponents = {
@@ -48,33 +55,28 @@ export const dynamicToolComponents = {
 	google_search: WebSearchToolCall,
 	query_app_db: QueryAppDbToolCall,
 	record_recommendation: RecordRecommendationToolCall,
+	mcp_call: McpToolCall,
+	mcp_connect: McpToolCall,
 } satisfies Record<string, React.ComponentType<ToolCallComponentProps>>;
 
 export type DynamicToolName = keyof typeof dynamicToolComponents;
 
 export const ToolCall = memo(({ toolPart }: { toolPart: UIToolPart }) => {
 	const { isSettled: isMessageSettled } = useAssistantMessage();
-	const { mcpState } = useMcpContext();
-	const mcpServerNames = mcpState ? Object.keys(mcpState) : [];
 
-	if (toolPart.type === 'tool-suggest_follow_ups') {
+	// Neither is the agent talking to the user: follow-ups render in their own strip, and a
+	// built-in skill is internal guidance nobody should have to see the agent consult.
+	if (toolPart.type === 'tool-suggest_follow_ups' || toolPart.type === 'tool-load_skill') {
 		return null;
 	}
 
 	const toolName = getToolName(toolPart);
-	const isMcpTool = mcpServerNames.some((server) => toolName.startsWith(`${server}`));
 
 	const Component =
 		(toolComponents[toolName as StaticToolName] as React.ComponentType<ToolCallComponentProps> | undefined) ??
 		dynamicToolComponents[toolName as DynamicToolName];
 
-	const Rendered = Component ? (
-		<Component toolPart={toolPart} />
-	) : isMcpTool ? (
-		<McpToolCall toolPart={toolPart} />
-	) : (
-		<DefaultToolCall toolPart={toolPart} />
-	);
+	const Rendered = Component ? <Component toolPart={toolPart} /> : <DefaultToolCall toolPart={toolPart} />;
 
 	return (
 		<ToolCallProvider

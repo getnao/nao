@@ -8,9 +8,10 @@ describe('recommendation collector tools', () => {
 
 		await collector.recordTool.execute!(
 			{
+				category: 'tool_error',
+				rootCause: 'r',
 				suggestedFile: 'RULES.md',
 				subjectKey: 'k',
-				severity: 'high',
 				title: 't',
 				summary: 's',
 				suggestedAction: 'a',

@@ -1,10 +1,14 @@
+import { extractQueryIds } from '@nao/shared/story-segments';
+
 import { getMcpQueryData } from '../queries/mcp-query-data.queries';
 import { getQueryDataFromCode } from '../queries/shared-story.queries';
 import * as storyQueries from '../queries/story.queries';
 
 export type StoryQueryDataMap = Record<string, { data: unknown[]; columns: string[] }>;
 
-export async function resolveStoryQueryDataForSandbox(
+export type StoryQueryDataSource = { chatId: string } | { projectId: string; userId?: string };
+
+export async function backfillMissingQueryDataForSandbox(
 	code: string,
 	opts: { storyId?: string; chatId?: string | null; projectId: string; userId?: string },
 ): Promise<StoryQueryDataMap | null> {
@@ -23,44 +27,54 @@ export async function resolveStoryQueryDataForSandbox(
 		}
 	}
 	const seeded = Object.keys(seed).length > 0 ? seed : null;
-	return resolveStoryQueryData(code, seeded, opts.projectId, opts.userId);
+	return backfillMissingQueryData(code, seeded, { projectId: opts.projectId, userId: opts.userId });
 }
 
-export async function resolveStoryQueryData(
+export function findMissingQueryIds(code: string, cachedQueryData: StoryQueryDataMap | null): string[] {
+	return [...extractQueryIds(code)].filter((id) => !cachedQueryData?.[id]);
+}
+
+export async function backfillMissingQueryData(
 	code: string,
 	cachedQueryData: StoryQueryDataMap | null,
-	projectId: string,
-	userId?: string,
+	source: StoryQueryDataSource,
 ): Promise<StoryQueryDataMap | null> {
-	const referencedIds = extractQueryIdsFromStoryCode(code);
-	if (referencedIds.size === 0) {
+	const missing = findMissingQueryIds(code, cachedQueryData);
+	if (missing.length === 0) {
 		return cachedQueryData;
 	}
 
-	const merged: StoryQueryDataMap = { ...(cachedQueryData ?? {}) };
-	const missing = [...referencedIds].filter((id) => !merged[id]);
-	if (missing.length === 0) {
-		return merged;
-	}
+	const filled =
+		'chatId' in source
+			? await fetchFromChat(source.chatId, code, missing)
+			: await fetchFromMcp(missing, source.projectId, source.userId);
 
-	const fetchOptions = userId ? { userId } : undefined;
-	const fetched = await Promise.all(missing.map((id) => getMcpQueryData(id, projectId, fetchOptions)));
-	missing.forEach((id, idx) => {
-		const row = fetched[idx];
-		if (row) {
-			merged[id] = { columns: row.columns, data: row.data };
-		}
-	});
-
+	const merged = { ...(cachedQueryData ?? {}), ...filled };
 	return Object.keys(merged).length > 0 ? merged : null;
 }
 
-function extractQueryIdsFromStoryCode(code: string): Set<string> {
-	const ids = new Set<string>();
-	const regex = /<(?:chart|table)\s+[^>]*?\bquery_id\s*=\s*"([^"]+)"/g;
-	let match: RegExpExecArray | null;
-	while ((match = regex.exec(code)) !== null) {
-		ids.add(match[1]);
+async function fetchFromChat(chatId: string, code: string, ids: string[]): Promise<StoryQueryDataMap> {
+	const fromChat = await getQueryDataFromCode(chatId, code).catch(() => null);
+
+	const filled: StoryQueryDataMap = {};
+	for (const id of ids) {
+		if (fromChat?.[id]) {
+			filled[id] = fromChat[id];
+		}
 	}
-	return ids;
+	return filled;
+}
+
+async function fetchFromMcp(ids: string[], projectId: string, userId?: string): Promise<StoryQueryDataMap> {
+	const fetchOptions = userId ? { userId } : undefined;
+	const rows = await Promise.all(ids.map((id) => getMcpQueryData(id, projectId, fetchOptions)));
+
+	const filled: StoryQueryDataMap = {};
+	ids.forEach((id, idx) => {
+		const row = rows[idx];
+		if (row) {
+			filled[id] = { columns: row.columns, data: row.data };
+		}
+	});
+	return filled;
 }

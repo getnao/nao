@@ -6,7 +6,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from nao_core.commands.sync import sync
-from nao_core.commands.sync.providers import ProviderSelection, SyncProvider, SyncResult
+from nao_core.commands.sync.providers import (
+    DatabaseSyncProvider,
+    ProviderSelection,
+    SyncProvider,
+    SyncResult,
+)
 
 
 def _make_provider(
@@ -16,6 +21,7 @@ def _make_provider(
     items_synced=0,
     output_dir="test-output",
     sync_error=None,
+    result_error=None,
     emoji=None,
 ):
     provider = MagicMock(spec=SyncProvider)
@@ -31,6 +37,7 @@ def _make_provider(
         provider.sync.return_value = SyncResult(
             provider_name=name,
             items_synced=items_synced,
+            error=result_error,
         )
     return ProviderSelection(provider)
 
@@ -69,6 +76,62 @@ class TestSyncCommand:
         # Verify sync was called with the custom output path
         call_args = selection.provider.sync.call_args
         assert str(call_args[0][1]) == custom_output
+
+    def test_sync_uses_threads_from_config(self, create_config):
+        create_config("project_name: test-project\nthreads: 3\n")
+        selection = _make_provider(items=["item1"], items_synced=1)
+
+        with patch("nao_core.commands.sync.console"):
+            sync(_providers=[selection])
+
+        assert selection.provider.sync.call_args.kwargs["threads"] == 3
+
+    def test_sync_forwards_select_to_database_provider(self, create_config):
+        create_config()
+        provider = MagicMock(spec=DatabaseSyncProvider)
+        provider.should_sync.return_value = True
+        provider.name = "Databases"
+        provider.default_output_dir = "databases"
+        provider.get_items.return_value = []
+        provider.sync.return_value = SyncResult(provider_name="Databases", items_synced=0)
+        selection = ProviderSelection(provider)
+
+        with patch("nao_core.commands.sync.console"):
+            sync(_providers=[selection], select=["analytics.orders"], render_templates=False)
+
+        assert provider.sync.call_args.kwargs.get("select") == ["analytics.orders"]
+
+    def test_sync_warns_and_skips_select_for_non_database_provider(self, create_config):
+        create_config()
+        selection = _make_provider(items=["item1"], items_synced=1)
+
+        with patch("nao_core.commands.sync.console") as mock_console:
+            sync(_providers=[selection], select=["analytics.orders"], render_templates=False)
+
+        mock_console.print.assert_any_call(
+            "[yellow]Warning:[/yellow] --select only applies to the databases provider; ignoring it here."
+        )
+        assert "select" not in selection.provider.sync.call_args.kwargs
+
+    def test_sync_cli_threads_override_config(self, create_config):
+        create_config("project_name: test-project\nthreads: 3\n")
+        selection = _make_provider(items=["item1"], items_synced=1)
+
+        with patch("nao_core.commands.sync.console"):
+            sync(threads=5, _providers=[selection])
+
+        assert selection.provider.sync.call_args.kwargs["threads"] == 5
+
+    def test_sync_rejects_invalid_cli_threads(self, create_config):
+        create_config()
+        selection = _make_provider(items=["item1"], items_synced=1)
+
+        with patch("nao_core.commands.sync.console"):
+            with pytest.raises(SystemExit) as exc_info:
+                sync(threads=0, _providers=[selection])
+
+        assert exc_info.value.code == 1
+        selection.provider.sync.assert_not_called()
 
     def test_sync_skips_provider_when_should_sync_false(self, create_config):
         create_config()
@@ -109,6 +172,16 @@ class TestSyncCommand:
         # Verify both providers were attempted
         failing.provider.sync.assert_called_once()
         working.provider.sync.assert_called_once()
+
+    def test_sync_exits_when_provider_returns_failed_result(self, create_config):
+        create_config()
+        failing = _make_provider(items=["item1"], result_error="Failed to sync 1 item")
+
+        with patch("nao_core.commands.sync.console"):
+            with pytest.raises(SystemExit) as exc_info:
+                sync(_providers=[failing], render_templates=False)
+
+        assert exc_info.value.code == 1
 
     def test_sync_shows_partial_success_when_some_providers_fail(self, create_config):
         """Test that sync shows partial success status when some providers fail."""

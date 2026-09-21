@@ -11,6 +11,7 @@ import { MobileHeader } from '@/components/mobile-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SettingsCard } from '@/components/ui/settings-card';
+import { useEffectiveUserGroupFeatures } from '@/hooks/use-effective-user-group-features';
 import { useTimeAgo } from '@/hooks/use-time-ago';
 import { getActiveProjectId } from '@/lib/active-project';
 import { requireAutomationsEnabled } from '@/lib/require-admin';
@@ -18,7 +19,9 @@ import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/feed/')({
-	beforeLoad: requireAutomationsEnabled,
+	beforeLoad: async () => {
+		await requireAutomationsEnabled();
+	},
 	component: AutomationsPage,
 });
 
@@ -26,6 +29,7 @@ function AutomationsPage() {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const [isCreating, setIsCreating] = useState(false);
+	const { automationCreationEnabled } = useEffectiveUserGroupFeatures();
 
 	const automations = useQuery(trpc.automation.list.queryOptions());
 	const feed = useQuery(
@@ -66,13 +70,15 @@ function AutomationsPage() {
 							Catch up on all your activity (automations, stories). Latest first.
 						</p>
 					</div>
-					<Button variant='primary-gradient' onClick={() => setIsCreating((value) => !value)}>
-						{isCreating ? <X className='size-4' /> : <Plus className='size-4' />}
-						{isCreating ? 'Cancel' : 'New automation'}
-					</Button>
+					{automationCreationEnabled && (
+						<Button variant='primary-gradient' onClick={() => setIsCreating((value) => !value)}>
+							{isCreating ? <X className='size-4' /> : <Plus className='size-4' />}
+							{isCreating ? 'Cancel' : 'New automation'}
+						</Button>
+					)}
 				</header>
 
-				{isCreating && (
+				{automationCreationEnabled && isCreating && (
 					<SettingsCard title='New automation'>
 						<AutomationForm
 							submitLabel='Create automation'
@@ -88,13 +94,18 @@ function AutomationsPage() {
 							items={feedItems}
 							isLoading={feed.isLoading}
 							hasAutomations={automationItems.length > 0}
+							canCreateAutomation={automationCreationEnabled}
 							lastSeenAt={lastSeenAt}
 							onCancelRun={handleCancelRun}
 							cancellingRunId={cancelRun.isPending ? (cancelRun.variables?.runId ?? null) : null}
 						/>
 					</section>
 					<aside className='lg:sticky lg:top-6 lg:self-start'>
-						<AutomationsSidePanel items={automationItems} isLoading={automations.isLoading} />
+						<AutomationsSidePanel
+							items={automationItems}
+							isLoading={automations.isLoading}
+							canCreateAutomation={automationCreationEnabled}
+						/>
 					</aside>
 				</div>
 			</div>
@@ -170,10 +181,19 @@ type AutomationSummary = {
 	enabled: boolean;
 	scheduleDescription: string | null;
 	cron: string;
+	webhookEnabled: boolean;
 	lastRunStartedAt: Date | string | null;
 };
 
-function AutomationsSidePanel({ items, isLoading }: { items: AutomationSummary[]; isLoading: boolean }) {
+function AutomationsSidePanel({
+	items,
+	isLoading,
+	canCreateAutomation,
+}: {
+	items: AutomationSummary[];
+	isLoading: boolean;
+	canCreateAutomation: boolean;
+}) {
 	return (
 		<div className='rounded-xl border bg-background/60 p-3 shadow-xs'>
 			<div className='flex items-center justify-between px-1 pb-2'>
@@ -183,7 +203,7 @@ function AutomationsSidePanel({ items, isLoading }: { items: AutomationSummary[]
 			{isLoading && items.length === 0 ? (
 				<SidePanelSkeleton />
 			) : items.length === 0 ? (
-				<SidePanelEmptyState />
+				<SidePanelEmptyState canCreateAutomation={canCreateAutomation} />
 			) : (
 				<ul className='flex flex-col'>
 					{items.map((item) => (
@@ -199,6 +219,8 @@ function AutomationSidePanelRow({ item }: { item: AutomationSummary }) {
 	const lastRunMs = item.lastRunStartedAt ? new Date(item.lastRunStartedAt).getTime() : 0;
 	const lastRunAgo = useTimeAgo(lastRunMs);
 	const lastRunLabel = item.lastRunStartedAt ? lastRunAgo.humanReadable : 'Never run';
+	const hasSchedule = Boolean(item.cron);
+	const triggerLabel = buildTriggerLabel(item);
 
 	return (
 		<li>
@@ -209,22 +231,58 @@ function AutomationSidePanelRow({ item }: { item: AutomationSummary }) {
 			>
 				<div className='flex items-center justify-between gap-2'>
 					<span className='truncate text-sm font-medium'>{item.title}</span>
-					<Badge
-						variant={item.enabled ? 'default' : 'secondary'}
-						className='shrink-0 px-1.5 py-0 text-[10px]'
-					>
-						{item.enabled ? 'On' : 'Paused'}
-					</Badge>
+					<AutomationStatusBadge
+						enabled={item.enabled}
+						hasSchedule={hasSchedule}
+						webhookEnabled={item.webhookEnabled}
+					/>
 				</div>
-				<span className='truncate text-xs text-muted-foreground'>
-					{item.scheduleDescription || item.cron || 'Custom schedule'}
-				</span>
+				<span className='truncate text-xs text-muted-foreground'>{triggerLabel}</span>
 				<span className={cn('text-[11px] text-muted-foreground/80', !item.lastRunStartedAt && 'italic')}>
 					{lastRunLabel}
 				</span>
 			</Link>
 		</li>
 	);
+}
+
+function AutomationStatusBadge({
+	enabled,
+	hasSchedule,
+	webhookEnabled,
+}: {
+	enabled: boolean;
+	hasSchedule: boolean;
+	webhookEnabled: boolean;
+}) {
+	if (!hasSchedule) {
+		if (!webhookEnabled) {
+			return null;
+		}
+		return (
+			<Badge variant='secondary' className='shrink-0 px-1.5 py-0 text-[10px]'>
+				Webhook
+			</Badge>
+		);
+	}
+	return (
+		<Badge variant={enabled ? 'default' : 'secondary'} className='shrink-0 px-1.5 py-0 text-[10px]'>
+			{enabled ? 'On' : 'Paused'}
+		</Badge>
+	);
+}
+
+/**
+ * Surfaces every active trigger so a paused schedule badge is not mistaken for
+ * the automation having no webhook. A paused automation stops all triggers,
+ * including the webhook.
+ */
+function buildTriggerLabel(item: AutomationSummary): string {
+	if (item.cron) {
+		const scheduleText = item.scheduleDescription || item.cron;
+		return item.webhookEnabled ? `${scheduleText} · webhook` : scheduleText;
+	}
+	return item.webhookEnabled ? 'Triggered by webhook' : 'Custom schedule';
 }
 
 function SidePanelSkeleton() {
@@ -237,11 +295,13 @@ function SidePanelSkeleton() {
 	);
 }
 
-function SidePanelEmptyState() {
+function SidePanelEmptyState({ canCreateAutomation }: { canCreateAutomation: boolean }) {
 	return (
 		<div className='flex flex-col items-center justify-center gap-2 px-3 py-6 text-center'>
 			<Timer className='size-5 text-muted-foreground' />
-			<p className='text-xs text-muted-foreground'>No automations yet. Create one to get started.</p>
+			<p className='text-xs text-muted-foreground'>
+				{canCreateAutomation ? 'No automations yet. Create one to get started.' : 'No automations yet.'}
+			</p>
 		</div>
 	);
 }

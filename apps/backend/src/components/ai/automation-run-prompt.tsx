@@ -40,8 +40,14 @@ function AutomationRunPrompt({ prompt, integrations, userEmail }: AutomationRunP
 			<Title>Outbound tools available for this run</Title>
 			<AutomationIntegrationsList integrations={integrations} />
 
+			{integrations.slack?.enabled ? <SlackThreadingGuidance /> : null}
+
 			<Title>Required behaviour</Title>
 			<List ordered>
+				<ListItem>
+					Call <Code>get_automation_run_history</Code> if you need to see previous runs, and focus on what is
+					new since then.
+				</ListItem>
 				<ListItem>
 					Investigate the request below using the data tools (execute_sql, list, read, search, MCP tools,
 					etc.).
@@ -62,6 +68,35 @@ function AutomationRunPrompt({ prompt, integrations, userEmail }: AutomationRunP
 			<Title>Automation prompt</Title>
 			<Span>{prompt}</Span>
 		</Block>
+	);
+}
+
+function SlackThreadingGuidance() {
+	return (
+		<Fragment>
+			<Title>Slack posting structure</Title>
+			<Span>
+				To keep the channel uncluttered, do NOT post the whole report as more than one top-level channel
+				message. Especially if the message is longer than 1000 characters. Instead, structure the Slack delivery
+				as a thread:
+			</Span>
+			<List ordered>
+				<ListItem>
+					Call <Code>send_automation_slack_message</Code> once with a short, descriptive headline only (e.g.
+					&quot;Weekly Commercial Performance Update Report: see thread&quot;) and no <Code>thread_id</Code>.
+					This becomes the single channel message and starts the thread.
+				</ListItem>
+				<ListItem>
+					Read the <Code>threadId</Code> returned by that call and post the full report by calling{' '}
+					<Code>send_automation_slack_message</Code> again with that value as <Code>thread_id</Code>. All
+					report content (and any follow-up parts) must go into the thread, never the channel.
+				</ListItem>
+				<ListItem>
+					Reuse the same <Code>thread_id</Code> for every additional message so the entire report stays in one
+					thread. Charts and stories are uploaded into the thread automatically.
+				</ListItem>
+			</List>
+		</Fragment>
 	);
 }
 

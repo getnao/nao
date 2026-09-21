@@ -11,9 +11,10 @@ import { trpc } from '@/main';
 
 interface TelegramConfigSectionProps {
 	isAdmin: boolean;
+	onCancelSetup: () => void;
 }
 
-export function TelegramConfigSection({ isAdmin }: TelegramConfigSectionProps) {
+export function TelegramConfigSection({ isAdmin, onCancelSetup }: TelegramConfigSectionProps) {
 	const queryClient = useQueryClient();
 	const telegramConfig = useQuery(trpc.project.getTelegramConfig.queryOptions());
 	const { data: availableModels } = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
@@ -68,6 +69,14 @@ export function TelegramConfigSection({ isAdmin }: TelegramConfigSectionProps) {
 		queryClient.removeQueries(trpc.project.getTelegramConfig.queryOptions());
 	};
 
+	const handleCancel = () => {
+		if (projectConfig) {
+			setIsEditing(false);
+			return;
+		}
+		onCancelSetup();
+	};
+
 	const handleStartEditing = () => {
 		const persisted = projectConfig?.modelSelection;
 		const match =
@@ -114,7 +123,7 @@ export function TelegramConfigSection({ isAdmin }: TelegramConfigSectionProps) {
 			<TelegramForm
 				hasProjectConfig={!!projectConfig}
 				onSubmit={handleSubmit}
-				onCancel={() => setIsEditing(false)}
+				onCancel={handleCancel}
 				isPending={upsertTelegramConfig.isPending}
 			/>
 		);
@@ -170,7 +179,11 @@ export function TelegramConfigSection({ isAdmin }: TelegramConfigSectionProps) {
 								<SelectValue>
 									{selectedModel && (
 										<div className='flex items-center gap-2'>
-											<LlmProviderIcon provider={selectedModel.provider} className='size-4' />
+											<LlmProviderIcon
+												provider={selectedModel.provider}
+												baseUrl={selectedModel.baseUrl}
+												className='size-4'
+											/>
 											{selectedModel.name}
 										</div>
 									)}
@@ -182,7 +195,11 @@ export function TelegramConfigSection({ isAdmin }: TelegramConfigSectionProps) {
 										key={`${model.provider}-${model.modelId}`}
 										value={`${model.provider}:${model.modelId}`}
 									>
-										<LlmProviderIcon provider={model.provider} className='size-4' />
+										<LlmProviderIcon
+											provider={model.provider}
+											baseUrl={model.baseUrl}
+											className='size-4'
+										/>
 										{model.name}
 									</SelectItem>
 								))}
@@ -191,7 +208,11 @@ export function TelegramConfigSection({ isAdmin }: TelegramConfigSectionProps) {
 					) : (
 						selectedModel && (
 							<div className='flex items-center gap-2 text-sm text-muted-foreground'>
-								<LlmProviderIcon provider={selectedModel.provider} className='size-4' />
+								<LlmProviderIcon
+									provider={selectedModel.provider}
+									baseUrl={selectedModel.baseUrl}
+									className='size-4'
+								/>
 								<span>{selectedModel.name}</span>
 							</div>
 						)

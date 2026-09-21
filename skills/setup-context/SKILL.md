@@ -28,12 +28,12 @@ Send a single message asking for:
 
 2. **Write `nao_config.yaml`** from the answers (skeleton in appendix below).
 
-3. **Run `nao init`** — it detects the existing yaml and offers to update; confirm. Folder scaffold gets created. Say "no" to optional providers (skills / MCPs / Notion / Slack); edit the yaml directly afterwards if needed.
+3. **Run `nao init --no-tty`** — it detects the pre-written yaml, skips all prompts, scaffolds the folder structure, and auto-installs missing dependencies. No interactive confirmation needed.
 
     Use this command (unsets leaked env vars from the parent agentic CLI — see Step 5):
 
     ```bash
-    unset ANTHROPIC_BASE_URL ANTHROPIC_API_KEY && source ~/.zshrc 2>/dev/null; nao init 2>&1
+    unset ANTHROPIC_BASE_URL ANTHROPIC_API_KEY && source ~/.zshrc 2>/dev/null; nao init --no-tty 2>&1
     ```
 
 4. **Print a summary of `nao_config.yaml` to the user** before going further. Format example:
@@ -43,9 +43,9 @@ Send a single message asking for:
       • project: <name>
       • warehouse: BigQuery (project=<id>, dataset=<id>, auth=service-account)
       • scope: include=["analytics.fct_*", "analytics.dim_*"], exclude=[]
-      • templates: [columns, preview, description]
+      • templates: [columns, preview]
       • repos: company-dbt (git@github.com:org/company-dbt.git)
-      • llm: anthropic (key via ${ANTHROPIC_API_KEY})
+      • llm: anthropic (key via ${{ env('ANTHROPIC_API_KEY') }})
     ```
 
     The model is configured in the nao UI, not in `nao_config.yaml` — don't include a model ID in the summary or the yaml.
@@ -57,10 +57,10 @@ Send a single message asking for:
 Per database in the yaml, set:
 
 ```yaml
-templates: [columns, preview, description]
+templates: [columns, preview]
 ```
 
-That's the set this skill ships. Other values are valid per-warehouse (`how_to_use`, `profiling`, `ai_summary`, and `indexes` for ClickHouse) — see the docs link above — but stick to `[columns, preview, description]` unless the user specifically asks otherwise.
+Valid values are `columns`, `preview`, `profiling`, `query_history`, and `ai_summary`; the default is `[columns, preview]`. `profiling` and `query_history` are opt-in, and `query_history` requires BigQuery, Snowflake, Postgres, Redshift, Databricks, or a custom `query_history_sql`.
 
 **Don't use `accessors` — deprecated** (renamed to `templates`).
 
@@ -85,7 +85,7 @@ Hand off directly to `write-context-rules`. Don't ask.
 
 The key lives in `nao_config.yaml`. Two safe options:
 
-- **Preferred:** env-var ref. Write `api_key: ${ANTHROPIC_API_KEY}`; tell the user to export the key in their shell.
+- **Preferred:** env-var ref. Write `api_key: ${{ env('ANTHROPIC_API_KEY') }}` on the provider entry; tell the user to export the key in their shell.
 - **If they insist on a literal:** tell them to edit the yaml themselves and add it to `.gitignore`. **Never** ask them to paste a key into chat.
 
 Then `nao debug` to confirm.
@@ -111,8 +111,8 @@ Regular human terminals aren't affected.
 - **`cd` into the project directory before any `nao` command.**
 - **Cap at ~100 tables.**
 - **One batch of questions.** Look up warehouse-specific fields from the docs, don't keep pinging the user.
-- **Run `nao init` non-interactively** with the yaml pre-written.
-- **Use `templates: [columns, preview, description]`.** Don't use `accessors`.
+- **Run `nao init --no-tty`** with the yaml pre-written — never run `nao init` without the flag.
+- **Use `templates: [columns, preview]`.** Don't use `accessors`.
 - **Repos: SSH git URLs only.** No local paths in the `repos:` block.
 - **Print the `nao_config.yaml` summary** and get user confirmation before `nao sync`.
 - **Never have the user paste their LLM key into chat.**
@@ -120,7 +120,7 @@ Regular human terminals aren't affected.
 
 ## Appendix — `nao_config.yaml` skeleton (BigQuery example)
 
-Use this shape and adapt the `databases:` block per warehouse — see [docs.getnao.io/nao-agent/context-builder/databases](https://docs.getnao.io/nao-agent/context-builder/databases) for the exact required/optional fields for Snowflake, Postgres, Redshift, Databricks, Athena, ClickHouse, Fabric, MSSQL, MySQL, Trino.
+Use this shape and adapt the `databases:` block per warehouse — see [docs.getnao.io/nao-agent/context-builder/databases](https://docs.getnao.io/nao-agent/context-builder/databases) for the exact required/optional fields for Snowflake, Postgres, Redshift, Databricks, Athena, ClickHouse, Fabric, MSSQL, MySQL, Trino, MotherDuck.
 
 ```yaml
 project_name: <project>
@@ -133,11 +133,15 @@ databases:
       credentials_path: /path/to/service-account.json # or `sso: true`
       include: ['<dataset_pattern>.<table_pattern>'] # e.g. "analytics.fct_*" - use '*' as multiple patterns
       exclude: ['<pattern>']
-      templates: [columns, preview, description]
+      templates: [columns, preview]
 
 llm:
-    provider: anthropic # openai | bedrock | azure | gemini | mistral | ollama
-    api_key: ${ANTHROPIC_API_KEY}
+    providers:
+        - provider: anthropic # openai | bedrock | gemini | mistral | openrouter | ollama | vertex
+          api_key: ${{ env('ANTHROPIC_API_KEY') }}
+          models: # optional, defaults to the provider's built-in models
+              - id: claude-sonnet-4-5
+                default: true
 
 repos:
     - name: <repo-name>

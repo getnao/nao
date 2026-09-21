@@ -11,9 +11,10 @@ import { trpc } from '@/main';
 
 interface TeamsConfigSectionProps {
 	isAdmin: boolean;
+	onCancelSetup: () => void;
 }
 
-export function TeamsConfigSection({ isAdmin }: TeamsConfigSectionProps) {
+export function TeamsConfigSection({ isAdmin, onCancelSetup }: TeamsConfigSectionProps) {
 	const queryClient = useQueryClient();
 	const teamsConfig = useQuery(trpc.project.getTeamsConfig.queryOptions());
 	const { data: availableModels } = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
@@ -53,6 +54,14 @@ export function TeamsConfigSection({ isAdmin }: TeamsConfigSectionProps) {
 	const handleDelete = async () => {
 		await deleteTeamsConfig.mutateAsync();
 		queryClient.removeQueries(trpc.project.getTeamsConfig.queryOptions());
+	};
+
+	const handleCancel = () => {
+		if (projectConfig) {
+			setIsEditing(false);
+			return;
+		}
+		onCancelSetup();
 	};
 
 	const handleStartEditing = () => {
@@ -107,7 +116,7 @@ export function TeamsConfigSection({ isAdmin }: TeamsConfigSectionProps) {
 			<TeamsForm
 				hasProjectConfig={!!projectConfig}
 				onSubmit={handleSubmit}
-				onCancel={() => setIsEditing(false)}
+				onCancel={handleCancel}
 				isPending={upsertTeamsConfig.isPending}
 				teamsRedirectUrl={teamsConfig.data?.redirectUrl}
 			/>
@@ -168,7 +177,11 @@ export function TeamsConfigSection({ isAdmin }: TeamsConfigSectionProps) {
 								<SelectValue>
 									{selectedModel && (
 										<div className='flex items-center gap-2'>
-											<LlmProviderIcon provider={selectedModel.provider} className='size-4' />
+											<LlmProviderIcon
+												provider={selectedModel.provider}
+												baseUrl={selectedModel.baseUrl}
+												className='size-4'
+											/>
 											{selectedModel.name}
 										</div>
 									)}
@@ -180,7 +193,11 @@ export function TeamsConfigSection({ isAdmin }: TeamsConfigSectionProps) {
 										key={`${model.provider}-${model.modelId}`}
 										value={`${model.provider}:${model.modelId}`}
 									>
-										<LlmProviderIcon provider={model.provider} className='size-4' />
+										<LlmProviderIcon
+											provider={model.provider}
+											baseUrl={model.baseUrl}
+											className='size-4'
+										/>
 										{model.name}
 									</SelectItem>
 								))}
@@ -189,7 +206,11 @@ export function TeamsConfigSection({ isAdmin }: TeamsConfigSectionProps) {
 					) : (
 						selectedModel && (
 							<div className='flex items-center gap-2 text-sm text-muted-foreground'>
-								<LlmProviderIcon provider={selectedModel.provider} className='size-4' />
+								<LlmProviderIcon
+									provider={selectedModel.provider}
+									baseUrl={selectedModel.baseUrl}
+									className='size-4'
+								/>
 								<span>{selectedModel.name}</span>
 							</div>
 						)

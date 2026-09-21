@@ -18,7 +18,7 @@ export const SelectionCitationBanner = () => {
 			<Button
 				variant='ghost'
 				size='icon-xs'
-				className='absolute top-1.5 right-1.5 text-muted-foreground'
+				className='absolute top-1.5 right-1.5 text-muted-foreground rounded-full'
 				onClick={() => chatPendingCitationStore.clear(chatId)}
 			>
 				<X className='size-3' />

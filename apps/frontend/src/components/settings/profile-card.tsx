@@ -12,12 +12,7 @@ interface UserProfileCardProps {
 
 export function UserProfileCard({ name, email, onEdit, onSignOut }: UserProfileCardProps) {
 	return (
-		<SettingsCard
-			title='Account'
-			titleSize='lg'
-			description='Manage your account and session.'
-			className='flex flex-row items-center justify-between'
-		>
+		<SettingsCard className='flex flex-row items-center justify-between'>
 			<div className='flex flex-row gap-4'>
 				{name && <Avatar username={name} size='xl' />}
 				<div className='text-left'>

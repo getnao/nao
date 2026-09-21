@@ -1,5 +1,6 @@
 import { EmailButton } from './email-button';
 import { EmailLayout } from './email-layout';
+import { EmailParagraph } from './email-text';
 
 interface SharedItemEmailProps {
 	userName: string;
@@ -11,24 +12,14 @@ interface SharedItemEmailProps {
 
 export function SharedItemEmail({ userName, sharerName, itemLabel, itemTitle, itemUrl }: SharedItemEmailProps) {
 	return (
-		<EmailLayout>
-			<p>Hi {userName},</p>
+		<EmailLayout title={`${sharerName} shared "${itemTitle}" with you on nao`}>
+			<EmailParagraph>Hi {userName},</EmailParagraph>
 
-			<p>
-				<strong>{sharerName}</strong> has shared a {itemLabel} with you on nao.
-			</p>
+			<EmailParagraph>
+				<strong>{sharerName}</strong> shared the {itemLabel} <strong>{itemTitle}</strong> with you on nao.
+			</EmailParagraph>
 
-			<div className='info-box'>
-				<p>
-					<strong>{itemLabel.charAt(0).toUpperCase() + itemLabel.slice(1)}:</strong> {itemTitle}
-				</p>
-			</div>
-
-			<EmailButton href={itemUrl}>View {itemLabel.charAt(0).toUpperCase() + itemLabel.slice(1)}</EmailButton>
-
-			<div className='footer'>
-				<p>This is an automated message from nao.</p>
-			</div>
+			<EmailButton href={itemUrl}>View {itemLabel}</EmailButton>
 		</EmailLayout>
 	);
 }

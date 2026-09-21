@@ -8,15 +8,14 @@ from time import sleep
 from typing import Annotated, Optional
 
 from cyclopts import Parameter
-from rich.console import Console
 
-from nao_core import __version__
+from nao_core import __version__, native
+from nao_core.branding import should_show_banner
 from nao_core.config import NaoConfig, resolve_project_path
-from nao_core.config.llm import PROVIDER_AUTH, LLMProvider
+from nao_core.config.llm import PROVIDER_AUTH, LLMConfig, LLMProvider, ProviderConfig
 from nao_core.mode import MODE
 from nao_core.tracking import track_command
-
-console = Console()
+from nao_core.ui import UI, console
 
 DEFAULT_SERVER_PORT = 5005
 FASTAPI_PORT = 8005
@@ -122,6 +121,59 @@ def ensure_auth_secret(bin_dir: Path) -> str | None:
         return new_secret
 
 
+def build_llm_env(llm: LLMConfig) -> dict[str, str]:
+    """Map every configured provider onto the env vars its SDK credential chain reads.
+
+    The chat server reads models, prices and the annotation model straight from nao_config.yaml;
+    these variables only cover the credential lookups performed by the provider SDKs themselves.
+    """
+    env: dict[str, str] = {}
+
+    for provider_config in llm.providers:
+        # Named endpoints share the env vars of their kind, so the app reads them from the config file only.
+        if provider_config.name:
+            continue
+
+        auth = PROVIDER_AUTH[provider_config.provider]
+        if provider_config.api_key is not None and auth.api_key != "none":
+            env[auth.env_var] = provider_config.api_key
+        if provider_config.base_url and auth.base_url_env_var:
+            env[auth.base_url_env_var] = provider_config.base_url
+
+        if provider_config.provider == LLMProvider.BEDROCK:
+            env.update(_bedrock_env(provider_config))
+        elif provider_config.provider == LLMProvider.VERTEX:
+            env.update(_vertex_env(provider_config))
+
+    return env
+
+
+def _bedrock_env(provider_config: ProviderConfig) -> dict[str, str]:
+    env: dict[str, str] = {}
+    if provider_config.access_key:
+        env["AWS_ACCESS_KEY_ID"] = provider_config.access_key
+    if provider_config.secret_key:
+        env["AWS_SECRET_ACCESS_KEY"] = provider_config.secret_key
+    if provider_config.aws_profile:
+        env["AWS_PROFILE"] = provider_config.aws_profile
+    if provider_config.aws_region:
+        env["AWS_REGION"] = provider_config.aws_region
+    return env
+
+
+def _vertex_env(provider_config: ProviderConfig) -> dict[str, str]:
+    env: dict[str, str] = {}
+    if provider_config.gcp_project:
+        env["GOOGLE_VERTEX_PROJECT"] = provider_config.gcp_project
+    if provider_config.gcp_location:
+        env["GOOGLE_VERTEX_LOCATION"] = provider_config.gcp_location
+    if provider_config.service_account_json:
+        env["VERTEX_GOOGLE_SERVICE_ACCOUNT_JSON"] = provider_config.service_account_json
+    if provider_config.key_file:
+        env["VERTEX_GOOGLE_APPLICATION_CREDENTIALS"] = str(Path(provider_config.key_file).resolve())
+    return env
+
+
 def start_ngrok_tunnel(port: int) -> str:
     """Start an ngrok tunnel and return the public HTTPS URL."""
     try:
@@ -161,6 +213,7 @@ def chat(
     port: Annotated[Optional[int], Parameter(name=["-p", "--port"])] = None,
     *,
     ngrok: Annotated[bool, Parameter(name=["--ngrok"])] = False,
+    sandbox: Annotated[bool, Parameter(name=["--sandbox"])] = False,
 ):
     """Start the nao chat UI.
 
@@ -174,7 +227,12 @@ def chat(
     ngrok : bool
         Start an ngrok tunnel to expose the chat server publicly. Useful for
         Slack integration workflows. Requires an ngrok account and authtoken.
+    sandbox : bool
+        Download the sandbox runtime so code execution in a micro-VM can be enabled
+        in the settings. Only needed once; later runs reuse the cached download.
     """
+    if should_show_banner():
+        UI.banner(__version__)
     console.print("\n[bold cyan]💬 Starting nao chat...[/bold cyan]\n")
 
     config = NaoConfig.try_load(resolve_project_path(), exit_on_error=True)
@@ -214,52 +272,12 @@ def chat(
             env["BETTER_AUTH_SECRET"] = auth_secret
 
         if config and config.llm:
-            auth = PROVIDER_AUTH[config.llm.provider]
-            if config.llm.api_key is not None and auth.api_key != "none":
-                env[auth.env_var] = config.llm.api_key
-                console.print(f"[bold green]✓[/bold green] Set {auth.env_var} from config")
-            if config.llm.base_url and auth.base_url_env_var:
-                env[auth.base_url_env_var] = config.llm.base_url
-                console.print(f"[bold green]✓[/bold green] Set {auth.base_url_env_var} from config")
-
-            if config.llm.provider == LLMProvider.BEDROCK:
-                if config.llm.access_key:
-                    env["AWS_ACCESS_KEY_ID"] = config.llm.access_key
-                    console.print("[bold green]✓[/bold green] Set AWS_ACCESS_KEY_ID from config")
-                if config.llm.secret_key:
-                    env["AWS_SECRET_ACCESS_KEY"] = config.llm.secret_key
-                    console.print("[bold green]✓[/bold green] Set AWS_SECRET_ACCESS_KEY from config")
-                aws_profile = config.llm.aws_profile or os.environ.get("AWS_PROFILE")
-                if aws_profile:
-                    env["AWS_PROFILE"] = aws_profile
-                    console.print("[bold green]✓[/bold green] Set AWS_PROFILE from config")
-                session_token = os.environ.get("AWS_SESSION_TOKEN")
-                if session_token:
-                    env["AWS_SESSION_TOKEN"] = session_token
-                    console.print("[bold green]✓[/bold green] Set AWS_SESSION_TOKEN from environment")
-                if config.llm.aws_region:
-                    env["AWS_REGION"] = config.llm.aws_region
-                    console.print("[bold green]✓[/bold green] Set AWS_REGION from config")
-
-            if config.llm.provider == LLMProvider.VERTEX:
-                if config.llm.gcp_project:
-                    env["GOOGLE_VERTEX_PROJECT"] = config.llm.gcp_project
-                    console.print("[bold green]✓[/bold green] Set GOOGLE_VERTEX_PROJECT from config")
-                if config.llm.gcp_location:
-                    env["GOOGLE_VERTEX_LOCATION"] = config.llm.gcp_location
-                    console.print("[bold green]✓[/bold green] Set GOOGLE_VERTEX_LOCATION from config")
-                if config.llm.service_account_json:
-                    env["VERTEX_GOOGLE_SERVICE_ACCOUNT_JSON"] = config.llm.service_account_json
-                    console.print("[bold green]✓[/bold green] Set VERTEX_GOOGLE_SERVICE_ACCOUNT_JSON from config")
-                if config.llm.key_file:
-                    env["VERTEX_GOOGLE_APPLICATION_CREDENTIALS"] = str(Path(config.llm.key_file).resolve())
-                    console.print("[bold green]✓[/bold green] Set VERTEX_GOOGLE_APPLICATION_CREDENTIALS from config")
+            llm_env = build_llm_env(config.llm)
+            env.update(llm_env)
+            for name in llm_env:
+                console.print(f"[bold green]✓[/bold green] Set {name} from config")
 
         env["NAO_DEFAULT_PROJECT_PATH"] = str(Path.cwd())
-
-        if config and config.llm and config.llm.annotation_model:
-            env["NAO_ANNOTATION_MODEL"] = config.llm.annotation_model
-            console.print("[bold green]✓[/bold green] Set NAO_ANNOTATION_MODEL from config")
 
         if ngrok:
             ngrok_url = start_ngrok_tunnel(port)
@@ -269,6 +287,12 @@ def chat(
 
         env["MODE"] = MODE
         env["NAO_CORE_VERSION"] = __version__
+        native_path = native.node_path(bin_dir, env.get("NODE_PATH"))
+        if native_path:
+            env["NODE_PATH"] = native_path
+
+        if sandbox:
+            native.ensure_group(bin_dir, "sandbox")
 
         fastapi_path = get_fastapi_main_path()
         console.print(f"[dim]FastAPI server: {fastapi_path}[/dim]")

@@ -114,10 +114,20 @@ export function FolderPickerDialog({
 				)}
 
 				<DialogFooter>
-					<Button variant='ghost' onClick={() => onOpenChange(false)} disabled={isPending}>
+					<Button
+						variant='ghost'
+						className='rounded-full border'
+						onClick={() => onOpenChange(false)}
+						disabled={isPending}
+					>
 						Cancel
 					</Button>
-					<Button variant='primary-gradient' onClick={handleMove} disabled={isPending}>
+					<Button
+						variant='primary-gradient'
+						className='rounded-full'
+						onClick={handleMove}
+						disabled={isPending}
+					>
 						Move here
 					</Button>
 				</DialogFooter>

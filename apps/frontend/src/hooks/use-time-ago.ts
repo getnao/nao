@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useReducer } from 'react';
 import type { TimeAgo } from '@/lib/time-ago';
 import { getTimeAgo } from '@/lib/time-ago';
 
 /** Calculate how long ago a timestamp is and update it with a dynamic interval */
 export const useTimeAgo = (timestamp: number): TimeAgo => {
-	const [timeAgo, setTimeAgo] = useState(getTimeAgo(timestamp));
+	const [, refresh] = useReducer((value: number) => value + 1, 0);
+	const timeAgo = getTimeAgo(timestamp);
 
 	useEffect(() => {
 		let intervalTime = 0;
@@ -20,11 +21,11 @@ export const useTimeAgo = (timestamp: number): TimeAgo => {
 
 		if (intervalTime > 0) {
 			const timeout = setTimeout(() => {
-				setTimeAgo(getTimeAgo(timestamp));
+				refresh();
 			}, intervalTime);
 			return () => clearTimeout(timeout);
 		}
-	}, [timeAgo, timestamp]);
+	}, [timeAgo.unit, timestamp]);
 
 	return timeAgo;
 };

@@ -2,10 +2,11 @@ import { ChevronRight, FilePen, FilePlus } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { MouseEvent } from 'react';
 
-import type { DiffLine, LineDiff } from '@/lib/line-diff';
+import type { LineDiff } from '@/lib/line-diff';
+import { FileDiffBody } from '@/components/settings/file-diff';
+import { SidePanelHeader } from '@/components/side-panel/side-panel-header';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { computeLineDiff } from '@/lib/line-diff';
-import { cn } from '@/lib/utils';
 
 interface ProposedEdit {
 	path: string;
@@ -39,12 +40,7 @@ export function RecommendationDiffPanel({ title, edits }: RecommendationDiffPane
 
 	return (
 		<div className='flex h-full min-h-0 flex-col bg-background'>
-			<div className='shrink-0 border-b px-4 py-3'>
-				<div className='text-xs font-medium text-muted-foreground'>Proposed changes</div>
-				<div className='truncate text-sm font-semibold' title={title}>
-					{title}
-				</div>
-			</div>
+			<SidePanelHeader label='Proposed changes' title={title} />
 
 			<div className='min-h-0 flex-1 overflow-auto p-4'>
 				<Accordion
@@ -92,42 +88,8 @@ function FileDiff({
 				<span className='shrink-0 font-mono text-[11px] text-red-600 dark:text-red-400'>-{diff.deletions}</span>
 			</AccordionTrigger>
 			<AccordionContent className='p-0'>
-				<DiffBody lines={diff.lines} />
+				<FileDiffBody lines={diff.lines} />
 			</AccordionContent>
 		</AccordionItem>
-	);
-}
-
-function DiffBody({ lines }: { lines: DiffLine[] }) {
-	return (
-		<div className='overflow-x-auto font-mono text-xs leading-relaxed'>
-			{lines.map((line, index) => (
-				<div
-					key={index}
-					className={cn(
-						'flex',
-						line.type === 'add' && 'bg-emerald-500/10',
-						line.type === 'remove' && 'bg-red-500/10',
-					)}
-				>
-					<span className='w-9 shrink-0 select-none px-1 text-right text-muted-foreground/50'>
-						{line.oldNumber ?? ''}
-					</span>
-					<span className='w-9 shrink-0 select-none px-1 text-right text-muted-foreground/50'>
-						{line.newNumber ?? ''}
-					</span>
-					<span
-						className={cn(
-							'w-4 shrink-0 select-none text-center',
-							line.type === 'add' && 'text-emerald-600 dark:text-emerald-400',
-							line.type === 'remove' && 'text-red-600 dark:text-red-400',
-						)}
-					>
-						{line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ''}
-					</span>
-					<span className='flex-1 whitespace-pre-wrap break-words pr-3'>{line.text || ' '}</span>
-				</div>
-			))}
-		</div>
 	);
 }

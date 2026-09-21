@@ -37,6 +37,14 @@ const handleGithubSignIn = async (callbackURL = '/') => {
 	});
 };
 
+const handleGitlabSignIn = async (callbackURL = '/') => {
+	await authClient.signIn.social({
+		provider: 'gitlab',
+		callbackURL,
+		errorCallbackURL: '/login',
+	});
+};
+
 const handleOidcSignIn = async (providerId: string, callbackURL = '/') => {
 	await authClient.signIn.oauth2({
 		providerId,
@@ -45,4 +53,4 @@ const handleOidcSignIn = async (providerId: string, callbackURL = '/') => {
 	});
 };
 
-export { handleGithubSignIn, handleGoogleSignIn, handleOidcSignIn };
+export { handleGithubSignIn, handleGitlabSignIn, handleGoogleSignIn, handleOidcSignIn };

@@ -3,8 +3,9 @@ import { initTRPC, TRPCError } from '@trpc/server';
 import type { CreateFastifyContextOptions } from '@trpc/server/adapters/fastify';
 import superjson from 'superjson';
 
-import { getAuth } from '../auth';
+import { getSession } from '../auth';
 import * as projectQueries from '../queries/project.queries';
+import { isOrganizationRoleMappingActive } from '../services/sso-group-mapping.service';
 import { HandlerError } from '../utils/error';
 import { convertHeaders } from '../utils/utils';
 
@@ -13,8 +14,7 @@ export type MiddlewareFunction = Parameters<typeof t.procedure.use>[0];
 
 export const createContext = async (opts: CreateFastifyContextOptions) => {
 	const headers = convertHeaders(opts.req.headers);
-	const auth = await getAuth();
-	const session = await auth?.api.getSession({ headers });
+	const session = await getSession(headers);
 	return {
 		session,
 		selectedProjectId: headers.get('x-nao-project-id'),
@@ -27,6 +27,18 @@ export const createContext = async (opts: CreateFastifyContextOptions) => {
  */
 const t = initTRPC.context<Context>().create({
 	transformer: superjson,
+	errorFormatter({ shape, error }) {
+		const cause = error.cause as (Error & Record<string, unknown>) | undefined;
+		const conflictingProjectName =
+			typeof cause?.conflictingProjectName === 'string' ? cause.conflictingProjectName : undefined;
+		return {
+			...shape,
+			data: {
+				...shape.data,
+				...(conflictingProjectName ? { conflictingProjectName } : {}),
+			},
+		};
+	},
 });
 
 export const router = t.router;
@@ -63,8 +75,17 @@ export const projectProtectedProcedure = protectedProcedure.use(async ({ ctx, ne
 	return next({ ctx: { project, userRole } });
 });
 
+/** Grants project access to admins, users, and context admins. */
+export const nonViewerProtectedProcedure = projectProtectedProcedure.use(async ({ ctx, next }) => {
+	if (ctx.userRole !== 'admin' && ctx.userRole !== 'user' && ctx.userRole !== 'context_admin') {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Viewers cannot access this resource' });
+	}
+
+	return next({ ctx });
+});
+
 export const canSendProcedure = projectProtectedProcedure.use(async ({ ctx, next }) => {
-	if (ctx.userRole !== 'admin' && ctx.userRole !== 'user') {
+	if (ctx.userRole !== 'admin' && ctx.userRole !== 'user' && ctx.userRole !== 'context_admin') {
 		throw new TRPCError({ code: 'FORBIDDEN', message: 'Viewers cannot perform this action' });
 	}
 
@@ -115,6 +136,28 @@ export const adminProtectedProcedure = projectProtectedProcedure.use(async ({ ct
 
 	return next({ ctx: { project: ctx.project, userRole: ctx.userRole } });
 });
+
+/**
+ * Grants access to admins and context admins. Context admins use nao like regular users but
+ * additionally manage observability surfaces: chat replay and context recommendations.
+ */
+export const contextAdminProtectedProcedure = projectProtectedProcedure.use(async ({ ctx, next }) => {
+	if (ctx.userRole !== 'admin' && ctx.userRole !== 'context_admin') {
+		throw new TRPCError({ code: 'FORBIDDEN', message: 'Only admins or context admins can perform this action' });
+	}
+
+	return next({ ctx: { project: ctx.project, userRole: ctx.userRole } });
+});
+
+/** Organization roles mapped from identity provider groups are re-applied on every sign-in. */
+export async function assertOrganizationRolesAreEditable(): Promise<void> {
+	if (await isOrganizationRoleMappingActive()) {
+		throw new TRPCError({
+			code: 'FORBIDDEN',
+			message: 'Organization roles are managed by your identity provider and cannot be changed here.',
+		});
+	}
+}
 
 export function ownedResourceProcedure(
 	getOwnerId: (resourceId: string) => Promise<string | undefined>,

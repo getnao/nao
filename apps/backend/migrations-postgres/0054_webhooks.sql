@@ -1,0 +1,1 @@
+ALTER TABLE "automation" ADD COLUMN "webhook_enabled" boolean DEFAULT false NOT NULL;

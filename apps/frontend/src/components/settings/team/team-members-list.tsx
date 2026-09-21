@@ -1,5 +1,7 @@
 import { EllipsisVertical } from 'lucide-react';
 
+import { USER_ROLE_LABELS } from '@nao/shared/types';
+
 import type { TeamMember } from './types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -30,7 +32,7 @@ export function TeamMembersList({
 	extraActions,
 }: TeamMembersListProps) {
 	if (members.length === 0) {
-		return <div className='text-sm text-muted-foreground'>No members found.</div>;
+		return <div className='p-4 text-sm text-muted-foreground'>No members found.</div>;
 	}
 
 	const hasActions = isAdmin && (onEdit || onRemove || extraActions);
@@ -53,10 +55,15 @@ export function TeamMembersList({
 							<TableCell className='font-medium'>
 								{member.name}
 								{isCurrentUser && <span className='text-muted-foreground ml-1'>(you)</span>}
+								{member.status === 'invited' && (
+									<Badge variant='outline' className='ml-2'>
+										Invited
+									</Badge>
+								)}
 							</TableCell>
 							<TableCell className='font-mono text-muted-foreground'>{member.email}</TableCell>
 							<TableCell>
-								<Badge variant={member.role}>{member.role}</Badge>
+								<Badge variant={member.role}>{USER_ROLE_LABELS[member.role]}</Badge>
 							</TableCell>
 							{hasActions && (
 								<TableCell className='w-0'>

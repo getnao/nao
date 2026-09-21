@@ -1,5 +1,5 @@
 import { EmailLayout } from './email-layout';
-import { WarningBox } from './warning-box';
+import { EmailParagraph } from './email-text';
 
 interface BudgetLimitReachedProps {
 	userName: string;
@@ -19,32 +19,23 @@ export function BudgetLimitReached({
 	resetLabel,
 }: BudgetLimitReachedProps) {
 	return (
-		<EmailLayout>
-			<p>Hi {userName},</p>
+		<EmailLayout title={`Budget limit reached for ${providerLabel} on nao`}>
+			<EmailParagraph>Hi {userName},</EmailParagraph>
 
-			<p>
+			<EmailParagraph>
 				The <strong>{providerLabel}</strong> budget limit for your nao project has been reached. Chat requests
-				using this provider are now blocked until the budget resets.
-			</p>
+				using this provider are blocked until the budget resets {resetLabel}.
+			</EmailParagraph>
 
-			<div className='credentials'>
-				<p>
-					<strong>Budget limit:</strong> ${limitUsd.toFixed(2)} / {period}
-				</p>
-				<p>
-					<strong>Current spend:</strong> ${currentSpendUsd.toFixed(2)}
-				</p>
-			</div>
+			<EmailParagraph>
+				Budget limit: <strong>${limitUsd.toFixed(2)}</strong> / {period}
+				<br />
+				Current spend: <strong>${currentSpendUsd.toFixed(2)}</strong>
+			</EmailParagraph>
 
-			<WarningBox>
-				New chat requests using {providerLabel} will be blocked until the budget resets {resetLabel}.
-			</WarningBox>
-
-			<p>To unblock users, you can increase the budget limit in your project settings.</p>
-
-			<div className='footer'>
-				<p>This is an automated message from nao.</p>
-			</div>
+			<EmailParagraph>
+				To unblock users, you can increase the budget limit in your project settings.
+			</EmailParagraph>
 		</EmailLayout>
 	);
 }

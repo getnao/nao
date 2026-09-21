@@ -337,6 +337,132 @@
       "when": 1781092642363,
       "tag": "0047_recommendations",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "6",
+      "when": 1781709777049,
+      "tag": "0048_user_preferences",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "6",
+      "when": 1781711312936,
+      "tag": "0049_add_display_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "6",
+      "when": 1782226391713,
+      "tag": "0050_add_message_version_group_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "6",
+      "when": 1782390602602,
+      "tag": "0051_analytics_event",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "6",
+      "when": 1782391309531,
+      "tag": "0052_add_brand_color",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "6",
+      "when": 1783082672684,
+      "tag": "0053_new_mcp",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "6",
+      "when": 1783278706989,
+      "tag": "0054_webhooks",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "6",
+      "when": 1783321426739,
+      "tag": "0055_add_gitlab_token",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "6",
+      "when": 1783697772869,
+      "tag": "0056_model_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "6",
+      "when": 1785435188287,
+      "tag": "0057_map_settings_and_map_embed",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "6",
+      "when": 1785931695088,
+      "tag": "0058_add_category_rootcause_fixtarget_to_recommendations",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "6",
+      "when": 1786094927201,
+      "tag": "0059_per_user_budget",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "6",
+      "when": 1786362945820,
+      "tag": "0060_context_branch_ownership",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "6",
+      "when": 1786371598947,
+      "tag": "0061_context_branch_review_request",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "6",
+      "when": 1786544583354,
+      "tag": "0062_storage",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "6",
+      "when": 1786610518650,
+      "tag": "0063_default_models",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "6",
+      "when": 1787660346891,
+      "tag": "0064_add_mattermost",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "6",
+      "when": 1789474725833,
+      "tag": "0065_user_groups",
+      "breakpoints": true
     }
   ]
 }

@@ -121,18 +121,18 @@ def spec(db_config, temp_datasets):
             "# users",
             f"**Dataset:** `{db_config.dataset_id}`",
             "## Columns (4)",
-            "- id (int64 NOT NULL)",
-            "- name (string NOT NULL)",
-            '- email (string, "User email address")',
-            "- active (boolean)",
+            "- id (INT64 NOT NULL)",
+            "- name (STRING NOT NULL)",
+            '- email (STRING, "User email address")',
+            "- active (BOOL)",
         ),
         orders_column_assertions=(
             "# orders",
             f"**Dataset:** `{db_config.dataset_id}`",
             "## Columns (3)",
-            "- id (int64 NOT NULL)",
-            "- user_id (int64 NOT NULL)",
-            "- amount (float64 NOT NULL)",
+            "- id (INT64 NOT NULL)",
+            "- user_id (INT64 NOT NULL)",
+            "- amount (FLOAT64 NOT NULL)",
         ),
         users_table_description="Registered user accounts",
         users_preview_rows=[
@@ -147,7 +147,7 @@ def spec(db_config, temp_datasets):
         users_profiling_rows=[
             {
                 "column": "id",
-                "type": "int32",
+                "type": "INT64",
                 "total_count": 3,
                 "null_count": 0,
                 "null_percentage": 0.0,
@@ -159,7 +159,7 @@ def spec(db_config, temp_datasets):
             },
             {
                 "column": "name",
-                "type": "string",
+                "type": "STRING",
                 "total_count": 3,
                 "null_count": 0,
                 "null_percentage": 0.0,
@@ -172,7 +172,7 @@ def spec(db_config, temp_datasets):
             },
             {
                 "column": "email",
-                "type": "string",
+                "type": "STRING",
                 "total_count": 3,
                 "null_count": 1,
                 "null_percentage": 33.33,
@@ -184,7 +184,7 @@ def spec(db_config, temp_datasets):
             },
             {
                 "column": "active",
-                "type": "boolean",
+                "type": "BOOL",
                 "total_count": 3,
                 "null_count": 0,
                 "null_percentage": 0.0,
@@ -195,7 +195,7 @@ def spec(db_config, temp_datasets):
         orders_profiling_rows=[
             {
                 "column": "id",
-                "type": "int32",
+                "type": "INT64",
                 "total_count": 2,
                 "null_count": 0,
                 "null_percentage": 0.0,
@@ -207,7 +207,7 @@ def spec(db_config, temp_datasets):
             },
             {
                 "column": "user_id",
-                "type": "int32",
+                "type": "INT64",
                 "total_count": 2,
                 "null_count": 0,
                 "null_percentage": 0.0,
@@ -216,7 +216,7 @@ def spec(db_config, temp_datasets):
             },
             {
                 "column": "amount",
-                "type": "float64",
+                "type": "FLOAT64",
                 "total_count": 2,
                 "null_count": 0,
                 "null_percentage": 0.0,

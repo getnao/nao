@@ -1,7 +1,7 @@
 import type { LlmProvider } from '@nao/shared/types';
 import { isToolUIPart, LanguageModelUsage, ModelMessage } from 'ai';
 
-import { LLM_PROVIDERS } from '../agents/providers';
+import { getProviderMeta } from '../agents/providers';
 import { type ITokenCounter, tokenCounter } from '../services/token-counter';
 import { CompactionPart, TokenCost, TokenUsage, UIMessage, UIMessagePart } from '../types/chat';
 import type { CustomModelMetadata, ModelCosts } from '../types/llm';
@@ -29,10 +29,11 @@ export const convertToCost = (
 	customModels: CustomModelMetadata[] = [],
 	costs?: ModelCosts,
 ): TokenCost => {
-	const costPerM =
-		LLM_PROVIDERS[provider].models.find((model) => model.id === modelId)?.costPerM ??
-		customModels.find((m) => m.id === modelId)?.costPerM ??
-		costs;
+	const builtInCosts = getProviderMeta(provider).models.find((model) => model.id === modelId)?.costPerM;
+	const declaredCosts = customModels.find((m) => m.id === modelId)?.costPerM;
+
+	// Prices declared for a model win over nao's built-in table, token type by token type.
+	const costPerM = builtInCosts || declaredCosts ? { ...builtInCosts, ...declaredCosts } : costs;
 
 	if (!costPerM) {
 		return {
@@ -97,6 +98,16 @@ export const createChatTitle = ({ text }: { text: string }) => {
 	return text.slice(0, 64);
 };
 
+export const checkAssistantMessageHasContent = (message: UIMessage): boolean =>
+	message.parts.some(
+		(part) =>
+			part.type !== 'step-start' &&
+			part.type !== 'tool-suggest_follow_ups' &&
+			part.type !== 'reasoning' &&
+			part.type !== 'data-newChat' &&
+			part.type !== 'data-newUserMessage',
+	);
+
 export const joinAllTextParts = (message: UIMessage, separator: string = '\n'): string => {
 	return message.parts
 		.filter((part) => part.type === 'text')
@@ -112,7 +123,7 @@ export function settleInterruptedToolParts(messages: UIMessage[]): UIMessage[] {
 		}
 		let changed = false;
 		const newParts = message.parts.map((part) => {
-			if (!isToolUIPart(part) || SETTLED_TOOL_STATES.has(part.state)) {
+			if (!isToolUIPart(part) || isToolPartSettled(part)) {
 				return part;
 			}
 			changed = true;
@@ -125,6 +136,12 @@ export function settleInterruptedToolParts(messages: UIMessage[]): UIMessage[] {
 		});
 		return changed ? { ...message, parts: newParts } : message;
 	});
+}
+
+/** A preliminary output is progress a still-running tool streamed, not a settled result. */
+function isToolPartSettled(part: Extract<UIMessagePart, { state: string }>): boolean {
+	const isPreliminary = 'preliminary' in part && part.preliminary === true;
+	return SETTLED_TOOL_STATES.has(part.state) && !isPreliminary;
 }
 
 export function findFirstNonSystemMessageIndex(messages: ModelMessage[]): number {

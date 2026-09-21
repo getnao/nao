@@ -1,18 +1,20 @@
 import fs from 'node:fs';
-import path from 'node:path';
 
 import { TRPCError } from '@trpc/server';
-import yaml from 'js-yaml';
 import { z } from 'zod/v4';
 
-import type { DBProject } from '../db/abstractSchema';
-import { env } from '../env';
-import { ensureContextRecommendationsScheduleForNewProject } from '../handlers/context-recommendations.handler';
 import * as orgQueries from '../queries/organization.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
 import * as githubService from '../services/github';
-import { adminProtectedProcedure, protectedProcedure } from './trpc';
+import {
+	createNewProject,
+	createTempProjectDir,
+	getProjectNameFromPath,
+	readProjectNameFromConfig,
+	replaceExistingProject,
+} from '../utils/project-import.utils';
+import { adminProtectedProcedure, contextAdminProtectedProcedure, protectedProcedure } from './trpc';
 
 export const githubRoutes = {
 	isAvailable: protectedProcedure.query(() => {
@@ -74,7 +76,7 @@ export const githubRoutes = {
 				throw new TRPCError({ code: 'NOT_FOUND', message: 'You are not a member of any organization' });
 			}
 
-			const cloneDir = createTempProjectDir();
+			const cloneDir = createTempProjectDir('github-import');
 			try {
 				try {
 					githubService.cloneRepo(token, input.repoFullName, cloneDir);
@@ -89,24 +91,25 @@ export const githubRoutes = {
 				const projectName =
 					input.projectName ||
 					readProjectNameFromConfig(cloneDir) ||
-					getProjectNameFromRepo(input.repoFullName);
+					getProjectNameFromPath(input.repoFullName);
 				const existing = await projectQueries.getProjectByOrgAndName(orgId, projectName);
 				if (existing) {
 					if (!input.replaceExisting) {
 						throw new TRPCError({
 							code: 'CONFLICT',
 							message: `A project named "${projectName}" already exists in this organization. Confirm replacement to import this repository over it.`,
+							cause: { conflictingProjectName: projectName },
 						});
 					}
 
-					return replaceExistingProjectFromRepo({
+					return replaceExistingProject({
 						sourceDir: cloneDir,
 						project: existing,
 						projectName,
 					});
 				}
 
-				return createProjectFromRepo({
+				return createNewProject({
 					sourceDir: cloneDir,
 					projectName,
 					orgId,
@@ -120,7 +123,7 @@ export const githubRoutes = {
 			}
 		}),
 
-	getProjectGitInfo: adminProtectedProcedure.query(({ ctx }) => {
+	getProjectGitInfo: contextAdminProtectedProcedure.query(({ ctx }) => {
 		if (!ctx.project.path) {
 			return null;
 		}
@@ -147,152 +150,4 @@ export const githubRoutes = {
 			});
 		}
 	}),
-
-	pullProject: adminProtectedProcedure.mutation(async ({ ctx }) => {
-		if (!ctx.project.path) {
-			throw new TRPCError({ code: 'BAD_REQUEST', message: 'Project path not configured' });
-		}
-
-		const gitInfo = githubService.getGitInfo(ctx.project.path);
-		if (!gitInfo.isGithub || !gitInfo.repoFullName) {
-			throw new TRPCError({ code: 'BAD_REQUEST', message: 'This project is not linked to a GitHub repository' });
-		}
-
-		const token = await userQueries.getGithubToken(ctx.user.id);
-		if (!token) {
-			throw new TRPCError({
-				code: 'BAD_REQUEST',
-				message: 'GitHub is not connected. Connect your GitHub account first.',
-			});
-		}
-
-		try {
-			await githubService.pullRepo(token, gitInfo.repoFullName, ctx.project.path);
-			return githubService.getGitInfo(ctx.project.path);
-		} catch (err) {
-			throw new TRPCError({
-				code: 'INTERNAL_SERVER_ERROR',
-				message: err instanceof Error ? err.message : 'Failed to pull latest changes',
-			});
-		}
-	}),
 };
-
-async function createProjectFromRepo({
-	sourceDir,
-	projectName,
-	orgId,
-}: {
-	sourceDir: string;
-	projectName: string;
-	orgId: string;
-}) {
-	const projectId = crypto.randomUUID();
-	const projectDir = path.resolve(env.NAO_PROJECTS_DIR, projectId);
-
-	try {
-		replaceProjectDirectory(sourceDir, projectDir);
-	} catch (err) {
-		fs.rmSync(projectDir, { recursive: true, force: true });
-		throw new TRPCError({
-			code: 'INTERNAL_SERVER_ERROR',
-			message: err instanceof Error ? err.message : 'Failed to import repository',
-		});
-	}
-
-	const project = await projectQueries.createProject({
-		name: projectName,
-		type: 'local',
-		path: projectDir,
-		orgId,
-	});
-
-	const orgMembers = await orgQueries.listOrgMembersWithUsers(orgId);
-	for (const member of orgMembers) {
-		await projectQueries.addProjectMember({
-			projectId: project.id,
-			userId: member.id,
-			role: member.role,
-		});
-	}
-	await ensureContextRecommendationsScheduleForNewProject(project.id);
-
-	return { projectId: project.id, projectName, status: 'created' as const };
-}
-
-async function replaceExistingProjectFromRepo({
-	sourceDir,
-	project,
-	projectName,
-}: {
-	sourceDir: string;
-	project: DBProject;
-	projectName: string;
-}) {
-	if (!project.path) {
-		throw new TRPCError({ code: 'BAD_REQUEST', message: 'Project path not configured' });
-	}
-
-	try {
-		replaceProjectDirectory(sourceDir, project.path);
-	} catch (err) {
-		throw new TRPCError({
-			code: 'INTERNAL_SERVER_ERROR',
-			message: err instanceof Error ? err.message : 'Failed to replace project from repository',
-		});
-	}
-
-	await projectQueries.touchProjectUpdatedAt(project.id);
-	return { projectId: project.id, projectName, status: 'updated' as const };
-}
-
-function getProjectNameFromRepo(repoFullName: string): string {
-	return repoFullName.split('/').pop()!;
-}
-
-function readProjectNameFromConfig(projectDir: string): string | null {
-	const configPath = path.join(projectDir, 'nao_config.yaml');
-	if (!fs.existsSync(configPath)) {
-		return null;
-	}
-
-	try {
-		const config = yaml.load(fs.readFileSync(configPath, 'utf-8')) as { project_name?: unknown } | null;
-		return typeof config?.project_name === 'string' && config.project_name.trim()
-			? config.project_name.trim()
-			: null;
-	} catch {
-		return null;
-	}
-}
-
-function createTempProjectDir(): string {
-	const dir = path.resolve(env.NAO_PROJECTS_DIR, `.github-import-${crypto.randomUUID()}`);
-	fs.mkdirSync(dir, { recursive: true });
-	return dir;
-}
-
-function replaceProjectDirectory(src: string, dest: string): void {
-	const parentDir = path.dirname(dest);
-	const backupDir = path.join(parentDir, `.github-import-backup-${crypto.randomUUID()}`);
-	let hasBackup = false;
-
-	fs.mkdirSync(parentDir, { recursive: true });
-	if (fs.existsSync(dest)) {
-		fs.renameSync(dest, backupDir);
-		hasBackup = true;
-	}
-
-	try {
-		fs.cpSync(src, dest, { recursive: true });
-		if (hasBackup) {
-			fs.rmSync(backupDir, { recursive: true, force: true });
-		}
-	} catch (err) {
-		fs.rmSync(dest, { recursive: true, force: true });
-		if (hasBackup) {
-			fs.renameSync(backupDir, dest);
-		}
-		throw err;
-	}
-}

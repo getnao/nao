@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
+import { useTrackViewDuration } from '@/hooks/use-track-view-duration';
 import { ReadonlyAgentMessagesProvider } from '@/contexts/agent.provider';
 import { useSidePanel } from '@/hooks/use-side-panel';
 import { SidePanelProvider } from '@/contexts/side-panel';
@@ -41,6 +42,10 @@ function SharedChatPage() {
 	const contentAreaRef = useRef<HTMLDivElement>(null);
 	const sidePanel = useSidePanel({ containerRef, sidePanelRef });
 
+	const sharedChatData = chatQuery.data;
+	const isOwner = session?.user?.id === sharedChatData?.share.userId;
+	useTrackViewDuration({ assetType: 'chat', chatId: sharedChatData?.share.chatId, enabled: !isOwner });
+
 	if (chatQuery.isLoading) {
 		return (
 			<div className='flex flex-1 items-center justify-center'>
@@ -58,15 +63,18 @@ function SharedChatPage() {
 	}
 
 	const { share, chat } = chatQuery.data;
-	const isOwner = session?.user?.id === share.userId;
 
 	return (
 		<ReadonlyAgentMessagesProvider messages={chat.messages} chatId={share.chatId}>
 			<SidePanelProvider
 				isVisible={sidePanel.isVisible}
 				currentStorySlug={sidePanel.currentStorySlug}
+				setCurrentStorySlug={sidePanel.setCurrentStorySlug}
+				currentStoryTabIndex={sidePanel.currentStoryTabIndex}
+				setCurrentStoryTabIndex={sidePanel.setCurrentStoryTabIndex}
 				chatId={share.chatId}
 				shareId={shareId}
+				shareType='chat'
 				isReadonlyMode={!isOwner}
 				open={sidePanel.open}
 				close={sidePanel.close}
@@ -120,7 +128,6 @@ function SharedChatPage() {
 									isAnimating={sidePanel.isAnimating}
 									sidePanelRef={sidePanelRef}
 									resizeHandleRef={sidePanel.resizeHandleRef}
-									onClose={sidePanel.close}
 								>
 									{sidePanel.content}
 								</SidePanel>

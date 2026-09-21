@@ -82,7 +82,7 @@ export function EditableChatTitle({ chatId, title: currentTitle, className }: Pr
 			disabled={renameChat.isPending}
 			className={cn(
 				'bg-transparent text-inherit outline-none truncate w-full',
-				'rounded-md border border-transparent px-2 py-1 -mx-2 -my-1',
+				'rounded-full border border-transparent px-2 py-1 -mx-2 -my-1',
 				'transition-colors cursor-default',
 				!isEditing && 'hover:border-border hover:cursor-text',
 				isEditing && 'border-border cursor-text',
