@@ -27,7 +27,13 @@ export const renewLock = async (key: string, owner: string, leaseMs: number): Pr
 	const rows = await db
 		.update(s.keyedLock)
 		.set({ expiresAt: leaseExpiry(leaseMs) })
-		.where(and(eq(s.keyedLock.key, key), eq(s.keyedLock.owner, owner)))
+		.where(
+			and(
+				eq(s.keyedLock.key, key),
+				eq(s.keyedLock.owner, owner),
+				sql`${s.keyedLock.expiresAt} > ${databaseNow}`,
+			),
+		)
 		.returning({ key: s.keyedLock.key })
 		.execute();
 	return rows.length > 0;
