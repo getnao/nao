@@ -1,4 +1,5 @@
 import { redirect } from '@tanstack/react-router';
+
 import { queryClient, trpc } from '@/main';
 
 export async function requireAdmin() {
@@ -11,6 +12,13 @@ export async function requireAdmin() {
 export async function requireNonCloud() {
 	const config = await queryClient.ensureQueryData(trpc.system.getPublicConfig.queryOptions());
 	if (config.naoMode === 'cloud') {
+		throw redirect({ to: '/settings/account' });
+	}
+}
+
+export async function requireCloudBilling() {
+	const config = await queryClient.ensureQueryData(trpc.system.getPublicConfig.queryOptions());
+	if (!config.cloudBillingEnabled) {
 		throw redirect({ to: '/settings/account' });
 	}
 }

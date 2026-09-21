@@ -1,0 +1,23 @@
+export const BILLING_STATUSES = [
+	'trialing',
+	'active',
+	'past_due',
+	'unpaid',
+	'canceled',
+	'paused',
+	'incomplete',
+	'incomplete_expired',
+] as const;
+
+export type BillingStatus = (typeof BILLING_STATUSES)[number];
+
+export const CLOUD_MONTHLY_PLAN = {
+	key: 'cloud_monthly_v1',
+	name: 'nao Cloud',
+	amount: 200_000,
+	currency: 'eur',
+	interval: 'month',
+	intervalCount: 1,
+	trialDays: 14,
+	userLimit: null,
+} as const;

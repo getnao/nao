@@ -135,6 +135,28 @@ const baseEnvSchema = z.object({
 	NAO_CONTEXT_GIT_SSH_KEY: z.string().optional(),
 	NAO_CONTEXT_GIT_PLATFORM: z.enum(['github', 'gitlab', 'bitbucket']).optional(),
 
+	CLOUD_BILLING_ENABLED: z
+		.enum(['true', 'false'])
+		.optional()
+		.default('false')
+		.transform((val) => val === 'true'),
+	STRIPE_SECRET_KEY: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	STRIPE_WEBHOOK_SECRET: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+	STRIPE_PORTAL_CONFIGURATION_ID: z
+		.string()
+		.optional()
+		.transform((val) => val?.trim() || undefined),
+
 	NAO_STORAGE_BACKEND: z.enum(['none', 'local', 's3']).default('local'),
 	NAO_STORAGE_LOCAL_PATH: z.string().default('./storage'),
 	NAO_STORAGE_S3_BUCKET: z
@@ -300,6 +322,18 @@ const baseEnvSchema = z.object({
 
 const envSchema = baseEnvSchema
 	.superRefine((data, ctx) => {
+		if (data.NAO_MODE === 'cloud' && data.CLOUD_BILLING_ENABLED) {
+			for (const variable of ['STRIPE_SECRET_KEY', 'STRIPE_CLOUD_MONTHLY_PRICE_LOOKUP_KEY'] as const) {
+				if (!data[variable]) {
+					ctx.addIssue({
+						code: 'custom',
+						path: [variable],
+						message: `${variable} is required when cloud billing is enabled`,
+					});
+				}
+			}
+		}
+
 		if (!data.SLACK_BOT_TOKEN) {
 			if (data.SLACK_SIGNING_SECRET || data.SLACK_APP_TOKEN || data.SLACK_TRANSPORT_MODE) {
 				ctx.addIssue({

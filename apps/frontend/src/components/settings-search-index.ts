@@ -12,6 +12,7 @@ export interface SettingsSearchEntry {
 	adminOrContextAdmin?: boolean;
 	cloudHidden?: boolean;
 	cloudOnly?: boolean;
+	cloudBillingOnly?: boolean;
 	betaSubagentsOnly?: boolean;
 }
 
@@ -79,6 +80,14 @@ export const settingsSearchIndex: SettingsSearchEntry[] = [
 		title: 'Members',
 		description: 'Manage the members of your organization.',
 		keywords: ['users', 'invite', 'add member', 'roles', 'team'],
+	},
+	{
+		page: '/settings/organization/billing',
+		pageLabel: 'Plan & Billing',
+		title: 'Plan & Billing',
+		description: 'Review the nao Cloud plan, pricing, trial, and billing availability.',
+		keywords: ['subscription', 'price', 'plan', 'payment', 'invoice', 'trial', 'stripe'],
+		cloudBillingOnly: true,
 	},
 	{
 		page: '/settings/organization',

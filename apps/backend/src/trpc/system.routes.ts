@@ -6,6 +6,7 @@ import { adminProtectedProcedure, publicProcedure } from './trpc';
 export const systemRoutes = {
 	getPublicConfig: publicProcedure.query(async () => ({
 		naoMode: env.NAO_MODE,
+		cloudBillingEnabled: env.NAO_MODE === 'cloud' && env.CLOUD_BILLING_ENABLED,
 		enableUserLogin: env.ENABLE_USER_LOGIN,
 		enableUserSignup: await isUserSignupAvailable(),
 		betaAutomationsEnabled: env.BETA_AUTOMATIONS_ENABLED,

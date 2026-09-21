@@ -259,6 +259,7 @@ export function Sidebar() {
 					isContextAdmin={isContextAdmin}
 					isViewer={isViewer}
 					isCloud={isCloud}
+					isCloudBillingEnabled={config.data?.cloudBillingEnabled === true}
 				/>
 			) : (
 				<>

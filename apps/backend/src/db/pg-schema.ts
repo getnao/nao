@@ -35,6 +35,7 @@ import {
 
 import { AgentSettings } from '../types/agent-settings';
 import { AUTOMATION_RUN_STATUSES, AutomationIntegrationConfig, AutomationIntegrationResult } from '../types/automation';
+import { BILLING_STATUSES } from '../types/billing';
 import { ForkMetadata, MESSAGE_SOURCES, StopReason, ToolState, UIMessagePartType } from '../types/chat';
 import {
 	CONTEXT_RECOMMENDATION_CATEGORIES,
@@ -162,6 +163,18 @@ export const organization = pgTable('organization', {
 	googleClientId: text('google_client_id'),
 	googleClientSecret: text('google_client_secret'),
 	googleAuthDomains: text('google_auth_domains'), // comma-separated list
+
+	billingPlan: text('billing_plan'),
+	billingStatus: text('billing_status', { enum: BILLING_STATUSES }),
+	trialStartedAt: timestamp('trial_started_at'),
+	trialEndsAt: timestamp('trial_ends_at'),
+	stripeCustomerId: text('stripe_customer_id').unique(),
+	stripeSubscriptionId: text('stripe_subscription_id').unique(),
+	stripePriceId: text('stripe_price_id'),
+	currentPeriodEndsAt: timestamp('current_period_ends_at'),
+	cancelAtPeriodEnd: boolean('cancel_at_period_end'),
+	billingAccessEndsAt: timestamp('billing_access_ends_at'),
+	billingUpdatedAt: timestamp('billing_updated_at'),
 
 	createdAt: timestamp('created_at').defaultNow().notNull(),
 	updatedAt: timestamp('updated_at')
