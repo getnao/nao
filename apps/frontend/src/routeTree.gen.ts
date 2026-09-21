@@ -67,8 +67,8 @@ import { Route as SidebarLayoutStoriesPreviewChatIdStorySlugRouteImport } from '
 import { Route as SidebarLayoutSettingsUsageReplayChatIdRouteImport } from './routes/_sidebar-layout.settings.usage.replay.$chatId'
 import { Route as SidebarLayoutSettingsProjectUserGroupsGroupIdRouteImport } from './routes/_sidebar-layout.settings.project.user-groups.$groupId'
 import { Route as SidebarLayoutSettingsProjectIntegrationsIntegrationIdRouteImport } from './routes/_sidebar-layout.settings.project.integrations.$integrationId'
-import { Route as SidebarLayoutSettingsProjectUserGroupsUsersUserIdRouteImport } from './routes/_sidebar-layout.settings.project.user-groups.users.$userId'
 import { Route as SidebarLayoutChatLayoutChatIdSubagentToolCallIdRouteImport } from './routes/_sidebar-layout._chat-layout.$chatId_.subagent.$toolCallId'
+import { Route as SidebarLayoutSettingsProjectUserGroupsUsersUserIdRouteImport } from './routes/_sidebar-layout.settings.project.user-groups.users.$userId'
 import { Route as SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRouteImport } from './routes/_sidebar-layout.settings.usage.replay.$chatId_.subagent.$toolCallId'
 
 const SignupRoute = SignupRouteImport.update({
@@ -404,17 +404,17 @@ const SidebarLayoutSettingsProjectIntegrationsIntegrationIdRoute =
     path: '/$integrationId',
     getParentRoute: () => SidebarLayoutSettingsProjectIntegrationsRoute,
   } as any)
-const SidebarLayoutSettingsProjectUserGroupsUsersUserIdRoute =
-  SidebarLayoutSettingsProjectUserGroupsUsersUserIdRouteImport.update({
-    id: '/users/$userId',
-    path: '/users/$userId',
-    getParentRoute: () => SidebarLayoutSettingsProjectUserGroupsRoute,
-  } as any)
 const SidebarLayoutChatLayoutChatIdSubagentToolCallIdRoute =
   SidebarLayoutChatLayoutChatIdSubagentToolCallIdRouteImport.update({
     id: '/$chatId_/subagent/$toolCallId',
     path: '/$chatId/subagent/$toolCallId',
     getParentRoute: () => SidebarLayoutChatLayoutRoute,
+  } as any)
+const SidebarLayoutSettingsProjectUserGroupsUsersUserIdRoute =
+  SidebarLayoutSettingsProjectUserGroupsUsersUserIdRouteImport.update({
+    id: '/users/$userId',
+    path: '/users/$userId',
+    getParentRoute: () => SidebarLayoutSettingsProjectUserGroupsRoute,
   } as any)
 const SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRoute =
   SidebarLayoutSettingsUsageReplayChatIdSubagentToolCallIdRouteImport.update({
@@ -1205,19 +1205,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SidebarLayoutSettingsProjectIntegrationsIntegrationIdRouteImport
       parentRoute: typeof SidebarLayoutSettingsProjectIntegrationsRoute
     }
-    '/_sidebar-layout/settings/project/user-groups/users/$userId': {
-      id: '/_sidebar-layout/settings/project/user-groups/users/$userId'
-      path: '/users/$userId'
-      fullPath: '/settings/project/user-groups/users/$userId'
-      preLoaderRoute: typeof SidebarLayoutSettingsProjectUserGroupsUsersUserIdRouteImport
-      parentRoute: typeof SidebarLayoutSettingsProjectUserGroupsRoute
-    }
     '/_sidebar-layout/_chat-layout/$chatId_/subagent/$toolCallId': {
       id: '/_sidebar-layout/_chat-layout/$chatId_/subagent/$toolCallId'
       path: '/$chatId/subagent/$toolCallId'
       fullPath: '/$chatId/subagent/$toolCallId'
       preLoaderRoute: typeof SidebarLayoutChatLayoutChatIdSubagentToolCallIdRouteImport
       parentRoute: typeof SidebarLayoutChatLayoutRoute
+    }
+    '/_sidebar-layout/settings/project/user-groups/users/$userId': {
+      id: '/_sidebar-layout/settings/project/user-groups/users/$userId'
+      path: '/users/$userId'
+      fullPath: '/settings/project/user-groups/users/$userId'
+      preLoaderRoute: typeof SidebarLayoutSettingsProjectUserGroupsUsersUserIdRouteImport
+      parentRoute: typeof SidebarLayoutSettingsProjectUserGroupsRoute
     }
     '/_sidebar-layout/settings/usage/replay/$chatId_/subagent/$toolCallId': {
       id: '/_sidebar-layout/settings/usage/replay/$chatId_/subagent/$toolCallId'

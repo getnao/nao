@@ -8,6 +8,15 @@ import { AutomationsFeed } from './automations-feed';
 vi.mock('@/components/tool-calls/display-chart', () => ({
 	ChartDisplay: () => null,
 }));
+vi.mock('@/components/story-embeds', () => ({
+	StoryChartEmbed: () => null,
+	StoryMapEmbed: () => null,
+	StoryTableEmbed: () => null,
+}));
+vi.mock('@/components/story-rendering', () => ({
+	SegmentList: () => null,
+}));
+vi.mock('@/main', () => ({ trpc: {} }));
 
 describe('AutomationsFeed', () => {
 	afterEach(cleanup);

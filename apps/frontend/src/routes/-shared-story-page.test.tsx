@@ -55,6 +55,7 @@ vi.mock('@/components/side-panel/hooks/use-story-viewer-live-settings', () => ({
 }));
 vi.mock('@/components/side-panel/live-story-settings-dialog', () => ({ LiveStorySettingsDialog: () => null }));
 vi.mock('@/components/side-panel/side-panel', () => ({ SidePanel: () => null }));
+vi.mock('@/components/side-panel/story-subscription-dialog', () => ({ StorySubscriptionDialog: () => null }));
 vi.mock('@/components/story-access-error', () => ({ StoryRouteError: () => null }));
 vi.mock('@/components/story-embeds', () => ({
 	StoryChartEmbed: () => null,
