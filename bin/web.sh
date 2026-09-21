@@ -14,6 +14,11 @@ export NODE_ENV="${NODE_ENV:-production}"
 # --- Base interne de nao (sessions, chats…) : l'URL de l'addon (auto-rotée) prime. ---
 export DB_URI="${SCALINGO_POSTGRESQL_URL:-${DB_URI:-${DATABASE_URL:-sqlite:./db.sqlite}}}"
 
+# --- Extensions DuckDB pré-installées au build (cf. bin/build-js.sh), requises pour lire les tableurs. ---
+if [ -d .duckdb-extensions ]; then
+  export DUCKDB_EXTENSION_DIR="${DUCKDB_EXTENSION_DIR:-$PWD/.duckdb-extensions}"
+fi
+
 # --- Base SOURCE analysée (référencée par nao_config.yaml). Ergonomie « connection string » :
 #     fournis un seul NAO_DB_URL=postgres://user:pass@host:port/db et on le décompose en
 #     NAO_DB_HOST/PORT/NAME/USER/PASSWORD. Les variables explicites éventuelles priment. ---
