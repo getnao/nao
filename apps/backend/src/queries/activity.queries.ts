@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, lte, ne, or, sql } from 'drizzle-orm';
+import { aliasedTable, and, desc, eq, inArray, lte, ne, or, sql } from 'drizzle-orm';
 
 import s, {
 	type ActivityTrigger,
@@ -14,6 +14,7 @@ export const storyRefreshJobUniqueKey = (storyId: string): string => `story-refr
 
 const ACTIVITY_RUN_STALE_MS = 30 * 60 * 1_000;
 const ACTIVITY_RUN_STALE_MESSAGE = 'Activity did not finish before the timeout.';
+const CONTEXT_PULL_HISTORY_LIMIT = 100;
 
 export interface CreateActivityInput {
 	projectId: string;
@@ -26,6 +27,16 @@ export interface CreateActivityInput {
 	sharedStoryId?: string | null;
 	sharedChatId?: string | null;
 	payload?: Record<string, unknown> | null;
+}
+
+export interface ContextPullActivityRow {
+	id: string;
+	status: DBActivity['status'];
+	payload: Record<string, unknown> | null;
+	errorMessage: string | null;
+	startedAt: Date;
+	completedAt: Date | null;
+	actorName: string | null;
 }
 
 export const createActivity = async (input: CreateActivityInput): Promise<DBActivity> => {
@@ -43,6 +54,43 @@ export const createActivity = async (input: CreateActivityInput): Promise<DBActi
 	};
 	const [created] = await db.insert(s.activity).values(values).returning().execute();
 	return created;
+};
+
+export const startContextPullActivity = async (projectId: string, userId: string): Promise<DBActivity> => {
+	return createActivity({
+		projectId,
+		userId,
+		type: 'context.pulled',
+		trigger: 'manual',
+		status: 'running',
+	});
+};
+
+export const listContextPullActivities = async (projectId: string): Promise<ContextPullActivityRow[]> => {
+	await failStaleActivities();
+
+	return db
+		.select({
+			id: s.activity.id,
+			status: s.activity.status,
+			payload: s.activity.payload,
+			errorMessage: s.activity.errorMessage,
+			startedAt: s.activity.startedAt,
+			completedAt: s.activity.completedAt,
+			actorName: s.user.name,
+		})
+		.from(s.activity)
+		.leftJoin(s.user, eq(s.user.id, s.activity.userId))
+		.where(
+			and(
+				eq(s.activity.projectId, projectId),
+				eq(s.activity.type, 'context.pulled'),
+				eq(s.activity.trigger, 'manual'),
+			),
+		)
+		.orderBy(desc(s.activity.startedAt))
+		.limit(CONTEXT_PULL_HISTORY_LIMIT)
+		.execute();
 };
 
 /**
@@ -87,6 +135,32 @@ export const failActivity = async (activityId: string, errorMessage: string): Pr
 		.execute();
 };
 
+export const getLatestStoryRefreshFailure = async (
+	storyId: string,
+): Promise<{ errorMessage: string; failedAt: Date } | null> => {
+	const [latestRefresh] = await db
+		.select({
+			status: s.activity.status,
+			errorMessage: s.activity.errorMessage,
+			startedAt: s.activity.startedAt,
+			completedAt: s.activity.completedAt,
+		})
+		.from(s.activity)
+		.where(and(eq(s.activity.storyId, storyId), eq(s.activity.type, 'story.refreshed')))
+		.orderBy(desc(s.activity.startedAt))
+		.limit(1)
+		.execute();
+
+	if (!latestRefresh || latestRefresh.status !== 'failed') {
+		return null;
+	}
+
+	return {
+		errorMessage: latestRefresh.errorMessage ?? 'Story refresh failed.',
+		failedAt: latestRefresh.completedAt ?? latestRefresh.startedAt,
+	};
+};
+
 export const failStaleActivities = async (): Promise<number> => {
 	const cutoff = new Date(Date.now() - ACTIVITY_RUN_STALE_MS);
 	const rows = await db
@@ -102,6 +176,11 @@ export const linkStoryScheduledJob = async (storyId: string, scheduledJobId: str
 	await db.update(s.story).set({ scheduledJobId }).where(eq(s.story.id, storyId)).execute();
 };
 
+export type StoryOpenLink =
+	| { to: '/stories/preview/$chatId/$storySlug'; params: { chatId: string; storySlug: string } }
+	| { to: '/stories/shared/$shareId'; params: { shareId: string } }
+	| { to: '/stories/standalone/$storyId'; params: { storyId: string } };
+
 export interface ListActivityRow {
 	activity: DBActivity;
 	actorName: string | null;
@@ -113,6 +192,7 @@ export interface ListActivityRow {
 		cacheSchedule: string | null;
 		cacheScheduleDescription: string | null;
 	} | null;
+	storyLink: StoryOpenLink | null;
 	chat: {
 		id: string;
 		title: string;
@@ -127,6 +207,29 @@ export interface ListActivityRow {
 	} | null;
 }
 
+function buildStoryOpenLink(input: {
+	storyId: string;
+	chatId: string | null;
+	storySlug: string;
+	ownerId: string | null;
+	shareId: string | null;
+	viewerId: string;
+}): StoryOpenLink | null {
+	const isOwner = input.ownerId !== null && input.ownerId === input.viewerId;
+	if (isOwner) {
+		return input.chatId
+			? {
+					to: '/stories/preview/$chatId/$storySlug',
+					params: { chatId: input.chatId, storySlug: input.storySlug },
+				}
+			: { to: '/stories/standalone/$storyId', params: { storyId: input.storyId } };
+	}
+	if (input.shareId) {
+		return { to: '/stories/shared/$shareId', params: { shareId: input.shareId } };
+	}
+	return null;
+}
+
 /**
  * Returns the most recent activities visible to `userId` inside `projectId`,
  * resolving the audience via JOINs on the share tables so a single activity
@@ -139,6 +242,10 @@ export interface ListActivityRow {
  * The story/chat/share rows are eager-loaded so the feed renderer can build
  * cards without follow-up queries.
  */
+
+const storyChat = aliasedTable(s.chat, 'story_chat');
+const storyProjectShare = aliasedTable(s.sharedStory, 'story_project_share');
+
 export const listRecentActivities = async (
 	projectId: string,
 	userId: string,
@@ -162,6 +269,9 @@ export const listRecentActivities = async (
 			storyChatId: s.story.chatId,
 			storyCacheSchedule: s.story.cacheSchedule,
 			storyCacheScheduleDescription: s.story.cacheScheduleDescription,
+			storyUserId: s.story.userId,
+			storyChatOwnerId: storyChat.userId,
+			storyProjectShareId: storyProjectShare.id,
 			chatRowId: s.chat.id,
 			chatTitle: s.chat.title,
 			storyShareId: s.sharedStory.id,
@@ -172,6 +282,11 @@ export const listRecentActivities = async (
 		.from(s.activity)
 		.leftJoin(s.user, eq(s.user.id, s.activity.userId))
 		.leftJoin(s.story, eq(s.story.id, s.activity.storyId))
+		.leftJoin(storyChat, eq(storyChat.id, s.story.chatId))
+		.leftJoin(
+			storyProjectShare,
+			and(eq(storyProjectShare.storyId, s.story.id), eq(storyProjectShare.projectId, projectId)),
+		)
 		.leftJoin(s.chat, eq(s.chat.id, s.activity.chatId))
 		.leftJoin(s.sharedStory, eq(s.sharedStory.id, s.activity.sharedStoryId))
 		.leftJoin(s.sharedChat, eq(s.sharedChat.id, s.activity.sharedChatId))
@@ -192,6 +307,16 @@ export const listRecentActivities = async (
 					cacheSchedule: row.storyCacheSchedule,
 					cacheScheduleDescription: row.storyCacheScheduleDescription,
 				}
+			: null,
+		storyLink: row.storyId
+			? buildStoryOpenLink({
+					storyId: row.storyId,
+					chatId: row.storyChatId,
+					storySlug: row.storySlug!,
+					ownerId: row.storyChatOwnerId ?? row.storyUserId,
+					shareId: row.storyShareId ?? row.storyProjectShareId,
+					viewerId: userId,
+				})
 			: null,
 		chat: row.chatRowId
 			? {

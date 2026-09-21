@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { hashPassword } from 'better-auth/crypto';
 import { z } from 'zod/v4';
 
+import { isCloud } from '../env';
 import * as accountQueries from '../queries/account.queries';
 import * as projectQueries from '../queries/project.queries';
 import * as userQueries from '../queries/user.queries';
@@ -18,6 +19,10 @@ export const accountRoutes = {
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
+			if (isCloud) {
+				throw new TRPCError({ code: 'FORBIDDEN', message: 'Admin password resets are disabled in nao cloud.' });
+			}
+
 			const account = await accountQueries.getAccountById(input.userId);
 			if (!account || !account.password) {
 				throw new TRPCError({

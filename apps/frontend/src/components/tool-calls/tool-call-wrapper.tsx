@@ -1,18 +1,39 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '../ui/button';
 import type { ReactNode } from 'react';
+import type { DataExportFormat } from '@/components/export-data-menu';
 import { cn } from '@/lib/utils';
 import { Spinner } from '@/components/ui/spinner';
 import { Expandable } from '@/components/ui/expandable';
 import { useToolCallContext } from '@/contexts/tool-call';
+import { useIsInToolGroup } from '@/contexts/tool-group';
+import { ToolCallActionsProvider } from '@/contexts/tool-call-actions';
+import { ExportDataMenu } from '@/components/export-data-menu';
 
-interface ActionButton {
+interface ExportAction {
+	columns: string[];
+	data: Record<string, unknown>[];
+	filename: string;
+	onExport?: (format: DataExportFormat) => void;
+}
+
+interface BaseAction {
 	id: string;
 	label: ReactNode;
+	title: string;
 	isActive?: boolean;
-	onClick: () => void;
 	expandOnClick?: boolean;
 }
+
+interface ButtonAction extends BaseAction {
+	onClick: () => void;
+}
+
+interface ExportActionButton extends BaseAction {
+	export: ExportAction;
+}
+
+export type ActionButton = ButtonAction | ExportActionButton;
 
 interface ToolCallWrapperProps {
 	title: ReactNode;
@@ -32,19 +53,24 @@ export const ToolCallWrapper = ({
 	overrideError = false,
 }: ToolCallWrapperProps) => {
 	const { toolPart, isSettled } = useToolCallContext();
+	const isInToolGroup = useIsInToolGroup();
 	const [isExpanded, setIsExpanded] = useState(false);
 	const [isHovering, setIsHovering] = useState(false);
+	const [isMenuOpen, setIsMenuOpen] = useState(false);
 	const canExpand = Boolean(children || toolPart.errorText || toolPart.output);
 	const hasInitialized = useRef(false);
 
-	const isBordered = !!actions;
+	const hasActions = !!actions;
+	// Inside a tool group, bordered tools render like their inline neighbours while keeping their actions.
+	const isBordered = hasActions && !isInToolGroup;
+	const variant = isBordered ? 'bordered' : hasActions ? 'grouped' : 'inline';
 
 	useEffect(() => {
-		if (isBordered && !hasInitialized.current && canExpand && defaultExpanded) {
+		if (hasActions && !hasInitialized.current && canExpand && defaultExpanded) {
 			setIsExpanded(true);
 			hasInitialized.current = true;
 		}
-	}, [isBordered, canExpand, defaultExpanded, setIsExpanded]);
+	}, [hasActions, canExpand, defaultExpanded, setIsExpanded]);
 
 	const hasError = !!toolPart.errorText;
 	const showChevron = isSettled && (!hasError || isHovering);
@@ -56,25 +82,45 @@ export const ToolCallWrapper = ({
 	);
 
 	const actionsContent =
-		isHovering && actions && actions.length > 0 ? (
+		(isHovering || isExpanded || isMenuOpen) && actions && actions.length > 0 ? (
 			<div className={cn('flex items-center gap-1 shrink-0 -my-1')}>
-				{actions.map((action) => (
-					<Button
-						variant='ghost-muted'
-						size='icon-xs'
-						key={action.id}
-						onClick={(e) => {
-							e.stopPropagation();
-							if (action.expandOnClick && !isExpanded) {
-								setIsExpanded(true);
-							}
-							action.onClick();
-						}}
-						className={cn(action.isActive ? 'bg-accent' : '')}
-					>
-						{action.label}
-					</Button>
-				))}
+				{actions.map((action) => {
+					if ('export' in action) {
+						return (
+							<span key={action.id} onClick={(e) => e.stopPropagation()}>
+								<ExportDataMenu {...action.export}>
+									<Button
+										variant='ghost-muted'
+										size='icon-xs'
+										title={action.title}
+										className='rounded-full hover:bg-accent/70'
+									>
+										{action.label}
+									</Button>
+								</ExportDataMenu>
+							</span>
+						);
+					}
+
+					return (
+						<Button
+							variant='ghost-muted'
+							size='icon-xs'
+							key={action.id}
+							onClick={(e) => {
+								e.stopPropagation();
+								if (action.expandOnClick && !isExpanded) {
+									setIsExpanded(true);
+								}
+								action.onClick();
+							}}
+							title={action.title}
+							className={cn('rounded-full hover:bg-accent/70', action.isActive ? 'bg-accent/70' : '')}
+						>
+							{action.label}
+						</Button>
+					);
+				})}
 			</div>
 		) : undefined;
 
@@ -89,28 +135,31 @@ export const ToolCallWrapper = ({
 	const contentToShow = toolPart.errorText && !overrideError ? errorContent : children;
 
 	return (
-		<div
-			onMouseEnter={() => setIsHovering(true)}
-			onMouseLeave={() => setIsHovering(false)}
-			className={cn(isBordered && '-mx-3')}
-			{...(hasError && {
-				'data-replay-nav': 'tool-error',
-				'data-replay-bordered': isBordered ? 'true' : 'false',
-			})}
-		>
-			<Expandable
-				title={title}
-				badge={badge}
-				expanded={isExpanded}
-				onExpandedChange={setIsExpanded}
-				disabled={!canExpand}
-				isLoading={!isSettled}
-				leadingIcon={statusIcon}
-				variant={isBordered ? 'bordered' : 'inline'}
-				trailingContent={actionsContent}
+		<ToolCallActionsProvider value={{ setMenuOpen: setIsMenuOpen }}>
+			<div
+				onMouseEnter={() => setIsHovering(true)}
+				onMouseLeave={() => setIsHovering(false)}
+				className={cn(isBordered && '-mx-3')}
+				data-replay-target-id={toolPart.toolCallId}
+				{...(hasError && {
+					'data-replay-nav': 'tool-error',
+					'data-replay-bordered': isBordered ? 'true' : 'false',
+				})}
 			>
-				{contentToShow}
-			</Expandable>
-		</div>
+				<Expandable
+					title={title}
+					badge={badge}
+					expanded={isExpanded}
+					onExpandedChange={setIsExpanded}
+					disabled={!canExpand}
+					isLoading={!isSettled}
+					leadingIcon={statusIcon}
+					variant={variant}
+					trailingContent={actionsContent}
+				>
+					{contentToShow}
+				</Expandable>
+			</div>
+		</ToolCallActionsProvider>
 	);
 };

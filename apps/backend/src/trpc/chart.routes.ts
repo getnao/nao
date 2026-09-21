@@ -4,11 +4,14 @@ import { z } from 'zod/v4';
 
 import { generateChartImage } from '../components/generate-chart';
 import {
-	getChartConfigByToolCallId,
 	getChartDataByQueryId,
 	getChartOwnerInfo,
+	getDisplayConfigByToolCallId,
 	updateChartConfig,
 } from '../queries/chart-image';
+import { getDisplaySettings } from '../queries/project.queries';
+import { logAnalyticsEvent } from '../utils/analytics-event';
+import { logger } from '../utils/logger';
 import { projectProtectedProcedure, protectedProcedure } from './trpc';
 
 export const chartRoutes = {
@@ -18,10 +21,31 @@ export const chartRoutes = {
 				toolCallId: z.string(),
 			}),
 		)
-		.query(async ({ input }) => {
-			const config = await getChartConfigByToolCallId(input.toolCallId);
+		.query(async ({ input, ctx }) => {
+			const config = await readDownloadableChartConfig(input.toolCallId);
 			const data = await getChartDataByQueryId(config.query_id);
-			const png = generateChartImage({ config, data });
+			const displaySettings = await getDisplaySettings(ctx.project.id);
+			const png = generateChartImage({ config, data, dateFormat: displaySettings.dateFormat });
+
+			try {
+				const owner = await getChartOwnerInfo(input.toolCallId);
+				if (owner?.chatId) {
+					logAnalyticsEvent({
+						projectId: ctx.project.id,
+						type: 'download',
+						assetType: 'chat',
+						actorUserId: ctx.user.id,
+						chatId: owner.chatId,
+						metadata: { type: 'download', format: 'png', queryId: input.toolCallId, title: config.title },
+					});
+				}
+			} catch (error) {
+				logger.error(`Failed to log chart download analytics for ${input.toolCallId}: ${String(error)}`, {
+					source: 'agent',
+					projectId: ctx.project.id,
+				});
+			}
+
 			return png.toString('base64');
 		}),
 
@@ -30,19 +54,19 @@ export const chartRoutes = {
 			z.object({
 				toolCallId: z.string(),
 				config: z.custom<displayChart.Input>((value) => displayChart.InputSchema.safeParse(value).success, {
-					message: 'Invalid chart config',
+					message: 'Invalid display config',
 				}),
 			}),
 		)
 		.mutation(async ({ input, ctx }) => {
 			const owner = await getChartOwnerInfo(input.toolCallId);
 			if (!owner) {
-				throw new TRPCError({ code: 'NOT_FOUND', message: 'Chart not found.' });
+				throw new TRPCError({ code: 'NOT_FOUND', message: 'Visualization not found.' });
 			}
 			if (owner.userId !== ctx.user.id) {
 				throw new TRPCError({
 					code: 'FORBIDDEN',
-					message: 'You are not authorized to edit this chart.',
+					message: 'You are not authorized to edit this visualization.',
 				});
 			}
 
@@ -50,3 +74,22 @@ export const chartRoutes = {
 			return { success: true as const };
 		}),
 };
+
+async function readDownloadableChartConfig(
+	toolCallId: string,
+): Promise<displayChart.BuiltinChartInput | displayChart.KpiCardInput> {
+	const config = await getDisplayConfigByToolCallId(toolCallId);
+	if (displayChart.isTableInput(config)) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: 'Chart download is only available for chart visualizations.',
+		});
+	}
+	if (!displayChart.isBuiltinChartType(config.chart_type)) {
+		throw new TRPCError({
+			code: 'BAD_REQUEST',
+			message: 'Custom charts can only be viewed in the interactive web chat.',
+		});
+	}
+	return { ...config, chart_type: config.chart_type };
+}

@@ -36,10 +36,16 @@ describe('validateStoryCode', () => {
 		});
 
 		it('flags invalid chart_type', () => {
-			const code = '<chart query_id="q1" chart_type="donut" x_axis_key="month" data_key="revenue" title="x" />';
+			const code = '<chart query_id="q1" chart_type="bubble" x_axis_key="month" data_key="revenue" title="x" />';
 			const errors = validateStoryCode(code);
 			expect(errors).toHaveLength(1);
-			expect(errors[0].message).toMatch(/Invalid chart_type "donut"/);
+			expect(errors[0].message).toMatch(/Invalid chart_type "bubble"/);
+		});
+
+		it('accepts the donut chart_type', () => {
+			const code = '<chart query_id="q1" chart_type="donut" x_axis_key="month" data_key="revenue" title="x" />';
+			const errors = validateStoryCode(code);
+			expect(errors).toHaveLength(0);
 		});
 
 		it('flags invalid x_axis_type', () => {
@@ -65,6 +71,24 @@ describe('validateStoryCode', () => {
 			const code = '<chart query_id="q1" chart_type="line" x_axis_key="month" series="[]" title="x" />';
 			const errors = validateStoryCode(code);
 			expect(errors.some((e) => e.message.includes('non-empty JSON array'))).toBe(true);
+		});
+
+		it('accepts a series label containing a backslash', () => {
+			const code =
+				'<chart query_id="q1" chart_type="line" x_axis_key="month" series=\'[{"data_key":"rev","label":"Disc\\Rebate"}]\' title="x" />';
+			expect(validateStoryCode(code)).toEqual([]);
+		});
+
+		it('accepts a series label containing a bracket', () => {
+			const code =
+				'<chart query_id="q1" chart_type="line" x_axis_key="month" series=\'[{"data_key":"rev","label":"a]b"}]\' title="x" />';
+			expect(validateStoryCode(code)).toEqual([]);
+		});
+
+		it('accepts a self-closing chart whose title contains a slash', () => {
+			const code =
+				'<chart query_id="q1" chart_type="line" x_axis_key="week" series=\'[{"data_key":"orders"}]\' title="13/07 update" />';
+			expect(validateStoryCode(code)).toEqual([]);
 		});
 
 		it('flags series entries without data_key', () => {
@@ -128,6 +152,52 @@ describe('validateStoryCode', () => {
 			expect(errors.some((e) => e.message.includes('between 1 and 4'))).toBe(true);
 		});
 
+		it('accepts valid widths', () => {
+			const code = [
+				'<grid widths="3,1">',
+				'<chart query_id="a" chart_type="line" x_axis_key="x" data_key="y" title="t" />',
+				'<chart query_id="b" chart_type="bar" x_axis_key="x" data_key="y" title="t" />',
+				'</grid>',
+			].join('\n');
+			expect(validateStoryCode(code)).toEqual([]);
+		});
+
+		it('flags widths with the wrong count', () => {
+			const code = [
+				'<grid widths="3">',
+				'<chart query_id="a" chart_type="line" x_axis_key="x" data_key="y" title="t" />',
+				'<chart query_id="b" chart_type="bar" x_axis_key="x" data_key="y" title="t" />',
+				'</grid>',
+			].join('\n');
+			const errors = validateStoryCode(code);
+			expect(errors.some((e) => e.message === 'Grid `widths` has 1 values but the grid has 2 columns.')).toBe(
+				true,
+			);
+		});
+
+		it('flags non-integer widths', () => {
+			const code = [
+				'<grid widths="1.5,-1">',
+				'<chart query_id="a" chart_type="line" x_axis_key="x" data_key="y" title="t" />',
+				'<chart query_id="b" chart_type="bar" x_axis_key="x" data_key="y" title="t" />',
+				'</grid>',
+			].join('\n');
+			const errors = validateStoryCode(code);
+			expect(
+				errors.some((e) => e.message === 'Grid `widths` must be a comma-separated list of positive integers.'),
+			).toBe(true);
+		});
+
+		it('accepts a grid without widths', () => {
+			const code = [
+				'<grid cols="2">',
+				'<chart query_id="a" chart_type="line" x_axis_key="x" data_key="y" title="t" />',
+				'<chart query_id="b" chart_type="bar" x_axis_key="x" data_key="y" title="t" />',
+				'</grid>',
+			].join('\n');
+			expect(validateStoryCode(code)).toEqual([]);
+		});
+
 		it('supports nested grids', () => {
 			const code = [
 				'<grid cols="2">',
@@ -138,6 +208,102 @@ describe('validateStoryCode', () => {
 				'</grid>',
 			].join('\n');
 			expect(validateStoryCode(code)).toEqual([]);
+		});
+	});
+
+	describe('tabs validation', () => {
+		it('accepts a well-formed tabbed story', () => {
+			const code = [
+				'<tab title="Overview">',
+				'# Overview',
+				'</tab>',
+				'<tab title="Details">',
+				'<table query_id="q1" title="Details" />',
+				'</tab>',
+			].join('\n');
+
+			expect(validateStoryCode(code)).toEqual([]);
+		});
+
+		it('accepts a tab title containing >', () => {
+			const code = ['<tab title="Revenue > 1000">', '# Revenue', '</tab>'].join('\n');
+			expect(validateStoryCode(code)).toEqual([]);
+		});
+
+		it('does not treat table blocks as tabs', () => {
+			expect(validateStoryCode('<table query_id="q1" title="Details" />')).toEqual([]);
+		});
+
+		it('flags content before the first tab', () => {
+			const errors = validateStoryCode('Intro\n<tab title="Overview">Content</tab>');
+			expect(errors.some((e) => /not allowed outside <tab> blocks/.test(e.message))).toBe(true);
+		});
+
+		it('flags a tab missing a title', () => {
+			const errors = validateStoryCode('<tab>Content</tab>');
+			expect(errors.some((e) => /missing a required `title`/.test(e.message))).toBe(true);
+		});
+
+		it('flags an unterminated tab', () => {
+			const errors = validateStoryCode('<tab title="Overview">Content');
+			expect(errors.some((e) => /missing a matching <\/tab>/.test(e.message))).toBe(true);
+		});
+
+		it('flags content between tabs', () => {
+			const code = [
+				'<tab title="Overview">Overview</tab>',
+				'Stray paragraph',
+				'<tab title="Details">Details</tab>',
+			].join('\n');
+			const errors = validateStoryCode(code);
+			expect(errors.some((e) => /not allowed outside <tab>/.test(e.message))).toBe(true);
+		});
+
+		it('flags content after the last tab', () => {
+			const code = '<tab title="Overview">Content</tab>\nAfter';
+			const errors = validateStoryCode(code);
+			expect(errors.some((e) => /not allowed outside <tab> blocks/.test(e.message))).toBe(true);
+		});
+	});
+
+	describe('filter validation', () => {
+		it('accepts a well-formed filter tag with table source', () => {
+			const code = '<filter id="country" column="country" label="Country" type="multi_select" table="orders" />';
+			expect(validateStoryCode(code)).toEqual([]);
+		});
+
+		it('accepts a filter with hardcoded options', () => {
+			const code = `<filter id="country" label="Country" type="select" options='["US","FR"]' />`;
+			expect(validateStoryCode(code)).toEqual([]);
+		});
+
+		it('flags select filters missing both options and table/column', () => {
+			expect(
+				validateStoryCode('<filter id="country" type="select" />').some((e) =>
+					/require either `options=/.test(e.message),
+				),
+			).toBe(true);
+		});
+
+		it('flags invalid filter types', () => {
+			expect(
+				validateStoryCode('<filter id="country" column="country" type="number_range" table="orders" />').some(
+					(e) => /Invalid filter type/.test(e.message),
+				),
+			).toBe(true);
+		});
+
+		it('flags filter ids that cannot be used in SQL templates', () => {
+			const errors = validateStoryCode('<filter id="order-status" type="search" />');
+			expect(errors.some((error) => error.message.includes('Invalid filter id "order-status"'))).toBe(true);
+		});
+
+		it('flags duplicate filter ids', () => {
+			const code = [
+				'<filter id="country" column="country" type="select" table="orders" />',
+				'<filter id="country" column="region" type="select" table="orders" />',
+			].join('\n');
+			expect(validateStoryCode(code).some((e) => /must be unique/.test(e.message))).toBe(true);
 		});
 	});
 

@@ -1,5 +1,6 @@
 import { EmailButton } from './email-button';
 import { EmailLayout } from './email-layout';
+import { EmailParagraph } from './email-text';
 
 interface ForgotPasswordProps {
 	userName: string;
@@ -8,21 +9,19 @@ interface ForgotPasswordProps {
 
 export function ForgotPassword({ userName, resetUrl }: ForgotPasswordProps) {
 	return (
-		<EmailLayout>
-			<p>Hi {userName},</p>
+		<EmailLayout title='Reset your password on nao'>
+			<EmailParagraph>Hi {userName},</EmailParagraph>
 
-			<p>We received a request to reset your password on nao. Click the button below to choose a new password.</p>
+			<EmailParagraph>
+				We received a request to reset your password on nao. Click the button below to choose a new one.
+			</EmailParagraph>
 
-			<EmailButton href={resetUrl}>Reset your password</EmailButton>
+			<EmailButton href={resetUrl}>Reset password</EmailButton>
 
-			<p>
+			<EmailParagraph>
 				This link will expire in 1 hour. If you did not request a password reset, you can safely ignore this
 				email.
-			</p>
-
-			<div className='footer'>
-				<p>This is an automated message from nao.</p>
-			</div>
+			</EmailParagraph>
 		</EmailLayout>
 	);
 }

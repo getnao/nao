@@ -1,3 +1,6 @@
+import { isQueryResultPart } from '@nao/shared/execute-sql-parts';
+import { extractQueryIds } from '@nao/shared/story-segments';
+
 import type { UIMessage } from '@nao/backend/chat';
 
 /**
@@ -9,13 +12,7 @@ export function getQueryDataFromCodeFromMessages(
 	messages: UIMessage[],
 	code: string,
 ): Record<string, unknown[]> | null {
-	const chartRegex = /<(?:chart|table)\s+[^>]*query_id="([^"]*)"[^>]*\/?>/g;
-	const queryIds = new Set<string>();
-	let match;
-	while ((match = chartRegex.exec(code)) !== null) {
-		queryIds.add(match[1]);
-	}
-
+	const queryIds = extractQueryIds(code);
 	if (queryIds.size === 0) {
 		return null;
 	}
@@ -23,7 +20,7 @@ export function getQueryDataFromCodeFromMessages(
 	const data: Record<string, unknown[]> = {};
 	for (const message of messages) {
 		for (const part of message.parts) {
-			if (part.type === 'tool-execute_sql' && part.output?.id && queryIds.has(part.output.id)) {
+			if (isQueryResultPart(part) && part.output?.id && queryIds.has(part.output.id)) {
 				data[part.output.id] = part.output.data;
 			}
 		}

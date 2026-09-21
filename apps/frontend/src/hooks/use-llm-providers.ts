@@ -1,17 +1,27 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { llmProviderSchema } from '@nao/backend/llm';
-import type { CustomModelMetadata } from '@nao/backend/llm';
-import type { LlmProvider } from '@nao/shared/types';
+import { PROVIDER_META } from '@nao/backend/provider-meta';
+import {
+	LLM_PROVIDERS,
+	NAMED_PROVIDER_KIND,
+	providerKind,
+	providerName,
+	toNamedProvider,
+	toProviderName,
+} from '@nao/shared/types';
+import type { CustomModelMetadata, ModelSettingsMap } from '@nao/backend/llm';
+import type { LlmProvider, LlmProviderKind } from '@nao/shared/types';
+import type { InheritedKeySource } from '@/components/settings/llm-provider-form';
 import { trpc } from '@/main';
 
 export interface EditingState {
 	provider: LlmProvider;
 	isEditing: boolean;
-	usesEnvKey: boolean;
+	inheritedKeySource: InheritedKeySource | null;
 	initialValues?: {
 		enabledModels: string[];
 		customModels: CustomModelMetadata[];
+		modelSettings: ModelSettingsMap;
 		baseUrl: string;
 	};
 }
@@ -32,17 +42,41 @@ export function useLlmProviders() {
 
 	// Derived data
 	const projectConfigs = llmConfigs.data?.projectConfigs ?? [];
+	const configProviders = llmConfigs.data?.configProviders ?? [];
 	const envProviders = llmConfigs.data?.envProviders ?? [];
 	const envBaseUrls = llmConfigs.data?.envBaseUrls ?? {};
 	const projectConfiguredProviders = projectConfigs.map((c) => c.provider);
 
-	const availableProvidersToAdd: LlmProvider[] = llmProviderSchema.options.filter(
-		(p) => !projectConfiguredProviders.includes(p) && !envProviders.includes(p),
+	// Kinds that accept several instances stay on offer: each new one is added under its own name.
+	const availableProvidersToAdd: LlmProviderKind[] = LLM_PROVIDERS.filter(
+		(p) =>
+			p === NAMED_PROVIDER_KIND ||
+			(!projectConfiguredProviders.includes(p) &&
+				!envProviders.includes(p) &&
+				!configProviders.some((c) => c.provider === p)),
 	);
+
+	// Names already in use, so that adding an endpoint cannot silently overwrite one of them.
+	const takenProviderNames = [...projectConfiguredProviders, ...configProviders.map((c) => c.provider)]
+		.map(providerName)
+		.filter((name): name is string => name !== null);
 
 	const unconfiguredEnvProviders = envProviders.filter((p) => !projectConfiguredProviders.includes(p));
 
-	const currentModels = editingState?.provider && knownModels.data ? knownModels.data[editingState.provider] : [];
+	const unconfiguredConfigProviders = configProviders.filter((c) => !projectConfiguredProviders.includes(c.provider));
+
+	const currentModels =
+		editingState?.provider && knownModels.data ? knownModels.data[providerKind(editingState.provider)] : [];
+
+	const resolveInheritedKeySource = (provider: LlmProvider): InheritedKeySource | null => {
+		if (configProviders.some((c) => c.provider === provider)) {
+			return 'config';
+		}
+		if (envProviders.includes(provider)) {
+			return 'env';
+		}
+		return null;
+	};
 
 	// Handlers
 	const invalidateQueries = async () => {
@@ -52,26 +86,36 @@ export function useLlmProviders() {
 				queryKey: trpc.project.listAvailableTranscribeModels.queryOptions().queryKey,
 			}),
 			queryClient.invalidateQueries({ queryKey: trpc.project.getKnownTranscribeModels.queryOptions().queryKey }),
+			queryClient.invalidateQueries({ queryKey: trpc.project.getDefaultModels.queryOptions().queryKey }),
 		]);
 	};
 
 	const handleSubmit = async (values: {
 		apiKey?: string;
 		credentials?: Record<string, string>;
+		name?: string;
 		enabledModels: string[];
 		customModels: CustomModelMetadata[];
+		modelSettings: ModelSettingsMap;
 		baseUrl?: string;
 	}) => {
 		if (!editingState?.provider) {
 			return;
 		}
 
+		const provider = resolveSubmittedProvider(editingState.provider, values.name);
+		const name = providerName(provider);
+		if (!editingState.isEditing && name && takenProviderNames.includes(name)) {
+			throw new Error(`An endpoint named '${name}' already exists`);
+		}
+
 		await upsertLlmConfig.mutateAsync({
-			provider: editingState.provider,
+			provider,
 			apiKey: values.apiKey,
 			credentials: values.credentials,
 			enabledModels: values.enabledModels,
 			customModels: values.customModels,
+			modelSettings: values.modelSettings,
 			baseUrl: values.baseUrl,
 		});
 		await invalidateQueries();
@@ -88,11 +132,27 @@ export function useLlmProviders() {
 		setEditingState({
 			provider: config.provider,
 			isEditing: true,
-			usesEnvKey: envProviders.includes(config.provider),
+			inheritedKeySource: resolveInheritedKeySource(config.provider),
 			initialValues: {
 				enabledModels: config.enabledModels ?? [],
 				customModels: config.customModels ?? [],
+				modelSettings: config.modelSettings ?? {},
 				baseUrl: config.baseUrl ?? '',
+			},
+		});
+	};
+
+	/** Seed the form with the nao_config.yaml values so saving creates an override of them. */
+	const handleOverrideConfigProvider = (configProvider: (typeof configProviders)[0]) => {
+		setEditingState({
+			provider: configProvider.provider,
+			isEditing: true,
+			inheritedKeySource: 'config',
+			initialValues: {
+				enabledModels: configProvider.enabledModels,
+				customModels: configProvider.customModels,
+				modelSettings: configProvider.modelSettings,
+				baseUrl: configProvider.baseUrl ?? '',
 			},
 		});
 	};
@@ -103,40 +163,56 @@ export function useLlmProviders() {
 	};
 
 	const handleSelectProvider = (provider: LlmProvider) => {
+		// Adding a provider of the named kind creates an endpoint of its own, with credentials of its own.
+		const inheritsCredentials = providerKind(provider) !== NAMED_PROVIDER_KIND;
 		setEditingState({
 			provider,
 			isEditing: false,
-			usesEnvKey: envProviders.includes(provider),
+			inheritedKeySource: inheritsCredentials ? resolveInheritedKeySource(provider) : null,
 		});
 	};
 
 	const handleConfigureEnvProvider = (provider: LlmProvider) => {
+		// Endpoints nao cannot guess start from the environment value rather than an empty field.
+		const baseUrl = PROVIDER_META[providerKind(provider)].requiresBaseUrl ? (envBaseUrls[provider] ?? '') : '';
 		setEditingState({
 			provider,
 			isEditing: true,
-			usesEnvKey: true,
+			inheritedKeySource: 'env',
+			initialValues: { enabledModels: [], customModels: [], modelSettings: {}, baseUrl },
 		});
 	};
 
 	const getModelDisplayName = (provider: LlmProvider, modelId: string) => {
-		const models = knownModels.data?.[provider] ?? [];
+		const models = knownModels.data?.[providerKind(provider)] ?? [];
 		const knownName = models.find((m) => m.id === modelId)?.name;
 		if (knownName) {
 			return knownName;
 		}
-		const customModel = projectConfigs
+		const customModel = findCustomModel(provider, modelId);
+		return customModel?.displayName?.trim() || modelId;
+	};
+
+	const findCustomModel = (provider: LlmProvider, modelId: string) => {
+		const fromProjectConfig = projectConfigs
 			.find((c) => c.provider === provider)
 			?.customModels?.find((m) => m.id === modelId);
-		return customModel?.displayName?.trim() || modelId;
+		if (fromProjectConfig) {
+			return fromProjectConfig;
+		}
+		return configProviders.find((c) => c.provider === provider)?.customModels.find((m) => m.id === modelId);
 	};
 
 	return {
 		// Data
 		projectConfigs,
+		configProviders,
 		envProviders,
 		envBaseUrls,
 		availableProvidersToAdd,
+		takenProviderNames,
 		unconfiguredEnvProviders,
+		unconfiguredConfigProviders,
 		currentModels,
 
 		// State
@@ -151,9 +227,16 @@ export function useLlmProviders() {
 		handleSubmit,
 		handleCancel,
 		handleEditConfig,
+		handleOverrideConfigProvider,
 		handleDeleteConfig,
 		handleSelectProvider,
 		handleConfigureEnvProvider,
 		getModelDisplayName,
 	};
+}
+
+/** A provider the admin named is saved under that name, so the project can hold several of its kind. */
+function resolveSubmittedProvider(provider: LlmProvider, name?: string): LlmProvider {
+	const instanceName = name ? toProviderName(name) : null;
+	return instanceName ? toNamedProvider(instanceName) : provider;
 }

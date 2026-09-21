@@ -1,0 +1,63 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nao.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nao.labels" . | nindent 4 }}
+  {{- with (include "nao.annotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+data:
+  SERVER_PORT: {{ .Values.config.serverPort | quote }}
+  FASTAPI_PORT: {{ .Values.config.fastapiPort | quote }}
+  NODE_ENV: {{ .Values.config.nodeEnv | quote }}
+  MODE: "prod"
+  DOCKER: "1"
+  BETTER_AUTH_URL: {{ .Values.config.betterAuthUrl | quote }}
+  NAO_CONTEXT_SOURCE: {{ .Values.config.contextSource | quote }}
+  {{- if eq .Values.config.contextSource "api" }}
+  NAO_PROJECTS_DIR: /app/projects
+  {{- else }}
+  NAO_DEFAULT_PROJECT_PATH: {{ .Values.config.contextPath | quote }}
+  {{- end }}
+  {{- if eq .Values.config.contextSource "git" }}
+  NAO_CONTEXT_GIT_URL: {{ .Values.config.contextGitUrl | quote }}
+  NAO_CONTEXT_GIT_BRANCH: {{ .Values.config.contextGitBranch | quote }}
+  {{- end }}
+  {{- if .Values.config.refreshSchedule }}
+  NAO_REFRESH_SCHEDULE: {{ .Values.config.refreshSchedule | quote }}
+  {{- end }}
+  DB_SSL: {{ eq (toString .Values.config.dbSsl) "true" | quote }}
+  ENABLE_USER_LOGIN: {{ eq (toString .Values.config.enableUserLogin) "true" | quote }}
+  ENABLE_USER_SIGNUP: {{ eq (toString .Values.config.enableUserSignup) "true" | quote }}
+  GITHUB_SSO: {{ eq (toString .Values.config.githubSso) "true" | quote }}
+  GITLAB_SSO: {{ eq (toString .Values.config.gitlabSso) "true" | quote }}
+  BETA_AUTOMATIONS_ENABLED: {{ eq (toString .Values.config.betaAutomationsEnabled) "true" | quote }}
+  BETA_CONTEXT_RECOMMENDATIONS_ENABLED: {{ eq (toString .Values.config.betaContextRecommendationsEnabled) "true" | quote }}
+  DEFAULT_USER_ROLE: {{ .Values.config.defaultUserRole | default "user" | quote }}
+  {{- if .Values.config.gitlabBaseUrl }}
+  GITLAB_BASE_URL: {{ .Values.config.gitlabBaseUrl | quote }}
+  {{- end }}
+  {{- if .Values.config.gitlabRedirectUri }}
+  GITLAB_REDIRECT_URI: {{ .Values.config.gitlabRedirectUri | quote }}
+  {{- end }}
+  {{- if .Values.config.openaiBaseUrl }}
+  OPENAI_BASE_URL: {{ .Values.config.openaiBaseUrl | quote }}
+  {{- end }}
+  {{- if .Values.config.anthropicBaseUrl }}
+  ANTHROPIC_BASE_URL: {{ .Values.config.anthropicBaseUrl | quote }}
+  {{- end }}
+  {{- if .Values.config.geminiBaseUrl }}
+  GEMINI_BASE_URL: {{ .Values.config.geminiBaseUrl | quote }}
+  {{- end }}
+  {{- if .Values.config.mistralBaseUrl }}
+  MISTRAL_BASE_URL: {{ .Values.config.mistralBaseUrl | quote }}
+  {{- end }}
+  {{- if .Values.config.openrouterBaseUrl }}
+  OPENROUTER_BASE_URL: {{ .Values.config.openrouterBaseUrl | quote }}
+  {{- end }}
+  {{- if .Values.config.ollamaBaseUrl }}
+  OLLAMA_BASE_URL: {{ .Values.config.ollamaBaseUrl | quote }}
+  {{- end }}

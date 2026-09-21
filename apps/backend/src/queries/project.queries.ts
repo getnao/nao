@@ -1,17 +1,38 @@
+import {
+	ALL_DATABASE_CONTEXT_ACCESS,
+	ALL_DOCS_CONTEXT_ACCESS,
+	type BackgroundModelSettings,
+	type CustomBoundarySet,
+	DEFAULT_TOOL_CALL_DENSITY_POLICY,
+	DEFAULT_USER_GROUP_NAME,
+	type MapSettings,
+	serializeUserGroupConfig,
+	serializeUserGroupContextAccess,
+	USER_GROUP_FEATURES,
+} from '@nao/shared';
+import { DEFAULT_DATE_FORMAT_SETTINGS, type DisplaySettings } from '@nao/shared/date';
 import type { UpdatedAtFilter, UserRole } from '@nao/shared/types';
-import { and, asc, desc, eq, gt, gte, lte, or, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, isNotNull, lte, or, type SQL, sql } from 'drizzle-orm';
 
 import type { AgentSettings, DBProject, DBProjectMember, NewProject, NewProjectMember } from '../db/abstractSchema';
 import s from '../db/abstractSchema';
-import { db } from '../db/db';
+import { db, type DBExecutor, type DBTransaction } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
 import { env, isCloud } from '../env';
 import type { ListProjectChatsResponse, ProjectChatsFacetKey, UserWithRole } from '../types/project';
 import { HandlerError } from '../utils/error';
+import { createCostLookup, TOTAL_COST_EXPR } from './usage.queries';
+import { userMemberStatus } from './user.queries';
 
 export interface UserProjectWithRole {
 	project: DBProject;
 	userRole: UserRole;
+}
+
+export type ProjectAccessSource = 'project' | 'organization' | 'both';
+
+export interface UserWithProjectAccessDetails extends UserWithRole {
+	source: ProjectAccessSource;
 }
 
 export const getProjectByPath = async (path: string): Promise<DBProject | null> => {
@@ -50,10 +71,10 @@ export const setProjectMemoryEnabled = async (projectId: string, memoryEnabled: 
 	await updateAgentSettings(projectId, { memoryEnabled });
 };
 
-export const createProject = async (project: NewProject): Promise<DBProject> => {
-	const [created] = await db.insert(s.project).values(project).returning().execute();
-	return created;
-};
+export const createProject = async (project: NewProject, transaction?: DBTransaction): Promise<DBProject> =>
+	transaction
+		? createProjectWithDefaultGroup(project, transaction)
+		: db.transaction((tx) => createProjectWithDefaultGroup(project, tx));
 
 export const getProjectMember = async (projectId: string, userId: string): Promise<DBProjectMember | null> => {
 	const [member] = await db
@@ -64,8 +85,11 @@ export const getProjectMember = async (projectId: string, userId: string): Promi
 	return member ?? null;
 };
 
-export const addProjectMember = async (member: NewProjectMember): Promise<DBProjectMember> => {
-	const [created] = await db.insert(s.projectMember).values(member).returning().execute();
+export const addProjectMember = async (
+	member: NewProjectMember,
+	executor: DBExecutor = db,
+): Promise<DBProjectMember> => {
+	const [created] = await executor.insert(s.projectMember).values(member).returning().execute();
 	return created;
 };
 
@@ -84,11 +108,26 @@ export const updateProjectMemberRole = async (projectId: string, userId: string,
 		.execute();
 };
 
+export const listProjectMembershipsForUser = async (
+	userId: string,
+): Promise<Array<{ projectId: string; projectPath: string | null; role: UserRole }>> => {
+	return db
+		.select({
+			projectId: s.projectMember.projectId,
+			projectPath: s.project.path,
+			role: s.projectMember.role,
+		})
+		.from(s.projectMember)
+		.innerJoin(s.project, eq(s.project.id, s.projectMember.projectId))
+		.where(eq(s.projectMember.userId, userId))
+		.execute();
+};
+
 export const listUserProjectsWithRoles = async (userId: string): Promise<UserProjectWithRole[]> => {
 	const results = await db
 		.select({
 			project: s.project,
-			userRole: sql<UserRole>`coalesce(${s.projectMember.role}, 'viewer')`,
+			userRole: sql<UserRole>`coalesce(${s.projectMember.role}, ${s.orgMember.role}, 'viewer')`,
 		})
 		.from(s.project)
 		.leftJoin(s.projectMember, and(eq(s.projectMember.projectId, s.project.id), eq(s.projectMember.userId, userId)))
@@ -104,10 +143,7 @@ export const listUserProjects = async (userId: string): Promise<DBProject[]> => 
 	return results.map((r) => r.project);
 };
 
-export const getUserRoleInProject = async (
-	projectId: string,
-	userId: string,
-): Promise<'admin' | 'user' | 'viewer' | null> => {
+export const getUserRoleInProject = async (projectId: string, userId: string): Promise<UserRole | null> => {
 	const member = await getProjectMember(projectId, userId);
 	if (member) {
 		return member.role;
@@ -119,27 +155,70 @@ export const getUserRoleInProject = async (
 	}
 
 	const [orgMember] = await db
-		.select({ userId: s.orgMember.userId })
+		.select({ userId: s.orgMember.userId, role: s.orgMember.role })
 		.from(s.orgMember)
 		.where(and(eq(s.orgMember.orgId, project.orgId), eq(s.orgMember.userId, userId)))
 		.limit(1)
 		.execute();
 
-	return orgMember ? 'viewer' : null;
+	return orgMember ? orgMember.role : null;
 };
 
-export const listAllUsersWithRoles = async (projectId: string): Promise<UserWithRole[]> => {
+export const listProjectMembersWithRoles = async (projectId: string): Promise<UserWithRole[]> => {
 	const results = await db
 		.select({
 			id: s.user.id,
 			name: s.user.name,
 			email: s.user.email,
 			role: s.projectMember.role,
-			messagingProviderCode: s.user.messagingProviderCode,
+			status: userMemberStatus,
 		})
 		.from(s.user)
 		.innerJoin(s.projectMember, eq(s.projectMember.userId, s.user.id))
 		.where(eq(s.projectMember.projectId, projectId))
+		.execute();
+
+	return results;
+};
+
+export const listUsersWithProjectAccess = async (projectId: string): Promise<UserWithRole[]> => {
+	const project = await getProjectById(projectId);
+	const results = await db
+		.select({
+			id: s.user.id,
+			name: s.user.name,
+			email: s.user.email,
+			role: sql<UserRole>`coalesce(${s.projectMember.role}, ${s.orgMember.role})`,
+			status: userMemberStatus,
+		})
+		.from(s.user)
+		.leftJoin(s.projectMember, and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)))
+		.leftJoin(s.orgMember, and(eq(s.orgMember.userId, s.user.id), eq(s.orgMember.orgId, project?.orgId ?? '')))
+		.where(or(isNotNull(s.projectMember.userId), isNotNull(s.orgMember.userId)))
+		.execute();
+
+	return results;
+};
+
+export const listUsersWithProjectAccessDetails = async (projectId: string): Promise<UserWithProjectAccessDetails[]> => {
+	const project = await getProjectById(projectId);
+	const results = await db
+		.select({
+			id: s.user.id,
+			name: s.user.name,
+			email: s.user.email,
+			role: sql<UserRole>`coalesce(${s.projectMember.role}, ${s.orgMember.role})`,
+			status: userMemberStatus,
+			source: sql<ProjectAccessSource>`case
+				when ${s.projectMember.userId} is not null and ${s.orgMember.userId} is not null then 'both'
+				when ${s.projectMember.userId} is not null then 'project'
+				else 'organization'
+			end`,
+		})
+		.from(s.user)
+		.leftJoin(s.projectMember, and(eq(s.projectMember.userId, s.user.id), eq(s.projectMember.projectId, projectId)))
+		.leftJoin(s.orgMember, and(eq(s.orgMember.userId, s.user.id), eq(s.orgMember.orgId, project?.orgId ?? '')))
+		.where(or(isNotNull(s.projectMember.userId), isNotNull(s.orgMember.userId)))
 		.execute();
 
 	return results;
@@ -175,12 +254,12 @@ export const getProjectByUserId = async (
 		return null;
 	}
 
-	const membership = await getProjectMember(project.id, userId);
-	return membership ? project : null;
+	const role = await getUserRoleInProject(project.id, userId);
+	return role ? project : null;
 };
 
 export const checkProjectHasMoreThanOneAdmin = async (projectId: string): Promise<boolean> => {
-	const userWithRoles = await listAllUsersWithRoles(projectId);
+	const userWithRoles = await listProjectMembersWithRoles(projectId);
 	const nbAdmin = userWithRoles.filter((u) => u.role === 'admin').length;
 	return nbAdmin > 1;
 };
@@ -203,36 +282,179 @@ export const updateAgentSettings = async (projectId: string, settings: AgentSett
 			...current.webSearch,
 			...settings.webSearch,
 		},
+		pythonExecution: {
+			...current.pythonExecution,
+			...settings.pythonExecution,
+		},
+		subagent: {
+			...current.subagent,
+			...settings.subagent,
+		},
 	};
 	await db.update(s.project).set({ agentSettings: next }).where(eq(s.project.id, projectId)).execute();
 	return next;
 };
 
-export const getEnabledToolsAndKnownServers = async (
-	projectId: string,
-): Promise<{ enabledTools: string[]; knownServers: string[] }> => {
+export const getDisabledMcpServers = async (projectId: string): Promise<string[]> => {
 	const project = await getProjectById(projectId);
+	return project?.disabledMcpServers ?? [];
+};
+
+export const setMcpServerEnabled = async (
+	projectId: string,
+	serverName: string,
+	enabled: boolean,
+): Promise<string[]> => {
+	const current = await getDisabledMcpServers(projectId);
+	const next = enabled ? current.filter((name) => name !== serverName) : [...new Set([...current, serverName])];
+	await db.update(s.project).set({ disabledMcpServers: next }).where(eq(s.project.id, projectId)).execute();
+	return next;
+};
+
+export const getDisabledMcpTools = async (projectId: string): Promise<string[]> => {
+	const project = await getProjectById(projectId);
+	return project?.disabledMcpTools ?? [];
+};
+
+/** `toolKey` is `${serverName}/${toolName}`. */
+export const setMcpToolEnabled = async (projectId: string, toolKey: string, enabled: boolean): Promise<string[]> => {
+	const current = await getDisabledMcpTools(projectId);
+	const next = enabled ? current.filter((key) => key !== toolKey) : [...new Set([...current, toolKey])];
+	await db.update(s.project).set({ disabledMcpTools: next }).where(eq(s.project.id, projectId)).execute();
+	return next;
+};
+
+/** Bulk variant of `setMcpToolEnabled`. Each `toolKey` is `${serverName}/${toolName}`. */
+export const setMcpToolsEnabled = async (
+	projectId: string,
+	toolKeys: string[],
+	enabled: boolean,
+): Promise<string[]> => {
+	const current = await getDisabledMcpTools(projectId);
+	const keys = new Set(toolKeys);
+	const next = enabled ? current.filter((key) => !keys.has(key)) : [...new Set([...current, ...toolKeys])];
+	await db.update(s.project).set({ disabledMcpTools: next }).where(eq(s.project.id, projectId)).execute();
+	return next;
+};
+
+export const getDisplaySettings = async (projectId: string): Promise<DisplaySettings> => {
+	const project = await getProjectById(projectId);
+	const stored = project?.displaySettings ?? {};
 	return {
-		enabledTools: project?.enabledMcpTools ?? [],
-		knownServers: project?.knownMcpServers ?? [],
+		dateFormat: stored.dateFormat ?? { ...DEFAULT_DATE_FORMAT_SETTINGS },
 	};
 };
 
-export const updateEnabledToolsAndKnownServers = async (
-	projectId: string,
-	updater: (current: { enabledTools: string[]; knownServers: string[] }) => {
-		enabledTools: string[];
-		knownServers: string[];
-	},
-): Promise<void> => {
-	const current = await getEnabledToolsAndKnownServers(projectId);
-	const next = updater(current);
-	await db
-		.update(s.project)
-		.set({ enabledMcpTools: next.enabledTools, knownMcpServers: next.knownServers })
-		.where(eq(s.project.id, projectId))
-		.execute();
+export const updateDisplaySettings = async (projectId: string, settings: DisplaySettings): Promise<DisplaySettings> => {
+	const current = await getDisplaySettings(projectId);
+	const next: DisplaySettings = {
+		...current,
+		...settings,
+		dateFormat: settings.dateFormat ?? current.dateFormat,
+	};
+	await db.update(s.project).set({ displaySettings: next }).where(eq(s.project.id, projectId)).execute();
+	return next;
 };
+
+export const getDefaultModelSettings = async (projectId: string): Promise<BackgroundModelSettings | null> => {
+	const project = await getProjectById(projectId);
+	return project?.defaultModels ?? null;
+};
+
+export const updateDefaultModelSettings = async (
+	projectId: string,
+	settings: BackgroundModelSettings,
+): Promise<BackgroundModelSettings> => {
+	await db.update(s.project).set({ defaultModels: settings }).where(eq(s.project.id, projectId)).execute();
+	return settings;
+};
+
+export const getMapSettings = async (projectId: string): Promise<MapSettings> => {
+	const project = await getProjectById(projectId);
+	return project?.mapSettings ?? {};
+};
+
+export const getCustomBoundaries = async (projectId: string): Promise<CustomBoundarySet[]> => {
+	const settings = await getMapSettings(projectId);
+	return settings.customBoundaries ?? [];
+};
+
+export const addCustomBoundary = (projectId: string, boundary: CustomBoundarySet): Promise<CustomBoundarySet[]> =>
+	mutateCustomBoundaries(projectId, (current) => {
+		if (current.some((b) => b.key === boundary.key)) {
+			throw new Error(`A boundary set with key "${boundary.key}" already exists.`);
+		}
+		return [...current, boundary];
+	});
+
+export const updateCustomBoundary = (
+	projectId: string,
+	key: string,
+	patch: Partial<CustomBoundarySet>,
+): Promise<CustomBoundarySet[]> =>
+	mutateCustomBoundaries(projectId, (current) => {
+		if (patch.key && patch.key !== key && current.some((b) => b.key === patch.key)) {
+			throw new Error(`A boundary set with key "${patch.key}" already exists.`);
+		}
+		return current.map((b) => (b.key === key ? { ...b, ...patch } : b));
+	});
+
+export const deleteCustomBoundary = (projectId: string, key: string): Promise<CustomBoundarySet[]> =>
+	mutateCustomBoundaries(projectId, (current) => current.filter((b) => b.key !== key));
+
+const mutateCustomBoundaries = async (
+	projectId: string,
+	transform: (current: CustomBoundarySet[]) => CustomBoundarySet[],
+): Promise<CustomBoundarySet[]> =>
+	db.transaction(async (tx) => {
+		const base = tx
+			.select({ mapSettings: s.project.mapSettings })
+			.from(s.project)
+			.where(eq(s.project.id, projectId));
+		const [row] = await lockForUpdate(base).execute();
+		const settings = row?.mapSettings ?? {};
+		const next = transform(settings.customBoundaries ?? []);
+		await tx
+			.update(s.project)
+			.set({ mapSettings: { ...settings, customBoundaries: next } })
+			.where(eq(s.project.id, projectId))
+			.execute();
+		return next;
+	});
+
+const lockForUpdate = <Query extends { execute(): unknown }>(query: Query): Query =>
+	dbConfig.dialect === Dialect.Postgres ? (query as Query & Lockable<Query>).for('update') : query;
+
+type Lockable<Query> = { for(strength: 'update'): Query };
+
+const createProjectWithDefaultGroup = (
+	project: NewProject,
+	transaction: DBTransaction,
+): DBProject | Promise<DBProject> => {
+	if (dbConfig.dialect === Dialect.Postgres) {
+		return createPostgresProjectWithDefaultGroup(project, transaction);
+	}
+	const [created] = transaction.insert(s.project).values(project).returning().all();
+	transaction.insert(s.userGroup).values(defaultUserGroupValues(created.id)).run();
+	return created;
+};
+
+const createPostgresProjectWithDefaultGroup = async (
+	project: NewProject,
+	transaction: DBTransaction,
+): Promise<DBProject> => {
+	const [created] = await transaction.insert(s.project).values(project).returning().execute();
+	await transaction.insert(s.userGroup).values(defaultUserGroupValues(created.id)).execute();
+	return created;
+};
+
+const defaultUserGroupValues = (projectId: string) => ({
+	projectId,
+	name: DEFAULT_USER_GROUP_NAME,
+	isDefault: true,
+	featureGrants: serializeUserGroupConfig(USER_GROUP_FEATURES, DEFAULT_TOOL_CALL_DENSITY_POLICY),
+	contextGrants: serializeUserGroupContextAccess(ALL_DATABASE_CONTEXT_ACCESS, ALL_DOCS_CONTEXT_ACCESS),
+});
 
 export const getEnvVars = async (projectId: string): Promise<Record<string, string>> => {
 	const project = await getProjectById(projectId);
@@ -325,6 +547,26 @@ export const listProjectChats = async (
 		)
 	`;
 
+	const cacheReadTokensExpr = sql<number>`
+		(
+			select coalesce(sum(${s.chatMessage.inputCacheReadTokens}), 0)
+			from ${s.chatMessage}
+			where ${s.chatMessage.chatId} = ${s.chat.id}
+				and ${s.chatMessage.supersededAt} is null
+		)
+	`;
+
+	const costLookup = await createCostLookup(projectId);
+	const totalCostExpr = sql<number>`
+		(
+			select coalesce(sum(${TOTAL_COST_EXPR}), 0)
+			from ${s.chatMessage}
+			left join ${costLookup.table} on ${costLookup.joinCondition}
+			where ${s.chatMessage.chatId} = ${s.chat.id}
+				and ${s.chatMessage.supersededAt} is null
+		)
+	`;
+
 	const downvotesExpr = feedbackExpr('down', sql<number>`count(*)`);
 	const upvotesExpr = feedbackExpr('up', sql<number>`count(*)`);
 	const feedbackTextExpr = feedbackExpr(
@@ -336,6 +578,15 @@ export const listProjectChats = async (
 
 	const toolErrorCountExpr = countToolState('output-error');
 	const toolAvailableCountExpr = countToolState('output-available');
+	const sourceExpr = sql<string | null>`(
+		select source_message.source
+		from ${s.chatMessage} as source_message
+		where source_message.chat_id = ${s.chat.id}
+			and source_message.role = 'user'
+			and source_message.superseded_at is null
+		order by source_message.created_at asc
+		limit 1
+	)`;
 
 	const baseWhereClauses = [eq(s.chat.projectId, projectId)];
 
@@ -388,6 +639,11 @@ export const listProjectChats = async (
 			if (expr) {
 				filterWhereClauses.push(expr);
 			}
+		} else if (filter.id === 'source') {
+			const expr = or(...filter.values.map((source) => eq(sourceExpr, source)));
+			if (expr) {
+				filterWhereClauses.push(expr);
+			}
 		} else if (filter.id === 'toolState') {
 			const exprs: SQL<unknown>[] = [];
 			for (const v of filter.values) {
@@ -409,6 +665,24 @@ export const listProjectChats = async (
 			if (expr) {
 				filterWhereClauses.push(expr);
 			}
+		} else if (filter.id === 'feedback') {
+			const exprs: SQL<unknown>[] = [];
+			for (const v of filter.values) {
+				if (v === 'noVotes') {
+					const e = and(eq(upvotesExpr, 0), eq(downvotesExpr, 0));
+					if (e) {
+						exprs.push(e);
+					}
+				} else if (v === 'upvotes') {
+					exprs.push(gt(upvotesExpr, 0));
+				} else if (v === 'downvotes') {
+					exprs.push(gt(downvotesExpr, 0));
+				}
+			}
+			const expr = or(...exprs);
+			if (expr) {
+				filterWhereClauses.push(expr);
+			}
 		}
 	}
 
@@ -418,6 +692,7 @@ export const listProjectChats = async (
 		sorting,
 		numberOfMessagesExpr,
 		totalTokensExpr,
+		totalCostExpr,
 		downvotesExpr,
 		upvotesExpr,
 		toolErrorCountExpr,
@@ -434,8 +709,11 @@ export const listProjectChats = async (
 			userName: s.user.name,
 			userRole: sql<UserRole | null>`coalesce(${s.projectMember.role}, 'Former member')`.as('userRole'),
 			title: s.chat.title,
+			source: sourceExpr.as('source'),
 			numberOfMessages: numberOfMessagesExpr.as('numberOfMessages'),
 			totalTokens: totalTokensExpr.as('totalTokens'),
+			cacheReadTokens: cacheReadTokensExpr.as('cacheReadTokens'),
+			totalCost: totalCostExpr.as('totalCost'),
 			feedbackText: feedbackTextExpr.as('feedbackText'),
 			downvotes: downvotesExpr.as('downvotes'),
 			upvotes: upvotesExpr.as('upvotes'),
@@ -474,8 +752,11 @@ export const listProjectChats = async (
 			userName: row.userName,
 			userRole: row.userRole,
 			title: row.title,
+			source: row.source,
 			numberOfMessages: Number(row.numberOfMessages ?? 0),
 			totalTokens: Number(row.totalTokens ?? 0),
+			cacheReadTokens: Number(row.cacheReadTokens ?? 0),
+			totalCost: Number(row.totalCost ?? 0),
 			feedbackText: row.feedbackText ?? '',
 			downvotes: Number(row.downvotes ?? 0),
 			upvotes: Number(row.upvotes ?? 0),
@@ -508,6 +789,7 @@ function buildProjectChatsOrderBy(args: {
 	sorting: { id: string; desc?: boolean }[];
 	numberOfMessagesExpr: ReturnType<typeof sql<number>>;
 	totalTokensExpr: ReturnType<typeof sql<number>>;
+	totalCostExpr: ReturnType<typeof sql<number>>;
 	downvotesExpr: ReturnType<typeof sql<number>>;
 	upvotesExpr: ReturnType<typeof sql<number>>;
 	toolErrorCountExpr: ReturnType<typeof sql<number>>;
@@ -517,6 +799,7 @@ function buildProjectChatsOrderBy(args: {
 		sorting,
 		numberOfMessagesExpr,
 		totalTokensExpr,
+		totalCostExpr,
 		downvotesExpr,
 		upvotesExpr,
 		toolErrorCountExpr,
@@ -545,6 +828,9 @@ function buildProjectChatsOrderBy(args: {
 				break;
 			case 'totalTokens':
 				sorters.push(dir(totalTokensExpr));
+				break;
+			case 'totalCost':
+				sorters.push(dir(totalCostExpr));
 				break;
 			case 'feedback':
 				sorters.push(...buildTieredSort(dir, downvotesExpr, upvotesExpr));

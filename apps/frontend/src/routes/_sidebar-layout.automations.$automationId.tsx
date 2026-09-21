@@ -11,12 +11,15 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { isMac } from '@/lib/platform';
 import { requireAutomationsEnabled } from '@/lib/require-admin';
 import { cn } from '@/lib/utils';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/automations/$automationId')({
-	beforeLoad: requireAutomationsEnabled,
+	beforeLoad: async () => {
+		await requireAutomationsEnabled();
+	},
 	component: AutomationDetailPage,
 });
 
@@ -114,7 +117,7 @@ function AutomationDetailPage() {
 								)}
 							</Button>
 						)}
-						{automation && (
+						{automation && automation.cron && (
 							<div className='flex items-center gap-2 rounded-md border bg-background/60 px-2.5 py-1.75'>
 								<Switch
 									checked={automation.enabled}
@@ -149,6 +152,7 @@ function AutomationDetailPage() {
 				{automation && (
 					<AutomationForm
 						id={automationFormId}
+						automationId={automationId}
 						initialValue={{
 							title: automation.title,
 							prompt: automation.prompt,
@@ -160,9 +164,13 @@ function AutomationDetailPage() {
 							mcpEnabled: automation.mcpEnabled,
 							mcpServers: automation.mcpServers ?? undefined,
 							integrations: automation.integrations,
+							webhookEnabled: automation.webhookEnabled,
 						}}
 						details={{
 							enabled: automation.enabled,
+							scheduleDescription: automation.scheduleDescription,
+							cron: automation.cron,
+							webhookEnabled: automation.webhookEnabled,
 							nextRunAt: automation.scheduledJob?.runAt,
 							lastRunAt: runs[0]?.startedAt,
 						}}
@@ -184,10 +192,7 @@ function AutomationDetailPage() {
 }
 
 function getSaveShortcutLabel() {
-	if (typeof navigator !== 'undefined' && navigator.platform.includes('Mac')) {
-		return '⌘S';
-	}
-	return 'Ctrl+S';
+	return isMac ? '⌘S' : 'Ctrl+S';
 }
 
 type AutomationRun = {

@@ -9,6 +9,7 @@ import { __reloadEnvForTesting } from '../src/env';
 import {
 	getLicense,
 	hasFeature,
+	LICENSE_ALL_FEATURES,
 	LICENSE_FEATURES,
 	refreshLicenseOnline,
 	resetLicenseCache,
@@ -104,12 +105,66 @@ describe('license.service', () => {
 	it('only exposes known features from the license payload', async () => {
 		const { licensePath, publicKeyPem } = await createSignedLicenseFile({
 			...DEFAULT_CLAIMS,
-			features: ['sso', 'unknown-future-feature'],
+			features: [
+				LICENSE_FEATURES.sso,
+				LICENSE_FEATURES.excludeColumns,
+				LICENSE_FEATURES.rowLevelSecurity,
+				'unknown-future-feature',
+			],
 		});
 		setLicenseEnv({ licensePath, publicKeyPem });
 
 		const license = await getLicense();
-		expect(license?.features).toEqual(['sso']);
+		expect(license?.features).toEqual([
+			LICENSE_FEATURES.sso,
+			LICENSE_FEATURES.excludeColumns,
+			LICENSE_FEATURES.rowLevelSecurity,
+		]);
+	});
+
+	it('grants every known feature when the license carries the "*" wildcard', async () => {
+		const { licensePath, publicKeyPem } = await createSignedLicenseFile({
+			...DEFAULT_CLAIMS,
+			features: [LICENSE_ALL_FEATURES],
+		});
+		setLicenseEnv({ licensePath, publicKeyPem });
+
+		const allFeatures = Object.values(LICENSE_FEATURES);
+		expect((await getLicense())?.features).toEqual(allFeatures);
+		for (const feature of allFeatures) {
+			expect(await hasFeature(feature)).toBe(true);
+		}
+	});
+
+	it('expands the "*" wildcard even when listed alongside explicit or unknown features', async () => {
+		const { licensePath, publicKeyPem } = await createSignedLicenseFile({
+			...DEFAULT_CLAIMS,
+			features: [LICENSE_FEATURES.sso, 'unknown-future-feature', LICENSE_ALL_FEATURES],
+		});
+		setLicenseEnv({ licensePath, publicKeyPem });
+
+		expect((await getLicense())?.features).toEqual(Object.values(LICENSE_FEATURES));
+	});
+
+	it('expands the "*" wildcard from a signed online verdict', async () => {
+		const { licensePath, privateKey, publicKeyPem } = await createSignedLicenseFile({
+			...DEFAULT_CLAIMS,
+			features: [],
+		});
+		setLicenseEnv({ licensePath, publicKeyPem });
+		stubValidateResponse(privateKey, {
+			subscriptionId: DEFAULT_CLAIMS.subscriptionId,
+			valid: true,
+			isActive: true,
+			features: [LICENSE_ALL_FEATURES],
+		});
+
+		expect(await hasFeature(LICENSE_FEATURES.userBudget)).toBe(false);
+
+		await refreshLicenseOnline();
+
+		expect((await getLicense())?.features).toEqual(Object.values(LICENSE_FEATURES));
+		expect(await hasFeature(LICENSE_FEATURES.userBudget)).toBe(true);
 	});
 
 	it('updates cached features from signed online validation', async () => {
@@ -118,18 +173,12 @@ describe('license.service', () => {
 			features: [],
 		});
 		setLicenseEnv({ licensePath, publicKeyPem });
-		vi.stubGlobal(
-			'fetch',
-			vi.fn(async () => {
-				const token = await createSignedValidateToken(privateKey, {
-					subscriptionId: DEFAULT_CLAIMS.subscriptionId,
-					valid: true,
-					isActive: true,
-					features: [LICENSE_FEATURES.sso],
-				});
-				return new Response(JSON.stringify({ token }));
-			}),
-		);
+		stubValidateResponse(privateKey, {
+			subscriptionId: DEFAULT_CLAIMS.subscriptionId,
+			valid: true,
+			isActive: true,
+			features: [LICENSE_FEATURES.sso],
+		});
 
 		expect(await hasFeature(LICENSE_FEATURES.sso)).toBe(false);
 
@@ -137,6 +186,47 @@ describe('license.service', () => {
 
 		expect(await hasFeature(LICENSE_FEATURES.sso)).toBe(true);
 		expect((await getLicense())?.features).toEqual([LICENSE_FEATURES.sso]);
+	});
+
+	it('extends an expired license when the renewal is verified online', async () => {
+		const eightDaysAgoSeconds = -8 * 24 * 60 * 60;
+		const { licensePath, privateKey, publicKeyPem } = await createSignedLicenseFile(DEFAULT_CLAIMS, {
+			expiresInSeconds: eightDaysAgoSeconds,
+		});
+		const renewedExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+		setLicenseEnv({ licensePath, publicKeyPem });
+		stubValidateResponse(privateKey, {
+			subscriptionId: DEFAULT_CLAIMS.subscriptionId,
+			valid: true,
+			isActive: true,
+			expiresAt: renewedExpiry.toISOString(),
+			features: [LICENSE_FEATURES.sso],
+		});
+
+		expect(await hasFeature(LICENSE_FEATURES.sso)).toBe(false);
+
+		await refreshLicenseOnline();
+
+		expect(await hasFeature(LICENSE_FEATURES.sso)).toBe(true);
+		expect((await getLicense())?.expiresAt).toEqual(renewedExpiry);
+	});
+
+	it('never shortens the license expiry from an online verdict', async () => {
+		const { licensePath, privateKey, publicKeyPem } = await createSignedLicenseFile(DEFAULT_CLAIMS);
+		setLicenseEnv({ licensePath, publicKeyPem });
+		const originalExpiry = (await getLicense())?.expiresAt;
+		stubValidateResponse(privateKey, {
+			subscriptionId: DEFAULT_CLAIMS.subscriptionId,
+			valid: true,
+			isActive: true,
+			expiresAt: new Date(Date.now() - 60_000).toISOString(),
+			features: [LICENSE_FEATURES.sso],
+		});
+
+		await refreshLicenseOnline();
+
+		expect((await getLicense())?.expiresAt).toEqual(originalExpiry);
+		expect(await hasFeature(LICENSE_FEATURES.sso)).toBe(true);
 	});
 
 	it('never checks online for offline licenses', async () => {
@@ -167,6 +257,53 @@ describe('license.service', () => {
 		await pingLicensesServer();
 
 		expect(fetch).not.toHaveBeenCalled();
+	});
+
+	it('includes instance configuration in the startup ping additional info', async () => {
+		const fetch = vi.fn(async () => new Response(null, { status: 201 }));
+		process.env.MODE = 'prod';
+		process.env.BETTER_AUTH_URL = 'https://chat.example.com';
+		process.env.APP_VERSION = '1.2.3';
+		process.env.NAO_MODE = 'self-hosted';
+		process.env.BETA_AUTOMATIONS_ENABLED = 'false';
+		process.env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED = 'true';
+		process.env.BETA_STORY_FILTERS_ENABLED = 'true';
+		process.env.SMTP_HOST = 'smtp.example.com';
+		process.env.SMTP_MAIL_FROM = 'hello@example.com';
+		process.env.SMTP_PASSWORD = 'secret';
+		process.env.GITHUB_SSO = 'true';
+		process.env.GITHUB_CLIENT_ID = 'github-client';
+		process.env.GITHUB_CLIENT_SECRET = 'github-secret';
+		process.env.AZURE_AD_CLIENT_ID = 'azure-client';
+		process.env.AZURE_AD_CLIENT_SECRET = 'azure-secret';
+		process.env.AZURE_AD_TENANT_ID = 'azure-tenant';
+		process.env.OIDC_CLIENT_ID = 'oidc-client';
+		process.env.OIDC_CLIENT_SECRET = 'oidc-secret';
+		process.env.OIDC_DISCOVERY_URL = 'https://oidc.example.com/.well-known/openid-configuration';
+		setLicenseEnv({ licensePath: undefined });
+		vi.stubGlobal('fetch', fetch);
+
+		await pingLicensesServer();
+
+		const [, init] = fetch.mock.calls[0] as [string, RequestInit];
+		const body = JSON.parse(String(init.body));
+		expect(body).toEqual({
+			betterAuthUrl: 'https://chat.example.com',
+			naoVersion: '1.2.3',
+			additionalInfo: expect.objectContaining({
+				betaAutomationsEnabled: false,
+				betaContextRecommendationsEnabled: true,
+				betaStoryFiltersEnabled: true,
+				smtpConfigured: true,
+				loginModesConfigured: {
+					google: false,
+					github: true,
+					azure: true,
+					oidc: true,
+				},
+			}),
+		});
+		expect(body.additionalInfo.userCount === null || typeof body.additionalInfo.userCount === 'number').toBe(true);
 	});
 
 	it('expires offline licenses strictly at expiresAt', async () => {
@@ -234,17 +371,27 @@ async function createSignedLicenseFile(
 	return { licensePath, privateKey, publicKeyPem };
 }
 
-async function createSignedValidateToken(
-	privateKey: CryptoKey,
-	claims: {
-		subscriptionId: string;
-		valid: boolean;
-		isActive: boolean;
-		features: string[];
-	},
-): Promise<string> {
+interface ValidateClaims {
+	subscriptionId: string;
+	valid: boolean;
+	isActive: boolean;
+	expiresAt?: string;
+	features: string[];
+}
+
+function stubValidateResponse(privateKey: CryptoKey, claims: ValidateClaims): void {
+	vi.stubGlobal(
+		'fetch',
+		vi.fn(async () => {
+			const token = await createSignedValidateToken(privateKey, claims);
+			return new Response(JSON.stringify({ token }));
+		}),
+	);
+}
+
+async function createSignedValidateToken(privateKey: CryptoKey, claims: ValidateClaims): Promise<string> {
 	const now = Math.floor(Date.now() / 1000);
-	return new SignJWT(claims)
+	return new SignJWT({ ...claims })
 		.setProtectedHeader({ alg: 'EdDSA' })
 		.setIssuer('getnao')
 		.setIssuedAt(now)

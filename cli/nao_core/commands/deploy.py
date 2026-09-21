@@ -14,7 +14,6 @@ DEFAULT_EXCLUSIONS = {
     ".git",
     "__pycache__",
     "node_modules",
-    "repos",
     ".venv",
     ".env",
     "*.pyc",

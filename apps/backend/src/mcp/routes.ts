@@ -3,12 +3,14 @@ import type { UserRole } from '@nao/shared/types';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import type { App } from '../app';
-import { env } from '../env';
+import { resolveMcpFacingOrigin } from '../env';
 import { getMcpEndpointSettings } from '../queries/mcp-endpoint.queries';
 import { getUserRoleInProject } from '../queries/project.queries';
 import { resolveUserId } from './auth';
 import { getMcpAppsBundle, MCP_APPS_SCRIPT_PATH } from './embed/mcp-apps-bundle';
-import { createMcpServer, resolveProjectId, sessions } from './server';
+import { resolveMcpProjectId } from './project';
+import { createMcpServer } from './server';
+import { withoutJsonSchemaDialect } from './tool-schema-dialect';
 
 declare module 'fastify' {
 	interface FastifyRequest {
@@ -17,6 +19,9 @@ declare module 'fastify' {
 		mcpRole: Exclude<UserRole, 'viewer'>;
 	}
 }
+
+/** `/mcp/:projectId` scopes the endpoint to one project; bare `/mcp` still works for single-project users. */
+const MCP_ENDPOINT_PATHS = ['/', '/:projectId'];
 
 export const mcpServerRoutes = async (app: App) => {
 	app.get(MCP_APPS_SCRIPT_PATH, async (_request, reply) => {
@@ -29,58 +34,58 @@ export const mcpServerRoutes = async (app: App) => {
 	await app.register(async (authenticated) => {
 		authenticated.addHook('preHandler', requireAuthenticatedMcpUser);
 
-		authenticated.get('/', (request, reply) => handleExistingSession(request, reply));
+		for (const path of MCP_ENDPOINT_PATHS) {
+			authenticated.post(path, (request, reply) => handleMcpRequest(request, reply));
 
-		authenticated.post('/', async (request, reply) => {
-			const existingSessionId = request.headers['mcp-session-id'] as string | undefined;
-			if (existingSessionId) {
-				return handleExistingSession(request, reply, request.body);
-			}
-			return initializeSession(request, reply);
-		});
-
-		authenticated.delete('/', (request, reply) => handleExistingSession(request, reply));
+			authenticated.get(path, (_request, reply) => replyMethodNotAllowed(reply));
+			authenticated.delete(path, (_request, reply) => replyMethodNotAllowed(reply));
+		}
 	});
 };
 
 async function requireAuthenticatedMcpUser(request: FastifyRequest, reply: FastifyReply): Promise<void> {
 	const userId = await resolveUserId(request);
 	if (!userId) {
-		replyUnauthorized(reply);
+		replyUnauthorized(request, reply);
 		return;
 	}
-	const projectId = await resolveProjectId(userId);
-	const role = await getUserRoleInProject(projectId, userId);
+
+	const { projectId: requestedProjectId } = request.params as { projectId?: string };
+	const resolution = await resolveMcpProjectId(userId, requestedProjectId, mcpBaseUrl(request));
+	if ('error' in resolution) {
+		reply.status(400).send({ error: resolution.error });
+		return;
+	}
+
+	const role = await getUserRoleInProject(resolution.projectId, userId);
 	if (!role || role === 'viewer') {
 		reply.status(403).send({ error: 'You do not have access to this MCP endpoint.' });
 		return;
 	}
 
 	request.mcpUserId = userId;
-	request.mcpProjectId = projectId;
+	request.mcpProjectId = resolution.projectId;
 	request.mcpRole = role;
 }
 
-async function initializeSession(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-	const userId = request.mcpUserId;
-	const projectId = request.mcpProjectId;
-	const settings = await getMcpEndpointSettings(projectId);
+async function handleMcpRequest(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+	const settings = await getMcpEndpointSettings(request.mcpProjectId);
 	if (!settings.enabled) {
 		reply.status(503).send({ error: 'MCP is disabled for this workspace.' });
 		return;
 	}
 
-	const server = createMcpServer(userId, projectId, settings);
-	const transport = new StreamableHTTPServerTransport({
-		sessionIdGenerator: () => crypto.randomUUID(),
-		enableJsonResponse: true,
-		onsessioninitialized: (sessionId) => {
-			sessions.set(sessionId, { transport, server, userId, projectId, lastAccess: Date.now() });
-		},
-		onsessionclosed: (sessionId) => {
-			sessions.delete(sessionId);
-			server.close().catch(() => {});
-		},
+	const server = await createMcpServer(
+		request.mcpUserId,
+		request.mcpProjectId,
+		settings,
+		isChartDataModeRequest(request),
+	);
+	const transport = withoutJsonSchemaDialect(new StreamableHTTPServerTransport({ sessionIdGenerator: undefined }));
+
+	reply.raw.on('close', () => {
+		transport.close().catch(() => {});
+		server.close().catch(() => {});
 	});
 
 	await server.connect(transport);
@@ -88,35 +93,28 @@ async function initializeSession(request: FastifyRequest, reply: FastifyReply): 
 	reply.hijack();
 }
 
-async function handleExistingSession(request: FastifyRequest, reply: FastifyReply, body?: unknown): Promise<void> {
-	const sessionId = request.headers['mcp-session-id'] as string | undefined;
-	if (!sessionId) {
-		reply.status(400).send({ error: 'Missing Mcp-Session-Id header.' });
-		return;
-	}
-
-	const session = sessions.get(sessionId);
-	if (!session || session.userId !== request.mcpUserId) {
-		reply.status(404).send({ error: 'Session not found or expired. Please reinitialize.' });
-		return;
-	}
-
-	const settings = await getMcpEndpointSettings(session.projectId);
-	if (!settings.enabled) {
-		sessions.delete(sessionId);
-		await session.transport.close().catch(() => {});
-		await session.server.close().catch(() => {});
-		reply.status(503).send({ error: 'MCP is disabled for this workspace.' });
-		return;
-	}
-
-	session.lastAccess = Date.now();
-	await session.transport.handleRequest(request.raw, reply.raw, body as Record<string, unknown> | undefined);
-	reply.hijack();
+function isChartDataModeRequest(request: FastifyRequest): boolean {
+	const { chart_output } = request.query as { chart_output?: string };
+	return chart_output?.toLowerCase() === 'data';
 }
 
-function replyUnauthorized(reply: FastifyReply) {
-	const origin = env.BETTER_AUTH_URL.replace(/\/+$/, '');
+function replyMethodNotAllowed(reply: FastifyReply) {
+	return reply
+		.status(405)
+		.header('Allow', 'POST')
+		.send({
+			jsonrpc: '2.0',
+			error: { code: -32000, message: 'Method not allowed in stateless mode.' },
+			id: null,
+		});
+}
+
+function mcpBaseUrl(request: FastifyRequest): string {
+	return `${resolveMcpFacingOrigin(request.host)}/mcp`;
+}
+
+function replyUnauthorized(request: FastifyRequest, reply: FastifyReply) {
+	const origin = resolveMcpFacingOrigin(request.host);
 	const wwwAuth = `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"`;
 	return reply
 		.status(401)

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Streamdown } from 'streamdown';
 import { Code, Copy, Table as TableIcon } from 'lucide-react';
 import { ToolCallWrapper } from './tool-call-wrapper';
+import { ToolOutputFallback } from './tool-output-fallback';
 import { TableDisplay } from './display-table';
 import type { ToolCallComponentProps } from '.';
 import { useToolCallContext } from '@/contexts/tool-call';
@@ -28,24 +29,27 @@ export const QueryAppDbToolCall = ({ toolPart }: ToolCallComponentProps) => {
 	const actions = [
 		{
 			id: 'results',
-			label: <TableIcon className='size-3' />,
+			label: <TableIcon className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
 			expandOnClick: true,
 			isActive: viewMode === 'results',
 			onClick: () => setViewMode('results'),
+			title: 'View results',
 		},
 		{
 			id: 'query',
-			label: <Code className='size-3' />,
+			label: <Code className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
 			expandOnClick: true,
 			isActive: viewMode === 'query',
 			onClick: () => setViewMode('query'),
+			title: 'View query',
 		},
 		{
 			id: 'copy',
-			label: <Copy className='size-3' />,
+			label: <Copy className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
 			onClick: () => {
 				navigator.clipboard.writeText(input?.sql ?? '');
 			},
+			title: 'Copy query',
 		},
 	];
 
@@ -75,7 +79,7 @@ export const QueryAppDbToolCall = ({ toolPart }: ToolCallComponentProps) => {
 					showRowCount={false}
 				/>
 			) : (
-				<div className='p-4 text-center text-foreground/50 text-sm'>Executing query...</div>
+				<ToolOutputFallback runningLabel='Executing query...' />
 			)}
 		</ToolCallWrapper>
 	);

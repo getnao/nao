@@ -6,21 +6,22 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, cast
+from urllib.parse import urlparse
 
 import numpy as np
 import pandas as pd
 from cyclopts import Parameter
 
+from nao_core import native
 from nao_core.config import NaoConfig, resolve_project_path
 from nao_core.config.llm import ModelCosts
+from nao_core.config.test import ComparisonConfig, TestConfig
 from nao_core.ui import UI
 
 from .case import TESTS_FOLDER, TestCase, discover_tests
-from .client import AgentClientError, VerificationResult, get_client
+from .client import BACKEND_URL, AgentClientError, VerificationResult, get_client
 from .compare import normalize_dataframe_numbers
-
-# Default models to test
-DEFAULT_MODELS = ["openai:gpt-4.1"]
+from .summary import ModelSummary, summarize, summarize_by_model
 
 
 @dataclass
@@ -51,6 +52,8 @@ class TestRunDetails:
     expected_data: list[dict] | None = None
     comparison: str | None = None
     tool_calls: list[dict] | None = None
+    reference_sql: str | None = None
+    verification_sql: str | None = None
 
 
 @dataclass
@@ -70,7 +73,7 @@ class TestRunResult:
 
 
 def check_dataframe(
-    verification: VerificationResult, rtol: float = 1e-5, atol: float = 1e-8
+    verification: VerificationResult, rtol: float = 1e-5, atol: float = 1e-8, decimals: int = 2
 ) -> tuple[bool, str, str | None]:
     """Check if actual data matches expected. Returns (passed, message, comparison).
 
@@ -78,7 +81,11 @@ def check_dataframe(
         verification: The verification result containing actual and expected data.
         rtol: Relative tolerance for float comparison.
         atol: Absolute tolerance for float comparison.
+        decimals: Decimals kept when rounding float values before comparing.
     """
+    if verification.data is None:
+        return False, verification.error or "no data returned", None
+
     actual = pd.DataFrame(verification.data)
     expected = pd.DataFrame(verification.expectedData)
     cols = verification.expectedColumns
@@ -104,7 +111,7 @@ def check_dataframe(
     actual = normalize_dataframe_numbers(actual)
     expected = normalize_dataframe_numbers(expected)
 
-    def round_numeric(df: pd.DataFrame, decimals: int = 2) -> pd.DataFrame:
+    def round_numeric(df: pd.DataFrame, decimals: int) -> pd.DataFrame:
         """Round float-like columns to the given number of decimals for stable comparisons."""
         for col in df.columns:
             series = df[col]
@@ -123,9 +130,9 @@ def check_dataframe(
     actual = cast(pd.DataFrame, actual[sorted_cols])
     expected = cast(pd.DataFrame, expected[sorted_cols])
 
-    # Round float-like values to 2 decimals to avoid noisy diffs
-    actual = round_numeric(actual, decimals=2)
-    expected = round_numeric(expected, decimals=2)
+    # Round float-like values to avoid noisy diffs
+    actual = round_numeric(actual, decimals=decimals)
+    expected = round_numeric(expected, decimals=decimals)
 
     # Sort rows by all columns (in alphabetic order) to ignore row order
     actual = actual.sort_values(by=sorted_cols).reset_index(drop=True)
@@ -184,6 +191,7 @@ def run_test(
     email: str | None = None,
     password: str | None = None,
     costs: ModelCosts | None = None,
+    comparison: ComparisonConfig | None = None,
 ) -> TestRunResult:
     """Run a single test case with a specific model. Returns TestRunResult."""
     UI.print(f"[bold]Running:[/bold] {test_case.name} [dim]({model})[/dim]")
@@ -207,7 +215,15 @@ def run_test(
         UI.print(f"[dim]  Time: {result.duration_ms}ms[/dim]")
 
         if result.verification:
-            passed, msg, comparison = check_dataframe(result.verification)
+            tolerances = comparison or ComparisonConfig()
+            if result.verification.sql:
+                UI.print(f"[dim]  Verification SQL: {result.verification.sql}[/dim]")
+            passed, msg, diff = check_dataframe(
+                result.verification,
+                rtol=tolerances.rtol,
+                atol=tolerances.atol,
+                decimals=tolerances.decimals,
+            )
             status = "[green]✓[/green]" if passed else "[red]✗[/red]"
             UI.print(f"  {status} {msg}")
             return TestRunResult(
@@ -223,8 +239,10 @@ def run_test(
                     response_text=result.text,
                     actual_data=result.verification.data,
                     expected_data=result.verification.expectedData,
-                    comparison=comparison,
+                    comparison=diff,
                     tool_calls=result.tool_calls,
+                    reference_sql=test_case.sql,
+                    verification_sql=result.verification.sql,
                 ),
             )
 
@@ -241,6 +259,7 @@ def run_test(
             details=TestRunDetails(
                 response_text=result.text,
                 tool_calls=result.tool_calls,
+                reference_sql=test_case.sql,
             ),
         )
 
@@ -252,8 +271,16 @@ def run_test(
             passed=False,
             message="error",
             error=str(e),
-            details=None,
+            details=TestRunDetails(reference_sql=test_case.sql),
         )
+
+
+def resolve_model_costs(config: NaoConfig, model: ModelConfig) -> ModelCosts | None:
+    """Look up the configured price of the model under test."""
+    if not config.llm:
+        return None
+
+    return config.llm.costs(model.provider, model.model_id)
 
 
 def save_results(results: list[TestRunResult], output_dir: Path) -> Path:
@@ -262,32 +289,102 @@ def save_results(results: list[TestRunResult], output_dir: Path) -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_file = output_dir / f"results_{timestamp}.json"
 
-    total_duration_ms = sum(r.duration_ms or 0 for r in results)
-    total_tool_calls = sum(r.tool_call_count or 0 for r in results)
-
+    runs = [asdict(r) for r in results]
     data = {
         "timestamp": datetime.now().isoformat(),
-        "results": [asdict(r) for r in results],
-        "summary": {
-            "total": len(results),
-            "passed": sum(1 for r in results if r.passed),
-            "failed": sum(1 for r in results if not r.passed),
-            "total_tokens": sum(r.tokens or 0 for r in results),
-            "total_cost": sum(r.cost or 0 for r in results),
-            "total_duration_ms": total_duration_ms,
-            "total_duration_s": round(total_duration_ms / 1000, 2),
-            "total_tool_calls": total_tool_calls,
-            "avg_duration_ms": round(total_duration_ms / len(results), 0) if results else 0,
-            "avg_tool_calls": round(total_tool_calls / len(results), 1) if results else 0,
-        },
+        "results": runs,
+        "summary": summarize(runs),
+        "by_model": [asdict(s) for s in summarize_by_model(runs)],
     }
 
     output_file.write_text(json.dumps(data, indent=2))
     return output_file
 
 
-def filter_test_cases(test_cases: list[TestCase], selected_tests: str | None) -> list[TestCase]:
-    """Filter test cases to the selected tests, if provided."""
+def print_run_table(results: list[TestRunResult]) -> None:
+    """Print one row per run, i.e. per (test, model) pair."""
+    df = pd.DataFrame(
+        [
+            {
+                "Test": r.name,
+                "Model": r.model,
+                "Status": status_icon(r.passed),
+                "Message": r.message,
+                "Tokens": r.tokens or 0,
+                "Cost": r.cost or 0,
+                "Time (s)": round((r.duration_ms or 0) / 1000, 1),
+                "Tools": r.tool_call_count or 0,
+            }
+            for r in results
+        ]
+    )
+
+    UI.table(df, title="Test Results", sum_columns={"Tokens": "", "Cost": "$", "Time (s)": "", "Tools": ""})
+
+
+def print_model_table(summaries: list[ModelSummary]) -> None:
+    """Print one row per model, ranked from best to worst pass rate."""
+    df = pd.DataFrame(
+        [
+            {
+                "Model": column_label(s.model),
+                "Pass Rate": format_pass_rate(s.pass_rate),
+                "Passed": f"{s.passed}/{s.total}",
+                "Tokens": s.total_tokens,
+                "Cost": s.total_cost,
+                "Avg Time (s)": round(s.avg_duration_ms / 1000, 1),
+                "Avg Tools": s.avg_tool_calls,
+            }
+            for s in summaries
+        ]
+    )
+
+    UI.table(df, title="Performance by Model", sum_columns={"Tokens": "", "Cost": "$"}, fixed_columns={"Model"})
+
+
+def print_model_matrix(results: list[TestRunResult]) -> None:
+    """Print a test × model grid to show which model passes which test."""
+    models = list(dict.fromkeys(r.model for r in results))
+    statuses: dict[tuple[str, str], list[str]] = {}
+    for result in results:
+        statuses.setdefault((result.name, result.model), []).append(status_icon(result.passed))
+
+    rows = [
+        {"Test": name}
+        | {column_label(model): " ".join(statuses.get((name, model), ["[dim]-[/dim]"])) for model in models}
+        for name in dict.fromkeys(r.name for r in results)
+    ]
+
+    UI.table(pd.DataFrame(rows), title="Pass / Fail by Test and Model")
+
+
+def column_label(model: str) -> str:
+    """Stack the provider above the model id to keep matrix columns narrow."""
+    return model.replace(":", "\n")
+
+
+def status_icon(passed: bool) -> str:
+    """Render a pass/fail marker for terminal tables."""
+    return "[green]✓[/green]" if passed else "[red]✗[/red]"
+
+
+def format_pass_rate(pass_rate: float) -> str:
+    """Colour a pass rate from green (all passing) to red (mostly failing)."""
+    color = "green" if pass_rate == 100 else "red" if pass_rate < 50 else "yellow"
+    return f"[{color}]{pass_rate}%[/{color}]"
+
+
+def filter_test_cases(
+    test_cases: list[TestCase],
+    selected_tests: str | None,
+    tests_dir: Path | None = None,
+) -> list[TestCase]:
+    """Filter test cases to the selected tests, if provided.
+
+    Each comma-separated selection matches either a single test (by ``name`` or
+    file stem) or, when ``tests_dir`` is given, every test under a subfolder of
+    tests/ (e.g. ``contracts`` selects all tests in tests/contracts/).
+    """
     if not selected_tests:
         return test_cases
 
@@ -299,20 +396,45 @@ def filter_test_cases(test_cases: list[TestCase], selected_tests: str | None) ->
     selected: list[TestCase] = []
     seen: set[Path] = set()
     for selection in selections:
-        matches = [tc for tc in test_cases if tc.name == selection or tc.file_path.stem == selection]
+        folder_matches: list[TestCase] = []
+        if tests_dir is not None:
+            for tc in test_cases:
+                try:
+                    parts = tc.file_path.relative_to(tests_dir).parent.parts
+                except ValueError:
+                    continue
+                if selection in parts:
+                    folder_matches.append(tc)
+        name_matches = [tc for tc in test_cases if tc.name == selection or tc.file_path.stem == selection]
+        matches = folder_matches or name_matches
         if not matches:
             available = ", ".join(tc.name for tc in test_cases)
             raise ValueError(f"Test not found: {selection}. Available tests: {available}")
-        if len(matches) > 1:
+        if not folder_matches and len(matches) > 1:
             names = ", ".join(f"{tc.name} ({tc.file_path.name})" for tc in matches)
             raise ValueError(f"Multiple tests match '{selection}': {names}")
-        match = matches[0]
-        if match.file_path in seen:
-            continue
-        seen.add(match.file_path)
-        selected.append(match)
+        for match in matches:
+            if match.file_path in seen:
+                continue
+            seen.add(match.file_path)
+            selected.append(match)
 
     return selected
+
+
+def ensure_verification_engine(test_cases: list[TestCase]) -> None:
+    """Fetch the DuckDB engine the backend verifies answers with, if it needs it.
+
+    Only tests that declare reference SQL are verified, and a remote backend brings
+    its own engine, so neither case is worth a download.
+    """
+    if not any(test_case.sql for test_case in test_cases):
+        return
+
+    if urlparse(BACKEND_URL).hostname not in ("localhost", "127.0.0.1", "::1"):
+        return
+
+    native.ensure_group(native.server_bin_dir(), "duckdb")
 
 
 def test(
@@ -320,21 +442,21 @@ def test(
         list[str] | None,
         Parameter(
             name=["-m", "--model"],
-            help="Models to test (format: provider:model_id). Can be specified multiple times.",
+            help="Models to test (format: provider:model_id). Can be specified multiple times. Overrides test.models.",
         ),
     ] = None,
     threads: Annotated[
-        int,
+        int | None,
         Parameter(
             name=["-t", "--threads"],
-            help="Number of parallel threads for running tests.",
+            help="Number of parallel threads for running tests. Overrides test.threads.",
         ),
-    ] = 1,
+    ] = None,
     select: Annotated[
         str | None,
         Parameter(
             name=["-s", "--select"],
-            help="Run only the selected tests by name or yaml filename stem. Comma-separated (e.g. '12,13,14').",
+            help="Run only selected tests by name, yaml stem, or subfolder. Comma-separated (e.g. 'contracts' or '12,13,14').",
         ),
     ] = None,
     username: Annotated[
@@ -354,6 +476,8 @@ def test(
 ):
     """Run tests from the tests/ folder.
 
+    Defaults come from the `test` block of nao_config.yaml, and every flag below overrides them.
+
     Examples:
         nao test
         nao test -m openai:gpt-4.1
@@ -371,18 +495,19 @@ def test(
     config = NaoConfig.try_load(resolve_project_path(), exit_on_error=True)
     assert config is not None
 
-    # Parse models
-    model_strs = models if models else DEFAULT_MODELS
+    test_config = config.test or TestConfig()
+    thread_count = threads if threads is not None else test_config.threads
+
     try:
-        model_configs = [ModelConfig.parse(m) for m in model_strs]
+        model_configs = [ModelConfig.parse(m) for m in models or test_config.models]
     except ValueError as e:
         UI.error(str(e))
         return
 
     project_path = Path.cwd()
-    model_costs = config.llm.meta.costs if config.llm and config.llm.meta else None
+    tests_dir = project_path / TESTS_FOLDER
     UI.print(f"[dim]Project: {config.project_name}[/dim]")
-    UI.print(f"[dim]Tests folder: {project_path / TESTS_FOLDER}[/dim]")
+    UI.print(f"[dim]Tests folder: {tests_dir}[/dim]")
     UI.print(f"[dim]Models: {', '.join(str(m) for m in model_configs)}[/dim]\n")
 
     test_cases = discover_tests(project_path)
@@ -392,68 +517,75 @@ def test(
         return
 
     try:
-        test_cases = filter_test_cases(test_cases, select)
+        test_cases = filter_test_cases(test_cases, select, tests_dir)
     except ValueError as e:
         UI.error(str(e))
         return
 
+    ensure_verification_engine(test_cases)
+
     total_runs = len(test_cases) * len(model_configs)
     UI.print(f"[bold]Found {len(test_cases)} test(s) × {len(model_configs)} model(s) = {total_runs} run(s)[/bold]")
-    if threads > 1:
-        UI.print(f"[dim]Running with {threads} threads (output may be interleaved)[/dim]")
+    if thread_count > 1:
+        UI.print(f"[dim]Running with {thread_count} threads (output may be interleaved)[/dim]")
     UI.print("")
 
     # Build list of (test_case, model) pairs
     test_runs = [(test_case, model) for model in model_configs for test_case in test_cases]
 
     results: list[TestRunResult] = []
-    if threads == 1:
+    if thread_count == 1:
         for test_case, model in test_runs:
-            result = run_test(test_case, model, email=email, password=pwd, costs=model_costs)
+            result = run_test(
+                test_case,
+                model,
+                email=email,
+                password=pwd,
+                costs=resolve_model_costs(config, model),
+                comparison=test_config.comparison,
+            )
             results.append(result)
             UI.print("")
     else:
-        with ThreadPoolExecutor(max_workers=threads) as executor:
+        # Results are collected by submission order so the summaries stay grouped by model.
+        completed: dict[int, TestRunResult] = {}
+        with ThreadPoolExecutor(max_workers=thread_count) as executor:
             futures = {
-                executor.submit(run_test, tc, m, email=email, password=pwd, costs=model_costs): (tc, m)
-                for tc, m in test_runs
+                executor.submit(
+                    run_test,
+                    tc,
+                    m,
+                    email=email,
+                    password=pwd,
+                    costs=resolve_model_costs(config, m),
+                    comparison=test_config.comparison,
+                ): index
+                for index, (tc, m) in enumerate(test_runs)
             }
             for future in as_completed(futures):
-                result = future.result()
-                results.append(result)
+                completed[futures[future]] = future.result()
                 UI.print("")
+        results = [completed[index] for index in sorted(completed)]
 
     # Save results to JSON
     output_file = save_results(results, project_path / TESTS_FOLDER / "outputs")
     UI.print(f"[dim]Results saved to: {output_file}[/dim]\n")
 
-    # Print summary table
-    df = pd.DataFrame(
-        [
-            {
-                "Test": r.name,
-                "Model": r.model,
-                "Status": "[green]✓[/green]" if r.passed else "[red]✗[/red]",
-                "Message": r.message,
-                "Tokens": r.tokens or 0,
-                "Cost": r.cost or 0,
-                "Time (s)": round((r.duration_ms or 0) / 1000, 1),
-                "Tools": r.tool_call_count or 0,
-            }
-            for r in results
-        ]
-    )
+    print_run_table(results)
 
-    UI.table(df, title="Test Results", sum_columns={"Tokens": "", "Cost": "$", "Time (s)": "", "Tools": ""})
+    model_summaries = summarize_by_model([asdict(r) for r in results])
+    if len(model_summaries) > 1:
+        print_model_table(model_summaries)
+        print_model_matrix(results)
 
-    # Print summary
     passed = sum(1 for r in results if r.passed)
     failed = sum(1 for r in results if not r.passed)
     total = len(results)
+    unit = "run" if len(model_summaries) > 1 else "test"
 
     UI.print("")
     if failed == 0:
-        UI.success(f"All {total} test(s) passed")
+        UI.success(f"All {total} {unit}(s) passed")
     else:
         UI.print(f"[green]{passed} passed[/green], [red]{failed} failed[/red], {total} total")
         sys.exit(1)

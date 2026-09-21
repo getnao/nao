@@ -4,9 +4,15 @@ on:
     push:
         paths:
             - 'apps/**'
+            - 'package.json'
+            - 'package-lock.json'
+            - '.npmrc'
     pull_request:
         paths:
             - 'apps/**'
+            - 'package.json'
+            - 'package-lock.json'
+            - '.npmrc'
 
 jobs:
     lint:
@@ -25,10 +31,16 @@ jobs:
             - name: Setup Bun
               uses: oven-sh/setup-bun@v2
 
+            - name: Use the pinned npm
+              run: ./scripts/use-pinned-npm.sh
+
             - name: Install dependencies
               run: npm ci
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Lockfile canonical check
+              run: npm run lock:check
 
             - name: ESLint check
               run: npm run lint

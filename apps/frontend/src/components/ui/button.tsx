@@ -4,6 +4,7 @@ import * as React from 'react';
 import { ArrowUpIcon, Loader2, Mic, SquareIcon } from 'lucide-react';
 import type { VariantProps } from 'class-variance-authority';
 
+import { LastUsedPill } from '@/components/ui/last-used-pill';
 import { cn } from '@/lib/utils';
 
 const buttonVariants = cva(
@@ -20,7 +21,7 @@ const buttonVariants = cva(
 				'destructive-soft':
 					'bg-accent/50 text-destructive hover:bg-destructive/10 dark:bg-destructive/60 dark:text-white',
 				outline:
-					'border bg-background hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50',
+					'border bg-background hover:bg-accent hover:text-accent-foreground dark:bg-background dark:border-input dark:hover:bg-accent/50',
 				secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
 				'ghost-muted':
 					'hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50 text-muted-foreground',
@@ -147,24 +148,28 @@ function AuthSocialButton({
 	icon: Icon,
 	label,
 	onClick,
+	lastUsed = false,
 	className,
 }: {
 	icon: React.FC<React.SVGProps<SVGSVGElement>>;
 	label: string;
 	onClick: () => void;
+	lastUsed?: boolean;
 	className?: string;
 }) {
 	return (
 		<Button
 			type='button'
 			variant='outline'
-			aria-label={label}
-			className={cn('h-10 w-full rounded-lg', className)}
+			aria-label={lastUsed ? `${label} (last used)` : label}
+			className={cn('relative h-11 w-full gap-2.5 rounded-lg text-sm font-medium', className)}
 			onClick={onClick}
 		>
 			<Icon className='size-4 text-foreground [&_path]:fill-current' />
+			{label}
+			{lastUsed && <LastUsedPill className='absolute -top-2 right-3' />}
 		</Button>
 	);
 }
 
-export { Button, ButtonConnection, ChatSendButton as ChatButton, MicButton, AuthSocialButton };
+export { Button, ButtonConnection, ChatSendButton as ChatButton, MicButton, AuthSocialButton, buttonVariants };

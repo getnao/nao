@@ -1,0 +1,16 @@
+import { Streamdown } from 'streamdown';
+import { code } from '@streamdown/code';
+
+interface SqlQueryDisplayProps {
+	query: string;
+}
+
+export function SqlQueryDisplay({ query }: SqlQueryDisplayProps) {
+	return (
+		<div className='overflow-auto max-h-80 hide-code-header px-3 py-2'>
+			<Streamdown className='sql-query-display' mode='static' controls={{ code: false }} plugins={{ code }}>
+				{`\`\`\`sql\n${query.trim()}\n\`\`\``}
+			</Streamdown>
+		</div>
+	);
+}

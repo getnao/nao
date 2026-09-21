@@ -2,7 +2,7 @@ import type { LlmProvider } from '@nao/shared/types';
 import { ModelMessage, Tool } from 'ai';
 
 import { CompactionLLM } from '../agents/compaction';
-import { LLM_PROVIDERS } from '../agents/providers';
+import { disableModelReasoning, getProviderMeta } from '../agents/providers';
 import type { DBChat } from '../db/abstractSchema';
 import { renderToMarkdown, XML } from '../lib/markdown';
 import type { CompactionPart, TokenUsage, UIMessage } from '../types/chat';
@@ -14,7 +14,7 @@ import {
 	findLastUserMessageIndex,
 } from '../utils/ai';
 import { debugCompaction } from '../utils/debug';
-import { resolveAnnotationModelId, resolveProviderModel } from '../utils/llm';
+import { resolveAnnotationModelId, resolveDefaultModelSelection, resolveProviderModel } from '../utils/llm';
 import { scheduleSaveLlmInferenceRecord } from '../utils/schedule-task';
 import { ITokenCounter, TokenCounter } from './token-counter';
 
@@ -33,6 +33,7 @@ interface CompactionResult {
 interface CompactConversationOptions {
 	chat: Pick<DBChat, 'id' | 'projectId' | 'userId'>;
 	provider: LlmProvider;
+	modelId: string;
 	messages: ModelMessage[];
 	tools: Record<string, Tool>;
 	maxOutputTokens: number;
@@ -142,7 +143,7 @@ export class CompactionService {
 			throw new CompactionError('User message must come after the first non-system message.');
 		}
 
-		const llm = await this._resolveCompactionLLM(opts.chat.projectId, opts.provider);
+		const llm = await this._resolveCompactionLLM(opts.chat.projectId, opts.provider, opts.modelId);
 		if (!llm) {
 			throw new CompactionError('Failed to resolve LLM.');
 		}
@@ -169,13 +170,21 @@ export class CompactionService {
 		return index;
 	}
 
-	private async _resolveCompactionLLM(projectId: string, provider: LlmProvider) {
-		const modelId = await resolveAnnotationModelId(projectId, provider, LLM_PROVIDERS[provider].extractorModelId);
-		const model = await resolveProviderModel(projectId, provider, modelId);
+	private async _resolveCompactionLLM(projectId: string, provider: LlmProvider, selectedModelId: string) {
+		const pinned = await resolveDefaultModelSelection(projectId, 'compaction');
+		const effectiveProvider = pinned?.provider ?? provider;
+		const modelId =
+			pinned?.modelId ??
+			(await resolveAnnotationModelId(
+				projectId,
+				{ provider, modelId: selectedModelId },
+				getProviderMeta(provider).extractorModelId,
+			));
+		const model = await resolveProviderModel(projectId, effectiveProvider, modelId, false);
 		if (!model) {
 			return undefined;
 		}
-		return this.options.createCompactionLlm(model, this._tc);
+		return this.options.createCompactionLlm(disableModelReasoning(effectiveProvider, model), this._tc);
 	}
 
 	/** Summarizes conversation up to the latest user message and replaces that range in-place. */

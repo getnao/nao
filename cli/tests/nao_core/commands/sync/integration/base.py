@@ -60,6 +60,10 @@ class SyncTestSpec:
     # When partition filter is required, the table name of the partition filter table (BigQuery only)
     events_table: str = "events"
 
+    # Column name expected to exist on the users table that exercises exclude_columns.
+    # Set to None to skip the exclude_columns integration test for this provider.
+    excluded_column_name: str | None = "email"
+
     @property
     def effective_filter_schema(self) -> str:
         return self.filter_schema or self.primary_schema
@@ -98,7 +102,7 @@ class BaseSyncIntegrationTests:
             table_dir = base / f"table={table}"
             assert table_dir.is_dir()
             files = sorted(f.name for f in table_dir.iterdir())
-            expected_files = ["columns.md", "how_to_use.md", "preview.md", "profiling.md"]
+            expected_files = ["annotations.md", "columns.md", "preview.md", "profiling.md", "query_history.md"]
             assert files == sorted(expected_files)
 
         # "another" schema was NOT synced (only when provider has one)
@@ -120,6 +124,15 @@ class BaseSyncIntegrationTests:
         for expected in spec.users_column_assertions:
             assert expected in content
 
+        assert "## Table Metadata" in content
+        assert "| **Row Count** | 3 |" in content
+        assert "## Columns (" in content
+
+        if spec.users_table_description:
+            assert spec.users_table_description in content
+        else:
+            assert "_No description available._" in content
+
     def test_columns_md_orders(self, synced, spec):
         _, output, config = synced
         content = self._read_table_file(output, config, spec, spec.orders_table, "columns.md")
@@ -127,32 +140,28 @@ class BaseSyncIntegrationTests:
         for expected in spec.orders_column_assertions:
             assert expected in content
 
-    # ── how_to_use.md ──────────────────────────────────────────────
-
-    def test_how_to_use_md_users(self, synced, spec):
-        _, output, config = synced
-        content = self._read_table_file(output, config, spec, spec.users_table, "how_to_use.md")
-
         assert "## Table Metadata" in content
-        assert "| **Row Count** | 3 |" in content
-        assert "| **Column Count** | 4 |" in content
-
-        if spec.users_table_description:
-            assert spec.users_table_description in content
-        else:
-            assert "_No description available._" in content
-
-    def test_how_to_use_md_orders(self, synced, spec):
-        _, output, config = synced
-        content = self._read_table_file(output, config, spec, spec.orders_table, "how_to_use.md")
-
         assert "| **Row Count** | 2 |" in content
-        assert "| **Column Count** | 3 |" in content
+        assert "## Columns (" in content
 
         if spec.orders_table_description:
             assert spec.orders_table_description in content
         else:
             assert "_No description available._" in content
+
+    # ── query_history.md ────────────────────────────────────────────
+
+    def test_query_history_md_users(self, synced, spec):
+        _, output, config = synced
+        content = self._read_table_file(output, config, spec, spec.users_table, "query_history.md")
+
+        assert "_No query history found for this table._" in content
+
+    def test_query_history_md_orders(self, synced, spec):
+        _, output, config = synced
+        content = self._read_table_file(output, config, spec, spec.orders_table, "query_history.md")
+
+        assert "_No query history found for this table._" in content
 
     # ── preview.md ───────────────────────────────────────────────────
 
@@ -272,6 +281,28 @@ class BaseSyncIntegrationTests:
         assert not (base / f"table={spec.orders_table}").exists()
         assert state.tables_synced == spec.primary_table_count - 1
 
+    def test_exclude_columns_filter(self, tmp_path_factory, db_config, spec):
+        """Columns matching exclude_columns patterns should be hidden from output."""
+        if not spec.excluded_column_name:
+            pytest.skip("Provider spec does not declare a column to exclude")
+
+        config = db_config.model_copy(update={"exclude_columns": [f"*.*.{spec.excluded_column_name}"]})
+
+        output = tmp_path_factory.mktemp(f"{spec.db_type}_exclude_columns")
+        with Progress(transient=True) as progress:
+            sync_database(config, output, progress)
+
+        users_columns = self._read_table_file(output, config, spec, spec.users_table, "columns.md")
+        assert f"- {spec.excluded_column_name} (" not in users_columns
+
+        preview_content = self._read_table_file(output, config, spec, spec.users_table, "preview.md")
+        for row in self._parse_preview_rows(preview_content):
+            assert spec.excluded_column_name not in row
+
+        profiling_content = self._read_table_file(output, config, spec, spec.users_table, "profiling.md")
+        for row in self._parse_preview_rows(profiling_content):
+            assert row.get("column") != spec.excluded_column_name
+
     # ── check_connection ──────────────────────────────────────────────
 
     def test_check_connection_succeeds(self, db_config):
@@ -334,7 +365,7 @@ class BaseSyncIntegrationTests:
         assert (primary_base / f"table={spec.users_table}").is_dir()
         assert (primary_base / f"table={spec.orders_table}").is_dir()
 
-        expected_files = ["columns.md", "how_to_use.md", "preview.md", "profiling.md"]
+        expected_files = ["annotations.md", "columns.md", "preview.md", "profiling.md", "query_history.md"]
 
         for table in (spec.users_table, spec.orders_table):
             files = sorted(f.name for f in (primary_base / f"table={table}").iterdir())

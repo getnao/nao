@@ -4,6 +4,7 @@
 	"editor.codeActionsOnSave": {
 		"source.fixAll": "always"
 	},
+	"eslint.workingDirectories": [{ "mode": "auto" }],
 	"python.terminal.activateEnvironment": false,
 	"[python]": {
 		"editor.formatOnSave": true,

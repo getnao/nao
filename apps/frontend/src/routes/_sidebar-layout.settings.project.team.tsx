@@ -22,20 +22,29 @@ import { useSession } from '@/lib/auth-client';
 import { trpc } from '@/main';
 
 export const Route = createFileRoute('/_sidebar-layout/settings/project/team')({
+	staticData: {
+		title: 'Team',
+	},
 	component: ProjectTeamTabPage,
 });
 
-function ProjectTeamTabPage() {
+export function ProjectTeamTabPage() {
 	const { data: session } = useSession();
 	const queryClient = useQueryClient();
 	const usersWithRoles = useQuery(trpc.project.listAllUsersWithRoles.queryOptions());
+	const systemConfig = useQuery(trpc.system.getPublicConfig.queryOptions());
 	const { isAdmin } = usePermissions();
+	const isCloud = systemConfig.data?.naoMode === 'cloud';
 
 	const [isAddOpen, setIsAddOpen] = useState(false);
 	const [editMember, setEditMember] = useState<TeamMember | null>(null);
 	const [removeMember, setRemoveMember] = useState<TeamMember | null>(null);
 	const [resetPasswordMember, setResetPasswordMember] = useState<TeamMember | null>(null);
 	const [credentials, setCredentials] = useState<{ email: string; password: string } | null>(null);
+	const userGroups = useQuery({
+		...trpc.userGroup.overview.queryOptions(),
+		enabled: isAdmin && isAddOpen,
+	});
 
 	const members: TeamMember[] =
 		usersWithRoles.data?.map((u) => ({
@@ -43,6 +52,7 @@ function ProjectTeamTabPage() {
 			name: u.name,
 			email: u.email,
 			role: u.role,
+			status: u.status,
 		})) ?? [];
 
 	const addUser = useMutation(trpc.user.addUserToProject.mutationOptions());
@@ -51,16 +61,20 @@ function ProjectTeamTabPage() {
 	const resetPassword = useMutation(trpc.account.resetPassword.mutationOptions());
 
 	const invalidateMembers = useCallback(() => {
-		queryClient.invalidateQueries({ queryKey: trpc.project.listAllUsersWithRoles.queryKey() });
+		return queryClient.invalidateQueries({ queryKey: trpc.project.listAllUsersWithRoles.queryKey() });
 	}, [queryClient]);
 
-	const handleAdd = async (data: { email: string; name?: string }) => {
+	const handleAdd = async (data: { email: string; name?: string; groupIds?: string[] }) => {
 		try {
 			const result = await addUser.mutateAsync({
 				email: data.email,
 				name: data.name,
+				groupIds: data.groupIds ?? [],
 			});
-			invalidateMembers();
+			await Promise.all([
+				invalidateMembers(),
+				queryClient.invalidateQueries({ queryKey: trpc.userGroup.overview.queryKey() }),
+			]);
 			if (result.password) {
 				setCredentials({ email: data.email, password: result.password });
 			}
@@ -101,9 +115,9 @@ function ProjectTeamTabPage() {
 	return (
 		<>
 			<SettingsCard
-				title='Team Members'
-				description='Manage the members of your project.'
-				divide
+				title='Members'
+				description='These are people who belong to this project.'
+				flush
 				action={
 					isAdmin ? (
 						<Button variant='secondary' size='sm' onClick={() => setIsAddOpen(true)}>
@@ -114,7 +128,7 @@ function ProjectTeamTabPage() {
 				}
 			>
 				{usersWithRoles.isLoading ? (
-					<div className='text-sm text-muted-foreground'>Loading users...</div>
+					<div className='p-4 text-sm text-muted-foreground'>Loading users...</div>
 				) : (
 					<TeamMembersList
 						members={members}
@@ -122,9 +136,11 @@ function ProjectTeamTabPage() {
 						isAdmin={isAdmin}
 						onEdit={setEditMember}
 						onRemove={setRemoveMember}
-						extraActions={(member) => (
-							<ResetPasswordAction onClick={() => setResetPasswordMember(member)} />
-						)}
+						extraActions={
+							isCloud
+								? undefined
+								: (member) => <ResetPasswordAction onClick={() => setResetPasswordMember(member)} />
+						}
 					/>
 				)}
 			</SettingsCard>
@@ -134,6 +150,10 @@ function ProjectTeamTabPage() {
 				onOpenChange={setIsAddOpen}
 				title='Add User to Project'
 				onSubmit={handleAdd}
+				groupOptions={userGroups.data?.groups.filter((group) => !group.isLocked) ?? []}
+				groupsLoading={userGroups.isLoading}
+				groupsError={userGroups.isError}
+				onRetryGroups={() => void userGroups.refetch()}
 			/>
 
 			<EditMemberDialog
@@ -141,6 +161,7 @@ function ProjectTeamTabPage() {
 				onOpenChange={(open) => !open && setEditMember(null)}
 				member={editMember}
 				isAdmin={isAdmin}
+				roleScope='project'
 				availableRoles={USER_ROLES}
 				onSubmit={handleEdit}
 			/>

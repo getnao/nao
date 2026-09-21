@@ -33,6 +33,24 @@ export default [
 			'@typescript-eslint/array-type': 'off',
 			'@typescript-eslint/no-unnecessary-condition': 'off',
 			'react-hooks/exhaustive-deps': 'error',
+			'no-restricted-imports': [
+				'error',
+				{
+					paths: [
+						{
+							name: '@tabler/icons-react',
+							message:
+								'Tabler icons are limited to the file explorer. Use FileExplorerIcon instead of importing Tabler directly.',
+						},
+					],
+				},
+			],
+		},
+	},
+	{
+		files: ['src/components/settings/file-explorer-icon.tsx'],
+		rules: {
+			'no-restricted-imports': 'off',
 		},
 	},
 	{

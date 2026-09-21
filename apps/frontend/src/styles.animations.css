@@ -100,3 +100,15 @@
 		background-position: -200% 0%;
 	}
 }
+
+.graph-loader svg {
+	width: 100%;
+	height: 100%;
+	overflow: visible;
+}
+
+.graph-loader svg path {
+	stroke: currentColor !important;
+	stroke-width: 1.5px !important;
+	vector-effect: non-scaling-stroke;
+}

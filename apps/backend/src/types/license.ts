@@ -6,11 +6,24 @@
  * license wire format and cannot change without re-issuing every license.
  */
 export const LICENSE_FEATURES = {
+	excludeColumns: 'exclude-columns',
+	rowLevelSecurity: 'row-level-security',
 	sso: 'sso',
 	whiteLabel: 'white-label',
+	userBudget: 'user-budget',
+	userGroups: 'user-groups',
+	multiProject: 'multi-project',
 } as const;
 
 export type LicenseFeature = (typeof LICENSE_FEATURES)[keyof typeof LICENSE_FEATURES];
+
+/**
+ * Wildcard entitlement. A license whose `features` claim contains `"*"` is
+ * granted every entry of `LICENSE_FEATURES`, including features added after
+ * the license was issued — the wildcard is expanded against the running
+ * build's feature list at verification time, not when the license is signed.
+ */
+export const LICENSE_ALL_FEATURES = '*';
 
 /**
  * Result states surfaced by `license.getStatus`. Shared across backend and

@@ -1,24 +1,92 @@
 {#
   Template: columns.md.j2
-  Description: Generates column documentation for a database table
+  Description: Generates schema and description documentation for a database table
 
   Available context:
     - table_name (str): Name of the table
     - dataset (str): Schema/dataset name
     - db (DatabaseContext): Database context with helper methods
         - db.columns() -> list of dicts with: name, type, nullable, description
-        - db.preview(limit=10) -> list of row dicts
         - db.row_count() -> int
-        - db.column_count() -> int
         - db.description() -> str or None
 #}
 {% set columns = db.columns() %}
+{% set description = db.description() %}
 # {{ table_name }}
 
 **Dataset:** `{{ dataset }}`
+
+## Description
+
+{% if description %}
+{{ description }}
+{% else %}
+_No description available._
+{% endif %}
+
+## Table Metadata
+
+| Property | Value |
+|----------|-------|
+| **Row Count** | {{ "{:,}".format(db.row_count()) }} |
 
 ## Columns ({{ columns | length }})
 
 {% for col in columns %}
 - {{ col.name }} ({{ col.type }}{% if col.default_kind and col.default_expression %}, {{ col.default_kind }} {{ col.default_expression | truncate_middle(256) }}{% endif %}{% if col.description %}, "{{ col.description | truncate_middle(256) }}"{% endif %})
 {% endfor %}
+
+{% set partitions = db.partition_columns() %}
+{% if partitions %}
+## Partitioning
+
+| Property | Value |
+|----------|-------|
+| **Partition Column** | `{{ partitions[0] }}` |
+{% if db.requires_partition_filter() %}
+| **Requires Partition Filter** | Yes |
+{% endif %}
+{% set active_filter = db.active_partition_filter() %}
+{% if active_filter %}
+| **Active Filter** | `{{ active_filter }}` |
+{% endif %}
+
+{% endif %}
+{% if partitions %}
+## Partition columns
+
+{% for col in partitions %}
+- {{ col }}
+{% endfor %}
+
+> When querying this table, always filter on {% for col in partitions %}{{ col }}{% if not loop.last %}, {% endif %}{% endfor %} for best performance.
+
+{% endif %}
+
+{% set clustering = db.clustering_columns() %}
+{% if clustering %}
+## Clustering columns
+
+{% for col in clustering %}
+- {{ col }}
+{% endfor %}
+
+> Filtering or ordering by {% for col in clustering %}{{ col }}{% if not loop.last %}, {% endif %}{% endfor %} improves query performance.
+
+{% endif %}
+
+{% set indexes = db.indexes() %}
+{% if indexes %}
+## Indexes and table definition
+
+{% if db.__class__.__name__ == "ClickHouseDatabaseContext" %}
+Use this when writing queries: filter using the most selective ORDER BY, or PARTITION BY columns, PROJECTIONS, or PRIMARY KEY to minimize scanned data and improve performance.
+{% else %}
+Use this when writing queries: filter on key/indexed columns when possible for best performance.
+{% endif %}
+
+```
+{{ indexes }}
+```
+
+{% endif %}

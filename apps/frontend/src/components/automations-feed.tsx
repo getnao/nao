@@ -14,7 +14,8 @@ import {
 } from 'lucide-react';
 import { Fragment, useLayoutEffect, useRef, useState } from 'react';
 import { Streamdown } from 'streamdown';
-import type { displayChart } from '@nao/shared/tools';
+import { stripAssistantTags } from '@nao/shared';
+import { displayChart } from '@nao/shared/tools';
 import type { ReactNode } from 'react';
 
 import SlackIcon from '@/components/icons/slack.svg';
@@ -37,7 +38,7 @@ export type AutomationFeedIntegrationResult = {
 
 export type AutomationFeedChart = {
 	toolCallId: string;
-	config: displayChart.Input;
+	config: displayChart.ChartInput;
 	data: unknown[];
 };
 
@@ -80,6 +81,11 @@ type ActivityBaseFields = {
 	errorMessage?: string | null;
 };
 
+export type StoryOpenLink =
+	| { to: '/stories/preview/$chatId/$storySlug'; params: { chatId: string; storySlug: string } }
+	| { to: '/stories/shared/$shareId'; params: { shareId: string } }
+	| { to: '/stories/standalone/$storyId'; params: { storyId: string } };
+
 export type ActivityFeedStoryRefreshItem = {
 	kind: 'activity';
 	id: string;
@@ -96,6 +102,7 @@ export type ActivityFeedStoryRefreshItem = {
 		cacheSchedule: string | null;
 		cacheScheduleDescription: string | null;
 	};
+	link: StoryOpenLink | null;
 };
 
 export type ActivityFeedStorySharedItem = {
@@ -110,6 +117,7 @@ export type ActivityFeedStorySharedItem = {
 		chatId: string | null;
 	};
 	share: { id: string; visibility: ShareVisibility };
+	link: StoryOpenLink | null;
 	actorName: string | null;
 };
 
@@ -133,6 +141,7 @@ export function AutomationsFeed({
 	items,
 	isLoading,
 	hasAutomations,
+	canCreateAutomation,
 	lastSeenAt = 0,
 	onCancelRun,
 	cancellingRunId,
@@ -140,6 +149,7 @@ export function AutomationsFeed({
 	items: AutomationFeedItem[];
 	isLoading: boolean;
 	hasAutomations: boolean;
+	canCreateAutomation: boolean;
 	lastSeenAt?: number;
 	onCancelRun?: (runId: string) => void;
 	cancellingRunId?: string | null;
@@ -149,7 +159,7 @@ export function AutomationsFeed({
 	}
 
 	if (items.length === 0) {
-		return <FeedEmptyState hasAutomations={hasAutomations} />;
+		return <FeedEmptyState hasAutomations={hasAutomations} canCreateAutomation={canCreateAutomation} />;
 	}
 
 	const separatorIndex = findFirstSeenIndex(items, lastSeenAt);
@@ -308,7 +318,7 @@ function AutomationRunCard({
 }
 
 function StoryRefreshCard({ item, isNew = false }: { item: ActivityFeedStoryRefreshItem; isNew?: boolean }) {
-	const { activity, story } = item;
+	const { activity, story, link } = item;
 	const startedAt = new Date(activity.startedAt);
 	const timeAgo = useTimeAgo(startedAt.getTime());
 	const isRunning = activity.status === 'running';
@@ -330,12 +340,8 @@ function StoryRefreshCard({ item, isNew = false }: { item: ActivityFeedStoryRefr
 						className={cn('size-3.5 shrink-0 text-muted-foreground', isRunning && 'animate-spin')}
 						aria-hidden
 					/>
-					{story.chatId ? (
-						<Link
-							to='/stories/preview/$chatId/$storySlug'
-							params={{ chatId: story.chatId, storySlug: story.slug }}
-							className='truncate text-sm font-semibold hover:underline'
-						>
+					{link ? (
+						<Link {...link} className='truncate text-sm font-semibold hover:underline'>
 							{story.title}
 						</Link>
 					) : (
@@ -365,13 +371,9 @@ function StoryRefreshCard({ item, isNew = false }: { item: ActivityFeedStoryRefr
 
 			<footer className='flex items-center justify-between gap-2 border-t px-4 py-2.5'>
 				<span className='text-xs text-muted-foreground'>Live story</span>
-				{story.chatId && (
+				{link && (
 					<Button variant='ghost' size='sm' asChild>
-						<Link
-							to='/stories/preview/$chatId/$storySlug'
-							params={{ chatId: story.chatId, storySlug: story.slug }}
-							className='gap-1.5'
-						>
+						<Link {...link} className='gap-1.5'>
 							<ExternalLink className='size-3.5' />
 							<span className='text-xs'>Open story</span>
 						</Link>
@@ -445,9 +447,10 @@ function StoryRefreshBody({
 }
 
 function StorySharedCard({ item, isNew = false }: { item: ActivityFeedStorySharedItem; isNew?: boolean }) {
-	const { activity, story, share, actorName } = item;
+	const { activity, story, share, actorName, link } = item;
 	const startedAt = new Date(activity.startedAt);
 	const timeAgo = useTimeAgo(startedAt.getTime());
+	const openLink = link ?? { to: '/stories/shared/$shareId', params: { shareId: share.id } };
 
 	return (
 		<article
@@ -460,17 +463,9 @@ function StorySharedCard({ item, isNew = false }: { item: ActivityFeedStoryShare
 			<header className='flex items-center justify-between gap-3 px-4 pt-4'>
 				<div className='flex min-w-0 items-center gap-2'>
 					<Share2 className='size-3.5 shrink-0 text-muted-foreground' aria-hidden />
-					{story.chatId ? (
-						<Link
-							to='/stories/preview/$chatId/$storySlug'
-							params={{ chatId: story.chatId, storySlug: story.slug }}
-							className='truncate text-sm font-semibold hover:underline'
-						>
-							{story.title}
-						</Link>
-					) : (
-						<span className='truncate text-sm font-semibold'>{story.title}</span>
-					)}
+					<Link {...openLink} className='truncate text-sm font-semibold hover:underline'>
+						{story.title}
+					</Link>
 					<span className='text-muted-foreground/60 text-xs' title={startedAt.toLocaleString()}>
 						· {timeAgo.humanReadable}
 					</span>
@@ -484,18 +479,12 @@ function StorySharedCard({ item, isNew = false }: { item: ActivityFeedStoryShare
 
 			<footer className='flex items-center justify-between gap-2 border-t px-4 py-2.5'>
 				<span className='text-xs text-muted-foreground'>Shared story</span>
-				{story.chatId && (
-					<Button variant='ghost' size='sm' asChild>
-						<Link
-							to='/stories/preview/$chatId/$storySlug'
-							params={{ chatId: story.chatId, storySlug: story.slug }}
-							className='gap-1.5'
-						>
-							<ExternalLink className='size-3.5' />
-							<span className='text-xs'>Open story</span>
-						</Link>
-					</Button>
-				)}
+				<Button variant='ghost' size='sm' asChild>
+					<Link {...openLink} className='gap-1.5'>
+						<ExternalLink className='size-3.5' />
+						<span className='text-xs'>Open story</span>
+					</Link>
+				</Button>
 			</footer>
 		</article>
 	);
@@ -698,7 +687,7 @@ function ExpandableText({ text }: { text: string }) {
 						: undefined
 				}
 			>
-				<Streamdown>{text}</Streamdown>
+				<Streamdown>{stripAssistantTags(text)}</Streamdown>
 			</div>
 			{(isClamped || isExpanded) && (
 				<button
@@ -758,6 +747,9 @@ function ChartSlideshow({ charts }: { charts: AutomationFeedChart[] }) {
 function ChartSlide({ chart }: { chart: AutomationFeedChart }) {
 	const xAxisType = chart.config.x_axis_type === 'number' ? 'number' : 'category';
 	const data = chart.data as Record<string, unknown>[];
+	if (!displayChart.isBuiltinChartType(chart.config.chart_type)) {
+		return <div className='text-sm text-muted-foreground'>Custom charts are available in web chats only.</div>;
+	}
 
 	return (
 		<div className='flex w-full flex-col gap-1.5'>
@@ -769,8 +761,15 @@ function ChartSlide({ chart }: { chart: AutomationFeedChart }) {
 				chartType={chart.config.chart_type}
 				xAxisKey={chart.config.x_axis_key}
 				xAxisType={xAxisType}
+				xAxisLabel={chart.config.x_axis_label}
 				series={chart.config.series}
 				title={chart.config.title}
+				yAxisMin={chart.config.y_axis_min}
+				yAxisMax={chart.config.y_axis_max}
+				yAxisLabel={chart.config.y_axis_label}
+				yAxisRightMin={chart.config.y_axis_right_min}
+				yAxisRightMax={chart.config.y_axis_right_max}
+				yAxisRightLabel={chart.config.y_axis_right_label}
 			/>
 		</div>
 	);
@@ -907,7 +906,13 @@ function FeedSkeleton() {
 	);
 }
 
-function FeedEmptyState({ hasAutomations }: { hasAutomations: boolean }) {
+function FeedEmptyState({
+	hasAutomations,
+	canCreateAutomation,
+}: {
+	hasAutomations: boolean;
+	canCreateAutomation: boolean;
+}) {
 	return (
 		<div className='flex flex-col items-center justify-center rounded-xl border border-dashed bg-background/40 p-10 text-center'>
 			<Timer className='size-8 text-muted-foreground mb-3' />
@@ -915,7 +920,9 @@ function FeedEmptyState({ hasAutomations }: { hasAutomations: boolean }) {
 			<p className='mt-1 text-sm text-muted-foreground'>
 				{hasAutomations
 					? 'Once your automations run or your live stories refresh, their output will show up here.'
-					: 'Create your first automation or refresh a live story to start seeing activity in this feed.'}
+					: canCreateAutomation
+						? 'Create your first automation or refresh a live story to start seeing activity in this feed.'
+						: 'Automation and live Story activity will appear here.'}
 			</p>
 		</div>
 	);

@@ -374,7 +374,8 @@ class TestSnowflakeProfilingQuery:
         assert normalize(sql) == expected
 
     def test_partition_filter_uses_dateadd(self):
-        ctx = make_context(SnowflakeDatabaseContext, partition_cols=["created_at"])
+        ctx = make_context(SnowflakeDatabaseContext)
+        ctx.clustering_columns = MagicMock(return_value=["created_at"])
         sql = ctx._build_profiling_query(STR_COL)
         expected = normalize("""
             SELECT

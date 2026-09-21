@@ -10,12 +10,13 @@ export type ConversationContext = {
 	convMessage: SentMessage | null;
 	blocks: CardChild[];
 	textBlockIndex: number;
+	textBlockCount: number;
 	isNewChat: boolean;
 	modelId: string | undefined;
 	timezone: string | undefined;
 };
 
-type SqlOutput = {
+export type SqlOutput = {
 	name: string | null;
 	rows: Record<string, unknown>[];
 };
@@ -27,14 +28,14 @@ export type ToolCallEntry = {
 };
 
 export type StreamState = {
-	renderedChartIds: Set<string>;
+	renderedToolCallIds: Set<string>;
 	sqlOutputs: Map<string, SqlOutput>;
 	lastUpdateAt: number;
 	toolGroup: Map<string, ToolCallEntry>;
 	toolGroupBlockIndex: number;
 };
 
-export type Provider = 'slack' | 'teams' | 'telegram' | 'whatsapp' | 'automation';
+export type Provider = 'slack' | 'teams' | 'telegram' | 'mattermost' | 'whatsapp' | 'automation';
 
 export const SLACK_TRANSPORT_MODES = ['webhook', 'socket'] as const;
 export type SlackTransportMode = (typeof SLACK_TRANSPORT_MODES)[number];
@@ -52,6 +53,11 @@ export type SlackSettings = {
 	slackTransportMode?: SlackTransportMode;
 	slackAppToken?: string;
 	slackReplyMode?: SlackReplyMode;
+	// Who last wrote the credential/transport fields: 'env' after the boot-time
+	// SLACK_* seed, absent after a Settings > Slack credentials save (which hands
+	// ownership to the UI so the seed stops overwriting). Edits to UI-managed
+	// fields (model, reply mode, auto-create users) leave ownership untouched.
+	slackSettingsSource?: 'env';
 };
 
 export type TeamsSettings = {
@@ -66,6 +72,15 @@ export type TelegramSettings = {
 	telegramBotToken: string;
 	telegramLlmProvider: string;
 	telegramLlmModelId: string;
+};
+
+export type MattermostSettings = {
+	mattermostBaseUrl: string;
+	mattermostBotToken: string;
+	mattermostLlmProvider: string;
+	mattermostLlmModelId: string;
+	mattermostInteractiveButtonsEnabled?: boolean;
+	mattermostCallbackUrl?: string;
 };
 
 export type WhatsappSettings = {

@@ -14,7 +14,7 @@ class EmailService {
 	}
 
 	private _initialize() {
-		const { SMTP_HOST, SMTP_PORT, SMTP_MAIL_FROM, SMTP_PASSWORD, SMTP_SSL } = env;
+		const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_MAIL_FROM, SMTP_PASSWORD, SMTP_SSL } = env;
 
 		if (!SMTP_HOST || !SMTP_MAIL_FROM || !SMTP_PASSWORD) {
 			return;
@@ -26,7 +26,7 @@ class EmailService {
 				port: Number(SMTP_PORT) || 587,
 				secure: SMTP_SSL === 'true',
 				auth: {
-					user: SMTP_MAIL_FROM,
+					user: SMTP_USER || SMTP_MAIL_FROM,
 					pass: SMTP_PASSWORD,
 				},
 			});

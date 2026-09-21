@@ -1,8 +1,8 @@
 """Check for newer nao-core versions on PyPI."""
 
-import atexit
 import json
-import threading
+import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -12,8 +12,6 @@ from nao_core.ui import UI
 CACHE_FILE = Path.home() / ".nao" / "version_check.json"
 PYPI_URL = "https://pypi.org/pypi/nao-core/json"
 CHECK_INTERVAL = 24 * 60 * 60
-
-_background_thread: threading.Thread | None = None
 
 
 def parse_version(v: str) -> tuple[int, ...]:
@@ -31,7 +29,6 @@ def get_latest_version() -> str | None:
 
 def check_for_updates() -> None:
     """Non-blocking version check. Shows a warning only on cache hit; refreshes cache in background."""
-    global _background_thread
     try:
         cached = _read_cache()
         if cached is not None:
@@ -39,17 +36,39 @@ def check_for_updates() -> None:
                 UI.warn(f"Update available: {__version__} → {cached}. Run: nao upgrade")
             return
 
-        _background_thread = threading.Thread(target=_fetch_and_cache, daemon=True)
-        _background_thread.start()
-        atexit.register(_wait_for_background_fetch)
+        _spawn_background_refresh()
     except Exception:
         pass
 
 
-def _wait_for_background_fetch() -> None:
-    """Wait briefly for the background fetch so the cache file is written before exit."""
-    if _background_thread is not None and _background_thread.is_alive():
-        _background_thread.join(timeout=5)
+def _spawn_background_refresh() -> None:
+    """Refresh the version cache in a detached process."""
+    command = [
+        sys.executable,
+        "-c",
+        "from nao_core.version import _fetch_and_cache; _fetch_and_cache()",
+    ]
+
+    try:
+        if sys.platform == "win32":
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+            subprocess.Popen(
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=creationflags,
+            )
+        else:
+            subprocess.Popen(
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+    except Exception:
+        pass
 
 
 def clear_version_cache() -> None:

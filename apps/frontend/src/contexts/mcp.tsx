@@ -1,28 +1,34 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { McpState } from '@nao/shared';
+import type { McpServerStatus } from '@nao/shared';
 import { trpcClient } from '@/main';
 
 interface McpContextValue {
-	mcpState: McpState | undefined;
-	fetchMcpState: () => Promise<void>;
+	servers: McpServerStatus[] | undefined;
+	configError: string | null;
+	refresh: () => Promise<void>;
 }
 
 const McpContext = createContext<McpContextValue | null>(null);
 
 export function McpProvider({ children }: { children: ReactNode }) {
-	const [mcpState, setMcpState] = useState<McpState | undefined>(undefined);
+	const [servers, setServers] = useState<McpServerStatus[] | undefined>(undefined);
+	const [configError, setConfigError] = useState<string | null>(null);
 
-	const fetchMcpState = useCallback(async () => {
-		const data = await trpcClient.mcp.getState.query();
-		setMcpState(data);
+	const refresh = useCallback(async () => {
+		const [data, error] = await Promise.all([
+			trpcClient.mcp.getServers.query(),
+			trpcClient.mcp.getConfigError.query(),
+		]);
+		setServers(data);
+		setConfigError(error);
 	}, []);
 
 	useEffect(() => {
-		fetchMcpState();
-	}, [fetchMcpState]);
+		refresh();
+	}, [refresh]);
 
-	return <McpContext.Provider value={{ mcpState, fetchMcpState }}>{children}</McpContext.Provider>;
+	return <McpContext.Provider value={{ servers, configError, refresh }}>{children}</McpContext.Provider>;
 }
 
 export function useMcpContext() {

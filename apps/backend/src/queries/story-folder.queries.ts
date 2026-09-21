@@ -230,37 +230,46 @@ export async function deleteFolderMovingContentsToParent(folderId: string): Prom
 	await db.delete(s.storyFolder).where(eq(s.storyFolder.id, folderId)).execute();
 }
 
-export async function archiveFolder(folderId: string): Promise<void> {
-	await assertNotSystemFolder(folderId);
-	const folderIds = await listDescendantFolderIds(folderId);
+export async function archiveFolder(folderId: string, executor: DBExecutor = db): Promise<void> {
+	await assertNotSystemFolder(folderId, executor);
+	const folderIds = await listDescendantFolderIds(folderId, executor);
 	const now = new Date();
 
-	await db.update(s.storyFolder).set({ archivedAt: now }).where(inArray(s.storyFolder.id, folderIds)).execute();
+	await executor.update(s.storyFolder).set({ archivedAt: now }).where(inArray(s.storyFolder.id, folderIds)).execute();
 
-	await db.update(s.storyFolder).set({ parentId: null }).where(eq(s.storyFolder.id, folderId)).execute();
+	await executor.update(s.storyFolder).set({ parentId: null }).where(eq(s.storyFolder.id, folderId)).execute();
 
-	const storyIds = await getStoryIdsInFolders(folderIds);
+	const storyIds = await getStoryIdsInFolders(folderIds, executor);
 	if (storyIds.length > 0) {
-		await db.update(s.story).set({ archivedAt: now }).where(inArray(s.story.id, storyIds)).execute();
+		await executor.update(s.story).set({ archivedAt: now }).where(inArray(s.story.id, storyIds)).execute();
 	}
 }
 
-export async function unarchiveFolder(userId: string, projectId: string, folderId: string): Promise<void> {
-	const folderIds = await listDescendantFolderIds(folderId);
+export async function unarchiveFolder(
+	userId: string,
+	projectId: string,
+	folderId: string,
+	executor: DBExecutor = db,
+): Promise<void> {
+	const folderIds = await listDescendantFolderIds(folderId, executor);
 
-	await db.update(s.storyFolder).set({ archivedAt: null }).where(inArray(s.storyFolder.id, folderIds)).execute();
+	await executor
+		.update(s.storyFolder)
+		.set({ archivedAt: null })
+		.where(inArray(s.storyFolder.id, folderIds))
+		.execute();
 
-	const storyIds = await getStoryIdsInFolders(folderIds);
+	const storyIds = await getStoryIdsInFolders(folderIds, executor);
 	if (storyIds.length > 0) {
-		await db.update(s.story).set({ archivedAt: null }).where(inArray(s.story.id, storyIds)).execute();
+		await executor.update(s.story).set({ archivedAt: null }).where(inArray(s.story.id, storyIds)).execute();
 	}
 
-	const folder = await getFolderById(folderId);
+	const folder = await getFolderById(folderId, executor);
 	if (!folder) {
 		return;
 	}
-	const parentId = folder.visibility === 'private' ? await ensurePrivateRoot(userId, projectId) : null;
-	await db.update(s.storyFolder).set({ parentId }).where(eq(s.storyFolder.id, folderId)).execute();
+	const parentId = folder.visibility === 'private' ? await ensurePrivateRoot(userId, projectId, executor) : null;
+	await executor.update(s.storyFolder).set({ parentId }).where(eq(s.storyFolder.id, folderId)).execute();
 }
 
 export async function moveFolder(
@@ -412,8 +421,8 @@ async function resolveFolderVisibility(folderId: string | null, executor: DBExec
 	return folder?.visibility ?? 'public';
 }
 
-async function assertNotSystemFolder(folderId: string): Promise<void> {
-	const folder = await getFolderById(folderId);
+async function assertNotSystemFolder(folderId: string, executor: DBExecutor = db): Promise<void> {
+	const folder = await getFolderById(folderId, executor);
 	if (folder?.systemType != null) {
 		throw new SystemFolderError();
 	}

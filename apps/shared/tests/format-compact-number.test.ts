@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatCompactNumber } from '../src/chart-builder';
+import { formatCompactNumber } from '../src/chart-values';
 
 describe('formatCompactNumber', () => {
 	describe('billions', () => {
@@ -32,5 +32,22 @@ describe('formatCompactNumber', () => {
 		it('removes .0 suffix: 2B not 2.0B', () => expect(formatCompactNumber(2_000_000_000)).toBe('2B'));
 		it('removes .0 suffix: 5M not 5.0M', () => expect(formatCompactNumber(5_000_000)).toBe('5M'));
 		it('removes .0 suffix: 20K not 20.0K', () => expect(formatCompactNumber(20_000)).toBe('20K'));
+	});
+
+	describe('boundary promotion', () => {
+		it('promotes rounded thousands to millions', () => {
+			expect(formatCompactNumber(999_999)).toBe('1M');
+			expect(formatCompactNumber(999_950)).toBe('1M');
+		});
+		it('promotes rounded millions to billions', () => {
+			expect(formatCompactNumber(999_999_999)).toBe('1B');
+			expect(formatCompactNumber(-999_999_999)).toBe('-1B');
+		});
+		it('promotes rounded billions to trillions', () => expect(formatCompactNumber(999_999_999_999)).toBe('1T'));
+		it('keeps values below the rounding cutoff in thousands', () => {
+			expect(formatCompactNumber(999_499)).toBe('999.5K');
+			expect(formatCompactNumber(999_000)).toBe('999K');
+		});
+		it('formats plain trillions', () => expect(formatCompactNumber(1_500_000_000_000)).toBe('1.5T'));
 	});
 });

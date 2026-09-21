@@ -1,0 +1,1 @@
+ALTER TABLE "project_llm_config" ADD COLUMN "model_settings" jsonb DEFAULT '{}'::jsonb NOT NULL;

@@ -5,7 +5,7 @@ import type {
 	GroupedChatListResponse,
 	LlmProvider,
 } from '@nao/shared/types';
-import { and, asc, desc, eq, gte, isNotNull, isNull, like, ne, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, like, ne, notInArray, or, sql } from 'drizzle-orm';
 
 import s, {
 	DBChat,
@@ -15,12 +15,21 @@ import s, {
 	NewChat,
 	NewMessagePart,
 } from '../db/abstractSchema';
-import { db } from '../db/db';
+import { db, DBTransaction } from '../db/db';
 import dbConfig, { Dialect } from '../db/dbConfig';
-import { ForkMetadata, StopReason, TokenUsage, UIChat, UIMessage, UIMessagePart } from '../types/chat';
+import {
+	ForkMetadata,
+	MessageVersionInfo,
+	StopReason,
+	TokenUsage,
+	UIChat,
+	UIMessage,
+	UIMessagePart,
+} from '../types/chat';
 import { applyChatFilters, buildChatGroups, type EnrichedChat, type SourcePlatform } from '../utils/chat-list';
 import { convertDBPartToUIPart, mapUIPartsToDBParts } from '../utils/chat-message-part-mappings';
 import { getErrorMessage } from '../utils/utils';
+import * as executeSqlQueries from './execute-sql.queries';
 
 const chatCreatedAtMs =
 	dbConfig.dialect === Dialect.Postgres
@@ -39,11 +48,22 @@ const sourcePlatformExpr = sql<SourcePlatform>`case
 	when ${s.chat.teamsThreadId} is not null then 'Teams'
 	when ${s.chat.whatsappThreadId} is not null then 'WhatsApp'
 	when ${s.chat.telegramThreadId} is not null then 'Telegram'
+	when ${s.chat.mattermostThreadId} is not null then 'Mattermost'
 	when exists(
 		select 1 from ${s.chatMessage}
 		where ${s.chatMessage.chatId} = ${s.chat.id}
 		and ${s.chatMessage.source} = 'mcp'
 	) then 'MCP'
+	when exists(
+		select 1 from ${s.chatMessage}
+		where ${s.chatMessage.chatId} = ${s.chat.id}
+		and ${s.chatMessage.source} in ('contextRecommendations', 'context_recommendation')
+	) then 'Context recommendations'
+	when exists(
+		select 1 from ${s.chatMessage}
+		where ${s.chatMessage.chatId} = ${s.chat.id}
+		and ${s.chatMessage.source} = 'admin'
+	) then 'Admin'
 	else 'Web'
 end`;
 
@@ -53,7 +73,7 @@ export const listGroupedChats = async (
 	filters: ChatFilterType[],
 ): Promise<GroupedChatListResponse> => {
 	const effective = filters.length === 0 || filters.includes('all') ? (['all'] as ChatFilterType[]) : filters;
-	const needsShared = effective.includes('all') || effective.includes('shared_with_me') || groupBy === 'ownership';
+	const needsShared = effective.includes('shared_with_me') || groupBy === 'ownership';
 
 	const [ownItems, sharedItems] = await Promise.all([
 		listOwnChats(userId),
@@ -163,6 +183,10 @@ export const getChat = async (
 	}
 
 	const messages = aggregateChatMessagParts(result);
+	const versionInfoMap = await buildVersionInfoMap(chatId);
+	const messagesWithVersions = messages.map((message) =>
+		versionInfoMap.has(message.id) ? { ...message, versionInfo: versionInfoMap.get(message.id) } : message,
+	);
 	return [
 		{
 			id: chatId,
@@ -171,11 +195,55 @@ export const getChat = async (
 			isStarred: chat.isStarred,
 			createdAt: chat.createdAt.getTime(),
 			updatedAt: chat.updatedAt.getTime(),
-			messages,
+			messages: messagesWithVersions,
 			forkMetadata: chat.forkMetadata ?? undefined,
 		},
 		chat.userId,
 	];
+};
+
+/**
+ * Builds a map from the id of each active (non-superseded) message to its
+ * version history, for message turns that have been edited or resent.
+ */
+const buildVersionInfoMap = async (chatId: string): Promise<Map<string, MessageVersionInfo>> => {
+	const rows = await db
+		.select({
+			id: s.chatMessage.id,
+			versionGroupId: s.chatMessage.versionGroupId,
+			supersededAt: s.chatMessage.supersededAt,
+			createdAt: s.chatMessage.createdAt,
+		})
+		.from(s.chatMessage)
+		.where(and(eq(s.chatMessage.chatId, chatId), isNotNull(s.chatMessage.versionGroupId)))
+		.orderBy(asc(s.chatMessage.createdAt))
+		.execute();
+
+	const groups = new Map<string, typeof rows>();
+	for (const row of rows) {
+		const groupId = row.versionGroupId!;
+		const group = groups.get(groupId) ?? [];
+		group.push(row);
+		groups.set(groupId, group);
+	}
+
+	const versionInfoMap = new Map<string, MessageVersionInfo>();
+	for (const group of groups.values()) {
+		if (group.length <= 1) {
+			continue;
+		}
+		const activeIndex = group.findIndex((row) => row.supersededAt === null);
+		if (activeIndex === -1) {
+			continue;
+		}
+		versionInfoMap.set(group[activeIndex].id, {
+			currentVersion: activeIndex + 1,
+			totalVersions: group.length,
+			versionIds: group.map((row) => row.id),
+		});
+	}
+
+	return versionInfoMap;
 };
 
 /** Aggregate the message parts into a list of UI messages. */
@@ -205,6 +273,7 @@ const aggregateChatMessagParts = (
 					isForked: row.chat_message.isForked ?? undefined,
 					citation: row.chat_message.citation ?? undefined,
 					stopReason: row.chat_message.stopReason ?? undefined,
+					createdAt: row.chat_message.createdAt?.getTime(),
 				};
 			}
 			return acc;
@@ -225,6 +294,81 @@ export const getChatMessages = async (chatId: string): Promise<UIMessage[]> => {
 		.execute();
 
 	return aggregateChatMessagParts(result);
+};
+
+export const deleteLastEmptyTurn = async (
+	chatId: string,
+): Promise<{ outcome: 'deleted' | 'kept'; chatDeleted: boolean }> => {
+	return db.transaction(async (t) => {
+		const activeMessages = await t
+			.select({
+				id: s.chatMessage.id,
+				role: s.chatMessage.role,
+				versionGroupId: s.chatMessage.versionGroupId,
+			})
+			.from(s.chatMessage)
+			.where(and(eq(s.chatMessage.chatId, chatId), isNull(s.chatMessage.supersededAt)))
+			.orderBy(desc(s.chatMessage.createdAt))
+			.execute();
+		const latestMessage = activeMessages.at(0);
+		if (!latestMessage || latestMessage.role === 'system') {
+			return { outcome: 'kept', chatDeleted: false };
+		}
+
+		const userMessage =
+			latestMessage.role === 'user' ? latestMessage : activeMessages.find((message) => message.role === 'user');
+		if (!userMessage) {
+			return { outcome: 'kept', chatDeleted: false };
+		}
+
+		if (latestMessage.role === 'assistant') {
+			const [semanticContentPart] = await t
+				.select({ id: s.messagePart.id })
+				.from(s.messagePart)
+				.where(
+					and(
+						eq(s.messagePart.messageId, latestMessage.id),
+						notInArray(s.messagePart.type, ['step-start', 'reasoning', 'tool-suggest_follow_ups']),
+					),
+				)
+				.limit(1)
+				.execute();
+			if (semanticContentPart) {
+				return { outcome: 'kept', chatDeleted: false };
+			}
+		}
+
+		if (userMessage.versionGroupId) {
+			const [versionGroup] = await t
+				.select({ value: count() })
+				.from(s.chatMessage)
+				.where(
+					and(eq(s.chatMessage.chatId, chatId), eq(s.chatMessage.versionGroupId, userMessage.versionGroupId)),
+				)
+				.execute();
+			if ((versionGroup?.value ?? 0) > 1) {
+				return { outcome: 'kept', chatDeleted: false };
+			}
+		}
+
+		const messageIds = [userMessage.id, ...(latestMessage.role === 'assistant' ? [latestMessage.id] : [])];
+		await t
+			.delete(s.chatMessage)
+			.where(and(eq(s.chatMessage.chatId, chatId), inArray(s.chatMessage.id, messageIds)))
+			.execute();
+
+		const [remaining] = await t
+			.select({ value: count() })
+			.from(s.chatMessage)
+			.where(and(eq(s.chatMessage.chatId, chatId), isNull(s.chatMessage.supersededAt)))
+			.execute();
+		if ((remaining?.value ?? 0) > 0) {
+			return { outcome: 'deleted', chatDeleted: false };
+		}
+
+		await t.delete(s.chat).where(eq(s.chat.id, chatId)).execute();
+		return { outcome: 'deleted', chatDeleted: true };
+	});
 };
 
 export const getChatOwnerId = async (chatId: string): Promise<string | undefined> => {
@@ -265,6 +409,89 @@ export const supersedeMessagesFrom = async (chatId: string, fromMessageId: strin
 	});
 };
 
+/**
+ * Returns the version group id to use for an edited/resent message so that the
+ * new message is grouped with the message it supersedes. Backfills the group id
+ * on the edited message when it predates version tracking.
+ */
+export const resolveVersionGroupIdForEdit = async (
+	chatId: string,
+	messageToEditId: string,
+): Promise<string | undefined> => {
+	const [editedMessage] = await db
+		.select({ id: s.chatMessage.id, versionGroupId: s.chatMessage.versionGroupId })
+		.from(s.chatMessage)
+		.where(and(eq(s.chatMessage.id, messageToEditId), eq(s.chatMessage.chatId, chatId)))
+		.execute();
+
+	if (!editedMessage) {
+		return undefined;
+	}
+	if (editedMessage.versionGroupId) {
+		return editedMessage.versionGroupId;
+	}
+
+	await db
+		.update(s.chatMessage)
+		.set({ versionGroupId: editedMessage.id })
+		.where(eq(s.chatMessage.id, editedMessage.id))
+		.execute();
+	return editedMessage.id;
+};
+
+/**
+ * Restores a previously superseded version of a message turn as the active
+ * branch, superseding whatever conversation currently follows the turn.
+ */
+export const switchMessageVersion = async (chatId: string, targetMessageId: string): Promise<void> => {
+	await db.transaction(async (t) => {
+		const [target] = await t
+			.select({
+				versionGroupId: s.chatMessage.versionGroupId,
+				supersededAt: s.chatMessage.supersededAt,
+			})
+			.from(s.chatMessage)
+			.where(and(eq(s.chatMessage.id, targetMessageId), eq(s.chatMessage.chatId, chatId)))
+			.execute();
+
+		if (!target?.versionGroupId || target.supersededAt === null) {
+			return;
+		}
+
+		const groupRows = await t
+			.select({ createdAt: s.chatMessage.createdAt })
+			.from(s.chatMessage)
+			.where(and(eq(s.chatMessage.chatId, chatId), eq(s.chatMessage.versionGroupId, target.versionGroupId)))
+			.execute();
+
+		if (groupRows.length === 0) {
+			return;
+		}
+
+		const forkPoint = new Date(Math.min(...groupRows.map((row) => row.createdAt.getTime())));
+
+		await t
+			.update(s.chatMessage)
+			.set({ supersededAt: new Date() })
+			.where(
+				and(
+					eq(s.chatMessage.chatId, chatId),
+					isNull(s.chatMessage.supersededAt),
+					gte(s.chatMessage.createdAt, forkPoint),
+				),
+			)
+			.execute();
+
+		await t
+			.update(s.chatMessage)
+			.set({ supersededAt: null })
+			.where(and(eq(s.chatMessage.chatId, chatId), eq(s.chatMessage.supersededAt, target.supersededAt)))
+			.execute();
+
+		await t.update(s.chat).set({ updatedAt: new Date() }).where(eq(s.chat.id, chatId)).execute();
+	});
+};
+
 export const createChat = async (
 	newChat: NewChat,
 	newUserMessage: {
@@ -277,13 +504,16 @@ export const createChat = async (
 	return db.transaction(async (t): Promise<[DBChat, DBChatMessage]> => {
 		const [savedChat] = await t.insert(s.chat).values(newChat).returning().execute();
 
+		const messageId = crypto.randomUUID();
 		const [savedMessage] = await t
 			.insert(s.chatMessage)
 			.values({
+				id: messageId,
 				chatId: savedChat.id,
 				role: 'user',
 				source: newUserMessage.source,
 				citation: newUserMessage.citation ?? null,
+				versionGroupId: messageId,
 			})
 			.returning()
 			.execute();
@@ -300,25 +530,27 @@ export const createForkedChat = async (newChat: NewChat, messages: Array<Omit<UI
 	return db.transaction(async (t) => {
 		const [savedChat] = await t.insert(s.chat).values(newChat).returning().execute();
 
-		const baseTime = Date.now();
-		for (let i = 0; i < messages.length; i++) {
-			const message = messages[i];
-			const messageId = crypto.randomUUID();
-			await t
-				.insert(s.chatMessage)
-				.values({
-					id: messageId,
-					chatId: savedChat.id,
-					role: message.role,
-					isForked: true,
-					createdAt: new Date(baseTime + i),
-				})
-				.execute();
+		if (messages.length === 0) {
+			return savedChat;
+		}
 
-			const dbParts = remapToolCallIds(mapUIPartsToDBParts(message.parts, messageId));
-			if (dbParts.length > 0) {
-				await t.insert(s.messagePart).values(dbParts).execute();
-			}
+		const baseTime = Date.now();
+		const messageRows = messages.map((message, i) => ({
+			id: crypto.randomUUID(),
+			chatId: savedChat.id,
+			role: message.role,
+			isForked: true,
+			createdAt: new Date(baseTime + i),
+		}));
+
+		await t.insert(s.chatMessage).values(messageRows).execute();
+
+		const allParts = messages.flatMap((message, i) =>
+			remapToolCallIds(mapUIPartsToDBParts(message.parts, messageRows[i].id)),
+		);
+
+		if (allParts.length > 0) {
+			await t.insert(s.messagePart).values(allParts).execute();
 		}
 
 		return savedChat;
@@ -348,6 +580,7 @@ export const upsertMessage = async (
 		tokenUsage?: TokenUsage;
 		llmProvider?: LlmProvider;
 		llmModelId?: string;
+		versionGroupId?: string;
 	},
 	options: { updateMetadata?: boolean } = {},
 ): Promise<{ messageId: string }> => {
@@ -364,14 +597,16 @@ export const upsertMessage = async (
 			source: message.source,
 			isForked: message.isForked,
 			citation: message.citation ?? null,
+			versionGroupId: message.versionGroupId ?? (message.role === 'user' ? messageId : undefined),
 			...message.tokenUsage,
 		};
 		const insert = t.insert(s.chatMessage).values(messageValues);
 		if (options.updateMetadata === false) {
 			await insert.onConflictDoNothing({ target: s.chatMessage.id }).execute();
 		} else {
-			const { id, ...updateValues } = messageValues;
+			const { id, versionGroupId, ...updateValues } = messageValues;
 			void id;
+			void versionGroupId;
 			await insert
 				.onConflictDoUpdate({
 					target: s.chatMessage.id,
@@ -383,13 +618,47 @@ export const upsertMessage = async (
 		await t.delete(s.messagePart).where(eq(s.messagePart.messageId, messageId)).execute();
 		const dbParts = mapUIPartsToDBParts(message.parts, messageId);
 		if (dbParts.length) {
-			await t.insert(s.messagePart).values(dbParts).execute();
+			const partsToInsert = await remapToolCallIdsCollidingWithOtherMessages(t, dbParts, messageId);
+			await t.insert(s.messagePart).values(partsToInsert).execute();
 		}
 
 		await t.update(s.chat).set({ updatedAt: new Date() }).where(eq(s.chat.id, message.chatId)).execute();
 
 		return { messageId };
 	});
+};
+
+/**
+ * Some providers return tool call ids that are only unique within a single request (e.g. `functions.execute_sql:0`),
+ * so resending a message or starting a new chat re-emits ids that already exist. The unique constraint on
+ * `tool_call_id` only tolerates one such id, so any that already belong to another message are namespaced with
+ * the message id to keep them globally unique while staying stable across re-persists of the same message.
+ */
+const remapToolCallIdsCollidingWithOtherMessages = async (
+	t: DBTransaction,
+	parts: NewMessagePart[],
+	messageId: string,
+): Promise<NewMessagePart[]> => {
+	const toolCallIds = parts.map((part) => part.toolCallId).filter((id): id is string => Boolean(id));
+	if (toolCallIds.length === 0) {
+		return parts;
+	}
+
+	const existing = await t
+		.select({ toolCallId: s.messagePart.toolCallId })
+		.from(s.messagePart)
+		.where(and(inArray(s.messagePart.toolCallId, toolCallIds), ne(s.messagePart.messageId, messageId)))
+		.execute();
+	if (existing.length === 0) {
+		return parts;
+	}
+
+	const collidingIds = new Set(existing.map((row) => row.toolCallId));
+	return parts.map((part) =>
+		part.toolCallId && collidingIds.has(part.toolCallId)
+			? { ...part, toolCallId: `${messageId}:${part.toolCallId}` }
+			: part,
+	);
 };
 
 function stripUndefined<T extends Record<string, unknown>>(value: T): Partial<T> {
@@ -459,6 +728,19 @@ export const getLastAssistantMessageId = async (chatId: string): Promise<string 
 	return result?.id ?? null;
 };
 
+export const isAssistantMessageInProject = async (messageId: string, projectId: string): Promise<boolean> => {
+	const [result] = await db
+		.select({ id: s.chatMessage.id })
+		.from(s.chatMessage)
+		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
+		.where(
+			and(eq(s.chatMessage.id, messageId), eq(s.chatMessage.role, 'assistant'), eq(s.chat.projectId, projectId)),
+		)
+		.limit(1)
+		.execute();
+	return Boolean(result);
+};
+
 export const getChatBySlackThread = async (threadId: string): Promise<{ id: string; title: string } | null> => {
 	const result = await db
 		.select({ id: s.chat.id, title: s.chat.title })
@@ -493,6 +775,20 @@ export const getChatByTelegramThread = async (threadId: string): Promise<{ id: s
 	return result.at(0) || null;
 };
 
+export const getChatByMattermostThread = async (threadId: string): Promise<{ id: string; title: string } | null> => {
+	const result = await db
+		.select({ id: s.chat.id, title: s.chat.title })
+		.from(s.chat)
+		.where(eq(s.chat.mattermostThreadId, threadId))
+		.limit(1)
+		.execute();
+	return result.at(0) || null;
+};
+
+export const attachMattermostThread = async (chatId: string, mattermostThreadId: string): Promise<void> => {
+	await db.update(s.chat).set({ mattermostThreadId }).where(eq(s.chat.id, chatId)).execute();
+};
+
 export const getChatByWhatsappThread = async (threadId: string): Promise<{ id: string; title: string } | null> => {
 	const result = await db
 		.select({ id: s.chat.id, title: s.chat.title })
@@ -511,6 +807,17 @@ export const clearWhatsappThread = async (threadId: string): Promise<boolean> =>
 		.returning({ id: s.chat.id })
 		.execute();
 	return result.length > 0;
+};
+
+/** Clears the slack thread mapping for the main conversation of a DM, identified by the raw Slack channel ID (e.g. `D123ABC`). The main conversation is the chat with an empty thread timestamp (`slack:<channelId>:`); explicitly opened threads are left untouched. Returns the affected chat IDs so running agents can be stopped. */
+export const clearSlackMainThread = async (slackChannelId: string): Promise<string[]> => {
+	const result = await db
+		.update(s.chat)
+		.set({ slackThreadId: null })
+		.where(eq(s.chat.slackThreadId, `slack:${slackChannelId}:`))
+		.returning({ id: s.chat.id })
+		.execute();
+	return result.map((r) => r.id);
 };
 
 export type SearchChatResult = {
@@ -660,21 +967,35 @@ export const getChatProjectId = async (chatId: string): Promise<string | undefin
 	return result?.projectId;
 };
 
-export const getProjectIdByQueryId = async (queryId: string): Promise<string | undefined> => {
-	const jsonIdFilter =
-		dbConfig.dialect === Dialect.Postgres
-			? sql`${s.messagePart.toolOutput}->>'id' = ${queryId}`
-			: sql`json_extract(${s.messagePart.toolOutput}, '$.id') = ${queryId}`;
-
+export const getLatestAssistantModel = async (
+	chatId: string,
+): Promise<{ provider: LlmProvider; modelId: string } | null> => {
 	const [result] = await db
-		.select({ projectId: s.chat.projectId })
-		.from(s.messagePart)
-		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
-		.innerJoin(s.chat, eq(s.chatMessage.chatId, s.chat.id))
-		.where(jsonIdFilter)
+		.select({ provider: s.chatMessage.llmProvider, modelId: s.chatMessage.llmModelId })
+		.from(s.chatMessage)
+		.where(
+			and(
+				eq(s.chatMessage.chatId, chatId),
+				eq(s.chatMessage.role, 'assistant'),
+				isNull(s.chatMessage.supersededAt),
+				isNotNull(s.chatMessage.llmProvider),
+				isNotNull(s.chatMessage.llmModelId),
+			),
+		)
+		.orderBy(desc(s.chatMessage.createdAt))
+		.limit(1)
 		.execute();
 
-	return result?.projectId;
+	if (!result?.provider || !result?.modelId) {
+		return null;
+	}
+
+	return { provider: result.provider, modelId: result.modelId };
+};
+
+export const getProjectIdByQueryId = async (queryId: string): Promise<string | undefined> => {
+	const owner = await executeSqlQueries.getExecuteSqlOwnerByQueryId(queryId);
+	return owner?.projectId;
 };
 
 /**
@@ -686,24 +1007,8 @@ export const getQueryResultByQueryId = async (
 	chatId: string,
 	queryId: string,
 ): Promise<{ columns: string[]; data: Record<string, unknown>[] } | null> => {
-	const jsonIdFilter = buildQueryIdJsonFilter(queryId);
-
-	const [result] = await db
-		.select({ toolOutput: s.messagePart.toolOutput })
-		.from(s.messagePart)
-		.innerJoin(s.chatMessage, eq(s.messagePart.messageId, s.chatMessage.id))
-		.where(
-			and(
-				eq(s.chatMessage.chatId, chatId),
-				isNull(s.chatMessage.supersededAt),
-				eq(s.messagePart.toolName, 'execute_sql'),
-				jsonIdFilter,
-			),
-		)
-		.limit(1)
-		.execute();
-
-	return extractQueryResultFromToolOutput(result?.toolOutput);
+	const part = await executeSqlQueries.getExecuteSqlPartByQueryIdInChat(chatId, queryId);
+	return part ? extractQueryResultFromToolOutput(part.toolOutput) : null;
 };
 
 export const getQueryResultByQueryIdInProject = async (
@@ -711,8 +1016,6 @@ export const getQueryResultByQueryIdInProject = async (
 	userId: string,
 	queryId: string,
 ): Promise<{ columns: string[]; data: Record<string, unknown>[]; chatId: string } | null> => {
-	const jsonIdFilter = buildQueryIdJsonFilter(queryId);
-
 	const [result] = await db
 		.select({ toolOutput: s.messagePart.toolOutput, chatId: s.chat.id })
 		.from(s.messagePart)
@@ -723,10 +1026,11 @@ export const getQueryResultByQueryIdInProject = async (
 				eq(s.chat.projectId, projectId),
 				eq(s.chat.userId, userId),
 				isNull(s.chatMessage.supersededAt),
-				eq(s.messagePart.toolName, 'execute_sql'),
-				jsonIdFilter,
+				executeSqlQueries.isQueryToolPart(),
+				executeSqlQueries.messagePartToolOutputIdEquals(queryId),
 			),
 		)
+		.orderBy(desc(s.chatMessage.createdAt), desc(s.messagePart.order))
 		.limit(1)
 		.execute();
 
@@ -736,12 +1040,6 @@ export const getQueryResultByQueryIdInProject = async (
 	}
 	return { ...extracted, chatId: result.chatId };
 };
-
-function buildQueryIdJsonFilter(queryId: string) {
-	return dbConfig.dialect === Dialect.Postgres
-		? sql`${s.messagePart.toolOutput}->>'id' = ${queryId}`
-		: sql`json_extract(${s.messagePart.toolOutput}, '$.id') = ${queryId}`;
-}
 
 function extractQueryResultFromToolOutput(
 	toolOutput: unknown,
@@ -766,4 +1064,51 @@ export async function getChatInfo(
 		.where(eq(s.chat.id, chatId))
 		.execute();
 	return row ?? null;
+}
+
+export async function canUserAccessChat(chatId: string, userId: string): Promise<boolean> {
+	const [owned] = await db
+		.select({ id: s.chat.id })
+		.from(s.chat)
+		.where(and(eq(s.chat.id, chatId), eq(s.chat.userId, userId)))
+		.limit(1)
+		.execute();
+
+	if (owned) {
+		return true;
+	}
+
+	const isProjectMember = sql`exists (
+		select 1 from ${s.projectMember}
+		where ${s.projectMember.projectId} = ${s.chat.projectId}
+		  and ${s.projectMember.userId} = ${userId}
+	)`;
+	const isOrgMember = sql`exists (
+		select 1 from ${s.orgMember}
+		where ${s.orgMember.orgId} = ${s.project.orgId}
+		  and ${s.orgMember.userId} = ${userId}
+	)`;
+
+	const [shared] = await db
+		.select({ id: s.sharedChat.id })
+		.from(s.sharedChat)
+		.innerJoin(s.chat, eq(s.chat.id, s.sharedChat.chatId))
+		.innerJoin(s.project, eq(s.project.id, s.chat.projectId))
+		.leftJoin(
+			s.sharedChatAccess,
+			and(eq(s.sharedChatAccess.sharedChatId, s.sharedChat.id), eq(s.sharedChatAccess.userId, userId)),
+		)
+		.where(
+			and(
+				eq(s.sharedChat.chatId, chatId),
+				or(
+					and(eq(s.sharedChat.visibility, 'project'), or(isProjectMember, isOrgMember)),
+					and(eq(s.sharedChat.visibility, 'specific'), sql`${s.sharedChatAccess.userId} IS NOT NULL`),
+				),
+			),
+		)
+		.limit(1)
+		.execute();
+
+	return !!shared;
 }

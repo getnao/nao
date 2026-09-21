@@ -30,7 +30,7 @@ export function GoogleConfigSection({ isAdmin }: GoogleConfigSectionProps) {
 	};
 
 	if (!isAdmin) {
-		return <p className='text-sm text-muted-foreground'>Contact your admin to update Google OAuth settings.</p>;
+		return <p className='text-sm text-muted-foreground'>Contact your admin to update Google SSO settings.</p>;
 	}
 
 	if (editingState?.isEditing) {
@@ -53,12 +53,15 @@ export function GoogleConfigSection({ isAdmin }: GoogleConfigSectionProps) {
 			<div className='flex items-center gap-4'>
 				<div className='flex-1 grid gap-1'>
 					<div className='flex items-center gap-2'>
-						<span className='text-sm font-medium text-foreground'>Google OAuth</span>
+						<span className='text-sm font-medium text-foreground'>Google SSO</span>
 						<span className='px-1.5 py-0.5 text-[10px] font-medium rounded bg-muted text-muted-foreground'>
 							{badge}
 						</span>
 					</div>
 					<div className='grid gap-0.5'>
+						<span className='text-xs text-muted-foreground'>
+							Lets users sign in with their Google account.
+						</span>
 						<span className='text-xs font-mono text-muted-foreground'>
 							Client ID: {maskCredential(settings?.clientId || '')}
 						</span>

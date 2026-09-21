@@ -47,7 +47,15 @@ class RedshiftDatabaseContext(DatabaseContext):
                 }
                 for row in result
             ]
-        return self._columns_cache
+        return self._filter_excluded_columns(self._columns_cache)
+
+    def clustering_columns(self) -> list[str]:
+        try:
+            return self._filter_excluded_names(
+                _get_redshift_sortkey_columns(self._conn, self._schema, self._table_name)
+            )
+        except Exception:
+            return []
 
     def row_count(self) -> int:
         if self._row_count_cache is None:
@@ -98,9 +106,11 @@ class RedshiftDatabaseContext(DatabaseContext):
         query = f"SELECT * FROM {schema_sql}.{table_sql} LIMIT {limit}"
         result = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
 
-        # Get column names from the columns metadata
-        columns = self.columns()
-        col_names = [col["name"] for col in columns]
+        # Use the unfiltered column metadata so row indices stay aligned with
+        # SELECT * output; the excluded columns are dropped after the dict is built.
+        if self._columns_cache is None:
+            self.columns()
+        col_names = [col["name"] for col in (self._columns_cache or [])]
 
         rows = []
         for row in result:
@@ -111,7 +121,7 @@ class RedshiftDatabaseContext(DatabaseContext):
                     row_dict[col_name] = str(val)
                 else:
                     row_dict[col_name] = val
-            rows.append(row_dict)
+            rows.append(self._filter_excluded_row(row_dict))
         return rows
 
     def _fetch_column_descriptions(self) -> dict[str, str]:
@@ -123,7 +133,7 @@ class RedshiftDatabaseContext(DatabaseContext):
                 JOIN pg_catalog.pg_class c ON c.oid = d.objoid
                 JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum = d.objsubid
                 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-                WHERE n.nspname = '{self._schema}' AND c.relname = '{self._table_name}' AND d.objsubid > 0
+                WHERE n.nspname = '{_quote_literal(self._schema)}' AND c.relname = '{_quote_literal(self._table_name)}' AND d.objsubid > 0
             """
             rows = self._conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
             return {row[0]: str(row[1]) for row in rows if row[1]}
@@ -138,7 +148,7 @@ class RedshiftDatabaseContext(DatabaseContext):
                 FROM pg_catalog.pg_description d
                 JOIN pg_catalog.pg_class c ON c.oid = d.objoid
                 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-                WHERE n.nspname = '{self._schema}' AND c.relname = '{self._table_name}' AND d.objsubid = 0
+                WHERE n.nspname = '{_quote_literal(self._schema)}' AND c.relname = '{_quote_literal(self._table_name)}' AND d.objsubid = 0
             """
             row = self._conn.raw_sql(query).fetchone()  # type: ignore[union-attr]
             if row and row[0]:
@@ -152,6 +162,29 @@ class RedshiftDatabaseContext(DatabaseContext):
 
     def _cast_complex_to_string(self, col_sql: str) -> str:
         return f"JSON_SERIALIZE({col_sql})"
+
+
+def _quote_literal(value: str) -> str:
+    """Escape a value for safe use inside a SQL string literal."""
+    return value.replace("'", "''")
+
+
+def _get_redshift_sortkey_columns(conn: BaseBackend, schema: str, table: str) -> list[str]:
+    """Return SORTKEY columns for a Redshift table, ordered by sort position."""
+    schema_literal = _quote_literal(schema)
+    table_literal = _quote_literal(table)
+    query = f"""
+        SELECT a.attname
+        FROM pg_attribute a
+        JOIN pg_class c ON c.oid = a.attrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = '{schema_literal}'
+          AND c.relname = '{table_literal}'
+          AND a.attsortkeyord > 0
+        ORDER BY a.attsortkeyord
+    """
+    result = conn.raw_sql(query).fetchall()  # type: ignore[union-attr]
+    return [row[0] for row in result]
 
 
 class RedshiftSSHTunnelConfig(BaseModel):
@@ -310,7 +343,7 @@ class RedshiftConfig(DatabaseConfig):
             **kwargs,
         )
 
-    def execute_sql(self, sql: str) -> pd.DataFrame:
+    def execute_sql(self, sql: str, conn: BaseBackend | None = None) -> pd.DataFrame:
         """Execute SQL using user/password credentials.
 
         Forbidden when auth_mode=azure_entra_id: runtime queries must flow
@@ -322,34 +355,41 @@ class RedshiftConfig(DatabaseConfig):
                 "execute_sql is not allowed when auth_mode='azure_entra_id'. "
                 "Use execute_sql_with_token() with the end user's access token instead."
             )
-        return super().execute_sql(sql)
+        return super().execute_sql(sql, conn=conn)
 
-    def execute_sql_with_token(self, sql: str, access_token: str) -> pd.DataFrame:
+    def execute_sql_with_token(
+        self,
+        sql: str,
+        access_token: str,
+        conn: Any | None = None,
+    ) -> pd.DataFrame:
         """Execute SQL using a JWT access token for Azure Entra ID native IdP federation."""
         import pandas as pd
 
-        from nao_core.deps import require_dependency
+        owns_connection = conn is None
+        if conn is None:
+            from nao_core.deps import require_dependency
 
-        require_dependency("redshift_connector", "redshift", "for Redshift JWT authentication")
-        import redshift_connector
+            require_dependency("redshift_connector", "redshift", "for Redshift JWT authentication")
+            import redshift_connector
 
-        kwargs: dict = {
-            "iam": True,
-            "host": self.host,
-            "port": self.port,
-            "database": self.database,
-            "credentials_provider": "BasicJwtCredentialsProvider",
-            "web_identity_token": access_token,
-            "group_federation": True,
-            "ssl": True,
-        }
+            kwargs: dict = {
+                "iam": True,
+                "host": self.host,
+                "port": self.port,
+                "database": self.database,
+                "credentials_provider": "BasicJwtCredentialsProvider",
+                "web_identity_token": access_token,
+                "group_federation": True,
+                "ssl": True,
+            }
 
-        serverless_parts = self._parse_serverless_host()
-        if serverless_parts:
-            kwargs["serverless_work_group"] = serverless_parts["work_group"]
-            kwargs["serverless_acct_id"] = serverless_parts["acct_id"]
+            serverless_parts = self._parse_serverless_host()
+            if serverless_parts:
+                kwargs["serverless_work_group"] = serverless_parts["work_group"]
+                kwargs["serverless_acct_id"] = serverless_parts["acct_id"]
 
-        conn = redshift_connector.connect(**kwargs)
+            conn = redshift_connector.connect(**kwargs)
         try:
             cursor = conn.cursor()
             cursor.execute(sql)
@@ -359,7 +399,8 @@ class RedshiftConfig(DatabaseConfig):
             rows = cursor.fetchall()
             return pd.DataFrame(rows, columns=columns)  # type: ignore[arg-type]
         finally:
-            conn.close()
+            if owns_connection:
+                conn.close()
 
     def _parse_serverless_host(self) -> dict[str, str] | None:
         """Extract workgroup and account ID from a Redshift Serverless endpoint.
@@ -381,13 +422,14 @@ class RedshiftConfig(DatabaseConfig):
         if self.schema_name:
             return [self.schema_name]
 
-        # Query system catalog directly to get all schemas
+        # svv_all_schemas includes schemas shared through Redshift datashares.
         query = """
-            SELECT nspname 
-            FROM pg_catalog.pg_namespace
-            WHERE nspname NOT LIKE 'pg_%' 
-              AND nspname != 'information_schema'
-            ORDER BY nspname
+            SELECT DISTINCT schema_name
+            FROM svv_all_schemas
+            WHERE schema_name NOT LIKE 'pg_%'
+              AND schema_name != 'information_schema'
+              AND database_name = current_database()
+            ORDER BY schema_name
         """
         try:
             result = conn.raw_sql(query).fetchall()  # type: ignore[union-attr]

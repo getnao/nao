@@ -3,7 +3,8 @@ import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 
-type ExpandableVariant = 'inline' | 'bordered';
+/** `grouped` reads like `inline` but keeps a header row so trailing actions can sit beside the title. */
+type ExpandableVariant = 'inline' | 'bordered' | 'plain' | 'grouped';
 
 interface ExpandableProps {
 	title: ReactNode;
@@ -14,6 +15,7 @@ interface ExpandableProps {
 	disabled?: boolean;
 	isLoading?: boolean;
 	leadingIcon?: ReactNode;
+	titleAction?: ReactNode;
 	trailingContent?: ReactNode;
 	variant?: ExpandableVariant;
 	className?: string;
@@ -28,12 +30,18 @@ export const Expandable = ({
 	disabled = false,
 	isLoading = false,
 	leadingIcon,
+	titleAction,
 	trailingContent,
 	variant = 'inline',
 	className,
 }: ExpandableProps) => {
 	const canExpand = !disabled;
 	const isBordered = variant === 'bordered';
+	const isPlain = variant === 'plain';
+	const isInline = variant === 'inline';
+	const isGrouped = variant === 'grouped';
+	const hasHeaderRow = !isInline;
+	const hasHeaderEmphasis = isBordered || isPlain;
 
 	const handleValueChange = () => {
 		if (canExpand) {
@@ -42,7 +50,11 @@ export const Expandable = ({
 	};
 
 	const icon = leadingIcon ?? (
-		<ChevronRight size={12} className={cn('transition-transform duration-200', expanded && 'rotate-90')} />
+		<ChevronRight
+			size={12}
+			className={cn('transition-transform duration-200', expanded && 'rotate-90')}
+			strokeWidth={3.25}
+		/>
 	);
 
 	return (
@@ -53,59 +65,75 @@ export const Expandable = ({
 			onValueChange={handleValueChange}
 			disabled={!canExpand}
 			className={cn(
-				isBordered && 'border border-border rounded-xl overflow-hidden bg-backgroundSecondary/30',
+				isBordered && 'border border-border rounded-lg overflow-hidden bg-backgroundSecondary/30',
 				className,
 			)}
 		>
 			<AccordionItem value='expandable-content' className='border-b-0' style={{ padding: 0 }}>
-				{isBordered ? (
+				{hasHeaderRow ? (
 					<div
 						className={cn(
-							'flex items-center justify-between gap-2 py-2 px-3',
+							'flex items-center justify-between gap-2',
+							isBordered && 'py-2 px-3',
+							isPlain && 'px-2 py-2',
 							canExpand && 'cursor-pointer',
 						)}
 						onClick={() => canExpand && onExpandedChange(!expanded)}
 					>
-						<AccordionTrigger
-							className={cn(
-								'flex-1 select-none flex items-baseline gap-2 py-0 overflow-hidden transition-opacity duration-150 hover:no-underline [&>svg:last-child]:hidden',
-								expanded ? 'opacity-100' : 'opacity-70',
-								canExpand && !expanded
-									? 'cursor-pointer hover:opacity-90'
-									: canExpand
-										? 'cursor-pointer'
-										: '',
-							)}
-						>
-							<div className='size-3 flex items-center justify-center shrink-0 self-center'>{icon}</div>
-							<span className={cn('flex-1 font-medium truncate min-w-0', isLoading && 'text-shimmer')}>
-								{title}
-							</span>
-							{badge && <span className='text-xs opacity-50 shrink-0'>{badge}</span>}
-						</AccordionTrigger>
+						<div className={cn('flex min-w-0 flex-1 items-center', titleAction ? 'gap-2' : 'gap-1')}>
+							<AccordionTrigger
+								headerClassName='w-auto min-w-0 shrink'
+								className={cn(
+									'select-none flex items-baseline gap-2 py-0 overflow-hidden transition-opacity duration-150 hover:no-underline [&>svg:last-child]:hidden',
+									'min-w-0 flex-1',
+									canExpand ? 'cursor-pointer' : '',
+								)}
+							>
+								<div className='size-3 flex items-center justify-center shrink-0 self-center'>
+									{icon}
+								</div>
+								<span
+									className={cn(
+										'flex-1 truncate min-w-0',
+										hasHeaderEmphasis ? 'font-medium' : 'text-sm font-normal',
+										isLoading && 'text-shimmer',
+									)}
+								>
+									{title}
+								</span>
+								{badge && !expanded && (
+									<span className='text-xs opacity-30 ml-auto shrink-0'>{badge}</span>
+								)}
+							</AccordionTrigger>
+							{titleAction}
+						</div>
 						{trailingContent}
 					</div>
 				) : (
 					<AccordionTrigger
 						className={cn(
-							'select-none flex items-center gap-2 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap transition-opacity duration-150 py-0 hover:no-underline [&>svg:last-child]:hidden',
-							expanded ? 'opacity-100' : 'opacity-50',
-							canExpand && !expanded
-								? 'cursor-pointer hover:opacity-75'
-								: canExpand
-									? 'cursor-pointer'
-									: '',
+							'select-none flex items-center gap-2 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap transition-colors duration-150 py-0 hover:no-underline [&>svg:last-child]:hidden opacity-100',
+							canExpand ? 'cursor-pointer' : '',
 						)}
 					>
 						<div className='size-3 flex items-center justify-center shrink-0'>{icon}</div>
-						<span className={cn('text-sm', isLoading && 'text-shimmer')}>{title}</span>
-						{badge && <span className='text-xs opacity-50'>{badge}</span>}
+						<span
+							className={cn(
+								'flex-1 text-sm text-foreground font-normal truncate min-w-0',
+								isLoading && 'text-shimmer',
+							)}
+						>
+							{title}
+						</span>
+						{badge && !expanded && <span className='text-xs opacity-50 shrink-0'>{badge}</span>}
 					</AccordionTrigger>
 				)}
 
-				<AccordionContent className={cn('pb-0', !isBordered && 'pt-1.5')}>
+				<AccordionContent className={cn('pb-0', isInline && 'pt-1.5')}>
 					{isBordered ? (
 						<div className='border-t border-border'>{children}</div>
+					) : isPlain || isGrouped ? (
+						<div>{children}</div>
 					) : (
 						<div className='pl-5 bg-backgroundSecondary relative'>
 							<div className='h-full border-l border-l-border absolute top-0 left-[6px]' />

@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import questionary
+from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.key_binding import KeyBindings
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -58,11 +60,19 @@ class UI:
         cls._console.print(msg)
 
     @classmethod
+    def banner(cls, version: str) -> None:
+        """Print the nao terminal banner."""
+        from nao_core.branding import banner
+
+        banner(cls._console, version)
+
+    @classmethod
     def table(
         cls,
         df: pd.DataFrame,
         title: str | None = None,
         sum_columns: dict[str, str] | None = None,
+        fixed_columns: set[str] | None = None,
     ) -> None:
         """Print a DataFrame as a table.
 
@@ -70,11 +80,12 @@ class UI:
             df: DataFrame to display.
             title: Optional table title.
             sum_columns: Dict of column names to sum with their unit (e.g. {"Cost": "$", "Tokens": ""}).
+            fixed_columns: Columns to keep at full width instead of shrinking them to fit the terminal.
         """
         table = Table(title=title)
 
         for col in df.columns:
-            table.add_column(str(col))
+            table.add_column(str(col), no_wrap=col in (fixed_columns or set()))
 
         for _, row in df.iterrows():
             table.add_row(*[str(v) for v in row])
@@ -107,12 +118,32 @@ def ask_text(
     default: str = "",
     password: bool = False,
     required_field: bool = False,
+    placeholder: str | None = None,
+    submit_default: str | None = None,
 ) -> str | None:
     """Ask for text input. Loops until filled if required_field=True."""
     prompt_fn = questionary.password if password else questionary.text
+    prompt_kwargs = {}
+
+    if placeholder is not None:
+        prompt_kwargs["placeholder"] = FormattedText([("fg:ansibrightblack", placeholder)])
+
+    if submit_default is not None:
+        bindings = KeyBindings()
+
+        @bindings.add("enter")
+        def _(event):
+            buffer = event.current_buffer
+            if not buffer.text and submit_default:
+                buffer.text = submit_default
+                buffer.cursor_position = len(buffer.text)
+            buffer.validate_and_handle()
+
+        prompt_kwargs["key_bindings"] = bindings
 
     while True:
-        result = prompt_fn(message, default=default).ask()
+        prompt = prompt_fn(message, default=default, **prompt_kwargs)
+        result = prompt.ask()
         if result is None:  # User cancelled (Ctrl+C)
             raise KeyboardInterrupt
 

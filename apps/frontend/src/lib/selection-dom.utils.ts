@@ -27,7 +27,7 @@ export function createRangeFromOffsets(container: Element, start: number, end: n
 	while (node) {
 		const len = node.textContent?.length ?? 0;
 
-		if (!startSet && charCount + len >= start) {
+		if (!startSet && charCount + len > start) {
 			try {
 				range.setStart(node, start - charCount);
 			} catch {
@@ -127,6 +127,16 @@ export function getSelectionBoundingRect(range: Range): DOMRect | null {
 	const right = Math.max(...rects.map((r) => r.right));
 	const bottom = Math.max(...rects.map((r) => r.bottom));
 	return new DOMRect(left, top, right - left, bottom - top);
+}
+
+/** Returns true when the range lives inside `[data-selection-ignore]` (e.g. chat suggestion popups, side-panel story headers). */
+export function isRangeInIgnoredRegion(range: Range): boolean {
+	return isNodeInIgnoredRegion(range.startContainer) || isNodeInIgnoredRegion(range.endContainer);
+}
+
+function isNodeInIgnoredRegion(node: Node): boolean {
+	const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : node instanceof Element ? node : null;
+	return Boolean(el?.closest('[data-selection-ignore]'));
 }
 
 /** Returns the left edge of the nearest `[data-selection-container]` ancestor of the range. */

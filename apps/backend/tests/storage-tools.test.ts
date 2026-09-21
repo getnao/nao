@@ -1,0 +1,494 @@
+import os from 'node:os';
+import path from 'node:path';
+
+import type { UserRulesGroupAccess } from '@nao/shared/rules-template';
+import type { Tool } from 'ai';
+import fs from 'fs/promises';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import grepTool from '../src/agents/tools/grep';
+import listTool from '../src/agents/tools/list';
+import readTool from '../src/agents/tools/read';
+import searchTool from '../src/agents/tools/search';
+import writeTool from '../src/agents/tools/write';
+import { __reloadEnvForTesting } from '../src/env';
+import type { WarehouseTableAccess } from '../src/services/context-access';
+import { __resetStorageForTesting } from '../src/services/storage';
+import type { ResolvedDocsContextAccess } from '../src/services/user-group-context-access.service';
+import type { ToolContext } from '../src/types/tools';
+
+let storageRoot: string;
+let projectFolder: string;
+let originalEnv: typeof process.env;
+let warehouseTableAccess: WarehouseTableAccess;
+let docsContextAccess: ResolvedDocsContextAccess;
+const userRulesGroupAccess: UserRulesGroupAccess = { enforced: false };
+
+const context = () =>
+	({
+		projectFolder,
+		projectId: 'proj-1',
+		userId: 'user-1',
+		warehouseTableAccess,
+		warehouseRowSecurity: { enforced: false },
+		docsContextAccess,
+		userGroupFeatures: [],
+		userRulesGroupAccess,
+	}) as unknown as ToolContext;
+
+beforeEach(async () => {
+	originalEnv = { ...process.env };
+	storageRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'nao-storage-tools-'));
+	projectFolder = await fs.mkdtemp(path.join(os.tmpdir(), 'nao-project-tools-'));
+	warehouseTableAccess = { enforced: false };
+	docsContextAccess = { enforced: false };
+
+	useBackend('local');
+});
+
+afterEach(async () => {
+	process.env = originalEnv;
+	__reloadEnvForTesting();
+	__resetStorageForTesting();
+	await fs.rm(storageRoot, { recursive: true, force: true });
+	await fs.rm(projectFolder, { recursive: true, force: true });
+});
+
+describe('write', () => {
+	it('saves under /home and returns the path in the tree', async () => {
+		const output = await run(writeTool, { file_path: '/home/reports/q1.csv', content: 'week,customers\n' });
+
+		expect(output).toEqual({ _version: '1', path: '/home/reports/q1.csv', size: 15 });
+		expect(await readStorageFile('reports/q1.csv')).toBe('week,customers\n');
+	});
+
+	it('accepts a path without the leading slash', async () => {
+		const output = await run(writeTool, { file_path: 'home/notes.md', content: 'kept' });
+
+		expect(output).toMatchObject({ path: '/home/notes.md' });
+	});
+
+	it('accepts the ~ shorthand and answers with the real path', async () => {
+		const output = await run(writeTool, { file_path: '~/notes.md', content: 'kept' });
+
+		expect(output).toMatchObject({ path: '/home/notes.md' });
+		expect(await readStorageFile('notes.md')).toBe('kept');
+	});
+
+	it('refuses to write anywhere else in the tree', async () => {
+		await expect(run(writeTool, { file_path: '/RULES.md', content: 'nope' })).rejects.toThrow(
+			'only files under /home can be written',
+		);
+		await expect(fs.readdir(projectFolder)).resolves.toEqual([]);
+	});
+
+	it('refuses a path escaping the user space', async () => {
+		await expect(run(writeTool, { file_path: '/home/../user-2/x.csv', content: 'x' })).rejects.toThrow(
+			"may not contain '..'",
+		);
+	});
+
+	it('refuses a file above the configured size limit', async () => {
+		process.env.NAO_STORAGE_MAX_FILE_SIZE_MB = '1';
+		__reloadEnvForTesting();
+
+		await expect(
+			run(writeTool, { file_path: '/home/big.csv', content: 'x'.repeat(1024 * 1024 + 1) }),
+		).rejects.toThrow('above the 1 MB limit');
+	});
+});
+
+describe('read', () => {
+	it('reads a saved file', async () => {
+		await run(writeTool, { file_path: '/home/notes.md', content: 'line one\nline two' });
+
+		expect(await run(readTool, { file_path: '/home/notes.md' })).toEqual({
+			_version: '1',
+			content: 'line one\nline two',
+			numberOfTotalLines: 2,
+		});
+	});
+
+	it('still reads a project file', async () => {
+		await fs.writeFile(path.join(projectFolder, 'RULES.md'), 'project rules');
+
+		expect(await run(readTool, { file_path: '/RULES.md' })).toMatchObject({ content: 'project rules' });
+	});
+});
+
+describe('docs context access', () => {
+	beforeEach(async () => {
+		await fs.mkdir(path.join(projectFolder, 'docs', 'allowed'), { recursive: true });
+		await fs.mkdir(path.join(projectFolder, 'docs', 'legal'), { recursive: true });
+		await fs.mkdir(path.join(projectFolder, 'docs', 'private'), { recursive: true });
+		await fs.writeFile(path.join(projectFolder, 'docs', 'allowed', 'report.md'), 'shared needle');
+		await fs.writeFile(path.join(projectFolder, 'docs', 'legal', 'terms.md'), 'legal needle');
+		await fs.writeFile(path.join(projectFolder, 'docs', 'legal', 'private.md'), 'private needle');
+		await fs.writeFile(path.join(projectFolder, 'docs', 'private', 'secret.md'), 'secret needle');
+		docsContextAccess = {
+			enforced: true,
+			access: {
+				mode: 'restricted',
+				grants: [
+					{ kind: 'folder', path: 'allowed' },
+					{ kind: 'file', path: 'legal/terms.md' },
+				],
+			},
+		};
+	});
+
+	it('allows direct granted reads and denies siblings', async () => {
+		await expect(run(readTool, { file_path: '/docs/allowed/report.md' })).resolves.toMatchObject({
+			content: 'shared needle',
+		});
+		await expect(run(readTool, { file_path: '/docs/legal/terms.md' })).resolves.toMatchObject({
+			content: 'legal needle',
+		});
+		await expect(run(readTool, { file_path: '/docs/legal/private.md' })).rejects.toThrow('Access denied');
+		await expect(run(readTool, { file_path: '/docs/private/secret.md' })).rejects.toThrow('Access denied');
+	});
+
+	it('maps a nested docs grant below the outer docs root', async () => {
+		await fs.mkdir(path.join(projectFolder, 'docs', 'docs'));
+		await fs.writeFile(path.join(projectFolder, 'docs', 'docs', 'nested.md'), 'nested');
+		docsContextAccess = {
+			enforced: true,
+			access: { mode: 'restricted', grants: [{ kind: 'folder', path: 'docs' }] },
+		};
+
+		await expect(run(readTool, { file_path: '/docs/docs/nested.md' })).resolves.toMatchObject({
+			content: 'nested',
+		});
+		await expect(run(readTool, { file_path: '/docs/legal/terms.md' })).rejects.toThrow('Access denied');
+	});
+
+	it('lists only traversable ancestors and allowed children without leaking counts', async () => {
+		await expect(run(listTool, { path: '/docs' })).resolves.toMatchObject({
+			entries: [
+				expect.objectContaining({ name: 'allowed', itemCount: 1 }),
+				expect.objectContaining({ name: 'legal', itemCount: 1 }),
+			],
+		});
+		const legal = (await run(listTool, { path: '/docs/legal' })) as { entries: Array<{ name: string }> };
+		expect(legal.entries.map((entry) => entry.name)).toEqual(['terms.md']);
+		await expect(run(listTool, { path: '/docs/private' })).rejects.toThrow('Access denied');
+	});
+
+	it('filters search and grep matches before totals and snippets are returned', async () => {
+		const search = (await run(searchTool, { pattern: '*.md' })) as { files: Array<{ path: string }> };
+		expect(
+			search.files
+				.map((file) => file.path)
+				.filter((filePath) => filePath.startsWith('/docs'))
+				.sort(),
+		).toEqual(['/docs/allowed/report.md', '/docs/legal/terms.md']);
+
+		const grep = (await run(grepTool, { pattern: 'needle' })) as {
+			matches: Array<{ path: string }>;
+			total_matches: number;
+		};
+		expect(
+			grep.matches
+				.map((match) => match.path)
+				.filter((filePath) => filePath.startsWith('/docs'))
+				.sort(),
+		).toEqual(['/docs/allowed/report.md', '/docs/legal/terms.md']);
+		expect(grep.total_matches).toBe(2);
+	});
+
+	it('counts all authorized grep matches after the result cap', async () => {
+		await fs.writeFile(path.join(projectFolder, 'docs', 'allowed', 'report.md'), 'needle\nneedle\nneedle');
+		await fs.writeFile(path.join(projectFolder, 'docs', 'private', 'secret.md'), 'needle\nneedle\nneedle\nneedle');
+
+		const grep = (await run(grepTool, { pattern: 'needle', max_results: 1 })) as {
+			matches: Array<{ path: string }>;
+			total_matches: number;
+			truncated: boolean;
+		};
+		expect(grep.matches).toHaveLength(1);
+		expect(grep.total_matches).toBe(4);
+		expect(grep.truncated).toBe(true);
+	});
+});
+
+describe('list', () => {
+	it('shows /home as a folder at the root of the tree', async () => {
+		await fs.writeFile(path.join(projectFolder, 'RULES.md'), 'rules');
+		await run(writeTool, { file_path: '/home/reports/q1.csv', content: 'q1' });
+
+		expect(await run(listTool, { path: '/' })).toEqual({
+			_version: '1',
+			entries: [
+				{ path: '/RULES.md', name: 'RULES.md', type: 'file', size: '5', itemCount: undefined },
+				{ path: '/home', name: 'home', type: 'directory' },
+			],
+		});
+	});
+
+	it('omits /home when storage is disabled', async () => {
+		useBackend('none');
+
+		expect(await run(listTool, { path: '/' })).toEqual({ _version: '1', entries: [] });
+	});
+
+	it('hides a project folder called home', async () => {
+		await fs.mkdir(path.join(projectFolder, 'home'));
+		await fs.writeFile(path.join(projectFolder, 'home/decoy.md'), 'decoy');
+
+		const output = (await run(listTool, { path: '/' })) as { entries: { name: string; itemCount?: number }[] };
+
+		expect(output.entries).toEqual([{ path: '/home', name: 'home', type: 'directory' }]);
+	});
+
+	it('lists a folder inside /home', async () => {
+		await run(writeTool, { file_path: '/home/reports/q1.csv', content: 'q1' });
+		await run(writeTool, { file_path: '/home/reports/2025/q2.csv', content: 'q2' });
+
+		expect(await run(listTool, { path: '/home/reports' })).toMatchObject({
+			entries: [
+				{ path: '/home/reports/2025', name: '2025', type: 'directory', itemCount: 1 },
+				{ path: '/home/reports/q1.csv', name: 'q1.csv', type: 'file' },
+			],
+		});
+	});
+
+	it('still lists the project folder', async () => {
+		await fs.mkdir(path.join(projectFolder, 'databases'));
+
+		expect(await run(listTool, { path: '/databases' })).toEqual({ _version: '1', entries: [] });
+	});
+});
+
+describe('search', () => {
+	it('matches project files and saved files in one pass', async () => {
+		await fs.writeFile(path.join(projectFolder, 'columns.csv'), 'a,b');
+		await run(writeTool, { file_path: '/home/reports/2025/q2.csv', content: 'q2' });
+		await run(writeTool, { file_path: '/home/notes.md', content: 'notes' });
+
+		expect(await run(searchTool, { pattern: '*.csv' })).toEqual({
+			_version: '1',
+			files: [
+				{ path: '/columns.csv', dir: '/', size: '3' },
+				{ path: '/home/reports/2025/q2.csv', dir: '/home/reports/2025', size: '2' },
+			],
+		});
+	});
+
+	it('can be scoped to saved files by naming the folder', async () => {
+		await fs.writeFile(path.join(projectFolder, 'columns.csv'), 'a,b');
+		await run(writeTool, { file_path: '/home/q2.csv', content: 'q2' });
+
+		expect(await run(searchTool, { pattern: 'home/**/*.csv' })).toMatchObject({
+			files: [{ path: '/home/q2.csv' }],
+		});
+	});
+
+	it('leaves saved files out when storage is disabled', async () => {
+		await run(writeTool, { file_path: '/home/q2.csv', content: 'q2' });
+		useBackend('none');
+
+		expect(await run(searchTool, { pattern: '*.csv' })).toEqual({ _version: '1', files: [] });
+	});
+
+	it('refuses traversal in a pattern', async () => {
+		await expect(run(searchTool, { pattern: '../**' })).rejects.toThrow("'..' is not allowed");
+	});
+
+	it('returns the matched path instead of its canonical symlink target', async () => {
+		const target = path.join(projectFolder, 'target.md');
+		await fs.writeFile(target, 'target');
+		await fs.symlink(target, path.join(projectFolder, 'alias.md'));
+
+		expect(await run(searchTool, { pattern: 'alias.md' })).toEqual({
+			_version: '1',
+			files: [{ path: '/alias.md', dir: '/', size: '6' }],
+		});
+	});
+});
+
+describe('grep', () => {
+	beforeEach(async () => {
+		await fs.writeFile(path.join(projectFolder, 'RULES.md'), 'revenue is net of refunds');
+		await run(writeTool, { file_path: '/home/exports/q1.csv', content: 'quarter,revenue\nQ1,42' });
+	});
+
+	const pathsMatching = async (input: { pattern: string; path?: string }) => {
+		const output = (await run(grepTool, input)) as { matches: { path: string }[] };
+		return output.matches.map((match) => match.path);
+	};
+
+	it('searches the project and saved files together', async () => {
+		expect(await pathsMatching({ pattern: 'revenue' })).toEqual(['/RULES.md', '/home/exports/q1.csv']);
+	});
+
+	it('can be scoped to /home', async () => {
+		expect(await pathsMatching({ pattern: 'revenue', path: '/home' })).toEqual(['/home/exports/q1.csv']);
+	});
+
+	it('keeps valid names that merely start with two dots', async () => {
+		await run(writeTool, { file_path: '/home/..config', content: 'revenue setting' });
+
+		expect(await pathsMatching({ pattern: 'revenue setting', path: '/home' })).toEqual(['/home/..config']);
+	});
+
+	it('can be scoped to the project', async () => {
+		expect(await pathsMatching({ pattern: 'revenue', path: '/' })).toEqual(['/RULES.md']);
+	});
+
+	it('returns no matches for an explicit missing project path', async () => {
+		expect(await run(grepTool, { pattern: 'revenue', path: '/missing' })).toEqual({
+			_version: '1',
+			matches: [],
+			total_matches: 0,
+			truncated: false,
+		});
+	});
+
+	it('leaves saved files out when storage is disabled', async () => {
+		useBackend('none');
+		expect(await pathsMatching({ pattern: 'revenue' })).toEqual(['/RULES.md']);
+	});
+
+	it('searches the project only on a bucket backend, and explains why when scoped to /home', async () => {
+		useBackend('s3');
+
+		expect(await pathsMatching({ pattern: 'revenue' })).toEqual(['/RULES.md']);
+		await expect(pathsMatching({ pattern: 'revenue', path: '/home' })).rejects.toThrow(
+			'requires the `local` storage backend',
+		);
+	});
+});
+
+describe('database Context permissions', () => {
+	beforeEach(async () => {
+		const tableRoot = path.join(projectFolder, 'databases/type=postgres/database=analytics/schema=public');
+		await fs.mkdir(path.join(tableRoot, 'table=orders'), { recursive: true });
+		await fs.mkdir(path.join(tableRoot, 'table=users'), { recursive: true });
+		await fs.writeFile(path.join(tableRoot, 'table=orders/columns.md'), 'allowed marker');
+		await fs.writeFile(path.join(tableRoot, 'table=users/columns.md'), 'denied marker');
+		warehouseTableAccess = {
+			enforced: true,
+			strict: false,
+			tables: [
+				{
+					databaseType: 'postgres',
+					database: 'analytics',
+					schema: 'public',
+					table: 'orders',
+				},
+			],
+		};
+	});
+
+	it('blocks direct reads and lists of denied tables', async () => {
+		const deniedTable = '/databases/type=postgres/database=analytics/schema=public/table=users';
+		await expect(run(readTool, { file_path: `${deniedTable}/columns.md` })).rejects.toThrow('Access denied');
+		await expect(run(listTool, { path: deniedTable })).rejects.toThrow('Access denied');
+	});
+
+	it('authorizes canonical paths after resolving traversal and symlinks', async () => {
+		const schemaRoot = path.join(projectFolder, 'databases/type=postgres/database=analytics/schema=public');
+		const allowedTable = path.join(schemaRoot, 'table=orders');
+		const outsideFile = path.join(storageRoot, 'outside.md');
+		await fs.writeFile(outsideFile, 'outside marker');
+		await fs.symlink('../table=users', path.join(allowedTable, 'users-link'));
+		await fs.symlink(outsideFile, path.join(allowedTable, 'outside-link.md'));
+
+		const traversedDeniedPath =
+			'/databases/type=postgres/database=analytics/schema=public/table=orders/../table=users/columns.md';
+		const deniedSymlinkPath =
+			'/databases/type=postgres/database=analytics/schema=public/table=orders/users-link/columns.md';
+		const outsideSymlinkPath =
+			'/databases/type=postgres/database=analytics/schema=public/table=orders/outside-link.md';
+
+		await expect(run(readTool, { file_path: traversedDeniedPath })).rejects.toThrow('Access denied');
+		await expect(run(readTool, { file_path: deniedSymlinkPath })).rejects.toThrow('Access denied');
+		await expect(run(readTool, { file_path: outsideSymlinkPath })).rejects.toThrow('Access denied');
+		await expect(run(listTool, { path: path.dirname(deniedSymlinkPath) })).rejects.toThrow('Access denied');
+		await expect(run(grepTool, { pattern: 'marker', path: path.dirname(deniedSymlinkPath) })).rejects.toThrow(
+			'Access denied',
+		);
+
+		const listOutput = (await run(listTool, {
+			path: '/databases/type=postgres/database=analytics/schema=public/table=orders',
+		})) as { entries: { name: string }[] };
+		expect(listOutput.entries.map((entry) => entry.name)).not.toContain('users-link');
+		expect(listOutput.entries.map((entry) => entry.name)).not.toContain('outside-link.md');
+
+		const searchOutput = (await run(searchTool, { pattern: '*link*' })) as {
+			files: { path: string }[];
+		};
+		expect(searchOutput.files).toEqual([]);
+	});
+
+	it('fails malformed database hierarchies closed without blocking ordinary files', async () => {
+		await fs.writeFile(path.join(projectFolder, 'notes.md'), 'ordinary context');
+
+		await expect(
+			run(readTool, {
+				file_path: '/databases/type=postgres/not-a-database/schema=public/table=orders/columns.md',
+			}),
+		).rejects.toThrow('Access denied');
+		await expect(run(listTool, { path: '/databases/not-a-type' })).rejects.toThrow('Access denied');
+		await expect(run(readTool, { file_path: '/notes.md' })).resolves.toMatchObject({
+			content: 'ordinary context',
+		});
+	});
+
+	it('filters denied table branches from directory listings', async () => {
+		const output = (await run(listTool, {
+			path: '/databases/type=postgres/database=analytics/schema=public',
+		})) as { entries: { name: string }[] };
+
+		expect(output.entries.map((entry) => entry.name)).toEqual(['table=orders']);
+	});
+
+	it('filters denied files from search and grep results', async () => {
+		const searchOutput = (await run(searchTool, { pattern: 'columns.md' })) as {
+			files: { path: string }[];
+		};
+		expect(searchOutput.files.map((file) => file.path)).toEqual([
+			'/databases/type=postgres/database=analytics/schema=public/table=orders/columns.md',
+		]);
+
+		const grepOutput = (await run(grepTool, { pattern: 'marker' })) as {
+			matches: { path: string }[];
+		};
+		expect(grepOutput.matches.map((match) => match.path)).toEqual([
+			'/databases/type=postgres/database=analytics/schema=public/table=orders/columns.md',
+		]);
+	});
+});
+
+describe('when permanent storage is disabled', () => {
+	beforeEach(() => {
+		useBackend('none');
+	});
+
+	it('rejects a storage path with an actionable message', async () => {
+		await expect(run(readTool, { file_path: '/home/notes.md' })).rejects.toThrow('Permanent storage is disabled');
+		await expect(run(listTool, { path: '/home' })).rejects.toThrow('Permanent storage is disabled');
+		await expect(run(writeTool, { file_path: '/home/notes.md', content: 'x' })).rejects.toThrow(
+			'Permanent storage is disabled',
+		);
+	});
+});
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function run<TInput>(tool: Tool<TInput, any>, input: TInput) {
+	return tool.execute!(input, {
+		experimental_context: context(),
+	} as Parameters<NonNullable<typeof tool.execute>>[1]);
+}
+
+function readStorageFile(relativePath: string): Promise<string> {
+	return fs.readFile(path.join(storageRoot, 'projects/proj-1/users/user-1', relativePath), 'utf-8');
+}
+
+function useBackend(backend: 'none' | 'local' | 's3'): void {
+	process.env.NAO_STORAGE_BACKEND = backend;
+	process.env.NAO_STORAGE_LOCAL_PATH = storageRoot;
+	process.env.NAO_STORAGE_S3_BUCKET = 'test-bucket';
+	__reloadEnvForTesting();
+	__resetStorageForTesting();
+}

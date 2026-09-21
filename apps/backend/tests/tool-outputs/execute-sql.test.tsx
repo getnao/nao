@@ -78,6 +78,23 @@ created_at: 2025-03-10T09:15:00Z
 		expect(result).toBe('The query was successfully executed and returned no rows.');
 	});
 
+	it('includes the query id when an empty result has template warnings', () => {
+		const result = renderToMarkdown(
+			<ExecuteSqlOutput
+				output={{
+					id: 'query_warning',
+					columns: [],
+					row_count: 0,
+					data: [],
+					template_warnings: ['Invalid filter template'],
+				}}
+			/>,
+		);
+
+		expect(result).toContain('Query ID: query_warning');
+		expect(result).toContain('Invalid filter template');
+	});
+
 	it('warns when the row count equals the applied LIMIT', () => {
 		const result = renderToMarkdown(
 			<ExecuteSqlOutput

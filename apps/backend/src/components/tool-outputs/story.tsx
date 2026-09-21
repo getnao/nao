@@ -1,6 +1,6 @@
 import type { story } from '@nao/shared/tools';
 
-import { Block } from '../../lib/markdown';
+import { Block, List, ListItem, Span } from '../../lib/markdown';
 
 export type StoryModelOutput = story.Output & {
 	_stale?: boolean;
@@ -21,6 +21,8 @@ export function StoryOutput({ output }: { output: StoryModelOutput }) {
 		);
 	}
 
+	const templateWarnings = output.template_warnings ?? [];
+
 	return (
 		<Block>
 			Story "{output.title}" (v{output.version}) — {output.id}
@@ -28,6 +30,19 @@ export function StoryOutput({ output }: { output: StoryModelOutput }) {
 				<Block>
 					Note: This story was modified by the user since your last update. The content below reflects the
 					current version. Base any further changes on this content.
+				</Block>
+			)}
+			{templateWarnings.length > 0 && (
+				<Block>
+					<Span>
+						Story filter template warnings — fix the referenced SQL with execute_sql (prefer query_id)
+						and/or the story filter tags before considering this story complete:
+					</Span>
+					<List>
+						{templateWarnings.map((warning) => (
+							<ListItem key={warning}>{warning}</ListItem>
+						))}
+					</List>
 				</Block>
 			)}
 			<Block>{output.code}</Block>

@@ -1,0 +1,45 @@
+{{- if and (eq .Values.config.contextSource "local") .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "nao.fullname" . }}-context
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nao.labels" . | nindent 4 }}
+  {{- with .Values.persistence.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.accessMode }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+{{- end }}
+{{- if and (eq .Values.config.contextSource "api") .Values.projectsPersistence.enabled (not .Values.projectsPersistence.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "nao.fullname" . }}-projects
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nao.labels" . | nindent 4 }}
+  {{- with .Values.projectsPersistence.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    - {{ .Values.projectsPersistence.accessMode }}
+  {{- if .Values.projectsPersistence.storageClass }}
+  storageClassName: {{ .Values.projectsPersistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.projectsPersistence.size }}
+{{- end }}

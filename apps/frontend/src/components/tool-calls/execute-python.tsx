@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Streamdown } from 'streamdown';
 import { Code, Copy, Terminal } from 'lucide-react';
 import { ToolCallWrapper } from './tool-call-wrapper';
+import { ToolOutputFallback } from './tool-output-fallback';
 import type { ToolCallComponentProps } from '.';
 import { useToolCallContext } from '@/contexts/tool-call';
 
@@ -27,22 +28,25 @@ export const ExecutePythonToolCall = ({ toolPart: { output, input } }: ToolCallC
 	const actions = [
 		{
 			id: 'output',
-			label: <Terminal size={12} />,
+			label: <Terminal className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
 			isActive: viewMode === 'output',
 			onClick: () => setViewMode('output'),
+			title: 'View output',
 		},
 		{
 			id: 'code',
-			label: <Code size={12} />,
+			label: <Code className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
 			isActive: viewMode === 'code',
 			onClick: () => setViewMode('code'),
+			title: 'View code',
 		},
 		{
 			id: 'copy',
-			label: <Copy size={12} />,
+			label: <Copy className='size-3 text-muted-foreground/70' strokeWidth={2.25} />,
 			onClick: () => {
 				navigator.clipboard.writeText(input?.code ?? '');
 			},
+			title: 'Copy code',
 		},
 	];
 
@@ -78,7 +82,7 @@ export const ExecutePythonToolCall = ({ toolPart: { output, input } }: ToolCallC
 					</div>
 				</div>
 			) : (
-				<div className='p-4 text-center text-foreground/50 text-sm'>Executing Python...</div>
+				<ToolOutputFallback runningLabel='Executing Python...' />
 			)}
 		</ToolCallWrapper>
 	);

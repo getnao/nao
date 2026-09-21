@@ -1,3 +1,5 @@
+import './instrumentation';
+
 import formbody from '@fastify/formbody';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
@@ -12,38 +14,59 @@ import { fileURLToPath } from 'url';
 import { env, isCloud } from './env';
 import { AUTOMATION_JOB_NAME, automationHandler } from './handlers/automation.handler';
 import {
+	CONTEXT_BRANCH_CLEANUP_JOB_NAME,
+	contextBranchCleanupHandler,
+} from './handlers/context-branch-cleanup.handler';
+import {
 	CONTEXT_RECOMMENDATIONS_JOB_NAME,
 	contextRecommendationsHandler,
 	ensureContextRecommendationsSchedules,
 } from './handlers/context-recommendations.handler';
+import {
+	INVITATION_CLEANUP_JOB_NAME,
+	invitationCleanupHandler,
+	runInvitationCleanup,
+} from './handlers/invitation-cleanup.handler';
 import { LOG_CLEANUP_JOB_NAME, logCleanupHandler, runLogCleanup } from './handlers/log-cleanup.handler';
 import { MCP_QUERY_DATA_CLEANUP_JOB_NAME, mcpQueryDataCleanupHandler } from './handlers/mcp-query-data-cleanup.handler';
 import { STORY_REFRESH_JOB_NAME, storyRefreshHandler } from './handlers/story-refresh.handler';
+import { flushTelemetry } from './instrumentation';
 import { mcpServerRoutes } from './mcp/routes';
 import { ensureOrganizationSetup } from './queries/organization.queries';
 import { agentRoutes } from './routes/agent';
+import { analyticsRoutes } from './routes/analytics';
+import { attachmentRoutes } from './routes/attachment';
 import { authRoutes } from './routes/auth';
 import { authErrorRedirectRoutes } from './routes/auth-error-redirect';
+import { automationWebhookRoutes } from './routes/automation-webhook';
 import { brandingRoutes } from './routes/branding';
 import { chartRoutes } from './routes/chart';
 import { deployRoutes } from './routes/deploy';
 import { embedStoryDownloadRoutes } from './routes/embed-story-download';
 import { githubRoutes } from './routes/github';
+import { gitlabRoutes } from './routes/gitlab';
 import { imageRoutes } from './routes/image';
+import { mapBoundariesRoutes } from './routes/map-boundaries';
+import { mattermostRoutes } from './routes/mattermost';
+import { mcpOAuthRoutes } from './routes/mcp-oauth';
 import { slackRoutes } from './routes/slack';
+import { ssoRoutes } from './routes/sso';
 import { teamsRoutes } from './routes/teams';
 import { telegramRoutes } from './routes/telegram';
 import { testRoutes } from './routes/test';
 import { whatsappRoutes } from './routes/whatsapp';
 import { startLicenseHeartbeat } from './services/license.service';
 import { logLicenseStatus } from './services/license-startup';
+import { mattermostService } from './services/mattermost';
 import { pingLicensesServer } from './services/ping';
 import { posthog, PostHogEvent } from './services/posthog';
 import { ensureRecurring, registerJob, startScheduler } from './services/scheduler.service';
 import { slackService } from './services/slack';
+import { seedSlackConfigFromEnv } from './services/slack-env-seed';
 import { TrpcRouter, trpcRouter } from './trpc/router';
 import { createContext } from './trpc/trpc';
 import { BudgetExceededError, HandlerError } from './utils/error';
+import { closeBrowser } from './utils/headless-browser';
 import { logger } from './utils/logger';
 
 // Get the directory of the current module (works in both dev and compiled)
@@ -148,12 +171,24 @@ app.register(agentRoutes, {
 	prefix: '/api/agent',
 });
 
+app.register(attachmentRoutes, {
+	prefix: '/api/attachments',
+});
+
+app.register(analyticsRoutes, {
+	prefix: '/api/analytics',
+});
+
 app.register(testRoutes, {
 	prefix: '/api/test',
 });
 
 app.register(chartRoutes, {
 	prefix: '/c',
+});
+
+app.register(mapBoundariesRoutes, {
+	prefix: '/api/map-boundaries',
 });
 
 app.register(imageRoutes, {
@@ -176,6 +211,10 @@ app.register(authRoutes, {
 	prefix: '/api',
 });
 
+app.register(ssoRoutes, {
+	prefix: '/api',
+});
+
 app.register(slackRoutes, {
 	prefix: '/api/webhooks/slack',
 });
@@ -188,6 +227,10 @@ app.register(telegramRoutes, {
 	prefix: '/api/webhooks/telegram',
 });
 
+app.register(mattermostRoutes, {
+	prefix: '/api/webhooks/mattermost',
+});
+
 app.register(whatsappRoutes, {
 	prefix: '/api/webhooks/whatsapp',
 });
@@ -196,24 +239,43 @@ app.register(deployRoutes, {
 	prefix: '/api',
 });
 
+app.register(automationWebhookRoutes, {
+	prefix: '/api',
+});
+
 app.register(githubRoutes, {
 	prefix: '/api/github',
+});
+
+app.register(gitlabRoutes, {
+	prefix: '/api/gitlab',
+});
+
+app.register(mcpOAuthRoutes, {
+	prefix: '/api/mcp-oauth',
 });
 
 app.register(mcpServerRoutes, {
 	prefix: '/mcp',
 });
 
-app.get('/.well-known/oauth-protected-resource', async (_request, reply) => {
+async function sendProtectedResourceMetadata(request: { host: string }, reply: FastifyReply) {
 	const { buildProtectedResourceMetadata } = await import('./auth');
-	const { MCP_SERVER_URL } = await import('./env');
-	const metadata = await buildProtectedResourceMetadata({ resource: MCP_SERVER_URL });
+	const { resolveMcpFacingOrigin } = await import('./env');
+	const metadata = await buildProtectedResourceMetadata({
+		resource: `${resolveMcpFacingOrigin(request.host)}/mcp`,
+	});
 	reply
 		.status(200)
 		.header('Content-Type', 'application/json')
 		.header('Cache-Control', 'public, max-age=15, stale-while-revalidate=15, stale-if-error=86400')
 		.send(metadata);
-});
+}
+
+// RFC 9728 path-aware discovery for the bare and project-scoped MCP URLs, plus the root fallback.
+app.get('/.well-known/oauth-protected-resource', sendProtectedResourceMetadata);
+app.get('/.well-known/oauth-protected-resource/mcp', sendProtectedResourceMetadata);
+app.get('/.well-known/oauth-protected-resource/mcp/:projectId', sendProtectedResourceMetadata);
 
 async function relayWebResponse(
 	handler: (req: Request) => Promise<Response>,
@@ -289,16 +351,21 @@ if (staticRoot) {
 		prefix: '/',
 		wildcard: false,
 	});
-
-	// SPA fallback: serve index.html for all non-API routes
-	app.setNotFoundHandler((request, reply) => {
-		if (isReservedBackendPath(request.url)) {
-			reply.status(404).send({ error: 'Not found' });
-		} else {
-			reply.sendFile('index.html');
-		}
-	});
 }
+
+// SPA fallback: serve index.html for all non-API routes.
+// In dev mode without a built frontend, redirect to the Vite dev server.
+app.setNotFoundHandler((request, reply) => {
+	if (isReservedBackendPath(request.url)) {
+		reply.status(404).send({ error: 'Not found' });
+	} else if (staticRoot) {
+		reply.sendFile('index.html');
+	} else if (isDev) {
+		reply.redirect(`http://localhost:3000${request.url}`);
+	} else {
+		reply.status(404).send({ error: 'Not found' });
+	}
+});
 
 export const startServer = async (opts: { port: number; host: string }) => {
 	if (isCloud) {
@@ -311,9 +378,21 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	void runLogCleanup().catch((err) => {
 		logger.error(`Log cleanup failed: ${err instanceof Error ? err.message : String(err)}`, { source: 'system' });
 	});
+	void runInvitationCleanup().catch((err) => {
+		logger.error(`Invitation cleanup failed: ${err instanceof Error ? err.message : String(err)}`, {
+			source: 'system',
+		});
+	});
 
 	registerJob(LOG_CLEANUP_JOB_NAME, logCleanupHandler);
 	await ensureRecurring({ name: LOG_CLEANUP_JOB_NAME, cron: '0 3 * * *', uniqueKey: LOG_CLEANUP_JOB_NAME });
+
+	registerJob(INVITATION_CLEANUP_JOB_NAME, invitationCleanupHandler);
+	await ensureRecurring({
+		name: INVITATION_CLEANUP_JOB_NAME,
+		cron: '0 3 * * *',
+		uniqueKey: INVITATION_CLEANUP_JOB_NAME,
+	});
 
 	registerJob(AUTOMATION_JOB_NAME, automationHandler);
 	registerJob(STORY_REFRESH_JOB_NAME, storyRefreshHandler);
@@ -323,6 +402,13 @@ export const startServer = async (opts: { port: number; host: string }) => {
 		name: MCP_QUERY_DATA_CLEANUP_JOB_NAME,
 		cron: '0 4 * * *',
 		uniqueKey: MCP_QUERY_DATA_CLEANUP_JOB_NAME,
+	});
+
+	registerJob(CONTEXT_BRANCH_CLEANUP_JOB_NAME, contextBranchCleanupHandler);
+	await ensureRecurring({
+		name: CONTEXT_BRANCH_CLEANUP_JOB_NAME,
+		cron: '0 5 * * *',
+		uniqueKey: CONTEXT_BRANCH_CLEANUP_JOB_NAME,
 	});
 
 	if (env.BETA_CONTEXT_RECOMMENDATIONS_ENABLED) {
@@ -344,11 +430,14 @@ export const startServer = async (opts: { port: number; host: string }) => {
 	app.log.info(`Server is running on ${address}`);
 
 	void pingLicensesServer();
-	void slackService.startSocketModeForAllProjects();
+	void seedSlackConfigFromEnv().then(() => slackService.startSocketModeForAllProjects());
+	void mattermostService.startForAllProjects();
 
 	posthog.capture(undefined, PostHogEvent.ServerStarted, { ...opts, address });
 
 	const handleShutdown = async () => {
+		await closeBrowser();
+		await flushTelemetry();
 		await posthog.shutdown();
 		process.exit(0);
 	};

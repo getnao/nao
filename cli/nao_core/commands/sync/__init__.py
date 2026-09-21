@@ -2,7 +2,7 @@
 
 import sys
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from cyclopts import Parameter
 from rich.console import Console
@@ -13,6 +13,7 @@ from nao_core.tracking import track_command
 
 from .providers import (
     PROVIDER_CHOICES,
+    DatabaseSyncProvider,
     ProviderSelection,
     SyncResult,
     get_all_providers,
@@ -32,6 +33,23 @@ def sync(
             help=f"Provider(s) to sync. Use `-p provider:name` to sync a specific connection (e.g. databases:my-db). Or just `-p databases` to sync all connections. Options: {', '.join(PROVIDER_CHOICES)} (aliases: repo/repos/repository, db/dbs/database).",
         ),
     ] = None,
+    threads: Annotated[
+        int | None,
+        Parameter(
+            name=["-t", "--threads"],
+            help="Number of worker threads to use for sync. Overrides `threads` in nao_config.yaml.",
+        ),
+    ] = None,
+    select: Annotated[
+        list[str] | None,
+        Parameter(
+            name=["-s", "--select"],
+            help="Sync only the given schemas/tables without deleting the rest. "
+            "Use `schema` to select a whole schema or `schema.table` for one table "
+            "(glob wildcards allowed, e.g. `analytics.dim_*`). Applied on top of include/exclude. "
+            "Combine with `-p databases:my-db` to also skip connecting to your other databases.",
+        ),
+    ] = None,
     output_dirs: Annotated[dict[str, str] | None, Parameter(show=False)] = None,
     _providers: Annotated[list[ProviderSelection] | None, Parameter(show=False)] = None,
     render_templates: bool = True,
@@ -45,15 +63,31 @@ def sync(
     After syncing providers, renders any Jinja templates (*.j2 files) found in
     the project directory, making the `nao` context object available for
     accessing provider data.
+
+    Use `--select schema` or `--select schema.table` to refresh only part of a
+    database without deleting previously-synced tables outside the selection.
+    Pair it with `--provider databases:my-db` to scope the run to one connection:
+
+      nao sync -p databases:my-warehouse -s analytics.orders
     """
     console.print("\n[bold cyan]🔄 nao sync[/bold cyan]\n")
 
-    config = NaoConfig.try_load(resolve_project_path(), exit_on_error=True)
+    # Sync only reads the provider sections it runs (databases, repos, notion,
+    # confluence): an integration block that fails validation — typically an unset
+    # env('...') secret for llm or slack — is dropped with a warning instead of
+    # failing a run that never touches it.
+    config = NaoConfig.try_load(resolve_project_path(), exit_on_error=True, drop_invalid_optional_sections=True)
     assert config is not None  # Help type checker after exit_on_error=True
 
     project_path = Path.cwd()
 
     console.print(f"[dim]Project:[/dim] {config.project_name}")
+
+    resolved_threads = threads if threads is not None else config.threads or 1
+    if resolved_threads < 1:
+        console.print("[red]Error:[/red] threads must be greater than or equal to 1")
+        sys.exit(1)
+    console.print(f"[dim]Threads:[/dim] {resolved_threads}")
 
     # Resolve providers: CLI names > programmatic providers > all providers
     if provider:
@@ -66,6 +100,9 @@ def sync(
         active_providers = _providers
     else:
         active_providers = get_all_providers()
+
+    if select and not any(isinstance(s.provider, DatabaseSyncProvider) for s in active_providers):
+        console.print("[yellow]Warning:[/yellow] --select only applies to the databases provider; ignoring it here.")
 
     output_dirs = output_dirs or {}
 
@@ -95,7 +132,11 @@ def sync(
                     )
                     continue
 
-            result = sync_provider.sync(items, output_path, project_path=project_path)
+            sync_kwargs: dict[str, Any] = {"project_path": project_path, "threads": resolved_threads}
+            if isinstance(sync_provider, DatabaseSyncProvider):
+                sync_kwargs["select"] = select
+
+            result = sync_provider.sync(items, output_path, **sync_kwargs)
             results.append(result)
         except Exception as e:
             # Capture error but continue with other providers

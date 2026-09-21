@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mockEnv: Record<string, unknown> = {};
+const mockEnv = vi.hoisted(() => ({}) as Record<string, unknown>);
 
 vi.mock('../src/env', () => ({
 	get env() {
 		return mockEnv;
 	},
+}));
+
+vi.mock('../src/services/sso-group-mapping.service', () => ({
+	isOidcOrganizationRoleMappingActive: vi.fn().mockResolvedValue(false),
 }));
 
 function setOidcEnv(overrides: Record<string, string> = {}) {

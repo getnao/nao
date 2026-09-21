@@ -8,6 +8,7 @@ import { convertToTokenUsage, selectMessagesInBudget } from '../../utils/ai';
 import { debugCompaction } from '../../utils/debug';
 import { stripImageParts } from '../../utils/model-message';
 import { type ProviderModelResult } from '../providers';
+import { llmTelemetry } from '../telemetry';
 
 export const MAX_OUTPUT_TOKENS = 16_000;
 
@@ -28,8 +29,10 @@ export class CompactionLLM implements ICompactionLLM {
 
 		const { text, usage } = await generateText({
 			...this._model,
+			system: COMPACTION_SYSTEM_PROMPT,
 			messages: modelMessages,
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
+			experimental_telemetry: llmTelemetry('nao-compaction'),
 		});
 
 		return { summary: text, usage: convertToTokenUsage(usage) };
@@ -61,10 +64,6 @@ export class CompactionLLM implements ICompactionLLM {
 	}
 
 	private _composeMessages(selectedMessages: ModelMessage[]): ModelMessage[] {
-		return [
-			{ role: 'system', content: COMPACTION_SYSTEM_PROMPT },
-			...selectedMessages,
-			{ role: 'user', content: COMPACTION_USER_PROMPT },
-		];
+		return [...selectedMessages, { role: 'user', content: COMPACTION_USER_PROMPT }];
 	}
 }

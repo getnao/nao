@@ -1,54 +1,29 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 
-import { listUserProjects } from '../queries/project.queries';
+import { getCustomBoundaries } from '../queries/project.queries';
+import { hasUserGroupFeature } from '../services/user-group-feature-access.service';
 import type { McpEndpointSettings } from '../types/mcp-endpoint';
+import { CHART_DATA_MODE_SERVER_INSTRUCTIONS } from './chart-data-mode';
 import { registerNaoMcpApps } from './embed/ui-resources';
 import { registerAssetTools } from './tools/asset-tools';
 import { registerContextLayerTools } from './tools/context-layer';
 import { registerSubAgentTools } from './tools/sub-agent';
 
-export interface McpSession {
-	transport: StreamableHTTPServerTransport;
-	server: McpServer;
-	userId: string;
-	projectId: string;
-	lastAccess: number;
-}
-
-export const sessions = new Map<string, McpSession>();
-
-const SESSION_TTL_MS = 30 * 60 * 1000;
-
-setInterval(
-	() => {
-		const now = Date.now();
-		for (const [id, session] of sessions) {
-			if (now - session.lastAccess > SESSION_TTL_MS) {
-				session.server.close().catch(() => {});
-				sessions.delete(id);
-			}
-		}
-	},
-	5 * 60 * 1000,
-).unref();
-
-export async function resolveProjectId(userId: string): Promise<string> {
-	const projects = await listUserProjects(userId);
-	if (projects.length === 0) {
-		throw new Error('No projects found for this user. Create or join a project first.');
-	}
-	if (projects.length === 1) {
-		return projects[0].id;
-	}
-
-	const listing = projects.map((p) => `  - ${p.name} (${p.id})`).join('\n');
-	throw new Error(`MCP only supports single-project workspaces. Multiple projects found for this user:\n${listing}`);
-}
-
-export function createMcpServer(userId: string, projectId: string, settings: McpEndpointSettings): McpServer {
-	const server = new McpServer({ name: 'nao', version: '0.1.0' }, { capabilities: { tools: {}, resources: {} } });
-	const ctx = { userId, projectId, settings };
+export async function createMcpServer(
+	userId: string,
+	projectId: string,
+	settings: McpEndpointSettings,
+	chartDataMode = false,
+): Promise<McpServer> {
+	const server = new McpServer(
+		{ name: 'nao', version: '0.1.0' },
+		{
+			capabilities: { tools: {}, resources: {} },
+			instructions: chartDataMode ? DATA_MODE_SERVER_INSTRUCTIONS : BASE_SERVER_INSTRUCTIONS,
+		},
+	);
+	const storyCreationEnabled = await hasUserGroupFeature(projectId, userId, 'storyCreation');
+	const ctx = { userId, projectId, settings, chartDataMode, storyCreationEnabled };
 
 	if (settings.subAgentModeEnabled) {
 		registerSubAgentTools(server, ctx);
@@ -58,7 +33,8 @@ export function createMcpServer(userId: string, projectId: string, settings: Mcp
 	}
 
 	if (settings.subAgentModeEnabled || settings.contextLayerModeEnabled) {
-		registerAssetTools(server, ctx);
+		const customBoundaries = await getCustomBoundaries(projectId);
+		registerAssetTools(server, ctx, customBoundaries);
 	}
 
 	registerNaoMcpApps(server);
@@ -66,18 +42,8 @@ export function createMcpServer(userId: string, projectId: string, settings: Mcp
 	return server;
 }
 
-export async function closeProjectSessions(projectId: string): Promise<void> {
-	const targets: McpSession[] = [];
-	for (const [id, session] of sessions) {
-		if (session.projectId === projectId) {
-			targets.push(session);
-			sessions.delete(id);
-		}
-	}
-	await Promise.all(
-		targets.map(async (session) => {
-			await session.transport.close().catch(() => {});
-			await session.server.close().catch(() => {});
-		}),
-	);
-}
+const BASE_SERVER_INSTRUCTIONS =
+	'nao answers analytics questions backed by SQL queries on the connected data sources. ' +
+	'Default to `ask_nao` for analytics questions; prefer showing results as charts over text tables when the data suits it.';
+
+const DATA_MODE_SERVER_INSTRUCTIONS = BASE_SERVER_INSTRUCTIONS + CHART_DATA_MODE_SERVER_INSTRUCTIONS;

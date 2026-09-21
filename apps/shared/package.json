@@ -4,13 +4,21 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
+		"./attachments": "./src/attachments.ts",
+		"./context-recommendation": "./src/context-recommendation.ts",
 		"./date": "./src/date.ts",
 		"./types": "./src/types.ts",
 		"./posthog": "./src/posthog.ts",
 		"./tools": "./src/tools/index.ts",
+		"./conditional-formatting": "./src/conditional-formatting.ts",
 		"./story-segments": "./src/story-segments.ts",
 		"./story-table-utils": "./src/story-table-utils.ts",
-		"./story-validation": "./src/story-validation.ts"
+		"./story-tabs": "./src/story-tabs.ts",
+		"./story-validation": "./src/story-validation.ts",
+		"./rules-template": "./src/rules-template.ts",
+		"./sql-template": "./src/sql-template.ts",
+		"./execute-sql-parts": "./src/execute-sql-parts.ts",
+		"./user-group-license": "./src/user-group-license.ts"
 	},
 	"scripts": {
 		"test": "vitest run",
@@ -19,9 +27,11 @@
 		"format": "prettier --write ."
 	},
 	"dependencies": {
+		"d3-format": "^3.1.0",
 		"zod": "^4.2.1"
 	},
 	"devDependencies": {
+		"@types/d3-format": "^3.0.4",
 		"vitest": "^4.0.18"
 	}
 }

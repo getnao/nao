@@ -1,12 +1,15 @@
 """Unit tests for the repository sync provider."""
 
+from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from rich.console import Console
 
 from nao_core.commands.sync.providers.repositories.provider import (
     RepositorySyncProvider,
+    _filter_repo_files,
     _matches_patterns,
     clone_or_pull_repo,
     sync_local_repo,
@@ -14,6 +17,16 @@ from nao_core.commands.sync.providers.repositories.provider import (
 )
 from nao_core.config.base import NaoConfig
 from nao_core.config.repos import RepoConfig
+
+
+def _supports_symlinks(tmp_path: Path) -> bool:
+    probe = tmp_path / ".symlink_probe"
+    try:
+        probe.symlink_to(tmp_path)
+    except (OSError, NotImplementedError):
+        return False
+    probe.unlink()
+    return True
 
 
 class TestRepoConfig:
@@ -104,7 +117,7 @@ class TestRepositorySyncProvider:
 
     @patch("nao_core.commands.sync.providers.repositories.provider.sync_repo")
     @patch("nao_core.commands.sync.providers.repositories.provider.console")
-    def test_sync_counts_successful_repos(self, mock_console, mock_sync, tmp_path: Path):
+    def test_sync_counts_successful_repos_and_reports_failures(self, mock_console, mock_sync, tmp_path: Path):
         provider = RepositorySyncProvider()
         repos = [
             RepoConfig(name="repo1", url="https://github.com/test/repo1"),
@@ -116,6 +129,36 @@ class TestRepositorySyncProvider:
         result = provider.sync(repos, tmp_path)
 
         assert result.items_synced == 2
+        assert result.error == "Failed to sync 1 repository: repo2"
+
+    @patch("nao_core.commands.sync.providers.repositories.provider.sync_repo", return_value=False)
+    def test_sync_escapes_repository_name_markup(self, mock_sync, tmp_path: Path):
+        provider = RepositorySyncProvider()
+        output = StringIO()
+        console = Console(file=output, force_terminal=False)
+        repo = RepoConfig(name="my[b]db", url="https://github.com/test/repo")
+
+        with patch("nao_core.commands.sync.providers.repositories.provider.console", console):
+            result = provider.sync([repo], tmp_path)
+            console.print(result.error)
+
+        assert "my[b]db" in output.getvalue()
+        mock_sync.assert_called_once()
+
+    @patch("nao_core.commands.sync.providers.repositories.provider.sync_repo", return_value=True)
+    @patch("nao_core.commands.sync.providers.repositories.provider.console")
+    def test_sync_runs_repos_with_threads(self, mock_console, mock_sync, tmp_path: Path):
+        provider = RepositorySyncProvider()
+        repos = [
+            RepoConfig(name="repo1", url="https://github.com/test/repo1"),
+            RepoConfig(name="repo2", url="https://github.com/test/repo2"),
+            RepoConfig(name="repo3", url="https://github.com/test/repo3"),
+        ]
+
+        result = provider.sync(repos, tmp_path, threads=2)
+
+        assert result.items_synced == 3
+        assert mock_sync.call_count == 3
 
     def test_should_sync_returns_true_when_repos_exist(self):
         provider = RepositorySyncProvider()
@@ -231,6 +274,81 @@ class TestCloneOrPullRepo:
 
     @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
     @patch("nao_core.commands.sync.providers.repositories.provider.console")
+    def test_respects_include_patterns(self, mock_console, mock_run, tmp_path: Path):
+        """include globs must be applied to url repos, not only local_path repos."""
+        repo = RepoConfig(
+            name="filtered-repo",
+            url="https://github.com/test/filtered-repo",
+            include=["models/*.sql"],
+        )
+
+        def fake_clone(*args, **kwargs):
+            cloned = tmp_path / "filtered-repo.tmp"
+            (cloned / "models").mkdir(parents=True, exist_ok=True)
+            (cloned / "models" / "dim.sql").write_text("SELECT 1")
+            (cloned / "models" / "schema.yml").write_text("version: 2")
+            (cloned / "readme.md").write_text("docs")
+            return MagicMock(returncode=0)
+
+        mock_run.side_effect = fake_clone
+
+        result = clone_or_pull_repo(repo, tmp_path)
+
+        assert result is True
+        assert (tmp_path / "filtered-repo" / "models" / "dim.sql").exists()
+        assert not (tmp_path / "filtered-repo" / "models" / "schema.yml").exists()
+        assert not (tmp_path / "filtered-repo" / "readme.md").exists()
+
+    @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
+    @patch("nao_core.commands.sync.providers.repositories.provider.console")
+    def test_respects_exclude_patterns(self, mock_console, mock_run, tmp_path: Path):
+        """exclude globs must be applied to url repos, pruning emptied directories."""
+        repo = RepoConfig(
+            name="excluded-repo",
+            url="https://github.com/test/excluded-repo",
+            exclude=["**/*.pyc", "cache/**"],
+        )
+
+        def fake_clone(*args, **kwargs):
+            cloned = tmp_path / "excluded-repo.tmp"
+            cloned.mkdir(exist_ok=True)
+            (cloned / "model.sql").write_text("SELECT 1")
+            (cloned / "build.pyc").write_text("bytecode")
+            (cloned / "cache").mkdir()
+            (cloned / "cache" / "data.bin").write_text("junk")
+            return MagicMock(returncode=0)
+
+        mock_run.side_effect = fake_clone
+
+        result = clone_or_pull_repo(repo, tmp_path)
+
+        assert result is True
+        assert (tmp_path / "excluded-repo" / "model.sql").exists()
+        assert not (tmp_path / "excluded-repo" / "build.pyc").exists()
+        assert not (tmp_path / "excluded-repo" / "cache").exists()
+
+    @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
+    @patch("nao_core.commands.sync.providers.repositories.provider.console")
+    def test_no_filters_keeps_all_files(self, mock_console, mock_run, tmp_path: Path):
+        repo = RepoConfig(name="full-repo", url="https://github.com/test/full-repo")
+
+        def fake_clone(*args, **kwargs):
+            cloned = tmp_path / "full-repo.tmp"
+            cloned.mkdir(exist_ok=True)
+            (cloned / "a.sql").write_text("SELECT 1")
+            (cloned / "b.md").write_text("docs")
+            return MagicMock(returncode=0)
+
+        mock_run.side_effect = fake_clone
+
+        result = clone_or_pull_repo(repo, tmp_path)
+
+        assert result is True
+        assert (tmp_path / "full-repo" / "a.sql").exists()
+        assert (tmp_path / "full-repo" / "b.md").exists()
+
+    @patch("nao_core.commands.sync.providers.repositories.provider.subprocess.run")
+    @patch("nao_core.commands.sync.providers.repositories.provider.console")
     def test_rejects_path_traversal_repo_name(self, mock_console, mock_run, tmp_path: Path):
         """Security: repo.name like '../evil' must be rejected before any git call."""
         repo = RepoConfig(name="../evil", url="https://github.com/test/evil")
@@ -297,6 +415,46 @@ class TestMatchesPatterns:
         assert _matches_patterns("docs/guide.md", ["docs/**"], []) is True
         assert _matches_patterns("docs/api/ref.md", ["docs/**"], []) is True
         assert _matches_patterns("src/main.py", ["docs/**"], []) is False
+
+
+class TestFilterRepoFilesSymlinks:
+    def test_removes_excluded_symlink(self, tmp_path: Path):
+        if not _supports_symlinks(tmp_path):
+            pytest.skip("platform does not support symlinks")
+
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        (repo_dir / "keep.sql").write_text("SELECT 1")
+        target = tmp_path / "outside.env"
+        target.write_text("SECRET")
+        (repo_dir / "secret.env").symlink_to(target)
+
+        _filter_repo_files(repo_dir, include=[], exclude=["*.env"])
+
+        assert (repo_dir / "keep.sql").exists()
+        assert not (repo_dir / "secret.env").is_symlink()
+        assert not (repo_dir / "secret.env").exists()
+        assert target.exists()
+
+    def test_prune_does_not_crash_on_surviving_directory_symlink(self, tmp_path: Path):
+        """A directory symlink that passes the filters must not make prune raise NotADirectoryError."""
+        if not _supports_symlinks(tmp_path):
+            pytest.skip("platform does not support symlinks")
+
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        (repo_dir / "cache.pyc").write_text("bytecode")
+        real_dir = tmp_path / "real"
+        real_dir.mkdir()
+        (real_dir / "inner.txt").write_text("data")
+        (repo_dir / "linked").symlink_to(real_dir)
+
+        _filter_repo_files(repo_dir, include=[], exclude=["*.pyc"])
+
+        assert not (repo_dir / "cache.pyc").exists()
+        assert (repo_dir / "linked").is_symlink()
+        assert real_dir.exists()
+        assert (real_dir / "inner.txt").exists()
 
 
 class TestSyncLocalRepo:
@@ -369,6 +527,42 @@ class TestSyncLocalRepo:
         assert result is True
         assert (output / "local-repo" / "new.txt").exists()
         assert not (output / "local-repo" / "old.txt").exists()
+
+    def test_strips_git_dir_without_filters(self, tmp_path: Path):
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "file1.txt").write_text("hello")
+        git_dir = source / ".git"
+        git_dir.mkdir()
+        (git_dir / "HEAD").write_text("ref: refs/heads/main")
+
+        output = tmp_path / "output"
+        output.mkdir()
+
+        repo = RepoConfig(name="local-repo", local_path=str(source))
+        result = sync_local_repo(repo, output)
+
+        assert result is True
+        assert (output / "local-repo" / "file1.txt").read_text() == "hello"
+        assert not (output / "local-repo" / ".git").exists()
+
+    def test_strips_git_dir_with_filters(self, tmp_path: Path):
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "model.sql").write_text("SELECT 1")
+        git_dir = source / ".git"
+        git_dir.mkdir()
+        (git_dir / "HEAD").write_text("ref: refs/heads/main")
+
+        output = tmp_path / "output"
+        output.mkdir()
+
+        repo = RepoConfig(name="filtered", local_path=str(source), exclude=["*.pyc"])
+        result = sync_local_repo(repo, output)
+
+        assert result is True
+        assert (output / "filtered" / "model.sql").exists()
+        assert not (output / "filtered" / ".git").exists()
 
     def test_returns_false_for_missing_path(self, tmp_path: Path):
         output = tmp_path / "output"

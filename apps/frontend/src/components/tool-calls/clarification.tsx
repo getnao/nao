@@ -4,7 +4,7 @@ import { Button } from '../ui/button';
 import { Skeleton } from '../ui/skeleton';
 import type { ToolCallComponentProps } from '.';
 import type { UIMessage } from '@nao/backend/chat';
-import { useAgentContext } from '@/contexts/agent.provider';
+import { useAgentContext, useAgentMessages } from '@/contexts/agent.provider';
 import { useToolCallContext } from '@/contexts/tool-call';
 import { getMessageText } from '@/lib/ai';
 import { cn } from '@/lib/utils';
@@ -13,7 +13,8 @@ type AnsweredState = { isAnswered: true; answer: string } | { isAnswered: false;
 
 export const ClarificationToolCall = memo(({ toolPart }: ToolCallComponentProps<'clarification'>) => {
 	const { isSettled } = useToolCallContext();
-	const { messages, queueOrSendMessage, isRunning } = useAgentContext();
+	const { queueOrSendMessage, isRunning } = useAgentContext();
+	const messages = useAgentMessages();
 
 	const answeredState = useMemo<AnsweredState>(
 		() => getAnsweredStateForToolCall(messages, toolPart.toolCallId),
@@ -53,7 +54,7 @@ export const ClarificationToolCall = memo(({ toolPart }: ToolCallComponentProps<
 	return (
 		<div
 			className={cn(
-				'flex flex-col gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3 animate-fade-in-up',
+				'flex flex-col gap-3 rounded-xl border border-border bg-muted/30 -mx-3 px-4 py-3 animate-fade-in-up',
 				isAnswered && 'bg-muted/10',
 			)}
 		>
@@ -124,7 +125,7 @@ function getAnsweredStateForToolCall(messages: UIMessage[], toolCallId: string):
 }
 
 const ClarificationSkeleton = () => (
-	<div className='flex flex-col gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3 animate-fade-in-up'>
+	<div className='flex flex-col gap-3 rounded-xl border border-border bg-muted/30 -mx-3 px-4 py-3 animate-fade-in-up'>
 		<div className='flex items-start gap-2'>
 			<HelpCircle size={16} className='mt-0.5 shrink-0 text-muted-foreground opacity-50' />
 			<div className='flex flex-col gap-1.5 w-full'>

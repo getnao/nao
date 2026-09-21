@@ -1,14 +1,13 @@
-import { splitCodeIntoSegments } from '@nao/shared/story-segments';
 import { Download, Loader2 } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { McpAppHeader } from './mcp-app-header';
 import { OpenInNaoButton } from './open-in-nao-button';
-import type { ParsedChartBlock, ParsedTableBlock } from '@nao/shared/story-segments';
+import type { ParsedChartBlock, ParsedMapBlock, ParsedTableBlock } from '@nao/shared/story-segments';
 import type { DownloadFormat } from '@nao/shared/types';
 
 import type { QueryDataMap } from '@/components/story-embeds';
-import { StoryChartEmbed, StoryTableEmbed } from '@/components/story-embeds';
-import { SegmentList } from '@/components/story-rendering';
+import { StoryChartEmbed, StoryMapEmbed, StoryTableEmbed } from '@/components/story-embeds';
+import { StoryTabbedContent } from '@/components/story-tabbed-content';
 import { Button } from '@/components/ui/button';
 import {
 	DropdownMenu,
@@ -38,24 +37,76 @@ export function StoryAppView({ title, code, queryData, naoUrl, onDownload }: Sto
 }
 
 function StoryBody({ code, queryData }: { code: string; queryData: QueryDataMap | null }) {
-	const segments = useMemo(() => splitCodeIntoSegments(code), [code]);
-
 	const renderChart = useCallback(
-		(chart: ParsedChartBlock) => <StoryChartEmbed chart={chart} queryData={queryData} />,
-		[queryData],
+		(
+			chart: ParsedChartBlock,
+			{
+				queryData: data,
+				hasActiveFilters,
+				isRefreshing,
+			}: {
+				queryData: QueryDataMap | null;
+				hasActiveFilters: boolean;
+				isRefreshing: boolean;
+			},
+		) => (
+			<StoryChartEmbed
+				chart={chart}
+				queryData={data}
+				hasActiveFilters={hasActiveFilters}
+				isRefreshing={isRefreshing}
+			/>
+		),
+		[],
 	);
 
 	const renderTable = useCallback(
-		(table: ParsedTableBlock) => <StoryTableEmbed table={table} queryData={queryData} />,
-		[queryData],
+		(
+			table: ParsedTableBlock,
+			{
+				queryData: data,
+				hasActiveFilters,
+				isRefreshing,
+			}: { queryData: QueryDataMap | null; hasActiveFilters: boolean; isRefreshing: boolean },
+		) => (
+			<StoryTableEmbed
+				table={table}
+				queryData={data}
+				hasActiveFilters={hasActiveFilters}
+				isRefreshing={isRefreshing}
+			/>
+		),
+		[],
+	);
+
+	const renderMap = useCallback(
+		(
+			map: ParsedMapBlock,
+			{
+				queryData: data,
+				hasActiveFilters,
+				isRefreshing,
+			}: { queryData: QueryDataMap | null; hasActiveFilters: boolean; isRefreshing: boolean },
+		) => (
+			<StoryMapEmbed
+				map={map}
+				queryData={data}
+				hasActiveFilters={hasActiveFilters}
+				isRefreshing={isRefreshing}
+				allowExpand
+			/>
+		),
+		[],
 	);
 
 	return (
-		<div className='min-h-0 flex-1 overflow-auto'>
-			<div className='mx-auto flex w-full min-w-0 max-w-5xl flex-col gap-4 p-4 md:p-8'>
-				<SegmentList segments={segments} renderChart={renderChart} renderTable={renderTable} />
-			</div>
-		</div>
+		<StoryTabbedContent
+			code={code}
+			baselineQueryData={queryData}
+			renderChart={renderChart}
+			renderTable={renderTable}
+			renderMap={renderMap}
+		/>
 	);
 }
 

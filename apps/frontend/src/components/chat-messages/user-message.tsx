@@ -1,5 +1,5 @@
 import { memo, useMemo, useRef, useState } from 'react';
-import { Pencil, Check, Copy, Table } from 'lucide-react';
+import { Pencil, Check, Copy, Table, RotateCcw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Message } from 'prompt-mentions';
 import { useQuery } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
@@ -12,14 +12,18 @@ import { useIsEditingMessage } from '@/hooks/use-is-editing-message-store';
 import { useClickOutside } from '@/hooks/use-click-outside';
 import { ChatInputInline } from '@/components/chat-input';
 import { ChatMessagesCitationChip } from '@/components/chat-messages/chat-messages-citation-chip';
+import { FileChip } from '@/components/file-chip';
 import { ImageLightbox } from '@/components/image-lightbox';
-import { getMessageText, getMessageImages } from '@/lib/ai';
+import { getMessageText, getMessageImages, getMessageDocuments } from '@/lib/ai';
 import { parseChatMessageCitation } from '@/lib/chat-messages-citation-parser';
 import { Button } from '@/components/ui/button';
+import { SimpleTooltip } from '@/components/ui/tooltip';
+import { useTimeAgo } from '@/hooks/use-time-ago';
 import { editedMessageIdStore } from '@/stores/chat-edited-message';
 import { trpc } from '@/main';
 import { STORY_MENTION_ID } from '@/components/chat-input-prompt';
 import StoryIcon from '@/components/ui/story-icon';
+import MattermostIcon from '@/components/icons/mattermost.svg';
 import SlackIcon from '@/components/icons/slack.svg';
 import TeamsIcon from '@/components/icons/microsoft-teams.svg';
 import McpIcon from '@/components/icons/model-context-protocol.svg';
@@ -37,10 +41,10 @@ const messageTheme: PromptTheme = {
 	padding: '0',
 	minHeight: 'auto',
 	pill: {
-		backgroundColor: 'var(--accent)',
-		color: 'var(--accent-foreground)',
-		padding: 'calc(var(--spacing) * 0.4) calc(var(--spacing) * 1.2)',
-		borderRadius: 'var(--radius-sm)',
+		backgroundColor: 'var(--background)',
+		color: 'var(--foreground)',
+		padding: 'calc(var(--spacing) * 1) calc(var(--spacing) * 2.5)',
+		borderRadius: '9999px',
 	},
 };
 
@@ -50,6 +54,7 @@ const MESSAGE_SOURCES = {
 	slack: { icon: <SlackIcon className='size-3.5' />, label: 'sent in Slack' },
 	teams: { icon: <TeamsIcon className='size-4' />, label: 'sent in Teams' },
 	telegram: { icon: <TelegramIcon className='size-4' />, label: 'sent in Telegram' },
+	mattermost: { icon: <MattermostIcon className='size-4' />, label: 'sent in Mattermost' },
 	whatsapp: { icon: <WhatsAppIcon className='size-4' />, label: 'sent in WhatsApp' },
 	mcp: { icon: <McpIcon className='size-4' />, label: 'sent via MCP' },
 } as const;
@@ -85,7 +90,7 @@ function useMentionConfigs(): MessageMentionConfig[] {
 		}));
 
 		const storyOptions: MentionOption[] = [
-			{ id: STORY_MENTION_ID, label: 'Story mode', icon: <StoryIcon className='size-4' /> },
+			{ id: STORY_MENTION_ID, label: 'Story mode', icon: <StoryIcon className='size-4' strokeWidth={2.25} /> },
 		];
 
 		return [
@@ -99,6 +104,7 @@ function useMentionConfigs(): MessageMentionConfig[] {
 export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
 	const rawText = useMemo(() => getMessageText(message), [message]);
 	const images = useMemo(() => getMessageImages(message), [message]);
+	const documents = useMemo(() => getMessageDocuments(message), [message]);
 	const mentionConfigs = useMentionConfigs();
 	const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
@@ -131,6 +137,13 @@ export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
 					))}
 				</div>
 			)}
+			{documents.length > 0 && (
+				<div className='flex gap-1.5 flex-wrap mb-2 justify-end'>
+					{documents.map((document) => (
+						<FileChip key={document.path} path={document.path} label={document.filename} />
+					))}
+				</div>
+			)}
 			{displayText && (
 				<Message
 					value={displayText}
@@ -146,7 +159,7 @@ export const UserMessageBubble = memo(({ message }: { message: UIMessage }) => {
 });
 
 export const UserMessage = memo(({ message }: { message: UIMessage }) => {
-	const { isRunning, editMessage } = useAgentContext();
+	const { isRunning, editMessage, resendMessage, switchMessageVersion } = useAgentContext();
 	const { isCopied, copy } = useCopyToClipboard();
 	const isEditing = useIsEditingMessage(message.id);
 	const editContainerRef = useRef<HTMLDivElement>(null);
@@ -168,9 +181,9 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 					initialText={text}
 					className='p-0 **:data-[slot=input-group]:shadow-none!'
 					onCancel={() => editedMessageIdStore.setEditingId(undefined)}
-					onSubmitMessage={async ({ text: nextText }) => {
+					onSubmitMessage={async ({ text: nextText, images, documents }) => {
 						editedMessageIdStore.setEditingId(undefined);
-						await editMessage({ messageId: message.id, text: nextText });
+						await editMessage({ messageId: message.id, text: nextText, images, documents });
 					}}
 				/>
 			</div>
@@ -181,25 +194,109 @@ export const UserMessage = memo(({ message }: { message: UIMessage }) => {
 		<div className='group flex flex-col gap-2 items-end w-full'>
 			<UserMessageBubble message={message} />
 
-			<div className='flex items-center gap-2'>
+			<div className='flex items-center gap-1'>
 				<div
 					className={cn(
 						'flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200',
 						isRunning && 'group-last:opacity-0 invisible',
 					)}
 				>
-					<Button
-						variant='ghost-muted'
-						size='icon-sm'
-						onClick={() => editedMessageIdStore.setEditingId(message.id)}
-					>
-						<Pencil />
-					</Button>
-					<Button variant='ghost-muted' size='icon-sm' onClick={() => copy(getMessageText(message))}>
-						{isCopied ? <Check className='size-4' /> : <Copy />}
-					</Button>
+					{message.createdAt && <MessageTimestamp createdAt={message.createdAt} />}
+					<SimpleTooltip content='Resend'>
+						<Button
+							variant='ghost-muted'
+							size='icon-sm'
+							className='hover:rounded-full'
+							aria-label='Resend'
+							disabled={isRunning}
+							onClick={() => resendMessage({ messageId: message.id })}
+						>
+							<RotateCcw />
+						</Button>
+					</SimpleTooltip>
+					<SimpleTooltip content='Edit'>
+						<Button
+							variant='ghost-muted'
+							size='icon-sm'
+							className='hover:rounded-full'
+							aria-label='Edit'
+							onClick={() => editedMessageIdStore.setEditingId(message.id)}
+						>
+							<Pencil />
+						</Button>
+					</SimpleTooltip>
+					<SimpleTooltip content='Copy'>
+						<Button
+							variant='ghost-muted'
+							size='icon-sm'
+							className='hover:rounded-full'
+							aria-label='Copy'
+							onClick={() => copy(getMessageText(message))}
+						>
+							{isCopied ? <Check className='size-4' /> : <Copy />}
+						</Button>
+					</SimpleTooltip>
 				</div>
+
+				{message.versionInfo && message.versionInfo.totalVersions > 1 && (
+					<MessageVersionNav
+						versionInfo={message.versionInfo}
+						disabled={isRunning}
+						onSwitch={(messageId) => switchMessageVersion({ messageId })}
+					/>
+				)}
 			</div>
 		</div>
 	);
 });
+
+function MessageTimestamp({ createdAt }: { createdAt: number }) {
+	const { humanReadable } = useTimeAgo(createdAt);
+	return (
+		<SimpleTooltip content={new Date(createdAt).toLocaleString()}>
+			<span className='px-1 text-xs text-muted-foreground cursor-default select-none'>{humanReadable}</span>
+		</SimpleTooltip>
+	);
+}
+
+function MessageVersionNav({
+	versionInfo,
+	disabled,
+	onSwitch,
+}: {
+	versionInfo: NonNullable<UIMessage['versionInfo']>;
+	disabled: boolean;
+	onSwitch: (messageId: string) => void;
+}) {
+	const { currentVersion, totalVersions, versionIds } = versionInfo;
+	const goToPrevious = () => onSwitch(versionIds[currentVersion - 2]);
+	const goToNext = () => onSwitch(versionIds[currentVersion]);
+
+	return (
+		<div className='flex items-center text-xs text-muted-foreground'>
+			<Button
+				variant='ghost-muted'
+				size='icon-sm'
+				className='hover:rounded-full size-6'
+				aria-label='Previous version'
+				disabled={disabled || currentVersion <= 1}
+				onClick={goToPrevious}
+			>
+				<ChevronLeft />
+			</Button>
+			<span className='tabular-nums select-none'>
+				{currentVersion}/{totalVersions}
+			</span>
+			<Button
+				variant='ghost-muted'
+				size='icon-sm'
+				className='hover:rounded-full size-6'
+				aria-label='Next version'
+				disabled={disabled || currentVersion >= totalVersions}
+				onClick={goToNext}
+			>
+				<ChevronRight />
+			</Button>
+		</div>
+	);
+}

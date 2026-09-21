@@ -5,7 +5,7 @@ import { TRPCError } from '@trpc/server';
 import { env } from '../env';
 import { getLicense, hasFeature, LICENSE_FEATURES, type LicenseFeature } from '../services/license.service';
 import type { LicenseStatus } from '../types/license';
-import { adminProtectedProcedure, protectedProcedure } from './trpc';
+import { nonViewerProtectedProcedure, protectedProcedure } from './trpc';
 
 export const licenseRoutes = {
 	getStatus: protectedProcedure.query(async () => {
@@ -21,7 +21,7 @@ export const licenseRoutes = {
 		return { status, tokenProvided };
 	}),
 
-	getDetails: adminProtectedProcedure.query(async () => {
+	getDetails: nonViewerProtectedProcedure.query(async () => {
 		const license = await getLicense();
 		if (!license) {
 			throw new TRPCError({ code: 'NOT_FOUND', message: 'No license configured.' });

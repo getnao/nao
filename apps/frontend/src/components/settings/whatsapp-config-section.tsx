@@ -11,9 +11,10 @@ import { trpc } from '@/main';
 
 interface WhatsappConfigSectionProps {
 	isAdmin: boolean;
+	onCancelSetup: () => void;
 }
 
-export function WhatsappConfigSection({ isAdmin }: WhatsappConfigSectionProps) {
+export function WhatsappConfigSection({ isAdmin, onCancelSetup }: WhatsappConfigSectionProps) {
 	const queryClient = useQueryClient();
 	const whatsappConfig = useQuery(trpc.project.getWhatsappConfig.queryOptions());
 	const { data: availableModels } = useQuery(trpc.project.listAvailableTranscribeModels.queryOptions());
@@ -58,6 +59,14 @@ export function WhatsappConfigSection({ isAdmin }: WhatsappConfigSectionProps) {
 	const handleDelete = async () => {
 		await deleteWhatsappConfig.mutateAsync();
 		queryClient.removeQueries(trpc.project.getWhatsappConfig.queryOptions());
+	};
+
+	const handleCancel = () => {
+		if (projectConfig) {
+			setIsEditing(false);
+			return;
+		}
+		onCancelSetup();
 	};
 
 	const handleStartEditing = () => {
@@ -109,7 +118,7 @@ export function WhatsappConfigSection({ isAdmin }: WhatsappConfigSectionProps) {
 			<WhatsappForm
 				hasProjectConfig={!!projectConfig}
 				onSubmit={handleSubmit}
-				onCancel={() => setIsEditing(false)}
+				onCancel={handleCancel}
 				isPending={upsertWhatsappConfig.isPending}
 			/>
 		);
@@ -174,7 +183,11 @@ export function WhatsappConfigSection({ isAdmin }: WhatsappConfigSectionProps) {
 								<SelectValue>
 									{selectedModel && (
 										<div className='flex items-center gap-2'>
-											<LlmProviderIcon provider={selectedModel.provider} className='size-4' />
+											<LlmProviderIcon
+												provider={selectedModel.provider}
+												baseUrl={selectedModel.baseUrl}
+												className='size-4'
+											/>
 											{selectedModel.name}
 										</div>
 									)}
@@ -186,7 +199,11 @@ export function WhatsappConfigSection({ isAdmin }: WhatsappConfigSectionProps) {
 										key={`${model.provider}-${model.modelId}`}
 										value={`${model.provider}:${model.modelId}`}
 									>
-										<LlmProviderIcon provider={model.provider} className='size-4' />
+										<LlmProviderIcon
+											provider={model.provider}
+											baseUrl={model.baseUrl}
+											className='size-4'
+										/>
 										{model.name}
 									</SelectItem>
 								))}
@@ -195,7 +212,11 @@ export function WhatsappConfigSection({ isAdmin }: WhatsappConfigSectionProps) {
 					) : (
 						selectedModel && (
 							<div className='flex items-center gap-2 text-sm text-muted-foreground'>
-								<LlmProviderIcon provider={selectedModel.provider} className='size-4' />
+								<LlmProviderIcon
+									provider={selectedModel.provider}
+									baseUrl={selectedModel.baseUrl}
+									className='size-4'
+								/>
 								<span>{selectedModel.name}</span>
 							</div>
 						)

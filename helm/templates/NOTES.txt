@@ -1,0 +1,24 @@
+Thank you for installing {{ .Chart.Name }} {{ .Chart.AppVersion }}.
+
+Release name : {{ .Release.Name }}
+Namespace    : {{ .Release.Namespace }}
+
+To access nao locally, run:
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} \
+    svc/{{ include "nao.fullname" . }} 5005:{{ .Values.service.port }}
+
+Then open http://127.0.0.1:5005 in your browser.
+
+Context mode: {{ .Values.config.contextSource }}
+{{- if eq .Values.config.contextSource "local" }}
+  → Make sure a PVC containing a valid nao project is mounted at {{ .Values.config.contextPath }}.
+{{- else if eq .Values.config.contextSource "git" }}
+  → The project will be cloned from {{ .Values.config.contextGitUrl }} (branch: {{ .Values.config.contextGitBranch }}).
+{{- else if eq .Values.config.contextSource "api" }}
+  → Deploy projects via: nao deploy --url http://<nao-host>
+{{- end }}
+
+To check the release status:
+  helm status {{ .Release.Name }} --namespace {{ .Release.Namespace }}
+  helm get all {{ .Release.Name }} --namespace {{ .Release.Namespace }}

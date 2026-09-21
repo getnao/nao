@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import Field
 
@@ -15,6 +15,42 @@ from .context import DatabaseContext
 
 
 class DuckDBDatabaseContext(DatabaseContext):
+    """DuckDB context with table/column comment discovery via duckdb metadata functions."""
+
+    def description(self) -> str | None:
+        try:
+            query = (
+                "SELECT comment FROM duckdb_tables() "
+                f"WHERE schema_name = '{self._schema}' AND table_name = '{self._table_name}'"
+            )
+            row = self._fetchone(self._conn.raw_sql(query))  # type: ignore[union-attr]
+            if row and row[0] is not None:
+                text = str(row[0]).strip()
+                if text:
+                    return text
+        except Exception:
+            pass
+        return None
+
+    def columns(self) -> list[dict[str, Any]]:
+        cols = super().columns()
+        try:
+            col_descs = self._fetch_column_descriptions()
+            for col in cols:
+                if desc := col_descs.get(col["name"]):
+                    col["description"] = desc
+        except Exception:
+            pass
+        return cols
+
+    def _fetch_column_descriptions(self) -> dict[str, str]:
+        query = (
+            "SELECT column_name, comment FROM duckdb_columns() "
+            f"WHERE schema_name = '{self._schema}' AND table_name = '{self._table_name}'"
+        )
+        rows = self._fetchall(self._conn.raw_sql(query))  # type: ignore[union-attr]
+        return {row[0]: str(row[1]) for row in rows if row[1] is not None}
+
     def _cast_complex_to_string(self, col_sql: str) -> str:
         return f"CAST({col_sql} AS VARCHAR)"
 
@@ -33,22 +69,44 @@ class DuckDBConfig(DatabaseConfig):
 
         return DuckDBConfig(name=name, path=path)
 
+    @staticmethod
+    def _is_motherduck_path(path: str) -> bool:
+        """True when *path* targets MotherDuck (`md:` / `motherduck:`)."""
+        normalized = path.strip().lower()
+        return normalized.startswith("md:") or normalized.startswith("motherduck:")
+
     def connect(self) -> BaseBackend:
-        """Create an Ibis DuckDB connection."""
+        """Create an Ibis DuckDB connection with external file/network access disabled.
+
+        MotherDuck paths (`md:` / `motherduck:`) keep external access enabled so the
+        remote service can be reached. Prefer ``type: motherduck`` for new configs.
+        """
         from nao_core.deps import require_database_backend
 
         require_database_backend("duckdb")
         import ibis
 
-        return ibis.duckdb.connect(
+        is_motherduck = self._is_motherduck_path(self.path)
+        # MotherDuck is remote and needs write-capable sessions; local files stay read-only.
+        read_only = False if (self.path == ":memory:" or is_motherduck) else True
+        conn = ibis.duckdb.connect(
             database=self.path,
-            read_only=False if self.path == ":memory:" else True,
+            read_only=read_only,
         )
+        if not is_motherduck:
+            conn.raw_sql("SET enable_external_access = false")
+            conn.raw_sql("SET lock_configuration = true")
+        return conn
 
     def get_database_name(self) -> str:
         """Get the database name for DuckDB."""
         if self.path == ":memory:":
             return "memory"
+        if self._is_motherduck_path(self.path):
+            # md:my_db or md:my_db?motherduck_token=...
+            remainder = self.path.split(":", 1)[1]
+            db_part = remainder.split("?", 1)[0].strip()
+            return db_part or "motherduck"
         return Path(self.path).stem
 
     def check_connection(self) -> tuple[bool, str]:
